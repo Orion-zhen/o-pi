@@ -4,7 +4,10 @@
 
 ## 模型
 
-策略文件直接使用工具名：`ls`、`read`、`edit`。内部仍把调用转换成文件动作，用于审计、风险判断和执行前重验证；用户不需要在配置里写 `fs.*`。
+策略文件有两层：
+
+* 顶层 `tools`：按注册工具名控制 `tool_call` 是否可执行，支持精确名和 `*` 通配。
+* `defaults/rules`：只控制 `ls/read/edit` 的路径访问；内部会转换成文件动作，用于审计、风险判断和执行前重验证。
 
 每个路径都会解析为 absolute path 和 canonical real path。已有路径使用 `lstat -> realpath`；不存在创建目标使用最近存在父目录的 realpath，并记录父目录 identity。授权后、实际 I/O 前会重新验证 canonical path、identity、类型和父目录状态。
 
@@ -36,6 +39,9 @@ schema：`agent/permissions.schema.json`。
 {
 	"$schema": "./permissions.schema.json",
 	"version": 1,
+	"tools": {
+		"bash": "deny"
+	},
 	"defaults": {
 		"workspace": { "ls": "allow", "read": "allow", "edit": "allow" },
 		"external": { "*": "ask" },
@@ -69,6 +75,8 @@ schema：`agent/permissions.schema.json`。
 * Deny：同一 fingerprint 短期内不会重复弹窗。
 
 无 UI 时，`ask` 返回 `PERMISSION_PROMPT_UNAVAILABLE`，不会自动允许。自动化场景应预配置精确 allow 规则。
+
+顶层 `tools` 的 `ask` 只批准当前 tool call，不创建路径会话授权。`ls/read/edit` 通过顶层工具门禁后，仍会继续执行路径权限检查。
 
 ## 模式
 
@@ -113,4 +121,10 @@ soft ignored 文件仍可按权限显式 `read` 或 `edit`；`.piignore` 和 `.g
 
 ## 当前覆盖
 
-当前强制接入 `ls/read/edit`。第三方工具、内置 shell、外部 MCP 或其他扩展的文件 I/O 只有在它们主动调用本权限服务时才受控。
+当前强制接入：
+
+* `tool_call`：所有注册工具先经过顶层 `tools` 门禁，未知或被屏蔽的旧内置工具直接拒绝。
+* active tools：`before_agent_start` 会隐藏顶层 `tools` 明确 `deny` 的工具，并保持自定义 `ls/read/edit` 启用。
+* 路径权限：`ls/read/edit` 继续使用 canonical path、边界分类、会话授权和写前重验证。
+
+第三方工具自己的文件 I/O 不会自动获得 canonical path 级保护；只能通过顶层工具名允许、询问或拒绝。

@@ -7,6 +7,12 @@
 	"properties": {
 		"$schema": { "type": "string" },
 		"version": { "const": 1 },
+		"tools": {
+			"description": "注册工具名门禁；支持精确名和 * 通配，路径资源仍由 defaults/rules 判断。",
+			"type": "object",
+			"propertyNames": { "type": "string", "minLength": 1 },
+			"additionalProperties": { "$ref": "#/$defs/effect" }
+		},
 		"defaults": {
 			"type": "object",
 			"additionalProperties": false,

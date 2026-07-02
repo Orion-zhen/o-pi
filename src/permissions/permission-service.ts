@@ -49,6 +49,14 @@ export interface AuthorizeInput {
 	promptContext: PermissionPromptContext;
 }
 
+/** 非路径工具的运行时授权输入；路径工具仍应传入真实 PermissionAccess。 */
+export interface AuthorizeToolCallInput {
+	toolCallId: string;
+	toolName: string;
+	normalizedToolInput: unknown;
+	promptContext: PermissionPromptContext;
+}
+
 export type PermissionAuthorizeResult =
 	| { ok: true; request: PermissionRequest; evaluation: PolicyEvaluation }
 	| { ok: false; code: PermissionErrorCode; message: string; request?: PermissionRequest; resources: Array<{ action: PermissionAction; path: string }> };
@@ -126,6 +134,71 @@ export class PermissionService {
 			mode: this.mode,
 			explain: true,
 		}).evaluate(access, toolName);
+	}
+
+	async explainTool(toolName: string): Promise<PolicyEvaluation> {
+		const loaded = await this.loader.load();
+		return new PolicyResolver({
+			workspaceRoot: this.options.workspaceRoot,
+			global: loaded.global,
+			project: loaded.project,
+			mode: this.mode,
+			explain: true,
+		}).evaluateTool(toolName);
+	}
+
+	async authorizeToolCall(input: AuthorizeToolCallInput): Promise<PermissionAuthorizeResult> {
+		const loaded = await this.loader.load();
+		const fingerprint = stableFingerprint({
+			toolName: input.toolName,
+			normalizedToolInput: input.normalizedToolInput,
+			accesses: [],
+			policyGeneration: loaded.generation,
+		});
+		const request: PermissionRequest = {
+			requestId: `perm_${randomUUID()}`,
+			toolCallId: input.toolCallId,
+			toolName: input.toolName,
+			accesses: [],
+			risk: "low",
+			normalizedInputFingerprint: fingerprint,
+			policyGeneration: loaded.generation,
+			normalizedToolInput: input.normalizedToolInput,
+		};
+
+		if (this.deniedFingerprints.has(fingerprint)) {
+			await this.auditDecision(request, "ask", "denied", "user", "PERMISSION_DENIED_BY_USER");
+			return this.denied("PERMISSION_DENIED_BY_USER", "The user denied this operation. Do not retry the identical request.", [], request);
+		}
+
+		const evaluation = new PolicyResolver({
+			workspaceRoot: this.options.workspaceRoot,
+			global: loaded.global,
+			project: loaded.project,
+			mode: this.mode,
+		}).evaluateTool(input.toolName);
+
+		if (evaluation.effect === "deny") {
+			await this.auditDecision(request, evaluation.effect, "denied", auditSource(evaluation), "PERMISSION_DENIED");
+			return this.denied("PERMISSION_DENIED", evaluation.reason, [], request);
+		}
+		if (evaluation.effect === "allow") {
+			await this.auditDecision(request, evaluation.effect, "allowed", auditSource(evaluation));
+			return { ok: true, request, evaluation };
+		}
+		if (!input.promptContext.hasUI) {
+			await this.auditDecision(request, evaluation.effect, "denied", "no-ui", "PERMISSION_PROMPT_UNAVAILABLE");
+			return this.denied("PERMISSION_PROMPT_UNAVAILABLE", "Permission prompt is unavailable; ask defaults to deny.", [], request);
+		}
+
+		const decision = await this.coordinator.request(request, evaluation, input.promptContext);
+		if (decision.decision === "deny") {
+			this.deniedFingerprints.add(fingerprint);
+			await this.auditDecision(request, evaluation.effect, "denied", "user", "PERMISSION_DENIED_BY_USER");
+			return this.denied("PERMISSION_DENIED_BY_USER", "The user denied this operation.", [], request);
+		}
+		await this.auditDecision(request, evaluation.effect, "allowed", "user");
+		return { ok: true, request, evaluation: { ...evaluation, effect: "allow", reason: `User decision: ${decision.decision}.` } };
 	}
 
 	async authorize(input: AuthorizeInput): Promise<PermissionAuthorizeResult> {

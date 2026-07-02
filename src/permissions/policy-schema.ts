@@ -17,6 +17,7 @@ export const permissionsSchema = {
 	properties: {
 		$schema: { type: "string" },
 		version: { const: 1 },
+		tools: { type: "object" },
 		defaults: { type: "object" },
 		rules: { type: "array" },
 	},
@@ -37,6 +38,8 @@ export function validatePolicyFile(value: unknown): { ok: true; policy: Permissi
 		return { ok: false, errors: [{ pointer: "", message: "Policy must be an object." }] };
 	}
 	if (value["version"] !== 1) errors.push({ pointer: "/version", message: "version must be 1." });
+	const tools = value["tools"];
+	if (tools !== undefined) validateToolMap(tools, "/tools", errors);
 	const defaults = value["defaults"];
 	if (defaults !== undefined) validateDefaults(defaults, errors);
 	const rules = value["rules"];
@@ -44,9 +47,21 @@ export function validatePolicyFile(value: unknown): { ok: true; policy: Permissi
 	if (errors.length > 0) return { ok: false, errors };
 
 	const policy: PermissionPolicyFile = { version: 1 };
+	if (tools !== undefined) policy.tools = tools as Record<string, PermissionEffect>;
 	if (defaults !== undefined) policy.defaults = defaults as NonNullable<PermissionPolicyFile["defaults"]>;
 	if (rules !== undefined) policy.rules = rules as PermissionRule[];
 	return { ok: true, policy };
+}
+
+function validateToolMap(value: unknown, pointer: string, errors: PolicyValidationError[]): void {
+	if (!isRecord(value)) {
+		errors.push({ pointer, message: "tools must be an object." });
+		return;
+	}
+	for (const [tool, effect] of Object.entries(value)) {
+		if (tool.trim() === "") errors.push({ pointer: `${pointer}/${tool}`, message: "Tool pattern must be non-empty." });
+		if (!isEffect(effect)) errors.push({ pointer: `${pointer}/${tool}`, message: "Unknown effect." });
+	}
 }
 
 function validateDefaults(value: unknown, errors: PolicyValidationError[]): void {

@@ -109,6 +109,8 @@ export interface PermissionRule {
 
 export interface PermissionPolicyFile {
 	version: 1;
+	/** 顶层工具门禁；只按注册工具名生效，路径资源仍由 defaults/rules 判断。 */
+	tools?: Record<string, PermissionEffect>;
 	defaults?: PermissionBoundaryDefaults;
 	rules?: PermissionRule[];
 }

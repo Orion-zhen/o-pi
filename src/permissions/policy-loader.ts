@@ -47,7 +47,7 @@ export class PolicyLoader {
 }
 
 export function defaultAgentDir(): string {
-	return process.env["PI_AGENT_DIR"] ?? process.env["O_PI_AGENT_DIR"] ?? path.join(os.homedir(), ".pi", "agent");
+	return process.env["PI_CODING_AGENT_DIR"] ?? path.join(os.homedir(), ".pi", "agent");
 }
 
 export function defaultProjectPolicyPath(workspaceRoot: string): string {

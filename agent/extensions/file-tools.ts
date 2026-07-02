@@ -1,5 +1,4 @@
-import { getAgentDir, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import path from "node:path";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { editWorkspace } from "../../src/file-tools/edit-tool.js";
 import { listWorkspaceDirectory } from "../../src/file-tools/ls-tool.js";
 import { readWorkspaceFile } from "../../src/file-tools/read-tool.js";
@@ -9,8 +8,7 @@ import {
 	registerPermissionCommands,
 	type PermissionCommandContext,
 } from "../../src/permissions/permission-commands.js";
-import { PermissionService } from "../../src/permissions/permission-service.js";
-import { resolveWorkspaceRoot } from "../../src/file-tools/path-security.js";
+import { getPermissionServiceRegistry } from "../../src/pi-runtime/permission-service-registry.js";
 
 const lsParameters = {
 	type: "object",
@@ -108,35 +106,15 @@ const editParameters = {
 
 /** 注册覆盖版 ls/read/edit；工具启用状态由 active-tools.ts 独立扩展处理。 */
 export default function fileTools(pi: ExtensionAPI): void {
-	const services = new Map<string, PermissionService>();
-	const serviceFor = async (ctx: PermissionCommandContext): Promise<PermissionService> => {
-		const workspaceRoot = await resolveWorkspaceRoot(ctx.cwd);
-		const key = `${workspaceRoot}:${ctx.isProjectTrusted() ? "trusted" : "untrusted"}`;
-		const existing = services.get(key);
-		if (existing !== undefined) return existing;
-		const agentDir = getAgentDir();
-		const service = new PermissionService({
-			workspaceRoot,
-			agentDir,
-			globalPolicyPath: path.join(agentDir, "pi-permissions.jsonc"),
-			projectPolicyPath: path.join(workspaceRoot, ".pi", "permissions.jsonc"),
-			projectTrusted: ctx.isProjectTrusted(),
-			auditLogPath: path.join(agentDir, "permission-audit.jsonl"),
-			auditEnabled: false,
-		});
-		services.set(key, service);
-		ctx.ui.setStatus("permissions", `PERM: ${service.getMode().toUpperCase()}`);
-		return service;
-	};
+	const registry = getPermissionServiceRegistry();
+	const serviceFor = (ctx: PermissionCommandContext) => registry.serviceFor(ctx);
 
 	registerPermissionCommands(pi, serviceFor);
 	pi.on("session_start", () => {
-		for (const service of services.values()) service.cancelAll("session_start");
-		services.clear();
+		registry.clear("session_start");
 	});
 	pi.on("session_shutdown", () => {
-		for (const service of services.values()) service.cancelAll("session_shutdown");
-		services.clear();
+		registry.clear("session_shutdown");
 	});
 
 	pi.registerTool<LsParams>({

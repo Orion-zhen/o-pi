@@ -22,6 +22,31 @@ declare module "@earendil-works/pi-coding-agent" {
 		isProjectTrusted(): boolean;
 	}
 
+	export interface SessionStartEvent {
+		reason?: "startup" | "reload" | "new" | "resume" | "fork";
+		previousSessionFile?: string;
+	}
+
+	export interface ResourcesDiscoverEvent {
+		reason?: "startup" | "reload";
+		cwd?: string;
+	}
+
+	export interface BeforeAgentStartEvent {
+		systemPrompt: string;
+	}
+
+	export interface ToolCallEvent {
+		toolName: string;
+		toolCallId: string;
+		input: unknown;
+	}
+
+	export interface ToolCallBlockResult {
+		block: true;
+		reason?: string;
+	}
+
 	export interface ToolResult {
 		content: Array<{ type: "text"; text: string }>;
 		details?: unknown;
@@ -53,8 +78,14 @@ declare module "@earendil-works/pi-coding-agent" {
 			},
 		): void;
 		registerTool<TParams>(definition: ToolDefinition<TParams>): void;
-		on(event: "session_start", handler: (event: unknown, ctx: ExtensionContext) => void): void;
+		on(event: "session_start", handler: (event: SessionStartEvent, ctx: ExtensionContext) => void | Promise<void>): void;
 		on(event: "session_shutdown", handler: (event: unknown, ctx: ExtensionContext) => void): void;
+		on(event: "resources_discover", handler: (event: ResourcesDiscoverEvent, ctx: ExtensionContext) => void | Promise<void>): void;
+		on(
+			event: "before_agent_start",
+			handler: (event: BeforeAgentStartEvent, ctx: ExtensionContext) => void | Promise<void | { systemPrompt?: string }>,
+		): void;
+		on(event: "tool_call", handler: (event: ToolCallEvent, ctx: ExtensionContext) => void | Promise<void | ToolCallBlockResult>): void;
 		getAllTools(): ToolInfo[];
 		getActiveTools(): string[];
 		setActiveTools(names: string[]): void;

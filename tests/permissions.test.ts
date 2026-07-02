@@ -7,6 +7,7 @@ import { listWorkspaceDirectory } from "../src/file-tools/ls-tool.js";
 import { readWorkspaceFile } from "../src/file-tools/read-tool.js";
 import { PermissionService } from "../src/permissions/permission-service.js";
 import type { PermissionPromptContext, UserPermissionDecision } from "../src/permissions/permission-types.js";
+import { accessForPath } from "../src/permissions/access-extractors.js";
 import { stripJsonc } from "../src/permissions/policy-loader.js";
 
 let workspace: string;
@@ -148,5 +149,28 @@ describe("permissions", () => {
 		expect(
 			await readWorkspaceFile(workspace, { path: target }, { permissionService: service, toolCallId: "read-denied", promptContext: prompt("allow-once") }),
 		).toMatchObject({ status: "failed", error: { code: "PERMISSION_DENIED" } });
+	});
+
+	it("顶层 tools deny 会在 tool_call 门禁拒绝非文件工具", async () => {
+		const globalPath = path.join(agentDir, "pi-permissions.jsonc");
+		await writeFile(globalPath, JSON.stringify({ version: 1, tools: { bash: "deny" } }));
+		const service = new PermissionService({ workspaceRoot: workspace, agentDir, globalPolicyPath: globalPath });
+		await expect(
+			service.authorizeToolCall({
+				toolCallId: "bash-1",
+				toolName: "bash",
+				normalizedToolInput: { command: "pwd" },
+				promptContext: noUi(),
+			}),
+		).resolves.toMatchObject({ ok: false, code: "PERMISSION_DENIED" });
+	});
+
+	it("未知工具的路径策略不再按 edit 规则误判", async () => {
+		await writeFile(path.join(workspace, "a.txt"), "a\n");
+		const globalPath = path.join(agentDir, "pi-permissions.jsonc");
+		await writeFile(globalPath, JSON.stringify({ version: 1, defaults: { workspace: { edit: "deny" } } }));
+		const service = new PermissionService({ workspaceRoot: workspace, agentDir, globalPolicyPath: globalPath });
+		const access = await accessForPath(service.resourceResolver, "fs.read", "a.txt");
+		await expect(service.explain(access, "grep")).resolves.toMatchObject({ effect: "ask" });
 	});
 });
