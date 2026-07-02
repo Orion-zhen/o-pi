@@ -70,11 +70,13 @@ export class PermissionService {
 	private readonly recentErrors: string[] = [];
 	private readonly deniedFingerprints = new Set<string>();
 	private mode: PermissionMode;
+	private modeOverridden: boolean;
 	private lastStatus: PermissionServiceStatus | undefined;
 
 	constructor(private readonly options: PermissionServiceOptions) {
 		const agentDir = options.agentDir ?? defaultAgentDir();
 		this.mode = options.mode ?? "safe";
+		this.modeOverridden = options.mode !== undefined;
 		this.grants = options.sessionGrants ?? new SessionGrantStore();
 		this.coordinator = options.approvalCoordinator ?? new ApprovalCoordinator();
 		this.audit = new AuditLogger({
@@ -103,6 +105,7 @@ export class PermissionService {
 
 	setMode(mode: PermissionMode): void {
 		this.mode = mode;
+		this.modeOverridden = true;
 	}
 
 	getGrants(): SessionGrantStore {
@@ -111,6 +114,7 @@ export class PermissionService {
 
 	async status(): Promise<PermissionServiceStatus> {
 		const loaded = await this.loader.load();
+		this.applyConfiguredMode(loaded.global);
 		const status: PermissionServiceStatus = {
 			mode: this.mode,
 			globalPolicy: loaded.global,
@@ -127,6 +131,7 @@ export class PermissionService {
 
 	async explain(access: PermissionAccess, toolName: string): Promise<PolicyEvaluation> {
 		const loaded = await this.loader.load();
+		this.applyConfiguredMode(loaded.global);
 		return new PolicyResolver({
 			workspaceRoot: this.options.workspaceRoot,
 			global: loaded.global,
@@ -138,6 +143,7 @@ export class PermissionService {
 
 	async explainTool(toolName: string): Promise<PolicyEvaluation> {
 		const loaded = await this.loader.load();
+		this.applyConfiguredMode(loaded.global);
 		return new PolicyResolver({
 			workspaceRoot: this.options.workspaceRoot,
 			global: loaded.global,
@@ -149,6 +155,7 @@ export class PermissionService {
 
 	async authorizeToolCall(input: AuthorizeToolCallInput): Promise<PermissionAuthorizeResult> {
 		const loaded = await this.loader.load();
+		this.applyConfiguredMode(loaded.global);
 		const fingerprint = stableFingerprint({
 			toolName: input.toolName,
 			normalizedToolInput: input.normalizedToolInput,
@@ -207,6 +214,7 @@ export class PermissionService {
 		}
 
 		const loaded = await this.loader.load();
+		this.applyConfiguredMode(loaded.global);
 		const fingerprint = stableFingerprint({
 			toolName: input.toolName,
 			normalizedToolInput: input.normalizedToolInput,
@@ -292,6 +300,12 @@ export class PermissionService {
 
 	cancelAll(reason: string): void {
 		this.coordinator.cancelAll(reason);
+	}
+
+	private applyConfiguredMode(globalPolicy: PermissionServiceStatus["globalPolicy"]): void {
+		if (this.modeOverridden) return;
+		const configured = globalPolicy.status === "loaded" ? globalPolicy.policy?.mode : undefined;
+		if (configured !== undefined) this.mode = configured;
 	}
 
 	private applyUserDecision(decision: UserPermissionDecision, request: PermissionRequest): void {

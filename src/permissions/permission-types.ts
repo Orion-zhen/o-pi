@@ -109,6 +109,8 @@ export interface PermissionRule {
 
 export interface PermissionPolicyFile {
 	version: 1;
+	/** 全局策略中的默认运行模式；项目策略中的该字段不改变会话模式。 */
+	mode?: PermissionMode;
 	/** 顶层工具门禁；只按注册工具名生效，路径资源仍由 defaults/rules 判断。 */
 	tools?: Record<string, PermissionEffect>;
 	defaults?: PermissionBoundaryDefaults;
@@ -222,6 +224,8 @@ export const permissionActions: readonly PermissionAction[] = [
 export const permissionToolNames: readonly PermissionToolName[] = ["ls", "read", "edit"] as const;
 
 export const permissionEffects: readonly PermissionEffect[] = ["allow", "ask", "deny"] as const;
+
+export const permissionModes: readonly PermissionMode[] = ["safe", "read-only", "yolo"] as const;
 
 export const resourceBoundaries: readonly ResourceBoundary[] = ["workspace", "external", "system", "sensitive"] as const;
 

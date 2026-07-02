@@ -6,6 +6,9 @@
 	// 项目策略放在 <workspace>/.pi/permissions.jsonc，仅可信项目会加载。
 	// 可用效果：allow 直接执行；ask 询问用户；deny 直接拒绝。
 	// 可用工具：ls、read、edit；* 表示全部工具。
+	// 默认模式：safe、read-only 或 yolo；/permissions mode 可临时覆盖。
+	"mode": "safe",
+
 	// 顶层 tools 只控制注册工具是否可调用；省略的工具保持 Pi 当前启用状态。
 	"tools": {},
 

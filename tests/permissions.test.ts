@@ -165,6 +165,29 @@ describe("permissions", () => {
 		).resolves.toMatchObject({ ok: false, code: "PERMISSION_DENIED" });
 	});
 
+	it("全局策略 mode 设置默认权限模式", async () => {
+		const target = path.join(outside, "mode.txt");
+		await writeFile(target, "x\n");
+		const globalPath = path.join(agentDir, "pi-permissions.jsonc");
+		await writeFile(globalPath, JSON.stringify({ version: 1, mode: "yolo" }));
+		const service = new PermissionService({ workspaceRoot: workspace, agentDir, globalPolicyPath: globalPath });
+
+		await expect(service.status()).resolves.toMatchObject({ mode: "yolo" });
+		await expect(
+			readWorkspaceFile(workspace, { path: target }, { permissionService: service, toolCallId: "read-yolo", promptContext: noUi() }),
+		).resolves.toMatchObject({ content: "x\n" });
+	});
+
+	it("/permissions mode 运行期覆盖不会被默认 mode 重置", async () => {
+		const globalPath = path.join(agentDir, "pi-permissions.jsonc");
+		await writeFile(globalPath, JSON.stringify({ version: 1, mode: "yolo" }));
+		const service = new PermissionService({ workspaceRoot: workspace, agentDir, globalPolicyPath: globalPath });
+
+		await expect(service.status()).resolves.toMatchObject({ mode: "yolo" });
+		service.setMode("read-only");
+		await expect(service.status()).resolves.toMatchObject({ mode: "read-only" });
+	});
+
 	it("未知工具的路径策略不再按 edit 规则误判", async () => {
 		await writeFile(path.join(workspace, "a.txt"), "a\n");
 		const globalPath = path.join(agentDir, "pi-permissions.jsonc");

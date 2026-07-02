@@ -1,12 +1,13 @@
 import type {
 	PermissionAction,
 	PermissionEffect,
+	PermissionMode,
 	PermissionPolicyFile,
 	PermissionRule,
 	PermissionRuleTool,
 	ResourceBoundary,
 } from "./permission-types.js";
-import { permissionActions, permissionEffects, permissionToolNames, resourceBoundaries } from "./permission-types.js";
+import { permissionActions, permissionEffects, permissionModes, permissionToolNames, resourceBoundaries } from "./permission-types.js";
 
 export const permissionsSchema = {
 	$schema: "https://json-schema.org/draft/2020-12/schema",
@@ -17,12 +18,14 @@ export const permissionsSchema = {
 	properties: {
 		$schema: { type: "string" },
 		version: { const: 1 },
+		mode: { enum: ["safe", "read-only", "yolo"] },
 		tools: { type: "object" },
 		defaults: { type: "object" },
 		rules: { type: "array" },
 	},
 	$defs: {
 		effect: { enum: ["allow", "ask", "deny"] },
+		mode: { enum: ["safe", "read-only", "yolo"] },
 		tool: { enum: ["ls", "read", "edit", "*"] },
 	},
 } as const;
@@ -38,6 +41,8 @@ export function validatePolicyFile(value: unknown): { ok: true; policy: Permissi
 		return { ok: false, errors: [{ pointer: "", message: "Policy must be an object." }] };
 	}
 	if (value["version"] !== 1) errors.push({ pointer: "/version", message: "version must be 1." });
+	const mode = value["mode"];
+	if (mode !== undefined && !isMode(mode)) errors.push({ pointer: "/mode", message: "Unknown permission mode." });
 	const tools = value["tools"];
 	if (tools !== undefined) validateToolMap(tools, "/tools", errors);
 	const defaults = value["defaults"];
@@ -47,6 +52,7 @@ export function validatePolicyFile(value: unknown): { ok: true; policy: Permissi
 	if (errors.length > 0) return { ok: false, errors };
 
 	const policy: PermissionPolicyFile = { version: 1 };
+	if (mode !== undefined) policy.mode = mode as PermissionMode;
 	if (tools !== undefined) policy.tools = tools as Record<string, PermissionEffect>;
 	if (defaults !== undefined) policy.defaults = defaults as NonNullable<PermissionPolicyFile["defaults"]>;
 	if (rules !== undefined) policy.rules = rules as PermissionRule[];
@@ -152,6 +158,10 @@ export function isRuleTool(value: unknown): value is PermissionRuleTool {
 
 export function isEffect(value: unknown): value is PermissionEffect {
 	return typeof value === "string" && (permissionEffects as readonly string[]).includes(value);
+}
+
+export function isMode(value: unknown): value is PermissionMode {
+	return typeof value === "string" && (permissionModes as readonly string[]).includes(value);
 }
 
 export function isBoundary(value: unknown): value is ResourceBoundary {

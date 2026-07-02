@@ -7,6 +7,10 @@
 	"properties": {
 		"$schema": { "type": "string" },
 		"version": { "const": 1 },
+		"mode": {
+			"description": "默认权限运行模式；只建议放在全局策略中。",
+			"enum": ["safe", "read-only", "yolo"]
+		},
 		"tools": {
 			"description": "注册工具名门禁；支持精确名和 * 通配，路径资源仍由 defaults/rules 判断。",
 			"type": "object",
@@ -30,6 +34,7 @@
 	},
 	"$defs": {
 		"effect": { "enum": ["allow", "ask", "deny"] },
+		"mode": { "enum": ["safe", "read-only", "yolo"] },
 		"tool": {
 			"enum": ["ls", "read", "edit", "*"]
 		},

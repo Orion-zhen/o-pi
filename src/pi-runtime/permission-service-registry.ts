@@ -33,7 +33,8 @@ export class PermissionServiceRegistry {
 			auditEnabled: false,
 		});
 		this.services.set(key, service);
-		ctx.ui?.setStatus("permissions", `PERM: ${service.getMode().toUpperCase()}`);
+		const status = await service.status();
+		ctx.ui?.setStatus("permissions", `PERM: ${status.mode.toUpperCase()}`);
 		return service;
 	}
 
