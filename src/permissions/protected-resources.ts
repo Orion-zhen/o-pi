@@ -34,6 +34,7 @@ function protectedRoots(options: ProtectedResourceOptions): string[] {
 			path.join(options.agentDir, "pi-permissions.jsonc"),
 			path.join(options.agentDir, "permissions.schema.json"),
 			path.join(options.agentDir, "extensions", "file-tools.ts"),
+			path.join(options.agentDir, "extensions", "permissions.ts"),
 			path.join(options.agentDir, "extensions", "permissions"),
 			path.join(options.agentDir, "auth.json"),
 			path.join(options.agentDir, "trust.json"),

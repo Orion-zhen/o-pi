@@ -3,11 +3,7 @@ import { editWorkspace } from "../../src/file-tools/edit-tool.js";
 import { listWorkspaceDirectory } from "../../src/file-tools/ls-tool.js";
 import { readWorkspaceFile } from "../../src/file-tools/read-tool.js";
 import type { EditParams, LsParams, ReadParams } from "../../src/file-tools/types.js";
-import {
-	promptContextFromUi,
-	registerPermissionCommands,
-	type PermissionCommandContext,
-} from "../../src/permissions/permission-commands.js";
+import { promptContextFromUi, type PermissionCommandContext } from "../../src/permissions/permission-commands.js";
 import { getPermissionServiceRegistry } from "../../src/pi-runtime/permission-service-registry.js";
 
 const lsParameters = {
@@ -108,14 +104,6 @@ const editParameters = {
 export default function fileTools(pi: ExtensionAPI): void {
 	const registry = getPermissionServiceRegistry();
 	const serviceFor = (ctx: PermissionCommandContext) => registry.serviceFor(ctx);
-
-	registerPermissionCommands(pi, serviceFor);
-	pi.on("session_start", () => {
-		registry.clear("session_start");
-	});
-	pi.on("session_shutdown", () => {
-		registry.clear("session_shutdown");
-	});
 
 	pi.registerTool<LsParams>({
 		name: "ls",

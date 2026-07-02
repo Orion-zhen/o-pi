@@ -39,6 +39,7 @@ export function sensitiveRoots(options: BoundaryClassifierOptions): string[] {
 		roots.push(
 			path.join(options.agentDir, "pi-permissions.jsonc"),
 			path.join(options.agentDir, "extensions", "file-tools.ts"),
+			path.join(options.agentDir, "extensions", "permissions.ts"),
 			path.join(options.agentDir, "extensions", "permissions"),
 			path.join(options.agentDir, "permissions.schema.json"),
 		);
