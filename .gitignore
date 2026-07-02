@@ -1,5 +1,6 @@
 agent/auth.json
 agent/settings.json
+agent/permission-state
 agent/sessions
 
 package-lock.json
