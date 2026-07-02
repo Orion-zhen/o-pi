@@ -7,6 +7,7 @@ import { listWorkspaceDirectory } from "../src/file-tools/ls-tool.js";
 import { readWorkspaceFile } from "../src/file-tools/read-tool.js";
 import { sha256Version } from "../src/file-tools/text-file.js";
 import type { LsSuccess, ToolOutcome } from "../src/file-tools/types.js";
+import { PermissionService } from "../src/permissions/permission-service.js";
 
 let workspace: string;
 let outside: string;
@@ -24,6 +25,10 @@ afterEach(async () => {
 function expectLsSuccess(result: ToolOutcome<LsSuccess>): LsSuccess {
 	if ("status" in result) throw new Error(`ls failed: ${result.error.code}`);
 	return result;
+}
+
+function yoloPermission() {
+	return { permission: { permissionService: new PermissionService({ workspaceRoot: workspace, mode: "yolo" }) } };
 }
 
 describe("ls", () => {
@@ -95,15 +100,15 @@ describe("ls", () => {
 		});
 		expect(await listWorkspaceDirectory(workspace, { path: "../outside" })).toMatchObject({
 			status: "failed",
-			error: { code: "PATH_OUTSIDE_WORKSPACE" },
+			error: { code: "PERMISSION_PROMPT_UNAVAILABLE" },
 		});
 		expect(await listWorkspaceDirectory(workspace, { path: path.join(outside, "x") })).toMatchObject({
 			status: "failed",
-			error: { code: "PATH_OUTSIDE_WORKSPACE" },
+			error: { code: "PERMISSION_PROMPT_UNAVAILABLE" },
 		});
 		expect(await listWorkspaceDirectory(workspace, { path: "C:escape" })).toMatchObject({
 			status: "failed",
-			error: { code: "PATH_OUTSIDE_WORKSPACE" },
+			error: { code: "INVALID_PATH" },
 		});
 		expect(await listWorkspaceDirectory(workspace, { path: "src/*.ts" })).toMatchObject({
 			status: "failed",
@@ -111,7 +116,7 @@ describe("ls", () => {
 		});
 		expect(await listWorkspaceDirectory(workspace, { path: ".git" })).toMatchObject({
 			status: "failed",
-			error: { code: "PROTECTED_PATH" },
+			error: { code: "PERMISSION_DENIED" },
 		});
 	});
 
@@ -158,7 +163,7 @@ describe("ls", () => {
 		});
 		expect(await listWorkspaceDirectory(workspace, { path: "outside-link" })).toMatchObject({
 			status: "failed",
-			error: { code: "SYMLINK_OUTSIDE_WORKSPACE", path: "outside-link" },
+			error: { code: "PERMISSION_PROMPT_UNAVAILABLE" },
 		});
 	});
 
@@ -321,17 +326,17 @@ describe("read", () => {
 		await writeFile(path.join(outside, "secret.txt"), "secret");
 		expect(await readWorkspaceFile(workspace, { path: "../x.txt" })).toMatchObject({
 			status: "failed",
-			error: { code: "PATH_OUTSIDE_WORKSPACE" },
+			error: { code: "PERMISSION_PROMPT_UNAVAILABLE" },
 		});
 		expect(await readWorkspaceFile(workspace, { path: path.join(outside, "secret.txt") })).toMatchObject({
 			status: "failed",
-			error: { code: "PATH_OUTSIDE_WORKSPACE" },
+			error: { code: "PERMISSION_PROMPT_UNAVAILABLE" },
 		});
 		try {
 			await symlink(path.join(outside, "secret.txt"), path.join(workspace, "link.txt"));
 			expect(await readWorkspaceFile(workspace, { path: "link.txt" })).toMatchObject({
 				status: "failed",
-				error: { code: "SYMLINK_OUTSIDE_WORKSPACE" },
+				error: { code: "PERMISSION_PROMPT_UNAVAILABLE" },
 			});
 		} catch {
 			// Windows 未启用符号链接权限时跳过该断言。
@@ -445,13 +450,17 @@ describe("edit", () => {
 		const deleteRead = await readWorkspaceFile(workspace, { path: "delete.txt" });
 		const moveRead = await readWorkspaceFile(workspace, { path: "move.txt" });
 		if (!("version" in replaceRead) || !("version" in deleteRead) || !("version" in moveRead)) throw new Error("read failed");
-		const result = await editWorkspace(workspace, {
-			operations: [
-				{ type: "replace_file", path: "replace.txt", base_version: replaceRead.version, content: "new" },
-				{ type: "delete_file", path: "delete.txt", base_version: deleteRead.version },
-				{ type: "move_file", from: "move.txt", to: "moved.txt", base_version: moveRead.version },
-			],
-		});
+		const result = await editWorkspace(
+			workspace,
+			{
+				operations: [
+					{ type: "replace_file", path: "replace.txt", base_version: replaceRead.version, content: "new" },
+					{ type: "delete_file", path: "delete.txt", base_version: deleteRead.version },
+					{ type: "move_file", from: "move.txt", to: "moved.txt", base_version: moveRead.version },
+				],
+			},
+			yoloPermission(),
+		);
 		expect(result).toMatchObject({
 			status: "applied",
 			results: [

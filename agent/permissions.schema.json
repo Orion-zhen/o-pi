@@ -1,0 +1,79 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://pi.local/permissions.schema.json",
+	"type": "object",
+	"required": ["version"],
+	"additionalProperties": false,
+	"properties": {
+		"$schema": { "type": "string" },
+		"version": { "const": 1 },
+		"defaults": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"workspace": { "$ref": "#/$defs/defaults" },
+				"external": { "$ref": "#/$defs/defaults" },
+				"system": { "$ref": "#/$defs/defaults" },
+				"sensitive": { "$ref": "#/$defs/defaults" }
+			}
+		},
+		"rules": {
+			"type": "array",
+			"items": { "$ref": "#/$defs/rule" }
+		}
+	},
+	"$defs": {
+		"effect": { "enum": ["allow", "ask", "deny"] },
+		"tool": {
+			"enum": ["ls", "read", "edit", "*"]
+		},
+		"defaults": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"ls": { "$ref": "#/$defs/effect" },
+				"read": { "$ref": "#/$defs/effect" },
+				"edit": { "$ref": "#/$defs/effect" },
+				"*": { "$ref": "#/$defs/effect" }
+			}
+		},
+		"rule": {
+			"type": "object",
+			"required": ["id", "effect", "tools", "resource"],
+			"additionalProperties": false,
+			"properties": {
+				"id": { "type": "string", "minLength": 1 },
+				"description": { "type": "string" },
+				"effect": { "$ref": "#/$defs/effect" },
+				"tools": {
+					"type": "array",
+					"minItems": 1,
+					"items": { "$ref": "#/$defs/tool" }
+				},
+				"resource": {
+					"oneOf": [
+						{
+							"type": "object",
+							"required": ["type", "path", "scope"],
+							"additionalProperties": false,
+							"properties": {
+								"type": { "const": "path" },
+								"path": { "type": "string", "minLength": 1 },
+								"scope": { "enum": ["exact", "subtree"] }
+							}
+						},
+						{
+							"type": "object",
+							"required": ["type", "boundary"],
+							"additionalProperties": false,
+							"properties": {
+								"type": { "const": "boundary" },
+								"boundary": { "enum": ["workspace", "external", "system", "sensitive"] }
+							}
+						}
+					]
+				}
+			}
+		}
+	}
+}

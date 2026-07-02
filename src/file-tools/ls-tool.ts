@@ -1,8 +1,16 @@
 import { readdir } from "node:fs/promises";
 import { fail, isFailed } from "./errors.js";
 import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
+import {
+	defaultPermissionService,
+	defaultPromptContext,
+	pathResolveFailure,
+	permissionFailure,
+	type FileToolPermissionRuntime,
+} from "./permission-runtime.js";
 import { isProtectedWorkspacePath, resolveExistingDirectory, resolveWorkspaceRoot } from "./path-security.js";
 import type { LsEntry, LsEntryType, LsParams, LsSuccess, ToolOutcome } from "./types.js";
+import { accessForPath } from "../permissions/access-extractors.js";
 
 const MAX_LS_ENTRIES = 200;
 
@@ -14,8 +22,32 @@ const TYPE_RANK: Record<LsEntryType, number> = {
 };
 
 /** ls 只列出目录直属成员；不递归、不读取文件内容、不修改 workspace。 */
-export async function listWorkspaceDirectory(cwd: string, params: LsParams): Promise<ToolOutcome<LsSuccess>> {
+export async function listWorkspaceDirectory(
+	cwd: string,
+	params: LsParams,
+	runtime: FileToolPermissionRuntime = {},
+): Promise<ToolOutcome<LsSuccess>> {
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
+	const permissionService = runtime.permissionService ?? defaultPermissionService(workspaceRoot);
+	let access;
+	try {
+		access = await accessForPath(permissionService.resourceResolver, "fs.list", params.path);
+	} catch (error) {
+		const failure = pathResolveFailure(error);
+		if (failure !== undefined) return failure;
+		throw error;
+	}
+	const authorization = await permissionService.authorize({
+		toolCallId: runtime.toolCallId ?? "direct-ls",
+		toolName: "ls",
+		accesses: [access],
+		normalizedToolInput: params,
+		promptContext: runtime.promptContext ?? defaultPromptContext(),
+	});
+	if (!authorization.ok) return permissionFailure(authorization);
+	if (!(await permissionService.verifyAccessesUnchanged([access]))) {
+		return fail("PERMISSION_CONTEXT_CHANGED", "Permission context changed before listing.", { path: access.displayPath });
+	}
 	const resolved = await resolveExistingDirectory(workspaceRoot, params.path);
 	if (isFailed(resolved)) return resolved;
 	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot);
@@ -34,12 +66,15 @@ export async function listWorkspaceDirectory(cwd: string, params: LsParams): Pro
 	let blockedEntries = 0;
 	for (const entry of rawEntries) {
 		const entryPath = childRelativePath(resolved.relativePath, entry.name);
-		if (isProtectedWorkspacePath(entryPath)) {
+		const workspaceEntry = isWorkspaceRelative(entryPath);
+		if (workspaceEntry && isProtectedWorkspacePath(entryPath)) {
 			blockedEntries += 1;
 			continue;
 		}
 		const type = entryType(entry);
-		const ignoreDecision = ignoreSnapshot.evaluate({ path: entryPath, kind: type, intent: "list-entry" });
+		const ignoreDecision = workspaceEntry
+			? ignoreSnapshot.evaluate({ path: entryPath, kind: type, intent: "list-entry" })
+			: { ignored: false, matchedRule: undefined };
 		const lsEntry: LsEntry = {
 			name: entry.name,
 			path: entryPath,
@@ -73,6 +108,10 @@ export async function listWorkspaceDirectory(cwd: string, params: LsParams): Pro
 
 function childRelativePath(parent: string, name: string): string {
 	return parent === "." ? name : `${parent}/${name}`;
+}
+
+function isWorkspaceRelative(value: string): boolean {
+	return value === "." || (!value.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(value));
 }
 
 function entryType(entry: { isDirectory(): boolean; isFile(): boolean; isSymbolicLink(): boolean }): LsEntryType {

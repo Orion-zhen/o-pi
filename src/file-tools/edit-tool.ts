@@ -2,6 +2,13 @@ import { stat, unlink } from "node:fs/promises";
 import { fail, isFailed } from "./errors.js";
 import { parseContextDiff } from "./diff-parser.js";
 import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
+import {
+	defaultPermissionService,
+	defaultPromptContext,
+	pathResolveFailure,
+	permissionFailure,
+	type FileToolPermissionRuntime,
+} from "./permission-runtime.js";
 import { fileExists, resolveExistingFile, resolveTargetFile, resolveWorkspaceRoot } from "./path-security.js";
 import {
 	buildTextBytes,
@@ -25,6 +32,7 @@ import type {
 	ToolOutcome,
 } from "./types.js";
 import type { IgnoreSnapshot } from "./ignore/ignore-types.js";
+import { accessesForEdit } from "../permissions/access-extractors.js";
 
 interface OriginalState {
 	path: string;
@@ -50,14 +58,39 @@ interface StagedState {
 
 export interface EditRuntime {
 	writeFileAtomic?: (targetPath: string, bytes: Buffer, mode?: number) => Promise<void>;
+	permission?: FileToolPermissionRuntime;
 }
 
 /** edit 是唯一写入口：校验结构化 operations、全量暂存，再按逻辑事务提交。 */
 export async function editWorkspace(cwd: string, params: unknown, runtime: EditRuntime = {}): Promise<ToolOutcome<EditSuccess>> {
 	const input = validateEditInput(params);
 	if (isFailed(input)) return input;
+	const lexicalConflict = validateLexicalOperationConflicts(input.operations);
+	if (lexicalConflict) return lexicalConflict;
 
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
+	const permissionService = runtime.permission?.permissionService ?? defaultPermissionService(workspaceRoot);
+	let accesses;
+	try {
+		accesses = await accessesForEdit(permissionService.resourceResolver, input.operations);
+	} catch (error) {
+		const failure = pathResolveFailure(error);
+		if (failure !== undefined) return failure;
+		throw error;
+	}
+	const authorization = await permissionService.authorize({
+		toolCallId: runtime.permission?.toolCallId ?? "direct-edit",
+		toolName: "edit",
+		accesses,
+		normalizedToolInput: sanitizeEditInput(input),
+		promptContext: runtime.permission?.promptContext ?? defaultPromptContext(),
+	});
+	if (!authorization.ok) return permissionFailure(authorization);
+	if (!(await permissionService.verifyAccessesUnchanged(accesses))) {
+		return fail("PERMISSION_CONTEXT_CHANGED", "Permission context changed before editing.", {
+			details: { resources: accesses.map((access) => ({ action: access.action, path: access.canonicalPath })) },
+		});
+	}
 	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot);
 	const staged = await stageOperations(workspaceRoot, input.operations, ignoreSnapshot);
 	if (isFailed(staged)) return staged;
@@ -79,6 +112,7 @@ export async function editWorkspace(cwd: string, params: unknown, runtime: EditR
 			details: { affected_paths: stagedStates.map((state) => state.path) },
 		});
 	}
+	permissionService.consumeOnce(authorization.request);
 
 	return {
 		status: "applied",
@@ -380,7 +414,42 @@ async function stageOperations(
 }
 
 function noteSoftIgnore(ignoreSnapshot: IgnoreSnapshot, relativePath: string): void {
+	if (!isWorkspaceRelative(relativePath)) return;
 	ignoreSnapshot.evaluate({ path: relativePath, kind: "file", intent: "explicit-edit" });
+}
+
+function isWorkspaceRelative(value: string): boolean {
+	return value === "." || (!value.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(value));
+}
+
+function sanitizeEditInput(input: EditParams): unknown {
+	return {
+		operations: input.operations.map((operation) => {
+			if (operation.type === "create_file") {
+				return { type: operation.type, path: operation.path, content_hash: sha256Version(Buffer.from(operation.content, "utf8")) };
+			}
+			if (operation.type === "replace_file") {
+				return {
+					type: operation.type,
+					path: operation.path,
+					base_version: operation.base_version,
+					content_hash: sha256Version(Buffer.from(operation.content, "utf8")),
+				};
+			}
+			if (operation.type === "update_file") {
+				return {
+					type: operation.type,
+					path: operation.path,
+					base_version: operation.base_version,
+					diff_hash: sha256Version(Buffer.from(operation.diff, "utf8")),
+				};
+			}
+			if (operation.type === "delete_file") {
+				return { type: operation.type, path: operation.path, base_version: operation.base_version };
+			}
+			return { type: operation.type, from: operation.from, to: operation.to, base_version: operation.base_version };
+		}),
+	};
 }
 
 async function readExistingWithVersion(
@@ -517,6 +586,29 @@ function markTouched(
 		});
 	}
 	touched.set(key, index);
+	return undefined;
+}
+
+function validateLexicalOperationConflicts(operations: EditOperation[]): FailedResult | undefined {
+	const touched = new Map<string, number>();
+	for (let index = 0; index < operations.length; index += 1) {
+		const operation = operations[index];
+		if (operation === undefined) continue;
+		const paths = operation.type === "move_file" ? [operation.from, operation.to] : [operation.path];
+		for (const candidate of paths) {
+			const key = candidate.replace(/\\/g, "/").toLocaleLowerCase();
+			const previous = touched.get(key);
+			if (previous !== undefined) {
+				return fail("CONFLICTING_OPERATIONS", "Multiple operations target the same logical path.", {
+					path: candidate,
+					type: operation.type,
+					operation_index: index,
+					details: { previous_operation_index: previous },
+				});
+			}
+			touched.set(key, index);
+		}
+	}
 	return undefined;
 }
 

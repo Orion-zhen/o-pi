@@ -257,7 +257,7 @@ describe("ignore engine", () => {
 		expect(await listWorkspaceDirectory(workspace, { path: "." })).toMatchObject({ blocked_entries: 1 });
 		expect(await readWorkspaceFile(workspace, { path: ".git/config" })).toMatchObject({
 			status: "failed",
-			error: { code: "PROTECTED_PATH" },
+			error: { code: "PERMISSION_DENIED" },
 		});
 	});
 

@@ -1,0 +1,62 @@
+{
+	"$schema": "./permissions.schema.json",
+	"version": 1,
+
+	// 将本文件复制到 ~/.pi/agent/pi-permissions.jsonc 作为全局策略。
+	// 项目策略放在 <workspace>/.pi/permissions.jsonc，仅可信项目会加载。
+	// 可用效果：allow 直接执行；ask 询问用户；deny 直接拒绝。
+	// 可用工具：ls、read、edit；* 表示全部工具。
+	"defaults": {
+		// 工作区内常规操作低摩擦。
+		"workspace": {
+			"ls": "allow",
+			"read": "allow",
+			"edit": "allow"
+		},
+
+		// 工作区外普通路径默认询问。
+		"external": {
+			"*": "ask"
+		},
+
+		// 系统路径允许查看前询问，禁止修改。
+		"system": {
+			"ls": "ask",
+			"read": "ask",
+			"edit": "deny"
+		},
+
+		// 凭据、权限策略、Pi 认证/信任数据等敏感路径始终拒绝。
+		"sensitive": {
+			"*": "deny"
+		}
+	},
+
+	"rules": [
+		// 示例：允许读取一个常用外部工作目录；按需改成你的路径。
+		{
+			"id": "allow-external-work-read",
+			"description": "允许列出和读取个人外部工作目录",
+			"effect": "allow",
+			"tools": ["ls", "read"],
+			"resource": {
+				"type": "path",
+				"path": "~/Documents/pi-work",
+				"scope": "subtree"
+			}
+		},
+
+		// 示例：显式保护 SSH 配置；deny 不能被项目策略或会话授权覆盖。
+		{
+			"id": "deny-ssh",
+			"description": "禁止访问 SSH 凭据",
+			"effect": "deny",
+			"tools": ["*"],
+			"resource": {
+				"type": "path",
+				"path": "~/.ssh",
+				"scope": "subtree"
+			}
+		}
+	]
+}
