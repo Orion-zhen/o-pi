@@ -1,6 +1,7 @@
 import { stat, unlink } from "node:fs/promises";
 import { fail, isFailed } from "./errors.js";
 import { parseContextDiff } from "./diff-parser.js";
+import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
 import { fileExists, resolveExistingFile, resolveTargetFile, resolveWorkspaceRoot } from "./path-security.js";
 import {
 	buildTextBytes,
@@ -23,6 +24,7 @@ import type {
 	TextFile,
 	ToolOutcome,
 } from "./types.js";
+import type { IgnoreSnapshot } from "./ignore/ignore-types.js";
 
 interface OriginalState {
 	path: string;
@@ -56,7 +58,8 @@ export async function editWorkspace(cwd: string, params: unknown, runtime: EditR
 	if (isFailed(input)) return input;
 
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
-	const staged = await stageOperations(workspaceRoot, input.operations);
+	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot);
+	const staged = await stageOperations(workspaceRoot, input.operations, ignoreSnapshot);
 	if (isFailed(staged)) return staged;
 
 	const originals = Array.from(staged.originals.values()).sort((a, b) => a.path.localeCompare(b.path));
@@ -210,6 +213,7 @@ function requireStrings(
 async function stageOperations(
 	workspaceRoot: string,
 	operations: EditOperation[],
+	ignoreSnapshot: IgnoreSnapshot,
 ): Promise<ToolOutcome<{ originals: Map<string, OriginalState>; finalStates: Map<string, StagedState> }>> {
 	const originals = new Map<string, OriginalState>();
 	const finalStates = new Map<string, StagedState>();
@@ -222,6 +226,7 @@ async function stageOperations(
 		if (operation.type === "create_file") {
 			const target = await resolveTargetFile(workspaceRoot, operation.path);
 			if (isFailed(target)) return withOperation(target, index, operation.type);
+			noteSoftIgnore(ignoreSnapshot, target.relativePath);
 			const conflict = markTouched(touched, target.relativePath, index, operation.type);
 			if (conflict) return conflict;
 			if (await fileExists(target.absolutePath)) {
@@ -250,6 +255,8 @@ async function stageOperations(
 			if (isFailed(source)) return withOperation(source, index, operation.type);
 			const target = await resolveTargetFile(workspaceRoot, operation.to);
 			if (isFailed(target)) return withOperation(target, index, operation.type);
+			noteSoftIgnore(ignoreSnapshot, source.relativePath);
+			noteSoftIgnore(ignoreSnapshot, target.relativePath);
 			const conflict =
 				markTouched(touched, source.relativePath, index, operation.type) ??
 				markTouched(touched, target.relativePath, index, operation.type);
@@ -308,6 +315,7 @@ async function stageOperations(
 
 		const resolved = await resolveExistingFile(workspaceRoot, operation.path);
 		if (isFailed(resolved)) return withOperation(resolved, index, operation.type);
+		noteSoftIgnore(ignoreSnapshot, resolved.relativePath);
 		const conflict = markTouched(touched, resolved.relativePath, index, operation.type);
 		if (conflict) return conflict;
 		const file = await readExistingWithVersion(
@@ -369,6 +377,10 @@ async function stageOperations(
 	}
 
 	return { originals, finalStates };
+}
+
+function noteSoftIgnore(ignoreSnapshot: IgnoreSnapshot, relativePath: string): void {
+	ignoreSnapshot.evaluate({ path: relativePath, kind: "file", intent: "explicit-edit" });
 }
 
 async function readExistingWithVersion(

@@ -1,10 +1,12 @@
-import { mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { editWorkspace } from "../src/file-tools/edit-tool.js";
+import { listWorkspaceDirectory } from "../src/file-tools/ls-tool.js";
 import { readWorkspaceFile } from "../src/file-tools/read-tool.js";
 import { sha256Version } from "../src/file-tools/text-file.js";
+import type { LsSuccess, ToolOutcome } from "../src/file-tools/types.js";
 
 let workspace: string;
 let outside: string;
@@ -17,6 +19,232 @@ beforeEach(async () => {
 afterEach(async () => {
 	await rm(workspace, { recursive: true, force: true });
 	await rm(outside, { recursive: true, force: true });
+});
+
+function expectLsSuccess(result: ToolOutcome<LsSuccess>): LsSuccess {
+	if ("status" in result) throw new Error(`ls failed: ${result.error.code}`);
+	return result;
+}
+
+describe("ls", () => {
+	it("列出空目录并支持 . 表示 workspace root", async () => {
+		await mkdir(path.join(workspace, "empty"));
+		expect(await listWorkspaceDirectory(workspace, { path: "empty" })).toMatchObject({
+			path: "empty",
+			entries: [],
+			truncated: false,
+		});
+		expect(await listWorkspaceDirectory(workspace, { path: "." })).toMatchObject({
+			path: ".",
+			entries: [{ name: "empty", path: "empty", type: "directory" }],
+			truncated: false,
+		});
+	});
+
+	it("只返回直属成员、dotfiles、结构化 type 和相对规范化 path", async () => {
+		await mkdir(path.join(workspace, "src", "nested"), { recursive: true });
+		await writeFile(path.join(workspace, "src", "index.ts"), "export const x = 1;\n");
+		await writeFile(path.join(workspace, "src", ".env.example"), "A=1\n");
+		await writeFile(path.join(workspace, "src", "nested", "child.ts"), "child\n");
+
+		const result = await listWorkspaceDirectory(workspace, { path: "src/." });
+		expect(result).toMatchObject({
+			path: "src",
+			entries: [
+				{ name: "nested", path: "src/nested", type: "directory" },
+				{ name: ".env.example", path: "src/.env.example", type: "file" },
+				{ name: "index.ts", path: "src/index.ts", type: "file" },
+			],
+			truncated: false,
+		});
+		expect(JSON.stringify(result)).not.toContain("export const x");
+		expect(JSON.stringify(result)).not.toContain("child");
+		expect(JSON.stringify(result)).not.toContain("size_bytes");
+		expect(JSON.stringify(result)).not.toContain("mtime");
+	});
+
+	it("按类型和大小写折叠名称稳定排序，且不受创建顺序影响", async () => {
+		await writeFile(path.join(workspace, "b.txt"), "");
+		await mkdir(path.join(workspace, "zDir"));
+		await writeFile(path.join(workspace, "A.txt"), "");
+		await mkdir(path.join(workspace, "aDir"));
+
+		const first = await listWorkspaceDirectory(workspace, { path: "." });
+		const second = await listWorkspaceDirectory(workspace, { path: "." });
+		expect(first).toEqual(second);
+		expect(first).toMatchObject({
+			entries: [
+				{ name: "aDir", type: "directory" },
+				{ name: "zDir", type: "directory" },
+				{ name: "A.txt", type: "file" },
+				{ name: "b.txt", type: "file" },
+			],
+		});
+	});
+
+	it("区分不存在、普通文件、路径逃逸、绝对路径、glob 和受保护路径", async () => {
+		await writeFile(path.join(workspace, "file.txt"), "");
+		await mkdir(path.join(workspace, ".git"));
+		expect(await listWorkspaceDirectory(workspace, { path: "missing" })).toMatchObject({
+			status: "failed",
+			error: { code: "PATH_NOT_FOUND", path: "missing" },
+		});
+		expect(await listWorkspaceDirectory(workspace, { path: "file.txt" })).toMatchObject({
+			status: "failed",
+			error: { code: "NOT_A_DIRECTORY", path: "file.txt" },
+		});
+		expect(await listWorkspaceDirectory(workspace, { path: "../outside" })).toMatchObject({
+			status: "failed",
+			error: { code: "PATH_OUTSIDE_WORKSPACE" },
+		});
+		expect(await listWorkspaceDirectory(workspace, { path: path.join(outside, "x") })).toMatchObject({
+			status: "failed",
+			error: { code: "PATH_OUTSIDE_WORKSPACE" },
+		});
+		expect(await listWorkspaceDirectory(workspace, { path: "C:escape" })).toMatchObject({
+			status: "failed",
+			error: { code: "PATH_OUTSIDE_WORKSPACE" },
+		});
+		expect(await listWorkspaceDirectory(workspace, { path: "src/*.ts" })).toMatchObject({
+			status: "failed",
+			error: { code: "INVALID_PATH" },
+		});
+		expect(await listWorkspaceDirectory(workspace, { path: ".git" })).toMatchObject({
+			status: "failed",
+			error: { code: "PROTECTED_PATH" },
+		});
+	});
+
+	it("父目录隐藏 blocked 项并保留普通 dotfile", async () => {
+		await mkdir(path.join(workspace, ".git"));
+		await writeFile(path.join(workspace, ".gitignore"), "dist\n");
+		const result = await listWorkspaceDirectory(workspace, { path: "." });
+		expect(result).toMatchObject({
+			entries: [{ name: ".gitignore", path: ".gitignore", type: "file" }],
+			blocked_entries: 1,
+		});
+		expect("ignored" in expectLsSuccess(result).entries[0]!).toBe(false);
+	});
+
+	it("父目录中的 symlink 返回 symlink，不按目标类型改写", async () => {
+		await mkdir(path.join(workspace, "real-dir"));
+		try {
+			await symlink(path.join(workspace, "real-dir"), path.join(workspace, "link-dir"), "dir");
+		} catch {
+			return;
+		}
+		const result = await listWorkspaceDirectory(workspace, { path: "." });
+		expect(result).toMatchObject({
+			entries: [
+				{ name: "real-dir", path: "real-dir", type: "directory" },
+				{ name: "link-dir", path: "link-dir", type: "symlink" },
+			],
+		});
+	});
+
+	it("访问 workspace 内目录 symlink 会解析 realpath，workspace 外 symlink 会失败", async () => {
+		await mkdir(path.join(workspace, "real-dir"));
+		await mkdir(path.join(outside, "outside-dir"));
+		try {
+			await symlink(path.join(workspace, "real-dir"), path.join(workspace, "inside-link"), "dir");
+			await symlink(path.join(outside, "outside-dir"), path.join(workspace, "outside-link"), "dir");
+		} catch {
+			return;
+		}
+		expect(await listWorkspaceDirectory(workspace, { path: "inside-link" })).toMatchObject({
+			path: "inside-link",
+			entries: [],
+			truncated: false,
+		});
+		expect(await listWorkspaceDirectory(workspace, { path: "outside-link" })).toMatchObject({
+			status: "failed",
+			error: { code: "SYMLINK_OUTSIDE_WORKSPACE", path: "outside-link" },
+		});
+	});
+
+	it("symlink cycle 不递归、不挂起", async () => {
+		await mkdir(path.join(workspace, "loop"));
+		try {
+			await symlink(path.join(workspace, "loop"), path.join(workspace, "loop", "self"), "dir");
+		} catch {
+			return;
+		}
+		expect(await listWorkspaceDirectory(workspace, { path: "loop" })).toMatchObject({
+			entries: [{ name: "self", path: "loop/self", type: "symlink" }],
+			truncated: false,
+		});
+	});
+
+	it("大目录截断时显式返回数量并保持稳定排序", async () => {
+		await mkdir(path.join(workspace, "many"));
+		for (let index = 249; index >= 0; index -= 1) {
+			await writeFile(path.join(workspace, "many", `f${String(index).padStart(3, "0")}.txt`), "");
+		}
+		const result = await listWorkspaceDirectory(workspace, { path: "many" });
+		expect(result).toMatchObject({
+			path: "many",
+			truncated: true,
+			returned_entries: 200,
+			total_entries: 250,
+			continuation_hint: "List a more specific subdirectory.",
+		});
+		const success = expectLsSuccess(result);
+		expect(success.entries).toHaveLength(200);
+		expect(success.entries[0]).toMatchObject({ name: "f000.txt" });
+		expect(success.entries[199]).toMatchObject({ name: "f199.txt" });
+		expect(await listWorkspaceDirectory(workspace, { path: "many" })).toEqual(result);
+	});
+
+	it("无副作用：调用前后目录、文件内容和 mtime 不变", async () => {
+		const file = path.join(workspace, "a.txt");
+		await writeFile(file, "one\n");
+		const oldDate = new Date("2020-01-01T00:00:00Z");
+		await utimes(file, oldDate, oldDate);
+		const beforeNames = await readdir(workspace);
+		const beforeBytes = await readFile(file);
+		const beforeStat = await stat(file);
+		await listWorkspaceDirectory(workspace, { path: "." });
+		expect(await readdir(workspace)).toEqual(beforeNames);
+		expect(await readFile(file)).toEqual(beforeBytes);
+		expect((await stat(file)).mtimeMs).toBe(beforeStat.mtimeMs);
+	});
+
+	it.skipIf(process.platform === "win32")("权限不足目录返回 PERMISSION_DENIED", async () => {
+		const locked = path.join(workspace, "locked");
+		await mkdir(locked);
+		await chmod(locked, 0o000);
+		try {
+			expect(await listWorkspaceDirectory(workspace, { path: "locked" })).toMatchObject({
+				status: "failed",
+				error: { code: "PERMISSION_DENIED", path: "locked" },
+			});
+		} finally {
+			await chmod(locked, 0o700);
+		}
+	});
+
+	it("端到端 ls -> ls -> read，并保持 ls/read 类型边界", async () => {
+		await mkdir(path.join(workspace, "src"));
+		await writeFile(path.join(workspace, "src", "main.ts"), "export const main = 1;\n");
+
+		const root = await listWorkspaceDirectory(workspace, { path: "." });
+		expect(root).toMatchObject({ entries: [{ name: "src", path: "src", type: "directory" }] });
+		const src = await listWorkspaceDirectory(workspace, { path: "src" });
+		expect(src).toMatchObject({ entries: [{ name: "main.ts", path: "src/main.ts", type: "file" }] });
+		const main = await readWorkspaceFile(workspace, { path: "src/main.ts" });
+		expect(main).toMatchObject({ content: "export const main = 1;\n" });
+		if (!("version" in main)) throw new Error("read failed");
+		expect(main.version).toBe(sha256Version(Buffer.from("export const main = 1;\n")));
+
+		expect(await listWorkspaceDirectory(workspace, { path: "src/main.ts" })).toMatchObject({
+			status: "failed",
+			error: { code: "NOT_A_DIRECTORY" },
+		});
+		expect(await readWorkspaceFile(workspace, { path: "src" })).toMatchObject({
+			status: "failed",
+			error: { code: "NOT_A_FILE" },
+		});
+	});
 });
 
 describe("read", () => {

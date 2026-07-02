@@ -1,4 +1,5 @@
 import { isFailed } from "./errors.js";
+import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
 import { resolveExistingFile, resolveWorkspaceRoot } from "./path-security.js";
 import { readTextFile, sliceTextByLineRange } from "./text-file.js";
 import type { ReadParams, ReadSuccess, ToolOutcome } from "./types.js";
@@ -8,6 +9,8 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams): Promis
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const resolved = await resolveExistingFile(workspaceRoot, params.path);
 	if (isFailed(resolved)) return resolved;
+	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot);
+	const ignoreDecision = ignoreSnapshot.evaluate({ path: resolved.relativePath, kind: "file", intent: "explicit-read" });
 	const rangeError = validateRangeSyntax(params, resolved.relativePath);
 	if (rangeError) return rangeError;
 
@@ -17,7 +20,7 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams): Promis
 	const sliced = sliceTextByLineRange(file, params.start_line, params.end_line, resolved.relativePath);
 	if (isFailed(sliced)) return sliced;
 
-	return {
+	const result: ReadSuccess = {
 		path: resolved.relativePath,
 		content: sliced.content,
 		start_line: sliced.startLine,
@@ -31,6 +34,19 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams): Promis
 		...(sliced.continuation ? { continuation: sliced.continuation } : {}),
 		bom: file.hasBom,
 	};
+	if (ignoreDecision.ignored) {
+		result.ignored = true;
+		const source = shortIgnoreSource(ignoreDecision.matchedRule?.sourceType);
+		if (source !== undefined) result.ignore_source = source;
+	}
+	return result;
+}
+
+function shortIgnoreSource(sourceType: string | undefined): string | undefined {
+	if (sourceType === "piignore") return ".piignore";
+	if (sourceType === "gitignore") return ".gitignore";
+	if (sourceType === "git-info-exclude") return ".git/info/exclude";
+	return sourceType;
 }
 
 function validateRangeSyntax(params: ReadParams, path: string): ToolOutcome<never> | undefined {

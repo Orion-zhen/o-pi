@@ -2,9 +2,13 @@
 export type FileToolErrorCode =
 	| "FILE_NOT_FOUND"
 	| "FILE_ALREADY_EXISTS"
+	| "PATH_NOT_FOUND"
+	| "NOT_A_FILE"
+	| "NOT_A_DIRECTORY"
 	| "PATH_OUTSIDE_WORKSPACE"
 	| "SYMLINK_OUTSIDE_WORKSPACE"
 	| "PROTECTED_PATH"
+	| "PERMISSION_DENIED"
 	| "INVALID_PATH"
 	| "INVALID_OPERATION"
 	| "CONFLICTING_OPERATIONS"
@@ -59,6 +63,30 @@ export interface ReadParams {
 	end_line?: number;
 }
 
+export interface LsParams {
+	path: string;
+}
+
+export type LsEntryType = "directory" | "file" | "symlink" | "other";
+
+export interface LsEntry {
+	name: string;
+	path: string;
+	type: LsEntryType;
+	ignored?: boolean;
+	ignore_source?: string;
+}
+
+export interface LsSuccess {
+	path: string;
+	entries: LsEntry[];
+	truncated: boolean;
+	returned_entries?: number;
+	total_entries?: number;
+	blocked_entries?: number;
+	continuation_hint?: string;
+}
+
 export interface ReadSuccess {
 	path: string;
 	content: string;
@@ -72,6 +100,8 @@ export interface ReadSuccess {
 	truncated: boolean;
 	continuation?: { start_line: number };
 	bom: boolean;
+	ignored?: boolean;
+	ignore_source?: string;
 }
 
 export type EditOperationType = "create_file" | "update_file" | "replace_file" | "delete_file" | "move_file";

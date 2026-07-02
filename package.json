@@ -11,5 +11,8 @@
 		"@types/node": "latest",
 		"typescript": "latest",
 		"vitest": "latest"
+	},
+	"dependencies": {
+		"ignore": "latest"
 	}
 }
