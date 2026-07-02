@@ -4,11 +4,12 @@ import path from "node:path";
 
 import { ApprovalCoordinator } from "./approval.js";
 import { AuditLogger, sanitizeResource } from "./audit.js";
-import { builtinFileToolDescriptors, genericToolDescriptor } from "./file-tool-descriptors.js";
+import { bashDescriptor, builtinFileToolDescriptors, genericToolDescriptor } from "./file-tool-descriptors.js";
 import { FileResolver } from "./file-resolver.js";
 import { evaluateHardProtections } from "./hard-protections.js";
 import { LeaseStore, PersistentGrantStore, resourcesUnchanged, SessionGrantStore } from "./grants.js";
 import { evaluatePolicy, PolicyStore } from "./policy.js";
+import { normalizeUserPath } from "./path-utils.js";
 import { PermissionSubjectRegistry } from "./subject-registry.js";
 import type {
 	AuthorizationRequest,
@@ -19,6 +20,7 @@ import type {
 	PermissionResource,
 	PermissionServiceStatus,
 	PermissionSubjectDescriptor,
+	PermissionProfile,
 	PolicySnapshot,
 } from "./permission-types.js";
 
@@ -51,11 +53,13 @@ export class PermissionService {
 	private readonly approval = new ApprovalCoordinator();
 	private readonly audit: AuditLogger;
 	private readonly recentErrors: string[] = [];
+	private readonly sessionRoots: Array<{ id: string; canonicalPath: string; access: "read-only" | "read-write"; source: "session" }> = [];
 	private profileOverride: PolicySnapshot["profile"] | undefined;
 	private maintenance = false;
 
 	constructor(private readonly options: PermissionServiceOptions) {
 		for (const descriptor of builtinFileToolDescriptors()) this.registry.register(descriptor);
+		this.registry.register(bashDescriptor());
 		this.policies = new PolicyStore(options);
 		this.persistentGrants = new PersistentGrantStore(options.persistentGrantPath ?? path.join(options.agentDir, "permission-state", "grants.json"));
 		this.audit = new AuditLogger({
@@ -84,6 +88,68 @@ export class PermissionService {
 		return this.persistentGrants;
 	}
 
+	getOptions(): PermissionServiceOptions {
+		return { ...this.options };
+	}
+
+	async getStatus(): Promise<PermissionServiceStatus> {
+		return await this.status();
+	}
+
+	async getPolicySnapshot(): Promise<PolicySnapshot> {
+		return await this.snapshot();
+	}
+
+	getRegistrySnapshot(): ReturnType<PermissionSubjectRegistry["catalog"]> {
+		return this.registry.catalog();
+	}
+
+	async listSessionGrants(): Promise<import("./grants.js").Grant[]> {
+		return this.sessionGrants.list();
+	}
+
+	async listPersistentGrants(): Promise<import("./grants.js").Grant[]> {
+		await this.persistentGrants.load();
+		return this.persistentGrants.list().filter((grant) => grant.status === "active");
+	}
+
+	async listSuspendedGrants(): Promise<import("./grants.js").Grant[]> {
+		await this.persistentGrants.load();
+		return this.persistentGrants.list().filter((grant) => grant.status === "suspended");
+	}
+
+	async listFileRoots(): Promise<PolicySnapshot["roots"]> {
+		return (await this.snapshot()).roots;
+	}
+
+	async getRecentAuditEntries(limit = 20): Promise<import("./permission-types.js").PermissionAuditEntry[]> {
+		return await this.audit.tailEntries(limit);
+	}
+
+	async getAuditEntry(id: string): Promise<import("./permission-types.js").PermissionAuditEntry | undefined> {
+		return await this.audit.findEntry(id);
+	}
+
+	async getMaintenanceStatus(): Promise<{ enabled: boolean }> {
+		return { enabled: this.maintenance };
+	}
+
+	addSessionFileRoot(inputPath: string, access: "read-only" | "read-write"): { id: string; canonicalPath: string; access: "read-only" | "read-write"; source: "session" } {
+		const canonicalPath = normalizeUserPath(this.options.workspaceRoot, inputPath, this.options.agentDir);
+		const existing = this.sessionRoots.find((root) => root.canonicalPath === canonicalPath);
+		if (existing !== undefined) return existing;
+		const root = { id: `session:${this.sessionRoots.length}`, canonicalPath, access, source: "session" as const };
+		this.sessionRoots.push(root);
+		return root;
+	}
+
+	removeSessionFileRoot(id: string): boolean {
+		const index = this.sessionRoots.findIndex((root) => root.id === id);
+		if (index < 0) return false;
+		this.sessionRoots.splice(index, 1);
+		return true;
+	}
+
 	async status(): Promise<PermissionServiceStatus> {
 		const snapshot = await this.snapshot();
 		await this.persistentGrants.load();
@@ -106,8 +172,57 @@ export class PermissionService {
 		this.profileOverride = profile;
 	}
 
+	setSessionProfileOverride(profile: PermissionProfile): void {
+		this.profileOverride = profile;
+	}
+
+	clearSessionProfileOverride(): void {
+		this.profileOverride = undefined;
+	}
+
+	async reloadPolicy(): Promise<PolicySnapshot> {
+		return await this.snapshot();
+	}
+
 	setMaintenance(enabled: boolean): void {
 		this.maintenance = enabled;
+		if (!enabled) this.leases.clear();
+	}
+
+	enterMaintenanceMode(): void {
+		this.setMaintenance(true);
+	}
+
+	exitMaintenanceMode(): void {
+		this.setMaintenance(false);
+	}
+
+	async revokeGrant(id: string): Promise<boolean> {
+		if (this.sessionGrants.revoke(id)) return true;
+		await this.persistentGrants.load();
+		return await this.persistentGrants.revoke(id);
+	}
+
+	async clearGrants(scope: "session" | "persistent" | "suspended" | "all"): Promise<{ removed: number }> {
+		let removed = 0;
+		if (scope === "session" || scope === "all") {
+			removed += this.sessionGrants.count();
+			this.sessionGrants.clear();
+		}
+		if (scope === "persistent" || scope === "suspended" || scope === "all") {
+			await this.persistentGrants.load();
+			const before = this.persistentGrants.count();
+			if (scope === "persistent" || scope === "all") {
+				await this.persistentGrants.revokeAll();
+				removed += before;
+			}
+			if (scope === "suspended") {
+				for (const grant of this.persistentGrants.list().filter((item) => item.status === "suspended")) {
+					if (await this.persistentGrants.revoke(grant.id)) removed += 1;
+				}
+			}
+		}
+		return { removed };
 	}
 
 	async authorizeToolCall(input: AuthorizeInput): Promise<AuthorizationResult> {
@@ -228,6 +343,8 @@ export class PermissionService {
 		this.approval.cancelAll();
 		this.leases.clear();
 		this.sessionGrants.clear();
+		this.sessionRoots.splice(0, this.sessionRoots.length);
+		this.maintenance = false;
 	}
 
 	async auditTail(limit: number): Promise<string[]> {
@@ -237,6 +354,7 @@ export class PermissionService {
 	private async snapshot(): Promise<PolicySnapshot> {
 		const snapshot = await this.policies.snapshot();
 		if (this.profileOverride !== undefined) snapshot.profile = this.profileOverride;
+		if (this.sessionRoots.length > 0) snapshot.roots = [...snapshot.roots, ...this.sessionRoots];
 		this.audit.setEnabled(snapshot.auditEnabled);
 		return snapshot;
 	}

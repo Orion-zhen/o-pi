@@ -321,6 +321,12 @@ export function evaluatePolicy(request: {
 		trace.push(traceEntry("global-policy", globalFiles.effect, globalFiles.message, globalFiles.ruleId));
 	}
 
+	const globalCommand = commandDecision(request.snapshot.globalConfig, request.subject, request.resources);
+	if (globalCommand !== undefined) {
+		current = globalCommand.effect;
+		trace.push(traceEntry("global-policy", globalCommand.effect, globalCommand.message));
+	}
+
 	const projectExplicit = explicitSubjectDecision(request.snapshot.projectConfig, request.subject);
 	if (projectExplicit !== undefined) {
 		current = stronger(current, projectExplicit.effect);
@@ -331,6 +337,12 @@ export function evaluatePolicy(request: {
 	if (projectFiles !== undefined) {
 		current = stronger(current, projectFiles.effect);
 		trace.push(traceEntry("project-policy", projectFiles.effect, projectFiles.message, projectFiles.ruleId));
+	}
+
+	const projectCommand = commandDecision(request.snapshot.projectConfig, request.subject, request.resources);
+	if (projectCommand !== undefined) {
+		current = stronger(current, projectCommand.effect);
+		trace.push(traceEntry("project-policy", projectCommand.effect, projectCommand.message));
 	}
 
 	if (request.snapshot.profile === "read-only" && request.operations.some((operation) => isWriteOperation(operation as PermissionOperation))) {
@@ -347,6 +359,25 @@ export function evaluatePolicy(request: {
 		source: trace[trace.length - 1]?.source ?? "profile",
 		trace,
 	};
+}
+
+function commandDecision(
+	config: PermissionConfig | undefined,
+	subject: PermissionSubject,
+	resources: PermissionResource[],
+): { effect: PermissionEffect; message: string } | undefined {
+	if (config === undefined || subject.kind !== "tool") return undefined;
+	const commands = resources.filter((resource) => resource.kind === "command");
+	if (commands.length === 0) return undefined;
+	const item = config.tools?.items?.[subject.configKey];
+	if (typeof item !== "object" || item === null) return undefined;
+	for (const effect of ["deny", "ask", "allow"] as const) {
+		for (const pattern of item.commands?.[effect] ?? []) {
+			const matcher = picomatch(pattern, { dot: true, nocase: process.platform === "win32" });
+			if (commands.some((command) => matcher(command.command))) return { effect, message: `tools.items.${subject.configKey}.commands.${effect}` };
+		}
+	}
+	return undefined;
 }
 
 export function formatDiagnostics(diagnostics: PolicyDiagnostic[]): string {
@@ -486,7 +517,7 @@ function ajvDiagnostics(file: string, text: string, errors: ErrorObject[]): Poli
 	});
 }
 
-function validateProjectConfig(file: string, config: PermissionConfig): PolicyDiagnostic[] {
+export function validateProjectConfig(file: string, config: PermissionConfig): PolicyDiagnostic[] {
 	const diagnostics: PolicyDiagnostic[] = [];
 	if (config.profile !== undefined) diagnostics.push(diagnostic(file, "/profile", 1, 1, "Project policy cannot set profile."));
 	if (config.files?.roots !== undefined) diagnostics.push(diagnostic(file, "/files/roots", 1, 1, "Project policy cannot add roots."));

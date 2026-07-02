@@ -3,6 +3,7 @@ import path from "node:path";
 import type { EditOperation } from "../file-tools/types.js";
 import { FileResolver } from "./file-resolver.js";
 import type {
+	CommandResource,
 	PermissionAnalysisContext,
 	PermissionIntent,
 	PermissionOperation,
@@ -81,6 +82,7 @@ export function editDescriptor(): PermissionSubjectDescriptor<{ operations: Edit
 }
 
 export function genericToolDescriptor(toolName: string): PermissionSubjectDescriptor {
+	if (toolName === "bash") return bashDescriptor();
 	return {
 		id: `tool:external/${toolName}`,
 		kind: "tool",
@@ -89,6 +91,22 @@ export function genericToolDescriptor(toolName: string): PermissionSubjectDescri
 		source: { type: "extension", name: "unknown", identity: `tool:${toolName}` },
 		async analyze(): Promise<PermissionIntent> {
 			return { operations: [], resources: [], summary: `Invoke tool ${toolName}` };
+		},
+	};
+}
+
+export function bashDescriptor(): PermissionSubjectDescriptor<{ command?: string } | string> {
+	return {
+		id: "tool:builtin/bash",
+		kind: "tool",
+		configKey: "bash",
+		displayName: "Run shell command",
+		source: { type: "builtin", name: "pi", identity: "builtin:bash" },
+		async analyze(input): Promise<PermissionIntent> {
+			const command = typeof input === "string" ? input : input.command;
+			if (typeof command !== "string" || command.trim() === "") throw new Error("bash command must be a non-empty string.");
+			const resource: CommandResource = { kind: "command", command };
+			return { operations: ["process.execute"], resources: [resource], summary: `Run command: ${command.slice(0, 120)}` };
 		},
 	};
 }

@@ -48,6 +48,26 @@ export class AuditLogger {
 			return [];
 		}
 	}
+
+	async tailEntries(limit: number): Promise<PermissionAuditEntry[]> {
+		const entries: PermissionAuditEntry[] = [];
+		for (const line of await this.tail(limit)) {
+			try {
+				const parsed = JSON.parse(line) as unknown;
+				if (isAuditEntry(parsed)) entries.push(parsed);
+			} catch {
+				entries.push(corruptAuditEntry(line));
+			}
+		}
+		return entries;
+	}
+
+	async findEntry(id: string): Promise<PermissionAuditEntry | undefined> {
+		for (const entry of await this.tailEntries(1000)) {
+			if (entry.requestId === id || entry.leaseId === id || entry.grantIds?.includes(id)) return entry;
+		}
+		return undefined;
+	}
 }
 
 export function sanitizeResource(resource: PermissionResource): SanitizedAuditResource {
@@ -66,4 +86,25 @@ export function sanitizeResource(resource: PermissionResource): SanitizedAuditRe
 	if (resource.kind === "skill") return { kind: "skill", name: resource.name };
 	if (resource.kind === "agent") return { kind: "agent", name: resource.name };
 	return { kind: "opaque", label: resource.label };
+}
+
+function isAuditEntry(value: unknown): value is PermissionAuditEntry {
+	return typeof value === "object" && value !== null && "timestamp" in value && "requestId" in value && "subject" in value;
+}
+
+function corruptAuditEntry(line: string): PermissionAuditEntry {
+	return {
+		timestamp: new Date(0).toISOString(),
+		requestId: `corrupt:${line.slice(0, 24)}`,
+		subject: { id: "unknown", configKey: "unknown", kind: "unknown", source: "audit-log" },
+		inputFingerprint: "",
+		policyGeneration: 0,
+		registryGeneration: 0,
+		operations: [],
+		resources: [{ kind: "opaque", label: "Corrupt audit record omitted." }],
+		policyEffect: "policy-error",
+		finalDecision: "denied",
+		decisionSource: "runtime-error",
+		errorCode: "PERMISSION_AUDIT_RECORD_INVALID",
+	};
 }
