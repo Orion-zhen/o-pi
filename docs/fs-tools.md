@@ -213,18 +213,13 @@ Git tracked files：
 
 * `path`：目录路径。`.` 表示当前 `cwd`；相对路径按 `cwd` 解析；绝对路径保持绝对；空字符串非法。
 
-成功结果：
+模型可见成功结果使用紧凑 shell 风格文本，完整结构保留在 `details`：
 
-```json
-{
-	"path": "src",
-	"entries": [
-		{ "name": "components", "path": "src/components", "type": "directory" },
-		{ "name": "index.ts", "path": "src/index.ts", "type": "file" },
-		{ "name": "shared", "path": "src/shared", "type": "symlink" }
-	],
-	"truncated": false
-}
+```text
+src 3
+components/
+index.ts
+shared@ -> ../shared
 ```
 
 entry：
@@ -232,8 +227,17 @@ entry：
 * `name`：当前目录下的 basename。
 * `path`：相对输入返回按 `cwd` 规范化后的相对路径；绝对输入返回绝对路径。
 * `type`：`directory`、`file`、`symlink` 或 `other`。
+* `link_target`：仅 symlink 可有，保留 `readlink` 返回的原始目标。
 * `ignored`：命中 soft ignore 时为 `true`。
 * `ignore_source`：可选简短来源，例如 `.piignore`、`.gitignore` 或 `builtin`。
+
+紧凑文本规则：
+
+* `name/`：目录。
+* `name`：普通文件。
+* `name@ -> target`：符号链接。
+* `name?`：其他文件系统对象。
+* ` !source`：soft ignored 标记。
 
 dotfiles：
 
@@ -270,17 +274,10 @@ symlink：
 
 截断示例：
 
-```json
-{
-	"path": "vendor",
-	"entries": [
-		{ "name": "a", "path": "vendor/a", "type": "directory" }
-	],
-	"truncated": true,
-	"returned_entries": 200,
-	"total_entries": 8432,
-	"continuation_hint": "List a more specific subdirectory."
-}
+```text
+vendor 200/8432 truncated
+a/
+[narrow path]
 ```
 
 ## read

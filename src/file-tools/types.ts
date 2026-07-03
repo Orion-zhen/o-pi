@@ -138,6 +138,8 @@ export interface LsEntry {
 	name: string;
 	path: string;
 	type: LsEntryType;
+	/** 符号链接的原始目标；只用于 ls 展示，不解析权限或目标类型。 */
+	link_target?: string;
 	ignored?: boolean;
 	ignore_source?: string;
 }

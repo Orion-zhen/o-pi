@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { readdir, readlink } from "node:fs/promises";
 import path from "node:path";
 import { ignoreConfigFromFileTools, isBlockedPath, isIgnoredPath, loadFileToolsConfig, type ToolPathIdentity } from "./config.js";
 import { fail, isFailed } from "./errors.js";
@@ -47,6 +47,10 @@ export async function listWorkspaceDirectory(cwd: string, params: LsParams): Pro
 			path: entryPath,
 			type,
 		};
+		if (type === "symlink") {
+			const target = await readSymlinkTarget(path.join(resolved.realPath, entry.name));
+			if (target !== undefined) lsEntry.link_target = target;
+		}
 		if (isIgnoredPath(config, identity)) {
 			lsEntry.ignored = true;
 			lsEntry.ignore_source = "file-tools.jsonc";
@@ -73,6 +77,16 @@ export async function listWorkspaceDirectory(cwd: string, params: LsParams): Pro
 				}
 			: {}),
 	};
+}
+
+/** 将 ls 成功结果渲染成模型可见的 shell 风格文本；完整结构保留在工具 details。 */
+export function formatCompactLsResult(result: LsSuccess): string {
+	const header = result.truncated
+		? `${result.path} ${result.returned_entries ?? result.entries.length}/${result.total_entries ?? result.entries.length} truncated`
+		: `${result.path} ${result.entries.length}`;
+	const lines = [header, ...result.entries.map(formatCompactEntry)];
+	if (result.truncated) lines.push("[narrow path]");
+	return lines.join("\n");
 }
 
 function childPath(parent: string, name: string): string {
@@ -110,6 +124,22 @@ function entryType(entry: { isDirectory(): boolean; isFile(): boolean; isSymboli
 	return "other";
 }
 
+function formatCompactEntry(entry: LsEntry): string {
+	const name = escapeLineText(entry.name);
+	const ignored = entry.ignored === true ? ` !${entry.ignore_source ?? "ignored"}` : "";
+	if (entry.type === "directory") return `${name}/${ignored}`;
+	if (entry.type === "symlink") {
+		const target = entry.link_target === undefined ? "" : ` -> ${escapeLineText(entry.link_target)}`;
+		return `${name}@${target}${ignored}`;
+	}
+	if (entry.type === "other") return `${name}?${ignored}`;
+	return `${name}${ignored}`;
+}
+
+function escapeLineText(value: string): string {
+	return value.replace(/\r/g, "\\r").replace(/\n/g, "\\n").replace(/\t/g, "\\t");
+}
+
 function compareEntries(left: LsEntry, right: LsEntry): number {
 	const type = TYPE_RANK[left.type] - TYPE_RANK[right.type];
 	if (type !== 0) return type;
@@ -132,6 +162,14 @@ function shortIgnoreSource(sourceType: string): string {
 	if (sourceType === "gitignore") return ".gitignore";
 	if (sourceType === "git-info-exclude") return ".git/info/exclude";
 	return sourceType;
+}
+
+async function readSymlinkTarget(absolutePath: string): Promise<string | undefined> {
+	try {
+		return await readlink(absolutePath);
+	} catch {
+		return undefined;
+	}
 }
 
 function isAccessDenied(error: unknown): boolean {

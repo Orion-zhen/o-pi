@@ -3,7 +3,7 @@ import { Type } from "typebox";
 import { editWorkspace } from "../../src/file-tools/edit-tool.js";
 import { findWorkspaceFiles } from "../../src/file-tools/find-tool.js";
 import { formatCompactGrepResult, grepWorkspaceFiles } from "../../src/file-tools/grep-tool.js";
-import { listWorkspaceDirectory } from "../../src/file-tools/ls-tool.js";
+import { formatCompactLsResult, listWorkspaceDirectory } from "../../src/file-tools/ls-tool.js";
 import { readWorkspaceFile } from "../../src/file-tools/read-tool.js";
 import type { EditParams, FindParams, GrepParams, LsParams, ReadParams } from "../../src/file-tools/types.js";
 
@@ -51,8 +51,14 @@ export default function fileTools(pi: ExtensionAPI): void {
 		parameters: lsParameters,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const result = await listWorkspaceDirectory(ctx.cwd, params as LsParams);
+			if ("status" in result) {
+				return {
+					content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+					details: result,
+				};
+			}
 			return {
-				content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+				content: [{ type: "text", text: formatCompactLsResult(result) }],
 				details: result,
 			};
 		},

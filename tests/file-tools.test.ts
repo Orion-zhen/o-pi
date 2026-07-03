@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { editWorkspace } from "../src/file-tools/edit-tool.js";
-import { listWorkspaceDirectory } from "../src/file-tools/ls-tool.js";
+import { formatCompactLsResult, listWorkspaceDirectory } from "../src/file-tools/ls-tool.js";
 import { readWorkspaceFile } from "../src/file-tools/read-tool.js";
 import { sha256Version } from "../src/file-tools/text-file.js";
 import type { LsSuccess, ToolOutcome } from "../src/file-tools/types.js";
@@ -27,6 +27,23 @@ function expectLsSuccess(result: ToolOutcome<LsSuccess>): LsSuccess {
 }
 
 describe("ls", () => {
+	it("将成功结果渲染为紧凑 shell 风格文本，并展示 symlink 目标", () => {
+		expect(
+			formatCompactLsResult({
+				path: "src",
+				entries: [
+					{ name: "components", path: "src/components", type: "directory" },
+					{ name: "index.ts", path: "src/index.ts", type: "file", ignored: true, ignore_source: ".gitignore" },
+					{ name: "shared", path: "src/shared", type: "symlink", link_target: "../shared" },
+					{ name: "socket", path: "src/socket", type: "other" },
+				],
+				truncated: true,
+				returned_entries: 4,
+				total_entries: 9,
+			}),
+		).toBe(["src 4/9 truncated", "components/", "index.ts !.gitignore", "shared@ -> ../shared", "socket?", "[narrow path]"].join("\n"));
+	});
+
 	it("读取 file-tools 配置控制 blocked_path、ignored_path 和 ls_entries", async () => {
 		const previousConfigPath = process.env.PI_FILE_TOOLS_CONFIG;
 		const configPath = path.join(outside, "file-tools.jsonc");
