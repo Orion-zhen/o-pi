@@ -130,7 +130,7 @@ async function grantsCommand(parsed: ParsedPermissionCommand, context: Permissio
 	if (sub === "show") {
 		const id = required(parsed.positionals[0], "Usage: /permissions grants show <grant-id>");
 		const view = await grantView(context.runtime, id);
-		return result("grants show", view, renderLines(["Grant", `  id: ${view.grant.id}`, `  subject: ${view.grant.subjectId}`, `  scope: ${view.grant.scope}`, `  status: ${view.grant.status}`]));
+		return result("grants show", view, renderLines(["Grant", `  id: ${view.grant.id}`, `  subject: ${view.grant.subjectId}`, `  status: ${view.grant.status}`, "  scopes:", ...view.grant.scopes.map((scope) => `    ${scope.kind}`)]));
 	}
 	if (sub === "revoke") {
 		const id = required(parsed.positionals[0], "Usage: /permissions grants revoke <grant-id>");
@@ -171,7 +171,7 @@ async function profileCommand(parsed: ParsedPermissionCommand, context: Permissi
 			return result("profile set", { profile, scope: "global", update }, `Global profile set to ${profile}.`);
 		}
 		if (!hasFlag(parsed, "session") && !context.ctx.hasUI) throw new PermissionCommandError("PERMISSION_COMMAND_UI_REQUIRED", "Use --session or --global in no-UI mode.");
-		if (profile === "unrestricted" && context.ctx.hasUI && !(await context.ctx.ui.confirm("Unrestricted profile?", "This allows ordinary ask decisions for the current session."))) {
+		if (profile === "unrestricted" && context.ctx.hasUI && !(await context.ctx.ui.confirm("Unrestricted profile?", "This defaults unconfigured requests to allow for the current session."))) {
 			throw new PermissionCommandError("PERMISSION_OPERATION_CANCELLED", "Operation cancelled.");
 		}
 		context.runtime.setSessionProfileOverride(profile);
@@ -298,9 +298,6 @@ function renderStatus(view: Awaited<ReturnType<typeof statusView>>): string {
 		"",
 		"Subjects",
 		`  tools: ${view.subjectCounts.tools}`,
-		`  MCP tools: ${view.subjectCounts.mcpTools}`,
-		`  skills: ${view.subjectCounts.skills}`,
-		`  agents: ${view.subjectCounts.agents}`,
 		"",
 		"File roots",
 		`  read-write: ${view.roots.readWrite}`,
@@ -366,7 +363,7 @@ function renderGrants(view: Awaited<ReturnType<typeof grantsView>>): string {
 	for (const [label, grants] of [["Session", view.session], ["Persistent", view.persistent], ["Suspended", view.suspended]] as const) {
 		lines.push(label);
 		if (grants.length === 0) lines.push("  none");
-		for (const grant of grants) lines.push(`  ${grant.id} ${grant.scope} ${grant.subjectId}`);
+		for (const grant of grants) lines.push(`  ${grant.id} ${grant.subjectId}`);
 		lines.push("");
 	}
 	return renderLines(lines);
@@ -425,7 +422,7 @@ export function renderLines(lines: readonly (string | undefined)[]): string {
 const ROOT_HELP = `Permissions commands
 
   status       Show permission system health
-  catalog      List tools, MCP tools, Skills, and Agents
+  catalog      List registered tool subjects
   explain      Explain an authorization decision
   set          Set an explicit subject rule
   reset        Remove an explicit subject rule
@@ -441,7 +438,7 @@ Run:
 
 const SUB_HELP: Record<string, string> = {
 	status: "Usage\n  /permissions status [--json]\n\nSafety notes\n  Shows health only; it does not list all rules.",
-	catalog: "Usage\n  /permissions catalog [tools|mcp|skills|agents|filter] [--json]\n\nSafety notes\n  Subject allow does not guarantee final allow.",
+	catalog: "Usage\n  /permissions catalog [tools|filter] [--json]\n\nSafety notes\n  Subject allow does not guarantee final allow.",
 	explain: "Usage\n  /permissions explain <subject> [request...] [--json]\n\nExamples\n  /permissions explain read ~/data/a.csv\n  /permissions explain bash \"git status\"",
 	set: "Usage\n  /permissions set <subject> <allow|ask|deny> --global\n\nSafety notes\n  Writes global policy only.",
 	reset: "Usage\n  /permissions reset <subject> --global\n\nSafety notes\n  reset removes explicit policy; it is not the same as ask.",

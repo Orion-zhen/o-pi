@@ -29,7 +29,11 @@ const editParameters = Type.Object({
 /** 注册覆盖版 ls/read/edit；权限由 tool_call 门禁与执行阶段 lease 共同保证。 */
 export default function fileTools(pi: ExtensionAPI): void {
 	const registry = getPermissionServiceRegistry();
-	const serviceFor = (ctx: PermissionCommandContext) => registry.serviceFor(ctx);
+	const serviceFor = async (ctx: PermissionCommandContext) => {
+		const service = await registry.serviceFor(ctx);
+		await service.syncRegisteredTools(pi.getAllTools());
+		return service;
+	};
 
 	pi.registerTool({
 		name: "ls",

@@ -2,7 +2,7 @@ import { PermissionCommandError, type ParsedPermissionCommand } from "./permissi
 
 const COMMANDS = new Set(["help", "status", "catalog", "explain", "set", "reset", "roots", "grants", "profile", "policy", "audit", "maintenance"]);
 const SUBCOMMANDS = new Map<string, Set<string>>([
-	["catalog", new Set(["tools", "mcp", "skills", "agents", "help"])],
+	["catalog", new Set(["tools", "help"])],
 	["roots", new Set(["add", "remove", "help"])],
 	["grants", new Set(["show", "revoke", "clear", "help"])],
 	["profile", new Set(["set", "reset", "help"])],

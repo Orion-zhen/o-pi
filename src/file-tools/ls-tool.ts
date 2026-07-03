@@ -27,15 +27,16 @@ export async function listWorkspaceDirectory(
 ): Promise<ToolOutcome<LsSuccess>> {
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const permissionService = runtime.permissionService ?? defaultPermissionService(workspaceRoot);
-	const authorization = await permissionService.authorize({
-		toolCallId: runtime.toolCallId ?? "direct-ls",
-		toolName: "ls",
-		normalizedToolInput: params,
+	const authorization = await permissionService.authorizeSubjectCall({
+		kind: "tool",
+		configKey: "ls",
+		input: params,
+		executionId: runtime.toolCallId ?? "direct-ls",
 		promptContext: runtime.promptContext ?? defaultPromptContext(),
 		consumeLease: true,
 	});
 	if (!authorization.allowed) return permissionFailure({ code: authorization.error.code, message: authorization.error.message, resources: [] });
-	if (!(await permissionService.verifyRequestUnchanged(authorization.request, { toolName: "ls", normalizedToolInput: params }))) {
+	if (!(await permissionService.verifySubjectRequestUnchanged(authorization.request, { kind: "tool", configKey: "ls", input: params }))) {
 		return fail("PERMISSION_CONTEXT_CHANGED", "Permission context changed before listing.", { path: params.path });
 	}
 	const resolved = await resolveExistingDirectory(workspaceRoot, params.path);

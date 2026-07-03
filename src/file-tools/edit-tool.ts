@@ -68,15 +68,16 @@ export async function editWorkspace(cwd: string, params: unknown, runtime: EditR
 
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const permissionService = runtime.permission?.permissionService ?? defaultPermissionService(workspaceRoot);
-	const authorization = await permissionService.authorize({
-		toolCallId: runtime.permission?.toolCallId ?? "direct-edit",
-		toolName: "edit",
-		normalizedToolInput: input,
+	const authorization = await permissionService.authorizeSubjectCall({
+		kind: "tool",
+		configKey: "edit",
+		input,
+		executionId: runtime.permission?.toolCallId ?? "direct-edit",
 		promptContext: runtime.permission?.promptContext ?? defaultPromptContext(),
 		consumeLease: true,
 	});
 	if (!authorization.allowed) return permissionFailure({ code: authorization.error.code, message: authorization.error.message, resources: [] });
-	if (!(await permissionService.verifyRequestUnchanged(authorization.request, { toolName: "edit", normalizedToolInput: input }))) {
+	if (!(await permissionService.verifySubjectRequestUnchanged(authorization.request, { kind: "tool", configKey: "edit", input }))) {
 		return fail("PERMISSION_CONTEXT_CHANGED", "Permission context changed before editing.", {
 			details: { resources: authorization.request.resources.map((resource) => (resource.kind === "file" ? resource.canonicalPath : resource.kind)) },
 		});

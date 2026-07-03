@@ -1,16 +1,18 @@
 import { createHash, randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
+import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 
 import { ApprovalCoordinator } from "./approval.js";
 import { AuditLogger, sanitizeResource } from "./audit.js";
-import { bashDescriptor, builtinFileToolDescriptors, genericToolDescriptor } from "./file-tool-descriptors.js";
+import { bashDescriptor, builtinFileToolDescriptors, descriptorForTool, genericToolDescriptor } from "./file-tool-descriptors.js";
 import { FileResolver } from "./file-resolver.js";
-import { evaluateHardProtections } from "./hard-protections.js";
+import { buildHardProtections, evaluateHardProtections, type ProtectedPath } from "./hard-protections.js";
 import { LeaseStore, PersistentGrantStore, resourcesUnchanged, SessionGrantStore } from "./grants.js";
 import { evaluatePolicy, PolicyStore } from "./policy.js";
 import { normalizeUserPath } from "./path-utils.js";
 import { PermissionSubjectRegistry } from "./subject-registry.js";
+import { toolSourceFromInfo } from "./tool-source-identity.js";
 import type {
 	AuthorizationRequest,
 	AuthorizationResult,
@@ -20,6 +22,7 @@ import type {
 	PermissionResource,
 	PermissionServiceStatus,
 	PermissionSubjectDescriptor,
+	PermissionSubjectKind,
 	PermissionProfile,
 	PolicySnapshot,
 } from "./permission-types.js";
@@ -35,10 +38,22 @@ export interface PermissionServiceOptions {
 	sessionId?: string;
 }
 
+/** Pi 工具事件的适配器输入；仅 ToolAdapter 使用，服务本体不暴露工具专用授权入口。 */
 export interface AuthorizeInput {
 	toolCallId: string;
 	toolName: string;
 	normalizedToolInput: unknown;
+	promptContext: PermissionPromptContext;
+	consumeLease?: boolean;
+}
+
+/** 通用主体授权输入；执行系统必须提供主体类型、配置 key、实际输入和本次执行 ID。 */
+export interface AuthorizeSubjectInput {
+	kind: PermissionSubjectKind;
+	configKey: string;
+	subjectId?: string;
+	input: unknown;
+	executionId: string;
 	promptContext: PermissionPromptContext;
 	consumeLease?: boolean;
 }
@@ -52,6 +67,7 @@ export class PermissionService {
 	private readonly persistentGrants: PersistentGrantStore;
 	private readonly approval = new ApprovalCoordinator();
 	private readonly audit: AuditLogger;
+	private readonly hardProtections: Promise<ProtectedPath[]>;
 	private readonly recentErrors: string[] = [];
 	private readonly sessionRoots: Array<{ id: string; canonicalPath: string; access: "read-only" | "read-write"; source: "session" }> = [];
 	private profileOverride: PolicySnapshot["profile"] | undefined;
@@ -66,6 +82,11 @@ export class PermissionService {
 			path: options.auditLogPath ?? path.join(options.agentDir, "permission-state", "audit.jsonl"),
 			enabled: true,
 		});
+		this.hardProtections = buildHardProtections({
+			workspaceRoot: options.workspaceRoot,
+			agentDir: options.agentDir,
+			homeDir: os.homedir(),
+		});
 	}
 
 	get fileResolver(): FileResolver {
@@ -74,6 +95,13 @@ export class PermissionService {
 
 	registerSubject(descriptor: PermissionSubjectDescriptor): void {
 		this.registry.register(descriptor);
+	}
+
+	/** 将 Pi 当前实际注册工具同步为权限主体；授权时不再依赖 cwd 推断工具来源。 */
+	async syncRegisteredTools(tools: ToolInfo[]): Promise<void> {
+		for (const tool of tools) {
+			this.registry.register(descriptorForTool(tool.name, await toolSourceFromInfo(tool)));
+		}
 	}
 
 	getRegistry(): PermissionSubjectRegistry {
@@ -225,13 +253,14 @@ export class PermissionService {
 		return { removed };
 	}
 
-	async authorizeToolCall(input: AuthorizeInput): Promise<AuthorizationResult> {
-		return await this.authorize(input);
-	}
-
-	async authorize(input: AuthorizeInput): Promise<AuthorizationResult> {
+	/** 通用主体授权入口；具体执行系统通过 adapter 提供 kind、key、输入和执行 ID。 */
+	async authorizeSubjectCall(input: AuthorizeSubjectInput): Promise<AuthorizationResult> {
 		const snapshot = await this.snapshot();
-		const subject = this.registry.resolve("tool", input.toolName) ?? genericToolDescriptor(input.toolName);
+		const subject = this.resolveSubjectDescriptor(input);
+		if (subject === undefined) {
+			await this.auditFailureForUnknown(input, snapshot, "PERMISSION_UNKNOWN_SUBJECT");
+			return this.denied("PERMISSION_UNKNOWN_SUBJECT", `Unknown permission subject: ${input.kind}:${input.configKey}.`);
+		}
 		if (this.registry.getById(subject.id) === undefined) this.registry.register(subject);
 		let request: AuthorizationRequest | undefined;
 		try {
@@ -240,12 +269,12 @@ export class PermissionService {
 				agentDir: this.options.agentDir,
 				...(input.promptContext.signal !== undefined ? { signal: input.promptContext.signal } : {}),
 			};
-			const intent = await subject.analyze(input.normalizedToolInput, analysisContext);
+			const intent = await subject.analyze(input.input, analysisContext);
 			request = {
 				requestId: `perm_${randomUUID()}`,
-				toolCallId: input.toolCallId,
+				toolCallId: input.executionId,
 				subject,
-				inputFingerprint: stableFingerprint({ toolName: input.toolName, input: input.normalizedToolInput, policyGeneration: snapshot.generation, resources: intent.resources }),
+				inputFingerprint: stableFingerprint({ kind: input.kind, configKey: input.configKey, input: input.input, policyGeneration: snapshot.generation, resources: intent.resources }),
 				operations: intent.operations,
 				resources: intent.resources,
 				summary: intent.summary,
@@ -266,15 +295,11 @@ export class PermissionService {
 			return { allowed: true, lease: existingLease, decision, request };
 		}
 
-		const hard = evaluateHardProtections(request.resources, {
-			workspaceRoot: this.options.workspaceRoot,
-			agentDir: this.options.agentDir,
-			homeDir: os.homedir(),
-		});
+		const hard = evaluateHardProtections(request.resources, await this.hardProtections);
 		if (hard.denied) {
 			const decision = denyDecision("hard-protection", hard.reason ?? "Resource is protected.", hard.ruleId);
 			await this.auditDecision(request, decision, "denied", undefined, "PERMISSION_HARD_DENIED");
-			return this.denied("PERMISSION_HARD_DENIED", `Permission denied for ${input.toolName}: ${hard.reason ?? "protected resource"}.`, request, decision);
+			return this.denied("PERMISSION_HARD_DENIED", `Permission denied for ${input.configKey}: ${hard.reason ?? "protected resource"}.`, request, decision);
 		}
 
 		let decision = evaluatePolicy({ snapshot, subject, resources: request.resources, operations: request.operations });
@@ -317,7 +342,7 @@ export class PermissionService {
 		}
 		if (approval.decision.decision === "allow-session-exact") this.sessionGrants.add(request, "exact");
 		if (approval.decision.decision === "allow-session-subtree") this.sessionGrants.add(request, "subtree");
-		if (approval.decision.decision === "always-allow") await this.persistentGrants.add(request, "subtree");
+		if (approval.decision.decision === "always-allow") await this.persistentGrants.add(request);
 		const lease = this.leases.add(request);
 		if (input.consumeLease) this.leases.consume(lease);
 		const userDecision = allowDecision("user", `User decision: ${approval.decision.decision}.`, [lease.id]);
@@ -325,17 +350,19 @@ export class PermissionService {
 		return { allowed: true, lease, decision: userDecision, request };
 	}
 
-	async verifyRequestUnchanged(original: AuthorizationRequest, input: { toolName: string; normalizedToolInput: unknown }): Promise<boolean> {
-		const subject = this.registry.resolve("tool", input.toolName);
+	async verifySubjectRequestUnchanged(original: AuthorizationRequest, input: { kind: PermissionSubjectKind; configKey: string; subjectId?: string; input: unknown }): Promise<boolean> {
+		const subject = this.resolveSubjectDescriptor(input);
 		if (subject === undefined) return false;
-		const intent = await subject.analyze(input.normalizedToolInput, { workspaceRoot: this.options.workspaceRoot, agentDir: this.options.agentDir });
+		const intent = await subject.analyze(input.input, { workspaceRoot: this.options.workspaceRoot, agentDir: this.options.agentDir });
 		return resourcesUnchanged(original.resources, intent.resources);
 	}
 
-	async explain(toolName: string, normalizedToolInput: unknown): Promise<CompiledDecision> {
+	/** 模拟指定主体的策略决策；不创建 lease、grant 或审计记录。 */
+	async explainSubjectCall(input: { kind: PermissionSubjectKind; configKey: string; subjectId?: string; input: unknown }): Promise<CompiledDecision> {
 		const snapshot = await this.snapshot();
-		const subject = this.registry.resolve("tool", toolName) ?? genericToolDescriptor(toolName);
-		const intent = await subject.analyze(normalizedToolInput, { workspaceRoot: this.options.workspaceRoot, agentDir: this.options.agentDir });
+		const subject = this.resolveSubjectDescriptor(input);
+		if (subject === undefined) throw new Error(`Unknown permission subject: ${input.kind}:${input.configKey}`);
+		const intent = await subject.analyze(input.input, { workspaceRoot: this.options.workspaceRoot, agentDir: this.options.agentDir });
 		return evaluatePolicy({ snapshot, subject, resources: intent.resources, operations: intent.operations });
 	}
 
@@ -410,19 +437,63 @@ export class PermissionService {
 		if (auditError !== undefined) this.noteError(`audit: ${auditError}`);
 	}
 
-	private async auditFailureForUnknown(input: AuthorizeInput, snapshot: PolicySnapshot, errorCode: PermissionErrorCode): Promise<void> {
-		const subject = genericToolDescriptor(input.toolName);
+	private resolveSubjectDescriptor(input: { kind: PermissionSubjectKind; configKey: string; subjectId?: string }): PermissionSubjectDescriptor | undefined {
+		if (input.subjectId !== undefined) return this.registry.getById(input.subjectId);
+		const subject = this.registry.resolve(input.kind, input.configKey);
+		if (subject !== undefined) return subject;
+		if (input.kind === "tool") return genericToolDescriptor(input.configKey);
+		return undefined;
+	}
+
+	private async auditFailureForUnknown(input: AuthorizeSubjectInput, snapshot: PolicySnapshot, errorCode: PermissionErrorCode): Promise<void> {
+		const subject = this.resolveSubjectDescriptor(input) ?? unknownSubjectDescriptor(input.kind, input.configKey);
 		const request: AuthorizationRequest = {
 			requestId: `perm_${randomUUID()}`,
-			toolCallId: input.toolCallId,
+			toolCallId: input.executionId,
 			subject,
-			inputFingerprint: stableFingerprint({ toolName: input.toolName, input: input.normalizedToolInput, policyGeneration: snapshot.generation }),
+			inputFingerprint: stableFingerprint({ kind: input.kind, configKey: input.configKey, input: input.input, policyGeneration: snapshot.generation }),
 			operations: [],
 			resources: [],
-			summary: `Analyze ${input.toolName}`,
+			summary: `Analyze ${input.kind}:${input.configKey}`,
 			policyGeneration: snapshot.generation,
 		};
 		await this.auditDecision(request, denyDecision("policy-error", "Analysis failed."), "denied", undefined, errorCode);
+	}
+}
+
+function unknownSubjectDescriptor(kind: PermissionSubjectKind, configKey: string): PermissionSubjectDescriptor {
+	return {
+		id: `${kind}:${configKey}`,
+		kind,
+		configKey,
+		displayName: configKey,
+		source: { type: sourceTypeForKind(kind), name: "unknown", identity: `unknown:${kind}:${configKey}` },
+		async analyze(): Promise<import("./permission-types.js").PermissionIntent> {
+			return { operations: [], resources: [], summary: `Invoke ${kind}:${configKey}` };
+		},
+	};
+}
+
+function sourceTypeForKind(kind: PermissionSubjectKind): "extension" | "mcp" | "skill" | "agent" {
+	if (kind === "mcp-tool") return "mcp";
+	if (kind === "skill") return "skill";
+	if (kind === "agent") return "agent";
+	return "extension";
+}
+
+/** Pi tool_call 适配器；把工具执行事件映射到通用主体授权入口。 */
+export class ToolAdapter {
+	constructor(private readonly runtime: PermissionService) {}
+
+	async authorize(input: AuthorizeInput): Promise<AuthorizationResult> {
+		return await this.runtime.authorizeSubjectCall({
+			kind: "tool",
+			configKey: input.toolName,
+			input: input.normalizedToolInput,
+			executionId: input.toolCallId,
+			promptContext: input.promptContext,
+			...(input.consumeLease !== undefined ? { consumeLease: input.consumeLease } : {}),
+		});
 	}
 }
 

@@ -1,18 +1,42 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { AuthorizationLease, AuthorizationRequest, PermissionResource, PermissionSubject, ResolvedFileResource } from "./permission-types.js";
+import type { AuthorizationLease, AuthorizationRequest, FileAccess, PermissionOperation, PermissionResource, PermissionSubject, ResolvedFileResource } from "./permission-types.js";
 import { identityEquals, isPathInside } from "./path-utils.js";
+
+export type GrantScope =
+	| {
+			kind: "file-exact";
+			path: string;
+			operation: PermissionOperation;
+			access: FileAccess;
+	  }
+	| {
+			kind: "file-subtree";
+			path: string;
+			operations: PermissionOperation[];
+			access: FileAccess;
+	  }
+	| {
+			kind: "command-exact";
+			commandFingerprint: string;
+	  }
+	| {
+			kind: "mcp-tool";
+			server: string;
+			tool: string;
+	  }
+	| {
+			kind: "subject";
+			subjectId: string;
+	  };
 
 export interface Grant {
 	id: string;
 	subjectId: string;
 	subjectIdentity?: string;
-	scope: "exact" | "subtree";
-	resourceFingerprints: string[];
-	fileScopes: Array<{ path: string; scope: "exact" | "subtree" }>;
-	inputFingerprint?: string;
+	scopes: GrantScope[];
 	createdAt: number;
 	status: "active" | "suspended";
 }
@@ -115,8 +139,9 @@ export class PersistentGrantStore {
 		return this.grants.length;
 	}
 
-	async add(request: AuthorizationRequest, scope: "exact" | "subtree"): Promise<Grant> {
-		const grant = grantFromRequest(request, scope);
+	async add(request: AuthorizationRequest): Promise<Grant | undefined> {
+		const grant = persistentGrantFromRequest(request);
+		if (grant === undefined) return undefined;
 		this.grants.push(grant);
 		await this.save();
 		return grant;
@@ -162,6 +187,10 @@ export function resourceFingerprint(resource: PermissionResource): string {
 	return JSON.stringify(resource);
 }
 
+export function canCreatePersistentGrant(request: AuthorizationRequest): boolean {
+	return persistentScopes(request).length > 0;
+}
+
 export function resourcesUnchanged(previous: PermissionResource[], current: PermissionResource[]): boolean {
 	if (!sameSet(previous.map(resourceFingerprint), current.map(resourceFingerprint))) return false;
 	for (const oldResource of previous) {
@@ -176,13 +205,25 @@ export function resourcesUnchanged(previous: PermissionResource[], current: Perm
 
 function grantFromRequest(request: AuthorizationRequest, scope: "exact" | "subtree"): Grant {
 	const files = request.resources.filter((resource): resource is ResolvedFileResource => resource.kind === "file");
+	const scopes = scope === "exact" ? exactScopes(request) : fileSubtreeScopes(files);
 	return {
 		id: `grant_${randomUUID()}`,
 		subjectId: request.subject.id,
 		...(request.subject.source.identity !== undefined ? { subjectIdentity: request.subject.source.identity } : {}),
-		scope,
-		resourceFingerprints: scope === "exact" ? request.resources.map(resourceFingerprint) : [],
-		fileScopes: files.map((file) => ({ path: scope === "subtree" ? (file.targetType === "directory" ? file.canonicalPath : path.dirname(file.canonicalPath)) : file.canonicalPath, scope })),
+		scopes: scopes.length > 0 ? scopes : exactScopes(request),
+		createdAt: Date.now(),
+		status: "active",
+	};
+}
+
+function persistentGrantFromRequest(request: AuthorizationRequest): Grant | undefined {
+	const scopes = persistentScopes(request);
+	if (scopes.length === 0) return undefined;
+	return {
+		id: `grant_${randomUUID()}`,
+		subjectId: request.subject.id,
+		...(request.subject.source.identity !== undefined ? { subjectIdentity: request.subject.source.identity } : {}),
+		scopes,
 		createdAt: Date.now(),
 		status: "active",
 	};
@@ -193,20 +234,10 @@ function coveringGrants(grants: Grant[], request: AuthorizationRequest): Grant[]
 		(grant) =>
 			grant.status === "active" &&
 			grant.subjectId === request.subject.id &&
-			(grant.subjectIdentity === undefined || grant.subjectIdentity === request.subject.source.identity),
+			grant.subjectIdentity === request.subject.source.identity,
 	);
-	const files = request.resources.filter((resource): resource is ResolvedFileResource => resource.kind === "file");
-	if (files.length > 0) {
-		const coversFiles = files.every((file) =>
-			active.some((grant) =>
-				grant.fileScopes.some((scope) => (scope.scope === "exact" ? scope.path === file.canonicalPath : isPathInside(scope.path, file.canonicalPath))),
-			),
-		);
-		if (coversFiles) return active;
-	}
-	const requestFingerprints = request.resources.map(resourceFingerprint);
-	const exact = active.filter((grant) => grant.resourceFingerprints.some((fingerprint) => requestFingerprints.includes(fingerprint)));
-	return requestFingerprints.every((fingerprint) => exact.some((grant) => grant.resourceFingerprints.includes(fingerprint))) ? exact : [];
+	const structured = active.filter((grant) => requestCoveredByScopes(request, grant.scopes));
+	return structured.length > 0 ? structured : [];
 }
 
 function sameSet(left: string[], right: string[]): boolean {
@@ -214,5 +245,61 @@ function sameSet(left: string[], right: string[]): boolean {
 }
 
 function isGrant(value: unknown): value is Grant {
-	return typeof value === "object" && value !== null && "id" in value && "subjectId" in value && "status" in value;
+	return typeof value === "object" && value !== null && "id" in value && "subjectId" in value && "status" in value && "scopes" in value && Array.isArray(value.scopes);
+}
+
+function exactScopes(request: AuthorizationRequest): GrantScope[] {
+	return request.resources.flatMap((resource) => exactScope(request.subject, resource));
+}
+
+function exactScope(subject: PermissionSubject, resource: PermissionResource): GrantScope[] {
+	if (resource.kind === "file") return [{ kind: "file-exact", path: resource.canonicalPath, operation: resource.operation, access: resource.access }];
+	if (resource.kind === "command") return [{ kind: "command-exact", commandFingerprint: commandFingerprint(resource.command) }];
+	if (resource.kind === "mcp") return [{ kind: "mcp-tool", server: resource.server, tool: resource.tool }];
+	if (resource.kind === "skill" || resource.kind === "agent") return [{ kind: "subject", subjectId: subject.id }];
+	return [];
+}
+
+function fileSubtreeScopes(files: ResolvedFileResource[]): GrantScope[] {
+	return files.map((file) => ({
+		kind: "file-subtree",
+		path: subtreePath(file),
+		operations: [file.operation],
+		access: file.access,
+	}));
+}
+
+function persistentScopes(request: AuthorizationRequest): GrantScope[] {
+	const scopes = request.resources.flatMap((resource): GrantScope[] => {
+		if (resource.kind === "file") {
+			return [{ kind: "file-subtree", path: subtreePath(resource), operations: [resource.operation], access: resource.access }];
+		}
+		return exactScope(request.subject, resource);
+	});
+	return scopes.length === request.resources.length ? scopes : [];
+}
+
+function subtreePath(file: ResolvedFileResource): string {
+	return file.targetType === "directory" ? file.canonicalPath : path.dirname(file.canonicalPath);
+}
+
+function requestCoveredByScopes(request: AuthorizationRequest, scopes: GrantScope[]): boolean {
+	if (request.resources.length === 0) return scopes.some((scope) => scope.kind === "subject" && scope.subjectId === request.subject.id);
+	return request.resources.every((resource) => scopes.some((scope) => resourceCoveredByScope(request.subject, resource, scope)));
+}
+
+function resourceCoveredByScope(subject: PermissionSubject, resource: PermissionResource, scope: GrantScope): boolean {
+	if (scope.kind === "subject") return scope.subjectId === subject.id;
+	if (resource.kind === "file") {
+		if (scope.kind === "file-exact") return scope.path === resource.canonicalPath && scope.operation === resource.operation && scope.access === resource.access;
+		return scope.kind === "file-subtree" && scope.access === resource.access && scope.operations.includes(resource.operation) && isPathInside(scope.path, resource.canonicalPath);
+	}
+	if (resource.kind === "command") return scope.kind === "command-exact" && scope.commandFingerprint === commandFingerprint(resource.command);
+	if (resource.kind === "mcp") return scope.kind === "mcp-tool" && scope.server === resource.server && scope.tool === resource.tool;
+	if (resource.kind === "skill" || resource.kind === "agent") return false;
+	return false;
+}
+
+function commandFingerprint(command: string): string {
+	return createHash("sha256").update(command).digest("hex");
 }

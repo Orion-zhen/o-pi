@@ -20,15 +20,16 @@ export async function readWorkspaceFile(
 	const rangeError = validateRangeSyntax(params, params.path);
 	if (rangeError) return rangeError;
 	const permissionService = runtime.permissionService ?? defaultPermissionService(workspaceRoot);
-	const authorization = await permissionService.authorize({
-		toolCallId: runtime.toolCallId ?? "direct-read",
-		toolName: "read",
-		normalizedToolInput: params,
+	const authorization = await permissionService.authorizeSubjectCall({
+		kind: "tool",
+		configKey: "read",
+		input: params,
+		executionId: runtime.toolCallId ?? "direct-read",
 		promptContext: runtime.promptContext ?? defaultPromptContext(),
 		consumeLease: true,
 	});
 	if (!authorization.allowed) return permissionFailure({ code: authorization.error.code, message: authorization.error.message, resources: [] });
-	if (!(await permissionService.verifyRequestUnchanged(authorization.request, { toolName: "read", normalizedToolInput: params }))) {
+	if (!(await permissionService.verifySubjectRequestUnchanged(authorization.request, { kind: "tool", configKey: "read", input: params }))) {
 		return fail("PERMISSION_CONTEXT_CHANGED", "Permission context changed before reading.", { path: params.path });
 	}
 	const resolved = await resolveExistingFile(workspaceRoot, params.path);

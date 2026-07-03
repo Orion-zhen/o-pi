@@ -3,7 +3,7 @@ import { routePermissionCommand } from "../command-router.js";
 import type { PermissionCommandContext, PermissionCommandResult } from "../permission-command.js";
 import { statusView } from "../application-service.js";
 
-const MENU = ["Overview", "Tools", "MCP", "Skills", "Agents", "File roots", "Grants", "Audit", "Diagnostics", "Edit policy", "Profile", "Maintenance", "Close"] as const;
+const MENU = ["Overview", "Tools", "File roots", "Grants", "Audit", "Diagnostics", "Edit policy", "Profile", "Maintenance", "Close"] as const;
 
 /** 默认 /permissions 控制台；用 select/editor 的循环状态机实现，避免递归页面。 */
 export async function openPermissionsConsole(context: PermissionCommandContext): Promise<PermissionCommandResult> {
@@ -61,9 +61,6 @@ async function showScreen(context: PermissionCommandContext, screen: (typeof MEN
 
 function commandForScreen(screen: (typeof MENU)[number]): string | undefined {
 	if (screen === "Tools") return "catalog tools";
-	if (screen === "MCP") return "catalog mcp";
-	if (screen === "Skills") return "catalog skills";
-	if (screen === "Agents") return "catalog agents";
 	if (screen === "File roots") return "roots";
 	if (screen === "Grants") return "grants";
 	if (screen === "Audit") return "audit";

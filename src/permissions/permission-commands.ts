@@ -2,6 +2,8 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 
 import type { PermissionPromptContext } from "./permission-types.js";
 import type { PermissionService } from "./permission-service.js";
+import { canCreatePersistentGrant } from "./grants.js";
+import { renderPermissionApprovalPrompt } from "./approval-prompt.js";
 import { parsePermissionCommand } from "./commands/command-parser.js";
 import { routePermissionCommand } from "./commands/command-router.js";
 import { HumanPermissionRenderer, JsonPermissionRenderer } from "./commands/output-renderer.js";
@@ -53,9 +55,16 @@ export function promptContextFromUi(ctx: PermissionCommandContext, timeoutMs: nu
 		...(ctx.signal !== undefined ? { signal: ctx.signal } : {}),
 		prompt: async (request, decision) => {
 			const options = ctx.signal === undefined ? { timeout: timeoutMs } : { timeout: timeoutMs, signal: ctx.signal };
+			const choices = [
+				"Allow once",
+				"Allow exact for session",
+				...(request.resources.some((resource) => resource.kind === "file") ? ["Allow subtree for session"] : []),
+				...(canCreatePersistentGrant(request) ? ["Always allow"] : []),
+				"Deny",
+			];
 			const choice = await ctx.ui.select(
-				`Permission ${decision.finalEffect}: ${request.subject.configKey}`,
-				["Allow once", "Allow exact for session", "Allow subtree for session", "Always allow", "Deny"],
+				renderPermissionApprovalPrompt(request, decision),
+				choices,
 				options,
 			);
 			if (choice === "Allow once") return { decision: "allow-once" };

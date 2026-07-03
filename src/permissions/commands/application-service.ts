@@ -10,10 +10,11 @@ import type {
 	PermissionProfile,
 	PermissionResource,
 	PermissionSubjectKind,
+	PolicySnapshot,
 	PolicyDiagnostic,
 } from "../permission-types.js";
 import { fileRootAccesses, permissionEffects, permissionProfiles } from "../permission-types.js";
-import { normalizeUserPath } from "../path-utils.js";
+import { isPathInside, normalizeUserPath } from "../path-utils.js";
 import type { PermissionService } from "../permission-service.js";
 import { PermissionConfigurationTransactionService } from "./config-transaction.js";
 import { PermissionCommandError } from "./permission-command.js";
@@ -65,9 +66,6 @@ export function catalogView(runtime: PermissionService, filter?: string) {
 	const entries = runtime.getRegistrySnapshot().filter((entry) => {
 		if (filter === undefined) return true;
 		if (filter === "tools") return entry.kind === "tool";
-		if (filter === "mcp") return entry.kind === "mcp-tool";
-		if (filter === "skills") return entry.kind === "skill";
-		if (filter === "agents") return entry.kind === "agent";
 		return entry.configKey.includes(filter) || entry.displayName.includes(filter) || entry.qualifiedConfigKey.includes(filter);
 	});
 	return { entries };
@@ -80,8 +78,8 @@ export async function explainView(runtime: PermissionService, subjectText: strin
 	}
 	const subject = resolveSubject(runtime, subjectText);
 	const input = inputForSubject(subject.configKey, args);
-	const decision = await runtime.explain(subject.configKey, input);
-	const resources = resourceViews(await resourcesForExplain(runtime, subject.configKey, input), decision);
+	const decision = await runtime.explainSubjectCall({ kind: subject.kind, configKey: subject.configKey, subjectId: subject.id, input });
+	const resources = resourceViews(await resourcesForExplain(runtime, subject.kind, subject.configKey, input), decision);
 	return { subject, input, decision, resources };
 }
 
@@ -140,21 +138,13 @@ export async function policyValidateView(runtime: PermissionService, scope: "glo
 export async function policyDoctorView(runtime: PermissionService) {
 	const snapshot = await runtime.getPolicySnapshot();
 	const findings = [
-		...snapshot.diagnostics.map((diagnostic) => ({
-			code: "P001",
-			severity: "error" as const,
-			title: "Policy is invalid",
-			message: diagnostic.message,
-			sourcePath: diagnostic.file,
-			jsonPointer: diagnostic.pointer,
-			remediation: "Edit the policy and validate again.",
-		})),
+		...snapshot.diagnostics.map(diagnosticFinding),
 		...(snapshot.profile === "unrestricted"
 			? [{
 					code: "P201",
 					severity: "warning" as const,
 					title: "Unrestricted profile is configured",
-					message: "Ordinary ask decisions become allow.",
+					message: "Unconfigured requests default to allow.",
 					sourcePath: snapshot.global.path,
 					jsonPointer: "/profile",
 					remediation: "Use standard unless this is intentional.",
@@ -169,6 +159,7 @@ export async function policyDoctorView(runtime: PermissionService) {
 			jsonPointer: "/audit/enabled",
 			remediation: "Set audit.enabled to true.",
 		}]),
+		...rootPolicyFindings(snapshot),
 	];
 	return { findings };
 }
@@ -183,9 +174,6 @@ export async function policyShowView(runtime: PermissionService, scope: "global"
 				profile: snapshot.profile,
 				roots: snapshot.roots,
 				tools: snapshot.globalConfig?.tools,
-				mcp: snapshot.globalConfig?.mcp,
-				skills: snapshot.globalConfig?.skills,
-				agents: snapshot.globalConfig?.agents,
 				projectRestrictions: snapshot.projectConfig,
 				source: ["profile", "global", snapshot.project.status === "loaded" ? "project" : undefined].filter(Boolean),
 			},
@@ -257,13 +245,75 @@ function policyStatus(policy: { path: string; status: string; diagnostics: Polic
 	return { path: policy.path, status: policy.status === "loaded" || policy.status === "missing" ? "valid" : policy.status, diagnostics: policy.diagnostics };
 }
 
+function diagnosticFinding(diagnostic: PolicyDiagnostic) {
+	const rootCanonicalize = diagnostic.message.startsWith("Cannot canonicalize root ");
+	return {
+		code: rootCanonicalize ? "P404" : "P001",
+		severity: "error" as const,
+		title: rootCanonicalize ? "File root cannot be canonicalized" : "Policy is invalid",
+		message: diagnostic.message,
+		sourcePath: diagnostic.file,
+		jsonPointer: diagnostic.pointer,
+		remediation: rootCanonicalize ? "Use an existing directory path for this root." : "Edit the policy and validate again.",
+	};
+}
+
+function rootPolicyFindings(snapshot: PolicySnapshot) {
+	const findings: Array<{
+		code: string;
+		severity: "warning";
+		title: string;
+		message: string;
+		sourcePath: string;
+		jsonPointer: string;
+		remediation: string;
+	}> = [];
+	for (let leftIndex = 0; leftIndex < snapshot.roots.length; leftIndex += 1) {
+		const left = snapshot.roots[leftIndex];
+		if (left === undefined) continue;
+		for (let rightIndex = leftIndex + 1; rightIndex < snapshot.roots.length; rightIndex += 1) {
+			const right = snapshot.roots[rightIndex];
+			if (right === undefined) continue;
+			if (left.canonicalPath === right.canonicalPath) {
+				findings.push({
+					code: "P401",
+					severity: "warning",
+					title: "Duplicate file root",
+					message: `Root ${rightIndex} duplicates root ${leftIndex}: ${right.canonicalPath}.`,
+					sourcePath: snapshot.global.path,
+					jsonPointer: "/files/roots",
+					remediation: "Keep one root for each canonical path.",
+				});
+				findings.push({
+					code: "P402",
+					severity: "warning",
+					title: "File root is fully covered",
+					message: `Root ${rightIndex} is fully covered by root ${leftIndex}: ${right.canonicalPath}.`,
+					sourcePath: snapshot.global.path,
+					jsonPointer: "/files/roots",
+					remediation: "Remove the covered root.",
+				});
+			}
+			if (left.access !== right.access && (isPathInside(left.canonicalPath, right.canonicalPath) || isPathInside(right.canonicalPath, left.canonicalPath))) {
+				findings.push({
+					code: "P403",
+					severity: "warning",
+					title: "Overlapping roots use different access",
+					message: `Root ${leftIndex} (${left.access}) overlaps root ${rightIndex} (${right.access}). The longest canonical path wins.`,
+					sourcePath: snapshot.global.path,
+					jsonPointer: "/files/roots",
+					remediation: "Keep overlapping roots only when the narrower path intentionally changes access.",
+				});
+			}
+		}
+	}
+	return findings;
+}
+
 function subjectCounts(runtime: PermissionService) {
 	const entries = runtime.getRegistrySnapshot();
 	return {
 		tools: entries.filter((entry) => entry.kind === "tool").length,
-		mcpTools: entries.filter((entry) => entry.kind === "mcp-tool").length,
-		skills: entries.filter((entry) => entry.kind === "skill").length,
-		agents: entries.filter((entry) => entry.kind === "agent").length,
 	};
 }
 
@@ -275,8 +325,8 @@ function inputForSubject(subjectKey: string, args: readonly string[]): unknown {
 	return {};
 }
 
-async function resourcesForExplain(runtime: PermissionService, subjectKey: string, input: unknown): Promise<PermissionResource[]> {
-	const descriptor = runtime.getRegistry().resolve("tool", subjectKey);
+async function resourcesForExplain(runtime: PermissionService, kind: PermissionSubjectKind, subjectKey: string, input: unknown): Promise<PermissionResource[]> {
+	const descriptor = runtime.getRegistry().resolve(kind, subjectKey);
 	if (descriptor === undefined) return [];
 	const options = runtime.getOptions();
 	return (await descriptor.analyze(input, { workspaceRoot: options.workspaceRoot, agentDir: options.agentDir })).resources;
@@ -303,8 +353,7 @@ function grantViews(grants: Grant[]) {
 	return grants.map((grant) => ({
 		id: grant.id,
 		subjectId: grant.subjectId,
-		scope: grant.scope,
-		fileScopes: grant.fileScopes,
+		scopes: grant.scopes,
 		createdAt: new Date(grant.createdAt).toISOString(),
 		status: grant.status,
 		identity: grant.subjectIdentity === undefined ? "none" : "bound",

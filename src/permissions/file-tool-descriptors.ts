@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import type { EditOperation } from "../file-tools/types.js";
 import { FileResolver } from "./file-resolver.js";
 import type {
@@ -7,6 +5,7 @@ import type {
 	PermissionAnalysisContext,
 	PermissionIntent,
 	PermissionOperation,
+	PermissionSubject,
 	PermissionSubjectDescriptor,
 	ResolvedFileResource,
 } from "./permission-types.js";
@@ -21,16 +20,25 @@ export interface ReadInput {
 
 /** 内置 ls/read/edit descriptor；文件工具和 tool_call 门禁使用同一分析逻辑。 */
 export function builtinFileToolDescriptors(): PermissionSubjectDescriptor[] {
-	return [lsDescriptor(), readDescriptor(), editDescriptor()];
+	return [lsDescriptor(defaultExtensionSource()), readDescriptor(defaultExtensionSource()), editDescriptor(defaultExtensionSource())];
 }
 
-export function lsDescriptor(): PermissionSubjectDescriptor<LsInput> {
+/** 用 Pi 实际工具来源生成 descriptor，保持工具意图分析逻辑与注册来源身份分离。 */
+export function descriptorForTool(toolName: string, source: PermissionSubject["source"]): PermissionSubjectDescriptor {
+	if (toolName === "ls") return lsDescriptor(source);
+	if (toolName === "read") return readDescriptor(source);
+	if (toolName === "edit") return editDescriptor(source);
+	if (toolName === "bash") return bashDescriptor(source);
+	return genericToolDescriptor(toolName, source);
+}
+
+export function lsDescriptor(source = defaultExtensionSource()): PermissionSubjectDescriptor<LsInput> {
 	return {
-		id: "tool:extension/o-pi/ls",
+		id: "tool:ls",
 		kind: "tool",
 		configKey: "ls",
 		displayName: "ls",
-		source: { type: "extension", name: "o-pi", identity: extensionIdentity() },
+		source,
 		async analyze(input, context) {
 			const file = await resolver(context).resolve(requireString(input.path, "path"), "file.list", "read");
 			return intent("List directory", [file]);
@@ -38,13 +46,13 @@ export function lsDescriptor(): PermissionSubjectDescriptor<LsInput> {
 	};
 }
 
-export function readDescriptor(): PermissionSubjectDescriptor<ReadInput> {
+export function readDescriptor(source = defaultExtensionSource()): PermissionSubjectDescriptor<ReadInput> {
 	return {
-		id: "tool:extension/o-pi/read",
+		id: "tool:read",
 		kind: "tool",
 		configKey: "read",
 		displayName: "read",
-		source: { type: "extension", name: "o-pi", identity: extensionIdentity() },
+		source,
 		async analyze(input, context) {
 			const file = await resolver(context).resolve(requireString(input.path, "path"), "file.read", "read");
 			return intent("Read file", [file]);
@@ -52,13 +60,13 @@ export function readDescriptor(): PermissionSubjectDescriptor<ReadInput> {
 	};
 }
 
-export function editDescriptor(): PermissionSubjectDescriptor<{ operations: EditOperation[] }> {
+export function editDescriptor(source = defaultExtensionSource()): PermissionSubjectDescriptor<{ operations: EditOperation[] }> {
 	return {
-		id: "tool:extension/o-pi/edit",
+		id: "tool:edit",
 		kind: "tool",
 		configKey: "edit",
 		displayName: "edit",
-		source: { type: "extension", name: "o-pi", identity: extensionIdentity() },
+		source,
 		async analyze(input, context) {
 			if (!Array.isArray(input.operations)) throw new Error("edit.operations must be an array.");
 			const resources: ResolvedFileResource[] = [];
@@ -81,27 +89,27 @@ export function editDescriptor(): PermissionSubjectDescriptor<{ operations: Edit
 	};
 }
 
-export function genericToolDescriptor(toolName: string): PermissionSubjectDescriptor {
-	if (toolName === "bash") return bashDescriptor();
+export function genericToolDescriptor(toolName: string, source = unknownToolSource(toolName)): PermissionSubjectDescriptor {
+	if (toolName === "bash") return bashDescriptor(source);
 	return {
-		id: `tool:external/${toolName}`,
+		id: `tool:${toolName}`,
 		kind: "tool",
 		configKey: toolName,
 		displayName: toolName,
-		source: { type: "extension", name: "unknown", identity: `tool:${toolName}` },
+		source,
 		async analyze(): Promise<PermissionIntent> {
 			return { operations: [], resources: [], summary: `Invoke tool ${toolName}` };
 		},
 	};
 }
 
-export function bashDescriptor(): PermissionSubjectDescriptor<{ command?: string } | string> {
+export function bashDescriptor(source = builtinSource("bash")): PermissionSubjectDescriptor<{ command?: string } | string> {
 	return {
-		id: "tool:builtin/bash",
+		id: "tool:bash",
 		kind: "tool",
 		configKey: "bash",
 		displayName: "Run shell command",
-		source: { type: "builtin", name: "pi", identity: "builtin:bash" },
+		source,
 		async analyze(input): Promise<PermissionIntent> {
 			const command = typeof input === "string" ? input : input.command;
 			if (typeof command !== "string" || command.trim() === "") throw new Error("bash command must be a non-empty string.");
@@ -130,6 +138,14 @@ function requireString(value: unknown, field: string): string {
 	return value;
 }
 
-function extensionIdentity(): string {
-	return path.resolve("agent/extensions/file-tools.ts");
+function defaultExtensionSource(): PermissionSubject["source"] {
+	return { type: "extension", name: "o-pi", identity: "extension:o-pi:file-tools" };
+}
+
+function builtinSource(toolName: string): PermissionSubject["source"] {
+	return { type: "builtin", name: "pi", identity: `builtin:${toolName}` };
+}
+
+function unknownToolSource(toolName: string): PermissionSubject["source"] {
+	return { type: "extension", name: "unknown", identity: `unknown:${toolName}` };
 }

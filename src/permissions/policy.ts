@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -201,7 +201,7 @@ export class PolicyStore {
 		let roots: FileRootGrant[] = [];
 		if (valid) {
 			try {
-				roots = compileRoots(this.options.workspaceRoot, this.options.agentDir, global.config);
+				roots = await compileRoots(this.options.workspaceRoot, this.options.agentDir, global.config);
 			} catch (error) {
 				diagnostics.push(diagnostic(this.globalPath(), "", 1, 1, error instanceof Error ? error.message : String(error)));
 			}
@@ -306,59 +306,78 @@ export function evaluatePolicy(request: {
 		return { effect: "policy-error", finalEffect: "deny", source: "policy-error", trace };
 	}
 
-	let current = profileBaseline(request.snapshot.profile, request.subject, request.resources, request.operations);
-	trace.push({ source: "profile", effect: current, message: `profile ${request.snapshot.profile}` });
-
-	const globalExplicit = explicitSubjectDecision(request.snapshot.globalConfig, request.subject);
-	if (globalExplicit !== undefined) {
-		current = globalExplicit.effect;
-		trace.push({ source: "global-policy", effect: current, message: globalExplicit.message });
-	}
-
-	const globalFiles = fileDecision(request.snapshot.globalConfig, request.snapshot.roots, request.resources, false);
-	if (globalFiles !== undefined) {
-		current = globalFiles.effect;
-		trace.push(traceEntry("global-policy", globalFiles.effect, globalFiles.message, globalFiles.ruleId));
-	}
-
-	const globalCommand = commandDecision(request.snapshot.globalConfig, request.subject, request.resources);
-	if (globalCommand !== undefined) {
-		current = globalCommand.effect;
-		trace.push(traceEntry("global-policy", globalCommand.effect, globalCommand.message));
-	}
-
-	const projectExplicit = explicitSubjectDecision(request.snapshot.projectConfig, request.subject);
-	if (projectExplicit !== undefined) {
-		current = stronger(current, projectExplicit.effect);
-		trace.push({ source: "project-policy", effect: projectExplicit.effect, message: projectExplicit.message });
-	}
-
-	const projectFiles = fileDecision(request.snapshot.projectConfig, request.snapshot.roots, request.resources, true);
-	if (projectFiles !== undefined) {
-		current = stronger(current, projectFiles.effect);
-		trace.push(traceEntry("project-policy", projectFiles.effect, projectFiles.message, projectFiles.ruleId));
-	}
-
-	const projectCommand = commandDecision(request.snapshot.projectConfig, request.subject, request.resources);
-	if (projectCommand !== undefined) {
-		current = stronger(current, projectCommand.effect);
-		trace.push(traceEntry("project-policy", projectCommand.effect, projectCommand.message));
-	}
-
 	if (request.snapshot.profile === "read-only" && request.operations.some((operation) => isWriteOperation(operation as PermissionOperation))) {
-		current = "deny";
 		trace.push({ source: "profile", effect: "deny", message: "read-only denies mutating operations" });
+		return decisionFromTrace(trace);
 	}
-	if (request.snapshot.profile === "unrestricted" && current === "ask") {
-		current = "allow";
-		trace.push({ source: "profile", effect: "allow", message: "unrestricted allows ordinary ask" });
+
+	addProjectDecisions(trace, request);
+	addGlobalDecisions(trace, request);
+
+	if (trace.length === 0) {
+		trace.push({ source: "profile", effect: profileBaseline(request.snapshot.profile, request.subject, request.resources, request.operations), message: `profile ${request.snapshot.profile}` });
 	}
+
+	return decisionFromTrace(trace);
+}
+
+function addProjectDecisions(
+	trace: DecisionTraceEntry[],
+	request: {
+		snapshot: PolicySnapshot;
+		subject: PermissionSubject;
+		resources: PermissionResource[];
+	},
+): void {
+	const projectExplicit = explicitSubjectDecision(request.snapshot.projectConfig, request.subject);
+	if (projectExplicit !== undefined) trace.push({ source: "project-policy", effect: projectExplicit.effect, message: projectExplicit.message });
+	const projectFiles = fileDecision(request.snapshot.projectConfig, request.snapshot.roots, request.resources, true);
+	if (projectFiles !== undefined) trace.push(traceEntry("project-policy", projectFiles.effect, projectFiles.message, projectFiles.ruleId));
+	const projectCommand = commandDecision(request.snapshot.projectConfig, request.subject, request.resources);
+	if (projectCommand !== undefined) trace.push(traceEntry("project-policy", projectCommand.effect, projectCommand.message));
+}
+
+function addGlobalDecisions(
+	trace: DecisionTraceEntry[],
+	request: {
+		snapshot: PolicySnapshot;
+		subject: PermissionSubject;
+		resources: PermissionResource[];
+	},
+): void {
+	const globalExplicit = explicitSubjectDecision(request.snapshot.globalConfig, request.subject);
+	if (globalExplicit !== undefined) trace.push({ source: "global-policy", effect: globalExplicit.effect, message: globalExplicit.message });
+	const globalCommand = commandDecision(request.snapshot.globalConfig, request.subject, request.resources);
+	if (globalCommand !== undefined) trace.push(traceEntry("global-policy", globalCommand.effect, globalCommand.message));
+	const globalFiles = fileDecision(request.snapshot.globalConfig, request.snapshot.roots, request.resources, false);
+	if (globalFiles !== undefined) trace.push(traceEntry("global-policy", globalFiles.effect, globalFiles.message, globalFiles.ruleId));
+}
+
+function decisionFromTrace(trace: DecisionTraceEntry[]): CompiledDecision {
+	const winning = strongestEntry(trace);
 	return {
-		effect: current,
-		finalEffect: current === "deny" ? "deny" : current,
-		source: trace[trace.length - 1]?.source ?? "profile",
+		effect: winning.effect,
+		finalEffect: winning.effect,
+		source: winning.source,
 		trace,
+		...(winning.ruleId !== undefined ? { ruleId: winning.ruleId } : {}),
 	};
+}
+
+type PolicyTraceEntry = DecisionTraceEntry & { effect: PermissionEffect };
+
+function strongestEntry(trace: DecisionTraceEntry[]): DecisionTraceEntry & { effect: PermissionEffect } {
+	let result: PolicyTraceEntry | undefined;
+	for (const entry of trace) {
+		if (!isPolicyTraceEntry(entry)) continue;
+		if (result === undefined || effectRank(entry.effect) > effectRank(result.effect)) result = entry;
+	}
+	if (result === undefined) throw new Error("Permission decision trace must contain a policy effect.");
+	return result;
+}
+
+function isPolicyTraceEntry(entry: DecisionTraceEntry): entry is PolicyTraceEntry {
+	return entry.effect === "allow" || entry.effect === "ask" || entry.effect === "deny";
 }
 
 function commandDecision(
@@ -385,13 +404,24 @@ export function formatDiagnostics(diagnostics: PolicyDiagnostic[]): string {
 	return diagnostics.map((item) => `${item.file}${item.pointer}:${item.line}:${item.column} ${item.message}`).join("; ");
 }
 
-function compileRoots(workspaceRoot: string, agentDir: string, config: PermissionConfig | undefined): FileRootGrant[] {
+async function compileRoots(workspaceRoot: string, agentDir: string, config: PermissionConfig | undefined): Promise<FileRootGrant[]> {
 	const roots = config?.files?.roots ?? [{ path: "${workspace}", access: "read-write" as const }];
-	return roots.map((root) => ({
-		canonicalPath: path.resolve(expandConfiguredPath(root.path, { workspace: workspaceRoot, agentDir })),
-		access: root.access,
-		source: "global-config",
-	}));
+	const compiled: FileRootGrant[] = [];
+	for (const root of roots) {
+		try {
+			const canonicalPath = await realpath(expandConfiguredPath(root.path, { workspace: workspaceRoot, agentDir }));
+			const info = await stat(canonicalPath);
+			if (!info.isDirectory()) throw new Error("Root path is not a directory.");
+			compiled.push({
+				canonicalPath,
+				access: root.access,
+				source: "global-config",
+			});
+		} catch (error) {
+			throw new Error(`Cannot canonicalize root "${root.path}": ${errorMessage(error)}`);
+		}
+	}
+	return compiled;
 }
 
 function profileBaseline(
@@ -462,27 +492,47 @@ function fileDecision(
 			}
 		}
 	}
+	if (project) return undefined;
 	let aggregate: PermissionEffect | undefined;
+	let aggregateMessage: string | undefined;
 	for (const file of files) {
-		const root = roots.find((item) => isPathInside(item.canonicalPath, file.canonicalPath));
+		const root = selectFileRoot(roots, file.canonicalPath);
 		const effect = root === undefined
 			? config?.files?.outsideRoots?.[file.access] ?? "ask"
 			: root.access === "read-write" || file.access === "read"
 				? "allow"
 				: "ask";
-		aggregate = aggregate === undefined ? effect : stronger(aggregate, effect);
+		if (aggregate === undefined || effectRank(effect) > effectRank(aggregate)) {
+			aggregate = effect;
+			aggregateMessage = fileBoundaryMessage(file, root, effect);
+		}
 	}
-	return aggregate === undefined ? undefined : { effect: aggregate, message: "files root/outsideRoots" };
+	return aggregate === undefined ? undefined : { effect: aggregate, message: aggregateMessage ?? "files root/outsideRoots" };
+}
+
+function fileBoundaryMessage(file: Extract<PermissionResource, { kind: "file" }>, root: FileRootGrant | undefined, effect: PermissionEffect): string {
+	if (root === undefined) return `files.outsideRoots.${file.access} ${effect} for ${file.canonicalPath}`;
+	if (root.access === "read-write" || file.access === "read") return `files.root ${root.access} allows ${file.access} for ${file.canonicalPath}; root ${root.canonicalPath}`;
+	return `files.root ${root.access} asks ${file.access} for ${file.canonicalPath}; root ${root.canonicalPath}`;
+}
+
+function selectFileRoot(roots: FileRootGrant[], canonicalPath: string): FileRootGrant | undefined {
+	let selected: FileRootGrant | undefined;
+	for (const root of roots) {
+		if (!isPathInside(root.canonicalPath, canonicalPath)) continue;
+		if (selected === undefined || rootPrecedence(root) > rootPrecedence(selected)) selected = root;
+	}
+	return selected;
+}
+
+function rootPrecedence(root: FileRootGrant): number {
+	return path.resolve(root.canonicalPath).length * 2 + (root.access === "read-only" ? 1 : 0);
 }
 
 function fileRuleMatches(pattern: string, canonicalPath: string, lexicalPath: string): boolean {
 	const normalizedPattern = pattern.replace(/\\/g, "/");
 	const matcher = picomatch(normalizedPattern, { dot: true, nocase: process.platform === "win32" });
 	return matcher(canonicalPath.replace(/\\/g, "/")) || matcher(lexicalPath.replace(/\\/g, "/"));
-}
-
-function stronger(left: PermissionEffect, right: PermissionEffect): PermissionEffect {
-	return effectRank(right) > effectRank(left) ? right : left;
 }
 
 function traceEntry(source: DecisionTraceEntry["source"], effect: DecisionTraceEntry["effect"], message: string, ruleId?: string): DecisionTraceEntry {
@@ -525,6 +575,7 @@ export function validateProjectConfig(file: string, config: PermissionConfig): P
 	if (config.audit !== undefined) diagnostics.push(diagnostic(file, "/audit", 1, 1, "Project policy cannot configure audit."));
 	if ((config.files?.rules?.allow?.length ?? 0) > 0) diagnostics.push(diagnostic(file, "/files/rules/allow", 1, 1, "Project policy cannot allow."));
 	if (hasAllow(config.tools)) diagnostics.push(diagnostic(file, "/tools", 1, 1, "Project policy cannot allow tools."));
+	if (hasAllow(config.mcp)) diagnostics.push(diagnostic(file, "/mcp", 1, 1, "Project policy cannot allow MCP tools."));
 	if (hasAllow(config.skills)) diagnostics.push(diagnostic(file, "/skills", 1, 1, "Project policy cannot allow skills."));
 	if (hasAllow(config.agents)) diagnostics.push(diagnostic(file, "/agents", 1, 1, "Project policy cannot allow agents."));
 	return diagnostics;

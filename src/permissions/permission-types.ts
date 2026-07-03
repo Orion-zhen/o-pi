@@ -4,7 +4,7 @@ export type PermissionEffect = "allow" | "ask" | "deny";
 /** 内部求值使用的完整效果；policy-error 与 hard-deny 不可被覆盖。 */
 export type CompiledEffect = PermissionEffect | "no-opinion" | "policy-error" | "hard-deny";
 
-/** 会话 profile；unrestricted 只把普通 ask 降为 allow。 */
+/** 会话 profile；仅在没有显式策略结论时提供默认值。 */
 export type PermissionProfile = "cautious" | "standard" | "read-only" | "unrestricted";
 
 /** 所有受控对象共享的主体类型。 */
@@ -112,15 +112,8 @@ export interface PermissionIntent {
 	details?: string[];
 }
 
-export interface ApprovalScopeSuggestion {
-	id: string;
-	label: string;
-	scope: "once" | "session-exact" | "session-subtree" | "always";
-}
-
 export interface PermissionSubjectDescriptor<TInput = unknown> extends PermissionSubject {
 	analyze(input: TInput, context: PermissionAnalysisContext): Promise<PermissionIntent>;
-	suggestScopes?(intent: PermissionIntent): ApprovalScopeSuggestion[];
 }
 
 export interface AuthorizationRequest {
