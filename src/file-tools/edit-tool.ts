@@ -3,7 +3,7 @@ import { fail, isFailed } from "./errors.js";
 import { parseContextDiff } from "./diff-parser.js";
 import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
 import {
-	defaultPermissionService,
+	defaultSecurityService,
 	defaultPromptContext,
 	permissionFailure,
 	type FileToolPermissionRuntime,
@@ -67,21 +67,15 @@ export async function editWorkspace(cwd: string, params: unknown, runtime: EditR
 	if (lexicalConflict) return lexicalConflict;
 
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
-	const permissionService = runtime.permission?.permissionService ?? defaultPermissionService(workspaceRoot);
-	const authorization = await permissionService.authorizeSubjectCall({
-		kind: "tool",
-		configKey: "edit",
-		input,
-		executionId: runtime.permission?.toolCallId ?? "direct-edit",
+	const securityService = runtime.permission?.securityService ?? defaultSecurityService(workspaceRoot);
+	const authorization = await securityService.authorizeToolExecution({
+		toolName: "edit",
+		params: input,
+		toolCallId: runtime.permission?.toolCallId ?? "direct-edit",
 		promptContext: runtime.permission?.promptContext ?? defaultPromptContext(),
-		consumeLease: true,
+		...(runtime.permission?.principal !== undefined ? { principal: runtime.permission.principal } : {}),
 	});
-	if (!authorization.allowed) return permissionFailure({ code: authorization.error.code, message: authorization.error.message, resources: [] });
-	if (!(await permissionService.verifySubjectRequestUnchanged(authorization.request, { kind: "tool", configKey: "edit", input }))) {
-		return fail("PERMISSION_CONTEXT_CHANGED", "Permission context changed before editing.", {
-			details: { resources: authorization.request.resources.map((resource) => (resource.kind === "file" ? resource.canonicalPath : resource.kind)) },
-		});
-	}
+	if (!authorization.ok) return permissionFailure({ code: authorization.code, message: authorization.message, resources: [] });
 	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot);
 	const staged = await stageOperations(workspaceRoot, input.operations, ignoreSnapshot);
 	if (isFailed(staged)) return staged;

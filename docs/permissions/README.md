@@ -1,56 +1,23 @@
-# 权限系统
+# 安全授权模型
 
-本系统控制通过权限注册表接入的 Pi 工具调用，包括 `ls`、`read`、`edit`、`bash`。MCP tool、Skill、Agent 目前只保留策略模型，尚未接入完整注册与授权执行链。它不是 OS 沙箱；扩展代码和已获准启动的 shell 子进程仍拥有当前用户的系统权限。
+本仓库隔离两层模型：
 
-## 功能定位
+```text
+用户配置模型 -> PolicyCompiler -> 内部形式化授权模型
+```
 
-- 定义已接入工具的调用权限策略
-- 提供策略配置、审批、审计的完整生命周期
-- 运行态 fail closed：配置损坏时拒绝调用，控制台仍可打开修复
+用户只配置 catalog 中可见的工具、Bash、MCP、Skill、Agent 名称、路径和四种模式：`off`、`allow`、`ask`、`always-ask`。内部仍使用原子授权、组件身份、不可变 ticket、审批 grant、delegation 和审计，但这些不是用户配置 API。
 
-## 相关文件
+核心规则：
 
-| 文件 | 作用 |
-|------|------|
-| `~/.pi/agent/permissions.jsonc` | 全局策略文件 |
-| `<workspace>/.pi/permissions.jsonc` | 项目策略文件，仅 trusted 项目加载，只能收紧 |
-| `~/.pi/agent/permission-state/grants.json` | 持久授权记录 |
-| `~/.pi/agent/permission-state/audit.jsonl` | 审计日志 |
-| `~/.pi/agent/permissions.schema.json` | 策略 JSON Schema |
+* catalog 是配置名称唯一来源，未知名称直接报错并给出拼写建议。
+* 限制强度固定为 `allow < ask < always-ask < off`。
+* global、Agent、路径和 delegation 取最严格结果，规则顺序不产生覆盖语义。
+* `allow` 不弹审批，但仍必须通过内部边界、显式拒绝、delegation 和原子资源检查。
+* `ask` 可使用一次、会话或永久审批记录。
+* `always-ask` 每次审批，只生成本次执行 ticket。
+* `off` 不暴露且禁止执行，直接绕过 catalog 调用也会被拒绝。
 
-> 策略使用 JSONC 格式。配置写入由 `/permissions` 的事务服务完成：局部 AST 修改、保留注释、严格验证、临时文件写入、平台允许时 fsync、原子 rename、reload。并发修改会报 `PERMISSION_POLICY_CONFLICT`，不会覆盖磁盘上的新内容。
+配置文件是 `~/.pi/agent/permissions.jsonc` 和 `<workspace>/.pi/permissions.jsonc`。项目配置只能收紧，不能把 `off`、`always-ask` 或 `ask` 放宽。
 
-## 不可覆盖保护（Hard Protection）
-
-以下资源不可被配置、profile、session grant、persistent grant 或审批覆盖：
-
-- `~/.ssh/**`
-- `~/.gnupg/**`
-- Pi auth/trust 文件
-- 权限配置、权限 schema、权限状态、审计日志
-- 权限扩展代码
-
-服务初始化时会为这些路径构建 hard protection 快照：存在的路径同时记录 lexical path 和 canonical path；不存在的路径记录最深已存在父目录 identity 和剩余路径段。检查时会比较资源 lexical path、canonical path 和 symlink chain，避免保护路径自身为符号链接时被绕过。
-
-## 策略合成
-
-权限决策先应用不可覆盖约束和项目策略限制，再合成全局显式策略；只有没有显式结论时才使用 profile 默认值。同一层按 `deny > ask > allow` 取最严格结论。
-
-## 审计
-
-审计记录主体、policy/registry generation、operation、脱敏资源、策略效果、最终决策、来源、grant/lease/error。不会记录文件内容、diff 全文、环境变量值、凭据、完整 prompt 或 token。
-
-## 审批
-
-审批框展示工具名、注册来源、来源 identity、每个结构化资源的操作、read/write、input/lexical/canonical path、存在性、符号链接链、触发 ask 的策略 trace，以及 session/persistent grant 的实际作用范围。`Always allow` 只有能生成安全持久 scope 时出现。
-
-## Grants
-
-Grant 使用结构化 scope 持久化：文件 scope 绑定 path、operation 和 read/write access；命令使用 exact fingerprint。无法生成安全持久 scope 的请求不会显示 Always allow。
-
-工具 grant 还绑定 Pi `getAllTools()` 返回的实际注册来源身份。身份由规范化源路径、包名、包版本、源文件内容哈希和可选 `package.json` 中 `pi.identity`/`pi.manifestIdentity` 生成；源文件内容或同一路径实现被替换后，旧 grant 不再命中。
-
-## 下一步
-
-- [配置文件详解](config.md) — `permissions.jsonc` 各字段含义与取值
-- [命令参考](command.md) — `/permissions` 命令完整用法
+无 OS 沙箱限制：本系统控制 Pi 入口与本仓库文件工具；一旦允许 Bash 或外部进程运行，子进程仍拥有当前操作系统用户权限。

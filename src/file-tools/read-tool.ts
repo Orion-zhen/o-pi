@@ -1,7 +1,7 @@
 import { fail, isFailed } from "./errors.js";
 import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
 import {
-	defaultPermissionService,
+	defaultSecurityService,
 	defaultPromptContext,
 	permissionFailure,
 	type FileToolPermissionRuntime,
@@ -19,19 +19,15 @@ export async function readWorkspaceFile(
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const rangeError = validateRangeSyntax(params, params.path);
 	if (rangeError) return rangeError;
-	const permissionService = runtime.permissionService ?? defaultPermissionService(workspaceRoot);
-	const authorization = await permissionService.authorizeSubjectCall({
-		kind: "tool",
-		configKey: "read",
-		input: params,
-		executionId: runtime.toolCallId ?? "direct-read",
+	const securityService = runtime.securityService ?? defaultSecurityService(workspaceRoot);
+	const authorization = await securityService.authorizeToolExecution({
+		toolName: "read",
+		params,
+		toolCallId: runtime.toolCallId ?? "direct-read",
 		promptContext: runtime.promptContext ?? defaultPromptContext(),
-		consumeLease: true,
+		...(runtime.principal !== undefined ? { principal: runtime.principal } : {}),
 	});
-	if (!authorization.allowed) return permissionFailure({ code: authorization.error.code, message: authorization.error.message, resources: [] });
-	if (!(await permissionService.verifySubjectRequestUnchanged(authorization.request, { kind: "tool", configKey: "read", input: params }))) {
-		return fail("PERMISSION_CONTEXT_CHANGED", "Permission context changed before reading.", { path: params.path });
-	}
+	if (!authorization.ok) return permissionFailure({ code: authorization.code, message: authorization.message, resources: [] });
 	const resolved = await resolveExistingFile(workspaceRoot, params.path);
 	if (isFailed(resolved)) return resolved;
 	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot);

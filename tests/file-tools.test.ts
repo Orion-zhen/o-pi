@@ -7,7 +7,7 @@ import { listWorkspaceDirectory } from "../src/file-tools/ls-tool.js";
 import { readWorkspaceFile } from "../src/file-tools/read-tool.js";
 import { sha256Version } from "../src/file-tools/text-file.js";
 import type { LsSuccess, ToolOutcome } from "../src/file-tools/types.js";
-import { PermissionService } from "../src/permissions/permission-service.js";
+import { SecurityService } from "../src/security/runtime/security-service.js";
 
 let workspace: string;
 let outside: string;
@@ -28,7 +28,7 @@ function expectLsSuccess(result: ToolOutcome<LsSuccess>): LsSuccess {
 }
 
 function standardPermission() {
-	return { permission: { permissionService: new PermissionService({ workspaceRoot: workspace, agentDir: workspace, projectTrusted: false }) } };
+	return { permission: { securityService: new SecurityService({ workspaceRoot: workspace, agentDir: workspace, projectTrusted: false }) } };
 }
 
 describe("ls", () => {
@@ -100,11 +100,11 @@ describe("ls", () => {
 		});
 		expect(await listWorkspaceDirectory(workspace, { path: "../outside" })).toMatchObject({
 			status: "failed",
-			error: { code: "PERMISSION_PROMPT_UNAVAILABLE" },
+			error: { code: "SECURITY_DENIED" },
 		});
 		expect(await listWorkspaceDirectory(workspace, { path: path.join(outside, "x") })).toMatchObject({
 			status: "failed",
-			error: { code: "PERMISSION_PROMPT_UNAVAILABLE" },
+			error: { code: "SECURITY_DENIED" },
 		});
 		expect(await listWorkspaceDirectory(workspace, { path: "C:escape" })).toMatchObject({
 			status: "failed",
@@ -163,7 +163,7 @@ describe("ls", () => {
 		});
 		expect(await listWorkspaceDirectory(workspace, { path: "outside-link" })).toMatchObject({
 			status: "failed",
-			error: { code: "PERMISSION_PROMPT_UNAVAILABLE" },
+			error: { code: "SECURITY_DENIED" },
 		});
 	});
 
@@ -326,17 +326,17 @@ describe("read", () => {
 		await writeFile(path.join(outside, "secret.txt"), "secret");
 		expect(await readWorkspaceFile(workspace, { path: "../x.txt" })).toMatchObject({
 			status: "failed",
-			error: { code: "PERMISSION_PROMPT_UNAVAILABLE" },
+			error: { code: "SECURITY_DENIED" },
 		});
 		expect(await readWorkspaceFile(workspace, { path: path.join(outside, "secret.txt") })).toMatchObject({
 			status: "failed",
-			error: { code: "PERMISSION_PROMPT_UNAVAILABLE" },
+			error: { code: "SECURITY_DENIED" },
 		});
 		try {
 			await symlink(path.join(outside, "secret.txt"), path.join(workspace, "link.txt"));
 			expect(await readWorkspaceFile(workspace, { path: "link.txt" })).toMatchObject({
 				status: "failed",
-				error: { code: "PERMISSION_PROMPT_UNAVAILABLE" },
+				error: { code: "SECURITY_DENIED" },
 			});
 		} catch {
 			// Windows 未启用符号链接权限时跳过该断言。

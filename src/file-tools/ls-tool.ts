@@ -2,7 +2,7 @@ import { readdir } from "node:fs/promises";
 import { fail, isFailed } from "./errors.js";
 import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
 import {
-	defaultPermissionService,
+	defaultSecurityService,
 	defaultPromptContext,
 	permissionFailure,
 	type FileToolPermissionRuntime,
@@ -26,19 +26,15 @@ export async function listWorkspaceDirectory(
 	runtime: FileToolPermissionRuntime = {},
 ): Promise<ToolOutcome<LsSuccess>> {
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
-	const permissionService = runtime.permissionService ?? defaultPermissionService(workspaceRoot);
-	const authorization = await permissionService.authorizeSubjectCall({
-		kind: "tool",
-		configKey: "ls",
-		input: params,
-		executionId: runtime.toolCallId ?? "direct-ls",
+	const securityService = runtime.securityService ?? defaultSecurityService(workspaceRoot);
+	const authorization = await securityService.authorizeToolExecution({
+		toolName: "ls",
+		params,
+		toolCallId: runtime.toolCallId ?? "direct-ls",
 		promptContext: runtime.promptContext ?? defaultPromptContext(),
-		consumeLease: true,
+		...(runtime.principal !== undefined ? { principal: runtime.principal } : {}),
 	});
-	if (!authorization.allowed) return permissionFailure({ code: authorization.error.code, message: authorization.error.message, resources: [] });
-	if (!(await permissionService.verifySubjectRequestUnchanged(authorization.request, { kind: "tool", configKey: "ls", input: params }))) {
-		return fail("PERMISSION_CONTEXT_CHANGED", "Permission context changed before listing.", { path: params.path });
-	}
+	if (!authorization.ok) return permissionFailure({ code: authorization.code, message: authorization.message, resources: [] });
 	const resolved = await resolveExistingDirectory(workspaceRoot, params.path);
 	if (isFailed(resolved)) return resolved;
 	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot);

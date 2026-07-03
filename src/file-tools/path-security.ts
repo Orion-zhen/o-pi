@@ -3,8 +3,8 @@ import path from "node:path";
 
 import { fail } from "./errors.js";
 import type { FailedResult, ResolvedPath, TargetPath, ToolOutcome } from "./types.js";
-import { FileResolver, FileResolveError } from "../permissions/file-resolver.js";
-import { maybeWorkspaceRelative } from "../permissions/path-utils.js";
+import { FileResolver, FileResolveError } from "../security/runtime/file-resolver.js";
+import { maybeWorkspaceRelative } from "../security/runtime/path-utils.js";
 
 /** workspace root 仍取真实路径；路径是否允许访问由权限系统决定。 */
 export async function resolveWorkspaceRoot(cwd: string): Promise<string> {
@@ -80,7 +80,7 @@ export function isProtectedWorkspacePath(relativePath: string): boolean {
 
 async function resolvePermissionPath(workspaceRoot: string, inputPath: string) {
 	try {
-		return await new FileResolver({ workspaceRoot, agentDir: workspaceRoot }).resolve(inputPath, "file.read", "read");
+		return await new FileResolver({ workspaceRoot, agentDir: workspaceRoot }).resolve(inputPath);
 	} catch (error) {
 		if (error instanceof FileResolveError) {
 			return fail(error.code === "PATH_NOT_FOUND" ? "PATH_NOT_FOUND" : "INVALID_PATH", error.message, { path: inputPath });

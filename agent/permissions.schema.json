@@ -3,263 +3,90 @@
 	"$id": "https://pi.local/permissions.schema.json",
 	"type": "object",
 	"additionalProperties": false,
-	"required": [
-		"version"
-	],
+	"required": ["version"],
 	"properties": {
-		"$schema": {
-			"type": "string"
+		"$schema": { "type": "string" },
+		"version": { "const": 1 },
+		"global": { "$ref": "#/$defs/section" },
+		"agents": {
+			"type": "object",
+			"additionalProperties": { "$ref": "#/$defs/section" }
 		},
-		"version": {
-			"const": 1
+		"paths": {
+			"type": "array",
+			"items": {
+				"type": "object",
+				"additionalProperties": false,
+				"required": ["agents"],
+				"anyOf": [{ "required": ["match"] }, { "required": ["outsideWorkspace"] }],
+				"not": { "required": ["match", "outsideWorkspace"] },
+				"properties": {
+					"match": { "type": "string", "minLength": 1 },
+					"outsideWorkspace": { "const": true },
+					"agents": {
+						"type": "object",
+						"minProperties": 1,
+						"additionalProperties": { "$ref": "#/$defs/section" }
+					}
+				}
+			}
 		},
-		"profile": {
-			"enum": [
-				"cautious",
-				"standard",
-				"read-only",
-				"unrestricted"
-			]
-		},
-		"files": {
+		"approval": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"roots": {
-					"type": "array",
-					"items": {
-						"type": "object",
-						"additionalProperties": false,
-						"required": [
-							"path",
-							"access"
-						],
-						"properties": {
-							"path": {
-								"type": "string",
-								"minLength": 1
-							},
-							"access": {
-								"enum": [
-									"read-only",
-									"read-write"
-								]
-							}
-						}
-					}
-				},
-				"outsideRoots": {
+				"ask": {
 					"type": "object",
 					"additionalProperties": false,
 					"properties": {
-						"read": {
-							"enum": [
-								"allow",
-								"ask",
-								"deny"
-							]
-						},
-						"write": {
-							"enum": [
-								"allow",
-								"ask",
-								"deny"
-							]
+						"remember": {
+							"type": "array",
+							"items": { "enum": ["once", "session", "persistent"] },
+							"uniqueItems": true
 						}
 					}
 				},
-				"rules": {
-					"$ref": "#/$defs/fileEffectRules"
-				}
-			}
-		},
-		"tools": {
-			"$ref": "#/$defs/toolRuleSet"
-		},
-		"mcp": {
-			"type": "object",
-			"additionalProperties": false,
-			"properties": {
-				"default": {
-					"$ref": "#/$defs/effect"
-				},
-				"servers": {
+				"always-ask": {
 					"type": "object",
-					"additionalProperties": {
-						"type": "object",
-						"additionalProperties": false,
-						"properties": {
-							"default": {
-								"$ref": "#/$defs/effect"
-							},
-							"tools": {
-								"type": "object",
-								"additionalProperties": {
-									"$ref": "#/$defs/effect"
-								}
-							}
+					"additionalProperties": false,
+					"properties": {
+						"remember": {
+							"type": "array",
+							"items": { "const": "once" },
+							"uniqueItems": true,
+							"maxItems": 1
 						}
 					}
 				}
 			}
-		},
-		"skills": {
-			"$ref": "#/$defs/simpleRuleSet"
-		},
-		"agents": {
-			"$ref": "#/$defs/simpleRuleSet"
 		},
 		"audit": {
 			"type": "object",
 			"additionalProperties": false,
-			"required": [
-				"enabled"
-			],
-			"properties": {
-				"enabled": {
-					"type": "boolean"
-				}
-			}
+			"required": ["enabled"],
+			"properties": { "enabled": { "type": "boolean" } }
 		}
 	},
 	"$defs": {
-		"effect": {
-			"enum": [
-				"allow",
-				"ask",
-				"deny"
-			]
-		},
-		"fileRule": {
+		"mode": { "enum": ["off", "allow", "ask", "always-ask"] },
+		"modeMap": {
 			"type": "object",
-			"additionalProperties": false,
-			"required": [
-				"paths",
-				"access"
-			],
-			"properties": {
-				"id": {
-					"type": "string",
-					"minLength": 1
-				},
-				"paths": {
-					"type": "array",
-					"minItems": 1,
-					"items": {
-						"type": "string",
-						"minLength": 1
-					}
-				},
-				"access": {
-					"type": "array",
-					"minItems": 1,
-					"items": {
-						"enum": [
-							"read",
-							"write"
-						]
-					}
-				}
+			"additionalProperties": { "$ref": "#/$defs/mode" }
+		},
+		"mcpMap": {
+			"type": "object",
+			"additionalProperties": {
+				"anyOf": [{ "$ref": "#/$defs/mode" }, { "$ref": "#/$defs/modeMap" }]
 			}
 		},
-		"fileEffectRules": {
+		"section": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"deny": {
-					"type": "array",
-					"items": {
-						"$ref": "#/$defs/fileRule"
-					}
-				},
-				"ask": {
-					"type": "array",
-					"items": {
-						"$ref": "#/$defs/fileRule"
-					}
-				},
-				"allow": {
-					"type": "array",
-					"items": {
-						"$ref": "#/$defs/fileRule"
-					}
-				}
-			}
-		},
-		"commandEffectRules": {
-			"type": "object",
-			"additionalProperties": false,
-			"properties": {
-				"deny": {
-					"type": "array",
-					"items": {
-						"type": "string",
-						"minLength": 1
-					}
-				},
-				"ask": {
-					"type": "array",
-					"items": {
-						"type": "string",
-						"minLength": 1
-					}
-				},
-				"allow": {
-					"type": "array",
-					"items": {
-						"type": "string",
-						"minLength": 1
-					}
-				}
-			}
-		},
-		"toolConfig": {
-			"oneOf": [
-				{
-					"$ref": "#/$defs/effect"
-				},
-				{
-					"type": "object",
-					"additionalProperties": false,
-					"properties": {
-						"default": {
-							"$ref": "#/$defs/effect"
-						},
-						"commands": {
-							"$ref": "#/$defs/commandEffectRules"
-						}
-					}
-				}
-			]
-		},
-		"toolRuleSet": {
-			"type": "object",
-			"additionalProperties": false,
-			"properties": {
-				"default": {
-					"$ref": "#/$defs/effect"
-				},
-				"items": {
-					"type": "object",
-					"additionalProperties": {
-						"$ref": "#/$defs/toolConfig"
-					}
-				}
-			}
-		},
-		"simpleRuleSet": {
-			"type": "object",
-			"additionalProperties": false,
-			"properties": {
-				"default": {
-					"$ref": "#/$defs/effect"
-				},
-				"items": {
-					"type": "object",
-					"additionalProperties": {
-						"$ref": "#/$defs/effect"
-					}
-				}
+				"tools": { "$ref": "#/$defs/modeMap" },
+				"mcp": { "$ref": "#/$defs/mcpMap" },
+				"skills": { "$ref": "#/$defs/modeMap" },
+				"subagents": { "$ref": "#/$defs/modeMap" }
 			}
 		}
 	}

@@ -23,7 +23,7 @@
 
 * `agent/extensions/file-tools.ts`：注册 `ls` / `read` / `edit`，定义工具 schema 和提示词元数据。
 * `agent/extensions/block-builtin-tools.ts`：屏蔽 Pi 内置工具，保留扩展和 SDK 工具。
-* `agent/extensions/permissions.ts`：注册 `/permissions` 命令并管理权限会话状态。
+* `agent/extensions/permissions.ts`：注册 `/permissions` 命令并管理安全 ticket 状态。
 * `src/file-tools/`：实现路径安全、目录枚举、文本读取、diff 匹配、事务提交和回滚。
 * `src/file-tools/ignore/`：实现统一 ignore engine、snapshot、explain 和 Git tracked set。
 
@@ -36,7 +36,7 @@ ignore：路径是否应从自动发现、遍历、搜索或索引中排除。
 permission：agent 是否有权访问或修改路径。
 ```
 
-`.piignore` 和 `.gitignore` 不是安全机制。敏感路径、workspace/external/system/sensitive 边界、符号链接 canonical target 和权限策略由 `src/permissions/` 处理；ignore 规则不能覆盖 permission，`!pattern` 也不能解除安全限制。
+`.piignore` 和 `.gitignore` 不是安全机制。敏感路径、workspace/external/system/sensitive 边界、符号链接 canonical target 和授权策略由 `src/security/` 处理；ignore 规则不能覆盖授权，`!pattern` 也不能解除安全限制。
 
 状态行为：
 

@@ -1,44 +1,85 @@
 {
 	"$schema": "./permissions.schema.json",
 	"version": 1,
-	"profile": "standard",
-	"files": {
-		"roots": [
-			{ "path": "${workspace}", "access": "read-write" },
-			{ "path": "~/datasets", "access": "read-only" }
-		],
-		"outsideRoots": {
-			"read": "ask",
-			"write": "ask"
-		},
-		"rules": {
-			"deny": [
-				{ "paths": ["~/.ssh/**", "~/.gnupg/**"], "access": ["read", "write"] }
-			],
-			"ask": [
-				{ "paths": ["**/.env", "**/.env.*"], "access": ["read"] }
-			],
-			"allow": []
-		}
-	},
-	"tools": {
-		"default": "ask",
-		"items": {
+
+	"global": {
+		"tools": {
 			"ls": "allow",
 			"read": "allow",
 			"edit": "allow",
-			"bash": {
-				"default": "ask",
-				"commands": {
-					"deny": ["sudo *", "rm -rf /", "rm -rf /*"],
-					"ask": ["git push *", "npm publish *"],
-					"allow": ["git status", "git diff *", "npm test *", "pytest *"]
-				}
+			"bash": "off",
+			"*": "off"
+		},
+		"mcp": {
+			"*": "off"
+		},
+		"skills": {
+			"*": "off"
+		},
+		"subagents": {
+			"main": "off",
+			"*": "off"
+		}
+	},
+
+	"agents": {
+		"main": {
+			"tools": {
+				"ls": "allow",
+				"read": "allow",
+				"edit": "allow",
+				"bash": "off",
+				"*": "off"
+			},
+			"mcp": {
+				"*": "off"
+			},
+			"skills": {
+				"*": "off"
+			},
+			"subagents": {
+				"*": "off"
 			}
 		}
 	},
-	"mcp": { "default": "ask", "servers": {} },
-	"skills": { "default": "ask", "items": {} },
-	"agents": { "default": "ask", "items": {} },
+
+	"paths": [
+		{
+			"match": "${workspace}/**",
+			"agents": {
+				"main": {
+					"tools": {
+						"ls": "allow",
+						"read": "allow",
+						"edit": "allow",
+						"bash": "off"
+					}
+				}
+			}
+		},
+		{
+			"outsideWorkspace": true,
+			"agents": {
+				"*": {
+					"tools": {
+						"ls": "ask",
+						"read": "ask",
+						"edit": "always-ask",
+						"bash": "off"
+					}
+				}
+			}
+		}
+	],
+
+	"approval": {
+		"ask": {
+			"remember": ["once", "session", "persistent"]
+		},
+		"always-ask": {
+			"remember": ["once"]
+		}
+	},
+
 	"audit": { "enabled": true }
 }

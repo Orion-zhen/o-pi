@@ -4,8 +4,8 @@ import { editWorkspace } from "../../src/file-tools/edit-tool.js";
 import { listWorkspaceDirectory } from "../../src/file-tools/ls-tool.js";
 import { readWorkspaceFile } from "../../src/file-tools/read-tool.js";
 import type { EditParams, LsParams, ReadParams } from "../../src/file-tools/types.js";
-import { promptContextFromUi, type PermissionCommandContext } from "../../src/permissions/permission-commands.js";
-import { getPermissionServiceRegistry } from "../../src/pi-runtime/permission-service-registry.js";
+import { promptContextFromUi, type SecurityCommandContext } from "../../src/security/config/commands.js";
+import { getSecurityServiceRegistry } from "../../src/pi-runtime/security-service-registry.js";
 
 const lsParameters = Type.Object({ path: Type.String({ description: "Directory path." }) });
 const readParameters = Type.Object({
@@ -28,8 +28,8 @@ const editParameters = Type.Object({
 
 /** 注册覆盖版 ls/read/edit；权限由 tool_call 门禁与执行阶段 lease 共同保证。 */
 export default function fileTools(pi: ExtensionAPI): void {
-	const registry = getPermissionServiceRegistry();
-	const serviceFor = async (ctx: PermissionCommandContext) => {
+	const registry = getSecurityServiceRegistry();
+	const serviceFor = async (ctx: SecurityCommandContext) => {
 		const service = await registry.serviceFor(ctx);
 		await service.syncRegisteredTools(pi.getAllTools());
 		return service;
@@ -45,7 +45,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 		async execute(toolCallId, params, _signal, _onUpdate, ctx) {
 			const service = await serviceFor(ctx);
 			const result = await listWorkspaceDirectory(ctx.cwd, params as LsParams, {
-				permissionService: service,
+				securityService: service,
 				toolCallId,
 				promptContext: promptContextFromUi(ctx, 120000),
 			});
@@ -70,7 +70,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 		async execute(toolCallId, params, _signal, _onUpdate, ctx) {
 			const service = await serviceFor(ctx);
 			const result = await readWorkspaceFile(ctx.cwd, params as ReadParams, {
-				permissionService: service,
+				securityService: service,
 				toolCallId,
 				promptContext: promptContextFromUi(ctx, 120000),
 			});
@@ -96,7 +96,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 			const service = await serviceFor(ctx);
 			const result = await editWorkspace(ctx.cwd, params as EditParams, {
 				permission: {
-					permissionService: service,
+					securityService: service,
 					toolCallId,
 					promptContext: promptContextFromUi(ctx, 120000),
 				},
