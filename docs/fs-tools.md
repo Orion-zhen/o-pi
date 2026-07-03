@@ -461,7 +461,9 @@ src/b.ts  3 lines / 3 occurrences
 
 soft ignore 不阻止 `edit`。`edit` 只依据文件系统访问结果、文件类型、上次读取版本和 operation 合法性决定是否修改。
 
-成功结果的 `diff` 是 Pi TUI 展示用的精简行号 diff，用于展示本次事务变更，不是可直接应用的 unified patch。
+TUI 会在参数完整后执行只读预览并在 call 区显示 diff；真正执行仍必须通过 read-before-edit、版本和事务校验。成功后如果结果 diff 与预览一致，结果区不重复展示 diff。
+
+成功结果的 `diff` 是 Pi TUI 展示用的精简行号 diff，不是可直接应用的 unified patch。`details.patch` 保存标准 unified patch，`details.firstChangedLine` 保存首个变更行号；模型可见正文不包含 `patch`。
 
 ## 路径解析
 

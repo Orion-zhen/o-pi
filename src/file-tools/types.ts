@@ -221,7 +221,22 @@ export interface EditSuccess {
 	status: "applied";
 	transaction_id: string;
 	results: OperationResult[];
+	/** Pi TUI 展示用的带行号 diff；不是可应用补丁。 */
 	diff: string;
+	/** 标准 unified patch，仅供 UI/外部集成读取，不要求模型使用。 */
+	patch: string;
+	/** 第一处变更在新文件中的行号；多文件事务取首个变更文件。 */
+	firstChangedLine?: number;
+}
+
+export interface EditPreviewSuccess {
+	status: "preview";
+	/** Pi TUI 展示用的带行号 diff；不是可应用补丁。 */
+	diff: string;
+	/** 标准 unified patch，仅供 UI/外部集成读取，不要求模型使用。 */
+	patch: string;
+	/** 第一处变更在新文件中的行号；多文件事务取首个变更文件。 */
+	firstChangedLine?: number;
 }
 
 export interface ResolvedPath {

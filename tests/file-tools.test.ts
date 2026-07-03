@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, wr
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { editWorkspace as editWorkspaceImpl, type EditRuntime } from "../src/file-tools/edit-tool.js";
+import { editWorkspace as editWorkspaceImpl, previewEditWorkspace, type EditRuntime } from "../src/file-tools/edit-tool.js";
 import { formatCompactLsResult, listWorkspaceDirectory } from "../src/file-tools/ls-tool.js";
 import { ReadVersionCache } from "../src/file-tools/read-cache.js";
 import { readWorkspaceFile as readWorkspaceFileImpl } from "../src/file-tools/read-tool.js";
@@ -704,5 +704,22 @@ describe("edit", () => {
 		if ("error" in result) throw new Error(`edit failed: ${result.error.code}`);
 		expect(result.diff).toContain("a.txt\n-1 old\n+1 new");
 		expect(result.diff).not.toContain("--- a/a.txt");
+		expect(result.patch).toContain("@@");
+		expect(result.firstChangedLine).toBe(1);
+	});
+
+	it("预览只读生成 diff 元数据，执行仍保持 read-before-edit 约束", async () => {
+		await writeFile(path.join(workspace, "a.txt"), "old\n");
+		const params = { operations: [{ type: "update_file", path: "a.txt", diff: "@@\n-old\n+new" }] };
+		const preview = await previewEditWorkspace(workspace, params);
+		if ("error" in preview) throw new Error(`preview failed: ${preview.error.code}`);
+		expect(preview).toMatchObject({ status: "preview", firstChangedLine: 1 });
+		expect(preview.diff).toContain("a.txt\n-1 old\n+1 new");
+		expect(preview.patch).toContain("@@");
+		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("old\n");
+
+		const result = await editWorkspace(workspace, params);
+		expect(result).toMatchObject({ status: "failed", error: { code: "READ_REQUIRED" } });
+		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("old\n");
 	});
 });

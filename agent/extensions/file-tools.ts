@@ -1,13 +1,21 @@
-import { renderDiff, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { renderDiff, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
+import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { editWorkspace } from "../../src/file-tools/edit-tool.js";
+import { editWorkspace, previewEditWorkspace } from "../../src/file-tools/edit-tool.js";
 import { findWorkspaceFiles } from "../../src/file-tools/find-tool.js";
 import { formatCompactGrepResult, grepWorkspaceFiles } from "../../src/file-tools/grep-tool.js";
 import { formatCompactLsResult, listWorkspaceDirectory } from "../../src/file-tools/ls-tool.js";
 import { ReadVersionCache } from "../../src/file-tools/read-cache.js";
 import { readWorkspaceFile } from "../../src/file-tools/read-tool.js";
-import type { EditParams, EditSuccess, FindParams, GrepParams, LsParams, ReadParams } from "../../src/file-tools/types.js";
+import type { EditParams, EditPreviewSuccess, EditSuccess, FailedResult, FindParams, GrepParams, LsParams, ReadParams } from "../../src/file-tools/types.js";
+
+type EditPreview = EditPreviewSuccess | FailedResult;
+type EditCallComponent = Box & {
+	preview: EditPreview | EditSuccess | undefined;
+	previewArgsKey: string | undefined;
+	previewPending: boolean;
+	settledError: boolean;
+};
 
 const lsParameters = Type.Object({ path: Type.String({ description: "Directory path." }) });
 const findParameters = Type.Object({
@@ -157,32 +165,129 @@ export default function fileTools(pi: ExtensionAPI): void {
 				details: result,
 			};
 		},
-		renderCall(args, theme) {
-			return new Text(formatEditCall(args, theme), 0, 0);
+		renderCall(args, theme, context) {
+			const component = getEditCallComponent(context.state, context.lastComponent);
+			const argsKey = stableArgsKey(args);
+			if (component.previewArgsKey !== argsKey) {
+				component.preview = undefined;
+				component.previewArgsKey = argsKey;
+				component.previewPending = false;
+				component.settledError = false;
+			}
+			if (context.argsComplete && argsKey !== undefined && component.preview === undefined && !component.previewPending) {
+				component.previewPending = true;
+				void previewEditWorkspace(context.cwd, args).catch(previewException).then((preview) => {
+					if (component.previewArgsKey === argsKey) {
+						component.preview = preview;
+						component.previewPending = false;
+						context.invalidate();
+					}
+				});
+			}
+			return buildEditCallComponent(component, args, theme);
 		},
 		renderResult(result, { isPartial }, theme, context) {
 			if (isPartial) return new Text(theme.fg("warning", "Editing..."), 0, 0);
 
 			const details = result.details;
-			if (isFailedEditDetails(details)) {
-				return new Text(theme.fg("error", `${details.error.code}: ${details.error.message}`), 0, 0);
+			const callComponent = getEditCallComponent(context.state, undefined);
+			const previewBeforeResult = callComponent.preview;
+			if (isEditSuccessDetails(details)) {
+				callComponent.preview = details;
+				callComponent.previewArgsKey = stableArgsKey(context.args);
+				callComponent.previewPending = false;
+				callComponent.settledError = false;
+			} else if (isFailedEditDetails(details)) {
+				callComponent.settledError = true;
 			}
+			buildEditCallComponent(callComponent, context.args, theme);
 
 			const component = context.lastComponent instanceof Container ? context.lastComponent : new Container();
 			component.clear();
-			if (!isEditSuccessDetails(details) || details.diff === "") {
-				component.addChild(new Text(theme.fg("success", "Applied"), 0, 0));
-				return component;
-			}
-			component.addChild(new Text(theme.fg("success", "Applied"), 0, 0));
+			const output = formatEditResult(details, previewBeforeResult, theme);
+			if (output === undefined) return component;
 			component.addChild(new Spacer(1));
-			component.addChild(new Text(renderDiff(details.diff), 1, 0));
+			component.addChild(new Text(output, 1, 0));
 			return component;
 		},
 	});
 }
 
-function formatEditCall(args: unknown, theme: { fg(name: string, text: string): string; bold(text: string): string }): string {
+function createEditCallComponent(): EditCallComponent {
+	return Object.assign(new Box(1, 1), {
+		preview: undefined,
+		previewArgsKey: undefined,
+		previewPending: false,
+		settledError: false,
+	});
+}
+
+function getEditCallComponent(state: { callComponent?: EditCallComponent }, lastComponent: unknown): EditCallComponent {
+	if (lastComponent instanceof Box) {
+		const component = lastComponent as EditCallComponent;
+		state.callComponent = component;
+		return component;
+	}
+	if (state.callComponent !== undefined) return state.callComponent;
+	const component = createEditCallComponent();
+	state.callComponent = component;
+	return component;
+}
+
+function buildEditCallComponent(component: EditCallComponent, args: unknown, theme: Theme): EditCallComponent {
+	component.setBgFn(editHeaderBg(component.preview, component.settledError, theme));
+	component.clear();
+	component.addChild(new Text(formatEditCall(args, theme), 0, 0));
+	if (component.preview === undefined) return component;
+
+	component.addChild(new Spacer(1));
+	if (isFailedEditDetails(component.preview)) {
+		component.addChild(new Text(theme.fg("error", formatEditError(component.preview)), 0, 0));
+	} else if (component.preview.diff !== "") {
+		component.addChild(new Text(renderDiff(component.preview.diff), 0, 0));
+	}
+	return component;
+}
+
+function editHeaderBg(preview: EditPreview | EditSuccess | undefined, settledError: boolean, theme: Theme): ((text: string) => string) | undefined {
+	if (preview !== undefined) {
+		return isFailedEditDetails(preview) ? (text) => theme.bg("toolErrorBg", text) : (text) => theme.bg("toolSuccessBg", text);
+	}
+	if (settledError) return (text) => theme.bg("toolErrorBg", text);
+	return (text) => theme.bg("toolPendingBg", text);
+}
+
+function formatEditResult(details: unknown, preview: EditPreview | EditSuccess | undefined, theme: Theme): string | undefined {
+	if (isFailedEditDetails(details)) {
+		const errorText = formatEditError(details);
+		if (isFailedEditDetails(preview) && formatEditError(preview) === errorText) return undefined;
+		return theme.fg("error", errorText);
+	}
+	if (!isEditSuccessDetails(details) || details.diff === "") return undefined;
+	const previewDiff = preview !== undefined && !isFailedEditDetails(preview) ? preview.diff : undefined;
+	return details.diff === previewDiff ? undefined : renderDiff(details.diff);
+}
+
+function stableArgsKey(args: unknown): string | undefined {
+	if (!isPlainRecord(args) || !Array.isArray(args["operations"])) return undefined;
+	return JSON.stringify(args["operations"]);
+}
+
+function formatEditError(result: FailedResult): string {
+	return `${result.error.code}: ${result.error.message}`;
+}
+
+function previewException(error: unknown): FailedResult {
+	return {
+		status: "failed",
+		error: {
+			code: "INVALID_OPERATION",
+			message: error instanceof Error ? error.message : String(error),
+		},
+	};
+}
+
+function formatEditCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
 	const operations = isPlainRecord(args) && Array.isArray(args["operations"]) ? args["operations"] : [];
 	const label = operations.length === 1 ? formatEditOperation(operations[0]) : `${operations.length} operations`;
 	return `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", label)}`;
@@ -204,7 +309,7 @@ function isEditSuccessDetails(value: unknown): value is EditSuccess {
 	return isPlainRecord(value) && value["status"] === "applied" && typeof value["diff"] === "string";
 }
 
-function isFailedEditDetails(value: unknown): value is { status: "failed"; error: { code: string; message: string } } {
+function isFailedEditDetails(value: unknown): value is FailedResult {
 	if (!isPlainRecord(value) || value["status"] !== "failed" || !isPlainRecord(value["error"])) return false;
 	const error = value["error"];
 	return typeof error["code"] === "string" && typeof error["message"] === "string";
@@ -224,7 +329,7 @@ function scrubVersions(value: unknown): unknown {
 	if (value === null || typeof value !== "object") return value;
 	const result: Record<string, unknown> = {};
 	for (const [key, item] of Object.entries(value)) {
-		if (key === "version" || key === "old_version" || key === "new_version" || key === "expected" || key === "actual") continue;
+		if (key === "version" || key === "old_version" || key === "new_version" || key === "expected" || key === "actual" || key === "patch") continue;
 		result[key] = scrubVersions(item);
 	}
 	return result;

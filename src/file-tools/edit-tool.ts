@@ -1,5 +1,5 @@
 import { stat, unlink } from "node:fs/promises";
-import { generateDiffString } from "@earendil-works/pi-coding-agent";
+import { generateDiffString, generateUnifiedPatch } from "@earendil-works/pi-coding-agent";
 import { fail, isFailed } from "./errors.js";
 import { ignoreConfigFromFileTools, loadFileToolsConfig, type FileToolsConfig } from "./config.js";
 import { parseContextDiff } from "./diff-parser.js";
@@ -20,6 +20,7 @@ import type {
 	EditOperation,
 	EditOperationType,
 	EditParams,
+	EditPreviewSuccess,
 	EditSuccess,
 	FailedResult,
 	OperationResult,
@@ -51,6 +52,12 @@ interface StagedState {
 	to?: string;
 }
 
+interface EditDiffMetadata {
+	diff: string;
+	patch: string;
+	firstChangedLine?: number;
+}
+
 export interface EditRuntime {
 	writeFileAtomic?: (targetPath: string, bytes: Buffer, mode?: number) => Promise<void>;
 	versionCache?: ReadVersionCache;
@@ -58,20 +65,14 @@ export interface EditRuntime {
 
 /** edit 是唯一写入口：校验结构化 operations、全量暂存，再按逻辑事务提交。 */
 export async function editWorkspace(cwd: string, params: unknown, runtime: EditRuntime = {}): Promise<ToolOutcome<EditSuccess>> {
-	const input = validateEditInput(params);
-	if (isFailed(input)) return input;
-	const lexicalConflict = validateLexicalOperationConflicts(input.operations);
-	if (lexicalConflict) return lexicalConflict;
-
-	const config = await loadFileToolsConfig();
-	if (isFailed(config)) return config;
-	const workspaceRoot = await resolveWorkspaceRoot(cwd);
-	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
-	const staged = await stageOperations(workspaceRoot, input.operations, ignoreSnapshot, config, runtime.versionCache);
+	const prepareOptions: { readPolicy: "cached"; versionCache?: ReadVersionCache } = { readPolicy: "cached" };
+	if (runtime.versionCache !== undefined) prepareOptions.versionCache = runtime.versionCache;
+	const staged = await prepareEdit(cwd, params, prepareOptions);
 	if (isFailed(staged)) return staged;
 
 	const originals = Array.from(staged.originals.values()).sort((a, b) => a.path.localeCompare(b.path));
 	const stagedStates = Array.from(staged.finalStates.values()).sort((a, b) => a.path.localeCompare(b.path));
+	const diff = buildDiffMetadata(originals, stagedStates);
 	const transactionId = `txn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 
 	try {
@@ -92,8 +93,35 @@ export async function editWorkspace(cwd: string, params: unknown, runtime: EditR
 		status: "applied",
 		transaction_id: transactionId,
 		results: operationResults(stagedStates),
-		diff: buildDiff(originals, stagedStates),
+		...diff,
 	};
+}
+
+/** 生成只读预览：不要求 read cache，不提交文件，也不更新版本缓存。 */
+export async function previewEditWorkspace(cwd: string, params: unknown): Promise<ToolOutcome<EditPreviewSuccess>> {
+	const staged = await prepareEdit(cwd, params, { readPolicy: "current" });
+	if (isFailed(staged)) return staged;
+	const originals = Array.from(staged.originals.values()).sort((a, b) => a.path.localeCompare(b.path));
+	const stagedStates = Array.from(staged.finalStates.values()).sort((a, b) => a.path.localeCompare(b.path));
+	const diff = buildDiffMetadata(originals, stagedStates);
+	return { status: "preview", ...diff };
+}
+
+async function prepareEdit(
+	cwd: string,
+	params: unknown,
+	options: { readPolicy: "cached" | "current"; versionCache?: ReadVersionCache },
+): Promise<ToolOutcome<{ originals: Map<string, OriginalState>; finalStates: Map<string, StagedState> }>> {
+	const input = validateEditInput(params);
+	if (isFailed(input)) return input;
+	const lexicalConflict = validateLexicalOperationConflicts(input.operations);
+	if (lexicalConflict) return lexicalConflict;
+
+	const config = await loadFileToolsConfig();
+	if (isFailed(config)) return config;
+	const workspaceRoot = await resolveWorkspaceRoot(cwd);
+	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
+	return stageOperations(workspaceRoot, input.operations, ignoreSnapshot, config, options.versionCache, options.readPolicy);
 }
 
 function validateEditInput(params: unknown): ToolOutcome<EditParams> {
@@ -220,6 +248,7 @@ async function stageOperations(
 	ignoreSnapshot: IgnoreSnapshot,
 	config: FileToolsConfig,
 	versionCache: ReadVersionCache | undefined,
+	readPolicy: "cached" | "current",
 ): Promise<ToolOutcome<{ originals: Map<string, OriginalState>; finalStates: Map<string, StagedState> }>> {
 	const originals = new Map<string, OriginalState>();
 	const finalStates = new Map<string, StagedState>();
@@ -280,6 +309,7 @@ async function stageOperations(
 				versionCache?.get(source.realPath),
 				index,
 				operation.type,
+				readPolicy,
 			);
 			if (isFailed(sourceFile)) return sourceFile;
 			const sourceMode = await modeOf(source.realPath);
@@ -330,6 +360,7 @@ async function stageOperations(
 			versionCache?.get(resolved.realPath),
 			index,
 			operation.type,
+			readPolicy,
 		);
 		if (isFailed(file)) return file;
 		const mode = await modeOf(resolved.realPath);
@@ -396,13 +427,18 @@ async function readExistingWithVersion(
 	expected: string | undefined,
 	operationIndex: number,
 	type: EditOperationType,
+	readPolicy: "cached" | "current",
 ): Promise<ToolOutcome<TextFile>> {
 	if (expected === undefined) {
-		return fail("READ_REQUIRED", "Read the file before editing it.", {
-			path: relativePath,
-			type,
-			operation_index: operationIndex,
-		});
+		if (readPolicy === "cached") {
+			return fail("READ_REQUIRED", "Read the file before editing it.", {
+				path: relativePath,
+				type,
+				operation_index: operationIndex,
+			});
+		}
+		const current = await readTextFile(absolutePath, relativePath);
+		return isFailed(current) ? withOperation(current, operationIndex, type) : current;
 	}
 	const file = await readTextFile(absolutePath, relativePath);
 	if (isFailed(file)) return withOperation(file, operationIndex, type);
@@ -645,19 +681,30 @@ function resultForOperation(index: number, states: StagedState[]): OperationResu
 	};
 }
 
-function buildDiff(originals: OriginalState[], states: StagedState[]): string {
+function buildDiffMetadata(originals: OriginalState[], states: StagedState[]): EditDiffMetadata {
 	const originalMap = new Map(originals.map((state) => [state.path, state]));
-	const chunks: string[] = [];
+	const diffChunks: string[] = [];
+	const patchChunks: string[] = [];
+	let firstChangedLine: number | undefined;
 	for (const state of states) {
 		const original = originalMap.get(state.path);
 		const oldText = original?.bytes ? textForDiff(original.bytes) : "";
 		const newText = state.bytes ? textForDiff(state.bytes) : "";
 		// Pi TUI 的 renderDiff 读取带行号的展示 diff；路径行用于区分多文件事务。
-		const displayDiff = generateDiffString(oldText, newText).diff;
-		if (displayDiff === "") continue;
-		chunks.push(state.path, displayDiff);
+		const display = generateDiffString(oldText, newText);
+		if (display.diff === "") continue;
+		if (firstChangedLine === undefined && display.firstChangedLine !== undefined) {
+			firstChangedLine = display.firstChangedLine;
+		}
+		diffChunks.push(state.path, display.diff);
+		patchChunks.push(generateUnifiedPatch(state.path, oldText, newText));
 	}
-	return chunks.join("\n");
+	const metadata: EditDiffMetadata = {
+		diff: diffChunks.join("\n"),
+		patch: patchChunks.join("\n"),
+	};
+	if (firstChangedLine !== undefined) metadata.firstChangedLine = firstChangedLine;
+	return metadata;
 }
 
 function textForDiff(bytes: Buffer): string {
