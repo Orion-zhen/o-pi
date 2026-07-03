@@ -4,49 +4,39 @@ import path from "node:path";
 import { fail } from "./errors.js";
 import type { FailedResult, ResolvedPath, TargetPath, ToolOutcome } from "./types.js";
 
-/** 返回真实 workspace 根目录，后续路径判断都基于该 canonical root。 */
+/** 返回工具相对路径的解析基准；它不是访问边界。 */
 export async function resolveWorkspaceRoot(cwd: string): Promise<string> {
 	return await realpath(cwd);
 }
 
-/** 解析已存在目录；拒绝 workspace 外路径和指向 workspace 外的符号链接。 */
+/** 解析已存在目录；接受 Pi 进程可访问的相对或绝对路径。 */
 export async function resolveExistingDirectory(workspaceRoot: string, inputPath: string): Promise<ToolOutcome<ResolvedPath>> {
-	const lexical = normalizeWorkspacePath(workspaceRoot, inputPath);
-	if (isFailed(lexical)) return lexical;
-	if (isWorkspaceMetadataPath(lexical.relativePath)) {
-		return fail("PROTECTED_PATH", "Workspace metadata cannot be listed.", { path: lexical.relativePath });
-	}
-	const resolved = await resolveExistingWorkspacePath(workspaceRoot, inputPath, "PATH_NOT_FOUND");
+	const resolved = await resolveExistingPath(workspaceRoot, inputPath, "PATH_NOT_FOUND");
 	if (isFailed(resolved)) return resolved;
 	const info = await stat(resolved.realPath);
 	if (!info.isDirectory()) return fail("NOT_A_DIRECTORY", "Path is not a directory.", { path: resolved.relativePath });
 	return resolved;
 }
 
-/** 解析已存在普通文件；拒绝 workspace 外路径和指向 workspace 外的符号链接。 */
+/** 解析已存在普通文件；接受 Pi 进程可访问的相对或绝对路径。 */
 export async function resolveExistingFile(workspaceRoot: string, inputPath: string): Promise<ToolOutcome<ResolvedPath>> {
-	const lexical = normalizeWorkspacePath(workspaceRoot, inputPath);
-	if (isFailed(lexical)) return lexical;
-	if (isWorkspaceMetadataPath(lexical.relativePath)) {
-		return fail("PROTECTED_PATH", "Workspace metadata cannot be read.", { path: lexical.relativePath });
-	}
-	const resolved = await resolveExistingWorkspacePath(workspaceRoot, inputPath, "FILE_NOT_FOUND");
+	const resolved = await resolveExistingPath(workspaceRoot, inputPath, "FILE_NOT_FOUND");
 	if (isFailed(resolved)) return resolved;
 	const info = await stat(resolved.realPath);
 	if (!info.isFile()) return fail("NOT_A_FILE", "Path is not a regular file.", { path: resolved.relativePath });
 	return resolved;
 }
 
-/** 解析可创建或替换的目标文件；不存在目标通过最近存在父目录约束在 workspace 内。 */
+/** 解析可创建或替换的目标文件；不存在目标时只要求最近存在父路径是目录。 */
 export async function resolveTargetFile(workspaceRoot: string, inputPath: string): Promise<ToolOutcome<TargetPath>> {
-	const lexical = normalizeWorkspacePath(workspaceRoot, inputPath);
+	const lexical = normalizeToolPath(workspaceRoot, inputPath);
 	if (isFailed(lexical)) return lexical;
-	if (lexical.relativePath === ".") return fail("INVALID_PATH", "Target must be a file path, not the workspace root.", { path: inputPath });
+	if (lexical.relativePath === ".") return fail("INVALID_PATH", "Target must be a file path, not the current directory.", { path: inputPath });
 	if (isWorkspaceMetadataPath(lexical.relativePath)) {
-		return fail("PROTECTED_PATH", "Workspace metadata cannot be modified.", { path: lexical.relativePath });
+		return fail("PROTECTED_PATH", "Git metadata cannot be modified.", { path: lexical.relativePath });
 	}
 
-	const parent = await resolveExistingParent(workspaceRoot, lexical.absolutePath);
+	const parent = await resolveExistingParent(workspaceRoot, lexical.absolutePath, path.isAbsolute(inputPath));
 	if (isFailed(parent)) return parent;
 	const parentInfo = await stat(parent.parentRealPath);
 	if (!parentInfo.isDirectory()) return fail("INVALID_PATH", "Parent path is not a directory.", { path: lexical.relativePath });
@@ -55,6 +45,7 @@ export async function resolveTargetFile(workspaceRoot: string, inputPath: string
 		inputPath,
 		relativePath: lexical.relativePath,
 		absolutePath: lexical.absolutePath,
+		...(lexical.workspacePath !== undefined ? { workspacePath: lexical.workspacePath } : {}),
 		parentRealPath: parent.parentRealPath,
 	};
 }
@@ -68,18 +59,21 @@ export async function fileExists(absolutePath: string): Promise<boolean> {
 	}
 }
 
-/** `.git` 是工具内部元数据边界：隐藏、拒读、拒写，但不属于授权系统。 */
+/** `.git` 是默认硬保护路径段：不列出、不读取、不写入。 */
 export function isWorkspaceMetadataPath(relativePath: string): boolean {
-	return relativePath.split("/").some((segment) => segment === ".git");
+	return relativePath.split(/[\\/]+/).some((segment) => segment === ".git");
 }
 
-async function resolveExistingWorkspacePath(
+async function resolveExistingPath(
 	workspaceRoot: string,
 	inputPath: string,
 	missingCode: "FILE_NOT_FOUND" | "PATH_NOT_FOUND",
 ): Promise<ToolOutcome<ResolvedPath>> {
-	const lexical = normalizeWorkspacePath(workspaceRoot, inputPath);
+	const lexical = normalizeToolPath(workspaceRoot, inputPath);
 	if (isFailed(lexical)) return lexical;
+	if (isWorkspaceMetadataPath(lexical.relativePath)) {
+		return fail("PROTECTED_PATH", "Git metadata cannot be accessed.", { path: lexical.relativePath });
+	}
 	let real: string;
 	try {
 		real = await realpath(lexical.absolutePath);
@@ -89,46 +83,43 @@ async function resolveExistingWorkspacePath(
 			path: lexical.relativePath,
 		});
 	}
-	const realRelative = workspaceRelative(workspaceRoot, real);
-	if (realRelative === undefined) return fail("SYMLINK_OUTSIDE_WORKSPACE", "Path resolves outside the workspace.", { path: lexical.relativePath });
 	return {
 		inputPath,
 		relativePath: lexical.relativePath,
 		absolutePath: lexical.absolutePath,
 		realPath: real,
+		...(lexical.workspacePath !== undefined ? { workspacePath: lexical.workspacePath } : {}),
 	};
 }
 
-function normalizeWorkspacePath(workspaceRoot: string, inputPath: string): ToolOutcome<{ absolutePath: string; relativePath: string }> {
+function normalizeToolPath(workspaceRoot: string, inputPath: string): ToolOutcome<{ absolutePath: string; relativePath: string; workspacePath?: string }> {
 	if (inputPath.length === 0) return fail("INVALID_PATH", "Path must not be empty.", { path: inputPath });
 	if (inputPath.includes("\0")) return fail("INVALID_PATH", "Path must not contain NUL bytes.", { path: inputPath });
-	if (/^[A-Za-z]:(?![\\/])/.test(inputPath)) return fail("INVALID_PATH", "Drive-relative paths are not supported.", { path: inputPath });
-	if (/[*?[\]{}]/.test(inputPath)) return fail("INVALID_PATH", "Glob patterns are not supported.", { path: inputPath });
 
 	const absolutePath = path.resolve(workspaceRoot, inputPath);
-	const relativePath = workspaceRelative(workspaceRoot, absolutePath);
-	if (relativePath === undefined) return fail("PATH_OUTSIDE_WORKSPACE", "Path must stay inside the workspace.", { path: inputPath });
-	return { absolutePath, relativePath };
+	const workspacePath = workspaceRelative(workspaceRoot, absolutePath);
+	return {
+		absolutePath,
+		relativePath: path.isAbsolute(inputPath) ? path.normalize(absolutePath) : (workspacePath ?? normalizeRelative(path.relative(workspaceRoot, absolutePath))),
+		...(workspacePath !== undefined ? { workspacePath } : {}),
+	};
 }
 
 async function resolveExistingParent(
 	workspaceRoot: string,
 	absolutePath: string,
+	inputWasAbsolute: boolean,
 ): Promise<ToolOutcome<{ parentRealPath: string }>> {
 	let current = path.dirname(absolutePath);
 	while (true) {
-		const relative = workspaceRelative(workspaceRoot, current);
-		if (relative === undefined) return fail("PATH_OUTSIDE_WORKSPACE", "Parent path must stay inside the workspace.");
+		const displayPath = inputWasAbsolute ? path.normalize(current) : (workspaceRelative(workspaceRoot, current) ?? normalizeRelative(path.relative(workspaceRoot, current)));
 		try {
 			const info = await lstat(current);
-			if (!info.isDirectory() && !info.isSymbolicLink()) return fail("INVALID_PATH", "Parent path is not a directory.", { path: relative });
+			if (!info.isDirectory() && !info.isSymbolicLink()) return fail("INVALID_PATH", "Parent path is not a directory.", { path: displayPath });
 			const parentRealPath = await realpath(current);
-			if (workspaceRelative(workspaceRoot, parentRealPath) === undefined) {
-				return fail("SYMLINK_OUTSIDE_WORKSPACE", "Parent path resolves outside the workspace.", { path: relative });
-			}
 			return { parentRealPath };
 		} catch (error) {
-			if (isAccessDenied(error)) return fail("ACCESS_DENIED", "Parent path cannot be accessed.", { path: relative });
+			if (isAccessDenied(error)) return fail("ACCESS_DENIED", "Parent path cannot be accessed.", { path: displayPath });
 			const next = path.dirname(current);
 			if (next === current) return fail("PATH_NOT_FOUND", "Parent directory does not exist.");
 			current = next;
@@ -141,6 +132,10 @@ function workspaceRelative(workspaceRoot: string, candidate: string): string | u
 	if (relative === "") return ".";
 	if (relative.startsWith("..") || path.isAbsolute(relative)) return undefined;
 	return relative.replace(/\\/g, "/");
+}
+
+function normalizeRelative(value: string): string {
+	return value === "" ? "." : value.replace(/\\/g, "/");
 }
 
 function isFailed<T>(result: T | FailedResult): result is FailedResult {

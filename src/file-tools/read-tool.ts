@@ -12,9 +12,8 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams): Promis
 	const resolved = await resolveExistingFile(workspaceRoot, params.path);
 	if (isFailed(resolved)) return resolved;
 	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot);
-	const workspacePath = isWorkspaceRelative(resolved.relativePath);
-	const ignoreDecision = workspacePath
-		? ignoreSnapshot.evaluate({ path: resolved.relativePath, kind: "file", intent: "explicit-read" })
+	const ignoreDecision = resolved.workspacePath !== undefined
+		? ignoreSnapshot.evaluate({ path: resolved.workspacePath, kind: "file", intent: "explicit-read" })
 		: { ignored: false, matchedRule: undefined };
 
 	const file = await readTextFile(resolved.realPath, resolved.relativePath);
@@ -43,10 +42,6 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams): Promis
 		if (source !== undefined) result.ignore_source = source;
 	}
 	return result;
-}
-
-function isWorkspaceRelative(value: string): boolean {
-	return value === "." || (!value.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(value));
 }
 
 function shortIgnoreSource(sourceType: string | undefined): string | undefined {

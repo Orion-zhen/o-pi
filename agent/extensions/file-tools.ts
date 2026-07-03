@@ -24,14 +24,14 @@ const editParameters = Type.Object({
 	),
 });
 
-/** 注册覆盖版 ls/read/edit；工具自身只负责 workspace 内文件访问。 */
+/** 注册覆盖版 ls/read/edit；路径权限由 Pi 进程和操作系统决定。 */
 export default function fileTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "ls",
 		label: "ls",
 		description: "List the direct children of a directory. The result is non-recursive and does not include file contents.",
-		promptSnippet: "List direct children of a workspace directory",
-		promptGuidelines: ["Use ls to discover directory contents before choosing files to read."],
+		promptSnippet: "List direct children of a directory",
+		promptGuidelines: ["Use ls to discover directory contents before choosing files to read.", "The .git directory is hidden."],
 		parameters: lsParameters,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const result = await listWorkspaceDirectory(ctx.cwd, params as LsParams);
@@ -46,11 +46,12 @@ export default function fileTools(pi: ExtensionAPI): void {
 		name: "read",
 		label: "read",
 		description:
-			"Read one UTF-8 workspace file without side effects. Returns content, line range, SHA-256 version, encoding, newline and truncation metadata.",
-		promptSnippet: "Read a UTF-8 workspace file and return content plus version metadata",
+			"Read one UTF-8 file without side effects. Returns content, line range, SHA-256 version, encoding, newline and truncation metadata.",
+		promptSnippet: "Read a UTF-8 file and return content plus version metadata",
 		promptGuidelines: [
 			"Use read before editing an existing file; pass the returned version as that operation's base_version.",
 			"If edit returns STALE_BASE_VERSION or DIFF_CONTEXT_*, call read again and generate a new operation.",
+			"Do not read .git paths.",
 		],
 		parameters: readParameters,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -71,6 +72,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 		promptGuidelines: [
 			"Use edit as the only file modification tool; it accepts only an operations array.",
 			"Use create_file only for new files and replace_file only for existing files.",
+			"Do not edit .git paths.",
 		],
 		parameters: editParameters,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

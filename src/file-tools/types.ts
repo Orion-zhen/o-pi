@@ -5,8 +5,6 @@ export type FileToolErrorCode =
 	| "PATH_NOT_FOUND"
 	| "NOT_A_FILE"
 	| "NOT_A_DIRECTORY"
-	| "PATH_OUTSIDE_WORKSPACE"
-	| "SYMLINK_OUTSIDE_WORKSPACE"
 	| "PROTECTED_PATH"
 	| "ACCESS_DENIED"
 	| "INVALID_PATH"
@@ -83,7 +81,6 @@ export interface LsSuccess {
 	truncated: boolean;
 	returned_entries?: number;
 	total_entries?: number;
-	blocked_entries?: number;
 	continuation_hint?: string;
 }
 
@@ -142,14 +139,20 @@ export interface EditSuccess {
 
 export interface ResolvedPath {
 	inputPath: string;
+	/** 工具返回路径：相对输入按 cwd 规范化，绝对输入保持绝对。 */
 	relativePath: string;
 	absolutePath: string;
 	realPath: string;
+	/** 仅当目标位于 cwd 内时存在，用于匹配 .piignore/.gitignore。 */
+	workspacePath?: string;
 }
 
 export interface TargetPath {
 	inputPath: string;
+	/** 工具返回路径：相对输入按 cwd 规范化，绝对输入保持绝对。 */
 	relativePath: string;
 	absolutePath: string;
+	/** 仅当目标位于 cwd 内时存在，用于匹配 .piignore/.gitignore。 */
+	workspacePath?: string;
 	parentRealPath: string;
 }

@@ -82,9 +82,11 @@ describe("ls", () => {
 		});
 	});
 
-	it("区分不存在、普通文件、路径逃逸、绝对路径、glob 和受保护路径", async () => {
+	it("区分不存在和普通文件，允许绝对路径和 .. 相对路径，但拒绝 .git", async () => {
 		await writeFile(path.join(workspace, "file.txt"), "");
 		await mkdir(path.join(workspace, ".git"));
+		await mkdir(path.join(outside, "nested"));
+		const relativeOutside = path.relative(workspace, outside);
 		expect(await listWorkspaceDirectory(workspace, { path: "missing" })).toMatchObject({
 			status: "failed",
 			error: { code: "PATH_NOT_FOUND", path: "missing" },
@@ -93,35 +95,26 @@ describe("ls", () => {
 			status: "failed",
 			error: { code: "NOT_A_DIRECTORY", path: "file.txt" },
 		});
-		expect(await listWorkspaceDirectory(workspace, { path: "../outside" })).toMatchObject({
-			status: "failed",
-			error: { code: "PATH_OUTSIDE_WORKSPACE" },
+		expect(await listWorkspaceDirectory(workspace, { path: relativeOutside })).toMatchObject({
+			path: relativeOutside.replace(/\\/g, "/"),
+			entries: [{ name: "nested", type: "directory" }],
 		});
-		expect(await listWorkspaceDirectory(workspace, { path: path.join(outside, "x") })).toMatchObject({
-			status: "failed",
-			error: { code: "PATH_OUTSIDE_WORKSPACE" },
-		});
-		expect(await listWorkspaceDirectory(workspace, { path: "C:escape" })).toMatchObject({
-			status: "failed",
-			error: { code: "INVALID_PATH" },
-		});
-		expect(await listWorkspaceDirectory(workspace, { path: "src/*.ts" })).toMatchObject({
-			status: "failed",
-			error: { code: "INVALID_PATH" },
+		expect(await listWorkspaceDirectory(workspace, { path: outside })).toMatchObject({
+			path: path.normalize(outside),
+			entries: [{ name: "nested", path: path.join(outside, "nested"), type: "directory" }],
 		});
 		expect(await listWorkspaceDirectory(workspace, { path: ".git" })).toMatchObject({
 			status: "failed",
-			error: { code: "PROTECTED_PATH" },
+			error: { code: "PROTECTED_PATH", path: ".git" },
 		});
 	});
 
-	it("父目录隐藏 blocked 项并保留普通 dotfile", async () => {
+	it("父目录隐藏 .git 并保留普通 dotfile", async () => {
 		await mkdir(path.join(workspace, ".git"));
 		await writeFile(path.join(workspace, ".gitignore"), "dist\n");
 		const result = await listWorkspaceDirectory(workspace, { path: "." });
 		expect(result).toMatchObject({
 			entries: [{ name: ".gitignore", path: ".gitignore", type: "file" }],
-			blocked_entries: 1,
 		});
 		expect("ignored" in expectLsSuccess(result).entries[0]!).toBe(false);
 	});
@@ -142,9 +135,10 @@ describe("ls", () => {
 		});
 	});
 
-	it("访问 workspace 内目录 symlink 会解析 realpath，workspace 外 symlink 会失败", async () => {
+	it("直接访问目录 symlink 会解析 realpath，允许指向 cwd 外", async () => {
 		await mkdir(path.join(workspace, "real-dir"));
 		await mkdir(path.join(outside, "outside-dir"));
+		await writeFile(path.join(outside, "outside-dir", "x.txt"), "");
 		try {
 			await symlink(path.join(workspace, "real-dir"), path.join(workspace, "inside-link"), "dir");
 			await symlink(path.join(outside, "outside-dir"), path.join(workspace, "outside-link"), "dir");
@@ -157,8 +151,9 @@ describe("ls", () => {
 			truncated: false,
 		});
 		expect(await listWorkspaceDirectory(workspace, { path: "outside-link" })).toMatchObject({
-			status: "failed",
-			error: { code: "SYMLINK_OUTSIDE_WORKSPACE" },
+			path: "outside-link",
+			entries: [{ name: "x.txt", path: "outside-link/x.txt", type: "file" }],
+			truncated: false,
 		});
 	});
 
@@ -317,25 +312,36 @@ describe("read", () => {
 		});
 	});
 
-	it("拒绝路径逃逸和符号链接逃逸", async () => {
-		await writeFile(path.join(outside, "secret.txt"), "secret");
-		expect(await readWorkspaceFile(workspace, { path: "../x.txt" })).toMatchObject({
-			status: "failed",
-			error: { code: "PATH_OUTSIDE_WORKSPACE" },
+	it("允许读取绝对路径、.. 相对路径和指向外部的符号链接", async () => {
+		const secret = path.join(outside, "secret.txt");
+		await writeFile(secret, "secret");
+		const relativeOutside = path.relative(workspace, secret);
+		expect(await readWorkspaceFile(workspace, { path: relativeOutside })).toMatchObject({
+			path: relativeOutside.replace(/\\/g, "/"),
+			content: "secret",
 		});
-		expect(await readWorkspaceFile(workspace, { path: path.join(outside, "secret.txt") })).toMatchObject({
-			status: "failed",
-			error: { code: "PATH_OUTSIDE_WORKSPACE" },
+		expect(await readWorkspaceFile(workspace, { path: secret })).toMatchObject({
+			path: path.normalize(secret),
+			content: "secret",
 		});
 		try {
-			await symlink(path.join(outside, "secret.txt"), path.join(workspace, "link.txt"));
+			await symlink(secret, path.join(workspace, "link.txt"));
 			expect(await readWorkspaceFile(workspace, { path: "link.txt" })).toMatchObject({
-				status: "failed",
-				error: { code: "SYMLINK_OUTSIDE_WORKSPACE" },
+				path: "link.txt",
+				content: "secret",
 			});
 		} catch {
 			// Windows 未启用符号链接权限时跳过该断言。
 		}
+	});
+
+	it("拒绝读取 .git", async () => {
+		await mkdir(path.join(workspace, ".git"));
+		await writeFile(path.join(workspace, ".git", "config"), "[core]\n");
+		expect(await readWorkspaceFile(workspace, { path: ".git/config" })).toMatchObject({
+			status: "failed",
+			error: { code: "PROTECTED_PATH", path: ".git/config" },
+		});
 	});
 
 	it("内容变化会改变 version，read 不修改内容或 mtime", async () => {
@@ -394,6 +400,36 @@ describe("edit", () => {
 			status: "failed",
 			error: { code: "FILE_ALREADY_EXISTS", operation_index: 0 },
 		});
+	});
+
+	it("edit 允许修改 cwd 外的绝对路径", async () => {
+		const externalFile = path.join(outside, "external.txt");
+		const created = await editWorkspace(workspace, {
+			operations: [{ type: "create_file", path: externalFile, content: "hello\n" }],
+		});
+		expect(created).toMatchObject({
+			status: "applied",
+			results: [{ index: 0, type: "create_file", path: path.normalize(externalFile), old_version: null }],
+		});
+		expect(await readFile(externalFile, "utf8")).toBe("hello\n");
+
+		const read = await readWorkspaceFile(workspace, { path: externalFile });
+		if (!("version" in read)) throw new Error("read failed");
+		expect(
+			await editWorkspace(workspace, {
+				operations: [{ type: "replace_file", path: externalFile, base_version: read.version, content: "updated\n" }],
+			}),
+		).toMatchObject({ status: "applied", results: [{ index: 0, type: "replace_file", path: path.normalize(externalFile) }] });
+		expect(await readFile(externalFile, "utf8")).toBe("updated\n");
+	});
+
+	it("edit 拒绝写入 .git", async () => {
+		await mkdir(path.join(workspace, ".git"));
+		expect(
+			await editWorkspace(workspace, {
+				operations: [{ type: "create_file", path: ".git/config", content: "[core]\n" }],
+			}),
+		).toMatchObject({ status: "failed", error: { code: "PROTECTED_PATH", path: ".git/config", operation_index: 0 } });
 	});
 
 	it("update_file 单 hunk 和多 hunk 成功", async () => {

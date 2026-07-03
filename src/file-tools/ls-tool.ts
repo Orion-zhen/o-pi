@@ -1,4 +1,5 @@
 import { readdir } from "node:fs/promises";
+import path from "node:path";
 import { fail, isFailed } from "./errors.js";
 import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
 import { isWorkspaceMetadataPath, resolveExistingDirectory, resolveWorkspaceRoot } from "./path-resolver.js";
@@ -31,17 +32,13 @@ export async function listWorkspaceDirectory(cwd: string, params: LsParams): Pro
 	}
 
 	const entries: LsEntry[] = [];
-	let blockedEntries = 0;
 	for (const entry of rawEntries) {
-		const entryPath = childRelativePath(resolved.relativePath, entry.name);
-		const workspaceEntry = isWorkspaceRelative(entryPath);
-		if (workspaceEntry && isWorkspaceMetadataPath(entryPath)) {
-			blockedEntries += 1;
-			continue;
-		}
+		const entryPath = childPath(resolved.relativePath, entry.name);
+		if (isWorkspaceMetadataPath(entryPath)) continue;
+		const workspaceEntryPath = childWorkspacePath(resolved.workspacePath, entry.name);
 		const type = entryType(entry);
-		const ignoreDecision = workspaceEntry
-			? ignoreSnapshot.evaluate({ path: entryPath, kind: type, intent: "list-entry" })
+		const ignoreDecision = workspaceEntryPath !== undefined
+			? ignoreSnapshot.evaluate({ path: workspaceEntryPath, kind: type, intent: "list-entry" })
 			: { ignored: false, matchedRule: undefined };
 		const lsEntry: LsEntry = {
 			name: entry.name,
@@ -70,16 +67,21 @@ export async function listWorkspaceDirectory(cwd: string, params: LsParams): Pro
 					continuation_hint: "List a more specific subdirectory.",
 				}
 			: {}),
-		...(blockedEntries > 0 ? { blocked_entries: blockedEntries } : {}),
 	};
 }
 
-function childRelativePath(parent: string, name: string): string {
+function childPath(parent: string, name: string): string {
+	if (parent === ".") return name;
+	return normalizePath(path.join(parent, name));
+}
+
+function childWorkspacePath(parent: string | undefined, name: string): string | undefined {
+	if (parent === undefined) return undefined;
 	return parent === "." ? name : `${parent}/${name}`;
 }
 
-function isWorkspaceRelative(value: string): boolean {
-	return value === "." || (!value.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(value));
+function normalizePath(value: string): string {
+	return path.isAbsolute(value) ? path.normalize(value) : value.replace(/\\/g, "/");
 }
 
 function entryType(entry: { isDirectory(): boolean; isFile(): boolean; isSymbolicLink(): boolean }): LsEntryType {

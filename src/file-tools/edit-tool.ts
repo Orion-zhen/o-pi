@@ -227,8 +227,8 @@ async function stageOperations(
 		if (operation.type === "create_file") {
 			const target = await resolveTargetFile(workspaceRoot, operation.path);
 			if (isFailed(target)) return withOperation(target, index, operation.type);
-			noteSoftIgnore(ignoreSnapshot, target.relativePath);
-			const conflict = markTouched(touched, target.relativePath, index, operation.type);
+			noteSoftIgnore(ignoreSnapshot, target.workspacePath);
+			const conflict = markTouched(touched, target.absolutePath, target.relativePath, index, operation.type);
 			if (conflict) return conflict;
 			if (await fileExists(target.absolutePath)) {
 				return fail("FILE_ALREADY_EXISTS", "create_file target already exists.", {
@@ -256,11 +256,11 @@ async function stageOperations(
 			if (isFailed(source)) return withOperation(source, index, operation.type);
 			const target = await resolveTargetFile(workspaceRoot, operation.to);
 			if (isFailed(target)) return withOperation(target, index, operation.type);
-			noteSoftIgnore(ignoreSnapshot, source.relativePath);
-			noteSoftIgnore(ignoreSnapshot, target.relativePath);
+			noteSoftIgnore(ignoreSnapshot, source.workspacePath);
+			noteSoftIgnore(ignoreSnapshot, target.workspacePath);
 			const conflict =
-				markTouched(touched, source.relativePath, index, operation.type) ??
-				markTouched(touched, target.relativePath, index, operation.type);
+				markTouched(touched, source.realPath, source.relativePath, index, operation.type) ??
+				markTouched(touched, target.absolutePath, target.relativePath, index, operation.type);
 			if (conflict) return conflict;
 			if (await fileExists(target.absolutePath)) {
 				return fail("FILE_ALREADY_EXISTS", "move_file target already exists.", {
@@ -316,8 +316,8 @@ async function stageOperations(
 
 		const resolved = await resolveExistingFile(workspaceRoot, operation.path);
 		if (isFailed(resolved)) return withOperation(resolved, index, operation.type);
-		noteSoftIgnore(ignoreSnapshot, resolved.relativePath);
-		const conflict = markTouched(touched, resolved.relativePath, index, operation.type);
+		noteSoftIgnore(ignoreSnapshot, resolved.workspacePath);
+		const conflict = markTouched(touched, resolved.realPath, resolved.relativePath, index, operation.type);
 		if (conflict) return conflict;
 		const file = await readExistingWithVersion(
 			resolved.realPath,
@@ -380,13 +380,9 @@ async function stageOperations(
 	return { originals, finalStates };
 }
 
-function noteSoftIgnore(ignoreSnapshot: IgnoreSnapshot, relativePath: string): void {
-	if (!isWorkspaceRelative(relativePath)) return;
-	ignoreSnapshot.evaluate({ path: relativePath, kind: "file", intent: "explicit-edit" });
-}
-
-function isWorkspaceRelative(value: string): boolean {
-	return value === "." || (!value.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(value));
+function noteSoftIgnore(ignoreSnapshot: IgnoreSnapshot, workspacePath: string | undefined): void {
+	if (workspacePath === undefined) return;
+	ignoreSnapshot.evaluate({ path: workspacePath, kind: "file", intent: "explicit-edit" });
 }
 
 async function readExistingWithVersion(
@@ -508,15 +504,16 @@ function originalForMissing(target: TargetPath): OriginalState {
 
 function markTouched(
 	touched: Map<string, number>,
-	relativePath: string,
+	identityPath: string,
+	displayPath: string,
 	index: number,
 	type: EditOperationType,
 ): FailedResult | undefined {
-	const key = relativePath.toLocaleLowerCase();
+	const key = identityPath.toLocaleLowerCase();
 	const previous = touched.get(key);
 	if (previous !== undefined) {
 		return fail("CONFLICTING_OPERATIONS", "Multiple operations target the same logical path.", {
-			path: relativePath,
+			path: displayPath,
 			type,
 			operation_index: index,
 			details: { previous_operation_index: previous },

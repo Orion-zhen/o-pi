@@ -26,22 +26,23 @@
 * `src/file-tools/`：实现路径解析、目录枚举、文本读取、diff 匹配、事务提交和回滚。
 * `src/file-tools/ignore/`：实现统一 ignore engine、snapshot、explain 和 Git tracked set。
 
-## ignore 与路径约束
+## ignore 与路径解析
 
-ignore 和路径约束是两个独立维度：
+ignore 和路径解析是两个独立维度：
 
 ```text
 ignore：路径是否应从自动发现、遍历、搜索或索引中排除。
-路径约束：文件工具是否接受该路径。
+路径解析：把相对或绝对输入交给文件系统操作。
 ```
 
-`.piignore` 和 `.gitignore` 不是访问控制机制。文件工具只接受 workspace 内路径，符号链接 canonical target 也必须留在 workspace 内；ignore 规则不能放宽这些路径约束。
+`.piignore` 和 `.gitignore` 不是访问控制机制。`ls` / `read` / `edit` 接受相对或绝对路径；只要 Pi 进程和操作系统允许访问，就可以执行。相对路径按当前 `cwd` 解析，绝对路径保持绝对。`.git` 是默认硬保护例外。
 
 状态行为：
 
 * 普通路径：`ls` 返回，`read` 允许，`edit` 允许，未来搜索/索引包含。
 * soft ignored：`ls` 返回并标记，显式 `read` 允许，`edit` 允许，未来搜索/索引默认跳过。
-* blocked：路径不满足工具约束，隐藏或拒绝，不标记为 ignored。
+* cwd 外路径：允许访问；不套用当前 cwd 的 ignore 规则。
+* `.git` 路径：父目录 `ls` 隐藏，直接 `ls` / `read` / `edit` 拒绝。
 
 默认配置：
 
@@ -59,13 +60,12 @@ ignore：路径是否应从自动发现、遍历、搜索或索引中排除。
 
 规则来源优先级从高到低：
 
-1. 路径约束，独立且不可覆盖；
-2. session override，当前为内部预留；
-3. `.piignore`；
-4. `.gitignore`；
-5. `.git/info/exclude`，默认关闭；
-6. Git global excludes，默认关闭；
-7. builtin rules。
+1. session override，当前为内部预留；
+2. `.piignore`；
+3. `.gitignore`；
+4. `.git/info/exclude`，默认关闭；
+5. Git global excludes，默认关闭；
+6. builtin rules。
 
 同一来源中，子目录规则优先于父目录规则；同一文件中，后面的匹配规则覆盖前面的规则。
 
@@ -129,7 +129,7 @@ Git tracked files：
 
 ## ls
 
-`ls` 只列出指定目录的直属成员。它无副作用、不递归、不读取文件内容、不搜索内容、不支持 glob、不返回 size、mtime、权限、owner、inode 等 metadata。
+`ls` 只列出指定目录的直属成员。它无副作用、不递归、不读取文件内容、不搜索内容、不返回 size、mtime、权限、owner、inode 等 metadata。
 
 参数：
 
@@ -141,7 +141,7 @@ Git tracked files：
 
 字段：
 
-* `path`：目录路径。`.` 表示 workspace root；外部绝对路径按权限策略处理；空字符串非法。
+* `path`：目录路径。`.` 表示当前 `cwd`；相对路径按 `cwd` 解析；绝对路径保持绝对；空字符串非法。
 
 成功结果：
 
@@ -160,7 +160,7 @@ Git tracked files：
 entry：
 
 * `name`：当前目录下的 basename。
-* `path`：workspace 内返回相对规范化路径；外部目录返回绝对路径。
+* `path`：相对输入返回按 `cwd` 规范化后的相对路径；绝对输入返回绝对路径。
 * `type`：`directory`、`file`、`symlink` 或 `other`。
 * `ignored`：命中 soft ignore 时为 `true`。
 * `ignore_source`：可选简短来源，例如 `.piignore`、`.gitignore` 或 `builtin`。
@@ -168,20 +168,15 @@ entry：
 dotfiles：
 
 * `.gitignore`、`.github`、`.vscode`、`.env.example` 等普通 dotfile 会正常返回。
-* dotfile 不等于 ignored，也不等于 blocked。
+* dotfile 不等于 ignored。
 * `.piignore` 和 `.gitignore` 自身正常出现在 `ls` 中。
-
-blocked：
-
-* `.git` 等受保护路径不能直接 `ls`。
-* 父目录列表中受保护直属成员会隐藏，并通过 `blocked_entries` 计数。
-* blocked 不是 ignored，不能用 `ignored: true` 表示。
+* `.git` 默认隐藏，不能直接 `ls`、`read` 或 `edit`。
 
 symlink：
 
 * 父目录中的符号链接返回 `type: "symlink"`，不按目标类型改写。
 * 直接 `ls` 一个符号链接路径时会先解析 realpath。
-* canonical target 必须位于 workspace 内；指向外部的 symlink 返回 `SYMLINK_OUTSIDE_WORKSPACE`。
+* 指向 cwd 外的 symlink 允许访问，最终由 Pi 进程和操作系统权限决定。
 * `ls` 不递归，因此不会遍历 symlink cycle。
 * symlink entry 按其逻辑名称参与 ignore 匹配。
 
@@ -275,21 +270,19 @@ symlink：
 
 任何作用于已有文件的 operation 都必须使用 `read` 返回的 `version` 作为 `base_version`。如果磁盘内容已变化，`edit` 返回 `STALE_BASE_VERSION`，不会自动合并或覆盖外部修改。
 
-soft ignore 不阻止 `edit`。`edit` 仍只依据路径约束、文件类型、base version 和 operation 合法性决定是否修改。
+soft ignore 不阻止 `edit`。`edit` 只依据文件系统访问结果、文件类型、base version 和 operation 合法性决定是否修改。
 
 ## 路径解析
 
 `ls`、`read`、`edit` 共享 `src/file-tools/path-resolver.ts`。
 
-路径先做格式校验和 canonicalization。工具拒绝：
+路径先按当前 `cwd` 解析。工具只主动拒绝：
 
 * 空路径；
-* Windows drive-relative 路径；
 * 空字节；
-* glob 特殊字符；
-* workspace 外路径；
-* 指向 workspace 外的符号链接；
-* `.git` 等 workspace 元数据路径。
+* 任一路径段为 `.git`。
+
+路径可以是相对路径、`..` 路径、绝对路径、包含 glob 字符的普通文件名，或指向 cwd 外的符号链接。工具不会展开 glob。
 
 常见错误：
 
@@ -297,9 +290,7 @@ soft ignore 不阻止 `edit`。`edit` 仍只依据路径约束、文件类型、
 * `FILE_NOT_FOUND`：`read` 目标文件不存在。
 * `NOT_A_DIRECTORY`：`ls` 目标存在但不是目录。
 * `NOT_A_FILE`：`read` 目标存在但不是普通文件。
-* `PATH_OUTSIDE_WORKSPACE`：输入路径位于 workspace 外。
-* `SYMLINK_OUTSIDE_WORKSPACE`：符号链接 canonical target 位于 workspace 外。
-* `PROTECTED_PATH`：目标是 `.git` 等 workspace 元数据。
+* `PROTECTED_PATH`：目标位于 `.git`。
 * `ACCESS_DENIED`：运行时无权访问目标。
 
 恢复方式：

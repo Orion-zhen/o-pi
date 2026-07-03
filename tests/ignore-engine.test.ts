@@ -254,7 +254,10 @@ describe("ignore engine", () => {
 		expect(await readFile(path.join(workspace, "dist", "schema.json"), "utf8")).toBe("{\"a\":2}\n");
 
 		await mkdir(path.join(workspace, ".git"));
-		expect(await listWorkspaceDirectory(workspace, { path: "." })).toMatchObject({ blocked_entries: 1 });
+		await writeFile(path.join(workspace, ".git", "config"), "[core]\n");
+		const withGit = await listWorkspaceDirectory(workspace, { path: "." });
+		if ("status" in withGit) throw new Error("ls failed");
+		expect(withGit.entries.find((entry) => entry.name === ".git")).toBeUndefined();
 		expect(await readWorkspaceFile(workspace, { path: ".git/config" })).toMatchObject({
 			status: "failed",
 			error: { code: "PROTECTED_PATH" },
