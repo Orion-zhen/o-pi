@@ -15,6 +15,7 @@
 	},
 	"dependencies": {
 		"@earendil-works/pi-coding-agent": "latest",
+		"@earendil-works/pi-tui": "latest",
 		"ajv": "latest",
 		"ignore": "latest",
 		"jsonc-parser": "latest",
