@@ -2,11 +2,16 @@ import { fail, isFailed } from "./errors.js";
 import { ignoreConfigFromFileTools, isIgnoredPath, loadFileToolsConfig, toolPathIdentity } from "./config.js";
 import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
 import { resolveExistingFile, resolveWorkspaceRoot } from "./path-resolver.js";
+import type { ReadVersionCache } from "./read-cache.js";
 import { readTextFile, sliceTextByLineRange } from "./text-file.js";
 import type { ReadParams, ReadSuccess, ToolOutcome } from "./types.js";
 
+export interface ReadRuntime {
+	versionCache?: ReadVersionCache;
+}
+
 /** read 读取 UTF-8 文本、行范围、版本和换行元数据，不写入任何文件。 */
-export async function readWorkspaceFile(cwd: string, params: ReadParams): Promise<ToolOutcome<ReadSuccess>> {
+export async function readWorkspaceFile(cwd: string, params: ReadParams, runtime: ReadRuntime = {}): Promise<ToolOutcome<ReadSuccess>> {
 	const config = await loadFileToolsConfig();
 	if (isFailed(config)) return config;
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
@@ -21,6 +26,7 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams): Promis
 
 	const file = await readTextFile(resolved.realPath, resolved.relativePath);
 	if (isFailed(file)) return file;
+	runtime.versionCache?.remember(resolved.realPath, file.version);
 
 	const sliced = sliceTextByLineRange(file, params.start_line, params.end_line, resolved.relativePath, {
 		maxBytes: config.limits.read_bytes,

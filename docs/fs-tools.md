@@ -299,12 +299,13 @@ a/
 * `content`：原始文本片段，不带行号。
 * `start_line` / `end_line` / `total_lines`：范围元数据。
 * `size_bytes`：原始文件字节数。
-* `version`：`sha256:<hash>`，基于文件原始字节。
 * `encoding`：当前固定为 `utf-8`。
 * `newline`：`lf`、`crlf`、`mixed` 或 `none`。
 * `bom`：是否带 UTF-8 BOM。
 * `truncated` / `continuation`：输出被截断时告诉模型从哪一行继续读。
 * `ignored` / `ignore_source`：显式读取 soft ignored 文件时返回；不阻止读取。
+
+`read` 内部会在当前 session 记录基于原始字节计算的版本，用于后续 `edit` 自动校验；该版本不进入模型可见输出。
 
 `read(directory)` 返回 `NOT_A_FILE`，不会自动列目录。
 
@@ -442,7 +443,6 @@ src/b.ts  3 lines / 3 occurrences
 		{
 			"type": "update_file",
 			"path": "src/main.ts",
-			"base_version": "sha256:...",
 			"diff": "@@\n export function main() {\n-  runOld();\n+  runNew();\n }"
 		}
 	]
@@ -452,14 +452,14 @@ src/b.ts  3 lines / 3 occurrences
 支持的 operation：
 
 * `create_file`：`path`、`content`。只创建新文件，目标存在返回 `FILE_ALREADY_EXISTS`。
-* `update_file`：`path`、`base_version`、`diff`。局部修改已有文件。
-* `replace_file`：`path`、`base_version`、`content`。完整替换已有文件，不创建新文件。
-* `delete_file`：`path`、`base_version`。删除已有普通文件。
-* `move_file`：`from`、`to`、`base_version`。移动已有普通文件，目标必须不存在。
+* `update_file`：`path`、`diff`。局部修改已有文件。
+* `replace_file`：`path`、`content`。完整替换已有文件，不创建新文件。
+* `delete_file`：`path`。删除已有普通文件。
+* `move_file`：`from`、`to`。移动已有普通文件，目标必须不存在。
 
-任何作用于已有文件的 operation 都必须使用 `read` 返回的 `version` 作为 `base_version`。如果磁盘内容已变化，`edit` 返回 `STALE_BASE_VERSION`，不会自动合并或覆盖外部修改。
+任何作用于已有文件的 operation 都必须先显式 `read` 对应文件。`read` 会在工具运行时记录文件版本；`edit` 自动使用该版本校验写入前内容。如果文件未读过，`edit` 返回 `READ_REQUIRED`。如果磁盘内容已变化，`edit` 返回 `STALE_READ`，不会自动合并或覆盖外部修改。
 
-soft ignore 不阻止 `edit`。`edit` 只依据文件系统访问结果、文件类型、base version 和 operation 合法性决定是否修改。
+soft ignore 不阻止 `edit`。`edit` 只依据文件系统访问结果、文件类型、上次读取版本和 operation 合法性决定是否修改。
 
 ## 路径解析
 
@@ -488,7 +488,7 @@ soft ignore 不阻止 `edit`。`edit` 只依据文件系统访问结果、文件
 * `NOT_A_DIRECTORY`：改用 `read` 读取明确文件，或 `ls` 其父目录。
 * `NOT_A_FILE`：改用 `ls` 浏览目录。
 * `truncated: true`：继续 `ls` 更具体的子目录。
-* `STALE_BASE_VERSION` 或 `DIFF_CONTEXT_*`：重新 `read`，基于最新内容生成新的 `edit` operation。
+* `READ_REQUIRED`、`STALE_READ` 或 `DIFF_CONTEXT_*`：重新 `read`，基于最新内容生成新的 `edit` operation。
 * 文件未出现在未来搜索/索引中：用 ignore snapshot 的 `explain` 查看 `winner.sourcePath` 和 `winner.line`。
 
 ## 提示词设计

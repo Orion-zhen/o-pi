@@ -4,19 +4,23 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { editWorkspace } from "../src/file-tools/edit-tool.js";
+import { editWorkspace as editWorkspaceImpl } from "../src/file-tools/edit-tool.js";
 import { createIgnoreSnapshot, defaultIgnoreEngine } from "../src/file-tools/ignore/ignore-engine.js";
 import { listWorkspaceDirectory } from "../src/file-tools/ls-tool.js";
-import { readWorkspaceFile } from "../src/file-tools/read-tool.js";
+import { ReadVersionCache } from "../src/file-tools/read-cache.js";
+import { readWorkspaceFile as readWorkspaceFileImpl } from "../src/file-tools/read-tool.js";
+import type { EditSuccess, ReadParams, ReadSuccess, ToolOutcome } from "../src/file-tools/types.js";
 
 const execFileAsync = promisify(execFile);
 
 let workspace: string;
 let outside: string;
+let versionCache: ReadVersionCache;
 
 beforeEach(async () => {
 	workspace = await mkdtemp(path.join(os.tmpdir(), "o-pi-ignore-"));
 	outside = await mkdtemp(path.join(os.tmpdir(), "o-pi-ignore-outside-"));
+	versionCache = new ReadVersionCache();
 	defaultIgnoreEngine.invalidate();
 });
 
@@ -25,6 +29,14 @@ afterEach(async () => {
 	await rm(outside, { recursive: true, force: true });
 	defaultIgnoreEngine.invalidate();
 });
+
+function readWorkspaceFile(cwd: string, params: ReadParams): Promise<ToolOutcome<ReadSuccess>> {
+	return readWorkspaceFileImpl(cwd, params, { versionCache });
+}
+
+function editWorkspace(cwd: string, params: unknown): Promise<ToolOutcome<EditSuccess>> {
+	return editWorkspaceImpl(cwd, params, { versionCache });
+}
 
 describe("ignore engine", () => {
 	it("支持 Gitignore grammar 的基础规则", async () => {
@@ -245,7 +257,6 @@ describe("ignore engine", () => {
 					{
 						type: "replace_file",
 						path: "dist/schema.json",
-						base_version: read.version,
 						content: "{\"a\":2}\n",
 					},
 				],
@@ -271,7 +282,7 @@ describe("ignore engine", () => {
 		const before = await readWorkspaceFile(workspace, { path: ".piignore" });
 		if (!("version" in before)) throw new Error("read failed");
 		await editWorkspace(workspace, {
-			operations: [{ type: "replace_file", path: ".piignore", base_version: before.version, content: "new.txt\n" }],
+			operations: [{ type: "replace_file", path: ".piignore", content: "new.txt\n" }],
 		});
 		const listed = await listWorkspaceDirectory(workspace, { path: "." });
 		expect(listed).toMatchObject({

@@ -11,8 +11,8 @@ export type FileToolErrorCode =
 	| "INVALID_PATH"
 	| "INVALID_OPERATION"
 	| "CONFLICTING_OPERATIONS"
-	| "BASE_VERSION_REQUIRED"
-	| "STALE_BASE_VERSION"
+	| "READ_REQUIRED"
+	| "STALE_READ"
 	| "DIFF_PARSE_ERROR"
 	| "DIFF_CONTEXT_NOT_FOUND"
 	| "DIFF_CONTEXT_AMBIGUOUS"
@@ -198,10 +198,10 @@ export interface DiffHunk {
 
 export type EditOperation =
 	| { type: "create_file"; path: string; content: string }
-	| { type: "update_file"; path: string; base_version: string; diff: string }
-	| { type: "replace_file"; path: string; base_version: string; content: string }
-	| { type: "delete_file"; path: string; base_version: string }
-	| { type: "move_file"; from: string; to: string; base_version: string };
+	| { type: "update_file"; path: string; diff: string }
+	| { type: "replace_file"; path: string; content: string }
+	| { type: "delete_file"; path: string }
+	| { type: "move_file"; from: string; to: string };
 
 export interface EditParams {
 	operations: EditOperation[];

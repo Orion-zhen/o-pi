@@ -2,18 +2,21 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, wr
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { editWorkspace } from "../src/file-tools/edit-tool.js";
+import { editWorkspace as editWorkspaceImpl, type EditRuntime } from "../src/file-tools/edit-tool.js";
 import { formatCompactLsResult, listWorkspaceDirectory } from "../src/file-tools/ls-tool.js";
-import { readWorkspaceFile } from "../src/file-tools/read-tool.js";
+import { ReadVersionCache } from "../src/file-tools/read-cache.js";
+import { readWorkspaceFile as readWorkspaceFileImpl } from "../src/file-tools/read-tool.js";
 import { sha256Version } from "../src/file-tools/text-file.js";
-import type { LsSuccess, ToolOutcome } from "../src/file-tools/types.js";
+import type { EditSuccess, LsSuccess, ReadParams, ReadSuccess, ToolOutcome } from "../src/file-tools/types.js";
 
 let workspace: string;
 let outside: string;
+let versionCache: ReadVersionCache;
 
 beforeEach(async () => {
 	workspace = await mkdtemp(path.join(os.tmpdir(), "o-pi-workspace-"));
 	outside = await mkdtemp(path.join(os.tmpdir(), "o-pi-outside-"));
+	versionCache = new ReadVersionCache();
 });
 
 afterEach(async () => {
@@ -24,6 +27,14 @@ afterEach(async () => {
 function expectLsSuccess(result: ToolOutcome<LsSuccess>): LsSuccess {
 	if ("status" in result) throw new Error(`ls failed: ${result.error.code}`);
 	return result;
+}
+
+function readWorkspaceFile(cwd: string, params: ReadParams): Promise<ToolOutcome<ReadSuccess>> {
+	return readWorkspaceFileImpl(cwd, params, { versionCache });
+}
+
+function editWorkspace(cwd: string, params: unknown, runtime: EditRuntime = {}): Promise<ToolOutcome<EditSuccess>> {
+	return editWorkspaceImpl(cwd, params, { ...runtime, versionCache });
 }
 
 describe("ls", () => {
@@ -450,6 +461,16 @@ describe("edit", () => {
 		).toMatchObject({ status: "failed", error: { code: "INVALID_OPERATION", operation_index: 0 } });
 	});
 
+	it("已有文件未 read 时返回 READ_REQUIRED", async () => {
+		await writeFile(path.join(workspace, "a.txt"), "old\n");
+		expect(
+			await editWorkspace(workspace, {
+				operations: [{ type: "replace_file", path: "a.txt", content: "new\n" }],
+			}),
+		).toMatchObject({ status: "failed", error: { code: "READ_REQUIRED", operation_index: 0 } });
+		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("old\n");
+	});
+
 	it("create_file 成功且目标存在时报错", async () => {
 		const created = await editWorkspace(workspace, {
 			operations: [{ type: "create_file", path: "new.txt", content: "hello\n" }],
@@ -480,7 +501,7 @@ describe("edit", () => {
 		if (!("version" in read)) throw new Error("read failed");
 		expect(
 			await editWorkspace(workspace, {
-				operations: [{ type: "replace_file", path: externalFile, base_version: read.version, content: "updated\n" }],
+				operations: [{ type: "replace_file", path: externalFile, content: "updated\n" }],
 			}),
 		).toMatchObject({ status: "applied", results: [{ index: 0, type: "replace_file", path: path.normalize(externalFile) }] });
 		expect(await readFile(externalFile, "utf8")).toBe("updated\n");
@@ -504,7 +525,6 @@ describe("edit", () => {
 				{
 					type: "update_file",
 					path: "a.txt",
-					base_version: first.version,
 					diff: "@@\n one\n-two\n+TWO\n@@\n three\n-four\n+FOUR",
 				},
 			],
@@ -517,7 +537,7 @@ describe("edit", () => {
 		await writeFile(path.join(workspace, "a.txt"), "x\nsame\nsame\nz\n");
 		const read = await readWorkspaceFile(workspace, { path: "a.txt" });
 		if (!("version" in read)) throw new Error("read failed");
-		const base = { type: "update_file" as const, path: "a.txt", base_version: read.version };
+		const base = { type: "update_file" as const, path: "a.txt" };
 		expect(await editWorkspace(workspace, { operations: [{ ...base, diff: " x\n-y\n+z" }] })).toMatchObject({
 			status: "failed",
 			error: { code: "DIFF_PARSE_ERROR", operation_index: 0 },
@@ -546,9 +566,9 @@ describe("edit", () => {
 		if (!("version" in replaceRead) || !("version" in deleteRead) || !("version" in moveRead)) throw new Error("read failed");
 		const result = await editWorkspace(workspace, {
 			operations: [
-				{ type: "replace_file", path: "replace.txt", base_version: replaceRead.version, content: "new" },
-				{ type: "delete_file", path: "delete.txt", base_version: deleteRead.version },
-				{ type: "move_file", from: "move.txt", to: "moved.txt", base_version: moveRead.version },
+				{ type: "replace_file", path: "replace.txt", content: "new" },
+				{ type: "delete_file", path: "delete.txt" },
+				{ type: "move_file", from: "move.txt", to: "moved.txt" },
 			],
 		});
 		expect(result).toMatchObject({
@@ -570,9 +590,9 @@ describe("edit", () => {
 		if (!("version" in read)) throw new Error("read failed");
 		await writeFile(path.join(workspace, "a.txt"), "external\n");
 		const result = await editWorkspace(workspace, {
-			operations: [{ type: "replace_file", path: "a.txt", base_version: read.version, content: "new\n" }],
+			operations: [{ type: "replace_file", path: "a.txt", content: "new\n" }],
 		});
-		expect(result).toMatchObject({ status: "failed", error: { code: "STALE_BASE_VERSION", operation_index: 0 } });
+		expect(result).toMatchObject({ status: "failed", error: { code: "STALE_READ", operation_index: 0 } });
 		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("external\n");
 	});
 
@@ -585,8 +605,8 @@ describe("edit", () => {
 		expect(
 			await editWorkspace(workspace, {
 				operations: [
-					{ type: "replace_file", path: "a.txt", base_version: a.version, content: "aa\n" },
-					{ type: "replace_file", path: "b.txt", base_version: b.version, content: "bb\n" },
+					{ type: "replace_file", path: "a.txt", content: "aa\n" },
+					{ type: "replace_file", path: "b.txt", content: "bb\n" },
 				],
 			}),
 		).toMatchObject({ status: "applied" });
@@ -596,24 +616,28 @@ describe("edit", () => {
 		const a2 = await readWorkspaceFile(workspace, { path: "a.txt" });
 		const b2 = await readWorkspaceFile(workspace, { path: "b.txt" });
 		if (!("version" in a2) || !("version" in b2)) throw new Error("read failed");
+		await writeFile(path.join(workspace, "b.txt"), "external-b\n");
 		expect(
 			await editWorkspace(workspace, {
 				operations: [
-					{ type: "replace_file", path: "a.txt", base_version: a2.version, content: "aaa\n" },
-					{ type: "replace_file", path: "b.txt", base_version: "sha256:stale", content: "bbb\n" },
+					{ type: "replace_file", path: "a.txt", content: "aaa\n" },
+					{ type: "replace_file", path: "b.txt", content: "bbb\n" },
 				],
 			}),
-		).toMatchObject({ status: "failed", error: { code: "STALE_BASE_VERSION", operation_index: 1 } });
+		).toMatchObject({ status: "failed", error: { code: "STALE_READ", operation_index: 1 } });
 		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("aa\n");
-		expect(await readFile(path.join(workspace, "b.txt"), "utf8")).toBe("bb\n");
+		expect(await readFile(path.join(workspace, "b.txt"), "utf8")).toBe("external-b\n");
 
+		const a3 = await readWorkspaceFile(workspace, { path: "a.txt" });
+		const b3 = await readWorkspaceFile(workspace, { path: "b.txt" });
+		if (!("version" in a3) || !("version" in b3)) throw new Error("read failed");
 		let writes = 0;
 		const rollbackResult = await editWorkspace(
 			workspace,
 			{
 				operations: [
-					{ type: "replace_file", path: "a.txt", base_version: a2.version, content: "rollback-a\n" },
-					{ type: "replace_file", path: "b.txt", base_version: b2.version, content: "rollback-b\n" },
+					{ type: "replace_file", path: "a.txt", content: "rollback-a\n" },
+					{ type: "replace_file", path: "b.txt", content: "rollback-b\n" },
 				],
 			},
 			{
@@ -626,7 +650,7 @@ describe("edit", () => {
 		);
 		expect(rollbackResult).toMatchObject({ status: "failed", error: { code: "TRANSACTION_COMMIT_FAILED" } });
 		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("aa\n");
-		expect(await readFile(path.join(workspace, "b.txt"), "utf8")).toBe("bb\n");
+		expect(await readFile(path.join(workspace, "b.txt"), "utf8")).toBe("external-b\n");
 	});
 
 	it("检测冲突 operation，并保留 LF、CRLF、无尾部换行", async () => {
@@ -640,16 +664,16 @@ describe("edit", () => {
 		expect(
 			await editWorkspace(workspace, {
 				operations: [
-					{ type: "replace_file", path: "lf.txt", base_version: lf.version, content: "x\n" },
-					{ type: "delete_file", path: "LF.txt", base_version: lf.version },
+					{ type: "replace_file", path: "lf.txt", content: "x\n" },
+					{ type: "delete_file", path: "LF.txt" },
 				],
 			}),
 		).toMatchObject({ status: "failed", error: { code: "CONFLICTING_OPERATIONS", operation_index: 1 } });
 		await editWorkspace(workspace, {
 			operations: [
-				{ type: "update_file", path: "lf.txt", base_version: lf.version, diff: "@@\n-a\n+A" },
-				{ type: "update_file", path: "crlf.txt", base_version: crlf.version, diff: "@@\n-a\n+A" },
-				{ type: "update_file", path: "nonewline.txt", base_version: nonewline.version, diff: "@@\n-b\n+B" },
+				{ type: "update_file", path: "lf.txt", diff: "@@\n-a\n+A" },
+				{ type: "update_file", path: "crlf.txt", diff: "@@\n-a\n+A" },
+				{ type: "update_file", path: "nonewline.txt", diff: "@@\n-b\n+B" },
 			],
 		});
 		expect(await readFile(path.join(workspace, "lf.txt"), "utf8")).toBe("A\nb\n");
@@ -662,7 +686,7 @@ describe("edit", () => {
 		const before = await readWorkspaceFile(workspace, { path: "a.txt" });
 		if (!("version" in before)) throw new Error("read failed");
 		const edit = await editWorkspace(workspace, {
-			operations: [{ type: "update_file", path: "a.txt", base_version: before.version, diff: "@@\n-old\n+new" }],
+			operations: [{ type: "update_file", path: "a.txt", diff: "@@\n-old\n+new" }],
 		});
 		expect(edit).toMatchObject({ status: "applied", results: [{ index: 0, type: "update_file" }] });
 		const after = await readWorkspaceFile(workspace, { path: "a.txt" });

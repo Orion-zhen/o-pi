@@ -4,6 +4,7 @@ import { ignoreConfigFromFileTools, loadFileToolsConfig, type FileToolsConfig } 
 import { parseContextDiff } from "./diff-parser.js";
 import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
 import { fileExists, resolveExistingFile, resolveTargetFile, resolveWorkspaceRoot } from "./path-resolver.js";
+import type { ReadVersionCache } from "./read-cache.js";
 import {
 	buildTextBytes,
 	decodeTextFile,
@@ -51,6 +52,7 @@ interface StagedState {
 
 export interface EditRuntime {
 	writeFileAtomic?: (targetPath: string, bytes: Buffer, mode?: number) => Promise<void>;
+	versionCache?: ReadVersionCache;
 }
 
 /** edit 是唯一写入口：校验结构化 operations、全量暂存，再按逻辑事务提交。 */
@@ -64,7 +66,7 @@ export async function editWorkspace(cwd: string, params: unknown, runtime: EditR
 	if (isFailed(config)) return config;
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
-	const staged = await stageOperations(workspaceRoot, input.operations, ignoreSnapshot, config);
+	const staged = await stageOperations(workspaceRoot, input.operations, ignoreSnapshot, config, runtime.versionCache);
 	if (isFailed(staged)) return staged;
 
 	const originals = Array.from(staged.originals.values()).sort((a, b) => a.path.localeCompare(b.path));
@@ -84,6 +86,7 @@ export async function editWorkspace(cwd: string, params: unknown, runtime: EditR
 			details: { affected_paths: stagedStates.map((state) => state.path) },
 		});
 	}
+	updateVersionCache(stagedStates, runtime.versionCache);
 	return {
 		status: "applied",
 		transaction_id: transactionId,
@@ -134,42 +137,38 @@ function validateOperation(value: unknown, index: number): ToolOutcome<EditOpera
 		};
 	}
 	if (type === "update_file") {
-		const invalid = rejectKeys(value, ["type", "path", "base_version", "diff"], index, type);
+		const invalid = rejectKeys(value, ["type", "path", "diff"], index, type);
 		if (invalid) return invalid;
-		return requireStrings(value, ["path", "base_version", "diff"], index, type) ?? {
+		return requireStrings(value, ["path", "diff"], index, type) ?? {
 			type,
 			path: value["path"] as string,
-			base_version: value["base_version"] as string,
 			diff: value["diff"] as string,
 		};
 	}
 	if (type === "replace_file") {
-		const invalid = rejectKeys(value, ["type", "path", "base_version", "content"], index, type);
+		const invalid = rejectKeys(value, ["type", "path", "content"], index, type);
 		if (invalid) return invalid;
-		return requireStrings(value, ["path", "base_version", "content"], index, type) ?? {
+		return requireStrings(value, ["path", "content"], index, type) ?? {
 			type,
 			path: value["path"] as string,
-			base_version: value["base_version"] as string,
 			content: value["content"] as string,
 		};
 	}
 	if (type === "delete_file") {
-		const invalid = rejectKeys(value, ["type", "path", "base_version"], index, type);
+		const invalid = rejectKeys(value, ["type", "path"], index, type);
 		if (invalid) return invalid;
-		return requireStrings(value, ["path", "base_version"], index, type) ?? {
+		return requireStrings(value, ["path"], index, type) ?? {
 			type,
 			path: value["path"] as string,
-			base_version: value["base_version"] as string,
 		};
 	}
 	if (type === "move_file") {
-		const invalid = rejectKeys(value, ["type", "from", "to", "base_version"], index, type);
+		const invalid = rejectKeys(value, ["type", "from", "to"], index, type);
 		if (invalid) return invalid;
-		return requireStrings(value, ["from", "to", "base_version"], index, type) ?? {
+		return requireStrings(value, ["from", "to"], index, type) ?? {
 			type,
 			from: value["from"] as string,
 			to: value["to"] as string,
-			base_version: value["base_version"] as string,
 		};
 	}
 	return fail("INVALID_OPERATION", "Unknown operation type.", {
@@ -219,6 +218,7 @@ async function stageOperations(
 	operations: EditOperation[],
 	ignoreSnapshot: IgnoreSnapshot,
 	config: FileToolsConfig,
+	versionCache: ReadVersionCache | undefined,
 ): Promise<ToolOutcome<{ originals: Map<string, OriginalState>; finalStates: Map<string, StagedState> }>> {
 	const originals = new Map<string, OriginalState>();
 	const finalStates = new Map<string, StagedState>();
@@ -276,7 +276,7 @@ async function stageOperations(
 			const sourceFile = await readExistingWithVersion(
 				source.realPath,
 				source.relativePath,
-				operation.base_version,
+				versionCache?.get(source.realPath),
 				index,
 				operation.type,
 			);
@@ -326,7 +326,7 @@ async function stageOperations(
 		const file = await readExistingWithVersion(
 			resolved.realPath,
 			resolved.relativePath,
-			operation.base_version,
+			versionCache?.get(resolved.realPath),
 			index,
 			operation.type,
 		);
@@ -392,12 +392,12 @@ function noteSoftIgnore(ignoreSnapshot: IgnoreSnapshot, workspacePath: string | 
 async function readExistingWithVersion(
 	absolutePath: string,
 	relativePath: string,
-	expected: string,
+	expected: string | undefined,
 	operationIndex: number,
 	type: EditOperationType,
 ): Promise<ToolOutcome<TextFile>> {
-	if (expected === "") {
-		return fail("BASE_VERSION_REQUIRED", "Existing file operations require base_version from read.", {
+	if (expected === undefined) {
+		return fail("READ_REQUIRED", "Read the file before editing it.", {
 			path: relativePath,
 			type,
 			operation_index: operationIndex,
@@ -406,7 +406,7 @@ async function readExistingWithVersion(
 	const file = await readTextFile(absolutePath, relativePath);
 	if (isFailed(file)) return withOperation(file, operationIndex, type);
 	if (expected !== file.version) {
-		return fail("STALE_BASE_VERSION", "The file changed after it was read. Read the file again before editing.", {
+		return fail("STALE_READ", "The file changed after it was read. Read the file again before editing.", {
 			path: relativePath,
 			type,
 			operation_index: operationIndex,
@@ -415,6 +415,19 @@ async function readExistingWithVersion(
 		});
 	}
 	return file;
+}
+
+function updateVersionCache(states: StagedState[], versionCache: ReadVersionCache | undefined): void {
+	if (versionCache === undefined) return;
+	for (const state of states) {
+		if (!state.exists) {
+			versionCache.forget(state.absolutePath);
+			continue;
+		}
+		if (state.bytes !== null) {
+			versionCache.remember(state.absolutePath, sha256Version(state.bytes));
+		}
+	}
 }
 
 function applyUpdate(file: TextFile, hunks: DiffHunk[], relativePath: string, operationIndex: number): ToolOutcome<string> {

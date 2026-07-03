@@ -4,6 +4,7 @@ import { editWorkspace } from "../../src/file-tools/edit-tool.js";
 import { findWorkspaceFiles } from "../../src/file-tools/find-tool.js";
 import { formatCompactGrepResult, grepWorkspaceFiles } from "../../src/file-tools/grep-tool.js";
 import { formatCompactLsResult, listWorkspaceDirectory } from "../../src/file-tools/ls-tool.js";
+import { ReadVersionCache } from "../../src/file-tools/read-cache.js";
 import { readWorkspaceFile } from "../../src/file-tools/read-tool.js";
 import type { EditParams, FindParams, GrepParams, LsParams, ReadParams } from "../../src/file-tools/types.js";
 
@@ -31,10 +32,10 @@ const editParameters = Type.Object({
 	operations: Type.Array(
 		Type.Union([
 			Type.Object({ type: Type.Literal("create_file"), path: Type.String(), content: Type.String() }),
-			Type.Object({ type: Type.Literal("update_file"), path: Type.String(), base_version: Type.String(), diff: Type.String() }),
-			Type.Object({ type: Type.Literal("replace_file"), path: Type.String(), base_version: Type.String(), content: Type.String() }),
-			Type.Object({ type: Type.Literal("delete_file"), path: Type.String(), base_version: Type.String() }),
-			Type.Object({ type: Type.Literal("move_file"), from: Type.String(), to: Type.String(), base_version: Type.String() }),
+			Type.Object({ type: Type.Literal("update_file"), path: Type.String(), diff: Type.String() }),
+			Type.Object({ type: Type.Literal("replace_file"), path: Type.String(), content: Type.String() }),
+			Type.Object({ type: Type.Literal("delete_file"), path: Type.String() }),
+			Type.Object({ type: Type.Literal("move_file"), from: Type.String(), to: Type.String() }),
 		]),
 		{ minItems: 1, description: "Structured file operations applied as one transaction." },
 	),
@@ -42,6 +43,8 @@ const editParameters = Type.Object({
 
 /** 注册覆盖版 ls/find/read/edit；路径权限由 Pi 进程和操作系统决定。 */
 export default function fileTools(pi: ExtensionAPI): void {
+	const versionCaches = new Map<string, ReadVersionCache>();
+
 	pi.registerTool({
 		name: "ls",
 		label: "ls",
@@ -113,18 +116,19 @@ export default function fileTools(pi: ExtensionAPI): void {
 		name: "read",
 		label: "read",
 		description:
-			"Read one UTF-8 file without side effects. Returns content, line range, SHA-256 version, encoding, newline and truncation metadata.",
-		promptSnippet: "Read a UTF-8 file and return content plus version metadata",
+			"Read one UTF-8 file without side effects. Returns content, line range, encoding, newline and truncation metadata.",
+		promptSnippet: "Read a UTF-8 file and remember its version for later edits",
 		promptGuidelines: [
-			"Use read before editing an existing file; pass the returned version as that operation's base_version.",
-			"If edit returns STALE_BASE_VERSION or DIFF_CONTEXT_*, call read again and generate a new operation.",
+			"Use read before editing an existing file; edit verifies the last read automatically.",
+			"If edit returns READ_REQUIRED, STALE_READ, or DIFF_CONTEXT_*, call read again and generate a new operation.",
 			"Do not read configured blocked paths.",
 		],
 		parameters: readParameters,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const result = await readWorkspaceFile(ctx.cwd, params as ReadParams);
+			const versionCache = versionCacheFor(ctx, versionCaches);
+			const result = await readWorkspaceFile(ctx.cwd, params as ReadParams, { versionCache });
 			return {
-				content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+				content: [{ type: "text", text: JSON.stringify(scrubVersions(result), null, 2) }],
 				details: result,
 			};
 		},
@@ -134,7 +138,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 		name: "edit",
 		label: "edit",
 		description:
-			"Atomically apply structured file operations. Existing files require the version returned by read. Use update_file for local changes and replace_file for complete replacement.",
+			"Atomically apply structured file operations. Existing files must be read first. Use update_file for local changes and replace_file for complete replacement.",
 		promptSnippet: "Apply structured file operations as one all-or-nothing transaction",
 		promptGuidelines: [
 			"Use edit as the only file modification tool; it accepts only an operations array.",
@@ -143,11 +147,32 @@ export default function fileTools(pi: ExtensionAPI): void {
 		],
 		parameters: editParameters,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const result = await editWorkspace(ctx.cwd, params as EditParams);
+			const versionCache = versionCacheFor(ctx, versionCaches);
+			const result = await editWorkspace(ctx.cwd, params as EditParams, { versionCache });
 			return {
-				content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+				content: [{ type: "text", text: JSON.stringify(scrubVersions(result), null, 2) }],
 				details: result,
 			};
 		},
 	});
+}
+
+function versionCacheFor(ctx: { sessionManager: { getSessionId(): string } }, caches: Map<string, ReadVersionCache>): ReadVersionCache {
+	const sessionId = ctx.sessionManager.getSessionId();
+	const existing = caches.get(sessionId);
+	if (existing !== undefined) return existing;
+	const created = new ReadVersionCache();
+	caches.set(sessionId, created);
+	return created;
+}
+
+function scrubVersions(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(scrubVersions);
+	if (value === null || typeof value !== "object") return value;
+	const result: Record<string, unknown> = {};
+	for (const [key, item] of Object.entries(value)) {
+		if (key === "version" || key === "old_version" || key === "new_version" || key === "expected" || key === "actual") continue;
+		result[key] = scrubVersions(item);
+	}
+	return result;
 }
