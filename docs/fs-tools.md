@@ -22,7 +22,7 @@
 扩展入口与实现分离：
 
 * `agent/extensions/file-tools.ts`：注册 `ls` / `read` / `edit`，定义工具 schema 和提示词元数据。
-* `agent/extensions/active-tools.ts`：屏蔽不需要的 Pi 内置工具，保持自定义 `ls` / `read` / `edit` 启用。
+* `agent/extensions/block-builtin-tools.ts`：屏蔽 Pi 内置工具，保留扩展和 SDK 工具。
 * `agent/extensions/permissions.ts`：注册 `/permissions` 命令并管理权限会话状态。
 * `src/file-tools/`：实现路径安全、目录枚举、文本读取、diff 匹配、事务提交和回滚。
 * `src/file-tools/ignore/`：实现统一 ignore engine、snapshot、explain 和 Git tracked set。
