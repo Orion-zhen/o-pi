@@ -8,10 +8,10 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"devDependencies": {
-		"@types/node": "24.0.10",
-		"@types/picomatch": "4.0.3",
-		"typescript": "5.8.3",
-		"vitest": "3.2.4"
+		"@types/node": "latest",
+		"@types/picomatch": "latest",
+		"typescript": "latest",
+		"vitest": "latest"
 	},
 	"dependencies": {
 		"@earendil-works/pi-coding-agent": "latest",
