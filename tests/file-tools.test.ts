@@ -486,6 +486,40 @@ describe("edit", () => {
 		});
 	});
 
+	it("create_file 自动创建缺失父目录", async () => {
+		const created = await editWorkspace(workspace, {
+			operations: [{ type: "create_file", path: "new/dir/file.txt", content: "hello\n" }],
+		});
+		expect(created).toMatchObject({
+			status: "applied",
+			results: [{ index: 0, type: "create_file", path: "new/dir/file.txt" }],
+		});
+		expect(await readFile(path.join(workspace, "new", "dir", "file.txt"), "utf8")).toBe("hello\n");
+	});
+
+	it("create_file 提交失败时清理本次创建的父目录", async () => {
+		let writes = 0;
+		const result = await editWorkspace(
+			workspace,
+			{
+				operations: [
+					{ type: "create_file", path: "new/dir/a.txt", content: "a\n" },
+					{ type: "create_file", path: "new/dir/b.txt", content: "b\n" },
+				],
+			},
+			{
+				writeFileAtomic: async (target, bytes) => {
+					writes += 1;
+					if (writes === 2) throw new Error("injected");
+					await writeFile(target, bytes);
+				},
+			},
+		);
+		expect(result).toMatchObject({ status: "failed", error: { code: "TRANSACTION_COMMIT_FAILED" } });
+		await expect(readFile(path.join(workspace, "new", "dir", "a.txt"))).rejects.toThrow();
+		await expect(stat(path.join(workspace, "new"))).rejects.toThrow();
+	});
+
 	it("edit 允许修改 cwd 外的绝对路径", async () => {
 		const externalFile = path.join(outside, "external.txt");
 		const created = await editWorkspace(workspace, {
@@ -706,6 +740,20 @@ describe("edit", () => {
 		expect(result.diff).not.toContain("--- a/a.txt");
 		expect(result.patch).toContain("@@");
 		expect(result.firstChangedLine).toBe(1);
+	});
+
+	it("可覆盖只读目标文件并保持原 mode", async () => {
+		const target = path.join(workspace, "readonly.txt");
+		await writeFile(target, "old\n");
+		await chmod(target, 0o444);
+		const before = await readWorkspaceFile(workspace, { path: "readonly.txt" });
+		if (!("version" in before)) throw new Error("read failed");
+		const result = await editWorkspace(workspace, {
+			operations: [{ type: "update_file", path: "readonly.txt", diff: "@@\n-old\n+new" }],
+		});
+		expect(result).toMatchObject({ status: "applied" });
+		expect(await readFile(target, "utf8")).toBe("new\n");
+		expect((await stat(target)).mode & 0o200).toBe(0);
 	});
 
 	it("预览只读生成 diff 元数据，执行仍保持 read-before-edit 约束", async () => {

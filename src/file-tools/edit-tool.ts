@@ -1,4 +1,5 @@
-import { stat, unlink } from "node:fs/promises";
+import { mkdir, rmdir, stat, unlink } from "node:fs/promises";
+import path from "node:path";
 import { generateDiffString, generateUnifiedPatch } from "@earendil-works/pi-coding-agent";
 import { fail, isFailed } from "./errors.js";
 import { ignoreConfigFromFileTools, loadFileToolsConfig, type FileToolsConfig } from "./config.js";
@@ -75,10 +76,12 @@ export async function editWorkspace(cwd: string, params: unknown, runtime: EditR
 	const diff = buildDiffMetadata(originals, stagedStates);
 	const transactionId = `txn_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 
+	const createdDirectories: string[] = [];
 	try {
-		await commit(stagedStates, runtime.writeFileAtomic ?? writeFileAtomic);
+		await commit(stagedStates, runtime.writeFileAtomic ?? writeFileAtomic, createdDirectories);
 	} catch {
 		const rollback = await rollbackOriginals(originals, runtime.writeFileAtomic ?? writeFileAtomic);
+		await cleanupCreatedDirectories(createdDirectories);
 		if (!rollback.ok) {
 			return fail("TRANSACTION_ROLLBACK_FAILED", "Commit failed and rollback did not fully restore the workspace.", {
 				details: { affected_paths: rollback.failedPaths },
@@ -609,11 +612,16 @@ async function modeOf(absolutePath: string): Promise<number | undefined> {
 	}
 }
 
-async function commit(states: StagedState[], writer: (targetPath: string, bytes: Buffer, mode?: number) => Promise<void>): Promise<void> {
+async function commit(
+	states: StagedState[],
+	writer: (targetPath: string, bytes: Buffer, mode?: number) => Promise<void>,
+	createdDirectories: string[],
+): Promise<void> {
 	for (const state of states) {
 		if (state.exists) {
 			const bytes = state.bytes;
 			if (bytes === null) throw new Error("staged write missing bytes");
+			createdDirectories.push(...(await ensureParentDirectories(state.absolutePath)));
 			await writer(state.absolutePath, bytes, state.mode);
 		} else {
 			await unlink(state.absolutePath);
@@ -640,6 +648,36 @@ async function rollbackOriginals(
 		}
 	}
 	return failedPaths.length === 0 ? { ok: true } : { ok: false, failedPaths };
+}
+
+async function ensureParentDirectories(targetPath: string): Promise<string[]> {
+	const parent = path.dirname(targetPath);
+	const missing: string[] = [];
+	let current = parent;
+	while (!(await directoryExists(current))) {
+		missing.push(current);
+		const next = path.dirname(current);
+		if (next === current) break;
+		current = next;
+	}
+	// create_file/move_file 可创建缺失父目录；返回列表供事务失败时按空目录清理。
+	if (missing.length > 0) await mkdir(parent, { recursive: true });
+	return missing;
+}
+
+async function directoryExists(targetPath: string): Promise<boolean> {
+	try {
+		const info = await stat(targetPath);
+		return info.isDirectory();
+	} catch {
+		return false;
+	}
+}
+
+async function cleanupCreatedDirectories(paths: string[]): Promise<void> {
+	for (const directory of paths) {
+		await rmdir(directory).catch(() => undefined);
+	}
 }
 
 function operationResults(states: StagedState[]): OperationResult[] {

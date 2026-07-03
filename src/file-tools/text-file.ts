@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { constants } from "node:fs";
-import { open, readFile, rename, unlink } from "node:fs/promises";
+import { chmod, open, readFile, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import { fail } from "./errors.js";
 import type { FailedResult, NewlineKind, TextFile, ToolOutcome } from "./types.js";
@@ -157,9 +157,11 @@ export async function writeFileAtomic(targetPath: string, bytes: Buffer, mode?: 
 	const name = `.pi-edit-${process.pid}-${Date.now()}-${randomBytes(6).toString("hex")}.tmp`;
 	const tempPath = path.join(dir, name);
 	let created = false;
+	let renamed = false;
+	let targetModeChanged = false;
 
 	try {
-		const handle = await open(tempPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, mode ?? 0o666);
+		const handle = await open(tempPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, writableMode(mode));
 		created = true;
 		try {
 			await handle.writeFile(bytes);
@@ -168,15 +170,32 @@ export async function writeFileAtomic(targetPath: string, bytes: Buffer, mode?: 
 			await handle.close();
 		}
 		if (mode !== undefined) {
-			await import("node:fs/promises").then((fs) => fs.chmod(tempPath, mode));
+			await chmod(tempPath, mode);
+		}
+		// Windows 不能用 rename 覆盖只读目标；临时清除目标只读位，最终文件仍继承 temp 的原 mode。
+		if (mode !== undefined && shouldPrepareWindowsReadonlyTarget(mode)) {
+			await chmod(targetPath, mode | 0o200);
+			targetModeChanged = true;
 		}
 		await rename(tempPath, targetPath);
+		renamed = true;
 		created = false;
 	} finally {
 		if (created) {
 			await unlink(tempPath).catch(() => undefined);
 		}
+		if (targetModeChanged && !renamed && mode !== undefined) {
+			await chmod(targetPath, mode).catch(() => undefined);
+		}
 	}
+}
+
+function writableMode(mode: number | undefined): number {
+	return mode === undefined ? 0o666 : mode | 0o200;
+}
+
+function shouldPrepareWindowsReadonlyTarget(mode: number): boolean {
+	return process.platform === "win32" && (mode & 0o200) === 0;
 }
 
 function countLogicalLines(text: string): number {

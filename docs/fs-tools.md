@@ -451,7 +451,7 @@ src/b.ts  3 lines / 3 occurrences
 
 支持的 operation：
 
-* `create_file`：`path`、`content`。只创建新文件，目标存在返回 `FILE_ALREADY_EXISTS`。
+* `create_file`：`path`、`content`。只创建新文件，自动创建缺失父目录，目标存在返回 `FILE_ALREADY_EXISTS`。
 * `update_file`：`path`、`diff`。局部修改已有文件。
 * `replace_file`：`path`、`content`。完整替换已有文件，不创建新文件。
 * `delete_file`：`path`。删除已有普通文件。
@@ -464,6 +464,8 @@ soft ignore 不阻止 `edit`。`edit` 只依据文件系统访问结果、文件
 TUI 会在参数完整后执行只读预览并在 call 区显示 diff；真正执行仍必须通过 read-before-edit、版本和事务校验。成功后如果结果 diff 与预览一致，结果区不重复展示 diff。
 
 成功结果的 `diff` 是 Pi TUI 展示用的精简行号 diff，不是可直接应用的 unified patch。`details.patch` 保存标准 unified patch，`details.firstChangedLine` 保存首个变更行号；模型可见正文不包含 `patch`。
+
+Windows 只读目标文件会在原子覆盖前临时清除只读位；写入后仍保留原 mode。
 
 ## 路径解析
 
