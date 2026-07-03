@@ -1,6 +1,7 @@
 import { lstat, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
+import { isBlockedPath, toolPathIdentity, type FileToolsConfig } from "./config.js";
 import { fail } from "./errors.js";
 import type { FailedResult, ResolvedPath, TargetPath, ToolOutcome } from "./types.js";
 
@@ -10,8 +11,12 @@ export async function resolveWorkspaceRoot(cwd: string): Promise<string> {
 }
 
 /** 解析已存在目录；接受 Pi 进程可访问的相对或绝对路径。 */
-export async function resolveExistingDirectory(workspaceRoot: string, inputPath: string): Promise<ToolOutcome<ResolvedPath>> {
-	const resolved = await resolveExistingPath(workspaceRoot, inputPath, "PATH_NOT_FOUND");
+export async function resolveExistingDirectory(
+	workspaceRoot: string,
+	inputPath: string,
+	config: FileToolsConfig,
+): Promise<ToolOutcome<ResolvedPath>> {
+	const resolved = await resolveExistingPath(workspaceRoot, inputPath, "PATH_NOT_FOUND", config);
 	if (isFailed(resolved)) return resolved;
 	const info = await stat(resolved.realPath);
 	if (!info.isDirectory()) return fail("NOT_A_DIRECTORY", "Path is not a directory.", { path: resolved.relativePath });
@@ -19,8 +24,12 @@ export async function resolveExistingDirectory(workspaceRoot: string, inputPath:
 }
 
 /** 解析已存在普通文件；接受 Pi 进程可访问的相对或绝对路径。 */
-export async function resolveExistingFile(workspaceRoot: string, inputPath: string): Promise<ToolOutcome<ResolvedPath>> {
-	const resolved = await resolveExistingPath(workspaceRoot, inputPath, "FILE_NOT_FOUND");
+export async function resolveExistingFile(
+	workspaceRoot: string,
+	inputPath: string,
+	config: FileToolsConfig,
+): Promise<ToolOutcome<ResolvedPath>> {
+	const resolved = await resolveExistingPath(workspaceRoot, inputPath, "FILE_NOT_FOUND", config);
 	if (isFailed(resolved)) return resolved;
 	const info = await stat(resolved.realPath);
 	if (!info.isFile()) return fail("NOT_A_FILE", "Path is not a regular file.", { path: resolved.relativePath });
@@ -28,12 +37,16 @@ export async function resolveExistingFile(workspaceRoot: string, inputPath: stri
 }
 
 /** 解析可创建或替换的目标文件；不存在目标时只要求最近存在父路径是目录。 */
-export async function resolveTargetFile(workspaceRoot: string, inputPath: string): Promise<ToolOutcome<TargetPath>> {
+export async function resolveTargetFile(
+	workspaceRoot: string,
+	inputPath: string,
+	config: FileToolsConfig,
+): Promise<ToolOutcome<TargetPath>> {
 	const lexical = normalizeToolPath(workspaceRoot, inputPath);
 	if (isFailed(lexical)) return lexical;
 	if (lexical.relativePath === ".") return fail("INVALID_PATH", "Target must be a file path, not the current directory.", { path: inputPath });
-	if (isWorkspaceMetadataPath(lexical.relativePath)) {
-		return fail("PROTECTED_PATH", "Git metadata cannot be modified.", { path: lexical.relativePath });
+	if (isBlockedPath(config, toolPathIdentity(lexical.relativePath, lexical.absolutePath, lexical.workspacePath))) {
+		return fail("PROTECTED_PATH", "Path is blocked by file-tools config.", { path: lexical.relativePath });
 	}
 
 	const parent = await resolveExistingParent(workspaceRoot, lexical.absolutePath, path.isAbsolute(inputPath));
@@ -59,7 +72,7 @@ export async function fileExists(absolutePath: string): Promise<boolean> {
 	}
 }
 
-/** `.git` 是默认硬保护路径段：不列出、不读取、不写入。 */
+/** ignore 规则发现仍跳过 Git 元数据目录，避免扫描仓库内部状态。 */
 export function isWorkspaceMetadataPath(relativePath: string): boolean {
 	return relativePath.split(/[\\/]+/).some((segment) => segment === ".git");
 }
@@ -68,11 +81,12 @@ async function resolveExistingPath(
 	workspaceRoot: string,
 	inputPath: string,
 	missingCode: "FILE_NOT_FOUND" | "PATH_NOT_FOUND",
+	config: FileToolsConfig,
 ): Promise<ToolOutcome<ResolvedPath>> {
 	const lexical = normalizeToolPath(workspaceRoot, inputPath);
 	if (isFailed(lexical)) return lexical;
-	if (isWorkspaceMetadataPath(lexical.relativePath)) {
-		return fail("PROTECTED_PATH", "Git metadata cannot be accessed.", { path: lexical.relativePath });
+	if (isBlockedPath(config, toolPathIdentity(lexical.relativePath, lexical.absolutePath, lexical.workspacePath))) {
+		return fail("PROTECTED_PATH", "Path is blocked by file-tools config.", { path: lexical.relativePath });
 	}
 	let real: string;
 	try {

@@ -5,8 +5,8 @@ import path from "node:path";
 import { fail } from "./errors.js";
 import type { FailedResult, NewlineKind, TextFile, ToolOutcome } from "./types.js";
 
-export const MAX_OUTPUT_BYTES = 50 * 1024;
-export const MAX_OUTPUT_LINES = 2_000;
+export const DEFAULT_MAX_OUTPUT_BYTES = 50 * 1024;
+export const DEFAULT_MAX_OUTPUT_LINES = 2_000;
 
 const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
@@ -58,6 +58,10 @@ export function sliceTextByLineRange(
 	startLine: number | undefined,
 	endLine: number | undefined,
 	relativePath: string,
+	limits: { maxBytes: number; maxLines: number } = {
+		maxBytes: DEFAULT_MAX_OUTPUT_BYTES,
+		maxLines: DEFAULT_MAX_OUTPUT_LINES,
+	},
 ): ToolOutcome<{
 	content: string;
 	startLine: number;
@@ -97,10 +101,10 @@ export function sliceTextByLineRange(
 		const record = records[line - 1];
 		if (record === undefined) break;
 		const recordBytes = Buffer.byteLength(record, "utf8");
-		if (recordBytes > MAX_OUTPUT_BYTES) {
+		if (recordBytes > limits.maxBytes) {
 			return fail("OUTPUT_LIMIT_EXCEEDED", "A single line exceeds the read output limit.", { path: relativePath });
 		}
-		if (outputLines >= MAX_OUTPUT_LINES || outputBytes + recordBytes > MAX_OUTPUT_BYTES) {
+		if (outputLines >= limits.maxLines || outputBytes + recordBytes > limits.maxBytes) {
 			nextLine = line;
 			break;
 		}

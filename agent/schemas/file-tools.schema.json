@@ -1,0 +1,79 @@
+{
+	"$schema": "https://json-schema.org/draft-07/schema",
+	"$id": "file-tools.schema.json",
+	"title": "Pi file-tools config",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["version"],
+	"properties": {
+		"$schema": {
+			"type": "string"
+		},
+		"version": {
+			"const": 1
+		},
+		"blocked_path": {
+			"type": "array",
+			"default": [".git/"],
+			"items": {
+				"type": "string",
+				"minLength": 1
+			}
+		},
+		"ignored_path": {
+			"type": "array",
+			"default": [],
+			"items": {
+				"type": "string",
+				"minLength": 1
+			}
+		},
+		"limits": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"ls_entries": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 10000,
+					"default": 200
+				},
+				"read_lines": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 100000,
+					"default": 2000
+				},
+				"read_bytes": {
+					"type": "integer",
+					"minimum": 1024,
+					"maximum": 10485760,
+					"default": 51200
+				}
+			}
+		},
+		"ignore": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"piignore": {
+					"type": "boolean",
+					"default": true
+				},
+				"gitignore": {
+					"type": "boolean",
+					"default": true
+				},
+				"git_tracked_files_bypass": {
+					"type": "boolean",
+					"default": true
+				},
+				"builtin_profile": {
+					"type": "string",
+					"enum": ["none", "minimal", "performance"],
+					"default": "minimal"
+				}
+			}
+		}
+	}
+}

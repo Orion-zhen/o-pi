@@ -1,0 +1,23 @@
+{
+	"$schema": "../schemas/file-tools.schema.json",
+	"version": 1,
+
+	// 硬阻止：不能直接访问，也不会出现在 ls 结果中。
+	"blocked_path": [".git/"],
+
+	// 软忽略：ls/read 标记 ignored；不阻止显式 read/edit。
+	"ignored_path": [],
+
+	"limits": {
+		"ls_entries": 200,
+		"read_lines": 2000,
+		"read_bytes": 51200
+	},
+
+	"ignore": {
+		"piignore": true,
+		"gitignore": true,
+		"git_tracked_files_bypass": true,
+		"builtin_profile": "minimal"
+	}
+}

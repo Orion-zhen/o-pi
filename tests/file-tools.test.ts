@@ -27,6 +27,52 @@ function expectLsSuccess(result: ToolOutcome<LsSuccess>): LsSuccess {
 }
 
 describe("ls", () => {
+	it("读取 file-tools 配置控制 blocked_path、ignored_path 和 ls_entries", async () => {
+		const previousConfigPath = process.env.PI_FILE_TOOLS_CONFIG;
+		const configPath = path.join(outside, "file-tools.jsonc");
+		await writeFile(
+			configPath,
+			[
+				"{",
+				'  "version": 1,',
+				'  "blocked_path": ["blocked/"],',
+				'  "ignored_path": ["ignored.txt"],',
+				'  "limits": { "ls_entries": 1 }',
+				"}",
+			].join("\n"),
+		);
+		await mkdir(path.join(workspace, "blocked"));
+		await writeFile(path.join(workspace, "blocked", "secret.txt"), "secret\n");
+		await writeFile(path.join(workspace, "ignored.txt"), "ignored\n");
+		await writeFile(path.join(workspace, "visible.txt"), "visible\n");
+
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		try {
+			const listed = await listWorkspaceDirectory(workspace, { path: "." });
+			expect(listed).toMatchObject({
+				truncated: true,
+				returned_entries: 1,
+				total_entries: 2,
+				entries: [{ name: "ignored.txt", ignored: true, ignore_source: "file-tools.jsonc" }],
+			});
+			expect(await readWorkspaceFile(workspace, { path: "ignored.txt" })).toMatchObject({
+				content: "ignored\n",
+				ignored: true,
+				ignore_source: "file-tools.jsonc",
+			});
+			expect(await readWorkspaceFile(workspace, { path: "blocked/secret.txt" })).toMatchObject({
+				status: "failed",
+				error: { code: "PROTECTED_PATH", path: "blocked/secret.txt" },
+			});
+		} finally {
+			if (previousConfigPath === undefined) {
+				delete process.env.PI_FILE_TOOLS_CONFIG;
+			} else {
+				process.env.PI_FILE_TOOLS_CONFIG = previousConfigPath;
+			}
+		}
+	});
+
 	it("列出空目录并支持 . 表示 workspace root", async () => {
 		await mkdir(path.join(workspace, "empty"));
 		expect(await listWorkspaceDirectory(workspace, { path: "empty" })).toMatchObject({

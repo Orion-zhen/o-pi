@@ -1,4 +1,5 @@
 import { fail, isFailed } from "./errors.js";
+import { ignoreConfigFromFileTools, isIgnoredPath, loadFileToolsConfig, toolPathIdentity } from "./config.js";
 import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
 import { resolveExistingFile, resolveWorkspaceRoot } from "./path-resolver.js";
 import { readTextFile, sliceTextByLineRange } from "./text-file.js";
@@ -6,12 +7,14 @@ import type { ReadParams, ReadSuccess, ToolOutcome } from "./types.js";
 
 /** read 读取 UTF-8 文本、行范围、版本和换行元数据，不写入任何文件。 */
 export async function readWorkspaceFile(cwd: string, params: ReadParams): Promise<ToolOutcome<ReadSuccess>> {
+	const config = await loadFileToolsConfig();
+	if (isFailed(config)) return config;
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const rangeError = validateRangeSyntax(params, params.path);
 	if (rangeError) return rangeError;
-	const resolved = await resolveExistingFile(workspaceRoot, params.path);
+	const resolved = await resolveExistingFile(workspaceRoot, params.path, config);
 	if (isFailed(resolved)) return resolved;
-	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot);
+	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
 	const ignoreDecision = resolved.workspacePath !== undefined
 		? ignoreSnapshot.evaluate({ path: resolved.workspacePath, kind: "file", intent: "explicit-read" })
 		: { ignored: false, matchedRule: undefined };
@@ -19,7 +22,10 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams): Promis
 	const file = await readTextFile(resolved.realPath, resolved.relativePath);
 	if (isFailed(file)) return file;
 
-	const sliced = sliceTextByLineRange(file, params.start_line, params.end_line, resolved.relativePath);
+	const sliced = sliceTextByLineRange(file, params.start_line, params.end_line, resolved.relativePath, {
+		maxBytes: config.limits.read_bytes,
+		maxLines: config.limits.read_lines,
+	});
 	if (isFailed(sliced)) return sliced;
 
 	const result: ReadSuccess = {
@@ -36,7 +42,10 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams): Promis
 		...(sliced.continuation ? { continuation: sliced.continuation } : {}),
 		bom: file.hasBom,
 	};
-	if (ignoreDecision.ignored) {
+	if (isIgnoredPath(config, toolPathIdentity(resolved.relativePath, resolved.absolutePath, resolved.workspacePath))) {
+		result.ignored = true;
+		result.ignore_source = "file-tools.jsonc";
+	} else if (ignoreDecision.ignored) {
 		result.ignored = true;
 		const source = shortIgnoreSource(ignoreDecision.matchedRule?.sourceType);
 		if (source !== undefined) result.ignore_source = source;

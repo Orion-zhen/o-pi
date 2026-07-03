@@ -1,5 +1,6 @@
 import { stat, unlink } from "node:fs/promises";
 import { fail, isFailed } from "./errors.js";
+import { ignoreConfigFromFileTools, loadFileToolsConfig, type FileToolsConfig } from "./config.js";
 import { parseContextDiff } from "./diff-parser.js";
 import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
 import { fileExists, resolveExistingFile, resolveTargetFile, resolveWorkspaceRoot } from "./path-resolver.js";
@@ -59,9 +60,11 @@ export async function editWorkspace(cwd: string, params: unknown, runtime: EditR
 	const lexicalConflict = validateLexicalOperationConflicts(input.operations);
 	if (lexicalConflict) return lexicalConflict;
 
+	const config = await loadFileToolsConfig();
+	if (isFailed(config)) return config;
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
-	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot);
-	const staged = await stageOperations(workspaceRoot, input.operations, ignoreSnapshot);
+	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
+	const staged = await stageOperations(workspaceRoot, input.operations, ignoreSnapshot, config);
 	if (isFailed(staged)) return staged;
 
 	const originals = Array.from(staged.originals.values()).sort((a, b) => a.path.localeCompare(b.path));
@@ -215,6 +218,7 @@ async function stageOperations(
 	workspaceRoot: string,
 	operations: EditOperation[],
 	ignoreSnapshot: IgnoreSnapshot,
+	config: FileToolsConfig,
 ): Promise<ToolOutcome<{ originals: Map<string, OriginalState>; finalStates: Map<string, StagedState> }>> {
 	const originals = new Map<string, OriginalState>();
 	const finalStates = new Map<string, StagedState>();
@@ -225,7 +229,7 @@ async function stageOperations(
 		if (operation === undefined) continue;
 
 		if (operation.type === "create_file") {
-			const target = await resolveTargetFile(workspaceRoot, operation.path);
+			const target = await resolveTargetFile(workspaceRoot, operation.path, config);
 			if (isFailed(target)) return withOperation(target, index, operation.type);
 			noteSoftIgnore(ignoreSnapshot, target.workspacePath);
 			const conflict = markTouched(touched, target.absolutePath, target.relativePath, index, operation.type);
@@ -252,9 +256,9 @@ async function stageOperations(
 		}
 
 		if (operation.type === "move_file") {
-			const source = await resolveExistingFile(workspaceRoot, operation.from);
+			const source = await resolveExistingFile(workspaceRoot, operation.from, config);
 			if (isFailed(source)) return withOperation(source, index, operation.type);
-			const target = await resolveTargetFile(workspaceRoot, operation.to);
+			const target = await resolveTargetFile(workspaceRoot, operation.to, config);
 			if (isFailed(target)) return withOperation(target, index, operation.type);
 			noteSoftIgnore(ignoreSnapshot, source.workspacePath);
 			noteSoftIgnore(ignoreSnapshot, target.workspacePath);
@@ -314,7 +318,7 @@ async function stageOperations(
 			continue;
 		}
 
-		const resolved = await resolveExistingFile(workspaceRoot, operation.path);
+		const resolved = await resolveExistingFile(workspaceRoot, operation.path, config);
 		if (isFailed(resolved)) return withOperation(resolved, index, operation.type);
 		noteSoftIgnore(ignoreSnapshot, resolved.workspacePath);
 		const conflict = markTouched(touched, resolved.realPath, resolved.relativePath, index, operation.type);

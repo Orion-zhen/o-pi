@@ -1,11 +1,10 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
+import { ignoreConfigFromFileTools, isBlockedPath, isIgnoredPath, loadFileToolsConfig, type ToolPathIdentity } from "./config.js";
 import { fail, isFailed } from "./errors.js";
 import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
-import { isWorkspaceMetadataPath, resolveExistingDirectory, resolveWorkspaceRoot } from "./path-resolver.js";
+import { resolveExistingDirectory, resolveWorkspaceRoot } from "./path-resolver.js";
 import type { LsEntry, LsEntryType, LsParams, LsSuccess, ToolOutcome } from "./types.js";
-
-const MAX_LS_ENTRIES = 200;
 
 const TYPE_RANK: Record<LsEntryType, number> = {
 	directory: 0,
@@ -16,10 +15,12 @@ const TYPE_RANK: Record<LsEntryType, number> = {
 
 /** ls 只列出目录直属成员；不递归、不读取文件内容、不修改 workspace。 */
 export async function listWorkspaceDirectory(cwd: string, params: LsParams): Promise<ToolOutcome<LsSuccess>> {
+	const config = await loadFileToolsConfig();
+	if (isFailed(config)) return config;
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
-	const resolved = await resolveExistingDirectory(workspaceRoot, params.path);
+	const resolved = await resolveExistingDirectory(workspaceRoot, params.path, config);
 	if (isFailed(resolved)) return resolved;
-	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot);
+	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
 
 	let rawEntries;
 	try {
@@ -34,7 +35,8 @@ export async function listWorkspaceDirectory(cwd: string, params: LsParams): Pro
 	const entries: LsEntry[] = [];
 	for (const entry of rawEntries) {
 		const entryPath = childPath(resolved.relativePath, entry.name);
-		if (isWorkspaceMetadataPath(entryPath)) continue;
+		const identity = childIdentity(resolved, entryPath, entry.name);
+		if (isBlockedPath(config, identity)) continue;
 		const workspaceEntryPath = childWorkspacePath(resolved.workspacePath, entry.name);
 		const type = entryType(entry);
 		const ignoreDecision = workspaceEntryPath !== undefined
@@ -45,7 +47,10 @@ export async function listWorkspaceDirectory(cwd: string, params: LsParams): Pro
 			path: entryPath,
 			type,
 		};
-		if (ignoreDecision.ignored) {
+		if (isIgnoredPath(config, identity)) {
+			lsEntry.ignored = true;
+			lsEntry.ignore_source = "file-tools.jsonc";
+		} else if (ignoreDecision.ignored) {
 			lsEntry.ignored = true;
 			if (ignoreDecision.matchedRule !== undefined) lsEntry.ignore_source = shortIgnoreSource(ignoreDecision.matchedRule.sourceType);
 		}
@@ -54,7 +59,7 @@ export async function listWorkspaceDirectory(cwd: string, params: LsParams): Pro
 
 	entries.sort(compareEntries);
 
-	const visibleEntries = entries.slice(0, MAX_LS_ENTRIES);
+	const visibleEntries = entries.slice(0, config.limits.ls_entries);
 	const truncated = visibleEntries.length < entries.length;
 	return {
 		path: resolved.relativePath,
@@ -78,6 +83,20 @@ function childPath(parent: string, name: string): string {
 function childWorkspacePath(parent: string | undefined, name: string): string | undefined {
 	if (parent === undefined) return undefined;
 	return parent === "." ? name : `${parent}/${name}`;
+}
+
+function childIdentity(
+	parent: { absolutePath: string; workspacePath?: string },
+	displayPath: string,
+	name: string,
+): ToolPathIdentity {
+	const absolutePath = path.join(parent.absolutePath, name);
+	const workspacePath = childWorkspacePath(parent.workspacePath, name);
+	return {
+		displayPath,
+		absolutePath,
+		...(workspacePath !== undefined ? { workspacePath } : {}),
+	};
 }
 
 function normalizePath(value: string): string {

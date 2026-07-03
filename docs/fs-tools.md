@@ -23,6 +23,8 @@
 
 * `agent/extensions/file-tools.ts`：注册 `ls` / `read` / `edit`，定义工具 schema 和提示词元数据。
 * `agent/extensions/block-builtin-tools.ts`：屏蔽 Pi 内置工具，保留扩展和 SDK 工具。
+* `agent/configs/file-tools.jsonc`：文件工具配置。
+* `agent/schemas/file-tools.schema.json`：配置 schema。
 * `src/file-tools/`：实现路径解析、目录枚举、文本读取、diff 匹配、事务提交和回滚。
 * `src/file-tools/ignore/`：实现统一 ignore engine、snapshot、explain 和 Git tracked set。
 
@@ -35,14 +37,52 @@ ignore：路径是否应从自动发现、遍历、搜索或索引中排除。
 路径解析：把相对或绝对输入交给文件系统操作。
 ```
 
-`.piignore` 和 `.gitignore` 不是访问控制机制。`ls` / `read` / `edit` 接受相对或绝对路径；只要 Pi 进程和操作系统允许访问，就可以执行。相对路径按当前 `cwd` 解析，绝对路径保持绝对。`.git` 是默认硬保护例外。
+`.piignore` 和 `.gitignore` 不是访问控制机制。`ls` / `read` / `edit` 接受相对或绝对路径；只要 Pi 进程和操作系统允许访问，就可以执行。相对路径按当前 `cwd` 解析，绝对路径保持绝对。
 
 状态行为：
 
 * 普通路径：`ls` 返回，`read` 允许，`edit` 允许，未来搜索/索引包含。
 * soft ignored：`ls` 返回并标记，显式 `read` 允许，`edit` 允许，未来搜索/索引默认跳过。
 * cwd 外路径：允许访问；不套用当前 cwd 的 ignore 规则。
-* `.git` 路径：父目录 `ls` 隐藏，直接 `ls` / `read` / `edit` 拒绝。
+* blocked path：父目录 `ls` 隐藏，直接 `ls` / `read` / `edit` 拒绝。
+
+## file-tools 配置
+
+默认配置：
+
+```jsonc
+{
+	"$schema": "../schemas/file-tools.schema.json",
+	"version": 1,
+	"blocked_path": [".git/"],
+	"ignored_path": [],
+	"limits": {
+		"ls_entries": 200,
+		"read_lines": 2000,
+		"read_bytes": 51200
+	},
+	"ignore": {
+		"piignore": true,
+		"gitignore": true,
+		"git_tracked_files_bypass": true,
+		"builtin_profile": "minimal"
+	}
+}
+```
+
+字段：
+
+* `blocked_path`：硬阻止路径。命中后不可列出、读取或写入；相对规则可匹配同名路径段，绝对规则按绝对路径匹配。目录规则以 `/` 结尾。
+* `ignored_path`：软忽略路径。命中后 `ls` / `read` 返回 `ignored: true` 和 `ignore_source: "file-tools.jsonc"`，不阻止显式访问。
+* `limits.ls_entries`：`ls` 单次最多返回条目数。
+* `limits.read_lines`：`read` 单次最多返回行数。
+* `limits.read_bytes`：`read` 单次最多返回 UTF-8 字节数。
+* `ignore.piignore`：是否读取 `.piignore`。
+* `ignore.gitignore`：是否读取 `.gitignore`。
+* `ignore.git_tracked_files_bypass`：Git tracked 文件是否绕过 `.gitignore`。
+* `ignore.builtin_profile`：内置 soft ignore 规则，取值 `none`、`minimal` 或 `performance`。
+
+配置损坏时工具返回 `CONFIG_ERROR`，不继续执行文件访问。
 
 默认配置：
 
@@ -170,7 +210,7 @@ dotfiles：
 * `.gitignore`、`.github`、`.vscode`、`.env.example` 等普通 dotfile 会正常返回。
 * dotfile 不等于 ignored。
 * `.piignore` 和 `.gitignore` 自身正常出现在 `ls` 中。
-* `.git` 默认隐藏，不能直接 `ls`、`read` 或 `edit`。
+* 默认 `blocked_path` 包含 `.git/`，因此 `.git` 隐藏且不能直接 `ls`、`read` 或 `edit`。
 
 symlink：
 
@@ -280,7 +320,7 @@ soft ignore 不阻止 `edit`。`edit` 只依据文件系统访问结果、文件
 
 * 空路径；
 * 空字节；
-* 任一路径段为 `.git`。
+* 命中 `blocked_path`。
 
 路径可以是相对路径、`..` 路径、绝对路径、包含 glob 字符的普通文件名，或指向 cwd 外的符号链接。工具不会展开 glob。
 
@@ -290,7 +330,8 @@ soft ignore 不阻止 `edit`。`edit` 只依据文件系统访问结果、文件
 * `FILE_NOT_FOUND`：`read` 目标文件不存在。
 * `NOT_A_DIRECTORY`：`ls` 目标存在但不是目录。
 * `NOT_A_FILE`：`read` 目标存在但不是普通文件。
-* `PROTECTED_PATH`：目标位于 `.git`。
+* `PROTECTED_PATH`：目标命中 `blocked_path`。
+* `CONFIG_ERROR`：`agent/configs/file-tools.jsonc` 缺失 schema、JSONC 语法错误或不符合 schema。
 * `ACCESS_DENIED`：运行时无权访问目标。
 
 恢复方式：
