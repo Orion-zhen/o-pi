@@ -693,4 +693,16 @@ describe("edit", () => {
 		expect(after).toMatchObject({ content: "new\n" });
 		if ("version" in after) expect(after.version).not.toBe(before.version);
 	});
+
+	it("成功结果返回 Pi TUI 可渲染的行号 diff", async () => {
+		await writeFile(path.join(workspace, "a.txt"), "old\n");
+		const before = await readWorkspaceFile(workspace, { path: "a.txt" });
+		if (!("version" in before)) throw new Error("read failed");
+		const result = await editWorkspace(workspace, {
+			operations: [{ type: "update_file", path: "a.txt", diff: "@@\n-old\n+new" }],
+		});
+		if ("error" in result) throw new Error(`edit failed: ${result.error.code}`);
+		expect(result.diff).toContain("a.txt\n-1 old\n+1 new");
+		expect(result.diff).not.toContain("--- a/a.txt");
+	});
 });

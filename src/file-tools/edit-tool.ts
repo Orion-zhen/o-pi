@@ -1,4 +1,5 @@
 import { stat, unlink } from "node:fs/promises";
+import { generateDiffString } from "@earendil-works/pi-coding-agent";
 import { fail, isFailed } from "./errors.js";
 import { ignoreConfigFromFileTools, loadFileToolsConfig, type FileToolsConfig } from "./config.js";
 import { parseContextDiff } from "./diff-parser.js";
@@ -651,15 +652,10 @@ function buildDiff(originals: OriginalState[], states: StagedState[]): string {
 		const original = originalMap.get(state.path);
 		const oldText = original?.bytes ? textForDiff(original.bytes) : "";
 		const newText = state.bytes ? textForDiff(state.bytes) : "";
-		chunks.push(`--- a/${state.path}`);
-		chunks.push(`+++ b/${state.path}`);
-		chunks.push(`@@ -1,${lineCount(oldText)} +1,${lineCount(newText)} @@`);
-		if (oldText !== "") {
-			for (const line of oldText.split("\n")) chunks.push(`-${line}`);
-		}
-		if (newText !== "") {
-			for (const line of newText.split("\n")) chunks.push(`+${line}`);
-		}
+		// Pi TUI 的 renderDiff 读取带行号的展示 diff；路径行用于区分多文件事务。
+		const displayDiff = generateDiffString(oldText, newText).diff;
+		if (displayDiff === "") continue;
+		chunks.push(state.path, displayDiff);
 	}
 	return chunks.join("\n");
 }
@@ -667,11 +663,7 @@ function buildDiff(originals: OriginalState[], states: StagedState[]): string {
 function textForDiff(bytes: Buffer): string {
 	const decoded = decodeTextFile(bytes, "<diff>");
 	if (isFailed(decoded)) return "";
-	return decoded.text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n$/, "");
-}
-
-function lineCount(text: string): number {
-	return text === "" ? 0 : text.split("\n").length;
+	return decoded.text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

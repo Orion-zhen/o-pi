@@ -1,4 +1,5 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { renderDiff, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { editWorkspace } from "../../src/file-tools/edit-tool.js";
 import { findWorkspaceFiles } from "../../src/file-tools/find-tool.js";
@@ -6,7 +7,7 @@ import { formatCompactGrepResult, grepWorkspaceFiles } from "../../src/file-tool
 import { formatCompactLsResult, listWorkspaceDirectory } from "../../src/file-tools/ls-tool.js";
 import { ReadVersionCache } from "../../src/file-tools/read-cache.js";
 import { readWorkspaceFile } from "../../src/file-tools/read-tool.js";
-import type { EditParams, FindParams, GrepParams, LsParams, ReadParams } from "../../src/file-tools/types.js";
+import type { EditParams, EditSuccess, FindParams, GrepParams, LsParams, ReadParams } from "../../src/file-tools/types.js";
 
 const lsParameters = Type.Object({ path: Type.String({ description: "Directory path." }) });
 const findParameters = Type.Object({
@@ -146,6 +147,8 @@ export default function fileTools(pi: ExtensionAPI): void {
 			"Do not edit configured blocked paths.",
 		],
 		parameters: editParameters,
+		// 与 Pi 内置 edit 保持同一展示约定：details.diff 交给 renderDiff 渲染。
+		renderShell: "self",
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const versionCache = versionCacheFor(ctx, versionCaches);
 			const result = await editWorkspace(ctx.cwd, params as EditParams, { versionCache });
@@ -154,7 +157,57 @@ export default function fileTools(pi: ExtensionAPI): void {
 				details: result,
 			};
 		},
+		renderCall(args, theme) {
+			return new Text(formatEditCall(args, theme), 0, 0);
+		},
+		renderResult(result, { isPartial }, theme, context) {
+			if (isPartial) return new Text(theme.fg("warning", "Editing..."), 0, 0);
+
+			const details = result.details;
+			if (isFailedEditDetails(details)) {
+				return new Text(theme.fg("error", `${details.error.code}: ${details.error.message}`), 0, 0);
+			}
+
+			const component = context.lastComponent instanceof Container ? context.lastComponent : new Container();
+			component.clear();
+			if (!isEditSuccessDetails(details) || details.diff === "") {
+				component.addChild(new Text(theme.fg("success", "Applied"), 0, 0));
+				return component;
+			}
+			component.addChild(new Text(theme.fg("success", "Applied"), 0, 0));
+			component.addChild(new Spacer(1));
+			component.addChild(new Text(renderDiff(details.diff), 1, 0));
+			return component;
+		},
 	});
+}
+
+function formatEditCall(args: unknown, theme: { fg(name: string, text: string): string; bold(text: string): string }): string {
+	const operations = isPlainRecord(args) && Array.isArray(args["operations"]) ? args["operations"] : [];
+	const label = operations.length === 1 ? formatEditOperation(operations[0]) : `${operations.length} operations`;
+	return `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", label)}`;
+}
+
+function formatEditOperation(operation: unknown): string {
+	if (!isPlainRecord(operation)) return "operation";
+	const type = operation["type"];
+	if (type === "move_file") {
+		const from = typeof operation["from"] === "string" ? operation["from"] : "?";
+		const to = typeof operation["to"] === "string" ? operation["to"] : "?";
+		return `${from} -> ${to}`;
+	}
+	const path = typeof operation["path"] === "string" ? operation["path"] : undefined;
+	return path ?? (typeof type === "string" ? type : "operation");
+}
+
+function isEditSuccessDetails(value: unknown): value is EditSuccess {
+	return isPlainRecord(value) && value["status"] === "applied" && typeof value["diff"] === "string";
+}
+
+function isFailedEditDetails(value: unknown): value is { status: "failed"; error: { code: string; message: string } } {
+	if (!isPlainRecord(value) || value["status"] !== "failed" || !isPlainRecord(value["error"])) return false;
+	const error = value["error"];
+	return typeof error["code"] === "string" && typeof error["message"] === "string";
 }
 
 function versionCacheFor(ctx: { sessionManager: { getSessionId(): string } }, caches: Map<string, ReadVersionCache>): ReadVersionCache {
@@ -175,4 +228,8 @@ function scrubVersions(value: unknown): unknown {
 		result[key] = scrubVersions(item);
 	}
 	return result;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -461,6 +461,8 @@ src/b.ts  3 lines / 3 occurrences
 
 soft ignore 不阻止 `edit`。`edit` 只依据文件系统访问结果、文件类型、上次读取版本和 operation 合法性决定是否修改。
 
+成功结果的 `diff` 是 Pi TUI 展示用的精简行号 diff，用于展示本次事务变更，不是可直接应用的 unified patch。
+
 ## 路径解析
 
 `ls`、`read`、`edit` 共享 `src/file-tools/path-resolver.ts`。
