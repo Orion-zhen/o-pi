@@ -2,7 +2,7 @@ import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
 
-import type { ContentConversion, WebFetchMode, WebFetchOutputFormat, WebFetchFailureDetails, WebFetchHeaders } from "./types.js";
+import type { ContentConversion, WebFetchMode, WebFetchOutputFormat, WebFetchFailureDetails, WebHttpHeaders } from "./types.js";
 
 const TEXT_TYPES = new Set(["text/plain", "text/markdown", "text/csv", "application/javascript", "application/x-javascript"]);
 const JSON_TYPES = new Set(["application/json", "application/ld+json"]);
@@ -21,7 +21,7 @@ turndown.use(gfm);
 
 export function convertContent(
 	body: Uint8Array,
-	headers: WebFetchHeaders,
+	headers: WebHttpHeaders,
 	finalUrl: string,
 	mode: WebFetchMode,
 ): ContentConversion | WebFetchFailureDetails {

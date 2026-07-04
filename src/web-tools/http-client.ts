@@ -1,8 +1,9 @@
 import type { Dispatcher } from "undici";
 
-import type { CookieStore, HttpFetchResult, WebFetchExecutionContext, WebToolsConfig, WebFetchFailureDetails, WebFetchFetch, WebFetchResponse, WebFetchHeaders } from "./types.js";
+import type { CookieStore, HttpFetchResult, WebFetchExecutionContext, WebToolsConfig, WebFetchFailureDetails, WebHttpFetch, WebHttpResponse, WebHttpHeaders } from "./types.js";
 import { isCookieAllowed } from "./cookie-store.js";
 import { validateRequestUrl } from "./network-policy.js";
+import { readLimitedResponseBody, responseContentLength } from "./response-body.js";
 import { originKey, redactUrl } from "./url-utils.js";
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -10,7 +11,7 @@ const ACCEPT_HEADER = "text/markdown, text/plain;q=0.9, application/json;q=0.9, 
 
 export interface HttpClientOptions {
 	dispatcher: Dispatcher;
-	fetchImpl: WebFetchFetch;
+	fetchImpl: WebHttpFetch;
 	cookieStore: CookieStore;
 	approvedAuthOrigins: Set<string>;
 	config: WebToolsConfig;
@@ -82,7 +83,7 @@ export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions): 
 			authenticated = true;
 		}
 
-		let response: WebFetchResponse;
+		let response: WebHttpResponse;
 		try {
 			response = await fetchImpl(currentUrl, {
 				method: "GET",
@@ -142,7 +143,7 @@ export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions): 
 			continue;
 		}
 
-		const expected = contentLength(response.headers);
+		const expected = responseContentLength(response.headers);
 		options.context.onUpdate?.({
 			content: expected !== undefined ? `Downloading ${expected} bytes...` : "Downloading...",
 			details: {
@@ -153,9 +154,39 @@ export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions): 
 				redirect_count: redirectCount,
 			},
 		});
-		const body = await readLimitedBody(response, options);
-		if ("status" in body) {
-			return { status: "failed", details: withRequest(body, requested.displayUrl, currentUrl, authenticated, redirectCount, options, response.status) };
+		let lastUpdate = 0;
+		const body = await readLimitedResponseBody(response, {
+			maxBytes: options.config.webfetch.limits.response_bytes,
+			...(options.context.signal !== undefined ? { signal: options.context.signal } : {}),
+			onProgress(receivedBytes) {
+				const now = options.now();
+				if (now - lastUpdate < 500) return;
+				lastUpdate = now;
+				options.context.onUpdate?.({
+					content: `Downloading ${receivedBytes} bytes...`,
+					details: {
+						status: "progress",
+						phase: "downloading",
+						http_status: response.status,
+						received_bytes: receivedBytes,
+						...(expected !== undefined ? { expected_bytes: expected } : {}),
+					},
+				});
+			},
+		});
+		if (body.status === "failed") {
+			return {
+				status: "failed",
+				details: withRequest(
+					{ status: "failed", error: { code: body.code, message: body.message } },
+					requested.displayUrl,
+					currentUrl,
+					authenticated,
+					redirectCount,
+					options,
+					response.status,
+				),
+			};
 		}
 		const setCookieError = await options.cookieStore.storeFromResponse(currentUrl, setCookieHeaders(response.headers), allowlisted);
 		if (setCookieError !== undefined) {
@@ -211,57 +242,6 @@ function combinedSignal(options: HttpClientOptions): AbortSignal {
 	return AbortSignal.any([options.context.signal ?? new AbortController().signal, AbortSignal.timeout(options.config.webfetch.timeout_seconds * 1000)]);
 }
 
-async function readLimitedBody(response: WebFetchResponse, options: HttpClientOptions): Promise<{ bytes: Uint8Array } | WebFetchFailureDetails> {
-	const limit = options.config.webfetch.limits.response_bytes;
-	const expected = contentLength(response.headers);
-	if (expected !== undefined && expected > limit) {
-		await response.body?.cancel();
-		return { status: "failed", error: { code: "RESPONSE_TOO_LARGE", message: `response exceeded ${limit} bytes.` } };
-	}
-	if (response.body === null) return { bytes: new Uint8Array() };
-	const reader = response.body.getReader();
-	const chunks: Uint8Array[] = [];
-	let total = 0;
-	let lastUpdate = 0;
-	try {
-		while (true) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			if (value !== undefined) {
-				total += value.byteLength;
-				if (total > limit) {
-					await reader.cancel();
-					return { status: "failed", error: { code: "RESPONSE_TOO_LARGE", message: `response exceeded ${limit} bytes.` } };
-				}
-				chunks.push(value);
-				const now = options.now();
-				if (now - lastUpdate >= 500) {
-					lastUpdate = now;
-					options.context.onUpdate?.({
-						content: `Downloading ${total} bytes...`,
-						details: {
-							status: "progress",
-							phase: "downloading",
-							http_status: response.status,
-							received_bytes: total,
-							...(expected !== undefined ? { expected_bytes: expected } : {}),
-						},
-					});
-				}
-			}
-		}
-	} catch (error) {
-		return fetchErrorDetails(error, "", new URL("http://example.com"), false, 0, options);
-	}
-	const bytes = new Uint8Array(total);
-	let offset = 0;
-	for (const chunk of chunks) {
-		bytes.set(chunk, offset);
-		offset += chunk.byteLength;
-	}
-	return { bytes };
-}
-
 function fetchErrorDetails(
 	error: unknown,
 	requestedUrl: string,
@@ -272,13 +252,7 @@ function fetchErrorDetails(
 ): WebFetchFailureDetails {
 	const cause = errorCause(error);
 	const message = [error instanceof Error ? error.message : String(error), cause?.message].filter(Boolean).join(": ");
-	const codeText = `${cause?.code ?? ""} ${message}`.toLowerCase();
-	let code: WebFetchFailureDetails["error"]["code"] = "CONNECTION_FAILED";
-	if (options.context.signal?.aborted) code = "ABORTED";
-	else if (codeText.includes("timeout") || error instanceof DOMException && error.name === "TimeoutError") code = "TIMEOUT";
-	else if (codeText.includes("certificate") || codeText.includes("tls")) code = "TLS_FAILED";
-	else if (codeText.includes("dns") || codeText.includes("enotfound")) code = "DNS_FAILED";
-	else if (codeText.includes("blocked") || codeText.includes("eacces")) code = "BLOCKED_ADDRESS";
+	const code = classifyNetworkError(error, options.context.signal);
 	return {
 		status: "failed",
 		error: { code, message },
@@ -288,6 +262,18 @@ function fetchErrorDetails(
 		redirect_count: redirectCount,
 		duration_ms: elapsed(options),
 	};
+}
+
+export function classifyNetworkError(error: unknown, userSignal?: AbortSignal): "DNS_FAILED" | "CONNECTION_FAILED" | "TLS_FAILED" | "TIMEOUT" | "ABORTED" | "BLOCKED_ADDRESS" {
+	const cause = errorCause(error);
+	const message = [error instanceof Error ? error.message : String(error), cause?.message].filter(Boolean).join(": ");
+	const codeText = `${cause?.code ?? ""} ${message}`.toLowerCase();
+	if (userSignal?.aborted) return "ABORTED";
+	if (codeText.includes("timeout") || error instanceof DOMException && error.name === "TimeoutError") return "TIMEOUT";
+	if (codeText.includes("certificate") || codeText.includes("tls")) return "TLS_FAILED";
+	if (codeText.includes("dns") || codeText.includes("enotfound")) return "DNS_FAILED";
+	if (codeText.includes("blocked") || codeText.includes("eacces")) return "BLOCKED_ADDRESS";
+	return "CONNECTION_FAILED";
 }
 
 function errorCause(error: unknown): { message?: string; code?: string } | undefined {
@@ -324,14 +310,7 @@ function elapsed(options: HttpClientOptions): number {
 	return options.now() - options.startedAt;
 }
 
-function contentLength(headers: WebFetchHeaders): number | undefined {
-	const value = headers.get("content-length");
-	if (value === null) return undefined;
-	const parsed = Number(value);
-	return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
-}
-
-function setCookieHeaders(headers: WebFetchHeaders): string[] {
+function setCookieHeaders(headers: WebHttpHeaders): string[] {
 	const values = headers.getSetCookie?.();
 	if (values !== undefined) return values;
 	const single = headers.get("set-cookie");

@@ -11,14 +11,21 @@ const CONFIG_PATH_ENV = "PI_WEB_TOOLS_CONFIG";
 const COOKIES_PATH_ENV = "PI_WEB_TOOLS_COOKIES";
 
 const defaultConfig: WebToolsConfig = {
-	version: 1,
+	version: 2,
+	network: {
+		fake_ip_ranges: [],
+	},
+	websearch: {
+		timeout_seconds: 15,
+		user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+		region: "wt-wt",
+		default_results: 8,
+		response_bytes: 2_097_152,
+	},
 	webfetch: {
 		timeout_seconds: 30,
 		max_redirects: 5,
 		user_agent: "pi-webfetch/1.0",
-		network: {
-			fake_ip_ranges: [],
-		},
 		limits: {
 			response_bytes: 10_485_760,
 			default_output_chars: 20_000,
@@ -76,12 +83,13 @@ export async function loadWebToolsConfig(): Promise<WebToolsConfig> {
 
 export function defaultWebToolsConfig(): WebToolsConfig {
 	return {
-		version: 1,
+		version: 2,
+		network: { fake_ip_ranges: [...defaultConfig.network.fake_ip_ranges] },
+		websearch: { ...defaultConfig.websearch },
 		webfetch: {
 			timeout_seconds: defaultConfig.webfetch.timeout_seconds,
 			max_redirects: defaultConfig.webfetch.max_redirects,
 			user_agent: defaultConfig.webfetch.user_agent,
-			network: { fake_ip_ranges: [...defaultConfig.webfetch.network.fake_ip_ranges] },
 			limits: { ...defaultConfig.webfetch.limits },
 			cookies: {
 				enabled: defaultConfig.webfetch.cookies.enabled,
@@ -97,12 +105,13 @@ export function defaultCookiePath(): string {
 }
 
 interface RawWebToolsConfig {
-	version: 1;
+	version: 2;
+	network?: Partial<WebToolsConfig["network"]>;
+	websearch?: Partial<WebToolsConfig["websearch"]>;
 	webfetch?: {
 		timeout_seconds?: number;
 		max_redirects?: number;
 		user_agent?: string;
-		network?: Partial<WebToolsConfig["webfetch"]["network"]>;
 		limits?: Partial<WebToolsConfig["webfetch"]["limits"]>;
 		cookies?: Partial<WebToolsConfig["webfetch"]["cookies"]>;
 	};
@@ -110,14 +119,21 @@ interface RawWebToolsConfig {
 
 function mergeConfig(raw: RawWebToolsConfig): WebToolsConfig {
 	const merged: WebToolsConfig = {
-		version: 1,
+		version: 2,
+		network: {
+			fake_ip_ranges: raw.network?.fake_ip_ranges ?? [...defaultConfig.network.fake_ip_ranges],
+		},
+		websearch: {
+			timeout_seconds: raw.websearch?.timeout_seconds ?? defaultConfig.websearch.timeout_seconds,
+			user_agent: raw.websearch?.user_agent ?? defaultConfig.websearch.user_agent,
+			region: raw.websearch?.region ?? defaultConfig.websearch.region,
+			default_results: raw.websearch?.default_results ?? defaultConfig.websearch.default_results,
+			response_bytes: raw.websearch?.response_bytes ?? defaultConfig.websearch.response_bytes,
+		},
 		webfetch: {
 			timeout_seconds: raw.webfetch?.timeout_seconds ?? defaultConfig.webfetch.timeout_seconds,
 			max_redirects: raw.webfetch?.max_redirects ?? defaultConfig.webfetch.max_redirects,
 			user_agent: raw.webfetch?.user_agent ?? defaultConfig.webfetch.user_agent,
-			network: {
-				fake_ip_ranges: raw.webfetch?.network?.fake_ip_ranges ?? [...defaultConfig.webfetch.network.fake_ip_ranges],
-			},
 			limits: {
 				response_bytes: raw.webfetch?.limits?.response_bytes ?? defaultConfig.webfetch.limits.response_bytes,
 				default_output_chars: raw.webfetch?.limits?.default_output_chars ?? defaultConfig.webfetch.limits.default_output_chars,
@@ -133,7 +149,7 @@ function mergeConfig(raw: RawWebToolsConfig): WebToolsConfig {
 	if (merged.webfetch.limits.default_output_chars > merged.webfetch.limits.max_output_chars) {
 		throw new WebToolsConfigError("default_output_chars must not exceed max_output_chars.");
 	}
-	validateFakeIpRanges(merged.webfetch.network.fake_ip_ranges);
+	validateFakeIpRanges(merged.network.fake_ip_ranges);
 	return merged;
 }
 

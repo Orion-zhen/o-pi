@@ -2,6 +2,31 @@
 	"$schema": "../schemas/web-tools.schema.json",
 	"version": 1,
 
+	"network": {
+		// Clash/mihomo TUN fake-ip 可填 ["198.18.0.0/15"] 或更窄范围。
+		// 仅放行域名 DNS 解析得到的 fake-ip；URL 直接写 IP 仍会拒绝。
+		"fake_ip_ranges": [
+			"198.18.0.0/15"
+		]
+	},
+
+	"websearch": {
+		// 包括请求和响应读取。
+		"timeout_seconds": 15,
+
+		// DDG HTML 需要浏览器形态 UA 才能稳定返回桌面结果页面。
+		"user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+
+		// DuckDuckGo kl 参数；wt-wt 表示不强制区域。
+		"region": "wt-wt",
+
+		// 模型未传 limit 时使用。
+		"default_results": 8,
+
+		// 搜索结果 HTML 的解压后正文上限。
+		"response_bytes": 2097152
+	},
+
 	"webfetch": {
 		// 单次请求总时间，包括重定向和正文读取。
 		"timeout_seconds": 30,
@@ -11,14 +36,6 @@
 
 		// 可在需要复用浏览器登录态的站点按需手动调整。
 		"user_agent": "pi-webfetch/1.0",
-
-		"network": {
-			// Clash/mihomo TUN fake-ip 可填 ["198.18.0.0/15"] 或更窄范围。
-			// 仅放行域名 DNS 解析得到的 fake-ip；URL 直接写 IP 仍会拒绝。
-			"fake_ip_ranges": [
-				"198.18.0.0/15"
-			]
-		},
 
 		"limits": {
 			// 解压后允许读取的最大响应正文。

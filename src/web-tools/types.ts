@@ -3,6 +3,8 @@ import type { Dispatcher } from "undici";
 export type WebFetchMode = "readable" | "source";
 export type WebFetchOutputFormat = "markdown" | "text" | "json" | "xml" | "source";
 export type SnapshotStatus = "created" | "hit" | "refetched" | "not_needed";
+/** DuckDuckGo HTML 支持的新鲜度过滤粒度。 */
+export type WebSearchRecency = "day" | "week" | "month" | "year";
 
 export interface WebFetchParams {
 	url: string;
@@ -11,15 +13,38 @@ export interface WebFetchParams {
 	limit?: number;
 }
 
+/** 公开网页搜索参数；region 是稳定配置，不由模型逐次指定。 */
+export interface WebSearchParams {
+	query: string;
+	limit?: number;
+	recency?: WebSearchRecency;
+}
+
+/** 单条搜索结果，rank 保留搜索引擎原始排序。 */
+export interface WebSearchItem {
+	rank: number;
+	title: string;
+	url: string;
+	snippet?: string;
+}
+
 export interface WebToolsConfig {
-	version: 1;
+	version: 2;
+	network: {
+		/** 两个 Web 工具共用的安全 DNS fake-ip 放行范围。 */
+		fake_ip_ranges: string[];
+	};
+	websearch: {
+		timeout_seconds: number;
+		user_agent: string;
+		region: string;
+		default_results: number;
+		response_bytes: number;
+	};
 	webfetch: {
 		timeout_seconds: number;
 		max_redirects: number;
 		user_agent: string;
-		network: {
-			fake_ip_ranges: string[];
-		};
 		limits: {
 			response_bytes: number;
 			default_output_chars: number;
@@ -52,6 +77,21 @@ export type WebFetchErrorCode =
 	| "DECODE_FAILED"
 	| "CONVERSION_FAILED"
 	| "OFFSET_OUT_OF_RANGE";
+
+/** 搜索工具对模型和 renderer 暴露的稳定错误码。 */
+export type WebSearchErrorCode =
+	| "INVALID_ARGUMENT"
+	| "CONFIG_ERROR"
+	| "DNS_FAILED"
+	| "CONNECTION_FAILED"
+	| "TLS_FAILED"
+	| "TIMEOUT"
+	| "ABORTED"
+	| "HTTP_ERROR"
+	| "RESPONSE_TOO_LARGE"
+	| "UNSUPPORTED_CONTENT_TYPE"
+	| "PROVIDER_BLOCKED"
+	| "PARSE_FAILED";
 
 export interface WebFetchFailureDetails {
 	status: "failed";
@@ -109,12 +149,65 @@ export interface WebFetchResult {
 	details: WebFetchSuccessDetails | WebFetchFailureDetails;
 }
 
+/** 搜索工具 renderer 使用的阶段进度，不进入最终模型内容。 */
+export interface WebSearchProgressDetails {
+	status: "progress";
+	phase: "waiting" | "requesting" | "downloading" | "parsing";
+	received_bytes?: number;
+	expected_bytes?: number;
+	wait_ms?: number;
+}
+
+/** 搜索成功 details；缓存、耗时和字节数只供 UI/诊断使用。 */
+export interface WebSearchSuccessDetails {
+	status: "success";
+	query: string;
+	provider: "duckduckgo_html";
+	results: WebSearchItem[];
+	cached: boolean;
+	downloaded_bytes: number;
+	duration_ms: number;
+}
+
+/** 搜索失败 details；response_preview 只给展开 renderer 诊断。 */
+export interface WebSearchFailureDetails {
+	status: "failed";
+	error: {
+		code: WebSearchErrorCode;
+		message: string;
+	};
+	query?: string;
+	provider: "duckduckgo_html";
+	http_status?: number;
+	duration_ms?: number;
+	/**
+	 * 仅供展开 renderer 诊断；不写入模型 content。
+	 * 写入前必须去除标签和终端控制字符。
+	 */
+	response_preview?: string;
+}
+
+export type WebSearchDetails = WebSearchProgressDetails | WebSearchSuccessDetails | WebSearchFailureDetails;
+
+/** 搜索工具最终返回值；content 面向模型，details 面向 Pi 事件和 renderer。 */
+export interface WebSearchResult {
+	content: string;
+	details: WebSearchSuccessDetails | WebSearchFailureDetails;
+}
+
 export interface WebFetchExecutionContext {
 	toolCallId: string;
 	signal?: AbortSignal;
 	onUpdate?: (partial: { content: string; details: WebFetchProgressDetails }) => void;
 	hasUI: boolean;
 	confirm?: (title: string, message: string) => Promise<boolean>;
+}
+
+/** 搜索执行上下文；扩展层负责把 Pi progress callback 适配成该结构。 */
+export interface WebSearchExecutionContext {
+	toolCallId: string;
+	signal?: AbortSignal;
+	onUpdate?: (partial: { content: string; details: WebSearchProgressDetails }) => void;
 }
 
 export interface ValidatedUrl {
@@ -128,7 +221,7 @@ export interface HttpFetchSuccess {
 	finalUrl: string;
 	httpStatus: number;
 	statusText: string;
-	headers: WebFetchHeaders;
+	headers: WebHttpHeaders;
 	body: Uint8Array;
 	authenticated: boolean;
 	redirectCount: number;
@@ -145,40 +238,47 @@ export interface ContentConversion {
 	title?: string;
 }
 
-export interface WebFetchHeaders {
+/** 兼容 undici Headers 的最小响应头接口。 */
+export interface WebHttpHeaders {
 	get(name: string): string | null;
 	getSetCookie?: () => string[];
 }
 
-export interface WebFetchResponse {
+/** 两个 Web 工具共用的最小 HTTP 响应形态。 */
+export interface WebHttpResponse {
 	readonly status: number;
 	readonly statusText: string;
-	readonly headers: WebFetchHeaders;
-	readonly body: WebFetchBody | null;
+	readonly headers: WebHttpHeaders;
+	readonly body: WebHttpBody | null;
 }
 
-export interface WebFetchBody {
-	getReader(): WebFetchBodyReader;
+/** 可取消的 Web ReadableStream body 包装。 */
+export interface WebHttpBody {
+	getReader(): WebHttpBodyReader;
 	cancel(): Promise<void>;
 }
 
-export interface WebFetchBodyReader {
+/** 只暴露顺序读取和取消，便于测试替换。 */
+export interface WebHttpBodyReader {
 	read(): Promise<{ done: boolean; value?: Uint8Array }>;
 	cancel(): Promise<void>;
 }
 
-export interface WebFetchRequestInit {
-	method: "GET";
+/** 固定 manual redirect 的 HTTP 请求参数；body 仅在具体调用方需要时传入。 */
+export interface WebHttpRequestInit {
+	method: "GET" | "POST";
 	redirect: "manual";
 	dispatcher?: Dispatcher;
 	signal: AbortSignal;
 	headers: Record<string, string>;
+	body?: string;
 }
 
-export type WebFetchFetch = (
+/** 可注入的 HTTP fetch，用于共享安全 dispatcher 和单元测试。 */
+export type WebHttpFetch = (
 	input: URL,
-	init: WebFetchRequestInit,
-) => Promise<WebFetchResponse>;
+	init: WebHttpRequestInit,
+) => Promise<WebHttpResponse>;
 
 export interface WebFetchSnapshot {
 	key: string;
@@ -211,12 +311,13 @@ export interface CookieStore {
 
 export interface WebToolsRuntime {
 	fetch(params: WebFetchParams, context: WebFetchExecutionContext): Promise<WebFetchResult>;
+	search(params: WebSearchParams, context: WebSearchExecutionContext): Promise<WebSearchResult>;
 	close(): Promise<void>;
 }
 
 export interface WebToolsRuntimeOptions {
 	dispatcher?: Dispatcher;
-	fetchImpl?: WebFetchFetch;
+	fetchImpl?: WebHttpFetch;
 	cookiePath?: string;
 	now?: () => number;
 }

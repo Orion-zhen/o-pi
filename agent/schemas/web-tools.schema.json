@@ -6,6 +6,39 @@
 	"properties": {
 		"$schema": { "type": "string" },
 		"version": { "const": 1 },
+		"network": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"fake_ip_ranges": {
+					"type": "array",
+					"maxItems": 8,
+					"uniqueItems": true,
+					"items": {
+						"type": "string",
+						"pattern": "^198\\.(18|19)\\.[0-9]{1,3}\\.[0-9]{1,3}\\/(1[5-9]|2[0-9]|3[0-2])$"
+					},
+					"default": []
+				}
+			}
+		},
+		"websearch": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 60, "default": 15 },
+				"user_agent": { "type": "string", "minLength": 1, "maxLength": 512 },
+				"region": {
+					"type": "string",
+					"minLength": 2,
+					"maxLength": 32,
+					"pattern": "^[a-z0-9-]+$",
+					"default": "wt-wt"
+				},
+				"default_results": { "type": "integer", "minimum": 1, "maximum": 20, "default": 8 },
+				"response_bytes": { "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 }
+			}
+		},
 		"webfetch": {
 			"type": "object",
 			"additionalProperties": false,
@@ -13,22 +46,6 @@
 				"timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 120, "default": 30 },
 				"max_redirects": { "type": "integer", "minimum": 0, "maximum": 10, "default": 5 },
 				"user_agent": { "type": "string", "minLength": 1, "maxLength": 512, "default": "pi-webfetch/1.0" },
-				"network": {
-					"type": "object",
-					"additionalProperties": false,
-					"properties": {
-						"fake_ip_ranges": {
-							"type": "array",
-							"maxItems": 8,
-							"uniqueItems": true,
-							"items": {
-								"type": "string",
-								"pattern": "^198\\.(18|19)\\.[0-9]{1,3}\\.[0-9]{1,3}\\/(1[5-9]|2[0-9]|3[0-2])$"
-							},
-							"default": []
-						}
-					}
-				},
 				"limits": {
 					"type": "object",
 					"additionalProperties": false,

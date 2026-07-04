@@ -3,7 +3,7 @@ import { Agent } from "undici";
 
 import { defaultWebToolsConfig } from "../src/web-tools/config.js";
 import { SnapshotCache } from "../src/web-tools/snapshot-cache.js";
-import type { CookieStore, WebFetchFetch, WebFetchRequestInit, WebFetchResponse } from "../src/web-tools/types.js";
+import type { CookieStore, WebHttpFetch, WebHttpResponse } from "../src/web-tools/types.js";
 import { executeWebFetch } from "../src/web-tools/webfetch-tool.js";
 
 class FakeBody {
@@ -31,7 +31,7 @@ const cookieStore: CookieStore = {
 	},
 };
 
-function response(status: number, body: string, headers: Record<string, string> = { "content-type": "text/plain" }): WebFetchResponse {
+function response(status: number, body: string, headers: Record<string, string> = { "content-type": "text/plain" }): WebHttpResponse {
 	return {
 		status,
 		statusText: status === 200 ? "OK" : "Error",
@@ -40,7 +40,7 @@ function response(status: number, body: string, headers: Record<string, string> 
 	};
 }
 
-function runtime(fetchImpl: WebFetchFetch, maxChars = 100000) {
+function runtime(fetchImpl: WebHttpFetch, maxChars = 100000) {
 	const config = defaultWebToolsConfig();
 	config.webfetch.limits.default_output_chars = 1000;
 	config.webfetch.limits.max_output_chars = maxChars;
@@ -60,7 +60,7 @@ describe("webfetch tool", () => {
 	it("返回包装后的成功文本和 next_offset，并用 snapshot 继续读取", async () => {
 		let calls = 0;
 		const long = `${"a".repeat(900)}\n${"b".repeat(900)}`;
-		const fetchImpl: WebFetchFetch = async () => {
+		const fetchImpl: WebHttpFetch = async () => {
 			calls += 1;
 			return response(200, long);
 		};
@@ -79,7 +79,7 @@ describe("webfetch tool", () => {
 	});
 
 	it("redirect 到私网会被重新校验并拒绝", async () => {
-		const fetchImpl: WebFetchFetch = async () => ({
+		const fetchImpl: WebHttpFetch = async () => ({
 			status: 302,
 			statusText: "Found",
 			headers: new Headers({ location: "http://127.0.0.1/private" }),

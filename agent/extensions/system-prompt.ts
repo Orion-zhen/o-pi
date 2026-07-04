@@ -1,7 +1,7 @@
 import type { BuildSystemPromptOptions, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-const DEFAULT_TOOLS = ["ls", "read", "find", "grep", "webfetch", "bash", "edit"];
+const DEFAULT_TOOLS = ["ls", "read", "find", "grep", "edit", "websearch", "webfetch", "bash"];
 const SYSTEM_COMMAND_DESCRIPTION = "Show the current synthesized system prompt.";
 
 /** 构建 system prompt；保留 Pi 默认信息来源，但不输出 skill 元数据。 */

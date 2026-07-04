@@ -49,6 +49,13 @@ export function escapeXml(value: string): string {
 	return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+/** 移除网页文本可能夹带的 ANSI/OSC 终端控制序列。 */
+export function stripTerminalControls(value: string): string {
+	return value
+		.replace(/\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g, "")
+		.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
+}
+
 export function normalizeUrl(input: URL): string {
 	const url = new URL(input.toString());
 	url.hash = "";
