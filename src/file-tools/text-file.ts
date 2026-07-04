@@ -1,7 +1,5 @@
-import { createHash, randomBytes } from "node:crypto";
-import { constants } from "node:fs";
-import { chmod, open, readFile, rename, unlink } from "node:fs/promises";
-import path from "node:path";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { fail } from "./errors.js";
 import type { FailedResult, NewlineKind, TextFile, ToolOutcome } from "./types.js";
 
@@ -143,59 +141,6 @@ export function logicalLines(text: string): { lines: string[]; finalNewline: boo
 export function buildTextBytes(text: string, hasBom: boolean): Buffer {
 	const body = Buffer.from(text, "utf8");
 	return hasBom ? Buffer.concat([UTF8_BOM, body]) : body;
-}
-
-export function joinLogicalLines(lines: string[], newline: string, finalNewline: boolean): string {
-	if (lines.length === 0) return "";
-	const body = lines.join(newline);
-	return finalNewline ? `${body}${newline}` : body;
-}
-
-/** 同目录临时文件 + rename；调用方负责事务级回滚。 */
-export async function writeFileAtomic(targetPath: string, bytes: Buffer, mode?: number): Promise<void> {
-	const dir = path.dirname(targetPath);
-	const name = `.pi-edit-${process.pid}-${Date.now()}-${randomBytes(6).toString("hex")}.tmp`;
-	const tempPath = path.join(dir, name);
-	let created = false;
-	let renamed = false;
-	let targetModeChanged = false;
-
-	try {
-		const handle = await open(tempPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, writableMode(mode));
-		created = true;
-		try {
-			await handle.writeFile(bytes);
-			await handle.sync();
-		} finally {
-			await handle.close();
-		}
-		if (mode !== undefined) {
-			await chmod(tempPath, mode);
-		}
-		// Windows 不能用 rename 覆盖只读目标；临时清除目标只读位，最终文件仍继承 temp 的原 mode。
-		if (mode !== undefined && shouldPrepareWindowsReadonlyTarget(mode)) {
-			await chmod(targetPath, mode | 0o200);
-			targetModeChanged = true;
-		}
-		await rename(tempPath, targetPath);
-		renamed = true;
-		created = false;
-	} finally {
-		if (created) {
-			await unlink(tempPath).catch(() => undefined);
-		}
-		if (targetModeChanged && !renamed && mode !== undefined) {
-			await chmod(targetPath, mode).catch(() => undefined);
-		}
-	}
-}
-
-function writableMode(mode: number | undefined): number {
-	return mode === undefined ? 0o666 : mode | 0o200;
-}
-
-function shouldPrepareWindowsReadonlyTarget(mode: number): boolean {
-	return process.platform === "win32" && (mode & 0o200) === 0;
 }
 
 function countLogicalLines(text: string): number {

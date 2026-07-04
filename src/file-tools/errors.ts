@@ -1,4 +1,4 @@
-import type { EditOperationType, FailedResult, FileToolError, FileToolErrorCode } from "./types.js";
+import type { FailedResult, FileToolError, FileToolErrorCode } from "./types.js";
 
 /** 统一生成失败结果，避免工具返回形状漂移。 */
 export function fail(
@@ -6,9 +6,7 @@ export function fail(
 	message: string,
 	options: {
 		path?: string;
-		type?: EditOperationType;
-		operation_index?: number;
-		hunk?: number;
+		edit_index?: number;
 		expected?: string;
 		actual?: string;
 		details?: Record<string, unknown>;
@@ -16,9 +14,7 @@ export function fail(
 ): FailedResult {
 	const error: FileToolError = { code, message };
 	if (options.path !== undefined) error.path = options.path;
-	if (options.type !== undefined) error.type = options.type;
-	if (options.operation_index !== undefined) error.operation_index = options.operation_index;
-	if (options.hunk !== undefined) error.hunk = options.hunk;
+	if (options.edit_index !== undefined) error.edit_index = options.edit_index;
 	if (options.expected !== undefined) error.expected = options.expected;
 	if (options.actual !== undefined) error.actual = options.actual;
 	if (options.details !== undefined) error.details = options.details;

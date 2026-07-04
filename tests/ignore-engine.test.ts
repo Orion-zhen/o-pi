@@ -253,13 +253,8 @@ describe("ignore engine", () => {
 		if (!("version" in read)) throw new Error("read failed");
 		expect(
 			await editWorkspace(workspace, {
-				operations: [
-					{
-						type: "replace_file",
-						path: "dist/schema.json",
-						content: "{\"a\":2}\n",
-					},
-				],
+				path: "dist/schema.json",
+				edits: [{ old: "{\"a\":1}", new: "{\"a\":2}" }],
 			}),
 		).toMatchObject({ status: "applied" });
 		expect(await readFile(path.join(workspace, "dist", "schema.json"), "utf8")).toBe("{\"a\":2}\n");
@@ -282,7 +277,8 @@ describe("ignore engine", () => {
 		const before = await readWorkspaceFile(workspace, { path: ".piignore" });
 		if (!("version" in before)) throw new Error("read failed");
 		await editWorkspace(workspace, {
-			operations: [{ type: "replace_file", path: ".piignore", content: "new.txt\n" }],
+			path: ".piignore",
+			edits: [{ old: "old.txt", new: "new.txt" }],
 		});
 		const listed = await listWorkspaceDirectory(workspace, { path: "." });
 		expect(listed).toMatchObject({

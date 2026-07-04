@@ -1,7 +1,6 @@
 /** 文件工具返回给模型的稳定错误码。 */
 export type FileToolErrorCode =
 	| "FILE_NOT_FOUND"
-	| "FILE_ALREADY_EXISTS"
 	| "PATH_NOT_FOUND"
 	| "NOT_A_FILE"
 	| "NOT_A_DIRECTORY"
@@ -10,20 +9,16 @@ export type FileToolErrorCode =
 	| "CONFIG_ERROR"
 	| "INVALID_PATH"
 	| "INVALID_OPERATION"
-	| "CONFLICTING_OPERATIONS"
 	| "READ_REQUIRED"
 	| "STALE_READ"
-	| "DIFF_PARSE_ERROR"
-	| "DIFF_CONTEXT_NOT_FOUND"
-	| "DIFF_CONTEXT_AMBIGUOUS"
-	| "DIFF_OVERLAPPING_HUNKS"
+	| "EMPTY_OLD_TEXT"
+	| "OLD_TEXT_NOT_FOUND"
+	| "OLD_TEXT_NOT_UNIQUE"
+	| "OVERLAPPING_REPLACEMENTS"
 	| "ENCODING_UNSUPPORTED"
 	| "BINARY_FILE_UNSUPPORTED"
 	| "OUTPUT_LIMIT_EXCEEDED"
 	| "OPERATION_ABORTED"
-	| "TRANSACTION_VALIDATION_FAILED"
-	| "TRANSACTION_COMMIT_FAILED"
-	| "TRANSACTION_ROLLBACK_FAILED"
 	| "INVALID_REGEX";
 
 /** 机器可读错误；message 只用于帮助模型和人类理解。 */
@@ -31,9 +26,7 @@ export interface FileToolError {
 	code: FileToolErrorCode;
 	message: string;
 	path?: string;
-	type?: EditOperationType;
-	operation_index?: number;
-	hunk?: number;
+	edit_index?: number;
 	expected?: string;
 	actual?: string;
 	details?: Record<string, unknown>;
@@ -188,54 +181,38 @@ export interface FindSuccess {
 	details: FindDetails;
 }
 
-export type EditOperationType = "create_file" | "update_file" | "replace_file" | "delete_file" | "move_file";
-
-export interface DiffHunk {
-	index: number;
-	oldLines: string[];
-	newLines: string[];
+export interface EditReplacement {
+	/** 原文件中唯一且非空的精确匹配文本。 */
+	old: string;
+	/** 写入到匹配位置的新文本；允许为空字符串以删除该片段。 */
+	new: string;
 }
-
-export type EditOperation =
-	| { type: "create_file"; path: string; content: string }
-	| { type: "update_file"; path: string; diff: string }
-	| { type: "replace_file"; path: string; content: string }
-	| { type: "delete_file"; path: string }
-	| { type: "move_file"; from: string; to: string };
 
 export interface EditParams {
-	operations: EditOperation[];
-}
-
-export interface OperationResult {
-	index: number;
-	type: EditOperationType;
-	path?: string;
-	from?: string;
-	to?: string;
-	old_version: string | null;
-	new_version: string | null;
+	path: string;
+	/** 同一文件的一个或多个非重叠替换，全部针对调用开始时的原始内容匹配。 */
+	edits: EditReplacement[];
 }
 
 export interface EditSuccess {
 	status: "applied";
-	transaction_id: string;
-	results: OperationResult[];
-	/** Pi TUI 展示用的带行号 diff；不是可应用补丁。 */
+	path: string;
+	replacements: number;
+	old_version: string;
+	new_version: string;
+	/** Pi TUI 展示用的带行号 diff。 */
 	diff: string;
-	/** 标准 unified patch，仅供 UI/外部集成读取，不要求模型使用。 */
-	patch: string;
-	/** 第一处变更在新文件中的行号；多文件事务取首个变更文件。 */
+	/** 第一处变更在新文件中的行号。 */
 	firstChangedLine?: number;
 }
 
 export interface EditPreviewSuccess {
 	status: "preview";
-	/** Pi TUI 展示用的带行号 diff；不是可应用补丁。 */
+	path: string;
+	replacements: number;
+	/** Pi TUI 展示用的带行号 diff。 */
 	diff: string;
-	/** 标准 unified patch，仅供 UI/外部集成读取，不要求模型使用。 */
-	patch: string;
-	/** 第一处变更在新文件中的行号；多文件事务取首个变更文件。 */
+	/** 第一处变更在新文件中的行号。 */
 	firstChangedLine?: number;
 }
 
@@ -247,14 +224,4 @@ export interface ResolvedPath {
 	realPath: string;
 	/** 仅当目标位于 cwd 内时存在，用于匹配 .piignore/.gitignore。 */
 	workspacePath?: string;
-}
-
-export interface TargetPath {
-	inputPath: string;
-	/** 工具返回路径：相对输入按 cwd 规范化，绝对输入保持绝对。 */
-	relativePath: string;
-	absolutePath: string;
-	/** 仅当目标位于 cwd 内时存在，用于匹配 .piignore/.gitignore。 */
-	workspacePath?: string;
-	parentRealPath: string;
 }

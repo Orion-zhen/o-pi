@@ -6,7 +6,7 @@
 * `find`：在目录下按 glob 递归查找文件。
 * `grep`：在 UTF-8 workspace 文件中搜索文本。
 * `read`：读取已知 UTF-8 文件内容和版本。
-* `edit`：唯一写入口，通过结构化 `operations` 修改文件系统状态。
+* `edit`：唯一写入口，通过 exact replacement 修改一个已有文件。
 
 边界：
 
@@ -31,7 +31,7 @@
 * `agent/extensions/block-builtin-tools.ts`：屏蔽 Pi 内置工具，保留扩展和 SDK 工具。
 * `agent/configs/file-tools.jsonc`：文件工具配置。
 * `agent/schemas/file-tools.schema.json`：配置 schema。
-* `src/file-tools/`：实现路径解析、目录枚举、文本读取、diff 匹配、事务提交和回滚。
+* `src/file-tools/`：实现路径解析、目录枚举、文本读取和 exact replacement 写入。
 * `src/file-tools/ignore/`：实现统一 ignore engine、snapshot、explain 和 Git tracked set。
 
 ## ignore 与路径解析
@@ -433,39 +433,34 @@ src/b.ts  3 lines / 3 occurrences
 
 ## edit
 
-`edit` 只接受结构化 `operations`，不接受字符串 patch DSL，不提供独立的写入、替换、删除、移动工具。
+`edit` 只修改一个已存在的 UTF-8 文件，不创建、删除、移动或完整替换文件，不接受 patch/diff DSL。
 
 参数：
 
 ```json
 {
-	"operations": [
-		{
-			"type": "update_file",
-			"path": "src/main.ts",
-			"diff": "@@\n export function main() {\n-  runOld();\n+  runNew();\n }"
-		}
+	"path": "src/main.ts",
+	"edits": [
+		{ "old": "runOld();", "new": "runNew();" }
 	]
 }
 ```
 
-支持的 operation：
+规则：
 
-* `create_file`：`path`、`content`。只创建新文件，自动创建缺失父目录，目标存在返回 `FILE_ALREADY_EXISTS`。
-* `update_file`：`path`、`diff`。局部修改已有文件。
-* `replace_file`：`path`、`content`。完整替换已有文件，不创建新文件。
-* `delete_file`：`path`。删除已有普通文件。
-* `move_file`：`from`、`to`。移动已有普通文件，目标必须不存在。
+* 文件必须存在且必须先显式 `read`。
+* `edits` 非空；每个 `old` 必须非空、在原文件中唯一。
+* 所有替换都针对调用开始时的原始文件匹配，不按前一个替换后的内容继续匹配。
+* 同一次调用的替换范围不得重叠；相邻或重叠修改应合并成一个 `old/new`。
+* 一次调用只编辑 `path` 指向的一个文件，但可修改该文件多个位置。
 
-任何作用于已有文件的 operation 都必须先显式 `read` 对应文件。`read` 会在工具运行时记录文件版本；`edit` 自动使用该版本校验写入前内容。如果文件未读过，`edit` 返回 `READ_REQUIRED`。如果磁盘内容已变化，`edit` 返回 `STALE_READ`，不会自动合并或覆盖外部修改。
+`read` 会在当前 session 记录文件版本；`edit` 自动使用该版本校验写入前内容。如果文件未读过，`edit` 返回 `READ_REQUIRED`。如果磁盘内容已变化，`edit` 返回 `STALE_READ`，不会自动合并或覆盖外部修改。
 
 soft ignore 不阻止 `edit`。`edit` 只依据文件系统访问结果、文件类型、上次读取版本和 operation 合法性决定是否修改。
 
-TUI 会在参数完整后执行只读预览并在 call 区显示 diff；真正执行仍必须通过 read-before-edit、版本和事务校验。成功后如果结果 diff 与预览一致，结果区不重复展示 diff。
+TUI 会在参数完整后执行只读预览并在 call 区显示 diff；真正执行仍必须通过 read-before-edit 和版本校验。成功后如果结果 diff 与预览一致，结果区不重复展示 diff。
 
-成功结果的 `diff` 是 Pi TUI 展示用的精简行号 diff，不是可直接应用的 unified patch。`details.patch` 保存标准 unified patch，`details.firstChangedLine` 保存首个变更行号；模型可见正文不包含 `patch`。
-
-Windows 只读目标文件会在原子覆盖前临时清除只读位；写入后仍保留原 mode。
+成功结果的 `diff` 是 Pi TUI 展示用的精简行号 diff，`firstChangedLine` 保存首个变更行号；模型可见正文不包含版本字段。
 
 ## 路径解析
 
@@ -494,7 +489,7 @@ Windows 只读目标文件会在原子覆盖前临时清除只读位；写入后
 * `NOT_A_DIRECTORY`：改用 `read` 读取明确文件，或 `ls` 其父目录。
 * `NOT_A_FILE`：改用 `ls` 浏览目录。
 * `truncated: true`：继续 `ls` 更具体的子目录。
-* `READ_REQUIRED`、`STALE_READ` 或 `DIFF_CONTEXT_*`：重新 `read`，基于最新内容生成新的 `edit` operation。
+* `READ_REQUIRED`、`STALE_READ` 或 `OLD_TEXT_*`：重新 `read`，基于最新内容生成新的 `edit` replacement。
 * 文件未出现在未来搜索/索引中：用 ignore snapshot 的 `explain` 查看 `winner.sourcePath` 和 `winner.line`。
 
 ## 提示词设计

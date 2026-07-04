@@ -51,15 +51,18 @@ const readParameters = Type.Object({
 	end_line: Type.Optional(Type.Number({ description: "Optional 1-based inclusive end line." })),
 });
 const editParameters = Type.Object({
-	operations: Type.Array(
-		Type.Union([
-			Type.Object({ type: Type.Literal("create_file"), path: Type.String(), content: Type.String() }),
-			Type.Object({ type: Type.Literal("update_file"), path: Type.String(), diff: Type.String() }),
-			Type.Object({ type: Type.Literal("replace_file"), path: Type.String(), content: Type.String() }),
-			Type.Object({ type: Type.Literal("delete_file"), path: Type.String() }),
-			Type.Object({ type: Type.Literal("move_file"), from: Type.String(), to: Type.String() }),
-		]),
-		{ minItems: 1, description: "Structured file operations applied as one transaction. Diff must start with @@ hunk header." },
+	path: Type.String({ description: "Existing file path." }),
+	edits: Type.Array(
+		Type.Object({
+			old: Type.String({
+				description: "Exact non-empty text that appears once in the original file.",
+			}),
+			new: Type.String({ description: "Replacement text." }),
+		}),
+		{
+			minItems: 1,
+			description: "One or more non-overlapping replacements, all matched against the original file.",
+		},
 	),
 });
 
@@ -147,7 +150,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 		promptSnippet: "Read a UTF-8 file and remember its version for later edits",
 		promptGuidelines: [
 			"Use read before editing an existing file; edit verifies the last read automatically.",
-			"If edit returns READ_REQUIRED, STALE_READ, or DIFF_CONTEXT_*, call read again and generate a new operation.",
+			"If edit returns READ_REQUIRED, STALE_READ, or OLD_TEXT_*, call read again and generate new replacements.",
 		],
 		parameters: readParameters,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -163,12 +166,12 @@ export default function fileTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "edit",
 		label: "edit",
-		description:
-			"Atomically apply structured file operations. Existing files must be read first. Use update_file for local changes and replace_file for complete replacement.",
-		promptSnippet: "Apply structured file operations as one all-or-nothing transaction",
+		description: "Edit one existing UTF-8 file using exact text replacement. The file must be read first.",
+		promptSnippet: "Make precise replacements in one file",
 		promptGuidelines: [
-			"Use edit as the only file modification tool; it accepts only an operations array.",
-			"Use create_file only for new files and replace_file only for existing files.",
+			"Each edits[].old must be exact, non-empty, unique in the original file, and non-overlapping.",
+			"Use one edit call with multiple edits[] entries for separate changes in the same file.",
+			"Merge nearby or overlapping changes into one replacement.",
 		],
 		parameters: editParameters,
 		// 与 Pi 内置 edit 保持同一展示约定：details.diff 交给 renderDiff 渲染。
@@ -285,8 +288,8 @@ function formatEditResult(details: unknown, preview: EditPreview | EditSuccess |
 }
 
 function stableArgsKey(args: unknown): string | undefined {
-	if (!isPlainRecord(args) || !Array.isArray(args["operations"])) return undefined;
-	return JSON.stringify(args["operations"]);
+	if (!isPlainRecord(args) || typeof args["path"] !== "string" || !Array.isArray(args["edits"])) return undefined;
+	return JSON.stringify({ path: args["path"], edits: args["edits"] });
 }
 
 function formatEditError(result: FailedResult): string {
@@ -304,21 +307,8 @@ function previewException(error: unknown): FailedResult {
 }
 
 function formatEditCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
-	const operations = isPlainRecord(args) && Array.isArray(args["operations"]) ? args["operations"] : [];
-	const label = operations.length === 1 ? formatEditOperation(operations[0]) : `${operations.length} operations`;
+	const label = isPlainRecord(args) && typeof args["path"] === "string" ? args["path"] : "file";
 	return `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", label)}`;
-}
-
-function formatEditOperation(operation: unknown): string {
-	if (!isPlainRecord(operation)) return "operation";
-	const type = operation["type"];
-	if (type === "move_file") {
-		const from = typeof operation["from"] === "string" ? operation["from"] : "?";
-		const to = typeof operation["to"] === "string" ? operation["to"] : "?";
-		return `${from} -> ${to}`;
-	}
-	const path = typeof operation["path"] === "string" ? operation["path"] : undefined;
-	return path ?? (typeof type === "string" ? type : "operation");
 }
 
 function isEditSuccessDetails(value: unknown): value is EditSuccess {
@@ -345,7 +335,7 @@ function scrubVersions(value: unknown): unknown {
 	if (value === null || typeof value !== "object") return value;
 	const result: Record<string, unknown> = {};
 	for (const [key, item] of Object.entries(value)) {
-		if (key === "version" || key === "old_version" || key === "new_version" || key === "expected" || key === "actual" || key === "patch") continue;
+		if (key === "version" || key === "old_version" || key === "new_version" || key === "expected" || key === "actual") continue;
 		result[key] = scrubVersions(item);
 	}
 	return result;
