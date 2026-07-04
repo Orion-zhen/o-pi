@@ -1,11 +1,14 @@
 import type { BuildSystemPromptOptions, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { discoverAgents } from "../../src/subagent/agents.js";
+import { loadSubagentConfig } from "../../src/subagent/config.js";
+import type { AgentDefinition } from "../../src/subagent/types.js";
 
 const DEFAULT_TOOLS = ["ls", "read", "find", "grep", "edit", "websearch", "webfetch", "bash"];
 const SYSTEM_COMMAND_DESCRIPTION = "Show the current synthesized system prompt.";
 
 /** 构建 system prompt；保留 Pi 默认信息来源，但不输出 skill 元数据。 */
-export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
+export function buildSystemPrompt(options: BuildSystemPromptOptions, extraSections: string[] = []): string {
 	const now = new Date();
 	const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 	const cwd = options.cwd.replace(/\\/g, "/");
@@ -13,7 +16,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	const appendSystemPrompt = options.appendSystemPrompt ? normalizeLineEndings(options.appendSystemPrompt).trim() : undefined;
 
 	if (options.customPrompt) {
-		return formatCustomPrompt(normalizeLineEndings(options.customPrompt), appendSystemPrompt, formatProjectContext(contextFiles), date, cwd);
+		return formatCustomPrompt(normalizeLineEndings(options.customPrompt), appendSystemPrompt, formatProjectContext(contextFiles), extraSections, date, cwd);
 	}
 
 	const tools = options.selectedTools ?? DEFAULT_TOOLS;
@@ -22,6 +25,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 		formatToolGuidelines(tools, options.promptGuidelines),
 		appendSystemPrompt,
 		formatProjectContext(contextFiles),
+		extraSections,
 		date,
 		cwd,
 	);
@@ -32,6 +36,7 @@ function formatDefaultPrompt(
 	toolGuidelines: string,
 	appendSystemPrompt: string | undefined,
 	projectContext: string | undefined,
+	extraSections: string[],
 	date: string,
 	cwd: string,
 ): string {
@@ -51,6 +56,7 @@ ${appendSystemPrompt}
 </append_system_prompt>`
 			: undefined,
 		projectContext,
+		...extraSections,
 		formatContext(date, cwd),
 	]);
 }
@@ -59,6 +65,7 @@ function formatCustomPrompt(
 	customPrompt: string,
 	appendSystemPrompt: string | undefined,
 	projectContext: string | undefined,
+	extraSections: string[],
 	date: string,
 	cwd: string,
 ): string {
@@ -72,8 +79,35 @@ ${appendSystemPrompt}
 </append_system_prompt>`
 			: undefined,
 		projectContext,
+		...extraSections,
 		formatContext(date, cwd),
 	]);
+}
+
+/** 主 Agent 可见的精简 subagent 索引；只暴露选择所需信息。 */
+export function formatAvailableSubagentsPrompt(agents: AgentDefinition[]): string {
+	if (agents.length === 0) return "";
+	const lines = ["<subagents>"];
+	for (const agent of agents) {
+		lines.push(`- ${agent.name}: ${agent.description}`);
+	}
+	lines.push("</subagents>");
+	return lines.join("\n");
+}
+
+/** 子 Agent 专属追加提示；正文被放入 XML 标签以明确当前运行身份。 */
+export function formatSubagentSystemPrompt(agent: AgentDefinition): string {
+	return [
+		`<subagent_context name="${escapeXml(agent.name)}">`,
+		`description: ${agent.description}`,
+		"role: isolated subagent",
+		"Use only the tools made available in this child process.",
+		"",
+		"<subagent_instructions>",
+		normalizeLineEndings(agent.systemPrompt),
+		"</subagent_instructions>",
+		"</subagent_context>",
+	].join("\n");
 }
 
 function formatTools(selectedTools: string[], toolSnippets: BuildSystemPromptOptions["toolSnippets"]): string {
@@ -260,12 +294,12 @@ function padToWidth(text: string, width: number): string {
 }
 
 /** 注册 /system 命令，用只读浮层查看当前 system prompt，不进入历史上下文。 */
-export function registerSystemCommand(pi: Pick<ExtensionAPI, "registerCommand">): void {
+export function registerSystemCommand(pi: Pick<ExtensionAPI, "registerCommand"> & Partial<Pick<ExtensionAPI, "getActiveTools">>): void {
 	pi.registerCommand("system", {
 		description: SYSTEM_COMMAND_DESCRIPTION,
 		async handler(_args, ctx) {
 			if (ctx.mode !== "tui") return;
-			const prompt = buildSystemPrompt(ctx.getSystemPromptOptions());
+			const prompt = await buildRuntimeSystemPrompt(ctx.getSystemPromptOptions(), ctx.cwd, getActiveTools(pi));
 			await ctx.ui.custom<void>(
 				(tui, theme, _keybindings, done) => new SystemPromptViewer(prompt, theme, () => tui.terminal.rows, done),
 			);
@@ -276,7 +310,23 @@ export function registerSystemCommand(pi: Pick<ExtensionAPI, "registerCommand">)
 /** 在每轮开始前接管 system prompt 构建，改为 XML 风格并移除 skill 列表。 */
 export default function systemPrompt(pi: ExtensionAPI): void {
 	registerSystemCommand(pi);
-	pi.on("before_agent_start", (event) => ({
-		systemPrompt: buildSystemPrompt(event.systemPromptOptions),
+	pi.on("before_agent_start", async (event, ctx) => ({
+		systemPrompt: await buildRuntimeSystemPrompt(event.systemPromptOptions, ctx.cwd, getActiveTools(pi)),
 	}));
+}
+
+function getActiveTools(pi: Partial<Pick<ExtensionAPI, "getActiveTools">>): string[] {
+	return pi.getActiveTools?.() ?? DEFAULT_TOOLS;
+}
+
+async function buildRuntimeSystemPrompt(options: BuildSystemPromptOptions, cwd: string, activeTools: string[]): Promise<string> {
+	return buildSystemPrompt(options, await getMainAgentExtraSystemPrompt(cwd, activeTools));
+}
+
+async function getMainAgentExtraSystemPrompt(cwd: string, activeTools: string[]): Promise<string[]> {
+	if (process.env.PI_SUBAGENT_CHILD === "1") return [];
+	const config = await loadSubagentConfig(cwd);
+	const discovery = discoverAgents(cwd, config);
+	const subagents = formatAvailableSubagentsPrompt(discovery.agents);
+	return subagents === "" ? [] : [subagents];
 }
