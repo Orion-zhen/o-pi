@@ -35,7 +35,7 @@ describe("web-tools config", () => {
 			file,
 			`{
 				"$schema": "../schemas/web-tools.schema.json",
-				"version": 2,
+				"version": 1,
 				"network": { "fake_ip_ranges": ["198.18.0.0/16"], },
 				"websearch": { "default_results": 5, "region": "us-en", },
 				"webfetch": {
@@ -60,19 +60,19 @@ describe("web-tools config", () => {
 	it("拒绝未知字段、非法 enum 和语义错误", async () => {
 		const file = path.join(dir, "bad.jsonc");
 		process.env.PI_WEB_TOOLS_CONFIG = file;
-		await writeFile(file, '{ "version": 2, "webfetch": { "unknown": true } }');
+		await writeFile(file, '{ "version": 1, "webfetch": { "unknown": true } }');
 		await expect(loadWebToolsConfig()).rejects.toThrow("does not match schema");
 
-		await writeFile(file, '{ "version": 2, "webfetch": { "cookies": { "confirmation": "sometimes" } } }');
+		await writeFile(file, '{ "version": 1, "webfetch": { "cookies": { "confirmation": "sometimes" } } }');
 		await expect(loadWebToolsConfig()).rejects.toThrow("does not match schema");
 
-		await writeFile(file, '{ "version": 2, "webfetch": { "limits": { "default_output_chars": 2000, "max_output_chars": 1000 } } }');
+		await writeFile(file, '{ "version": 1, "webfetch": { "limits": { "default_output_chars": 2000, "max_output_chars": 1000 } } }');
 		await expect(loadWebToolsConfig()).rejects.toThrow("default_output_chars");
 
-		await writeFile(file, '{ "version": 2, "network": { "fake_ip_ranges": ["10.0.0.0/8"] } }');
+		await writeFile(file, '{ "version": 1, "network": { "fake_ip_ranges": ["10.0.0.0/8"] } }');
 		await expect(loadWebToolsConfig()).rejects.toThrow("does not match schema");
 
-		await writeFile(file, '{ "version": 2, "network": { "fake_ip_ranges": ["198.18.0.0/16"] } }');
+		await writeFile(file, '{ "version": 1, "network": { "fake_ip_ranges": ["198.18.0.0/16"] } }');
 		await expect(loadWebToolsConfig()).resolves.toMatchObject({ network: { fake_ip_ranges: ["198.18.0.0/16"] } });
 	});
 
