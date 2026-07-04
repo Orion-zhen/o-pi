@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ToolResultEvent } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ToolResultEvent, TruncationResult } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
 import {
@@ -43,13 +43,13 @@ export default function bashTool(pi: ExtensionAPI): void {
 				...(onUpdate
 					? {
 							onUpdate: (partial: BashExecutionResult) => {
-								onUpdate({ content: [{ type: "text", text: partial.content }], details: partial.details });
+								onUpdate({ content: [{ type: "text", text: partial.content }], details: withNativeBashDetails(partial.details) });
 							},
 						}
 					: {}),
 			};
 			const result = await executeBashCommand(params as BashParams, runtime);
-			return { content: [{ type: "text", text: result.content }], details: result.details };
+			return { content: [{ type: "text", text: result.content }], details: withNativeBashDetails(result.details) };
 		},
 	});
 
@@ -71,4 +71,37 @@ function isBashDetails(value: ToolResultEvent["details"]): value is BashToolDeta
 		"output_state" in value &&
 		"capture_complete" in value
 	);
+}
+
+type NativeBashDetails = BashToolDetails & {
+	/** Pi 内置 bash renderer 识别的输出截断摘要。 */
+	truncation?: TruncationResult;
+	/** Pi 内置 bash renderer 识别的完整输出日志路径。 */
+	fullOutputPath?: string;
+};
+
+function withNativeBashDetails(details: BashToolDetails): NativeBashDetails {
+	const result: NativeBashDetails = { ...details };
+	if (details.full_output_path !== undefined) result.fullOutputPath = details.full_output_path;
+	if (details.output_state === "truncated" || details.output_state === "capture_truncated") {
+		result.truncation = pseudoBashTruncation(details);
+	}
+	return result;
+}
+
+function pseudoBashTruncation(details: BashToolDetails): TruncationResult {
+	const truncatedBy = details.returned_bytes < details.total_bytes ? "bytes" : "lines";
+	return {
+		content: "",
+		truncated: true,
+		truncatedBy,
+		totalLines: Math.max(details.total_lines, details.returned_lines),
+		totalBytes: Math.max(details.total_bytes, details.returned_bytes),
+		outputLines: details.returned_lines,
+		outputBytes: details.returned_bytes,
+		lastLinePartial: false,
+		firstLineExceedsLimit: false,
+		maxLines: details.returned_lines,
+		maxBytes: details.returned_bytes,
+	};
 }

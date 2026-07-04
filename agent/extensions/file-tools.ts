@@ -1,4 +1,4 @@
-import { renderDiff, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
+import { renderDiff, type ExtensionAPI, type Theme, type TruncationResult } from "@earendil-works/pi-coding-agent";
 import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { editWorkspace, previewEditWorkspace } from "../../src/file-tools/edit-tool.js";
@@ -7,7 +7,20 @@ import { formatCompactGrepResult, grepWorkspaceFiles } from "../../src/file-tool
 import { formatCompactLsResult, listWorkspaceDirectory } from "../../src/file-tools/ls-tool.js";
 import { ReadVersionCache } from "../../src/file-tools/read-cache.js";
 import { readWorkspaceFile } from "../../src/file-tools/read-tool.js";
-import type { EditParams, EditPreviewSuccess, EditSuccess, FailedResult, FindParams, GrepParams, LsParams, ReadParams } from "../../src/file-tools/types.js";
+import type {
+	EditParams,
+	EditPreviewSuccess,
+	EditSuccess,
+	FailedResult,
+	FindDetails,
+	FindParams,
+	GrepFileMatches,
+	GrepParams,
+	GrepSuccess,
+	LsParams,
+	LsSuccess,
+	ReadParams,
+} from "../../src/file-tools/types.js";
 
 type EditPreview = EditPreviewSuccess | FailedResult;
 type EditCallComponent = Box & {
@@ -71,7 +84,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 			}
 			return {
 				content: [{ type: "text", text: formatCompactLsResult(result) }],
-				details: result,
+				details: withNativeLsDetails(result),
 			};
 		},
 	});
@@ -93,7 +106,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 			}
 			return {
 				content: [{ type: "text", text: result.content }],
-				details: result.details,
+				details: withNativeFindDetails(result.details),
 			};
 		},
 	});
@@ -116,8 +129,13 @@ export default function fileTools(pi: ExtensionAPI): void {
 			}
 			return {
 				content: [{ type: "text", text: formatCompactGrepResult(result) }],
-				details: result,
+				details: withNativeGrepDetails(result, params as GrepParams),
 			};
+		},
+		renderCall(args, theme, context) {
+			const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+			text.setText(formatNativeGrepCall(args, theme));
+			return text;
 		},
 	});
 
@@ -331,6 +349,100 @@ function scrubVersions(value: unknown): unknown {
 		result[key] = scrubVersions(item);
 	}
 	return result;
+}
+
+type NativeLsDetails = LsSuccess & {
+	/** Pi 内置 ls renderer 识别的条目上限标记。 */
+	entryLimitReached?: number;
+};
+
+type NativeFindDetails = FindDetails & {
+	/** Pi 内置 find renderer 识别的结果上限标记。 */
+	resultLimitReached?: number;
+};
+
+type NativeGrepDetails = GrepSuccess & {
+	/** Pi 内置 grep renderer 识别的输出截断摘要。 */
+	truncation?: TruncationResult;
+	/** Pi 内置 grep renderer 识别的匹配数上限。 */
+	matchLimitReached?: number;
+	/** Pi 内置 grep renderer 识别的长行裁剪标记。 */
+	linesTruncated?: boolean;
+};
+
+function withNativeLsDetails(result: LsSuccess): NativeLsDetails {
+	if (!result.truncated) return result;
+	return {
+		...result,
+		entryLimitReached: result.returned_entries ?? result.entries.length,
+	};
+}
+
+function withNativeFindDetails(details: FindDetails): NativeFindDetails {
+	if (!details.truncated) return details;
+	return {
+		...details,
+		resultLimitReached: details.total,
+	};
+}
+
+function withNativeGrepDetails(result: GrepSuccess, params: GrepParams): NativeGrepDetails {
+	const details: NativeGrepDetails = { ...result };
+	if (result.output_truncated) {
+		details.truncation = pseudoTruncation({
+			totalLines: Math.max(result.total_matching_lines, result.returned_lines),
+			outputLines: result.returned_lines,
+			outputBytes: Buffer.byteLength(formatCompactGrepResult(result), "utf8"),
+		});
+		if (result.mode === "content" && result.returned_lines < result.total_matching_lines) {
+			details.matchLimitReached = params.limit ?? result.returned_lines;
+		}
+	}
+	if (hasTruncatedGrepLine(result.files)) details.linesTruncated = true;
+	return details;
+}
+
+function hasTruncatedGrepLine(files: GrepFileMatches[] | undefined): boolean {
+	return (
+		files?.some((file) =>
+			file.lines.some(
+				(line) =>
+					line.text_truncated === true ||
+					line.context_before?.some((context) => context.text_truncated === true) === true ||
+					line.context_after?.some((context) => context.text_truncated === true) === true,
+			),
+		) === true
+	);
+}
+
+function pseudoTruncation(input: { totalLines: number; outputLines: number; outputBytes: number }): TruncationResult {
+	const outputLines = Math.max(0, input.outputLines);
+	const outputBytes = Math.max(0, input.outputBytes);
+	return {
+		content: "",
+		truncated: true,
+		truncatedBy: "lines",
+		totalLines: Math.max(outputLines, input.totalLines),
+		totalBytes: outputBytes,
+		outputLines,
+		outputBytes,
+		lastLinePartial: false,
+		firstLineExceedsLimit: false,
+		maxLines: outputLines,
+		maxBytes: outputBytes,
+	};
+}
+
+function formatNativeGrepCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
+	const record = isPlainRecord(args) ? args : {};
+	const query = typeof record["query"] === "string" ? record["query"] : "";
+	const path = typeof record["path"] === "string" && record["path"].length > 0 ? record["path"] : ".";
+	const glob = typeof record["glob"] === "string" && record["glob"].length > 0 ? record["glob"] : undefined;
+	const limit = typeof record["limit"] === "number" ? record["limit"] : undefined;
+	let text = `${theme.fg("toolTitle", theme.bold("grep"))} ${theme.fg("accent", `/${query}/`)}${theme.fg("toolOutput", ` in ${path}`)}`;
+	if (glob !== undefined) text += theme.fg("toolOutput", ` (${glob})`);
+	if (limit !== undefined) text += theme.fg("toolOutput", ` limit ${limit}`);
+	return text;
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
