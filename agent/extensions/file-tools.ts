@@ -1,4 +1,13 @@
-import { renderDiff, type ExtensionAPI, type Theme, type TruncationResult } from "@earendil-works/pi-coding-agent";
+import {
+	getLanguageFromPath,
+	highlightCode,
+	keyHint,
+	renderDiff,
+	type ExtensionAPI,
+	type Theme,
+	type ToolRenderResultOptions,
+	type TruncationResult,
+} from "@earendil-works/pi-coding-agent";
 import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { editWorkspace, previewEditWorkspace } from "../../src/file-tools/edit-tool.js";
@@ -7,6 +16,7 @@ import { formatCompactGrepResult, grepWorkspaceFiles } from "../../src/file-tool
 import { formatCompactLsResult, listWorkspaceDirectory } from "../../src/file-tools/ls-tool.js";
 import { ReadVersionCache } from "../../src/file-tools/read-cache.js";
 import { readWorkspaceFile } from "../../src/file-tools/read-tool.js";
+import { writeWorkspaceFile } from "../../src/file-tools/write-tool.js";
 import type {
 	EditParams,
 	EditPreviewSuccess,
@@ -20,6 +30,7 @@ import type {
 	LsParams,
 	LsSuccess,
 	ReadParams,
+	WriteParams,
 } from "../../src/file-tools/types.js";
 
 type EditPreview = EditPreviewSuccess | FailedResult;
@@ -28,6 +39,16 @@ type EditCallComponent = Box & {
 	previewArgsKey: string | undefined;
 	previewPending: boolean;
 	settledError: boolean;
+};
+type WriteHighlightCache = {
+	rawPath: string | null;
+	lang: string;
+	rawContent: string;
+	normalizedLines: string[];
+	highlightedLines: string[];
+};
+type WriteCallComponent = Text & {
+	cache: WriteHighlightCache | undefined;
 };
 
 const lsParameters = Type.Object({ path: Type.String({ description: "Directory path." }) });
@@ -50,6 +71,13 @@ const readParameters = Type.Object({
 	start_line: Type.Optional(Type.Number({ description: "Optional 1-based inclusive start line." })),
 	end_line: Type.Optional(Type.Number({ description: "Optional 1-based inclusive end line." })),
 });
+const writeParameters = Type.Object(
+	{
+		path: Type.String({ description: "File path to create or overwrite." }),
+		content: Type.String({ description: "UTF-8 content to write." }),
+	},
+	{ additionalProperties: false },
+);
 const editParameters = Type.Object({
 	path: Type.String({ description: "Existing file path." }),
 	edits: Type.Array(
@@ -66,7 +94,7 @@ const editParameters = Type.Object({
 	),
 });
 
-/** 注册覆盖版 ls/find/read/edit；路径权限由 Pi 进程和操作系统决定。 */
+/** 注册覆盖版 ls/find/read/write/edit；路径权限由 Pi 进程和操作系统决定。 */
 export default function fileTools(pi: ExtensionAPI): void {
 	const versionCaches = new Map<string, ReadVersionCache>();
 
@@ -160,6 +188,63 @@ export default function fileTools(pi: ExtensionAPI): void {
 				content: [{ type: "text", text: JSON.stringify(scrubVersions(result), null, 2) }],
 				details: result,
 			};
+		},
+	});
+
+	pi.registerTool({
+		name: "write",
+		label: "write",
+		description: "Create or overwrite one UTF-8 file and create parent directories.",
+		promptSnippet: "Create or overwrite files",
+		promptGuidelines: ["Use write only for new files or complete rewrites."],
+		parameters: writeParameters,
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			const result = await writeWorkspaceFile(ctx.cwd, params as WriteParams, signal);
+			if ("status" in result && result.status === "failed") {
+				return {
+					content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+					details: result,
+				};
+			}
+			return {
+				content: [{ type: "text", text: `Successfully wrote ${result.bytes} bytes to ${result.path}` }],
+				details: result,
+			};
+		},
+		renderCall(args, theme, context) {
+			const renderArgs = args as { path?: string; file_path?: string; content?: string } | undefined;
+			const rawPath = stringArg(renderArgs?.file_path ?? renderArgs?.path);
+			const fileContent = stringArg(renderArgs?.content);
+			const component = getWriteCallComponent(context.lastComponent);
+			if (fileContent !== null) {
+				component.cache = context.argsComplete
+					? rebuildWriteHighlightCacheFull(rawPath, fileContent)
+					: updateWriteHighlightCacheIncremental(component.cache, rawPath, fileContent);
+			} else {
+				component.cache = undefined;
+			}
+			component.setText(
+				formatWriteCall(
+					renderArgs,
+					{ expanded: context.expanded, isPartial: context.isPartial },
+					theme,
+					component.cache,
+					context.cwd,
+				),
+			);
+			return component;
+		},
+		renderResult(result, _options, theme, context) {
+			const details = result.details;
+			const output = isFailedEditDetails(details) ? theme.fg("error", formatEditError(details)) : undefined;
+			if (output === undefined) {
+				const component = context.lastComponent instanceof Container ? context.lastComponent : new Container();
+				component.clear();
+				return component;
+			}
+			const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+			text.setText(`\n${output}`);
+			return text;
 		},
 	});
 
@@ -309,6 +394,128 @@ function previewException(error: unknown): FailedResult {
 function formatEditCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
 	const label = isPlainRecord(args) && typeof args["path"] === "string" ? args["path"] : "file";
 	return `${theme.fg("toolTitle", theme.bold("edit"))} ${theme.fg("accent", label)}`;
+}
+
+function getWriteCallComponent(lastComponent: unknown): WriteCallComponent {
+	return lastComponent instanceof Text ? (lastComponent as WriteCallComponent) : Object.assign(new Text("", 0, 0), { cache: undefined });
+}
+
+const WRITE_PARTIAL_FULL_HIGHLIGHT_LINES = 50;
+
+function highlightSingleLine(line: string, lang: string): string {
+	return highlightCode(line, lang)[0] ?? "";
+}
+
+function refreshWriteHighlightPrefix(cache: WriteHighlightCache): void {
+	const prefixCount = Math.min(WRITE_PARTIAL_FULL_HIGHLIGHT_LINES, cache.normalizedLines.length);
+	if (prefixCount === 0) return;
+	const prefixSource = cache.normalizedLines.slice(0, prefixCount).join("\n");
+	const prefixHighlighted = highlightCode(prefixSource, cache.lang);
+	for (let index = 0; index < prefixCount; index += 1) {
+		cache.highlightedLines[index] = prefixHighlighted[index] ?? highlightSingleLine(cache.normalizedLines[index] ?? "", cache.lang);
+	}
+}
+
+function rebuildWriteHighlightCacheFull(rawPath: string | null, fileContent: string): WriteHighlightCache | undefined {
+	const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
+	if (!lang) return undefined;
+	const normalized = replaceTabs(normalizeDisplayText(fileContent));
+	return {
+		rawPath,
+		lang,
+		rawContent: fileContent,
+		normalizedLines: normalized.split("\n"),
+		highlightedLines: highlightCode(normalized, lang),
+	};
+}
+
+function updateWriteHighlightCacheIncremental(
+	cache: WriteHighlightCache | undefined,
+	rawPath: string | null,
+	fileContent: string,
+): WriteHighlightCache | undefined {
+	const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
+	if (!lang) return undefined;
+	if (cache === undefined) return rebuildWriteHighlightCacheFull(rawPath, fileContent);
+	if (cache.lang !== lang || cache.rawPath !== rawPath) return rebuildWriteHighlightCacheFull(rawPath, fileContent);
+	if (!fileContent.startsWith(cache.rawContent)) return rebuildWriteHighlightCacheFull(rawPath, fileContent);
+	if (fileContent.length === cache.rawContent.length) return cache;
+
+	const deltaNormalized = replaceTabs(normalizeDisplayText(fileContent.slice(cache.rawContent.length)));
+	cache.rawContent = fileContent;
+	if (cache.normalizedLines.length === 0) {
+		cache.normalizedLines.push("");
+		cache.highlightedLines.push("");
+	}
+
+	const segments = deltaNormalized.split("\n");
+	const lastIndex = cache.normalizedLines.length - 1;
+	cache.normalizedLines[lastIndex] += segments[0] ?? "";
+	cache.highlightedLines[lastIndex] = highlightSingleLine(cache.normalizedLines[lastIndex] ?? "", cache.lang);
+	for (let index = 1; index < segments.length; index += 1) {
+		const segment = segments[index] ?? "";
+		cache.normalizedLines.push(segment);
+		cache.highlightedLines.push(highlightSingleLine(segment, cache.lang));
+	}
+	refreshWriteHighlightPrefix(cache);
+	return cache;
+}
+
+function formatWriteCall(
+	args: { path?: string; file_path?: string; content?: string } | undefined,
+	options: ToolRenderResultOptions,
+	theme: Theme,
+	cache: WriteHighlightCache | undefined,
+	cwd: string,
+): string {
+	const rawPath = stringArg(args?.file_path ?? args?.path);
+	const fileContent = stringArg(args?.content);
+	let text = `${theme.fg("toolTitle", theme.bold("write"))} ${formatToolPath(rawPath, theme, cwd)}`;
+
+	if (fileContent === null) {
+		text += `\n\n${theme.fg("error", "[invalid content arg - expected string]")}`;
+	} else if (fileContent.length > 0) {
+		const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
+		const renderedLines = lang
+			? (cache?.highlightedLines ?? highlightCode(replaceTabs(normalizeDisplayText(fileContent)), lang))
+			: normalizeDisplayText(fileContent).split("\n");
+		const lines = trimTrailingEmptyLines(renderedLines);
+		const totalLines = lines.length;
+		const maxLines = options.expanded ? lines.length : 10;
+		const displayLines = lines.slice(0, maxLines);
+		const remaining = lines.length - maxLines;
+		text += `\n\n${displayLines.map((line) => (lang ? line : theme.fg("toolOutput", replaceTabs(line)))).join("\n")}`;
+		if (remaining > 0) {
+			text += `${theme.fg("muted", `\n... (${remaining} more lines, ${totalLines} total,`)} ${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
+		}
+	}
+	return text;
+}
+
+function formatToolPath(rawPath: string | null, theme: Pick<Theme, "fg">, cwd: string): string {
+	if (rawPath === null || rawPath.length === 0) return theme.fg("error", "?");
+	const normalizedCwd = cwd.replace(/\\/g, "/");
+	const normalizedPath = rawPath.replace(/\\/g, "/");
+	const display = normalizedPath.startsWith(`${normalizedCwd}/`) ? normalizedPath.slice(normalizedCwd.length + 1) : rawPath;
+	return theme.fg("accent", display);
+}
+
+function trimTrailingEmptyLines(lines: string[]): string[] {
+	let end = lines.length;
+	while (end > 0 && lines[end - 1] === "") end -= 1;
+	return lines.slice(0, end);
+}
+
+function normalizeDisplayText(value: string): string {
+	return value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+}
+
+function replaceTabs(value: string): string {
+	return value.replace(/\t/g, "    ");
+}
+
+function stringArg(value: unknown): string | null {
+	return typeof value === "string" ? value : null;
 }
 
 function isEditSuccessDetails(value: unknown): value is EditSuccess {

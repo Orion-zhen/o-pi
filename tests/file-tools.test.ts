@@ -6,8 +6,9 @@ import { editWorkspace as editWorkspaceImpl, previewEditWorkspace, type EditRunt
 import { formatCompactLsResult, listWorkspaceDirectory } from "../src/file-tools/ls-tool.js";
 import { ReadVersionCache } from "../src/file-tools/read-cache.js";
 import { readWorkspaceFile as readWorkspaceFileImpl } from "../src/file-tools/read-tool.js";
+import { writeWorkspaceFile as writeWorkspaceFileImpl } from "../src/file-tools/write-tool.js";
 import { sha256Version } from "../src/file-tools/text-file.js";
-import type { EditSuccess, LsSuccess, ReadParams, ReadSuccess, ToolOutcome } from "../src/file-tools/types.js";
+import type { EditSuccess, LsSuccess, ReadParams, ReadSuccess, ToolOutcome, WriteSuccess } from "../src/file-tools/types.js";
 
 let workspace: string;
 let outside: string;
@@ -35,6 +36,10 @@ function readWorkspaceFile(cwd: string, params: ReadParams): Promise<ToolOutcome
 
 function editWorkspace(cwd: string, params: unknown, runtime: EditRuntime = {}): Promise<ToolOutcome<EditSuccess>> {
 	return editWorkspaceImpl(cwd, params, { ...runtime, versionCache });
+}
+
+function writeWorkspaceFile(cwd: string, params: unknown): Promise<ToolOutcome<WriteSuccess>> {
+	return writeWorkspaceFileImpl(cwd, params);
 }
 
 describe("ls", () => {
@@ -431,6 +436,59 @@ describe("read", () => {
 		expect(afterReadBytes.toString("utf8")).toBe("one\n");
 		expect(afterReadStat.mtimeMs).toBeLessThan(oldDate.getTime() + 1000);
 		if ("version" in first && "version" in second) expect(first.version).not.toBe(second.version);
+	});
+});
+
+describe("write", () => {
+	it("拒绝非法 schema 和空路径", async () => {
+		expect(await writeWorkspaceFile(workspace, "x")).toMatchObject({
+			status: "failed",
+			error: { code: "INVALID_OPERATION" },
+		});
+		expect(await writeWorkspaceFile(workspace, { path: "", content: "x" })).toMatchObject({
+			status: "failed",
+			error: { code: "INVALID_PATH" },
+		});
+		expect(await writeWorkspaceFile(workspace, { path: "a.txt", content: 1 })).toMatchObject({
+			status: "failed",
+			error: { code: "INVALID_OPERATION" },
+		});
+		expect(await writeWorkspaceFile(workspace, { path: "a.txt", content: "", extra: true })).toMatchObject({
+			status: "failed",
+			error: { code: "INVALID_OPERATION" },
+		});
+	});
+
+	it("创建缺失父目录并写入 UTF-8 内容", async () => {
+		const result = await writeWorkspaceFile(workspace, { path: "new/dir/file.txt", content: "hello\n你好\n" });
+		expect(result).toMatchObject({
+			status: "written",
+			path: "new/dir/file.txt",
+			bytes: Buffer.byteLength("hello\n你好\n", "utf8"),
+		});
+		expect(await readFile(path.join(workspace, "new", "dir", "file.txt"), "utf8")).toBe("hello\n你好\n");
+	});
+
+	it("覆盖已有文件，不要求先 read", async () => {
+		await writeFile(path.join(workspace, "a.txt"), "old\n");
+		const result = await writeWorkspaceFile(workspace, { path: "a.txt", content: "new\n" });
+		expect(result).toMatchObject({ status: "written", path: "a.txt" });
+		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("new\n");
+	});
+
+	it("允许写入 cwd 外的绝对路径", async () => {
+		const externalFile = path.join(outside, "nested", "external.txt");
+		const result = await writeWorkspaceFile(workspace, { path: externalFile, content: "external\n" });
+		expect(result).toMatchObject({ status: "written", path: path.normalize(externalFile) });
+		expect(await readFile(externalFile, "utf8")).toBe("external\n");
+	});
+
+	it("拒绝写入 blocked path", async () => {
+		await mkdir(path.join(workspace, ".git"));
+		expect(await writeWorkspaceFile(workspace, { path: ".git/config", content: "[core]\n" })).toMatchObject({
+			status: "failed",
+			error: { code: "PROTECTED_PATH", path: ".git/config" },
+		});
 	});
 });
 

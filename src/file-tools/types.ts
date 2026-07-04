@@ -57,6 +57,11 @@ export interface ReadParams {
 	end_line?: number;
 }
 
+export interface WriteParams {
+	path: string;
+	content: string;
+}
+
 export interface LsParams {
 	path: string;
 }
@@ -161,6 +166,12 @@ export interface ReadSuccess {
 	bom: boolean;
 	ignored?: boolean;
 	ignore_source?: string;
+}
+
+export interface WriteSuccess {
+	status: "written";
+	path: string;
+	bytes: number;
 }
 
 /** find 的内部结构化详情；不会完整序列化到模型可见正文。 */
