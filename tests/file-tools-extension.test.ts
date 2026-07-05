@@ -5,12 +5,16 @@ import fileTools from "../agent/extensions/file-tools.js";
 
 interface ThemeStub {
 	fg(name: string, text: string): string;
+	bg(name: string, text: string): string;
 	bold(text: string): string;
 }
 
 const theme: ThemeStub = {
 	fg(_name: string, text: string) {
 		return text;
+	},
+	bg(name: string, text: string) {
+		return `<${name}>${text}</${name}>`;
 	},
 	bold(text: string) {
 		return text;
@@ -108,6 +112,35 @@ describe("file-tools extension", () => {
 		expect(output).toContain("Scanned 42 entries; skipped 0; ignored 1.");
 		expect(output).toContain("Truncated.");
 	});
+
+	it("edit 完成后成功和失败结果都保留 tool card 背景", () => {
+		const registered: Array<{ name: string; renderResult?: RenderResult }> = [];
+		fileTools({
+			registerTool(tool: { name: string; renderResult?: RenderResult }) {
+				registered.push(tool);
+			},
+			on() {},
+		} as unknown as ExtensionAPI);
+
+		const success = renderEditResult(registered, {
+			status: "applied",
+			path: "src/app.ts",
+			replacements: 1,
+			old_version: "old",
+			new_version: "new",
+			diff: "-old\n+new",
+		});
+		expect(success).toContain("toolSuccessBg");
+		expect(success).toContain("edit      src/app.ts");
+		expect(success).toContain("+1 -1");
+
+		const failure = renderEditResult(registered, {
+			status: "failed",
+			error: { code: "OLD_TEXT_NOT_FOUND", message: "edits[0].old was not found in the original file." },
+		});
+		expect(failure).toContain("toolErrorBg");
+		expect(failure).toContain("OLD_TEXT_NOT_FOUND: edits[0].old was not found in the original file.");
+	});
 });
 
 function renderToolResult(registered: Array<{ name: string; renderResult?: RenderResult }>, toolName: string, details: unknown): string {
@@ -117,6 +150,23 @@ function renderToolResult(registered: Array<{ name: string; renderResult?: Rende
 		{ expanded: false, isPartial: false },
 		theme,
 		{ cwd: "C:/Users/orion/.pi" },
+	);
+	return component?.render(120).join("\n") ?? "";
+}
+
+function renderEditResult(registered: Array<{ name: string; renderResult?: RenderResult }>, details: unknown): string {
+	const tool = registered.find((item) => item.name === "edit");
+	const component = tool?.renderResult?.(
+		{ content: [{ type: "text", text: JSON.stringify(details, null, 2) }], details },
+		{ expanded: false, isPartial: false },
+		theme,
+		{
+			args: { path: "src/app.ts", edits: [{ old: "old", new: "new" }] },
+			cwd: "/repo",
+			expanded: false,
+			lastComponent: undefined,
+			state: {},
+		},
 	);
 	return component?.render(120).join("\n") ?? "";
 }

@@ -7,7 +7,7 @@ import {
 	type Theme,
 	type ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
-import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
+import { Box, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { editWorkspace, previewEditWorkspace } from "../../src/file-tools/edit-tool.js";
 import { findWorkspaceFiles } from "../../src/file-tools/find-tool.js";
@@ -359,7 +359,6 @@ export default function fileTools(pi: ExtensionAPI): void {
 
 			const details = result.details;
 			const callComponent = getEditCallComponent(context.state, undefined);
-			const previewBeforeResult = callComponent.preview;
 			if (isEditSuccessDetails(details)) {
 				callComponent.preview = details;
 				callComponent.previewArgsKey = stableArgsKey(context.args);
@@ -370,11 +369,12 @@ export default function fileTools(pi: ExtensionAPI): void {
 			}
 			buildEditCallComponent(callComponent, context.args, theme, context.expanded);
 
-			const component = context.lastComponent instanceof Container ? context.lastComponent : new Container();
+			const component = context.lastComponent instanceof Box ? context.lastComponent : new Box(1, 1);
 			component.clear();
-			const output = formatEditResult(details, previewBeforeResult, theme, context.args, context.expanded);
+			component.setBgFn(editResultBg(details, theme));
+			const output = formatEditResult(details, theme, context.args, context.expanded);
 			if (output === undefined) return component;
-			component.addChild(new Text(output, 1, 0));
+			component.addChild(new Text(output, 0, 0));
 			return component;
 		},
 	});
@@ -429,10 +429,14 @@ function editHeaderBg(preview: EditPreview | EditSuccess | undefined, settledErr
 	return (text) => theme.bg("toolPendingBg", text);
 }
 
-function formatEditResult(details: unknown, preview: EditPreview | EditSuccess | undefined, theme: Theme, args: unknown, expanded: boolean): string | undefined {
+function editResultBg(details: unknown, theme: Theme): (text: string) => string {
+	if (isFailedEditDetails(details)) return (text) => theme.bg("toolErrorBg", text);
+	if (isEditSuccessDetails(details)) return (text) => theme.bg("toolSuccessBg", text);
+	return (text) => theme.bg("toolPendingBg", text);
+}
+
+function formatEditResult(details: unknown, theme: Theme, args: unknown, expanded: boolean): string | undefined {
 	if (isFailedEditDetails(details)) {
-		const errorText = formatEditError(details);
-		if (isFailedEditDetails(preview) && formatEditError(preview) === errorText) return undefined;
 		return formatFailureCard("edit", editTarget(args), details, theme);
 	}
 	if (!isEditSuccessDetails(details)) return undefined;
@@ -443,8 +447,6 @@ function formatEditResult(details: unknown, preview: EditPreview | EditSuccess |
 		summary: joinParts([formatDiffStats(details.diff), `${details.replacements} replacements`, details.diff !== "" ? "diff available" : "no diff"]),
 	}, theme);
 	if (!expanded || details.diff === "") return header;
-	const previewDiff = preview !== undefined && !isFailedEditDetails(preview) ? preview.diff : undefined;
-	if (details.diff === previewDiff) return header;
 	return `${header}\n\n${renderDiff(details.diff)}`;
 }
 
