@@ -74,8 +74,9 @@ const workspaceCaches = new Map<string, WorkspaceCache>();
 export async function getGrepIndex(cwd: string, params: Pick<GrepParams, "path" | "glob">, signal?: AbortSignal): Promise<ToolOutcome<GrepIndexResult>> {
 	const config = await loadFileToolsConfig();
 	if (isFailed(config)) return config;
-	const workspaceRoot = await realpath(cwd);
-	const root = await resolveGrepRoot(workspaceRoot, params.path ?? ".", config);
+	const workspaceRoot = path.resolve(cwd);
+	const workspaceRealRoot = await realpath(workspaceRoot);
+	const root = await resolveGrepRoot(workspaceRoot, workspaceRealRoot, params.path ?? ".", config);
 	if (isFailed(root)) return root;
 	const glob = params.glob === undefined ? undefined : validateGlob(params.glob, root.relativePath);
 	if (isFailed(glob)) return glob;
@@ -129,7 +130,12 @@ export function clearGrepIndexForTests(): void {
 	workspaceCaches.clear();
 }
 
-async function resolveGrepRoot(workspaceRoot: string, inputPath: string, config: FileToolsConfig): Promise<ToolOutcome<GrepSearchRoot>> {
+async function resolveGrepRoot(
+	workspaceRoot: string,
+	workspaceRealRoot: string,
+	inputPath: string,
+	config: FileToolsConfig,
+): Promise<ToolOutcome<GrepSearchRoot>> {
 	if (inputPath.length === 0) return fail("INVALID_PATH", "path must not be empty.", { path: inputPath });
 	if (inputPath.includes("\0")) return fail("INVALID_PATH", "path must not contain NUL bytes.", { path: inputPath });
 	const absolutePath = path.resolve(workspaceRoot, inputPath);
@@ -145,7 +151,7 @@ async function resolveGrepRoot(workspaceRoot: string, inputPath: string, config:
 		if (isAccessDenied(error)) return fail("ACCESS_DENIED", "Path cannot be accessed.", { path: workspacePath });
 		return fail("PATH_NOT_FOUND", "Path does not exist.", { path: workspacePath });
 	}
-	if (workspaceRelative(workspaceRoot, real) === undefined) return fail("PROTECTED_PATH", "Path resolves outside the workspace.", { path: workspacePath });
+	if (workspaceRelative(workspaceRealRoot, real) === undefined) return fail("PROTECTED_PATH", "Path resolves outside the workspace.", { path: workspacePath });
 	const info = await stat(real);
 	if (info.isFile()) return { relativePath: workspacePath, absolutePath, realPath: real, workspacePath, kind: "file" };
 	if (info.isDirectory()) return { relativePath: workspacePath, absolutePath, realPath: real, workspacePath, kind: "directory" };

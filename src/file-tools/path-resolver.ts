@@ -12,9 +12,9 @@ export interface LexicalToolPath {
 	workspacePath?: string;
 }
 
-/** 返回工具相对路径的解析基准；它不是访问边界。 */
+/** 返回工具相对路径的词法解析基准；macOS 上不能先 realpath，否则 /var 会变成 /private/var 并破坏绝对输入的 workspace-relative 展示。 */
 export async function resolveWorkspaceRoot(cwd: string): Promise<string> {
-	return await realpath(cwd);
+	return path.resolve(cwd);
 }
 
 /** 解析模型输入的词法路径；workspace 内绝对路径统一折叠为 workspace-relative path。 */
