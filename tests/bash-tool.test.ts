@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { BashOperations } from "@earendil-works/pi-coding-agent";
 
-import { createDefaultBashOperations, executeBashCommand } from "../src/bash-tool/bash-tool.js";
+import { createDefaultBashOperations, executeBashCommand, normalizeWindowsPath } from "../src/bash-tool/bash-tool.js";
 import { defaultBashToolConfig } from "../src/bash-tool/config.js";
 
 let workspace: string;
@@ -36,14 +36,26 @@ function waitForAbort(signal: AbortSignal | undefined): Promise<void> {
 }
 
 describe("bash tool execution", () => {
-	it("command 和 cwd 原样传递", async () => {
+	it("命令被传递到 exec 执行", async () => {
 		let seen: { command: string; cwd: string } | undefined;
 		const operations = fakeOperations(async (command, cwd) => {
 			seen = { command, cwd };
 			return { exitCode: 0 };
 		});
-		await executeBashCommand({ command: "echo $HOME && pwd" }, runtime(operations));
-		expect(seen).toEqual({ command: "echo $HOME && pwd", cwd: workspace });
+		await executeBashCommand({ command: "echo hello" }, runtime(operations));
+		expect(seen).toBeDefined();
+		expect(seen?.cwd).toBe(workspace);
+		expect(typeof seen?.command).toBe("string");
+	});
+
+	it("普通命令中的正斜杠不受影响", async () => {
+		let seen: string | undefined;
+		const operations = fakeOperations(async (command, _cwd) => {
+			seen = command;
+			return { exitCode: 0 };
+		});
+		await executeBashCommand({ command: "echo $HOME && ls -la /tmp" }, runtime(operations));
+		expect(seen).toBe("echo $HOME && ls -la /tmp");
 	});
 
 	it("stdout/stderr 按事件顺序写入日志并保留非零退出码", async () => {
@@ -156,6 +168,67 @@ describe("bash tool execution", () => {
 		expect(result.details.exit_code).toBe(3);
 		expect(result.content).toContain("out");
 		expect(result.content).toContain("err");
+	});
+});
+
+describe("normalizeWindowsPath", () => {
+	describe("Windows 平台", () => {
+		it("将 Windows 盘符路径中的反斜杠转换为正斜杠", () => {
+			expect(normalizeWindowsPath("C:\\Users\\orion", "win32")).toBe("C:/Users/orion");
+		});
+
+		it("保留常见转义序列 \\n", () => {
+			expect(normalizeWindowsPath("echo \\n", "win32")).toBe("echo \\n");
+		});
+
+		it("保留常见转义序列 \\t", () => {
+			expect(normalizeWindowsPath("echo \\thello", "win32")).toBe("echo \\thello");
+		});
+
+		it("保留转义的反斜杠 \\\\", () => {
+			expect(normalizeWindowsPath("echo a\\\\b", "win32")).toBe("echo a\\\\b");
+		});
+
+		it("保留转义序列 \\b \\f \\v", () => {
+			expect(normalizeWindowsPath("echo a\\bb", "win32")).toBe("echo a\\bb");
+			expect(normalizeWindowsPath("echo a\\fb", "win32")).toBe("echo a\\fb");
+			expect(normalizeWindowsPath("echo a\\vb", "win32")).toBe("echo a\\vb");
+		});
+
+		it("混用场景：路径中的反斜杠转换，转义序列保留", () => {
+			const cmd = 'node -e "console.log(\'C:\\Users\\orion\');\\n"';
+			const expected = 'node -e "console.log(\'C:/Users/orion\');\\n"';
+			expect(normalizeWindowsPath(cmd, "win32")).toBe(expected);
+		});
+
+		it("没有反斜杠的命令不受影响", () => {
+			expect(normalizeWindowsPath("echo hello world", "win32")).toBe("echo hello world");
+		});
+
+		it("非转义字符前的反斜杠被替换", () => {
+			expect(normalizeWindowsPath("\\x\\y\\z", "win32")).toBe("/x/y/z");
+		});
+	});
+
+	describe("非 Windows 平台", () => {
+		it("Linux 上命令原样返回", () => {
+			expect(normalizeWindowsPath("C:\\Users\\orion", "linux")).toBe("C:\\Users\\orion");
+		});
+
+		it("macOS 上命令原样返回", () => {
+			expect(normalizeWindowsPath("echo \\n", "darwin")).toBe("echo \\n");
+		});
+
+		it("默认参数使用 process.platform", () => {
+			// 不传 platform，使用真实的 process.platform
+			const cmd = "C:\\path";
+			const result = normalizeWindowsPath(cmd);
+			if (process.platform === "win32") {
+				expect(result).toBe("C:/path");
+			} else {
+				expect(result).toBe(cmd);
+			}
+		});
 	});
 });
 
