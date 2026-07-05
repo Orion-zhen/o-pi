@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -6,15 +6,25 @@ import { loadFileToolsConfig } from "../src/file-tools/config.js";
 
 let workspace: string;
 let previousConfigPath: string | undefined;
+let previousProjectConfigPath: string | undefined;
+let previousProjectRoot: string | undefined;
 
 beforeEach(async () => {
 	workspace = await mkdtemp(path.join(os.tmpdir(), "o-pi-file-tools-config-"));
 	previousConfigPath = process.env.PI_FILE_TOOLS_CONFIG;
+	previousProjectConfigPath = process.env.PI_FILE_TOOLS_PROJECT_CONFIG;
+	previousProjectRoot = process.env.PI_FILE_TOOLS_PROJECT_ROOT;
+	delete process.env.PI_FILE_TOOLS_PROJECT_CONFIG;
+	delete process.env.PI_FILE_TOOLS_PROJECT_ROOT;
 });
 
 afterEach(async () => {
 	if (previousConfigPath === undefined) delete process.env.PI_FILE_TOOLS_CONFIG;
 	else process.env.PI_FILE_TOOLS_CONFIG = previousConfigPath;
+	if (previousProjectConfigPath === undefined) delete process.env.PI_FILE_TOOLS_PROJECT_CONFIG;
+	else process.env.PI_FILE_TOOLS_PROJECT_CONFIG = previousProjectConfigPath;
+	if (previousProjectRoot === undefined) delete process.env.PI_FILE_TOOLS_PROJECT_ROOT;
+	else process.env.PI_FILE_TOOLS_PROJECT_ROOT = previousProjectRoot;
 	await rm(workspace, { recursive: true, force: true });
 });
 
@@ -60,6 +70,49 @@ describe("file-tools config", () => {
 		);
 		process.env.PI_FILE_TOOLS_CONFIG = invalidPath;
 		expect(await loadFileToolsConfig()).toMatchObject({
+			status: "failed",
+			error: { code: "CONFIG_ERROR" },
+		});
+	});
+
+	it("合并项目配置但不允许项目关闭用户级 ignore 开关", async () => {
+		const userPath = path.join(workspace, "user.jsonc");
+		await writeFile(
+			userPath,
+			JSON.stringify({
+				version: 1,
+				blocked_path: ["user-block/"],
+				ignored_path: ["user-ignore/"],
+				limits: { ls_entries: 100 },
+				ignore: { piignore: false, builtin_profile: "minimal" },
+			}),
+		);
+		process.env.PI_FILE_TOOLS_CONFIG = userPath;
+
+		await mkdir(path.join(workspace, ".pi", "configs"), { recursive: true });
+		await writeFile(
+			path.join(workspace, ".pi", "configs", "file-tools.jsonc"),
+			JSON.stringify({
+				version: 1,
+				blocked_path: ["project-block/"],
+				ignored_path: ["project-ignore/"],
+				limits: { ls_entries: 20, grep_result_limit: 3 },
+				ignore: { builtin_profile: "performance" },
+			}),
+		);
+
+		expect(await loadFileToolsConfig(workspace)).toMatchObject({
+			blocked_path: ["user-block/", "project-block/"],
+			ignored_path: ["user-ignore/", "project-ignore/"],
+			limits: { ls_entries: 20, grep_result_limit: 3 },
+			ignore: { piignore: false, builtin_profile: "performance" },
+		});
+
+		await writeFile(
+			path.join(workspace, ".pi", "configs", "file-tools.jsonc"),
+			JSON.stringify({ version: 1, ignore: { piignore: true } }),
+		);
+		expect(await loadFileToolsConfig(workspace)).toMatchObject({
 			status: "failed",
 			error: { code: "CONFIG_ERROR" },
 		});
