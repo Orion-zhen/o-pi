@@ -100,6 +100,50 @@ describe("tui footer", () => {
 		expect(output[1]).toContain("cache R5.0k W1.0k hit 80.0% total 31.3%");
 	});
 
+	it("中等宽度保留 cache 读写和命中率", () => {
+		const output = formatFooter(
+			{
+				inputTokens: 10000,
+				outputTokens: 2000,
+				cacheReadTokens: 5000,
+				cacheWriteTokens: 1000,
+				latestCacheHitRate: 80,
+				totalCacheHitRate: 31.25,
+				costUsd: 0.031,
+				tools: { activeNames: ["read", "grep", "bash"], totalCount: 5 },
+			},
+			config,
+			80,
+			theme,
+		);
+		expect(output[1]).toContain("cache R5.0k/W1.0k hit 80.0% total 31.3%");
+		expect(output[1]).toContain("$0.031");
+		expect(output[1]?.trimEnd().endsWith("3/5 tools enabled")).toBe(true);
+		expect(visibleWidth(output[1] ?? "")).toBeLessThanOrEqual(80);
+	});
+
+	it("窄宽度优先保留 cache 命中率", () => {
+		const output = formatFooter(
+			{
+				inputTokens: 10000,
+				outputTokens: 2000,
+				cacheReadTokens: 5000,
+				cacheWriteTokens: 1000,
+				latestCacheHitRate: 80,
+				totalCacheHitRate: 31.25,
+				costUsd: 0.031,
+				tools: { activeNames: ["read", "grep", "bash"], totalCount: 5 },
+			},
+			config,
+			60,
+			theme,
+		);
+		expect(output[1]).toContain("cache hit 80.0% total 31.3%");
+		expect(output[1]).toContain("$0.031");
+		expect(output[1]?.trimEnd().endsWith("3/5 tools enabled")).toBe(true);
+		expect(visibleWidth(output[1] ?? "")).toBeLessThanOrEqual(60);
+	});
+
 	it("context 使用量按百分比生成绿色到红色渐变", () => {
 		const [low] = formatFooter({ context: { tokens: 0, contextWindow: 100000, percent: 0 } }, config, 120, theme);
 		const [mid] = formatFooter({ context: { tokens: 50000, contextWindow: 100000, percent: 50 } }, config, 120, theme);

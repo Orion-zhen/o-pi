@@ -21,6 +21,7 @@
 		"@earendil-works/pi-tui": "latest",
 		"ajv": "latest",
 		"fuse.js": "latest",
+		"gpt-tokenizer": "latest",
 		"ignore": "latest",
 		"ipaddr.js": "latest",
 		"jsonc-parser": "latest",

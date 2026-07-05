@@ -1,7 +1,7 @@
 import { createPathIndex, sortedChildren, type PathIndexNode } from "./path-index.js";
+import { countTextTokensSync } from "../token-counter.js";
 import type { FindCollapsedGroup, FindDetails, FindMatch } from "./types.js";
 
-const APPROX_CHARS_PER_TOKEN = 4;
 const NARROW_RESULT_LIMIT = 20;
 const TOP_MATCH_LIMIT = 12;
 
@@ -25,14 +25,14 @@ export interface RenderFindInput {
 
 /** 渲染 find 成功结果；预算按完整输出行控制，避免截断路径字符串。 */
 export function renderFindResults(input: RenderFindInput): { content: string; details: FindDetails } {
-	const budgetChars = input.outputTokenBudget * APPROX_CHARS_PER_TOKEN;
+	const tokenBudget = input.outputTokenBudget;
 	const collapsedGroups = collapseMatches(input.matches);
 	const details = buildDetails(input, collapsedGroups);
-	if (input.totalMatches === 0) return { content: renderNoMatches(input, budgetChars), details };
+	if (input.totalMatches === 0) return { content: renderNoMatches(input, tokenBudget), details };
 
 	const header = formatHeader(input.totalMatches, input.totalFiles, input.totalDirectories);
 	const narrowLines = [header, "", ...input.matches.map(formatMatchPath)];
-	if (input.matches.length <= NARROW_RESULT_LIMIT && fitsBudget(narrowLines, budgetChars)) {
+	if (input.matches.length <= NARROW_RESULT_LIMIT && fitsBudget(narrowLines, tokenBudget)) {
 		return { content: narrowLines.filter((line, index) => index !== 1 || input.matches.length > 0).join("\n"), details };
 	}
 
@@ -42,7 +42,7 @@ export function renderFindResults(input: RenderFindInput): { content: string; de
 	const lines = [header, "", "Top matches:", ...selected.map(formatMatchPath)];
 	if (groups.length > 0) lines.push("", "Other matches:", ...groups.map(formatGroup));
 	if (input.truncated) lines.push("", `Scanned ${input.scannedEntries} entries; results truncated.`);
-	const content = takeBudgetedLines(lines, budgetChars).join("\n");
+	const content = takeBudgetedLines(lines, tokenBudget).join("\n");
 	return {
 		content,
 		details: {
@@ -53,7 +53,7 @@ export function renderFindResults(input: RenderFindInput): { content: string; de
 	};
 }
 
-function renderNoMatches(input: RenderFindInput, budgetChars: number): string {
+function renderNoMatches(input: RenderFindInput, tokenBudget: number): string {
 	const lines = input.ignoredCount > 0
 		? ["No visible matches.", `${input.ignoredCount} matching entries were excluded by ignore rules.`]
 		: [`No matches for "${input.query}"`];
@@ -62,7 +62,7 @@ function renderNoMatches(input: RenderFindInput, budgetChars: number): string {
 	if (input.suggestions !== undefined && input.suggestions.length > 0) {
 		lines.push("", "Nearby:", ...input.suggestions.map(formatMatchPath));
 	}
-	return takeBudgetedLines(lines, budgetChars).join("\n");
+	return takeBudgetedLines(lines, tokenBudget).join("\n");
 }
 
 function buildDetails(input: RenderFindInput, collapsedGroups: FindCollapsedGroup[]): FindDetails {
@@ -178,18 +178,20 @@ function topDirectory(value: string): string {
 	return slash === -1 ? "." : value.slice(0, slash);
 }
 
-function fitsBudget(lines: string[], budgetChars: number): boolean {
-	return lines.join("\n").length <= budgetChars;
+function fitsBudget(lines: string[], tokenBudget: number): boolean {
+	return tokenCount(lines.join("\n")) <= tokenBudget;
 }
 
-function takeBudgetedLines(lines: string[], budgetChars: number): string[] {
+function takeBudgetedLines(lines: string[], tokenBudget: number): string[] {
 	const result: string[] = [];
-	let used = 0;
 	for (const line of lines) {
-		const next = used + line.length + (result.length === 0 ? 0 : 1);
-		if (next > budgetChars && result.length > 0) break;
+		const next = [...result, line].join("\n");
+		if (tokenCount(next) > tokenBudget && result.length > 0) break;
 		result.push(line);
-		used = next;
 	}
 	return result;
+}
+
+function tokenCount(text: string): number {
+	return countTextTokensSync(text).tokens;
 }

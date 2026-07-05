@@ -161,8 +161,10 @@ function renderSecondaryLine(
 	theme: Pick<Theme, "fg"> | undefined,
 	config: TuiFooterConfig,
 ): string | undefined {
-	const left = renderSegments(snapshot, segments.filter(isSecondaryLeftSegment), width, theme, config);
 	const right = renderToolsCount(snapshot, theme);
+	const rightWidth = right === undefined ? 0 : visibleWidth(right);
+	const leftBudget = rightWidth === 0 ? width : Math.max(1, width - rightWidth - 1);
+	const left = renderSecondarySegments(snapshot, segments.filter(isSecondaryLeftSegment), leftBudget, theme, config);
 	if (left.length === 0 && right === undefined) return undefined;
 	return alignLine(left, right ?? "", width);
 }
@@ -177,6 +179,31 @@ function renderToolsCount(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg"> 
 	const activeCount = new Set(tools.activeNames.filter((name) => name.length > 0)).size;
 	const total = Math.max(0, tools.totalCount, activeCount);
 	return dim(theme, `${activeCount}/${total} tools enabled`);
+}
+
+/** 第二行要先扣除 cost/tools 宽度，再让 token 段自适应，避免 cache 命中率被最终截断吞掉。 */
+function renderSecondarySegments(
+	snapshot: TuiFooterSnapshot,
+	segments: TuiFooterSegment[],
+	width: number,
+	theme: Pick<Theme, "fg"> | undefined,
+	config: TuiFooterConfig,
+): string {
+	const separator = dim(theme, " · ");
+	const tokenIndex = segments.indexOf("tokens");
+	if (tokenIndex === -1) return renderSegments(snapshot, segments, width, theme, config);
+
+	const fixedParts = segments
+		.filter((segment) => segment !== "tokens")
+		.map((segment) => renderSegment(snapshot, segment, width, theme, config))
+		.filter((part): part is string => part !== undefined && part.length > 0);
+	const fixedWidth = fixedParts.reduce((sum, part) => sum + visibleWidth(part), 0);
+	const separatorWidth = visibleWidth(separator) * fixedParts.length;
+	const tokenBudget = Math.max(1, width - fixedWidth - separatorWidth);
+	const parts = segments
+		.map((segment) => renderSegment(snapshot, segment, segment === "tokens" ? tokenBudget : width, theme, config))
+		.filter((part): part is string => part !== undefined && part.length > 0);
+	return parts.join(separator);
 }
 
 function alignLine(left: string, right: string, width: number): string {
@@ -217,7 +244,7 @@ function renderSegment(
 		return formatContext(snapshot, theme);
 	}
 	if (segment === "tokens") {
-		return dimOptional(theme, formatTokenStats(snapshot));
+		return dimOptional(theme, formatTokenStats(snapshot, width));
 	}
 	if (segment === "cost" && (snapshot.costUsd !== undefined || snapshot.usingSubscription)) {
 		return dim(theme, `$${(snapshot.costUsd ?? 0).toFixed(3)}${snapshot.usingSubscription ? " (sub)" : ""}`);
@@ -260,20 +287,31 @@ function formatContext(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg"> | u
 	return applyContextGradient(display, percentValue);
 }
 
-function formatTokenStats(snapshot: TuiFooterSnapshot): string | undefined {
-	const parts: string[] = [];
-	if (snapshot.inputTokens) parts.push(`↑${formatTokens(snapshot.inputTokens)}`);
-	if (snapshot.outputTokens) parts.push(`↓${formatTokens(snapshot.outputTokens)}`);
-	if (snapshot.cacheReadTokens || snapshot.cacheWriteTokens) {
-		const cacheParts = [
-			`R${formatTokens(snapshot.cacheReadTokens ?? 0)}`,
-			`W${formatTokens(snapshot.cacheWriteTokens ?? 0)}`,
-			snapshot.latestCacheHitRate !== undefined ? `hit ${snapshot.latestCacheHitRate.toFixed(1)}%` : undefined,
-			snapshot.totalCacheHitRate !== undefined ? `total ${snapshot.totalCacheHitRate.toFixed(1)}%` : undefined,
-		].filter((part): part is string => part !== undefined);
-		parts.push(`cache ${cacheParts.join(" ")}`);
-	}
-	return parts.length > 0 ? parts.join(" ") : undefined;
+function formatTokenStats(snapshot: TuiFooterSnapshot, width: number): string | undefined {
+	const ioParts = [snapshot.inputTokens ? `↑${formatTokens(snapshot.inputTokens)}` : undefined, snapshot.outputTokens ? `↓${formatTokens(snapshot.outputTokens)}` : undefined].filter(
+		(part): part is string => part !== undefined,
+	);
+	const io = ioParts.join(" ");
+	const cache = formatCacheStats(snapshot, width);
+	if (cache === undefined) return io.length > 0 ? io : undefined;
+	if (width < 44) return cache;
+	const cacheFirst = [cache, io].filter((part) => part.length > 0).join(" ");
+	if (width < 64) return cacheFirst;
+	return [io, cache].filter((part) => part.length > 0).join(" ");
+}
+
+function formatCacheStats(snapshot: TuiFooterSnapshot, width: number): string | undefined {
+	const hasCounts = snapshot.cacheReadTokens !== undefined || snapshot.cacheWriteTokens !== undefined;
+	const hasRates = snapshot.latestCacheHitRate !== undefined || snapshot.totalCacheHitRate !== undefined;
+	if (!hasCounts && !hasRates) return undefined;
+	const counts = hasCounts ? [`R${formatTokens(snapshot.cacheReadTokens ?? 0)}`, `W${formatTokens(snapshot.cacheWriteTokens ?? 0)}`] : [];
+	const rates = [
+		snapshot.latestCacheHitRate !== undefined ? `hit ${snapshot.latestCacheHitRate.toFixed(1)}%` : undefined,
+		snapshot.totalCacheHitRate !== undefined ? `total ${snapshot.totalCacheHitRate.toFixed(1)}%` : undefined,
+	].filter((part): part is string => part !== undefined);
+	if (width < 44 && rates.length > 0) return `cache ${rates.join(" ")}`;
+	if (width < 64 && counts.length > 0) return `cache ${counts.join("/")} ${rates.join(" ")}`.trimEnd();
+	return `cache ${[...counts, ...rates].join(" ")}`;
 }
 
 function formatTokens(count: number): string {

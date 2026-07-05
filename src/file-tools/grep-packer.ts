@@ -1,8 +1,7 @@
+import { countTextTokensSync } from "../token-counter.js";
 import { byteRangeForLines, extractByteRange } from "./grep-parser.js";
 import type { RankedGrepRegion } from "./grep-ranker.js";
 import type { GrepMatchMode, GrepRegion, GrepSkippedFiles, GrepSuccess } from "./types.js";
-
-export const APPROX_CHARS_PER_TOKEN = 4;
 
 export interface GrepPackInput {
 	query: string;
@@ -20,9 +19,9 @@ export interface GrepPackInput {
 }
 
 interface PackState {
-	budgetChars: number;
+	budgetTokens: number;
 	bodyCount: number;
-	usedChars: number;
+	usedTokens: number;
 	regions: GrepRegion[];
 	usedFiles: Set<string>;
 }
@@ -31,30 +30,30 @@ interface PackState {
 export function packGrepResults(input: GrepPackInput): GrepSuccess {
 	const selected = diversify(input.regions, input.resultLimit);
 	const state: PackState = {
-		budgetChars: input.tokenBudget * APPROX_CHARS_PER_TOKEN,
+		budgetTokens: input.tokenBudget,
 		bodyCount: 0,
-		usedChars: headerText(input, 0, 0, false).length,
+		usedTokens: tokenCount(headerText(input, 0, 0, false)),
 		regions: [],
 		usedFiles: new Set(),
 	};
 
 	for (const candidate of selected) {
 		const region = packRegion(candidate, input.sourceText.get(candidate.path), state);
-		const projected = renderRegion(region).length + 2;
-		if (state.regions.length > 0 && state.usedChars + projected > state.budgetChars) {
+		const projected = projectedTokens(input, state, region);
+		if (state.regions.length > 0 && projected > state.budgetTokens) {
 			const signature = signatureRegion(candidate);
-			const signatureCost = renderRegion(signature).length + 2;
-			if (state.usedChars + signatureCost > state.budgetChars) break;
-			addRegion(state, signature, signatureCost);
+			const signatureCost = projectedTokens(input, state, signature);
+			if (signatureCost > state.budgetTokens) break;
+			addRegion(input, state, signature);
 			continue;
 		}
-		addRegion(state, region, projected);
+		addRegion(input, state, region);
 	}
 
 	const totalFiles = new Set(input.regions.map((region) => region.path)).size;
 	const returnedFiles = state.usedFiles.size;
 	const truncated = !input.scanComplete || state.regions.length < input.regions.length;
-	const approxTokens = Math.ceil(renderPackedBody(input, state.regions, returnedFiles, truncated).length / APPROX_CHARS_PER_TOKEN);
+	const approxTokens = tokenCount(renderPackedBody(input, state.regions, returnedFiles, truncated));
 	const success: GrepSuccess = {
 		status: "success",
 		query: input.query,
@@ -109,8 +108,8 @@ function packRegion(candidate: RankedGrepRegion, text: string | undefined, state
 	if (text === undefined) return signatureRegion(candidate);
 	if (candidate.kind === "text") return snippetRegion(candidate, text);
 	const full = extractByteRange(text, candidate.startByte, candidate.endByte);
-	const fullCost = full.length + 160;
-	if (state.bodyCount < 2 && full.length > 0 && fullCost < state.budgetChars * 0.45 && state.usedChars + fullCost <= state.budgetChars) {
+	const fullCost = tokenCount(full) + 40;
+	if (state.bodyCount < 2 && full.length > 0 && fullCost < state.budgetTokens * 0.45 && state.usedTokens + fullCost <= state.budgetTokens) {
 		state.bodyCount += 1;
 		return baseRegion(candidate, "body", full);
 	}
@@ -165,10 +164,10 @@ function renderRegion(region: GrepRegion): string {
 	return lines.join("\n");
 }
 
-function addRegion(state: PackState, region: GrepRegion, cost: number): void {
+function addRegion(input: GrepPackInput, state: PackState, region: GrepRegion): void {
 	state.regions.push(region);
-	state.usedChars += cost;
 	state.usedFiles.add(region.path);
+	state.usedTokens = tokenCount(renderPackedBody(input, state.regions, state.usedFiles.size, false));
 }
 
 function diversify(regions: RankedGrepRegion[], limit: number): RankedGrepRegion[] {
@@ -191,6 +190,16 @@ function diversify(regions: RankedGrepRegion[], limit: number): RankedGrepRegion
 function headerText(input: GrepPackInput, returnedRegions: number, returnedFiles: number, truncated: boolean): string {
 	void truncated;
 	return `${returnedRegions} regions / ${returnedFiles} files · ${input.strategy.join("+")} · ~0 tokens`;
+}
+
+function projectedTokens(input: GrepPackInput, state: PackState, region: GrepRegion): number {
+	const files = new Set(state.usedFiles);
+	files.add(region.path);
+	return tokenCount(renderPackedBody(input, [...state.regions, region], files.size, false));
+}
+
+function tokenCount(text: string): number {
+	return countTextTokensSync(text).tokens;
 }
 
 function formatSkipped(skipped: GrepSkippedFiles): string {

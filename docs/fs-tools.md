@@ -112,10 +112,10 @@ ignore：路径是否应从自动发现、遍历、搜索或索引中排除。
 * `limits.ls_entries`：`ls` 单次最多返回条目数。
 * `limits.read_lines`：`read` 单次最多返回行数。
 * `limits.read_bytes`：`read` 单次最多返回 UTF-8 字节数。
-* `limits.find_output_token_budget`：`find` 模型可见输出预算，按约 4 字符/token 控制完整输出行。
+* `limits.find_output_token_budget`：`find` 模型可见输出预算，按 [Token Counter](token-counter.md) 控制完整输出行。
 * `limits.find_result_limit`：`find` 最多保留并返回的高排名具体结果。
 * `limits.find_max_entries_scanned`：`find` 单次最多检查的文件系统条目数，达到后标记 `truncated`。
-* `limits.grep_output_token_budget`：`grep` 模型可见输出预算，使用字符数近似 token。
+* `limits.grep_output_token_budget`：`grep` 模型可见输出预算，按 [Token Counter](token-counter.md) 选择正文、片段和签名。
 * `limits.grep_result_limit`：`grep` 最多返回的代码区域数。
 * `limits.grep_max_file_bytes`：`grep` 单个候选文件最大读取字节数，超出则跳过或显式报错。
 * `limits.grep_max_files_scanned`：`grep` 单次最多扫描候选文件数，达到后结果标记为截断。

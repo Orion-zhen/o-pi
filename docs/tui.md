@@ -85,7 +85,10 @@ expanded view 先保留这 2 行，再追加详情。renderer 会清理 ANSI、O
 * `ctx.ui.setFooter(factory)`
 * `ctx.ui.setHeader(factory)`
 * `ctx.ui.setWorkingIndicator(options)`
+* `ctx.ui.custom(factory, options)`
 * `ctx.getContextUsage()`
+* `ctx.getSystemPromptOptions()`
+* `ctx.model.baseUrl/provider/id`
 * `ReadonlyFooterDataProvider`
 * `pi.getActiveTools()`
 * `pi.getAllTools()`

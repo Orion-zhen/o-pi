@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { clearGrepIndexForTests } from "../src/file-tools/grep-index.js";
-import { APPROX_CHARS_PER_TOKEN } from "../src/file-tools/grep-packer.js";
+import { countTextTokensSync } from "../src/token-counter.js";
 import { formatCompactGrepResult, grepWorkspaceFiles } from "../src/file-tools/grep-tool.js";
 import type { GrepSuccess, ToolOutcome } from "../src/file-tools/types.js";
 
@@ -130,7 +130,7 @@ describe("grep", () => {
 		expect(firstRegion(result).detail).toBe("snippet");
 		expect(firstRegion(result).signature).toContain("hugeFunction");
 		expect(firstRegion(result).content).toContain("needle");
-		expect(formatCompactGrepResult(result).length).toBeLessThanOrEqual(220 * APPROX_CHARS_PER_TOKEN);
+		expect(countTextTokensSync(formatCompactGrepResult(result)).tokens).toBeLessThanOrEqual(220);
 	});
 
 	it("多文件结果保持多样性，测试文件默认降权但 test 查询取消降权", async () => {
@@ -218,6 +218,6 @@ describe("grep", () => {
 		expect(result.regions.filter((region) => region.path === "main.ts")).toHaveLength(1);
 		expect(result.regions.some((region) => region.detail === "body")).toBe(true);
 		expect(result.regions.some((region) => region.detail === "signature")).toBe(true);
-		expect(formatCompactGrepResult(result).length).toBeLessThanOrEqual(260 * APPROX_CHARS_PER_TOKEN);
+		expect(countTextTokensSync(formatCompactGrepResult(result)).tokens).toBeLessThanOrEqual(260);
 	});
 });

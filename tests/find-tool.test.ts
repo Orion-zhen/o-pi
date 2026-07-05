@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { findWorkspaceFiles } from "../src/file-tools/find-tool.js";
+import { countTextTokensSync } from "../src/token-counter.js";
 import type { FindMatch, FindSuccess, ToolOutcome } from "../src/file-tools/types.js";
 
 let workspace: string;
@@ -263,7 +264,7 @@ describe("find", () => {
 		for (let index = 0; index < 20; index += 1) await writeFixture(`many/file-${String(index).padStart(2, "0")}.ts`);
 
 		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "**/*.ts" }));
-		expect(result.content.length).toBeLessThanOrEqual(12 * 4);
+		expect(countTextTokensSync(result.content).tokens).toBeLessThanOrEqual(12);
 		expect(result.details.returnedMatches).toBeLessThanOrEqual(3);
 		expect(result.details.scannedEntries).toBe(5);
 		expect(result.details.truncated).toBe(true);

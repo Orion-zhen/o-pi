@@ -42,6 +42,29 @@
 - 关闭：`Esc`、`q` 或 `Enter`。
 - 滚动：方向键、`PageUp`、`PageDown`、`Home`、`End`。
 
+## `/stats`
+
+来源：`agent/extensions/stats.ts`
+
+用途：在 TUI 只读浮层查看当前会话统计。
+
+用法：
+
+```text
+/stats
+```
+
+行为：
+
+- 仅支持 TUI 模式；非 TUI 模式提示 `/stats requires TUI mode`。
+- 使用 `ctx.getContextUsage()`、`ctx.getSystemPromptOptions()` 和公开 session entries 生成快照。
+- 首屏展示当前请求窗口的 context breakdown；分项 token 通过 provider-aware counter 估算，估算值使用 `~` 标记。
+- token counter 规则见 [Token Counter](token-counter.md)。
+- 成本只显示为 `est`，不代表账单。
+- 通过带边框的 custom UI 浮层展示，不写入会话历史，不经过模型。
+- 关闭：`Esc`、`q` 或 `Enter`。
+- 滚动：方向键、`PageUp`、`PageDown`、`Home`、`End`。
+
 ## `/agents`
 
 来源：`agent/extensions/subagent.ts`
