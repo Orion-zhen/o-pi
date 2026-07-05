@@ -7,7 +7,7 @@ import { buildSystemPrompt, formatAvailableSubagentsPrompt, registerSystemComman
 const toolSnippets = {
 	ls: "list one directory",
 	find: "locate files by path",
-	grep: "locate text in files",
+	grep: "locate relevant code by content or symbol",
 	read: "read file content",
 	edit: "make exact replacements of one file",
 	write: "create or replace one file in a whole",
@@ -82,7 +82,7 @@ describe("system prompt extension", () => {
 			<available_tools>
 			- ls: list one directory
 			- find: locate files by path
-			- grep: locate text in files
+			- grep: locate relevant code by content or symbol
 			- read: read file content
 			- edit: make exact replacements of one file
 			- write: create or replace one file in a whole
@@ -124,7 +124,7 @@ describe("system prompt extension", () => {
 
 			<available_tools>
 			- read: read file content
-			- grep: locate text in files
+			- grep: locate relevant code by content or symbol
 			</available_tools>
 
 			<context>

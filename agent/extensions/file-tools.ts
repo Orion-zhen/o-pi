@@ -6,13 +6,13 @@ import {
 	type ExtensionAPI,
 	type Theme,
 	type ToolRenderResultOptions,
-	type TruncationResult,
 } from "@earendil-works/pi-coding-agent";
 import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { editWorkspace, previewEditWorkspace } from "../../src/file-tools/edit-tool.js";
 import { findWorkspaceFiles } from "../../src/file-tools/find-tool.js";
 import { formatCompactGrepResult, grepWorkspaceFiles } from "../../src/file-tools/grep-tool.js";
+import { formatGrepCall, formatGrepResult } from "../../src/file-tools/grep-renderer.js";
 import { formatCompactLsResult, listWorkspaceDirectory } from "../../src/file-tools/ls-tool.js";
 import { ReadVersionCache } from "../../src/file-tools/read-cache.js";
 import { readWorkspaceFile } from "../../src/file-tools/read-tool.js";
@@ -24,9 +24,7 @@ import type {
 	FailedResult,
 	FindDetails,
 	FindParams,
-	GrepFileMatches,
 	GrepParams,
-	GrepSuccess,
 	LsParams,
 	LsSuccess,
 	ReadParams,
@@ -61,14 +59,34 @@ const findParameters = Type.Object(
 );
 const grepParameters = Type.Object(
 	{
-		path: Type.String({ description: "File or directory to search." }),
-		query: Type.String({ description: "Literal text unless regex is true." }),
-		mode: Type.Optional(Type.Union([Type.Literal("content"), Type.Literal("files"), Type.Literal("count")], { description: "Result mode; defaults to content." })),
-		regex: Type.Optional(Type.Boolean({ description: "Use query as regex; defaults to false." })),
-		glob: Type.Optional(Type.String({ description: "Relative file glob filter." })),
-		ignore_case: Type.Optional(Type.Boolean({ description: "Case-insensitive search." })),
-		context: Type.Optional(Type.Integer({ minimum: 0, description: "Context lines; defaults to 0." })),
-		limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200, description: "Returned matching lines; defaults to 40." })),
+		query: Type.String({
+			minLength: 1,
+			description: "Text, symbol, regex, or code intent to find.",
+		}),
+		path: Type.Optional(
+			Type.String({
+				minLength: 1,
+				description: "File or directory scope; defaults to workspace.",
+			}),
+		),
+		match: Type.Optional(
+			Type.Union(
+				[
+					Type.Literal("auto"),
+					Type.Literal("literal"),
+					Type.Literal("regex"),
+				],
+				{
+					description: "Query interpretation; defaults to auto.",
+				},
+			),
+		),
+		glob: Type.Optional(
+			Type.String({
+				minLength: 1,
+				description: "Relative file glob within path.",
+			}),
+		),
 	},
 	{ additionalProperties: false },
 );
@@ -156,8 +174,8 @@ export default function fileTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "grep",
 		label: "grep",
-		description: "Search literal text or regex in workspace files; return matching lines, paths, or counts.",
-		promptSnippet: "locate text in files",
+		description: "Search code content by text, symbol, regex, or intent; return ranked syntax-aware regions.",
+		promptSnippet: "locate relevant code by content or symbol",
 		parameters: grepParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const result = await grepWorkspaceFiles(ctx.cwd, params as GrepParams, signal);
@@ -169,12 +187,17 @@ export default function fileTools(pi: ExtensionAPI): void {
 			}
 			return {
 				content: [{ type: "text", text: formatCompactGrepResult(result) }],
-				details: withNativeGrepDetails(result, params as GrepParams),
+				details: result,
 			};
 		},
 		renderCall(args, theme, context) {
 			const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-			text.setText(formatNativeGrepCall(args, theme));
+			text.setText(formatGrepCall(args, theme));
+			return text;
+		},
+		renderResult(result, { expanded }, theme, context) {
+			const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+			text.setText(formatGrepResult(result.details, expanded, theme));
 			return text;
 		},
 	});
@@ -561,15 +584,6 @@ type NativeFindDetails = FindDetails & {
 	resultLimitReached?: number;
 };
 
-type NativeGrepDetails = GrepSuccess & {
-	/** Pi 内置 grep renderer 识别的输出截断摘要。 */
-	truncation?: TruncationResult;
-	/** Pi 内置 grep renderer 识别的匹配数上限。 */
-	matchLimitReached?: number;
-	/** Pi 内置 grep renderer 识别的长行裁剪标记。 */
-	linesTruncated?: boolean;
-};
-
 function withNativeLsDetails(result: LsSuccess): NativeLsDetails {
 	if (!result.truncated) return result;
 	return {
@@ -584,65 +598,6 @@ function withNativeFindDetails(details: FindDetails): NativeFindDetails {
 		...details,
 		resultLimitReached: details.total,
 	};
-}
-
-function withNativeGrepDetails(result: GrepSuccess, params: GrepParams): NativeGrepDetails {
-	const details: NativeGrepDetails = { ...result };
-	if (result.output_truncated) {
-		details.truncation = pseudoTruncation({
-			totalLines: Math.max(result.total_matching_lines, result.returned_lines),
-			outputLines: result.returned_lines,
-			outputBytes: Buffer.byteLength(formatCompactGrepResult(result), "utf8"),
-		});
-		if (result.mode === "content" && result.returned_lines < result.total_matching_lines) {
-			details.matchLimitReached = params.limit ?? result.returned_lines;
-		}
-	}
-	if (hasTruncatedGrepLine(result.files)) details.linesTruncated = true;
-	return details;
-}
-
-function hasTruncatedGrepLine(files: GrepFileMatches[] | undefined): boolean {
-	return (
-		files?.some((file) =>
-			file.lines.some(
-				(line) =>
-					line.text_truncated === true ||
-					line.context_before?.some((context) => context.text_truncated === true) === true ||
-					line.context_after?.some((context) => context.text_truncated === true) === true,
-			),
-		) === true
-	);
-}
-
-function pseudoTruncation(input: { totalLines: number; outputLines: number; outputBytes: number }): TruncationResult {
-	const outputLines = Math.max(0, input.outputLines);
-	const outputBytes = Math.max(0, input.outputBytes);
-	return {
-		content: "",
-		truncated: true,
-		truncatedBy: "lines",
-		totalLines: Math.max(outputLines, input.totalLines),
-		totalBytes: outputBytes,
-		outputLines,
-		outputBytes,
-		lastLinePartial: false,
-		firstLineExceedsLimit: false,
-		maxLines: outputLines,
-		maxBytes: outputBytes,
-	};
-}
-
-function formatNativeGrepCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
-	const record = isPlainRecord(args) ? args : {};
-	const query = typeof record["query"] === "string" ? record["query"] : "";
-	const path = typeof record["path"] === "string" && record["path"].length > 0 ? record["path"] : ".";
-	const glob = typeof record["glob"] === "string" && record["glob"].length > 0 ? record["glob"] : undefined;
-	const limit = typeof record["limit"] === "number" ? record["limit"] : undefined;
-	let text = `${theme.fg("toolTitle", theme.bold("grep"))} ${theme.fg("accent", `/${query}/`)}${theme.fg("toolOutput", ` in ${path}`)}`;
-	if (glob !== undefined) text += theme.fg("toolOutput", ` (${glob})`);
-	if (limit !== undefined) text += theme.fg("toolOutput", ` limit ${limit}`);
-	return text;
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

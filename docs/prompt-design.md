@@ -56,7 +56,7 @@ context
 来源是工具的 `promptSnippet`，格式为：
 
 ```text
-- grep: locate text in files
+- grep: locate relevant code by content or symbol
 ```
 
 它回答“这个 active tool 语义上负责什么”，不解释调用协议、错误处理或实现细节。

@@ -11,11 +11,8 @@ import type { PartialIgnoreConfig } from "./ignore/ignore-types.js";
 const DEFAULT_MAX_LS_ENTRIES = 200;
 const DEFAULT_MAX_READ_LINES = 2_000;
 const DEFAULT_MAX_READ_BYTES = 50 * 1024;
-const DEFAULT_GREP_MATCHING_LINES = 40;
-const DEFAULT_GREP_MAX_MATCHING_LINES = 200;
-const DEFAULT_GREP_MODEL_OUTPUT_CHARS = 8_000;
-const DEFAULT_GREP_SNIPPET_CHARS = 240;
-const DEFAULT_GREP_CONTEXT_LINES = 3;
+const DEFAULT_GREP_OUTPUT_TOKEN_BUDGET = 1_600;
+const DEFAULT_GREP_RESULT_LIMIT = 8;
 const DEFAULT_GREP_MAX_FILE_BYTES = 1024 * 1024;
 const DEFAULT_GREP_MAX_FILES_SCANNED = 100_000;
 const CONFIG_PATH_ENV = "PI_FILE_TOOLS_CONFIG";
@@ -32,11 +29,8 @@ export interface FileToolsConfig {
 		find_grouped_result_limit: number;
 		find_max_matches_scanned: number;
 		find_max_exact_paths: number;
-		grep_matching_lines: number;
-		grep_max_matching_lines: number;
-		grep_model_output_chars: number;
-		grep_snippet_chars: number;
-		grep_context_lines: number;
+		grep_output_token_budget: number;
+		grep_result_limit: number;
 		grep_max_file_bytes: number;
 		grep_max_files_scanned: number;
 	};
@@ -73,11 +67,8 @@ const defaultConfig: FileToolsConfig = {
 		find_grouped_result_limit: 40,
 		find_max_matches_scanned: 100_000,
 		find_max_exact_paths: 200,
-		grep_matching_lines: DEFAULT_GREP_MATCHING_LINES,
-		grep_max_matching_lines: DEFAULT_GREP_MAX_MATCHING_LINES,
-		grep_model_output_chars: DEFAULT_GREP_MODEL_OUTPUT_CHARS,
-		grep_snippet_chars: DEFAULT_GREP_SNIPPET_CHARS,
-		grep_context_lines: DEFAULT_GREP_CONTEXT_LINES,
+		grep_output_token_budget: DEFAULT_GREP_OUTPUT_TOKEN_BUDGET,
+		grep_result_limit: DEFAULT_GREP_RESULT_LIMIT,
 		grep_max_file_bytes: DEFAULT_GREP_MAX_FILE_BYTES,
 		grep_max_files_scanned: DEFAULT_GREP_MAX_FILES_SCANNED,
 	},
@@ -169,11 +160,8 @@ function mergeConfig(raw: RawFileToolsConfig): FileToolsConfig {
 			find_grouped_result_limit: raw.limits?.find_grouped_result_limit ?? defaultConfig.limits.find_grouped_result_limit,
 			find_max_matches_scanned: raw.limits?.find_max_matches_scanned ?? defaultConfig.limits.find_max_matches_scanned,
 			find_max_exact_paths: raw.limits?.find_max_exact_paths ?? defaultConfig.limits.find_max_exact_paths,
-			grep_matching_lines: raw.limits?.grep_matching_lines ?? defaultConfig.limits.grep_matching_lines,
-			grep_max_matching_lines: raw.limits?.grep_max_matching_lines ?? defaultConfig.limits.grep_max_matching_lines,
-			grep_model_output_chars: raw.limits?.grep_model_output_chars ?? defaultConfig.limits.grep_model_output_chars,
-			grep_snippet_chars: raw.limits?.grep_snippet_chars ?? defaultConfig.limits.grep_snippet_chars,
-			grep_context_lines: raw.limits?.grep_context_lines ?? defaultConfig.limits.grep_context_lines,
+			grep_output_token_budget: raw.limits?.grep_output_token_budget ?? defaultConfig.limits.grep_output_token_budget,
+			grep_result_limit: raw.limits?.grep_result_limit ?? defaultConfig.limits.grep_result_limit,
 			grep_max_file_bytes: raw.limits?.grep_max_file_bytes ?? defaultConfig.limits.grep_max_file_bytes,
 			grep_max_files_scanned: raw.limits?.grep_max_files_scanned ?? defaultConfig.limits.grep_max_files_scanned,
 		},

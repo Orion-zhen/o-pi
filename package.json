@@ -15,6 +15,7 @@
 		"vitest": "latest"
 	},
 	"dependencies": {
+		"@ast-grep/napi": "latest",
 		"@earendil-works/pi-ai": "latest",
 		"@earendil-works/pi-coding-agent": "latest",
 		"@earendil-works/pi-tui": "latest",

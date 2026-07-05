@@ -80,34 +80,16 @@
 					"maximum": 10000,
 					"default": 200
 				},
-				"grep_matching_lines": {
+				"grep_output_token_budget": {
+					"type": "integer",
+					"minimum": 100,
+					"maximum": 10000,
+					"default": 1600
+				},
+				"grep_result_limit": {
 					"type": "integer",
 					"minimum": 1,
-					"maximum": 200,
-					"default": 40
-				},
-				"grep_max_matching_lines": {
-					"type": "integer",
-					"minimum": 1,
-					"maximum": 200,
-					"default": 200
-				},
-				"grep_model_output_chars": {
-					"type": "integer",
-					"minimum": 1000,
-					"maximum": 50000,
-					"default": 8000
-				},
-				"grep_snippet_chars": {
-					"type": "integer",
-					"minimum": 40,
-					"maximum": 1000,
-					"default": 240
-				},
-				"grep_context_lines": {
-					"type": "integer",
-					"minimum": 0,
-					"maximum": 32,
+					"maximum": 50,
 					"default": 8
 				},
 				"grep_max_file_bytes": {

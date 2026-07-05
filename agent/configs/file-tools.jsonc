@@ -17,11 +17,8 @@
 		"find_grouped_result_limit": 40,
 		"find_max_matches_scanned": 100000,
 		"find_max_exact_paths": 200,
-		"grep_matching_lines": 40,
-		"grep_max_matching_lines": 200,
-		"grep_model_output_chars": 8000,
-		"grep_snippet_chars": 240,
-		"grep_context_lines": 8,
+		"grep_output_token_budget": 1600,
+		"grep_result_limit": 8,
 		"grep_max_file_bytes": 1048576,
 		"grep_max_files_scanned": 100000
 	},

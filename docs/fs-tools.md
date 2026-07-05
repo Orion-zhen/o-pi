@@ -4,7 +4,7 @@
 
 * `ls`：发现某个目录下有什么。
 * `find`：在目录下按 glob 递归查找文件。
-* `grep`：在 UTF-8 workspace 文件中搜索文本。
+* `grep`：按内容、symbol、正则或代码意图检索代码区域。
 * `read`：读取已知 UTF-8 文件内容和版本。
 * `write`：创建或完整覆盖一个 UTF-8 文件。
 * `edit`：通过 exact replacement 修改一个已有文件。
@@ -14,13 +14,13 @@
 ```text
 使用 ls 浏览目录；
 使用 find 按路径模式查找文件；
-使用 grep 按内容定位匹配行；
+使用 grep 按内容或 symbol 定位相关代码；
 使用 read 读取明确的文件；
 使用 write 创建或完整覆盖文件；
 使用 edit 修改已有文件局部内容；
 不要使用 ls 读取文件；
 不要使用 find 搜索文件内容；
-不要使用 grep 查找文件路径或返回完整文件；
+不要使用 grep 查找文件路径或读取整文件；
 不要使用 read 列出目录；
 如果目录结果过大，请列出更具体的子目录。
 ```
@@ -73,11 +73,8 @@ ignore：路径是否应从自动发现、遍历、搜索或索引中排除。
 		"find_grouped_result_limit": 40,
 		"find_max_matches_scanned": 100000,
 		"find_max_exact_paths": 200,
-		"grep_matching_lines": 40,
-		"grep_max_matching_lines": 200,
-		"grep_model_output_chars": 8000,
-		"grep_snippet_chars": 240,
-		"grep_context_lines": 3,
+		"grep_output_token_budget": 1600,
+		"grep_result_limit": 8,
 		"grep_max_file_bytes": 1048576,
 		"grep_max_files_scanned": 100000
 	},
@@ -102,13 +99,10 @@ ignore：路径是否应从自动发现、遍历、搜索或索引中排除。
 * `limits.find_grouped_result_limit`：`find` 按目录完整分组输出的最大结果数；默认 40，超过后进入折叠压缩。
 * `limits.find_max_matches_scanned`：`find` 单次最多收集的匹配文件数，达到后标记 `truncated`。
 * `limits.find_max_exact_paths`：`find` 最多展开的精确路径数，其余结果折叠为目录组。
-* `limits.grep_matching_lines`：`grep` 默认返回的匹配行数。
-* `limits.grep_max_matching_lines`：`grep limit` 可请求的最大匹配行数。
-* `limits.grep_model_output_chars`：`grep` 模型可见文本硬上限。
-* `limits.grep_snippet_chars`：`grep` 单行片段最大字符数，超长行围绕匹配内容裁剪。
-* `limits.grep_context_lines`：`grep context` 最大对称上下文行数，默认 3。
+* `limits.grep_output_token_budget`：`grep` 模型可见输出预算，使用字符数近似 token。
+* `limits.grep_result_limit`：`grep` 最多返回的代码区域数。
 * `limits.grep_max_file_bytes`：`grep` 单个候选文件最大读取字节数，超出则跳过或显式报错。
-* `limits.grep_max_files_scanned`：`grep` 单次最多扫描候选文件数，达到后 `scan_complete: false`。
+* `limits.grep_max_files_scanned`：`grep` 单次最多扫描候选文件数，达到后结果标记为截断。
 * `ignore.piignore`：是否读取 `.piignore`。
 * `ignore.gitignore`：是否读取 `.gitignore`。
 * `ignore.git_tracked_files_bypass`：Git tracked 文件是否绕过 `.gitignore`。
@@ -363,75 +357,65 @@ c/** (27)
 
 ## grep
 
-`grep` 只在 workspace 内的 UTF-8 普通文本文件中搜索内容，不查找路径、不返回完整文件、不修改文件。
+`grep` 只按内容、symbol、正则或代码意图检索 workspace 内代码，不查找路径、不修改文件。结果按函数、方法、类、声明或紧凑文本片段聚合。
 
 参数：
 
 ```json
 {
+	"query": "AuthService.login",
 	"path": "src",
-	"query": "createSnapshot(",
-	"mode": "content",
-	"regex": false,
-	"glob": "**/*.ts",
-	"ignore_case": false,
-	"context": 0,
-	"limit": 40
+	"match": "auto",
+	"glob": "**/*.{ts,tsx}"
 }
 ```
 
 字段：
 
-* `path`：workspace 内的目录或普通文件；目录递归搜索，文件只搜索该文件。
-* `query`：搜索文本。默认按字面量匹配，只有 `regex: true` 时才按正则解释。
-* `mode`：`content` 返回匹配行；`files` 只返回匹配文件和计数；`count` 只返回总计数。默认 `content`。
+* `query`：要查找的文本、symbol、qualified symbol、显式正则或自然语言代码意图。
+* `path`：workspace 内的目录或普通文件；默认 `.`。目录递归检索，文件只检索该文件。
+* `match`：`auto`、`literal` 或 `regex`；默认 `auto`。
 * `glob`：相对 `path` 的 glob，只进一步缩小候选文件范围；ignore、symlink 和 workspace 边界仍由工具统一处理。
-* `ignore_case`：默认大小写敏感。
-* `context`：对称上下文行数，范围 0-3，默认 0；重叠或相邻上下文区间会合并。
-* `limit`：`content` 模式最多返回的匹配行数，范围 1-200，默认 40。
 
-`content` 输出按文件聚合，文件路径只出现一次，同一行多个 occurrence 用 `×N` 标记：
+模式：
 
-```text
-23 lines / 31 occurrences in 6 files; showing 12 lines
+* `auto`：组合精确 qualified symbol、精确 symbol、symbol 前缀、字面量 occurrence、词法相关性和一跳 caller/callee/import 关系；不会猜测正则。
+* `literal`：区分大小写的精确字符串搜索，同一 code unit 内多次命中合并为一个 region。
+* `regex`：显式正则搜索；无效正则返回 `INVALID_REGEX`。
 
-src/a.ts [8 lines, 10 occurrences]
-12: export function createSnapshot(root: string) {
-19×2: return createSnapshot(createSnapshot(root))
-... 6 matching lines omitted
-```
-
-`files` 输出只展示分布：
+成功输出是紧凑文本，不是冗长 JSON：
 
 ```text
-31 occurrences / 23 lines / 6 files
-src/a.ts  8 lines / 10 occurrences
-src/b.ts  3 lines / 3 occurrences
-```
+6 regions / 4 files · symbol+lexical · ~1480 tokens
 
-`count` 输出不包含路径和源码：
+src/auth/service.ts:41-88
+AuthService.login [definition · exact symbol]
+calls: verifyPassword, issueToken
 
-```text
-31 occurrences / 23 lines / 6 files
+async login(credentials: Credentials) {
+	...
+}
+
+src/auth/token.ts:14
+issueToken [callee]
 ```
 
 行为：
 
-* 普通 dotfile 可搜索；`.git/` 等 `blocked_path` 不可搜索。
-* 目录遍历使用 ignore `traverse` intent；文件搜索使用 `search` intent。
-* ignored 文件不搜索；可 prune 的 ignored 目录不进入；存在反向 include 可能性的目录按 ignore engine 语义继续遍历。
+* TypeScript、TSX、JavaScript、JSX 使用 `@ast-grep/napi` 解析；Python、Go、Rust 使用轻量语法 profile 提取函数、方法、类、接口/trait、类型/枚举和模块级声明。
+* 不支持或解析失败的语言退化为文本搜索和紧凑行窗口，不让整个调用失败。
+* 每次调用创建 ignore snapshot；目录遍历使用 ignore `index` intent，ignored 文件不进入索引。
+* 进程内按 workspace realpath 缓存索引。缓存保存范围、signature、token 和关系元数据，不永久保存完整源码；返回源码时重新读取排名靠前的文件。
+* 文件 fingerprint 使用 size、mtime 和内容 hash；新增、修改、删除和 ignore 变化会在后续调用中更新。
+* 普通 dotfile 可检索；`.git/` 等 `blocked_path` 不可检索。
 * 递归时不跟随文件或目录 symlink；显式 `path` 解析到 workspace 外时拒绝。
-* 二进制、非法 UTF-8、超大文件和局部权限失败在递归搜索中计入 `skipped_files`；显式搜索单个文件时返回对应错误。
-* 采样按文件轮转分配：每个匹配文件先返回一条，再返回第二条，避免高频文件占满输出。
-* 超长行围绕首个匹配位置裁剪，保证片段包含匹配内容。
+* 二进制、非法 UTF-8、超大文件和局部权限失败在递归检索中计入 `skipped_files`；显式检索单个文件时返回对应错误。
+* 结果按相关性排序：精确 qualified symbol、精确 symbol、定义、字面量、词法相关性、关系接近度、路径相关性；测试文件默认降权，查询含 test/spec 时取消降权。
+* 输出由 `grep_output_token_budget` 控制，默认最多两个完整 body；其余候选优先输出路径、范围、symbol、signature 和少量关系。
+* 超大函数不会吞掉全部预算，会保留 signature、命中附近片段和省略标记。
+* 零结果是 `success`，auto 可返回少量相近 symbol 名称。
 
-完整性：
-
-* `scan_complete: true` 且 `output_truncated: false`：扫描和输出都完整。
-* `scan_complete: true` 且 `output_truncated: true`：扫描完成，总计数精确，但模型可见输出被压缩。
-* `scan_complete: false`：扫描未完成，总计数是下界；模型可见输出使用 `>=`。
-
-无效正则、路径错误、权限错误、取消和搜索后端错误不会伪装成零匹配。
+无效正则、路径错误、权限错误、取消和索引基础设施错误不会伪装成零匹配。
 
 ## write
 

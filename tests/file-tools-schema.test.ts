@@ -25,10 +25,18 @@ describe("file tool schemas", () => {
 		const edit = tools.get("edit")?.parameters as AnySchema | undefined;
 		if (grep === undefined || read === undefined || edit === undefined) throw new Error("missing tool schema");
 
-		expect(validates(grep, { path: ".", query: "x", context: 1, limit: 20 })).toBe(true);
-		expect(validates(grep, { path: ".", query: "x", context: 1.5 })).toBe(false);
-		expect(validates(grep, { path: ".", query: "x", limit: 0 })).toBe(false);
-		expect(validates(grep, { path: ".", query: "x", extra: true })).toBe(false);
+		expect(validates(grep, { query: "x" })).toBe(true);
+		expect(validates(grep, { query: "x", path: ".", match: "auto", glob: "**/*.ts" })).toBe(true);
+		expect(validates(grep, { query: "x", match: "literal" })).toBe(true);
+		expect(validates(grep, { query: "x", match: "regex" })).toBe(true);
+		expect(validates(grep, { query: "" })).toBe(false);
+		expect(validates(grep, { query: "x", match: "content" })).toBe(false);
+		expect(validates(grep, { query: "x", mode: "content" })).toBe(false);
+		expect(validates(grep, { query: "x", regex: true })).toBe(false);
+		expect(validates(grep, { query: "x", context: 1 })).toBe(false);
+		expect(validates(grep, { query: "x", limit: 20 })).toBe(false);
+		expect(validates(grep, { query: "x", ignore_case: true })).toBe(false);
+		expect(validates(grep, { query: "x", extra: true })).toBe(false);
 
 		expect(validates(read, { path: "a.ts", start_line: 1, end_line: 2 })).toBe(true);
 		expect(validates(read, { path: "a.ts", start_line: 1.5 })).toBe(false);

@@ -73,39 +73,13 @@ export interface FindParams {
 	path?: string;
 }
 
-export type GrepMode = "content" | "files" | "count";
+export type GrepMatchMode = "auto" | "literal" | "regex";
 
 export interface GrepParams {
-	path: string;
 	query: string;
-	/** grep 默认返回匹配行；files/count 用于先判断分布。 */
-	mode?: GrepMode;
-	/** 默认字面量搜索，避免调用方为常见标识符手动转义正则。 */
-	regex?: boolean;
-	/** 仅进一步缩小候选文件范围；ignore 和 workspace 边界仍由工具统一处理。 */
+	path?: string;
+	match?: GrepMatchMode;
 	glob?: string;
-	ignore_case?: boolean;
-	/** 对称上下文行数，配置和实现共同限制到很小范围。 */
-	context?: number;
-	/** 最大返回匹配行数；总计数仍尽量精确统计。 */
-	limit?: number;
-}
-
-export interface GrepLineMatch {
-	line: number;
-	occurrences: number;
-	text: string;
-	text_truncated?: boolean;
-	context_before?: Array<{ line: number; text: string; text_truncated?: boolean }>;
-	context_after?: Array<{ line: number; text: string; text_truncated?: boolean }>;
-}
-
-export interface GrepFileMatches {
-	path: string;
-	total_matching_lines: number;
-	total_occurrences: number;
-	lines: GrepLineMatch[];
-	omitted_lines?: number;
 }
 
 export interface GrepSkippedFiles {
@@ -115,20 +89,36 @@ export interface GrepSkippedFiles {
 	too_large?: number;
 }
 
-export interface GrepSuccess {
+export interface GrepRegion {
 	path: string;
+	start_line: number;
+	end_line: number;
+	kind: string;
+	symbol?: string;
+	signature?: string;
+	detail: "body" | "snippet" | "signature";
+	reasons: string[];
+	match_lines?: number[];
+	content?: string;
+	callers?: string[];
+	callees?: string[];
+	imports?: string[];
+}
+
+export interface GrepSuccess {
+	status: "success";
 	query: string;
-	mode: GrepMode;
-	total_files: number;
-	total_matching_lines: number;
-	total_occurrences: number;
+	path: string;
+	match: GrepMatchMode;
+	strategy: string[];
+	total_candidates: number;
+	returned_regions: number;
 	returned_files: number;
-	returned_lines: number;
-	scan_complete: boolean;
-	output_truncated: boolean;
-	files?: GrepFileMatches[];
+	approx_tokens: number;
+	truncated: boolean;
+	regions: GrepRegion[];
 	skipped_files?: GrepSkippedFiles;
-	continuation_hint?: string;
+	near_symbols?: string[];
 }
 
 export type LsEntryType = "directory" | "file" | "symlink" | "other";
