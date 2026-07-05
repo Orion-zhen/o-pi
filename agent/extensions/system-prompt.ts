@@ -1,3 +1,4 @@
+import * as os from "os";
 import type { BuildSystemPromptOptions, ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { type Component, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { discoverAgents } from "../../src/subagent/agents.js";
@@ -177,8 +178,20 @@ ${files}
 function formatRuntimeContext(date: string, cwd: string): string {
 	return `<context>
 <time>${date}</time>
+<system>${escapeXml(getSystemInfo())}</system>
 <workspace>${escapeXml(cwd)}</workspace>
 </context>`;
+}
+
+/** 构造人类可读的当前操作系统名称与版本字符串。 */
+function getSystemInfo(): string {
+	const type = os.type();
+	const release = os.release();
+
+	if (type === "Linux") return `Linux ${release}`;
+	if (type === "Darwin") return `macOS ${release.split(".")[0]}`;
+	if (type === "Windows_NT") return `Windows ${release}`;
+	return `${type} ${release}`;
 }
 
 function formatLocalDate(date: Date): string {

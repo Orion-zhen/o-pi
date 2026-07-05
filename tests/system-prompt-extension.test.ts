@@ -2,6 +2,12 @@ import type { BuildSystemPromptOptions, ExtensionAPI } from "@earendil-works/pi-
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+vi.mock(import("os"), async (importOriginal) => ({
+	...(await importOriginal()),
+	type: () => "Linux",
+	release: () => "7.1.2-arch",
+}));
+
 import { buildSystemPrompt, formatAvailableSubagentsPrompt, registerSystemCommand, SystemPromptViewer } from "../agent/extensions/system-prompt.js";
 
 const toolSnippets = {
@@ -101,6 +107,7 @@ describe("system prompt extension", () => {
 
 			<context>
 			<time>2026-07-05</time>
+			<system>Linux 7.1.2-arch</system>
 			<workspace>C:/repo</workspace>
 			</context>"
 		`);
@@ -129,6 +136,7 @@ describe("system prompt extension", () => {
 
 			<context>
 			<time>2026-07-05</time>
+			<system>Linux 7.1.2-arch</system>
 			<workspace>C:/repo</workspace>
 			</context>"
 		`);
@@ -161,6 +169,7 @@ describe("system prompt extension", () => {
 
 			<context>
 			<time>2026-07-05</time>
+			<system>Linux 7.1.2-arch</system>
 			<workspace>C:/repo</workspace>
 			</context>"
 		`);
