@@ -6,9 +6,10 @@ import type { BashExecutionResult, BashParams, ExecuteBashRuntime } from "./type
 
 const UPDATE_THROTTLE_MS = 100;
 
-/** 执行模型提供的 shell 命令；命令和 cwd 不做改写。 */
+/** 执行模型提供的 shell 命令；自动将 Windows 反斜杠路径转为正斜杠。 */
 export async function executeBashCommand(params: BashParams, runtime: ExecuteBashRuntime): Promise<BashExecutionResult> {
 	validateParams(params, runtime.config.default_timeout_seconds);
+	params = { ...params, command: normalizeWindowsPath(params.command) };
 	const timeoutSeconds = params.timeout ?? runtime.config.default_timeout_seconds;
 	const startedAt = runtime.now?.() ?? Date.now();
 	const capture = await OutputCapture.create({
@@ -124,6 +125,13 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 
 export function createDefaultBashOperations() {
 	return createLocalBashOperations();
+}
+
+/** 轻量 Windows 路径兼容：仅在 Windows 上将反斜杠替换为正斜杠，保留常见转义序列。 */
+export function normalizeWindowsPath(cmd: string, platform?: string): string {
+	if ((platform ?? process.platform) !== "win32") return cmd;
+	// 保留常见转义序列：\n \t \r \\ \" \' \$ \` \b \f \v
+	return cmd.replace(/\\(?![ntr\\"'$`bfv])/g, "/");
 }
 
 function validateParams(params: BashParams, defaultTimeout: number): void {
