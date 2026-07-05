@@ -66,50 +66,28 @@
 
 来源：`agent/extensions/subagent.ts`
 
-用途：直接启动一个 subagent，不先交给主模型决定。
+用途：按固定 worker pool 运行一个或多个 subagent 任务，不先交给主模型决定。
 
 用法：
 
 ```text
-/run <agent> <task>
+/run <agent> "task" | <agent> "task"
 ```
 
 示例：
 
 ```text
-/run scout inspect the authentication flow
-```
-
-行为：
-
-- 解析 agent 名称和后续任务文本。
-- 直接调用 subagent executor。
-- 写能力工具需要确认；无 UI 时拒绝执行。
-
-## `/parallel`
-
-来源：`agent/extensions/subagent.ts`
-
-用途：按固定 worker pool 并行运行多个 subagent 任务。
-
-用法：
-
-```text
-/parallel <agent> "task" | <agent> "task"
-```
-
-示例：
-
-```text
-/parallel scout "inspect backend auth" | reviewer "inspect auth tests"
+/run scout "inspect backend auth" | reviewer "inspect auth tests"
 ```
 
 行为：
 
 - 支持单引号和双引号。
 - `|` 分隔任务段。
+- 直接调用 subagent executor。
 - 并发数来自 `agent/configs/subagent.jsonc`，默认 `1`。
 - 单个任务失败默认不取消其他任务。
+- 写能力工具需要确认；无 UI 时拒绝执行。
 
 ## `/chain`
 

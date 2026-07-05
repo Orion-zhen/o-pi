@@ -36,15 +36,8 @@ export async function executeSubagent(params: SubagentToolParams, context: Execu
 	const detailsBase = (results: SubagentRunResult[]): SubagentDetails => ({ mode, runId, results, warnings: discovery.warnings });
 
 	try {
-		if (params.mode === "single") {
-			const task = { agent: requireText(params.agent, "agent"), task: requireText(params.task, "task"), ...(params.cwd !== undefined ? { cwd: params.cwd } : {}) };
-			const result = await executeOne(task, 0, mode, runId, params, context, config, discovery.agents);
-			const persisted = await persistResult(result, { cwd: result.cwd, runId, index: 0, outputMode: effectiveOutputMode(result, params, config), maxInlineOutputChars: config.maxInlineOutputChars });
-			const content = resultToContent(persisted, effectiveOutputMode(persisted, params, config), config);
-			return { content: [{ type: "text", text: content }], details: detailsBase([persisted]) };
-		}
-		if (params.mode === "parallel") {
-			const tasks = params.tasks;
+		const tasks = requireTasks(params.tasks);
+		if (mode === "parallel") {
 			if (tasks.length > config.maxParallelTasks) {
 				throw new SubagentExecutionError(`Too many parallel tasks (${tasks.length}). Max is ${config.maxParallelTasks}.`);
 			}
@@ -56,14 +49,13 @@ export async function executeSubagent(params: SubagentToolParams, context: Execu
 				return persisted;
 			});
 			const success = results.filter((result) => result.error === undefined).length;
-			const text = [`Parallel: ${success}/${results.length} succeeded`, "", ...results.map((result) => `### ${result.agent}\n\n${resultToContent(result, effectiveOutputMode(result, params, config), config)}`)].join("\n");
+			const text = [`Subagents: ${success}/${results.length} succeeded`, "", ...results.map((result) => `### ${result.agent}\n\n${resultToContent(result, effectiveOutputMode(result, params, config), config)}`)].join("\n");
 			return { content: [{ type: "text", text }], details: detailsBase(results) };
 		}
-		const chain = params.tasks;
 		const results: SubagentRunResult[] = [];
 		let previous = "";
-		for (let i = 0; i < chain.length; i++) {
-			const step = chain[i];
+		for (let i = 0; i < tasks.length; i++) {
+			const step = tasks[i];
 			if (step === undefined) continue;
 			const taskText = step.task.replace(/\{previous\}/g, previous);
 			const result = await executeOne({ ...step, task: taskText }, i, mode, runId, params, context, config, discovery.agents);
@@ -91,10 +83,13 @@ export async function executeSubagent(params: SubagentToolParams, context: Execu
 }
 
 export function resolveMode(params: SubagentToolParams): SubagentMode {
-	if (params.mode === "single") return "single";
-	if (params.mode === "parallel") return "parallel";
 	if (params.mode === "chain") return "chain";
-	throw new SubagentExecutionError("mode must be single, parallel, or chain.");
+	return "parallel";
+}
+
+function requireTasks(tasks: SubagentTask[] | undefined): SubagentTask[] {
+	if (tasks === undefined || tasks.length === 0) throw new SubagentExecutionError("tasks must not be empty.");
+	return tasks;
 }
 
 async function executeOne(
@@ -111,7 +106,7 @@ async function executeOne(
 	if (agent === undefined) throw new SubagentExecutionError(`Unknown agent "${task.agent}".`);
 	const cwd = await resolveCwd(task.cwd ?? params.cwd ?? context.cwd, context.cwd);
 	const tools = resolveTools(agent, config, context.registeredTools);
-	const model = resolveModel(params.model, agent, config, context);
+	const model = resolveModel(agent, config, context);
 	await confirmIfNeeded(agent, task.task, cwd, tools, config, context);
 	const maxAttempts = Math.max(1, (agent.retries ?? config.retries) + 1);
 	let attempts = 0;
@@ -170,12 +165,7 @@ function resolveTools(agent: AgentDefinition, config: SubagentConfig, registered
 	return tools;
 }
 
-function resolveModel(requested: string | undefined, agent: AgentDefinition, config: SubagentConfig, context: ExecutorContext): string | undefined {
-	if (requested !== undefined) {
-		const modelIds = context.modelIds ?? [];
-		if (modelIds.length > 0 && !modelIds.includes(requested)) throw new SubagentExecutionError(`Model is not available: ${requested}`);
-		return requested;
-	}
+function resolveModel(agent: AgentDefinition, config: SubagentConfig, context: ExecutorContext): string | undefined {
 	return config.agentOverrides[agent.name]?.model ?? agent.model ?? config.defaultModel ?? context.currentModel;
 }
 
@@ -271,11 +261,6 @@ function createRunId(): string {
 	const stamp = new Date().toISOString().replace(/[-:.TZ]/g, "");
 	const suffix = Math.random().toString(36).slice(2, 8);
 	return `${stamp}-${suffix}`;
-}
-
-function requireText(value: string | undefined, field: string): string {
-	if (value !== undefined && value.trim() !== "") return value;
-	throw new SubagentExecutionError(`${field} is required.`);
 }
 
 function delay(ms: number, signal: AbortSignal | undefined): Promise<void> {

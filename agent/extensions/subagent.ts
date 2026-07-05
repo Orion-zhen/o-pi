@@ -17,41 +17,21 @@ const taskItem = Type.Object({
 
 const commonSubagentFields = {
 	cwd: Type.Optional(Type.String({ description: "Workspace-relative working directory." })),
-	model: Type.Optional(Type.String({ description: "Model for this call only." })),
 	outputMode: Type.Optional(
 		StringEnum(["inline", "file"] as const, {
-			description: "inline for short results; file for long or parallel results.",
+			description: "inline for short results; file for long or multi-task results.",
 		}),
 	),
 };
 
-const subagentParams = Type.Union([
-	Type.Object(
-		{
-			mode: Type.Literal("single", { description: "Run one agent task." }),
-			agent: Type.String({ minLength: 1, description: "Agent name." }),
-			task: Type.String({ minLength: 1, description: "Task text." }),
-			...commonSubagentFields,
-		},
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{
-			mode: Type.Literal("parallel", { description: "Run independent tasks concurrently." }),
-			tasks: Type.Array(taskItem, { minItems: 1, description: "Parallel tasks." }),
-			...commonSubagentFields,
-		},
-		{ additionalProperties: false },
-	),
-	Type.Object(
-		{
-			mode: Type.Literal("chain", { description: "Run tasks sequentially; task may use {previous}." }),
-			tasks: Type.Array(taskItem, { minItems: 1, description: "Sequential tasks." }),
-			...commonSubagentFields,
-		},
-		{ additionalProperties: false },
-	),
-]);
+const subagentParams = Type.Object(
+	{
+		tasks: Type.Array(taskItem, { minItems: 1, description: "Agent tasks." }),
+		mode: Type.Optional(Type.Literal("chain", { description: "Run tasks sequentially; task may use {previous}." })),
+		...commonSubagentFields,
+	},
+	{ additionalProperties: false },
+);
 
 /** 注册轻量 subagent 工具和确定性命令；核心逻辑在 src/subagent。 */
 export default function subagentExtension(pi: ExtensionAPI): void {
@@ -59,16 +39,14 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "subagent",
 		label: "subagent",
-		description: "Delegate bounded work to isolated agents when specialization, isolation, or parallelism is useful.",
+		description: "Delegate one or more bounded tasks to isolated agents.",
 		promptSnippet: "delegate bounded isolated work",
 		parameters: subagentParams,
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			const modelIds = ctx.modelRegistry.getAll().map((model) => model.id);
 			return executeSubagent(params as SubagentToolParams, {
 				cwd: ctx.cwd,
 				hasUI: ctx.hasUI,
 				currentModel: ctx.model?.id,
-				modelIds,
 				registeredTools: pi.getAllTools().map((tool) => tool.name),
 				...(signal !== undefined ? { signal } : {}),
 				...(ctx.hasUI ? { confirm: (title: string, message: string) => ctx.ui.confirm(title, message) } : {}),

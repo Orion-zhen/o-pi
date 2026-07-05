@@ -1,6 +1,6 @@
 import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
 
-export type SubagentMode = "single" | "parallel" | "chain";
+export type SubagentMode = "parallel" | "chain";
 export type SubagentSource = "user" | "project";
 export type OutputMode = "inline" | "file";
 
@@ -66,29 +66,12 @@ export interface SubagentTask {
 	cwd?: string;
 }
 
-export type SubagentToolParams =
-	| {
-			mode: "single";
-			agent: string;
-			task: string;
-			cwd?: string;
-			model?: string;
-			outputMode?: OutputMode;
-	  }
-	| {
-			mode: "parallel";
-			tasks: SubagentTask[];
-			cwd?: string;
-			model?: string;
-			outputMode?: OutputMode;
-	  }
-	| {
-			mode: "chain";
-			tasks: SubagentTask[];
-			cwd?: string;
-			model?: string;
-			outputMode?: OutputMode;
-	  };
+export interface SubagentToolParams {
+	mode?: "chain";
+	tasks: SubagentTask[];
+	cwd?: string;
+	outputMode?: OutputMode;
+}
 
 export interface SubagentRunResult {
 	runId: string;
@@ -158,7 +141,6 @@ export interface ExecutorContext {
 	cwd: string;
 	hasUI: boolean;
 	currentModel?: string | undefined;
-	modelIds?: string[] | undefined;
 	registeredTools?: string[] | undefined;
 	signal?: AbortSignal | undefined;
 	confirm?: ((title: string, message: string) => Promise<boolean>) | undefined;

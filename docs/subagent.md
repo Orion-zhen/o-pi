@@ -100,26 +100,17 @@ Agent 配置工具 ∩ pi.getAllTools()
 参数：
 
 ```ts
-| {
-	mode: "single";
-	agent: string;
-	task: string;
-	cwd?: string;
-	model?: string;
-	outputMode?: "inline" | "file";
-}
-| {
-	mode: "parallel" | "chain";
+{
 	tasks: Array<{ agent: string; task: string; cwd?: string }>;
+	mode?: "chain";
 	cwd?: string;
-	model?: string;
 	outputMode?: "inline" | "file";
 }
 ```
 
-`mode` 是必填判别字段。`single` 只接受 `agent + task`；`parallel` 和 `chain` 只接受非空 `tasks`。`outputMode` 中 `inline` 用于短结果，`file` 用于长结果或并行结果。
+`tasks` 是必填非空数组。默认按配置的并发限制调度任务；只有 `mode: "chain"` 会串行执行，并允许后续 task 使用 `{previous}`。`outputMode` 中 `inline` 用于短结果，`file` 用于长结果或多任务结果。
 
-工具参数不包含安全策略、Agent 搜索范围、并发、重试或权限开关。
+工具参数不包含模型选择、安全策略、Agent 搜索范围、并发、重试或权限开关。子 Agent 模型只由 Agent 定义和 subagent 配置决定。
 
 ## Slash commands
 
@@ -127,8 +118,7 @@ Agent 配置工具 ∩ pi.getAllTools()
 
 ```text
 /agents
-/run <agent> <task>
-/parallel <agent> "task" | <agent> "task"
+/run <agent> "task" | <agent> "task"
 /chain <agent> "task" | <agent> "task with {previous}"
 /subagent-config
 ```
@@ -167,7 +157,7 @@ pi --mode json -p --no-session --model <model> --tools <tools> --append-system-p
 }
 ```
 
-parallel 使用固定 worker pool，不一次性启动全部任务。chain 严格串行，失败即停止。
+默认任务调度使用固定 worker pool，不一次性启动全部任务。chain 严格串行，失败即停止。
 
 ## 输出
 

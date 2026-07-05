@@ -6,8 +6,8 @@ const COLLAPSED_EVENTS = 9;
 
 export function renderSubagentCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): Text {
 	const record = isRecord(args) ? args : {};
-	const mode = record["mode"] === "parallel" || record["mode"] === "chain" ? record["mode"] : "single";
-	const label = mode === "single" ? String(record["agent"] ?? "...") : `${mode} (${Array.isArray(record["tasks"]) ? (record["tasks"] as unknown[]).length : 0})`;
+	const taskCount = Array.isArray(record["tasks"]) ? (record["tasks"] as unknown[]).length : 0;
+	const label = record["mode"] === "chain" ? `chain (${taskCount})` : `tasks (${taskCount})`;
 	return new Text(`${theme.fg("toolTitle", theme.bold("subagent"))} ${theme.fg("accent", label)}`, 0, 0);
 }
 
@@ -89,7 +89,7 @@ function truncate(text: string, max: number): string {
 }
 
 function isDetails(value: unknown): value is SubagentDetails {
-	return isRecord(value) && (value["mode"] === "single" || value["mode"] === "parallel" || value["mode"] === "chain") && Array.isArray(value["results"]);
+	return isRecord(value) && (value["mode"] === "parallel" || value["mode"] === "chain") && Array.isArray(value["results"]);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -21,20 +21,7 @@ export function registerSubagentCommands(pi: ExtensionAPI): void {
 		});
 
 	pi.registerCommand("run", {
-		description: "Run one subagent: /run <agent> <task>",
-		getArgumentCompletions: (prefix) => completeAgents(prefix),
-		handler: async (args, ctx) => {
-			const [agent, ...rest] = tokenize(args);
-			if (agent === undefined || rest.length === 0) {
-				ctx.ui.notify("Syntax: /run <agent> <task>", "error");
-				return;
-			}
-			await runAndNotify(pi, ctx, { agent, task: rest.join(" ") });
-		},
-	});
-
-	pi.registerCommand("parallel", {
-		description: 'Run parallel subagents: /parallel scout "task" | reviewer "task"',
+		description: 'Run subagents: /run scout "task" | reviewer "task"',
 		getArgumentCompletions: (prefix) => completeAgents(prefix),
 		handler: async (args, ctx) => {
 			const parsed = parsePipeline(args);
@@ -42,7 +29,7 @@ export function registerSubagentCommands(pi: ExtensionAPI): void {
 				ctx.ui.notify(parsed.error, "error");
 				return;
 			}
-			await runAndNotify(pi, ctx, undefined, parsed.tasks);
+			await runAndNotify(pi, ctx, parsed.tasks);
 		},
 	});
 
@@ -55,7 +42,7 @@ export function registerSubagentCommands(pi: ExtensionAPI): void {
 				ctx.ui.notify(parsed.error, "error");
 				return;
 			}
-			await runAndNotify(pi, ctx, undefined, undefined, parsed.tasks);
+			await runAndNotify(pi, ctx, parsed.tasks, "chain");
 		},
 	});
 
@@ -130,21 +117,18 @@ export function parsePipeline(input: string): { tasks: SubagentTask[] } | { erro
 async function runAndNotify(
 	pi: Pick<ExtensionAPI, "getAllTools">,
 	ctx: ExtensionCommandContext,
-	single?: SubagentTask,
-	tasks?: SubagentTask[],
-	chain?: SubagentTask[],
+	tasks: SubagentTask[],
+	mode?: "chain",
 ): Promise<void> {
 	const result = await executeSubagent(
-		single !== undefined
-			? { mode: "single", agent: single.agent, task: single.task }
-			: tasks !== undefined
-				? { mode: "parallel", tasks }
-				: { mode: "chain", tasks: chain ?? [] },
+		{
+			tasks,
+			...(mode !== undefined ? { mode } : {}),
+		},
 		{
 			cwd: ctx.cwd,
 			hasUI: ctx.hasUI,
 			currentModel: ctx.model?.id,
-			modelIds: ctx.modelRegistry.getAll().map((model) => model.id),
 			registeredTools: registeredToolNames(pi),
 			signal: ctx.signal,
 			confirm: ctx.hasUI ? (title, message) => ctx.ui.confirm(title, message) : undefined,

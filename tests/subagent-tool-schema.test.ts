@@ -20,18 +20,19 @@ function validateParams(value: unknown): boolean {
 }
 
 describe("subagent tool schema", () => {
-	it("使用 mode 判别 single、parallel 和 chain", () => {
-		expect(validateParams({ mode: "single", agent: "scout", task: "inspect" })).toBe(true);
-		expect(validateParams({ mode: "parallel", tasks: [{ agent: "scout", task: "inspect" }], outputMode: "file" })).toBe(true);
+	it("使用 tasks 数组，只有 chain 需要显式 mode", () => {
+		expect(validateParams({ tasks: [{ agent: "scout", task: "inspect" }] })).toBe(true);
+		expect(validateParams({ tasks: [{ agent: "scout", task: "inspect" }], outputMode: "file" })).toBe(true);
 		expect(validateParams({ mode: "chain", tasks: [{ agent: "scout", task: "inspect" }], outputMode: "inline" })).toBe(true);
 	});
 
-	it("拒绝混合模式字段、未知字段和空任务数组", () => {
-		expect(validateParams({ mode: "single", agent: "scout", task: "inspect", tasks: [{ agent: "reviewer", task: "review" }] })).toBe(false);
-		expect(validateParams({ mode: "parallel", agent: "scout", task: "inspect", tasks: [{ agent: "reviewer", task: "review" }] })).toBe(false);
+	it("拒绝旧模式字段、未知字段和空任务数组", () => {
+		expect(validateParams({ mode: "single", agent: "scout", task: "inspect" })).toBe(false);
+		expect(validateParams({ mode: "parallel", tasks: [{ agent: "scout", task: "inspect" }] })).toBe(false);
+		expect(validateParams({ agent: "scout", task: "inspect" })).toBe(false);
+		expect(validateParams({ tasks: [{ agent: "scout", task: "inspect" }], model: "other-model" })).toBe(false);
 		expect(validateParams({ mode: "chain", tasks: [] })).toBe(false);
-		expect(validateParams({ mode: "parallel", tasks: [{ agent: "scout", task: "inspect", extra: true }] })).toBe(false);
-		expect(validateParams({ mode: "single", agent: "scout" })).toBe(false);
+		expect(validateParams({ tasks: [{ agent: "scout", task: "inspect", extra: true }] })).toBe(false);
 	});
 
 	it("不暴露运行时安全、并发或重试配置", () => {
