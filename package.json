@@ -20,6 +20,7 @@
 		"@earendil-works/pi-coding-agent": "latest",
 		"@earendil-works/pi-tui": "latest",
 		"ajv": "latest",
+		"fuse.js": "latest",
 		"ignore": "latest",
 		"ipaddr.js": "latest",
 		"jsonc-parser": "latest",

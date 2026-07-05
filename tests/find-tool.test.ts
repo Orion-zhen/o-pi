@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { findWorkspaceFiles } from "../src/file-tools/find-tool.js";
-import type { FindSuccess, ToolOutcome } from "../src/file-tools/types.js";
+import type { FindMatch, FindSuccess, ToolOutcome } from "../src/file-tools/types.js";
 
 let workspace: string;
 let outside: string;
@@ -29,72 +29,213 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-	if (previousConfigPath === undefined) {
-		delete process.env.PI_FILE_TOOLS_CONFIG;
-	} else {
-		process.env.PI_FILE_TOOLS_CONFIG = previousConfigPath;
-	}
+	if (previousConfigPath === undefined) delete process.env.PI_FILE_TOOLS_CONFIG;
+	else process.env.PI_FILE_TOOLS_CONFIG = previousConfigPath;
 	await rm(workspace, { recursive: true, force: true });
 	await rm(outside, { recursive: true, force: true });
 });
 
 function expectFindSuccess(result: ToolOutcome<FindSuccess>): FindSuccess {
-	if ("status" in result) throw new Error(`find failed: ${result.error.code}`);
+	if ("status" in result) throw new Error(`find failed: ${result.error.code}: ${result.error.message}`);
 	return result;
 }
 
-describe("find", () => {
-	it("默认从 workspace root 查找，并返回 workspace-relative / 路径", async () => {
-		await mkdir(path.join(workspace, "src", "nested"), { recursive: true });
-		await writeFile(path.join(workspace, "src", "nested", "a.ts"), "");
-		await writeFile(path.join(workspace, "root.ts"), "");
-		await writeFile(path.join(workspace, "note.txt"), "");
+function paths(matches: FindMatch[]): string[] {
+	return matches.map((match) => match.path);
+}
 
-		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { pattern: "**/*.ts" }));
-		expect(result.content).toBe(["2 files", "root.ts", "src/nested/a.ts"].join("\n"));
+async function writeFixture(filePath: string): Promise<void> {
+	await mkdir(path.dirname(path.join(workspace, filePath)), { recursive: true });
+	await writeFile(path.join(workspace, filePath), "");
+}
+
+describe("find", () => {
+	it("使用新 query/path schema，默认从 workspace root 搜索并拒绝旧 pattern", async () => {
+		await writeFixture("src/nested/a.ts");
+		await writeFixture("root.ts");
+		await writeFixture("note.txt");
+
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "**/*.ts" }));
 		expect(result.details).toMatchObject({
-			total: 2,
-			exactPaths: ["root.ts", "src/nested/a.ts"],
-			collapsedGroups: [],
+			query: "**/*.ts",
+			path: ".",
+			strategy: "glob",
+			totalMatches: 2,
+			returnedMatches: 2,
 			truncated: false,
 		});
+		expect(paths(result.details.matches)).toEqual(["root.ts", "src/nested/a.ts"]);
+		expect(await findWorkspaceFiles(workspace, { pattern: "**/*.ts" } as never)).toMatchObject({
+			status: "failed",
+			error: { code: "INVALID_PATH" },
+		});
 	});
 
-	it("支持指定搜索根、*、** 和多扩展名 glob", async () => {
-		await mkdir(path.join(workspace, "src", "deep"), { recursive: true });
-		await writeFile(path.join(workspace, "src", "a.ts"), "");
-		await writeFile(path.join(workspace, "src", "b.tsx"), "");
-		await writeFile(path.join(workspace, "src", "deep", "c.ts"), "");
-		await writeFile(path.join(workspace, "src", "deep", "d.js"), "");
+	it("校验空值、NUL、绝对路径和越界路径", async () => {
+		expect(await findWorkspaceFiles(workspace, { query: "" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
+		expect(await findWorkspaceFiles(workspace, { query: "a\0b" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
+		expect(await findWorkspaceFiles(workspace, { query: "/tmp/a" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
+		expect(await findWorkspaceFiles(workspace, { query: "../a" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
+		expect(await findWorkspaceFiles(workspace, { path: "", query: "a" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
+		expect(await findWorkspaceFiles(workspace, { path: path.relative(workspace, outside), query: "a" })).toMatchObject({
+			status: "failed",
+			error: { code: "INVALID_PATH" },
+		});
+	});
 
-		expect(expectFindSuccess(await findWorkspaceFiles(workspace, { path: "src", pattern: "*.ts" })).details.exactPaths).toEqual([
-			"src/a.ts",
+	it("精确文件和目录路径直接返回，且目录带尾随 slash", async () => {
+		await mkdir(path.join(workspace, "src", "auth"), { recursive: true });
+		await writeFile(path.join(workspace, "src", "auth", "service.ts"), "");
+		for (let index = 0; index < 20; index += 1) await writeFixture(`many/file-${index}.ts`);
+
+		const file = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "src/auth/service.ts" }));
+		expect(file.details.strategy).toBe("exact");
+		expect(file.details.scannedEntries).toBe(0);
+		expect(file.content).toContain("src/auth/service.ts");
+
+		const directory = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "src/auth" }));
+		expect(directory.details.matches).toEqual([{ path: "src/auth", kind: "directory" }]);
+		expect(directory.content).toContain("src/auth/");
+	});
+
+	it("精确路径优先于 glob 判断，普通括号不会自动作为 glob", async () => {
+		await writeFixture("foo(bar)");
+		await writeFixture("fooXbar");
+
+		const exact = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "foo(bar)" }));
+		expect(exact.details.strategy).toBe("exact");
+		expect(paths(exact.details.matches)).toEqual(["foo(bar)"]);
+	});
+
+	it("glob 支持文件和目录，且 src/**/*.ts 与 path=src query=**/*.ts 等价", async () => {
+		await writeFixture("src/a.ts");
+		await writeFixture("src/b.tsx");
+		await writeFixture("src/deep/c.ts");
+		await writeFixture("src/deep/d.js");
+		await mkdir(path.join(workspace, "packages", "api"), { recursive: true });
+		await mkdir(path.join(workspace, "packages", "web"), { recursive: true });
+		await mkdir(path.join(workspace, "db", "migrations"), { recursive: true });
+
+		const rootGlob = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "src/**/*.ts" }));
+		const scopedGlob = expectFindSuccess(await findWorkspaceFiles(workspace, { path: "src", query: "**/*.ts" }));
+		expect(paths(rootGlob.details.matches)).toEqual(paths(scopedGlob.details.matches));
+		expect(paths(rootGlob.details.matches)).toEqual(["src/a.ts", "src/deep/c.ts"]);
+
+		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "packages/*/" })).details.matches)).toEqual([
+			"packages/api",
+			"packages/web",
 		]);
-		expect(expectFindSuccess(await findWorkspaceFiles(workspace, { path: "src", pattern: "**/*.{ts,tsx}" })).details.exactPaths).toEqual([
-			"src/a.ts",
-			"src/b.tsx",
-			"src/deep/c.ts",
+		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "**/migrations" })).details.matches)).toEqual([
+			"db/migrations",
 		]);
 	});
 
-	it("空结果、空 pattern 和越界路径返回稳定结果或错误", async () => {
-		await writeFile(path.join(workspace, "a.txt"), "");
-		expect(await findWorkspaceFiles(workspace, { pattern: "**/*.ts" })).toMatchObject({
-			content: "0 files",
-			details: { total: 0 },
-		});
-		expect(await findWorkspaceFiles(workspace, { pattern: "" })).toMatchObject({
-			status: "failed",
-			error: { code: "INVALID_PATH" },
-		});
-		expect(await findWorkspaceFiles(workspace, { path: "..", pattern: "**/*" })).toMatchObject({
-			status: "failed",
-			error: { code: "INVALID_PATH" },
-		});
-		expect(await findWorkspaceFiles(workspace, { path: path.relative(workspace, outside), pattern: "**/*" })).toMatchObject({
-			status: "failed",
-			error: { code: "INVALID_PATH" },
-		});
+	it("按 basename、stem、segment、path fragment 和多词 token 定位路径", async () => {
+		await writeFixture("src/file-tools/find-tool.ts");
+		await writeFixture("src/file-tools/config.ts");
+		await writeFixture("tests/websearch-renderer.test.ts");
+		await mkdir(path.join(workspace, "src", "migrations"), { recursive: true });
+
+		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "config.ts" })).details.matches)[0]).toBe("src/file-tools/config.ts");
+		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "find-tool" })).details.matches)[0]).toBe("src/file-tools/find-tool.ts");
+		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "migrations" })).details.matches)[0]).toBe("src/migrations");
+		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "web search renderer test" })).details.matches)[0]).toBe(
+			"tests/websearch-renderer.test.ts",
+		);
+		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "file tools config" })).details.matches)[0]).toBe(
+			"src/file-tools/config.ts",
+		);
+	});
+
+	it("支持 camelCase、snake_case、kebab-case 和 smart case", async () => {
+		await writeFixture("src/AuthService.test.ts");
+		await writeFixture("src/auth_service.ts");
+		await writeFixture("src/auth-service.ts");
+		await writeFixture("src/authservice.ts");
+
+		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "auth service" })).details.matches).slice(0, 3)).toEqual([
+			"src/auth-service.ts",
+			"src/auth_service.ts",
+			"src/AuthService.test.ts",
+		]);
+		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "AuthService" })).details.matches)[0]).toBe(
+			"src/AuthService.test.ts",
+		);
+	});
+
+	it("精确 basename 和目录 basename 排在 fuzzy 或普通 path substring 前面", async () => {
+		await writeFixture("src/deep/permission-helper.ts");
+		await writeFixture("docs/permission.md");
+		await writeFixture("permission.ts");
+		await mkdir(path.join(workspace, "src", "auth"), { recursive: true });
+		await writeFixture("src/not-auth-service.ts");
+
+		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "permission.ts" })).details.matches)[0]).toBe("permission.ts");
+		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "auth" })).details.matches)[0]).toBe("src/auth");
+	});
+
+	it("多词查询严格阶段无结果后才放宽，并提供 typo 建议", async () => {
+		await writeFixture("src/auth/service.ts");
+		await writeFixture("src/auth/services.ts");
+		await writeFixture("src/billing/service.ts");
+
+		const strict = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "auth service" }));
+		expect(paths(strict.details.matches).slice(0, 2)).toEqual(["src/auth/service.ts", "src/auth/services.ts"]);
+
+		const typo = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "auth servce" }));
+		expect(typo.content).toContain("Nearby:");
+		expect(paths(typo.details.suggestions ?? [])).toContain("src/auth/service.ts");
+	});
+
+	it("查询包含 test/spec/fixture/mock 时提升测试路径", async () => {
+		await writeFixture("src/auth/service.ts");
+		await writeFixture("tests/auth/service.test.ts");
+
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "auth service test" }));
+		expect(paths(result.details.matches)[0]).toBe("tests/auth/service.test.ts");
+	});
+
+	it("排序稳定，renderer 保留相关性顺序且大结果覆盖多个顶层目录", async () => {
+		for (const directory of ["a", "b", "c"]) {
+			for (let index = 0; index < 30; index += 1) await writeFixture(`${directory}/file-${String(index).padStart(2, "0")}.ts`);
+		}
+
+		const first = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "**/*.ts" }));
+		const second = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "**/*.ts" }));
+		expect(first).toEqual(second);
+		expect(first.details.totalMatches).toBe(90);
+		expect(first.details.returnedMatches).toBe(50);
+		expect(first.content).toContain("Top matches:");
+		expect(first.content).toContain("Other matches:");
+		expect(first.content).toContain("a/");
+		expect(first.content).toContain("b/");
+		expect(first.content).toContain("c/");
+	});
+
+	it("输出遵守 token budget，find_result_limit 和 find_max_entries_scanned 生效", async () => {
+		const configPath = path.join(outside, "find-limits.jsonc");
+		await writeFile(
+			configPath,
+			[
+				"{",
+				'  "version": 1,',
+				'  "ignore": { "builtin_profile": "none", "gitignore": false },',
+				'  "limits": {',
+				'    "find_output_token_budget": 12,',
+				'    "find_result_limit": 3,',
+				'    "find_max_entries_scanned": 5',
+				"  }",
+				"}",
+			].join("\n"),
+		);
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		for (let index = 0; index < 20; index += 1) await writeFixture(`many/file-${String(index).padStart(2, "0")}.ts`);
+
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "**/*.ts" }));
+		expect(result.content.length).toBeLessThanOrEqual(12 * 4);
+		expect(result.details.returnedMatches).toBeLessThanOrEqual(3);
+		expect(result.details.scannedEntries).toBe(5);
+		expect(result.details.truncated).toBe(true);
 	});
 
 	it("遵守 .piignore 的 search、traverse、反向 include 和 prune 语义", async () => {
@@ -105,21 +246,24 @@ describe("find", () => {
 		await writeFile(path.join(workspace, "ignored", "keep.ts"), "");
 		await writeFile(path.join(workspace, "pruned", "hidden.ts"), "");
 
-		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { pattern: "**/*.ts" }));
-		expect(result.details.exactPaths).toEqual(["ignored/keep.ts"]);
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "**/*.ts" }));
+		expect(paths(result.details.matches)).toEqual(["ignored/keep.ts"]);
 		expect(result.details.ignoredCount).toBeGreaterThanOrEqual(2);
 	});
 
-	it("包含普通 dotfile，但不返回 protected path", async () => {
+	it("blocked path 不出现在结果、统计或建议中，dotfile 正常参与搜索", async () => {
 		await mkdir(path.join(workspace, ".github"), { recursive: true });
 		await mkdir(path.join(workspace, ".git"), { recursive: true });
 		await writeFile(path.join(workspace, ".env.example"), "");
 		await writeFile(path.join(workspace, ".github", "workflow.yml"), "");
 		await writeFile(path.join(workspace, ".git", "config"), "");
 
-		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { pattern: "**/*" }));
-		expect(result.details.exactPaths).toEqual([".env.example", ".github/workflow.yml"]);
-		expect(await findWorkspaceFiles(workspace, { path: ".git", pattern: "**/*" })).toMatchObject({
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "**/*" }));
+		expect(paths(result.details.matches)).toContain(".env.example");
+		expect(paths(result.details.matches)).toContain(".github");
+		expect(paths(result.details.matches)).not.toContain(".git/config");
+		expect(result.details.scannedEntries).toBe(3);
+		expect(await findWorkspaceFiles(workspace, { path: ".git", query: "**/*" })).toMatchObject({
 			status: "failed",
 			error: { code: "PROTECTED_PATH" },
 		});
@@ -136,139 +280,26 @@ describe("find", () => {
 			return;
 		}
 
-		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { pattern: "**/*.ts" }));
-		expect(result.details.exactPaths).toEqual(["target.ts", "real-dir/real.ts"]);
-		expect(result.details.exactPaths).not.toContain("link.ts");
-		expect(result.details.exactPaths).not.toContain("link-dir/real.ts");
-		expect(expectFindSuccess(await findWorkspaceFiles(workspace, { pattern: "link-dir/**/*.ts" })).details.total).toBe(0);
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "**/*.ts" }));
+		expect(paths(result.details.matches)).toEqual(["target.ts", "real-dir/real.ts"]);
+		expect(paths(result.details.matches)).not.toContain("link.ts");
+		expect(paths(result.details.matches)).not.toContain("link-dir/real.ts");
+		expect(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "link-dir" })).details.totalMatches).toBe(0);
 	});
 
-	it("排序稳定，优先 basename 和字面量相关性，再按路径长度与字典序", async () => {
-		await mkdir(path.join(workspace, "src", "nested"), { recursive: true });
-		await writeFile(path.join(workspace, "src", "nested", "permission-helper.ts"), "");
-		await writeFile(path.join(workspace, "src", "other-permission.ts"), "");
-		await writeFile(path.join(workspace, "permission.ts"), "");
-
-		const first = await findWorkspaceFiles(workspace, { pattern: "**/*permission*.ts" });
-		const second = await findWorkspaceFiles(workspace, { pattern: "**/*permission*.ts" });
-		expect(first).toEqual(second);
-		expect(expectFindSuccess(first).details.exactPaths).toEqual([
-			"permission.ts",
-			"src/other-permission.ts",
-			"src/nested/permission-helper.ts",
-		]);
-	});
-
-	it("中等结果按目录分组输出，不再平铺所有路径", async () => {
-		await mkdir(path.join(workspace, "agent", "extensions"), { recursive: true });
-		await mkdir(path.join(workspace, "src", "file-tools", "ignore"), { recursive: true });
-		await mkdir(path.join(workspace, "tests"), { recursive: true });
-		for (const filePath of [
-			"agent/extensions/file-tools.ts",
-			"src/file-tools/config.ts",
-			"src/file-tools/find-tool.ts",
-			"src/file-tools/ignore/ignore-engine.ts",
-			"tests/file-tools.test.ts",
-			"tests/find-tool.test.ts",
-		]) {
-			await writeFile(path.join(workspace, ...filePath.split("/")), "");
-		}
-
-		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { pattern: "**/*.ts" }));
-		expect(result.content).toContain("6 files\n\n");
-		expect(result.content).toContain("agent/extensions/\n  file-tools.ts");
-		expect(result.content).toContain("src/file-tools/\n  config.ts\n  find-tool.ts");
-		expect(result.content).toContain("src/file-tools/ignore/\n  ignore-engine.ts");
-		expect(result.content).toContain("tests/\n  file-tools.test.ts\n  find-tool.test.ts");
-		expect(result.content).not.toContain("6 files\nagent/extensions/file-tools.ts");
-		expect(result.details).toMatchObject({ total: 6, collapsedGroups: [] });
-	});
-
-	it("大结果集按预算压缩，并保留不同顶层目录代表", async () => {
-		for (const directory of ["a", "b", "c"]) {
-			await mkdir(path.join(workspace, directory));
-			for (let index = 0; index < 30; index += 1) {
-				await writeFile(path.join(workspace, directory, `file-${String(index).padStart(2, "0")}.ts`), "");
-			}
-		}
-
-		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { pattern: "**/*.ts" }));
-		const summarized = result.details.collapsedGroups.reduce((sum, group) => sum + group.count, 0);
-		expect(result.details.total).toBe(90);
-		expect(result.details.exactPaths.length + summarized).toBe(90);
-		expect(result.content).toContain("90 files;");
-		expect(result.content).toContain("a/");
-		expect(result.content).toContain("b/");
-		expect(result.content).toContain("c/");
-		expect(result.details.collapsedGroups).toEqual([
-			{ path: "a", count: 27 },
-			{ path: "b", count: 27 },
-			{ path: "c", count: 27 },
-		]);
-	});
-
-	it("从 file-tools.jsonc 解析 find 预算配置", async () => {
-		const configPath = path.join(outside, "find-limits.jsonc");
-		await writeFile(
-			configPath,
-			[
-				"{",
-				'  "version": 1,',
-				'  "ignore": { "builtin_profile": "none", "gitignore": false },',
-				'  "limits": {',
-				'    "find_output_token_budget": 100,',
-				'    "find_flat_result_limit": 1,',
-				'    "find_grouped_result_limit": 2,',
-				'    "find_max_matches_scanned": 5,',
-				'    "find_max_exact_paths": 2',
-				"  }",
-				"}",
-			].join("\n"),
-		);
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
-		await mkdir(path.join(workspace, "many"));
-		for (let index = 0; index < 10; index += 1) {
-			await writeFile(path.join(workspace, "many", `file-${String(index).padStart(2, "0")}.ts`), "");
-		}
-
-		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { pattern: "**/*.ts" }));
-		const summarized = result.details.collapsedGroups.reduce((sum, group) => sum + group.count, 0);
-		expect(result.details.total).toBe(5);
-		expect(result.details.exactPaths).toHaveLength(2);
-		expect(result.details.exactPaths.length + summarized).toBe(5);
-		expect(result.details.truncated).toBe(true);
-	});
-
-	it("从 file-tools.jsonc 解析 find 条数边界配置", async () => {
-		const configPath = path.join(outside, "find-render-limits.jsonc");
-		await writeFile(
-			configPath,
-			[
-				"{",
-				'  "version": 1,',
-				'  "ignore": { "builtin_profile": "none", "gitignore": false },',
-				'  "limits": {',
-				'    "find_flat_result_limit": 6,',
-				'    "find_grouped_result_limit": 6',
-				"  }",
-				"}",
-			].join("\n"),
-		);
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+	it("零结果、missing prefix nearby 和 AbortSignal", async () => {
 		await mkdir(path.join(workspace, "src"));
-		for (let index = 0; index < 6; index += 1) {
-			await writeFile(path.join(workspace, "src", `file-${index}.ts`), "");
-		}
+		await writeFile(path.join(workspace, "src", "a.ts"), "");
 
-		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { pattern: "**/*.ts" }));
-		expect(result.content).toContain("6 files\nsrc/file-0.ts");
-		expect(result.content).not.toContain("src/\n  file-0.ts");
-	});
+		expect(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "no-such-file" })).content).toContain("No matches");
 
-	it("支持取消信号", async () => {
+		const missing = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "srcs/**/*.ts" }));
+		expect(missing.content).toContain("Missing prefix: srcs/");
+		expect(missing.content).toContain("Nearby directory: src/");
+
 		const controller = new AbortController();
 		controller.abort();
-		expect(await findWorkspaceFiles(workspace, { pattern: "**/*" }, controller.signal)).toMatchObject({
+		expect(await findWorkspaceFiles(workspace, { query: "**/*" }, controller.signal)).toMatchObject({
 			status: "failed",
 			error: { code: "OPERATION_ABORTED" },
 		});

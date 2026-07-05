@@ -23,6 +23,7 @@ interface Renderable {
 
 type ToolResultHandler = (event: { toolName: string; details: unknown }) => unknown;
 type RenderResult = (result: unknown, options: { expanded: boolean; isPartial: boolean }, theme: ThemeStub, context: unknown) => Renderable;
+type RenderCall = (args: unknown, theme: ThemeStub, context: unknown) => Renderable;
 
 describe("file-tools extension", () => {
 	it("文件工具失败结果标记为错误，并按失败分支渲染", () => {
@@ -49,6 +50,59 @@ describe("file-tools extension", () => {
 			expect(output).toContain("INVALID_PATH: path must be workspace-relative.");
 			expect(output).not.toContain('"status": "failed"');
 		}
+	});
+
+	it("find 使用自定义调用和结果 renderer 展示 strategy、类型、折叠组和扫描统计", () => {
+		const registered: Array<{ name: string; renderCall?: RenderCall; renderResult?: RenderResult }> = [];
+		fileTools({
+			registerTool(tool: { name: string; renderCall?: RenderCall; renderResult?: RenderResult }) {
+				registered.push(tool);
+			},
+			on() {},
+		} as unknown as ExtensionAPI);
+		const find = registered.find((tool) => tool.name === "find");
+		const call = find?.renderCall?.({ query: "auth service", path: "." }, theme, {
+			cwd: "/repo",
+			lastComponent: undefined,
+		});
+		expect(call?.render(120).join("\n")).toContain('find "auth service" in .');
+
+		const details = {
+			query: "auth service",
+			path: ".",
+			strategy: "fuzzy",
+			totalMatches: 5,
+			returnedMatches: 3,
+			scannedEntries: 42,
+			matches: [
+				{ path: "src/auth", kind: "directory" },
+				{ path: "src/auth/service.ts", kind: "file" },
+			],
+			collapsedGroups: [{ path: "tests/auth", files: 2, directories: 0 }],
+			ignoredCount: 1,
+			skippedCount: 0,
+			truncated: true,
+		};
+		const collapsed = find?.renderResult?.(
+			{ content: [{ type: "text", text: "" }], details },
+			{ expanded: false, isPartial: false },
+			theme,
+			{ lastComponent: undefined },
+		);
+		expect(collapsed?.render(120).join("\n")).toContain("5 matches · 1 file · 1 directory · fuzzy");
+
+		const expanded = find?.renderResult?.(
+			{ content: [{ type: "text", text: "" }], details },
+			{ expanded: true, isPartial: false },
+			theme,
+			{ lastComponent: undefined },
+		);
+		const output = expanded?.render(120).join("\n") ?? "";
+		expect(output).toContain("src/auth/ (directory)");
+		expect(output).toContain("src/auth/service.ts (file)");
+		expect(output).toContain("tests/auth/** (2 files)");
+		expect(output).toContain("Scanned 42 entries; skipped 0; ignored 1.");
+		expect(output).toContain("Truncated.");
 	});
 });
 

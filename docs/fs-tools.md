@@ -3,7 +3,7 @@
 本项目只向 Pi agent 暴露六个文件工具：
 
 * `ls`：发现某个目录下有什么。
-* `find`：在目录下按 glob 递归查找文件。
+* `find`：按名称、路径片段或 glob 定位文件和目录。
 * `grep`：按内容、symbol、正则或代码意图检索代码区域。
 * `read`：读取已知 UTF-8 文件内容和版本。
 * `write`：创建或完整覆盖一个 UTF-8 文件。
@@ -12,9 +12,9 @@
 边界：
 
 ```text
-使用 ls 浏览目录；
-使用 find 按路径模式查找文件；
-使用 grep 按内容或 symbol 定位相关代码；
+ls    浏览已知目录
+find  按路径定位文件或目录
+grep  按内容、symbol 或代码意图定位代码
 使用 read 读取明确的文件；
 使用 write 创建或完整覆盖文件；
 使用 edit 修改已有文件局部内容；
@@ -69,10 +69,8 @@ ignore：路径是否应从自动发现、遍历、搜索或索引中排除。
 		"read_lines": 2000,
 		"read_bytes": 51200,
 		"find_output_token_budget": 800,
-		"find_flat_result_limit": 5,
-		"find_grouped_result_limit": 40,
-		"find_max_matches_scanned": 100000,
-		"find_max_exact_paths": 200,
+		"find_result_limit": 50,
+		"find_max_entries_scanned": 100000,
 		"grep_output_token_budget": 1600,
 		"grep_result_limit": 8,
 		"grep_max_file_bytes": 1048576,
@@ -94,11 +92,9 @@ ignore：路径是否应从自动发现、遍历、搜索或索引中排除。
 * `limits.ls_entries`：`ls` 单次最多返回条目数。
 * `limits.read_lines`：`read` 单次最多返回行数。
 * `limits.read_bytes`：`read` 单次最多返回 UTF-8 字节数。
-* `limits.find_output_token_budget`：`find` 模型可见输出预算，使用字符数近似 token。
-* `limits.find_flat_result_limit`：`find` 平铺输出的最大结果数；默认 5。
-* `limits.find_grouped_result_limit`：`find` 按目录完整分组输出的最大结果数；默认 40，超过后进入折叠压缩。
-* `limits.find_max_matches_scanned`：`find` 单次最多收集的匹配文件数，达到后标记 `truncated`。
-* `limits.find_max_exact_paths`：`find` 最多展开的精确路径数，其余结果折叠为目录组。
+* `limits.find_output_token_budget`：`find` 模型可见输出预算，按约 4 字符/token 控制完整输出行。
+* `limits.find_result_limit`：`find` 最多保留并返回的高排名具体结果。
+* `limits.find_max_entries_scanned`：`find` 单次最多检查的文件系统条目数，达到后标记 `truncated`。
 * `limits.grep_output_token_budget`：`grep` 模型可见输出预算，使用字符数近似 token。
 * `limits.grep_result_limit`：`grep` 最多返回的代码区域数。
 * `limits.grep_max_file_bytes`：`grep` 单个候选文件最大读取字节数，超出则跳过或显式报错。
@@ -307,53 +303,64 @@ a/
 
 ## find
 
-`find` 只按路径 glob 查找普通文件，不读取内容、不返回目录、不修改文件。
+`find` 是单入口路径定位器，不读取正文、不解析 AST、不搜索 symbol、不修改文件。它同时返回普通文件和目录；目录结果以 `/` 结尾展示。
 
 参数：
 
 ```json
 {
 	"path": "src",
-	"pattern": "**/*.{ts,tsx}"
+	"query": "auth service"
 }
 ```
 
 字段：
 
 * `path`：workspace-relative 搜索根目录，默认 `.`；不能是绝对路径或越过 workspace。
-* `pattern`：相对于 `path` 的 glob；`**` 表示递归；空字符串非法。
+* `query`：相对于 `path` 解释的文件名、目录名、路径片段或 glob；空字符串非法。
 
 成功结果是紧凑文本：
 
 ```text
-3 files
-src/a.ts
-src/components/button.tsx
-src/index.ts
+5 matches · 4 files · 1 directory
+
+src/auth/
+src/auth/service.ts
+src/auth/auth-service.ts
+packages/api/src/auth-service.ts
+tests/auth/service.test.ts
 ```
 
-大量结果按公共目录前缀压缩：
+宽结果优先展示全局 top matches，再按高排名目录折叠剩余路径：
 
 ```text
-90 files; 9 exact, 81 summarized
+90 matches · 90 files
 
-a/
-  file-00.ts
-  file-01.ts
-  file-02.ts
+Top matches:
+a/file-00.ts
+b/file-00.ts
+c/file-00.ts
 
-a/** (27)
-b/** (27)
-c/** (27)
+Other matches:
+a/** (29 files)
+b/** (29 files)
+c/** (29 files)
 ```
 
 行为：
 
+* 先检查 `path/query` 是否是存在的文件或目录；命中 visible exact path 时直接返回，不扫描 workspace。
+* exact 未命中且 `query` 含有效 glob 语法时执行 glob；`src/**/*.ts` 与 `path=src, query=**/*.ts` 等价。
+* 其他查询按名称、stem、路径 segment、路径片段和 Fuse.js tokenized fuzzy path 排序。
+* tokenization 覆盖 `/`、`.`、`-`、`_`、camelCase、PascalCase 和字母/数字边界。
+* 普通名称查询使用 smart case：全小写大小写不敏感，含大写时精确大小写结果优先。
+* 多词查询先要求主要 token 全覆盖；无结果时才放宽覆盖率并给最多三个 nearby 建议。
+* 排序优先 exact path、basename、stem、segment、basename prefix/substring、token 覆盖、ordered/fuzzy path，再按短路径、浅深度和字典序稳定排序。
 * 结果路径始终相对 workspace root，统一使用 `/`。
-* 只返回普通文件；文件 symlink 不返回，目录 symlink 不进入。
-* 目录遍历使用 ignore `traverse` intent；文件匹配使用 `search` intent。
+* 文件和目录 symlink 均不返回；目录 symlink 不进入。
+* 目录遍历和目录结果分开处理：可 prune 的 ignored 目录不进入；因反向 include 不能 prune 的目录可进入但自身不返回。
 * `blocked_path` 命中时拒绝或跳过；`.git/` 默认不可查。
-* 输出预算、最大扫描数和精确路径数由 `agent/configs/file-tools.jsonc` 的 `limits` 控制，不暴露为工具参数。
+* 输出预算、返回结果数和最大扫描条目数由 `agent/configs/file-tools.jsonc` 的 `limits` 控制，不暴露为工具参数。
 
 ## grep
 

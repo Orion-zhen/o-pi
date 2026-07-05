@@ -52,8 +52,16 @@ type WriteCallComponent = Text & {
 const lsParameters = Type.Object({ path: Type.String({ description: "Directory path." }) }, { additionalProperties: false });
 const findParameters = Type.Object(
 	{
-		pattern: Type.String({ description: "Path glob relative to path; ** recurses." }),
-		path: Type.Optional(Type.String({ description: "Search root, MUST be workspace-relative; defaults to workspace." })),
+		query: Type.String({
+			minLength: 1,
+			description: "File or directory name, path fragment, or glob.",
+		}),
+		path: Type.Optional(
+			Type.String({
+				minLength: 1,
+				description: "Search root; defaults to workspace.",
+			}),
+		),
 	},
 	{ additionalProperties: false },
 );
@@ -158,8 +166,8 @@ export default function fileTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "find",
 		label: "find",
-		description: "Find workspace files by recursive path glob; does not search file contents.",
-		promptSnippet: "locate files by path",
+		description: "Find files or directories by name, path fragment, or glob; does not search contents.",
+		promptSnippet: "locate files or directories by path",
 		parameters: findParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const result = await findWorkspaceFiles(ctx.cwd, params as FindParams, signal);
@@ -171,7 +179,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 			}
 			return {
 				content: [{ type: "text", text: result.content }],
-				details: withNativeFindDetails(result.details),
+				details: result.details,
 			};
 		},
 		renderCall(args, theme, context) {
@@ -587,6 +595,17 @@ function isFailedDetails(value: unknown): value is FailedResult {
 	return typeof error["code"] === "string" && typeof error["message"] === "string";
 }
 
+function isFindDetails(value: unknown): value is FindDetails {
+	return isPlainRecord(value)
+		&& typeof value["query"] === "string"
+		&& typeof value["path"] === "string"
+		&& (value["strategy"] === "exact" || value["strategy"] === "glob" || value["strategy"] === "fuzzy")
+		&& typeof value["totalMatches"] === "number"
+		&& typeof value["scannedEntries"] === "number"
+		&& Array.isArray(value["matches"])
+		&& Array.isArray(value["collapsedGroups"]);
+}
+
 function versionCacheFor(ctx: { sessionManager: { getSessionId(): string } }, caches: Map<string, ReadVersionCache>): ReadVersionCache {
 	const sessionId = ctx.sessionManager.getSessionId();
 	const existing = caches.get(sessionId);
@@ -609,9 +628,9 @@ function scrubVersions(value: unknown): unknown {
 
 function formatFindCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, cwd: string): string {
 	const record = isPlainRecord(args) ? args : {};
-	const pattern = stringArg(record["pattern"]);
+	const query = stringArg(record["query"]);
 	const rawPath = stringArg(record["path"]) ?? ".";
-	return `${theme.fg("toolTitle", theme.bold("find"))} ${pattern === null ? theme.fg("error", "?") : theme.fg("accent", pattern)} ${theme.fg("toolOutput", "in")} ${formatToolPath(rawPath, theme, cwd)}`;
+	return `${theme.fg("toolTitle", theme.bold("find"))} ${query === null ? theme.fg("error", "?") : theme.fg("accent", `"${query}"`)} ${theme.fg("toolOutput", "in")} ${formatToolPath(rawPath, theme, cwd)}`;
 }
 
 function formatFindResult(
@@ -623,6 +642,7 @@ function formatFindResult(
 	if (isPartial) return theme.fg("warning", "Finding...");
 	const failure = formatFailedDetails(result.details, theme);
 	if (failure !== undefined) return failure;
+	if (isFindDetails(result.details)) return formatFindDetails(result.details, expanded, theme);
 
 	const output = textOutput(result).trim();
 	if (output.length === 0) return "";
@@ -635,6 +655,36 @@ function formatFindResult(
 		text += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
 	}
 	return text;
+}
+
+function formatFindDetails(details: FindDetails, expanded: boolean, theme: Pick<Theme, "fg">): string {
+	const files = details.matches.filter((match) => match.kind === "file").length;
+	const directories = details.matches.filter((match) => match.kind === "directory").length;
+	const summary = [
+		`${details.totalMatches} ${details.totalMatches === 1 ? "match" : "matches"}`,
+		`${files} ${files === 1 ? "file" : "files"}`,
+		`${directories} ${directories === 1 ? "directory" : "directories"}`,
+		details.strategy,
+	].join(" · ");
+	if (!expanded) return theme.fg("toolOutput", summary);
+
+	const lines = [summary];
+	if (details.matches.length > 0) {
+		lines.push("", "Matches:");
+		for (const match of details.matches) lines.push(`${match.kind === "directory" ? `${match.path}/` : match.path} (${match.kind})`);
+	}
+	if (details.collapsedGroups.length > 0) {
+		lines.push("", "Collapsed:");
+		for (const group of details.collapsedGroups) {
+			const counts = [];
+			if (group.files > 0) counts.push(`${group.files} ${group.files === 1 ? "file" : "files"}`);
+			if (group.directories > 0) counts.push(`${group.directories} ${group.directories === 1 ? "directory" : "directories"}`);
+			lines.push(`${group.path}/** (${counts.join(", ")})`);
+		}
+	}
+	lines.push("", `Scanned ${details.scannedEntries} entries; skipped ${details.skippedCount}; ignored ${details.ignoredCount}.`);
+	if (details.truncated) lines.push("Truncated.");
+	return `\n${lines.map((line) => theme.fg("toolOutput", line)).join("\n")}`;
 }
 
 function formatFileToolTextResult(
@@ -678,24 +728,11 @@ type NativeLsDetails = LsSuccess & {
 	entryLimitReached?: number;
 };
 
-type NativeFindDetails = FindDetails & {
-	/** Pi 内置 find renderer 识别的结果上限标记。 */
-	resultLimitReached?: number;
-};
-
 function withNativeLsDetails(result: LsSuccess): NativeLsDetails {
 	if (!result.truncated) return result;
 	return {
 		...result,
 		entryLimitReached: result.returned_entries ?? result.entries.length,
-	};
-}
-
-function withNativeFindDetails(details: FindDetails): NativeFindDetails {
-	if (!details.truncated) return details;
-	return {
-		...details,
-		resultLimitReached: details.total,
 	};
 }
 

@@ -1,199 +1,195 @@
 import { createPathIndex, sortedChildren, type PathIndexNode } from "./path-index.js";
-import type { FindDetails } from "./types.js";
+import type { FindCollapsedGroup, FindDetails, FindMatch } from "./types.js";
 
 const APPROX_CHARS_PER_TOKEN = 4;
-const LARGE_GROUP_EXACT_LIMIT = 3;
+const NARROW_RESULT_LIMIT = 20;
+const TOP_MATCH_LIMIT = 12;
 
-export interface FindRenderLimits {
+export interface RenderFindInput {
+	query: string;
+	path: string;
+	strategy: FindDetails["strategy"];
+	totalMatches: number;
+	totalFiles: number;
+	totalDirectories: number;
+	scannedEntries: number;
+	matches: FindMatch[];
+	ignoredCount: number;
+	skippedCount: number;
+	truncated: boolean;
 	outputTokenBudget: number;
-	flatResultLimit: number;
-	groupedResultLimit: number;
-	maxExactPaths: number;
+	suggestions?: FindMatch[];
+	missingPrefix?: string;
+	nearbyDirectory?: string;
 }
 
-interface RenderState {
-	exactPaths: string[];
-	collapsedGroups: Array<{ path: string; count: number }>;
-	budgetChars: number;
-	maxExactPaths: number;
-	usedChars: number;
-}
+/** 渲染 find 成功结果；预算按完整输出行控制，避免截断路径字符串。 */
+export function renderFindResults(input: RenderFindInput): { content: string; details: FindDetails } {
+	const budgetChars = input.outputTokenBudget * APPROX_CHARS_PER_TOKEN;
+	const collapsedGroups = collapseMatches(input.matches);
+	const details = buildDetails(input, collapsedGroups);
+	if (input.totalMatches === 0) return { content: renderNoMatches(input, budgetChars), details };
 
-/** 渲染 find 结果；模型只看到紧凑文本，完整统计留在 details。 */
-export function renderFindResults(
-	paths: string[],
-	ignoredCount: number,
-	truncated: boolean,
-	limits: FindRenderLimits,
-): { content: string; details: FindDetails } {
-	if (paths.length === 0) {
-		return {
-			content: "0 files",
-			details: { total: 0, exactPaths: [], collapsedGroups: [], ignoredCount, truncated },
-		};
+	const header = formatHeader(input.totalMatches, input.totalFiles, input.totalDirectories);
+	const narrowLines = [header, "", ...input.matches.map(formatMatchPath)];
+	if (input.matches.length <= NARROW_RESULT_LIMIT && fitsBudget(narrowLines, budgetChars)) {
+		return { content: narrowLines.filter((line, index) => index !== 1 || input.matches.length > 0).join("\n"), details };
 	}
 
-	const budgetChars = limits.outputTokenBudget * APPROX_CHARS_PER_TOKEN;
-	const smallOutput = renderSmall(paths);
-	if (paths.length <= limits.flatResultLimit && paths.length <= limits.maxExactPaths && smallOutput.length <= budgetChars) {
-		return {
-			content: smallOutput,
-			details: { total: paths.length, exactPaths: paths, collapsedGroups: [], ignoredCount, truncated },
-		};
-	}
-
-	if (paths.length <= limits.groupedResultLimit && paths.length <= limits.maxExactPaths) {
-		const groupedOutput = renderGroupedExact(paths);
-		if (groupedOutput.length <= budgetChars) {
-			return {
-				content: groupedOutput,
-				details: { total: paths.length, exactPaths: paths, collapsedGroups: [], ignoredCount, truncated },
-			};
-		}
-	}
-
-	const index = createPathIndex(paths);
-	const state: RenderState = {
-		exactPaths: [],
-		collapsedGroups: [],
-		budgetChars,
-		maxExactPaths: limits.maxExactPaths,
-		usedChars: `${paths.length} files; `.length,
-	};
-	for (const child of sortedChildren(index)) {
-		addRepresentative(child, state, 0);
-	}
-
-	const summarized = state.collapsedGroups.reduce((sum, group) => sum + group.count, 0);
-	const header = `${paths.length} files; ${state.exactPaths.length} exact, ${summarized} summarized`;
-	const body = [...renderExactTree(state.exactPaths), ...renderCollapsedGroups(state.collapsedGroups)];
-	const content = body.length === 0 ? header : `${header}\n\n${body.join("\n")}`;
+	const selected = selectConcreteMatches(input.matches);
+	const selectedPaths = new Set(selected.map((match) => match.path));
+	const groups = collapseMatches(input.matches.filter((match) => !selectedPaths.has(match.path)));
+	const lines = [header, "", "Top matches:", ...selected.map(formatMatchPath)];
+	if (groups.length > 0) lines.push("", "Other matches:", ...groups.map(formatGroup));
+	if (input.truncated) lines.push("", `Scanned ${input.scannedEntries} entries; results truncated.`);
+	const content = takeBudgetedLines(lines, budgetChars).join("\n");
 	return {
 		content,
 		details: {
-			total: paths.length,
-			exactPaths: state.exactPaths,
-			collapsedGroups: state.collapsedGroups,
-			ignoredCount,
-			truncated: truncated || state.exactPaths.length + summarized < paths.length,
+			...details,
+			collapsedGroups: groups,
+			truncated: input.truncated || selected.length + countCollapsed(groups) < input.matches.length,
 		},
 	};
 }
 
-function renderSmall(paths: string[]): string {
-	return [`${paths.length} ${paths.length === 1 ? "file" : "files"}`, ...paths].join("\n");
+function renderNoMatches(input: RenderFindInput, budgetChars: number): string {
+	const lines = input.ignoredCount > 0
+		? ["No visible matches.", `${input.ignoredCount} matching entries were excluded by ignore rules.`]
+		: [`No matches for "${input.query}"`];
+	if (input.missingPrefix !== undefined) lines.push("", `Missing prefix: ${withDirectorySlash(input.missingPrefix)}`);
+	if (input.nearbyDirectory !== undefined) lines.push(`Nearby directory: ${withDirectorySlash(input.nearbyDirectory)}`);
+	if (input.suggestions !== undefined && input.suggestions.length > 0) {
+		lines.push("", "Nearby:", ...input.suggestions.map(formatMatchPath));
+	}
+	return takeBudgetedLines(lines, budgetChars).join("\n");
 }
 
-function renderGroupedExact(paths: string[]): string {
-	return [`${paths.length} ${paths.length === 1 ? "file" : "files"}`, "", ...renderExactTree(paths)].join("\n");
+function buildDetails(input: RenderFindInput, collapsedGroups: FindCollapsedGroup[]): FindDetails {
+	const matches = input.matches.map(({ path, kind }) => ({ path, kind }));
+	return {
+		query: input.query,
+		path: input.path,
+		strategy: input.strategy,
+		totalMatches: input.totalMatches,
+		returnedMatches: matches.length,
+		scannedEntries: input.scannedEntries,
+		matches,
+		collapsedGroups,
+		ignoredCount: input.ignoredCount,
+		skippedCount: input.skippedCount,
+		truncated: input.truncated,
+		...(input.suggestions !== undefined && input.suggestions.length > 0 ? { suggestions: input.suggestions } : {}),
+		...(input.missingPrefix !== undefined ? { missingPrefix: input.missingPrefix } : {}),
+		...(input.nearbyDirectory !== undefined ? { nearbyDirectory: input.nearbyDirectory } : {}),
+	};
 }
 
-function addRepresentative(node: PathIndexNode, state: RenderState, depth: number): void {
-	if (!hasBudgetFor(node.path, state)) {
-		addCollapsed(node, state);
-		return;
-	}
-	if (node.isFile) {
-		addExact(node.path, state);
-		return;
-	}
-
-	const children = sortedChildren(compressDirectory(node));
-	const fileChildren = children.filter((child) => child.isFile);
-	const directoryChildren = children.filter((child) => !child.isFile);
-	const exactLimit = depth === 0 ? LARGE_GROUP_EXACT_LIMIT : 1;
-
-	if (node.descendantFileCount <= exactLimit || (depth < 2 && directoryChildren.length <= 2 && fileChildren.length <= exactLimit)) {
-		for (const child of children) addRepresentative(child, state, depth + 1);
-		return;
-	}
-
-	let representativeAdded = 0;
-	let directFileExactAdded = 0;
-	for (const child of fileChildren) {
-		if (representativeAdded >= exactLimit || state.exactPaths.length >= state.maxExactPaths) break;
-		addExact(child.path, state);
-		representativeAdded += 1;
-		directFileExactAdded += 1;
-	}
-
-	for (const child of directoryChildren) {
-		if (representativeAdded < exactLimit && state.exactPaths.length < state.maxExactPaths) {
-			addRepresentative(child, state, depth + 1);
-			representativeAdded += 1;
-		} else {
-			addCollapsed(child, state);
-		}
-	}
-
-	const remainingDirectFiles = fileChildren.length - directFileExactAdded;
-	if (remainingDirectFiles > 0) {
-		addCollapsed({ ...node, descendantFileCount: remainingDirectFiles }, state);
-	}
+function formatHeader(totalMatches: number, files: number, directories: number): string {
+	const parts = [`${totalMatches} ${totalMatches === 1 ? "match" : "matches"}`];
+	if (files > 0) parts.push(`${files} ${files === 1 ? "file" : "files"}`);
+	if (directories > 0) parts.push(`${directories} ${directories === 1 ? "directory" : "directories"}`);
+	return parts.join(" · ");
 }
 
-function compressDirectory(node: PathIndexNode): PathIndexNode {
+function selectConcreteMatches(matches: FindMatch[]): FindMatch[] {
+	const selected: FindMatch[] = [];
+	const selectedPaths = new Set<string>();
+	const perTopDirectory = new Map<string, number>();
+	for (const match of matches) {
+		if (selected.length >= Math.min(TOP_MATCH_LIMIT, matches.length)) break;
+		const group = topDirectory(match.path);
+		const count = perTopDirectory.get(group) ?? 0;
+		if (count >= 4 && hasUnrepresentedTopDirectory(matches, selectedPaths, perTopDirectory)) continue;
+		selected.push(match);
+		selectedPaths.add(match.path);
+		perTopDirectory.set(group, count + 1);
+	}
+	for (const match of matches) {
+		if (selected.length >= Math.min(TOP_MATCH_LIMIT, matches.length)) break;
+		if (selectedPaths.has(match.path)) continue;
+		selected.push(match);
+		selectedPaths.add(match.path);
+	}
+	return selected;
+}
+
+function hasUnrepresentedTopDirectory(matches: FindMatch[], selectedPaths: Set<string>, counts: Map<string, number>): boolean {
+	for (const match of matches) {
+		if (selectedPaths.has(match.path)) continue;
+		if (!counts.has(topDirectory(match.path))) return true;
+	}
+	return false;
+}
+
+function collapseMatches(matches: FindMatch[]): FindCollapsedGroup[] {
+	if (matches.length === 0) return [];
+	const index = createPathIndex(matches);
+	const groups: FindCollapsedGroup[] = [];
+	for (const child of sortedChildren(index)) collectGroup(child, groups);
+	return groups;
+}
+
+function collectGroup(node: PathIndexNode, groups: FindCollapsedGroup[]): void {
+	const compressed = compressSingleChildDirectory(node);
+	if (compressed.entryKind !== undefined && compressed.children.size === 0) return;
+	if (compressed.path !== "." && compressed.descendantFileCount + compressed.descendantDirectoryCount > 0) {
+		groups.push({
+			path: compressed.path,
+			files: compressed.descendantFileCount,
+			directories: compressed.descendantDirectoryCount,
+		});
+		return;
+	}
+	for (const child of sortedChildren(compressed)) collectGroup(child, groups);
+}
+
+function compressSingleChildDirectory(node: PathIndexNode): PathIndexNode {
 	let current = node;
-	while (!current.isFile && current.children.size === 1) {
+	while (current.entryKind === undefined && current.children.size === 1) {
 		const only = sortedChildren(current)[0];
-		if (only === undefined || only.isFile) break;
+		if (only === undefined || only.entryKind !== undefined) break;
 		current = only;
 	}
 	return current;
 }
 
-function addExact(filePath: string, state: RenderState): void {
-	if (state.exactPaths.length >= state.maxExactPaths) return;
-	state.exactPaths.push(filePath);
-	state.usedChars += filePath.length + 1;
+function countCollapsed(groups: FindCollapsedGroup[]): number {
+	return groups.reduce((sum, group) => sum + group.files + group.directories, 0);
 }
 
-function addCollapsed(node: PathIndexNode, state: RenderState): void {
-	if (node.descendantFileCount <= 0) return;
-	const group = { path: node.path, count: node.descendantFileCount };
-	state.collapsedGroups.push(group);
-	state.usedChars += group.path.length + 12;
+function formatMatchPath(match: FindMatch): string {
+	return match.kind === "directory" ? withDirectorySlash(match.path) : match.path;
 }
 
-function hasBudgetFor(pathname: string, state: RenderState): boolean {
-	return state.usedChars + pathname.length + 32 < state.budgetChars && state.exactPaths.length < state.maxExactPaths;
+function formatGroup(group: FindCollapsedGroup): string {
+	const counts = [];
+	if (group.files > 0) counts.push(`${group.files} ${group.files === 1 ? "file" : "files"}`);
+	if (group.directories > 0) counts.push(`${group.directories} ${group.directories === 1 ? "directory" : "directories"}`);
+	return `${withDirectorySlash(group.path)}** (${counts.join(", ")})`;
 }
 
-function renderExactTree(paths: string[]): string[] {
-	const groups = new Map<string, string[]>();
-	for (const filePath of paths) {
-		const slash = filePath.lastIndexOf("/");
-		const directory = slash === -1 ? "." : filePath.slice(0, slash);
-		const name = slash === -1 ? filePath : filePath.slice(slash + 1);
-		const list = groups.get(directory) ?? [];
-		list.push(name);
-		groups.set(directory, list);
+function withDirectorySlash(value: string): string {
+	return value.endsWith("/") ? value : `${value}/`;
+}
+
+function topDirectory(value: string): string {
+	const slash = value.indexOf("/");
+	return slash === -1 ? "." : value.slice(0, slash);
+}
+
+function fitsBudget(lines: string[], budgetChars: number): boolean {
+	return lines.join("\n").length <= budgetChars;
+}
+
+function takeBudgetedLines(lines: string[], budgetChars: number): string[] {
+	const result: string[] = [];
+	let used = 0;
+	for (const line of lines) {
+		const next = used + line.length + (result.length === 0 ? 0 : 1);
+		if (next > budgetChars && result.length > 0) break;
+		result.push(line);
+		used = next;
 	}
-
-	const lines: string[] = [];
-	for (const [directory, names] of Array.from(groups.entries()).sort((a, b) => compareStableString(a[0], b[0]))) {
-		names.sort(compareStableString);
-		if (directory === ".") {
-			lines.push(...names);
-			continue;
-		}
-		lines.push(`${directory}/`);
-		for (const name of names) lines.push(`  ${name}`);
-		lines.push("");
-	}
-	if (lines[lines.length - 1] === "") lines.pop();
-	return lines;
-}
-
-function renderCollapsedGroups(groups: Array<{ path: string; count: number }>): string[] {
-	return groups
-		.filter((group) => group.count > 0)
-		.sort((a, b) => compareStableString(a.path, b.path))
-		.map((group) => `${group.path}/** (${group.count})`);
-}
-
-function compareStableString(left: string, right: string): number {
-	if (left < right) return -1;
-	if (left > right) return 1;
-	return 0;
+	return result;
 }

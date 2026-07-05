@@ -52,33 +52,21 @@
 				},
 				"find_output_token_budget": {
 					"type": "integer",
-					"minimum": 100,
+					"minimum": 1,
 					"maximum": 10000,
 					"default": 800
 				},
-				"find_flat_result_limit": {
+				"find_result_limit": {
 					"type": "integer",
-					"minimum": 0,
+					"minimum": 1,
 					"maximum": 10000,
-					"default": 5
+					"default": 50
 				},
-				"find_grouped_result_limit": {
-					"type": "integer",
-					"minimum": 0,
-					"maximum": 10000,
-					"default": 40
-				},
-				"find_max_matches_scanned": {
+				"find_max_entries_scanned": {
 					"type": "integer",
 					"minimum": 1,
 					"maximum": 1000000,
 					"default": 100000
-				},
-				"find_max_exact_paths": {
-					"type": "integer",
-					"minimum": 1,
-					"maximum": 10000,
-					"default": 200
 				},
 				"grep_output_token_budget": {
 					"type": "integer",

@@ -25,10 +25,8 @@ export interface FileToolsConfig {
 		read_lines: number;
 		read_bytes: number;
 		find_output_token_budget: number;
-		find_flat_result_limit: number;
-		find_grouped_result_limit: number;
-		find_max_matches_scanned: number;
-		find_max_exact_paths: number;
+		find_result_limit: number;
+		find_max_entries_scanned: number;
 		grep_output_token_budget: number;
 		grep_result_limit: number;
 		grep_max_file_bytes: number;
@@ -63,10 +61,8 @@ const defaultConfig: FileToolsConfig = {
 		read_lines: DEFAULT_MAX_READ_LINES,
 		read_bytes: DEFAULT_MAX_READ_BYTES,
 		find_output_token_budget: 800,
-		find_flat_result_limit: 5,
-		find_grouped_result_limit: 40,
-		find_max_matches_scanned: 100_000,
-		find_max_exact_paths: 200,
+		find_result_limit: 50,
+		find_max_entries_scanned: 100_000,
 		grep_output_token_budget: DEFAULT_GREP_OUTPUT_TOKEN_BUDGET,
 		grep_result_limit: DEFAULT_GREP_RESULT_LIMIT,
 		grep_max_file_bytes: DEFAULT_GREP_MAX_FILE_BYTES,
@@ -156,10 +152,8 @@ function mergeConfig(raw: RawFileToolsConfig): FileToolsConfig {
 			read_lines: raw.limits?.read_lines ?? defaultConfig.limits.read_lines,
 			read_bytes: raw.limits?.read_bytes ?? defaultConfig.limits.read_bytes,
 			find_output_token_budget: raw.limits?.find_output_token_budget ?? defaultConfig.limits.find_output_token_budget,
-			find_flat_result_limit: raw.limits?.find_flat_result_limit ?? defaultConfig.limits.find_flat_result_limit,
-			find_grouped_result_limit: raw.limits?.find_grouped_result_limit ?? defaultConfig.limits.find_grouped_result_limit,
-			find_max_matches_scanned: raw.limits?.find_max_matches_scanned ?? defaultConfig.limits.find_max_matches_scanned,
-			find_max_exact_paths: raw.limits?.find_max_exact_paths ?? defaultConfig.limits.find_max_exact_paths,
+			find_result_limit: raw.limits?.find_result_limit ?? defaultConfig.limits.find_result_limit,
+			find_max_entries_scanned: raw.limits?.find_max_entries_scanned ?? defaultConfig.limits.find_max_entries_scanned,
 			grep_output_token_budget: raw.limits?.grep_output_token_budget ?? defaultConfig.limits.grep_output_token_budget,
 			grep_result_limit: raw.limits?.grep_result_limit ?? defaultConfig.limits.grep_result_limit,
 			grep_max_file_bytes: raw.limits?.grep_max_file_bytes ?? defaultConfig.limits.grep_max_file_bytes,

@@ -67,9 +67,9 @@ export interface LsParams {
 	path: string;
 }
 
-/** find 参数：path 是 workspace-relative 搜索根，pattern 是相对该根的 glob。 */
+/** find 参数：path 是 workspace-relative 搜索根，query 相对该根解释为路径、glob 或名称查询。 */
 export interface FindParams {
-	pattern: string;
+	query: string;
 	path?: string;
 }
 
@@ -165,16 +165,47 @@ export interface WriteSuccess {
 	bytes: number;
 }
 
-/** find 的内部结构化详情；不会完整序列化到模型可见正文。 */
+export type FindEntryKind = "file" | "directory";
+
+/** find 的统一路径条目；tokens 只服务路径相关性评分，不包含文件正文信息。 */
+export interface FindEntry {
+	path: string;
+	kind: FindEntryKind;
+	basename: string;
+	stem: string;
+	extension?: string;
+	segments: string[];
+	tokens: string[];
+	depth: number;
+}
+
+export interface FindMatch {
+	path: string;
+	kind: FindEntryKind;
+}
+
+export interface FindCollapsedGroup {
+	path: string;
+	files: number;
+	directories: number;
+}
+
+/** find 的内部结构化详情；正文保持 token-efficient，完整统计留给 UI 和测试。 */
 export interface FindDetails {
-	total: number;
-	exactPaths: string[];
-	collapsedGroups: Array<{
-		path: string;
-		count: number;
-	}>;
+	query: string;
+	path: string;
+	strategy: "exact" | "glob" | "fuzzy";
+	totalMatches: number;
+	returnedMatches: number;
+	scannedEntries: number;
+	matches: FindMatch[];
+	collapsedGroups: FindCollapsedGroup[];
 	ignoredCount: number;
+	skippedCount: number;
 	truncated: boolean;
+	suggestions?: FindMatch[];
+	missingPrefix?: string;
+	nearbyDirectory?: string;
 }
 
 /** find 成功结果：content 是模型可见紧凑文本，details 供 UI/内部逻辑使用。 */
