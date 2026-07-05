@@ -192,7 +192,20 @@ chain handoff：
 .pi/configs/subagent.jsonc
 ```
 
-项目配置只能覆盖普通运行参数，不能扩大安全边界。
+项目配置在用户配置之后加载，只能覆盖普通运行参数：
+
+* `max_parallel_tasks`
+* `max_concurrency`
+* `timeout_ms`
+* `retries`
+* `retry_delay_ms`
+* `retry_on_empty_output`
+* `retry_on_timeout`
+* `max_inline_output_chars`
+* `max_handoff_chars`
+* `output_mode`
+
+项目配置不能修改 `allow_project_agents`、`project_agents_override_user`、`confirm_write_agents`、`default_tools` 或 `agent_overrides`，避免项目扩大用户级能力边界。
 
 默认配置文件位于：
 
