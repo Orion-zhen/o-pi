@@ -8,7 +8,7 @@ import { createFindEntry, rankFindEntries, rankGlobEntries, type RankedFindEntry
 import { renderFindResults } from "./find-renderer.js";
 import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
 import type { IgnoreSnapshot } from "./ignore/ignore-types.js";
-import { resolveWorkspaceRoot } from "./path-resolver.js";
+import { normalizeRelativePath, normalizeToolPath, resolveWorkspaceRoot, workspaceRelativePath } from "./path-resolver.js";
 import type { FindEntry, FindMatch, FindParams, FindSuccess, ToolOutcome } from "./types.js";
 
 interface NormalizedFindParams {
@@ -41,11 +41,11 @@ interface WalkState {
 
 /** find 是路径定位器：自动路由 exact、glob 和 fuzzy，不读取正文、不跟随 symlink。 */
 export async function findWorkspaceFiles(cwd: string, params: FindParams, signal?: AbortSignal): Promise<ToolOutcome<FindSuccess>> {
-	const validation = validateFindParams(params);
+	const workspaceRoot = await resolveWorkspaceRoot(cwd);
+	const validation = validateFindParams(workspaceRoot, params);
 	if (isFailed(validation)) return validation;
 	const config = await loadFileToolsConfig();
 	if (isFailed(config)) return config;
-	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const searchRoot = await resolveWorkspaceSearchRoot(workspaceRoot, validation.path, config);
 	if (isFailed(searchRoot)) return searchRoot;
 	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
@@ -94,18 +94,41 @@ export async function findWorkspaceFiles(cwd: string, params: FindParams, signal
 	}
 }
 
-function validateFindParams(params: FindParams): ToolOutcome<NormalizedFindParams> {
+function validateFindParams(workspaceRoot: string, params: FindParams): ToolOutcome<NormalizedFindParams> {
 	if (typeof params.query !== "string" || params.query.length === 0) return fail("INVALID_PATH", "query must not be empty.");
 	if (params.query.includes("\0")) return fail("INVALID_PATH", "query must not contain NUL bytes.", { path: params.query });
-	const query = normalizeRelative(params.query);
-	if (path.isAbsolute(query) || /^[A-Za-z]:\//u.test(query)) return fail("INVALID_PATH", "query must be relative to path.", { path: params.query });
-	if (query.split("/").some((part) => part === "..")) return fail("INVALID_PATH", "query must not escape path.", { path: params.query });
 
 	const searchPath = params.path ?? ".";
 	if (typeof searchPath !== "string" || searchPath.length === 0) return fail("INVALID_PATH", "path must not be empty.", { path: searchPath });
 	if (searchPath.includes("\0")) return fail("INVALID_PATH", "path must not contain NUL bytes.", { path: searchPath });
-	if (path.isAbsolute(searchPath)) return fail("INVALID_PATH", "path must be workspace-relative.", { path: searchPath });
-	return { query, path: searchPath };
+	const normalizedSearchPath = normalizeWorkspaceInputPath(workspaceRoot, searchPath, "path");
+	if (isFailed(normalizedSearchPath)) return normalizedSearchPath;
+	const query = normalizeFindQuery(workspaceRoot, normalizedSearchPath.path, params.query);
+	if (isFailed(query)) return query;
+	return { query, path: normalizedSearchPath.path };
+}
+
+function normalizeWorkspaceInputPath(workspaceRoot: string, inputPath: string, field: "path" | "query"): ToolOutcome<{ path: string }> {
+	const lexical = normalizeToolPath(workspaceRoot, inputPath);
+	if (isFailed(lexical)) return lexical;
+	if (lexical.workspacePath === undefined) {
+		return fail("INVALID_PATH", `${field} must stay inside the workspace.`, { path: normalizeRelativePath(inputPath) });
+	}
+	return { path: normalizeRelative(lexical.workspacePath) };
+}
+
+function normalizeFindQuery(workspaceRoot: string, searchPath: string, inputQuery: string): ToolOutcome<string> {
+	if (path.isAbsolute(inputQuery)) {
+		const lexical = normalizeWorkspaceInputPath(workspaceRoot, inputQuery, "query");
+		if (isFailed(lexical)) return lexical;
+		const query = normalizeRelative(path.relative(path.resolve(workspaceRoot, searchPath), path.resolve(workspaceRoot, lexical.path)));
+		if (query.split("/").some((part) => part === "..")) return fail("INVALID_PATH", "query must not escape path.", { path: inputQuery });
+		return query;
+	}
+	const query = normalizeRelative(inputQuery);
+	if (path.isAbsolute(query) || /^[A-Za-z]:\//u.test(query)) return fail("INVALID_PATH", "query must be relative to path.", { path: inputQuery });
+	if (query.split("/").some((part) => part === "..")) return fail("INVALID_PATH", "query must not escape path.", { path: inputQuery });
+	return query;
 }
 
 async function resolveWorkspaceSearchRoot(
@@ -113,9 +136,10 @@ async function resolveWorkspaceSearchRoot(
 	inputPath: string,
 	config: FileToolsConfig,
 ): Promise<ToolOutcome<SearchRoot>> {
-	const absolutePath = path.resolve(workspaceRoot, inputPath);
-	const workspacePath = workspaceRelative(workspaceRoot, absolutePath);
-	if (workspacePath === undefined) return fail("INVALID_PATH", "path must stay inside the workspace.", { path: normalizeRelative(inputPath) });
+	const lexical = normalizeToolPath(workspaceRoot, inputPath);
+	if (isFailed(lexical)) return lexical;
+	const { absolutePath, workspacePath } = lexical;
+	if (workspacePath === undefined) return fail("INVALID_PATH", "path must stay inside the workspace.", { path: normalizeRelativePath(inputPath) });
 	const identity = toolPathIdentity(workspacePath, absolutePath, workspacePath);
 	if (isBlockedPath(config, identity)) return fail("PROTECTED_PATH", "Path is blocked by file-tools config.", { path: workspacePath });
 
@@ -504,10 +528,8 @@ function normalizeRelative(value: string): string {
 }
 
 function workspaceRelative(workspaceRoot: string, candidate: string): string | undefined {
-	const relative = path.relative(workspaceRoot, candidate);
-	if (relative === "") return ".";
-	if (relative.startsWith("..") || path.isAbsolute(relative)) return undefined;
-	return normalizeRelative(relative);
+	const relative = workspaceRelativePath(workspaceRoot, candidate);
+	return relative === undefined ? undefined : normalizeRelative(relative);
 }
 
 function joinWorkspacePath(parent: string, child: string): string {

@@ -73,6 +73,14 @@ describe("grep", () => {
 		expect(firstRegion(result).content).toContain("export function login()");
 	});
 
+	it("workspace 内绝对 path 会按 workspace-relative path 检索", async () => {
+		await mkdir(path.join(workspace, "src"));
+		await writeFile(path.join(workspace, "src", "auth.ts"), "export function login() { return true; }\n");
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: path.join(workspace, "src"), query: "login" }));
+		expect(result).toMatchObject({ status: "success", path: "src" });
+		expect(firstRegion(result)).toMatchObject({ path: "src/auth.ts", symbol: "login" });
+	});
+
 	it("exact symbol 的定义排在引用之前，并带一跳 caller/callee", async () => {
 		await writeFile(path.join(workspace, "service.ts"), "export function login() {\n  return issueToken();\n}\nfunction issueToken() { return 't'; }\n");
 		await writeFile(path.join(workspace, "route.ts"), "import { login } from './service';\nexport function handle() {\n  return login();\n}\n");

@@ -3,7 +3,7 @@ import path from "node:path";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { isBlockedPath, loadFileToolsConfig, toolPathIdentity } from "./config.js";
 import { fail, isFailed } from "./errors.js";
-import { resolveWorkspaceRoot } from "./path-resolver.js";
+import { normalizeToolPath, resolveWorkspaceRoot } from "./path-resolver.js";
 import type { ToolOutcome, WriteParams, WriteSuccess } from "./types.js";
 
 interface WritablePath {
@@ -73,30 +73,12 @@ function validateWriteInput(params: unknown): ToolOutcome<WriteParams> {
 }
 
 function resolveWritablePath(workspaceRoot: string, inputPath: string): ToolOutcome<WritablePath> {
-	if (inputPath.length === 0) return fail("INVALID_PATH", "Path must not be empty.", { path: inputPath });
-	if (inputPath.includes("\0")) return fail("INVALID_PATH", "Path must not contain NUL bytes.", { path: inputPath });
-
-	const absolutePath = path.resolve(workspaceRoot, inputPath);
-	const workspacePath = workspaceRelative(workspaceRoot, absolutePath);
-	if (workspacePath === ".") {
+	const target = normalizeToolPath(workspaceRoot, inputPath);
+	if (isFailed(target)) return target;
+	if (target.workspacePath === ".") {
 		return fail("INVALID_PATH", "Target must be a file path, not the current directory.", { path: inputPath });
 	}
-	return {
-		absolutePath,
-		relativePath: path.isAbsolute(inputPath) ? path.normalize(absolutePath) : (workspacePath ?? normalizeRelative(path.relative(workspaceRoot, absolutePath))),
-		...(workspacePath !== undefined ? { workspacePath } : {}),
-	};
-}
-
-function workspaceRelative(workspaceRoot: string, candidate: string): string | undefined {
-	const relative = path.relative(workspaceRoot, candidate);
-	if (relative === "") return ".";
-	if (relative.startsWith("..") || path.isAbsolute(relative)) return undefined;
-	return relative.replace(/\\/g, "/");
-}
-
-function normalizeRelative(value: string): string {
-	return value === "" ? "." : value.replace(/\\/g, "/");
+	return target;
 }
 
 function checkAbort(signal: AbortSignal | undefined): ToolOutcome<never> | undefined {

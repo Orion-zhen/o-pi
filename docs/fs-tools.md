@@ -45,7 +45,7 @@ ignore：路径是否应从自动发现、遍历、搜索或索引中排除。
 路径解析：把相对或绝对输入交给文件系统操作。
 ```
 
-`.piignore` 和 `.gitignore` 不是访问控制机制。`ls` / `read` / `write` / `edit` 接受相对或绝对路径；只要 Pi 进程和操作系统允许访问，就可以执行。相对路径按当前 `cwd` 解析，绝对路径保持绝对。
+`.piignore` 和 `.gitignore` 不是访问控制机制。`ls` / `read` / `write` / `edit` 接受相对或绝对路径；只要 Pi 进程和操作系统允许访问，就可以执行。相对路径按当前 `cwd` 解析；workspace 内绝对路径按 workspace-relative path 返回；workspace 外绝对路径保持绝对。
 
 状态行为：
 
@@ -203,7 +203,7 @@ Git tracked files：
 
 字段：
 
-* `path`：目录路径。`.` 表示当前 `cwd`；相对路径按 `cwd` 解析；绝对路径保持绝对；空字符串非法。
+* `path`：目录路径。`.` 表示当前 `cwd`；相对路径按 `cwd` 解析；workspace 内绝对路径返回相对路径；workspace 外绝对路径保持绝对；空字符串非法。
 
 模型可见成功结果使用紧凑 shell 风格文本，完整结构保留在 `details`：
 
@@ -217,7 +217,7 @@ shared@ -> ../shared
 entry：
 
 * `name`：当前目录下的 basename。
-* `path`：相对输入返回按 `cwd` 规范化后的相对路径；绝对输入返回绝对路径。
+* `path`：workspace 内路径返回 workspace-relative path；workspace 外路径返回规范化后的相对或绝对路径。
 * `type`：`directory`、`file`、`symlink` 或 `other`。
 * `link_target`：仅 symlink 可有，保留 `readlink` 返回的原始目标。
 * `ignored`：命中 soft ignore 时为 `true`。
@@ -316,8 +316,8 @@ a/
 
 字段：
 
-* `path`：workspace-relative 搜索根目录，默认 `.`；不能是绝对路径或越过 workspace。
-* `query`：相对于 `path` 解释的文件名、目录名、路径片段或 glob；空字符串非法。
+* `path`：workspace 内搜索根目录，默认 `.`；workspace 内绝对路径会折叠为 workspace-relative path；不能越过 workspace。
+* `query`：相对于 `path` 解释的文件名、目录名、路径片段或 glob；workspace 内绝对路径会先折叠为相对 `path` 的路径；空字符串非法。
 
 成功结果是紧凑文本：
 

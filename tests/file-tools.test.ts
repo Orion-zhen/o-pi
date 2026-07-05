@@ -163,6 +163,8 @@ describe("ls", () => {
 
 	it("区分不存在和普通文件，允许绝对路径和 .. 相对路径，但拒绝 .git", async () => {
 		await writeFile(path.join(workspace, "file.txt"), "");
+		await mkdir(path.join(workspace, "src"));
+		await writeFile(path.join(workspace, "src", "main.ts"), "");
 		await mkdir(path.join(workspace, ".git"));
 		await mkdir(path.join(outside, "nested"));
 		const relativeOutside = path.relative(workspace, outside);
@@ -181,6 +183,10 @@ describe("ls", () => {
 		expect(await listWorkspaceDirectory(workspace, { path: outside })).toMatchObject({
 			path: path.normalize(outside),
 			entries: [{ name: "nested", path: path.join(outside, "nested"), type: "directory" }],
+		});
+		expect(await listWorkspaceDirectory(workspace, { path: path.join(workspace, "src") })).toMatchObject({
+			path: "src",
+			entries: [{ name: "main.ts", path: "src/main.ts", type: "file" }],
 		});
 		expect(await listWorkspaceDirectory(workspace, { path: ".git" })).toMatchObject({
 			status: "failed",
@@ -394,7 +400,12 @@ describe("read", () => {
 	it("允许读取绝对路径、.. 相对路径和指向外部的符号链接", async () => {
 		const secret = path.join(outside, "secret.txt");
 		await writeFile(secret, "secret");
+		await writeFile(path.join(workspace, "inside.txt"), "inside");
 		const relativeOutside = path.relative(workspace, secret);
+		expect(await readWorkspaceFile(workspace, { path: path.join(workspace, "inside.txt") })).toMatchObject({
+			path: "inside.txt",
+			content: "inside",
+		});
 		expect(await readWorkspaceFile(workspace, { path: relativeOutside })).toMatchObject({
 			path: relativeOutside.replace(/\\/g, "/"),
 			content: "secret",
@@ -481,6 +492,12 @@ describe("write", () => {
 		const result = await writeWorkspaceFile(workspace, { path: externalFile, content: "external\n" });
 		expect(result).toMatchObject({ status: "written", path: path.normalize(externalFile) });
 		expect(await readFile(externalFile, "utf8")).toBe("external\n");
+	});
+
+	it("workspace 内绝对写入路径返回 workspace-relative path", async () => {
+		const result = await writeWorkspaceFile(workspace, { path: path.join(workspace, "nested", "inside.txt"), content: "inside\n" });
+		expect(result).toMatchObject({ status: "written", path: "nested/inside.txt" });
+		expect(await readFile(path.join(workspace, "nested", "inside.txt"), "utf8")).toBe("inside\n");
 	});
 
 	it("拒绝写入 blocked path", async () => {

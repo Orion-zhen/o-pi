@@ -71,7 +71,7 @@ describe("find", () => {
 		});
 	});
 
-	it("校验空值、NUL、绝对路径和越界路径", async () => {
+	it("校验空值、NUL、workspace 外绝对路径和越界路径", async () => {
 		expect(await findWorkspaceFiles(workspace, { query: "" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
 		expect(await findWorkspaceFiles(workspace, { query: "a\0b" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
 		expect(await findWorkspaceFiles(workspace, { query: "/tmp/a" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
@@ -80,6 +80,37 @@ describe("find", () => {
 		expect(await findWorkspaceFiles(workspace, { path: path.relative(workspace, outside), query: "a" })).toMatchObject({
 			status: "failed",
 			error: { code: "INVALID_PATH" },
+		});
+	});
+
+	it("workspace 内绝对 path/query 会按 workspace-relative path 解析", async () => {
+		await writeFixture("src/auth/service.ts");
+		await writeFixture("src/auth/session.ts");
+
+		const absoluteQuery = expectFindSuccess(await findWorkspaceFiles(workspace, { query: path.join(workspace, "src", "auth", "service.ts") }));
+		expect(absoluteQuery.details).toMatchObject({
+			query: "src/auth/service.ts",
+			path: ".",
+			strategy: "exact",
+			matches: [{ path: "src/auth/service.ts", kind: "file" }],
+		});
+
+		const absoluteRoot = expectFindSuccess(await findWorkspaceFiles(workspace, { path: path.join(workspace, "src", "auth"), query: "session.ts" }));
+		expect(absoluteRoot.details).toMatchObject({
+			query: "session.ts",
+			path: "src/auth",
+			strategy: "exact",
+			matches: [{ path: "src/auth/session.ts", kind: "file" }],
+		});
+
+		const absoluteQueryUnderRoot = expectFindSuccess(
+			await findWorkspaceFiles(workspace, { path: "src", query: path.join(workspace, "src", "auth", "service.ts") }),
+		);
+		expect(absoluteQueryUnderRoot.details).toMatchObject({
+			query: "auth/service.ts",
+			path: "src",
+			strategy: "exact",
+			matches: [{ path: "src/auth/service.ts", kind: "file" }],
 		});
 	});
 

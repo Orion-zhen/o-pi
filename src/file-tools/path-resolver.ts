@@ -5,9 +5,43 @@ import { isBlockedPath, toolPathIdentity, type FileToolsConfig } from "./config.
 import { fail } from "./errors.js";
 import type { FailedResult, ResolvedPath, ToolOutcome } from "./types.js";
 
+/** 词法路径解析结果；absolutePath 用于文件系统访问，relativePath 用于模型展示，workspacePath 仅在路径位于 workspace 内时存在。 */
+export interface LexicalToolPath {
+	absolutePath: string;
+	relativePath: string;
+	workspacePath?: string;
+}
+
 /** 返回工具相对路径的解析基准；它不是访问边界。 */
 export async function resolveWorkspaceRoot(cwd: string): Promise<string> {
 	return await realpath(cwd);
+}
+
+/** 解析模型输入的词法路径；workspace 内绝对路径统一折叠为 workspace-relative path。 */
+export function normalizeToolPath(workspaceRoot: string, inputPath: string): ToolOutcome<LexicalToolPath> {
+	if (inputPath.length === 0) return fail("INVALID_PATH", "Path must not be empty.", { path: inputPath });
+	if (inputPath.includes("\0")) return fail("INVALID_PATH", "Path must not contain NUL bytes.", { path: inputPath });
+
+	const absolutePath = path.resolve(workspaceRoot, inputPath);
+	const workspacePath = workspaceRelativePath(workspaceRoot, absolutePath);
+	return {
+		absolutePath,
+		relativePath: workspacePath ?? (path.isAbsolute(inputPath) ? path.normalize(absolutePath) : normalizeRelativePath(path.relative(workspaceRoot, absolutePath))),
+		...(workspacePath !== undefined ? { workspacePath } : {}),
+	};
+}
+
+/** 返回 workspace-relative path；候选路径在 workspace 外时返回 undefined。 */
+export function workspaceRelativePath(workspaceRoot: string, candidate: string): string | undefined {
+	const relative = path.relative(workspaceRoot, candidate);
+	if (relative === "") return ".";
+	if (relative.startsWith("..") || path.isAbsolute(relative)) return undefined;
+	return normalizeRelativePath(relative);
+}
+
+/** 规范化工具内部相对路径展示，统一使用 `/` 并用 `.` 表示根目录。 */
+export function normalizeRelativePath(value: string): string {
+	return value === "" ? "." : value.replace(/\\/g, "/");
 }
 
 /** 解析已存在目录；接受 Pi 进程可访问的相对或绝对路径。 */
@@ -68,30 +102,6 @@ async function resolveExistingPath(
 		realPath: real,
 		...(lexical.workspacePath !== undefined ? { workspacePath: lexical.workspacePath } : {}),
 	};
-}
-
-function normalizeToolPath(workspaceRoot: string, inputPath: string): ToolOutcome<{ absolutePath: string; relativePath: string; workspacePath?: string }> {
-	if (inputPath.length === 0) return fail("INVALID_PATH", "Path must not be empty.", { path: inputPath });
-	if (inputPath.includes("\0")) return fail("INVALID_PATH", "Path must not contain NUL bytes.", { path: inputPath });
-
-	const absolutePath = path.resolve(workspaceRoot, inputPath);
-	const workspacePath = workspaceRelative(workspaceRoot, absolutePath);
-	return {
-		absolutePath,
-		relativePath: path.isAbsolute(inputPath) ? path.normalize(absolutePath) : (workspacePath ?? normalizeRelative(path.relative(workspaceRoot, absolutePath))),
-		...(workspacePath !== undefined ? { workspacePath } : {}),
-	};
-}
-
-function workspaceRelative(workspaceRoot: string, candidate: string): string | undefined {
-	const relative = path.relative(workspaceRoot, candidate);
-	if (relative === "") return ".";
-	if (relative.startsWith("..") || path.isAbsolute(relative)) return undefined;
-	return relative.replace(/\\/g, "/");
-}
-
-function normalizeRelative(value: string): string {
-	return value === "" ? "." : value.replace(/\\/g, "/");
 }
 
 function isFailed<T>(result: T | FailedResult): result is FailedResult {
