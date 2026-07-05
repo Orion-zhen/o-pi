@@ -45,19 +45,19 @@ export function hasWriteCapability(tools: string[]): boolean {
 	return tools.some((tool) => !READ_ONLY_TOOLS.has(tool));
 }
 
-/** 解析 Agent 实际可用工具：配置工具与当前 Pi active tools 的交集。 */
+/** 解析 Agent 实际可用工具：配置工具与 Pi 已注册工具的交集，不受主 Agent active tools 限制。 */
 export function resolveSubagentTools(
 	agent: AgentDefinition,
 	config: SubagentConfig,
-	activeTools: string[] | undefined,
+	registeredTools: string[] | undefined,
 ): string[] {
 	const override = config.agentOverrides[agent.name];
 	const configured = override?.tools ?? agent.tools ?? config.defaultTools;
-	const activeSet = activeTools === undefined ? undefined : new Set(activeTools);
+	const registeredSet = registeredTools === undefined ? undefined : new Set(registeredTools);
 	const result: string[] = [];
 	for (const tool of configured) {
 		if (tool === "subagent") continue;
-		if (activeSet !== undefined && !activeSet.has(tool)) continue;
+		if (registeredSet !== undefined && !registeredSet.has(tool)) continue;
 		if (!result.includes(tool)) result.push(tool);
 	}
 	return result;

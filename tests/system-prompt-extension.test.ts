@@ -67,7 +67,7 @@ describe("system prompt extension", () => {
 		expect(prompt).not.toContain("secret-skill");
 		expect(prompt).not.toContain("Hidden skill description.");
 		expect(prompt).toMatchInlineSnapshot(`
-			"<role>You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.</role>
+			"<role>You are an expert coding assistant operating inside pi, a coding agent harness. You ALWAYS respond in user's language.</role>
 
 			<tool_policy>
 			- Use the narrowest active tool that directly matches the operation.
@@ -116,7 +116,7 @@ describe("system prompt extension", () => {
 		});
 
 		expect(prompt).toMatchInlineSnapshot(`
-			"<role>You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.</role>
+			"<role>You are an expert coding assistant operating inside pi, a coding agent harness. You ALWAYS respond in user's language.</role>
 
 			<tool_policy>
 			- Use the narrowest active tool that directly matches the operation.
@@ -147,7 +147,7 @@ describe("system prompt extension", () => {
 		});
 
 		expect(prompt).toMatchInlineSnapshot(`
-			"<role>You are an expert coding assistant operating inside pi, a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.</role>
+			"<role>You are an expert coding assistant operating inside pi, a coding agent harness. You ALWAYS respond in user's language.</role>
 
 			<tool_policy>
 			- Use the narrowest active tool that directly matches the operation.

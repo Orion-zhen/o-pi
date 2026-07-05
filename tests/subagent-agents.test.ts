@@ -62,20 +62,19 @@ describe("subagent agent discovery", () => {
 		expect(prompt).not.toContain("<available_subagents>");
 	});
 
-	it("实际传递工具取配置与 active tools 的交集", async () => {
+	it("实际传递工具取配置与 registered tools 的交集", async () => {
 		await writeFile(path.join(dir, "agent", "agents", "worker.md"), agentMarkdown("worker", "Worker", "read, grep, made_up, edit"));
 		const agent = discoverAgents(dir, defaultSubagentConfig()).agents[0];
 		expect(agent).toBeDefined();
 		expect(resolveSubagentTools(agent!, defaultSubagentConfig(), ["read", "edit", "subagent"])).toEqual(["read", "edit"]);
 	});
 
-	it("/agents 展示实际 active tools 交集", async () => {
+	it("/agents 展示 registered tools 交集", async () => {
 		await writeFile(path.join(dir, "agent", "agents", "worker.md"), agentMarkdown("worker", "Worker", "read, write"));
 		const found = discoverAgents(dir, defaultSubagentConfig());
-		const text = formatAgents(found.agents, defaultSubagentConfig(), ["read"]);
-		expect(text).toContain("tools: read");
-		expect(text).toContain("write: no");
-		expect(text).not.toContain("write,");
+		const text = formatAgents(found.agents, defaultSubagentConfig(), ["read", "write"]);
+		expect(text).toContain("tools: read, write");
+		expect(text).toContain("write: yes");
 	});
 
 	it("缺少 tools 使用只读默认，缺少 name 拒绝", async () => {

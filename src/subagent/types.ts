@@ -159,7 +159,7 @@ export interface ExecutorContext {
 	hasUI: boolean;
 	currentModel?: string | undefined;
 	modelIds?: string[] | undefined;
-	activeTools?: string[] | undefined;
+	registeredTools?: string[] | undefined;
 	signal?: AbortSignal | undefined;
 	confirm?: ((title: string, message: string) => Promise<boolean>) | undefined;
 	onUpdate?: ((partial: SubagentToolResult) => void) | undefined;

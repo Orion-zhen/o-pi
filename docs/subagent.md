@@ -81,7 +81,7 @@ Return relevant files, line ranges, symbols, architecture notes, and unresolved 
 子 Agent 实际获得的工具是：
 
 ```text
-Agent 配置工具 ∩ 当前 pi.getActiveTools()
+Agent 配置工具 ∩ pi.getAllTools()
 ```
 
 并且始终过滤 `subagent`。
@@ -89,8 +89,8 @@ Agent 配置工具 ∩ 当前 pi.getActiveTools()
 因此：
 
 * 配置中写了不存在的工具不会传给子进程。
-* 被 `/tools` 禁用的工具不会传给子进程。
-* 被 `block-builtin-tools.ts` 禁用的内置工具不会显示在 `/agents`，也不会传给子进程。
+* 被 `/tools` 从主 Agent 停用的工具仍可传给子进程。
+* 未注册或被 Pi registry 排除的工具不会显示在 `/agents`，也不会传给子进程。
 * 交集为空时拒绝执行并返回明确错误。
 
 ## 工具 API
@@ -133,7 +133,7 @@ Agent 配置工具 ∩ 当前 pi.getActiveTools()
 /subagent-config
 ```
 
-`/agents` 展示实际可用工具，即 Agent 配置工具与当前 active tools 的交集。
+`/agents` 展示实际可用工具，即 Agent 配置工具与已注册工具的交集。
 
 ## 执行
 

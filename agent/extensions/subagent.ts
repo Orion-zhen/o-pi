@@ -15,31 +15,43 @@ const taskItem = Type.Object({
 	cwd: Type.Optional(Type.String({ description: "Workspace-relative working directory." })),
 }, { additionalProperties: false });
 
-const subagentParams = Type.Object(
-	{
-		mode: StringEnum(["single", "parallel", "chain"] as const, {
-			description:
-				"'single' for one agent task; 'parallel' for independent tasks concurrently; 'chain' for sequential tasks where each task may use {previous}.",
+const commonSubagentFields = {
+	cwd: Type.Optional(Type.String({ description: "Workspace-relative working directory." })),
+	model: Type.Optional(Type.String({ description: "Model for this call only." })),
+	outputMode: Type.Optional(
+		StringEnum(["inline", "file"] as const, {
+			description: "inline for short results; file for long or parallel results.",
 		}),
-		agent: Type.Optional(
-			Type.String({ minLength: 1, description: "Agent name (required when mode is 'single')." }),
-		),
-		task: Type.Optional(
-			Type.String({ minLength: 1, description: "Task text (required when mode is 'single')." }),
-		),
-		tasks: Type.Optional(
-			Type.Array(taskItem, { minItems: 1, description: "Task items (required when mode is 'parallel' or 'chain')." }),
-		),
-		cwd: Type.Optional(Type.String({ description: "Workspace-relative working directory." })),
-		model: Type.Optional(Type.String({ description: "Model for this call only." })),
-		outputMode: Type.Optional(
-			StringEnum(["inline", "file"] as const, {
-				description: "inline for short results; file for long or parallel results.",
-			}),
-		),
-	},
-	{ additionalProperties: false },
-);
+	),
+};
+
+const subagentParams = Type.Union([
+	Type.Object(
+		{
+			mode: Type.Literal("single", { description: "Run one agent task." }),
+			agent: Type.String({ minLength: 1, description: "Agent name." }),
+			task: Type.String({ minLength: 1, description: "Task text." }),
+			...commonSubagentFields,
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			mode: Type.Literal("parallel", { description: "Run independent tasks concurrently." }),
+			tasks: Type.Array(taskItem, { minItems: 1, description: "Parallel tasks." }),
+			...commonSubagentFields,
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			mode: Type.Literal("chain", { description: "Run tasks sequentially; task may use {previous}." }),
+			tasks: Type.Array(taskItem, { minItems: 1, description: "Sequential tasks." }),
+			...commonSubagentFields,
+		},
+		{ additionalProperties: false },
+	),
+]);
 
 /** 注册轻量 subagent 工具和确定性命令；核心逻辑在 src/subagent。 */
 export default function subagentExtension(pi: ExtensionAPI): void {
@@ -54,11 +66,11 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 			const modelIds = ctx.modelRegistry.getAll().map((model) => model.id);
 			return executeSubagent(params as SubagentToolParams, {
 				cwd: ctx.cwd,
-					hasUI: ctx.hasUI,
-					currentModel: ctx.model?.id,
-					modelIds,
-					activeTools: pi.getActiveTools(),
-					...(signal !== undefined ? { signal } : {}),
+				hasUI: ctx.hasUI,
+				currentModel: ctx.model?.id,
+				modelIds,
+				registeredTools: pi.getAllTools().map((tool) => tool.name),
+				...(signal !== undefined ? { signal } : {}),
 				...(ctx.hasUI ? { confirm: (title: string, message: string) => ctx.ui.confirm(title, message) } : {}),
 				...(onUpdate !== undefined ? { onUpdate } : {}),
 			});

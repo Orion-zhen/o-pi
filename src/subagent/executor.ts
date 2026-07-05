@@ -110,7 +110,7 @@ async function executeOne(
 	const agent = agents.find((candidate) => candidate.name === task.agent);
 	if (agent === undefined) throw new SubagentExecutionError(`Unknown agent "${task.agent}".`);
 	const cwd = await resolveCwd(task.cwd ?? params.cwd ?? context.cwd, context.cwd);
-	const tools = resolveTools(agent, config, context.activeTools);
+	const tools = resolveTools(agent, config, context.registeredTools);
 	const model = resolveModel(params.model, agent, config, context);
 	await confirmIfNeeded(agent, task.task, cwd, tools, config, context);
 	const maxAttempts = Math.max(1, (agent.retries ?? config.retries) + 1);
@@ -162,10 +162,10 @@ async function executeOne(
 	};
 }
 
-function resolveTools(agent: AgentDefinition, config: SubagentConfig, activeTools: string[] | undefined): string[] {
-	const tools = resolveSubagentTools(agent, config, activeTools);
+function resolveTools(agent: AgentDefinition, config: SubagentConfig, registeredTools: string[] | undefined): string[] {
+	const tools = resolveSubagentTools(agent, config, registeredTools);
 	if (tools.length === 0) {
-		throw new SubagentExecutionError(`Agent "${agent.name}" has no usable tools after intersecting configured tools with active tools.`);
+		throw new SubagentExecutionError(`Agent "${agent.name}" has no usable tools after intersecting configured tools with registered tools.`);
 	}
 	return tools;
 }

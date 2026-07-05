@@ -16,7 +16,7 @@ export function registerSubagentCommands(pi: ExtensionAPI): void {
 			handler: async (_args, ctx) => {
 				const config = await loadSubagentConfig(ctx.cwd);
 				const discovery = discoverAgents(ctx.cwd, config);
-				ctx.ui.notify(formatAgents(discovery.agents, config, pi.getActiveTools()), "info");
+				ctx.ui.notify(formatAgents(discovery.agents, config, registeredToolNames(pi)), "info");
 			},
 		});
 
@@ -29,7 +29,7 @@ export function registerSubagentCommands(pi: ExtensionAPI): void {
 				ctx.ui.notify("Syntax: /run <agent> <task>", "error");
 				return;
 			}
-				await runAndNotify(pi, ctx, { agent, task: rest.join(" ") });
+			await runAndNotify(pi, ctx, { agent, task: rest.join(" ") });
 		},
 	});
 
@@ -128,7 +128,7 @@ export function parsePipeline(input: string): { tasks: SubagentTask[] } | { erro
 }
 
 async function runAndNotify(
-	pi: Pick<ExtensionAPI, "getActiveTools">,
+	pi: Pick<ExtensionAPI, "getAllTools">,
 	ctx: ExtensionCommandContext,
 	single?: SubagentTask,
 	tasks?: SubagentTask[],
@@ -143,10 +143,10 @@ async function runAndNotify(
 		{
 			cwd: ctx.cwd,
 			hasUI: ctx.hasUI,
-				currentModel: ctx.model?.id,
-				modelIds: ctx.modelRegistry.getAll().map((model) => model.id),
-				activeTools: pi.getActiveTools(),
-				signal: ctx.signal,
+			currentModel: ctx.model?.id,
+			modelIds: ctx.modelRegistry.getAll().map((model) => model.id),
+			registeredTools: registeredToolNames(pi),
+			signal: ctx.signal,
 			confirm: ctx.hasUI ? (title, message) => ctx.ui.confirm(title, message) : undefined,
 		},
 	);
@@ -164,11 +164,11 @@ async function completeAgents(prefix: string): Promise<AutocompleteItem[] | null
 	return items.length > 0 ? items : null;
 }
 
-export function formatAgents(agents: AgentDefinition[], config: SubagentConfig, activeTools: string[]): string {
+export function formatAgents(agents: AgentDefinition[], config: SubagentConfig, registeredTools: string[]): string {
 	if (agents.length === 0) return "No subagents found.";
 	return agents
 		.map((agent) => {
-			const tools = resolveSubagentTools(agent, config, activeTools);
+			const tools = resolveSubagentTools(agent, config, registeredTools);
 			return [
 				`${agent.name} - ${agent.description}`,
 				`  source: ${agent.source} (${agent.filePath})`,
@@ -179,6 +179,11 @@ export function formatAgents(agents: AgentDefinition[], config: SubagentConfig, 
 			].join("\n");
 		})
 		.join("\n\n");
+}
+
+/** Pi 的 getAllTools 返回已注册工具元数据；子 Agent 只需要名称用于 --tools。 */
+function registeredToolNames(pi: Pick<ExtensionAPI, "getAllTools">): string[] {
+	return pi.getAllTools().map((tool) => tool.name);
 }
 
 function splitPipeline(input: string): string[] {
