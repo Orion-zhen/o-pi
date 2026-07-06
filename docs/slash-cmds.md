@@ -65,6 +65,29 @@
 - 关闭：`Esc`、`q` 或 `Enter`。
 - 滚动：方向键、`PageUp`、`PageDown`、`Home`、`End`。
 
+## `/codex-reset-card`
+
+来源：`agent/extensions/codex-reset-card.ts`
+
+用途：查询并显示当前 Codex 重置卡数量、状态和使用时间窗口。
+
+用法：
+
+```text
+/codex-reset-card
+```
+
+行为：
+
+- 读取 `~/.codex/auth.json` 中的 Codex access token。
+- 请求 ChatGPT 重置卡接口，只显示卡片数量、状态、发放时间、到期时间、已用时间或剩余时间。
+- 时区来自当前系统 `Intl` 配置。
+- TUI 中通过只读浮层展示；非 TUI 模式使用 UI notification 输出。
+- 查询结果、错误详情和接口响应不写入会话历史，不进入模型上下文。
+- 错误输出会脱敏，不显示 token 或响应正文。
+- 关闭：`Esc`、`q` 或 `Enter`。
+- 滚动：方向键、`PageUp`、`PageDown`、`Home`、`End`。
+
 ## `/reasoning-effort`
 
 来源：`agent/extensions/reasoning-effort.ts`
