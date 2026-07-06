@@ -12,6 +12,15 @@ describe("skill frontmatter", () => {
 		expect(parsed.body).toBe("body\nnext");
 	});
 
+	it("复用 Pi YAML frontmatter 解析 quoted value", () => {
+		const parsed = parseSkillFile('---\nname: demo\ndescription: "use when value contains: colon"\n---\nbody\n', "fallback", 100);
+		expect(parsed.description).toBe("use when value contains: colon");
+	});
+
+	it("YAML frontmatter 解析失败时报 skill frontmatter 错误", () => {
+		expect(() => parseSkillFile("---\nname: [demo\n---\nbody\n", "fallback", 100)).toThrow(/failed to parse skill frontmatter/);
+	});
+
 	it("缺少 description 时报错", () => {
 		expect(() => parseSkillFile("---\nname: demo\n---\nbody\n", "fallback", 100)).toThrow(/description/);
 	});
@@ -24,4 +33,3 @@ describe("skill frontmatter", () => {
 		expect(() => parseSkillFile("---\nname: demo\ndescription: desc\n---\n12345", "fallback", 4)).toThrow(/max_body_chars|references/);
 	});
 });
-
