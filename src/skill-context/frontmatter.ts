@@ -1,3 +1,5 @@
+import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
+
 export interface ParsedSkillFile {
 	name: string;
 	description: string;
@@ -11,18 +13,11 @@ export class SkillFrontmatterError extends Error {
 	}
 }
 
-interface RawFrontmatter {
-	name?: string;
-	description?: string;
-	"disable-model-invocation"?: string;
-}
-
-/** 解析 V1 简单 frontmatter；只支持顶层 key: value，避免引入 YAML 依赖。 */
+/** 复用 Pi 官方 frontmatter 解析，随后按本扩展的 selected context 约束做校验。 */
 export function parseSkillFile(raw: string, fallbackName: string, maxBodyChars: number): ParsedSkillFile {
-	const normalized = raw.replace(/\r\n?/g, "\n");
-	const { fields, body } = splitFrontmatter(normalized);
-	const name = fields.name ?? fallbackName;
-	const description = fields.description;
+	const { frontmatter, body } = parseSkillFrontmatter(raw);
+	const name = stringField(frontmatter, "name") ?? fallbackName;
+	const description = stringField(frontmatter, "description");
 
 	validateSkillName(name);
 	if (description === undefined || description.trim().length === 0) {
@@ -38,37 +33,19 @@ export function parseSkillFile(raw: string, fallbackName: string, maxBodyChars: 
 	return { name, description, body };
 }
 
-function splitFrontmatter(text: string): { fields: RawFrontmatter; body: string } {
-	if (!text.startsWith("---\n")) return { fields: {}, body: text.trim() };
-	const end = text.indexOf("\n---", 4);
-	if (end === -1) return { fields: {}, body: text.trim() };
-	const afterFence = text.slice(end + 4);
-	if (afterFence.length > 0 && afterFence[0] !== "\n") return { fields: {}, body: text.trim() };
-	return {
-		fields: parseFields(text.slice(4, end)),
-		body: afterFence.trim(),
-	};
+function parseSkillFrontmatter(raw: string): { frontmatter: Record<string, unknown>; body: string } {
+	try {
+		const parsed = parseFrontmatter(raw);
+		return { frontmatter: parsed.frontmatter, body: parsed.body.trim() };
+	} catch (error) {
+		const message = error instanceof Error ? error.message : "invalid frontmatter";
+		throw new SkillFrontmatterError(`failed to parse skill frontmatter: ${message}`);
+	}
 }
 
-function parseFields(text: string): RawFrontmatter {
-	const fields: RawFrontmatter = {};
-	for (const line of text.split("\n")) {
-		const separator = line.indexOf(":");
-		if (separator < 1) continue;
-		const key = line.slice(0, separator).trim();
-		const value = stripQuotes(line.slice(separator + 1).trim());
-		if (key === "name" || key === "description" || key === "disable-model-invocation") {
-			fields[key] = value;
-		}
-	}
-	return fields;
-}
-
-function stripQuotes(value: string): string {
-	if (value.length >= 2 && ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))) {
-		return value.slice(1, -1);
-	}
-	return value;
+function stringField(fields: Record<string, unknown>, key: string): string | undefined {
+	const value = fields[key];
+	return typeof value === "string" ? value : undefined;
 }
 
 function validateSkillName(name: string): void {
@@ -78,4 +55,3 @@ function validateSkillName(name: string): void {
 		throw new SkillFrontmatterError("skill name cannot start/end with '-' or contain '--'.");
 	}
 }
-
