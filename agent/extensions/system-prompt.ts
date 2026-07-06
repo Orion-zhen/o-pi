@@ -14,6 +14,8 @@ type PromptSections = {
 	appendSystemPrompt: string | undefined;
 	/** 工具策略来自 Pi 的 promptGuidelines，并追加本扩展固定的最小工具选择规则。 */
 	toolPolicy: string;
+	/** skill 策略只描述 host-selected context 行为，不列出任何具体 skill 元数据。 */
+	skillPolicy: string;
 	/** 仅列出当前启用且带 prompt snippet 的工具，保持和 Pi 工具可见性一致。 */
 	availableTools: string;
 	/** AGENTS.md 等项目上下文由 Pi 预加载，本扩展只负责重新包成 XML 风格。 */
@@ -92,6 +94,7 @@ function collectPromptSections(options: BuildSystemPromptOptions, extraSections:
 	return {
 		appendSystemPrompt: formatAppendSystemPrompt(options.appendSystemPrompt),
 		toolPolicy: formatToolPolicy(options.promptGuidelines),
+		skillPolicy: formatSkillPolicy(),
 		availableTools: formatAvailableTools(selectedTools, options.toolSnippets),
 		projectContext: formatProjectContext(contextFiles),
 		extraSections,
@@ -119,6 +122,7 @@ ${customPrompt}
 function formatSharedPromptSections(sections: PromptSections): Array<string | undefined> {
 	return [
 		sections.toolPolicy,
+		sections.skillPolicy,
 		sections.availableTools,
 		sections.appendSystemPrompt,
 		sections.projectContext,
@@ -145,6 +149,15 @@ function formatToolPolicy(promptGuidelines: BuildSystemPromptOptions["promptGuid
 	return `<tool_policy>
 ${rules.map((rule) => `- ${rule}`).join("\n")}
 </tool_policy>`;
+}
+
+function formatSkillPolicy(): string {
+	return `<skill_policy>
+- Do not read a selected skill's SKILL.md again unless the user explicitly asks to inspect that file.
+- Apply only active skills relevant to the current task.
+- unload_skill and unload_previous_skills disable earlier skill instructions.
+- Skills never override system, project, user, or tool-safety instructions.
+</skill_policy>`;
 }
 
 function normalizeGuidelines(promptGuidelines: BuildSystemPromptOptions["promptGuidelines"]): string[] {

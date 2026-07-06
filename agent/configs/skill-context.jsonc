@@ -1,0 +1,10 @@
+{
+	"$schema": "../schemas/skill-context.schema.json",
+	"version": 1,
+	"enabled": true,
+	"max_active": 1,
+	"on_load_conflict": "replace",
+	"clear_mode": "lazy",
+	"dedupe_read": true,
+	"max_body_chars": 20000
+}

@@ -2,6 +2,9 @@ import type { BuildSystemPromptOptions, ContextUsage, SessionEntry } from "@eare
 import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage } from "@earendil-works/pi-ai";
 import { countContentTokens, countTextTokens, type TokenCounterScope } from "../token-counter.js";
 import type { ContextBreakdownItem, ContextStats } from "./types.js";
+import { collectInjectedSkillContextTexts } from "../skill-context/context.js";
+import { computeSkillContextState } from "../skill-context/state.js";
+import { SKILL_CONTEXT_STATUS_MESSAGE } from "../skill-context/types.js";
 
 export interface ContextBreakdownInput {
 	usage: ContextUsage | undefined;
@@ -23,6 +26,7 @@ export async function buildContextBreakdown(input: ContextBreakdownInput): Promi
 	const projectContextTokens = await estimateProjectContext(input.systemPromptOptions, counter);
 	const subagentTokens = await estimateTokens(extractTaggedSection(input.systemPrompt ?? "", "subagents"), counter);
 	const systemTokens = clampKnown(systemPromptTokens - toolDefinitionTokens - projectContextTokens - subagentTokens);
+	const skillStats = await estimateSkillContext(input.branchEntries, counter);
 	const messageStats = await estimateMessages(input.branchEntries, counter);
 
 	const items: ContextBreakdownItem[] = [
@@ -30,6 +34,7 @@ export async function buildContextBreakdown(input: ContextBreakdownInput): Promi
 		item("tool_definitions", "tool definitions", toolDefinitionTokens, true, activeTools.length > 0 ? `${activeTools.length} active tools` : undefined),
 		item("project_context", "project context", projectContextTokens, true, formatContextFilesNote(input.systemPromptOptions)),
 		item("subagents", "subagents", subagentTokens, true, subagentTokens > 0 ? "main-agent index" : undefined),
+		item("skills", "skills", skillStats.tokens, true, formatSkillContextNote(skillStats)),
 		item("conversation_history", "conversation history", messageStats.historyTokens, true, `${messageStats.historyMessages} messages`),
 		item("tool_calls", "tool calls", messageStats.toolCallTokens, true, messageStats.toolCalls > 0 ? `${messageStats.toolCalls} calls` : undefined),
 		item("tool_outputs", "tool outputs", messageStats.toolOutputTokens, true, messageStats.toolResults > 0 ? `${messageStats.toolResults} results` : undefined),
@@ -48,7 +53,10 @@ export async function buildContextBreakdown(input: ContextBreakdownInput): Promi
 		...(contextWindow !== undefined && totalTokens !== undefined ? { remainingTokens: Math.max(0, contextWindow - totalTokens) } : {}),
 		confidence: totalTokens === undefined ? "estimated" : "mixed",
 		items: applyShares(items, displayTotal),
-		notes: ["Context breakdown uses provider-aware tokenization where available; exact total still comes from Pi/provider usage."],
+		notes: [
+			"Context breakdown uses provider-aware tokenization where available; exact total still comes from Pi/provider usage.",
+			"Lazy-cleared skills may remain in context until hard clear/compaction.",
+		],
 	};
 }
 
@@ -92,6 +100,28 @@ function formatContextFilesNote(options: BuildSystemPromptOptions | undefined): 
 	return `${files.length} context files`;
 }
 
+interface SkillEstimate {
+	tokens: number;
+	active: number;
+	retainedInactive: number;
+}
+
+async function estimateSkillContext(entries: SessionEntry[], counter: TokenCounterScope): Promise<SkillEstimate> {
+	const state = computeSkillContextState(entries);
+	const text = collectInjectedSkillContextTexts(entries).join("\n");
+
+	return {
+		tokens: await estimateTokens(text.trim(), counter),
+		active: state.active.length,
+		retainedInactive: state.retained.filter((skill) => !state.active.some((active) => active.name === skill.name)).length,
+	};
+}
+
+function formatSkillContextNote(stats: SkillEstimate): string | undefined {
+	if (stats.tokens <= 0) return undefined;
+	return `${stats.active} active, ${stats.retainedInactive} retained`;
+}
+
 function extractTaggedSection(text: string, tag: string): string {
 	const pattern = new RegExp(`<${tag}>[\\s\\S]*?</${tag}>`, "i");
 	return text.match(pattern)?.[0] ?? "";
@@ -127,6 +157,7 @@ async function estimateMessages(entries: SessionEntry[], counter: TokenCounterSc
 
 	for (const entry of entries) {
 		if (entry.type === "custom_message") {
+			if (entry.customType === SKILL_CONTEXT_STATUS_MESSAGE) continue;
 			historyTokens += await estimateContent(entry.content, counter);
 			historyMessages += 1;
 			continue;

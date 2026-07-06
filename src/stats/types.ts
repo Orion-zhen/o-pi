@@ -60,6 +60,7 @@ export interface ContextBreakdownItem {
 		| "tool_definitions"
 		| "project_context"
 		| "subagents"
+		| "skills"
 		| "conversation_history"
 		| "tool_calls"
 		| "tool_outputs"

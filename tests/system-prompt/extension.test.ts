@@ -52,6 +52,7 @@ describe("system prompt extension", () => {
 
 		expect(prompt).not.toContain("\r");
 		expect(prompt).toContain("<tool_policy>");
+		expect(prompt).toContain("<skill_policy>");
 		expect(prompt).toContain("<available_tools>");
 		expect(prompt).toContain("<project_context>");
 		expect(prompt).toContain("<context>");
@@ -62,6 +63,7 @@ describe("system prompt extension", () => {
 		expect(prompt).not.toContain("write:");
 		expect(prompt).not.toContain("secret-skill");
 		expect(prompt).not.toContain("Hidden skill description.");
+		expect(prompt).not.toContain("C:\\repo\\.pi\\skills\\secret\\SKILL.md");
 		expect(prompt.match(/Prefer direct tools\./g)).toHaveLength(1);
 	});
 
@@ -127,7 +129,7 @@ describe("system prompt extension", () => {
 						fg: (_color: string, text: string) => text,
 						bold: (text: string) => text,
 					};
-					const component = await factory({ terminal: { rows: 20 } } as never, theme as never, {} as never, () => undefined);
+					const component = await factory({ terminal: { rows: 30 } } as never, theme as never, {} as never, () => undefined);
 					customLines = component.render(80);
 					return undefined;
 				},

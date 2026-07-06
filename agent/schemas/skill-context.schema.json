@@ -1,0 +1,18 @@
+{
+	"$schema": "https://json-schema.org/draft-07/schema",
+	"$id": "skill-context.schema.json",
+	"title": "o-pi skill context config",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["version"],
+	"properties": {
+		"$schema": { "type": "string" },
+		"version": { "const": 1 },
+		"enabled": { "type": "boolean", "default": true },
+		"max_active": { "type": "integer", "minimum": 1, "maximum": 8, "default": 1 },
+		"on_load_conflict": { "enum": ["replace", "stack"], "default": "replace" },
+		"clear_mode": { "enum": ["lazy", "hard"], "default": "lazy" },
+		"dedupe_read": { "type": "boolean", "default": true },
+		"max_body_chars": { "type": "integer", "minimum": 1, "maximum": 200000, "default": 20000 }
+	}
+}

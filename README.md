@@ -9,4 +9,5 @@ Orion's Pi Agent.
 * [OpenAI-compatible provider](docs/openai-compatible-provider.md)
 * [TUI V1](docs/tui.md)
 * [Slash commands](docs/slash-cmds.md)
+* [Skill Context](docs/skill-context.md)
 * [Token counter](docs/token-counter.md)
