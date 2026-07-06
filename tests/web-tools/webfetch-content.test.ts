@@ -21,7 +21,7 @@ describe("webfetch content conversion", () => {
 	});
 
 	it("source 模式返回原始解码文本", () => {
-		const result = convertContent(Buffer.from("<h1>A</h1>"), headers("text/html"), "https://example.com/", "source");
+		const result = convertContent(Buffer.from("<h1>A</h1>"), headers('text/html; charset="utf-8"'), "https://example.com/", "source");
 		expect(result).toMatchObject({ format: "source" });
 		if ("status" in result) throw new Error(result.error.message);
 		expect(result.text).toBe("<h1>A</h1>");
@@ -37,6 +37,13 @@ describe("webfetch content conversion", () => {
 			error: { code: "UNSUPPORTED_CONTENT_TYPE" },
 		});
 		expect(convertContent(Buffer.from([65, 0, 66]), headers("text/plain"), "https://example.com/a.txt", "readable")).toMatchObject({
+			status: "failed",
+			error: { code: "UNSUPPORTED_CONTENT_TYPE" },
+		});
+	});
+
+	it("拒绝非法 Content-Type header", () => {
+		expect(convertContent(Buffer.from("x"), headers("bad header"), "https://example.com/a.txt", "readable")).toMatchObject({
 			status: "failed",
 			error: { code: "UNSUPPORTED_CONTENT_TYPE" },
 		});

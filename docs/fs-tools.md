@@ -429,7 +429,7 @@ issueToken [callee]
 
 行为：
 
-* TypeScript、TSX、JavaScript、JSX 使用 `@ast-grep/napi` 解析；Python、Go、Rust 使用轻量语法 profile 提取函数、方法、类、接口/trait、类型/枚举和模块级声明。
+* TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 `tree-sitter` 官方 grammar 提取函数、方法、类、接口/trait、类型/枚举、模块和顶层声明。
 * 不支持或解析失败的语言退化为文本搜索和紧凑行窗口，不让整个调用失败。
 * 每次调用创建 ignore snapshot；目录遍历使用 ignore `index` intent，ignored 文件不进入索引。
 * 进程内按 workspace realpath 缓存索引。缓存保存范围、signature、token 和关系元数据，不永久保存完整源码；返回源码时重新读取排名靠前的文件。
