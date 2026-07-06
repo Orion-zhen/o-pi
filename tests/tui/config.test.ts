@@ -26,7 +26,10 @@ describe("tui config", () => {
 
 	it("加载 jsonc 覆盖并合并默认值", async () => {
 		const file = path.join(dir, "tui.jsonc");
-		await writeFile(file, '{ "version": 1, "icons": "ascii", "chrome": { "footer": false }, "footer": { "style": { "workspace_color": "warning", "git_color": "accent", "git_icon": "" } } }');
+		await writeFile(
+			file,
+			'{ "version": 1, "icons": "ascii", "chrome": { "footer": false }, "footer": { "style": { "workspace_color": "warning", "git_color": "accent", "git_icon": "" } }, "banner": { "layout": "stacked", "style": "compact", "side_by_side_min_width": 120, "tiny_width": 36, "show_hints": false } }',
+		);
 		process.env["PI_TUI_CONFIG"] = file;
 		const config = await loadTuiConfig();
 		expect(config.icons).toBe("ascii");
@@ -36,6 +39,21 @@ describe("tui config", () => {
 		expect(config.footer.style.git_icon).toBe("");
 		expect(config.footer.max_lines).toBe(2);
 		expect(config.tools.collapsed_lines).toBe(2);
+		expect(config.banner.layout).toBe("stacked");
+		expect(config.banner.style).toBe("compact");
+		expect(config.banner.side_by_side_min_width).toBe(120);
+		expect(config.banner.tiny_width).toBe(36);
+		expect(config.banner.show_hints).toBe(false);
+		expect(config.banner.show_capabilities).toBe(true);
+	});
+
+	it("缺失 banner 时合并默认值", async () => {
+		const file = path.join(dir, "no-banner.jsonc");
+		await writeFile(file, '{ "version": 1, "chrome": { "header": true } }');
+		process.env["PI_TUI_CONFIG"] = file;
+		const config = await loadTuiConfig();
+		expect(config.banner).toEqual(defaultTuiConfig().banner);
+		expect(config.chrome.header).toBe(true);
 	});
 
 	it("schema 校验失败给出错误", async () => {
@@ -50,5 +68,28 @@ describe("tui config", () => {
 		await writeFile(file, '{ "version": 1, "tools": { "collapsed_lines": 3 } }');
 		process.env["PI_TUI_CONFIG"] = file;
 		await expect(loadTuiConfig()).rejects.toBeInstanceOf(TuiConfigError);
+	});
+
+	it("非法 banner layout/style/width 被 schema 拒绝", async () => {
+		for (const [name, text] of [
+			["layout", '{ "version": 1, "banner": { "layout": "wide" } }'],
+			["style", '{ "version": 1, "banner": { "style": "full" } }'],
+			["side", '{ "version": 1, "banner": { "side_by_side_min_width": 40 } }'],
+			["tiny", '{ "version": 1, "banner": { "tiny_width": 12 } }'],
+		] as const) {
+			const file = path.join(dir, `${name}.jsonc`);
+			await writeFile(file, text);
+			process.env["PI_TUI_CONFIG"] = file;
+			await expect(loadTuiConfig()).rejects.toBeInstanceOf(TuiConfigError);
+		}
+	});
+
+	it("defaultTuiConfig 返回深拷贝", () => {
+		const first = defaultTuiConfig();
+		first.footer.segments.push("status");
+		first.banner.enabled = false;
+		const second = defaultTuiConfig();
+		expect(second.footer.segments).toEqual(["cwd", "git", "model", "ctx", "tokens", "cost", "status"]);
+		expect(second.banner.enabled).toBe(true);
 	});
 });

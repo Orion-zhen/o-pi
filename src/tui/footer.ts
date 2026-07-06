@@ -253,7 +253,8 @@ function renderSegment(
 	return undefined;
 }
 
-function formatWorkspace(cwd: string): string {
+/** 将 cwd 压缩为适合 TUI 的 workspace 文本，$HOME 下使用 ~。 */
+export function formatWorkspace(cwd: string): string {
 	const home = process.env["HOME"] || process.env["USERPROFILE"];
 	if (!home) return cwd;
 	const resolvedCwd = path.resolve(cwd);
@@ -264,7 +265,8 @@ function formatWorkspace(cwd: string): string {
 	return relativeToHome === "" ? "~" : `~/${relativeToHome.split(path.sep).join("/")}`;
 }
 
-function formatModel(snapshot: TuiFooterSnapshot): string | undefined {
+/** 按 footer 规则格式化模型名；缺失模型时返回 undefined。 */
+export function formatModel(snapshot: TuiFooterSnapshot): string | undefined {
 	if (!snapshot.modelId) return undefined;
 	let label = snapshot.modelId;
 	if (snapshot.modelReasoning) {
@@ -275,7 +277,8 @@ function formatModel(snapshot: TuiFooterSnapshot): string | undefined {
 	return label;
 }
 
-function formatContext(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg"> | undefined): string | undefined {
+/** 按 footer 规则格式化 context 百分比和窗口大小。 */
+export function formatContext(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg"> | undefined): string | undefined {
 	const usage = snapshot.context;
 	if (!usage) return undefined;
 	const contextWindow = usage.contextWindow || 0;
@@ -314,7 +317,8 @@ function formatCacheStats(snapshot: TuiFooterSnapshot, width: number): string | 
 	return `cache ${[...counts, ...rates].join(" ")}`;
 }
 
-function formatTokens(count: number): string {
+/** 将 token 数压缩为短文本。 */
+export function formatTokens(count: number): string {
 	if (count < 1000) return count.toString();
 	if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
 	if (count < 1_000_000) return `${Math.round(count / 1000)}k`;

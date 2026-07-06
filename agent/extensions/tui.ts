@@ -1,8 +1,9 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createStartupBannerComponent } from "../../src/tui/banner.js";
 import { createHeaderComponent, formatTitle, workingIndicatorOptions } from "../../src/tui/chrome.js";
 import { loadTuiConfig } from "../../src/tui/config.js";
 import { createFooterComponent, GitSegmentCache } from "../../src/tui/footer.js";
-import type { TuiConfig, TuiFooterSnapshot, TuiFooterToolsSnapshot } from "../../src/tui/types.js";
+import type { TuiConfig, TuiFooterSkillsSnapshot, TuiFooterSnapshot, TuiFooterToolsSnapshot } from "../../src/tui/types.js";
 
 const STATUS_KEY = "o-pi:tui";
 
@@ -12,6 +13,7 @@ export default function tuiExtension(pi: ExtensionAPI): void {
 	let snapshot: TuiFooterSnapshot = {};
 	let setTitle: ((title: string) => void) | undefined;
 	let gitCache: GitSegmentCache | undefined;
+	let startupBannerVisible = false;
 
 	pi.on("session_start", async (_event, ctx) => {
 		gitCache?.dispose();
@@ -23,15 +25,24 @@ export default function tuiExtension(pi: ExtensionAPI): void {
 		snapshot = makeSnapshot(ctx, pi, "ready", gitCache.get(ctx.cwd));
 		setTitle = (title) => ctx.ui.setTitle(title);
 		if (!config.enabled) {
+			startupBannerVisible = false;
 			cleanup(ctx);
 			return;
 		}
-		applyChrome(ctx, config, () => ({ ...snapshot, tools: collectTools(pi) }));
+		applyChrome(ctx, config, () => snapshotWithCapabilities(snapshot, pi));
+		if (config.banner.enabled) {
+			startupBannerVisible = true;
+			ctx.ui.setHeader(createStartupBannerComponent(config.banner, () => snapshotWithCapabilities(snapshot, pi)));
+		}
 	});
 
 	pi.on("turn_start", async (_event, ctx) => {
 		if (!config?.enabled) return;
 		snapshot = makeSnapshot(ctx, pi, "running", gitCache?.get(ctx.cwd));
+		if (startupBannerVisible && config.banner.clear_on_first_turn) {
+			startupBannerVisible = false;
+			ctx.ui.setHeader(config.chrome.header ? createHeaderComponent(() => snapshotWithCapabilities(snapshot, pi)) : undefined);
+		}
 		gitCache?.refresh(ctx.cwd);
 		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("warning", "● running"));
 		refreshTitle();
@@ -64,6 +75,7 @@ export default function tuiExtension(pi: ExtensionAPI): void {
 		gitCache = undefined;
 		config = undefined;
 		setTitle = undefined;
+		startupBannerVisible = false;
 		snapshot = {};
 	});
 
@@ -86,6 +98,15 @@ function applyChrome(ctx: ExtensionContext, config: TuiConfig, getSnapshot: () =
 	ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("success", "✓ ready"));
 	ctx.ui.setFooter(config.chrome.footer ? createFooterComponent(config.footer, getSnapshot) : undefined);
 	ctx.ui.setHeader(config.chrome.header ? createHeaderComponent(getSnapshot) : undefined);
+}
+
+function snapshotWithCapabilities(snapshot: TuiFooterSnapshot, pi: ExtensionAPI): TuiFooterSnapshot {
+	const skills = collectSkills(pi);
+	return {
+		...snapshot,
+		tools: collectTools(pi),
+		...(skills !== undefined ? { skills } : {}),
+	};
 }
 
 function makeSnapshot(ctx: ExtensionContext, pi: ExtensionAPI, status: string, git: string | undefined): TuiFooterSnapshot {
@@ -115,7 +136,26 @@ function collectTools(pi: ExtensionAPI): TuiFooterToolsSnapshot {
 	for (const name of activeSet) {
 		if (!allNameSet.has(name)) activeNames.push(name);
 	}
-	return { activeNames, totalCount: allNames.length };
+	return { activeNames, totalCount: allNames.length, allNames };
+}
+
+/** 从 Pi 公开命令列表统计 skill 命令，不依赖 system prompt，也不计入工具数量。 */
+function collectSkills(pi: ExtensionAPI): TuiFooterSkillsSnapshot | undefined {
+	const skillCommands = pi
+		.getCommands()
+		.filter((command) => command.source === "skill")
+		.filter((command) => command.name.length > 0);
+	const uniqueByName = new Map(skillCommands.map((command) => [command.name, command.sourceInfo.scope] as const));
+	let userCount = 0;
+	let projectCount = 0;
+	let temporaryCount = 0;
+	for (const scope of uniqueByName.values()) {
+		if (scope === "user") userCount += 1;
+		else if (scope === "project") projectCount += 1;
+		else temporaryCount += 1;
+	}
+	const totalCount = uniqueByName.size;
+	return totalCount > 0 ? { totalCount, userCount, projectCount, temporaryCount } : undefined;
 }
 
 function createGitCache(
