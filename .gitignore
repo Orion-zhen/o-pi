@@ -3,6 +3,7 @@ agent/settings.json
 agent/permission-state
 agent/sessions
 agent/cookies.txt
+agent/models.jsonc
 
 package-lock.json
 
