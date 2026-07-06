@@ -1,4 +1,6 @@
 import { parseHTML } from "linkedom";
+import { Readability } from "@mozilla/readability";
+import { parse as parseContentTypeHeader } from "content-type";
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
 
@@ -26,7 +28,9 @@ export function convertContent(
 	mode: WebFetchMode,
 ): ContentConversion | WebFetchFailureDetails {
 	const contentTypeHeader = headers.get("content-type") ?? "text/plain";
-	const { mime, charset } = parseContentType(contentTypeHeader);
+	const parsedContentType = parseContentType(contentTypeHeader);
+	if ("status" in parsedContentType) return parsedContentType;
+	const { mime, charset } = parsedContentType;
 	const kind = classifyMime(mime);
 	if (kind === "binary") {
 		return failure("UNSUPPORTED_CONTENT_TYPE", `${mime || "binary content"} is not supported.`);
@@ -58,33 +62,14 @@ export function convertContent(
 function htmlToMarkdown(html: string, finalUrl: string, mime: string, charset?: string): ContentConversion | WebFetchFailureDetails {
 	try {
 		const { document } = parseHTML(html);
-		for (const selector of [
-			"script",
-			"style",
-			"noscript",
-			"template",
-			"svg",
-			"canvas",
-			"iframe",
-			"object",
-			"embed",
-			"form",
-			"input",
-			"select",
-			"textarea",
-			"button",
-			"[hidden]",
-			'[aria-hidden="true"]',
-		]) {
-			document.querySelectorAll(selector).forEach((node) => node.remove());
-		}
-		const root = selectContentRoot(document);
-		if (root === document.body) {
-			document.querySelectorAll("header, nav, footer").forEach((node) => node.remove());
-		}
-		absolutizeUrls(root, finalUrl);
-		const title = document.querySelector("title")?.textContent?.trim() || undefined;
-		const converted = normalizeMarkdown(turndown.turndown(root.innerHTML)).trim();
+		removeUnsafeOrNoisyNodes(document);
+		absolutizeUrls(document.body, finalUrl);
+		const fallbackTitle = document.querySelector("title")?.textContent?.trim() || undefined;
+		const readable = new Readability(document.cloneNode(true) as Document, { charThreshold: 0 }).parse();
+		const readableHtml = readable?.content?.trim();
+		const rootHtml = readableHtml && readableHtml.length > 0 ? readableHtml : document.body.innerHTML;
+		const converted = normalizeMarkdown(turndown.turndown(rootHtml)).trim();
+		const title = readable?.title?.trim() || fallbackTitle;
 		return {
 			text: converted,
 			format: "markdown",
@@ -105,18 +90,31 @@ function normalizeMarkdown(value: string): string {
 		.replace(/\n{3,}/g, "\n\n");
 }
 
-function selectContentRoot(document: Document): Element {
-	const candidates = [...document.querySelectorAll("article, main, [role='main']")];
-	let best: Element | undefined;
-	let bestLength = 0;
-	for (const candidate of candidates) {
-		const textLength = candidate.textContent?.trim().length ?? 0;
-		if (textLength > bestLength) {
-			best = candidate;
-			bestLength = textLength;
-		}
+/** 在 Readability 前删除不会进入模型的脚本、控件和隐藏节点，降低正文抽取噪声。 */
+function removeUnsafeOrNoisyNodes(document: Document): void {
+	for (const selector of [
+		"script",
+		"style",
+		"noscript",
+		"template",
+		"svg",
+		"canvas",
+		"iframe",
+		"object",
+		"embed",
+		"form",
+		"input",
+		"select",
+		"textarea",
+		"button",
+		"header",
+		"nav",
+		"footer",
+		"[hidden]",
+		'[aria-hidden="true"]',
+	]) {
+		document.querySelectorAll(selector).forEach((node) => node.remove());
 	}
-	return best !== undefined && bestLength >= 200 ? best : document.body;
 }
 
 function absolutizeUrls(root: Element, finalUrl: string): void {
@@ -146,17 +144,17 @@ function safeAbsoluteUrl(value: string | null, base: string): string | undefined
 	}
 }
 
-function parseContentType(header: string): { mime: string; charset?: string } {
-	const [rawMime, ...params] = header.split(";");
-	const mime = rawMime?.trim().toLowerCase() ?? "";
-	let charset: string | undefined;
-	for (const param of params) {
-		const [key, rawValue] = param.split("=");
-		if (key?.trim().toLowerCase() === "charset" && rawValue !== undefined) {
-			charset = rawValue.trim().replace(/^"|"$/g, "").toLowerCase();
-		}
+function parseContentType(header: string): { mime: string; charset?: string } | WebFetchFailureDetails {
+	try {
+		const parsed = parseContentTypeHeader(header);
+		const charset = parsed.parameters["charset"]?.toLowerCase();
+		return {
+			mime: parsed.type.toLowerCase(),
+			...(charset ? { charset } : {}),
+		};
+	} catch {
+		return failure("UNSUPPORTED_CONTENT_TYPE", "Content-Type header is invalid.");
 	}
-	return { mime, ...(charset ? { charset } : {}) };
 }
 
 function classifyMime(mime: string): WebFetchOutputFormat | "html" | "binary" {

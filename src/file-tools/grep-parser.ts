@@ -1,4 +1,13 @@
-import { Lang, parse, type SgNode } from "@ast-grep/napi";
+import { createRequire } from "node:module";
+import type ParserModule from "tree-sitter";
+
+const require = createRequire(import.meta.url);
+const Parser = require("tree-sitter") as typeof ParserModule;
+const JavaScript = require("tree-sitter-javascript") as TreeSitterLanguage;
+const TypeScript = require("tree-sitter-typescript") as { typescript: TreeSitterLanguage; tsx: TreeSitterLanguage };
+const Python = require("tree-sitter-python") as TreeSitterLanguage;
+const Go = require("tree-sitter-go") as TreeSitterLanguage;
+const Rust = require("tree-sitter-rust") as TreeSitterLanguage;
 
 export interface IndexedCodeUnit {
 	id: string;
@@ -34,24 +43,56 @@ interface RawUnit {
 	endByte: number;
 }
 
+interface TreeSitterLanguage {
+	name: string;
+	language: unknown;
+}
+
 interface LineIndex {
 	lineStarts: number[];
 	lineStartChars: number[];
 }
 
 const IDENTIFIER = /[A-Za-z_$][\w$]*|[A-Za-z_][A-Za-z0-9_]*[-_][A-Za-z0-9_-]+|\d+/g;
-const TS_DECLARATION_KINDS = new Set([
+type SyntaxNode = ParserModule.SyntaxNode;
+
+const TREE_SITTER_LANGUAGES: Record<string, TreeSitterLanguage | undefined> = {
+	javascript: JavaScript,
+	jsx: JavaScript,
+	typescript: TypeScript.typescript,
+	tsx: TypeScript.tsx,
+	python: Python,
+	go: Go,
+	rust: Rust,
+};
+
+const TS_UNIT_KINDS = new Set([
 	"function_declaration",
 	"method_definition",
+	"method_signature",
 	"class_declaration",
 	"interface_declaration",
 	"type_alias_declaration",
 	"enum_declaration",
-	"lexical_declaration",
 	"variable_declaration",
+	"variable_declarator",
+]);
+const PYTHON_UNIT_KINDS = new Set(["function_definition", "class_definition"]);
+const GO_UNIT_KINDS = new Set(["function_declaration", "method_declaration", "type_spec", "var_spec", "const_spec"]);
+const RUST_UNIT_KINDS = new Set([
+	"function_item",
+	"function_signature_item",
+	"struct_item",
+	"enum_item",
+	"type_item",
+	"trait_item",
+	"impl_item",
+	"const_item",
+	"static_item",
+	"mod_item",
 ]);
 
-/** 解析单个文件的代码单元；不支持的语法安全退化为 profile 规则。 */
+/** 解析单个文件的代码单元；不支持或解析失败时返回空索引，由 grep 层退化为文本片段。 */
 export function parseCodeUnits(filePath: string, text: string): ParsedFileIndex {
 	const language = languageFromPath(filePath);
 	const rawUnits = parseByLanguage(language, text);
@@ -114,66 +155,46 @@ export function extractByteRange(text: string, startByte: number, endByte: numbe
 }
 
 function parseByLanguage(language: string, text: string): RawUnit[] {
-	if (language === "typescript" || language === "tsx" || language === "javascript" || language === "jsx") {
-		const parsed = parseJavaScriptLike(language, text);
-		if (parsed.length > 0) return parsed;
-	}
-	if (language === "python") return parsePython(text);
-	if (language === "go") return parseGo(text);
-	if (language === "rust") return parseRust(text);
-	return [];
-}
-
-function parseJavaScriptLike(language: string, text: string): RawUnit[] {
-	const lang = language === "tsx" || language === "jsx" ? Lang.Tsx : language === "typescript" ? Lang.TypeScript : Lang.JavaScript;
+	const treeSitterLanguage = TREE_SITTER_LANGUAGES[language];
+	if (treeSitterLanguage === undefined) return [];
 	try {
-		const root = parse(lang, text).root();
-		const units: RawUnit[] = [];
-		collectTsUnits(root, undefined, units);
-		return units.sort(compareRawUnits);
+		const parser = new Parser();
+		parser.setLanguage(treeSitterLanguage);
+		return collectTreeSitterUnits(language, parser.parse(text).rootNode).sort(compareRawUnits);
 	} catch {
 		return [];
 	}
 }
 
-function collectTsUnits(node: SgNode, className: string | undefined, units: RawUnit[]): void {
-	const kind = String(node.kind());
-	const target = kind === "export_statement" ? node.children().find((child) => TS_DECLARATION_KINDS.has(String(child.kind()))) : node;
-	if (target !== undefined && TS_DECLARATION_KINDS.has(String(target.kind()))) {
-		const raw = rawTsUnit(target, className, kind === "export_statement" ? node : undefined);
-		if (raw !== undefined) units.push(raw);
-		if (raw?.kind === "class") {
-			for (const child of target.children()) collectTsUnits(child, raw.name, units);
-		}
-		return;
-	}
-	if (kind === "program" || kind === "class_body") {
-		for (const child of node.children()) collectTsUnits(child, className, units);
+function collectTreeSitterUnits(language: string, root: SyntaxNode): RawUnit[] {
+	const units: RawUnit[] = [];
+	walkUnits(language, root, undefined, units);
+	return units;
+}
+
+function walkUnits(language: string, node: SyntaxNode, scope: string | undefined, units: RawUnit[]): void {
+	const unit = rawTreeSitterUnit(language, node, scope);
+	if (unit !== undefined) units.push(unit);
+	if (unit !== undefined && !shouldDescendIntoUnit(language, node, unit)) return;
+	const childScope = scopeFor(language, node, unit, scope);
+	for (const child of node.namedChildren) {
+		walkUnits(language, child, childScope, units);
 	}
 }
 
-function rawTsUnit(node: SgNode, className: string | undefined, rangeNode: SgNode | undefined = undefined): RawUnit | undefined {
-	const kind = String(node.kind());
-	const text = node.text();
-	const range = (rangeNode ?? node).range();
-	const name =
-		firstChildText(node, "identifier") ??
-		firstChildText(node, "type_identifier") ??
-		(kind.includes("method") ? /^(?:async\s+)?(?:get\s+|set\s+)?([A-Za-z_$][\w$]*)/u.exec(text.trim())?.[1] : undefined) ??
-		/^(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)/u.exec(text.trim())?.[1];
+function rawTreeSitterUnit(language: string, node: SyntaxNode, scope: string | undefined): RawUnit | undefined {
+	if (language === "typescript" || language === "tsx" || language === "javascript" || language === "jsx") return rawTsUnit(node, scope);
+	if (language === "python") return rawPythonUnit(node, scope);
+	if (language === "go") return rawGoUnit(node);
+	if (language === "rust") return rawRustUnit(node, scope);
+	return undefined;
+}
+
+function rawTsUnit(node: SyntaxNode, scope: string | undefined): RawUnit | undefined {
+	if (!TS_UNIT_KINDS.has(node.type)) return undefined;
+	const name = nameField(node) ?? firstNamedChildText(node, ["identifier", "property_identifier", "type_identifier"]);
 	if (name === undefined) return undefined;
-	return {
-		kind: normalizeTsKind(kind),
-		name,
-		qualifiedName: className !== undefined && kind === "method_definition" ? `${className}.${name}` : name,
-		startByte: range.start.index,
-		endByte: range.end.index,
-	};
-}
-
-function firstChildText(node: SgNode, kind: string): string | undefined {
-	const found = node.children().find((child) => String(child.kind()) === kind);
-	return found?.text();
+	return rawUnit(node, normalizeTsKind(node.type), name, scope);
 }
 
 function normalizeTsKind(kind: string): string {
@@ -183,71 +204,83 @@ function normalizeTsKind(kind: string): string {
 	if (kind === "interface_declaration") return "interface";
 	if (kind === "type_alias_declaration") return "type";
 	if (kind === "enum_declaration") return "enum";
+	if (kind === "variable_declarator") return "declaration";
 	return "declaration";
 }
 
-function parsePython(text: string): RawUnit[] {
-	const lines = text.split(/\n/u);
-	const units: RawUnit[] = [];
-	for (let index = 0; index < lines.length; index += 1) {
-		const line = lines[index] ?? "";
-		const match = /^([ \t]*)(?:async\s+)?(def|class)\s+([A-Za-z_][\w]*)/u.exec(line);
-		if (match !== null) {
-			const indent = match[1]?.length ?? 0;
-			const endLine = findIndentedBlockEnd(lines, index, indent);
-			const name = match[3];
-			if (name === undefined) continue;
-			units.push({
-				kind: match[2] === "class" ? "class" : "function",
-				name,
-				qualifiedName: name,
-				startByte: byteOffsetForLine(lines, index),
-				endByte: byteOffsetForLine(lines, endLine),
-			});
-		}
-	}
-	return units.sort(compareRawUnits);
+function rawPythonUnit(node: SyntaxNode, scope: string | undefined): RawUnit | undefined {
+	if (!PYTHON_UNIT_KINDS.has(node.type)) return undefined;
+	const name = nameField(node);
+	if (name === undefined) return undefined;
+	return rawUnit(node, node.type === "class_definition" ? "class" : "function", name, scope);
 }
 
-function parseGo(text: string): RawUnit[] {
-	return parseBraceLanguage(text, [
-		{ regex: /^func\s+(?:\(([^)]+)\)\s*)?([A-Za-z_]\w*)/u, kind: "function" },
-		{ regex: /^type\s+([A-Za-z_]\w*)\s+(struct|interface)/u, kind: "type" },
-		{ regex: /^var\s+([A-Za-z_]\w*)/u, kind: "declaration" },
-		{ regex: /^const\s+([A-Za-z_]\w*)/u, kind: "declaration" },
-	]);
+function rawGoUnit(node: SyntaxNode): RawUnit | undefined {
+	if (!GO_UNIT_KINDS.has(node.type)) return undefined;
+	const name = nameField(node) ?? firstNamedChildText(node, ["identifier", "field_identifier", "type_identifier"]);
+	if (name === undefined) return undefined;
+	return rawUnit(node, normalizeGoKind(node.type), name);
 }
 
-function parseRust(text: string): RawUnit[] {
-	return parseBraceLanguage(text, [
-		{ regex: /^(?:pub\s+)?fn\s+([A-Za-z_]\w*)/u, kind: "function" },
-		{ regex: /^(?:pub\s+)?(?:struct|enum|type)\s+([A-Za-z_]\w*)/u, kind: "type" },
-		{ regex: /^(?:pub\s+)?trait\s+([A-Za-z_]\w*)/u, kind: "trait" },
-		{ regex: /^impl(?:\s+<[^>]+>)?\s+([A-Za-z_]\w*)?/u, kind: "module" },
-	]);
+function normalizeGoKind(kind: string): string {
+	if (kind === "function_declaration" || kind === "method_declaration") return "function";
+	if (kind === "type_spec") return "type";
+	return "declaration";
 }
 
-function parseBraceLanguage(text: string, patterns: Array<{ regex: RegExp; kind: string }>): RawUnit[] {
-	const lines = text.split(/\n/u);
-	const units: RawUnit[] = [];
-	for (let index = 0; index < lines.length; index += 1) {
-		const trimmed = (lines[index] ?? "").trim();
-		for (const pattern of patterns) {
-			const match = pattern.regex.exec(trimmed);
-			if (match === null) continue;
-			const name = match[2] ?? match[1] ?? trimmed;
-			const startByte = byteOffsetForLine(lines, index);
-			const endLine = findBraceBlockEnd(lines, index);
-			const raw: RawUnit = { kind: pattern.kind, startByte, endByte: byteOffsetForLine(lines, endLine) };
-			if (name !== undefined) {
-				raw.name = name;
-				raw.qualifiedName = name;
-			}
-			units.push(raw);
-			break;
-		}
-	}
-	return units.sort(compareRawUnits);
+function rawRustUnit(node: SyntaxNode, scope: string | undefined): RawUnit | undefined {
+	if (!RUST_UNIT_KINDS.has(node.type)) return undefined;
+	const name = nameField(node) ?? firstNamedChildText(node, ["identifier", "type_identifier"]);
+	if (node.type === "impl_item" && name === undefined) return rawUnit(node, "module", "impl");
+	if (name === undefined) return undefined;
+	return rawUnit(node, normalizeRustKind(node.type), name, node.type === "function_item" || node.type === "function_signature_item" ? scope : undefined);
+}
+
+function normalizeRustKind(kind: string): string {
+	if (kind === "function_item" || kind === "function_signature_item") return "function";
+	if (kind === "struct_item" || kind === "enum_item" || kind === "type_item") return "type";
+	if (kind === "trait_item") return "trait";
+	if (kind === "impl_item" || kind === "mod_item") return "module";
+	return "declaration";
+}
+
+function rawUnit(node: SyntaxNode, kind: string, name: string, scope?: string): RawUnit {
+	const range = exportRangeNode(node);
+	return {
+		kind,
+		name,
+		qualifiedName: scope === undefined ? name : `${scope}.${name}`,
+		startByte: range.startIndex,
+		endByte: range.endIndex,
+	};
+}
+
+function exportRangeNode(node: SyntaxNode): SyntaxNode {
+	const parent = node.parent;
+	return parent?.type === "export_statement" ? parent : node;
+}
+
+function scopeFor(language: string, node: SyntaxNode, unit: RawUnit | undefined, current: string | undefined): string | undefined {
+	if (unit === undefined) return current;
+	if ((language === "typescript" || language === "tsx" || language === "javascript" || language === "jsx") && unit.kind === "class") return unit.name ?? current;
+	if (language === "python" && unit.kind === "class") return unit.name ?? current;
+	if (language === "rust" && (node.type === "impl_item" || node.type === "trait_item")) return unit.name ?? current;
+	return current;
+}
+
+function shouldDescendIntoUnit(language: string, node: SyntaxNode, unit: RawUnit): boolean {
+	if ((language === "typescript" || language === "tsx" || language === "javascript" || language === "jsx") && (unit.kind === "class" || unit.kind === "interface")) return true;
+	if (language === "python" && unit.kind === "class") return true;
+	if (language === "rust" && (node.type === "impl_item" || node.type === "trait_item" || node.type === "mod_item")) return true;
+	return false;
+}
+
+function nameField(node: SyntaxNode): string | undefined {
+	return node.childForFieldName("name")?.text;
+}
+
+function firstNamedChildText(node: SyntaxNode, types: readonly string[]): string | undefined {
+	return node.namedChildren.find((child) => types.includes(child.type))?.text;
 }
 
 function buildIndexedUnit(filePath: string, language: string, text: string, lineIndex: LineIndex, unit: RawUnit, index: number): IndexedCodeUnit {
@@ -307,43 +340,6 @@ function lineForByteWithIndex(index: LineIndex, byteOffset: number): number {
 		else high = middle - 1;
 	}
 	return Math.max(1, high + 1);
-}
-
-function byteOffsetForLine(lines: string[], lineIndex: number): number {
-	let offset = 0;
-	for (let index = 0; index < lineIndex && index < lines.length; index += 1) {
-		offset += Buffer.byteLength(lines[index] ?? "", "utf8") + 1;
-	}
-	return offset;
-}
-
-function findIndentedBlockEnd(lines: string[], start: number, indent: number): number {
-	for (let index = start + 1; index < lines.length; index += 1) {
-		const line = lines[index] ?? "";
-		if (line.trim().length === 0) continue;
-		const current = /^\s*/u.exec(line)?.[0].length ?? 0;
-		if (current <= indent) return index;
-	}
-	return lines.length;
-}
-
-function findBraceBlockEnd(lines: string[], start: number): number {
-	let depth = 0;
-	let opened = false;
-	for (let index = start; index < lines.length; index += 1) {
-		const line = lines[index] ?? "";
-		for (const char of line) {
-			if (char === "{") {
-				depth += 1;
-				opened = true;
-			} else if (char === "}") {
-				depth -= 1;
-			}
-		}
-		if (opened && depth <= 0) return index + 1;
-		if (!opened && index > start) return index;
-	}
-	return lines.length;
 }
 
 function splitIdentifier(value: string): string[] {
