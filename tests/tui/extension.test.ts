@@ -33,9 +33,15 @@ interface ExtensionContextStub {
 		setWorkingIndicator(options?: unknown): void;
 	};
 	getContextUsage(): undefined;
-	model: undefined;
-	modelRegistry: { isUsingOAuth(): boolean };
+	model: ModelStub | undefined;
+	modelRegistry: { isUsingOAuth(model: ModelStub): boolean };
 	sessionManager: { getEntries(): unknown[] };
+}
+
+interface ModelStub {
+	provider: string;
+	id: string;
+	reasoning?: boolean;
 }
 
 let dir: string;
@@ -100,12 +106,7 @@ describe("tui extension", () => {
 		tuiExtension(pi as unknown as ExtensionAPI);
 		await handlers.get("session_start")?.({}, ctx);
 
-		const component = footerFactory?.({ requestRender() {} }, ctx.ui.theme, {
-			getGitBranch: () => null,
-			getExtensionStatuses: () => new Map(),
-			getAvailableProviderCount: () => 1,
-			onBranchChange: () => () => {},
-		});
+		const component = footerFactory?.({ requestRender() {} }, ctx.ui.theme, createFooterData());
 
 		expect(component?.render(80).join("\n")).toContain("1/3 tools enabled");
 		activeTools = ["grep", "bash"];
@@ -168,6 +169,25 @@ describe("tui extension", () => {
 		expect(output).not.toContain("____");
 	});
 
+	it("首轮对话前 model_select 会刷新 footer、title 和 startup banner", async () => {
+		const handlers = new Map<string, Handler>();
+		const calls = createUiCalls();
+		const pi = createPi(handlers);
+		const ctx = createContext(calls);
+
+		tuiExtension(pi as unknown as ExtensionAPI);
+		await handlers.get("session_start")?.({}, ctx);
+		ctx.model = { provider: "openai", id: "gpt-5.2", reasoning: true };
+		await handlers.get("model_select")?.({ type: "model_select", model: ctx.model, previousModel: undefined, source: "set" }, ctx);
+
+		const footer = calls.footer.at(-1)?.({ requestRender() {} }, ctx.ui.theme, createFooterData());
+		const header = calls.header.at(-1)?.({ requestRender() {} }, ctx.ui.theme);
+		expect(footer?.render(120).join("\n")).toContain("gpt-5.2 • medium");
+		expect(header?.render(120).join("\n")).toContain("gpt-5.2 • medium");
+		expect(calls.title.at(-1)).toContain("gpt-5.2");
+		expect(calls.status.at(-1)).toEqual({ key: "o-pi:tui", text: "✓ ready" });
+	});
+
 	it("session_shutdown 清理 header/footer/status", async () => {
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
@@ -183,6 +203,15 @@ describe("tui extension", () => {
 		expect(calls.status.at(-1)).toEqual({ key: "o-pi:tui", text: undefined });
 	});
 });
+
+function createFooterData(): FooterDataStub {
+	return {
+		getGitBranch: () => null,
+		getExtensionStatuses: () => new Map(),
+		getAvailableProviderCount: () => 1,
+		onBranchChange: () => () => {},
+	};
+}
 
 function createPi(handlers: Map<string, Handler>) {
 	return {

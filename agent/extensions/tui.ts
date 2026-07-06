@@ -44,7 +44,7 @@ export default function tuiExtension(pi: ExtensionAPI): void {
 			ctx.ui.setHeader(config.chrome.header ? createHeaderComponent(() => snapshotWithCapabilities(snapshot, pi)) : undefined);
 		}
 		gitCache?.refresh(ctx.cwd);
-		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("warning", "● running"));
+		ctx.ui.setStatus(STATUS_KEY, formatStatus("running", ctx.ui.theme));
 		refreshTitle();
 	});
 
@@ -52,7 +52,7 @@ export default function tuiExtension(pi: ExtensionAPI): void {
 		if (!config?.enabled) return;
 		snapshot = makeSnapshot(ctx, pi, "ready", gitCache?.get(ctx.cwd));
 		gitCache?.refresh(ctx.cwd);
-		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("success", "✓ ready"));
+		ctx.ui.setStatus(STATUS_KEY, formatStatus("ready", ctx.ui.theme));
 		refreshTitle();
 	});
 
@@ -69,6 +69,16 @@ export default function tuiExtension(pi: ExtensionAPI): void {
 		refreshTitle();
 	});
 
+	pi.on("model_select", async (_event, ctx) => {
+		if (!config?.enabled) return;
+		refreshSnapshot(ctx);
+	});
+
+	pi.on("thinking_level_select", async (_event, ctx) => {
+		if (!config?.enabled) return;
+		refreshSnapshot(ctx);
+	});
+
 	pi.on("session_shutdown", async (_event, ctx) => {
 		cleanup(ctx);
 		gitCache?.dispose();
@@ -83,6 +93,22 @@ export default function tuiExtension(pi: ExtensionAPI): void {
 		if (config?.chrome.title === true && setTitle !== undefined) setTitle(formatTitle(snapshot));
 	}
 
+	/** 模型和 thinking 选择不会开启 turn，需要主动刷新快照并触发 Pi 公开 UI 重绘入口。 */
+	function refreshSnapshot(ctx: ExtensionContext): void {
+		const status = snapshot.status ?? "ready";
+		snapshot = makeSnapshot(ctx, pi, status, gitCache?.get(ctx.cwd));
+		refreshTitle();
+		ctx.ui.setStatus(STATUS_KEY, formatStatus(status, ctx.ui.theme));
+		ctx.ui.setFooter(config?.chrome.footer ? createFooterComponent(config.footer, () => snapshotWithCapabilities(snapshot, pi)) : undefined);
+		ctx.ui.setHeader(getHeader());
+	}
+
+	function getHeader() {
+		if (config === undefined) return undefined;
+		if (startupBannerVisible && config.banner.enabled) return createStartupBannerComponent(config.banner, () => snapshotWithCapabilities(snapshot, pi));
+		return config.chrome.header ? createHeaderComponent(() => snapshotWithCapabilities(snapshot, pi)) : undefined;
+	}
+
 	function cleanup(ctx: ExtensionContext): void {
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 		ctx.ui.setFooter(undefined);
@@ -95,9 +121,14 @@ export default function tuiExtension(pi: ExtensionAPI): void {
 function applyChrome(ctx: ExtensionContext, config: TuiConfig, getSnapshot: () => TuiFooterSnapshot): void {
 	if (config.chrome.title) ctx.ui.setTitle(formatTitle(getSnapshot()));
 	ctx.ui.setWorkingIndicator(workingIndicatorOptions(config, ctx.ui.theme));
-	ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("success", "✓ ready"));
+	ctx.ui.setStatus(STATUS_KEY, formatStatus("ready", ctx.ui.theme));
 	ctx.ui.setFooter(config.chrome.footer ? createFooterComponent(config.footer, getSnapshot) : undefined);
 	ctx.ui.setHeader(config.chrome.header ? createHeaderComponent(getSnapshot) : undefined);
+}
+
+function formatStatus(status: string, theme: ExtensionContext["ui"]["theme"]): string {
+	if (status === "running" || status === "working") return theme.fg("warning", "● running");
+	return theme.fg("success", "✓ ready");
 }
 
 function snapshotWithCapabilities(snapshot: TuiFooterSnapshot, pi: ExtensionAPI): TuiFooterSnapshot {

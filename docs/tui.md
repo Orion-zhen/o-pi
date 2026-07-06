@@ -80,6 +80,8 @@ skills 数量来自 Pi 公开 `pi.getCommands()` 中 `source: "skill"` 的命令
 
 Pi 0.80.3 没有比 `ctx.ui.setHeader()` 更专门的 public startup banner API。本扩展只通过公开 header API 显示 banner；如果 `clear_on_first_turn` 为 true，第一轮 turn 开始后恢复普通 one-line header 或清空 header，让 Pi 内置 startup help/resources 行为保持原样。
 
+首轮对话前通过 `/model` 或快捷键切换模型时，Pi 会触发 `model_select`。TUI 会重建当前快照并通过 `setStatus/setFooter/setHeader/setTitle` 公开 API 触发重绘，保证 startup banner、footer 和终端 title 同步更新。单独切换 thinking level 时同理。
+
 ## 工具卡片
 
 collapsed view 固定 2 行：
@@ -126,5 +128,7 @@ expanded view 先保留这 2 行，再追加详情。renderer 会清理 ANSI、O
 * `ctx.getSystemPromptOptions()`
 * `ctx.model.baseUrl/provider/id`
 * `ReadonlyFooterDataProvider`
+* `model_select`
+* `thinking_level_select`
 * `pi.getActiveTools()`
 * `pi.getAllTools()`
