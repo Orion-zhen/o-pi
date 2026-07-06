@@ -58,7 +58,7 @@ const findParameters = Type.Object(
 	{
 		query: Type.String({
 			minLength: 1,
-			description: "File or directory name, path fragment, or glob.",
+			description: "File or directory name, path fragment, or glob; use ** for recursive find.",
 		}),
 		path: Type.Optional(
 			Type.String({
