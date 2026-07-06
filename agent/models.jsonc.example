@@ -1,0 +1,33 @@
+{
+  "providers": {
+    "llama-cpp": {
+      "display_name": "Local AI",
+      "base_url": "http://127.0.0.1:8000/v1",
+      "api_key": "my-lovely-key",
+      "api": "responses",
+      "compat": "openai_compatible",
+      "models": [
+        {
+          "model": "gemma4-31b-it",
+          "display_name": "Gemma4 31B it",
+          "context_window": 131072,
+          "max_tokens": 32768,
+          "reasoning_effort": "off",
+          "input": ["text", "image"],
+
+          "defaults": {
+            "temperature": 0.2,
+            "top_p": 0.95,
+            "top_k": 40,
+            "max_tokens": 8192
+          }
+        }
+      ],
+      "advanced": {
+        "headers": {
+          "User-Agent": "pi-openai-compatible/1.0" // cloudflare tunnel 会挡住默认的 OpenAI SDK Header
+        }
+      }
+    }
+  }
+}
