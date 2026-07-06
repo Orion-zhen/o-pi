@@ -65,6 +65,28 @@
 - 关闭：`Esc`、`q` 或 `Enter`。
 - 滚动：方向键、`PageUp`、`PageDown`、`Home`、`End`。
 
+## `/reasoning-effort`
+
+来源：`agent/extensions/reasoning-effort.ts`
+
+用途：修改当前会话的推理强度。
+
+用法：
+
+```text
+/reasoning-effort
+/reasoning-effort <level>
+```
+
+可用档位：`off`、`minimal`、`low`、`medium`、`high`、`xhigh`。
+
+行为：
+
+- 无参数时需要 UI，打开选择器后切换。
+- 带 `<level>` 时直接调用 `pi.setThinkingLevel()` 生效。
+- Pi 会按当前模型能力钳制实际档位；命令完成后提示最终生效值。
+- 无效档位不改写当前设置。
+
 ## `/agents`
 
 来源：`agent/extensions/subagent.ts`
