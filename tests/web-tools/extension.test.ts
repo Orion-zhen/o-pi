@@ -26,7 +26,7 @@ describe("web-tools extension", () => {
 		};
 		expect(searchTool.name).toBe("websearch");
 		expect(fetchTool.name).toBe("webfetch");
-		expect(Object.keys(searchTool.parameters.properties)).toEqual(["query", "limit", "recency"]);
+		expect(Object.keys(searchTool.parameters.properties)).toEqual(["query", "limit"]);
 		expect(Object.keys(fetchTool.parameters.properties)).toEqual(["url", "mode", "offset", "limit"]);
 
 		const eventResult = handlers.get("tool_result")?.({

@@ -16,11 +16,27 @@ const defaultConfig: WebToolsConfig = {
 		fake_ip_ranges: [],
 	},
 	websearch: {
-		timeout_seconds: 15,
-		user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-		region: "wt-wt",
+		provider_order: ["exa_mcp", "duckduckgo_html"],
+		fallback: true,
 		default_results: 8,
-		response_bytes: 2_097_152,
+		cache_ttl_seconds: 300,
+		exa_mcp: {
+			enabled: true,
+			url: "https://mcp.exa.ai/mcp?tools=web_search_exa",
+			tool: "web_search_exa",
+			api_key_env: "EXA_API_KEY",
+			timeout_seconds: 12,
+			type: "auto",
+		},
+		duckduckgo_html: {
+			enabled: true,
+			timeout_seconds: 15,
+			user_agent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+			region: "wt-wt",
+			response_bytes: 2_097_152,
+			min_interval_seconds: 15,
+			blocked_cooldown_seconds: 600,
+		},
 	},
 	webfetch: {
 		timeout_seconds: 30,
@@ -85,7 +101,14 @@ export function defaultWebToolsConfig(): WebToolsConfig {
 	return {
 		version: 2,
 		network: { fake_ip_ranges: [...defaultConfig.network.fake_ip_ranges] },
-		websearch: { ...defaultConfig.websearch },
+		websearch: {
+			provider_order: [...defaultConfig.websearch.provider_order],
+			fallback: defaultConfig.websearch.fallback,
+			default_results: defaultConfig.websearch.default_results,
+			cache_ttl_seconds: defaultConfig.websearch.cache_ttl_seconds,
+			exa_mcp: { ...defaultConfig.websearch.exa_mcp },
+			duckduckgo_html: { ...defaultConfig.websearch.duckduckgo_html },
+		},
 		webfetch: {
 			timeout_seconds: defaultConfig.webfetch.timeout_seconds,
 			max_redirects: defaultConfig.webfetch.max_redirects,
@@ -107,7 +130,14 @@ export function defaultCookiePath(): string {
 interface RawWebToolsConfig {
 	version: 2;
 	network?: Partial<WebToolsConfig["network"]>;
-	websearch?: Partial<WebToolsConfig["websearch"]>;
+	websearch?: {
+		provider_order?: WebToolsConfig["websearch"]["provider_order"];
+		fallback?: boolean;
+		default_results?: number;
+		cache_ttl_seconds?: number;
+		exa_mcp?: Partial<WebToolsConfig["websearch"]["exa_mcp"]>;
+		duckduckgo_html?: Partial<WebToolsConfig["websearch"]["duckduckgo_html"]>;
+	};
 	webfetch?: {
 		timeout_seconds?: number;
 		max_redirects?: number;
@@ -124,11 +154,27 @@ function mergeConfig(raw: RawWebToolsConfig): WebToolsConfig {
 			fake_ip_ranges: raw.network?.fake_ip_ranges ?? [...defaultConfig.network.fake_ip_ranges],
 		},
 		websearch: {
-			timeout_seconds: raw.websearch?.timeout_seconds ?? defaultConfig.websearch.timeout_seconds,
-			user_agent: raw.websearch?.user_agent ?? defaultConfig.websearch.user_agent,
-			region: raw.websearch?.region ?? defaultConfig.websearch.region,
+			provider_order: dedupeProviders(raw.websearch?.provider_order ?? defaultConfig.websearch.provider_order),
+			fallback: raw.websearch?.fallback ?? defaultConfig.websearch.fallback,
 			default_results: raw.websearch?.default_results ?? defaultConfig.websearch.default_results,
-			response_bytes: raw.websearch?.response_bytes ?? defaultConfig.websearch.response_bytes,
+			cache_ttl_seconds: raw.websearch?.cache_ttl_seconds ?? defaultConfig.websearch.cache_ttl_seconds,
+			exa_mcp: {
+				enabled: raw.websearch?.exa_mcp?.enabled ?? defaultConfig.websearch.exa_mcp.enabled,
+				url: raw.websearch?.exa_mcp?.url ?? defaultConfig.websearch.exa_mcp.url,
+				tool: raw.websearch?.exa_mcp?.tool ?? defaultConfig.websearch.exa_mcp.tool,
+				api_key_env: raw.websearch?.exa_mcp?.api_key_env ?? defaultConfig.websearch.exa_mcp.api_key_env,
+				timeout_seconds: raw.websearch?.exa_mcp?.timeout_seconds ?? defaultConfig.websearch.exa_mcp.timeout_seconds,
+				type: raw.websearch?.exa_mcp?.type ?? defaultConfig.websearch.exa_mcp.type,
+			},
+			duckduckgo_html: {
+				enabled: raw.websearch?.duckduckgo_html?.enabled ?? defaultConfig.websearch.duckduckgo_html.enabled,
+				timeout_seconds: raw.websearch?.duckduckgo_html?.timeout_seconds ?? defaultConfig.websearch.duckduckgo_html.timeout_seconds,
+				user_agent: raw.websearch?.duckduckgo_html?.user_agent ?? defaultConfig.websearch.duckduckgo_html.user_agent,
+				region: raw.websearch?.duckduckgo_html?.region ?? defaultConfig.websearch.duckduckgo_html.region,
+				response_bytes: raw.websearch?.duckduckgo_html?.response_bytes ?? defaultConfig.websearch.duckduckgo_html.response_bytes,
+				min_interval_seconds: raw.websearch?.duckduckgo_html?.min_interval_seconds ?? defaultConfig.websearch.duckduckgo_html.min_interval_seconds,
+				blocked_cooldown_seconds: raw.websearch?.duckduckgo_html?.blocked_cooldown_seconds ?? defaultConfig.websearch.duckduckgo_html.blocked_cooldown_seconds,
+			},
 		},
 		webfetch: {
 			timeout_seconds: raw.webfetch?.timeout_seconds ?? defaultConfig.webfetch.timeout_seconds,
@@ -150,7 +196,24 @@ function mergeConfig(raw: RawWebToolsConfig): WebToolsConfig {
 		throw new WebToolsConfigError("default_output_chars must not exceed max_output_chars.");
 	}
 	validateFakeIpRanges(merged.network.fake_ip_ranges);
+	validateExaUrl(merged.websearch.exa_mcp.url);
 	return merged;
+}
+
+function dedupeProviders(order: readonly WebToolsConfig["websearch"]["provider_order"][number][]): WebToolsConfig["websearch"]["provider_order"] {
+	return [...new Set(order)];
+}
+
+function validateExaUrl(value: string): void {
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new WebToolsConfigError("exa_mcp.url must be a valid URL.");
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") {
+		throw new WebToolsConfigError("exa_mcp.url only supports http: and https:.");
+	}
 }
 
 function validateFakeIpRanges(ranges: string[]): void {

@@ -2,7 +2,7 @@
 
 Web 工具分为搜索和抓取：
 
-- `websearch`：用 DuckDuckGo HTML 搜索公开网页索引，返回标题、URL 和摘要。
+- `websearch`：搜索公开网页索引，返回标题、URL 和摘要。
 - `webfetch`：读取一个已知 HTTP(S) URL，返回有界文本。
 
 ## websearch
@@ -11,20 +11,23 @@ Web 工具分为搜索和抓取：
 websearch({
   query: string,
   limit?: number,
-  recency?: "day" | "week" | "month" | "year",
 })
 ```
 
 - `query`：原样传给搜索引擎，支持 `site:`、引号、减号等查询语法。
 - `limit`：返回 1 到 20 条；默认使用配置 `websearch.default_results`。
-- `recency`：可选新鲜度过滤，对应 DuckDuckGo `df` 参数。
 
 ### 搜索后端
 
-V1 只有 DuckDuckGo HTML 后端，固定请求 `https://html.duckduckgo.com/html/`：
+Provider 是运行时配置，不暴露给模型。默认顺序：
 
-- 不使用第三方搜索 API；
-- 不使用 Google、Bing、SearXNG 或 fallback provider；
+- `exa_mcp`：Exa hosted MCP，默认 URL `https://mcp.exa.ai/mcp?tools=web_search_exa`，工具 `web_search_exa`。
+- `duckduckgo_html`：DDG HTML fallback，固定请求 `https://html.duckduckgo.com/html/`。
+
+约束：
+
+- API key 只从 `exa_mcp.api_key_env` 指定的环境变量读取，默认 `EXA_API_KEY`；配置文件不保存 key。
+- Exa 失败后按配置 fallback 到 DDG；DDG 的限流和 blocked 冷却只影响 DDG provider。
 - 不执行 JavaScript，不使用 headless browser；
 - 不读取搜索结果页面，不自动调用 `webfetch`；
 - 不发送 `cookies.txt`，也不尝试登录搜索引擎。
@@ -34,10 +37,11 @@ V1 只有 DuckDuckGo HTML 后端，固定请求 `https://html.duckduckgo.com/htm
 模型只收到按搜索引擎顺序排列的结果：
 
 ```xml
-<websearch_results query="pi coding agent" count="2" trust="untrusted">
+<websearch_results query="pi coding agent" count="2" provider="exa_mcp" trust="untrusted">
 [1] Pi Coding Agent
 URL: https://example.com/pi
 Snippet: Search result snippet.
+Source: exa_mcp
 </websearch_results>
 ```
 
@@ -50,13 +54,13 @@ Snippet: Search result snippet.
 - 摘要和标题按不可信纯文本处理，模型输出会转义 XML 字符。
 - 数据中心或共享出口 IP 可能触发 DDG bot challenge。
 - 工具会识别 challenge，但不会绕过 CAPTCHA、换代理或重放请求。
-- 搜索结果有会话内 5 分钟 LRU 缓存，不写磁盘。
+- 搜索结果有会话内 LRU 缓存，不写磁盘；TTL 默认 300 秒。
 - 会话内 DDG 请求串行发送，默认至少间隔 15 秒；一旦触发 challenge，进入 10 分钟冷却期，冷却期内不继续请求 DDG。
 - 该限速只降低触发概率，不能保证 DDG HTML 抓取长期稳定。
 
 ### 错误码
 
-`INVALID_ARGUMENT`、`CONFIG_ERROR`、`DNS_FAILED`、`CONNECTION_FAILED`、`TLS_FAILED`、`TIMEOUT`、`ABORTED`、`HTTP_ERROR`、`RESPONSE_TOO_LARGE`、`UNSUPPORTED_CONTENT_TYPE`、`PROVIDER_BLOCKED`、`PARSE_FAILED`。
+`INVALID_ARGUMENT`、`CONFIG_ERROR`、`DNS_FAILED`、`CONNECTION_FAILED`、`TLS_FAILED`、`TIMEOUT`、`ABORTED`、`HTTP_ERROR`、`RESPONSE_TOO_LARGE`、`UNSUPPORTED_CONTENT_TYPE`、`MCP_ERROR`、`NO_PROVIDER_AVAILABLE`、`PROVIDER_BLOCKED`、`PARSE_FAILED`。
 
 ## webfetch
 

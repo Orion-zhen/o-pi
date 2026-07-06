@@ -3,12 +3,17 @@ import { Agent, fetch as undiciFetch, type Dispatcher } from "undici";
 import { defaultCookiePath, loadWebToolsConfig, WebToolsConfigError } from "./config.js";
 import { NetscapeCookieStore } from "./cookie-store.js";
 import { createSecureLookup } from "./network-policy.js";
+import { createDuckDuckGoHtmlProvider } from "./search-providers/duckduckgo-html-provider.js";
+import { createExaMcpProvider, DefaultExaMcpClientFactory, type ExaMcpClientFactory } from "./search-providers/exa-mcp.js";
+import { SearchProviderRouter } from "./search-providers/router.js";
+import type { WebSearchProvider } from "./search-providers/types.js";
 import { SearchRequestGate } from "./search-request-gate.js";
-import { SearchCache } from "./search-cache.js";
+import { providerSignature, SearchCache } from "./search-cache.js";
 import { SnapshotCache } from "./snapshot-cache.js";
 import type {
 	WebFetchExecutionContext,
 	WebFetchParams,
+	WebHttpFetch,
 	WebHttpRequestInit,
 	WebHttpResponse,
 	WebSearchExecutionContext,
@@ -26,11 +31,16 @@ export function createWebToolsRuntime(options: WebToolsRuntimeOptions = {}): Web
 	const dispatcher = options.dispatcher ?? createDefaultDispatcher(() => allowedFakeIpRanges);
 	const cookieStore = new NetscapeCookieStore(options.cookiePath ?? defaultCookiePath());
 	const snapshots = new SnapshotCache(options.now);
-	const searches = new SearchCache(options.now);
-	const searchRequests = new SearchRequestGate(options.now);
 	const approvedAuthOrigins = new Set<string>();
 	const now = options.now ?? (() => Date.now());
 	const fetchImpl = options.fetchImpl ?? defaultFetch;
+	const exaFactory = options.exaMcpClientFactory ?? new DefaultExaMcpClientFactory();
+	let searches = new SearchCache(now);
+	let searchCacheTtlSeconds: number | undefined;
+	let searchRequests = new SearchRequestGate(now);
+	let searchGateSignature = "";
+	let searchRouter: SearchProviderRouter | undefined;
+	let searchRouterSignature = "";
 
 	return {
 		async fetch(params: WebFetchParams, context: WebFetchExecutionContext): Promise<WebFetchResult> {
@@ -67,17 +77,37 @@ export function createWebToolsRuntime(options: WebToolsRuntimeOptions = {}): Web
 				const details = {
 					status: "failed" as const,
 					error: { code: "CONFIG_ERROR" as const, message },
-					provider: "duckduckgo_html" as const,
 					duration_ms: 0,
 				};
 				return { content: JSON.stringify(details, null, 2), details };
 			}
 			allowedFakeIpRanges = config.network.fake_ip_ranges;
+			if (searchCacheTtlSeconds !== config.websearch.cache_ttl_seconds) {
+				searches = new SearchCache(now, config.websearch.cache_ttl_seconds * 1000);
+				searchCacheTtlSeconds = config.websearch.cache_ttl_seconds;
+			}
+			const gateSignature = `${config.websearch.duckduckgo_html.min_interval_seconds}:${config.websearch.duckduckgo_html.blocked_cooldown_seconds}`;
+			if (gateSignature !== searchGateSignature) {
+				searchRequests.clear();
+				searchRequests = new SearchRequestGate(
+					now,
+					config.websearch.duckduckgo_html.min_interval_seconds * 1000,
+					config.websearch.duckduckgo_html.blocked_cooldown_seconds * 1000,
+				);
+				searchGateSignature = gateSignature;
+			}
+			const routerSignature = `${providerSignature(config.websearch)}:${gateSignature}`;
+			if (searchRouter === undefined || routerSignature !== searchRouterSignature) {
+				await searchRouter?.close();
+				searchRouter = new SearchProviderRouter(
+					options.searchProviders ?? createSearchProviders(config, dispatcher, fetchImpl, searchRequests, exaFactory),
+					config.websearch,
+				);
+				searchRouterSignature = routerSignature;
+			}
 			return executeWebSearch(params, {
-				dispatcher,
-				fetchImpl,
 				searches,
-				requestGate: searchRequests,
+				router: searchRouter,
 				config,
 				context,
 				now,
@@ -88,9 +118,29 @@ export function createWebToolsRuntime(options: WebToolsRuntimeOptions = {}): Web
 			searches.clear();
 			searchRequests.clear();
 			approvedAuthOrigins.clear();
+			await searchRouter?.close();
+			searchRouter = undefined;
 			await dispatcher.close();
 		},
 	};
+}
+
+function createSearchProviders(
+	config: Awaited<ReturnType<typeof loadWebToolsConfig>>,
+	dispatcher: Dispatcher,
+	fetchImpl: WebHttpFetch,
+	requestGate: SearchRequestGate,
+	exaFactory: ExaMcpClientFactory,
+): WebSearchProvider[] {
+	return [
+		createExaMcpProvider(config.websearch.exa_mcp, exaFactory),
+		createDuckDuckGoHtmlProvider({
+			config: config.websearch.duckduckgo_html,
+			dispatcher,
+			fetchImpl,
+			requestGate,
+		}),
+	];
 }
 
 function createDefaultDispatcher(getAllowedFakeIpRanges: () => readonly string[]): Dispatcher {

@@ -22,15 +22,36 @@ describe("websearch renderer", () => {
 		expect(rendered).not.toContain("1. Title 1");
 		expect(rendered).not.toContain("4. Title 4");
 		expect(rendered).toContain("cache miss");
+		expect(rendered).toContain("exa_mcp");
 	});
 
 	it("展开显示完整结果、摘要、URL 和 metadata", () => {
 		const rendered = formatWebSearchResult(successDetails(2), { expanded: true }, theme);
 		expect(rendered).toContain("Snippet 1");
 		expect(rendered).toContain("https://example.com/1");
-		expect(rendered).toContain("Provider        DuckDuckGo HTML");
+		expect(rendered).toContain("Provider        exa_mcp");
 		expect(rendered).toContain("Cache           miss");
 		expect(rendered).toContain("Downloaded      2.0 KB");
+	});
+
+	it("fallback success 展开显示 attempts 且不泄漏 key", () => {
+		const rendered = formatWebSearchResult(
+			{
+				...successDetails(1),
+				provider: "duckduckgo_html" as const,
+				attempts: [
+					{ provider: "exa_mcp" as const, status: "failed" as const, error: { code: "TIMEOUT" as const, message: "secret-key" }, duration_ms: 12000 },
+					{ provider: "duckduckgo_html" as const, status: "success" as const, duration_ms: 1500 },
+				],
+			},
+			{ expanded: true },
+			theme,
+		);
+		expect(rendered).toContain("fallback");
+		expect(rendered).toContain("Attempts");
+		expect(rendered).toContain("exa_mcp");
+		expect(rendered).toContain("duckduckgo_html");
+		expect(rendered).not.toContain("secret-key");
 	});
 
 	it("零结果和 progress 三种阶段", () => {
@@ -48,6 +69,7 @@ describe("websearch renderer", () => {
 			provider: "duckduckgo_html" as const,
 			http_status: 200,
 			duration_ms: 12,
+			attempts: [{ provider: "duckduckgo_html" as const, status: "failed" as const, error: { code: "PARSE_FAILED" as const, message: "bad page" } }],
 			response_preview: "preview\u001b]0;title\u0007 text",
 		};
 		const collapsed = formatWebSearchResult(details, {}, theme);
@@ -55,6 +77,7 @@ describe("websearch renderer", () => {
 		expect(collapsed).not.toContain("\u001b");
 		const expanded = formatWebSearchResult(details, { expanded: true }, theme);
 		expect(expanded).toContain("Status          200");
+		expect(expanded).toContain("Attempts");
 		expect(expanded).toContain("preview text");
 		expect(expanded).not.toContain("\u001b");
 	});
@@ -64,7 +87,7 @@ function successDetails(count: number) {
 	return {
 		status: "success" as const,
 		query: "pi search",
-		provider: "duckduckgo_html" as const,
+		provider: "exa_mcp" as const,
 		results: Array.from({ length: count }, (_, index) => ({
 			rank: index + 1,
 			title: `Title ${index + 1}`,
@@ -74,5 +97,6 @@ function successDetails(count: number) {
 		cached: false,
 		downloaded_bytes: 2048,
 		duration_ms: 42,
+		attempts: [{ provider: "exa_mcp" as const, status: "success" as const, duration_ms: 42 }],
 	};
 }

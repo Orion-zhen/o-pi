@@ -1,6 +1,6 @@
 {
 	"$schema": "../schemas/web-tools.schema.json",
-	"version": 1,
+	"version": 2,
 
 	"network": {
 		// Clash/mihomo TUN fake-ip 可填 ["198.18.0.0/15"] 或更窄范围。
@@ -11,20 +11,37 @@
 	},
 
 	"websearch": {
-		// 包括请求和响应读取。
-		"timeout_seconds": 15,
-
-		// DDG HTML 需要浏览器形态 UA 才能稳定返回桌面结果页面。
-		"user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-
-		// DuckDuckGo kl 参数；wt-wt 表示不强制区域。
-		"region": "wt-wt",
+		"provider_order": ["exa_mcp", "duckduckgo_html"],
+		"fallback": true,
 
 		// 模型未传 limit 时使用。
 		"default_results": 8,
 
-		// 搜索结果 HTML 的解压后正文上限。
-		"response_bytes": 2097152
+		// 会话内搜索缓存 TTL。
+		"cache_ttl_seconds": 300,
+
+		"exa_mcp": {
+			"enabled": true,
+			"url": "https://mcp.exa.ai/mcp?tools=web_search_exa",
+			"tool": "web_search_exa",
+			"api_key_env": "EXA_API_KEY",
+			"timeout_seconds": 12,
+			"type": "auto"
+		},
+
+		"duckduckgo_html": {
+			"enabled": true,
+			// 包括请求和响应读取。
+			"timeout_seconds": 15,
+			// DDG HTML 需要浏览器形态 UA 才能稳定返回桌面结果页面。
+			"user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+			// DuckDuckGo kl 参数；wt-wt 表示不强制区域。
+			"region": "wt-wt",
+			// 搜索结果 HTML 的解压后正文上限。
+			"response_bytes": 2097152,
+			"min_interval_seconds": 15,
+			"blocked_cooldown_seconds": 600
+		}
 	},
 
 	"webfetch": {

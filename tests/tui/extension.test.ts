@@ -129,7 +129,7 @@ describe("tui extension", () => {
 		const header = calls.header.at(-1);
 		expect(header).toBeTypeOf("function");
 		const output = header?.({ requestRender() {} }, ctx.ui.theme).render(120).join("\n") ?? "";
-		expect(output).toContain("____");
+		expect(output).toContain("██████");
 		expect(output).toContain("tools");
 		expect(output).toContain("skills     2 · user:1 · project:1");
 	});

@@ -3,7 +3,7 @@ import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 
 import { formatToolCard } from "../tui/tool-card.js";
 import { formatBytes, formatDuration, joinParts } from "../tui/text.js";
-import type { WebSearchDetails, WebSearchFailureDetails, WebSearchProgressDetails, WebSearchSuccessDetails } from "./types.js";
+import type { WebSearchDetails, WebSearchFailureDetails, WebSearchProgressDetails, WebSearchProviderAttempt, WebSearchProviderId, WebSearchSuccessDetails } from "./types.js";
 import { stripTerminalControls } from "./url-utils.js";
 
 export function renderWebSearchCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, context: { lastComponent?: unknown; isPartial?: boolean }): Text {
@@ -29,7 +29,7 @@ export function formatWebSearchCall(args: unknown, theme: Pick<Theme, "fg" | "bo
 		tool: "websearch",
 		status: "running",
 		target: `"${queryForCall(args)}"`,
-		summary: joinParts([limit, "provider duckduckgo_html"]),
+		summary: joinParts([limit, "providers exa_mcp->duckduckgo_html"]),
 	}, theme);
 }
 
@@ -66,8 +66,8 @@ function formatSuccess(details: WebSearchSuccessDetails, expanded: boolean, them
 	const header = formatToolCard({
 		tool: "websearch",
 		status: count === 0 ? "warning" : "success",
-		target: `"${details.query}"`,
-		summary: joinParts([countText, details.cached ? "cache hit" : "cache miss", formatDuration(details.duration_ms)]),
+		target: `"${clean(details.query)}"`,
+		summary: joinParts([countText, details.provider, fallbackLabel(details), details.cached ? "cache hit" : "cache miss", formatDuration(details.duration_ms)]),
 	}, theme);
 	if (!expanded) return header;
 
@@ -79,10 +79,11 @@ function formatSuccess(details: WebSearchSuccessDetails, expanded: boolean, them
 		header,
 		rows.length > 0 ? `\n${rows.join("\n\n")}` : undefined,
 		"",
-		"  Provider        DuckDuckGo HTML",
+		`  Provider        ${clean(details.provider)}`,
 		`  Cache           ${details.cached ? "hit" : "miss"}`,
 		`  Downloaded      ${formatBytes(details.downloaded_bytes)}`,
 		`  Duration        ${formatDuration(details.duration_ms)}`,
+		formatAttempts(details.attempts),
 	]
 		.filter((item): item is string => item !== undefined)
 		.join("\n");
@@ -92,7 +93,7 @@ function formatFailure(details: WebSearchFailureDetails, expanded: boolean, them
 	const header = formatToolCard({
 		tool: "websearch",
 		status: "error",
-		target: `"${details.query ?? "query"}"`,
+		target: `"${clean(details.query ?? "query")}"`,
 		summary: joinParts([labelError(details), clean(details.error.message)]),
 	}, theme);
 	if (!expanded) return header;
@@ -101,16 +102,13 @@ function formatFailure(details: WebSearchFailureDetails, expanded: boolean, them
 		"",
 		`  Error           ${details.error.code}`,
 		details.http_status !== undefined ? `  Status          ${details.http_status}` : undefined,
-		"  Provider        DuckDuckGo HTML",
+		details.provider !== undefined ? `  Provider        ${clean(details.provider)}` : undefined,
 		details.duration_ms !== undefined ? `  Duration        ${formatDuration(details.duration_ms)}` : undefined,
+		formatAttempts(details.attempts),
 		details.error.code === "PARSE_FAILED" && details.response_preview ? `\n  Response\n${indent(truncateText(clean(details.response_preview), 500))}` : undefined,
 	]
 		.filter((item): item is string => item !== undefined)
 		.join("\n");
-}
-
-function formatWebSearchTitle(query: string, theme: Pick<Theme, "fg" | "bold">): string {
-	return [theme.fg("toolTitle", theme.bold("websearch")), theme.fg("accent", `"${truncateToWidth(clean(query), 80, "...")}"`)].join("  ");
 }
 
 function queryForCall(args: unknown): string {
@@ -128,9 +126,27 @@ function labelError(details: WebSearchFailureDetails): string {
 			return "too large";
 		case "UNSUPPORTED_CONTENT_TYPE":
 			return "unsupported";
+		case "NO_PROVIDER_AVAILABLE":
+			return "all providers unavailable";
 		default:
 			return details.error.code;
 	}
+}
+
+function fallbackLabel(details: WebSearchSuccessDetails): string | undefined {
+	const failedBeforeSuccess = details.attempts.some((attempt) => attempt.status === "failed");
+	return failedBeforeSuccess && details.provider !== "exa_mcp" ? "fallback" : undefined;
+}
+
+function formatAttempts(attempts: readonly WebSearchProviderAttempt[] | undefined): string | undefined {
+	if (attempts === undefined || attempts.length === 0) return undefined;
+	const rows = attempts.map((attempt) => {
+		const status = clean(attempt.status).padEnd(8);
+		const code = clean(attempt.error?.code ?? "").padEnd(14);
+		const duration = attempt.duration_ms !== undefined ? formatDuration(attempt.duration_ms) : attempt.cached ? "cached" : "";
+		return `  ${clean(attempt.provider).padEnd(16)}${status}${code}${duration}`;
+	});
+	return ["", "  Attempts", ...rows].join("\n");
 }
 
 function domain(value: string): string {
@@ -157,11 +173,11 @@ function indent(value: string): string {
 }
 
 function isSuccessDetails(value: unknown): value is WebSearchSuccessDetails {
-	return isRecord(value) && value["status"] === "success" && Array.isArray(value["results"]) && value["provider"] === "duckduckgo_html";
+	return isRecord(value) && value["status"] === "success" && Array.isArray(value["results"]) && isProvider(value["provider"]);
 }
 
 function isFailureDetails(value: unknown): value is WebSearchFailureDetails {
-	return isRecord(value) && value["status"] === "failed" && isRecord(value["error"]) && value["provider"] === "duckduckgo_html";
+	return isRecord(value) && value["status"] === "failed" && isRecord(value["error"]) && (value["provider"] === undefined || isProvider(value["provider"]));
 }
 
 function isProgressDetails(value: unknown): value is WebSearchProgressDetails {
@@ -170,4 +186,8 @@ function isProgressDetails(value: unknown): value is WebSearchProgressDetails {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isProvider(value: unknown): value is WebSearchProviderId {
+	return value === "exa_mcp" || value === "duckduckgo_html";
 }

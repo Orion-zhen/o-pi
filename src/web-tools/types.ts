@@ -3,8 +3,8 @@ import type { Dispatcher } from "undici";
 export type WebFetchMode = "readable" | "source";
 export type WebFetchOutputFormat = "markdown" | "text" | "json" | "xml" | "source";
 export type SnapshotStatus = "created" | "hit" | "refetched" | "not_needed";
-/** DuckDuckGo HTML 支持的新鲜度过滤粒度。 */
-export type WebSearchRecency = "day" | "week" | "month" | "year";
+/** 搜索运行时 provider 标识；不暴露为模型工具参数。 */
+export type WebSearchProviderId = "exa_mcp" | "duckduckgo_html";
 
 export interface WebFetchParams {
 	url: string;
@@ -17,7 +17,6 @@ export interface WebFetchParams {
 export interface WebSearchParams {
 	query: string;
 	limit?: number;
-	recency?: WebSearchRecency;
 }
 
 /** 单条搜索结果，rank 保留搜索引擎原始排序。 */
@@ -35,11 +34,30 @@ export interface WebToolsConfig {
 		fake_ip_ranges: string[];
 	};
 	websearch: {
-		timeout_seconds: number;
-		user_agent: string;
-		region: string;
+		/** 搜索 provider 执行顺序；重复项会在加载配置时去重。 */
+		provider_order: WebSearchProviderId[];
+		/** provider 失败后是否继续尝试后续 provider。 */
+		fallback: boolean;
 		default_results: number;
-		response_bytes: number;
+		/** 会话内搜索缓存 TTL，按成功 provider 签名隔离。 */
+		cache_ttl_seconds: number;
+		exa_mcp: {
+			enabled: boolean;
+			url: string;
+			tool: string;
+			api_key_env: string;
+			timeout_seconds: number;
+			type: string;
+		};
+		duckduckgo_html: {
+			enabled: boolean;
+			timeout_seconds: number;
+			user_agent: string;
+			region: string;
+			response_bytes: number;
+			min_interval_seconds: number;
+			blocked_cooldown_seconds: number;
+		};
 	};
 	webfetch: {
 		timeout_seconds: number;
@@ -90,6 +108,8 @@ export type WebSearchErrorCode =
 	| "HTTP_ERROR"
 	| "RESPONSE_TOO_LARGE"
 	| "UNSUPPORTED_CONTENT_TYPE"
+	| "MCP_ERROR"
+	| "NO_PROVIDER_AVAILABLE"
 	| "PROVIDER_BLOCKED"
 	| "PARSE_FAILED";
 
@@ -160,15 +180,29 @@ export interface WebSearchProgressDetails {
 	wait_ms?: number;
 }
 
+/** 单个搜索 provider 的执行诊断，只供 renderer/details 使用。 */
+export interface WebSearchProviderAttempt {
+	provider: WebSearchProviderId;
+	status: "success" | "failed" | "skipped";
+	duration_ms?: number;
+	error?: {
+		code: WebSearchErrorCode;
+		message: string;
+	};
+	http_status?: number;
+	cached?: boolean;
+}
+
 /** 搜索成功 details；缓存、耗时和字节数只供 UI/诊断使用。 */
 export interface WebSearchSuccessDetails {
 	status: "success";
 	query: string;
-	provider: "duckduckgo_html";
+	provider: WebSearchProviderId;
 	results: WebSearchItem[];
 	cached: boolean;
 	downloaded_bytes: number;
 	duration_ms: number;
+	attempts: WebSearchProviderAttempt[];
 }
 
 /** 搜索失败 details；response_preview 只给展开 renderer 诊断。 */
@@ -179,9 +213,10 @@ export interface WebSearchFailureDetails {
 		message: string;
 	};
 	query?: string;
-	provider: "duckduckgo_html";
+	provider?: WebSearchProviderId;
 	http_status?: number;
 	duration_ms?: number;
+	attempts?: WebSearchProviderAttempt[];
 	/**
 	 * 仅供展开 renderer 诊断；不写入模型 content。
 	 * 写入前必须去除标签和终端控制字符。
@@ -322,4 +357,6 @@ export interface WebToolsRuntimeOptions {
 	fetchImpl?: WebHttpFetch;
 	cookiePath?: string;
 	now?: () => number;
+	exaMcpClientFactory?: import("./search-providers/exa-mcp.js").ExaMcpClientFactory;
+	searchProviders?: import("./search-providers/types.js").WebSearchProvider[];
 }

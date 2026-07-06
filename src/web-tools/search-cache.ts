@@ -1,12 +1,15 @@
-import type { WebSearchItem, WebSearchRecency } from "./types.js";
+import { createHash } from "node:crypto";
+
+import type { WebSearchItem, WebSearchProviderId, WebToolsConfig } from "./types.js";
 
 export const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
 export const SEARCH_CACHE_MAX_ENTRIES = 64;
 
-/** 缓存单次成功搜索；key 已包含 query、recency、region 和 limit。 */
+/** 缓存单次成功搜索；key 已包含 query、limit 和 provider 签名。 */
 export interface CachedSearch {
 	key: string;
 	createdAt: number;
+	provider: WebSearchProviderId;
 	results: WebSearchItem[];
 	downloadedBytes: number;
 }
@@ -54,6 +57,16 @@ export class SearchCache {
 	}
 }
 
-export function searchCacheKey(query: string, recency: WebSearchRecency | undefined, region: string, limit: number): string {
-	return [query.trim(), recency ?? "", region, String(limit)].join("\0");
+export function searchCacheKey(query: string, limit: number, config: WebToolsConfig["websearch"]): string {
+	return [query.trim(), String(limit), providerSignature(config)].join("\0");
+}
+
+export function providerSignature(config: WebToolsConfig["websearch"]): string {
+	const enabled = config.provider_order
+		.map((provider) => {
+			if (provider === "exa_mcp") return `${provider}:${config.exa_mcp.enabled ? "1" : "0"}:${config.exa_mcp.url}:${config.exa_mcp.tool}:${config.exa_mcp.type}`;
+			return `${provider}:${config.duckduckgo_html.enabled ? "1" : "0"}:${config.duckduckgo_html.region}`;
+		})
+		.join("|");
+	return createHash("sha256").update(enabled).digest("hex").slice(0, 16);
 }

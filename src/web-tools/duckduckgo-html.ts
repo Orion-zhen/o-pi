@@ -3,17 +3,11 @@ import { parseHTML } from "linkedom";
 
 import { classifyNetworkError } from "./http-client.js";
 import { readLimitedResponseBody, responseContentLength } from "./response-body.js";
-import type { WebHttpFetch, WebHttpResponse, WebSearchFailureDetails, WebSearchItem, WebSearchRecency, WebToolsConfig } from "./types.js";
+import type { WebHttpFetch, WebHttpResponse, WebSearchFailureDetails, WebSearchItem, WebToolsConfig } from "./types.js";
 import { stripTerminalControls } from "./url-utils.js";
 
 export const SEARCH_ENDPOINT = new URL("https://html.duckduckgo.com/html/");
 
-const RECENCY_TO_DF: Record<WebSearchRecency, string> = {
-	day: "d",
-	week: "w",
-	month: "m",
-	year: "y",
-};
 const CHALLENGE_MARKERS = ["anomaly-modal", "anomaly.js", "challenge-form", "Unfortunately, bots use DuckDuckGo too"];
 const TRACKING_PARAMS = ["utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "fbclid", "gclid"];
 const MAX_TITLE_CHARS = 300;
@@ -35,8 +29,7 @@ export type DuckDuckGoHtmlResult =
 export interface DuckDuckGoHtmlOptions {
 	query: string;
 	limit: number;
-	recency?: WebSearchRecency;
-	config: WebToolsConfig["websearch"];
+	config: WebToolsConfig["websearch"]["duckduckgo_html"];
 	dispatcher: Dispatcher;
 	fetchImpl: WebHttpFetch;
 	signal: AbortSignal;
@@ -52,7 +45,6 @@ export async function searchDuckDuckGoHtml(options: DuckDuckGoHtmlOptions): Prom
 		kl: options.config.region,
 		b: "",
 	});
-	if (options.recency !== undefined) form.set("df", RECENCY_TO_DF[options.recency]);
 	const searchUrl = new URL(SEARCH_ENDPOINT);
 	searchUrl.search = form.toString();
 

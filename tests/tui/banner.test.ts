@@ -27,7 +27,7 @@ describe("startup banner", () => {
 	it("width 120 使用 side-by-side 并包含完整状态", () => {
 		const lines = formatStartupBanner(snapshot, baseConfig, 120, plainTheme());
 		const output = lines.join("\n");
-		expect(output).toContain("____");
+		expect(output).toContain("██████");
 		expect(output).toContain("workspace");
 		expect(output).toContain("~/pi-dev");
 		expect(output).toContain("(opencode) deepseek-v4-flash-free • high");
@@ -41,7 +41,7 @@ describe("startup banner", () => {
 
 	it("width 80 使用 stacked", () => {
 		const lines = formatStartupBanner(snapshot, baseConfig, 80, plainTheme());
-		expect(lines[0]).toContain("____");
+		expect(lines[0]).toContain("██████");
 		expect(lines.some((line) => line.startsWith("workspace"))).toBe(true);
 		expect(lines.every((line) => visibleWidth(line) <= 80)).toBe(true);
 	});

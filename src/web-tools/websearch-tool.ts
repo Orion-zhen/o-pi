@@ -1,21 +1,14 @@
-import type { Dispatcher } from "undici";
-
-import { searchDuckDuckGoHtml } from "./duckduckgo-html.js";
+import type { SearchProviderRouter } from "./search-providers/router.js";
 import type { SearchCache } from "./search-cache.js";
 import { searchCacheKey } from "./search-cache.js";
-import type { SearchRequestGate } from "./search-request-gate.js";
-import type { WebHttpFetch, WebSearchExecutionContext, WebSearchFailureDetails, WebSearchParams, WebSearchResult, WebSearchSuccessDetails, WebToolsConfig } from "./types.js";
+import type { WebSearchExecutionContext, WebSearchFailureDetails, WebSearchParams, WebSearchResult, WebSearchSuccessDetails, WebToolsConfig } from "./types.js";
 import { escapeXml } from "./url-utils.js";
 
-const SEARCH_RECENCIES = new Set(["day", "week", "month", "year"]);
-
-/** 搜索执行层依赖；保持 DDG 后端、缓存和 Pi context 可替换以便测试。 */
+/** 搜索执行层依赖；provider 由 router 隔离，便于测试 fallback 和缓存。 */
 export interface ExecuteWebSearchRuntime {
-	dispatcher: Dispatcher;
-	fetchImpl: WebHttpFetch;
 	config: WebToolsConfig;
 	searches: SearchCache;
-	requestGate: SearchRequestGate;
+	router: SearchProviderRouter;
 	context: WebSearchExecutionContext;
 	now: () => number;
 }
@@ -28,17 +21,18 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 
 	const query = params.query.trim();
 	const limit = params.limit ?? runtime.config.websearch.default_results;
-	const key = searchCacheKey(query, params.recency, runtime.config.websearch.region, limit);
+	const key = searchCacheKey(query, limit, runtime.config.websearch);
 	const cached = runtime.searches.get(key);
 	if (cached !== undefined) {
 		const details: WebSearchSuccessDetails = {
 			status: "success",
 			query,
-			provider: "duckduckgo_html",
+			provider: cached.provider,
 			results: cached.results,
 			cached: true,
 			downloaded_bytes: cached.downloadedBytes,
 			duration_ms: runtime.now() - startedAt,
+			attempts: [{ provider: cached.provider, status: "success", cached: true }],
 		};
 		return { content: successContent(details), details };
 	}
@@ -47,69 +41,22 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 		content: "Searching...",
 		details: { status: "progress", phase: "requesting" },
 	});
-	const gate = await runtime.requestGate.beforeRequest(runtime.context.signal, (waitMs) => {
-		runtime.context.onUpdate?.({
-			content: `Waiting ${formatSeconds(waitMs)} before searching...`,
-			details: { status: "progress", phase: "waiting", wait_ms: waitMs },
-		});
-	});
-	if (gate.status === "blocked") {
-		const details: WebSearchFailureDetails = {
-			status: "failed",
-			error: {
-				code: "PROVIDER_BLOCKED",
-				message: `DuckDuckGo recently blocked automated search requests. Retry after about ${formatSeconds(gate.retryAfterMs)}.`,
-			},
+	const routed = await runtime.router.search(
+		{
 			query,
-			provider: "duckduckgo_html",
-			duration_ms: runtime.now() - startedAt,
-		};
-		return { content: failureContent(details), details };
-	}
-	if (gate.status === "aborted") {
-		const details: WebSearchFailureDetails = {
-			status: "failed",
-			error: { code: "ABORTED", message: gate.message },
-			query,
-			provider: "duckduckgo_html",
-			duration_ms: runtime.now() - startedAt,
-		};
-		return { content: failureContent(details), details };
-	}
-	const timeoutSignal = AbortSignal.timeout(runtime.config.websearch.timeout_seconds * 1000);
-	const signal = AbortSignal.any([runtime.context.signal ?? new AbortController().signal, timeoutSignal]);
-	const result = await searchDuckDuckGoHtml({
-		query,
-		limit,
-		...(params.recency !== undefined ? { recency: params.recency } : {}),
-		config: runtime.config.websearch,
-		dispatcher: runtime.dispatcher,
-		fetchImpl: runtime.fetchImpl,
-		signal,
-		...(runtime.context.signal !== undefined ? { userSignal: runtime.context.signal } : {}),
-		onDownloading(receivedBytes, expectedBytes) {
-			runtime.context.onUpdate?.({
-				content: `Downloading ${receivedBytes} bytes...`,
-				details: {
-					status: "progress",
-					phase: "downloading",
-					received_bytes: receivedBytes,
-					...(expectedBytes !== undefined ? { expected_bytes: expectedBytes } : {}),
-				},
-			});
+			limit,
 		},
-		onParsing() {
-			runtime.context.onUpdate?.({
-				content: "Parsing results...",
-				details: { status: "progress", phase: "parsing" },
-			});
+		{
+			...(runtime.context.signal !== undefined ? { signal: runtime.context.signal } : {}),
+			now: runtime.now,
+			onUpdate: runtime.context.onUpdate,
 		},
-	});
+	);
 
-	if (result.status === "failed") {
-		if (result.details.error.code === "PROVIDER_BLOCKED") runtime.requestGate.markProviderBlocked();
+	if (routed.status === "failed") {
 		const details = {
-			...result.details,
+			...routed.details,
+			query,
 			duration_ms: runtime.now() - startedAt,
 		};
 		return { content: failureContent(details), details };
@@ -118,17 +65,19 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 	const details: WebSearchSuccessDetails = {
 		status: "success",
 		query,
-		provider: "duckduckgo_html",
-		results: result.results,
+		provider: routed.provider,
+		results: routed.results.results,
 		cached: false,
-		downloaded_bytes: result.downloadedBytes,
+		downloaded_bytes: routed.results.downloadedBytes,
 		duration_ms: runtime.now() - startedAt,
+		attempts: routed.attempts,
 	};
 	runtime.searches.set({
 		key,
 		createdAt: runtime.now(),
-		results: result.results,
-		downloadedBytes: result.downloadedBytes,
+		provider: routed.provider,
+		results: routed.results.results,
+		downloadedBytes: routed.results.downloadedBytes,
 	});
 	return { content: successContent(details), details };
 }
@@ -147,9 +96,6 @@ function validateParams(params: WebSearchParams): WebSearchFailureDetails | unde
 	if (params.limit !== undefined && (!Number.isInteger(params.limit) || params.limit < 1 || params.limit > 20)) {
 		return invalid("limit must be an integer between 1 and 20.");
 	}
-	if (params.recency !== undefined && !SEARCH_RECENCIES.has(params.recency)) {
-		return invalid("recency must be day, week, month, or year.");
-	}
 	return undefined;
 }
 
@@ -157,7 +103,6 @@ function invalid(message: string): WebSearchFailureDetails {
 	return {
 		status: "failed",
 		error: { code: "INVALID_ARGUMENT", message },
-		provider: "duckduckgo_html",
 	};
 }
 
@@ -165,6 +110,7 @@ function successContent(details: WebSearchSuccessDetails): string {
 	const attrs = [
 		`query="${escapeXml(details.query)}"`,
 		`count="${details.results.length}"`,
+		`provider="${escapeXml(details.provider)}"`,
 		`trust="untrusted"`,
 	].join(" ");
 	const body = details.results
@@ -173,6 +119,7 @@ function successContent(details: WebSearchSuccessDetails): string {
 				`[${item.rank}] ${escapeXml(truncateChars(item.title, 160))}`,
 				`URL: ${escapeXml(item.url)}`,
 				item.snippet ? `Snippet: ${escapeXml(truncateChars(item.snippet, 240))}` : undefined,
+				`Source: ${escapeXml(details.provider)}`,
 			].filter((line): line is string => line !== undefined);
 			return lines.join("\n");
 		})
@@ -184,6 +131,7 @@ function failureContent(details: WebSearchFailureDetails): string {
 	const content = {
 		status: "failed",
 		error: details.error,
+		...(details.provider !== undefined ? { provider: details.provider } : {}),
 		...(details.http_status !== undefined ? { http_status: details.http_status } : {}),
 	};
 	return JSON.stringify(content, null, 2);
@@ -191,11 +139,6 @@ function failureContent(details: WebSearchFailureDetails): string {
 
 function truncateChars(value: string, maxChars: number): string {
 	return value.length <= maxChars ? value : `${value.slice(0, maxChars - 3)}...`;
-}
-
-function formatSeconds(ms: number): string {
-	const seconds = Math.max(1, Math.ceil(ms / 1000));
-	return `${seconds}s`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
