@@ -36,6 +36,16 @@ const defaultConfig: TuiConfig = {
 		max_summary_chars: 96,
 		collapsed_lines: 2,
 	},
+	banner: {
+		enabled: true,
+		style: "ascii",
+		layout: "auto",
+		side_by_side_min_width: 96,
+		tiny_width: 44,
+		show_hints: true,
+		show_capabilities: true,
+		clear_on_first_turn: true,
+	},
 };
 
 let compiledValidator: ValidateFunction | undefined;
@@ -90,6 +100,7 @@ export function defaultTuiConfig(): TuiConfig {
 			style: { ...defaultConfig.footer.style },
 		},
 		tools: { ...defaultConfig.tools },
+		banner: { ...defaultConfig.banner },
 	};
 }
 
@@ -101,6 +112,7 @@ interface RawTuiConfig {
 	chrome?: Partial<TuiConfig["chrome"]>;
 	footer?: Partial<Omit<TuiConfig["footer"], "style">> & { style?: Partial<TuiConfig["footer"]["style"]> };
 	tools?: Partial<TuiConfig["tools"]>;
+	banner?: Partial<TuiConfig["banner"]>;
 }
 
 function mergeConfig(raw: RawTuiConfig): TuiConfig {
@@ -117,8 +129,8 @@ function mergeConfig(raw: RawTuiConfig): TuiConfig {
 		},
 		footer: {
 			max_lines: 2,
-			segments: raw.footer?.segments ?? [...defaultConfig.footer.segments],
-			narrow_segments: raw.footer?.narrow_segments ?? [...defaultConfig.footer.narrow_segments],
+			segments: [...(raw.footer?.segments ?? defaultConfig.footer.segments)],
+			narrow_segments: [...(raw.footer?.narrow_segments ?? defaultConfig.footer.narrow_segments)],
 			style: {
 				workspace_color: raw.footer?.style?.workspace_color ?? defaultConfig.footer.style.workspace_color,
 				git_color: raw.footer?.style?.git_color ?? defaultConfig.footer.style.git_color,
@@ -132,6 +144,16 @@ function mergeConfig(raw: RawTuiConfig): TuiConfig {
 			max_target_chars: raw.tools?.max_target_chars ?? defaultConfig.tools.max_target_chars,
 			max_summary_chars: raw.tools?.max_summary_chars ?? defaultConfig.tools.max_summary_chars,
 			collapsed_lines: raw.tools?.collapsed_lines ?? defaultConfig.tools.collapsed_lines,
+		},
+		banner: {
+			enabled: raw.banner?.enabled ?? defaultConfig.banner.enabled,
+			style: raw.banner?.style ?? defaultConfig.banner.style,
+			layout: raw.banner?.layout ?? defaultConfig.banner.layout,
+			side_by_side_min_width: raw.banner?.side_by_side_min_width ?? defaultConfig.banner.side_by_side_min_width,
+			tiny_width: raw.banner?.tiny_width ?? defaultConfig.banner.tiny_width,
+			show_hints: raw.banner?.show_hints ?? defaultConfig.banner.show_hints,
+			show_capabilities: raw.banner?.show_capabilities ?? defaultConfig.banner.show_capabilities,
+			clear_on_first_turn: raw.banner?.clear_on_first_turn ?? defaultConfig.banner.clear_on_first_turn,
 		},
 	};
 	if (merged.tools.collapsed_lines !== 2) throw new TuiConfigError("tools.collapsed_lines only supports 2.");

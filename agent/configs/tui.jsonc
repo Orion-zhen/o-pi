@@ -31,5 +31,16 @@
 		"max_target_chars": 72,
 		"max_summary_chars": 96,
 		"collapsed_lines": 2
+	},
+
+	"banner": {
+		"enabled": true,
+		"style": "ascii",
+		"layout": "auto",
+		"side_by_side_min_width": 96,
+		"tiny_width": 44,
+		"show_hints": true,
+		"show_capabilities": true,
+		"clear_on_first_turn": true
 	}
 }
