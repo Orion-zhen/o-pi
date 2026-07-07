@@ -1,5 +1,8 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { describe, expect, it } from "vitest";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { initTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import fileTools from "../../agent/extensions/file-tools.js";
 
@@ -30,6 +33,10 @@ type RenderResult = (result: unknown, options: { expanded: boolean; isPartial: b
 type RenderCall = (args: unknown, theme: ThemeStub, context: unknown) => Renderable;
 
 describe("file-tools extension", () => {
+	beforeAll(() => {
+		initTheme();
+	});
+
 	it("文件工具失败结果标记为错误，并按失败分支渲染", () => {
 		const registered: Array<{ name: string; renderResult?: RenderResult }> = [];
 		const handlers = new Map<string, ToolResultHandler>();
@@ -113,7 +120,7 @@ describe("file-tools extension", () => {
 		expect(output).toContain("Truncated.");
 	});
 
-	it("edit 完成后成功和失败结果都保留 tool card 背景", () => {
+	it("edit 完成后成功和失败结果都保留 tool card 背景，折叠态成功结果展示 diff", () => {
 		const registered: Array<{ name: string; renderResult?: RenderResult }> = [];
 		fileTools({
 			registerTool(tool: { name: string; renderResult?: RenderResult }) {
@@ -133,6 +140,8 @@ describe("file-tools extension", () => {
 		expect(success).toContain("toolSuccessBg");
 		expect(success).toContain("edit      src/app.ts");
 		expect(success).toContain("+1 -1");
+		expect(success).toContain("-old");
+		expect(success).toContain("+new");
 
 		const failure = renderEditResult(registered, {
 			status: "failed",
@@ -140,6 +149,37 @@ describe("file-tools extension", () => {
 		});
 		expect(failure).toContain("toolErrorBg");
 		expect(failure).toContain("OLD_TEXT_NOT_FOUND: edits[0].old was not found in the original file.");
+	});
+
+	it("edit 参数完整后的折叠调用预览展示 diff", async () => {
+		const registered: Array<{ name: string; renderCall?: RenderCall }> = [];
+		fileTools({
+			registerTool(tool: { name: string; renderCall?: RenderCall }) {
+				registered.push(tool);
+			},
+			on() {},
+		} as unknown as ExtensionAPI);
+
+		const cwd = await mkdtemp(join(tmpdir(), "o-pi-edit-card-"));
+		await writeFile(join(cwd, "app.ts"), "old\n", "utf8");
+		const edit = registered.find((tool) => tool.name === "edit");
+		const args = { path: "app.ts", edits: [{ old: "old", new: "new" }] };
+		const context = {
+			args,
+			argsComplete: true,
+			cwd,
+			expanded: false,
+			invalidate() {},
+			isPartial: true,
+			lastComponent: undefined,
+			state: {},
+		};
+
+		const first = edit?.renderCall?.(args, theme, context);
+		const output = await renderEditCallAfterPreview(edit, args, context, first);
+		expect(output).toContain("edit      app.ts");
+		expect(output).toContain("-1 old");
+		expect(output).toContain("+1 new");
 	});
 });
 
@@ -169,4 +209,19 @@ function renderEditResult(registered: Array<{ name: string; renderResult?: Rende
 		},
 	);
 	return component?.render(120).join("\n") ?? "";
+}
+
+async function renderEditCallAfterPreview(
+	edit: { renderCall?: RenderCall } | undefined,
+	args: unknown,
+	context: Record<string, unknown>,
+	first: Renderable | undefined,
+): Promise<string> {
+	for (let attempt = 0; attempt < 20; attempt += 1) {
+		await new Promise((resolve) => setTimeout(resolve, 10));
+		const component = edit?.renderCall?.(args, theme, { ...context, lastComponent: first });
+		const output = component?.render(120).join("\n") ?? "";
+		if (output.includes("old") && output.includes("new")) return output;
+	}
+	return edit?.renderCall?.(args, theme, { ...context, lastComponent: first })?.render(120).join("\n") ?? "";
 }
