@@ -21,6 +21,8 @@ export interface LspServerConfig {
 export interface LspConfig {
 	version: 1;
 	enabled: boolean;
+	/** 精确匹配这些 workspace root 时不启动 LSP。 */
+	exclude_paths: string[];
 	startup_timeout_ms: number;
 	request_timeout_ms: number;
 	idle_timeout_ms: number;

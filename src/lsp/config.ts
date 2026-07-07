@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Ajv, type ValidateFunction } from "ajv/dist/ajv.js";
@@ -35,6 +36,7 @@ const defaultServers: LspServerConfig[] = [
 const defaultConfig: LspConfig = {
 	version: 1,
 	enabled: true,
+	exclude_paths: [],
 	startup_timeout_ms: 8000,
 	request_timeout_ms: 5000,
 	idle_timeout_ms: 300000,
@@ -72,6 +74,7 @@ export class LspConfigError extends Error {
 interface RawLspConfig {
 	version: 1;
 	enabled?: boolean;
+	exclude_paths?: string[];
 	startup_timeout_ms?: number;
 	request_timeout_ms?: number;
 	idle_timeout_ms?: number;
@@ -122,6 +125,7 @@ export async function loadLspConfig(): Promise<LoadedLspConfig> {
 export function defaultLspConfig(): LspConfig {
 	return {
 		...defaultConfig,
+		exclude_paths: [...defaultConfig.exclude_paths],
 		diagnostics: { ...defaultConfig.diagnostics },
 		read: { ...defaultConfig.read },
 		grep: { ...defaultConfig.grep },
@@ -138,6 +142,7 @@ function mergeConfig(raw: RawLspConfig): LspConfig {
 	return {
 		version: 1,
 		enabled: raw.enabled ?? base.enabled,
+		exclude_paths: (raw.exclude_paths ?? base.exclude_paths).map(normalizeExcludePath),
 		startup_timeout_ms: raw.startup_timeout_ms ?? base.startup_timeout_ms,
 		request_timeout_ms: raw.request_timeout_ms ?? base.request_timeout_ms,
 		idle_timeout_ms: raw.idle_timeout_ms ?? base.idle_timeout_ms,
@@ -168,6 +173,11 @@ function mergeConfig(raw: RawLspConfig): LspConfig {
 			...(server.initialization_options !== undefined ? { initialization_options: server.initialization_options } : {}),
 		})),
 	};
+}
+
+export function normalizeExcludePath(input: string): string {
+	const expanded = input === "~" ? os.homedir() : input.startsWith("~/") ? path.join(os.homedir(), input.slice(2)) : input;
+	return path.resolve(expanded);
 }
 
 async function loadValidator(): Promise<ValidateFunction> {

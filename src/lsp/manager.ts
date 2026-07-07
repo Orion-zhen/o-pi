@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { LspClient } from "./client.js";
-import { loadLspConfig, resolveLspConfigPath } from "./config.js";
+import { loadLspConfig, normalizeExcludePath, resolveLspConfigPath } from "./config.js";
 import { DiagnosticsLedger, emptySummary, summarizeDiagnostics } from "./diagnostics.js";
 import { compactOutline, extensionForPath, findEnclosingSymbol, referenceHits, workspaceSymbolSeeds } from "./symbols.js";
 import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "./uri.js";
@@ -35,10 +35,11 @@ export class LspManager {
 	private readonly clients = new Map<string, ClientEntry>();
 	private readonly diagnostics = new DiagnosticsLedger();
 
-	async status(): Promise<LspStatus> {
+	async status(root?: string): Promise<LspStatus> {
 		await this.ensureConfig();
+		const excluded = root !== undefined && this.loaded !== undefined ? isExcludedRoot(root, this.loaded.config.exclude_paths) : false;
 		return {
-			enabled: this.loaded?.config.enabled ?? false,
+			enabled: (this.loaded?.config.enabled ?? false) && !excluded,
 			config_path: this.loaded?.path ?? resolveLspConfigPath(),
 			...(this.configError !== undefined ? { last_error: this.configError } : {}),
 			servers: Array.from(this.clients.values()).map((entry) => entry.client.status()),
@@ -55,7 +56,7 @@ export class LspManager {
 
 	async readEnhancement(root: string, filePath: string, text: string, range: { startLine: number; endLine: number }, options: { outline: boolean; enclosing: boolean }): Promise<ReadEnhancement | undefined> {
 		const config = await this.enabledConfig();
-		if (config === undefined) return undefined;
+		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths)) return undefined;
 		const client = await this.clientForFile(root, filePath);
 		if (client === undefined) return undefined;
 		const symbols = await client.documentSymbols(filePath, text);
@@ -74,7 +75,7 @@ export class LspManager {
 
 	async workspaceSymbols(root: string, query: string): Promise<LspSymbolHit[]> {
 		const config = await this.enabledConfig();
-		if (config === undefined || !config.config.grep.workspace_symbols) return [];
+		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths) || !config.config.grep.workspace_symbols) return [];
 		const servers = enabledServersForExtension(config.config.servers, undefined);
 		const hits: LspSymbolHit[] = [];
 		let symbolCount = 0;
@@ -107,7 +108,7 @@ export class LspManager {
 
 	async didWrite(root: string, filePath: string, text: string, baseline?: LspDiagnosticSnapshot): Promise<LspDiagnosticsSummary | undefined> {
 		const config = await this.enabledConfig();
-		if (config === undefined || !config.config.diagnostics.enabled) return undefined;
+		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths) || !config.config.diagnostics.enabled) return undefined;
 		const client = await this.clientForFile(root, filePath);
 		if (client === undefined) return emptySummary("unavailable", baseline?.known === true ? "known" : "unknown");
 		const changed = await client.didOpenOrChange(filePath, text);
@@ -142,7 +143,7 @@ export class LspManager {
 
 	private async clientForFile(root: string, filePath: string): Promise<LspClient | undefined> {
 		const config = await this.enabledConfig();
-		if (config === undefined) return undefined;
+		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths)) return undefined;
 		const server = enabledServersForExtension(config.config.servers, extensionForPath(filePath))[0];
 		if (server === undefined) return undefined;
 		return this.clientForServer(root, server);
@@ -193,6 +194,11 @@ export class LspManager {
 			return undefined;
 		}
 	}
+}
+
+function isExcludedRoot(root: string, excludePaths: readonly string[]): boolean {
+	const normalizedRoot = normalizeExcludePath(root);
+	return excludePaths.some((excludePath) => normalizedRoot === normalizeExcludePath(excludePath));
 }
 
 function enabledServersForExtension(servers: LspServerConfig[], extension: string | undefined): LspServerConfig[] {

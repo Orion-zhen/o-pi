@@ -7,6 +7,13 @@
 		"$schema": { "type": "string" },
 		"version": { "const": 1 },
 		"enabled": { "type": "boolean", "default": true },
+		"exclude_paths": {
+			"type": "array",
+			"maxItems": 100,
+			"default": [],
+			"items": { "type": "string", "minLength": 1, "maxLength": 1024 },
+			"uniqueItems": true
+		},
 		"startup_timeout_ms": { "type": "integer", "minimum": 100, "maximum": 60000, "default": 8000 },
 		"request_timeout_ms": { "type": "integer", "minimum": 100, "maximum": 60000, "default": 5000 },
 		"idle_timeout_ms": { "type": "integer", "minimum": 1000, "maximum": 3600000, "default": 300000 },

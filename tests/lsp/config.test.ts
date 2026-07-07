@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { defaultLspConfig, loadLspConfig } from "../../src/lsp/config.js";
+import { defaultLspConfig, loadLspConfig, normalizeExcludePath } from "../../src/lsp/config.js";
 
 let dir: string;
 let previousConfig: string | undefined;
@@ -32,6 +32,7 @@ describe("lsp config", () => {
 			`{
 				"$schema": "../schemas/lsp.schema.json",
 				"version": 1,
+				"exclude_paths": ["~"],
 				"request_timeout_ms": 700,
 				"diagnostics": { "max_items": 3, "min_severity": "error", },
 				"servers": [
@@ -44,6 +45,7 @@ describe("lsp config", () => {
 			path: file,
 			config: {
 				request_timeout_ms: 700,
+				exclude_paths: [os.homedir()],
 				diagnostics: { max_items: 3, min_severity: "error" },
 				servers: [{ id: "demo", enabled: true, command: "demo-lsp", args: ["--stdio"], extensions: [".demo"] }],
 			},
@@ -65,5 +67,10 @@ describe("lsp config", () => {
 		await writeFile(file, '{ "version": 1, "enabled": false }');
 		process.env.PI_LSP_CONFIG = file;
 		expect(await loadLspConfig()).toMatchObject({ path: file, config: { enabled: false } });
+	});
+
+	it("规范化 exclude_paths 中的用户家目录", () => {
+		expect(normalizeExcludePath("~")).toBe(path.resolve(os.homedir()));
+		expect(normalizeExcludePath("~/demo")).toBe(path.join(os.homedir(), "demo"));
 	});
 });

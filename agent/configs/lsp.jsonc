@@ -2,6 +2,7 @@
 	"$schema": "../schemas/lsp.schema.json",
 	"version": 1,
 	"enabled": true,
+	"exclude_paths": ["~"],
 	"startup_timeout_ms": 8000,
 	"request_timeout_ms": 5000,
 	"idle_timeout_ms": 300000,
