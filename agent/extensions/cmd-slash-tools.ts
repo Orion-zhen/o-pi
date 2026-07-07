@@ -12,6 +12,7 @@
 import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, type SettingItem, SettingsList } from "@earendil-works/pi-tui";
+import { isToolEnabledByDefault, loadToolDefaultsConfig } from "../../src/tool-defaults/config.js";
 
 // State persisted to session
 interface ToolsState {
@@ -35,8 +36,18 @@ export default function toolsExtension(pi: ExtensionAPI) {
 		pi.setActiveTools(Array.from(enabledTools));
 	}
 
+	async function loadDefaultEnabledToolNames(ctx: ExtensionContext, tools: ToolInfo[]): Promise<string[]> {
+		try {
+			const config = await loadToolDefaultsConfig(ctx.cwd);
+			return tools.filter((tool) => isToolEnabledByDefault(config, tool.name)).map((tool) => tool.name);
+		} catch (error) {
+			ctx.ui.notify(`tools config ignored: ${error instanceof Error ? error.message : String(error)}`, "warning");
+			return tools.map((tool) => tool.name);
+		}
+	}
+
 	// Find the last tools-config entry in the current branch
-	function restoreFromBranch(ctx: ExtensionContext) {
+	async function restoreFromBranch(ctx: ExtensionContext) {
 		allTools = pi.getAllTools();
 
 		// Get entries in current branch only
@@ -58,8 +69,9 @@ export default function toolsExtension(pi: ExtensionAPI) {
 			enabledTools = new Set(savedTools.filter((t: string) => allToolNames.includes(t)));
 			applyTools();
 		} else {
-			// No saved state - sync with currently active tools
-			enabledTools = new Set(pi.getActiveTools());
+			// No session override - use config defaults. Missing config keys mean enabled.
+			enabledTools = new Set(await loadDefaultEnabledToolNames(ctx, allTools));
+			applyTools();
 		}
 	}
 
@@ -136,11 +148,11 @@ export default function toolsExtension(pi: ExtensionAPI) {
 
 	// Restore state on session start
 	pi.on("session_start", async (_event, ctx) => {
-		restoreFromBranch(ctx);
+		await restoreFromBranch(ctx);
 	});
 
 	// Restore state when navigating the session tree
 	pi.on("session_tree", async (_event, ctx) => {
-		restoreFromBranch(ctx);
+		await restoreFromBranch(ctx);
 	});
 }

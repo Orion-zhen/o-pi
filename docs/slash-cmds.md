@@ -21,6 +21,8 @@
 - 切换后立即调用 `pi.setActiveTools()` 生效。
 - 当前选择会写入会话分支的 `tools-config` 自定义条目；会话开始或切换分支时按当前分支恢复。
 - 恢复时会过滤已不存在的工具名。
+- 没有 session 覆盖时读取默认工具配置：用户级 `~/.pi/agent/tools.jsonc`，项目级 `.pi/tools.jsonc`。
+- 配置格式是工具名到 boolean 的 JSONC 对象，例如 `{ "bash": false }`；项目级同名工具覆盖用户级，配置中不存在的工具默认启用。
 
 ## `/system`
 
