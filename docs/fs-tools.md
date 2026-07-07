@@ -9,6 +9,8 @@
 * `write`：创建或完整覆盖一个 UTF-8 文件。
 * `edit`：通过 exact replacement 修改一个已有文件。
 
+LSP 是这些工具的内部增强，不是模型可见工具。仓库不注册 `lsp` tool，只提供用户调试命令 `/lsp`。
+
 边界：
 
 ```text
@@ -35,6 +37,9 @@ grep  按内容、symbol 或代码意图定位代码
 * `agent/schemas/file-tools.schema.json`：配置 schema。
 * `src/file-tools/`：实现路径解析、目录枚举、文本读取、文件写入和 exact replacement。
 * `src/file-tools/ignore/`：实现统一 ignore engine、snapshot、explain 和 Git tracked set。
+* `src/lsp/`：可选 LSP 后端，为 `grep` / `read` / `write` / `edit` 附加 symbol、outline 和 diagnostics。
+
+LSP 失败、超时、未配置或 language server binary 不存在时，文件工具静默退化为原行为。`ls` 和 `find` 不接入 LSP。
 
 ## ignore 与路径解析
 

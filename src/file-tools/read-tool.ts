@@ -4,10 +4,13 @@ import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
 import { resolveExistingFile, resolveWorkspaceRoot } from "./path-resolver.js";
 import type { ReadVersionCache } from "./read-cache.js";
 import { readTextFile, sliceTextByLineRange } from "./text-file.js";
-import type { ReadParams, ReadSuccess, ToolOutcome } from "./types.js";
+import type { FileToolLspHooks, ReadParams, ReadSuccess, ToolOutcome } from "./types.js";
 
 export interface ReadRuntime {
+	/** 会话内 read/edit 版本缓存，用于防止 stale edit。 */
 	versionCache?: ReadVersionCache;
+	/** 可选 LSP 增强；失败必须退化为普通 read。 */
+	lsp?: FileToolLspHooks;
 }
 
 /** read 读取 UTF-8 文本、行范围、版本和换行元数据，不写入任何文件。 */
@@ -56,7 +59,30 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams, runtime
 		const source = shortIgnoreSource(ignoreDecision.matchedRule?.sourceType);
 		if (source !== undefined) result.ignore_source = source;
 	}
+	const lsp = await safeReadEnhancement(runtime.lsp, {
+		workspaceRoot,
+		absolutePath: resolved.realPath,
+		relativePath: resolved.relativePath,
+		content: file.text,
+		start_line: result.start_line,
+		end_line: result.end_line,
+		truncated: result.truncated || result.continuation !== undefined,
+		partial: params.start_line !== undefined || params.end_line !== undefined,
+	});
+	if (lsp !== undefined) result.lsp = lsp;
 	return result;
+}
+
+async function safeReadEnhancement(
+	hooks: FileToolLspHooks | undefined,
+	input: Parameters<NonNullable<FileToolLspHooks["enhanceRead"]>>[0],
+): Promise<ReadSuccess["lsp"] | undefined> {
+	if (!input.partial && !input.truncated) return undefined;
+	try {
+		return await hooks?.enhanceRead?.(input);
+	} catch {
+		return undefined;
+	}
 }
 
 function shortIgnoreSource(sourceType: string | undefined): string | undefined {

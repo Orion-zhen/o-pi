@@ -6,10 +6,11 @@ import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
 import { resolveExistingFile, resolveWorkspaceRoot } from "./path-resolver.js";
 import type { ReadVersionCache } from "./read-cache.js";
 import { buildTextBytes, readTextFile, sha256Version } from "./text-file.js";
-import type { EditParams, EditPreviewSuccess, EditReplacement, EditSuccess, FailedResult, TextFile, ToolOutcome } from "./types.js";
+import type { EditParams, EditPreviewSuccess, EditReplacement, EditSuccess, FailedResult, FileToolLspDiagnosticSnapshot, FileToolLspHooks, LspDiagnosticsSummary, TextFile, ToolOutcome } from "./types.js";
 import type { IgnoreSnapshot } from "./ignore/ignore-types.js";
 
 interface PreparedEdit {
+	workspaceRoot: string;
 	path: string;
 	absolutePath: string;
 	file: TextFile;
@@ -25,13 +26,21 @@ interface MatchedReplacement {
 }
 
 export interface EditRuntime {
+	/** 会话内 read/edit 版本缓存，用于防止 stale edit。 */
 	versionCache?: ReadVersionCache;
+	/** 可选 LSP 增强；preview 阶段不会调用。 */
+	lsp?: FileToolLspHooks;
 }
 
 /** edit 只修改一个已读 UTF-8 文件；所有替换都基于调用开始时的原始内容匹配。 */
 export async function editWorkspace(cwd: string, params: unknown, runtime: EditRuntime = {}): Promise<ToolOutcome<EditSuccess>> {
 	const prepared = await prepareEdit(cwd, params, "cached", runtime.versionCache);
 	if (isFailed(prepared)) return prepared;
+	const baseline = await safeBeforeEdit(runtime.lsp, {
+		workspaceRoot: prepared.workspaceRoot,
+		path: prepared.path,
+		absolutePath: prepared.absolutePath,
+	});
 
 	const bytes = buildTextBytes(prepared.updatedText, prepared.file.hasBom);
 	try {
@@ -42,7 +51,7 @@ export async function editWorkspace(cwd: string, params: unknown, runtime: EditR
 
 	runtime.versionCache?.remember(prepared.absolutePath, sha256Version(bytes));
 	const diff = buildDiff(prepared.file.text, prepared.updatedText);
-	return {
+	const result: EditSuccess = {
 		status: "applied",
 		path: prepared.path,
 		replacements: prepared.replacements,
@@ -51,6 +60,15 @@ export async function editWorkspace(cwd: string, params: unknown, runtime: EditR
 		diff: diff.diff,
 		...(diff.firstChangedLine !== undefined ? { firstChangedLine: diff.firstChangedLine } : {}),
 	};
+	const diagnostics = await safeAfterEdit(runtime.lsp, {
+		workspaceRoot: prepared.workspaceRoot,
+		path: prepared.path,
+		absolutePath: prepared.absolutePath,
+		content: prepared.updatedText,
+		...(baseline !== undefined ? { baseline } : {}),
+	});
+	if (diagnostics !== undefined) result.lsp = { diagnostics };
+	return result;
 }
 
 /** 生成只读预览；用于 renderer 展示，不要求 read cache，也不写入文件。 */
@@ -90,6 +108,7 @@ async function prepareEdit(
 	const updatedText = applyReplacements(file.text, input.edits, resolved.relativePath);
 	if (isFailed(updatedText)) return updatedText;
 	return {
+		workspaceRoot,
 		path: resolved.relativePath,
 		absolutePath: resolved.realPath,
 		file,
@@ -259,4 +278,26 @@ function normalizeLineEndings(text: string): string {
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function safeBeforeEdit(
+	hooks: FileToolLspHooks | undefined,
+	input: Parameters<NonNullable<FileToolLspHooks["beforeEdit"]>>[0],
+): Promise<FileToolLspDiagnosticSnapshot | undefined> {
+	try {
+		return await hooks?.beforeEdit?.(input);
+	} catch {
+		return undefined;
+	}
+}
+
+async function safeAfterEdit(
+	hooks: FileToolLspHooks | undefined,
+	input: Parameters<NonNullable<FileToolLspHooks["afterEdit"]>>[0],
+): Promise<LspDiagnosticsSummary | undefined> {
+	try {
+		return await hooks?.afterEdit?.(input);
+	} catch {
+		return undefined;
+	}
 }

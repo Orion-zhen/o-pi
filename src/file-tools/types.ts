@@ -105,6 +105,108 @@ export interface GrepRegion {
 	imports?: string[];
 }
 
+/** LSP 诊断摘要状态；unavailable/timeout 只表示增强不可用，不影响文件工具主状态。 */
+export type LspDiagnosticStatus = "clean" | "warnings" | "errors" | "unavailable" | "timeout";
+/** LSP 诊断严重级别，保持与 protocol severity 的语义对应。 */
+export type LspDiagnosticSeverity = "error" | "warning" | "information" | "hint";
+
+/** 返回给模型和 TUI 的单条紧凑 LSP 诊断。 */
+export interface LspDiagnosticItem {
+	severity: LspDiagnosticSeverity;
+	line: number;
+	column: number;
+	message: string;
+	code?: string;
+	source?: string;
+}
+
+/** 写入或编辑后的 LSP 诊断摘要；用于展示 diff，不转成 FailedResult。 */
+export interface LspDiagnosticsSummary {
+	status: LspDiagnosticStatus;
+	file_errors: number;
+	file_warnings: number;
+	new_errors: number;
+	new_warnings: number;
+	resolved_errors: number;
+	resolved_warnings: number;
+	baseline: "known" | "unknown";
+	items: LspDiagnosticItem[];
+}
+
+/** read 截断时附加的紧凑 symbol outline。 */
+export interface LspOutlineItem {
+	name: string;
+	kind: string;
+	line: number;
+	end_line: number;
+	detail?: string;
+	children?: LspOutlineItem[];
+}
+
+/** read 行范围所属的最小包围 symbol。 */
+export interface LspEnclosingSymbol {
+	name: string;
+	kind: string;
+	line: number;
+	end_line: number;
+	detail?: string;
+}
+
+/** grep 可接收的 LSP symbol 候选；调用方仍需执行 scope、ignore 和预算过滤。 */
+export interface FileToolLspSymbolCandidate {
+	path: string;
+	start_line: number;
+	end_line: number;
+	kind: string;
+	symbol: string;
+	signature?: string;
+	reason: "lsp symbol" | "lsp exact symbol";
+}
+
+/** edit 前保存的诊断基线，用于成功写盘后的 diff。 */
+export interface FileToolLspDiagnosticSnapshot {
+	uri: string;
+	items: LspDiagnosticItem[];
+	known: boolean;
+}
+
+/** 文件工具可选 LSP hook；实现方必须自行退化，不能改变主工具成功语义。 */
+export interface FileToolLspHooks {
+	enhanceRead?(input: {
+		workspaceRoot: string;
+		absolutePath: string;
+		relativePath: string;
+		content: string;
+		start_line: number;
+		end_line: number;
+		truncated: boolean;
+		partial: boolean;
+	}): Promise<{ outline?: LspOutlineItem[]; enclosing_symbol?: LspEnclosingSymbol } | undefined>;
+	grepSymbols?(input: {
+		workspaceRoot: string;
+		query: string;
+		path: string;
+	}): Promise<FileToolLspSymbolCandidate[]>;
+	beforeEdit?(input: {
+		workspaceRoot: string;
+		path: string;
+		absolutePath: string;
+	}): Promise<FileToolLspDiagnosticSnapshot | undefined>;
+	afterWrite?(input: {
+		workspaceRoot: string;
+		path: string;
+		absolutePath: string;
+		content: string;
+	}): Promise<LspDiagnosticsSummary | undefined>;
+	afterEdit?(input: {
+		workspaceRoot: string;
+		path: string;
+		absolutePath: string;
+		content: string;
+		baseline?: FileToolLspDiagnosticSnapshot;
+	}): Promise<LspDiagnosticsSummary | undefined>;
+}
+
 export interface GrepSuccess {
 	status: "success";
 	query: string;
@@ -157,12 +259,19 @@ export interface ReadSuccess {
 	bom: boolean;
 	ignored?: boolean;
 	ignore_source?: string;
+	lsp?: {
+		outline?: LspOutlineItem[];
+		enclosing_symbol?: LspEnclosingSymbol;
+	};
 }
 
 export interface WriteSuccess {
 	status: "written";
 	path: string;
 	bytes: number;
+	lsp?: {
+		diagnostics?: LspDiagnosticsSummary;
+	};
 }
 
 export type FindEntryKind = "file" | "directory";
@@ -237,6 +346,9 @@ export interface EditSuccess {
 	diff: string;
 	/** 第一处变更在新文件中的行号。 */
 	firstChangedLine?: number;
+	lsp?: {
+		diagnostics?: LspDiagnosticsSummary;
+	};
 }
 
 export interface EditPreviewSuccess {

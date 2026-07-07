@@ -1,0 +1,101 @@
+# LSP 内部增强
+
+LSP 只作为 `grep` / `read` / `write` / `edit` 的可选内部后端，不注册模型可见 `lsp` 工具。
+
+## 配置
+
+主配置：
+
+```text
+agent/configs/lsp.jsonc
+```
+
+环境变量 `PI_LSP_CONFIG` 可覆盖路径。V1 不读取项目级 `.pi/configs/lsp.jsonc`，因为配置会执行本地 language server command。
+
+顶层字段：
+
+| 字段 | 默认值 | 说明 |
+| --- | --- | --- |
+| `version` | `1` | 配置版本。当前只接受 `1`。 |
+| `enabled` | `true` | 总开关。设为 `false` 后不启动任何 language server，文件工具保持普通行为。 |
+| `startup_timeout_ms` | `8000` | server `initialize` 请求超时，范围 `100`-`60000`。超时后该 server 视为 unavailable。 |
+| `request_timeout_ms` | `5000` | 单次 LSP 请求超时，范围 `100`-`60000`。用于 `documentSymbol`、`workspace/symbol` 等请求。 |
+| `idle_timeout_ms` | `300000` | server 空闲关闭时间，范围 `1000`-`3600000`。关闭后下次文件工具调用会按需重启。 |
+| `max_restarts` | `2` | server 崩溃后的最多重启次数，范围 `0`-`10`。binary 缺失属于 unavailable，不做崩溃重启。 |
+| `diagnostics` | 见下表 | 控制 `write` / `edit` 成功后的诊断等待和返回内容。 |
+| `read` | 见下表 | 控制 `read` 的 outline / enclosing symbol 增强。 |
+| `grep` | 见下表 | 控制 `grep` 的 workspace symbol 增强。 |
+| `servers` | TypeScript / Python / Rust | language server 列表，最多 50 个。 |
+
+`diagnostics`：
+
+| 字段 | 默认值 | 说明 |
+| --- | --- | --- |
+| `enabled` | `true` | 是否在 `write` / `edit` 写盘成功后等待当前文件 diagnostics。关闭后不返回 `lsp.diagnostics`。 |
+| `max_wait_ms` | `3000` | 等待 `publishDiagnostics` 的最长时间，范围 `0`-`60000`。超时返回 `status: "timeout"`，不改变工具成功状态。 |
+| `settle_ms` | `150` | 收到 diagnostics 后继续等待稳定的时间，范围 `0`-`5000`，避免 server 连续推送时取到中间态。 |
+| `max_items` | `8` | 返回给模型和 expanded TUI 的诊断条数，范围 `0`-`100`。统计字段仍按过滤后的全部诊断计算。 |
+| `min_severity` | `"warning"` | 最低返回级别。可选 `"error"`、`"warning"`、`"information"`、`"hint"`；级别越低返回越多。 |
+
+`read`：
+
+| 字段 | 默认值 | 说明 |
+| --- | --- | --- |
+| `outline` | `true` | 内容被 `read` 截断时是否附加 `lsp.outline`。完整小文件不会触发 LSP outline。 |
+| `max_symbols` | `40` | `lsp.outline` 最多返回 symbol 数，范围 `0`-`200`。partial range 的 `lsp.enclosing_symbol` 不受此开关影响。 |
+
+`grep`：
+
+| 字段 | 默认值 | 说明 |
+| --- | --- | --- |
+| `workspace_symbols` | `true` | `grep` 在 `match=auto` 且 query 像 symbol 时是否调用 `workspace/symbol`。 |
+| `references` | `false` | 是否在 workspace symbol 命中后继续调用 `textDocument/references`，把引用位置作为额外 `grep` 候选。默认关闭，避免慢 server 放大请求量。 |
+| `max_symbols` | `20` | `workspace/symbol` 最多接收的 symbol 命中数，范围 `0`-`200`。命中仍会经过 path scope、ignore 和输出预算。 |
+| `max_references` | `20` | `textDocument/references` 最多接收的引用命中数，范围 `0`-`200`。引用命中使用 `lsp symbol` reason。 |
+
+`servers[]`：
+
+| 字段 | 默认值 | 说明 |
+| --- | --- | --- |
+| `id` | 必填 | server 稳定 ID。只能包含字母、数字、`_`、`-`，同一 workspace 内与 root 共同组成进程 key。 |
+| `enabled` | `true` | 单个 server 开关。关闭后不会匹配文件，也不会启动 command。 |
+| `command` | 必填 | 启动 language server 的可执行文件或路径。会以 stdio 模式启动，必须可信。 |
+| `args` | `[]` | 启动参数，最多 64 项。例如 `typescript-language-server` 需要 `["--stdio"]`。 |
+| `extensions` | 必填 | 文件扩展名列表，必须带前导点，例如 `".ts"`。`read/write/edit` 按文件扩展名选择 server。 |
+| `initialization_options` | 未设置 | 原样传给 LSP `initialize.initializationOptions`，用于 server 私有配置。 |
+
+默认包含 TypeScript、Python、Rust server。binary 不存在时 server 标记为 unavailable，文件工具继续成功执行。
+
+## 行为
+
+* `read`：部分行范围读取时可返回 `lsp.enclosing_symbol`；内容截断时可返回紧凑 `lsp.outline`。
+* `grep`：仅在 `match=auto` 且 query 像 symbol 时调用 workspace/symbol；`grep.references` 开启后再查询引用位置；命中仍经过现有 ignore、path scope 和输出预算。
+* `write`：写盘成功后发送 didOpen/didChange/didSave，等待当前文件 diagnostics；诊断错误不改变 `status: "written"`。
+* `edit`：preview 不调用 LSP；成功写盘后对比编辑前后 diagnostics；诊断错误不改变 `status: "applied"`。
+* `ls` / `find`：不接入 LSP。
+
+不会自动 apply code actions、organize imports、跨文件 rename。
+
+## 命令
+
+```text
+/lsp
+/lsp status
+/lsp reload
+/lsp diagnostics [path]
+```
+
+`/lsp` 等价 `/lsp status`。`reload` 会关闭所有 server 并清空 diagnostics ledger。`diagnostics` 显示 workspace 或指定文件的已知诊断。
+
+## 故障排查
+
+`/lsp status` 查看配置路径、server 状态、最后错误、打开文档数和最近 diagnostics 数。
+
+常见 unavailable 原因：
+
+* language server 未安装或不在 `PATH`；
+* `command` / `args` 配置错误；
+* initialize 超时；
+* server 启动后崩溃。
+
+这些情况不会让成功的文件读写搜索变成失败。

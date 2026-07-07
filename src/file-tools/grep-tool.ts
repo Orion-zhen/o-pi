@@ -4,8 +4,9 @@ import { fail, isFailed } from "./errors.js";
 import { getGrepIndex } from "./grep-index.js";
 import { decodeTextFile } from "./text-file.js";
 import { packGrepResults, renderGrepSuccess } from "./grep-packer.js";
-import { rankGrepRegions } from "./grep-ranker.js";
-import type { GrepMatchMode, GrepParams, GrepSuccess, ToolOutcome } from "./types.js";
+import { rankGrepRegions, type RankedGrepRegion } from "./grep-ranker.js";
+import { byteRangeForLines } from "./grep-parser.js";
+import type { FileToolLspHooks, FileToolLspSymbolCandidate, GrepMatchMode, GrepParams, GrepSuccess, ToolOutcome } from "./types.js";
 
 interface NormalizedGrepParams {
 	query: string;
@@ -14,8 +15,13 @@ interface NormalizedGrepParams {
 	glob?: string;
 }
 
+export interface GrepRuntime {
+	/** 可选 LSP symbol 后端；命中仍需经过 grep scope、ignore 和预算过滤。 */
+	lsp?: FileToolLspHooks;
+}
+
 /** grep 是单入口代码检索器：自动路由文本、symbol、regex 和一跳关系，返回预算内代码区域。 */
-export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal?: AbortSignal): Promise<ToolOutcome<GrepSuccess>> {
+export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal?: AbortSignal, runtime: GrepRuntime = {}): Promise<ToolOutcome<GrepSuccess>> {
 	const validation = validateGrepParams(params);
 	if (isFailed(validation)) return validation;
 	const regex = validation.match === "regex" ? compileRegex(validation.query) : undefined;
@@ -31,13 +37,19 @@ export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal
 		sourceText,
 		...(regex !== undefined ? { regex } : {}),
 	});
+	const lspCandidates = await safeLspGrepCandidates(runtime.lsp, {
+		workspaceRoot: index.workspaceRoot,
+		query: validation.query,
+		path: index.root.relativePath,
+	}, validation.match, sourceText, new Set(index.files.map((file) => file.path)));
+	const regions = mergeRanked(ranked.regions, lspCandidates);
 	return packGrepResults({
 		query: validation.query,
 		path: index.root.relativePath,
 		match: validation.match,
-		strategy: ranked.strategy,
-		totalCandidates: ranked.regions.length,
-		regions: ranked.regions,
+		strategy: lspCandidates.length > 0 ? [...ranked.strategy, "lsp"] : ranked.strategy,
+		totalCandidates: regions.length,
+		regions,
 		sourceText,
 		tokenBudget: index.config.limits.grep_output_token_budget,
 		resultLimit: index.config.limits.grep_result_limit,
@@ -99,4 +111,64 @@ async function loadMissingSourceText(
 		if (!isFailed(decoded)) sourceText.set(file.path, decoded.text);
 	}
 	return sourceText;
+}
+
+async function safeLspGrepCandidates(
+	hooks: FileToolLspHooks | undefined,
+	input: Parameters<NonNullable<FileToolLspHooks["grepSymbols"]>>[0],
+	match: GrepMatchMode,
+	sourceText: Map<string, string>,
+	allowedPaths: Set<string>,
+): Promise<RankedGrepRegion[]> {
+	if (hooks?.grepSymbols === undefined || match !== "auto" || !looksLikeSymbol(input.query)) return [];
+	let candidates: FileToolLspSymbolCandidate[];
+	try {
+		candidates = await hooks.grepSymbols(input);
+	} catch {
+		return [];
+	}
+	const ranked: RankedGrepRegion[] = [];
+	for (const candidate of candidates) {
+		if (!allowedPaths.has(candidate.path)) continue;
+		const text = sourceText.get(candidate.path);
+		if (text === undefined) continue;
+		const range = byteRangeForLines(text, candidate.start_line, candidate.end_line);
+		ranked.push({
+			id: `${candidate.path}:${range.startByte}:${range.endByte}:lsp:${candidate.symbol}`,
+			path: candidate.path,
+			kind: candidate.kind,
+			startLine: candidate.start_line,
+			endLine: candidate.end_line,
+			startByte: range.startByte,
+			endByte: range.endByte,
+			symbol: candidate.symbol,
+			...(candidate.signature !== undefined ? { signature: candidate.signature } : {}),
+			score: candidate.reason === "lsp exact symbol" ? 980 : 720,
+			reasons: [candidate.reason],
+			matchLines: [candidate.start_line],
+			callers: [],
+			callees: [],
+			imports: [],
+		});
+	}
+	return ranked;
+}
+
+function mergeRanked(primary: RankedGrepRegion[], lsp: RankedGrepRegion[]): RankedGrepRegion[] {
+	if (lsp.length === 0) return primary;
+	const byId = new Map<string, RankedGrepRegion>();
+	for (const region of [...primary, ...lsp].sort((left, right) => right.score - left.score)) {
+		if (!byId.has(region.id)) byId.set(region.id, region);
+	}
+	return Array.from(byId.values()).sort((left, right) => right.score - left.score || compareStableString(left.path, right.path) || left.startLine - right.startLine);
+}
+
+function looksLikeSymbol(query: string): boolean {
+	return /^[A-Za-z_$][\w$]*(?:[.#][A-Za-z_$][\w$]*)*$/u.test(query);
+}
+
+function compareStableString(left: string, right: string): number {
+	if (left < right) return -1;
+	if (left > right) return 1;
+	return 0;
 }

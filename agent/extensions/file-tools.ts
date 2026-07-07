@@ -19,6 +19,7 @@ import { readWorkspaceFile } from "../../src/file-tools/read-tool.js";
 import { writeWorkspaceFile } from "../../src/file-tools/write-tool.js";
 import { formatToolCard } from "../../src/tui/tool-card.js";
 import { formatBytes, formatChars, joinParts } from "../../src/tui/text.js";
+import { lspFileHooks } from "../../src/lsp/index.js";
 import type {
 	EditParams,
 	EditPreviewSuccess,
@@ -33,6 +34,7 @@ import type {
 	ReadSuccess,
 	WriteSuccess,
 	WriteParams,
+	LspDiagnosticsSummary,
 } from "../../src/file-tools/types.js";
 
 type EditPreview = EditPreviewSuccess | FailedResult;
@@ -210,7 +212,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 		promptSnippet: "locate relevant code by content or symbol",
 		parameters: grepParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const result = await grepWorkspaceFiles(ctx.cwd, params as GrepParams, signal);
+			const result = await grepWorkspaceFiles(ctx.cwd, params as GrepParams, signal, { lsp: lspFileHooks });
 			if ("status" in result) {
 				return {
 					content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -242,7 +244,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 		parameters: readParameters,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const versionCache = versionCacheFor(ctx, versionCaches);
-			const result = await readWorkspaceFile(ctx.cwd, params as ReadParams, { versionCache });
+			const result = await readWorkspaceFile(ctx.cwd, params as ReadParams, { versionCache, lsp: lspFileHooks });
 			return {
 				content: [{ type: "text", text: JSON.stringify(scrubVersions(result), null, 2) }],
 				details: result,
@@ -268,7 +270,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 		promptGuidelines: ["Use write to create or replace a whole file."],
 		parameters: writeParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const result = await writeWorkspaceFile(ctx.cwd, params as WriteParams, signal);
+			const result = await writeWorkspaceFile(ctx.cwd, params as WriteParams, signal, { lsp: lspFileHooks });
 			if ("status" in result && result.status === "failed") {
 				return {
 					content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
@@ -304,10 +306,10 @@ export default function fileTools(pi: ExtensionAPI): void {
 			);
 			return component;
 		},
-		renderResult(result, _options, theme, context) {
+		renderResult(result, { expanded }, theme, context) {
 			const details = result.details;
 			const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-			text.setText(formatWriteResult(details, theme, context.args, context.cwd));
+			text.setText(formatWriteResult(details, theme, context.args, context.cwd, expanded));
 			return text;
 		},
 	});
@@ -326,7 +328,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 		renderShell: "self",
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const versionCache = versionCacheFor(ctx, versionCaches);
-			const result = await editWorkspace(ctx.cwd, params as EditParams, { versionCache });
+			const result = await editWorkspace(ctx.cwd, params as EditParams, { versionCache, lsp: lspFileHooks });
 			return {
 				content: [{ type: "text", text: JSON.stringify(scrubVersions(result), null, 2) }],
 				details: result,
@@ -444,10 +446,12 @@ function formatEditResult(details: unknown, theme: Theme, args: unknown, expande
 		tool: "edit",
 		status: "success",
 		target: details.path,
-		summary: joinParts([formatDiffStats(details.diff), `${details.replacements} replacements`, details.diff !== "" ? "diff available" : "no diff"]),
+		summary: joinParts([formatDiffStats(details.diff), `${details.replacements} replacements`, details.diff !== "" ? "diff available" : "no diff", formatLspSummary(details.lsp?.diagnostics)]),
 	}, theme);
-	if (!expanded || details.diff === "") return header;
-	return `${header}\n\n${renderDiff(details.diff)}`;
+	if (!expanded) return header;
+	const diagnostics = formatLspDiagnostics(details.lsp?.diagnostics, theme);
+	const diff = details.diff === "" ? undefined : renderDiff(details.diff);
+	return [header, diff, diagnostics].filter((part): part is string => part !== undefined).join("\n\n");
 }
 
 function stableArgsKey(args: unknown): string | undefined {
@@ -800,12 +804,15 @@ function formatReadResult(
 	return `${header}\n\n${theme.fg("toolOutput", details.content)}`;
 }
 
-function formatWriteResult(details: unknown, theme: Pick<Theme, "fg" | "bold">, args: unknown, cwd: string): string {
+function formatWriteResult(details: unknown, theme: Pick<Theme, "fg" | "bold">, args: unknown, cwd: string, expanded: boolean): string {
 	const target = isWriteSuccess(details) ? details.path : writeTarget(args, cwd);
 	const failure = formatFailureCard("write", target, details, theme);
 	if (failure !== undefined) return failure;
 	if (!isWriteSuccess(details)) return formatToolCard({ tool: "write", status: "neutral", target, summary: "waiting" }, theme);
-	return formatToolCard({ tool: "write", status: "success", target: details.path, summary: joinParts([formatBytes(details.bytes), "written"]) }, theme);
+	const header = formatToolCard({ tool: "write", status: "success", target: details.path, summary: joinParts([formatBytes(details.bytes), "written", formatLspSummary(details.lsp?.diagnostics)]) }, theme);
+	if (!expanded) return header;
+	const diagnostics = formatLspDiagnostics(details.lsp?.diagnostics, theme);
+	return diagnostics === undefined ? header : `${header}\n\n${diagnostics}`;
 }
 
 function textOutput(result: { content: Array<{ type: string; text?: string }> }): string {
@@ -873,6 +880,20 @@ function formatDiffStats(diff: string): string {
 		else if (line.startsWith("-") && !line.startsWith("---")) removed += 1;
 	}
 	return `+${added} -${removed}`;
+}
+
+function formatLspSummary(diagnostics: LspDiagnosticsSummary | undefined): string | undefined {
+	if (diagnostics === undefined) return undefined;
+	if (diagnostics.status === "timeout") return "LSP timeout";
+	if (diagnostics.status === "unavailable") return "LSP unavailable";
+	return `LSP ${diagnostics.file_errors} errors`;
+}
+
+function formatLspDiagnostics(diagnostics: LspDiagnosticsSummary | undefined, theme: Pick<Theme, "fg">): string | undefined {
+	if (diagnostics === undefined || diagnostics.items.length === 0) return undefined;
+	return diagnostics.items
+		.map((item) => theme.fg("toolOutput", `${item.severity} ${item.line}:${item.column} ${item.message}${item.code !== undefined ? ` (${item.code})` : ""}`))
+		.join("\n");
 }
 
 function isLsSuccess(value: unknown): value is LsSuccess {

@@ -4,7 +4,7 @@ import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { isBlockedPath, loadFileToolsConfig, toolPathIdentity } from "./config.js";
 import { fail, isFailed } from "./errors.js";
 import { normalizeToolPath, resolveWorkspaceRoot } from "./path-resolver.js";
-import type { ToolOutcome, WriteParams, WriteSuccess } from "./types.js";
+import type { FileToolLspHooks, LspDiagnosticsSummary, ToolOutcome, WriteParams, WriteSuccess } from "./types.js";
 
 interface WritablePath {
 	relativePath: string;
@@ -12,8 +12,13 @@ interface WritablePath {
 	workspacePath?: string;
 }
 
+export interface WriteRuntime {
+	/** 可选 LSP 增强；失败必须退化为普通 write。 */
+	lsp?: FileToolLspHooks;
+}
+
 /** write 复刻 Pi 内置 write：创建父目录，并用 UTF-8 内容创建或覆盖单个文件。 */
-export async function writeWorkspaceFile(cwd: string, params: unknown, signal?: AbortSignal): Promise<ToolOutcome<WriteSuccess>> {
+export async function writeWorkspaceFile(cwd: string, params: unknown, signal?: AbortSignal, runtime: WriteRuntime = {}): Promise<ToolOutcome<WriteSuccess>> {
 	const input = validateWriteInput(params);
 	if (isFailed(input)) return input;
 
@@ -45,12 +50,31 @@ export async function writeWorkspaceFile(cwd: string, params: unknown, signal?: 
 
 		const abortedAfterWrite = checkAbort(signal);
 		if (abortedAfterWrite) return abortedAfterWrite;
-		return {
+		const result: WriteSuccess = {
 			status: "written",
 			path: target.relativePath,
 			bytes: Buffer.byteLength(input.content, "utf8"),
 		};
+		const diagnostics = await safeAfterWrite(runtime.lsp, {
+			workspaceRoot,
+			path: target.relativePath,
+			absolutePath: target.absolutePath,
+			content: input.content,
+		});
+		if (diagnostics !== undefined) result.lsp = { diagnostics };
+		return result;
 	});
+}
+
+async function safeAfterWrite(
+	hooks: FileToolLspHooks | undefined,
+	input: Parameters<NonNullable<FileToolLspHooks["afterWrite"]>>[0],
+): Promise<LspDiagnosticsSummary | undefined> {
+	try {
+		return await hooks?.afterWrite?.(input);
+	} catch {
+		return undefined;
+	}
 }
 
 function validateWriteInput(params: unknown): ToolOutcome<WriteParams> {

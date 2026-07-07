@@ -1,0 +1,53 @@
+{
+	"$schema": "../schemas/lsp.schema.json",
+	"version": 1,
+	"enabled": true,
+	"startup_timeout_ms": 8000,
+	"request_timeout_ms": 5000,
+	"idle_timeout_ms": 300000,
+	"max_restarts": 2,
+
+	"diagnostics": {
+		"enabled": true,
+		"max_wait_ms": 3000,
+		"settle_ms": 150,
+		"max_items": 8,
+		"min_severity": "warning"
+	},
+
+	"read": {
+		"outline": true,
+		"max_symbols": 40
+	},
+
+	"grep": {
+		"workspace_symbols": true,
+		"references": false,
+		"max_symbols": 20,
+		"max_references": 20
+	},
+
+	"servers": [
+		{
+			"id": "typescript",
+			"enabled": true,
+			"command": "typescript-language-server",
+			"args": ["--stdio"],
+			"extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
+		},
+		{
+			"id": "python",
+			"enabled": true,
+			"command": "pyright-langserver",
+			"args": ["--stdio"],
+			"extensions": [".py", ".pyi"]
+		},
+		{
+			"id": "rust",
+			"enabled": true,
+			"command": "rust-analyzer",
+			"args": [],
+			"extensions": [".rs"]
+		}
+	]
+}

@@ -39,6 +39,8 @@
 		"turndown": "latest",
 		"turndown-plugin-gfm": "latest",
 		"typebox": "latest",
-		"undici": "latest"
+		"undici": "latest",
+		"vscode-jsonrpc": "latest",
+		"vscode-languageserver-protocol": "latest"
 	}
 }
