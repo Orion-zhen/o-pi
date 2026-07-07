@@ -14,7 +14,7 @@ describe("skill context injection", () => {
 	it("activation entry 按 branch 位置转换为 synthetic user message，当前 user 留在最后", () => {
 		const output = injectSkillContext([custom("1", activation("demo"))], [user("current task")]);
 		expect(output).toHaveLength(2);
-		expect(textOf(output[0])).toContain('<loaded_skill name="demo">');
+		expect(textOf(output[0])).toContain('<skill name="demo" status="active">');
 		expect(textOf(output[1])).toBe("current task");
 	});
 
@@ -25,8 +25,8 @@ describe("skill context injection", () => {
 			custom("3", activation("demo")),
 	], [user("next")]);
 		const text = output.map(textOf).join("\n");
-		expect(text.match(/<loaded_skill name="demo">/g)).toHaveLength(1);
-		expect(text).not.toContain("<unload_skill");
+		expect(text.match(/<skill name="demo" status="active">/g)).toHaveLength(1);
+		expect(text).not.toContain('status="inactive"');
 		expect(textOf(output.at(-1))).toBe("next");
 	});
 
@@ -35,7 +35,7 @@ describe("skill context injection", () => {
 		expect(output.map(textOf)).toEqual(["next"]);
 	});
 
-	it("真实消息之后 lazy clear 保留 load_skill 并追加 unload_skill", () => {
+	it("真实消息之后 lazy clear 保留 active skill 并追加 inactive skill", () => {
 		const output = injectSkillContext([
 			custom("1", activation("demo")),
 			message("2", "first"),
@@ -43,11 +43,23 @@ describe("skill context injection", () => {
 			message("4", "next"),
 	], [user("first"), user("next")]);
 		const text = output.map(textOf).join("\n");
-		expect(text).toContain('<loaded_skill name="demo">');
-		expect(text).toContain('<unload_skill name="demo">');
+		expect(text).toContain('<skill name="demo" status="active">');
+		expect(text).toContain('<skill name="demo" status="inactive"/>');
 	});
 
-	it("真实消息之后 hard clear 省略旧 load_skill body 且不追加 unload block", () => {
+	it("真实消息之后 all lazy clear 追加 previous all inactive skill", () => {
+		const output = injectSkillContext([
+			custom("1", activation("demo")),
+			message("2", "first"),
+			custom("3", deactivationAll("lazy")),
+			message("4", "next"),
+		], [user("first"), user("next")]);
+		const text = output.map(textOf).join("\n");
+		expect(text).toContain('<skill name="demo" status="active">');
+		expect(text).toContain('<skill status="previous all inactive"/>');
+	});
+
+	it("真实消息之后 hard clear 省略旧 skill body 且不追加 inactive skill", () => {
 		const output = injectSkillContext([
 			custom("1", activation("demo")),
 			message("2", "first"),
@@ -56,11 +68,11 @@ describe("skill context injection", () => {
 	], [user("first"), user("next")]);
 		const text = output.map(textOf).join("\n");
 		expect(text).not.toContain("demo body");
-		expect(text).not.toContain("<unload_skill");
-		expect(text).not.toContain("<unload_previous_skills>");
+		expect(text).not.toContain('status="inactive"');
+		expect(text).not.toContain('status="previous all inactive"');
 	});
 
-	it("真实消息之后 all hard clear 省略旧 load_skill body 且不追加 unload_previous_skills", () => {
+	it("真实消息之后 all hard clear 省略旧 skill body 且不追加 inactive skill", () => {
 		const output = injectSkillContext([
 			custom("1", activation("demo")),
 			message("2", "first"),
@@ -69,7 +81,7 @@ describe("skill context injection", () => {
 	], [user("first"), user("next")]);
 		const text = output.map(textOf).join("\n");
 		expect(text).not.toContain("demo body");
-		expect(text).not.toContain("<unload_previous_skills>");
+		expect(text).not.toContain('status="previous all inactive"');
 	});
 
 	it("synthetic 文本不含 loadedAt/clearedAt 动态时间", () => {

@@ -67,16 +67,43 @@ describe("system prompt extension", () => {
 		expect(prompt.match(/Prefer direct tools\./g)).toHaveLength(1);
 	});
 
+	it("没有可用 skill 时不输出 skill_policy", () => {
+		const prompt = buildSystemPrompt({
+			cwd: "/repo",
+			selectedTools: ["read"],
+			toolSnippets,
+		});
+
+		expect(prompt).not.toContain("<skill_policy>");
+	});
+
 	it("customPrompt 替换默认角色，同时保留 append、工具和上下文段落", () => {
 		const prompt = buildSystemPrompt({
 			cwd: "C:\\repo",
 			customPrompt: "Only this base prompt.",
 			selectedTools: ["read"],
 			toolSnippets,
+			skills: [
+				{
+					name: "demo",
+					description: "Hidden skill description.",
+					filePath: "/repo/skills/demo/SKILL.md",
+					baseDir: "/repo/skills/demo",
+					disableModelInvocation: false,
+					sourceInfo: {
+						path: "/repo/skills/demo/SKILL.md",
+						source: "project",
+						scope: "project",
+						origin: "top-level",
+						baseDir: "/repo/skills/demo",
+					},
+				},
+			],
 			appendSystemPrompt: "Append this.",
 		});
 
 		expect(prompt).toContain("<custom_prompt>\nOnly this base prompt.\n</custom_prompt>");
+		expect(prompt).toContain("<skill_policy>");
 		expect(prompt).toContain("<append_system_prompt>\nAppend this.\n</append_system_prompt>");
 		expect(prompt).toContain("<available_tools>");
 		expect(prompt).toContain("- read: read files");

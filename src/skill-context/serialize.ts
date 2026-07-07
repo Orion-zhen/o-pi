@@ -8,26 +8,18 @@ export function serializeSkillContextEntry(entry: SkillContextEntry): string | u
 
 function serializeActivation(entry: SkillActivationEntry): string {
 	return [
-		`<loaded_skill name="${escapeXml(entry.name)}">`,
+		`<skill name="${escapeXml(entry.name)}" status="active">`,
 		entry.body,
-		"</loaded_skill>",
+		"</skill>",
 	].join("\n");
 }
 
 function serializeDeactivation(entry: SkillDeactivationEntry): string | undefined {
 	if (entry.mode === "hard") return undefined;
 	if (entry.name !== undefined) {
-		return [
-			`<unload_skill name="${escapeXml(entry.name)}">`,
-			"Do not apply this skill unless it is loaded again.",
-			"</unload_skill>",
-		].join("\n");
+		return `<skill name="${escapeXml(entry.name)}" status="inactive"/>`;
 	}
-	return [
-		`<unload_previous_skills>`,
-		"No previously loaded skill is active unless loaded again.",
-		"</unload_previous_skills>",
-	].join("\n");
+	return `<skill status="previous all inactive"/>`;
 }
 
 function escapeXml(value: string): string {
