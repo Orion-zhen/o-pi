@@ -60,7 +60,7 @@
 - 命令列表中的 `/skill:<name>` 来自 Pi 内置 skill discovery；执行阶段由本扩展 input hook 接管。
 - 不启动模型，不产生 assistant message，不触发 read 工具。
 - 成功加载后显示 skill 状态卡片；卡片不进入模型上下文。
-- skill body 不进入 system prompt；`/system` 只显示固定 `<skill_policy>`。
+- skill body 不进入 system prompt；扫描到 skill 时 `/system` 只显示 `<skill_policy>`。
 - 已加载 skill 的 `SKILL.md` 会被 read dedupe 阻止重复读取。
 
 ## `/skill`
@@ -83,7 +83,7 @@
 
 - 无参数时显示 active、inactive retained 和 hard cleared 状态。
 - 默认 lazy deactivate：追加 inactive 状态，保留旧 body 以保护 prompt cache。
-- `--hard` 允许后续上下文省略旧 body，不注入 unload block，下一轮 cache prefix 可能重算。
+- `--hard` 允许后续上下文省略旧 body，不注入 inactive tag，下一轮 cache prefix 可能重算。
 - 成功清理后显示 skill 状态卡片；卡片不进入模型上下文。
 - 如果连续 load/clear 之间没有真实会话消息，下一轮上下文只包含该段结束时的净 skill 状态。
 

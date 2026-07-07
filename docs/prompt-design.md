@@ -23,6 +23,7 @@
 ```text
 custom_prompt 或 role
 tool_policy
+skill_policy（仅扫描到 skill 时）
 available_tools
 append_system_prompt
 project_context
@@ -30,7 +31,7 @@ subagents
 context
 ```
 
-`custom_prompt` 可以替换角色、风格和通用行为，但不能移除工具路由不变量。`system-prompt.ts` 只合成 active tool 元数据，不维护具体工具能力表。
+`custom_prompt` 可以替换角色、风格和通用行为，但不能移除工具路由不变量。`system-prompt.ts` 只合成 active tool 元数据和最小 skill 策略，不维护具体工具或 skill 能力表。
 
 ### `<tool_policy>`
 
