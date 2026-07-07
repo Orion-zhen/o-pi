@@ -23,6 +23,26 @@ afterEach(async () => {
 });
 
 describe("lsp references", () => {
+	it("root 命中 exclude_paths 时不启动 LSP", async () => {
+		const config = path.join(configDir, "lsp.jsonc");
+		await writeFile(
+			config,
+			JSON.stringify({
+				version: 1,
+				enabled: true,
+				exclude_paths: [workspace],
+				servers: [{ id: "fake", command: "missing-lsp", extensions: [".ts"] }],
+			}),
+		);
+		process.env.PI_LSP_CONFIG = config;
+
+		const manager = new LspManager();
+		await expect(manager.workspaceSymbols(workspace, "target")).resolves.toEqual([]);
+		await expect(manager.didWrite(workspace, path.join(workspace, "a.ts"), "const x = 1;\n")).resolves.toBeUndefined();
+		await expect(manager.status(workspace)).resolves.toMatchObject({ enabled: false, servers: [] });
+		await manager.reload();
+	});
+
 	it("grep references 开启时把 textDocument/references 转为 symbol 候选", async () => {
 		await mkdir(path.join(workspace, "src"));
 		await writeFile(path.join(workspace, "src", "def.ts"), "export function target() {}\n");

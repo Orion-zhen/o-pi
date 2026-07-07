@@ -18,7 +18,7 @@ export function registerLspCommands(pi: LspCommandApi, manager: LspManager): voi
 async function handleLspCommand(manager: LspManager, args: string, ctx: ExtensionCommandContext): Promise<void> {
 	const [command, ...rest] = args.trim().split(/\s+/).filter(Boolean);
 	if (command === undefined || command === "status") {
-		ctx.ui.notify(formatStatus(await manager.status()), "info");
+		ctx.ui.notify(formatStatus(await manager.status(ctx.cwd)), "info");
 		return;
 	}
 	if (command === "reload") {
