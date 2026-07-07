@@ -31,7 +31,7 @@ export function convertContent(
 	const parsedContentType = parseContentType(contentTypeHeader);
 	if ("status" in parsedContentType) return parsedContentType;
 	const { mime, charset } = parsedContentType;
-	const kind = classifyMime(mime);
+	const kind = shouldTreatUrlAsHtml(finalUrl, mode) ? "html" : classifyMime(mime);
 	if (kind === "binary") {
 		return failure("UNSUPPORTED_CONTENT_TYPE", `${mime || "binary content"} is not supported.`);
 	}
@@ -164,6 +164,17 @@ function classifyMime(mime: string): WebFetchOutputFormat | "html" | "binary" {
 	if (XML_TYPES.has(mime) || mime.endsWith("+xml")) return "xml";
 	if (TEXT_TYPES.has(mime) || mime.startsWith("text/")) return "text";
 	return "binary";
+}
+
+/** 一些站点把静态 HTML 当 text/plain/octet-stream 返回；readable 模式仍应抽取正文。 */
+function shouldTreatUrlAsHtml(finalUrl: string, mode: WebFetchMode): boolean {
+	if (mode !== "readable") return false;
+	try {
+		const pathname = new URL(finalUrl).pathname.toLowerCase();
+		return pathname.endsWith(".html") || pathname.endsWith(".htm");
+	} catch {
+		return false;
+	}
 }
 
 function decodeBytes(body: Uint8Array, charset?: string): { text: string; charset: string } | WebFetchFailureDetails {
