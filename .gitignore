@@ -1,6 +1,6 @@
 agent/auth.json
 agent/settings.json
-agent/permission-state
+agent/state
 agent/sessions
 agent/cookies.txt
 agent/models.jsonc
