@@ -10,6 +10,7 @@ import type { WebSearchProvider } from "./search-providers/types.js";
 import { SearchRequestGate } from "./search-request-gate.js";
 import { providerSignature, SearchCache } from "./search-cache.js";
 import { SnapshotCache } from "./snapshot-cache.js";
+import { escapeXml } from "./url-utils.js";
 import type {
 	WebFetchExecutionContext,
 	WebFetchParams,
@@ -54,7 +55,7 @@ export function createWebToolsRuntime(options: WebToolsRuntimeOptions = {}): Web
 					error: { code: "CONFIG_ERROR" as const, message },
 					duration_ms: 0,
 				};
-				return { content: JSON.stringify(details, null, 2), details };
+				return { content: failureContent("webfetch", details.error.code, details.error.message), details };
 			}
 			allowedFakeIpRanges = config.network.fake_ip_ranges;
 			return executeWebFetch(params, {
@@ -79,7 +80,7 @@ export function createWebToolsRuntime(options: WebToolsRuntimeOptions = {}): Web
 					error: { code: "CONFIG_ERROR" as const, message },
 					duration_ms: 0,
 				};
-				return { content: JSON.stringify(details, null, 2), details };
+				return { content: failureContent("websearch", details.error.code, details.error.message), details };
 			}
 			allowedFakeIpRanges = config.network.fake_ip_ranges;
 			if (searchCacheTtlSeconds !== config.websearch.cache_ttl_seconds) {
@@ -123,6 +124,12 @@ export function createWebToolsRuntime(options: WebToolsRuntimeOptions = {}): Web
 			await dispatcher.close();
 		},
 	};
+}
+
+function failureContent(tool: "webfetch" | "websearch", code: string, message: string): string {
+	return `<error tool="${tool}" code="${escapeXml(code)}">
+${escapeXml(message)}
+</error>`;
 }
 
 function createSearchProviders(

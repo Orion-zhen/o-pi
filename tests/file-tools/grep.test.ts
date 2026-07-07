@@ -71,6 +71,11 @@ describe("grep", () => {
 		expect(result).toMatchObject({ status: "success", path: ".", match: "auto" });
 		expect(firstRegion(result)).toMatchObject({ path: "auth.ts", symbol: "login", detail: "body" });
 		expect(firstRegion(result).content).toContain("export function login()");
+		const text = formatCompactGrepResult(result);
+		expect(text).toContain('<grep query="login" path="." match="auto"');
+		expect(text).toContain('regions="1"');
+		expect(text).toContain("</grep>");
+		expect(text).not.toContain("tokens");
 	});
 
 	it("workspace 内绝对 path 会按 workspace-relative path 检索", async () => {

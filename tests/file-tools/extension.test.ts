@@ -1,10 +1,11 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import fileTools from "../../agent/extensions/file-tools.js";
+import { lspFileHooks } from "../../src/lsp/index.js";
 
 interface ThemeStub {
 	fg(name: string, text: string): string;
@@ -31,6 +32,14 @@ interface Renderable {
 type ToolResultHandler = (event: { toolName: string; details: unknown }) => unknown;
 type RenderResult = (result: unknown, options: { expanded: boolean; isPartial: boolean }, theme: ThemeStub, context: unknown) => Renderable;
 type RenderCall = (args: unknown, theme: ThemeStub, context: unknown) => Renderable;
+type ExecuteResult = { content: Array<{ type: string; text?: string }>; details?: unknown };
+type ExecuteTool = (
+	toolCallId: string,
+	params: unknown,
+	signal: AbortSignal | undefined,
+	onUpdate: undefined,
+	ctx: { cwd: string; sessionManager: { getSessionId(): string } },
+) => Promise<ExecuteResult>;
 
 describe("file-tools extension", () => {
 	beforeAll(() => {
@@ -181,6 +190,131 @@ describe("file-tools extension", () => {
 		expect(output).toContain("-1 old");
 		expect(output).toContain("+1 new");
 	});
+
+	it("read/edit 成功结果给模型返回紧凑文本，完整结构留在 details", async () => {
+		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
+		fileTools({
+			registerTool(tool: { name: string; execute?: ExecuteTool }) {
+				registered.push(tool);
+			},
+			on() {},
+		} as unknown as ExtensionAPI);
+
+		const cwd = await mkdtemp(join(tmpdir(), "o-pi-compact-file-output-"));
+		try {
+			await writeFile(join(cwd, "a.ts"), "one\ntwo\n", "utf8");
+			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1" } };
+			const read = await executeTool(registered, "read", { path: "a.ts" }, ctx);
+			const readText = textResult(read);
+			expect(readText).toBe('<read path="a.ts" lines="1-2/2">\none\ntwo\n</read>');
+			expect(readText).not.toContain('"encoding"');
+			expect(read.details).toMatchObject({ path: "a.ts", content: "one\ntwo\n", encoding: "utf-8", bom: false });
+
+			const edit = await executeTool(registered, "edit", { path: "a.ts", edits: [{ old: "two", new: "TWO" }] }, ctx);
+			const editText = textResult(edit);
+			expect(editText).toBe('<edit path="a.ts" replacements="1" first_changed_line="2"/>');
+			expect(editText).not.toContain('"diff"');
+			expect(edit.details).toMatchObject({ status: "applied", path: "a.ts", replacements: 1, diff: expect.stringContaining("+2 TWO") });
+
+			const failedRead = await executeTool(registered, "read", { path: "missing.ts" }, ctx);
+			expect(textResult(failedRead)).toContain('<error tool="read" code="FILE_NOT_FOUND">');
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("write 成功结果返回紧凑 XML 和有限 LSP 诊断", async () => {
+		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
+		fileTools({
+			registerTool(tool: { name: string; execute?: ExecuteTool }) {
+				registered.push(tool);
+			},
+			on() {},
+		} as unknown as ExtensionAPI);
+
+		const cwd = await mkdtemp(join(tmpdir(), "o-pi-compact-write-output-"));
+		const originalAfterWrite = lspFileHooks.afterWrite;
+		try {
+			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1" } };
+			delete lspFileHooks.afterWrite;
+			const clean = await executeTool(registered, "write", { path: "clean.ts", content: "export const ok = true;\n" }, ctx);
+			expect(textResult(clean)).toBe('<write path="clean.ts" lsp="clean"/>');
+
+			lspFileHooks.afterWrite = vi.fn(async () => ({
+				status: "errors" as const,
+				file_errors: 2,
+				file_warnings: 4,
+				new_errors: 1,
+				new_warnings: 0,
+				resolved_errors: 0,
+				resolved_warnings: 0,
+				baseline: "known" as const,
+				items: [
+					{ severity: "error" as const, line: 12, column: 5, message: "Cannot find name 'foo'.", code: "TS2304" },
+					{ severity: "warning" as const, line: 30, column: 7, message: "'bar' is declared but never used." },
+					{ severity: "warning" as const, line: 31, column: 7, message: "unused 2" },
+					{ severity: "warning" as const, line: 32, column: 7, message: "unused 3" },
+					{ severity: "warning" as const, line: 33, column: 7, message: "unused 4" },
+					{ severity: "error" as const, line: 40, column: 1, message: "hidden" },
+				],
+			}));
+			const errored = await executeTool(registered, "write", { path: "bad.ts", content: "foo\n" }, ctx);
+			expect(textResult(errored)).toBe([
+				'<write path="bad.ts" lsp="errors">',
+				"errors=2 warnings=4 new_errors=1 new_warnings=0",
+				"diag error 12:5 Cannot find name 'foo'. (TS2304)",
+				"diag warning 30:7 'bar' is declared but never used.",
+				"diag warning 31:7 unused 2",
+				"diag warning 32:7 unused 3",
+				"diag warning 33:7 unused 4",
+				"... 1 more diagnostics",
+				"</write>",
+			].join("\n"));
+			expect(errored.details).toMatchObject({ status: "written", lsp: { diagnostics: { status: "errors", items: expect.any(Array) } } });
+		} finally {
+			if (originalAfterWrite === undefined) delete lspFileHooks.afterWrite;
+			else lspFileHooks.afterWrite = originalAfterWrite;
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("文件工具失败结果给模型返回紧凑 error tag", async () => {
+		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
+		fileTools({
+			registerTool(tool: { name: string; execute?: ExecuteTool }) {
+				registered.push(tool);
+			},
+			on() {},
+		} as unknown as ExtensionAPI);
+
+		const cwd = await mkdtemp(join(tmpdir(), "o-pi-compact-error-output-"));
+		try {
+			await writeFile(join(cwd, "a.ts"), "const one = 1;\n", "utf8");
+			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1" } };
+			for (const [tool, params] of [
+				["ls", { path: "missing" }],
+				["find", { query: "" }],
+				["grep", { query: "[", match: "regex" }],
+				["read", { path: "missing.ts" }],
+				["write", { path: ".git/config", content: "x" }],
+				["edit", { path: "a.ts", edits: [{ old: "one", new: "two" }] }],
+			] as const) {
+				const result = await executeTool(registered, tool, params, ctx);
+				const text = textResult(result);
+				expect(text).toMatch(new RegExp(`^<error tool="${tool}" code="[A-Z_]+">\\n[^]+\\n</error>$`));
+				expect(text).not.toContain("\n  ");
+				expect(result.details).toMatchObject({ status: "failed" });
+				if (tool === "edit") expect(text).toContain("next: Read the file, then create a new edit operation.");
+			}
+
+			const grep = await executeTool(registered, "grep", { query: "one" }, ctx);
+			expect(textResult(grep)).toContain("a.ts");
+			expect(textResult(grep)).not.toContain("<error");
+			expect(textResult(grep)).not.toContain('"status"');
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
 });
 
 function renderToolResult(registered: Array<{ name: string; renderResult?: RenderResult }>, toolName: string, details: unknown): string {
@@ -224,4 +358,22 @@ async function renderEditCallAfterPreview(
 		if (output.includes("old") && output.includes("new")) return output;
 	}
 	return edit?.renderCall?.(args, theme, { ...context, lastComponent: first })?.render(120).join("\n") ?? "";
+}
+
+async function executeTool(
+	registered: Array<{ name: string; execute?: ExecuteTool }>,
+	name: string,
+	params: unknown,
+	ctx: { cwd: string; sessionManager: { getSessionId(): string } },
+): Promise<ExecuteResult> {
+	const tool = registered.find((item) => item.name === name);
+	if (tool?.execute === undefined) throw new Error(`${name} execute not registered`);
+	return tool.execute(`${name}-1`, params, undefined, undefined, ctx);
+}
+
+function textResult(result: ExecuteResult): string {
+	return result.content
+		.filter((item): item is { type: string; text: string } => item.type === "text" && typeof item.text === "string")
+		.map((item) => item.text)
+		.join("\n");
 }

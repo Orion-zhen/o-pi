@@ -95,8 +95,10 @@ describe("websearch tool", () => {
 		const result = await executeWebSearch({ query: "x" }, runtime([failedProvider("exa_mcp")]));
 		expect(result.details).toMatchObject({ status: "failed", response_preview: "secret preview" });
 		expect(result.details.status === "failed" ? result.details.attempts?.[0] : undefined).toMatchObject({ provider: "exa_mcp", status: "failed" });
-		expect(result.content).toContain('"provider": "exa_mcp"');
+		expect(result.content).toContain('<error tool="websearch" code="MCP_ERROR">');
+		expect(result.content).toContain("failed without secret");
 		expect(result.content).not.toContain("secret preview");
 		expect(result.content).not.toContain("attempts");
+		expect(result.content).not.toContain("\n  ");
 	});
 });

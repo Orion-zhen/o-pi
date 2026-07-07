@@ -74,9 +74,10 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 }
 
 export function renderGrepSuccess(result: GrepSuccess): string {
-	const lines = [`${result.returned_regions} regions / ${result.returned_files} files · ${result.strategy.join("+")} · ~${result.approx_tokens} tokens`];
+	const lines = [grepOpenTag(result)];
 	if (result.regions.length === 0) {
 		lines.push(result.near_symbols !== undefined && result.near_symbols.length > 0 ? `near symbols: ${result.near_symbols.join(", ")}` : "no regions");
+		lines.push("</grep>");
 		return lines.join("\n");
 	}
 	for (const region of result.regions) {
@@ -85,6 +86,7 @@ export function renderGrepSuccess(result: GrepSuccess): string {
 	const omitted = result.total_candidates - result.returned_regions;
 	if (omitted > 0) lines.push("", `... ${omitted} lower-ranked regions omitted`);
 	if (result.skipped_files !== undefined) lines.push("", `skipped: ${formatSkipped(result.skipped_files)}`);
+	lines.push("</grep>");
 	return lines.join("\n");
 }
 
@@ -188,8 +190,15 @@ function diversify(regions: RankedGrepRegion[], limit: number): RankedGrepRegion
 }
 
 function headerText(input: GrepPackInput, returnedRegions: number, returnedFiles: number, truncated: boolean): string {
-	void truncated;
-	return `${returnedRegions} regions / ${returnedFiles} files · ${input.strategy.join("+")} · ~0 tokens`;
+	return grepOpenTag({
+		query: input.query,
+		path: input.path,
+		match: input.match,
+		strategy: input.strategy,
+		returned_regions: returnedRegions,
+		returned_files: returnedFiles,
+		truncated,
+	});
 }
 
 function projectedTokens(input: GrepPackInput, state: PackState, region: GrepRegion): number {
@@ -209,4 +218,25 @@ function formatSkipped(skipped: GrepSkippedFiles): string {
 	if (skipped.access_denied !== undefined) parts.push(`${skipped.access_denied} access_denied`);
 	if (skipped.too_large !== undefined) parts.push(`${skipped.too_large} too_large`);
 	return parts.join(", ");
+}
+
+function grepOpenTag(result: Pick<GrepSuccess, "query" | "path" | "match" | "strategy" | "returned_regions" | "returned_files" | "truncated">): string {
+	const attrs = [
+		`query="${escapeXmlAttribute(result.query)}"`,
+		`path="${escapeXmlAttribute(result.path)}"`,
+		`match="${result.match}"`,
+		`strategy="${escapeXmlAttribute(result.strategy.join("+"))}"`,
+		`regions="${result.returned_regions}"`,
+		`files="${result.returned_files}"`,
+	];
+	if (result.truncated) attrs.push(`truncated="true"`);
+	return `<grep ${attrs.join(" ")}>`;
+}
+
+function escapeXmlAttribute(value: string): string {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;");
 }

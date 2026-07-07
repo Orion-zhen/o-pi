@@ -93,18 +93,23 @@ describe("webfetch tool", () => {
 		});
 		const result = await executeWebFetch({ url: "https://example.com/start" }, runtime(fetchImpl));
 		expect(result.details).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
+		expect(result.content).toContain('<error tool="webfetch" code="BLOCKED_ADDRESS">');
+		expect(result.content).not.toContain("\n  ");
 	});
 
 	it("正文超限和 HTTP 错误返回结构化 failure", async () => {
 		const tooLarge = await executeWebFetch({ url: "https://example.com/big" }, runtime(async () => response(200, "x", { "content-type": "text/plain", "content-length": "10485761" })));
 		expect(tooLarge.details).toMatchObject({ status: "failed", error: { code: "RESPONSE_TOO_LARGE" } });
+		expect(tooLarge.content).toContain('<error tool="webfetch" code="RESPONSE_TOO_LARGE">');
 
 		const forbidden = await executeWebFetch({ url: "https://example.com/private" }, runtime(async () => response(403, "denied", { "content-type": "text/plain" })));
 		expect(forbidden.details).toMatchObject({ status: "failed", error: { code: "HTTP_ERROR" }, response_preview: "denied" });
+		expect(forbidden.content).toContain('<error tool="webfetch" code="HTTP_ERROR">');
 	});
 
 	it("参数 limit 超过配置上限会拒绝", async () => {
 		const result = await executeWebFetch({ url: "https://example.com/", limit: 2000 }, runtime(async () => response(200, "ok"), 1000));
 		expect(result.details).toMatchObject({ status: "failed", error: { code: "INVALID_ARGUMENT" } });
+		expect(result.content).toContain('<error tool="webfetch" code="INVALID_ARGUMENT">');
 	});
 });

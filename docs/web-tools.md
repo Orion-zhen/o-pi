@@ -47,6 +47,14 @@ Source: exa_mcp
 
 搜索摘要来自搜索结果页，不等于页面正文。需要确认内容时，继续用 `webfetch` 读取选定 URL。
 
+失败时模型只收到紧凑错误标签，完整错误结构保留在 `details`：
+
+```xml
+<error tool="websearch" code="MCP_ERROR">
+provider request failed.
+</error>
+```
+
 ### 限制
 
 - 只搜索公开索引；登录墙后的内容由 `webfetch` 配合 `cookies.txt` 处理。
@@ -78,6 +86,14 @@ webfetch({
 - `offset`/`limit`：对首次转换后的内存 snapshot 切片；长页面结果返回 `range.has_more`、`range.next_offset` 和 `next`，继续读取时使用上次返回的 offset。
 
 `webfetch` 不搜索、不执行 JavaScript、不点击链接、不提交表单、不访问本机或私网。
+
+失败时模型只收到紧凑错误标签，完整错误结构保留在 `details`：
+
+```xml
+<error tool="webfetch" code="HTTP_ERROR">
+403 Forbidden
+</error>
+```
 
 ### 错误码
 

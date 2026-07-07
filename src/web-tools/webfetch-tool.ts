@@ -25,7 +25,7 @@ export interface ExecuteWebFetchRuntime extends Omit<HttpClientOptions, "config"
 export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWebFetchRuntime): Promise<WebFetchResult> {
 	const startedAt = runtime.now();
 	const validation = validateParams(params, runtime.config);
-	if (validation !== undefined) return { content: JSON.stringify(validation), details: { ...validation, duration_ms: runtime.now() - startedAt } };
+	if (validation !== undefined) return { content: failureContent(validation), details: { ...validation, duration_ms: runtime.now() - startedAt } };
 
 	const mode = params.mode ?? "readable";
 	const offset = params.offset ?? 0;
@@ -221,7 +221,9 @@ function successContent(details: { requested_url: string; http_status: number; f
 }
 
 function failureContent(details: WebFetchFailureDetails): string {
-	return JSON.stringify(details, null, 2);
+	return `<error tool="webfetch" code="${escapeXml(details.error.code)}">
+${escapeXml(details.error.message)}
+</error>`;
 }
 
 function preview(text: string): string {

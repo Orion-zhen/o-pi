@@ -128,13 +128,9 @@ function successContent(details: WebSearchSuccessDetails): string {
 }
 
 function failureContent(details: WebSearchFailureDetails): string {
-	const content = {
-		status: "failed",
-		error: details.error,
-		...(details.provider !== undefined ? { provider: details.provider } : {}),
-		...(details.http_status !== undefined ? { http_status: details.http_status } : {}),
-	};
-	return JSON.stringify(content, null, 2);
+	return `<error tool="websearch" code="${escapeXml(details.error.code)}">
+${escapeXml(details.error.message)}
+</error>`;
 }
 
 function truncateChars(value: string, maxChars: number): string {

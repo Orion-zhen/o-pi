@@ -30,11 +30,13 @@ import type {
 	GrepParams,
 	LsParams,
 	LsSuccess,
+	LspEnclosingSymbol,
 	ReadParams,
 	ReadSuccess,
 	WriteSuccess,
 	WriteParams,
 	LspDiagnosticsSummary,
+	LspOutlineItem,
 } from "../../src/file-tools/types.js";
 
 type EditPreview = EditPreviewSuccess | FailedResult;
@@ -151,9 +153,9 @@ export default function fileTools(pi: ExtensionAPI): void {
 		parameters: lsParameters,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const result = await listWorkspaceDirectory(ctx.cwd, params as LsParams);
-			if ("status" in result) {
+			if (isFailedDetails(result)) {
 				return {
-					content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+					content: [{ type: "text", text: formatErrorModelResult("ls", result) }],
 					details: result,
 				};
 			}
@@ -182,9 +184,9 @@ export default function fileTools(pi: ExtensionAPI): void {
 		parameters: findParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const result = await findWorkspaceFiles(ctx.cwd, params as FindParams, signal);
-			if ("status" in result) {
+			if (isFailedDetails(result)) {
 				return {
-					content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+					content: [{ type: "text", text: formatErrorModelResult("find", result) }],
 					details: result,
 				};
 			}
@@ -213,9 +215,9 @@ export default function fileTools(pi: ExtensionAPI): void {
 		parameters: grepParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const result = await grepWorkspaceFiles(ctx.cwd, params as GrepParams, signal, { lsp: lspFileHooks });
-			if ("status" in result) {
+			if (isFailedDetails(result)) {
 				return {
-					content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+					content: [{ type: "text", text: formatErrorModelResult("grep", result) }],
 					details: result,
 				};
 			}
@@ -245,8 +247,13 @@ export default function fileTools(pi: ExtensionAPI): void {
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const versionCache = versionCacheFor(ctx, versionCaches);
 			const result = await readWorkspaceFile(ctx.cwd, params as ReadParams, { versionCache, lsp: lspFileHooks });
+			const text = isReadSuccess(result)
+				? formatReadModelResult(result)
+				: isFailedDetails(result)
+					? formatErrorModelResult("read", result)
+					: JSON.stringify(scrubVersions(result));
 			return {
-				content: [{ type: "text", text: JSON.stringify(scrubVersions(result), null, 2) }],
+				content: [{ type: "text", text }],
 				details: result,
 			};
 		},
@@ -271,14 +278,14 @@ export default function fileTools(pi: ExtensionAPI): void {
 		parameters: writeParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const result = await writeWorkspaceFile(ctx.cwd, params as WriteParams, signal, { lsp: lspFileHooks });
-			if ("status" in result && result.status === "failed") {
+			if (isFailedDetails(result)) {
 				return {
-					content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+					content: [{ type: "text", text: formatErrorModelResult("write", result) }],
 					details: result,
 				};
 			}
 			return {
-				content: [{ type: "text", text: `Successfully wrote ${result.bytes} bytes to ${result.path}` }],
+				content: [{ type: "text", text: formatWriteModelResult(result) }],
 				details: result,
 			};
 		},
@@ -329,8 +336,13 @@ export default function fileTools(pi: ExtensionAPI): void {
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const versionCache = versionCacheFor(ctx, versionCaches);
 			const result = await editWorkspace(ctx.cwd, params as EditParams, { versionCache, lsp: lspFileHooks });
+			const text = isEditSuccessDetails(result)
+				? formatEditModelResult(result)
+				: isFailedDetails(result)
+					? formatErrorModelResult("edit", result)
+					: JSON.stringify(scrubVersions(result));
 			return {
-				content: [{ type: "text", text: JSON.stringify(scrubVersions(result), null, 2) }],
+				content: [{ type: "text", text }],
 				details: result,
 			};
 		},
@@ -660,6 +672,113 @@ function scrubVersions(value: unknown): unknown {
 		result[key] = scrubVersions(item);
 	}
 	return result;
+}
+
+/** 文件工具失败的模型可见结果；完整错误结构保留在 details。 */
+function formatErrorModelResult(tool: string, result: FailedResult): string {
+	const next = result.error.next !== undefined ? `\nnext: ${escapeXmlText(result.error.next)}` : "";
+	return `<error tool="${escapeXmlAttribute(tool)}" code="${escapeXmlAttribute(result.error.code)}">
+${escapeXmlText(result.error.message)}${next}
+</error>`;
+}
+
+/** read 的模型可见成功结果：默认字段留在 details，只输出定位、正文和非默认状态。 */
+function formatReadModelResult(result: ReadSuccess): string {
+	const attrs = [
+		`path="${escapeXmlAttribute(result.path)}"`,
+		`lines="${result.start_line}-${result.end_line}/${result.total_lines}"`,
+	];
+	if (result.continuation !== undefined) attrs.push(`more="${result.continuation.start_line}"`);
+	else if (result.truncated) attrs.push(`truncated="true"`);
+	if (result.ignored) attrs.push(`ignored="${escapeXmlAttribute(result.ignore_source ?? "true")}"`);
+	if (result.bom) attrs.push(`bom="true"`);
+	if (result.newline !== "lf") attrs.push(`newline="${result.newline}"`);
+
+	const lsp = formatReadLsp(result.lsp);
+	let text = `<read ${attrs.join(" ")}>\n${result.content}`;
+	if (!text.endsWith("\n")) text += "\n";
+	if (lsp !== undefined) text += `${lsp}\n`;
+	return `${text}</read>`;
+}
+
+/** edit 的模型可见成功结果只确认写入事实；diff/LSP 完整信息保留在 details 给 UI。 */
+function formatEditModelResult(result: EditSuccess): string {
+	const attrs = [
+		`path="${escapeXmlAttribute(result.path)}"`,
+		`replacements="${result.replacements}"`,
+	];
+	if (result.firstChangedLine !== undefined) attrs.push(`first_changed_line="${result.firstChangedLine}"`);
+	return `<edit ${attrs.join(" ")}/>`;
+}
+
+function formatWriteModelResult(result: WriteSuccess): string {
+	const diagnostics = result.lsp?.diagnostics;
+	const status = diagnostics?.status ?? "clean";
+	const attrs = [
+		`path="${escapeXmlAttribute(result.path)}"`,
+		`lsp="${escapeXmlAttribute(status)}"`,
+	];
+	if (diagnostics === undefined || isCleanDiagnostics(diagnostics)) return `<write ${attrs.join(" ")}/>`;
+
+	const lines = [
+		`<write ${attrs.join(" ")}>`,
+		`errors=${diagnostics.file_errors} warnings=${diagnostics.file_warnings} new_errors=${diagnostics.new_errors} new_warnings=${diagnostics.new_warnings}`,
+		...formatDiagnosticItems(diagnostics.items, 5),
+		"</write>",
+	];
+	return lines.join("\n");
+}
+
+function isCleanDiagnostics(diagnostics: LspDiagnosticsSummary): boolean {
+	return diagnostics.status === "clean"
+		&& diagnostics.file_errors === 0
+		&& diagnostics.file_warnings === 0
+		&& diagnostics.new_errors === 0
+		&& diagnostics.new_warnings === 0
+		&& diagnostics.items.length === 0;
+}
+
+function formatDiagnosticItems(items: LspDiagnosticsSummary["items"], limit: number): string[] {
+	const visible = items.slice(0, limit).map((item) => {
+		const code = item.code !== undefined ? ` (${item.code})` : "";
+		return `diag ${item.severity} ${item.line}:${item.column} ${escapeXmlText(item.message)}${escapeXmlText(code)}`;
+	});
+	const remaining = items.length - visible.length;
+	if (remaining > 0) visible.push(`... ${remaining} more diagnostics`);
+	return visible;
+}
+
+function formatReadLsp(lsp: ReadSuccess["lsp"]): string | undefined {
+	if (lsp === undefined) return undefined;
+	const attrs: string[] = [];
+	if (lsp.enclosing_symbol !== undefined) attrs.push(`enclosing="${escapeXmlAttribute(formatSymbolRange(lsp.enclosing_symbol))}"`);
+	if (lsp.outline !== undefined && lsp.outline.length > 0) attrs.push(`outline="${escapeXmlAttribute(lsp.outline.map(formatOutlineItem).join("; "))}"`);
+	return attrs.length === 0 ? undefined : `<lsp ${attrs.join(" ")}/>`;
+}
+
+function formatOutlineItem(item: LspOutlineItem): string {
+	const current = formatSymbolRange(item);
+	if (item.children === undefined || item.children.length === 0) return current;
+	return `${current} > ${item.children.map(formatOutlineItem).join(", ")}`;
+}
+
+function formatSymbolRange(item: LspOutlineItem | LspEnclosingSymbol): string {
+	return `${item.kind} ${item.name} ${item.line}-${item.end_line}`;
+}
+
+function escapeXmlAttribute(value: string): string {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;");
+}
+
+function escapeXmlText(value: string): string {
+	return value
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
 }
 
 function formatFindCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, cwd: string): string {
