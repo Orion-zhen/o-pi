@@ -167,6 +167,7 @@ describe("system prompt extension", () => {
 		} as never);
 
 		expect(customCalled).toBe(true);
+		expect(customLines?.[0]).toMatch(/System prompt \(\d+ chars, ~\d+ tokens, \d+ lines\)/);
 		expect(customLines?.some((line) => line.includes("<available_tools>"))).toBe(true);
 		expect(customLines?.some((line) => line.includes("Pi built-in prompt"))).toBe(false);
 		expect(sendMessageCalled).toBe(false);
@@ -193,6 +194,7 @@ describe("system prompt extension", () => {
 		const rendered = viewer.render(width);
 
 		expect(rendered.length).toBeGreaterThan(5);
+		expect(rendered[0]).toMatch(/System prompt \(\d+ chars, ~\d+ tokens, \d+ lines\)/);
 		for (const line of rendered) {
 			expect(visibleWidth(line)).toBe(width);
 			expect(line).not.toContain("\r");
