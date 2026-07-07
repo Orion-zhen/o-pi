@@ -1,12 +1,10 @@
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
+import { findNearestProjectRoot as findNearestProjectRootBase, projectPiPath, readOptionalJsoncConfig, userAgentPath } from "../config-loader.js";
 
 const USER_CONFIG_ENV = "PI_TOOLS_CONFIG";
 const PROJECT_CONFIG_ENV = "PI_TOOLS_PROJECT_CONFIG";
 const PROJECT_ROOT_ENV = "PI_TOOLS_PROJECT_ROOT";
+
+export const findNearestProjectRoot = findNearestProjectRootBase;
 
 export interface ToolDefaultsConfig {
 	tools: Record<string, boolean>;
@@ -54,47 +52,18 @@ function parseToolMap(value: unknown, sourcePath: string): Record<string, boolea
 }
 
 async function readOptionalConfig(filePath: string): Promise<{ value: unknown } | undefined> {
-	let text: string;
-	try {
-		text = await readFile(filePath, "utf8");
-	} catch (error) {
-		if (isNotFound(error)) return undefined;
-		throw new ToolDefaultsConfigError("tools config cannot be read.", { path: filePath });
-	}
-
-	const errors: ParseError[] = [];
-	const value = parse(text, errors, { allowTrailingComma: true });
-	if (errors.length > 0) {
-		const first = errors[0];
-		throw new ToolDefaultsConfigError("tools config is not valid JSONC.", {
-			path: filePath,
-			error: first ? printParseErrorCode(first.error) : "unknown",
-			offset: first?.offset,
-		});
-	}
-	return { value };
+	const value = await readOptionalJsoncConfig({
+		path: filePath,
+		label: "tools",
+		createError: (message, details) => new ToolDefaultsConfigError(message, details),
+	});
+	return value === undefined ? undefined : { value };
 }
 
 function userConfigPath(): string {
-	return process.env[USER_CONFIG_ENV] ?? path.join(os.homedir(), ".pi", "agent", "tools.jsonc");
+	return userAgentPath("tools.jsonc", USER_CONFIG_ENV);
 }
 
 function projectConfigPath(cwd: string): string | undefined {
-	if (process.env[PROJECT_CONFIG_ENV]) return process.env[PROJECT_CONFIG_ENV];
-	const root = process.env[PROJECT_ROOT_ENV] ?? findNearestProjectRoot(cwd);
-	return root === undefined ? undefined : path.join(root, ".pi", "tools.jsonc");
-}
-
-export function findNearestProjectRoot(cwd: string): string | undefined {
-	let current = path.resolve(cwd);
-	while (true) {
-		if (existsSync(path.join(current, ".pi"))) return current;
-		const parent = path.dirname(current);
-		if (parent === current) return undefined;
-		current = parent;
-	}
-}
-
-function isNotFound(error: unknown): boolean {
-	return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+	return projectPiPath(cwd, "tools.jsonc", PROJECT_CONFIG_ENV, PROJECT_ROOT_ENV);
 }

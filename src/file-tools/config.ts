@@ -1,11 +1,4 @@
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { Ajv, type ValidateFunction } from "ajv/dist/ajv.js";
-import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
-
+import { agentSchemaPath, createSchemaValidator, projectAgentConfigPath, readOptionalJsoncConfigWithSchema, userAgentConfigPath } from "../config-loader.js";
 import { pathMatchesAnyRule, type PathIdentity } from "../safety/path-guard.js";
 import { fail } from "./errors.js";
 import type { FailedResult, ToolOutcome } from "./types.js";
@@ -77,7 +70,12 @@ const defaultConfig: FileToolsConfig = {
 	},
 };
 
-let compiledValidator: ValidateFunction | undefined;
+class FileToolsConfigError extends Error {
+	constructor(message: string, readonly details?: Record<string, unknown>) {
+		super(message);
+		this.name = "FileToolsConfigError";
+	}
+}
 
 /** 读取用户与项目文件工具 JSONC 配置；项目配置只能追加路径规则并覆盖普通预算。 */
 export async function loadFileToolsConfig(cwd = process.cwd()): Promise<ToolOutcome<FileToolsConfig>> {
@@ -93,33 +91,20 @@ export async function loadFileToolsConfig(cwd = process.cwd()): Promise<ToolOutc
 }
 
 async function readConfig(configPath: string): Promise<RawFileToolsConfig | undefined | FailedResult> {
-	let text: string;
 	try {
-		text = await readFile(configPath, "utf8");
+		const parsed = await readOptionalJsoncConfigWithSchema({
+			path: configPath,
+			label: "file-tools",
+			loadValidator,
+			createError: (message, details) => new FileToolsConfigError(message, details),
+		});
+		return parsed as RawFileToolsConfig | undefined;
 	} catch (error) {
-		if (isNotFound(error)) return undefined;
-		return fail("CONFIG_ERROR", "file-tools config cannot be read.", { details: { path: configPath } });
+		if (error instanceof FileToolsConfigError) {
+			return error.details === undefined ? fail("CONFIG_ERROR", error.message) : fail("CONFIG_ERROR", error.message, { details: error.details });
+		}
+		throw error;
 	}
-
-	const parseErrors: ParseError[] = [];
-	const parsed = parse(text, parseErrors, { allowTrailingComma: true });
-	if (parseErrors.length > 0) {
-		const first = parseErrors[0];
-		if (first === undefined) return fail("CONFIG_ERROR", "file-tools config is not valid JSONC.", { details: { path: configPath } });
-		return fail("CONFIG_ERROR", "file-tools config is not valid JSONC.", {
-			details: { path: configPath, error: printParseErrorCode(first.error), offset: first.offset },
-		});
-	}
-
-	const validator = await loadValidator();
-	if (isFailed(validator)) return validator;
-	if (!validator(parsed)) {
-		return fail("CONFIG_ERROR", "file-tools config does not match schema.", {
-			details: { path: configPath, errors: validator.errors ?? [] },
-		});
-	}
-
-	return parsed as RawFileToolsConfig;
 }
 
 export function ignoreConfigFromFileTools(config: FileToolsConfig): PartialIgnoreConfig {
@@ -204,59 +189,23 @@ function mergeConfig(base: FileToolsConfig, raw: RawFileToolsConfig | undefined)
 	};
 }
 
-async function loadValidator(): Promise<ToolOutcome<ValidateFunction>> {
-	if (compiledValidator !== undefined) return compiledValidator;
-	const schemaPath = path.join(projectRoot(), "agent", "schemas", "file-tools.schema.json");
-	let schema;
-	try {
-		schema = JSON.parse(await readFile(schemaPath, "utf8")) as object;
-	} catch {
-		return fail("CONFIG_ERROR", "file-tools schema cannot be read.", { details: { path: schemaPath } });
-	}
-	const ajv = new Ajv({ allErrors: true, strict: true, validateSchema: false });
-	let validator: ValidateFunction;
-	try {
-		validator = ajv.compile(schema);
-	} catch (error) {
-		return fail("CONFIG_ERROR", "file-tools schema is invalid.", {
-			details: { path: schemaPath, error: error instanceof Error ? error.message : String(error) },
-		});
-	}
-	compiledValidator = validator;
-	return validator;
-}
+const loadValidator = createSchemaValidator({
+	schemaPath: agentSchemaPath("file-tools.schema.json"),
+	label: "file-tools",
+	createError: (message, details) => new FileToolsConfigError(message, details),
+});
 
 function userConfigPath(): string {
-	return process.env[USER_CONFIG_ENV] ?? path.join(os.homedir(), ".pi", "agent", "configs", "file-tools.jsonc");
+	return userAgentConfigPath("file-tools.jsonc", USER_CONFIG_ENV);
 }
 
 function projectConfigPath(cwd: string): string | undefined {
-	if (process.env[PROJECT_CONFIG_ENV]) return process.env[PROJECT_CONFIG_ENV];
-	const root = process.env[PROJECT_ROOT_ENV] ?? findNearestProjectRoot(cwd);
-	return root === undefined ? undefined : path.join(root, ".pi", "configs", "file-tools.jsonc");
-}
-
-function findNearestProjectRoot(cwd: string): string | undefined {
-	let current = path.resolve(cwd);
-	while (true) {
-		if (existsSync(path.join(current, ".pi"))) return current;
-		const parent = path.dirname(current);
-		if (parent === current) return undefined;
-		current = parent;
-	}
-}
-
-function projectRoot(): string {
-	return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+	return projectAgentConfigPath(cwd, "file-tools.jsonc", PROJECT_CONFIG_ENV, PROJECT_ROOT_ENV);
 }
 
 function appendUnique(base: string[], extra: string[] | undefined): string[] {
 	if (extra === undefined) return [...base];
 	return Array.from(new Set([...base, ...extra]));
-}
-
-function isNotFound(error: unknown): boolean {
-	return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
 
 function isFailed<T>(result: T | FailedResult): result is FailedResult {

@@ -1,10 +1,6 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { Ajv, type ValidateFunction } from "ajv/dist/ajv.js";
-import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import ipaddr from "ipaddr.js";
 
+import { agentConfigPath, agentPath, agentSchemaPath, createSchemaValidator, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
 import { guardPublicHttpUrlLiteral } from "../safety/url-guard.js";
 import type { WebToolsConfig } from "./types.js";
 
@@ -56,8 +52,6 @@ const defaultConfig: WebToolsConfig = {
 	},
 };
 
-let compiledValidator: ValidateFunction | undefined;
-
 export class WebToolsConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
 		super(message);
@@ -68,33 +62,13 @@ export class WebToolsConfigError extends Error {
 /** 读取 Web 工具 JSONC 配置；配置错误直接失败，避免凭据或网络策略静默降级。 */
 export async function loadWebToolsConfig(): Promise<WebToolsConfig> {
 	const configPath = resolveConfigPath();
-	let text: string;
-	try {
-		text = await readFile(configPath, "utf8");
-	} catch (error) {
-		if (isNotFound(error)) return defaultWebToolsConfig();
-		throw new WebToolsConfigError("web-tools config cannot be read.", { path: configPath });
-	}
-
-	const parseErrors: ParseError[] = [];
-	const parsed = parse(text, parseErrors, { allowTrailingComma: true });
-	if (parseErrors.length > 0) {
-		const first = parseErrors[0];
-		throw new WebToolsConfigError("web-tools config is not valid JSONC.", {
-			path: configPath,
-			error: first ? printParseErrorCode(first.error) : "unknown",
-			offset: first?.offset,
-		});
-	}
-
-	const validator = await loadValidator();
-	if (!validator(parsed)) {
-		throw new WebToolsConfigError("web-tools config does not match schema.", {
-			path: configPath,
-			errors: validator.errors ?? [],
-		});
-	}
-
+	const parsed = await readOptionalJsoncConfigWithSchema({
+		path: configPath,
+		label: "web-tools",
+		loadValidator,
+		createError: (message, details) => new WebToolsConfigError(message, details),
+	});
+	if (parsed === undefined) return defaultWebToolsConfig();
 	return mergeConfig(parsed as RawWebToolsConfig);
 }
 
@@ -125,7 +99,7 @@ export function defaultWebToolsConfig(): WebToolsConfig {
 }
 
 export function defaultCookiePath(): string {
-	return process.env[COOKIES_PATH_ENV] ?? path.join(projectRoot(), "agent", "cookies.txt");
+	return process.env[COOKIES_PATH_ENV] ?? agentPath("cookies.txt");
 }
 
 interface RawWebToolsConfig {
@@ -235,28 +209,12 @@ function cidrInside(child: [ipaddr.IPv4 | ipaddr.IPv6, number], parent: [ipaddr.
 	return child[0].match(parent);
 }
 
-async function loadValidator(): Promise<ValidateFunction> {
-	if (compiledValidator !== undefined) return compiledValidator;
-	const schemaPath = path.join(projectRoot(), "agent", "schemas", "web-tools.schema.json");
-	let schema: object;
-	try {
-		schema = JSON.parse(await readFile(schemaPath, "utf8")) as object;
-	} catch {
-		throw new WebToolsConfigError("web-tools schema cannot be read.", { path: schemaPath });
-	}
-	const ajv = new Ajv({ allErrors: true, strict: true, validateSchema: false });
-	compiledValidator = ajv.compile(schema);
-	return compiledValidator;
-}
+const loadValidator = createSchemaValidator({
+	schemaPath: agentSchemaPath("web-tools.schema.json"),
+	label: "web-tools",
+	createError: (message, details) => new WebToolsConfigError(message, details),
+});
 
 function resolveConfigPath(): string {
-	return process.env[CONFIG_PATH_ENV] ?? path.join(projectRoot(), "agent", "configs", "web-tools.jsonc");
-}
-
-function projectRoot(): string {
-	return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-}
-
-function isNotFound(error: unknown): boolean {
-	return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+	return agentConfigPath("web-tools.jsonc", CONFIG_PATH_ENV);
 }

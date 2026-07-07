@@ -1,8 +1,4 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { Ajv, type ValidateFunction } from "ajv/dist/ajv.js";
-import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
+import { agentConfigPath, agentSchemaPath, createSchemaValidator, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
 import type { TuiConfig } from "./types.js";
 
 const CONFIG_PATH_ENV = "PI_TUI_CONFIG";
@@ -48,8 +44,6 @@ const defaultConfig: TuiConfig = {
 	},
 };
 
-let compiledValidator: ValidateFunction | undefined;
-
 export class TuiConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
 		super(message);
@@ -60,29 +54,13 @@ export class TuiConfigError extends Error {
 /** 读取 o-pi TUI JSONC 配置；配置错误直接抛出，避免静默丢失 UI 行为。 */
 export async function loadTuiConfig(): Promise<TuiConfig> {
 	const configPath = resolveConfigPath();
-	let text: string;
-	try {
-		text = await readFile(configPath, "utf8");
-	} catch (error) {
-		if (isNotFound(error)) return defaultTuiConfig();
-		throw new TuiConfigError("tui config cannot be read.", { path: configPath });
-	}
-
-	const parseErrors: ParseError[] = [];
-	const parsed = parse(text, parseErrors, { allowTrailingComma: true });
-	if (parseErrors.length > 0) {
-		const first = parseErrors[0];
-		throw new TuiConfigError("tui config is not valid JSONC.", {
-			path: configPath,
-			error: first ? printParseErrorCode(first.error) : "unknown",
-			offset: first?.offset,
-		});
-	}
-
-	const validator = await loadValidator();
-	if (!validator(parsed)) {
-		throw new TuiConfigError("tui config does not match schema.", { path: configPath, errors: validator.errors ?? [] });
-	}
+	const parsed = await readOptionalJsoncConfigWithSchema({
+		path: configPath,
+		label: "tui",
+		loadValidator,
+		createError: (message, details) => new TuiConfigError(message, details),
+	});
+	if (parsed === undefined) return defaultTuiConfig();
 	return mergeConfig(parsed as RawTuiConfig);
 }
 
@@ -160,28 +138,12 @@ function mergeConfig(raw: RawTuiConfig): TuiConfig {
 	return merged;
 }
 
-async function loadValidator(): Promise<ValidateFunction> {
-	if (compiledValidator !== undefined) return compiledValidator;
-	const schemaPath = path.join(projectRoot(), "agent", "schemas", "tui.schema.json");
-	let schema: object;
-	try {
-		schema = JSON.parse(await readFile(schemaPath, "utf8")) as object;
-	} catch {
-		throw new TuiConfigError("tui schema cannot be read.", { path: schemaPath });
-	}
-	const ajv = new Ajv({ allErrors: true, strict: true, validateSchema: false });
-	compiledValidator = ajv.compile(schema);
-	return compiledValidator;
-}
+const loadValidator = createSchemaValidator({
+	schemaPath: agentSchemaPath("tui.schema.json"),
+	label: "tui",
+	createError: (message, details) => new TuiConfigError(message, details),
+});
 
 function resolveConfigPath(): string {
-	return process.env[CONFIG_PATH_ENV] ?? path.join(projectRoot(), "agent", "configs", "tui.jsonc");
-}
-
-function projectRoot(): string {
-	return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-}
-
-function isNotFound(error: unknown): boolean {
-	return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+	return agentConfigPath("tui.jsonc", CONFIG_PATH_ENV);
 }

@@ -1,8 +1,4 @@
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
+import { findNearestProjectRoot as findNearestProjectRootBase, projectAgentConfigPath, readOptionalJsoncConfig, userAgentConfigPath } from "../config-loader.js";
 import type { AgentOverride, OutputMode, SubagentConfig } from "./types.js";
 
 const USER_CONFIG_ENV = "PI_SUBAGENT_USER_CONFIG";
@@ -18,6 +14,8 @@ const NUMBER_RANGES = {
 	maxInlineOutputChars: [1_000, 200_000],
 	maxHandoffChars: [1_000, 200_000],
 } as const;
+
+export const findNearestProjectRoot = findNearestProjectRootBase;
 
 export class SubagentConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
@@ -126,45 +124,20 @@ export function validateConfig(config: SubagentConfig, sourcePath?: string): voi
 }
 
 function userConfigPath(): string {
-	return process.env[USER_CONFIG_ENV] ?? path.join(os.homedir(), ".pi", "agent", "configs", "subagent.jsonc");
+	return userAgentConfigPath("subagent.jsonc", USER_CONFIG_ENV);
 }
 
 function projectConfigPath(cwd: string): string | undefined {
-	if (process.env[PROJECT_CONFIG_ENV]) return process.env[PROJECT_CONFIG_ENV];
-	const root = process.env[PROJECT_ROOT_ENV] ?? findNearestProjectRoot(cwd);
-	return root === undefined ? undefined : path.join(root, ".pi", "configs", "subagent.jsonc");
-}
-
-export function findNearestProjectRoot(cwd: string): string | undefined {
-	let current = path.resolve(cwd);
-	while (true) {
-		const marker = path.join(current, ".pi");
-		if (existsSync(marker)) return current;
-		const parent = path.dirname(current);
-		if (parent === current) return undefined;
-		current = parent;
-	}
+	return projectAgentConfigPath(cwd, "subagent.jsonc", PROJECT_CONFIG_ENV, PROJECT_ROOT_ENV);
 }
 
 async function readOptionalConfig(filePath: string): Promise<{ value: unknown } | undefined> {
-	let text: string;
-	try {
-		text = await readFile(filePath, "utf8");
-	} catch (error) {
-		if (isNotFound(error)) return undefined;
-		throw new SubagentConfigError("subagent config cannot be read.", { path: filePath });
-	}
-	const errors: ParseError[] = [];
-	const value = parse(text, errors, { allowTrailingComma: true });
-	if (errors.length > 0) {
-		const first = errors[0];
-		throw new SubagentConfigError("subagent config is not valid JSONC.", {
-			path: filePath,
-			error: first ? printParseErrorCode(first.error) : "unknown",
-			offset: first?.offset,
-		});
-	}
-	return { value };
+	const value = await readOptionalJsoncConfig({
+		path: filePath,
+		label: "subagent",
+		createError: (message, details) => new SubagentConfigError(message, details),
+	});
+	return value === undefined ? undefined : { value };
 }
 
 function parseOverrides(value: unknown): Record<string, AgentOverride> {
@@ -234,8 +207,4 @@ function requireInteger(value: unknown, field: string): number {
 function asRecord(value: unknown, field: string): Record<string, unknown> {
 	if (typeof value === "object" && value !== null && !Array.isArray(value)) return value as Record<string, unknown>;
 	throw new SubagentConfigError(`${field} must be an object.`);
-}
-
-function isNotFound(error: unknown): boolean {
-	return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }

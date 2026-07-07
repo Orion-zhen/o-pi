@@ -1,10 +1,6 @@
-import { readFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { Ajv, type ValidateFunction } from "ajv/dist/ajv.js";
-import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 
+import { agentConfigPath, agentSchemaPath, createSchemaValidator, expandHomePath, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
 import type { LoadedLspConfig, LspConfig, LspServerConfig } from "./types.js";
 
 const CONFIG_PATH_ENV = "PI_LSP_CONFIG";
@@ -61,8 +57,6 @@ const defaultConfig: LspConfig = {
 	servers: defaultServers,
 };
 
-let compiledValidator: ValidateFunction | undefined;
-
 /** LSP 配置读取、JSONC 解析或 schema 校验失败。 */
 export class LspConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
@@ -95,30 +89,13 @@ interface RawLspConfig {
 /** 读取用户级 LSP JSONC 配置；不会读取项目级配置，避免项目配置执行任意本地 command。 */
 export async function loadLspConfig(): Promise<LoadedLspConfig> {
 	const configPath = resolveLspConfigPath();
-	let text: string;
-	try {
-		text = await readFile(configPath, "utf8");
-	} catch (error) {
-		if (isNotFound(error)) return { path: configPath, config: defaultLspConfig() };
-		throw new LspConfigError("lsp config cannot be read.", { path: configPath });
-	}
-
-	const parseErrors: ParseError[] = [];
-	const parsed = parse(text, parseErrors, { allowTrailingComma: true });
-	if (parseErrors.length > 0) {
-		const first = parseErrors[0];
-		throw new LspConfigError("lsp config is not valid JSONC.", {
-			path: configPath,
-			error: first ? printParseErrorCode(first.error) : "unknown",
-			offset: first?.offset,
-		});
-	}
-
-	const validator = await loadValidator();
-	if (!validator(parsed)) {
-		throw new LspConfigError("lsp config does not match schema.", { path: configPath, errors: validator.errors ?? [] });
-	}
-
+	const parsed = await readOptionalJsoncConfigWithSchema({
+		path: configPath,
+		label: "lsp",
+		loadValidator,
+		createError: (message, details) => new LspConfigError(message, details),
+	});
+	if (parsed === undefined) return { path: configPath, config: defaultLspConfig() };
 	return { path: configPath, config: mergeConfig(parsed as RawLspConfig) };
 }
 
@@ -134,7 +111,7 @@ export function defaultLspConfig(): LspConfig {
 }
 
 export function resolveLspConfigPath(): string {
-	return process.env[CONFIG_PATH_ENV] ?? path.join(projectRoot(), "agent", "configs", "lsp.jsonc");
+	return agentConfigPath("lsp.jsonc", CONFIG_PATH_ENV);
 }
 
 function mergeConfig(raw: RawLspConfig): LspConfig {
@@ -176,28 +153,11 @@ function mergeConfig(raw: RawLspConfig): LspConfig {
 }
 
 export function normalizeExcludePath(input: string): string {
-	const expanded = input === "~" ? os.homedir() : input.startsWith("~/") ? path.join(os.homedir(), input.slice(2)) : input;
-	return path.resolve(expanded);
+	return path.resolve(expandHomePath(input));
 }
 
-async function loadValidator(): Promise<ValidateFunction> {
-	if (compiledValidator !== undefined) return compiledValidator;
-	const schemaPath = path.join(projectRoot(), "agent", "schemas", "lsp.schema.json");
-	let schema: object;
-	try {
-		schema = JSON.parse(await readFile(schemaPath, "utf8")) as object;
-	} catch {
-		throw new LspConfigError("lsp schema cannot be read.", { path: schemaPath });
-	}
-	const ajv = new Ajv({ allErrors: true, strict: true, validateSchema: false });
-	compiledValidator = ajv.compile(schema);
-	return compiledValidator;
-}
-
-function projectRoot(): string {
-	return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-}
-
-function isNotFound(error: unknown): boolean {
-	return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
-}
+const loadValidator = createSchemaValidator({
+	schemaPath: agentSchemaPath("lsp.schema.json"),
+	label: "lsp",
+	createError: (message, details) => new LspConfigError(message, details),
+});

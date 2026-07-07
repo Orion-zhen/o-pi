@@ -1,9 +1,4 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { Ajv, type ValidateFunction } from "ajv/dist/ajv.js";
-import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
-
+import { agentConfigPath, agentSchemaPath, createSchemaValidator, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
 import { PatternGuardConfigError, validatePatternGuardConfig } from "../safety/pattern-guard.js";
 import type { BashToolConfig } from "./types.js";
 
@@ -30,8 +25,6 @@ const defaultConfig: BashToolConfig = {
 	},
 };
 
-let compiledValidator: ValidateFunction | undefined;
-
 export class BashConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
 		super(message);
@@ -42,33 +35,13 @@ export class BashConfigError extends Error {
 /** 读取独立 bash JSONC 配置；配置错误直接失败，避免静默使用不安全预算。 */
 export async function loadBashToolConfig(): Promise<BashToolConfig> {
 	const configPath = resolveConfigPath();
-	let text: string;
-	try {
-		text = await readFile(configPath, "utf8");
-	} catch (error) {
-		if (isNotFound(error)) return defaultBashToolConfig();
-		throw new BashConfigError("bash-tool config cannot be read.", { path: configPath });
-	}
-
-	const parseErrors: ParseError[] = [];
-	const parsed = parse(text, parseErrors, { allowTrailingComma: true });
-	if (parseErrors.length > 0) {
-		const first = parseErrors[0];
-		throw new BashConfigError("bash-tool config is not valid JSONC.", {
-			path: configPath,
-			error: first ? printParseErrorCode(first.error) : "unknown",
-			offset: first?.offset,
-		});
-	}
-
-	const validator = await loadValidator();
-	if (!validator(parsed)) {
-		throw new BashConfigError("bash-tool config does not match schema.", {
-			path: configPath,
-			errors: validator.errors ?? [],
-		});
-	}
-
+	const parsed = await readOptionalJsoncConfigWithSchema({
+		path: configPath,
+		label: "bash-tool",
+		loadValidator,
+		createError: (message, details) => new BashConfigError(message, details),
+	});
+	if (parsed === undefined) return defaultBashToolConfig();
 	return mergeConfig(parsed as RawBashToolConfig);
 }
 
@@ -117,28 +90,12 @@ function mergeConfig(raw: RawBashToolConfig): BashToolConfig {
 	return merged;
 }
 
-async function loadValidator(): Promise<ValidateFunction> {
-	if (compiledValidator !== undefined) return compiledValidator;
-	const schemaPath = path.join(projectRoot(), "agent", "schemas", "bash-tool.schema.json");
-	let schema: object;
-	try {
-		schema = JSON.parse(await readFile(schemaPath, "utf8")) as object;
-	} catch {
-		throw new BashConfigError("bash-tool schema cannot be read.", { path: schemaPath });
-	}
-	const ajv = new Ajv({ allErrors: true, strict: true, validateSchema: false });
-	compiledValidator = ajv.compile(schema);
-	return compiledValidator;
-}
+const loadValidator = createSchemaValidator({
+	schemaPath: agentSchemaPath("bash-tool.schema.json"),
+	label: "bash-tool",
+	createError: (message, details) => new BashConfigError(message, details),
+});
 
 function resolveConfigPath(): string {
-	return process.env[CONFIG_PATH_ENV] ?? path.join(projectRoot(), "agent", "configs", "bash-tool.jsonc");
-}
-
-function projectRoot(): string {
-	return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-}
-
-function isNotFound(error: unknown): boolean {
-	return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+	return agentConfigPath("bash-tool.jsonc", CONFIG_PATH_ENV);
 }

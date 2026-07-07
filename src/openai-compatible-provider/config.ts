@@ -5,6 +5,7 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Ajv, type ErrorObject, type ValidateFunction } from "ajv/dist/ajv.js";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 
+import { isNotFound } from "../config-loader.js";
 import { invalidModelsJsonc } from "./errors.js";
 import { COMPAT_PRESETS } from "./presets.js";
 import { ModelsJsoncConfigSchema, type ModelsJsoncConfig } from "./schema.js";
@@ -87,10 +88,6 @@ function formatInstancePath(instancePath: string): string {
 		.join("")
 		.replace(/^\./, "")
 		.replace(/\.\[/g, "[");
-}
-
-function isNotFound(error: unknown): boolean {
-	return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
 
 const PROVIDER_SAMPLING_FIELDS = new Set([

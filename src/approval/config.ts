@@ -1,9 +1,4 @@
-import { readFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { Ajv, type ValidateFunction } from "ajv/dist/ajv.js";
-import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
+import { agentConfigPath, agentSchemaPath, createSchemaValidator, expandHomePath, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
 import type { ApprovalGateConfig, ApprovalRule } from "./types.js";
 
 const CONFIG_PATH_ENV = "PI_APPROVAL_GATE_CONFIG";
@@ -66,8 +61,6 @@ const defaultConfig: ApprovalGateConfig = {
 	deny_rules: [],
 };
 
-let compiledValidator: ValidateFunction | undefined;
-
 export class ApprovalConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
 		super(message);
@@ -77,33 +70,13 @@ export class ApprovalConfigError extends Error {
 
 export async function loadApprovalGateConfig(): Promise<ApprovalGateConfig> {
 	const configPath = resolveConfigPath();
-	let text: string;
-	try {
-		text = await readFile(configPath, "utf8");
-	} catch (error) {
-		if (isNotFound(error)) return defaultApprovalGateConfig();
-		throw new ApprovalConfigError("approval-gate config cannot be read.", { path: configPath });
-	}
-
-	const parseErrors: ParseError[] = [];
-	const parsed = parse(text, parseErrors, { allowTrailingComma: true });
-	if (parseErrors.length > 0) {
-		const first = parseErrors[0];
-		throw new ApprovalConfigError("approval-gate config is not valid JSONC.", {
-			path: configPath,
-			error: first ? printParseErrorCode(first.error) : "unknown",
-			offset: first?.offset,
-		});
-	}
-
-	const validator = await loadValidator();
-	if (!validator(parsed)) {
-		throw new ApprovalConfigError("approval-gate config does not match schema.", {
-			path: configPath,
-			errors: validator.errors ?? [],
-		});
-	}
-
+	const parsed = await readOptionalJsoncConfigWithSchema({
+		path: configPath,
+		label: "approval-gate",
+		loadValidator,
+		createError: (message, details) => new ApprovalConfigError(message, details),
+	});
+	if (parsed === undefined) return defaultApprovalGateConfig();
 	return mergeConfig(parsed as RawApprovalGateConfig);
 }
 
@@ -176,34 +149,12 @@ function cloneRules(rules: ApprovalRule[]): ApprovalRule[] {
 	}));
 }
 
-async function loadValidator(): Promise<ValidateFunction> {
-	if (compiledValidator !== undefined) return compiledValidator;
-	const schemaPath = path.join(projectRoot(), "agent", "schemas", "approval-gate.schema.json");
-	let schema: object;
-	try {
-		schema = JSON.parse(await readFile(schemaPath, "utf8")) as object;
-	} catch {
-		throw new ApprovalConfigError("approval-gate schema cannot be read.", { path: schemaPath });
-	}
-	const ajv = new Ajv({ allErrors: true, strict: true, validateSchema: false });
-	compiledValidator = ajv.compile(schema);
-	return compiledValidator;
-}
+const loadValidator = createSchemaValidator({
+	schemaPath: agentSchemaPath("approval-gate.schema.json"),
+	label: "approval-gate",
+	createError: (message, details) => new ApprovalConfigError(message, details),
+});
 
 function resolveConfigPath(): string {
-	return process.env[CONFIG_PATH_ENV] ?? path.join(projectRoot(), "agent", "configs", "approval-gate.jsonc");
-}
-
-function projectRoot(): string {
-	return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-}
-
-function expandHomePath(value: string): string {
-	if (value === "~") return os.homedir();
-	if (value.startsWith("~/") || value.startsWith("~\\")) return path.join(os.homedir(), value.slice(2));
-	return value;
-}
-
-function isNotFound(error: unknown): boolean {
-	return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+	return agentConfigPath("approval-gate.jsonc", CONFIG_PATH_ENV);
 }

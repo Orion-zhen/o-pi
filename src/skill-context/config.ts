@@ -1,8 +1,4 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { Ajv, type ValidateFunction } from "ajv/dist/ajv.js";
-import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
+import { agentConfigPath, agentSchemaPath, createSchemaValidator, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
 import type { SkillContextConfig } from "./types.js";
 
 const CONFIG_PATH_ENV = "PI_SKILL_CONTEXT_CONFIG";
@@ -17,8 +13,6 @@ const defaultConfig: SkillContextConfig = {
 	max_body_chars: 20_000,
 };
 
-let compiledValidator: ValidateFunction | undefined;
-
 export class SkillContextConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
 		super(message);
@@ -29,29 +23,13 @@ export class SkillContextConfigError extends Error {
 /** 读取 host-side skill context JSONC 配置；配置错误直接失败，避免 skill 行为静默降级。 */
 export async function loadSkillContextConfig(): Promise<SkillContextConfig> {
 	const configPath = resolveConfigPath();
-	let text: string;
-	try {
-		text = await readFile(configPath, "utf8");
-	} catch (error) {
-		if (isNotFound(error)) return defaultSkillContextConfig();
-		throw new SkillContextConfigError("skill-context config cannot be read.", { path: configPath });
-	}
-
-	const parseErrors: ParseError[] = [];
-	const parsed = parse(text, parseErrors, { allowTrailingComma: true });
-	if (parseErrors.length > 0) {
-		const first = parseErrors[0];
-		throw new SkillContextConfigError("skill-context config is not valid JSONC.", {
-			path: configPath,
-			error: first ? printParseErrorCode(first.error) : "unknown",
-			offset: first?.offset,
-		});
-	}
-
-	const validator = await loadValidator();
-	if (!validator(parsed)) {
-		throw new SkillContextConfigError("skill-context config does not match schema.", { path: configPath, errors: validator.errors ?? [] });
-	}
+	const parsed = await readOptionalJsoncConfigWithSchema({
+		path: configPath,
+		label: "skill-context",
+		loadValidator,
+		createError: (message, details) => new SkillContextConfigError(message, details),
+	});
+	if (parsed === undefined) return defaultSkillContextConfig();
 	return mergeConfig(parsed as RawSkillContextConfig);
 }
 
@@ -83,29 +61,12 @@ function mergeConfig(raw: RawSkillContextConfig): SkillContextConfig {
 	return merged;
 }
 
-async function loadValidator(): Promise<ValidateFunction> {
-	if (compiledValidator !== undefined) return compiledValidator;
-	const schemaPath = path.join(projectRoot(), "agent", "schemas", "skill-context.schema.json");
-	let schema: object;
-	try {
-		schema = JSON.parse(await readFile(schemaPath, "utf8")) as object;
-	} catch {
-		throw new SkillContextConfigError("skill-context schema cannot be read.", { path: schemaPath });
-	}
-	const ajv = new Ajv({ allErrors: true, strict: true, validateSchema: false });
-	compiledValidator = ajv.compile(schema);
-	return compiledValidator;
-}
+const loadValidator = createSchemaValidator({
+	schemaPath: agentSchemaPath("skill-context.schema.json"),
+	label: "skill-context",
+	createError: (message, details) => new SkillContextConfigError(message, details),
+});
 
 function resolveConfigPath(): string {
-	return process.env[CONFIG_PATH_ENV] ?? path.join(projectRoot(), "agent", "configs", "skill-context.jsonc");
+	return agentConfigPath("skill-context.jsonc", CONFIG_PATH_ENV);
 }
-
-function projectRoot(): string {
-	return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-}
-
-function isNotFound(error: unknown): boolean {
-	return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
-}
-
