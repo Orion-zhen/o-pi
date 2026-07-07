@@ -354,7 +354,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 					}
 				});
 			}
-			return buildEditCallComponent(component, args, theme, context.expanded);
+			return buildEditCallComponent(component, args, theme);
 		},
 		renderResult(result, { isPartial }, theme, context) {
 			if (isPartial) return new Text(formatToolCard({ tool: "edit", status: "running", target: editTarget(context.args), summary: "applying" }, theme), 0, 0);
@@ -369,7 +369,7 @@ export default function fileTools(pi: ExtensionAPI): void {
 			} else if (isFailedEditDetails(details)) {
 				callComponent.settledError = true;
 			}
-			buildEditCallComponent(callComponent, context.args, theme, context.expanded);
+			buildEditCallComponent(callComponent, context.args, theme);
 
 			const component = context.lastComponent instanceof Box ? context.lastComponent : new Box(1, 1);
 			component.clear();
@@ -408,12 +408,13 @@ function getEditCallComponent(state: { callComponent?: EditCallComponent }, last
 	return component;
 }
 
-function buildEditCallComponent(component: EditCallComponent, args: unknown, theme: Theme, expanded: boolean): EditCallComponent {
+function buildEditCallComponent(component: EditCallComponent, args: unknown, theme: Theme): EditCallComponent {
 	component.setBgFn(editHeaderBg(component.preview, component.settledError, theme));
 	component.clear();
 	component.addChild(new Text(formatEditCall(args, theme), 0, 0));
-	if (component.preview === undefined || !expanded) return component;
+	if (component.preview === undefined) return component;
 
+	// edit 的折叠态也展示实际改动，避免默认视图只看到“diff available”而看不到内容。
 	component.addChild(new Spacer(1));
 	if (isFailedEditDetails(component.preview)) {
 		component.addChild(new Text(theme.fg("error", formatEditError(component.preview)), 0, 0));
@@ -448,9 +449,9 @@ function formatEditResult(details: unknown, theme: Theme, args: unknown, expande
 		target: details.path,
 		summary: joinParts([formatDiffStats(details.diff), `${details.replacements} replacements`, details.diff !== "" ? "diff available" : "no diff", formatLspSummary(details.lsp?.diagnostics)]),
 	}, theme);
-	if (!expanded) return header;
-	const diagnostics = formatLspDiagnostics(details.lsp?.diagnostics, theme);
 	const diff = details.diff === "" ? undefined : renderDiff(details.diff);
+	if (!expanded) return [header, diff].filter((part): part is string => part !== undefined).join("\n\n");
+	const diagnostics = formatLspDiagnostics(details.lsp?.diagnostics, theme);
 	return [header, diff, diagnostics].filter((part): part is string => part !== undefined).join("\n\n");
 }
 
