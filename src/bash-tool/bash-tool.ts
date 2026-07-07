@@ -1,5 +1,6 @@
 import { createLocalBashOperations } from "@earendil-works/pi-coding-agent";
 
+import { checkDeniedText, type PatternDenyMatch } from "../safety/pattern-guard.js";
 import { OutputCapture } from "./output-capture.js";
 import { cleanForModel, createBashOutputView } from "./output-view.js";
 import type { BashExecutionResult, BashParams, ExecuteBashRuntime } from "./types.js";
@@ -9,6 +10,8 @@ const UPDATE_THROTTLE_MS = 100;
 /** 执行模型提供的 shell 命令；自动将 Windows 反斜杠路径转为正斜杠。 */
 export async function executeBashCommand(params: BashParams, runtime: ExecuteBashRuntime): Promise<BashExecutionResult> {
 	validateParams(params, runtime.config.default_timeout_seconds);
+	const denied = checkDeniedText(params.command, runtime.config.safety);
+	if (denied !== null) return blockedCommandResult(denied);
 	params = { ...params, command: normalizeWindowsPath(params.command) };
 	const timeoutSeconds = params.timeout ?? runtime.config.default_timeout_seconds;
 	const startedAt = runtime.now?.() ?? Date.now();
@@ -123,6 +126,28 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 	return { content: view.content, details: view.details };
 }
 
+function blockedCommandResult(match: PatternDenyMatch): BashExecutionResult {
+	return {
+		content: [
+			'<error tool="bash" code="BLOCKED_COMMAND">',
+			"Command blocked by bash-tool safety deny rule.",
+			`Matched ${match.kind}: ${escapeXmlText(match.rule)}`,
+			"</error>",
+		].join("\n"),
+		details: {
+			status: "exited",
+			duration_ms: 0,
+			output_state: "complete",
+			output_format: "text",
+			total_lines: 0,
+			returned_lines: 0,
+			total_bytes: 0,
+			returned_bytes: 0,
+			capture_complete: true,
+		},
+	};
+}
+
 export function createDefaultBashOperations() {
 	return createLocalBashOperations();
 }
@@ -140,4 +165,8 @@ function validateParams(params: BashParams, defaultTimeout: number): void {
 	if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 86_400) {
 		throw new Error("bash timeout must be a finite number of seconds between 1 and 86400.");
 	}
+}
+
+function escapeXmlText(value: string): string {
+	return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }

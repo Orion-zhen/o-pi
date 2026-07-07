@@ -1,7 +1,8 @@
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { isBlockedPath, toolPathIdentity, type FileToolsConfig } from "./config.js";
+import { guardExistingPath, PathGuardBlockedError, resolveInputPath } from "../safety/path-guard.js";
+import type { FileToolsConfig } from "./config.js";
 import { fail } from "./errors.js";
 import type { FailedResult, ResolvedPath, ToolOutcome } from "./types.js";
 
@@ -22,7 +23,7 @@ export function normalizeToolPath(workspaceRoot: string, inputPath: string): Too
 	if (inputPath.length === 0) return fail("INVALID_PATH", "Path must not be empty.", { path: inputPath });
 	if (inputPath.includes("\0")) return fail("INVALID_PATH", "Path must not contain NUL bytes.", { path: inputPath });
 
-	const absolutePath = path.resolve(workspaceRoot, inputPath);
+	const absolutePath = resolveInputPath(workspaceRoot, inputPath);
 	const workspacePath = workspaceRelativePath(workspaceRoot, absolutePath);
 	return {
 		absolutePath,
@@ -83,12 +84,19 @@ async function resolveExistingPath(
 ): Promise<ToolOutcome<ResolvedPath>> {
 	const lexical = normalizeToolPath(workspaceRoot, inputPath);
 	if (isFailed(lexical)) return lexical;
-	if (isBlockedPath(config, toolPathIdentity(lexical.relativePath, lexical.absolutePath, lexical.workspacePath))) {
-		return fail("PROTECTED_PATH", "Path is blocked by file-tools config.", { path: lexical.relativePath });
+
+	let guardedRealPath: string | undefined;
+	try {
+		const guarded = await guardExistingPath(inputPath, { cwd: workspaceRoot, blocked_path: config.blocked_path });
+		guardedRealPath = guarded.real_path;
+	} catch (error) {
+		if (error instanceof PathGuardBlockedError) return blockedPathFailure(lexical.relativePath, error);
+		throw error;
 	}
+
 	let real: string;
 	try {
-		real = await realpath(lexical.absolutePath);
+		real = guardedRealPath ?? await realpath(lexical.absolutePath);
 	} catch (error) {
 		if (isAccessDenied(error)) return fail("ACCESS_DENIED", "Path cannot be accessed.", { path: lexical.relativePath });
 		return fail(missingCode, missingCode === "FILE_NOT_FOUND" ? "File does not exist." : "Directory does not exist.", {
@@ -102,6 +110,17 @@ async function resolveExistingPath(
 		realPath: real,
 		...(lexical.workspacePath !== undefined ? { workspacePath: lexical.workspacePath } : {}),
 	};
+}
+
+function blockedPathFailure(displayPath: string, error: PathGuardBlockedError): FailedResult {
+	return fail("PROTECTED_PATH", error.block.message, {
+		path: displayPath,
+		details: {
+			code: error.block.code,
+			...(error.block.matched_rule !== undefined ? { matched_rule: error.block.matched_rule } : {}),
+			...(error.block.matched_path !== undefined ? { matched_path: error.block.matched_path } : {}),
+		},
+	});
 }
 
 function isFailed<T>(result: T | FailedResult): result is FailedResult {

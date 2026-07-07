@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile, realpath, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import picomatch from "picomatch";
 
@@ -8,6 +8,8 @@ import { fail, isFailed } from "./errors.js";
 import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
 import type { IgnoreSnapshot } from "./ignore/ignore-types.js";
 import { parseCodeUnits, type ParsedFileIndex } from "./grep-parser.js";
+import { guardExistingPath, PathGuardBlockedError } from "../safety/path-guard.js";
+import { normalizeToolPath } from "./path-resolver.js";
 import { decodeTextFile } from "./text-file.js";
 import type { GrepParams, GrepSkippedFiles, ToolOutcome } from "./types.js";
 
@@ -24,7 +26,7 @@ export interface GrepSearchRoot {
 	relativePath: string;
 	absolutePath: string;
 	realPath: string;
-	workspacePath: string;
+	workspacePath?: string;
 	kind: "file" | "directory";
 }
 
@@ -75,8 +77,7 @@ export async function getGrepIndex(cwd: string, params: Pick<GrepParams, "path" 
 	const config = await loadFileToolsConfig();
 	if (isFailed(config)) return config;
 	const workspaceRoot = path.resolve(cwd);
-	const workspaceRealRoot = await realpath(workspaceRoot);
-	const root = await resolveGrepRoot(workspaceRoot, workspaceRealRoot, params.path ?? ".", config);
+	const root = await resolveGrepRoot(workspaceRoot, params.path ?? ".", config);
 	if (isFailed(root)) return root;
 	const glob = params.glob === undefined ? undefined : validateGlob(params.glob, root.relativePath);
 	if (isFailed(glob)) return glob;
@@ -102,10 +103,10 @@ export async function getGrepIndex(cwd: string, params: Pick<GrepParams, "path" 
 	try {
 		assertNotAborted(signal);
 		if (root.kind === "file") {
-			const indexed = await indexFile(state, root.realPath, root.workspacePath, root.relativePath, true, root.relativePath);
+			const indexed = await indexFile(state, root.realPath, root.relativePath, root.workspacePath, true, root.relativePath);
 			if (isFailed(indexed)) return indexed;
 		} else {
-			await walkDirectory(state, root.realPath, root.workspacePath, ".");
+			await walkDirectory(state, root.realPath, root.relativePath, root.workspacePath, ".");
 		}
 	} catch (error) {
 		if (error instanceof AbortGrepIndex) return fail("OPERATION_ABORTED", "grep was aborted.", { path: root.relativePath });
@@ -132,38 +133,59 @@ export function clearGrepIndexForTests(): void {
 
 async function resolveGrepRoot(
 	workspaceRoot: string,
-	workspaceRealRoot: string,
 	inputPath: string,
 	config: FileToolsConfig,
 ): Promise<ToolOutcome<GrepSearchRoot>> {
-	if (inputPath.length === 0) return fail("INVALID_PATH", "path must not be empty.", { path: inputPath });
-	if (inputPath.includes("\0")) return fail("INVALID_PATH", "path must not contain NUL bytes.", { path: inputPath });
-	const absolutePath = path.resolve(workspaceRoot, inputPath);
-	const workspacePath = workspaceRelative(workspaceRoot, absolutePath);
-	if (workspacePath === undefined) return fail("INVALID_PATH", "path must stay inside the workspace.", { path: normalizeRelative(inputPath) });
-	const identity = toolPathIdentity(workspacePath, absolutePath, workspacePath);
-	if (isBlockedPath(config, identity)) return fail("PROTECTED_PATH", "Path is blocked by file-tools config.", { path: workspacePath });
+	const lexical = normalizeToolPath(workspaceRoot, inputPath);
+	if (isFailed(lexical)) return lexical;
 
 	let real: string;
 	try {
-		real = await realpath(absolutePath);
+		const guarded = await guardExistingPath(inputPath, { cwd: workspaceRoot, blocked_path: config.blocked_path });
+		real = guarded.real_path ?? lexical.absolutePath;
 	} catch (error) {
-		if (isAccessDenied(error)) return fail("ACCESS_DENIED", "Path cannot be accessed.", { path: workspacePath });
-		return fail("PATH_NOT_FOUND", "Path does not exist.", { path: workspacePath });
+		if (error instanceof PathGuardBlockedError) return blockedPathFailure(lexical.relativePath, error);
+		throw error;
 	}
-	if (workspaceRelative(workspaceRealRoot, real) === undefined) return fail("PROTECTED_PATH", "Path resolves outside the workspace.", { path: workspacePath });
-	const info = await stat(real);
-	if (info.isFile()) return { relativePath: workspacePath, absolutePath, realPath: real, workspacePath, kind: "file" };
-	if (info.isDirectory()) return { relativePath: workspacePath, absolutePath, realPath: real, workspacePath, kind: "directory" };
-	return fail("INVALID_PATH", "Path must be a regular file or directory.", { path: workspacePath });
+	try {
+		const info = await stat(real);
+		if (info.isFile()) {
+			return {
+				relativePath: lexical.relativePath,
+				absolutePath: lexical.absolutePath,
+				realPath: real,
+				...(lexical.workspacePath !== undefined ? { workspacePath: lexical.workspacePath } : {}),
+				kind: "file",
+			};
+		}
+		if (info.isDirectory()) {
+			return {
+				relativePath: lexical.relativePath,
+				absolutePath: lexical.absolutePath,
+				realPath: real,
+				...(lexical.workspacePath !== undefined ? { workspacePath: lexical.workspacePath } : {}),
+				kind: "directory",
+			};
+		}
+	} catch (error) {
+		if (isAccessDenied(error)) return fail("ACCESS_DENIED", "Path cannot be accessed.", { path: lexical.relativePath });
+		return fail("PATH_NOT_FOUND", "Path does not exist.", { path: lexical.relativePath });
+	}
+	return fail("INVALID_PATH", "Path must be a regular file or directory.", { path: lexical.relativePath });
 }
 
-async function walkDirectory(state: WalkState, absoluteDirectory: string, workspaceDirectory: string, searchRelativeDirectory: string): Promise<void> {
+async function walkDirectory(
+	state: WalkState,
+	absoluteDirectory: string,
+	displayDirectory: string,
+	workspaceDirectory: string | undefined,
+	searchRelativeDirectory: string,
+): Promise<void> {
 	assertNotAborted(state.signal);
 	if (!state.scanComplete) return;
-	if (isBlockedPath(state.config, toolPathIdentity(workspaceDirectory, absoluteDirectory, workspaceDirectory))) return;
-	if (isIgnoredPath(state.config, toolPathIdentity(workspaceDirectory, absoluteDirectory, workspaceDirectory))) return;
-	if (workspaceDirectory !== ".") {
+	if (isBlockedPath(state.config, toolPathIdentity(displayDirectory, absoluteDirectory, workspaceDirectory))) return;
+	if (isIgnoredPath(state.config, toolPathIdentity(displayDirectory, absoluteDirectory, workspaceDirectory))) return;
+	if (workspaceDirectory !== undefined && workspaceDirectory !== ".") {
 		const decision = state.ignoreSnapshot.evaluate({ path: workspaceDirectory, kind: "directory", intent: "index" });
 		if (decision.ignored && decision.prune) return;
 	}
@@ -172,7 +194,7 @@ async function walkDirectory(state: WalkState, absoluteDirectory: string, worksp
 	try {
 		entries = await readdir(absoluteDirectory, { withFileTypes: true });
 	} catch (error) {
-		if (workspaceDirectory === state.root.workspacePath) throw error;
+		if (displayDirectory === state.root.relativePath) throw error;
 		if (isAccessDenied(error)) state.skipped.access_denied += 1;
 		return;
 	}
@@ -180,32 +202,35 @@ async function walkDirectory(state: WalkState, absoluteDirectory: string, worksp
 	for (const entry of entries.sort((left, right) => compareStableString(left.name, right.name))) {
 		assertNotAborted(state.signal);
 		if (!state.scanComplete) return;
+		const childDisplayPath = joinDisplayPath(displayDirectory, entry.name);
 		const childWorkspacePath = joinWorkspacePath(workspaceDirectory, entry.name);
 		const childAbsolutePath = path.join(absoluteDirectory, entry.name);
 		const childSearchPath = searchRelativeDirectory === "." ? entry.name : `${searchRelativeDirectory}/${entry.name}`;
-		const identity = toolPathIdentity(childWorkspacePath, childAbsolutePath, childWorkspacePath);
+		const identity = toolPathIdentity(childDisplayPath, childAbsolutePath, childWorkspacePath);
 		if (isBlockedPath(state.config, identity)) continue;
 		if (entry.isSymbolicLink()) continue;
 		if (entry.isDirectory()) {
-			const decision = state.ignoreSnapshot.evaluate({ path: childWorkspacePath, kind: "directory", intent: "index" });
+			const decision = childWorkspacePath === undefined
+				? { ignored: false, prune: false }
+				: state.ignoreSnapshot.evaluate({ path: childWorkspacePath, kind: "directory", intent: "index" });
 			if (isIgnoredPath(state.config, identity) || (decision.ignored && decision.prune)) continue;
-			await walkDirectory(state, childAbsolutePath, childWorkspacePath, childSearchPath);
+			await walkDirectory(state, childAbsolutePath, childDisplayPath, childWorkspacePath, childSearchPath);
 			continue;
 		}
 		if (!entry.isFile()) continue;
 		if (state.matchesGlob !== undefined && !state.matchesGlob(childSearchPath)) continue;
 		if (isIgnoredPath(state.config, identity)) continue;
-		const decision = state.ignoreSnapshot.evaluate({ path: childWorkspacePath, kind: "file", intent: "index" });
+		const decision = childWorkspacePath === undefined ? { ignored: false } : state.ignoreSnapshot.evaluate({ path: childWorkspacePath, kind: "file", intent: "index" });
 		if (decision.ignored) continue;
-		await indexFile(state, childAbsolutePath, childWorkspacePath, childWorkspacePath, false, childSearchPath);
+		await indexFile(state, childAbsolutePath, childDisplayPath, childWorkspacePath, false, childSearchPath);
 	}
 }
 
 async function indexFile(
 	state: WalkState,
 	absolutePath: string,
-	workspacePath: string,
 	displayPath: string,
+	workspacePath: string | undefined,
 	explicit: boolean,
 	searchPath: string,
 ): Promise<ToolOutcome<void>> {
@@ -215,15 +240,17 @@ async function indexFile(
 		return;
 	}
 	state.scannedFiles += 1;
-	state.seenPaths.add(workspacePath);
+	state.seenPaths.add(displayPath);
 
 	if (explicit) {
 		if (state.matchesGlob !== undefined && !state.matchesGlob(path.basename(searchPath)) && !state.matchesGlob(searchPath)) return;
-		if (isIgnoredPath(state.config, toolPathIdentity(workspacePath, absolutePath, workspacePath))) {
+		if (isIgnoredPath(state.config, toolPathIdentity(displayPath, absolutePath, workspacePath))) {
 			return fail("PROTECTED_PATH", "Path is ignored for search.", { path: displayPath });
 		}
-		const decision = state.ignoreSnapshot.evaluate({ path: workspacePath, kind: "file", intent: "index" });
-		if (decision.ignored) return fail("PROTECTED_PATH", "Path is ignored for search.", { path: displayPath });
+		if (workspacePath !== undefined) {
+			const decision = state.ignoreSnapshot.evaluate({ path: workspacePath, kind: "file", intent: "index" });
+			if (decision.ignored) return fail("PROTECTED_PATH", "Path is ignored for search.", { path: displayPath });
+		}
 	}
 
 	let info;
@@ -240,7 +267,7 @@ async function indexFile(
 		return;
 	}
 
-	const cached = state.cache.files.get(workspacePath);
+	const cached = state.cache.files.get(displayPath);
 	if (cached !== undefined && cached.size === info.size && cached.mtimeMs === info.mtimeMs) {
 		state.files.push(toCandidate(cached));
 		return;
@@ -253,9 +280,9 @@ async function indexFile(
 		else if (loaded.error.code === "ENCODING_UNSUPPORTED") state.skipped.invalid_utf8 += 1;
 		return;
 	}
-	const parsed = parseCodeUnits(workspacePath, loaded.text);
+	const parsed = parseCodeUnits(displayPath, loaded.text);
 	const cachedFile: CachedFileIndex = {
-		path: workspacePath,
+		path: displayPath,
 		absolutePath,
 		realPath: absolutePath,
 		size: loaded.size,
@@ -263,9 +290,9 @@ async function indexFile(
 		hash: hashText(loaded.text),
 		index: parsed,
 	};
-	state.cache.files.set(workspacePath, cachedFile);
+	state.cache.files.set(displayPath, cachedFile);
 	state.files.push(toCandidate(cachedFile));
-	state.sourceText.set(workspacePath, loaded.text);
+	state.sourceText.set(displayPath, loaded.text);
 }
 
 async function readStableText(
@@ -305,7 +332,7 @@ function toCandidate(cached: CachedFileIndex): GrepCandidateFile {
 
 function pruneScopedCache(state: WalkState): void {
 	for (const filePath of state.cache.files.keys()) {
-		if (!isUnderRoot(state.root.workspacePath, filePath)) continue;
+		if (!isUnderRoot(state.root.relativePath, filePath)) continue;
 		if (!state.seenPaths.has(filePath)) state.cache.files.delete(filePath);
 	}
 }
@@ -348,14 +375,14 @@ function normalizeRelative(value: string): string {
 	return value.replace(/\\/g, "/") || ".";
 }
 
-function workspaceRelative(workspaceRoot: string, candidate: string): string | undefined {
-	const relative = path.relative(workspaceRoot, candidate);
-	if (relative === "") return ".";
-	if (relative.startsWith("..") || path.isAbsolute(relative)) return undefined;
-	return normalizeRelative(relative);
+function joinDisplayPath(parent: string, child: string): string {
+	if (parent === ".") return child;
+	if (path.isAbsolute(parent)) return path.normalize(path.join(parent, child));
+	return `${parent}/${child}`;
 }
 
-function joinWorkspacePath(parent: string, child: string): string {
+function joinWorkspacePath(parent: string | undefined, child: string): string | undefined {
+	if (parent === undefined) return undefined;
 	return parent === "." ? child : `${parent}/${child}`;
 }
 
@@ -370,6 +397,17 @@ function compareStableString(left: string, right: string): number {
 }
 
 class AbortGrepIndex extends Error {}
+
+function blockedPathFailure(displayPath: string, error: PathGuardBlockedError): ToolOutcome<never> {
+	return fail("PROTECTED_PATH", error.block.message, {
+		path: displayPath,
+		details: {
+			code: error.block.code,
+			...(error.block.matched_rule !== undefined ? { matched_rule: error.block.matched_rule } : {}),
+			...(error.block.matched_path !== undefined ? { matched_path: error.block.matched_path } : {}),
+		},
+	});
+}
 
 function isAccessDenied(error: unknown): boolean {
 	return typeof error === "object" && error !== null && "code" in error && (error.code === "EACCES" || error.code === "EPERM");

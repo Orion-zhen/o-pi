@@ -72,15 +72,18 @@ describe("find", () => {
 		});
 	});
 
-	it("校验空值、NUL、workspace 外绝对路径和越界路径", async () => {
+	it("校验空值、NUL 和越界 query，但允许 workspace 外搜索路径", async () => {
 		expect(await findWorkspaceFiles(workspace, { query: "" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
 		expect(await findWorkspaceFiles(workspace, { query: "a\0b" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
 		expect(await findWorkspaceFiles(workspace, { query: "/tmp/a" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
 		expect(await findWorkspaceFiles(workspace, { query: "../a" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
 		expect(await findWorkspaceFiles(workspace, { path: "", query: "a" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
-		expect(await findWorkspaceFiles(workspace, { path: path.relative(workspace, outside), query: "a" })).toMatchObject({
-			status: "failed",
-			error: { code: "INVALID_PATH" },
+		await writeFile(path.join(outside, "external.ts"), "");
+		const external = expectFindSuccess(await findWorkspaceFiles(workspace, { path: outside, query: "external.ts" }));
+		expect(external.details).toMatchObject({
+			path: path.normalize(outside),
+			strategy: "exact",
+			matches: [{ path: path.join(outside, "external.ts"), kind: "file" }],
 		});
 	});
 
@@ -296,6 +299,27 @@ describe("find", () => {
 		expect(paths(result.details.matches)).not.toContain(".git/config");
 		expect(result.details.scannedEntries).toBe(3);
 		expect(await findWorkspaceFiles(workspace, { path: ".git", query: "**/*" })).toMatchObject({
+			status: "failed",
+			error: { code: "PROTECTED_PATH" },
+		});
+	});
+
+	it("blocked_path 对 search root 的 realpath 生效", async () => {
+		const protectedDir = path.join(outside, "protected");
+		const configPath = path.join(outside, "blocked-realpath.jsonc");
+		await mkdir(protectedDir);
+		await writeFile(path.join(protectedDir, "secret.ts"), "");
+		await writeFile(
+			configPath,
+			JSON.stringify({ version: 1, blocked_path: [`${protectedDir}/`], ignore: { builtin_profile: "none", gitignore: false } }),
+		);
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		try {
+			await symlink(protectedDir, path.join(workspace, "protected-link"), "dir");
+		} catch {
+			return;
+		}
+		expect(await findWorkspaceFiles(workspace, { path: "protected-link", query: "**/*.ts" })).toMatchObject({
 			status: "failed",
 			error: { code: "PROTECTED_PATH" },
 		});

@@ -5,6 +5,7 @@ import { Ajv, type ValidateFunction } from "ajv/dist/ajv.js";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import ipaddr from "ipaddr.js";
 
+import { guardPublicHttpUrlLiteral } from "../safety/url-guard.js";
 import type { WebToolsConfig } from "./types.js";
 
 const CONFIG_PATH_ENV = "PI_WEB_TOOLS_CONFIG";
@@ -205,14 +206,12 @@ function dedupeProviders(order: readonly WebToolsConfig["websearch"]["provider_o
 }
 
 function validateExaUrl(value: string): void {
-	let url: URL;
 	try {
-		url = new URL(value);
-	} catch {
-		throw new WebToolsConfigError("exa_mcp.url must be a valid URL.");
-	}
-	if (url.protocol !== "http:" && url.protocol !== "https:") {
-		throw new WebToolsConfigError("exa_mcp.url only supports http: and https:.");
+		guardPublicHttpUrlLiteral(value);
+	} catch (error) {
+		throw new WebToolsConfigError("exa_mcp.url is not an allowed public HTTP URL.", {
+			error: error instanceof Error ? error.message : String(error),
+		});
 	}
 }
 

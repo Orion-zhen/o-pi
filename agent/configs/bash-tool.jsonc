@@ -9,6 +9,23 @@
 		"failure_output_bytes": 49152,
 		"live_output_bytes": 8192,
 		"max_capture_bytes": 268435456
+	},
+
+	"safety": {
+		"deny_patterns": [
+			"rm -rf /",
+			"rm -rf /*",
+			"curl *|*sh",
+			"wget *|*sh",
+			"chmod -R 777 /",
+			"chown -R * /"
+		],
+		"deny_regex": [
+			"\\brm\\s+-rf\\s+/(\\s|$)",
+			"\\bmkfs(\\.|\\s|$)",
+			"\\bdd\\s+.*\\bof=/dev/",
+			":\\(\\)\\s*\\{\\s*:\\|:\\s*&\\s*\\}\\s*;",
+			"\\b(curl|wget)\\b[\\s\\S]*\\|\\s*(sh|bash|zsh)\\b"
+		]
 	}
 }
-

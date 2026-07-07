@@ -47,7 +47,28 @@
 					"default": 268435456
 				}
 			}
+		},
+		"safety": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"deny_patterns": {
+					"type": "array",
+					"items": {
+						"type": "string",
+						"minLength": 1
+					},
+					"default": []
+				},
+				"deny_regex": {
+					"type": "array",
+					"items": {
+						"type": "string",
+						"minLength": 1
+					},
+					"default": []
+				}
+			}
 		}
 	}
 }
-

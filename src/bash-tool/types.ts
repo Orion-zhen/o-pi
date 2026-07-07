@@ -16,6 +16,10 @@ export interface BashToolConfig {
 	version: 1;
 	default_timeout_seconds: number;
 	limits: BashLimits;
+	safety?: {
+		deny_patterns?: string[];
+		deny_regex?: string[];
+	};
 }
 
 export type BashRunStatus = "exited" | "timed_out" | "aborted";
@@ -61,4 +65,3 @@ export interface CapturedOutput {
 	captureComplete: boolean;
 	binary: boolean;
 }
-

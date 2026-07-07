@@ -1,10 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { generateDiffString, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
-import { isBlockedPath, loadFileToolsConfig, toolPathIdentity } from "./config.js";
+import { guardWritablePath, PathGuardBlockedError } from "../safety/path-guard.js";
+import { loadFileToolsConfig } from "./config.js";
 import { fail, isFailed } from "./errors.js";
 import { normalizeToolPath, resolveWorkspaceRoot } from "./path-resolver.js";
-import type { FileToolLspHooks, LspDiagnosticsSummary, ToolOutcome, WriteParams, WriteSuccess } from "./types.js";
+import type { FailedResult, FileToolLspHooks, LspDiagnosticsSummary, ToolOutcome, WriteParams, WriteSuccess } from "./types.js";
 
 interface WritablePath {
 	relativePath: string;
@@ -27,8 +28,13 @@ export async function writeWorkspaceFile(cwd: string, params: unknown, signal?: 
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const target = resolveWritablePath(workspaceRoot, input.path);
 	if (isFailed(target)) return target;
-	if (isBlockedPath(config, toolPathIdentity(target.relativePath, target.absolutePath, target.workspacePath))) {
-		return fail("PROTECTED_PATH", "Path is blocked by file-tools config.", { path: target.relativePath });
+
+	try {
+		await guardWritablePath(input.path, { cwd: workspaceRoot, blocked_path: config.blocked_path });
+	} catch (error) {
+		if (error instanceof PathGuardBlockedError) return blockedPathFailure(target.relativePath, error);
+		if (isAccessDenied(error)) return fail("ACCESS_DENIED", "Parent path cannot be accessed.", { path: target.relativePath });
+		return fail("INVALID_PATH", "Parent path cannot be resolved.", { path: target.relativePath });
 	}
 
 	return withFileMutationQueue(target.absolutePath, async () => {
@@ -130,6 +136,21 @@ function resolveWritablePath(workspaceRoot: string, inputPath: string): ToolOutc
 
 function checkAbort(signal: AbortSignal | undefined): ToolOutcome<never> | undefined {
 	return signal?.aborted === true ? fail("OPERATION_ABORTED", "Operation aborted.") : undefined;
+}
+
+function blockedPathFailure(displayPath: string, error: PathGuardBlockedError): FailedResult {
+	return fail("PROTECTED_PATH", error.block.message, {
+		path: displayPath,
+		details: {
+			code: error.block.code,
+			...(error.block.matched_rule !== undefined ? { matched_rule: error.block.matched_rule } : {}),
+			...(error.block.matched_path !== undefined ? { matched_path: error.block.matched_path } : {}),
+		},
+	});
+}
+
+function isAccessDenied(error: unknown): boolean {
+	return typeof error === "object" && error !== null && "code" in error && (error.code === "EACCES" || error.code === "EPERM");
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

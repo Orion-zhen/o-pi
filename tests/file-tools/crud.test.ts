@@ -13,14 +13,18 @@ import type { EditSuccess, LsSuccess, ReadParams, ReadSuccess, ToolOutcome, Writ
 let workspace: string;
 let outside: string;
 let versionCache: ReadVersionCache;
+let previousConfigPath: string | undefined;
 
 beforeEach(async () => {
 	workspace = await mkdtemp(path.join(os.tmpdir(), "o-pi-workspace-"));
 	outside = await mkdtemp(path.join(os.tmpdir(), "o-pi-outside-"));
 	versionCache = new ReadVersionCache();
+	previousConfigPath = process.env.PI_FILE_TOOLS_CONFIG;
 });
 
 afterEach(async () => {
+	if (previousConfigPath === undefined) delete process.env.PI_FILE_TOOLS_CONFIG;
+	else process.env.PI_FILE_TOOLS_CONFIG = previousConfigPath;
 	await rm(workspace, { recursive: true, force: true });
 	await rm(outside, { recursive: true, force: true });
 });
@@ -40,6 +44,12 @@ function editWorkspace(cwd: string, params: unknown, runtime: EditRuntime = {}):
 
 function writeWorkspaceFile(cwd: string, params: unknown): Promise<ToolOutcome<WriteSuccess>> {
 	return writeWorkspaceFileImpl(cwd, params);
+}
+
+async function useFileToolsConfig(config: Record<string, unknown>): Promise<void> {
+	const configPath = path.join(outside, `file-tools-${Date.now()}-${Math.random()}.jsonc`);
+	await writeFile(configPath, JSON.stringify({ version: 1, ...config }, null, 2));
+	process.env.PI_FILE_TOOLS_CONFIG = configPath;
 }
 
 describe("ls", () => {
@@ -425,6 +435,29 @@ describe("read", () => {
 		}
 	});
 
+	it("blocked_path 对 lexical path 和 realpath 都生效", async () => {
+		const protectedDir = path.join(outside, "protected");
+		await mkdir(protectedDir);
+		await writeFile(path.join(workspace, "blocked.txt"), "blocked\n");
+		await writeFile(path.join(protectedDir, "secret.txt"), "secret\n");
+		await useFileToolsConfig({ blocked_path: ["blocked.txt", `${protectedDir}/`] });
+
+		expect(await readWorkspaceFile(workspace, { path: "blocked.txt" })).toMatchObject({
+			status: "failed",
+			error: { code: "PROTECTED_PATH", path: "blocked.txt" },
+		});
+
+		try {
+			await symlink(path.join(protectedDir, "secret.txt"), path.join(workspace, "secret-link.txt"));
+		} catch {
+			return;
+		}
+		expect(await readWorkspaceFile(workspace, { path: "secret-link.txt" })).toMatchObject({
+			status: "failed",
+			error: { code: "PROTECTED_PATH", path: "secret-link.txt" },
+		});
+	});
+
 	it("拒绝读取 .git", async () => {
 		await mkdir(path.join(workspace, ".git"));
 		await writeFile(path.join(workspace, ".git", "config"), "[core]\n");
@@ -508,6 +541,29 @@ describe("write", () => {
 			status: "failed",
 			error: { code: "PROTECTED_PATH", path: ".git/config" },
 		});
+	});
+
+	it("拒绝通过 target symlink 或 parent symlink 写入 blocked_path", async () => {
+		const protectedDir = path.join(outside, "protected");
+		await mkdir(protectedDir);
+		await writeFile(path.join(protectedDir, "target.txt"), "secret\n");
+		await useFileToolsConfig({ blocked_path: [`${protectedDir}/`] });
+		try {
+			await symlink(path.join(protectedDir, "target.txt"), path.join(workspace, "target-link.txt"));
+			await symlink(protectedDir, path.join(workspace, "parent-link"), "dir");
+		} catch {
+			return;
+		}
+
+		expect(await writeWorkspaceFile(workspace, { path: "target-link.txt", content: "new\n" })).toMatchObject({
+			status: "failed",
+			error: { code: "PROTECTED_PATH", path: "target-link.txt" },
+		});
+		expect(await writeWorkspaceFile(workspace, { path: "parent-link/new.txt", content: "new\n" })).toMatchObject({
+			status: "failed",
+			error: { code: "PROTECTED_PATH", path: "parent-link/new.txt" },
+		});
+		expect(await readFile(path.join(protectedDir, "target.txt"), "utf8")).toBe("secret\n");
 	});
 });
 
@@ -654,6 +710,22 @@ describe("edit", () => {
 		expect(await editWorkspace(workspace, { path: ".git/config", edits: [{ old: "[core]", new: "[x]" }] })).toMatchObject({
 			status: "failed",
 			error: { code: "PROTECTED_PATH", path: ".git/config" },
+		});
+	});
+
+	it("edit 拒绝 realpath 命中 blocked_path 的 symlink", async () => {
+		const protectedDir = path.join(outside, "protected");
+		await mkdir(protectedDir);
+		await writeFile(path.join(protectedDir, "secret.txt"), "secret\n");
+		await useFileToolsConfig({ blocked_path: [`${protectedDir}/`] });
+		try {
+			await symlink(path.join(protectedDir, "secret.txt"), path.join(workspace, "secret-link.txt"));
+		} catch {
+			return;
+		}
+		expect(await editWorkspace(workspace, { path: "secret-link.txt", edits: [{ old: "secret", new: "new" }] })).toMatchObject({
+			status: "failed",
+			error: { code: "PROTECTED_PATH", path: "secret-link.txt" },
 		});
 	});
 

@@ -99,6 +99,24 @@ describe("web-tools config", () => {
 		await expect(loadWebToolsConfig()).rejects.toThrow("does not match schema");
 	});
 
+	it("Exa MCP URL 拒绝 localhost、private literal IP 和 userinfo", async () => {
+		const file = path.join(dir, "exa-url.jsonc");
+		process.env.PI_WEB_TOOLS_CONFIG = file;
+
+		await writeFile(file, '{ "version": 2, "websearch": { "exa_mcp": { "url": "https://mcp.exa.ai/mcp" } } }');
+		await expect(loadWebToolsConfig()).resolves.toMatchObject({ websearch: { exa_mcp: { url: "https://mcp.exa.ai/mcp" } } });
+
+		for (const url of [
+			"http://127.0.0.1:3000/mcp",
+			"http://localhost:3000/mcp",
+			"http://192.168.1.1/mcp",
+			"https://user:pass@example.com/mcp",
+		]) {
+			await writeFile(file, JSON.stringify({ version: 2, websearch: { exa_mcp: { url } } }));
+			await expect(loadWebToolsConfig()).rejects.toThrow("exa_mcp.url is not an allowed public HTTP URL");
+		}
+	});
+
 	it("环境变量覆盖 Cookie 路径", () => {
 		process.env.PI_WEB_TOOLS_COOKIES = path.join(dir, "cookies.txt");
 		expect(defaultCookiePath()).toBe(path.join(dir, "cookies.txt"));

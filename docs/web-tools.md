@@ -27,6 +27,7 @@ Provider 是运行时配置，不暴露给模型。默认顺序：
 约束：
 
 - API key 只从 `exa_mcp.api_key_env` 指定的环境变量读取，默认 `EXA_API_KEY`；配置文件不保存 key。
+- `exa_mcp.url` 只允许 `http:` / `https:`，拒绝 username/password、`localhost` / `*.localhost`、literal private IP、loopback IP 和 link-local IP。该检查只做 URL literal host 静态校验，不做 DNS 解析。
 - Exa 失败后按配置 fallback 到 DDG；DDG 的限流和 blocked 冷却只影响 DDG provider。
 - 不执行 JavaScript，不使用 headless browser；
 - 不读取搜索结果页面，不自动调用 `webfetch`；
@@ -105,6 +106,7 @@ webfetch({
 
 - `network.fake_ip_ranges`：两个 Web 工具共用的安全 DNS fake-ip CIDR。默认空；只支持 `198.18.0.0/15` 内的子网。
 - 配置的 fake-ip CIDR 只放行域名 DNS 解析结果；URL 直接写 IP 仍会拒绝。
+- `exa_mcp.url` 的静态 URL 检查复用基础 URL guard；`webfetch` 仍保留自己的 DNS、redirect 和 SSRF 复检逻辑。
 - 每次连接时 DNS 解析结果必须全部是公网地址或已配置 fake-ip。
 - `webfetch` 每个 redirect 目标都会重新执行 URL、DNS、Cookie 检查。
 - `websearch` endpoint 固定，3xx 作为 HTTP 错误，不跟随。

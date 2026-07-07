@@ -7,6 +7,7 @@
 核心规则：
 
 - 不改写命令，不做 npm、pytest、Cargo、git 等专用解析。
+- 执行前只做轻量 deny pattern / regex 检查，不把 bash 改成 allowlist。
 - 不用 LLM 总结输出。
 - 截断、压缩、失败、超时、取消或捕获不完整时保留日志路径。
 - 模型可见正文只在输出真正截断或捕获不完整时提示 `full` 日志路径。
@@ -21,6 +22,21 @@
 - `limits.failure_output_bytes`：失败、超时、取消输出视图预算。
 - `limits.live_output_bytes`：流式更新只展示最近输出的预算。
 - `limits.max_capture_bytes`：原始日志最多写入字节数；超过后继续消费进程输出，但日志不再完整。
+- `safety.deny_patterns`：轻量字符串 / glob 风格黑名单。`*` 匹配任意文本，未包含 glob 字符时按 substring 匹配。
+- `safety.deny_regex`：正则黑名单。配置加载时校验，非法正则会使配置加载失败。
+
+默认配置包含少量明显危险命令模式，例如 `rm -rf /`、`mkfs`、`dd ... of=/dev/` 和 `curl|wget | sh`。未配置 `safety` 时保持兼容，命令照常交给 shell 后端。
+
+命中黑名单时不会启动进程，模型收到：
+
+```xml
+<error tool="bash" code="BLOCKED_COMMAND">
+Command blocked by bash-tool safety deny rule.
+Matched regex: ...
+</error>
+```
+
+这只是 lightweight guardrail：不解析 bash AST、不限制网络、不改 `HOME` / env / cwd、不限制 shell 语法。
 
 ## 输出协议
 

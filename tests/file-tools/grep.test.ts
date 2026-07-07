@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -84,6 +84,13 @@ describe("grep", () => {
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: path.join(workspace, "src"), query: "login" }));
 		expect(result).toMatchObject({ status: "success", path: "src" });
 		expect(firstRegion(result)).toMatchObject({ path: "src/auth.ts", symbol: "login" });
+	});
+
+	it("workspace 外绝对 path 可以检索", async () => {
+		await writeFile(path.join(outside, "external.ts"), "export function externalNeedle() { return true; }\n");
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: outside, query: "externalNeedle" }));
+		expect(result).toMatchObject({ status: "success", path: path.normalize(outside) });
+		expect(firstRegion(result)).toMatchObject({ path: path.join(outside, "external.ts"), symbol: "externalNeedle" });
 	});
 
 	it("exact symbol 的定义排在引用之前，并带一跳 caller/callee", async () => {
@@ -183,7 +190,20 @@ describe("grep", () => {
 		} catch {
 			return;
 		}
-		expect(await grepWorkspaceFiles(workspace, { path: "link.txt", query: "needle" })).toMatchObject({ status: "failed", error: { code: "PROTECTED_PATH" } });
+		expect(firstRegion(expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: "link.txt", query: "needle", match: "literal" })))).toMatchObject({
+			path: "link.txt",
+		});
+		const configPath = path.join(outside, "blocked-realpath.jsonc");
+		await writeConfig(configPath);
+		const raw = JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>;
+		raw.blocked_path = [`${outside}/`];
+		await writeFile(configPath, JSON.stringify(raw, null, 2));
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		clearGrepIndexForTests();
+		expect(await grepWorkspaceFiles(workspace, { path: "link.txt", query: "needle" })).toMatchObject({
+			status: "failed",
+			error: { code: "PROTECTED_PATH" },
+		});
 	});
 
 	it.skipIf(process.platform === "win32")("递归搜索跳过局部权限失败", async () => {

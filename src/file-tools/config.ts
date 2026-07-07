@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { Ajv, type ValidateFunction } from "ajv/dist/ajv.js";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 
+import { pathMatchesAnyRule, type PathIdentity } from "../safety/path-guard.js";
 import { fail } from "./errors.js";
 import type { FailedResult, ToolOutcome } from "./types.js";
 import type { PartialIgnoreConfig } from "./ignore/ignore-types.js";
@@ -51,11 +52,7 @@ interface RawFileToolsConfig {
 	ignore?: Partial<FileToolsConfig["ignore"]>;
 }
 
-export interface ToolPathIdentity {
-	displayPath: string;
-	absolutePath: string;
-	workspacePath?: string;
-}
+export type ToolPathIdentity = PathIdentity;
 
 const defaultConfig: FileToolsConfig = {
 	blocked_path: [".git/"],
@@ -134,11 +131,11 @@ export function ignoreConfigFromFileTools(config: FileToolsConfig): PartialIgnor
 }
 
 export function isBlockedPath(config: FileToolsConfig, identity: ToolPathIdentity): boolean {
-	return config.blocked_path.some((rule) => pathMatchesRule(identity, rule));
+	return pathMatchesAnyRule(identity, config.blocked_path);
 }
 
 export function isIgnoredPath(config: FileToolsConfig, identity: ToolPathIdentity): boolean {
-	return config.ignored_path.some((rule) => pathMatchesRule(identity, rule));
+	return pathMatchesAnyRule(identity, config.ignored_path);
 }
 
 export function toolPathIdentity(displayPath: string, absolutePath: string, workspacePath: string | undefined): ToolPathIdentity {
@@ -251,39 +248,6 @@ function findNearestProjectRoot(cwd: string): string | undefined {
 
 function projectRoot(): string {
 	return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-}
-
-function pathMatchesRule(identity: ToolPathIdentity, rule: string): boolean {
-	const normalizedRule = normalizeRule(rule);
-	if (normalizedRule.path.length === 0) return false;
-	const candidates = candidatePaths(identity, normalizedRule.absolute);
-	return candidates.some((candidate) => matchCandidate(candidate, normalizedRule.path, normalizedRule.directory));
-}
-
-function normalizeRule(rule: string): { path: string; absolute: boolean; directory: boolean } {
-	const directory = /[\\/]$/.test(rule);
-	const absolute = path.isAbsolute(rule);
-	const normalized = normalizePath(rule).replace(/\/+$/, "");
-	return { path: absolute ? normalized : normalized.replace(/^\/+/, ""), absolute, directory };
-}
-
-function candidatePaths(identity: ToolPathIdentity, absoluteRule: boolean): string[] {
-	if (absoluteRule) return [normalizePath(identity.absolutePath)];
-	const result = [normalizePath(identity.displayPath)];
-	if (identity.workspacePath !== undefined) result.push(normalizePath(identity.workspacePath));
-	result.push(normalizePath(identity.absolutePath));
-	return Array.from(new Set(result));
-}
-
-function matchCandidate(candidate: string, rule: string, directory: boolean): boolean {
-	if (candidate === rule) return true;
-	if (directory && candidate.startsWith(`${rule}/`)) return true;
-	if (candidate.endsWith(`/${rule}`)) return true;
-	return directory && candidate.includes(`/${rule}/`);
-}
-
-function normalizePath(value: string): string {
-	return path.normalize(value).replace(/\\/g, "/");
 }
 
 function appendUnique(base: string[], extra: string[] | undefined): string[] {
