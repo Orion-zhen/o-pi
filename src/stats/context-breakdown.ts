@@ -1,4 +1,4 @@
-import type { BuildSystemPromptOptions, ContextUsage, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { BuildSystemPromptOptions, ContextUsage, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { AssistantMessage, ImageContent, Message, TextContent, ToolResultMessage } from "@earendil-works/pi-ai";
 import { countContentTokens, countTextTokens, type TokenCounterScope } from "../token-counter.js";
 import type { ContextBreakdownItem, ContextStats } from "./types.js";
@@ -11,6 +11,7 @@ export interface ContextBreakdownInput {
 	systemPrompt?: string;
 	systemPromptOptions?: BuildSystemPromptOptions;
 	activeTools: string[];
+	allTools?: ToolInfo[];
 	branchEntries: SessionEntry[];
 	tokenCounter?: TokenCounterScope;
 }
@@ -19,19 +20,20 @@ export interface ContextBreakdownInput {
 export async function buildContextBreakdown(input: ContextBreakdownInput): Promise<ContextStats> {
 	const totalTokens = input.usage?.tokens ?? undefined;
 	const contextWindow = input.usage?.contextWindow;
-	const activeTools = input.activeTools.length > 0 ? input.activeTools : getToolsFromPromptOptions(input.systemPromptOptions);
+	const activeTools = input.activeTools;
+	const activeToolInfos = selectActiveToolInfos(input.allTools ?? [], activeTools);
 	const counter = input.tokenCounter ?? {};
 	const systemPromptTokens = await estimateTokens(input.systemPrompt ?? "", counter);
-	const toolDefinitionTokens = await estimateToolDefinitions(input.systemPromptOptions, activeTools, counter);
+	const toolDefinitionTokens = await estimateToolDefinitions(activeToolInfos, counter);
 	const projectContextTokens = await estimateProjectContext(input.systemPromptOptions, counter);
 	const subagentTokens = await estimateTokens(extractTaggedSection(input.systemPrompt ?? "", "subagents"), counter);
-	const systemTokens = clampKnown(systemPromptTokens - toolDefinitionTokens - projectContextTokens - subagentTokens);
+	const systemTokens = clampKnown(systemPromptTokens - projectContextTokens - subagentTokens);
 	const skillStats = await estimateSkillContext(input.branchEntries, counter);
 	const messageStats = await estimateMessages(input.branchEntries, counter);
 
 	const items: ContextBreakdownItem[] = [
 		item("system", "system prompt", systemTokens, true, input.systemPrompt ? "runtime prompt" : undefined),
-		item("tool_definitions", "tool definitions", toolDefinitionTokens, true, activeTools.length > 0 ? `${activeTools.length} active tools` : undefined),
+		item("tool_definitions", "tool definitions", toolDefinitionTokens, true, activeToolInfos.length > 0 ? `${activeToolInfos.length} active tools` : undefined),
 		item("project_context", "project context", projectContextTokens, true, formatContextFilesNote(input.systemPromptOptions)),
 		item("subagents", "subagents", subagentTokens, true, subagentTokens > 0 ? "main-agent index" : undefined),
 		item("skills", "skills", skillStats.tokens, true, formatSkillContextNote(skillStats)),
@@ -83,10 +85,14 @@ function clampKnown(value: number): number {
 	return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
-async function estimateToolDefinitions(options: BuildSystemPromptOptions | undefined, activeTools: string[], counter: TokenCounterScope): Promise<number> {
-	const snippets = options?.toolSnippets ?? {};
-	const text = activeTools.map((name) => `${name}: ${snippets[name] ?? ""}`).join("\n");
-	return estimateTokens(text, counter);
+async function estimateToolDefinitions(activeTools: ToolInfo[], counter: TokenCounterScope): Promise<number> {
+	if (activeTools.length === 0) return 0;
+	const definitions = activeTools.map((tool) => ({
+		name: tool.name,
+		description: tool.description,
+		parameters: tool.parameters,
+	}));
+	return estimateTokens(JSON.stringify(definitions), counter);
 }
 
 async function estimateProjectContext(options: BuildSystemPromptOptions | undefined, counter: TokenCounterScope): Promise<number> {
@@ -127,8 +133,9 @@ function extractTaggedSection(text: string, tag: string): string {
 	return text.match(pattern)?.[0] ?? "";
 }
 
-function getToolsFromPromptOptions(options: BuildSystemPromptOptions | undefined): string[] {
-	return options?.selectedTools ?? Object.keys(options?.toolSnippets ?? {});
+function selectActiveToolInfos(allTools: ToolInfo[], activeToolNames: string[]): ToolInfo[] {
+	const toolsByName = new Map(allTools.map((tool) => [tool.name, tool]));
+	return activeToolNames.map((name) => toolsByName.get(name)).filter((tool): tool is ToolInfo => tool !== undefined);
 }
 
 interface MessageEstimate {

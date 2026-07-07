@@ -1,4 +1,4 @@
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { Message } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { buildContextBreakdown, estimateTokens } from "../../src/stats/context-breakdown.js";
@@ -23,6 +23,7 @@ describe("stats context breakdown", () => {
 				contextFiles: [{ path: "AGENTS.md", content: "Project rules" }],
 			},
 			activeTools: ["read"],
+			allTools: [toolInfo("read", "Read file contents", { path: { type: "string", description: "File path to read" } })],
 			branchEntries,
 		});
 
@@ -36,6 +37,35 @@ describe("stats context breakdown", () => {
 		expect(stats.items.map((item) => item.id)).toContain("current_user");
 		expect(stats.items.at(-1)?.id).toBe("unknown_delta");
 		expect(stats.items.every((item) => item.estimated)).toBe(true);
+	});
+
+	it("native tool definitions 使用 active ToolInfo，且不从 system prompt 扣减", async () => {
+		const systemPrompt = "System prompt mentions available tools by short snippet.";
+		const stats = await buildContextBreakdown({
+			usage: undefined,
+			systemPrompt,
+			systemPromptOptions: {
+				cwd: "/repo",
+				selectedTools: ["read"],
+				toolSnippets: { read: "read files" },
+			},
+			activeTools: ["read"],
+			allTools: [
+				toolInfo("read", "Read file contents from disk and return structured text chunks", {
+					path: { type: "string", description: "Absolute or relative file path" },
+					offset: { type: "number", description: "Line offset" },
+					limit: { type: "number", description: "Maximum lines to read" },
+				}),
+			],
+			branchEntries: [],
+		});
+
+		const system = stats.items.find((item) => item.id === "system");
+		const tools = stats.items.find((item) => item.id === "tool_definitions");
+
+		expect(system?.tokens).toBe(await estimateTokens(systemPrompt));
+		expect(tools?.note).toBe("1 active tools");
+		expect(tools?.tokens).toBeGreaterThan(await estimateTokens("read: read files"));
 	});
 
 	it("没有 context usage 时使用估算总量", async () => {
@@ -173,5 +203,19 @@ function statusMessage(id: string): SessionEntry {
 		customType: SKILL_CONTEXT_STATUS_MESSAGE,
 		content: "skill demo loaded",
 		display: true,
+	};
+}
+
+function toolInfo(name: string, description: string, properties: Record<string, unknown>): ToolInfo {
+	return {
+		name,
+		description,
+		parameters: {
+			type: "object",
+			properties,
+			required: Object.keys(properties),
+			additionalProperties: false,
+		},
+		sourceInfo: { path: `<builtin:${name}>`, source: "builtin", scope: "temporary", origin: "top-level" },
 	};
 }

@@ -39,6 +39,7 @@ export async function collectStatsSnapshot(ctx: ExtensionCommandContext, pi: Sta
 			usage: contextUsage,
 			systemPrompt: ctx.getSystemPrompt(),
 			activeTools,
+			allTools,
 			branchEntries,
 			tokenCounter: {
 				...(model?.provider !== undefined ? { provider: model.provider } : {}),
