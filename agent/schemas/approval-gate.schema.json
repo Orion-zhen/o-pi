@@ -1,0 +1,92 @@
+{
+	"$schema": "https://json-schema.org/draft-07/schema",
+	"$id": "approval-gate.schema.json",
+	"title": "Pi approval-gate config",
+	"type": "object",
+	"additionalProperties": false,
+	"required": ["version"],
+	"properties": {
+		"$schema": { "type": "string" },
+		"version": { "const": 1 },
+		"enabled": { "type": "boolean", "default": true },
+		"ui": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"timeout_ms": { "type": "integer", "minimum": 0, "maximum": 3600000, "default": 0 },
+				"non_interactive": { "enum": ["block", "allow"], "default": "block" }
+			}
+		},
+		"remember": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"allow_session": { "type": "boolean", "default": true },
+				"allow_persistent": { "type": "boolean", "default": true },
+				"persistent_store": { "type": "string", "minLength": 1, "default": "~/.pi/agent/state/approval-gate.rules.jsonc" }
+			}
+		},
+		"defaults": {
+			"type": "object",
+			"additionalProperties": {
+				"enum": ["allow", "ask", "deny"]
+			},
+			"properties": {
+				"bash": { "enum": ["allow", "ask", "deny"] },
+				"write": { "enum": ["allow", "ask", "deny"] },
+				"edit": { "enum": ["allow", "ask", "deny"] }
+			}
+		},
+		"ask_rules": {
+			"type": "array",
+			"items": { "$ref": "#/$defs/rule" },
+			"default": []
+		},
+		"deny_rules": {
+			"type": "array",
+			"items": { "$ref": "#/$defs/rule" },
+			"default": []
+		}
+	},
+	"$defs": {
+		"rule": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["name", "tools", "reason"],
+			"properties": {
+				"name": { "type": "string", "minLength": 1 },
+				"tools": {
+					"type": "array",
+					"minItems": 1,
+					"items": { "type": "string", "minLength": 1 },
+					"uniqueItems": true
+				},
+				"path_globs": {
+					"type": "array",
+					"items": { "type": "string", "minLength": 1 }
+				},
+				"command_regex": { "type": "string", "minLength": 1 },
+				"effects": {
+					"type": "array",
+					"items": {
+						"enum": [
+							"read",
+							"write",
+							"delete",
+							"execute",
+							"network",
+							"install",
+							"publish",
+							"system_change",
+							"external_side_effect",
+							"destructive",
+							"unknown_side_effect"
+						]
+					},
+					"uniqueItems": true
+				},
+				"reason": { "type": "string", "minLength": 1 }
+			}
+		}
+	}
+}

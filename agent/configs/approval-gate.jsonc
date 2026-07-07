@@ -1,0 +1,63 @@
+{
+	"$schema": "../schemas/approval-gate.schema.json",
+	"version": 1,
+	"enabled": true,
+
+	"ui": {
+		"timeout_ms": 0,
+		"non_interactive": "block"
+	},
+
+	"remember": {
+		"allow_session": true,
+		"allow_persistent": true,
+		"persistent_store": "~/.pi/agent/state/approval-gate.rules.jsonc"
+	},
+
+	"defaults": {
+		"bash": "allow",
+		"write": "allow",
+		"edit": "allow"
+	},
+
+	"ask_rules": [
+		{
+			"name": "system-path-write",
+			"tools": ["write", "edit"],
+			"path_globs": ["/etc/**", "/usr/**", "/bin/**", "/sbin/**", "/System/**", "/Library/**", "/var/**"],
+			"reason": "system path modification"
+		},
+		{
+			"name": "destructive-bash",
+			"tools": ["bash"],
+			"command_regex": "\\b(rm\\s+-rf|git\\s+reset\\s+--hard|git\\s+clean\\s+-fd|docker\\s+system\\s+prune)\\b",
+			"reason": "destructive command"
+		},
+		{
+			"name": "package-management",
+			"tools": ["bash"],
+			"command_regex": "\\b(apt|dnf|yum|pacman|brew|npm|pnpm|pip|uv|cargo)\\b[\\s\\S]*\\b(install|remove|uninstall|upgrade|update)\\b",
+			"reason": "package management"
+		},
+		{
+			"name": "external-publish",
+			"tools": ["bash"],
+			"command_regex": "\\b(git\\s+push|npm\\s+publish|gh\\s+release|twine\\s+upload)\\b",
+			"reason": "external publishing"
+		},
+		{
+			"name": "service-management",
+			"tools": ["bash"],
+			"command_regex": "\\b(sudo|systemctl|service|launchctl)\\b",
+			"reason": "system-level command"
+		},
+		{
+			"name": "infra-side-effect",
+			"tools": ["bash"],
+			"command_regex": "\\b(kubectl\\s+(apply|delete)|terraform\\s+(apply|destroy)|docker\\s+(rm|prune|system\\s+prune))\\b",
+			"reason": "infrastructure side effect"
+		}
+	],
+
+	"deny_rules": []
+}
