@@ -39,6 +39,7 @@
 - 仅支持 TUI 模式；非 TUI 模式直接返回。
 - 使用 `ctx.getSystemPromptOptions()` 重新构建本项目实际发送给模型的 system prompt。
 - 通过 custom UI 展示，不写入会话历史。
+- 标题栏显示字符数、同步 token 估算和原始行数；token 估算不触发网络 tokenizer。
 - 关闭：`Esc`、`q` 或 `Enter`。
 - 滚动：方向键、`PageUp`、`PageDown`、`Home`、`End`。
 

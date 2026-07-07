@@ -4,6 +4,7 @@ import { type Component, Key, matchesKey, truncateToWidth, visibleWidth } from "
 import { discoverAgents } from "../../src/subagent/agents.js";
 import { loadSubagentConfig } from "../../src/subagent/config.js";
 import type { AgentDefinition } from "../../src/subagent/types.js";
+import { countTextTokensSync, type TokenCounterScope } from "../../src/token-counter.js";
 
 const SYSTEM_COMMAND_DESCRIPTION = "Show the current synthesized system prompt.";
 const VIEWER_BODY_ROWS_RATIO = 0.75;
@@ -71,7 +72,7 @@ export function registerSystemCommand(pi: Pick<ExtensionAPI, "registerCommand"> 
 			const activeTools = pi.getActiveTools?.() ?? getToolsFromPromptOptions(systemPromptOptions);
 			const prompt = await buildRuntimeSystemPrompt(systemPromptOptions, ctx.cwd, activeTools);
 			await ctx.ui.custom<void>(
-				(tui, theme, _keybindings, done) => new SystemPromptViewer(prompt, theme, () => tui.terminal.rows, done),
+				(tui, theme, _keybindings, done) => new SystemPromptViewer(prompt, theme, () => tui.terminal.rows, done, tokenScopeFromModel(ctx.model)),
 			);
 		},
 	});
@@ -236,6 +237,7 @@ function normalizeLineEndings(value: string): string {
 /** 只读滚动查看 system prompt；该组件只在 custom UI 生命周期内存在，不会修改模型上下文。 */
 export class SystemPromptViewer implements Component {
 	private readonly content: string;
+	private readonly tokenCount: number;
 	private scrollTop = 0;
 
 	constructor(
@@ -243,8 +245,10 @@ export class SystemPromptViewer implements Component {
 		private readonly theme: Theme,
 		private readonly getRows: () => number,
 		private readonly done: () => void,
+		tokenScope: TokenCounterScope = {},
 	) {
 		this.content = normalizeLineEndings(content);
+		this.tokenCount = countTextTokensSync(this.content, tokenScope).tokens;
 	}
 
 	handleInput(data: string): void {
@@ -299,7 +303,7 @@ export class SystemPromptViewer implements Component {
 
 	private formatHeader(width: number, bodyLineCount: number, bodyHeight: number): string {
 		const rawLineCount = this.content.split("\n").length;
-		const title = this.theme.bold(`System prompt (${this.content.length} chars, ${rawLineCount} lines)`);
+		const title = this.theme.bold(`System prompt (${this.content.length} chars, ~${this.tokenCount} tokens, ${rawLineCount} lines)`);
 		const position =
 			bodyLineCount > bodyHeight
 				? ` ${this.scrollTop + 1}-${Math.min(bodyLineCount, this.scrollTop + bodyHeight)}/${bodyLineCount}`
@@ -336,6 +340,14 @@ export class SystemPromptViewer implements Component {
 	private fitLine(content: string, width: number): string {
 		return padToWidth(truncateToWidth(content, width, ""), width);
 	}
+}
+
+function tokenScopeFromModel(model: { provider?: string; id?: string; baseUrl?: string } | undefined): TokenCounterScope {
+	return {
+		...(model?.provider !== undefined ? { provider: model.provider } : {}),
+		...(model?.id !== undefined ? { modelId: model.id } : {}),
+		...(model?.baseUrl !== undefined ? { baseUrl: model.baseUrl } : {}),
+	};
 }
 
 function wrapByColumns(text: string, width: number): string[] {
