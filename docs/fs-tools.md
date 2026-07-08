@@ -335,6 +335,7 @@ a/
 
 * `content`：原始文本片段，不带行号。
 * `start_line` / `end_line` / `total_lines`：范围元数据。
+* `end_line` 超过文件末尾时自动读取到文件末尾；`start_line` 超过文件末尾仍返回 `INVALID_PATH`。
 * `size_bytes`：原始文件字节数。
 * `encoding`：当前固定为 `utf-8`。
 * `newline`：`lf`、`crlf`、`mixed` 或 `none`。

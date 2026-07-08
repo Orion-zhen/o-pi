@@ -87,13 +87,10 @@ export function sliceTextByLineRange(
 	}
 
 	const requestedStart = startLine ?? 1;
-	const requestedEnd = endLine ?? file.totalLines;
 	if (requestedStart > file.totalLines) {
 		return fail("INVALID_PATH", "start_line is beyond the end of the file.", { path: relativePath });
 	}
-	if (requestedEnd > file.totalLines) {
-		return fail("INVALID_PATH", "end_line is beyond the end of the file.", { path: relativePath });
-	}
+	const requestedEnd = Math.min(endLine ?? file.totalLines, file.totalLines);
 
 	const records = lineRecords(file.text);
 	const selected: string[] = [];
