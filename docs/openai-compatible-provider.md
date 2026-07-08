@@ -59,6 +59,8 @@ chmod 600 ~/.pi/agent/models.jsonc
 
 只有 `providers` 是根字段。provider key 就是 Pi 里的 provider id，例如 `/model` 中的 `lab-server/gemma4-pro` 里的 `lab-server`。
 
+如果 provider key 与 Pi 内置 provider 同名，插件 provider 会覆盖内置 provider：该 provider 的内置模型列表会被移除，只保留 `models.jsonc` 中注册出的模型，请求也走本扩展的 OpenAI-compatible 适配。例如自定义 `opencode` 后，Pi 内置 `opencode` 模型不再出现在 `/model`。
+
 ## Provider 字段
 
 | 字段 | 必填 | 默认值 | 可取值 | 说明 |
