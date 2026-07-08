@@ -139,12 +139,30 @@ pi --mode json -p --no-session --model <model> --tools <tools> --append-system-p
 * 临时 prompt 文件使用 `0600`，finally 中清理。
 * `shell: false`。
 * stdout 按 JSONL 解析。
+* 每次解析到 assistant message 或 tool result 后发送 partial update。
 * stderr 完整保存，展示时截断。
 * 超时后终止进程。
 * Ctrl+C 先 `SIGTERM`，再宽限后 `SIGKILL`。
 * 子进程环境变量使用白名单继承，并额外设置 `PI_SUBAGENT_CHILD=1`。
 
 成功条件不是只看退出码，必须有非空最终 assistant 文本，且没有错误 stop reason 或 provider error。
+
+## UI card
+
+subagent card 折叠态固定两行：
+
+```text
+subagent  <agent names>
+  <task preview>
+```
+
+parallel 或 chain 的多任务会在第一行合并 Agent 名称，并保留完成进度、turn、token 和 cost 摘要；第二行只展示一行 task 预览。
+
+展开态展示每个子 Agent 的 task、cwd、tools、model、文件输出、stderr、最终输出，以及实时解析到的子 Agent 行为事件：
+
+* assistant text：压缩为空格后展示。
+* tool call：展示工具名和精简参数。
+* 运行中但还没有事件时展示等待状态。
 
 ## 并发
 

@@ -1,16 +1,26 @@
-import { spawn as nodeSpawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from "node:child_process";
+import { spawn as nodeSpawn, type SpawnOptionsWithoutStdio } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { formatSubagentSystemPrompt } from "../../agent/extensions/system-prompt.js";
-import type { ProcessRunInput, ProcessRunOutput, RenderEvent, UsageStats } from "./types.js";
+import type { ProcessRunInput, ProcessRunOutput, ProcessRunProgress, RenderEvent, UsageStats } from "./types.js";
 
 type SpawnFunction = (
 	command: string,
 	args: readonly string[],
 	options: SpawnOptionsWithoutStdio,
-) => ChildProcessWithoutNullStreams;
+) => SpawnedProcess;
+
+interface SpawnedProcess {
+	exitCode: number | null;
+	stdin: NodeJS.WritableStream;
+	stdout: NodeJS.ReadableStream;
+	stderr: NodeJS.ReadableStream;
+	kill(signal?: NodeJS.Signals | number): boolean;
+	on(event: "close", listener: (code: number | null) => void): this;
+	on(event: "error", listener: (error: Error) => void): this;
+}
 
 let spawnImpl: SpawnFunction = nodeSpawn;
 
@@ -23,7 +33,7 @@ export function resetSubagentSpawnForTests(): void {
 	spawnImpl = nodeSpawn;
 }
 
-export async function runPiProcess(input: ProcessRunInput, signal?: AbortSignal): Promise<ProcessRunOutput> {
+export async function runPiProcess(input: ProcessRunInput, options: { signal?: AbortSignal; onUpdate?: (progress: ProcessRunProgress) => void } = {}): Promise<ProcessRunOutput> {
 	const start = Date.now();
 	const usage = emptyUsage();
 	const events: RenderEvent[] = [];
@@ -45,12 +55,12 @@ export async function runPiProcess(input: ProcessRunInput, signal?: AbortSignal)
 		const args = ["--mode", "json", "-p", "--no-session"];
 		if (input.model !== undefined) args.push("--model", input.model);
 		args.push("--tools", input.tools.join(","));
-			if (input.agent.systemPrompt.trim() !== "") {
-				tmpDir = await mkdtemp(path.join(os.tmpdir(), "pi-subagent-"));
-				const promptPath = path.join(tmpDir, `prompt-${sanitizeName(input.agent.name)}.md`);
-				await writeFile(promptPath, formatSubagentSystemPrompt(input.agent), { encoding: "utf8", mode: 0o600 });
-				args.push("--append-system-prompt", promptPath);
-			}
+		if (input.agent.systemPrompt.trim() !== "") {
+			tmpDir = await mkdtemp(path.join(os.tmpdir(), "pi-subagent-"));
+			const promptPath = path.join(tmpDir, `prompt-${sanitizeName(input.agent.name)}.md`);
+			await writeFile(promptPath, formatSubagentSystemPrompt(input.agent), { encoding: "utf8", mode: 0o600 });
+			args.push("--append-system-prompt", promptPath);
+		}
 		args.push(`Task: ${input.task}`);
 
 		const invocation = getPiInvocation(args);
@@ -80,7 +90,7 @@ export async function runPiProcess(input: ProcessRunInput, signal?: AbortSignal)
 				aborted = true;
 				terminateProcess(proc);
 			};
-			const terminateProcess = (procToKill: ChildProcessWithoutNullStreams) => {
+			const terminateProcess = (procToKill: SpawnedProcess) => {
 				procToKill.kill("SIGTERM");
 				graceTimer = setTimeout(() => {
 					if (procToKill.exitCode === null) procToKill.kill("SIGKILL");
@@ -101,6 +111,19 @@ export async function runPiProcess(input: ProcessRunInput, signal?: AbortSignal)
 					const message = recordField(parsed, "message");
 					if (message !== undefined) handleToolMessage(message);
 				}
+			};
+			const emitProgress = () => {
+				options.onUpdate?.({
+					output,
+					stderr,
+					usage: { ...usage },
+					events: events.map((event) => ({ ...event })),
+					durationMs: Date.now() - start,
+					...(stopReason !== undefined ? { stopReason } : {}),
+					...(error !== undefined ? { error } : {}),
+					parseErrors,
+					wrote,
+				});
 			};
 			const handleMessage = (message: Record<string, unknown>) => {
 				if (stringField(message, "role") !== "assistant") return;
@@ -126,6 +149,7 @@ export async function runPiProcess(input: ProcessRunInput, signal?: AbortSignal)
 						events.push({ type: "tool", name, args });
 					}
 				}
+				emitProgress();
 			};
 			const handleToolMessage = (message: Record<string, unknown>) => {
 				for (const part of contentParts(message)) {
@@ -134,6 +158,7 @@ export async function runPiProcess(input: ProcessRunInput, signal?: AbortSignal)
 						if (name === "write" || name === "edit" || name === "bash") wrote = true;
 					}
 				}
+				emitProgress();
 			};
 
 			proc.stdout.on("data", (chunk) => {
@@ -150,9 +175,9 @@ export async function runPiProcess(input: ProcessRunInput, signal?: AbortSignal)
 				finish(1);
 			});
 			proc.on("close", (code) => finish(code ?? 0));
-			if (signal !== undefined) {
-				if (signal.aborted) abort();
-				else signal.addEventListener("abort", abort, { once: true });
+			if (options.signal !== undefined) {
+				if (options.signal.aborted) abort();
+				else options.signal.addEventListener("abort", abort, { once: true });
 			}
 		});
 		providerError = detectProviderError(stderr) ?? detectProviderError(error ?? "");

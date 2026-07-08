@@ -10,6 +10,7 @@ import type {
 	ExecutorOptions,
 	OutputMode,
 	ProcessRunOutput,
+	ProcessRunProgress,
 	SubagentConfig,
 	SubagentDetails,
 	SubagentMode,
@@ -33,18 +34,26 @@ export async function executeSubagent(params: SubagentToolParams, context: Execu
 	const discovery = discoverAgents(context.cwd, config);
 	const mode = resolveMode(params);
 	const runId = createRunId();
-	const detailsBase = (results: SubagentRunResult[]): SubagentDetails => ({ mode, runId, results, warnings: discovery.warnings });
+	let activeTasks: SubagentTask[] = Array.isArray(params.tasks) ? params.tasks : [];
+	const detailsBase = (results: SubagentRunResult[]): SubagentDetails => ({ mode, runId, tasks: cloneTasks(activeTasks), results, warnings: discovery.warnings });
 
 	try {
 		const tasks = requireTasks(params.tasks);
+		activeTasks = tasks;
 		if (mode === "parallel") {
 			if (tasks.length > config.maxParallelTasks) {
 				throw new SubagentExecutionError(`Too many parallel tasks (${tasks.length}). Max is ${config.maxParallelTasks}.`);
 			}
+			const liveResults: Array<SubagentRunResult | undefined> = new Array(tasks.length);
+			emitUpdate(context, detailsBase, compactResults(liveResults));
 			const results = await mapWithConcurrency(tasks, config.maxConcurrency, async (task, index) => {
-				const result = await executeOne(task, index, mode, runId, params, context, config, discovery.agents);
+				const result = await executeOne(task, index, mode, runId, params, context, config, discovery.agents, (partial) => {
+					liveResults[index] = partial;
+					emitUpdate(context, detailsBase, compactResults(liveResults));
+				});
 				const persisted = await persistResult(result, { cwd: result.cwd, runId, index, outputMode: effectiveOutputMode(result, params, config), maxInlineOutputChars: config.maxInlineOutputChars });
-				emitUpdate(context, detailsBase, replaceResult([], persisted, index));
+				liveResults[index] = persisted;
+				emitUpdate(context, detailsBase, compactResults(liveResults));
 				if (options.failFast === true && persisted.error !== undefined) throw new SubagentExecutionError(persisted.error);
 				return persisted;
 			});
@@ -58,7 +67,9 @@ export async function executeSubagent(params: SubagentToolParams, context: Execu
 			const step = tasks[i];
 			if (step === undefined) continue;
 			const taskText = step.task.replace(/\{previous\}/g, previous);
-			const result = await executeOne({ ...step, task: taskText }, i, mode, runId, params, context, config, discovery.agents);
+			const result = await executeOne({ ...step, task: taskText }, i, mode, runId, params, context, config, discovery.agents, (partial) => {
+				emitUpdate(context, detailsBase, [...results, partial]);
+			});
 			const persisted = await persistResult(result, { cwd: result.cwd, runId, index: i, outputMode: effectiveOutputMode(result, params, config), maxInlineOutputChars: config.maxInlineOutputChars });
 			results.push(persisted);
 			emitUpdate(context, detailsBase, results);
@@ -101,6 +112,7 @@ async function executeOne(
 	context: ExecutorContext,
 	config: SubagentConfig,
 	agents: AgentDefinition[],
+	onProgress?: (result: SubagentRunResult) => void,
 ): Promise<SubagentRunResult> {
 	const agent = agents.find((candidate) => candidate.name === task.agent);
 	if (agent === undefined) throw new SubagentExecutionError(`Unknown agent "${task.agent}".`);
@@ -111,6 +123,7 @@ async function executeOne(
 	const maxAttempts = Math.max(1, (agent.retries ?? config.retries) + 1);
 	let attempts = 0;
 	let last: ProcessRunOutput | undefined;
+	onProgress?.(runningResult({ runId, mode, agent, task: task.task, cwd, ...(model !== undefined ? { model } : {}), tools, attempts: 0 }));
 	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
 		attempts = attempt;
 		last = await runPiProcess(
@@ -126,7 +139,12 @@ async function executeOne(
 				attempt,
 				maxAttempts,
 			},
-			context.signal,
+			{
+				...(context.signal !== undefined ? { signal: context.signal } : {}),
+				onUpdate: (progress) => {
+					onProgress?.(runningResult({ runId, mode, agent, task: task.task, cwd, ...(model !== undefined ? { model } : {}), tools, attempts, progress }));
+				},
+			},
 		);
 		const failure = validateProcessOutput(last);
 		if (failure === undefined) break;
@@ -236,6 +254,52 @@ function emitUpdate(context: ExecutorContext, makeDetails: (results: SubagentRun
 	context.onUpdate?.({ content: [{ type: "text", text: `Subagents ${results.length} updated` }], details: makeDetails(results) });
 }
 
+function runningResult(input: {
+	runId: string;
+	mode: SubagentMode;
+	agent: AgentDefinition;
+	task: string;
+	cwd: string;
+	model?: string;
+	tools: string[];
+	attempts: number;
+	progress?: ProcessRunProgress;
+}): SubagentRunResult {
+	const progress = input.progress;
+	return {
+		runId: input.runId,
+		mode: input.mode,
+		agent: input.agent.name,
+		source: input.agent.source,
+		task: input.task,
+		cwd: input.cwd,
+		...(input.model !== undefined ? { model: input.model } : {}),
+		tools: input.tools,
+		attempts: input.attempts,
+		exitCode: -1,
+		...(progress?.stopReason !== undefined ? { stopReason: progress.stopReason } : {}),
+		...(progress?.error !== undefined ? { error: progress.error } : {}),
+		...(progress !== undefined ? { output: progress.output } : {}),
+		...(input.agent.outputMode !== undefined ? { outputMode: input.agent.outputMode } : {}),
+		...(progress !== undefined && progress.stderr !== "" ? { stderr: progress.stderr } : {}),
+		durationMs: progress?.durationMs ?? 0,
+		usage: progress?.usage ?? emptyUsage(),
+		events: progress?.events ?? [],
+	};
+}
+
+function compactResults(results: Array<SubagentRunResult | undefined>): SubagentRunResult[] {
+	return results.filter((result): result is SubagentRunResult => result !== undefined);
+}
+
+function cloneTasks(tasks: SubagentTask[]): SubagentTask[] {
+	return tasks.map((task) => ({
+		agent: task.agent,
+		task: task.task,
+		...(task.cwd !== undefined ? { cwd: task.cwd } : {}),
+	}));
+}
+
 async function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
 	const results: R[] = new Array(items.length);
 	let next = 0;
@@ -249,12 +313,6 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (it
 	});
 	await Promise.all(workers);
 	return results;
-}
-
-function replaceResult(results: SubagentRunResult[], result: SubagentRunResult, index: number): SubagentRunResult[] {
-	const next = [...results];
-	next[index] = result;
-	return next;
 }
 
 function createRunId(): string {
@@ -281,6 +339,10 @@ function delay(ms: number, signal: AbortSignal | undefined): Promise<void> {
 function emptyProcessOutput(): ProcessRunOutput {
 	const usage: UsageStats = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, contextTokens: 0, turns: 0 };
 	return { exitCode: 1, output: "", stderr: "", usage, events: [], durationMs: 0, timedOut: false, aborted: false, parseErrors: 0, wrote: false };
+}
+
+function emptyUsage(): UsageStats {
+	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, contextTokens: 0, turns: 0 };
 }
 
 function truncateError(text: string): string {

@@ -98,6 +98,7 @@ export interface SubagentRunResult {
 export interface SubagentDetails {
 	mode: SubagentMode;
 	runId: string;
+	tasks: SubagentTask[];
 	results: SubagentRunResult[];
 	warnings: string[];
 }
@@ -133,6 +134,18 @@ export interface ProcessRunOutput {
 	timedOut: boolean;
 	aborted: boolean;
 	providerError?: string;
+	parseErrors: number;
+	wrote: boolean;
+}
+
+export interface ProcessRunProgress {
+	output: string;
+	stderr: string;
+	usage: UsageStats;
+	events: RenderEvent[];
+	durationMs: number;
+	stopReason?: string;
+	error?: string;
 	parseErrors: number;
 	wrote: boolean;
 }
