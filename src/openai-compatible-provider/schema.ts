@@ -70,6 +70,11 @@ const ProviderAdvancedSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
+const ProviderModelsSchema = Type.Union([
+	Type.Literal("auto"),
+	Type.Array(Type.Union([Type.String({ minLength: 1 }), ModelConfigSchema]), { minItems: 1 }),
+]);
+
 const ProviderConfigSchema = Type.Object(
 	{
 		display_name: Type.Optional(Type.String({ minLength: 1 })),
@@ -77,7 +82,8 @@ const ProviderConfigSchema = Type.Object(
 		api_key: Type.Optional(Type.String()),
 		api: Type.Optional(Type.Union([Type.Literal("chat"), Type.Literal("responses")])),
 		compat: Type.Optional(CompatPresetNameSchema),
-		models: Type.Array(Type.Union([Type.String({ minLength: 1 }), ModelConfigSchema]), { minItems: 1 }),
+		models_endpoint: Type.Optional(Type.String({ minLength: 1 })),
+		models: Type.Optional(ProviderModelsSchema),
 		advanced: Type.Optional(ProviderAdvancedSchema),
 	},
 	{ additionalProperties: false },

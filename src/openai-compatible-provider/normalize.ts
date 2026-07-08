@@ -1,6 +1,7 @@
 import type { ProviderConfig as PiProviderConfig, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 
 import { invalidModelsJsonc } from "./errors.js";
+import { defaultApiKeyConfig } from "./provider-defaults.js";
 import { allowsNonStandardSampling, resolveCompat } from "./presets.js";
 import type { CompatPresetName, ModelsJsoncConfig, ReasoningEffort, SamplingDefaults } from "./schema.js";
 
@@ -32,6 +33,10 @@ export interface NormalizedProvider {
 /** 将用户友好的 JSONC 配置转换成 pi.registerProvider 可消费的结构。 */
 export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath: string): NormalizedProvider[] {
 	return Object.entries(config.providers).map(([providerId, provider]) => {
+		if (!Array.isArray(provider.models)) {
+			throw invalidModelsJsonc(configPath, `provider "${providerId}" models must be resolved before registration`);
+		}
+
 		const api = provider.api === "responses" ? "openai-responses" : "openai-completions";
 		const compatPreset = provider.compat ?? "openai_compatible";
 		const providerExtraBody = provider.advanced?.extra_body ?? {};
@@ -82,7 +87,7 @@ export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath
 			config: {
 				name: provider.display_name ?? providerId,
 				baseUrl: provider.base_url,
-				apiKey: provider.api_key ? provider.api_key : missingApiKeyEnv(providerId),
+				apiKey: provider.api_key ? provider.api_key : defaultApiKeyConfig(providerId),
 				api,
 				...(provider.advanced?.headers !== undefined ? { headers: provider.advanced.headers } : {}),
 				models,
@@ -170,11 +175,6 @@ function assertNoCorePayloadFields(value: Record<string, unknown>, configPath: s
 			throw invalidModelsJsonc(configPath, `${fieldPath}.${key} cannot override core request field "${key}"`);
 		}
 	}
-}
-
-function missingApiKeyEnv(providerId: string): string {
-	const safeProvider = providerId.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
-	return `$PI_MODELS_JSONC_${safeProvider}_API_KEY`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

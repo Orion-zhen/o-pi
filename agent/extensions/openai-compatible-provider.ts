@@ -6,6 +6,7 @@ import {
 	loadModelsJsoncConfig,
 	normalizeModelsJsoncConfig,
 	registerOpenAICompatibleProviders,
+	resolveAutoModelsJsoncConfig,
 } from "../../src/openai-compatible-provider/index.js";
 
 /** 从 ~/.pi/agent/models.jsonc 注册 OpenAI-compatible provider。 */
@@ -17,6 +18,7 @@ export default async function openAICompatibleProvider(pi: ExtensionAPI): Promis
 	const config = await loadModelsJsoncConfig(configPath);
 	if (!config) return;
 
-	const providers = normalizeModelsJsoncConfig(config, configPath);
+	const resolvedConfig = await resolveAutoModelsJsoncConfig(config, configPath);
+	const providers = normalizeModelsJsoncConfig(resolvedConfig, configPath);
 	registerOpenAICompatibleProviders(pi, providers);
 }

@@ -6,6 +6,7 @@
       "api_key": "my-lovely-key",
       "api": "responses",
       "compat": "openai_compatible",
+      // 也可以省略 models 或写成 "models": "auto"，由扩展请求 base_url + /models 自动发现。
       "models": [
         {
           "model": "gemma4-31b-it",
