@@ -8,7 +8,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Box, Spacer, Text } from "@earendil-works/pi-tui";
 import { formatToolCard } from "../../tui/tool-card.js";
-import { formatBytes, formatChars, joinParts } from "../../tui/text.js";
+import { compactWhitespace, formatBytes, formatChars, joinParts } from "../../tui/text.js";
 import { previewEditWorkspace } from "../tools/edit.js";
 import { formatGrepCall, formatGrepResult } from "../grep/renderer.js";
 import {
@@ -103,7 +103,7 @@ export function renderGrepCall(args: unknown, theme: Pick<Theme, "fg" | "bold">,
 
 export function renderGrepResult(result: ToolTextResult, options: { expanded: boolean }, theme: Pick<Theme, "fg" | "bold">, context: { lastComponent?: unknown; args?: unknown }): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-	text.setText(formatFailureCard("grep", grepTarget(context.args), result.details, theme) ?? formatGrepResult(result.details, options.expanded, theme));
+	text.setText(formatFailureCard("grep", grepTarget(context.args), result.details, context.args, options.expanded, theme) ?? formatGrepResult(result.details, options.expanded, theme));
 	return text;
 }
 
@@ -240,7 +240,7 @@ function editResultBg(details: unknown, theme: Theme): (text: string) => string 
 }
 
 function formatEditResult(details: unknown, theme: Theme, args: unknown, expanded: boolean): string | undefined {
-	if (isFailedEditDetails(details)) return formatFailureCard("edit", editTarget(args), details, theme);
+	if (isFailedEditDetails(details)) return formatFailureCard("edit", editTarget(args), details, args, expanded, theme);
 	if (!isEditSuccessDetails(details)) return undefined;
 	const header = formatToolCard({
 		tool: "edit",
@@ -399,7 +399,7 @@ function formatFindCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, cwd: s
 
 function formatFindResult(result: ToolTextResult, expanded: boolean, isPartial: boolean, theme: Pick<Theme, "fg" | "bold">, args: unknown, cwd: string): string {
 	if (isPartial) return formatToolCard({ tool: "find", status: "running", target: findTarget(args, cwd), summary: "locating files/directories" }, theme);
-	const failure = formatFailureCard("find", findTarget(args, cwd), result.details, theme);
+	const failure = formatFailureCard("find", findTarget(args, cwd), result.details, args, expanded, theme);
 	if (failure !== undefined) return failure;
 	if (isFindDetails(result.details)) return formatFindDetails(result.details, expanded, theme);
 	return fallbackTextResult(result, expanded, theme, 20);
@@ -446,7 +446,7 @@ function formatLsCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, cwd: str
 function formatLsResult(result: ToolTextResult, expanded: boolean, isPartial: boolean, theme: Pick<Theme, "fg" | "bold">, args: unknown, cwd: string): string {
 	const target = isLsSuccess(result.details) ? result.details.path : failedPath(result.details) ?? lsTarget(args, cwd);
 	if (isPartial) return formatToolCard({ tool: "ls", status: "running", target, summary: "listing directory" }, theme);
-	const failure = formatFailureCard("ls", target, result.details, theme);
+	const failure = formatFailureCard("ls", target, result.details, args, expanded, theme);
 	if (failure !== undefined) return failure;
 	if (!isLsSuccess(result.details)) return fallbackTextResult(result, expanded, theme, 20);
 	const details = result.details;
@@ -479,7 +479,7 @@ function formatReadCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, cwd: s
 function formatReadResult(result: ToolReadResult, expanded: boolean, isPartial: boolean, theme: Pick<Theme, "fg" | "bold">, args: unknown, cwd: string): string {
 	const target = isReadFileSuccess(result.details) ? result.details.path : readTarget(args, cwd);
 	if (isPartial) return formatToolCard({ tool: "read", status: "running", target, summary: "reading file" }, theme);
-	const failure = formatFailureCard("read", target, result.details, theme);
+	const failure = formatFailureCard("read", target, result.details, args, expanded, theme);
 	if (failure !== undefined) return failure;
 	if (isReadImageSuccess(result.details)) return formatReadImageResult(result.details, expanded, theme);
 	if (!isReadSuccess(result.details)) return fallbackTextResult(result, expanded, theme, 10);
@@ -514,7 +514,7 @@ function formatReadTextResult(details: ReadSuccess, expanded: boolean, theme: Pi
 
 function formatWriteResult(details: unknown, theme: Pick<Theme, "fg" | "bold">, args: unknown, cwd: string, expanded: boolean): string {
 	const target = isWriteSuccess(details) ? details.path : writeTarget(args, cwd);
-	const failure = formatFailureCard("write", target, details, theme);
+	const failure = formatFailureCard("write", target, details, args, expanded, theme);
 	if (failure !== undefined) return failure;
 	if (!isWriteSuccess(details)) return formatToolCard({ tool: "write", status: "neutral", target, summary: "waiting" }, theme);
 	const diff = typeof details.diff === "string" ? details.diff : "";
@@ -549,9 +549,29 @@ function textOutput(result: ToolTextResult): string {
 		.join("\n");
 }
 
-function formatFailureCard(tool: string, target: string, details: unknown, theme: Pick<Theme, "fg" | "bold">): string | undefined {
+function formatFailureCard(tool: string, target: string, details: unknown, args: unknown, expanded: boolean, theme: Pick<Theme, "fg" | "bold">): string | undefined {
 	if (!isFailedDetails(details)) return undefined;
-	return formatToolCard({ tool, status: "error", target, summary: `${details.error.code}: ${details.error.message}` }, theme);
+	const header = formatToolCard({ tool, status: "error", target, summary: `${details.error.code}: ${details.error.message}` }, theme);
+	if (!expanded) return header;
+	const error = details.error;
+	const rows: Array<[string, unknown]> = [
+		["Call", args === undefined ? undefined : JSON.stringify(args)],
+		["Error", error.code],
+		["Message", error.message],
+		["Path", error.path],
+		["Edit", error.edit_index],
+		["Expected", error.expected],
+		["Actual", error.actual],
+		["Next", error.next],
+		["Details", error.details === undefined ? undefined : JSON.stringify(error.details)],
+	];
+	return [
+		header,
+		"",
+		...rows
+			.filter((row): row is [string, string | number] => row[1] !== undefined)
+			.map(([label, value]) => theme.fg("toolOutput", `${label} ${compactWhitespace(String(value))}`)),
+	].join("\n");
 }
 
 function failedPath(details: unknown): string | undefined {

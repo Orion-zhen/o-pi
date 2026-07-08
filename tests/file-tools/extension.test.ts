@@ -67,9 +67,28 @@ describe("file-tools extension", () => {
 
 		for (const toolName of ["ls", "find", "grep", "read"]) {
 			const output = renderToolResult(registered, toolName, failure);
+			expect(output.split("\n")).toHaveLength(2);
 			expect(output).toContain("INVALID_PATH: path must be workspace-relative.");
 			expect(output).not.toContain('"status": "failed"');
 		}
+
+		const expanded = renderToolResult(registered, "find", {
+			status: "failed" as const,
+			error: {
+				code: "READ_REQUIRED",
+				message: "File changed since last read.",
+				path: "src/app.ts",
+				next: "Read the file again, then create a new edit operation.",
+				details: { version: "new" },
+			},
+		}, true, { query: "app", path: "src" });
+		expect(expanded.split("\n").length).toBeGreaterThan(2);
+		expect(expanded).toContain('Call {"query":"app","path":"src"}');
+		expect(expanded).toContain("Error READ_REQUIRED");
+		expect(expanded).toContain("Path src/app.ts");
+		expect(expanded).toContain("Next Read the file again, then create a new edit operation.");
+		expect(expanded).toContain('Details {"version":"new"}');
+		expect(expanded).not.toContain('"status": "failed"');
 	});
 
 	it("ls 失败结果渲染失败路径，而不是 workspace cwd", () => {
@@ -189,10 +208,17 @@ describe("file-tools extension", () => {
 
 		const failure = renderEditResult(registered, {
 			status: "failed",
-			error: { code: "OLD_TEXT_NOT_FOUND", message: "edits[0].old was not found in the original file." },
+			error: { code: "OLD_TEXT_NOT_FOUND", message: "edits[0].old was not found in the original file.", edit_index: 0 },
 		});
 		expect(failure).toContain("toolErrorBg");
 		expect(failure).toContain("OLD_TEXT_NOT_FOUND: edits[0].old was not found in the original file.");
+
+		const expandedFailure = renderEditResult(registered, {
+			status: "failed",
+			error: { code: "OLD_TEXT_NOT_FOUND", message: "edits[0].old was not found in the original file.", edit_index: 0 },
+		}, true);
+		expect(expandedFailure).toContain('Call {"path":"src/app.ts","edits":[{"old":"old","new":"new"}]}');
+		expect(expandedFailure).toContain("Edit 0");
 	});
 
 	it("write 完成后折叠态成功结果展示 diff", () => {
@@ -383,27 +409,27 @@ describe("file-tools extension", () => {
 	});
 });
 
-function renderToolResult(registered: Array<{ name: string; renderResult?: RenderResult }>, toolName: string, details: unknown): string {
+function renderToolResult(registered: Array<{ name: string; renderResult?: RenderResult }>, toolName: string, details: unknown, expanded = false, args?: unknown): string {
 	const tool = registered.find((item) => item.name === toolName);
 	const component = tool?.renderResult?.(
 		{ content: [{ type: "text", text: JSON.stringify(details, null, 2) }], details },
-		{ expanded: false, isPartial: false },
+		{ expanded, isPartial: false },
 		theme,
-		{ cwd: "C:/Users/orion/.pi" },
+		{ args, cwd: "C:/Users/orion/.pi" },
 	);
 	return component?.render(120).join("\n") ?? "";
 }
 
-function renderEditResult(registered: Array<{ name: string; renderResult?: RenderResult }>, details: unknown): string {
+function renderEditResult(registered: Array<{ name: string; renderResult?: RenderResult }>, details: unknown, expanded = false): string {
 	const tool = registered.find((item) => item.name === "edit");
 	const component = tool?.renderResult?.(
 		{ content: [{ type: "text", text: JSON.stringify(details, null, 2) }], details },
-		{ expanded: false, isPartial: false },
+		{ expanded, isPartial: false },
 		theme,
 		{
 			args: { path: "src/app.ts", edits: [{ old: "old", new: "new" }] },
 			cwd: "/repo",
-			expanded: false,
+			expanded,
 			lastComponent: undefined,
 			state: {},
 		},
