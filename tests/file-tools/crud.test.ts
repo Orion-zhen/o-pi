@@ -383,6 +383,18 @@ describe("read", () => {
 		expect(result).toMatchObject({ content: "two\n", start_line: 2, end_line: 2, total_lines: 3 });
 	});
 
+	it("end_line 超过文件末尾时读取到文件末尾", async () => {
+		await writeFile(path.join(workspace, "a.txt"), "one\ntwo\nthree\n", "utf8");
+		const result = await readWorkspaceFile(workspace, { path: "a.txt", start_line: 2, end_line: 99 });
+		expect(result).toMatchObject({
+			content: "two\nthree\n",
+			start_line: 2,
+			end_line: 3,
+			total_lines: 3,
+			truncated: false,
+		});
+	});
+
 	it("处理空文件、无尾部换行、CRLF 和 UTF-8 BOM", async () => {
 		await writeFile(path.join(workspace, "empty.txt"), "");
 		await writeFile(path.join(workspace, "nonewline.txt"), "one");
