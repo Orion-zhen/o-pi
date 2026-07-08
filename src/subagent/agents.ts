@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
 import type { AgentDefinition, AgentDiscovery, OutputMode, SubagentConfig, SubagentSource } from "./types.js";
@@ -9,13 +10,22 @@ const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
 export function discoverAgents(cwd: string, config: SubagentConfig): AgentDiscovery {
 	const warnings: string[] = [];
 	const userAgentsDir = path.join(getAgentDir(), "agents");
-	const projectAgentsDir = config.allowProjectAgents ? findNearestProjectAgentsDir(cwd) : undefined;
-	const userAgents = loadAgentsFromDir(userAgentsDir, "user", config, warnings, undefined);
-	const projectAgents =
-		projectAgentsDir === undefined ? [] : loadAgentsFromDir(projectAgentsDir, "project", config, warnings, projectAgentsDir);
+	const userAgentsHomeDir = path.join(os.homedir(), ".agents", "agents");
+	const userAgentsDirs = uniquePaths([userAgentsDir, userAgentsHomeDir]);
+	const projectAgentsDirs = config.allowProjectAgents
+		? uniquePaths([...findProjectPiAgentsDirs(cwd), ...collectAncestorAgentsDirs(cwd)]).filter((dir) => path.resolve(dir) !== path.resolve(userAgentsHomeDir))
+		: [];
+	const userAgents = userAgentsDirs.flatMap((dir) => loadAgentsFromDir(dir, "user", config, warnings, undefined));
+	const projectAgents = projectAgentsDirs.flatMap((dir) => loadAgentsFromDir(dir, "project", config, warnings, dir));
 
 	const byName = new Map<string, AgentDefinition>();
-	for (const agent of userAgents) byName.set(agent.name, agent);
+	for (const agent of userAgents) {
+		if (byName.has(agent.name)) {
+			warnings.push(`Duplicate user agent ignored: ${agent.name} (${agent.filePath})`);
+			continue;
+		}
+		byName.set(agent.name, agent);
+	}
 	for (const agent of projectAgents) {
 		if (!byName.has(agent.name)) {
 			byName.set(agent.name, agent);
@@ -32,7 +42,7 @@ export function discoverAgents(cwd: string, config: SubagentConfig): AgentDiscov
 		agents: [...byName.values()].sort((a, b) => a.name.localeCompare(b.name)),
 		warnings,
 		userAgentsDir,
-		...(projectAgentsDir !== undefined ? { projectAgentsDir } : {}),
+		...(projectAgentsDirs[0] !== undefined ? { projectAgentsDir: projectAgentsDirs[0] } : {}),
 	};
 }
 
@@ -159,6 +169,35 @@ function findNearestProjectAgentsDir(cwd: string): string | undefined {
 	}
 }
 
+function findProjectPiAgentsDirs(cwd: string): string[] {
+	const nearest = findNearestProjectAgentsDir(cwd);
+	return nearest === undefined ? [] : [nearest];
+}
+
+function collectAncestorAgentsDirs(startDir: string): string[] {
+	const dirs: string[] = [];
+	const gitRoot = findGitRepoRoot(startDir);
+	let current = path.resolve(startDir);
+	while (true) {
+		dirs.push(path.join(current, ".agents", "agents"));
+		if (gitRoot !== undefined && current === gitRoot) break;
+		const parent = path.dirname(current);
+		if (parent === current) break;
+		current = parent;
+	}
+	return dirs;
+}
+
+function findGitRepoRoot(startDir: string): string | undefined {
+	let current = path.resolve(startDir);
+	while (true) {
+		if (existsSync(path.join(current, ".git"))) return current;
+		const parent = path.dirname(current);
+		if (parent === current) return undefined;
+		current = parent;
+	}
+}
+
 function isDirectory(filePath: string): boolean {
 	try {
 		return statSync(filePath).isDirectory();
@@ -178,6 +217,18 @@ function safeRealpath(filePath: string): string | undefined {
 function isPathInside(candidate: string, root: string): boolean {
 	const relative = path.relative(root, candidate);
 	return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function uniquePaths(paths: string[]): string[] {
+	const seen = new Set<string>();
+	const result: string[] = [];
+	for (const item of paths) {
+		const resolved = path.resolve(item);
+		if (seen.has(resolved)) continue;
+		seen.add(resolved);
+		result.push(item);
+	}
+	return result;
 }
 
 function parseOutputMode(value: unknown, field: string): OutputMode {

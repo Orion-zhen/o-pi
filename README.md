@@ -12,4 +12,5 @@ Orion's Pi Agent.
 * [TUI V1](docs/tui.md)
 * [Slash commands](docs/slash-cmds.md)
 * [Skill Context](docs/skill-context.md)
+* [Prompt Templates](docs/prompt-templates.md)
 * [Token counter](docs/token-counter.md)
