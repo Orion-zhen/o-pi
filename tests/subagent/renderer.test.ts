@@ -85,6 +85,32 @@ describe("subagent renderer", () => {
 		expect(rendered).toContain("-> read");
 		expect(rendered).toContain("found renderer behavior");
 	});
+
+	it("展开态从 details 展示完整输出，不依赖模型可见 content", () => {
+		const details: SubagentDetails = {
+			mode: "parallel",
+			runId: "run-1",
+			tasks: [{ agent: "scout", task: "inspect output" }],
+			results: [
+				result({
+					agent: "scout",
+					task: "inspect output",
+					output: "full subagent output kept for the tool card",
+					outputFile: "/workspace/.pi/subagents/runs/run-1/scout-1.md",
+				}),
+			],
+			warnings: [],
+		};
+
+		const rendered = renderSubagentResult(
+			{ content: [{ type: "text", text: "Subagent result saved to:\n/workspace/.pi/subagents/runs/run-1/scout-1.md\nRead the file for the full result." }], details },
+			{ expanded: true, isPartial: false },
+			theme as never,
+		).render(160).join("\n");
+
+		expect(rendered).toContain("file: /workspace/.pi/subagents/runs/run-1/scout-1.md");
+		expect(rendered).toContain("full subagent output kept for the tool card");
+	});
 });
 
 function result(overrides: Partial<SubagentRunResult>): SubagentRunResult {

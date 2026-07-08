@@ -188,12 +188,12 @@ parallel 或 chain 的多任务会在第一行合并 Agent 名称，并保留完
 `file`：
 
 * 完整结果保存到 `.pi/subagents/runs/<run-id>/`。
-* 主上下文只收到路径、大小和短预览。
+* 主上下文只收到路径、大小和读取指引，不包含正文预览。
 
 chain handoff：
 
 * inline 结果受 `max_handoff_chars` 限制。
-* file 结果只传路径、大小和短预览。
+* file 结果只传路径、大小和读取指引。
 * 后续 Agent 如需完整内容，应主动使用 `read` 读取文件。
 
 ## 配置

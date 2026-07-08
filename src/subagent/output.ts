@@ -3,6 +3,8 @@ import path from "node:path";
 import { findNearestProjectRoot } from "./config.js";
 import type { OutputMode, SubagentRunResult } from "./types.js";
 
+const RUNS_DIR = path.join(".pi", "subagents", "runs");
+
 export interface OutputFormatOptions {
 	cwd: string;
 	runId: string;
@@ -40,15 +42,13 @@ export async function persistResult(result: SubagentRunResult, options: OutputFo
 export function formatResultForContext(result: SubagentRunResult, mode: OutputMode, maxInlineOutputChars: number): string {
 	const output = result.output ?? "";
 	if (mode === "file" && result.outputFile !== undefined) {
-		const preview = truncateText(output, Math.min(1200, maxInlineOutputChars)).text;
 		return [
 			"Subagent result saved to:",
 			result.outputFile,
 			"",
 			`Agent: ${result.agent}`,
 			`Size: ${formatBytes(Buffer.byteLength(output, "utf8"))}`,
-			"Preview:",
-			preview,
+			"Read the file for the full result.",
 		].join("\n");
 	}
 	return truncateText(output, maxInlineOutputChars).text;
@@ -57,13 +57,12 @@ export function formatResultForContext(result: SubagentRunResult, mode: OutputMo
 export function formatFileHandoff(result: SubagentRunResult): string {
 	if (result.outputFile === undefined) return limitHandoff(result.output ?? "", 2000);
 	const size = Buffer.byteLength(result.output ?? "", "utf8");
-	const preview = truncateText(result.output ?? "", 1200).text;
-	return [`Previous subagent result: ${result.outputFile}`, `Agent: ${result.agent}`, `Size: ${formatBytes(size)}`, "Preview:", preview].join("\n");
+	return [`Previous subagent result: ${result.outputFile}`, `Agent: ${result.agent}`, `Size: ${formatBytes(size)}`, "Read the file for the full result."].join("\n");
 }
 
 export function getRunDir(cwd: string, runId: string): string {
 	const root = findNearestProjectRoot(cwd) ?? cwd;
-	return path.join(root, ".pi", "subagents", "runs", runId);
+	return path.join(root, RUNS_DIR, runId);
 }
 
 export function sanitizeFileName(name: string): string {
