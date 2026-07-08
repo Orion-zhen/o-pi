@@ -172,8 +172,8 @@
 
 行为：
 
-- 读取 `~/.pi/agent/agents/*.md`。
-- 仅在用户配置允许时读取项目 `.pi/agents/*.md`。
+- 读取 `~/.pi/agent/agents/*.md` 和 `~/.agents/agents/*.md`。
+- 仅在用户配置允许时读取项目 `.pi/agents/*.md` 和祖先 `.agents/agents/*.md`。
 - 展示名称、描述、来源、文件路径、模型、实际可用工具、输出模式和是否有写能力。
 - 工具列表是 subagent 配置工具与 `pi.getAllTools()` 的交集；被 `/tools` 从主 Agent 停用的工具仍可显示并传给子进程。
 - 结果只显示在 UI 中，不写入会话历史，不消耗模型 token。

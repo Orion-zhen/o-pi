@@ -14,15 +14,18 @@
 
 ```text
 ~/.pi/agent/agents/*.md
+~/.agents/agents/*.md
 ```
 
 项目级 Agent 位于：
 
 ```text
 .pi/agents/*.md
+.agents/agents/*.md
 ```
 
 项目 Agent 默认关闭，只有用户配置显式开启时加载。
+`.agents/agents` 与 Pi 内置 `.agents/skills` 发现范围保持一致：启用项目 Agent 后，会从当前目录向上查找祖先目录的 `.agents/agents`，遇到 Git 根目录停止。用户级同名时 `~/.pi/agent/agents` 优先；项目级同名是否覆盖用户级仍由 `project_agents_override_user` 控制。
 
 格式：
 
@@ -92,6 +95,7 @@ Agent 配置工具 ∩ pi.getAllTools()
 * 被 `/tools` 从主 Agent 停用的工具仍可传给子进程。
 * 未注册或被 Pi registry 排除的工具不会显示在 `/agents`，也不会传给子进程。
 * 交集为空时拒绝执行并返回明确错误。
+* 子 Agent 使用 `read`/`grep`/`find`/`ls` 时可显式访问 Pi 进程可访问的绝对路径，包括 `~/.agents`；项目级 `.agents/agents` 定义文件会拒绝符号链接逃逸。
 
 ## 工具 API
 
