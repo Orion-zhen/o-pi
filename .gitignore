@@ -5,6 +5,8 @@ agent/sessions
 agent/cookies.txt
 agent/models.jsonc
 
+subagents/
+
 package-lock.json
 
 # Logs
