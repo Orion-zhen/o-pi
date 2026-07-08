@@ -2,6 +2,20 @@
 
 Orion's Pi Agent.
 
+## 安装使用
+
+克隆到 Pi 配置路径:
+
+```bash
+git clone https://github.com/Orion-zhen/o-pi.git ~/.pi
+```
+
+安装依赖:
+
+```bash
+cd ~/.pi && npm install
+```
+
 ## 文档
 
 * [文件工具设计](docs/fs-tools.md)
