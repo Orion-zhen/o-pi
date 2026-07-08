@@ -9,6 +9,7 @@ import {
 	type BashParams,
 	type BashToolDetails,
 } from "../../src/bash-tool/index.js";
+import { repairableTool } from "../../src/tool-repair/index.js";
 
 const bashParameters = Type.Object({
 	command: Type.String({ description: "Shell command to execute exactly as provided." }),
@@ -19,7 +20,7 @@ const bashParameters = Type.Object({
 export default function bashTool(pi: ExtensionAPI): void {
 	const operations = createDefaultBashOperations();
 
-	pi.registerTool({
+	pi.registerTool(repairableTool({
 		name: "bash",
 		label: "bash",
 		description: "Run shell commands or external programs; use dedicated tools for direct file listing, search, reading, and edits.",
@@ -50,7 +51,7 @@ export default function bashTool(pi: ExtensionAPI): void {
 			const result = await executeBashCommand(params as BashParams, runtime);
 			return { content: [{ type: "text", text: result.content }], details: withNativeBashDetails(result.details) };
 		},
-	});
+	}, { singleStringField: "command" }));
 
 	pi.on("tool_result", (event) => {
 		if (event.toolName !== "bash" || !isBashDetails(event.details)) return undefined;

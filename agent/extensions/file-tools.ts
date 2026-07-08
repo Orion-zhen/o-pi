@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { editWorkspace } from "../../src/file-tools/tools/edit.js";
 import { findWorkspaceFiles } from "../../src/file-tools/tools/find.js";
@@ -36,6 +37,7 @@ import { readWorkspaceFile } from "../../src/file-tools/tools/read.js";
 import type { EditParams, FindParams, GrepParams, LsParams, ReadParams, WriteParams } from "../../src/file-tools/types.js";
 import { writeWorkspaceFile } from "../../src/file-tools/tools/write.js";
 import { lspFileHooks } from "../../src/lsp/index.js";
+import { repairableTool } from "../../src/tool-repair/index.js";
 
 const lsParameters = Type.Object({ path: Type.String({ description: "Directory path." }) }, { additionalProperties: false });
 const findParameters = Type.Object(
@@ -52,7 +54,7 @@ const grepParameters = Type.Object(
 	{
 		query: Type.String({ minLength: 1, description: "Text, symbol, regex, or code intent to find." }),
 		path: Type.Optional(Type.String({ minLength: 1, description: "File or directory scope; defaults to workspace." })),
-		match: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("literal"), Type.Literal("regex")], { description: "Query interpretation; defaults to auto." })),
+		match: Type.Optional(StringEnum(["auto", "literal", "regex"] as const, { description: "Query interpretation; defaults to auto." })),
 		glob: Type.Optional(Type.String({ minLength: 1, description: "Relative file glob within path." })),
 	},
 	{ additionalProperties: false },
@@ -90,7 +92,7 @@ const editParameters = Type.Object({
 export default function fileTools(pi: ExtensionAPI): void {
 	const versionCaches = new Map<string, ReadVersionCache>();
 
-	pi.registerTool({
+	pi.registerTool(repairableTool({
 		name: "ls",
 		label: "ls",
 		description: "List direct entries of one directory; no recursion or file contents.",
@@ -105,9 +107,9 @@ export default function fileTools(pi: ExtensionAPI): void {
 		},
 		renderCall: renderLsCall,
 		renderResult: renderLsResult,
-	});
+	}, { singleStringField: "path", pathFields: ["path"] }));
 
-	pi.registerTool({
+	pi.registerTool(repairableTool({
 		name: "find",
 		label: "find",
 		description: "Find files or directories by name, path fragment, or glob; does not search contents.",
@@ -122,9 +124,9 @@ export default function fileTools(pi: ExtensionAPI): void {
 		},
 		renderCall: renderFindCall,
 		renderResult: renderFindResult,
-	});
+	}, { singleStringField: "query", pathFields: ["path"] }));
 
-	pi.registerTool({
+	pi.registerTool(repairableTool({
 		name: "grep",
 		label: "grep",
 		description: "Search code content by text, symbol, regex, or intent; return ranked syntax-aware regions.",
@@ -139,9 +141,9 @@ export default function fileTools(pi: ExtensionAPI): void {
 		},
 		renderCall: renderGrepCall,
 		renderResult: renderGrepResult,
-	});
+	}, { singleStringField: "query", pathFields: ["path"] }));
 
-	pi.registerTool({
+	pi.registerTool(repairableTool({
 		name: "read",
 		label: "read",
 		description: "Read one UTF-8 text file or image file. Line ranges apply only to text. Records file version for edit.",
@@ -164,9 +166,16 @@ export default function fileTools(pi: ExtensionAPI): void {
 		},
 		renderCall: renderReadCall,
 		renderResult: renderReadResult,
-	});
+	}, {
+		singleStringField: "path",
+		pathFields: ["path"],
+		aliases: {
+			startLine: "start_line",
+			endLine: "end_line",
+		},
+	}));
 
-	pi.registerTool({
+	pi.registerTool(repairableTool({
 		name: "write",
 		label: "write",
 		description: "Create or replace one file in a whole.",
@@ -182,9 +191,15 @@ export default function fileTools(pi: ExtensionAPI): void {
 		},
 		renderCall: renderWriteCall,
 		renderResult: renderWriteResult,
-	});
+	}, {
+		pathFields: ["path"],
+		aliases: {
+			text: "content",
+			contents: "content",
+		},
+	}));
 
-	pi.registerTool({
+	pi.registerTool(repairableTool({
 		name: "edit",
 		label: "edit",
 		description: "Partially update one file using exact replacements; existing source files must be read first.",
@@ -207,7 +222,18 @@ export default function fileTools(pi: ExtensionAPI): void {
 		},
 		renderCall: renderEditCall,
 		renderResult: renderEditResult,
-	});
+	}, {
+		pathFields: ["path"],
+		aliases: {
+			oldText: "old",
+			newText: "new",
+		},
+		nestedAliases: {
+			"edits.*.oldText": "old",
+			"edits.*.newText": "new",
+		},
+		objectArrayFromFields: [{ arrayField: "edits", fields: ["old", "new"] }],
+	}));
 
 	pi.on("tool_result", (event) => {
 		if (isFileToolName(event.toolName) && isFailedDetails(event.details)) return { isError: true };

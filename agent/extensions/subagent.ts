@@ -8,6 +8,7 @@ import {
 	renderSubagentResult,
 	type SubagentToolParams,
 } from "../../src/subagent/index.js";
+import { repairableTool } from "../../src/tool-repair/index.js";
 
 const taskItem = Type.Object({
 	agent: Type.String({ minLength: 1, description: "Agent name." }),
@@ -36,7 +37,7 @@ const subagentParams = Type.Object(
 /** 注册轻量 subagent 工具和确定性命令；核心逻辑在 src/subagent。 */
 export default function subagentExtension(pi: ExtensionAPI): void {
 	registerSubagentCommands(pi);
-	pi.registerTool({
+	pi.registerTool(repairableTool({
 		name: "subagent",
 		label: "subagent",
 		description: "Delegate one or more bounded tasks to isolated agents.",
@@ -55,7 +56,12 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 		},
 		renderCall: renderSubagentCall,
 		renderResult: renderSubagentResult,
-	});
+	}, {
+		pathFields: ["cwd", "tasks.*.cwd"],
+		aliases: {
+			output_mode: "outputMode",
+		},
+	}));
 	pi.on("tool_result", (event) => {
 		if (event.toolName !== "subagent") return undefined;
 		const details = event.details;

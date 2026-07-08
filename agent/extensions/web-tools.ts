@@ -14,6 +14,7 @@ import {
 	type WebSearchProgressDetails,
 	type WebToolsRuntime,
 } from "../../src/web-tools/index.js";
+import { repairableTool } from "../../src/tool-repair/index.js";
 
 const webSearchParameters = Type.Object(
 	{
@@ -68,7 +69,7 @@ export default function webTools(pi: ExtensionAPI): void {
 		return runtime;
 	};
 
-	pi.registerTool({
+	pi.registerTool(repairableTool({
 		name: "websearch",
 		label: "websearch",
 		description: "Search the web for pages; returns titles, URLs, and snippets without fetching result pages. Uses configured providers with fallback.",
@@ -91,9 +92,9 @@ export default function webTools(pi: ExtensionAPI): void {
 		},
 		renderCall: renderWebSearchCall,
 		renderResult: renderWebSearchResult,
-	});
+	}, { singleStringField: "query" }));
 
-	pi.registerTool({
+	pi.registerTool(repairableTool({
 		name: "webfetch",
 		label: "webfetch",
 		description: "Fetch one known HTTP(S) URL as readable text or source; does not search or execute JavaScript.",
@@ -119,7 +120,7 @@ export default function webTools(pi: ExtensionAPI): void {
 		},
 		renderCall: renderWebFetchCall,
 		renderResult: renderWebFetchResult,
-	});
+	}, { singleStringField: "url" }));
 
 	pi.on("tool_result", (event) => {
 		if (event.toolName === "websearch" && isWebSearchDetails(event.details) && event.details.status === "failed") {
