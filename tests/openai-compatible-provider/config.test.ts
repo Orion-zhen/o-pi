@@ -128,6 +128,61 @@ describe("openai-compatible-provider config", () => {
 		});
 	});
 
+	it("手写 models 会合并 models endpoint，冲突时保留手写配置", async () => {
+		const configPath = path.join(dir, "models.jsonc");
+		const config = await loadConfigFromText(`{
+			"providers": {
+				"gateway": {
+					"base_url": "https://gateway.example.com/v1",
+					"api_key": "EMPTY",
+					"models": [
+						{
+							"model": "manual-model",
+							"display_name": "Manual Model",
+							"context_window": 1000,
+							"max_tokens": 100
+						},
+						"manual-string"
+					]
+				}
+			}
+		}`);
+		const calls: string[] = [];
+		const resolved = await resolveAutoModelsJsoncConfig(config, configPath, {
+			fetch: async (url) => {
+				calls.push(url);
+				return jsonResponse({
+					data: [
+						{ id: "manual-model", name: "Endpoint Manual", context_length: 200000, max_completion_tokens: 8192 },
+						{ id: "manual-string", name: "Endpoint String", context_length: 200000 },
+						{ id: "endpoint-only", name: "Endpoint Only", context_length: 300000 },
+					],
+				});
+			},
+		});
+		const [provider] = normalizeModelsJsoncConfig(resolved, configPath);
+		const models = provider?.config.models ?? [];
+
+		expect(calls).toEqual(["https://gateway.example.com/v1/models"]);
+		expect(models.map((model) => model.id)).toEqual(["manual-model", "manual-string", "endpoint-only"]);
+		expect(models[0]).toMatchObject({
+			id: "manual-model",
+			name: "Manual Model",
+			contextWindow: 1000,
+			maxTokens: 100,
+		});
+		expect(models[1]).toMatchObject({
+			id: "manual-string",
+			name: "manual-string",
+			contextWindow: 128000,
+		});
+		expect(models[2]).toMatchObject({
+			id: "endpoint-only",
+			name: "Endpoint Only",
+			contextWindow: 300000,
+		});
+	});
+
 	it("省略 models 时默认从 /models 自动发现，EMPTY 不发送 Authorization", async () => {
 		const config = await loadConfigFromText(`{
 			"providers": {

@@ -28,7 +28,7 @@ export interface ResolveAutoModelsOptions {
 	timeoutMs?: number;
 }
 
-/** 将 models 省略或写成 "auto" 的 provider 展开为从 /models 发现到的模型列表。 */
+/** 请求 /models 发现模型；手写 models 作为覆盖项，冲突时优先保留手写配置。 */
 export async function resolveAutoModelsJsoncConfig(
 	config: ModelsJsoncConfig,
 	configPath: string,
@@ -37,17 +37,25 @@ export async function resolveAutoModelsJsoncConfig(
 	let changed = false;
 	const providers: Record<string, ProviderConfig> = {};
 	for (const [providerId, provider] of Object.entries(config.providers)) {
-		if (provider.models !== undefined && provider.models !== "auto") {
-			providers[providerId] = provider;
-			continue;
-		}
+		const discoveredModels = await fetchProviderModelsFromEndpoint(providerId, provider, configPath, options);
 		changed = true;
 		providers[providerId] = {
 			...provider,
-			models: await fetchProviderModelsFromEndpoint(providerId, provider, configPath, options),
+			models: Array.isArray(provider.models)
+				? mergeConfiguredAndDiscoveredModels(provider.models, discoveredModels)
+				: discoveredModels,
 		};
 	}
 	return changed ? { providers } : config;
+}
+
+function mergeConfiguredAndDiscoveredModels(configuredModels: Array<string | ModelConfig>, discoveredModels: ModelConfig[]): Array<string | ModelConfig> {
+	const configuredIds = new Set(configuredModels.map(configuredModelId));
+	return [...configuredModels, ...discoveredModels.filter((model) => !configuredIds.has(model.model))];
+}
+
+function configuredModelId(model: string | ModelConfig): string {
+	return typeof model === "string" ? model : model.model;
 }
 
 export async function fetchProviderModelsFromEndpoint(

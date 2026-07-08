@@ -68,8 +68,8 @@ chmod 600 ~/.pi/agent/models.jsonc
 | `api_key` | 否 | `$PI_MODELS_JSONC_<PROVIDER>_API_KEY` | 字符串 | API key 配置值，会传给 Pi 的 provider auth 解析逻辑。 |
 | `api` | 否 | `chat` | `chat`、`responses` | `chat` 注册为 `openai-completions`；`responses` 注册为 `openai-responses`。 |
 | `compat` | 否 | `openai_compatible` | `openai`、`openai_compatible`、`local`、`qwen`、`deepseek`、`strict` | 高层兼容 preset，展开后传给每个模型的 `compat`。 |
-| `models_endpoint` | 否 | `models` | 相对路径或完整 URL | 当 `models` 省略或为 `"auto"` 时，请求的模型列表接口；默认把 `models` 拼到 `base_url` 后。 |
-| `models` | 否 | `"auto"` | `"auto"` 或非空数组 | 省略/`"auto"` 时启动时调用 models endpoint；数组中每项可以是字符串模型 id，也可以是模型对象。provider 内模型 id 不能重复。 |
+| `models_endpoint` | 否 | `models` | 相对路径或完整 URL | 自动发现请求的模型列表接口；默认把 `models` 拼到 `base_url` 后。 |
+| `models` | 否 | `"auto"` | `"auto"` 或非空数组 | 省略/`"auto"` 时仅使用发现结果；数组会作为手写配置并追加发现模型。同模型 id 冲突时手写配置优先。provider 内模型 id 不能重复。 |
 | `advanced` | 否 | `{}` | 对象 | provider 级高级配置。 |
 
 `api_key` 和 `advanced.headers` 的字符串值由 Pi 解析：
@@ -86,7 +86,7 @@ chmod 600 ~/.pi/agent/models.jsonc
 
 ## 自动发现模型
 
-`models` 省略或写成 `"auto"` 时，扩展会在启动/重载时请求 provider 的 models endpoint，并把返回的模型注册进 Pi：
+扩展会在启动/重载时请求 provider 的 models endpoint，并把返回的模型注册进 Pi。`models` 省略或写成 `"auto"` 时，只使用发现结果：
 
 ```jsonc
 {
@@ -102,6 +102,27 @@ chmod 600 ~/.pi/agent/models.jsonc
 ```
 
 默认请求 URL 是 `base_url` 后拼 `models`，例如 `https://lab.example.com/v1/models`。特殊网关可用 `models_endpoint` 覆盖；相对路径按 `base_url` 解析，完整 URL 会直接使用。
+
+`models` 写成数组时，数组中的手写模型会先保留，再追加 endpoint 发现到的其他模型；如果 endpoint 返回同一个 model id，忽略 endpoint 里的那一项，手写配置完整优先：
+
+```jsonc
+{
+  "providers": {
+    "lab-server": {
+      "base_url": "https://lab.example.com/v1",
+      "api_key": "$LAB_API_KEY",
+      "models": [
+        {
+          "model": "qwen3-coder",
+          "display_name": "Qwen3 Coder Tuned",
+          "context_window": 262144,
+          "max_tokens": 32768
+        }
+      ]
+    }
+  }
+}
+```
 
 请求会带 `Accept: application/json`，并在未配置 `Authorization`/`CF-AIG-Authorization` header 时用 `api_key` 生成 `Authorization: Bearer <key>`；`api_key: "EMPTY"` 不发送 Authorization，适合本地服务。`advanced.headers` 同样会用于发现请求。
 
@@ -493,6 +514,6 @@ pi --list-models lab-server --offline
 
 1. 确认 `~/.pi/agent/models.jsonc` 存在且 JSONC 可解析。
 2. 确认 provider 有可解析的 `api_key`，本地服务可用 `"EMPTY"`。
-3. 静态配置时确认 `models` 非空，且模型 id 未重复。
-4. 自动发现时确认 `base_url`/`models_endpoint` 能访问，并返回 `{ "data": [{ "id": "..." }] }`、数组或 `{ "models": [...] }`。
+3. 手写 `models` 数组时确认模型 id 未重复。
+4. 确认 `base_url`/`models_endpoint` 能访问；即使有手写 `models`，启动时也会请求并合并发现结果。返回需为 `{ "data": [{ "id": "..." }] }`、数组或 `{ "models": [...] }`。
 5. 启动时报 schema 或 models endpoint 错误时，按错误里的 `providers.<id>...` path 或 HTTP 状态修改配置。
