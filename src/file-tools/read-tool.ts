@@ -1,10 +1,11 @@
 import { fail, isFailed } from "./errors.js";
 import { ignoreConfigFromFileTools, isIgnoredPath, loadFileToolsConfig, toolPathIdentity } from "./config.js";
 import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
+import { detectFileType, processInlineImage } from "./media-file.js";
 import { resolveExistingFile, resolveWorkspaceRoot } from "./path-resolver.js";
 import type { ReadVersionCache } from "./read-cache.js";
-import { readTextFile, sliceTextByLineRange } from "./text-file.js";
-import type { FileToolLspHooks, ReadParams, ReadSuccess, ToolOutcome } from "./types.js";
+import { decodeTextFile, readRawFile, sha256Version, sliceTextByLineRange } from "./text-file.js";
+import type { FileToolLspHooks, ReadFileSuccess, ReadImageSuccess, ReadParams, ReadSuccess, ToolOutcome } from "./types.js";
 
 export interface ReadRuntime {
 	/** 会话内 read/edit 版本缓存，用于防止 stale edit。 */
@@ -13,8 +14,8 @@ export interface ReadRuntime {
 	lsp?: FileToolLspHooks;
 }
 
-/** read 读取 UTF-8 文本、行范围、版本和换行元数据，不写入任何文件。 */
-export async function readWorkspaceFile(cwd: string, params: ReadParams, runtime: ReadRuntime = {}): Promise<ToolOutcome<ReadSuccess>> {
+/** read 读取 UTF-8 文本或模型可内联图片，不写入任何文件。 */
+export async function readWorkspaceFile(cwd: string, params: ReadParams, runtime: ReadRuntime = {}): Promise<ToolOutcome<ReadFileSuccess>> {
 	const config = await loadFileToolsConfig();
 	if (isFailed(config)) return config;
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
@@ -26,8 +27,46 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams, runtime
 	const ignoreDecision = resolved.workspacePath !== undefined
 		? ignoreSnapshot.evaluate({ path: resolved.workspacePath, kind: "file", intent: "explicit-read" })
 		: { ignored: false, matchedRule: undefined };
+	const ignoreSource = isIgnoredPath(config, toolPathIdentity(resolved.relativePath, resolved.absolutePath, resolved.workspacePath))
+		? "file-tools.jsonc"
+		: ignoreDecision.ignored
+			? shortIgnoreSource(ignoreDecision.matchedRule?.sourceType)
+			: undefined;
 
-	const file = await readTextFile(resolved.realPath, resolved.relativePath);
+	const bytes = await readRawFile(resolved.realPath, resolved.relativePath);
+	if (isFailed(bytes)) return bytes;
+	const detected = await detectFileType(bytes);
+	if (detected?.kind === "image") {
+		if (params.start_line !== undefined || params.end_line !== undefined) {
+			return fail("INVALID_OPERATION", "Line ranges apply only to text files.", { path: resolved.relativePath });
+		}
+		const image = await processInlineImage(bytes, detected.mime, resolved.relativePath);
+		if (isFailed(image)) return image;
+		const result: ReadImageSuccess = {
+			path: resolved.relativePath,
+			media_type: "image",
+			mime_type: detected.mime,
+			content: [`Read image file [${image.mimeType}]`, ...image.hints].join("\n"),
+			size_bytes: bytes.byteLength,
+			version: sha256Version(bytes),
+			image: {
+				data: image.data,
+				mime_type: image.mimeType,
+			},
+			...(image.hints.length > 0 ? { hints: image.hints } : {}),
+		};
+		runtime.versionCache?.remember(resolved.realPath, result.version);
+		applyIgnore(result, ignoreSource);
+		return result;
+	}
+	if (detected !== undefined) {
+		return fail("BINARY_FILE_UNSUPPORTED", `${detected.kind} files are not supported by read.`, {
+			path: resolved.relativePath,
+			details: { mime_type: detected.mime, extension: detected.ext },
+		});
+	}
+
+	const file = decodeTextFile(bytes, resolved.relativePath);
 	if (isFailed(file)) return file;
 	runtime.versionCache?.remember(resolved.realPath, file.version);
 
@@ -51,14 +90,7 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams, runtime
 		...(sliced.continuation ? { continuation: sliced.continuation } : {}),
 		bom: file.hasBom,
 	};
-	if (isIgnoredPath(config, toolPathIdentity(resolved.relativePath, resolved.absolutePath, resolved.workspacePath))) {
-		result.ignored = true;
-		result.ignore_source = "file-tools.jsonc";
-	} else if (ignoreDecision.ignored) {
-		result.ignored = true;
-		const source = shortIgnoreSource(ignoreDecision.matchedRule?.sourceType);
-		if (source !== undefined) result.ignore_source = source;
-	}
+	applyIgnore(result, ignoreSource);
 	const lsp = await safeReadEnhancement(runtime.lsp, {
 		workspaceRoot,
 		absolutePath: resolved.realPath,
@@ -90,6 +122,12 @@ function shortIgnoreSource(sourceType: string | undefined): string | undefined {
 	if (sourceType === "gitignore") return ".gitignore";
 	if (sourceType === "git-info-exclude") return ".git/info/exclude";
 	return sourceType;
+}
+
+function applyIgnore(result: ReadFileSuccess, ignoreSource: string | undefined): void {
+	if (ignoreSource === undefined) return;
+	result.ignored = true;
+	result.ignore_source = ignoreSource;
 }
 
 function validateRangeSyntax(params: ReadParams, path: string): ToolOutcome<never> | undefined {

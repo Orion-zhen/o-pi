@@ -265,6 +265,24 @@ export interface ReadSuccess {
 	};
 }
 
+export interface ReadImageSuccess {
+	path: string;
+	media_type: "image";
+	mime_type: string;
+	content: string;
+	size_bytes: number;
+	version: string;
+	image: {
+		data: string;
+		mime_type: string;
+	};
+	hints?: string[];
+	ignored?: boolean;
+	ignore_source?: string;
+}
+
+export type ReadFileSuccess = ReadSuccess | ReadImageSuccess;
+
 export interface WriteSuccess {
 	status: "written";
 	path: string;

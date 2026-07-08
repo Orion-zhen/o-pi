@@ -9,7 +9,7 @@ import { createIgnoreSnapshot, defaultIgnoreEngine } from "../../src/file-tools/
 import { listWorkspaceDirectory } from "../../src/file-tools/ls-tool.js";
 import { ReadVersionCache } from "../../src/file-tools/read-cache.js";
 import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/read-tool.js";
-import type { EditSuccess, ReadParams, ReadSuccess, ToolOutcome } from "../../src/file-tools/types.js";
+import type { EditSuccess, ReadFileSuccess, ReadParams, ToolOutcome } from "../../src/file-tools/types.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -30,7 +30,7 @@ afterEach(async () => {
 	defaultIgnoreEngine.invalidate();
 });
 
-function readWorkspaceFile(cwd: string, params: ReadParams): Promise<ToolOutcome<ReadSuccess>> {
+function readWorkspaceFile(cwd: string, params: ReadParams): Promise<ToolOutcome<ReadFileSuccess>> {
 	return readWorkspaceFileImpl(cwd, params, { versionCache });
 }
 

@@ -8,7 +8,7 @@ import { ReadVersionCache } from "../../src/file-tools/read-cache.js";
 import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/read-tool.js";
 import { writeWorkspaceFile as writeWorkspaceFileImpl } from "../../src/file-tools/write-tool.js";
 import { sha256Version } from "../../src/file-tools/text-file.js";
-import type { EditSuccess, LsSuccess, ReadParams, ReadSuccess, ToolOutcome, WriteSuccess } from "../../src/file-tools/types.js";
+import type { EditSuccess, LsSuccess, ReadFileSuccess, ReadParams, ToolOutcome, WriteSuccess } from "../../src/file-tools/types.js";
 
 let workspace: string;
 let outside: string;
@@ -34,7 +34,7 @@ function expectLsSuccess(result: ToolOutcome<LsSuccess>): LsSuccess {
 	return result;
 }
 
-function readWorkspaceFile(cwd: string, params: ReadParams): Promise<ToolOutcome<ReadSuccess>> {
+function readWorkspaceFile(cwd: string, params: ReadParams): Promise<ToolOutcome<ReadFileSuccess>> {
 	return readWorkspaceFileImpl(cwd, params, { versionCache });
 }
 
@@ -353,6 +353,28 @@ describe("read", () => {
 			bom: false,
 		});
 		if ("version" in result) expect(result.version).toBe(sha256Version(Buffer.from("one\ntwo\n")));
+	});
+
+	it("读取图片文件并返回模型可内联图片数据", async () => {
+		const imageBytes = Buffer.from("R0lGODlhAQABAIABAP///wAAACwAAAAAAQABAAACAkQBADs=", "base64");
+		await writeFile(path.join(workspace, "pixel.gif"), imageBytes);
+		const result = await readWorkspaceFile(workspace, { path: "pixel.gif" });
+		expect(result).toMatchObject({
+			path: "pixel.gif",
+			media_type: "image",
+			mime_type: "image/gif",
+			content: "Read image file [image/gif]",
+			size_bytes: imageBytes.byteLength,
+			image: {
+				data: imageBytes.toString("base64"),
+				mime_type: "image/gif",
+			},
+		});
+		if ("version" in result) expect(result.version).toBe(sha256Version(imageBytes));
+		expect(await readWorkspaceFile(workspace, { path: "pixel.gif", start_line: 1 })).toMatchObject({
+			status: "failed",
+			error: { code: "INVALID_OPERATION" },
+		});
 	});
 
 	it("按行范围读取且不把行号写进 content", async () => {

@@ -111,6 +111,8 @@ chmod 600 ~/.pi/agent/models.jsonc
 | `defaults` | 否 | `{}` | 见下文 | 模型级默认采样参数；不支持 provider 级 defaults。 |
 | `advanced` | 否 | `{}` | 对象 | 模型级高级配置。 |
 
+当 `input` 包含 `"image"` 时，Pi 的 OpenAI API 适配层会把内部 `ImageContent` 转成对应请求格式：Chat Completions 使用 `image_url.url: "data:<mime>;base64,<data>"`，Responses 使用 `type: "input_image"` 和 `image_url: "data:<mime>;base64,<data>"`。扩展只保留这些核心 payload 字段，不把图片 base64 拼入文本。
+
 `reasoning_effort` 的行为：
 
 | 值 | Pi 模型能力 | Pi thinking level | Chat Completions 请求 | Responses 请求 |

@@ -7,6 +7,7 @@ import {
 	type Theme,
 	type ToolRenderResultOptions,
 } from "@earendil-works/pi-coding-agent";
+import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { Box, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { editWorkspace, previewEditWorkspace } from "../../src/file-tools/edit-tool.js";
@@ -31,6 +32,8 @@ import type {
 	LsParams,
 	LsSuccess,
 	LspEnclosingSymbol,
+	ReadFileSuccess,
+	ReadImageSuccess,
 	ReadParams,
 	ReadSuccess,
 	WriteSuccess,
@@ -108,9 +111,9 @@ const grepParameters = Type.Object(
 );
 const readParameters = Type.Object(
 	{
-		path: Type.String({ description: "File path." }),
-		start_line: Type.Optional(Type.Integer({ minimum: 1, description: "1-based inclusive start line." })),
-		end_line: Type.Optional(Type.Integer({ minimum: 1, description: "1-based inclusive end line." })),
+		path: Type.String({ description: "Text or image file path." }),
+		start_line: Type.Optional(Type.Integer({ minimum: 1, description: "Text files only: 1-based inclusive start line." })),
+		end_line: Type.Optional(Type.Integer({ minimum: 1, description: "Text files only: 1-based inclusive end line." })),
 	},
 	{ additionalProperties: false },
 );
@@ -241,19 +244,24 @@ export default function fileTools(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "read",
 		label: "read",
-		description: "Read one UTF-8 file or line range and record its version for edit.",
-		promptSnippet: "read file content",
+		description: "Read one UTF-8 text file or image file. Line ranges apply only to text. Records file version for edit.",
+		promptSnippet: "read text or image files",
 		parameters: readParameters,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const versionCache = versionCacheFor(ctx, versionCaches);
 			const result = await readWorkspaceFile(ctx.cwd, params as ReadParams, { versionCache, lsp: lspFileHooks });
-			const text = isReadSuccess(result)
-				? formatReadModelResult(result)
-				: isFailedDetails(result)
-					? formatErrorModelResult("read", result)
-					: JSON.stringify(scrubVersions(result));
+			const content = isReadImageSuccess(result)
+				? formatReadImageModelContent(result, ctx.model)
+				: [{
+					type: "text" as const,
+					text: isReadSuccess(result)
+						? formatReadModelResult(result)
+						: isFailedDetails(result)
+							? formatErrorModelResult("read", result)
+							: JSON.stringify(scrubVersions(result)),
+				}];
 			return {
-				content: [{ type: "text", text }],
+				content,
 				details: result,
 			};
 		},
@@ -701,6 +709,19 @@ function formatReadModelResult(result: ReadSuccess): string {
 	return `${text}</read>`;
 }
 
+function formatReadImageModelContent(result: ReadImageSuccess, model: { input?: readonly string[] } | undefined): Array<TextContent | ImageContent> {
+	const note = [result.content, getNonVisionImageNote(model)].filter((part): part is string => part !== undefined).join("\n");
+	return [
+		{ type: "text", text: note },
+		{ type: "image", data: result.image.data, mimeType: result.image.mime_type },
+	];
+}
+
+function getNonVisionImageNote(model: { input?: readonly string[] } | undefined): string | undefined {
+	if (model === undefined || model.input?.includes("image")) return undefined;
+	return "[Current model does not support images. The image may be omitted by the provider.]";
+}
+
 /** edit 的模型可见成功结果只确认写入事实；diff/LSP 完整信息保留在 details 给 UI。 */
 function formatEditModelResult(result: EditSuccess): string {
 	const attrs = [
@@ -897,17 +918,28 @@ function formatReadCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, cwd: s
 }
 
 function formatReadResult(
-	result: { content: Array<{ type: string; text?: string }>; details?: unknown },
+	result: { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; details?: unknown },
 	expanded: boolean,
 	isPartial: boolean,
 	theme: Pick<Theme, "fg" | "bold">,
 	args: unknown,
 	cwd: string,
 ): string {
-	const target = isReadSuccess(result.details) ? result.details.path : readTarget(args, cwd);
+	const target = isReadFileSuccess(result.details) ? result.details.path : readTarget(args, cwd);
 	if (isPartial) return formatToolCard({ tool: "read", status: "running", target, summary: "reading file" }, theme);
 	const failure = formatFailureCard("read", target, result.details, theme);
 	if (failure !== undefined) return failure;
+	if (isReadImageSuccess(result.details)) {
+		const details = result.details;
+		const header = formatToolCard({
+			tool: "read",
+			status: "success",
+			target: details.path,
+			summary: joinParts(["image", details.image.mime_type, formatBytes(details.size_bytes), "attached"]),
+		}, theme);
+		if (!expanded) return header;
+		return `${header}\n\n${theme.fg("toolOutput", details.content)}`;
+	}
 	if (!isReadSuccess(result.details)) return fallbackTextResult(result, expanded, theme, 10);
 	const details = result.details;
 	const header = formatToolCard({
@@ -1027,6 +1059,10 @@ function isLsSuccess(value: unknown): value is LsSuccess {
 	return isPlainRecord(value) && typeof value["path"] === "string" && Array.isArray(value["entries"]) && typeof value["truncated"] === "boolean";
 }
 
+function isReadFileSuccess(value: unknown): value is ReadFileSuccess {
+	return isReadSuccess(value) || isReadImageSuccess(value);
+}
+
 function isReadSuccess(value: unknown): value is ReadSuccess {
 	return isPlainRecord(value)
 		&& typeof value["path"] === "string"
@@ -1034,6 +1070,14 @@ function isReadSuccess(value: unknown): value is ReadSuccess {
 		&& typeof value["start_line"] === "number"
 		&& typeof value["end_line"] === "number"
 		&& typeof value["total_lines"] === "number";
+}
+
+function isReadImageSuccess(value: unknown): value is ReadImageSuccess {
+	if (!isPlainRecord(value) || value["media_type"] !== "image" || typeof value["path"] !== "string" || typeof value["content"] !== "string") {
+		return false;
+	}
+	const image = value["image"];
+	return isPlainRecord(image) && typeof image["data"] === "string" && typeof image["mime_type"] === "string";
 }
 
 function isWriteSuccess(value: unknown): value is WriteSuccess {

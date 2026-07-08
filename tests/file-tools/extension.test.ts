@@ -32,7 +32,7 @@ interface Renderable {
 type ToolResultHandler = (event: { toolName: string; details: unknown }) => unknown;
 type RenderResult = (result: unknown, options: { expanded: boolean; isPartial: boolean }, theme: ThemeStub, context: unknown) => Renderable;
 type RenderCall = (args: unknown, theme: ThemeStub, context: unknown) => Renderable;
-type ExecuteResult = { content: Array<{ type: string; text?: string }>; details?: unknown };
+type ExecuteResult = { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; details?: unknown };
 type ExecuteTool = (
 	toolCallId: string,
 	params: unknown,
@@ -230,6 +230,15 @@ describe("file-tools extension", () => {
 			expect(readText).toBe('<read path="a.ts" lines="1-2/2">\none\ntwo\n</read>');
 			expect(readText).not.toContain('"encoding"');
 			expect(read.details).toMatchObject({ path: "a.ts", content: "one\ntwo\n", encoding: "utf-8", bom: false });
+
+			const imageBytes = Buffer.from("R0lGODlhAQABAIABAP///wAAACwAAAAAAQABAAACAkQBADs=", "base64");
+			await writeFile(join(cwd, "pixel.gif"), imageBytes);
+			const imageRead = await executeTool(registered, "read", { path: "pixel.gif" }, ctx);
+			expect(imageRead.content).toEqual([
+				{ type: "text", text: "Read image file [image/gif]" },
+				{ type: "image", data: imageBytes.toString("base64"), mimeType: "image/gif" },
+			]);
+			expect(imageRead.details).toMatchObject({ path: "pixel.gif", media_type: "image", image: { mime_type: "image/gif" } });
 
 			const edit = await executeTool(registered, "edit", { path: "a.ts", edits: [{ old: "two", new: "TWO" }] }, ctx);
 			const editText = textResult(edit);

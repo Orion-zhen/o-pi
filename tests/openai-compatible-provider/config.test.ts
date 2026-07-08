@@ -277,6 +277,51 @@ describe("openai-compatible-provider config", () => {
 		});
 	});
 
+	it("保留 Pi 已转换的 OpenAI 图片 payload，不把图片 base64 拼入文本", async () => {
+		const [chatProvider] = await normalizeFromText(`{
+			"providers": {
+				"gateway": {
+					"base_url": "https://gateway.example.com/v1",
+					"api_key": "EMPTY",
+					"models": [{ "model": "m", "input": ["text", "image"] }]
+				}
+			}
+		}`);
+		const chatRuntime = chatProvider?.runtimeModels.get("m");
+		if (!chatRuntime) throw new Error("runtime config missing");
+		const chatMessages = [{
+			role: "user",
+			content: [
+				{ type: "text", text: "look" },
+				{ type: "image_url", image_url: { url: "data:image/gif;base64,R0lGODlhAQAB" } },
+			],
+		}];
+		expect(applyRuntimePayloadConfig({ model: "m", messages: chatMessages, stream: true }, chatRuntime)).toMatchObject({
+			messages: chatMessages,
+		});
+
+		const [responsesProvider] = await normalizeFromText(`{
+			"providers": {
+				"gateway": {
+					"base_url": "https://gateway.example.com/v1",
+					"api_key": "EMPTY",
+					"api": "responses",
+					"models": [{ "model": "m", "input": ["text", "image"] }]
+				}
+			}
+		}`);
+		const responsesRuntime = responsesProvider?.runtimeModels.get("m");
+		if (!responsesRuntime) throw new Error("runtime config missing");
+		const input = [{
+			role: "user",
+			content: [
+				{ type: "input_text", text: "look" },
+				{ type: "input_image", image_url: "data:image/gif;base64,R0lGODlhAQAB" },
+			],
+		}];
+		expect(applyRuntimePayloadConfig({ model: "m", input, stream: true }, responsesRuntime)).toMatchObject({ input });
+	});
+
 	it("model advanced.extra_body 不能覆盖核心字段", async () => {
 		await expect(
 			normalizeFromText(`{

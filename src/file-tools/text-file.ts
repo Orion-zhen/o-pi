@@ -16,13 +16,19 @@ export function sha256Version(bytes: Buffer): string {
 
 /** 按 UTF-8 严格读取文本文件；二进制和非法编码会失败。 */
 export async function readTextFile(absolutePath: string, relativePath: string): Promise<ToolOutcome<TextFile>> {
+	const bytes = await readRawFile(absolutePath, relativePath);
+	if ("status" in bytes) return bytes;
+	return decodeTextFile(bytes, relativePath);
+}
+
+export async function readRawFile(absolutePath: string, relativePath: string): Promise<ToolOutcome<Buffer>> {
 	let bytes: Buffer;
 	try {
 		bytes = await readFile(absolutePath);
 	} catch {
 		return fail("FILE_NOT_FOUND", "File does not exist.", { path: relativePath });
 	}
-	return decodeTextFile(bytes, relativePath);
+	return bytes;
 }
 
 export function decodeTextFile(bytes: Buffer, relativePath: string): ToolOutcome<TextFile> {

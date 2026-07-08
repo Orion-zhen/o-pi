@@ -300,7 +300,7 @@ a/
 
 ## read
 
-`read` 只读取 UTF-8 文本文件，不修改文件、不格式化、不改变换行符，也不写入工作区状态。
+`read` 读取 UTF-8 文本文件和模型可内联图片文件，不修改文件、不格式化、不改变换行符，也不写入工作区状态。二进制类型使用 `file-type` 识别；图片作为结构化 `image` content part 返回给模型，不把 base64 当文本输出。音频、视频和其他二进制文件当前返回 `BINARY_FILE_UNSUPPORTED`，并在错误详情中给出识别到的 MIME。
 
 参数：
 
@@ -322,6 +322,15 @@ a/
 
 非默认状态才进入模型文本：`ignored`、`bom`、`newline`、`more`/`truncated` 和 LSP 摘要。`encoding: utf-8`、`bom: false`、版本和文件大小等默认或内部字段只保留在 `details`。
 
+图片成功结果包含一条短文本说明和一个结构化图片附件：
+
+```ts
+[
+	{ type: "text", text: "Read image file [image/png]" },
+	{ type: "image", data: "<base64>", mimeType: "image/png" }
+]
+```
+
 `details` 包括：
 
 * `content`：原始文本片段，不带行号。
@@ -336,6 +345,8 @@ a/
 `read` 内部会在当前 session 记录基于原始字节计算的版本，用于后续 `edit` 自动校验；该版本不进入模型可见输出。
 
 `read(directory)` 返回 `NOT_A_FILE`，不会自动列目录。
+
+图片不支持 `start_line` / `end_line`；带行范围读取图片返回 `INVALID_OPERATION`。
 
 ## find
 

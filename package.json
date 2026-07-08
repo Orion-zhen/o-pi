@@ -22,6 +22,7 @@
 		"@mozilla/readability": "latest",
 		"ajv": "latest",
 		"content-type": "latest",
+		"file-type": "latest",
 		"fuse.js": "latest",
 		"gpt-tokenizer": "latest",
 		"ignore": "latest",
