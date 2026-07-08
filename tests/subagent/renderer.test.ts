@@ -8,11 +8,26 @@ const theme = {
 };
 
 describe("subagent renderer", () => {
-	it("折叠调用卡第一行展示 agent，第二行展示 task", () => {
-		const rendered = renderSubagentCall(
+	it("运行中和完成后隐藏调用卡，避免和 result card 重复", () => {
+		const running = renderSubagentCall(
 			{ tasks: [{ agent: "scout", task: "inspect auth flow and tests" }] },
 			theme,
 			{ isPartial: true },
+		).render(120);
+		const finished = renderSubagentCall(
+			{ tasks: [{ agent: "scout", task: "inspect auth flow and tests" }] },
+			theme,
+			{ isPartial: false },
+		).render(120);
+
+		expect(running.join("")).toBe("");
+		expect(finished.join("")).toBe("");
+	});
+
+	it("缺少 partial 上下文时调用卡仍可 fallback 展示 agent 和 task", () => {
+		const rendered = renderSubagentCall(
+			{ tasks: [{ agent: "scout", task: "inspect auth flow and tests" }] },
+			theme,
 		).render(120);
 
 		expect(rendered).toHaveLength(2);

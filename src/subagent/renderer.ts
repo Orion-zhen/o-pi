@@ -5,7 +5,7 @@ import { compactWhitespace, formatDuration, joinParts, truncateEnd } from "../tu
 import type { RenderEvent, SubagentDetails, SubagentRunResult, SubagentTask, UsageStats } from "./types.js";
 
 export function renderSubagentCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, context?: { isPartial?: boolean }): Text {
-	if (context?.isPartial === false) return new Text("", 0, 0);
+	if (context?.isPartial !== undefined) return new Text("", 0, 0);
 	const record = isRecord(args) ? args : {};
 	return new Text(formatSubagentCall(record, theme), 0, 0);
 }
