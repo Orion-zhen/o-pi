@@ -79,7 +79,7 @@ export function renderLsCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, c
 
 export function renderLsResult(result: ToolTextResult, options: { expanded: boolean; isPartial: boolean }, theme: Pick<Theme, "fg" | "bold">, context: TextRenderContext): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-	text.setText(formatLsResult(result, options.expanded, options.isPartial, theme, context.cwd));
+	text.setText(formatLsResult(result, options.expanded, options.isPartial, theme, context.args, context.cwd));
 	return text;
 }
 
@@ -443,8 +443,8 @@ function formatLsCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, cwd: str
 	return formatToolCard({ tool: "ls", status: "running", target: displayToolPath(rawPath, cwd), summary: "listing directory" }, theme);
 }
 
-function formatLsResult(result: ToolTextResult, expanded: boolean, isPartial: boolean, theme: Pick<Theme, "fg" | "bold">, cwd: string): string {
-	const target = isLsSuccess(result.details) ? result.details.path : cwd;
+function formatLsResult(result: ToolTextResult, expanded: boolean, isPartial: boolean, theme: Pick<Theme, "fg" | "bold">, args: unknown, cwd: string): string {
+	const target = isLsSuccess(result.details) ? result.details.path : failedPath(result.details) ?? lsTarget(args, cwd);
 	if (isPartial) return formatToolCard({ tool: "ls", status: "running", target, summary: "listing directory" }, theme);
 	const failure = formatFailureCard("ls", target, result.details, theme);
 	if (failure !== undefined) return failure;
@@ -554,6 +554,11 @@ function formatFailureCard(tool: string, target: string, details: unknown, theme
 	return formatToolCard({ tool, status: "error", target, summary: `${details.error.code}: ${details.error.message}` }, theme);
 }
 
+function failedPath(details: unknown): string | undefined {
+	if (!isFailedDetails(details)) return undefined;
+	return typeof details.error.path === "string" && details.error.path.length > 0 ? details.error.path : undefined;
+}
+
 function grepTarget(args: unknown): string {
 	const record = isPlainRecord(args) ? args : {};
 	const query = typeof record["query"] === "string" ? JSON.stringify(record["query"]) : "?";
@@ -571,6 +576,11 @@ function findTarget(args: unknown, cwd: string): string {
 function readTarget(args: unknown, cwd: string): string {
 	const record = isPlainRecord(args) ? args : {};
 	return displayToolPath(stringArg(record["path"]), cwd);
+}
+
+function lsTarget(args: unknown, cwd: string): string {
+	const record = isPlainRecord(args) ? args : {};
+	return displayToolPath(stringArg(record["path"]) ?? ".", cwd);
 }
 
 function writeTarget(args: unknown, cwd: string): string {

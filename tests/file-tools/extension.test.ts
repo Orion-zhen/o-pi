@@ -72,6 +72,41 @@ describe("file-tools extension", () => {
 		}
 	});
 
+	it("ls 失败结果渲染失败路径，而不是 workspace cwd", () => {
+		const registered: Array<{ name: string; renderResult?: RenderResult }> = [];
+		fileTools({
+			registerTool(tool: { name: string; renderResult?: RenderResult }) {
+				registered.push(tool);
+			},
+			on() {},
+		} as unknown as ExtensionAPI);
+
+		const ls = registered.find((tool) => tool.name === "ls");
+		const failure = {
+			status: "failed" as const,
+			error: {
+				code: "PATH_NOT_FOUND",
+				message: "Directory does not exist.",
+				path: "homerail_manager/src/manager-agent",
+			},
+		};
+		const component = ls?.renderResult?.(
+			{ content: [{ type: "text", text: "<error/>" }], details: failure },
+			{ expanded: false, isPartial: false },
+			theme,
+			{
+				args: { path: "/home/orion/repo/homerail/homerail_manager/src/manager-agent" },
+				cwd: "/home/orion/repo/homerail",
+				lastComponent: undefined,
+			},
+		);
+
+		const output = component?.render(120).join("\n") ?? "";
+		expect(output).toContain("ls        homerail_manager/src/manager-agent");
+		expect(output).toContain("PATH_NOT_FOUND: Directory does not exist.");
+		expect(output).not.toContain("ls        /home/orion/repo/homerail");
+	});
+
 	it("find 使用自定义调用和结果 renderer 展示 strategy、类型、折叠组和扫描统计", () => {
 		const registered: Array<{ name: string; renderCall?: RenderCall; renderResult?: RenderResult }> = [];
 		fileTools({
