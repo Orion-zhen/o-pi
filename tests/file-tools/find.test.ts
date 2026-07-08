@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { findWorkspaceFiles } from "../../src/file-tools/find-tool.js";
+import { findWorkspaceFiles } from "../../src/file-tools/tools/find.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import type { FindMatch, FindSuccess, ToolOutcome } from "../../src/file-tools/types.js";
 

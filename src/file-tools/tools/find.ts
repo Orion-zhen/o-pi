@@ -2,15 +2,15 @@ import { lstat, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import picomatch from "picomatch";
 
-import { ignoreConfigFromFileTools, isBlockedPath, isIgnoredPath, loadFileToolsConfig, toolPathIdentity, type FileToolsConfig } from "./config.js";
-import { fail, isFailed } from "./errors.js";
-import { createFindEntry, rankFindEntries, rankGlobEntries, type RankedFindEntry } from "./find-ranker.js";
-import { renderFindResults } from "./find-renderer.js";
-import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
-import type { IgnoreSnapshot } from "./ignore/ignore-types.js";
-import { guardExistingPath, PathGuardBlockedError } from "../safety/path-guard.js";
-import { normalizeToolPath, resolveWorkspaceRoot } from "./path-resolver.js";
-import type { FindEntry, FindMatch, FindParams, FindSuccess, ToolOutcome } from "./types.js";
+import { ignoreConfigFromFileTools, isBlockedPath, isIgnoredPath, loadFileToolsConfig, toolPathIdentity, type FileToolsConfig } from "../config.js";
+import { fail, isFailed } from "../core/errors.js";
+import { createFindEntry, rankFindEntries, rankGlobEntries, type RankedFindEntry } from "../find/ranker.js";
+import { renderFindResults } from "../find/renderer.js";
+import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
+import type { IgnoreSnapshot } from "../ignore/ignore-types.js";
+import { guardExistingPath, PathGuardBlockedError } from "../../safety/path-guard.js";
+import { normalizeToolPath, resolveWorkspaceRoot } from "../core/path-resolver.js";
+import type { FindEntry, FindMatch, FindParams, FindSuccess, ToolOutcome } from "../types.js";
 
 interface NormalizedFindParams {
 	query: string;

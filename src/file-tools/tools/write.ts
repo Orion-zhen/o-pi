@@ -1,11 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { generateDiffString, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
-import { guardWritablePath, PathGuardBlockedError } from "../safety/path-guard.js";
-import { loadFileToolsConfig } from "./config.js";
-import { fail, isFailed } from "./errors.js";
-import { normalizeToolPath, resolveWorkspaceRoot } from "./path-resolver.js";
-import type { FailedResult, FileToolLspHooks, LspDiagnosticsSummary, ToolOutcome, WriteParams, WriteSuccess } from "./types.js";
+import { guardWritablePath, PathGuardBlockedError } from "../../safety/path-guard.js";
+import { loadFileToolsConfig } from "../config.js";
+import { fail, isFailed } from "../core/errors.js";
+import { normalizeToolPath, resolveWorkspaceRoot } from "../core/path-resolver.js";
+import type { FailedResult, FileToolLspHooks, LspDiagnosticsSummary, ToolOutcome, WriteParams, WriteSuccess } from "../types.js";
 
 interface WritablePath {
 	relativePath: string;

@@ -1,4 +1,4 @@
-import type { FindMatch } from "./types.js";
+import type { FindMatch } from "../types.js";
 
 /** 路径 trie 节点；折叠 find 结果时统计 descendant 文件/目录数和最高相关性排名。 */
 export interface PathIndexNode {

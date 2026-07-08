@@ -1,5 +1,5 @@
-import { byteRangeForLines, extractByteRange, splitTokens, tokenizeText, type IndexedCodeUnit } from "./grep-parser.js";
-import type { GrepMatchMode } from "./types.js";
+import { byteRangeForLines, extractByteRange, splitTokens, tokenizeText, type IndexedCodeUnit } from "./parser.js";
+import type { GrepMatchMode } from "../types.js";
 
 export interface RankedGrepRegion {
 	id: string;

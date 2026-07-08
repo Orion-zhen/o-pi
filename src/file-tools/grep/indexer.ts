@@ -3,15 +3,15 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import picomatch from "picomatch";
 
-import { ignoreConfigFromFileTools, isBlockedPath, isIgnoredPath, loadFileToolsConfig, toolPathIdentity, type FileToolsConfig } from "./config.js";
-import { fail, isFailed } from "./errors.js";
-import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
-import type { IgnoreSnapshot } from "./ignore/ignore-types.js";
-import { parseCodeUnits, type ParsedFileIndex } from "./grep-parser.js";
-import { guardExistingPath, PathGuardBlockedError } from "../safety/path-guard.js";
-import { normalizeToolPath } from "./path-resolver.js";
-import { decodeTextFile } from "./text-file.js";
-import type { GrepParams, GrepSkippedFiles, ToolOutcome } from "./types.js";
+import { ignoreConfigFromFileTools, isBlockedPath, isIgnoredPath, loadFileToolsConfig, toolPathIdentity, type FileToolsConfig } from "../config.js";
+import { fail, isFailed } from "../core/errors.js";
+import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
+import type { IgnoreSnapshot } from "../ignore/ignore-types.js";
+import { parseCodeUnits, type ParsedFileIndex } from "./parser.js";
+import { guardExistingPath, PathGuardBlockedError } from "../../safety/path-guard.js";
+import { normalizeToolPath } from "../core/path-resolver.js";
+import { decodeTextFile } from "../core/text-file.js";
+import type { GrepParams, GrepSkippedFiles, ToolOutcome } from "../types.js";
 
 export interface GrepCandidateFile {
 	path: string;

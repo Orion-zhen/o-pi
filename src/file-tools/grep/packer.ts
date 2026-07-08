@@ -1,7 +1,7 @@
-import { countTextTokensSync } from "../token-counter.js";
-import { byteRangeForLines, extractByteRange } from "./grep-parser.js";
-import type { RankedGrepRegion } from "./grep-ranker.js";
-import type { GrepMatchMode, GrepRegion, GrepSkippedFiles, GrepSuccess } from "./types.js";
+import { countTextTokensSync } from "../../token-counter.js";
+import { byteRangeForLines, extractByteRange } from "./parser.js";
+import type { RankedGrepRegion } from "./ranker.js";
+import type { GrepMatchMode, GrepRegion, GrepSkippedFiles, GrepSuccess } from "../types.js";
 
 export interface GrepPackInput {
 	query: string;

@@ -3,11 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { editWorkspace } from "../../src/file-tools/edit-tool.js";
-import { grepWorkspaceFiles } from "../../src/file-tools/grep-tool.js";
-import { ReadVersionCache } from "../../src/file-tools/read-cache.js";
-import { readWorkspaceFile } from "../../src/file-tools/read-tool.js";
-import { writeWorkspaceFile } from "../../src/file-tools/write-tool.js";
+import { editWorkspace } from "../../src/file-tools/tools/edit.js";
+import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
+import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
+import { readWorkspaceFile } from "../../src/file-tools/tools/read.js";
+import { writeWorkspaceFile } from "../../src/file-tools/tools/write.js";
 import type { FileToolLspHooks, GrepSuccess, ToolOutcome } from "../../src/file-tools/types.js";
 
 let workspace: string;

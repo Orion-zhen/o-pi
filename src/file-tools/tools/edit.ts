@@ -1,14 +1,14 @@
 import { writeFile } from "node:fs/promises";
 import { generateDiffString } from "@earendil-works/pi-coding-agent";
-import { guardWritablePath, PathGuardBlockedError } from "../safety/path-guard.js";
-import { fail, isFailed } from "./errors.js";
-import { ignoreConfigFromFileTools, loadFileToolsConfig } from "./config.js";
-import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
-import { resolveExistingFile, resolveWorkspaceRoot } from "./path-resolver.js";
-import type { ReadVersionCache } from "./read-cache.js";
-import { buildTextBytes, readTextFile, sha256Version } from "./text-file.js";
-import type { EditParams, EditPreviewSuccess, EditReplacement, EditSuccess, FailedResult, FileToolLspDiagnosticSnapshot, FileToolLspHooks, LspDiagnosticsSummary, TextFile, ToolOutcome } from "./types.js";
-import type { IgnoreSnapshot } from "./ignore/ignore-types.js";
+import { guardWritablePath, PathGuardBlockedError } from "../../safety/path-guard.js";
+import { fail, isFailed } from "../core/errors.js";
+import { ignoreConfigFromFileTools, loadFileToolsConfig } from "../config.js";
+import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
+import { resolveExistingFile, resolveWorkspaceRoot } from "../core/path-resolver.js";
+import type { ReadVersionCache } from "../core/read-cache.js";
+import { buildTextBytes, readTextFile, sha256Version } from "../core/text-file.js";
+import type { EditParams, EditPreviewSuccess, EditReplacement, EditSuccess, FailedResult, FileToolLspDiagnosticSnapshot, FileToolLspHooks, LspDiagnosticsSummary, TextFile, ToolOutcome } from "../types.js";
+import type { IgnoreSnapshot } from "../ignore/ignore-types.js";
 
 interface PreparedEdit {
 	workspaceRoot: string;

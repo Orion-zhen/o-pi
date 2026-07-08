@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatGrepCall, formatGrepResult } from "../../src/file-tools/grep-renderer.js";
+import { formatGrepCall, formatGrepResult } from "../../src/file-tools/grep/renderer.js";
 import type { GrepSuccess } from "../../src/file-tools/types.js";
 
 const theme = {

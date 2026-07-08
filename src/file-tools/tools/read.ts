@@ -1,11 +1,11 @@
-import { fail, isFailed } from "./errors.js";
-import { ignoreConfigFromFileTools, isIgnoredPath, loadFileToolsConfig, toolPathIdentity } from "./config.js";
-import { defaultIgnoreEngine } from "./ignore/ignore-engine.js";
-import { detectFileType, processInlineImage } from "./media-file.js";
-import { resolveExistingFile, resolveWorkspaceRoot } from "./path-resolver.js";
-import type { ReadVersionCache } from "./read-cache.js";
-import { decodeTextFile, readRawFile, sha256Version, sliceTextByLineRange } from "./text-file.js";
-import type { FileToolLspHooks, ReadFileSuccess, ReadImageSuccess, ReadParams, ReadSuccess, ToolOutcome } from "./types.js";
+import { fail, isFailed } from "../core/errors.js";
+import { ignoreConfigFromFileTools, isIgnoredPath, loadFileToolsConfig, toolPathIdentity } from "../config.js";
+import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
+import { detectFileType, processInlineImage } from "../core/media-file.js";
+import { resolveExistingFile, resolveWorkspaceRoot } from "../core/path-resolver.js";
+import type { ReadVersionCache } from "../core/read-cache.js";
+import { decodeTextFile, readRawFile, sha256Version, sliceTextByLineRange } from "../core/text-file.js";
+import type { FileToolLspHooks, ReadFileSuccess, ReadImageSuccess, ReadParams, ReadSuccess, ToolOutcome } from "../types.js";
 
 export interface ReadRuntime {
 	/** 会话内 read/edit 版本缓存，用于防止 stale edit。 */

@@ -1,6 +1,6 @@
 import { agentSchemaPath, createSchemaValidator, projectAgentConfigPath, readOptionalJsoncConfigWithSchema, userAgentConfigPath } from "../config-loader.js";
 import { pathMatchesAnyRule, type PathIdentity } from "../safety/path-guard.js";
-import { fail } from "./errors.js";
+import { fail } from "./core/errors.js";
 import type { FailedResult, ToolOutcome } from "./types.js";
 import type { PartialIgnoreConfig } from "./ignore/ignore-types.js";
 

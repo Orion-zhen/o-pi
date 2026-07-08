@@ -4,11 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { editWorkspace as editWorkspaceImpl } from "../../src/file-tools/edit-tool.js";
+import { editWorkspace as editWorkspaceImpl } from "../../src/file-tools/tools/edit.js";
 import { createIgnoreSnapshot, defaultIgnoreEngine } from "../../src/file-tools/ignore/ignore-engine.js";
-import { listWorkspaceDirectory } from "../../src/file-tools/ls-tool.js";
-import { ReadVersionCache } from "../../src/file-tools/read-cache.js";
-import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/read-tool.js";
+import { listWorkspaceDirectory } from "../../src/file-tools/tools/ls.js";
+import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
+import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/tools/read.js";
 import type { EditSuccess, ReadFileSuccess, ReadParams, ToolOutcome } from "../../src/file-tools/types.js";
 
 const execFileAsync = promisify(execFile);

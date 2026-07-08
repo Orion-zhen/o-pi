@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fail } from "./errors.js";
-import type { FailedResult, NewlineKind, TextFile, ToolOutcome } from "./types.js";
+import type { FailedResult, NewlineKind, TextFile, ToolOutcome } from "../types.js";
 
 export const DEFAULT_MAX_OUTPUT_BYTES = 50 * 1024;
 export const DEFAULT_MAX_OUTPUT_LINES = 2_000;

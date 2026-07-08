@@ -1,10 +1,10 @@
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { guardExistingPath, PathGuardBlockedError, resolveInputPath } from "../safety/path-guard.js";
-import type { FileToolsConfig } from "./config.js";
+import { guardExistingPath, PathGuardBlockedError, resolveInputPath } from "../../safety/path-guard.js";
+import type { FileToolsConfig } from "../config.js";
 import { fail } from "./errors.js";
-import type { FailedResult, ResolvedPath, ToolOutcome } from "./types.js";
+import type { FailedResult, ResolvedPath, ToolOutcome } from "../types.js";
 
 /** 词法路径解析结果；absolutePath 用于文件系统访问，relativePath 用于模型展示，workspacePath 仅在路径位于 workspace 内时存在。 */
 export interface LexicalToolPath {

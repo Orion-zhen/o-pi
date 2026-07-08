@@ -1,7 +1,7 @@
 import { lstat, readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import ignoreFactory from "ignore";
-import { isWorkspaceMetadataPath } from "../path-resolver.js";
+import { isWorkspaceMetadataPath } from "../core/path-resolver.js";
 import { resolveIgnoreConfig } from "./ignore-config.js";
 import { loadGitTrackedFiles } from "./git-tracked-files.js";
 import type {

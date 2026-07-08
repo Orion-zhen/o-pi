@@ -2,12 +2,12 @@ import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, wr
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { editWorkspace as editWorkspaceImpl, previewEditWorkspace, type EditRuntime } from "../../src/file-tools/edit-tool.js";
-import { formatCompactLsResult, listWorkspaceDirectory } from "../../src/file-tools/ls-tool.js";
-import { ReadVersionCache } from "../../src/file-tools/read-cache.js";
-import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/read-tool.js";
-import { writeWorkspaceFile as writeWorkspaceFileImpl } from "../../src/file-tools/write-tool.js";
-import { sha256Version } from "../../src/file-tools/text-file.js";
+import { editWorkspace as editWorkspaceImpl, previewEditWorkspace, type EditRuntime } from "../../src/file-tools/tools/edit.js";
+import { formatCompactLsResult, listWorkspaceDirectory } from "../../src/file-tools/tools/ls.js";
+import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
+import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/tools/read.js";
+import { writeWorkspaceFile as writeWorkspaceFileImpl } from "../../src/file-tools/tools/write.js";
+import { sha256Version } from "../../src/file-tools/core/text-file.js";
 import type { EditSuccess, LsSuccess, ReadFileSuccess, ReadParams, ToolOutcome, WriteSuccess } from "../../src/file-tools/types.js";
 
 let workspace: string;

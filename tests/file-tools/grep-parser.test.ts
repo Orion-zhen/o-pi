@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseCodeUnits } from "../../src/file-tools/grep-parser.js";
+import { parseCodeUnits } from "../../src/file-tools/grep/parser.js";
 
 function symbols(filePath: string, text: string): Array<[string, string | undefined, string | undefined]> {
 	return parseCodeUnits(filePath, text).units.map((unit) => [unit.kind, unit.name, unit.qualifiedName]);

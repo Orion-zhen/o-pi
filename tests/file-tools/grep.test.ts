@@ -3,9 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { clearGrepIndexForTests } from "../../src/file-tools/grep-index.js";
+import { clearGrepIndexForTests } from "../../src/file-tools/grep/indexer.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
-import { formatCompactGrepResult, grepWorkspaceFiles } from "../../src/file-tools/grep-tool.js";
+import { formatCompactGrepResult, grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
 import type { GrepSuccess, ToolOutcome } from "../../src/file-tools/types.js";
 
 let workspace: string;

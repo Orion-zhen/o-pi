@@ -1,7 +1,7 @@
 import type { ExtensionContext, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { loadBashToolConfig } from "../bash-tool/config.js";
 import { loadFileToolsConfig } from "../file-tools/config.js";
-import { isFailed } from "../file-tools/errors.js";
+import { isFailed } from "../file-tools/core/errors.js";
 import { PathGuardBlockedError, guardWritablePath } from "../safety/path-guard.js";
 import { checkDeniedText } from "../safety/pattern-guard.js";
 import { loadApprovalGateConfig } from "./config.js";

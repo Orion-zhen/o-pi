@@ -1,7 +1,7 @@
 import path from "node:path";
 import Fuse, { type FuseResult } from "fuse.js";
 
-import type { FindEntry } from "./types.js";
+import type { FindEntry } from "../types.js";
 
 export interface RankedFindEntry {
 	entry: FindEntry;

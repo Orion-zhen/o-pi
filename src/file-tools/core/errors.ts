@@ -1,4 +1,4 @@
-import type { FailedResult, FileToolError, FileToolErrorCode } from "./types.js";
+import type { FailedResult, FileToolError, FileToolErrorCode } from "../types.js";
 
 /** 统一生成失败结果，避免工具返回形状漂移。 */
 export function fail(

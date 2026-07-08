@@ -1,6 +1,6 @@
 import { createPathIndex, sortedChildren, type PathIndexNode } from "./path-index.js";
-import { countTextTokensSync } from "../token-counter.js";
-import type { FindCollapsedGroup, FindDetails, FindMatch } from "./types.js";
+import { countTextTokensSync } from "../../token-counter.js";
+import type { FindCollapsedGroup, FindDetails, FindMatch } from "../types.js";
 
 const NARROW_RESULT_LIMIT = 20;
 const TOP_MATCH_LIMIT = 12;
