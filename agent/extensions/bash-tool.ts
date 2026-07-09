@@ -12,7 +12,7 @@ import {
 import { repairableTool } from "../../src/tool-repair/index.js";
 
 const bashParameters = Type.Object({
-	command: Type.String({ description: "Shell command to execute exactly as provided." }),
+	command: Type.String({ description: "Shell command to execute exactly as provided. Runs in current workspace by default." }),
 	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds. Defaults to config." })),
 }, { additionalProperties: false });
 
