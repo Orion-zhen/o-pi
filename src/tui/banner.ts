@@ -6,6 +6,7 @@ import { joinParts } from "./text.js";
 import type { TuiBannerConfig, TuiFooterSnapshot } from "./types.js";
 
 const WORDMARK = String.raw`
+
  ██████╗     ██████╗ 
 ██╔═══██╗    ██╔══██╗██╗
 ██║   ██║    ██████╔╝
