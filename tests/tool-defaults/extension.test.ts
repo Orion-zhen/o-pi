@@ -1,38 +1,25 @@
 import type { ExtensionAPI, ExtensionContext, SessionStartEvent, SessionTreeEvent, ToolInfo } from "@earendil-works/pi-coding-agent";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import toolsExtension from "../../agent/extensions/cmd-slash-tools.js";
+import blockBuiltinTools from "../../agent/extensions/block-builtin-tools.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 type SessionStartHandler = (event: SessionStartEvent, ctx: ExtensionContext) => Promise<void> | void;
 type SessionTreeHandler = (event: SessionTreeEvent, ctx: ExtensionContext) => Promise<void> | void;
 type CommandOptions = Parameters<ExtensionAPI["registerCommand"]>[1];
 
 let workspace: string;
-let previousUserConfig: string | undefined;
-let previousProjectConfig: string | undefined;
-let previousProjectRoot: string | undefined;
+const temp = useTempDir("o-pi-tool-defaults-extension-");
+preserveEnv("PI_TOOLS_CONFIG", "PI_TOOLS_PROJECT_CONFIG", "PI_TOOLS_PROJECT_ROOT");
 
-beforeEach(async () => {
-	workspace = await mkdtemp(path.join(os.tmpdir(), "o-pi-tool-defaults-extension-"));
-	previousUserConfig = process.env.PI_TOOLS_CONFIG;
-	previousProjectConfig = process.env.PI_TOOLS_PROJECT_CONFIG;
-	previousProjectRoot = process.env.PI_TOOLS_PROJECT_ROOT;
+beforeEach(() => {
+	workspace = temp.path;
 	process.env.PI_TOOLS_CONFIG = path.join(workspace, "missing-user.jsonc");
 	delete process.env.PI_TOOLS_PROJECT_CONFIG;
 	delete process.env.PI_TOOLS_PROJECT_ROOT;
-});
-
-afterEach(async () => {
-	if (previousUserConfig === undefined) delete process.env.PI_TOOLS_CONFIG;
-	else process.env.PI_TOOLS_CONFIG = previousUserConfig;
-	if (previousProjectConfig === undefined) delete process.env.PI_TOOLS_PROJECT_CONFIG;
-	else process.env.PI_TOOLS_PROJECT_CONFIG = previousProjectConfig;
-	if (previousProjectRoot === undefined) delete process.env.PI_TOOLS_PROJECT_ROOT;
-	else process.env.PI_TOOLS_PROJECT_ROOT = previousProjectRoot;
-	await rm(workspace, { recursive: true, force: true });
 });
 
 describe("/tools extension defaults", () => {
@@ -73,6 +60,35 @@ describe("/tools extension defaults", () => {
 		harness.branchEntries = [];
 		await harness.sessionTree({ type: "session_tree", newLeafId: null, oldLeafId: null }, harness.ctx);
 		expect(harness.activeTools).toEqual(["read", "bash"]);
+	});
+});
+
+describe("built-in tool isolation", () => {
+	it("session start 移除内置工具，并在 tool_call 阻止其恢复执行", () => {
+		const tools = [
+			{ ...makeToolInfo("read"), sourceInfo: { ...makeToolInfo("read").sourceInfo, source: "builtin" as const } },
+			makeToolInfo("grep"),
+		];
+		let active = ["read", "grep"];
+		const handlers = new Map<string, (event: { toolName: string }) => unknown>();
+		blockBuiltinTools({
+			getAllTools: () => tools,
+			getActiveTools: () => active,
+			setActiveTools(names: string[]) {
+				active = names;
+			},
+			on(name: string, handler: unknown) {
+				handlers.set(name, handler as (event: { toolName: string }) => unknown);
+			},
+		} as unknown as ExtensionAPI);
+
+		handlers.get("session_start")?.({ toolName: "" });
+		expect(active).toEqual(["grep"]);
+		expect(handlers.get("tool_call")?.({ toolName: "read" })).toEqual({
+			block: true,
+			reason: "Pi built-in tool 'read' is disabled.",
+		});
+		expect(handlers.get("tool_call")?.({ toolName: "grep" })).toBeUndefined();
 	});
 });
 

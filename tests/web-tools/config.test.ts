@@ -1,26 +1,18 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { defaultCookiePath, defaultWebToolsConfig, loadWebToolsConfig } from "../../src/web-tools/config.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
-const previousConfig = process.env.PI_WEB_TOOLS_CONFIG;
-const previousCookies = process.env.PI_WEB_TOOLS_COOKIES;
+const temp = useTempDir("o-pi-web-config-");
+preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_WEB_TOOLS_COOKIES");
 
-beforeEach(async () => {
-	dir = await mkdtemp(path.join(os.tmpdir(), "o-pi-web-config-"));
+beforeEach(() => {
+	dir = temp.path;
 	delete process.env.PI_WEB_TOOLS_CONFIG;
 	delete process.env.PI_WEB_TOOLS_COOKIES;
-});
-
-afterEach(async () => {
-	await rm(dir, { recursive: true, force: true });
-	if (previousConfig === undefined) delete process.env.PI_WEB_TOOLS_CONFIG;
-	else process.env.PI_WEB_TOOLS_CONFIG = previousConfig;
-	if (previousCookies === undefined) delete process.env.PI_WEB_TOOLS_COOKIES;
-	else process.env.PI_WEB_TOOLS_COOKIES = previousCookies;
 });
 
 describe("web-tools config", () => {

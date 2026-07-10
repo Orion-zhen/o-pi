@@ -1,22 +1,17 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { defaultLspConfig, loadLspConfig, normalizeExcludePath } from "../../src/lsp/config.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
-let previousConfig: string | undefined;
+const temp = useTempDir("o-pi-lsp-config-");
+preserveEnv("PI_LSP_CONFIG");
 
-beforeEach(async () => {
-	dir = await mkdtemp(path.join(os.tmpdir(), "o-pi-lsp-config-"));
-	previousConfig = process.env.PI_LSP_CONFIG;
-});
-
-afterEach(async () => {
-	if (previousConfig === undefined) delete process.env.PI_LSP_CONFIG;
-	else process.env.PI_LSP_CONFIG = previousConfig;
-	await rm(dir, { recursive: true, force: true });
+beforeEach(() => {
+	dir = temp.path;
 });
 
 describe("lsp config", () => {

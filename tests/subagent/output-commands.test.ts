@@ -1,10 +1,12 @@
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { parsePipeline, tokenize } from "../../src/subagent/commands.js";
 import { formatFileHandoff, formatResultForContext, getRunDir, limitHandoff, persistResult, sanitizeFileName, truncateText } from "../../src/subagent/output.js";
 import type { SubagentRunResult } from "../../src/subagent/types.js";
+import { useTempDir } from "../helpers/lifecycle.js";
+
+const temp = useTempDir("o-pi-subagent-output-");
 
 describe("subagent commands", () => {
 	it("解析引号和管道", () => {
@@ -54,29 +56,25 @@ describe("subagent output", () => {
 	});
 
 	it("默认运行日志写入项目 .pi/subagents", async () => {
-		const dir = await mkdtemp(path.join(os.tmpdir(), "o-pi-subagent-output-"));
-		try {
-			await mkdir(path.join(dir, ".pi"), { recursive: true });
-			const expectedRunDir = path.join(dir, ".pi", "subagents", "runs", "run-1");
+		const dir = temp.path;
+		await mkdir(path.join(dir, ".pi"), { recursive: true });
+		const expectedRunDir = path.join(dir, ".pi", "subagents", "runs", "run-1");
 
-			expect(getRunDir(dir, "run-1")).toBe(expectedRunDir);
+		expect(getRunDir(dir, "run-1")).toBe(expectedRunDir);
 
-			const result = await persistResult(runResult(), {
-				cwd: dir,
-				runId: "run-1",
-				index: 0,
-				outputMode: "file",
-				maxInlineOutputChars: 1200,
-			});
-			const outputFile = result.outputFile;
-			if (outputFile === undefined) throw new Error("persistResult did not return outputFile");
+		const result = await persistResult(runResult(), {
+			cwd: dir,
+			runId: "run-1",
+			index: 0,
+			outputMode: "file",
+			maxInlineOutputChars: 1200,
+		});
+		const outputFile = result.outputFile;
+		if (outputFile === undefined) throw new Error("persistResult did not return outputFile");
 
-			expect(outputFile).toBe(path.join(expectedRunDir, "scout-1.md"));
-			await expect(stat(outputFile)).resolves.toMatchObject({ isFile: expect.any(Function) });
-			await expect(stat(path.join(dir, "subagents", "runs", "run-1", "scout-1.md"))).rejects.toMatchObject({ code: "ENOENT" });
-		} finally {
-			await rm(dir, { recursive: true, force: true });
-		}
+		expect(outputFile).toBe(path.join(expectedRunDir, "scout-1.md"));
+		await expect(stat(outputFile)).resolves.toMatchObject({ isFile: expect.any(Function) });
+		await expect(stat(path.join(dir, "subagents", "runs", "run-1", "scout-1.md"))).rejects.toMatchObject({ code: "ENOENT" });
 	});
 });
 

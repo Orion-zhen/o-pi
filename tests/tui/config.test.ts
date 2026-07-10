@@ -1,21 +1,15 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { defaultTuiConfig, loadTuiConfig, TuiConfigError } from "../../src/tui/config.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
-let originalConfigPath: string | undefined;
+const temp = useTempDir("o-pi-tui-config-");
+preserveEnv("PI_TUI_CONFIG");
 
-beforeEach(async () => {
-	dir = await mkdtemp(path.join(os.tmpdir(), "o-pi-tui-config-"));
-	originalConfigPath = process.env["PI_TUI_CONFIG"];
-});
-
-afterEach(async () => {
-	if (originalConfigPath === undefined) delete process.env["PI_TUI_CONFIG"];
-	else process.env["PI_TUI_CONFIG"] = originalConfigPath;
-	await rm(dir, { recursive: true, force: true });
+beforeEach(() => {
+	dir = temp.path;
 });
 
 describe("tui config", () => {

@@ -1,9 +1,9 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { AuthStorage, ModelRegistry, type ExtensionAPI, type ProviderConfig as PiProviderConfig } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import openAICompatibleProvider from "../../agent/extensions/openai-compatible-provider.js";
 import {
 	applyRuntimePayloadConfig,
 	loadModelsJsoncConfig,
@@ -12,18 +12,39 @@ import {
 	registerOpenAICompatibleProviders,
 	resolveAutoModelsJsoncConfig,
 } from "../../src/openai-compatible-provider/index.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
+const temp = useTempDir("o-pi-models-jsonc-");
+preserveEnv("PI_CODING_AGENT_DIR");
 
-beforeEach(async () => {
-	dir = await mkdtemp(path.join(os.tmpdir(), "o-pi-models-jsonc-"));
+beforeEach(() => {
+	dir = temp.path;
 });
 
-afterEach(async () => {
-	await rm(dir, { recursive: true, force: true });
+afterEach(() => {
+	vi.restoreAllMocks();
 });
 
 describe("openai-compatible-provider config", () => {
+	it("扩展入口从 agent 目录加载并注册 provider", async () => {
+		process.env.PI_CODING_AGENT_DIR = dir;
+		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response('{ "data": [{ "id": "discovered" }] }'));
+		await writeFile(
+			path.join(dir, "models.jsonc"),
+			'{ "providers": { "local": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": ["model"] } } }',
+			{ mode: 0o600 },
+		);
+		const calls: Array<{ name: string; config: PiProviderConfig }> = [];
+
+		await openAICompatibleProvider(createPi(calls));
+
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.name).toBe("local");
+		expect(calls[0]?.config.models?.map((model) => model.id)).toEqual(["model", "discovered"]);
+		expect(fetch).toHaveBeenCalledOnce();
+	});
+
 	it("不存在 models.jsonc 时不产生 provider 注册输入", async () => {
 		const config = await loadModelsJsoncConfig(path.join(dir, "missing.jsonc"));
 		const calls: Array<{ name: string; config: PiProviderConfig }> = [];

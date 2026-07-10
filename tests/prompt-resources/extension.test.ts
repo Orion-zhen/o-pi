@@ -1,10 +1,10 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadPromptTemplates } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/prompt-templates.js";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import agentsPromptsExtension from "../../agent/extensions/agents-prompts.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 interface ResourcesEvent {
 	type: "resources_discover";
@@ -23,17 +23,12 @@ interface ResourcesResult {
 type ResourcesHandler = (event: ResourcesEvent, ctx: ResourcesContext) => ResourcesResult | Promise<ResourcesResult>;
 
 let dir: string;
-const oldHome = process.env.HOME;
+const temp = useTempDir("o-pi-prompt-extension-");
+preserveEnv("HOME");
 
-beforeEach(async () => {
-	dir = await mkdtemp(path.join(os.tmpdir(), "o-pi-prompt-extension-"));
+beforeEach(() => {
+	dir = temp.path;
 	process.env.HOME = dir;
-});
-
-afterEach(async () => {
-	await rm(dir, { recursive: true, force: true });
-	if (oldHome === undefined) delete process.env.HOME;
-	else process.env.HOME = oldHome;
 });
 
 describe("agents prompts extension", () => {

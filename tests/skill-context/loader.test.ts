@@ -1,19 +1,16 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { BuildSystemPromptOptions, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { defaultSkillContextConfig } from "../../src/skill-context/config.js";
 import { collectSkillCandidates, loadSkill } from "../../src/skill-context/loader.js";
+import { useTempDir } from "../helpers/lifecycle.js";
 
 let tempDir: string;
+const temp = useTempDir("o-pi-skill-loader-");
 
-beforeEach(async () => {
-	tempDir = await mkdtemp(path.join(os.tmpdir(), "o-pi-skill-loader-"));
-});
-
-afterEach(async () => {
-	await rm(tempDir, { recursive: true, force: true });
+beforeEach(() => {
+	tempDir = temp.path;
 });
 
 describe("skill loader", () => {
@@ -61,4 +58,3 @@ function skillCommand(name: string, filePath: string): SlashCommandInfo {
 		sourceInfo: { path: filePath, source: "user", scope: "user", origin: "top-level" },
 	};
 }
-

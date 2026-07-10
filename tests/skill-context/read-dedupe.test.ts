@@ -1,19 +1,16 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ExtensionAPI, ExtensionContext, SessionEntry, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { registerSkillReadDedupe } from "../../src/skill-context/index.js";
 import { SKILL_CONTEXT_ENTRY, type SkillContextEntry } from "../../src/skill-context/types.js";
+import { useTempDir } from "../helpers/lifecycle.js";
 
 let tempDir: string;
+const temp = useTempDir("o-pi-skill-dedupe-");
 
-beforeEach(async () => {
-	tempDir = await mkdtemp(path.join(os.tmpdir(), "o-pi-skill-dedupe-"));
-});
-
-afterEach(async () => {
-	await rm(tempDir, { recursive: true, force: true });
+beforeEach(() => {
+	tempDir = temp.path;
 });
 
 describe("skill read dedupe", () => {

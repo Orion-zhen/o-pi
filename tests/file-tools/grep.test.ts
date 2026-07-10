@@ -1,5 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { chmod, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -7,15 +6,17 @@ import { clearGrepIndexForTests } from "../../src/file-tools/grep/indexer.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import { formatCompactGrepResult, grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
 import type { GrepSuccess, ToolOutcome } from "../../src/file-tools/types.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
 let outside: string;
-let previousConfigPath: string | undefined;
+const workspaceTemp = useTempDir("o-pi-grep-");
+const outsideTemp = useTempDir("o-pi-grep-outside-");
+preserveEnv("PI_FILE_TOOLS_CONFIG");
 
 beforeEach(async () => {
-	workspace = await mkdtemp(path.join(os.tmpdir(), "o-pi-grep-"));
-	outside = await mkdtemp(path.join(os.tmpdir(), "o-pi-grep-outside-"));
-	previousConfigPath = process.env.PI_FILE_TOOLS_CONFIG;
+	workspace = workspaceTemp.path;
+	outside = outsideTemp.path;
 	const configPath = path.join(outside, "file-tools.jsonc");
 	await writeConfig(configPath);
 	process.env.PI_FILE_TOOLS_CONFIG = configPath;
@@ -23,10 +24,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-	if (previousConfigPath === undefined) delete process.env.PI_FILE_TOOLS_CONFIG;
-	else process.env.PI_FILE_TOOLS_CONFIG = previousConfigPath;
-	await rm(workspace, { recursive: true, force: true });
-	await rm(outside, { recursive: true, force: true });
 	clearGrepIndexForTests();
 });
 

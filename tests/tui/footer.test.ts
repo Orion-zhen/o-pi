@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { formatFooter, readGitSegment } from "../../src/tui/footer.js";
 import type { TuiFooterConfig } from "../../src/tui/types.js";
+import { useTempDir } from "../helpers/lifecycle.js";
+
+const temp = useTempDir("o-pi-no-git-");
 
 const theme = {
 	fg: (_color: string, text: string) => text,
@@ -31,8 +33,7 @@ describe("tui footer", () => {
 	});
 
 	it("git 不可用时不崩溃", async () => {
-		const dir = mkdtempSync(path.join(os.tmpdir(), "o-pi-no-git-"));
-		await expect(readGitSegment(dir)).resolves.toBeUndefined();
+		await expect(readGitSegment(temp.path)).resolves.toBeUndefined();
 	});
 
 	it("窄屏使用 narrow_segments 降级", () => {

@@ -1,33 +1,19 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { findNearestProjectRoot, isToolEnabledByDefault, loadToolDefaultsConfig } from "../../src/tool-defaults/config.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
-let previousUserConfig: string | undefined;
-let previousProjectConfig: string | undefined;
-let previousProjectRoot: string | undefined;
+const temp = useTempDir("o-pi-tool-defaults-");
+preserveEnv("PI_TOOLS_CONFIG", "PI_TOOLS_PROJECT_CONFIG", "PI_TOOLS_PROJECT_ROOT");
 
-beforeEach(async () => {
-	workspace = await mkdtemp(path.join(os.tmpdir(), "o-pi-tool-defaults-"));
-	previousUserConfig = process.env.PI_TOOLS_CONFIG;
-	previousProjectConfig = process.env.PI_TOOLS_PROJECT_CONFIG;
-	previousProjectRoot = process.env.PI_TOOLS_PROJECT_ROOT;
+beforeEach(() => {
+	workspace = temp.path;
 	process.env.PI_TOOLS_CONFIG = path.join(workspace, "missing-user.jsonc");
 	delete process.env.PI_TOOLS_PROJECT_CONFIG;
 	delete process.env.PI_TOOLS_PROJECT_ROOT;
-});
-
-afterEach(async () => {
-	if (previousUserConfig === undefined) delete process.env.PI_TOOLS_CONFIG;
-	else process.env.PI_TOOLS_CONFIG = previousUserConfig;
-	if (previousProjectConfig === undefined) delete process.env.PI_TOOLS_PROJECT_CONFIG;
-	else process.env.PI_TOOLS_PROJECT_CONFIG = previousProjectConfig;
-	if (previousProjectRoot === undefined) delete process.env.PI_TOOLS_PROJECT_ROOT;
-	else process.env.PI_TOOLS_PROJECT_ROOT = previousProjectRoot;
-	await rm(workspace, { recursive: true, force: true });
 });
 
 describe("tool defaults config", () => {

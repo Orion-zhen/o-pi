@@ -1,27 +1,23 @@
-import { chmod, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { chmod, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { BashOperations } from "@earendil-works/pi-coding-agent";
+import { beforeEach, describe, expect, it } from "vitest";
+import type { BashOperations, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+import bashToolExtension from "../../agent/extensions/bash-tool.js";
 import { createDefaultBashOperations, executeBashCommand, normalizeWindowsPath } from "../../src/bash-tool/bash-tool.js";
 import { defaultBashToolConfig, loadBashToolConfig } from "../../src/bash-tool/config.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
 let config = defaultBashToolConfig();
-const previousConfig = process.env.PI_BASH_TOOL_CONFIG;
+const temp = useTempDir("o-pi-bash-test-");
+preserveEnv("PI_BASH_TOOL_CONFIG");
 
-beforeEach(async () => {
-	workspace = await mkdtemp(path.join(os.tmpdir(), "o-pi-bash-test-"));
+beforeEach(() => {
+	workspace = temp.path;
 	config = defaultBashToolConfig();
 	config.limits.success_output_bytes = 200;
 	config.limits.failure_output_bytes = 300;
-});
-
-afterEach(async () => {
-	await rm(workspace, { recursive: true, force: true });
-	if (previousConfig === undefined) delete process.env.PI_BASH_TOOL_CONFIG;
-	else process.env.PI_BASH_TOOL_CONFIG = previousConfig;
 });
 
 function fakeOperations(handler: BashOperations["exec"]): BashOperations {
@@ -39,6 +35,27 @@ function waitForAbort(signal: AbortSignal | undefined): Promise<void> {
 }
 
 describe("bash tool execution", () => {
+	it("扩展只注册覆盖版 bash，并统一标记失败结果", () => {
+		const tools: Array<{ name: string; executionMode?: string; parameters: unknown }> = [];
+		const handlers = new Map<string, (event: unknown) => unknown>();
+		bashToolExtension({
+			registerTool(tool: Parameters<ExtensionAPI["registerTool"]>[0]) {
+				tools.push(tool);
+			},
+			on(name: string, handler: unknown) {
+				handlers.set(name, handler as (event: unknown) => unknown);
+			},
+		} as unknown as ExtensionAPI);
+
+		expect(tools).toMatchObject([{ name: "bash", executionMode: "sequential" }]);
+		const parameters = tools[0]?.parameters as { properties?: Record<string, unknown> } | undefined;
+		expect(Object.keys(parameters?.properties ?? {})).toEqual(["command", "timeout"]);
+		const base = { duration_ms: 1, output_state: "complete", capture_complete: true };
+		expect(handlers.get("tool_result")?.({ toolName: "bash", details: { ...base, status: "timed_out" } })).toEqual({ isError: true });
+		expect(handlers.get("tool_result")?.({ toolName: "bash", details: { ...base, status: "exited", exit_code: 0 } })).toBeUndefined();
+		expect(handlers.get("tool_result")?.({ toolName: "read", details: base })).toBeUndefined();
+	});
+
 	it("命令被传递到 exec 执行", async () => {
 		let seen: { command: string; cwd: string } | undefined;
 		const operations = fakeOperations(async (command, cwd) => {
@@ -214,63 +231,28 @@ describe("bash tool execution", () => {
 });
 
 describe("normalizeWindowsPath", () => {
-	describe("Windows 平台", () => {
-		it("将 Windows 盘符路径中的反斜杠转换为正斜杠", () => {
-			expect(normalizeWindowsPath("C:\\Users\\orion", "win32")).toBe("C:/Users/orion");
-		});
-
-		it("保留常见转义序列 \\n", () => {
-			expect(normalizeWindowsPath("echo \\n", "win32")).toBe("echo \\n");
-		});
-
-		it("保留常见转义序列 \\t", () => {
-			expect(normalizeWindowsPath("echo \\thello", "win32")).toBe("echo \\thello");
-		});
-
-		it("保留转义的反斜杠 \\\\", () => {
-			expect(normalizeWindowsPath("echo a\\\\b", "win32")).toBe("echo a\\\\b");
-		});
-
-		it("保留转义序列 \\b \\f \\v", () => {
-			expect(normalizeWindowsPath("echo a\\bb", "win32")).toBe("echo a\\bb");
-			expect(normalizeWindowsPath("echo a\\fb", "win32")).toBe("echo a\\fb");
-			expect(normalizeWindowsPath("echo a\\vb", "win32")).toBe("echo a\\vb");
-		});
-
-		it("混用场景：路径中的反斜杠转换，转义序列保留", () => {
-			const cmd = 'node -e "console.log(\'C:\\Users\\orion\');\\n"';
-			const expected = 'node -e "console.log(\'C:/Users/orion\');\\n"';
-			expect(normalizeWindowsPath(cmd, "win32")).toBe(expected);
-		});
-
-		it("没有反斜杠的命令不受影响", () => {
-			expect(normalizeWindowsPath("echo hello world", "win32")).toBe("echo hello world");
-		});
-
-		it("非转义字符前的反斜杠被替换", () => {
-			expect(normalizeWindowsPath("\\x\\y\\z", "win32")).toBe("/x/y/z");
-		});
+	it.each([
+		["盘符路径", "C:\\Users\\orion", "C:/Users/orion"],
+		["换行转义", "echo \\n", "echo \\n"],
+		["制表转义", "echo \\thello", "echo \\thello"],
+		["反斜杠转义", "echo a\\\\b", "echo a\\\\b"],
+		["退格转义", "echo a\\bb", "echo a\\bb"],
+		["换页转义", "echo a\\fb", "echo a\\fb"],
+		["垂直制表转义", "echo a\\vb", "echo a\\vb"],
+		["路径与转义混用", 'node -e "console.log(\'C:\\Users\\orion\');\\n"', 'node -e "console.log(\'C:/Users/orion\');\\n"'],
+		["无反斜杠", "echo hello world", "echo hello world"],
+		["普通反斜杠", "\\x\\y\\z", "/x/y/z"],
+	] as const)("Windows：%s", (_name, input, expected) => {
+		expect(normalizeWindowsPath(input, "win32")).toBe(expected);
 	});
 
-	describe("非 Windows 平台", () => {
-		it("Linux 上命令原样返回", () => {
-			expect(normalizeWindowsPath("C:\\Users\\orion", "linux")).toBe("C:\\Users\\orion");
-		});
+	it.each(["linux", "darwin"] as const)("%s 保持命令原样", (platform) => {
+		expect(normalizeWindowsPath("C:\\Users\\orion", platform)).toBe("C:\\Users\\orion");
+	});
 
-		it("macOS 上命令原样返回", () => {
-			expect(normalizeWindowsPath("echo \\n", "darwin")).toBe("echo \\n");
-		});
-
-		it("默认参数使用 process.platform", () => {
-			// 不传 platform，使用真实的 process.platform
-			const cmd = "C:\\path";
-			const result = normalizeWindowsPath(cmd);
-			if (process.platform === "win32") {
-				expect(result).toBe("C:/path");
-			} else {
-				expect(result).toBe(cmd);
-			}
-		});
+	it("默认使用当前平台", () => {
+		const cmd = "C:\\path";
+		expect(normalizeWindowsPath(cmd)).toBe(process.platform === "win32" ? "C:/path" : cmd);
 	});
 });
 

@@ -1,25 +1,19 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { LspManager } from "../../src/lsp/manager.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
 let configDir: string;
-let previousConfig: string | undefined;
+const workspaceTemp = useTempDir("o-pi-lsp-ref-workspace-");
+const configTemp = useTempDir("o-pi-lsp-ref-config-");
+preserveEnv("PI_LSP_CONFIG");
 
-beforeEach(async () => {
-	workspace = await mkdtemp(path.join(os.tmpdir(), "o-pi-lsp-ref-workspace-"));
-	configDir = await mkdtemp(path.join(os.tmpdir(), "o-pi-lsp-ref-config-"));
-	previousConfig = process.env.PI_LSP_CONFIG;
-});
-
-afterEach(async () => {
-	if (previousConfig === undefined) delete process.env.PI_LSP_CONFIG;
-	else process.env.PI_LSP_CONFIG = previousConfig;
-	await rm(workspace, { recursive: true, force: true });
-	await rm(configDir, { recursive: true, force: true });
+beforeEach(() => {
+	workspace = workspaceTemp.path;
+	configDir = configTemp.path;
 });
 
 describe("lsp references", () => {

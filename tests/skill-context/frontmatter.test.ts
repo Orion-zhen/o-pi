@@ -17,19 +17,12 @@ describe("skill frontmatter", () => {
 		expect(parsed.description).toBe("use when value contains: colon");
 	});
 
-	it("YAML frontmatter 解析失败时报 skill frontmatter 错误", () => {
-		expect(() => parseSkillFile("---\nname: [demo\n---\nbody\n", "fallback", 100)).toThrow(/failed to parse skill frontmatter/);
-	});
-
-	it("缺少 description 时报错", () => {
-		expect(() => parseSkillFile("---\nname: demo\n---\nbody\n", "fallback", 100)).toThrow(/description/);
-	});
-
-	it("拒绝非法 name", () => {
-		expect(() => parseSkillFile("---\nname: Bad--Name\ndescription: desc\n---\nbody\n", "fallback", 100)).toThrow(/name/);
-	});
-
-	it("body 超过 max_body_chars 时提示配置或拆分 reference", () => {
-		expect(() => parseSkillFile("---\nname: demo\ndescription: desc\n---\n12345", "fallback", 4)).toThrow(/max_body_chars|references/);
+	it.each([
+		["非法 YAML", "---\nname: [demo\n---\nbody\n", 100, /failed to parse skill frontmatter/],
+		["缺少 description", "---\nname: demo\n---\nbody\n", 100, /description/],
+		["非法 name", "---\nname: Bad--Name\ndescription: desc\n---\nbody\n", 100, /name/],
+		["body 超限", "---\nname: demo\ndescription: desc\n---\n12345", 4, /max_body_chars|references/],
+	] as const)("拒绝%s", (_name, source, maxChars, error) => {
+		expect(() => parseSkillFile(source, "fallback", maxChars)).toThrow(error);
 	});
 });

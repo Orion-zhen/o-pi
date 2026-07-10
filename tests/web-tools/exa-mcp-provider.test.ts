@@ -2,13 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
 import { apiKeyHeaders, createExaMcpProvider, normalizeExaMcpResult, type ExaMcpClient, type ExaMcpClientFactory } from "../../src/web-tools/search-providers/exa-mcp.js";
+import { preserveEnv } from "../helpers/lifecycle.js";
 
-const previousKey = process.env.EXA_API_KEY;
+preserveEnv("EXA_API_KEY");
 
 afterEach(() => {
 	vi.useRealTimers();
-	if (previousKey === undefined) delete process.env.EXA_API_KEY;
-	else process.env.EXA_API_KEY = previousKey;
 });
 
 describe("exa MCP provider", () => {

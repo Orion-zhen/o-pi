@@ -5,12 +5,14 @@
 	"private": true,
 	"scripts": {
 		"test": "vitest --run",
+		"test:coverage": "vitest --run --coverage",
 		"typecheck": "tsc --noEmit"
 	},
 	"devDependencies": {
 		"@types/node": "latest",
 		"@types/picomatch": "latest",
 		"@types/turndown": "latest",
+		"@vitest/coverage-v8": "latest",
 		"typescript": "latest",
 		"vitest": "latest"
 	},

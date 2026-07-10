@@ -1,19 +1,20 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { findWorkspaceFiles } from "../../src/file-tools/tools/find.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import type { FindMatch, FindSuccess, ToolOutcome } from "../../src/file-tools/types.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
 let outside: string;
-let previousConfigPath: string | undefined;
+const workspaceTemp = useTempDir("o-pi-find-");
+const outsideTemp = useTempDir("o-pi-find-outside-");
+preserveEnv("PI_FILE_TOOLS_CONFIG");
 
 beforeEach(async () => {
-	workspace = await mkdtemp(path.join(os.tmpdir(), "o-pi-find-"));
-	outside = await mkdtemp(path.join(os.tmpdir(), "o-pi-find-outside-"));
-	previousConfigPath = process.env.PI_FILE_TOOLS_CONFIG;
+	workspace = workspaceTemp.path;
+	outside = outsideTemp.path;
 	const configPath = path.join(outside, "file-tools.jsonc");
 	await writeFile(
 		configPath,
@@ -27,13 +28,6 @@ beforeEach(async () => {
 		].join("\n"),
 	);
 	process.env.PI_FILE_TOOLS_CONFIG = configPath;
-});
-
-afterEach(async () => {
-	if (previousConfigPath === undefined) delete process.env.PI_FILE_TOOLS_CONFIG;
-	else process.env.PI_FILE_TOOLS_CONFIG = previousConfigPath;
-	await rm(workspace, { recursive: true, force: true });
-	await rm(outside, { recursive: true, force: true });
 });
 
 function expectFindSuccess(result: ToolOutcome<FindSuccess>): FindSuccess {

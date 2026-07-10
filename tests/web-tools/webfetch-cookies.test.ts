@@ -1,18 +1,15 @@
-import { chmod, mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { chmod, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { isCookieAllowed, NetscapeCookieStore } from "../../src/web-tools/cookie-store.js";
+import { useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
+const temp = useTempDir("o-pi-web-cookies-");
 
-beforeEach(async () => {
-	dir = await mkdtemp(path.join(os.tmpdir(), "o-pi-web-cookies-"));
-});
-
-afterEach(async () => {
-	await rm(dir, { recursive: true, force: true });
+beforeEach(() => {
+	dir = temp.path;
 });
 
 describe("webfetch cookies", () => {

@@ -1,21 +1,15 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { defaultSkillContextConfig, loadSkillContextConfig } from "../../src/skill-context/config.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let tempDir: string;
-let previousConfig: string | undefined;
+const temp = useTempDir("o-pi-skill-config-");
+preserveEnv("PI_SKILL_CONTEXT_CONFIG");
 
-beforeEach(async () => {
-	tempDir = await mkdtemp(path.join(os.tmpdir(), "o-pi-skill-config-"));
-	previousConfig = process.env.PI_SKILL_CONTEXT_CONFIG;
-});
-
-afterEach(async () => {
-	if (previousConfig === undefined) delete process.env.PI_SKILL_CONTEXT_CONFIG;
-	else process.env.PI_SKILL_CONTEXT_CONFIG = previousConfig;
-	await rm(tempDir, { recursive: true, force: true });
+beforeEach(() => {
+	tempDir = temp.path;
 });
 
 describe("skill context config", () => {
@@ -38,4 +32,3 @@ describe("skill context config", () => {
 		expect(await loadSkillContextConfig()).toMatchObject({ enabled: false, max_active: 2, clear_mode: "lazy" });
 	});
 });
-

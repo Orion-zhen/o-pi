@@ -1,24 +1,19 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { defaultApprovalGateConfig, loadApprovalGateConfig } from "../../src/approval/config.js";
 import { evaluateApproval } from "../../src/approval/policy.js";
 import { FileApprovalStore } from "../../src/approval/store.js";
 import type { ApprovalGateConfig, ApprovalRequest } from "../../src/approval/types.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
-const previousConfig = process.env.PI_APPROVAL_GATE_CONFIG;
+const temp = useTempDir("o-pi-approval-policy-");
+preserveEnv("PI_APPROVAL_GATE_CONFIG");
 
-beforeEach(async () => {
-	dir = await mkdtemp(path.join(os.tmpdir(), "o-pi-approval-policy-"));
+beforeEach(() => {
+	dir = temp.path;
 	delete process.env.PI_APPROVAL_GATE_CONFIG;
-});
-
-afterEach(async () => {
-	await rm(dir, { recursive: true, force: true });
-	if (previousConfig === undefined) delete process.env.PI_APPROVAL_GATE_CONFIG;
-	else process.env.PI_APPROVAL_GATE_CONFIG = previousConfig;
 });
 
 describe("approval policy", () => {

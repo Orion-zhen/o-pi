@@ -1,5 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type {
 	BuildSystemPromptOptions,
@@ -13,24 +12,50 @@ import type {
 	SlashCommandInfo,
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import skillContextExtension from "../../agent/extensions/skill-context.js";
 import { clearSkill, loadSkillCommand, registerSkillCommands } from "../../src/skill-context/commands.js";
 import { defaultSkillContextConfig } from "../../src/skill-context/config.js";
 import { SKILL_CONTEXT_ENTRY, SKILL_CONTEXT_STATUS_MESSAGE, type SkillContextEntry, type SkillContextStatusMessage } from "../../src/skill-context/types.js";
+import { useTempDir } from "../helpers/lifecycle.js";
 
 let tempDir: string;
+const temp = useTempDir("o-pi-skill-command-");
 
-beforeEach(async () => {
-	tempDir = await mkdtemp(path.join(os.tmpdir(), "o-pi-skill-command-"));
+beforeEach(() => {
+	tempDir = temp.path;
 	vi.useFakeTimers();
 	vi.setSystemTime(new Date("2026-07-06T00:00:00.000Z"));
 });
 
-afterEach(async () => {
+afterEach(() => {
 	vi.useRealTimers();
-	await rm(tempDir, { recursive: true, force: true });
 });
 
 describe("skill commands", () => {
+	it("扩展入口一次注册命令、状态卡和三类上下文 hook", () => {
+		const commands: string[] = [];
+		const events: string[] = [];
+		const renderers: string[] = [];
+		skillContextExtension({
+			registerCommand(name: string) {
+				commands.push(name);
+			},
+			registerMessageRenderer(type: string) {
+				renderers.push(type);
+			},
+			on(name: string) {
+				events.push(name);
+			},
+			appendEntry() {},
+			getCommands: () => [],
+			sendMessage() {},
+		} as unknown as ExtensionAPI);
+
+		expect(commands).toEqual(["skill"]);
+		expect(renderers).toEqual([SKILL_CONTEXT_STATUS_MESSAGE]);
+		expect(events).toEqual(["input", "context", "tool_call"]);
+	});
+
 	it("只注册 /skill 管理命令，/skill:name 由 input hook 接管避免命令列表重复", async () => {
 		const skillPath = await writeSkill("demo", "body");
 		const entries: SkillContextEntry[] = [];

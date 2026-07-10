@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -10,23 +10,24 @@ import { listWorkspaceDirectory } from "../../src/file-tools/tools/ls.js";
 import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
 import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/tools/read.js";
 import type { EditSuccess, ReadFileSuccess, ReadParams, ToolOutcome } from "../../src/file-tools/types.js";
+import { useTempDir } from "../helpers/lifecycle.js";
 
 const execFileAsync = promisify(execFile);
 
 let workspace: string;
 let outside: string;
 let versionCache: ReadVersionCache;
+const workspaceTemp = useTempDir("o-pi-ignore-");
+const outsideTemp = useTempDir("o-pi-ignore-outside-");
 
-beforeEach(async () => {
-	workspace = await mkdtemp(path.join(os.tmpdir(), "o-pi-ignore-"));
-	outside = await mkdtemp(path.join(os.tmpdir(), "o-pi-ignore-outside-"));
+beforeEach(() => {
+	workspace = workspaceTemp.path;
+	outside = outsideTemp.path;
 	versionCache = new ReadVersionCache();
 	defaultIgnoreEngine.invalidate();
 });
 
 afterEach(async () => {
-	await rm(workspace, { recursive: true, force: true });
-	await rm(outside, { recursive: true, force: true });
 	defaultIgnoreEngine.invalidate();
 });
 

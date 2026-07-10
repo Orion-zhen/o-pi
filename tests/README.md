@@ -1,5 +1,7 @@
-# 测试组织
+# 测试
 
-测试按运行模块分目录：`bash-tool`、`file-tools`、`stats`、`subagent`、`system-prompt`、`tui`、`web-tools`。
+编写与组织规范见仓库根目录 `AGENTS.md` 的“测试”章节。验证命令：
 
-优先测试稳定行为边界：参数 schema、文件/网络安全、错误结构、缓存、渲染不崩溃和关键数据不泄露。避免测试提示词、工具描述或 UI 文案的完整措辞；只有安全边界或公开接口依赖这些文本时，才做最小结构断言。
+- `npm test`：完整测试。
+- `npm run typecheck`：测试和源码类型检查。
+- `npm run test:coverage`：覆盖 `src/` 与 `agent/extensions/`，并执行全局覆盖率底线。

@@ -1,31 +1,17 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { loadFileToolsConfig } from "../../src/file-tools/config.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
-let previousConfigPath: string | undefined;
-let previousProjectConfigPath: string | undefined;
-let previousProjectRoot: string | undefined;
+const temp = useTempDir("o-pi-file-tools-config-");
+preserveEnv("PI_FILE_TOOLS_CONFIG", "PI_FILE_TOOLS_PROJECT_CONFIG", "PI_FILE_TOOLS_PROJECT_ROOT");
 
-beforeEach(async () => {
-	workspace = await mkdtemp(path.join(os.tmpdir(), "o-pi-file-tools-config-"));
-	previousConfigPath = process.env.PI_FILE_TOOLS_CONFIG;
-	previousProjectConfigPath = process.env.PI_FILE_TOOLS_PROJECT_CONFIG;
-	previousProjectRoot = process.env.PI_FILE_TOOLS_PROJECT_ROOT;
+beforeEach(() => {
+	workspace = temp.path;
 	delete process.env.PI_FILE_TOOLS_PROJECT_CONFIG;
 	delete process.env.PI_FILE_TOOLS_PROJECT_ROOT;
-});
-
-afterEach(async () => {
-	if (previousConfigPath === undefined) delete process.env.PI_FILE_TOOLS_CONFIG;
-	else process.env.PI_FILE_TOOLS_CONFIG = previousConfigPath;
-	if (previousProjectConfigPath === undefined) delete process.env.PI_FILE_TOOLS_PROJECT_CONFIG;
-	else process.env.PI_FILE_TOOLS_PROJECT_CONFIG = previousProjectConfigPath;
-	if (previousProjectRoot === undefined) delete process.env.PI_FILE_TOOLS_PROJECT_ROOT;
-	else process.env.PI_FILE_TOOLS_PROJECT_ROOT = previousProjectRoot;
-	await rm(workspace, { recursive: true, force: true });
 });
 
 describe("file-tools config", () => {

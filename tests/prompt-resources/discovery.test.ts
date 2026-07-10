@@ -1,21 +1,16 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { discoverAgentsPromptPaths } from "../../src/prompt-resources/discovery.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
-const oldHome = process.env.HOME;
+const temp = useTempDir("o-pi-prompt-resources-");
+preserveEnv("HOME");
 
-beforeEach(async () => {
-	dir = await mkdtemp(path.join(os.tmpdir(), "o-pi-prompt-resources-"));
+beforeEach(() => {
+	dir = temp.path;
 	process.env.HOME = dir;
-});
-
-afterEach(async () => {
-	await rm(dir, { recursive: true, force: true });
-	if (oldHome === undefined) delete process.env.HOME;
-	else process.env.HOME = oldHome;
 });
 
 describe("agents prompt resource discovery", () => {

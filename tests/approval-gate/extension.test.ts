@@ -1,26 +1,21 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import approvalGateExtension from "../../agent/extensions/approval-gate.js";
 import { defaultApprovalGateConfig } from "../../src/approval/config.js";
 import { createApprovalGate } from "../../src/approval/gate.js";
 import { FileApprovalStore } from "../../src/approval/store.js";
 import type { ApprovalGateConfig } from "../../src/approval/types.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
-const previousApprovalConfig = process.env.PI_APPROVAL_GATE_CONFIG;
+const temp = useTempDir("o-pi-approval-gate-");
+preserveEnv("PI_APPROVAL_GATE_CONFIG");
 
-beforeEach(async () => {
-	dir = await mkdtemp(path.join(os.tmpdir(), "o-pi-approval-gate-"));
+beforeEach(() => {
+	dir = temp.path;
 	delete process.env.PI_APPROVAL_GATE_CONFIG;
-});
-
-afterEach(async () => {
-	await rm(dir, { recursive: true, force: true });
-	if (previousApprovalConfig === undefined) delete process.env.PI_APPROVAL_GATE_CONFIG;
-	else process.env.PI_APPROVAL_GATE_CONFIG = previousApprovalConfig;
 });
 
 describe("approval gate", () => {

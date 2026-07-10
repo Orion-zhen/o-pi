@@ -1,23 +1,17 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { defaultSubagentConfig, loadSubagentConfig, mergeProjectConfig, mergeUserConfig } from "../../src/subagent/config.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
-const oldUser = process.env.PI_SUBAGENT_USER_CONFIG;
-const oldProject = process.env.PI_SUBAGENT_PROJECT_CONFIG;
+const temp = useTempDir("o-pi-subagent-config-");
+preserveEnv("PI_SUBAGENT_USER_CONFIG", "PI_SUBAGENT_PROJECT_CONFIG");
 
-beforeEach(async () => {
-	dir = await mkdtemp(path.join(os.tmpdir(), "o-pi-subagent-config-"));
+beforeEach(() => {
+	dir = temp.path;
 	process.env.PI_SUBAGENT_USER_CONFIG = path.join(dir, "user.jsonc");
 	process.env.PI_SUBAGENT_PROJECT_CONFIG = path.join(dir, "project.jsonc");
-});
-
-afterEach(async () => {
-	await rm(dir, { recursive: true, force: true });
-	restore("PI_SUBAGENT_USER_CONFIG", oldUser);
-	restore("PI_SUBAGENT_PROJECT_CONFIG", oldProject);
 });
 
 describe("subagent config", () => {
@@ -52,8 +46,3 @@ describe("subagent config", () => {
 		expect(merged.maxConcurrency).toBe(2);
 	});
 });
-
-function restore(key: string, value: string | undefined): void {
-	if (value === undefined) delete process.env[key];
-	else process.env[key] = value;
-}

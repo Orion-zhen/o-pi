@@ -1,18 +1,15 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import os from "node:os";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { FileApprovalStore } from "../../src/approval/store.js";
 import type { ApprovalRequest } from "../../src/approval/types.js";
+import { useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
+const temp = useTempDir("o-pi-approval-store-");
 
-beforeEach(async () => {
-	dir = await mkdtemp(path.join(os.tmpdir(), "o-pi-approval-store-"));
-});
-
-afterEach(async () => {
-	await rm(dir, { recursive: true, force: true });
+beforeEach(() => {
+	dir = temp.path;
 });
 
 describe("approval store", () => {

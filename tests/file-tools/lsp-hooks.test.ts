@@ -1,7 +1,6 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { editWorkspace } from "../../src/file-tools/tools/edit.js";
 import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
@@ -9,25 +8,20 @@ import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
 import { readWorkspaceFile } from "../../src/file-tools/tools/read.js";
 import { writeWorkspaceFile } from "../../src/file-tools/tools/write.js";
 import type { FileToolLspHooks, GrepSuccess, ToolOutcome } from "../../src/file-tools/types.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
 let outside: string;
-let previousConfig: string | undefined;
+const workspaceTemp = useTempDir("o-pi-lsp-hooks-");
+const configTemp = useTempDir("o-pi-lsp-hooks-config-");
+preserveEnv("PI_FILE_TOOLS_CONFIG");
 
 beforeEach(async () => {
-	workspace = await mkdtemp(path.join(os.tmpdir(), "o-pi-lsp-hooks-"));
-	outside = await mkdtemp(path.join(os.tmpdir(), "o-pi-lsp-hooks-config-"));
-	previousConfig = process.env.PI_FILE_TOOLS_CONFIG;
+	workspace = workspaceTemp.path;
+	outside = configTemp.path;
 	const config = path.join(outside, "file-tools.jsonc");
 	await writeFile(config, JSON.stringify({ version: 1, ignore: { builtin_profile: "none", gitignore: false } }));
 	process.env.PI_FILE_TOOLS_CONFIG = config;
-});
-
-afterEach(async () => {
-	if (previousConfig === undefined) delete process.env.PI_FILE_TOOLS_CONFIG;
-	else process.env.PI_FILE_TOOLS_CONFIG = previousConfig;
-	await rm(workspace, { recursive: true, force: true });
-	await rm(outside, { recursive: true, force: true });
 });
 
 describe("file-tools lsp hooks", () => {

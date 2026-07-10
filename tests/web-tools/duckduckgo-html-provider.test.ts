@@ -7,26 +7,11 @@ import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
 import { createDuckDuckGoHtmlProvider } from "../../src/web-tools/search-providers/duckduckgo-html-provider.js";
 import { SearchRequestGate } from "../../src/web-tools/search-request-gate.js";
 import type { WebHttpFetch, WebHttpRequestInit, WebHttpResponse } from "../../src/web-tools/types.js";
+import { httpResponse } from "../helpers/http.js";
 
 afterEach(() => {
 	vi.useRealTimers();
 });
-
-class FakeBody {
-	constructor(private readonly chunks: Uint8Array[]) {}
-	getReader() {
-		let index = 0;
-		return {
-			read: async () => {
-				const value = this.chunks[index];
-				index += 1;
-				return value === undefined ? { done: true as const } : { done: false as const, value };
-			},
-			cancel: async () => undefined,
-		};
-	}
-	async cancel(): Promise<void> {}
-}
 
 const fixtureDir = path.join(process.cwd(), "tests", "web-tools", "fixtures", "websearch");
 
@@ -34,13 +19,8 @@ async function fixture(name: string): Promise<string> {
 	return readFile(path.join(fixtureDir, name), "utf8");
 }
 
-function response(status: number, body: string, headers: Record<string, string> = { "content-type": "text/html" }): WebHttpResponse {
-	return {
-		status,
-		statusText: status === 200 ? "OK" : "Error",
-		headers: new Headers(headers),
-		body: new FakeBody([Buffer.from(body)]),
-	};
+function response(status: number, body: string, headers: Record<string, string> = { "content-type": "text/html" }) {
+	return httpResponse(status, body, headers);
 }
 
 function provider(fetchImpl: WebHttpFetch, now = () => Date.now(), gate = new SearchRequestGate(now, 0, 0), timeoutSeconds?: number) {

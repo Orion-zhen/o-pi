@@ -1,9 +1,11 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { collectCodexResetCardSnapshot, extractCards, parseApiDate, parseCodexAccessToken } from "../../src/codex-reset-card/client.js";
 import { CodexResetCardError } from "../../src/codex-reset-card/types.js";
+import { useTempDir } from "../helpers/lifecycle.js";
+
+const temp = useTempDir("codex-reset-card-");
 
 describe("codex reset card client", () => {
 	it("从 Codex auth 常见结构读取 access token", () => {
@@ -56,7 +58,7 @@ describe("codex reset card client", () => {
 	});
 
 	it("用 Codex token 请求重置卡接口并生成系统时区快照", async () => {
-		const dir = await mkdtemp(join(tmpdir(), "codex-reset-card-"));
+		const dir = temp.path;
 		const authPath = join(dir, "auth.json");
 		await writeFile(authPath, JSON.stringify({ tokens: { access_token: "test-token" } }), "utf8");
 
