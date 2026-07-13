@@ -42,6 +42,18 @@ grep  按内容、symbol 或代码意图定位代码
 
 LSP 失败、超时、未配置或 language server binary 不存在时，文件工具静默退化为原行为。`ls` 和 `find` 不接入 LSP。
 
+## 加载生命周期
+
+扩展启动时只同步注册工具 schema、轻量 renderer 和事件，不加载文件遍历、媒体识别、Tree-sitter grammar 或 LSP runtime。模块按层异步预热：
+
+* `session_start` 发起但不等待常用 `ls` / `read` / `write` / `edit` 与 LSP 模块加载；
+* `before_agent_start` 发起但不等待较重的 `find` / `grep` 搜索模块加载；
+* 工具执行会等待自身模块可用，并与后台预热复用同一个加载 Promise，并发调用不会重复加载；
+* 模块加载失败后清除对应 Promise，后续调用可以重试；
+* `edit` 调用预览只在实际需要渲染时加载 edit 实现，不进入扩展同步导入链。
+
+因此交互启动不等待重模块完成，同时正常的首轮模型生成时间可用于后台预热；若工具在预热结束前被调用，只等待该工具自己的依赖，不等待无关文件工具。
+
 ## ignore 与路径解析
 
 ignore 和路径解析是两个独立维度：

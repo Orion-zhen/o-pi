@@ -8,7 +8,6 @@ import {
 import { Box, Spacer, Text } from "@earendil-works/pi-tui";
 import { formatToolCard } from "../../tui/tool-card.js";
 import { compactWhitespace, formatBytes, formatChars, joinParts } from "../../tui/text.js";
-import { previewEditWorkspace } from "../tools/edit.js";
 import { formatGrepCall, formatGrepResult } from "../grep/renderer.js";
 import {
 	isEditSuccessDetails,
@@ -153,13 +152,16 @@ export function renderEditCall(args: unknown, theme: Theme, context: EditCallCon
 	}
 	if (context.argsComplete && argsKey !== undefined && component.preview === undefined && !component.previewPending) {
 		component.previewPending = true;
-		void previewEditWorkspace(context.cwd, args).catch(previewException).then((preview) => {
-			if (component.previewArgsKey === argsKey) {
-				component.preview = preview;
-				component.previewPending = false;
-				context.invalidate();
-			}
-		});
+		void import("../tools/edit.js")
+			.then(({ previewEditWorkspace }) => previewEditWorkspace(context.cwd, args))
+			.catch(previewException)
+			.then((preview) => {
+				if (component.previewArgsKey === argsKey) {
+					component.preview = preview;
+					component.previewPending = false;
+					context.invalidate();
+				}
+			});
 	}
 	return buildEditCallComponent(component, args, theme);
 }

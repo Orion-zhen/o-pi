@@ -2,9 +2,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import fileTools from "../../agent/extensions/file-tools.js";
+import fileTools, { createFileToolsExtension, type FileToolsModuleImports } from "../../agent/extensions/file-tools.js";
 import { lspFileHooks } from "../../src/lsp/index.js";
 
 interface ThemeStub {
@@ -30,6 +30,7 @@ interface Renderable {
 }
 
 type ToolResultHandler = (event: { toolName: string; details: unknown }) => unknown;
+type LifecycleHandler = (...args: unknown[]) => unknown;
 type RenderResult = (result: unknown, options: { expanded: boolean; isPartial: boolean }, theme: ThemeStub, context: unknown) => Renderable;
 type RenderCall = (args: unknown, theme: ThemeStub, context: unknown) => Renderable;
 type ExecuteResult = { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; details?: unknown };
@@ -44,6 +45,9 @@ type ExecuteTool = (
 describe("file-tools extension", () => {
 	beforeAll(() => {
 		initTheme();
+	});
+	afterEach(() => {
+		vi.useRealTimers();
 	});
 
 	it("文件工具失败结果标记为错误，并按失败分支渲染", () => {
@@ -89,6 +93,77 @@ describe("file-tools extension", () => {
 		expect(expanded).toContain("Next Read the file again, then create a new edit operation.");
 		expect(expanded).toContain('Details {"version":"new"}');
 		expect(expanded).not.toContain('"status": "failed"');
+	});
+
+	it("分层预热不阻塞生命周期，并发执行复用同一个模块加载 Promise", async () => {
+		vi.useFakeTimers();
+		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
+		const handlers = new Map<string, LifecycleHandler>();
+		let resolveLs: ((module: typeof import("../../src/file-tools/tools/ls.js")) => void) | undefined;
+		const pendingLs = new Promise<typeof import("../../src/file-tools/tools/ls.js")>((resolve) => {
+			resolveLs = resolve;
+		});
+		let findLoadAttempts = 0;
+		const imports = {
+			ls: vi.fn(() => pendingLs),
+			find: vi.fn(() => {
+				findLoadAttempts += 1;
+				return findLoadAttempts === 1
+					? Promise.reject(new Error("simulated preload failure"))
+					: import("../../src/file-tools/tools/find.js");
+			}),
+			grep: vi.fn(() => import("../../src/file-tools/tools/grep.js")),
+			read: vi.fn(() => import("../../src/file-tools/tools/read.js")),
+			write: vi.fn(() => import("../../src/file-tools/tools/write.js")),
+			edit: vi.fn(() => import("../../src/file-tools/tools/edit.js")),
+			lsp: vi.fn(() => import("../../src/lsp/index.js")),
+		} satisfies FileToolsModuleImports;
+		const extension = createFileToolsExtension(imports);
+		const pi = {
+			registerTool(tool: { name: string; execute?: ExecuteTool }) {
+				registered.push(tool);
+			},
+			on(name: string, handler: LifecycleHandler) {
+				handlers.set(name, handler);
+			},
+		};
+		extension(pi as unknown as ExtensionAPI);
+
+		expect(handlers.get("session_start")?.({}, {})).toBeUndefined();
+		expect(imports.ls).not.toHaveBeenCalled();
+		await vi.runOnlyPendingTimersAsync();
+		expect(imports.ls).toHaveBeenCalledTimes(1);
+		expect(imports.read).toHaveBeenCalledTimes(1);
+		expect(imports.write).toHaveBeenCalledTimes(1);
+		expect(imports.edit).toHaveBeenCalledTimes(1);
+		expect(imports.lsp).toHaveBeenCalledTimes(1);
+		expect(imports.find).not.toHaveBeenCalled();
+		expect(imports.grep).not.toHaveBeenCalled();
+
+		const execution = executeTool(registered, "ls", { path: "." }, {
+			cwd: process.cwd(),
+			sessionManager: { getSessionId: () => "preload-session" },
+		});
+		expect(imports.ls).toHaveBeenCalledTimes(1);
+		expect(handlers.get("before_agent_start")?.({}, {})).toBeUndefined();
+		expect(imports.find).not.toHaveBeenCalled();
+		expect(imports.grep).not.toHaveBeenCalled();
+		await vi.runOnlyPendingTimersAsync();
+		expect(imports.find).toHaveBeenCalledTimes(1);
+		expect(imports.grep).toHaveBeenCalledTimes(1);
+		await Promise.resolve();
+		vi.useRealTimers();
+		await expect(executeTool(registered, "find", { query: "package.json", path: "." }, {
+			cwd: process.cwd(),
+			sessionManager: { getSessionId: () => "preload-session" },
+		})).resolves.toMatchObject({ details: { query: "package.json" } });
+		expect(imports.find).toHaveBeenCalledTimes(2);
+
+		if (resolveLs === undefined) throw new Error("missing ls module resolver");
+		resolveLs(await import("../../src/file-tools/tools/ls.js"));
+		await expect(execution).resolves.toMatchObject({ details: { path: "." } });
+		expect(imports.ls).toHaveBeenCalledTimes(1);
+		expect(handlers.get("session_shutdown")?.({}, {})).toBeUndefined();
 	});
 
 	it("ls 失败结果渲染失败路径，而不是 workspace cwd", () => {
