@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
+import { userCachePath } from "../config-loader.js";
 import { fetchProviderModelsFromEndpoint, modelsEndpointUrl, type ResolveAutoModelsOptions } from "./models-endpoint.js";
 import type { ModelConfig, ModelsJsoncConfig, ProviderConfig } from "./schema.js";
 
@@ -35,7 +35,7 @@ export interface RefreshModelsCacheOptions extends ResolveAutoModelsOptions {
 }
 
 export function defaultModelsCachePath(): string {
-	return path.join(getAgentDir(), ".cache", "openai-compatible-models.json");
+	return userCachePath("openai-compatible-provider", "models.json");
 }
 
 /** 读取扩展生成的公开模型元数据缓存；缺失或损坏时按空缓存处理。 */

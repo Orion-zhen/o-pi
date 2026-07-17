@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { Ajv, type ValidateFunction } from "ajv/dist/ajv.js";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 
@@ -106,6 +107,11 @@ export function userAgentConfigPath(fileName: string, envName: string): string {
 
 export function userAgentPath(fileName: string, envName: string): string {
 	return process.env[envName] ?? path.join(os.homedir(), ".pi", "agent", fileName);
+}
+
+/** 用户级可再生成缓存统一放在 Pi 根目录的 cache 子目录。 */
+export function userCachePath(...segments: string[]): string {
+	return path.join(os.homedir(), CONFIG_DIR_NAME, "cache", ...segments);
 }
 
 export function projectAgentConfigPath(cwd: string, fileName: string, configEnvName: string, rootEnvName: string): string | undefined {

@@ -6,7 +6,7 @@
 ~/.pi/agent/models.jsonc
 ```
 
-自动发现结果缓存于 `~/.pi/agent/.cache/openai-compatible-models.json`。缓存只包含公开模型元数据和 endpoint 哈希，不包含 API key、header 或 endpoint URL。
+自动发现结果缓存于 `~/.pi/cache/openai-compatible-provider/models.json`。缓存只包含公开模型元数据和 endpoint 哈希，不包含 API key、header 或 endpoint URL。
 
 文件可能包含 API key，不要提交到 git。建议：
 

@@ -21,9 +21,11 @@ let dir: string;
 const temp = useTempDir("o-pi-models-jsonc-");
 preserveEnv("PI_CODING_AGENT_DIR");
 preserveEnv("PI_OFFLINE");
+preserveEnv("HOME");
 
 beforeEach(() => {
 	dir = temp.path;
+	process.env.HOME = dir;
 });
 
 afterEach(() => {
@@ -32,6 +34,10 @@ afterEach(() => {
 });
 
 describe("openai-compatible-provider config", () => {
+	it("将模型发现缓存放在统一的用户缓存目录", () => {
+		expect(defaultModelsCachePath()).toBe(path.join(dir, ".pi", "cache", "openai-compatible-provider", "models.json"));
+	});
+
 	it("扩展启动只注册手写与缓存模型，手动刷新后更新 registry 和私有缓存", async () => {
 		process.env.PI_CODING_AGENT_DIR = dir;
 		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response('{ "data": [{ "id": "discovered" }] }'));
