@@ -15,6 +15,7 @@ import type {
 	RepoMapLexicalAlias,
 	RepoMapMetadata,
 	RepoMapSymbolNode,
+	RepoMapTestNode,
 } from "./types.js";
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/u;
@@ -23,6 +24,7 @@ export interface RepoMapGeneration {
 	metadata: RepoMapMetadata;
 	files: RepoMapFileRecord[];
 	symbols: RepoMapSymbolNode[];
+	tests: RepoMapTestNode[];
 	aliases: RepoMapLexicalAlias[];
 	edges: RepoMapEdge[];
 	architecture: RepoMapArchitectureNode[];
@@ -48,6 +50,7 @@ export function calculateGeneration(input: {
 	headRevision?: string;
 	files: readonly RepoMapFileRecord[];
 	symbols: readonly RepoMapSymbolNode[];
+	tests: readonly RepoMapTestNode[];
 	aliases: readonly RepoMapLexicalAlias[];
 	edges: readonly RepoMapEdge[];
 	architecture: readonly RepoMapArchitectureNode[];
@@ -71,6 +74,12 @@ export function calculateGeneration(input: {
 				symbol.startLine, symbol.endLine, symbol.startByte, symbol.endByte,
 				[...symbol.definitions], [...symbol.references], [...symbol.calls], [...symbol.imports], symbol.visibility ?? null,
 			]),
+		sortedTests(input.tests).map((node) => [
+			node.id, node.testKind, node.name, node.fileId, node.symbolId ?? null, node.source, node.confidence,
+			node.evidence.map((evidence) => [
+				evidence.path, evidence.startLine, evidence.endLine, evidence.startByte, evidence.endByte, evidence.textHash ?? null,
+			]),
+		]),
 		[...input.architecture].sort(compareArchitecture).map(architectureSnapshot),
 		sortedAliases(input.aliases).map((alias) => [
 			alias.term, alias.canonical, alias.target, alias.source, alias.confidence,
@@ -123,10 +132,11 @@ export async function readGeneration(
 	try {
 		const directoryInfo = await lstat(directory);
 		if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()) return undefined;
-		const [metadataValue, filesValue, symbolsValue, architectureValue, aliasesValue, edgesValue, diagnosticsValue] = await Promise.all([
+		const [metadataValue, filesValue, symbolsValue, testsValue, architectureValue, aliasesValue, edgesValue, diagnosticsValue] = await Promise.all([
 			readJson(path.join(directory, "metadata.json")),
 			readJson(path.join(directory, "files.json")),
 			readJson(path.join(directory, "symbols.json")),
+			readJson(path.join(directory, "tests.json")),
 			readJson(path.join(directory, "architecture.json")),
 			readJson(path.join(directory, "aliases.json")),
 			readJson(path.join(directory, "edges.json")),
@@ -135,14 +145,15 @@ export async function readGeneration(
 		const metadata = validateMetadata(metadataValue, mapId, generation, expectedRoot);
 		const files = validateFiles(filesValue);
 		const symbols = validateSymbols(symbolsValue, files);
+		const tests = validateTests(testsValue, files, symbols);
 		const architecture = validateArchitecture(architectureValue, files);
-		const aliases = validateAliases(aliasesValue, metadata.mapId, files, symbols, architecture);
-		const edges = validateEdges(edgesValue, metadata.mapId, files, symbols, architecture);
+		const aliases = validateAliases(aliasesValue, metadata.mapId, files, symbols, architecture, tests);
+		const edges = validateEdges(edgesValue, metadata.mapId, files, symbols, architecture, tests);
 		const diagnostics = validateDiagnostics(diagnosticsValue);
 		if (metadata.fileCount !== files.length) return undefined;
 		if (metadata.indexedFileCount !== files.filter((file) => file.status === "indexed").length) return undefined;
 		if (metadata.tooLargeFileCount !== files.filter((file) => file.status === "too_large").length) return undefined;
-		if (metadata.symbolCount !== symbols.length || metadata.edgeCount !== edges.length || metadata.aliasCount !== aliases.length) return undefined;
+		if (metadata.symbolCount !== symbols.length || metadata.testNodeCount !== tests.length || metadata.edgeCount !== edges.length || metadata.aliasCount !== aliases.length) return undefined;
 		if (metadata.diagnosticCount !== diagnostics.length) return undefined;
 		if (calculateGeneration({
 			mapId,
@@ -152,12 +163,13 @@ export async function readGeneration(
 			...(metadata.gitRevision !== undefined ? { headRevision: metadata.gitRevision } : {}),
 			files,
 			symbols,
+			tests,
 			architecture,
 			aliases,
 			edges,
 			diagnostics,
 		}) !== generation) return undefined;
-		return { metadata, files, symbols, architecture, aliases, edges, diagnostics };
+		return { metadata, files, symbols, tests, architecture, aliases, edges, diagnostics };
 	} catch {
 		return undefined;
 	}
@@ -181,6 +193,7 @@ export async function commitGeneration(input: CommitGenerationInput): Promise<Co
 			await writeJsonFile(path.join(temporaryDirectory, "metadata.json"), input.metadata);
 			await writeJsonFile(path.join(temporaryDirectory, "files.json"), [...input.files].sort((a, b) => compareStable(a.path, b.path)));
 			await writeJsonFile(path.join(temporaryDirectory, "symbols.json"), [...input.symbols].sort(compareSymbol));
+			await writeJsonFile(path.join(temporaryDirectory, "tests.json"), sortedTests(input.tests));
 			await writeJsonFile(path.join(temporaryDirectory, "architecture.json"), [...input.architecture].sort(compareArchitecture));
 			await writeJsonFile(path.join(temporaryDirectory, "aliases.json"), sortedAliases(input.aliases));
 			await writeJsonFile(path.join(temporaryDirectory, "edges.json"), sortedEdges(input.edges));
@@ -226,13 +239,15 @@ function validateCommitInput(input: CommitGenerationInput): void {
 	const metadata = validateMetadata(input.metadata, input.metadata.mapId, input.metadata.generation, input.metadata.repositoryRoot);
 	const files = validateFiles(input.files);
 	const symbols = validateSymbols(input.symbols, files);
+	const tests = validateTests(input.tests, files, symbols);
 	const architecture = validateArchitecture(input.architecture, files);
-	const aliases = validateAliases(input.aliases, metadata.mapId, files, symbols, architecture);
-	const edges = validateEdges(input.edges, metadata.mapId, files, symbols, architecture);
+	const aliases = validateAliases(input.aliases, metadata.mapId, files, symbols, architecture, tests);
+	const edges = validateEdges(input.edges, metadata.mapId, files, symbols, architecture, tests);
 	const diagnostics = validateDiagnostics(input.diagnostics);
 	if (
 		metadata.fileCount !== files.length
 		|| metadata.symbolCount !== symbols.length
+		|| metadata.testNodeCount !== tests.length
 		|| metadata.edgeCount !== edges.length
 		|| metadata.aliasCount !== aliases.length
 		|| metadata.diagnosticCount !== diagnostics.length
@@ -295,6 +310,7 @@ function validateMetadata(value: unknown, mapId: string, generation: string, exp
 		|| !isCount(value["unsupportedFileCount"])
 		|| !isCount(value["parseErrorFileCount"])
 		|| !isCount(value["symbolCount"])
+		|| !isCount(value["testNodeCount"])
 		|| !isCount(value["edgeCount"])
 		|| !isCount(value["aliasCount"])
 		|| !isCount(value["tooLargeFileCount"])
@@ -323,6 +339,7 @@ function validateMetadata(value: unknown, mapId: string, generation: string, exp
 		unsupportedFileCount: value["unsupportedFileCount"],
 		parseErrorFileCount: value["parseErrorFileCount"],
 		symbolCount: value["symbolCount"],
+		testNodeCount: value["testNodeCount"],
 		edgeCount: value["edgeCount"],
 		aliasCount: value["aliasCount"],
 		tooLargeFileCount: value["tooLargeFileCount"],
@@ -412,6 +429,48 @@ function validateSymbols(value: unknown, files: readonly RepoMapFileRecord[]): R
 	return symbols;
 }
 
+function validateTests(
+	value: unknown,
+	files: readonly RepoMapFileRecord[],
+	symbols: readonly RepoMapSymbolNode[],
+): RepoMapTestNode[] {
+	if (!Array.isArray(value)) throw new Error("invalid tests");
+	const fileIds = new Set(files.map((file) => file.id));
+	const symbolIds = new Set(symbols.map((symbol) => symbol.id));
+	const tests: RepoMapTestNode[] = [];
+	let previous: RepoMapTestNode | undefined;
+	for (const item of value) {
+		if (!isRecord(item)
+			|| item["kind"] !== "test"
+			|| !isNonEmptyString(item["id"])
+			|| (item["testKind"] !== "file" && item["testKind"] !== "symbol")
+			|| !isNonEmptyString(item["name"])
+			|| !isNonEmptyString(item["fileId"])
+			|| !fileIds.has(item["fileId"])
+			|| (item["symbolId"] !== undefined && (!isNonEmptyString(item["symbolId"]) || !symbolIds.has(item["symbolId"])))
+			|| (item["source"] !== "syntax" && item["source"] !== "manifest" && item["source"] !== "convention")
+			|| !isConfidence(item["confidence"])
+			|| !Array.isArray(item["evidence"])
+			|| item["evidence"].length === 0) throw new Error("invalid test node");
+		const node: RepoMapTestNode = {
+			kind: "test",
+			id: item["id"],
+			testKind: item["testKind"],
+			name: item["name"],
+			fileId: item["fileId"],
+			...(typeof item["symbolId"] === "string" ? { symbolId: item["symbolId"] } : {}),
+			source: item["source"],
+			confidence: item["confidence"],
+			evidence: item["evidence"].map(validateEvidence),
+		};
+		if (node.testKind === "file" && node.symbolId !== undefined) throw new Error("invalid test file node");
+		if (previous !== undefined && compareTestNode(previous, node) >= 0) throw new Error("invalid test node order");
+		tests.push(node);
+		previous = node;
+	}
+	return tests;
+}
+
 function validateArchitecture(value: unknown, files: readonly RepoMapFileRecord[]): RepoMapArchitectureNode[] {
 	if (!Array.isArray(value)) throw new Error("invalid architecture");
 	const fileIds = new Set(files.map((file) => file.id));
@@ -450,9 +509,10 @@ function validateAliases(
 	files: readonly RepoMapFileRecord[],
 	symbols: readonly RepoMapSymbolNode[],
 	architecture: readonly RepoMapArchitectureNode[],
+	tests: readonly RepoMapTestNode[],
 ): RepoMapLexicalAlias[] {
 	if (!Array.isArray(value)) throw new Error("invalid aliases");
-	const targets = new Set([`repository:${mapId}`, ...files.map((file) => file.id), ...symbols.map((symbol) => symbol.id), ...architecture.map((node) => node.id)]);
+	const targets = new Set([`repository:${mapId}`, ...files.map((file) => file.id), ...symbols.map((symbol) => symbol.id), ...architecture.map((node) => node.id), ...tests.map((node) => node.id)]);
 	const aliases: RepoMapLexicalAlias[] = [];
 	let previous: RepoMapLexicalAlias | undefined;
 	for (const item of value) {
@@ -500,9 +560,10 @@ function validateEdges(
 	files: readonly RepoMapFileRecord[],
 	symbols: readonly RepoMapSymbolNode[],
 	architecture: readonly RepoMapArchitectureNode[],
+	tests: readonly RepoMapTestNode[],
 ): RepoMapEdge[] {
 	if (!Array.isArray(value)) throw new Error("invalid edges");
-	const nodes = new Set([`repository:${mapId}`, ...files.map((file) => file.id), ...symbols.map((symbol) => symbol.id), ...architecture.map((node) => node.id)]);
+	const nodes = new Set([`repository:${mapId}`, ...files.map((file) => file.id), ...symbols.map((symbol) => symbol.id), ...architecture.map((node) => node.id), ...tests.map((node) => node.id)]);
 	const edges: RepoMapEdge[] = [];
 	let previous: RepoMapEdge | undefined;
 	for (const item of value) {
@@ -769,7 +830,8 @@ function isStringArray(value: unknown): value is string[] {
 function isEdgeKind(value: unknown): value is RepoMapEdge["kind"] {
 	return value === "contains" || value === "belongs-to" || value === "imports" || value === "exports" || value === "references" || value === "calls"
 		|| value === "declares-entrypoint" || value === "declares-script" || value === "registers-command" || value === "registers-tool"
-		|| value === "registers-plugin" || value === "exports-publicly" || value === "re-exports";
+		|| value === "registers-plugin" || value === "exports-publicly" || value === "re-exports" || value === "tests"
+		|| value === "mocks" || value === "uses-fixture" || value === "uses-snapshot" || value === "configured-by";
 }
 
 function isEdgeResolution(value: unknown): value is RepoMapEdge["resolution"] {
@@ -797,6 +859,12 @@ function compareArchitecture(left: RepoMapArchitectureNode, right: RepoMapArchit
 	return compareStable(left.kind, right.kind) || compareStable(left.id, right.id);
 }
 
+function compareTestNode(left: RepoMapTestNode, right: RepoMapTestNode): number {
+	return compareStable(left.fileId, right.fileId)
+		|| compareStable(left.testKind, right.testKind)
+		|| compareStable(left.id, right.id);
+}
+
 function architectureSnapshot(node: RepoMapArchitectureNode): unknown[] {
 	if (node.kind === "package") return [node.kind, node.id, node.name, node.rootPath, node.ecosystem, node.manifestPath ?? null, node.source, node.confidence];
 	if (node.kind === "component") return [node.kind, node.id, node.name, node.rootPath, node.packageId, node.source, node.confidence];
@@ -817,6 +885,12 @@ function sortedAliases(aliases: readonly RepoMapLexicalAlias[]): RepoMapLexicalA
 	return [...aliases]
 		.sort(compareAlias)
 		.map((alias) => ({ ...alias, evidence: [...alias.evidence].sort(compareEvidence) }));
+}
+
+function sortedTests(tests: readonly RepoMapTestNode[]): RepoMapTestNode[] {
+	return [...tests]
+		.sort(compareTestNode)
+		.map((node) => ({ ...node, evidence: [...node.evidence].sort(compareEvidence) }));
 }
 
 function compareAlias(left: RepoMapLexicalAlias, right: RepoMapLexicalAlias): number {

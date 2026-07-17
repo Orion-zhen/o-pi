@@ -318,13 +318,14 @@ function repoMapQueryFor(ctx: ExtensionContext, pi: Pick<ExtensionAPI, "appendEn
 
 async function syncRepoMapMutation(
 	query: ReturnType<typeof repoMapQueryFor>,
-	result: { path: string; repo_map?: RepoMapMutationResult },
+	result: { path: string; firstChangedLine?: number; repo_map?: RepoMapMutationResult },
 	cwd: string,
 	signal: AbortSignal | undefined,
 ): Promise<void> {
 	try {
 		const update = await query.syncMutation({
 			requestedPath: path.resolve(cwd, result.path),
+			...(result.firstChangedLine !== undefined ? { changedLine: result.firstChangedLine } : {}),
 			...(signal !== undefined ? { signal } : {}),
 		});
 		if (update !== undefined) result.repo_map = update;

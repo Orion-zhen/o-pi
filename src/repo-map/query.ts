@@ -10,6 +10,7 @@ import type {
 	RepoMapFileRecord,
 	RepoMapLexicalAlias,
 	RepoMapSymbolNode,
+	RepoMapTestNode,
 } from "./types.js";
 
 export type RepoMapMatchReason =
@@ -31,7 +32,12 @@ export type RepoMapMatchReason =
 	| "component"
 	| "entrypoint"
 	| "registration"
-	| "public api";
+	| "public api"
+	| "test"
+	| "mock"
+	| "fixture"
+	| "snapshot"
+	| "test config";
 
 export interface RepoMapRelatedEdge {
 	kind: RepoMapEdge["kind"];
@@ -121,6 +127,11 @@ const EDGE_WEIGHT: Record<RepoMapEdge["kind"], number> = {
 	"registers-plugin": 0.97,
 	"exports-publicly": 0.98,
 	"re-exports": 0.95,
+	tests: 0.96,
+	mocks: 0.82,
+	"uses-fixture": 0.78,
+	"uses-snapshot": 0.74,
+	"configured-by": 0.62,
 };
 const RESOLUTION_WEIGHT: Record<RepoMapEdge["resolution"], number> = { semantic: 1, syntactic: 0.96, lexical: 0.72 };
 const MAX_NEIGHBORS = 12;
@@ -132,6 +143,7 @@ export class RepoMapQueryIndex {
 	readonly #filesById: ReadonlyMap<string, RepoMapFileRecord>;
 	readonly #symbolsById: ReadonlyMap<string, RepoMapSymbolNode>;
 	readonly #architectureById: ReadonlyMap<string, RepoMapArchitectureNode>;
+	readonly #testsById: ReadonlyMap<string, RepoMapTestNode>;
 	readonly #outgoing: ReadonlyMap<string, RepoMapEdge[]>;
 	readonly #incoming: ReadonlyMap<string, RepoMapEdge[]>;
 	readonly #aliasesByTerm: ReadonlyMap<string, RepoMapLexicalAlias[]>;
@@ -142,6 +154,7 @@ export class RepoMapQueryIndex {
 		this.#filesById = new Map(generation.files.map((file) => [file.id, file]));
 		this.#symbolsById = new Map(generation.symbols.map((symbol) => [symbol.id, symbol]));
 		this.#architectureById = new Map(generation.architecture.map((node) => [node.id, node]));
+		this.#testsById = new Map(generation.tests.map((node) => [node.id, node]));
 		this.#outgoing = groupEdges(generation.edges, (edge) => edge.from);
 		this.#incoming = groupEdges(generation.edges, (edge) => edge.to);
 		this.#aliasesByTerm = groupAliases(generation.aliases, (alias) => alias.term);
@@ -215,6 +228,19 @@ export class RepoMapQueryIndex {
 		return coalesceCandidates(result);
 	}
 
+	/** Direct test candidates for changed or inspected file/symbol nodes. */
+	relatedTests(nodeIds: readonly string[], limit = 8): RepoMapQueryCandidate[] {
+		const targets = new Set(nodeIds);
+		const result: RepoMapQueryCandidate[] = [];
+		for (const edge of this.#generation.edges) {
+			if (edge.kind !== "tests" || !targets.has(edge.to)) continue;
+			const test = this.#testsById.get(edge.from);
+			const file = test === undefined ? undefined : this.#filesById.get(test.fileId);
+			if (test !== undefined && file !== undefined) result.push(fileCandidate(file, 760, edge.confidence, ["test"], [this.#edgeDetails(edge, 1)], [], 1));
+		}
+		return coalesceCandidates(result).slice(0, Math.max(0, limit));
+	}
+
 	/** exact/alias seeds -> at most two graph hops -> diversity-aware budget packing. */
 	candidates(query: string, limit = 100): RepoMapQueryResult {
 		const terms = lexicalTerms(query);
@@ -225,6 +251,7 @@ export class RepoMapQueryIndex {
 			...this.findSymbols(query),
 			...this.definitions(query),
 			...this.architecture(query),
+			...this.#testSeeds(query).flatMap((seed) => this.#candidatesForNode(seed.nodeId, { ...seed, hop: 0, edges: [], canPropagate: true })),
 			...this.#aliasCandidates(query),
 		]);
 		const traversed = this.#traverse(seeds);
@@ -245,7 +272,7 @@ export class RepoMapQueryIndex {
 			result.push({ nodeId: seed.symbol.id, score: seed.score, confidence: seed.confidence, reasons: seed.reasons, aliases: seed.aliases });
 			result.push({ nodeId: seed.symbol.fileId, score: seed.score - 60, confidence: seed.confidence, reasons: seed.reasons, aliases: seed.aliases });
 		}
-		result.push(...this.#architectureSeeds(query), ...this.#aliasSeeds(query));
+		result.push(...this.#architectureSeeds(query), ...this.#testSeeds(query), ...this.#aliasSeeds(query));
 		return coalesceSeeds(result).slice(0, 64);
 	}
 
@@ -287,6 +314,24 @@ export class RepoMapQueryIndex {
 			result.push({ nodeId: node.id, score: (exact ? 820 : 560) + (node.kind === "entrypoint" ? 80 : 0), confidence: node.confidence, reasons: [reason], aliases: [] });
 		}
 		return result;
+	}
+
+	#testSeeds(query: string): QuerySeed[] {
+		const normalized = normalize(query);
+		if (normalized.length < 3) return [];
+		const result: QuerySeed[] = [];
+		for (const node of this.#testsById.values()) {
+			const name = normalize(node.name);
+			if (name !== normalized && !name.includes(normalized)) continue;
+			result.push({
+				nodeId: node.id,
+				score: name === normalized ? 900 : 610,
+				confidence: node.confidence,
+				reasons: ["test"],
+				aliases: [],
+			});
+		}
+		return result.slice(0, 32);
 	}
 
 	#aliasSeeds(query: string): QuerySeed[] {
@@ -374,7 +419,13 @@ export class RepoMapQueryIndex {
 			return symbolFile === undefined ? [] : [symbolCandidate(symbolFile, symbol, state.score, state.confidence, state.reasons, state.edges, state.aliases, state.hop)];
 		}
 		const architecture = this.#architectureById.get(nodeId);
-		if (architecture === undefined) return [];
+		if (architecture === undefined) {
+			const test = this.#testsById.get(nodeId);
+			const testFile = test === undefined ? undefined : this.#filesById.get(test.fileId);
+			return test === undefined || testFile === undefined
+				? []
+				: [fileCandidate(testFile, state.score, state.confidence, unique([...state.reasons, "test"]), state.edges, state.aliases, state.hop)];
+		}
 		if (state.hop > 0 && architecture.kind !== "entrypoint") return [];
 		const fileIds = new Set<string>();
 		if (architecture.kind === "entrypoint" && architecture.fileId !== undefined) fileIds.add(architecture.fileId);
@@ -440,12 +491,15 @@ export class RepoMapQueryIndex {
 	}
 
 	#isKnownNode(nodeId: string): boolean {
-		return this.#filesById.has(nodeId) || this.#symbolsById.has(nodeId) || this.#architectureById.has(nodeId);
+		return this.#filesById.has(nodeId) || this.#symbolsById.has(nodeId) || this.#architectureById.has(nodeId) || this.#testsById.has(nodeId);
 	}
 
 	#edgeDetails(edge: RepoMapEdge, hop: 1 | 2): RepoMapRelatedEdge {
 		const relatedFiles = [edge.from, edge.to]
-			.map((id) => this.#filesById.get(id) ?? this.#filesById.get(this.#symbolsById.get(id)?.fileId ?? "") ?? fileForArchitecture(id, this.#architectureById, this.#filesById))
+			.map((id) => this.#filesById.get(id)
+				?? this.#filesById.get(this.#symbolsById.get(id)?.fileId ?? "")
+				?? this.#filesById.get(this.#testsById.get(id)?.fileId ?? "")
+				?? fileForArchitecture(id, this.#architectureById, this.#filesById))
 			.concat(edge.evidence.flatMap((evidence) => [...this.#filesById.values()].find((file) => file.path === evidence.path) ?? []))
 			.filter((file): file is RepoMapFileRecord => file !== undefined)
 			.filter((file, index, files) => files.findIndex((item) => item.id === file.id) === index)
@@ -553,6 +607,11 @@ function relationReason(edge: RepoMapEdge, current: string): RepoMapMatchReason 
 	if (edge.kind === "exports-publicly") return "public api";
 	if (edge.kind.startsWith("registers-")) return "registration";
 	if (edge.kind.startsWith("declares-")) return "entrypoint";
+	if (edge.kind === "tests") return "test";
+	if (edge.kind === "mocks") return "mock";
+	if (edge.kind === "uses-fixture") return "fixture";
+	if (edge.kind === "uses-snapshot") return "snapshot";
+	if (edge.kind === "configured-by") return "test config";
 	return "component";
 }
 
@@ -562,7 +621,7 @@ function architectureReason(node: RepoMapArchitectureNode): RepoMapMatchReason {
 }
 
 function candidateRole(candidate: RepoMapQueryCandidate): string {
-	for (const role of ["exact path", "exact symbol", "definition", "public api", "registration", "caller", "reference", "callee", "import", "component", "alias"] as const) {
+	for (const role of ["exact path", "exact symbol", "definition", "public api", "caller", "reference", "import", "test", "registration", "callee", "mock", "fixture", "snapshot", "component", "alias"] as const) {
 		if (candidate.reasons.includes(role)) return role;
 	}
 	return candidate.reasons[0] ?? "related";

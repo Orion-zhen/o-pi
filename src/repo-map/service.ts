@@ -13,6 +13,7 @@ import type { BuildRepoMapLexicalAliasesInput } from "./lexical-indexer.js";
 import { detectRepository, readHeadRevision, type RepositoryIdentity } from "./repository.js";
 import { scanRepoMap, type RepoMapProgress, type RepoMapScanInput, type RepoMapScanResult } from "./scanner.js";
 import type { IndexRepoMapSymbolsInput } from "./symbol-indexer.js";
+import type { BuildRepoMapTestGraphInput, RepoMapTestGraph } from "./test-indexer.js";
 import {
 	calculateGeneration,
 	commitGeneration,
@@ -49,6 +50,7 @@ export interface RepoMapServiceDependencies {
 	scan(input: RepoMapScanInput): Promise<RepoMapScanResult>;
 	indexSymbols(input: IndexRepoMapSymbolsInput): Promise<RepoMapSymbolIndex>;
 	buildArchitecture(input: BuildRepoMapArchitectureInput): Promise<RepoMapArchitectureIndex>;
+	buildTestGraph(input: BuildRepoMapTestGraphInput): Promise<RepoMapTestGraph>;
 	buildRelationships(input: BuildRepoMapRelationshipsInput): Promise<RepoMapEdge[]>;
 	buildLexicalAliases(input: BuildRepoMapLexicalAliasesInput): Promise<RepoMapGeneration["aliases"]>;
 	readCurrent(cacheRoot: string, mapId: string, expectedRoot: string): Promise<RepoMapGeneration | undefined>;
@@ -76,6 +78,9 @@ const defaultDependencies: RepoMapServiceDependencies = {
 	},
 	async buildArchitecture(input) {
 		return await (await import("./architecture-indexer.js")).buildRepoMapArchitecture(input);
+	},
+	async buildTestGraph(input) {
+		return await (await import("./test-indexer.js")).buildRepoMapTestGraph(input);
 	},
 	async buildLexicalAliases(input) {
 		return await (await import("./lexical-indexer.js")).buildRepoMapLexicalAliases(input);
@@ -143,7 +148,15 @@ export async function initializeRepoMap(
 	});
 	throwIfAborted(input.signal);
 	const relationshipEdges = await deps.buildRelationships({ mapId, files: scan.files, symbols: architecture.symbols, imports: symbolIndex.imports });
-	const edges = [...relationshipEdges, ...architecture.edges].sort(compareRepoMapEdge);
+	const baseEdges = [...relationshipEdges, ...architecture.edges].sort(compareRepoMapEdge);
+	const testGraph = await deps.buildTestGraph({
+		root: identity.repositoryRoot,
+		files: scan.files,
+		symbols: architecture.symbols,
+		edges: baseEdges,
+		...(input.signal !== undefined ? { signal: input.signal } : {}),
+	});
+	const edges = [...baseEdges, ...testGraph.edges].sort(compareRepoMapEdge);
 	const aliases = await deps.buildLexicalAliases({
 		root: identity.repositoryRoot,
 		files: scan.files,
@@ -154,7 +167,7 @@ export async function initializeRepoMap(
 		...(input.signal !== undefined ? { signal: input.signal } : {}),
 	});
 	throwIfAborted(input.signal);
-	const diagnostics = [...scan.diagnostics, ...symbolIndex.diagnostics, ...architecture.diagnostics];
+	const diagnostics = [...scan.diagnostics, ...symbolIndex.diagnostics, ...architecture.diagnostics, ...testGraph.diagnostics];
 	const summary: RepoMapScanSummary = {
 		...scan.summary,
 		parsed: symbolIndex.parsedFileCount,
@@ -162,6 +175,7 @@ export async function initializeRepoMap(
 		parseErrors: symbolIndex.parseErrorFileCount,
 		reusedParsed: symbolIndex.reusedParsedFileCount,
 		symbols: architecture.symbols.length,
+		testNodes: testGraph.nodes.length,
 		edges: edges.length,
 		diagnostics: diagnostics.length,
 	};
@@ -178,6 +192,7 @@ export async function initializeRepoMap(
 		...(identity.headRevision !== undefined ? { headRevision: identity.headRevision } : {}),
 		files: scan.files,
 		symbols: architecture.symbols,
+		tests: testGraph.nodes,
 		architecture: architecture.nodes,
 		aliases,
 		edges,
@@ -187,7 +202,7 @@ export async function initializeRepoMap(
 	const partial = summary.unreadable > 0
 		|| summary.unstable > 0
 		|| summary.parseErrors > 0
-		|| diagnostics.some((diagnostic) => diagnostic.code === "DIRECTORY_UNREADABLE" || diagnostic.code.startsWith("ARCHITECTURE_"));
+		|| diagnostics.some((diagnostic) => diagnostic.code === "DIRECTORY_UNREADABLE" || diagnostic.code.startsWith("ARCHITECTURE_") || diagnostic.code.startsWith("TEST_GRAPH_"));
 	const metadata: RepoMapMetadata = {
 		schemaVersion: REPO_MAP_SCHEMA_VERSION,
 		mapId,
@@ -204,6 +219,7 @@ export async function initializeRepoMap(
 		unsupportedFileCount: summary.unsupported,
 		parseErrorFileCount: summary.parseErrors,
 		symbolCount: architecture.symbols.length,
+		testNodeCount: testGraph.nodes.length,
 		edgeCount: edges.length,
 		aliasCount: aliases.length,
 		tooLargeFileCount: summary.tooLarge,
@@ -220,6 +236,7 @@ export async function initializeRepoMap(
 		metadata,
 		files: scan.files,
 		symbols: architecture.symbols,
+		tests: testGraph.nodes,
 		architecture: architecture.nodes,
 		aliases,
 		edges,

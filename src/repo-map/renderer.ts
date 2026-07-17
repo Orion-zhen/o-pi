@@ -9,7 +9,7 @@ export function renderInitialization(result: InitializeRepoMapResult): string {
 		`generation: ${shortHash(result.metadata.generation)}${result.reusedGeneration ? " (reused)" : ""}`,
 		`files: ${summary.indexed} indexed, ${summary.tooLarge} too large`,
 		`code: ${summary.parsed} parsed, ${summary.unsupported} unsupported, ${summary.parseErrors} errors`,
-		`graph: ${summary.symbols} symbols, ${summary.edges} edges`,
+		`graph: ${summary.symbols} symbols, ${summary.testNodes} tests, ${summary.edges} edges`,
 		`changes: ${summary.added} added, ${summary.changed} changed, ${summary.removed} removed, ${summary.reused} reused`,
 		`freshness: ${result.metadata.freshness}`,
 	].join("\n");
@@ -29,6 +29,7 @@ export function renderStatus(metadata: RepoMapMetadata): string {
 		`unsupported files: ${metadata.unsupportedFileCount}`,
 		`parse errors: ${metadata.parseErrorFileCount}`,
 		`symbols: ${metadata.symbolCount}`,
+		`test nodes: ${metadata.testNodeCount}`,
 		`edges: ${metadata.edgeCount}`,
 		`aliases: ${metadata.aliasCount}`,
 		`too-large files: ${metadata.tooLargeFileCount}`,

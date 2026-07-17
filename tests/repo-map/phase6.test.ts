@@ -154,13 +154,13 @@ async function generationFromSources(root: string, sources: ReadonlyMap<string, 
 	const edges = [...buildRepoMapRelationships({ mapId, files, symbols: architecture.symbols, imports: indexed.imports }), ...architecture.edges];
 	const aliases = await buildRepoMapLexicalAliases({ root, files, symbols: architecture.symbols, architecture: architecture.nodes, edges, concurrency: 2, readText });
 	const metadata: RepoMapMetadata = {
-		schemaVersion: 4, mapId, repositoryRoot: root, worktreeRoot: root, gitCommonDir: path.join(root, ".git"), generation: "b".repeat(64),
+		schemaVersion: 5, mapId, repositoryRoot: root, worktreeRoot: root, gitCommonDir: path.join(root, ".git"), generation: "b".repeat(64),
 		createdAt: "2026-07-18T00:00:00.000Z", updatedAt: "2026-07-18T00:00:00.000Z", freshness: "fresh",
 		fileCount: files.length, indexedFileCount: files.length, parsedFileCount: indexed.parsedFileCount, unsupportedFileCount: indexed.unsupportedFileCount,
-		parseErrorFileCount: indexed.parseErrorFileCount, symbolCount: architecture.symbols.length, edgeCount: edges.length, aliasCount: aliases.length,
+		parseErrorFileCount: indexed.parseErrorFileCount, symbolCount: architecture.symbols.length, testNodeCount: 0, edgeCount: edges.length, aliasCount: aliases.length,
 		tooLargeFileCount: 0, diagnosticCount: architecture.diagnostics.length, configFingerprint: "config", ignoreFingerprint: "ignore", parserFingerprint: "parser",
 	};
-	return { metadata, files, symbols: architecture.symbols, architecture: architecture.nodes, aliases, edges, diagnostics: architecture.diagnostics };
+	return { metadata, files, symbols: architecture.symbols, tests: [], architecture: architecture.nodes, aliases, edges, diagnostics: architecture.diagnostics };
 }
 
 function graphGeneration(): RepoMapGeneration {
@@ -192,13 +192,13 @@ function graphGeneration(): RepoMapGeneration {
 	];
 	for (const file of files) edges.push(edge(file.id, file.path.startsWith("component-b/") ? "component:b" : "component:a", "belongs-to", 0.9, "syntactic", file.path));
 	const metadata: RepoMapMetadata = {
-		schemaVersion: 4, mapId: "a".repeat(64), repositoryRoot: temp.path, worktreeRoot: temp.path, gitCommonDir: path.join(temp.path, ".git"), generation: "b".repeat(64),
+		schemaVersion: 5, mapId: "a".repeat(64), repositoryRoot: temp.path, worktreeRoot: temp.path, gitCommonDir: path.join(temp.path, ".git"), generation: "b".repeat(64),
 		createdAt: "2026-07-18T00:00:00.000Z", updatedAt: "2026-07-18T00:00:00.000Z", freshness: "fresh",
 		fileCount: files.length, indexedFileCount: files.length, parsedFileCount: files.length, unsupportedFileCount: 0, parseErrorFileCount: 0,
-		symbolCount: symbols.length, edgeCount: edges.length, aliasCount: 0, tooLargeFileCount: 0, diagnosticCount: 0,
+		symbolCount: symbols.length, testNodeCount: 0, edgeCount: edges.length, aliasCount: 0, tooLargeFileCount: 0, diagnosticCount: 0,
 		configFingerprint: "config", ignoreFingerprint: "ignore", parserFingerprint: "parser",
 	};
-	return { metadata, files, symbols, architecture, aliases: [], edges, diagnostics: [] };
+	return { metadata, files, symbols, tests: [], architecture, aliases: [], edges, diagnostics: [] };
 }
 
 function edge(from: string, to: string, kind: RepoMapEdge["kind"], confidence: number, resolution: RepoMapEdge["resolution"], evidencePath: string): RepoMapEdge {

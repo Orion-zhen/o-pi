@@ -67,7 +67,23 @@ export interface RepoMapEntrypointNode {
 }
 
 export type RepoMapArchitectureNode = RepoMapPackageNode | RepoMapComponentNode | RepoMapEntrypointNode;
-export type RepoMapNode = RepoMapRepositoryNode | RepoMapFileNode | RepoMapSymbolNode | RepoMapArchitectureNode;
+
+export type RepoMapTestSource = "syntax" | "manifest" | "convention";
+
+/** A test file or named test case. It annotates an existing file/symbol without replacing it. */
+export interface RepoMapTestNode {
+	kind: "test";
+	id: string;
+	testKind: "file" | "symbol";
+	name: string;
+	fileId: string;
+	symbolId?: string;
+	source: RepoMapTestSource;
+	confidence: number;
+	evidence: RepoMapEvidence[];
+}
+
+export type RepoMapNode = RepoMapRepositoryNode | RepoMapFileNode | RepoMapSymbolNode | RepoMapArchitectureNode | RepoMapTestNode;
 
 export type RepoMapEdgeKind =
 	| "contains"
@@ -82,7 +98,12 @@ export type RepoMapEdgeKind =
 	| "registers-tool"
 	| "registers-plugin"
 	| "exports-publicly"
-	| "re-exports";
+	| "re-exports"
+	| "tests"
+	| "mocks"
+	| "uses-fixture"
+	| "uses-snapshot"
+	| "configured-by";
 export type RepoMapEdgeResolution = "lexical" | "syntactic" | "semantic";
 export type RepoMapEdgeSource = "tree-sitter" | "syntax" | "manifest" | "lsp" | "convention";
 
@@ -140,6 +161,7 @@ export interface RepoMapMetadata {
 	unsupportedFileCount: number;
 	parseErrorFileCount: number;
 	symbolCount: number;
+	testNodeCount: number;
 	edgeCount: number;
 	aliasCount: number;
 	tooLargeFileCount: number;
@@ -181,6 +203,7 @@ export interface RepoMapScanSummary {
 	parseErrors: number;
 	reusedParsed: number;
 	symbols: number;
+	testNodes: number;
 	edges: number;
 	skippedDirectories: number;
 	diagnostics: number;

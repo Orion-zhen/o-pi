@@ -223,6 +223,7 @@ export async function scanRepoMap(input: RepoMapScanInput): Promise<RepoMapScanR
 		parseErrors: 0,
 		reusedParsed: 0,
 		symbols: 0,
+		testNodes: 0,
 		edges: 0,
 		skippedDirectories,
 		diagnostics: diagnostics.length,

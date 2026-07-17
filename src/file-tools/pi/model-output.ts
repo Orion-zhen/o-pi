@@ -55,7 +55,10 @@ export function formatEditModelResult(result: EditSuccess): string {
 	];
 	if (result.firstChangedLine !== undefined) attrs.push(`first_changed_line="${result.firstChangedLine}"`);
 	if (result.repo_map?.status === "partially_stale") attrs.push('repo_map="partially_stale"');
-	return `<edit ${attrs.join(" ")}/>`;
+	const impact = formatRepoImpact(result.repo_map?.impact);
+	return impact === undefined ? `<edit ${attrs.join(" ")}/>` : `<edit ${attrs.join(" ")}>
+${impact}
+</edit>`;
 }
 
 export function formatWriteModelResult(result: WriteSuccess): string {
@@ -66,15 +69,49 @@ export function formatWriteModelResult(result: WriteSuccess): string {
 		`lsp="${escapeXmlAttribute(status)}"`,
 	];
 	if (result.repo_map?.status === "partially_stale") attrs.push('repo_map="partially_stale"');
-	if (diagnostics === undefined || isCleanDiagnostics(diagnostics)) return `<write ${attrs.join(" ")}/>`;
+	const impact = formatRepoImpact(result.repo_map?.impact);
+	if (diagnostics === undefined || isCleanDiagnostics(diagnostics)) {
+		return impact === undefined ? `<write ${attrs.join(" ")}/>` : `<write ${attrs.join(" ")}>
+${impact}
+</write>`;
+	}
 
 	const lines = [
 		`<write ${attrs.join(" ")}>`,
 		`errors=${diagnostics.file_errors} warnings=${diagnostics.file_warnings} new_errors=${diagnostics.new_errors} new_warnings=${diagnostics.new_warnings}`,
 		...formatDiagnosticItems(diagnostics.items, 5),
+		...(impact === undefined ? [] : [impact]),
 		"</write>",
 	];
 	return lines.join("\n");
+}
+
+function formatRepoImpact(impact: NonNullable<WriteSuccess["repo_map"]>["impact"]): string | undefined {
+	if (impact === undefined) return undefined;
+	const attrs = ['candidate="true"', `changed="${escapeXmlAttribute(compact(impact.changedPath, 100))}"`];
+	if (impact.changedSymbols.length > 0) attrs.push(`symbols="${escapeXmlAttribute(impact.changedSymbols.slice(0, 3).map((value) => compact(value, 64)).join(", "))}"`);
+	if (impact.publicApiChanges.length > 0) attrs.push(`public-api="${escapeXmlAttribute(impact.publicApiChanges.slice(0, 2).map((value) => compact(value, 64)).join(", "))}"`);
+	const affected = uniquePaths(impact.candidates.filter((candidate) => candidate.role !== "changed" && candidate.role !== "test"), 4);
+	const tests = uniquePaths(impact.candidates.filter((candidate) => candidate.role === "test"), 3);
+	if (affected.length > 0) attrs.push(`affected="${escapeXmlAttribute(affected.map((candidate) => `${compact(candidate.path, 72)}:${candidate.role}`).join(", "))}"`);
+	if (tests.length > 0) attrs.push(`tests="${escapeXmlAttribute(tests.map((candidate) => compact(candidate.path, 80)).join(", "))}"`);
+	return `<repo-impact ${attrs.join(" ")}/>`;
+}
+
+function uniquePaths<T extends { path: string }>(values: readonly T[], limit: number): T[] {
+	const paths = new Set<string>();
+	const result: T[] = [];
+	for (const value of values) {
+		if (paths.has(value.path)) continue;
+		paths.add(value.path);
+		result.push(value);
+		if (result.length === limit) break;
+	}
+	return result;
+}
+
+function compact(value: string, limit: number): string {
+	return value.length <= limit ? value : `${value.slice(0, Math.max(0, limit - 3))}...`;
 }
 
 export function scrubVersions(value: unknown): unknown {
@@ -131,6 +168,7 @@ function formatReadRepoMap(repoMap: ReadSuccess["repo_map"]): string | undefined
 	if (repoMap.component !== undefined) attrs.push(`component="${escapeXmlAttribute(repoMap.component)}"`);
 	if (repoMap.entrypoints !== undefined && repoMap.entrypoints.length > 0) attrs.push(`entrypoints="${escapeXmlAttribute(repoMap.entrypoints.join(", "))}"`);
 	if (repoMap.publicApi) attrs.push('public-api="true"');
+	if (repoMap.relatedTests !== undefined && repoMap.relatedTests.length > 0) attrs.push(`tests="${escapeXmlAttribute(repoMap.relatedTests.join(", "))}"`);
 	for (const [name, values] of [
 		["callers", repoMap.callers],
 		["callees", repoMap.callees],

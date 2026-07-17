@@ -67,7 +67,7 @@ describe("/init command", () => {
 		const active = commandHarness();
 		await active.handler("", active.ctx);
 		await active.handler("status", active.ctx);
-		expect(active.notifications.at(-1)?.[0]).toContain("cache schema: 4");
+		expect(active.notifications.at(-1)?.[0]).toContain("cache schema: 5");
 		const missing = commandHarness({ readActivated: vi.fn(async () => undefined) });
 		await missing.handler("", missing.ctx);
 		await missing.handler("status", missing.ctx);
@@ -107,7 +107,7 @@ function commandHarness(overrides: Partial<RepoMapCommandDependencies> = {}) {
 	const initialize = "initialize" in overrides && overrides.initialize !== undefined ? vi.fn(overrides.initialize) : vi.fn(async () => result);
 	const readActivated = "readActivated" in overrides && overrides.readActivated !== undefined
 		? vi.fn(overrides.readActivated)
-		: vi.fn(async (): Promise<RepoMapGeneration> => ({ metadata: result.metadata, files: [], symbols: [], architecture: [], aliases: [], edges: [], diagnostics: [] }));
+		: vi.fn(async (): Promise<RepoMapGeneration> => ({ metadata: result.metadata, files: [], symbols: [], tests: [], architecture: [], aliases: [], edges: [], diagnostics: [] }));
 	const api: Pick<ExtensionAPI, "registerCommand" | "appendEntry"> = {
 		registerCommand(name, options) { registered.push([name, options]); },
 		appendEntry(customType, data) {
@@ -132,7 +132,7 @@ function commandHarness(overrides: Partial<RepoMapCommandDependencies> = {}) {
 
 function initializeResult(root = "/repo", mapCharacter = "a"): InitializeRepoMapResult {
 	const metadata = {
-		schemaVersion: 4,
+		schemaVersion: 5,
 		mapId: mapCharacter.repeat(64),
 		repositoryRoot: root,
 		worktreeRoot: root,
@@ -147,6 +147,7 @@ function initializeResult(root = "/repo", mapCharacter = "a"): InitializeRepoMap
 		unsupportedFileCount: 0,
 		parseErrorFileCount: 0,
 		symbolCount: 0,
+		testNodeCount: 0,
 		edgeCount: 0,
 		aliasCount: 0,
 		tooLargeFileCount: 0,
@@ -161,7 +162,7 @@ function initializeResult(root = "/repo", mapCharacter = "a"): InitializeRepoMap
 		metadata,
 		summary: {
 			discovered: 0, indexed: 0, reused: 0, hashed: 0, added: 0, changed: 0, removed: 0, tooLarge: 0,
-			unreadable: 0, unstable: 0, parsed: 0, unsupported: 0, parseErrors: 0, reusedParsed: 0, symbols: 0,
+			unreadable: 0, unstable: 0, parsed: 0, unsupported: 0, parseErrors: 0, reusedParsed: 0, symbols: 0, testNodes: 0,
 			edges: 0, skippedDirectories: 0, diagnostics: 0,
 		},
 		reusedGeneration: false,

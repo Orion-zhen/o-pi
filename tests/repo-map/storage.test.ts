@@ -17,11 +17,11 @@ describe("Repo Map generation storage", () => {
 	it("writes a complete generation, switches CURRENT, and reuses immutable content", async () => {
 		const files = [indexed("z.ts", "b"), indexed("a.ts", "a")].sort((a, b) => a.path.localeCompare(b.path));
 		const metadata = makeMetadata(files);
-		const first = await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], architecture: [], aliases: [], edges: [], diagnostics: [] });
+		const first = await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], tests: [], architecture: [], aliases: [], edges: [], diagnostics: [] });
 		expect(first.reused).toBe(false);
 		expect((await readFile(path.join(temp.path, mapId, "CURRENT"), "utf8")).trim()).toBe(metadata.generation);
 		expect(await readCurrentGeneration(temp.path, mapId, root)).toEqual(first.generation);
-		const second = await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata: { ...metadata, updatedAt: "2030-01-01T00:00:00.000Z" }, files, symbols: [], architecture: [], aliases: [], edges: [], diagnostics: [] });
+		const second = await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata: { ...metadata, updatedAt: "2030-01-01T00:00:00.000Z" }, files, symbols: [], tests: [], architecture: [], aliases: [], edges: [], diagnostics: [] });
 		expect(second.reused).toBe(true);
 		expect(second.generation.metadata.updatedAt).toBe(metadata.updatedAt);
 		const persisted = JSON.parse(await readFile(path.join(temp.path, mapId, "generations", metadata.generation, "files.json"), "utf8")) as Array<{ path: string }>;
@@ -40,7 +40,7 @@ describe("Repo Map generation storage", () => {
 		const symbol = makeSymbol(file);
 		const edge = makeContainsEdge(file, symbol);
 		const metadata = makeMetadata(files, "2026-01-01T00:00:00.000Z", [symbol], [edge]);
-		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [symbol], architecture: [], aliases: [], edges: [edge], diagnostics: [] });
+		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [symbol], tests: [], architecture: [], aliases: [], edges: [edge], diagnostics: [] });
 		const directory = path.join(temp.path, mapId, "generations", metadata.generation);
 		expect(await readGeneration(temp.path, mapId, metadata.generation, root)).toMatchObject({ symbols: [symbol], edges: [edge] });
 		await writeFile(path.join(directory, corruptFile), "[]\n");
@@ -58,6 +58,7 @@ describe("Repo Map generation storage", () => {
 			parserFingerprint: "format",
 			files: [file],
 			symbols: [symbol],
+			tests: [],
 			aliases: [],
 			architecture: [],
 			edges: [edge],
@@ -76,7 +77,7 @@ describe("Repo Map generation storage", () => {
 		const files = [indexed("package.json", "{}")];
 		const architecture = [packageNode()];
 		const metadata = makeMetadata(files, "2026-01-01T00:00:00.000Z", [], [], architecture);
-		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], architecture, aliases: [], edges: [], diagnostics: [] });
+		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], tests: [], architecture, aliases: [], edges: [], diagnostics: [] });
 		const directory = path.join(temp.path, mapId, "generations", metadata.generation);
 		expect(await readGeneration(temp.path, mapId, metadata.generation, root)).toMatchObject({ architecture });
 		await writeFile(path.join(directory, "architecture.json"), JSON.stringify([{ ...architecture[0], name: "" }]));
@@ -96,7 +97,7 @@ describe("Repo Map generation storage", () => {
 			evidence: [{ path: "repo-client.ts", textHash: file.contentHash, startLine: 1, endLine: 1, startByte: 0, endByte: 0 }],
 		}];
 		const metadata = makeMetadata(files, "2026-01-01T00:00:00.000Z", [], [], [], aliases);
-		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], architecture: [], aliases, edges: [], diagnostics: [] });
+		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], tests: [], architecture: [], aliases, edges: [], diagnostics: [] });
 		expect(await readGeneration(temp.path, mapId, metadata.generation, root)).toMatchObject({ aliases });
 		const directory = path.join(temp.path, mapId, "generations", metadata.generation);
 		await writeFile(path.join(directory, "aliases.json"), JSON.stringify([{ ...aliases[0], target: "file:missing.ts" }]));
@@ -106,7 +107,7 @@ describe("Repo Map generation storage", () => {
 	it("rejects corrupt metadata, files, schema, map, and generation mismatches", async () => {
 		const files = [indexed("a.ts", "a")];
 		const metadata = makeMetadata(files);
-		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], architecture: [], aliases: [], edges: [], diagnostics: [] });
+		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], tests: [], architecture: [], aliases: [], edges: [], diagnostics: [] });
 		const directory = path.join(temp.path, mapId, "generations", metadata.generation);
 		await writeFile(path.join(directory, "metadata.json"), JSON.stringify({ ...metadata, schemaVersion: 1 }));
 		expect(await readGeneration(temp.path, mapId, metadata.generation, root)).toBeUndefined();
@@ -120,7 +121,7 @@ describe("Repo Map generation storage", () => {
 	it("preserves CURRENT on cancellation or invalid input", async () => {
 		const files = [indexed("a", "a")];
 		const metadata = makeMetadata(files);
-		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], architecture: [], aliases: [], edges: [], diagnostics: [] });
+		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], tests: [], architecture: [], aliases: [], edges: [], diagnostics: [] });
 		const controller = new AbortController();
 		controller.abort();
 		await expect(commitGeneration({
@@ -129,6 +130,7 @@ describe("Repo Map generation storage", () => {
 			metadata: { ...metadata, generation: "b".repeat(64) },
 			files,
 			symbols: [],
+			tests: [],
 			architecture: [],
 			aliases: [],
 			edges: [],
@@ -149,7 +151,7 @@ describe("Repo Map generation storage", () => {
 			return;
 		}
 		const files = [indexed("a", "a")];
-		await expect(commitGeneration({ cacheRoot, maxGenerations: 2, metadata: makeMetadata(files), files, symbols: [], architecture: [], aliases: [], edges: [], diagnostics: [] }))
+		await expect(commitGeneration({ cacheRoot, maxGenerations: 2, metadata: makeMetadata(files), files, symbols: [], tests: [], architecture: [], aliases: [], edges: [], diagnostics: [] }))
 			.rejects.toMatchObject({ code: "CACHE_ERROR" });
 		expect(await readdir(outside)).toEqual([]);
 	});
@@ -158,7 +160,7 @@ describe("Repo Map generation storage", () => {
 		for (const [index, name] of ["one", "two", "three"].entries()) {
 			const files = [indexed(name, String(index))];
 			const metadata = makeMetadata(files, `2026-01-0${index + 1}T00:00:00.000Z`);
-			await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], architecture: [], aliases: [], edges: [], diagnostics: [] });
+			await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], tests: [], architecture: [], aliases: [], edges: [], diagnostics: [] });
 		}
 		const current = (await readFile(path.join(temp.path, mapId, "CURRENT"), "utf8")).trim();
 		const generations = (await readdir(path.join(temp.path, mapId, "generations"))).filter((name) => /^[0-9a-f]{64}$/u.test(name));
@@ -187,13 +189,14 @@ function makeMetadata(
 		headRevision: "d".repeat(40),
 		files,
 		symbols,
+		tests: [],
 		aliases,
 		edges,
 		architecture,
 		diagnostics: [],
 	});
 	return {
-		schemaVersion: 4,
+		schemaVersion: 5,
 		mapId,
 		repositoryRoot: root,
 		worktreeRoot: root,
@@ -208,6 +211,7 @@ function makeMetadata(
 		unsupportedFileCount: files.length,
 		parseErrorFileCount: 0,
 		symbolCount: symbols.length,
+		testNodeCount: 0,
 		edgeCount: edges.length,
 		aliasCount: aliases.length,
 		tooLargeFileCount: 0,
