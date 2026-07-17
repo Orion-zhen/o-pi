@@ -6,6 +6,8 @@ agent/cookies.txt
 agent/models.jsonc
 agent/models-store.json
 
+cache/
+
 subagents/
 .pi/
 
