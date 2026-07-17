@@ -30,6 +30,7 @@ export function renderStatus(metadata: RepoMapMetadata): string {
 		`parse errors: ${metadata.parseErrorFileCount}`,
 		`symbols: ${metadata.symbolCount}`,
 		`edges: ${metadata.edgeCount}`,
+		`aliases: ${metadata.aliasCount}`,
 		`too-large files: ${metadata.tooLargeFileCount}`,
 		`diagnostics: ${metadata.diagnosticCount}`,
 		`cache schema: ${metadata.schemaVersion}`,

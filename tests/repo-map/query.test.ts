@@ -162,7 +162,7 @@ async function generationFromSources(root: string, sources: ReadonlyMap<string, 
 	const generation = "b".repeat(64);
 	const edges = buildRepoMapRelationships({ mapId, files, symbols: indexed.symbols, imports: indexed.imports });
 	const metadata: RepoMapMetadata = {
-		schemaVersion: 3,
+		schemaVersion: 4,
 		mapId,
 		repositoryRoot: root,
 		worktreeRoot: root,
@@ -178,13 +178,14 @@ async function generationFromSources(root: string, sources: ReadonlyMap<string, 
 		parseErrorFileCount: 0,
 		symbolCount: indexed.symbols.length,
 		edgeCount: edges.length,
+		aliasCount: 0,
 		tooLargeFileCount: 0,
 		diagnosticCount: 0,
 		configFingerprint: "config",
 		ignoreFingerprint: "ignore",
 		parserFingerprint: "parser",
 	};
-	return { metadata, files, symbols: indexed.symbols, architecture: [], edges, diagnostics: [] };
+	return { metadata, files, symbols: indexed.symbols, architecture: [], aliases: [], edges, diagnostics: [] };
 }
 
 async function writeSources(root: string, sources: ReadonlyMap<string, string>): Promise<void> {

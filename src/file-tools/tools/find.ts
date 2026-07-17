@@ -374,6 +374,7 @@ function repoMapFindScore(candidate: RepoMapQueryCandidate): number {
 	if (candidate.reasons.includes("exact filename")) return 89_000;
 	if (candidate.reasons.some((reason) => reason === "exact qualified symbol" || reason === "exact symbol" || reason === "short symbol")) return 78_000 + candidate.score;
 	if (candidate.reasons.includes("definition")) return 74_000 + candidate.score;
+	if (candidate.reasons.includes("alias")) return 73_500 + candidate.score - candidate.hop * 1_000;
 	if (candidate.reasons.includes("registration") || candidate.reasons.includes("entrypoint")) return 73_000 + candidate.score;
 	if (candidate.reasons.includes("public api")) return 72_000 + candidate.score;
 	if (candidate.reasons.includes("export")) return 70_000 + candidate.score;

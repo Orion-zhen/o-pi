@@ -91,6 +91,28 @@ export interface RepoMapEvidence extends SourceRange {
 	textHash?: string;
 }
 
+export type RepoMapAliasSource =
+	| "file-path"
+	| "symbol"
+	| "signature"
+	| "import-alias"
+	| "export-alias"
+	| "architecture"
+	| "registration"
+	| "config-key"
+	| "environment"
+	| "doc-comment";
+
+/** repository-derived query term. canonical only applies the small fixed abbreviation table. */
+export interface RepoMapLexicalAlias {
+	term: string;
+	canonical: string;
+	target: string;
+	source: RepoMapAliasSource;
+	confidence: number;
+	evidence: RepoMapEvidence[];
+}
+
 export interface RepoMapEdge {
 	from: string;
 	to: string;
@@ -119,6 +141,7 @@ export interface RepoMapMetadata {
 	parseErrorFileCount: number;
 	symbolCount: number;
 	edgeCount: number;
+	aliasCount: number;
 	tooLargeFileCount: number;
 	diagnosticCount: number;
 	gitRevision?: string;

@@ -9,6 +9,7 @@ import type { BuildRepoMapArchitectureInput, RepoMapArchitectureIndex } from "./
 import { RepoMapError, throwIfAborted } from "./errors.js";
 import { createRepoMapId, REPO_MAP_SCHEMA_VERSION } from "./identity.js";
 import type { BuildRepoMapRelationshipsInput } from "./relationship-indexer.js";
+import type { BuildRepoMapLexicalAliasesInput } from "./lexical-indexer.js";
 import { detectRepository, readHeadRevision, type RepositoryIdentity } from "./repository.js";
 import { scanRepoMap, type RepoMapProgress, type RepoMapScanInput, type RepoMapScanResult } from "./scanner.js";
 import type { IndexRepoMapSymbolsInput } from "./symbol-indexer.js";
@@ -49,6 +50,7 @@ export interface RepoMapServiceDependencies {
 	indexSymbols(input: IndexRepoMapSymbolsInput): Promise<RepoMapSymbolIndex>;
 	buildArchitecture(input: BuildRepoMapArchitectureInput): Promise<RepoMapArchitectureIndex>;
 	buildRelationships(input: BuildRepoMapRelationshipsInput): Promise<RepoMapEdge[]>;
+	buildLexicalAliases(input: BuildRepoMapLexicalAliasesInput): Promise<RepoMapGeneration["aliases"]>;
 	readCurrent(cacheRoot: string, mapId: string, expectedRoot: string): Promise<RepoMapGeneration | undefined>;
 	commit(input: CommitGenerationInput): Promise<CommitGenerationResult>;
 	cacheRoot(): string;
@@ -74,6 +76,9 @@ const defaultDependencies: RepoMapServiceDependencies = {
 	},
 	async buildArchitecture(input) {
 		return await (await import("./architecture-indexer.js")).buildRepoMapArchitecture(input);
+	},
+	async buildLexicalAliases(input) {
+		return await (await import("./lexical-indexer.js")).buildRepoMapLexicalAliases(input);
 	},
 	readCurrent: readCurrentGeneration,
 	commit: commitGeneration,
@@ -139,6 +144,16 @@ export async function initializeRepoMap(
 	throwIfAborted(input.signal);
 	const relationshipEdges = await deps.buildRelationships({ mapId, files: scan.files, symbols: architecture.symbols, imports: symbolIndex.imports });
 	const edges = [...relationshipEdges, ...architecture.edges].sort(compareRepoMapEdge);
+	const aliases = await deps.buildLexicalAliases({
+		root: identity.repositoryRoot,
+		files: scan.files,
+		symbols: architecture.symbols,
+		architecture: architecture.nodes,
+		edges,
+		concurrency: config.scan.concurrency,
+		...(input.signal !== undefined ? { signal: input.signal } : {}),
+	});
+	throwIfAborted(input.signal);
 	const diagnostics = [...scan.diagnostics, ...symbolIndex.diagnostics, ...architecture.diagnostics];
 	const summary: RepoMapScanSummary = {
 		...scan.summary,
@@ -164,6 +179,7 @@ export async function initializeRepoMap(
 		files: scan.files,
 		symbols: architecture.symbols,
 		architecture: architecture.nodes,
+		aliases,
 		edges,
 		diagnostics,
 	});
@@ -189,6 +205,7 @@ export async function initializeRepoMap(
 		parseErrorFileCount: summary.parseErrors,
 		symbolCount: architecture.symbols.length,
 		edgeCount: edges.length,
+		aliasCount: aliases.length,
 		tooLargeFileCount: summary.tooLarge,
 		diagnosticCount: diagnostics.length,
 		...(identity.headRevision !== undefined ? { gitRevision: identity.headRevision } : {}),
@@ -204,6 +221,7 @@ export async function initializeRepoMap(
 		files: scan.files,
 		symbols: architecture.symbols,
 		architecture: architecture.nodes,
+		aliases,
 		edges,
 		diagnostics,
 		...(input.signal !== undefined ? { signal: input.signal } : {}),

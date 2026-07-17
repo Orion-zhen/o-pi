@@ -32,6 +32,7 @@ export interface RepoMapReadContext {
 	component?: string;
 	entrypoints?: string[];
 	publicApi?: boolean;
+	related?: Array<{ path: string; reason: string; hop: 2; confidence: number }>;
 }
 
 export interface RepoMapMutationResult {
@@ -114,7 +115,6 @@ export function createRepoMapFileToolQuery(
 				const loaded = await loadEnabled(input.requestedPath);
 				if (loaded === undefined) return undefined;
 				const result = new RepoMapQueryIndex(loaded.generation).candidates(input.query, input.limit);
-				if (dependencies.appendActivation === undefined) return result;
 				const candidates = await verifiedCandidates(loaded.generation, result.candidates);
 				if (candidates.length !== result.candidates.length) {
 					appendPartial(loaded.activation, "Repo Map candidate hash differs from the live file.");
@@ -137,7 +137,20 @@ export function createRepoMapFileToolQuery(
 					appendPartial(loaded.activation, "Repo Map file hash differs from the live read.");
 					return undefined;
 				}
-				return contextForRange(loaded.generation, file.id, input.startLine, input.endLine);
+				const context = contextForRange(loaded.generation, file.id, input.startLine, input.endLine);
+				if (context === undefined) return undefined;
+				const seed = context.symbol.qualifiedName ?? context.symbol.name;
+				if (seed === undefined) return context;
+				const projected = new RepoMapQueryIndex(loaded.generation).candidates(seed, 16).candidates
+					.filter((candidate) => candidate.hop === 2 && candidate.fileId !== file.id);
+				const verified = await verifiedCandidates(loaded.generation, projected);
+				const related = verified.slice(0, 2).map((candidate) => ({
+					path: candidate.path,
+					reason: candidate.reasons.at(-1) ?? "related",
+					hop: 2 as const,
+					confidence: Number(candidate.confidence.toFixed(3)),
+				}));
+				return related.length === 0 ? context : { ...context, related };
 			} catch {
 				return undefined;
 			}
@@ -184,7 +197,9 @@ async function verifiedCandidates(generation: RepoMapGeneration, candidates: Rep
 	for (const candidate of candidates) {
 		if (!await verify(candidate)) continue;
 		const related = candidate.relatedEdges.flatMap((edge) => edge.relatedFiles);
-		if ((await Promise.all(related.map(verify))).every(Boolean)) verified.push(candidate);
+		const aliasEvidence = candidate.matchedAliases.flatMap((alias) => alias.evidence.flatMap((evidence) =>
+			evidence.textHash === undefined ? [] : [{ path: evidence.path, contentHash: evidence.textHash }]));
+		if ((await Promise.all([...related, ...aliasEvidence].map(verify))).every(Boolean)) verified.push(candidate);
 	}
 	return verified;
 }

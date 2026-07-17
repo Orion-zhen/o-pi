@@ -308,12 +308,15 @@ function repoMapReasons(candidate: RepoMapQueryCandidate): string[] {
 	const reasons: string[] = candidate.reasons.filter((reason) => reason !== "short symbol" && reason !== "signature");
 	if (candidate.reasons.includes("short symbol")) reasons.push("exact symbol");
 	if (candidate.reasons.includes("signature")) reasons.push("symbol signature");
+	if (candidate.hop > 0) reasons.push(`repo-map hop ${candidate.hop}`);
+	for (const alias of candidate.matchedAliases.slice(0, 2)) reasons.push(`alias ${alias.term}→${alias.canonical} (${alias.source})`);
 	return Array.from(new Set(reasons));
 }
 
 function repoMapGrepScore(candidate: RepoMapQueryCandidate): number {
 	if (candidate.reasons.includes("exact qualified symbol")) return 940;
 	if (candidate.reasons.includes("exact symbol") || candidate.reasons.includes("short symbol")) return 880;
+	if (candidate.reasons.includes("alias")) return Math.max(420, 760 - candidate.hop * 150);
 	if (candidate.reasons.includes("definition")) return candidate.reasons.includes("export") ? 840 : 800;
 	if (candidate.reasons.includes("public api")) return 780;
 	if (candidate.reasons.includes("registration") || candidate.reasons.includes("entrypoint")) return 700;
