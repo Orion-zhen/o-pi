@@ -6,6 +6,8 @@
       "api_key": "my-lovely-key",
       "api": "responses",
       "compat": "openai_compatible",
+      // provider 只声明请求参数格式；模型用 Pi 原生 thinking level 声明默认档位。
+      "thinking": "openai",
       // 启动先使用缓存，进入 session 后后台请求 base_url + /models；这里手写的同名模型配置优先。
       "models": [
         {
@@ -13,7 +15,7 @@
           "display_name": "Gemma4 31B it",
           "context_window": 131072,
           "max_tokens": 32768,
-          "reasoning_effort": "off",
+          "thinking_level": "off",
           "input": ["text", "image"],
 
           "defaults": {
@@ -29,6 +31,51 @@
           "User-Agent": "pi-openai-compatible/1.0" // cloudflare tunnel 会挡住默认的 OpenAI SDK Header
         }
       }
+    },
+
+    "chat-template-effort-demo": {
+      "display_name": "Chat Template Demo",
+      "base_url": "http://127.0.0.1:11451/v1",
+      "api_key": "EMPTY",
+      // endpoint 协议与思考参数格式相互独立：Responses 也可以传 chat_template_kwargs。
+      "api": "responses",
+      "compat": "openai_compatible",
+      "thinking": "chat_template_effort",
+      "models": [
+        {
+          "model": "reasoning-model",
+          "display_name": "Reasoning Model",
+          "context_window": 65536,
+          "max_tokens": 16384,
+          "thinking_level": "xhigh",
+          // Pi 用 null 隐藏不支持的档位；字符串是 provider 实际收到的值。
+          "thinking_level_map": {
+            "off": "none",
+            "minimal": null,
+            "xhigh": "max"
+          }
+        }
+      ]
+    },
+
+    "chat-template-enabled-demo": {
+      "display_name": "Chat Template Enabled Demo",
+      "base_url": "http://127.0.0.1:9000/v1",
+      "api_key": "EMPTY",
+      "api": "chat",
+      "compat": "local",
+      // 生成 chat_template_kwargs: { enable_thinking: true | false }。
+      "thinking": "chat_template_enabled",
+      "models": [
+        {
+          "model": "boolean-thinking-model",
+          "display_name": "Boolean Thinking Model",
+          "context_window": 131072,
+          "max_tokens": 32768,
+          // 不需要 map：off 发送 false，其他 Pi thinking level 都发送 true。
+          "thinking_level": "high"
+        }
+      ]
     }
   }
 }

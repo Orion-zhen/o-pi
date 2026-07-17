@@ -136,27 +136,27 @@
 - 关闭：`Esc`、`q` 或 `Enter`。
 - 滚动：方向键、`PageUp`、`PageDown`、`Home`、`End`。
 
-## `/reasoning-effort`
+## `/thinking-level`
 
-来源：`agent/extensions/reasoning-effort.ts`
+来源：`agent/extensions/thinking-level.ts`
 
-用途：修改当前会话的推理强度。
+用途：修改当前模型的 Pi thinking level。
 
 用法：
 
 ```text
-/reasoning-effort
-/reasoning-effort <level>
+/thinking-level
+/thinking-level <level>
 ```
-
-可用档位：`off`、`minimal`、`low`、`medium`、`high`、`xhigh`。
 
 行为：
 
-- 无参数时需要 UI，打开选择器后切换。
-- 带 `<level>` 时直接调用 `pi.setThinkingLevel()` 生效。
-- Pi 会按当前模型能力钳制实际档位；命令完成后提示最终生效值。
-- 无效档位不改写当前设置。
+- 无参数时需要 UI；选择器只展示 Pi 判定为当前模型支持的等级。
+- `thinkingLevelMap` 中值为 `null` 的等级不会展示。
+- 存在字符串映射时显示为 `Pi 等级 → provider 值`，例如 `xhigh → max`。
+- 带 `<level>` 时只接受当前模型支持的 Pi 等级，再调用 `pi.setThinkingLevel()`。
+- 参数补全同样跟随当前模型，并显示显式映射。
+- 无当前模型、无效等级或不受支持等级不会改写当前设置。
 
 ## `/agents`
 

@@ -7,7 +7,7 @@ import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 
 import { isNotFound } from "../config-loader.js";
 import { invalidModelsJsonc } from "./errors.js";
-import { COMPAT_PRESET_NAMES, ModelsJsoncConfigSchema, REASONING_EFFORT_VALUES, type ModelsJsoncConfig } from "./schema.js";
+import { COMPAT_PRESET_NAMES, ModelsJsoncConfigSchema, THINKING_PRESET_NAMES, type ModelsJsoncConfig } from "./schema.js";
 
 let validateModelsJsonc: ValidateFunction | undefined;
 
@@ -103,11 +103,12 @@ const PROVIDER_SAMPLING_FIELDS = new Set([
 	"stop",
 ]);
 const COMPAT_PRESET_NAME_SET = new Set<string>(COMPAT_PRESET_NAMES);
-const REASONING_EFFORT_VALUE_SET = new Set<string>(REASONING_EFFORT_VALUES);
+const THINKING_PRESET_NAME_SET = new Set<string>(THINKING_PRESET_NAMES);
 
 function prevalidateModelsJsonc(value: unknown, configPath: string): void {
 	if (!isRecord(value) || !isRecord(value.providers)) return;
 	const expectedCompat = COMPAT_PRESET_NAMES.join(", ");
+	const expectedThinking = THINKING_PRESET_NAMES.join(", ");
 	for (const [providerId, provider] of Object.entries(value.providers)) {
 		if (!isRecord(provider)) continue;
 		for (const field of Object.keys(provider)) {
@@ -123,6 +124,9 @@ function prevalidateModelsJsonc(value: unknown, configPath: string): void {
 		if (typeof provider.compat === "string" && !COMPAT_PRESET_NAME_SET.has(provider.compat)) {
 			throw invalidModelsJsonc(configPath, `provider "${providerId}" has unknown compat preset "${provider.compat}"; expected one of ${expectedCompat}`);
 		}
+		if (typeof provider.thinking === "string" && !THINKING_PRESET_NAME_SET.has(provider.thinking)) {
+			throw invalidModelsJsonc(configPath, `provider "${providerId}" has unknown thinking preset "${provider.thinking}"; expected one of ${expectedThinking}`);
+		}
 		if (Array.isArray(provider.models)) {
 			for (let index = 0; index < provider.models.length; index++) {
 				const model = provider.models[index];
@@ -130,13 +134,10 @@ function prevalidateModelsJsonc(value: unknown, configPath: string): void {
 					throw invalidModelsJsonc(configPath, `providers.${providerId}.models[${index}].model is required`);
 				}
 				if (isRecord(model) && "reasoning" in model) {
-					throw invalidModelsJsonc(configPath, `providers.${providerId}.models[${index}].reasoning is not supported; use reasoning_effort instead`);
+					throw invalidModelsJsonc(configPath, `providers.${providerId}.models[${index}].reasoning is not supported; use thinking_level instead`);
 				}
-				if (isRecord(model) && typeof model.reasoning_effort === "string" && !REASONING_EFFORT_VALUE_SET.has(model.reasoning_effort)) {
-					throw invalidModelsJsonc(
-						configPath,
-						`providers.${providerId}.models[${index}].reasoning_effort must be one of off, minimal, low, medium, high, xhigh`,
-					);
+				if (isRecord(model) && "reasoning_effort" in model) {
+					throw invalidModelsJsonc(configPath, `providers.${providerId}.models[${index}].reasoning_effort is not supported; use thinking_level instead`);
 				}
 			}
 		}

@@ -456,37 +456,63 @@ describe("openai-compatible-provider config", () => {
 		});
 	});
 
-	it("reasoning_effort 控制模型 reasoning 开关和默认推理强度", async () => {
+	it("Chat chat_template_enabled 不需要 map，并把所有非 off 等级交给 Pi 的布尔变量", async () => {
+		const [provider] = await normalizeFromText(`{
+			"providers": {
+				"local": {
+					"base_url": "http://127.0.0.1:8000/v1",
+					"api_key": "EMPTY",
+					"api": "chat",
+					"compat": "local",
+					"thinking": "chat_template_enabled",
+					"models": [{ "model": "m", "thinking_level": "high" }]
+				}
+			}
+		}`);
+		expect(provider?.config.models?.[0]).toMatchObject({
+			reasoning: true,
+			compat: {
+				thinkingFormat: "chat-template",
+				chatTemplateKwargs: { enable_thinking: { $var: "thinking.enabled" } },
+			},
+		});
+		expect(provider?.config.models?.[0]?.thinkingLevelMap).toBeUndefined();
+	});
+
+	it("thinking_level 使用 Pi 模型能力并保留 off 模型的可切换 reasoning", async () => {
 		const [provider] = await normalizeFromText(`{
 			"providers": {
 				"gateway": {
 					"base_url": "https://example.test/v1",
 					"api_key": "EMPTY",
+					"thinking": "openai",
 					"models": [
-						{ "model": "reasoning-model", "reasoning_effort": "high" },
-						{ "model": "plain-model", "reasoning_effort": "off" }
+						{ "model": "reasoning-model", "thinking_level": "high" },
+						{ "model": "off-model", "thinking_level": "off" },
+						{ "model": "plain-model" }
 					]
 				}
 			}
 		}`);
 		expect(provider?.config.models?.[0]).toMatchObject({ id: "reasoning-model", reasoning: true });
-		expect(provider?.config.models?.[1]).toMatchObject({ id: "plain-model", reasoning: false });
-		expect(provider?.runtimeModels.get("reasoning-model")?.reasoningEffort).toBe("high");
-		expect(provider?.runtimeModels.get("plain-model")?.reasoningEffort).toBe("off");
-		const runtime = provider?.runtimeModels.get("reasoning-model");
-		if (!runtime) throw new Error("runtime config missing");
-		expect(applyRuntimePayloadConfig({ model: "reasoning-model", messages: [], stream: true }, runtime)).toMatchObject({
-			reasoning_effort: "high",
+		expect(provider?.config.models?.[1]).toMatchObject({ id: "off-model", reasoning: true });
+		expect(provider?.config.models?.[2]).toMatchObject({ id: "plain-model", reasoning: false });
+		expect(provider?.runtimeModels.get("reasoning-model")?.defaultThinkingLevel).toBe("high");
+		expect(provider?.runtimeModels.get("off-model")?.defaultThinkingLevel).toBe("off");
+		expect(provider?.config.models?.[0]?.compat).toMatchObject({
+			supportsReasoningEffort: true,
+			thinkingFormat: "openai",
 		});
 	});
 
-	it("注册后在 session_start、before_agent_start 和 model_select 应用 reasoning_effort", async () => {
+	it("只在用户选择模型时应用默认 thinking_level，不覆盖恢复值或每轮用户选择", async () => {
 		const providers = await normalizeFromText(`{
 			"providers": {
 				"gateway": {
 					"base_url": "https://example.test/v1",
 					"api_key": "EMPTY",
-					"models": [{ "model": "m", "reasoning_effort": "minimal" }]
+					"thinking": "openai",
+					"models": [{ "model": "m", "thinking_level": "minimal" }]
 				}
 			}
 		}`);
@@ -507,11 +533,12 @@ describe("openai-compatible-provider config", () => {
 		registerOpenAICompatibleProviders(pi as unknown as ExtensionAPI, providers);
 
 		const model = { provider: "gateway", id: "m" };
-		handlers.get("session_start")?.({}, { model });
+		handlers.get("session_start")?.({ reason: "new" }, { model });
 		handlers.get("before_agent_start")?.({}, { model });
-		handlers.get("model_select")?.({ model });
+		handlers.get("model_select")?.({ model, source: "restore" });
+		handlers.get("model_select")?.({ model, source: "set" });
 
-		expect(thinkingLevels).toEqual(["minimal", "minimal", "minimal"]);
+		expect(thinkingLevels).toEqual(["minimal"]);
 	});
 
 	it("拒绝 provider 级 defaults 和采样字段，且错误不泄露 api_key", async () => {
@@ -609,21 +636,143 @@ describe("openai-compatible-provider config", () => {
 		});
 	});
 
-	it("Responses API 的 reasoning_effort 注入为 reasoning.effort", async () => {
+	it.each([
+		["openrouter", "high", { reasoning: { effort: "high" } }],
+		["deepseek", "high", { thinking: { type: "enabled" } }],
+		["together", "off", { reasoning: { enabled: false } }],
+		["zai", "high", { thinking: { type: "enabled", clear_thinking: false } }],
+		["qwen", "off", { enable_thinking: false }],
+		["qwen_chat_template", "high", { chat_template_kwargs: { enable_thinking: true, preserve_thinking: true } }],
+		["chat_template_enabled", "medium", { chat_template_kwargs: { enable_thinking: true } }],
+		["chat_template_enabled", "off", { chat_template_kwargs: { enable_thinking: false } }],
+		["chat_template_effort", "high", { chat_template_kwargs: { reasoning_effort: "high" } }],
+		["string_thinking", "off", { thinking: "none" }],
+	] as const)("Responses API 将 %s thinking preset 编码到 payload", async (thinking, level, expected) => {
 		const [provider] = await normalizeFromText(`{
 			"providers": {
 				"gateway": {
 					"base_url": "https://gateway.example.com/v1",
 					"api_key": "$RESPONSES_GATEWAY_API_KEY",
 					"api": "responses",
-					"models": [{ "model": "m", "reasoning_effort": "low" }]
+					"thinking": "${thinking}",
+					"models": [{ "model": "m", "thinking_level": "${level}" }]
 				}
 			}
 		}`);
 		const runtime = provider?.runtimeModels.get("m");
 		if (!runtime) throw new Error("runtime config missing");
-		expect(applyRuntimePayloadConfig({ model: "m", input: [], stream: true }, runtime)).toMatchObject({
-			reasoning: { effort: "low" },
+		const payload = applyRuntimePayloadConfig({
+			model: "m",
+			input: [],
+			stream: true,
+			reasoning: { effort: level },
+			include: ["reasoning.encrypted_content"],
+		}, runtime, level);
+		expect(payload).toMatchObject(expected);
+		expect(payload).not.toHaveProperty("include");
+	});
+
+	it("Responses chat_template_effort 使用 Pi thinking_level_map 的上游值", async () => {
+		const [provider] = await normalizeFromText(`{
+			"providers": {
+				"thor": {
+					"base_url": "http://thor:11451/v1",
+					"api_key": "EMPTY",
+					"api": "responses",
+					"thinking": "chat_template_effort",
+					"models": [{
+						"model": "hy3",
+						"thinking_level": "xhigh",
+						"thinking_level_map": { "off": "disabled", "xhigh": "max" }
+					}]
+				}
+			}
+		}`);
+		const model = provider?.config.models?.[0];
+		const runtime = provider?.runtimeModels.get("hy3");
+		if (!runtime) throw new Error("runtime config missing");
+		expect(model?.thinkingLevelMap).toEqual({ off: "disabled", xhigh: "max" });
+		expect(applyRuntimePayloadConfig({
+			model: "hy3",
+			input: [],
+			stream: true,
+			reasoning: { effort: "max" },
+			include: ["reasoning.encrypted_content"],
+		}, runtime, "xhigh")).toMatchObject({
+			chat_template_kwargs: { reasoning_effort: "max" },
+		});
+	});
+
+	it("Responses 的 openai 保留 Pi payload，none 移除 Pi reasoning 字段", async () => {
+		const providers = await normalizeFromText(`{
+			"providers": {
+				"standard": {
+					"base_url": "https://standard.example.com/v1",
+					"api_key": "EMPTY",
+					"api": "responses",
+					"thinking": "openai",
+					"models": [{ "model": "m", "thinking_level": "high" }]
+				},
+				"fixed": {
+					"base_url": "https://fixed.example.com/v1",
+					"api_key": "EMPTY",
+					"api": "responses",
+					"thinking": "none",
+					"models": [{ "model": "m", "thinking_level": "high" }]
+				}
+			}
+		}`);
+		const payload = {
+			model: "m",
+			input: [],
+			stream: true,
+			reasoning: { effort: "high" },
+			include: ["reasoning.encrypted_content"],
+		};
+		const standard = providers.find((provider) => provider.id === "standard")?.runtimeModels.get("m");
+		const fixed = providers.find((provider) => provider.id === "fixed")?.runtimeModels.get("m");
+		if (!standard || !fixed) throw new Error("runtime config missing");
+		expect(applyRuntimePayloadConfig(payload, standard, "high")).toMatchObject({
+			reasoning: { effort: "high" },
+			include: ["reasoning.encrypted_content"],
+		});
+		expect(applyRuntimePayloadConfig(payload, fixed, "high")).not.toHaveProperty("reasoning");
+		expect(applyRuntimePayloadConfig(payload, fixed, "high")).not.toHaveProperty("include");
+	});
+
+	it("Responses 使用 Pi map 为 ant_ling 和支持 effort 的 deepseek 生成 provider 值", async () => {
+		const providers = await normalizeFromText(`{
+			"providers": {
+				"ant": {
+					"base_url": "https://ant.example.com/v1",
+					"api_key": "EMPTY",
+					"api": "responses",
+					"thinking": "ant_ling",
+					"models": [{ "model": "m", "thinking_level": "high", "thinking_level_map": { "high": "max" } }]
+				},
+				"deep": {
+					"base_url": "https://deep.example.com/v1",
+					"api_key": "EMPTY",
+					"api": "responses",
+					"thinking": "deepseek",
+					"models": [{
+						"model": "m",
+						"thinking_level": "high",
+						"thinking_level_map": { "high": "max" },
+						"advanced": { "compat": { "supportsReasoningEffort": true } }
+					}]
+				}
+			}
+		}`);
+		const ant = providers.find((provider) => provider.id === "ant")?.runtimeModels.get("m");
+		const deep = providers.find((provider) => provider.id === "deep")?.runtimeModels.get("m");
+		if (!ant || !deep) throw new Error("runtime config missing");
+		expect(applyRuntimePayloadConfig({ model: "m", input: [], stream: true }, ant, "high")).toMatchObject({
+			reasoning: { effort: "max" },
+		});
+		expect(applyRuntimePayloadConfig({ model: "m", input: [], stream: true }, deep, "high")).toMatchObject({
+			thinking: { type: "enabled" },
+			reasoning_effort: "max",
 		});
 	});
 
@@ -735,13 +884,37 @@ describe("openai-compatible-provider config", () => {
 			normalizeFromText(`{
 				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": [{ "model": "m", "reasoning": true }] } }
 			}`),
-		).rejects.toThrow("providers.vllm.models[0].reasoning is not supported");
+		).rejects.toThrow("use thinking_level instead");
 
 		await expect(
 			normalizeFromText(`{
-				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": [{ "model": "m", "reasoning_effort": "max" }] } }
+				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": [{ "model": "m", "reasoning_effort": "high" }] } }
 			}`),
-		).rejects.toThrow("providers.vllm.models[0].reasoning_effort");
+		).rejects.toThrow("use thinking_level instead");
+
+		await expect(
+			normalizeFromText(`{
+				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "thinking": "unknown", "models": ["m"] } }
+			}`),
+		).rejects.toThrow('unknown thinking preset "unknown"');
+
+		await expect(
+			normalizeFromText(`{
+				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": [{ "model": "m", "thinking_level": "max" }] } }
+			}`),
+		).rejects.toThrow('thinking_level "max" is not supported');
+
+		await expect(
+			normalizeFromText(`{
+				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": [{ "model": "m", "thinking_level_map": { "max": "max" } }] } }
+			}`),
+		).rejects.toThrow('thinking_level_map contains unknown Pi thinking level "max"');
+
+		await expect(
+			normalizeFromText(`{
+				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": [{ "model": "m", "thinking_level": "high", "thinking_level_map": { "high": null } }] } }
+			}`),
+		).rejects.toThrow('thinking_level "high" is not supported');
 	});
 });
 

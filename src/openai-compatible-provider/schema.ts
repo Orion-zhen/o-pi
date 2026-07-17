@@ -1,13 +1,33 @@
-import { StringEnum, type ModelThinkingLevel } from "@earendil-works/pi-ai";
+import { StringEnum, type ModelThinkingLevel, type ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 
 /** OpenAI-compatible 兼容预设名称，用户只需选择一个高层 preset。 */
 export const COMPAT_PRESET_NAMES = ["openai", "openai_compatible", "local", "qwen", "deepseek", "strict"] as const;
 export const CompatPresetNameSchema = StringEnum(COMPAT_PRESET_NAMES);
 
-/** Pi 当前支持的推理强度档位；配置后会在选中模型时自动切换。 */
-export const REASONING_EFFORT_VALUES = ["off", "minimal", "low", "medium", "high", "xhigh"] as const satisfies readonly ModelThinkingLevel[];
-export const ReasoningEffortSchema = StringEnum(REASONING_EFFORT_VALUES);
+/** OpenAI-compatible 请求中思考参数的编码预设。 */
+export const THINKING_PRESET_NAMES = [
+	"none",
+	"openai",
+	"openrouter",
+	"deepseek",
+	"together",
+	"zai",
+	"qwen",
+	"qwen_chat_template",
+	"chat_template_enabled",
+	"chat_template_effort",
+	"string_thinking",
+	"ant_ling",
+] as const;
+export const ThinkingPresetNameSchema = StringEnum(THINKING_PRESET_NAMES);
+
+// Pi 只导出 thinking level 类型，没有导出重复可消费的运行时枚举。schema 接受字符串，
+// normalize 阶段通过 Pi 的 getSupportedThinkingLevels() 校验默认值与 map。
+const ThinkingLevelSchema = Type.Unsafe<ModelThinkingLevel>(Type.String({ minLength: 1 }));
+const ThinkingLevelMapSchema = Type.Unsafe<ThinkingLevelMap>(
+	Type.Record(Type.String({ minLength: 1 }), Type.Union([Type.String(), Type.Null()])),
+);
 
 const SamplingDefaultsSchema = Type.Object(
 	{
@@ -40,7 +60,8 @@ const ModelConfigSchema = Type.Object(
 		display_name: Type.Optional(Type.String({ minLength: 1 })),
 		context_window: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
 		max_tokens: Type.Optional(Type.Number({ exclusiveMinimum: 0 })),
-		reasoning_effort: Type.Optional(ReasoningEffortSchema),
+		thinking_level: Type.Optional(ThinkingLevelSchema),
+		thinking_level_map: Type.Optional(ThinkingLevelMapSchema),
 		input: Type.Optional(Type.Array(Type.Union([Type.Literal("text"), Type.Literal("image")]))),
 		defaults: Type.Optional(SamplingDefaultsSchema),
 		advanced: Type.Optional(ModelAdvancedSchema),
@@ -71,6 +92,7 @@ const ProviderConfigSchema = Type.Object(
 		api_key: Type.Optional(Type.String()),
 		api: Type.Optional(Type.Union([Type.Literal("chat"), Type.Literal("responses")])),
 		compat: Type.Optional(CompatPresetNameSchema),
+		thinking: Type.Optional(ThinkingPresetNameSchema),
 		models_endpoint: Type.Optional(Type.String({ minLength: 1 })),
 		models: Type.Optional(ProviderModelsSchema),
 		advanced: Type.Optional(ProviderAdvancedSchema),
@@ -92,8 +114,8 @@ export type SamplingDefaults = Static<typeof SamplingDefaultsSchema>;
 export type ModelConfig = Static<typeof ModelConfigSchema>;
 /** 兼容预设名称。 */
 export type CompatPresetName = Static<typeof CompatPresetNameSchema>;
-/** 模型默认推理强度。 */
-export type ReasoningEffort = Static<typeof ReasoningEffortSchema>;
+/** 思考参数编码预设名称。 */
+export type ThinkingPresetName = Static<typeof ThinkingPresetNameSchema>;
 /** 单个 provider 配置。 */
 export type ProviderConfig = Static<typeof ProviderConfigSchema>;
 /** models.jsonc 根配置。 */

@@ -1,4 +1,11 @@
-import type { Api, AssistantMessageEventStream, Context, Model, SimpleStreamOptions } from "@earendil-works/pi-ai";
+import {
+	clampThinkingLevel,
+	type Api,
+	type AssistantMessageEventStream,
+	type Context,
+	type Model,
+	type SimpleStreamOptions,
+} from "@earendil-works/pi-ai";
 import { openAICompletionsApi, openAIResponsesApi } from "@earendil-works/pi-ai/compat";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -25,14 +32,8 @@ export function registerOpenAICompatibleProviders(pi: ExtensionAPI, providers: N
 	}
 	if (installedHooks.has(pi)) return;
 	installedHooks.add(pi);
-	pi.on("session_start", (_event, ctx) => {
-		applyConfiguredReasoningEffort(pi, ctx.model);
-	});
-	pi.on("before_agent_start", (_event, ctx) => {
-		applyConfiguredReasoningEffort(pi, ctx.model);
-	});
 	pi.on("model_select", (event) => {
-		applyConfiguredReasoningEffort(pi, event.model);
+		if (event.source !== "restore") applyConfiguredThinkingLevel(pi, event.model);
 	});
 }
 
@@ -52,22 +53,23 @@ function responsesStreamSimple(model: Model<Api>, context: Context, options?: Si
 function withRuntimeOptions(model: Model<Api>, options: SimpleStreamOptions | undefined): SimpleStreamOptions | undefined {
 	const runtime = runtimeModels.get(runtimeKey(model.provider, model.id));
 	if (!runtime) return options;
+	const thinkingLevel = clampThinkingLevel(model, options?.reasoning ?? "off");
 	return {
 		...options,
 		...(runtime.timeoutMs !== undefined ? { timeoutMs: runtime.timeoutMs } : {}),
 		...(runtime.maxRetries !== undefined ? { maxRetries: runtime.maxRetries } : {}),
 		onPayload: async (payload, payloadModel) => {
-			const patched = applyRuntimePayloadConfig(payload, runtime);
+			const patched = applyRuntimePayloadConfig(payload, runtime, thinkingLevel);
 			return options?.onPayload ? options.onPayload(patched, payloadModel) : patched;
 		},
 	};
 }
 
-function applyConfiguredReasoningEffort(pi: ExtensionAPI, model: Model<Api> | undefined): void {
+function applyConfiguredThinkingLevel(pi: ExtensionAPI, model: Model<Api> | undefined): void {
 	if (!model) return;
 	const runtime = runtimeModels.get(runtimeKey(model.provider, model.id));
-	if (runtime?.reasoningEffort !== undefined) {
-		pi.setThinkingLevel(runtime.reasoningEffort);
+	if (runtime?.defaultThinkingLevel !== undefined) {
+		pi.setThinkingLevel(runtime.defaultThinkingLevel);
 	}
 }
 
