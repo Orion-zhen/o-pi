@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -112,6 +112,8 @@ describe("Repo Map generation storage", () => {
 		await writeFile(path.join(directory, "metadata.json"), JSON.stringify({ ...metadata, schemaVersion: 1 }));
 		expect(await readGeneration(temp.path, mapId, metadata.generation, root)).toBeUndefined();
 		await writeFile(path.join(directory, "metadata.json"), JSON.stringify(metadata));
+		await writeFile(path.join(directory, "files.json"), JSON.stringify([{ ...files[0], unexpected: true }]));
+		expect(await readGeneration(temp.path, mapId, metadata.generation, root)).toBeUndefined();
 		await writeFile(path.join(directory, "files.json"), JSON.stringify([{ ...files[0], path: "../escape" }]));
 		expect(await readGeneration(temp.path, mapId, metadata.generation, root)).toBeUndefined();
 		expect(await readGeneration(temp.path, "b".repeat(64), metadata.generation, root)).toBeUndefined();
@@ -166,6 +168,20 @@ describe("Repo Map generation storage", () => {
 		const generations = (await readdir(path.join(temp.path, mapId, "generations"))).filter((name) => /^[0-9a-f]{64}$/u.test(name));
 		expect(generations).toHaveLength(2);
 		expect(generations).toContain(current);
+	});
+
+	it("rejects a concurrent commit while the inter-process lock is held", async () => {
+		const files = [indexed("locked.ts", "locked")];
+		const metadata = makeMetadata(files);
+		const input = { cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], tests: [], architecture: [], aliases: [], edges: [], diagnostics: [] };
+		await commitGeneration(input);
+		const lockDirectory = path.join(temp.path, mapId, "COMMIT_LOCK");
+		await mkdir(lockDirectory);
+		try {
+			await expect(commitGeneration(input)).rejects.toMatchObject({ code: "CACHE_ERROR" });
+		} finally {
+			await rm(lockDirectory, { recursive: true, force: true });
+		}
 	});
 });
 

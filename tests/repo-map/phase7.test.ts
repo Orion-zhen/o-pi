@@ -11,7 +11,7 @@ import { REPO_MAP_SESSION_ENTRY } from "../../src/repo-map/activation.js";
 import { buildRepoMapArchitecture } from "../../src/repo-map/architecture-indexer.js";
 import { defaultRepoMapConfig } from "../../src/repo-map/config.js";
 import { createRepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
-import { compareRepoMapEdge } from "../../src/repo-map/graph-types.js";
+import { compareRepoMapEdge } from "../../src/repo-map/graph.js";
 import { analyzeRepoMapImpact } from "../../src/repo-map/impact.js";
 import { RepoMapQueryIndex } from "../../src/repo-map/query.js";
 import { buildRepoMapRelationships } from "../../src/repo-map/relationship-indexer.js";
@@ -43,7 +43,9 @@ describe("Repo Map Phase 7 test graph and change impact", () => {
 		expect(generation.tests).toEqual(expect.arrayContaining([
 			expect.objectContaining({ testKind: "file", name: "tests/user.test.ts", source: "convention" }),
 			expect.objectContaining({ testKind: "symbol", name: "loadUser returns a user", source: "syntax" }),
+			expect.objectContaining({ testKind: "symbol", name: "table-driven user", source: "syntax" }),
 		]));
+		expect(generation.tests.some((node) => node.name === "not a real test")).toBe(false);
 		for (const kind of ["tests", "mocks", "uses-fixture", "uses-snapshot", "configured-by"] as const) {
 			expect(generation.edges.some((edge) => edge.kind === kind)).toBe(true);
 		}
@@ -177,11 +179,13 @@ function fixtureSources(userSource: string): Map<string, string> {
 		["src/caller.ts", "import { loadUser } from './user';\nexport function renderUser() { return loadUser(); }\n"],
 		["src/neighbor.ts", "export function neighbor() { return true; }\n"],
 		["tests/user.test.ts", [
+			"// test('not a real test', () => {});",
 			"import { loadUser } from '../src/user';",
 			"import fixture from './fixtures/user.json';",
 			"vi.mock('../src/user');",
 			"describe('user service', () => {",
 			"  test('loadUser returns a user', () => { expect(loadUser()).toMatchSnapshot('user snapshot'); });",
+			"  test.each([1])(`table-driven user`, () => { expect(loadUser()).toBeTruthy(); });",
 			"});",
 			"void fixture;",
 		].join("\n")],

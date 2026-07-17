@@ -1,11 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, open, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { lock } from "proper-lockfile";
 
 import { createFileIdentity, createSymbolId } from "../code-index/identity.js";
 import { RepoMapError, throwIfAborted } from "./errors.js";
-import { compareRepoMapEdge } from "./graph-types.js";
+import { compareRepoMapEdge, compareRepoMapEvidence, compareText } from "./graph.js";
 import { createRepoMapId, REPO_MAP_SCHEMA_VERSION } from "./identity.js";
+import { storageValidators } from "./storage-schema.js";
 import type {
 	RepoMapArchitectureNode,
 	RepoMapDiagnostic,
@@ -65,7 +67,7 @@ export function calculateGeneration(input: {
 		input.parserFingerprint,
 		input.headRevision ?? null,
 		[...input.files]
-			.sort((left, right) => compareStable(left.path, right.path))
+			.sort((left, right) => compareText(left.path, right.path))
 			.map((file) => [file.id, file.path, file.size, file.mtimeMs, file.status, file.contentHash ?? null]),
 		[...input.symbols]
 			.sort(compareSymbol)
@@ -191,7 +193,7 @@ export async function commitGeneration(input: CommitGenerationInput): Promise<Co
 			temporaryDirectory = await mkdtemp(path.join(generationsDirectory, ".tmp-"));
 			await bestEffortChmod(temporaryDirectory, 0o700);
 			await writeJsonFile(path.join(temporaryDirectory, "metadata.json"), input.metadata);
-			await writeJsonFile(path.join(temporaryDirectory, "files.json"), [...input.files].sort((a, b) => compareStable(a.path, b.path)));
+			await writeJsonFile(path.join(temporaryDirectory, "files.json"), [...input.files].sort((a, b) => compareText(a.path, b.path)));
 			await writeJsonFile(path.join(temporaryDirectory, "symbols.json"), [...input.symbols].sort(compareSymbol));
 			await writeJsonFile(path.join(temporaryDirectory, "tests.json"), sortedTests(input.tests));
 			await writeJsonFile(path.join(temporaryDirectory, "architecture.json"), [...input.architecture].sort(compareArchitecture));
@@ -231,7 +233,7 @@ export async function commitGeneration(input: CommitGenerationInput): Promise<Co
 		throw new RepoMapError("CACHE_ERROR", "Repo Map cache could not be saved.", error);
 	} finally {
 		if (temporaryDirectory !== undefined) await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
-		await releaseLock();
+		await releaseLock().catch(() => undefined);
 	}
 }
 
@@ -276,7 +278,7 @@ async function cleanupGenerations(cacheRoot: string, mapId: string, current: str
 			const info = await stat(path.join(directory, entry.name));
 			candidates.push({ id: entry.name, mtimeMs: info.mtimeMs });
 		}
-		candidates.sort((a, b) => b.mtimeMs - a.mtimeMs || compareStable(a.id, b.id));
+		candidates.sort((a, b) => b.mtimeMs - a.mtimeMs || compareText(a.id, b.id));
 		const keepOther = Math.max(0, maxGenerations - 1);
 		for (const candidate of candidates.slice(keepOther)) {
 			await rm(generationDirectory(cacheRoot, mapId, candidate.id), { recursive: true, force: true });
@@ -287,146 +289,48 @@ async function cleanupGenerations(cacheRoot: string, mapId: string, current: str
 }
 
 function validateMetadata(value: unknown, mapId: string, generation: string, expectedRoot?: string): RepoMapMetadata {
-	if (!isRecord(value)) throw new Error("invalid metadata");
-	if (
-		value["schemaVersion"] !== REPO_MAP_SCHEMA_VERSION
-		|| value["mapId"] !== mapId
-		|| value["generation"] !== generation
-		|| !isNonEmptyString(value["repositoryRoot"])
-		|| !isNonEmptyString(value["worktreeRoot"])
-		|| !isNonEmptyString(value["gitCommonDir"])
-		|| (expectedRoot !== undefined && path.resolve(value["repositoryRoot"]) !== path.resolve(expectedRoot))
-		|| (expectedRoot !== undefined && path.resolve(value["worktreeRoot"]) !== path.resolve(expectedRoot))
-		|| !isCanonicalAbsolutePath(value["repositoryRoot"])
-		|| !isCanonicalAbsolutePath(value["worktreeRoot"])
-		|| !isCanonicalAbsolutePath(value["gitCommonDir"])
-		|| createRepoMapId({ worktreeRoot: value["worktreeRoot"], gitCommonDir: value["gitCommonDir"] }) !== mapId
-		|| !isIsoDate(value["createdAt"])
-		|| !isIsoDate(value["updatedAt"])
-		|| !isFreshness(value["freshness"])
-		|| !isCount(value["fileCount"])
-		|| !isCount(value["indexedFileCount"])
-		|| !isCount(value["parsedFileCount"])
-		|| !isCount(value["unsupportedFileCount"])
-		|| !isCount(value["parseErrorFileCount"])
-		|| !isCount(value["symbolCount"])
-		|| !isCount(value["testNodeCount"])
-		|| !isCount(value["edgeCount"])
-		|| !isCount(value["aliasCount"])
-		|| !isCount(value["tooLargeFileCount"])
-		|| !isCount(value["diagnosticCount"])
-		|| (value["gitRevision"] !== undefined && !isGitRevision(value["gitRevision"]))
-		|| !isHash(value["configFingerprint"])
-		|| !isNonEmptyString(value["ignoreFingerprint"])
-		|| !isNonEmptyString(value["parserFingerprint"])
-	) throw new Error("invalid metadata");
-	if (value["parsedFileCount"] + value["unsupportedFileCount"] + value["parseErrorFileCount"] !== value["indexedFileCount"]) {
+	assertShape(storageValidators.metadata, value, "metadata");
+	if (value.mapId !== mapId || value.generation !== generation
+		|| (expectedRoot !== undefined && path.resolve(value.repositoryRoot) !== path.resolve(expectedRoot))
+		|| (expectedRoot !== undefined && path.resolve(value.worktreeRoot) !== path.resolve(expectedRoot))
+		|| !isCanonicalAbsolutePath(value.repositoryRoot)
+		|| !isCanonicalAbsolutePath(value.worktreeRoot)
+		|| !isCanonicalAbsolutePath(value.gitCommonDir)
+		|| createRepoMapId({ worktreeRoot: value.worktreeRoot, gitCommonDir: value.gitCommonDir }) !== mapId
+		|| !isIsoDate(value.createdAt)
+		|| !isIsoDate(value.updatedAt)
+		|| !countsAreSafe(value)) throw new Error("invalid metadata semantics");
+	if (value.parsedFileCount + value.unsupportedFileCount + value.parseErrorFileCount !== value.indexedFileCount) {
 		throw new Error("invalid index counts");
 	}
-	return {
-		schemaVersion: REPO_MAP_SCHEMA_VERSION,
-		mapId,
-		repositoryRoot: value["repositoryRoot"],
-		worktreeRoot: value["worktreeRoot"],
-		gitCommonDir: value["gitCommonDir"],
-		generation,
-		createdAt: value["createdAt"],
-		updatedAt: value["updatedAt"],
-		freshness: value["freshness"],
-		fileCount: value["fileCount"],
-		indexedFileCount: value["indexedFileCount"],
-		parsedFileCount: value["parsedFileCount"],
-		unsupportedFileCount: value["unsupportedFileCount"],
-		parseErrorFileCount: value["parseErrorFileCount"],
-		symbolCount: value["symbolCount"],
-		testNodeCount: value["testNodeCount"],
-		edgeCount: value["edgeCount"],
-		aliasCount: value["aliasCount"],
-		tooLargeFileCount: value["tooLargeFileCount"],
-		diagnosticCount: value["diagnosticCount"],
-		...(typeof value["gitRevision"] === "string" ? { gitRevision: value["gitRevision"] } : {}),
-		configFingerprint: value["configFingerprint"],
-		ignoreFingerprint: value["ignoreFingerprint"],
-		parserFingerprint: value["parserFingerprint"],
-	};
+	return value;
 }
 
 function validateFiles(value: unknown): RepoMapFileRecord[] {
-	if (!Array.isArray(value)) throw new Error("invalid files");
-	const files: RepoMapFileRecord[] = [];
-	let previousPath: string | undefined;
-	for (const item of value) {
-		if (!isRecord(item) || !isSafeRelativePath(item["path"]) || !isNonNegativeFinite(item["size"]) || !isNonNegativeFinite(item["mtimeMs"]) || !isFileStatus(item["status"])) {
-			throw new Error("invalid file record");
-		}
-		const identity = createFileIdentity(item["path"]);
-		if (item["id"] !== identity.id || (previousPath !== undefined && compareStable(previousPath, item["path"]) >= 0)) throw new Error("invalid file identity or order");
-		if (item["status"] === "indexed" ? !isHash(item["contentHash"]) : item["contentHash"] !== undefined) throw new Error("invalid content hash");
-		files.push({
-			...identity,
-			size: item["size"],
-			mtimeMs: item["mtimeMs"],
-			status: item["status"],
-			...(typeof item["contentHash"] === "string" ? { contentHash: item["contentHash"] } : {}),
-		});
-		previousPath = item["path"];
+	assertShape(storageValidators.files, value, "files");
+	for (const file of value) {
+		if (!isSafeRelativePath(file.path) || !Number.isFinite(file.size) || !Number.isFinite(file.mtimeMs)
+			|| file.id !== createFileIdentity(file.path).id
+			|| (file.status === "indexed") !== (file.contentHash !== undefined)) throw new Error("invalid file semantics");
 	}
-	return files;
+	assertStrictOrder(value, (left, right) => compareText(left.path, right.path), "files");
+	return value;
 }
 
 function validateSymbols(value: unknown, files: readonly RepoMapFileRecord[]): RepoMapSymbolNode[] {
-	if (!Array.isArray(value)) throw new Error("invalid symbols");
+	assertShape(storageValidators.symbols, value, "symbols");
 	const fileIds = new Set(files.map((file) => file.id));
-	const symbols: RepoMapSymbolNode[] = [];
-	let previous: RepoMapSymbolNode | undefined;
-	for (const item of value) {
-		if (
-			!isRecord(item)
-			|| item["kind"] !== "symbol"
-			|| !isNonEmptyString(item["id"])
-			|| !isNonEmptyString(item["fileId"])
-			|| !fileIds.has(item["fileId"])
-			|| !isNonEmptyString(item["symbolKind"])
-			|| (item["name"] !== undefined && !isNonEmptyString(item["name"]))
-			|| (item["qualifiedName"] !== undefined && !isNonEmptyString(item["qualifiedName"]))
-			|| (item["signature"] !== undefined && typeof item["signature"] !== "string")
-			|| (item["visibility"] !== undefined && item["visibility"] !== "public" && item["visibility"] !== "internal")
-			|| !isSourceRange(item)
-			|| !isStringArray(item["definitions"])
-			|| !isStringArray(item["references"])
-			|| !isStringArray(item["calls"])
-			|| !isStringArray(item["imports"])
-		) throw new Error("invalid symbol");
-		const symbol: RepoMapSymbolNode = {
-			kind: "symbol",
-			id: item["id"],
-			fileId: item["fileId"],
-			symbolKind: item["symbolKind"],
-			...(typeof item["name"] === "string" ? { name: item["name"] } : {}),
-			...(typeof item["qualifiedName"] === "string" ? { qualifiedName: item["qualifiedName"] } : {}),
-			...(typeof item["signature"] === "string" ? { signature: item["signature"] } : {}),
-			startLine: item["startLine"],
-			endLine: item["endLine"],
-			startByte: item["startByte"],
-			endByte: item["endByte"],
-			definitions: item["definitions"],
-			references: item["references"],
-			calls: item["calls"],
-			imports: item["imports"],
-			...(item["visibility"] === "public" || item["visibility"] === "internal" ? { visibility: item["visibility"] } : {}),
-		};
-		if (symbol.id !== createSymbolId({
+	for (const symbol of value) {
+		if (!fileIds.has(symbol.fileId) || !isValidSourceRange(symbol) || symbol.id !== createSymbolId({
 			fileId: symbol.fileId,
 			kind: symbol.symbolKind,
 			...(symbol.name !== undefined ? { name: symbol.name } : {}),
 			...(symbol.qualifiedName !== undefined ? { qualifiedName: symbol.qualifiedName } : {}),
 			startByte: symbol.startByte,
-		})) throw new Error("invalid symbol identity");
-		if (previous !== undefined && compareSymbol(previous, symbol) >= 0) throw new Error("invalid symbol order");
-		symbols.push(symbol);
-		previous = symbol;
+		})) throw new Error("invalid symbol semantics");
 	}
-	return symbols;
+	assertStrictOrder(value, compareSymbol, "symbols");
+	return value;
 }
 
 function validateTests(
@@ -434,73 +338,33 @@ function validateTests(
 	files: readonly RepoMapFileRecord[],
 	symbols: readonly RepoMapSymbolNode[],
 ): RepoMapTestNode[] {
-	if (!Array.isArray(value)) throw new Error("invalid tests");
+	assertShape(storageValidators.tests, value, "tests");
 	const fileIds = new Set(files.map((file) => file.id));
 	const symbolIds = new Set(symbols.map((symbol) => symbol.id));
-	const tests: RepoMapTestNode[] = [];
-	let previous: RepoMapTestNode | undefined;
-	for (const item of value) {
-		if (!isRecord(item)
-			|| item["kind"] !== "test"
-			|| !isNonEmptyString(item["id"])
-			|| (item["testKind"] !== "file" && item["testKind"] !== "symbol")
-			|| !isNonEmptyString(item["name"])
-			|| !isNonEmptyString(item["fileId"])
-			|| !fileIds.has(item["fileId"])
-			|| (item["symbolId"] !== undefined && (!isNonEmptyString(item["symbolId"]) || !symbolIds.has(item["symbolId"])))
-			|| (item["source"] !== "syntax" && item["source"] !== "manifest" && item["source"] !== "convention")
-			|| !isConfidence(item["confidence"])
-			|| !Array.isArray(item["evidence"])
-			|| item["evidence"].length === 0) throw new Error("invalid test node");
-		const node: RepoMapTestNode = {
-			kind: "test",
-			id: item["id"],
-			testKind: item["testKind"],
-			name: item["name"],
-			fileId: item["fileId"],
-			...(typeof item["symbolId"] === "string" ? { symbolId: item["symbolId"] } : {}),
-			source: item["source"],
-			confidence: item["confidence"],
-			evidence: item["evidence"].map(validateEvidence),
-		};
+	for (const node of value) {
+		for (const evidence of node.evidence) validateEvidence(evidence);
+		if (!fileIds.has(node.fileId) || (node.symbolId !== undefined && !symbolIds.has(node.symbolId))) throw new Error("dangling test node");
 		if (node.testKind === "file" && node.symbolId !== undefined) throw new Error("invalid test file node");
-		if (previous !== undefined && compareTestNode(previous, node) >= 0) throw new Error("invalid test node order");
-		tests.push(node);
-		previous = node;
 	}
-	return tests;
+	assertStrictOrder(value, compareTestNode, "tests");
+	return value;
 }
 
 function validateArchitecture(value: unknown, files: readonly RepoMapFileRecord[]): RepoMapArchitectureNode[] {
-	if (!Array.isArray(value)) throw new Error("invalid architecture");
+	assertShape(storageValidators.architecture, value, "architecture");
 	const fileIds = new Set(files.map((file) => file.id));
-	const nodes: RepoMapArchitectureNode[] = [];
 	const ids = new Set<string>();
-	for (const item of value) {
-		if (!isRecord(item) || !isArchitectureKind(item["kind"]) || !isNonEmptyString(item["id"]) || ids.has(item["id"])
-			|| !isNonEmptyString(item["name"]) || !isConfidence(item["confidence"]) || !isArchitectureSource(item["source"])) throw new Error("invalid architecture node");
-		let node: RepoMapArchitectureNode;
-		if (item["kind"] === "package") {
-			if (!isRepoRootPath(item["rootPath"]) || !isPackageEcosystem(item["ecosystem"])
-				|| (item["manifestPath"] !== undefined && !isSafeRelativePath(item["manifestPath"]))) throw new Error("invalid package node");
-			node = { kind: "package", id: item["id"], name: item["name"], rootPath: item["rootPath"], ecosystem: item["ecosystem"], ...(typeof item["manifestPath"] === "string" ? { manifestPath: item["manifestPath"] } : {}), source: item["source"], confidence: item["confidence"] };
-		} else if (item["kind"] === "component") {
-			if (!isRepoRootPath(item["rootPath"]) || !isNonEmptyString(item["packageId"])) throw new Error("invalid component node");
-			node = { kind: "component", id: item["id"], name: item["name"], rootPath: item["rootPath"], packageId: item["packageId"], source: item["source"], confidence: item["confidence"] };
-		} else {
-			if (!isEntrypointType(item["entrypointType"]) || (item["packageId"] !== undefined && !isNonEmptyString(item["packageId"]))
-				|| (item["fileId"] !== undefined && (!isNonEmptyString(item["fileId"]) || !fileIds.has(item["fileId"])))
-				|| (item["declaredTarget"] !== undefined && !isNonEmptyString(item["declaredTarget"]))) throw new Error("invalid entrypoint node");
-			node = { kind: "entrypoint", id: item["id"], name: item["name"], entrypointType: item["entrypointType"], ...(typeof item["packageId"] === "string" ? { packageId: item["packageId"] } : {}), ...(typeof item["fileId"] === "string" ? { fileId: item["fileId"] } : {}), ...(typeof item["declaredTarget"] === "string" ? { declaredTarget: item["declaredTarget"] } : {}), source: item["source"], confidence: item["confidence"] };
-		}
+	for (const node of value) {
+		if (ids.has(node.id)) throw new Error("duplicate architecture node");
+		if (node.kind !== "entrypoint" && !isRepoRootPath(node.rootPath)) throw new Error("invalid architecture path");
+		if (node.kind === "package" && node.manifestPath !== undefined && !isSafeRelativePath(node.manifestPath)) throw new Error("invalid manifest path");
+		if (node.kind === "entrypoint" && node.fileId !== undefined && !fileIds.has(node.fileId)) throw new Error("dangling entrypoint file");
 		ids.add(node.id);
-		nodes.push(node);
 	}
-	if (nodes.some((node) => node.kind === "component" && !ids.has(node.packageId))
-		|| nodes.some((node) => node.kind === "entrypoint" && node.packageId !== undefined && !ids.has(node.packageId))) throw new Error("dangling architecture owner");
-	const sorted = [...nodes].sort(compareArchitecture);
-	if (nodes.some((node, index) => node.id !== sorted[index]?.id)) throw new Error("invalid architecture order");
-	return nodes;
+	if (value.some((node) => node.kind === "component" && !ids.has(node.packageId))
+		|| value.some((node) => node.kind === "entrypoint" && node.packageId !== undefined && !ids.has(node.packageId))) throw new Error("dangling architecture owner");
+	assertStrictOrder(value, compareArchitecture, "architecture");
+	return value;
 }
 
 function validateAliases(
@@ -511,47 +375,14 @@ function validateAliases(
 	architecture: readonly RepoMapArchitectureNode[],
 	tests: readonly RepoMapTestNode[],
 ): RepoMapLexicalAlias[] {
-	if (!Array.isArray(value)) throw new Error("invalid aliases");
+	assertShape(storageValidators.aliases, value, "aliases");
 	const targets = new Set([`repository:${mapId}`, ...files.map((file) => file.id), ...symbols.map((symbol) => symbol.id), ...architecture.map((node) => node.id), ...tests.map((node) => node.id)]);
-	const aliases: RepoMapLexicalAlias[] = [];
-	let previous: RepoMapLexicalAlias | undefined;
-	for (const item of value) {
-		if (!isRecord(item)
-			|| !isLexicalTerm(item["term"])
-			|| !isLexicalTerm(item["canonical"])
-			|| !isNonEmptyString(item["target"])
-			|| !targets.has(item["target"])
-			|| !isAliasSource(item["source"])
-			|| !isConfidence(item["confidence"])
-			|| !Array.isArray(item["evidence"])
-			|| item["evidence"].length === 0) throw new Error("invalid alias");
-		const alias: RepoMapLexicalAlias = {
-			term: item["term"],
-			canonical: item["canonical"],
-			target: item["target"],
-			source: item["source"],
-			confidence: item["confidence"],
-			evidence: item["evidence"].map(validateAliasEvidence),
-		};
-		if (previous !== undefined && compareAlias(previous, alias) >= 0) throw new Error("invalid alias order");
-		aliases.push(alias);
-		previous = alias;
+	for (const alias of value) {
+		if (!isLexicalTerm(alias.term) || !isLexicalTerm(alias.canonical) || !targets.has(alias.target)) throw new Error("invalid alias semantics");
+		for (const evidence of alias.evidence) validateEvidence(evidence, true);
 	}
-	return aliases;
-}
-
-function validateAliasEvidence(value: unknown): RepoMapEvidence {
-	if (!isRecord(value) || !isSafeDiagnosticPath(value["path"]) || !isSourceRange(value) || (value["textHash"] !== undefined && !isHash(value["textHash"]))) {
-		throw new Error("invalid alias evidence");
-	}
-	return {
-		path: value["path"],
-		...(typeof value["textHash"] === "string" ? { textHash: value["textHash"] } : {}),
-		startLine: value["startLine"],
-		endLine: value["endLine"],
-		startByte: value["startByte"],
-		endByte: value["endByte"],
-	};
+	assertStrictOrder(value, compareAlias, "aliases");
+	return value;
 }
 
 function validateEdges(
@@ -562,70 +393,29 @@ function validateEdges(
 	architecture: readonly RepoMapArchitectureNode[],
 	tests: readonly RepoMapTestNode[],
 ): RepoMapEdge[] {
-	if (!Array.isArray(value)) throw new Error("invalid edges");
+	assertShape(storageValidators.edges, value, "edges");
 	const nodes = new Set([`repository:${mapId}`, ...files.map((file) => file.id), ...symbols.map((symbol) => symbol.id), ...architecture.map((node) => node.id), ...tests.map((node) => node.id)]);
-	const edges: RepoMapEdge[] = [];
-	let previous: RepoMapEdge | undefined;
-	for (const item of value) {
-		if (
-			!isRecord(item)
-			|| !isEdgeKind(item["kind"])
-			|| !isNonEmptyString(item["from"])
-			|| !nodes.has(item["from"])
-			|| !isNonEmptyString(item["to"])
-			|| (!nodes.has(item["to"]) && !item["to"].startsWith("external:") && !item["to"].startsWith("lexical:symbol:"))
-			|| !isEdgeResolution(item["resolution"])
-			|| !isEdgeSource(item["source"])
-			|| typeof item["confidence"] !== "number"
-			|| !Number.isFinite(item["confidence"])
-			|| item["confidence"] < 0
-			|| item["confidence"] > 1
-			|| (item["lexicalTarget"] !== undefined && !isNonEmptyString(item["lexicalTarget"]))
-			|| !Array.isArray(item["evidence"])
-			|| item["evidence"].length === 0
-		) throw new Error("invalid edge");
-		const edge: RepoMapEdge = {
-			kind: item["kind"],
-			from: item["from"],
-			to: item["to"],
-			resolution: item["resolution"],
-			source: item["source"],
-			confidence: item["confidence"],
-			...(typeof item["lexicalTarget"] === "string" ? { lexicalTarget: item["lexicalTarget"] } : {}),
-			evidence: item["evidence"].map(validateEvidence),
-		};
-		if (previous !== undefined && compareRepoMapEdge(previous, edge) >= 0) throw new Error("invalid edge order");
-		edges.push(edge);
-		previous = edge;
+	for (const edge of value) {
+		if (!nodes.has(edge.from) || (!nodes.has(edge.to) && !edge.to.startsWith("external:") && !edge.to.startsWith("lexical:symbol:"))) {
+			throw new Error("dangling edge");
+		}
+		for (const evidence of edge.evidence) validateEvidence(evidence);
 	}
-	return edges;
+	assertStrictOrder(value, compareRepoMapEdge, "edges");
+	return value;
 }
 
-function validateEvidence(value: unknown): RepoMapEvidence {
-	if (!isRecord(value) || !isSafeRelativePath(value["path"]) || !isSourceRange(value) || (value["textHash"] !== undefined && !isHash(value["textHash"]))) {
-		throw new Error("invalid edge evidence");
+function validateEvidence(value: RepoMapEvidence, diagnosticPath = false): RepoMapEvidence {
+	if (!(diagnosticPath ? isSafeDiagnosticPath(value.path) : isSafeRelativePath(value.path)) || !isValidSourceRange(value)) {
+		throw new Error("invalid evidence semantics");
 	}
-	return {
-		path: value["path"],
-		...(typeof value["textHash"] === "string" ? { textHash: value["textHash"] } : {}),
-		startLine: value["startLine"],
-		endLine: value["endLine"],
-		startByte: value["startByte"],
-		endByte: value["endByte"],
-	};
+	return value;
 }
 
 function validateDiagnostics(value: unknown): RepoMapDiagnostic[] {
-	if (!Array.isArray(value)) throw new Error("invalid diagnostics");
-	return value.map((item) => {
-		if (!isRecord(item) || !isNonEmptyString(item["code"]) || !isNonEmptyString(item["message"])) throw new Error("invalid diagnostic");
-		if (item["path"] !== undefined && !isSafeDiagnosticPath(item["path"])) throw new Error("invalid diagnostic path");
-		return {
-			code: item["code"],
-			message: item["message"],
-			...(typeof item["path"] === "string" ? { path: item["path"] } : {}),
-		};
-	});
+	assertShape(storageValidators.diagnostics, value, "diagnostics");
+	if (value.some((diagnostic) => diagnostic.path !== undefined && !isSafeDiagnosticPath(diagnostic.path))) throw new Error("invalid diagnostic path");
+	return value;
 }
 
 async function readJson(filePath: string): Promise<unknown> {
@@ -673,42 +463,15 @@ async function ensurePrivateDirectory(directory: string): Promise<void> {
 }
 
 async function acquireCommitLock(mapDirectory: string): Promise<() => Promise<void>> {
-	const lockPath = path.join(mapDirectory, "COMMIT_LOCK");
-	let handle: Awaited<ReturnType<typeof open>>;
 	try {
-		handle = await open(lockPath, "wx", 0o600);
+		return await lock(mapDirectory, {
+			lockfilePath: path.join(mapDirectory, "COMMIT_LOCK"),
+			realpath: false,
+			stale: 10 * 60 * 1000,
+			retries: 0,
+		});
 	} catch (error) {
-		if (!isErrorCode(error, "EEXIST") || !await removeStaleLock(lockPath)) {
-			throw new RepoMapError("CACHE_ERROR", "Another Repo Map commit is already in progress.", error);
-		}
-		try {
-			handle = await open(lockPath, "wx", 0o600);
-		} catch (retryError) {
-			throw new RepoMapError("CACHE_ERROR", "Another Repo Map commit is already in progress.", retryError);
-		}
-	}
-	try {
-		await handle.writeFile(`${process.pid}\n`, "utf8");
-		await handle.sync();
-	} catch (error) {
-		await handle.close().catch(() => undefined);
-		await rm(lockPath, { force: true }).catch(() => undefined);
-		throw new RepoMapError("CACHE_ERROR", "Repo Map commit lock could not be created.", error);
-	}
-	return async () => {
-		await handle.close().catch(() => undefined);
-		await rm(lockPath, { force: true }).catch(() => undefined);
-	};
-}
-
-async function removeStaleLock(lockPath: string): Promise<boolean> {
-	try {
-		const info = await lstat(lockPath);
-		if (!info.isFile() || Date.now() - info.mtimeMs < 10 * 60 * 1000) return false;
-		await rm(lockPath, { force: true });
-		return true;
-	} catch {
-		return false;
+		throw new RepoMapError("CACHE_ERROR", "Another Repo Map commit is already in progress.", error);
 	}
 }
 
@@ -729,6 +492,30 @@ function isGenerationId(value: string): boolean {
 	return HASH_PATTERN.test(value) && !value.includes("..") && !path.isAbsolute(value) && !value.includes("/") && !value.includes("\\");
 }
 
+interface RuntimeValidator<T> {
+	Check(value: unknown): value is T;
+}
+
+function assertShape<T>(validator: RuntimeValidator<T>, value: unknown, label: string): asserts value is T {
+	if (!validator.Check(value)) throw new Error(`invalid ${label} shape`);
+}
+
+function assertStrictOrder<T>(values: readonly T[], compare: (left: T, right: T) => number, label: string): void {
+	for (let index = 1; index < values.length; index += 1) {
+		const previous = values[index - 1];
+		const current = values[index];
+		if (previous === undefined || current === undefined || compare(previous, current) >= 0) throw new Error(`invalid ${label} order`);
+	}
+}
+
+function countsAreSafe(metadata: RepoMapMetadata): boolean {
+	return [
+		metadata.fileCount, metadata.indexedFileCount, metadata.parsedFileCount, metadata.unsupportedFileCount,
+		metadata.parseErrorFileCount, metadata.symbolCount, metadata.testNodeCount, metadata.edgeCount,
+		metadata.aliasCount, metadata.tooLargeFileCount, metadata.diagnosticCount,
+	].every(Number.isSafeInteger);
+}
+
 function isSafeRelativePath(value: unknown): value is string {
 	if (typeof value !== "string" || value.length === 0 || value.includes("\\") || value.includes("\0") || path.posix.isAbsolute(value)) return false;
 	const normalized = path.posix.normalize(value);
@@ -739,16 +526,8 @@ function isSafeDiagnosticPath(value: unknown): value is string {
 	return value === "." || isSafeRelativePath(value) || (typeof value === "string" && value.startsWith("<") && value.endsWith(">"));
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
 function isErrorCode(error: unknown, code: string): boolean {
 	return typeof error === "object" && error !== null && "code" in error && error.code === code;
-}
-
-function isNonEmptyString(value: unknown): value is string {
-	return typeof value === "string" && value.length > 0;
 }
 
 function isIsoDate(value: unknown): value is string {
@@ -759,92 +538,17 @@ function isCanonicalAbsolutePath(value: string): boolean {
 	return path.isAbsolute(value) && !value.includes("\0") && path.normalize(value) === value;
 }
 
-function isCount(value: unknown): value is number {
-	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-}
-
-function isNonNegativeFinite(value: unknown): value is number {
-	return typeof value === "number" && Number.isFinite(value) && value >= 0;
-}
-
-function isHash(value: unknown): value is string {
-	return typeof value === "string" && HASH_PATTERN.test(value);
-}
-
-function isGitRevision(value: unknown): value is string {
-	return typeof value === "string" && /^[0-9a-f]{40,64}$/u.test(value);
-}
-
-function isFreshness(value: unknown): value is RepoMapMetadata["freshness"] {
-	return value === "fresh" || value === "partially_stale" || value === "stale" || value === "unavailable";
-}
-
-function isFileStatus(value: unknown): value is RepoMapFileRecord["status"] {
-	return value === "indexed" || value === "too_large" || value === "unreadable" || value === "unstable";
-}
-
-function isArchitectureKind(value: unknown): value is RepoMapArchitectureNode["kind"] {
-	return value === "package" || value === "component" || value === "entrypoint";
-}
-
-function isArchitectureSource(value: unknown): value is RepoMapArchitectureNode["source"] {
-	return value === "manifest" || value === "convention" || value === "syntactic";
-}
-
-function isPackageEcosystem(value: unknown): value is Extract<RepoMapArchitectureNode, { kind: "package" }>["ecosystem"] {
-	return value === "npm" || value === "python" || value === "go" || value === "cargo" || value === "repository";
-}
-
-function isEntrypointType(value: unknown): value is Extract<RepoMapArchitectureNode, { kind: "entrypoint" }>["entrypointType"] {
-	return value === "main" || value === "module" || value === "bin" || value === "export" || value === "script" || value === "test"
-		|| value === "command" || value === "tool" || value === "plugin";
-}
-
-function isConfidence(value: unknown): value is number {
-	return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
-}
-
 function isRepoRootPath(value: unknown): value is string {
 	return value === "." || isSafeRelativePath(value);
 }
 
-function isSourceRange(value: Record<string, unknown>): value is Record<string, unknown> & {
-	startLine: number;
-	endLine: number;
-	startByte: number;
-	endByte: number;
-} {
-	return isCount(value["startLine"])
-		&& value["startLine"] > 0
-		&& isCount(value["endLine"])
-		&& value["endLine"] >= value["startLine"]
-		&& isCount(value["startByte"])
-		&& isCount(value["endByte"])
-		&& value["endByte"] >= value["startByte"];
-}
-
-function isStringArray(value: unknown): value is string[] {
-	return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-
-function isEdgeKind(value: unknown): value is RepoMapEdge["kind"] {
-	return value === "contains" || value === "belongs-to" || value === "imports" || value === "exports" || value === "references" || value === "calls"
-		|| value === "declares-entrypoint" || value === "declares-script" || value === "registers-command" || value === "registers-tool"
-		|| value === "registers-plugin" || value === "exports-publicly" || value === "re-exports" || value === "tests"
-		|| value === "mocks" || value === "uses-fixture" || value === "uses-snapshot" || value === "configured-by";
-}
-
-function isEdgeResolution(value: unknown): value is RepoMapEdge["resolution"] {
-	return value === "lexical" || value === "syntactic" || value === "semantic";
-}
-
-function isEdgeSource(value: unknown): value is RepoMapEdge["source"] {
-	return value === "tree-sitter" || value === "syntax" || value === "manifest" || value === "lsp" || value === "convention";
-}
-
-function isAliasSource(value: unknown): value is RepoMapLexicalAlias["source"] {
-	return value === "file-path" || value === "symbol" || value === "signature" || value === "import-alias" || value === "export-alias"
-		|| value === "architecture" || value === "registration" || value === "config-key" || value === "environment" || value === "doc-comment";
+function isValidSourceRange(value: { startLine: number; endLine: number; startByte: number; endByte: number }): boolean {
+	return Number.isSafeInteger(value.startLine)
+		&& Number.isSafeInteger(value.endLine)
+		&& Number.isSafeInteger(value.startByte)
+		&& Number.isSafeInteger(value.endByte)
+		&& value.endLine >= value.startLine
+		&& value.endByte >= value.startByte;
 }
 
 function isLexicalTerm(value: unknown): value is string {
@@ -852,17 +556,17 @@ function isLexicalTerm(value: unknown): value is string {
 }
 
 function compareSymbol(left: RepoMapSymbolNode, right: RepoMapSymbolNode): number {
-	return compareStable(left.fileId, right.fileId) || left.startByte - right.startByte || compareStable(left.id, right.id);
+	return compareText(left.fileId, right.fileId) || left.startByte - right.startByte || compareText(left.id, right.id);
 }
 
 function compareArchitecture(left: RepoMapArchitectureNode, right: RepoMapArchitectureNode): number {
-	return compareStable(left.kind, right.kind) || compareStable(left.id, right.id);
+	return compareText(left.kind, right.kind) || compareText(left.id, right.id);
 }
 
 function compareTestNode(left: RepoMapTestNode, right: RepoMapTestNode): number {
-	return compareStable(left.fileId, right.fileId)
-		|| compareStable(left.testKind, right.testKind)
-		|| compareStable(left.id, right.id);
+	return compareText(left.fileId, right.fileId)
+		|| compareText(left.testKind, right.testKind)
+		|| compareText(left.id, right.id);
 }
 
 function architectureSnapshot(node: RepoMapArchitectureNode): unknown[] {
@@ -872,41 +576,30 @@ function architectureSnapshot(node: RepoMapArchitectureNode): unknown[] {
 }
 
 function compareDiagnostic(left: RepoMapDiagnostic, right: RepoMapDiagnostic): number {
-	return compareStable(left.path ?? "", right.path ?? "") || compareStable(left.code, right.code) || compareStable(left.message, right.message);
+	return compareText(left.path ?? "", right.path ?? "") || compareText(left.code, right.code) || compareText(left.message, right.message);
 }
 
 function sortedEdges(edges: readonly RepoMapEdge[]): RepoMapEdge[] {
 	return [...edges]
 		.sort(compareRepoMapEdge)
-		.map((edge) => ({ ...edge, evidence: [...edge.evidence].sort(compareEvidence) }));
+		.map((edge) => ({ ...edge, evidence: [...edge.evidence].sort(compareRepoMapEvidence) }));
 }
 
 function sortedAliases(aliases: readonly RepoMapLexicalAlias[]): RepoMapLexicalAlias[] {
 	return [...aliases]
 		.sort(compareAlias)
-		.map((alias) => ({ ...alias, evidence: [...alias.evidence].sort(compareEvidence) }));
+		.map((alias) => ({ ...alias, evidence: [...alias.evidence].sort(compareRepoMapEvidence) }));
 }
 
 function sortedTests(tests: readonly RepoMapTestNode[]): RepoMapTestNode[] {
 	return [...tests]
 		.sort(compareTestNode)
-		.map((node) => ({ ...node, evidence: [...node.evidence].sort(compareEvidence) }));
+		.map((node) => ({ ...node, evidence: [...node.evidence].sort(compareRepoMapEvidence) }));
 }
 
 function compareAlias(left: RepoMapLexicalAlias, right: RepoMapLexicalAlias): number {
-	return compareStable(left.term, right.term)
-		|| compareStable(left.canonical, right.canonical)
-		|| compareStable(left.target, right.target)
-		|| compareStable(left.source, right.source);
-}
-
-function compareEvidence(left: RepoMapEvidence, right: RepoMapEvidence): number {
-	return compareStable(left.path, right.path)
-		|| left.startByte - right.startByte
-		|| left.endByte - right.endByte
-		|| compareStable(left.textHash ?? "", right.textHash ?? "");
-}
-
-function compareStable(left: string, right: string): number {
-	return left < right ? -1 : left > right ? 1 : 0;
+	return compareText(left.term, right.term)
+		|| compareText(left.canonical, right.canonical)
+		|| compareText(left.target, right.target)
+		|| compareText(left.source, right.source);
 }

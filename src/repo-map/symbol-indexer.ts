@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
-import { open } from "node:fs/promises";
 import path from "node:path";
+import pLimit from "p-limit";
 
 import { analyzeCodeFile, languageFromPath, type AnalyzedFileIndex } from "../code-index/parser.js";
 import { throwIfAborted } from "./errors.js";
-import type { RepoMapImportFact, RepoMapSymbolIndex } from "./graph-types.js";
+import { compareText, groupBy, type RepoMapImportFact, type RepoMapSymbolIndex } from "./graph.js";
+import { readTextNoFollow, type RepoMapReadText } from "./source.js";
 import type { RepoMapDiagnostic, RepoMapEdge, RepoMapFileRecord, RepoMapSymbolNode } from "./types.js";
 
 export interface IndexRepoMapSymbolsInput {
@@ -20,7 +20,7 @@ export interface IndexRepoMapSymbolsInput {
 	};
 	signal?: AbortSignal;
 	analyze?: (filePath: string, text: string) => AnalyzedFileIndex;
-	readText?: (absolutePath: string, signal?: AbortSignal) => Promise<string>;
+	readText?: RepoMapReadText;
 }
 
 interface FileIndexResult {
@@ -34,7 +34,7 @@ interface FileIndexResult {
 export async function indexRepoMapSymbols(input: IndexRepoMapSymbolsInput): Promise<RepoMapSymbolIndex> {
 	throwIfAborted(input.signal);
 	const analyze = input.analyze ?? analyzeCodeFile;
-	const readText = input.readText ?? defaultReadText;
+	const readText = input.readText ?? readTextNoFollow;
 	const previousFiles = new Map(input.previous?.files.map((file) => [file.path, file]) ?? []);
 	const previousSymbols = groupSymbolsByFile(input.previous?.symbols ?? []);
 	const previousImports = groupImportsByFile(input.previous?.edges ?? []);
@@ -43,32 +43,21 @@ export async function indexRepoMapSymbols(input: IndexRepoMapSymbolsInput): Prom
 			.filter((diagnostic) => diagnostic.code === "PARSER_ERROR" || diagnostic.code === "FILE_CHANGED_DURING_PARSE")
 			.flatMap((diagnostic) => diagnostic.path === undefined ? [] : [diagnostic.path]),
 	);
-	const results = new Array<FileIndexResult | undefined>(input.files.length);
-	let next = 0;
-
-	const worker = async (): Promise<void> => {
-		while (true) {
-			throwIfAborted(input.signal);
-			const index = next;
-			if (index >= input.files.length) return;
-			next += 1;
-			const file = input.files[index];
-			if (file === undefined) return;
-			results[index] = await indexFile(file, input.root, previousFiles, previousSymbols, previousImports, previousErrors, analyze, readText, input.signal);
-		}
-	};
-	await Promise.all(Array.from({ length: Math.min(input.concurrency, Math.max(1, input.files.length)) }, () => worker()));
+	const limit = pLimit(input.concurrency);
+	const results = await limit.map(input.files, async (file) => {
+		throwIfAborted(input.signal);
+		return await indexFile(file, input.root, previousFiles, previousSymbols, previousImports, previousErrors, analyze, readText, input.signal);
+	});
 	throwIfAborted(input.signal);
 
-	const complete = results.filter((result): result is FileIndexResult => result !== undefined);
 	return {
-		symbols: complete.flatMap((result) => result.symbols).sort(compareSymbol),
-		imports: complete.flatMap((result) => result.imports).sort(compareImport),
-		diagnostics: complete.flatMap((result) => result.diagnostics),
-		parsedFileCount: complete.filter((result) => result.status === "parsed").length,
-		unsupportedFileCount: complete.filter((result) => result.status === "unsupported").length,
-		parseErrorFileCount: complete.filter((result) => result.status === "error").length,
-		reusedParsedFileCount: complete.filter((result) => result.status === "parsed" && result.reused).length,
+		symbols: results.flatMap((result) => result.symbols).sort(compareSymbol),
+		imports: results.flatMap((result) => result.imports).sort(compareImport),
+		diagnostics: results.flatMap((result) => result.diagnostics),
+		parsedFileCount: results.filter((result) => result.status === "parsed").length,
+		unsupportedFileCount: results.filter((result) => result.status === "unsupported").length,
+		parseErrorFileCount: results.filter((result) => result.status === "error").length,
+		reusedParsedFileCount: results.filter((result) => result.status === "parsed" && result.reused).length,
 	};
 }
 
@@ -148,13 +137,7 @@ function parseFailure(pathValue: string, code: string, message: string): FileInd
 }
 
 function groupSymbolsByFile(symbols: readonly RepoMapSymbolNode[]): Map<string, RepoMapSymbolNode[]> {
-	const result = new Map<string, RepoMapSymbolNode[]>();
-	for (const symbol of symbols) {
-		const group = result.get(symbol.fileId) ?? [];
-		group.push(symbol);
-		result.set(symbol.fileId, group);
-	}
-	return result;
+	return new Map(groupBy(symbols, (symbol) => symbol.fileId));
 }
 
 function groupImportsByFile(edges: readonly RepoMapEdge[]): Map<string, RepoMapImportFact[]> {
@@ -170,27 +153,14 @@ function groupImportsByFile(edges: readonly RepoMapEdge[]): Map<string, RepoMapI
 	return result;
 }
 
-async function defaultReadText(absolutePath: string, signal?: AbortSignal): Promise<string> {
-	const handle = await open(absolutePath, constants.O_RDONLY | constants.O_NOFOLLOW);
-	try {
-		return await handle.readFile({ encoding: "utf8", ...(signal !== undefined ? { signal } : {}) });
-	} finally {
-		await handle.close();
-	}
-}
-
 function range(value: { startLine: number; endLine: number; startByte: number; endByte: number }) {
 	return { startLine: value.startLine, endLine: value.endLine, startByte: value.startByte, endByte: value.endByte };
 }
 
 function compareSymbol(left: RepoMapSymbolNode, right: RepoMapSymbolNode): number {
-	return compare(left.fileId, right.fileId) || left.startByte - right.startByte || compare(left.id, right.id);
+	return compareText(left.fileId, right.fileId) || left.startByte - right.startByte || compareText(left.id, right.id);
 }
 
 function compareImport(left: RepoMapImportFact, right: RepoMapImportFact): number {
-	return compare(left.fileId, right.fileId) || left.evidence.startByte - right.evidence.startByte || compare(left.specifier, right.specifier);
-}
-
-function compare(left: string, right: string): number {
-	return left < right ? -1 : left > right ? 1 : 0;
+	return compareText(left.fileId, right.fileId) || left.evidence.startByte - right.evidence.startByte || compareText(left.specifier, right.specifier);
 }

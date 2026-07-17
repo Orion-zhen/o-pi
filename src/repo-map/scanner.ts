@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, open, readdir } from "node:fs/promises";
 import path from "node:path";
 import { constants, type Dirent, type Stats } from "node:fs";
+import pLimit from "p-limit";
 
 import { createFileIdentity } from "../code-index/identity.js";
 import {
@@ -161,38 +162,23 @@ export async function scanRepoMap(input: RepoMapScanInput): Promise<RepoMapScanR
 	candidates.sort((left, right) => compareStable(left.relativePath, right.relativePath));
 	safeProgress(input.onProgress, { phase: "scanning", completed: 0, total: candidates.length });
 	const previous = new Map((input.previousFiles ?? []).map((record) => [record.path, record]));
-	const records = new Array<RepoMapFileRecord | undefined>(candidates.length);
 	let reused = 0;
 	let hashed = 0;
 	let completed = 0;
-	let nextIndex = 0;
-
-	const worker = async (): Promise<void> => {
-		while (true) {
-			throwIfAborted(input.signal);
-			const index = nextIndex;
-			if (index >= candidates.length) return;
-			nextIndex += 1;
-			const candidate = candidates[index];
-			if (candidate === undefined) return;
-			const oldRecord = previous.get(candidate.relativePath);
-			const result = await buildRecord(candidate, oldRecord, input.maxFileBytes, fileSystem, input.signal);
-			records[index] = result.record;
-			if (result.reused) reused += 1;
-			if (result.hashed) hashed += 1;
-			if (result.diagnostic !== undefined) diagnostics.push(result.diagnostic);
-			completed += 1;
-			safeProgress(input.onProgress, { phase: "hashing", completed, total: candidates.length });
-		}
-	};
-	const workerResults = await Promise.allSettled(
-		Array.from({ length: Math.min(input.concurrency, Math.max(1, candidates.length)) }, () => worker()),
-	);
-	const workerFailure = workerResults.find((result): result is PromiseRejectedResult => result.status === "rejected");
-	if (workerFailure !== undefined) throw workerFailure.reason;
+	const limit = pLimit(input.concurrency);
+	const records = await limit.map(candidates, async (candidate) => {
+		throwIfAborted(input.signal);
+		const result = await buildRecord(candidate, previous.get(candidate.relativePath), input.maxFileBytes, fileSystem, input.signal);
+		if (result.reused) reused += 1;
+		if (result.hashed) hashed += 1;
+		if (result.diagnostic !== undefined) diagnostics.push(result.diagnostic);
+		completed += 1;
+		safeProgress(input.onProgress, { phase: "hashing", completed, total: candidates.length });
+		return result.record;
+	});
 	throwIfAborted(input.signal);
 
-	const files = records.filter((record): record is RepoMapFileRecord => record !== undefined);
+	const files = records;
 	const currentPaths = new Set(files.map((record) => record.path));
 	let added = 0;
 	let changed = 0;

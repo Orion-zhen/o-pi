@@ -1,7 +1,8 @@
 import path from "node:path";
 
 import { languageFromPath } from "../code-index/parser.js";
-import { compareRepoMapEdge, type RepoMapImportFact } from "./graph-types.js";
+import { coalesceRepoMapEdges, groupBy, type RepoMapImportFact } from "./graph.js";
+import { fileEvidence, symbolEvidence } from "./source.js";
 import type { RepoMapEdge, RepoMapEvidence, RepoMapFileRecord, RepoMapSymbolNode } from "./types.js";
 
 export interface BuildRepoMapRelationshipsInput {
@@ -89,7 +90,7 @@ export function buildRepoMapRelationships(input: BuildRepoMapRelationshipsInput)
 			evidence: [item.evidence],
 		});
 	}
-	return coalesceAndSort(edges);
+	return coalesceRepoMapEdges(edges);
 }
 
 function addSymbolRelation(
@@ -145,15 +146,10 @@ function importCandidates(importerPath: string, specifier: string): string[] {
 }
 
 function symbolLookup(symbols: readonly RepoMapSymbolNode[]): Map<string, RepoMapSymbolNode[]> {
-	const result = new Map<string, RepoMapSymbolNode[]>();
-	for (const symbol of symbols) {
-		for (const key of new Set([symbol.name, symbol.qualifiedName].filter((value): value is string => value !== undefined))) {
-			const values = result.get(key) ?? [];
-			values.push(symbol);
-			result.set(key, values);
-		}
-	}
-	return result;
+	const entries = symbols.flatMap((symbol) =>
+		[...new Set([symbol.name, symbol.qualifiedName].filter((value): value is string => value !== undefined))]
+			.map((name) => ({ name, symbol })));
+	return new Map(Array.from(groupBy(entries, (item) => item.name), ([name, items]) => [name, items.map((item) => item.symbol)]));
 }
 
 function shouldIndexReference(
@@ -189,43 +185,6 @@ function exportConfidence(filePath: string): number {
 	return exportSource(filePath) === "tree-sitter" ? 0.95 : 0.75;
 }
 
-function fileEvidence(file: RepoMapFileRecord): RepoMapEvidence {
-	return { path: file.path, ...(file.contentHash !== undefined ? { textHash: file.contentHash } : {}), startLine: 1, endLine: 1, startByte: 0, endByte: 0 };
-}
-
-function symbolEvidence(file: RepoMapFileRecord, symbol: RepoMapSymbolNode): RepoMapEvidence {
-	return {
-		path: file.path,
-		...(file.contentHash !== undefined ? { textHash: file.contentHash } : {}),
-		startLine: symbol.startLine,
-		endLine: symbol.endLine,
-		startByte: symbol.startByte,
-		endByte: symbol.endByte,
-	};
-}
-
 function unique(values: readonly RepoMapSymbolNode[]): RepoMapSymbolNode | undefined {
 	return values.length === 1 ? values[0] : undefined;
-}
-
-function coalesceAndSort(edges: readonly RepoMapEdge[]): RepoMapEdge[] {
-	const result = new Map<string, RepoMapEdge>();
-	for (const edge of edges) {
-		const key = [edge.kind, edge.from, edge.to, edge.resolution, edge.source, edge.confidence, edge.lexicalTarget ?? ""].join("\0");
-		const existing = result.get(key);
-		if (existing === undefined) result.set(key, { ...edge, evidence: [...edge.evidence] });
-		else existing.evidence.push(...edge.evidence);
-	}
-	for (const edge of result.values()) edge.evidence = uniqueEvidence(edge.evidence);
-	return [...result.values()].sort(compareRepoMapEdge);
-}
-
-function uniqueEvidence(values: readonly RepoMapEvidence[]): RepoMapEvidence[] {
-	const result = new Map<string, RepoMapEvidence>();
-	for (const value of values) result.set([value.path, value.startByte, value.endByte, value.textHash ?? ""].join("\0"), value);
-	return [...result.values()].sort((left, right) => compare(left.path, right.path) || left.startByte - right.startByte || left.endByte - right.endByte);
-}
-
-function compare(left: string, right: string): number {
-	return left < right ? -1 : left > right ? 1 : 0;
 }

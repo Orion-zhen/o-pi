@@ -56,6 +56,7 @@ describe("Repo Map Phase 5 architecture graph", () => {
 		]));
 		expect(architecture.find((node) => node.kind === "entrypoint" && node.entrypointType === "plugin" && node.name === "sample"))
 			.toMatchObject({ source: "convention", confidence: 0.72 });
+		expect(architecture.some((node) => node.kind === "entrypoint" && node.name === "not-real")).toBe(false);
 		for (const kind of ["declares-entrypoint", "declares-script", "registers-command", "registers-tool", "registers-plugin", "re-exports", "exports-publicly", "belongs-to"] as const) {
 			expect(generation.edges.some((edge) => edge.kind === kind)).toBe(true);
 		}
@@ -132,7 +133,7 @@ function fixtureSources(): Map<string, string> {
 		["python/pyproject.toml", "[project]\nname = 'py-lib'\n[project.scripts]\npy-cli = 'py_lib:main'\n"],
 		["go/go.mod", "module example.test/go-lib\n"],
 		["rust/Cargo.toml", "[package]\nname = 'rust-lib'\n"],
-		["agent/extensions/sample.ts", "export default function sample(pi: any) { pi.registerCommand('serve', {}); pi.registerTool({ name: 'fetch', execute() {} }); }\n"],
+		["agent/extensions/sample.ts", "// pi.registerCommand('not-real', {});\nexport default function sample(pi: any) { pi.registerCommand('serve', {}); pi.registerTool({ name: 'fetch', execute() {} }); }\n"],
 	]);
 }
 

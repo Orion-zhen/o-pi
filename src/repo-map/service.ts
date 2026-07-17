@@ -24,7 +24,7 @@ import {
 	type RepoMapGeneration,
 } from "./storage.js";
 import type { RepoMapEdge, RepoMapFreshness, RepoMapMetadata, RepoMapScanSummary } from "./types.js";
-import { compareRepoMapEdge, type RepoMapSymbolIndex } from "./graph-types.js";
+import { coalesceRepoMapEdges, type RepoMapSymbolIndex } from "./graph.js";
 import type { RepoMapActivation } from "./activation.js";
 
 export interface InitializeRepoMapInput {
@@ -148,7 +148,7 @@ export async function initializeRepoMap(
 	});
 	throwIfAborted(input.signal);
 	const relationshipEdges = await deps.buildRelationships({ mapId, files: scan.files, symbols: architecture.symbols, imports: symbolIndex.imports });
-	const baseEdges = [...relationshipEdges, ...architecture.edges].sort(compareRepoMapEdge);
+	const baseEdges = coalesceRepoMapEdges([...relationshipEdges, ...architecture.edges]);
 	const testGraph = await deps.buildTestGraph({
 		root: identity.repositoryRoot,
 		files: scan.files,
@@ -156,7 +156,7 @@ export async function initializeRepoMap(
 		edges: baseEdges,
 		...(input.signal !== undefined ? { signal: input.signal } : {}),
 	});
-	const edges = [...baseEdges, ...testGraph.edges].sort(compareRepoMapEdge);
+	const edges = coalesceRepoMapEdges([...baseEdges, ...testGraph.edges]);
 	const aliases = await deps.buildLexicalAliases({
 		root: identity.repositoryRoot,
 		files: scan.files,

@@ -1,4 +1,6 @@
 import type { RepoMapGeneration } from "./storage.js";
+import { compareText } from "./graph.js";
+import { fileEvidence, symbolEvidence } from "./source.js";
 import type { RepoMapEdge, RepoMapEvidence, RepoMapFileRecord, RepoMapSymbolNode } from "./types.js";
 
 export type RepoMapImpactRole = "changed" | "dependent" | "caller" | "test" | "public-api" | "entrypoint" | "component";
@@ -191,7 +193,7 @@ function changedSymbols(before: RepoMapGeneration | undefined, after: RepoMapGen
 			...(newSymbol !== undefined ? { after: newSymbol } : {}),
 		});
 	}
-	return result.sort((left, right) => compare(left.label, right.label));
+	return result.sort((left, right) => compareText(left.label, right.label));
 }
 
 function graphLookup(generation: RepoMapGeneration): {
@@ -257,21 +259,6 @@ function candidateFile(file: RepoMapFileRecord): Pick<RepoMapImpactCandidate, "p
 	return { path: file.path, ...(file.contentHash !== undefined ? { contentHash: file.contentHash } : {}) };
 }
 
-function fileEvidence(file: RepoMapFileRecord): RepoMapEvidence {
-	return { path: file.path, ...(file.contentHash !== undefined ? { textHash: file.contentHash } : {}), startLine: 1, endLine: 1, startByte: 0, endByte: 0 };
-}
-
-function symbolEvidence(file: RepoMapFileRecord, symbol: RepoMapSymbolNode): RepoMapEvidence {
-	return {
-		path: file.path,
-		...(file.contentHash !== undefined ? { textHash: file.contentHash } : {}),
-		startLine: symbol.startLine,
-		endLine: symbol.endLine,
-		startByte: symbol.startByte,
-		endByte: symbol.endByte,
-	};
-}
-
 function symbolKey(symbol: RepoMapSymbolNode): string {
 	return [symbol.symbolKind, symbol.qualifiedName ?? symbol.name ?? `<${symbol.startByte}>`].join("\0");
 }
@@ -297,10 +284,6 @@ function compareCandidates(left: RankedCandidate, right: RankedCandidate): numbe
 	return right.priority - left.priority
 		|| left.graphDistance - right.graphDistance
 		|| right.confidence - left.confidence
-		|| compare(left.path, right.path)
-		|| compare(left.symbol ?? "", right.symbol ?? "");
-}
-
-function compare(left: string, right: string): number {
-	return left < right ? -1 : left > right ? 1 : 0;
+		|| compareText(left.path, right.path)
+		|| compareText(left.symbol ?? "", right.symbol ?? "");
 }

@@ -1,11 +1,11 @@
-import { createHash } from "node:crypto";
-import { constants } from "node:fs";
-import { open } from "node:fs/promises";
 import path from "node:path";
+import { parse as parseToml } from "smol-toml";
 
 import { languageFromPath } from "../code-index/parser.js";
 import { throwIfAborted } from "./errors.js";
-import { compareRepoMapEdge } from "./graph-types.js";
+import { coalesceRepoMapEdges, compareText, uniqueBy } from "./graph.js";
+import { fileEvidence, rangeEvidence, readTextNoFollow, sha256, sourceEvidence, symbolEvidence, type RepoMapReadText, type RepoMapSourceFile } from "./source.js";
+import { javascriptSyntaxFacts, type RegistrationFact } from "./syntax-facts.js";
 import type {
 	RepoMapArchitectureNode,
 	RepoMapComponentNode,
@@ -25,7 +25,7 @@ export interface BuildRepoMapArchitectureInput {
 	files: readonly RepoMapFileRecord[];
 	symbols: readonly RepoMapSymbolNode[];
 	signal?: AbortSignal;
-	readText?: (absolutePath: string, signal?: AbortSignal) => Promise<string>;
+	readText?: RepoMapReadText;
 }
 
 export interface RepoMapArchitectureIndex {
@@ -35,15 +35,10 @@ export interface RepoMapArchitectureIndex {
 	diagnostics: RepoMapDiagnostic[];
 }
 
-interface SourceFile {
-	file: RepoMapFileRecord;
-	text: string;
-}
-
 interface PackageDraft {
 	node: RepoMapPackageNode;
 	evidence: RepoMapEvidence;
-	manifest?: SourceFile;
+	manifest?: RepoMapSourceFile;
 }
 
 interface ManifestEntrypoint {
@@ -59,9 +54,9 @@ const CODE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".
 /** Build deterministic package/component/entrypoint facts without executing repository code. */
 export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureInput): Promise<RepoMapArchitectureIndex> {
 	throwIfAborted(input.signal);
-	const readText = input.readText ?? defaultReadText;
+	const readText = input.readText ?? readTextNoFollow;
 	const filesByPath = new Map(input.files.map((file) => [file.path, file]));
-	const sourceFiles = new Map<string, SourceFile>();
+	const sourceFiles = new Map<string, RepoMapSourceFile>();
 	const diagnostics: RepoMapDiagnostic[] = [];
 	const shouldRead = (file: RepoMapFileRecord): boolean => file.status === "indexed"
 		&& (MANIFEST_NAMES.has(path.posix.basename(file.path)) || isScriptFile(file.path));
@@ -70,7 +65,7 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 		throwIfAborted(input.signal);
 		try {
 			const text = await readText(path.join(input.root, file.path), input.signal);
-			if (file.contentHash === undefined || hash(text) !== file.contentHash) {
+			if (file.contentHash === undefined || sha256(text) !== file.contentHash) {
 				diagnostics.push({ code: "ARCHITECTURE_FILE_CHANGED", message: "File changed while architecture facts were indexed.", path: file.path });
 				continue;
 			}
@@ -141,22 +136,25 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 	const reExportedSymbols = new Set<string>();
 	for (const source of sourceFiles.values()) {
 		if (!isJavaScriptFamily(source.file.path)) continue;
+		const syntax = javascriptSyntaxFacts(source.file.path, source.text);
 		const owner = packageForFile.get(source.file.id);
 		const component = componentForFile.get(source.file.id);
-		for (const fact of registrationFacts(source.text)) {
+		for (const fact of syntax.registrations) {
 			const entrypoint = registrationEntrypoint(fact, source.file, owner?.node);
+			const evidence = rangeEvidence(source, fact);
 			nodes.push(entrypoint);
-			edges.push(edge(source.file.id, entrypoint.id, fact.edgeKind, "syntax", fact.confidence, evidenceForRange(source, fact.start, fact.end), fact.lexicalTarget));
-			if (component !== undefined) edges.push(edge(entrypoint.id, component.id, "belongs-to", "convention", component.confidence, evidenceForRange(source, fact.start, fact.end)));
+			edges.push(edge(source.file.id, entrypoint.id, registrationEdgeKind(fact.type), "syntax", entrypoint.confidence, evidence, fact.name));
+			if (component !== undefined) edges.push(edge(entrypoint.id, component.id, "belongs-to", "convention", component.confidence, evidence));
 		}
-		if (isExtensionConvention(source.file.path, source.text)) {
+		const defaultExport = syntax.defaultExports[0];
+		if (defaultExport !== undefined && isExtensionConvention(source.file.path)) {
 			const entrypoint = conventionPluginEntrypoint(source.file, owner?.node);
 			nodes.push(entrypoint);
-			edges.push(edge(source.file.id, entrypoint.id, "registers-plugin", "convention", 0.72, evidenceForMatch(source, /\bexport\s+default\b/u)));
+			edges.push(edge(source.file.id, entrypoint.id, "registers-plugin", "convention", 0.72, rangeEvidence(source, defaultExport)));
 		}
-		for (const fact of reExportFacts(source.text)) {
+		for (const fact of syntax.reExports) {
 			const target = resolveDeclaredTarget(path.posix.dirname(source.file.path), fact.target, filesByPath);
-			const evidence = evidenceForRange(source, fact.start, fact.end);
+			const evidence = rangeEvidence(source, fact);
 			if (target === undefined) {
 				edges.push(edge(source.file.id, `external:${encodeURIComponent(fact.target)}`, "re-exports", "syntax", 0.45, evidence, fact.target));
 				continue;
@@ -169,8 +167,7 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 			}
 			if (publicFiles.has(source.file.id)) publicFiles.add(target.id);
 		}
-		for (const match of source.text.matchAll(/\bexport\s+default\b/gu)) {
-			if (match.index === undefined) continue;
+		for (const exported of syntax.defaultExports) {
 			const entrypoint: RepoMapEntrypointNode = {
 				kind: "entrypoint",
 				id: architectureId("entrypoint", source.file.id, "export", "default"),
@@ -182,7 +179,7 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 				confidence: 0.96,
 			};
 			nodes.push(entrypoint);
-			edges.push(edge(source.file.id, entrypoint.id, "exports-publicly", "syntax", 0.96, evidenceForRange(source, match.index, match.index + match[0].length)));
+			edges.push(edge(source.file.id, entrypoint.id, "exports-publicly", "syntax", 0.96, rangeEvidence(source, exported)));
 		}
 	}
 
@@ -207,7 +204,7 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 
 	return {
 		nodes: uniqueNodes(nodes),
-		edges: coalesceEdges(edges),
+		edges: coalesceRepoMapEdges(edges),
 		symbols,
 		diagnostics,
 	};
@@ -216,7 +213,7 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 function discoverPackages(
 	root: string,
 	files: readonly RepoMapFileRecord[],
-	sources: ReadonlyMap<string, SourceFile>,
+	sources: ReadonlyMap<string, RepoMapSourceFile>,
 	diagnostics: RepoMapDiagnostic[],
 ): PackageDraft[] {
 	const result: PackageDraft[] = [];
@@ -251,7 +248,7 @@ function discoverPackages(
 			});
 		}
 	}
-	return result.sort((left, right) => right.node.rootPath.length - left.node.rootPath.length || compare(left.node.id, right.node.id));
+	return result.sort((left, right) => right.node.rootPath.length - left.node.rootPath.length || compareText(left.node.id, right.node.id));
 }
 
 function manifestPackage(
@@ -268,9 +265,9 @@ function manifestPackage(
 			return { name, ecosystem: "npm" };
 		} catch { return undefined; }
 	}
-	if (manifestName === "pyproject.toml") return { name: capture(text, /^\s*name\s*=\s*["']([^"']+)["']/mu) ?? fallbackPackageName(packageRoot, repositoryRoot), ecosystem: "python" };
+	if (manifestName === "pyproject.toml") return { name: tomlPackageName(text, "project") ?? fallbackPackageName(packageRoot, repositoryRoot), ecosystem: "python" };
 	if (manifestName === "go.mod") return { name: capture(text, /^\s*module\s+(\S+)/mu) ?? fallbackPackageName(packageRoot, repositoryRoot), ecosystem: "go" };
-	if (manifestName === "Cargo.toml") return { name: capture(text, /^\s*name\s*=\s*["']([^"']+)["']/mu) ?? fallbackPackageName(packageRoot, repositoryRoot), ecosystem: "cargo" };
+	if (manifestName === "Cargo.toml") return { name: tomlPackageName(text, "package") ?? fallbackPackageName(packageRoot, repositoryRoot), ecosystem: "cargo" };
 	return undefined;
 }
 
@@ -297,10 +294,18 @@ function manifestEntrypoints(item: PackageDraft, diagnostics: RepoMapDiagnostic[
 		}
 	}
 	if (name === "pyproject.toml") {
-		const section = /\[project\.scripts\]\s*\n(?<body>[\s\S]*?)(?=\n\s*\[|$)/u.exec(source.text)?.groups?.["body"] ?? "";
-		return [...section.matchAll(/^\s*([\w.-]+)\s*=\s*["']([^"']+)["']/gmu)]
-			.flatMap((match) => match[1] !== undefined && match[2] !== undefined
-				? [{ name: match[1], type: "bin" as const, target: match[2], script: false }] : []);
+		try {
+			const parsed = parseToml(source.text);
+			const project = parsed["project"];
+			const scripts = isRecord(project) ? project["scripts"] : undefined;
+			return isRecord(scripts)
+				? Object.entries(scripts).flatMap(([scriptName, target]) => typeof target === "string"
+					? [{ name: scriptName, type: "bin" as const, target, script: false }] : [])
+				: [];
+		} catch {
+			diagnostics.push({ code: "ARCHITECTURE_MANIFEST_INVALID", message: "pyproject.toml entrypoints could not be parsed.", path: source.file.path });
+			return [];
+		}
 	}
 	return [];
 }
@@ -327,7 +332,7 @@ function discoverComponents(
 		const id = architectureId("component", owner.node.id, segment);
 		result.set(id, { kind: "component", id, name: segment, rootPath, packageId: owner.node.id, source: "convention", confidence: segment === "root" ? 0.78 : 0.88 });
 	}
-	return [...result.values()].sort((left, right) => compare(left.id, right.id));
+	return [...result.values()].sort((left, right) => compareText(left.id, right.id));
 }
 
 function deepestPackage(packages: readonly PackageDraft[], filePath: string): PackageDraft | undefined {
@@ -359,47 +364,6 @@ function makeEntrypoint(owner: RepoMapPackageNode, declaration: ManifestEntrypoi
 	};
 }
 
-interface RegistrationFact {
-	name: string;
-	type: "command" | "tool" | "plugin";
-	edgeKind: "registers-command" | "registers-tool" | "registers-plugin";
-	start: number;
-	end: number;
-	confidence: number;
-	lexicalTarget: string;
-}
-
-function registrationFacts(text: string): RegistrationFact[] {
-	const constants = new Map<string, string>();
-	for (const match of text.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*["'`]([^"'`]+)["'`]/gu)) {
-		if (match[1] !== undefined && match[2] !== undefined) constants.set(match[1], match[2]);
-	}
-	const result: RegistrationFact[] = [];
-	for (const type of ["Command", "Tool", "Plugin", "Extension"] as const) {
-		const pattern = new RegExp(`\\bregister${type}\\s*\\(`, "gu");
-		for (const match of text.matchAll(pattern)) {
-			if (match.index === undefined) continue;
-			const snippet = text.slice(match.index, match.index + 900);
-			const expression = type === "Tool"
-				? capture(snippet, /\bname\s*:\s*(["'`][^"'`]+["'`]|[A-Za-z_$][\w$]*)/u)
-				: capture(snippet, /^\w+\s*\(\s*(["'`][^"'`]+["'`]|[A-Za-z_$][\w$]*)/u);
-			if (expression === undefined) continue;
-			const literal = /^["'`]/u.test(expression) ? expression.slice(1, -1) : constants.get(expression);
-			const normalizedType = type === "Extension" ? "plugin" : type.toLocaleLowerCase() as "command" | "tool" | "plugin";
-			result.push({
-				name: literal ?? expression,
-				type: normalizedType,
-				edgeKind: normalizedType === "command" ? "registers-command" : normalizedType === "tool" ? "registers-tool" : "registers-plugin",
-				start: match.index,
-				end: match.index + Math.min(snippet.length, Math.max(match[0].length, snippet.indexOf("\n") < 0 ? match[0].length : snippet.indexOf("\n"))),
-				confidence: literal === undefined ? 0.62 : 0.96,
-				lexicalTarget: expression,
-			});
-		}
-	}
-	return result;
-}
-
 function registrationEntrypoint(fact: RegistrationFact, file: RepoMapFileRecord, owner: RepoMapPackageNode | undefined): RepoMapEntrypointNode {
 	return {
 		kind: "entrypoint",
@@ -408,10 +372,14 @@ function registrationEntrypoint(fact: RegistrationFact, file: RepoMapFileRecord,
 		entrypointType: fact.type,
 		...(owner !== undefined ? { packageId: owner.id } : {}),
 		fileId: file.id,
-		declaredTarget: fact.lexicalTarget,
+		declaredTarget: fact.name,
 		source: "syntactic",
-		confidence: fact.confidence,
+		confidence: fact.dynamic ? 0.62 : 0.96,
 	};
+}
+
+function registrationEdgeKind(type: RegistrationFact["type"]): "registers-command" | "registers-tool" | "registers-plugin" {
+	return type === "command" ? "registers-command" : type === "tool" ? "registers-tool" : "registers-plugin";
 }
 
 function conventionPluginEntrypoint(file: RepoMapFileRecord, owner: RepoMapPackageNode | undefined): RepoMapEntrypointNode {
@@ -426,19 +394,6 @@ function conventionPluginEntrypoint(file: RepoMapFileRecord, owner: RepoMapPacka
 		source: "convention",
 		confidence: 0.72,
 	};
-}
-
-interface ReExportFact { target: string; names: "*" | Set<string>; start: number; end: number }
-
-function reExportFacts(text: string): ReExportFact[] {
-	const result: ReExportFact[] = [];
-	for (const match of text.matchAll(/\bexport\s+(?<body>\*|\{[^}]*\})\s+from\s+["'](?<target>[^"']+)["']/gu)) {
-		if (match.index === undefined || match.groups?.["body"] === undefined || match.groups["target"] === undefined) continue;
-		const body = match.groups["body"];
-		const names = body === "*" ? "*" : new Set(body.slice(1, -1).split(",").map((item) => item.trim().split(/\s+as\s+/u)[0]).filter((item): item is string => item !== undefined && item.length > 0));
-		result.push({ target: match.groups["target"], names, start: match.index, end: match.index + match[0].length });
-	}
-	return result;
 }
 
 function resolveDeclaredTarget(
@@ -473,9 +428,8 @@ function isModulePublic(symbol: RepoMapSymbolNode, files: readonly RepoMapFileRe
 	return false;
 }
 
-function isExtensionConvention(filePath: string, text: string): boolean {
-	return /\bexport\s+default\b/u.test(text)
-		&& (filePath.startsWith("agent/extensions/") || /(?:^|\/)(?:extensions?|plugins?)(?:\/|$)/u.test(filePath));
+function isExtensionConvention(filePath: string): boolean {
+	return filePath.startsWith("agent/extensions/") || /(?:^|\/)(?:extensions?|plugins?)(?:\/|$)/u.test(filePath);
 }
 
 function isScriptFile(filePath: string): boolean {
@@ -487,24 +441,8 @@ function isJavaScriptFamily(filePath: string): boolean {
 }
 
 function uniqueNodes(nodes: readonly RepoMapArchitectureNode[]): RepoMapArchitectureNode[] {
-	const result = new Map<string, RepoMapArchitectureNode>();
-	for (const node of nodes) {
-		const current = result.get(node.id);
-		if (current === undefined || node.confidence > current.confidence) result.set(node.id, node);
-	}
-	return [...result.values()].sort((left, right) => compare(left.kind, right.kind) || compare(left.id, right.id));
-}
-
-function coalesceEdges(edges: readonly RepoMapEdge[]): RepoMapEdge[] {
-	const result = new Map<string, RepoMapEdge>();
-	for (const item of edges) {
-		const key = [item.kind, item.from, item.to, item.resolution, item.source, item.confidence, item.lexicalTarget ?? ""].join("\0");
-		const current = result.get(key);
-		if (current === undefined) result.set(key, { ...item, evidence: [...item.evidence] });
-		else current.evidence.push(...item.evidence);
-	}
-	for (const item of result.values()) item.evidence = uniqueEvidence(item.evidence);
-	return [...result.values()].sort(compareRepoMapEdge);
+	return uniqueBy([...nodes].sort((left, right) => left.confidence - right.confidence), (node) => node.id)
+		.sort((left, right) => compareText(left.kind, right.kind) || compareText(left.id, right.id));
 }
 
 function edge(
@@ -519,43 +457,17 @@ function edge(
 	return { from, to, kind, resolution: source === "manifest" ? "syntactic" : source === "convention" ? "lexical" : "syntactic", source, confidence, ...(lexicalTarget !== undefined && lexicalTarget.length > 0 ? { lexicalTarget } : {}), evidence: [evidence] };
 }
 
-function uniqueEvidence(values: readonly RepoMapEvidence[]): RepoMapEvidence[] {
-	const result = new Map<string, RepoMapEvidence>();
-	for (const value of values) result.set(`${value.path}\0${value.startByte}\0${value.endByte}`, value);
-	return [...result.values()].sort((left, right) => compare(left.path, right.path) || left.startByte - right.startByte);
-}
-
-function fileEvidence(file: RepoMapFileRecord): RepoMapEvidence {
-	return { path: file.path, ...(file.contentHash !== undefined ? { textHash: file.contentHash } : {}), startLine: 1, endLine: 1, startByte: 0, endByte: Math.min(file.size, 1) };
-}
-
-function symbolEvidence(file: RepoMapFileRecord, symbol: RepoMapSymbolNode): RepoMapEvidence {
-	return { path: file.path, ...(file.contentHash !== undefined ? { textHash: file.contentHash } : {}), startLine: symbol.startLine, endLine: symbol.endLine, startByte: symbol.startByte, endByte: symbol.endByte };
-}
-
-function evidenceForText(source: SourceFile, needle: string): RepoMapEvidence {
+function evidenceForText(source: RepoMapSourceFile, needle: string): RepoMapEvidence {
 	const index = source.text.indexOf(needle);
 	return evidenceForRange(source, Math.max(0, index), Math.max(0, index) + needle.length);
 }
 
-function evidenceForMatch(source: SourceFile, pattern: RegExp): RepoMapEvidence {
-	const match = pattern.exec(source.text);
-	return evidenceForRange(source, match?.index ?? 0, (match?.index ?? 0) + (match?.[0].length ?? 1));
-}
-
-function evidenceForRange(source: SourceFile, startChar: number, endChar: number): RepoMapEvidence {
-	const prefix = source.text.slice(0, startChar);
-	const selected = source.text.slice(startChar, endChar);
-	const startByte = Buffer.byteLength(prefix);
-	const endByte = startByte + Buffer.byteLength(selected);
-	const startLine = prefix.split("\n").length;
-	const endLine = startLine + selected.split("\n").length - 1;
-	return { path: source.file.path, ...(source.file.contentHash !== undefined ? { textHash: source.file.contentHash } : {}), startLine, endLine, startByte, endByte };
+function evidenceForRange(source: RepoMapSourceFile, startChar: number, endChar: number): RepoMapEvidence {
+	return sourceEvidence(source, startChar, endChar);
 }
 
 function architectureId(kind: string, ...parts: string[]): string {
-	const digest = createHash("sha256").update(parts.join("\0")).digest("hex");
-	return `${kind}:${digest}`;
+	return `${kind}:${sha256(parts.join("\0"))}`;
 }
 
 function relativeToPackage(packageRoot: string, filePath: string): string {
@@ -574,24 +486,15 @@ function capture(text: string, pattern: RegExp): string | undefined {
 	return pattern.exec(text)?.[1];
 }
 
-function hash(value: string): string {
-	return createHash("sha256").update(value).digest("hex");
+function tomlPackageName(text: string, section: "project" | "package"): string | undefined {
+	try {
+		const value = parseToml(text)[section];
+		return isRecord(value) && typeof value["name"] === "string" && value["name"].length > 0 ? value["name"] : undefined;
+	} catch {
+		return undefined;
+	}
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-async function defaultReadText(absolutePath: string, signal?: AbortSignal): Promise<string> {
-	throwIfAborted(signal);
-	const handle = await open(absolutePath, constants.O_RDONLY | constants.O_NOFOLLOW);
-	try {
-		return await handle.readFile({ encoding: "utf8", ...(signal !== undefined ? { signal } : {}) });
-	} finally {
-		await handle.close();
-	}
-}
-
-function compare(left: string, right: string): number {
-	return left < right ? -1 : left > right ? 1 : 0;
 }

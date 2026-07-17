@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import type { SourceRange } from "../code-index/types.js";
+import { compareRepoMapEdge, compareText, groupBy, uniqueBy } from "./graph.js";
 import { canonicalLexicalTerm, lexicalTerms } from "./lexical-indexer.js";
 import type { RepoMapGeneration } from "./storage.js";
 import type {
@@ -155,10 +156,10 @@ export class RepoMapQueryIndex {
 		this.#symbolsById = new Map(generation.symbols.map((symbol) => [symbol.id, symbol]));
 		this.#architectureById = new Map(generation.architecture.map((node) => [node.id, node]));
 		this.#testsById = new Map(generation.tests.map((node) => [node.id, node]));
-		this.#outgoing = groupEdges(generation.edges, (edge) => edge.from);
-		this.#incoming = groupEdges(generation.edges, (edge) => edge.to);
-		this.#aliasesByTerm = groupAliases(generation.aliases, (alias) => alias.term);
-		this.#aliasesByCanonical = groupAliases(generation.aliases, (alias) => alias.canonical);
+		this.#outgoing = groupBy(generation.edges, (edge) => edge.from);
+		this.#incoming = groupBy(generation.edges, (edge) => edge.to);
+		this.#aliasesByTerm = groupBy(generation.aliases, (alias) => alias.term);
+		this.#aliasesByCanonical = groupBy(generation.aliases, (alias) => alias.canonical);
 	}
 
 	findFiles(query: string): RepoMapQueryCandidate[] {
@@ -648,26 +649,6 @@ function range(value: SourceRange): SourceRange {
 	return { startLine: value.startLine, endLine: value.endLine, startByte: value.startByte, endByte: value.endByte };
 }
 
-function groupEdges(edges: readonly RepoMapEdge[], key: (edge: RepoMapEdge) => string): ReadonlyMap<string, RepoMapEdge[]> {
-	const result = new Map<string, RepoMapEdge[]>();
-	for (const edge of edges) {
-		const group = result.get(key(edge)) ?? [];
-		group.push(edge);
-		result.set(key(edge), group);
-	}
-	return result;
-}
-
-function groupAliases(aliases: readonly RepoMapLexicalAlias[], key: (alias: RepoMapLexicalAlias) => string): ReadonlyMap<string, RepoMapLexicalAlias[]> {
-	const result = new Map<string, RepoMapLexicalAlias[]>();
-	for (const alias of aliases) {
-		const group = result.get(key(alias)) ?? [];
-		group.push(alias);
-		result.set(key(alias), group);
-	}
-	return result;
-}
-
 function coalesceCandidates(candidates: readonly RepoMapQueryCandidate[]): RepoMapQueryCandidate[] {
 	const result = new Map<string, RepoMapQueryCandidate>();
 	for (const candidate of candidates) {
@@ -701,7 +682,7 @@ function coalesceSeeds(seeds: readonly QuerySeed[]): QuerySeed[] {
 			for (const alias of seed.aliases) if (!existing.aliases.some((item) => aliasMatchKey(item) === aliasMatchKey(alias))) existing.aliases.push(alias);
 		}
 	}
-	return [...result.values()].sort((left, right) => right.score - left.score || compare(left.nodeId, right.nodeId));
+	return [...result.values()].sort((left, right) => right.score - left.score || compareText(left.nodeId, right.nodeId));
 }
 
 function coalesceSymbolSeeds(seeds: readonly SeedMatch[]): SeedMatch[] {
@@ -716,13 +697,11 @@ function coalesceSymbolSeeds(seeds: readonly SeedMatch[]): SeedMatch[] {
 			for (const alias of seed.aliases) if (!existing.aliases.some((item) => aliasMatchKey(item) === aliasMatchKey(alias))) existing.aliases.push(alias);
 		}
 	}
-	return [...byId.values()].sort((left, right) => right.score - left.score || compare(left.symbol.id, right.symbol.id));
+	return [...byId.values()].sort((left, right) => right.score - left.score || compareText(left.symbol.id, right.symbol.id));
 }
 
 function uniqueEdges(edges: readonly RepoMapEdge[]): RepoMapEdge[] {
-	const result = new Map<string, RepoMapEdge>();
-	for (const edge of edges) result.set([edge.kind, edge.from, edge.to, edge.resolution, edge.source].join("\0"), edge);
-	return [...result.values()];
+	return uniqueBy(edges, (edge) => [edge.kind, edge.from, edge.to, edge.resolution, edge.source].join("\0"));
 }
 
 function unique<T>(values: readonly T[]): T[] {
@@ -734,11 +713,11 @@ function aliasMatchKey(alias: RepoMapAliasMatch): string {
 }
 
 function compareCandidates(left: RepoMapQueryCandidate, right: RepoMapQueryCandidate): number {
-	return right.score - left.score || left.hop - right.hop || right.confidence - left.confidence || compare(left.path, right.path) || (left.range?.startByte ?? 0) - (right.range?.startByte ?? 0);
+	return right.score - left.score || left.hop - right.hop || right.confidence - left.confidence || compareText(left.path, right.path) || (left.range?.startByte ?? 0) - (right.range?.startByte ?? 0);
 }
 
 function compareEdge(left: RepoMapEdge, right: RepoMapEdge): number {
-	return compare(left.kind, right.kind) || compare(left.from, right.from) || compare(left.to, right.to);
+	return compareRepoMapEdge(left, right);
 }
 
 function normalize(value: string): string {
@@ -747,8 +726,4 @@ function normalize(value: string): string {
 
 function lastSegment(value: string): string {
 	return value.split(/[.#]/u).at(-1) ?? value;
-}
-
-function compare(left: string, right: string): number {
-	return left < right ? -1 : left > right ? 1 : 0;
 }

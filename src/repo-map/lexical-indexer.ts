@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
-import { constants } from "node:fs";
-import { open } from "node:fs/promises";
 import path from "node:path";
+import pLimit from "p-limit";
 
 import { throwIfAborted } from "./errors.js";
+import { compareText, groupBy, uniqueRepoMapEvidence } from "./graph.js";
+import { fileEvidence, readTextNoFollow, sha256, symbolEvidence, type RepoMapReadText } from "./source.js";
 import type {
 	RepoMapAliasSource,
 	RepoMapArchitectureNode,
@@ -22,7 +22,7 @@ export interface BuildRepoMapLexicalAliasesInput {
 	edges: readonly RepoMapEdge[];
 	concurrency: number;
 	signal?: AbortSignal;
-	readText?: (absolutePath: string, signal?: AbortSignal) => Promise<string>;
+	readText?: RepoMapReadText;
 }
 
 const FIXED_EXPANSIONS = new Map<string, string>([
@@ -100,32 +100,21 @@ export function canonicalLexicalTerm(term: string): string {
 }
 
 async function sourceAliases(input: BuildRepoMapLexicalAliasesInput): Promise<RepoMapLexicalAlias[]> {
-	const readText = input.readText ?? defaultReadText;
+	const readText = input.readText ?? readTextNoFollow;
 	const indexed = input.files.filter((file) => file.status === "indexed" && file.contentHash !== undefined);
-	const results = new Array<RepoMapLexicalAlias[] | undefined>(indexed.length);
-	let next = 0;
-	const worker = async (): Promise<void> => {
-		while (true) {
+	const limit = pLimit(input.concurrency);
+	const results = await limit.map(indexed, async (file) => {
 			throwIfAborted(input.signal);
-			const index = next++;
-			const file = indexed[index];
-			if (file === undefined) return;
 			try {
 				const text = await readText(path.join(input.root, file.path), input.signal);
 				throwIfAborted(input.signal);
-				if (createHash("sha256").update(text).digest("hex") !== file.contentHash) {
-					results[index] = [];
-					continue;
-				}
-				results[index] = extractSourceAliases(file, text);
+				return sha256(text) === file.contentHash ? extractSourceAliases(file, text) : [];
 			} catch {
 				throwIfAborted(input.signal);
-				results[index] = [];
+				return [];
 			}
-		}
-	};
-	await Promise.all(Array.from({ length: Math.min(input.concurrency, Math.max(1, indexed.length)) }, () => worker()));
-	return results.flatMap((value) => value ?? []);
+	});
+	return results.flat();
 }
 
 function extractSourceAliases(file: RepoMapFileRecord, text: string): RepoMapLexicalAlias[] {
@@ -192,16 +181,11 @@ function deduplicateAndLimit(input: readonly RepoMapLexicalAlias[]): RepoMapLexi
 		const key = [alias.target, alias.term, alias.canonical, alias.source].join("\0");
 		const existing = unique.get(key);
 		if (existing === undefined) unique.set(key, { ...alias, evidence: [...alias.evidence] });
-		else existing.evidence = uniqueEvidence([...existing.evidence, ...alias.evidence]);
+		else existing.evidence = uniqueRepoMapEvidence([...existing.evidence, ...alias.evidence]);
 	}
-	const byTarget = new Map<string, RepoMapLexicalAlias[]>();
-	for (const alias of unique.values()) {
-		const values = byTarget.get(alias.target) ?? [];
-		values.push(alias);
-		byTarget.set(alias.target, values);
-	}
+	const byTarget = groupBy([...unique.values()], (alias) => alias.target);
 	return [...byTarget.values()].flatMap((values) => values
-		.sort((left, right) => right.confidence - left.confidence || compare(left.term, right.term) || compare(left.source, right.source))
+		.sort((left, right) => right.confidence - left.confidence || compareText(left.term, right.term) || compareText(left.source, right.source))
 		.slice(0, MAX_ALIASES_PER_TARGET))
 		.sort(compareAlias);
 }
@@ -231,39 +215,12 @@ function architectureEvidence(
 		: fileEvidence(file);
 }
 
-function fileEvidence(file: RepoMapFileRecord): RepoMapEvidence {
-	return { path: file.path, ...(file.contentHash !== undefined ? { textHash: file.contentHash } : {}), startLine: 1, endLine: 1, startByte: 0, endByte: 0 };
-}
-
-function symbolEvidence(file: RepoMapFileRecord, symbol: RepoMapSymbolNode): RepoMapEvidence {
-	return { path: file.path, ...(file.contentHash !== undefined ? { textHash: file.contentHash } : {}), startLine: symbol.startLine, endLine: symbol.endLine, startByte: symbol.startByte, endByte: symbol.endByte };
-}
-
-function uniqueEvidence(values: readonly RepoMapEvidence[]): RepoMapEvidence[] {
-	const result = new Map<string, RepoMapEvidence>();
-	for (const value of values) result.set([value.path, value.startByte, value.endByte, value.textHash ?? ""].join("\0"), value);
-	return [...result.values()].sort((left, right) => compare(left.path, right.path) || left.startByte - right.startByte);
-}
-
 function compareAlias(left: RepoMapLexicalAlias, right: RepoMapLexicalAlias): number {
-	return compare(left.term, right.term) || compare(left.canonical, right.canonical) || compare(left.target, right.target) || compare(left.source, right.source);
+	return compareText(left.term, right.term) || compareText(left.canonical, right.canonical) || compareText(left.target, right.target) || compareText(left.source, right.source);
 }
 
 function countNewlines(value: string, end: number): number {
 	let count = 0;
 	for (let index = 0; index < end; index += 1) if (value.charCodeAt(index) === 10) count += 1;
 	return count;
-}
-
-async function defaultReadText(absolutePath: string, signal?: AbortSignal): Promise<string> {
-	const handle = await open(absolutePath, constants.O_RDONLY | constants.O_NOFOLLOW);
-	try {
-		return await handle.readFile({ encoding: "utf8", ...(signal !== undefined ? { signal } : {}) });
-	} finally {
-		await handle.close();
-	}
-}
-
-function compare(left: string, right: string): number {
-	return left < right ? -1 : left > right ? 1 : 0;
 }
