@@ -1,3 +1,5 @@
+import type { RepoMapMutationResult, RepoMapReadContext } from "../repo-map/file-tool-query.js";
+
 /** 文件工具返回给模型的稳定错误码。 */
 export type FileToolErrorCode =
 	| "FILE_NOT_FOUND"
@@ -263,6 +265,7 @@ export interface ReadSuccess {
 		outline?: LspOutlineItem[];
 		enclosing_symbol?: LspEnclosingSymbol;
 	};
+	repo_map?: RepoMapReadContext;
 }
 
 export interface ReadImageSuccess {
@@ -293,6 +296,7 @@ export interface WriteSuccess {
 	lsp?: {
 		diagnostics?: LspDiagnosticsSummary;
 	};
+	repo_map?: RepoMapMutationResult;
 }
 
 export type FindEntryKind = "file" | "directory";
@@ -370,6 +374,7 @@ export interface EditSuccess {
 	lsp?: {
 		diagnostics?: LspDiagnosticsSummary;
 	};
+	repo_map?: RepoMapMutationResult;
 }
 
 export interface EditPreviewSuccess {

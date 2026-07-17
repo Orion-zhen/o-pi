@@ -6,12 +6,17 @@ import { resolveExistingFile, resolveWorkspaceRoot } from "../core/path-resolver
 import type { ReadVersionCache } from "../core/read-cache.js";
 import { decodeTextFile, readRawFile, sha256Version, sliceTextByLineRange } from "../core/text-file.js";
 import type { FileToolLspHooks, ReadFileSuccess, ReadImageSuccess, ReadParams, ReadSuccess, ToolOutcome } from "../types.js";
+import type { RepoMapFileToolQuery } from "../../repo-map/file-tool-query.js";
+
+const REPO_MAP_CONTEXT_LINES = 1;
 
 export interface ReadRuntime {
 	/** 会话内 read/edit 版本缓存，用于防止 stale edit。 */
 	versionCache?: ReadVersionCache;
 	/** 可选 LSP 增强；失败必须退化为普通 read。 */
 	lsp?: FileToolLspHooks;
+	/** 可选 Repo Map 上下文；实现方负责 activation、freshness 与实时 hash gate。 */
+	repoMap?: Pick<RepoMapFileToolQuery, "readContext">;
 }
 
 /** read 读取 UTF-8 文本或模型可内联图片，不写入任何文件。 */
@@ -70,11 +75,30 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams, runtime
 	if (isFailed(file)) return file;
 	runtime.versionCache?.remember(resolved.realPath, file.version);
 
-	const sliced = sliceTextByLineRange(file, params.start_line, params.end_line, resolved.relativePath, {
+	let sliced = sliceTextByLineRange(file, params.start_line, params.end_line, resolved.relativePath, {
 		maxBytes: config.limits.read_bytes,
 		maxLines: config.limits.read_lines,
 	});
 	if (isFailed(sliced)) return sliced;
+	let repoMap = await safeRepoMapReadEnhancement(runtime.repoMap, {
+		requestedPath: resolved.realPath,
+		contentHash: file.version.replace(/^sha256:/u, ""),
+		startLine: sliced.startLine,
+		endLine: sliced.endLine,
+		partial: params.start_line !== undefined || params.end_line !== undefined,
+		truncated: sliced.truncated || sliced.continuation !== undefined,
+	});
+	if (repoMap !== undefined) {
+		const contextBytes = Buffer.byteLength(JSON.stringify(repoMap), "utf8") * 6 + 128;
+		if (contextBytes >= config.limits.read_bytes) repoMap = undefined;
+		else {
+			const budgeted = sliceTextByLineRange(file, params.start_line, params.end_line, resolved.relativePath, {
+				maxBytes: Math.max(1, config.limits.read_bytes - contextBytes),
+				maxLines: Math.max(1, config.limits.read_lines - REPO_MAP_CONTEXT_LINES),
+			});
+			if (!isFailed(budgeted)) sliced = budgeted;
+		}
+	}
 
 	const result: ReadSuccess = {
 		path: resolved.relativePath,
@@ -90,6 +114,7 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams, runtime
 		...(sliced.continuation ? { continuation: sliced.continuation } : {}),
 		bom: file.hasBom,
 	};
+	if (repoMap !== undefined) result.repo_map = repoMap;
 	applyIgnore(result, ignoreSource);
 	const lsp = await safeReadEnhancement(runtime.lsp, {
 		workspaceRoot,
@@ -103,6 +128,17 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams, runtime
 	});
 	if (lsp !== undefined) result.lsp = lsp;
 	return result;
+}
+
+async function safeRepoMapReadEnhancement(
+	query: Pick<RepoMapFileToolQuery, "readContext"> | undefined,
+	input: Parameters<RepoMapFileToolQuery["readContext"]>[0],
+): Promise<ReadSuccess["repo_map"] | undefined> {
+	try {
+		return await query?.readContext(input);
+	} catch {
+		return undefined;
+	}
 }
 
 async function safeReadEnhancement(

@@ -31,9 +31,11 @@ export function formatReadModelResult(result: ReadSuccess): string {
 	if (result.newline !== "lf") attrs.push(`newline="${result.newline}"`);
 
 	const lsp = formatReadLsp(result.lsp);
+	const repoMap = formatReadRepoMap(result.repo_map);
 	let text = `<read ${attrs.join(" ")}>\n${result.content}`;
 	if (!text.endsWith("\n")) text += "\n";
 	if (lsp !== undefined) text += `${lsp}\n`;
+	if (repoMap !== undefined) text += `${repoMap}\n`;
 	return `${text}</read>`;
 }
 
@@ -52,6 +54,7 @@ export function formatEditModelResult(result: EditSuccess): string {
 		`replacements="${result.replacements}"`,
 	];
 	if (result.firstChangedLine !== undefined) attrs.push(`first_changed_line="${result.firstChangedLine}"`);
+	if (result.repo_map?.status === "partially_stale") attrs.push('repo_map="partially_stale"');
 	return `<edit ${attrs.join(" ")}/>`;
 }
 
@@ -62,6 +65,7 @@ export function formatWriteModelResult(result: WriteSuccess): string {
 		`path="${escapeXmlAttribute(result.path)}"`,
 		`lsp="${escapeXmlAttribute(status)}"`,
 	];
+	if (result.repo_map?.status === "partially_stale") attrs.push('repo_map="partially_stale"');
 	if (diagnostics === undefined || isCleanDiagnostics(diagnostics)) return `<write ${attrs.join(" ")}/>`;
 
 	const lines = [
@@ -114,6 +118,24 @@ function formatReadLsp(lsp: ReadSuccess["lsp"]): string | undefined {
 	if (lsp.enclosing_symbol !== undefined) attrs.push(`enclosing="${escapeXmlAttribute(formatSymbolRange(lsp.enclosing_symbol))}"`);
 	if (lsp.outline !== undefined && lsp.outline.length > 0) attrs.push(`outline="${escapeXmlAttribute(lsp.outline.map(formatOutlineItem).join("; "))}"`);
 	return attrs.length === 0 ? undefined : `<lsp ${attrs.join(" ")}/>`;
+}
+
+function formatReadRepoMap(repoMap: ReadSuccess["repo_map"]): string | undefined {
+	if (repoMap === undefined) return undefined;
+	const symbolName = repoMap.symbol.qualifiedName ?? repoMap.symbol.name ?? "anonymous";
+	const attrs = [
+		`symbol="${escapeXmlAttribute(`${repoMap.symbol.kind} ${symbolName} ${repoMap.symbol.startLine}-${repoMap.symbol.endLine}`)}"`,
+	];
+	if (repoMap.exported) attrs.push('exported="true"');
+	for (const [name, values] of [
+		["callers", repoMap.callers],
+		["callees", repoMap.callees],
+		["references", repoMap.references],
+		["imports", repoMap.imports],
+	] as const) {
+		if (values.length > 0) attrs.push(`${name}="${escapeXmlAttribute(values.join(", "))}"`);
+	}
+	return `<repo-map ${attrs.join(" ")}/>`;
 }
 
 function formatOutlineItem(item: LspOutlineItem): string {

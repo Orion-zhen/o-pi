@@ -58,8 +58,6 @@ export async function writeWorkspaceFile(cwd: string, params: unknown, signal?: 
 			return fail("ACCESS_DENIED", "File could not be written.", { path: target.relativePath });
 		}
 
-		const abortedAfterWrite = checkAbort(signal);
-		if (abortedAfterWrite) return abortedAfterWrite;
 		const result: WriteSuccess = {
 			status: "written",
 			path: target.relativePath,

@@ -74,7 +74,7 @@ describe("/init command", () => {
 		expect(missing.notifications.at(-1)?.[0]).toContain("freshness: unavailable");
 	});
 
-	it("off is idempotent, does not scan, and invalid args show usage", async () => {
+	it("supports refresh/rebuild modes; off is idempotent and invalid args show usage", async () => {
 		const harness = commandHarness();
 		await harness.handler("", harness.ctx);
 		harness.initialize.mockClear();
@@ -86,7 +86,14 @@ describe("/init command", () => {
 		expect(harness.initialize).not.toHaveBeenCalled();
 		expect(harness.readActivated).not.toHaveBeenCalled();
 		await harness.handler("refresh", harness.ctx);
-		expect(harness.notifications.at(-1)).toEqual(["usage: /init | /init status | /init off", "warning"]);
+		expect(harness.initialize).toHaveBeenLastCalledWith(expect.objectContaining({ cwd: "/repo", mode: "refresh" }));
+		await harness.handler("rebuild", harness.ctx);
+		expect(harness.initialize).toHaveBeenLastCalledWith(expect.objectContaining({ cwd: "/repo", mode: "rebuild" }));
+		await harness.handler("unknown", harness.ctx);
+		expect(harness.notifications.at(-1)).toEqual([
+			"usage: /init | /init status | /init refresh | /init rebuild | /init off",
+			"warning",
+		]);
 	});
 });
 

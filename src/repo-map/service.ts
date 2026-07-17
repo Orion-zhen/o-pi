@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { CODE_INDEX_FORMAT_VERSION } from "../code-index/identity.js";
 import { ignoreConfigFromFileTools, loadFileToolsConfig, type FileToolsConfig } from "../file-tools/config.js";
 import { isFailed } from "../file-tools/core/errors.js";
@@ -19,11 +20,13 @@ import {
 	type CommitGenerationResult,
 	type RepoMapGeneration,
 } from "./storage.js";
-import type { RepoMapEdge, RepoMapMetadata, RepoMapScanSummary } from "./types.js";
+import type { RepoMapEdge, RepoMapFreshness, RepoMapMetadata, RepoMapScanSummary } from "./types.js";
 import type { RepoMapSymbolIndex } from "./graph-types.js";
+import type { RepoMapActivation } from "./activation.js";
 
 export interface InitializeRepoMapInput {
 	cwd: string;
+	mode?: "refresh" | "rebuild";
 	signal?: AbortSignal;
 	onProgress?: (progress: RepoMapProgress) => void;
 }
@@ -88,7 +91,9 @@ export async function initializeRepoMap(
 	const ignoreSnapshot = await deps.createIgnoreSnapshot(identity.repositoryRoot, ignoreConfigFromFileTools(fileToolsConfig));
 	const mapId = createRepoMapId(identity);
 	const cacheRoot = deps.cacheRoot();
-	const previous = await deps.readCurrent(cacheRoot, mapId, identity.repositoryRoot);
+	const previous = input.mode === "rebuild"
+		? undefined
+		: await deps.readCurrent(cacheRoot, mapId, identity.repositoryRoot);
 	const maxFiles = Math.min(config.scan.max_files, fileToolsConfig.limits.grep_max_files_scanned);
 	const maxFileBytes = Math.min(config.scan.max_file_bytes, fileToolsConfig.limits.grep_max_file_bytes);
 	const scan = await deps.scan({
@@ -135,7 +140,7 @@ export async function initializeRepoMap(
 	if (endingRevision !== identity.headRevision) {
 		throw new RepoMapError("REPOSITORY_CHANGED_DURING_SCAN", "Repository HEAD changed during Repo Map scan; run /init again.");
 	}
-	const configFingerprint = repoMapConfigFingerprint(config);
+	const configFingerprint = combinedConfigFingerprint(config, fileToolsConfig);
 	const generationId = calculateGeneration({
 		mapId,
 		configFingerprint,
@@ -200,6 +205,97 @@ export async function readActivatedRepoMap(
 	cacheRoot = repoMapCacheRoot(),
 ): Promise<RepoMapGeneration | undefined> {
 	return await readGeneration(cacheRoot, activation.mapId, activation.generation, activation.root);
+}
+
+/**
+ * 读取 activation 指向的 generation，并检查会使整张图失效的轻量信号。
+ * 文件正文 hash 仍在具体查询候选被使用前实时复核。
+ */
+export async function readActivatedRepoMapState(
+	activation: RepoMapActivation,
+	cacheRoot = repoMapCacheRoot(),
+): Promise<RepoMapGeneration | undefined> {
+	const [generation, current] = await Promise.all([
+		readGeneration(cacheRoot, activation.mapId, activation.generation, activation.root),
+		readCurrentGeneration(cacheRoot, activation.mapId, activation.root),
+	]);
+	if (generation === undefined || current?.metadata.generation !== activation.generation) return undefined;
+	try {
+		const [config, fileToolsConfig, headRevision] = await Promise.all([
+			loadRepoMapConfig(),
+			loadFileToolsConfigOrThrow(activation.root),
+			readHeadRevision(activation.root),
+		]);
+		const ignoreSnapshot = await createIgnoreSnapshot(activation.root, ignoreConfigFromFileTools(fileToolsConfig));
+		const freshness = evaluateRepoMapFreshness(generation.metadata, {
+			configFingerprint: combinedConfigFingerprint(config, fileToolsConfig),
+			ignoreFingerprint: ignoreSnapshot.fingerprint,
+			parserFingerprint: CODE_INDEX_FORMAT_VERSION,
+			...(headRevision !== undefined ? { gitRevision: headRevision } : {}),
+		}, activation.freshness);
+		return { ...generation, metadata: { ...generation.metadata, freshness } };
+	} catch {
+		return { ...generation, metadata: { ...generation.metadata, freshness: "stale" } };
+	}
+}
+
+export interface RefreshActivatedRepoMapInput {
+	activation: RepoMapActivation;
+	signal?: AbortSignal;
+}
+
+/** mutation 后按 map 串行刷新，防止并发提交用较旧工作区快照覆盖较新 generation。 */
+export async function refreshActivatedRepoMap(input: RefreshActivatedRepoMapInput): Promise<InitializeRepoMapResult> {
+	return await withMapUpdateLock(input.activation.mapId, async () => await initializeRepoMap({
+		cwd: input.activation.root,
+		mode: "refresh",
+		...(input.signal !== undefined ? { signal: input.signal } : {}),
+	}));
+}
+
+export function combinedConfigFingerprint(repoMapConfig: RepoMapConfig, fileToolsConfig: FileToolsConfig): string {
+	return createHash("sha256")
+		.update(repoMapConfigFingerprint(repoMapConfig))
+		.update("\0")
+		.update(JSON.stringify(fileToolsConfig))
+		.digest("hex");
+}
+
+export function evaluateRepoMapFreshness(
+	metadata: Pick<RepoMapMetadata, "freshness" | "gitRevision" | "configFingerprint" | "ignoreFingerprint" | "parserFingerprint">,
+	current: Pick<RepoMapMetadata, "configFingerprint" | "ignoreFingerprint" | "parserFingerprint"> & { gitRevision?: string },
+	override?: RepoMapFreshness,
+): RepoMapFreshness {
+	if (
+		metadata.gitRevision !== current.gitRevision
+		|| metadata.configFingerprint !== current.configFingerprint
+		|| metadata.ignoreFingerprint !== current.ignoreFingerprint
+		|| metadata.parserFingerprint !== current.parserFingerprint
+	) return "stale";
+	return override ?? metadata.freshness;
+}
+
+async function loadFileToolsConfigOrThrow(root: string): Promise<FileToolsConfig> {
+	const result = await loadFileToolsConfig(root);
+	if (isFailed(result)) throw new RepoMapError("CONFIG_ERROR", result.error.message, result.error.details);
+	return result;
+}
+
+const mapUpdateTails = new Map<string, Promise<void>>();
+
+async function withMapUpdateLock<T>(mapId: string, operation: () => Promise<T>): Promise<T> {
+	const previous = mapUpdateTails.get(mapId) ?? Promise.resolve();
+	let release = (): void => undefined;
+	const current = new Promise<void>((resolve) => { release = resolve; });
+	const tail = previous.catch(() => undefined).then(() => current);
+	mapUpdateTails.set(mapId, tail);
+	await previous.catch(() => undefined);
+	try {
+		return await operation();
+	} finally {
+		release();
+		if (mapUpdateTails.get(mapId) === tail) mapUpdateTails.delete(mapId);
+	}
 }
 
 function signalOptions(signal: AbortSignal | undefined): { signal?: AbortSignal } {

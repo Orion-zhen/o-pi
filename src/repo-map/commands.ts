@@ -8,7 +8,7 @@ import {
 } from "./activation.js";
 import { RepoMapError } from "./errors.js";
 import { renderInitialization, renderStatus, renderUnavailableStatus } from "./renderer.js";
-import { initializeRepoMap, readActivatedRepoMap, type InitializeRepoMapInput, type InitializeRepoMapResult } from "./service.js";
+import { initializeRepoMap, readActivatedRepoMapState, type InitializeRepoMapInput, type InitializeRepoMapResult } from "./service.js";
 import type { RepoMapGeneration } from "./storage.js";
 
 type RepoMapCommandApi = Pick<ExtensionAPI, "registerCommand" | "appendEntry">;
@@ -21,7 +21,7 @@ export interface RepoMapCommandDependencies {
 
 const defaultDependencies: RepoMapCommandDependencies = {
 	initialize: initializeRepoMap,
-	readActivated: readActivatedRepoMap,
+	readActivated: readActivatedRepoMapState,
 	now: () => new Date(),
 };
 
@@ -42,8 +42,12 @@ export function registerRepoMapCommand(
 				turnOff(pi, deps, ctx);
 				return;
 			}
+			if (command === "refresh" || command === "rebuild") {
+				await initialize(pi, deps, ctx, command);
+				return;
+			}
 			if (command !== "") {
-				safeNotify(ctx, "usage: /init | /init status | /init off", "warning");
+				safeNotify(ctx, "usage: /init | /init status | /init refresh | /init rebuild | /init off", "warning");
 				return;
 			}
 			await initialize(pi, deps, ctx);
@@ -51,10 +55,16 @@ export function registerRepoMapCommand(
 	});
 }
 
-async function initialize(pi: RepoMapCommandApi, deps: RepoMapCommandDependencies, ctx: ExtensionCommandContext): Promise<void> {
+async function initialize(
+	pi: RepoMapCommandApi,
+	deps: RepoMapCommandDependencies,
+	ctx: ExtensionCommandContext,
+	mode?: "refresh" | "rebuild",
+): Promise<void> {
 	try {
 		const result = await deps.initialize({
 			cwd: ctx.cwd,
+			...(mode !== undefined ? { mode } : {}),
 			...(ctx.signal !== undefined ? { signal: ctx.signal } : {}),
 			onProgress(progress) {
 				const count = progress.completed === undefined || progress.total === undefined ? "" : ` ${progress.completed}/${progress.total}`;
@@ -94,7 +104,12 @@ async function showStatus(deps: RepoMapCommandDependencies, ctx: ExtensionComman
 		return;
 	}
 	const generation = await deps.readActivated(activation).catch(() => undefined);
-	safeNotify(ctx, generation === undefined ? renderUnavailableStatus(activation) : renderStatus(generation.metadata), "info");
+	const metadata = generation === undefined
+		? undefined
+		: activation.freshness === undefined || generation.metadata.freshness === "stale" || generation.metadata.freshness === "unavailable"
+			? generation.metadata
+			: { ...generation.metadata, freshness: activation.freshness };
+	safeNotify(ctx, metadata === undefined ? renderUnavailableStatus(activation) : renderStatus(metadata), "info");
 }
 
 function turnOff(pi: RepoMapCommandApi, deps: RepoMapCommandDependencies, ctx: ExtensionCommandContext): void {

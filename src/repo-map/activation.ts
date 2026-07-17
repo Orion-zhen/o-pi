@@ -14,6 +14,8 @@ export interface RepoMapActivationEntry {
 	mapId: string;
 	generation: string;
 	activatedAt: string;
+	freshness?: RepoMapFreshness;
+	diagnostic?: string;
 }
 
 export interface RepoMapDeactivationEntry {
@@ -27,6 +29,8 @@ export interface RepoMapActivation {
 	mapId: string;
 	generation: string;
 	activatedAt: string;
+	freshness?: RepoMapFreshness;
+	diagnostic?: string;
 }
 
 export interface RepoMapGateInput {
@@ -60,6 +64,8 @@ export function computeRepoMapActivation(branchEntries: SessionEntry[]): RepoMap
 				mapId: entry.mapId,
 				generation: entry.generation,
 				activatedAt: entry.activatedAt,
+				...(entry.freshness !== undefined ? { freshness: entry.freshness } : {}),
+				...(entry.diagnostic !== undefined ? { diagnostic: entry.diagnostic } : {}),
 			};
 			continue;
 		}
@@ -99,6 +105,8 @@ function parseSessionEntry(value: unknown): RepoMapSessionEntry | undefined {
 			|| !isNonEmptyString(value["mapId"])
 			|| !isNonEmptyString(value["generation"])
 			|| !isNonEmptyString(value["activatedAt"])
+			|| (value["freshness"] !== undefined && !isFreshness(value["freshness"]))
+			|| (value["diagnostic"] !== undefined && typeof value["diagnostic"] !== "string")
 		) return undefined;
 		return {
 			kind: "activation",
@@ -106,6 +114,8 @@ function parseSessionEntry(value: unknown): RepoMapSessionEntry | undefined {
 			mapId: value["mapId"],
 			generation: value["generation"],
 			activatedAt: value["activatedAt"],
+			...(isFreshness(value["freshness"]) ? { freshness: value["freshness"] } : {}),
+			...(typeof value["diagnostic"] === "string" ? { diagnostic: value["diagnostic"] } : {}),
 		};
 	}
 	if (value["kind"] !== "deactivation" || !isNonEmptyString(value["deactivatedAt"])) return undefined;
@@ -123,6 +133,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
 	return typeof value === "string" && value.length > 0;
+}
+
+function isFreshness(value: unknown): value is RepoMapFreshness {
+	return value === "fresh" || value === "partially_stale" || value === "stale" || value === "unavailable";
 }
 
 function pathsEqual(left: string, right: string): boolean {
