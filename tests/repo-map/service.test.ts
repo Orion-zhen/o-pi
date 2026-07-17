@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -8,7 +8,7 @@ import { defaultFileToolsConfig } from "../../src/file-tools/config.js";
 import { createIgnoreSnapshot, defaultIgnoreEngine } from "../../src/file-tools/ignore/ignore-engine.js";
 import { defaultRepoMapConfig } from "../../src/repo-map/config.js";
 import { RepoMapError } from "../../src/repo-map/errors.js";
-import { initializeRepoMap, type RepoMapServiceDependencies } from "../../src/repo-map/service.js";
+import { initializeRepoMap, readActivatedRepoMap, type RepoMapServiceDependencies } from "../../src/repo-map/service.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-repo-service-");
@@ -54,19 +54,41 @@ describe("Repo Map initialization service", () => {
 		delete process.env["PI_FILE_TOOLS_PROJECT_ROOT"];
 		const result = await initializeRepoMap({ cwd: root });
 		expect(result.identity.repositoryRoot).toBe(root);
-		expect(result.metadata).toMatchObject({ fileCount: 1, indexedFileCount: 1, symbolCount: 0, edgeCount: 0 });
+		expect(result.metadata).toMatchObject({ fileCount: 1, indexedFileCount: 1, parsedFileCount: 1, symbolCount: 1, edgeCount: 2 });
 	});
-	it("builds, persists, and reuses a file-only generation", async () => {
+	it("builds, persists, and reuses a symbol graph generation", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });
 		await writeFile(path.join(root, "a.ts"), "export const a = 1;\n");
 		const first = await initializeRepoMap({ cwd: root }, dependencies());
 		expect(first.reusedGeneration).toBe(false);
-		expect(first.metadata).toMatchObject({ fileCount: 1, indexedFileCount: 1, symbolCount: 0, edgeCount: 0, freshness: "fresh" });
+		expect(first.metadata).toMatchObject({ fileCount: 1, indexedFileCount: 1, parsedFileCount: 1, symbolCount: 1, edgeCount: 2, freshness: "fresh" });
 		const second = await initializeRepoMap({ cwd: root }, dependencies());
 		expect(second.reusedGeneration).toBe(true);
 		expect(second.metadata.generation).toBe(first.metadata.generation);
-		expect(second.summary).toMatchObject({ reused: 1, hashed: 0, added: 0, changed: 0, removed: 0 });
+		expect(second.summary).toMatchObject({ reused: 1, reusedParsed: 1, hashed: 0, added: 0, changed: 0, removed: 0 });
+	});
+
+	it("persists symbols for every supported language", async () => {
+		const root = path.join(temp.path, "repo");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		for (const [name, source] of [
+			["a.ts", "export function tsSymbol() {}\n"],
+			["a.tsx", "export function tsxSymbol() { return <div />; }\n"],
+			["a.js", "export function jsSymbol() {}\n"],
+			["a.jsx", "export function jsxSymbol() { return <div />; }\n"],
+			["a.py", "def py_symbol():\n  pass\n"],
+			["a.go", "package a\nfunc GoSymbol() {}\n"],
+			["a.rs", "pub fn rust_symbol() {}\n"],
+		] as const) await writeFile(path.join(root, name), source);
+		const result = await initializeRepoMap({ cwd: root }, dependencies());
+		const generation = await readActivatedRepoMap({
+			root,
+			mapId: result.metadata.mapId,
+			generation: result.metadata.generation,
+		}, path.join(temp.path, "cache"));
+		expect(result.metadata).toMatchObject({ parsedFileCount: 7, unsupportedFileCount: 0, parseErrorFileCount: 0, symbolCount: 7 });
+		expect(new Set(generation?.symbols.map((symbol) => symbol.fileId))).toEqual(new Set(["ts", "tsx", "js", "jsx", "py", "go", "rs"].map((extension) => `file:a.${extension}`)));
 	});
 
 	it("rehashes only a changed file and rebuilds a corrupt current generation", async () => {
@@ -86,6 +108,14 @@ describe("Repo Map initialization service", () => {
 		expect(rebuilt.metadata.generation).toBe(changed.metadata.generation);
 		expect(rebuilt.reusedGeneration).toBe(false);
 		expect(rebuilt.summary.hashed).toBe(2);
+		for (const snapshot of ["symbols.json", "edges.json"]) {
+			await writeFile(
+				path.join(temp.path, "cache", rebuilt.metadata.mapId, "generations", rebuilt.metadata.generation, snapshot),
+				"corrupt",
+			);
+			const graphRebuilt = await initializeRepoMap({ cwd: root }, dependencies());
+			expect(graphRebuilt).toMatchObject({ reusedGeneration: false, metadata: { generation: rebuilt.metadata.generation } });
+		}
 		expect(first.metadata.generation).not.toBe(changed.metadata.generation);
 	});
 
@@ -116,6 +146,23 @@ describe("Repo Map initialization service", () => {
 		const controller = new AbortController();
 		controller.abort();
 		await expect(initializeRepoMap({ cwd: root, signal: controller.signal }, dependencies())).rejects.toMatchObject({ code: "OPERATION_ABORTED" });
+	});
+
+	it("does not commit when cancellation arrives after scanning", async () => {
+		const root = path.join(temp.path, "repo");
+		await mkdir(root, { recursive: true });
+		await writeFile(path.join(root, "a.ts"), "export function a() {}\n");
+		const controller = new AbortController();
+		await expect(initializeRepoMap({ cwd: root, signal: controller.signal }, dependencies({
+			async indexSymbols() {
+				controller.abort();
+				return {
+					symbols: [], imports: [], diagnostics: [], parsedFileCount: 0, unsupportedFileCount: 0,
+					parseErrorFileCount: 0, reusedParsedFileCount: 0,
+				};
+			},
+		}))).rejects.toMatchObject({ code: "OPERATION_ABORTED" });
+		await expect(stat(path.join(temp.path, "cache"))).rejects.toMatchObject({ code: "ENOENT" });
 	});
 });
 

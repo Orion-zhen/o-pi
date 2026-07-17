@@ -21,6 +21,11 @@ export interface RepoMapSymbolNode extends SourceRange {
 	symbolKind: string;
 	name?: string;
 	qualifiedName?: string;
+	signature?: string;
+	definitions: string[];
+	references: string[];
+	calls: string[];
+	imports: string[];
 }
 
 export type RepoMapNode = RepoMapRepositoryNode | RepoMapFileNode | RepoMapSymbolNode;
@@ -41,6 +46,7 @@ export interface RepoMapEdge {
 	resolution: RepoMapEdgeResolution;
 	source: RepoMapEdgeSource;
 	confidence: number;
+	lexicalTarget?: string;
 	evidence: RepoMapEvidence[];
 }
 
@@ -56,6 +62,9 @@ export interface RepoMapMetadata {
 	freshness: RepoMapFreshness;
 	fileCount: number;
 	indexedFileCount: number;
+	parsedFileCount: number;
+	unsupportedFileCount: number;
+	parseErrorFileCount: number;
 	symbolCount: number;
 	edgeCount: number;
 	tooLargeFileCount: number;
@@ -92,6 +101,12 @@ export interface RepoMapScanSummary {
 	tooLarge: number;
 	unreadable: number;
 	unstable: number;
+	parsed: number;
+	unsupported: number;
+	parseErrors: number;
+	reusedParsed: number;
+	symbols: number;
+	edges: number;
 	skippedDirectories: number;
 	diagnostics: number;
 }

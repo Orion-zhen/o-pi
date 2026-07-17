@@ -2,9 +2,9 @@ import type ParserModule from "tree-sitter";
 
 import { createFileIdentity, createSymbolId } from "./identity.js";
 import { loadTreeSitterRuntime } from "./tree-sitter-runtime.js";
-import type { CodeLanguage, IndexedCodeUnit, ParsedFileIndex, SourceRange } from "./types.js";
+import type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, IndexedImport, ParsedFileIndex, SourceRange } from "./types.js";
 
-export type { CodeLanguage, IndexedCodeUnit, ParsedFileIndex, SourceRange } from "./types.js";
+export type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, IndexedImport, ParsedFileIndex, SourceRange } from "./types.js";
 
 interface RawUnit {
 	kind: string;
@@ -50,16 +50,26 @@ const RUST_UNIT_KINDS = new Set([
 
 /** 解析单个文件的代码单元；不支持或解析失败时返回空索引，由 grep 层退化为文本片段。 */
 export function parseCodeUnits(filePath: string, text: string): ParsedFileIndex {
+	return analyzeCodeFile(filePath, text).index;
+}
+
+/** Repo Map 使用的详细结果；保留 parser 失败状态与文件级 import 事实。 */
+export function analyzeCodeFile(filePath: string, text: string): AnalyzedFileIndex {
 	const file = createFileIdentity(filePath);
 	const language = languageFromPath(filePath);
-	const rawUnits = parseByLanguage(language, text);
 	const lineIndex = buildLineIndex(text);
+	const parsed = parseByLanguage(language, text);
+	const rawUnits = parsed.units;
 	const units = rawUnits.map((unit) => buildIndexedUnit(file, language, text, lineIndex, unit));
 	return {
-		...file,
-		language,
-		units,
-		symbols: units.flatMap((unit) => [unit.name, unit.qualifiedName].filter((value): value is string => value !== undefined)),
+		index: {
+			...file,
+			language,
+			units,
+			symbols: units.flatMap((unit) => [unit.name, unit.qualifiedName].filter((value): value is string => value !== undefined)),
+		},
+		status: parsed.status,
+		imports: parsed.status === "parsed" ? collectFileImports(language, text, lineIndex) : [],
 	};
 }
 
@@ -111,17 +121,76 @@ export function extractByteRange(text: string, startByte: number, endByte: numbe
 	return Buffer.from(text, "utf8").subarray(startByte, endByte).toString("utf8").replace(/\s+$/u, "");
 }
 
-function parseByLanguage(language: CodeLanguage, text: string): RawUnit[] {
-	if (language === "text") return [];
+function parseByLanguage(language: CodeLanguage, text: string): { status: AnalyzedFileIndex["status"]; units: RawUnit[] } {
+	if (language === "text") return { status: "unsupported", units: [] };
 	try {
 		const runtime = loadTreeSitterRuntime(language);
-		if (runtime === undefined) return [];
+		if (runtime === undefined) return { status: "error", units: [] };
 		const parser = new runtime.Parser();
 		parser.setLanguage(runtime.language);
-		return collectTreeSitterUnits(language, parser.parse(text).rootNode).sort(compareRawUnits);
+		return { status: "parsed", units: collectTreeSitterUnits(language, parser.parse(text).rootNode).sort(compareRawUnits) };
 	} catch {
-		return [];
+		return { status: "error", units: [] };
 	}
+}
+
+function collectFileImports(language: CodeLanguage, text: string, lineIndex: LineIndex): IndexedImport[] {
+	const matches = language === "go" ? collectGoImports(text) : importPatterns(language).flatMap((pattern) => [...text.matchAll(pattern)]);
+	const imports: IndexedImport[] = [];
+	const seen = new Set<string>();
+	for (const match of matches) {
+		const specifier = match.groups?.["specifier"];
+		const full = match[0];
+		if (specifier === undefined || full === undefined || match.index === undefined) continue;
+		const relativeStart = full.indexOf(specifier);
+		if (relativeStart < 0) continue;
+		const startChar = match.index + relativeStart;
+		const endChar = startChar + specifier.length;
+		const startByte = byteForCharWithIndex(text, lineIndex, startChar);
+		const endByte = byteForCharWithIndex(text, lineIndex, endChar);
+		const key = `${specifier}\0${startByte}\0${endByte}`;
+		if (seen.has(key)) continue;
+		seen.add(key);
+		imports.push({
+			specifier,
+			startLine: lineForByteWithIndex(lineIndex, startByte),
+			endLine: lineForByteWithIndex(lineIndex, Math.max(startByte, endByte - 1)),
+			startByte,
+			endByte,
+		});
+	}
+	return imports.sort((left, right) => left.startByte - right.startByte || left.endByte - right.endByte || (left.specifier < right.specifier ? -1 : left.specifier > right.specifier ? 1 : 0));
+}
+
+function importPatterns(language: CodeLanguage): RegExp[] {
+	if (language === "typescript" || language === "tsx" || language === "javascript" || language === "jsx") {
+		return [
+			/\b(?:import|export)\s+(?:[^;\n]*?\s+from\s+)?["'](?<specifier>[^"']+)["']/gu,
+			/\b(?:require|import)\s*\(\s*["'](?<specifier>[^"']+)["']\s*\)/gu,
+		];
+	}
+	if (language === "python") {
+		return [
+			/^\s*from\s+(?<specifier>[.A-Za-z_][\w.]*)\s+import\b/gmu,
+			/^\s*import\s+(?<specifier>[A-Za-z_][\w.]*)/gmu,
+		];
+	}
+	if (language === "rust") return [/\buse\s+(?<specifier>(?:::)?[A-Za-z_][\w:]*)/gu];
+	return [];
+}
+
+function collectGoImports(text: string): RegExpMatchArray[] {
+	const imports = [...text.matchAll(/\bimport\s+(?:[._A-Za-z]\w*\s+)?["'](?<specifier>[^"']+)["']/gu)];
+	for (const block of text.matchAll(/\bimport\s*\((?<body>[\s\S]*?)\)/gu)) {
+		const body = block.groups?.["body"];
+		if (body === undefined || block.index === undefined) continue;
+		const bodyStart = block.index + block[0].indexOf(body);
+		for (const match of body.matchAll(/(?:^|\n)\s*(?:[._A-Za-z]\w*\s+)?["'](?<specifier>[^"']+)["']/gu)) {
+			if (match.index !== undefined) match.index = bodyStart + match.index;
+			imports.push(match);
+		}
+	}
+	return imports;
 }
 
 function collectTreeSitterUnits(language: string, root: SyntaxNode): RawUnit[] {

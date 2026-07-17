@@ -28,7 +28,7 @@ export interface RepoMapScanInput {
 }
 
 export interface RepoMapProgress {
-	phase: "discovering" | "scanning" | "hashing" | "saving";
+	phase: "discovering" | "scanning" | "hashing" | "parsing" | "saving";
 	completed?: number;
 	total?: number;
 }
@@ -218,6 +218,12 @@ export async function scanRepoMap(input: RepoMapScanInput): Promise<RepoMapScanR
 		tooLarge,
 		unreadable,
 		unstable,
+		parsed: 0,
+		unsupported: 0,
+		parseErrors: 0,
+		reusedParsed: 0,
+		symbols: 0,
+		edges: 0,
 		skippedDirectories,
 		diagnostics: diagnostics.length,
 	};

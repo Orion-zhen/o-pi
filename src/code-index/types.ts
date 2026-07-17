@@ -41,3 +41,13 @@ export interface ParsedFileIndex extends FileIdentity {
 	units: IndexedCodeUnit[];
 	symbols: string[];
 }
+
+export interface IndexedImport extends SourceRange {
+	specifier: string;
+}
+
+export interface AnalyzedFileIndex {
+	index: ParsedFileIndex;
+	status: "parsed" | "unsupported" | "error";
+	imports: IndexedImport[];
+}

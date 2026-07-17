@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { RepositoryIdentity } from "./repository.js";
 
-export const REPO_MAP_SCHEMA_VERSION = 1;
+export const REPO_MAP_SCHEMA_VERSION = 2;
 
 export function createRepoMapId(identity: Pick<RepositoryIdentity, "worktreeRoot" | "gitCommonDir">): string {
 	const fields: Array<readonly [string, string]> = [

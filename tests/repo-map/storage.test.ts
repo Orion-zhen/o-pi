@@ -2,10 +2,10 @@ import { mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { createFileIdentity } from "../../src/code-index/identity.js";
+import { createFileIdentity, createSymbolId } from "../../src/code-index/identity.js";
 import { createRepoMapId } from "../../src/repo-map/identity.js";
 import { calculateGeneration, commitGeneration, readCurrentGeneration, readGeneration } from "../../src/repo-map/storage.js";
-import type { RepoMapFileRecord, RepoMapMetadata } from "../../src/repo-map/types.js";
+import type { RepoMapEdge, RepoMapFileRecord, RepoMapMetadata, RepoMapSymbolNode } from "../../src/repo-map/types.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-repo-storage-");
@@ -17,11 +17,11 @@ describe("Repo Map generation storage", () => {
 	it("writes a complete generation, switches CURRENT, and reuses immutable content", async () => {
 		const files = [indexed("z.ts", "b"), indexed("a.ts", "a")].sort((a, b) => a.path.localeCompare(b.path));
 		const metadata = makeMetadata(files);
-		const first = await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, diagnostics: [] });
+		const first = await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], edges: [], diagnostics: [] });
 		expect(first.reused).toBe(false);
 		expect((await readFile(path.join(temp.path, mapId, "CURRENT"), "utf8")).trim()).toBe(metadata.generation);
 		expect(await readCurrentGeneration(temp.path, mapId, root)).toEqual(first.generation);
-		const second = await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata: { ...metadata, updatedAt: "2030-01-01T00:00:00.000Z" }, files, diagnostics: [] });
+		const second = await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata: { ...metadata, updatedAt: "2030-01-01T00:00:00.000Z" }, files, symbols: [], edges: [], diagnostics: [] });
 		expect(second.reused).toBe(true);
 		expect(second.generation.metadata.updatedAt).toBe(metadata.updatedAt);
 		const persisted = JSON.parse(await readFile(path.join(temp.path, mapId, "generations", metadata.generation, "files.json"), "utf8")) as Array<{ path: string }>;
@@ -34,12 +34,45 @@ describe("Repo Map generation storage", () => {
 		expect(await readCurrentGeneration(temp.path, mapId, root)).toBeUndefined();
 	});
 
+	it.each(["symbols.json", "edges.json"])("persists the graph and rejects corrupt %s", async (corruptFile) => {
+		const file = indexed("a.ts", "export function a() {}");
+		const files = [file];
+		const symbol = makeSymbol(file);
+		const edge = makeContainsEdge(file, symbol);
+		const metadata = makeMetadata(files, "2026-01-01T00:00:00.000Z", [symbol], [edge]);
+		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [symbol], edges: [edge], diagnostics: [] });
+		const directory = path.join(temp.path, mapId, "generations", metadata.generation);
+		expect(await readGeneration(temp.path, mapId, metadata.generation, root)).toMatchObject({ symbols: [symbol], edges: [edge] });
+		await writeFile(path.join(directory, corruptFile), "[]\n");
+		expect(await readGeneration(temp.path, mapId, metadata.generation, root)).toBeUndefined();
+	});
+
+	it("includes stable symbol, edge, and diagnostic snapshots in the generation hash", () => {
+		const file = indexed("a.ts", "export function a() {}");
+		const symbol = makeSymbol(file);
+		const edge = makeContainsEdge(file, symbol);
+		const base = {
+			mapId,
+			configFingerprint: "c".repeat(64),
+			ignoreFingerprint: "ignore",
+			parserFingerprint: "format",
+			files: [file],
+			symbols: [symbol],
+			edges: [edge],
+			diagnostics: [],
+		};
+		const generation = calculateGeneration(base);
+		expect(calculateGeneration({ ...base, symbols: [{ ...symbol, signature: "changed" }] })).not.toBe(generation);
+		expect(calculateGeneration({ ...base, edges: [{ ...edge, confidence: 0.5 }] })).not.toBe(generation);
+		expect(calculateGeneration({ ...base, diagnostics: [{ code: "PARSER_ERROR", message: "failed", path: "a.ts" }] })).not.toBe(generation);
+	});
+
 	it("rejects corrupt metadata, files, schema, map, and generation mismatches", async () => {
 		const files = [indexed("a.ts", "a")];
 		const metadata = makeMetadata(files);
-		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, diagnostics: [] });
+		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], edges: [], diagnostics: [] });
 		const directory = path.join(temp.path, mapId, "generations", metadata.generation);
-		await writeFile(path.join(directory, "metadata.json"), JSON.stringify({ ...metadata, schemaVersion: 2 }));
+		await writeFile(path.join(directory, "metadata.json"), JSON.stringify({ ...metadata, schemaVersion: 1 }));
 		expect(await readGeneration(temp.path, mapId, metadata.generation, root)).toBeUndefined();
 		await writeFile(path.join(directory, "metadata.json"), JSON.stringify(metadata));
 		await writeFile(path.join(directory, "files.json"), JSON.stringify([{ ...files[0], path: "../escape" }]));
@@ -51,7 +84,7 @@ describe("Repo Map generation storage", () => {
 	it("preserves CURRENT on cancellation or invalid input", async () => {
 		const files = [indexed("a", "a")];
 		const metadata = makeMetadata(files);
-		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, diagnostics: [] });
+		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], edges: [], diagnostics: [] });
 		const controller = new AbortController();
 		controller.abort();
 		await expect(commitGeneration({
@@ -59,6 +92,8 @@ describe("Repo Map generation storage", () => {
 			maxGenerations: 2,
 			metadata: { ...metadata, generation: "b".repeat(64) },
 			files,
+			symbols: [],
+			edges: [],
 			diagnostics: [],
 			signal: controller.signal,
 		})).rejects.toMatchObject({ code: "OPERATION_ABORTED" });
@@ -76,7 +111,7 @@ describe("Repo Map generation storage", () => {
 			return;
 		}
 		const files = [indexed("a", "a")];
-		await expect(commitGeneration({ cacheRoot, maxGenerations: 2, metadata: makeMetadata(files), files, diagnostics: [] }))
+		await expect(commitGeneration({ cacheRoot, maxGenerations: 2, metadata: makeMetadata(files), files, symbols: [], edges: [], diagnostics: [] }))
 			.rejects.toMatchObject({ code: "CACHE_ERROR" });
 		expect(await readdir(outside)).toEqual([]);
 	});
@@ -85,7 +120,7 @@ describe("Repo Map generation storage", () => {
 		for (const [index, name] of ["one", "two", "three"].entries()) {
 			const files = [indexed(name, String(index))];
 			const metadata = makeMetadata(files, `2026-01-0${index + 1}T00:00:00.000Z`);
-			await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, diagnostics: [] });
+			await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], edges: [], diagnostics: [] });
 		}
 		const current = (await readFile(path.join(temp.path, mapId, "CURRENT"), "utf8")).trim();
 		const generations = (await readdir(path.join(temp.path, mapId, "generations"))).filter((name) => /^[0-9a-f]{64}$/u.test(name));
@@ -98,7 +133,12 @@ function indexed(filePath: string, content: string): RepoMapFileRecord {
 	return { ...createFileIdentity(filePath), size: content.length, mtimeMs: 1, status: "indexed", contentHash: hashFor(content) };
 }
 
-function makeMetadata(files: RepoMapFileRecord[], now = "2026-01-01T00:00:00.000Z"): RepoMapMetadata {
+function makeMetadata(
+	files: RepoMapFileRecord[],
+	now = "2026-01-01T00:00:00.000Z",
+	symbols: RepoMapSymbolNode[] = [],
+	edges: RepoMapEdge[] = [],
+): RepoMapMetadata {
 	const generation = calculateGeneration({
 		mapId,
 		configFingerprint: "c".repeat(64),
@@ -106,9 +146,12 @@ function makeMetadata(files: RepoMapFileRecord[], now = "2026-01-01T00:00:00.000
 		parserFingerprint: "format",
 		headRevision: "d".repeat(40),
 		files,
+		symbols,
+		edges,
+		diagnostics: [],
 	});
 	return {
-		schemaVersion: 1,
+		schemaVersion: 2,
 		mapId,
 		repositoryRoot: root,
 		worktreeRoot: root,
@@ -119,14 +162,50 @@ function makeMetadata(files: RepoMapFileRecord[], now = "2026-01-01T00:00:00.000
 		freshness: "fresh",
 		fileCount: files.length,
 		indexedFileCount: files.length,
-		symbolCount: 0,
-		edgeCount: 0,
+		parsedFileCount: 0,
+		unsupportedFileCount: files.length,
+		parseErrorFileCount: 0,
+		symbolCount: symbols.length,
+		edgeCount: edges.length,
 		tooLargeFileCount: 0,
 		diagnosticCount: 0,
 		gitRevision: "d".repeat(40),
 		configFingerprint: "c".repeat(64),
 		ignoreFingerprint: "ignore",
 		parserFingerprint: "format",
+	};
+}
+
+function makeSymbol(file: RepoMapFileRecord): RepoMapSymbolNode {
+	const symbol = { fileId: file.id, kind: "function", name: "a", qualifiedName: "a", startByte: 0 };
+	return {
+		kind: "symbol",
+		id: createSymbolId(symbol),
+		fileId: file.id,
+		symbolKind: symbol.kind,
+		name: symbol.name,
+		qualifiedName: symbol.qualifiedName,
+		signature: "export function a() {}",
+		startLine: 1,
+		endLine: 1,
+		startByte: 0,
+		endByte: file.size,
+		definitions: ["a"],
+		references: ["a"],
+		calls: ["a"],
+		imports: [],
+	};
+}
+
+function makeContainsEdge(file: RepoMapFileRecord, symbol: RepoMapSymbolNode): RepoMapEdge {
+	return {
+		kind: "contains",
+		from: file.id,
+		to: symbol.id,
+		resolution: "syntactic",
+		source: "tree-sitter",
+		confidence: 1,
+		evidence: [{ path: file.path, ...(file.contentHash !== undefined ? { textHash: file.contentHash } : {}), startLine: 1, endLine: 1, startByte: 0, endByte: file.size }],
 	};
 }
 

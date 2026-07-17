@@ -6,8 +6,10 @@ import type { IgnoreSnapshot } from "../file-tools/ignore/ignore-types.js";
 import { loadRepoMapConfig, repoMapCacheRoot, repoMapConfigFingerprint, type RepoMapConfig } from "./config.js";
 import { RepoMapError, throwIfAborted } from "./errors.js";
 import { createRepoMapId, REPO_MAP_SCHEMA_VERSION } from "./identity.js";
+import type { BuildRepoMapRelationshipsInput } from "./relationship-indexer.js";
 import { detectRepository, readHeadRevision, type RepositoryIdentity } from "./repository.js";
 import { scanRepoMap, type RepoMapProgress, type RepoMapScanInput, type RepoMapScanResult } from "./scanner.js";
+import type { IndexRepoMapSymbolsInput } from "./symbol-indexer.js";
 import {
 	calculateGeneration,
 	commitGeneration,
@@ -17,7 +19,8 @@ import {
 	type CommitGenerationResult,
 	type RepoMapGeneration,
 } from "./storage.js";
-import type { RepoMapMetadata, RepoMapScanSummary } from "./types.js";
+import type { RepoMapEdge, RepoMapMetadata, RepoMapScanSummary } from "./types.js";
+import type { RepoMapSymbolIndex } from "./graph-types.js";
 
 export interface InitializeRepoMapInput {
 	cwd: string;
@@ -39,6 +42,8 @@ export interface RepoMapServiceDependencies {
 	loadFileToolsConfig(root: string): Promise<FileToolsConfig>;
 	createIgnoreSnapshot(root: string, config: ReturnType<typeof ignoreConfigFromFileTools>): Promise<IgnoreSnapshot>;
 	scan(input: RepoMapScanInput): Promise<RepoMapScanResult>;
+	indexSymbols(input: IndexRepoMapSymbolsInput): Promise<RepoMapSymbolIndex>;
+	buildRelationships(input: BuildRepoMapRelationshipsInput): Promise<RepoMapEdge[]>;
 	readCurrent(cacheRoot: string, mapId: string, expectedRoot: string): Promise<RepoMapGeneration | undefined>;
 	commit(input: CommitGenerationInput): Promise<CommitGenerationResult>;
 	cacheRoot(): string;
@@ -56,6 +61,12 @@ const defaultDependencies: RepoMapServiceDependencies = {
 	},
 	createIgnoreSnapshot,
 	scan: scanRepoMap,
+	async indexSymbols(input) {
+		return await (await import("./symbol-indexer.js")).indexRepoMapSymbols(input);
+	},
+	async buildRelationships(input) {
+		return (await import("./relationship-indexer.js")).buildRepoMapRelationships(input);
+	},
 	readCurrent: readCurrentGeneration,
 	commit: commitGeneration,
 	cacheRoot: repoMapCacheRoot,
@@ -92,6 +103,34 @@ export async function initializeRepoMap(
 		...(input.onProgress !== undefined ? { onProgress: input.onProgress } : {}),
 	});
 	throwIfAborted(input.signal);
+	safeProgress(input.onProgress, { phase: "parsing", completed: 0, total: scan.summary.indexed });
+	const symbolIndex = await deps.indexSymbols({
+		root: identity.repositoryRoot,
+		files: scan.files,
+		concurrency: config.scan.concurrency,
+		...(previous !== undefined ? {
+			previous: {
+				files: previous.files,
+				symbols: previous.symbols,
+				edges: previous.edges,
+				diagnostics: previous.diagnostics,
+			},
+		} : {}),
+		...(input.signal !== undefined ? { signal: input.signal } : {}),
+	});
+	throwIfAborted(input.signal);
+	const edges = await deps.buildRelationships({ mapId, files: scan.files, symbols: symbolIndex.symbols, imports: symbolIndex.imports });
+	const diagnostics = [...scan.diagnostics, ...symbolIndex.diagnostics];
+	const summary: RepoMapScanSummary = {
+		...scan.summary,
+		parsed: symbolIndex.parsedFileCount,
+		unsupported: symbolIndex.unsupportedFileCount,
+		parseErrors: symbolIndex.parseErrorFileCount,
+		reusedParsed: symbolIndex.reusedParsedFileCount,
+		symbols: symbolIndex.symbols.length,
+		edges: edges.length,
+		diagnostics: diagnostics.length,
+	};
 	const endingRevision = await deps.readHeadRevision(identity.worktreeRoot, signalOptions(input.signal));
 	if (endingRevision !== identity.headRevision) {
 		throw new RepoMapError("REPOSITORY_CHANGED_DURING_SCAN", "Repository HEAD changed during Repo Map scan; run /init again.");
@@ -104,11 +143,15 @@ export async function initializeRepoMap(
 		parserFingerprint: CODE_INDEX_FORMAT_VERSION,
 		...(identity.headRevision !== undefined ? { headRevision: identity.headRevision } : {}),
 		files: scan.files,
+		symbols: symbolIndex.symbols,
+		edges,
+		diagnostics,
 	});
 	const now = deps.now().toISOString();
-	const partial = scan.summary.unreadable > 0
-		|| scan.summary.unstable > 0
-		|| scan.diagnostics.some((diagnostic) => diagnostic.code === "DIRECTORY_UNREADABLE");
+	const partial = summary.unreadable > 0
+		|| summary.unstable > 0
+		|| summary.parseErrors > 0
+		|| diagnostics.some((diagnostic) => diagnostic.code === "DIRECTORY_UNREADABLE");
 	const metadata: RepoMapMetadata = {
 		schemaVersion: REPO_MAP_SCHEMA_VERSION,
 		mapId,
@@ -120,11 +163,14 @@ export async function initializeRepoMap(
 		updatedAt: now,
 		freshness: partial ? "partially_stale" : "fresh",
 		fileCount: scan.files.length,
-		indexedFileCount: scan.summary.indexed,
-		symbolCount: 0,
-		edgeCount: 0,
-		tooLargeFileCount: scan.summary.tooLarge,
-		diagnosticCount: scan.diagnostics.length,
+		indexedFileCount: summary.indexed,
+		parsedFileCount: summary.parsed,
+		unsupportedFileCount: summary.unsupported,
+		parseErrorFileCount: summary.parseErrors,
+		symbolCount: symbolIndex.symbols.length,
+		edgeCount: edges.length,
+		tooLargeFileCount: summary.tooLarge,
+		diagnosticCount: diagnostics.length,
 		...(identity.headRevision !== undefined ? { gitRevision: identity.headRevision } : {}),
 		configFingerprint,
 		ignoreFingerprint: ignoreSnapshot.fingerprint,
@@ -136,13 +182,15 @@ export async function initializeRepoMap(
 		maxGenerations: config.cache.max_generations,
 		metadata,
 		files: scan.files,
-		diagnostics: scan.diagnostics,
+		symbols: symbolIndex.symbols,
+		edges,
+		diagnostics,
 		...(input.signal !== undefined ? { signal: input.signal } : {}),
 	});
 	return {
 		identity,
 		metadata: committed.generation.metadata,
-		summary: scan.summary,
+		summary,
 		reusedGeneration: committed.reused,
 	};
 }

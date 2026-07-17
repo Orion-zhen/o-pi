@@ -2,16 +2,19 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmod, lstat, mkdir, mkdtemp, open, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { createFileIdentity } from "../code-index/identity.js";
+import { createFileIdentity, createSymbolId } from "../code-index/identity.js";
 import { RepoMapError, throwIfAborted } from "./errors.js";
+import { compareRepoMapEdge } from "./graph-types.js";
 import { createRepoMapId, REPO_MAP_SCHEMA_VERSION } from "./identity.js";
-import type { RepoMapDiagnostic, RepoMapFileRecord, RepoMapMetadata } from "./types.js";
+import type { RepoMapDiagnostic, RepoMapEdge, RepoMapEvidence, RepoMapFileRecord, RepoMapMetadata, RepoMapSymbolNode } from "./types.js";
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/u;
 
 export interface RepoMapGeneration {
 	metadata: RepoMapMetadata;
 	files: RepoMapFileRecord[];
+	symbols: RepoMapSymbolNode[];
+	edges: RepoMapEdge[];
 	diagnostics: RepoMapDiagnostic[];
 }
 
@@ -33,6 +36,9 @@ export function calculateGeneration(input: {
 	parserFingerprint: string;
 	headRevision?: string;
 	files: readonly RepoMapFileRecord[];
+	symbols: readonly RepoMapSymbolNode[];
+	edges: readonly RepoMapEdge[];
+	diagnostics: readonly RepoMapDiagnostic[];
 }): string {
 	const hash = createHash("sha256");
 	const values: unknown[] = [
@@ -45,6 +51,23 @@ export function calculateGeneration(input: {
 		[...input.files]
 			.sort((left, right) => compareStable(left.path, right.path))
 			.map((file) => [file.id, file.path, file.size, file.mtimeMs, file.status, file.contentHash ?? null]),
+		[...input.symbols]
+			.sort(compareSymbol)
+			.map((symbol) => [
+				symbol.id, symbol.fileId, symbol.symbolKind, symbol.name ?? null, symbol.qualifiedName ?? null, symbol.signature ?? null,
+				symbol.startLine, symbol.endLine, symbol.startByte, symbol.endByte,
+				[...symbol.definitions], [...symbol.references], [...symbol.calls], [...symbol.imports],
+			]),
+		sortedEdges(input.edges)
+			.map((edge) => [
+				edge.kind, edge.from, edge.to, edge.resolution, edge.source, edge.confidence, edge.lexicalTarget ?? null,
+				edge.evidence.map((evidence) => [
+					evidence.path, evidence.startLine, evidence.endLine, evidence.startByte, evidence.endByte, evidence.textHash ?? null,
+				]),
+			]),
+		[...input.diagnostics]
+			.sort(compareDiagnostic)
+			.map((diagnostic) => [diagnostic.code, diagnostic.message, diagnostic.path ?? null]),
 	];
 	for (const value of values) {
 		const encoded = JSON.stringify(value);
@@ -80,19 +103,35 @@ export async function readGeneration(
 	try {
 		const directoryInfo = await lstat(directory);
 		if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()) return undefined;
-		const [metadataValue, filesValue, diagnosticsValue] = await Promise.all([
+		const [metadataValue, filesValue, symbolsValue, edgesValue, diagnosticsValue] = await Promise.all([
 			readJson(path.join(directory, "metadata.json")),
 			readJson(path.join(directory, "files.json")),
+			readJson(path.join(directory, "symbols.json")),
+			readJson(path.join(directory, "edges.json")),
 			readJson(path.join(directory, "diagnostics.json")),
 		]);
 		const metadata = validateMetadata(metadataValue, mapId, generation, expectedRoot);
 		const files = validateFiles(filesValue);
+		const symbols = validateSymbols(symbolsValue, files);
+		const edges = validateEdges(edgesValue, metadata.mapId, files, symbols);
 		const diagnostics = validateDiagnostics(diagnosticsValue);
 		if (metadata.fileCount !== files.length) return undefined;
 		if (metadata.indexedFileCount !== files.filter((file) => file.status === "indexed").length) return undefined;
 		if (metadata.tooLargeFileCount !== files.filter((file) => file.status === "too_large").length) return undefined;
+		if (metadata.symbolCount !== symbols.length || metadata.edgeCount !== edges.length) return undefined;
 		if (metadata.diagnosticCount !== diagnostics.length) return undefined;
-		return { metadata, files, diagnostics };
+		if (calculateGeneration({
+			mapId,
+			configFingerprint: metadata.configFingerprint,
+			ignoreFingerprint: metadata.ignoreFingerprint,
+			parserFingerprint: metadata.parserFingerprint,
+			...(metadata.gitRevision !== undefined ? { headRevision: metadata.gitRevision } : {}),
+			files,
+			symbols,
+			edges,
+			diagnostics,
+		}) !== generation) return undefined;
+		return { metadata, files, symbols, edges, diagnostics };
 	} catch {
 		return undefined;
 	}
@@ -115,7 +154,9 @@ export async function commitGeneration(input: CommitGenerationInput): Promise<Co
 			await bestEffortChmod(temporaryDirectory, 0o700);
 			await writeJsonFile(path.join(temporaryDirectory, "metadata.json"), input.metadata);
 			await writeJsonFile(path.join(temporaryDirectory, "files.json"), [...input.files].sort((a, b) => compareStable(a.path, b.path)));
-			await writeJsonFile(path.join(temporaryDirectory, "diagnostics.json"), input.diagnostics);
+			await writeJsonFile(path.join(temporaryDirectory, "symbols.json"), [...input.symbols].sort(compareSymbol));
+			await writeJsonFile(path.join(temporaryDirectory, "edges.json"), sortedEdges(input.edges));
+			await writeJsonFile(path.join(temporaryDirectory, "diagnostics.json"), [...input.diagnostics].sort(compareDiagnostic));
 			throwIfAborted(input.signal);
 			const destination = generationDirectory(input.cacheRoot, input.metadata.mapId, input.metadata.generation);
 			if (await exists(destination)) {
@@ -156,8 +197,15 @@ export async function commitGeneration(input: CommitGenerationInput): Promise<Co
 function validateCommitInput(input: CommitGenerationInput): void {
 	const metadata = validateMetadata(input.metadata, input.metadata.mapId, input.metadata.generation, input.metadata.repositoryRoot);
 	const files = validateFiles(input.files);
+	const symbols = validateSymbols(input.symbols, files);
+	const edges = validateEdges(input.edges, metadata.mapId, files, symbols);
 	const diagnostics = validateDiagnostics(input.diagnostics);
-	if (metadata.fileCount !== files.length || metadata.diagnosticCount !== diagnostics.length) {
+	if (
+		metadata.fileCount !== files.length
+		|| metadata.symbolCount !== symbols.length
+		|| metadata.edgeCount !== edges.length
+		|| metadata.diagnosticCount !== diagnostics.length
+	) {
 		throw new RepoMapError("CACHE_ERROR", "Repo Map generation counts are inconsistent.");
 	}
 }
@@ -212,8 +260,11 @@ function validateMetadata(value: unknown, mapId: string, generation: string, exp
 		|| !isFreshness(value["freshness"])
 		|| !isCount(value["fileCount"])
 		|| !isCount(value["indexedFileCount"])
-		|| value["symbolCount"] !== 0
-		|| value["edgeCount"] !== 0
+		|| !isCount(value["parsedFileCount"])
+		|| !isCount(value["unsupportedFileCount"])
+		|| !isCount(value["parseErrorFileCount"])
+		|| !isCount(value["symbolCount"])
+		|| !isCount(value["edgeCount"])
 		|| !isCount(value["tooLargeFileCount"])
 		|| !isCount(value["diagnosticCount"])
 		|| (value["gitRevision"] !== undefined && !isGitRevision(value["gitRevision"]))
@@ -221,6 +272,9 @@ function validateMetadata(value: unknown, mapId: string, generation: string, exp
 		|| !isNonEmptyString(value["ignoreFingerprint"])
 		|| !isNonEmptyString(value["parserFingerprint"])
 	) throw new Error("invalid metadata");
+	if (value["parsedFileCount"] + value["unsupportedFileCount"] + value["parseErrorFileCount"] !== value["indexedFileCount"]) {
+		throw new Error("invalid index counts");
+	}
 	return {
 		schemaVersion: REPO_MAP_SCHEMA_VERSION,
 		mapId,
@@ -233,8 +287,11 @@ function validateMetadata(value: unknown, mapId: string, generation: string, exp
 		freshness: value["freshness"],
 		fileCount: value["fileCount"],
 		indexedFileCount: value["indexedFileCount"],
-		symbolCount: 0,
-		edgeCount: 0,
+		parsedFileCount: value["parsedFileCount"],
+		unsupportedFileCount: value["unsupportedFileCount"],
+		parseErrorFileCount: value["parseErrorFileCount"],
+		symbolCount: value["symbolCount"],
+		edgeCount: value["edgeCount"],
 		tooLargeFileCount: value["tooLargeFileCount"],
 		diagnosticCount: value["diagnosticCount"],
 		...(typeof value["gitRevision"] === "string" ? { gitRevision: value["gitRevision"] } : {}),
@@ -265,6 +322,118 @@ function validateFiles(value: unknown): RepoMapFileRecord[] {
 		previousPath = item["path"];
 	}
 	return files;
+}
+
+function validateSymbols(value: unknown, files: readonly RepoMapFileRecord[]): RepoMapSymbolNode[] {
+	if (!Array.isArray(value)) throw new Error("invalid symbols");
+	const fileIds = new Set(files.map((file) => file.id));
+	const symbols: RepoMapSymbolNode[] = [];
+	let previous: RepoMapSymbolNode | undefined;
+	for (const item of value) {
+		if (
+			!isRecord(item)
+			|| item["kind"] !== "symbol"
+			|| !isNonEmptyString(item["id"])
+			|| !isNonEmptyString(item["fileId"])
+			|| !fileIds.has(item["fileId"])
+			|| !isNonEmptyString(item["symbolKind"])
+			|| (item["name"] !== undefined && !isNonEmptyString(item["name"]))
+			|| (item["qualifiedName"] !== undefined && !isNonEmptyString(item["qualifiedName"]))
+			|| (item["signature"] !== undefined && typeof item["signature"] !== "string")
+			|| !isSourceRange(item)
+			|| !isStringArray(item["definitions"])
+			|| !isStringArray(item["references"])
+			|| !isStringArray(item["calls"])
+			|| !isStringArray(item["imports"])
+		) throw new Error("invalid symbol");
+		const symbol: RepoMapSymbolNode = {
+			kind: "symbol",
+			id: item["id"],
+			fileId: item["fileId"],
+			symbolKind: item["symbolKind"],
+			...(typeof item["name"] === "string" ? { name: item["name"] } : {}),
+			...(typeof item["qualifiedName"] === "string" ? { qualifiedName: item["qualifiedName"] } : {}),
+			...(typeof item["signature"] === "string" ? { signature: item["signature"] } : {}),
+			startLine: item["startLine"],
+			endLine: item["endLine"],
+			startByte: item["startByte"],
+			endByte: item["endByte"],
+			definitions: item["definitions"],
+			references: item["references"],
+			calls: item["calls"],
+			imports: item["imports"],
+		};
+		if (symbol.id !== createSymbolId({
+			fileId: symbol.fileId,
+			kind: symbol.symbolKind,
+			...(symbol.name !== undefined ? { name: symbol.name } : {}),
+			...(symbol.qualifiedName !== undefined ? { qualifiedName: symbol.qualifiedName } : {}),
+			startByte: symbol.startByte,
+		})) throw new Error("invalid symbol identity");
+		if (previous !== undefined && compareSymbol(previous, symbol) >= 0) throw new Error("invalid symbol order");
+		symbols.push(symbol);
+		previous = symbol;
+	}
+	return symbols;
+}
+
+function validateEdges(
+	value: unknown,
+	mapId: string,
+	files: readonly RepoMapFileRecord[],
+	symbols: readonly RepoMapSymbolNode[],
+): RepoMapEdge[] {
+	if (!Array.isArray(value)) throw new Error("invalid edges");
+	const nodes = new Set([`repository:${mapId}`, ...files.map((file) => file.id), ...symbols.map((symbol) => symbol.id)]);
+	const edges: RepoMapEdge[] = [];
+	let previous: RepoMapEdge | undefined;
+	for (const item of value) {
+		if (
+			!isRecord(item)
+			|| !isEdgeKind(item["kind"])
+			|| !isNonEmptyString(item["from"])
+			|| !nodes.has(item["from"])
+			|| !isNonEmptyString(item["to"])
+			|| (!nodes.has(item["to"]) && !item["to"].startsWith("external:") && !item["to"].startsWith("lexical:symbol:"))
+			|| !isEdgeResolution(item["resolution"])
+			|| !isEdgeSource(item["source"])
+			|| typeof item["confidence"] !== "number"
+			|| !Number.isFinite(item["confidence"])
+			|| item["confidence"] < 0
+			|| item["confidence"] > 1
+			|| (item["lexicalTarget"] !== undefined && !isNonEmptyString(item["lexicalTarget"]))
+			|| !Array.isArray(item["evidence"])
+			|| item["evidence"].length === 0
+		) throw new Error("invalid edge");
+		const edge: RepoMapEdge = {
+			kind: item["kind"],
+			from: item["from"],
+			to: item["to"],
+			resolution: item["resolution"],
+			source: item["source"],
+			confidence: item["confidence"],
+			...(typeof item["lexicalTarget"] === "string" ? { lexicalTarget: item["lexicalTarget"] } : {}),
+			evidence: item["evidence"].map(validateEvidence),
+		};
+		if (previous !== undefined && compareRepoMapEdge(previous, edge) >= 0) throw new Error("invalid edge order");
+		edges.push(edge);
+		previous = edge;
+	}
+	return edges;
+}
+
+function validateEvidence(value: unknown): RepoMapEvidence {
+	if (!isRecord(value) || !isSafeRelativePath(value["path"]) || !isSourceRange(value) || (value["textHash"] !== undefined && !isHash(value["textHash"]))) {
+		throw new Error("invalid edge evidence");
+	}
+	return {
+		path: value["path"],
+		...(typeof value["textHash"] === "string" ? { textHash: value["textHash"] } : {}),
+		startLine: value["startLine"],
+		endLine: value["endLine"],
+		startByte: value["startByte"],
+		endByte: value["endByte"],
+	};
 }
 
 function validateDiagnostics(value: unknown): RepoMapDiagnostic[] {
@@ -433,6 +602,58 @@ function isFreshness(value: unknown): value is RepoMapMetadata["freshness"] {
 
 function isFileStatus(value: unknown): value is RepoMapFileRecord["status"] {
 	return value === "indexed" || value === "too_large" || value === "unreadable" || value === "unstable";
+}
+
+function isSourceRange(value: Record<string, unknown>): value is Record<string, unknown> & {
+	startLine: number;
+	endLine: number;
+	startByte: number;
+	endByte: number;
+} {
+	return isCount(value["startLine"])
+		&& value["startLine"] > 0
+		&& isCount(value["endLine"])
+		&& value["endLine"] >= value["startLine"]
+		&& isCount(value["startByte"])
+		&& isCount(value["endByte"])
+		&& value["endByte"] >= value["startByte"];
+}
+
+function isStringArray(value: unknown): value is string[] {
+	return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isEdgeKind(value: unknown): value is RepoMapEdge["kind"] {
+	return value === "contains" || value === "imports" || value === "exports" || value === "references" || value === "calls";
+}
+
+function isEdgeResolution(value: unknown): value is RepoMapEdge["resolution"] {
+	return value === "lexical" || value === "syntactic" || value === "semantic";
+}
+
+function isEdgeSource(value: unknown): value is RepoMapEdge["source"] {
+	return value === "tree-sitter" || value === "manifest" || value === "lsp" || value === "convention";
+}
+
+function compareSymbol(left: RepoMapSymbolNode, right: RepoMapSymbolNode): number {
+	return compareStable(left.fileId, right.fileId) || left.startByte - right.startByte || compareStable(left.id, right.id);
+}
+
+function compareDiagnostic(left: RepoMapDiagnostic, right: RepoMapDiagnostic): number {
+	return compareStable(left.path ?? "", right.path ?? "") || compareStable(left.code, right.code) || compareStable(left.message, right.message);
+}
+
+function sortedEdges(edges: readonly RepoMapEdge[]): RepoMapEdge[] {
+	return [...edges]
+		.sort(compareRepoMapEdge)
+		.map((edge) => ({ ...edge, evidence: [...edge.evidence].sort(compareEvidence) }));
+}
+
+function compareEvidence(left: RepoMapEvidence, right: RepoMapEvidence): number {
+	return compareStable(left.path, right.path)
+		|| left.startByte - right.startByte
+		|| left.endByte - right.endByte
+		|| compareStable(left.textHash ?? "", right.textHash ?? "");
 }
 
 function compareStable(left: string, right: string): number {

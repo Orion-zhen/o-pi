@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFileIdentity, createSymbolId } from "../../src/code-index/identity.js";
-import { byteRangeForLines, parseCodeUnits } from "../../src/code-index/parser.js";
+import { analyzeCodeFile, byteRangeForLines, parseCodeUnits } from "../../src/code-index/parser.js";
 import { loadTreeSitterRuntime } from "../../src/code-index/tree-sitter-runtime.js";
 
 const require = createRequire(import.meta.url);
@@ -101,6 +101,24 @@ describe("shared code parser", () => {
 		expect(createFileIdentity("./src/feature/../auth.ts")).toEqual({ id: "file:src/auth.ts", path: "src/auth.ts" });
 	});
 
+	it.each([
+		["a.ts", "import { x } from './x';\n", "./x"],
+		["a.jsx", "const x = require('./x');\n", "./x"],
+		["a.py", "from app.worker import run\n", "app.worker"],
+		["a.go", "package a\nimport \"example/x\"\n", "example/x"],
+		["a.rs", "use crate::worker::run;\n", "crate::worker::run"],
+	])("详细分析保留 %s 的文件级 import", (filePath, text, specifier) => {
+		const analyzed = analyzeCodeFile(filePath, text);
+		expect(analyzed.status).toBe("parsed");
+		expect(analyzed.imports).toEqual([expect.objectContaining({ specifier })]);
+	});
+
+	it("提取 dynamic import 和 Go import block，且不把普通 Go 字符串当作 import", () => {
+		expect(analyzeCodeFile("a.ts", "const lazy = import('./lazy');\n").imports.map((item) => item.specifier)).toEqual(["./lazy"]);
+		const go = analyzeCodeFile("a.go", "package a\nimport (\n  \"example/one\"\n  alias \"example/two\"\n)\nvar text = \"not/import\"\n");
+		expect(go.imports.map((item) => item.specifier)).toEqual(["example/one", "example/two"]);
+	});
+
 	it("SourceRange 使用 UTF-8 byte offset、1-based inclusive line 和半开字节区间", () => {
 		const text = "// 你\nexport function demo() {\n  return '好';\n}\n";
 		const unit = parseCodeUnits("utf8.ts", text).units[0];
@@ -133,7 +151,8 @@ describe("shared code parser", () => {
 				throw new Error("simulated grammar failure");
 			},
 		}));
-		const { parseCodeUnits: parseWithFailure } = await import("../../src/code-index/parser.js");
+		const { analyzeCodeFile: analyzeWithFailure, parseCodeUnits: parseWithFailure } = await import("../../src/code-index/parser.js");
 		expect(parseWithFailure("broken.ts", "export function demo() {}\n")).toMatchObject({ language: "typescript", units: [] });
+		expect(analyzeWithFailure("broken.ts", "export function demo() {}\n").status).toBe("error");
 	});
 });
