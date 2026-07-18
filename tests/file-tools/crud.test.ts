@@ -109,14 +109,14 @@ describe("ls", () => {
 		}
 	});
 
-	it("列出空目录并支持 . 表示 workspace root", async () => {
+	it("列出空目录，path 缺省时使用 workspace root", async () => {
 		await mkdir(path.join(workspace, "empty"));
 		expect(await listWorkspaceDirectory(workspace, { path: "empty" })).toMatchObject({
 			path: "empty",
 			entries: [],
 			truncated: false,
 		});
-		expect(await listWorkspaceDirectory(workspace, { path: "." })).toMatchObject({
+		expect(await listWorkspaceDirectory(workspace, {})).toMatchObject({
 			path: ".",
 			entries: [{ name: "empty", path: "empty", type: "directory" }],
 			truncated: false,

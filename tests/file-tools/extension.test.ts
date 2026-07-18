@@ -140,7 +140,7 @@ describe("file-tools extension", () => {
 		expect(imports.find).not.toHaveBeenCalled();
 		expect(imports.grep).not.toHaveBeenCalled();
 
-		const execution = executeTool(registered, "ls", { path: "." }, {
+		const execution = executeTool(registered, "ls", {}, {
 			cwd: process.cwd(),
 			sessionManager: { getSessionId: () => "preload-session" },
 		});

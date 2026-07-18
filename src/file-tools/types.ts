@@ -66,7 +66,7 @@ export interface WriteParams {
 }
 
 export interface LsParams {
-	path: string;
+	path?: string;
 }
 
 /** find 参数：path 是 workspace-relative 搜索根，query 相对该根解释为路径、glob 或名称查询。 */

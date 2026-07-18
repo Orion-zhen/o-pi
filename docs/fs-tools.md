@@ -228,7 +228,7 @@ Git tracked files：
 
 ## ls
 
-`ls` 只列出指定目录的直属成员。它无副作用、不递归、不读取文件内容、不搜索内容、不返回 size、mtime、权限、owner、inode 等 metadata。
+`ls` 只列出指定目录的直属成员；未指定目录时列出当前 workspace。它无副作用、不递归、不读取文件内容、不搜索内容、不返回 size、mtime、权限、owner、inode 等 metadata。
 
 参数：
 
@@ -240,7 +240,7 @@ Git tracked files：
 
 字段：
 
-* `path`：目录路径。`.` 表示当前 `cwd`；相对路径按 `cwd` 解析；workspace 内绝对路径返回相对路径；workspace 外绝对路径保持绝对；空字符串非法。
+* `path`：可选目录路径，默认当前 workspace。`.` 表示当前 `cwd`；相对路径按 `cwd` 解析；workspace 内绝对路径返回相对路径；workspace 外绝对路径保持绝对；空字符串非法。
 
 模型可见成功结果使用紧凑 shell 风格文本，完整结构保留在 `details`：
 

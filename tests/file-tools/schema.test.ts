@@ -21,11 +21,17 @@ function validates(schema: AnySchema, value: unknown): boolean {
 describe("file tool schemas", () => {
 	it("使用整数范围、数组长度、必填字段和未知字段限制", () => {
 		const tools = registeredTools();
+		const ls = tools.get("ls")?.parameters as AnySchema | undefined;
 		const find = tools.get("find")?.parameters as AnySchema | undefined;
 		const grep = tools.get("grep")?.parameters as AnySchema | undefined;
 		const read = tools.get("read")?.parameters as AnySchema | undefined;
 		const edit = tools.get("edit")?.parameters as AnySchema | undefined;
-		if (find === undefined || grep === undefined || read === undefined || edit === undefined) throw new Error("missing tool schema");
+		if (ls === undefined || find === undefined || grep === undefined || read === undefined || edit === undefined) throw new Error("missing tool schema");
+
+		expect(validates(ls, {})).toBe(true);
+		expect(validates(ls, { path: "src" })).toBe(true);
+		expect(validates(ls, { path: "" })).toBe(false);
+		expect(validates(ls, { extra: true })).toBe(false);
 
 		expect(validates(find, { query: "auth service" })).toBe(true);
 		expect(validates(find, { query: "**/*.ts", path: "src" })).toBe(true);

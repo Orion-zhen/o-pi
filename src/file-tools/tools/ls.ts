@@ -18,7 +18,7 @@ export async function listWorkspaceDirectory(cwd: string, params: LsParams): Pro
 	const config = await loadFileToolsConfig();
 	if (isFailed(config)) return config;
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
-	const resolved = await resolveExistingDirectory(workspaceRoot, params.path, config);
+	const resolved = await resolveExistingDirectory(workspaceRoot, params.path ?? ".", config);
 	if (isFailed(resolved)) return resolved;
 	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
 

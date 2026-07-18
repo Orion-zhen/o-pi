@@ -37,12 +37,12 @@ import type { EditParams, FindParams, GrepParams, LsParams, ReadParams, WritePar
 import { createRepoMapFileToolQuery, type RepoMapMutationResult } from "../../src/repo-map/file-tool-query.js";
 import { repairableTool } from "../../src/tool-repair/index.js";
 
-const lsParameters = Type.Object({ path: Type.String({ description: "Directory path." }) }, { additionalProperties: false });
+const lsParameters = Type.Object({ path: Type.Optional(Type.String({ minLength: 1, description: "Directory path; defaults to workspace." })) }, { additionalProperties: false });
 const findParameters = Type.Object(
 	{
 		query: Type.String({
 			minLength: 1,
-			description: "File or directory name, path fragment, or glob; use ** for recursive find.",
+			description: "File or directory name, path fragment, or glob. Searches recursively under path; use ** only inside recursive glob patterns.",
 		}),
 		path: Type.Optional(Type.String({ minLength: 1, description: "Search root; defaults to workspace." })),
 	},
@@ -50,7 +50,7 @@ const findParameters = Type.Object(
 );
 const grepParameters = Type.Object(
 	{
-		query: Type.String({ minLength: 1, description: "Text, symbol, regex, or code intent to find." }),
+		query: Type.String({ minLength: 1, description: "Text, symbol, or code intent. Set match=regex for regular expressions." }),
 		path: Type.Optional(Type.String({ minLength: 1, description: "File or directory scope; defaults to workspace." })),
 		match: Type.Optional(StringEnum(["auto", "literal", "regex"] as const, { description: "Query interpretation; defaults to auto." })),
 		glob: Type.Optional(Type.String({ minLength: 1, description: "Relative file glob within path." })),
