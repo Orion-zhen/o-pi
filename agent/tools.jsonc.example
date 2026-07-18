@@ -1,3 +1,20 @@
 {
-  "websearch": false
+  "$schema": "./schemas/tools.schema.json",
+  // 默认启用所有工具
+  "rules": [
+    {
+      "match": "openai-codex/*",
+      "tools": {
+        "websearch": false,
+        "webfetch": false
+      }
+    },
+    {
+      "match": "google/*",
+      "tools": {
+        "websearch": false,
+        "webfetch": false
+      }
+    }
+  ]
 }

@@ -12,7 +12,12 @@
 import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
 import { Container, type SettingItem, SettingsList } from "@earendil-works/pi-tui";
-import { isToolEnabledByDefault, loadToolDefaultsConfig } from "../../src/tool-defaults/config.js";
+import {
+	loadToolDefaultsConfig,
+	resolveToolDefaults,
+	type ToolDefaultsConfig,
+	type ToolDefaultsModel,
+} from "../../src/tool-defaults/config.js";
 
 // State persisted to session
 interface ToolsState {
@@ -23,6 +28,7 @@ export default function toolsExtension(pi: ExtensionAPI) {
 	// Track enabled tools
 	let enabledTools: Set<string> = new Set();
 	let allTools: ToolInfo[] = [];
+	let configCache: { cwd: string; value: Promise<ToolDefaultsConfig> } | undefined;
 
 	// Persist current state
 	function persistState() {
@@ -36,10 +42,18 @@ export default function toolsExtension(pi: ExtensionAPI) {
 		pi.setActiveTools(Array.from(enabledTools));
 	}
 
-	async function loadDefaultEnabledToolNames(ctx: ExtensionContext, tools: ToolInfo[]): Promise<string[]> {
+	async function loadDefaultEnabledToolNames(
+		ctx: ExtensionContext,
+		tools: ToolInfo[],
+		model: ToolDefaultsModel | undefined,
+	): Promise<string[]> {
 		try {
-			const config = await loadToolDefaultsConfig(ctx.cwd);
-			return tools.filter((tool) => isToolEnabledByDefault(config, tool.name)).map((tool) => tool.name);
+			if (configCache?.cwd !== ctx.cwd) {
+				configCache = { cwd: ctx.cwd, value: loadToolDefaultsConfig(ctx.cwd) };
+			}
+			const config = await configCache.value;
+			const defaults = resolveToolDefaults(config, model);
+			return tools.filter((tool) => defaults[tool.name] ?? true).map((tool) => tool.name);
 		} catch (error) {
 			ctx.ui.notify(`tools config ignored: ${error instanceof Error ? error.message : String(error)}`, "warning");
 			return tools.map((tool) => tool.name);
@@ -47,7 +61,12 @@ export default function toolsExtension(pi: ExtensionAPI) {
 	}
 
 	// Find the last tools-config entry in the current branch
-	async function restoreFromBranch(ctx: ExtensionContext) {
+	async function restoreFromBranch(
+		ctx: ExtensionContext,
+		model: ToolDefaultsModel | undefined = ctx.model,
+		refreshConfig = false,
+	) {
+		if (refreshConfig) configCache = undefined;
 		allTools = pi.getAllTools();
 
 		// Get entries in current branch only
@@ -70,7 +89,7 @@ export default function toolsExtension(pi: ExtensionAPI) {
 			applyTools();
 		} else {
 			// No session override - use config defaults. Missing config keys mean enabled.
-			enabledTools = new Set(await loadDefaultEnabledToolNames(ctx, allTools));
+			enabledTools = new Set(await loadDefaultEnabledToolNames(ctx, allTools, model));
 			applyTools();
 		}
 	}
@@ -148,11 +167,16 @@ export default function toolsExtension(pi: ExtensionAPI) {
 
 	// Restore state on session start
 	pi.on("session_start", async (_event, ctx) => {
-		await restoreFromBranch(ctx);
+		await restoreFromBranch(ctx, ctx.model, true);
 	});
 
 	// Restore state when navigating the session tree
 	pi.on("session_tree", async (_event, ctx) => {
-		await restoreFromBranch(ctx);
+		await restoreFromBranch(ctx, ctx.model, true);
+	});
+
+	// Re-evaluate model-aware defaults when the active model changes.
+	pi.on("model_select", async (event, ctx) => {
+		await restoreFromBranch(ctx, event.model);
 	});
 }

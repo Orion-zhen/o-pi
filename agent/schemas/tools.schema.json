@@ -1,0 +1,35 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "tools.schema.json",
+	"type": "object",
+	"additionalProperties": false,
+	"properties": {
+		"$schema": { "type": "string" },
+		"defaults": { "$ref": "#/$defs/toolMap" },
+		"rules": {
+			"type": "array",
+			"maxItems": 256,
+			"items": { "$ref": "#/$defs/rule" }
+		}
+	},
+	"$defs": {
+		"toolMap": {
+			"type": "object",
+			"additionalProperties": { "type": "boolean" }
+		},
+		"rule": {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["match", "tools"],
+			"properties": {
+				"match": {
+					"type": "string",
+					"minLength": 3,
+					"maxLength": 1024,
+					"pattern": "^[^/]+/.+$"
+				},
+				"tools": { "$ref": "#/$defs/toolMap" }
+			}
+		}
+	}
+}

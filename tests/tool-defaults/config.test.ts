@@ -2,7 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { findNearestProjectRoot, isToolEnabledByDefault, loadToolDefaultsConfig } from "../../src/tool-defaults/config.js";
+import { findNearestProjectRoot, loadToolDefaultsConfig, resolveToolDefaults } from "../../src/tool-defaults/config.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
@@ -17,22 +17,23 @@ beforeEach(() => {
 });
 
 describe("tool defaults config", () => {
-	it("缺少配置时所有工具默认启用", async () => {
+	it("缺少配置时没有覆盖，所有工具由调用方默认启用", async () => {
 		const config = await loadToolDefaultsConfig(workspace);
-		expect(config).toEqual({ tools: {} });
-		expect(isToolEnabledByDefault(config, "bash")).toBe(true);
+		expect(config).toEqual({ layers: [] });
+		expect(resolveToolDefaults(config, { provider: "local", id: "model" })).toEqual({});
 	});
 
-	it("用户配置与项目配置合并，项目配置按工具覆盖用户配置", async () => {
+	it("用户层与项目层分别应用 defaults 和模型规则，项目层整体覆盖用户层", async () => {
 		const userPath = path.join(workspace, "user.jsonc");
 		process.env.PI_TOOLS_CONFIG = userPath;
 		await writeFile(
 			userPath,
 			`{
 				"$schema": "tools.schema.json",
-				"bash": false,
-				"read": true,
-				"grep": false,
+				"defaults": { "bash": false, "read": true },
+				"rules": [
+					{ "match": "google/*", "tools": { "grep": false, "write": true } }
+				]
 			}`,
 		);
 
@@ -41,26 +42,88 @@ describe("tool defaults config", () => {
 		await writeFile(
 			path.join(projectRoot, ".pi", "tools.jsonc"),
 			`{
-				"bash": true,
-				"write": false,
+				"defaults": { "bash": true },
+				"rules": [
+					{ "match": "*/*", "tools": { "grep": true } },
+					{ "match": "google/gemini-*", "tools": { "write": false } }
+				]
 			}`,
 		);
 
 		const config = await loadToolDefaultsConfig(path.join(projectRoot, "src"));
-
-		expect(config.tools).toEqual({ bash: true, read: true, grep: false, write: false });
-		expect(isToolEnabledByDefault(config, "edit")).toBe(true);
+		expect(resolveToolDefaults(config, { provider: "google", id: "gemini-3.5-flash" })).toEqual({
+			bash: true,
+			read: true,
+			grep: true,
+			write: false,
+		});
 	});
 
-	it("拒绝非对象配置和非 boolean 工具值", async () => {
+	it("匹配规则按最长静态前缀合并，不依赖声明顺序", async () => {
+		const userPath = path.join(workspace, "user.jsonc");
+		process.env.PI_TOOLS_CONFIG = userPath;
+		await writeFile(
+			userPath,
+			`{
+				"defaults": { "websearch": true, "webfetch": false },
+				"rules": [
+					{ "match": "local/qwen3-*", "tools": { "webfetch": false } },
+					{ "match": "*/*", "tools": { "websearch": false, "webfetch": true } },
+					{ "match": "local/*", "tools": { "websearch": true } }
+				]
+			}`,
+		);
+
+		const config = await loadToolDefaultsConfig(workspace);
+		expect(resolveToolDefaults(config, { provider: "local", id: "qwen3-coder" })).toEqual({
+			websearch: true,
+			webfetch: false,
+		});
+	});
+
+	it("相同静态前缀后声明者优先，但精确匹配始终高于尾部通配符", async () => {
+		const userPath = path.join(workspace, "user.jsonc");
+		process.env.PI_TOOLS_CONFIG = userPath;
+		await writeFile(
+			userPath,
+			`{
+				"rules": [
+					{ "match": "local/qwen3-coder", "tools": { "exact": true } },
+					{ "match": "local/qwen3-*", "tools": { "tie": false } },
+					{ "match": "local/qwen3-**", "tools": { "tie": true } },
+					{ "match": "local/qwen3-coder*", "tools": { "exact": false } }
+				]
+			}`,
+		);
+
+		const config = await loadToolDefaultsConfig(workspace);
+		expect(resolveToolDefaults(config, { provider: "local", id: "qwen3-coder" })).toMatchObject({
+			tie: true,
+			exact: true,
+		});
+	});
+
+	it("星号可跨越 model id 中的斜杠", async () => {
+		const userPath = path.join(workspace, "user.jsonc");
+		process.env.PI_TOOLS_CONFIG = userPath;
+		await writeFile(userPath, '{ "rules": [{ "match": "openrouter/*", "tools": { "websearch": false } }] }');
+
+		const config = await loadToolDefaultsConfig(workspace);
+		expect(resolveToolDefaults(config, { provider: "openrouter", id: "google/gemini-3.5-flash" })).toEqual({ websearch: false });
+	});
+
+	it("拒绝旧版顶层工具映射和无效规则", async () => {
 		const userPath = path.join(workspace, "bad.jsonc");
 		process.env.PI_TOOLS_CONFIG = userPath;
 
-		await writeFile(userPath, "[]");
-		await expect(loadToolDefaultsConfig(workspace)).rejects.toThrow("must be an object");
+		await writeFile(userPath, '{ "bash": false }');
+		await expect(loadToolDefaultsConfig(workspace)).rejects.toThrow("does not match schema");
 
-		await writeFile(userPath, '{ "bash": "off" }');
-		await expect(loadToolDefaultsConfig(workspace)).rejects.toThrow("values must be boolean");
+		await writeFile(userPath, '{ "rules": [{ "match": "google/*", "tools": { "websearch": "off" } }] }');
+		await expect(loadToolDefaultsConfig(workspace)).rejects.toThrow("does not match schema");
+
+		await writeFile(userPath, '{ "rules": [{ "match": "google", "tools": {} }] }');
+		await expect(loadToolDefaultsConfig(workspace)).rejects.toThrow("does not match schema");
 	});
 
 	it("从当前目录向上查找最近的 .pi 项目根", async () => {

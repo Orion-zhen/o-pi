@@ -51,7 +51,36 @@
 - 当前选择会写入会话分支的 `tools-config` 自定义条目；会话开始或切换分支时按当前分支恢复。
 - 恢复时会过滤已不存在的工具名。
 - 没有 session 覆盖时读取默认工具配置：用户级 `~/.pi/agent/tools.jsonc`，项目级 `.pi/tools.jsonc`。
-- 配置格式是工具名到 boolean 的 JSONC 对象，例如 `{ "bash": false }`；项目级同名工具覆盖用户级，配置中不存在的工具默认启用。
+- `defaults` 设置所有模型的工具默认值；`rules[].match` 匹配 `${model.provider}/${model.id}`，`rules[].tools` 设置该模型的工具值。
+- `match` 只把 `*` 视为通配符，且可跨越 model id 内的 `/`；规则按第一个 `*` 之前的最长静态前缀从短到长合并，精确匹配最高，相同优先级后声明者覆盖前者。
+- 模型启动、恢复或切换时重新计算配置；session 中的 `/tools` 手动选择仍优先于文件配置。
+- 用户配置先应用，项目配置整体后应用；未声明的工具默认启用。
+
+```jsonc
+{
+  "$schema": "./schemas/tools.schema.json",
+  "defaults": {
+    "websearch": true,
+    "webfetch": true
+  },
+  "rules": [
+    {
+      "match": "openai-codex/*",
+      "tools": {
+        "websearch": false,
+        "webfetch": false
+      }
+    },
+    {
+      "match": "google/*",
+      "tools": {
+        "websearch": false,
+        "webfetch": false
+      }
+    }
+  ]
+}
+```
 
 ## `/system`
 
