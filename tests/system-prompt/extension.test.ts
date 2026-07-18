@@ -20,7 +20,7 @@ describe("system prompt extension", () => {
 		vi.useRealTimers();
 	});
 
-	it("生成结构化 prompt，但不泄露未启用工具和 skill 元数据", () => {
+	it("生成结构化 prompt，但不重复工具定义或泄露 skill 元数据", () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2026-07-05T00:00:00Z"));
 
@@ -53,14 +53,13 @@ describe("system prompt extension", () => {
 		expect(prompt).not.toContain("\r");
 		expect(prompt).toContain("<tool_policy>");
 		expect(prompt).toContain("<skill_policy>");
-		expect(prompt).toContain("<available_tools>");
+		expect(prompt).not.toContain("<available_tools>");
 		expect(prompt).toContain("<project_context>");
 		expect(prompt).toContain("<context>");
 		expect(prompt).toContain("<time>2026-07-05</time>");
 		expect(prompt).toContain("<workspace>C:/repo</workspace>");
-		expect(prompt).toContain("- read: read files");
-		expect(prompt).toContain("- bash: run commands");
-		expect(prompt).not.toContain("write:");
+		expect(prompt).not.toContain("- read: read files");
+		expect(prompt).not.toContain("- bash: run commands");
 		expect(prompt).not.toContain("secret-skill");
 		expect(prompt).not.toContain("Hidden skill description.");
 		expect(prompt).not.toContain("C:\\repo\\.pi\\skills\\secret\\SKILL.md");
@@ -77,7 +76,7 @@ describe("system prompt extension", () => {
 		expect(prompt).not.toContain("<skill_policy>");
 	});
 
-	it("customPrompt 替换默认角色，同时保留 append、工具和上下文段落", () => {
+	it("customPrompt 替换默认角色，同时保留 append、策略和上下文段落", () => {
 		const prompt = buildSystemPrompt({
 			cwd: "C:\\repo",
 			customPrompt: "Only this base prompt.",
@@ -105,8 +104,8 @@ describe("system prompt extension", () => {
 		expect(prompt).toContain("<custom_prompt>\nOnly this base prompt.\n</custom_prompt>");
 		expect(prompt).toContain("<skill_policy>");
 		expect(prompt).toContain("<append_system_prompt>\nAppend this.\n</append_system_prompt>");
-		expect(prompt).toContain("<available_tools>");
-		expect(prompt).toContain("- read: read files");
+		expect(prompt).not.toContain("<available_tools>");
+		expect(prompt).not.toContain("- read: read files");
 		expect(prompt).toContain("<context>");
 		expect(prompt).not.toContain("<role>");
 	});
@@ -168,7 +167,7 @@ describe("system prompt extension", () => {
 
 		expect(customCalled).toBe(true);
 		expect(customLines?.[0]).toMatch(/System prompt \(\d+ chars, ~\d+ tokens, \d+ lines\)/);
-		expect(customLines?.some((line) => line.includes("<available_tools>"))).toBe(true);
+		expect(customLines?.some((line) => line.includes("<available_tools>"))).toBe(false);
 		expect(customLines?.some((line) => line.includes("Pi built-in prompt"))).toBe(false);
 		expect(sendMessageCalled).toBe(false);
 		expect(editorCalled).toBe(false);

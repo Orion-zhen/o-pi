@@ -6,7 +6,7 @@
 
 * 最小上下文：只保留会持续影响模型选择的文字。
 * 分层清晰：每条信息只属于一个最合适的位置。
-* 工具自治：工具维护自己的能力摘要和长期边界，system prompt 不硬编码具体工具知识。
+* 工具自治：工具通过 provider-native definition 维护能力说明，通过 `promptGuidelines` 维护长期边界。
 * 语义正交：工具之间按任务意图拆分，避免多个工具描述同一职责。
 * 专用优先：多个 active tools 都能完成任务时，选择语义最精准的工具。
 * 结果驱动恢复：低频恢复步骤放进当次 tool result，不常驻 system prompt。
@@ -24,14 +24,13 @@
 custom_prompt 或 role
 tool_policy
 skill_policy（仅扫描到 skill 时）
-available_tools
 append_system_prompt
 project_context
 subagents
 context
 ```
 
-`custom_prompt` 可以替换角色、风格和通用行为，但不能移除工具路由不变量。`system-prompt.ts` 只合成 active tool 元数据和最小 skill 策略，不维护具体工具或 skill 能力表。
+`custom_prompt` 可以替换角色、风格和通用行为，但不能移除共享工具策略。`system-prompt.ts` 只合成 active tools 的长期规则和最小 skill 策略，不维护具体工具或 skill 能力表。工具名、能力和参数由 provider-native tool definition 提供。
 
 ### `<tool_policy>`
 
@@ -50,18 +49,6 @@ context
 * 某个工具的完整使用手册；
 * 与 schema、description 或 tool result 重复的信息。
 
-### `<available_tools>`
-
-只列 active tools 的短路由。
-
-来源是工具的 `promptSnippet`，格式为：
-
-```text
-- grep: locate relevant code by content or symbol
-```
-
-它回答“这个 active tool 语义上负责什么”，不解释调用协议、错误处理或实现细节。
-
 ### tool `description`
 
 进入 provider-native tool definition，用于帮助模型判断工具能力。写法是“动作 + 对象 + 核心边界”。
@@ -78,7 +65,7 @@ Search literal text or regex in workspace files; return matching lines, paths, o
 * 错误恢复；
 * 配置来源；
 * renderer 行为；
-* 与 `promptSnippet` 或 schema 重复的长说明。
+* 与 parameter schema 或 system policy 重复的长说明。
 
 ### parameter schema
 
@@ -115,21 +102,17 @@ Search literal text or regex in workspace files; return matching lines, paths, o
 
 ## 工具提示词字段语义
 
-本项目重新定义 Pi 的提示词元数据用法：
-
-* `promptSnippet`：工具在 `<available_tools>` 中的短路由。
-* `promptGuidelines`：工具贡献给 `<tool_policy>` 的短长期规则。
+本项目只把 `promptGuidelines` 合成到 `<tool_policy>`。`promptSnippet` 仅供未启用本扩展时的 Pi 默认 prompt 使用，不进入本项目合成的 system prompt。
 
 示例：
 
 ```ts
-promptSnippet: "run shell commands or external programs"
 promptGuidelines: [
   "Use bash for tests, builds, formatters, compilers, generators, git, and other external programs; files changed by those programs remain bash output."
 ]
 ```
 
-`system-prompt.ts` 只负责过滤 active tools、合成、去重和排序，不根据具体工具名追加规则。
+`system-prompt.ts` 只负责合成和去重 Pi 提供的 active tool guidelines，不根据具体工具名追加规则。
 
 ## 判断一条提示词应放哪里
 
@@ -138,7 +121,7 @@ promptGuidelines: [
 1. 能由运行时强制吗？放 runtime。
 2. 能由 schema 表达吗？放 parameter schema。
 3. 只在失败、分页或截断后需要吗？放 tool result。
-4. 是某个工具的能力边界吗？放 description、promptSnippet 或 promptGuidelines。
+4. 是某个工具的能力或长期路由边界吗？放 description 或 promptGuidelines。
 5. 是跨工具长期不变量吗？放 `<tool_policy>`。
 6. 只是项目开发规范吗？放 `AGENTS.md`。
 
@@ -168,6 +151,6 @@ promptGuidelines: [
 * 是否已经由 schema、runtime 或 tool result 表达？
 * 是否只在相关工具 active 时出现？
 * 是否引用了未启用工具？
-* 是否与 description、promptSnippet 或 AGENTS.md 重复？
+* 是否与 tool definition 或 AGENTS.md 重复？
 * 是否可以用更短、更直接的句子表达？
 * system prompt 快照和相关 schema/tool result 测试是否覆盖变更？

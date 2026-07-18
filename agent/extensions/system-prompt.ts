@@ -17,8 +17,6 @@ type PromptSections = {
 	toolPolicy: string;
 	/** skill 策略只在 Pi 已扫描到 skill 时出现，不列出任何具体 skill 元数据。 */
 	skillPolicy: string | undefined;
-	/** 仅列出当前启用且带 prompt snippet 的工具，保持和 Pi 工具可见性一致。 */
-	availableTools: string;
 	/** AGENTS.md 等项目上下文由 Pi 预加载，本扩展只负责重新包成 XML 风格。 */
 	projectContext: string | undefined;
 	/** 运行时临时段落，例如主 Agent 可见的 subagent 索引。 */
@@ -60,7 +58,7 @@ export function formatSubagentSystemPrompt(agent: AgentDefinition): string {
 }
 
 /** 注册 /system 命令，用只读浮层查看当前 system prompt；内容不会写入会话历史。 */
-export function registerSystemCommand(pi: Pick<ExtensionAPI, "registerCommand"> & Partial<Pick<ExtensionAPI, "getActiveTools">>): void {
+export function registerSystemCommand(pi: Pick<ExtensionAPI, "registerCommand">): void {
 	pi.registerCommand("system", {
 		description: SYSTEM_COMMAND_DESCRIPTION,
 		async handler(_args, ctx) {
@@ -69,8 +67,7 @@ export function registerSystemCommand(pi: Pick<ExtensionAPI, "registerCommand"> 
 			// 命令上下文的 getSystemPromptOptions() 是 Pi 暴露的结构化基础输入；
 			// 它不包含当前命令渲染出的 prompt，因此这里必须复用本扩展的构建函数。
 			const systemPromptOptions = ctx.getSystemPromptOptions();
-			const activeTools = pi.getActiveTools?.() ?? getToolsFromPromptOptions(systemPromptOptions);
-			const prompt = await buildRuntimeSystemPrompt(systemPromptOptions, ctx.cwd, activeTools);
+			const prompt = await buildRuntimeSystemPrompt(systemPromptOptions, ctx.cwd);
 			await ctx.ui.custom<void>(
 				(tui, theme, _keybindings, done) => new SystemPromptViewer(prompt, theme, () => tui.terminal.rows, done, tokenScopeFromModel(ctx.model)),
 			);
@@ -84,19 +81,17 @@ export default function systemPrompt(pi: ExtensionAPI): void {
 
 	// before_agent_start 返回 systemPrompt 表示完整替换；Pi 会把它作为本轮 provider 请求的最终系统提示词。
 	pi.on("before_agent_start", async (event, ctx) => ({
-		systemPrompt: await buildRuntimeSystemPrompt(event.systemPromptOptions, ctx.cwd, pi.getActiveTools()),
+		systemPrompt: await buildRuntimeSystemPrompt(event.systemPromptOptions, ctx.cwd),
 	}));
 }
 
 function collectPromptSections(options: BuildSystemPromptOptions, extraSections: string[]): PromptSections {
 	const contextFiles = options.contextFiles ?? [];
-	const selectedTools = getToolsFromPromptOptions(options);
 
 	return {
 		appendSystemPrompt: formatAppendSystemPrompt(options.appendSystemPrompt),
 		toolPolicy: formatToolPolicy(options.promptGuidelines),
 		skillPolicy: hasAvailableSkills(options) ? formatSkillPolicy() : undefined,
-		availableTools: formatAvailableTools(selectedTools, options.toolSnippets),
 		projectContext: formatProjectContext(contextFiles),
 		extraSections,
 		date: formatLocalDate(new Date()),
@@ -124,7 +119,6 @@ function formatSharedPromptSections(sections: PromptSections): Array<string | un
 	return [
 		sections.toolPolicy,
 		sections.skillPolicy,
-		sections.availableTools,
 		sections.appendSystemPrompt,
 		sections.projectContext,
 		...sections.extraSections,
@@ -162,14 +156,6 @@ function hasAvailableSkills(options: BuildSystemPromptOptions): boolean {
 
 function normalizeGuidelines(promptGuidelines: BuildSystemPromptOptions["promptGuidelines"]): string[] {
 	return (promptGuidelines ?? []).map((guideline) => guideline.trim()).filter((guideline) => guideline.length > 0);
-}
-
-function formatAvailableTools(selectedTools: string[], toolSnippets: BuildSystemPromptOptions["toolSnippets"]): string {
-	const activeToolsWithSnippets = unique(selectedTools).filter((name) => toolSnippets?.[name]);
-	const lines = activeToolsWithSnippets.map((name) => `- ${name}: ${toolSnippets?.[name]}`);
-	return `<available_tools>
-${lines.length > 0 ? lines.join("\n") : "- (none)"}
-</available_tools>`;
 }
 
 function formatProjectContext(contextFiles: NonNullable<BuildSystemPromptOptions["contextFiles"]>): string | undefined {
@@ -373,13 +359,8 @@ function wrapByColumns(text: string, width: number): string[] {
 	return lines.length > 0 ? lines : [" "];
 }
 
-function getToolsFromPromptOptions(options: BuildSystemPromptOptions): string[] {
-	// 真实扩展路径会由 pi.getActiveTools() 写入 selectedTools；这里的 fallback 只服务于纯函数测试或外部直接调用。
-	return options.selectedTools ?? Object.keys(options.toolSnippets ?? {});
-}
-
-async function buildRuntimeSystemPrompt(options: BuildSystemPromptOptions, cwd: string, activeTools: string[]): Promise<string> {
-	return buildSystemPrompt({ ...options, selectedTools: activeTools }, await getMainAgentExtraSystemPrompt(cwd));
+async function buildRuntimeSystemPrompt(options: BuildSystemPromptOptions, cwd: string): Promise<string> {
+	return buildSystemPrompt(options, await getMainAgentExtraSystemPrompt(cwd));
 }
 
 async function getMainAgentExtraSystemPrompt(cwd: string): Promise<string[]> {
