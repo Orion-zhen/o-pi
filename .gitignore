@@ -5,6 +5,7 @@ agent/sessions
 agent/cookies.txt
 agent/models.jsonc
 agent/models-store.json
+agent/tools.jsonc
 
 cache/
 
