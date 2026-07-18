@@ -39,8 +39,21 @@ describe("websearch parser", () => {
 
 	it("识别合法零结果、challenge 和未知结构", async () => {
 		expect(parseDuckDuckGoHtml(await fixture("no-results.html"))).toEqual({ status: "success", results: [] });
+		expect(parseDuckDuckGoHtml("<html><body>Not many results contain this phrase.</body></html>")).toEqual({ status: "success", results: [] });
 		expect(parseDuckDuckGoHtml(await fixture("challenge.html"))).toMatchObject({ status: "failed", code: "PROVIDER_BLOCKED" });
 		expect(parseDuckDuckGoHtml(await fixture("changed-markup.html"))).toMatchObject({ status: "failed", code: "PARSE_FAILED" });
+	});
+
+	it("流式解析嵌套标签、HTML entity 和多 class 结果块", () => {
+		const parsed = parseDuckDuckGoHtml(`
+			<div class="result extra">
+				<a class="link result__a" href="https://example.com/a">Rock &amp; <b>Roll</b></a>
+				<span class="result__snippet muted">A &lt; B</span>
+			</div>`);
+		expect(parsed).toMatchObject({
+			status: "success",
+			results: [{ title: "Rock & Roll", snippet: "A < B", url: "https://example.com/a" }],
+		});
 	});
 
 	it("清理摘要中的控制字符", () => {

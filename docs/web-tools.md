@@ -7,7 +7,9 @@ Web 工具分为搜索和抓取：
 
 ## 加载生命周期
 
-扩展启动时只同步注册工具 schema、renderer 和事件；`session_start` 会发起但不等待 runtime 异步预热。首次工具调用复用同一个加载 Promise，并发调用不会重复创建 runtime。共享 dispatcher、Cookie store、WebFetch 执行层和 Exa SDK 随 runtime 在后台初始化；DDG HTML 后端在搜索 router 建立时预取，HTML 转换器与实际抓取请求并发加载。加载失败会清除该 Promise，后续调用可以重试；`session_shutdown` 会等待进行中的初始化并释放已创建资源。
+扩展启动时只同步注册工具 schema、renderer 和事件，不加载网络 runtime，也不执行后台预热。首次工具调用复用同一个 runtime 加载 Promise，并发调用不会重复创建 runtime。runtime 内部再按能力拆分：只调用 `websearch` 不加载 WebFetch/Cookie 执行链，只调用 `webfetch` 不加载搜索 router/provider；安全 dispatcher 在两条能力链之间共享并按需创建。搜索 provider 只在 router 实际执行到该分支时加载，因此 Exa 成功不会加载 DDG/HTML parser；Cookie store 只在配置启用且域名命中 allowlist 时加载；source、JSON、XML 和普通文本不会加载 DOM、Readability 或 Turndown，只有 readable HTML 会加载转换链。JSONC parser 和 AJV 也只在确实读到配置文件并需要解析、校验时加载，并发校验复用同一 Promise。成功配置按文件 identity、大小和时间戳缓存，每次返回隔离副本；文件变化会重新读取和校验，读取期间变化会重试。加载失败会清除对应 Promise，后续调用可以重试；`session_shutdown` 不会加载未使用能力，并会等待正在初始化的能力后释放已创建资源。
+
+使用 `npm run bench:web-tools` 运行 process-cold / filesystem-warm 回归基准；脚本记录 Pi TUI ready、无 TUI 扩展加载、首次及后续 fake `websearch` / `webfetch`，以及 DDG parser 的加载和解析耗时，不访问真实网络。可用 `-- --runs=N` 调整采样次数。
 
 ## websearch
 
@@ -33,6 +35,7 @@ Provider 是运行时配置，不暴露给模型。默认顺序：
 - API key 只从 `exa_mcp.api_key_env` 指定的环境变量读取，默认 `EXA_API_KEY`；配置文件不保存 key。
 - `exa_mcp.url` 只允许 `http:` / `https:`，拒绝 username/password、`localhost` / `*.localhost`、literal private IP、loopback IP 和 link-local IP。该检查只做 URL literal host 静态校验，不做 DNS 解析。
 - Exa 失败后按配置 fallback 到 DDG；DDG 的限流和 blocked 冷却只影响 DDG provider。
+- Exa 使用官方 MCP client/Streamable HTTP transport，保留 initialize、SSE、session、重连和协议校验；DDG 结果页使用流式 HTML parser，只抽取结果块所需字段，不构建完整 DOM。
 - 不执行 JavaScript，不使用 headless browser；
 - 不读取搜索结果页面，不自动调用 `webfetch`；
 - 不发送 `cookies.txt`，也不尝试登录搜索引擎。

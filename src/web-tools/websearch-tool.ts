@@ -9,6 +9,7 @@ export interface ExecuteWebSearchRuntime {
 	config: WebToolsConfig;
 	searches: SearchCache;
 	router: SearchProviderRouter;
+	providerSignature?: string;
 	context: WebSearchExecutionContext;
 	now: () => number;
 }
@@ -21,7 +22,7 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 
 	const query = params.query.trim();
 	const limit = params.limit ?? runtime.config.websearch.default_results;
-	const key = searchCacheKey(query, limit, runtime.config.websearch);
+	const key = searchCacheKey(query, limit, runtime.config.websearch, runtime.providerSignature);
 	const cached = runtime.searches.get(key);
 	if (cached !== undefined) {
 		const details: WebSearchSuccessDetails = {

@@ -1,4 +1,5 @@
 import ipaddr from "ipaddr.js";
+import { stat } from "node:fs/promises";
 
 import { agentConfigPath, agentPath, agentSchemaPath, createSchemaValidator, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
 import { guardPublicHttpUrlLiteral } from "../safety/url-guard.js";
@@ -6,6 +7,7 @@ import type { WebToolsConfig } from "./types.js";
 
 const CONFIG_PATH_ENV = "PI_WEB_TOOLS_CONFIG";
 const COOKIES_PATH_ENV = "PI_WEB_TOOLS_COOKIES";
+const MAX_STABLE_READ_ATTEMPTS = 3;
 
 const defaultConfig: WebToolsConfig = {
 	network: {
@@ -58,9 +60,53 @@ export class WebToolsConfigError extends Error {
 	}
 }
 
+interface ConfigCacheEntry {
+	fingerprint: string;
+	config: WebToolsConfig;
+}
+
+const configCache = new Map<string, ConfigCacheEntry>();
+const pendingConfigs = new Map<string, Promise<ConfigCacheEntry>>();
+
 /** 读取 Web 工具 JSONC 配置；配置错误直接失败，避免凭据或网络策略静默降级。 */
 export async function loadWebToolsConfig(): Promise<WebToolsConfig> {
 	const configPath = resolveConfigPath();
+	const fingerprint = await configFingerprint(configPath);
+	const cached = configCache.get(configPath);
+	if (cached?.fingerprint === fingerprint) return structuredClone(cached.config);
+
+	const pendingKey = `${configPath}\0${fingerprint}`;
+	let pending = pendingConfigs.get(pendingKey);
+	if (pending === undefined) {
+		pending = loadStableConfig(configPath, fingerprint);
+		pendingConfigs.set(pendingKey, pending);
+	}
+	try {
+		const loaded = await pending;
+		configCache.set(configPath, loaded);
+		return structuredClone(loaded.config);
+	} finally {
+		if (pendingConfigs.get(pendingKey) === pending) pendingConfigs.delete(pendingKey);
+	}
+}
+
+export function clearWebToolsConfigCacheForTests(): void {
+	configCache.clear();
+	pendingConfigs.clear();
+}
+
+async function loadStableConfig(configPath: string, initialFingerprint: string): Promise<ConfigCacheEntry> {
+	let fingerprint = initialFingerprint;
+	for (let attempt = 0; attempt < MAX_STABLE_READ_ATTEMPTS; attempt += 1) {
+		const config = await loadConfigFile(configPath);
+		const currentFingerprint = await configFingerprint(configPath);
+		if (currentFingerprint === fingerprint) return { fingerprint: currentFingerprint, config };
+		fingerprint = currentFingerprint;
+	}
+	throw new WebToolsConfigError("web-tools config changed while being read.", { path: configPath });
+}
+
+async function loadConfigFile(configPath: string): Promise<WebToolsConfig> {
 	const parsed = await readOptionalJsoncConfigWithSchema({
 		path: configPath,
 		label: "web-tools",
@@ -69,6 +115,16 @@ export async function loadWebToolsConfig(): Promise<WebToolsConfig> {
 	});
 	if (parsed === undefined) return defaultWebToolsConfig();
 	return mergeConfig(parsed as RawWebToolsConfig);
+}
+
+async function configFingerprint(configPath: string): Promise<string> {
+	try {
+		const info = await stat(configPath);
+		return `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
+	} catch (error) {
+		if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return "missing";
+		return "unreadable";
+	}
 }
 
 export function defaultWebToolsConfig(): WebToolsConfig {

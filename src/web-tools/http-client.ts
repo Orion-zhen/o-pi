@@ -1,7 +1,7 @@
 import type { Dispatcher } from "undici";
 
 import type { CookieStore, HttpFetchResult, WebFetchExecutionContext, WebToolsConfig, WebFetchFailureDetails, WebHttpFetch, WebHttpResponse, WebHttpHeaders } from "./types.js";
-import { isCookieAllowed } from "./cookie-store.js";
+import { isCookieAllowed } from "./cookie-policy.js";
 import { validateRequestUrl } from "./network-policy.js";
 import { readLimitedResponseBody, responseContentLength } from "./response-body.js";
 import { originKey, redactUrl } from "./url-utils.js";

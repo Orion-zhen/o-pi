@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const worker = fileURLToPath(new URL("./bench-web-tools-worker.mjs", import.meta.url));
+const parserWorker = fileURLToPath(new URL("./bench-web-tools-parser-worker.mjs", import.meta.url));
 const runs = readRuns(process.argv.slice(2));
 const warmups = Math.min(2, runs);
 const pi = process.env.PI_BIN ?? "pi";
@@ -29,6 +30,7 @@ const extension = measureProcess(pi, [
 ], warmups, runs);
 const search = measureWorker("search", warmups, runs);
 const fetch = measureWorker("fetch", warmups, runs);
+const parser = measureParserWorker(warmups, runs);
 const readyRows = existsSync("/usr/bin/script") ? await measureReadyRows() : [];
 
 console.log(`web-tools benchmark (${runs} measured runs, ${warmups} warmups; process-cold/filesystem-warm; fake network)`);
@@ -42,6 +44,9 @@ console.table([
 	row("warm fake websearch", search.map((sample) => sample.warmToolMs)),
 	row("first fake source webfetch", fetch.map((sample) => sample.firstToolMs)),
 	row("warm fake source webfetch", fetch.map((sample) => sample.warmToolMs)),
+	row("DDG parser Jiti import", parser.map((sample) => sample.importMs)),
+	row("first DDG fixture parse", parser.map((sample) => sample.firstParseMs)),
+	row("warm DDG fixture parse", parser.map((sample) => sample.warmParseMs)),
 ]);
 
 async function measureReadyRows() {
@@ -80,6 +85,15 @@ function measureWorker(mode, warmupCount, measuredCount) {
 	const samples = [];
 	for (let index = 0; index < warmupCount + measuredCount; index += 1) {
 		const output = run(process.execPath, [worker, mode], true);
+		if (index >= warmupCount) samples.push(JSON.parse(output));
+	}
+	return samples;
+}
+
+function measureParserWorker(warmupCount, measuredCount) {
+	const samples = [];
+	for (let index = 0; index < warmupCount + measuredCount; index += 1) {
+		const output = run(process.execPath, [parserWorker], true);
 		if (index >= warmupCount) samples.push(JSON.parse(output));
 	}
 	return samples;

@@ -2,7 +2,6 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { Cookie, CookieJar } from "tough-cookie";
 
 import type { CookieAccess, CookieStore, WebFetchFailureDetails } from "./types.js";
-import { matchesDomainRule } from "./url-utils.js";
 
 interface LoadedCookies {
 	realpath: string;
@@ -101,10 +100,6 @@ export class NetscapeCookieStore implements CookieStore {
 		};
 		return this.loaded;
 	}
-}
-
-export function isCookieAllowed(hostname: string, domains: readonly string[]): boolean {
-	return domains.length > 0 && matchesDomainRule(hostname, domains);
 }
 
 function parseNetscapeCookieLine(line: string): { cookie: Cookie; url: string } | undefined {

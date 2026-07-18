@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-
 import type { WebSearchItem, WebSearchProviderId, WebToolsConfig } from "./types.js";
 
 export const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -57,16 +55,14 @@ export class SearchCache {
 	}
 }
 
-export function searchCacheKey(query: string, limit: number, config: WebToolsConfig["websearch"]): string {
-	return [query.trim(), String(limit), providerSignature(config)].join("\0");
+export function searchCacheKey(query: string, limit: number, config: WebToolsConfig["websearch"], signature = providerSignature(config)): string {
+	return [query.trim(), String(limit), signature].join("\0");
 }
 
 export function providerSignature(config: WebToolsConfig["websearch"]): string {
-	const enabled = config.provider_order
+	return JSON.stringify(config.provider_order
 		.map((provider) => {
-			if (provider === "exa_mcp") return `${provider}:${config.exa_mcp.enabled ? "1" : "0"}:${config.exa_mcp.url}:${config.exa_mcp.tool}:${config.exa_mcp.type}`;
-			return `${provider}:${config.duckduckgo_html.enabled ? "1" : "0"}:${config.duckduckgo_html.region}`;
-		})
-		.join("|");
-	return createHash("sha256").update(enabled).digest("hex").slice(0, 16);
+			if (provider === "exa_mcp") return [provider, config.exa_mcp.enabled, config.exa_mcp.url, config.exa_mcp.tool, config.exa_mcp.type];
+			return [provider, config.duckduckgo_html.enabled, config.duckduckgo_html.region];
+		}));
 }

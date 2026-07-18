@@ -1,5 +1,5 @@
 import type { Dispatcher } from "undici";
-import { parseHTML } from "linkedom";
+import { Parser } from "htmlparser2";
 
 import { classifyNetworkError } from "./http-client.js";
 import { readLimitedResponseBody, responseContentLength } from "./response-body.js";
@@ -143,23 +143,20 @@ export function parseDuckDuckGoHtml(html: string, limit = 20): DuckDuckGoParseRe
 		return { status: "failed", code: "PROVIDER_BLOCKED", message: "DuckDuckGo blocked the automated search request." };
 	}
 
-	const { document } = parseHTML(html);
-	const blocks = Array.from(document.querySelectorAll(".result"));
+	const parsed = parseResultBlocks(html);
 	const seen = new Set<string>();
 	const results: WebSearchItem[] = [];
-	for (const block of blocks) {
-		if (block.classList.contains("result--ad") || block.querySelector(".badge--ad") !== null) continue;
-		const titleLink = block.querySelector(".result__a");
-		const title = normalizeSearchText(titleLink?.textContent ?? "").slice(0, SEARCH_RESULT_MAX_TITLE_CHARS);
+	for (const block of parsed.blocks) {
+		if (block.ad) continue;
+		const title = normalizeSearchText(block.title).slice(0, SEARCH_RESULT_MAX_TITLE_CHARS);
 		if (title.length === 0) continue;
-		const href = titleLink?.getAttribute("href");
-		if (href === null || href === undefined) continue;
-		const url = unwrapDuckDuckGoUrl(href);
+		if (block.href === undefined) continue;
+		const url = unwrapDuckDuckGoUrl(block.href);
 		if (url === undefined || url.username !== "" || url.password !== "") continue;
 		const normalizedUrl = url.toString();
 		if (seen.has(normalizedUrl)) continue;
 		seen.add(normalizedUrl);
-		const snippet = normalizeSearchText(block.querySelector(".result__snippet")?.textContent ?? "").slice(0, SEARCH_RESULT_MAX_SNIPPET_CHARS);
+		const snippet = normalizeSearchText(block.snippet).slice(0, SEARCH_RESULT_MAX_SNIPPET_CHARS);
 		results.push({
 			rank: results.length + 1,
 			title,
@@ -170,8 +167,85 @@ export function parseDuckDuckGoHtml(html: string, limit = 20): DuckDuckGoParseRe
 	}
 
 	if (results.length > 0) return { status: "success", results };
-	if (hasNoResultsMarker(document, html)) return { status: "success", results: [] };
+	if (parsed.hasNoResultsMarker || hasNoResultsText(parsed.pageText)) return { status: "success", results: [] };
 	return { status: "failed", code: "PARSE_FAILED", message: "DuckDuckGo HTML search results could not be parsed." };
+}
+
+interface ParsedResultBlock {
+	ad: boolean;
+	href?: string;
+	title: string;
+	snippet: string;
+}
+
+interface ActiveResultBlock {
+	ad: boolean;
+	depth: number;
+	href: string | undefined;
+	title: string;
+	titleDepth: number | undefined;
+	snippet: string;
+	snippetDepth: number | undefined;
+}
+
+function parseResultBlocks(html: string): { blocks: ParsedResultBlock[]; hasNoResultsMarker: boolean; pageText: string } {
+	const blocks: ParsedResultBlock[] = [];
+	const pageText: string[] = [];
+	let current: ActiveResultBlock | undefined;
+	let hasNoResultsMarker = false;
+	const parser = new Parser({
+		onopentag(_name, attributes) {
+			const classes = classNames(attributes["class"]);
+			if (classes.has("no-results") || classes.has("results--message")) hasNoResultsMarker = true;
+			if (current === undefined) {
+				if (!classes.has("result")) return;
+				current = {
+					ad: classes.has("result--ad"),
+					href: undefined,
+					title: "",
+					snippet: "",
+					depth: 1,
+					titleDepth: undefined,
+					snippetDepth: undefined,
+				};
+				return;
+			}
+			current.depth += 1;
+			if (classes.has("badge--ad")) current.ad = true;
+			if (current.titleDepth === undefined && classes.has("result__a")) {
+				current.titleDepth = current.depth;
+				current.href = attributes["href"];
+			}
+			if (current.snippetDepth === undefined && classes.has("result__snippet")) current.snippetDepth = current.depth;
+		},
+		ontext(text) {
+			pageText.push(text);
+			if (current?.titleDepth !== undefined) current.title += text;
+			if (current?.snippetDepth !== undefined) current.snippet += text;
+		},
+		onclosetag() {
+			if (current === undefined) return;
+			if (current.titleDepth === current.depth) current.titleDepth = undefined;
+			if (current.snippetDepth === current.depth) current.snippetDepth = undefined;
+			if (current.depth === 1) {
+				blocks.push({
+					ad: current.ad,
+					...(current.href !== undefined ? { href: current.href } : {}),
+					title: current.title,
+					snippet: current.snippet,
+				});
+				current = undefined;
+				return;
+			}
+			current.depth -= 1;
+		},
+	}, { decodeEntities: true });
+	parser.end(html);
+	return { blocks, hasNoResultsMarker, pageText: pageText.join("") };
+}
+
+function classNames(value: string | undefined): Set<string> {
+	return new Set(value?.split(/\s+/).filter(Boolean) ?? []);
 }
 
 export function unwrapDuckDuckGoUrl(href: string): URL | undefined {
@@ -198,9 +272,8 @@ function isChallengeHtml(html: string): boolean {
 	return CHALLENGE_MARKERS.some((marker) => html.includes(marker));
 }
 
-function hasNoResultsMarker(document: Document, html: string): boolean {
-	if (document.querySelector(".no-results") !== null || document.querySelector(".results--message") !== null) return true;
-	const text = normalizeSearchText(document.body?.textContent ?? html).toLowerCase();
+function hasNoResultsText(pageText: string): boolean {
+	const text = normalizeSearchText(pageText).toLowerCase();
 	return text.includes("no results found") || text.includes("not many results contain");
 }
 

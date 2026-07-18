@@ -54,7 +54,7 @@ const webFetchParameters = Type.Object(
 
 export type WebToolsRuntimeLoader = () => Promise<WebToolsRuntime>;
 
-/** 创建轻量工具壳；session_start 非阻塞预热网络运行时。 */
+/** 创建轻量工具壳；runtime 只在首次 Web 工具调用时加载。 */
 export function createWebToolsExtension(loadRuntime: WebToolsRuntimeLoader = loadDefaultRuntime): (pi: ExtensionAPI) => void {
 	return function webTools(pi: ExtensionAPI): void {
 		let runtimePromise: Promise<WebToolsRuntime> | undefined;
@@ -124,10 +124,6 @@ export function createWebToolsExtension(loadRuntime: WebToolsRuntimeLoader = loa
 			renderCall: renderWebFetchCall,
 			renderResult: renderWebFetchResult,
 		}, { singleStringField: "url" }));
-
-		pi.on("session_start", () => {
-			void getRuntime().catch(() => undefined);
-		});
 
 		pi.on("tool_result", (event) => {
 			if (event.toolName === "websearch" && isWebSearchDetails(event.details) && event.details.status === "failed") {

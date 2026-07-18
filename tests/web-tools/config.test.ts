@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { defaultCookiePath, defaultWebToolsConfig, loadWebToolsConfig } from "../../src/web-tools/config.js";
+import { clearWebToolsConfigCacheForTests, defaultCookiePath, defaultWebToolsConfig, loadWebToolsConfig } from "../../src/web-tools/config.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
@@ -11,6 +11,7 @@ preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_WEB_TOOLS_COOKIES");
 
 beforeEach(() => {
 	dir = temp.path;
+	clearWebToolsConfigCacheForTests();
 	delete process.env.PI_WEB_TOOLS_CONFIG;
 	delete process.env.PI_WEB_TOOLS_COOKIES;
 });
@@ -50,6 +51,20 @@ describe("web-tools config", () => {
 				cookies: { domains: ["example.com"], confirmation: "never" },
 			},
 		});
+	});
+
+	it("复用未变化配置，返回隔离副本并在文件变更后失效", async () => {
+		const file = path.join(dir, "cached.jsonc");
+		process.env.PI_WEB_TOOLS_CONFIG = file;
+		await writeFile(file, '{ "webfetch": { "timeout_seconds": 5 } }');
+
+		const [first, concurrent] = await Promise.all([loadWebToolsConfig(), loadWebToolsConfig()]);
+		first.webfetch.timeout_seconds = 99;
+		expect(concurrent.webfetch.timeout_seconds).toBe(5);
+		expect((await loadWebToolsConfig()).webfetch.timeout_seconds).toBe(5);
+
+		await writeFile(file, '{ "webfetch": { "timeout_seconds": 6 } }');
+		expect((await loadWebToolsConfig()).webfetch.timeout_seconds).toBe(6);
 	});
 
 	it("拒绝未知字段、非法 enum 和语义错误", async () => {

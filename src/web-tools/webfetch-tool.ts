@@ -60,7 +60,7 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 		}
 		runtime.context.onUpdate?.({ content: "Converting...", details: { status: "progress", phase: "converting", http_status: fetched.httpStatus } });
 		const { convertContent } = await converterPromise;
-		const converted = convertContent(fetched.body, fetched.headers, fetched.finalUrl, mode);
+		const converted = await convertContent(fetched.body, fetched.headers, fetched.finalUrl, mode);
 		if ("status" in converted) {
 			const details: WebFetchFailureDetails = {
 				...converted,

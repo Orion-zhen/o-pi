@@ -1,8 +1,11 @@
 import { chmod, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { isCookieAllowed, NetscapeCookieStore } from "../../src/web-tools/cookie-store.js";
+import { isCookieAllowed } from "../../src/web-tools/cookie-policy.js";
+import { NetscapeCookieStore } from "../../src/web-tools/cookie-store.js";
+import type { CookieStore } from "../../src/web-tools/types.js";
+import { createLazyCookieStore } from "../../src/web-tools/webfetch-runtime.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
@@ -18,6 +21,28 @@ describe("webfetch cookies", () => {
 		expect(isCookieAllowed("a.example.com", ["example.com"])).toBe(false);
 		expect(isCookieAllowed("a.example.com", ["*.example.com"])).toBe(true);
 		expect(isCookieAllowed("example.com", ["*.example.com"])).toBe(false);
+	});
+
+	it("只在 allowlist 命中且需要 Cookie 时加载 store，并复用并发加载", async () => {
+		const store: CookieStore = {
+			async getCookieAccess() {
+				return { fingerprint: "loaded", authenticated: false };
+			},
+			async storeFromResponse() {
+				return undefined;
+			},
+		};
+		const load = vi.fn(async () => store);
+		const lazy = createLazyCookieStore(load);
+
+		await lazy.getCookieAccess(new URL("https://example.com/"), false);
+		await lazy.storeFromResponse(new URL("https://example.com/"), [], true);
+		expect(load).not.toHaveBeenCalled();
+		await Promise.all([
+			lazy.getCookieAccess(new URL("https://example.com/"), true),
+			lazy.getCookieAccess(new URL("https://example.com/"), true),
+		]);
+		expect(load).toHaveBeenCalledTimes(1);
 	});
 
 	it("解析 Netscape 和 HttpOnly 行，并按 domain/path/secure 匹配", async () => {

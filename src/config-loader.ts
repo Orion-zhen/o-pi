@@ -3,8 +3,8 @@ import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Ajv, type ValidateFunction } from "ajv/dist/ajv.js";
-import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
+import type { ValidateFunction } from "ajv/dist/ajv.js";
+import type { ParseError } from "jsonc-parser";
 
 export { expandHomePath, userCachePath } from "./cache-path.js";
 
@@ -35,6 +35,7 @@ export async function readOptionalJsoncConfig<E extends Error>(options: ReadJson
 		throw options.createError(`${options.label} config cannot be read.`, { path: options.path });
 	}
 
+	const { parse, printParseErrorCode } = await import("jsonc-parser");
 	const errors: ParseError[] = [];
 	const value = parse(text, errors, { allowTrailingComma: true });
 	if (errors.length > 0) {
@@ -65,25 +66,38 @@ export async function readOptionalJsoncConfigWithSchema<E extends Error>(
 
 export function createSchemaValidator<E extends Error>(options: SchemaValidatorOptions<E>): () => Promise<ValidateFunction> {
 	let compiledValidator: ValidateFunction | undefined;
-	return async () => {
-		if (compiledValidator !== undefined) return compiledValidator;
+	let validatorPromise: Promise<ValidateFunction> | undefined;
+	return () => {
+		if (compiledValidator !== undefined) return Promise.resolve(compiledValidator);
+		if (validatorPromise !== undefined) return validatorPromise;
+		const pending = compileValidator();
+		validatorPromise = pending;
+		void pending.catch(() => {
+			if (validatorPromise === pending) validatorPromise = undefined;
+		});
+		return pending;
+	};
+
+	async function compileValidator(): Promise<ValidateFunction> {
 		let schema: object;
 		try {
 			schema = JSON.parse(await readFile(options.schemaPath, "utf8")) as object;
 		} catch {
 			throw options.createError(`${options.label} schema cannot be read.`, { path: options.schemaPath });
 		}
+		const { Ajv } = await import("ajv/dist/ajv.js");
 		const ajv = new Ajv({ allErrors: true, strict: true, validateSchema: false });
 		try {
-			compiledValidator = ajv.compile(schema);
+			const validator = ajv.compile(schema);
+			compiledValidator = validator;
+			return validator;
 		} catch (error) {
 			throw options.createError(`${options.label} schema is invalid.`, {
 				path: options.schemaPath,
 				error: error instanceof Error ? error.message : String(error),
 			});
 		}
-		return compiledValidator;
-	};
+	}
 }
 
 export function repoRoot(): string {

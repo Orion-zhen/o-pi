@@ -34,6 +34,7 @@
 		"file-type": "latest",
 		"fuse.js": "latest",
 		"gpt-tokenizer": "latest",
+		"htmlparser2": "latest",
 		"ignore": "latest",
 		"ipaddr.js": "latest",
 		"jsonc-parser": "latest",
