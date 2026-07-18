@@ -18,6 +18,7 @@ cd ~/.pi && npm install
 
 ## 文档
 
+* [性能 Benchmark](docs/benchmark.md)
 * [文件工具设计](docs/fs-tools.md)
 * [Bash 工具](docs/bash-tool.md)
 * [LSP 内部增强](docs/lsp.md)
