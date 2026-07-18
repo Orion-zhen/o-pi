@@ -204,6 +204,31 @@ describe("grep", () => {
 		expect(sourceReads).toBeLessThan(10);
 	});
 
+	it("缓存索引的候选源码使用有界并发加载", async () => {
+		for (let index = 0; index < 8; index += 1) {
+			await writeFile(path.join(workspace, `candidate-${index}.ts`), `export function needle${index}() { return "needle"; }\n`);
+		}
+		expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "warmup" }));
+
+		let activeReads = 0;
+		let maxActiveReads = 0;
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "needle", match: "literal" }, undefined, {
+			readSourceText: async (file) => {
+				activeReads += 1;
+				maxActiveReads = Math.max(maxActiveReads, activeReads);
+				try {
+					return await readFile(file.absolutePath, "utf8");
+				} finally {
+					activeReads -= 1;
+				}
+			},
+		}));
+
+		expect(result.regions.length).toBeGreaterThan(1);
+		expect(maxActiveReads).toBeGreaterThan(1);
+		expect(maxActiveReads).toBeLessThanOrEqual(8);
+	});
+
 	it("unsupported language 安全退化到文本片段", async () => {
 		await writeFile(path.join(workspace, "notes.conf"), "section=true\nfatal authentication error\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "fatal authentication error", match: "literal" }));
@@ -267,6 +292,20 @@ describe("grep", () => {
 		const controller = new AbortController();
 		controller.abort();
 		expect(await grepWorkspaceFiles(workspace, { query: "Search" }, controller.signal)).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
+	});
+
+	it("共享索引构建时单个调用取消不影响其他调用", async () => {
+		for (let index = 0; index < 60; index += 1) {
+			await writeFile(path.join(workspace, `module-${index}.ts`), `export function symbol${index}() { return ${index}; }\n`);
+		}
+		await writeFile(path.join(workspace, "target.ts"), "export function sharedTarget() { return true; }\n");
+		const controller = new AbortController();
+		const aborted = grepWorkspaceFiles(workspace, { query: "symbol0" }, controller.signal);
+		const completed = grepWorkspaceFiles(workspace, { query: "sharedTarget" });
+		setImmediate(() => controller.abort());
+
+		expect(await aborted).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
+		expect(firstRegion(expectGrepSuccess(await completed)).symbol).toBe("sharedTarget");
 	});
 
 	it("token-efficiency fixture：高频命中合并，预算内至少一个完整函数，其余 signature", async () => {

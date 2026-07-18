@@ -45,14 +45,28 @@ interface WorkspaceCache {
 	files: Map<string, CachedFileIndex>;
 }
 
+interface PendingGrepIndex {
+	promise: Promise<ToolOutcome<GrepIndexResult>>;
+	controller: AbortController;
+	consumers: number;
+	settled: boolean;
+	abortTimer?: ReturnType<typeof setImmediate>;
+}
+
 interface CachedFileIndex {
 	path: string;
 	absolutePath: string;
 	realPath: string;
 	size: number;
 	mtimeMs: number;
-	hash: string;
-	index: ParsedFileIndex;
+	hash?: string;
+	index?: ParsedFileIndex;
+	misses: Set<string>;
+}
+
+interface ContentFilter {
+	key: string;
+	matches(text: string): boolean;
 }
 
 interface WalkState {
@@ -69,12 +83,19 @@ interface WalkState {
 	scanComplete: boolean;
 	seenPaths: Set<string>;
 	cache: WorkspaceCache;
+	contentFilter?: ContentFilter;
 }
 
 const workspaceCaches = new Map<string, WorkspaceCache>();
+const pendingIndexes = new Map<string, PendingGrepIndex>();
 
 /** 构建或复用 workspace 进程内索引；缓存只保存元数据和 token，不保存完整源码。 */
-export async function getGrepIndex(cwd: string, params: Pick<GrepParams, "path" | "glob">, signal?: AbortSignal): Promise<ToolOutcome<GrepIndexResult>> {
+export async function getGrepIndex(
+	cwd: string,
+	params: Pick<GrepParams, "query" | "path" | "glob" | "match">,
+	signal?: AbortSignal,
+): Promise<ToolOutcome<GrepIndexResult>> {
+	if (signal?.aborted) return fail("OPERATION_ABORTED", "grep was aborted.", { path: params.path ?? "." });
 	const config = await loadFileToolsConfig();
 	if (isFailed(config)) return config;
 	const workspaceRoot = path.resolve(cwd);
@@ -82,27 +103,42 @@ export async function getGrepIndex(cwd: string, params: Pick<GrepParams, "path" 
 	if (isFailed(root)) return root;
 	const glob = params.glob === undefined ? undefined : validateGlob(params.glob, root.relativePath);
 	if (isFailed(glob)) return glob;
+	const contentFilter = createContentFilter(params.query, params.match);
+	if (isFailed(contentFilter)) return contentFilter;
 	const matchesGlob = glob === undefined ? undefined : picomatch(glob, { dot: true, nonegate: true });
 	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
 	const cache = cacheFor(workspaceRoot);
-	const state: WalkState = {
-		workspaceRoot,
-		root,
-		config,
-		ignoreSnapshot,
-		...(matchesGlob !== undefined ? { matchesGlob } : {}),
-		...(signal !== undefined ? { signal } : {}),
-		files: [],
-		sourceText: new Map(),
-		skipped: { binary: 0, invalid_utf8: 0, access_denied: 0, too_large: 0 },
-		scannedFiles: 0,
-		scanComplete: true,
-		seenPaths: new Set(),
-		cache,
-	};
+	const key = [root.realPath, root.kind, glob ?? "", contentFilter?.key ?? "auto", ignoreSnapshot.fingerprint, JSON.stringify(config)].join("\0");
+	let pending = pendingIndexes.get(key);
+	if (pending === undefined) {
+		const controller = new AbortController();
+		const state: WalkState = {
+			workspaceRoot,
+			root,
+			config,
+			ignoreSnapshot,
+			...(matchesGlob !== undefined ? { matchesGlob } : {}),
+			signal: controller.signal,
+			files: [],
+			sourceText: new Map(),
+			skipped: { binary: 0, invalid_utf8: 0, access_denied: 0, too_large: 0 },
+			scannedFiles: 0,
+			scanComplete: true,
+			seenPaths: new Set(),
+			cache,
+			...(contentFilter !== undefined ? { contentFilter } : {}),
+		};
+		pending = { promise: buildGrepIndex(state), controller, consumers: 0, settled: false };
+		pendingIndexes.set(key, pending);
+		void settlePendingIndex(key, pending);
+	}
+	return await consumePendingIndex(pending, signal, root.relativePath);
+}
 
+async function buildGrepIndex(state: WalkState): Promise<ToolOutcome<GrepIndexResult>> {
+	const { workspaceRoot, root, config } = state;
 	try {
-		assertNotAborted(signal);
+		assertNotAborted(state.signal);
 		if (root.kind === "file") {
 			const indexed = await indexFile(state, root.realPath, root.relativePath, true, root.relativePath);
 			if (isFailed(indexed)) return indexed;
@@ -128,8 +164,56 @@ export async function getGrepIndex(cwd: string, params: Pick<GrepParams, "path" 
 	};
 }
 
+async function settlePendingIndex(key: string, pending: PendingGrepIndex): Promise<void> {
+	try {
+		await pending.promise;
+	} catch {
+		// Consumers receive the original rejection; this observer only owns cleanup.
+	} finally {
+		if (pending.abortTimer !== undefined) clearImmediate(pending.abortTimer);
+		pending.settled = true;
+		if (pendingIndexes.get(key) === pending) pendingIndexes.delete(key);
+	}
+}
+
+async function consumePendingIndex(
+	pending: PendingGrepIndex,
+	signal: AbortSignal | undefined,
+	rootPath: string,
+): Promise<ToolOutcome<GrepIndexResult>> {
+	if (pending.abortTimer !== undefined) {
+		clearImmediate(pending.abortTimer);
+		delete pending.abortTimer;
+	}
+	pending.consumers += 1;
+	let onAbort: (() => void) | undefined;
+	try {
+		if (signal === undefined) return await pending.promise;
+		if (signal.aborted) return fail("OPERATION_ABORTED", "grep was aborted.", { path: rootPath });
+		const aborted = new Promise<ToolOutcome<GrepIndexResult>>((resolve) => {
+			onAbort = () => resolve(fail("OPERATION_ABORTED", "grep was aborted.", { path: rootPath }));
+			signal.addEventListener("abort", onAbort, { once: true });
+		});
+		return await Promise.race([pending.promise, aborted]);
+	} finally {
+		if (onAbort !== undefined) signal?.removeEventListener("abort", onAbort);
+		pending.consumers -= 1;
+		if (pending.consumers === 0 && !pending.settled) {
+			pending.abortTimer = setImmediate(() => {
+				delete pending.abortTimer;
+				if (pending.consumers === 0 && !pending.settled) pending.controller.abort();
+			});
+		}
+	}
+}
+
 export function clearGrepIndexForTests(): void {
 	workspaceCaches.clear();
+	for (const pending of pendingIndexes.values()) {
+		if (pending.abortTimer !== undefined) clearImmediate(pending.abortTimer);
+		pending.controller.abort();
+	}
+	pendingIndexes.clear();
 }
 
 async function resolveGrepRoot(
@@ -262,9 +346,13 @@ async function indexFile(
 	}
 
 	const cached = state.cache.files.get(displayPath);
-	if (cached !== undefined && cached.size === info.size && cached.mtimeMs === info.mtimeMs) {
-		state.files.push(toCandidate(cached));
-		return;
+	const cacheCurrent = cached !== undefined && cached.size === info.size && cached.mtimeMs === info.mtimeMs;
+	if (cacheCurrent) {
+		if (isParsedCachedFile(cached)) {
+			state.files.push(toCandidate(cached));
+			return;
+		}
+		if (state.contentFilter !== undefined && cached.misses.has(state.contentFilter.key)) return;
 	}
 
 	const loaded = await readStableText(absolutePath, displayPath, state.signal);
@@ -274,8 +362,21 @@ async function indexFile(
 		else if (loaded.error.code === "ENCODING_UNSUPPORTED") state.skipped.invalid_utf8 += 1;
 		return;
 	}
+	if (state.contentFilter !== undefined && !state.contentFilter.matches(loaded.text)) {
+		const misses = new Set(cacheCurrent ? cached.misses : []);
+		misses.add(state.contentFilter.key);
+		state.cache.files.set(displayPath, {
+			path: displayPath,
+			absolutePath,
+			realPath: absolutePath,
+			size: loaded.size,
+			mtimeMs: loaded.mtimeMs,
+			misses,
+		});
+		return;
+	}
 	const parsed = parseCodeUnits(displayPath, loaded.text);
-	const cachedFile: CachedFileIndex = {
+	const cachedFile: CachedFileIndex & { hash: string; index: ParsedFileIndex } = {
 		path: displayPath,
 		absolutePath,
 		realPath: absolutePath,
@@ -283,6 +384,7 @@ async function indexFile(
 		mtimeMs: loaded.mtimeMs,
 		hash: hashText(loaded.text),
 		index: parsed,
+		misses: new Set(),
 	};
 	state.cache.files.set(displayPath, cachedFile);
 	state.files.push(toCandidate(cachedFile));
@@ -313,7 +415,7 @@ async function readStableText(
 	return fail("INVALID_OPERATION", "File changed while grep was indexing it.", { path: displayPath });
 }
 
-function toCandidate(cached: CachedFileIndex): GrepCandidateFile {
+function toCandidate(cached: CachedFileIndex & { hash: string; index: ParsedFileIndex }): GrepCandidateFile {
 	return {
 		path: cached.path,
 		absolutePath: cached.absolutePath,
@@ -323,6 +425,36 @@ function toCandidate(cached: CachedFileIndex): GrepCandidateFile {
 		contentHash: cached.hash,
 		index: cached.index,
 	};
+}
+
+function isParsedCachedFile(cached: CachedFileIndex): cached is CachedFileIndex & { hash: string; index: ParsedFileIndex } {
+	return cached.hash !== undefined && cached.index !== undefined;
+}
+
+function createContentFilter(query: string, match: GrepParams["match"]): ToolOutcome<ContentFilter | undefined> {
+	if (match === undefined || match === "auto") return undefined;
+	if (match === "literal") {
+		return { key: `literal\0${query}`, matches: (text) => !query.includes("\n") && text.includes(query) };
+	}
+	try {
+		const expression = new RegExp(query, "gu");
+		return {
+			key: `regex\0${query}`,
+			matches: (text) => lines(text).some((line) => {
+				const matched = expression.test(line);
+				expression.lastIndex = 0;
+				return matched;
+			}),
+		};
+	} catch (error) {
+		return fail("INVALID_REGEX", "query is not a valid regular expression.", {
+			details: { error: error instanceof Error ? error.message : String(error) },
+		});
+	}
+}
+
+function lines(text: string): string[] {
+	return text.split(/\n/u);
 }
 
 function pruneScopedCache(state: WalkState): void {

@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import { agentSchemaPath, createSchemaValidator, projectAgentConfigPath, readOptionalJsoncConfigWithSchema, userAgentConfigPath } from "../config-loader.js";
 import { pathMatchesAnyRule, type PathIdentity } from "../safety/path-guard.js";
 import { fail, isFailed } from "./core/errors.js";
@@ -44,6 +45,11 @@ interface RawFileToolsConfig {
 	ignore?: Partial<FileToolsConfig["ignore"]>;
 }
 
+interface ConfigCacheEntry {
+	fingerprint: string;
+	result: ToolOutcome<FileToolsConfig>;
+}
+
 export type ToolPathIdentity = PathIdentity;
 
 const defaultConfig: FileToolsConfig = {
@@ -69,6 +75,9 @@ const defaultConfig: FileToolsConfig = {
 	},
 };
 
+const configCache = new Map<string, ConfigCacheEntry>();
+const pendingConfigs = new Map<string, Promise<ConfigCacheEntry>>();
+
 class FileToolsConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
 		super(message);
@@ -79,14 +88,71 @@ class FileToolsConfigError extends Error {
 /** 读取用户与项目文件工具 JSONC 配置；项目配置只能追加路径规则并覆盖普通预算。 */
 export async function loadFileToolsConfig(cwd = process.cwd()): Promise<ToolOutcome<FileToolsConfig>> {
 	const userPath = userConfigPath();
+	const projectPath = projectConfigPath(cwd);
+	const paths = projectPath === undefined ? [userPath] : [userPath, projectPath];
+	const cacheKey = paths.join("\0");
+	const fingerprint = await configFingerprint(paths);
+	const cached = configCache.get(cacheKey);
+	if (cached?.fingerprint === fingerprint) return structuredClone(cached.result);
+
+	const pendingKey = `${cacheKey}\0${fingerprint}`;
+	let pending = pendingConfigs.get(pendingKey);
+	if (pending === undefined) {
+		pending = loadStableConfig(userPath, projectPath, paths, fingerprint);
+		pendingConfigs.set(pendingKey, pending);
+	}
+	try {
+		const loaded = await pending;
+		configCache.set(cacheKey, loaded);
+		return structuredClone(loaded.result);
+	} finally {
+		if (pendingConfigs.get(pendingKey) === pending) pendingConfigs.delete(pendingKey);
+	}
+}
+
+export function clearFileToolsConfigCacheForTests(): void {
+	configCache.clear();
+	pendingConfigs.clear();
+}
+
+async function loadStableConfig(
+	userPath: string,
+	projectPath: string | undefined,
+	paths: string[],
+	initialFingerprint: string,
+): Promise<ConfigCacheEntry> {
+	let fingerprint = initialFingerprint;
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		const result = await loadMergedConfig(userPath, projectPath);
+		const current = await configFingerprint(paths);
+		if (current === fingerprint || attempt === 1) return { fingerprint: current, result };
+		fingerprint = current;
+	}
+	throw new Error("unreachable config load state");
+}
+
+async function loadMergedConfig(userPath: string, projectPath: string | undefined): Promise<ToolOutcome<FileToolsConfig>> {
 	const userRaw = await readConfig(userPath);
 	if (isFailed(userRaw)) return userRaw;
 	const userConfig = mergeConfig(defaultFileToolsConfig(), userRaw);
 
-	const projectPath = projectConfigPath(cwd);
 	const projectRaw = projectPath === undefined ? undefined : await readConfig(projectPath);
 	if (projectRaw !== undefined && isFailed(projectRaw)) return projectRaw;
 	return mergeProjectConfig(userConfig, projectRaw, projectPath);
+}
+
+async function configFingerprint(paths: string[]): Promise<string> {
+	return (await Promise.all(paths.map(fileFingerprint))).join("|");
+}
+
+async function fileFingerprint(filePath: string): Promise<string> {
+	try {
+		const info = await stat(filePath);
+		return `${filePath}:${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
+	} catch (error) {
+		if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") return `${filePath}:missing`;
+		return `${filePath}:unreadable`;
+	}
 }
 
 async function readConfig(configPath: string): Promise<RawFileToolsConfig | undefined | FailedResult> {

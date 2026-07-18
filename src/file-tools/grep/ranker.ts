@@ -24,6 +24,14 @@ export interface RankInput {
 	allowMetadataCandidates?: boolean;
 }
 
+interface RankContext {
+	queryLower: string;
+	queryTokens: string[];
+	queryTokenMap: Map<string, number>;
+	identifierLike: boolean;
+	corpusSize: number;
+}
+
 const IDENTIFIER_LIKE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/u;
 
 /** 合并 symbol、literal/regex、词法和一跳关系候选，返回稳定排序后的代码区域。 */
@@ -32,9 +40,17 @@ export function rankGrepRegions(input: RankInput): { regions: RankedGrepRegion[]
 	const candidates = new Map<string, RankedGrepRegion>();
 	const allUnits = input.files.flatMap((file) => file.units);
 	const seedSymbols = new Set<string>();
+	const queryTokens = splitTokens(input.query).map((token) => token.toLocaleLowerCase());
+	const context: RankContext = {
+		queryLower: input.query.toLocaleLowerCase(),
+		queryTokens,
+		queryTokenMap: tokenizeText(input.query),
+		identifierLike: IDENTIFIER_LIKE.test(input.query),
+		corpusSize: allUnits.length,
+	};
 
 	for (const unit of allUnits) {
-		const ranked = rankUnit(unit, input, allUnits.length);
+		const ranked = rankUnit(unit, input, context);
 		if (ranked.score > 0) {
 			addCandidate(candidates, ranked);
 			if (ranked.reasons.some((reason) => reason === "exact symbol" || reason === "exact qualified symbol" || reason === "definition")) {
@@ -61,30 +77,30 @@ export function rankGrepRegions(input: RankInput): { regions: RankedGrepRegion[]
 	};
 }
 
-function rankUnit(unit: IndexedCodeUnit, input: RankInput, corpusSize: number): RankedGrepRegion {
+function rankUnit(unit: IndexedCodeUnit, input: RankInput, context: RankContext): RankedGrepRegion {
 	const reasons: string[] = [];
 	let score = 0;
 	const query = input.query;
-	const queryLower = query.toLocaleLowerCase();
 	const symbol = unit.qualifiedName ?? unit.name;
 	if (input.match === "auto") {
-		if (unit.qualifiedName?.toLocaleLowerCase() === queryLower) {
+		if (unit.qualifiedName?.toLocaleLowerCase() === context.queryLower) {
 			score += 1000;
 			reasons.push("exact qualified symbol", "definition");
-		} else if (unit.name?.toLocaleLowerCase() === queryLower) {
+		} else if (unit.name?.toLocaleLowerCase() === context.queryLower) {
 			score += 900;
 			reasons.push("exact symbol", "definition");
 		} else if (symbol !== undefined && isFuzzySymbolMatch(symbol, query)) {
-			score += IDENTIFIER_LIKE.test(query) ? 650 : 180;
+			score += context.identifierLike ? 650 : 180;
 			reasons.push("symbol prefix");
 		}
-		const lexical = bm25(unit, input.query, corpusSize);
-		if (lexical > 0 && hasEnoughLexicalCoverage(unit, input.query)) {
+		const lexical = bm25(unit, context.queryTokens, context.corpusSize);
+		if (lexical > 0 && hasEnoughLexicalCoverage(unit, context.queryTokens, context.identifierLike)) {
 			score += lexical;
 			reasons.push("lexical");
 		}
-		if (pathRelevance(unit.path, query) > 0) {
-			score += pathRelevance(unit.path, query);
+		const pathScore = pathRelevance(unit.path, context.queryTokenMap);
+		if (pathScore > 0) {
+			score += pathScore;
 			reasons.push("path");
 		}
 	}
@@ -93,11 +109,11 @@ function rankUnit(unit: IndexedCodeUnit, input: RankInput, corpusSize: number): 
 	if (occurrence.length > 0) {
 		score += input.match === "auto" ? literalWeight(query) : 1000;
 		reasons.push(input.match === "regex" ? "regex" : "exact literal");
-	} else if (input.match !== "auto" && input.allowMetadataCandidates === true && metadataLooksRelevant(unit, input)) {
+	} else if (input.match !== "auto" && input.allowMetadataCandidates === true && metadataLooksRelevant(unit, input, context.queryTokens)) {
 		score += input.match === "regex" ? 420 : 520;
 		reasons.push("lexical");
 	}
-	if (unit.definitions.some((definition) => definition.toLocaleLowerCase() === queryLower)) {
+	if (unit.definitions.some((definition) => definition.toLocaleLowerCase() === context.queryLower)) {
 		score += 100;
 		if (!reasons.includes("definition")) reasons.push("definition");
 	}
@@ -148,11 +164,16 @@ function relationCandidates(units: IndexedCodeUnit[], seedSymbols: Set<string>):
 			const callee = byDefinition.get(lastSegment(call));
 			if (callee !== undefined && seedSymbols.has(unit.name ?? "")) result.push(makeRegion(callee, 240, ["callee"], []));
 		}
-		if (symbol !== undefined && unit.imports.some((item) => Array.from(seedSymbols).some((seed) => item.includes(seed)))) {
+		if (symbol !== undefined && unit.imports.some((item) => containsAny(item, seedSymbols))) {
 			result.push(makeRegion(unit, 180, ["import"], []));
 		}
 	}
 	return result;
+}
+
+function containsAny(value: string, candidates: ReadonlySet<string>): boolean {
+	for (const candidate of candidates) if (value.includes(candidate)) return true;
+	return false;
 }
 
 function makeRegion(unit: IndexedCodeUnit, score: number, reasons: string[], matchLines: number[]): RankedGrepRegion {
@@ -186,7 +207,7 @@ function occurrenceLines(unit: IndexedCodeUnit, input: RankInput): number[] {
 	return [];
 }
 
-function metadataLooksRelevant(unit: IndexedCodeUnit, input: RankInput): boolean {
+function metadataLooksRelevant(unit: IndexedCodeUnit, input: RankInput, queryTokens: string[]): boolean {
 	const values = [
 		unit.name,
 		unit.qualifiedName,
@@ -198,7 +219,6 @@ function metadataLooksRelevant(unit: IndexedCodeUnit, input: RankInput): boolean
 		...unit.tokens.keys(),
 	].filter((value): value is string => value !== undefined);
 	if (input.match === "regex") return values.some((value) => regexMatches(value, input.regex));
-	const queryTokens = splitTokens(input.query).map((token) => token.toLocaleLowerCase());
 	if (queryTokens.length === 0) return values.some((value) => value.includes(input.query));
 	const tokenSet = new Set(Array.from(unit.tokens.keys()));
 	return queryTokens.some((token) => tokenSet.has(token));
@@ -228,10 +248,10 @@ function matchLinesInText(text: string, input: RankInput): number[] {
 	return result;
 }
 
-function bm25(unit: IndexedCodeUnit, query: string, corpusSize: number): number {
-	const queryTokens = splitTokens(query).map((token) => token.toLocaleLowerCase());
+function bm25(unit: IndexedCodeUnit, queryTokens: string[], corpusSize: number): number {
 	if (queryTokens.length === 0) return 0;
-	const length = Array.from(unit.tokens.values()).reduce((sum, count) => sum + count, 0);
+	let length = 0;
+	for (const count of unit.tokens.values()) length += count;
 	let score = 0;
 	for (const token of queryTokens) {
 		const tf = unit.tokens.get(token) ?? 0;
@@ -243,9 +263,8 @@ function bm25(unit: IndexedCodeUnit, query: string, corpusSize: number): number 
 	return score * 120;
 }
 
-function hasEnoughLexicalCoverage(unit: IndexedCodeUnit, query: string): boolean {
-	const tokens = splitTokens(query).map((token) => token.toLocaleLowerCase());
-	if (tokens.length <= 1 || IDENTIFIER_LIKE.test(query)) return true;
+function hasEnoughLexicalCoverage(unit: IndexedCodeUnit, tokens: string[], identifierLike: boolean): boolean {
+	if (tokens.length <= 1 || identifierLike) return true;
 	let matched = 0;
 	for (const token of new Set(tokens)) {
 		if (unit.tokens.has(token)) matched += 1;
@@ -290,9 +309,9 @@ function literalWeight(query: string): number {
 	return 420;
 }
 
-function pathRelevance(filePath: string, query: string): number {
+function pathRelevance(filePath: string, queryTokens: Map<string, number>): number {
 	const pathTokens = tokenizeText(filePath);
-	return tokenOverlap(tokenizeText(query), pathTokens) * 35;
+	return tokenOverlap(queryTokens, pathTokens) * 35;
 }
 
 function compareRanked(left: RankedGrepRegion, right: RankedGrepRegion, queryMentionsTests: boolean): number {

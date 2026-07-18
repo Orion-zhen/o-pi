@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
+import pLimit from "p-limit";
 
 import { fail, isFailed } from "../core/errors.js";
 import { getGrepIndex } from "../grep/indexer.js";
@@ -29,6 +30,8 @@ export interface GrepRuntime {
 	repoMap?: RepoMapFileToolQuery;
 }
 
+const SOURCE_READ_CONCURRENCY = 8;
+
 /** grep 是单入口代码检索器：自动路由文本、symbol、regex 和一跳关系，返回预算内代码区域。 */
 export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal?: AbortSignal, runtime: GrepRuntime = {}): Promise<ToolOutcome<GrepSuccess>> {
 	const validation = validateGrepParams(params);
@@ -48,43 +51,40 @@ export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal
 		...(regex !== undefined ? { regex } : {}),
 	};
 	let ranked = rankGrepRegions(rankInput);
-	const repoMapResult = validation.match === "auto"
-		? await safeRepoMapCandidates(runtime.repoMap, {
-			requestedPath: index.root.realPath,
+	const [repoMapResult, lspSymbolCandidates] = await Promise.all([
+		validation.match === "auto"
+			? safeRepoMapCandidates(runtime.repoMap, {
+				requestedPath: index.root.realPath,
+				query: validation.query,
+				limit: Math.max(24, index.config.limits.grep_result_limit * 6),
+			})
+			: undefined,
+		safeLspSymbolCandidates(runtime.lsp, {
+			workspaceRoot: index.workspaceRoot,
 			query: validation.query,
-			limit: Math.max(24, index.config.limits.grep_result_limit * 6),
-		})
-		: undefined;
-	const lspSymbolCandidates = await safeLspSymbolCandidates(runtime.lsp, {
-		workspaceRoot: index.workspaceRoot,
-		query: validation.query,
-		path: index.root.relativePath,
-	}, validation.match);
+			path: index.root.relativePath,
+		}, validation.match),
+	]);
 	const allowedPaths = new Set(index.files.map((file) => file.path));
 	const scopedRepoMapCandidates = repoMapResult?.candidates.filter((candidate) =>
 		allowedPaths.has(candidate.path)
 		&& candidate.relatedEdges.every((edge) => edge.relatedFiles.every((file) => allowedPaths.has(file.path)))) ?? [];
-	const lspSource = await loadCandidateSourceText(
+	const lspSourcePaths = limitedUniquePaths(lspSymbolCandidates.map((candidate) => candidate.path), index.config.limits.grep_result_limit * 4);
+	const repoMapSourcePaths = limitedUniquePaths(
+		scopedRepoMapCandidates.flatMap((candidate) => [candidate.path, ...candidate.relatedEdges.flatMap((edge) => edge.relatedFiles.map((file) => file.path))]),
+		index.config.limits.grep_result_limit * 10,
+	);
+	const candidateSource = await loadCandidateSourceText(
 		sourceText,
 		filesByPath,
-		limitedUniquePaths(lspSymbolCandidates.map((candidate) => candidate.path), index.config.limits.grep_result_limit * 4),
+		limitedUniquePaths([...lspSourcePaths, ...repoMapSourcePaths], lspSourcePaths.length + repoMapSourcePaths.length),
 		signal,
 		runtime,
 	);
-	if (isFailed(lspSource)) return lspSource;
-	const repoMapSource = await loadCandidateSourceText(
-		sourceText,
-		filesByPath,
-		limitedUniquePaths(
-			scopedRepoMapCandidates.flatMap((candidate) => [candidate.path, ...candidate.relatedEdges.flatMap((edge) => edge.relatedFiles.map((file) => file.path))]),
-			index.config.limits.grep_result_limit * 10,
-		),
-		signal,
-		runtime,
-	);
-	if (isFailed(repoMapSource)) return repoMapSource;
+	if (isFailed(candidateSource)) return candidateSource;
+	const sourceHashes = new Map<string, string>();
 	let lspCandidates = lspRegionsFromCandidates(lspSymbolCandidates, validation.match, sourceText, allowedPaths);
-	let repoMapCandidates = repoMapRegionsFromCandidates(scopedRepoMapCandidates, index.files, sourceText);
+	let repoMapCandidates = repoMapRegionsFromCandidates(scopedRepoMapCandidates, index.files, sourceText, sourceHashes);
 	const regions = mergeRanked(mergeRanked(ranked.regions, lspCandidates), repoMapCandidates);
 	const hydrated = await loadCandidateSourceText(sourceText, filesByPath, hydrationPaths(regions, index.config.limits.grep_result_limit), signal, runtime);
 	if (isFailed(hydrated)) return hydrated;
@@ -94,7 +94,7 @@ export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal
 		allowMetadataCandidates: false,
 	});
 	lspCandidates = lspRegionsFromCandidates(lspSymbolCandidates, validation.match, sourceText, allowedPaths);
-	repoMapCandidates = repoMapRegionsFromCandidates(scopedRepoMapCandidates, index.files, sourceText);
+	repoMapCandidates = repoMapRegionsFromCandidates(scopedRepoMapCandidates, index.files, sourceText, sourceHashes);
 	let finalRegions = mergeRanked(mergeRanked(ranked.regions, lspCandidates), repoMapCandidates);
 	if (validation.match !== "auto" && finalRegions.length === 0) {
 		const scanned = await scanFallbackSourceText({
@@ -186,12 +186,22 @@ async function loadCandidateSourceText(
 	signal: AbortSignal | undefined,
 	runtime: GrepRuntime,
 ): Promise<ToolOutcome<Map<string, string>>> {
+	const candidates: Array<{ path: string; absolutePath: string }> = [];
 	for (const filePath of new Set(paths)) {
 		if (sourceText.has(filePath)) continue;
 		const file = filesByPath.get(filePath);
 		if (file === undefined) continue;
-		if (signal?.aborted) return fail("OPERATION_ABORTED", "grep was aborted.", { path: file.path });
-		const loaded = await (runtime.readSourceText ?? defaultReadSourceText)(file, signal);
+		candidates.push(file);
+	}
+	const readSource = runtime.readSourceText ?? defaultReadSourceText;
+	const limit = pLimit(SOURCE_READ_CONCURRENCY);
+	const loadedFiles = await Promise.all(candidates.map((file) => limit(async () => ({
+		file,
+		loaded: signal?.aborted
+			? fail("OPERATION_ABORTED", "grep was aborted.", { path: file.path })
+			: await readSource(file, signal),
+	}))));
+	for (const { file, loaded } of loadedFiles) {
 		if (isFailed(loaded)) {
 			if (loaded.error.code === "OPERATION_ABORTED") return loaded;
 			continue;
@@ -264,6 +274,7 @@ function repoMapRegionsFromCandidates(
 	candidates: RepoMapQueryCandidate[],
 	files: Array<{ path: string; contentHash: string; index: { units: IndexedCodeUnit[] } }>,
 	sourceText: ReadonlyMap<string, string>,
+	sourceHashes: Map<string, string>,
 ): RankedGrepRegion[] {
 	const filesByPath = new Map(files.map((file) => [file.path, file]));
 	const result: RankedGrepRegion[] = [];
@@ -271,10 +282,12 @@ function repoMapRegionsFromCandidates(
 		const file = filesByPath.get(candidate.path);
 		const text = sourceText.get(candidate.path);
 		if (file === undefined || text === undefined || candidate.contentHash === undefined) continue;
-		if (hashText(text) !== candidate.contentHash) continue;
+		if (sourceHash(candidate.path, text, sourceHashes) !== candidate.contentHash) continue;
 		if (!candidate.relatedEdges.every((edge) => edge.relatedFiles.every((related) => {
 			const relatedText = sourceText.get(related.path);
-			return related.contentHash !== undefined && relatedText !== undefined && hashText(relatedText) === related.contentHash;
+			return related.contentHash !== undefined
+				&& relatedText !== undefined
+				&& sourceHash(related.path, relatedText, sourceHashes) === related.contentHash;
 		}))) continue;
 		const liveUnit = candidate.symbol === undefined
 			? file.index.units[0]
@@ -346,6 +359,14 @@ function hashText(text: string): string {
 	return createHash("sha256").update(text).digest("hex");
 }
 
+function sourceHash(filePath: string, text: string, hashes: Map<string, string>): string {
+	const cached = hashes.get(filePath);
+	if (cached !== undefined) return cached;
+	const hash = hashText(text);
+	hashes.set(filePath, hash);
+	return hash;
+}
+
 function hydrationPaths(regions: RankedGrepRegion[], resultLimit: number): string[] {
 	const limit = Math.max(resultLimit * 4, resultLimit + 8);
 	return selectGrepCandidatesForPacking(regions, limit).map((region) => region.path);
@@ -374,20 +395,27 @@ async function scanFallbackSourceText(input: {
 	limit: number;
 }): Promise<ToolOutcome<void>> {
 	const filesByPath = new Map(input.files.map((file) => [file.path, file]));
+	const files = input.files.filter((file) => !input.sourceText.has(file.path));
 	let loaded = 0;
-	for (const file of input.files) {
+	for (let offset = 0; offset < files.length; offset += SOURCE_READ_CONCURRENCY) {
 		if (loaded >= input.limit) return;
-		if (input.sourceText.has(file.path)) continue;
-		if (input.signal?.aborted) return fail("OPERATION_ABORTED", "grep was aborted.", { path: file.path });
-		const matched = await fileHasLineMatch(file, input.query, input.match, input.regex, input.signal);
-		if (isFailed(matched)) {
-			if (matched.error.code === "OPERATION_ABORTED") return matched;
-			continue;
+		const batch = files.slice(offset, offset + SOURCE_READ_CONCURRENCY);
+		const matches = await Promise.all(batch.map(async (file) => ({
+			file,
+			matched: await fileHasLineMatch(file, input.query, input.match, input.regex, input.signal),
+		})));
+		const matchedPaths: string[] = [];
+		for (const { file, matched } of matches) {
+			if (isFailed(matched)) {
+				if (matched.error.code === "OPERATION_ABORTED") return matched;
+				continue;
+			}
+			if (matched) matchedPaths.push(file.path);
 		}
-		if (!matched) continue;
-		const source = await loadCandidateSourceText(input.sourceText, filesByPath, [file.path], input.signal, input.runtime);
+		const selected = matchedPaths.slice(0, input.limit - loaded);
+		const source = await loadCandidateSourceText(input.sourceText, filesByPath, selected, input.signal, input.runtime);
 		if (isFailed(source)) return source;
-		loaded += 1;
+		loaded += selected.length;
 	}
 }
 
@@ -398,17 +426,18 @@ async function fileHasLineMatch(
 	regex: RegExp | undefined,
 	signal: AbortSignal | undefined,
 ): Promise<ToolOutcome<boolean>> {
+	const matcher = regex === undefined ? undefined : new RegExp(regex.source, regex.flags);
 	const stream = createReadStream(file.absolutePath, { encoding: "utf8", signal });
 	const lines = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY });
 	try {
 		for await (const line of lines) {
 			if (signal?.aborted) return fail("OPERATION_ABORTED", "grep was aborted.", { path: file.path });
 			if (match === "regex") {
-				if (regex?.test(line) === true) {
-					if (regex.global) regex.lastIndex = 0;
+				if (matcher?.test(line) === true) {
+					if (matcher.global) matcher.lastIndex = 0;
 					return true;
 				}
-				if (regex?.global === true) regex.lastIndex = 0;
+				if (matcher?.global === true) matcher.lastIndex = 0;
 			} else if (line.includes(query)) {
 				return true;
 			}

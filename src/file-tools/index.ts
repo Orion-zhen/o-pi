@@ -5,7 +5,7 @@ export {
 	formatReadModelResult,
 	formatWriteModelResult,
 	scrubVersions,
-} from "./pi/model-output.js";
+} from "./pi/model-output-with-repo.js";
 export { versionCacheFor, withNativeLsDetails } from "./pi/native.js";
 export {
 	isEditSuccessDetails,

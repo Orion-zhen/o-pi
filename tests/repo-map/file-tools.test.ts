@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { CODE_INDEX_FORMAT_VERSION } from "../../src/code-index/identity.js";
 import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
-import { formatReadModelResult } from "../../src/file-tools/pi/model-output.js";
+import { formatReadModelResult } from "../../src/file-tools/pi/model-output-with-repo.js";
 import { editWorkspace } from "../../src/file-tools/tools/edit.js";
 import { readWorkspaceFile } from "../../src/file-tools/tools/read.js";
 import { writeWorkspaceFile } from "../../src/file-tools/tools/write.js";
@@ -92,8 +92,12 @@ describe("Repo Map file-tool read and mutation integration", () => {
 				return await readActivatedRepoMap(activation, path.join(temp.path, "cache"));
 			},
 		});
+		const runtime = {
+			repoMap: query,
+			formatRepoMapContext: async (context: Parameters<typeof formatRepoMapReadContext>[0]) => formatRepoMapReadContext(context),
+		};
 
-		const partial = await readWorkspaceFile(root, { path: "a.ts", start_line: 1, end_line: 4 }, { repoMap: query });
+		const partial = await readWorkspaceFile(root, { path: "a.ts", start_line: 1, end_line: 4 }, runtime);
 		if (!("content" in partial) || "media_type" in partial) throw new Error("partial read failed");
 		expect(partial.repo_map).toMatchObject({
 			symbol: { name: "Target", qualifiedName: "Target" },
@@ -102,12 +106,12 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		});
 		expect(formatReadModelResult(partial)).toContain('<repo-map>\nsymbol="function Target 1-19"');
 
-		const truncated = await readWorkspaceFile(root, { path: "a.ts" }, { repoMap: query });
+		const truncated = await readWorkspaceFile(root, { path: "a.ts" }, runtime);
 		if (!("content" in truncated) || "media_type" in truncated) throw new Error("truncated read failed");
 		expect(truncated.repo_map?.symbol.name).toBe("Target");
 		expect(truncated).toMatchObject({ truncated: true, end_line: 7, continuation: { start_line: 8 } });
 
-		const full = await readWorkspaceFile(root, { path: "b.ts" }, { repoMap: query });
+		const full = await readWorkspaceFile(root, { path: "b.ts" }, runtime);
 		expect(full).not.toHaveProperty("repo_map");
 	});
 
@@ -137,6 +141,7 @@ describe("Repo Map file-tool read and mutation integration", () => {
 					};
 				},
 			},
+			formatRepoMapContext: async (context) => formatRepoMapReadContext(context),
 		});
 		if (!("content" in enabled) || "media_type" in enabled || enabled.repo_map === undefined) throw new Error("enhanced read failed");
 		const tag = formatRepoMapReadContext(enabled.repo_map);
@@ -157,10 +162,11 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		expect(saturatedTag).toContain('symbol="function Target 1-150"');
 		expect(countTextTokensSync(saturatedTag ?? "").tokens).toBeLessThanOrEqual(READ_REPO_MAP_TOKEN_BUDGET);
 
-		const withDuplicateLsp = formatReadModelResult({
+		const duplicateLspResult = {
 			...enabled,
 			lsp: { enclosing_symbol: { name: "Target", kind: "function", line: 1, end_line: 150 } },
-		});
+		};
+		const withDuplicateLsp = formatReadModelResult(duplicateLspResult);
 		expect(withDuplicateLsp).toContain("<repo-map>\n");
 		expect(withDuplicateLsp).toContain("\n</repo-map>");
 		expect(withDuplicateLsp).not.toContain("<lsp ");

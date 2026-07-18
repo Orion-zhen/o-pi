@@ -4,6 +4,8 @@
 	"type": "module",
 	"private": true,
 	"scripts": {
+		"bench:file-tools": "node scripts/bench-file-tools.mjs",
+		"bench:file-tools:search": "node scripts/bench-file-tools-search.mjs",
 		"test": "vitest --run",
 		"test:coverage": "vitest --run --coverage",
 		"typecheck": "tsc --noEmit"

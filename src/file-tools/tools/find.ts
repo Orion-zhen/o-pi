@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import picomatch from "picomatch";
+import pLimit from "p-limit";
 
 import { ignoreConfigFromFileTools, isBlockedPath, isIgnoredPath, loadFileToolsConfig, toolPathIdentity, type FileToolsConfig } from "../config.js";
 import { fail, isAccessDenied, isFailed, protectedPathFailure } from "../core/errors.js";
@@ -47,6 +48,8 @@ interface WalkState {
 export interface FindRuntime {
 	repoMap?: RepoMapFileToolQuery;
 }
+
+const REPO_MAP_VALIDATION_CONCURRENCY = 8;
 
 /** find 是路径定位器：自动路由 exact、glob 和 fuzzy；激活后的图候选只读取字节以复核 hash，不跟随 symlink。 */
 export async function findWorkspaceFiles(
@@ -254,17 +257,19 @@ async function runFuzzySearch(
 	runtime: FindRuntime,
 ): Promise<ToolOutcome<FindSuccess>> {
 	const state = createWalkState(workspaceRoot, searchRoot, config, ignoreSnapshot, isDirectoryIgnored(searchRoot, config, ignoreSnapshot), signal);
-	await walkDirectory(state, searchRoot.absolutePath, searchRoot.relativePath, searchRoot.workspacePath, ".");
+	const [, repoMapRanked] = await Promise.all([
+		walkDirectory(state, searchRoot.absolutePath, searchRoot.relativePath, searchRoot.workspacePath, "."),
+		safeRepoMapFindCandidates(runtime.repoMap, {
+			workspaceRoot,
+			searchRoot,
+			query: params.query,
+			config,
+			ignoreSnapshot,
+			ignoreBypass: state.ignoreBypass,
+			signal,
+		}),
+	]);
 	const ranked = rankFindEntries(state.entries, params.query, searchRoot.relativePath);
-	const repoMapRanked = await safeRepoMapFindCandidates(runtime.repoMap, {
-		workspaceRoot,
-		searchRoot,
-		query: params.query,
-		config,
-		ignoreSnapshot,
-		ignoreBypass: state.ignoreBypass,
-		signal,
-	});
 	const merged = mergeFindCandidates(ranked.matches, repoMapRanked);
 	return renderSuccess({
 		query: params.query,
@@ -301,13 +306,13 @@ async function safeRepoMapFindCandidates(
 			limit: Math.max(24, input.config.limits.find_result_limit * 4),
 		});
 		if (queried === undefined) return [];
-		const result: RankedFindEntry[] = [];
-		for (const candidate of queried.candidates) {
+		const hashes = new Map<string, Promise<string | undefined>>();
+		const limit = pLimit(REPO_MAP_VALIDATION_CONCURRENCY);
+		const candidates = await Promise.all(queried.candidates.map((candidate) => limit(async () => {
 			assertNotAborted(input.signal);
-			const ranked = await validateRepoMapFindCandidate(candidate, queried.root, input);
-			if (ranked !== undefined) result.push(ranked);
-		}
-		return result;
+			return await validateRepoMapFindCandidate(candidate, queried.root, input, hashes);
+		})));
+		return candidates.filter((candidate): candidate is RankedFindEntry => candidate !== undefined);
 	} catch (error) {
 		if (error instanceof AbortFind) throw error;
 		return [];
@@ -325,6 +330,7 @@ async function validateRepoMapFindCandidate(
 		ignoreBypass: boolean;
 		signal: AbortSignal | undefined;
 	},
+	hashes: Map<string, Promise<string | undefined>>,
 ): Promise<RankedFindEntry | undefined> {
 	const absolutePath = path.resolve(mapRoot, candidate.path);
 	const searchRelative = relativeInside(input.searchRoot.absolutePath, absolutePath);
@@ -346,11 +352,11 @@ async function validateRepoMapFindCandidate(
 	}
 	if (!info.isFile() || info.isSymbolicLink()) return undefined;
 	const pathOnly = candidate.reasons.every((reason) => reason === "exact path" || reason === "exact filename" || reason === "path match");
-	if (!pathOnly && !await matchesCurrentHash(absolutePath, candidate.contentHash, input.signal)) return undefined;
+	if (!pathOnly && !await matchesCurrentHash(absolutePath, candidate.contentHash, input.signal, hashes)) return undefined;
 	for (const related of candidate.relatedEdges.flatMap((edge) => edge.relatedFiles)) {
 		const relatedAbsolutePath = path.resolve(mapRoot, related.path);
 		if (relativeInside(input.searchRoot.absolutePath, relatedAbsolutePath) === undefined) return undefined;
-		if (!await matchesCurrentHash(relatedAbsolutePath, related.contentHash, input.signal)) return undefined;
+		if (!await matchesCurrentHash(relatedAbsolutePath, related.contentHash, input.signal, hashes)) return undefined;
 	}
 	return {
 		entry: createFindEntry(displayPath, "file"),
@@ -358,14 +364,28 @@ async function validateRepoMapFindCandidate(
 	};
 }
 
-async function matchesCurrentHash(absolutePath: string, expected: string | undefined, signal: AbortSignal | undefined): Promise<boolean> {
+async function matchesCurrentHash(
+	absolutePath: string,
+	expected: string | undefined,
+	signal: AbortSignal | undefined,
+	hashes: Map<string, Promise<string | undefined>>,
+): Promise<boolean> {
 	if (expected === undefined) return false;
+	let pending = hashes.get(absolutePath);
+	if (pending === undefined) {
+		pending = currentHash(absolutePath, signal);
+		hashes.set(absolutePath, pending);
+	}
+	return await pending === expected;
+}
+
+async function currentHash(absolutePath: string, signal: AbortSignal | undefined): Promise<string | undefined> {
 	try {
 		const bytes = signal === undefined ? await readFile(absolutePath) : await readFile(absolutePath, { signal });
-		return createHash("sha256").update(bytes).digest("hex") === expected;
+		return createHash("sha256").update(bytes).digest("hex");
 	} catch (error) {
 		if (error instanceof Error && error.name === "AbortError") throw new AbortFind();
-		return false;
+		return undefined;
 	}
 }
 

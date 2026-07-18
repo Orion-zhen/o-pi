@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { Stats } from "node:fs";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import ignoreFactory from "ignore";
@@ -43,7 +44,19 @@ interface RuleFile {
 	absolutePath: string;
 	baseDirectory: string;
 	priority: number;
+	dev: number;
+	ino: number;
 	mtimeMs: number;
+	ctimeMs: number;
+	size: number;
+}
+
+interface DirectoryStamp {
+	absolutePath: string;
+	dev: number;
+	ino: number;
+	mtimeMs: number;
+	ctimeMs: number;
 	size: number;
 }
 
@@ -70,37 +83,74 @@ interface SourceMatch {
 interface SnapshotCacheEntry {
 	fingerprint: string;
 	snapshot: IgnoreSnapshot;
+	directories: DirectoryStamp[];
+	ruleFiles: RuleFile[];
+	trackedFingerprint: string;
 }
 
 let nextGeneration = 1;
 
 class WorkspaceIgnoreEngine implements IgnoreEngine {
 	private readonly cache = new Map<string, SnapshotCacheEntry>();
+	private readonly pending = new Map<string, Promise<IgnoreSnapshot>>();
+	private readonly epochs = new Map<string, number>();
 
 	async createSnapshot(root: string, overrides: PartialIgnoreConfig = {}): Promise<IgnoreSnapshot> {
 		const config = resolveIgnoreConfig(overrides);
+		if (!this.epochs.has(root)) this.epochs.set(root, 0);
+		const pendingKey = `${root}:${JSON.stringify(config)}`;
+		const existing = this.pending.get(pendingKey);
+		if (existing !== undefined) return existing;
+		const epoch = this.epochs.get(root) ?? 0;
+		const created = this.buildSnapshot(root, config, epoch);
+		this.pending.set(pendingKey, created);
+		try {
+			return await created;
+		} finally {
+			if (this.pending.get(pendingKey) === created) this.pending.delete(pendingKey);
+		}
+	}
+
+	private async buildSnapshot(root: string, config: IgnoreConfig, epoch: number): Promise<IgnoreSnapshot> {
 		const tracked = await loadGitTrackedFiles(root);
 		const caseInsensitive = resolveCaseInsensitive(config, tracked.ignoreCase);
-		const [ruleFiles, discoveryDiagnostics] = await discoverRuleFiles(root, config);
-		const { ruleSets, diagnostics } = await compileRuleSets(ruleFiles, config, caseInsensitive, discoveryDiagnostics);
-		const fingerprint = buildFingerprint(config, caseInsensitive, ruleFiles, tracked.paths, diagnostics);
 		const cacheKey = `${root}:${JSON.stringify(config)}:${caseInsensitive}`;
 		const cached = this.cache.get(cacheKey);
-		if (cached?.fingerprint === fingerprint) return cached.snapshot;
+		if (cached?.trackedFingerprint === tracked.fingerprint && await stampsUnchanged(cached.directories, cached.ruleFiles)) {
+			return cached.snapshot;
+		}
+
+		const { ruleFiles, directories, diagnostics: discoveryDiagnostics } = await discoverRuleFiles(root, config);
+		const { ruleSets, diagnostics } = await compileRuleSets(ruleFiles, config, caseInsensitive, discoveryDiagnostics);
+		const fingerprint = buildFingerprint(config, caseInsensitive, ruleFiles, tracked.paths, diagnostics);
+		if (cached?.fingerprint === fingerprint) {
+			if ((this.epochs.get(root) ?? 0) === epoch) {
+				this.cache.set(cacheKey, { fingerprint, snapshot: cached.snapshot, directories, ruleFiles, trackedFingerprint: tracked.fingerprint });
+			}
+			return cached.snapshot;
+		}
 
 		const snapshot = new IgnoreSnapshotImpl(nextGeneration, fingerprint, ruleSets, diagnostics, tracked.paths, config, caseInsensitive);
 		nextGeneration += 1;
-		this.cache.set(cacheKey, { fingerprint, snapshot });
+		if ((this.epochs.get(root) ?? 0) === epoch) {
+			this.cache.set(cacheKey, { fingerprint, snapshot, directories, ruleFiles, trackedFingerprint: tracked.fingerprint });
+		}
 		return snapshot;
 	}
 
 	invalidate(root?: string): void {
 		if (root === undefined) {
 			this.cache.clear();
+			this.pending.clear();
+			for (const workspaceRoot of this.epochs.keys()) this.epochs.set(workspaceRoot, (this.epochs.get(workspaceRoot) ?? 0) + 1);
 			return;
 		}
+		this.epochs.set(root, (this.epochs.get(root) ?? 0) + 1);
 		for (const key of this.cache.keys()) {
 			if (key.startsWith(`${root}:`)) this.cache.delete(key);
+		}
+		for (const key of this.pending.keys()) {
+			if (key.startsWith(`${root}:`)) this.pending.delete(key);
 		}
 	}
 }
@@ -238,15 +288,21 @@ export async function createIgnoreSnapshot(root: string, config?: PartialIgnoreC
 	return await defaultIgnoreEngine.createSnapshot(root, config);
 }
 
-async function discoverRuleFiles(root: string, config: IgnoreConfig): Promise<[RuleFile[], IgnoreDiagnostic[]]> {
+async function discoverRuleFiles(root: string, config: IgnoreConfig): Promise<{
+	ruleFiles: RuleFile[];
+	directories: DirectoryStamp[];
+	diagnostics: IgnoreDiagnostic[];
+}> {
 	const files: RuleFile[] = [];
+	const directories: DirectoryStamp[] = [];
 	const diagnostics: IgnoreDiagnostic[] = [];
 
-	await collectNestedRuleFiles(root, ".", config, files, diagnostics);
+	await collectNestedRuleFiles(root, ".", config, files, directories, diagnostics);
 	if (config.gitInfoExclude) {
+		await addDirectoryStamp(path.join(root, ".git", "info"), directories);
 		await addRuleFile(root, ".git/info/exclude", "git-info-exclude", ".", files);
 	}
-	return [files.sort(compareRuleFiles), diagnostics];
+	return { ruleFiles: files.sort(compareRuleFiles), directories, diagnostics };
 }
 
 async function collectNestedRuleFiles(
@@ -254,13 +310,17 @@ async function collectNestedRuleFiles(
 	relativeDirectory: string,
 	config: IgnoreConfig,
 	files: RuleFile[],
+	directories: DirectoryStamp[],
 	diagnostics: IgnoreDiagnostic[],
 ): Promise<void> {
 	if (relativeDirectory !== "." && isWorkspaceMetadataPath(relativeDirectory)) return;
 	const absoluteDirectory = path.join(root, relativeDirectory === "." ? "" : relativeDirectory);
 	let entries;
 	try {
-		entries = await readdir(absoluteDirectory, { withFileTypes: true });
+		const [listed, info] = await Promise.all([readdir(absoluteDirectory, { withFileTypes: true }), lstat(absoluteDirectory)]);
+		if (!info.isDirectory()) return;
+		entries = listed;
+		directories.push(toDirectoryStamp(absoluteDirectory, info));
 	} catch {
 		return;
 	}
@@ -283,7 +343,7 @@ async function collectNestedRuleFiles(
 		const allowPiNested = config.piignore.nested || relativeDirectory === ".";
 		const allowGitNested = config.gitignore.nested || relativeDirectory === ".";
 		if (!allowPiNested && !allowGitNested) continue;
-		await collectNestedRuleFiles(root, childRelative, config, files, diagnostics);
+		await collectNestedRuleFiles(root, childRelative, config, files, directories, diagnostics);
 	}
 }
 
@@ -304,12 +364,49 @@ async function addRuleFile(
 			absolutePath,
 			baseDirectory,
 			priority: SOURCE_PRIORITY[sourceType],
+			dev: info.dev,
+			ino: info.ino,
 			mtimeMs: info.mtimeMs,
+			ctimeMs: info.ctimeMs,
 			size: info.size,
 		});
 	} catch {
 		return;
 	}
+}
+
+async function addDirectoryStamp(absolutePath: string, directories: DirectoryStamp[]): Promise<void> {
+	try {
+		const info = await lstat(absolutePath);
+		if (info.isDirectory()) directories.push(toDirectoryStamp(absolutePath, info));
+	} catch {
+		// The workspace root stamp detects a later .git directory creation.
+	}
+}
+
+function toDirectoryStamp(absolutePath: string, info: Stats): DirectoryStamp {
+	return { absolutePath, dev: info.dev, ino: info.ino, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs, size: info.size };
+}
+
+async function stampsUnchanged(directories: DirectoryStamp[], ruleFiles: RuleFile[]): Promise<boolean> {
+	const stamps = [...directories, ...ruleFiles];
+	for (let index = 0; index < stamps.length; index += 64) {
+		const batch = stamps.slice(index, index + 64);
+		const current = await Promise.all(batch.map(async (stamp) => {
+			try {
+				const info = await lstat(stamp.absolutePath);
+				return info.dev === stamp.dev
+					&& info.ino === stamp.ino
+					&& info.size === stamp.size
+					&& info.mtimeMs === stamp.mtimeMs
+					&& info.ctimeMs === stamp.ctimeMs;
+			} catch {
+				return false;
+			}
+		}));
+		if (current.includes(false)) return false;
+	}
+	return true;
 }
 
 async function compileRuleSets(
@@ -463,7 +560,7 @@ function buildFingerprint(
 	diagnostics: IgnoreDiagnostic[],
 ): string {
 	const filePart = ruleFiles
-		.map((file) => `${file.sourceType}:${file.sourcePath}:${file.size}:${file.mtimeMs}`)
+		.map((file) => `${file.sourceType}:${file.sourcePath}:${file.dev}:${file.ino}:${file.size}:${file.mtimeMs}:${file.ctimeMs}`)
 		.sort()
 		.join("|");
 	const trackedPart = Array.from(trackedPaths).sort().join("\0");

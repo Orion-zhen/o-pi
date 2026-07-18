@@ -31,6 +31,10 @@ interface FuseFindDocument {
 	tokens: string[];
 }
 
+interface FuseRankedEntry extends RankedFindEntry {
+	matchScore: number;
+}
+
 const TEST_TOKENS = new Set(["test", "spec", "fixture", "fixtures", "mock", "mocks"]);
 const FUSE_MATCH_THRESHOLD = 0.38;
 const FUSE_SUGGESTION_THRESHOLD = 0.55;
@@ -71,14 +75,18 @@ export function rankFindEntries(entries: FindEntry[], query: string, rootPath: s
 		const exactPaths = new Set(exact.map((item) => item.entry.path));
 		return {
 			matches: exact,
-			suggestions: rankFuse(entries.filter((entry) => !exactPaths.has(entry.path)), queryTokens, rootPath, FUSE_SUGGESTION_THRESHOLD).slice(0, 3),
+			suggestions: rankFuse(entries.filter((entry) => !exactPaths.has(entry.path)), queryTokens, rootPath)
+				.slice(0, 3)
+				.map(withoutMatchScore),
 		};
 	}
 
-	const strict = rankFuse(entries, queryTokens, rootPath, FUSE_MATCH_THRESHOLD)
-		.filter((item) => tokenCoverage(queryTokens.tokens, item.entry.tokens) === queryTokens.tokens.length);
-	if (strict.length > 0) return { matches: strict, suggestions: rankFuse(entries, queryTokens, rootPath, FUSE_SUGGESTION_THRESHOLD).slice(0, 3) };
-	return { matches: [], suggestions: rankFuse(entries, queryTokens, rootPath, FUSE_SUGGESTION_THRESHOLD).slice(0, 3) };
+	const fuzzy = rankFuse(entries, queryTokens, rootPath);
+	const strict = fuzzy
+		.filter((item) => item.matchScore <= FUSE_MATCH_THRESHOLD && tokenCoverage(queryTokens.tokens, item.entry.tokens) === queryTokens.tokens.length)
+		.map(withoutMatchScore);
+	const suggestions = fuzzy.slice(0, 3).map(withoutMatchScore);
+	return { matches: strict, suggestions };
 }
 
 /** Glob 结果仍统一评分；glob 符号只用于路由，排序主要看静态字面量和路径短度。 */
@@ -92,8 +100,9 @@ export function rankGlobEntries(entries: FindEntry[], query: string, rootPath: s
 	const exactPaths = new Set(exact.map((item) => item.entry.path));
 	const fuzzy = entries
 		.filter((entry) => !exactPaths.has(entry.path))
-		.map((entry) => ({ entry, score: globFallbackScore(entry) + tokenCoverage(queryTokens.tokens, entry.tokens) * 1_000 }))
-		.filter((item) => tokenCoverage(queryTokens.tokens, item.entry.tokens) > 0);
+		.map((entry) => ({ entry, coverage: tokenCoverage(queryTokens.tokens, entry.tokens) }))
+		.filter((item) => item.coverage > 0)
+		.map(({ entry, coverage }) => ({ entry, score: globFallbackScore(entry) + coverage * 1_000 }));
 	return [...exact, ...fuzzy].sort(compareRankedEntries);
 }
 
@@ -128,14 +137,14 @@ function exactScore(entry: FindEntry, query: QueryTokens, rootPath: string): num
 	return 0;
 }
 
-function rankFuse(entries: FindEntry[], query: QueryTokens, rootPath: string, maxScore: number): RankedFindEntry[] {
+function rankFuse(entries: FindEntry[], query: QueryTokens, rootPath: string): FuseRankedEntry[] {
 	if (entries.length === 0) return [];
 	const documents = entries.map((entry) => toFuseDocument(entry, rootPath));
 	const fuse = new Fuse(documents, {
 		includeScore: true,
 		ignoreLocation: true,
 		ignoreFieldNorm: true,
-		threshold: maxScore,
+		threshold: FUSE_SUGGESTION_THRESHOLD,
 		useTokenSearch: query.tokens.length > 1,
 		tokenMatch: "all",
 		tokenize: splitWords,
@@ -149,12 +158,12 @@ function rankFuse(entries: FindEntry[], query: QueryTokens, rootPath: string, ma
 		],
 	});
 	return fuse.search(query.raw)
-		.filter((result) => (result.score ?? 1) <= maxScore)
+		.filter((result) => (result.score ?? 1) <= FUSE_SUGGESTION_THRESHOLD)
 		.map((result) => rankedFromFuse(result, query))
 		.sort(compareRankedEntries);
 }
 
-function rankedFromFuse(result: FuseResult<FuseFindDocument>, query: QueryTokens): RankedFindEntry {
+function rankedFromFuse(result: FuseResult<FuseFindDocument>, query: QueryTokens): FuseRankedEntry {
 	const entry = result.item.entry;
 	const fuseScore = result.score ?? 1;
 	let score = 50_000 - fuseScore * 20_000;
@@ -165,6 +174,10 @@ function rankedFromFuse(result: FuseResult<FuseFindDocument>, query: QueryTokens
 	score += kindBonus(entry);
 	score -= entry.depth * 5;
 	score -= entry.path.length / 100;
+	return { entry, score, matchScore: fuseScore };
+}
+
+function withoutMatchScore({ entry, score }: FuseRankedEntry): RankedFindEntry {
 	return { entry, score };
 }
 

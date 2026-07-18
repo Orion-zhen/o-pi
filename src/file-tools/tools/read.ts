@@ -7,7 +7,6 @@ import type { ReadVersionCache } from "../core/read-cache.js";
 import { decodeTextFile, readRawFile, sha256Version, sliceTextByLineRange } from "../core/text-file.js";
 import type { FileToolLspHooks, ReadFileSuccess, ReadImageSuccess, ReadParams, ReadSuccess, ToolOutcome } from "../types.js";
 import type { RepoMapFileToolQuery } from "../../repo-map/file-tool-query.js";
-import { formatRepoMapReadContext } from "../../repo-map/tool-output.js";
 
 const REPO_MAP_CONTEXT_LINES = 3;
 
@@ -18,6 +17,8 @@ export interface ReadRuntime {
 	lsp?: FileToolLspHooks;
 	/** 可选 Repo Map 上下文；实现方负责 activation、freshness 与实时 hash gate。 */
 	repoMap?: Pick<RepoMapFileToolQuery, "readContext">;
+	/** 仅在 Repo Map 返回上下文后加载其 token-budget formatter。 */
+	formatRepoMapContext?(context: NonNullable<ReadSuccess["repo_map"]>): Promise<string | undefined>;
 }
 
 /** read 读取 UTF-8 文本或模型可内联图片，不写入任何文件。 */
@@ -89,9 +90,9 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams, runtime
 		partial: params.start_line !== undefined || params.end_line !== undefined,
 		truncated: sliced.truncated || sliced.continuation !== undefined,
 	});
-	if (repoMap !== undefined) {
-		const renderedContext = formatRepoMapReadContext(repoMap);
-		const contextBytes = renderedContext === undefined ? config.limits.read_bytes : Buffer.byteLength(`${renderedContext}\n`, "utf8");
+	if (repoMap !== undefined && runtime.formatRepoMapContext !== undefined) {
+		const renderedContext = await runtime.formatRepoMapContext(repoMap);
+		const contextBytes = renderedContext === undefined ? 0 : Buffer.byteLength(`${renderedContext}\n`, "utf8");
 		if (contextBytes >= config.limits.read_bytes || REPO_MAP_CONTEXT_LINES >= config.limits.read_lines) repoMap = undefined;
 		else {
 			const budgeted = sliceTextByLineRange(file, params.start_line, params.end_line, resolved.relativePath, {

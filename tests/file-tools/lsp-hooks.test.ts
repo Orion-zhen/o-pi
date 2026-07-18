@@ -97,6 +97,29 @@ describe("file-tools lsp hooks", () => {
 
 		await expect(grepWorkspaceFiles(workspace, { path: "src", query: "RemoteSymbol" }, undefined, { lsp: throwingHooks() })).resolves.toMatchObject({ status: "success" });
 	});
+
+	it("grep 并行请求 LSP 与 Repo Map", async () => {
+		await writeFile(path.join(workspace, "target.ts"), "export const target = 1;\n");
+		let active = 0;
+		let maxActive = 0;
+		const pause = async (): Promise<void> => {
+			active += 1;
+			maxActive = Math.max(maxActive, active);
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			active -= 1;
+		};
+
+		await grepWorkspaceFiles(workspace, { query: "RemoteSymbol" }, undefined, {
+			lsp: { async grepSymbols() { await pause(); return []; } },
+			repoMap: {
+				async query() { await pause(); return undefined; },
+				async readContext() { return undefined; },
+				async syncMutation() { return undefined; },
+			},
+		});
+
+		expect(maxActive).toBe(2);
+	});
 });
 
 function diagnostics(status: "errors" | "warnings") {

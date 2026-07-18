@@ -95,12 +95,11 @@ describe("file-tools extension", () => {
 		expect(expanded).not.toContain('"status": "failed"');
 	});
 
-	it("分层预热不阻塞生命周期，并发执行复用同一个模块加载 Promise", async () => {
-		vi.useFakeTimers();
+	it("注册阶段零预热，首次执行按工具加载，并发复用且失败可重试", async () => {
 		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
 		const handlers = new Map<string, LifecycleHandler>();
-		let resolveLs: ((module: typeof import("../../src/file-tools/tools/ls.js")) => void) | undefined;
-		const pendingLs = new Promise<typeof import("../../src/file-tools/tools/ls.js")>((resolve) => {
+		let resolveLs: ((module: typeof import("../../src/file-tools/pi/adapters/ls.js")) => void) | undefined;
+		const pendingLs = new Promise<typeof import("../../src/file-tools/pi/adapters/ls.js")>((resolve) => {
 			resolveLs = resolve;
 		});
 		let findLoadAttempts = 0;
@@ -109,14 +108,15 @@ describe("file-tools extension", () => {
 			find: vi.fn(() => {
 				findLoadAttempts += 1;
 				return findLoadAttempts === 1
-					? Promise.reject(new Error("simulated preload failure"))
-					: import("../../src/file-tools/tools/find.js");
+					? Promise.reject(new Error("simulated import failure"))
+					: import("../../src/file-tools/pi/adapters/find.js");
 			}),
-			grep: vi.fn(() => import("../../src/file-tools/tools/grep.js")),
-			read: vi.fn(() => import("../../src/file-tools/tools/read.js")),
-			write: vi.fn(() => import("../../src/file-tools/tools/write.js")),
-			edit: vi.fn(() => import("../../src/file-tools/tools/edit.js")),
+			grep: vi.fn(() => import("../../src/file-tools/pi/adapters/grep.js")),
+			read: vi.fn(() => import("../../src/file-tools/pi/adapters/read.js")),
+			write: vi.fn(() => import("../../src/file-tools/pi/adapters/write.js")),
+			edit: vi.fn(() => import("../../src/file-tools/pi/adapters/edit.js")),
 			lsp: vi.fn(() => import("../../src/lsp/index.js")),
+			repoMap: vi.fn(() => import("../../src/file-tools/pi/repo-map-runtime.js")),
 		} satisfies FileToolsModuleImports;
 		const extension = createFileToolsExtension(imports);
 		const pi = {
@@ -129,41 +129,79 @@ describe("file-tools extension", () => {
 		};
 		extension(pi as unknown as ExtensionAPI);
 
-		expect(handlers.get("session_start")?.({}, {})).toBeUndefined();
+		expect(handlers.has("session_start")).toBe(false);
+		expect(handlers.has("before_agent_start")).toBe(false);
 		expect(imports.ls).not.toHaveBeenCalled();
-		await vi.runOnlyPendingTimersAsync();
-		expect(imports.ls).toHaveBeenCalledTimes(1);
-		expect(imports.read).toHaveBeenCalledTimes(1);
-		expect(imports.write).toHaveBeenCalledTimes(1);
-		expect(imports.edit).toHaveBeenCalledTimes(1);
-		expect(imports.lsp).toHaveBeenCalledTimes(1);
 		expect(imports.find).not.toHaveBeenCalled();
 		expect(imports.grep).not.toHaveBeenCalled();
+		expect(imports.read).not.toHaveBeenCalled();
+		expect(imports.write).not.toHaveBeenCalled();
+		expect(imports.edit).not.toHaveBeenCalled();
+		expect(imports.lsp).not.toHaveBeenCalled();
+		expect(imports.repoMap).not.toHaveBeenCalled();
 
-		const execution = executeTool(registered, "ls", {}, {
+		const ctx = {
 			cwd: process.cwd(),
-			sessionManager: { getSessionId: () => "preload-session" },
-		});
+			sessionManager: { getSessionId: () => "lazy-session", getBranch: () => [] },
+		};
+		const firstLs = executeTool(registered, "ls", {}, ctx);
+		const secondLs = executeTool(registered, "ls", {}, ctx);
 		expect(imports.ls).toHaveBeenCalledTimes(1);
-		expect(handlers.get("before_agent_start")?.({}, {})).toBeUndefined();
-		expect(imports.find).not.toHaveBeenCalled();
-		expect(imports.grep).not.toHaveBeenCalled();
-		await vi.runOnlyPendingTimersAsync();
-		expect(imports.find).toHaveBeenCalledTimes(1);
-		expect(imports.grep).toHaveBeenCalledTimes(1);
-		await Promise.resolve();
-		vi.useRealTimers();
-		await expect(executeTool(registered, "find", { query: "package.json", path: "." }, {
-			cwd: process.cwd(),
-			sessionManager: { getSessionId: () => "preload-session" },
-		})).resolves.toMatchObject({ details: { query: "package.json" } });
-		expect(imports.find).toHaveBeenCalledTimes(2);
 
 		if (resolveLs === undefined) throw new Error("missing ls module resolver");
-		resolveLs(await import("../../src/file-tools/tools/ls.js"));
-		await expect(execution).resolves.toMatchObject({ details: { path: "." } });
+		resolveLs(await import("../../src/file-tools/pi/adapters/ls.js"));
+		await expect(firstLs).resolves.toMatchObject({ details: { path: "." } });
+		await expect(secondLs).resolves.toMatchObject({ details: { path: "." } });
 		expect(imports.ls).toHaveBeenCalledTimes(1);
+
+		await expect(executeTool(registered, "find", { query: "package.json", path: "." }, ctx)).rejects.toThrow("simulated import failure");
+		await expect(executeTool(registered, "find", { query: "package.json", path: "." }, ctx)).resolves.toMatchObject({
+			details: { query: "package.json" },
+		});
+		expect(imports.find).toHaveBeenCalledTimes(2);
+		expect(imports.repoMap).not.toHaveBeenCalled();
 		expect(handlers.get("session_shutdown")?.({}, {})).toBeUndefined();
+	});
+
+	it("完整 read 不加载 LSP，局部 read 首次请求增强时才加载并复用", async () => {
+		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
+		const enhanceRead = vi.fn(async () => ({
+			enclosing_symbol: { name: "value", kind: "declaration", line: 1, end_line: 3 },
+		}));
+		const imports = {
+			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
+			find: () => import("../../src/file-tools/pi/adapters/find.js"),
+			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
+			read: vi.fn(() => import("../../src/file-tools/pi/adapters/read.js")),
+			write: () => import("../../src/file-tools/pi/adapters/write.js"),
+			edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
+			lsp: vi.fn(async () => ({ ...(await import("../../src/lsp/index.js")), lspFileHooks: { enhanceRead } })),
+			repoMap: vi.fn(() => import("../../src/file-tools/pi/repo-map-runtime.js")),
+		} satisfies FileToolsModuleImports;
+		createFileToolsExtension(imports)({
+			registerTool(tool: { name: string; execute?: ExecuteTool }) {
+				registered.push(tool);
+			},
+			on() {},
+		} as unknown as ExtensionAPI);
+
+		const cwd = await mkdtemp(join(tmpdir(), "o-pi-lazy-read-"));
+		try {
+			await writeFile(join(cwd, "a.ts"), "export const value = 1;\nexport const next = 2;\nexport const last = 3;\n");
+			const ctx = { cwd, sessionManager: { getSessionId: () => "lazy-read", getBranch: () => [] } };
+			await executeTool(registered, "read", { path: "a.ts" }, ctx);
+			expect(imports.read).toHaveBeenCalledTimes(1);
+			expect(imports.lsp).not.toHaveBeenCalled();
+
+			const partial = await executeTool(registered, "read", { path: "a.ts", start_line: 1, end_line: 1 }, ctx);
+			expect(imports.read).toHaveBeenCalledTimes(1);
+			expect(imports.lsp).toHaveBeenCalledTimes(1);
+			expect(enhanceRead).toHaveBeenCalledTimes(1);
+			expect(partial.details).toMatchObject({ lsp: { enclosing_symbol: { name: "value" } } });
+			expect(imports.repoMap).not.toHaveBeenCalled();
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
 	});
 
 	it("ls 失败结果渲染失败路径，而不是 workspace cwd", () => {

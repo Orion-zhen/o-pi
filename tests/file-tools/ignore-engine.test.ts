@@ -189,6 +189,15 @@ describe("ignore engine", () => {
 		expect(second.evaluate({ path: "new.txt", kind: "file", intent: "search" }).ignored).toBe(true);
 	});
 
+	it("并发请求共享同一 snapshot 构建", async () => {
+		await writeFile(path.join(workspace, ".piignore"), "ignored.txt\n");
+		const config = { builtinProfile: "none" as const, gitignore: { enabled: false } };
+		const snapshots = await Promise.all(Array.from({ length: 8 }, async () => await createIgnoreSnapshot(workspace, config)));
+
+		expect(new Set(snapshots.map((snapshot) => snapshot.generation))).toEqual(new Set([snapshots[0]?.generation]));
+		expect(snapshots.every((snapshot) => snapshot.evaluate({ path: "ignored.txt", kind: "file", intent: "search" }).ignored)).toBe(true);
+	});
+
 	it("explain 返回 trace、winner、来源文件和行号", async () => {
 		await writeFile(path.join(workspace, ".piignore"), "*.log\n!important.log\n");
 		const snapshot = await createIgnoreSnapshot(workspace, {

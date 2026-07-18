@@ -26,12 +26,11 @@ function symbols(filePath: string, text: string): Array<[string, string | undefi
 }
 
 describe("shared code parser", () => {
-	it("导入 parser、grep 和 extension 预加载时不加载 grammar，首次解析仅加载对应 grammar 并复用 runtime", async () => {
+	it("导入 parser、grep 和注册 extension 时不加载 grammar，首次解析仅加载对应 grammar 并复用 runtime", async () => {
 		for (const modulePath of Object.values(treeSitterModules)) expect(require.cache[modulePath]).toBeUndefined();
 
 		await import("../../src/file-tools/tools/grep.js");
 		const { default: fileTools } = await import("../../agent/extensions/file-tools.js");
-		vi.useFakeTimers();
 		const handlers = new Map<string, (...args: unknown[]) => unknown>();
 		fileTools({
 			registerTool() {},
@@ -39,8 +38,7 @@ describe("shared code parser", () => {
 				handlers.set(name, handler);
 			},
 		} as unknown as ExtensionAPI);
-		expect(handlers.get("before_agent_start")?.()).toBeUndefined();
-		await vi.runOnlyPendingTimersAsync();
+		expect(handlers.has("before_agent_start")).toBe(false);
 
 		parseCodeUnits("notes.txt", "plain text");
 		for (const modulePath of Object.values(treeSitterModules)) expect(require.cache[modulePath]).toBeUndefined();

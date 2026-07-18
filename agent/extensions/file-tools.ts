@@ -1,24 +1,11 @@
-import path from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
-import {
-	formatEditModelResult,
-	formatErrorModelResult,
-	formatReadImageModelContent,
-	formatReadModelResult,
-	formatWriteModelResult,
-	scrubVersions,
-} from "../../src/file-tools/pi/model-output.js";
-import { versionCacheFor, withNativeLsDetails } from "../../src/file-tools/pi/native.js";
-import {
-	isEditSuccessDetails,
-	isFailedDetails,
-	isFileToolName,
-	isReadImageSuccess,
-	isReadSuccess,
-} from "../../src/file-tools/pi/guards.js";
+import { isFailedDetails, isFileToolName } from "../../src/file-tools/pi/guards.js";
+import { createLazyLspFileHooks } from "../../src/file-tools/pi/lazy-lsp.js";
+import { appendRepoMapEntry, createLazyRepoMap, type LazyRepoMap } from "../../src/file-tools/pi/lazy-repo-map.js";
+import { versionCacheFor } from "../../src/file-tools/pi/native.js";
 import {
 	renderEditCall,
 	renderEditResult,
@@ -34,7 +21,6 @@ import {
 	renderWriteResult,
 } from "../../src/file-tools/pi/renderers.js";
 import type { EditParams, FindParams, GrepParams, LsParams, ReadParams, WriteParams } from "../../src/file-tools/types.js";
-import { createRepoMapFileToolQuery, type RepoMapMutationResult } from "../../src/repo-map/file-tool-query.js";
 import { repairableTool } from "../../src/tool-repair/index.js";
 
 const lsParameters = Type.Object({ path: Type.Optional(Type.String({ minLength: 1, description: "Directory path; defaults to workspace." })) }, { additionalProperties: false });
@@ -87,23 +73,25 @@ const editParameters = Type.Object({
 }, { additionalProperties: false });
 
 export interface FileToolsModuleImports {
-	ls(): Promise<typeof import("../../src/file-tools/tools/ls.js")>;
-	find(): Promise<typeof import("../../src/file-tools/tools/find.js")>;
-	grep(): Promise<typeof import("../../src/file-tools/tools/grep.js")>;
-	read(): Promise<typeof import("../../src/file-tools/tools/read.js")>;
-	write(): Promise<typeof import("../../src/file-tools/tools/write.js")>;
-	edit(): Promise<typeof import("../../src/file-tools/tools/edit.js")>;
+	ls(): Promise<typeof import("../../src/file-tools/pi/adapters/ls.js")>;
+	find(): Promise<typeof import("../../src/file-tools/pi/adapters/find.js")>;
+	grep(): Promise<typeof import("../../src/file-tools/pi/adapters/grep.js")>;
+	read(): Promise<typeof import("../../src/file-tools/pi/adapters/read.js")>;
+	write(): Promise<typeof import("../../src/file-tools/pi/adapters/write.js")>;
+	edit(): Promise<typeof import("../../src/file-tools/pi/adapters/edit.js")>;
 	lsp(): Promise<typeof import("../../src/lsp/index.js")>;
+	repoMap(): Promise<typeof import("../../src/file-tools/pi/repo-map-runtime.js")>;
 }
 
 const defaultModuleImports: FileToolsModuleImports = {
-	ls: () => import("../../src/file-tools/tools/ls.js"),
-	find: () => import("../../src/file-tools/tools/find.js"),
-	grep: () => import("../../src/file-tools/tools/grep.js"),
-	read: () => import("../../src/file-tools/tools/read.js"),
-	write: () => import("../../src/file-tools/tools/write.js"),
-	edit: () => import("../../src/file-tools/tools/edit.js"),
+	ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
+	find: () => import("../../src/file-tools/pi/adapters/find.js"),
+	grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
+	read: () => import("../../src/file-tools/pi/adapters/read.js"),
+	write: () => import("../../src/file-tools/pi/adapters/write.js"),
+	edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
 	lsp: () => import("../../src/lsp/index.js"),
+	repoMap: () => import("../../src/file-tools/pi/repo-map-runtime.js"),
 };
 
 export function createFileToolsExtension(imports: FileToolsModuleImports = defaultModuleImports): (pi: ExtensionAPI) => void {
@@ -115,6 +103,7 @@ export function createFileToolsExtension(imports: FileToolsModuleImports = defau
 		write: createRetryableLoader(imports.write),
 		edit: createRetryableLoader(imports.edit),
 		lsp: createRetryableLoader(imports.lsp),
+		repoMap: createRetryableLoader(imports.repoMap),
 	};
 	return (pi) => registerFileTools(pi, loaders);
 }
@@ -122,8 +111,12 @@ export function createFileToolsExtension(imports: FileToolsModuleImports = defau
 /** 注册覆盖版 ls/find/grep/read/write/edit；扩展层只适配 Pi，工具实现和渲染细节在 src/file-tools。 */
 function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports): void {
 	const versionCaches = new Map<string, ReadVersionCache>();
-	let commonPreloadTimer: ReturnType<typeof setTimeout> | undefined;
-	let searchPreloadTimer: ReturnType<typeof setTimeout> | undefined;
+	const lsp = createLazyLspFileHooks(loaders.lsp);
+	const repoMapFor = (ctx: ExtensionContext): LazyRepoMap => createLazyRepoMap({
+		getBranch: () => typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [],
+		appendEntry: (entry) => appendRepoMapEntry(pi, entry),
+		load: loaders.repoMap,
+	});
 
 	pi.registerTool(repairableTool({
 		name: "ls",
@@ -132,12 +125,7 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports): v
 		promptSnippet: "list one directory",
 		parameters: lsParameters,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const { formatCompactLsResult, listWorkspaceDirectory } = await loaders.ls();
-			const result = await listWorkspaceDirectory(ctx.cwd, params as LsParams);
-			if (isFailedDetails(result)) {
-				return { content: [{ type: "text", text: formatErrorModelResult("ls", result) }], details: result };
-			}
-			return { content: [{ type: "text", text: formatCompactLsResult(result) }], details: withNativeLsDetails(result) };
+			return (await loaders.ls()).executeLs(params as LsParams, ctx.cwd);
 		},
 		renderCall: renderLsCall,
 		renderResult: renderLsResult,
@@ -150,12 +138,11 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports): v
 		promptSnippet: "locate files or directories by path",
 		parameters: findParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const { findWorkspaceFiles } = await loaders.find();
-			const result = await findWorkspaceFiles(ctx.cwd, params as FindParams, signal, { repoMap: repoMapQueryFor(ctx, pi) });
-			if (isFailedDetails(result)) {
-				return { content: [{ type: "text", text: formatErrorModelResult("find", result) }], details: result };
-			}
-			return { content: [{ type: "text", text: result.content }], details: result.details };
+			return (await loaders.find()).executeFind(params as FindParams, {
+				cwd: ctx.cwd,
+				...(signal !== undefined ? { signal } : {}),
+				repoMap: repoMapFor(ctx),
+			});
 		},
 		renderCall: renderFindCall,
 		renderResult: renderFindResult,
@@ -168,15 +155,12 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports): v
 		promptSnippet: "locate relevant code by content or symbol",
 		parameters: grepParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const [{ formatCompactGrepResult, grepWorkspaceFiles }, { lspFileHooks }] = await Promise.all([
-				loaders.grep(),
-				loaders.lsp(),
-			]);
-			const result = await grepWorkspaceFiles(ctx.cwd, params as GrepParams, signal, { lsp: lspFileHooks, repoMap: repoMapQueryFor(ctx, pi) });
-			if (isFailedDetails(result)) {
-				return { content: [{ type: "text", text: formatErrorModelResult("grep", result) }], details: result };
-			}
-			return { content: [{ type: "text", text: formatCompactGrepResult(result) }], details: result };
+			return (await loaders.grep()).executeGrep(params as GrepParams, {
+				cwd: ctx.cwd,
+				...(signal !== undefined ? { signal } : {}),
+				lsp,
+				repoMap: repoMapFor(ctx),
+			});
 		},
 		renderCall: renderGrepCall,
 		renderResult: renderGrepResult,
@@ -189,27 +173,13 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports): v
 		promptSnippet: "read text or image files",
 		parameters: readParameters,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const [{ readWorkspaceFile }, { lspFileHooks }] = await Promise.all([
-				loaders.read(),
-				loaders.lsp(),
-			]);
-			const versionCache = versionCacheFor(ctx, versionCaches);
-			const result = await readWorkspaceFile(ctx.cwd, params as ReadParams, {
-				versionCache,
-				lsp: lspFileHooks,
-				repoMap: repoMapQueryFor(ctx, pi),
+			return (await loaders.read()).executeRead(params as ReadParams, {
+				cwd: ctx.cwd,
+				model: ctx.model,
+				versionCache: versionCacheFor(ctx, versionCaches),
+				lsp,
+				repoMap: repoMapFor(ctx),
 			});
-			const content = isReadImageSuccess(result)
-				? formatReadImageModelContent(result, ctx.model)
-				: [{
-						type: "text" as const,
-						text: isReadSuccess(result)
-							? formatReadModelResult(result)
-							: isFailedDetails(result)
-								? formatErrorModelResult("read", result)
-								: JSON.stringify(scrubVersions(result)),
-					}];
-			return { content, details: result };
 		},
 		renderCall: renderReadCall,
 		renderResult: renderReadResult,
@@ -230,16 +200,12 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports): v
 		promptGuidelines: ["Use write to create or replace a whole file."],
 		parameters: writeParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const [{ writeWorkspaceFile }, { lspFileHooks }] = await Promise.all([
-				loaders.write(),
-				loaders.lsp(),
-			]);
-			const result = await writeWorkspaceFile(ctx.cwd, params as WriteParams, signal, { lsp: lspFileHooks });
-			if (isFailedDetails(result)) {
-				return { content: [{ type: "text", text: formatErrorModelResult("write", result) }], details: result };
-			}
-			await syncRepoMapMutation(repoMapQueryFor(ctx, pi), result, ctx.cwd, signal);
-			return { content: [{ type: "text", text: formatWriteModelResult(result) }], details: result };
+			return (await loaders.write()).executeWrite(params as WriteParams, {
+				cwd: ctx.cwd,
+				...(signal !== undefined ? { signal } : {}),
+				lsp,
+				repoMap: repoMapFor(ctx),
+			});
 		},
 		renderCall: renderWriteCall,
 		renderResult: renderWriteResult,
@@ -263,19 +229,13 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports): v
 		parameters: editParameters,
 		renderShell: "self",
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const [{ editWorkspace }, { lspFileHooks }] = await Promise.all([
-				loaders.edit(),
-				loaders.lsp(),
-			]);
-			const versionCache = versionCacheFor(ctx, versionCaches);
-			const result = await editWorkspace(ctx.cwd, params as EditParams, { versionCache, lsp: lspFileHooks });
-			if (isEditSuccessDetails(result)) await syncRepoMapMutation(repoMapQueryFor(ctx, pi), result, ctx.cwd, signal);
-			const text = isEditSuccessDetails(result)
-				? formatEditModelResult(result)
-				: isFailedDetails(result)
-					? formatErrorModelResult("edit", result)
-					: JSON.stringify(scrubVersions(result));
-			return { content: [{ type: "text", text }], details: result };
+			return (await loaders.edit()).executeEdit(params as EditParams, {
+				cwd: ctx.cwd,
+				...(signal !== undefined ? { signal } : {}),
+				versionCache: versionCacheFor(ctx, versionCaches),
+				lsp,
+				repoMap: repoMapFor(ctx),
+			});
 		},
 		renderCall: renderEditCall,
 		renderResult: renderEditResult,
@@ -292,46 +252,13 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports): v
 		objectArrayFromFields: [{ arrayField: "edits", fields: ["old", "new"] }],
 	}));
 
-	pi.on("session_start", () => {
-		commonPreloadTimer ??= schedulePreload([loaders.ls, loaders.read, loaders.write, loaders.edit, loaders.lsp]);
-	});
-	pi.on("before_agent_start", () => {
-		searchPreloadTimer ??= schedulePreload([loaders.find, loaders.grep]);
-	});
 	pi.on("tool_result", (event) => {
 		if (isFileToolName(event.toolName) && isFailedDetails(event.details)) return { isError: true };
 		return undefined;
 	});
 	pi.on("session_shutdown", () => {
-		if (commonPreloadTimer !== undefined) clearTimeout(commonPreloadTimer);
-		if (searchPreloadTimer !== undefined) clearTimeout(searchPreloadTimer);
 		versionCaches.clear();
 	});
-}
-
-function repoMapQueryFor(ctx: ExtensionContext, pi: Pick<ExtensionAPI, "appendEntry">) {
-	return createRepoMapFileToolQuery(
-		() => typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [],
-		{ appendActivation(entry) { pi.appendEntry("o-pi:repo-map", entry); } },
-	);
-}
-
-async function syncRepoMapMutation(
-	query: ReturnType<typeof repoMapQueryFor>,
-	result: { path: string; firstChangedLine?: number; repo_map?: RepoMapMutationResult },
-	cwd: string,
-	signal: AbortSignal | undefined,
-): Promise<void> {
-	try {
-		const update = await query.syncMutation({
-			requestedPath: path.resolve(cwd, result.path),
-			...(result.firstChangedLine !== undefined ? { changedLine: result.firstChangedLine } : {}),
-			...(signal !== undefined ? { signal } : {}),
-		});
-		if (update !== undefined) result.repo_map = update;
-	} catch {
-		// Repo Map is a non-blocking enhancement; the file mutation already succeeded.
-	}
 }
 
 function createRetryableLoader<T>(load: () => Promise<T>): () => Promise<T> {
@@ -345,12 +272,6 @@ function createRetryableLoader<T>(load: () => Promise<T>): () => Promise<T> {
 		});
 		return created;
 	};
-}
-
-function schedulePreload(loaders: Array<() => Promise<unknown>>): ReturnType<typeof setTimeout> {
-	return setTimeout(() => {
-		for (const load of loaders) void load().catch(() => undefined);
-	}, 0);
 }
 
 const fileTools = createFileToolsExtension();

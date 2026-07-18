@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { loadFileToolsConfig } from "../../src/file-tools/config.js";
+import { clearFileToolsConfigCacheForTests, loadFileToolsConfig } from "../../src/file-tools/config.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
@@ -12,6 +12,7 @@ beforeEach(() => {
 	workspace = temp.path;
 	delete process.env.PI_FILE_TOOLS_PROJECT_CONFIG;
 	delete process.env.PI_FILE_TOOLS_PROJECT_ROOT;
+	clearFileToolsConfigCacheForTests();
 });
 
 describe("file-tools config", () => {
@@ -98,5 +99,18 @@ describe("file-tools config", () => {
 			status: "failed",
 			error: { code: "CONFIG_ERROR" },
 		});
+	});
+
+	it("并发复用配置加载且每个调用返回独立结果", async () => {
+		const configPath = path.join(workspace, "cached.jsonc");
+		await writeFile(configPath, JSON.stringify({ blocked_path: ["private/"] }));
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+
+		const [first, second] = await Promise.all([loadFileToolsConfig(), loadFileToolsConfig()]);
+		if ("status" in first || "status" in second) throw new Error("config failed");
+		expect(first).toEqual(second);
+		expect(first).not.toBe(second);
+		first.blocked_path.push("mutated/");
+		expect((await loadFileToolsConfig())).not.toMatchObject({ blocked_path: expect.arrayContaining(["mutated/"]) });
 	});
 });

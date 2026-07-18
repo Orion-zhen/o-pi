@@ -1,5 +1,4 @@
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import { formatRepoMapImpact, formatRepoMapReadContext } from "../../repo-map/tool-output.js";
 import type {
 	EditSuccess,
 	FailedResult,
@@ -20,7 +19,7 @@ ${escapeXmlText(result.error.message)}${next}
 }
 
 /** read 的模型可见成功结果：默认字段留在 details，只输出定位、正文和非默认状态。 */
-export function formatReadModelResult(result: ReadSuccess): string {
+export function formatReadModelResult(result: ReadSuccess, repoMap: string | undefined = undefined): string {
 	const attrs = [
 		`path="${escapeXmlAttribute(result.path)}"`,
 		`lines="${result.start_line}-${result.end_line}/${result.total_lines}"`,
@@ -31,7 +30,6 @@ export function formatReadModelResult(result: ReadSuccess): string {
 	if (result.bom) attrs.push(`bom="true"`);
 	if (result.newline !== "lf") attrs.push(`newline="${result.newline}"`);
 
-	const repoMap = formatRepoMapReadContext(result.repo_map);
 	const lsp = formatReadLsp(result.lsp, result.repo_map);
 	let text = `<read ${attrs.join(" ")}>\n${result.content}`;
 	if (!text.endsWith("\n")) text += "\n";
@@ -49,25 +47,23 @@ export function formatReadImageModelContent(result: ReadImageSuccess, model: { i
 }
 
 /** edit 的模型可见成功结果只确认写入事实；diff/LSP 完整信息保留在 details 给 UI。 */
-export function formatEditModelResult(result: EditSuccess): string {
+export function formatEditModelResult(result: EditSuccess, impact: string | undefined = undefined): string {
 	const attrs = [
 		`path="${escapeXmlAttribute(result.path)}"`,
 		`replacements="${result.replacements}"`,
 	];
 	if (result.firstChangedLine !== undefined) attrs.push(`first_changed_line="${result.firstChangedLine}"`);
 	if (result.repo_map?.status === "partially_stale") attrs.push('repo_map="partially_stale"');
-	const impact = formatRepoMapImpact(result.repo_map?.impact);
 	return impact === undefined ? `<edit ${attrs.join(" ")}/>` : `<edit ${attrs.join(" ")}>
 ${impact}
 </edit>`;
 }
 
-export function formatWriteModelResult(result: WriteSuccess): string {
+export function formatWriteModelResult(result: WriteSuccess, impact: string | undefined = undefined): string {
 	const diagnostics = result.lsp?.diagnostics;
 	const attrs = [`path="${escapeXmlAttribute(result.path)}"`];
 	if (diagnostics !== undefined) attrs.push(`lsp="${escapeXmlAttribute(diagnostics.status)}"`);
 	if (result.repo_map?.status === "partially_stale") attrs.push('repo_map="partially_stale"');
-	const impact = formatRepoMapImpact(result.repo_map?.impact);
 	if (diagnostics === undefined || isCleanDiagnostics(diagnostics)) {
 		return impact === undefined ? `<write ${attrs.join(" ")}/>` : `<write ${attrs.join(" ")}>
 ${impact}

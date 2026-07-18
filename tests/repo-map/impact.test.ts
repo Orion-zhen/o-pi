@@ -1,7 +1,7 @@
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { formatEditModelResult, formatWriteModelResult } from "../../src/file-tools/pi/model-output.js";
+import { formatEditModelResult, formatWriteModelResult } from "../../src/file-tools/pi/model-output-with-repo.js";
 import { createRepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
 import { analyzeRepoMapImpact } from "../../src/repo-map/impact.js";
 import { REPO_IMPACT_TOKEN_BUDGET } from "../../src/repo-map/tool-output.js";
