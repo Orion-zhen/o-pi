@@ -1,10 +1,17 @@
 import { mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createFileIdentity, createSymbolId } from "../../src/code-index/identity.js";
 import { createRepoMapId } from "../../src/repo-map/identity.js";
-import { calculateGeneration, commitGeneration, readCurrentGeneration, readGeneration } from "../../src/repo-map/storage.js";
+import {
+	calculateGeneration,
+	commitGeneration,
+	createCachedRepoMapGenerationReader,
+	prepareRepoMapGeneration,
+	readCurrentGeneration,
+	readGeneration,
+} from "../../src/repo-map/storage.js";
 import type { RepoMapArchitectureNode, RepoMapEdge, RepoMapFileRecord, RepoMapLexicalAlias, RepoMapMetadata, RepoMapSymbolNode } from "../../src/repo-map/types.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
@@ -47,6 +54,40 @@ describe("Repo Map generation storage", () => {
 		expect(await readGeneration(temp.path, mapId, metadata.generation, root)).toBeUndefined();
 	});
 
+	it("caches an immutable generation and invalidates it when a snapshot changes", async () => {
+		const files = [indexed("a.ts", "a")];
+		const metadata = makeMetadata(files);
+		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], tests: [], architecture: [], aliases: [], edges: [], diagnostics: [] });
+		const readCached = createCachedRepoMapGenerationReader();
+		const first = await readCached(temp.path, mapId, metadata.generation, root);
+		const second = await readCached(temp.path, mapId, metadata.generation, root);
+		expect(second).toBe(first);
+
+		await writeFile(path.join(temp.path, mapId, "generations", metadata.generation, "files.json"), "[]\n");
+		expect(await readCached(temp.path, mapId, metadata.generation, root)).toBeUndefined();
+	});
+
+	it("coalesces concurrent cache misses and evicts the least recently used generation", async () => {
+		const files = [indexed("a.ts", "a")];
+		const metadata = makeMetadata(files);
+		const stored = await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], tests: [], architecture: [], aliases: [], edges: [], diagnostics: [] });
+		const read = vi.fn(async () => stored.generation);
+		const revision = vi.fn(async () => "stable");
+		const readCached = createCachedRepoMapGenerationReader({ maxEntries: 2, read, revision });
+		const generations = ["1".repeat(64), "2".repeat(64), "3".repeat(64)] as const;
+
+		const concurrent = await Promise.all([
+			readCached(temp.path, mapId, generations[0], root),
+			readCached(temp.path, mapId, generations[0], root),
+		]);
+		expect(concurrent[0]).toBe(concurrent[1]);
+		expect(read).toHaveBeenCalledTimes(1);
+		await readCached(temp.path, mapId, generations[1], root);
+		await readCached(temp.path, mapId, generations[2], root);
+		await readCached(temp.path, mapId, generations[0], root);
+		expect(read).toHaveBeenCalledTimes(4);
+	});
+
 	it("includes stable symbol, edge, and diagnostic snapshots in the generation hash", () => {
 		const file = indexed("a.ts", "export function a() {}");
 		const symbol = makeSymbol(file);
@@ -71,6 +112,42 @@ describe("Repo Map generation storage", () => {
 		expect(calculateGeneration({ ...base, edges: [{ ...edge, confidence: 0.5 }] })).not.toBe(generation);
 		expect(calculateGeneration({ ...base, architecture: [packageNode()] })).not.toBe(generation);
 		expect(calculateGeneration({ ...base, diagnostics: [{ code: "PARSER_ERROR", message: "failed", path: "a.ts" }] })).not.toBe(generation);
+	});
+
+	it("canonicalizes snapshot and evidence order once without changing the generation hash", () => {
+		const files = [indexed("z.ts", "z"), indexed("a.ts", "a")];
+		const file = files[1];
+		if (file === undefined) throw new Error("missing fixture file");
+		const symbol = makeSymbol(file);
+		const edge = makeContainsEdge(file, symbol);
+		const input = {
+			mapId,
+			configFingerprint: "c".repeat(64),
+			ignoreFingerprint: "ignore",
+			parserFingerprint: "format",
+			files,
+			symbols: [symbol],
+			tests: [],
+			aliases: [],
+			edges: [{
+				...edge,
+				evidence: [
+					{ path: "z.ts", startLine: 2, endLine: 2, startByte: 2, endByte: 3 },
+					{ path: "a.ts", startLine: 1, endLine: 1, startByte: 0, endByte: 1 },
+				],
+			}],
+			architecture: [],
+			diagnostics: [
+				{ code: "Z", message: "last", path: "z.ts" },
+				{ code: "A", message: "first", path: "a.ts" },
+			],
+		};
+
+		const prepared = prepareRepoMapGeneration(input);
+		expect(prepared.generation).toBe(calculateGeneration(input));
+		expect(prepared.files.map((file) => file.path)).toEqual(["a.ts", "z.ts"]);
+		expect(prepared.edges[0]?.evidence.map((evidence) => evidence.path)).toEqual(["a.ts", "z.ts"]);
+		expect(prepared.diagnostics.map((diagnostic) => diagnostic.path)).toEqual(["a.ts", "z.ts"]);
 	});
 
 	it("persists architecture nodes and rejects a corrupt architecture snapshot", async () => {
@@ -139,6 +216,18 @@ describe("Repo Map generation storage", () => {
 			diagnostics: [],
 			signal: controller.signal,
 		})).rejects.toMatchObject({ code: "OPERATION_ABORTED" });
+		await expect(commitGeneration({
+			cacheRoot: temp.path,
+			maxGenerations: 2,
+			metadata: { ...metadata, generation: "b".repeat(64) },
+			files,
+			symbols: [],
+			tests: [],
+			architecture: [],
+			aliases: [],
+			edges: [],
+			diagnostics: [],
+		})).rejects.toMatchObject({ code: "CACHE_ERROR" });
 		expect((await readFile(path.join(temp.path, mapId, "CURRENT"), "utf8")).trim()).toBe(metadata.generation);
 	});
 

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { constants } from "node:fs";
 import { chmod, lstat, mkdir, mkdtemp, open, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { lock } from "proper-lockfile";
@@ -21,6 +22,7 @@ import type {
 } from "./types.js";
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/u;
+const JSON_WRITE_BUFFER_BYTES = 256 * 1024;
 
 export interface RepoMapGeneration {
 	metadata: RepoMapMetadata;
@@ -36,6 +38,7 @@ export interface RepoMapGeneration {
 export interface CommitGenerationInput extends RepoMapGeneration {
 	cacheRoot: string;
 	maxGenerations: number;
+	prepared?: PreparedRepoMapGeneration;
 	signal?: AbortSignal;
 }
 
@@ -44,7 +47,49 @@ export interface CommitGenerationResult {
 	reused: boolean;
 }
 
-export function calculateGeneration(input: {
+export type RepoMapGenerationReader = (
+	cacheRoot: string,
+	mapId: string,
+	generation: string,
+	expectedRoot?: string,
+) => Promise<RepoMapGeneration | undefined>;
+
+export interface RepoMapGenerationCacheOptions {
+	maxEntries?: number;
+	read?: RepoMapGenerationReader;
+	revision?: RepoMapGenerationReaderRevision;
+}
+
+type RepoMapGenerationReaderRevision = (
+	cacheRoot: string,
+	mapId: string,
+	generation: string,
+) => Promise<string | undefined>;
+
+interface CachedGeneration {
+	revision: string;
+	generation: RepoMapGeneration;
+}
+
+interface SnapshotFingerprint {
+	name: typeof GENERATION_SNAPSHOT_FILES[number];
+	size: number;
+	digest: string;
+}
+
+const GENERATION_SNAPSHOT_FILES = [
+	"metadata.json",
+	"files.json",
+	"symbols.json",
+	"tests.json",
+	"architecture.json",
+	"aliases.json",
+	"edges.json",
+	"diagnostics.json",
+] as const;
+const preparedGenerations = new WeakSet<PreparedRepoMapGeneration>();
+
+export interface CalculateRepoMapGenerationInput {
 	mapId: string;
 	configFingerprint: string;
 	ignoreFingerprint: string;
@@ -57,54 +102,105 @@ export function calculateGeneration(input: {
 	edges: readonly RepoMapEdge[];
 	architecture: readonly RepoMapArchitectureNode[];
 	diagnostics: readonly RepoMapDiagnostic[];
-}): string {
+}
+
+export interface PreparedRepoMapGeneration {
+	generation: string;
+	files: RepoMapFileRecord[];
+	symbols: RepoMapSymbolNode[];
+	tests: RepoMapTestNode[];
+	aliases: RepoMapLexicalAlias[];
+	edges: RepoMapEdge[];
+	architecture: RepoMapArchitectureNode[];
+	diagnostics: RepoMapDiagnostic[];
+}
+
+/** 规范化构建结果一次，供 generation hash、提交校验和快照写入共同复用。 */
+export function prepareRepoMapGeneration(input: CalculateRepoMapGenerationInput): PreparedRepoMapGeneration {
+	const files = [...input.files].sort((left, right) => compareText(left.path, right.path));
+	const symbols = [...input.symbols].sort(compareSymbol);
+	const tests = sortedTests(input.tests);
+	const architecture = [...input.architecture].sort(compareArchitecture);
+	const aliases = sortedAliases(input.aliases);
+	const edges = sortedEdges(input.edges);
+	const diagnostics = [...input.diagnostics].sort(compareDiagnostic);
+	const canonical: CalculateRepoMapGenerationInput = {
+		...input,
+		files,
+		symbols,
+		tests,
+		architecture,
+		aliases,
+		edges,
+		diagnostics,
+	};
+	const prepared: PreparedRepoMapGeneration = {
+		generation: calculateCanonicalGeneration(canonical),
+		files,
+		symbols,
+		tests,
+		architecture,
+		aliases,
+		edges,
+		diagnostics,
+	};
+	preparedGenerations.add(prepared);
+	return prepared;
+}
+
+export function calculateGeneration(input: CalculateRepoMapGenerationInput): string {
+	return prepareRepoMapGeneration(input).generation;
+}
+
+function calculateCanonicalGeneration(input: CalculateRepoMapGenerationInput): string {
 	const hash = createHash("sha256");
-	const values: unknown[] = [
-		input.mapId,
-		REPO_MAP_SCHEMA_VERSION,
-		input.configFingerprint,
-		input.ignoreFingerprint,
-		input.parserFingerprint,
-		input.headRevision ?? null,
-		[...input.files]
-			.sort((left, right) => compareText(left.path, right.path))
-			.map((file) => [file.id, file.path, file.size, file.mtimeMs, file.status, file.contentHash ?? null]),
-		[...input.symbols]
-			.sort(compareSymbol)
-			.map((symbol) => [
-				symbol.id, symbol.fileId, symbol.symbolKind, symbol.name ?? null, symbol.qualifiedName ?? null, symbol.signature ?? null,
-				symbol.startLine, symbol.endLine, symbol.startByte, symbol.endByte,
-				[...symbol.definitions], [...symbol.references], [...symbol.calls], [...symbol.imports], symbol.visibility ?? null,
-			]),
-		sortedTests(input.tests).map((node) => [
-			node.id, node.testKind, node.name, node.fileId, node.symbolId ?? null, node.source, node.confidence,
-			node.evidence.map((evidence) => [
-				evidence.path, evidence.startLine, evidence.endLine, evidence.startByte, evidence.endByte, evidence.textHash ?? null,
-			]),
-		]),
-		[...input.architecture].sort(compareArchitecture).map(architectureSnapshot),
-		sortedAliases(input.aliases).map((alias) => [
-			alias.term, alias.canonical, alias.target, alias.source, alias.confidence,
-			alias.evidence.map((evidence) => [
-				evidence.path, evidence.startLine, evidence.endLine, evidence.startByte, evidence.endByte, evidence.textHash ?? null,
-			]),
-		]),
-		sortedEdges(input.edges)
-			.map((edge) => [
-				edge.kind, edge.from, edge.to, edge.resolution, edge.source, edge.confidence, edge.lexicalTarget ?? null,
-				edge.evidence.map((evidence) => [
-					evidence.path, evidence.startLine, evidence.endLine, evidence.startByte, evidence.endByte, evidence.textHash ?? null,
-				]),
-			]),
-		[...input.diagnostics]
-			.sort(compareDiagnostic)
-			.map((diagnostic) => [diagnostic.code, diagnostic.message, diagnostic.path ?? null]),
-	];
-	for (const value of values) {
-		const encoded = JSON.stringify(value);
-		hash.update(`${Buffer.byteLength(encoded)}:`).update(encoded);
+	for (const value of [input.mapId, REPO_MAP_SCHEMA_VERSION, input.configFingerprint, input.ignoreFingerprint, input.parserFingerprint, input.headRevision ?? null]) {
+		updateGenerationValue(hash, value);
 	}
+	updateGenerationArray(hash, input.files, (file) =>
+		[file.id, file.path, file.size, file.mtimeMs, file.status, file.contentHash ?? null]);
+	updateGenerationArray(hash, input.symbols, (symbol) => [
+		symbol.id, symbol.fileId, symbol.symbolKind, symbol.name ?? null, symbol.qualifiedName ?? null, symbol.signature ?? null,
+		symbol.startLine, symbol.endLine, symbol.startByte, symbol.endByte,
+		[...symbol.definitions], [...symbol.references], [...symbol.calls], [...symbol.imports], symbol.visibility ?? null,
+	]);
+	updateGenerationArray(hash, input.tests, (node) => [
+		node.id, node.testKind, node.name, node.fileId, node.symbolId ?? null, node.source, node.confidence,
+		evidenceSnapshot(node.evidence),
+	]);
+	updateGenerationArray(hash, input.architecture, architectureSnapshot);
+	updateGenerationArray(hash, input.aliases, (alias) => [
+		alias.term, alias.canonical, alias.target, alias.source, alias.confidence, evidenceSnapshot(alias.evidence),
+	]);
+	updateGenerationArray(hash, input.edges, (edge) => [
+		edge.kind, edge.from, edge.to, edge.resolution, edge.source, edge.confidence, edge.lexicalTarget ?? null,
+		evidenceSnapshot(edge.evidence),
+	]);
+	updateGenerationArray(hash, input.diagnostics, (diagnostic) =>
+		[diagnostic.code, diagnostic.message, diagnostic.path ?? null]);
 	return hash.digest("hex");
+}
+
+function updateGenerationValue(hash: ReturnType<typeof createHash>, value: unknown): void {
+	const encoded = JSON.stringify(value);
+	hash.update(`${Buffer.byteLength(encoded)}:`).update(encoded);
+}
+
+function updateGenerationArray<T>(hash: ReturnType<typeof createHash>, values: readonly T[], project: (value: T) => unknown): void {
+	let encodedBytes = 2 + Math.max(0, values.length - 1);
+	for (const value of values) encodedBytes += Buffer.byteLength(JSON.stringify(project(value)));
+	hash.update(`${encodedBytes}:`).update("[");
+	for (const [index, value] of values.entries()) {
+		if (index > 0) hash.update(",");
+		hash.update(JSON.stringify(project(value)));
+	}
+	hash.update("]");
+}
+
+function evidenceSnapshot(evidence: readonly RepoMapEvidence[]): unknown[][] {
+	return evidence.map((item) => [
+		item.path, item.startLine, item.endLine, item.startByte, item.endByte, item.textHash ?? null,
+	]);
 }
 
 export async function readCurrentGeneration(
@@ -112,15 +208,20 @@ export async function readCurrentGeneration(
 	mapId: string,
 	expectedRoot?: string,
 ): Promise<RepoMapGeneration | undefined> {
+	const current = await readCurrentGenerationId(cacheRoot, mapId);
+	if (current === undefined) return undefined;
+	return await readGeneration(cacheRoot, mapId, current, expectedRoot);
+}
+
+/** 只读取 CURRENT 指针；active runtime 用它确认缓存 generation 仍是当前版本。 */
+export async function readCurrentGenerationId(cacheRoot: string, mapId: string): Promise<string | undefined> {
 	if (!HASH_PATTERN.test(mapId)) return undefined;
-	let current: string;
 	try {
-		current = (await readFile(path.join(cacheRoot, mapId, "CURRENT"), "utf8")).trim();
+		const current = (await readFile(path.join(cacheRoot, mapId, "CURRENT"), "utf8")).trim();
+		return isGenerationId(current) ? current : undefined;
 	} catch {
 		return undefined;
 	}
-	if (!isGenerationId(current)) return undefined;
-	return await readGeneration(cacheRoot, mapId, current, expectedRoot);
 }
 
 export async function readGeneration(
@@ -157,7 +258,7 @@ export async function readGeneration(
 		if (metadata.tooLargeFileCount !== files.filter((file) => file.status === "too_large").length) return undefined;
 		if (metadata.symbolCount !== symbols.length || metadata.testNodeCount !== tests.length || metadata.edgeCount !== edges.length || metadata.aliasCount !== aliases.length) return undefined;
 		if (metadata.diagnosticCount !== diagnostics.length) return undefined;
-		if (calculateGeneration({
+		if (calculateCanonicalGeneration({
 			mapId,
 			configFingerprint: metadata.configFingerprint,
 			ignoreFingerprint: metadata.ignoreFingerprint,
@@ -177,6 +278,54 @@ export async function readGeneration(
 	}
 }
 
+/**
+ * 为 active runtime 缓存已经完整验证的不可变 generation。
+ * 每次命中前复核所有快照文件元数据；修改、替换或删除会强制重新读取并验证。
+ */
+export function createCachedRepoMapGenerationReader(
+	options: RepoMapGenerationCacheOptions = {},
+): RepoMapGenerationReader {
+	const maxEntries = options.maxEntries ?? 2;
+	if (!Number.isSafeInteger(maxEntries) || maxEntries < 1) throw new RangeError("Repo Map generation cache size must be a positive integer.");
+	const read = options.read ?? readGeneration;
+	const revision = options.revision ?? readGenerationRevision;
+	const entries = new Map<string, CachedGeneration>();
+	const pending = new Map<string, { revision: string; promise: Promise<RepoMapGeneration | undefined> }>();
+
+	return async (cacheRoot, mapId, generation, expectedRoot) => {
+		const key = generationCacheKey(cacheRoot, mapId, generation, expectedRoot);
+		const currentRevision = await revision(cacheRoot, mapId, generation);
+		if (currentRevision === undefined) {
+			entries.delete(key);
+			return undefined;
+		}
+		const cached = entries.get(key);
+		if (cached?.revision === currentRevision) {
+			entries.delete(key);
+			entries.set(key, cached);
+			return cached.generation;
+		}
+		entries.delete(key);
+		const activeRead = pending.get(key);
+		if (activeRead?.revision === currentRevision) return await activeRead.promise;
+		const promise = read(cacheRoot, mapId, generation, expectedRoot);
+		pending.set(key, { revision: currentRevision, promise });
+		try {
+			const loaded = await promise;
+			if (loaded !== undefined) {
+				entries.set(key, { revision: currentRevision, generation: loaded });
+				while (entries.size > maxEntries) {
+					const oldest = entries.keys().next().value;
+					if (typeof oldest === "string") entries.delete(oldest);
+				}
+			}
+			return loaded;
+		} finally {
+			if (pending.get(key)?.promise === promise) pending.delete(key);
+		}
+	};
+}
+
 export async function commitGeneration(input: CommitGenerationInput): Promise<CommitGenerationResult> {
 	throwIfAborted(input.signal);
 	validateCommitInput(input);
@@ -192,14 +341,7 @@ export async function commitGeneration(input: CommitGenerationInput): Promise<Co
 		if (generation === undefined) {
 			temporaryDirectory = await mkdtemp(path.join(generationsDirectory, ".tmp-"));
 			await bestEffortChmod(temporaryDirectory, 0o700);
-			await writeJsonFile(path.join(temporaryDirectory, "metadata.json"), input.metadata);
-			await writeJsonFile(path.join(temporaryDirectory, "files.json"), [...input.files].sort((a, b) => compareText(a.path, b.path)));
-			await writeJsonFile(path.join(temporaryDirectory, "symbols.json"), [...input.symbols].sort(compareSymbol));
-			await writeJsonFile(path.join(temporaryDirectory, "tests.json"), sortedTests(input.tests));
-			await writeJsonFile(path.join(temporaryDirectory, "architecture.json"), [...input.architecture].sort(compareArchitecture));
-			await writeJsonFile(path.join(temporaryDirectory, "aliases.json"), sortedAliases(input.aliases));
-			await writeJsonFile(path.join(temporaryDirectory, "edges.json"), sortedEdges(input.edges));
-			await writeJsonFile(path.join(temporaryDirectory, "diagnostics.json"), [...input.diagnostics].sort(compareDiagnostic));
+			const snapshots = await writeGenerationSnapshots(temporaryDirectory, input);
 			throwIfAborted(input.signal);
 			const destination = generationDirectory(input.cacheRoot, input.metadata.mapId, input.metadata.generation);
 			if (await exists(destination)) {
@@ -220,8 +362,8 @@ export async function commitGeneration(input: CommitGenerationInput): Promise<Co
 			if (generation === undefined) {
 				await rename(temporaryDirectory, destination);
 				temporaryDirectory = undefined;
-				generation = await readGeneration(input.cacheRoot, input.metadata.mapId, input.metadata.generation, input.metadata.repositoryRoot);
-				if (generation === undefined) throw new RepoMapError("CACHE_ERROR", "Repo Map generation failed validation after saving.");
+				await verifyGenerationSnapshots(destination, snapshots, input.signal);
+				generation = generationFromCommitInput(input);
 			}
 		}
 		throwIfAborted(input.signal);
@@ -235,6 +377,59 @@ export async function commitGeneration(input: CommitGenerationInput): Promise<Co
 		if (temporaryDirectory !== undefined) await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
 		await releaseLock().catch(() => undefined);
 	}
+}
+
+async function writeGenerationSnapshots(directory: string, input: CommitGenerationInput): Promise<SnapshotFingerprint[]> {
+	const values: Record<SnapshotFingerprint["name"], unknown> = {
+		"metadata.json": input.metadata,
+		"files.json": input.files,
+		"symbols.json": input.symbols,
+		"tests.json": input.tests,
+		"architecture.json": input.architecture,
+		"aliases.json": input.aliases,
+		"edges.json": input.edges,
+		"diagnostics.json": input.diagnostics,
+	};
+	throwIfAborted(input.signal);
+	return await allSettledOrThrow(GENERATION_SNAPSHOT_FILES.map(async (name) =>
+		await writeJsonFile(path.join(directory, name), name, values[name], input.signal)));
+}
+
+async function verifyGenerationSnapshots(
+	directory: string,
+	snapshots: readonly SnapshotFingerprint[],
+	signal?: AbortSignal,
+): Promise<void> {
+	throwIfAborted(signal);
+	await allSettledOrThrow(snapshots.map(async (snapshot) => {
+		const actual = await hashFileNoFollow(path.join(directory, snapshot.name), signal);
+		if (actual.size !== snapshot.size || actual.digest !== snapshot.digest) {
+			throw new RepoMapError("CACHE_ERROR", "Repo Map generation failed validation after saving.");
+		}
+	}));
+}
+
+async function allSettledOrThrow<T>(promises: readonly Promise<T>[]): Promise<T[]> {
+	const settled = await Promise.allSettled(promises);
+	const values: T[] = [];
+	for (const result of settled) {
+		if (result.status === "rejected") throw result.reason;
+		values.push(result.value);
+	}
+	return values;
+}
+
+function generationFromCommitInput(input: CommitGenerationInput): RepoMapGeneration {
+	return {
+		metadata: input.metadata,
+		files: [...input.files],
+		symbols: [...input.symbols],
+		tests: [...input.tests],
+		architecture: [...input.architecture],
+		aliases: [...input.aliases],
+		edges: [...input.edges],
+		diagnostics: [...input.diagnostics],
+	};
 }
 
 function validateCommitInput(input: CommitGenerationInput): void {
@@ -256,6 +451,55 @@ function validateCommitInput(input: CommitGenerationInput): void {
 	) {
 		throw new RepoMapError("CACHE_ERROR", "Repo Map generation counts are inconsistent.");
 	}
+	if (!isMatchingPreparedGeneration(input, metadata) && calculateCanonicalGeneration({
+		mapId: metadata.mapId,
+		configFingerprint: metadata.configFingerprint,
+		ignoreFingerprint: metadata.ignoreFingerprint,
+		parserFingerprint: metadata.parserFingerprint,
+		...(metadata.gitRevision !== undefined ? { headRevision: metadata.gitRevision } : {}),
+		files,
+		symbols,
+		tests,
+		aliases,
+		edges,
+		architecture,
+		diagnostics,
+	}) !== metadata.generation) throw new RepoMapError("CACHE_ERROR", "Repo Map generation hash is inconsistent.");
+}
+
+function isMatchingPreparedGeneration(input: CommitGenerationInput, metadata: RepoMapMetadata): boolean {
+	const prepared = input.prepared;
+	return prepared !== undefined
+		&& preparedGenerations.has(prepared)
+		&& prepared.generation === metadata.generation
+		&& input.files === prepared.files
+		&& input.symbols === prepared.symbols
+		&& input.tests === prepared.tests
+		&& input.architecture === prepared.architecture
+		&& input.aliases === prepared.aliases
+		&& input.edges === prepared.edges
+		&& input.diagnostics === prepared.diagnostics;
+}
+
+async function readGenerationRevision(cacheRoot: string, mapId: string, generation: string): Promise<string | undefined> {
+	if (!HASH_PATTERN.test(mapId) || !isGenerationId(generation)) return undefined;
+	const directory = generationDirectory(cacheRoot, mapId, generation);
+	try {
+		const directoryInfo = await lstat(directory);
+		if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()) return undefined;
+		const snapshots = await Promise.all(GENERATION_SNAPSHOT_FILES.map(async (name) => {
+			const info = await lstat(path.join(directory, name));
+			if (!info.isFile() || info.isSymbolicLink()) throw new Error("invalid generation snapshot");
+			return `${info.dev}:${info.ino}:${info.mode}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
+		}));
+		return snapshots.join("|");
+	} catch {
+		return undefined;
+	}
+}
+
+function generationCacheKey(cacheRoot: string, mapId: string, generation: string, expectedRoot: string | undefined): string {
+	return `${path.resolve(cacheRoot)}\0${mapId}\0${generation}\0${expectedRoot === undefined ? "" : path.resolve(expectedRoot)}`;
 }
 
 async function replaceCurrent(mapDirectory: string, generation: string): Promise<void> {
@@ -343,6 +587,7 @@ function validateTests(
 	const symbolIds = new Set(symbols.map((symbol) => symbol.id));
 	for (const node of value) {
 		for (const evidence of node.evidence) validateEvidence(evidence);
+		assertOrder(node.evidence, compareRepoMapEvidence, "test evidence");
 		if (!fileIds.has(node.fileId) || (node.symbolId !== undefined && !symbolIds.has(node.symbolId))) throw new Error("dangling test node");
 		if (node.testKind === "file" && node.symbolId !== undefined) throw new Error("invalid test file node");
 	}
@@ -380,6 +625,7 @@ function validateAliases(
 	for (const alias of value) {
 		if (!isLexicalTerm(alias.term) || !isLexicalTerm(alias.canonical) || !targets.has(alias.target)) throw new Error("invalid alias semantics");
 		for (const evidence of alias.evidence) validateEvidence(evidence, true);
+		assertOrder(alias.evidence, compareRepoMapEvidence, "alias evidence");
 	}
 	assertStrictOrder(value, compareAlias, "aliases");
 	return value;
@@ -400,6 +646,7 @@ function validateEdges(
 			throw new Error("dangling edge");
 		}
 		for (const evidence of edge.evidence) validateEvidence(evidence);
+		assertOrder(edge.evidence, compareRepoMapEvidence, "edge evidence");
 	}
 	assertStrictOrder(value, compareRepoMapEdge, "edges");
 	return value;
@@ -415,6 +662,7 @@ function validateEvidence(value: RepoMapEvidence, diagnosticPath = false): RepoM
 function validateDiagnostics(value: unknown): RepoMapDiagnostic[] {
 	assertShape(storageValidators.diagnostics, value, "diagnostics");
 	if (value.some((diagnostic) => diagnostic.path !== undefined && !isSafeDiagnosticPath(diagnostic.path))) throw new Error("invalid diagnostic path");
+	assertOrder(value, compareDiagnostic, "diagnostics");
 	return value;
 }
 
@@ -422,8 +670,82 @@ async function readJson(filePath: string): Promise<unknown> {
 	return JSON.parse(await readFile(filePath, "utf8")) as unknown;
 }
 
-async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
-	await writeTextFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
+async function writeJsonFile(
+	filePath: string,
+	name: SnapshotFingerprint["name"],
+	value: unknown,
+	signal?: AbortSignal,
+): Promise<SnapshotFingerprint> {
+	const handle = await open(filePath, "wx", 0o600);
+	const hash = createHash("sha256");
+	let size = 0;
+	let chunkBytes = 0;
+	let parts: string[] = [];
+	const flush = async (): Promise<void> => {
+		if (parts.length === 0) return;
+		throwIfAborted(signal);
+		const buffer = Buffer.from(parts.join(""));
+		let offset = 0;
+		while (offset < buffer.length) {
+			const { bytesWritten } = await handle.write(buffer, offset, buffer.length - offset, size + offset);
+			if (bytesWritten === 0) throw new Error("generation snapshot write ended early");
+			offset += bytesWritten;
+		}
+		hash.update(buffer);
+		size += buffer.length;
+		chunkBytes = 0;
+		parts = [];
+	};
+	const append = (encoded: string): void => {
+		const encodedBytes = Buffer.byteLength(encoded);
+		parts.push(encoded);
+		chunkBytes += encodedBytes;
+	};
+	try {
+		if (Array.isArray(value)) {
+			append("[");
+			for (const [index, item] of value.entries()) {
+				if ((index & 255) === 0) throwIfAborted(signal);
+				const encoded = JSON.stringify(item);
+				if (encoded === undefined) throw new Error("generation snapshot contains an unsupported JSON value");
+				const segment = `${index === 0 ? "" : ","}${encoded}`;
+				if (chunkBytes > 0 && chunkBytes + Buffer.byteLength(segment) > JSON_WRITE_BUFFER_BYTES) await flush();
+				append(segment);
+			}
+			if (chunkBytes + 2 > JSON_WRITE_BUFFER_BYTES) await flush();
+			append("]\n");
+		} else {
+			const encoded = JSON.stringify(value);
+			if (encoded === undefined) throw new Error("generation snapshot contains an unsupported JSON value");
+			append(`${encoded}\n`);
+		}
+		await flush();
+		await handle.sync();
+		return { name, size, digest: hash.digest("hex") };
+	} finally {
+		await handle.close();
+	}
+}
+
+async function hashFileNoFollow(filePath: string, signal?: AbortSignal): Promise<{ size: number; digest: string }> {
+	const handle = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+	try {
+		const info = await handle.stat();
+		if (!info.isFile()) throw new Error("generation snapshot is not a regular file");
+		const hash = createHash("sha256");
+		const buffer = Buffer.allocUnsafe(64 * 1024);
+		let position = 0;
+		while (position < info.size) {
+			throwIfAborted(signal);
+			const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, info.size - position), position);
+			if (bytesRead === 0) throw new Error("generation snapshot ended early");
+			hash.update(buffer.subarray(0, bytesRead));
+			position += bytesRead;
+		}
+		return { size: info.size, digest: hash.digest("hex") };
+	} finally {
+		await handle.close();
+	}
 }
 
 async function writeTextFile(filePath: string, value: string): Promise<void> {
@@ -505,6 +827,14 @@ function assertStrictOrder<T>(values: readonly T[], compare: (left: T, right: T)
 		const previous = values[index - 1];
 		const current = values[index];
 		if (previous === undefined || current === undefined || compare(previous, current) >= 0) throw new Error(`invalid ${label} order`);
+	}
+}
+
+function assertOrder<T>(values: readonly T[], compare: (left: T, right: T) => number, label: string): void {
+	for (let index = 1; index < values.length; index += 1) {
+		const previous = values[index - 1];
+		const current = values[index];
+		if (previous === undefined || current === undefined || compare(previous, current) > 0) throw new Error(`invalid ${label} order`);
 	}
 }
 

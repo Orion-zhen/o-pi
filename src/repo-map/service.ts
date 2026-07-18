@@ -15,10 +15,11 @@ import { scanRepoMap, type RepoMapProgress, type RepoMapScanInput, type RepoMapS
 import type { IndexRepoMapSymbolsInput } from "./symbol-indexer.js";
 import type { BuildRepoMapTestGraphInput, RepoMapTestGraph } from "./test-indexer.js";
 import {
-	calculateGeneration,
 	commitGeneration,
+	createCachedRepoMapGenerationReader,
+	prepareRepoMapGeneration,
 	readCurrentGeneration,
-	readGeneration,
+	readCurrentGenerationId,
 	type CommitGenerationInput,
 	type CommitGenerationResult,
 	type RepoMapGeneration,
@@ -91,6 +92,8 @@ const defaultDependencies: RepoMapServiceDependencies = {
 	now: () => new Date(),
 };
 
+const readCachedActivatedGeneration = createCachedRepoMapGenerationReader({ maxEntries: 1 });
+
 export async function initializeRepoMap(
 	input: InitializeRepoMapInput,
 	dependencies: Partial<RepoMapServiceDependencies> = {},
@@ -123,6 +126,35 @@ export async function initializeRepoMap(
 		...(input.onProgress !== undefined ? { onProgress: input.onProgress } : {}),
 	});
 	throwIfAborted(input.signal);
+	const configFingerprint = combinedConfigFingerprint(config, fileToolsConfig);
+	if (previous !== undefined && canReusePreviousGeneration(previous, scan, {
+		configFingerprint,
+		ignoreFingerprint: ignoreSnapshot.fingerprint,
+		...(identity.headRevision !== undefined ? { gitRevision: identity.headRevision } : {}),
+	})) {
+		const endingRevision = await deps.readHeadRevision(identity.worktreeRoot, signalOptions(input.signal));
+		if (endingRevision !== identity.headRevision) {
+			throw new RepoMapError("REPOSITORY_CHANGED_DURING_SCAN", "Repository HEAD changed during Repo Map scan; run /init again.");
+		}
+		safeProgress(input.onProgress, { phase: "parsing", completed: scan.summary.indexed, total: scan.summary.indexed });
+		safeProgress(input.onProgress, { phase: "saving" });
+		return {
+			identity,
+			metadata: previous.metadata,
+			summary: {
+				...scan.summary,
+				parsed: previous.metadata.parsedFileCount,
+				unsupported: previous.metadata.unsupportedFileCount,
+				parseErrors: previous.metadata.parseErrorFileCount,
+				reusedParsed: previous.metadata.parsedFileCount,
+				symbols: previous.metadata.symbolCount,
+				testNodes: previous.metadata.testNodeCount,
+				edges: previous.metadata.edgeCount,
+				diagnostics: previous.metadata.diagnosticCount,
+			},
+			reusedGeneration: true,
+		};
+	}
 	safeProgress(input.onProgress, { phase: "parsing", completed: 0, total: scan.summary.indexed });
 	const symbolIndex = await deps.indexSymbols({
 		root: identity.repositoryRoot,
@@ -144,10 +176,24 @@ export async function initializeRepoMap(
 		mapId,
 		files: scan.files,
 		symbols: symbolIndex.symbols,
+		...(previous !== undefined ? {
+			previous: {
+				files: previous.files,
+				architecture: previous.architecture,
+				edges: previous.edges,
+				diagnostics: previous.diagnostics,
+			},
+		} : {}),
 		...(input.signal !== undefined ? { signal: input.signal } : {}),
 	});
 	throwIfAborted(input.signal);
-	const relationshipEdges = await deps.buildRelationships({ mapId, files: scan.files, symbols: architecture.symbols, imports: symbolIndex.imports });
+	const relationshipEdges = await deps.buildRelationships({
+		mapId,
+		files: scan.files,
+		symbols: architecture.symbols,
+		imports: symbolIndex.imports,
+		...(previous !== undefined ? { previous: { files: previous.files, symbols: previous.symbols, edges: previous.edges } } : {}),
+	});
 	const baseEdges = coalesceRepoMapEdges([...relationshipEdges, ...architecture.edges]);
 	const testGraph = await deps.buildTestGraph({
 		root: identity.repositoryRoot,
@@ -164,6 +210,7 @@ export async function initializeRepoMap(
 		architecture: architecture.nodes,
 		edges,
 		concurrency: config.scan.concurrency,
+		...(previous !== undefined ? { previous: { files: previous.files, aliases: previous.aliases } } : {}),
 		...(input.signal !== undefined ? { signal: input.signal } : {}),
 	});
 	throwIfAborted(input.signal);
@@ -183,8 +230,7 @@ export async function initializeRepoMap(
 	if (endingRevision !== identity.headRevision) {
 		throw new RepoMapError("REPOSITORY_CHANGED_DURING_SCAN", "Repository HEAD changed during Repo Map scan; run /init again.");
 	}
-	const configFingerprint = combinedConfigFingerprint(config, fileToolsConfig);
-	const generationId = calculateGeneration({
+	const prepared = prepareRepoMapGeneration({
 		mapId,
 		configFingerprint,
 		ignoreFingerprint: ignoreSnapshot.fingerprint,
@@ -198,6 +244,7 @@ export async function initializeRepoMap(
 		edges,
 		diagnostics,
 	});
+	const generationId = prepared.generation;
 	const now = deps.now().toISOString();
 	const partial = summary.unreadable > 0
 		|| summary.unstable > 0
@@ -233,14 +280,15 @@ export async function initializeRepoMap(
 	const committed = await deps.commit({
 		cacheRoot,
 		maxGenerations: config.cache.max_generations,
+		prepared,
 		metadata,
-		files: scan.files,
-		symbols: architecture.symbols,
-		tests: testGraph.nodes,
-		architecture: architecture.nodes,
-		aliases,
-		edges,
-		diagnostics,
+		files: prepared.files,
+		symbols: prepared.symbols,
+		tests: prepared.tests,
+		architecture: prepared.architecture,
+		aliases: prepared.aliases,
+		edges: prepared.edges,
+		diagnostics: prepared.diagnostics,
 		...(input.signal !== undefined ? { signal: input.signal } : {}),
 	});
 	return {
@@ -251,11 +299,28 @@ export async function initializeRepoMap(
 	};
 }
 
+function canReusePreviousGeneration(
+	previous: RepoMapGeneration,
+	scan: RepoMapScanResult,
+	current: { configFingerprint: string; ignoreFingerprint: string; gitRevision?: string },
+): boolean {
+	return scan.summary.added === 0
+		&& scan.summary.changed === 0
+		&& scan.summary.removed === 0
+		&& scan.diagnostics.length === 0
+		&& previous.metadata.diagnosticCount === 0
+		&& previous.metadata.freshness === "fresh"
+		&& previous.metadata.configFingerprint === current.configFingerprint
+		&& previous.metadata.ignoreFingerprint === current.ignoreFingerprint
+		&& previous.metadata.parserFingerprint === CODE_INDEX_FORMAT_VERSION
+		&& previous.metadata.gitRevision === current.gitRevision;
+}
+
 export async function readActivatedRepoMap(
 	activation: { root: string; mapId: string; generation: string },
 	cacheRoot = repoMapCacheRoot(),
 ): Promise<RepoMapGeneration | undefined> {
-	return await readGeneration(cacheRoot, activation.mapId, activation.generation, activation.root);
+	return await readCachedActivatedGeneration(cacheRoot, activation.mapId, activation.generation, activation.root);
 }
 
 /**
@@ -266,11 +331,11 @@ export async function readActivatedRepoMapState(
 	activation: RepoMapActivation,
 	cacheRoot = repoMapCacheRoot(),
 ): Promise<RepoMapGeneration | undefined> {
-	const [generation, current] = await Promise.all([
-		readGeneration(cacheRoot, activation.mapId, activation.generation, activation.root),
-		readCurrentGeneration(cacheRoot, activation.mapId, activation.root),
+	const [generation, currentGeneration] = await Promise.all([
+		readCachedActivatedGeneration(cacheRoot, activation.mapId, activation.generation, activation.root),
+		readCurrentGenerationId(cacheRoot, activation.mapId),
 	]);
-	if (generation === undefined || current?.metadata.generation !== activation.generation) return undefined;
+	if (generation === undefined || currentGeneration !== activation.generation) return undefined;
 	try {
 		const [config, fileToolsConfig, headRevision] = await Promise.all([
 			loadRepoMapConfig(),

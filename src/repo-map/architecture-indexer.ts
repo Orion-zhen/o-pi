@@ -24,6 +24,12 @@ export interface BuildRepoMapArchitectureInput {
 	mapId: string;
 	files: readonly RepoMapFileRecord[];
 	symbols: readonly RepoMapSymbolNode[];
+	previous?: {
+		files: readonly RepoMapFileRecord[];
+		architecture: readonly RepoMapArchitectureNode[];
+		edges: readonly RepoMapEdge[];
+		diagnostics: readonly RepoMapDiagnostic[];
+	};
 	signal?: AbortSignal;
 	readText?: RepoMapReadText;
 }
@@ -56,10 +62,13 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 	throwIfAborted(input.signal);
 	const readText = input.readText ?? readTextNoFollow;
 	const filesByPath = new Map(input.files.map((file) => [file.path, file]));
+	const filesById = new Map(input.files.map((file) => [file.id, file]));
+	const symbolsByFile = groupByFile(input.symbols);
+	const reusableSourcePaths = reusableArchitectureSourcePaths(input);
 	const sourceFiles = new Map<string, RepoMapSourceFile>();
 	const diagnostics: RepoMapDiagnostic[] = [];
 	const shouldRead = (file: RepoMapFileRecord): boolean => file.status === "indexed"
-		&& (MANIFEST_NAMES.has(path.posix.basename(file.path)) || isScriptFile(file.path));
+		&& (MANIFEST_NAMES.has(path.posix.basename(file.path)) || isScriptFile(file.path) && !reusableSourcePaths.has(file.path));
 	for (const file of input.files) {
 		if (!shouldRead(file)) continue;
 		throwIfAborted(input.signal);
@@ -106,7 +115,7 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 		if (component !== undefined) edges.push(edge(file.id, component.id, "belongs-to", "convention", component.confidence, evidence));
 	}
 	for (const symbol of input.symbols) {
-		const file = input.files.find((candidate) => candidate.id === symbol.fileId);
+		const file = filesById.get(symbol.fileId);
 		if (file === undefined) continue;
 		const owner = packageForFile.get(file.id);
 		const component = componentForFile.get(file.id);
@@ -134,6 +143,35 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 	}
 
 	const reExportedSymbols = new Set<string>();
+	const symbolsById = new Map(input.symbols.map((symbol) => [symbol.id, symbol]));
+	const reusedEntrypoints = (input.previous?.architecture ?? []).filter((node): node is RepoMapEntrypointNode =>
+		node.kind === "entrypoint" && node.fileId !== undefined && reusableSourcePaths.has(filesById.get(node.fileId)?.path ?? "") && node.source !== "manifest");
+	const reusedEntrypointIds = new Set(reusedEntrypoints.map((node) => node.id));
+	const previousEntrypointComponentEdges = new Map((input.previous?.edges ?? [])
+		.filter((candidate) => candidate.kind === "belongs-to" && reusedEntrypointIds.has(candidate.from))
+		.map((candidate) => [candidate.from, candidate]));
+	for (const previousNode of reusedEntrypoints) {
+		const owner = previousNode.fileId === undefined ? undefined : packageForFile.get(previousNode.fileId);
+		const { packageId: _oldPackageId, ...node } = previousNode;
+		nodes.push(owner === undefined ? node : { ...node, packageId: owner.node.id });
+		const component = previousNode.fileId === undefined ? undefined : componentForFile.get(previousNode.fileId);
+		const file = previousNode.fileId === undefined ? undefined : filesById.get(previousNode.fileId);
+		if (component !== undefined && file !== undefined) {
+			const previousEdge = previousEntrypointComponentEdges.get(previousNode.id);
+			edges.push(previousEdge === undefined
+				? edge(previousNode.id, component.id, "belongs-to", "convention", component.confidence, fileEvidence(file))
+				: { ...previousEdge, to: component.id });
+		}
+	}
+	for (const previousEdge of input.previous?.edges ?? []) {
+		const sourcePath = filesById.get(previousEdge.from)?.path;
+		if (sourcePath === undefined || !reusableSourcePaths.has(sourcePath) || !isReusableArchitectureSourceEdge(previousEdge)) continue;
+		if (previousEdge.kind === "exports-publicly"
+			&& !symbolsById.has(previousEdge.to)
+			&& !reusedEntrypointIds.has(previousEdge.to)) continue;
+		edges.push(previousEdge);
+		if (previousEdge.kind === "exports-publicly" && symbolsById.has(previousEdge.to)) reExportedSymbols.add(previousEdge.to);
+	}
 	for (const source of sourceFiles.values()) {
 		if (!isJavaScriptFamily(source.file.path)) continue;
 		const syntax = javascriptSyntaxFacts(source.file.path, source.text);
@@ -160,7 +198,7 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 				continue;
 			}
 			edges.push(edge(source.file.id, target.id, "re-exports", "syntax", 0.94, evidence, fact.target));
-			const targetSymbols = input.symbols.filter((symbol) => symbol.fileId === target.id && isRequestedExport(symbol, fact.names));
+			const targetSymbols = (symbolsByFile.get(target.id) ?? []).filter((symbol) => isRequestedExport(symbol, fact.names));
 			for (const symbol of targetSymbols) {
 				reExportedSymbols.add(symbol.id);
 				edges.push(edge(source.file.id, symbol.id, "exports-publicly", "syntax", 0.92, evidence, symbol.name));
@@ -182,16 +220,25 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 			edges.push(edge(source.file.id, entrypoint.id, "exports-publicly", "syntax", 0.96, rangeEvidence(source, exported)));
 		}
 	}
+	let publicFileAdded = true;
+	while (publicFileAdded) {
+		publicFileAdded = false;
+		for (const candidate of edges) {
+			if (candidate.kind !== "re-exports" || !publicFiles.has(candidate.from) || publicFiles.has(candidate.to) || !filesById.has(candidate.to)) continue;
+			publicFiles.add(candidate.to);
+			publicFileAdded = true;
+		}
+	}
 
 	const symbols = input.symbols.map((symbol) => {
-		const publicSymbol = isModulePublic(symbol, input.files)
+		const publicSymbol = isModulePublic(symbol, filesById)
 			|| reExportedSymbols.has(symbol.id);
 		return { ...symbol, visibility: publicSymbol ? "public" as const : "internal" as const };
 	});
 	for (const symbol of symbols) {
 		if (symbol.visibility !== "public") continue;
 		const owner = packageForFile.get(symbol.fileId);
-		const file = input.files.find((candidate) => candidate.id === symbol.fileId);
+		const file = filesById.get(symbol.fileId);
 		if (owner !== undefined && file !== undefined) edges.push(edge(
 			owner.node.id,
 			symbol.id,
@@ -208,6 +255,46 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 		symbols,
 		diagnostics,
 	};
+}
+
+function reusableArchitectureSourcePaths(input: BuildRepoMapArchitectureInput): Set<string> {
+	const previous = input.previous;
+	if (previous === undefined || previous.files.length !== input.files.length
+		|| previous.diagnostics.some((diagnostic) => diagnostic.code.startsWith("ARCHITECTURE_") && diagnostic.path === undefined)) return new Set();
+	const currentByPath = new Map(input.files.map((file) => [file.path, file]));
+	const previousByPath = new Map(previous.files.map((file) => [file.path, file]));
+	if ([...currentByPath.keys()].some((filePath) => !previousByPath.has(filePath))) return new Set();
+	const retryPaths = new Set(previous.diagnostics
+		.filter((diagnostic) => diagnostic.code.startsWith("ARCHITECTURE_"))
+		.flatMap((diagnostic) => diagnostic.path === undefined ? [] : [diagnostic.path]));
+	const reusable = new Set(input.files.filter((file) => {
+		const old = previousByPath.get(file.path);
+		return isScriptFile(file.path) && file.status === "indexed" && old?.status === "indexed"
+			&& old.contentHash === file.contentHash && !retryPaths.has(file.path);
+	}).map((file) => file.path));
+	const pathsById = new Map(input.files.map((file) => [file.id, file.path]));
+	let removed = true;
+	while (removed) {
+		removed = false;
+		for (const candidate of previous.edges) {
+			if (candidate.kind !== "re-exports") continue;
+			const sourcePath = pathsById.get(candidate.from);
+			const targetPath = pathsById.get(candidate.to);
+			if (sourcePath !== undefined && reusable.has(sourcePath) && targetPath !== undefined && !reusable.has(targetPath)) {
+				reusable.delete(sourcePath);
+				removed = true;
+			}
+		}
+	}
+	return reusable;
+}
+
+function isReusableArchitectureSourceEdge(edgeValue: RepoMapEdge): boolean {
+	return edgeValue.kind === "registers-command"
+		|| edgeValue.kind === "registers-tool"
+		|| edgeValue.kind === "registers-plugin"
+		|| edgeValue.kind === "re-exports"
+		|| edgeValue.kind === "exports-publicly";
 }
 
 function discoverPackages(
@@ -417,8 +504,8 @@ function isRequestedExport(symbol: RepoMapSymbolNode, names: "*" | ReadonlySet<s
 	return names === "*" || (symbol.name !== undefined && names.has(symbol.name));
 }
 
-function isModulePublic(symbol: RepoMapSymbolNode, files: readonly RepoMapFileRecord[]): boolean {
-	const file = files.find((candidate) => candidate.id === symbol.fileId);
+function isModulePublic(symbol: RepoMapSymbolNode, files: ReadonlyMap<string, RepoMapFileRecord>): boolean {
+	const file = files.get(symbol.fileId);
 	if (file === undefined || symbol.name === undefined || symbol.qualifiedName !== symbol.name) return false;
 	const language = languageFromPath(file.path);
 	if (["typescript", "tsx", "javascript", "jsx"].includes(language)) return /^export\b/u.test(symbol.signature ?? "");
@@ -426,6 +513,16 @@ function isModulePublic(symbol: RepoMapSymbolNode, files: readonly RepoMapFileRe
 	if (language === "go") return /^\p{Lu}/u.test(symbol.name);
 	if (language === "rust") return /^pub(?:\([^)]*\))?\s/u.test(symbol.signature ?? "");
 	return false;
+}
+
+function groupByFile(symbols: readonly RepoMapSymbolNode[]): Map<string, RepoMapSymbolNode[]> {
+	const result = new Map<string, RepoMapSymbolNode[]>();
+	for (const symbol of symbols) {
+		const group = result.get(symbol.fileId);
+		if (group === undefined) result.set(symbol.fileId, [symbol]);
+		else group.push(symbol);
+	}
+	return result;
 }
 
 function isExtensionConvention(filePath: string): boolean {

@@ -62,6 +62,7 @@ export interface RepoMapFileToolQueryDependencies {
 	appendActivation(entry: RepoMapActivationEntry): void;
 	now(): Date;
 	analyzeImpact(input: AnalyzeRepoMapImpactInput): RepoMapImpactResult;
+	createQueryIndex(generation: RepoMapGeneration): RepoMapQueryIndex;
 }
 
 /** 未激活时只计算 session entry；磁盘读取、freshness 检查与查询均延后到调用时。 */
@@ -75,6 +76,24 @@ export function createRepoMapFileToolQuery(
 		await (await import("./service.js")).refreshActivatedRepoMap(input));
 	const now = dependencies.now ?? (() => new Date());
 	const analyzeImpact = dependencies.analyzeImpact ?? analyzeRepoMapImpact;
+	const createQueryIndex = dependencies.createQueryIndex ?? ((generation: RepoMapGeneration) => new RepoMapQueryIndex(generation));
+	const queryIndexes = new Map<string, RepoMapQueryIndex>();
+	const queryIndexFor = (generation: RepoMapGeneration): RepoMapQueryIndex => {
+		const key = `${generation.metadata.repositoryRoot}\0${generation.metadata.mapId}\0${generation.metadata.generation}`;
+		const cached = queryIndexes.get(key);
+		if (cached !== undefined) {
+			queryIndexes.delete(key);
+			queryIndexes.set(key, cached);
+			return cached;
+		}
+		const created = createQueryIndex(generation);
+		queryIndexes.set(key, created);
+		while (queryIndexes.size > 1) {
+			const oldest = queryIndexes.keys().next().value;
+			if (typeof oldest === "string") queryIndexes.delete(oldest);
+		}
+		return created;
+	};
 
 	const appendPartial = (activation: RepoMapActivation, diagnostic: string): void => {
 		dependencies.appendActivation?.({
@@ -118,7 +137,7 @@ export function createRepoMapFileToolQuery(
 			try {
 				const loaded = await loadEnabled(input.requestedPath);
 				if (loaded === undefined) return undefined;
-				const result = new RepoMapQueryIndex(loaded.generation).candidates(input.query, input.limit);
+				const result = queryIndexFor(loaded.generation).candidates(input.query, input.limit);
 				const candidates = await verifiedCandidates(loaded.generation, result.candidates);
 				if (candidates.length !== result.candidates.length) {
 					appendPartial(loaded.activation, "Repo Map candidate hash differs from the live file.");
@@ -143,7 +162,7 @@ export function createRepoMapFileToolQuery(
 				}
 				const context = contextForRange(loaded.generation, file.id, input.startLine, input.endLine);
 				if (context === undefined) return undefined;
-				const queryIndex = new RepoMapQueryIndex(loaded.generation);
+				const queryIndex = queryIndexFor(loaded.generation);
 				const directTests = await verifiedCandidates(loaded.generation, queryIndex.relatedTests([file.id, context.symbol.id], 4));
 				return directTests.length === 0
 					? context
@@ -170,6 +189,7 @@ export function createRepoMapFileToolQuery(
 					...(result.metadata.freshness !== "fresh" ? { freshness: result.metadata.freshness } : {}),
 				};
 				dependencies.appendActivation?.(entry);
+				if (result.metadata.generation !== activation.generation) queryIndexes.clear();
 				const mutation: RepoMapMutationResult = {
 					status: result.metadata.freshness === "fresh" ? "updated" : "partially_stale",
 					generation: result.metadata.generation,

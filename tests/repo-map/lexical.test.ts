@@ -130,6 +130,36 @@ describe("Repo Map lexical projection", () => {
 		expect(current.aliases.some((alias) => alias.term === "legacy client" || alias.target.includes("legacy-client"))).toBe(false);
 		expect(current.metadata.aliasCount).toBe(current.aliases.length);
 	});
+
+	it("reads only changed sources while matching a full lexical rebuild", async () => {
+		const root = path.join(temp.path, "incremental-lexical");
+		const sources = new Map([
+			["src/changed.ts", "/** old client */\nexport const OLD_CLIENT_ENV = true;\n"],
+			["src/stable.ts", "/** stable transport */\nexport const STABLE_TRANSPORT_ENV = true;\n"],
+		]);
+		const read = async (absolutePath: string): Promise<string> => sources.get(path.relative(root, absolutePath).replaceAll(path.sep, "/")) ?? "";
+		const previousFiles = [...sources].map(([filePath, text]) => fileRecord(filePath, text));
+		const previousAliases = await buildRepoMapLexicalAliases({ root, files: previousFiles, symbols: [], architecture: [], edges: [], concurrency: 2, readText: read });
+
+		sources.set("src/changed.ts", "/** modern client */\nexport const MODERN_CLIENT_ENV = true;\n");
+		const files = [...sources].map(([filePath, text]) => fileRecord(filePath, text));
+		const incrementalRead = vi.fn(read);
+		const incremental = await buildRepoMapLexicalAliases({
+			root,
+			files,
+			symbols: [],
+			architecture: [],
+			edges: [],
+			concurrency: 2,
+			previous: { files: previousFiles, aliases: previousAliases },
+			readText: incrementalRead,
+		});
+		const rebuilt = await buildRepoMapLexicalAliases({ root, files, symbols: [], architecture: [], edges: [], concurrency: 2, readText: read });
+
+		expect(incremental).toEqual(rebuilt);
+		expect(incrementalRead).toHaveBeenCalledTimes(1);
+		expect(path.relative(root, incrementalRead.mock.calls[0]?.[0] ?? "").replaceAll(path.sep, "/")).toBe("src/changed.ts");
+	});
 });
 
 async function generationFromSources(root: string, sources: ReadonlyMap<string, string>): Promise<RepoMapGeneration> {

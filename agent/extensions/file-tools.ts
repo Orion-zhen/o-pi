@@ -111,12 +111,20 @@ export function createFileToolsExtension(imports: FileToolsModuleImports = defau
 /** 注册覆盖版 ls/find/grep/read/write/edit；扩展层只适配 Pi，工具实现和渲染细节在 src/file-tools。 */
 function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports): void {
 	const versionCaches = new Map<string, ReadVersionCache>();
+	const repoMaps = new Map<string, LazyRepoMap>();
 	const lsp = createLazyLspFileHooks(loaders.lsp);
-	const repoMapFor = (ctx: ExtensionContext): LazyRepoMap => createLazyRepoMap({
-		getBranch: () => typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [],
-		appendEntry: (entry) => appendRepoMapEntry(pi, entry),
-		load: loaders.repoMap,
-	});
+	const repoMapFor = (ctx: ExtensionContext): LazyRepoMap => {
+		const sessionId = ctx.sessionManager.getSessionId();
+		const existing = repoMaps.get(sessionId);
+		if (existing !== undefined) return existing;
+		const created = createLazyRepoMap({
+			getBranch: () => typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [],
+			appendEntry: (entry) => appendRepoMapEntry(pi, entry),
+			load: loaders.repoMap,
+		});
+		repoMaps.set(sessionId, created);
+		return created;
+	};
 
 	pi.registerTool(repairableTool({
 		name: "ls",
@@ -258,6 +266,7 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports): v
 	});
 	pi.on("session_shutdown", () => {
 		versionCaches.clear();
+		repoMaps.clear();
 	});
 }
 

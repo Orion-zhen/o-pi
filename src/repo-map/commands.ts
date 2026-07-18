@@ -3,27 +3,57 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import {
 	computeRepoMapActivation,
 	REPO_MAP_SESSION_ENTRY,
+	type RepoMapActivation,
 	type RepoMapActivationEntry,
 	type RepoMapDeactivationEntry,
 } from "./activation.js";
 import { RepoMapError } from "./errors.js";
 import { renderInitialization, renderStatus, renderUnavailableStatus } from "./renderer.js";
-import { initializeRepoMap, readActivatedRepoMapState, type InitializeRepoMapInput, type InitializeRepoMapResult } from "./service.js";
+import type { InitializeRepoMapInput, InitializeRepoMapResult } from "./service.js";
 import type { RepoMapGeneration } from "./storage.js";
 
 type RepoMapCommandApi = Pick<ExtensionAPI, "registerCommand" | "appendEntry">;
 
 export interface RepoMapCommandDependencies {
 	initialize(input: InitializeRepoMapInput): Promise<InitializeRepoMapResult>;
-	readActivated(activation: { root: string; mapId: string; generation: string }): Promise<RepoMapGeneration | undefined>;
+	readActivated(activation: RepoMapActivation): Promise<RepoMapGeneration | undefined>;
 	now(): Date;
 }
 
-const defaultDependencies: RepoMapCommandDependencies = {
-	initialize: initializeRepoMap,
-	readActivated: readActivatedRepoMapState,
-	now: () => new Date(),
+export interface RepoMapCommandModuleImports {
+	currentPointer(): Promise<{
+		isActivatedGenerationCurrent: typeof import("./current-pointer.js").isActivatedGenerationCurrent;
+	}>;
+	service(): Promise<{
+		initializeRepoMap: typeof import("./service.js").initializeRepoMap;
+		readActivatedRepoMapState: typeof import("./service.js").readActivatedRepoMapState;
+	}>;
+}
+
+const defaultModuleImports: RepoMapCommandModuleImports = {
+	currentPointer: () => import("./current-pointer.js"),
+	service: () => import("./service.js"),
 };
+
+const defaultDependencies = createRepoMapCommandDependencies();
+
+/** service 仅在首次构建或读取 active generation 时加载；并发调用共享加载，失败后允许重试。 */
+export function createRepoMapCommandDependencies(
+	imports: RepoMapCommandModuleImports = defaultModuleImports,
+): RepoMapCommandDependencies {
+	const loadCurrentPointer = createRetryableLoader(imports.currentPointer);
+	const loadService = createRetryableLoader(imports.service);
+	return {
+		async initialize(input) {
+			return await (await loadService()).initializeRepoMap(input);
+		},
+		async readActivated(activation) {
+			if (!await (await loadCurrentPointer()).isActivatedGenerationCurrent(activation)) return undefined;
+			return await (await loadService()).readActivatedRepoMapState(activation);
+		},
+		now: () => new Date(),
+	};
+}
 
 export function registerRepoMapCommand(
 	pi: RepoMapCommandApi,
@@ -139,4 +169,17 @@ function safeSetStatus(ctx: ExtensionCommandContext, text: string | undefined): 
 	} catch {
 		// Progress is best effort.
 	}
+}
+
+function createRetryableLoader<T>(load: () => Promise<T>): () => Promise<T> {
+	let pending: Promise<T> | undefined;
+	return () => {
+		if (pending !== undefined) return pending;
+		const created = load();
+		pending = created;
+		void created.catch(() => {
+			if (pending === created) pending = undefined;
+		});
+		return created;
+	};
 }

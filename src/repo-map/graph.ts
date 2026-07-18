@@ -27,16 +27,32 @@ export function compareRepoMapEdge(left: RepoMapEdge, right: RepoMapEdge): numbe
 }
 
 export function coalesceRepoMapEdges(edges: readonly RepoMapEdge[]): RepoMapEdge[] {
-	const merged = new Map<string, RepoMapEdge>();
+	const merged = new Map<string, { edge: RepoMapEdge; evidence?: RepoMapEvidence[] }>();
 	for (const edge of edges) {
 		const key = [edge.kind, edge.from, edge.to, edge.resolution, edge.source, edge.confidence, edge.lexicalTarget ?? ""].join("\0");
 		const existing = merged.get(key);
-		if (existing === undefined) merged.set(key, { ...edge, evidence: [...edge.evidence] });
-		else existing.evidence.push(...edge.evidence);
+		if (existing === undefined) merged.set(key, { edge });
+		else {
+			existing.evidence ??= [...existing.edge.evidence];
+			existing.evidence.push(...edge.evidence);
+		}
 	}
-	return [...merged.values()]
-		.map((edge) => ({ ...edge, evidence: uniqueRepoMapEvidence(edge.evidence) }))
+	return [...merged.values()].map(({ edge, evidence }) => {
+		const values = evidence ?? edge.evidence;
+		return evidence === undefined && isCanonicalEvidence(values)
+			? edge
+			: { ...edge, evidence: uniqueRepoMapEvidence(values) };
+	})
 		.sort(compareRepoMapEdge);
+}
+
+function isCanonicalEvidence(values: readonly RepoMapEvidence[]): boolean {
+	for (let index = 1; index < values.length; index += 1) {
+		const previous = values[index - 1];
+		const current = values[index];
+		if (previous === undefined || current === undefined || compareRepoMapEvidence(previous, current) >= 0) return false;
+	}
+	return true;
 }
 
 export function uniqueRepoMapEvidence(values: readonly RepoMapEvidence[]): RepoMapEvidence[] {

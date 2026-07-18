@@ -163,6 +163,60 @@ describe("file-tools extension", () => {
 		expect(handlers.get("session_shutdown")?.({}, {})).toBeUndefined();
 	});
 
+	it("同一 session 复用 Repo Map runtime，shutdown 后释放", async () => {
+		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
+		const handlers = new Map<string, LifecycleHandler>();
+		const createRepoMapFileToolQuery = vi.fn(() => ({
+			async query() { return undefined; },
+			async readContext() { return undefined; },
+			async syncMutation() { return { status: "updated" as const, generation: "2".repeat(64) }; },
+		}));
+		const imports = {
+			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
+			find: () => import("../../src/file-tools/pi/adapters/find.js"),
+			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
+			read: () => import("../../src/file-tools/pi/adapters/read.js"),
+			write: () => import("../../src/file-tools/pi/adapters/write.js"),
+			edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
+			lsp: () => import("../../src/lsp/index.js"),
+			async repoMap() {
+				return {
+					createRepoMapFileToolQuery,
+					formatRepoMapImpact: () => undefined,
+					formatRepoMapReadContext: () => undefined,
+				};
+			},
+		} satisfies FileToolsModuleImports;
+		createFileToolsExtension(imports)({
+			registerTool(tool: { name: string; execute?: ExecuteTool }) { registered.push(tool); },
+			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
+			appendEntry() {},
+		} as unknown as ExtensionAPI);
+		const cwd = await mkdtemp(join(tmpdir(), "o-pi-repo-map-session-"));
+		const branch = [{
+			type: "custom",
+			customType: "o-pi:repo-map",
+			data: {
+				kind: "activation",
+				root: cwd,
+				mapId: "0".repeat(64),
+				generation: "1".repeat(64),
+				activatedAt: "2026-07-18T00:00:00.000Z",
+			},
+		}];
+		const ctx = { cwd, sessionManager: { getSessionId: () => "repo-map-session", getBranch: () => branch } };
+		try {
+			await executeTool(registered, "write", { path: "one.ts", content: "one\n" }, ctx);
+			await executeTool(registered, "write", { path: "two.ts", content: "two\n" }, ctx);
+			expect(createRepoMapFileToolQuery).toHaveBeenCalledTimes(1);
+			expect(handlers.get("session_shutdown")?.({}, {})).toBeUndefined();
+			await executeTool(registered, "write", { path: "three.ts", content: "three\n" }, ctx);
+			expect(createRepoMapFileToolQuery).toHaveBeenCalledTimes(2);
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
 	it("完整 read 不加载 LSP，局部 read 首次请求增强时才加载并复用", async () => {
 		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
 		const enhanceRead = vi.fn(async () => ({

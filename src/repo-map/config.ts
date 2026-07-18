@@ -1,11 +1,10 @@
 import { createHash } from "node:crypto";
-import path from "node:path";
 
-import { agentSchemaPath, createSchemaValidator, expandHomePath, readOptionalJsoncConfigWithSchema, userAgentConfigPath, userCachePath } from "../config-loader.js";
+import { agentSchemaPath, createSchemaValidator, readOptionalJsoncConfigWithSchema, userAgentConfigPath } from "../config-loader.js";
 import { RepoMapError } from "./errors.js";
+export { repoMapCacheRoot } from "./cache-path.js";
 
 const USER_CONFIG_ENV = "PI_REPO_MAP_CONFIG";
-const CACHE_DIR_ENV = "PI_REPO_MAP_CACHE_DIR";
 
 export interface RepoMapConfig {
 	scan: {
@@ -50,10 +49,6 @@ export async function loadRepoMapConfig(): Promise<RepoMapConfig> {
 
 export function defaultRepoMapConfig(): RepoMapConfig {
 	return structuredClone(defaults);
-}
-
-export function repoMapCacheRoot(): string {
-	return path.resolve(expandHomePath(process.env[CACHE_DIR_ENV] ?? userCachePath("repo-map")));
 }
 
 export function repoMapConfigFingerprint(config: RepoMapConfig): string {

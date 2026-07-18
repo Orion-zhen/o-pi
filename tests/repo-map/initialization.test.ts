@@ -2,7 +2,7 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { defaultFileToolsConfig } from "../../src/file-tools/config.js";
 import { createIgnoreSnapshot, defaultIgnoreEngine } from "../../src/file-tools/ignore/ignore-engine.js";
@@ -69,6 +69,31 @@ describe("Repo Map initialization service", () => {
 		expect(second.reusedGeneration).toBe(true);
 		expect(second.metadata.generation).toBe(first.metadata.generation);
 		expect(second.summary).toMatchObject({ reused: 1, reusedParsed: 1, hashed: 0, added: 0, changed: 0, removed: 0 });
+	});
+
+	it("skips every graph builder and commit when the repository is unchanged", async () => {
+		const root = path.join(temp.path, "repo");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		await writeFile(path.join(root, "a.ts"), "export const a = 1;\n");
+		const first = await initializeRepoMap({ cwd: root }, dependencies());
+		const indexSymbols = vi.fn(async () => { throw new Error("unexpected symbol indexing"); });
+		const buildArchitecture = vi.fn(async () => { throw new Error("unexpected architecture indexing"); });
+		const buildTestGraph = vi.fn(async () => { throw new Error("unexpected test indexing"); });
+		const buildRelationships = vi.fn(async () => { throw new Error("unexpected relationship indexing"); });
+		const buildLexicalAliases = vi.fn(async () => { throw new Error("unexpected lexical indexing"); });
+		const commit = vi.fn(async () => { throw new Error("unexpected commit"); });
+
+		const result = await initializeRepoMap({ cwd: root, mode: "refresh" }, dependencies({
+			indexSymbols,
+			buildArchitecture,
+			buildTestGraph,
+			buildRelationships,
+			buildLexicalAliases,
+			commit,
+		}));
+
+		expect(result).toMatchObject({ reusedGeneration: true, metadata: { generation: first.metadata.generation } });
+		for (const skipped of [indexSymbols, buildArchitecture, buildTestGraph, buildRelationships, buildLexicalAliases, commit]) expect(skipped).not.toHaveBeenCalled();
 	});
 
 	it("persists symbols for every supported language", async () => {

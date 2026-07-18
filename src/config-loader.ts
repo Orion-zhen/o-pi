@@ -3,9 +3,10 @@ import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { Ajv, type ValidateFunction } from "ajv/dist/ajv.js";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
+
+export { expandHomePath, userCachePath } from "./cache-path.js";
 
 export type ConfigErrorFactory<E extends Error> = (message: string, details?: Record<string, unknown>) => E;
 
@@ -109,11 +110,6 @@ export function userAgentPath(fileName: string, envName: string): string {
 	return process.env[envName] ?? path.join(os.homedir(), ".pi", "agent", fileName);
 }
 
-/** 用户级可再生成缓存统一放在 Pi 根目录的 cache 子目录。 */
-export function userCachePath(...segments: string[]): string {
-	return path.join(os.homedir(), CONFIG_DIR_NAME, "cache", ...segments);
-}
-
 export function projectAgentConfigPath(cwd: string, fileName: string, configEnvName: string, rootEnvName: string): string | undefined {
 	if (process.env[configEnvName]) return process.env[configEnvName];
 	const root = process.env[rootEnvName] ?? findNearestProjectRoot(cwd);
@@ -134,12 +130,6 @@ export function findNearestProjectRoot(cwd: string): string | undefined {
 		if (parent === current) return undefined;
 		current = parent;
 	}
-}
-
-export function expandHomePath(value: string): string {
-	if (value === "~") return os.homedir();
-	if (value.startsWith("~/") || value.startsWith("~\\")) return path.join(os.homedir(), value.slice(2));
-	return value;
 }
 
 export function isNotFound(error: unknown): boolean {

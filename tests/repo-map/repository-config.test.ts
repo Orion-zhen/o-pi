@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { defaultRepoMapConfig, loadRepoMapConfig, repoMapCacheRoot, repoMapConfigFingerprint } from "../../src/repo-map/config.js";
+import { isActivatedGenerationCurrent } from "../../src/repo-map/current-pointer.js";
 import { RepoMapError } from "../../src/repo-map/errors.js";
 import { createRepoMapId } from "../../src/repo-map/identity.js";
 import { detectRepository, type GitRunner } from "../../src/repo-map/repository.js";
@@ -56,6 +57,20 @@ describe("Repo Map config", () => {
 		process.env.HOME = temp.path;
 		delete process.env.PI_REPO_MAP_CACHE_DIR;
 		expect(repoMapCacheRoot()).toBe(path.join(temp.path, ".pi", "cache", "repo-map"));
+	});
+
+	it("checks only the exact safe CURRENT pointer for lightweight status", async () => {
+		const cacheRoot = path.join(temp.path, "pointer-cache");
+		const mapId = "a".repeat(64);
+		const generation = "b".repeat(64);
+		process.env.PI_REPO_MAP_CACHE_DIR = cacheRoot;
+		await mkdir(path.join(cacheRoot, mapId), { recursive: true });
+		await writeFile(path.join(cacheRoot, mapId, "CURRENT"), `${generation}\n`);
+		const activation = { root: "/repo", mapId, generation, activatedAt: "2026-07-18T00:00:00.000Z" };
+
+		expect(await isActivatedGenerationCurrent(activation)).toBe(true);
+		expect(await isActivatedGenerationCurrent({ ...activation, generation: "c".repeat(64) })).toBe(false);
+		expect(await isActivatedGenerationCurrent({ ...activation, mapId: "../escape" })).toBe(false);
 	});
 
 	it("returns isolated defaults and a stable fingerprint when the user file is absent", async () => {

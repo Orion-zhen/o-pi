@@ -99,6 +99,32 @@ describe("Repo Map symbol and relationship graph", () => {
 		});
 		expect(withoutB.some((edge) => edge.to === helper.id || edge.to === value.id || edge.to === "file:b.ts")).toBe(false);
 	});
+
+	it("incrementally reuses stable relations and invalidates callers when the symbol lookup changes", async () => {
+		const firstSources = new Map([
+			["a.ts", "export function caller() { return target(); }\n"],
+			["b.ts", "export function target() {}\n"],
+			["stable.ts", "export function stable() {}\nexport function stableCaller() { return stable(); }\n"],
+		]);
+		const previousFiles = [...firstSources].map(([filePath, text]) => indexed(filePath, text));
+		const previousIndex = await indexRepoMapSymbols({ root, files: previousFiles, concurrency: 2, readText: readSources(firstSources) });
+		const previousEdges = buildRepoMapRelationships({ mapId: "c".repeat(64), files: previousFiles, symbols: previousIndex.symbols, imports: previousIndex.imports });
+		const sources = new Map(firstSources);
+		sources.set("b.ts", "export function replacement() {}\n");
+		const files = [...sources].map(([filePath, text]) => indexed(filePath, text));
+		const currentIndex = await indexRepoMapSymbols({ root, files, concurrency: 2, readText: readSources(sources) });
+		const incremental = buildRepoMapRelationships({
+			mapId: "c".repeat(64),
+			files,
+			symbols: currentIndex.symbols,
+			imports: currentIndex.imports,
+			previous: { files: previousFiles, symbols: previousIndex.symbols, edges: previousEdges },
+		});
+		const rebuilt = buildRepoMapRelationships({ mapId: "c".repeat(64), files, symbols: currentIndex.symbols, imports: currentIndex.imports });
+
+		expect(incremental).toEqual(rebuilt);
+		expect(incremental).toContainEqual(expect.objectContaining({ kind: "calls", lexicalTarget: "target", to: "lexical:symbol:target" }));
+	});
 });
 
 function indexed(filePath: string, text: string): RepoMapFileRecord {

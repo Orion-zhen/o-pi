@@ -104,6 +104,39 @@ describe("Repo Map architecture graph", () => {
 		expect(generation.edges.every((edge) => ids.has(edge.from) && (ids.has(edge.to) || edge.to.startsWith("external:") || edge.to.startsWith("lexical:")))).toBe(true);
 		expect(JSON.stringify(generation)).not.toContain("src/index.ts");
 	});
+
+	it("reuses unchanged source facts and stays equivalent to a full architecture rebuild", async () => {
+		const root = path.join(temp.path, "incremental-architecture");
+		const sources = new Map([
+			["package.json", JSON.stringify({ name: "incremental", exports: "./src/index.ts" })],
+			["src/index.ts", "export { publicApi } from './impl';\n"],
+			["src/impl.ts", "export function publicApi() { return 1; }\n"],
+			["src/stable.ts", "export function extension(pi: any) { pi.registerCommand('stable', {}); }\n"],
+		]);
+		const read = async (absolutePath: string): Promise<string> => sources.get(path.relative(root, absolutePath).replaceAll(path.sep, "/")) ?? "";
+		const previousFiles = [...sources].map(([filePath, text]) => fileRecord(filePath, text));
+		const previousSymbols = await indexRepoMapSymbols({ root, files: previousFiles, concurrency: 2, readText: read });
+		const previous = await buildRepoMapArchitecture({ root, mapId: "a".repeat(64), files: previousFiles, symbols: previousSymbols.symbols, readText: read });
+
+		sources.set("src/impl.ts", "export function publicApi() { return 2; }\nexport function addedApi() {}\n");
+		const files = [...sources].map(([filePath, text]) => fileRecord(filePath, text));
+		const indexed = await indexRepoMapSymbols({ root, files, concurrency: 2, readText: read });
+		const incrementalRead = vi.fn(read);
+		const incremental = await buildRepoMapArchitecture({
+			root,
+			mapId: "a".repeat(64),
+			files,
+			symbols: indexed.symbols,
+			previous: { files: previousFiles, architecture: previous.nodes, edges: previous.edges, diagnostics: previous.diagnostics },
+			readText: incrementalRead,
+		});
+		const rebuilt = await buildRepoMapArchitecture({ root, mapId: "a".repeat(64), files, symbols: indexed.symbols, readText: read });
+
+		expect(incremental).toEqual(rebuilt);
+		const readPaths = incrementalRead.mock.calls.map(([absolutePath]) => path.relative(root, absolutePath).replaceAll(path.sep, "/"));
+		expect(readPaths).toEqual(expect.arrayContaining(["package.json", "src/index.ts", "src/impl.ts"]));
+		expect(readPaths).not.toContain("src/stable.ts");
+	});
 });
 
 function fixtureSources(): Map<string, string> {

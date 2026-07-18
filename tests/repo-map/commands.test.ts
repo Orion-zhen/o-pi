@@ -3,7 +3,12 @@ import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earen
 import { describe, expect, it, vi } from "vitest";
 
 import { REPO_MAP_SESSION_ENTRY } from "../../src/repo-map/activation.js";
-import { registerRepoMapCommand, type RepoMapCommandDependencies } from "../../src/repo-map/commands.js";
+import {
+	createRepoMapCommandDependencies,
+	registerRepoMapCommand,
+	type RepoMapCommandDependencies,
+	type RepoMapCommandModuleImports,
+} from "../../src/repo-map/commands.js";
 import { RepoMapError } from "../../src/repo-map/errors.js";
 import type { InitializeRepoMapResult } from "../../src/repo-map/service.js";
 import type { RepoMapGeneration } from "../../src/repo-map/storage.js";
@@ -61,6 +66,76 @@ describe("/init command", () => {
 		expect(harness.initialize).not.toHaveBeenCalled();
 		expect(harness.readActivated).not.toHaveBeenCalled();
 		for (const modulePath of parserModules) expect(require.cache[modulePath]).toBeUndefined();
+	});
+
+	it("loads service only for active work and reuses the loaded module", async () => {
+		const result = initializeResult();
+		const loadCurrentPointer = vi.fn(async () => ({ isActivatedGenerationCurrent: async () => true }));
+		const loadService = vi.fn(async () => ({
+			initializeRepoMap: async () => result,
+			readActivatedRepoMapState: async (): Promise<RepoMapGeneration> => generationFor(result),
+		}));
+		const dependencies = createRepoMapCommandDependencies({ currentPointer: loadCurrentPointer, service: loadService });
+		const harness = commandHarness(dependencies);
+
+		await harness.handler("status", harness.ctx);
+		await harness.handler("off", harness.ctx);
+		await harness.handler("unknown", harness.ctx);
+		expect(loadService).not.toHaveBeenCalled();
+
+		await harness.handler("", harness.ctx);
+		await harness.handler("status", harness.ctx);
+		expect(loadCurrentPointer).toHaveBeenCalledTimes(1);
+		expect(loadService).toHaveBeenCalledTimes(1);
+	});
+
+	it("reports an unavailable activation without loading the service", async () => {
+		const result = initializeResult();
+		const loadCurrentPointer = vi.fn(async () => ({ isActivatedGenerationCurrent: async () => false }));
+		const loadService = vi.fn(async () => ({
+			initializeRepoMap: async () => result,
+			readActivatedRepoMapState: async (): Promise<RepoMapGeneration> => generationFor(result),
+		}));
+		const dependencies = createRepoMapCommandDependencies({ currentPointer: loadCurrentPointer, service: loadService });
+		const activation = {
+			root: "/repo",
+			mapId: "a".repeat(64),
+			generation: "b".repeat(64),
+			activatedAt: "2026-07-17T00:00:00.000Z",
+		};
+
+		expect(await dependencies.readActivated(activation)).toBeUndefined();
+		expect(loadCurrentPointer).toHaveBeenCalledTimes(1);
+		expect(loadService).not.toHaveBeenCalled();
+	});
+
+	it("coalesces concurrent service loads and retries a rejected import", async () => {
+		const result = initializeResult();
+		let fail = true;
+		const loadCurrentPointer = vi.fn(async () => ({ isActivatedGenerationCurrent: async () => true }));
+		const loadService = vi.fn<RepoMapCommandModuleImports["service"]>(async () => {
+			if (fail) throw new Error("load failed");
+			return {
+				initializeRepoMap: async () => result,
+				readActivatedRepoMapState: async (): Promise<RepoMapGeneration> => generationFor(result),
+			};
+		});
+		const dependencies = createRepoMapCommandDependencies({ currentPointer: loadCurrentPointer, service: loadService });
+
+		await expect(dependencies.initialize({ cwd: "/repo" })).rejects.toThrow("load failed");
+		fail = false;
+		const [initialized, generation] = await Promise.all([
+			dependencies.initialize({ cwd: "/repo" }),
+			dependencies.readActivated({
+				root: "/repo",
+				mapId: "a".repeat(64),
+				generation: "b".repeat(64),
+				activatedAt: "2026-07-17T00:00:00.000Z",
+			}),
+		]);
+		expect(initialized).toBe(result);
+		expect(generation?.metadata).toBe(result.metadata);
+		expect(loadService).toHaveBeenCalledTimes(2);
 	});
 
 	it("shows active metadata or unavailable for the exact activation", async () => {
@@ -167,4 +242,8 @@ function initializeResult(root = "/repo", mapCharacter = "a"): InitializeRepoMap
 		},
 		reusedGeneration: false,
 	};
+}
+
+function generationFor(result: InitializeRepoMapResult): RepoMapGeneration {
+	return { metadata: result.metadata, files: [], symbols: [], tests: [], architecture: [], aliases: [], edges: [], diagnostics: [] };
 }

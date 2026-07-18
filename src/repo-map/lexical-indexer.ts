@@ -21,6 +21,10 @@ export interface BuildRepoMapLexicalAliasesInput {
 	architecture: readonly RepoMapArchitectureNode[];
 	edges: readonly RepoMapEdge[];
 	concurrency: number;
+	previous?: {
+		files: readonly RepoMapFileRecord[];
+		aliases: readonly RepoMapLexicalAlias[];
+	};
 	signal?: AbortSignal;
 	readText?: RepoMapReadText;
 }
@@ -47,6 +51,7 @@ const SOURCE_CONFIDENCE: Record<RepoMapAliasSource, number> = {
 	"doc-comment": 0.68,
 };
 const MAX_ALIASES_PER_TARGET = 96;
+const SOURCE_ALIAS_TYPES = new Set<RepoMapAliasSource>(["import-alias", "export-alias", "config-key", "environment", "doc-comment"]);
 
 /** Builds a deterministic, repository-only lexical index. It never invents synonyms. */
 export async function buildRepoMapLexicalAliases(input: BuildRepoMapLexicalAliasesInput): Promise<RepoMapLexicalAlias[]> {
@@ -102,8 +107,17 @@ export function canonicalLexicalTerm(term: string): string {
 async function sourceAliases(input: BuildRepoMapLexicalAliasesInput): Promise<RepoMapLexicalAlias[]> {
 	const readText = input.readText ?? readTextNoFollow;
 	const indexed = input.files.filter((file) => file.status === "indexed" && file.contentHash !== undefined);
+	const previousFiles = new Map(input.previous?.files.map((file) => [file.path, file]) ?? []);
+	const previousAliases = groupBy(
+		(input.previous?.aliases ?? []).filter((alias) => SOURCE_ALIAS_TYPES.has(alias.source)),
+		(alias) => alias.target,
+	);
 	const limit = pLimit(input.concurrency);
 	const results = await limit.map(indexed, async (file) => {
+			const previous = previousFiles.get(file.path);
+			if (previous?.status === "indexed" && previous.contentHash === file.contentHash) {
+				return previousAliases.get(file.id) ?? [];
+			}
 			throwIfAborted(input.signal);
 			try {
 				const text = await readText(path.join(input.root, file.path), input.signal);
@@ -176,14 +190,20 @@ function addTerms(
 }
 
 function deduplicateAndLimit(input: readonly RepoMapLexicalAlias[]): RepoMapLexicalAlias[] {
-	const unique = new Map<string, RepoMapLexicalAlias>();
+	const unique = new Map<string, { alias: RepoMapLexicalAlias; evidence?: RepoMapEvidence[] }>();
 	for (const alias of input) {
 		const key = [alias.target, alias.term, alias.canonical, alias.source].join("\0");
 		const existing = unique.get(key);
-		if (existing === undefined) unique.set(key, { ...alias, evidence: [...alias.evidence] });
-		else existing.evidence = uniqueRepoMapEvidence([...existing.evidence, ...alias.evidence]);
+		if (existing === undefined) unique.set(key, { alias });
+		else {
+			existing.evidence ??= [...existing.alias.evidence];
+			existing.evidence.push(...alias.evidence);
+		}
 	}
-	const byTarget = groupBy([...unique.values()], (alias) => alias.target);
+	const aliases = [...unique.values()].map(({ alias, evidence }) => evidence === undefined
+		? alias
+		: { ...alias, evidence: uniqueRepoMapEvidence(evidence) });
+	const byTarget = groupBy(aliases, (alias) => alias.target);
 	return [...byTarget.values()].flatMap((values) => values
 		.sort((left, right) => right.confidence - left.confidence || compareText(left.term, right.term) || compareText(left.source, right.source))
 		.slice(0, MAX_ALIASES_PER_TARGET))

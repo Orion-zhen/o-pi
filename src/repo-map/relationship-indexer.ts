@@ -10,6 +10,11 @@ export interface BuildRepoMapRelationshipsInput {
 	files: readonly RepoMapFileRecord[];
 	symbols: readonly RepoMapSymbolNode[];
 	imports: readonly RepoMapImportFact[];
+	previous?: {
+		files: readonly RepoMapFileRecord[];
+		symbols: readonly RepoMapSymbolNode[];
+		edges: readonly RepoMapEdge[];
+	};
 }
 
 interface ResolvedTarget {
@@ -30,6 +35,11 @@ export function buildRepoMapRelationships(input: BuildRepoMapRelationshipsInput)
 	const filesById = new Map(input.files.map((file) => [file.id, file]));
 	const filesByPath = new Map(input.files.map((file) => [file.path, file]));
 	const symbolsByName = symbolLookup(input.symbols);
+	const reusableSymbolRelations = reusableRelationshipSymbols(input, symbolsByName);
+	const previousRelations = groupBy(
+		(input.previous?.edges ?? []).filter((edge) => edge.kind === "calls" || edge.kind === "references"),
+		(edge) => edge.from,
+	);
 	const edges: RepoMapEdge[] = [];
 	const repositoryId = `repository:${input.mapId}`;
 
@@ -68,11 +78,15 @@ export function buildRepoMapRelationships(input: BuildRepoMapRelationshipsInput)
 				evidence: [evidence],
 			});
 		}
-		const calls = new Set(symbol.calls.filter((target) => target !== symbol.name && target !== symbol.qualifiedName));
-		for (const target of calls) addSymbolRelation(edges, "calls", symbol, target, evidence, symbolsByName);
-		for (const target of symbol.references) {
-			if (!shouldIndexReference(symbol, target, calls, symbolsByName)) continue;
-			addSymbolRelation(edges, "references", symbol, target, evidence, symbolsByName);
+		if (reusableSymbolRelations.has(symbol.id)) {
+			edges.push(...previousRelations.get(symbol.id) ?? []);
+		} else {
+			const calls = new Set(symbol.calls.filter((target) => target !== symbol.name && target !== symbol.qualifiedName));
+			for (const target of calls) addSymbolRelation(edges, "calls", symbol, target, evidence, symbolsByName);
+			for (const target of symbol.references) {
+				if (!shouldIndexReference(symbol, target, calls, symbolsByName)) continue;
+				addSymbolRelation(edges, "references", symbol, target, evidence, symbolsByName);
+			}
 		}
 	}
 	for (const item of input.imports) {
@@ -91,6 +105,41 @@ export function buildRepoMapRelationships(input: BuildRepoMapRelationshipsInput)
 		});
 	}
 	return coalesceRepoMapEdges(edges);
+}
+
+function reusableRelationshipSymbols(
+	input: BuildRepoMapRelationshipsInput,
+	currentLookup: ReadonlyMap<string, RepoMapSymbolNode[]>,
+): Set<string> {
+	const previous = input.previous;
+	if (previous === undefined || previous.files.length !== input.files.length) return new Set();
+	const oldFiles = new Map(previous.files.map((file) => [file.path, file]));
+	if (input.files.some((file) => oldFiles.get(file.path)?.id !== file.id)) return new Set();
+	const unchangedFiles = new Set(input.files.filter((file) => {
+		const old = oldFiles.get(file.path);
+		return old?.status === file.status && old.contentHash === file.contentHash;
+	}).map((file) => file.id));
+	const previousSymbols = new Map(previous.symbols.map((symbol) => [symbol.id, symbol]));
+	const changedLookupKeys = changedSymbolLookupKeys(symbolLookup(previous.symbols), currentLookup);
+	return new Set(input.symbols.filter((symbol) => {
+		if (!unchangedFiles.has(symbol.fileId) || !previousSymbols.has(symbol.id)) return false;
+		return [...symbol.calls, ...symbol.references].every((target) => {
+			const shortName = target.includes(".") ? target.slice(target.lastIndexOf(".") + 1) : target;
+			return !changedLookupKeys.has(target) && !changedLookupKeys.has(shortName);
+		});
+	}).map((symbol) => symbol.id));
+}
+
+function changedSymbolLookupKeys(
+	previous: ReadonlyMap<string, RepoMapSymbolNode[]>,
+	current: ReadonlyMap<string, RepoMapSymbolNode[]>,
+): Set<string> {
+	const keys = new Set([...previous.keys(), ...current.keys()]);
+	return new Set([...keys].filter((key) => symbolIds(previous.get(key)).join("\0") !== symbolIds(current.get(key)).join("\0")));
+}
+
+function symbolIds(symbols: readonly RepoMapSymbolNode[] | undefined): string[] {
+	return (symbols ?? []).map((symbol) => symbol.id).sort();
 }
 
 function addSymbolRelation(

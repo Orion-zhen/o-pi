@@ -44,8 +44,33 @@ if (notifications[0]?.[0] !== "Repo Map inactive" || notifications[1]?.[0] !== "
 	throw new Error("inactive Repo Map command behavior changed");
 }
 
+branch.push({
+	type: "custom",
+	id: "active-benchmark",
+	parentId: null,
+	timestamp: "benchmark",
+	customType: "o-pi:repo-map",
+	data: {
+		kind: "activation",
+		root: "/repo-map-benchmark",
+		mapId: "0".repeat(64),
+		generation: "1".repeat(64),
+		activatedAt: "2026-07-18T00:00:00.000Z",
+	},
+});
+const activeStatusStarted = performance.now();
+await init.handler("status", ctx);
+const activeStatusLoaded = performance.now();
+await init.handler("status", ctx);
+const activeStatusWarm = performance.now();
+if (!notifications[2]?.[0].includes("freshness: unavailable") || !notifications[3]?.[0].includes("freshness: unavailable")) {
+	throw new Error("active Repo Map status behavior changed");
+}
+
 console.log(JSON.stringify({
 	registrationMs: registered - started,
 	inactiveStatusMs: statusCompleted - statusStarted,
 	inactiveOffMs: offCompleted - statusCompleted,
+	activeStatusFirstMs: activeStatusLoaded - activeStatusStarted,
+	activeStatusWarmMs: activeStatusWarm - activeStatusLoaded,
 }));

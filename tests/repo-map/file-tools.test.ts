@@ -4,7 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CODE_INDEX_FORMAT_VERSION } from "../../src/code-index/identity.js";
 import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
@@ -16,6 +16,7 @@ import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
 import { clearGrepIndexForTests } from "../../src/file-tools/grep/indexer.js";
 import { computeRepoMapActivation, REPO_MAP_SESSION_ENTRY, type RepoMapActivationEntry } from "../../src/repo-map/activation.js";
 import { createRepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
+import { RepoMapQueryIndex } from "../../src/repo-map/query.js";
 import {
 	evaluateRepoMapFreshness,
 	initializeRepoMap,
@@ -87,10 +88,12 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		const deps = serviceDependencies(root);
 		const initialized = await initializeRepoMap({ cwd: root }, deps);
 		const branch = [activationEntry(initialized.metadata)];
+		const createQueryIndex = vi.fn((generation: RepoMapGeneration) => new RepoMapQueryIndex(generation));
 		const query = createRepoMapFileToolQuery(() => branch, {
 			async readActivated(activation) {
 				return await readActivatedRepoMap(activation, path.join(temp.path, "cache"));
 			},
+			createQueryIndex,
 		});
 		const runtime = {
 			repoMap: query,
@@ -113,6 +116,7 @@ describe("Repo Map file-tool read and mutation integration", () => {
 
 		const full = await readWorkspaceFile(root, { path: "b.ts" }, runtime);
 		expect(full).not.toHaveProperty("repo_map");
+		expect(createQueryIndex).toHaveBeenCalledTimes(1);
 	});
 
 	it("budgets the rendered read tag exactly and keeps disabled or failed enhancement byte-identical", async () => {
@@ -180,6 +184,7 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		const initialized = await initializeRepoMap({ cwd: root }, deps);
 		const branch: SessionEntry[] = [activationEntry(initialized.metadata)];
 		const appendActivation = (entry: RepoMapActivationEntry): void => appendEntry(branch, entry);
+		const createQueryIndex = vi.fn((generation: RepoMapGeneration) => new RepoMapQueryIndex(generation));
 		const query = createRepoMapFileToolQuery(() => branch, {
 			async readActivated(activation) {
 				return await readActivatedRepoMap(activation, path.join(temp.path, "cache"));
@@ -189,6 +194,7 @@ describe("Repo Map file-tool read and mutation integration", () => {
 			},
 			appendActivation,
 			now: () => new Date("2026-07-17T01:00:00.000Z"),
+			createQueryIndex,
 		});
 
 		const written = await writeWorkspaceFile(root, {
@@ -222,6 +228,9 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		generation = await activatedGeneration(branch);
 		expect(generation.symbols.map((symbol) => symbol.name)).toContain("Replacement");
 		expect(generation.symbols.map((symbol) => symbol.name)).not.toContain("Added");
+		const replacement = await query.query({ requestedPath: root, query: "Replacement", limit: 5 });
+		expect(replacement?.candidates.some((candidate) => candidate.symbol?.name === "Replacement")).toBe(true);
+		expect(createQueryIndex).toHaveBeenCalledTimes(2);
 		const nodeIds = new Set([
 			`repository:${generation.metadata.mapId}`,
 			...generation.files.map((file) => file.id),
