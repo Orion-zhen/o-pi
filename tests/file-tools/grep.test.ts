@@ -564,6 +564,11 @@ describe("grep", () => {
 		await writeFile(path.join(workspace, "notes.conf"), "section=true\nfatal authentication error\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "fatal authentication error", match: "literal" }));
 		expect(firstRegion(result)).toMatchObject({ path: "notes.conf", kind: "text", detail: "snippet" });
+
+		const auto = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "authentication error" }));
+		expect(firstRegion(auto)).toMatchObject({ path: "notes.conf", kind: "text", reasons: ["exact literal"] });
+		const warmLexical = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "fatal error" }));
+		expect(firstRegion(warmLexical)).toMatchObject({ path: "notes.conf", kind: "text", reasons: ["lexical"] });
 	});
 
 	it("binary、invalid UTF-8、too large、blocked path 和 symlink 行为保持", async () => {

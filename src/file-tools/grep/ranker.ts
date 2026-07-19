@@ -1,4 +1,4 @@
-import { buildLineIndex, byteRangeForLinesWithIndex, extractByteRange, splitTokens, tokenizeText, type IndexedCodeUnit, type LineIndex, type SourceRange } from "../../code-index/parser.js";
+import { buildLineIndex, byteRangeForLinesWithIndex, extractByteRange, splitTokens, tokenizeText, type AnalyzedFileIndex, type IndexedCodeUnit, type LineIndex, type SourceRange } from "../../code-index/parser.js";
 import { createRankingEvidence, EMPTY_RANKING_EVIDENCE, mergeRankingEvidence, rankPercentile, type RankingEvidence, type RankingEvidenceFamily } from "../ranking-evidence.js";
 import type { GrepMatchMode } from "../types.js";
 
@@ -23,7 +23,7 @@ export interface RankedGrepRegion extends SourceRange {
 export interface RankInput {
 	query: string;
 	match: GrepMatchMode;
-	files: Array<{ path: string; units: IndexedCodeUnit[] }>;
+	files: Array<{ path: string; units: IndexedCodeUnit[]; parserStatus: AnalyzedFileIndex["status"] }>;
 	sourceText?: Map<string, string>;
 	lineIndexes?: Map<string, LineIndex>;
 	regex?: RegExp;
@@ -66,7 +66,9 @@ export function rankGrepRegions(input: RankInput): { regions: RankedGrepRegion[]
 		}
 	}
 
-	if (input.match !== "auto") {
+	if (input.match === "auto") {
+		for (const fallback of rankAutoFallbackText(input, context)) addCandidate(candidates, fallback);
+	} else {
 		for (const fallback of rankFallbackText(input)) addCandidate(candidates, fallback);
 	}
 
@@ -166,6 +168,62 @@ function rankFallbackText(input: RankInput): RankedGrepRegion[] {
 		}
 	}
 	return regions;
+}
+
+function rankAutoFallbackText(input: RankInput, context: RankContext): RankedGrepRegion[] {
+	const regions: RankedGrepRegion[] = [];
+	const queryTokens = [...new Set(context.queryTokens)];
+	for (const file of input.files) {
+		if (file.parserStatus === "parsed") continue;
+		const text = input.sourceText?.get(file.path);
+		if (text === undefined) continue;
+		const lines = text.split(/\n/u);
+		const pathScore = pathRelevance(file.path, context.queryTokenMap);
+		let lineIndex = input.lineIndexes?.get(file.path);
+		if (lineIndex === undefined) {
+			lineIndex = buildLineIndex(text);
+			input.lineIndexes?.set(file.path, lineIndex);
+		}
+		for (const [index, content] of lines.entries()) {
+			const exact = content.includes(input.query);
+			const identifierMatch = context.identifierLike && content.toLocaleLowerCase().includes(context.queryLower);
+			if (!exact && context.identifierLike && !identifierMatch) continue;
+			const matchedTokens = countMatchedTokens(queryTokens, tokenizeText(content));
+			const lexicalMatch = context.identifierLike ? identifierMatch : hasFallbackLexicalCoverage(matchedTokens, queryTokens.length);
+			if (!exact && !lexicalMatch) continue;
+			const line = index + 1;
+			const range = byteRangeForLinesWithIndex(lineIndex, Math.max(1, line - 2), line + 2);
+			regions.push({
+				id: `${file.path}:${range.startByte}:${range.endByte}:auto-fallback`,
+				path: file.path,
+				kind: "text",
+				startLine: Math.max(1, line - 2),
+				endLine: line + 2,
+				startByte: range.startByte,
+				endByte: range.endByte,
+				tier: exact ? 4 : 5,
+				evidence: EMPTY_RANKING_EVIDENCE,
+				reasons: [exact ? "exact literal" : "lexical"],
+				matchLines: [line],
+				callees: [],
+				imports: [],
+				lexicalRelevance: matchedTokens,
+				pathRelevance: pathScore,
+			});
+		}
+	}
+	return regions;
+}
+
+function countMatchedTokens(queryTokens: readonly string[], contentTokens: ReadonlyMap<string, number>): number {
+	let matched = 0;
+	for (const token of queryTokens) if (contentTokens.has(token)) matched += 1;
+	return matched;
+}
+
+function hasFallbackLexicalCoverage(matched: number, total: number): boolean {
+	if (total === 0) return false;
+	return matched >= (total === 1 ? 1 : Math.min(2, total));
 }
 
 function relationCandidates(units: IndexedCodeUnit[], seedSymbols: Set<string>): RankedGrepRegion[] {

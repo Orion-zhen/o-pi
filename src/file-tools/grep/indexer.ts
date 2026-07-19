@@ -8,7 +8,7 @@ import { ignoreConfigFromFileTools, isBlockedPath, isIgnoredPath, loadFileToolsC
 import { fail, isAccessDenied, isFailed, protectedPathFailure } from "../core/errors.js";
 import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
 import type { IgnoreSnapshot } from "../ignore/ignore-types.js";
-import { parseCodeUnits, type ParsedFileIndex } from "../../code-index/parser.js";
+import { analyzeCodeFile, type AnalyzedFileIndex, type ParsedFileIndex } from "../../code-index/parser.js";
 import { guardExistingPath, PathGuardBlockedError } from "../../safety/path-guard.js";
 import { normalizeToolPath } from "../core/path-resolver.js";
 import { decodeTextFile } from "../core/text-file.js";
@@ -22,6 +22,7 @@ export interface GrepCandidateFile {
 	mtimeMs: number;
 	contentHash: string;
 	index: ParsedFileIndex;
+	parserStatus: AnalyzedFileIndex["status"];
 }
 
 export interface GrepSearchRoot {
@@ -63,6 +64,7 @@ interface CachedFileIndex {
 	mtimeMs: number;
 	hash?: string;
 	index?: ParsedFileIndex;
+	parserStatus?: AnalyzedFileIndex["status"];
 	misses: Set<string>;
 }
 
@@ -355,10 +357,14 @@ async function indexFile(
 
 	const cached = state.cache.files.get(displayPath);
 	const cacheCurrent = cached !== undefined && cached.size === info.size && cached.mtimeMs === info.mtimeMs;
+	let cachedAutoFallback: (CachedFileIndex & { hash: string; index: ParsedFileIndex; parserStatus: AnalyzedFileIndex["status"] }) | undefined;
 	if (cacheCurrent) {
 		if (isParsedCachedFile(cached)) {
-			state.files.push(toCandidate(cached));
-			return;
+			if (cached.parserStatus === "parsed" || state.contentFilter !== undefined) {
+				state.files.push(toCandidate(cached));
+				return;
+			}
+			cachedAutoFallback = cached;
 		}
 		if (state.contentFilter !== undefined && cached.misses.has(state.contentFilter.key)) return;
 	}
@@ -368,6 +374,11 @@ async function indexFile(
 		if (explicit) return loaded;
 		if (loaded.error.code === "BINARY_FILE_UNSUPPORTED") state.skipped.binary += 1;
 		else if (loaded.error.code === "ENCODING_UNSUPPORTED") state.skipped.invalid_utf8 += 1;
+		return;
+	}
+	if (cachedAutoFallback !== undefined) {
+		state.files.push(toCandidate(cachedAutoFallback));
+		state.sourceText.set(displayPath, loaded.text);
 		return;
 	}
 	if (state.contentFilter !== undefined && !state.contentFilter.matches(loaded.text)) {
@@ -383,15 +394,16 @@ async function indexFile(
 		});
 		return;
 	}
-	const parsed = parseCodeUnits(displayPath, loaded.text);
-	const cachedFile: CachedFileIndex & { hash: string; index: ParsedFileIndex } = {
+	const analyzed = analyzeCodeFile(displayPath, loaded.text);
+	const cachedFile: CachedFileIndex & { hash: string; index: ParsedFileIndex; parserStatus: AnalyzedFileIndex["status"] } = {
 		path: displayPath,
 		absolutePath,
 		realPath: absolutePath,
 		size: loaded.size,
 		mtimeMs: loaded.mtimeMs,
 		hash: hashText(loaded.text),
-		index: parsed,
+		index: analyzed.index,
+		parserStatus: analyzed.status,
 		misses: new Set(),
 	};
 	state.cache.files.set(displayPath, cachedFile);
@@ -433,7 +445,7 @@ async function readStableText(
 	return fail("INVALID_OPERATION", "File changed while grep was indexing it.", { path: displayPath });
 }
 
-function toCandidate(cached: CachedFileIndex & { hash: string; index: ParsedFileIndex }): GrepCandidateFile {
+function toCandidate(cached: CachedFileIndex & { hash: string; index: ParsedFileIndex; parserStatus: AnalyzedFileIndex["status"] }): GrepCandidateFile {
 	return {
 		path: cached.path,
 		absolutePath: cached.absolutePath,
@@ -442,11 +454,12 @@ function toCandidate(cached: CachedFileIndex & { hash: string; index: ParsedFile
 		mtimeMs: cached.mtimeMs,
 		contentHash: cached.hash,
 		index: cached.index,
+		parserStatus: cached.parserStatus,
 	};
 }
 
-function isParsedCachedFile(cached: CachedFileIndex): cached is CachedFileIndex & { hash: string; index: ParsedFileIndex } {
-	return cached.hash !== undefined && cached.index !== undefined;
+function isParsedCachedFile(cached: CachedFileIndex): cached is CachedFileIndex & { hash: string; index: ParsedFileIndex; parserStatus: AnalyzedFileIndex["status"] } {
+	return cached.hash !== undefined && cached.index !== undefined && cached.parserStatus !== undefined;
 }
 
 function createContentFilter(query: string, match: GrepParams["match"]): ToolOutcome<ContentFilter | undefined> {

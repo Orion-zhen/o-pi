@@ -62,7 +62,7 @@ export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal
 	const rankInput = {
 		query: validation.query,
 		match: validation.match,
-		files: index.files.map((file) => ({ path: file.path, units: file.index.units })),
+		files: index.files.map((file) => ({ path: file.path, units: file.index.units, parserStatus: file.parserStatus })),
 		sourceText,
 		lineIndexes: rankingContext.lineIndexes,
 		allowMetadataCandidates: validation.match !== "auto",
