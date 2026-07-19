@@ -17,9 +17,10 @@ describe("Repo Map extension loading boundary", () => {
 		process.env["PI_REPO_MAP_CONFIG"] = configPath;
 		const commands: string[] = [];
 		repoMapExtension({
+			on() {},
 			registerCommand(name) { commands.push(name); },
 			appendEntry() {},
-		} satisfies Pick<ExtensionAPI, "registerCommand" | "appendEntry">);
+		} satisfies Pick<ExtensionAPI, "registerCommand" | "appendEntry" | "on">);
 		expect(commands).toEqual(["init"]);
 		await expect(stat(cacheRoot)).rejects.toMatchObject({ code: "ENOENT" });
 		await expect(stat(configPath)).rejects.toMatchObject({ code: "ENOENT" });

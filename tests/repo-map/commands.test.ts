@@ -6,6 +6,7 @@ import { REPO_MAP_SESSION_ENTRY } from "../../src/repo-map/activation.js";
 import {
 	createRepoMapCommandDependencies,
 	registerRepoMapCommand,
+	registerRepoMapStatus,
 	type RepoMapCommandDependencies,
 	type RepoMapCommandModuleImports,
 } from "../../src/repo-map/commands.js";
@@ -25,6 +26,25 @@ const parserModules = [
 ];
 
 describe("/init command", () => {
+	it("restores the persistent activation status when a session starts", async () => {
+		const starts: Array<(event: unknown, ctx: Pick<ExtensionCommandContext, "mode" | "sessionManager" | "ui">) => void> = [];
+		registerRepoMapStatus({
+			on(_event, handler) { starts.push(handler); },
+		});
+		const start = starts[0];
+		if (start === undefined) throw new Error("session_start was not registered");
+		const harness = commandHarness();
+
+		start({}, { ...harness.ctx, mode: "rpc" });
+		expect(harness.status).toEqual([]);
+		start({}, harness.ctx);
+		expect(harness.status.at(-1)).toEqual(["repo-map", "Repo Map: inactive"]);
+		await harness.handler("", harness.ctx);
+		harness.status.length = 0;
+		start({}, harness.ctx);
+		expect(harness.status).toEqual([["repo-map", "Repo Map: active"]]);
+	});
+
 	it("registers only /init, appends activation after success, and avoids duplicate activation", async () => {
 		const harness = commandHarness();
 		expect(harness.registered.map(([name]) => name)).toEqual(["init"]);
@@ -34,8 +54,46 @@ describe("/init command", () => {
 		await harness.handler("", harness.ctx);
 		expect(harness.appended).toHaveLength(1);
 		expect(harness.initialize).toHaveBeenCalledTimes(2);
-		expect(harness.status.at(-1)).toEqual(["repo-map", undefined]);
+		expect(harness.status.at(-1)).toEqual(["repo-map", "Repo Map: active"]);
 		expect(harness.notifications.at(-1)?.[0]).toContain("Repo Map active");
+	});
+
+	it("shows an immediate initialization status until work settles", async () => {
+		const result = initializeResult();
+		const pending = deferred<InitializeRepoMapResult>();
+		const harness = commandHarness({ initialize: async () => await pending.promise });
+
+		const running = harness.handler("rebuild", harness.ctx);
+		expect(harness.status).toEqual([["repo-map", "Repo Map: preparing"]]);
+		expect(harness.notifications).toEqual([]);
+
+		pending.resolve(result);
+		await running;
+		expect(harness.status.at(-1)).toEqual(["repo-map", "Repo Map: active"]);
+	});
+
+	it("renders phase and sampled count progress without flooding the UI", async () => {
+		const result = initializeResult();
+		const harness = commandHarness({
+			initialize: async (input) => {
+				input.onProgress?.({ phase: "discovering" });
+				input.onProgress?.({ phase: "hashing", completed: 1, total: 1_000 });
+				input.onProgress?.({ phase: "hashing", completed: 2, total: 1_000 });
+				input.onProgress?.({ phase: "hashing", completed: 10, total: 1_000 });
+				input.onProgress?.({ phase: "hashing", completed: 1_000, total: 1_000 });
+				return result;
+			},
+		});
+
+		await harness.handler("refresh", harness.ctx);
+		expect(harness.status).toEqual([
+			["repo-map", "Repo Map: preparing"],
+			["repo-map", "Repo Map: discovering"],
+			["repo-map", "Repo Map: hashing 1/1000"],
+			["repo-map", "Repo Map: hashing 10/1000"],
+			["repo-map", "Repo Map: hashing 1000/1000"],
+			["repo-map", "Repo Map: active"],
+		]);
 	});
 
 	it("does not append on failure or cancellation", async () => {
@@ -44,6 +102,7 @@ describe("/init command", () => {
 			await harness.handler("", harness.ctx);
 			expect(harness.appended).toEqual([]);
 			expect(harness.notifications.at(-1)?.[0]).toBe(failure.message);
+			expect(harness.status.at(-1)).toEqual(["repo-map", "Repo Map: inactive"]);
 		}
 	});
 
@@ -141,7 +200,12 @@ describe("/init command", () => {
 	it("shows active metadata or unavailable for the exact activation", async () => {
 		const active = commandHarness();
 		await active.handler("", active.ctx);
+		active.status.length = 0;
 		await active.handler("status", active.ctx);
+		expect(active.status).toEqual([
+			["repo-map", "Repo Map: checking status"],
+			["repo-map", "Repo Map: active"],
+		]);
 		expect(active.notifications.at(-1)?.[0]).toContain("cache schema: 5");
 		const missing = commandHarness({ readActivated: vi.fn(async () => undefined) });
 		await missing.handler("", missing.ctx);
@@ -195,6 +259,7 @@ function commandHarness(overrides: Partial<RepoMapCommandDependencies> = {}) {
 	if (command === undefined) throw new Error("/init was not registered");
 	const ctx = {
 		cwd: "/repo",
+		mode: "tui",
 		signal: undefined,
 		sessionManager: { getBranch: () => branch },
 		ui: {
@@ -246,4 +311,16 @@ function initializeResult(root = "/repo", mapCharacter = "a"): InitializeRepoMap
 
 function generationFor(result: InitializeRepoMapResult): RepoMapGeneration {
 	return { metadata: result.metadata, files: [], symbols: [], tests: [], architecture: [], aliases: [], edges: [], diagnostics: [] };
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+	let settle: ((value: T) => void) | undefined;
+	const promise = new Promise<T>((resolve) => { settle = resolve; });
+	return {
+		promise,
+		resolve(value) {
+			if (settle === undefined) throw new Error("Deferred promise was not initialized");
+			settle(value);
+		},
+	};
 }

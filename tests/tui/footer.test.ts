@@ -32,6 +32,28 @@ describe("tui footer", () => {
 		expect(output).not.toContain("tok");
 	});
 
+	it("把扩展状态固定在第一行 git 后面", () => {
+		const [output] = formatFooter(
+			{
+				cwd: "/repo/o-pi",
+				git: "main",
+				extensionStatus: "Repo Map: hashing 3/8",
+				modelId: "model-x",
+				status: "ready",
+			},
+			config,
+			160,
+			theme,
+		);
+		const gitIndex = output?.indexOf("⑂ main") ?? -1;
+		const repoMapIndex = output?.indexOf("Repo Map: hashing 3/8") ?? -1;
+		const modelIndex = output?.indexOf("model-x") ?? -1;
+		expect(gitIndex).toBeGreaterThanOrEqual(0);
+		expect(repoMapIndex).toBeGreaterThan(gitIndex);
+		expect(modelIndex).toBeGreaterThan(repoMapIndex);
+		expect(output).toContain("ready");
+	});
+
 	it("git 不可用时不崩溃", async () => {
 		await expect(readGitSegment(temp.path)).resolves.toBeUndefined();
 	});

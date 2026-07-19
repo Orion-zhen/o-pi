@@ -9,10 +9,16 @@ import {
 } from "./activation.js";
 import { RepoMapError } from "./errors.js";
 import { renderInitialization, renderStatus, renderUnavailableStatus } from "./renderer.js";
+import type { RepoMapProgress } from "./scanner.js";
 import type { InitializeRepoMapInput, InitializeRepoMapResult } from "./service.js";
 import type { RepoMapGeneration } from "./storage.js";
 
 type RepoMapCommandApi = Pick<ExtensionAPI, "registerCommand" | "appendEntry">;
+type RepoMapStatusContext = Pick<ExtensionCommandContext, "mode" | "sessionManager" | "ui">;
+
+interface RepoMapStatusApi {
+	on(event: "session_start", handler: (event: unknown, ctx: RepoMapStatusContext) => void): void;
+}
 
 export interface RepoMapCommandDependencies {
 	initialize(input: InitializeRepoMapInput): Promise<InitializeRepoMapResult>;
@@ -55,6 +61,12 @@ export function createRepoMapCommandDependencies(
 	};
 }
 
+export function registerRepoMapStatus(pi: RepoMapStatusApi): void {
+	pi.on("session_start", (_event, ctx) => {
+		if (ctx.mode === "tui") updateRepoMapStatus(ctx);
+	});
+}
+
 export function registerRepoMapCommand(
 	pi: RepoMapCommandApi,
 	dependencies: Partial<RepoMapCommandDependencies> = {},
@@ -91,14 +103,16 @@ async function initialize(
 	ctx: ExtensionCommandContext,
 	mode?: "refresh" | "rebuild",
 ): Promise<void> {
+	let activeAfterOperation = false;
 	try {
+		safeSetStatus(ctx, "Repo Map: preparing");
 		const result = await deps.initialize({
 			cwd: ctx.cwd,
 			...(mode !== undefined ? { mode } : {}),
 			...(ctx.signal !== undefined ? { signal: ctx.signal } : {}),
 			onProgress(progress) {
-				const count = progress.completed === undefined || progress.total === undefined ? "" : ` ${progress.completed}/${progress.total}`;
-				safeSetStatus(ctx, `Repo Map: ${progress.phase}${count}`);
+				const status = renderProgressStatus(progress);
+				if (status !== undefined) safeSetStatus(ctx, status);
 			},
 		});
 		const activation = computeRepoMapActivation(ctx.sessionManager.getBranch());
@@ -117,29 +131,37 @@ async function initialize(
 			};
 			pi.appendEntry<RepoMapActivationEntry>(REPO_MAP_SESSION_ENTRY, entry);
 		}
+		activeAfterOperation = true;
 		safeNotify(ctx, renderInitialization(result), "info");
 	} catch (error) {
+		if (ctx.mode === "tui") activeAfterOperation = isRepoMapActive(ctx);
 		const aborted = error instanceof RepoMapError && error.code === "OPERATION_ABORTED";
 		const message = error instanceof RepoMapError ? error.message : "Repo Map initialization failed.";
 		safeNotify(ctx, message, aborted ? "warning" : "error");
 	} finally {
-		safeSetStatus(ctx, undefined);
+		setRepoMapStatus(ctx, activeAfterOperation);
 	}
 }
 
 async function showStatus(deps: RepoMapCommandDependencies, ctx: ExtensionCommandContext): Promise<void> {
 	const activation = computeRepoMapActivation(ctx.sessionManager.getBranch());
 	if (activation === undefined) {
+		setRepoMapStatus(ctx, false);
 		safeNotify(ctx, "Repo Map inactive", "info");
 		return;
 	}
-	const generation = await deps.readActivated(activation).catch(() => undefined);
-	const metadata = generation === undefined
-		? undefined
-		: activation.freshness === undefined || generation.metadata.freshness === "stale" || generation.metadata.freshness === "unavailable"
-			? generation.metadata
-			: { ...generation.metadata, freshness: activation.freshness };
-	safeNotify(ctx, metadata === undefined ? renderUnavailableStatus(activation) : renderStatus(metadata), "info");
+	safeSetStatus(ctx, "Repo Map: checking status");
+	try {
+		const generation = await deps.readActivated(activation).catch(() => undefined);
+		const metadata = generation === undefined
+			? undefined
+			: activation.freshness === undefined || generation.metadata.freshness === "stale" || generation.metadata.freshness === "unavailable"
+				? generation.metadata
+				: { ...generation.metadata, freshness: activation.freshness };
+		safeNotify(ctx, metadata === undefined ? renderUnavailableStatus(activation) : renderStatus(metadata), "info");
+	} finally {
+		setRepoMapStatus(ctx, true);
+	}
 }
 
 function turnOff(pi: RepoMapCommandApi, deps: RepoMapCommandDependencies, ctx: ExtensionCommandContext): void {
@@ -152,7 +174,30 @@ function turnOff(pi: RepoMapCommandApi, deps: RepoMapCommandDependencies, ctx: E
 		};
 		pi.appendEntry<RepoMapDeactivationEntry>(REPO_MAP_SESSION_ENTRY, entry);
 	}
+	setRepoMapStatus(ctx, false);
 	safeNotify(ctx, "Repo Map inactive", "info");
+}
+
+function updateRepoMapStatus(ctx: RepoMapStatusContext): void {
+	setRepoMapStatus(ctx, isRepoMapActive(ctx));
+}
+
+function isRepoMapActive(ctx: Pick<RepoMapStatusContext, "sessionManager">): boolean {
+	return computeRepoMapActivation(ctx.sessionManager.getBranch()) !== undefined;
+}
+
+function setRepoMapStatus(ctx: Pick<RepoMapStatusContext, "mode" | "ui">, active: boolean): void {
+	safeSetStatus(ctx, active ? "Repo Map: active" : "Repo Map: inactive");
+}
+
+function renderProgressStatus(progress: RepoMapProgress): string | undefined {
+	const { completed, total } = progress;
+	if (completed !== undefined && total !== undefined && completed > 1 && completed < total) {
+		const updateInterval = Math.max(1, Math.ceil(total / 100));
+		if (completed % updateInterval !== 0) return undefined;
+	}
+	const count = completed === undefined || total === undefined ? "" : ` ${completed}/${total}`;
+	return `Repo Map: ${progress.phase}${count}`;
 }
 
 function safeNotify(ctx: ExtensionCommandContext, message: string, type: "info" | "warning" | "error"): void {
@@ -163,7 +208,8 @@ function safeNotify(ctx: ExtensionCommandContext, message: string, type: "info" 
 	}
 }
 
-function safeSetStatus(ctx: ExtensionCommandContext, text: string | undefined): void {
+function safeSetStatus(ctx: Pick<ExtensionCommandContext, "mode" | "ui">, text: string): void {
+	if (ctx.mode !== "tui") return;
 	try {
 		ctx.ui.setStatus("repo-map", text);
 	} catch {

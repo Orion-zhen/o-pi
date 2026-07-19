@@ -119,6 +119,20 @@ describe("tui extension", () => {
 		const output = component?.render(80).join("\n") ?? "";
 		expect(output).not.toContain("grep bash");
 		expect(output).toContain("2/3 tools enabled");
+
+		const busyFooter = footerFactory?.(
+			{ requestRender() {} },
+			ctx.ui.theme,
+			createFooterData(new Map([
+				["o-pi:tui", "✓ ready"],
+				["repo-map", "Repo Map: preparing"],
+				["other", "Other: busy"],
+			])),
+		);
+		const busyOutput = busyFooter?.render(120).join("\n") ?? "";
+		expect(busyOutput).toContain("Repo Map: preparing");
+		expect(busyOutput).toContain("ready");
+		expect(busyOutput).not.toContain("Other: busy");
 	});
 
 	it("session_start 设置 footer/status/working indicator 和 startup banner header", async () => {
@@ -272,10 +286,10 @@ describe("tui extension", () => {
 	});
 });
 
-function createFooterData(): FooterDataStub {
+function createFooterData(statuses: ReadonlyMap<string, string> = new Map()): FooterDataStub {
 	return {
 		getGitBranch: () => null,
-		getExtensionStatuses: () => new Map(),
+		getExtensionStatuses: () => statuses,
 		getAvailableProviderCount: () => 1,
 		onBranchChange: () => () => {},
 	};

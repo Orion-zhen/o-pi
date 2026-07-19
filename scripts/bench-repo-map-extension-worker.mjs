@@ -10,6 +10,7 @@ const started = performance.now();
 const jiti = createJiti(import.meta.url, { moduleCache: false });
 const extension = await jiti.import(entry, { default: true });
 extension({
+	on() {},
 	registerCommand(name, options) {
 		commands.set(name, options);
 	},

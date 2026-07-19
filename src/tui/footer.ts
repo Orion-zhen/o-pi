@@ -85,6 +85,8 @@ export class TuiFooterComponent implements Component {
 		private readonly footerData: ReadonlyFooterDataProvider,
 		private readonly config: TuiFooterConfig,
 		private readonly getSnapshot: () => TuiFooterSnapshot,
+		private readonly ownStatusKey?: string,
+		private readonly leftStatusKey?: string,
 	) {
 		this.unsubscribe = footerData.onBranchChange(() => {
 			this.invalidate();
@@ -106,12 +108,15 @@ export class TuiFooterComponent implements Component {
 
 	private withFooterData(snapshot: TuiFooterSnapshot): TuiFooterSnapshot {
 		const branch = this.footerData.getGitBranch();
-		const statuses = [...this.footerData.getExtensionStatuses().values()].filter((value) => value.length > 0);
+		const statuses = this.footerData.getExtensionStatuses();
+		const ownStatus = this.ownStatusKey === undefined ? undefined : statuses.get(this.ownStatusKey);
+		const leftStatus = this.leftStatusKey === undefined ? undefined : statuses.get(this.leftStatusKey);
 		return {
 			...snapshot,
 			...(snapshot.git !== undefined ? {} : branch !== null ? { git: branch } : {}),
 			availableProviderCount: this.footerData.getAvailableProviderCount(),
-			...(snapshot.status !== undefined ? {} : statuses.length > 0 ? { status: statuses.join(" · ") } : {}),
+			...(snapshot.status === undefined && ownStatus !== undefined && ownStatus.length > 0 ? { status: ownStatus } : {}),
+			...(leftStatus !== undefined && leftStatus.length > 0 ? { extensionStatus: leftStatus } : {}),
 		};
 	}
 }
@@ -119,8 +124,10 @@ export class TuiFooterComponent implements Component {
 export function createFooterComponent(
 	config: TuiFooterConfig,
 	getSnapshot: () => TuiFooterSnapshot,
+	ownStatusKey?: string,
+	leftStatusKey?: string,
 ): (tui: TUI, theme: Theme, footerData: ReadonlyFooterDataProvider) => Component & { dispose?(): void } {
-	return (tui, theme, footerData) => new TuiFooterComponent(tui, theme, footerData, config, getSnapshot);
+	return (tui, theme, footerData) => new TuiFooterComponent(tui, theme, footerData, config, getSnapshot, ownStatusKey, leftStatusKey);
 }
 
 function renderSegments(
@@ -141,7 +148,13 @@ function renderPrimaryLine(
 	theme: Pick<Theme, "fg"> | undefined,
 	config: TuiFooterConfig,
 ): string {
-	const left = renderSegments(snapshot, segments.filter(isLeftSegment), width, theme, config);
+	const configuredLeft = renderSegments(snapshot, segments.filter(isLeftSegment), width, theme, config);
+	const extensionStatus = dimOptional(theme, snapshot.extensionStatus);
+	const left = extensionStatus === undefined
+		? configuredLeft
+		: configuredLeft.length === 0
+			? extensionStatus
+			: `${configuredLeft}${dim(theme, " · ")}${extensionStatus}`;
 	const right = renderSegments(snapshot, segments.filter(isPrimaryRightSegment), width, theme, config);
 	return alignLine(left, right, width);
 }

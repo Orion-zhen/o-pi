@@ -49,11 +49,11 @@ agent/configs/tui.jsonc
 footer 最多两行：
 
 ```text
-<workspace · git>                              <model · ctx · status>
+<workspace · git · extension status>           <model · ctx · status>
 <tokens · cache · cost>                        <active>/<total> tools enabled
 ```
 
-窄屏第一行使用 `footer.narrow_segments`，两行都会按终端可见宽度截断。workspace 不带 `cwd` 前缀，`$HOME` 下路径显示为 `~/coding/project`。workspace、git 和 context 百分比保留彩色；其他 footer 文本使用 `dim`，避免抢占视线。模型、context、token、cache、cost 展示规则跟随 Pi 原版 footer：`↑/↓`、cache read/write、最近和累计 cache 命中率、`percent/window`、subscription cost 标记，以及支持 reasoning 的模型 thinking level。context 使用量按百分比从绿色渐变到红色。
+窄屏第一行使用 `footer.narrow_segments`，两行都会按终端可见宽度截断。Repo Map 通过 Pi `setStatus` 在第一行左侧、git 后常驻显示 active/inactive，并在初始化期间切换为实时阶段和采样计数。TUI 自身的 ready/running 状态仍位于右侧。workspace 不带 `cwd` 前缀，`$HOME` 下路径显示为 `~/coding/project`。workspace、git 和 context 百分比保留彩色；其他 footer 文本使用 `dim`，避免抢占视线。模型、context、token、cache、cost 展示规则跟随 Pi 原版 footer：`↑/↓`、cache read/write、最近和累计 cache 命中率、`percent/window`、subscription cost 标记，以及支持 reasoning 的模型 thinking level。context 使用量按百分比从绿色渐变到红色。
 
 ## Startup banner
 

@@ -27,6 +27,7 @@
 - refresh/rebuild 只在 generation 原子提交成功后切换 `CURRENT` 和 activation；失败或取消保留旧状态。
 - `/init status` 未激活时不运行 Git 或读取缓存；已激活时检查 generation、`CURRENT`、HEAD、配置、ignore 和 parser fingerprint，并显示 freshness。
 - `/init off` 只关闭当前 branch activation，不运行 Git、不扫描、不删除缓存。
+- UI footer 第一行左侧的 git 后常驻显示 Repo Map active/inactive；初始化、refresh、rebuild 期间随扫描阶段和计数更新，active `/init status` 读取期间显示检查状态，命令结束后恢复 activation 状态。
 - 状态和摘要只通过 UI 显示，不进入模型上下文。
 - 不接受路径参数；非法参数提示 `usage: /init | /init status | /init refresh | /init rebuild | /init off`。
 - 完整边界见 [Repo Map](repo-map.md)。
