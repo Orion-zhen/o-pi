@@ -194,7 +194,7 @@ ${files}
 
 function formatRuntimeContext(date: string, cwd: string): string {
 	return `<context>
-<time>${date}</time>
+<date>${date}</date>
 <system>${escapeXml(getSystemInfo())}</system>
 <workspace>${escapeXml(cwd)}</workspace>
 </context>`;

@@ -64,7 +64,7 @@ describe("system prompt extension", () => {
 		expect(prompt).not.toContain("<available_tools>");
 		expect(prompt).toContain("<project_context>");
 		expect(prompt).toContain("<context>");
-		expect(prompt).toContain("<time>2026-07-05</time>");
+		expect(prompt).toContain("<date>2026-07-05</date>");
 		expect(prompt).toContain("<workspace>C:/repo</workspace>");
 		expect(prompt).not.toContain("- read: read files");
 		expect(prompt).not.toContain("- bash: run commands");
