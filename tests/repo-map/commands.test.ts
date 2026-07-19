@@ -1,12 +1,12 @@
 import { createRequire } from "node:module";
-import type { ExtensionAPI, ExtensionCommandContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
 import { REPO_MAP_SESSION_ENTRY } from "../../src/repo-map/activation.js";
 import {
 	createRepoMapCommandDependencies,
+	registerRepoMapAutoActivation,
 	registerRepoMapCommand,
-	registerRepoMapStatus,
 	type RepoMapCommandDependencies,
 	type RepoMapCommandModuleImports,
 } from "../../src/repo-map/commands.js";
@@ -26,23 +26,59 @@ const parserModules = [
 ];
 
 describe("/init command", () => {
-	it("restores the persistent activation status when a session starts", async () => {
-		const starts: Array<(event: unknown, ctx: Pick<ExtensionCommandContext, "mode" | "sessionManager" | "ui">) => void> = [];
-		registerRepoMapStatus({
+	it("discovers and activates an existing map without rebuilding or duplicate entries", async () => {
+		const starts: Array<(event: unknown, ctx: ExtensionContext) => Promise<void>> = [];
+		const harness = commandHarness();
+		const discover = vi.fn(async () => ({
+			root: "/repo",
+			mapId: "a".repeat(64),
+			generation: "b".repeat(64),
+			freshness: "fresh" as const,
+			needsRefresh: false,
+		}));
+		const initialize = vi.fn(async () => initializeResult());
+		registerRepoMapAutoActivation({
 			on(_event, handler) { starts.push(handler); },
-		});
+			appendEntry: harness.api.appendEntry,
+		}, { discover, initialize, now: () => new Date("2026-07-17T00:00:00.000Z") });
 		const start = starts[0];
 		if (start === undefined) throw new Error("session_start was not registered");
-		const harness = commandHarness();
 
-		start({}, { ...harness.ctx, mode: "rpc" });
-		expect(harness.status).toEqual([]);
-		start({}, harness.ctx);
+		await start({}, harness.ctx);
+		expect(harness.appended).toHaveLength(1);
+		expect(harness.appended[0]).toMatchObject({ customType: REPO_MAP_SESSION_ENTRY, data: { kind: "activation" } });
+		expect(harness.status.at(-1)).toEqual(["repo-map", "Repo Map: active"]);
+		await start({}, harness.ctx);
+		expect(harness.appended).toHaveLength(1);
+		expect(initialize).not.toHaveBeenCalled();
+	});
+
+	it("refreshes a stale discovered map and honors explicit off", async () => {
+		const starts: Array<(event: unknown, ctx: ExtensionContext) => Promise<void>> = [];
+		const harness = commandHarness();
+		const discover = vi.fn(async () => ({
+			root: "/repo",
+			mapId: "a".repeat(64),
+			generation: "1".repeat(64),
+			freshness: "fresh" as const,
+			needsRefresh: true,
+		}));
+		const initialize = vi.fn(async () => initializeResult());
+		registerRepoMapAutoActivation({
+			on(_event, handler) { starts.push(handler); },
+			appendEntry: harness.api.appendEntry,
+		}, { discover, initialize, now: () => new Date("2026-07-17T00:00:00.000Z") });
+		const start = starts[0];
+		if (start === undefined) throw new Error("session_start was not registered");
+
+		await start({}, harness.ctx);
+		expect(initialize).toHaveBeenCalledWith(expect.objectContaining({ cwd: "/repo", mode: "refresh" }));
+		expect(harness.appended.at(-1)?.data).toMatchObject({ generation: "b".repeat(64) });
+		await harness.handler("off", harness.ctx);
+		discover.mockClear();
+		await start({}, harness.ctx);
+		expect(discover).not.toHaveBeenCalled();
 		expect(harness.status.at(-1)).toEqual(["repo-map", "Repo Map: inactive"]);
-		await harness.handler("", harness.ctx);
-		harness.status.length = 0;
-		start({}, harness.ctx);
-		expect(harness.status).toEqual([["repo-map", "Repo Map: active"]]);
 	});
 
 	it("registers only /init, appends activation after success, and avoids duplicate activation", async () => {
@@ -267,7 +303,7 @@ function commandHarness(overrides: Partial<RepoMapCommandDependencies> = {}) {
 			setStatus(key: string, text: string | undefined) { status.push([key, text]); },
 		},
 	} as ExtensionCommandContext;
-	return { handler: command[1].handler, ctx, appended, registered, notifications, status, initialize, readActivated };
+	return { handler: command[1].handler, ctx, branch, api, appended, registered, notifications, status, initialize, readActivated };
 }
 
 function initializeResult(root = "/repo", mapCharacter = "a"): InitializeRepoMapResult {

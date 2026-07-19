@@ -1,7 +1,8 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import {
 	computeRepoMapActivation,
+	isRepoMapAutoActivationDisabled,
 	REPO_MAP_SESSION_ENTRY,
 	type RepoMapActivation,
 	type RepoMapActivationEntry,
@@ -9,6 +10,7 @@ import {
 } from "./activation.js";
 import { RepoMapError } from "./errors.js";
 import { renderInitialization, renderStatus, renderUnavailableStatus } from "./renderer.js";
+import type { DiscoveredRepoMap } from "./discovery.js";
 import type { RepoMapProgress } from "./scanner.js";
 import type { InitializeRepoMapInput, InitializeRepoMapResult } from "./service.js";
 import type { RepoMapGeneration } from "./storage.js";
@@ -16,8 +18,15 @@ import type { RepoMapGeneration } from "./storage.js";
 type RepoMapCommandApi = Pick<ExtensionAPI, "registerCommand" | "appendEntry">;
 type RepoMapStatusContext = Pick<ExtensionCommandContext, "mode" | "sessionManager" | "ui">;
 
-interface RepoMapStatusApi {
-	on(event: "session_start", handler: (event: unknown, ctx: RepoMapStatusContext) => void): void;
+interface RepoMapAutoActivationApi {
+	appendEntry<T>(customType: string, data: T): void;
+	on(event: "session_start", handler: (event: unknown, ctx: ExtensionContext) => Promise<void>): void;
+}
+
+export interface RepoMapAutoActivationDependencies {
+	discover(cwd: string, signal?: AbortSignal): Promise<DiscoveredRepoMap | undefined>;
+	initialize(input: InitializeRepoMapInput): Promise<InitializeRepoMapResult>;
+	now(): Date;
 }
 
 export interface RepoMapCommandDependencies {
@@ -42,6 +51,15 @@ const defaultModuleImports: RepoMapCommandModuleImports = {
 };
 
 const defaultDependencies = createRepoMapCommandDependencies();
+const defaultAutoActivationDependencies: RepoMapAutoActivationDependencies = {
+	async discover(cwd, signal) {
+		return await (await import("./discovery.js")).discoverCurrentRepoMap(cwd, signal);
+	},
+	async initialize(input) {
+		return await (await import("./service.js")).initializeRepoMap(input);
+	},
+	now: () => new Date(),
+};
 
 /** service 仅在首次构建或读取 active generation 时加载；并发调用共享加载，失败后允许重试。 */
 export function createRepoMapCommandDependencies(
@@ -61,9 +79,48 @@ export function createRepoMapCommandDependencies(
 	};
 }
 
-export function registerRepoMapStatus(pi: RepoMapStatusApi): void {
-	pi.on("session_start", (_event, ctx) => {
-		if (ctx.mode === "tui") updateRepoMapStatus(ctx);
+export function registerRepoMapAutoActivation(
+	pi: RepoMapAutoActivationApi,
+	dependencies: Partial<RepoMapAutoActivationDependencies> = {},
+): void {
+	const deps = { ...defaultAutoActivationDependencies, ...dependencies };
+	pi.on("session_start", async (_event, ctx) => {
+		if (isRepoMapAutoActivationDisabled(ctx.sessionManager.getBranch())) {
+			setRepoMapStatus(ctx, false);
+			return;
+		}
+		safeSetStatus(ctx, "Repo Map: discovering");
+		try {
+			const discovered = await deps.discover(ctx.cwd, ctx.signal);
+			if (discovered === undefined) {
+				setRepoMapStatus(ctx, false);
+				return;
+			}
+			let activation = discovered;
+			if (discovered.needsRefresh) {
+				safeSetStatus(ctx, "Repo Map: refreshing");
+				const refreshed = await deps.initialize({
+					cwd: discovered.root,
+					mode: "refresh",
+					...(ctx.signal !== undefined ? { signal: ctx.signal } : {}),
+					onProgress(progress) {
+						const status = renderProgressStatus(progress);
+						if (status !== undefined) safeSetStatus(ctx, status);
+					},
+				});
+				activation = {
+					root: refreshed.metadata.repositoryRoot,
+					mapId: refreshed.metadata.mapId,
+					generation: refreshed.metadata.generation,
+					freshness: refreshed.metadata.freshness,
+					needsRefresh: false,
+				};
+			}
+			appendActivationIfChanged(pi, ctx, deps.now, activation);
+			setRepoMapStatus(ctx, true);
+		} catch {
+			setRepoMapStatus(ctx, isRepoMapActive(ctx));
+		}
 	});
 }
 
@@ -164,6 +221,32 @@ async function showStatus(deps: RepoMapCommandDependencies, ctx: ExtensionComman
 	}
 }
 
+function appendActivationIfChanged(
+	pi: Pick<RepoMapAutoActivationApi, "appendEntry">,
+	ctx: Pick<ExtensionContext, "sessionManager">,
+	now: () => Date,
+	map: Pick<DiscoveredRepoMap, "root" | "mapId" | "generation" | "freshness">,
+): void {
+	const current = computeRepoMapActivation(ctx.sessionManager.getBranch());
+	const freshness = map.freshness === "fresh" ? undefined : map.freshness;
+	if (
+		current?.root === map.root
+		&& current.mapId === map.mapId
+		&& current.generation === map.generation
+		&& current.freshness === freshness
+		&& current.diagnostic === undefined
+	) return;
+	const entry: RepoMapActivationEntry = {
+		kind: "activation",
+		root: map.root,
+		mapId: map.mapId,
+		generation: map.generation,
+		activatedAt: now().toISOString(),
+		...(freshness !== undefined ? { freshness } : {}),
+	};
+	pi.appendEntry<RepoMapActivationEntry>(REPO_MAP_SESSION_ENTRY, entry);
+}
+
 function turnOff(pi: RepoMapCommandApi, deps: RepoMapCommandDependencies, ctx: ExtensionCommandContext): void {
 	const activation = computeRepoMapActivation(ctx.sessionManager.getBranch());
 	if (activation !== undefined) {
@@ -176,10 +259,6 @@ function turnOff(pi: RepoMapCommandApi, deps: RepoMapCommandDependencies, ctx: E
 	}
 	setRepoMapStatus(ctx, false);
 	safeNotify(ctx, "Repo Map inactive", "info");
-}
-
-function updateRepoMapStatus(ctx: RepoMapStatusContext): void {
-	setRepoMapStatus(ctx, isRepoMapActive(ctx));
 }
 
 function isRepoMapActive(ctx: Pick<RepoMapStatusContext, "sessionManager">): boolean {

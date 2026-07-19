@@ -20,7 +20,7 @@ export interface GitCommandResult {
 
 export type GitRunner = (cwd: string, args: string[], signal?: AbortSignal) => Promise<GitCommandResult>;
 
-export async function detectRepository(cwd: string, options: { signal?: AbortSignal; runGit?: GitRunner } = {}): Promise<RepositoryIdentity> {
+export async function detectRepository(cwd: string, options: { signal?: AbortSignal; runGit?: GitRunner; readHead?: boolean } = {}): Promise<RepositoryIdentity> {
 	throwIfAborted(options.signal);
 	const runGit = options.runGit ?? defaultGitRunner;
 	let output: GitCommandResult;
@@ -41,10 +41,12 @@ export async function detectRepository(cwd: string, options: { signal?: AbortSig
 	const worktreeRoot = await canonicalPath(rootText);
 	const commonCandidate = path.isAbsolute(commonText) ? commonText : path.resolve(cwd, commonText);
 	const gitCommonDir = await canonicalPath(commonCandidate);
-	const headRevision = await readHeadRevision(worktreeRoot, {
-		runGit,
-		...(options.signal !== undefined ? { signal: options.signal } : {}),
-	});
+	const headRevision = options.readHead === false
+		? undefined
+		: await readHeadRevision(worktreeRoot, {
+			runGit,
+			...(options.signal !== undefined ? { signal: options.signal } : {}),
+		});
 	return {
 		repositoryRoot: worktreeRoot,
 		worktreeRoot,

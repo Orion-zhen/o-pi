@@ -240,6 +240,43 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		expect(generation.edges.every((edge) => nodeIds.has(edge.from) && (nodeIds.has(edge.to) || edge.to.startsWith("external:") || edge.to.startsWith("lexical:symbol:")))).toBe(true);
 	});
 
+	it("automatically refreshes a stale map once for concurrent file-tool queries", async () => {
+		const root = path.join(temp.path, "repo");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		await writeFile(path.join(root, "a.ts"), "export const A = 1;\n");
+		const initialized = await initializeRepoMap({ cwd: root }, serviceDependencies(root));
+		const branch: SessionEntry[] = [activationEntry(initialized.metadata)];
+		const refreshedMetadata = { ...initialized.metadata, generation: "f".repeat(64), freshness: "fresh" as const };
+		const generation = (metadata: typeof initialized.metadata): RepoMapGeneration => ({
+			metadata,
+			files: [],
+			symbols: [],
+			tests: [],
+			architecture: [],
+			aliases: [],
+			edges: [],
+			diagnostics: [],
+		});
+		const refresh = vi.fn(async () => ({ ...initialized, metadata: refreshedMetadata }));
+		const query = createRepoMapFileToolQuery(() => branch, {
+			async readActivated(activation) {
+				return generation(activation.generation === refreshedMetadata.generation
+					? refreshedMetadata
+					: { ...initialized.metadata, freshness: "stale" });
+			},
+			refresh,
+			appendActivation(entry) { appendEntry(branch, entry); },
+		});
+
+		const results = await Promise.all([
+			query.query({ requestedPath: root, query: "A", limit: 5 }),
+			query.query({ requestedPath: root, query: "A", limit: 5 }),
+		]);
+		expect(results.every((result) => result !== undefined)).toBe(true);
+		expect(refresh).toHaveBeenCalledTimes(1);
+		expect(computeRepoMapActivation(branch)?.generation).toBe(refreshedMetadata.generation);
+	});
+
 	it("keeps a successful write successful when map update fails and marks the activation partially stale", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });

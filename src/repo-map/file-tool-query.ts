@@ -78,6 +78,7 @@ export function createRepoMapFileToolQuery(
 	const analyzeImpact = dependencies.analyzeImpact ?? analyzeRepoMapImpact;
 	const createQueryIndex = dependencies.createQueryIndex ?? ((generation: RepoMapGeneration) => new RepoMapQueryIndex(generation));
 	const queryIndexes = new Map<string, RepoMapQueryIndex>();
+	let staleRefresh: Promise<{ activation: RepoMapActivation; generation: RepoMapGeneration } | undefined> | undefined;
 	const queryIndexFor = (generation: RepoMapGeneration): RepoMapQueryIndex => {
 		const key = `${generation.metadata.repositoryRoot}\0${generation.metadata.mapId}\0${generation.metadata.generation}`;
 		const cached = queryIndexes.get(key);
@@ -107,17 +108,42 @@ export function createRepoMapFileToolQuery(
 		});
 	};
 
+	const refreshStale = async (activation: RepoMapActivation): Promise<{ activation: RepoMapActivation; generation: RepoMapGeneration } | undefined> => {
+		if (staleRefresh !== undefined) return await staleRefresh;
+		const created = (async () => {
+			const result = await refresh({ activation });
+			const entry: RepoMapActivationEntry = {
+				kind: "activation",
+				root: result.metadata.repositoryRoot,
+				mapId: result.metadata.mapId,
+				generation: result.metadata.generation,
+				activatedAt: now().toISOString(),
+				...(result.metadata.freshness !== "fresh" ? { freshness: result.metadata.freshness } : {}),
+			};
+			dependencies.appendActivation?.(entry);
+			if (entry.generation !== activation.generation) queryIndexes.clear();
+			const generation = await readActivated(entry);
+			return generation === undefined ? undefined : { activation: entry, generation };
+		})();
+		staleRefresh = created;
+		try {
+			return await created;
+		} finally {
+			if (staleRefresh === created) staleRefresh = undefined;
+		}
+	};
+
 	const loadEnabled = async (requestedPath: string): Promise<{ activation: RepoMapActivation; generation: RepoMapGeneration } | undefined> => {
-		const activation = computeRepoMapActivation(getBranch());
+		let activation = computeRepoMapActivation(getBranch());
 		if (activation === undefined) return undefined;
 		const loadedGeneration = await readActivated(activation);
-		const generation = loadedGeneration === undefined
+		let generation = loadedGeneration === undefined
 			|| activation.freshness === undefined
 			|| loadedGeneration.metadata.freshness === "stale"
 			|| loadedGeneration.metadata.freshness === "unavailable"
 			? loadedGeneration
 			: { ...loadedGeneration, metadata: { ...loadedGeneration.metadata, freshness: activation.freshness } };
-		const gate = evaluateRepoMapGate({
+		let gate = evaluateRepoMapGate({
 			activation,
 			...(generation === undefined ? {} : {
 				map: {
@@ -129,6 +155,21 @@ export function createRepoMapFileToolQuery(
 			}),
 			requestedPath,
 		});
+		if (!gate.enabled && gate.reason === "map_stale") {
+			const refreshed = await refreshStale(activation);
+			if (refreshed === undefined) return undefined;
+			({ activation, generation } = refreshed);
+			gate = evaluateRepoMapGate({
+				activation,
+				map: {
+					root: generation.metadata.repositoryRoot,
+					mapId: generation.metadata.mapId,
+					generation: generation.metadata.generation,
+					freshness: generation.metadata.freshness,
+				},
+				requestedPath,
+			});
+		}
 		return gate.enabled && generation !== undefined ? { activation, generation } : undefined;
 	};
 

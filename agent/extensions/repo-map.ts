@@ -1,9 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { registerRepoMapCommand, registerRepoMapStatus } from "../../src/repo-map/commands.js";
+import { registerRepoMapAutoActivation, registerRepoMapCommand } from "../../src/repo-map/commands.js";
 
-/** 注册显式、session-local 的 /init；加载扩展本身不探测或扫描仓库。 */
+/** session 启动时轻量发现已有 Repo Map；仅过期时刷新，未建图仓库保持零扫描。 */
 export default function repoMapExtension(pi: Pick<ExtensionAPI, "registerCommand" | "appendEntry" | "on">): void {
-	registerRepoMapStatus(pi);
+	registerRepoMapAutoActivation(pi);
 	registerRepoMapCommand(pi);
 }

@@ -74,6 +74,17 @@ export function computeRepoMapActivation(branchEntries: SessionEntry[]): RepoMap
 	return activation;
 }
 
+/** 显式 /init off 优先于后续 session_start 自动发现，直到用户再次初始化。 */
+export function isRepoMapAutoActivationDisabled(branchEntries: SessionEntry[]): boolean {
+	let disabled = false;
+	for (const branchEntry of branchEntries) {
+		if (branchEntry.type !== "custom" || branchEntry.customType !== REPO_MAP_SESSION_ENTRY) continue;
+		const entry = parseSessionEntry(branchEntry.data);
+		if (entry !== undefined) disabled = entry.kind === "deactivation";
+	}
+	return disabled;
+}
+
 /** 判断现有内存状态是否允许使用 Repo Map；调用方负责提供可信路径和 map 状态。 */
 export function evaluateRepoMapGate(input: RepoMapGateInput): RepoMapGateResult {
 	const activation = input.activation;
