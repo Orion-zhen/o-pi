@@ -4,6 +4,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mergeRankedFindSources } from "../../src/file-tools/find/fusion.js";
 import { createFindEntry } from "../../src/file-tools/find/ranker.js";
+import { renderFindResults } from "../../src/file-tools/find/renderer.js";
 import { createRankingEvidence } from "../../src/file-tools/ranking-evidence.js";
 import { findWorkspaceFiles } from "../../src/file-tools/tools/find.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
@@ -77,6 +78,85 @@ function repoMapQuery(query: RepoMapFileToolQuery["query"]): RepoMapFileToolQuer
 }
 
 describe("find", () => {
+	it("紧凑输出省略可推导元数据、共享路径前缀并把截断状态放在首行", () => {
+		const base = {
+			query: "handler",
+			path: ".",
+			strategy: "fuzzy" as const,
+			totalMatches: 2,
+			scannedEntries: 20,
+			matches: [
+				{ path: "src/features/authentication/first-handler.ts", kind: "file" as const },
+				{ path: "src/features/authentication/second-handler.ts", kind: "file" as const },
+			],
+			ignoredCount: 0,
+			skippedCount: 0,
+			scanTruncated: false,
+			resultLimited: false,
+			outputTokenBudget: 1_000,
+		};
+		const compact = renderFindResults(base);
+		expect(compact.content).toBe([
+			"in src/features/authentication/",
+			"  first-handler.ts",
+			"  second-handler.ts",
+		].join("\n"));
+
+		const constrained = renderFindResults({ ...base, scanTruncated: true, outputTokenBudget: 14 });
+		expect(constrained.content.split("\n")[0]).toBe("found>=2; truncated=scan,output");
+		expect(constrained.details).toMatchObject({ scanTruncated: true, resultLimited: false, outputTruncated: true });
+		expect(countTextTokensSync(constrained.content).tokens).toBeLessThanOrEqual(14);
+	});
+
+	it("nearby 候选超预算时不输出残缺标签，并退回扫描摘要", () => {
+		const result = renderFindResults({
+			query: "missing",
+			path: ".",
+			strategy: "fuzzy",
+			totalMatches: 0,
+			scannedEntries: 12,
+			matches: [],
+			ignoredCount: 1,
+			skippedCount: 2,
+			scanTruncated: false,
+			resultLimited: false,
+			outputTokenBudget: 32,
+			nearby: [{ path: `src/${"very-long-segment-".repeat(20)}.ts`, kind: "file", reason: "name similarity" }],
+		});
+
+		expect(result.content).not.toContain("<nearby");
+		expect(result.content).toContain("searched=12; ignored=1; skipped=2");
+		expect(result.details.nearby).toBeUndefined();
+		expect(result.details.outputTruncated).toBe(false);
+		expect(countTextTokensSync(result.content).tokens).toBeLessThanOrEqual(32);
+	});
+
+	it("Repo Map 多关系使用紧凑 ASCII 分隔符", () => {
+		const result = renderFindResults({
+			query: "login",
+			path: ".",
+			strategy: "fuzzy",
+			totalMatches: 0,
+			scannedEntries: 3,
+			matches: [],
+			ignoredCount: 0,
+			skippedCount: 0,
+			scanTruncated: false,
+			resultLimited: false,
+			outputTokenBudget: 200,
+			related: [{
+				path: "tests/login.test.ts",
+				kind: "file",
+				source: "repo-map",
+				relations: ["caller", "test"],
+				query_match: "not_guaranteed",
+			}],
+		});
+
+		expect(result.content).toContain("tests/login.test.ts [caller,test]");
+		expect(result.content).not.toMatch(/[·→]/u);
+	});
+
 	it("路径与结构通道融合时不修改输入候选", () => {
 		const entry = createFindEntry("src/target.ts", "file");
 		const lexical = { entry, tier: 3, evidence: createRankingEvidence("lexical", 0.8) };
@@ -103,7 +183,9 @@ describe("find", () => {
 			strategy: "fuzzy",
 			totalMatches: 2,
 			returnedMatches: 2,
-			truncated: false,
+			scanTruncated: false,
+			resultLimited: false,
+			outputTruncated: false,
 		});
 		expect(paths(result.details.matches)).toEqual(["root.ts", "src/nested/a.ts"]);
 		expect(await findWorkspaceFiles(workspace, { pattern: "**/*.ts" } as never)).toMatchObject({
@@ -192,7 +274,7 @@ describe("find", () => {
 		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "service.ts", glob: "src/**/*.ts" }));
 		expect(result.details).toMatchObject({ glob: "src/**/*.ts", strategy: "fuzzy" });
 		expect(paths(result.details.matches)).toEqual(["src/service.ts"]);
-		expect(result.content).toContain("glob src/**/*.ts");
+		expect(result.content).toBe("src/service.ts");
 
 		const literalFilter = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "service", glob: "src/service.ts" }));
 		expect(paths(literalFilter.details.matches)).toEqual(["src/service.ts"]);
@@ -270,7 +352,7 @@ describe("find", () => {
 				query_match: "not_guaranteed",
 			},
 		]);
-		expect(result.content).toContain("Related (repo-map; query match not guaranteed):");
+		expect(result.content).toContain("<related repo-map nonmatch>");
 		expect(result.content).toContain("src/z-service.js [symbol]");
 	});
 
@@ -327,8 +409,8 @@ describe("find", () => {
 			relations: ["test"],
 			query_match: "not_guaranteed",
 		}]);
-		expect(result.content).toContain('No matches for "service" matching "src/*-service.ts"');
-		expect(result.content).toContain("Related (repo-map; query match not guaranteed):");
+		expect(result.content).toContain("none");
+		expect(result.content).toContain("<related repo-map nonmatch>");
 	});
 
 	it("关联文件按导航价值排序并限制为三条", async () => {
@@ -446,8 +528,23 @@ describe("find", () => {
 		expect(paths(strict.details.matches).slice(0, 2)).toEqual(["src/auth/service.ts", "src/auth/services.ts"]);
 
 		const typo = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "auth servce" }));
-		expect(typo.content).toContain("Nearby:");
-		expect(paths(typo.details.suggestions ?? [])).toContain("src/auth/service.ts");
+		expect(typo.content).toContain("<nearby nonmatch>");
+		expect(typo.content).toContain("src/auth/service.ts [name similarity]");
+		expect(paths(typo.details.nearby ?? [])).toContain("src/auth/service.ts");
+	});
+
+	it("主结果严格遵守 glob，零命中时可提示 glob 外的相关路径", async () => {
+		await writeFixture("src/auth-service.js");
+		await writeFixture("src/unrelated.ts");
+
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "auth service", glob: "src/**/*.ts" }));
+
+		expect(result.details.matches).toEqual([]);
+		expect(result.details.nearby).toEqual(expect.arrayContaining([
+			expect.objectContaining({ path: "src/auth-service.js", kind: "file", reason: "outside glob" }),
+		]));
+		expect(result.content).toContain("src/auth-service.js [outside glob]");
+		expect(result.content).not.toMatch(/^src\/auth-service\.js$/mu);
 	});
 
 	it("查询包含 test/spec/fixture/mock 时提升测试路径", async () => {
@@ -489,9 +586,10 @@ describe("find", () => {
 		expect(first).toEqual(second);
 		expect(first.details.totalMatches).toBe(90);
 		expect(first.details.returnedMatches).toBe(50);
-		expect(first.content).toContain("Top matches:");
-		expect(first.content).toContain("Other matches:");
-		const topMatches = first.content.split("Other matches:")[0] ?? "";
+		expect(first.details).toMatchObject({ scanTruncated: false, resultLimited: true, outputTruncated: false });
+		expect(first.content).toContain("top:");
+		expect(first.content).toContain("other:");
+		const topMatches = first.content.split("other:")[0] ?? "";
 		expect(topMatches).toContain("a/");
 		expect(topMatches).not.toContain("b/");
 		expect(topMatches).not.toContain("c/");
@@ -506,7 +604,7 @@ describe("find", () => {
 				"{",
 				'  "ignore": { "builtin_profile": "none", "gitignore": false },',
 				'  "limits": {',
-				'    "find_output_token_budget": 12,',
+				'    "find_output_token_budget": 32,',
 				'    "find_result_limit": 3,',
 				'    "find_max_entries_scanned": 5',
 				"  }",
@@ -517,10 +615,11 @@ describe("find", () => {
 		for (let index = 0; index < 20; index += 1) await writeFixture(`many/file-${String(index).padStart(2, "0")}.ts`);
 
 		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "file", glob: "**/*.ts" }));
-		expect(countTextTokensSync(result.content).tokens).toBeLessThanOrEqual(12);
+		expect(countTextTokensSync(result.content).tokens).toBeLessThanOrEqual(32);
 		expect(result.details.returnedMatches).toBeLessThanOrEqual(3);
 		expect(result.details.scannedEntries).toBe(5);
-		expect(result.details.truncated).toBe(true);
+		expect(result.details.scanTruncated).toBe(true);
+		expect(result.content.split("\n")[0]).toContain("truncated=scan");
 	});
 
 	it("遵守 .piignore 的 search、traverse、反向 include 和 prune 语义", async () => {
@@ -614,11 +713,13 @@ describe("find", () => {
 		await mkdir(path.join(workspace, "src"));
 		await writeFile(path.join(workspace, "src", "a.ts"), "");
 
-		expect(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "no-such-file" })).content).toContain("No matches");
+		const none = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "no-such-file" }));
+		expect(none.content).toBe("none\nsearched=2; ignored=0; skipped=0\nnext: broaden query or path");
+		expect(none.details.nearby).toBeUndefined();
 
 		const missing = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "ts", glob: "srcs/**/*.ts" }));
-		expect(missing.content).toContain("Missing prefix: srcs/");
-		expect(missing.content).toContain("Nearby directory: src/");
+		expect(missing.content).toContain("missing prefix: srcs/");
+		expect(missing.content).toContain("near dir: src/");
 
 		const controller = new AbortController();
 		controller.abort();

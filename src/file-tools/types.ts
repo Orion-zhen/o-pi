@@ -107,6 +107,16 @@ export interface GrepRegion {
 	imports?: string[];
 }
 
+export interface GrepNearbyResult {
+	path: string;
+	start_line: number;
+	end_line: number;
+	kind: string;
+	symbol?: string;
+	signature?: string;
+	reason: "symbol similarity" | "partial terms" | "path similarity";
+}
+
 export interface RepoMapRelatedResult {
 	path: string;
 	kind: string;
@@ -232,11 +242,12 @@ export interface GrepSuccess {
 	returned_regions: number;
 	returned_files: number;
 	approx_tokens: number;
+	scanned_files: number;
 	truncated: boolean;
 	regions: GrepRegion[];
 	related?: RepoMapRelatedResult[];
 	skipped_files?: GrepSkippedFiles;
-	near_symbols?: string[];
+	nearby?: GrepNearbyResult[];
 }
 
 export type LsEntryType = "directory" | "file" | "symlink" | "other";
@@ -332,6 +343,10 @@ export interface FindMatch {
 	kind: FindEntryKind;
 }
 
+export interface FindNearbyResult extends FindMatch {
+	reason: "name similarity" | "outside glob";
+}
+
 export interface FindCollapsedGroup {
 	path: string;
 	files: number;
@@ -351,9 +366,11 @@ export interface FindDetails {
 	collapsedGroups: FindCollapsedGroup[];
 	ignoredCount: number;
 	skippedCount: number;
-	truncated: boolean;
+	scanTruncated: boolean;
+	resultLimited: boolean;
+	outputTruncated: boolean;
 	related?: RepoMapRelatedResult[];
-	suggestions?: FindMatch[];
+	nearby?: FindNearbyResult[];
 	missingPrefix?: string;
 	nearbyDirectory?: string;
 }

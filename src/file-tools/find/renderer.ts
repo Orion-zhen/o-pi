@@ -1,6 +1,6 @@
 import { createPathIndex, sortedChildren, type PathIndexNode } from "./path-index.js";
 import { countTextTokensSync } from "../../token-counter.js";
-import type { FindCollapsedGroup, FindDetails, FindMatch, RepoMapRelatedResult } from "../types.js";
+import type { FindCollapsedGroup, FindDetails, FindMatch, FindNearbyResult, RepoMapRelatedResult } from "../types.js";
 
 const NARROW_RESULT_LIMIT = 20;
 const TOP_MATCH_LIMIT = 12;
@@ -11,16 +11,15 @@ export interface RenderFindInput {
 	glob?: string;
 	strategy: FindDetails["strategy"];
 	totalMatches: number;
-	totalFiles: number;
-	totalDirectories: number;
 	scannedEntries: number;
 	matches: FindMatch[];
 	ignoredCount: number;
 	skippedCount: number;
-	truncated: boolean;
+	scanTruncated: boolean;
+	resultLimited: boolean;
 	outputTokenBudget: number;
 	related?: RepoMapRelatedResult[];
-	suggestions?: FindMatch[];
+	nearby?: FindNearbyResult[];
 	missingPrefix?: string;
 	nearbyDirectory?: string;
 }
@@ -30,48 +29,96 @@ export function renderFindResults(input: RenderFindInput): { content: string; de
 	const tokenBudget = input.outputTokenBudget;
 	const collapsedGroups = collapseMatches(input.matches);
 	if (input.totalMatches === 0) {
-		const rendered = appendRelated(renderNoMatches(input, tokenBudget), input.related, tokenBudget);
-		return { content: rendered.content, details: buildDetails(input, collapsedGroups, rendered.related) };
+		const packed = packLines(renderNoMatches(input), input, tokenBudget);
+		const nearby = appendNearby(packed.content, input.nearby, tokenBudget);
+		const rendered = appendRelated(nearby.content, input.related, tokenBudget);
+		const hasNavigation = input.missingPrefix !== undefined
+			|| input.nearbyDirectory !== undefined
+			|| nearby.nearby.length > 0
+			|| rendered.related.length > 0;
+		const content = hasNavigation ? rendered.content : appendNoMatchDiagnostic(rendered.content, input, tokenBudget);
+		return {
+			content,
+				details: buildDetails(
+				{ ...input, nearby: nearby.nearby },
+				collapsedGroups,
+				rendered.related,
+				packed.outputTruncated,
+			),
+		};
 	}
 
-	const header = formatHeader(input.totalMatches, input.totalFiles, input.totalDirectories, input.glob);
-	const narrowLines = [header, "", ...input.matches.map(formatMatchPath)];
-	if (input.matches.length <= NARROW_RESULT_LIMIT && fitsBudget(narrowLines, tokenBudget)) {
-		const main = narrowLines.filter((_line, index) => index !== 1 || input.matches.length > 0).join("\n");
-		const rendered = appendRelated(main, input.related, tokenBudget);
-		return { content: rendered.content, details: buildDetails(input, collapsedGroups, rendered.related) };
+	if (input.matches.length <= NARROW_RESULT_LIMIT) {
+		const packed = packLines(formatConcreteMatches(input.matches), input, tokenBudget);
+		const rendered = appendRelated(packed.content, input.related, tokenBudget);
+		return {
+			content: rendered.content,
+			details: buildDetails(input, collapsedGroups, rendered.related, packed.outputTruncated),
+		};
 	}
 
 	const selected = selectConcreteMatches(input.matches);
 	const selectedPaths = new Set(selected.map((match) => match.path));
 	const groups = collapseMatches(input.matches.filter((match) => !selectedPaths.has(match.path)));
-	const lines = [header, "", "Top matches:", ...selected.map(formatMatchPath)];
-	if (groups.length > 0) lines.push("", "Other matches:", ...groups.map(formatGroup));
-	if (input.truncated) lines.push("", `Scanned ${input.scannedEntries} entries; results truncated.`);
-	const content = takeBudgetedLines(lines, tokenBudget).join("\n");
+	const lines = ["top:", ...formatConcreteMatches(selected)];
+	if (groups.length > 0) lines.push("other:", ...groups.map(formatGroup));
+	const packed = packLines(lines, input, tokenBudget);
 	return {
-		content,
+		content: packed.content,
 		details: {
-			...buildDetails(input, collapsedGroups, []),
+			...buildDetails(input, collapsedGroups, [], packed.outputTruncated),
 			collapsedGroups: groups,
-			truncated: input.truncated || selected.length + countCollapsed(groups) < input.matches.length,
 		},
 	};
 }
 
-function renderNoMatches(input: RenderFindInput, tokenBudget: number): string {
+function renderNoMatches(input: RenderFindInput): string[] {
 	const lines = input.ignoredCount > 0
-		? ["No visible matches.", `${input.ignoredCount} matching entries were excluded by ignore rules.`]
-		: [`No matches for "${input.query}"${input.glob === undefined ? "" : ` matching "${input.glob}"`}`];
-	if (input.missingPrefix !== undefined) lines.push("", `Missing prefix: ${withDirectorySlash(input.missingPrefix)}`);
-	if (input.nearbyDirectory !== undefined) lines.push(`Nearby directory: ${withDirectorySlash(input.nearbyDirectory)}`);
-	if (input.suggestions !== undefined && input.suggestions.length > 0) {
-		lines.push("", "Nearby:", ...input.suggestions.map(formatMatchPath));
-	}
-	return takeBudgetedLines(lines, tokenBudget).join("\n");
+		? [`none visible; ignored=${input.ignoredCount}`]
+		: ["none"];
+	if (input.missingPrefix !== undefined) lines.push(`missing prefix: ${withDirectorySlash(input.missingPrefix)}`);
+	if (input.nearbyDirectory !== undefined) lines.push(`near dir: ${withDirectorySlash(input.nearbyDirectory)}`);
+	return lines;
 }
 
-function buildDetails(input: RenderFindInput, collapsedGroups: FindCollapsedGroup[], related: RepoMapRelatedResult[]): FindDetails {
+function appendNearby(
+	content: string,
+	candidates: FindNearbyResult[] | undefined,
+	tokenBudget: number,
+): { content: string; nearby: FindNearbyResult[] } {
+	if (candidates === undefined || candidates.length === 0) return { content, nearby: [] };
+	const nearby: FindNearbyResult[] = [];
+	let output = content;
+	for (const candidate of candidates) {
+		const nextNearby = [...nearby, candidate];
+		const next = `${content}\n<nearby nonmatch>\n${nextNearby.map((item) => `${formatMatchPath(item)} [${item.reason}]`).join("\n")}\n</nearby>`;
+		if (tokenCount(next) > tokenBudget) break;
+		nearby.push(candidate);
+		output = next;
+	}
+	return { content: output, nearby };
+}
+
+function appendNoMatchDiagnostic(content: string, input: RenderFindInput, tokenBudget: number): string {
+	const lines = [
+		`searched=${input.scannedEntries}; ignored=${input.ignoredCount}; skipped=${input.skippedCount}`,
+		input.glob === undefined ? "next: broaden query or path" : "next: relax glob, query, or path",
+	];
+	let output = content;
+	for (const line of lines) {
+		const next = `${output}\n${line}`;
+		if (tokenCount(next) > tokenBudget) break;
+		output = next;
+	}
+	return output;
+}
+
+function buildDetails(
+	input: RenderFindInput,
+	collapsedGroups: FindCollapsedGroup[],
+	related: RepoMapRelatedResult[],
+	outputTruncated: boolean,
+): FindDetails {
 	const matches = input.matches.map(({ path, kind }) => ({ path, kind }));
 	return {
 		query: input.query,
@@ -85,9 +132,11 @@ function buildDetails(input: RenderFindInput, collapsedGroups: FindCollapsedGrou
 		collapsedGroups,
 		ignoredCount: input.ignoredCount,
 		skippedCount: input.skippedCount,
-		truncated: input.truncated,
+		scanTruncated: input.scanTruncated,
+		resultLimited: input.resultLimited,
+		outputTruncated,
 		...(related.length > 0 ? { related } : {}),
-		...(input.suggestions !== undefined && input.suggestions.length > 0 ? { suggestions: input.suggestions } : {}),
+		...(input.nearby !== undefined && input.nearby.length > 0 ? { nearby: input.nearby } : {}),
 		...(input.missingPrefix !== undefined ? { missingPrefix: input.missingPrefix } : {}),
 		...(input.nearbyDirectory !== undefined ? { nearbyDirectory: input.nearbyDirectory } : {}),
 	};
@@ -99,26 +148,18 @@ function appendRelated(
 	tokenBudget: number,
 ): { content: string; related: RepoMapRelatedResult[] } {
 	if (candidates === undefined || candidates.length === 0) return { content, related: [] };
-	const header = "Related (repo-map; query match not guaranteed):";
+	const header = "<related repo-map nonmatch>";
 	const related: RepoMapRelatedResult[] = [];
 	let output = content;
 	for (const candidate of candidates) {
 		const nextRelated = [...related, candidate];
-		const next = `${content}\n\n${header}\n${nextRelated.map((item) => `${item.path} [${item.relations.join(" · ")}]`).join("\n")}`;
+		const next = `${content}\n${header}\n${nextRelated.map((item) => `${item.path} [${item.relations.join(",")}]`).join("\n")}\n</related>`;
 		if (tokenCount(next) > tokenBudget) break;
 		related.push(candidate);
 		output = next;
 	}
 	if (related.length === 0) return { content, related };
 	return { content: output, related };
-}
-
-function formatHeader(totalMatches: number, files: number, directories: number, glob: string | undefined): string {
-	const parts = [`${totalMatches} ${totalMatches === 1 ? "match" : "matches"}`];
-	if (files > 0) parts.push(`${files} ${files === 1 ? "file" : "files"}`);
-	if (directories > 0) parts.push(`${directories} ${directories === 1 ? "directory" : "directories"}`);
-	if (glob !== undefined) parts.push(`glob ${glob}`);
-	return parts.join(" · ");
 }
 
 function selectConcreteMatches(matches: FindMatch[]): FindMatch[] {
@@ -157,10 +198,6 @@ function compressSingleChildDirectory(node: PathIndexNode): PathIndexNode {
 	return current;
 }
 
-function countCollapsed(groups: FindCollapsedGroup[]): number {
-	return groups.reduce((sum, group) => sum + group.files + group.directories, 0);
-}
-
 function formatMatchPath(match: FindMatch): string {
 	return match.kind === "directory" ? withDirectorySlash(match.path) : match.path;
 }
@@ -172,19 +209,83 @@ function formatGroup(group: FindCollapsedGroup): string {
 	return `${withDirectorySlash(group.path)}** (${counts.join(", ")})`;
 }
 
+/** 共享所有具体结果的目录前缀；仅在确实减少 token 时启用。 */
+function formatConcreteMatches(matches: FindMatch[]): string[] {
+	const direct = matches.map(formatMatchPath);
+	if (matches.length < 2 || matches.some((match) => isAbsoluteDisplayPath(match.path))) return direct;
+	const prefix = commonDirectoryPrefix(matches);
+	if (prefix.length === 0) return direct;
+	const grouped = [
+		`in ${prefix.join("/")}/`,
+		...matches.map((match) => `  ${formatRelativeMatch(match, prefix.length)}`),
+	];
+	return tokenCount(grouped.join("\n")) < tokenCount(direct.join("\n")) ? grouped : direct;
+}
+
+function commonDirectoryPrefix(matches: FindMatch[]): string[] {
+	const directories = matches.map((match) => match.path.split("/").filter(Boolean).slice(0, -1));
+	const first = directories[0] ?? [];
+	let length = first.length;
+	for (const segments of directories.slice(1)) {
+		length = Math.min(length, segments.length);
+		for (let index = 0; index < length; index += 1) {
+			if (segments[index] !== first[index]) {
+				length = index;
+				break;
+			}
+		}
+	}
+	return first.slice(0, length);
+}
+
+function formatRelativeMatch(match: FindMatch, prefixLength: number): string {
+	const relative = match.path.split("/").filter(Boolean).slice(prefixLength).join("/");
+	return match.kind === "directory" ? withDirectorySlash(relative) : relative;
+}
+
+function isAbsoluteDisplayPath(value: string): boolean {
+	return value.startsWith("/") || /^[A-Za-z]:\//u.test(value);
+}
+
 function withDirectorySlash(value: string): string {
 	return value.endsWith("/") ? value : `${value}/`;
 }
 
-function fitsBudget(lines: string[], tokenBudget: number): boolean {
-	return tokenCount(lines.join("\n")) <= tokenBudget;
+function packLines(
+	lines: string[],
+	input: Pick<RenderFindInput, "totalMatches" | "matches" | "scanTruncated" | "resultLimited">,
+	tokenBudget: number,
+): { content: string; outputTruncated: boolean } {
+	const firstStatus = formatIncompleteStatus(input, false);
+	const first = takeBudgetedLines(firstStatus === undefined ? lines : [firstStatus, ...lines], tokenBudget);
+	if (first.length === lines.length + (firstStatus === undefined ? 0 : 1)) {
+		return { content: first.join("\n"), outputTruncated: false };
+	}
+	const status = formatIncompleteStatus(input, true) ?? "output truncated";
+	const packed = takeBudgetedLines([status, ...lines], tokenBudget);
+	return { content: packed.join("\n"), outputTruncated: true };
+}
+
+function formatIncompleteStatus(
+	input: Pick<RenderFindInput, "totalMatches" | "matches" | "scanTruncated" | "resultLimited">,
+	outputTruncated: boolean,
+): string | undefined {
+	const flags = [
+		input.scanTruncated ? "scan" : undefined,
+		input.resultLimited ? "result" : undefined,
+		outputTruncated ? "output" : undefined,
+	].filter((flag): flag is string => flag !== undefined);
+	if (flags.length === 0) return undefined;
+	const found = input.scanTruncated ? `found>=${input.totalMatches}` : `found=${input.totalMatches}`;
+	const selected = input.resultLimited ? ` selected=${input.matches.length}` : "";
+	return `${found}${selected}; truncated=${flags.join(",")}`;
 }
 
 function takeBudgetedLines(lines: string[], tokenBudget: number): string[] {
 	const result: string[] = [];
 	for (const line of lines) {
 		const next = [...result, line].join("\n");
-		if (tokenCount(next) > tokenBudget && result.length > 0) break;
+		if (tokenCount(next) > tokenBudget) break;
 		result.push(line);
 	}
 	return result;

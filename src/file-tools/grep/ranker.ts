@@ -1,6 +1,6 @@
 import { buildLineIndex, byteRangeForLinesWithIndex, extractByteRange, splitTokens, tokenizeText, type AnalyzedFileIndex, type IndexedCodeUnit, type LineIndex, type SourceRange } from "../../code-index/parser.js";
 import { createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE, mergeRankingEvidence, type RankingEvidence } from "../ranking-evidence.js";
-import type { GrepMatchMode } from "../types.js";
+import type { GrepMatchMode, GrepNearbyResult } from "../types.js";
 
 export interface RankedGrepRegion extends SourceRange {
 	id: string;
@@ -41,7 +41,7 @@ interface RankContext {
 const IDENTIFIER_LIKE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/u;
 
 /** 合并 symbol、literal/regex、词法和一跳关系候选，返回稳定排序后的代码区域。 */
-export function rankGrepRegions(input: RankInput): { regions: RankedGrepRegion[]; strategy: string[]; nearSymbols: string[] } {
+export function rankGrepRegions(input: RankInput): { regions: RankedGrepRegion[]; strategy: string[]; nearby: GrepNearbyResult[] } {
 	const strategy = strategiesFor(input);
 	const candidates = new Map<string, RankedGrepRegion>();
 	const allUnits = input.files.flatMap((file) => file.units);
@@ -83,7 +83,7 @@ export function rankGrepRegions(input: RankInput): { regions: RankedGrepRegion[]
 	return {
 		regions: sourceSorted,
 		strategy,
-		nearSymbols: sourceSorted.length === 0 ? nearSymbols(input.query, allUnits) : [],
+		nearby: sourceSorted.length === 0 ? nearbyUnits(input.query, input.match, allUnits) : [],
 	};
 }
 
@@ -370,15 +370,79 @@ function hasEnoughLexicalCoverage(unit: IndexedCodeUnit, tokens: string[], ident
 	return matched >= Math.min(2, tokens.length);
 }
 
-function nearSymbols(query: string, units: IndexedCodeUnit[]): string[] {
+function nearbyUnits(query: string, match: GrepMatchMode, units: IndexedCodeUnit[]): GrepNearbyResult[] {
 	const queryTokens = tokenizeText(query);
+	const identifierQuery = match !== "regex" && IDENTIFIER_LIKE.test(query);
+	const normalizedQuery = query.toLocaleLowerCase();
 	return units
-		.map((unit) => ({ unit, score: tokenOverlap(queryTokens, unit.tokens) }))
-		.filter((item) => item.score > 0 && (item.unit.qualifiedName ?? item.unit.name) !== undefined)
-		.sort((left, right) => right.score - left.score || compareStableString(left.unit.path, right.unit.path))
-		.slice(0, 6)
-		.map((item) => item.unit.qualifiedName ?? item.unit.name)
-		.filter((value): value is string => value !== undefined);
+		.map((unit) => {
+			const symbol = unit.qualifiedName ?? unit.name;
+			const symbolDistance = identifierQuery && symbol !== undefined
+				? nearestSymbolDistance(normalizedQuery, symbol.toLocaleLowerCase())
+				: undefined;
+			const overlap = tokenOverlap(queryTokens, unit.tokens);
+			const pathOverlap = tokenOverlap(queryTokens, tokenizeText(unit.path));
+			const reason: GrepNearbyResult["reason"] | undefined = symbolDistance !== undefined
+				? "symbol similarity"
+				: overlap > 0
+					? "partial terms"
+					: pathOverlap > 0
+						? "path similarity"
+						: undefined;
+			return { unit, symbol, symbolDistance, overlap, pathOverlap, reason };
+		})
+		.filter((item): item is typeof item & { reason: GrepNearbyResult["reason"] } => item.reason !== undefined)
+		.sort((left, right) => nearbyReasonOrder(left.reason) - nearbyReasonOrder(right.reason)
+			|| (left.symbolDistance ?? Number.POSITIVE_INFINITY) - (right.symbolDistance ?? Number.POSITIVE_INFINITY)
+			|| right.overlap - left.overlap
+			|| right.pathOverlap - left.pathOverlap
+			|| compareStableString(left.unit.path, right.unit.path)
+			|| left.unit.startLine - right.unit.startLine)
+		.slice(0, 3)
+		.map(({ unit, symbol, reason }) => ({
+			path: unit.path,
+			start_line: unit.startLine,
+			end_line: unit.endLine,
+			kind: unit.kind,
+			...(symbol !== undefined ? { symbol } : {}),
+			...(unit.signature !== undefined ? { signature: unit.signature } : {}),
+			reason,
+		}));
+}
+
+function nearestSymbolDistance(query: string, symbol: string): number | undefined {
+	const candidates = [symbol, symbol.split(/[.#]/u).at(-1) ?? symbol];
+	let nearest: number | undefined;
+	for (const candidate of candidates) {
+		const length = Math.max(1, Math.min(query.length, candidate.length));
+		const maximum = length <= 4 ? 1 : length <= 10 ? 2 : 3;
+		if (Math.abs(query.length - candidate.length) > maximum) continue;
+		const distance = editDistance(query, candidate);
+		if (distance <= maximum && distance / length <= 0.3 && (nearest === undefined || distance < nearest)) nearest = distance;
+	}
+	return nearest;
+}
+
+function editDistance(left: string, right: string): number {
+	let previous = Array.from({ length: right.length + 1 }, (_value, index) => index);
+	for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+		const current = [leftIndex];
+		for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+			current[rightIndex] = Math.min(
+				(current[rightIndex - 1] ?? 0) + 1,
+				(previous[rightIndex] ?? 0) + 1,
+				(previous[rightIndex - 1] ?? 0) + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
+			);
+		}
+		previous = current;
+	}
+	return previous[right.length] ?? Math.max(left.length, right.length);
+}
+
+function nearbyReasonOrder(reason: GrepNearbyResult["reason"]): number {
+	if (reason === "symbol similarity") return 0;
+	if (reason === "partial terms") return 1;
+	return 2;
 }
 
 function tokenOverlap(left: Map<string, number>, right: Map<string, number>): number {

@@ -15,7 +15,7 @@ import { buildLineIndex, byteRangeForLinesWithIndex, extractByteRange, parseCode
 import type { FileToolLspHooks, FileToolLspSymbolCandidate, GrepMatchMode, GrepParams, GrepSuccess, RepoMapRelatedResult, ToolOutcome } from "../types.js";
 import type { RepoMapFileToolQuery } from "../../repo-map/file-tool-query.js";
 import type { RepoMapQueryCandidate } from "../../repo-map/query.js";
-import { isRepoMapMainCandidate, isRepoMapNavigationCandidate, repoMapNavigationRelation, repoMapRankingEvidence } from "../repo-map-ranking.js";
+import { formatRepoMapAliasReason, isRepoMapMainCandidate, isRepoMapNavigationCandidate, repoMapNavigationRelation, repoMapRankingEvidence } from "../repo-map-ranking.js";
 
 interface NormalizedGrepParams {
 	query: string;
@@ -181,9 +181,10 @@ export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal
 		sourceText,
 		tokenBudget: index.config.limits.grep_output_token_budget,
 		resultLimit: index.config.limits.grep_result_limit,
+		scannedFiles: index.scopedFiles.length,
 		skipped: index.skipped,
 		scanComplete: index.scanComplete,
-		nearSymbols: ranked.nearSymbols,
+		nearby: finalRegions.length === 0 ? ranked.nearby : [],
 		...(related.length > 0 ? { related } : {}),
 	});
 }
@@ -535,8 +536,7 @@ function primaryRepoMapReason(candidate: RepoMapQueryCandidate): string {
 	const relation = (["caller", "callee", "reference", "import", "test", "mock", "fixture", "snapshot"] as const)
 		.find((reason) => candidate.hop > 0 && candidate.reasons.includes(reason));
 	if (relation !== undefined) return relation;
-	const alias = candidate.matchedAliases.find((match) => match.term.toLocaleLowerCase() !== match.canonical.toLocaleLowerCase());
-	if (candidate.reasons.includes("alias")) return alias === undefined ? "alias" : `alias ${alias.term}→${alias.canonical}`;
+	if (candidate.reasons.includes("alias")) return formatRepoMapAliasReason(candidate);
 	for (const reason of [
 		"exact qualified symbol", "exact symbol", "short symbol", "registration", "entrypoint", "public api", "definition", "export",
 		"signature", "exact path", "exact filename", "path match", "component", "package", "test config",

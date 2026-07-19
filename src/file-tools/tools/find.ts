@@ -14,7 +14,7 @@ import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
 import type { IgnoreSnapshot } from "../ignore/ignore-types.js";
 import { guardExistingPath, PathGuardBlockedError } from "../../safety/path-guard.js";
 import { normalizeToolPath, resolveWorkspaceRoot } from "../core/path-resolver.js";
-import type { FindEntry, FindMatch, FindParams, FindSuccess, RepoMapRelatedResult, ToolOutcome } from "../types.js";
+import type { FindEntry, FindMatch, FindNearbyResult, FindParams, FindSuccess, RepoMapRelatedResult, ToolOutcome } from "../types.js";
 import type { RepoMapFileToolQuery } from "../../repo-map/file-tool-query.js";
 import type { RepoMapQueryCandidate } from "../../repo-map/query.js";
 import { isRepoMapMainCandidate, isRepoMapNavigationCandidate, repoMapEvidenceTier, repoMapNavigationRelation, repoMapRankingEvidence } from "../repo-map-ranking.js";
@@ -41,6 +41,7 @@ interface WalkState {
 	ignoreBypass: boolean;
 	signal?: AbortSignal;
 	entries: FindEntry[];
+	fallbackEntries: FindEntry[];
 	scannedEntries: number;
 	ignoredCount: number;
 	skippedCount: number;
@@ -88,6 +89,8 @@ const REPO_MAP_VALIDATION_CONCURRENCY = 8;
 const FIND_RELATED_TRIGGER = 4;
 const FIND_RELATED_LIMIT = 3;
 const FIND_RELATED_VALIDATION_LIMIT = 8;
+const FIND_NEARBY_LIMIT = 3;
+const FIND_FALLBACK_ENTRY_LIMIT = 5_000;
 
 /** find 以 query 排名名称、路径和图候选，以可选 glob 严格过滤路径。 */
 export async function findWorkspaceFiles(
@@ -125,7 +128,7 @@ export async function findWorkspaceFiles(
 				scannedEntries: 0,
 				ignoredCount: 0,
 				skippedCount: 0,
-				truncated: false,
+				scanTruncated: false,
 				config,
 			});
 		}
@@ -144,7 +147,7 @@ export async function findWorkspaceFiles(
 				scannedEntries: 0,
 				ignoredCount: 0,
 				skippedCount: 0,
-				truncated: false,
+				scanTruncated: false,
 				config,
 			});
 		}
@@ -326,6 +329,9 @@ async function runRankedSearch(
 	]);
 	const ranked = rankFindEntries(state.entries, params.query, searchRoot.relativePath);
 	const merged = fuseRankedFindSources(ranked.matches, repoMapCandidates.matching);
+	const nearby = merged.length === 0
+		? findNearbyResults(ranked.suggestions, state.fallbackEntries, params.query, searchRoot.relativePath)
+		: [];
 	return renderSuccess({
 		query: params.query,
 		path: searchRoot.relativePath,
@@ -336,10 +342,10 @@ async function runRankedSearch(
 		scannedEntries: state.scannedEntries,
 		ignoredCount: state.ignoredCount,
 		skippedCount: state.skippedCount,
-		truncated: state.truncated,
+		scanTruncated: state.truncated,
 		config,
 		...(merged.length < FIND_RELATED_TRIGGER && repoMapCandidates.related.length > 0 ? { related: repoMapCandidates.related } : {}),
-		...(merged.length === 0 ? { suggestions: ranked.suggestions.map((item) => toMatch(item.entry)) } : {}),
+		...(nearby.length > 0 ? { nearby } : {}),
 	});
 }
 
@@ -540,6 +546,7 @@ function createWalkState(
 		ignoreBypass,
 		...(signal !== undefined ? { signal } : {}),
 		entries: [],
+		fallbackEntries: [],
 		scannedEntries: 0,
 		ignoredCount: 0,
 		skippedCount: 0,
@@ -613,7 +620,7 @@ async function visitDirectoryEntry(
 		: state.ignoreSnapshot.evaluate({ path: workspacePath, kind: "directory", intent: "traverse" });
 	const ignoredByConfig = !state.ignoreBypass && isIgnoredPath(state.config, identity);
 	const ignored = ignoredByConfig || decision.ignored;
-	if (!ignored && matchesCandidate(state, searchPath, "directory")) state.entries.push(createFindEntry(displayPath, "directory"));
+	if (!ignored) recordFindEntry(state, displayPath, searchPath, "directory");
 	if (ignored) {
 		state.ignoredCount += 1;
 		if (ignoredByConfig || decision.prune) return;
@@ -634,11 +641,43 @@ function visitFileEntry(
 		state.ignoredCount += 1;
 		return;
 	}
-	if (matchesCandidate(state, searchPath, "file")) state.entries.push(createFindEntry(displayPath, "file"));
+	recordFindEntry(state, displayPath, searchPath, "file");
 }
 
 function matchesCandidate(state: WalkState, searchPath: string, kind: FindEntry["kind"]): boolean {
 	return state.matchesGlob === undefined || state.matchesGlob(searchPath, kind);
+}
+
+function recordFindEntry(state: WalkState, displayPath: string, searchPath: string, kind: FindEntry["kind"]): void {
+	const entry = createFindEntry(displayPath, kind);
+	if (matchesCandidate(state, searchPath, kind)) {
+		state.entries.push(entry);
+		return;
+	}
+	if (state.fallbackEntries.length < FIND_FALLBACK_ENTRY_LIMIT) state.fallbackEntries.push(entry);
+}
+
+function findNearbyResults(
+	suggestions: RankedFindEntry[],
+	outsideGlob: FindEntry[],
+	query: string,
+	rootPath: string,
+): FindNearbyResult[] {
+	const results: FindNearbyResult[] = [];
+	const seen = new Set<string>();
+	const append = (entries: FindEntry[], reason: FindNearbyResult["reason"]): void => {
+		for (const entry of entries) {
+			if (seen.has(entry.path)) continue;
+			seen.add(entry.path);
+			results.push({ path: entry.path, kind: entry.kind, reason });
+			if (results.length >= FIND_NEARBY_LIMIT) return;
+		}
+	};
+	append(suggestions.map((item) => item.entry), "name similarity");
+	if (results.length >= FIND_NEARBY_LIMIT || outsideGlob.length === 0) return results;
+	const outside = rankFindEntries(outsideGlob, query, rootPath);
+	append((outside.matches.length > 0 ? outside.matches : outside.suggestions).map((item) => item.entry), "outside glob");
+	return results;
 }
 
 function renderSuccess(input: {
@@ -651,31 +690,30 @@ function renderSuccess(input: {
 	scannedEntries: number;
 	ignoredCount: number;
 	skippedCount: number;
-	truncated: boolean;
+	scanTruncated: boolean;
 	config: FileToolsConfig;
 	related?: RepoMapRelatedResult[];
-	suggestions?: FindMatch[];
+	nearby?: FindNearbyResult[];
 	missingPrefix?: string;
 	nearbyDirectory?: string;
 }): FindSuccess {
 	const limited = selectRankedFindEntries(input.ranked, input.config.limits.find_result_limit).map((item) => toMatch(item.entry));
-	const totals = countKinds(input.ranked);
+	const resultLimited = limited.length < input.totalMatches;
 	return renderFindResults({
 		query: input.query,
 		path: input.path,
 		...(input.glob !== undefined ? { glob: input.glob } : {}),
 		strategy: input.strategy,
 		totalMatches: input.totalMatches,
-		totalFiles: totals.files,
-		totalDirectories: totals.directories,
 		scannedEntries: input.scannedEntries,
 		matches: limited,
 		ignoredCount: input.ignoredCount,
 		skippedCount: input.skippedCount,
-		truncated: input.truncated || limited.length < input.totalMatches,
+		scanTruncated: input.scanTruncated,
+		resultLimited,
 		outputTokenBudget: input.config.limits.find_output_token_budget,
 		...(input.related !== undefined ? { related: input.related } : {}),
-		...(input.suggestions !== undefined ? { suggestions: input.suggestions } : {}),
+		...(input.nearby !== undefined ? { nearby: input.nearby } : {}),
 		...(input.missingPrefix !== undefined ? { missingPrefix: input.missingPrefix } : {}),
 		...(input.nearbyDirectory !== undefined ? { nearbyDirectory: input.nearbyDirectory } : {}),
 	});
@@ -696,28 +734,17 @@ async function renderMissingPrefix(
 		...(params.glob !== undefined ? { glob: params.glob } : {}),
 		strategy: "fuzzy",
 		totalMatches: 0,
-		totalFiles: 0,
-		totalDirectories: 0,
 		scannedEntries: 0,
 		matches: [],
 		ignoredCount: 0,
 		skippedCount: 0,
-		truncated: false,
+		scanTruncated: false,
+		resultLimited: false,
 		outputTokenBudget: config.limits.find_output_token_budget,
 		missingPrefix,
 		...(related.length > 0 ? { related } : {}),
 		...(nearbyDirectory !== undefined ? { nearbyDirectory } : {}),
 	});
-}
-
-function countKinds(entries: RankedFindEntry[]): { files: number; directories: number } {
-	let files = 0;
-	let directories = 0;
-	for (const item of entries) {
-		if (item.entry.kind === "file") files += 1;
-		else directories += 1;
-	}
-	return { files, directories };
 }
 
 function toMatch(entry: FindEntry): FindMatch {

@@ -319,7 +319,7 @@ seed 最多保留 64 个。图遍历为双向、最多两跳，并同时衰减 e
 
 Repo Map 从不排除原本能找到的文件，也不会把 graph node 当成虚拟文件返回。
 
-设置严格 `glob` 且主结果少于 4 条时，最多附加 3 条高置信度结构关联文件。关联候选仍需通过 scope、ignore、blocked path、symlink 和实时 hash 校验，但不要求满足 glob；它们只进入独立的 `related` 字段。模型输出以 `Related (repo-map; query match not guaranteed)` 明确声明来源和非匹配语义。
+设置严格 `glob` 且主结果少于 4 条时，最多附加 3 条高置信度结构关联文件。关联候选仍需通过 scope、ignore、blocked path、symlink 和实时 hash 校验，但不要求满足 glob；它们只进入独立的 `related` 字段。模型输出以 `<related repo-map nonmatch>` 紧凑声明来源和非匹配语义。
 
 ### `grep`
 
@@ -340,9 +340,11 @@ Repo Map、Tree-sitter/text 和可选 LSP 的无训练融合、证据家族与 h
 
 `find` 和 `grep` 共用 `RepoMapRelatedResult`：`source="repo-map"`、`relations` 和 `query_match="not_guaranteed"` 是必需字段。关联结果保留 Repo Map 已生成的来源顺序，以路径和范围稳定打破平局，并过滤 confidence 低于 0.5 或没有可导航关系的候选；文件工具不再维护另一套手写关系权重。模型文本与展开 UI 均显示来源、关系和非匹配声明；主结果充足、预算不足、候选 stale 或 Repo Map 不可用时不返回 `related`。
 
+`related` 与文件工具自己的 `nearby` 是不同通道：`nearby` 只在主结果为空时表达名称、symbol、部分词或路径相似性，`related` 表达经实时验证的 Repo Map 图关系。两者都明确标记为 nonmatch，都受同一模型 token budget 约束，均不得进入主结果或改变严格 glob/literal/regex 语义。
+
 因此模型看到的始终是当前文件系统中的代码片段，而不是缓存中的历史正文。每个 Repo Map region 只保留一个最高价值的命中原因和可选 hop；alias 只在 term 与 canonical 不同时显示映射，不输出内部 source。calls/imports 仅在对应关系促成命中且 packer 只能保留 signature 时输出，完整 body 或 snippet 不重复摘要源码中已经可见的关系。
 
-结构化 `strategy` 只有最终打包结果实际保留 Repo Map region 时才包含 `repo-map`，此时模型头从 `<grep>` 变为 `<grep repo_map="true">`；query、path、match 和计数已存在于 tool call/details，不在模型结果中重复。模型文本省略默认 `hop 1`，严格模式再省略可由调用参数推导的 `exact literal`/`regex`；结构化 details 仍完整保留。未激活、越界、stale、验证失败或查询异常时，候选为 `undefined`，后续 ranking、packing 和模型文本与没有配置 Repo Map 时完全一致。
+结构化 `strategy` 只有最终打包结果实际保留 Repo Map region 时才包含 `repo-map`，此时模型头从 `<grep>` 变为 `<grep repo-map>`；query、path、match 和计数已存在于 tool call/details，不在模型结果中重复。模型文本省略默认 `hop 1`，严格模式再省略可由调用参数推导的 `exact literal`/`regex`；结构化 details 仍完整保留。未激活、越界、stale、验证失败或查询异常时，候选为 `undefined`，后续 ranking、packing 和模型文本与没有配置 Repo Map 时完全一致。
 
 ### `read`
 

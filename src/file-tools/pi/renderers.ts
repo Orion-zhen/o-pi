@@ -408,8 +408,11 @@ function formatFindDetails(details: FindDetails, expanded: boolean, theme: Pick<
 		`${directories} ${directories === 1 ? "directory" : "directories"}`,
 		details.strategy,
 		details.glob === undefined ? undefined : `glob ${details.glob}`,
+		details.nearby === undefined ? undefined : `${details.nearby.length} nearby`,
 		details.related === undefined ? undefined : `${details.related.length} related`,
-		details.truncated ? "truncated" : undefined,
+		details.scanTruncated ? "scan truncated" : undefined,
+		details.resultLimited ? "results limited" : undefined,
+		details.outputTruncated ? "output truncated" : undefined,
 	]);
 	const header = formatToolCard({ tool: "find", status: "success", target: `"${details.query}" in ${details.path}`, summary }, theme);
 	if (!expanded) return header;
@@ -428,12 +431,18 @@ function formatFindDetails(details: FindDetails, expanded: boolean, theme: Pick<
 			lines.push(`${group.path}/** (${counts.join(", ")})`);
 		}
 	}
+	if (details.nearby !== undefined && details.nearby.length > 0) {
+		lines.push("", "Nearby (query match not guaranteed):");
+		for (const result of details.nearby) lines.push(`${result.kind === "directory" ? `${result.path}/` : result.path} [${result.reason}]`);
+	}
 	if (details.related !== undefined && details.related.length > 0) {
 		lines.push("", "Related (repo-map; query match not guaranteed):");
 		for (const result of details.related) lines.push(`${result.path} [${result.relations.join(", ")}]`);
 	}
 	lines.push("", `Scanned ${details.scannedEntries} entries; skipped ${details.skippedCount}; ignored ${details.ignoredCount}.`);
-	if (details.truncated) lines.push("Truncated.");
+	if (details.scanTruncated) lines.push("Scan truncated.");
+	if (details.resultLimited) lines.push("Results limited.");
+	if (details.outputTruncated) lines.push("Model output truncated.");
 	return lines.map((line) => line === header ? line : theme.fg("toolOutput", line)).join("\n");
 }
 

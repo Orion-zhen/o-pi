@@ -6,7 +6,7 @@ import {
 	mergeRankingEvidence,
 	rrfContribution,
 } from "../../src/file-tools/ranking-evidence.js";
-import { isRepoMapMainCandidate, repoMapRankingEvidence } from "../../src/file-tools/repo-map-ranking.js";
+import { formatRepoMapAliasReason, isRepoMapMainCandidate, repoMapNavigationRelation, repoMapRankingEvidence } from "../../src/file-tools/repo-map-ranking.js";
 import type { RepoMapQueryCandidate } from "../../src/repo-map/query.js";
 
 describe("ranking evidence", () => {
@@ -75,6 +75,22 @@ describe("ranking evidence", () => {
 		expect(isRepoMapMainCandidate(caller, "login")).toBe(false);
 		expect(isRepoMapMainCandidate(caller, "callers of login")).toBe(true);
 		expect(isRepoMapMainCandidate(test, "login tests")).toBe(true);
+	});
+
+	it("Repo Map alias 使用紧凑 ASCII 映射标记", () => {
+		const alias = repoCandidate({
+			reasons: ["alias"],
+			matchedAliases: [{
+				term: "auth",
+				canonical: "authentication",
+				source: "symbol",
+				confidence: 1,
+				evidence: [],
+			}],
+		});
+
+		expect(formatRepoMapAliasReason(alias)).toBe("alias auth->authentication");
+		expect(repoMapNavigationRelation(alias)).toBe("alias auth->authentication");
 	});
 });
 

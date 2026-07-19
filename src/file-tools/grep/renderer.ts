@@ -2,7 +2,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { formatToolCard } from "../../tui/tool-card.js";
 import { joinParts } from "../../tui/text.js";
 import { isRepoMapRelatedResults } from "../pi/guards.js";
-import type { GrepParams, GrepRegion, GrepSuccess } from "../types.js";
+import type { GrepNearbyResult, GrepParams, GrepRegion, GrepSuccess } from "../types.js";
 
 /** 渲染 grep 调用标题；TUI 只显示查询、scope 和 match mode。 */
 export function formatGrepCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
@@ -27,6 +27,7 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 		summary: joinParts([
 			`${details.returned_regions} regions`,
 			`${details.returned_files} files`,
+			details.nearby === undefined ? undefined : `${details.nearby.length} nearby`,
 			details.related === undefined ? undefined : `${details.related.length} related`,
 			details.strategy.join("+"),
 			details.truncated ? "truncated" : undefined,
@@ -35,6 +36,13 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 	if (!expanded) return header;
 	const lines = [header];
 	for (const region of details.regions) lines.push(formatRegion(region, theme));
+	if (details.nearby !== undefined && details.nearby.length > 0) {
+		lines.push(theme.fg("muted", "Nearby (query match not guaranteed):"));
+		for (const result of details.nearby) {
+			const range = `${result.path}:${result.start_line}${result.end_line === result.start_line ? "" : `-${result.end_line}`}`;
+			lines.push(`${theme.fg("accent", range)} ${result.signature ?? result.symbol ?? result.kind} [${result.reason}]`);
+		}
+	}
 	if (details.related !== undefined && details.related.length > 0) {
 		lines.push(theme.fg("muted", "Related (repo-map; query match not guaranteed):"));
 		for (const result of details.related) {
@@ -46,7 +54,6 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 	}
 	if (details.truncated) lines.push(theme.fg("muted", "truncated"));
 	if (details.skipped_files !== undefined) lines.push(theme.fg("muted", `skipped ${Object.entries(details.skipped_files).map(([key, value]) => `${key}:${value}`).join(" ")}`));
-	if (details.near_symbols !== undefined && details.near_symbols.length > 0) lines.push(theme.fg("muted", `near ${details.near_symbols.join(", ")}`));
 	return lines.join("\n");
 }
 
@@ -59,8 +66,25 @@ function formatRegion(region: GrepRegion, theme: Pick<Theme, "fg">): string {
 function isGrepSuccess(value: unknown): value is GrepSuccess {
 	return isRecord(value)
 		&& value["status"] === "success"
+		&& typeof value["query"] === "string"
+		&& typeof value["path"] === "string"
+		&& typeof value["returned_regions"] === "number"
+		&& typeof value["returned_files"] === "number"
+		&& typeof value["scanned_files"] === "number"
+		&& Array.isArray(value["strategy"])
 		&& Array.isArray(value["regions"])
+		&& (value["nearby"] === undefined || isGrepNearbyResults(value["nearby"]))
 		&& (value["related"] === undefined || isRepoMapRelatedResults(value["related"]));
+}
+
+function isGrepNearbyResults(value: unknown): value is GrepNearbyResult[] {
+	return Array.isArray(value) && value.every((item) =>
+		isRecord(item)
+		&& typeof item["path"] === "string"
+		&& typeof item["start_line"] === "number"
+		&& typeof item["end_line"] === "number"
+		&& typeof item["kind"] === "string"
+		&& (item["reason"] === "symbol similarity" || item["reason"] === "partial terms" || item["reason"] === "path similarity"));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

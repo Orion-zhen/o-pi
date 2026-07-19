@@ -2,6 +2,7 @@ import type {
 	EditSuccess,
 	FailedResult,
 	FindDetails,
+	FindNearbyResult,
 	LsSuccess,
 	ReadFileSuccess,
 	ReadImageSuccess,
@@ -34,7 +35,19 @@ export function isFindDetails(value: unknown): value is FindDetails {
 		&& typeof value["scannedEntries"] === "number"
 		&& Array.isArray(value["matches"])
 		&& Array.isArray(value["collapsedGroups"])
+		&& typeof value["scanTruncated"] === "boolean"
+		&& typeof value["resultLimited"] === "boolean"
+		&& typeof value["outputTruncated"] === "boolean"
+		&& (value["nearby"] === undefined || isFindNearbyResults(value["nearby"]))
 		&& (value["related"] === undefined || isRepoMapRelatedResults(value["related"]));
+}
+
+function isFindNearbyResults(value: unknown): value is FindNearbyResult[] {
+	return Array.isArray(value) && value.every((item) =>
+		isPlainRecord(item)
+		&& typeof item["path"] === "string"
+		&& (item["kind"] === "file" || item["kind"] === "directory")
+		&& (item["reason"] === "name similarity" || item["reason"] === "outside glob"));
 }
 
 export function isRepoMapRelatedResults(value: unknown): value is RepoMapRelatedResult[] {

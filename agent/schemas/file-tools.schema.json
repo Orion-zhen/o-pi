@@ -48,7 +48,7 @@
 				},
 				"find_output_token_budget": {
 					"type": "integer",
-					"minimum": 1,
+					"minimum": 32,
 					"maximum": 10000,
 					"default": 800
 				},

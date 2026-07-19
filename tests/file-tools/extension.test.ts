@@ -114,7 +114,9 @@ describe("file-tools extension", () => {
 			collapsedGroups: [],
 			ignoredCount: 0,
 			skippedCount: 0,
-			truncated: false,
+			scanTruncated: false,
+			resultLimited: false,
+			outputTruncated: false,
 			related: [{
 				path: "tests/main.test.ts",
 				kind: "file",
@@ -372,7 +374,9 @@ describe("file-tools extension", () => {
 			collapsedGroups: [{ path: "tests/auth", files: 2, directories: 0 }],
 			ignoredCount: 1,
 			skippedCount: 0,
-			truncated: true,
+			scanTruncated: true,
+			resultLimited: true,
+			outputTruncated: false,
 		};
 		const collapsed = find?.renderResult?.(
 			{ content: [{ type: "text", text: "" }], details },
@@ -382,7 +386,7 @@ describe("file-tools extension", () => {
 		);
 		const collapsedOutput = collapsed?.render(120).join("\n") ?? "";
 		expect(collapsedOutput.split("\n")).toHaveLength(2);
-		expect(collapsedOutput).toContain("5 matches · 1 file · 1 directory · fuzzy · truncated");
+		expect(collapsedOutput).toContain("5 matches · 1 file · 1 directory · fuzzy · scan truncated · results limited");
 
 		const expanded = find?.renderResult?.(
 			{ content: [{ type: "text", text: "" }], details },
@@ -395,7 +399,35 @@ describe("file-tools extension", () => {
 		expect(output).toContain("src/auth/service.ts (file)");
 		expect(output).toContain("tests/auth/** (2 files)");
 		expect(output).toContain("Scanned 42 entries; skipped 0; ignored 1.");
-		expect(output).toContain("Truncated.");
+		expect(output).toContain("Scan truncated.");
+		expect(output).toContain("Results limited.");
+
+		const nearbyDetails = {
+			query: "auth servce",
+			path: ".",
+			strategy: "fuzzy",
+			totalMatches: 0,
+			returnedMatches: 0,
+			scannedEntries: 12,
+			matches: [],
+			collapsedGroups: [],
+			ignoredCount: 0,
+			skippedCount: 0,
+			scanTruncated: false,
+			resultLimited: false,
+			outputTruncated: false,
+			nearby: [{ path: "src/auth/service.ts", kind: "file", reason: "name similarity" }],
+		};
+		const nearby = find?.renderResult?.(
+			{ content: [{ type: "text", text: "" }], details: nearbyDetails },
+			{ expanded: true, isPartial: false },
+			theme,
+			{ lastComponent: undefined },
+		);
+		const nearbyOutput = nearby?.render(120).join("\n") ?? "";
+		expect(nearbyOutput).toContain("0 matches · 0 files · 0 directories · fuzzy · 1 nearby");
+		expect(nearbyOutput).toContain("Nearby (query match not guaranteed):");
+		expect(nearbyOutput).toContain("src/auth/service.ts [name similarity]");
 	});
 
 	it("edit 完成后成功和失败结果都保留 tool card 背景，折叠态成功结果展示 diff", () => {

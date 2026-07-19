@@ -111,7 +111,7 @@ describe("Repo Map query and file-tool integration", () => {
 		const result = await grepWorkspaceFiles(workspaceTemp.path, { query: "target" }, undefined, { repoMap: query });
 		if (result.status === "failed") throw new Error(result.error.message);
 		expect(result.strategy).toContain("repo-map");
-		expect(formatCompactGrepResult(result)).toContain('<grep repo_map="true"');
+		expect(formatCompactGrepResult(result)).toContain("<grep repo-map");
 		expect(result.regions.map((region) => region.reasons).flat()).toEqual(expect.arrayContaining(["definition", "caller"]));
 		expect(result.regions.find((region) => region.path === "b.ts")?.content).toContain("function target");
 

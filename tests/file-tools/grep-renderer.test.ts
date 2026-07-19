@@ -33,6 +33,37 @@ describe("grep renderer", () => {
 		expect(output).toContain("truncated");
 		expect(output).not.toContain("async login");
 	});
+
+	it("零命中摘要和展开状态显示 nearby 非命中", () => {
+		const details: GrepSuccess = {
+			status: "success",
+			query: "authentcateUser",
+			path: ".",
+			match: "auto",
+			strategy: ["symbol", "literal", "lexical", "graph"],
+			total_candidates: 0,
+			returned_regions: 0,
+			returned_files: 0,
+			approx_tokens: 30,
+			scanned_files: 1,
+			truncated: false,
+			regions: [],
+			nearby: [{
+				path: "src/auth.ts",
+				start_line: 1,
+				end_line: 3,
+				kind: "function",
+				symbol: "authenticateUser",
+				signature: "function authenticateUser()",
+				reason: "symbol similarity",
+			}],
+		};
+
+		expect(formatGrepResult(details, false, theme)).toContain("0 regions · 0 files · 1 nearby");
+		const expanded = formatGrepResult(details, true, theme);
+		expect(expanded).toContain("Nearby (query match not guaranteed):");
+		expect(expanded).toContain("src/auth.ts:1-3 function authenticateUser() [symbol similarity]");
+	});
 });
 
 function success(): GrepSuccess {
@@ -46,6 +77,7 @@ function success(): GrepSuccess {
 		returned_regions: 1,
 		returned_files: 1,
 		approx_tokens: 120,
+		scanned_files: 4,
 		truncated: true,
 		regions: [
 			{

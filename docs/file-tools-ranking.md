@@ -100,9 +100,9 @@ utility = 0.85 * normalizedRelevance
 
 同 tier 候选若 RRF 分数低于该 tier 最佳分数的 `30%` 会被 cutoff；该 tier 全部无有效证据时不截断。这样不会为了填满 limit 返回极低质量的长尾，同时保留没有可量化 RRF 的明确离散候选。
 
-`find` renderer 不再按顶层目录二次选择。宽输出的 `Top matches` 直接取已完成 relevance/MMR 选择的输入前缀；路径树只折叠其余结果。
+`find` renderer 不再按顶层目录二次选择。宽输出的 `top:` 直接取已完成 relevance/MMR 选择的输入前缀；公共目录前缀只做无损文本压缩，路径树只折叠其余结果。
 
-## Main 与 related
+## Main、nearby 与 related
 
 主结果需要直接 path、symbol、textual 证据，或查询明确要求关系角色。轻量 intent 规则识别 caller/callee/reference、test/mock/fixture、registration/entrypoint 等明显 token：
 
@@ -111,7 +111,9 @@ utility = 0.85 * normalizedRelevance
 - `login tests`：test 关系可以进入主结果。
 - literal/regex：只有实时正文命中进入主结果；其他可导航结构候选留在 related。
 
-`related` 明示 `query_match: not_guaranteed`，不参与主结果的 RRF rank、cutoff 或 limit。
+只有主结果具有直接命中语义。主结果为空时，`find` 可从本地 Fuse 建议或 glob 外路径生成最多 3 条 `nearby`；`grep` 可从当前代码单元生成 symbol edit-distance、部分查询词或路径重合建议。`nearby` 明示 `nonmatch` 和单一原因，不参与主结果的 RRF rank、cutoff、limit 或返回计数，也不会触发关系扩展。
+
+`related` 来自 Repo Map 的已验证可导航关系，明示 `query_match: not_guaranteed`，同样不参与主结果的 RRF rank、cutoff 或 limit。`nearby` 表达本地相似性，`related` 表达代码图关系；两条通道可同时存在，但不能互相替代或混入 main。
 
 ## 确定性与复杂度
 

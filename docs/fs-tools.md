@@ -138,9 +138,9 @@ ignore：路径是否应从自动发现、遍历、搜索或索引中排除。
 * `limits.ls_entries`：`ls` 单次最多返回条目数。
 * `limits.read_lines`：`read` 单次最多返回行数。
 * `limits.read_bytes`：`read` 单次最多返回 UTF-8 字节数。
-* `limits.find_output_token_budget`：`find` 模型可见输出预算，按 [Token Counter](token-counter.md) 控制完整输出行。
+* `limits.find_output_token_budget`：`find` 模型可见输出预算，最小 32 token；按 [Token Counter](token-counter.md) 控制完整输出行。
 * `limits.find_result_limit`：`find` 最多保留并返回的高排名具体结果。
-* `limits.find_max_entries_scanned`：`find` 单次最多检查的文件系统条目数，达到后标记 `truncated`。
+* `limits.find_max_entries_scanned`：`find` 单次最多检查的文件系统条目数，达到后标记 `scanTruncated`。
 * `limits.grep_output_token_budget`：`grep` 模型可见输出预算，按 [Token Counter](token-counter.md) 选择正文、片段和签名。
 * `limits.grep_result_limit`：`grep` 最多返回的代码区域数。
 * `limits.grep_max_file_bytes`：`grep` 单个候选文件最大读取字节数，超出则跳过或显式报错。
@@ -392,11 +392,9 @@ a/
 * `query`：文件名、目录名、路径片段或概念，用于普通路径排名和 Repo Map 语义召回；路径查询相对于 `path` 解释，不能逃出搜索根；空字符串非法。
 * `glob`：可选的严格相对路径过滤器。所有主结果都必须匹配；它不参与语义召回。
 
-成功结果是紧凑文本：
+完整窄结果只返回路径；目录以 `/` 结尾，query/path/glob 和可由路径推导的计数不重复：
 
 ```text
-5 matches · 4 files · 1 directory
-
 src/auth/
 src/auth/service.ts
 src/auth/auth-service.ts
@@ -404,21 +402,31 @@ packages/api/src/auth-service.ts
 tests/auth/service.test.ts
 ```
 
-宽结果展示 top matches，并按目录折叠剩余路径：
+宽结果保留 ranking 顺序、以 `in path/` 共享长公共目录前缀，并按目录折叠剩余路径：
 
 ```text
-90 matches · 90 files
-
-Top matches:
+top:
 a/file-00.ts
 b/file-00.ts
 c/file-00.ts
-
-Other matches:
+other:
 a/** (29 files)
 b/** (29 files)
 c/** (29 files)
 ```
+
+`scanTruncated`、`resultLimited` 和 `outputTruncated` 分别表示扫描未完成、具体结果受数量限制和模型文本受 token 预算限制；任一状态存在时，首行会包含类似 `found=90 selected=50; truncated=result` 的状态，不能被尾部裁剪。
+
+零结果仍以 `none` 开头，但不会只返回空结论：有可信候选时追加最多 3 条独立的 `<nearby nonmatch>`，名称 typo/fuzzy 使用 `name similarity`，已扫描但被严格 `glob` 排除的查询相关路径使用 `outside glob`。这些条目不计入 `matches`，也不放宽主结果的 query/glob 语义：
+
+```text
+none
+<nearby nonmatch>
+src/auth/service.ts [name similarity]
+</nearby>
+```
+
+若没有可信邻近项或 Repo Map 关联项，则返回 `searched`/`ignored`/`skipped` 摘要和 `next` 提示；缺失 glob 静态前缀仍优先返回 `missing prefix` 与 `near dir`。邻近块和 Repo Map 的 `<related repo-map nonmatch>` 块都按完整结构装箱，预算不足时整条省略，不产生未闭合标签。
 
 行为：
 
@@ -461,18 +469,14 @@ c/** (29 files)
 
 成功输出是紧凑文本，不是冗长 JSON：
 
-```xml
+```text
 <grep>
-
-src/auth/service.ts:41-88
-AuthService.login [definition · exact symbol]
-
+in src/auth/
+service.ts:41-88 AuthService.login [definition,exact symbol]
 async login(credentials: Credentials) {
 	...
 }
-
-src/auth/token.ts:14
-issueToken [callee]
+token.ts:14 issueToken [callee]
 </grep>
 ```
 
@@ -489,11 +493,15 @@ issueToken [callee]
 * 递归时不跟随文件或目录 symlink；显式 `path` 可指向 workspace 外。
 * 二进制、非法 UTF-8、超大文件和局部权限失败在递归检索中计入 `skipped_files`；显式检索单个文件时返回对应错误。
 * Tree-sitter/text、LSP 与 Repo Map 的职责、语义等级、来源内百分位、证据共识、region 合并和多样性选择见 [文件工具排序算法](file-tools-ranking.md)。
-* 输出由 `grep_output_token_budget` 控制，默认最多两个完整 body；其余候选优先输出路径、范围、symbol 和 signature。只有关系促成命中且正文被降级为 signature 时才补充 calls/imports，避免重复正文。
+* 输出由 `grep_output_token_budget` 控制，默认最多两个完整 body；其余候选优先输出路径、范围和完整 signature。首个 region 同样经过预算检查，正文或片段超预算时降级为 signature；同目录 region 共享 `in path/` 前缀。只有关系促成命中且正文被降级为 signature 时才补充 calls/imports，避免重复正文。
 * 超大函数不会吞掉全部预算，会保留 signature、命中附近片段和省略标记。
-* 零结果是 `success`，auto 可返回少量相近 symbol 名称。
+* 零结果是 `success`，主 `regions` 保持为空。有可信本地候选时，独立 `nearby` 通道最多返回 3 个带 path、range、symbol/signature 和原因的非命中 region：symbol typo 为 `symbol similarity`，仅部分查询词重合为 `partial terms`，仅路径相关为 `path similarity`。
+* `nearby` 只在最终主结果为空时出现，不参与主候选排序、result limit 或 `returned_regions`；模型文本用 `<nearby nonmatch>` 明示非命中，并优先显示更短的 symbol。Repo Map 图关系仍进入独立的 `<related repo-map nonmatch>`，两者不会伪装成 literal/regex 命中。
+* 没有可信 `nearby` 或 `related` 时，输出 `searched=<scanned_files>; skipped=<count>` 和下一步。`auto` 建议放宽 query/path；`literal`/`regex` 建议改用 `match=auto` 或放宽 path。
 
 无效正则、路径错误、权限错误、取消和索引基础设施错误不会伪装成零匹配。
+
+模型可见协议由 ASCII 标签、属性、标点和分隔符组成；多值 reason/relation 使用无空格逗号，alias 映射使用 `->`。文件名、源码、诊断、shell 输出和网页内容属于原始 payload，保留其 Unicode，不做有损转写。TUI 不受此限制，可继续使用 `·`、图标和其他显示字符。
 
 ## write
 

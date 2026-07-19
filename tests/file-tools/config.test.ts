@@ -58,6 +58,14 @@ describe("file-tools config", () => {
 			status: "failed",
 			error: { code: "CONFIG_ERROR" },
 		});
+
+		const undersizedPath = path.join(workspace, "undersized.jsonc");
+		await writeFile(undersizedPath, JSON.stringify({ limits: { find_output_token_budget: 31 } }));
+		process.env.PI_FILE_TOOLS_CONFIG = undersizedPath;
+		expect(await loadFileToolsConfig()).toMatchObject({
+			status: "failed",
+			error: { code: "CONFIG_ERROR" },
+		});
 	});
 
 	it("合并项目配置但不允许项目关闭用户级 ignore 开关", async () => {

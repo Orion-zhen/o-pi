@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parseCodeUnits, type IndexedCodeUnit } from "../../src/code-index/parser.js";
 import { clearGrepIndex } from "../../src/file-tools/grep/indexer.js";
 import { mergeRankedGrepSources } from "../../src/file-tools/grep/fusion.js";
-import { packGrepResults } from "../../src/file-tools/grep/packer.js";
+import { packGrepResults, renderGrepSuccess } from "../../src/file-tools/grep/packer.js";
 import type { RankedGrepRegion } from "../../src/file-tools/grep/ranker.js";
 import { createRankingEvidence } from "../../src/file-tools/ranking-evidence.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
@@ -128,6 +128,89 @@ async function assertStrictMatches(result: GrepSuccess, query: string, match: Ex
 }
 
 describe("grep", () => {
+	it("紧凑输出共享目录前缀且 signature 模式保留完整签名", () => {
+		const output = renderGrepSuccess({
+			status: "success",
+			query: "handler",
+			path: ".",
+			match: "auto",
+			strategy: ["symbol"],
+			total_candidates: 2,
+			returned_regions: 2,
+			returned_files: 2,
+			approx_tokens: 0,
+			scanned_files: 2,
+			truncated: false,
+			regions: [
+				{
+					path: "src/features/authentication/first-handler.ts",
+					start_line: 1,
+					end_line: 3,
+					kind: "function",
+					symbol: "firstHandler",
+					signature: "function firstHandler(input: AuthInput): Session",
+					detail: "signature",
+					reasons: ["exact symbol"],
+				},
+				{
+					path: "src/features/authentication/second-handler.ts",
+					start_line: 5,
+					end_line: 7,
+					kind: "function",
+					symbol: "secondHandler",
+					detail: "signature",
+					reasons: ["caller"],
+				},
+			],
+		});
+
+		expect(output).toContain("in src/features/authentication/");
+		expect(output).toContain("first-handler.ts:1-3 function firstHandler(input: AuthInput): Session [exact symbol]");
+		expect(output).not.toContain("src/features/authentication/first-handler.ts:1-3");
+	});
+
+	it("首个正文超预算时降级为 signature 并严格遵守预算", () => {
+		const longLine = `  const value = '${"needle".repeat(80)}';\n`;
+		const source = `export function oversizedNeedle(): string {\n${longLine.repeat(80)}  return value;\n}\n`;
+		const candidate: RankedGrepRegion = {
+			id: "oversized",
+			path: "src/oversized.ts",
+			kind: "function",
+			symbol: "oversizedNeedle",
+			signature: "function oversizedNeedle(): string",
+			startLine: 1,
+			endLine: 83,
+			startByte: 0,
+			endByte: Buffer.byteLength(source),
+			tier: 1,
+			evidence: createRankingEvidence("lexical", 1),
+			lexicalRelevance: 1,
+			pathRelevance: 0,
+			reasons: ["exact literal"],
+			matchLines: [40],
+			callees: [],
+			imports: [],
+		};
+		const result = packGrepResults({
+			query: "needle",
+			path: ".",
+			match: "literal",
+			strategy: ["literal"],
+			totalCandidates: 1,
+			regions: [candidate],
+			sourceText: new Map([[candidate.path, source]]),
+			tokenBudget: 100,
+			resultLimit: 1,
+			scanComplete: true,
+			scannedFiles: 1,
+			nearby: [],
+		});
+
+		expect(firstRegion(result).detail).toBe("signature");
+		expect(formatCompactGrepResult(result)).toContain("function oversizedNeedle(): string");
+		expect(countTextTokensSync(formatCompactGrepResult(result)).tokens).toBeLessThanOrEqual(100);
+	});
+
 	it("path 默认 workspace，并按 symbol 返回完整函数", async () => {
 		await writeFile(path.join(workspace, "auth.ts"), "export function login() {\n  return issueToken();\n}\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "login" }));
@@ -252,8 +335,9 @@ describe("grep", () => {
 			expect.objectContaining({ path: "mixed.ts", symbol: "Unrelated", source: "repo-map", relations: ["caller", "test"], query_match: "not_guaranteed" }),
 		]));
 		expect(result.related?.length).toBeLessThanOrEqual(3);
-		expect(compact).toContain('<related source="repo-map" query_match="not_guaranteed">');
-		expect(compact).toContain("Unrelated [caller · test]");
+		expect(compact).toContain("<related repo-map nonmatch>");
+		expect(compact).toContain("export function Unrelated() { return 'other'; } [caller,test]");
+		expect(compact).not.toMatch(/[·→]/u);
 		expect(result.regions.find((region) => region.path === "a.ts")?.reasons).not.toContain("public api");
 		await assertStrictMatches(result, queryText, match);
 	});
@@ -286,8 +370,8 @@ describe("grep", () => {
 			query_match: "not_guaranteed",
 		})]);
 		const compact = formatCompactGrepResult(result);
-		expect(compact).toContain("no matching regions");
-		expect(compact).toContain('<related source="repo-map" query_match="not_guaranteed">');
+		expect(compact).toContain("none");
+		expect(compact).toContain("<related repo-map nonmatch>");
 		expect(countTextTokensSync(compact).tokens).toBeLessThanOrEqual(1600);
 	});
 
@@ -382,12 +466,13 @@ describe("grep", () => {
 			tokenBudget: 200,
 			resultLimit: 1,
 			scanComplete: true,
-			nearSymbols: [],
+			scannedFiles: 2,
+			nearby: [],
 		});
 
 		expect(result.strategy).toEqual(["literal"]);
-		expect(formatCompactGrepResult(result)).toContain("<grep truncated=\"true\">");
-		expect(formatCompactGrepResult(result)).not.toContain("repo_map");
+		expect(formatCompactGrepResult(result)).toContain("<grep truncated>");
+		expect(formatCompactGrepResult(result)).not.toContain("repo-map");
 	});
 
 	it("单次融合跨通道共识且不修改输入候选", () => {
@@ -692,10 +777,52 @@ describe("grep", () => {
 		expect(first.regions.map((region) => region.path)).toEqual(second.regions.map((region) => region.path));
 		const zero = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "alpha missing" }));
 		expect(zero.regions).toHaveLength(0);
-		expect(zero.near_symbols).toContain("alphaSearch");
+		expect(zero.nearby).toEqual(expect.arrayContaining([
+			expect.objectContaining({ symbol: "alphaSearch", reason: "partial terms" }),
+		]));
 		const controller = new AbortController();
 		controller.abort();
 		expect(await grepWorkspaceFiles(workspace, { query: "Search" }, controller.signal)).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
+	});
+
+	it("auto 的 symbol typo 只进入带范围和原因的 nearby 非命中通道", async () => {
+		await writeFile(path.join(workspace, "auth.ts"), "export function authenticate() { return true; }\n");
+
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "authentcate" }));
+
+		expect(result.regions).toEqual([]);
+		expect(result.nearby).toEqual([
+			expect.objectContaining({
+				path: "auth.ts",
+				symbol: "authenticate",
+				reason: "symbol similarity",
+				start_line: 1,
+			}),
+		]);
+		const compact = formatCompactGrepResult(result);
+		expect(compact).toContain("<nearby nonmatch>");
+		expect(compact).toContain("auth.ts:1 authenticate [symbol similarity]");
+		expect(compact).toContain("</nearby>");
+	});
+
+	it.each([
+		{ match: "literal" as const, query: "MissingNeedle" },
+		{ match: "regex" as const, query: "Missing\\d+" },
+	])("$match 零命中返回扫描范围和可执行下一步", async ({ match, query }) => {
+		await writeFile(path.join(workspace, "auth.ts"), "export function authenticateUser() { return true; }\n");
+
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query, match }));
+
+		expect(result.regions).toEqual([]);
+		expect(result.nearby).toBeUndefined();
+		expect(result.scanned_files).toBe(1);
+		expect(formatCompactGrepResult(result)).toBe([
+			"<grep>",
+			"none",
+			"searched=1; skipped=0",
+			"next: use match=auto or broaden path",
+			"</grep>",
+		].join("\n"));
 	});
 
 	it("共享索引构建时单个调用取消不影响其他调用", async () => {

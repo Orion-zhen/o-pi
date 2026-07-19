@@ -75,14 +75,17 @@ export function isRepoMapMainCandidate(candidate: RepoMapQueryCandidate, query: 
 export function repoMapNavigationRelation(candidate: RepoMapQueryCandidate): string | undefined {
 	for (const reason of candidate.reasons) {
 		if (!NAVIGATION_REASONS.has(reason)) continue;
-		if (reason === "alias") {
-			const alias = candidate.matchedAliases.find((match) => match.term.toLocaleLowerCase() !== match.canonical.toLocaleLowerCase());
-			return alias === undefined ? "alias" : `alias ${alias.term}→${alias.canonical}`;
-		}
+		if (reason === "alias") return formatRepoMapAliasReason(candidate);
 		if (reason === "exact qualified symbol" || reason === "exact symbol" || reason === "short symbol") return "symbol";
 		return reason;
 	}
 	return undefined;
+}
+
+/** Repo Map alias reason uses an ASCII mapping marker in model-visible output. */
+export function formatRepoMapAliasReason(candidate: RepoMapQueryCandidate): string {
+	const alias = candidate.matchedAliases.find((match) => match.term.toLocaleLowerCase() !== match.canonical.toLocaleLowerCase());
+	return alias === undefined ? "alias" : `alias ${alias.term}->${alias.canonical}`;
 }
 
 /** Repo Map 主候选的语义等级；图距离只分层，不转换成固定 boost。 */
