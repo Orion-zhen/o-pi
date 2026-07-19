@@ -1,6 +1,7 @@
 import { Ajv, type AnySchema } from "ajv";
 import { describe, expect, it } from "vitest";
 import subagentExtension from "../../agent/extensions/subagent.js";
+import { SUBAGENT_COMMAND_ENTRY } from "../../src/subagent/renderer.js";
 
 interface RegisteredSubagentTool {
 	parameters: AnySchema;
@@ -13,6 +14,7 @@ function subagentTool(): RegisteredSubagentTool {
 			registered = tool;
 		},
 		registerCommand() {},
+		registerEntryRenderer() {},
 		on() {},
 	} as never);
 	return registered as RegisteredSubagentTool;
@@ -30,15 +32,20 @@ function validateParams(value: unknown): boolean {
 describe("subagent tool schema", () => {
 	it("只注册 agents、run 和 subagent-config 命令", () => {
 		const commands: string[] = [];
+		const entryRenderers: string[] = [];
 		subagentExtension({
 			registerTool() {},
 			registerCommand(name: string) {
 				commands.push(name);
 			},
+			registerEntryRenderer(type: string) {
+				entryRenderers.push(type);
+			},
 			on() {},
 		} as never);
 
 		expect(commands).toEqual(["agents", "run", "subagent-config"]);
+		expect(entryRenderers).toEqual([SUBAGENT_COMMAND_ENTRY]);
 	});
 
 	it("接受一个或多个 agent task，并允许每项指定 cwd", () => {

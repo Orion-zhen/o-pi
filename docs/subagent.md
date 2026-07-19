@@ -165,6 +165,8 @@ parallel 或 chain 的多任务会在第一行合并 Agent 名称，并保留完
 * tool call：展示工具名和精简参数。
 * 运行中但还没有事件时展示等待状态。
 
+模型调用 `subagent` 工具与用户手动执行 `/run` 共用同一套卡片。`/run` 运行期间在编辑器上方实时刷新，并补齐与 Pi 工具卡相同的 padding 和 pending/success/error 背景；结束后移除临时 widget，并把最终卡片写入聊天记录。展开态使用对齐字段以及 Activity、Error、Details、Result 分区；最终回答不会在 Activity 中重复。该记录使用 custom session entry 持久化，不进入模型上下文，也不消耗模型 token。
+
 ## 并发
 
 默认配置：

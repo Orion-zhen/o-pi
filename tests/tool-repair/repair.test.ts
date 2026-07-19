@@ -123,6 +123,7 @@ describe("tool-input repair", () => {
 				registered = tool;
 			},
 			registerCommand() {},
+			registerEntryRenderer() {},
 			on() {},
 		} as unknown as ExtensionAPI);
 

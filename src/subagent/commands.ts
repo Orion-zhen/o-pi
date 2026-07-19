@@ -1,17 +1,34 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { discoverAgents, hasWriteCapability, resolveSubagentTools } from "./agents.js";
 import { loadSubagentConfig } from "./config.js";
-import { executeSubagent } from "./executor.js";
+import { executeSubagent, resolveMode } from "./executor.js";
 import { formatModelReference } from "./model.js";
-import type { AgentDefinition, SubagentConfig, SubagentTask } from "./types.js";
+import { renderSubagentCommandWidget, SUBAGENT_COMMAND_ENTRY } from "./renderer.js";
+import type { AgentDefinition, SubagentConfig, SubagentTask, SubagentToolResult } from "./types.js";
 
 interface AutocompleteItem {
 	value: string;
 	label: string;
 }
 
+interface SubagentCommandApi {
+	appendEntry<T>(customType: string, data?: T): void;
+	getAllTools(): Array<{ name: string }>;
+	registerCommand: ExtensionAPI["registerCommand"];
+}
+
+interface SubagentCommandContext {
+	cwd: ExtensionCommandContext["cwd"];
+	hasUI: ExtensionCommandContext["hasUI"];
+	model: ExtensionCommandContext["model"];
+	signal: ExtensionCommandContext["signal"];
+	ui: Pick<ExtensionCommandContext["ui"], "confirm" | "getToolsExpanded" | "notify" | "setWidget">;
+}
+
+let commandWidgetSequence = 0;
+
 /** 注册不经过主模型的确定性命令入口。 */
-export function registerSubagentCommands(pi: ExtensionAPI): void {
+export function registerSubagentCommands(pi: SubagentCommandApi): void {
 	pi.registerCommand("agents", {
 		description: "List available subagents",
 			handler: async (_args, ctx) => {
@@ -30,7 +47,7 @@ export function registerSubagentCommands(pi: ExtensionAPI): void {
 				ctx.ui.notify(parsed.error, "error");
 				return;
 			}
-			await runAndNotify(pi, ctx, parsed.tasks);
+			await runSubagentCommand(pi, ctx, parsed.tasks);
 		},
 	});
 
@@ -103,25 +120,55 @@ export function parsePipeline(input: string): { tasks: SubagentTask[] } | { erro
 	return { tasks };
 }
 
-async function runAndNotify(
-	pi: Pick<ExtensionAPI, "getAllTools">,
-	ctx: ExtensionCommandContext,
+export async function runSubagentCommand(
+	pi: Pick<SubagentCommandApi, "appendEntry" | "getAllTools">,
+	ctx: SubagentCommandContext,
 	tasks: SubagentTask[],
 ): Promise<void> {
-	const result = await executeSubagent(
-		{ tasks },
-		{
-			cwd: ctx.cwd,
-			hasUI: ctx.hasUI,
-			currentModel: formatModelReference(ctx.model),
-			registeredTools: registeredToolNames(pi),
-			signal: ctx.signal,
-			confirm: ctx.hasUI ? (title, message) => ctx.ui.confirm(title, message) : undefined,
+	const widgetKey = `subagent-command-${++commandWidgetSequence}`;
+	const show = (result: SubagentToolResult, isPartial: boolean): void => {
+		if (!ctx.hasUI) return;
+		ctx.ui.setWidget(widgetKey, (_tui, theme) => renderSubagentCommandWidget(result, {
+			expanded: ctx.ui.getToolsExpanded(),
+			isPartial,
+		}, theme));
+	};
+	show(pendingResult(tasks), true);
+	try {
+		const result = await executeSubagent(
+			{ tasks },
+			{
+				cwd: ctx.cwd,
+				hasUI: ctx.hasUI,
+				currentModel: formatModelReference(ctx.model),
+				registeredTools: registeredToolNames(pi),
+				signal: ctx.signal,
+				confirm: ctx.hasUI ? (title, message) => ctx.ui.confirm(title, message) : undefined,
+				onUpdate: (partial) => show(partial, true),
+			},
+		);
+		if (ctx.hasUI) pi.appendEntry<SubagentToolResult>(SUBAGENT_COMMAND_ENTRY, result);
+		else {
+			const text = result.content[0]?.type === "text" ? result.content[0].text : "(no output)";
+			const failed = result.details.results.some((item) => item.error !== undefined) || result.details.results.length === 0;
+			ctx.ui.notify(text, failed ? "error" : "info");
+		}
+	} finally {
+		if (ctx.hasUI) ctx.ui.setWidget(widgetKey, undefined);
+	}
+}
+
+function pendingResult(tasks: SubagentTask[]): SubagentToolResult {
+	return {
+		content: [{ type: "text", text: "Subagents starting" }],
+		details: {
+			mode: resolveMode(tasks),
+			runId: "pending",
+			tasks: tasks.map((task) => ({ ...task })),
+			results: [],
+			warnings: [],
 		},
-	);
-	const text = result.content[0]?.type === "text" ? result.content[0].text : "(no output)";
-	const failed = result.details.results.some((item) => item.error !== undefined) || result.details.results.length === 0;
-	ctx.ui.notify(text, failed ? "error" : "info");
+	};
 }
 
 async function completeAgents(prefix: string): Promise<AutocompleteItem[] | null> {
@@ -150,7 +197,7 @@ export function formatAgents(agents: AgentDefinition[], config: SubagentConfig, 
 }
 
 /** Pi 的 getAllTools 返回已注册工具元数据；子 Agent 只需要名称用于 --tools。 */
-function registeredToolNames(pi: Pick<ExtensionAPI, "getAllTools">): string[] {
+function registeredToolNames(pi: Pick<SubagentCommandApi, "getAllTools">): string[] {
 	return pi.getAllTools().map((tool) => tool.name);
 }
 

@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { renderSubagentCall, renderSubagentResult } from "../../src/subagent/renderer.js";
+import { renderSubagentCall, renderSubagentCommandEntry, renderSubagentResult } from "../../src/subagent/renderer.js";
 import type { SubagentDetails, SubagentRunResult, UsageStats } from "../../src/subagent/types.js";
 
 const theme = {
 	fg: (_color: string, text: string) => text,
+	bg: (_color: string, text: string) => text,
 	bold: (text: string) => text,
 };
 
@@ -55,6 +56,25 @@ describe("subagent renderer", () => {
 		expect(rendered[1]).toContain("review changed tests");
 	});
 
+	it("手动命令最终 entry 复用工具卡，并明确展示启动前失败", () => {
+		const details: SubagentDetails = {
+			mode: "parallel",
+			runId: "run-1",
+			tasks: [{ agent: "missing", task: "inspect" }],
+			results: [],
+			warnings: [],
+		};
+		const rendered = renderSubagentCommandEntry(
+			{ content: [{ type: "text", text: "Unknown agent missing" }], details },
+			true,
+			theme as never,
+		)?.render(120).join("\n");
+
+		expect(rendered).toContain("missing · failed");
+		expect(rendered).toContain("Unknown agent missing");
+		expect(renderSubagentCommandEntry(undefined, false, theme as never)).toBeUndefined();
+	});
+
 	it("展开态展示 running subagent 的实时事件", () => {
 		const details: SubagentDetails = {
 			mode: "parallel",
@@ -80,9 +100,9 @@ describe("subagent renderer", () => {
 			theme as never,
 		).render(160).join("\n");
 
-		expect(rendered).toContain("● scout · running");
-		expect(rendered).toContain("events:");
-		expect(rendered).toContain("-> read");
+		expect(rendered).toContain("● scout  running");
+		expect(rendered).toContain("Activity");
+		expect(rendered).toContain("→ read");
 		expect(rendered).toContain("found renderer behavior");
 	});
 
@@ -108,8 +128,36 @@ describe("subagent renderer", () => {
 			theme as never,
 		).render(160).join("\n");
 
-		expect(rendered).toContain("file: /workspace/.pi/subagents/runs/run-1/scout-1.md");
+		expect(rendered).toContain("Saved   .pi/subagents/runs/run-1/scout-1.md");
+		expect(rendered).toContain("Result");
 		expect(rendered).toContain("full subagent output kept for the tool card");
+	});
+
+	it("最终回答只出现在 Result，不在 Activity 重复", () => {
+		const details: SubagentDetails = {
+			mode: "parallel",
+			runId: "run-1",
+			tasks: [{ agent: "scout", task: "inspect" }],
+			results: [result({
+				output: "final answer",
+				events: [
+					{ type: "tool", name: "read", args: { path: "src/a.ts" } },
+					{ type: "text", text: "final answer" },
+				],
+			})],
+			warnings: [],
+		};
+
+		const rendered = renderSubagentResult(
+			{ content: [{ type: "text", text: "final answer" }], details },
+			{ expanded: true, isPartial: false },
+			theme as never,
+		).render(120).join("\n");
+
+		expect(rendered).toContain("Activity");
+		expect(rendered).toContain("→ read");
+		expect(rendered).toContain("Result");
+		expect(rendered.match(/final answer/g)).toHaveLength(1);
 	});
 });
 

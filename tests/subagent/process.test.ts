@@ -3,8 +3,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { runSubagentCommand } from "../../src/subagent/commands.js";
 import { executeSubagent, resolveMode } from "../../src/subagent/executor.js";
 import { resetSubagentSpawnForTests, runPiProcess, setSubagentSpawnForTests } from "../../src/subagent/process.js";
+import { SUBAGENT_COMMAND_ENTRY } from "../../src/subagent/renderer.js";
 import type { AgentDefinition, ProcessRunInput, ProcessRunProgress } from "../../src/subagent/types.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -51,6 +53,47 @@ describe("subagent execution", () => {
 		expect(result.details.results.map((item) => item.cwd)).toEqual([workspace, workspace]);
 		expect(result.details.results.map((item) => item.output)).toEqual(["done: inspect auth", "done: inspect tests"]);
 		expect(updates).toContain(2);
+	});
+
+	it("/run 在主 TUI 实时更新 widget，完成后落为非模型上下文 entry", async () => {
+		setOutputSpawn(() => "manual run done");
+		const widgets: unknown[] = [];
+		const entries: Array<{ type: string; data: unknown }> = [];
+		const notify = vi.fn();
+
+		await runSubagentCommand(
+			{
+				getAllTools: () => [{ name: "read" }],
+				appendEntry(type, data) {
+					if (data !== undefined) entries.push({ type, data });
+				},
+			},
+			{
+				cwd: workspace,
+				hasUI: true,
+				model: undefined,
+				signal: undefined,
+				ui: {
+					confirm: async () => true,
+					getToolsExpanded: () => true,
+					notify,
+					setWidget(_key, content) {
+						widgets.push(content);
+					},
+				},
+			},
+			[{ agent: "scout", task: "manual inspect" }],
+		);
+
+		expect(widgets.length).toBeGreaterThanOrEqual(3);
+		expect(widgets[0]).toEqual(expect.any(Function));
+		expect(widgets.at(-1)).toBeUndefined();
+		expect(entries).toHaveLength(1);
+		expect(entries[0]).toMatchObject({
+			type: SUBAGENT_COMMAND_ENTRY,
+			data: { details: { results: [{ output: "manual run done" }] } },
+		});
+		expect(notify).not.toHaveBeenCalled();
 	});
 
 	it("task 级 cwd 覆盖 workspace 默认值", async () => {

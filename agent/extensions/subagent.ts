@@ -5,7 +5,9 @@ import {
 	formatModelReference,
 	registerSubagentCommands,
 	renderSubagentCall,
+	renderSubagentCommandEntry,
 	renderSubagentResult,
+	SUBAGENT_COMMAND_ENTRY,
 	type SubagentToolParams,
 } from "../../src/subagent/index.js";
 import { repairableTool } from "../../src/tool-repair/index.js";
@@ -26,6 +28,9 @@ const subagentParams = Type.Object(
 /** 注册轻量 subagent 工具和确定性命令；核心逻辑在 src/subagent。 */
 export default function subagentExtension(pi: ExtensionAPI): void {
 	registerSubagentCommands(pi);
+	pi.registerEntryRenderer(SUBAGENT_COMMAND_ENTRY, (entry, { expanded }, theme) => {
+		return renderSubagentCommandEntry(entry.data, expanded, theme);
+	});
 	pi.registerTool(repairableTool({
 		name: "subagent",
 		label: "subagent",
