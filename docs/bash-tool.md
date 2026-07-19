@@ -6,7 +6,8 @@
 
 核心规则：
 
-- 不改写命令，不做 npm、pytest、Cargo、git 等专用解析。
+- 不改写命令，不做 npm、pytest、Cargo、git 等专用输出解析。
+- 工作目录存在 `.venv`、`venv`、`env`、`.env`、`pyvenv`、`pyenv`、`.pyvenv` 或 `.pyenv`，包含 `pyvenv.cfg` 和可执行 Python 时，自动把其 `bin`（Windows 为 `Scripts`）置于 `PATH` 首位、设置 `VIRTUAL_ENV`、启用 `PIP_REQUIRE_VIRTUALENV` 并移除 `PYTHONHOME`；无路径前缀的 `python`、`pip` 及 console scripts 因而优先使用该环境，缺少 venv pip 时也不会修改全局环境。
 - 执行前只做轻量 deny pattern / regex 检查，不把 bash 改成 allowlist。
 - 不用 LLM 总结输出。
 - 截断、压缩、失败、超时、取消或捕获不完整时保留日志路径。
@@ -36,7 +37,7 @@ Matched regex: ...
 </error>
 ```
 
-这只是 lightweight guardrail：不解析 bash AST、不限制网络、不改 `HOME` / env / cwd、不限制 shell 语法。
+这只是 lightweight guardrail：不解析 bash AST、不限制网络、不改 `HOME` / cwd、不限制 shell 语法。除上述 Python 虚拟环境自动解析外，不改执行环境。
 
 ## 输出协议
 

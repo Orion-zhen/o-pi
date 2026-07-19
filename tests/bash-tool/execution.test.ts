@@ -1,4 +1,4 @@
-import { chmod, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { BashOperations, ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -11,7 +11,7 @@ import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 let workspace: string;
 let config = defaultBashToolConfig();
 const temp = useTempDir("o-pi-bash-test-");
-preserveEnv("PI_BASH_TOOL_CONFIG");
+preserveEnv("PI_BASH_TOOL_CONFIG", "PI_CODING_AGENT_DIR", "PYTHONHOME");
 
 beforeEach(() => {
 	workspace = temp.path;
@@ -66,6 +66,56 @@ describe("bash tool execution", () => {
 		expect(seen).toBeDefined();
 		expect(seen?.cwd).toBe(workspace);
 		expect(typeof seen?.command).toBe("string");
+	});
+
+	it.each([".venv", "venv", "env", ".env", "pyvenv", "pyenv", ".pyvenv", ".pyenv"])(
+		"检测 %s 并为无前缀 Python 命令注入虚拟环境",
+		async (directory) => {
+			const virtualEnv = await createFakeVirtualEnvironment(directory);
+			const managedBin = path.join(workspace, "pi-agent", "bin");
+			process.env.PI_CODING_AGENT_DIR = path.dirname(managedBin);
+			process.env.PYTHONHOME = path.join(workspace, "global-python-home");
+			let seen: { command: string; env?: NodeJS.ProcessEnv } | undefined;
+			const operations = fakeOperations(async (command, _cwd, options) => {
+				seen = { command, ...(options.env !== undefined ? { env: options.env } : {}) };
+				return { exitCode: 0 };
+			});
+
+			await executeBashCommand({ command: "python -V && pip --version" }, runtime(operations));
+
+			expect(seen?.command).toBe("python -V && pip --version");
+			expect(seen?.env?.VIRTUAL_ENV).toBe(virtualEnv.root);
+			expect(seen?.env?.PIP_REQUIRE_VIRTUALENV).toBe("1");
+			const injectedPath = seen?.env === undefined ? undefined : environmentPath(seen.env);
+			expect(injectedPath?.split(path.delimiter).slice(0, 2)).toEqual([virtualEnv.bin, managedBin]);
+			expect(seen?.env?.PYTHONHOME).toBeUndefined();
+		},
+	);
+
+	it("带虚拟环境标记但没有 Python 解释器时保持原执行环境", async () => {
+		const root = path.join(workspace, ".venv");
+		await mkdir(path.join(root, process.platform === "win32" ? "Scripts" : "bin"), { recursive: true });
+		await writeFile(path.join(root, "pyvenv.cfg"), "home = /usr/bin\n");
+		let seenEnv: NodeJS.ProcessEnv | undefined;
+		const operations = fakeOperations(async (_command, _cwd, options) => {
+			seenEnv = options.env;
+			return { exitCode: 0 };
+		});
+		await executeBashCommand({ command: "python -V" }, runtime(operations));
+		expect(seenEnv).toBeUndefined();
+	});
+
+	it.skipIf(process.platform === "win32")("真实本地后端优先解析虚拟环境中的 python/pip 变体", async () => {
+		const virtualEnv = await createFakeVirtualEnvironment(".venv");
+		for (const executable of ["python", "python3", "pip", "pip3"]) {
+			const file = path.join(virtualEnv.bin, executable);
+			await writeFile(file, `#!/bin/sh\necho venv-${executable}\n`);
+			await chmod(file, 0o700);
+		}
+
+		const result = await executeBashCommand({ command: "python && python3 && pip && pip3" }, runtime(createDefaultBashOperations()));
+		expect(result.details.exit_code).toBe(0);
+		for (const executable of ["python", "python3", "pip", "pip3"]) expect(result.content).toContain(`venv-${executable}`);
 	});
 
 	it("普通命令中的正斜杠不受影响", async () => {
@@ -255,6 +305,22 @@ describe("normalizeWindowsPath", () => {
 		expect(normalizeWindowsPath(cmd)).toBe(process.platform === "win32" ? "C:/path" : cmd);
 	});
 });
+
+async function createFakeVirtualEnvironment(directory: string): Promise<{ root: string; bin: string }> {
+	const root = path.join(workspace, directory);
+	const bin = path.join(root, process.platform === "win32" ? "Scripts" : "bin");
+	const interpreter = path.join(bin, process.platform === "win32" ? "python.exe" : "python");
+	await mkdir(bin, { recursive: true });
+	await writeFile(path.join(root, "pyvenv.cfg"), "home = /usr/bin\n");
+	await writeFile(interpreter, "");
+	await chmod(interpreter, 0o700);
+	return { root, bin };
+}
+
+function environmentPath(env: NodeJS.ProcessEnv): string | undefined {
+	const key = Object.keys(env).find((candidate) => candidate.toLowerCase() === "path");
+	return key === undefined ? undefined : env[key];
+}
 
 function runtime(operations: BashOperations) {
 	return {
