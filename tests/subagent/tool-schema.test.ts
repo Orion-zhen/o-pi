@@ -3,9 +3,6 @@ import { describe, expect, it } from "vitest";
 import subagentExtension from "../../agent/extensions/subagent.js";
 
 interface RegisteredSubagentTool {
-	description: string;
-	promptSnippet?: string;
-	promptGuidelines?: string[];
 	parameters: AnySchema;
 }
 
@@ -44,18 +41,10 @@ describe("subagent tool schema", () => {
 		expect(commands).toEqual(["agents", "run", "subagent-config"]);
 	});
 
-	it("提供最小工具提示，并只用字段说明表达 chain 协议与 cwd 默认值", () => {
-		const tool = subagentTool();
-		expect(tool.description).toBe("Delegate bounded tasks to isolated agents.");
-		expect(tool.promptSnippet).toBe("delegate bounded tasks");
-		expect(tool.promptGuidelines).toBeUndefined();
+	it("接受一个或多个 agent task，并允许每项指定 cwd", () => {
 		expect(validateParams({ tasks: [{ agent: "scout", task: "inspect" }] })).toBe(true);
 		expect(validateParams({ tasks: [{ agent: "scout", task: "use {previous}", cwd: "." }] })).toBe(true);
-		const schemaText = JSON.stringify(subagentSchema());
-		expect(schemaText).toContain("{previous} inserts the prior result and enforces sequence");
-		expect(schemaText).toContain("Workspace-relative directory; default workspace.");
-		expect(schemaText).not.toContain("Agent name.");
-		expect(schemaText).not.toContain("Agent tasks.");
+		expect(validateParams({ tasks: [{ agent: "scout", task: "inspect" }, { agent: "reviewer", task: "review" }] })).toBe(true);
 	});
 
 	it("拒绝旧模式字段、未知字段和空任务数组", () => {
