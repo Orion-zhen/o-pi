@@ -11,14 +11,14 @@ import {
 import { repairableTool } from "../../src/tool-repair/index.js";
 
 const taskItem = Type.Object({
-	agent: Type.String({ minLength: 1, description: "Agent name." }),
-	task: Type.String({ minLength: 1, description: "Task text. Use {previous} to insert the preceding result and run tasks sequentially." }),
-	cwd: Type.Optional(Type.String({ description: "Workspace-relative working directory; defaults to the workspace." })),
+	agent: Type.String({ minLength: 1 }),
+	task: Type.String({ minLength: 1, description: "Task; {previous} inserts the prior result and enforces sequence." }),
+	cwd: Type.Optional(Type.String({ description: "Workspace-relative directory; default workspace." })),
 }, { additionalProperties: false });
 
 const subagentParams = Type.Object(
 	{
-		tasks: Type.Array(taskItem, { minItems: 1, description: "Agent tasks." }),
+		tasks: Type.Array(taskItem, { minItems: 1 }),
 	},
 	{ additionalProperties: false },
 );
@@ -29,8 +29,8 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 	pi.registerTool(repairableTool({
 		name: "subagent",
 		label: "subagent",
-		description: "Delegate one or more bounded tasks to isolated agents.",
-		promptSnippet: "delegate bounded isolated work",
+		description: "Delegate bounded tasks to isolated agents.",
+		promptSnippet: "delegate bounded tasks",
 		parameters: subagentParams,
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			return executeSubagent(params as SubagentToolParams, {

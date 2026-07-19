@@ -2,7 +2,14 @@ import { Ajv, type AnySchema } from "ajv";
 import { describe, expect, it } from "vitest";
 import subagentExtension from "../../agent/extensions/subagent.js";
 
-function subagentSchema(): AnySchema {
+interface RegisteredSubagentTool {
+	description: string;
+	promptSnippet?: string;
+	promptGuidelines?: string[];
+	parameters: AnySchema;
+}
+
+function subagentTool(): RegisteredSubagentTool {
 	let registered: unknown;
 	subagentExtension({
 		registerTool(tool: unknown) {
@@ -11,7 +18,11 @@ function subagentSchema(): AnySchema {
 		registerCommand() {},
 		on() {},
 	} as never);
-	return (registered as { parameters: AnySchema }).parameters;
+	return registered as RegisteredSubagentTool;
+}
+
+function subagentSchema(): AnySchema {
+	return subagentTool().parameters;
 }
 
 function validateParams(value: unknown): boolean {
@@ -33,12 +44,18 @@ describe("subagent tool schema", () => {
 		expect(commands).toEqual(["agents", "run", "subagent-config"]);
 	});
 
-	it("只暴露 tasks，并在 task 描述提示 {previous} 与 cwd 默认值", () => {
+	it("提供最小工具提示，并只用字段说明表达 chain 协议与 cwd 默认值", () => {
+		const tool = subagentTool();
+		expect(tool.description).toBe("Delegate bounded tasks to isolated agents.");
+		expect(tool.promptSnippet).toBe("delegate bounded tasks");
+		expect(tool.promptGuidelines).toBeUndefined();
 		expect(validateParams({ tasks: [{ agent: "scout", task: "inspect" }] })).toBe(true);
 		expect(validateParams({ tasks: [{ agent: "scout", task: "use {previous}", cwd: "." }] })).toBe(true);
 		const schemaText = JSON.stringify(subagentSchema());
-		expect(schemaText).toContain("Use {previous}");
-		expect(schemaText).toContain("defaults to the workspace");
+		expect(schemaText).toContain("{previous} inserts the prior result and enforces sequence");
+		expect(schemaText).toContain("Workspace-relative directory; default workspace.");
+		expect(schemaText).not.toContain("Agent name.");
+		expect(schemaText).not.toContain("Agent tasks.");
 	});
 
 	it("拒绝旧模式字段、未知字段和空任务数组", () => {

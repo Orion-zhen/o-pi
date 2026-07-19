@@ -36,7 +36,14 @@ function waitForAbort(signal: AbortSignal | undefined): Promise<void> {
 
 describe("bash tool execution", () => {
 	it("扩展只注册覆盖版 bash，并统一标记失败结果", () => {
-		const tools: Array<{ name: string; executionMode?: string; parameters: unknown }> = [];
+		const tools: Array<{
+			name: string;
+			description: string;
+			promptSnippet?: string;
+			promptGuidelines?: string[];
+			executionMode?: string;
+			parameters: { properties?: Record<string, { description?: string }> };
+		}> = [];
 		const handlers = new Map<string, (event: unknown) => unknown>();
 		bashToolExtension({
 			registerTool(tool: Parameters<ExtensionAPI["registerTool"]>[0]) {
@@ -47,9 +54,20 @@ describe("bash tool execution", () => {
 			},
 		} as unknown as ExtensionAPI);
 
-		expect(tools).toMatchObject([{ name: "bash", executionMode: "sequential" }]);
-		const parameters = tools[0]?.parameters as { properties?: Record<string, unknown> } | undefined;
+		expect(tools).toMatchObject([{
+			name: "bash",
+			description: "Run shell commands or external programs.",
+			promptSnippet: "run shell commands",
+			executionMode: "sequential",
+		}]);
+		const tool = tools[0];
+		const parameters = tool?.parameters;
 		expect(Object.keys(parameters?.properties ?? {})).toEqual(["command", "timeout"]);
+		expect(parameters?.properties?.command?.description).toBe("Shell command; runs in workspace.");
+		expect(parameters?.properties?.timeout?.description).toBe("Seconds; default from config.");
+		expect(tool?.promptGuidelines).toEqual([
+			"Use bash only for operations not covered by active dedicated tools; never bypass active file or web tools.",
+		]);
 		const base = { duration_ms: 1, output_state: "complete", capture_complete: true };
 		expect(handlers.get("tool_result")?.({ toolName: "bash", details: { ...base, status: "timed_out" } })).toEqual({ isError: true });
 		expect(handlers.get("tool_result")?.({ toolName: "bash", details: { ...base, status: "exited", exit_code: 0 } })).toBeUndefined();

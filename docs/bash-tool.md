@@ -6,6 +6,7 @@
 
 核心规则：
 
+- 模型只在 active 专用工具未覆盖操作时使用 `bash`，不得绕过 active file/web tools；这是路由约束，不是 shell allowlist。
 - 不改写命令，不做 npm、pytest、Cargo、git 等专用输出解析。
 - 工作目录存在 `.venv`、`venv`、`env`、`.env`、`pyvenv`、`pyenv`、`.pyvenv` 或 `.pyenv`，包含 `pyvenv.cfg` 和可执行 Python 时，自动把其 `bin`（Windows 为 `Scripts`）置于 `PATH` 首位、设置 `VIRTUAL_ENV`、启用 `PIP_REQUIRE_VIRTUALENV` 并移除 `PYTHONHOME`；无路径前缀的 `python`、`pip` 及 console scripts 因而优先使用该环境，缺少 venv pip 时也不会修改全局环境。
 - 执行前只做轻量 deny pattern / regex 检查，不把 bash 改成 allowlist。

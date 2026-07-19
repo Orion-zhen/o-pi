@@ -12,8 +12,8 @@ import {
 import { repairableTool } from "../../src/tool-repair/index.js";
 
 const bashParameters = Type.Object({
-	command: Type.String({ description: "Shell command to execute exactly as provided. Runs in current workspace by default." }),
-	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds. Defaults to config." })),
+	command: Type.String({ description: "Shell command; runs in workspace." }),
+	timeout: Type.Optional(Type.Number({ description: "Seconds; default from config." })),
 }, { additionalProperties: false });
 
 /** 注册覆盖版 bash；执行后端用 Pi 本地 shell，输出管理由本项目控制。 */
@@ -23,12 +23,9 @@ export default function bashTool(pi: ExtensionAPI): void {
 	pi.registerTool(repairableTool({
 		name: "bash",
 		label: "bash",
-		description: "Run shell commands or external programs; use dedicated tools for direct file listing, search, reading, and edits.",
-		promptSnippet: "run shell commands or external programs",
-		promptGuidelines: [
-			"When a dedicated tool and bash can both perform an operation, use the dedicated tool unless shell execution itself is the task.",
-			"Use bash for tests, builds, formatters, compilers, generators, git, and other external programs; files changed by those programs remain bash output.",
-		],
+		description: "Run shell commands or external programs.",
+		promptSnippet: "run shell commands",
+		promptGuidelines: ["Use bash only for operations not covered by active dedicated tools."],
 		parameters: bashParameters,
 		executionMode: "sequential",
 		async execute(toolCallId, params, signal, onUpdate, ctx) {

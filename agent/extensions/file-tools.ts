@@ -64,7 +64,7 @@ const editParameters = Type.Object({
 	edits: Type.Array(
 		Type.Object(
 			{
-				old: Type.String({ minLength: 1, description: "Exact text occurring once in original content." }),
+				old: Type.String({ minLength: 1, description: "Exact text occurring once in original content. Must be UNIQUE." }),
 				new: Type.String(),
 			},
 			{ additionalProperties: false },
