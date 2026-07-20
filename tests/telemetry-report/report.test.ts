@@ -137,12 +137,12 @@ describe("telemetry report", () => {
 		const json = JSON.parse(await readFile(path.join(output, "report.json"), "utf8"));
 		const html = await readFile(path.join(output, "report.html"), "utf8");
 		expect(json.inventory.calls).toBe(1);
-		expect(html).toContain("Tool performance");
-		expect(html).toContain("Edit: single vs multi-file");
-		expect(html).toContain("Conversion by rank");
+		expect(html).toContain("工具性能");
+		expect(html).toContain("编辑调用：单文件与多文件");
+		expect(html).toContain("按排名统计命中率");
 		expect(html).not.toContain("<pre>");
 		expect(html).not.toContain('"candidate_ranking"');
-		expect(formatTelemetrySummary(result.report)).toContain("1 calls");
+		expect(formatTelemetrySummary(result.report)).toContain("工具调用 1 次");
 	});
 
 	it("escapes report values and marks unavailable Git provenance as unknown", () => {
@@ -159,7 +159,7 @@ describe("telemetry report", () => {
 			call("call", 0, "<script>alert(1)</script>", { status: "error" }),
 		];
 		const html = renderTelemetryHtml(aggregateTelemetry(records, { generatedAt: at(9) }));
-		expect(html).toContain("unknown");
+		expect(html).toContain("未知");
 		expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
 		expect(html).toContain('class="rate-text bad"');
 		expect(html).not.toContain("<script>alert(1)</script>");
@@ -182,10 +182,22 @@ describe("telemetry report", () => {
 		};
 		for (const width of [48, 100]) {
 			const lines = renderLiveTelemetry(live, width);
+			const rendered = lines.join("\n");
 			expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
-			expect(lines.join("\n")).toContain("lsp");
-			expect(lines.join(" ")).toContain("1 个调用进行中");
+			expect(rendered).toContain("lsp");
+			expect(rendered).toContain("进行中");
+			expect(rendered).toContain("工具调用");
+			expect(rendered).not.toContain("·");
 		}
+
+		const empty = renderLiveTelemetry({
+			report: aggregateTelemetry([], { generatedAt: at(9) }),
+			enabled: true,
+			pending_calls: 0,
+		}, 100).join("\n");
+		expect(empty).toContain("MRR");
+		expect(empty).toContain("无数据");
+		expect(empty).not.toContain("0 / 0");
 	});
 });
 

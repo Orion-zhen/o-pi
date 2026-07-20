@@ -6,9 +6,11 @@ import { renderLiveTelemetry } from "./render-live.js";
 
 const VIEWER_BODY_ROWS_RATIO = 0.8;
 const SECTION_HEADINGS = new Set([
-	"工具",
-	"编辑 · 单文件与多文件",
-	"候选项排序 · 启发式",
+	"会话信息",
+	"工具调用",
+	"编辑调用",
+	"批次分析",
+	"候选项排序（启发式）",
 	"候选来源类别",
 	"候选来源明细",
 ]);

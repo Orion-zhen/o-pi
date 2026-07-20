@@ -16,13 +16,13 @@ export function registerTelemetryCommand(
 	pi.registerCommand("telemetry", {
 		description: COMMAND_DESCRIPTION,
 		async handler(_args, ctx) {
-			const [{ createLiveTelemetryReport }, { renderLiveTelemetry }] = await Promise.all([
+			const [{ createLiveTelemetryReport }, { formatLiveTelemetrySummary }] = await Promise.all([
 				import("../../src/telemetry-report/live.js"),
 				import("../../src/telemetry-report/render-live.js"),
 			]);
 			const report = createLiveTelemetryReport(service.snapshot());
 			if (ctx.mode !== "tui") {
-				ctx.ui.notify(renderLiveTelemetry(report, 96).join("\n"), "info");
+				ctx.ui.notify(formatLiveTelemetrySummary(report), "info");
 				return;
 			}
 			const { TelemetryViewer } = await import("../../src/telemetry-report/viewer.js");
