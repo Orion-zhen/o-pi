@@ -3,6 +3,7 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
 import {
+	advanceRepoMapActivation,
 	computeRepoMapActivation,
 	evaluateRepoMapGate,
 	REPO_MAP_SESSION_ENTRY,
@@ -32,6 +33,14 @@ describe("Repo Map session activation", () => {
 		const active = activate(root, "map-1");
 		expect(computeRepoMapActivation([custom("1", active), custom("2", deactivate(path.join(root, "other")))])).toMatchObject({ root });
 		expect(computeRepoMapActivation([custom("1", active), custom("2", deactivate(path.join(root, ".")))])).toBeUndefined();
+	});
+
+	it("增量计算与全量 branch 扫描一致", () => {
+		const first = custom("1", activate(root, "map-1"));
+		const appended = [message("2"), custom("3", activate("/second", "map-2"))];
+		expect(advanceRepoMapActivation(computeRepoMapActivation([first]), appended)).toEqual(
+			computeRepoMapActivation([first, ...appended]),
+		);
 	});
 
 	it("忽略 malformed entry、其他 customType 和非 custom branch entry，并保留 branch 顺序", () => {

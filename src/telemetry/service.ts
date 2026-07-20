@@ -2,6 +2,7 @@ import type {
 	AgentToolResult,
 	ExtensionAPI,
 	ExtensionContext,
+	SessionEntry,
 	SessionShutdownEvent,
 	SessionStartEvent,
 	ToolDefinition,
@@ -12,10 +13,9 @@ import type {
 import { randomUUID } from "node:crypto";
 import type { TSchema } from "typebox";
 
-import { computeRepoMapActivation } from "../repo-map/activation.js";
+import { advanceRepoMapActivation, computeRepoMapActivation, type RepoMapActivation } from "../repo-map/activation.js";
 import type { RepairObservation, ToolArgumentStatus } from "../tool-repair/types.js";
 import { mergeFacts, safeProject, stableHash } from "./projection.js";
-import { captureGitRevision } from "./revision.js";
 import type {
 	CallBatch,
 	CallRecord,
@@ -27,7 +27,7 @@ import type {
 	TelemetryResult,
 	ToolTelemetry,
 } from "./types.js";
-import { JsonlTelemetryWriter, type TelemetryWriter } from "./writer.js";
+import type { TelemetryWriter } from "./writer.js";
 
 type TelemetryPi = Pick<ExtensionAPI, "events" | "getAllTools" | "getThinkingLevel" | "on">;
 
@@ -56,8 +56,17 @@ interface MessageEndData {
 }
 
 interface ToolState {
-	definitionHash: string;
+	definition: ToolDefinitionShape;
+	definitionHash?: string;
 	telemetry?: ErasedTelemetry;
+}
+
+interface ToolDefinitionShape {
+	name: string;
+	description?: unknown;
+	parameters?: unknown;
+	promptSnippet?: unknown;
+	promptGuidelines?: unknown;
 }
 
 interface TurnContext {
@@ -77,6 +86,7 @@ interface PendingCall {
 	startedMonotonic: number;
 	params: unknown;
 	inputFacts: TelemetryFacts;
+	inputProjected: boolean;
 	telemetry?: ErasedTelemetry;
 	repair?: CallRecord["repair"];
 	batch?: CallBatch;
@@ -87,7 +97,10 @@ interface RunState {
 	sessionId: string;
 	enabled: boolean;
 	warned: boolean;
+	closing: boolean;
 	writer?: TelemetryWriter;
+	initializing?: Promise<void>;
+	queued: TelemetryRecord[];
 	notify: (message: string) => void;
 }
 
@@ -139,8 +152,10 @@ export class TelemetryService {
 	readonly #pending = new Map<string, PendingCall>();
 	readonly #declaredBatches = new Map<string, CallBatch>();
 	readonly #records: TelemetryRecord[] = [];
+	#pendingByParams = new WeakMap<object, PendingCall>();
 	#run: RunState | undefined;
 	#turn: TurnContext | undefined;
+	#repoMapCursor: { leafId: string | null; activation?: RepoMapActivation } | undefined;
 	#nextCallIndex = 0;
 	#attached = false;
 
@@ -148,14 +163,14 @@ export class TelemetryService {
 		this.#now = options.now ?? (() => new Date());
 		this.#monotonicNow = options.monotonicNow ?? (() => performance.now());
 		this.#runId = options.runId ?? randomUUID;
-		this.#captureRevision = options.revision ?? captureGitRevision;
-		this.#writerFactory = options.writerFactory ?? ((runId, onError) => JsonlTelemetryWriter.open(runId, { onError }));
+		this.#captureRevision = options.revision ?? (async (cwd) => (await import("./revision.js")).captureGitRevision(cwd));
+		this.#writerFactory = options.writerFactory ?? (async (runId, onError) => (await import("./writer.js")).JsonlTelemetryWriter.open(runId, { onError }));
 	}
 
 	attach(pi: Pick<TelemetryPi, "on">): void {
 		if (this.#attached) return;
 		this.#attached = true;
-		try { pi.on("session_start", (event, ctx) => this.onSessionStart(event, ctx)); } catch {}
+		try { pi.on("session_start", (event, ctx) => { void this.onSessionStart(event, ctx); }); } catch {}
 		try { pi.on("turn_start", (event, ctx) => this.onTurnStart(event, ctx)); } catch {}
 		try { pi.on("message_end", (event) => this.onMessageEnd(event)); } catch {}
 		try { pi.on("tool_execution_start", (event) => this.onToolExecutionStart(event)); } catch {}
@@ -170,7 +185,7 @@ export class TelemetryService {
 	): void {
 		this.guard(() => {
 			this.#tools.set(tool.name, {
-				definitionHash: definitionHash(tool),
+				definition: tool,
 				...(telemetry === undefined ? {} : { telemetry: eraseTelemetry(telemetry) }),
 			});
 		});
@@ -187,9 +202,9 @@ export class TelemetryService {
 		};
 	}
 
-	async onSessionStart(event: SessionStartEvent, ctx: ExtensionContext): Promise<void> {
+	onSessionStart(event: SessionStartEvent, ctx: ExtensionContext): Promise<void> {
 		try {
-			await this.closeCurrentRun();
+			const previous = this.#run;
 			this.resetRunState();
 			const runId = this.#runId();
 			const sessionId = safeSessionId(ctx);
@@ -198,35 +213,26 @@ export class TelemetryService {
 				sessionId,
 				enabled: true,
 				warned: false,
+				closing: false,
+				queued: [],
 				notify: (message) => {
 					try { ctx.ui.notify(message, "warning"); } catch {}
 				},
 			};
 			this.#run = run;
-			try {
-				run.writer = await this.#writerFactory(runId, (error) => this.disableRun(runId, error));
-			} catch (error) {
-				this.disableRun(runId, error);
-				return;
-			}
-			const git = await this.#captureRevision(ctx.cwd).catch(() => undefined);
-			this.append({
-				type: "run",
-				run_id: runId,
-				at: this.#now().toISOString(),
-				session_id: sessionId,
-				reason: event.reason,
-				cwd: ctx.cwd,
-				...(git === undefined ? {} : { git }),
-			} satisfies RunRecord);
+			const startedAt = this.#now().toISOString();
+			const initialization = this.initializeRun(run, previous, event, ctx.cwd, startedAt);
+			run.initializing = initialization;
+			return initialization;
 		} catch {
 			// Telemetry cannot affect session startup.
+			return Promise.resolve();
 		}
 	}
 
 	onTurnStart(event: TurnStartEvent, ctx: ExtensionContext): void {
 		this.guard(() => {
-			const activation = computeRepoMapActivation(safeBranch(ctx));
+			const activation = this.repoMapActivation(ctx);
 			this.#turn = {
 				index: event.turnIndex,
 				...(ctx.model === undefined ? {} : { model: { provider: ctx.model.provider, id: ctx.model.id } }),
@@ -246,10 +252,18 @@ export class TelemetryService {
 		this.guard(() => {
 			const message = event.message;
 			if (message.role !== "assistant" || !Array.isArray(message.content)) return;
-			const calls = message.content.filter((part) => part.type === "toolCall");
-			if (calls.length === 0) return;
+			let size = 0;
+			for (const part of message.content) {
+				if (part.type === "toolCall") size += 1;
+			}
+			if (size === 0) return;
 			const id = randomUUID();
-			for (const [index, call] of calls.entries()) this.#declaredBatches.set(call.id, { id, size: calls.length, index });
+			let index = 0;
+			for (const part of message.content) {
+				if (part.type !== "toolCall") continue;
+				this.#declaredBatches.set(part.id, { id, size, index });
+				index += 1;
+			}
 		});
 	}
 
@@ -257,10 +271,6 @@ export class TelemetryService {
 		this.guard(() => {
 			if (!this.enabled()) return;
 			const tool = this.toolState(event.toolName);
-			const projected = safeProject(tool.telemetry?.input === undefined
-				? undefined
-				: () => tool.telemetry?.input?.(clone(event.args)) ?? {});
-			const annotations = projectionAnnotations("input", projected);
 			const batch = this.#declaredBatches.get(event.toolCallId);
 			const pending: PendingCall = {
 				id: event.toolCallId,
@@ -271,24 +281,36 @@ export class TelemetryService {
 				startedAt: this.#now().getTime(),
 				startedMonotonic: this.#monotonicNow(),
 				params: event.args,
-				inputFacts: mergeFacts(projected.facts, annotations),
+				inputFacts: {},
+				inputProjected: false,
 				...(tool.telemetry === undefined ? {} : { telemetry: tool.telemetry }),
 				...(batch === undefined ? {} : { batch }),
 			};
 			this.#declaredBatches.delete(event.toolCallId);
 			this.#pending.set(event.toolCallId, pending);
+			if (isObject(event.args)) this.#pendingByParams.set(event.args, pending);
 		});
 	}
 
 	prepared(observation: RepairObservation): void {
 		this.guard(() => {
 			if (!this.enabled()) return;
-			const calls = [...this.#pending.values()].filter((call) => call.tool === observation.toolName && call.repair === undefined);
-			const call = calls.find((candidate) => candidate.params === observation.rawArgs) ?? calls[0];
+			let call = isObject(observation.rawArgs) ? this.#pendingByParams.get(observation.rawArgs) : undefined;
+			if (call?.tool !== observation.toolName || call.repair !== undefined) call = undefined;
+			if (call === undefined) {
+				for (const candidate of this.#pending.values()) {
+					if (candidate.tool !== observation.toolName || candidate.repair !== undefined) continue;
+					if (candidate.params === observation.rawArgs) {
+						call = candidate;
+						break;
+					}
+					call ??= candidate;
+				}
+			}
 			if (call === undefined) return;
 			call.repair = { status: observation.status, operations: [...new Set(observation.operations)] };
 			call.params = observation.preparedArgs;
-			this.projectPreparedInput(call, observation.preparedArgs);
+			call.inputProjected = false;
 		});
 	}
 
@@ -296,7 +318,6 @@ export class TelemetryService {
 		this.guard(() => {
 			const call = this.#pending.get(event.toolCallId);
 			if (call === undefined || call.tool !== event.toolName) return;
-			call.params = event.input;
 			this.projectPreparedInput(call, event.input);
 		});
 	}
@@ -307,9 +328,10 @@ export class TelemetryService {
 			const call = this.#pending.get(event.toolCallId);
 			if (call === undefined || call.tool !== event.toolName) return;
 			this.#pending.delete(event.toolCallId);
+			if (!call.inputProjected) this.projectPreparedInput(call, call.params);
 			const projected = safeProject(call.telemetry?.result === undefined
 				? undefined
-				: () => call.telemetry?.result?.(clone(call.params), { details: clone(event.result.details) }) ?? {});
+				: () => call.telemetry?.result?.(readonlyView(call.params), { details: readonlyView(event.result.details) }) ?? {});
 			const facts = mergeFacts(call.inputFacts, projected.facts, projectionAnnotations("result", projected));
 			const ended = this.#now();
 			const status = classify(event.isError, call.repair?.status, facts.fields);
@@ -352,27 +374,109 @@ export class TelemetryService {
 	}
 
 	private projectPreparedInput(call: PendingCall, params: unknown): void {
+		call.params = params;
+		call.inputProjected = true;
 		if (call.telemetry?.input === undefined) return;
-		const projected = safeProject(() => call.telemetry?.input?.(clone(params)) ?? {});
+		const projected = safeProject(() => call.telemetry?.input?.(readonlyView(params)) ?? {});
 		call.inputFacts = mergeFacts(projected.facts, projectionAnnotations("input", projected));
+	}
+
+	private repoMapActivation(ctx: ExtensionContext): RepoMapActivation | undefined {
+		const manager = ctx.sessionManager;
+		try {
+			const leafId = manager.getLeafId();
+			const cursor = this.#repoMapCursor;
+			if (cursor?.leafId === leafId) return cursor.activation;
+			const entries: SessionEntry[] = [];
+			let entryId = leafId;
+			let extendsCursor = cursor?.leafId === null;
+			while (entryId !== null) {
+				if (cursor !== undefined && entryId === cursor.leafId) {
+					extendsCursor = true;
+					break;
+				}
+				const entry = manager.getEntry(entryId);
+				if (entry === undefined || entry.parentId === entry.id) throw new Error("Invalid session branch");
+				entries.push(entry);
+				entryId = entry.parentId;
+			}
+			entries.reverse();
+			const activation = advanceRepoMapActivation(extendsCursor ? cursor?.activation : undefined, entries);
+			this.#repoMapCursor = { leafId, ...(activation === undefined ? {} : { activation }) };
+			return activation;
+		} catch {
+			const activation = computeRepoMapActivation(safeBranch(ctx));
+			this.#repoMapCursor = undefined;
+			return activation;
+		}
 	}
 
 	private toolState(name: string): Partial<ToolState> {
 		const registered = this.#tools.get(name);
-		if (registered !== undefined) return registered;
+		if (registered !== undefined) {
+			registered.definitionHash ??= definitionHash(registered.definition);
+			return registered;
+		}
 		const current = safeAllTools(this.pi).find((tool) => tool.name === name);
-		return current === undefined ? {} : { definitionHash: definitionHash(current) };
+		if (current === undefined) return {};
+		const discovered: ToolState = { definition: current, definitionHash: definitionHash(current) };
+		this.#tools.set(name, discovered);
+		return discovered;
+	}
+
+	private async initializeRun(
+		run: RunState,
+		previous: RunState | undefined,
+		event: SessionStartEvent,
+		cwd: string,
+		startedAt: string,
+	): Promise<void> {
+		const resources = Promise.all([
+			this.#writerFactory(run.id, (error) => this.disableRun(run.id, error)),
+			this.#captureRevision(cwd).catch(() => undefined),
+		] as const);
+		try {
+			if (previous !== undefined) await this.closeRun(previous);
+			const [writer, git] = await resources;
+			if (run.closing || this.#run !== run) {
+				await writer.close().catch(() => undefined);
+				return;
+			}
+			run.writer = writer;
+			this.appendToRun(run, {
+				type: "run",
+				run_id: run.id,
+				at: startedAt,
+				session_id: run.sessionId,
+				reason: event.reason,
+				cwd,
+				...(git === undefined ? {} : { git }),
+			} satisfies RunRecord);
+			for (const record of run.queued) this.appendToRun(run, record);
+			run.queued.length = 0;
+		} catch (error) {
+			this.disableRun(run.id, error);
+		}
 	}
 
 	private append(record: TelemetryRecord): void {
 		const run = this.#run;
 		if (run === undefined || !run.enabled) return;
+		if (run.writer === undefined) {
+			if (!run.closing) run.queued.push(record);
+			return;
+		}
+		this.appendToRun(run, record);
+	}
+
+	private appendToRun(run: RunState, record: TelemetryRecord): void {
+		if (!run.enabled || run.writer === undefined) return;
 		try {
-			if (run.writer?.append(record) !== true) {
+			if (run.writer.append(record) !== true) {
 				this.disableRun(run.id, new Error("Telemetry write failed"));
 				return;
 			}
-			this.#records.push(record);
+			if (this.#run === run) this.#records.push(record);
 		} catch (error) {
 			this.disableRun(run.id, error);
 		}
@@ -383,6 +487,7 @@ export class TelemetryService {
 		if (run === undefined || run.id !== runId || !run.enabled) return;
 		run.enabled = false;
 		this.#pending.clear();
+		run.queued.length = 0;
 		if (!run.warned) {
 			run.warned = true;
 			run.notify("Telemetry disabled for this run after a write failure.");
@@ -398,14 +503,22 @@ export class TelemetryService {
 		this.#pending.clear();
 		this.#declaredBatches.clear();
 		if (run === undefined) return;
+		await this.closeRun(run);
+	}
+
+	private async closeRun(run: RunState): Promise<void> {
+		run.closing = true;
+		await run.initializing?.catch(() => undefined);
 		await run.writer?.close().catch((error: unknown) => this.disableRun(run.id, error));
 	}
 
 	private resetRunState(): void {
 		this.#pending.clear();
+		this.#pendingByParams = new WeakMap<object, PendingCall>();
 		this.#declaredBatches.clear();
 		this.#records.length = 0;
 		this.#turn = undefined;
+		this.#repoMapCursor = undefined;
 		this.#nextCallIndex = 0;
 	}
 
@@ -437,7 +550,11 @@ function outputFacts(result: AgentToolResult<unknown>): { chars: number; lines: 
 	for (const part of result.content) {
 		if (part.type !== "text") continue;
 		chars += part.text.length;
-		lines += part.text.length === 0 ? 0 : part.text.split("\n").length;
+		if (part.text.length === 0) continue;
+		lines += 1;
+		for (let index = 0; index < part.text.length; index += 1) {
+			if (part.text.charCodeAt(index) === 10) lines += 1;
+		}
 	}
 	return { chars, lines, truncated: detectsTruncation(result.details) };
 }
@@ -522,6 +639,29 @@ function safeSessionId(ctx: ExtensionContext): string {
 
 function clone<T>(value: T): T {
 	return structuredClone(value);
+}
+
+/** 惰性隔离 projector 输入，不复制未访问的 JSON-like payload 分支。 */
+function readonlyView<T>(value: T): T {
+	if (!isObject(value)) return value;
+	const proxies = new WeakMap<object, object>();
+	const wrap = (current: unknown): unknown => {
+		if (!isObject(current)) return current;
+		const existing = proxies.get(current);
+		if (existing !== undefined) return existing;
+		const proxy = new Proxy(current, {
+			get(target, property, receiver) {
+				return wrap(Reflect.get(target, property, receiver));
+			},
+			set: () => false,
+			deleteProperty: () => false,
+			defineProperty: () => false,
+			setPrototypeOf: () => false,
+		});
+		proxies.set(current, proxy);
+		return proxy;
+	};
+	return wrap(value) as T;
 }
 
 function isObject(value: unknown): value is object {

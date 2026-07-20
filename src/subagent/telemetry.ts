@@ -7,15 +7,27 @@ export const subagentTelemetry = defineToolTelemetry<SubagentToolParams, Subagen
 	input: projectInput,
 	result(_params, result) {
 		const details = result.details;
+		let failed = 0;
+		let attempts = 0;
+		let durationMs = 0;
+		let inputTokens = 0;
+		let outputTokens = 0;
+		for (const item of details.results) {
+			if (item.error !== undefined || item.exitCode !== 0) failed += 1;
+			attempts += finite(item.attempts);
+			durationMs += finite(item.durationMs);
+			inputTokens += finite(item.usage.input);
+			outputTokens += finite(item.usage.output);
+		}
 		return {
 			fields: fields({
 				mode: details.mode,
 				task_count: details.tasks.length,
-				failed_task_count: details.results.filter((item) => item.error !== undefined || item.exitCode !== 0).length,
-				attempt_count: sum(details.results.map((item) => item.attempts)),
-				duration_ms: sum(details.results.map((item) => item.durationMs)),
-				input_tokens: sum(details.results.map((item) => item.usage.input)),
-				output_tokens: sum(details.results.map((item) => item.usage.output)),
+				failed_task_count: failed,
+				attempt_count: attempts,
+				duration_ms: durationMs,
+				input_tokens: inputTokens,
+				output_tokens: outputTokens,
 			}),
 		};
 	},
@@ -43,6 +55,6 @@ function projectInput(value: unknown): TelemetryFacts {
 	};
 }
 
-function sum(values: readonly number[]): number {
-	return values.reduce((total, value) => total + (Number.isFinite(value) ? value : 0), 0);
+function finite(value: number): number {
+	return Number.isFinite(value) ? value : 0;
 }

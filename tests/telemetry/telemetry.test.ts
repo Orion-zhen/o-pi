@@ -3,6 +3,7 @@ import {
 	type AgentToolResult,
 	type ExtensionAPI,
 	type ExtensionContext,
+	type SessionStartEvent,
 	type ToolDefinition,
 	type ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
@@ -53,6 +54,8 @@ describe("telemetry service", () => {
 
 	it("writes one run header and one completed, projected call", async () => {
 		const writer = new MemoryWriter();
+		let inputProjectionCalls = 0;
+		let mutationBlocked = false;
 		let monotonic = 100;
 		const pi = fakePi().api;
 		const service = new TelemetryService(pi, {
@@ -63,7 +66,11 @@ describe("telemetry service", () => {
 			writerFactory: async () => writer,
 		});
 		service.registerTool(testTool(), defineToolTelemetry({
-			input: (params: { path: string; count?: number }) => ({ fields: { input_count: params.count ?? 0 }, targets: [{ kind: "file", value: params.path }] }),
+			input: (params: { path: string; count?: number }) => {
+				inputProjectionCalls += 1;
+				try { params.path = "mutated"; } catch { mutationBlocked = true; }
+				return { fields: { input_count: params.count ?? 0 }, targets: [{ kind: "file", value: params.path }] };
+			},
 			result: (_params, result) => ({ fields: fields({ status: result.details.status, error_code: result.details.error_code, truncated: result.details.truncated }) }),
 		}));
 		const ctx = extensionContext();
@@ -93,6 +100,8 @@ describe("telemetry service", () => {
 			targets: [{ kind: "file", value: "src/a.ts" }],
 		});
 		expect((writer.records[1] as CallRecord).definition_hash).toMatch(/^[a-f0-9]{64}$/u);
+		expect(inputProjectionCalls).toBe(1);
+		expect(mutationBlocked).toBe(true);
 		const snapshot = service.snapshot();
 		expect(snapshot).toMatchObject({
 			run_id: "run-1",
@@ -103,6 +112,47 @@ describe("telemetry service", () => {
 		});
 		snapshot.records.length = 0;
 		expect(service.snapshot().records).toHaveLength(2);
+	});
+
+	it("buffers calls in order while startup resources initialize", async () => {
+		const writer = new MemoryWriter();
+		const writerGate = deferred<TelemetryWriter>();
+		const revisionGate = deferred<GitRevision | undefined>();
+		const service = new TelemetryService(fakePi().api, {
+			runId: () => "run",
+			writerFactory: async () => writerGate.promise,
+			revision: async () => revisionGate.promise,
+		});
+		const initialization = service.onSessionStart({ type: "session_start", reason: "startup" }, extensionContext());
+		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "early", toolName: "host", args: {} });
+		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "early", toolName: "host", result: result({ status: "ok" }), isError: false });
+		expect(writer.records).toEqual([]);
+		writerGate.resolve(writer);
+		revisionGate.resolve(undefined);
+		await initialization;
+		expect(writer.records.map((record) => record.type)).toEqual(["run", "call"]);
+		expect(writer.records[1]).toMatchObject({ call_id: "early" });
+	});
+
+	it("does not put telemetry initialization on Pi's session_start await chain", async () => {
+		let start: ((event: SessionStartEvent, ctx: ExtensionContext) => unknown) | undefined;
+		const writerGate = deferred<TelemetryWriter>();
+		const revisionGate = deferred<GitRevision | undefined>();
+		const pi = fakePi().api;
+		pi.on = (event, handler) => {
+			if (event === "session_start") start = fixture<(event: SessionStartEvent, ctx: ExtensionContext) => unknown>(handler);
+		};
+		const service = new TelemetryService(pi, {
+			runId: () => "run",
+			writerFactory: async () => writerGate.promise,
+			revision: async () => revisionGate.promise,
+		});
+		service.attach(pi);
+		if (start === undefined) throw new Error("session_start not attached");
+		expect(start({ type: "session_start", reason: "startup" }, extensionContext())).toBeUndefined();
+		writerGate.resolve(new MemoryWriter());
+		revisionGate.resolve(undefined);
+		await service.onSessionShutdown({ type: "session_shutdown", reason: "quit" });
 	});
 
 	it("registers a non-TUI live report without writing to session history", async () => {
@@ -272,4 +322,10 @@ function clock(): () => Date {
 
 function fixture<T>(value: unknown): T {
 	return value as T;
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+	let resolve = (_value: T): void => undefined;
+	const promise = new Promise<T>((complete) => { resolve = complete; });
+	return { promise, resolve };
 }

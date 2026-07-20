@@ -22,7 +22,12 @@ export function defineToolTelemetry<TParams, TDetails>(
 }
 
 export function fields(values: Record<string, FieldValue | undefined>): Fields {
-	return Object.fromEntries(Object.entries(values).filter((entry): entry is [string, FieldValue] => entry[1] !== undefined));
+	const result: Fields = {};
+	for (const key of Object.keys(values)) {
+		const value = values[key];
+		if (value !== undefined) result[key] = value;
+	}
+	return result;
 }
 
 export function scalar(value: unknown): Exclude<FieldValue, string[]> | undefined {
@@ -35,7 +40,6 @@ export function textFields(prefix: string, value: unknown): Fields {
 	return {
 		[`${prefix}_chars`]: value.length,
 		[`${prefix}_lines`]: lineCount(value),
-		[`${prefix}_sha256`]: sha256(value),
 	};
 }
 
@@ -110,7 +114,7 @@ function boundFields(value: unknown): { value: Fields; invalid: boolean; limited
 		const key = label(rawKey);
 		limited ||= key !== rawKey;
 		if (typeof rawValue === "string" && rawValue.length > MAX_FIELD_STRING_CHARS) {
-			Object.assign(result, textFields(key, rawValue));
+			Object.assign(result, textFields(key, rawValue), { [`${key}_sha256`]: sha256(rawValue) });
 			limited = true;
 		} else if (rawValue === null || typeof rawValue === "string" || typeof rawValue === "boolean") {
 			result[key] = rawValue;
@@ -194,7 +198,12 @@ function label(value: string): string {
 }
 
 function lineCount(value: string): number {
-	return value.length === 0 ? 0 : value.split("\n").length;
+	if (value.length === 0) return 0;
+	let lines = 1;
+	for (let index = 0; index < value.length; index += 1) {
+		if (value.charCodeAt(index) === 10) lines += 1;
+	}
+	return lines;
 }
 
 function sha256(value: string): string {

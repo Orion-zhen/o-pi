@@ -17,7 +17,9 @@
 - `run`：session、cwd、时间和自动取得的 Git commit/dirty diff hash。
 - `call`：完成调用的工具、时间、状态、耗时、repair、batch，以及少量专属事实。
 
-Pi 的 `tool_execution_start` 建立内存 pending call，`tool_execution_end` 直接写入一条 `call`。进程退出前仍未完成的调用不补写；系统不维护 declared/executing/unfinished 状态机，也不恢复 pending 数据。
+Pi 的 `tool_execution_start` 建立内存 pending call，参数准备完成后只投影最终执行输入，`tool_execution_end` 直接写入一条 `call`。进程退出前仍未完成的调用不补写；系统不维护 declared/executing/unfinished 状态机，也不恢复 pending 数据。
+
+writer 与 Git provenance 在后台并行初始化，不阻塞 Pi 启动；初始化期间完成的调用在内存中按序暂存，待 `run` header 写入后刷新。writer、Git 和报告模块也都延迟到实际需要时加载。
 
 collector 同时保留当前 `session_start` 以来已成功写入 record 的内存副本，供 `/telemetry` 即时分析；切换 session 时清空。它不扫描或恢复旧 run，不改变 JSONL 作为持久化事实源的地位。
 
@@ -57,7 +59,7 @@ registerObservedTool(pi, { tool, repair, telemetry: searchTelemetry });
 - `targets`：调用明确访问的文件、目录、region 或 URL。
 - `candidates`：模型实际看到的候选顺序、资源和来源。
 
-投影边界限制字段、数组、资源数量和字符串长度。长字符串只保留字符数、行数和 SHA-256；异常与限幅分别写入 `telemetry_<scope>_error`、`telemetry_<scope>_limited`。projector 只收到隔离副本，错误不会逃逸到工具执行路径。
+投影边界限制字段、数组、资源数量和字符串长度。显式文本摘要只计算字符数和行数；越界字符串额外保留 SHA-256。异常与限幅分别写入 `telemetry_<scope>_error`、`telemetry_<scope>_limited`。projector 只收到按访问惰性创建的只读视图，不会深拷贝未访问的大 payload，错误也不会逃逸到工具执行路径。
 
 ## 报告
 

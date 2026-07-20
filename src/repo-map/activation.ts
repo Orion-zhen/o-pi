@@ -53,7 +53,15 @@ export interface RepoMapGateResult {
 
 /** 按 branch 时间线计算当前 activation；不读取磁盘，也不修改 session。 */
 export function computeRepoMapActivation(branchEntries: SessionEntry[]): RepoMapActivation | undefined {
-	let activation: RepoMapActivation | undefined;
+	return advanceRepoMapActivation(undefined, branchEntries);
+}
+
+/** 将新增 branch entry 增量应用到已解析的 activation。 */
+export function advanceRepoMapActivation(
+	initial: RepoMapActivation | undefined,
+	branchEntries: readonly SessionEntry[],
+): RepoMapActivation | undefined {
+	let activation = initial;
 	for (const branchEntry of branchEntries) {
 		if (branchEntry.type !== "custom" || branchEntry.customType !== REPO_MAP_SESSION_ENTRY) continue;
 		const entry = parseSessionEntry(branchEntry.data);
