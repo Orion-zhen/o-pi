@@ -6,7 +6,7 @@
 
 ## 数据与生命周期
 
-每次 Pi run 写一个文件：
+只有至少完成一次工具调用的 Pi run 才写文件：
 
 ```text
 ~/.pi/telemetry/runs/<run_id>.jsonl
@@ -17,11 +17,11 @@
 - `run`：session、cwd、时间和自动取得的 Git commit/dirty diff hash。
 - `call`：完成调用的工具、时间、状态、耗时、repair、batch，以及少量专属事实。
 
-Pi 的 `tool_execution_start` 建立内存 pending call，参数准备完成后只投影最终执行输入，`tool_execution_end` 直接写入一条 `call`。进程退出前仍未完成的调用不补写；系统不维护 declared/executing/unfinished 状态机，也不恢复 pending 数据。
+Pi 的 `tool_execution_start` 建立内存 pending call，参数准备完成后只投影最终执行输入，首个 `tool_execution_end` 才触发 writer 与 Git provenance 初始化并写入 `run + call`。仅启动后退出或只有未完成调用的 run 不创建文件。进程退出前仍未完成的调用不补写；系统不维护 declared/executing/unfinished 状态机，也不恢复 pending 数据。
 
-writer 与 Git provenance 在后台并行初始化，不阻塞 Pi 启动；初始化期间完成的调用在内存中按序暂存，待 `run` header 写入后刷新。writer、Git 和报告模块也都延迟到实际需要时加载。
+writer 与 Git provenance 在首个完成调用后于后台并行初始化，不阻塞 Pi 启动或工具完成事件；初始化期间完成的调用在内存中按序暂存，待 `run` header 写入后刷新。writer、Git 和报告模块都延迟到实际需要时加载。
 
-collector 同时保留当前 `session_start` 以来已成功写入 record 的内存副本，供 `/telemetry` 即时分析；切换 session 时清空。它不扫描或恢复旧 run，不改变 JSONL 作为持久化事实源的地位。
+collector 同时保留当前 `session_start` 以来的 record 内存视图，供 `/telemetry` 即时分析；切换 session 时清空。它不扫描或恢复旧 run，不改变 JSONL 作为持久化事实源的地位。
 
 `message_end` 只用于识别同一 assistant message 中的并行 batch。`turn_start` 只给后续 call 附加模型、thinking 和当前 repo-map 状态，不单独落盘。
 

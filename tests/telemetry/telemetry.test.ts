@@ -82,6 +82,7 @@ describe("telemetry service", () => {
 		service.onToolResult(fixture<ToolResultEvent>({ type: "tool_result", toolCallId: "call-1", toolName: "test", input: { path: "src/a.ts", count: 3 }, details: { status: "ok" }, content: [], isError: false }));
 		monotonic = 125;
 		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "call-1", toolName: "test", result: result({ status: "ok", truncated: true }), isError: false });
+		await service.onSessionShutdown({ type: "session_shutdown", reason: "new" });
 
 		expect(writer.records[0]).toMatchObject({ type: "run", run_id: "run-1", git: { commit: "abc", dirty: false } });
 		expect(writer.records[1]).toMatchObject({
@@ -123,36 +124,35 @@ describe("telemetry service", () => {
 			writerFactory: async () => writerGate.promise,
 			revision: async () => revisionGate.promise,
 		});
-		const initialization = service.onSessionStart({ type: "session_start", reason: "startup" }, extensionContext());
+		await service.onSessionStart({ type: "session_start", reason: "startup" }, extensionContext());
 		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "early", toolName: "host", args: {} });
 		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "early", toolName: "host", result: result({ status: "ok" }), isError: false });
 		expect(writer.records).toEqual([]);
 		writerGate.resolve(writer);
 		revisionGate.resolve(undefined);
-		await initialization;
+		await service.onSessionShutdown({ type: "session_shutdown", reason: "new" });
 		expect(writer.records.map((record) => record.type)).toEqual(["run", "call"]);
 		expect(writer.records[1]).toMatchObject({ call_id: "early" });
 	});
 
 	it("does not put telemetry initialization on Pi's session_start await chain", async () => {
 		let start: ((event: SessionStartEvent, ctx: ExtensionContext) => unknown) | undefined;
-		const writerGate = deferred<TelemetryWriter>();
-		const revisionGate = deferred<GitRevision | undefined>();
+		let writerCalls = 0;
+		let revisionCalls = 0;
 		const pi = fakePi().api;
 		pi.on = (event, handler) => {
 			if (event === "session_start") start = fixture<(event: SessionStartEvent, ctx: ExtensionContext) => unknown>(handler);
 		};
 		const service = new TelemetryService(pi, {
 			runId: () => "run",
-			writerFactory: async () => writerGate.promise,
-			revision: async () => revisionGate.promise,
+			writerFactory: async () => { writerCalls += 1; return new MemoryWriter(); },
+			revision: async () => { revisionCalls += 1; return undefined; },
 		});
 		service.attach(pi);
 		if (start === undefined) throw new Error("session_start not attached");
 		expect(start({ type: "session_start", reason: "startup" }, extensionContext())).toBeUndefined();
-		writerGate.resolve(new MemoryWriter());
-		revisionGate.resolve(undefined);
 		await service.onSessionShutdown({ type: "session_shutdown", reason: "quit" });
+		expect({ writerCalls, revisionCalls }).toEqual({ writerCalls: 0, revisionCalls: 0 });
 	});
 
 	it("registers a non-TUI live report without writing to session history", async () => {
@@ -204,25 +204,36 @@ describe("telemetry service", () => {
 		await service.onSessionStart({ type: "session_start", reason: "startup" }, extensionContext());
 		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call", toolName: "test", args: { path: "a" } });
 		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "call", toolName: "test", result: result({ status: "failed", error_code: "NOT_FOUND" }), isError: false });
+		await service.onSessionShutdown({ type: "session_shutdown", reason: "new" });
 		expect(writer.records[1]).toMatchObject({ status: "error", error: { code: "NOT_FOUND" }, fields: { telemetry_input_error: "RangeError" } });
 	});
 
-	it("does not invent unfinished records at shutdown", async () => {
+	it("does not initialize or write a run without a completed call", async () => {
 		const writer = new MemoryWriter();
-		const service = new TelemetryService(fakePi().api, { runId: () => "run", writerFactory: async () => writer, revision: async () => undefined });
+		let writerCalls = 0;
+		let revisionCalls = 0;
+		const service = new TelemetryService(fakePi().api, {
+			runId: () => "run",
+			writerFactory: async () => { writerCalls += 1; return writer; },
+			revision: async () => { revisionCalls += 1; return undefined; },
+		});
 		await service.onSessionStart({ type: "session_start", reason: "startup" }, extensionContext());
 		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "pending", toolName: "host", args: {} });
 		await service.onSessionShutdown({ type: "session_shutdown", reason: "quit" });
-		expect(writer.records.map((record) => record.type)).toEqual(["run"]);
-		expect(writer.closed).toBe(true);
+		expect(writer.records).toEqual([]);
+		expect(writer.closed).toBe(false);
+		expect({ writerCalls, revisionCalls }).toEqual({ writerCalls: 0, revisionCalls: 0 });
 	});
 
 	it("write failure disables telemetry once without changing tool behavior", async () => {
 		const notifications: string[] = [];
 		const service = new TelemetryService(fakePi().api, { runId: () => "run", writerFactory: async () => new FailingWriter(), revision: async () => undefined });
 		await service.onSessionStart({ type: "session_start", reason: "startup" }, extensionContext(notifications));
+		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call", toolName: "test", args: {} });
+		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "call", toolName: "test", result: result({ status: "ok" }), isError: false });
+		await service.onSessionShutdown({ type: "session_shutdown", reason: "new" });
 		expect(notifications).toEqual(["Telemetry disabled for this run after a write failure."]);
-		expect(() => service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call", toolName: "test", args: {} })).not.toThrow();
+		expect(() => service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "later", toolName: "test", args: {} })).not.toThrow();
 	});
 
 	it.each(["reload", "quit"] as const)("%s releases the shared service", async (reason) => {

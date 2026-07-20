@@ -95,12 +95,14 @@ interface PendingCall {
 interface RunState {
 	id: string;
 	sessionId: string;
+	header: RunRecord;
 	enabled: boolean;
 	warned: boolean;
 	closing: boolean;
 	writer?: TelemetryWriter;
 	initializing?: Promise<void>;
-	queued: TelemetryRecord[];
+	predecessor?: Promise<void>;
+	queued: CallRecord[];
 	notify: (message: string) => void;
 }
 
@@ -208,9 +210,18 @@ export class TelemetryService {
 			this.resetRunState();
 			const runId = this.#runId();
 			const sessionId = safeSessionId(ctx);
+			const header = {
+				type: "run",
+				run_id: runId,
+				at: this.#now().toISOString(),
+				session_id: sessionId,
+				reason: event.reason,
+				cwd: ctx.cwd,
+			} satisfies RunRecord;
 			const run: RunState = {
 				id: runId,
 				sessionId,
+				header,
 				enabled: true,
 				warned: false,
 				closing: false,
@@ -220,10 +231,11 @@ export class TelemetryService {
 				},
 			};
 			this.#run = run;
-			const startedAt = this.#now().toISOString();
-			const initialization = this.initializeRun(run, previous, event, ctx.cwd, startedAt);
-			run.initializing = initialization;
-			return initialization;
+			this.#records.push(header);
+			if (previous === undefined) return Promise.resolve();
+			const predecessor = this.closeRun(previous);
+			run.predecessor = predecessor;
+			return predecessor;
 		} catch {
 			// Telemetry cannot affect session startup.
 			return Promise.resolve();
@@ -424,61 +436,64 @@ export class TelemetryService {
 		return discovered;
 	}
 
-	private async initializeRun(
-		run: RunState,
-		previous: RunState | undefined,
-		event: SessionStartEvent,
-		cwd: string,
-		startedAt: string,
-	): Promise<void> {
+	private ensureRunInitialized(run: RunState): void {
+		if (run.initializing !== undefined || run.closing || !run.enabled || run.queued.length === 0) return;
+		const initialization = this.initializeRun(run);
+		run.initializing = initialization;
+	}
+
+	private async initializeRun(run: RunState): Promise<void> {
 		const resources = Promise.all([
 			this.#writerFactory(run.id, (error) => this.disableRun(run.id, error)),
-			this.#captureRevision(cwd).catch(() => undefined),
+			this.#captureRevision(run.header.cwd).catch(() => undefined),
 		] as const);
 		try {
-			if (previous !== undefined) await this.closeRun(previous);
+			await run.predecessor?.catch(() => undefined);
 			const [writer, git] = await resources;
-			if (run.closing || this.#run !== run) {
+			if (!run.enabled) {
 				await writer.close().catch(() => undefined);
 				return;
 			}
 			run.writer = writer;
-			this.appendToRun(run, {
-				type: "run",
-				run_id: run.id,
-				at: startedAt,
-				session_id: run.sessionId,
-				reason: event.reason,
-				cwd,
-				...(git === undefined ? {} : { git }),
-			} satisfies RunRecord);
-			for (const record of run.queued) this.appendToRun(run, record);
+			const originalHeader = run.header;
+			const header = git === undefined ? originalHeader : { ...originalHeader, git };
+			run.header = header;
+			if (this.#run === run && this.#records[0] === originalHeader) this.#records[0] = header;
+			if (!this.writeToRun(run, header)) return;
+			for (const record of run.queued) {
+				if (!this.writeToRun(run, record)) return;
+			}
 			run.queued.length = 0;
 		} catch (error) {
 			this.disableRun(run.id, error);
 		}
 	}
 
-	private append(record: TelemetryRecord): void {
+	private append(record: CallRecord): void {
 		const run = this.#run;
 		if (run === undefined || !run.enabled) return;
 		if (run.writer === undefined) {
-			if (!run.closing) run.queued.push(record);
+			if (!run.closing) {
+				run.queued.push(record);
+				this.#records.push(record);
+				this.ensureRunInitialized(run);
+			}
 			return;
 		}
-		this.appendToRun(run, record);
+		if (this.writeToRun(run, record)) this.#records.push(record);
 	}
 
-	private appendToRun(run: RunState, record: TelemetryRecord): void {
-		if (!run.enabled || run.writer === undefined) return;
+	private writeToRun(run: RunState, record: TelemetryRecord): boolean {
+		if (!run.enabled || run.writer === undefined) return false;
 		try {
 			if (run.writer.append(record) !== true) {
 				this.disableRun(run.id, new Error("Telemetry write failed"));
-				return;
+				return false;
 			}
-			if (this.#run === run) this.#records.push(record);
+			return true;
 		} catch (error) {
 			this.disableRun(run.id, error);
+			return false;
 		}
 	}
 
@@ -488,6 +503,7 @@ export class TelemetryService {
 		run.enabled = false;
 		this.#pending.clear();
 		run.queued.length = 0;
+		if (this.#run === run) this.#records.length = 0;
 		if (!run.warned) {
 			run.warned = true;
 			run.notify("Telemetry disabled for this run after a write failure.");
