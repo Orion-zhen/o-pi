@@ -51,7 +51,7 @@ function summarizeTool(tool: string, calls: readonly CallRecord[]): ToolStatisti
 		duration_ms: numericSummary(calls.map((call) => call.duration_ms)),
 		output_chars: numericSummary(calls.flatMap((call) => call.output_chars ?? [])),
 		truncation_rate: rateSummary(calls.filter((call) => call.truncated === true).length, calls.length),
-		error_codes: frequency(calls.flatMap((call) => call.error?.code ?? [])),
+		error_codes: frequency(calls.filter((call) => call.status === "error").flatMap((call) => call.error?.code ?? [])),
 		repair: {
 			observed_calls: repairs.length,
 			repaired_rate: rateSummary(repairs.filter((call) => call.repair?.status === "repaired").length, repairs.length),

@@ -128,6 +128,28 @@ describe("telemetry report", () => {
 		]);
 	});
 
+	it("renders per-tool error reason counts in the HTML report", () => {
+		const records: TelemetryRecord[] = [
+			run("run-a", "commit-a"),
+			call("first", 0, "bash", { status: "error", errorCode: "EXIT_1" }),
+			call("second", 1, "bash", { status: "error", errorCode: "EXIT_1" }),
+			call("third", 2, "bash", { status: "error", errorCode: "<TIMEOUT>" }),
+			call("fourth", 3, "bash", { status: "error" }),
+			call("success-code", 4, "bash", { errorCode: "SHOULD_NOT_BE_ERROR" }),
+		];
+		const html = renderTelemetryHtml(aggregateTelemetry(records, { generatedAt: at(9) }));
+		expect(html).toContain('class="error-popover"');
+		expect(html).not.toContain("<th>错误原因</th>");
+		expect(html).toContain('aria-describedby="error-reasons-0"');
+		expect(html).toContain("EXIT_1");
+		expect(html).toContain("2 次");
+		expect(html).toContain("&lt;TIMEOUT&gt;");
+		expect(html).toContain("未提供错误码");
+		expect(html).toContain("1 次");
+		expect(html).not.toContain("<details class=\"error-details\">");
+		expect(html).not.toContain("SHOULD_NOT_BE_ERROR");
+	});
+
 	it("writes a compact JSON and HTML report", async () => {
 		const input = path.join(temp.path, "generate-input");
 		const output = path.join(temp.path, "generate-output");

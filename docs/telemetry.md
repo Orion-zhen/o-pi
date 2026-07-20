@@ -81,7 +81,7 @@ npm run telemetry:report -- [--input DIR] [--output DIR]
 
 输出 `report.json` 与 `report.html`。报告只包含：
 
-- 每个工具的调用量、成功率、错误、耗时、截断和 repair。
+- 每个工具的调用量、成功率、错误及其结构化错误码计数、耗时、截断和 repair；HTML 的“工具性能”表可将鼠标悬浮在错误率上查看各错误原因的出现次数。
 - edit batch 的多文件比例、部分失败、每批文件/调用数，以及多文件接口可能减少的调用数。
 - find/grep/websearch 候选的 conversion@K、MRR 和下游消费工具；每个细分来源使用同一组指标，并将 `repo-map-*`、`lsp-*` 分别聚合为 `repo-map`、`lsp` 来源族。
 
