@@ -27,6 +27,17 @@ export interface SourceBundle {
 
 export type SourceReference = string | URL;
 
+interface CachedSource {
+	mtimeMs: number;
+	size: number;
+	digest: SourceDigest;
+	relativeImports: string[];
+	packages: string[];
+}
+
+const sourceCache = new Map<string, CachedSource>();
+const dependencyCache = new Map<string, DependencyDigest[]>();
+
 /** Content-address the complete local relative-import closure of the entrypoints. */
 export function sourceGraph(entrypoints: readonly SourceReference[]): SourceDigest[] {
 	return collectSourceGraph(entrypoints).sources;
@@ -58,10 +69,10 @@ function collectSourceGraph(entrypoints: readonly SourceReference[]): SourceBund
 		if (file === undefined || visited.has(file)) continue;
 		visited.add(file);
 		if (!isFileInsideRoot(file)) throw new Error(`Invalid identity entrypoint: ${path.relative(ROOT, file)}`);
-		const content = readFileSync(file, "utf8");
-		files.push({ path: relativePath(file), sha256: sha256(content) });
-		for (const specifier of importedPackages(content)) packages.add(packageName(specifier));
-		for (const specifier of relativeImports(content)) {
+		const source = readSource(file);
+		files.push({ ...source.digest });
+		for (const packageValue of source.packages) packages.add(packageValue);
+		for (const specifier of source.relativeImports) {
 			const resolved = resolveSourceImport(file, specifier);
 			if (resolved !== undefined && !visited.has(resolved)) pending.push(resolved);
 		}
@@ -92,6 +103,9 @@ function packageName(specifier: string): string {
 let cachedLockPackages: Record<string, unknown> | undefined;
 
 function lockedDependencies(initial: ReadonlySet<string>): DependencyDigest[] {
+	const cacheKey = [...initial].sort().join("\0");
+	const cached = dependencyCache.get(cacheKey);
+	if (cached !== undefined) return cached.map((item) => ({ ...item }));
 	const lockPackages = packageLockPackages();
 	const pending = [...initial].sort();
 	const visited = new Set<string>();
@@ -111,7 +125,25 @@ function lockedDependencies(initial: ReadonlySet<string>): DependencyDigest[] {
 		const dependencies = value["dependencies"];
 		if (isRecord(dependencies)) for (const dependency of Object.keys(dependencies).sort()) if (!visited.has(dependency)) pending.push(dependency);
 	}
-	return result.sort((left, right) => left.package.localeCompare(right.package));
+	const sorted = result.sort((left, right) => left.package.localeCompare(right.package));
+	dependencyCache.set(cacheKey, sorted);
+	return sorted.map((item) => ({ ...item }));
+}
+
+function readSource(file: string): CachedSource {
+	const metadata = statSync(file);
+	const cached = sourceCache.get(file);
+	if (cached !== undefined && cached.mtimeMs === metadata.mtimeMs && cached.size === metadata.size) return cached;
+	const content = readFileSync(file, "utf8");
+	const source: CachedSource = {
+		mtimeMs: metadata.mtimeMs,
+		size: metadata.size,
+		digest: { path: relativePath(file), sha256: sha256(content) },
+		relativeImports: relativeImports(content),
+		packages: importedPackages(content).map(packageName),
+	};
+	sourceCache.set(file, source);
+	return source;
 }
 
 function packageLockPackages(): Record<string, unknown> {

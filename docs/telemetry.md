@@ -25,9 +25,11 @@ collector contract 描述事件字段、生命周期、outcome、计时与投影
 ~/.pi/telemetry/sessions/<session>.<run>.health.jsonl
 ```
 
-公共 envelope 包含 `id`、`session_id`、`run_id`、`stream_id`、`sequence`、`timestamp`、`collector_contract_hash` 和 `context`。`sequence` 只要求在 `session_id + run_id + stream_id` 内连续；main、health 和 emergency stream 各自计数，因此并发进程和 sidecar 不会制造伪冲突。writer 使用逐行持久化 append、文件锁和独立 health sidecar。
+公共 envelope 包含 `id`、`session_id`、`run_id`、`stream_id`、`sequence`、`timestamp`、`collector_contract_hash` 和 `context`。`sequence` 只要求在 `session_id + run_id + stream_id` 内连续；main、health 和 emergency stream 各自计数，因此并发进程和 sidecar 不会制造伪冲突。writer 使用逐行持久化 append、文件锁和独立 health sidecar。同一同步 burst 会合并为一次加锁、append 和 fsync；记录仍各占一行并保持 sequence 顺序。
 
 采集启动只恢复当前 session 的文件，不扫描全部历史，并只保留按时间最近的 live 上限。JSONL 按行读取，不再把单个 ledger 正文整体复制进内存。live store 默认最多保留 50,000 条记录，writer 默认最多排队 10,000 条；截断或背压丢弃分别暴露为 `live_store_truncated`、`dropped_writes` 和 collection health，而不是静默耗尽内存。离线报告读取完整输入目录并保留完整 canonical facts，因此其内存仍随目录历史量增长；数据量很大时应按目录分区后分别生成报告。
+
+报告分析与 TUI 仅在首次执行 `/telemetry` 时加载，不进入普通启动路径。源码身份缓存文件摘要、import 解析和依赖闭包，并用文件 mtime 与大小失效；工具 definition token 估算按模型与 definition identity 复用。进程内 runtime 事件在 adapter 边界完成限制与校验后直接传递，外部注入事件仍执行完整克隆和解码。
 
 所有 adapter payload 在进入 runtime channel 前统一限制：最大深度 8、节点 4096、字符串 4096 字符、数组 256 项、对象 128 个键。超限数据保留有限前缀/摘要并标记 `projection_limited`；投影异常标记 `projection_failed`。JSONL 单行超过 1,000,000 字符会按无效行计数。
 

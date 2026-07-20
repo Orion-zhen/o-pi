@@ -93,6 +93,7 @@ export class TelemetryCollector {
 	readonly #callStore = new TelemetryCallStore();
 	readonly #placements = new Map<string, CallPlacement>();
 	readonly #metricSchemas = new Map<string, string>();
+	readonly #definitionTokens = new Map<string, ToolExposure["definition_tokens"]>();
 	#runId = randomUUID();
 	#sessionStore: SessionTelemetryStore | undefined;
 	#writer: TelemetryWriter | undefined;
@@ -199,10 +200,8 @@ export class TelemetryCollector {
 			}));
 			const exposures = new Map(identities);
 			await this.#manifestStore.flush();
-			const toolsetValue = activeTools.map((name) => {
-				const tool = toolsByName.get(name);
-				return toolDefinitionValue(tool, name);
-			});
+			const definitions = new Map(activeTools.map((name) => [name, toolDefinitionValue(toolsByName.get(name), name)]));
+			const toolsetValue = activeTools.map((name) => definitions.get(name));
 			let contextCaptureFailed = false;
 			const markContextFailure = () => { contextCaptureFailed = true; };
 			const context = contextFor(ctx, pi.getThinkingLevel(), toolsetValue, this.#workload, markContextFailure);
@@ -222,12 +221,18 @@ export class TelemetryCollector {
 				...(this.#interactionId === undefined ? {} : { interactionId: this.#interactionId }),
 			};
 			const tools: ToolExposure[] = activeTools.map((name) => {
-				const definition = toolsByName.get(name);
-				const counted = countTextTokensSync(JSON.stringify(toolDefinitionValue(definition, name)), modelScope(ctx));
+				const identity = exposures.get(name) ?? unavailableIdentity();
+				const tokenKey = definitionTokenKey(ctx, identity.definition_hash);
+				let definitionTokens = this.#definitionTokens.get(tokenKey);
+				if (definitionTokens === undefined) {
+					const counted = countTextTokensSync(JSON.stringify(definitions.get(name)), modelScope(ctx));
+					definitionTokens = { value: counted.tokens, method: `serialized_tool_definition:${counted.method}` };
+					this.#definitionTokens.set(tokenKey, definitionTokens);
+				}
 				return {
 					name,
-					...(exposures.get(name) ?? unavailableIdentity()),
-					definition_tokens: { value: counted.tokens, method: `serialized_tool_definition:${counted.method}` },
+					...identity,
+					definition_tokens: definitionTokens,
 				};
 			});
 			const activation = computeRepoMapActivation(safeBranch(ctx, markContextFailure));
@@ -651,6 +656,10 @@ function hostContext(cwd: string): TelemetryContext {
 
 function modelScope(ctx: ExtensionContext): { provider?: string; modelId?: string } {
 	return ctx.model === undefined ? {} : { provider: ctx.model.provider, modelId: ctx.model.id };
+}
+
+function definitionTokenKey(ctx: ExtensionContext, definitionHash: string): string {
+	return `${ctx.model?.provider ?? "unknown"}\0${ctx.model?.id ?? "unknown"}\0${definitionHash}`;
 }
 
 function dimensions(call: ToolCallState): CallDimensions {

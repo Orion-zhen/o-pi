@@ -5,7 +5,9 @@ import {
 	createEventBus,
 	type AgentToolResult,
 	type ExtensionAPI,
+	type ExtensionCommandContext,
 	type ExtensionContext,
+	type RegisteredCommand,
 	type ToolDefinition,
 	type TurnEndEvent,
 } from "@earendil-works/pi-coding-agent";
@@ -17,6 +19,7 @@ import { bashTelemetry } from "../../src/bash-tool/telemetry.js";
 import { findTelemetry } from "../../src/file-tools/telemetry/find.js";
 import { readTelemetry } from "../../src/file-tools/telemetry/read.js";
 import { boundedTelemetryPayload, decodeToolObservation, defineToolTelemetry, safeObserve, type DefinedToolTelemetry } from "../../src/telemetry/adapter.js";
+import { decodeTelemetryRuntimeEvent, emitTelemetryRuntime, TELEMETRY_RUNTIME_CHANNEL } from "../../src/telemetry/channel.js";
 import { registerTelemetry } from "../../src/telemetry/collector.js";
 import { COLLECTOR_CONTRACT_HASH } from "../../src/telemetry/contract.js";
 import { computeTelemetryHash, computeToolBehaviorHash } from "../../src/telemetry/identity.js";
@@ -73,6 +76,27 @@ describe("telemetry raw collection", () => {
 			"turn_end",
 			"session_shutdown",
 		]);
+	});
+
+	it("loads telemetry analysis only when its command is invoked", async () => {
+		let handler: ((args: string, ctx: ExtensionCommandContext) => Promise<void>) | undefined;
+		telemetryExtension({
+			events: createEventBus(),
+			on() {},
+			getActiveTools: () => [],
+			getAllTools: () => [],
+			getThinkingLevel: () => "off",
+			registerCommand(_name: string, command: Omit<RegisteredCommand, "name" | "sourceInfo">) {
+				handler = command.handler;
+			},
+		} as unknown as ExtensionAPI);
+		if (handler === undefined) throw new Error("telemetry command was not registered");
+		const notifications: string[] = [];
+		await handler("unexpected", {
+			...context(),
+			ui: { notify(message: string) { notifications.push(message); } },
+		} as ExtensionCommandContext);
+		expect(notifications).toEqual(["usage: /telemetry"]);
 	});
 
 	it("reuses one coordinator and allows tools to omit specialized telemetry", () => {
@@ -156,6 +180,20 @@ describe("telemetry raw collection", () => {
 		expect(bounded.limited).toBe(true);
 		expect(JSON.stringify(bounded.value).length).toBeLessThan(8_000);
 		expect((bounded.value as { values: unknown[] }).values).toHaveLength(256);
+	});
+
+	it("reuses already-sanitized in-process runtime events without cloning their payload", () => {
+		const events = createEventBus();
+		let received: unknown;
+		events.on(TELEMETRY_RUNTIME_CHANNEL, (value) => { received = value; });
+		const event = {
+			kind: "execute_start" as const,
+			tool_call_id: "call-1",
+			tool_name: "test",
+			executed: { value: { path: "src/a.ts" } },
+		};
+		expect(emitTelemetryRuntime(events, event)).toBe(true);
+		expect(decodeTelemetryRuntimeEvent(received)).toBe(event);
 	});
 
 	it("fingerprints complete manifest values even when their inspectable projection is bounded", () => {
@@ -438,6 +476,27 @@ describe("telemetry raw collection", () => {
 		await writer.flush();
 		expect(health).toHaveLength(1);
 		expect(health[0]).toContain("TELEMETRY_BACKPRESSURE");
+	});
+
+	it("persists a synchronous event burst with one lock and durable append", async () => {
+		const writes: string[] = [];
+		let locks = 0;
+		const writer = new JsonlTelemetryWriter("batch", {
+			directory: temp.path,
+			append: async (_file, content) => { writes.push(content); },
+			acquireLock: async () => {
+				locks += 1;
+				return async () => undefined;
+			},
+		});
+		writer.append(baseRecord());
+		writer.append({ ...baseRecord(), id: "record-1", sequence: 1 });
+		await writer.flush();
+
+		expect(locks).toBe(1);
+		expect(writes).toHaveLength(1);
+		expect(writes[0]?.trim().split("\n")).toHaveLength(2);
+		expect(writer.status()).toMatchObject({ pending: 0, persisted: 2, failed: 0 });
 	});
 
 	it("streams only the newest requested session records while observing the full history", async () => {

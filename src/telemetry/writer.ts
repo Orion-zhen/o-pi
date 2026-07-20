@@ -42,6 +42,8 @@ export class JsonlTelemetryWriter implements TelemetryWriter {
 	readonly #acquireLock: (file: string) => Promise<() => Promise<void>>;
 	readonly #maxPending: number;
 	#queue: Promise<void> = Promise.resolve();
+	readonly #batch: Array<{ record: TelemetryRecord; line: string }> = [];
+	#batchQueued = false;
 	#pending = 0;
 	#persisted = 0;
 	#failed = 0;
@@ -84,24 +86,8 @@ export class JsonlTelemetryWriter implements TelemetryWriter {
 			return;
 		}
 		this.#pending += 1;
-		this.#queue = this.#queue.then(async () => {
-			try {
-				await mkdir(this.#directory, { recursive: true, mode: 0o700 });
-				const release = await this.#acquireLock(this.#file);
-				try {
-					await this.#append(this.#file, line);
-				} finally {
-					await release();
-				}
-				this.#persisted += 1;
-			} catch (error) {
-				this.#failed += 1;
-				this.#lastFailureAt = new Date().toISOString();
-				await this.persistHealth(record, error);
-			} finally {
-				this.#pending -= 1;
-			}
-		});
+		this.#batch.push({ record, line });
+		this.queueBatch();
 	}
 
 	async flush(): Promise<void> {
@@ -128,6 +114,32 @@ export class JsonlTelemetryWriter implements TelemetryWriter {
 			} finally {
 				this.#pending -= 1;
 				this.#overflowHealthQueued = false;
+			}
+		});
+	}
+
+	private queueBatch(): void {
+		if (this.#batchQueued) return;
+		this.#batchQueued = true;
+		this.#queue = this.#queue.then(async () => {
+			const batch = this.#batch.splice(0);
+			this.#batchQueued = false;
+			if (batch.length === 0) return;
+			try {
+				await mkdir(this.#directory, { recursive: true, mode: 0o700 });
+				const release = await this.#acquireLock(this.#file);
+				try {
+					await this.#append(this.#file, batch.map((entry) => entry.line).join(""));
+				} finally {
+					await release();
+				}
+				this.#persisted += batch.length;
+			} catch (error) {
+				this.#failed += batch.length;
+				this.#lastFailureAt = new Date().toISOString();
+				for (const entry of batch) await this.persistHealth(entry.record, error);
+			} finally {
+				this.#pending -= batch.length;
 			}
 		});
 	}

@@ -16,6 +16,7 @@ import type {
 
 export const TELEMETRY_RUNTIME_CHANNEL = "o-pi:telemetry-runtime";
 export const TELEMETRY_RUNTIME_FAILURE_CHANNEL = "o-pi:telemetry-runtime-failure";
+const emittedEvents = new WeakMap<object, TelemetryRuntimeEvent>();
 
 export type TelemetryRuntimeEvent =
 	| {
@@ -53,6 +54,7 @@ export type TelemetryRuntimeEvent =
 
 export function emitTelemetryRuntime(events: EventBus, event: TelemetryRuntimeEvent): boolean {
 	try {
+		emittedEvents.set(event, event);
 		events.emit(TELEMETRY_RUNTIME_CHANNEL, event);
 		return true;
 	} catch {
@@ -67,6 +69,10 @@ export function emitTelemetryRuntime(events: EventBus, event: TelemetryRuntimeEv
 
 export function decodeTelemetryRuntimeEvent(value: unknown): TelemetryRuntimeEvent | undefined {
 	try {
+		if (typeof value === "object" && value !== null) {
+			const emitted = emittedEvents.get(value);
+			if (emitted !== undefined) return emitted;
+		}
 		const payload = cloneTelemetryPayload(value);
 		if (!isRecord(payload)) return undefined;
 		const toolCallId = string(payload["tool_call_id"]);
