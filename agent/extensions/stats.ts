@@ -17,6 +17,7 @@ export default function statsExtension(pi: Pick<ExtensionAPI, "registerCommand">
 			const snapshot = await collectStatsSnapshot(ctx, pi);
 			await ctx.ui.custom<void>((tui, theme, _keybindings, done) => new StatsViewer(snapshot, theme, () => tui.terminal.rows, done), {
 				overlay: true,
+				overlayOptions: { width: "90%", minWidth: 80 },
 			});
 		},
 	});

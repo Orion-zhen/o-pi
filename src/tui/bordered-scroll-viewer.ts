@@ -1,5 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth, type Component } from "@earendil-works/pi-tui";
+import { Key, matchesKey, truncateToWidth, type Component, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
 const BORDER_ROWS = 2;
 const HORIZONTAL_FRAME_WIDTH = 4;
@@ -42,7 +42,8 @@ export abstract class BorderedScrollViewer implements Component {
 	protected abstract renderLines(width: number): string[];
 
 	private renderBody(width: number): string[] {
-		const lines = this.renderLines(width);
+		const widthLimit = Math.max(1, width);
+		const lines = this.renderLines(width).flatMap((line) => wrapTextWithAnsi(line, widthLimit));
 		const bodyHeight = this.getBodyHeight();
 		this.clampScroll(lines.length, bodyHeight);
 		const visibleCount = this.fillBody ? bodyHeight : Math.min(lines.length, bodyHeight);

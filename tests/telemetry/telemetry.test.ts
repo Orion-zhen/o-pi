@@ -177,12 +177,14 @@ describe("telemetry service", () => {
 		expect(notifications[0]).toContain("Status Disabled");
 
 		let customCalled = false;
+		let customOptions: { overlay?: boolean; overlayOptions?: { width?: string; minWidth?: number } } | undefined;
 		const colors: string[] = [];
 		await command.handler("", fixture({
 			mode: "tui",
 			ui: {
-				async custom(factory: (tui: unknown, theme: unknown, keybindings: unknown, done: () => void) => { render(width: number): string[] }) {
+				async custom(factory: (tui: unknown, theme: unknown, keybindings: unknown, done: () => void) => { render(width: number): string[] }, options?: typeof customOptions) {
 					customCalled = true;
+					customOptions = options;
 					const viewer = factory(
 						{ terminal: { rows: 30 } },
 						{ fg: (color: string, text: string) => { colors.push(color); return text; } },
@@ -194,6 +196,7 @@ describe("telemetry service", () => {
 			},
 		}));
 		expect(customCalled).toBe(true);
+		expect(customOptions).toMatchObject({ overlay: true, overlayOptions: { width: "90%", minWidth: 80 } });
 		expect(colors).toContain("mdHeading");
 	});
 

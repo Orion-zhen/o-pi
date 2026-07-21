@@ -195,28 +195,26 @@
 - 关闭：`Esc`、`q` 或 `Enter`。
 - 滚动：方向键、`PageUp`、`PageDown`、`Home`、`End`。
 
-## `/codex-reset-card`
+## `/quota`
 
-来源：`agent/extensions/codex-reset-card.ts`
+来源：`agent/extensions/quota.ts`
 
-用途：查询并显示当前 Codex 重置卡数量、状态和使用时间窗口。
+用途：通过 `codex app-server` 查询当前 Codex 剩余额度、窗口重置时间和可用额度重置卡详情。
 
 用法：
 
 ```text
-/codex-reset-card
+/quota
 ```
 
 行为：
 
-- 读取 `~/.codex/auth.json` 中的 Codex access token。
-- 请求 ChatGPT 重置卡接口，只显示卡片数量、状态、发放时间、到期时间、已用时间或剩余时间。
-- 时区来自当前系统 `Intl` 配置。
-- TUI 中通过只读浮层展示；非 TUI 模式使用 UI notification 输出。
-- 查询结果、错误详情和接口响应不写入会话历史，不进入模型上下文。
-- 错误输出会脱敏，不显示 token 或响应正文。
-- 关闭：`Esc`、`q` 或 `Enter`。
-- 滚动：方向键、`PageUp`、`PageDown`、`Home`、`End`。
+- 启动 `codex app-server --stdio`，先完成 `initialize`，再调用 `account/rateLimits/read`。
+- 用 ASCII 进度条展示各额度窗口的剩余百分比、窗口周期和重置时间，以及 plan 和账户额度信息。
+- 可用额度重置卡采用宽屏表格/窄屏分块列表，展示数量、状态、发放时间、到期时间，以及距离过期的相对时长。
+- TUI 悬浮层统一使用英文；非 TUI 模式使用 UI notification 输出。
+- 查询结果和错误详情不写入会话历史，不进入模型上下文；进程错误和协议正文会脱敏。
+- 关闭：`Esc`、`q` 或 `Enter`；内容较长时可滚动。
 
 ## `/thinking-level`
 

@@ -28,6 +28,7 @@ export function registerTelemetryCommand(
 			const { TelemetryViewer } = await import("../../src/telemetry-report/viewer.js");
 			await ctx.ui.custom<void>((tui, theme, _keybindings, done) => new TelemetryViewer(report, theme, () => tui.terminal.rows, done), {
 				overlay: true,
+				overlayOptions: { width: "90%", minWidth: 80 },
 			});
 		},
 	});
