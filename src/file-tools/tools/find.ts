@@ -7,6 +7,7 @@ import pLimit from "p-limit";
 import { ignoreConfigFromFileTools, isBlockedPath, isIgnoredPath, loadFileToolsConfig, toolPathIdentity, type FileToolsConfig } from "../config.js";
 import { fail, isAccessDenied, isFailed, protectedPathFailure } from "../core/errors.js";
 import { createFindEntry, rankFindEntries, type RankedFindEntry } from "../find/ranker.js";
+import { AbortFindSuggestionRanking, rankFindEntriesForSearch } from "../find/suggestion-pool.js";
 import { fuseRankedFindSources, selectRankedFindEntries } from "../find/fusion.js";
 import { renderFindResults } from "../find/renderer.js";
 import { createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE, rankingEvidenceSources } from "../ranking-evidence.js";
@@ -154,7 +155,7 @@ export async function findWorkspaceFiles(
 
 		return await runRankedSearch(workspaceRoot, searchRoot, normalized, config, ignoreSnapshot, signal, runtime, filter);
 	} catch (error) {
-		if (error instanceof AbortFind) return fail("OPERATION_ABORTED", "find was aborted.", { path: searchRoot.relativePath });
+		if (error instanceof AbortFind || error instanceof AbortFindSuggestionRanking) return fail("OPERATION_ABORTED", "find was aborted.", { path: searchRoot.relativePath });
 		if (isAccessDenied(error)) return fail("ACCESS_DENIED", "Directory cannot be searched.", { path: searchRoot.relativePath });
 		return fail("PATH_NOT_FOUND", "Directory does not exist.", { path: searchRoot.relativePath });
 	}
@@ -327,7 +328,7 @@ async function runRankedSearch(
 				...(filter !== undefined ? { accept: filter.matches } : {}),
 			}),
 	]);
-	const ranked = rankFindEntries(state.entries, params.query, searchRoot.relativePath);
+	const ranked = await rankFindEntriesForSearch(state.entries, params.query, searchRoot.relativePath, signal);
 	const merged = fuseRankedFindSources(ranked.matches, repoMapCandidates.matching);
 	const nearby = merged.length === 0
 		? findNearbyResults(ranked.suggestions, state.fallbackEntries, params.query, searchRoot.relativePath)

@@ -437,6 +437,7 @@ src/auth/service.ts [name similarity]
 * 先检查 `path/query` 是否是存在的文件或目录；命中 exact path 且满足 `glob` 时直接返回，不扫描完整目录树，soft ignore 不阻止显式 exact 命中。
 * `glob` 先用静态前缀缩小遍历范围，再以 picomatch 严格过滤普通候选和 Repo Map 主候选；`glob=src/**/*.ts` 与 `path=src, glob=**/*.ts` 等价。
 * `query` 只负责路径/语义召回和相关性排序，不推断 glob；tokenization、smart case、硬等级、Repo Map 融合、稳定排序和多样性选择见 [文件工具排序算法](file-tools-ranking.md)。
+* 精确结果不计算不会展示的 fuzzy suggestions；严格多词检索先用其必要的 token 覆盖条件缩小 Fuse 输入，单候选分数和最终结果不变。仅零主结果的大集合按逻辑核心数的一半并行计算 typo suggestions；边界由条目数、query 词数、可用 worker 数和 worker 冷热状态以 O(1) 成本动态估算，分块 Top-3 再按同一 Fuse 排序全局合并。
 * workspace 内结果路径相对 workspace root，统一使用 `/`；workspace 外显式搜索路径返回规范化后的相对或绝对路径。
 * 文件和目录 symlink 均不返回；目录 symlink 不进入。
 * 目录遍历和目录结果分开处理：默认可 prune 的 ignored 目录不进入；因反向 include 不能 prune 的目录可进入但自身不返回；显式 `path` 或 glob 静态前缀命中 ignored 目录时允许在该目录内查找。

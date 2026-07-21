@@ -1,7 +1,7 @@
-import { availableParallelism } from "node:os";
 import { Worker } from "node:worker_threads";
 
 import { analyzeCodeFile, analyzeTextFile, type AnalyzedFileIndex } from "../../code-index/parser.js";
+import { FILE_SEARCH_CONCURRENCY } from "../core/search-concurrency.js";
 
 interface ParseTask {
 	id: number;
@@ -26,7 +26,7 @@ interface WorkerSlot {
 }
 
 /** grep 的默认并发路数：逻辑核心数的一半，单核环境至少保留一路。 */
-export const GREP_CONCURRENCY = Math.max(1, Math.floor(availableParallelism() / 2));
+export const GREP_CONCURRENCY = FILE_SEARCH_CONCURRENCY;
 
 export interface GrepParseWorkload {
 	fileCount: number;

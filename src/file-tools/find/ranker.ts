@@ -71,24 +71,28 @@ export function createFindEntry(workspacePath: string, kind: FindEntry["kind"]):
 
 /** fuzzy 查询由 Fuse.js 排序；exact/name/path 硬优先级仍由 find 保证。 */
 export function rankFindEntries(entries: FindEntry[], query: string, rootPath: string): RankedFindEntries {
+	const matches = rankFindMatches(entries, query, rootPath);
+	return {
+		matches,
+		suggestions: matches.length === 0 ? rankFindSuggestions(entries, query, rootPath) : [],
+	};
+}
+
+/** 主结果阶段不计算仅在零结果时可见的 typo suggestions。 */
+export function rankFindMatches(entries: FindEntry[], query: string, rootPath: string): RankedFindEntry[] {
 	const queryTokens = tokenizeQuery(query);
 	const exact = rankExactEntries(entries, queryTokens, rootPath);
-	if (exact.length > 0) {
-		const exactPaths = new Set(exact.map((item) => item.entry.path));
-		return {
-			matches: exact,
-			suggestions: rankFuse(entries.filter((entry) => !exactPaths.has(entry.path)), queryTokens, rootPath)
-				.slice(0, 3)
-				.map(withoutMatchScore),
-		};
-	}
+	if (exact.length > 0) return exact;
 
-	const fuzzy = rankFuse(entries, queryTokens, rootPath);
-	const strict = fuzzy
+	const fuzzy = rankFuse(entries.filter((entry) => hasFullTokenCoverage(queryTokens.tokens, entry.tokens)), queryTokens, rootPath);
+	return fuzzy
 		.filter((item) => item.matchScore <= FUSE_MATCH_THRESHOLD && tokenCoverage(queryTokens.tokens, item.entry.tokens) === queryTokens.tokens.length)
 		.map(withoutMatchScore);
-	const suggestions = fuzzy.slice(0, 3).map(withoutMatchScore);
-	return { matches: strict, suggestions };
+}
+
+/** Zero-result fallback only; each document's Fuse score is independent of collection membership. */
+export function rankFindSuggestions(entries: FindEntry[], query: string, rootPath: string): RankedFindEntry[] {
+	return rankFuse(entries, tokenizeQuery(query), rootPath).slice(0, 3).map(withoutMatchScore);
 }
 
 function rankExactEntries(entries: FindEntry[], query: QueryTokens, rootPath: string): RankedFindEntry[] {
@@ -186,6 +190,10 @@ function tokenCoverage(queryTokens: string[], entryTokens: string[]): number {
 		if (tokenIndex(entryTokens, token) !== -1) covered += 1;
 	}
 	return covered;
+}
+
+function hasFullTokenCoverage(queryTokens: string[], entryTokens: string[]): boolean {
+	return queryTokens.length > 0 && tokenCoverage(queryTokens, entryTokens) === queryTokens.length;
 }
 
 function exactTokenCoverage(queryTokens: string[], entryTokens: string[]): number {

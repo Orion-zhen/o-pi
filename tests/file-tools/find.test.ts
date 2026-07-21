@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { availableParallelism } from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mergeRankedFindSources } from "../../src/file-tools/find/fusion.js";
-import { createFindEntry } from "../../src/file-tools/find/ranker.js";
+import { createFindEntry, rankFindSuggestions } from "../../src/file-tools/find/ranker.js";
 import { renderFindResults } from "../../src/file-tools/find/renderer.js";
+import { clearFindSuggestionPool, FIND_CONCURRENCY, rankFindEntriesForSearch, shouldOffloadFindSuggestions } from "../../src/file-tools/find/suggestion-pool.js";
 import { createRankingEvidence } from "../../src/file-tools/ranking-evidence.js";
 import { findWorkspaceFiles } from "../../src/file-tools/tools/find.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
@@ -34,6 +36,10 @@ beforeEach(async () => {
 		].join("\n"),
 	);
 	process.env.PI_FILE_TOOLS_CONFIG = configPath;
+});
+
+afterEach(() => {
+	clearFindSuggestionPool();
 });
 
 function expectFindSuccess(result: ToolOutcome<FindSuccess>): FindSuccess {
@@ -78,6 +84,24 @@ function repoMapQuery(query: RepoMapFileToolQuery["query"]): RepoMapFileToolQuer
 }
 
 describe("find", () => {
+	it("并发路数取逻辑核心数的一半，动态边界只对足够大的零结果 fuzzy 集合启用", () => {
+		expect(FIND_CONCURRENCY).toBe(Math.max(1, Math.floor(availableParallelism() / 2)));
+		expect(shouldOffloadFindSuggestions(1_000, 3, { concurrency: 16, workerWarm: false })).toBe(false);
+		expect(shouldOffloadFindSuggestions(10_000, 3, { concurrency: 16, workerWarm: false })).toBe(true);
+		expect(shouldOffloadFindSuggestions(45_000, 3, { concurrency: 1, workerWarm: true })).toBe(false);
+	});
+
+	it("分块 worker 合并得到与单线程 Fuse 相同的全局 suggestions", async () => {
+		const entries = Array.from({ length: 9_000 }, (_value, index) =>
+			createFindEntry(`packages/component-${index}/parser-runtime-${index}.ts`, "file"));
+		const query = "parser worker runtime";
+		const expected = rankFindSuggestions(entries, query, ".").map((item) => item.entry.path);
+		const actual = await rankFindEntriesForSearch(entries, query, ".");
+
+		expect(actual.matches).toEqual([]);
+		expect(actual.suggestions.map((item) => item.entry.path)).toEqual(expected);
+	});
+
 	it("紧凑输出省略可推导元数据、共享路径前缀并把截断状态放在首行", () => {
 		const base = {
 			query: "handler",
