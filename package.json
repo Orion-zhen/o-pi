@@ -21,6 +21,7 @@
 		"@types/proper-lockfile": "latest",
 		"@types/turndown": "latest",
 		"@vitest/coverage-v8": "latest",
+		"jiti": "latest",
 		"typescript": "latest",
 		"vitest": "latest"
 	},
