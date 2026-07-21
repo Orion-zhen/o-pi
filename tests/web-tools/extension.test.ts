@@ -1,6 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import { Agent } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +17,7 @@ import { createWebSearchRuntime, type WebSearchProviderLoaders } from "../../src
 import { httpResponse } from "../helpers/http.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
+const execFileAsync = promisify(execFile);
 let dir: string;
 let runtimes: Array<ReturnType<typeof createWebToolsRuntime>> = [];
 const temp = useTempDir("o-pi-web-runtime-");
@@ -134,6 +137,35 @@ describe("web-tools extension", () => {
 		await expect(fetchExecution).resolves.toMatchObject({ content: [{ type: "text", text: "fetch" }] });
 		await handlers.get("session_shutdown")?.({});
 		expect(close).toHaveBeenCalledTimes(1);
+	});
+
+	it("通过 Pi 的 Jiti 加载后首次调用可正常读取配置", async () => {
+		const extensionPath = path.join(process.cwd(), "agent/extensions/web-tools.ts");
+		const invalidConfigPath = path.join(process.cwd(), "package.json");
+		const script = `
+			import { createJiti } from "jiti/static";
+			const jiti = createJiti(import.meta.url, { moduleCache: false });
+			const extension = await jiti.import(${JSON.stringify(extensionPath)}, { default: true });
+			const tools = [];
+			const handlers = new Map();
+			extension({
+				registerTool(tool) { tools.push(tool); },
+				on(name, handler) { handlers.set(name, handler); },
+			});
+			const search = tools.find((tool) => tool.name === "websearch");
+			if (search === undefined) throw new Error("missing websearch");
+			const result = await search.execute("jiti-search", { query: "pi" }, undefined, undefined, {});
+			console.log(result.content[0].text);
+			await handlers.get("session_shutdown")?.({});
+		`;
+
+		const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", script], {
+			cwd: process.cwd(),
+			env: { ...process.env, PI_WEB_TOOLS_CONFIG: invalidConfigPath },
+		});
+
+		expect(stdout).toContain("web-tools config does not match schema.");
+		expect(stdout).not.toContain("agentConfigPath");
 	});
 });
 

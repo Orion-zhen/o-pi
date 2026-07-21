@@ -1,4 +1,4 @@
-import { createConfigModulePreloader, runtimeConfigFailure } from "./runtime-errors.js";
+import { runtimeConfigFailure } from "./runtime-errors.js";
 import type { WebFetchCapability, WebFetchCapabilityOptions } from "./runtime-types.js";
 import { SnapshotCache } from "./snapshot-cache.js";
 import type { CookieStore, WebToolsConfig } from "./types.js";
@@ -9,12 +9,9 @@ export function createWebFetchRuntime(options: WebFetchCapabilityOptions): WebFe
 	const snapshots = new SnapshotCache(options.now);
 	const approvedAuthOrigins = new Set<string>();
 	const cookieStore = createLazyCookieStore(() => createCookieStore(options.cookiePath));
-	const preloadConfigModule = createConfigModulePreloader();
 
 	return {
 		async fetch(params, context) {
-			// Keep the module import in this capability boundary so Pi/Jiti can resolve it beside dispatcher setup.
-			preloadConfigModule();
 			const dispatcherPromise = options.getDispatcher();
 			let config: WebToolsConfig;
 			try {

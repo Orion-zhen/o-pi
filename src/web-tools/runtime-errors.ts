@@ -8,16 +8,3 @@ export function runtimeConfigFailure(tool: "webfetch" | "websearch", error: unkn
 		details: { status: "failed", error: { code: "CONFIG_ERROR", message }, duration_ms: 0 },
 	};
 }
-
-/** 从 capability 图内并行启动配置模块；只启动一次，失败后允许重试。 */
-export function createConfigModulePreloader(): () => void {
-	let pending: Promise<typeof import("./config.js")> | undefined;
-	return () => {
-		if (pending !== undefined) return;
-		const created = import("./config.js");
-		pending = created;
-		void created.catch(() => {
-			if (pending === created) pending = undefined;
-		});
-	};
-}

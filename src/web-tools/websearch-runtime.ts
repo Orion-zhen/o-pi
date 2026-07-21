@@ -1,4 +1,4 @@
-import { createConfigModulePreloader, runtimeConfigFailure } from "./runtime-errors.js";
+import { runtimeConfigFailure } from "./runtime-errors.js";
 import type { WebSearchCapability, WebSearchCapabilityOptions } from "./runtime-types.js";
 import { providerSignature, SearchCache } from "./search-cache.js";
 import { SearchRequestGate } from "./search-request-gate.js";
@@ -52,8 +52,6 @@ export function createWebSearchRuntime(
 	let searchRouterSignature = "";
 	let searchRouterUpdate = Promise.resolve();
 	let pendingRouterUpdates = 0;
-	const preloadConfigModule = createConfigModulePreloader();
-
 	const getSearchRouter = async (config: WebToolsConfig, signature: string): Promise<SearchProviderRouter> => {
 		if (pendingRouterUpdates === 0 && searchRouter !== undefined && searchRouterSignature === signature) return searchRouter;
 		pendingRouterUpdates += 1;
@@ -77,8 +75,6 @@ export function createWebSearchRuntime(
 
 	return {
 		async search(params, context) {
-			// Keep the module import in this capability boundary so Pi/Jiti can resolve it beside search setup.
-			preloadConfigModule();
 			let config: WebToolsConfig;
 			try {
 				config = await options.loadConfig();
