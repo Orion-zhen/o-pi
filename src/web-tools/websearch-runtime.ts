@@ -2,20 +2,31 @@ import { createConfigModulePreloader, runtimeConfigFailure } from "./runtime-err
 import type { WebSearchCapability, WebSearchCapabilityOptions } from "./runtime-types.js";
 import { providerSignature, SearchCache } from "./search-cache.js";
 import { SearchRequestGate } from "./search-request-gate.js";
+import { resolveSearchApiKey } from "./search-providers/api-key.js";
 import { SearchProviderRouter } from "./search-providers/router.js";
 import type { SearchProviderContext, WebSearchProvider } from "./search-providers/types.js";
 import type { WebToolsConfig } from "./types.js";
 import { executeWebSearch } from "./websearch-tool.js";
 
 export interface WebSearchProviderLoaders {
+	brave(config: WebToolsConfig, options: WebSearchCapabilityOptions): Promise<WebSearchProvider>;
 	exa(config: WebToolsConfig, options: WebSearchCapabilityOptions): Promise<WebSearchProvider>;
+	tavily(config: WebToolsConfig, options: WebSearchCapabilityOptions): Promise<WebSearchProvider>;
 	duckDuckGo(config: WebToolsConfig, options: WebSearchCapabilityOptions, requestGate: SearchRequestGate): Promise<WebSearchProvider>;
 }
 
 const defaultProviderLoaders: WebSearchProviderLoaders = {
+	async brave(config, options) {
+		const { createApiSearchProvider } = await import("./search-providers/api-provider.js");
+		return createApiSearchProvider({ id: "brave_api", config: config.websearch.brave_api, dispatcher: options.getDispatcher, fetchImpl: options.fetchImpl });
+	},
 	async exa(config, options) {
-		const { createExaMcpProvider } = await import("./search-providers/exa-mcp.js");
-		return createExaMcpProvider(config.websearch.exa_mcp, options.exaMcpClientFactory);
+		const { createApiSearchProvider } = await import("./search-providers/api-provider.js");
+		return createApiSearchProvider({ id: "exa_api", config: config.websearch.exa_api, dispatcher: options.getDispatcher, fetchImpl: options.fetchImpl });
+	},
+	async tavily(config, options) {
+		const { createApiSearchProvider } = await import("./search-providers/api-provider.js");
+		return createApiSearchProvider({ id: "tavily", config: config.websearch.tavily, dispatcher: options.getDispatcher, fetchImpl: options.fetchImpl });
 	},
 	async duckDuckGo(config, options, requestGate) {
 		const { createDuckDuckGoHtmlProvider } = await import("./search-providers/duckduckgo-html-provider.js");
@@ -92,7 +103,7 @@ export function createWebSearchRuntime(
 			const signature = providerSignature(config.websearch);
 			const routerSignature = `${signature}:${gateSignature}`;
 			const router = await getSearchRouter(config, routerSignature);
-			return executeWebSearch(params, { searches, router, providerSignature: signature, config, context, now: options.now });
+			return executeWebSearch(params, { searches, router, providerSignature: signature, config, context, now: options.now, corpus: options.searchCorpus });
 		},
 		async close() {
 			searches.clear();
@@ -110,17 +121,24 @@ function createSearchProviders(
 	requestGate: SearchRequestGate,
 	providerLoaders: WebSearchProviderLoaders,
 ): WebSearchProvider[] {
-	return config.websearch.provider_order.map((provider) => {
-		if (provider === "exa_mcp") {
-			return createLazyProvider(provider, config.websearch.exa_mcp.enabled, () => providerLoaders.exa(config, options));
-		}
-		return createLazyProvider(provider, config.websearch.duckduckgo_html.enabled, () => providerLoaders.duckDuckGo(config, options, requestGate));
-	});
+	const providers: WebSearchProvider[] = [];
+	if (config.websearch.brave_api.enabled && resolveSearchApiKey(config.websearch.brave_api.api_key) !== undefined) {
+		providers.push(createLazyProvider("brave_api", () => providerLoaders.brave(config, options)));
+	}
+	if (config.websearch.exa_api.enabled && resolveSearchApiKey(config.websearch.exa_api.api_key) !== undefined) {
+		providers.push(createLazyProvider("exa_api", () => providerLoaders.exa(config, options)));
+	}
+	if (config.websearch.tavily.enabled && resolveSearchApiKey(config.websearch.tavily.api_key) !== undefined) {
+		providers.push(createLazyProvider("tavily", () => providerLoaders.tavily(config, options)));
+	}
+	if (config.websearch.duckduckgo_html.enabled) {
+		providers.push(createLazyProvider("duckduckgo_html", () => providerLoaders.duckDuckGo(config, options, requestGate)));
+	}
+	return providers;
 }
 
 function createLazyProvider(
 	id: WebSearchProvider["id"],
-	enabled: boolean,
 	load: () => Promise<WebSearchProvider>,
 ): WebSearchProvider {
 	let providerPromise: Promise<WebSearchProvider> | undefined;
@@ -136,7 +154,6 @@ function createLazyProvider(
 	return {
 		id,
 		async search(params, context: SearchProviderContext) {
-			if (!enabled) return { status: "skipped", provider: id, reason: "provider disabled" };
 			return (await getProvider()).search(params, context);
 		},
 		async close() {

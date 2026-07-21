@@ -29,7 +29,7 @@ export function formatWebSearchCall(args: unknown, theme: Pick<Theme, "fg" | "bo
 		tool: "websearch",
 		status: "running",
 		target: `"${queryForCall(args)}"`,
-		summary: joinParts([limit, "providers exa_mcp->duckduckgo_html"]),
+		summary: joinParts([limit, "adaptive routing"]),
 	}, theme);
 }
 
@@ -134,8 +134,7 @@ function labelError(details: WebSearchFailureDetails): string {
 }
 
 function fallbackLabel(details: WebSearchSuccessDetails): string | undefined {
-	const failedBeforeSuccess = details.attempts.some((attempt) => attempt.status === "failed");
-	return failedBeforeSuccess && details.provider !== "exa_mcp" ? "fallback" : undefined;
+	return details.attempts.length > 1 ? "fallback" : undefined;
 }
 
 function formatAttempts(attempts: readonly WebSearchProviderAttempt[] | undefined): string | undefined {
@@ -189,5 +188,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isProvider(value: unknown): value is WebSearchProviderId {
-	return value === "exa_mcp" || value === "duckduckgo_html";
+	return value === "brave_api" || value === "exa_api" || value === "tavily" || value === "duckduckgo_html";
 }

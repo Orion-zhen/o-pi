@@ -12,6 +12,7 @@ import type {
 	WebToolsRuntime,
 	WebToolsRuntimeOptions,
 } from "./types.js";
+import { SearchCorpus } from "./search-corpus.js";
 
 const defaultCapabilityLoaders: WebToolsCapabilityLoaders = {
 	async search(options) {
@@ -34,6 +35,7 @@ export function createWebToolsRuntime(
 	let closePromise: Promise<void> | undefined;
 	const now = options.now ?? (() => Date.now());
 	const fetchImpl = options.fetchImpl ?? defaultFetch;
+	const searchCorpus = new SearchCorpus(now);
 	const sharedOptions = {
 		getDispatcher,
 		fetchImpl,
@@ -42,10 +44,10 @@ export function createWebToolsRuntime(
 		setAllowedFakeIpRanges(ranges: readonly string[]) {
 			allowedFakeIpRanges = ranges;
 		},
+		searchCorpus,
 	};
 	const searchOptions: WebSearchCapabilityOptions = {
 		...sharedOptions,
-		...(options.exaMcpClientFactory !== undefined ? { exaMcpClientFactory: options.exaMcpClientFactory } : {}),
 		...(options.searchProviders !== undefined ? { searchProviders: options.searchProviders } : {}),
 	};
 	const fetchOptions: WebFetchCapabilityOptions = {
@@ -79,7 +81,11 @@ export function createWebToolsRuntime(
 		},
 		async fetch(params, context) {
 			assertOpen();
+			searchCorpus.markFetched(params.url);
 			return (await fetch.get()).fetch(params, context);
+		},
+		observeCitations(text) {
+			for (const match of text.matchAll(/https?:\/\/[^\s<>)\]"']+/gu)) searchCorpus.markCited(match[0].replace(/[.,;:!?]+$/u, ""));
 		},
 		close() {
 			if (closePromise !== undefined) return closePromise;
@@ -97,6 +103,7 @@ export function createWebToolsRuntime(
 		await Promise.all([searchRuntime?.close(), fetchRuntime?.close()]);
 		search.clear();
 		fetch.clear();
+		searchCorpus.clear();
 		const activeDispatcher = dispatcher ?? await settledDispatcher(dispatcherPromise);
 		await activeDispatcher?.close();
 		dispatcher = undefined;

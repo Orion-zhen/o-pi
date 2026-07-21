@@ -22,9 +22,9 @@ async function runToolBenchmark(toolMode) {
 		return createWebToolsRuntime({
 			dispatcher: { close: async () => undefined },
 			searchProviders: [{
-				id: "exa_mcp",
+				id: "brave_api",
 				async search(params) {
-					return { status: "success", provider: "exa_mcp", downloadedBytes: 0, results: [{ rank: 1, title: params.query, url: "https://example.com/" }] };
+					return { status: "success", provider: "brave_api", downloadedBytes: 0, results: [{ rank: 1, title: params.query, url: "https://example.com/", snippet: params.query }] };
 				},
 			}],
 			fetchImpl: async () => response("hello benchmark"),

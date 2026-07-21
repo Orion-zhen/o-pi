@@ -75,7 +75,7 @@ export async function searchDuckDuckGoHtml(options: DuckDuckGoHtmlOptions): Prom
 	const expected = responseContentLength(response.headers);
 	const body = await readLimitedResponseBody(response, {
 		maxBytes: options.config.response_bytes,
-		...(options.userSignal !== undefined ? { signal: options.userSignal } : {}),
+		signal: options.signal,
 		onProgress(receivedBytes) {
 			options.onDownloading?.(receivedBytes, expected);
 		},

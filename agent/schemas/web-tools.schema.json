@@ -24,30 +24,61 @@
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"provider_order": {
-					"type": "array",
-					"minItems": 1,
-					"maxItems": 8,
-					"items": { "enum": ["exa_mcp", "duckduckgo_html"] },
-					"default": ["exa_mcp", "duckduckgo_html"]
-				},
-				"fallback": { "type": "boolean", "default": true },
 				"default_results": { "type": "integer", "minimum": 1, "maximum": 20, "default": 8 },
 				"cache_ttl_seconds": { "type": "integer", "minimum": 0, "maximum": 86400, "default": 300 },
-				"exa_mcp": {
+				"negative_cache_ttl_seconds": { "type": "integer", "minimum": 0, "maximum": 3600, "default": 30 },
+				"total_deadline_seconds": { "type": "integer", "minimum": 1, "maximum": 120, "default": 20 },
+				"include_domains": {
+					"type": "array",
+					"maxItems": 100,
+					"uniqueItems": true,
+					"items": { "type": "string", "maxLength": 255, "pattern": "^(?:\\*\\.)?[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$" },
+					"default": []
+				},
+				"exclude_domains": {
+					"type": "array",
+					"maxItems": 100,
+					"uniqueItems": true,
+					"items": { "type": "string", "maxLength": 255, "pattern": "^(?:\\*\\.)?[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$" },
+					"default": []
+				},
+				"brave_api": {
 					"type": "object",
 					"additionalProperties": false,
 					"properties": {
 						"enabled": { "type": "boolean", "default": true },
-						"url": {
+						"endpoint": {
 							"type": "string",
 							"pattern": "^https?://",
-							"default": "https://mcp.exa.ai/mcp?tools=web_search_exa"
+							"default": "https://api.search.brave.com/res/v1/web/search"
 						},
-						"tool": { "type": "string", "minLength": 1, "maxLength": 128, "default": "web_search_exa" },
-						"api_key_env": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "default": "EXA_API_KEY" },
-						"timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 60, "default": 12 },
-						"type": { "type": "string", "minLength": 1, "maxLength": 64, "default": "auto" }
+						"api_key": { "type": "string", "maxLength": 4096, "default": "$BRAVE_SEARCH_API_KEY" },
+						"timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 60, "default": 8 },
+						"response_bytes": { "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 },
+						"extra_snippets": { "type": "boolean", "default": false }
+					}
+				},
+				"exa_api": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"enabled": { "type": "boolean", "default": true },
+						"endpoint": { "type": "string", "pattern": "^https?://", "default": "https://api.exa.ai/search" },
+						"api_key": { "type": "string", "maxLength": 4096, "default": "$EXA_API_KEY" },
+						"timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 60, "default": 10 },
+						"response_bytes": { "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 },
+						"highlight_chars": { "type": "integer", "minimum": 100, "maximum": 2000, "default": 600 }
+					}
+				},
+				"tavily": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"enabled": { "type": "boolean", "default": true },
+						"endpoint": { "type": "string", "pattern": "^https?://", "default": "https://api.tavily.com/search" },
+						"api_key": { "type": "string", "maxLength": 4096, "default": "$TAVILY_API_KEY" },
+						"timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 60, "default": 10 },
+						"response_bytes": { "type": "integer", "minimum": 65536, "maximum": 5242880, "default": 2097152 }
 					}
 				},
 				"duckduckgo_html": {

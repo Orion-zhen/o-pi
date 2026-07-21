@@ -9,6 +9,7 @@ import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
 import type { WebToolsCapabilityLoaders } from "../../src/web-tools/runtime-types.js";
 import { createWebToolsRuntime } from "../../src/web-tools/web-tools-runtime.js";
 import type { WebSearchProvider } from "../../src/web-tools/search-providers/types.js";
+import { SearchCorpus } from "../../src/web-tools/search-corpus.js";
 import type { WebSearchParams, WebToolsRuntime } from "../../src/web-tools/types.js";
 import { createWebSearchRuntime, type WebSearchProviderLoaders } from "../../src/web-tools/websearch-runtime.js";
 import { httpResponse } from "../helpers/http.js";
@@ -17,13 +18,14 @@ import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 let dir: string;
 let runtimes: Array<ReturnType<typeof createWebToolsRuntime>> = [];
 const temp = useTempDir("o-pi-web-runtime-");
-preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_WEB_TOOLS_COOKIES");
+preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_WEB_TOOLS_COOKIES", "BRAVE_SEARCH_API_KEY", "EXA_API_KEY");
 
 beforeEach(() => {
 	dir = temp.path;
 	runtimes = [];
 	process.env.PI_WEB_TOOLS_CONFIG = path.join(dir, "missing-config.jsonc");
 	process.env.PI_WEB_TOOLS_COOKIES = path.join(dir, "missing-cookies.txt");
+	delete process.env.BRAVE_SEARCH_API_KEY;
 });
 
 afterEach(async () => {
@@ -53,7 +55,7 @@ describe("web-tools extension", () => {
 		};
 		expect(searchTool.name).toBe("websearch");
 		expect(fetchTool.name).toBe("webfetch");
-		expect(Object.keys(searchTool.parameters.properties)).toEqual(["query", "limit"]);
+		expect(Object.keys(searchTool.parameters.properties)).toEqual(["query", "limit", "freshness"]);
 		expect(Object.keys(fetchTool.parameters.properties)).toEqual(["url", "mode", "offset", "limit"]);
 
 		const eventResult = handlers.get("tool_result")?.({
@@ -83,7 +85,7 @@ describe("web-tools extension", () => {
 					details: {
 						status: "success",
 						query: "pi",
-						provider: "exa_mcp",
+						provider: "exa_api",
 						results: [],
 						cached: false,
 						downloaded_bytes: 0,
@@ -132,20 +134,75 @@ describe("web-tools extension", () => {
 });
 
 describe("web-tools runtime", () => {
+	it("api_key 为空时不加载 provider，引用可用后自动恢复", async () => {
+		const config = defaultWebToolsConfig();
+		config.websearch.brave_api.api_key = "";
+		config.websearch.exa_api.enabled = false;
+		config.websearch.tavily.enabled = false;
+		const providerLoaders: WebSearchProviderLoaders = {
+			brave: vi.fn(async () => ({
+				id: "brave_api" as const,
+				async search(params: WebSearchParams) {
+					return {
+						status: "success" as const,
+						provider: "brave_api" as const,
+						downloadedBytes: 0,
+						results: Array.from({ length: 3 }, (_, index) => ({
+							rank: index + 1,
+							title: `${params.query} ${index}`,
+							url: `https://site${index}.test/result`,
+							snippet: `${params.query} documentation result`,
+						})),
+					};
+				},
+			})),
+			exa: vi.fn(async () => { throw new Error("disabled Exa provider loaded"); }),
+			tavily: vi.fn(async () => { throw new Error("disabled Tavily provider loaded"); }),
+			duckDuckGo: vi.fn(async () => ({
+				id: "duckduckgo_html" as const,
+				async search(params: WebSearchParams) {
+					return { status: "success" as const, provider: "duckduckgo_html" as const, downloadedBytes: 0, results: [{ rank: 1, title: params.query, url: "https://fallback.test/" }] };
+				},
+			})),
+		};
+		const runtime = createWebSearchRuntime({
+			getDispatcher: async () => new Agent(),
+			fetchImpl: async () => { throw new Error("unused fetch"); },
+			loadConfig: async () => structuredClone(config),
+			now: () => 100,
+			setAllowedFakeIpRanges() {},
+			searchCorpus: new SearchCorpus(() => 100),
+		}, providerLoaders);
+
+		await expect(runtime.search({ query: "empty key fallback" }, { toolCallId: "search-empty" })).resolves.toMatchObject({ details: { provider: "duckduckgo_html" } });
+		expect(providerLoaders.brave).not.toHaveBeenCalled();
+
+		config.websearch.brave_api.api_key = "$BRAVE_SEARCH_API_KEY";
+		process.env.BRAVE_SEARCH_API_KEY = "available-key";
+		await expect(runtime.search({ query: "official brave docs" }, { toolCallId: "search-restored" })).resolves.toMatchObject({ details: { provider: "brave_api" } });
+		expect(providerLoaders.brave).toHaveBeenCalledTimes(1);
+		expect(providerLoaders.duckDuckGo).toHaveBeenCalledTimes(1);
+		await runtime.close();
+	});
+
 	it("默认搜索 provider 只在实际命中时加载，失败可重试并在会话内复用", async () => {
 		const config = defaultWebToolsConfig();
+		config.websearch.brave_api.enabled = false;
+		config.websearch.tavily.enabled = false;
+		process.env.EXA_API_KEY = "test-key";
 		const closeExa = vi.fn(async () => undefined);
 		let exaLoadAttempts = 0;
 		const providerLoaders: WebSearchProviderLoaders = {
+			brave: vi.fn(async () => { throw new Error("unused Brave provider"); }),
 			exa: vi.fn(async () => {
 				exaLoadAttempts += 1;
 				if (exaLoadAttempts === 1) throw new Error("simulated provider import failure");
 				return {
-					id: "exa_mcp" as const,
+					id: "exa_api" as const,
 					async search(params: WebSearchParams) {
 						return {
 							status: "success" as const,
-							provider: "exa_mcp" as const,
+							provider: "exa_api" as const,
 							downloadedBytes: 0,
 							results: [{ rank: 1, title: params.query, url: "https://example.com/" }],
 						};
@@ -153,6 +210,7 @@ describe("web-tools runtime", () => {
 					close: closeExa,
 				};
 			}),
+			tavily: vi.fn(async () => { throw new Error("unused Tavily provider"); }),
 			duckDuckGo: vi.fn(async () => {
 				throw new Error("unused DuckDuckGo provider");
 			}),
@@ -165,11 +223,12 @@ describe("web-tools runtime", () => {
 			loadConfig: async () => structuredClone(config),
 			now: () => 100,
 			setAllowedFakeIpRanges() {},
+			searchCorpus: new SearchCorpus(() => 100),
 		}, providerLoaders);
 
-		await expect(runtime.search({ query: "first" }, { toolCallId: "search-1" })).rejects.toThrow("simulated provider import failure");
-		await runtime.search({ query: "second" }, { toolCallId: "search-2" });
-		await runtime.search({ query: "third" }, { toolCallId: "search-3" });
+		await expect(runtime.search({ query: "research paper first" }, { toolCallId: "search-1" })).rejects.toThrow("simulated provider import failure");
+		await runtime.search({ query: "research paper second" }, { toolCallId: "search-2" });
+		await runtime.search({ query: "research paper third" }, { toolCallId: "search-3" });
 		expect(providerLoaders.exa).toHaveBeenCalledTimes(2);
 		expect(providerLoaders.duckDuckGo).not.toHaveBeenCalled();
 		await runtime.close();
@@ -189,7 +248,7 @@ describe("web-tools runtime", () => {
 						details: {
 							status: "success" as const,
 							query: params.query,
-							provider: "exa_mcp" as const,
+							provider: "exa_api" as const,
 							results: [],
 							cached: false,
 							downloaded_bytes: 0,
@@ -239,7 +298,7 @@ describe("web-tools runtime", () => {
 							details: {
 								status: "success" as const,
 								query: "pi",
-								provider: "exa_mcp" as const,
+								provider: "exa_api" as const,
 								results: [],
 								cached: false,
 								downloaded_bytes: 0,
@@ -268,12 +327,12 @@ describe("web-tools runtime", () => {
 		let calls = 0;
 		let providerClosed = 0;
 		const provider: WebSearchProvider = {
-			id: "exa_mcp",
+			id: "exa_api",
 			async search(params) {
 				calls += 1;
 				return {
 					status: "success",
-					provider: "exa_mcp",
+					provider: "exa_api",
 					downloadedBytes: 12,
 					results: [{ rank: 1, title: params.query, url: "https://example.com/" }],
 				};

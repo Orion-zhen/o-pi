@@ -87,11 +87,13 @@ describe("tool telemetry projections", () => {
 		const searchParams = fixture<WebSearchParams>({ query: "private query", limit: 5 });
 		const input = inputFacts(webSearchTelemetry, searchParams);
 		const output = resultFacts(webSearchTelemetry, searchParams, fixture<WebSearchDetails>({
-			status: "ok", provider: "exa", results: [{ title: "A", url: "https://example.com/a", rank: 3 }],
+			status: "ok", provider: "brave_api", primary_provider: "brave_api", query_type: "general", formal_provider_calls: 2, first_call_accepted: false, fallback_reason: "too_few_results", secondary_new_results: 2,
+			results: [{ title: "A", url: "https://example.com/a", rank: 3, provenance: [{ provider: "brave_api", rank: 1 }, { provider: "tavily", rank: 2 }] }],
 		}));
 		expect(input.fields).toMatchObject({ input_query_chars: 13, input_limit: 5 });
 		expect(JSON.stringify(input)).not.toContain("private query");
-		expect(output.candidates).toEqual([{ kind: "url", value: "https://example.com/a", rank: 1, group: "primary", sources: ["exa"] }]);
+		expect(output.fields).toMatchObject({ primary_provider: "brave_api", query_type: "general", formal_provider_calls: 2, first_call_accepted: false, fallback_reason: "too_few_results", secondary_new_results: 2 });
+		expect(output.candidates).toEqual([{ kind: "url", value: "https://example.com/a", rank: 1, group: "primary", sources: ["brave_api", "tavily"] }]);
 
 		const fetchParams = fixture<WebFetchParams>({ url: "https://example.com/a" });
 		expect(inputFacts(webFetchTelemetry, fetchParams).targets).toEqual([{ kind: "url", value: "https://example.com/a" }]);

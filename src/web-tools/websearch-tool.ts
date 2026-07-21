@@ -1,6 +1,8 @@
 import type { SearchProviderRouter } from "./search-providers/router.js";
+import { normalizeSearchParams } from "./search-providers/query.js";
 import type { SearchCache } from "./search-cache.js";
 import { searchCacheKey } from "./search-cache.js";
+import type { SearchCorpus } from "./search-corpus.js";
 import type { WebSearchExecutionContext, WebSearchFailureDetails, WebSearchParams, WebSearchResult, WebSearchSuccessDetails, WebToolsConfig } from "./types.js";
 import { escapeXml } from "./url-utils.js";
 
@@ -12,6 +14,7 @@ export interface ExecuteWebSearchRuntime {
 	providerSignature?: string;
 	context: WebSearchExecutionContext;
 	now: () => number;
+	corpus?: SearchCorpus;
 }
 
 /** 执行公开网页搜索；只返回搜索结果，不抓取结果页面。 */
@@ -20,8 +23,18 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 	const validation = validateParams(params);
 	if (validation !== undefined) return { content: failureContent(validation), details: { ...validation, duration_ms: runtime.now() - startedAt } };
 
-	const query = params.query.trim();
-	const limit = params.limit ?? runtime.config.websearch.default_results;
+	const normalized = normalizeSearchParams(params, runtime.config.websearch.default_results, {
+		includeDomains: runtime.config.websearch.include_domains,
+		excludeDomains: runtime.config.websearch.exclude_domains,
+	});
+	if (normalized.includeDomains.some((domain) => normalized.excludeDomains.includes(domain))) {
+		const details = { ...invalid("site: and -site: domains must not overlap."), duration_ms: runtime.now() - startedAt };
+		return { content: failureContent(details), details };
+	}
+	const query = normalized.query;
+	const limit = normalized.limit;
+	const approximateReformulation = runtime.corpus?.recordQuery(normalized) ?? false;
+	const corpusUsage = runtime.corpus?.usage();
 	const key = searchCacheKey(query, limit, runtime.config.websearch, runtime.providerSignature);
 	const cached = runtime.searches.get(key);
 	if (cached !== undefined) {
@@ -34,7 +47,16 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 			downloaded_bytes: cached.downloadedBytes,
 			duration_ms: runtime.now() - startedAt,
 			attempts: [{ provider: cached.provider, status: "success", cached: true }],
+			reused: "cache",
+			approximate_reformulation: approximateReformulation,
+			...(corpusUsage === undefined ? {} : { corpus_discovered: corpusUsage.discovered, corpus_fetched: corpusUsage.fetched, corpus_cited: corpusUsage.cited }),
 		};
+		return { content: successContent(details), details };
+	}
+	const corpusResults = runtime.corpus?.find(normalized);
+	if (corpusResults !== undefined) {
+		const provider = corpusResults[0]?.provenance?.[0]?.provider ?? "brave_api";
+		const details: WebSearchSuccessDetails = { status: "success", query, provider, results: corpusResults, cached: true, downloaded_bytes: 0, duration_ms: runtime.now() - startedAt, attempts: [{ provider, status: "success", cached: true }], reused: "corpus", formal_provider_calls: 0, approximate_reformulation: approximateReformulation, ...(corpusUsage === undefined ? {} : { corpus_discovered: corpusUsage.discovered, corpus_fetched: corpusUsage.fetched, corpus_cited: corpusUsage.cited }) };
 		return { content: successContent(details), details };
 	}
 
@@ -42,27 +64,36 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 		content: "Searching...",
 		details: { status: "progress", phase: "requesting" },
 	});
-	const routed = await runtime.router.search(
-		{
-			query,
-			limit,
-		},
-		{
-			...(runtime.context.signal !== undefined ? { signal: runtime.context.signal } : {}),
-			now: runtime.now,
-			onUpdate: runtime.context.onUpdate,
-		},
-	);
+	const deadlineAt = startedAt + runtime.config.websearch.total_deadline_seconds * 1000;
+	const deadlineSignal = AbortSignal.timeout(Math.max(1, deadlineAt - runtime.now()));
+	const signal = AbortSignal.any([runtime.context.signal ?? new AbortController().signal, deadlineSignal]);
+	const routed = await runtime.searches.runSingleflight(key, () => runtime.router.search(normalized, {
+		signal,
+		...(runtime.context.signal !== undefined ? { userSignal: runtime.context.signal } : {}),
+		now: runtime.now,
+		onUpdate: runtime.context.onUpdate,
+		deadlineAt,
+	}));
 
 	if (routed.status === "failed") {
+		const fallbackReason = routed.attempts.find((attempt) => attempt.fallback_reason !== undefined)?.fallback_reason;
 		const details = {
 			...routed.details,
 			query,
 			duration_ms: runtime.now() - startedAt,
+			primary_provider: routed.primaryProvider,
+			query_type: normalized.compiled.intent,
+			formal_provider_calls: routed.formalProviderCalls,
+			first_call_accepted: false,
+			...(fallbackReason !== undefined ? { fallback_reason: fallbackReason } : {}),
+			provider_latencies: routed.attempts.flatMap((attempt) => attempt.duration_ms === undefined ? [] : [`${attempt.provider}:${attempt.duration_ms}`]),
+			provider_errors: routed.attempts.flatMap((attempt) => attempt.error === undefined ? [] : [`${attempt.provider}:${attempt.error.code}`]),
+			approximate_reformulation: approximateReformulation,
 		};
 		return { content: failureContent(details), details };
 	}
 
+	const fallbackReason = routed.attempts.find((attempt) => attempt.fallback_reason !== undefined)?.fallback_reason;
 	const details: WebSearchSuccessDetails = {
 		status: "success",
 		query,
@@ -72,6 +103,16 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 		downloaded_bytes: routed.results.downloadedBytes,
 		duration_ms: runtime.now() - startedAt,
 		attempts: routed.attempts,
+		primary_provider: routed.primaryProvider,
+		query_type: normalized.compiled.intent,
+		formal_provider_calls: routed.formalProviderCalls,
+		secondary_new_results: routed.secondaryNewResults,
+		first_call_accepted: routed.attempts.find((attempt) => attempt.status !== "skipped")?.quality === "accepted",
+		...(fallbackReason !== undefined ? { fallback_reason: fallbackReason } : {}),
+		provider_latencies: routed.attempts.flatMap((attempt) => attempt.duration_ms === undefined ? [] : [`${attempt.provider}:${attempt.duration_ms}`]),
+		provider_errors: routed.attempts.flatMap((attempt) => attempt.error === undefined ? [] : [`${attempt.provider}:${attempt.error.code}`]),
+		approximate_reformulation: approximateReformulation,
+		...(corpusUsage === undefined ? {} : { corpus_discovered: corpusUsage.discovered, corpus_fetched: corpusUsage.fetched, corpus_cited: corpusUsage.cited }),
 	};
 	runtime.searches.set({
 		key,
@@ -80,6 +121,10 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 		results: routed.results.results,
 		downloadedBytes: routed.results.downloadedBytes,
 	});
+	if (routed.quality === "accepted") {
+		const providers = [...new Set(routed.results.results.flatMap((item) => item.provenance?.map((entry) => entry.provider) ?? []))];
+		runtime.corpus?.add(normalized, routed.results.results, providers);
+	}
 	return { content: successContent(details), details };
 }
 
@@ -97,7 +142,20 @@ function validateParams(params: WebSearchParams): WebSearchFailureDetails | unde
 	if (params.limit !== undefined && (!Number.isInteger(params.limit) || params.limit < 1 || params.limit > 20)) {
 		return invalid("limit must be an integer between 1 and 20.");
 	}
+	if (params.freshness !== undefined && !validFreshness(params.freshness)) return invalid("freshness must be day, week, month, year, or a valid date range.");
 	return undefined;
+}
+
+function validFreshness(value: NonNullable<WebSearchParams["freshness"]>): boolean {
+	if (typeof value === "string") return ["day", "week", "month", "year"].includes(value);
+	if (!isRecord(value) || value.start === undefined && value.end === undefined) return false;
+	const valid = (date: unknown): boolean => {
+		if (date === undefined) return true;
+		if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(date)) return false;
+		const parsed = new Date(`${date}T00:00:00Z`);
+		return Number.isFinite(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === date;
+	};
+	return valid(value.start) && valid(value.end) && !(value.start !== undefined && value.end !== undefined && value.start > value.end);
 }
 
 function invalid(message: string): WebSearchFailureDetails {

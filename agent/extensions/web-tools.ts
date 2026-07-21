@@ -16,7 +16,7 @@ const webSearchParameters = Type.Object(
 		query: Type.String({
 			minLength: 1,
 			maxLength: 512,
-			description: "Query; supports site:.",
+			description: "Query; supports site: and -site:.",
 		}),
 		limit: Type.Optional(
 			Type.Integer({
@@ -25,6 +25,10 @@ const webSearchParameters = Type.Object(
 				description: "Result count; default from config.",
 			}),
 		),
+		freshness: Type.Optional(Type.Union([
+			StringEnum(["day", "week", "month", "year"] as const),
+			Type.Object({ start: Type.Optional(Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" })), end: Type.Optional(Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" })) }, { additionalProperties: false }),
+		], { description: "Publication recency or YYYY-MM-DD formated date range." })),
 	},
 	{ additionalProperties: false },
 );
@@ -145,6 +149,12 @@ export function createWebToolsExtension(loadRuntime: WebToolsRuntimeLoader = loa
 				return { isError: true };
 			}
 			return undefined;
+		});
+
+		pi.on("message_end", (event) => {
+			if (runtimePromise === undefined || event.message.role !== "assistant") return;
+			const text = event.message.content.flatMap((item) => item.type === "text" ? [item.text] : []).join("\n");
+			if (text.length > 0) void runtimePromise.then((runtime) => runtime.observeCitations?.(text));
 		});
 
 		pi.on("session_shutdown", async () => {

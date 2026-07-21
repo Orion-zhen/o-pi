@@ -85,6 +85,7 @@ npm run telemetry:report -- [--input DIR] [--output DIR]
 - edit batch 的多文件比例、部分失败、每批文件/调用数，以及多文件接口可能减少的调用数。
 - find/grep/websearch 的调用量、扫描文件投影总数及其覆盖调用数、有候选调用、至少一个候选被采用的有效搜索、候选采用率，以及进入 read/webfetch、edit/write 或其他工具的候选数；HTML 按搜索工具和 candidate group 展示漏斗。
 - find/grep/websearch 候选的 conversion@K、MRR 和下游消费工具；每个细分来源使用同一组指标，并将 `repo-map-*`、`lsp-*` 分别聚合为 `repo-map`、`lsp` 来源族。
+- websearch 记录 primary provider、查询类型、首调用接受率所需事实、正式 provider 调用数、fallback 原因、secondary 新增结果、cache/corpus 复用、provider 延迟/错误类型、corpus fetch/cite 计数和近似 query reformulation；不记录 API key、完整 query 或响应正文。URL 后续进入 webfetch/引用的采用率继续由候选转化链计算。
 
 候选转化采用小而明确的启发式：同 run 后续 10 个调用、5 分钟内首次命中候选资源的 target；同一并行 batch 不算消费。多来源候选会分别归因到每个来源，来源数据不能直接相加。它用于发现真实 workload 和提出排序假设。排序是否改善由固定 workload benchmark 验证。
 

@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+
+import { resolveSearchApiKey } from "./search-providers/api-key.js";
 import type { WebSearchItem, WebSearchProviderId, WebToolsConfig } from "./types.js";
 
 export const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -15,6 +18,7 @@ export interface CachedSearch {
 /** 会话内 LRU 搜索缓存；不持久化，避免跨会话混用搜索结果。 */
 export class SearchCache {
 	private readonly entries = new Map<string, CachedSearch>();
+	private readonly inFlight = new Map<string, Promise<unknown>>();
 
 	constructor(
 		private readonly now: () => number = () => Date.now(),
@@ -52,6 +56,16 @@ export class SearchCache {
 
 	clear(): void {
 		this.entries.clear();
+		this.inFlight.clear();
+	}
+
+	runSingleflight<T>(key: string, execute: () => Promise<T>): Promise<T> {
+		const existing = this.inFlight.get(key);
+		if (existing !== undefined) return existing as Promise<T>;
+		const pending = execute();
+		this.inFlight.set(key, pending);
+		void pending.finally(() => { if (this.inFlight.get(key) === pending) this.inFlight.delete(key); }).catch(() => undefined);
+		return pending;
 	}
 }
 
@@ -60,9 +74,15 @@ export function searchCacheKey(query: string, limit: number, config: WebToolsCon
 }
 
 export function providerSignature(config: WebToolsConfig["websearch"]): string {
-	return JSON.stringify(config.provider_order
-		.map((provider) => {
-			if (provider === "exa_mcp") return [provider, config.exa_mcp.enabled, config.exa_mcp.url, config.exa_mcp.tool, config.exa_mcp.type];
-			return [provider, config.duckduckgo_html.enabled, config.duckduckgo_html.region];
-		}));
+	return JSON.stringify({
+		...config,
+		brave_api: providerConfigSignature(config.brave_api),
+		exa_api: providerConfigSignature(config.exa_api),
+		tavily: providerConfigSignature(config.tavily),
+	});
+}
+
+function providerConfigSignature<T extends { api_key: string }>(config: T): Omit<T, "api_key"> & { api_key: string } {
+	const material = resolveSearchApiKey(config.api_key) ?? config.api_key;
+	return { ...config, api_key: createHash("sha256").update(material).digest("hex") };
 }

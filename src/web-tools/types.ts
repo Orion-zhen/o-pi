@@ -4,7 +4,9 @@ export type WebFetchMode = "readable" | "source";
 export type WebFetchOutputFormat = "markdown" | "text" | "json" | "xml" | "source";
 export type SnapshotStatus = "created" | "hit" | "refetched" | "not_needed";
 /** 搜索运行时 provider 标识；不暴露为模型工具参数。 */
-export type WebSearchProviderId = "exa_mcp" | "duckduckgo_html";
+export type FormalWebSearchProviderId = "brave_api" | "exa_api" | "tavily";
+export type WebSearchProviderId = FormalWebSearchProviderId | "duckduckgo_html";
+export type WebSearchFreshness = "day" | "week" | "month" | "year" | { start?: string; end?: string };
 
 export interface WebFetchParams {
 	url: string;
@@ -17,6 +19,7 @@ export interface WebFetchParams {
 export interface WebSearchParams {
 	query: string;
 	limit?: number;
+	freshness?: WebSearchFreshness;
 }
 
 /** 单条搜索结果，rank 保留搜索引擎原始排序。 */
@@ -25,6 +28,11 @@ export interface WebSearchItem {
 	title: string;
 	url: string;
 	snippet?: string;
+	published_date?: string;
+	/** Provider-native relevance; details/telemetry only. */
+	score?: number;
+	/** Merged provenance; never rendered into model content. */
+	provenance?: Array<{ provider: FormalWebSearchProviderId; rank: number }>;
 }
 
 export interface WebToolsConfig {
@@ -33,20 +41,34 @@ export interface WebToolsConfig {
 		fake_ip_ranges: string[];
 	};
 	websearch: {
-		/** 搜索 provider 执行顺序；重复项会在加载配置时去重。 */
-		provider_order: WebSearchProviderId[];
-		/** provider 失败后是否继续尝试后续 provider。 */
-		fallback: boolean;
 		default_results: number;
-		/** 会话内搜索缓存 TTL，按成功 provider 签名隔离。 */
 		cache_ttl_seconds: number;
-		exa_mcp: {
+		negative_cache_ttl_seconds: number;
+		total_deadline_seconds: number;
+		include_domains: string[];
+		exclude_domains: string[];
+		brave_api: {
 			enabled: boolean;
-			url: string;
-			tool: string;
-			api_key_env: string;
+			endpoint: string;
+			api_key: string;
 			timeout_seconds: number;
-			type: string;
+			response_bytes: number;
+			extra_snippets: boolean;
+		};
+		exa_api: {
+			enabled: boolean;
+			endpoint: string;
+			api_key: string;
+			timeout_seconds: number;
+			response_bytes: number;
+			highlight_chars: number;
+		};
+		tavily: {
+			enabled: boolean;
+			endpoint: string;
+			api_key: string;
+			timeout_seconds: number;
+			response_bytes: number;
 		};
 		duckduckgo_html: {
 			enabled: boolean;
@@ -107,7 +129,8 @@ export type WebSearchErrorCode =
 	| "HTTP_ERROR"
 	| "RESPONSE_TOO_LARGE"
 	| "UNSUPPORTED_CONTENT_TYPE"
-	| "MCP_ERROR"
+	| "QUOTA_EXHAUSTED"
+	| "RATE_LIMITED"
 	| "NO_PROVIDER_AVAILABLE"
 	| "PROVIDER_BLOCKED"
 	| "PARSE_FAILED";
@@ -190,6 +213,9 @@ export interface WebSearchProviderAttempt {
 	};
 	http_status?: number;
 	cached?: boolean;
+	quality?: "accepted" | "partial" | "soft_miss" | "hard_failure";
+	fallback_reason?: string;
+	result_count?: number;
 }
 
 /** 搜索成功 details；缓存、耗时和字节数只供 UI/诊断使用。 */
@@ -202,6 +228,19 @@ export interface WebSearchSuccessDetails {
 	downloaded_bytes: number;
 	duration_ms: number;
 	attempts: WebSearchProviderAttempt[];
+	primary_provider?: FormalWebSearchProviderId;
+	query_type?: string;
+	formal_provider_calls?: number;
+	secondary_new_results?: number;
+	reused?: "cache" | "corpus";
+	first_call_accepted?: boolean;
+	fallback_reason?: string;
+	provider_latencies?: string[];
+	provider_errors?: string[];
+	corpus_discovered?: number;
+	corpus_fetched?: number;
+	corpus_cited?: number;
+	approximate_reformulation?: boolean;
 }
 
 /** 搜索失败 details；response_preview 只给展开 renderer 诊断。 */
@@ -214,6 +253,7 @@ export interface WebSearchFailureDetails {
 	query?: string;
 	provider?: WebSearchProviderId;
 	http_status?: number;
+	retry_after_ms?: number;
 	duration_ms?: number;
 	attempts?: WebSearchProviderAttempt[];
 	/**
@@ -221,6 +261,14 @@ export interface WebSearchFailureDetails {
 	 * 写入前必须去除标签和终端控制字符。
 	 */
 	response_preview?: string;
+	primary_provider?: FormalWebSearchProviderId;
+	query_type?: string;
+	formal_provider_calls?: number;
+	first_call_accepted?: boolean;
+	fallback_reason?: string;
+	provider_latencies?: string[];
+	provider_errors?: string[];
+	approximate_reformulation?: boolean;
 }
 
 export type WebSearchDetails = WebSearchProgressDetails | WebSearchSuccessDetails | WebSearchFailureDetails;
@@ -348,6 +396,7 @@ export interface CookieStore {
 export interface WebToolsRuntime {
 	fetch(params: WebFetchParams, context: WebFetchExecutionContext): Promise<WebFetchResult>;
 	search(params: WebSearchParams, context: WebSearchExecutionContext): Promise<WebSearchResult>;
+	observeCitations?(text: string): void;
 	close(): Promise<void>;
 }
 
@@ -356,6 +405,5 @@ export interface WebToolsRuntimeOptions {
 	fetchImpl?: WebHttpFetch;
 	cookiePath?: string;
 	now?: () => number;
-	exaMcpClientFactory?: import("./search-providers/exa-mcp.js").ExaMcpClientFactory;
 	searchProviders?: import("./search-providers/types.js").WebSearchProvider[];
 }

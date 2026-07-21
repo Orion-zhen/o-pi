@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 
 import { agentConfigPath, agentPath, agentSchemaPath, createSchemaValidator, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
 import { guardPublicHttpUrlLiteral } from "../safety/url-guard.js";
+import { normalizeDomains } from "./search-providers/query.js";
 import type { WebToolsConfig } from "./types.js";
 
 const CONFIG_PATH_ENV = "PI_WEB_TOOLS_CONFIG";
@@ -14,17 +15,34 @@ const defaultConfig: WebToolsConfig = {
 		fake_ip_ranges: [],
 	},
 	websearch: {
-		provider_order: ["exa_mcp", "duckduckgo_html"],
-		fallback: true,
 		default_results: 8,
 		cache_ttl_seconds: 300,
-		exa_mcp: {
+		negative_cache_ttl_seconds: 30,
+		total_deadline_seconds: 20,
+		include_domains: [],
+		exclude_domains: [],
+		brave_api: {
 			enabled: true,
-			url: "https://mcp.exa.ai/mcp?tools=web_search_exa",
-			tool: "web_search_exa",
-			api_key_env: "EXA_API_KEY",
-			timeout_seconds: 12,
-			type: "auto",
+			endpoint: "https://api.search.brave.com/res/v1/web/search",
+			api_key: "$BRAVE_SEARCH_API_KEY",
+			timeout_seconds: 8,
+			response_bytes: 2_097_152,
+			extra_snippets: false,
+		},
+		exa_api: {
+			enabled: true,
+			endpoint: "https://api.exa.ai/search",
+			api_key: "$EXA_API_KEY",
+			timeout_seconds: 10,
+			response_bytes: 2_097_152,
+			highlight_chars: 600,
+		},
+		tavily: {
+			enabled: true,
+			endpoint: "https://api.tavily.com/search",
+			api_key: "$TAVILY_API_KEY",
+			timeout_seconds: 10,
+			response_bytes: 2_097_152,
 		},
 		duckduckgo_html: {
 			enabled: true,
@@ -138,11 +156,15 @@ export function defaultCookiePath(): string {
 interface RawWebToolsConfig {
 	network?: Partial<WebToolsConfig["network"]>;
 	websearch?: {
-		provider_order?: WebToolsConfig["websearch"]["provider_order"];
-		fallback?: boolean;
 		default_results?: number;
 		cache_ttl_seconds?: number;
-		exa_mcp?: Partial<WebToolsConfig["websearch"]["exa_mcp"]>;
+		negative_cache_ttl_seconds?: number;
+		total_deadline_seconds?: number;
+		include_domains?: string[];
+		exclude_domains?: string[];
+		brave_api?: Partial<WebToolsConfig["websearch"]["brave_api"]>;
+		exa_api?: Partial<WebToolsConfig["websearch"]["exa_api"]>;
+		tavily?: Partial<WebToolsConfig["websearch"]["tavily"]>;
 		duckduckgo_html?: Partial<WebToolsConfig["websearch"]["duckduckgo_html"]>;
 	};
 	webfetch?: {
@@ -160,17 +182,34 @@ function mergeConfig(raw: RawWebToolsConfig): WebToolsConfig {
 			fake_ip_ranges: raw.network?.fake_ip_ranges ?? [...defaultConfig.network.fake_ip_ranges],
 		},
 		websearch: {
-			provider_order: dedupeProviders(raw.websearch?.provider_order ?? defaultConfig.websearch.provider_order),
-			fallback: raw.websearch?.fallback ?? defaultConfig.websearch.fallback,
 			default_results: raw.websearch?.default_results ?? defaultConfig.websearch.default_results,
 			cache_ttl_seconds: raw.websearch?.cache_ttl_seconds ?? defaultConfig.websearch.cache_ttl_seconds,
-			exa_mcp: {
-				enabled: raw.websearch?.exa_mcp?.enabled ?? defaultConfig.websearch.exa_mcp.enabled,
-				url: raw.websearch?.exa_mcp?.url ?? defaultConfig.websearch.exa_mcp.url,
-				tool: raw.websearch?.exa_mcp?.tool ?? defaultConfig.websearch.exa_mcp.tool,
-				api_key_env: raw.websearch?.exa_mcp?.api_key_env ?? defaultConfig.websearch.exa_mcp.api_key_env,
-				timeout_seconds: raw.websearch?.exa_mcp?.timeout_seconds ?? defaultConfig.websearch.exa_mcp.timeout_seconds,
-				type: raw.websearch?.exa_mcp?.type ?? defaultConfig.websearch.exa_mcp.type,
+			negative_cache_ttl_seconds: raw.websearch?.negative_cache_ttl_seconds ?? defaultConfig.websearch.negative_cache_ttl_seconds,
+			total_deadline_seconds: raw.websearch?.total_deadline_seconds ?? defaultConfig.websearch.total_deadline_seconds,
+			include_domains: normalizeDomains(raw.websearch?.include_domains ?? defaultConfig.websearch.include_domains),
+			exclude_domains: normalizeDomains(raw.websearch?.exclude_domains ?? defaultConfig.websearch.exclude_domains),
+			brave_api: {
+				enabled: raw.websearch?.brave_api?.enabled ?? defaultConfig.websearch.brave_api.enabled,
+				endpoint: raw.websearch?.brave_api?.endpoint ?? defaultConfig.websearch.brave_api.endpoint,
+				api_key: raw.websearch?.brave_api?.api_key ?? defaultConfig.websearch.brave_api.api_key,
+				timeout_seconds: raw.websearch?.brave_api?.timeout_seconds ?? defaultConfig.websearch.brave_api.timeout_seconds,
+				response_bytes: raw.websearch?.brave_api?.response_bytes ?? defaultConfig.websearch.brave_api.response_bytes,
+				extra_snippets: raw.websearch?.brave_api?.extra_snippets ?? defaultConfig.websearch.brave_api.extra_snippets,
+			},
+			exa_api: {
+				enabled: raw.websearch?.exa_api?.enabled ?? defaultConfig.websearch.exa_api.enabled,
+				endpoint: raw.websearch?.exa_api?.endpoint ?? defaultConfig.websearch.exa_api.endpoint,
+				api_key: raw.websearch?.exa_api?.api_key ?? defaultConfig.websearch.exa_api.api_key,
+				timeout_seconds: raw.websearch?.exa_api?.timeout_seconds ?? defaultConfig.websearch.exa_api.timeout_seconds,
+				response_bytes: raw.websearch?.exa_api?.response_bytes ?? defaultConfig.websearch.exa_api.response_bytes,
+				highlight_chars: raw.websearch?.exa_api?.highlight_chars ?? defaultConfig.websearch.exa_api.highlight_chars,
+			},
+			tavily: {
+				enabled: raw.websearch?.tavily?.enabled ?? defaultConfig.websearch.tavily.enabled,
+				endpoint: raw.websearch?.tavily?.endpoint ?? defaultConfig.websearch.tavily.endpoint,
+				api_key: raw.websearch?.tavily?.api_key ?? defaultConfig.websearch.tavily.api_key,
+				timeout_seconds: raw.websearch?.tavily?.timeout_seconds ?? defaultConfig.websearch.tavily.timeout_seconds,
+				response_bytes: raw.websearch?.tavily?.response_bytes ?? defaultConfig.websearch.tavily.response_bytes,
 			},
 			duckduckgo_html: {
 				enabled: raw.websearch?.duckduckgo_html?.enabled ?? defaultConfig.websearch.duckduckgo_html.enabled,
@@ -201,20 +240,21 @@ function mergeConfig(raw: RawWebToolsConfig): WebToolsConfig {
 	if (merged.webfetch.limits.default_output_chars > merged.webfetch.limits.max_output_chars) {
 		throw new WebToolsConfigError("default_output_chars must not exceed max_output_chars.");
 	}
+	if (merged.websearch.include_domains.some((domain) => merged.websearch.exclude_domains.includes(domain))) {
+		throw new WebToolsConfigError("websearch include_domains and exclude_domains must not overlap.");
+	}
 	validateFakeIpRanges(merged.network.fake_ip_ranges);
-	validateExaUrl(merged.websearch.exa_mcp.url);
+	validateProviderUrl("brave_api", merged.websearch.brave_api.endpoint);
+	validateProviderUrl("exa_api", merged.websearch.exa_api.endpoint);
+	validateProviderUrl("tavily", merged.websearch.tavily.endpoint);
 	return merged;
 }
 
-function dedupeProviders(order: readonly WebToolsConfig["websearch"]["provider_order"][number][]): WebToolsConfig["websearch"]["provider_order"] {
-	return [...new Set(order)];
-}
-
-function validateExaUrl(value: string): void {
+function validateProviderUrl(provider: string, value: string): void {
 	try {
 		guardPublicHttpUrlLiteral(value);
 	} catch (error) {
-		throw new WebToolsConfigError("exa_mcp.url is not an allowed public HTTP URL.", {
+		throw new WebToolsConfigError(`${provider}.endpoint is not an allowed public HTTP URL.`, {
 			error: error instanceof Error ? error.message : String(error),
 		});
 	}

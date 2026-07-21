@@ -10,22 +10,41 @@
 	},
 
 	"websearch": {
-		"provider_order": ["exa_mcp", "duckduckgo_html"],
-		"fallback": true,
-
 		// 模型未传 limit 时使用。
 		"default_results": 8,
-
-		// 会话内搜索缓存 TTL。
 		"cache_ttl_seconds": 300,
+		"negative_cache_ttl_seconds": 30,
+		// 包括 provider timeout、fallback 和 DDG 等待。
+		"total_deadline_seconds": 20,
+		// 每次搜索都至少应用；query 中的 site: / -site: 会继续合并。
+		"include_domains": [],
+		"exclude_domains": [],
 
-		"exa_mcp": {
+		"brave_api": {
 			"enabled": true,
-			"url": "https://mcp.exa.ai/mcp?tools=web_search_exa",
-			"tool": "web_search_exa",
-			"api_key_env": "EXA_API_KEY",
-			"timeout_seconds": 12,
-			"type": "auto"
+			"endpoint": "https://api.search.brave.com/res/v1/web/search",
+			// 可直接填写 key；推荐用 $NAME 或 ${NAME} 引用环境变量；为空或无法解析时自动禁用。
+			"api_key": "$BRAVE_SEARCH_API_KEY",
+			"timeout_seconds": 8,
+			"response_bytes": 2097152,
+			"extra_snippets": false
+		},
+
+		"exa_api": {
+			"enabled": true,
+			"endpoint": "https://api.exa.ai/search",
+			"api_key": "$EXA_API_KEY",
+			"timeout_seconds": 10,
+			"response_bytes": 2097152,
+			"highlight_chars": 600
+		},
+
+		"tavily": {
+			"enabled": true,
+			"endpoint": "https://api.tavily.com/search",
+			"api_key": "$TAVILY_API_KEY",
+			"timeout_seconds": 10,
+			"response_bytes": 2097152
 		},
 
 		"duckduckgo_html": {

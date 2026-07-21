@@ -17,25 +17,34 @@ Web 工具分为搜索和抓取：
 websearch({
   query: string,
   limit?: number,
+  freshness?: "day" | "week" | "month" | "year" | { start?: string, end?: string },
 })
 ```
 
-- `query`：原样传给搜索引擎，支持 `site:`、引号、减号等查询语法。
+- `query`：支持 `site:`、`-site:`、引号、错误码和版本号；域名操作符会转成跨 provider 的结构化过滤，router 同时编译 lexical/semantic 形式。
 - `limit`：返回 1 到 20 条；默认使用配置 `websearch.default_results`。
+- `freshness`：按发布时间限制最近一天/周/月/年，或使用 `YYYY-MM-DD` 日期范围。
+
+配置中的 `websearch.include_domains` 和 `websearch.exclude_domains` 是每次搜索都会应用的全局域名过滤，默认均为空；`query` 中的 `site:` / `-site:` 会在此基础上继续合并。配置或合并结果中的包含、排除域名不得重叠。
 
 ### 搜索后端
 
-Provider 是运行时配置，不暴露给模型。默认顺序：
+Provider 是运行时策略，不暴露给模型：
 
-- `exa_mcp`：Exa hosted MCP，默认 URL `https://mcp.exa.ai/mcp?tools=web_search_exa`，工具 `web_search_exa`。
-- `duckduckgo_html`：DDG HTML fallback，固定请求 `https://html.duckduckgo.com/html/`。
+- `brave_api`：默认处理精确关键词、操作符、官方页面、错误信息、当前事件、新闻和导航查询。
+- `exa_api`：处理论文、技术博客、长自然语言和语义发现。
+- `tavily`：Brave/Exa 结果不足时做独立质量修复或第二索引验证。
+- `duckduckgo_html`：仅当三家正式 provider 全部 hard failure、未配置、额度耗尽或处于 cooldown 时灾备。
 
 约束：
 
-- API key 只从 `exa_mcp.api_key_env` 指定的环境变量读取，默认 `EXA_API_KEY`；配置文件不保存 key。
-- `exa_mcp.url` 只允许 `http:` / `https:`，拒绝 username/password、`localhost` / `*.localhost`、literal private IP、loopback IP 和 link-local IP。该检查只做 URL literal host 静态校验，不做 DNS 解析。
-- Exa 失败后按配置 fallback 到 DDG；DDG 的限流和 blocked 冷却只影响 DDG provider。
-- Exa 使用官方 MCP client/Streamable HTTP transport，保留 initialize、SSE、session、重连和协议校验；DDG 结果页使用流式 HTML parser，只抽取结果块所需字段，不构建完整 DOM。
+- 各 provider 使用 `api_key`：可直接填写 key，也可用 `$NAME` / `${NAME}` 引用环境变量；解析规则与 `openai-compatible-provider` 一致。空字符串、空白值或无法解析的引用会自动禁用该 provider；引用随后可用时会在下次搜索自动恢复。默认分别引用 `BRAVE_SEARCH_API_KEY`、`EXA_API_KEY`、`TAVILY_API_KEY`，推荐使用环境变量，避免把 key 写入配置文件。
+- 三家正式 endpoint 只允许公开 HTTP(S) literal URL，拒绝 userinfo、localhost 和 literal 私网/回环/link-local IP。
+- 查询在本地确定性编译成保留操作符的 lexical query 与去除操作符、提取域名/时间条件的 semantic query，不额外调用 LLM。
+- HTTP 成功仍需经过数量、关键词匹配、snippet、域名多样性、freshness 和原生分数质量门控；导航与 `site:` 查询不要求域名多样性。
+- 大多数调用只请求一个正式 provider；质量不足或 hard failure 时最多请求第二个正式 provider。第二次失败仍保留第一批 partial results，不会继续请求第三个正式 provider。
+- 合并结果会规范化 URL、去重、加权 RRF、为跨 provider 共识加分，并默认限制每个 registrable domain 最多两条。provenance 仅保留在 `details`/遥测。
+- DDG 结果页使用流式 HTML parser，只抽取结果块所需字段，不构建完整 DOM；既有限流、challenge 检测和熔断保持不变。
 - 不执行 JavaScript，不使用 headless browser；
 - 不读取搜索结果页面，不自动调用 `webfetch`；
 - 不发送 `cookies.txt`，也不尝试登录搜索引擎。
@@ -45,7 +54,7 @@ Provider 是运行时配置，不暴露给模型。默认顺序：
 模型只收到按搜索引擎顺序排列的结果：
 
 ```xml
-<websearch_results query="pi coding agent" count="2" provider="exa_mcp" trust="untrusted">
+<websearch_results query="pi coding agent" count="2" provider="brave_api" trust="untrusted">
 [1] Pi Coding Agent
 URL: https://example.com/pi
 Snippet: Search result snippet.
@@ -57,7 +66,7 @@ Snippet: Search result snippet.
 失败时模型只收到紧凑错误标签，完整错误结构保留在 `details`：
 
 ```xml
-<error tool="websearch" code="MCP_ERROR">
+<error tool="websearch" code="HTTP_ERROR">
 provider request failed.
 </error>
 ```
@@ -69,13 +78,16 @@ provider request failed.
 - 摘要和标题按不可信纯文本处理，模型输出会转义 XML 字符。
 - 数据中心或共享出口 IP 可能触发 DDG bot challenge。
 - 工具会识别 challenge，但不会绕过 CAPTCHA、换代理或重放请求。
-- 搜索结果有会话内 LRU 缓存，不写磁盘；TTL 默认 300 秒。
+- 搜索结果有会话内 LRU 完成缓存、in-flight singleflight 和短期 negative cache，不写磁盘；完成缓存 TTL 默认 300 秒。
+- 会话级 SearchCorpus 保留已发现结果及 provider rank，并只在 query 高度近似、过滤兼容且已有足够强结果时保守复用；`webfetch` 会标记已消费 URL。
+- provider 会话状态为 healthy、degraded、cooldown、exhausted 或 misconfigured；401/403、402/额度耗尽、429 Retry-After、timeout/5xx 分别更新状态。配置签名变化会重建 router 并恢复状态。
+- `total_deadline_seconds` 限制整个调用；provider timeout、fallback 和 DDG 限流等待都服从剩余预算。
 - 会话内 DDG 请求串行发送，默认至少间隔 15 秒；一旦触发 challenge，进入 10 分钟冷却期，冷却期内不继续请求 DDG。
 - 该限速只降低触发概率，不能保证 DDG HTML 抓取长期稳定。
 
 ### 错误码
 
-`INVALID_ARGUMENT`、`CONFIG_ERROR`、`DNS_FAILED`、`CONNECTION_FAILED`、`TLS_FAILED`、`TIMEOUT`、`ABORTED`、`HTTP_ERROR`、`RESPONSE_TOO_LARGE`、`UNSUPPORTED_CONTENT_TYPE`、`MCP_ERROR`、`NO_PROVIDER_AVAILABLE`、`PROVIDER_BLOCKED`、`PARSE_FAILED`。
+`INVALID_ARGUMENT`、`CONFIG_ERROR`、`DNS_FAILED`、`CONNECTION_FAILED`、`TLS_FAILED`、`TIMEOUT`、`ABORTED`、`HTTP_ERROR`、`RATE_LIMITED`、`QUOTA_EXHAUSTED`、`RESPONSE_TOO_LARGE`、`UNSUPPORTED_CONTENT_TYPE`、`NO_PROVIDER_AVAILABLE`、`PROVIDER_BLOCKED`、`PARSE_FAILED`。
 
 ## webfetch
 
@@ -112,10 +124,10 @@ webfetch({
 
 - `network.fake_ip_ranges`：两个 Web 工具共用的安全 DNS fake-ip CIDR。默认空；只支持 `198.18.0.0/15` 内的子网。
 - 配置的 fake-ip CIDR 只放行域名 DNS 解析结果；URL 直接写 IP 仍会拒绝。
-- `exa_mcp.url` 的静态 URL 检查复用基础 URL guard；`webfetch` 仍保留自己的 DNS、redirect 和 SSRF 复检逻辑。
+- 三家正式搜索 endpoint 的静态 URL 检查复用基础 URL guard；`webfetch` 仍保留自己的 DNS、redirect 和 SSRF 复检逻辑。
 - 每次连接时 DNS 解析结果必须全部是公网地址或已配置 fake-ip。
 - `webfetch` 每个 redirect 目标都会重新执行 URL、DNS、Cookie 检查。
-- `websearch` endpoint 固定，3xx 作为 HTTP 错误，不跟随。
+- `websearch` 使用配置的公开 endpoint，3xx 作为 HTTP 错误，不跟随。
 
 ## Cookie
 

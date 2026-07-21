@@ -1,7 +1,7 @@
 import type { Dispatcher } from "undici";
 
-import type { ExaMcpClientFactory } from "./search-providers/exa-mcp.js";
 import type { WebSearchProvider } from "./search-providers/types.js";
+import type { SearchCorpus } from "./search-corpus.js";
 import type {
 	WebFetchExecutionContext,
 	WebFetchParams,
@@ -19,10 +19,10 @@ export interface WebCapabilitySharedOptions {
 	loadConfig(): Promise<WebToolsConfig>;
 	now: () => number;
 	setAllowedFakeIpRanges(ranges: readonly string[]): void;
+	searchCorpus: SearchCorpus;
 }
 
 export interface WebSearchCapabilityOptions extends WebCapabilitySharedOptions {
-	exaMcpClientFactory?: ExaMcpClientFactory;
 	searchProviders?: WebSearchProvider[];
 }
 

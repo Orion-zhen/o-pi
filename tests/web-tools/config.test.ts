@@ -31,7 +31,10 @@ describe("web-tools config", () => {
 				"network": { "fake_ip_ranges": ["198.18.0.0/16"], },
 				"websearch": {
 					"default_results": 5,
-					"provider_order": ["exa_mcp", "duckduckgo_html", "exa_mcp"],
+					"total_deadline_seconds": 18,
+					"include_domains": ["Docs.Example.com", "*.example.org"],
+					"exclude_domains": ["spam.example"],
+					"brave_api": { "api_key": "literal-key", },
 					"duckduckgo_html": { "region": "us-en", },
 				},
 				"webfetch": {
@@ -44,7 +47,14 @@ describe("web-tools config", () => {
 		process.env.PI_WEB_TOOLS_CONFIG = file;
 		expect(await loadWebToolsConfig()).toMatchObject({
 			network: { fake_ip_ranges: ["198.18.0.0/16"] },
-			websearch: { default_results: 5, provider_order: ["exa_mcp", "duckduckgo_html"], duckduckgo_html: { region: "us-en" } },
+			websearch: {
+				default_results: 5,
+				total_deadline_seconds: 18,
+				include_domains: ["docs.example.com", "example.org"],
+				exclude_domains: ["spam.example"],
+				brave_api: { api_key: "literal-key" },
+				duckduckgo_html: { region: "us-en" },
+			},
 			webfetch: {
 				timeout_seconds: 5,
 				limits: { default_output_chars: 1000, max_output_chars: 2000 },
@@ -86,31 +96,40 @@ describe("web-tools config", () => {
 		await expect(loadWebToolsConfig()).resolves.toMatchObject({ network: { fake_ip_ranges: ["198.18.0.0/16"] } });
 	});
 
-	it("提供搜索默认值并拒绝非法 provider 和 Exa URL", async () => {
+	it("提供搜索默认值并拒绝未知字段和非法 endpoint", async () => {
 		const file = path.join(dir, "search.jsonc");
 		process.env.PI_WEB_TOOLS_CONFIG = file;
 		await writeFile(file, '{}');
 		await expect(loadWebToolsConfig()).resolves.toMatchObject({
 			websearch: {
-				provider_order: ["exa_mcp", "duckduckgo_html"],
-				exa_mcp: { api_key_env: "EXA_API_KEY" },
+				include_domains: [],
+				exclude_domains: [],
+				brave_api: { api_key: "$BRAVE_SEARCH_API_KEY" },
+				exa_api: { api_key: "$EXA_API_KEY" },
+				tavily: { api_key: "$TAVILY_API_KEY" },
 			},
 		});
 		expect(JSON.stringify(await loadWebToolsConfig())).not.toContain("secret-key");
 
-		await writeFile(file, '{ "websearch": { "provider_order": ["bad"] } }');
+		await writeFile(file, '{ "websearch": { "unknown_router_field": true } }');
 		await expect(loadWebToolsConfig()).rejects.toThrow("does not match schema");
 
-		await writeFile(file, '{ "websearch": { "exa_mcp": { "url": "file:///tmp/key" } } }');
+		await writeFile(file, '{ "websearch": { "exa_api": { "endpoint": "file:///tmp/key" } } }');
 		await expect(loadWebToolsConfig()).rejects.toThrow("does not match schema");
+
+		await writeFile(file, '{ "websearch": { "brave_api": { "api_key": "" } } }');
+		await expect(loadWebToolsConfig()).resolves.toMatchObject({ websearch: { brave_api: { api_key: "" } } });
+
+		await writeFile(file, '{ "websearch": { "include_domains": ["example.com"], "exclude_domains": ["*.example.com"] } }');
+		await expect(loadWebToolsConfig()).rejects.toThrow("include_domains and exclude_domains must not overlap");
 	});
 
-	it("Exa MCP URL 拒绝 localhost、private literal IP 和 userinfo", async () => {
+	it("provider endpoint 拒绝 localhost、private literal IP 和 userinfo", async () => {
 		const file = path.join(dir, "exa-url.jsonc");
 		process.env.PI_WEB_TOOLS_CONFIG = file;
 
-		await writeFile(file, '{ "websearch": { "exa_mcp": { "url": "https://mcp.exa.ai/mcp" } } }');
-		await expect(loadWebToolsConfig()).resolves.toMatchObject({ websearch: { exa_mcp: { url: "https://mcp.exa.ai/mcp" } } });
+		await writeFile(file, '{ "websearch": { "exa_api": { "endpoint": "https://api.exa.ai/search" } } }');
+		await expect(loadWebToolsConfig()).resolves.toMatchObject({ websearch: { exa_api: { endpoint: "https://api.exa.ai/search" } } });
 
 		for (const url of [
 			"http://127.0.0.1:3000/mcp",
@@ -118,8 +137,8 @@ describe("web-tools config", () => {
 			"http://192.168.1.1/mcp",
 			"https://user:pass@example.com/mcp",
 		]) {
-			await writeFile(file, JSON.stringify({ websearch: { exa_mcp: { url } } }));
-			await expect(loadWebToolsConfig()).rejects.toThrow("exa_mcp.url is not an allowed public HTTP URL");
+			await writeFile(file, JSON.stringify({ websearch: { exa_api: { endpoint: url } } }));
+			await expect(loadWebToolsConfig()).rejects.toThrow("exa_api.endpoint is not an allowed public HTTP URL");
 		}
 	});
 
