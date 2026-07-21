@@ -1,37 +1,27 @@
 import type { CallRecord, Candidate } from "../../telemetry/types.js";
-import { callsByRun, frequency, ratio, resourceMatches, sameBatch, withinMillis } from "../shared.js";
+import { frequency, ratio } from "../shared.js";
 import type {
 	CandidateRankingCoreStatistics,
 	CandidateRankingReport,
 	CandidateRankingStatistics,
 	ConversionAtK,
 } from "../types.js";
+import {
+	collectCandidateObservations,
+	type CandidateObservation,
+	type CandidateObservationSet,
+} from "./candidate-observations.js";
 
-const CALL_WINDOW = 10;
-const TIME_WINDOW_MS = 5 * 60_000;
 const K_VALUES = [1, 3, 5, 10] as const;
-
-interface Observation {
-	producer: CallRecord;
-	candidate: Candidate;
-	consumer?: CallRecord;
-}
 
 export function analyzeCandidateRanking(
 	calls: readonly CallRecord[],
 	cwdByRun: ReadonlyMap<string, string> = new Map(),
 ): CandidateRankingReport {
-	const producers: CallRecord[] = [];
-	const observations: Observation[] = [];
-	for (const chain of callsByRun(calls).values()) {
-		for (const [index, producer] of chain.entries()) {
-			if ((producer.candidates?.length ?? 0) === 0) continue;
-			producers.push(producer);
-			for (const candidate of producer.candidates ?? []) {
-				observations.push({ producer, candidate, ...consumerFor(chain, index, candidate, cwdByRun) });
-			}
-		}
-	}
+	return summarizeCandidateRanking(collectCandidateObservations(calls, cwdByRun));
+}
+
+export function summarizeCandidateRanking({ producers, observations }: CandidateObservationSet): CandidateRankingReport {
 	const tools = [...new Set(producers.map((call) => call.tool))].sort();
 	return {
 		heuristic: true,
@@ -44,26 +34,7 @@ export function analyzeCandidateRanking(
 	};
 }
 
-function consumerFor(
-	calls: readonly CallRecord[],
-	producerIndex: number,
-	candidate: Candidate,
-	cwdByRun: ReadonlyMap<string, string>,
-): { consumer?: CallRecord } {
-	const producer = calls[producerIndex];
-	if (producer === undefined) return {};
-	const producerCwd = cwdByRun.get(producer.run_id) ?? ".";
-	for (let offset = 1; offset <= CALL_WINDOW; offset += 1) {
-		const consumer = calls[producerIndex + offset];
-		if (consumer === undefined || !withinMillis(producer, consumer, TIME_WINDOW_MS)) break;
-		if (sameBatch(producer, consumer)) continue;
-		const consumerCwd = cwdByRun.get(consumer.run_id) ?? producerCwd;
-		if ((consumer.targets ?? []).some((target) => resourceMatches(candidate, target, producerCwd, consumerCwd))) return { consumer };
-	}
-	return {};
-}
-
-function statistics(producers: readonly CallRecord[], observations: readonly Observation[]): CandidateRankingStatistics {
+function statistics(producers: readonly CallRecord[], observations: readonly CandidateObservation[]): CandidateRankingStatistics {
 	return {
 		...coreStatistics(producers, observations),
 		by_source: statisticsBySource(observations, exactSources),
@@ -73,10 +44,10 @@ function statistics(producers: readonly CallRecord[], observations: readonly Obs
 
 function coreStatistics(
 	producers: readonly CallRecord[],
-	observations: readonly Observation[],
+	observations: readonly CandidateObservation[],
 ): CandidateRankingCoreStatistics {
 	const converted = observations.filter((observation) => observation.consumer !== undefined);
-	const byCall = new Map<string, Observation[]>();
+	const byCall = new Map<string, CandidateObservation[]>();
 	for (const observation of observations) {
 		const key = callKey(observation.producer);
 		const values = byCall.get(key);
@@ -98,7 +69,7 @@ function coreStatistics(
 	};
 }
 
-function conversionAtK(k: number, producers: readonly CallRecord[], observations: ReadonlyMap<string, readonly Observation[]>): ConversionAtK {
+function conversionAtK(k: number, producers: readonly CallRecord[], observations: ReadonlyMap<string, readonly CandidateObservation[]>): ConversionAtK {
 	const converted = producers.filter((producer) => (observations.get(callKey(producer)) ?? [])
 		.some((item) => item.candidate.rank <= k && item.consumer !== undefined)).length;
 	return { k, lists: producers.length, converted_lists: converted, rate: ratio(converted, producers.length) };
@@ -109,10 +80,10 @@ function callKey(call: CallRecord): string {
 }
 
 function statisticsBySource(
-	observations: readonly Observation[],
+	observations: readonly CandidateObservation[],
 	sourcesFor: (candidate: Candidate) => readonly string[],
 ): Record<string, CandidateRankingCoreStatistics> {
-	const groups = new Map<string, Observation[]>();
+	const groups = new Map<string, CandidateObservation[]>();
 	for (const observation of observations) {
 		for (const source of new Set(sourcesFor(observation.candidate))) {
 			const values = groups.get(source);
@@ -126,7 +97,7 @@ function statisticsBySource(
 	]));
 }
 
-function uniqueProducers(observations: readonly Observation[]): CallRecord[] {
+function uniqueProducers(observations: readonly CandidateObservation[]): CallRecord[] {
 	return [...new Map(observations.map((observation) => [callKey(observation.producer), observation.producer])).values()];
 }
 

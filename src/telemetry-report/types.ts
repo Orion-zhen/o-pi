@@ -85,6 +85,31 @@ export interface CandidateRankingReport extends CandidateRankingStatistics {
 	by_tool: Record<string, CandidateRankingStatistics>;
 }
 
+export interface SearchCandidateUse {
+	candidates: number;
+	converted_candidates: number;
+	candidate_conversion_rate: number;
+	downstream_inspections: number;
+	downstream_mutations: number;
+	downstream_other: number;
+}
+
+export interface SearchEffectivenessStatistics extends SearchCandidateUse {
+	calls: number;
+	calls_with_candidates: number;
+	calls_with_converted_candidates: number;
+	zero_candidate_calls: number;
+	calls_with_scanned_file_count: number;
+	scanned_files: number;
+}
+
+export interface SearchEffectivenessReport extends SearchEffectivenessStatistics {
+	heuristic: true;
+	method: string;
+	by_tool: Record<string, SearchEffectivenessStatistics>;
+	by_group: Record<string, SearchCandidateUse>;
+}
+
 export interface TelemetryReport {
 	metadata: {
 		generated_at: string;
@@ -102,5 +127,6 @@ export interface TelemetryReport {
 	runs: RunRecord[];
 	tools: ToolStatistics[];
 	edit: EditReport;
+	search_effectiveness: SearchEffectivenessReport;
 	candidate_ranking: CandidateRankingReport;
 }

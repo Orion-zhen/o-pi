@@ -7,6 +7,7 @@ import type { CallRecord, Candidate, RunRecord, TelemetryRecord } from "../../sr
 import { aggregateTelemetry } from "../../src/telemetry-report/aggregate.js";
 import { analyzeCandidateRanking } from "../../src/telemetry-report/analyzers/candidate-ranking.js";
 import { analyzeEdits } from "../../src/telemetry-report/analyzers/edit.js";
+import { analyzeSearchEffectiveness } from "../../src/telemetry-report/analyzers/search-effectiveness.js";
 import { generateTelemetryReport } from "../../src/telemetry-report/command.js";
 import { formatTelemetrySummary, renderTelemetryHtml } from "../../src/telemetry-report/html.js";
 import { renderLiveTelemetry } from "../../src/telemetry-report/render-live.js";
@@ -54,6 +55,62 @@ describe("telemetry report", () => {
 
 		const filtered = aggregateTelemetry(records, { query: { git_commits: ["commit-b"], git_dirty: [true], tools: ["read"] } });
 		expect(filtered.inventory).toEqual({ runs: 1, sessions: 1, calls: 1, tools: 1 });
+	});
+
+	it("measures search work, candidate use, downstream actions, and candidate groups", () => {
+		const records = [
+			call("find", 0, "find", {
+				fields: { scanned_file_count: 100 },
+				candidates: [
+					{ kind: "file", value: "src/a.ts", rank: 1, group: "primary", sources: ["lexical"] },
+					{ kind: "file", value: "src/b.ts", rank: 2, group: "related", sources: ["repo-map"] },
+				],
+			}),
+			call("read", 1, "read", { targets: [file("src/a.ts")] }),
+			call("edit", 2, "edit", { targets: [file("src/b.ts")] }),
+			call("grep-empty", 3, "grep", { fields: { scanned_file_count: 25 } }),
+			call("websearch", 4, "websearch", { candidates: [
+				{ kind: "url", value: "https://example.test/a", rank: 1, group: "primary", sources: ["exa"] },
+			] }),
+			call("webfetch", 5, "webfetch", { targets: [{ kind: "url", value: "https://example.test/a" }] }),
+		];
+		const report = analyzeSearchEffectiveness(records, new Map([["run-a", "/repo"]]));
+		expect(report).toMatchObject({
+			calls: 3,
+			calls_with_candidates: 2,
+			calls_with_converted_candidates: 2,
+			zero_candidate_calls: 1,
+			calls_with_scanned_file_count: 2,
+			scanned_files: 125,
+			candidates: 3,
+			converted_candidates: 3,
+			candidate_conversion_rate: 1,
+			downstream_inspections: 2,
+			downstream_mutations: 1,
+			downstream_other: 0,
+			by_tool: {
+				find: { calls: 1, calls_with_scanned_file_count: 1, scanned_files: 100, candidates: 2, converted_candidates: 2 },
+				grep: { calls: 1, calls_with_scanned_file_count: 1, zero_candidate_calls: 1, candidates: 0, converted_candidates: 0 },
+				websearch: { calls: 1, calls_with_scanned_file_count: 0, downstream_inspections: 1 },
+			},
+			by_group: {
+				primary: { candidates: 2, converted_candidates: 2, downstream_inspections: 2 },
+				related: { candidates: 1, converted_candidates: 1, downstream_mutations: 1 },
+			},
+		});
+		const html = renderTelemetryHtml(aggregateTelemetry([run("run-a", "commit-a"), ...records], { generatedAt: at(9) }));
+		expect(html).toContain("搜索有效产出");
+		expect(html).toContain("扫描 125 / 2 次有统计");
+		expect(html).toContain("有候选调用");
+		expect(html).toContain("2 (66.67%)");
+		expect(html).toContain("有效搜索");
+		expect(html).toContain("3 (100%)");
+		expect(html).toContain("返回 3 / 读取 2 / 修改 1 / 其他 0");
+		expect(html).toContain("扫描 100 / 1 次有统计");
+		expect(html).toContain("扫描 — / 0 次有统计");
+		expect(html).toContain("primary");
+		expect(html).toContain("related");
+		expect(html).not.toContain("grid-6");
 	});
 
 	it("measures multi-file edit demand, partial failures, and possible call reduction", () => {
@@ -161,6 +218,7 @@ describe("telemetry report", () => {
 		expect(json.inventory.calls).toBe(1);
 		expect(html).toContain("工具性能");
 		expect(html).toContain("编辑调用：单文件与多文件");
+		expect(html).toContain("搜索有效产出");
 		expect(html).toContain("按排名统计命中率");
 		expect(html).not.toContain("<pre>");
 		expect(html).not.toContain('"candidate_ranking"');

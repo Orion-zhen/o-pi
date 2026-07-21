@@ -1,6 +1,8 @@
 import type { CallRecord, RunRecord, TelemetryRecord } from "../telemetry/types.js";
-import { analyzeCandidateRanking } from "./analyzers/candidate-ranking.js";
+import { collectCandidateObservations } from "./analyzers/candidate-observations.js";
+import { summarizeCandidateRanking } from "./analyzers/candidate-ranking.js";
 import { analyzeEdits } from "./analyzers/edit.js";
+import { summarizeSearchEffectiveness } from "./analyzers/search-effectiveness.js";
 import { compare, frequency, numericSummary, rateSummary } from "./shared.js";
 import type { TelemetryReport, TelemetryReportQuery, ToolStatistics } from "./types.js";
 
@@ -20,6 +22,7 @@ export function aggregateTelemetry(records: readonly TelemetryRecord[], options:
 	const calls = allCalls.filter((call) => runIds.has(call.run_id) && matchesCall(call, query));
 	const cwdByRun = new Map(runs.map((run) => [run.run_id, run.cwd]));
 	const toolNames = [...new Set(calls.map((call) => call.tool))].sort(compare);
+	const candidateObservations = collectCandidateObservations(calls, cwdByRun);
 	return {
 		metadata: {
 			generated_at: options.generatedAt ?? new Date().toISOString(),
@@ -37,7 +40,8 @@ export function aggregateTelemetry(records: readonly TelemetryRecord[], options:
 		runs,
 		tools: toolNames.map((tool) => summarizeTool(tool, calls.filter((call) => call.tool === tool))),
 		edit: analyzeEdits(calls, cwdByRun),
-		candidate_ranking: analyzeCandidateRanking(calls, cwdByRun),
+		search_effectiveness: summarizeSearchEffectiveness(calls, candidateObservations),
+		candidate_ranking: summarizeCandidateRanking(candidateObservations),
 	};
 }
 
