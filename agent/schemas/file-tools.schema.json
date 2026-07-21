@@ -87,6 +87,18 @@
 					"minimum": 1,
 					"maximum": 1000000,
 					"default": 100000
+				},
+				"grep_max_semantic_files": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 100000,
+					"default": 1024
+				},
+				"grep_max_semantic_parse_bytes": {
+					"type": "integer",
+					"minimum": 1024,
+					"maximum": 104857600,
+					"default": 262144
 				}
 			}
 		},

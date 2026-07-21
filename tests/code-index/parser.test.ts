@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFileIdentity, createSymbolId } from "../../src/code-index/identity.js";
-import { analyzeCodeFile, byteRangeForLines, parseCodeUnits } from "../../src/code-index/parser.js";
+import { analyzeCodeFile, byteRangeForLines, countTextTokenMatches, parseCodeUnits, splitTokens, tokenizeText } from "../../src/code-index/parser.js";
 import { loadTreeSitterRuntime } from "../../src/code-index/tree-sitter-runtime.js";
 
 const require = createRequire(import.meta.url);
@@ -122,17 +122,26 @@ describe("shared code parser", () => {
 	});
 
 	it("SourceRange 使用 UTF-8 byte offset、1-based inclusive line 和半开字节区间", () => {
-		const text = "// 你\nexport function demo() {\n  return '好';\n}\n";
+		const text = "// 你😀\nexport function demo() {\n  return '好';\n}\n";
 		const unit = parseCodeUnits("utf8.ts", text).units[0];
 		if (unit === undefined) throw new Error("missing parsed unit");
-		expect(unit).toMatchObject({ startLine: 2, endLine: 4, startByte: Buffer.byteLength("// 你\n", "utf8") });
+		expect(unit).toMatchObject({ startLine: 2, endLine: 4, startByte: Buffer.byteLength("// 你😀\n", "utf8") });
 		expect(Buffer.from(text, "utf8").subarray(unit.startByte, unit.endByte).toString("utf8")).toBe("export function demo() {\n  return '好';\n}");
 		expect(byteRangeForLines(text, 2, 3)).toEqual({
 			startLine: 2,
 			endLine: 3,
-			startByte: Buffer.byteLength("// 你\n", "utf8"),
-			endByte: Buffer.byteLength("// 你\nexport function demo() {\n  return '好';\n", "utf8"),
+			startByte: Buffer.byteLength("// 你😀\n", "utf8"),
+			endByte: Buffer.byteLength("// 你😀\nexport function demo() {\n  return '好';\n", "utf8"),
 		});
+	});
+
+	it.each([
+		["createRetryableLoader retries module_load", ["create", "retryable", "loader", "module", "load"]],
+		["HTTPServer handles retry-count 2", ["http", "server", "retry-count", "retry", "count", "2"]],
+	])("目标 token 计数与完整 token map 等价: %s", (text, queryTokens) => {
+		const normalized = splitTokens(queryTokens.join(" ")).map((token) => token.toLocaleLowerCase());
+		const complete = tokenizeText(text);
+		expect(countTextTokenMatches(text, normalized)).toBe(normalized.filter((token) => complete.has(token)).length);
 	});
 
 	it("symbol ID 由 file、kind、qualified name 和 start byte 决定，同名位置可区分且不依赖 end byte", () => {

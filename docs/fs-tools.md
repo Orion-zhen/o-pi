@@ -120,7 +120,9 @@ ignore：路径是否应从自动发现、遍历、搜索或索引中排除。
 		"grep_output_token_budget": 1600,
 		"grep_result_limit": 8,
 		"grep_max_file_bytes": 1048576,
-		"grep_max_files_scanned": 100000
+		"grep_max_files_scanned": 100000,
+		"grep_max_semantic_files": 1024,
+		"grep_max_semantic_parse_bytes": 262144
 	},
 	"ignore": {
 		"piignore": true,
@@ -145,6 +147,8 @@ ignore：路径是否应从自动发现、遍历、搜索或索引中排除。
 * `limits.grep_result_limit`：`grep` 最多返回的代码区域数。
 * `limits.grep_max_file_bytes`：`grep` 单个候选文件最大读取字节数，超出则跳过或显式报错。
 * `limits.grep_max_files_scanned`：`grep` 单次最多扫描候选文件数，达到后结果标记为截断。
+* `limits.grep_max_semantic_files`：大 scope 的 `auto` 语义预筛后最多进入 AST 索引的最高相关文件数；超过时结果显式标记为截断。调高可扩大长尾语义召回，调低可缩短依赖目录等超大 scope 的冷查询。
+* `limits.grep_max_semantic_parse_bytes`：大 scope 中单文件进入 Tree-sitter 的最大字节数；更大的合规文件仍保留完整文本召回，只退化为文本 region。
 * `ignore.piignore`：是否读取 `.piignore`。
 * `ignore.gitignore`：是否读取 `.gitignore`。
 * `ignore.git_tracked_files_bypass`：Git tracked 文件是否绕过 `.gitignore`。
@@ -485,8 +489,12 @@ token.ts:14 issueToken [callee]
 * TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 `tree-sitter` 官方 grammar 提取函数、方法、类、接口/trait、类型/枚举、模块和顶层声明。
 * 不支持或解析失败的语言退化为文本搜索和紧凑行窗口，不让整个调用失败。
 * 每次调用创建 ignore snapshot；默认目录遍历使用 ignore `index` intent，ignored 文件不进入索引；显式 `path` 指向 ignored 文件或目录时允许在该路径内检索。
-* 进程内按调用 scope 缓存文件 fingerprint、signature、token 和关系元数据，不永久保存完整源码；相同 scope 的并发 `auto` 构建共享索引，单个消费者取消不会中断仍有消费者的构建。
-* `literal` / `regex` 先逐行预筛全部合规候选，只对真实命中文件运行 Tree-sitter；`auto` 仍构建完整语义索引，以保留 symbol、词法和一跳关系召回。
+* 进程内按 query、scope 和匹配模式缓存文件 fingerprint、signature、token、筛选 miss 和关系元数据，不永久保存完整源码；相同查询与 scope 的并发构建共享索引，单个消费者取消不会中断仍有消费者的构建。
+* `literal` / `regex` 先逐行预筛全部合规候选，只对真实命中文件运行 Tree-sitter，不受语义候选上限影响。
+* 候选文件数不超过 `grep_max_semantic_files` 时，`auto` 构建完整语义索引；超过时才启用语义预筛，以 exact phrase、查询词覆盖、路径覆盖和 declaration 优先级选出最高相关文件。超限结果返回 `truncated`，而不是静默伪装成完整扫描。大于 `grep_max_semantic_parse_bytes` 的预筛候选保留文本搜索，不执行可能长时间占用 CPU 的语法解析。
+* 文件 I/O 的默认并发路数为逻辑核心数的一半，单核环境至少为 1；共享 limiter 防止目录批次与文件读取形成乘法并发。parser 是否进入 worker 不再使用固定文件数：运行时根据有 grammar 的文件数、总字节数、最大单文件、可并行批次数和 worker 冷热状态估算本地/并行成本；所需工作量只聚合一次已有候选元数据，不试跑 parser、不额外读文件，成本公式本身为 O(1)。单个大文件优先 offload 以保护事件循环。parser 按批传输，worker 随取消信号终止，失败时使用同一 parser 在本进程回退。
+* 语义预筛在一次正文归一化中同时完成 exact phrase、查询词覆盖、路径覆盖和 declaration 评分；grep 专用 UTF-8 解码只验证二进制与编码，不重复计算 read 所需的 SHA-256、逻辑行数和换行格式。无 Tree-sitter grammar 的文件直接建立等价文本索引，不启动语法解析。
+* 文本 fallback 先用不改变语义的必要条件排除无关行，只统计 query 所需 token，并在首次真实命中时才构建 UTF-8 行索引；候选 hydration 未增加源码时不重复执行完整排名。缓存 AST 仍须经过当前 query 的预筛和统一 Top-K，不能绕过语义候选上限。
 * LSP 与 Repo Map 独立查询并行执行；候选源码和 Repo Map live hash 复核采用固定上限的并发读取，并复用单次调用内的内容 hash。
 * 文件 fingerprint 使用 size、mtime 和内容 hash；新增、修改、删除和 ignore 变化会在后续调用中更新。
 * 普通 dotfile 可检索；`.git/` 等 `blocked_path` 不可检索。

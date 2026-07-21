@@ -24,7 +24,9 @@
 		"grep_output_token_budget": 4000,
 		"grep_result_limit": 16,
 		"grep_max_file_bytes": 1048576,
-		"grep_max_files_scanned": 100000
+		"grep_max_files_scanned": 100000,
+		"grep_max_semantic_files": 1024,
+		"grep_max_semantic_parse_bytes": 262144
 	},
 
 	"ignore": {

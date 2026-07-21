@@ -3,16 +3,18 @@ import type { Stats } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import picomatch from "picomatch";
+import pLimit from "p-limit";
 
 import { ignoreConfigFromFileTools, isBlockedPath, isIgnoredPath, loadFileToolsConfig, toolPathIdentity, type FileToolsConfig } from "../config.js";
 import { fail, isAccessDenied, isFailed, protectedPathFailure } from "../core/errors.js";
 import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
 import type { IgnoreSnapshot } from "../ignore/ignore-types.js";
-import { analyzeCodeFile, type AnalyzedFileIndex, type ParsedFileIndex } from "../../code-index/parser.js";
+import { languageFromPath, splitTokens, type AnalyzedFileIndex, type ParsedFileIndex } from "../../code-index/parser.js";
 import { guardExistingPath, PathGuardBlockedError } from "../../safety/path-guard.js";
 import { normalizeToolPath } from "../core/path-resolver.js";
-import { decodeTextFile } from "../core/text-file.js";
+import { decodeUtf8Text } from "../core/text-file.js";
 import type { GrepParams, GrepSkippedFiles, ToolOutcome } from "../types.js";
+import { AbortGrepParse, analyzeGrepFile, analyzeGrepFiles, clearGrepParserPool, GREP_CONCURRENCY, GREP_PARSER_BATCH_SIZE, shouldOffloadGrepParsing } from "./parser-pool.js";
 
 export interface GrepCandidateFile {
 	path: string;
@@ -68,9 +70,15 @@ interface CachedFileIndex {
 	misses: Set<string>;
 }
 
+type ParsedCachedFile = CachedFileIndex & {
+	hash: string;
+	index: ParsedFileIndex;
+	parserStatus: AnalyzedFileIndex["status"];
+};
+
 interface ContentFilter {
 	key: string;
-	matches(text: string): boolean;
+	evaluate(text: string, filePath: string): number | undefined;
 }
 
 interface WalkState {
@@ -90,6 +98,25 @@ interface WalkState {
 	seenPaths: Set<string>;
 	cache: WorkspaceCache;
 	contentFilter?: ContentFilter;
+	semanticFilter: ContentFilter;
+	semanticPrefilter: boolean;
+	pendingFiles: PendingFile[];
+	offloadParsing: boolean;
+}
+
+interface PendingFile {
+	absolutePath: string;
+	displayPath: string;
+	explicit: boolean;
+	searchPath: string;
+}
+
+interface PreparedFile {
+	absolutePath: string;
+	displayPath: string;
+	loaded: { text: string; size: number; mtimeMs: number };
+	semanticRank?: number;
+	cachedAnalysis?: ParsedCachedFile;
 }
 
 const workspaceCaches = new Map<string, WorkspaceCache>();
@@ -111,10 +138,11 @@ export async function getGrepIndex(
 	if (isFailed(glob)) return glob;
 	const contentFilter = createContentFilter(params.query, params.match);
 	if (isFailed(contentFilter)) return contentFilter;
+	const semanticFilter = createSemanticFilter(params.query);
 	const matchesGlob = glob === undefined ? undefined : picomatch(glob, { dot: true, nonegate: true });
 	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
 	const cache = cacheFor(workspaceRoot);
-	const key = [root.realPath, root.kind, glob ?? "", contentFilter?.key ?? "auto", ignoreSnapshot.fingerprint, JSON.stringify(config)].join("\0");
+	const key = [root.realPath, root.kind, glob ?? "", contentFilter?.key ?? semanticFilter.key, ignoreSnapshot.fingerprint, JSON.stringify(config)].join("\0");
 	let pending = pendingIndexes.get(key);
 	if (pending === undefined) {
 		const controller = new AbortController();
@@ -134,6 +162,10 @@ export async function getGrepIndex(
 			scanComplete: true,
 			seenPaths: new Set(),
 			cache,
+			pendingFiles: [],
+			offloadParsing: false,
+			semanticPrefilter: false,
+			semanticFilter,
 			...(contentFilter !== undefined ? { contentFilter } : {}),
 		};
 		pending = { promise: buildGrepIndex(state), controller, consumers: 0, settled: false };
@@ -152,9 +184,12 @@ async function buildGrepIndex(state: WalkState): Promise<ToolOutcome<GrepIndexRe
 			if (isFailed(indexed)) return indexed;
 		} else {
 			await walkDirectory(state, root.realPath, root.relativePath, root.workspacePath, ".", isRootIgnored(state));
+			state.semanticPrefilter = state.contentFilter === undefined
+				&& state.pendingFiles.length > state.config.limits.grep_max_semantic_files;
+			await indexPendingFiles(state);
 		}
 	} catch (error) {
-		if (error instanceof AbortGrepIndex) return fail("OPERATION_ABORTED", "grep was aborted.", { path: root.relativePath });
+		if (error instanceof AbortGrepIndex || error instanceof AbortGrepParse) return fail("OPERATION_ABORTED", "grep was aborted.", { path: root.relativePath });
 		if (isAccessDenied(error)) return fail("ACCESS_DENIED", "Path cannot be searched.", { path: root.relativePath });
 		return fail("PATH_NOT_FOUND", "Path does not exist.", { path: root.relativePath });
 	}
@@ -223,6 +258,7 @@ export function clearGrepIndex(): void {
 		pending.controller.abort();
 	}
 	pendingIndexes.clear();
+	clearGrepParserPool();
 }
 
 async function resolveGrepRoot(
@@ -320,7 +356,137 @@ async function walkDirectory(
 		}
 		addScopedFile(state, childDisplayPath, childAbsolutePath);
 		if (state.matchesGlob !== undefined && !state.matchesGlob(childSearchPath)) continue;
-		await indexFile(state, childAbsolutePath, childDisplayPath, false, childSearchPath);
+		queueFile(state, childAbsolutePath, childDisplayPath, false, childSearchPath);
+	}
+}
+
+function queueFile(state: WalkState, absolutePath: string, displayPath: string, explicit: boolean, searchPath: string): void {
+	if (state.scannedFiles >= state.config.limits.grep_max_files_scanned) {
+		state.scanComplete = false;
+		return;
+	}
+	state.scannedFiles += 1;
+	state.seenPaths.add(displayPath);
+	state.pendingFiles.push({ absolutePath, displayPath, explicit, searchPath });
+}
+
+async function indexPendingFiles(state: WalkState): Promise<void> {
+	if (state.semanticPrefilter) {
+		await indexSemanticPendingFiles(state);
+		return;
+	}
+	const prepareLimit = pLimit(GREP_CONCURRENCY);
+	const preparedFiles: PreparedFile[] = [];
+	let batchStart = 0;
+	const worker = async (): Promise<void> => {
+		while (batchStart < state.pendingFiles.length) {
+			assertNotAborted(state.signal);
+			const start = batchStart;
+			batchStart += GREP_PARSER_BATCH_SIZE;
+			const batch = state.pendingFiles.slice(start, start + GREP_PARSER_BATCH_SIZE);
+			const prepared = (await Promise.all(batch.map((pending) => prepareLimit(async () => {
+				const result = await prepareFile(state, pending.absolutePath, pending.displayPath, pending.explicit, pending.searchPath);
+				return isFailed(result) ? undefined : result;
+			})))).filter((file): file is PreparedFile => file !== undefined);
+			preparedFiles.push(...prepared);
+		}
+	};
+	const concurrency = Math.min(GREP_CONCURRENCY, Math.ceil(state.pendingFiles.length / GREP_PARSER_BATCH_SIZE));
+	await Promise.all(Array.from({ length: concurrency }, worker));
+	await parsePreparedFiles(state, preparedFiles);
+}
+
+async function indexSemanticPendingFiles(state: WalkState): Promise<void> {
+	const prepareLimit = pLimit(GREP_CONCURRENCY);
+	let batchStart = 0;
+	let semanticCandidates = 0;
+	const selected: PreparedFile[] = [];
+	const semanticLimit = state.config.limits.grep_max_semantic_files;
+	const worker = async (): Promise<void> => {
+		while (batchStart < state.pendingFiles.length) {
+			assertNotAborted(state.signal);
+			const start = batchStart;
+			batchStart += GREP_PARSER_BATCH_SIZE;
+			const batch = state.pendingFiles.slice(start, start + GREP_PARSER_BATCH_SIZE);
+			const prepared = (await Promise.all(batch.map((pending) => prepareLimit(async () => {
+				const result = await prepareFile(state, pending.absolutePath, pending.displayPath, pending.explicit, pending.searchPath);
+				return isFailed(result) ? undefined : result;
+			})))).filter((file): file is PreparedFile => file !== undefined);
+			semanticCandidates += prepared.length;
+			selected.push(...prepared);
+			if (selected.length > semanticLimit * 2) trimSemanticCandidates(selected, semanticLimit);
+		}
+	};
+	const readConcurrency = Math.min(GREP_CONCURRENCY, Math.ceil(state.pendingFiles.length / GREP_PARSER_BATCH_SIZE));
+	await Promise.all(Array.from({ length: readConcurrency }, worker));
+	trimSemanticCandidates(selected, semanticLimit);
+	if (semanticCandidates > selected.length) state.scanComplete = false;
+	await parsePreparedFiles(state, selected);
+}
+
+function trimSemanticCandidates(files: PreparedFile[], limit: number): void {
+	files.sort((left, right) => (right.semanticRank ?? 0) - (left.semanticRank ?? 0) || compareStableString(left.displayPath, right.displayPath));
+	if (files.length > limit) files.length = limit;
+}
+
+async function parsePreparedFiles(state: WalkState, prepared: PreparedFile[]): Promise<void> {
+	let syntaxFileCount = 0;
+	let syntaxBytes = 0;
+	let maxSyntaxFileBytes = 0;
+	for (const file of prepared) {
+		if (file.cachedAnalysis !== undefined) continue;
+		if (!shouldParseSyntax(state, file)) continue;
+		syntaxFileCount += 1;
+		syntaxBytes += file.loaded.size;
+		maxSyntaxFileBytes = Math.max(maxSyntaxFileBytes, file.loaded.size);
+	}
+	state.offloadParsing = shouldOffloadGrepParsing({
+		fileCount: syntaxFileCount,
+		totalBytes: syntaxBytes,
+		maxFileBytes: maxSyntaxFileBytes,
+	});
+	let cursor = 0;
+	const parseWorker = async (): Promise<void> => {
+		while (cursor < prepared.length) {
+			const start = cursor;
+			cursor += GREP_PARSER_BATCH_SIZE;
+			await analyzePreparedFiles(state, prepared.slice(start, start + GREP_PARSER_BATCH_SIZE));
+		}
+	};
+	const batchCount = Math.ceil(prepared.length / GREP_PARSER_BATCH_SIZE);
+	const concurrency = state.offloadParsing ? Math.min(GREP_CONCURRENCY, batchCount) : Math.min(1, batchCount);
+	await Promise.all(Array.from({ length: concurrency }, parseWorker));
+}
+
+function shouldParseSyntax(state: WalkState, file: PreparedFile): boolean {
+	return languageFromPath(file.displayPath) !== "text"
+		&& (!state.semanticPrefilter
+			|| state.contentFilter !== undefined
+			|| file.loaded.size <= state.config.limits.grep_max_semantic_parse_bytes);
+}
+
+async function analyzePreparedFiles(state: WalkState, prepared: PreparedFile[]): Promise<void> {
+	if (prepared.length === 0) return;
+	const pendingAnalysis = prepared.filter((file) => file.cachedAnalysis === undefined);
+	const analyzed = await analyzeGrepFiles(
+		pendingAnalysis.map((file) => ({
+			path: file.displayPath,
+			text: file.loaded.text,
+			syntax: shouldParseSyntax(state, file),
+		})),
+		state.signal,
+		state.offloadParsing,
+	);
+	let analyzedIndex = 0;
+	for (const file of prepared) {
+		if (file.cachedAnalysis !== undefined) {
+			state.files.push(toCandidate(file.cachedAnalysis));
+			state.sourceText.set(file.displayPath, file.loaded.text);
+			continue;
+		}
+		const result = analyzed[analyzedIndex];
+		analyzedIndex += 1;
+		if (result !== undefined) storeAnalyzedFile(state, file, result);
 	}
 }
 
@@ -331,13 +497,37 @@ async function indexFile(
 	explicit: boolean,
 	searchPath: string,
 ): Promise<ToolOutcome<void>> {
+	const prepared = await prepareFile(state, absolutePath, displayPath, explicit, searchPath);
+	if (isFailed(prepared) || prepared === undefined) return prepared;
+	const syntax = languageFromPath(displayPath) !== "text";
+	state.offloadParsing = syntax && shouldOffloadGrepParsing({
+		fileCount: 1,
+		totalBytes: prepared.loaded.size,
+		maxFileBytes: prepared.loaded.size,
+	});
+	const analyzed = await analyzeGrepFile(
+		displayPath,
+		prepared.loaded.text,
+		state.signal,
+		state.offloadParsing,
+		syntax,
+	);
+	storeAnalyzedFile(state, prepared, analyzed);
+	return;
+}
+
+async function prepareFile(
+	state: WalkState,
+	absolutePath: string,
+	displayPath: string,
+	explicit: boolean,
+	searchPath: string,
+): Promise<ToolOutcome<PreparedFile | undefined>> {
 	assertNotAborted(state.signal);
-	if (state.scannedFiles >= state.config.limits.grep_max_files_scanned) {
-		state.scanComplete = false;
-		return;
+	if (explicit) {
+		state.scannedFiles += 1;
+		state.seenPaths.add(displayPath);
 	}
-	state.scannedFiles += 1;
-	state.seenPaths.add(displayPath);
 
 	let info;
 	try {
@@ -354,19 +544,20 @@ async function indexFile(
 	}
 	addScopedFile(state, displayPath, absolutePath);
 	if (explicit && state.matchesGlob !== undefined && !state.matchesGlob(path.basename(searchPath)) && !state.matchesGlob(searchPath)) return;
+	const activeFilter = state.contentFilter ?? (state.semanticPrefilter ? state.semanticFilter : undefined);
 
 	const cached = state.cache.files.get(displayPath);
 	const cacheCurrent = cached !== undefined && cached.size === info.size && cached.mtimeMs === info.mtimeMs;
-	let cachedAutoFallback: (CachedFileIndex & { hash: string; index: ParsedFileIndex; parserStatus: AnalyzedFileIndex["status"] }) | undefined;
+	let cachedAnalysis: ParsedCachedFile | undefined;
 	if (cacheCurrent) {
 		if (isParsedCachedFile(cached)) {
-			if (cached.parserStatus === "parsed" || state.contentFilter !== undefined) {
+			if (activeFilter === undefined && cached.parserStatus === "parsed") {
 				state.files.push(toCandidate(cached));
 				return;
 			}
-			cachedAutoFallback = cached;
+			cachedAnalysis = cached;
 		}
-		if (state.contentFilter !== undefined && cached.misses.has(state.contentFilter.key)) return;
+		if (activeFilter !== undefined && cached.misses.has(activeFilter.key)) return;
 	}
 
 	const loaded = await readStableText(absolutePath, displayPath, info, state.signal);
@@ -376,25 +567,65 @@ async function indexFile(
 		else if (loaded.error.code === "ENCODING_UNSUPPORTED") state.skipped.invalid_utf8 += 1;
 		return;
 	}
-	if (cachedAutoFallback !== undefined) {
-		state.files.push(toCandidate(cachedAutoFallback));
-		state.sourceText.set(displayPath, loaded.text);
-		return;
+	if (cachedAnalysis !== undefined) {
+		let filterRank: number | undefined;
+		if (activeFilter !== undefined) {
+			filterRank = activeFilter.evaluate(loaded.text, displayPath);
+			if (filterRank === undefined) {
+				rememberFilterMiss(state, cached, displayPath, absolutePath, loaded, activeFilter.key);
+				return;
+			}
+		}
+		return {
+			absolutePath,
+			displayPath,
+			loaded,
+			cachedAnalysis,
+			...(state.semanticPrefilter ? { semanticRank: filterRank ?? 0 } : {}),
+		};
 	}
-	if (state.contentFilter !== undefined && !state.contentFilter.matches(loaded.text)) {
-		const misses = new Set(cacheCurrent ? cached.misses : []);
-		misses.add(state.contentFilter.key);
-		state.cache.files.set(displayPath, {
+	let filterRank: number | undefined;
+	if (activeFilter !== undefined) {
+		filterRank = activeFilter.evaluate(loaded.text, displayPath);
+		if (filterRank === undefined) {
+			rememberFilterMiss(state, cacheCurrent ? cached : undefined, displayPath, absolutePath, loaded, activeFilter.key);
+			return;
+		}
+	}
+	return {
+		absolutePath,
+		displayPath,
+		loaded,
+		...(state.semanticPrefilter
+			? { semanticRank: filterRank ?? 0 }
+			: {}),
+	};
+}
+
+function rememberFilterMiss(
+	state: WalkState,
+	cached: CachedFileIndex | undefined,
+	displayPath: string,
+	absolutePath: string,
+	loaded: { size: number; mtimeMs: number },
+	filterKey: string,
+): void {
+	const misses = new Set(cached?.misses ?? []);
+	misses.add(filterKey);
+	state.cache.files.set(displayPath, {
+		...(cached ?? {
 			path: displayPath,
 			absolutePath,
 			realPath: absolutePath,
 			size: loaded.size,
 			mtimeMs: loaded.mtimeMs,
-			misses,
-		});
-		return;
-	}
-	const analyzed = analyzeCodeFile(displayPath, loaded.text);
+		}),
+		misses,
+	});
+}
+
+function storeAnalyzedFile(state: WalkState, file: PreparedFile, analyzed: AnalyzedFileIndex): void {
+	const { absolutePath, displayPath, loaded } = file;
 	const cachedFile: CachedFileIndex & { hash: string; index: ParsedFileIndex; parserStatus: AnalyzedFileIndex["status"] } = {
 		path: displayPath,
 		absolutePath,
@@ -438,14 +669,14 @@ async function readStableText(
 			before = after;
 			continue;
 		}
-		const decoded = decodeTextFile(bytes, displayPath);
+		const decoded = decodeUtf8Text(bytes, displayPath);
 		if (isFailed(decoded)) return decoded;
-		return { text: decoded.text, size: after.size, mtimeMs: after.mtimeMs };
+		return { text: decoded, size: after.size, mtimeMs: after.mtimeMs };
 	}
 	return fail("INVALID_OPERATION", "File changed while grep was indexing it.", { path: displayPath });
 }
 
-function toCandidate(cached: CachedFileIndex & { hash: string; index: ParsedFileIndex; parserStatus: AnalyzedFileIndex["status"] }): GrepCandidateFile {
+function toCandidate(cached: ParsedCachedFile): GrepCandidateFile {
 	return {
 		path: cached.path,
 		absolutePath: cached.absolutePath,
@@ -458,30 +689,61 @@ function toCandidate(cached: CachedFileIndex & { hash: string; index: ParsedFile
 	};
 }
 
-function isParsedCachedFile(cached: CachedFileIndex): cached is CachedFileIndex & { hash: string; index: ParsedFileIndex; parserStatus: AnalyzedFileIndex["status"] } {
+function isParsedCachedFile(cached: CachedFileIndex): cached is ParsedCachedFile {
 	return cached.hash !== undefined && cached.index !== undefined && cached.parserStatus !== undefined;
 }
 
 function createContentFilter(query: string, match: GrepParams["match"]): ToolOutcome<ContentFilter | undefined> {
 	if (match === undefined || match === "auto") return undefined;
 	if (match === "literal") {
-		return { key: `literal\0${query}`, matches: (text) => !query.includes("\n") && text.includes(query) };
+		return { key: `literal\0${query}`, evaluate: (text) => !query.includes("\n") && text.includes(query) ? 0 : undefined };
 	}
 	try {
 		const expression = new RegExp(query, "gu");
 		return {
 			key: `regex\0${query}`,
-			matches: (text) => lines(text).some((line) => {
+			evaluate: (text) => lines(text).some((line) => {
 				const matched = expression.test(line);
 				expression.lastIndex = 0;
 				return matched;
-			}),
+			}) ? 0 : undefined,
 		};
 	} catch (error) {
 		return fail("INVALID_REGEX", "query is not a valid regular expression.", {
 			details: { error: error instanceof Error ? error.message : String(error) },
 		});
 	}
+}
+
+function createSemanticFilter(query: string): ContentFilter {
+	const queryLower = query.toLocaleLowerCase();
+	const tokens = [...new Set(splitTokens(query).map((token) => token.toLocaleLowerCase()))];
+	const identifierLike = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/u.test(query);
+	const requiredTokens = identifierLike || tokens.length <= 1 ? 1 : Math.min(2, tokens.length);
+	const declarationExpression = identifierLike
+		? new RegExp(`\\b(?:class|function|interface|type|enum|def|fn)\\s+${escapeRegex(queryLower)}\\b`, "u")
+		: undefined;
+	return {
+		key: `auto\0${queryLower}`,
+		evaluate(text, filePath) {
+			const pathLower = filePath.toLocaleLowerCase();
+			const textLower = text.toLocaleLowerCase();
+			let matchedTokens = 0;
+			let pathTokens = 0;
+			for (const token of tokens) {
+				if (textLower.includes(token)) matchedTokens += 1;
+				if (pathLower.includes(token)) pathTokens += 1;
+			}
+			const exact = textLower.includes(queryLower) ? 1 : 0;
+			if (exact === 0 && pathTokens === 0 && matchedTokens < requiredTokens) return undefined;
+			const declaration = exact && declarationExpression?.test(textLower) === true ? 1 : 0;
+			return declaration * 1_000_000 + exact * 100_000 + matchedTokens * 10_000 + pathTokens * 1_000 - Math.min(text.length, 999);
+		},
+	};
+}
+
+function escapeRegex(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function lines(text: string): string[] {

@@ -74,6 +74,16 @@ export function analyzeCodeFile(filePath: string, text: string): AnalyzedFileInd
 	};
 }
 
+/** 对不适合语法解析的大文件保留完整文本召回，但不进入 Tree-sitter。 */
+export function analyzeTextFile(filePath: string): AnalyzedFileIndex {
+	const file = createFileIdentity(filePath);
+	return {
+		index: { ...file, language: languageFromPath(filePath), units: [], symbols: [] },
+		status: "unsupported",
+		imports: [],
+	};
+}
+
 export function languageFromPath(filePath: string): CodeLanguage {
 	const lower = filePath.toLowerCase();
 	if (lower.endsWith(".tsx")) return "tsx";
@@ -101,9 +111,33 @@ export function splitTokens(value: string): string[] {
 	for (const match of value.matchAll(IDENTIFIER)) {
 		const raw = match[0] ?? "";
 		tokens.push(raw);
-		tokens.push(...splitIdentifier(raw));
+		// lower-case identifiers and numbers cannot gain another token from
+		// camel/snake/kebab splitting; avoid three regex passes for the common case.
+		if (!/^[a-z0-9]+$/u.test(raw)) tokens.push(...splitIdentifier(raw));
 	}
 	return Array.from(new Set(tokens.filter((token) => token.length > 0)));
+}
+
+/** Count normalized query tokens present in text without materializing its complete token map. */
+export function countTextTokenMatches(value: string, queryTokens: readonly string[]): number {
+	if (queryTokens.length === 0) return 0;
+	const expected = new Set(queryTokens);
+	const matched = new Set<string>();
+	for (const match of value.matchAll(IDENTIFIER)) {
+		const raw = match[0] ?? "";
+		const normalized = raw.toLocaleLowerCase();
+		if (expected.has(normalized)) matched.add(normalized);
+		if (!/^[a-z0-9]+$/u.test(raw)) {
+			for (const part of splitIdentifier(raw)) {
+				const normalizedPart = part.toLocaleLowerCase();
+				if (expected.has(normalizedPart)) matched.add(normalizedPart);
+			}
+		}
+		if (matched.size === expected.size) break;
+	}
+	let count = 0;
+	for (const token of queryTokens) if (matched.has(token)) count += 1;
+	return count;
 }
 
 export function lineForByte(text: string, byteOffset: number): number {
@@ -358,13 +392,24 @@ export function buildLineIndex(text: string): LineIndex {
 	const lineStarts = [0];
 	const lineStartChars = [0];
 	let bytes = 0;
-	let chars = 0;
-	for (const char of text) {
-		bytes += Buffer.byteLength(char, "utf8");
-		chars += char.length;
-		if (char === "\n") {
+	for (let index = 0; index < text.length; index += 1) {
+		const code = text.charCodeAt(index);
+		if (code < 0x80) bytes += 1;
+		else if (code < 0x800) bytes += 2;
+		else if (code >= 0xd800 && code <= 0xdbff && index + 1 < text.length) {
+			const next = text.charCodeAt(index + 1);
+			if (next >= 0xdc00 && next <= 0xdfff) {
+				bytes += 4;
+				index += 1;
+			} else {
+				bytes += 3;
+			}
+		} else {
+			bytes += 3;
+		}
+		if (code === 0x0a) {
 			lineStarts.push(bytes);
-			lineStartChars.push(chars);
+			lineStartChars.push(index + 1);
 		}
 	}
 	return { lineStarts, lineStartChars, byteLength: bytes };

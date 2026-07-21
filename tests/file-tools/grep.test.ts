@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { availableParallelism } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseCodeUnits, type IndexedCodeUnit } from "../../src/code-index/parser.js";
 import { clearGrepIndex } from "../../src/file-tools/grep/indexer.js";
 import { mergeRankedGrepSources } from "../../src/file-tools/grep/fusion.js";
+import { GREP_CONCURRENCY, shouldOffloadGrepParsing } from "../../src/file-tools/grep/parser-pool.js";
 import { packGrepResults, renderGrepSuccess } from "../../src/file-tools/grep/packer.js";
 import type { RankedGrepRegion } from "../../src/file-tools/grep/ranker.js";
 import { createRankingEvidence } from "../../src/file-tools/ranking-evidence.js";
@@ -128,6 +130,34 @@ async function assertStrictMatches(result: GrepSuccess, query: string, match: Ex
 }
 
 describe("grep", () => {
+	it("I/O 与 parser 默认并发路数为逻辑核心数的一半", () => {
+		expect(GREP_CONCURRENCY).toBe(Math.max(1, Math.floor(availableParallelism() / 2)));
+	});
+
+	it("依据文件数、字节量、并发数和 worker 热状态动态决定 parser offload", () => {
+		expect(shouldOffloadGrepParsing({ fileCount: 0, totalBytes: 0, maxFileBytes: 0 })).toBe(false);
+		expect(shouldOffloadGrepParsing(
+			{ fileCount: 16, totalBytes: 64 * 1024, maxFileBytes: 8 * 1024 },
+			{ concurrency: 16, workerWarm: false },
+		)).toBe(false);
+		expect(shouldOffloadGrepParsing(
+			{ fileCount: 128, totalBytes: 844 * 1024, maxFileBytes: 16 * 1024 },
+			{ concurrency: 16, workerWarm: false },
+		)).toBe(true);
+		expect(shouldOffloadGrepParsing(
+			{ fileCount: 64, totalBytes: 356 * 1024, maxFileBytes: 16 * 1024 },
+			{ concurrency: 16, workerWarm: true },
+		)).toBe(true);
+		expect(shouldOffloadGrepParsing(
+			{ fileCount: 128, totalBytes: 844 * 1024, maxFileBytes: 16 * 1024 },
+			{ concurrency: 1, workerWarm: false },
+		)).toBe(false);
+		expect(shouldOffloadGrepParsing(
+			{ fileCount: 1, totalBytes: 300 * 1024, maxFileBytes: 300 * 1024 },
+			{ concurrency: 16, workerWarm: false },
+		)).toBe(true);
+	});
+
 	it("紧凑输出共享目录前缀且 signature 模式保留完整签名", () => {
 		const output = renderGrepSuccess({
 			status: "success",
@@ -696,7 +726,7 @@ describe("grep", () => {
 
 		let activeReads = 0;
 		let maxActiveReads = 0;
-		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "needle", match: "literal" }, undefined, {
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "needle" }, undefined, {
 			readSourceText: async (file) => {
 				activeReads += 1;
 				maxActiveReads = Math.max(maxActiveReads, activeReads);
@@ -831,12 +861,65 @@ describe("grep", () => {
 		}
 		await writeFile(path.join(workspace, "target.ts"), "export function sharedTarget() { return true; }\n");
 		const controller = new AbortController();
-		const aborted = grepWorkspaceFiles(workspace, { query: "symbol0" }, controller.signal);
+		const aborted = grepWorkspaceFiles(workspace, { query: "sharedTarget" }, controller.signal);
 		const completed = grepWorkspaceFiles(workspace, { query: "sharedTarget" });
 		setImmediate(() => controller.abort());
 
 		expect(await aborted).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
 		expect(firstRegion(expectGrepSuccess(await completed)).symbol).toBe("sharedTarget");
+	});
+
+	it("超大 auto scope 全量预筛后只解析最高相关候选，并显式标记语义截断", async () => {
+		const configPath = path.join(outside, "semantic-limit.jsonc");
+		await writeConfig(configPath, { grep_max_semantic_files: 4, grep_result_limit: 8 });
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		for (let index = 0; index < 56; index += 1) {
+			await writeFile(path.join(workspace, `low-${index}.ts`), `export function low${index}() { return 'semantic loader'; }\n`);
+		}
+		await writeFile(
+			path.join(workspace, "target.ts"),
+			"export function retryPolicy() { return 'semantic loader retry policy'; }\n",
+		);
+
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "semantic loader retry policy" }));
+
+		expect(result.scanned_files).toBe(57);
+		expect(result.truncated).toBe(true);
+		expect(result.regions).toEqual(expect.arrayContaining([expect.objectContaining({ path: "target.ts", symbol: "retryPolicy" })]));
+	});
+
+	it("超大 scope 的 literal 不受语义候选上限影响", async () => {
+		const configPath = path.join(outside, "strict-no-semantic-limit.jsonc");
+		await writeConfig(configPath, { grep_max_semantic_files: 1 });
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		for (let index = 0; index < 52; index += 1) {
+			await writeFile(path.join(workspace, `filler-${index}.ts`), `export const filler${index} = ${index};\n`);
+		}
+		await writeFile(path.join(workspace, "z-target.ts"), "export const target = 'StrictNeedle';\n");
+
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "StrictNeedle", match: "literal" }));
+
+		expect(result.truncated).toBe(false);
+		expect(firstRegion(result).path).toBe("z-target.ts");
+	});
+
+	it("大语义文件跳过 Tree-sitter 但保留完整文本召回", async () => {
+		const configPath = path.join(outside, "semantic-parse-bytes.jsonc");
+		await writeConfig(configPath, { grep_max_semantic_files: 1, grep_max_semantic_parse_bytes: 1024 });
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		for (let index = 0; index < 48; index += 1) {
+			await writeFile(path.join(workspace, `small-${index}.ts`), `export const small${index} = ${index};\n`);
+		}
+		await writeFile(
+			path.join(workspace, "generated.ts"),
+			`${"const padding = 1;\n".repeat(80)}export const generated = 'oversized semantic phrase';\n`,
+		);
+
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "oversized semantic phrase" }));
+
+		expect(result.truncated).toBe(false);
+		expect(firstRegion(result)).toMatchObject({ path: "generated.ts", kind: "text" });
+		expect(firstRegion(result).content).toContain("oversized semantic phrase");
 	});
 
 	it("token-efficiency fixture：高频命中合并，预算内至少一个完整函数，其余 signature", async () => {

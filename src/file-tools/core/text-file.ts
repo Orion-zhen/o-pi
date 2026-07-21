@@ -36,6 +36,22 @@ export async function readRawFile(absolutePath: string, relativePath: string): P
 }
 
 export function decodeTextFile(bytes: Buffer, relativePath: string): ToolOutcome<TextFile> {
+	const decoded = decodeUtf8Text(bytes, relativePath);
+	if (typeof decoded !== "string") return decoded;
+	const hasBom = bytes.length >= 3 && bytes.subarray(0, 3).equals(UTF8_BOM);
+	return {
+		bytes,
+		text: decoded,
+		version: sha256Version(bytes),
+		sizeBytes: bytes.byteLength,
+		totalLines: countLogicalLines(decoded),
+		newline: detectNewline(decoded),
+		hasBom,
+	};
+}
+
+/** grep 等扫描器只需要严格 UTF-8 正文，不支付版本、行数和换行统计成本。 */
+export function decodeUtf8Text(bytes: Buffer, relativePath: string): ToolOutcome<string> {
 	if (bytes.includes(0)) {
 		return fail("BINARY_FILE_UNSUPPORTED", "Binary files are not supported.", { path: relativePath });
 	}
@@ -48,16 +64,7 @@ export function decodeTextFile(bytes: Buffer, relativePath: string): ToolOutcome
 	} catch {
 		return fail("ENCODING_UNSUPPORTED", "Only valid UTF-8 text is supported.", { path: relativePath });
 	}
-
-	return {
-		bytes,
-		text,
-		version: sha256Version(bytes),
-		sizeBytes: bytes.byteLength,
-		totalLines: countLogicalLines(text),
-		newline: detectNewline(text),
-		hasBom,
-	};
+	return text;
 }
 
 /** 按逻辑行切片，同时保留被返回行本身的原始换行符。 */

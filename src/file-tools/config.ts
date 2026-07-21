@@ -11,6 +11,8 @@ const DEFAULT_GREP_OUTPUT_TOKEN_BUDGET = 1_600;
 const DEFAULT_GREP_RESULT_LIMIT = 8;
 const DEFAULT_GREP_MAX_FILE_BYTES = 1024 * 1024;
 const DEFAULT_GREP_MAX_FILES_SCANNED = 100_000;
+const DEFAULT_GREP_MAX_SEMANTIC_FILES = 1_024;
+const DEFAULT_GREP_MAX_SEMANTIC_PARSE_BYTES = 256 * 1024;
 const USER_CONFIG_ENV = "PI_FILE_TOOLS_CONFIG";
 const PROJECT_CONFIG_ENV = "PI_FILE_TOOLS_PROJECT_CONFIG";
 const PROJECT_ROOT_ENV = "PI_FILE_TOOLS_PROJECT_ROOT";
@@ -29,6 +31,8 @@ export interface FileToolsConfig {
 		grep_result_limit: number;
 		grep_max_file_bytes: number;
 		grep_max_files_scanned: number;
+		grep_max_semantic_files: number;
+		grep_max_semantic_parse_bytes: number;
 	};
 	ignore: {
 		piignore: boolean;
@@ -66,6 +70,8 @@ const defaultConfig: FileToolsConfig = {
 		grep_result_limit: DEFAULT_GREP_RESULT_LIMIT,
 		grep_max_file_bytes: DEFAULT_GREP_MAX_FILE_BYTES,
 		grep_max_files_scanned: DEFAULT_GREP_MAX_FILES_SCANNED,
+		grep_max_semantic_files: DEFAULT_GREP_MAX_SEMANTIC_FILES,
+		grep_max_semantic_parse_bytes: DEFAULT_GREP_MAX_SEMANTIC_PARSE_BYTES,
 	},
 	ignore: {
 		piignore: true,

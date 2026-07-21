@@ -68,6 +68,7 @@ export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal
 		allowMetadataCandidates: validation.match !== "auto",
 		...(regex !== undefined ? { regex } : {}),
 	};
+	const rankedSourceCount = sourceText.size;
 	let ranked = rankGrepRegions(rankInput);
 	const repoMapQuery = repoMapQueryForGrep(validation);
 	const [repoMapResult, lspSymbolCandidates] = await Promise.all([
@@ -123,21 +124,26 @@ export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal
 		regex,
 	);
 	const regions = fuseRankedGrepSources(ranked.regions, lspCandidates, repoMapCandidates);
+	const externalRegionSourceCount = sourceText.size;
 	const hydrated = await loadCandidateSourceText(sourceText, filesByPath, hydrationPaths(regions, index.config.limits.grep_result_limit), signal, runtime);
 	if (isFailed(hydrated)) return hydrated;
-	ranked = rankGrepRegions({
-		...rankInput,
-		sourceText,
-		allowMetadataCandidates: false,
-	});
-	lspCandidates = lspRegionsFromCandidates(lspSymbolCandidates, validation.query, validation.match, sourceText, mainPaths, rankingContext);
-	repoMapCandidates = repoMapRegionsFromCandidates(
-		scopedRepoMapCandidates,
-		sourceText,
-		rankingContext,
-		validation,
-		regex,
-	);
+	if (sourceText.size !== rankedSourceCount) {
+		ranked = rankGrepRegions({
+			...rankInput,
+			sourceText,
+			allowMetadataCandidates: false,
+		});
+	}
+	if (sourceText.size !== externalRegionSourceCount) {
+		lspCandidates = lspRegionsFromCandidates(lspSymbolCandidates, validation.query, validation.match, sourceText, mainPaths, rankingContext);
+		repoMapCandidates = repoMapRegionsFromCandidates(
+			scopedRepoMapCandidates,
+			sourceText,
+			rankingContext,
+			validation,
+			regex,
+		);
+	}
 	let finalRegions = fuseRankedGrepSources(ranked.regions, lspCandidates, repoMapCandidates);
 	if (validation.match !== "auto" && finalRegions.length === 0) {
 		const scanned = await scanFallbackSourceText({
