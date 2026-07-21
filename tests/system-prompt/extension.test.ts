@@ -132,6 +132,7 @@ describe("system prompt extension", () => {
 
 		expect(prompt).toContain("<model_invocable_skills>\n- allowed: Allowed description\n- quoted: Quoted description\n- missing: Missing description\n</model_invocable_skills>");
 		expect(prompt).toContain("Relative paths mentioned by a loaded skill resolve under skill://<skill-name>/.");
+		expect(prompt.indexOf("<skill_policy>")).toBeLessThan(prompt.indexOf("<model_invocable_skills>"));
 		expect(prompt).not.toContain("hidden:");
 		expect(prompt).not.toContain("/repo/.pi/skills/allowed/SKILL.md");
 	});

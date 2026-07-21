@@ -203,7 +203,7 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports, ca
 		tool: {
 		name: "read",
 		label: "read",
-		description: "Read one text or image file.",
+		description: "Read one text, image or skill related file.",
 		promptSnippet: "read one file",
 		parameters: readParameters,
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

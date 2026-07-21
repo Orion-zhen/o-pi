@@ -147,8 +147,8 @@ ${customPrompt}
 function formatSharedPromptSections(sections: PromptSections): Array<string | undefined> {
 	return [
 		sections.toolPolicy,
-		sections.modelInvocableSkills,
 		sections.skillPolicy,
+		sections.modelInvocableSkills,
 		sections.appendSystemPrompt,
 		sections.projectContext,
 		...sections.extraSections,
@@ -178,8 +178,8 @@ ${rules.map((rule) => `- ${rule}`).join("\n")}
 
 function formatSkillPolicy(): string {
 	return `<skill_policy>
-Relative paths mentioned by a loaded skill resolve under skill://<skill-name>/.
-Read only resources directly relevant to the current task.
+- Relative paths mentioned by a loaded skill resolve under skill://<skill-name>/.
+- Read only resources directly relevant to the current task.
 </skill_policy>`;
 }
 
