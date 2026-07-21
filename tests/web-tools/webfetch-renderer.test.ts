@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatWebFetchCall, formatWebFetchResult } from "../../src/web-tools/webfetch-renderer.js";
+import { formatWebFetchCall, formatWebFetchResult, renderWebFetchCall, renderWebFetchResult } from "../../src/web-tools/webfetch-renderer.js";
 
 const theme = {
 	fg: (_color: string, text: string) => text,
@@ -50,5 +50,36 @@ describe("webfetch renderer", () => {
 		);
 		expect(failure).toContain("blocked");
 		expect(failure).toContain("BLOCKED_ADDRESS");
+	});
+
+	it("call 卡片在 progress/result 出现后由 result 原位接管", () => {
+		const args = { url: "https://example.com/page", mode: "readable" };
+		const state = {};
+		let call = renderWebFetchCall(args, theme, { lastComponent: undefined, state });
+		expect(call.render(160)).toHaveLength(2);
+
+		call = renderWebFetchCall(args, theme, { lastComponent: call, state });
+		let result = renderWebFetchResult(
+			{ details: { status: "progress", phase: "requesting" } },
+			{ isPartial: true },
+			theme,
+			{ args, lastComponent: undefined, state },
+		);
+		const progress = [...call.render(160), ...result.render(160)].join("\n");
+		expect(progress.split("\n")).toHaveLength(2);
+		expect(progress.match(/webfetch/g)).toHaveLength(1);
+		expect(progress).toContain("readable · offset 0 · requesting...");
+
+		call = renderWebFetchCall(args, theme, { lastComponent: call, state });
+		result = renderWebFetchResult(
+			{ details: { status: "failed", requested_url: args.url, error: { code: "TIMEOUT", message: "deadline exceeded" } } },
+			{ isPartial: false },
+			theme,
+			{ args, lastComponent: result, state },
+		);
+		const settled = [...call.render(160), ...result.render(160)].join("\n");
+		expect(settled.split("\n")).toHaveLength(2);
+		expect(settled.match(/webfetch/g)).toHaveLength(1);
+		expect(settled).toContain("timeout");
 	});
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatWebSearchCall, formatWebSearchResult } from "../../src/web-tools/websearch-renderer.js";
+import { formatWebSearchCall, formatWebSearchResult, renderWebSearchCall, renderWebSearchResult } from "../../src/web-tools/websearch-renderer.js";
 
 const theme = {
 	fg: (_color: string, text: string) => text,
@@ -80,6 +80,37 @@ describe("websearch renderer", () => {
 		expect(expanded).toContain("Attempts");
 		expect(expanded).toContain("preview text");
 		expect(expanded).not.toContain("\u001b");
+	});
+
+	it("call 卡片在 progress/result 出现后由 result 原位接管", () => {
+		const args = { query: "pi coding agent", limit: 5 };
+		const state = {};
+		let call = renderWebSearchCall(args, theme, { lastComponent: undefined, state });
+		expect(call.render(160)).toHaveLength(2);
+
+		call = renderWebSearchCall(args, theme, { lastComponent: call, state });
+		let result = renderWebSearchResult(
+			{ details: { status: "progress", phase: "requesting" } },
+			{ isPartial: true },
+			theme,
+			{ args, lastComponent: undefined, state },
+		);
+		const progress = [...call.render(160), ...result.render(160)].join("\n");
+		expect(progress.split("\n")).toHaveLength(2);
+		expect(progress.match(/websearch/g)).toHaveLength(1);
+		expect(progress).toContain("limit 5 · adaptive routing · searching...");
+
+		call = renderWebSearchCall(args, theme, { lastComponent: call, state });
+		result = renderWebSearchResult(
+			{ details: { ...successDetails(2), query: args.query } },
+			{ isPartial: false },
+			theme,
+			{ args, lastComponent: result, state },
+		);
+		const settled = [...call.render(160), ...result.render(160)].join("\n");
+		expect(settled.split("\n")).toHaveLength(2);
+		expect(settled.match(/websearch/g)).toHaveLength(1);
+		expect(settled).toContain("2 results");
 	});
 });
 

@@ -6,9 +6,23 @@ import { formatBytes, formatChars, formatDuration, joinParts } from "../tui/text
 import type { WebFetchDetails, WebFetchFailureDetails, WebFetchProgressDetails, WebFetchSuccessDetails } from "./types.js";
 import { compactUrl, shortUrlForCall, truncateMiddle } from "./url-utils.js";
 
-export function renderWebFetchCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, context: { lastComponent?: unknown; isPartial?: boolean }): Text {
+interface WebFetchRenderState {
+	callComponent?: Text;
+}
+
+interface WebFetchCallContext {
+	lastComponent?: unknown;
+	state: WebFetchRenderState;
+}
+
+interface WebFetchResultContext extends WebFetchCallContext {
+	args?: unknown;
+}
+
+export function renderWebFetchCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, context: WebFetchCallContext): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-	text.setText(context.isPartial === false ? "" : formatWebFetchCall(args, theme));
+	context.state.callComponent = text;
+	text.setText(formatWebFetchCall(args, theme));
 	return text;
 }
 
@@ -16,21 +30,26 @@ export function renderWebFetchResult(
 	result: { details?: unknown },
 	options: { expanded?: boolean; isPartial?: boolean },
 	theme: Pick<Theme, "fg" | "bold">,
-	context: { lastComponent?: unknown; args?: unknown },
+	context: WebFetchResultContext,
 ): Text {
+	context.state.callComponent?.setText("");
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 	text.setText(formatWebFetchResult(result.details, options, theme, context.args));
 	return text;
 }
 
 export function formatWebFetchCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
+	return formatToolCard({ tool: "webfetch", status: "running", target: shortUrlForCall(args), summary: invocationSummary(args) }, theme);
+}
+
+function invocationSummary(args: unknown): string {
 	const mode = isRecord(args) && args["mode"] === "source" ? "source" : "readable";
 	const offset = isRecord(args) && typeof args["offset"] === "number" ? args["offset"] : undefined;
 	const limit = isRecord(args) && typeof args["limit"] === "number" ? args["limit"] : undefined;
 	const range = offset !== undefined && offset > 0
 		? limit !== undefined ? `offset ${offset}-${offset + limit}` : `offset ${offset}+`
 		: "offset 0";
-	return formatToolCard({ tool: "webfetch", status: "running", target: shortUrlForCall(args), summary: joinParts([mode, range]) }, theme);
+	return joinParts([mode, range]);
 }
 
 export function formatWebFetchResult(
@@ -41,7 +60,7 @@ export function formatWebFetchResult(
 ): string {
 	const target = isRecord(_args) ? shortUrlForCall(_args) : targetFromDetails(details);
 	if (options.isPartial || isProgressDetails(details)) {
-		return formatToolCard({ tool: "webfetch", status: "running", target, summary: formatProgress(details) }, theme);
+		return formatToolCard({ tool: "webfetch", status: "running", target, summary: joinParts([invocationSummary(_args), formatProgress(details)]) }, theme);
 	}
 	if (isSuccessDetails(details)) return formatSuccess(details, options.expanded === true, theme);
 	if (isFailureDetails(details)) return formatFailure(details, options.expanded === true, theme);

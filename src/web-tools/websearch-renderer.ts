@@ -6,9 +6,23 @@ import { formatBytes, formatDuration, joinParts } from "../tui/text.js";
 import type { WebSearchDetails, WebSearchFailureDetails, WebSearchProgressDetails, WebSearchProviderAttempt, WebSearchProviderId, WebSearchSuccessDetails } from "./types.js";
 import { stripTerminalControls } from "./url-utils.js";
 
-export function renderWebSearchCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, context: { lastComponent?: unknown; isPartial?: boolean }): Text {
+interface WebSearchRenderState {
+	callComponent?: Text;
+}
+
+interface WebSearchCallContext {
+	lastComponent?: unknown;
+	state: WebSearchRenderState;
+}
+
+interface WebSearchResultContext extends WebSearchCallContext {
+	args?: unknown;
+}
+
+export function renderWebSearchCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, context: WebSearchCallContext): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
-	text.setText(context.isPartial === false ? "" : formatWebSearchCall(args, theme));
+	context.state.callComponent = text;
+	text.setText(formatWebSearchCall(args, theme));
 	return text;
 }
 
@@ -16,21 +30,26 @@ export function renderWebSearchResult(
 	result: { details?: unknown },
 	options: { expanded?: boolean; isPartial?: boolean },
 	theme: Pick<Theme, "fg" | "bold">,
-	context: { lastComponent?: unknown; args?: unknown },
+	context: WebSearchResultContext,
 ): Text {
+	context.state.callComponent?.setText("");
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
 	text.setText(formatWebSearchResult(result.details, options, theme, context.args));
 	return text;
 }
 
 export function formatWebSearchCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
-	const limit = isRecord(args) && typeof args["limit"] === "number" ? `limit ${args["limit"]}` : undefined;
 	return formatToolCard({
 		tool: "websearch",
 		status: "running",
 		target: `"${queryForCall(args)}"`,
-		summary: joinParts([limit, "adaptive routing"]),
+		summary: invocationSummary(args),
 	}, theme);
+}
+
+function invocationSummary(args: unknown): string {
+	const limit = isRecord(args) && typeof args["limit"] === "number" ? `limit ${args["limit"]}` : undefined;
+	return joinParts([limit, "adaptive routing"]);
 }
 
 export function formatWebSearchResult(
@@ -41,7 +60,7 @@ export function formatWebSearchResult(
 ): string {
 	const target = `"${isSuccessDetails(details) ? clean(details.query) : queryForCall(args)}"`;
 	if (options.isPartial || isProgressDetails(details)) {
-		return formatToolCard({ tool: "websearch", status: "running", target, summary: formatProgress(details) }, theme);
+		return formatToolCard({ tool: "websearch", status: "running", target, summary: joinParts([invocationSummary(args), formatProgress(details)]) }, theme);
 	}
 	if (isSuccessDetails(details)) return formatSuccess(details, options.expanded === true, theme);
 	if (isFailureDetails(details)) return formatFailure(details, options.expanded === true, theme);
