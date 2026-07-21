@@ -18,7 +18,10 @@
 		"total_deadline_seconds": 20,
 		// 每次搜索都至少应用；query 中的 site: / -site: 会继续合并。
 		"include_domains": [],
-		"exclude_domains": [],
+		"exclude_domains": [
+			"gitcode.com",
+			"csdn.com"
+		],
 
 		"brave_api": {
 			"enabled": true,
