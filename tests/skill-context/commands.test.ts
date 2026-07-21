@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { ExtensionAPI, ExtensionContext, InputEvent, InputEventResult, SessionEntry, SlashCommandInfo, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { BuildSystemPromptOptions, ExtensionAPI, ExtensionContext, InputEvent, InputEventResult, SessionEntry, SlashCommandInfo, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import skillContextExtension from "../../agent/extensions/skill-context.js";
 import { registerSkillCommands } from "../../src/skill-context/commands.js";
@@ -64,6 +64,7 @@ describe("技能命令", () => {
 		const branch: SessionEntry[] = [];
 		let tool: ToolDefinition | undefined;
 		const toolResultHandlers: Array<(event: { toolName: string; details: unknown }) => unknown> = [];
+		let beforeAgentStart: ((event: { systemPromptOptions: BuildSystemPromptOptions }) => void) | undefined;
 		const pi = {
 			registerTool(value: ToolDefinition) { tool = value; },
 			registerCommand() {},
@@ -78,10 +79,17 @@ describe("技能命令", () => {
 			events: {},
 			on(name: string, handler: unknown) {
 				if (name === "tool_result" && isToolResultHandler(handler)) toolResultHandlers.push(handler);
+				if (name === "before_agent_start" && typeof handler === "function") beforeAgentStart = handler as typeof beforeAgentStart;
 			},
 		};
 		skillContextExtension(pi as unknown as ExtensionAPI);
 		if (tool === undefined) throw new Error("skill tool was not registered");
+		beforeAgentStart?.({
+			systemPromptOptions: {
+				cwd: tempDir,
+				skills: [piSkill("allowed", allowedPath, false), piSkill("hidden", hiddenPath, true)],
+			},
+		});
 
 		const allowed = await tool.execute("skill-1", { name: "allowed" }, undefined, undefined, fakeCtx(branch));
 		expect(allowed.content).toEqual([{ type: "text", text: '<invoked_skill root="skill://allowed"/>\n\nbody' }]);
@@ -119,6 +127,17 @@ async function writeSkill(name: string, disableModelInvocation: boolean): Promis
 
 function skillCommand(name: string, file: string): SlashCommandInfo {
 	return { name: `skill:${name}`, description: "desc", source: "skill", sourceInfo: { path: file, source: "project", scope: "project", origin: "top-level" } };
+}
+
+function piSkill(name: string, filePath: string, disableModelInvocation: boolean): NonNullable<BuildSystemPromptOptions["skills"]>[number] {
+	return {
+		name,
+		description: "desc",
+		filePath,
+		baseDir: path.dirname(filePath),
+		disableModelInvocation,
+		sourceInfo: { path: filePath, source: "project", scope: "project", origin: "top-level" },
+	};
 }
 
 function fakeCtx(branch: SessionEntry[]): ExtensionContext {

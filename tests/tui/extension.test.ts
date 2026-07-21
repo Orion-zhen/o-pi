@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
@@ -136,6 +136,12 @@ describe("tui extension", () => {
 	});
 
 	it("session_start 设置 footer/status/working indicator 和 startup banner header", async () => {
+		await mkdir(path.join(dir, "alpha-user"));
+		await mkdir(path.join(dir, "alpha-project"));
+		await mkdir(path.join(dir, "beta"));
+		await writeFile(path.join(dir, "alpha-user", "SKILL.md"), "---\nname: alpha\ndescription: alpha user\n---\n正文\n");
+		await writeFile(path.join(dir, "alpha-project", "SKILL.md"), "---\nname: alpha\ndescription: alpha project\ndisable-model-invocation: false\n---\n正文\n");
+		await writeFile(path.join(dir, "beta", "SKILL.md"), "---\nname: beta\ndescription: beta\n---\n正文\n");
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
 		const pi = createPi(handlers);
@@ -152,7 +158,7 @@ describe("tui extension", () => {
 		const output = header?.({ requestRender() {} }, ctx.ui.theme).render(120).join("\n") ?? "";
 		expect(output).toContain("██████");
 		expect(output).toContain("tools");
-		expect(output).toContain("skills     2 · user:1 · project:1");
+		expect(output).toContain("skills     2 · model:2");
 	});
 
 	it("turn_start 默认保留 startup banner", async () => {
@@ -311,8 +317,9 @@ function createPi(handlers: Map<string, Handler>) {
 		},
 		getCommands() {
 			return [
-				{ name: "skill:alpha", source: "skill", sourceInfo: { path: "/home/me/.pi/agent/skills/alpha/SKILL.md", source: "local", scope: "user", origin: "top-level" } },
-				{ name: "skill:beta", source: "skill", sourceInfo: { path: "/repo/.pi/skills/beta/SKILL.md", source: "local", scope: "project", origin: "top-level" } },
+				{ name: "skill:alpha", source: "skill", sourceInfo: { path: path.join(dir, "alpha-user", "SKILL.md"), source: "local", scope: "user", origin: "top-level" } },
+				{ name: "skill:alpha", source: "skill", sourceInfo: { path: path.join(dir, "alpha-project", "SKILL.md"), source: "local", scope: "project", origin: "top-level" } },
+				{ name: "skill:beta", source: "skill", sourceInfo: { path: path.join(dir, "beta", "SKILL.md"), source: "local", scope: "project", origin: "top-level" } },
 				{ name: "stats", source: "extension", sourceInfo: { path: "/home/me/.pi/agent/extensions/stats.ts", source: "local", scope: "user", origin: "top-level" } },
 			];
 		},

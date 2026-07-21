@@ -1,5 +1,7 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import path from "node:path";
+import { loadSkillsFromDir, type ExtensionAPI, type ExtensionContext, type Skill } from "@earendil-works/pi-coding-agent";
 import { createStartupBannerComponent } from "../../src/tui/banner.js";
+import { collectSkillCandidates } from "../../src/skill-context/loader.js";
 import { createHeaderComponent, formatTitle, workingIndicatorOptions } from "../../src/tui/chrome.js";
 import { loadTuiConfig } from "../../src/tui/config.js";
 import { createFooterComponent, GitSegmentCache } from "../../src/tui/footer.js";
@@ -33,6 +35,7 @@ function registerTuiExtension(pi: ExtensionAPI, loadMathMarkdown: MathMarkdownLo
 	let displayMathWarm = false;
 	let mathTimer: ReturnType<typeof setTimeout> | undefined;
 	let sessionGeneration = 0;
+	let skillsSnapshot: TuiFooterSkillsSnapshot | undefined;
 
 	pi.on("session_start", async (_event, ctx) => {
 		sessionGeneration += 1;
@@ -43,6 +46,7 @@ function registerTuiExtension(pi: ExtensionAPI, loadMathMarkdown: MathMarkdownLo
 			refreshTitle();
 		});
 		config = await loadTuiConfig();
+		skillsSnapshot = config.banner.enabled ? collectSkills(pi) : undefined;
 		const mathEnabled = config.enabled && config.math.enabled;
 		mathMarkdownModule?.installMathMarkdownRenderer({ ...config.math, enabled: mathEnabled });
 		snapshot = makeSnapshot(ctx, pi, "ready", gitCache.get(ctx.cwd));
@@ -52,10 +56,10 @@ function registerTuiExtension(pi: ExtensionAPI, loadMathMarkdown: MathMarkdownLo
 			cleanup(ctx);
 			return;
 		}
-		applyChrome(ctx, config, () => snapshotWithCapabilities(snapshot, pi));
+		applyChrome(ctx, config, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot));
 		if (config.banner.enabled) {
 			startupBannerVisible = true;
-			ctx.ui.setHeader(createStartupBannerComponent(config.banner, () => snapshotWithCapabilities(snapshot, pi)));
+			ctx.ui.setHeader(createStartupBannerComponent(config.banner, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot)));
 		}
 		scheduleMathInitialization(ctx, sessionGeneration);
 	});
@@ -66,7 +70,7 @@ function registerTuiExtension(pi: ExtensionAPI, loadMathMarkdown: MathMarkdownLo
 		snapshot = makeSnapshot(ctx, pi, "running", gitCache?.get(ctx.cwd));
 		if (startupBannerVisible && config.banner.clear_on_first_turn) {
 			startupBannerVisible = false;
-			ctx.ui.setHeader(config.chrome.header ? createHeaderComponent(() => snapshotWithCapabilities(snapshot, pi)) : undefined);
+			ctx.ui.setHeader(config.chrome.header ? createHeaderComponent(() => snapshotWithCapabilities(snapshot, pi, skillsSnapshot)) : undefined);
 		}
 		gitCache?.refresh(ctx.cwd);
 		ctx.ui.setStatus(STATUS_KEY, formatStatus("running", ctx.ui.theme));
@@ -115,6 +119,7 @@ function registerTuiExtension(pi: ExtensionAPI, loadMathMarkdown: MathMarkdownLo
 		setTitle = undefined;
 		startupBannerVisible = false;
 		snapshot = {};
+		skillsSnapshot = undefined;
 	});
 
 	function cancelMathInitialization(): void {
@@ -189,14 +194,14 @@ function registerTuiExtension(pi: ExtensionAPI, loadMathMarkdown: MathMarkdownLo
 		snapshot = makeSnapshot(ctx, pi, status, gitCache?.get(ctx.cwd));
 		refreshTitle();
 		ctx.ui.setStatus(STATUS_KEY, formatStatus(status, ctx.ui.theme));
-		ctx.ui.setFooter(config?.chrome.footer ? createFooterComponent(config.footer, () => snapshotWithCapabilities(snapshot, pi), STATUS_KEY, REPO_MAP_STATUS_KEY) : undefined);
+		ctx.ui.setFooter(config?.chrome.footer ? createFooterComponent(config.footer, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot), STATUS_KEY, REPO_MAP_STATUS_KEY) : undefined);
 		ctx.ui.setHeader(getHeader());
 	}
 
 	function getHeader() {
 		if (config === undefined) return undefined;
-		if (startupBannerVisible && config.banner.enabled) return createStartupBannerComponent(config.banner, () => snapshotWithCapabilities(snapshot, pi));
-		return config.chrome.header ? createHeaderComponent(() => snapshotWithCapabilities(snapshot, pi)) : undefined;
+		if (startupBannerVisible && config.banner.enabled) return createStartupBannerComponent(config.banner, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot));
+		return config.chrome.header ? createHeaderComponent(() => snapshotWithCapabilities(snapshot, pi, skillsSnapshot)) : undefined;
 	}
 
 	function cleanup(ctx: ExtensionContext): void {
@@ -242,8 +247,11 @@ function formatStatus(status: string, theme: ExtensionContext["ui"]["theme"]): s
 	return theme.fg("success", "✓ ready");
 }
 
-function snapshotWithCapabilities(snapshot: TuiFooterSnapshot, pi: ExtensionAPI): TuiFooterSnapshot {
-	const skills = collectSkills(pi);
+function snapshotWithCapabilities(
+	snapshot: TuiFooterSnapshot,
+	pi: ExtensionAPI,
+	skills: TuiFooterSkillsSnapshot | undefined,
+): TuiFooterSnapshot {
 	return {
 		...snapshot,
 		tools: collectTools(pi),
@@ -281,23 +289,26 @@ function collectTools(pi: ExtensionAPI): TuiFooterToolsSnapshot {
 	return { activeNames, totalCount: allNames.length, allNames };
 }
 
-/** 从 Pi 公开命令列表统计 skill 命令，不依赖 system prompt，也不计入工具数量。 */
+/** 复用 skill 索引规则统计去重总数和模型可调用数。 */
 function collectSkills(pi: ExtensionAPI): TuiFooterSkillsSnapshot | undefined {
-	const skillCommands = pi
-		.getCommands()
-		.filter((command) => command.source === "skill")
-		.filter((command) => command.name.length > 0);
-	const uniqueByName = new Map(skillCommands.map((command) => [command.name, command.sourceInfo.scope] as const));
-	let userCount = 0;
-	let projectCount = 0;
-	let temporaryCount = 0;
-	for (const scope of uniqueByName.values()) {
-		if (scope === "user") userCount += 1;
-		else if (scope === "project") projectCount += 1;
-		else temporaryCount += 1;
+	const commands = pi.getCommands();
+	const candidates = collectSkillCandidates(undefined, commands);
+	const totalCount = candidates.length;
+	if (totalCount === 0) return undefined;
+	const skillsByDirectory = new Map<string, Skill[]>();
+	let modelInvocableCount = 0;
+	for (const candidate of candidates) {
+		const directory = path.dirname(candidate.path);
+		let parsedSkills = skillsByDirectory.get(directory);
+		if (parsedSkills === undefined) {
+			parsedSkills = loadSkillsFromDir({ dir: directory, source: candidate.scope }).skills;
+			skillsByDirectory.set(directory, parsedSkills);
+		}
+		const candidatePath = path.resolve(candidate.path);
+		const parsed = parsedSkills.find((skill) => path.resolve(skill.filePath) === candidatePath);
+		if (parsed !== undefined && !parsed.disableModelInvocation) modelInvocableCount += 1;
 	}
-	const totalCount = uniqueByName.size;
-	return totalCount > 0 ? { totalCount, userCount, projectCount, temporaryCount } : undefined;
+	return { totalCount, modelInvocableCount };
 }
 
 function createGitCache(

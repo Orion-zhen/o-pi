@@ -1,25 +1,11 @@
 import { createHash } from "node:crypto";
-import type { BigIntStats } from "node:fs";
-import { open, readFile, realpath, stat } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { BuildSystemPromptOptions, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
-import { parseSkillFile, parseSkillMetadata, type ParsedSkillMetadata } from "./frontmatter.js";
+import { parseSkillFile } from "./frontmatter.js";
 import type { LoadedSkill, SkillCandidate } from "./types.js";
 
-const FRONTMATTER_CHUNK_BYTES = 4096;
-const INDEX_CONCURRENCY = 8;
-const METADATA_CACHE_LIMIT = 512;
-const FRONTMATTER_OPEN = Buffer.from("---");
-const FRONTMATTER_CLOSE = Buffer.from("\n---");
-
-interface SkillMetadataCacheEntry {
-	fingerprint: string;
-	metadata: ParsedSkillMetadata;
-}
-
-const skillMetadataCache = new Map<string, SkillMetadataCacheEntry>();
-
-/** 合并框架的提示词技能与斜杠命令发现结果，不扫描额外路径。 */
+/** 合并框架的提示词技能与斜杠命令发现结果，同名时 project 覆盖 user。 */
 export function collectSkillCandidates(options: BuildSystemPromptOptions | undefined, commands: SlashCommandInfo[]): SkillCandidate[] {
 	const candidates: SkillCandidate[] = [];
 	for (const skill of options?.skills ?? []) {
@@ -27,6 +13,7 @@ export function collectSkillCandidates(options: BuildSystemPromptOptions | undef
 			name: skill.name,
 			path: skill.filePath,
 			description: skill.description,
+			disableModelInvocation: skill.disableModelInvocation,
 			scope: skill.sourceInfo.scope,
 		});
 	}
@@ -35,7 +22,7 @@ export function collectSkillCandidates(options: BuildSystemPromptOptions | undef
 		const candidate = candidateFromCommand(command);
 		if (candidate !== undefined) candidates.push(candidate);
 	}
-	return firstCandidatePerName(candidates);
+	return preferredCandidatePerName(candidates);
 }
 
 export function findSkillCandidate(name: string, candidates: SkillCandidate[]): SkillCandidate | undefined {
@@ -57,102 +44,19 @@ export async function loadSkill(candidate: SkillCandidate): Promise<LoadedSkill>
 		root: path.dirname(skillPath),
 		body: parsed.body,
 		contentHash: createHash("sha256").update(raw).digest("hex"),
-		disableModelInvocation: parsed.disableModelInvocation,
 		scope: candidate.scope,
 	};
 }
 
-/** 只读取 frontmatter 构建模型索引，并以文件身份缓存解析结果。 */
-export async function loadModelInvocableSkillIndex(
+/** 使用 Pi 已解析的字段生成模型可调用索引，不再次读取 SKILL.md。 */
+export function collectModelInvocableSkillIndex(
 	options: BuildSystemPromptOptions | undefined,
-): Promise<Array<Pick<LoadedSkill, "name" | "description">>> {
-	const candidates = collectSkillCandidates(options, []);
-	const indexed: Array<Pick<LoadedSkill, "name" | "description"> | undefined> = new Array(candidates.length);
-	let nextIndex = 0;
-	async function worker(): Promise<void> {
-		while (nextIndex < candidates.length) {
-			const index = nextIndex++;
-			const candidate = candidates[index];
-			if (candidate === undefined) continue;
-			try {
-				const metadata = await loadSkillMetadata(candidate);
-				if (!metadata.disableModelInvocation) indexed[index] = { name: metadata.name, description: metadata.description };
-			} catch {
-				// 单个格式错误或不可读的技能不应阻止模型启动。
-			}
-		}
-	}
-	await Promise.all(Array.from({ length: Math.min(INDEX_CONCURRENCY, candidates.length) }, worker));
-	return indexed.filter((skill): skill is Pick<LoadedSkill, "name" | "description"> => skill !== undefined);
-}
-
-async function loadSkillMetadata(candidate: SkillCandidate): Promise<ParsedSkillMetadata> {
-	const cacheKey = path.resolve(candidate.path);
-	for (let attempt = 0; attempt < 2; attempt += 1) {
-		const before = await stat(cacheKey, { bigint: true });
-		const beforeFingerprint = fileFingerprint(before);
-		const cached = skillMetadataCache.get(cacheKey);
-		if (cached?.fingerprint === beforeFingerprint) {
-			touchMetadataCache(cacheKey, cached);
-			return validateCandidateMetadata(candidate, cached.metadata);
-		}
-
-		const metadata = parseSkillMetadata(await readFrontmatter(cacheKey), candidate.name);
-		const afterFingerprint = fileFingerprint(await stat(cacheKey, { bigint: true }));
-		if (beforeFingerprint === afterFingerprint) {
-			rememberMetadata(cacheKey, { fingerprint: afterFingerprint, metadata });
-			return validateCandidateMetadata(candidate, metadata);
-		}
-		if (attempt === 1) return validateCandidateMetadata(candidate, metadata);
-	}
-	throw new Error(`skill metadata could not be read: ${candidate.name}`);
-}
-
-async function readFrontmatter(filePath: string): Promise<string> {
-	const handle = await open(filePath, "r");
-	try {
-		let content = Buffer.alloc(0);
-		let position = 0;
-		while (true) {
-			const chunk = Buffer.allocUnsafe(FRONTMATTER_CHUNK_BYTES);
-			const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
-			if (bytesRead === 0) return content.toString("utf8");
-			position += bytesRead;
-			content = Buffer.concat([content, chunk.subarray(0, bytesRead)]);
-			if (content.length >= FRONTMATTER_OPEN.length && !content.subarray(0, FRONTMATTER_OPEN.length).equals(FRONTMATTER_OPEN)) {
-				return content.toString("utf8");
-			}
-			const closeIndex = content.indexOf(FRONTMATTER_CLOSE, FRONTMATTER_OPEN.length);
-			if (closeIndex >= 0) return content.subarray(0, closeIndex + FRONTMATTER_CLOSE.length).toString("utf8");
-		}
-	} finally {
-		await handle.close();
-	}
-}
-
-function validateCandidateMetadata(candidate: SkillCandidate, metadata: ParsedSkillMetadata): ParsedSkillMetadata {
-	if (metadata.name !== candidate.name) {
-		throw new Error(`skill frontmatter name "${metadata.name}" does not match discovered name "${candidate.name}".`);
-	}
-	return metadata;
-}
-
-function fileFingerprint(stats: BigIntStats): string {
-	return `${stats.dev}:${stats.ino}:${stats.size}:${stats.mtimeNs}:${stats.ctimeNs}`;
-}
-
-function touchMetadataCache(key: string, entry: SkillMetadataCacheEntry): void {
-	skillMetadataCache.delete(key);
-	skillMetadataCache.set(key, entry);
-}
-
-function rememberMetadata(key: string, entry: SkillMetadataCacheEntry): void {
-	touchMetadataCache(key, entry);
-	while (skillMetadataCache.size > METADATA_CACHE_LIMIT) {
-		const oldest = skillMetadataCache.keys().next().value;
-		if (oldest === undefined) break;
-		skillMetadataCache.delete(oldest);
-	}
+): Array<Pick<LoadedSkill, "name" | "description">> {
+	return collectSkillCandidates(options, [])
+		.filter((candidate): candidate is SkillCandidate & { description: string } => (
+			candidate.disableModelInvocation === false && candidate.description !== undefined
+		))
+		.map((candidate) => ({ name: candidate.name, description: candidate.description }));
 }
 
 function candidateFromCommand(command: SlashCommandInfo): SkillCandidate | undefined {
@@ -167,11 +71,18 @@ function candidateFromCommand(command: SlashCommandInfo): SkillCandidate | undef
 	};
 }
 
-function firstCandidatePerName(candidates: SkillCandidate[]): SkillCandidate[] {
-	const seen = new Set<string>();
-	return candidates.filter((candidate) => {
-		if (seen.has(candidate.name)) return false;
-		seen.add(candidate.name);
-		return true;
-	});
+function preferredCandidatePerName(candidates: SkillCandidate[]): SkillCandidate[] {
+	const selected: SkillCandidate[] = [];
+	const indexByName = new Map<string, number>();
+	for (const candidate of candidates) {
+		const existingIndex = indexByName.get(candidate.name);
+		if (existingIndex === undefined) {
+			indexByName.set(candidate.name, selected.length);
+			selected.push(candidate);
+			continue;
+		}
+		const existing = selected[existingIndex];
+		if (existing?.scope === "user" && candidate.scope === "project") selected[existingIndex] = candidate;
+	}
+	return selected;
 }

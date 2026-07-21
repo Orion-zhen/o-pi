@@ -145,12 +145,8 @@ function formatTools(snapshot: TuiFooterSnapshot, config: TuiBannerConfig, width
 function formatSkills(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg"> | undefined): string | undefined {
 	const skills = snapshot.skills;
 	if (skills === undefined || skills.totalCount <= 0) return undefined;
-	const parts = [
-		color(theme, "success", `${skills.totalCount}`),
-		`user:${skills.userCount}`,
-		`project:${skills.projectCount}`,
-		skills.temporaryCount > 0 ? `temp:${skills.temporaryCount}` : undefined,
-	];
+	const modelInvocableCount = Math.min(skills.totalCount, Math.max(0, skills.modelInvocableCount));
+	const parts = [color(theme, "success", `${skills.totalCount}`), `model:${modelInvocableCount}`];
 	return joinParts(parts, color(theme, "dim", " · "));
 }
 
@@ -160,19 +156,20 @@ function formatTinyTools(snapshot: TuiFooterSnapshot, config: TuiBannerConfig, w
 	const activeCount = new Set(tools.activeNames.filter((name) => name.length > 0)).size;
 	const totalCount = Math.max(0, tools.totalCount, activeCount);
 	const count = color(theme, activeCount >= totalCount ? "success" : "warning", `${activeCount}/${totalCount} tools`);
-	if (!config.show_capabilities) return count;
+	const skills = formatTinySkills(snapshot);
+	if (!config.show_capabilities) return truncateToWidth(joinParts([count, skills], color(theme, "dim", " · ")), width, "…");
 	const groups = summarizeCapabilityGroups(tools)
 		.filter((summary) => summary.totalCount > 0)
 		.map((summary) => summary.label)
 		.join("/");
-	const skills = formatTinySkills(snapshot);
-	return truncateToWidth(joinParts([count, groups || undefined, skills], color(theme, "dim", " · ")), width, "…");
+	return truncateToWidth(joinParts([count, skills, groups || undefined], color(theme, "dim", " · ")), width, "…");
 }
 
 function formatTinySkills(snapshot: TuiFooterSnapshot): string | undefined {
 	const skills = snapshot.skills;
 	if (skills === undefined || skills.totalCount <= 0) return undefined;
-	return `skills:${skills.totalCount}`;
+	const modelInvocableCount = Math.min(skills.totalCount, Math.max(0, skills.modelInvocableCount));
+	return `skills:${skills.totalCount} model:${modelInvocableCount}`;
 }
 
 function coloredWordmark(theme: Pick<Theme, "fg"> | undefined): string[] {

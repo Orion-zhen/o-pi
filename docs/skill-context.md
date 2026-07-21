@@ -14,7 +14,7 @@
 | `compatibility` | 否 | 非空字符串，标准上限为 500 个字符 | Agent Skills 标准字段，用于声明产品、系统依赖或网络要求；o-pi 当前不校验、不消费，也不会随正文披露给模型 |
 | `metadata` | 否 | 字符串键到字符串值的映射 | Agent Skills 标准扩展容器；o-pi 当前不消费 |
 | `allowed-tools` | 否 | 以空格分隔的工具声明字符串 | Agent Skills 实验字段；o-pi 当前忽略，不会授予工具权限或绕过审批 |
-| `disable-model-invocation` | 否 | YAML 布尔值；o-pi 默认 `true` | Pi 兼容字段；只有严格布尔值 `false` 才允许模型发现并通过 `skill` 工具加载 |
+| `disable-model-invocation` | 否 | YAML 布尔值；Pi 默认 `false` | Pi 兼容字段；严格布尔值 `true` 时禁止模型发现和通过 `skill` 工具加载 |
 
 完整示例：
 
@@ -32,7 +32,7 @@ disable-model-invocation: false
 ---
 ```
 
-`disable-model-invocation` 必须写成不带引号的 YAML 布尔值。字段缺失、`true`、字符串 `"false"`、数字和其他非布尔值都会禁用模型调用；只有显式 `false` 才会开放。Pi 原生默认值是 `false`，o-pi 为保持默认拒绝策略将缺失值覆盖为 `true`。未列出的自定义信息应放入 `metadata`；顶层未知字段可能被 YAML 解析器接受，但不属于受支持接口，也不会产生运行时行为。
+`disable-model-invocation` 完全采用 Pi 的解析结果，本仓库不再解释或覆盖该字段。Pi 只有在值为严格布尔值 `true` 时禁用模型调用；字段缺失、`false` 和非布尔值都不会禁用。为避免 YAML 类型歧义，需要禁用时应写成不带引号的 `true`。未列出的自定义信息应放入 `metadata`；顶层未知字段可能被 YAML 解析器接受，但不属于受支持接口，也不会产生运行时行为。
 
 o-pi 加载时会移除整个 frontmatter，只向模型披露 Markdown 正文。因此，影响模型执行的环境要求和权限规则仍应写入正文；`compatibility`、`metadata` 和 `allowed-tools` 目前都不是运行时控制机制。
 
@@ -48,11 +48,11 @@ system prompt 只索引允许模型加载的 skill：
 
 索引不包含正文、真实路径或资源列表。`skill` 工具使用固定 schema `skill({ name: string })`，skill 名称不会进入动态 enum。
 
-索引阶段只分块读取 frontmatter，不读取正文或计算正文哈希；解析结果按文件身份缓存，文件内容变化后会在下一次构建 prompt 时自动刷新。多个 skill 使用有界并发读取，输出顺序仍与 Pi 的发现顺序一致。
+索引直接使用 Pi 传入的 `BuildSystemPromptOptions.skills`，包括 Pi 已解析的名称、描述和 `disableModelInvocation`，不再读取或缓存 frontmatter。输出顺序仍与 Pi 的发现顺序一致。同名 skill 只保留一个；project skill 始终覆盖 user skill，其他同 scope 候选保留先发现者。
 
 ## 加载
 
-模型只能通过 `skill` 工具加载显式声明 `disable-model-invocation: false` 的 skill。成功结果只包含逻辑根边界和去掉 frontmatter 的完整正文：
+模型只能通过 `skill` 工具加载 Pi 判定为可调用的 skill；`disable-model-invocation: true` 会禁止调用，缺失或 `false` 则允许。成功结果只包含逻辑根边界和去掉 frontmatter 的完整正文：
 
 ```text
 <invoked_skill root="skill://code-writing"/>

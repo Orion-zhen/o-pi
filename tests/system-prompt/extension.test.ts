@@ -1,9 +1,7 @@
 import type { BuildSystemPromptOptions, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
+import { preserveEnv } from "../helpers/lifecycle.js";
 
 vi.mock(import("os"), async (importOriginal) => ({
 	...(await importOriginal()),
@@ -24,7 +22,6 @@ const toolSnippets = {
 	bash: "run commands",
 };
 preserveEnv("PI_SUBAGENT_CHILD");
-const temp = useTempDir("o-pi-system-skills-");
 
 describe("system prompt extension", () => {
 	afterEach(() => {
@@ -122,28 +119,21 @@ describe("system prompt extension", () => {
 		expect(prompt).not.toContain("<role>");
 	});
 
-	it("runtime prompt 只索引显式允许模型调用的技能且不包含正文或路径", async () => {
-		const allowedPath = await writeSkill("allowed", "Allowed description", "false", "ALLOWED BODY");
-		const hiddenPath = await writeSkill("hidden", "Hidden description", "true", "HIDDEN BODY");
-		const quotedPath = await writeSkill("quoted", "Quoted description", "'false'", "QUOTED BODY");
-		const missingPath = await writeSkill("missing", "Missing description", undefined, "MISSING BODY");
+	it("runtime prompt 使用 Pi 已解析的调用策略且不读取正文或路径", async () => {
 		const prompt = await buildRuntimeSystemPrompt({
-			cwd: temp.path,
+			cwd: "/repo",
 			skills: [
-				skillInfo("allowed", allowedPath, "Allowed description"),
-				skillInfo("hidden", hiddenPath, "Hidden description"),
-				skillInfo("quoted", quotedPath, "Quoted description"),
-				skillInfo("missing", missingPath, "Missing description"),
+				skillInfo("allowed", "Allowed description", false),
+				skillInfo("hidden", "Hidden description", true),
+				skillInfo("quoted", "Quoted description", false),
+				skillInfo("missing", "Missing description", false),
 			],
-		}, temp.path);
+		}, "/repo");
 
-		expect(prompt).toContain("<model_invocable_skills>\n- allowed: Allowed description\n</model_invocable_skills>");
+		expect(prompt).toContain("<model_invocable_skills>\n- allowed: Allowed description\n- quoted: Quoted description\n- missing: Missing description\n</model_invocable_skills>");
 		expect(prompt).toContain("Relative paths mentioned by a loaded skill resolve under skill://<skill-name>/.");
 		expect(prompt).not.toContain("hidden:");
-		expect(prompt).not.toContain("quoted:");
-		expect(prompt).not.toContain("missing:");
-		expect(prompt).not.toContain("ALLOWED BODY");
-		expect(prompt).not.toContain(allowedPath);
+		expect(prompt).not.toContain("/repo/.pi/skills/allowed/SKILL.md");
 	});
 
 	it("从标准 Agent Markdown 合成 subagent_role，同时保留 append 与项目规则", () => {
@@ -298,32 +288,24 @@ describe("system prompt extension", () => {
 	});
 });
 
-async function writeSkill(name: string, description: string, disableModelInvocation: string | undefined, body: string): Promise<string> {
-	const dir = path.join(temp.path, name);
-	await mkdir(dir, { recursive: true });
-	const file = path.join(dir, "SKILL.md");
-	const invocationField = disableModelInvocation === undefined ? "" : `disable-model-invocation: ${disableModelInvocation}\n`;
-	await writeFile(file, `---\nname: ${name}\ndescription: ${description}\n${invocationField}---\n${body}\n`);
-	return file;
-}
-
 function skillInfo(
 	name: string,
-	filePath: string,
 	description: string,
+	disableModelInvocation: boolean,
 ): NonNullable<BuildSystemPromptOptions["skills"]>[number] {
+	const filePath = `/repo/.pi/skills/${name}/SKILL.md`;
 	return {
 		name,
 		description,
 		filePath,
-		baseDir: path.dirname(filePath),
-		disableModelInvocation: false,
+		baseDir: `/repo/.pi/skills/${name}`,
+		disableModelInvocation,
 		sourceInfo: {
 			path: filePath,
 			source: "project",
 			scope: "project",
 			origin: "top-level",
-			baseDir: path.dirname(filePath),
+			baseDir: `/repo/.pi/skills/${name}`,
 		},
 	};
 }

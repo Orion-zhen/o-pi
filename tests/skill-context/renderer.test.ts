@@ -9,7 +9,7 @@ describe("技能消息渲染器", () => {
 		registerSkillMessageRenderer({ registerMessageRenderer(_type, value) { renderer = value as MessageRenderer<SkillLoadDetails>; } });
 		const component = renderer?.({
 			role: "custom", customType: SKILL_CONTEXT_MESSAGE, content: "body", display: true, timestamp: 1,
-			details: { name: "demo", root: "skill://demo", contentHash: "hash", disableModelInvocation: true, scope: "project", loadedBy: "manual", deduplicated: false, chars: 4 },
+			details: { name: "demo", root: "skill://demo", contentHash: "hash", scope: "project", loadedBy: "manual", deduplicated: false, chars: 4 },
 		}, { expanded: true }, {
 			fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text, bold: (text: string) => text,
 		} as never);

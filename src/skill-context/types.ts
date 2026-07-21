@@ -9,6 +9,7 @@ export interface SkillCandidate {
 	name: string;
 	path: string;
 	description?: string;
+	disableModelInvocation?: boolean;
 	scope: "user" | "project" | "temporary";
 }
 
@@ -19,7 +20,6 @@ export interface LoadedSkill {
 	root: string;
 	body: string;
 	contentHash: string;
-	disableModelInvocation: boolean;
 	scope: SkillCandidate["scope"];
 }
 
@@ -38,7 +38,6 @@ export interface SkillLoadDetails {
 	name: string;
 	root: string;
 	contentHash: string;
-	disableModelInvocation: boolean;
 	scope: SkillCandidate["scope"];
 	loadedBy: SkillLoadEntry["loadedBy"];
 	deduplicated: boolean;

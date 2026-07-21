@@ -120,7 +120,5 @@ export interface TuiFooterToolsSnapshot {
 /** startup banner 的 skill 快照；只用于独立 skills 行，不计入工具数量。 */
 export interface TuiFooterSkillsSnapshot {
 	totalCount: number;
-	userCount: number;
-	projectCount: number;
-	temporaryCount: number;
+	modelInvocableCount: number;
 }

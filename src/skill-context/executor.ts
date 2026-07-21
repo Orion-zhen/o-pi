@@ -31,11 +31,11 @@ export async function executeSkillLoad(
 ): Promise<SkillLoadResult> {
 	const candidate = findSkillCandidate(input.name, input.candidates);
 	if (candidate === undefined) throw new SkillLoadError("SKILL_NOT_FOUND", `skill "${input.name}" was not found.`);
+	if (input.loadedBy === "agent" && candidate.disableModelInvocation !== false) {
+		throw new SkillLoadError("SKILL_NOT_LOADABLE", `skill "${candidate.name}" disables model invocation.`);
+	}
 
 	const loaded = await loadSkill(candidate);
-	if (input.loadedBy === "agent" && loaded.disableModelInvocation) {
-		throw new SkillLoadError("SKILL_NOT_LOADABLE", `skill "${loaded.name}" disables model invocation.`);
-	}
 
 	const candidateEntry: SkillLoadEntry = {
 		name: loaded.name,
@@ -57,7 +57,6 @@ export async function executeSkillLoad(
 			name: loaded.name,
 			root: `skill://${loaded.name}`,
 			contentHash: loaded.contentHash,
-			disableModelInvocation: loaded.disableModelInvocation,
 			scope: loaded.scope,
 			loadedBy: input.loadedBy,
 			deduplicated,

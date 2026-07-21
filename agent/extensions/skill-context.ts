@@ -5,7 +5,7 @@ import { registerSkillCommands } from "../../src/skill-context/commands.js";
 import { executeSkillLoad, SkillLoadError } from "../../src/skill-context/executor.js";
 import { collectSkillCandidates } from "../../src/skill-context/loader.js";
 import { registerSkillMessageRenderer, renderSkillCall, renderSkillDetails } from "../../src/skill-context/renderer.js";
-import type { SkillLoadDetails, SkillToolErrorDetails } from "../../src/skill-context/types.js";
+import type { SkillCandidate, SkillLoadDetails, SkillToolErrorDetails } from "../../src/skill-context/types.js";
 import { defineToolTelemetry } from "../../src/telemetry/projection.js";
 import { registerObservedTool } from "../../src/telemetry/tool.js";
 
@@ -23,6 +23,11 @@ export default function skillContextExtension(pi: ExtensionAPI): void {
 }
 
 function registerSkillTool(pi: ExtensionAPI): void {
+	let modelCandidates: SkillCandidate[] = [];
+	pi.on("before_agent_start", (event) => {
+		modelCandidates = collectSkillCandidates(event.systemPromptOptions, []);
+	});
+
 	registerObservedTool(pi, {
 		tool: {
 			name: "skill",
@@ -35,7 +40,7 @@ function registerSkillTool(pi: ExtensionAPI): void {
 					const result = await executeSkillLoad(pi, {
 						name: params.name,
 						loadedBy: "agent",
-						candidates: collectSkillCandidates(undefined, pi.getCommands()),
+						candidates: modelCandidates,
 						branch: ctx.sessionManager.getBranch(),
 					});
 					return { content: [{ type: "text", text: result.content }], details: result.details };
@@ -67,7 +72,6 @@ function registerSkillTool(pi: ExtensionAPI): void {
 					skill: result.details.name,
 					scope: result.details.scope,
 					loaded_by: result.details.loadedBy,
-					disable_model_invocation: result.details.disableModelInvocation,
 					content_hash: result.details.contentHash,
 					deduplicated: result.details.deduplicated,
 				} }

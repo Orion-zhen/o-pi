@@ -1,12 +1,8 @@
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent";
 
-export interface ParsedSkillMetadata {
+export interface ParsedSkillFile {
 	name: string;
 	description: string;
-	disableModelInvocation: boolean;
-}
-
-export interface ParsedSkillFile extends ParsedSkillMetadata {
 	body: string;
 }
 
@@ -19,15 +15,6 @@ export class SkillFrontmatterError extends Error {
 
 export function parseSkillFile(raw: string, fallbackName: string): ParsedSkillFile {
 	const { frontmatter, body } = parseSkillFrontmatter(raw);
-	return { ...parseSkillMetadataFields(frontmatter, fallbackName), body };
-}
-
-export function parseSkillMetadata(raw: string, fallbackName: string): ParsedSkillMetadata {
-	const { frontmatter } = parseSkillFrontmatter(raw);
-	return parseSkillMetadataFields(frontmatter, fallbackName);
-}
-
-function parseSkillMetadataFields(frontmatter: Record<string, unknown>, fallbackName: string): ParsedSkillMetadata {
 	const name = stringField(frontmatter, "name") ?? fallbackName;
 	const description = stringField(frontmatter, "description");
 
@@ -36,12 +23,7 @@ function parseSkillMetadataFields(frontmatter: Record<string, unknown>, fallback
 		throw new SkillFrontmatterError("skill description is required.");
 	}
 	if (description.length > 1024) throw new SkillFrontmatterError("skill description must be 1-1024 characters.");
-	return {
-		name,
-		description,
-		// 只有显式布尔值 false 才开放模型加载，缺失或类型错误时保持禁用。
-		disableModelInvocation: frontmatter["disable-model-invocation"] !== false,
-	};
+	return { name, description, body };
 }
 
 function parseSkillFrontmatter(raw: string): { frontmatter: Record<string, unknown>; body: string } {

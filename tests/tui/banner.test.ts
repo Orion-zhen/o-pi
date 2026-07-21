@@ -20,7 +20,7 @@ const snapshot: TuiFooterSnapshot = {
 	context: { tokens: 0, contextWindow: 200000, percent: 0 },
 	status: "ready",
 	tools: { activeNames: allNames, totalCount: allNames.length, allNames },
-	skills: { totalCount: 3, userCount: 2, projectCount: 1, temporaryCount: 0 },
+	skills: { totalCount: 3, modelInvocableCount: 1 },
 };
 
 describe("startup banner", () => {
@@ -35,7 +35,7 @@ describe("startup banner", () => {
 		expect(output).toContain("0.0%/200k");
 		expect(output).toContain("10/10");
 		expect(output).toContain("files:4 search:2 shell:1 web:2 agent:1");
-		expect(output).toContain("skills     3 · user:2 · project:1");
+		expect(output).toContain("skills     3 · model:1");
 		expect(output).toContain("/ commands");
 		expect(lines.every((line) => visibleWidth(line) <= 120)).toBe(true);
 	});
@@ -50,6 +50,7 @@ describe("startup banner", () => {
 	it("width 36 使用 tiny", () => {
 		const lines = formatStartupBanner(snapshot, baseConfig, 36, plainTheme());
 		expect(lines.join("\n")).toContain("O Pi");
+		expect(lines.join("\n")).toContain("skills:3 model:1");
 		expect(lines.join("\n")).not.toContain("____");
 		expect(lines.every((line) => visibleWidth(line) <= 36)).toBe(true);
 	});
@@ -74,7 +75,7 @@ describe("startup banner", () => {
 		const toolsLine = lines.find((line) => line.includes("tools")) ?? "";
 		expect(toolsLine).toContain("10/10");
 		expect(toolsLine).not.toContain("files:4");
-		expect(lines.join("\n")).toContain("skills     3 · user:2 · project:1");
+		expect(lines.join("\n")).toContain("skills     3 · model:1");
 	});
 
 	it("无 skills 时不显示 skills 行", () => {
@@ -83,9 +84,9 @@ describe("startup banner", () => {
 		expect(lines.join("\n")).not.toContain("skills");
 	});
 
-	it("temporary skills 单独显示 temp 计数", () => {
-		const lines = formatStartupBanner({ ...snapshot, skills: { totalCount: 3, userCount: 1, projectCount: 1, temporaryCount: 1 } }, baseConfig, 120, plainTheme());
-		expect(lines.join("\n")).toContain("skills     3 · user:1 · project:1 · temp:1");
+	it("模型可调用数限制在 skill 总数内", () => {
+		const lines = formatStartupBanner({ ...snapshot, skills: { totalCount: 3, modelInvocableCount: 5 } }, baseConfig, 120, plainTheme());
+		expect(lines.join("\n")).toContain("skills     3 · model:3");
 	});
 
 	it("clean/dirty git 使用不同颜色", () => {

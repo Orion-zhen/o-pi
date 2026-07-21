@@ -71,13 +71,13 @@ agent: subagent
 
 全部启用时显示 `files:4 search:2 shell:1 web:2 agent:1`；部分关闭时显示 `files:3/4`。未归组工具合并为 `other`。Slash command 只作为 hints/details 出现，不计入 tools 数量。
 
-如果已加载 skills，banner 会在 tools 下方单独显示一行：
+如果发现 skills，banner 会在 tools 下方单独显示一行：
 
 ```text
-skills    3 · user:2 · project:1
+skills    3 · model:1
 ```
 
-skills 数量来自 Pi 公开 `pi.getCommands()` 中 `source: "skill"` 的命令，并按 `sourceInfo.scope` 统计 user/project。temporary scope 只在存在时追加 `temp:n`。这不依赖 system prompt 中是否展示 skills，也不计入 tools 的 `active/total`。
+skills 总数来自 Pi 公开 `pi.getCommands()` 中 `source: "skill"` 的命令，`model:n` 使用 Pi 的 skill loader 统计其中未被 `disable-model-invocation: true` 禁用的数量。同名 skill 只计一次，project skill 始终覆盖 user skill。这不依赖 system prompt 中是否展示 skills，也不计入 tools 的 `active/total`。
 
 当前本地 Pi API 没有比 `ctx.ui.setHeader()` 更专门的 public startup banner 入口。本扩展只通过公开 header API 显示 banner；如果 `clear_on_first_turn` 为 true，第一轮 turn 开始后恢复普通 one-line header 或清空 header，让 Pi 内置 startup help/resources 行为保持原样。
 

@@ -86,7 +86,7 @@ async function candidate(name: string, disableModelInvocation: boolean, body: st
 	await mkdir(dir, { recursive: true });
 	const file = path.join(dir, "SKILL.md");
 	await writeSkill(file, name, disableModelInvocation, body);
-	return { name, path: file, scope: "project" };
+	return { name, path: file, disableModelInvocation, scope: "project" };
 }
 
 async function writeSkill(file: string, name: string, disableModelInvocation: boolean, body: string): Promise<void> {

@@ -10,7 +10,7 @@ import { discoverAgents } from "../../src/subagent/agents.js";
 import { loadSubagentConfig } from "../../src/subagent/config.js";
 import type { AgentDefinition } from "../../src/subagent/types.js";
 import { countTextTokensSync, type TokenCounterScope } from "../../src/token-counter.js";
-import { loadModelInvocableSkillIndex } from "../../src/skill-context/loader.js";
+import { collectModelInvocableSkillIndex } from "../../src/skill-context/loader.js";
 
 const SYSTEM_COMMAND_DESCRIPTION = "Show the current synthesized system prompt.";
 const VIEWER_BODY_ROWS_RATIO = 0.75;
@@ -398,10 +398,8 @@ export async function buildRuntimeSystemPrompt(options: BuildSystemPromptOptions
 	if (process.env.PI_SUBAGENT_CHILD === "1") {
 		return buildSubagentSystemPrompt(options);
 	}
-	const [extraSections, modelInvocableSkills] = await Promise.all([
-		getMainAgentExtraSystemPrompt(cwd),
-		loadModelInvocableSkillIndex(options),
-	]);
+	const extraSections = await getMainAgentExtraSystemPrompt(cwd);
+	const modelInvocableSkills = collectModelInvocableSkillIndex(options);
 	return buildSystemPrompt(options, extraSections, modelInvocableSkills);
 }
 
