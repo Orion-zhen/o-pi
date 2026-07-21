@@ -41,6 +41,7 @@ type EditCallContext = {
 	state: { callComponent?: EditCallComponent };
 	argsComplete: boolean;
 	cwd: string;
+	expanded: boolean;
 	isPartial: boolean;
 	invalidate(): void;
 };
@@ -48,7 +49,6 @@ type EditResultContext = {
 	lastComponent?: unknown;
 	state: { callComponent?: EditCallComponent };
 	args: unknown;
-	expanded: boolean;
 };
 
 type EditPreview = EditPreviewSuccess | FailedResult;
@@ -163,10 +163,10 @@ export function renderEditCall(args: unknown, theme: Theme, context: EditCallCon
 				}
 			});
 	}
-	return buildEditCallComponent(component, args, theme);
+	return buildEditCallComponent(component, args, theme, context.expanded);
 }
 
-export function renderEditResult(result: { details?: unknown }, options: { isPartial: boolean }, theme: Theme, context: EditResultContext): Text | Box {
+export function renderEditResult(result: { details?: unknown }, options: { expanded: boolean; isPartial: boolean }, theme: Theme, context: EditResultContext): Text | Box {
 	if (options.isPartial) return new Text(formatToolCard({ tool: "edit", status: "running", target: editTarget(context.args), summary: "applying" }, theme), 0, 0);
 
 	const details = result.details;
@@ -179,12 +179,12 @@ export function renderEditResult(result: { details?: unknown }, options: { isPar
 	} else if (isFailedEditDetails(details)) {
 		callComponent.settledError = true;
 	}
-	buildEditCallComponent(callComponent, context.args, theme);
+	buildEditCallComponent(callComponent, context.args, theme, options.expanded);
 
 	const component = context.lastComponent instanceof Box ? context.lastComponent : new Box(1, 1);
 	component.clear();
 	component.setBgFn(editResultBg(details, theme));
-	const output = formatEditResult(details, theme, context.args, context.expanded);
+	const output = formatEditResult(details, theme, context.args, options.expanded);
 	if (output === undefined) return component;
 	component.addChild(new Text(output, 0, 0));
 	return component;
@@ -211,11 +211,11 @@ function getEditCallComponent(state: { callComponent?: EditCallComponent }, last
 	return component;
 }
 
-function buildEditCallComponent(component: EditCallComponent, args: unknown, theme: Theme): EditCallComponent {
+function buildEditCallComponent(component: EditCallComponent, args: unknown, theme: Theme, expanded: boolean): EditCallComponent {
 	component.setBgFn(editHeaderBg(component.preview, component.settledError, theme));
 	component.clear();
 	component.addChild(new Text(formatEditCall(args, theme), 0, 0));
-	if (component.preview === undefined) return component;
+	if (!expanded || component.preview === undefined) return component;
 
 	component.addChild(new Spacer(1));
 	if (isFailedEditDetails(component.preview)) {
@@ -250,7 +250,7 @@ function formatEditResult(details: unknown, theme: Theme, args: unknown, expande
 		summary: joinParts([formatDiffStats(details.diff), `${details.replacements} replacements`, details.diff !== "" ? "diff available" : "no diff", formatLspSummary(details.lsp?.diagnostics)]),
 	}, theme);
 	const diff = details.diff === "" ? undefined : renderDiff(details.diff);
-	if (!expanded) return [header, diff].filter((part): part is string => part !== undefined).join("\n\n");
+	if (!expanded) return header;
 	const diagnostics = formatLspDiagnostics(details.lsp?.diagnostics, theme);
 	return [header, diff, diagnostics].filter((part): part is string => part !== undefined).join("\n\n");
 }
@@ -534,7 +534,7 @@ function formatWriteResult(details: unknown, theme: Pick<Theme, "fg" | "bold">, 
 		summary: joinParts([formatDiffStats(diff), formatBytes(details.bytes), diff !== "" ? "diff available" : "no diff", formatLspSummary(details.lsp?.diagnostics)]),
 	}, theme);
 	const renderedDiff = diff === "" ? undefined : renderDiff(diff);
-	if (!expanded) return [header, renderedDiff].filter((part): part is string => part !== undefined).join("\n\n");
+	if (!expanded) return header;
 	const diagnostics = formatLspDiagnostics(details.lsp?.diagnostics, theme);
 	return [header, renderedDiff, diagnostics].filter((part): part is string => part !== undefined).join("\n\n");
 }

@@ -435,7 +435,7 @@ describe("file-tools extension", () => {
 		expect(nearbyOutput).toContain("src/auth/service.ts [name similarity]");
 	});
 
-	it("edit 完成后成功和失败结果都保留 tool card 背景，折叠态成功结果展示 diff", () => {
+	it("edit 完成后保留 tool card 背景，折叠态只显示两行摘要，展开后显示 diff", () => {
 		const registered: Array<{ name: string; renderResult?: RenderResult }> = [];
 		fileTools({
 			registerTool(tool: { name: string; renderResult?: RenderResult }) {
@@ -455,8 +455,19 @@ describe("file-tools extension", () => {
 		expect(success).toContain("toolSuccessBg");
 		expect(success).toContain("edit      src/app.ts");
 		expect(success).toContain("+1 -1");
-		expect(success).toContain("-old");
-		expect(success).toContain("+new");
+		expect(success).not.toContain("-old");
+		expect(success).not.toContain("+new");
+
+		const expandedSuccess = renderEditResult(registered, {
+			status: "applied",
+			path: "src/app.ts",
+			replacements: 1,
+			old_version: "old",
+			new_version: "new",
+			diff: "-old\n+new",
+		}, true);
+		expect(expandedSuccess).toContain("-old");
+		expect(expandedSuccess).toContain("+new");
 
 		const failure = renderEditResult(registered, {
 			status: "failed",
@@ -473,14 +484,38 @@ describe("file-tools extension", () => {
 		expect(expandedFailure).toContain("Edit 0");
 	});
 
-	it("write 完成后折叠态成功结果展示 diff", () => {
-		const registered: Array<{ name: string; renderResult?: RenderResult }> = [];
+	it("write 调用和结果的折叠态只显示两行摘要，展开后显示正文和 diff", () => {
+		const registered: Array<{ name: string; renderCall?: RenderCall; renderResult?: RenderResult }> = [];
 		fileTools({
-			registerTool(tool: { name: string; renderResult?: RenderResult }) {
+			registerTool(tool: { name: string; renderCall?: RenderCall; renderResult?: RenderResult }) {
 				registered.push(tool);
 			},
 			on() {},
 		} as unknown as ExtensionAPI);
+		const write = registered.find((tool) => tool.name === "write");
+		const args = { path: "notes.txt", content: "first\nsecond" };
+		const collapsedCall = write?.renderCall?.(args, theme, {
+			argsComplete: true,
+			cwd: "/repo",
+			expanded: false,
+			isPartial: true,
+			lastComponent: undefined,
+		});
+		const collapsedCallOutput = collapsedCall?.render(120).join("\n") ?? "";
+		expect(collapsedCallOutput.split("\n")).toHaveLength(2);
+		expect(collapsedCallOutput).not.toContain("first");
+		expect(collapsedCallOutput).not.toContain("second");
+
+		const expandedCall = write?.renderCall?.(args, theme, {
+			argsComplete: true,
+			cwd: "/repo",
+			expanded: true,
+			isPartial: true,
+			lastComponent: collapsedCall,
+		});
+		const expandedCallOutput = expandedCall?.render(120).join("\n") ?? "";
+		expect(expandedCallOutput).toContain("first");
+		expect(expandedCallOutput).toContain("second");
 
 		const output = renderWriteResult(registered, {
 			status: "written",
@@ -490,11 +525,21 @@ describe("file-tools extension", () => {
 		});
 		expect(output).toContain("write     src/app.ts");
 		expect(output).toContain("+1 -1");
-		expect(output).toContain("-1 old");
-		expect(output).toContain("+1 new");
+		expect(output.split("\n")).toHaveLength(2);
+		expect(output).not.toContain("-1 old");
+		expect(output).not.toContain("+1 new");
+
+		const expanded = renderWriteResult(registered, {
+			status: "written",
+			path: "src/app.ts",
+			bytes: 4,
+			diff: "-1 old\n+1 new",
+		}, true);
+		expect(expanded).toContain("-1 old");
+		expect(expanded).toContain("+1 new");
 	});
 
-	it("edit 参数完整后的折叠调用预览展示 diff", async () => {
+	it("edit 参数完整后的折叠调用只显示摘要，展开后显示预览 diff", async () => {
 		const registered: Array<{ name: string; renderCall?: RenderCall }> = [];
 		fileTools({
 			registerTool(tool: { name: string; renderCall?: RenderCall }) {
@@ -512,17 +557,24 @@ describe("file-tools extension", () => {
 			argsComplete: true,
 			cwd,
 			expanded: false,
-			invalidate() {},
+			invalidate: vi.fn(),
 			isPartial: true,
 			lastComponent: undefined,
 			state: {},
 		};
 
 		const first = edit?.renderCall?.(args, theme, context);
-		const output = await renderEditCallAfterPreview(edit, args, context, first);
+		await vi.waitFor(() => expect(context.invalidate).toHaveBeenCalled());
+		const collapsed = edit?.renderCall?.(args, theme, { ...context, lastComponent: first });
+		const output = collapsed?.render(120).join("\n") ?? "";
 		expect(output).toContain("edit      app.ts");
-		expect(output).toContain("-1 old");
-		expect(output).toContain("+1 new");
+		expect(output).not.toContain("-1 old");
+		expect(output).not.toContain("+1 new");
+
+		const expanded = edit?.renderCall?.(args, theme, { ...context, expanded: true, lastComponent: first });
+		const expandedOutput = expanded?.render(120).join("\n") ?? "";
+		expect(expandedOutput).toContain("-1 old");
+		expect(expandedOutput).toContain("+1 new");
 	});
 
 	it("read/edit 成功结果给模型返回紧凑文本，完整结构留在 details", async () => {
@@ -689,11 +741,11 @@ function renderEditResult(registered: Array<{ name: string; renderResult?: Rende
 	return component?.render(120).join("\n") ?? "";
 }
 
-function renderWriteResult(registered: Array<{ name: string; renderResult?: RenderResult }>, details: unknown): string {
+function renderWriteResult(registered: Array<{ name: string; renderResult?: RenderResult }>, details: unknown, expanded = false): string {
 	const tool = registered.find((item) => item.name === "write");
 	const component = tool?.renderResult?.(
 		{ content: [{ type: "text", text: JSON.stringify(details, null, 2) }], details },
-		{ expanded: false, isPartial: false },
+		{ expanded, isPartial: false },
 		theme,
 		{
 			args: { path: "src/app.ts", content: "new" },
@@ -702,21 +754,6 @@ function renderWriteResult(registered: Array<{ name: string; renderResult?: Rend
 		},
 	);
 	return component?.render(120).join("\n") ?? "";
-}
-
-async function renderEditCallAfterPreview(
-	edit: { renderCall?: RenderCall } | undefined,
-	args: unknown,
-	context: Record<string, unknown>,
-	first: Renderable | undefined,
-): Promise<string> {
-	for (let attempt = 0; attempt < 20; attempt += 1) {
-		await new Promise((resolve) => setTimeout(resolve, 10));
-		const component = edit?.renderCall?.(args, theme, { ...context, lastComponent: first });
-		const output = component?.render(120).join("\n") ?? "";
-		if (output.includes("old") && output.includes("new")) return output;
-	}
-	return edit?.renderCall?.(args, theme, { ...context, lastComponent: first })?.render(120).join("\n") ?? "";
 }
 
 async function executeTool(

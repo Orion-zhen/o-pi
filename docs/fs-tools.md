@@ -523,7 +523,7 @@ token.ts:14 issueToken [callee]
 * 不要求先 `read`，也不更新 `read` 的版本缓存。
 * soft ignore 不阻止 `write`；`blocked_path` 会拒绝写入。写入前会检查目标 lexical path、最近已存在父目录 realpath，以及已存在目标文件 realpath，避免通过 symlink 或 symlink parent 绕过。
 * 写入机制与 Pi 内置 `write` 相同，使用普通 UTF-8 文件写入，不提供事务或回滚。
-* `details.diff` 保存写入前后 diff，TUI 折叠态默认展示；模型可见成功结果不包含 diff。
+* `details.diff` 保存写入前后 diff，TUI 只在展开态展示；模型可见成功结果不包含 diff。
 
 模型可见成功结果只确认写入路径；只有实际得到 LSP 诊断结果时才增加状态：
 
@@ -570,7 +570,7 @@ diag warning 30:7 'bar' is declared but never used.
 
 soft ignore 不阻止 `edit`。`edit` 只依据文件系统访问结果、文件类型、上次读取版本和 operation 合法性决定是否修改。
 
-TUI 会在参数完整后执行只读预览并在 call 区显示 diff；真正执行仍必须通过 read-before-edit 和版本校验。成功后如果结果 diff 与预览一致，结果区不重复展示 diff。
+TUI 会在参数完整后执行只读预览，call 区只在展开态显示 diff；真正执行仍必须通过 read-before-edit 和版本校验。成功结果的 diff 也只在展开态显示。
 
 模型可见成功结果只确认写入事实：
 
