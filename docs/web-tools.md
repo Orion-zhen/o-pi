@@ -17,13 +17,11 @@ Web 工具分为搜索和抓取：
 websearch({
   query: string,
   limit?: number,
-  freshness?: "day" | "week" | "month" | "year" | { start?: string, end?: string },
 })
 ```
 
 - `query`：支持 `site:`、`-site:`、引号、错误码和版本号；域名操作符会转成跨 provider 的结构化过滤，router 同时编译 lexical/semantic 形式。
 - `limit`：返回 1 到 20 条；默认使用配置 `websearch.default_results`。
-- `freshness`：按发布时间限制最近一天/周/月/年，或使用 `YYYY-MM-DD` 日期范围。
 
 配置中的 `websearch.include_domains` 和 `websearch.exclude_domains` 是每次搜索都会应用的全局域名过滤，默认均为空；`query` 中的 `site:` / `-site:` 会在此基础上继续合并。配置或合并结果中的包含、排除域名不得重叠。
 
@@ -40,8 +38,8 @@ Provider 是运行时策略，不暴露给模型：
 
 - 各 provider 使用 `api_key`：可直接填写 key，也可用 `$NAME` / `${NAME}` 引用环境变量；解析规则与 `openai-compatible-provider` 一致。空字符串、空白值或无法解析的引用会自动禁用该 provider；引用随后可用时会在下次搜索自动恢复。默认分别引用 `BRAVE_SEARCH_API_KEY`、`EXA_API_KEY`、`TAVILY_API_KEY`，推荐使用环境变量，避免把 key 写入配置文件。
 - 三家正式 endpoint 只允许公开 HTTP(S) literal URL，拒绝 userinfo、localhost 和 literal 私网/回环/link-local IP。
-- 查询在本地确定性编译成保留操作符的 lexical query 与去除操作符、提取域名/时间条件的 semantic query，不额外调用 LLM。
-- HTTP 成功仍需经过数量、关键词匹配、snippet、域名多样性、freshness 和原生分数质量门控；导航与 `site:` 查询不要求域名多样性。
+- 查询在本地确定性编译成保留操作符的 lexical query 与去除操作符、提取域名条件的 semantic query，不额外调用 LLM。
+- HTTP 成功仍需经过数量、关键词匹配、snippet、域名多样性和原生分数质量门控；导航与 `site:` 查询不要求域名多样性。
 - 大多数调用只请求一个正式 provider；质量不足或 hard failure 时最多请求第二个正式 provider。第二次失败仍保留第一批 partial results，不会继续请求第三个正式 provider。
 - 合并结果会规范化 URL、去重、加权 RRF、为跨 provider 共识加分，并默认限制每个 registrable domain 最多两条。provenance 仅保留在 `details`/遥测。
 - DDG 结果页使用流式 HTML parser，只抽取结果块所需字段，不构建完整 DOM；既有限流、challenge 检测和熔断保持不变。

@@ -90,13 +90,10 @@ export function buildBraveRequest(config: WebToolsConfig["websearch"]["brave_api
 	url.searchParams.set("text_decorations", "false");
 	url.searchParams.set("safesearch", "moderate");
 	url.searchParams.set("extra_snippets", String(config.extra_snippets));
-	const freshness = braveFreshness(params.freshness);
-	if (freshness !== undefined) url.searchParams.set("freshness", freshness);
 	return { url, method: "GET", headers: { Accept: "application/json", "X-Subscription-Token": key } };
 }
 
 export function buildExaRequest(config: WebToolsConfig["websearch"]["exa_api"], params: NormalizedSearchParams, key: string): ProviderRequest {
-	const dates = dateRange(params.freshness);
 	const options: RegularSearchOptions = {
 		type: "auto",
 		numResults: Math.min(10, Math.max(params.limit, 6)),
@@ -104,28 +101,22 @@ export function buildExaRequest(config: WebToolsConfig["websearch"]["exa_api"], 
 		...(params.compiled.intent === "paper" ? { category: "research paper" } : {}),
 		...(params.includeDomains.length > 0 ? { includeDomains: params.includeDomains } : {}),
 		...(params.excludeDomains.length > 0 ? { excludeDomains: params.excludeDomains } : {}),
-		...(dates.start !== undefined ? { startPublishedDate: dates.start } : {}),
-		...(dates.end !== undefined ? { endPublishedDate: dates.end } : {}),
 	};
 	const body = { query: params.compiled.semanticQuery, ...options };
 	return { url: new URL(config.endpoint), method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "x-api-key": key }, body: JSON.stringify(body) };
 }
 
 export function buildTavilyRequest(config: WebToolsConfig["websearch"]["tavily"], params: NormalizedSearchParams, key: string): ProviderRequest {
-	const dates = dateRange(params.freshness, true);
 	const complex = params.lastFormalOpportunity === true && (params.compiled.intent === "semantic" || params.compiled.intent === "paper");
 	const options: TavilySearchOptions = {
 		maxResults: Math.min(10, Math.max(params.limit, 5)), searchDepth: complex ? "advanced" : "basic", autoParameters: false,
 		includeAnswer: false, includeRawContent: false, includeImages: false,
-		...(typeof params.freshness === "string" ? { timeRange: params.freshness } : {}),
-		...(dates.start !== undefined ? { startDate: dates.start } : {}), ...(dates.end !== undefined ? { endDate: dates.end } : {}),
 		...(params.includeDomains.length > 0 ? { includeDomains: params.includeDomains } : {}), ...(params.excludeDomains.length > 0 ? { excludeDomains: params.excludeDomains } : {}),
 	};
 	const body = {
 		query: params.compiled.semanticQuery,
 		max_results: options.maxResults, search_depth: options.searchDepth, auto_parameters: options.autoParameters,
 		include_answer: options.includeAnswer, include_raw_content: options.includeRawContent, include_images: options.includeImages,
-		...(options.timeRange !== undefined ? { time_range: options.timeRange } : {}), ...(options.startDate !== undefined ? { start_date: options.startDate } : {}), ...(options.endDate !== undefined ? { end_date: options.endDate } : {}),
 		...(options.includeDomains !== undefined ? { include_domains: options.includeDomains } : {}), ...(options.excludeDomains !== undefined ? { exclude_domains: options.excludeDomains } : {}),
 	};
 	return { url: new URL(config.endpoint), method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify(body) };
@@ -155,9 +146,8 @@ function normalizedItem(id: FormalWebSearchProviderId, row: Record<string, unkno
 	const highlights = array(row["highlights"]).filter((value): value is string => typeof value === "string").join(" ");
 	const extra = array(row["extra_snippets"]).filter((value): value is string => typeof value === "string").join(" ");
 	const snippet = normalizeSearchText((string(row[id === "tavily" ? "content" : "description"]) ?? highlights) || extra).slice(0, SEARCH_RESULT_MAX_SNIPPET_CHARS);
-	const published = string(row[id === "brave_api" ? "page_age" : "publishedDate"]);
 	const score = number(row["score"]) ?? array(row["highlightScores"]).find((value): value is number => typeof value === "number");
-	return { rank, title, url, ...(snippet ? { snippet } : {}), ...(published ? { published_date: published } : {}), ...(score !== undefined ? { score } : {}) };
+	return { rank, title, url, ...(snippet ? { snippet } : {}), ...(score !== undefined ? { score } : {}) };
 }
 
 function classifyHttpStatus(status: number, body: string): { code: WebSearchErrorCode; message: string } {
@@ -184,20 +174,6 @@ function array(value: unknown): unknown[] { return Array.isArray(value) ? value 
 function nestedRows(value: Record<string, unknown>, key: string): unknown[] { const nested = value[key]; return record(nested) ? array(nested["results"]) : []; }
 function string(value: unknown): string | undefined { return typeof value === "string" && value.trim() ? value : undefined; }
 function number(value: unknown): number | undefined { return typeof value === "number" && Number.isFinite(value) ? value : undefined; }
-
-function braveFreshness(freshness: NormalizedSearchParams["freshness"]): string | undefined {
-	if (freshness === undefined) return undefined;
-	if (typeof freshness === "string") return { day: "pd", week: "pw", month: "pm", year: "py" }[freshness];
-	return freshness.start !== undefined && freshness.end !== undefined ? `${freshness.start}to${freshness.end}` : undefined;
-}
-
-function dateRange(freshness: NormalizedSearchParams["freshness"], dateOnly = false): { start?: string; end?: string } {
-	if (freshness === undefined) return {};
-	if (typeof freshness === "object") return { ...(freshness.start !== undefined ? { start: dateOnly ? freshness.start : `${freshness.start}T00:00:00.000Z` } : {}), ...(freshness.end !== undefined ? { end: dateOnly ? freshness.end : `${freshness.end}T23:59:59.999Z` } : {}) };
-	const days = { day: 1, week: 7, month: 31, year: 365 }[freshness];
-	const start = new Date(Date.now() - days * 86_400_000).toISOString();
-	return { start: dateOnly ? start.slice(0, 10) : start };
-}
 
 function retryAfterMs(value: string | null, now: number): number | undefined {
 	if (value === null) return undefined;

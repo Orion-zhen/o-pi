@@ -1,4 +1,4 @@
-import type { FormalWebSearchProviderId, WebSearchExecutionContext, WebSearchFailureDetails, WebSearchFreshness, WebSearchItem, WebSearchProviderId } from "../types.js";
+import type { FormalWebSearchProviderId, WebSearchExecutionContext, WebSearchFailureDetails, WebSearchItem, WebSearchProviderId } from "../types.js";
 
 export type SearchIntent = "exact" | "navigation" | "news" | "fact" | "paper" | "semantic" | "general";
 
@@ -9,7 +9,6 @@ export interface CompiledSearchQuery {
 	intent: SearchIntent;
 	includeDomains: string[];
 	excludeDomains: string[];
-	freshness?: WebSearchFreshness;
 	keyTerms: string[];
 	navigation: boolean;
 }
@@ -18,7 +17,6 @@ export interface CompiledSearchQuery {
 export interface NormalizedSearchParams {
 	query: string;
 	limit: number;
-	freshness?: WebSearchFreshness;
 	includeDomains: string[];
 	excludeDomains: string[];
 	compiled: CompiledSearchQuery;

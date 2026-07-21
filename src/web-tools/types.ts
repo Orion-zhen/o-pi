@@ -6,7 +6,6 @@ export type SnapshotStatus = "created" | "hit" | "refetched" | "not_needed";
 /** 搜索运行时 provider 标识；不暴露为模型工具参数。 */
 export type FormalWebSearchProviderId = "brave_api" | "exa_api" | "tavily";
 export type WebSearchProviderId = FormalWebSearchProviderId | "duckduckgo_html";
-export type WebSearchFreshness = "day" | "week" | "month" | "year" | { start?: string; end?: string };
 
 export interface WebFetchParams {
 	url: string;
@@ -19,7 +18,6 @@ export interface WebFetchParams {
 export interface WebSearchParams {
 	query: string;
 	limit?: number;
-	freshness?: WebSearchFreshness;
 }
 
 /** 单条搜索结果，rank 保留搜索引擎原始排序。 */
@@ -28,7 +26,6 @@ export interface WebSearchItem {
 	title: string;
 	url: string;
 	snippet?: string;
-	published_date?: string;
 	/** Provider-native relevance; details/telemetry only. */
 	score?: number;
 	/** Merged provenance; never rendered into model content. */

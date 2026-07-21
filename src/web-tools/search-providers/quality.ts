@@ -12,7 +12,7 @@ export interface QualityAssessment {
 	reasons: string[];
 }
 
-export function assessSearchQuality(results: readonly WebSearchItem[], query: CompiledSearchQuery, requestedLimit: number, now = Date.now()): QualityAssessment {
+export function assessSearchQuality(results: readonly WebSearchItem[], query: CompiledSearchQuery, requestedLimit: number): QualityAssessment {
 	const usableResults = results.filter((item) => usable(item, query));
 	if (usableResults.length === 0) return { quality: "soft_miss", score: 0, usableResults: [], reasons: ["no_relevant_results"] };
 	const target = Math.min(requestedLimit, query.navigation ? 2 : 5);
@@ -22,11 +22,10 @@ export function assessSearchQuality(results: readonly WebSearchItem[], query: Co
 	const domains = new Set(usableResults.map((item) => registrableDomain(item.url)).filter(Boolean));
 	const native = usableResults.flatMap((item) => item.score === undefined ? [] : [clamp(item.score)]);
 	const nativeScore = native.length === 0 ? 0.5 : native.reduce((sum, score) => sum + score, 0) / native.length;
-	const freshness = freshnessCoverage(usableResults, query, now);
 	const countScore = Math.min(1, usableResults.length / Math.max(1, target));
 	const diversityScore = query.navigation ? 1 : Math.min(1, domains.size / Math.min(3, usableResults.length));
-	const score = 0.3 * countScore + 0.3 * relevanceScore + 0.15 * snippetCoverage + 0.1 * diversityScore + 0.1 * freshness + 0.05 * nativeScore;
-	const accepted = usableResults.length >= target && relevanceScore >= 0.34 && snippetCoverage >= 0.4 && (query.navigation || diversityScore >= 0.5) && freshness >= 0.5;
+	const score = 0.35 * countScore + 0.35 * relevanceScore + 0.15 * snippetCoverage + 0.1 * diversityScore + 0.05 * nativeScore;
+	const accepted = usableResults.length >= target && relevanceScore >= 0.34 && snippetCoverage >= 0.4 && (query.navigation || diversityScore >= 0.5);
 	return {
 		quality: accepted ? "accepted" : "partial",
 		score,
@@ -36,7 +35,6 @@ export function assessSearchQuality(results: readonly WebSearchItem[], query: Co
 			...(relevanceScore < 0.34 ? ["weak_term_match"] : []),
 			...(snippetCoverage < 0.4 ? ["low_snippet_coverage"] : []),
 			...(!query.navigation && diversityScore < 0.5 ? ["low_domain_diversity"] : []),
-			...(freshness < 0.5 ? ["freshness_miss"] : []),
 		],
 	};
 }
@@ -57,21 +55,6 @@ function matchesTerms(item: WebSearchItem, terms: readonly string[]): boolean {
 function matchRatio(item: WebSearchItem, terms: readonly string[]): number {
 	const haystack = `${item.title} ${item.snippet ?? ""} ${item.url}`.toLowerCase();
 	return terms.length === 0 ? 1 : terms.filter((term) => haystack.includes(term)).length / terms.length;
-}
-
-function freshnessCoverage(results: readonly WebSearchItem[], query: CompiledSearchQuery, now: number): number {
-	if (query.freshness === undefined) return 1;
-	const dates = results.flatMap((item) => item.published_date === undefined ? [] : [Date.parse(item.published_date)]).filter(Number.isFinite);
-	if (dates.length === 0) return 0.5;
-	const start = freshnessStart(query.freshness, now);
-	const end = typeof query.freshness === "object" && query.freshness.end !== undefined ? Date.parse(`${query.freshness.end}T23:59:59Z`) : now;
-	return dates.filter((date) => date >= start && date <= end).length / dates.length;
-}
-
-function freshnessStart(freshness: NonNullable<CompiledSearchQuery["freshness"]>, now: number): number {
-	if (typeof freshness === "object") return freshness.start === undefined ? 0 : Date.parse(`${freshness.start}T00:00:00Z`);
-	const days = { day: 1, week: 7, month: 31, year: 365 }[freshness];
-	return now - days * 86_400_000;
 }
 
 function registrableDomain(raw: string): string {

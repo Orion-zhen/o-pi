@@ -142,20 +142,7 @@ function validateParams(params: WebSearchParams): WebSearchFailureDetails | unde
 	if (params.limit !== undefined && (!Number.isInteger(params.limit) || params.limit < 1 || params.limit > 20)) {
 		return invalid("limit must be an integer between 1 and 20.");
 	}
-	if (params.freshness !== undefined && !validFreshness(params.freshness)) return invalid("freshness must be day, week, month, year, or a valid date range.");
 	return undefined;
-}
-
-function validFreshness(value: NonNullable<WebSearchParams["freshness"]>): boolean {
-	if (typeof value === "string") return ["day", "week", "month", "year"].includes(value);
-	if (!isRecord(value) || value.start === undefined && value.end === undefined) return false;
-	const valid = (date: unknown): boolean => {
-		if (date === undefined) return true;
-		if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(date)) return false;
-		const parsed = new Date(`${date}T00:00:00Z`);
-		return Number.isFinite(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === date;
-	};
-	return valid(value.start) && valid(value.end) && !(value.start !== undefined && value.end !== undefined && value.start > value.end);
 }
 
 function invalid(message: string): WebSearchFailureDetails {

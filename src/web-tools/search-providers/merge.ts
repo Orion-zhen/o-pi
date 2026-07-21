@@ -46,7 +46,7 @@ export function mergeSearchResults(
 }
 
 function toOutput(candidate: Candidate, rank: number): WebSearchItem {
-	return { rank, title: candidate.title, url: candidate.url, ...(candidate.snippet !== undefined ? { snippet: candidate.snippet } : {}), ...(candidate.published_date !== undefined ? { published_date: candidate.published_date } : {}), ...(candidate.score !== undefined ? { score: candidate.score } : {}), provenance: [...candidate.providers].map(([provider, providerRank]) => ({ provider, rank: providerRank })) };
+	return { rank, title: candidate.title, url: candidate.url, ...(candidate.snippet !== undefined ? { snippet: candidate.snippet } : {}), ...(candidate.score !== undefined ? { score: candidate.score } : {}), provenance: [...candidate.providers].map(([provider, providerRank]) => ({ provider, rank: providerRank })) };
 }
 
 function duplicate(candidate: Candidate, item: WebSearchItem, normalizedUrl: string): boolean {

@@ -62,7 +62,6 @@ describe("websearch tool", () => {
 		await expect(executeWebSearch({ query: "" }, rt)).resolves.toMatchObject({ details: { status: "failed", error: { code: "INVALID_ARGUMENT" } } });
 		await expect(executeWebSearch({ query: "x".repeat(513) }, rt)).resolves.toMatchObject({ details: { status: "failed", error: { code: "INVALID_ARGUMENT" } } });
 		await expect(executeWebSearch({ query: "x", limit: 21 }, rt)).resolves.toMatchObject({ details: { status: "failed", error: { code: "INVALID_ARGUMENT" } } });
-		await expect(executeWebSearch({ query: "x", freshness: { start: "2025-02-31" } }, rt)).resolves.toMatchObject({ details: { status: "failed", error: { code: "INVALID_ARGUMENT" } } });
 		await expect(executeWebSearch({ query: "site:example.com -site:example.com x" }, rt)).resolves.toMatchObject({ details: { status: "failed", error: { code: "INVALID_ARGUMENT" } } });
 	});
 

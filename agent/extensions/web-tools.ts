@@ -25,10 +25,6 @@ const webSearchParameters = Type.Object(
 				description: "Result count; default from config.",
 			}),
 		),
-		freshness: Type.Optional(Type.Union([
-			StringEnum(["day", "week", "month", "year"] as const),
-			Type.Object({ start: Type.Optional(Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" })), end: Type.Optional(Type.String({ pattern: "^\\d{4}-\\d{2}-\\d{2}$" })) }, { additionalProperties: false }),
-		], { description: "Publication recency or YYYY-MM-DD formated date range." })),
 	},
 	{ additionalProperties: false },
 );

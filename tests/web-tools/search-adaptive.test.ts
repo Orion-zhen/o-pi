@@ -28,14 +28,13 @@ describe("adaptive search compilation and providers", () => {
 	});
 
 	it("编译 lexical/semantic query 并确定性分类", () => {
-		const exact = compileSearchQuery({ query: 'site:docs.example.com -site:spam.example "WidgetError" v2.4 after:2025-01-01' });
+		const exact = compileSearchQuery({ query: 'site:docs.example.com -site:spam.example "WidgetError" v2.4' });
 		expect(exact).toMatchObject({
-			lexicalQuery: 'site:docs.example.com -site:spam.example "WidgetError" v2.4 after:2025-01-01',
+			lexicalQuery: 'site:docs.example.com -site:spam.example "WidgetError" v2.4',
 			semanticQuery: '"WidgetError" v2.4',
 			intent: "exact",
 			includeDomains: ["docs.example.com"],
 			excludeDomains: ["spam.example"],
-			freshness: { start: "2025-01-01" },
 		});
 		expect(compileSearchQuery({ query: "research papers about sparse mixture of experts routing" }).intent).toBe("paper");
 		expect(compileSearchQuery({ query: "find practical approaches that compare several subtle tradeoffs across distributed teams and systems" }).intent).toBe("semantic");
@@ -45,19 +44,21 @@ describe("adaptive search compilation and providers", () => {
 	it("映射 Brave、Exa、Tavily 稳定参数", () => {
 		const config = defaultWebToolsConfig().websearch;
 		const exact = normalizeSearchParams(
-			{ query: "site:example.com -site:spam.test WidgetError", limit: 4, freshness: "week" },
+			{ query: "site:example.com -site:spam.test WidgetError", limit: 4 },
 			8,
 			{ includeDomains: ["docs.example"], excludeDomains: ["blocked.example"] },
 		);
 		const brave = buildBraveRequest(config.brave_api, exact, "brave-secret");
 		expect(brave.url.searchParams.get("q")).toContain("(site:docs.example OR site:example.com)");
 		expect(brave.url.searchParams.get("q")).toContain("-site:blocked.example");
-		expect(brave.url.searchParams.get("freshness")).toBe("pw");
+		expect(brave.url.searchParams.has("freshness")).toBe(false);
 		expect(brave.headers["X-Subscription-Token"]).toBe("brave-secret");
 
-		const paper = normalizeSearchParams({ query: "research paper sparse attention", limit: 5, freshness: { start: "2025-01-01" } }, 8);
+		const paper = normalizeSearchParams({ query: "research paper sparse attention", limit: 5 }, 8);
 		const exaBody = JSON.parse(buildExaRequest(config.exa_api, paper, "exa-secret").body ?? "null") as Record<string, unknown>;
-		expect(exaBody).toMatchObject({ type: "auto", category: "research paper", numResults: 6, startPublishedDate: "2025-01-01T00:00:00.000Z" });
+		expect(exaBody).toMatchObject({ type: "auto", category: "research paper", numResults: 6 });
+		expect(exaBody).not.toHaveProperty("startPublishedDate");
+		expect(exaBody).not.toHaveProperty("endPublishedDate");
 		expect(exaBody).not.toHaveProperty("text");
 		expect(exaBody).not.toHaveProperty("summary");
 
@@ -70,6 +71,9 @@ describe("adaptive search compilation and providers", () => {
 			include_domains: ["docs.example", "example.com"],
 			exclude_domains: ["blocked.example", "spam.test"],
 		});
+		expect(basic).not.toHaveProperty("time_range");
+		expect(basic).not.toHaveProperty("start_date");
+		expect(basic).not.toHaveProperty("end_date");
 		const advanced = JSON.parse(buildTavilyRequest(config.tavily, { ...paper, lastFormalOpportunity: true }, "tvly-secret").body ?? "null") as Record<string, unknown>;
 		expect(advanced.search_depth).toBe("advanced");
 	});

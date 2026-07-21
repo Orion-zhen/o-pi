@@ -65,8 +65,7 @@ export class SearchCorpus {
 }
 
 function filterKey(params: NormalizedSearchParams): string {
-	const freshness = typeof params.freshness === "object" ? [params.freshness.start ?? null, params.freshness.end ?? null] : params.freshness ?? null;
-	return JSON.stringify([freshness, params.includeDomains, params.excludeDomains]);
+	return JSON.stringify([params.includeDomains, params.excludeDomains]);
 }
 function queryTokens(value: string): Set<string> { return new Set(value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []); }
 function similarity(left: ReadonlySet<string>, right: ReadonlySet<string>): number { if (left.size === 0 || right.size === 0) return 0; const intersection = [...left].filter((token) => right.has(token)).length; return intersection / (left.size + right.size - intersection); }

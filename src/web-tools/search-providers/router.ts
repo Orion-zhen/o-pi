@@ -1,5 +1,4 @@
 import type { FormalWebSearchProviderId, WebSearchFailureDetails, WebSearchProviderAttempt, WebSearchProviderId, WebToolsConfig } from "../types.js";
-import { mergeSearchResults } from "./merge.js";
 import { assessSearchQuality, type QualityAssessment } from "./quality.js";
 import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult, WebSearchProvider } from "./types.js";
 
@@ -106,7 +105,7 @@ export class SearchProviderRouter {
 			}
 
 			this.health.set(providerId, { status: "healthy" });
-			const assessment = assessSearchQuality(result.results, params.compiled, params.limit, context.now());
+			const assessment = assessSearchQuality(result.results, params.compiled, params.limit);
 			const usableResult: SearchProviderResult & { status: "success" } = { ...result, results: assessment.usableResults.map((item) => ({ ...item, provenance: [{ provider: providerId, rank: item.rank }] })) };
 			if (assessment.quality === "soft_miss") this.rememberNegative(providerId, params, result, context.now());
 			attempts.push({ provider: providerId, status: "success", duration_ms: duration, quality: assessment.quality, result_count: assessment.usableResults.length, ...(fallbackReason !== undefined ? { fallback_reason: fallbackReason } : {}) });
@@ -120,9 +119,10 @@ export class SearchProviderRouter {
 
 		const usable = formalResults.filter((entry) => entry.assessment.usableResults.length > 0);
 		if (usable.length > 0) {
+			const { mergeSearchResults } = await import("./merge.js");
 			const firstCount = usable[0]?.assessment.usableResults.length ?? 0;
 			const merged = mergeSearchResults(usable.map((entry, index) => ({ provider: entry.provider, weight: index === 0 ? 1 : 0.9, results: entry.assessment.usableResults })), params.limit);
-			const assessment = assessSearchQuality(merged, params.compiled, params.limit, context.now());
+			const assessment = assessSearchQuality(merged, params.compiled, params.limit);
 			const provider = usable[0]?.provider ?? primaryProvider;
 			const result: SearchProviderResult & { status: "success" } = { status: "success", provider, results: merged, downloadedBytes: usable.reduce((sum, entry) => sum + entry.result.downloadedBytes, 0) };
 			return success(provider, result, attempts, primaryProvider, assessment.quality === "soft_miss" ? "partial" : assessment.quality, formalProviderCalls, Math.max(0, merged.length - firstCount));
@@ -173,7 +173,7 @@ export class SearchProviderRouter {
 		const result = await provider.search(params, context);
 		const duration = context.now() - started;
 		if (result.status === "success" && result.results.length > 0) {
-			const usableResults = assessSearchQuality(result.results, params.compiled, params.limit, context.now()).usableResults;
+			const usableResults = assessSearchQuality(result.results, params.compiled, params.limit).usableResults;
 			if (usableResults.length === 0) return undefined;
 			const filtered = { ...result, results: usableResults };
 			attempts.push({ provider: result.provider, status: "success", duration_ms: duration, quality: "partial", result_count: usableResults.length, fallback_reason: "all_formal_providers_unavailable" });
@@ -191,7 +191,7 @@ function candidateOrder(primary: FormalWebSearchProviderId, params: NormalizedSe
 	return params.compiled.intent === "exact" || params.compiled.intent === "navigation" ? ["exa_api", "brave_api", "tavily"] : ["exa_api", "tavily", "brave_api"];
 }
 
-function negativeKey(provider: FormalWebSearchProviderId, params: NormalizedSearchParams): string { return `${provider}\0${params.query.toLowerCase()}\0${JSON.stringify([params.freshness, params.includeDomains, params.excludeDomains])}`; }
+function negativeKey(provider: FormalWebSearchProviderId, params: NormalizedSearchParams): string { return `${provider}\0${params.query.toLowerCase()}\0${JSON.stringify([params.includeDomains, params.excludeDomains])}`; }
 function skippedAttempt(provider: WebSearchProviderId, message: string, duration_ms?: number): WebSearchProviderAttempt { return { provider, status: "skipped", ...(duration_ms !== undefined ? { duration_ms } : {}), error: { code: "NO_PROVIDER_AVAILABLE", message } }; }
 function noProvider(query: string): WebSearchFailureDetails { return { status: "failed", query, error: { code: "NO_PROVIDER_AVAILABLE", message: "no search provider produced usable results." } }; }
 function timeoutFailure(query: string): WebSearchFailureDetails { return { status: "failed", query, error: { code: "TIMEOUT", message: "websearch deadline exceeded." } }; }

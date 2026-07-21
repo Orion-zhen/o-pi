@@ -1,8 +1,8 @@
 import type { WebSearchParams } from "../types.js";
 import type { CompiledSearchQuery, NormalizedSearchParams, SearchIntent } from "./types.js";
 
-const OPERATOR = /-?\b(?:site|filetype|intitle|inurl|before|after):(?:"[^"]+"|\S+)/giu;
-const OPERATOR_SIGNAL = /\b(?:site|filetype|intitle|inurl|before|after):/iu;
+const OPERATOR = /-?\b(?:site|filetype|intitle|inurl):(?:"[^"]+"|\S+)/giu;
+const OPERATOR_SIGNAL = /\b(?:site|filetype|intitle|inurl):/iu;
 const SITE = /(?:^|\s)(-?)site:(?:"([^"]+)"|(\S+))/giu;
 const EXACT_SIGNAL = /(?:"[^"]+"|\b(?:[A-Z]{1,8}-?\d{2,}|0x[\da-f]+|v?\d+\.\d+(?:\.\d+)?)\b|\b(?:error|exception|failed|status code)\b)/iu;
 const NEWS_SIGNAL = /\b(?:latest|today|current|news|breaking|update|status|release|最近|最新|今天|新闻|现状)\b/iu;
@@ -25,7 +25,6 @@ export function normalizeSearchParams(params: WebSearchParams, defaultLimit: num
 	return {
 		query,
 		limit: params.limit ?? defaultLimit,
-		...(compiled.freshness !== undefined ? { freshness: compiled.freshness } : {}),
 		includeDomains: compiled.includeDomains,
 		excludeDomains: compiled.excludeDomains,
 		compiled,
@@ -52,7 +51,6 @@ export function compileSearchQuery(params: WebSearchParams): CompiledSearchQuery
 	const excludeDomains = normalizeDomains(siteOperators.filter((site) => site.excluded).flatMap((site) => site.domains));
 	const semanticQuery = lexicalQuery.replace(OPERATOR, " ").replace(/\s+/gu, " ").trim();
 	const intent = classifySearchIntent(lexicalQuery, semanticQuery);
-	const freshness = params.freshness ?? operatorFreshness(lexicalQuery);
 	return {
 		originalQuery: params.query.trim(),
 		lexicalQuery,
@@ -60,7 +58,6 @@ export function compileSearchQuery(params: WebSearchParams): CompiledSearchQuery
 		intent,
 		includeDomains,
 		excludeDomains,
-		...(freshness !== undefined ? { freshness } : {}),
 		keyTerms: keyTerms(semanticQuery || lexicalQuery),
 		navigation: siteOperators.length > 0 || NAVIGATION_SIGNAL.test(lexicalQuery),
 	};
@@ -75,12 +72,6 @@ export function classifySearchIntent(lexicalQuery: string, semanticQuery = lexic
 	if (words.length >= 12 || SEMANTIC_SIGNAL.test(semanticQuery) && words.length >= 7) return "semantic";
 	if (/^(?:who|what|when|where|which|how many|多少|谁|什么|何时|哪里)\b/iu.test(semanticQuery)) return "fact";
 	return "general";
-}
-
-function operatorFreshness(value: string): { start?: string; end?: string } | undefined {
-	const start = /\bafter:(\d{4}-\d{2}-\d{2})\b/iu.exec(value)?.[1];
-	const end = /\bbefore:(\d{4}-\d{2}-\d{2})\b/iu.exec(value)?.[1];
-	return start === undefined && end === undefined ? undefined : { ...(start !== undefined ? { start } : {}), ...(end !== undefined ? { end } : {}) };
 }
 
 export function normalizeDomains(values: readonly string[]): string[] {
