@@ -3,11 +3,12 @@ import type { Model } from "@earendil-works/pi-ai";
 import type { CompatPresetName, ThinkingPresetName } from "./schema.js";
 
 type OpenAICompat = NonNullable<Model<"openai-completions">["compat"]>;
+type CompatOverride = Model<"openai-completions">["compat"] | Model<"openai-responses">["compat"];
 
 /** 当前 Pi 版本支持的 OpenAI Chat Completions compat preset。 */
 export const COMPAT_PRESETS = {
 	openai: {},
-	openai_compatible: {
+	"openai-compatible": {
 		supportsStore: false,
 		supportsDeveloperRole: false,
 		supportsReasoningEffort: false,
@@ -70,29 +71,29 @@ export const THINKING_PRESETS = {
 		supportsReasoningEffort: false,
 		thinkingFormat: "qwen",
 	},
-	qwen_chat_template: {
+	"qwen-chat-template": {
 		supportsReasoningEffort: false,
 		thinkingFormat: "qwen-chat-template",
 	},
-	chat_template_enabled: {
+	"chat-template-enabled": {
 		supportsReasoningEffort: false,
 		thinkingFormat: "chat-template",
 		chatTemplateKwargs: {
 			enable_thinking: { $var: "thinking.enabled" },
 		},
 	},
-	chat_template_effort: {
+	"chat-template-effort": {
 		supportsReasoningEffort: false,
 		thinkingFormat: "chat-template",
 		chatTemplateKwargs: {
 			reasoning_effort: { $var: "thinking.effort" },
 		},
 	},
-	string_thinking: {
+	"string-thinking": {
 		supportsReasoningEffort: false,
 		thinkingFormat: "string-thinking",
 	},
-	ant_ling: {
+	"ant-ling": {
 		supportsReasoningEffort: false,
 		thinkingFormat: "ant-ling",
 	},
@@ -103,15 +104,39 @@ export function allowsNonStandardSampling(preset: CompatPresetName): boolean {
 	return NON_STANDARD_SAMPLING_PRESETS.has(preset);
 }
 
-/** 展开有效的 compat/thinking preset，并允许模型级 advanced.compat 最后覆盖。 */
+/** 展开 preset，并按 provider、model 原生 compat 的顺序覆盖。 */
 export function resolveCompat(
 	preset: CompatPresetName | undefined,
 	thinkingPreset: ThinkingPresetName,
-	modelCompat: Record<string, unknown> | undefined,
+	providerCompat: CompatOverride,
+	modelCompat: CompatOverride,
 ): OpenAICompat {
-	return {
-		...COMPAT_PRESETS[preset ?? "openai_compatible"],
-		...THINKING_PRESETS[thinkingPreset],
+	const presetCompat = COMPAT_PRESETS[preset ?? "openai-compatible"];
+	const thinkingCompat = THINKING_PRESETS[thinkingPreset];
+	const merged: OpenAICompat = {
+		...presetCompat,
+		...thinkingCompat,
+		...(providerCompat ?? {}),
 		...(modelCompat ?? {}),
-	} as OpenAICompat;
+	};
+	for (const key of ["openRouterRouting", "vercelGatewayRouting", "chatTemplateKwargs"] as const) {
+		const nested = {
+			...nestedCompat(presetCompat, key),
+			...nestedCompat(thinkingCompat, key),
+			...nestedCompat(providerCompat, key),
+			...nestedCompat(modelCompat, key),
+		};
+		if (Object.keys(nested).length > 0) Object.assign(merged, { [key]: nested });
+	}
+	return merged;
+}
+
+function nestedCompat(value: object | undefined, key: string): Record<string, unknown> | undefined {
+	if (!value || !(key in value)) return undefined;
+	const nested: unknown = Reflect.get(value, key);
+	return isRecord(nested) ? nested : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

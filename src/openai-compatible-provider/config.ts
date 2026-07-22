@@ -81,21 +81,35 @@ function formatInstancePath(instancePath: string): string {
 		.replace(/\.\[/g, "[");
 }
 
-const PROVIDER_SAMPLING_FIELDS = new Set([
-	"defaults",
-	"temperature",
-	"top_p",
-	"top_k",
-	"min_p",
-	"max_tokens",
-	"presence_penalty",
-	"frequency_penalty",
-	"repetition_penalty",
-	"seed",
-	"stop",
-]);
 const COMPAT_PRESET_NAME_SET = new Set<string>(COMPAT_PRESET_NAMES);
 const THINKING_PRESET_NAME_SET = new Set<string>(THINKING_PRESET_NAMES);
+const LEGACY_PROVIDER_FIELDS: Record<string, string> = {
+	display_name: "name",
+	base_url: "baseUrl",
+	api_key: "apiKey",
+	models_endpoint: "modelsEndpoint",
+	thinking: "thinkingPreset",
+	advanced: "direct provider fields",
+};
+const LEGACY_DEFAULT_FIELDS: Record<string, string> = {
+	top_p: "topP",
+	top_k: "topK",
+	min_p: "minP",
+	max_tokens: "maxTokens",
+	presence_penalty: "presencePenalty",
+	frequency_penalty: "frequencyPenalty",
+	repetition_penalty: "repetitionPenalty",
+};
+const LEGACY_MODEL_FIELDS: Record<string, string> = {
+	model: "id",
+	display_name: "name",
+	context_window: "contextWindow",
+	max_tokens: "maxTokens",
+	thinking: "thinkingPreset",
+	thinking_level: "defaultThinkingLevel",
+	thinking_level_map: "thinkingLevelMap",
+	advanced: "direct model fields",
+};
 
 function prevalidateModelsJsonc(value: unknown, configPath: string): void {
 	if (!isRecord(value) || !isRecord(value.providers)) return;
@@ -103,42 +117,54 @@ function prevalidateModelsJsonc(value: unknown, configPath: string): void {
 	const expectedThinking = THINKING_PRESET_NAMES.join(", ");
 	for (const [providerId, provider] of Object.entries(value.providers)) {
 		if (!isRecord(provider)) continue;
-		for (const field of Object.keys(provider)) {
-			if (!PROVIDER_SAMPLING_FIELDS.has(field)) continue;
-			if (field === "defaults") {
-				throw invalidModelsJsonc(configPath, `provider "${providerId}" contains provider-level "defaults"; move sampling defaults under each model`);
-			}
-			throw invalidModelsJsonc(
-				configPath,
-				`Provider "${providerId}" contains provider-level sampling defaults. Sampling defaults are only supported under each model.`,
-			);
+		assertNoLegacyFields(provider, `providers.${providerId}`, LEGACY_PROVIDER_FIELDS, configPath);
+		if (provider.api === "chat" || provider.api === "responses") {
+			throw invalidModelsJsonc(configPath, `providers.${providerId}.api must use openai-completions or openai-responses`);
 		}
-		if (typeof provider.compat === "string" && !COMPAT_PRESET_NAME_SET.has(provider.compat)) {
-			throw invalidModelsJsonc(configPath, `provider "${providerId}" has unknown compat preset "${provider.compat}"; expected one of ${expectedCompat}`);
+		if (typeof provider.compatPreset === "string" && !COMPAT_PRESET_NAME_SET.has(provider.compatPreset)) {
+			throw invalidModelsJsonc(configPath, `provider "${providerId}" has unknown compatPreset "${provider.compatPreset}"; expected one of ${expectedCompat}`);
 		}
-		if (typeof provider.thinking === "string" && !THINKING_PRESET_NAME_SET.has(provider.thinking)) {
-			throw invalidModelsJsonc(configPath, `provider "${providerId}" has unknown thinking preset "${provider.thinking}"; expected one of ${expectedThinking}`);
+		if (typeof provider.thinkingPreset === "string" && !THINKING_PRESET_NAME_SET.has(provider.thinkingPreset)) {
+			throw invalidModelsJsonc(configPath, `provider "${providerId}" has unknown thinkingPreset "${provider.thinkingPreset}"; expected one of ${expectedThinking}`);
+		}
+		if (typeof provider.compat === "string") {
+			throw invalidModelsJsonc(configPath, `provider "${providerId}" compat must be a Pi compat object; use compatPreset for presets`);
 		}
 		if (Array.isArray(provider.models)) {
 			for (let index = 0; index < provider.models.length; index++) {
 				const model = provider.models[index];
-				if (isRecord(model) && typeof model.model !== "string") {
-					throw invalidModelsJsonc(configPath, `providers.${providerId}.models[${index}].model is required`);
+				if (isRecord(model)) assertNoLegacyFields(model, `providers.${providerId}.models[${index}]`, LEGACY_MODEL_FIELDS, configPath);
+				if (isRecord(model?.defaults)) {
+					assertNoLegacyFields(model.defaults, `providers.${providerId}.models[${index}].defaults`, LEGACY_DEFAULT_FIELDS, configPath);
 				}
-				if (isRecord(model) && "reasoning" in model) {
-					throw invalidModelsJsonc(configPath, `providers.${providerId}.models[${index}].reasoning is not supported; use thinking_level instead`);
+				if (isRecord(model) && typeof model.id !== "string") {
+					throw invalidModelsJsonc(configPath, `providers.${providerId}.models[${index}].id is required`);
 				}
 				if (isRecord(model) && "reasoning_effort" in model) {
-					throw invalidModelsJsonc(configPath, `providers.${providerId}.models[${index}].reasoning_effort is not supported; use thinking_level instead`);
-				}
-				if (isRecord(model) && typeof model.thinking === "string" && !THINKING_PRESET_NAME_SET.has(model.thinking)) {
 					throw invalidModelsJsonc(
 						configPath,
-						`providers.${providerId}.models[${index}] has unknown thinking preset "${model.thinking}"; expected one of ${expectedThinking}`,
+						`providers.${providerId}.models[${index}].reasoning_effort is not supported; use reasoning/defaultThinkingLevel`,
+					);
+				}
+				if (isRecord(model) && typeof model.thinkingPreset === "string" && !THINKING_PRESET_NAME_SET.has(model.thinkingPreset)) {
+					throw invalidModelsJsonc(
+						configPath,
+						`providers.${providerId}.models[${index}] has unknown thinkingPreset "${model.thinkingPreset}"; expected one of ${expectedThinking}`,
 					);
 				}
 			}
 		}
+	}
+}
+
+function assertNoLegacyFields(
+	value: Record<string, unknown>,
+	path: string,
+	renames: Record<string, string>,
+	configPath: string,
+): void {
+	for (const [legacy, replacement] of Object.entries(renames)) {
+		if (legacy in value) throw invalidModelsJsonc(configPath, `${path}.${legacy} was replaced by ${replacement}`);
 	}
 }
 

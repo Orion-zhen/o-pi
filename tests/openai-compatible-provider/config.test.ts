@@ -1,20 +1,25 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { InMemoryCredentialStore, InMemoryModelsStore } from "@earendil-works/pi-ai";
-import { ModelRegistry, ModelRuntime, type ExtensionAPI, type ProviderConfig as PiProviderConfig } from "@earendil-works/pi-coding-agent";
+import {
+	InMemoryCredentialStore,
+	InMemoryModelsStore,
+	type ModelsStoreEntry,
+	type Provider,
+} from "@earendil-works/pi-ai";
+import { ModelRegistry, ModelRuntime, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import openAICompatibleProvider from "../../agent/extensions/openai-compatible-provider.js";
 import {
 	applyRuntimePayloadConfig,
-	defaultModelsCachePath,
-	loadModelsDiscoveryCache,
+	createProviderAuth,
+	resolveRefreshAuth,
 	loadModelsJsoncConfig,
 	normalizeModelsJsoncConfig,
-	redact_api_key,
+	redactApiKey,
 	registerOpenAICompatibleProviders,
-	resolveAutoModelsJsoncConfig,
-	resolveCachedModelsJsoncConfig,
+	fetchProviderModelsFromEndpoint,
+	type ModelsJsoncConfig,
 } from "../../src/openai-compatible-provider/index.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
@@ -35,269 +40,235 @@ afterEach(() => {
 });
 
 describe("openai-compatible-provider config", () => {
-	it("将模型发现缓存放在统一的用户缓存目录", () => {
-		expect(defaultModelsCachePath()).toBe(path.join(dir, ".pi", "cache", "openai-compatible-provider", "models.json"));
+	it("仓库示例配置与当前 schema 同步", async () => {
+		const config = await loadModelsJsoncConfig(path.resolve("agent/models.jsonc.example"));
+		expect(config?.providers["llama-cpp"]?.api).toBe("openai-responses");
 	});
 
-	it("扩展启动只注册手写与缓存模型，手动刷新后更新 registry 和私有缓存", async () => {
+	it("扩展只注册完整原生 Provider，启动阶段不自行联网", async () => {
 		process.env.PI_CODING_AGENT_DIR = dir;
-		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response('{ "data": [{ "id": "discovered" }] }'));
-		await writeFile(
-			path.join(dir, "models.jsonc"),
-			'{ "providers": { "local": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": ["model"] } } }',
-			{ mode: 0o600 },
-		);
-		const harness = createExtensionHarness();
-
-		await openAICompatibleProvider(harness.pi);
-
-		expect(harness.providerCalls).toHaveLength(1);
-		expect(harness.providerCalls[0]?.name).toBe("local");
-		expect(harness.providerCalls[0]?.config.models?.map((model) => model.id)).toEqual(["model"]);
-		expect(fetch).not.toHaveBeenCalled();
-
-		await harness.runCommand("refresh-models");
-
-		expect(harness.providerCalls).toHaveLength(2);
-		expect(harness.providerCalls[1]?.config.models?.map((model) => model.id)).toEqual(["model", "discovered"]);
-		expect(fetch).toHaveBeenCalledOnce();
-		const cachePath = defaultModelsCachePath();
-		expect(JSON.parse(await readFile(cachePath, "utf8"))).toMatchObject({
-			version: 1,
-			providers: { local: { models: [{ model: "discovered" }] } },
-		});
-		expect((await stat(cachePath)).mode & 0o777).toBe(0o600);
-
-		const restart = createExtensionHarness();
-		await openAICompatibleProvider(restart.pi);
-		expect(restart.providerCalls[0]?.config.models?.map((model) => model.id)).toEqual(["model", "discovered"]);
-		expect(fetch).toHaveBeenCalledOnce();
-	});
-
-	it("空闲期并发刷新所有 provider，手动命令复用进行中的请求", async () => {
-		vi.useFakeTimers();
-		process.env.PI_CODING_AGENT_DIR = dir;
-		await writeFile(
-			path.join(dir, "models.jsonc"),
-			'{ "providers": { "one": { "base_url": "https://one.test/v1", "api_key": "EMPTY" }, "two": { "base_url": "https://two.test/v1", "api_key": "EMPTY" } } }',
-			{ mode: 0o600 },
-		);
-		let active = 0;
-		let maxActive = 0;
-		let started = 0;
-		let release: (() => void) | undefined;
-		const gate = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-			active++;
-			started++;
-			maxActive = Math.max(maxActive, active);
-			if (started === 2) release?.();
-			await gate;
-			active--;
-			const host = new URL(String(input)).hostname;
-			return new Response(JSON.stringify({ data: [{ id: `${host}-model` }] }));
-		});
-		const harness = createExtensionHarness();
-		await openAICompatibleProvider(harness.pi);
-
-		expect(harness.providerCalls).toHaveLength(0);
-		await harness.emit("session_start");
-		expect(fetch).not.toHaveBeenCalled();
-		await vi.advanceTimersToNextTimerAsync();
-		await harness.runCommand("refresh-models");
-
-		expect(fetch).toHaveBeenCalledTimes(2);
-		expect(maxActive).toBe(2);
-		expect(harness.providerCalls.map((call) => call.name)).toEqual(["one", "two"]);
-		expect(harness.notifications.some((item) => item.message.includes("Reopen /model"))).toBe(false);
-		expect(harness.notifications.at(-1)?.message).toBe("Model refresh complete: 2 updated, 0 failed.");
-	});
-
-	it("繁忙时推迟自动刷新，turn_start 取消，turn_end 空闲后恢复", async () => {
-		vi.useFakeTimers();
-		process.env.PI_CODING_AGENT_DIR = dir;
-		await writeFile(
-			path.join(dir, "models.jsonc"),
-			'{ "providers": { "local": { "base_url": "https://local.test/v1", "api_key": "EMPTY" } } }',
-			{ mode: 0o600 },
-		);
-		let idle = false;
-		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response('{ "data": [{ "id": "model" }] }'));
-		const harness = createExtensionHarness({ isIdle: () => idle });
-		await openAICompatibleProvider(harness.pi);
-
-		await harness.emit("session_start");
-		await vi.advanceTimersToNextTimerAsync();
-		expect(fetch).not.toHaveBeenCalled();
-		expect(vi.getTimerCount()).toBe(1);
-
-		await harness.emit("turn_start");
-		expect(vi.getTimerCount()).toBe(0);
-
-		idle = true;
-		await harness.emit("turn_end");
-		await vi.advanceTimersToNextTimerAsync();
-		await harness.runCommand("refresh-models");
-		expect(fetch).toHaveBeenCalledOnce();
-	});
-
-	it("print/json session 不自动联网，手动刷新仍立即执行", async () => {
-		vi.useFakeTimers();
-		process.env.PI_CODING_AGENT_DIR = dir;
-		await writeFile(
-			path.join(dir, "models.jsonc"),
-			'{ "providers": { "local": { "base_url": "https://local.test/v1", "api_key": "EMPTY" } } }',
-			{ mode: 0o600 },
-		);
-		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response('{ "data": [{ "id": "model" }] }'));
-		const harness = createExtensionHarness({ mode: "print" });
-		await openAICompatibleProvider(harness.pi);
-
-		await harness.emit("session_start");
-		await vi.runAllTimersAsync();
-		expect(fetch).not.toHaveBeenCalled();
-
-		await harness.runCommand("refresh-models");
-		expect(fetch).toHaveBeenCalledOnce();
-	});
-
-	it("session 关闭会取消尚未开始的自动模型刷新", async () => {
-		vi.useFakeTimers();
-		process.env.PI_CODING_AGENT_DIR = dir;
-		await writeFile(
-			path.join(dir, "models.jsonc"),
-			'{ "providers": { "local": { "base_url": "https://local.test/v1", "api_key": "EMPTY" } } }',
-			{ mode: 0o600 },
-		);
 		const fetch = vi.spyOn(globalThis, "fetch");
+		await writeFile(
+			path.join(dir, "models.jsonc"),
+			'{ "providers": { "local": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "models": ["manual"] } } }',
+			{ mode: 0o600 },
+		);
 		const harness = createExtensionHarness();
+
 		await openAICompatibleProvider(harness.pi);
 
-		await harness.emit("session_start");
-		await harness.emit("session_shutdown");
-		await vi.runAllTimersAsync();
-
+		expect(harness.providers).toHaveLength(1);
+		expect(harness.providers[0]).toMatchObject({ id: "local", baseUrl: "http://127.0.0.1:8000/v1" });
+		expect(harness.providers[0]?.getModels().map((model) => model.id)).toEqual(["manual"]);
+		expect(harness.providers[0]?.refreshModels).toBeTypeOf("function");
 		expect(fetch).not.toHaveBeenCalled();
 	});
 
-	it("部分刷新失败时保留该 provider 的旧缓存", async () => {
-		process.env.PI_CODING_AGENT_DIR = dir;
-		await writeFile(
-			path.join(dir, "models.jsonc"),
-			'{ "providers": { "one": { "base_url": "https://one.test/v1", "api_key": "EMPTY" }, "two": { "base_url": "https://two.test/v1", "api_key": "EMPTY" } } }',
-			{ mode: 0o600 },
-		);
-		let round = 1;
-		vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-			const host = new URL(String(input)).hostname;
-			if (round === 2 && host === "two.test") throw new Error("unreachable");
-			return new Response(JSON.stringify({ data: [{ id: `${host}-model-${round}` }] }));
-		});
-		const harness = createExtensionHarness();
-		await openAICompatibleProvider(harness.pi);
-		await harness.runCommand("refresh-models");
-		round = 2;
-		await harness.runCommand("refresh-models");
-
-		const latest = harness.providerCalls.slice(-2);
-		expect(latest.find((call) => call.name === "one")?.config.models?.map((model) => model.id)).toEqual(["one.test-model-2"]);
-		expect(latest.find((call) => call.name === "two")?.config.models?.map((model) => model.id)).toEqual(["two.test-model-1"]);
-		expect(harness.notifications.at(-1)).toMatchObject({ type: "warning" });
-	});
-
-	it("离线模式不启动自动或手动发现", async () => {
-		process.env.PI_CODING_AGENT_DIR = dir;
-		process.env.PI_OFFLINE = "true";
-		await writeFile(
-			path.join(dir, "models.jsonc"),
-			'{ "providers": { "local": { "base_url": "http://local.test/v1", "api_key": "EMPTY", "models": ["model"] } } }',
-			{ mode: 0o600 },
-		);
-		const fetch = vi.spyOn(globalThis, "fetch");
-		const harness = createExtensionHarness();
-		await openAICompatibleProvider(harness.pi);
-		await harness.emit("session_start");
-		await harness.runCommand("refresh-models");
-
-		expect(fetch).not.toHaveBeenCalled();
-		expect(harness.notifications.at(-1)?.message).toContain("offline mode");
-	});
-
-	it("损坏缓存按空缓存处理", async () => {
-		process.env.PI_CODING_AGENT_DIR = dir;
-		const cachePath = defaultModelsCachePath();
-		await mkdir(path.dirname(cachePath), { recursive: true });
-		await writeFile(cachePath, "not-json");
-		expect(await loadModelsDiscoveryCache(cachePath)).toEqual({ version: 1, providers: {} });
-	});
-
-	it("不复用其他 endpoint 的缓存，也不接受缓存中的请求期配置", async () => {
-		const config = await loadConfigFromText(`{
-			"providers": { "gateway": { "base_url": "https://new.test/v1", "api_key": "EMPTY" } }
-		}`);
-		const stale = {
-			version: 1 as const,
-			providers: { gateway: { source: "sha256:stale", models: [{ model: "old" }] } },
+	it("原生 auth 正确解析 env/header，并让 EMPTY provider 真正无 Authorization", async () => {
+		const ctx = {
+			env: async (name: string) => ({ KEY: "sk-test", TOKEN: "header-token" })[name],
+			fileExists: async () => false,
 		};
-		expect(resolveCachedModelsJsoncConfig(config, stale).providers).toEqual({});
+		const configured = createProviderAuth("gateway", {
+			baseUrl: "https://gateway.test/v1",
+			apiKey: "$KEY",
+			headers: { "X-Token": "$TOKEN" },
+		});
+		await expect(configured.resolve({ ctx })).resolves.toMatchObject({
+			auth: { apiKey: "sk-test", headers: { "X-Token": "header-token" } },
+			source: "KEY",
+		});
 
-		process.env.PI_CODING_AGENT_DIR = dir;
-		const cachePath = defaultModelsCachePath();
-		await mkdir(path.dirname(cachePath), { recursive: true });
-		await writeFile(cachePath, JSON.stringify({
-			version: 1,
-			providers: { gateway: { source: "sha256:value", models: [{ model: "unsafe", defaults: { temperature: 2 } }] } },
-		}));
-		expect((await loadModelsDiscoveryCache(cachePath)).providers).toEqual({});
+		const keyless = createProviderAuth("local", {
+			baseUrl: "http://127.0.0.1:8000/v1",
+			apiKey: "EMPTY",
+		});
+		await expect(keyless.resolve({ ctx })).resolves.toMatchObject({
+			auth: { apiKey: "unused", headers: { Authorization: null } },
+			source: "keyless provider",
+		});
+		const keylessConfig = {
+			baseUrl: "http://127.0.0.1:8000/v1",
+			apiKey: "EMPTY",
+		} as const;
+		expect(resolveRefreshAuth("local", keylessConfig, { type: "api_key", key: "sk-runtime" })).toMatchObject({
+			apiKey: "sk-runtime",
+			keyless: false,
+		});
+		expect(resolveRefreshAuth("local", keylessConfig, { type: "api_key", key: "unused" })).toMatchObject({
+			apiKey: "unused",
+			keyless: false,
+		});
+
+		const incomplete = createProviderAuth("incomplete", {
+			baseUrl: "https://gateway.test/v1",
+			apiKey: "sk-test",
+			headers: { "X-Account": "$MISSING_ACCOUNT" },
+		});
+		await expect(incomplete.check?.({ ctx })).resolves.toBeUndefined();
+	});
+
+	it("auth check 不执行命令，resolve 才在请求边界执行并缓存结果", async () => {
+		const marker = path.join(dir, "auth-command-ran");
+		const auth = createProviderAuth("command", {
+			baseUrl: "https://gateway.test/v1",
+			apiKey: `!printf ran >> ${marker}; printf sk-command`,
+		});
+		const ctx = { env: async () => undefined, fileExists: async () => false };
+
+		await expect(auth.check?.({ ctx })).resolves.toMatchObject({ type: "api_key" });
+		await expect(readFile(marker, "utf8")).rejects.toThrow();
+		await expect(auth.resolve({ ctx })).resolves.toMatchObject({ auth: { apiKey: "sk-command" } });
+		await expect(auth.resolve({ ctx })).resolves.toMatchObject({ auth: { apiKey: "sk-command" } });
+		expect(await readFile(marker, "utf8")).toBe("ran");
+	});
+
+	it("原生 Provider 从 Pi ModelsStore 恢复动态目录且不覆盖手写模型", async () => {
+		const config = await loadConfigFromText(`{
+			"providers": {
+				"local": {
+					"baseUrl": "http://127.0.0.1:8000/v1",
+					"apiKey": "EMPTY",
+					"models": [{ "id": "manual", "name": "Manual" }]
+				}
+			}
+		}`);
+		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response('{ "data": [{ "id": "manual", "name": "Remote" }, { "id": "dynamic" }] }'));
+		const stores = new Map<string, ModelsStoreEntry>();
+		const store = {
+			read: async () => stores.get("local"),
+			write: async (entry: ModelsStoreEntry) => { stores.set("local", entry); },
+			delete: async () => { stores.delete("local"); },
+		};
+		const firstHarness = createExtensionHarness();
+		const [first] = registerOpenAICompatibleProviders(firstHarness.pi, config, path.join(dir, "models.jsonc"));
+		await first?.refreshModels?.({ credential: { type: "api_key", key: "unused" }, store, allowNetwork: true });
+		expect(first?.getModels().map((model) => [model.id, model.name])).toEqual([
+			["manual", "Manual"],
+			["dynamic", "dynamic"],
+		]);
+
+		const stored = stores.get("local");
+		if (!stored?.models[0]) throw new Error("dynamic model was not stored");
+		stores.set("local", {
+			...stored,
+			models: [
+				{ ...stored.models[0], id: "manual", name: "Stale Remote Manual", baseUrl: "https://stale.test/v1" },
+				...stored.models,
+			],
+		});
+		const secondHarness = createExtensionHarness();
+		const [second] = registerOpenAICompatibleProviders(secondHarness.pi, config, path.join(dir, "models.jsonc"));
+		await second?.refreshModels?.({ credential: { type: "api_key", key: "unused" }, store, allowNetwork: false });
+		expect(second?.getModels().map((model) => [model.id, model.name, model.baseUrl])).toEqual([
+			["manual", "Manual", "http://127.0.0.1:8000/v1"],
+			["dynamic", "dynamic", "http://127.0.0.1:8000/v1"],
+		]);
+
+		stores.delete("local");
+		fetch.mockRejectedValueOnce(new Error("offline"));
+		await expect(second?.refreshModels?.({
+			credential: { type: "api_key", key: "unused" },
+			store,
+			allowNetwork: true,
+		})).rejects.toThrow("offline");
+		expect(second?.getModels().map((model) => model.id)).toEqual(["manual", "dynamic"]);
+		stores.set("local", stored);
+
+		fetch.mockResolvedValueOnce(new Response('{ "data": [{ "id": "replacement" }] }'));
+		await expect(second?.refreshModels?.({
+			credential: { type: "api_key", key: "unused" },
+			store: { ...store, write: async () => { throw new Error("store failed"); } },
+			allowNetwork: true,
+		})).rejects.toThrow("store failed");
+		expect(second?.getModels().map((model) => model.id)).toEqual(["manual", "dynamic"]);
+
+		const changedConfig = await loadConfigFromText(`{
+			"providers": {
+				"local": {
+					"baseUrl": "http://127.0.0.1:9000/v1",
+					"apiKey": "EMPTY",
+					"models": ["manual"]
+				}
+			}
+		}`);
+		const thirdHarness = createExtensionHarness();
+		const [third] = registerOpenAICompatibleProviders(thirdHarness.pi, changedConfig, path.join(dir, "models.jsonc"));
+		await third?.refreshModels?.({ credential: { type: "api_key", key: "unused" }, store, allowNetwork: false });
+		expect(third?.getModels().map((model) => model.id)).toEqual(["manual"]);
+		expect(globalThis.fetch).toHaveBeenCalledTimes(3);
+	});
+
+	it("在线刷新会等待进行中的离线恢复并继续请求网络", async () => {
+		const config = await loadConfigFromText(`{
+			"providers": { "local": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY" } }
+		}`);
+		const harness = createExtensionHarness();
+		const [provider] = registerOpenAICompatibleProviders(harness.pi, config, path.join(dir, "models.jsonc"));
+		if (!provider?.refreshModels) throw new Error("refreshModels missing");
+		let releaseRead: (() => void) | undefined;
+		let readCount = 0;
+		const firstRead = new Promise<void>((resolve) => { releaseRead = resolve; });
+		const store = {
+			read: async () => {
+				readCount++;
+				if (readCount === 1) await firstRead;
+				return undefined;
+			},
+			write: async () => undefined,
+			delete: async () => undefined,
+		};
+		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response('{ "data": [{ "id": "dynamic" }] }'));
+
+		const offline = provider.refreshModels({ credential: { type: "api_key", key: "unused" }, store, allowNetwork: false });
+		const online = provider.refreshModels({ credential: { type: "api_key", key: "unused" }, store, allowNetwork: true });
+		releaseRead?.();
+		await Promise.all([offline, online]);
+
+		expect(readCount).toBe(2);
+		expect(fetch).toHaveBeenCalledOnce();
+		expect(provider.getModels().map((model) => model.id)).toEqual(["dynamic"]);
 	});
 
 	it("不存在 models.jsonc 时不产生 provider 注册输入", async () => {
-		const config = await loadModelsJsoncConfig(path.join(dir, "missing.jsonc"));
-		const calls: Array<{ name: string; config: PiProviderConfig }> = [];
-		if (config) {
-			registerOpenAICompatibleProviders(createPi(calls), normalizeModelsJsoncConfig(config, "missing.jsonc"));
-		}
-		expect(calls).toHaveLength(0);
+		expect(await loadModelsJsoncConfig(path.join(dir, "missing.jsonc"))).toBeUndefined();
 	});
 
-	it("最小配置能注册 provider，并把字符串模型归一化为同名 model id", async () => {
-		const providers = await normalizeFromText(`{
+	it("最小配置注册为完整原生 provider，并把字符串模型归一化为同名 model id", async () => {
+		const config = await loadConfigFromText(`{
 			"providers": {
 				"vllm": {
-					"display_name": "Local vLLM",
-					"base_url": "http://127.0.0.1:8000/v1",
-					"api_key": "EMPTY",
-					"api": "chat",
-					"compat": "local",
+					"name": "Local vLLM",
+					"baseUrl": "http://127.0.0.1:8000/v1",
+					"apiKey": "EMPTY",
+					"api": "openai-completions",
+					"compatPreset": "local",
 					"models": ["Qwen/Qwen3-Coder-480B-A35B-Instruct",],
 				},
 			},
 		}`);
-		const calls: Array<{ name: string; config: PiProviderConfig }> = [];
-		registerOpenAICompatibleProviders(createPi(calls), providers);
+		const harness = createExtensionHarness();
+		const [provider] = registerOpenAICompatibleProviders(harness.pi, config, path.join(dir, "models.jsonc"));
 
-		expect(calls[0]?.name).toBe("vllm");
-		expect(calls[0]?.config).toMatchObject({
+		expect(provider).toMatchObject({
+			id: "vllm",
 			name: "Local vLLM",
 			baseUrl: "http://127.0.0.1:8000/v1",
-			apiKey: "EMPTY",
-			api: "openai-completions",
 		});
-		expect(calls[0]?.config.models?.[0]).toMatchObject({
+		expect(provider?.getModels()[0]).toMatchObject({
 			id: "Qwen/Qwen3-Coder-480B-A35B-Instruct",
 			name: "Qwen/Qwen3-Coder-480B-A35B-Instruct",
+			api: "openai-completions",
 		});
 	});
 
 	it("同名 provider 注册到 Pi 时完全替换内置 provider 模型", async () => {
-		const providers = await normalizeFromText(`{
+		const config = await loadConfigFromText(`{
 			"providers": {
 				"opencode": {
-					"display_name": "Private OpenCode",
-					"base_url": "https://private-opencode.example.com/v1",
-					"api_key": "EMPTY",
+					"name": "Private OpenCode",
+					"baseUrl": "https://private-opencode.example.com/v1",
+					"apiKey": "EMPTY",
 					"models": ["private-opencode-model"]
 				}
 			}
@@ -313,7 +284,7 @@ describe("openai-compatible-provider config", () => {
 		expect(builtInModelIds.length).toBeGreaterThan(0);
 		expect(builtInModelIds).not.toEqual(["private-opencode-model"]);
 
-		registerOpenAICompatibleProviders(createRegistryPi(registry), providers);
+		registerOpenAICompatibleProviders(createRegistryPi(registry), config, path.join(dir, "models.jsonc"));
 
 		const models = registry.getAll().filter((model) => model.provider === "opencode");
 		expect(models.map((model) => model.id)).toEqual(["private-opencode-model"]);
@@ -329,13 +300,13 @@ describe("openai-compatible-provider config", () => {
 		const [provider] = await normalizeFromText(`{
 			"providers": {
 				"openrouter": {
-					"base_url": "https://openrouter.ai/api/v1",
-					"api_key": "$OPENROUTER_API_KEY",
-					"models": [{ "model": "deepseek/deepseek-r1", "display_name": "DeepSeek R1" }]
+					"baseUrl": "https://openrouter.ai/api/v1",
+					"apiKey": "$OPENROUTER_API_KEY",
+					"models": [{ "id": "deepseek/deepseek-r1", "name": "DeepSeek R1" }]
 				}
 			}
 		}`);
-		const model = provider?.config.models?.[0];
+		const model = provider?.models?.[0];
 		expect(model?.id).toBe("deepseek/deepseek-r1");
 		expect(model?.name).toBe("DeepSeek R1");
 		const runtime = provider?.runtimeModels.get("deepseek/deepseek-r1");
@@ -349,15 +320,15 @@ describe("openai-compatible-provider config", () => {
 		const config = await loadConfigFromText(`{
 			"providers": {
 				"gateway": {
-					"display_name": "Gateway",
-					"base_url": "https://gateway.example.com/v1",
-					"api_key": "$GATEWAY_API_KEY",
+					"name": "Gateway",
+					"baseUrl": "https://gateway.example.com/v1",
+					"apiKey": "$GATEWAY_API_KEY",
 					"models": "auto"
 				}
 			}
 		}`);
 		const calls: Array<{ url: string; headers: Record<string, string> }> = [];
-		const resolved = await resolveAutoModelsJsoncConfig(config, path.join(dir, "models.jsonc"), {
+		const provider = await fetchNormalizedProvider(config, "gateway", path.join(dir, "models.jsonc"), {
 			env: { GATEWAY_API_KEY: "sk-test" },
 			fetch: async (url, init) => {
 				calls.push({ url, headers: init.headers });
@@ -374,7 +345,6 @@ describe("openai-compatible-provider config", () => {
 				});
 			},
 		});
-		const [provider] = normalizeModelsJsoncConfig(resolved, path.join(dir, "models.jsonc"));
 
 		expect(calls).toEqual([
 			{
@@ -382,7 +352,7 @@ describe("openai-compatible-provider config", () => {
 				headers: { Accept: "application/json", Authorization: "Bearer sk-test" },
 			},
 		]);
-		expect(provider?.config.models?.[0]).toMatchObject({
+		expect(provider?.models?.[0]).toMatchObject({
 			id: "vision-model",
 			name: "Vision Model",
 			contextWindow: 200000,
@@ -396,14 +366,14 @@ describe("openai-compatible-provider config", () => {
 		const config = await loadConfigFromText(`{
 			"providers": {
 				"gateway": {
-					"base_url": "https://gateway.example.com/v1",
-					"api_key": "EMPTY",
+					"baseUrl": "https://gateway.example.com/v1",
+					"apiKey": "EMPTY",
 					"models": [
 						{
-							"model": "manual-model",
-							"display_name": "Manual Model",
-							"context_window": 1000,
-							"max_tokens": 100
+							"id": "manual-model",
+							"name": "Manual Model",
+							"contextWindow": 1000,
+							"maxTokens": 100
 						},
 						"manual-string"
 					]
@@ -411,7 +381,7 @@ describe("openai-compatible-provider config", () => {
 			}
 		}`);
 		const calls: string[] = [];
-		const resolved = await resolveAutoModelsJsoncConfig(config, configPath, {
+		const provider = await fetchNormalizedProvider(config, "gateway", configPath, {
 			fetch: async (url) => {
 				calls.push(url);
 				return jsonResponse({
@@ -423,8 +393,7 @@ describe("openai-compatible-provider config", () => {
 				});
 			},
 		});
-		const [provider] = normalizeModelsJsoncConfig(resolved, configPath);
-		const models = provider?.config.models ?? [];
+		const models = provider?.models ?? [];
 
 		expect(calls).toEqual(["https://gateway.example.com/v1/models"]);
 		expect(models.map((model) => model.id)).toEqual(["manual-model", "manual-string", "endpoint-only"]);
@@ -450,42 +419,41 @@ describe("openai-compatible-provider config", () => {
 		const config = await loadConfigFromText(`{
 			"providers": {
 				"local": {
-					"base_url": "http://127.0.0.1:8000/v1",
-					"api_key": "EMPTY"
+					"baseUrl": "http://127.0.0.1:8000/v1",
+					"apiKey": "EMPTY"
 				}
 			}
 		}`);
 		let headers: Record<string, string> | undefined;
-		const resolved = await resolveAutoModelsJsoncConfig(config, path.join(dir, "models.jsonc"), {
+		const provider = await fetchNormalizedProvider(config, "local", path.join(dir, "models.jsonc"), {
 			fetch: async (_url, init) => {
 				headers = init.headers;
 				return jsonResponse({ data: [{ id: "local-model" }] });
 			},
 		});
-		const [provider] = normalizeModelsJsoncConfig(resolved, path.join(dir, "models.jsonc"));
 
 		expect(headers).toEqual({ Accept: "application/json" });
-		expect(provider?.config.models?.[0]?.id).toBe("local-model");
+		expect(provider?.models?.[0]?.id).toBe("local-model");
 	});
 
 	it("自动发现模型失败时输出 provider 和 HTTP 状态且不泄露 Authorization", async () => {
 		const config = await loadConfigFromText(`{
 			"providers": {
 				"gateway": {
-					"base_url": "https://gateway.example.com/v1",
-					"api_key": "sk-secret",
+					"baseUrl": "https://gateway.example.com/v1",
+					"apiKey": "sk-secret",
 					"models": "auto"
 				}
 			}
 		}`);
 
 		await expect(
-			resolveAutoModelsJsoncConfig(config, path.join(dir, "models.jsonc"), {
+			fetchNormalizedProvider(config, "gateway", path.join(dir, "models.jsonc"), {
 				fetch: async () => jsonResponse({ error: "unauthorized" }, { ok: false, status: 401, statusText: "Unauthorized" }),
 			}),
 		).rejects.toThrow('provider "gateway" models endpoint returned HTTP 401 Unauthorized');
 		await expect(
-			resolveAutoModelsJsoncConfig(config, path.join(dir, "models.jsonc"), {
+			fetchNormalizedProvider(config, "gateway", path.join(dir, "models.jsonc"), {
 				fetch: async () => jsonResponse({ error: "unauthorized" }, { ok: false, status: 401, statusText: "Unauthorized" }),
 			}),
 		).rejects.not.toThrow("sk-secret");
@@ -495,10 +463,10 @@ describe("openai-compatible-provider config", () => {
 		vi.useFakeTimers();
 		const config = await loadConfigFromText(`{
 			"providers": {
-				"gateway": { "base_url": "https://gateway.example.com/v1", "api_key": "EMPTY", "models": "auto" }
+				"gateway": { "baseUrl": "https://gateway.example.com/v1", "apiKey": "EMPTY", "models": "auto" }
 			}
 		}`);
-		const promise = resolveAutoModelsJsoncConfig(config, path.join(dir, "models.jsonc"), {
+		const promise = fetchNormalizedProvider(config, "gateway", path.join(dir, "models.jsonc"), {
 			timeoutMs: 10,
 			fetch: async (_url, init) => ({
 				ok: true,
@@ -514,24 +482,81 @@ describe("openai-compatible-provider config", () => {
 		await rejected;
 	});
 
-	it("api 字段映射到 Pi 当前 OpenAI-compatible API 名称", async () => {
-		const providers = await normalizeFromText(`{
+	it("直接采用 Pi 原生 api/model 字段，并允许模型级覆盖", async () => {
+		const [provider] = await normalizeFromText(`{
 			"providers": {
-				"chat": { "base_url": "https://example.test/v1", "api_key": "EMPTY", "api": "chat", "models": ["m1"] },
-				"responses": { "base_url": "https://example.test/v1", "api_key": "EMPTY", "api": "responses", "models": ["m2"] }
+				"mixed": {
+					"baseUrl": "https://example.test/v1",
+					"apiKey": "EMPTY",
+					"api": "openai-completions",
+					"compat": { "supportsStore": true },
+					"models": [{
+						"id": "m",
+						"name": "Native Model",
+						"api": "openai-responses",
+						"baseUrl": "https://responses.test/v1",
+						"reasoning": true,
+						"contextWindow": 200000,
+						"maxTokens": 8192,
+						"headers": { "X-Model": "$MODEL_HEADER" },
+						"cost": { "input": 1, "output": 2, "cacheRead": 0.1, "cacheWrite": 0.2 },
+						"compat": { "supportsDeveloperRole": true, "supportsToolSearch": true }
+					}]
+				}
 			}
 		}`);
-		expect(providers.find((provider) => provider.id === "chat")?.config.api).toBe("openai-completions");
-		expect(providers.find((provider) => provider.id === "responses")?.config.api).toBe("openai-responses");
+		const model = provider?.models[0];
+		expect(model).toMatchObject({
+			id: "m",
+			name: "Native Model",
+			api: "openai-responses",
+			baseUrl: "https://responses.test/v1",
+			reasoning: true,
+			contextWindow: 200000,
+			maxTokens: 8192,
+			cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
+			compat: { supportsDeveloperRole: true, supportsToolSearch: true },
+		});
+		expect(model?.compat).not.toHaveProperty("supportsStore");
+		expect(provider?.runtimeModels.get("m")?.compat).toMatchObject({ supportsStore: true });
+		expect(provider?.runtimeModels.get("m")?.headers).toEqual({ "X-Model": "$MODEL_HEADER" });
+	});
+
+	it("nested compat 按 Pi 原生语义合并", async () => {
+		const [provider] = await normalizeFromText(`{
+			"providers": {
+				"router": {
+					"baseUrl": "https://router.test/v1",
+					"apiKey": "EMPTY",
+					"compat": {
+						"supportsToolSearch": true,
+						"openRouterRouting": { "order": ["one"] },
+						"chatTemplateKwargs": { "provider": true }
+					},
+					"models": [{
+						"id": "m",
+						"compat": {
+							"openRouterRouting": { "allow_fallbacks": false },
+							"chatTemplateKwargs": { "model": true }
+						}
+					}]
+				}
+			}
+		}`);
+		expect(provider?.models[0]?.compat).toMatchObject({
+			openRouterRouting: { order: ["one"], allow_fallbacks: false },
+			chatTemplateKwargs: { provider: true, model: true },
+		});
+		expect(provider?.models[0]?.compat).not.toHaveProperty("supportsToolSearch");
 	});
 
 	it("compat local 展开为当前 Pi 支持的 compat 字段", async () => {
 		const [provider] = await normalizeFromText(`{
 			"providers": {
-				"vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "compat": "local", "models": ["m"] }
+				"vllm": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "compatPreset": "local", "models": ["m"] }
 			}
 		}`);
-		expect(provider?.config.models?.[0]?.compat).toMatchObject({
+		expect(provider?.models?.[0]?.compat).toMatchObject({
 			supportsDeveloperRole: false,
 			supportsReasoningEffort: false,
 			supportsUsageInStreaming: true,
@@ -539,51 +564,51 @@ describe("openai-compatible-provider config", () => {
 		});
 	});
 
-	it("Chat chat_template_enabled 不需要 map，并把所有非 off 等级交给 Pi 的布尔变量", async () => {
+	it("Chat chat-template-enabled 不需要 map，并把所有非 off 等级交给 Pi 的布尔变量", async () => {
 		const [provider] = await normalizeFromText(`{
 			"providers": {
 				"local": {
-					"base_url": "http://127.0.0.1:8000/v1",
-					"api_key": "EMPTY",
-					"api": "chat",
-					"compat": "local",
-					"thinking": "chat_template_enabled",
-					"models": [{ "model": "m", "thinking_level": "high" }]
+					"baseUrl": "http://127.0.0.1:8000/v1",
+					"apiKey": "EMPTY",
+					"api": "openai-completions",
+					"compatPreset": "local",
+					"thinkingPreset": "chat-template-enabled",
+					"models": [{ "id": "m", "defaultThinkingLevel": "high" }]
 				}
 			}
 		}`);
-		expect(provider?.config.models?.[0]).toMatchObject({
+		expect(provider?.models?.[0]).toMatchObject({
 			reasoning: true,
 			compat: {
 				thinkingFormat: "chat-template",
 				chatTemplateKwargs: { enable_thinking: { $var: "thinking.enabled" } },
 			},
 		});
-		expect(provider?.config.models?.[0]?.thinkingLevelMap).toBeUndefined();
+		expect(provider?.models?.[0]?.thinkingLevelMap).toBeUndefined();
 	});
 
 	it("模型级 thinking 覆盖 provider preset，未配置的模型继续继承 provider", async () => {
 		const [provider] = await normalizeFromText(`{
 			"providers": {
 				"mixed": {
-					"base_url": "http://127.0.0.1:8000/v1",
-					"api_key": "EMPTY",
-					"api": "responses",
-					"thinking": "openai",
+					"baseUrl": "http://127.0.0.1:8000/v1",
+					"apiKey": "EMPTY",
+					"api": "openai-responses",
+					"thinkingPreset": "openai",
 					"models": [
-						{ "model": "inherited", "thinking_level": "high" },
-						{ "model": "boolean", "thinking": "chat_template_enabled", "thinking_level": "high" }
+						{ "id": "inherited", "defaultThinkingLevel": "high" },
+						{ "id": "boolean", "thinkingPreset": "chat-template-enabled", "defaultThinkingLevel": "high" }
 					]
 				}
 			}
 		}`);
 		expect(provider?.runtimeModels.get("inherited")?.thinkingPreset).toBe("openai");
-		expect(provider?.runtimeModels.get("boolean")?.thinkingPreset).toBe("chat_template_enabled");
-		expect(provider?.config.models?.[0]?.compat).toMatchObject({
+		expect(provider?.runtimeModels.get("boolean")?.thinkingPreset).toBe("chat-template-enabled");
+		expect(provider?.runtimeModels.get("inherited")?.compat).toMatchObject({
 			supportsReasoningEffort: true,
 			thinkingFormat: "openai",
 		});
-		expect(provider?.config.models?.[1]?.compat).toMatchObject({
+		expect(provider?.runtimeModels.get("boolean")?.compat).toMatchObject({
 			supportsReasoningEffort: false,
 			thinkingFormat: "chat-template",
 			chatTemplateKwargs: { enable_thinking: { $var: "thinking.enabled" } },
@@ -599,50 +624,47 @@ describe("openai-compatible-provider config", () => {
 		});
 	});
 
-	it("thinking_level 使用 Pi 模型能力并保留 off 模型的可切换 reasoning", async () => {
+	it("reasoning/defaultThinkingLevel 使用 Pi 模型能力并保留 off 模型的可切换 reasoning", async () => {
 		const [provider] = await normalizeFromText(`{
 			"providers": {
 				"gateway": {
-					"base_url": "https://example.test/v1",
-					"api_key": "EMPTY",
-					"thinking": "openai",
+					"baseUrl": "https://example.test/v1",
+					"apiKey": "EMPTY",
+					"thinkingPreset": "openai",
 					"models": [
-						{ "model": "reasoning-model", "thinking_level": "high" },
-						{ "model": "off-model", "thinking_level": "off" },
-						{ "model": "plain-model" }
+						{ "id": "reasoning-model", "defaultThinkingLevel": "high" },
+						{ "id": "off-model", "defaultThinkingLevel": "off" },
+						{ "id": "plain-model" }
 					]
 				}
 			}
 		}`);
-		expect(provider?.config.models?.[0]).toMatchObject({ id: "reasoning-model", reasoning: true });
-		expect(provider?.config.models?.[1]).toMatchObject({ id: "off-model", reasoning: true });
-		expect(provider?.config.models?.[2]).toMatchObject({ id: "plain-model", reasoning: false });
+		expect(provider?.models?.[0]).toMatchObject({ id: "reasoning-model", reasoning: true });
+		expect(provider?.models?.[1]).toMatchObject({ id: "off-model", reasoning: true });
+		expect(provider?.models?.[2]).toMatchObject({ id: "plain-model", reasoning: false });
 		expect(provider?.runtimeModels.get("reasoning-model")?.defaultThinkingLevel).toBe("high");
 		expect(provider?.runtimeModels.get("off-model")?.defaultThinkingLevel).toBe("off");
-		expect(provider?.config.models?.[0]?.compat).toMatchObject({
+		expect(provider?.models?.[0]?.compat).toMatchObject({
 			supportsReasoningEffort: true,
 			thinkingFormat: "openai",
 		});
 	});
 
-	it("只在用户选择模型时应用默认 thinking_level，不覆盖恢复值或每轮用户选择", async () => {
-		const providers = await normalizeFromText(`{
+	it("只在用户选择模型时应用 defaultThinkingLevel，不覆盖恢复值或每轮用户选择", async () => {
+		const config = await loadConfigFromText(`{
 			"providers": {
 				"gateway": {
-					"base_url": "https://example.test/v1",
-					"api_key": "EMPTY",
-					"thinking": "openai",
-					"models": [{ "model": "m", "thinking_level": "minimal" }]
+					"baseUrl": "https://example.test/v1",
+					"apiKey": "EMPTY",
+					"thinkingPreset": "openai",
+					"models": [{ "id": "m", "defaultThinkingLevel": "minimal" }]
 				}
 			}
 		}`);
-		const calls: Array<{ name: string; config: PiProviderConfig }> = [];
 		const handlers = new Map<string, (event: unknown, ctx?: unknown) => void>();
 		const thinkingLevels: string[] = [];
 		const pi = {
-			registerProvider(name: string, config: PiProviderConfig) {
-				calls.push({ name, config });
-			},
+			registerProvider() {},
 			on(name: string, handler: (event: unknown, ctx?: unknown) => void) {
 				handlers.set(name, handler);
 			},
@@ -650,7 +672,7 @@ describe("openai-compatible-provider config", () => {
 				thinkingLevels.push(level);
 			},
 		};
-		registerOpenAICompatibleProviders(pi as unknown as ExtensionAPI, providers);
+		registerOpenAICompatibleProviders(pi as unknown as ExtensionAPI, config, path.join(dir, "models.jsonc"));
 
 		const model = { provider: "gateway", id: "m" };
 		handlers.get("session_start")?.({ reason: "new" }, { model });
@@ -661,26 +683,26 @@ describe("openai-compatible-provider config", () => {
 		expect(thinkingLevels).toEqual(["minimal"]);
 	});
 
-	it("拒绝 provider 级 defaults 和采样字段，且错误不泄露 api_key", async () => {
+	it("拒绝 provider 级 defaults 和采样字段，且错误不泄露 apiKey", async () => {
 		await expect(
 			normalizeFromText(`{
 				"providers": {
 					"vllm": {
-						"base_url": "http://127.0.0.1:8000/v1",
-						"api_key": "sk-secret",
+						"baseUrl": "http://127.0.0.1:8000/v1",
+						"apiKey": "sk-secret",
 						"defaults": {},
 						"models": ["m"]
 					}
 				}
 			}`),
-		).rejects.toThrow('provider "vllm" contains provider-level "defaults"');
+		).rejects.toThrow("providers.vllm.defaults is not supported");
 
 		await expect(
 			normalizeFromText(`{
 				"providers": {
 					"vllm": {
-						"base_url": "http://127.0.0.1:8000/v1",
-						"api_key": "sk-secret",
+						"baseUrl": "http://127.0.0.1:8000/v1",
+						"apiKey": "sk-secret",
 						"temperature": 0.2,
 						"models": ["m"]
 					}
@@ -694,40 +716,40 @@ describe("openai-compatible-provider config", () => {
 			normalizeFromText(`{
 				"providers": {
 					"vllm": {
-						"base_url": "http://127.0.0.1:8000/v1",
-						"api_key": "EMPTY",
-						"models": ["qwen3-coder", { "model": "qwen3-coder" }]
+						"baseUrl": "http://127.0.0.1:8000/v1",
+						"apiKey": "EMPTY",
+						"models": ["qwen3-coder", { "id": "qwen3-coder" }]
 					}
 				}
 			}`),
 		).rejects.toThrow('provider "vllm" contains duplicate model "qwen3-coder"');
 	});
 
-	it("api_key 脱敏规则覆盖 literal、env、command、EMPTY 和 missing", () => {
-		expect(redact_api_key("sk-secret")).toBe("<literal:redacted>");
-		expect(redact_api_key("$OPENROUTER_API_KEY")).toBe("<env:OPENROUTER_API_KEY>");
-		expect(redact_api_key("${DEEPSEEK_API_KEY}")).toBe("<env:DEEPSEEK_API_KEY>");
-		expect(redact_api_key("!op read op://vault/item/key")).toBe("<command:redacted>");
-		expect(redact_api_key("EMPTY")).toBe("<empty-placeholder>");
-		expect(redact_api_key(undefined)).toBe("<missing>");
+	it("apiKey 脱敏规则覆盖 literal、env、command、EMPTY 和 missing", () => {
+		expect(redactApiKey("sk-secret")).toBe("<literal:redacted>");
+		expect(redactApiKey("$OPENROUTER_API_KEY")).toBe("<env:OPENROUTER_API_KEY>");
+		expect(redactApiKey("${DEEPSEEK_API_KEY}")).toBe("<env:DEEPSEEK_API_KEY>");
+		expect(redactApiKey("!op read op://vault/item/key")).toBe("<command:redacted>");
+		expect(redactApiKey("EMPTY")).toBe("<empty-placeholder>");
+		expect(redactApiKey(undefined)).toBe("<missing>");
 	});
 
-	it("model defaults 被保留并注入 payload，非标准采样只在 local preset 下发送", async () => {
+	it("model defaults 补缺失字段，defaults.maxTokens 设置请求上限", async () => {
 		const [provider] = await normalizeFromText(`{
 			"providers": {
 				"vllm": {
-					"base_url": "http://127.0.0.1:8000/v1",
-					"api_key": "EMPTY",
-					"compat": "local",
+					"baseUrl": "http://127.0.0.1:8000/v1",
+					"apiKey": "EMPTY",
+					"compatPreset": "local",
 					"models": [{
-						"model": "m",
-						"defaults": { "temperature": 0.1, "top_p": 0.8, "top_k": 40, "max_tokens": 8192 }
+						"id": "m",
+						"defaults": { "temperature": 0.1, "topP": 0.8, "topK": 40, "maxTokens": 8192 }
 					}]
 				}
 			}
 		}`);
 		const runtime = provider?.runtimeModels.get("m");
-		expect(runtime?.defaults).toMatchObject({ temperature: 0.1, top_k: 40 });
+		expect(runtime?.defaults).toMatchObject({ temperature: 0.1, topK: 40 });
 		if (!runtime) throw new Error("runtime config missing");
 		expect(applyRuntimePayloadConfig({ model: "m", messages: [], stream: true, max_tokens: 16384 }, runtime)).toMatchObject({
 			model: "m",
@@ -736,16 +758,108 @@ describe("openai-compatible-provider config", () => {
 			top_k: 40,
 			max_tokens: 8192,
 		});
+		expect(applyRuntimePayloadConfig({ model: "m", messages: [], stream: true, max_tokens: 4096 }, runtime)).toMatchObject({
+			max_tokens: 4096,
+		});
 	});
 
-	it("Responses API 的 defaults.max_tokens 注入为 max_output_tokens", async () => {
+	it("不兼容的非标准 defaults 会报错而不是静默丢弃", async () => {
+		await expect(normalizeFromText(`{
+			"providers": {
+				"gateway": {
+					"baseUrl": "https://gateway.example.com/v1",
+					"apiKey": "EMPTY",
+					"compatPreset": "openai-compatible",
+					"models": [{ "id": "m", "defaults": { "topK": 40 } }]
+				}
+			}
+		}`)).rejects.toThrow("defaults.topK requires compatPreset local, qwen, or deepseek");
+	});
+
+	it("原生低层 stream 保留 payload 修改，并转换 Responses 非 OpenAI thinking preset", async () => {
+		const config = await loadConfigFromText(`{
+			"providers": {
+				"gateway": {
+					"baseUrl": "https://gateway.example.com/v1",
+					"apiKey": "EMPTY",
+					"api": "openai-responses",
+					"headers": { "x-model": "provider-header" },
+					"thinkingPreset": "deepseek",
+					"maxRetries": 0,
+					"dropParams": ["store"],
+					"extraBody": { "custom": true },
+					"models": [{
+						"id": "m",
+						"defaultThinkingLevel": "high",
+						"maxTokens": 32768,
+						"headers": { "X-Model": "$MODEL_HEADER" },
+						"defaults": { "temperature": 0.2, "maxTokens": 8192 }
+					}]
+				}
+			}
+		}`);
+		const harness = createExtensionHarness();
+		const [provider] = registerOpenAICompatibleProviders(harness.pi, config, path.join(dir, "models.jsonc"));
+		const model = provider?.getModels()[0];
+		if (!provider || !model) throw new Error("provider model missing");
+		let requestBody: unknown;
+		const modelHeaders: Array<string | null> = [];
+		vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+			requestBody = JSON.parse(String(init?.body));
+			modelHeaders.push(new Headers(init?.headers).get("X-Model"));
+			return new Response('{"error":"stop after payload"}', { status: 400, headers: { "Content-Type": "application/json" } });
+		});
+
+		const auth = await provider.auth.apiKey?.resolve({
+			ctx: { env: async () => undefined, fileExists: async () => false },
+		});
+		if (!auth) throw new Error("provider auth missing");
+		const streamOnce = async (headers: Record<string, string | null>): Promise<void> => {
+			for await (const _event of provider.stream(model, {
+				messages: [{ role: "user", content: "test", timestamp: Date.now() }],
+			}, {
+				...(auth.auth.apiKey !== undefined ? { apiKey: auth.auth.apiKey } : {}),
+				headers,
+				env: { ...auth.env, MODEL_HEADER: "resolved-model-header" },
+				reasoningEffort: "high",
+				onPayload: () => undefined,
+			})) {
+				// Consume the terminal error event.
+			}
+		};
+		await streamOnce(auth.auth.headers ?? {});
+		await streamOnce({ Authorization: null, "X-MODEL": "caller-header" });
+		for await (const _event of provider.streamSimple(model, {
+			messages: [{ role: "user", content: "test", timestamp: Date.now() }],
+		}, {
+			...(auth.auth.apiKey !== undefined ? { apiKey: auth.auth.apiKey } : {}),
+			...(auth.auth.headers !== undefined ? { headers: auth.auth.headers } : {}),
+			env: { ...auth.env, MODEL_HEADER: "resolved-model-header" },
+			reasoning: "high",
+		})) {
+			// Consume the terminal error event.
+		}
+
+		expect(requestBody).toMatchObject({
+			model: "m",
+			temperature: 0.2,
+			thinking: { type: "enabled" },
+			custom: true,
+			max_output_tokens: 8192,
+		});
+		expect(modelHeaders).toEqual(["resolved-model-header", "caller-header", "resolved-model-header"]);
+		expect(requestBody).not.toHaveProperty("reasoning");
+		expect(requestBody).not.toHaveProperty("store");
+	});
+
+	it("Responses API 的 defaults.maxTokens 注入为 max_output_tokens", async () => {
 		const [provider] = await normalizeFromText(`{
 			"providers": {
 				"gateway": {
-					"base_url": "https://gateway.example.com/v1",
-					"api_key": "$RESPONSES_GATEWAY_API_KEY",
-					"api": "responses",
-					"models": [{ "model": "m", "defaults": { "max_tokens": 4096 } }]
+					"baseUrl": "https://gateway.example.com/v1",
+					"apiKey": "$RESPONSES_GATEWAY_API_KEY",
+					"api": "openai-responses",
+					"models": [{ "id": "m", "defaults": { "maxTokens": 4096 } }]
 				}
 			}
 		}`);
@@ -762,20 +876,20 @@ describe("openai-compatible-provider config", () => {
 		["together", "off", { reasoning: { enabled: false } }],
 		["zai", "high", { thinking: { type: "enabled", clear_thinking: false } }],
 		["qwen", "off", { enable_thinking: false }],
-		["qwen_chat_template", "high", { chat_template_kwargs: { enable_thinking: true, preserve_thinking: true } }],
-		["chat_template_enabled", "medium", { chat_template_kwargs: { enable_thinking: true } }],
-		["chat_template_enabled", "off", { chat_template_kwargs: { enable_thinking: false } }],
-		["chat_template_effort", "high", { chat_template_kwargs: { reasoning_effort: "high" } }],
-		["string_thinking", "off", { thinking: "none" }],
+		["qwen-chat-template", "high", { chat_template_kwargs: { enable_thinking: true, preserve_thinking: true } }],
+		["chat-template-enabled", "medium", { chat_template_kwargs: { enable_thinking: true } }],
+		["chat-template-enabled", "off", { chat_template_kwargs: { enable_thinking: false } }],
+		["chat-template-effort", "high", { chat_template_kwargs: { reasoning_effort: "high" } }],
+		["string-thinking", "off", { thinking: "none" }],
 	] as const)("Responses API 将 %s thinking preset 编码到 payload", async (thinking, level, expected) => {
 		const [provider] = await normalizeFromText(`{
 			"providers": {
 				"gateway": {
-					"base_url": "https://gateway.example.com/v1",
-					"api_key": "$RESPONSES_GATEWAY_API_KEY",
-					"api": "responses",
-					"thinking": "${thinking}",
-					"models": [{ "model": "m", "thinking_level": "${level}" }]
+					"baseUrl": "https://gateway.example.com/v1",
+					"apiKey": "$RESPONSES_GATEWAY_API_KEY",
+					"api": "openai-responses",
+					"thinkingPreset": "${thinking}",
+					"models": [{ "id": "m", "defaultThinkingLevel": "${level}" }]
 				}
 			}
 		}`);
@@ -792,23 +906,23 @@ describe("openai-compatible-provider config", () => {
 		expect(payload).not.toHaveProperty("include");
 	});
 
-	it("Responses chat_template_effort 使用 Pi thinking_level_map 的上游值", async () => {
+	it("Responses chat-template-effort 使用 Pi thinkingLevelMap 的上游值", async () => {
 		const [provider] = await normalizeFromText(`{
 			"providers": {
 				"thor": {
-					"base_url": "http://thor:11451/v1",
-					"api_key": "EMPTY",
-					"api": "responses",
-					"thinking": "chat_template_effort",
+					"baseUrl": "http://thor:11451/v1",
+					"apiKey": "EMPTY",
+					"api": "openai-responses",
+					"thinkingPreset": "chat-template-effort",
 					"models": [{
-						"model": "hy3",
-						"thinking_level": "xhigh",
-						"thinking_level_map": { "off": "disabled", "xhigh": "max" }
+						"id": "hy3",
+						"defaultThinkingLevel": "xhigh",
+						"thinkingLevelMap": { "off": "disabled", "xhigh": "max" }
 					}]
 				}
 			}
 		}`);
-		const model = provider?.config.models?.[0];
+		const model = provider?.models?.[0];
 		const runtime = provider?.runtimeModels.get("hy3");
 		if (!runtime) throw new Error("runtime config missing");
 		expect(model?.thinkingLevelMap).toEqual({ off: "disabled", xhigh: "max" });
@@ -827,18 +941,18 @@ describe("openai-compatible-provider config", () => {
 		const providers = await normalizeFromText(`{
 			"providers": {
 				"standard": {
-					"base_url": "https://standard.example.com/v1",
-					"api_key": "EMPTY",
-					"api": "responses",
-					"thinking": "openai",
-					"models": [{ "model": "m", "thinking_level": "high" }]
+					"baseUrl": "https://standard.example.com/v1",
+					"apiKey": "EMPTY",
+					"api": "openai-responses",
+					"thinkingPreset": "openai",
+					"models": [{ "id": "m", "defaultThinkingLevel": "high" }]
 				},
 				"fixed": {
-					"base_url": "https://fixed.example.com/v1",
-					"api_key": "EMPTY",
-					"api": "responses",
-					"thinking": "none",
-					"models": [{ "model": "m", "thinking_level": "high" }]
+					"baseUrl": "https://fixed.example.com/v1",
+					"apiKey": "EMPTY",
+					"api": "openai-responses",
+					"thinkingPreset": "none",
+					"models": [{ "id": "m", "defaultThinkingLevel": "high" }]
 				}
 			}
 		}`);
@@ -860,26 +974,26 @@ describe("openai-compatible-provider config", () => {
 		expect(applyRuntimePayloadConfig(payload, fixed, "high")).not.toHaveProperty("include");
 	});
 
-	it("Responses 使用 Pi map 为 ant_ling 和支持 effort 的 deepseek 生成 provider 值", async () => {
+	it("Responses 使用 Pi map 为 ant-ling 和支持 effort 的 deepseek 生成 provider 值", async () => {
 		const providers = await normalizeFromText(`{
 			"providers": {
 				"ant": {
-					"base_url": "https://ant.example.com/v1",
-					"api_key": "EMPTY",
-					"api": "responses",
-					"thinking": "ant_ling",
-					"models": [{ "model": "m", "thinking_level": "high", "thinking_level_map": { "high": "max" } }]
+					"baseUrl": "https://ant.example.com/v1",
+					"apiKey": "EMPTY",
+					"api": "openai-responses",
+					"thinkingPreset": "ant-ling",
+					"models": [{ "id": "m", "defaultThinkingLevel": "high", "thinkingLevelMap": { "high": "max" } }]
 				},
 				"deep": {
-					"base_url": "https://deep.example.com/v1",
-					"api_key": "EMPTY",
-					"api": "responses",
-					"thinking": "deepseek",
+					"baseUrl": "https://deep.example.com/v1",
+					"apiKey": "EMPTY",
+					"api": "openai-responses",
+					"thinkingPreset": "deepseek",
 					"models": [{
-						"model": "m",
-						"thinking_level": "high",
-						"thinking_level_map": { "high": "max" },
-						"advanced": { "compat": { "supportsReasoningEffort": true } }
+						"id": "m",
+						"defaultThinkingLevel": "high",
+						"thinkingLevelMap": { "high": "max" },
+						"compat": { "supportsReasoningEffort": true }
 					}]
 				}
 			}
@@ -900,9 +1014,9 @@ describe("openai-compatible-provider config", () => {
 		const [chatProvider] = await normalizeFromText(`{
 			"providers": {
 				"gateway": {
-					"base_url": "https://gateway.example.com/v1",
-					"api_key": "EMPTY",
-					"models": [{ "model": "m", "input": ["text", "image"] }]
+					"baseUrl": "https://gateway.example.com/v1",
+					"apiKey": "EMPTY",
+					"models": [{ "id": "m", "input": ["text", "image"] }]
 				}
 			}
 		}`);
@@ -922,10 +1036,10 @@ describe("openai-compatible-provider config", () => {
 		const [responsesProvider] = await normalizeFromText(`{
 			"providers": {
 				"gateway": {
-					"base_url": "https://gateway.example.com/v1",
-					"api_key": "EMPTY",
-					"api": "responses",
-					"models": [{ "model": "m", "input": ["text", "image"] }]
+					"baseUrl": "https://gateway.example.com/v1",
+					"apiKey": "EMPTY",
+					"api": "openai-responses",
+					"models": [{ "id": "m", "input": ["text", "image"] }]
 				}
 			}
 		}`);
@@ -941,36 +1055,34 @@ describe("openai-compatible-provider config", () => {
 		expect(applyRuntimePayloadConfig({ model: "m", input, stream: true }, responsesRuntime)).toMatchObject({ input });
 	});
 
-	it("model advanced.extra_body 不能覆盖核心字段", async () => {
+	it("model extraBody 不能覆盖核心字段", async () => {
 		await expect(
 			normalizeFromText(`{
 				"providers": {
 					"vllm": {
-						"base_url": "http://127.0.0.1:8000/v1",
-						"api_key": "EMPTY",
-						"models": [{ "model": "m", "advanced": { "extra_body": { "messages": [] } } }]
+						"baseUrl": "http://127.0.0.1:8000/v1",
+						"apiKey": "EMPTY",
+						"models": [{ "id": "m", "extraBody": { "messages": [] } }]
 					}
 				}
 			}`),
-		).rejects.toThrow("advanced.extra_body.messages cannot override core request field");
+		).rejects.toThrow("models[0].extraBody.messages cannot override core request field");
 	});
 
-	it("provider advanced headers 传给 registerProvider，extra_body 与 drop_params 合并", async () => {
+	it("provider 原生 headers 与扩展 payload 字段直接配置，model 字段覆盖或追加", async () => {
 		const [provider] = await normalizeFromText(`{
 			"providers": {
 				"openrouter": {
-					"base_url": "https://openrouter.ai/api/v1",
-					"api_key": "$OPENROUTER_API_KEY",
-					"advanced": {
-						"headers": { "HTTP-Referer": "https://example.local" },
-						"drop_params": ["store"],
-						"extra_body": { "provider": { "only": ["openai"] } }
-					},
-					"models": [{ "model": "m", "advanced": { "drop_params": ["parallel_tool_calls"], "extra_body": { "top_p": 0.9 } } }]
+					"baseUrl": "https://openrouter.ai/api/v1",
+					"apiKey": "$OPENROUTER_API_KEY",
+					"headers": { "HTTP-Referer": "https://example.local" },
+					"dropParams": ["store"],
+					"extraBody": { "provider": { "only": ["openai"] } },
+					"models": [{ "id": "m", "dropParams": ["parallel_tool_calls"], "extraBody": { "top_p": 0.9 } }]
 				}
 			}
 		}`);
-		expect(provider?.config.headers).toEqual({ "HTTP-Referer": "https://example.local" });
+		expect(provider?.fallbackRuntime).toBeDefined();
 		const runtime = provider?.runtimeModels.get("m");
 		expect(runtime?.dropParams).toEqual(["store", "parallel_tool_calls"]);
 		if (!runtime) throw new Error("runtime config missing");
@@ -981,76 +1093,112 @@ describe("openai-compatible-provider config", () => {
 		expect(applyRuntimePayloadConfig({ model: "m", messages: [], stream: true, store: false }, runtime)).not.toHaveProperty("store");
 	});
 
+	it("旧字段给出原生字段迁移提示", async () => {
+		await expect(
+			normalizeFromText(`{
+				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": ["m"] } }
+			}`),
+		).rejects.toThrow("providers.vllm.base_url was replaced by baseUrl");
+	});
+
 	it("schema 错误输出具体 path，未知 compat 输出可选值", async () => {
 		await expect(
 			normalizeFromText(`{
-				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": [{}] } }
+				"providers": { "vllm": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "models": [{}] } }
 			}`),
-		).rejects.toThrow("providers.vllm.models[0].model is required");
+		).rejects.toThrow("providers.vllm.models[0].id is required");
 
 		await expect(
 			normalizeFromText(`{
-				"providers": { "vllm": { "api_key": "EMPTY", "models": ["m"] } }
+				"providers": { "vllm": { "apiKey": "EMPTY", "models": ["m"] } }
 			}`),
-		).rejects.toThrow("providers.vllm.base_url is required");
+		).rejects.toThrow("providers.vllm.baseUrl is required");
 
 		await expect(
 			normalizeFromText(`{
-				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "compat": "foo", "models": ["m"] } }
+				"providers": { "vllm": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "compatPreset": "foo", "models": ["m"] } }
 			}`),
-		).rejects.toThrow('unknown compat preset "foo"');
+		).rejects.toThrow('unknown compatPreset "foo"');
 
 		await expect(
 			normalizeFromText(`{
-				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": [{ "model": "m", "reasoning": true }] } }
+				"providers": { "vllm": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "compat": { "supportsStore": "yes" }, "models": ["m"] } }
 			}`),
-		).rejects.toThrow("use thinking_level instead");
+		).rejects.toThrow();
+
+		const [nativeReasoning] = await normalizeFromText(`{
+			"providers": { "vllm": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "models": [{ "id": "m", "reasoning": true }] } }
+		}`);
+		expect(nativeReasoning?.models[0]?.reasoning).toBe(true);
 
 		await expect(
 			normalizeFromText(`{
-				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": [{ "model": "m", "reasoning_effort": "high" }] } }
+				"providers": { "vllm": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "models": [{ "id": "m", "reasoning_effort": "high" }] } }
 			}`),
-		).rejects.toThrow("use thinking_level instead");
+		).rejects.toThrow("reasoning_effort is not supported");
 
 		await expect(
 			normalizeFromText(`{
-				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "thinking": "unknown", "models": ["m"] } }
+				"providers": { "vllm": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "thinkingPreset": "unknown", "models": ["m"] } }
 			}`),
-		).rejects.toThrow('unknown thinking preset "unknown"');
+		).rejects.toThrow('unknown thinkingPreset "unknown"');
 
 		await expect(
 			normalizeFromText(`{
-				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": [{ "model": "m", "thinking": "unknown" }] } }
+				"providers": { "vllm": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "models": [{ "id": "m", "thinkingPreset": "unknown" }] } }
 			}`),
-		).rejects.toThrow('models[0] has unknown thinking preset "unknown"');
+		).rejects.toThrow('models[0] has unknown thinkingPreset "unknown"');
 
 		await expect(
 			normalizeFromText(`{
-				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": [{ "model": "m", "thinking_level": "max" }] } }
+				"providers": { "vllm": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "models": [{ "id": "m", "defaultThinkingLevel": "max" }] } }
 			}`),
-		).rejects.toThrow('thinking_level "max" is not supported');
+		).rejects.toThrow('defaultThinkingLevel "max" is not supported');
 
 		const [maxProvider] = await normalizeFromText(`{
-			"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": [{ "model": "m", "thinking_level_map": { "max": "max" } }] } }
+			"providers": { "vllm": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "models": [{ "id": "m", "thinkingLevelMap": { "max": "max" } }] } }
 		}`);
-		expect(maxProvider?.config.models?.[0]).toMatchObject({
+		expect(maxProvider?.models?.[0]).toMatchObject({
 			reasoning: true,
 			thinkingLevelMap: { max: "max" },
 		});
 
 		await expect(
 			normalizeFromText(`{
-				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": [{ "model": "m", "thinking_level_map": { "turbo": "turbo" } }] } }
+				"providers": { "vllm": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "models": [{ "id": "m", "thinkingLevelMap": { "turbo": "turbo" } }] } }
 			}`),
-		).rejects.toThrow('thinking_level_map contains unknown Pi thinking level "turbo"');
+		).rejects.toThrow('thinkingLevelMap contains unknown Pi thinking level "turbo"');
 
 		await expect(
 			normalizeFromText(`{
-				"providers": { "vllm": { "base_url": "http://127.0.0.1:8000/v1", "api_key": "EMPTY", "models": [{ "model": "m", "thinking_level": "high", "thinking_level_map": { "high": null } }] } }
+				"providers": { "vllm": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "models": [{ "id": "m", "defaultThinkingLevel": "high", "thinkingLevelMap": { "high": null } }] } }
 			}`),
-		).rejects.toThrow('thinking_level "high" is not supported');
+		).rejects.toThrow('defaultThinkingLevel "high" is not supported');
 	});
 });
+
+async function fetchNormalizedProvider(
+	config: ModelsJsoncConfig,
+	providerId: string,
+	configPath: string,
+	options: Parameters<typeof fetchProviderModelsFromEndpoint>[3],
+) {
+	const source = config.providers[providerId];
+	if (!source) throw new Error(`provider ${providerId} missing`);
+	const discovered = await fetchProviderModelsFromEndpoint(providerId, source, configPath, options);
+	const configured = Array.isArray(source.models) ? source.models : [];
+	const configuredIds = new Set(configured.map((model) => typeof model === "string" ? model : model.id));
+	const [provider] = normalizeModelsJsoncConfig({
+		providers: {
+			[providerId]: {
+				...source,
+				models: [...configured, ...discovered.filter((model) => !configuredIds.has(model.id))],
+			},
+		},
+	}, configPath);
+	if (!provider) throw new Error(`provider ${providerId} was not normalized`);
+	return provider;
+}
 
 async function normalizeFromText(text: string) {
 	const file = path.join(dir, "models.jsonc");
@@ -1079,89 +1227,27 @@ function jsonResponse(value: unknown, init: { ok?: boolean; status?: number; sta
 
 interface ExtensionHarness {
 	pi: ExtensionAPI;
-	providerCalls: Array<{ name: string; config: PiProviderConfig }>;
-	notifications: Array<{ message: string; type: string | undefined }>;
-	emit(name: string): Promise<void>;
-	runCommand(name: string): Promise<void>;
+	providers: Provider[];
 }
 
-function createExtensionHarness(options: ExtensionHarnessOptions = {}): ExtensionHarness {
-	type Handler = (event: unknown, ctx: TestExtensionContext) => unknown;
-	type CommandHandler = (args: string, ctx: TestExtensionContext) => unknown;
-	const providerCalls: Array<{ name: string; config: PiProviderConfig }> = [];
-	const notifications: Array<{ message: string; type: string | undefined }> = [];
-	const handlers = new Map<string, Handler[]>();
-	const commands = new Map<string, CommandHandler>();
-	const ctx: TestExtensionContext = {
-		mode: options.mode ?? "tui",
-		model: undefined,
-		isIdle: options.isIdle ?? (() => true),
-		hasPendingMessages: options.hasPendingMessages ?? (() => false),
-		ui: {
-			notify(message, type) {
-				notifications.push({ message, type });
+function createExtensionHarness(): ExtensionHarness {
+	const providers: Provider[] = [];
+	return {
+		providers,
+		pi: {
+			registerProvider(provider: Provider) {
+				providers.push(provider);
 			},
-		},
+			on() {},
+			setThinkingLevel() {},
+		} as unknown as ExtensionAPI,
 	};
-	const pi = {
-		registerProvider(name: string, config: PiProviderConfig) {
-			providerCalls.push({ name, config });
-		},
-		registerCommand(name: string, options: { handler: CommandHandler }) {
-			commands.set(name, options.handler);
-		},
-		on(name: string, handler: Handler) {
-			const registered = handlers.get(name) ?? [];
-			registered.push(handler);
-			handlers.set(name, registered);
-		},
-		setThinkingLevel() {},
-	} as unknown as ExtensionAPI;
-	return {
-		pi,
-		providerCalls,
-		notifications,
-		async emit(name) {
-			for (const handler of handlers.get(name) ?? []) await handler({}, ctx);
-		},
-		async runCommand(name) {
-			const handler = commands.get(name);
-			if (!handler) throw new Error(`command ${name} is not registered`);
-			await handler("", ctx);
-		},
-	};
-}
-
-interface ExtensionHarnessOptions {
-	mode?: TestExtensionContext["mode"];
-	isIdle?: () => boolean;
-	hasPendingMessages?: () => boolean;
-}
-
-interface TestExtensionContext {
-	mode: "tui" | "rpc" | "json" | "print";
-	model: undefined;
-	isIdle(): boolean;
-	hasPendingMessages(): boolean;
-	ui: {
-		notify(message: string, type?: string): void;
-	};
-}
-
-function createPi(calls: Array<{ name: string; config: PiProviderConfig }>): ExtensionAPI {
-	return {
-		registerProvider(name: string, config: PiProviderConfig) {
-			calls.push({ name, config });
-		},
-		on() {},
-		setThinkingLevel() {},
-	} as unknown as ExtensionAPI;
 }
 
 function createRegistryPi(registry: ModelRegistry): ExtensionAPI {
 	return {
-		registerProvider(name: string, config: PiProviderConfig) {
-			registry.registerProvider(name, config);
+		registerProvider(provider: Provider) {
+			registry.registerProvider(provider);
 		},
 		on() {},
 		setThinkingLevel() {},

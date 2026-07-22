@@ -43,7 +43,7 @@ function getMissingConfigValueEnvVarNames(config: string, env?: Record<string, s
 	return getConfigValueEnvVarNames(config).filter((name) => resolveEnvConfigValue(name, env) === undefined);
 }
 
-function getConfigValueEnvVarNames(config: string): string[] {
+export function getConfigValueEnvVarNames(config: string): string[] {
 	const reference = parseConfigValueReference(config);
 	return reference.type === "template" ? getTemplateEnvVarNames(reference.parts) : [];
 }
@@ -119,6 +119,10 @@ function getTemplateEnvVarNames(parts: ConfigValuePart[]): string[] {
 		names.push(part.name);
 	}
 	return names;
+}
+
+export function isCommandConfigValue(config: string): boolean {
+	return parseConfigValueReference(config).type === "command";
 }
 
 function resolveConfigValueUncached(config: string, env?: Record<string, string>): string | undefined {

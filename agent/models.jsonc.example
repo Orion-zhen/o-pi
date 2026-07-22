@@ -1,57 +1,51 @@
 {
   "providers": {
     "llama-cpp": {
-      "display_name": "Local AI",
-      "base_url": "http://127.0.0.1:8000/v1",
-      "api_key": "my-lovely-key",
-      "api": "responses",
-      "compat": "openai_compatible",
-      // provider 级声明默认请求参数格式；模型可用同名 thinking 字段覆盖。
-      "thinking": "openai",
-      // 启动先使用缓存，进入 session 后后台请求 base_url + /models；这里手写的同名模型配置优先。
+      "name": "Local AI",
+      "baseUrl": "http://127.0.0.1:8000/v1",
+      "apiKey": "my-lovely-key",
+      "api": "openai-responses",
+      "compatPreset": "local",
+      "thinkingPreset": "openai",
+      "headers": {
+        // Cloudflare Tunnel 可能拒绝默认 OpenAI SDK User-Agent。
+        "User-Agent": "pi-openai-compatible/1.0"
+      },
       "models": [
         {
-          "model": "gemma4-31b-it",
-          "display_name": "Gemma4 31B it",
-          "context_window": 131072,
-          "max_tokens": 32768,
-          // 可选：覆盖 provider 的 thinking preset，以适配同一 provider 下参数格式不同的模型。
-          "thinking": "chat_template_enabled",
-          "thinking_level": "off",
+          "id": "gemma4-31b-it",
+          "name": "Gemma4 31B it",
+          "contextWindow": 131072,
+          "maxTokens": 32768,
+          "thinkingPreset": "chat-template-enabled",
+          "defaultThinkingLevel": "off",
           "input": ["text", "image"],
-
           "defaults": {
             "temperature": 0.2,
-            "top_p": 0.95,
-            "top_k": 40,
-            "max_tokens": 8192
+            "topP": 0.95,
+            "topK": 40,
+            "maxTokens": 8192
           }
         }
-      ],
-      "advanced": {
-        "headers": {
-          "User-Agent": "pi-openai-compatible/1.0" // cloudflare tunnel 会挡住默认的 OpenAI SDK Header
-        }
-      }
+      ]
     },
 
     "chat-template-effort-demo": {
-      "display_name": "Chat Template Demo",
-      "base_url": "http://127.0.0.1:11451/v1",
-      "api_key": "EMPTY",
-      // endpoint 协议与思考参数格式相互独立：Responses 也可以传 chat_template_kwargs。
-      "api": "responses",
-      "compat": "openai_compatible",
-      "thinking": "chat_template_effort",
+      "name": "Chat Template Demo",
+      "baseUrl": "http://127.0.0.1:11451/v1",
+      "apiKey": "EMPTY",
+      "api": "openai-responses",
+      "compatPreset": "openai-compatible",
+      "thinkingPreset": "chat-template-effort",
       "models": [
         {
-          "model": "reasoning-model",
-          "display_name": "Reasoning Model",
-          "context_window": 65536,
-          "max_tokens": 16384,
-          "thinking_level": "xhigh",
-          // Pi 用 null 隐藏不支持的档位；字符串是 provider 实际收到的值。
-          "thinking_level_map": {
+          "id": "reasoning-model",
+          "name": "Reasoning Model",
+          "reasoning": true,
+          "contextWindow": 65536,
+          "maxTokens": 16384,
+          "defaultThinkingLevel": "xhigh",
+          "thinkingLevelMap": {
             "off": "none",
             "minimal": null,
             "xhigh": "max"
@@ -61,21 +55,19 @@
     },
 
     "chat-template-enabled-demo": {
-      "display_name": "Chat Template Enabled Demo",
-      "base_url": "http://127.0.0.1:9000/v1",
-      "api_key": "EMPTY",
-      "api": "chat",
-      "compat": "local",
-      // 生成 chat_template_kwargs: { enable_thinking: true | false }。
-      "thinking": "chat_template_enabled",
+      "name": "Chat Template Enabled Demo",
+      "baseUrl": "http://127.0.0.1:9000/v1",
+      "apiKey": "EMPTY",
+      "api": "openai-completions",
+      "compatPreset": "local",
+      "thinkingPreset": "chat-template-enabled",
       "models": [
         {
-          "model": "boolean-thinking-model",
-          "display_name": "Boolean Thinking Model",
-          "context_window": 131072,
-          "max_tokens": 32768,
-          // 不需要 map：off 发送 false，其他 Pi thinking level 都发送 true。
-          "thinking_level": "high"
+          "id": "boolean-thinking-model",
+          "name": "Boolean Thinking Model",
+          "contextWindow": 131072,
+          "maxTokens": 32768,
+          "defaultThinkingLevel": "high"
         }
       ]
     }

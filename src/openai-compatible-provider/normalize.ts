@@ -1,13 +1,11 @@
 import {
 	getSupportedThinkingLevels,
+	type Api,
 	type Model,
 	type ModelThinkingLevel,
 	type ThinkingLevelMap,
 } from "@earendil-works/pi-ai";
-import type { ProviderConfig as PiProviderConfig, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
-
 import { invalidModelsJsonc } from "./errors.js";
-import { defaultApiKeyConfig } from "./provider-defaults.js";
 import { allowsNonStandardSampling, resolveCompat } from "./presets.js";
 import type { CompatPresetName, ModelsJsoncConfig, SamplingDefaults, ThinkingPresetName } from "./schema.js";
 
@@ -42,86 +40,113 @@ export interface RuntimeModelConfig {
 	extraBody: Record<string, unknown>;
 	timeoutMs?: number;
 	maxRetries?: number;
-	compat: NonNullable<ProviderModelConfig["compat"]>;
+	headers?: Record<string, string>;
+	compat: NonNullable<Model<"openai-completions">["compat"]>;
 }
 
-/** 归一化后的 provider，包含 Pi 注册配置和请求期内部配置。 */
+/** 归一化后的 provider，供原生 pi-ai Provider 构造器消费。 */
 export interface NormalizedProvider {
 	id: string;
-	config: PiProviderConfig;
+	name: string;
+	baseUrl: string;
+	api: "openai-completions" | "openai-responses";
+	models: Model<Api>[];
 	runtimeModels: Map<string, RuntimeModelConfig>;
+	fallbackRuntime: RuntimeModelConfig;
 }
 
-/** 将用户友好的 JSONC 配置转换成 pi.registerProvider 可消费的结构。 */
+/** 将配置转换成原生 Provider/Model 结构，只保留必要的请求期扩展状态。 */
 export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath: string): NormalizedProvider[] {
 	return Object.entries(config.providers).map(([providerId, provider]) => {
-		if (!Array.isArray(provider.models)) {
-			throw invalidModelsJsonc(configPath, `provider "${providerId}" models must be resolved before registration`);
-		}
-
-		const api = provider.api === "responses" ? "openai-responses" : "openai-completions";
-		const compatPreset = provider.compat ?? "openai_compatible";
-		const providerThinkingPreset = provider.thinking ?? "none";
-		const providerExtraBody = provider.advanced?.extra_body ?? {};
-		assertNoCorePayloadFields(providerExtraBody, configPath, `providers.${providerId}.advanced.extra_body`);
+		const api = provider.api ?? "openai-completions";
+		const compatPreset = provider.compatPreset ?? "openai-compatible";
+		const providerThinkingPreset = provider.thinkingPreset ?? "none";
+		const providerExtraBody = provider.extraBody ?? {};
+		assertNoCorePayloadFields(providerExtraBody, configPath, `providers.${providerId}.extraBody`);
 
 		const seenModels = new Set<string>();
 		const runtimeModels = new Map<string, RuntimeModelConfig>();
-		const models: ProviderModelConfig[] = provider.models.map((entry, index) => {
-			const model = typeof entry === "string" ? { model: entry } : entry;
-			const thinkingPreset = model.thinking ?? providerThinkingPreset;
-			if (seenModels.has(model.model)) {
-				throw invalidModelsJsonc(configPath, `provider "${providerId}" contains duplicate model "${model.model}"`);
+		const configuredModels = Array.isArray(provider.models) ? provider.models : [];
+		const models: Model<Api>[] = configuredModels.map((entry, index) => {
+			const model = typeof entry === "string" ? { id: entry } : entry;
+			const modelApi = model.api ?? api;
+			const thinkingPreset = model.thinkingPreset ?? providerThinkingPreset;
+			if (seenModels.has(model.id)) {
+				throw invalidModelsJsonc(configPath, `provider "${providerId}" contains duplicate model "${model.id}"`);
 			}
-			seenModels.add(model.model);
+			seenModels.add(model.id);
 
-			const modelExtraBody = model.advanced?.extra_body ?? {};
-			assertNoCorePayloadFields(modelExtraBody, configPath, `providers.${providerId}.models[${index}].advanced.extra_body`);
-			const compat = resolveCompat(compatPreset, thinkingPreset, model.advanced?.compat);
-			const dropParams = [...(provider.advanced?.drop_params ?? []), ...(model.advanced?.drop_params ?? [])];
+			const modelExtraBody = model.extraBody ?? {};
+			assertNoCorePayloadFields(modelExtraBody, configPath, `providers.${providerId}.models[${index}].extraBody`);
+			assertSamplingDefaultsSupported(model.defaults, compatPreset, configPath, `providers.${providerId}.models[${index}].defaults`);
+			const resolvedCompat = resolveCompat(compatPreset, thinkingPreset, provider.compat, model.compat);
+			const runtimeCompat = modelApi === "openai-responses" ? resolvedCompat : completionsCompat(resolvedCompat);
+			const compat = modelApi === "openai-responses"
+				? responsesCompat(resolvedCompat, provider.compat, model.compat)
+				: runtimeCompat;
+			const dropParams = [...(provider.dropParams ?? []), ...(model.dropParams ?? [])];
 			const extraBody = { ...providerExtraBody, ...modelExtraBody };
-			const reasoning = model.thinking_level !== undefined || model.thinking_level_map !== undefined;
-			assertValidThinkingConfig(model.thinking_level, model.thinking_level_map, configPath, `providers.${providerId}.models[${index}]`);
-			runtimeModels.set(model.model, {
-				api,
+			const inferredReasoning = model.defaultThinkingLevel !== undefined || model.thinkingLevelMap !== undefined;
+			if (model.reasoning === false && inferredReasoning) {
+				throw invalidModelsJsonc(
+					configPath,
+					`providers.${providerId}.models[${index}].reasoning=false conflicts with defaultThinkingLevel/thinkingLevelMap`,
+				);
+			}
+			const reasoning = model.reasoning ?? inferredReasoning;
+			assertValidThinkingConfig(model.defaultThinkingLevel, model.thinkingLevelMap, configPath, `providers.${providerId}.models[${index}]`);
+			runtimeModels.set(model.id, {
+				api: modelApi,
 				compatPreset,
 				thinkingPreset,
 				reasoning,
-				...(model.thinking_level !== undefined ? { defaultThinkingLevel: model.thinking_level } : {}),
-				...(model.thinking_level_map !== undefined ? { thinkingLevelMap: model.thinking_level_map } : {}),
+				...(model.defaultThinkingLevel !== undefined ? { defaultThinkingLevel: model.defaultThinkingLevel } : {}),
+				...(model.thinkingLevelMap !== undefined ? { thinkingLevelMap: model.thinkingLevelMap } : {}),
 				...(model.defaults !== undefined ? { defaults: model.defaults } : {}),
 				dropParams,
 				extraBody,
-				...(provider.advanced?.timeout_ms !== undefined ? { timeoutMs: provider.advanced.timeout_ms } : {}),
-				...(provider.advanced?.max_retries !== undefined ? { maxRetries: provider.advanced.max_retries } : {}),
-				compat,
+				...(provider.timeoutMs !== undefined ? { timeoutMs: provider.timeoutMs } : {}),
+				...(provider.maxRetries !== undefined ? { maxRetries: provider.maxRetries } : {}),
+				...(model.headers !== undefined ? { headers: model.headers } : {}),
+				compat: runtimeCompat,
 			});
 
 			return {
-				id: model.model,
-				name: model.display_name ?? model.model,
-				api,
+				id: model.id,
+				name: model.name ?? model.id,
+				api: modelApi,
+				provider: providerId,
+				baseUrl: model.baseUrl ?? provider.baseUrl,
 				reasoning,
-				...(model.thinking_level_map !== undefined ? { thinkingLevelMap: model.thinking_level_map } : {}),
+				...(model.thinkingLevelMap !== undefined ? { thinkingLevelMap: model.thinkingLevelMap } : {}),
 				input: model.input ?? ["text"],
-				cost: { ...ZERO_COST },
-				contextWindow: model.context_window ?? DEFAULT_CONTEXT_WINDOW,
-				maxTokens: model.max_tokens ?? DEFAULT_MAX_TOKENS,
+				cost: model.cost ?? { ...ZERO_COST },
+				contextWindow: model.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+				maxTokens: model.maxTokens ?? DEFAULT_MAX_TOKENS,
 				compat,
 			};
 		});
 
+		const fallbackRuntime: RuntimeModelConfig = {
+			api,
+			compatPreset,
+			thinkingPreset: providerThinkingPreset,
+			reasoning: false,
+			dropParams: [...(provider.dropParams ?? [])],
+			extraBody: { ...providerExtraBody },
+			...(provider.timeoutMs !== undefined ? { timeoutMs: provider.timeoutMs } : {}),
+			...(provider.maxRetries !== undefined ? { maxRetries: provider.maxRetries } : {}),
+			compat: resolveCompat(compatPreset, providerThinkingPreset, provider.compat, undefined),
+		};
+
 		return {
 			id: providerId,
+			name: provider.name ?? providerId,
+			baseUrl: provider.baseUrl,
+			api,
+			models,
 			runtimeModels,
-			config: {
-				name: provider.display_name ?? providerId,
-				baseUrl: provider.base_url,
-				apiKey: provider.api_key ? provider.api_key : defaultApiKeyConfig(providerId),
-				api,
-				...(provider.advanced?.headers !== undefined ? { headers: provider.advanced.headers } : {}),
-				models,
-			},
+			fallbackRuntime,
 		};
 	});
 }
@@ -130,14 +155,24 @@ export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath
 export function applyRuntimePayloadConfig(
 	payload: unknown,
 	runtime: RuntimeModelConfig,
-	thinkingLevel: ModelThinkingLevel = "off",
+	thinkingLevel: ModelThinkingLevel | undefined = "off",
 ): unknown {
 	if (!isRecord(payload)) return payload;
 	const next = { ...payload };
-	for (const [key, value] of Object.entries(samplingDefaultsToPayload(runtime))) {
-		if (value !== undefined) next[key] = value;
+	const samplingDefaults = samplingDefaultsToPayload(runtime);
+	const configuredMaxTokensField = runtime.defaults?.maxTokens !== undefined ? maxTokensField(runtime) : undefined;
+	for (const [key, value] of Object.entries(samplingDefaults)) {
+		if (value === undefined) continue;
+		if (key === configuredMaxTokensField && typeof value === "number") {
+			const generated = next[key];
+			next[key] = typeof generated === "number" && Number.isFinite(generated)
+				? Math.min(generated, value)
+				: value;
+		} else if (next[key] === undefined) {
+			next[key] = value;
+		}
 	}
-	applyResponsesThinkingPreset(next, runtime, thinkingLevel);
+	if (thinkingLevel !== undefined) applyResponsesThinkingPreset(next, runtime, thinkingLevel);
 	for (const [key, value] of Object.entries(runtime.extraBody)) {
 		next[key] = value;
 	}
@@ -155,18 +190,18 @@ function samplingDefaultsToPayload(runtime: RuntimeModelConfig): Record<string, 
 	if (!defaults) return {};
 	const payload: Record<string, unknown> = {};
 	copyIfDefined(payload, "temperature", defaults.temperature);
-	copyIfDefined(payload, "top_p", defaults.top_p);
-	copyIfDefined(payload, "presence_penalty", defaults.presence_penalty);
-	copyIfDefined(payload, "frequency_penalty", defaults.frequency_penalty);
+	copyIfDefined(payload, "top_p", defaults.topP);
+	copyIfDefined(payload, "presence_penalty", defaults.presencePenalty);
+	copyIfDefined(payload, "frequency_penalty", defaults.frequencyPenalty);
 	copyIfDefined(payload, "seed", defaults.seed);
 	copyIfDefined(payload, "stop", defaults.stop);
 	if (allowsNonStandardSampling(runtime.compatPreset)) {
-		copyIfDefined(payload, "top_k", defaults.top_k);
-		copyIfDefined(payload, "min_p", defaults.min_p);
-		copyIfDefined(payload, "repetition_penalty", defaults.repetition_penalty);
+		copyIfDefined(payload, "top_k", defaults.topK);
+		copyIfDefined(payload, "min_p", defaults.minP);
+		copyIfDefined(payload, "repetition_penalty", defaults.repetitionPenalty);
 	}
-	if (defaults.max_tokens !== undefined) {
-		payload[maxTokensField(runtime)] = defaults.max_tokens;
+	if (defaults.maxTokens !== undefined) {
+		payload[maxTokensField(runtime)] = defaults.maxTokens;
 	}
 	return payload;
 }
@@ -203,19 +238,19 @@ function applyResponsesThinkingPreset(
 		case "qwen":
 			payload.enable_thinking = enabled;
 			return;
-		case "qwen_chat_template":
+		case "qwen-chat-template":
 			payload.chat_template_kwargs = { enable_thinking: enabled, preserve_thinking: true };
 			return;
-		case "chat_template_enabled":
+		case "chat-template-enabled":
 			payload.chat_template_kwargs = { enable_thinking: enabled };
 			return;
-		case "chat_template_effort":
+		case "chat-template-effort":
 			if (effort !== undefined) payload.chat_template_kwargs = { reasoning_effort: effort };
 			return;
-		case "string_thinking":
+		case "string-thinking":
 			if (effort !== undefined) payload.thinking = effort;
 			return;
-		case "ant_ling": {
+		case "ant-ling": {
 			const mapped = enabled ? runtime.thinkingLevelMap?.[thinkingLevel] : undefined;
 			if (typeof mapped === "string") payload.reasoning = { effort: mapped };
 			return;
@@ -238,7 +273,50 @@ function stripThinkingPayload(payload: Record<string, unknown>): void {
 	else delete payload.include;
 }
 
-function supportsReasoningEffort(compat: NonNullable<ProviderModelConfig["compat"]>): boolean {
+function completionsCompat(
+	compat: NonNullable<Model<"openai-completions">["compat"]>,
+): NonNullable<Model<"openai-completions">["compat"]> {
+	const cleaned = { ...compat };
+	Reflect.deleteProperty(cleaned, "supportsToolSearch");
+	return cleaned;
+}
+
+function assertSamplingDefaultsSupported(
+	defaults: SamplingDefaults | undefined,
+	compatPreset: CompatPresetName,
+	configPath: string,
+	fieldPath: string,
+): void {
+	if (!defaults || allowsNonStandardSampling(compatPreset)) return;
+	for (const field of ["topK", "minP", "repetitionPenalty"] as const) {
+		if (defaults[field] !== undefined) {
+			throw invalidModelsJsonc(configPath, `${fieldPath}.${field} requires compatPreset local, qwen, or deepseek`);
+		}
+	}
+}
+
+function responsesCompat(
+	compat: NonNullable<Model<"openai-completions">["compat"]>,
+	providerCompat: Model<"openai-completions">["compat"] | Model<"openai-responses">["compat"],
+	modelCompat: Model<"openai-completions">["compat"] | Model<"openai-responses">["compat"],
+): NonNullable<Model<"openai-responses">["compat"]> {
+	const supportsToolSearch = compatBoolean(modelCompat, "supportsToolSearch")
+		?? compatBoolean(providerCompat, "supportsToolSearch");
+	return {
+		...(compat.supportsDeveloperRole !== undefined ? { supportsDeveloperRole: compat.supportsDeveloperRole } : {}),
+		...(compat.sessionAffinityFormat !== undefined ? { sessionAffinityFormat: compat.sessionAffinityFormat } : {}),
+		...(compat.supportsLongCacheRetention !== undefined ? { supportsLongCacheRetention: compat.supportsLongCacheRetention } : {}),
+		...(supportsToolSearch !== undefined ? { supportsToolSearch } : {}),
+	};
+}
+
+function compatBoolean(value: object | undefined, key: string): boolean | undefined {
+	if (!value || !(key in value)) return undefined;
+	const candidate: unknown = Reflect.get(value, key);
+	return typeof candidate === "boolean" ? candidate : undefined;
+}
+
+function supportsReasoningEffort(compat: NonNullable<Model<"openai-completions">["compat"]>): boolean {
 	return "supportsReasoningEffort" in compat && compat.supportsReasoningEffort === true;
 }
 
@@ -249,7 +327,7 @@ function maxTokensField(runtime: RuntimeModelConfig): string {
 	return "max_completion_tokens";
 }
 
-function hasMaxTokensField(value: NonNullable<ProviderModelConfig["compat"]>): value is NonNullable<ProviderModelConfig["compat"]> & {
+function hasMaxTokensField(value: NonNullable<Model<"openai-completions">["compat"]>): value is NonNullable<Model<"openai-completions">["compat"]> & {
 	maxTokensField?: "max_tokens" | "max_completion_tokens";
 } {
 	return "maxTokensField" in value;
@@ -278,7 +356,7 @@ function assertValidThinkingConfig(
 		const knownLevels = getSupportedThinkingLevels({ ...THINKING_LEVEL_VALIDATION_MODEL, thinkingLevelMap: allMappedKeys });
 		for (const level of Object.keys(levelMap)) {
 			if (!knownLevels.some((known) => known === level)) {
-				throw invalidModelsJsonc(configPath, `${fieldPath}.thinking_level_map contains unknown Pi thinking level "${level}"`);
+				throw invalidModelsJsonc(configPath, `${fieldPath}.thinkingLevelMap contains unknown Pi thinking level "${level}"`);
 			}
 		}
 	}
@@ -288,7 +366,7 @@ function assertValidThinkingConfig(
 		...(levelMap !== undefined ? { thinkingLevelMap: levelMap } : {}),
 	});
 	if (!supportedLevels.some((supported) => supported === defaultLevel)) {
-		throw invalidModelsJsonc(configPath, `${fieldPath}.thinking_level "${defaultLevel}" is not supported by its Pi thinking_level_map`);
+		throw invalidModelsJsonc(configPath, `${fieldPath}.defaultThinkingLevel "${defaultLevel}" is not supported by its Pi thinkingLevelMap`);
 	}
 }
 

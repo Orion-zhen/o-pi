@@ -1,6 +1,6 @@
 import { invalidModelsJsonc } from "./errors.js";
 import { defaultApiKeyConfig } from "./provider-defaults.js";
-import type { ModelConfig, ModelsJsoncConfig, ProviderConfig } from "./schema.js";
+import type { ModelConfig, ProviderConfig } from "./schema.js";
 import { resolveConfigValueOrThrow, resolveHeadersOrThrow } from "./config-values.js";
 
 const DEFAULT_MODELS_ENDPOINT = "models";
@@ -22,51 +22,31 @@ export interface ModelsEndpointRequest {
 
 export type ModelsEndpointFetch = (url: string, init: ModelsEndpointRequest) => Promise<ModelsEndpointResponse>;
 
-export interface ResolveAutoModelsOptions {
+export interface ModelsEndpointAuth {
+	apiKey?: string;
+	headers?: Record<string, string>;
+	keyless?: boolean;
+}
+
+export interface FetchProviderModelsOptions {
 	fetch?: ModelsEndpointFetch;
 	env?: Record<string, string>;
+	requestAuth?: ModelsEndpointAuth;
 	timeoutMs?: number;
 	signal?: AbortSignal;
-}
-
-/** 请求 /models 发现模型；手写 models 作为覆盖项，冲突时优先保留手写配置。 */
-export async function resolveAutoModelsJsoncConfig(
-	config: ModelsJsoncConfig,
-	configPath: string,
-	options: ResolveAutoModelsOptions = {},
-): Promise<ModelsJsoncConfig> {
-	const entries = await Promise.all(Object.entries(config.providers).map(async ([providerId, provider]) => {
-		const discoveredModels = await fetchProviderModelsFromEndpoint(providerId, provider, configPath, options);
-		return [providerId, {
-			...provider,
-			models: Array.isArray(provider.models)
-				? mergeConfiguredAndDiscoveredModels(provider.models, discoveredModels)
-				: discoveredModels,
-		}] as const;
-	}));
-	return entries.length === 0 ? config : { providers: Object.fromEntries(entries) };
-}
-
-function mergeConfiguredAndDiscoveredModels(configuredModels: Array<string | ModelConfig>, discoveredModels: ModelConfig[]): Array<string | ModelConfig> {
-	const configuredIds = new Set(configuredModels.map(configuredModelId));
-	return [...configuredModels, ...discoveredModels.filter((model) => !configuredIds.has(model.model))];
-}
-
-function configuredModelId(model: string | ModelConfig): string {
-	return typeof model === "string" ? model : model.model;
 }
 
 export async function fetchProviderModelsFromEndpoint(
 	providerId: string,
 	provider: ProviderConfig,
 	configPath: string,
-	options: ResolveAutoModelsOptions = {},
+	options: FetchProviderModelsOptions = {},
 ): Promise<ModelConfig[]> {
 	let url: string;
 	let headers: Record<string, string>;
 	try {
 		url = modelsEndpointUrl(provider);
-		headers = buildModelsEndpointHeaders(providerId, provider, options.env);
+		headers = buildModelsEndpointHeaders(providerId, provider, options.env, options.requestAuth);
 	} catch (error) {
 		throw invalidModelsJsonc(configPath, `provider "${providerId}" models endpoint configuration failed: ${stringifyError(error)}`);
 	}
@@ -120,20 +100,33 @@ export async function fetchProviderModelsFromEndpoint(
 }
 
 export function modelsEndpointUrl(provider: ProviderConfig): string {
-	return new URL(provider.models_endpoint ?? DEFAULT_MODELS_ENDPOINT, ensureTrailingSlash(provider.base_url)).toString();
+	return new URL(provider.modelsEndpoint ?? DEFAULT_MODELS_ENDPOINT, ensureTrailingSlash(provider.baseUrl)).toString();
 }
 
 function ensureTrailingSlash(value: string): string {
 	return value.endsWith("/") ? value : `${value}/`;
 }
 
-function buildModelsEndpointHeaders(providerId: string, provider: ProviderConfig, env: Record<string, string> | undefined): Record<string, string> {
+function buildModelsEndpointHeaders(
+	providerId: string,
+	provider: ProviderConfig,
+	env: Record<string, string> | undefined,
+	requestAuth: ModelsEndpointAuth | undefined,
+): Record<string, string> {
 	const headers: Record<string, string> = { Accept: "application/json" };
-	const customHeaders = resolveHeadersOrThrow(provider.advanced?.headers, `provider "${providerId}" models endpoint`, env);
+	if (requestAuth) {
+		if (requestAuth.headers) Object.assign(headers, requestAuth.headers);
+		if (!requestAuth.keyless && requestAuth.apiKey && !hasAuthHeader(headers)) {
+			headers.Authorization = `Bearer ${requestAuth.apiKey}`;
+		}
+		return headers;
+	}
+
+	const customHeaders = resolveHeadersOrThrow(provider.headers, `provider "${providerId}" models endpoint`, env);
 	if (customHeaders) Object.assign(headers, customHeaders);
 	if (hasAuthHeader(headers)) return headers;
 
-	const apiKeyConfig = provider.api_key && provider.api_key.length > 0 ? provider.api_key : defaultApiKeyConfig(providerId);
+	const apiKeyConfig = provider.apiKey && provider.apiKey.length > 0 ? provider.apiKey : defaultApiKeyConfig(providerId);
 	const apiKey = resolveConfigValueOrThrow(apiKeyConfig, `API key for provider "${providerId}" models endpoint`, env);
 	if (apiKey !== "EMPTY") headers.Authorization = `Bearer ${apiKey}`;
 	return headers;
@@ -152,8 +145,8 @@ function parseModelsEndpointPayload(payload: unknown, configPath: string, provid
 	const seen = new Set<string>();
 	for (let index = 0; index < entries.length; index++) {
 		const model = parseModelEntry(entries[index], configPath, providerId, index);
-		if (seen.has(model.model)) continue;
-		seen.add(model.model);
+		if (seen.has(model.id)) continue;
+		seen.add(model.id);
 		models.push(model);
 	}
 	if (models.length === 0) {
@@ -172,7 +165,7 @@ function extractModelEntries(payload: unknown, configPath: string, providerId: s
 }
 
 function parseModelEntry(entry: unknown, configPath: string, providerId: string, index: number): ModelConfig {
-	if (typeof entry === "string" && entry.trim().length > 0) return { model: entry };
+	if (typeof entry === "string" && entry.trim().length > 0) return { id: entry };
 	if (!isRecord(entry)) {
 		throw invalidModelsJsonc(configPath, `provider "${providerId}" models endpoint data[${index}] must be an object or non-empty string`);
 	}
@@ -182,14 +175,14 @@ function parseModelEntry(entry: unknown, configPath: string, providerId: string,
 		throw invalidModelsJsonc(configPath, `provider "${providerId}" models endpoint data[${index}].id is required`);
 	}
 
-	const model: ModelConfig = { model: id };
+	const model: ModelConfig = { id };
 	const displayName = firstString(entry, ["display_name", "name"]);
-	if (displayName && displayName !== id) model.display_name = displayName;
+	if (displayName && displayName !== id) model.name = displayName;
 	const contextWindow = firstPositiveNumber(entry, ["context_window", "context_length", "max_context_length", "max_model_len", "max_sequence_length"]);
-	if (contextWindow !== undefined) model.context_window = contextWindow;
+	if (contextWindow !== undefined) model.contextWindow = contextWindow;
 	const maxTokens = firstPositiveNumber(entry, ["max_output_tokens", "max_completion_tokens"])
 		?? firstPositiveNumber(nestedRecord(entry, "top_provider"), ["max_completion_tokens", "max_output_tokens"]);
-	if (maxTokens !== undefined) model.max_tokens = maxTokens;
+	if (maxTokens !== undefined) model.maxTokens = maxTokens;
 	if (supportsImageInput(entry)) model.input = ["text", "image"];
 	return model;
 }
