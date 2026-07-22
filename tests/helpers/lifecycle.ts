@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach } from "vitest";
@@ -12,7 +12,7 @@ export function useTempDir(prefix: string): TempDir {
 	let current: string | undefined;
 
 	beforeEach(async () => {
-		current = await mkdtemp(path.join(os.tmpdir(), prefix));
+		current = await realpath(await mkdtemp(path.join(os.tmpdir(), prefix)));
 	});
 	afterEach(async () => {
 		if (current !== undefined) await rm(current, { recursive: true, force: true });
