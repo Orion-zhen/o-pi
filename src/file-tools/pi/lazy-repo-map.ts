@@ -4,9 +4,11 @@ import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent
 import { computeRepoMapActivation, REPO_MAP_SESSION_ENTRY, type RepoMapActivationEntry } from "../../repo-map/activation.js";
 import type { RepoMapFileToolQuery, RepoMapMutationResult, RepoMapReadContext } from "../../repo-map/file-tool-query.js";
 import type { RepoMapImpactResult } from "../../repo-map/impact.js";
+import type { RepoMapOutputConfig } from "../../repo-map/output-config.js";
 
 export interface RepoMapRuntimeModule {
 	createRepoMapFileToolQuery: typeof import("../../repo-map/file-tool-query.js").createRepoMapFileToolQuery;
+	loadRepoMapOutputConfig(): Promise<RepoMapOutputConfig>;
 	formatRepoMapImpact: typeof import("../../repo-map/tool-output.js").formatRepoMapImpact;
 	formatRepoMapReadContext: typeof import("../../repo-map/tool-output.js").formatRepoMapReadContext;
 }
@@ -31,6 +33,7 @@ interface LazyRepoMapOptions {
 /** 未激活时只扫描 session entries，不加载 Repo Map query、storage 或 tokenizer。 */
 export function createLazyRepoMap(options: LazyRepoMapOptions): LazyRepoMap {
 	let activeQuery: RepoMapFileToolQuery | undefined;
+	let outputRuntime: Promise<{ runtime: RepoMapRuntimeModule; config: RepoMapOutputConfig }> | undefined;
 	const formattedReadContexts = new WeakMap<RepoMapReadContext, Promise<string | undefined>>();
 	const getActiveQuery = async (): Promise<RepoMapFileToolQuery | undefined> => {
 		if (computeRepoMapActivation(options.getBranch()) === undefined) return undefined;
@@ -42,6 +45,18 @@ export function createLazyRepoMap(options: LazyRepoMapOptions): LazyRepoMap {
 			},
 		});
 		return activeQuery;
+	};
+	const getOutputRuntime = (): Promise<{ runtime: RepoMapRuntimeModule; config: RepoMapOutputConfig }> => {
+		if (outputRuntime !== undefined) return outputRuntime;
+		const created = (async () => {
+			const runtime = await options.load();
+			return { runtime, config: await runtime.loadRepoMapOutputConfig() };
+		})();
+		outputRuntime = created;
+		void created.catch(() => {
+			if (outputRuntime === created) outputRuntime = undefined;
+		});
+		return created;
 	};
 
 	const query: RepoMapFileToolQuery = {
@@ -58,7 +73,8 @@ export function createLazyRepoMap(options: LazyRepoMapOptions): LazyRepoMap {
 
 	async function renderReadContext(context: RepoMapReadContext): Promise<string | undefined> {
 		try {
-			return (await options.load()).formatRepoMapReadContext(context);
+			const { runtime, config } = await getOutputRuntime();
+			return runtime.formatRepoMapReadContext(context, config);
 		} catch {
 			return undefined;
 		}
@@ -76,7 +92,8 @@ export function createLazyRepoMap(options: LazyRepoMapOptions): LazyRepoMap {
 		async formatImpact(impact) {
 			if (impact === undefined) return undefined;
 			try {
-				return (await options.load()).formatRepoMapImpact(impact);
+				const { runtime, config } = await getOutputRuntime();
+				return runtime.formatRepoMapImpact(impact, config);
 			} catch {
 				return undefined;
 			}

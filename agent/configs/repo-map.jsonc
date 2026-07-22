@@ -7,5 +7,9 @@
 	},
 	"cache": {
 		"max_generations": 2
+	},
+	"output": {
+		"read_context_token_budget": 320,
+		"mutation_impact_token_budget": 240
 	}
 }

@@ -12,6 +12,7 @@ import {
 } from "./activation.js";
 import { RepoMapQueryIndex, type RepoMapQueryCandidate, type RepoMapQueryResult } from "./query.js";
 import { analyzeRepoMapImpact, type AnalyzeRepoMapImpactInput, type RepoMapImpactResult } from "./impact.js";
+import { REPO_MAP_OUTPUT_CANDIDATE_LIMIT } from "./output-config.js";
 import type { InitializeRepoMapResult, RefreshActivatedRepoMapInput } from "./service.js";
 import type { RepoMapGeneration } from "./storage.js";
 import type { RepoMapEdge, RepoMapEntrypointNode, RepoMapSymbolNode } from "./types.js";
@@ -204,10 +205,13 @@ export function createRepoMapFileToolQuery(
 				const context = contextForRange(loaded.generation, file.id, input.startLine, input.endLine);
 				if (context === undefined) return undefined;
 				const queryIndex = queryIndexFor(loaded.generation);
-				const directTests = await verifiedCandidates(loaded.generation, queryIndex.relatedTests([file.id, context.symbol.id], 4));
+				const directTests = await verifiedCandidates(loaded.generation, queryIndex.relatedTests(
+					[file.id, context.symbol.id],
+					REPO_MAP_OUTPUT_CANDIDATE_LIMIT,
+				));
 				return directTests.length === 0
 					? context
-					: { ...context, relatedTests: [...new Set(directTests.map((candidate) => candidate.path))].slice(0, 2) };
+					: { ...context, relatedTests: [...new Set(directTests.map((candidate) => candidate.path))].slice(0, REPO_MAP_OUTPUT_CANDIDATE_LIMIT) };
 			} catch {
 				return undefined;
 			}
@@ -327,7 +331,7 @@ function contextForRange(generation: RepoMapGeneration, fileId: string, startLin
 		.filter((node): node is RepoMapEntrypointNode => node.kind === "entrypoint" && node.fileId === fileId)
 		.map((node) => `${node.entrypointType}:${node.name}`)
 		.sort()
-		.slice(0, 2);
+		.slice(0, REPO_MAP_OUTPUT_CANDIDATE_LIMIT);
 	const exported = symbol.visibility === "public" || generation.edges.some((edge) => (edge.kind === "exports" || edge.kind === "exports-publicly") && edge.to === symbol.id);
 	return {
 		symbol: {
@@ -364,7 +368,9 @@ function relationLabels(
 	target: (edge: RepoMapEdge) => string,
 	label: (id: string) => string | undefined,
 ): string[] {
-	return Array.from(new Set(edges.filter(include).flatMap((edge) => label(target(edge)) ?? []))).sort().slice(0, 2);
+	return Array.from(new Set(edges.filter(include).flatMap((edge) => label(target(edge)) ?? [])))
+		.sort()
+		.slice(0, REPO_MAP_OUTPUT_CANDIDATE_LIMIT);
 }
 
 function compactLabel(value: string | undefined): string | undefined {

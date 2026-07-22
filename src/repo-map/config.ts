@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { agentSchemaPath, createSchemaValidator, readOptionalJsoncConfigWithSchema, userAgentConfigPath } from "../config-loader.js";
 import { RepoMapError } from "./errors.js";
+import { DEFAULT_REPO_MAP_OUTPUT_CONFIG, type RepoMapOutputConfig } from "./output-config.js";
 export { repoMapCacheRoot } from "./cache-path.js";
 
 const USER_CONFIG_ENV = "PI_REPO_MAP_CONFIG";
@@ -15,16 +16,19 @@ export interface RepoMapConfig {
 	cache: {
 		max_generations: number;
 	};
+	output: RepoMapOutputConfig;
 }
 
 interface RawRepoMapConfig {
 	scan?: Partial<RepoMapConfig["scan"]>;
 	cache?: Partial<RepoMapConfig["cache"]>;
+	output?: Partial<RepoMapConfig["output"]>;
 }
 
 const defaults: RepoMapConfig = {
 	scan: { max_files: 100_000, max_file_bytes: 1024 * 1024, concurrency: 8 },
 	cache: { max_generations: 2 },
+	output: { ...DEFAULT_REPO_MAP_OUTPUT_CONFIG },
 };
 
 export async function loadRepoMapConfig(): Promise<RepoMapConfig> {
@@ -40,6 +44,7 @@ export async function loadRepoMapConfig(): Promise<RepoMapConfig> {
 		return {
 			scan: { ...defaults.scan, ...raw.scan },
 			cache: { ...defaults.cache, ...raw.cache },
+			output: { ...defaults.output, ...raw.output },
 		};
 	} catch (error) {
 		if (error instanceof RepoMapConfigError) throw new RepoMapError("CONFIG_ERROR", error.message, error.details);
@@ -51,8 +56,9 @@ export function defaultRepoMapConfig(): RepoMapConfig {
 	return structuredClone(defaults);
 }
 
+/** Preserve existing generation fingerprint inputs while excluding model-output budgets. */
 export function repoMapConfigFingerprint(config: RepoMapConfig): string {
-	return createHash("sha256").update(JSON.stringify(config)).digest("hex");
+	return createHash("sha256").update(JSON.stringify({ scan: config.scan, cache: config.cache })).digest("hex");
 }
 
 class RepoMapConfigError extends Error {

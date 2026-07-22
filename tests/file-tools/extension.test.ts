@@ -206,10 +206,20 @@ describe("file-tools extension", () => {
 	it("同一 session 复用 Repo Map runtime，shutdown 后释放", async () => {
 		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
 		const handlers = new Map<string, LifecycleHandler>();
+		const outputConfig = { read_context_token_budget: 640, mutation_impact_token_budget: 480 };
+		const loadRepoMapOutputConfig = vi.fn(async () => outputConfig);
+		const formatRepoMapImpact = vi.fn((_impact: unknown, config: typeof outputConfig = outputConfig) =>
+			`<repo_impact>\nbudget="${config.mutation_impact_token_budget}"\n</repo_impact>`);
 		const createRepoMapFileToolQuery = vi.fn(() => ({
 			async query() { return undefined; },
 			async readContext() { return undefined; },
-			async syncMutation() { return { status: "updated" as const, generation: "2".repeat(64) }; },
+			async syncMutation() {
+				return {
+					status: "updated" as const,
+					generation: "2".repeat(64),
+					impact: { candidate: true as const, changedPath: "one.ts", changedSymbols: [], publicApiChanges: [], candidates: [] },
+				};
+			},
 		}));
 		const imports = {
 			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
@@ -222,7 +232,8 @@ describe("file-tools extension", () => {
 			async repoMap() {
 				return {
 					createRepoMapFileToolQuery,
-					formatRepoMapImpact: () => undefined,
+					loadRepoMapOutputConfig,
+					formatRepoMapImpact,
 					formatRepoMapReadContext: () => undefined,
 				};
 			},
@@ -246,12 +257,16 @@ describe("file-tools extension", () => {
 		}];
 		const ctx = { cwd, sessionManager: { getSessionId: () => "repo-map-session", getBranch: () => branch } };
 		try {
-			await executeTool(registered, "write", { path: "one.ts", content: "one\n" }, ctx);
+			const first = await executeTool(registered, "write", { path: "one.ts", content: "one\n" }, ctx);
 			await executeTool(registered, "write", { path: "two.ts", content: "two\n" }, ctx);
+			expect(first.content[0]?.text).toContain('budget="480"');
 			expect(createRepoMapFileToolQuery).toHaveBeenCalledTimes(1);
+			expect(loadRepoMapOutputConfig).toHaveBeenCalledTimes(1);
+			expect(formatRepoMapImpact).toHaveBeenCalledWith(expect.anything(), outputConfig);
 			await expect(Promise.resolve(handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();
 			await executeTool(registered, "write", { path: "three.ts", content: "three\n" }, ctx);
 			expect(createRepoMapFileToolQuery).toHaveBeenCalledTimes(2);
+			expect(loadRepoMapOutputConfig).toHaveBeenCalledTimes(2);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

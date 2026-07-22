@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { formatEditModelResult, formatWriteModelResult } from "../../src/file-tools/pi/model-output-with-repo.js";
 import { createRepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
 import { analyzeRepoMapImpact } from "../../src/repo-map/impact.js";
-import { REPO_IMPACT_TOKEN_BUDGET } from "../../src/repo-map/tool-output.js";
+import { formatRepoMapImpact, REPO_IMPACT_TOKEN_BUDGET } from "../../src/repo-map/tool-output.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { activationEntry, configureFileTools, writeSources } from "./fixtures.js";
@@ -18,6 +18,39 @@ beforeEach(async () => {
 });
 
 describe("Repo Map change impact", () => {
+	it("uses the configured token budget to expose more mutation impact", () => {
+		const impact = {
+			candidate: true as const,
+			changedPath: "src/changed.ts",
+			changedSymbols: Array.from({ length: 8 }, (_, index) => `changed function publicSymbol${index}`),
+			publicApiChanges: ["changed function publicSymbol0"],
+			candidates: [
+				...Array.from({ length: 7 }, (_, index) => ({
+					path: `src/dependent-${index}.ts`, impactReason: "direct reference", confidence: 1,
+					graphDistance: 1 as const, evidence: [], role: "dependent" as const,
+				})),
+				...Array.from({ length: 5 }, (_, index) => ({
+					path: `tests/changed-${index}.test.ts`, impactReason: "explicit test relation", confidence: 1,
+					graphDistance: 1 as const, evidence: [], role: "test" as const,
+				})),
+			],
+		};
+		const defaultTag = formatRepoMapImpact(impact);
+		const expandedTag = formatRepoMapImpact(impact, {
+			read_context_token_budget: 160,
+			mutation_impact_token_budget: 640,
+		});
+		expect(defaultTag).not.toContain("dependent-6.ts");
+		expect(expandedTag).toContain("dependent-6.ts");
+		expect(expandedTag).toContain("changed-4.test.ts");
+		expect(countTextTokensSync(expandedTag ?? "").tokens).toBeLessThanOrEqual(640);
+		expect(countTextTokensSync(expandedTag ?? "").tokens).toBeGreaterThan(countTextTokensSync(defaultTag ?? "").tokens);
+		expect(formatRepoMapImpact(impact, {
+			read_context_token_budget: 160,
+			mutation_impact_token_budget: 0,
+		})).toBeUndefined();
+	});
+
 	it("ranks callers, public API dependents, importers, tests, entrypoints, and bounded component candidates", async () => {
 		const before = await generationWithTestGraph(temp.path, testGraphSources("export function loadUser() { return 'user'; }\n"), "1");
 		const after = await generationWithTestGraph(temp.path, testGraphSources("export function loadUser(id: string) { return id; }\n"), "2");

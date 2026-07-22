@@ -21,6 +21,14 @@
 			"properties": {
 				"max_generations": { "type": "integer", "minimum": 1, "maximum": 10 }
 			}
+		},
+		"output": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"read_context_token_budget": { "type": "integer", "minimum": 0, "maximum": 4096 },
+				"mutation_impact_token_budget": { "type": "integer", "minimum": 0, "maximum": 4096 }
+			}
 		}
 	}
 }

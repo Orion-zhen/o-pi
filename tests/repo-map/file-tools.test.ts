@@ -196,6 +196,27 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		});
 		expect(saturatedTag).toContain('symbol="function Target 1-150"');
 		expect(countTextTokensSync(saturatedTag ?? "").tokens).toBeLessThanOrEqual(READ_REPO_MAP_TOKEN_BUDGET);
+		const expandableContext = {
+			...enabled.repo_map,
+			callers: Array.from({ length: 12 }, (_, index) => `src/caller-${index}.ts:Caller${index}`),
+			callees: Array.from({ length: 12 }, (_, index) => `src/callee-${index}.ts:callee${index}`),
+			references: [],
+			imports: [],
+		};
+		const defaultTag = formatRepoMapReadContext(expandableContext);
+		const expandedTag = formatRepoMapReadContext(expandableContext, {
+			read_context_token_budget: 640,
+			mutation_impact_token_budget: 120,
+		});
+		expect(defaultTag).not.toContain("callee-11");
+		expect(expandedTag).toContain("caller-11");
+		expect(expandedTag).toContain("callee-11");
+		expect(countTextTokensSync(expandedTag ?? "").tokens).toBeLessThanOrEqual(640);
+		expect(countTextTokensSync(expandedTag ?? "").tokens).toBeGreaterThan(countTextTokensSync(defaultTag ?? "").tokens);
+		expect(formatRepoMapReadContext(expandableContext, {
+			read_context_token_budget: 0,
+			mutation_impact_token_budget: 120,
+		})).toBeUndefined();
 
 		const duplicateLspResult = {
 			...enabled,

@@ -80,18 +80,31 @@ describe("Repo Map config", () => {
 		expect(first).toEqual(second);
 		expect(repoMapConfigFingerprint(first)).toBe(repoMapConfigFingerprint(second));
 		first.scan.concurrency = 1;
+		expect(repoMapConfigFingerprint(first)).not.toBe(repoMapConfigFingerprint(second));
 		expect(defaultRepoMapConfig().scan.concurrency).toBe(8);
+		expect(defaultRepoMapConfig().output).toEqual({
+			read_context_token_budget: 160,
+			mutation_impact_token_budget: 120,
+		});
+		const outputOnly = defaultRepoMapConfig();
+		outputOnly.output.read_context_token_budget = 640;
+		expect(repoMapConfigFingerprint(outputOnly)).toBe(repoMapConfigFingerprint(second));
 	});
 
 	it("loads JSONC from the environment override and merges defaults", async () => {
 		const configPath = path.join(temp.path, "repo-map.jsonc");
 		process.env["PI_REPO_MAP_CONFIG"] = configPath;
-		await writeFile(configPath, `{ "scan": { "concurrency": 3, }, // comment\n }`);
-		expect(await loadRepoMapConfig()).toMatchObject({ scan: { concurrency: 3, max_files: 100_000 }, cache: { max_generations: 2 } });
+		await writeFile(configPath, `{ "scan": { "concurrency": 3, }, // comment\n "output": { "read_context_token_budget": 640 } }`);
+		expect(await loadRepoMapConfig()).toMatchObject({
+			scan: { concurrency: 3, max_files: 100_000 },
+			cache: { max_generations: 2 },
+			output: { read_context_token_budget: 640, mutation_impact_token_budget: 120 },
+		});
 	});
 
 	it.each([
 		[`{ "scan": { "concurrency": 0 } }`, "schema"],
+		[`{ "output": { "read_context_token_budget": 4097 } }`, "schema"],
 		[`{ "scan":`, "JSONC"],
 	] as const)("rejects invalid config (%s)", async (content, message) => {
 		const configPath = path.join(temp.path, "bad.jsonc");
