@@ -28,7 +28,7 @@ describe("subagent agent discovery", () => {
 	it("统一解析 Agent Markdown 的执行元数据", async () => {
 		await writeFile(
 			path.join(dir, "agent", "agents", "worker.md"),
-			"---\nname: worker\ndescription: Worker\nmodel: provider/model\ntools: read, edit\ntimeout_ms: 120000\nretries: 2\n---\nImplement the task.",
+			"---\nname: worker\ndescription: Worker\nmodel: provider/model\ntools: read, edit\ntimeout_ms: 120000\nretries: 2\nauto_confirm: true\n---\nImplement the task.",
 		);
 
 		const found = discoverAgents(dir, defaultSubagentConfig());
@@ -40,6 +40,7 @@ describe("subagent agent discovery", () => {
 			tools: ["read", "edit"],
 			timeoutMs: 120000,
 			retries: 2,
+			autoConfirm: true,
 		});
 	});
 

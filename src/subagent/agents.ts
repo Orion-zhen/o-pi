@@ -120,7 +120,7 @@ function loadAgentsFromDir(
 function parseAgentFile(filePath: string, source: SubagentSource, config: SubagentConfig, warnings: string[]): AgentDefinition {
 	const content = readFileSync(filePath, "utf8");
 	const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
-	const known = new Set(["name", "description", "model", "tools", "timeout_ms", "retries"]);
+	const known = new Set(["name", "description", "model", "tools", "timeout_ms", "retries", "auto_confirm"]);
 	for (const key of Object.keys(frontmatter)) {
 		if (!known.has(key)) warnings.push(`${filePath}: ignored unknown frontmatter field "${key}"`);
 	}
@@ -128,6 +128,7 @@ function parseAgentFile(filePath: string, source: SubagentSource, config: Subage
 	const model = optionalString(frontmatter["model"], "model");
 	const timeoutMs = optionalInteger(frontmatter["timeout_ms"], "timeout_ms");
 	const retries = optionalInteger(frontmatter["retries"], "retries");
+	const autoConfirm = optionalBoolean(frontmatter["auto_confirm"], "auto_confirm");
 	return {
 		name: requireString(frontmatter["name"], "name"),
 		description: requireString(frontmatter["description"], "description"),
@@ -135,6 +136,7 @@ function parseAgentFile(filePath: string, source: SubagentSource, config: Subage
 		tools,
 		...(timeoutMs !== undefined ? { timeoutMs } : {}),
 		...(retries !== undefined ? { retries } : {}),
+		...(autoConfirm !== undefined ? { autoConfirm } : {}),
 		source,
 		filePath,
 		hasWriteCapability: hasWriteCapability(tools),
@@ -187,6 +189,12 @@ function optionalString(value: unknown, field: string): string | undefined {
 function requireString(value: unknown, field: string): string {
 	if (typeof value === "string" && value.trim() !== "") return value.trim();
 	throw new Error(`${field} is required.`);
+}
+
+function optionalBoolean(value: unknown, field: string): boolean | undefined {
+	if (value === undefined || value === null || value === "") return undefined;
+	if (typeof value === "boolean") return value;
+	throw new Error(`${field} must be a boolean.`);
 }
 
 function optionalInteger(value: unknown, field: string): number | undefined {

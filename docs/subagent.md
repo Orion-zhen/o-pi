@@ -47,6 +47,7 @@ You are a focused codebase scout.
 * `tools`：逗号分隔工具列表；缺省时使用只读默认工具。
 * `timeout_ms`：可选。
 * `retries`：可选。
+* `auto_confirm`：可选；为 `true` 时跳过该 Agent 的写工具确认，仅应由受信任的用户级 Agent 使用。
 
 Markdown 正文不会直接暴露给主 Agent，只作为子 Agent 专属指令。
 

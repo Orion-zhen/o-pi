@@ -196,6 +196,7 @@ async function confirmIfNeeded(
 	config: SubagentConfig,
 	context: ExecutorContext,
 ): Promise<void> {
+	if (agent.source === "user" && agent.autoConfirm === true) return;
 	const needsConfirm = config.confirmWriteAgents && tools.some((tool) => tool === "write" || tool === "edit" || tool === "bash" || !["read", "grep", "find", "ls"].includes(tool));
 	if (!needsConfirm) return;
 	if (!context.hasUI || context.confirm === undefined) throw new SubagentExecutionError(`Agent "${agent.name}" needs write-capable tools but confirmation UI is unavailable.`);
