@@ -22,7 +22,7 @@
 		"find_result_limit": 80,
 		"find_max_entries_scanned": 100000,
 		"grep_output_token_budget": 4000,
-		"grep_result_limit": 16,
+		"grep_result_limit": 24,
 		"grep_max_file_bytes": 1048576,
 		"grep_max_files_scanned": 100000,
 		"grep_max_semantic_files": 1024,
