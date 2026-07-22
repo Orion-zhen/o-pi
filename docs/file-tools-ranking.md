@@ -111,7 +111,7 @@ utility = 0.85 * normalizedRelevance
 - `login tests`：test 关系可以进入主结果。
 - literal/regex：只有实时正文命中进入主结果；其他可导航结构候选留在 related。
 
-只有主结果具有直接命中语义。主结果为空时，`find` 可从本地 Fuse 建议或 glob 外路径生成最多 3 条 `nearby`；`grep` 可从当前代码单元生成 symbol edit-distance、部分查询词或路径重合建议。`nearby` 明示 `nonmatch` 和单一原因，不参与主结果的 RRF rank、cutoff、limit 或返回计数，也不会触发关系扩展。
+只有主结果具有直接命中语义。fuzzy 主结果为空时，`find` 可从本地 Fuse 建议生成最多 3 条 `nearby`；`grep` 可从当前代码单元生成 symbol edit-distance、部分查询词或路径重合建议。`nearby` 明示 `nonmatch` 和单一原因，不参与主结果的 RRF rank、cutoff、limit 或返回计数，也不会触发关系扩展。
 
 `related` 来自 Repo Map 的已验证可导航关系，明示 `query_match: not_guaranteed`，同样不参与主结果的 RRF rank、cutoff 或 limit。`nearby` 表达本地相似性，`related` 表达代码图关系；两条通道可同时存在，但不能互相替代或混入 main。
 

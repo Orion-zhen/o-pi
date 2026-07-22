@@ -382,12 +382,11 @@ function formatFindCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, cwd: s
 	const record = isPlainRecord(args) ? args : {};
 	const query = stringArg(record["query"]);
 	const rawPath = stringArg(record["path"]) ?? ".";
-	const glob = stringArg(record["glob"]);
 	return formatToolCard({
 		tool: "find",
 		status: "running",
 		target: `${query === null ? "?" : `"${query}"`} in ${displayToolPath(rawPath, cwd)}`,
-		summary: joinParts(["locating files/directories", glob === null ? undefined : `glob ${glob}`]),
+		summary: "locating files/directories",
 	}, theme);
 }
 
@@ -407,7 +406,6 @@ function formatFindDetails(details: FindDetails, expanded: boolean, theme: Pick<
 		`${files} ${files === 1 ? "file" : "files"}`,
 		`${directories} ${directories === 1 ? "directory" : "directories"}`,
 		details.strategy,
-		details.glob === undefined ? undefined : `glob ${details.glob}`,
 		details.nearby === undefined ? undefined : `${details.nearby.length} nearby`,
 		details.related === undefined ? undefined : `${details.related.length} related`,
 		details.scanTruncated ? "scan truncated" : undefined,

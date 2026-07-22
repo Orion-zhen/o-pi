@@ -305,7 +305,7 @@ seed 最多保留 64 个。图遍历为双向、最多两跳，并同时衰减 e
 | 工具 | Repo Map 行为 | 不变的边界 |
 | --- | --- | --- |
 | `ls` | 不增强。 | 原目录列表逻辑。 |
-| `find` | `query` 的名称、路径与语义召回合入结构候选，可由独立 `glob` 过滤。 | exact path、glob 严格匹配、scope、ignore、blocked path、symlink 和结果预算。 |
+| `find` | 非 glob `query` 的名称、路径与语义召回合入结构候选。 | exact path、glob query 严格匹配、scope、ignore、blocked path、symlink 和结果预算。 |
 | `grep` | `auto`、`literal` 和 `regex` 均可合入已实时验证的结构候选。 | literal/regex 严格匹配、LSP、scope、glob、源码读取、结果数和 token budget。 |
 | `read` | partial/truncated text read 追加紧凑结构上下文。 | 图片、完整短读取、实时正文、行数和字节预算。 |
 | `write` | 成功写盘后刷新 Repo Map，并附加影响建议。 | 写入成功不依赖 Repo Map。 |
@@ -313,13 +313,13 @@ seed 最多保留 64 个。图遍历为双向、最多两跳，并同时衰减 e
 
 ### `find`
 
-`find` 的 `query` 始终用于 exact/fuzzy 路径排名和 Repo Map 语义召回；可选 `glob` 只做严格路径过滤，不再从查询文本推断模式，也不从 glob 提取图查询词。候选可能来自 symbol definition、alias、package/component、entrypoint、registration、public API 和测试关系。
+`find` 先按 `query` 检查 exact path，再自动识别 glob。glob query 只做严格路径匹配，不进入 Repo Map；其他 query 用于 fuzzy 路径排名和 Repo Map 语义召回。候选可能来自 symbol definition、alias、package/component、entrypoint、registration、public API 和测试关系。
 
-查询层先验证每个候选及其 evidence 相关文件的实时 content hash；`find` 再逐项检查搜索 scope、workspace scope、blocked/ignored 规则、真实文件类型和 symlink。设置 `glob` 时，普通候选与 Repo Map 主候选必须通过同一个 picomatch 判定。按 path 去重、跨来源融合和 result limit 规则见 [文件工具排序算法](file-tools-ranking.md)。glob 的静态前缀继续缩小遍历范围。
+查询层先验证每个候选及其 evidence 相关文件的实时 content hash；`find` 再逐项检查搜索 scope、workspace scope、blocked/ignored 规则、真实文件类型和 symlink。按 path 去重、跨来源融合和 result limit 规则见 [文件工具排序算法](file-tools-ranking.md)。glob query 的静态前缀会缩小文件系统遍历范围。
 
 Repo Map 从不排除原本能找到的文件，也不会把 graph node 当成虚拟文件返回。
 
-设置严格 `glob` 且主结果少于 4 条时，最多附加 3 条高置信度结构关联文件。关联候选仍需通过 scope、ignore、blocked path、symlink 和实时 hash 校验，但不要求满足 glob；它们只进入独立的 `related` 字段。模型输出以 `<related repo-map nonmatch>` 紧凑声明来源和非匹配语义。
+非 glob 语义查询的主结果少于 4 条时，最多附加 3 条高置信度结构关联文件。关联候选仍需通过 scope、ignore、blocked path、symlink 和实时 hash 校验；它们只进入独立的 `related` 字段。模型输出以 `<related repo-map nonmatch>` 紧凑声明来源和非匹配语义。
 
 ### `grep`
 

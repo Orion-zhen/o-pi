@@ -40,7 +40,7 @@ describe("tool telemetry projections", () => {
 	});
 
 	it("find and grep preserve displayed candidate order and ranking sources", () => {
-		const findParams = fixture<FindParams>({ path: ".", query: "private symbol", glob: "*.ts" });
+		const findParams = fixture<FindParams>({ path: ".", query: "private symbol" });
 		const findInput = inputFacts(findTelemetry, findParams);
 		const findOutput = resultFacts(findTelemetry, findParams, fixture<FindDetails>({
 			status: "ok",
@@ -48,7 +48,7 @@ describe("tool telemetry projections", () => {
 			candidateSources: { "src/a.ts": ["lexical", "repo-map"] },
 			related: [{ path: "src/b.ts" }],
 		}));
-		expect(findInput.fields).toMatchObject({ input_query_chars: 14, input_glob_chars: 4 });
+		expect(findInput.fields).toMatchObject({ input_query_chars: 14 });
 		expect(JSON.stringify(findInput)).not.toContain("private symbol");
 		expect(findOutput.candidates).toEqual([
 			{ kind: "path", value: "src/a.ts", rank: 1, group: "primary", sources: ["lexical", "repo-map"] },

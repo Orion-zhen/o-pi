@@ -8,7 +8,6 @@ const TOP_MATCH_LIMIT = 12;
 export interface RenderFindInput {
 	query: string;
 	path: string;
-	glob?: string;
 	strategy: FindDetails["strategy"];
 	totalMatches: number;
 	scannedEntries: number;
@@ -113,7 +112,7 @@ function appendNearby(
 function appendNoMatchDiagnostic(content: string, input: RenderFindInput, tokenBudget: number): string {
 	const lines = [
 		`searched=${input.scannedEntries}; ignored=${input.ignoredCount}; skipped=${input.skippedCount}`,
-		input.glob === undefined ? "next: broaden query or path" : "next: relax glob, query, or path",
+		"next: broaden query or path",
 	];
 	let output = content;
 	for (const line of lines) {
@@ -140,7 +139,6 @@ function buildDetails(
 	return {
 		query: input.query,
 		path: input.path,
-		...(input.glob !== undefined ? { glob: input.glob } : {}),
 		strategy: input.strategy,
 		totalMatches: input.totalMatches,
 		returnedMatches: matches.length,

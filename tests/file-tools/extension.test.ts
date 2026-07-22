@@ -105,7 +105,6 @@ describe("file-tools extension", () => {
 		const details = {
 			query: "main",
 			path: ".",
-			glob: "src/*.ts",
 			strategy: "fuzzy",
 			totalMatches: 1,
 			returnedMatches: 1,
@@ -128,7 +127,6 @@ describe("file-tools extension", () => {
 
 		expect(renderToolResult(registered, "find", details)).toContain("1 related");
 		const expanded = renderToolResult(registered, "find", details, true);
-		expect(expanded).toContain("glob src/*.ts");
 		expect(expanded).toContain("Related (repo-map; query match not guaranteed):");
 		expect(expanded).toContain("tests/main.test.ts [test]");
 	});

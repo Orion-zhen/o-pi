@@ -29,8 +29,7 @@ export function isFindDetails(value: unknown): value is FindDetails {
 	return isPlainRecord(value)
 		&& typeof value["query"] === "string"
 		&& typeof value["path"] === "string"
-		&& (value["glob"] === undefined || typeof value["glob"] === "string")
-		&& (value["strategy"] === "exact" || value["strategy"] === "fuzzy")
+		&& (value["strategy"] === "exact" || value["strategy"] === "glob" || value["strategy"] === "fuzzy")
 		&& typeof value["totalMatches"] === "number"
 		&& typeof value["scannedEntries"] === "number"
 		&& Array.isArray(value["matches"])
@@ -47,7 +46,7 @@ function isFindNearbyResults(value: unknown): value is FindNearbyResult[] {
 		isPlainRecord(item)
 		&& typeof item["path"] === "string"
 		&& (item["kind"] === "file" || item["kind"] === "directory")
-		&& (item["reason"] === "name similarity" || item["reason"] === "outside glob"));
+		&& item["reason"] === "name similarity");
 }
 
 export function isRepoMapRelatedResults(value: unknown): value is RepoMapRelatedResult[] {

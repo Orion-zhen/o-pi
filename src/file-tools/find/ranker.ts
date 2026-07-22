@@ -78,6 +78,17 @@ export function rankFindEntries(entries: FindEntry[], query: string, rootPath: s
 	};
 }
 
+/** Glob 结果按路径稳定排序，不把模式符号送入 fuzzy 排名。 */
+export function rankGlobEntries(entries: FindEntry[]): RankedFindEntry[] {
+	return [...entries]
+		.sort((left, right) => compareStableString(left.path, right.path))
+		.map((entry, index) => ({
+			entry,
+			tier: 3,
+			evidence: createSourceRankingEvidence("path", index + 1),
+		}));
+}
+
 /** 主结果阶段不计算仅在零结果时可见的 typo suggestions。 */
 export function rankFindMatches(entries: FindEntry[], query: string, rootPath: string): RankedFindEntry[] {
 	const queryTokens = tokenizeQuery(query);

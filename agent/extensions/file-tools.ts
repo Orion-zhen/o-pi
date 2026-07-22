@@ -36,10 +36,9 @@ const findParameters = Type.Object(
 	{
 		query: Type.String({
 			minLength: 1,
-			description: "Name, path fragment, or concept.",
+			description: "Name, path fragment, concept, or glob.",
 		}),
 		path: Type.Optional(Type.String({ minLength: 1, description: "Search root; default workspace." })),
-		glob: Type.Optional(Type.String({ minLength: 1, description: "Strict relative path filter for main results." })),
 	},
 	{ additionalProperties: false },
 );

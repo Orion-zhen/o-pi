@@ -10,7 +10,7 @@ import {
 } from "./common.js";
 
 export const findTelemetry = defineToolTelemetry<FindParams, FindDetails | FailedResult>({
-	input: projectFileInput(["query", "path", "glob"], "directory"),
+	input: projectFileInput(["query", "path"], "directory"),
 	result(_params, result) {
 		const details = record(result.details);
 		return { fields: fileResultFields(details), candidates: findCandidates(details) };
@@ -20,7 +20,7 @@ export const findTelemetry = defineToolTelemetry<FindParams, FindDetails | Faile
 function findCandidates(details: Record<string, unknown>): Candidate[] {
 	const result: Candidate[] = [];
 	const sourceMap = record(details["candidateSources"]);
-	const strategy = details["strategy"] === "fuzzy" ? "fuzzy" : "lexical";
+	const strategy = details["strategy"] === "fuzzy" ? "fuzzy" : details["strategy"] === "glob" ? "glob" : "lexical";
 	appendPathCandidates(result, details["displayedMatches"] ?? details["matches"], "primary", (path) => {
 		const labels = sourceLabels(sourceMap[path], strategy);
 		return strategy === "fuzzy" ? [...new Set([...labels, "fuzzy"])].sort() : labels;

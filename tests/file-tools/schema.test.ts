@@ -38,9 +38,9 @@ describe("file tool schemas", () => {
 		expect(validates(ls, { extra: true })).toBe(false);
 
 		expect(validates(find, { query: "auth service" })).toBe(true);
-		expect(validates(find, { query: "auth service", path: "src", glob: "**/*.ts" })).toBe(true);
+		expect(validates(find, { query: "**/*.ts", path: "src" })).toBe(true);
 		expect(validates(find, { query: "" })).toBe(false);
-		expect(validates(find, { query: "x", glob: "" })).toBe(false);
+		expect(validates(find, { query: "x", glob: "**/*.ts" })).toBe(false);
 		expect(validates(find, { pattern: "**/*.ts" })).toBe(false);
 		expect(validates(find, { query: "x", mode: "name" })).toBe(false);
 		expect(validates(find, { query: "x", limit: 20 })).toBe(false);

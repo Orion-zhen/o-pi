@@ -69,11 +69,10 @@ export interface LsParams {
 	path?: string;
 }
 
-/** find 参数：query 用于名称、路径片段与语义召回；glob 独立执行严格路径过滤。 */
+/** find 参数：query 自动路由精确路径、glob、名称/路径 fuzzy 与语义召回。 */
 export interface FindParams {
 	query: string;
 	path?: string;
-	glob?: string;
 }
 
 export type GrepMatchMode = "auto" | "literal" | "regex";
@@ -352,7 +351,7 @@ export interface FindMatch {
 }
 
 export interface FindNearbyResult extends FindMatch {
-	reason: "name similarity" | "outside glob";
+	reason: "name similarity";
 }
 
 export interface FindCollapsedGroup {
@@ -365,8 +364,7 @@ export interface FindCollapsedGroup {
 export interface FindDetails {
 	query: string;
 	path: string;
-	glob?: string;
-	strategy: "exact" | "fuzzy";
+	strategy: "exact" | "glob" | "fuzzy";
 	totalMatches: number;
 	returnedMatches: number;
 	scannedEntries: number;

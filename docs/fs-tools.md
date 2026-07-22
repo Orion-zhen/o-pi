@@ -385,18 +385,16 @@ a/
 ```json
 {
 	"path": "src",
-	"query": "auth service",
-	"glob": "**/*.{ts,tsx}"
+	"query": "*.{ts,tsx}"
 }
 ```
 
 字段：
 
 * `path`：搜索根目录，默认 `.`。相对路径按 `cwd` 解析；workspace 内绝对路径会折叠为 workspace-relative path；workspace 外绝对路径保持绝对。
-* `query`：文件名、目录名、路径片段或概念，用于普通路径排名和 Repo Map 语义召回；路径查询相对于 `path` 解释，不能逃出搜索根；空字符串非法。
-* `glob`：可选的严格相对路径过滤器。所有主结果都必须匹配；它不参与语义召回。
+* `query`：文件名、目录名、路径片段、概念或 glob。先检查相对 `path` 的精确路径；glob 严格匹配路径，其他查询用于普通路径排名和 Repo Map 语义召回；不能逃出搜索根，空字符串非法。
 
-完整窄结果只返回路径；目录以 `/` 结尾，query/path/glob 和可由路径推导的计数不重复：
+完整窄结果只返回路径；目录以 `/` 结尾，query/path 和可由路径推导的计数不重复：
 
 ```text
 src/auth/
@@ -421,7 +419,7 @@ c/** (29 files)
 
 `scanTruncated`、`resultLimited` 和 `outputTruncated` 分别表示扫描未完成、具体结果受数量限制和模型文本受 token 预算限制；任一状态存在时，首行会包含类似 `found=90 selected=50; truncated=result` 的状态，不能被尾部裁剪。
 
-零结果仍以 `none` 开头，但不会只返回空结论：有可信候选时追加最多 3 条独立的 `<nearby nonmatch>`，名称 typo/fuzzy 使用 `name similarity`，已扫描但被严格 `glob` 排除的查询相关路径使用 `outside glob`。这些条目不计入 `matches`，也不放宽主结果的 query/glob 语义：
+零结果仍以 `none` 开头，但不会只返回空结论：名称 typo/fuzzy 查询有可信候选时追加最多 3 条独立的 `<nearby nonmatch>`，使用 `name similarity`。这些条目不计入 `matches`，也不放宽主结果语义：
 
 ```text
 none
@@ -430,17 +428,17 @@ src/auth/service.ts [name similarity]
 </nearby>
 ```
 
-若没有可信邻近项或 Repo Map 关联项，则返回 `searched`/`ignored`/`skipped` 摘要和 `next` 提示；缺失 glob 静态前缀仍优先返回 `missing prefix` 与 `near dir`。邻近块和 Repo Map 的 `<related repo-map nonmatch>` 块都按完整结构装箱，预算不足时整条省略，不产生未闭合标签。
+若没有可信邻近项或 Repo Map 关联项，则返回 `searched`/`ignored`/`skipped` 摘要和 `next` 提示；glob query 缺失静态前缀时仍优先返回 `missing prefix` 与 `near dir`。邻近块和 Repo Map 的 `<related repo-map nonmatch>` 块都按完整结构装箱，预算不足时整条省略，不产生未闭合标签。
 
 行为：
 
-* 先检查 `path/query` 是否是存在的文件或目录；命中 exact path 且满足 `glob` 时直接返回，不扫描完整目录树，soft ignore 不阻止显式 exact 命中。
-* `glob` 先用静态前缀缩小遍历范围，再以 picomatch 严格过滤普通候选和 Repo Map 主候选；`glob=src/**/*.ts` 与 `path=src, glob=**/*.ts` 等价。
-* `query` 只负责路径/语义召回和相关性排序，不推断 glob；tokenization、smart case、硬等级、Repo Map 融合、稳定排序和多样性选择见 [文件工具排序算法](file-tools-ranking.md)。
+* 先检查 `path/query` 是否是存在的文件或目录；命中 exact path 时直接返回，不扫描完整目录树，soft ignore 不阻止显式 exact 命中。
+* query 被 picomatch 识别为 glob 时进入严格模式，不查询 Repo Map。无 `/` 的模式递归匹配每个 basename，因此 `*.py` 会命中任意层级；带 `/` 的模式匹配相对搜索路径，并用静态前缀缩小遍历范围。`query=src/**/*.ts` 与 `path=src, query=*.ts` 等价。
+* 非 glob query 负责路径/语义召回和相关性排序；tokenization、smart case、硬等级、Repo Map 融合、稳定排序和多样性选择见 [文件工具排序算法](file-tools-ranking.md)。
 * 精确结果不计算不会展示的 fuzzy suggestions；严格多词检索先用其必要的 token 覆盖条件缩小 Fuse 输入，单候选分数和最终结果不变。仅零主结果的大集合按逻辑核心数的一半并行计算 typo suggestions；边界由条目数、query 词数、可用 worker 数和 worker 冷热状态以 O(1) 成本动态估算，分块 Top-3 再按同一 Fuse 排序全局合并。
 * workspace 内结果路径相对 workspace root，统一使用 `/`；workspace 外显式搜索路径返回规范化后的相对或绝对路径。
 * 文件和目录 symlink 均不返回；目录 symlink 不进入。
-* 目录遍历和目录结果分开处理：默认可 prune 的 ignored 目录不进入；因反向 include 不能 prune 的目录可进入但自身不返回；显式 `path` 或 glob 静态前缀命中 ignored 目录时允许在该目录内查找。
+* 目录遍历和目录结果分开处理：默认可 prune 的 ignored 目录不进入；因反向 include 不能 prune 的目录可进入但自身不返回；显式 `path` 或 query glob 静态前缀命中 ignored 目录时允许在该目录内查找。
 * `blocked_path` 命中时拒绝或跳过；`.git/` 默认不可查。
 * 输出预算、返回结果数和最大扫描条目数由 `~/.pi/agent/configs/file-tools.jsonc` 和 `.pi/configs/file-tools.jsonc` 的 `limits` 控制，不暴露为工具参数。
 

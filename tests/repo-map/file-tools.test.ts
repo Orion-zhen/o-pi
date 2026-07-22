@@ -80,7 +80,7 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		]) });
 	});
 
-	it("enhances find glob and strict grep modes against a live generation", async () => {
+	it("keeps find glob deterministic and enhances strict grep modes against a live generation", async () => {
 		const root = path.join(temp.path, "strict-search-repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });
 		await writeFile(path.join(root, "a-service.ts"), "export function Alpha() { return 'Preferred'; }\n");
@@ -92,9 +92,9 @@ describe("Repo Map file-tool read and mutation integration", () => {
 				return await readActivatedRepoMap(activation, path.join(temp.path, "cache"));
 			},
 		});
-		const found = await findWorkspaceFiles(root, { query: "service", glob: "*-service.ts" }, undefined, { repoMap: query });
+		const found = await findWorkspaceFiles(root, { query: "*-service.ts" }, undefined, { repoMap: query });
 		if ("status" in found) throw new Error(found.error.message);
-		expect(found.details.matches.map((match) => match.path)).toEqual(["z-service.ts", "a-service.ts"]);
+		expect(found.details.matches.map((match) => match.path)).toEqual(["a-service.ts", "z-service.ts"]);
 		expect(found.details.matches.every((match) => /^.+-service\.ts$/u.test(match.path))).toBe(true);
 
 		for (const params of [
