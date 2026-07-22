@@ -676,6 +676,21 @@ describe("edit", () => {
 		}
 	});
 
+	it("并发 edit 同一文件时串行读取和写入，不丢失修改", async () => {
+		await writeFile(path.join(workspace, "a.txt"), "alpha beta\n");
+		const before = await readWorkspaceFile(workspace, { path: "a.txt" });
+		if (!("version" in before)) throw new Error("read failed");
+
+		const [alpha, beta] = await Promise.all([
+			editWorkspace(workspace, { path: "a.txt", edits: [{ old: "alpha", new: "ALPHA" }] }),
+			editWorkspace(workspace, { path: "a.txt", edits: [{ old: "beta", new: "BETA" }] }),
+		]);
+
+		expect(alpha).toMatchObject({ status: "applied", path: "a.txt" });
+		expect(beta).toMatchObject({ status: "applied", path: "a.txt" });
+		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("ALPHA BETA\n");
+	});
+
 	it("所有 old 都针对原始文件匹配，而不是按前序替换后的内容匹配", async () => {
 		await writeFile(path.join(workspace, "a.txt"), "a b c\n");
 		const before = await readWorkspaceFile(workspace, { path: "a.txt" });

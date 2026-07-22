@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import { generateDiffString } from "@earendil-works/pi-coding-agent";
+import { generateDiffString, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { guardWritablePath, PathGuardBlockedError } from "../../safety/path-guard.js";
 import { fail, isAccessDenied, isFailed, protectedPathFailure } from "../core/errors.js";
 import { ignoreConfigFromFileTools, loadFileToolsConfig } from "../config.js";
@@ -19,6 +19,13 @@ interface PreparedEdit {
 	replacements: number;
 }
 
+interface ResolvedEdit {
+	workspaceRoot: string;
+	path: string;
+	absolutePath: string;
+	edits: EditReplacement[];
+}
+
 interface MatchedReplacement {
 	index: number;
 	start: number;
@@ -35,48 +42,54 @@ export interface EditRuntime {
 
 /** edit 只修改一个已读 UTF-8 文件；所有替换都基于调用开始时的原始内容匹配。 */
 export async function editWorkspace(cwd: string, params: unknown, runtime: EditRuntime = {}): Promise<ToolOutcome<EditSuccess>> {
-	const prepared = await prepareEdit(cwd, params, "cached", runtime.versionCache);
-	if (isFailed(prepared)) return prepared;
-	const baseline = await safeBeforeEdit(runtime.lsp, {
-		workspaceRoot: prepared.workspaceRoot,
-		path: prepared.path,
-		absolutePath: prepared.absolutePath,
-	});
+	const target = await resolveEdit(cwd, params);
+	if (isFailed(target)) return target;
+	return withFileMutationQueue(target.absolutePath, async () => {
+		const prepared = await prepareEdit(target, "cached", runtime.versionCache);
+		if (isFailed(prepared)) return prepared;
+		const baseline = await safeBeforeEdit(runtime.lsp, {
+			workspaceRoot: prepared.workspaceRoot,
+			path: prepared.path,
+			absolutePath: prepared.absolutePath,
+		});
 
-	const bytes = buildTextBytes(prepared.updatedText, prepared.file.hasBom);
-	try {
-		await writeFile(prepared.absolutePath, bytes);
-	} catch {
-		return fail("ACCESS_DENIED", "File could not be written.", { path: prepared.path });
-	}
+		const bytes = buildTextBytes(prepared.updatedText, prepared.file.hasBom);
+		try {
+			await writeFile(prepared.absolutePath, bytes);
+		} catch {
+			return fail("ACCESS_DENIED", "File could not be written.", { path: prepared.path });
+		}
 
-	runtime.versionCache?.remember(prepared.absolutePath, sha256Version(bytes));
-	const diff = buildDiff(prepared.file.text, prepared.updatedText);
-	const result: EditSuccess = {
-		status: "applied",
-		path: prepared.path,
-		replacements: prepared.replacements,
-		old_version: prepared.file.version,
-		new_version: sha256Version(bytes),
-		old_size_bytes: prepared.file.sizeBytes,
-		new_size_bytes: bytes.byteLength,
-		diff: diff.diff,
-		...(diff.firstChangedLine !== undefined ? { firstChangedLine: diff.firstChangedLine } : {}),
-	};
-	const diagnostics = await safeAfterEdit(runtime.lsp, {
-		workspaceRoot: prepared.workspaceRoot,
-		path: prepared.path,
-		absolutePath: prepared.absolutePath,
-		content: prepared.updatedText,
-		...(baseline !== undefined ? { baseline } : {}),
+		runtime.versionCache?.remember(prepared.absolutePath, sha256Version(bytes));
+		const diff = buildDiff(prepared.file.text, prepared.updatedText);
+		const result: EditSuccess = {
+			status: "applied",
+			path: prepared.path,
+			replacements: prepared.replacements,
+			old_version: prepared.file.version,
+			new_version: sha256Version(bytes),
+			old_size_bytes: prepared.file.sizeBytes,
+			new_size_bytes: bytes.byteLength,
+			diff: diff.diff,
+			...(diff.firstChangedLine !== undefined ? { firstChangedLine: diff.firstChangedLine } : {}),
+		};
+		const diagnostics = await safeAfterEdit(runtime.lsp, {
+			workspaceRoot: prepared.workspaceRoot,
+			path: prepared.path,
+			absolutePath: prepared.absolutePath,
+			content: prepared.updatedText,
+			...(baseline !== undefined ? { baseline } : {}),
+		});
+		if (diagnostics !== undefined) result.lsp = { diagnostics };
+		return result;
 	});
-	if (diagnostics !== undefined) result.lsp = { diagnostics };
-	return result;
 }
 
 /** 生成只读预览；用于 renderer 展示，不要求 read cache，也不写入文件。 */
 export async function previewEditWorkspace(cwd: string, params: unknown): Promise<ToolOutcome<EditPreviewSuccess>> {
-	const prepared = await prepareEdit(cwd, params, "current", undefined);
+	const target = await resolveEdit(cwd, params);
+	if (isFailed(target)) return target;
+	const prepared = await prepareEdit(target, "current", undefined);
 	if (isFailed(prepared)) return prepared;
 	const diff = buildDiff(prepared.file.text, prepared.updatedText);
 	return {
@@ -89,11 +102,26 @@ export async function previewEditWorkspace(cwd: string, params: unknown): Promis
 }
 
 async function prepareEdit(
-	cwd: string,
-	params: unknown,
+	target: ResolvedEdit,
 	readPolicy: "cached" | "current",
 	versionCache: ReadVersionCache | undefined,
 ): Promise<ToolOutcome<PreparedEdit>> {
+	const file = await readExistingWithVersion(target.absolutePath, target.path, versionCache?.get(target.absolutePath), readPolicy);
+	if (isFailed(file)) return file;
+
+	const updatedText = applyReplacements(file.text, target.edits, target.path);
+	if (isFailed(updatedText)) return updatedText;
+	return {
+		workspaceRoot: target.workspaceRoot,
+		path: target.path,
+		absolutePath: target.absolutePath,
+		file,
+		updatedText,
+		replacements: target.edits.length,
+	};
+}
+
+async function resolveEdit(cwd: string, params: unknown): Promise<ToolOutcome<ResolvedEdit>> {
 	const input = validateEditInput(params);
 	if (isFailed(input)) return input;
 
@@ -111,19 +139,11 @@ async function prepareEdit(
 	}
 	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
 	noteSoftIgnore(ignoreSnapshot, resolved.workspacePath);
-
-	const file = await readExistingWithVersion(resolved.realPath, resolved.relativePath, versionCache?.get(resolved.realPath), readPolicy);
-	if (isFailed(file)) return file;
-
-	const updatedText = applyReplacements(file.text, input.edits, resolved.relativePath);
-	if (isFailed(updatedText)) return updatedText;
 	return {
 		workspaceRoot,
 		path: resolved.relativePath,
 		absolutePath: resolved.realPath,
-		file,
-		updatedText,
-		replacements: input.edits.length,
+		edits: input.edits,
 	};
 }
 
