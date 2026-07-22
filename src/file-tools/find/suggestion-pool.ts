@@ -1,7 +1,8 @@
-import { Worker } from "node:worker_threads";
+import type { Worker } from "node:worker_threads";
 
 import type { FindEntry } from "../types.js";
 import { FILE_SEARCH_CONCURRENCY } from "../core/search-concurrency.js";
+import { createTypeScriptWorker } from "../core/typescript-worker.js";
 import { rankFindMatches, rankFindSuggestions, type RankedFindEntries } from "./ranker.js";
 
 interface SuggestionTask {
@@ -179,7 +180,7 @@ class FindSuggestionPool {
 	}
 
 	private spawnWorker(): void {
-		const worker = new Worker(new URL("./suggestion-worker.ts", import.meta.url), { execArgv: ["--import", "jiti/register"] });
+		const worker = createTypeScriptWorker(new URL("./suggestion-worker.ts", import.meta.url));
 		const slot: WorkerSlot = { worker, stopping: false };
 		this.slots.add(slot);
 		worker.on("message", (response: SuggestionWorkerResponse) => this.finishTask(slot, response));

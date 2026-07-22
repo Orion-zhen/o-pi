@@ -1,7 +1,8 @@
-import { Worker } from "node:worker_threads";
+import type { Worker } from "node:worker_threads";
 
 import { analyzeCodeFile, analyzeTextFile, type AnalyzedFileIndex } from "../../code-index/parser.js";
 import { FILE_SEARCH_CONCURRENCY } from "../core/search-concurrency.js";
+import { createTypeScriptWorker } from "../core/typescript-worker.js";
 
 interface ParseTask {
 	id: number;
@@ -174,9 +175,7 @@ class GrepParserPool {
 	}
 
 	private spawnWorker(): void {
-		const worker = new Worker(new URL("./parser-worker.ts", import.meta.url), {
-			execArgv: ["--import", "jiti/register"],
-		});
+		const worker = createTypeScriptWorker(new URL("./parser-worker.ts", import.meta.url));
 		const slot: WorkerSlot = { worker, stopping: false };
 		this.slots.add(slot);
 		worker.on("message", (response: ParseWorkerResponse) => this.finishTask(slot, response));
