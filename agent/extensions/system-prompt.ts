@@ -168,6 +168,10 @@ ${trimmed}
 function formatToolPolicy(promptGuidelines: BuildSystemPromptOptions["promptGuidelines"]): string {
 	const rules = unique([
 		"Use the narrowest active tool that directly matches the operation.",
+		"Minimize model round trips, not necessary evidence.",
+		"Call a tool only when its result can change the next decision or verify completion.",
+		"Issue independent tool calls together in one response; keep dependent operations sequential.",
+		"Do not retrieve unchanged content already in context unless omitted details, an intervening write, or a stale result requires it.",
 		...normalizeGuidelines(promptGuidelines),
 	]);
 
