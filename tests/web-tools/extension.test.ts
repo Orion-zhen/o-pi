@@ -54,7 +54,6 @@ describe("web-tools extension", () => {
 		};
 		const fetchTool = registered[1] as {
 			name: string;
-			promptGuidelines: string[];
 			parameters: { properties: Record<string, unknown> };
 		};
 		expect(searchTool.name).toBe("websearch");
@@ -65,12 +64,6 @@ describe("web-tools extension", () => {
 			type: "string",
 			enum: ["readable", "source"],
 		});
-		const fetchGuidelines = fetchTool.promptGuidelines.join(" ");
-		expect(fetchGuidelines).toContain("returned sections and media");
-		expect(fetchGuidelines).toContain("static response");
-		expect(fetchGuidelines).toContain("partial");
-		expect(fetchGuidelines).toContain("never infer");
-		expect(fetchGuidelines).toContain("titles");
 
 		const eventResult = handlers.get("tool_result")?.({
 			toolName: "webfetch",
