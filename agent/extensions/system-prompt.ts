@@ -98,6 +98,9 @@ export default function systemPrompt(pi: ExtensionAPI): void {
 
 	// before_agent_start 返回 systemPrompt 表示完整替换；Pi 会把它作为本轮 provider 请求的最终系统提示词。
 	pi.on("before_agent_start", async (event, ctx) => {
+		const activeTools = pi.getActiveTools();
+		const subagentToolAvailable = activeTools.includes("subagent");
+
 		if (process.env.PI_SUBAGENT_FORK === "1") {
 			try {
 				const manifestPath = requireForkEnv("PI_SUBAGENT_FORK_MANIFEST");
@@ -106,20 +109,20 @@ export default function systemPrompt(pi: ExtensionAPI): void {
 					manifestPath,
 					...(snapshotPath !== undefined ? { snapshotPath } : {}),
 					model: ctx.model,
-					activeTools: pi.getActiveTools(),
+					activeTools,
 					allTools: pi.getAllTools(),
 					thinkingLevel: pi.getThinkingLevel(),
 					sessionId: ctx.sessionManager.getSessionId(),
 					cwd: ctx.cwd,
 				});
-				return { systemPrompt: await buildRuntimeSystemPrompt(event.systemPromptOptions, ctx.cwd) };
+				return { systemPrompt: await buildRuntimeSystemPrompt(event.systemPromptOptions, ctx.cwd, subagentToolAvailable) };
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				console.error(message);
 				return { systemPrompt: `<fork_setup_error>${message}</fork_setup_error>` };
 			}
 		}
-		return { systemPrompt: await buildRuntimeSystemPrompt(event.systemPromptOptions, ctx.cwd) };
+		return { systemPrompt: await buildRuntimeSystemPrompt(event.systemPromptOptions, ctx.cwd, subagentToolAvailable) };
 	});
 }
 
@@ -424,7 +427,11 @@ function wrapByColumns(text: string, width: number): string[] {
 	return lines.length > 0 ? lines : [" "];
 }
 
-export async function buildRuntimeSystemPrompt(options: BuildSystemPromptOptions, cwd: string): Promise<string> {
+export async function buildRuntimeSystemPrompt(
+	options: BuildSystemPromptOptions,
+	cwd: string,
+	subagentToolAvailable = true,
+): Promise<string> {
 	if (process.env.PI_SUBAGENT_FORK === "1") {
 		return loadAndValidateForkSystemPrompt(
 			requireForkEnv("PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE"),
@@ -434,7 +441,7 @@ export async function buildRuntimeSystemPrompt(options: BuildSystemPromptOptions
 	if (process.env.PI_SUBAGENT_CHILD === "1") {
 		return buildSubagentSystemPrompt(options);
 	}
-	const extraSections = await getMainAgentExtraSystemPrompt(cwd);
+	const extraSections = await getMainAgentExtraSystemPrompt(cwd, subagentToolAvailable);
 	const modelInvocableSkills = collectModelInvocableSkillIndex(options);
 	return buildSystemPrompt(options, extraSections, modelInvocableSkills);
 }
@@ -445,7 +452,8 @@ function requireForkEnv(name: string): string {
 	return value;
 }
 
-async function getMainAgentExtraSystemPrompt(cwd: string): Promise<string[]> {
+async function getMainAgentExtraSystemPrompt(cwd: string, subagentToolAvailable: boolean): Promise<string[]> {
+	if (!subagentToolAvailable) return [];
 	const config = await loadSubagentConfig(cwd);
 	const discovery = discoverAgents(cwd, config);
 	const subagents = formatAvailableSubagentsPrompt(discovery.agents);
