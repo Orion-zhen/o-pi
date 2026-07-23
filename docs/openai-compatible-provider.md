@@ -274,6 +274,11 @@ payload 处理顺序：
 
 `extraBody` 不能包含这些核心字段。
 
+图片按所选 API 的正式协议处理：
+
+- `openai-responses` 原样发送 `toolResult` 中的文本和图片。
+- `openai-completions` 的 tool message 只支持文本；请求序列化前会丢弃 `toolResult` 图片，不会将其改写成 user 图片。普通 user 图片仍按模型的 `input` 能力发送。
+
 ## 自动发现
 
 `models` 省略或为 `"auto"` 时，只使用 Pi 存储/发现目录。数组会立即注册手写模型；刷新后，同 ID 模型以 endpoint 元数据为基底、手写字段覆盖，因此远端会补齐手写模型的缺失字段。远端独有模型按 endpoint 顺序追加。缓存恢复或在线刷新完成后，provider 会重新发布目录，使当前同 ID 模型同步采用新元数据。
