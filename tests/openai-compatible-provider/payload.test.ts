@@ -14,7 +14,7 @@ describe("openai-compatible-provider payload", () => {
 				"vllm": {
 					"baseUrl": "http://127.0.0.1:8000/v1",
 					"apiKey": "EMPTY",
-					"compatPreset": "local",
+					"compat": { "maxTokensField": "max_tokens" },
 					"models": [{
 						"id": "m",
 						"defaults": { "temperature": 0.1, "topP": 0.8, "topK": 40, "maxTokens": 8192 }

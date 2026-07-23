@@ -68,7 +68,6 @@ chmod 600 ~/.pi/agent/models.jsonc
       ],
 
       // 扩展字段
-      "compatPreset": "openai-compatible",
       "thinkingPreset": "none",
       "modelsEndpoint": "models",
       "timeoutMs": 600000,
@@ -93,7 +92,7 @@ chmod 600 ~/.pi/agent/models.jsonc
 | `apiKey` | `$PI_MODELS_JSONC_<PROVIDER>_API_KEY` | API key 配置值。`EMPTY` 表示无认证。 |
 | `api` | `openai-completions` | `openai-completions` 或 `openai-responses`。 |
 | `headers` | `{}` | Provider 认证/请求 header；按配置值语义逐请求解析。 |
-| `compat` | `{}` | Pi 原生 compat 对象，覆盖 `compatPreset` 和 `thinkingPreset` 展开值。 |
+| `compat` | 保守默认值 | Pi 原生 compat 对象；覆盖固定默认值和 `thinkingPreset` 展开值。 |
 | `models` | `"auto"` | Pi 原生对象数组；扩展另支持 `"auto"` 和字符串 `{ "id": "..." }` 快捷形式。 |
 
 `headers` 沿用 Pi 配置字段名，但完整 Provider 会在 `ApiKeyAuth` 边界解析它，避免把环境变量或命令原文放进公开 Provider 元数据。
@@ -118,7 +117,6 @@ PI_MODELS_JSONC_LAB_SERVER_API_KEY
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `compatPreset` | `openai-compatible` | 高层兼容预设；不会占用 Pi 原生 `compat` 字段。 |
 | `thinkingPreset` | `none` | Provider 默认 thinking payload 编码。 |
 | `modelsEndpoint` | `models` | 相对 `baseUrl` 的模型目录路径或完整 URL。 |
 | `timeoutMs` | Pi 默认 | Provider 请求 timeout。 |
@@ -157,7 +155,7 @@ PI_MODELS_JSONC_LAB_SERVER_API_KEY
 | `contextWindow` | `128000` | 上下文窗口。 |
 | `maxTokens` | `16384` | 最大输出 token。 |
 | `headers` | `{}` | 模型请求 header；运行时解析，调用方 header 优先。 |
-| `compat` | `{}` | 模型级 Pi 原生 compat，优先级最高。 |
+| `compat` | provider 值 | 模型级 Pi 原生 compat，优先级最高。 |
 
 模型 `headers` 同样在 stream 边界解析，配置 header 先应用，调用方 header 后覆盖；原文不会进入持久化模型元数据。
 
@@ -180,38 +178,35 @@ PI_MODELS_JSONC_LAB_SERVER_API_KEY
 
 ## Compat
 
-`compatPreset` 先展开，随后依次合并：
-
-1. `thinkingPreset` 对应的 Pi compat。
-2. provider `compat`。
-3. model `compat`。
-
-与 Pi 原生 composer 一致，`openRouterRouting`、`vercelGatewayRouting`、`chatTemplateKwargs` 逐键合并，模型只覆盖自己提供的子字段。
-
-运行时保留 thinking 转换所需 compat；注册为 `openai-responses` 的 Pi Model 只携带 Responses API 支持的 compat 字段，避免把 Chat-only 字段泄漏到原生模型元数据。
-
-可用 `compatPreset`：
-
-| 值 | 用途 |
-| --- | --- |
-| `openai` | 完整 OpenAI 行为。 |
-| `openai-compatible` | 第三方网关安全默认值：关闭 store、developer role、默认 reasoning effort。 |
-| `local` | vLLM/SGLang/Ollama/LM Studio；使用 `max_tokens` 并允许 streaming usage。 |
-| `qwen` | local 基础上允许 Qwen 常用采样字段。 |
-| `deepseek` | local 基础上允许 DeepSeek 常用采样字段。 |
-| `strict` | 保留 developer role/reasoning effort，用于完整实现或调试。 |
-
-`compat` 使用 Pi 原生 camelCase 字段，例如：
+`compat` 直接使用 Pi 原生 camelCase 字段。扩展不按 provider 名称猜测兼容能力；固定使用以下保守默认值：
 
 ```jsonc
 {
-  "compatPreset": "openai-compatible",
+  "supportsStore": false,
+  "supportsDeveloperRole": false,
+  "supportsReasoningEffort": false
+}
+```
+
+随后依次合并 `thinkingPreset` 对应值、provider `compat`、model `compat`。与 Pi 原生 composer 一致，`openRouterRouting`、`vercelGatewayRouting`、`chatTemplateKwargs` 逐键合并，模型只覆盖自己提供的子字段。
+
+运行时保留 thinking 转换所需 compat；注册为 `openai-responses` 的 Pi Model 只携带 Responses API 支持的 compat 字段，避免把 Chat-only 字段泄漏到原生模型元数据。
+
+例如，旧式 Chat Completions endpoint 可以显式声明：
+
+```jsonc
+{
   "compat": {
-    "supportsDeveloperRole": true,
+    "supportsStore": false,
+    "supportsDeveloperRole": false,
+    "supportsReasoningEffort": false,
+    "supportsUsageInStreaming": true,
     "maxTokensField": "max_tokens"
   }
 }
 ```
+
+全部 compat 字段、API 适用范围和含义见 [`agent/models.jsonc.example`](../agent/models.jsonc.example)。
 
 ## Thinking preset
 
@@ -254,12 +249,12 @@ PI_MODELS_JSONC_LAB_SERVER_API_KEY
 | --- | --- |
 | `temperature` | `temperature` |
 | `topP` | `top_p` |
-| `topK` | `top_k`（仅 `local`/`qwen`/`deepseek`） |
-| `minP` | `min_p`（同上） |
+| `topK` | `top_k` |
+| `minP` | `min_p` |
 | `maxTokens` | Responses `max_output_tokens`；Chat 按 compat 选择 token 字段；与 Pi 已生成上限取较小值 |
 | `presencePenalty` | `presence_penalty` |
 | `frequencyPenalty` | `frequency_penalty` |
-| `repetitionPenalty` | `repetition_penalty`（仅 local 类 preset） |
+| `repetitionPenalty` | `repetition_penalty` |
 | `seed` | `seed` |
 | `stop` | `stop` |
 
@@ -307,7 +302,13 @@ Pi `/model` selector 会先显示 `ModelsStore` 中的目录，再通过官方 `
       "baseUrl": "http://127.0.0.1:8000/v1",
       "apiKey": "EMPTY",
       "api": "openai-completions",
-      "compatPreset": "local",
+      "compat": {
+        "supportsStore": false,
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false,
+        "supportsUsageInStreaming": true,
+        "maxTokensField": "max_tokens"
+      },
       "models": ["Qwen/Qwen3-Coder-480B-A35B-Instruct"]
     }
   }
@@ -323,7 +324,6 @@ Pi `/model` selector 会先显示 `ModelsStore` 中的目录，再通过官方 `
       "baseUrl": "https://openrouter.ai/api/v1",
       "apiKey": "$OPENROUTER_API_KEY",
       "api": "openai-completions",
-      "compatPreset": "openai-compatible",
       "thinkingPreset": "openrouter",
       "headers": {
         "HTTP-Referer": "https://example.local"

@@ -7,7 +7,7 @@ import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import { isNotFound } from "../config-loader.js";
 import { compileSchemaValidator, type SchemaValidationError } from "../schema-validator.js";
 import { invalidModelsJsonc } from "./errors.js";
-import { COMPAT_PRESET_NAMES, ModelsJsoncConfigSchema, THINKING_PRESET_NAMES, type ModelsJsoncConfig } from "./schema.js";
+import { ModelsJsoncConfigSchema, THINKING_PRESET_NAMES, type ModelsJsoncConfig } from "./schema.js";
 
 const validateModelsJsonc = compileSchemaValidator(ModelsJsoncConfigSchema);
 
@@ -81,7 +81,6 @@ function formatInstancePath(instancePath: string): string {
 		.replace(/\.\[/g, "[");
 }
 
-const COMPAT_PRESET_NAME_SET = new Set<string>(COMPAT_PRESET_NAMES);
 const THINKING_PRESET_NAME_SET = new Set<string>(THINKING_PRESET_NAMES);
 const LEGACY_PROVIDER_FIELDS: Record<string, string> = {
 	display_name: "name",
@@ -113,7 +112,6 @@ const LEGACY_MODEL_FIELDS: Record<string, string> = {
 
 function prevalidateModelsJsonc(value: unknown, configPath: string): void {
 	if (!isRecord(value) || !isRecord(value.providers)) return;
-	const expectedCompat = COMPAT_PRESET_NAMES.join(", ");
 	const expectedThinking = THINKING_PRESET_NAMES.join(", ");
 	for (const [providerId, provider] of Object.entries(value.providers)) {
 		if (!isRecord(provider)) continue;
@@ -121,14 +119,11 @@ function prevalidateModelsJsonc(value: unknown, configPath: string): void {
 		if (provider.api === "chat" || provider.api === "responses") {
 			throw invalidModelsJsonc(configPath, `providers.${providerId}.api must use openai-completions or openai-responses`);
 		}
-		if (typeof provider.compatPreset === "string" && !COMPAT_PRESET_NAME_SET.has(provider.compatPreset)) {
-			throw invalidModelsJsonc(configPath, `provider "${providerId}" has unknown compatPreset "${provider.compatPreset}"; expected one of ${expectedCompat}`);
-		}
 		if (typeof provider.thinkingPreset === "string" && !THINKING_PRESET_NAME_SET.has(provider.thinkingPreset)) {
 			throw invalidModelsJsonc(configPath, `provider "${providerId}" has unknown thinkingPreset "${provider.thinkingPreset}"; expected one of ${expectedThinking}`);
 		}
 		if (typeof provider.compat === "string") {
-			throw invalidModelsJsonc(configPath, `provider "${providerId}" compat must be a Pi compat object; use compatPreset for presets`);
+			throw invalidModelsJsonc(configPath, `provider "${providerId}" compat must be a Pi compat object`);
 		}
 		if (Array.isArray(provider.models)) {
 			for (let index = 0; index < provider.models.length; index++) {

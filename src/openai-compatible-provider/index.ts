@@ -9,7 +9,7 @@ export {
 	type ModelsEndpointFetch,
 } from "./models-endpoint.js";
 export { normalizeModelsJsoncConfig, applyRuntimePayloadConfig, type NormalizedProvider, type RuntimeModelConfig } from "./normalize.js";
-export { COMPAT_PRESETS, THINKING_PRESETS, allowsNonStandardSampling, resolveCompat } from "./presets.js";
+export { THINKING_PRESETS, resolveCompat } from "./thinking-presets.js";
 export { createNativeProvider, registerOpenAICompatibleProviders } from "./register.js";
 export { redactApiKey } from "./redaction.js";
-export type { CompatPresetName, ModelConfig, ModelsJsoncConfig, OpenAIApiName, ProviderConfig, SamplingDefaults, ThinkingPresetName } from "./schema.js";
+export type { ModelConfig, ModelsJsoncConfig, OpenAIApiName, ProviderConfig, SamplingDefaults, ThinkingPresetName } from "./schema.js";

@@ -14,7 +14,8 @@ const temp = useOpenAICompatibleProviderTestSetup();
 describe("openai-compatible-provider registration", () => {
 	it("仓库示例配置与当前 schema 同步", async () => {
 		const config = await loadModelsJsoncConfig(path.resolve("agent/models.jsonc.example"));
-		expect(config?.providers["llama-cpp"]?.api).toBe("openai-responses");
+		expect(config?.providers["llama-cpp"]?.api).toBe("openai-completions");
+		expect(config?.providers["responses-demo"]?.api).toBe("openai-responses");
 	});
 
 	it("扩展只注册完整原生 Provider，启动阶段不自行联网", async () => {
@@ -48,7 +49,6 @@ describe("openai-compatible-provider registration", () => {
 					"baseUrl": "http://127.0.0.1:8000/v1",
 					"apiKey": "EMPTY",
 					"api": "openai-completions",
-					"compatPreset": "local",
 					"models": ["Qwen/Qwen3-Coder-480B-A35B-Instruct",],
 				},
 			},

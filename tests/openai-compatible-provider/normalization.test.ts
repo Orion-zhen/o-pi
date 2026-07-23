@@ -95,16 +95,24 @@ describe("openai-compatible-provider normalization", () => {
 		expect(provider?.models[0]?.compat).not.toHaveProperty("supportsToolSearch");
 	});
 
-	it("compat local 展开为当前 Pi 支持的 compat 字段", async () => {
+	it("固定保守 compat 默认值可由 provider 和 model 原生 compat 覆盖", async () => {
 		const [provider] = await normalizeFromText(temp.path, `{
 			"providers": {
-				"vllm": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "compatPreset": "local", "models": ["m"] }
+				"vllm": {
+					"baseUrl": "http://127.0.0.1:8000/v1",
+					"apiKey": "EMPTY",
+					"compat": {
+						"supportsDeveloperRole": true,
+						"maxTokensField": "max_tokens"
+					},
+					"models": [{ "id": "m", "compat": { "supportsStore": true } }]
+				}
 			}
 		}`);
 		expect(provider?.models?.[0]?.compat).toMatchObject({
-			supportsDeveloperRole: false,
+			supportsStore: true,
+			supportsDeveloperRole: true,
 			supportsReasoningEffort: false,
-			supportsUsageInStreaming: true,
 			maxTokensField: "max_tokens",
 		});
 	});
@@ -116,7 +124,6 @@ describe("openai-compatible-provider normalization", () => {
 					"baseUrl": "http://127.0.0.1:8000/v1",
 					"apiKey": "EMPTY",
 					"api": "openai-completions",
-					"compatPreset": "local",
 					"thinkingPreset": "chat-template-enabled",
 					"models": [{ "id": "m", "defaultThinkingLevel": "high" }]
 				}
@@ -237,17 +244,26 @@ describe("openai-compatible-provider normalization", () => {
 		).rejects.toThrow('provider "vllm" contains duplicate model "qwen3-coder"');
 	});
 
-	it("不兼容的非标准 defaults 会报错而不是静默丢弃", async () => {
-		await expect(normalizeFromText(temp.path, `{
+	it("显式配置的非标准 sampling defaults 直接进入 payload", async () => {
+		const [provider] = await normalizeFromText(temp.path, `{
 			"providers": {
 				"gateway": {
 					"baseUrl": "https://gateway.example.com/v1",
 					"apiKey": "EMPTY",
-					"compatPreset": "openai-compatible",
-					"models": [{ "id": "m", "defaults": { "topK": 40 } }]
+					"models": [{
+						"id": "m",
+						"defaults": { "topK": 40, "minP": 0.1, "repetitionPenalty": 1.05 }
+					}]
 				}
 			}
-		}`)).rejects.toThrow("defaults.topK requires compatPreset local, qwen, or deepseek");
+		}`);
+		const runtime = provider?.runtimeModels.get("m");
+		if (!runtime) throw new Error("runtime config missing");
+		expect(applyRuntimePayloadConfig({ model: "m", messages: [], stream: true }, runtime)).toMatchObject({
+			top_k: 40,
+			min_p: 0.1,
+			repetition_penalty: 1.05,
+		});
 	});
 
 	it("model extraBody 不能覆盖核心字段", async () => {
@@ -272,7 +288,7 @@ describe("openai-compatible-provider normalization", () => {
 		).rejects.toThrow("providers.vllm.base_url was replaced by baseUrl");
 	});
 
-	it("schema 错误输出具体 path，未知 compat 输出可选值", async () => {
+	it("schema 错误输出具体 path，并拒绝已删除的 compatPreset", async () => {
 		await expect(
 			normalizeFromText(temp.path, `{
 				"providers": { "vllm": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "models": [{}] } }
@@ -289,7 +305,7 @@ describe("openai-compatible-provider normalization", () => {
 			normalizeFromText(temp.path, `{
 				"providers": { "vllm": { "baseUrl": "http://127.0.0.1:8000/v1", "apiKey": "EMPTY", "compatPreset": "foo", "models": ["m"] } }
 			}`),
-		).rejects.toThrow('unknown compatPreset "foo"');
+		).rejects.toThrow("providers.vllm.compatPreset is not supported");
 
 		await expect(
 			normalizeFromText(temp.path, `{

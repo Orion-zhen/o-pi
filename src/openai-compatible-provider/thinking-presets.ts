@@ -1,45 +1,15 @@
 import type { Model } from "@earendil-works/pi-ai";
 
-import type { CompatPresetName, ThinkingPresetName } from "./schema.js";
+import type { ThinkingPresetName } from "./schema.js";
 
 type OpenAICompat = NonNullable<Model<"openai-completions">["compat"]>;
 type CompatOverride = Model<"openai-completions">["compat"] | Model<"openai-responses">["compat"];
 
-/** 当前 Pi 版本支持的 OpenAI Chat Completions compat preset。 */
-export const COMPAT_PRESETS = {
-	openai: {},
-	"openai-compatible": {
-		supportsStore: false,
-		supportsDeveloperRole: false,
-		supportsReasoningEffort: false,
-	},
-	local: {
-		supportsDeveloperRole: false,
-		supportsReasoningEffort: false,
-		supportsUsageInStreaming: true,
-		maxTokensField: "max_tokens",
-	},
-	qwen: {
-		supportsDeveloperRole: false,
-		supportsReasoningEffort: false,
-		supportsUsageInStreaming: true,
-		maxTokensField: "max_tokens",
-	},
-	deepseek: {
-		supportsDeveloperRole: false,
-		supportsReasoningEffort: false,
-		supportsUsageInStreaming: true,
-		maxTokensField: "max_tokens",
-	},
-	strict: {
-		supportsStore: false,
-		supportsDeveloperRole: true,
-		supportsReasoningEffort: true,
-		supportsUsageInStreaming: true,
-	},
-} as const satisfies Record<CompatPresetName, OpenAICompat>;
-
-const NON_STANDARD_SAMPLING_PRESETS = new Set<CompatPresetName>(["local", "qwen", "deepseek"]);
+const DEFAULT_COMPAT = {
+	supportsStore: false,
+	supportsDeveloperRole: false,
+	supportsReasoningEffort: false,
+} as const satisfies OpenAICompat;
 
 /** provider thinking preset 到 Pi 原生 OpenAI completions compat 的映射。 */
 export const THINKING_PRESETS = {
@@ -99,29 +69,21 @@ export const THINKING_PRESETS = {
 	},
 } as const satisfies Record<ThinkingPresetName, OpenAICompat>;
 
-/** 判断 preset 是否允许 top_k/min_p/repetition_penalty 这类非 OpenAI 标准采样字段。 */
-export function allowsNonStandardSampling(preset: CompatPresetName): boolean {
-	return NON_STANDARD_SAMPLING_PRESETS.has(preset);
-}
-
-/** 展开 preset，并按 provider、model 原生 compat 的顺序覆盖。 */
+/** 合并保守默认值、thinking 编码和 provider/model 原生 compat。 */
 export function resolveCompat(
-	preset: CompatPresetName | undefined,
 	thinkingPreset: ThinkingPresetName,
 	providerCompat: CompatOverride,
 	modelCompat: CompatOverride,
 ): OpenAICompat {
-	const presetCompat = COMPAT_PRESETS[preset ?? "openai-compatible"];
 	const thinkingCompat = THINKING_PRESETS[thinkingPreset];
 	const merged: OpenAICompat = {
-		...presetCompat,
+		...DEFAULT_COMPAT,
 		...thinkingCompat,
 		...(providerCompat ?? {}),
 		...(modelCompat ?? {}),
 	};
 	for (const key of ["openRouterRouting", "vercelGatewayRouting", "chatTemplateKwargs"] as const) {
 		const nested = {
-			...nestedCompat(presetCompat, key),
 			...nestedCompat(thinkingCompat, key),
 			...nestedCompat(providerCompat, key),
 			...nestedCompat(modelCompat, key),

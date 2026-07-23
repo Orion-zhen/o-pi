@@ -1,10 +1,6 @@
 import { StringEnum, type Model, type ModelThinkingLevel, type ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 
-/** 扩展提供的高层 OpenAI-compatible 兼容预设。 */
-export const COMPAT_PRESET_NAMES = ["openai", "openai-compatible", "local", "qwen", "deepseek", "strict"] as const;
-export const CompatPresetNameSchema = StringEnum(COMPAT_PRESET_NAMES);
-
 /** OpenAI-compatible 请求中思考参数的编码预设。 */
 export const THINKING_PRESET_NAMES = [
 	"none",
@@ -200,7 +196,6 @@ const ProviderConfigSchema = Type.Object(
 		compat: Type.Optional(CompatSchema),
 		models: Type.Optional(ProviderModelsSchema),
 
-		compatPreset: Type.Optional(CompatPresetNameSchema),
 		thinkingPreset: Type.Optional(ThinkingPresetNameSchema),
 		modelsEndpoint: Type.Optional(Type.String({ minLength: 1 })),
 		timeoutMs: Type.Optional(Type.Number({ minimum: 0 })),
@@ -221,7 +216,6 @@ export const ModelsJsoncConfigSchema = Type.Object(
 
 export type SamplingDefaults = Static<typeof SamplingDefaultsSchema>;
 export type ModelConfig = Static<typeof ModelConfigSchema>;
-export type CompatPresetName = Static<typeof CompatPresetNameSchema>;
 export type ThinkingPresetName = Static<typeof ThinkingPresetNameSchema>;
 export type OpenAIApiName = Static<typeof OpenAIApiSchema>;
 export type ProviderConfig = Static<typeof ProviderConfigSchema>;

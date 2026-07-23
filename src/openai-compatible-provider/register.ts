@@ -156,7 +156,6 @@ function modelSource(provider: ProviderConfig): string {
 	const identity = JSON.stringify({
 		endpoint: modelsEndpointUrl(provider),
 		api: provider.api ?? "openai-completions",
-		compatPreset: provider.compatPreset ?? "openai-compatible",
 		thinkingPreset: provider.thinkingPreset ?? "none",
 		compat: provider.compat ?? {},
 		models: provider.models ?? "auto",

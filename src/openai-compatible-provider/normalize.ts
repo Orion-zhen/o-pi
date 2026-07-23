@@ -6,8 +6,8 @@ import {
 	type ThinkingLevelMap,
 } from "@earendil-works/pi-ai";
 import { invalidModelsJsonc } from "./errors.js";
-import { allowsNonStandardSampling, resolveCompat } from "./presets.js";
-import type { CompatPresetName, ModelsJsoncConfig, SamplingDefaults, ThinkingPresetName } from "./schema.js";
+import { resolveCompat } from "./thinking-presets.js";
+import type { ModelsJsoncConfig, SamplingDefaults, ThinkingPresetName } from "./schema.js";
 
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 const DEFAULT_MAX_TOKENS = 16_384;
@@ -30,7 +30,6 @@ const THINKING_LEVEL_VALIDATION_MODEL: Model<"openai-completions"> = {
 /** 单个模型的请求期附加配置；Pi 模型类型不允许扩展字段，因此保存在内部映射。 */
 export interface RuntimeModelConfig {
 	api: "openai-completions" | "openai-responses";
-	compatPreset: CompatPresetName;
 	thinkingPreset: ThinkingPresetName;
 	reasoning: boolean;
 	defaultThinkingLevel?: ModelThinkingLevel;
@@ -59,7 +58,6 @@ export interface NormalizedProvider {
 export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath: string): NormalizedProvider[] {
 	return Object.entries(config.providers).map(([providerId, provider]) => {
 		const api = provider.api ?? "openai-completions";
-		const compatPreset = provider.compatPreset ?? "openai-compatible";
 		const providerThinkingPreset = provider.thinkingPreset ?? "none";
 		const providerExtraBody = provider.extraBody ?? {};
 		assertNoCorePayloadFields(providerExtraBody, configPath, `providers.${providerId}.extraBody`);
@@ -78,8 +76,7 @@ export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath
 
 			const modelExtraBody = model.extraBody ?? {};
 			assertNoCorePayloadFields(modelExtraBody, configPath, `providers.${providerId}.models[${index}].extraBody`);
-			assertSamplingDefaultsSupported(model.defaults, compatPreset, configPath, `providers.${providerId}.models[${index}].defaults`);
-			const resolvedCompat = resolveCompat(compatPreset, thinkingPreset, provider.compat, model.compat);
+			const resolvedCompat = resolveCompat(thinkingPreset, provider.compat, model.compat);
 			const runtimeCompat = modelApi === "openai-responses" ? resolvedCompat : completionsCompat(resolvedCompat);
 			const compat = modelApi === "openai-responses"
 				? responsesCompat(resolvedCompat, provider.compat, model.compat)
@@ -97,7 +94,6 @@ export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath
 			assertValidThinkingConfig(model.defaultThinkingLevel, model.thinkingLevelMap, configPath, `providers.${providerId}.models[${index}]`);
 			runtimeModels.set(model.id, {
 				api: modelApi,
-				compatPreset,
 				thinkingPreset,
 				reasoning,
 				...(model.defaultThinkingLevel !== undefined ? { defaultThinkingLevel: model.defaultThinkingLevel } : {}),
@@ -129,14 +125,13 @@ export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath
 
 		const fallbackRuntime: RuntimeModelConfig = {
 			api,
-			compatPreset,
 			thinkingPreset: providerThinkingPreset,
 			reasoning: false,
 			dropParams: [...(provider.dropParams ?? [])],
 			extraBody: { ...providerExtraBody },
 			...(provider.timeoutMs !== undefined ? { timeoutMs: provider.timeoutMs } : {}),
 			...(provider.maxRetries !== undefined ? { maxRetries: provider.maxRetries } : {}),
-			compat: resolveCompat(compatPreset, providerThinkingPreset, provider.compat, undefined),
+			compat: resolveCompat(providerThinkingPreset, provider.compat, undefined),
 		};
 
 		return {
@@ -195,11 +190,9 @@ function samplingDefaultsToPayload(runtime: RuntimeModelConfig): Record<string, 
 	copyIfDefined(payload, "frequency_penalty", defaults.frequencyPenalty);
 	copyIfDefined(payload, "seed", defaults.seed);
 	copyIfDefined(payload, "stop", defaults.stop);
-	if (allowsNonStandardSampling(runtime.compatPreset)) {
-		copyIfDefined(payload, "top_k", defaults.topK);
-		copyIfDefined(payload, "min_p", defaults.minP);
-		copyIfDefined(payload, "repetition_penalty", defaults.repetitionPenalty);
-	}
+	copyIfDefined(payload, "top_k", defaults.topK);
+	copyIfDefined(payload, "min_p", defaults.minP);
+	copyIfDefined(payload, "repetition_penalty", defaults.repetitionPenalty);
 	if (defaults.maxTokens !== undefined) {
 		payload[maxTokensField(runtime)] = defaults.maxTokens;
 	}
@@ -279,20 +272,6 @@ function completionsCompat(
 	const cleaned = { ...compat };
 	Reflect.deleteProperty(cleaned, "supportsToolSearch");
 	return cleaned;
-}
-
-function assertSamplingDefaultsSupported(
-	defaults: SamplingDefaults | undefined,
-	compatPreset: CompatPresetName,
-	configPath: string,
-	fieldPath: string,
-): void {
-	if (!defaults || allowsNonStandardSampling(compatPreset)) return;
-	for (const field of ["topK", "minP", "repetitionPenalty"] as const) {
-		if (defaults[field] !== undefined) {
-			throw invalidModelsJsonc(configPath, `${fieldPath}.${field} requires compatPreset local, qwen, or deepseek`);
-		}
-	}
 }
 
 function responsesCompat(
