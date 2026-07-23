@@ -172,7 +172,7 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports, ca
 		renderCall: renderFindCall,
 		renderResult: renderFindResult,
 		},
-		repair: { singleStringField: "query", pathFields: ["path"] },
+		repair: { singleStringField: "query", pathFields: ["path"], pathListFields: ["path"] },
 		telemetry: findTelemetry,
 	});
 
@@ -194,7 +194,7 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports, ca
 		renderCall: renderGrepCall,
 		renderResult: renderGrepResult,
 		},
-		repair: { singleStringField: "query", pathFields: ["path"] },
+		repair: { singleStringField: "query", pathFields: ["path"], pathListFields: ["path"] },
 		telemetry: grepTelemetry,
 	});
 

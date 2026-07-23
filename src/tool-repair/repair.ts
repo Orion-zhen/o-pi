@@ -5,6 +5,8 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createRepairSpec } from "./specs.js";
 import type { RepairObserver, RepairOperation, RepairSpec, RepairSpecHints, ToolArgumentStatus } from "./types.js";
 
+export const DEFAULT_MAX_PATH_COUNT = 32;
+
 interface SchemaNode {
 	type?: string;
 	required?: readonly string[];
@@ -82,6 +84,7 @@ export function repairArguments(args: unknown, spec: RepairSpec, operations: Rep
 	migrateRootAliases(candidate, spec, operations);
 	materializeObjectArrays(candidate, spec, operations);
 	repairArrayFields(candidate, spec, operations);
+	repairPathListFields(candidate, spec, operations);
 	migrateNestedAliases(candidate, spec, operations);
 	dropOptionalNullFields(candidate, spec, operations);
 	repairNumericFields(candidate, spec, operations);
@@ -182,14 +185,37 @@ function repairNumericFields(target: JsonObject, spec: RepairSpec, operations: R
 	}
 }
 
+function repairPathListFields(target: JsonObject, spec: RepairSpec, operations: RepairOperation[]): void {
+	const pathListFields = new Set(spec.pathListFields ?? []);
+	const maxPathCount = normalizeMaxPathCount(spec.maxPathCount);
+	for (const path of pathListFields) {
+		forEachParentAtPath(target, splitPath(path), (parent, key) => {
+			const value = parent[key];
+			if (typeof value !== "string") return;
+			const paths = parsePathList(value, maxPathCount);
+			if (paths === undefined) return;
+			parent[key] = unique(paths);
+			operations.push(paths.length > 1 ? "split_path_list" : "scalar_to_array");
+		});
+	}
+}
+
 function repairPathFields(target: JsonObject, spec: RepairSpec, operations: RepairOperation[]): void {
+	const pathListFields = new Set(spec.pathListFields ?? []);
 	for (const path of spec.pathFields ?? []) {
 		forEachParentAtPath(target, splitPath(path), (parent, key) => {
 			const value = parent[key];
+			if (typeof value === "string" && pathListFields.has(path)) return;
 			if (typeof value === "string" && value.startsWith("@") && value.length > 1) {
 				parent[key] = value.slice(1);
 				operations.push("strip_path_prefix");
+				return;
 			}
+			if (!pathListFields.has(path) || !Array.isArray(value) || !value.every(isString)) return;
+			const normalized = value.map((item) => item.startsWith("@") && item.length > 1 ? item.slice(1) : item);
+			const uniquePaths = unique(normalized);
+			if (normalized.some((item, index) => item !== value[index])) operations.push("strip_path_prefix");
+			parent[key] = uniquePaths;
 		});
 	}
 }
@@ -304,4 +330,78 @@ type PreparedArguments<TParams extends TSchema, TDetails, TState> = ReturnType<
 
 function splitPath(path: string): string[] {
 	return path.split(".").filter((segment) => segment.length > 0);
+}
+
+/** Parse the conservative path-list syntax used only by configured path fields. */
+export function parsePathList(value: string, maxPathCount = DEFAULT_MAX_PATH_COUNT): string[] | undefined {
+	const limit = normalizeMaxPathCount(maxPathCount);
+	const paths: string[] = [];
+	let token = "";
+	let tokenStarted = false;
+	let quote: "\"" | "'" | undefined;
+	let escaped = false;
+	let afterComma = false;
+
+	const pushToken = (): boolean => {
+		if (!tokenStarted || token.length === 0) return false;
+		if (paths.length >= limit) return false;
+		paths.push(token);
+		token = "";
+		tokenStarted = false;
+		return true;
+	};
+
+	for (const character of value) {
+		if (quote !== undefined) {
+			if (escaped) {
+				token += character === quote || character === "\\" ? character : `\\${character}`;
+				escaped = false;
+				continue;
+			}
+			if (character === "\\") {
+				escaped = true;
+				continue;
+			}
+			if (character === quote) {
+				quote = undefined;
+				continue;
+			}
+			token += character;
+			tokenStarted = true;
+			continue;
+		}
+		if (character === "\"" || character === "'") {
+			quote = character;
+			tokenStarted = true;
+			afterComma = false;
+			continue;
+		}
+		if (character === ",") {
+			if (tokenStarted && !pushToken()) return undefined;
+			if (afterComma) return undefined;
+			afterComma = true;
+			continue;
+		}
+		if (/\s/u.test(character)) {
+			if (tokenStarted && !pushToken()) return undefined;
+			continue;
+		}
+		token += character;
+		tokenStarted = true;
+		afterComma = false;
+	}
+	if (quote !== undefined || escaped || (tokenStarted && !pushToken()) || afterComma || paths.length === 0) return undefined;
+	return paths;
+}
+
+function normalizeMaxPathCount(value: number | undefined): number {
+	return value !== undefined && Number.isInteger(value) && value > 0 ? value : DEFAULT_MAX_PATH_COUNT;
+}
+
+function unique<T>(values: readonly T[]): T[] {
+	return [...new Set(values)];
+}
+
+function isString(value: unknown): value is string {
+	return typeof value === "string";
 }

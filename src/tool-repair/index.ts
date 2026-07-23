@@ -1,4 +1,4 @@
-export { repairableTool, repairArguments, isValid } from "./repair.js";
+export { DEFAULT_MAX_PATH_COUNT, parsePathList, repairableTool, repairArguments, isValid } from "./repair.js";
 export { createRepairSpec } from "./specs.js";
 export type {
 	ObjectArrayFromFieldsSpec,

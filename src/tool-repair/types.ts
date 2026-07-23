@@ -15,6 +15,8 @@ export type RepairOperation =
 	| "drop_optional_null"
 	| "numeric_string_to_number"
 	| "strip_path_prefix"
+	| "scalar_to_array"
+	| "split_path_list"
 	| "drop_unknown_field";
 
 export interface RepairObservation {
@@ -37,6 +39,8 @@ export interface ObjectArrayFromFieldsSpec {
 export interface RepairSpecHints {
 	singleStringField?: string;
 	pathFields?: readonly RepairPath[];
+	pathListFields?: readonly RepairPath[];
+	maxPathCount?: number;
 	aliases?: Readonly<Record<string, string>>;
 	nestedAliases?: Readonly<Record<RepairPath, string>>;
 	objectToArrayFields?: readonly RepairPath[];

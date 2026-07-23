@@ -15,6 +15,7 @@ export function createRepairSpec(schema: TSchema, hints: RepairSpecHints = {}): 
 		...hints,
 		dropOptionalNull: hints.dropOptionalNull ?? true,
 		pathFields: hints.pathFields ?? [],
+		pathListFields: hints.pathListFields ?? [],
 		aliases: hints.aliases ?? {},
 		nestedAliases: hints.nestedAliases ?? {},
 		objectArrayFromFields: hints.objectArrayFromFields ?? [],

@@ -15,6 +15,13 @@ const simpleSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+const pathListSchema = Type.Object(
+	{
+		query: Type.String(),
+		path: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })),
+	},
+	{ additionalProperties: false },
+);
 
 describe("tool-input repair", () => {
 	it("在原 prepareArguments 后修复别名、数字字符串、optional null、路径前缀和 unknown fields", () => {
@@ -81,6 +88,48 @@ describe("tool-input repair", () => {
 			status: "repaired",
 			operations: ["original_prepare"],
 		});
+	});
+
+	it.each([
+		{
+			name: "单路径字符串",
+			input: { query: "auth", path: "@src" },
+			expected: { query: "auth", path: ["src"] },
+			operations: ["scalar_to_array", "strip_path_prefix"],
+		},
+		{
+			name: "逗号、空白和引号保护",
+			input: { query: "auth", path: "@src,\n\"@tests, with space\" @src" },
+			expected: { query: "auth", path: ["src", "tests, with space"] },
+			operations: ["split_path_list", "strip_path_prefix"],
+		},
+	] as const)("迁移路径字符串: $name", ({ input, expected, operations }) => {
+		let observation: RepairObservation | undefined;
+		const tool = repairableTool(defineNoopTool(pathListSchema), {
+			pathFields: ["path"],
+			pathListFields: ["path"],
+		}, { onPreparation: (value) => { observation = value; } });
+
+		expect(tool.prepareArguments?.(input)).toEqual(expected);
+		expect(observation).toMatchObject({ status: "repaired", operations });
+	});
+
+	it("只在 pathListFields 中拆分路径，拒绝空 token、超限和不可解析输入", () => {
+		const tool = repairableTool(defineNoopTool(pathListSchema), {
+			pathFields: ["path"],
+			pathListFields: ["path"],
+			maxPathCount: 2,
+		});
+
+		expect(tool.prepareArguments?.({ query: "foo bar", path: "src a" })).toEqual({ query: "foo bar", path: ["src", "a"] });
+		expect(tool.prepareArguments?.({ query: "foo bar", path: "src,,a" })).toEqual({ query: "foo bar", path: "src,,a" });
+		expect(tool.prepareArguments?.({ query: "foo bar", path: "src a b" })).toEqual({ query: "foo bar", path: "src a b" });
+		expect(tool.prepareArguments?.({ query: "foo bar", path: "\"src/a" })).toEqual({ query: "foo bar", path: "\"src/a" });
+
+		const ordinary = repairableTool(defineNoopTool(Type.Object({ query: Type.String() }, { additionalProperties: false })), {
+			pathListFields: ["query"],
+		});
+		expect(ordinary.prepareArguments?.({ query: "foo bar" })).toEqual({ query: "foo bar" });
 	});
 
 	it("修复 edit 常见结构错误，但不改写 old/new 内容", () => {
