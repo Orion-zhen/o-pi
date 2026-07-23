@@ -17,6 +17,9 @@ import { escapeXml, normalizeUrl, redactUrl } from "./url-utils.js";
 import { directImageConversion, resolvePrimaryMedia } from "./webfetch-media.js";
 import type { SnapshotCache } from "./snapshot-cache.js";
 
+const PREVIEW_MAX_LINES = 40;
+const PREVIEW_MAX_CHARS = 6000;
+
 export interface ExecuteWebFetchRuntime extends Omit<HttpClientOptions, "config" | "context" | "startedAt"> {
 	config: WebToolsConfig;
 	context: WebFetchExecutionContext;
@@ -303,7 +306,7 @@ ${escapeXml(details.error.message)}
 }
 
 function preview(text: string): string {
-	return text.split("\n").slice(0, 12).join("\n").slice(0, 1200);
+	return text.split("\n").slice(0, PREVIEW_MAX_LINES).join("\n").slice(0, PREVIEW_MAX_CHARS);
 }
 
 function safeRedact(value: string): string {

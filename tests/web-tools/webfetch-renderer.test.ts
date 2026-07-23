@@ -20,6 +20,7 @@ describe("webfetch renderer", () => {
 
 	it("渲染 success、progress 和 failure", () => {
 		expect(formatWebFetchResult({ status: "progress", phase: "downloading", received_bytes: 2048 }, { isPartial: true }, theme)).toContain("2.0 KB");
+		const preview = Array.from({ length: 24 }, (_, index) => `preview line ${index + 1}`).join("\n");
 		const success = formatWebFetchResult(
 			{
 				status: "success",
@@ -31,6 +32,9 @@ describe("webfetch renderer", () => {
 				requested_url: "https://example.com/",
 				final_url: "https://example.com/",
 				http_status: 200,
+				title: "Example article",
+				content_type: "text/html",
+				charset: "utf-8",
 				format: "markdown",
 				downloaded_bytes: 100,
 				total_chars: 3000,
@@ -42,7 +46,7 @@ describe("webfetch renderer", () => {
 				deferred_fragments: { discovered: 1, resolved: 1 },
 				media: { discovered: 1, returned: 1 },
 				duration_ms: 12,
-				preview: "# Title",
+				preview,
 			},
 			{ expanded: true },
 			theme,
@@ -52,8 +56,13 @@ describe("webfetch renderer", () => {
 		expect(success).toContain("article");
 		expect(success).toContain("readability");
 		expect(success).toContain("text_range:range");
-		expect(success).toContain("1 image");
-		expect(success).toContain("Authentication  cookie");
+		expect(success).toContain("Example article");
+		expect(success).toContain("200 · text/html -> markdown · utf-8 · 100 B");
+		expect(success).toContain("article · readability · partial · chars 0-1000 of 3000");
+		expect(success).toContain("deferred 1/1 · media 1/1 · omitted text_range:range");
+		expect(success).toContain("cookie · snapshot created · 1 redirect · 12 ms");
+		expect(success).not.toContain("Status          ");
+		expect(success).toContain("preview line 24");
 
 		expect(formatWebFetchResult(
 			{

@@ -104,43 +104,39 @@ function formatSuccess(details: WebFetchSuccessDetails, expanded: boolean, theme
 		]),
 	}, theme);
 	if (!expanded) return header;
-	const detailSummaryParts = [
-		details.title ? `"${truncateMiddle(details.title, 48)}"` : undefined,
+	const response = joinParts([
 		`${details.http_status}`,
-		format,
+		`${details.content_type ?? "unknown"} -> ${details.format}`,
+		details.charset,
+		formatBytes(details.downloaded_bytes),
+	]);
+	const content = joinParts([
 		details.page_kind,
 		details.text_source,
-		range,
-		details.authenticated ? "auth" : undefined,
-		details.range.next_offset !== undefined ? "more" : undefined,
-		details.completeness === "partial" ? "partial" : undefined,
-		details.media.returned > 0 ? `${details.media.returned} image` : undefined,
-		details.snapshot === "hit" ? "snapshot" : undefined,
-		formatDuration(details.duration_ms),
-	].filter((item): item is string => item !== undefined);
-	const summary = theme.fg("success", detailSummaryParts.join(" · "));
+		details.completeness,
+		`chars ${details.range.start}-${details.range.end} of ${details.range.total}`,
+	]);
+	const coverage = joinParts([
+		details.deferred_fragments.discovered > 0
+			? `deferred ${details.deferred_fragments.resolved}/${details.deferred_fragments.discovered}`
+			: undefined,
+		details.media.discovered > 0 ? `media ${details.media.returned}/${details.media.discovered}` : undefined,
+		details.omissions.length > 0 ? `omitted ${details.omissions.map((item) => `${item.kind}:${item.reason}`).join(", ")}` : undefined,
+	]);
+	const request = joinParts([
+		details.authenticated ? "cookie" : undefined,
+		`snapshot ${details.snapshot}`,
+		details.redirect_count > 0 ? `${details.redirect_count} ${details.redirect_count === 1 ? "redirect" : "redirects"}` : undefined,
+		`${details.duration_ms} ms`,
+	]);
 	return [
 		header,
-		"",
-		summary,
-		`  Status          ${details.http_status}`,
-		`  Final URL       ${details.final_url}`,
-		`  Content         ${details.content_type ?? "unknown"} -> ${details.format}`,
-		details.charset ? `  Encoding        ${details.charset}` : undefined,
-		`  Downloaded      ${formatBytes(details.downloaded_bytes)}`,
-		`  Returned        chars ${details.range.start}-${details.range.end} of ${details.range.total}`,
-		`  Page            ${details.page_kind}`,
-		`  Text source     ${details.text_source}`,
-		`  Completeness    ${details.completeness}`,
-		details.deferred_fragments.discovered > 0
-			? `  Deferred       ${details.deferred_fragments.resolved}/${details.deferred_fragments.discovered} resolved`
-			: undefined,
-		details.media.discovered > 0 ? `  Media          ${details.media.returned}/${details.media.discovered} returned` : undefined,
-		details.omissions.length > 0 ? `  Omitted         ${details.omissions.map((item) => `${item.kind}:${item.reason}`).join(", ")}` : undefined,
-		details.authenticated ? "  Authentication  cookie" : undefined,
-		`  Snapshot        ${details.snapshot}`,
-		details.redirect_count > 0 ? `  Redirects       ${details.redirect_count}` : undefined,
-		`  Duration        ${details.duration_ms} ms`,
+		details.title ? `  Title     ${truncateMiddle(details.title, 72)}` : undefined,
+		`  URL       ${details.final_url}`,
+		`  Response  ${response}`,
+		`  Content   ${content}`,
+		coverage ? `  Coverage  ${coverage}` : undefined,
+		`  Request   ${request}`,
 		details.preview ? `\n  Preview\n${indent(details.preview)}` : undefined,
 	]
 		.filter((item): item is string => item !== undefined)
@@ -161,15 +157,19 @@ function formatFailure(details: WebFetchFailureDetails, expanded: boolean, theme
 		summary: joinParts([status.trim(), labelError(details), details.error.message]),
 	}, theme);
 	if (!expanded) return header;
+	const error = joinParts([
+		details.error.code,
+		details.http_status !== undefined ? `${details.http_status}` : undefined,
+		details.authenticated ? "cookie" : undefined,
+		details.redirect_count !== undefined && details.redirect_count > 0
+			? `${details.redirect_count} ${details.redirect_count === 1 ? "redirect" : "redirects"}`
+			: undefined,
+		details.duration_ms !== undefined ? `${details.duration_ms} ms` : undefined,
+	]);
 	return [
 		header,
-		"",
-		`  Error           ${details.error.code}`,
-		details.http_status !== undefined ? `  Status          ${details.http_status}` : undefined,
-		details.final_url ? `  Final URL       ${details.final_url}` : undefined,
-		details.authenticated ? "  Authentication  cookie" : undefined,
-		details.redirect_count !== undefined && details.redirect_count > 0 ? `  Redirects       ${details.redirect_count}` : undefined,
-		details.duration_ms !== undefined ? `  Duration        ${details.duration_ms} ms` : undefined,
+		details.final_url ? `  URL       ${details.final_url}` : undefined,
+		`  Error     ${error}`,
 		details.response_preview ? `\n  Response\n${indent(details.response_preview)}` : undefined,
 	]
 		.filter((item): item is string => item !== undefined)
@@ -207,7 +207,7 @@ function labelError(details: WebFetchFailureDetails): string {
 }
 
 function indent(value: string): string {
-	return value.split("\n").slice(0, 12).map((line) => `  ${line}`).join("\n");
+	return value.split("\n").map((line) => `  ${line}`).join("\n");
 }
 
 function isSuccessDetails(value: unknown): value is WebFetchSuccessDetails {

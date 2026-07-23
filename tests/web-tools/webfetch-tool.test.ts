@@ -33,6 +33,18 @@ function runtime(fetchImpl: WebHttpFetch, maxChars = 100000, acceptsImages = fal
 }
 
 describe("webfetch tool", () => {
+	it("为展开 Widget 保留最多 40 行、6000 字符的正文预览", async () => {
+		const body = Array.from({ length: 50 }, (_, index) => `line-${index.toString().padStart(2, "0")} ${"x".repeat(200)}`).join("\n");
+		const result = await executeWebFetch(
+			{ url: "https://example.com/preview" },
+			runtime(async () => httpResponse(200, body, { "content-type": "text/plain" })),
+		);
+		if (result.details.status !== "success") throw new Error("failed");
+		expect(result.details.preview).toContain("line-20");
+		expect(result.details.preview).not.toContain("line-40");
+		expect(result.details.preview.length).toBe(6000);
+	});
+
 	it("返回包装后的成功文本和 next_offset，并用 snapshot 继续读取", async () => {
 		let calls = 0;
 		const long = `${"a".repeat(900)}\n${"b".repeat(900)}`;

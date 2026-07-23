@@ -92,7 +92,7 @@ skills 总数来自 Pi 公开 `pi.getCommands()` 中 `source: "skill"` 的命令
   <summary> · <metrics> · <status>
 ```
 
-expanded view 先保留这 2 行，再追加详情。renderer 会清理 ANSI、OSC 和控制字符；折叠态不输出原始 JSON、源码正文、diff 或网页结果列表。`edit` 的预览 diff 和结果 diff、`write` 的正文预览和结果 diff 都只在展开态显示；折叠态摘要仍保留变更行数、字节数和 LSP 状态。
+expanded view 先保留这 2 行，再追加详情。renderer 会清理 ANSI、OSC 和控制字符；折叠态不输出原始 JSON、源码正文、diff 或网页结果列表。`edit` 的预览 diff 和结果 diff、`write` 的正文预览和结果 diff 都只在展开态显示；`webfetch` 展开态将响应、正文、覆盖和请求状态压成紧凑分组，并展示前 40 行、最多 6000 字符的正文；折叠态摘要仍保留变更行数、字节数和 LSP 状态。
 
 文件工具失败结果默认仍折叠为 2 行；展开后显示模型实际发送的工具参数和结构化错误字段，包括 code、message、path、edit index、next 和 details。
 
