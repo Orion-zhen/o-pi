@@ -241,6 +241,7 @@ describe("webfetch tool", () => {
 		expect(result.media).toHaveLength(1);
 		expect(result.media?.[0]).toMatchObject({ mimeType: "image/png", sourceUrl: "https://example.com/post.png" });
 		expect(result.media?.[0]?.data).toEqual(Uint8Array.from(png));
+		expect(JSON.stringify(result.details)).not.toContain('"data"');
 		expect(result.content).toContain('<webfetch kind="image">');
 		expect(result.content).not.toContain("partial=");
 	});
@@ -332,24 +333,66 @@ describe("webfetch tool", () => {
 		expect(result.media?.[0]?.data).toEqual(Uint8Array.from(png));
 	});
 
-	it("模型不支持图像时直接图片不产生二次请求并报告遗漏", async () => {
-		const gif = Buffer.from("R0lGODlhAQABAAAAACw=", "base64");
+	it("模型不支持图像时根据响应头取消直接图片 body", async () => {
 		let calls = 0;
+		let reads = 0;
+		let cancellations = 0;
 		const result = await executeWebFetch(
 			{ url: "https://example.com/direct.gif" },
 			runtime(async () => {
 				calls += 1;
-				return httpResponse(200, gif, { "content-type": "image/gif" });
+				return {
+					status: 200,
+					statusText: "OK",
+					headers: new Headers({ "content-type": "image/gif" }),
+					body: {
+						getReader() {
+							return {
+								async read() {
+									reads += 1;
+									return { done: false as const, value: Buffer.from("R0lGODlhAQABAAAAACw=", "base64") };
+								},
+								async cancel() {
+									cancellations += 1;
+								},
+							};
+						},
+						async cancel() {
+							cancellations += 1;
+						},
+					},
+				};
 			}),
 		);
 		expect(calls).toBe(1);
+		expect(reads).toBe(0);
+		expect(cancellations).toBe(1);
 		expect(result.media).toBeUndefined();
 		expect(result.details).toMatchObject({
 			status: "success",
 			format: "image",
+			downloaded_bytes: 0,
 			completeness: "partial",
 			omissions: [{ kind: "primary_media", reason: "model_no_image_input" }],
 			media: { discovered: 1, returned: 0 },
+		});
+	});
+
+	it("API 不支持工具图片时直接图片也在响应头阶段短路", async () => {
+		const result = await executeWebFetch(
+			{ url: "https://example.com/direct.png" },
+			runtime(
+				async () => httpResponse(200, "bytes must not be read", { "content-type": "image/png" }),
+				100000,
+				false,
+				"api_no_tool_image_output",
+			),
+		);
+		expect(result.details).toMatchObject({
+			status: "success",
+			downloaded_bytes: 0,
+			completeness: "partial",
+			omissions: [{ kind: "primary_media", reason: "api_no_tool_image_output" }],
 		});
 	});
 

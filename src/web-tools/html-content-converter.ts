@@ -9,6 +9,11 @@ import { analyzeHtmlPage, type PageAnalysis, type TextCandidate } from "./html-p
 import type { ContentConversion, HtmlReadabilityOptions, WebFetchFailureDetails, WebFetchTextSource } from "./types.js";
 import { selectedMediaUrls, selectPageMedia } from "./webfetch-media.js";
 
+const UNSAFE_HTML_SELECTOR = [
+	"script", "style", "noscript", "template", "svg", "canvas", "iframe", "object", "embed",
+	"[hidden]", '[aria-hidden="true"]',
+].join(", ");
+
 const turndown = new TurndownService({
 	headingStyle: "atx",
 	codeBlockStyle: "fenced",
@@ -32,14 +37,13 @@ export function htmlToMarkdown(
 	try {
 		const { document } = parseHTML(html);
 		const analysis = analyzeHtmlPage(document, finalUrl, mime);
-		const baseDocument = document.cloneNode(true) as Document;
-		const deferred = extractDeferredContent(document, baseDocument);
+		const deferred = extractDeferredContent(document);
 		analysis.deferred = deferred.evidence;
 		const deferredFragments = {
 			discovered: deferred.evidence.discovered,
 			resolved: deferred.evidence.resolved,
 		};
-		const selected = selectDocumentBody(baseDocument, finalUrl, options, analysis);
+		const selected = selectDocumentBody(document, finalUrl, options, analysis);
 		const title = analysis.metadata.heading?.value ?? selected.title ?? analysis.metadata.title?.value;
 		const deferredSections = deferred.fragments
 			.map((fragment) => fragmentToMarkdown(fragment, document, finalUrl))
@@ -98,22 +102,41 @@ function selectDocumentBody(
 	options: HtmlReadabilityOptions,
 	analysis: PageAnalysis,
 ): SelectedBody {
+	const structured = analysis.textCandidates.find((candidate) => candidate.kind === "article_body")
+		?? analysis.textCandidates.find((candidate) => candidate.kind === "transcript");
+	if (analysis.omissions.some((item) => item.reason === "client_rendered")) {
+		if (structured !== undefined) {
+			return {
+				text: structured.text,
+				source: "metadata",
+				textLength: structured.text.length,
+				blockCount: 1,
+				structured,
+				mediaUrls: new Set<string>(),
+			};
+		}
+		return { text: "", source: "metadata", textLength: 0, blockCount: 0, mediaUrls: new Set<string>() };
+	}
+
 	removeUnsafeNodes(document);
 	absolutizeUrls(document.documentElement, finalUrl);
 	removeAvatarImages(document);
-	const selection = selectHtmlContent(document, options, analysis.metadata.heading?.value);
-	if (selection.preferred !== undefined) {
+	const selection = selectHtmlContent(
+		document,
+		options,
+		analysis.metadata.heading?.value,
+		analysis.metadata.documentTitle?.value,
+	);
+	if ("preferred" in selection) {
 		return {
-			text: markdownFromHtml(selection.preferred.html),
+			text: markdownFromHtml(selection.preferred.root),
 			source: selection.preferred.source,
 			textLength: selection.preferred.textLength,
 			blockCount: selection.preferred.blockCount,
-			mediaUrls: selectedMediaUrls(selection.preferred.html, document, finalUrl),
+			mediaUrls: selectedMediaUrls(selection.preferred.root, finalUrl),
 			...(selection.preferred.title !== undefined ? { title: selection.preferred.title } : {}),
 		};
 	}
-	const structured = analysis.textCandidates.find((candidate) => candidate.kind === "article_body")
-		?? analysis.textCandidates.find((candidate) => candidate.kind === "transcript");
 	if (structured !== undefined) {
 		return {
 			text: structured.text,
@@ -127,11 +150,11 @@ function selectDocumentBody(
 	const hasMetadataFallback = analysis.metadata.title !== undefined || analysis.metadata.description !== undefined;
 	if (selection.bodyPassesQuality || !hasMetadataFallback) {
 		return {
-			text: markdownFromHtml(selection.body.html),
+			text: markdownFromHtml(selection.body.root),
 			source: "body",
 			textLength: selection.body.textLength,
 			blockCount: selection.body.blockCount,
-			mediaUrls: selectedMediaUrls(selection.body.html, document, finalUrl),
+			mediaUrls: selectedMediaUrls(selection.body.root, finalUrl),
 			...(selection.body.title !== undefined ? { title: selection.body.title } : {}),
 		};
 	}
@@ -221,13 +244,13 @@ function removeMatchingTitleHeading(text: string, title: string | undefined): st
 	return normalizeMarkdown(lines.join("\n")).trim();
 }
 
-function markdownFromHtml(html: string): string {
-	return normalizeMarkdown(turndown.turndown(html)).trim();
+function markdownFromHtml(content: string | Element): string {
+	return normalizeMarkdown(turndown.turndown(typeof content === "string" ? content : content.innerHTML)).trim();
 }
 
-function fragmentToMarkdown(html: string, document: Document, finalUrl: string): string {
+function fragmentToMarkdown(fragment: DocumentFragment, document: Document, finalUrl: string): string {
 	const root = document.createElement("div");
-	root.innerHTML = html;
+	root.append(fragment);
 	removeUnsafeNodes(root);
 	removeHtmlOutputNoise(root);
 	absolutizeUrls(root, finalUrl);
@@ -266,12 +289,7 @@ function comparableSectionText(value: string): string {
 }
 
 function removeUnsafeNodes(root: Document | Element): void {
-	for (const selector of [
-		"script", "style", "noscript", "template", "svg", "canvas", "iframe", "object", "embed",
-		"[hidden]", '[aria-hidden="true"]',
-	]) {
-		root.querySelectorAll(selector).forEach((node) => node.remove());
-	}
+	root.querySelectorAll(UNSAFE_HTML_SELECTOR).forEach((node) => node.remove());
 	for (const image of root.querySelectorAll("img")) {
 		const width = positiveDimension(image.getAttribute("width"));
 		const height = positiveDimension(image.getAttribute("height"));
@@ -280,12 +298,13 @@ function removeUnsafeNodes(root: Document | Element): void {
 }
 
 function absolutizeUrls(root: Element, finalUrl: string): void {
-	for (const node of root.querySelectorAll("a[href]")) {
-		const safe = safeAbsoluteUrl(node.getAttribute("href"), finalUrl);
-		if (safe === undefined) node.removeAttribute("href");
-		else node.setAttribute("href", safe);
-	}
-	for (const node of root.querySelectorAll("img[src]")) {
+	for (const node of root.querySelectorAll("a[href], img[src]")) {
+		if (node.localName === "a") {
+			const safe = safeAbsoluteUrl(node.getAttribute("href"), finalUrl);
+			if (safe === undefined) node.removeAttribute("href");
+			else node.setAttribute("href", safe);
+			continue;
+		}
 		const safe = safeAbsoluteUrl(node.getAttribute("src"), finalUrl);
 		if (safe === undefined) node.remove();
 		else node.setAttribute("src", safe);

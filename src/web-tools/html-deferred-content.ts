@@ -7,18 +7,19 @@ import type {
 
 const MAX_DEFERRED_FRAGMENTS = 64;
 const MAX_DEFERRED_DEPTH = 8;
-const DEFERRED_MARKER_ATTRIBUTE = "data-pi-webfetch-deferred";
 const DECLARATION_SELECTOR = "template[for], template[shadowrootmode], noscript";
+const TOP_LEVEL_SCAN_SELECTOR = `[id], ${DECLARATION_SELECTOR}`;
 
 export interface ExtractedDeferredContent {
 	evidence: DeferredEvidence;
-	fragments: string[];
+	fragments: DocumentFragment[];
 }
 
 interface DeferredContext {
 	document: Document;
+	topLevelTargets: Map<string, Element[]>;
 	claimedTargets: Set<string>;
-	markedBaseNodes: Set<Element>;
+	removedBaseNodes: Set<Element>;
 	discovered: number;
 	resolved: number;
 	skipped: number;
@@ -29,14 +30,16 @@ interface DeferredContext {
 }
 
 /**
- * Extract declarative content without mixing it into the base body candidate.
- * The base clone is marked only at declarations and successfully replaced targets.
+ * Extract declarative content, then remove declarations and replaced targets from
+ * the same parsed document so deferred fragments cannot replace the base body.
  */
-export function extractDeferredContent(document: Document, baseDocument: Document): ExtractedDeferredContent {
+export function extractDeferredContent(document: Document): ExtractedDeferredContent {
+	const scanned = [...document.querySelectorAll(TOP_LEVEL_SCAN_SELECTOR)];
 	const context: DeferredContext = {
 		document,
+		topLevelTargets: indexExactIds(scanned),
 		claimedTargets: new Set<string>(),
-		markedBaseNodes: new Set<Element>(),
+		removedBaseNodes: new Set<Element>(),
 		discovered: 0,
 		resolved: 0,
 		skipped: 0,
@@ -45,15 +48,9 @@ export function extractDeferredContent(document: Document, baseDocument: Documen
 		limitRecorded: false,
 		results: [],
 	};
-	const fragments: string[] = [];
-	const declarations = documentDeclarations(document);
-	const baseDeclarations = documentDeclarations(baseDocument);
-	for (let index = 0; index < baseDeclarations.length; index += 1) {
-		const declaration = baseDeclarations[index];
-		if (declaration === undefined) continue;
-		declaration.setAttribute(DEFERRED_MARKER_ATTRIBUTE, "");
-		context.markedBaseNodes.add(declaration);
-	}
+	const fragments: DocumentFragment[] = [];
+	const declarations = documentDeclarations(document, scanned);
+	for (const declaration of declarations) context.removedBaseNodes.add(declaration);
 	for (const declaration of declarations) {
 		const kind = declarationKind(declaration);
 		if (!beginDeclaration(context, kind)) continue;
@@ -61,11 +58,11 @@ export function extractDeferredContent(document: Document, baseDocument: Documen
 			recordSkipped(context, "template_for", "invalid_declaration");
 			continue;
 		}
-		const fragment = extractTopLevelDeclaration(declaration, kind, baseDocument, context);
+		const fragment = extractTopLevelDeclaration(declaration, kind, context);
 		if (fragment === undefined) continue;
-		fragments.push(serializeFragment(fragment, document));
+		fragments.push(fragment);
 	}
-	for (const marked of context.markedBaseNodes) marked.remove();
+	for (const removed of context.removedBaseNodes) removed.remove();
 	return {
 		evidence: {
 			discovered: context.discovered,
@@ -81,7 +78,6 @@ export function extractDeferredContent(document: Document, baseDocument: Documen
 function extractTopLevelDeclaration(
 	declaration: Element,
 	kind: DeferredFragmentKind,
-	baseDocument: Document,
 	context: DeferredContext,
 ): DocumentFragment | undefined {
 	if (kind === "template_for") {
@@ -94,7 +90,7 @@ function extractTopLevelDeclaration(
 			recordSkipped(context, kind, "duplicate_target");
 			return undefined;
 		}
-		const targets = exactIdMatches(context.document, targetId);
+		const targets = context.topLevelTargets.get(targetId) ?? [];
 		if (targets.length === 0) {
 			recordSkipped(context, kind, "missing_target");
 			return undefined;
@@ -116,10 +112,7 @@ function extractTopLevelDeclaration(
 			return undefined;
 		}
 		context.claimedTargets.add(targetId);
-		for (const baseTarget of exactIdMatches(baseDocument, targetId)) {
-			baseTarget.setAttribute(DEFERRED_MARKER_ATTRIBUTE, "");
-			context.markedBaseNodes.add(baseTarget);
-		}
+		context.removedBaseNodes.add(target);
 		const fragment = cloneTemplateContent(declaration);
 		expandNestedDeclarations(fragment, 1, context, new Set<string>());
 		recordResolved(context, kind, "target_replaced");
@@ -299,14 +292,11 @@ function cloneNoscriptContent(declaration: Element, document: Document): Documen
 	return template.content.cloneNode(true) as DocumentFragment;
 }
 
-function serializeFragment(fragment: DocumentFragment, document: Document): string {
-	const container = document.createElement("div");
-	container.append(fragment);
-	return container.innerHTML;
+function topLevelDeclarations(root: ParentNode): Element[] {
+	return topLevelDeclarationsFrom([...root.querySelectorAll(DECLARATION_SELECTOR)]);
 }
 
-function topLevelDeclarations(root: ParentNode): Element[] {
-	const declarations = [...root.querySelectorAll(DECLARATION_SELECTOR)];
+function topLevelDeclarationsFrom(declarations: Element[]): Element[] {
 	const declarationSet = new Set(declarations);
 	return declarations.filter((declaration) => {
 		let parent = declaration.parentElement;
@@ -318,9 +308,23 @@ function topLevelDeclarations(root: ParentNode): Element[] {
 	});
 }
 
-function documentDeclarations(document: Document): Element[] {
-	return topLevelDeclarations(document)
-		.filter((declaration) => declaration.localName !== "noscript" || document.body.contains(declaration));
+function documentDeclarations(document: Document, scanned: Element[]): Element[] {
+	return topLevelDeclarationsFrom(scanned.filter((element) =>
+		element.localName === "noscript"
+		|| element.localName === "template" && (element.hasAttribute("for") || element.hasAttribute("shadowrootmode"))
+	)).filter((declaration) => declaration.localName !== "noscript" || document.body.contains(declaration));
+}
+
+function indexExactIds(scanned: readonly Element[]): Map<string, Element[]> {
+	const indexed = new Map<string, Element[]>();
+	for (const candidate of scanned) {
+		const id = candidate.getAttribute("id");
+		if (id === null) continue;
+		const existing = indexed.get(id);
+		if (existing === undefined) indexed.set(id, [candidate]);
+		else existing.push(candidate);
+	}
+	return indexed;
 }
 
 function exactIdMatches(root: ParentNode, targetId: string): Element[] {

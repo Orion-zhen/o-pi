@@ -6,17 +6,15 @@ export type HtmlTextSource = "readability" | "semantic" | "heading" | "body";
 
 export interface SelectedHtmlContent {
 	source: HtmlTextSource;
-	html: string;
+	root: Element;
 	title?: string;
 	textLength: number;
 	blockCount: number;
 }
 
-export interface HtmlContentSelection {
-	preferred?: SelectedHtmlContent;
-	body: SelectedHtmlContent;
-	bodyPassesQuality: boolean;
-}
+export type HtmlContentSelection =
+	| { preferred: SelectedHtmlContent }
+	| { body: SelectedHtmlContent; bodyPassesQuality: boolean };
 
 interface ContentQuality {
 	textLength: number;
@@ -30,13 +28,22 @@ interface ContentQuality {
 	formCount: number;
 	noiseRatio: number;
 	hasPrimaryTitle: boolean;
+	title?: string;
 }
 
 interface Candidate {
 	source: HtmlTextSource;
 	root: Element;
 	quality: ContentQuality;
+	detached?: boolean;
 	title?: string;
+}
+
+type QualityFor = (root: Element) => ContentQuality;
+
+interface CandidateRoots {
+	semantic: Element[];
+	headings: Element[];
 }
 
 const SEMANTIC_SELECTOR = 'main, [role="main"], article, [itemprop="articleBody"]';
@@ -77,90 +84,153 @@ const OUTPUT_NOISE_SELECTORS = [
 	'[class*="trending"]',
 	'[id*="trending"]',
 ] as const;
+const OUTPUT_NOISE_SELECTOR = OUTPUT_NOISE_SELECTORS.join(", ");
+const QUALITY_STRUCTURE_SELECTOR = [
+	"a", "li", "h1", "h2", "h3", "h4", "h5", "h6", "p", "pre", "code", "table",
+	"img", "picture", "video", "audio", "form", "input", "select", "textarea", "button",
+].join(", ");
 
 /** Generate ordered HTML candidates and select Readability/semantic/heading before exposing body fallback. */
 export function selectHtmlContent(
 	document: Document,
 	options: HtmlReadabilityOptions,
 	primaryTitle?: string,
+	documentTitle?: string,
 ): HtmlContentSelection {
-	const readability = readabilityCandidate(document, options, primaryTitle);
-	if (readability !== undefined && passesQuality(readability.quality, "readability")) {
-		return {
-			preferred: serializeCandidate(readability),
-			body: bodyCandidate(document, primaryTitle),
-			bodyPassesQuality: passesQuality(analyzeQuality(document.body, primaryTitle), "body"),
-		};
-	}
-
-	const semantic = bestSemanticCandidate(document, primaryTitle);
-	if (semantic !== undefined) {
-		return {
-			preferred: serializeCandidate(semantic),
-			body: bodyCandidate(document, primaryTitle),
-			bodyPassesQuality: passesQuality(analyzeQuality(document.body, primaryTitle), "body"),
-		};
-	}
-
-	const heading = headingCandidate(document, primaryTitle);
-	if (heading !== undefined) {
-		return {
-			preferred: serializeCandidate(heading),
-			body: bodyCandidate(document, primaryTitle),
-			bodyPassesQuality: passesQuality(analyzeQuality(document.body, primaryTitle), "body"),
-		};
-	}
-
-	const body = bodyCandidate(document, primaryTitle);
-	return {
-		body,
-		bodyPassesQuality: passesQuality(analyzeQuality(document.body, primaryTitle), "body"),
+	const roots: CandidateRoots = {
+		semantic: [...document.querySelectorAll(SEMANTIC_SELECTOR)],
+		headings: [...document.querySelectorAll("h1")]
+			.filter((node) => normalizeText(node.textContent) !== undefined),
 	};
+	const qualityCache = new WeakMap<Element, ContentQuality>();
+	const qualityFor: QualityFor = (root) => {
+		const cached = qualityCache.get(root);
+		if (cached !== undefined) return cached;
+		const quality = analyzeQuality(root, primaryTitle);
+		qualityCache.set(root, quality);
+		return quality;
+	};
+	const readability = readabilityCandidate(document, options, primaryTitle, documentTitle, roots, qualityFor);
+	if (readability !== undefined && passesQuality(readability.quality, "readability")) {
+		return { preferred: serializeCandidate(readability) };
+	}
+
+	const semantic = bestSemanticCandidate(roots.semantic, qualityFor);
+	if (semantic !== undefined) {
+		return { preferred: serializeCandidate(semantic) };
+	}
+
+	const heading = headingCandidate(document, roots.headings, qualityFor);
+	if (heading !== undefined) {
+		return { preferred: serializeCandidate(heading) };
+	}
+
+	const quality = qualityFor(document.body);
+	return {
+		body: serializeCandidate(candidateFromElement("body", document.body, quality)),
+		bodyPassesQuality: passesQuality(quality, "body"),
+	};
+}
+
+function readabilityInputRoot(document: Document, roots: CandidateRoots, qualityFor: QualityFor): Element {
+	let best: { root: Element; score: number } | undefined;
+	for (const root of roots.semantic) {
+		const quality = qualityFor(root);
+		if (!quality.hasPrimaryTitle) continue;
+		const score = qualityScore(quality);
+		if (best === undefined || score > best.score) best = { root, score };
+	}
+	if (best !== undefined) return best.root;
+
+	if (roots.headings.length === 1) {
+		let headingBest: { root: Element; score: number } | undefined;
+		let root = roots.headings[0]?.parentElement ?? null;
+		while (root !== null && root !== document.body) {
+			const quality = qualityFor(root);
+			const score = qualityScore(quality);
+			if (quality.hasPrimaryTitle && (headingBest === undefined || score > headingBest.score)) {
+				headingBest = { root, score };
+			}
+			root = root.parentElement;
+		}
+		if (headingBest !== undefined) return headingBest.root;
+	}
+	return document.body;
+}
+
+function syntheticReadabilityDocument(document: Document, candidateRoot: Element, documentTitle: string | undefined): Document {
+	const synthetic = document.cloneNode(false) as Document;
+	const html = synthetic.createElement("html");
+	const head = synthetic.createElement("head");
+	const title = normalizeText(documentTitle);
+	if (title !== undefined) {
+		const titleNode = synthetic.createElement("title");
+		titleNode.textContent = title;
+		head.append(titleNode);
+	}
+	const body = synthetic.createElement("body");
+	if (candidateRoot === document.body) {
+		for (const child of candidateRoot.childNodes) body.append(child.cloneNode(true));
+	} else {
+		body.append(candidateRoot.cloneNode(true));
+	}
+	html.append(head, body);
+	synthetic.append(html);
+	return synthetic;
 }
 
 function readabilityCandidate(
 	document: Document,
 	options: HtmlReadabilityOptions,
 	primaryTitle: string | undefined,
+	documentTitle: string | undefined,
+	roots: CandidateRoots,
+	qualityFor: QualityFor,
 ): Candidate | undefined {
-	const readabilityDocument = document.cloneNode(true) as Document;
+	const readabilityDocument = syntheticReadabilityDocument(
+		document,
+		readabilityInputRoot(document, roots, qualityFor),
+		documentTitle,
+	);
 	if (!isProbablyReaderable(readabilityDocument)) return undefined;
 	const readable = new Readability(readabilityDocument, { charThreshold: options.charThreshold }).parse();
 	if (!readable?.content?.trim()) return undefined;
 	const root = document.createElement("div");
 	root.innerHTML = readable.content;
 	const quality = analyzeQuality(root, primaryTitle);
-	if (isDilutedByFocusedSemanticRoot(document, quality, primaryTitle)) return undefined;
+	if (isDilutedByFocusedSemanticRoot(roots.semantic, quality, primaryTitle, qualityFor)) return undefined;
 	const title = normalizeText(readable.title);
 	return {
 		source: "readability",
 		root,
 		quality,
+		detached: true,
 		...(title !== undefined ? { title } : {}),
 	};
 }
 
 function isDilutedByFocusedSemanticRoot(
-	document: Document,
+	semanticRoots: readonly Element[],
 	readability: ContentQuality,
 	primaryTitle: string | undefined,
+	qualityFor: QualityFor,
 ): boolean {
 	if (primaryTitle === undefined) return false;
-	for (const root of document.querySelectorAll(SEMANTIC_SELECTOR)) {
-		const quality = analyzeQuality(root, primaryTitle);
+	for (const root of semanticRoots) {
+		const quality = qualityFor(root);
 		if (!quality.hasPrimaryTitle || quality.mediaCount === 0) continue;
 		if (readability.textLength > Math.max(quality.textLength * 4, quality.textLength + 400)) return true;
 	}
 	return false;
 }
 
-function bestSemanticCandidate(document: Document, primaryTitle: string | undefined): Candidate | undefined {
+function bestSemanticCandidate(semanticRoots: readonly Element[], qualityFor: QualityFor): Candidate | undefined {
 	let best: { candidate: Candidate; score: number } | undefined;
 	const seen = new Set<Element>();
-	for (const root of document.querySelectorAll(SEMANTIC_SELECTOR)) {
+	for (const root of semanticRoots) {
 		if (seen.has(root)) continue;
 		seen.add(root);
-		const quality = analyzeQuality(root, primaryTitle);
+		const quality = qualityFor(root);
 		if (!passesQuality(quality, "semantic")) continue;
 		const candidate = candidateFromElement("semantic", root, quality);
 		const score = qualityScore(quality);
@@ -169,42 +239,32 @@ function bestSemanticCandidate(document: Document, primaryTitle: string | undefi
 	return best?.candidate;
 }
 
-function headingCandidate(document: Document, primaryTitle: string | undefined): Candidate | undefined {
-	const headings = [...document.querySelectorAll("h1")]
-		.filter((node) => normalizeText(node.textContent) !== undefined);
+function headingCandidate(document: Document, headings: readonly Element[], qualityFor: QualityFor): Candidate | undefined {
 	if (headings.length !== 1) return undefined;
 	let root = headings[0]?.parentElement ?? null;
 	while (root !== null && root !== document.body) {
-		const quality = analyzeQuality(root, primaryTitle);
+		const quality = qualityFor(root);
 		if (passesQuality(quality, "heading")) return candidateFromElement("heading", root, quality);
 		root = root.parentElement;
 	}
 	return undefined;
 }
 
-function bodyCandidate(document: Document, primaryTitle: string | undefined): SelectedHtmlContent {
-	const quality = analyzeQuality(document.body, primaryTitle);
-	return serializeCandidate(candidateFromElement("body", document.body, quality));
-}
-
 function candidateFromElement(source: HtmlTextSource, root: Element, quality: ContentQuality): Candidate {
-	const titles = [...root.querySelectorAll("h1")]
-		.map((node) => normalizeText(node.textContent))
-		.filter((value): value is string => value !== undefined);
 	return {
 		source,
 		root,
 		quality,
-		...(titles.length === 1 ? { title: titles[0] } : {}),
+		...(quality.title !== undefined ? { title: quality.title } : {}),
 	};
 }
 
 function serializeCandidate(candidate: Candidate): SelectedHtmlContent {
-	const root = candidate.root.cloneNode(true) as Element;
+	const root = candidate.detached === true ? candidate.root : candidate.root.cloneNode(true) as Element;
 	removeHtmlOutputNoise(root);
 	return {
 		source: candidate.source,
-		html: root.innerHTML,
+		root,
 		...(candidate.title !== undefined ? { title: candidate.title } : {}),
 		textLength: candidate.quality.textLength,
 		blockCount: candidate.quality.paragraphCount + candidate.quality.codeCount + candidate.quality.tableCount,
@@ -214,15 +274,50 @@ function serializeCandidate(candidate: Candidate): SelectedHtmlContent {
 function analyzeQuality(root: Element, primaryTitle: string | undefined): ContentQuality {
 	const text = normalizedText(root);
 	const textLength = text.length;
+	const links: Element[] = [];
+	const listItems: Element[] = [];
+	const h1Titles: string[] = [];
+	let headingCount = 0;
+	let paragraphCount = 0;
+	let codeCount = 0;
+	let tableCount = 0;
+	let mediaCount = 0;
+	let formCount = 0;
+	for (const element of root.querySelectorAll(QUALITY_STRUCTURE_SELECTOR)) {
+		const tag = element.localName;
+		if (tag === "a") links.push(element);
+		else if (tag === "li") listItems.push(element);
+		else if (/^h[1-6]$/u.test(tag)) {
+			headingCount += 1;
+			if (tag === "h1") {
+				const title = normalizeText(element.textContent);
+				if (title !== undefined) h1Titles.push(title);
+			}
+		}
+		else if (tag === "p") paragraphCount += 1;
+		else if (tag === "pre" || tag === "code") codeCount += 1;
+		else if (tag === "table") tableCount += 1;
+		else if (tag === "img" || tag === "picture" || tag === "video" || tag === "audio") mediaCount += 1;
+		else formCount += 1;
+	}
+
 	let linkTextLength = 0;
-	for (const link of root.querySelectorAll("a")) linkTextLength += normalizedText(link).length;
-	const listItems = [...root.querySelectorAll("li")];
+	const linkedTextByListItem = new Map<Element, number>();
+	const listItemSet = new Set(listItems);
+	for (const link of links) {
+		const length = normalizedText(link).length;
+		linkTextLength += length;
+		let parent = link.parentElement;
+		while (parent !== null && parent !== root) {
+			if (listItemSet.has(parent)) linkedTextByListItem.set(parent, (linkedTextByListItem.get(parent) ?? 0) + length);
+			parent = parent.parentElement;
+		}
+	}
 	const shortLinkItems = listItems.filter((item) => {
 		const itemText = normalizedText(item);
-		if (itemText.length === 0 || itemText.length > 100) return false;
-		let linked = 0;
-		for (const link of item.querySelectorAll("a")) linked += normalizedText(link).length;
-		return linked / itemText.length >= 0.6;
+		return itemText.length > 0
+			&& itemText.length <= 100
+			&& (linkedTextByListItem.get(item) ?? 0) / itemText.length >= 0.6;
 	}).length;
 	const noiseLength = topLevelNoiseNodes(root)
 		.reduce((sum, node) => sum + normalizedText(node).length, 0);
@@ -231,14 +326,15 @@ function analyzeQuality(root: Element, primaryTitle: string | undefined): Conten
 		textLength,
 		linkDensity: textLength === 0 ? 0 : Math.min(1, linkTextLength / textLength),
 		shortLinkListRatio: listItems.length === 0 ? 0 : shortLinkItems / listItems.length,
-		headingCount: root.querySelectorAll("h1, h2, h3, h4, h5, h6").length,
-		paragraphCount: root.querySelectorAll("p").length,
-		codeCount: root.querySelectorAll("pre, code").length,
-		tableCount: root.querySelectorAll("table").length,
-		mediaCount: root.querySelectorAll("img, picture, video, audio").length,
-		formCount: root.querySelectorAll("form, input, select, textarea, button").length,
+		headingCount,
+		paragraphCount,
+		codeCount,
+		tableCount,
+		mediaCount,
+		formCount,
 		noiseRatio: textLength === 0 ? 0 : Math.min(1, noiseLength / textLength),
 		hasPrimaryTitle: comparableTitle.length === 0 || comparableText(text).includes(comparableTitle),
+		...(h1Titles.length === 1 ? { title: h1Titles[0] } : {}),
 	};
 }
 
@@ -271,7 +367,7 @@ function qualityScore(quality: ContentQuality): number {
 }
 
 function topLevelNoiseNodes(root: Element): Element[] {
-	const nodes = [...root.querySelectorAll(OUTPUT_NOISE_SELECTORS.join(", "))];
+	const nodes = [...root.querySelectorAll(OUTPUT_NOISE_SELECTOR)];
 	const noise = new Set(nodes);
 	return nodes.filter((node) => {
 		let parent = node.parentElement;
@@ -284,9 +380,7 @@ function topLevelNoiseNodes(root: Element): Element[] {
 }
 
 export function removeHtmlOutputNoise(root: Element): void {
-	for (const selector of OUTPUT_NOISE_SELECTORS) {
-		root.querySelectorAll(selector).forEach((node) => node.remove());
-	}
+	root.querySelectorAll(OUTPUT_NOISE_SELECTOR).forEach((node) => node.remove());
 }
 
 function normalizedText(root: Element): string {

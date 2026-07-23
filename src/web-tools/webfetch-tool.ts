@@ -35,6 +35,10 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 	const mode = params.mode ?? "readable";
 	const offset = params.offset ?? 0;
 	const limit = params.limit ?? runtime.config.webfetch.limits.default_output_chars;
+	const canReturnImages = mode === "readable"
+		&& offset === 0
+		&& runtime.config.webfetch.media.mode === "auto"
+		&& runtime.context.acceptsImages === true;
 	const snapshotKey = snapshotKeyFor(params.url, mode);
 	let snapshotStatus: SnapshotStatus = "not_needed";
 	let conversion: ContentConversion | undefined;
@@ -63,7 +67,10 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 		const fetched = await fetchHttpUrl(
 			params.url,
 			{ ...runtime, startedAt },
-			{ imageMaxBytes: runtime.config.webfetch.media.response_bytes },
+			{
+				imageMaxBytes: runtime.config.webfetch.media.response_bytes,
+				omitSupportedImageBody: !canReturnImages,
+			},
 		);
 		if (fetched.status === "failed") {
 			void converterPromise.catch(() => undefined);

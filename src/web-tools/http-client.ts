@@ -2,6 +2,7 @@ import type { Dispatcher } from "undici";
 
 import type { CookieStore, HttpFetchResult, WebFetchExecutionContext, WebToolsConfig, WebFetchFailureDetails, WebHttpFetch, WebHttpResponse, WebHttpHeaders, WebHttpBody } from "./types.js";
 import { isCookieAllowed } from "./cookie-policy.js";
+import { supportedImageMimeFromHeader } from "./image-types.js";
 import { validateRequestUrl } from "./network-policy.js";
 import { readLimitedResponseBody, responseContentLength } from "./response-body.js";
 import { originKey, redactUrl } from "./url-utils.js";
@@ -24,6 +25,7 @@ export interface HttpResourceOptions {
 	accept?: string;
 	maxBytes?: number;
 	imageMaxBytes?: number;
+	omitSupportedImageBody?: boolean;
 }
 
 export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions, resource: HttpResourceOptions = {}): Promise<HttpFetchResult> {
@@ -71,12 +73,17 @@ async function fetchHttpUrlWithinDeadline(rawUrl: string, options: HttpClientOpt
 		});
 
 		const allowlisted = options.config.webfetch.cookies.enabled && isCookieAllowed(currentUrl.hostname, options.config.webfetch.cookies.domains);
-		let cookieAccess: Awaited<ReturnType<CookieStore["getCookieAccess"]>>;
-		try {
-			cookieAccess = await waitForAbort(options.cookieStore.getCookieAccess(currentUrl, allowlisted), requestSignal);
-		} catch (error) {
-			if (!requestSignal.aborted) throw error;
-			return { status: "failed", details: fetchErrorDetails(error, requested.displayUrl, currentUrl, authenticated, redirectCount, options, requestSignal) };
+		let cookieAccess: Awaited<ReturnType<CookieStore["getCookieAccess"]>> = {
+			fingerprint: "disabled",
+			authenticated: false,
+		};
+		if (allowlisted) {
+			try {
+				cookieAccess = await waitForAbort(options.cookieStore.getCookieAccess(currentUrl, true), requestSignal);
+			} catch (error) {
+				if (!requestSignal.aborted) throw error;
+				return { status: "failed", details: fetchErrorDetails(error, requested.displayUrl, currentUrl, authenticated, redirectCount, options, requestSignal) };
+			}
 		}
 		if ("status" in cookieAccess) {
 			return { status: "failed", details: withRequest(cookieAccess, requested.displayUrl, currentUrl, authenticated, redirectCount, options) };
@@ -175,6 +182,38 @@ async function fetchHttpUrlWithinDeadline(rawUrl: string, options: HttpClientOpt
 			currentUrl.hash = "";
 			redirectCount += 1;
 			continue;
+		}
+
+		if (
+			resource.omitSupportedImageBody === true
+			&& response.status >= 200
+			&& response.status < 300
+			&& supportedImageMimeFromHeader(response.headers.get("content-type")) !== undefined
+		) {
+			cancelBody(response.body);
+			let setCookieError: Awaited<ReturnType<CookieStore["storeFromResponse"]>>;
+			try {
+				setCookieError = await waitForAbort(options.cookieStore.storeFromResponse(currentUrl, setCookieHeaders(response.headers), allowlisted), requestSignal);
+			} catch (error) {
+				if (!requestSignal.aborted) throw error;
+				return { status: "failed", details: fetchErrorDetails(error, requested.displayUrl, currentUrl, authenticated, redirectCount, options, requestSignal) };
+			}
+			if (setCookieError !== undefined) {
+				return { status: "failed", details: withRequest(setCookieError, requested.displayUrl, currentUrl, authenticated, redirectCount, options, response.status) };
+			}
+			return {
+				status: "success",
+				requestedUrl: requested.displayUrl,
+				finalUrl: redactUrl(currentUrl),
+				httpStatus: response.status,
+				statusText: response.statusText,
+				headers: response.headers,
+				body: new Uint8Array(),
+				bodyOmitted: "skipped_image_body",
+				authenticated,
+				redirectCount,
+				downloadedBytes: 0,
+			};
 		}
 
 		const expected = responseContentLength(response.headers);

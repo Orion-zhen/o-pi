@@ -9,7 +9,7 @@ Web 工具分为搜索和抓取：
 
 扩展启动时只同步注册工具 schema、renderer 和事件，不加载网络 runtime，也不执行后台预热。首次工具调用复用同一个 runtime 加载 Promise，并发调用不会重复创建 runtime。runtime 内部再按能力拆分：只调用 `websearch` 不加载 WebFetch/Cookie 执行链，只调用 `webfetch` 不加载搜索 router/provider；安全 dispatcher 在两条能力链之间共享并按需创建。搜索 provider 只在 router 实际执行到该分支时加载，因此 Exa 成功不会加载 DDG/HTML parser；Cookie store 只在配置启用且域名命中 allowlist 时加载；source、JSON、XML 和普通文本不会加载 DOM、Readability 或 Turndown，只有 readable HTML 会加载转换链。JSONC parser 和 AJV 也只在确实读到配置文件并需要解析、校验时加载，并发校验复用同一 Promise。成功配置按文件 identity、大小和时间戳缓存，每次返回隔离副本；文件变化会重新读取和校验，读取期间变化会重试。加载失败会清除对应 Promise，后续调用可以重试；`session_shutdown` 不会加载未使用能力，并会等待正在初始化的能力后释放已创建资源。
 
-使用 `npm run bench:web-tools` 运行 process-cold / filesystem-warm 回归基准；脚本记录 Pi TUI ready、无 TUI 扩展加载、首次及后续 fake `websearch` / `webfetch`，以及 DDG parser 的加载和解析耗时，不访问真实网络。可用 `-- --runs=N` 调整采样次数。
+使用 `npm run bench:web-tools` 运行 process-cold / filesystem-warm 回归基准；脚本记录 Pi TUI ready、无 TUI 扩展加载、首次及后续 fake `websearch` / source `webfetch`、不支持工具图片时的直接图片 body 短路、DDG parser，以及四类合成 HTML 的转换耗时和进程最大 RSS：3–5 MB 声明式延迟讨论页、无语义容器的视频元数据页、大型普通文章、大量无效 template/JSON-LD 的恶意页。基准不访问真实网络，也不保存真实站点页面或 Cookie。可用 `-- --runs=N` 调整采样次数。
 
 ## websearch
 
@@ -98,11 +98,11 @@ webfetch({
 })
 ```
 
-- `readable`：HTML 先分析 `<title>`、唯一 `h1`、description、canonical、Open Graph、Twitter Card、受限 JSON-LD 和声明式媒体元素，再生成 Readability、`main`/`article`/`[role=main]`/`[itemprop=articleBody]`、标题祖先、JSON-LD 正文和 body 候选。候选质量只依据标题保留、有效文本、链接密度、短链接列表、结构元素、媒体与导航/推荐/表单占比，并按固定顺序选择。`<base href>` 只用于解析 HTTP(S) 候选 URL，不会触发请求。JSON-LD 只读取已知字段，并受总字符数、对象数和递归深度硬上限保护；无效或超限数据只记录遗漏。声明式内容支持整个静态文档内的 `template[for]`、`template[shadowrootmode]`，以及 body 内的 `noscript` fallback；基础正文通过内部标记排除替换目标，展开内容单独清理和转换后作为延迟 section 合并。片段最多处理 64 个、嵌套最多 8 层，重复、缺失、歧义、循环和超限声明按稳定原因跳过；普通未匹配 `<template>` 继续删除。URL 路径以 `.html`/`.htm` 结尾时即使响应头误报也按 HTML 处理；JSON、XML、纯文本保持原文。
+- `readable`：HTML 整页只解析一次，先分析 `<title>`、唯一 `h1`、description、canonical、Open Graph、Twitter Card、受限 JSON-LD 和声明式媒体元素，再生成 Readability、`main`/`article`/`[role=main]`/`[itemprop=articleBody]`、标题祖先、JSON-LD 正文和 body 候选。Readability 只把聚焦的语义根、标题祖先或最终 body fallback 候选克隆到临时合成文档，不克隆带 head 的完整 Document；只对最终主正文执行一次 Turndown。候选质量只依据标题保留、有效文本、链接密度、短链接列表、结构元素、媒体与导航/推荐/表单占比，并按固定顺序选择；同一 DOM 根的质量只计算一次；标准 head 信号、媒体节点、页面类型信号和顶层延迟目标分别使用单次节点快照，不再为每类字段重复遍历 DOM。`<base href>` 只用于解析 HTTP(S) 候选 URL，不会触发请求。已确认的客户端空壳会直接使用结构化正文或 metadata，不再进入 Readability 和正文质量选择。JSON-LD 只读取已知字段，并受总字符数、脚本数、对象数、遍历节点数和递归深度硬上限保护；无效或超限数据只记录遗漏。声明式内容支持整个静态文档内的 `template[for]`、`template[shadowrootmode]`，以及 body 内的 `noscript` fallback；成功替换的目标与声明从同一基础文档移除，展开片段单独清理并转成延迟 section，不复制整页 DOM。片段最多处理 64 个、嵌套最多 8 层，重复、缺失、歧义、循环和超限声明按稳定原因跳过；普通未匹配 `<template>` 继续删除。URL 路径以 `.html`/`.htm` 结尾时即使响应头误报也按 HTML 处理；source、JSON、XML、纯文本保持原有轻量路径，不加载 DOM、Readability 或 Turndown。
 - `source`：返回解码后的响应源码文本。
 - `offset`/`limit`：对首次转换后的内存 snapshot 切片；长页面结果返回 `range.has_more`、`range.next_offset` 和 `next`，继续读取时使用上次返回的 offset。
 - `webfetch.readability.char_threshold`：Readability 接受正文结果的最少字符数。
-- `webfetch.media`：`auto` 模式从已选正文的 `img`/`srcset`/`picture`、视频 poster、Open Graph、Twitter Card 和 JSON-LD 声明中统一选出至多一张主图；正文位置、标准主图声明、尺寸、alt 和标题距离加权，hidden、presentation、微小图标、avatar、logo 与装饰图降权。直接图片 URL 复用首次响应字节。当前模型支持图像且所选 API 支持工具结果图片时，页面主图经同一 URL、DNS、redirect 和 Cookie 安全链受限下载，JPEG、PNG、WebP、GIF 均以实际字节嗅探后作为原生图片内容返回；模型不支持图像时不会发起二次图片请求。OpenAI Chat Completions 的 tool message 只支持文本，因此 `openai-completions` 模型即使支持普通图片输入也不会返回工具图片；Responses 不受影响。`off` 禁用，`response_bytes` 控制独立图片响应上限。
+- `webfetch.media`：`auto` 模式从已选正文的 `img`/`srcset`/`picture`、视频 poster、Open Graph、Twitter Card 和 JSON-LD 声明中统一选出至多一张主图；正文位置、标准主图声明、尺寸、alt 和标题距离加权，hidden、presentation、微小图标、avatar、logo 与装饰图降权。直接图片 URL 复用首次响应字节。当前模型支持图像且所选 API 支持工具结果图片时，页面主图经同一 URL、DNS、redirect 和 Cookie 安全链受限下载，JPEG、PNG、WebP、GIF 均以实际字节嗅探后作为原生图片内容返回；模型不支持图像时不会发起二次图片请求。若响应头已明确声明受支持图片，而 source 模式、后续 offset、`media.mode=off`、模型能力或 API 类型已确定不可能返回图片，WebFetch 会在响应头阶段取消直接图片 body，不下载图片字节；readable 结果仍保留 page kind 和对应 omission，source 结果保持不支持二进制内容的错误契约。OpenAI Chat Completions 的 tool message 只支持文本，因此 `openai-completions` 模型即使支持普通图片输入也不会返回工具图片；Responses 不受影响。`off` 禁用，`response_bytes` 控制独立图片响应上限。
 
 `webfetch` 不搜索、不执行 JavaScript、不点击链接、不提交表单、不访问本机或私网。
 

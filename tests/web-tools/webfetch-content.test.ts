@@ -100,6 +100,26 @@ describe("webfetch content conversion", () => {
 		expect(result.text).toBe("<h1>A</h1>");
 	});
 
+	it.each([
+		["JSON", '{"value":1}', "application/json", "json"],
+		["XML", "<root/>", "application/xml", "xml"],
+		["普通文本", "plain body", "text/plain", "text"],
+	] as const)("%s readable 路径不加载 HTML 转换链", async (_name, body, contentType, format) => {
+		const loadHtml = vi.fn(async () => {
+			throw new Error("HTML converter must remain unloaded");
+		});
+		const result = await convertContent(
+			Buffer.from(body),
+			headers(contentType),
+			"https://example.com/content",
+			"readable",
+			readability,
+			loadHtml,
+		);
+		expect(result).toMatchObject({ format, text: body });
+		expect(loadHtml).not.toHaveBeenCalled();
+	});
+
 	it(".html URL 在 readable 模式下即使响应头误报也抽取正文", async () => {
 		const html = "<html><head><title>Doc</title></head><body><nav>nav</nav><article><h1>Title</h1><p>Body</p></article></body></html>";
 		const textResult = await convertContent(Buffer.from(html), headers("text/plain"), "https://example.com/docs/page.html", "readable", readability);
@@ -659,6 +679,23 @@ describe("webfetch content conversion", () => {
 		if ("status" in result) throw new Error(result.error.message);
 		expect(result.text).toContain("Stable body");
 		expect(result.text).not.toContain("must not be extracted");
+		expect(result.extraction?.analysis.omissions).toContainEqual({
+			kind: "structured_data",
+			reason: "invalid_or_limited",
+		});
+	});
+
+	it("JSON-LD 脚本数和遍历节点数受硬上限约束", async () => {
+		const scripts = Array.from(
+			{ length: 70 },
+			(_, index) => `<script type="application/ld+json">{"@type":"Thing","name":"node-${index}"}</script>`,
+		).join("");
+		const wideArray = JSON.stringify(Array.from({ length: 3_000 }, () => null));
+		const html = `<html><head><script type="application/ld+json">${wideArray}</script>${scripts}</head>
+			<body><main><h1>Bounded metadata</h1><p>Visible bounded body.</p></main></body></html>`;
+		const result = await convertContent(Buffer.from(html), headers("text/html"), "https://example.com/bounded-json-ld", "readable", readability);
+		if ("status" in result) throw new Error(result.error.message);
+		expect(result.text).toContain("Visible bounded body.");
 		expect(result.extraction?.analysis.omissions).toContainEqual({
 			kind: "structured_data",
 			reason: "invalid_or_limited",

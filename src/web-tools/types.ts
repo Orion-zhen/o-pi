@@ -363,6 +363,8 @@ export interface HttpFetchSuccess {
 	statusText: string;
 	headers: WebHttpHeaders;
 	body: Uint8Array;
+	/** 明确图片 MIME 且调用链已确定不会返回图片时，响应头后取消 body。 */
+	bodyOmitted?: "skipped_image_body";
 	authenticated: boolean;
 	redirectCount: number;
 	downloadedBytes: number;

@@ -115,7 +115,9 @@ export interface PageAnalysis {
 }
 
 const JSON_LD_MAX_TOTAL_CHARS = 256_000;
+const JSON_LD_MAX_SCRIPTS = 64;
 const JSON_LD_MAX_OBJECTS = 500;
+const JSON_LD_MAX_NODES = 2_000;
 const JSON_LD_MAX_DEPTH = 20;
 
 interface JsonLdFacts {
@@ -140,6 +142,15 @@ interface OpenGraphFacts {
 	mediaCandidates: MediaCandidate[];
 }
 
+interface DomPresence {
+	article: boolean;
+	video: boolean;
+	audio: boolean;
+	image: boolean;
+	iframe: boolean;
+	externalScript: boolean;
+}
+
 interface TwitterFacts {
 	card?: EvidenceValue<string>;
 	title?: EvidenceValue<string>;
@@ -149,31 +160,39 @@ interface TwitterFacts {
 
 /** Analyze one already-parsed HTML response without retaining DOM nodes or raw scripts. */
 export function analyzeHtmlPage(document: Document, finalUrl: string, mime: string): PageAnalysis {
-	const baseUrl = resolveDocumentBase(document, finalUrl);
-	const documentTitle = evidence(textOf(document.querySelector("title")), "dom");
-	const headings = [...document.querySelectorAll("h1")]
+	const standardElements = [...document.querySelectorAll(
+		'base[href], link[href], meta, title, script[type="application/ld+json"]',
+	)];
+	const metaElements = standardElements.filter((element) => element.localName === "meta");
+	const jsonLdElements = standardElements.filter((element) => element.localName === "script");
+	const baseUrl = resolveDocumentBase(standardElements, finalUrl);
+	const documentTitle = evidence(textOf(standardElements.find((element) => element.localName === "title") ?? null), "dom");
+	const headingElements = [...document.querySelectorAll("h1")];
+	const headings = headingElements
 		.map((node) => normalizeText(node.textContent))
 		.filter((value) => value !== undefined);
 	const heading = headings.length === 1 ? evidence(headings[0], "dom") : undefined;
-	const domDescription = evidence(metaContent(document, "name", "description"), "dom");
-	const domAuthors = metaContents(document, "name", "author").map((value) => ({ value, source: "dom" as const }));
-	const openGraph = collectOpenGraph(document, baseUrl);
-	const twitter = collectTwitter(document, baseUrl);
-	const jsonLd = collectJsonLd(document, baseUrl);
-	const domMedia = collectDomMedia(document, baseUrl);
-	const canonical = linkHref(document, "canonical", baseUrl)
+	const domDescription = evidence(metaContent(metaElements, "name", "description"), "dom");
+	const visibleBody = visibleBodyFacts(document.body);
+	const domPresence = collectDomPresence(document);
+	const domAuthors = metaContents(metaElements, "name", "author").map((value) => ({ value, source: "dom" as const }));
+	const openGraph = collectOpenGraph(metaElements, baseUrl);
+	const twitter = collectTwitter(metaElements, baseUrl);
+	const jsonLd = collectJsonLd(jsonLdElements, baseUrl);
+	const domMedia = collectDomMedia(document, baseUrl, headingElements.length === 1 ? headingElements[0] : undefined);
+	const canonical = linkHref(standardElements, "canonical", baseUrl)
 		?? openGraph.url
 		?? { value: normalizeFinalUrl(finalUrl), source: "dom" as const };
 	const title = openGraph.title ?? jsonLd.title ?? twitter.title ?? documentTitle;
 	const description = openGraph.description ?? jsonLd.description ?? twitter.description ?? domDescription;
 	const authors = uniqueEvidence([...jsonLd.authors, ...domAuthors]);
-	const pageKind = selectPageKind(mime, jsonLd.pageKind, openGraph.type?.value, document);
+	const pageKind = selectPageKind(mime, jsonLd.pageKind, openGraph.type?.value, domPresence, visibleBody);
 	const omissions: KnownOmission[] = [];
-	if (document.querySelector("iframe") !== null) {
+	if (domPresence.iframe) {
 		omissions.push({ kind: "embedded_content", reason: "iframe_not_fetched" });
 	}
 	if (jsonLd.limited) omissions.push({ kind: "structured_data", reason: "invalid_or_limited" });
-	if (isClientRenderedShell(document, title, description)) {
+	if (isClientRenderedShell(title, description, visibleBody, domPresence)) {
 		omissions.push({ kind: "interactive_content", reason: "client_rendered" });
 	}
 	return {
@@ -226,12 +245,12 @@ export function analyzeHtmlPage(document: Document, finalUrl: string, mime: stri
 	};
 }
 
-function collectOpenGraph(document: Document, baseUrl: string): OpenGraphFacts {
+function collectOpenGraph(metaElements: readonly Element[], baseUrl: string): OpenGraphFacts {
 	const facts: OpenGraphFacts = { mediaCandidates: [] };
 	let currentImage: MediaCandidate | undefined;
 	let currentVideo: MediaCandidate | undefined;
 	let currentAudio: MediaCandidate | undefined;
-	for (const meta of document.querySelectorAll("meta")) {
+	for (const meta of metaElements) {
 		const property = meta.getAttribute("property")?.trim().toLowerCase();
 		const content = normalizeText(meta.getAttribute("content"));
 		if (property === undefined || content === undefined) continue;
@@ -272,9 +291,9 @@ function collectOpenGraph(document: Document, baseUrl: string): OpenGraphFacts {
 	return facts;
 }
 
-function collectTwitter(document: Document, baseUrl: string): TwitterFacts {
+function collectTwitter(metaElements: readonly Element[], baseUrl: string): TwitterFacts {
 	const facts: TwitterFacts = { mediaCandidates: [] };
-	for (const meta of document.querySelectorAll("meta")) {
+	for (const meta of metaElements) {
 		const name = (meta.getAttribute("name") ?? meta.getAttribute("property"))?.trim().toLowerCase();
 		const content = normalizeText(meta.getAttribute("content"));
 		if (name === undefined || content === undefined) continue;
@@ -289,7 +308,7 @@ function collectTwitter(document: Document, baseUrl: string): TwitterFacts {
 	return facts;
 }
 
-function collectJsonLd(document: Document, baseUrl: string): JsonLdFacts {
+function collectJsonLd(jsonLdElements: readonly Element[], baseUrl: string): JsonLdFacts {
 	const facts: JsonLdFacts = {
 		titleRank: -1,
 		descriptionRank: -1,
@@ -299,10 +318,17 @@ function collectJsonLd(document: Document, baseUrl: string): JsonLdFacts {
 		limited: false,
 	};
 	let totalChars = 0;
+	let scriptCount = 0;
 	let objectCount = 0;
-	for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+	let nodeCount = 0;
+	for (const script of jsonLdElements) {
 		const source = script.textContent?.trim() ?? "";
 		if (source.length === 0) continue;
+		scriptCount += 1;
+		if (scriptCount > JSON_LD_MAX_SCRIPTS) {
+			facts.limited = true;
+			break;
+		}
 		totalChars += source.length;
 		if (totalChars > JSON_LD_MAX_TOTAL_CHARS) {
 			facts.limited = true;
@@ -319,12 +345,22 @@ function collectJsonLd(document: Document, baseUrl: string): JsonLdFacts {
 		while (pending.length > 0) {
 			const item = pending.pop();
 			if (item === undefined) break;
+			nodeCount += 1;
+			if (nodeCount > JSON_LD_MAX_NODES) {
+				facts.limited = true;
+				pending.length = 0;
+				break;
+			}
 			if (item.depth > JSON_LD_MAX_DEPTH) {
 				facts.limited = true;
 				continue;
 			}
 			if (Array.isArray(item.value)) {
 				for (const child of item.value) {
+					if (nodeCount + pending.length >= JSON_LD_MAX_NODES) {
+						facts.limited = true;
+						break;
+					}
 					pending.push({ value: child, depth: item.depth + 1, pageEntity: item.pageEntity });
 				}
 				continue;
@@ -340,6 +376,10 @@ function collectJsonLd(document: Document, baseUrl: string): JsonLdFacts {
 			for (const [key, child] of Object.entries(item.value)) {
 				if (key === "@context") continue;
 				if (Array.isArray(child) || isRecord(child)) {
+					if (nodeCount + pending.length >= JSON_LD_MAX_NODES) {
+						facts.limited = true;
+						break;
+					}
 					pending.push({
 						value: child,
 						depth: item.depth + 1,
@@ -438,11 +478,16 @@ function pushJsonLdMedia(
 	}
 }
 
-function collectDomMedia(document: Document, baseUrl: string): MediaCandidate[] {
+function collectDomMedia(document: Document, baseUrl: string, primaryHeading: Element | undefined): MediaCandidate[] {
 	const candidates: MediaCandidate[] = [];
-	const headings = [...document.querySelectorAll("h1")];
-	const primaryHeading = headings.length === 1 ? headings[0] : undefined;
-	for (const image of document.querySelectorAll("img[src], img[srcset]")) {
+	const mediaElements = [...document.querySelectorAll("img, video, audio, source")];
+	const images = mediaElements.filter((element) =>
+		element.localName === "img" && (element.hasAttribute("src") || element.hasAttribute("srcset"))
+	);
+	const videos = mediaElements.filter((element) => element.localName === "video");
+	const audios = mediaElements.filter((element) => element.localName === "audio");
+	const sources = mediaElements.filter((element) => element.localName === "source");
+	for (const image of images) {
 		const candidate = mediaCandidate("image", "source", "dom", image.getAttribute("src"), baseUrl);
 		if (candidate !== undefined) {
 			copyDomMediaAttributes(image, candidate, primaryHeading, baseUrl);
@@ -456,7 +501,7 @@ function collectDomMedia(document: Document, baseUrl: string): MediaCandidate[] 
 			candidates.push(srcsetCandidate);
 		}
 	}
-	for (const video of document.querySelectorAll("video")) {
+	for (const video of videos) {
 		const poster = mediaCandidate("image", "poster", "dom", video.getAttribute("poster"), baseUrl);
 		if (poster !== undefined) {
 			copyDomMediaAttributes(video, poster, primaryHeading, baseUrl);
@@ -468,28 +513,28 @@ function collectDomMedia(document: Document, baseUrl: string): MediaCandidate[] 
 			candidates.push(source);
 		}
 	}
-	for (const source of document.querySelectorAll("video source[src]")) {
+	for (const source of sources.filter((element) => element.hasAttribute("src") && element.closest("video") !== null)) {
 		const candidate = mediaCandidate("video", "source", "dom", source.getAttribute("src"), baseUrl);
 		if (candidate !== undefined) {
 			copyDomMediaAttributes(source, candidate, primaryHeading, baseUrl);
 			candidates.push(candidate);
 		}
 	}
-	for (const audio of document.querySelectorAll("audio")) {
+	for (const audio of audios) {
 		const candidate = mediaCandidate("audio", "source", "dom", audio.getAttribute("src"), baseUrl);
 		if (candidate !== undefined) {
 			copyDomMediaAttributes(audio, candidate, primaryHeading, baseUrl);
 			candidates.push(candidate);
 		}
 	}
-	for (const source of document.querySelectorAll("audio source[src]")) {
+	for (const source of sources.filter((element) => element.hasAttribute("src") && element.closest("audio") !== null)) {
 		const candidate = mediaCandidate("audio", "source", "dom", source.getAttribute("src"), baseUrl);
 		if (candidate !== undefined) {
 			copyDomMediaAttributes(source, candidate, primaryHeading, baseUrl);
 			candidates.push(candidate);
 		}
 	}
-	for (const source of document.querySelectorAll("picture source")) {
+	for (const source of sources.filter((element) => element.closest("picture") !== null)) {
 		const fallback = source.closest("picture")?.querySelector("img") ?? undefined;
 		const items: Array<{ url: string; width?: number }> = [
 			...stringValues(source.getAttribute("src")).map((url) => ({ url })),
@@ -508,24 +553,27 @@ function collectDomMedia(document: Document, baseUrl: string): MediaCandidate[] 
 	return candidates;
 }
 
-function selectPageKind(mime: string, jsonLdKind: PageKind | undefined, openGraphType: string | undefined, document: Document): PageKind {
+function selectPageKind(
+	mime: string,
+	jsonLdKind: PageKind | undefined,
+	openGraphType: string | undefined,
+	domPresence: DomPresence,
+	visibleBody: VisibleBodyFacts,
+): PageKind {
 	const mimeKind = pageKindFromMime(mime);
 	if (mimeKind !== undefined) return mimeKind;
 	if (jsonLdKind !== undefined) return jsonLdKind;
 	const openGraphKind = pageKindFromOpenGraph(openGraphType);
 	if (openGraphKind !== undefined) return openGraphKind;
-	if (document.querySelector("article, [itemprop=\"articleBody\"]") !== null) return "article";
-	if (document.querySelector("video") !== null) return "video";
-	if (document.querySelector("audio") !== null) return "audio";
-	if (isImageDominantDocument(document)) return "image";
+	if (domPresence.article) return "article";
+	if (domPresence.video) return "video";
+	if (domPresence.audio) return "audio";
+	if (isImageDominantDocument(domPresence, visibleBody)) return "image";
 	return "generic";
 }
 
-function isImageDominantDocument(document: Document): boolean {
-	if (document.querySelector("picture, img") === null) return false;
-	const body = document.body.cloneNode(true) as Element;
-	body.querySelectorAll("script, style, template, noscript").forEach((node) => node.remove());
-	return (normalizeText(body.textContent)?.length ?? 0) < 160;
+function isImageDominantDocument(domPresence: DomPresence, visibleBody: VisibleBodyFacts): boolean {
+	return domPresence.image && visibleBody.textLength < 160;
 }
 
 function pageKindFromMime(mime: string): PageKind | undefined {
@@ -588,13 +636,14 @@ function isPageEntity(types: string[]): boolean {
 	);
 }
 
-function resolveDocumentBase(document: Document, finalUrl: string): string {
-	const declared = document.querySelector("base[href]")?.getAttribute("href");
+function resolveDocumentBase(standardElements: readonly Element[], finalUrl: string): string {
+	const declared = standardElements.find((element) => element.localName === "base")?.getAttribute("href");
 	return resolveHttpUrl(declared, finalUrl) ?? normalizeFinalUrl(finalUrl);
 }
 
-function linkHref(document: Document, relation: string, baseUrl: string): EvidenceValue<string> | undefined {
-	for (const link of document.querySelectorAll("link[href]")) {
+function linkHref(standardElements: readonly Element[], relation: string, baseUrl: string): EvidenceValue<string> | undefined {
+	for (const link of standardElements) {
+		if (link.localName !== "link") continue;
 		const relations = link.getAttribute("rel")?.toLowerCase().split(/\s+/u) ?? [];
 		if (!relations.includes(relation)) continue;
 		const resolved = resolveHttpUrl(link.getAttribute("href"), baseUrl);
@@ -717,14 +766,14 @@ function normalizeFinalUrl(value: string): string {
 	return resolveHttpUrl(value, value) ?? value;
 }
 
-function metaContent(document: Document, attribute: "name" | "property", key: string): string | undefined {
-	return metaContents(document, attribute, key)[0];
+function metaContent(metaElements: readonly Element[], attribute: "name" | "property", key: string): string | undefined {
+	return metaContents(metaElements, attribute, key)[0];
 }
 
-function metaContents(document: Document, attribute: "name" | "property", key: string): string[] {
+function metaContents(metaElements: readonly Element[], attribute: "name" | "property", key: string): string[] {
 	const expected = key.toLowerCase();
 	const values: string[] = [];
-	for (const meta of document.querySelectorAll("meta")) {
+	for (const meta of metaElements) {
 		if (meta.getAttribute(attribute)?.trim().toLowerCase() !== expected) continue;
 		const content = normalizeText(meta.getAttribute("content"));
 		if (content !== undefined) values.push(content);
@@ -801,17 +850,69 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+interface VisibleBodyFacts {
+	textLength: number;
+	hasMedia: boolean;
+}
+
+function visibleBodyFacts(body: Element): VisibleBodyFacts {
+	let textLength = 0;
+	let hasMedia = false;
+	let previousWhitespace = true;
+	const pending: Node[] = [...body.childNodes];
+	while (pending.length > 0 && (textLength < 160 || !hasMedia)) {
+		const node = pending.pop();
+		if (node === undefined) break;
+		if (node.nodeType === 3) {
+			const value = node.nodeValue ?? "";
+			for (let index = 0; index < value.length && textLength < 160; index += 1) {
+				const whitespace = /\s/u.test(value[index] ?? "");
+				if (!whitespace || !previousWhitespace) textLength += 1;
+				previousWhitespace = whitespace;
+			}
+			continue;
+		}
+		if (node.nodeType !== 1) continue;
+		const element = node as Element;
+		if (["script", "style", "template", "noscript"].includes(element.localName)) continue;
+		if (["img", "picture", "video", "audio"].includes(element.localName)) hasMedia = true;
+		for (const child of element.childNodes) pending.push(child);
+	}
+	return { textLength: previousWhitespace && textLength > 0 ? textLength - 1 : textLength, hasMedia };
+}
+
+function collectDomPresence(document: Document): DomPresence {
+	const presence: DomPresence = {
+		article: false,
+		video: false,
+		audio: false,
+		image: false,
+		iframe: false,
+		externalScript: false,
+	};
+	for (const element of document.querySelectorAll(
+		'article, [itemprop="articleBody"], video, audio, picture, img, iframe, script[src]',
+	)) {
+		const tag = element.localName;
+		if (tag === "article" || element.getAttribute("itemprop") === "articleBody") presence.article = true;
+		if (tag === "video") presence.video = true;
+		else if (tag === "audio") presence.audio = true;
+		else if (tag === "picture" || tag === "img") presence.image = true;
+		else if (tag === "iframe") presence.iframe = true;
+		else if (tag === "script") presence.externalScript = true;
+	}
+	return presence;
+}
+
 function isClientRenderedShell(
-	document: Document,
 	title: EvidenceValue<string> | undefined,
 	description: EvidenceValue<string> | undefined,
+	visibleBody: VisibleBodyFacts,
+	domPresence: DomPresence,
 ): boolean {
 	if (title === undefined && description === undefined) return false;
-	if (document.querySelector("script[src]") === null) return false;
-	const body = document.body.cloneNode(true) as Element;
-	body.querySelectorAll("script, style, template, noscript").forEach((node) => node.remove());
-	const visibleText = normalizeText(body.textContent);
-	return visibleText === undefined && body.querySelector("img, picture, video, audio") === null;
+	if (!domPresence.externalScript) return false;
+	return visibleBody.textLength === 0 && !visibleBody.hasMedia;
 }
 
 function hasOpenGraphFacts(facts: OpenGraphFacts): boolean {

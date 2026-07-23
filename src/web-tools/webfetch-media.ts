@@ -1,5 +1,6 @@
 import { parseImageSrcset, type MediaCandidate } from "./html-page-analyzer.js";
 import { fetchHttpUrl, type HttpClientOptions } from "./http-client.js";
+import { mimeFromContentType, SUPPORTED_IMAGE_TYPES } from "./image-types.js";
 import type {
 	ContentConversion,
 	HttpFetchSuccess,
@@ -9,7 +10,6 @@ import type {
 	WebFetchOmission,
 } from "./types.js";
 
-const SUPPORTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const IMAGE_ACCEPT = "image/webp,image/png,image/jpeg,image/gif;q=0.9,*/*;q=0.1";
 const MIN_PRIMARY_SCORE = 2_800;
 
@@ -43,19 +43,16 @@ export function selectPageMedia(
 }
 
 /** Collect normalized image/poster URLs retained by the selected body candidate. */
-export function selectedMediaUrls(html: string, document: Document, baseUrl: string): Set<string> {
-	const root = document.createElement("div");
-	root.innerHTML = html;
+export function selectedMediaUrls(root: Element, baseUrl: string): Set<string> {
 	const urls = new Set<string>();
-	for (const image of root.querySelectorAll("img")) {
-		addUrl(urls, image.getAttribute("src"), baseUrl);
-		for (const item of parseImageSrcset(image.getAttribute("srcset"))) addUrl(urls, item.url, baseUrl);
+	for (const element of root.querySelectorAll("img, picture source, video[poster]")) {
+		if (element.localName === "video") {
+			addUrl(urls, element.getAttribute("poster"), baseUrl);
+			continue;
+		}
+		addUrl(urls, element.getAttribute("src"), baseUrl);
+		for (const item of parseImageSrcset(element.getAttribute("srcset"))) addUrl(urls, item.url, baseUrl);
 	}
-	for (const source of root.querySelectorAll("picture source")) {
-		addUrl(urls, source.getAttribute("src"), baseUrl);
-		for (const item of parseImageSrcset(source.getAttribute("srcset"))) addUrl(urls, item.url, baseUrl);
-	}
-	for (const video of root.querySelectorAll("video[poster]")) addUrl(urls, video.getAttribute("poster"), baseUrl);
 	return urls;
 }
 
@@ -69,6 +66,21 @@ export async function directImageConversion(
 	maxBytes: number,
 ): Promise<ContentConversion | WebFetchFailureDetails | undefined> {
 	if (mode !== "readable" || !isDirectImageCandidate(http.headers.get("content-type"))) return undefined;
+	if (http.bodyOmitted === "skipped_image_body") {
+		const mimeType = mimeFromContentType(http.headers.get("content-type"));
+		return {
+			text: `Image response [${mimeType}]`,
+			format: "image",
+			analysis: {
+				pageKind: "image",
+				textSource: "metadata",
+				omissions: [],
+				deferredFragments: { discovered: 0, resolved: 0 },
+				primaryMedia: { url: http.finalUrl },
+			},
+			contentType: mimeType,
+		};
+	}
 	const mimeType = await detectImageMime(http.body);
 	if (mimeType === undefined) {
 		if (isDeclaredImage(http.headers.get("content-type"))) {
@@ -233,16 +245,12 @@ function addUrl(output: Set<string>, value: string | null, baseUrl: string): voi
 }
 
 function isDirectImageCandidate(contentType: string | null): boolean {
-	const mime = mimeFromHeader(contentType);
+	const mime = mimeFromContentType(contentType);
 	return mime === "" || mime === "application/octet-stream" || mime.startsWith("image/");
 }
 
 function isDeclaredImage(contentType: string | null): boolean {
-	return mimeFromHeader(contentType).startsWith("image/");
-}
-
-function mimeFromHeader(contentType: string | null): string {
-	return contentType?.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+	return mimeFromContentType(contentType).startsWith("image/");
 }
 
 async function detectImageMime(bytes: Uint8Array): Promise<string | undefined> {
