@@ -21,6 +21,7 @@ function runtime(
 	maxChars = 100000,
 	acceptsImages = false,
 	imageOmissionReason?: "api_no_tool_image_output",
+	signal?: AbortSignal,
 ) {
 	const config = defaultWebToolsConfig();
 	config.webfetch.limits.default_output_chars = 1000;
@@ -37,6 +38,7 @@ function runtime(
 			hasUI: false,
 			acceptsImages,
 			...(imageOmissionReason !== undefined ? { imageOmissionReason } : {}),
+			...(signal !== undefined ? { signal } : {}),
 		},
 		now: () => Date.now(),
 	};
@@ -118,6 +120,74 @@ describe("webfetch tool", () => {
 		});
 		expect(result.content).toContain('<webfetch kind="generic" final="https://example.com/final">');
 		expect(result.content).not.toContain("https://example.com/start");
+	});
+
+	it("整个 redirect 链和正文读取共享一个 deadline，并区分用户取消", async () => {
+		let calls = 0;
+		const hanging = {
+			getReader: () => ({ read: () => new Promise<{ done: boolean }>(() => undefined), cancel: async () => undefined }),
+			cancel: async () => undefined,
+		};
+		const fetchImpl: WebHttpFetch = async () => {
+			calls += 1;
+			if (calls === 1) await new Promise<void>((resolve) => setTimeout(resolve, 6));
+			return calls < 3
+				? { status: 302, statusText: "Found", headers: new Headers({ location: `/step-${calls}` }), body: httpResponse(200, "").body }
+				: { status: 200, statusText: "OK", headers: new Headers({ "content-type": "text/plain" }), body: hanging };
+		};
+		const rt = runtime(fetchImpl);
+		rt.config.webfetch.timeout_seconds = 0.01;
+		vi.useFakeTimers();
+		try {
+			const pending = executeWebFetch({ url: "https://example.com/start" }, rt);
+			await vi.advanceTimersByTimeAsync(6);
+			await vi.advanceTimersByTimeAsync(4);
+			const timedOut = await pending;
+			expect(timedOut.details).toMatchObject({ status: "failed", error: { code: "TIMEOUT" }, redirect_count: 2 });
+			expect(calls).toBe(3);
+		} finally {
+			vi.useRealTimers();
+		}
+
+		const userAbort = new AbortController();
+		const cancelledPromise = executeWebFetch({ url: "https://example.com/start" }, runtime(async (_url, init) => {
+			if (init.signal.aborted) throw new Error("aborted");
+			return { status: 200, statusText: "OK", headers: new Headers(), body: hanging };
+		}, 100000, false, undefined, userAbort.signal));
+		userAbort.abort();
+		const cancelled = await cancelledPromise;
+		if (cancelled.details.status !== "failed") throw new Error("expected cancellation");
+		expect(cancelled.details.error.code).toBe("ABORTED");
+	});
+
+	it("redirect body 和超限 reader 的 cleanup 失败不会覆盖主结果", async () => {
+		let calls = 0;
+		const redirectCleanupFailure = await executeWebFetch({ url: "https://example.com/start" }, runtime(async () => {
+			calls += 1;
+			if (calls === 1) {
+				return {
+					status: 302,
+					statusText: "Found",
+					headers: new Headers({ location: "/final" }),
+					body: { getReader: () => ({ read: async () => ({ done: true as const }), cancel: async () => undefined }), cancel: async () => { throw new Error("cleanup failed"); } },
+				};
+			}
+			return httpResponse(200, "ok");
+		}));
+		expect(redirectCleanupFailure.details.status).toBe("success");
+
+		const rt = runtime(async () => ({
+			status: 200,
+			statusText: "OK",
+			headers: new Headers({ "content-type": "text/plain" }),
+			body: {
+				getReader: () => ({ read: async () => ({ done: false as const, value: Uint8Array.of(1, 2) }), cancel: async () => { throw new Error("cleanup failed"); } }),
+				cancel: async () => undefined,
+			},
+		}));
+		rt.config.webfetch.limits.response_bytes = 1;
+		const readerCleanupFailure = await executeWebFetch({ url: "https://example.com/big" }, rt);
+		expect(readerCleanupFailure.details).toMatchObject({ status: "failed", error: { code: "RESPONSE_TOO_LARGE" } });
 	});
 
 	it("redirect 到私网会被重新校验并拒绝", async () => {

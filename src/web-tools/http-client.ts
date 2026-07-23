@@ -1,6 +1,6 @@
 import type { Dispatcher } from "undici";
 
-import type { CookieStore, HttpFetchResult, WebFetchExecutionContext, WebToolsConfig, WebFetchFailureDetails, WebHttpFetch, WebHttpResponse, WebHttpHeaders } from "./types.js";
+import type { CookieStore, HttpFetchResult, WebFetchExecutionContext, WebToolsConfig, WebFetchFailureDetails, WebHttpFetch, WebHttpResponse, WebHttpHeaders, WebHttpBody } from "./types.js";
 import { isCookieAllowed } from "./cookie-policy.js";
 import { validateRequestUrl } from "./network-policy.js";
 import { readLimitedResponseBody, responseContentLength } from "./response-body.js";
@@ -27,6 +27,16 @@ export interface HttpResourceOptions {
 }
 
 export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions, resource: HttpResourceOptions = {}): Promise<HttpFetchResult> {
+	const deadline = createDeadline(options.config.webfetch.timeout_seconds * 1000);
+	const requestSignal = combinedSignal(options, deadline.signal);
+	try {
+		return await fetchHttpUrlWithinDeadline(rawUrl, options, resource, requestSignal);
+	} finally {
+		deadline.dispose();
+	}
+}
+
+async function fetchHttpUrlWithinDeadline(rawUrl: string, options: HttpClientOptions, resource: HttpResourceOptions, requestSignal: AbortSignal): Promise<HttpFetchResult> {
 	const fetchImpl = options.fetchImpl;
 	const requested = validateRequestUrl(rawUrl);
 	if ("status" in requested) {
@@ -61,12 +71,24 @@ export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions, r
 		});
 
 		const allowlisted = options.config.webfetch.cookies.enabled && isCookieAllowed(currentUrl.hostname, options.config.webfetch.cookies.domains);
-		const cookieAccess = await options.cookieStore.getCookieAccess(currentUrl, allowlisted);
+		let cookieAccess: Awaited<ReturnType<CookieStore["getCookieAccess"]>>;
+		try {
+			cookieAccess = await waitForAbort(options.cookieStore.getCookieAccess(currentUrl, allowlisted), requestSignal);
+		} catch (error) {
+			if (!requestSignal.aborted) throw error;
+			return { status: "failed", details: fetchErrorDetails(error, requested.displayUrl, currentUrl, authenticated, redirectCount, options, requestSignal) };
+		}
 		if ("status" in cookieAccess) {
 			return { status: "failed", details: withRequest(cookieAccess, requested.displayUrl, currentUrl, authenticated, redirectCount, options) };
 		}
 		if (cookieAccess.header !== undefined) {
-			const confirmed = await confirmAuth(currentUrl, options);
+			let confirmed: boolean;
+			try {
+				confirmed = await waitForAbort(confirmAuth(currentUrl, options), requestSignal);
+			} catch (error) {
+				if (!requestSignal.aborted) throw error;
+				return { status: "failed", details: fetchErrorDetails(error, requested.displayUrl, currentUrl, authenticated, redirectCount, options, requestSignal) };
+			}
 			if (!confirmed) {
 				return {
 					status: "failed",
@@ -91,26 +113,32 @@ export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions, r
 
 		let response: WebHttpResponse;
 		try {
-			response = await fetchImpl(currentUrl, {
+			response = await waitForAbort(fetchImpl(currentUrl, {
 				method: "GET",
 				redirect: "manual",
 				dispatcher: options.dispatcher,
-				signal: combinedSignal(options),
+				signal: requestSignal,
 				headers: {
 					"User-Agent": options.config.webfetch.user_agent,
 					Accept: resource.accept ?? ACCEPT_HEADER,
 					"Accept-Encoding": "gzip, deflate, br",
 					...(cookieAccess.header !== undefined ? { Cookie: cookieAccess.header } : {}),
 				},
-			});
+			}), requestSignal);
 		} catch (error) {
-			return { status: "failed", details: fetchErrorDetails(error, requested.displayUrl, currentUrl, authenticated, redirectCount, options) };
+			return { status: "failed", details: fetchErrorDetails(error, requested.displayUrl, currentUrl, authenticated, redirectCount, options, requestSignal) };
 		}
 
 		lastStatus = response.status;
 		if (REDIRECT_STATUSES.has(response.status)) {
-			await response.body?.cancel();
-			const setCookieError = await options.cookieStore.storeFromResponse(currentUrl, setCookieHeaders(response.headers), allowlisted);
+			cancelBody(response.body);
+			let setCookieError: Awaited<ReturnType<CookieStore["storeFromResponse"]>>;
+			try {
+				setCookieError = await waitForAbort(options.cookieStore.storeFromResponse(currentUrl, setCookieHeaders(response.headers), allowlisted), requestSignal);
+			} catch (error) {
+				if (!requestSignal.aborted) throw error;
+				return { status: "failed", details: fetchErrorDetails(error, requested.displayUrl, currentUrl, authenticated, redirectCount, options, requestSignal) };
+			}
 			if (setCookieError !== undefined) {
 				return { status: "failed", details: withRequest(setCookieError, requested.displayUrl, currentUrl, authenticated, redirectCount, options) };
 			}
@@ -168,7 +196,7 @@ export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions, r
 			?? options.config.webfetch.limits.response_bytes;
 		const body = await readLimitedResponseBody(response, {
 			maxBytes: responseMaxBytes,
-			...(options.context.signal !== undefined ? { signal: options.context.signal } : {}),
+			signal: requestSignal,
 			onProgress(receivedBytes) {
 				const now = options.now();
 				if (now - lastUpdate < 500) return;
@@ -186,10 +214,11 @@ export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions, r
 			},
 		});
 		if (body.status === "failed") {
+			const code = body.code === "ABORTED" ? abortCode(requestSignal, options.context.signal) : body.code;
 			return {
 				status: "failed",
 				details: withRequest(
-					{ status: "failed", error: { code: body.code, message: body.message } },
+					{ status: "failed", error: { code, message: body.message } },
 					requested.displayUrl,
 					currentUrl,
 					authenticated,
@@ -199,7 +228,13 @@ export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions, r
 				),
 			};
 		}
-		const setCookieError = await options.cookieStore.storeFromResponse(currentUrl, setCookieHeaders(response.headers), allowlisted);
+		let setCookieError: Awaited<ReturnType<CookieStore["storeFromResponse"]>>;
+		try {
+			setCookieError = await waitForAbort(options.cookieStore.storeFromResponse(currentUrl, setCookieHeaders(response.headers), allowlisted), requestSignal);
+		} catch (error) {
+			if (!requestSignal.aborted) throw error;
+			return { status: "failed", details: fetchErrorDetails(error, requested.displayUrl, currentUrl, authenticated, redirectCount, options, requestSignal) };
+		}
 		if (setCookieError !== undefined) {
 			return { status: "failed", details: withRequest(setCookieError, requested.displayUrl, currentUrl, authenticated, redirectCount, options, response.status) };
 		}
@@ -253,8 +288,46 @@ async function confirmAuth(url: URL, options: HttpClientOptions): Promise<boolea
 	return ok;
 }
 
-function combinedSignal(options: HttpClientOptions): AbortSignal {
-	return AbortSignal.any([options.context.signal ?? new AbortController().signal, AbortSignal.timeout(options.config.webfetch.timeout_seconds * 1000)]);
+function combinedSignal(options: HttpClientOptions, deadlineSignal: AbortSignal): AbortSignal {
+	return options.context.signal === undefined ? deadlineSignal : AbortSignal.any([options.context.signal, deadlineSignal]);
+}
+
+function createDeadline(durationMs: number): { signal: AbortSignal; dispose: () => void } {
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(new DOMException("webfetch deadline exceeded.", "TimeoutError")), Math.max(0, durationMs));
+	return { signal: controller.signal, dispose: () => clearTimeout(timer) };
+}
+
+function waitForAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+	if (signal.aborted) return Promise.reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+	return new Promise((resolve, reject) => {
+		const onAbort = () => reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+		const cleanup = () => signal.removeEventListener("abort", onAbort);
+		signal.addEventListener("abort", onAbort, { once: true });
+		void promise.then(
+			(value) => {
+				cleanup();
+				resolve(value);
+			},
+			(error: unknown) => {
+				cleanup();
+				reject(error);
+			},
+		);
+	});
+}
+
+function cancelBody(body: WebHttpBody | null): void {
+	if (body === null) return;
+	try {
+		void body.cancel().catch(() => undefined);
+	} catch {
+		// Cleanup must not replace the redirect result.
+	}
+}
+
+function abortCode(signal: AbortSignal, userSignal: AbortSignal | undefined): "TIMEOUT" | "ABORTED" {
+	return userSignal?.aborted === true ? "ABORTED" : signal.aborted ? "TIMEOUT" : "ABORTED";
 }
 
 function fetchErrorDetails(
@@ -264,10 +337,11 @@ function fetchErrorDetails(
 	authenticated: boolean,
 	redirectCount: number,
 	options: HttpClientOptions,
+	requestSignal: AbortSignal,
 ): WebFetchFailureDetails {
 	const cause = errorCause(error);
 	const message = [error instanceof Error ? error.message : String(error), cause?.message].filter(Boolean).join(": ");
-	const code = classifyNetworkError(error, options.context.signal);
+	const code = requestSignal.aborted ? abortCode(requestSignal, options.context.signal) : classifyNetworkError(error, options.context.signal);
 	return {
 		status: "failed",
 		error: { code, message },

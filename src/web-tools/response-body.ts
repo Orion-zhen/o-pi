@@ -22,8 +22,9 @@ export async function readLimitedResponseBody(
 	},
 ): Promise<ResponseBodyReadResult> {
 	const expected = contentLength(response.headers);
+	if (options.signal?.aborted) return abortedResult(options.signal.reason);
 	if (expected !== undefined && expected > options.maxBytes) {
-		await response.body?.cancel();
+		cancelQuietly(response.body);
 		return {
 			status: "failed",
 			code: "RESPONSE_TOO_LARGE",
@@ -37,12 +38,12 @@ export async function readLimitedResponseBody(
 	let total = 0;
 	try {
 		while (true) {
-			const { done, value } = await reader.read();
+			const { done, value } = await readWithSignal(reader, options.signal);
 			if (done) break;
 			if (value === undefined) continue;
 			total += value.byteLength;
 			if (total > options.maxBytes) {
-				await reader.cancel();
+				cancelQuietly(reader);
 				return {
 					status: "failed",
 					code: "RESPONSE_TOO_LARGE",
@@ -53,12 +54,11 @@ export async function readLimitedResponseBody(
 			options.onProgress?.(total);
 		}
 	} catch (error) {
-		if (options.signal?.aborted) {
-			return { status: "failed", code: "ABORTED", message: errorMessage(error) };
-		}
+		if (options.signal?.aborted) return abortedResult(error);
 		return { status: "failed", code: "CONNECTION_FAILED", message: errorMessage(error) };
 	}
 
+	if (options.signal?.aborted) return abortedResult(options.signal.reason);
 	const bytes = new Uint8Array(total);
 	let offset = 0;
 	for (const chunk of chunks) {
@@ -66,6 +66,48 @@ export async function readLimitedResponseBody(
 		offset += chunk.byteLength;
 	}
 	return { status: "success", bytes };
+}
+
+function cancelQuietly(resource: { cancel(): Promise<void> } | null): void {
+	if (resource === null) return;
+	try {
+		void resource.cancel().catch(() => undefined);
+	} catch {
+		// Cleanup must not replace the read result.
+	}
+}
+
+async function readWithSignal(
+	reader: { read(): Promise<{ done: boolean; value?: Uint8Array }>; cancel(): Promise<void> },
+	signal: AbortSignal | undefined,
+): Promise<{ done: boolean; value?: Uint8Array }> {
+	if (signal === undefined) return reader.read();
+	if (signal.aborted) {
+		cancelQuietly(reader);
+		throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+	}
+	return new Promise((resolve, reject) => {
+		const onAbort = () => {
+			cancelQuietly(reader);
+			reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+		};
+		const cleanup = () => signal.removeEventListener("abort", onAbort);
+		signal.addEventListener("abort", onAbort, { once: true });
+		void reader.read().then(
+			(value) => {
+				cleanup();
+				resolve(value);
+			},
+			(error: unknown) => {
+				cleanup();
+				reject(error);
+			},
+		);
+	});
+}
+
+function abortedResult(error: unknown): ResponseBodyReadResult {
+	return { status: "failed", code: "ABORTED", message: errorMessage(error) };
 }
 
 export function responseContentLength(headers: WebHttpHeaders): number | undefined {
