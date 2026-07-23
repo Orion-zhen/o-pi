@@ -32,6 +32,63 @@ describe("webfetch content conversion", () => {
 		expect(result.text).not.toContain("nav");
 	});
 
+	it("用作者结构过滤头像链接，不依赖图片 URL 或 alt 关键词", async () => {
+		const html = `
+			<html><body><article>
+				<h1>Discussion</h1>
+				<section>
+					<a href="/user/alice"><img src="/assets/opaque-a.png" width="48" height="48" alt="Alice"></a>
+					<a href="/user/alice">Alice</a>
+					<p>${"Alice wrote a useful technical comment. ".repeat(12)}</p>
+				</section>
+				<section itemprop="author" itemscope itemtype="https://schema.org/Person">
+					<a itemprop="url" href="/people/bob"><img itemprop="image" src="/assets/opaque-b.png" alt="Bob"></a>
+					<a itemprop="url" href="/people/bob"><span itemprop="name">Bob</span></a>
+					<p>${"Bob added independent supporting details. ".repeat(12)}</p>
+				</section>
+				<img class="member-avatar" src="/assets/opaque-c.png" alt="Member photo">
+				<a href="/guides/avatar-parsing">
+					<img class="avatar-art" src="/images/avatar-parsing.png" width="640" height="360" alt="Avatar parsing diagram">
+				</a>
+				<a href="/guides/avatar-parsing">Avatar parsing guide</a>
+			</article></body></html>`;
+		const result = await convertContent(Buffer.from(html), headers("text/html"), "https://example.com/thread", "readable", readability);
+		if ("status" in result) throw new Error(result.error.message);
+		expect(result.text).not.toContain("opaque-a.png");
+		expect(result.text).not.toContain("opaque-b.png");
+		expect(result.text).not.toContain("opaque-c.png");
+		expect(result.text).toContain("[Alice](https://example.com/user/alice)");
+		expect(result.text).toContain("[Bob](https://example.com/people/bob)");
+		expect(occurrences(result.text, "https://example.com/user/alice")).toBe(1);
+		expect(occurrences(result.text, "https://example.com/people/bob")).toBe(1);
+		expect(result.text).toContain("https://example.com/images/avatar-parsing.png");
+		const candidates = result.extraction?.analysis.mediaCandidates ?? [];
+		expect(candidates.find((candidate) => candidate.url.endsWith("/opaque-a.png"))?.likelyAvatar).toBe(true);
+		expect(candidates.find((candidate) => candidate.url.endsWith("/opaque-b.png"))?.likelyAvatar).toBe(true);
+		expect(candidates.find((candidate) => candidate.url.endsWith("/opaque-c.png"))?.likelyAvatar).toBe(true);
+		expect(candidates.find((candidate) => candidate.url.endsWith("/avatar-parsing.png"))?.likelyAvatar).not.toBe(true);
+	});
+
+	it("对延迟正文应用同一头像过滤链", async () => {
+		const html = `
+			<html><body>
+				<main><h1>Deferred discussion</h1><div id="comments">Loading</div></main>
+				<template for="comments">
+					<section>
+						<a href="/u/carol"><img src="/assets/carol-photo.png" style="width: 40px; height: 40px" alt="Carol"></a>
+						<a href="/u/carol">Carol</a>
+						<p>Deferred comment body remains visible.</p>
+					</section>
+				</template>
+			</body></html>`;
+		const result = await convertContent(Buffer.from(html), headers("text/html"), "https://example.com/thread", "readable", readability);
+		if ("status" in result) throw new Error(result.error.message);
+		expect(result.text).toContain("Deferred comment body remains visible.");
+		expect(result.text).toContain("[Carol](https://example.com/u/carol)");
+		expect(occurrences(result.text, "https://example.com/u/carol")).toBe(1);
+		expect(result.text).not.toContain("carol-photo.png");
+	});
+
 	it("source 模式返回原始解码文本", async () => {
 		const loadHtml = vi.fn(async () => {
 			throw new Error("HTML converter must remain unloaded");

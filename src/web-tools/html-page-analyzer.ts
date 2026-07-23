@@ -1,4 +1,5 @@
 import type { WebFetchPageKind } from "./types.js";
+import { isAvatarImage } from "./html-avatar-filter.js";
 
 export type PageKind = WebFetchPageKind;
 
@@ -444,13 +445,13 @@ function collectDomMedia(document: Document, baseUrl: string): MediaCandidate[] 
 	for (const image of document.querySelectorAll("img[src], img[srcset]")) {
 		const candidate = mediaCandidate("image", "source", "dom", image.getAttribute("src"), baseUrl);
 		if (candidate !== undefined) {
-			copyDomMediaAttributes(image, candidate, primaryHeading);
+			copyDomMediaAttributes(image, candidate, primaryHeading, baseUrl);
 			candidates.push(candidate);
 		}
 		for (const item of parseImageSrcset(image.getAttribute("srcset"))) {
 			const srcsetCandidate = mediaCandidate("image", "source", "dom", item.url, baseUrl);
 			if (srcsetCandidate === undefined) continue;
-			copyDomMediaAttributes(image, srcsetCandidate, primaryHeading);
+			copyDomMediaAttributes(image, srcsetCandidate, primaryHeading, baseUrl);
 			if (item.width !== undefined) srcsetCandidate.width = item.width;
 			candidates.push(srcsetCandidate);
 		}
@@ -458,33 +459,33 @@ function collectDomMedia(document: Document, baseUrl: string): MediaCandidate[] 
 	for (const video of document.querySelectorAll("video")) {
 		const poster = mediaCandidate("image", "poster", "dom", video.getAttribute("poster"), baseUrl);
 		if (poster !== undefined) {
-			copyDomMediaAttributes(video, poster, primaryHeading);
+			copyDomMediaAttributes(video, poster, primaryHeading, baseUrl);
 			candidates.push(poster);
 		}
 		const source = mediaCandidate("video", "source", "dom", video.getAttribute("src"), baseUrl);
 		if (source !== undefined) {
-			copyDomMediaAttributes(video, source, primaryHeading);
+			copyDomMediaAttributes(video, source, primaryHeading, baseUrl);
 			candidates.push(source);
 		}
 	}
 	for (const source of document.querySelectorAll("video source[src]")) {
 		const candidate = mediaCandidate("video", "source", "dom", source.getAttribute("src"), baseUrl);
 		if (candidate !== undefined) {
-			copyDomMediaAttributes(source, candidate, primaryHeading);
+			copyDomMediaAttributes(source, candidate, primaryHeading, baseUrl);
 			candidates.push(candidate);
 		}
 	}
 	for (const audio of document.querySelectorAll("audio")) {
 		const candidate = mediaCandidate("audio", "source", "dom", audio.getAttribute("src"), baseUrl);
 		if (candidate !== undefined) {
-			copyDomMediaAttributes(audio, candidate, primaryHeading);
+			copyDomMediaAttributes(audio, candidate, primaryHeading, baseUrl);
 			candidates.push(candidate);
 		}
 	}
 	for (const source of document.querySelectorAll("audio source[src]")) {
 		const candidate = mediaCandidate("audio", "source", "dom", source.getAttribute("src"), baseUrl);
 		if (candidate !== undefined) {
-			copyDomMediaAttributes(source, candidate, primaryHeading);
+			copyDomMediaAttributes(source, candidate, primaryHeading, baseUrl);
 			candidates.push(candidate);
 		}
 	}
@@ -497,8 +498,8 @@ function collectDomMedia(document: Document, baseUrl: string): MediaCandidate[] 
 		for (const item of items) {
 			const candidate = mediaCandidate("image", "source", "dom", item.url, baseUrl);
 			if (candidate !== undefined) {
-				if (fallback !== undefined) copyDomMediaAttributes(fallback, candidate, primaryHeading);
-				copyDomMediaAttributes(source, candidate, primaryHeading);
+				if (fallback !== undefined) copyDomMediaAttributes(fallback, candidate, primaryHeading, baseUrl);
+				copyDomMediaAttributes(source, candidate, primaryHeading, baseUrl);
 				if (item.width !== undefined) candidate.width = item.width;
 				candidates.push(candidate);
 			}
@@ -622,6 +623,7 @@ function copyDomMediaAttributes(
 	node: Element,
 	candidate: MediaCandidate,
 	primaryHeading: Element | undefined,
+	baseUrl: string,
 ): void {
 	const mimeType = normalizeText(node.getAttribute("type"));
 	const width = positiveDimension(node.getAttribute("width"));
@@ -642,14 +644,14 @@ function copyDomMediaAttributes(
 	candidate.hidden = candidate.hidden === true
 		|| node.closest('[hidden], [aria-hidden="true"]') !== null
 		|| /(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*hidden)\s*(?:;|$)/iu.test(node.getAttribute("style") ?? "");
+	candidate.likelyAvatar = candidate.likelyAvatar === true
+		|| node.tagName.toLowerCase() === "img" && isAvatarImage(node, baseUrl);
 	const hints = [
 		node.getAttribute("id"),
 		node.getAttribute("class"),
 		node.getAttribute("alt"),
 		node.getAttribute("src"),
 	].filter((value): value is string => value !== null).join(" ");
-	candidate.likelyAvatar = candidate.likelyAvatar === true
-		|| /(?:^|[^a-z])(avatar|profile|userpic|portrait)(?:[^a-z]|$)/iu.test(hints);
 	candidate.likelyDecorative = candidate.likelyDecorative === true
 		|| node.hasAttribute("alt") && node.getAttribute("alt")?.trim() === ""
 		|| /(?:^|[^a-z])(logo|icon|sprite|emoji|badge|decorative|decoration)(?:[^a-z]|$)/iu.test(hints);

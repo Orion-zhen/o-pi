@@ -183,7 +183,7 @@ function mediaScore(candidate: MediaCandidate, selectedUrls: ReadonlySet<string>
 	}
 	score += Math.min(candidate.alt?.length ?? 0, 120) * 4;
 	if (candidate.titleDistance !== undefined) score += Math.max(0, 1_200 - candidate.titleDistance * 120);
-	if (candidate.likelyAvatar === true || looksLike(candidate, AVATAR_PATTERN)) score -= 10_000;
+	if (candidate.likelyAvatar === true) score -= 10_000;
 	if (candidate.likelyDecorative === true || looksLike(candidate, DECORATIVE_PATTERN)) score -= 9_000;
 	return score;
 }
@@ -209,7 +209,6 @@ function intrinsicCandidateScore(candidate: MediaCandidate): number {
 	return role + source;
 }
 
-const AVATAR_PATTERN = /(?:^|[^a-z])(avatar|profile|userpic|portrait)(?:[^a-z]|$)/iu;
 const DECORATIVE_PATTERN = /(?:^|[^a-z])(logo|icon|sprite|emoji|badge|decorative|decoration)(?:[^a-z]|$)/iu;
 
 function looksLike(candidate: MediaCandidate, pattern: RegExp): boolean {

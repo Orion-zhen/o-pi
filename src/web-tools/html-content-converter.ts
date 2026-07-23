@@ -2,6 +2,7 @@ import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
 import { gfm } from "turndown-plugin-gfm";
 
+import { removeAvatarImages } from "./html-avatar-filter.js";
 import { removeHtmlOutputNoise, selectHtmlContent } from "./html-content-selector.js";
 import { extractDeferredContent } from "./html-deferred-content.js";
 import { analyzeHtmlPage, type PageAnalysis, type TextCandidate } from "./html-page-analyzer.js";
@@ -99,6 +100,7 @@ function selectDocumentBody(
 ): SelectedBody {
 	removeUnsafeNodes(document);
 	absolutizeUrls(document.documentElement, finalUrl);
+	removeAvatarImages(document);
 	const selection = selectHtmlContent(document, options, analysis.metadata.heading?.value);
 	if (selection.preferred !== undefined) {
 		return {
@@ -229,6 +231,7 @@ function fragmentToMarkdown(html: string, document: Document, finalUrl: string):
 	removeUnsafeNodes(root);
 	removeHtmlOutputNoise(root);
 	absolutizeUrls(root, finalUrl);
+	removeAvatarImages(root);
 	return markdownFromHtml(root.innerHTML);
 }
 

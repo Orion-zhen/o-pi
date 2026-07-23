@@ -110,6 +110,8 @@ webfetch({
 
 标题优先使用最终正文标题，其次为 Open Graph、JSON-LD、Twitter Card 和 `<title>`。canonical 依次使用 `link[rel=canonical]`、`og:url` 和最终响应 URL。输出按标题/必要元数据、主正文、结构化内容和延迟内容组成 section；只按规范化文本相等或包含关系去重。metadata description 只在正文缺失时补充，不覆盖或重复已有正文。
 
+HTML 在转 Markdown 前会移除头像图片，但保留作者名称和个人页文本链接。判定组合使用 Schema.org、`rel=author`、microformats 等作者语义，严格的个人页路由结构、同目标文本链接、可解析尺寸和明确的 DOM 角色属性；不扫描图片 URL，也不让 alt 文案或单个模糊关键词独立触发删除。基础正文和声明式延迟正文使用同一过滤链。
+
 成功结果固定包含 `scope: "static_response"`，并用 `page_kind` 标记 article、image、video、audio 或 generic，用 `text_source` 标记 readability、semantic、heading、body 或 metadata。`completeness` 只判断当前静态响应中已检测内容是否完整：文章正文无已知遗漏时为 `complete`；图片必须实际返回；视频和音频即使已有文字或缩略图仍为 `partial`；客户端空壳、文本分段、未解析声明、iframe、受限结构化数据或主图失败也为 `partial`。普通脚本存在本身不构成遗漏；`complete` 不代表任意客户端状态、交互、登录后 API 或响应中无法检测的动态内容已返回。
 
 `details.omissions` 保留完整 kind/reason 结构，包括 `text_range/range`、`deferred_content/unresolved_declaration`、`primary_media/*`、`embedded_content/iframe_not_fetched`、`interactive_content/client_rendered` 和 `structured_data/invalid_or_limited`。模型侧使用紧凑 `<webfetch>` 包装：`kind` 始终存在；只有 metadata fallback 才输出 `source="metadata"`；遗漏原因去重后合并进 `partial`；有后续正文时只输出数字 `next`；requested URL 已存在于工具调用中，因此仅在跳转后输出不同的 `final`。固定的静态响应范围和不可信内容规则由 prompt guideline 声明，不在每次结果中重复。
