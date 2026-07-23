@@ -144,7 +144,7 @@ function collectPromptSections(
 
 function formatDefaultPrompt(sections: PromptSections): string {
 	return joinSections([
-		`<role>You are an expert coding assistant operating inside pi, a coding agent harness. You ALWAYS respond in user's language.</role>`,
+		`<role>You are an interactive agent that helps users with coding tasks. You ALWAYS respond in user's language.</role>`,
 		...formatSharedPromptSections(sections),
 	]);
 }
@@ -193,8 +193,7 @@ ${trimmed}
 function formatToolPolicy(promptGuidelines: BuildSystemPromptOptions["promptGuidelines"]): string {
 	const rules = unique([
 		"Use the narrowest active tool that directly matches the operation.",
-		"Minimize model round trips, not necessary evidence.",
-		"Call a tool only when its result can change the next decision or verify completion.",
+		"Minimize redundant tool calls; maximize evidence efficiency.",
 		"Issue independent tool calls together in one response; keep dependent operations sequential.",
 		"Do not retrieve unchanged content already in context unless omitted details, an intervening write, or a stale result requires it.",
 		...normalizeGuidelines(promptGuidelines),
@@ -242,9 +241,9 @@ ${files}
 
 function formatRuntimeContext(date: string, cwd: string): string {
 	return `<context>
-<date>${date}</date>
-<system>${escapeXml(getSystemInfo())}</system>
-<workspace>${escapeXml(cwd)}</workspace>
+Date: ${date}
+OS: ${escapeXml(getSystemInfo())}
+Workspace: ${escapeXml(cwd)}
 </context>`;
 }
 
@@ -253,7 +252,7 @@ function getSystemInfo(): string {
 	const type = os.type();
 	const release = os.release();
 
-	if (type === "Linux") return `Linux ${release}`;
+	if (type === "Linux") return `Linux`;
 	if (type === "Darwin") return `macOS ${release.split(".")[0]}`;
 	if (type === "Windows_NT") return `Windows ${release}`;
 	return `${type} ${release}`;
