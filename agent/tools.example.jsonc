@@ -1,6 +1,8 @@
 {
   "$schema": "./schemas/tools.schema.json",
-  // 默认启用所有工具
+  "defaults": {
+    "websearch": false
+  },
   "rules": [
     {
       "match": "openai-codex/*",
