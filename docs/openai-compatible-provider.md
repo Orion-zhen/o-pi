@@ -206,7 +206,7 @@ PI_MODELS_JSONC_LAB_SERVER_API_KEY
 }
 ```
 
-全部 compat 字段、API 适用范围和含义见 [`agent/models.jsonc.example`](../agent/models.jsonc.example)。
+全部 compat 字段、API 适用范围和含义见 [`agent/models.example.jsonc`](../agent/models.example.jsonc)。
 
 ## Thinking preset
 

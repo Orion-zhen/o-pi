@@ -13,7 +13,7 @@ const temp = useOpenAICompatibleProviderTestSetup();
 
 describe("openai-compatible-provider registration", () => {
 	it("仓库示例配置与当前 schema 同步", async () => {
-		const config = await loadModelsJsoncConfig(path.resolve("agent/models.jsonc.example"));
+		const config = await loadModelsJsoncConfig(path.resolve("agent/models.example.jsonc"));
 		expect(config?.providers["llama-cpp"]?.api).toBe("openai-completions");
 		expect(config?.providers["responses-demo"]?.api).toBe("openai-responses");
 	});
