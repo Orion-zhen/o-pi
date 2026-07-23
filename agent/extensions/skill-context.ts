@@ -1,9 +1,13 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+	sessionEntryToContextMessages,
+	type ExtensionAPI,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { registerSkillCommands } from "../../src/skill-context/commands.js";
 import { executeSkillLoad, SkillLoadError } from "../../src/skill-context/executor.js";
 import { collectSkillCandidates } from "../../src/skill-context/loader.js";
 import { registerSkillMessageRenderer, renderSkillCall, renderSkillResult } from "../../src/skill-context/renderer.js";
+import { findVisibleToolCallIds } from "../../src/prune-tools/prune-tools.js";
 import type { SkillCandidate, SkillLoadDetails, SkillToolErrorDetails } from "../../src/skill-context/types.js";
 import { defineToolTelemetry } from "../../src/telemetry/projection.js";
 import { registerObservedTool } from "../../src/telemetry/tool.js";
@@ -31,6 +35,7 @@ function registerSkillTool(pi: ExtensionAPI): void {
 		tool: {
 			name: "skill",
 			label: "skill",
+			executionMode: "sequential",
 			description: "Load one model-invocable skill by name.",
 			promptSnippet: "load one indexed skill",
 			parameters: skillParameters,
@@ -42,11 +47,15 @@ function registerSkillTool(pi: ExtensionAPI): void {
 							`Use the read tool with path "${params.name}" instead.`,
 						);
 					}
+					const branch = ctx.sessionManager.getBranch();
+					const contextMessages = ctx.sessionManager.buildContextEntries().flatMap(sessionEntryToContextMessages);
 					const result = await executeSkillLoad(pi, {
 						name: params.name,
 						loadedBy: "agent",
 						candidates: modelCandidates,
-						branch: ctx.sessionManager.getBranch(),
+						branch,
+						toolCallId: _toolCallId,
+						visibleToolCallIds: findVisibleToolCallIds(contextMessages, branch),
 					});
 					return { content: [{ type: "text", text: result.content }], details: result.details };
 				} catch (error) {

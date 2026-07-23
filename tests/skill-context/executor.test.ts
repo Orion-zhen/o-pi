@@ -21,20 +21,25 @@ describe("技能加载执行器", () => {
 		const hidden = await candidate("hidden", true, "Manual only.");
 		const entries: SkillLoadEntry[] = [];
 		const result = await executeSkillLoad(fakePi(entries), {
-			name: "allowed", loadedBy: "agent", candidates: [allowed, hidden], branch: [],
+			name: "allowed", loadedBy: "agent", candidates: [allowed, hidden], branch: [], toolCallId: "skill-1", visibleToolCallIds: new Set(),
 		});
 
 		expect(result.content).toBe('<invoked_skill root="skill://allowed"/>\n\nUse this method.');
 		expect(result.content).not.toContain("description:");
 		expect(result.content).not.toContain(tempDir);
 		expect(entries).toHaveLength(1);
-		expect(entries[0]).toMatchObject({ name: "allowed", loadedBy: "agent", loadedAt: "2026-07-21T00:00:00.000Z" });
+		expect(entries[0]).toMatchObject({
+			name: "allowed",
+			loadedBy: "agent",
+			loadedAt: "2026-07-21T00:00:00.000Z",
+			toolCallId: "skill-1",
+		});
 		expect(entries[0]).not.toHaveProperty("body");
 		expect(entries[0]).not.toHaveProperty("description");
 		expect(entries[0]).not.toHaveProperty("disableModelInvocation");
 
 		await expect(executeSkillLoad(fakePi(entries), {
-			name: "hidden", loadedBy: "agent", candidates: [allowed, hidden], branch: [],
+			name: "hidden", loadedBy: "agent", candidates: [allowed, hidden], branch: [], toolCallId: "skill-2", visibleToolCallIds: new Set(),
 		})).rejects.toThrow("disables model invocation");
 	});
 
@@ -60,11 +65,28 @@ describe("技能加载执行器", () => {
 				branch.push(custom(String(branch.length + 1), entry));
 			},
 		};
-		const input = { name: "demo", loadedBy: "agent" as const, candidates: [demo], branch };
+		const input = {
+			name: "demo",
+			loadedBy: "agent" as const,
+			candidates: [demo],
+			branch,
+			toolCallId: "skill-1",
+			visibleToolCallIds: new Set(["skill-1"]),
+		};
 		await executeSkillLoad(pi, input);
 		const duplicate = await executeSkillLoad(pi, input);
 		expect(duplicate.details.deduplicated).toBe(true);
 		expect(duplicate.content).toBe('<invoked_skill root="skill://demo"/>');
+		expect(appended).toHaveLength(1);
+
+		const manualDuplicate = await executeSkillLoad(pi, {
+			name: "demo",
+			loadedBy: "manual",
+			candidates: [demo],
+			branch,
+			visibleToolCallIds: new Set(["skill-1"]),
+		});
+		expect(manualDuplicate.details.deduplicated).toBe(true);
 		expect(appended).toHaveLength(1);
 
 		await writeSkill(demo.path, "demo", false, "v2");
@@ -77,6 +99,44 @@ describe("技能加载执行器", () => {
 		const restored = await executeSkillLoad(pi, input);
 		expect(restored.details.deduplicated).toBe(false);
 		expect(restored.content).toContain("v1");
+		expect(appended).toHaveLength(3);
+	});
+
+	it("技能 tool transaction 被连续 prune 后每次都重新披露正文", async () => {
+		const demo = await candidate("demo", false, "body");
+		const branch: SessionEntry[] = [];
+		const appended: SkillLoadEntry[] = [];
+		const pi = {
+			appendEntry(_type: string, entry?: SkillLoadEntry) {
+				if (entry === undefined) return;
+				appended.push(entry);
+				branch.push(custom(String(branch.length + 1), entry));
+			},
+		};
+
+		const first = await executeSkillLoad(pi, {
+			name: "demo", loadedBy: "agent", candidates: [demo], branch,
+			toolCallId: "skill-1", visibleToolCallIds: new Set(),
+		});
+		expect(first.details.deduplicated).toBe(false);
+
+		const duplicate = await executeSkillLoad(pi, {
+			name: "demo", loadedBy: "agent", candidates: [demo], branch,
+			toolCallId: "skill-2", visibleToolCallIds: new Set(["skill-1"]),
+		});
+		expect(duplicate.details.deduplicated).toBe(true);
+
+		const afterFirstPrune = await executeSkillLoad(pi, {
+			name: "demo", loadedBy: "agent", candidates: [demo], branch,
+			toolCallId: "skill-3", visibleToolCallIds: new Set(),
+		});
+		expect(afterFirstPrune.details.deduplicated).toBe(false);
+
+		const afterSecondPrune = await executeSkillLoad(pi, {
+			name: "demo", loadedBy: "agent", candidates: [demo], branch,
+			toolCallId: "skill-4", visibleToolCallIds: new Set(),
+		});
+		expect(afterSecondPrune.details.deduplicated).toBe(false);
 		expect(appended).toHaveLength(3);
 	});
 });

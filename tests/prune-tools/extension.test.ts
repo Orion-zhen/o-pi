@@ -15,6 +15,7 @@ import {
 	buildPruneCostPreview,
 	findCompletedToolCallIds,
 	findRestorablePruneToolsState,
+	findVisibleToolCallIds,
 	getLastUsage,
 	getUsageContextTokens,
 	PRUNE_TOOLS_STATE,
@@ -211,6 +212,18 @@ describe("prune-tools", () => {
 		expect(pruned).toHaveLength(2);
 		expect(pruned[0]).toMatchObject({ role: "assistant", content: [{ type: "toolCall", id: "new" }] });
 		expect(pruned[1]).toMatchObject({ role: "toolResult", toolCallId: "new" });
+	});
+
+	it("只把有效上下文中完整存在的 tool transaction 视为可见", () => {
+		const messages: AgentMessage[] = [
+			assistant([{ type: "toolCall", id: "old", name: "skill", arguments: { name: "demo" } }]),
+			toolResult("old", "old skill body"),
+			assistant([{ type: "toolCall", id: "new", name: "skill", arguments: { name: "demo" } }]),
+			toolResult("new", "new skill body"),
+		];
+		const entries = [customEntry(PRUNE_TOOLS_STATE, pruneState(["old"]))];
+
+		expect(findVisibleToolCallIds(messages, entries)).toEqual(new Set(["new"]));
 	});
 
 	it("命令在下一次请求更便宜时持久化裁剪状态", async () => {

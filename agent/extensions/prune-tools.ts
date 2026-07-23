@@ -7,6 +7,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 
 import {
+	applyPersistedToolPruning,
 	buildPruneCostPreview,
 	estimateMessagesTokensWithConfidence,
 	estimateStaticPrefixTokensWithConfidence,
@@ -24,6 +25,8 @@ import {
 	type PruneToolsPruneState,
 	type PruneToolsRestoreState,
 } from "../../src/prune-tools/prune-tools.js";
+
+export { applyPersistedToolPruning } from "../../src/prune-tools/prune-tools.js";
 
 const COMMAND_NAME = "prune-tools";
 const COMMAND_DESCRIPTION = "Remove stale tool transactions from context.";
@@ -61,15 +64,6 @@ export default function pruneToolsExtension(pi: PruneToolsApi): void {
 			await runPruneToolsCommandArgs(pi, ctx, args);
 		},
 	});
-}
-
-export function applyPersistedToolPruning(
-	messages: AgentMessage[],
-	branchEntries: Parameters<typeof readPruneToolsState>[0],
-): AgentMessage[] {
-	const state = readPruneToolsState(branchEntries);
-	if (!state) return messages;
-	return pruneToolTransactions(messages, new Set(state.toolCallIds)).messages;
 }
 
 export async function runPruneToolsCommandArgs(

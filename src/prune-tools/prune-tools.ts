@@ -135,6 +135,23 @@ export function readPruneToolsState(entries: readonly SessionEntry[]): PruneTool
 	return undefined;
 }
 
+export function applyPersistedToolPruning(
+	messages: AgentMessage[],
+	branchEntries: readonly SessionEntry[],
+): AgentMessage[] {
+	const state = readPruneToolsState(branchEntries);
+	if (!state) return messages;
+	return pruneToolTransactions(messages, new Set(state.toolCallIds)).messages;
+}
+
+/** 返回仍以完整 tool transaction 存在于有效模型上下文中的调用。 */
+export function findVisibleToolCallIds(
+	messages: AgentMessage[],
+	branchEntries: readonly SessionEntry[],
+): Set<string> {
+	return findCompletedToolCallIds(applyPersistedToolPruning(messages, branchEntries));
+}
+
 export function findRestorablePruneToolsState(entries: readonly SessionEntry[]): RestorablePruneToolsState | undefined {
 	const prunes = new Map<string, RestorablePruneToolsState>();
 	const restored = new Set<string>();

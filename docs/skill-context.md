@@ -62,7 +62,7 @@ SKILL.md body
 
 用户执行 `/skill:<name>` 时可以加载任意已发现 skill。手动加载与工具加载复用同一执行器、校验、分支记录、去重和 UI 数据，但不会启动模型推理，也不会伪造 assistant tool call。
 
-每次成功披露会写入 Host-only session custom entry，用于当前分支的资源权限和去重；该记录不复制正文、描述或调用策略。相同 content hash 不重复写入或披露正文；文件内容改变后允许追加新版本，后出现的版本生效。系统没有 unload、clear 或 active/inactive 状态。
+每次成功披露会写入 Host-only session custom entry，用于当前分支的资源权限和去重；agent 披露同时记录所属的 tool call。该记录不复制正文、描述或调用策略。资源权限按当前分支保留；正文去重只在对应的 agent tool transaction 仍存在于有效模型上下文时生效，因此被 `/prune-tools` 或 compaction 移除后会重新披露。手动披露没有 tool call，不受 agent tool transaction prune 影响，并按分支中的手动披露去重。历史 agent 记录没有 tool call 时不会用于自动去重，下一次加载会补写新格式记录。相同 content hash 不重复写入或披露正文；文件内容改变后允许追加新版本，后出现的版本生效。系统没有 unload、clear 或 active/inactive 状态。
 
 `/skill` 只显示当前分支已披露的 skill。`/skill clear` 不再存在。
 

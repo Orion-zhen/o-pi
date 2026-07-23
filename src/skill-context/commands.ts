@@ -1,4 +1,10 @@
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import {
+	sessionEntryToContextMessages,
+	type ExtensionAPI,
+	type ExtensionCommandContext,
+	type ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import { findVisibleToolCallIds } from "../prune-tools/prune-tools.js";
 import { executeSkillLoad } from "./executor.js";
 import { isValidSkillName } from "./frontmatter.js";
 import { collectSkillCandidates } from "./loader.js";
@@ -33,11 +39,14 @@ export async function loadSkillCommand(
 	ctx: Pick<ExtensionContext, "sessionManager" | "ui">,
 ): Promise<void> {
 	try {
+		const branch = ctx.sessionManager.getBranch();
+		const contextMessages = ctx.sessionManager.buildContextEntries().flatMap(sessionEntryToContextMessages);
 		const result = await executeSkillLoad(pi, {
 			name,
 			loadedBy: "manual",
 			candidates: collectSkillCandidates(undefined, pi.getCommands()),
-			branch: ctx.sessionManager.getBranch(),
+			branch,
+			visibleToolCallIds: findVisibleToolCallIds(contextMessages, branch),
 		});
 		pi.sendMessage<SkillLoadDetails>({
 			customType: SKILL_CONTEXT_MESSAGE,

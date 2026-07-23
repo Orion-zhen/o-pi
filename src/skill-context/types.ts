@@ -32,6 +32,8 @@ export interface SkillLoadEntry {
 	scope: SkillCandidate["scope"];
 	loadedBy: "agent" | "manual";
 	loadedAt: string;
+	/** Agent 披露所属的 tool transaction；手动披露不设置。 */
+	toolCallId?: string;
 }
 
 export interface SkillLoadDetails {

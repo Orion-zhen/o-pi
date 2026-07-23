@@ -3,12 +3,25 @@ import { findSkillCandidate, loadSkill } from "./loader.js";
 import { hasCurrentDisclosure } from "./state.js";
 import { SKILL_CONTEXT_ENTRY, type SkillCandidate, type SkillLoadEntry, type SkillLoadResult } from "./types.js";
 
-export interface ExecuteSkillLoadInput {
+interface ExecuteSkillLoadInputBase {
 	name: string;
-	loadedBy: "agent" | "manual";
 	candidates: SkillCandidate[];
 	branch: SessionEntry[];
 }
+
+export type ExecuteSkillLoadInput =
+	| (ExecuteSkillLoadInputBase & {
+		loadedBy: "agent";
+		/** Agent tool calls still represented in the effective model context. */
+		visibleToolCallIds: ReadonlySet<string>;
+		/** The tool transaction that will contain this disclosure. */
+		toolCallId: string;
+	})
+	| (ExecuteSkillLoadInputBase & {
+		loadedBy: "manual";
+		/** Agent disclosures still represented in the effective model context. */
+		visibleToolCallIds?: ReadonlySet<string>;
+	});
 
 interface SkillEntryWriter {
 	appendEntry(customType: string, data: SkillLoadEntry): void;
@@ -45,8 +58,13 @@ export async function executeSkillLoad(
 		scope: loaded.scope,
 		loadedBy: input.loadedBy,
 		loadedAt: new Date().toISOString(),
+		...(input.loadedBy === "agent" ? { toolCallId: input.toolCallId } : {}),
 	};
-	const deduplicated = hasCurrentDisclosure(input.branch, candidateEntry);
+	const deduplicated = hasCurrentDisclosure(
+		input.branch,
+		candidateEntry,
+		input.visibleToolCallIds,
+	);
 	if (!deduplicated) {
 		pi.appendEntry(SKILL_CONTEXT_ENTRY, candidateEntry);
 	}

@@ -17,12 +17,19 @@ export function loadedSkillsByName(branchEntries: SessionEntry[]): Map<string, S
 	return loaded;
 }
 
-export function hasCurrentDisclosure(branchEntries: SessionEntry[], skill: SkillLoadEntry): boolean {
+export function hasCurrentDisclosure(
+	branchEntries: SessionEntry[],
+	skill: SkillLoadEntry,
+	visibleToolCallIds?: ReadonlySet<string>,
+): boolean {
 	const current = loadedSkillsByName(branchEntries).get(skill.name);
-	return current?.contentHash === skill.contentHash
-		&& current.path === skill.path
-		&& current.root === skill.root
-		&& current.scope === skill.scope;
+	if (current?.contentHash !== skill.contentHash
+		|| current.path !== skill.path
+		|| current.root !== skill.root
+		|| current.scope !== skill.scope) return false;
+
+	if (current.loadedBy === "manual") return true;
+	return current.toolCallId !== undefined && visibleToolCallIds?.has(current.toolCallId) === true;
 }
 
 function isSkillLoadEntry(value: unknown): value is SkillLoadEntry {
@@ -33,5 +40,6 @@ function isSkillLoadEntry(value: unknown): value is SkillLoadEntry {
 		&& typeof entry.path === "string"
 		&& typeof entry.contentHash === "string"
 		&& (entry.scope === "user" || entry.scope === "project" || entry.scope === "temporary")
-		&& (entry.loadedBy === "agent" || entry.loadedBy === "manual");
+		&& (entry.loadedBy === "agent" || entry.loadedBy === "manual")
+		&& (entry.toolCallId === undefined || typeof entry.toolCallId === "string");
 }

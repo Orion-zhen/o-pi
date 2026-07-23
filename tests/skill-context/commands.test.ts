@@ -147,7 +147,13 @@ function piSkill(name: string, filePath: string, disableModelInvocation: boolean
 }
 
 function fakeCtx(branch: SessionEntry[]): ExtensionContext {
-	return { sessionManager: { getBranch: () => branch }, ui: { notify: vi.fn() } } as never;
+	return {
+		sessionManager: {
+			getBranch: () => branch,
+			buildContextEntries: () => branch,
+		},
+		ui: { notify: vi.fn() },
+	} as never;
 }
 
 function isSkillLoadEntry(value: unknown): value is SkillLoadEntry {
