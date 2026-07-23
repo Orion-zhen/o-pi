@@ -9,7 +9,7 @@ import { defineToolTelemetry } from "../../src/telemetry/projection.js";
 import { registerObservedTool } from "../../src/telemetry/tool.js";
 
 const skillParameters = Type.Object({
-	name: Type.String({ minLength: 1, description: "Skill name from <model_invocable_skills>." }),
+	name: Type.String({ minLength: 1, description: "Skill name from <model_invocable_skills>; use read for skill:// resources." }),
 }, { additionalProperties: false });
 
 type SkillToolDetails = SkillLoadDetails | SkillToolErrorDetails;
@@ -36,6 +36,12 @@ function registerSkillTool(pi: ExtensionAPI): void {
 			parameters: skillParameters,
 			async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 				try {
+					if (params.name.startsWith("skill://")) {
+						throw new SkillLoadError(
+							"SKILL_RESOURCE_USE_READ",
+							`Use the read tool with path "${params.name}" instead.`,
+						);
+					}
 					const result = await executeSkillLoad(pi, {
 						name: params.name,
 						loadedBy: "agent",

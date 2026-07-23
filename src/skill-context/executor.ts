@@ -16,7 +16,7 @@ interface SkillEntryWriter {
 
 export class SkillLoadError extends Error {
 	constructor(
-		readonly code: "SKILL_NOT_FOUND" | "SKILL_NOT_LOADABLE",
+		readonly code: "SKILL_NOT_FOUND" | "SKILL_NOT_LOADABLE" | "SKILL_RESOURCE_USE_READ",
 		message: string,
 	) {
 		super(message);

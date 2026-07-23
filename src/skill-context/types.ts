@@ -52,7 +52,7 @@ export interface SkillLoadResult {
 export interface SkillToolErrorDetails {
 	status: "failed";
 	error: {
-		code: "SKILL_NOT_FOUND" | "SKILL_NOT_LOADABLE" | "SKILL_INVALID";
+		code: "SKILL_NOT_FOUND" | "SKILL_NOT_LOADABLE" | "SKILL_RESOURCE_USE_READ" | "SKILL_INVALID";
 		message: string;
 	};
 }

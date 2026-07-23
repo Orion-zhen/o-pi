@@ -75,7 +75,7 @@ skill://code-writing/references/testing.md
 skill://code-writing/assets/example.txt
 ```
 
-`skill://` 只是 `read` 识别的只读逻辑定位符，不是操作系统路径。它不能传给 `write`、`edit` 或 shell。
+`skill://` 只是 `read` 识别的只读逻辑定位符，不是技能名称或操作系统路径。它必须传给 `read`，不能传给 `skill`、`write`、`edit` 或 shell；误传给 `skill` 时，工具会返回使用 `read` 的纠正提示。
 
 资源解析遵守以下边界：
 
