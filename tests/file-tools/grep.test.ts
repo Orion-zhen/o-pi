@@ -257,14 +257,14 @@ describe("grep", () => {
 	it("workspace 内绝对 path 会按 workspace-relative path 检索", async () => {
 		await mkdir(path.join(workspace, "src"));
 		await writeFile(path.join(workspace, "src", "auth.ts"), "export function login() { return true; }\n");
-		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: path.join(workspace, "src"), query: "login" }));
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: [path.join(workspace, "src")], query: "login" }));
 		expect(result).toMatchObject({ status: "success", path: "src" });
 		expect(firstRegion(result)).toMatchObject({ path: "src/auth.ts", symbol: "login" });
 	});
 
 	it("workspace 外绝对 path 可以检索", async () => {
 		await writeFile(path.join(outside, "external.ts"), "export function externalNeedle() { return true; }\n");
-		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: outside, query: "externalNeedle" }));
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: [outside], query: "externalNeedle" }));
 		expect(result).toMatchObject({ status: "success", path: path.normalize(outside) });
 		expect(firstRegion(result)).toMatchObject({ path: path.join(outside, "external.ts"), symbol: "externalNeedle" });
 	});
@@ -687,11 +687,11 @@ describe("grep", () => {
 
 		expect(expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "hiddenFileNeedle" })).regions).toHaveLength(0);
 		expect(expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "hiddenDirNeedle" })).regions).toHaveLength(0);
-		expect(firstRegion(expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: "ignored.ts", query: "hiddenFileNeedle" })))).toMatchObject({
+		expect(firstRegion(expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: ["ignored.ts"], query: "hiddenFileNeedle" })))).toMatchObject({
 			path: "ignored.ts",
 			symbol: "hiddenFileNeedle",
 		});
-		expect(firstRegion(expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: "ignored-dir", query: "hiddenDirNeedle" })))).toMatchObject({
+		expect(firstRegion(expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: ["ignored-dir"], query: "hiddenDirNeedle" })))).toMatchObject({
 			path: "ignored-dir/secret.ts",
 			symbol: "hiddenDirNeedle",
 		});
@@ -763,14 +763,14 @@ describe("grep", () => {
 		expect(result.skipped_files).toMatchObject({ binary: 1, invalid_utf8: 1, too_large: 1 });
 		await mkdir(path.join(workspace, ".git"));
 		await writeFile(path.join(workspace, ".git", "config"), "needle\n");
-		expect(await grepWorkspaceFiles(workspace, { path: ".git/config", query: "needle" })).toMatchObject({ status: "failed", error: { code: "PROTECTED_PATH" } });
+		expect(await grepWorkspaceFiles(workspace, { path: [".git/config"], query: "needle" })).toMatchObject({ status: "failed", error: { code: "PROTECTED_PATH" } });
 		await writeFile(path.join(outside, "secret.txt"), "needle\n");
 		try {
 			await symlink(path.join(outside, "secret.txt"), path.join(workspace, "link.txt"));
 		} catch {
 			return;
 		}
-		expect(firstRegion(expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: "link.txt", query: "needle", match: "literal" })))).toMatchObject({
+		expect(firstRegion(expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: ["link.txt"], query: "needle", match: "literal" })))).toMatchObject({
 			path: "link.txt",
 		});
 		const configPath = path.join(outside, "blocked-realpath.jsonc");
@@ -780,7 +780,7 @@ describe("grep", () => {
 		await writeFile(configPath, JSON.stringify(raw, null, 2));
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
 		clearGrepIndex();
-		expect(await grepWorkspaceFiles(workspace, { path: "link.txt", query: "needle" })).toMatchObject({
+		expect(await grepWorkspaceFiles(workspace, { path: ["link.txt"], query: "needle" })).toMatchObject({
 			status: "failed",
 			error: { code: "PROTECTED_PATH" },
 		});
@@ -920,6 +920,76 @@ describe("grep", () => {
 		expect(result.truncated).toBe(false);
 		expect(firstRegion(result)).toMatchObject({ path: "generated.ts", kind: "text" });
 		expect(firstRegion(result).content).toContain("oversized semantic phrase");
+	});
+
+	it("多个 scope 按 union 合并并共享输出结果", async () => {
+		await mkdir(path.join(workspace, "src"), { recursive: true });
+		await mkdir(path.join(workspace, "tests"), { recursive: true });
+		await writeFile(path.join(workspace, "src", "a.ts"), "const needle = 1;\n");
+		await writeFile(path.join(workspace, "tests", "b.ts"), "const needle = 2;\n");
+
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, {
+			query: "needle",
+			path: ["src", "tests"],
+			match: "literal",
+		}));
+		expect(result.paths).toEqual(["src", "tests"]);
+		expect(result.regions.map((region) => region.path)).toEqual(["src/a.ts", "tests/b.ts"]);
+		expect(formatCompactGrepResult(result)).toContain("in");
+	});
+
+	it("嵌套和重复 scope 不产生重复区域", async () => {
+		await mkdir(path.join(workspace, "src", "lib"), { recursive: true });
+		await writeFile(path.join(workspace, "src", "lib", "a.ts"), "const nestedNeedle = true;\n");
+		await writeFile(path.join(workspace, "src", "b.ts"), "const nestedNeedle = false;\n");
+
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, {
+			query: "nestedNeedle",
+			path: ["src/lib", "src", "src"],
+			match: "literal",
+		}));
+		expect(result.paths).toEqual(["src"]);
+		expect(new Set(result.regions.map((region) => region.path)).size).toBe(result.regions.length);
+	});
+
+	it("一个 scope 失败时保留结果并在模型输出中标注错误", async () => {
+		await mkdir(path.join(workspace, "src"), { recursive: true });
+		await writeFile(path.join(workspace, "src", "available.ts"), "const partialNeedle = true;\n");
+
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, {
+			query: "partialNeedle",
+			path: ["src", "missing"],
+			match: "literal",
+		}));
+		expect(result.scope_errors).toMatchObject([{ path: "missing", error: { code: "PATH_NOT_FOUND" } }]);
+		expect(formatCompactGrepResult(result)).toContain("partial; scope_errors=missing:PATH_NOT_FOUND");
+	});
+
+	it("所有 scope 失败时返回 FailedResult", async () => {
+		const result = await grepWorkspaceFiles(workspace, { query: "needle", path: ["missing", "also-missing"] });
+		expect(result).toMatchObject({
+			status: "failed",
+			error: { code: "PATH_NOT_FOUND", details: { scope_errors: expect.any(Array) } },
+		});
+	});
+
+	it("多个 scope 共享 grep 结果限制", async () => {
+		const configPath = path.join(outside, "multi-scope-limit.jsonc");
+		await writeConfig(configPath, { grep_result_limit: 2 });
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await mkdir(path.join(workspace, "src"), { recursive: true });
+		await mkdir(path.join(workspace, "tests"), { recursive: true });
+		for (const [directory, name] of [["src", "a.ts"], ["src", "b.ts"], ["tests", "c.ts"], ["tests", "d.ts"]] as const) {
+			await writeFile(path.join(workspace, directory, name), "const limitedNeedle = true;\n");
+		}
+
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, {
+			query: "limitedNeedle",
+			path: ["src", "tests"],
+			match: "literal",
+		}));
+		expect(result.total_candidates).toBe(4);
+		expect(result.returned_regions).toBeLessThanOrEqual(2);
 	});
 
 	it("token-efficiency fixture：高频命中合并，预算内至少一个完整函数，其余 signature", async () => {

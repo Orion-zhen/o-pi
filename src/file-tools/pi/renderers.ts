@@ -591,7 +591,7 @@ function failedPath(details: unknown): string | undefined {
 function grepTarget(args: unknown): string {
 	const record = isPlainRecord(args) ? args : {};
 	const query = typeof record["query"] === "string" ? JSON.stringify(record["query"]) : "?";
-	const scope = typeof record["path"] === "string" && record["path"].length > 0 ? record["path"] : ".";
+	const scope = pathArgs(record["path"]).join(", ");
 	return `${query} in ${scope}`;
 }
 

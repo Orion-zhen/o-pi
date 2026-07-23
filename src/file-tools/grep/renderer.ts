@@ -8,11 +8,11 @@ import type { GrepNearbyResult, GrepParams, GrepRegion, GrepSuccess } from "../t
 export function formatGrepCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
 	const record = isRecord(args) ? args : {};
 	const query = typeof record["query"] === "string" ? record["query"] : "";
-	const path = typeof record["path"] === "string" && record["path"].length > 0 ? record["path"] : ".";
+	const paths = pathArgs(record["path"]);
 	const match = typeof record["match"] === "string" ? record["match"] : "auto";
 	const glob = typeof record["glob"] === "string" ? record["glob"] : undefined;
 	return formatToolCard(
-		{ tool: "grep", status: "running", target: `${JSON.stringify(query)} in ${path}`, summary: joinParts([match, glob]) },
+		{ tool: "grep", status: "running", target: `${JSON.stringify(query)} in ${paths.join(", ")}`, summary: joinParts([match, glob]) },
 		theme,
 	);
 }
@@ -20,10 +20,11 @@ export function formatGrepCall(args: unknown, theme: Pick<Theme, "fg" | "bold">)
 /** 渲染 grep 结果摘要；TUI 不展示源码正文或内部评分。 */
 export function formatGrepResult(details: unknown, expanded: boolean, theme: Pick<Theme, "fg" | "bold">): string {
 	if (!isGrepSuccess(details)) return "";
+	const scope = (details.paths ?? [details.path]).join(", ");
 	const header = formatToolCard({
 		tool: "grep",
 		status: "success",
-		target: `${JSON.stringify(details.query)} in ${details.path}`,
+		target: `${JSON.stringify(details.query)} in ${scope}`,
 		summary: joinParts([
 			`${details.returned_regions} regions`,
 			`${details.returned_files} files`,
@@ -53,6 +54,7 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 		}
 	}
 	if (details.truncated) lines.push(theme.fg("muted", "truncated"));
+	if (details.scope_errors !== undefined && details.scope_errors.length > 0) lines.push(theme.fg("muted", `Scope errors: ${details.scope_errors.map((item) => item.path).join(", ")}.`));
 	if (details.skipped_files !== undefined) lines.push(theme.fg("muted", `skipped ${Object.entries(details.skipped_files).map(([key, value]) => `${key}:${value}`).join(" ")}`));
 	return lines.join("\n");
 }
@@ -85,6 +87,11 @@ function isGrepNearbyResults(value: unknown): value is GrepNearbyResult[] {
 		&& typeof item["end_line"] === "number"
 		&& typeof item["kind"] === "string"
 		&& (item["reason"] === "symbol similarity" || item["reason"] === "partial terms" || item["reason"] === "path similarity"));
+}
+
+function pathArgs(value: unknown): string[] {
+	if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+	return typeof value === "string" && value.length > 0 ? [value] : ["."];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

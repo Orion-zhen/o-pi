@@ -1,4 +1,5 @@
 import { createReadStream } from "node:fs";
+import path from "node:path";
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
@@ -9,20 +10,39 @@ import { getGrepIndex } from "../grep/indexer.js";
 import { decodeTextFile } from "../core/text-file.js";
 import { packGrepResults, renderGrepSuccess, selectGrepCandidatesForPacking } from "../grep/packer.js";
 import { rankGrepRegions, type RankedGrepRegion } from "../grep/ranker.js";
-import { fuseRankedGrepSources } from "../grep/fusion.js";
+import { compareRankedGrepRegions, fuseRankedGrepSources, mergeRankedGrepSources } from "../grep/fusion.js";
 import { createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE } from "../ranking-evidence.js";
 import { buildLineIndex, byteRangeForLinesWithIndex, extractByteRange, parseCodeUnits, type IndexedCodeUnit, type LineIndex } from "../../code-index/parser.js";
-import type { FileToolLspHooks, FileToolLspSymbolCandidate, GrepMatchMode, GrepParams, GrepSuccess, RepoMapRelatedResult, ToolOutcome } from "../types.js";
+import { normalizeToolPath, resolveWorkspaceRoot } from "../core/path-resolver.js";
+import type { FailedResult, FileToolLspHooks, FileToolLspSymbolCandidate, GrepMatchMode, GrepNearbyResult, GrepParams, GrepScopeError, GrepSuccess, RepoMapRelatedResult, ToolOutcome } from "../types.js";
 import type { RepoMapFileToolQuery } from "../../repo-map/file-tool-query.js";
 import type { RepoMapQueryCandidate } from "../../repo-map/query.js";
 import { formatRepoMapAliasReason, isRepoMapMainCandidate, isRepoMapNavigationCandidate, repoMapNavigationRelation, repoMapRankingEvidence } from "../repo-map-ranking.js";
 
 interface NormalizedGrepParams {
 	query: string;
-	path: string;
+	paths: string[];
 	match: GrepMatchMode;
 	glob?: string;
 }
+
+interface GrepScopeResult {
+	path: string;
+	match: GrepMatchMode;
+	strategy: string[];
+	totalCandidates: number;
+	regions: RankedGrepRegion[];
+	sourceText: Map<string, string>;
+	scannedFiles: number;
+	skipped: GrepScopeIndexStats;
+	scanComplete: boolean;
+	nearby: GrepNearbyResult[];
+	tokenBudget: number;
+	resultLimit: number;
+	related?: RepoMapRelatedResult[];
+}
+
+type GrepScopeIndexStats = NonNullable<GrepSuccess["skipped_files"]>;
 
 interface GrepRankingContext {
 	readonly unitsByPath: Map<string, IndexedCodeUnit[]>;
@@ -53,7 +73,64 @@ export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal
 	if (isFailed(validation)) return validation;
 	const regex = validation.match === "regex" ? compileRegex(validation.query) : undefined;
 	if (isFailed(regex)) return regex;
-	const index = await getGrepIndex(cwd, validation, signal);
+	const workspaceRoot = await resolveWorkspaceRoot(cwd);
+	const scopes = normalizeGrepScopes(workspaceRoot, validation.paths);
+	if (isFailed(scopes)) return scopes;
+	const effectiveScopes = resolveEffectiveGrepScopes(workspaceRoot, scopes);
+	const scopeErrors: GrepScopeError[] = [];
+	const successes: GrepScopeResult[] = [];
+	for (const scope of effectiveScopes) {
+		const result = await grepScope(cwd, { ...params, path: [scope.path] }, signal, runtime, regex);
+		if (isFailed(result)) scopeErrors.push({ path: scope.path, error: result.error });
+		else successes.push(result);
+	}
+	if (successes.length === 0) {
+		const first = scopeErrors[0];
+		if (first === undefined) return fail("PATH_NOT_FOUND", "No searchable scope was provided.");
+		return withGrepScopeErrors({ status: "failed", error: first.error }, validation.paths, scopeErrors);
+	}
+	const paths = successes.map((result) => result.path);
+	const regions = mergeScopeRegions(successes.flatMap((result) => result.regions));
+	const sourceText = new Map<string, string>();
+	for (const result of successes) for (const [filePath, text] of result.sourceText) sourceText.set(filePath, text);
+	const strategy = [...new Set(successes.flatMap((result) => result.strategy))];
+	const related = regions.length < GREP_RELATED_TRIGGER ? mergeGrepRelated(successes.flatMap((result) => result.related ?? [])) : [];
+	const nearby = regions.length === 0 ? mergeGrepNearby(successes.flatMap((result) => result.nearby)) : [];
+	const skipped = mergeGrepSkipped(successes.map((result) => result.skipped));
+	return packGrepResults({
+		query: validation.query,
+		path: paths[0] ?? ".",
+		paths,
+		scopeErrors,
+		match: validation.match,
+		strategy,
+		totalCandidates: regions.length,
+		regions,
+		sourceText,
+		tokenBudget: Math.min(...successes.map((result) => result.tokenBudget)),
+		resultLimit: Math.min(...successes.map((result) => result.resultLimit)),
+		scannedFiles: successes.reduce((sum, result) => sum + result.scannedFiles, 0),
+		...(Object.keys(skipped).length > 0 ? { skipped } : {}),
+		scanComplete: successes.every((result) => result.scanComplete),
+		nearby,
+		...(related.length > 0 ? { related } : {}),
+	});
+}
+
+async function grepScope(
+	cwd: string,
+	params: GrepParams,
+	signal: AbortSignal | undefined,
+	runtime: GrepRuntime,
+	compiledRegex: RegExp | undefined,
+): Promise<ToolOutcome<GrepScopeResult>> {
+	const validation = validateGrepParams(params);
+	if (isFailed(validation)) return validation;
+	const regex = compiledRegex ?? (validation.match === "regex" ? compileRegex(validation.query) : undefined);
+	if (isFailed(regex)) return regex;
+	const scopePath = validation.paths[0];
+	if (scopePath === undefined) return fail("INVALID_PATH", "path must contain at least one scope.");
+	const index = await getGrepIndex(cwd, { ...validation, path: scopePath }, signal);
 	if (isFailed(index)) return index;
 	const sourceText = new Map(index.sourceText);
 	const filesByPath = new Map<string, { path: string; absolutePath: string; size?: number }>(index.scopedFiles.map((file) => [file.path, file]));
@@ -177,8 +254,7 @@ export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal
 			regex,
 		)
 		: [];
-	return packGrepResults({
-		query: validation.query,
+	return {
 		path: index.root.relativePath,
 		match: validation.match,
 		strategy,
@@ -192,7 +268,7 @@ export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal
 		scanComplete: index.scanComplete,
 		nearby: finalRegions.length === 0 ? ranked.nearby : [],
 		...(related.length > 0 ? { related } : {}),
-	});
+	};
 }
 
 function createGrepRankingContext(files: Array<{ path: string; index: { units: IndexedCodeUnit[] } }>): GrepRankingContext {
@@ -253,19 +329,94 @@ export function formatCompactGrepResult(result: GrepSuccess): string {
 function validateGrepParams(params: GrepParams): ToolOutcome<NormalizedGrepParams> {
 	if (typeof params.query !== "string" || params.query.length === 0) return fail("INVALID_OPERATION", "query must not be empty.");
 	if (params.query.includes("\0")) return fail("INVALID_OPERATION", "query must not contain NUL bytes.");
-	const path = params.path ?? ".";
-	if (typeof path !== "string" || path.length === 0) return fail("INVALID_PATH", "path must not be empty.", { path });
-	if (path.includes("\0")) return fail("INVALID_PATH", "path must not contain NUL bytes.", { path });
+	const paths = params.path ?? ["."];
+	if (!Array.isArray(paths) || paths.length === 0) return fail("INVALID_PATH", "path must contain at least one scope.");
+	for (const scope of paths) {
+		if (typeof scope !== "string" || scope.length === 0) return fail("INVALID_PATH", "path entries must be non-empty strings.");
+		if (scope.includes("\0")) return fail("INVALID_PATH", "path must not contain NUL bytes.", { path: scope });
+	}
 	const match = params.match ?? "auto";
-	if (match !== "auto" && match !== "literal" && match !== "regex") return fail("INVALID_OPERATION", "match must be auto, literal, or regex.", { path });
+	if (match !== "auto" && match !== "literal" && match !== "regex") return fail("INVALID_OPERATION", "match must be auto, literal, or regex.", { path: paths[0] ?? "." });
 	if (params.glob !== undefined && (typeof params.glob !== "string" || params.glob.length === 0)) {
-		return fail("INVALID_PATH", "glob must not be empty.", { path });
+		return fail("INVALID_PATH", "glob must not be empty.", { path: paths[0] ?? "." });
 	}
 	return {
 		query: params.query,
-		path,
+		paths,
 		match,
 		...(params.glob !== undefined ? { glob: params.glob } : {}),
+	};
+}
+
+function normalizeGrepScopes(workspaceRoot: string, paths: string[]): ToolOutcome<Array<{ path: string }>> {
+	const normalized: Array<{ path: string }> = [];
+	const seen = new Set<string>();
+	for (const inputPath of paths) {
+		const lexical = normalizeToolPath(workspaceRoot, inputPath);
+		if (isFailed(lexical)) return lexical;
+		if (seen.has(lexical.relativePath)) continue;
+		seen.add(lexical.relativePath);
+		normalized.push({ path: lexical.relativePath });
+	}
+	return normalized;
+}
+
+function resolveEffectiveGrepScopes(workspaceRoot: string, scopes: Array<{ path: string }>): Array<{ path: string }> {
+	return scopes.filter((scope, index) => !scopes.some((parent, parentIndex) =>
+		parentIndex !== index
+		&& isGrepPathAncestor(path.resolve(workspaceRoot, parent.path), path.resolve(workspaceRoot, scope.path)),
+	));
+}
+
+function isGrepPathAncestor(parent: string, child: string): boolean {
+	const relative = path.relative(parent, child);
+	return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+function mergeScopeRegions(regions: RankedGrepRegion[]): RankedGrepRegion[] {
+	let merged: RankedGrepRegion[] = [];
+	for (const region of regions) merged = mergeRankedGrepSources(merged, [region]);
+	return merged.sort(compareRankedGrepRegions);
+}
+
+function mergeGrepRelated(results: RepoMapRelatedResult[]): RepoMapRelatedResult[] {
+	const merged = new Map<string, RepoMapRelatedResult>();
+	for (const result of results) {
+		const key = `${result.path}:${result.start_line ?? 0}:${result.end_line ?? 0}:${result.kind}`;
+		const existing = merged.get(key);
+		if (existing === undefined) merged.set(key, { ...result, relations: [...result.relations] });
+		else for (const relation of result.relations) if (!existing.relations.includes(relation)) existing.relations.push(relation);
+	}
+	return [...merged.values()].slice(0, GREP_RELATED_LIMIT);
+}
+
+function mergeGrepNearby(results: GrepNearbyResult[]): GrepNearbyResult[] {
+	const seen = new Set<string>();
+	return results.filter((result) => {
+		const key = `${result.path}:${result.start_line}:${result.end_line}:${result.kind}`;
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	}).slice(0, GREP_RELATED_LIMIT);
+}
+
+function mergeGrepSkipped(values: GrepScopeIndexStats[]): GrepScopeIndexStats {
+	const merged: GrepScopeIndexStats = {};
+	for (const value of values) for (const [key, count] of Object.entries(value)) {
+		if (count === undefined) continue;
+		const current = merged[key as keyof GrepScopeIndexStats] ?? 0;
+		merged[key as keyof GrepScopeIndexStats] = current + count;
+	}
+	return merged;
+}
+
+function withGrepScopeErrors(result: FailedResult, paths: string[], scopeErrors: GrepScopeError[]): FailedResult {
+	return {
+		...result,
+		error: {
+			...result.error,
+			details: { ...(result.error.details ?? {}), paths, scope_errors: scopeErrors },
+		},
 	};
 }
 

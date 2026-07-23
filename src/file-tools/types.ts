@@ -79,7 +79,7 @@ export type GrepMatchMode = "auto" | "literal" | "regex";
 
 export interface GrepParams {
 	query: string;
-	path?: string;
+	path?: string[];
 	match?: GrepMatchMode;
 	glob?: string;
 }
@@ -234,10 +234,18 @@ export interface FileToolLspHooks {
 	}): Promise<LspDiagnosticsSummary | undefined>;
 }
 
+export interface GrepScopeError {
+	path: string;
+	error: FileToolError;
+}
+
 export interface GrepSuccess {
 	status: "success";
 	query: string;
+	/** 首个有效 scope；保留单路径调用的既有字段。 */
 	path: string;
+	paths?: string[];
+	scope_errors?: GrepScopeError[];
 	match: GrepMatchMode;
 	strategy: string[];
 	total_candidates: number;

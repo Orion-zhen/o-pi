@@ -49,7 +49,10 @@ describe("file tool schemas", () => {
 		expect(validates(find, { query: "x", limit: 20 })).toBe(false);
 
 		expect(validates(grep, { query: "x" })).toBe(true);
-		expect(validates(grep, { query: "x", path: ".", match: "auto", glob: "**/*.ts" })).toBe(true);
+		expect(validates(grep, { query: "x", path: ["."], match: "auto", glob: "**/*.ts" })).toBe(true);
+		expect(validates(grep, { query: "x", path: ["src", "tests"] })).toBe(true);
+		expect(validates(grep, { query: "x", path: [] })).toBe(false);
+		expect(validates(grep, { query: "x", path: "." })).toBe(false);
 		expect(validates(grep, { query: "x", match: "literal" })).toBe(true);
 		expect(validates(grep, { query: "x", match: "regex" })).toBe(true);
 		expect(validates(grep, { query: "" })).toBe(false);

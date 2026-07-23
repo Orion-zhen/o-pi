@@ -92,11 +92,11 @@ describe("file-tools lsp hooks", () => {
 				];
 			},
 		};
-		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: "src", query: "RemoteSymbol" }, undefined, { lsp: hooks }));
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: ["src"], query: "RemoteSymbol" }, undefined, { lsp: hooks }));
 		expect(result.regions).toHaveLength(1);
 		expect(result.regions[0]).toMatchObject({ path: "src/target.ts", symbol: "RemoteSymbol", reasons: ["lsp exact symbol"] });
 
-		await expect(grepWorkspaceFiles(workspace, { path: "src", query: "RemoteSymbol" }, undefined, { lsp: throwingHooks() })).resolves.toMatchObject({ status: "success" });
+		await expect(grepWorkspaceFiles(workspace, { path: ["src"], query: "RemoteSymbol" }, undefined, { lsp: throwingHooks() })).resolves.toMatchObject({ status: "success" });
 	});
 
 	it("grep 并行请求 LSP 与 Repo Map", async () => {

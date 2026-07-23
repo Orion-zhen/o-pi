@@ -125,7 +125,7 @@ const pendingIndexes = new Map<string, PendingGrepIndex>();
 /** 构建或复用 workspace 进程内索引；缓存只保存元数据和 token，不保存完整源码。 */
 export async function getGrepIndex(
 	cwd: string,
-	params: Pick<GrepParams, "query" | "path" | "glob" | "match">,
+	params: Omit<Pick<GrepParams, "query" | "path" | "glob" | "match">, "path"> & { path?: string },
 	signal?: AbortSignal,
 ): Promise<ToolOutcome<GrepIndexResult>> {
 	if (signal?.aborted) return fail("OPERATION_ABORTED", "grep was aborted.", { path: params.path ?? "." });

@@ -3,11 +3,13 @@ import { byteRangeForLines, extractByteRange } from "../../code-index/parser.js"
 import type { RankedGrepRegion } from "./ranker.js";
 import { selectRankedGrepCandidates } from "./fusion.js";
 import { rankingEvidenceSources } from "../ranking-evidence.js";
-import type { GrepMatchMode, GrepNearbyResult, GrepRegion, GrepSkippedFiles, GrepSuccess, RepoMapRelatedResult } from "../types.js";
+import type { GrepMatchMode, GrepNearbyResult, GrepRegion, GrepScopeError, GrepSkippedFiles, GrepSuccess, RepoMapRelatedResult } from "../types.js";
 
 export interface GrepPackInput {
 	query: string;
 	path: string;
+	paths?: string[];
+	scopeErrors?: GrepScopeError[];
 	match: GrepMatchMode;
 	strategy: string[];
 	totalCandidates: number;
@@ -83,6 +85,8 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 		status: "success",
 		query: input.query,
 		path: input.path,
+		...(input.paths !== undefined ? { paths: input.paths } : {}),
+		...(input.scopeErrors !== undefined && input.scopeErrors.length > 0 ? { scope_errors: input.scopeErrors } : {}),
 		match: input.match,
 		strategy,
 		total_candidates: input.totalCandidates,
@@ -101,6 +105,9 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 
 export function renderGrepSuccess(result: GrepSuccess): string {
 	const lines = [grepOpenTag(result)];
+	if (result.scope_errors !== undefined && result.scope_errors.length > 0) {
+		lines.push(`partial; scope_errors=${result.scope_errors.map(({ path, error }) => `${path}:${error.code}`).join(",")}`);
+	}
 	if (result.regions.length === 0) {
 		lines.push("none");
 		if (result.nearby !== undefined && result.nearby.length > 0) lines.push(renderNearby(result.nearby));
@@ -133,6 +140,8 @@ function renderPackedBody(
 		status: "success",
 		query: input.query,
 		path: input.path,
+		...(input.paths !== undefined ? { paths: input.paths } : {}),
+		...(input.scopeErrors !== undefined && input.scopeErrors.length > 0 ? { scope_errors: input.scopeErrors } : {}),
 		match: input.match,
 		strategy: input.strategy,
 		total_candidates: input.totalCandidates,

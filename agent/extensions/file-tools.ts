@@ -45,7 +45,7 @@ const findParameters = Type.Object(
 const grepParameters = Type.Object(
 	{
 		query: Type.String({ minLength: 1, description: "Text, symbol, concept, definition, or relationship." }),
-		path: Type.Optional(Type.String({ minLength: 1, description: "File or directory scope; default workspace." })),
+		path: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: "File or directory scopes; OR/union scope; default workspace." })),
 		match: Type.Optional(StringEnum(["auto", "literal", "regex"] as const, { description: "Matching strategy. literal: case-sensitive text; regex: regular expression; default auto." })),
 		glob: Type.Optional(Type.String({ minLength: 1, description: "Strict relative file-path filter." })),
 	},
