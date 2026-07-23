@@ -183,7 +183,8 @@ ${rules.map((rule) => `- ${rule}`).join("\n")}
 function formatSkillPolicy(): string {
 	return `<skill_policy>
 - Relative paths mentioned by a loaded skill resolve under skill://<skill-name>/.
-- Read only resources directly relevant to the current task.
+- Load the narrowest skill that clearly matches the user's requested outcome.
+- Classify by the requested outcome, not incidental steps such as reading or editing a repository.
 </skill_policy>`;
 }
 
