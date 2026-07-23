@@ -21,10 +21,17 @@ const extension = measureProcess(pi, [
 ], { warmups, runs });
 const search = measureJsonWorker(worker, ["search"], { warmups, runs });
 const fetch = measureJsonWorker(worker, ["fetch"], { warmups, runs });
+const skippedImage = measureJsonWorker(worker, ["fetch-image-skip"], { warmups, runs });
 const parser = measureJsonWorker(parserWorker, ["parser"], { warmups, runs });
+const htmlWarmups = Math.min(1, runs);
+const htmlScenarios = ["deferred", "video", "article", "hostile"];
+const html = Object.fromEntries(htmlScenarios.map((scenario) => [
+	scenario,
+	measureJsonWorker(worker, ["html", scenario], { warmups: htmlWarmups, runs }),
+]));
 const readyRows = existsSync("/usr/bin/script") ? await measureReadyRows() : [];
 
-console.log(`web-tools benchmark (${runs} measured runs, ${warmups} warmups; process-cold/filesystem-warm; fake network)`);
+console.log(`web-tools benchmark (${runs} measured runs, ${warmups} startup warmups/${htmlWarmups} HTML warmup; process-cold/filesystem-warm; fake network)`);
 console.table([
 	...readyRows,
 	row("Pi bare load", bare),
@@ -35,10 +42,26 @@ console.table([
 	row("warm fake websearch", search.map((sample) => sample.warmToolMs)),
 	row("first fake source webfetch", fetch.map((sample) => sample.firstToolMs)),
 	row("warm fake source webfetch", fetch.map((sample) => sample.warmToolMs)),
+	row("first skipped direct image", skippedImage.map((sample) => sample.firstToolMs)),
+	row("warm skipped direct image", skippedImage.map((sample) => sample.warmToolMs)),
 	row("DDG parser Jiti import", parser.map((sample) => sample.importMs)),
 	row("first DDG fixture parse", parser.map((sample) => sample.firstParseMs)),
 	row("warm DDG fixture parse", parser.map((sample) => sample.warmParseMs)),
+	...htmlScenarios.map((scenario) => row(
+		`HTML ${scenario} conversion`,
+		html[scenario].map((sample) => sample.conversionMs),
+	)),
 ]);
+console.table(htmlScenarios.map((scenario) => ({
+	scenario,
+	"input MB": median(html[scenario].map((sample) => sample.inputMb)),
+	"max RSS MB": median(html[scenario].map((sample) => sample.maxRssMb)),
+})));
+
+function median(values) {
+	const sorted = [...values].sort((left, right) => left - right);
+	return Math.round((sorted[Math.floor(sorted.length / 2)] ?? 0) * 10) / 10;
+}
 
 async function measureReadyRows() {
 	const readyArgs = [
