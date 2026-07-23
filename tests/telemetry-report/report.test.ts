@@ -22,7 +22,7 @@ describe("telemetry report", () => {
 		await mkdir(directory, { recursive: true });
 		await writeFile(path.join(directory, "run.jsonl"), [
 			JSON.stringify(run("run-a", "commit-a")),
-			JSON.stringify(call("call-a", 0, "read")),
+			JSON.stringify(call("call-a", 0, "read", { repair: { status: "repaired", operations: ["split_path_list"] } })),
 			JSON.stringify({ ...call("bad", 1, "read"), status: "unfinished" }),
 			JSON.stringify({ type: "tool", run_id: "run-a", at: at(0) }),
 			"{bad-json",
@@ -55,6 +55,39 @@ describe("telemetry report", () => {
 
 		const filtered = aggregateTelemetry(records, { query: { git_commits: ["commit-b"], git_dirty: [true], tools: ["read"] } });
 		expect(filtered.inventory).toEqual({ runs: 1, sessions: 1, calls: 1, tools: 1 });
+	});
+
+	it("统计多 scope、scope 错误和路径列表 repair，并同步 live/report 输出", () => {
+		const records: TelemetryRecord[] = [
+			run("run-a", "commit-a"),
+			call("find-multi", 0, "find", {
+				fields: { input_path_count: 2, scope_count: 3, scope_error_count: 1 },
+				repair: { status: "repaired", operations: ["split_path_list"], fanout: { field: "path", count: 2, separator: "whitespace" } },
+			}),
+			call("grep-single", 1, "grep", { fields: { input_path_count: 1, scope_count: 1, scope_error_count: 0 } }),
+		];
+		const report = aggregateTelemetry(records, { generatedAt: at(9) });
+		const find = report.tools.find((tool) => tool.tool === "find");
+		expect(find).toMatchObject({
+			input_path_count: { mean: 2 },
+			scope_count: { mean: 3 },
+			multi_scope_calls: 1,
+			scope_error_calls: 1,
+			scope_errors: 1,
+			repair: {
+			operations: { split_path_list: 1 },
+			fanout_calls: 1,
+			fanout_scopes: { mean: 2 },
+			fanout_separators: { whitespace: 1 },
+			},
+		});
+		const html = renderTelemetryHtml(report);
+		expect(html).toContain("多 scope");
+		expect(html).toContain("scope 错误");
+		const live = renderLiveTelemetry({ report, enabled: true, pending_calls: 0 }, 100).join("\n");
+		expect(live).toContain("Multi-scope");
+		expect(live).toContain("Scope errors");
+		expect(live).toContain("Path-list repairs");
 	});
 
 	it("measures search work, candidate use, downstream actions, and candidate groups", () => {

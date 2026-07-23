@@ -40,24 +40,32 @@ describe("tool telemetry projections", () => {
 	});
 
 	it("find and grep preserve displayed candidate order and ranking sources", () => {
-		const findParams = fixture<FindParams>({ path: ".", query: "private symbol" });
+		const findParams = fixture<FindParams>({ path: ["src", "tests"], query: "private symbol" });
 		const findInput = inputFacts(findTelemetry, findParams);
 		const findOutput = resultFacts(findTelemetry, findParams, fixture<FindDetails>({
 			status: "ok",
+			paths: ["src"],
+			scope_errors: [{ path: "missing", error: { code: "PATH_NOT_FOUND", message: "missing" } }],
 			displayedMatches: [{ path: "src/a.ts" }],
 			candidateSources: { "src/a.ts": ["lexical", "repo-map"] },
 			related: [{ path: "src/b.ts" }],
 		}));
-		expect(findInput.fields).toMatchObject({ input_query_chars: 14 });
+		expect(findInput.fields).toMatchObject({ input_query_chars: 14, input_path_count: 2 });
+		expect(findInput.targets).toEqual([{ kind: "directory", value: "src" }, { kind: "directory", value: "tests" }]);
 		expect(JSON.stringify(findInput)).not.toContain("private symbol");
+		expect(findOutput.fields).toMatchObject({ scope_count: 2, scope_error_count: 1 });
 		expect(findOutput.candidates).toEqual([
 			{ kind: "path", value: "src/a.ts", rank: 1, group: "primary", sources: ["lexical", "repo-map"] },
 			{ kind: "path", value: "src/b.ts", rank: 2, group: "related", sources: ["repo-map"] },
 		]);
 
-		const grepParams = fixture<GrepParams>({ path: "src", query: "needle" });
+		const grepParams = fixture<GrepParams>({ path: ["src", "tests"], query: "needle" });
+		const grepInput = inputFacts(grepTelemetry, grepParams);
+		expect(grepInput.fields).toMatchObject({ input_path_count: 2 });
+		expect(grepInput.targets).toEqual([{ kind: "path", value: "src" }, { kind: "path", value: "tests" }]);
 		const grepOutput = resultFacts(grepTelemetry, grepParams, fixture<ToolOutcome<GrepSuccess>>({
 			status: "ok",
+			paths: ["src", "tests"],
 			regions: [
 				{ path: "src/c.ts", start_line: 2, end_line: 4, sources: ["repo-map-direct"] },
 				{ path: "src/d.ts", start_line: 6, end_line: 8, sources: ["lsp-workspace-symbol", "lsp-reference"] },

@@ -320,7 +320,11 @@ export class TelemetryService {
 				}
 			}
 			if (call === undefined) return;
-			call.repair = { status: observation.status, operations: [...new Set(observation.operations)] };
+			call.repair = {
+				status: observation.status,
+				operations: [...new Set(observation.operations)],
+				...(observation.fanout === undefined ? {} : { fanout: { ...observation.fanout } }),
+			};
 			call.params = observation.preparedArgs;
 			call.inputProjected = false;
 		});

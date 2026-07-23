@@ -129,7 +129,15 @@ function batch(value: unknown): boolean {
 
 function repair(value: unknown): boolean {
 	return isRecord(value) && ["accepted", "repaired", "invalid"].includes(String(value["status"]))
-		&& Array.isArray(value["operations"]) && value["operations"].every(text);
+		&& Array.isArray(value["operations"]) && value["operations"].every(text)
+		&& (value["fanout"] === undefined || fanout(value["fanout"]));
+}
+
+function fanout(value: unknown): boolean {
+	return isRecord(value)
+		&& text(value["field"])
+		&& positiveInteger(value["count"])
+		&& ["scalar", "comma", "whitespace", "newline", "mixed"].includes(String(value["separator"]));
 }
 
 function timestamp(value: unknown): boolean {

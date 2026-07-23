@@ -10,7 +10,7 @@ import {
 } from "./common.js";
 
 export const grepTelemetry = defineToolTelemetry<GrepParams, ToolOutcome<GrepSuccess>>({
-	input: projectFileInput(["query", "path", "match", "glob"], "path"),
+	input: projectFileInput(["query", "path", "match", "glob"], "path", { pathList: true }),
 	result(_params, result) {
 		const details = record(result.details);
 		return { fields: fileResultFields(details), candidates: grepCandidates(details) };

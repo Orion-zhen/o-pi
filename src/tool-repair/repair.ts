@@ -3,7 +3,7 @@ import { Check } from "typebox/value";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import { createRepairSpec } from "./specs.js";
-import type { RepairObserver, RepairOperation, RepairSpec, RepairSpecHints, ToolArgumentStatus } from "./types.js";
+import type { RepairFanout, RepairObserver, RepairOperation, RepairSeparator, RepairSpec, RepairSpecHints, ToolArgumentStatus } from "./types.js";
 
 export const DEFAULT_MAX_PATH_COUNT = 32;
 
@@ -42,9 +42,10 @@ export function repairableTool<TParams extends TSchema, TDetails = unknown, TSta
 			return prepared as PreparedArguments<TParams, TDetails, TState>;
 		}
 
-		const repaired = repairArguments(prepared, spec, operations);
+		const fanout: RepairFanout[] = [];
+		const repaired = repairArguments(prepared, spec, operations, fanout);
 		if (isValid(tool.parameters, repaired)) {
-			notify(observer, tool.name, args, repaired, "repaired", operations);
+			notify(observer, tool.name, args, repaired, "repaired", operations, fanout[0]);
 			return repaired as PreparedArguments<TParams, TDetails, TState>;
 		}
 
@@ -64,15 +65,16 @@ function notify(
 	preparedArgs: unknown,
 	status: ToolArgumentStatus,
 	operations: readonly RepairOperation[],
+	fanout: RepairFanout | undefined = undefined,
 ): void {
 	try {
-		observer?.onPreparation({ toolName, rawArgs, preparedArgs, status, operations });
+		observer?.onPreparation({ toolName, rawArgs, preparedArgs, status, operations, ...(fanout === undefined ? {} : { fanout }) });
 	} catch {
 		// Observers are diagnostic only and cannot affect argument preparation.
 	}
 }
 
-export function repairArguments(args: unknown, spec: RepairSpec, operations: RepairOperation[] = []): unknown {
+export function repairArguments(args: unknown, spec: RepairSpec, operations: RepairOperation[] = [], fanout: RepairFanout[] = []): unknown {
 	let candidate = cloneValue(args);
 
 	if (typeof candidate === "string" && spec.singleStringField !== undefined) {
@@ -84,7 +86,7 @@ export function repairArguments(args: unknown, spec: RepairSpec, operations: Rep
 	migrateRootAliases(candidate, spec, operations);
 	materializeObjectArrays(candidate, spec, operations);
 	repairArrayFields(candidate, spec, operations);
-	repairPathListFields(candidate, spec, operations);
+	repairPathListFields(candidate, spec, operations, fanout);
 	migrateNestedAliases(candidate, spec, operations);
 	dropOptionalNullFields(candidate, spec, operations);
 	repairNumericFields(candidate, spec, operations);
@@ -185,7 +187,7 @@ function repairNumericFields(target: JsonObject, spec: RepairSpec, operations: R
 	}
 }
 
-function repairPathListFields(target: JsonObject, spec: RepairSpec, operations: RepairOperation[]): void {
+function repairPathListFields(target: JsonObject, spec: RepairSpec, operations: RepairOperation[], fanout: RepairFanout[]): void {
 	const pathListFields = new Set(spec.pathListFields ?? []);
 	const maxPathCount = normalizeMaxPathCount(spec.maxPathCount);
 	for (const path of pathListFields) {
@@ -194,8 +196,10 @@ function repairPathListFields(target: JsonObject, spec: RepairSpec, operations: 
 			if (typeof value !== "string") return;
 			const paths = parsePathList(value, maxPathCount);
 			if (paths === undefined) return;
-			parent[key] = unique(paths);
-			operations.push(paths.length > 1 ? "split_path_list" : "scalar_to_array");
+			const uniquePaths = unique(paths);
+			parent[key] = uniquePaths;
+			operations.push(uniquePaths.length > 1 ? "split_path_list" : "scalar_to_array");
+			fanout.push({ field: path, count: uniquePaths.length, separator: pathListSeparator(value, uniquePaths.length) });
 		});
 	}
 }
@@ -392,6 +396,16 @@ export function parsePathList(value: string, maxPathCount = DEFAULT_MAX_PATH_COU
 	}
 	if (quote !== undefined || escaped || (tokenStarted && !pushToken()) || afterComma || paths.length === 0) return undefined;
 	return paths;
+}
+
+function pathListSeparator(value: string, count: number): RepairSeparator {
+	if (count <= 1) return "scalar";
+	const hasComma = value.includes(",");
+	const hasNewline = /\r?\n/u.test(value);
+	if (hasComma && hasNewline) return "mixed";
+	if (hasComma) return "comma";
+	if (hasNewline) return "newline";
+	return "whitespace";
 }
 
 function normalizeMaxPathCount(value: number | undefined): number {

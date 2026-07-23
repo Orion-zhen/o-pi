@@ -32,10 +32,18 @@ export interface ToolStatistics {
 	output_chars: NumericSummary;
 	truncation_rate: RateSummary;
 	error_codes: Record<string, number>;
+	input_path_count: NumericSummary;
+	scope_count: NumericSummary;
+	multi_scope_calls: number;
+	scope_error_calls: number;
+	scope_errors: number;
 	repair: {
 		observed_calls: number;
 		repaired_rate: RateSummary;
 		operations: Record<string, number>;
+		fanout_calls: number;
+		fanout_scopes: NumericSummary;
+		fanout_separators: Record<string, number>;
 	};
 }
 

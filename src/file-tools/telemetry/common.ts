@@ -2,7 +2,11 @@ import { fields, isRecord, scalar, textFields } from "../../telemetry/projection
 import type { Candidate, Fields, Resource, TelemetryFacts } from "../../telemetry/types.js";
 
 /** Project explicit scalar inputs; query-like strings are retained only as size and hash. */
-export function projectFileInput(keys: readonly string[], targetKind: string): (value: unknown) => TelemetryFacts {
+export function projectFileInput(
+	keys: readonly string[],
+	targetKind: string,
+	options: { pathList?: boolean } = {},
+): (value: unknown) => TelemetryFacts {
 	return (value) => {
 		if (!isRecord(value)) return {};
 		const projected: Fields = {};
@@ -16,16 +20,28 @@ export function projectFileInput(keys: readonly string[], targetKind: string): (
 				if (item !== undefined) projected[`input_${key}`] = item;
 			}
 		}
-		const path = string(value["path"]);
+		const rawPath = value["path"];
+		const scalarPath = string(rawPath);
+		const paths = Array.isArray(rawPath)
+			? rawPath.filter((item): item is string => typeof item === "string")
+			: scalarPath === undefined
+				? (options.pathList === true ? ["."] : [])
+				: [scalarPath];
+		if (options.pathList === true) projected.input_path_count = paths.length;
+		const startLine = number(value["start_line"]);
+		const endLine = number(value["end_line"]);
 		return {
 			...(Object.keys(projected).length === 0 ? {} : { fields: projected }),
-			...(path === undefined ? {} : { targets: [pathTarget(path, targetKind, number(value["start_line"]), number(value["end_line"]))] }),
+			...(paths.length === 0 ? {} : {
+				targets: paths.map((path) => pathTarget(path, targetKind, paths.length === 1 ? startLine : undefined, paths.length === 1 ? endLine : undefined)),
+			}),
 		};
 	};
 }
 
 export function fileResultFields(details: Record<string, unknown>): Fields {
 	const repoMap = record(details["repo_map"]);
+	const scope = scopeFacts(details);
 	return fields({
 		status: string(details["status"]),
 		error_code: errorCode(details),
@@ -46,6 +62,8 @@ export function fileResultFields(details: Record<string, unknown>): Fields {
 				? details["related"].length > 0
 				: undefined,
 		repo_map_status: string(repoMap["status"]),
+		scope_count: scope.count,
+		scope_error_count: scope.errors,
 	});
 }
 
@@ -116,6 +134,27 @@ export function string(value: unknown): string | undefined {
 
 export function number(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function scopeFacts(details: Record<string, unknown>): { count?: number; errors?: number } {
+	const errorDetails = record(record(details["error"])["details"]);
+	const hasScopeShape = details["paths"] !== undefined || details["scope_errors"] !== undefined
+		|| errorDetails["paths"] !== undefined || errorDetails["scope_errors"] !== undefined;
+	if (!hasScopeShape) return {};
+	const paths = stringList(details["paths"]) ?? stringList(errorDetails["paths"]);
+	const scopeErrors = Array.isArray(details["scope_errors"])
+		? details["scope_errors"].length
+		: Array.isArray(errorDetails["scope_errors"])
+			? errorDetails["scope_errors"].length
+			: undefined;
+	const path = string(details["path"]);
+	const isFailedResult = details["status"] === "failed";
+	const count = paths === undefined
+		? (path === undefined ? undefined : 1 + (isFailedResult ? 0 : (scopeErrors ?? 0)))
+		: paths.length + (isFailedResult ? 0 : (scopeErrors ?? 0));
+	return count === undefined && scopeErrors === undefined
+		? {}
+		: { ...(count === undefined ? {} : { count }), errors: scopeErrors ?? 0 };
 }
 
 function errorCode(details: Record<string, unknown>): string | undefined {

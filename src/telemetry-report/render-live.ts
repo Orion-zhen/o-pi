@@ -23,6 +23,11 @@ export function renderLiveTelemetry(value: LiveTelemetryReport, width: number): 
 			["Completed", report.inventory.calls],
 			["Tools", report.inventory.tools],
 		]),
+		inlineValues([
+			["Multi-scope", report.tools.reduce((sum, tool) => sum + tool.multi_scope_calls, 0)],
+			["Scope errors", report.tools.reduce((sum, tool) => sum + tool.scope_errors, 0)],
+			["Path-list repairs", report.tools.reduce((sum, tool) => sum + (tool.repair.operations["split_path_list"] ?? 0), 0)],
+		]),
 		`  Generated ${report.metadata.generated_at}`,
 		"Tool Calls",
 		...toolLines(report.tools, maxWidth),
@@ -52,6 +57,9 @@ export function formatLiveTelemetrySummary(value: LiveTelemetryReport): string {
 		`Completed calls ${report.inventory.calls}`,
 		`Tools ${report.inventory.tools}`,
 		`Multi-file batches ${report.edit.batches.multi_file_batches}/${report.edit.batches.batches}`,
+		`Multi-scope calls ${report.tools.reduce((sum, tool) => sum + tool.multi_scope_calls, 0)}`,
+		`Scope errors ${report.tools.reduce((sum, tool) => sum + tool.scope_errors, 0)}`,
+		`Path-list repairs ${report.tools.reduce((sum, tool) => sum + (tool.repair.operations["split_path_list"] ?? 0), 0)}`,
 		`Candidates used ${report.candidate_ranking.converted_candidates}/${report.candidate_ranking.candidates}`,
 		`Status ${status}`,
 		...(value.pending_calls === 0 ? [] : [`Pending ${value.pending_calls}`]),
@@ -63,7 +71,7 @@ function toolLines(tools: readonly ToolStatistics[], width: number): string[] {
 	if (width < WIDE_WIDTH) {
 		return tools.flatMap((tool) => [
 			`  ${tool.tool}  ${tool.calls} calls  success ${percent(tool.success_rate.value)}  errors ${tool.error_rate.numerator}`,
-			`    P50 ${number(tool.duration_ms.p50)} ms  repair ${tool.repair.repaired_rate.numerator}  truncated ${tool.truncation_rate.numerator}`,
+				`    P50 ${number(tool.duration_ms.p50)} ms  repair ${tool.repair.repaired_rate.numerator}  multi ${tool.multi_scope_calls}  truncated ${tool.truncation_rate.numerator}`,
 		]);
 	}
 

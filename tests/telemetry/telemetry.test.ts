@@ -78,7 +78,7 @@ describe("telemetry service", () => {
 		service.onTurnStart({ type: "turn_start", turnIndex: 2, timestamp: 1 }, ctx);
 		service.onMessageEnd(fixture({ type: "message_end", message: assistantCalls(["call-1", "call-2"]) }));
 		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call-1", toolName: "test", args: { path: "raw.ts", count: "3" } });
-		service.prepared({ toolName: "test", rawArgs: fixture({ path: "raw.ts" }), preparedArgs: { path: "src/a.ts", count: 3 }, status: "repaired", operations: ["numeric_string_to_number"] });
+		service.prepared({ toolName: "test", rawArgs: fixture({ path: "raw.ts" }), preparedArgs: { path: ["src", "tests"], count: 3 }, status: "repaired", operations: ["numeric_string_to_number", "split_path_list"], fanout: { field: "path", count: 2, separator: "whitespace" } });
 		service.onToolResult(fixture<ToolResultEvent>({ type: "tool_result", toolCallId: "call-1", toolName: "test", input: { path: "src/a.ts", count: 3 }, details: { status: "ok" }, content: [], isError: false }));
 		monotonic = 125;
 		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "call-1", toolName: "test", result: result({ status: "ok", truncated: true }), isError: false });
@@ -96,7 +96,11 @@ describe("telemetry service", () => {
 			status: "success",
 			truncated: true,
 			batch: { size: 2, index: 0 },
-			repair: { status: "repaired", operations: ["numeric_string_to_number"] },
+			repair: {
+				status: "repaired",
+				operations: ["numeric_string_to_number", "split_path_list"],
+				fanout: { field: "path", count: 2, separator: "whitespace" },
+			},
 			fields: { input_count: 3, status: "ok", truncated: true },
 			targets: [{ kind: "file", value: "src/a.ts" }],
 		});

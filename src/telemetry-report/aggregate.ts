@@ -56,12 +56,29 @@ function summarizeTool(tool: string, calls: readonly CallRecord[]): ToolStatisti
 		output_chars: numericSummary(calls.flatMap((call) => call.output_chars ?? [])),
 		truncation_rate: rateSummary(calls.filter((call) => call.truncated === true).length, calls.length),
 		error_codes: frequency(calls.filter((call) => call.status === "error").flatMap((call) => call.error?.code ?? [])),
+		input_path_count: numericFieldSummary(calls, "input_path_count"),
+		scope_count: numericFieldSummary(calls, "scope_count"),
+		multi_scope_calls: calls.filter((call) => numericField(call, "input_path_count") > 1 || numericField(call, "scope_count") > 1).length,
+		scope_error_calls: calls.filter((call) => numericField(call, "scope_error_count") > 0).length,
+		scope_errors: calls.reduce((sum, call) => sum + numericField(call, "scope_error_count"), 0),
 		repair: {
 			observed_calls: repairs.length,
 			repaired_rate: rateSummary(repairs.filter((call) => call.repair?.status === "repaired").length, repairs.length),
 			operations: frequency(repairs.flatMap((call) => call.repair?.operations ?? [])),
+			fanout_calls: repairs.filter((call) => call.repair?.fanout !== undefined).length,
+			fanout_scopes: numericSummary(repairs.flatMap((call) => call.repair?.fanout?.count ?? [])),
+			fanout_separators: frequency(repairs.flatMap((call) => call.repair?.fanout?.separator ?? [])),
 		},
 	};
+}
+
+function numericField(call: CallRecord, key: string): number {
+	const value = call.fields?.[key];
+	return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function numericFieldSummary(calls: readonly CallRecord[], key: string) {
+	return numericSummary(calls.map((call) => call.fields?.[key]).filter((value): value is number => typeof value === "number" && Number.isFinite(value)));
 }
 
 function matchesRun(run: RunRecord, query: TelemetryReportQuery): boolean {

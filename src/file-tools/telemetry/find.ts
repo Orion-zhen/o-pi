@@ -10,7 +10,7 @@ import {
 } from "./common.js";
 
 export const findTelemetry = defineToolTelemetry<FindParams, FindDetails | FailedResult>({
-	input: projectFileInput(["query", "path"], "directory"),
+	input: projectFileInput(["query", "path"], "directory", { pathList: true }),
 	result(_params, result) {
 		const details = record(result.details);
 		return { fields: fileResultFields(details), candidates: findCandidates(details) };

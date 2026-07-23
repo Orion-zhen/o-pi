@@ -1,4 +1,4 @@
-import type { RepairOperation, ToolArgumentStatus } from "../tool-repair/types.js";
+import type { RepairFanout, RepairOperation, ToolArgumentStatus } from "../tool-repair/types.js";
 
 export type FieldValue = string | number | boolean | null | string[];
 export type Fields = Record<string, FieldValue>;
@@ -62,6 +62,7 @@ export interface CallBatch {
 export interface CallRepair {
 	status: ToolArgumentStatus;
 	operations: RepairOperation[];
+	fanout?: RepairFanout;
 }
 
 export interface CallError {

@@ -111,7 +111,11 @@ describe("tool-input repair", () => {
 		}, { onPreparation: (value) => { observation = value; } });
 
 		expect(tool.prepareArguments?.(input)).toEqual(expected);
-		expect(observation).toMatchObject({ status: "repaired", operations });
+		expect(observation).toMatchObject({
+			status: "repaired",
+			operations,
+			fanout: { field: "path", count: expected.path.length, separator: expected.path.length === 1 ? "scalar" : "mixed" },
+		});
 	});
 
 	it("只在 pathListFields 中拆分路径，拒绝空 token、超限和不可解析输入", () => {

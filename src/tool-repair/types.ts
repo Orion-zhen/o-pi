@@ -3,6 +3,13 @@ import type { TSchema } from "typebox";
 export type RepairPath = string;
 
 export type ToolArgumentStatus = "accepted" | "repaired" | "invalid";
+export type RepairSeparator = "scalar" | "comma" | "whitespace" | "newline" | "mixed";
+
+export interface RepairFanout {
+	field: string;
+	count: number;
+	separator: RepairSeparator;
+}
 
 export type RepairOperation =
 	| "original_prepare"
@@ -25,6 +32,7 @@ export interface RepairObservation {
 	preparedArgs: unknown;
 	status: ToolArgumentStatus;
 	operations: readonly RepairOperation[];
+	fanout?: RepairFanout;
 }
 
 export interface RepairObserver {
