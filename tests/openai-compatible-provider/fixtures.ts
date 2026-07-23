@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { Provider } from "@earendil-works/pi-ai";
-import { ModelRegistry, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createEventBus, ModelRegistry, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import {
 	fetchProviderModelsFromEndpoint,
@@ -70,6 +70,7 @@ export function createExtensionHarness(): ExtensionHarness {
 	return {
 		providers,
 		pi: {
+			events: createEventBus(),
 			registerProvider(provider: Provider) {
 				providers.push(provider);
 			},
@@ -81,6 +82,7 @@ export function createExtensionHarness(): ExtensionHarness {
 
 export function createRegistryPi(registry: ModelRegistry): ExtensionAPI {
 	return {
+		events: createEventBus(),
 		registerProvider(provider: Provider) {
 			registry.registerProvider(provider);
 		},

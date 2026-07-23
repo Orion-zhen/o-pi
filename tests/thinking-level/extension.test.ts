@@ -1,8 +1,13 @@
-import type { Model, ModelThinkingLevel, ThinkingLevelMap } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { Api, Model, ModelThinkingLevel, Provider, ThinkingLevelMap } from "@earendil-works/pi-ai";
+import { createEventBus, type EventBus, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
 import thinkingLevelExtension from "../../agent/extensions/thinking-level.js";
+import {
+	registerOpenAICompatibleProviders,
+	type ModelsJsoncConfig,
+	type ThinkingPresetName,
+} from "../../src/openai-compatible-provider/index.js";
 
 type CommandOptions = Parameters<ExtensionAPI["registerCommand"]>[1];
 type CommandContext = Parameters<CommandOptions["handler"]>[1];
@@ -32,7 +37,11 @@ function createModel(options: {
 	};
 }
 
-function registerCommand(model: Model<"openai-completions"> | undefined, initialLevel: ModelThinkingLevel = "medium") {
+function registerCommand(
+	model: Model<Api> | undefined,
+	initialLevel: ModelThinkingLevel = "medium",
+	events: EventBus = createEventBus(),
+) {
 	let commandName: string | undefined;
 	let commandOptions: CommandOptions | undefined;
 	let currentLevel = initialLevel;
@@ -40,6 +49,7 @@ function registerCommand(model: Model<"openai-completions"> | undefined, initial
 	const handlers = new Map<string, Handler>();
 
 	const pi = {
+		events,
 		registerCommand(name: string, options: CommandOptions) {
 			commandName = name;
 			commandOptions = options;
@@ -84,6 +94,43 @@ function registerCommand(model: Model<"openai-completions"> | undefined, initial
 	};
 }
 
+function registerResponsesModel(
+	events: EventBus,
+	providerThinkingPreset: ThinkingPresetName | undefined,
+	modelThinkingPreset: ThinkingPresetName | undefined,
+	runtimeOverrides: { dropParams?: string[]; extraBody?: Record<string, unknown> } = {},
+): Model<Api> {
+	const config: ModelsJsoncConfig = {
+		providers: {
+			gateway: {
+				baseUrl: "https://gateway.example.test/v1",
+				apiKey: "EMPTY",
+				api: "openai-responses",
+				...(providerThinkingPreset !== undefined ? { thinkingPreset: providerThinkingPreset } : {}),
+				models: [{
+					id: "m",
+					defaultThinkingLevel: "high",
+					...(modelThinkingPreset !== undefined ? { thinkingPreset: modelThinkingPreset } : {}),
+					...runtimeOverrides,
+				}],
+			},
+		},
+	};
+	const registered: Provider[] = [];
+	const pi = {
+		events,
+		registerProvider(provider: Provider) {
+			registered.push(provider);
+		},
+		on() {},
+		setThinkingLevel() {},
+	} as unknown as ExtensionAPI;
+	registerOpenAICompatibleProviders(pi, config, "/tmp/models.jsonc");
+	const model = registered[0]?.getModels()[0];
+	if (!model) throw new Error("registered model missing");
+	return model;
+}
+
 describe("thinking level extension", () => {
 	it("注册 /thinking-level，补全只包含当前模型支持的等级并显示映射", () => {
 		const command = registerCommand(createModel({
@@ -121,6 +168,60 @@ describe("thinking level extension", () => {
 			{ label: "high → enabled", value: "high" },
 			{ label: "xhigh → enabled", value: "xhigh" },
 		]);
+	});
+
+	it.each([
+		[undefined, "chat-template-enabled", true],
+		["openai", "chat-template-enabled", true],
+		["chat-template-enabled", undefined, true],
+		["chat-template-enabled", "none", false],
+		[undefined, undefined, false],
+	] as const)(
+		"Responses runtime 映射 provider=%s model=%s 时 boolean=%s",
+		async (providerThinkingPreset, modelThinkingPreset, expectedBoolean) => {
+			const events = createEventBus();
+			const model = registerResponsesModel(events, providerThinkingPreset, modelThinkingPreset);
+			expect(model.compat).not.toHaveProperty("thinkingFormat");
+
+			const command = registerCommand(model, "high", events);
+			const completions = await command.commandOptions?.getArgumentCompletions?.("");
+			const labels = completions?.map((option) => option.label);
+			expect(labels).toEqual(expectedBoolean
+				? ["off → disabled", "minimal → enabled", "low → enabled", "medium → enabled", "high → enabled"]
+				: ["off", "minimal", "low", "medium", "high"]);
+		},
+	);
+
+	it("Pi 组合产生的新模型对象仍按 provider/model 查询 Responses runtime", async () => {
+		const events = createEventBus();
+		const model = registerResponsesModel(events, undefined, "chat-template-enabled");
+		const composedModel: Model<Api> = { ...model, name: "Composed model" };
+
+		const command = registerCommand(composedModel, "high", events);
+		const completions = await command.commandOptions?.getArgumentCompletions?.("");
+		expect(completions?.[0]?.label).toBe("off → disabled");
+	});
+
+	it.each([
+		{ name: "dropParams", overrides: { dropParams: ["chat_template_kwargs"] } },
+		{ name: "extraBody", overrides: { extraBody: { chat_template_kwargs: { enable_thinking: true } } } },
+	])("$name 覆盖最终 payload 时不声明 boolean 映射", async ({ overrides }) => {
+		const events = createEventBus();
+		const model = registerResponsesModel(events, undefined, "chat-template-enabled", overrides);
+
+		const command = registerCommand(model, "high", events);
+		const completions = await command.commandOptions?.getArgumentCompletions?.("");
+		expect(completions?.map((option) => option.label)).toEqual(["off", "minimal", "low", "medium", "high"]);
+	});
+
+	it("重复 provider 注册会替换旧的 Responses runtime resolver", async () => {
+		const events = createEventBus();
+		const oldModel = registerResponsesModel(events, undefined, "chat-template-enabled");
+		registerResponsesModel(events, undefined, "none");
+
+		const command = registerCommand(oldModel, "high", events);
+		const completions = await command.commandOptions?.getArgumentCompletions?.("");
+		expect(completions?.map((option) => option.label)).toEqual(["off", "minimal", "low", "medium", "high"]);
 	});
 
 	it("带参数时只接受当前模型支持的等级", async () => {

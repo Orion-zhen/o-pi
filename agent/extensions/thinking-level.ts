@@ -1,5 +1,7 @@
 import { getSupportedThinkingLevels, type Api, type Model, type ModelThinkingLevel } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { EventBus, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+import { queryThinkingDisplayCapability } from "../../src/thinking-level/display-capability.js";
 
 const COMMAND_NAME = "thinking-level";
 const COMMAND_DESCRIPTION = "Change the current thinking level.";
@@ -9,7 +11,7 @@ interface ThinkingLevelOption {
 	label: string;
 }
 
-type ThinkingLevelAPI = Pick<ExtensionAPI, "getThinkingLevel" | "on" | "registerCommand" | "setThinkingLevel">;
+type ThinkingLevelAPI = Pick<ExtensionAPI, "events" | "getThinkingLevel" | "on" | "registerCommand" | "setThinkingLevel">;
 
 /** 注册 /thinking-level；菜单与补全只展示当前模型支持的 Pi thinking level。 */
 export default function thinkingLevelExtension(pi: ThinkingLevelAPI): void {
@@ -25,7 +27,7 @@ export default function thinkingLevelExtension(pi: ThinkingLevelAPI): void {
 		description: COMMAND_DESCRIPTION,
 		getArgumentCompletions: (argumentPrefix) => {
 			const prefix = argumentPrefix.trim().toLowerCase();
-			const options = getThinkingLevelOptions(currentModel).filter(({ level }) => level.startsWith(prefix));
+			const options = getThinkingLevelOptions(currentModel, pi.events).filter(({ level }) => level.startsWith(prefix));
 			return options.length > 0 ? options.map(({ level, label }) => ({ label, value: level })) : null;
 		},
 		async handler(args, ctx) {
@@ -35,7 +37,7 @@ export default function thinkingLevelExtension(pi: ThinkingLevelAPI): void {
 				return;
 			}
 
-			const options = getThinkingLevelOptions(model);
+			const options = getThinkingLevelOptions(model, pi.events);
 			const trimmedArgs = args.trim().toLowerCase();
 			if (trimmedArgs.length > 0) {
 				const option = options.find(({ level }) => level === trimmedArgs);
@@ -63,9 +65,10 @@ export default function thinkingLevelExtension(pi: ThinkingLevelAPI): void {
 }
 
 /** 返回 Pi 判定为可用的等级，并展示最终请求使用的布尔或字符串映射。 */
-export function getThinkingLevelOptions(model: Model<Api> | undefined): ThinkingLevelOption[] {
+export function getThinkingLevelOptions(model: Model<Api> | undefined, events?: EventBus): ThinkingLevelOption[] {
 	if (!model) return [];
-	const booleanThinking = usesBooleanThinking(model);
+	const booleanThinking = usesBooleanThinking(model)
+		|| (events !== undefined && queryThinkingDisplayCapability(events, model) === "boolean");
 	return getSupportedThinkingLevels(model).map((level) => {
 		const mapped = model.thinkingLevelMap?.[level];
 		let label: string = level;

@@ -226,7 +226,7 @@
 
 - 无参数时需要 UI；选择器只展示 Pi 判定为当前模型支持的等级。
 - `thinkingLevelMap` 中值为 `null` 的等级不会展示。
-- 模型最终使用 `chat_template_kwargs.enable_thinking` 布尔控制时，优先显示为 `off → disabled`，其他支持等级显示为 `enabled`。
+- 模型最终使用 `chat_template_kwargs.enable_thinking` 布尔控制时（包括 OpenAI Completions compat 和 OpenAI Responses 请求期 preset），优先显示为 `off → disabled`，其他支持等级显示为 `enabled`。
 - 存在字符串映射时显示为 `Pi 等级 → provider 值`，例如 `xhigh → max`。
 - 带 `<level>` 时只接受当前模型支持的 Pi 等级，再调用 `pi.setThinkingLevel()`。
 - 参数补全同样跟随当前模型，并显示上述映射。

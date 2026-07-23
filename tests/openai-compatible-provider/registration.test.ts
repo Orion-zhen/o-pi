@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { InMemoryCredentialStore, InMemoryModelsStore } from "@earendil-works/pi-ai";
-import { ModelRegistry, ModelRuntime, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createEventBus, ModelRegistry, ModelRuntime, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
 import openAICompatibleProvider from "../../agent/extensions/openai-compatible-provider.js";
@@ -116,6 +116,7 @@ describe("openai-compatible-provider registration", () => {
 		const handlers = new Map<string, (event: unknown, ctx?: unknown) => void>();
 		const thinkingLevels: string[] = [];
 		const pi = {
+			events: createEventBus(),
 			registerProvider() {},
 			on(name: string, handler: (event: unknown, ctx?: unknown) => void) {
 				handlers.set(name, handler);
