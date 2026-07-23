@@ -26,67 +26,67 @@
         "maxTokensField": "max_tokens",
 
         // tool message 是否必须携带 name。
-        // "requiresToolResultName": true,
+        "requiresToolResultName": true,
         // tool message 后接 user message 前是否必须插入 assistant message。
-        // "requiresAssistantAfterToolResult": true,
+        "requiresAssistantAfterToolResult": true,
         // 是否把 thinking block 转成带 <thinking> 分隔符的文本。
-        // "requiresThinkingAsText": true,
+        "requiresThinkingAsText": true,
         // replay reasoning assistant 消息时是否必须补空 reasoning_content。
-        // "requiresReasoningContentOnAssistantMessages": true,
+        "requiresReasoningContentOnAssistantMessages": true,
 
         // thinking 参数格式；通常由 thinkingPreset 设置，无需同时配置。
         // 可选 openai/openrouter/deepseek/together/zai/qwen/chat-template/
         // qwen-chat-template/string-thinking/ant-ling。
-        // "thinkingFormat": "chat-template",
+        "thinkingFormat": "chat-template",
         // thinkingFormat=chat-template 时发送的 chat_template_kwargs；
         // $var 会在请求时替换为 Pi 当前的 thinking 开关或 effort。
-        // "chatTemplateKwargs": {
-        //   "enable_thinking": { "$var": "thinking.enabled" },
-        //   "reasoning_effort": { "$var": "thinking.effort", "omitWhenOff": true }
-        // },
+        "chatTemplateKwargs": {
+          "enable_thinking": { "$var": "thinking.enabled" },
+          "reasoning_effort": { "$var": "thinking.effort", "omitWhenOff": true }
+        },
 
         // 是否接受 tool definition 中的 strict 字段。
-        // "supportsStrictMode": false,
+        "supportsStrictMode": false,
         // Anthropic 风格 prompt cache_control 标记。
-        // "cacheControlFormat": "anthropic",
+        "cacheControlFormat": "anthropic",
         // 是否发送 session affinity headers。
-        // "sendSessionAffinityHeaders": true,
+        "sendSessionAffinityHeaders": true,
         // session affinity header 格式：openai/openai-nosession/openrouter。
-        // "sessionAffinityFormat": "openai-nosession",
+        "sessionAffinityFormat": "openai-nosession",
         // 是否接受长 prompt cache retention。
-        // "supportsLongCacheRetention": false,
+        "supportsLongCacheRetention": false,
         // provider 延迟加载工具的序列化模式。
-        // "deferredToolsMode": "kimi",
+        "deferredToolsMode": "kimi",
         // z.ai 是否接受顶层 tool_stream=true。
-        // "zaiToolStream": true,
+        "zaiToolStream": true,
 
         // OpenRouter 的 provider 路由参数。
-        // "openRouterRouting": {
-        //   "allow_fallbacks": true,
-        //   "require_parameters": false,
-        //   "data_collection": "deny",
-        //   "zdr": true,
-        //   "enforce_distillable_text": false,
-        //   "order": ["provider-a", "provider-b"],
-        //   "only": ["provider-a"],
-        //   "ignore": ["provider-c"],
-        //   "quantizations": ["fp16", "bf16"],
-        //   "sort": { "by": "latency", "partition": "model" },
-        //   "max_price": {
-        //     "prompt": 1,
-        //     "completion": 2,
-        //     "image": 0.01,
-        //     "audio": 0.01,
-        //     "request": 0.001
-        //   },
-        //   "preferred_min_throughput": { "p50": 20, "p90": 10 },
-        //   "preferred_max_latency": { "p50": 1, "p90": 3 }
-        // },
+        "openRouterRouting": {
+          "allow_fallbacks": true,
+          "require_parameters": false,
+          "data_collection": "deny",
+          "zdr": true,
+          "enforce_distillable_text": false,
+          "order": ["provider-a", "provider-b"],
+          "only": ["provider-a"],
+          "ignore": ["provider-c"],
+          "quantizations": ["fp16", "bf16"],
+          "sort": { "by": "latency", "partition": "model" },
+          "max_price": {
+            "prompt": 1,
+            "completion": 2,
+            "image": 0.01,
+            "audio": 0.01,
+            "request": 0.001
+          },
+          "preferred_min_throughput": { "p50": 20, "p90": 10 },
+          "preferred_max_latency": { "p50": 1, "p90": 3 }
+        },
         // Vercel AI Gateway 的 provider 过滤和顺序。
-        // "vercelGatewayRouting": {
-        //   "only": ["anthropic", "openai"],
-        //   "order": ["anthropic", "openai"]
-        // }
+        "vercelGatewayRouting": {
+          "only": ["anthropic", "openai"],
+          "order": ["anthropic", "openai"]
+        }
       },
       "models": [
         {
