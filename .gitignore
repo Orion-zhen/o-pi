@@ -10,6 +10,8 @@ agent/tools.jsonc
 cache/
 /telemetry/
 
+TASK.md
+
 subagents/
 .pi/
 
