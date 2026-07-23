@@ -384,15 +384,16 @@ a/
 
 ```json
 {
-	"path": "src",
+	"path": ["src", "tests"],
 	"query": "*.{ts,tsx}"
 }
 ```
 
 字段：
 
-* `path`：搜索根目录，默认 `.`。相对路径按 `cwd` 解析；workspace 内绝对路径会折叠为 workspace-relative path；workspace 外绝对路径保持绝对。
-* `query`：文件名、目录名、路径片段、概念或 glob。先检查相对 `path` 的精确路径；glob 严格匹配路径，其他查询用于普通路径排名和 Repo Map 语义召回；不能逃出搜索根，空字符串非法。
+* `path`：可选的非空搜索根目录数组，默认 `["."]`。多个 path 是 OR/union scope，所有 scope 使用同一个 query；不是 AND，也不是路径之间的笛卡尔积。相对路径按 `cwd` 解析；workspace 内绝对路径会折叠为 workspace-relative path；workspace 外绝对路径保持绝对。`path: []` 和空元素非法。
+* `query`：文件名、目录名、路径片段、概念或 glob。先检查相对每个 `path` 的精确路径；glob 严格匹配路径，其他查询用于普通路径排名和 Repo Map 语义召回；不能逃出搜索根，空字符串非法。
+* 旧的单路径或逗号/空白/换行分隔字符串由 `tool-repair` 迁移为数组；引号可保护包含空白或逗号的真实路径。无法可靠解析或超过最大路径数时不猜测，交给 schema 校验失败。
 
 完整窄结果只返回路径；目录以 `/` 结尾，query/path 和可由路径推导的计数不重复：
 
@@ -437,6 +438,8 @@ src/auth/service.ts [name similarity]
 * 非 glob query 负责路径/语义召回和相关性排序；tokenization、smart case、硬等级、Repo Map 融合、稳定排序和多样性选择见 [文件工具排序算法](file-tools-ranking.md)。
 * 精确结果不计算不会展示的 fuzzy suggestions；严格多词检索先用其必要的 token 覆盖条件缩小 Fuse 输入，单候选分数和最终结果不变。仅零主结果的大集合按逻辑核心数的一半并行计算 typo suggestions；边界由条目数、query 词数、可用 worker 数和 worker 冷热状态以 O(1) 成本动态估算，分块 Top-3 再按同一 Fuse 排序全局合并。
 * workspace 内结果路径相对 workspace root，统一使用 `/`；workspace 外显式搜索路径返回规范化后的相对或绝对路径。
+* 多个 scope 统一排序并以规范化相对路径去重；重复或嵌套 scope 不会重复条目。所有 scope 共享结果数量、扫描条目数和模型 token 预算，不会为每个 path 各返回一份完整预算。
+* 至少一个 scope 成功时保留有效条目，并在 `details.scope_errors` 及模型输出中标注失败 scope；所有 scope 失败时返回结构化错误。
 * 文件和目录 symlink 均不返回；目录 symlink 不进入。
 * 目录遍历和目录结果分开处理：默认可 prune 的 ignored 目录不进入；因反向 include 不能 prune 的目录可进入但自身不返回；显式 `path` 或 query glob 静态前缀命中 ignored 目录时允许在该目录内查找。
 * `blocked_path` 命中时拒绝或跳过；`.git/` 默认不可查。
@@ -451,7 +454,7 @@ src/auth/service.ts [name similarity]
 ```json
 {
 	"query": "AuthService.login",
-	"path": "src",
+	"path": ["src", "tests"],
 	"match": "auto",
 	"glob": "**/*.{ts,tsx}"
 }
@@ -460,9 +463,10 @@ src/auth/service.ts [name similarity]
 字段：
 
 * `query`：要查找的文本、symbol、qualified symbol、显式正则或自然语言代码意图。
-* `path`：目录或普通文件；默认 `.`。相对路径按 `cwd` 解析，绝对路径可指向 workspace 外；目录递归检索，文件只检索该文件。
+* `path`：可选的非空目录或普通文件 scope 数组，默认 `["."]`。多个 path 是 OR/union scope，所有 scope 共享同一个 `query`、`match` 和 `glob`；不是 AND。相对路径按 `cwd` 解析，绝对路径可指向 workspace 外；目录递归检索，文件只检索该文件。`path: []` 和空元素非法。
 * `match`：`auto`、`literal` 或 `regex`；默认 `auto`。
-* `glob`：相对 `path` 的 glob，只进一步缩小候选文件范围；ignore、symlink 和 `blocked_path` 仍由工具统一处理。
+* `glob`：相对每个 `path` 的 glob，只进一步缩小候选文件范围；ignore、symlink 和 `blocked_path` 仍由工具统一处理。
+* 旧的单路径或逗号/空白/换行分隔字符串由 `tool-repair` 迁移为数组；引号可保护包含空白或逗号的真实路径。无法可靠解析或超过最大路径数时不猜测，交给 schema 校验失败。
 
 模式：
 
@@ -496,6 +500,8 @@ token.ts:14 issueToken [callee]
 * 文本 fallback 先用不改变语义的必要条件排除无关行，只统计 query 所需 token，并在首次真实命中时才构建 UTF-8 行索引；候选 hydration 未增加源码时不重复执行完整排名。缓存 AST 仍须经过当前 query 的预筛和统一 Top-K，不能绕过语义候选上限。
 * LSP 与 Repo Map 独立查询并行执行；候选源码和 Repo Map live hash 复核采用固定上限的并发读取，并复用单次调用内的内容 hash。
 * 文件 fingerprint 使用 size、mtime 和内容 hash；新增、修改、删除和 ignore 变化会在后续调用中更新。
+* 多个 scope 合并为一个全局结果，匹配区域按统一排序并以稳定区域键去重；所有 scope 共享区域数量、扫描文件数和模型 token 预算，不会为每个 path 各返回一份完整预算。
+* 至少一个 scope 成功时保留有效区域，并在 `details.scope_errors` 及模型输出中标注失败 scope；所有 scope 失败时返回结构化错误。
 * 普通 dotfile 可检索；`.git/` 等 `blocked_path` 不可检索。
 * 递归时不跟随文件或目录 symlink；显式 `path` 可指向 workspace 外。
 * 二进制、非法 UTF-8、超大文件和局部权限失败在递归检索中计入 `skipped_files`；显式检索单个文件时返回对应错误。
