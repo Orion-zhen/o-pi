@@ -2,9 +2,13 @@ import { Ajv, type AnySchema } from "ajv";
 import { describe, expect, it } from "vitest";
 import subagentExtension from "../../agent/extensions/subagent.js";
 import { SUBAGENT_COMMAND_ENTRY } from "../../src/subagent/renderer.js";
+import { preserveEnv } from "../helpers/lifecycle.js";
+
+preserveEnv("PI_SUBAGENT_CHILD", "PI_SUBAGENT_FORK");
 
 interface RegisteredSubagentTool {
 	parameters: AnySchema;
+	execute(toolCallId: string, params: unknown, signal: AbortSignal | undefined, onUpdate: undefined, ctx: unknown): Promise<{ content: Array<{ type: string; text?: string }> }>;
 }
 
 function subagentTool(): RegisteredSubagentTool {
@@ -67,12 +71,21 @@ describe("subagent tool schema", () => {
 		expect(validateParams({ tasks: [{ agent: "scout", task: "inspect", extra: true }] })).toBe(false);
 	});
 
+	it("子进程保留 schema 但运行时阻止递归", async () => {
+		process.env.PI_SUBAGENT_CHILD = "1";
+
+		const result = await subagentTool().execute("call", { tasks: [{ agent: "scout", task: "nested" }] }, undefined, undefined, {});
+
+		expect(result.content[0]?.text).toContain("Recursive subagent calls are forbidden");
+	});
+
 	it("不暴露运行时安全、并发或重试配置", () => {
 		const schemaText = JSON.stringify(subagentSchema());
 		expect(schemaText).not.toContain("agentScope");
 		expect(schemaText).not.toContain("allowProjectAgents");
 		expect(schemaText).not.toContain("maxConcurrency");
 		expect(schemaText).not.toContain("retries");
+		expect(schemaText).not.toContain("fork");
 		expect(schemaText).not.toContain("outputMode");
 		expect(schemaText).not.toContain('"mode"');
 	});

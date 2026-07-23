@@ -1,7 +1,24 @@
-import type { AgentToolResult } from "@earendil-works/pi-coding-agent";
+import type { Api, Model } from "@earendil-works/pi-ai";
+import type {
+	AgentToolResult,
+	SessionEntry,
+	SessionHeader,
+	ToolInfo as PiToolInfo,
+} from "@earendil-works/pi-coding-agent";
 
 export type SubagentMode = "parallel" | "chain";
 export type SubagentSource = "user" | "project";
+export type ContextMode = "isolated" | "fork";
+export type ParentModel = Model<Api>;
+export type ToolInfo = PiToolInfo;
+
+export interface ParentSessionManager {
+	getSessionId(): string;
+	getLeafId(): string | null;
+	getLeafEntry(): SessionEntry | undefined;
+	getEntries(): SessionEntry[];
+	getHeader(): SessionHeader | null;
+}
 
 export interface UsageStats {
 	input: number;
@@ -40,6 +57,8 @@ export interface SubagentConfig {
 export interface AgentDefinition {
 	name: string;
 	description: string;
+	body: string;
+	fork: boolean;
 	model?: string;
 	tools: string[];
 	timeoutMs?: number;
@@ -70,6 +89,7 @@ export interface SubagentToolParams {
 export interface SubagentRunResult {
 	runId: string;
 	mode: SubagentMode;
+	contextMode: ContextMode;
 	agent: string;
 	source: SubagentSource;
 	task: string;
@@ -102,18 +122,52 @@ export type RenderEvent =
 	| { type: "text"; text: string }
 	| { type: "tool"; name: string; args: Record<string, unknown> };
 
-export interface ProcessRunInput {
+export interface ForkManifest {
+	snapshotHash: string;
+	systemPromptHash: string;
+	modelHash: string;
+	toolsHash: string;
+	thinkingLevel: string;
+	sessionId: string;
+	cwd: string;
+}
+
+export interface ForkExecutionContext {
+	snapshotPath: string;
+	systemPromptPath: string;
+	manifestPath: string;
+	systemPromptHash: string;
+	model: ParentModel;
+	activeTools: readonly string[];
+	allTools: readonly ToolInfo[];
+	thinkingLevel: string;
+	sessionId: string;
+	cwd: string;
+}
+
+interface ProcessRunBase {
 	runId: string;
 	mode: SubagentMode;
 	agent: AgentDefinition;
 	task: string;
-	cwd: string;
-	model?: string;
-	tools: string[];
 	timeoutMs: number;
 	attempt: number;
 	maxAttempts: number;
 }
+
+export type ProcessRunInput = ProcessRunBase & (
+	| {
+		contextMode: "isolated";
+		cwd: string;
+		model?: string;
+		tools: string[];
+	}
+	| {
+		contextMode: "fork";
+		forkContext: ForkExecutionContext;
+		assignment: string;
+	}
+);
 
 export interface ProcessRunOutput {
 	exitCode: number;
@@ -146,8 +200,14 @@ export interface ProcessRunProgress {
 export interface ExecutorContext {
 	cwd: string;
 	hasUI: boolean;
-	currentModel?: string | undefined;
-	registeredTools?: string[] | undefined;
+	currentModel?: ParentModel | undefined;
+	activeTools?: readonly string[] | undefined;
+	allTools?: readonly ToolInfo[] | undefined;
+	thinkingLevel?: string | undefined;
+	sessionManager?: ParentSessionManager | undefined;
+	systemPrompt?: string | undefined;
+	invocation?: "tool" | "command" | undefined;
+	toolCallId?: string | undefined;
 	signal?: AbortSignal | undefined;
 	confirm?: ((title: string, message: string) => Promise<boolean>) | undefined;
 	onUpdate?: ((partial: SubagentToolResult) => void) | undefined;

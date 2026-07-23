@@ -1,6 +1,9 @@
+import { createHash } from "node:crypto";
+import { writeFile } from "node:fs/promises";
+import path from "node:path";
 import type { BuildSystemPromptOptions, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
-import { preserveEnv } from "../helpers/lifecycle.js";
+import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 import {
 	buildRuntimeSystemPrompt,
@@ -9,7 +12,8 @@ import {
 	registerSystemCommand,
 } from "../../agent/extensions/system-prompt.js";
 
-preserveEnv("PI_SUBAGENT_CHILD");
+preserveEnv("PI_SUBAGENT_CHILD", "PI_SUBAGENT_FORK", "PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE", "PI_SUBAGENT_FORK_MANIFEST");
+const temp = useTempDir("o-pi-fork-system-prompt-");
 
 describe("system prompt extension", () => {
 	it("各类 prompt 输入均可完成构建，但不把生成文案作为测试契约", async () => {
@@ -33,6 +37,28 @@ describe("system prompt extension", () => {
 		process.env.PI_SUBAGENT_CHILD = "1";
 		await expect(buildRuntimeSystemPrompt({ ...base, customPrompt: "---\nname: scout\ndescription: Inspect code\n---\nBody." }, "/repo"))
 			.resolves.toEqual(expect.any(String));
+	});
+
+	it("fork 子进程逐字读取父 system prompt 且不要求 Agent Markdown", async () => {
+		const prompt = "Exact parent prompt.\n保留 Unicode 与换行。\n";
+		const promptPath = path.join(temp.path, "prompt.txt");
+		const manifestPath = path.join(temp.path, "manifest.json");
+		await writeFile(promptPath, prompt);
+		await writeFile(manifestPath, JSON.stringify({
+			snapshotHash: "snapshot",
+			systemPromptHash: createHash("sha256").update(prompt).digest("hex"),
+			modelHash: "model",
+			toolsHash: "tools",
+			thinkingLevel: "medium",
+			sessionId: "session",
+			cwd: "/repo",
+		}));
+		process.env.PI_SUBAGENT_CHILD = "1";
+		process.env.PI_SUBAGENT_FORK = "1";
+		process.env.PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE = promptPath;
+		process.env.PI_SUBAGENT_FORK_MANIFEST = manifestPath;
+
+		await expect(buildRuntimeSystemPrompt({ cwd: "/different" }, "/different")).resolves.toBe(prompt);
 	});
 
 	it("子进程缺少 Agent Markdown 时拒绝启动", async () => {

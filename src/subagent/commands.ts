@@ -4,7 +4,7 @@ import { loadSubagentConfig } from "./config.js";
 import { executeSubagent, resolveMode } from "./executor.js";
 import { formatModelReference } from "./model.js";
 import { renderSubagentCommandWidget, SUBAGENT_COMMAND_ENTRY } from "./renderer.js";
-import type { AgentDefinition, SubagentConfig, SubagentTask, SubagentToolResult } from "./types.js";
+import type { AgentDefinition, ExecutorContext, ParentModel, ParentSessionManager, SubagentConfig, SubagentTask, SubagentToolResult } from "./types.js";
 
 interface AutocompleteItem {
 	value: string;
@@ -13,7 +13,9 @@ interface AutocompleteItem {
 
 interface SubagentCommandApi {
 	appendEntry<T>(customType: string, data?: T): void;
-	getAllTools(): Array<{ name: string }>;
+	getActiveTools: ExtensionAPI["getActiveTools"];
+	getAllTools: ExtensionAPI["getAllTools"];
+	getThinkingLevel: ExtensionAPI["getThinkingLevel"];
 	registerCommand: ExtensionAPI["registerCommand"];
 }
 
@@ -21,6 +23,8 @@ interface SubagentCommandContext {
 	cwd: ExtensionCommandContext["cwd"];
 	hasUI: ExtensionCommandContext["hasUI"];
 	model: ExtensionCommandContext["model"];
+	sessionManager: ParentSessionManager;
+	getSystemPrompt(): string;
 	signal: ExtensionCommandContext["signal"];
 	ui: Pick<ExtensionCommandContext["ui"], "confirm" | "getToolsExpanded" | "notify" | "setWidget">;
 }
@@ -34,7 +38,12 @@ export function registerSubagentCommands(pi: SubagentCommandApi): void {
 			handler: async (_args, ctx) => {
 				const config = await loadSubagentConfig(ctx.cwd);
 				const discovery = discoverAgents(ctx.cwd, config);
-				ctx.ui.notify(formatAgents(discovery.agents, config, registeredToolNames(pi)), "info");
+				const model = formatModelReference(ctx.model);
+				ctx.ui.notify(formatAgents(discovery.agents, config, registeredToolNames(pi), {
+					...(model !== undefined ? { model } : {}),
+					tools: pi.getActiveTools(),
+					cwd: ctx.cwd,
+				}), "info");
 			},
 		});
 
@@ -121,7 +130,7 @@ export function parsePipeline(input: string): { tasks: SubagentTask[] } | { erro
 }
 
 export async function runSubagentCommand(
-	pi: Pick<SubagentCommandApi, "appendEntry" | "getAllTools">,
+	pi: Pick<SubagentCommandApi, "appendEntry" | "getActiveTools" | "getAllTools" | "getThinkingLevel">,
 	ctx: SubagentCommandContext,
 	tasks: SubagentTask[],
 ): Promise<void> {
@@ -138,10 +147,8 @@ export async function runSubagentCommand(
 		const result = await executeSubagent(
 			{ tasks },
 			{
-				cwd: ctx.cwd,
+				...captureExecutorContext(pi, ctx, "command"),
 				hasUI: ctx.hasUI,
-				currentModel: formatModelReference(ctx.model),
-				registeredTools: registeredToolNames(pi),
 				signal: ctx.signal,
 				confirm: ctx.hasUI ? (title, message) => ctx.ui.confirm(title, message) : undefined,
 				onUpdate: (partial) => show(partial, true),
@@ -180,20 +187,47 @@ async function completeAgents(prefix: string): Promise<AutocompleteItem[] | null
 	return items.length > 0 ? items : null;
 }
 
-export function formatAgents(agents: AgentDefinition[], config: SubagentConfig, registeredTools: string[]): string {
+export function formatAgents(
+	agents: AgentDefinition[],
+	config: SubagentConfig,
+	registeredTools: string[],
+	parent?: { model?: string; tools: readonly string[]; cwd: string },
+): string {
 	if (agents.length === 0) return "No subagents found.";
 	return agents
 		.map((agent) => {
-			const tools = resolveSubagentTools(agent, config, registeredTools);
+			const tools = agent.fork && parent !== undefined ? [...parent.tools] : resolveSubagentTools(agent, config, registeredTools);
+			const model = agent.fork && parent !== undefined ? parent.model : agent.model ?? "(current)";
 			return [
 				`${agent.name} - ${agent.description}`,
 				`  source: ${agent.source} (${agent.filePath})`,
-				`  model: ${agent.model ?? "(current)"}`,
+				`  mode: ${agent.fork ? "fork" : "isolated"}`,
+				`  model: ${model ?? "(unavailable)"}`,
 				`  tools: ${tools.length > 0 ? tools.join(", ") : "(none)"}`,
+				`  cwd: ${agent.fork && parent !== undefined ? parent.cwd : "(task/workspace)"}`,
 				`  write: ${hasWriteCapability(tools) ? "yes" : "no"}`,
 			].join("\n");
 		})
 		.join("\n\n");
+}
+
+export function captureExecutorContext(
+	pi: Pick<SubagentCommandApi, "getActiveTools" | "getAllTools" | "getThinkingLevel">,
+	ctx: { cwd: string; model: ParentModel | undefined; sessionManager: ParentSessionManager; getSystemPrompt(): string },
+	invocation: "tool" | "command",
+	toolCallId?: string,
+): Pick<ExecutorContext, "cwd" | "currentModel" | "activeTools" | "allTools" | "thinkingLevel" | "sessionManager" | "systemPrompt" | "invocation" | "toolCallId"> {
+	return {
+		cwd: ctx.cwd,
+		...(ctx.model !== undefined ? { currentModel: ctx.model } : {}),
+		activeTools: pi.getActiveTools(),
+		allTools: pi.getAllTools(),
+		thinkingLevel: pi.getThinkingLevel(),
+		sessionManager: ctx.sessionManager,
+		systemPrompt: ctx.getSystemPrompt(),
+		invocation,
+		...(toolCallId !== undefined ? { toolCallId } : {}),
+	};
 }
 
 /** Pi 的 getAllTools 返回已注册工具元数据；子 Agent 只需要名称用于 --tools。 */

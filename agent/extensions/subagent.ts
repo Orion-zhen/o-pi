@@ -1,8 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
+	captureExecutorContext,
 	executeSubagent,
-	formatModelReference,
 	registerSubagentCommands,
 	renderSubagentCall,
 	renderSubagentCommandEntry,
@@ -36,15 +36,19 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 		tool: {
 			name: "subagent",
 			label: "subagent",
-			description: "Delegate bounded tasks to isolated agents.",
+			description: "Delegate bounded tasks to configured agents.",
 			promptSnippet: "delegate bounded tasks",
 			parameters: subagentParams,
-			async execute(_toolCallId, params, signal, onUpdate, ctx) {
+			async execute(toolCallId, params, signal, onUpdate, ctx) {
+				if (process.env.PI_SUBAGENT_CHILD === "1" || process.env.PI_SUBAGENT_FORK === "1") {
+					return {
+						content: [{ type: "text", text: "Recursive subagent calls are forbidden." }],
+						details: { mode: "parallel" as const, runId: "blocked", tasks: [], results: [], warnings: [] },
+					};
+				}
 				return executeSubagent(params as SubagentToolParams, {
-					cwd: ctx.cwd,
+					...captureExecutorContext(pi, ctx, "tool", toolCallId),
 					hasUI: ctx.hasUI,
-					currentModel: formatModelReference(ctx.model),
-					registeredTools: pi.getAllTools().map((tool) => tool.name),
 					...(signal !== undefined ? { signal } : {}),
 					...(ctx.hasUI ? { confirm: (title: string, message: string) => ctx.ui.confirm(title, message) } : {}),
 					...(onUpdate !== undefined ? { onUpdate } : {}),
@@ -60,10 +64,10 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 		if (event.toolName !== "subagent") return undefined;
 		const details = event.details;
 		if (!isSubagentDetails(details)) return undefined;
-		return details.results.some((result) => result.error !== undefined) ? { isError: true } : undefined;
+		return details.runId === "blocked" || details.results.some((result) => result.error !== undefined) ? { isError: true } : undefined;
 	});
 }
 
-function isSubagentDetails(value: unknown): value is { results: Array<{ error?: string }> } {
+function isSubagentDetails(value: unknown): value is { runId?: string; results: Array<{ error?: string }> } {
 	return typeof value === "object" && value !== null && Array.isArray((value as { results?: unknown }).results);
 }

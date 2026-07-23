@@ -1,6 +1,8 @@
 import { spawn as nodeSpawn, type SpawnOptionsWithoutStdio } from "node:child_process";
 import { existsSync } from "node:fs";
+import { mkdir, mkdtemp } from "node:fs/promises";
 import path from "node:path";
+import { formatModelReference } from "./model.js";
 import type { ProcessRunInput, ProcessRunOutput, ProcessRunProgress, RenderEvent, UsageStats } from "./types.js";
 
 type SpawnFunction = (
@@ -46,18 +48,14 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 	let providerError: string | undefined;
 	let exitCode = 1;
 
-	const args = ["--mode", "json", "-p", "--no-session", "--system-prompt", input.agent.filePath];
-	if (input.model !== undefined) args.push("--model", input.model);
-	args.push("--tools", input.tools.join(","));
-	args.push(`Task: ${input.task}`);
-
-	const invocation = getPiInvocation(args);
+	const launch = await buildLaunch(input);
+	const invocation = getPiInvocation(launch.args);
 	exitCode = await new Promise<number>((resolve) => {
 		const proc = spawnImpl(invocation.command, invocation.args, {
-			cwd: input.cwd,
+			cwd: launch.cwd,
 			shell: false,
 			stdio: ["pipe", "pipe", "pipe"],
-			env: { ...buildChildEnv(), PI_SUBAGENT_CHILD: "1" },
+			env: { ...buildChildEnv(), ...launch.env },
 		});
 		proc.stdin.end();
 		let settled = false;
@@ -194,6 +192,43 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 	};
 }
 
+async function buildLaunch(input: ProcessRunInput): Promise<{ args: string[]; cwd: string; env: NodeJS.ProcessEnv }> {
+	if (input.contextMode === "isolated") {
+		const args = ["--mode", "json", "-p", "--no-session", "--system-prompt", input.agent.filePath];
+		if (input.model !== undefined) args.push("--model", input.model);
+		args.push("--tools", input.tools.join(","), `Task: ${input.task}`);
+		return { args, cwd: input.cwd, env: { PI_SUBAGENT_CHILD: "1" } };
+	}
+
+	const fork = input.forkContext;
+	const childSessionsRoot = path.join(path.dirname(fork.snapshotPath), "child-sessions");
+	await mkdir(childSessionsRoot, { recursive: true, mode: 0o700 });
+	const childSessionDir = await mkdtemp(path.join(childSessionsRoot, "attempt-"));
+	const model = formatModelReference(fork.model);
+	if (model === undefined) throw new Error("fork setup error: current model is unavailable");
+	const args = [
+		"--mode", "json", "-p",
+		"--fork", fork.snapshotPath,
+		"--session-dir", childSessionDir,
+		"--session-id", fork.sessionId,
+		"--model", model,
+		"--thinking", fork.thinkingLevel,
+		"--tools", fork.activeTools.join(","),
+		input.assignment,
+	];
+	return {
+		args,
+		cwd: fork.cwd,
+		env: {
+			PI_SUBAGENT_CHILD: "1",
+			PI_SUBAGENT_FORK: "1",
+			PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE: fork.systemPromptPath,
+			PI_SUBAGENT_FORK_MANIFEST: fork.manifestPath,
+			PI_SUBAGENT_FORK_SNAPSHOT: fork.snapshotPath,
+		},
+	};
+}
+
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
 	const currentScript = process.argv[1];
 	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
@@ -218,7 +253,7 @@ function buildChildEnv(): NodeJS.ProcessEnv {
 
 function detectProviderError(text: string): string | undefined {
 	if (text.trim() === "") return undefined;
-	const patterns = [/model .*not.*found/i, /connection refused/i, /ECONNREFUSED/i, /rate.?limit/i, /provider error/i, /failed to load model/i];
+	const patterns = [/fork (?:setup error|context mismatch)/i, /model .*not.*found/i, /connection refused/i, /ECONNREFUSED/i, /rate.?limit/i, /provider error/i, /failed to load model/i];
 	return patterns.some((pattern) => pattern.test(text)) ? text.trim() : undefined;
 }
 

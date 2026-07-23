@@ -5,7 +5,7 @@ import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@earendil-works/
 import { collectAncestorDirs, isPathInside, safeRealpath, uniqueResolvedPaths } from "../resource-paths.js";
 import type { AgentDefinition, AgentDiscovery, SubagentConfig, SubagentSource } from "./types.js";
 
-const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls"]);
+const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "subagent"]);
 
 /** 发现用户级 Agent，并在用户配置允许时发现最近项目根目录下的 Agent。 */
 export function discoverAgents(cwd: string, config: SubagentConfig): AgentDiscovery {
@@ -119,12 +119,13 @@ function loadAgentsFromDir(
 
 function parseAgentFile(filePath: string, source: SubagentSource, config: SubagentConfig, warnings: string[]): AgentDefinition {
 	const content = readFileSync(filePath, "utf8");
-	const { frontmatter } = parseFrontmatter<Record<string, unknown>>(content);
-	const known = new Set(["name", "description", "model", "tools", "timeout_ms", "retries", "auto_confirm"]);
+	const { frontmatter, body } = parseFrontmatter<Record<string, unknown>>(content);
+	const known = new Set(["name", "description", "fork", "model", "tools", "timeout_ms", "retries", "auto_confirm"]);
 	for (const key of Object.keys(frontmatter)) {
 		if (!known.has(key)) warnings.push(`${filePath}: ignored unknown frontmatter field "${key}"`);
 	}
 	const tools = parseTools(frontmatter["tools"], config.defaultTools, filePath);
+	const fork = parseFork(frontmatter["fork"]);
 	const model = optionalString(frontmatter["model"], "model");
 	const timeoutMs = optionalInteger(frontmatter["timeout_ms"], "timeout_ms");
 	const retries = optionalInteger(frontmatter["retries"], "retries");
@@ -132,6 +133,8 @@ function parseAgentFile(filePath: string, source: SubagentSource, config: Subage
 	return {
 		name: requireString(frontmatter["name"], "name"),
 		description: requireString(frontmatter["description"], "description"),
+		body,
+		fork,
 		...(model !== undefined ? { model } : {}),
 		tools,
 		...(timeoutMs !== undefined ? { timeoutMs } : {}),
@@ -195,6 +198,12 @@ function optionalBoolean(value: unknown, field: string): boolean | undefined {
 	if (value === undefined || value === null || value === "") return undefined;
 	if (typeof value === "boolean") return value;
 	throw new Error(`${field} must be a boolean.`);
+}
+
+function parseFork(value: unknown): boolean {
+	if (value === undefined) return false;
+	if (typeof value === "boolean") return value;
+	throw new Error("fork must be a boolean.");
 }
 
 function optionalInteger(value: unknown, field: string): number | undefined {

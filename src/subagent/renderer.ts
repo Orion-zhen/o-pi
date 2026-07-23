@@ -32,6 +32,7 @@ export function renderSubagentResult(result: { content: Array<{ type: string; te
 		container.addChild(new Spacer(1));
 		container.addChild(new Text(formatRunHeader(item, theme), 0, 0));
 		container.addChild(new Text(formatField("Task", item.task, theme), 0, 0));
+		container.addChild(new Text(formatField("Mode", item.contextMode ?? "isolated", theme), 0, 0));
 		container.addChild(new Text(formatField("Cwd", displayPath(item.cwd), theme), 0, 0));
 		if (item.model !== undefined) container.addChild(new Text(formatField("Model", item.model, theme), 0, 0));
 		container.addChild(new Text(formatField("Tools", item.tools.join(", "), theme), 0, 0));

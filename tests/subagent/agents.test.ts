@@ -25,6 +25,33 @@ describe("subagent agent discovery", () => {
 		expect(found.agents[0]).toMatchObject({ name: "scout", tools: ["read", "grep"], source: "user" });
 	});
 
+	it.each([
+		[undefined, false],
+		["false", false],
+		["true", true],
+	] as const)("解析 fork: %s", async (forkValue, expected) => {
+		const forkLine = forkValue === undefined ? "" : `fork: ${forkValue}\n`;
+		await writeFile(path.join(dir, "agent", "agents", "fork.md"), `---\nname: fork\ndescription: Fork\n${forkLine}tools: read\n---\nFork body.`);
+
+		const found = discoverAgents(dir, defaultSubagentConfig());
+
+		expect(found.agents[0]).toMatchObject({ fork: expected, body: "Fork body." });
+		expect(found.warnings.some((warning) => warning.includes("unknown frontmatter"))).toBe(false);
+	});
+
+	it.each([
+		["fork: \"true\"", "string"],
+		["fork: 1", "number"],
+		["fork: { enabled: true }", "object"],
+	])("拒绝非布尔 fork (%s)", async (line) => {
+		await writeFile(path.join(dir, "agent", "agents", "bad-fork.md"), `---\nname: bad-fork\ndescription: Bad\n${line}\n---\nBody.`);
+
+		const found = discoverAgents(dir, defaultSubagentConfig());
+
+		expect(found.agents).toHaveLength(0);
+		expect(found.warnings[0]).toContain("fork must be a boolean");
+	});
+
 	it("统一解析 Agent Markdown 的执行元数据", async () => {
 		await writeFile(
 			path.join(dir, "agent", "agents", "worker.md"),
@@ -36,6 +63,8 @@ describe("subagent agent discovery", () => {
 		expect(found.agents[0]).toMatchObject({
 			name: "worker",
 			description: "Worker",
+			body: "Implement the task.",
+			fork: false,
 			model: "provider/model",
 			tools: ["read", "edit"],
 			timeoutMs: 120000,
@@ -106,6 +135,26 @@ describe("subagent agent discovery", () => {
 		const text = formatAgents(found.agents, defaultSubagentConfig(), ["read", "write"]);
 		expect(text).toContain("tools: read, write");
 		expect(text).toContain("write: yes");
+	});
+
+	it("/agents 对 fork 展示父会话最终配置而非声明", async () => {
+		await writeFile(
+			path.join(dir, "agent", "agents", "forker.md"),
+			"---\nname: forker\ndescription: Forker\nfork: true\nmodel: ignored/model\ntools: write\n---\nBody.",
+		);
+		const found = discoverAgents(dir, defaultSubagentConfig());
+
+		const text = formatAgents(found.agents, defaultSubagentConfig(), ["write", "read", "subagent"], {
+			model: "parent/model",
+			tools: ["read", "subagent"],
+			cwd: dir,
+		});
+
+		expect(text).toContain("mode: fork");
+		expect(text).toContain("model: parent/model");
+		expect(text).toContain("tools: read, subagent");
+		expect(text).toContain(`cwd: ${dir}`);
+		expect(text).not.toContain("ignored/model");
 	});
 
 	it("缺少 tools 使用只读默认，缺少 name 拒绝", async () => {

@@ -75,6 +75,7 @@ function runResult(): SubagentRunResult {
 	return {
 		runId: "run-1",
 		mode: "parallel",
+		contextMode: "isolated",
 		agent: "scout",
 		source: "user",
 		task: "inspect",

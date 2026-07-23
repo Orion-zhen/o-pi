@@ -2,13 +2,17 @@ import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { TokenCounterScope } from "../token-counter.js";
-import { discoverAgents, formatAvailableAgents, resolveSubagentTools } from "./agents.js";
+import { discoverAgents, formatAvailableAgents, hasWriteCapability, resolveSubagentTools } from "./agents.js";
 import { loadSubagentConfig } from "./config.js";
+import { formatModelReference } from "./model.js";
 import { exceedsTokenLimit, formatFileHandoff, formatResultForContext, persistResult } from "./output.js";
 import { runPiProcess } from "./process.js";
+import { cleanupForkExecutionContext, createForkExecutionContext, formatForkAssignment } from "./session-context.js";
 import type {
 	AgentDefinition,
+	ContextMode,
 	ExecutorContext,
+	ForkExecutionContext,
 	ExecutorOptions,
 	ProcessRunOutput,
 	ProcessRunProgress,
@@ -34,22 +38,29 @@ export async function executeSubagent(params: SubagentToolParams, context: Execu
 	const config = await loadSubagentConfig(context.cwd);
 	const discovery = discoverAgents(context.cwd, config);
 	const mode = resolveMode(Array.isArray(params.tasks) ? params.tasks : []);
-	const tokenScope: TokenCounterScope = context.currentModel === undefined ? {} : { modelId: context.currentModel };
+	const tokenScope: TokenCounterScope = context.currentModel === undefined ? {} : {
+		provider: context.currentModel.provider,
+		modelId: context.currentModel.id,
+		baseUrl: context.currentModel.baseUrl,
+	};
 	const runId = createRunId();
 	let activeTasks: SubagentTask[] = Array.isArray(params.tasks) ? params.tasks : [];
+	let forkContext: ForkExecutionContext | undefined;
 	const detailsBase = (results: SubagentRunResult[]): SubagentDetails => ({ mode, runId, tasks: cloneTasks(activeTasks), results, warnings: discovery.warnings });
 
 	try {
 		const tasks = requireTasks(params.tasks);
 		activeTasks = tasks;
+		if (mode === "parallel" && tasks.length > config.maxParallelTasks) {
+			throw new SubagentExecutionError(`Too many parallel tasks (${tasks.length}). Max is ${config.maxParallelTasks}.`);
+		}
+		const selectedAgents = tasks.map((task) => requireAgent(task.agent, discovery.agents));
+		if (selectedAgents.some((agent) => agent.fork)) forkContext = await requireForkContext(context);
 		if (mode === "parallel") {
-			if (tasks.length > config.maxParallelTasks) {
-				throw new SubagentExecutionError(`Too many parallel tasks (${tasks.length}). Max is ${config.maxParallelTasks}.`);
-			}
 			const liveResults: Array<SubagentRunResult | undefined> = new Array(tasks.length);
 			emitUpdate(context, detailsBase, compactResults(liveResults));
 			const results = await mapWithConcurrency(tasks, config.maxConcurrency, async (task, index) => {
-				const result = await executeOne(task, mode, runId, context, config, discovery.agents, (partial) => {
+				const result = await executeOne(task, mode, runId, context, config, discovery.agents, forkContext, (partial) => {
 					liveResults[index] = partial;
 					emitUpdate(context, detailsBase, compactResults(liveResults));
 				});
@@ -72,7 +83,7 @@ export async function executeSubagent(params: SubagentToolParams, context: Execu
 			const step = tasks[i];
 			if (step === undefined) continue;
 			const taskText = step.task.replace(/\{previous\}/g, previous);
-			const result = await executeOne({ ...step, task: taskText }, mode, runId, context, config, discovery.agents, (partial) => {
+			const result = await executeOne({ ...step, task: taskText }, mode, runId, context, config, discovery.agents, forkContext, (partial) => {
 				emitUpdate(context, detailsBase, [...results, partial]);
 			});
 			const persisted = await persistResult(result, { cwd: result.cwd, runId, index: i });
@@ -95,6 +106,8 @@ export async function executeSubagent(params: SubagentToolParams, context: Execu
 		const available = formatAvailableAgents(discovery.agents);
 		const text = `${errorMessage(error)}\nAvailable agents: ${available}`;
 		return { content: [{ type: "text", text }], details: detailsBase([]) };
+	} finally {
+		if (forkContext !== undefined) await cleanupForkExecutionContext(forkContext);
 	}
 }
 
@@ -114,43 +127,64 @@ async function executeOne(
 	context: ExecutorContext,
 	config: SubagentConfig,
 	agents: AgentDefinition[],
+	forkContext: ForkExecutionContext | undefined,
 	onProgress?: (result: SubagentRunResult) => void,
 ): Promise<SubagentRunResult> {
-	const agent = agents.find((candidate) => candidate.name === task.agent);
-	if (agent === undefined) throw new SubagentExecutionError(`Unknown agent "${task.agent}".`);
-	const cwd = await resolveCwd(task.cwd ?? context.cwd, context.cwd);
-	const tools = resolveTools(agent, config, context.registeredTools);
-	const model = resolveModel(agent, config, context);
+	const agent = requireAgent(task.agent, agents);
+	let fork: ForkExecutionContext | undefined;
+	if (agent.fork) {
+		if (forkContext === undefined) throw new SubagentExecutionError("fork setup error: execution context is unavailable");
+		fork = forkContext;
+	}
+	const contextMode = fork === undefined ? "isolated" : "fork";
+	const cwd = fork === undefined ? await resolveCwd(task.cwd ?? context.cwd, context.cwd) : fork.cwd;
+	const registeredTools = context.allTools?.map((tool) => tool.name);
+	const tools = fork === undefined ? resolveTools(agent, config, registeredTools) : [...fork.activeTools];
+	const model = fork === undefined ? resolveModel(agent, config, context) : formatModelReference(fork.model);
 	await confirmIfNeeded(agent, task.task, cwd, tools, config, context);
 	const maxAttempts = Math.max(1, (agent.retries ?? config.retries) + 1);
 	let attempts = 0;
 	let last: ProcessRunOutput | undefined;
-	onProgress?.(runningResult({ runId, mode, agent, task: task.task, cwd, ...(model !== undefined ? { model } : {}), tools, attempts: 0 }));
+	onProgress?.(runningResult({ runId, mode, contextMode, agent, task: task.task, cwd, ...(model !== undefined ? { model } : {}), tools, attempts: 0 }));
 	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
 		attempts = attempt;
 		last = await runPiProcess(
-			{
-				runId,
-				mode,
-				agent,
-				task: task.task,
-				cwd,
-				...(model !== undefined ? { model } : {}),
-				tools,
-				timeoutMs: agent.timeoutMs ?? config.timeoutMs,
-				attempt,
-				maxAttempts,
-			},
+			fork !== undefined
+				? {
+					contextMode: "fork",
+					runId,
+					mode,
+					agent,
+					task: task.task,
+					forkContext: fork,
+					assignment: formatForkAssignment(agent.body, task.task),
+					timeoutMs: agent.timeoutMs ?? config.timeoutMs,
+					attempt,
+					maxAttempts,
+				}
+				: {
+					contextMode: "isolated",
+					runId,
+					mode,
+					agent,
+					task: task.task,
+					cwd,
+					...(model !== undefined ? { model } : {}),
+					tools,
+					timeoutMs: agent.timeoutMs ?? config.timeoutMs,
+					attempt,
+					maxAttempts,
+				},
 			{
 				...(context.signal !== undefined ? { signal: context.signal } : {}),
 				onUpdate: (progress) => {
-					onProgress?.(runningResult({ runId, mode, agent, task: task.task, cwd, ...(model !== undefined ? { model } : {}), tools, attempts, progress }));
+					onProgress?.(runningResult({ runId, mode, contextMode, agent, task: task.task, cwd, ...(model !== undefined ? { model } : {}), tools, attempts, progress }));
 				},
 			},
 		);
 		const failure = validateProcessOutput(last);
 		if (failure === undefined) break;
-		if (!shouldRetry(failure, last, attempt, maxAttempts, agent, config)) break;
+		if (!shouldRetry(failure, last, attempt, maxAttempts, tools, config)) break;
 		await delay(config.retryDelayMs, context.signal);
 	}
 	const output = last ?? emptyProcessOutput();
@@ -158,6 +192,7 @@ async function executeOne(
 	return {
 		runId,
 		mode,
+		contextMode,
 		agent: agent.name,
 		source: agent.source,
 		task: task.task,
@@ -185,7 +220,22 @@ function resolveTools(agent: AgentDefinition, config: SubagentConfig, registered
 }
 
 function resolveModel(agent: AgentDefinition, config: SubagentConfig, context: ExecutorContext): string | undefined {
-	return config.agentOverrides[agent.name]?.model ?? agent.model ?? config.defaultModel ?? context.currentModel;
+	return config.agentOverrides[agent.name]?.model ?? agent.model ?? config.defaultModel ?? formatModelReference(context.currentModel);
+}
+
+async function requireForkContext(context: ExecutorContext): Promise<ForkExecutionContext> {
+	try {
+		return await createForkExecutionContext(context);
+	} catch (error) {
+		const message = errorMessage(error);
+		throw new SubagentExecutionError(message.startsWith("fork setup error: ") ? message : `fork setup error: ${message}`);
+	}
+}
+
+function requireAgent(name: string, agents: AgentDefinition[]): AgentDefinition {
+	const agent = agents.find((candidate) => candidate.name === name);
+	if (agent === undefined) throw new SubagentExecutionError(`Unknown agent "${name}".`);
+	return agent;
 }
 
 async function confirmIfNeeded(
@@ -197,7 +247,7 @@ async function confirmIfNeeded(
 	context: ExecutorContext,
 ): Promise<void> {
 	if (agent.source === "user" && agent.autoConfirm === true) return;
-	const needsConfirm = config.confirmWriteAgents && tools.some((tool) => tool === "write" || tool === "edit" || tool === "bash" || !["read", "grep", "find", "ls"].includes(tool));
+	const needsConfirm = config.confirmWriteAgents && hasWriteCapability(tools);
 	if (!needsConfirm) return;
 	if (!context.hasUI || context.confirm === undefined) throw new SubagentExecutionError(`Agent "${agent.name}" needs write-capable tools but confirmation UI is unavailable.`);
 	const approved = await context.confirm(
@@ -233,11 +283,11 @@ function shouldRetry(
 	output: ProcessRunOutput,
 	attempt: number,
 	maxAttempts: number,
-	agent: AgentDefinition,
+	tools: string[],
 	config: SubagentConfig,
 ): boolean {
 	if (attempt >= maxAttempts) return false;
-	if (output.wrote || agent.hasWriteCapability) return false;
+	if (output.wrote || hasWriteCapability(tools)) return false;
 	if (failure === "subagent timed out") return config.retryOnTimeout;
 	if (failure === "empty output") return config.retryOnEmptyOutput;
 	return output.exitCode !== 0 || output.stopReason === "error" || output.providerError !== undefined;
@@ -255,6 +305,7 @@ function emitUpdate(context: ExecutorContext, makeDetails: (results: SubagentRun
 function runningResult(input: {
 	runId: string;
 	mode: SubagentMode;
+	contextMode: ContextMode;
 	agent: AgentDefinition;
 	task: string;
 	cwd: string;
@@ -267,6 +318,7 @@ function runningResult(input: {
 	return {
 		runId: input.runId,
 		mode: input.mode,
+		contextMode: input.contextMode,
 		agent: input.agent.name,
 		source: input.agent.source,
 		task: input.task,
