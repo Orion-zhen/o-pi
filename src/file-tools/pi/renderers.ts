@@ -641,17 +641,22 @@ function formatDiffStats(diff: string): string {
 }
 
 function formatLspSummary(diagnostics: LspDiagnosticsSummary | undefined): string | undefined {
-	if (diagnostics === undefined) return undefined;
-	if (diagnostics.status === "timeout") return "LSP timeout";
-	if (diagnostics.status === "unavailable") return "LSP unavailable";
-	return `LSP ${diagnostics.file_errors} errors`;
+	if (!hasVisibleLspDiagnostics(diagnostics)) return undefined;
+	return diagnostics.status === "errors"
+		? `LSP ${diagnostics.file_errors} errors`
+		: `LSP ${diagnostics.file_warnings} warnings`;
 }
 
 function formatLspDiagnostics(diagnostics: LspDiagnosticsSummary | undefined, theme: Pick<Theme, "fg">): string | undefined {
-	if (diagnostics === undefined || diagnostics.items.length === 0) return undefined;
-	return diagnostics.items
-		.map((item) => theme.fg("toolOutput", `${item.severity} ${item.line}:${item.column} ${item.message}${item.code !== undefined ? ` (${item.code})` : ""}`))
-		.join("\n");
+	if (!hasVisibleLspDiagnostics(diagnostics) || (diagnostics.items.length === 0 && diagnostics.total_items === 0)) return undefined;
+	const lines = diagnostics.items.map((item) => theme.fg("toolOutput", `${item.severity} ${item.line}:${item.column} ${item.message}${item.code !== undefined ? ` (${item.code})` : ""}`));
+	const remaining = Math.max(0, diagnostics.total_items - diagnostics.items.length);
+	if (remaining > 0) lines.push(theme.fg("toolOutput", `... ${remaining} more diagnostics`));
+	return lines.join("\n");
+}
+
+function hasVisibleLspDiagnostics(diagnostics: LspDiagnosticsSummary | undefined): diagnostics is LspDiagnosticsSummary & { status: "errors" | "warnings" } {
+	return diagnostics?.status === "errors" || diagnostics?.status === "warnings";
 }
 
 function trimTrailingEmptyLines(lines: string[]): string[] {

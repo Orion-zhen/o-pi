@@ -72,6 +72,8 @@ export interface LspDiagnosticsSummary {
 	resolved_errors: number;
 	resolved_warnings: number;
 	baseline: "known" | "unknown";
+	/** 符合 min_severity 的全部诊断数；items 只保留可展示的前 max_items 条。 */
+	total_items: number;
 	items: LspDiagnosticItem[];
 }
 

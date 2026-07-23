@@ -46,36 +46,45 @@ export function formatReadImageModelContent(result: ReadImageSuccess, model: { i
 	];
 }
 
-/** edit 的模型可见成功结果只确认写入事实；diff/LSP 完整信息保留在 details 给 UI。 */
+/** edit 的模型可见成功结果确认写入事实，并附加有限 LSP 诊断；完整结构保留在 details。 */
 export function formatEditModelResult(result: EditSuccess, impact: string | undefined = undefined): string {
+	const diagnostics = visibleDiagnostics(result.lsp?.diagnostics);
 	const attrs = [
 		`path="${escapeXmlAttribute(result.path)}"`,
 		`replacements="${result.replacements}"`,
 	];
 	if (result.firstChangedLine !== undefined) attrs.push(`first_changed_line="${result.firstChangedLine}"`);
+	if (diagnostics !== undefined) attrs.push(`lsp="${escapeXmlAttribute(diagnostics.status)}"`);
 	if (result.repo_map?.status === "partially_stale") attrs.push('repo_map="partially_stale"');
-	return impact === undefined ? `<edit ${attrs.join(" ")}/>` : `<edit ${attrs.join(" ")}>
-${impact}
-</edit>`;
+	return formatMutationModelResult("edit", attrs, diagnostics, impact);
 }
 
 export function formatWriteModelResult(result: WriteSuccess, impact: string | undefined = undefined): string {
-	const diagnostics = result.lsp?.diagnostics;
+	const diagnostics = visibleDiagnostics(result.lsp?.diagnostics);
 	const attrs = [`path="${escapeXmlAttribute(result.path)}"`];
 	if (diagnostics !== undefined) attrs.push(`lsp="${escapeXmlAttribute(diagnostics.status)}"`);
 	if (result.repo_map?.status === "partially_stale") attrs.push('repo_map="partially_stale"');
-	if (diagnostics === undefined || isCleanDiagnostics(diagnostics)) {
-		return impact === undefined ? `<write ${attrs.join(" ")}/>` : `<write ${attrs.join(" ")}>
+	return formatMutationModelResult("write", attrs, diagnostics, impact);
+}
+
+function formatMutationModelResult(
+	tool: "edit" | "write",
+	attrs: string[],
+	diagnostics: LspDiagnosticsSummary | undefined,
+	impact: string | undefined,
+): string {
+	if (diagnostics === undefined) {
+		return impact === undefined ? `<${tool} ${attrs.join(" ")}/>` : `<${tool} ${attrs.join(" ")}>
 ${impact}
-</write>`;
+</${tool}>`;
 	}
 
 	const lines = [
-		`<write ${attrs.join(" ")}>`,
+		`<${tool} ${attrs.join(" ")}>`,
 		`errors=${diagnostics.file_errors} warnings=${diagnostics.file_warnings} new_errors=${diagnostics.new_errors} new_warnings=${diagnostics.new_warnings}`,
-		...formatDiagnosticItems(diagnostics.items, 5),
+		...formatDiagnosticItems(diagnostics.items, diagnostics.total_items),
 		...(impact === undefined ? [] : [impact]),
-		"</write>",
+		`</${tool}>`,
 	];
 	return lines.join("\n");
 }
@@ -96,21 +105,16 @@ function getNonVisionImageNote(model: { input?: readonly string[] } | undefined)
 	return "[Current model does not support images. The image may be omitted by the provider.]";
 }
 
-function isCleanDiagnostics(diagnostics: LspDiagnosticsSummary): boolean {
-	return diagnostics.status === "clean"
-		&& diagnostics.file_errors === 0
-		&& diagnostics.file_warnings === 0
-		&& diagnostics.new_errors === 0
-		&& diagnostics.new_warnings === 0
-		&& diagnostics.items.length === 0;
+function visibleDiagnostics(diagnostics: LspDiagnosticsSummary | undefined): LspDiagnosticsSummary | undefined {
+	return diagnostics?.status === "errors" || diagnostics?.status === "warnings" ? diagnostics : undefined;
 }
 
-function formatDiagnosticItems(items: LspDiagnosticsSummary["items"], limit: number): string[] {
-	const visible = items.slice(0, limit).map((item) => {
+function formatDiagnosticItems(items: LspDiagnosticsSummary["items"], totalItems: number): string[] {
+	const visible = items.map((item) => {
 		const code = item.code !== undefined ? ` (${item.code})` : "";
 		return `diag ${item.severity} ${item.line}:${item.column} ${escapeXmlText(item.message)}${escapeXmlText(code)}`;
 	});
-	const remaining = items.length - visible.length;
+	const remaining = Math.max(0, totalItems - items.length);
 	if (remaining > 0) visible.push(`... ${remaining} more diagnostics`);
 	return visible;
 }

@@ -34,6 +34,7 @@ describe("lsp diagnostics", () => {
 			"warning",
 		);
 		const summary = summarizeDiagnostics(ledger.snapshot(uri), undefined, 1);
+		expect(summary.total_items).toBe(2);
 		expect(summary.items).toHaveLength(1);
 		expect(summary.items[0]).toMatchObject({ severity: "error", line: 1, column: 1 });
 		expect(JSON.stringify(summary)).not.toContain("i1");

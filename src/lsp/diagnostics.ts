@@ -65,6 +65,7 @@ export function summarizeDiagnostics(
 		resolved_errors: diff.resolved_errors,
 		resolved_warnings: diff.resolved_warnings,
 		baseline: baselineKnown ? "known" : "unknown",
+		total_items: after.items.length,
 		items: after.items.slice(0, maxItems).map((item) => ({ ...item })),
 	};
 }
@@ -79,6 +80,7 @@ export function emptySummary(status: "unavailable" | "timeout", baseline: "known
 		resolved_errors: 0,
 		resolved_warnings: 0,
 		baseline,
+		total_items: 0,
 		items: [],
 	};
 }

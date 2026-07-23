@@ -160,6 +160,7 @@ function diagnostics(status: "errors" | "warnings") {
 		resolved_errors: 0,
 		resolved_warnings: 0,
 		baseline: "known" as const,
+		total_items: 1,
 		items: [{ severity: status === "errors" ? "error" as const : "warning" as const, line: 1, column: 1, message: "diagnostic" }],
 	};
 }
