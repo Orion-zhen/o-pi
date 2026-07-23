@@ -139,7 +139,7 @@ describe("web-tools extension", () => {
 		expect(close).toHaveBeenCalledTimes(1);
 	});
 
-	it("只在模型支持图像时声明能力，并把 runtime 媒体转成 Pi ImageContent", async () => {
+	it("只在模型和 API 都支持工具图片时返回 Pi ImageContent", async () => {
 		const registered: Array<{ name: string; execute: Function }> = [];
 		const fetch = vi.fn(async (_params: WebFetchParams, _context: WebFetchExecutionContext) => ({
 			content: "page",
@@ -194,21 +194,37 @@ describe("web-tools extension", () => {
 		} as unknown as ExtensionAPI);
 		const tool = registered.find((item) => item.name === "webfetch");
 		if (tool === undefined) throw new Error("missing webfetch");
-		const result = await tool.execute(
-			"fetch-image",
+		const responsesResult = await tool.execute(
+			"fetch-responses-image",
 			{ url: "https://example.com/" },
 			undefined,
 			undefined,
-			{ hasUI: false, model: { input: ["text", "image"] } },
+			{ hasUI: false, model: { api: "openai-responses", input: ["text", "image"] } },
 		);
 		expect(fetch).toHaveBeenCalledWith(
 			{ url: "https://example.com/" },
 			expect.objectContaining({ acceptsImages: true }),
 		);
-		expect(result.content).toEqual([
+		expect(responsesResult.content).toEqual([
 			{ type: "text", text: "page" },
 			{ type: "image", data: "AQID", mimeType: "image/png" },
 		]);
+
+		const completionsResult = await tool.execute(
+			"fetch-completions-image",
+			{ url: "https://example.com/" },
+			undefined,
+			undefined,
+			{ hasUI: false, model: { api: "openai-completions", input: ["text", "image"] } },
+		);
+		expect(fetch).toHaveBeenLastCalledWith(
+			{ url: "https://example.com/" },
+			expect.objectContaining({
+				acceptsImages: false,
+				imageOmissionReason: "api_no_tool_image_output",
+			}),
+		);
+		expect(completionsResult.content).toEqual([{ type: "text", text: "page" }]);
 	});
 
 	it("通过 Pi 的 Jiti 加载后首次调用可正常读取配置", async () => {

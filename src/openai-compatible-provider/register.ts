@@ -4,7 +4,6 @@ import {
 	clampThinkingLevel,
 	createProvider,
 	type Api,
-	type Context,
 	type Model,
 	type Provider,
 	type ProviderStreams,
@@ -213,33 +212,12 @@ function createRuntimeStreams(
 	const runtimeFor = (model: Model<Api>) => runtimeModels.get(model.id) ?? provider.fallbackRuntime;
 	return {
 		stream(model, context, options) {
-			return apiFor(model).stream(
-				model,
-				withoutUnsupportedToolResultImages(model.api, context),
-				withRuntimeStreamOptions(model, runtimeFor(model), options),
-			);
+			return apiFor(model).stream(model, context, withRuntimeStreamOptions(model, runtimeFor(model), options));
 		},
 		streamSimple(model, context, options) {
-			return apiFor(model).streamSimple(
-				model,
-				withoutUnsupportedToolResultImages(model.api, context),
-				withRuntimeSimpleOptions(model, runtimeFor(model), options),
-			);
+			return apiFor(model).streamSimple(model, context, withRuntimeSimpleOptions(model, runtimeFor(model), options));
 		},
 	};
-}
-
-function withoutUnsupportedToolResultImages(api: Api, context: Context): Context {
-	if (api !== "openai-completions") return context;
-	let changed = false;
-	const messages = context.messages.map((message) => {
-		if (message.role !== "toolResult") return message;
-		const content = message.content.filter((block) => block.type !== "image");
-		if (content.length === message.content.length) return message;
-		changed = true;
-		return { ...message, content };
-	});
-	return changed ? { ...context, messages } : context;
 }
 
 function withRuntimeStreamOptions(

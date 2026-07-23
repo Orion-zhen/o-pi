@@ -1,7 +1,6 @@
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import type { Context } from "@earendil-works/pi-ai";
 import { applyRuntimePayloadConfig, registerOpenAICompatibleProviders } from "../../src/openai-compatible-provider/index.js";
 import { createExtensionHarness, loadConfigFromText, normalizeFromText } from "./fixtures.js";
 import { useOpenAICompatibleProviderTestSetup } from "./test-support.js";
@@ -315,102 +314,6 @@ describe("openai-compatible-provider payload", () => {
 			],
 		}];
 		expect(applyRuntimePayloadConfig({ model: "m", input, stream: true }, responsesRuntime)).toMatchObject({ input });
-	});
-
-	it("Responses 保留工具图片，Chat Completions 丢弃工具图片但保留用户图片", async () => {
-		const config = await loadConfigFromText(temp.path, `{
-			"providers": {
-				"chat": {
-					"baseUrl": "https://chat.example.com/v1",
-					"apiKey": "EMPTY",
-					"maxRetries": 0,
-					"models": [{ "id": "m", "input": ["text", "image"] }]
-				},
-				"responses": {
-					"baseUrl": "https://responses.example.com/v1",
-					"apiKey": "EMPTY",
-					"api": "openai-responses",
-					"maxRetries": 0,
-					"models": [{ "id": "m", "input": ["text", "image"] }]
-				}
-			}
-		}`);
-		const harness = createExtensionHarness();
-		const providers = registerOpenAICompatibleProviders(harness.pi, config, path.join(temp.path, "models.jsonc"));
-		const requests = new Map<string, unknown>();
-		vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-			requests.set(String(input), JSON.parse(String(init?.body)));
-			return new Response('{"error":"stop after payload"}', {
-				status: 400,
-				headers: { "Content-Type": "application/json" },
-			});
-		});
-		const context: Context = {
-			messages: [
-				{
-					role: "user",
-					content: [
-						{ type: "text", text: "look" },
-						{ type: "image", data: "dXNlcg==", mimeType: "image/png" },
-					],
-					timestamp: 1,
-				},
-				{
-					role: "toolResult",
-					toolCallId: "call_1",
-					toolName: "webfetch",
-					content: [
-						{ type: "text", text: "page" },
-						{ type: "image", data: "dG9vbA==", mimeType: "image/png" },
-					],
-					isError: false,
-					timestamp: 2,
-				},
-			],
-		};
-		for (const provider of providers) {
-			const model = provider.getModels()[0];
-			if (!model) throw new Error(`provider ${provider.id} model missing`);
-			for await (const _event of provider.stream(model, context, { apiKey: "EMPTY" })) {
-				// Consume the terminal error event after capturing the request.
-			}
-		}
-
-		const chatRequest = requests.get("https://chat.example.com/v1/chat/completions");
-		expect(chatRequest).toMatchObject({
-			messages: [
-				{
-					role: "user",
-					content: [
-						{ type: "text", text: "look" },
-						{ type: "image_url", image_url: { url: "data:image/png;base64,dXNlcg==" } },
-					],
-				},
-				{ role: "tool", content: "page", tool_call_id: "call_1" },
-			],
-		});
-		expect(JSON.stringify(chatRequest)).not.toContain("dG9vbA==");
-		expect(JSON.stringify(chatRequest)).not.toContain("Attached image(s) from tool result:");
-
-		expect(requests.get("https://responses.example.com/v1/responses")).toMatchObject({
-			input: [
-				{
-					role: "user",
-					content: [
-						{ type: "input_text", text: "look" },
-						{ type: "input_image", image_url: "data:image/png;base64,dXNlcg==" },
-					],
-				},
-				{
-					type: "function_call_output",
-					call_id: "call_1",
-					output: [
-						{ type: "input_text", text: "page" },
-						{ type: "input_image", image_url: "data:image/png;base64,dG9vbA==" },
-					],
-				},
-			],
-		});
 	});
 
 	it("provider 原生 headers 与扩展 payload 字段直接配置，model 字段覆盖或追加", async () => {

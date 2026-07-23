@@ -210,6 +210,7 @@ export interface WebFetchOmission {
 		| "range"
 		| "unresolved_declaration"
 		| "model_no_image_input"
+		| "api_no_tool_image_output"
 		| "media_disabled"
 		| "offset_range"
 		| "media_fetch_failed"
@@ -338,6 +339,7 @@ export interface WebFetchExecutionContext {
 	onUpdate?: (partial: { content: string; details: WebFetchProgressDetails }) => void;
 	hasUI: boolean;
 	acceptsImages?: boolean;
+	imageOmissionReason?: "model_no_image_input" | "api_no_tool_image_output";
 	confirm?: (title: string, message: string) => Promise<boolean>;
 }
 

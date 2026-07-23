@@ -113,6 +113,9 @@ export function createWebToolsExtension(loadRuntime: WebToolsRuntimeLoader = loa
 				promptGuidelines: [WEB_CONTENT_GUIDELINE, "Webfetch covers only detected static response content. Remind user of limitation if content is partial."],
 				parameters: webFetchParameters,
 				async execute(toolCallId, params, signal, onUpdate, ctx) {
+					const modelAcceptsImages = ctx.model?.input.includes("image") === true;
+					const apiAcceptsToolImages = ctx.model?.api !== "openai-completions";
+					const acceptsImages = modelAcceptsImages && apiAcceptsToolImages;
 					const executionContext = {
 						toolCallId,
 						...(signal !== undefined ? { signal } : {}),
@@ -124,18 +127,22 @@ export function createWebToolsExtension(loadRuntime: WebToolsRuntimeLoader = loa
 							}
 							: {}),
 						hasUI: ctx.hasUI,
-						acceptsImages: ctx.model?.input.includes("image") === true,
+						acceptsImages,
+						...(modelAcceptsImages && !apiAcceptsToolImages
+							? { imageOmissionReason: "api_no_tool_image_output" as const }
+							: {}),
 						...(ctx.hasUI ? { confirm: (title: string, message: string) => ctx.ui.confirm(title, message) } : {}),
 					};
 					const runtime = await getRuntime();
 					const result = await runtime.fetch(params, executionContext);
+					const media = acceptsImages ? result.media ?? [] : [];
 					return {
 						content: [
 							{ type: "text" as const, text: result.content },
-							...(result.media ?? []).map((media) => ({
+							...media.map((item) => ({
 								type: "image" as const,
-								data: Buffer.from(media.data).toString("base64"),
-								mimeType: media.mimeType,
+								data: Buffer.from(item.data).toString("base64"),
+								mimeType: item.mimeType,
 							})),
 						],
 						details: result.details,

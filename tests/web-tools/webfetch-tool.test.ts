@@ -16,7 +16,12 @@ const cookieStore: CookieStore = {
 	},
 };
 
-function runtime(fetchImpl: WebHttpFetch, maxChars = 100000, acceptsImages = false) {
+function runtime(
+	fetchImpl: WebHttpFetch,
+	maxChars = 100000,
+	acceptsImages = false,
+	imageOmissionReason?: "api_no_tool_image_output",
+) {
 	const config = defaultWebToolsConfig();
 	config.webfetch.limits.default_output_chars = 1000;
 	config.webfetch.limits.max_output_chars = maxChars;
@@ -27,7 +32,12 @@ function runtime(fetchImpl: WebHttpFetch, maxChars = 100000, acceptsImages = fal
 		snapshots: new SnapshotCache(),
 		approvedAuthOrigins: new Set<string>(),
 		config,
-		context: { toolCallId: "t1", hasUI: false, acceptsImages },
+		context: {
+			toolCallId: "t1",
+			hasUI: false,
+			acceptsImages,
+			...(imageOmissionReason !== undefined ? { imageOmissionReason } : {}),
+		},
 		now: () => Date.now(),
 	};
 }
@@ -184,6 +194,26 @@ describe("webfetch tool", () => {
 		});
 		expect(result.content).toContain('partial="model_no_image_input"');
 		expect(result.content).not.toContain("<omitted");
+	});
+
+	it("API 不支持工具图片时不下载主图，并区分于模型图像能力", async () => {
+		let calls = 0;
+		const html = '<main><h1>Image post</h1><img src="/post.jpg" alt="A detailed primary post image"></main>';
+		const result = await executeWebFetch(
+			{ url: "https://example.com/post" },
+			runtime(async () => {
+				calls += 1;
+				return httpResponse(200, html, { "content-type": "text/html" });
+			}, 100000, false, "api_no_tool_image_output"),
+		);
+		expect(calls).toBe(1);
+		expect(result.details).toMatchObject({
+			status: "success",
+			completeness: "partial",
+			omissions: [{ kind: "primary_media", reason: "api_no_tool_image_output" }],
+			media: { discovered: 1, returned: 0 },
+		});
+		expect(result.content).toContain('partial="api_no_tool_image_output"');
 	});
 
 	it("media.mode=off 时不下载已发现主图", async () => {

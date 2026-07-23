@@ -102,7 +102,7 @@ webfetch({
 - `source`：返回解码后的响应源码文本。
 - `offset`/`limit`：对首次转换后的内存 snapshot 切片；长页面结果返回 `range.has_more`、`range.next_offset` 和 `next`，继续读取时使用上次返回的 offset。
 - `webfetch.readability.char_threshold`：Readability 接受正文结果的最少字符数。
-- `webfetch.media`：`auto` 模式从已选正文的 `img`/`srcset`/`picture`、视频 poster、Open Graph、Twitter Card 和 JSON-LD 声明中统一选出至多一张主图；正文位置、标准主图声明、尺寸、alt 和标题距离加权，hidden、presentation、微小图标、avatar、logo 与装饰图降权。直接图片 URL 复用首次响应字节。当前模型支持图像时，页面主图经同一 URL、DNS、redirect 和 Cookie 安全链受限下载，JPEG、PNG、WebP、GIF 均以实际字节嗅探后作为原生图片内容返回；模型不支持图像时不会发起二次图片请求。`off` 禁用，`response_bytes` 控制独立图片响应上限。
+- `webfetch.media`：`auto` 模式从已选正文的 `img`/`srcset`/`picture`、视频 poster、Open Graph、Twitter Card 和 JSON-LD 声明中统一选出至多一张主图；正文位置、标准主图声明、尺寸、alt 和标题距离加权，hidden、presentation、微小图标、avatar、logo 与装饰图降权。直接图片 URL 复用首次响应字节。当前模型支持图像且所选 API 支持工具结果图片时，页面主图经同一 URL、DNS、redirect 和 Cookie 安全链受限下载，JPEG、PNG、WebP、GIF 均以实际字节嗅探后作为原生图片内容返回；模型不支持图像时不会发起二次图片请求。OpenAI Chat Completions 的 tool message 只支持文本，因此 `openai-completions` 模型即使支持普通图片输入也不会返回工具图片；Responses 不受影响。`off` 禁用，`response_bytes` 控制独立图片响应上限。
 
 `webfetch` 不搜索、不执行 JavaScript、不点击链接、不提交表单、不访问本机或私网。
 
