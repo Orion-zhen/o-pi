@@ -3,15 +3,18 @@ import type {
 	HttpFetchSuccess,
 	SnapshotStatus,
 	WebFetchFailureDetails,
+	WebFetchOmission,
 	WebFetchParams,
 	WebFetchResult,
 	WebFetchSnapshot,
+	WebFetchSuccessDetails,
 	WebToolsConfig,
 	WebFetchExecutionContext,
 	CookieStore,
 } from "./types.js";
 import { fetchHttpUrl, type HttpClientOptions } from "./http-client.js";
 import { escapeXml, normalizeUrl, redactUrl } from "./url-utils.js";
+import { directImageConversion, resolvePrimaryMedia } from "./webfetch-media.js";
 import type { SnapshotCache } from "./snapshot-cache.js";
 
 export interface ExecuteWebFetchRuntime extends Omit<HttpClientOptions, "config" | "context" | "startedAt"> {
@@ -44,6 +47,7 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 				...(hit.metadata.contentType ? { contentType: hit.metadata.contentType } : {}),
 				...(hit.metadata.charset ? { charset: hit.metadata.charset } : {}),
 				...(hit.metadata.title ? { title: hit.metadata.title } : {}),
+				analysis: hit.metadata.analysis,
 			};
 			http = snapshotToHttp(hit, params.url);
 		} else {
@@ -53,14 +57,28 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 
 	if (conversion === undefined || http === undefined) {
 		const converterPromise = import("./content-converter.js");
-		const fetched = await fetchHttpUrl(params.url, { ...runtime, startedAt });
+		const fetched = await fetchHttpUrl(
+			params.url,
+			{ ...runtime, startedAt },
+			{ imageMaxBytes: runtime.config.webfetch.media.response_bytes },
+		);
 		if (fetched.status === "failed") {
 			void converterPromise.catch(() => undefined);
 			return { content: failureContent(fetched.details), details: fetched.details };
 		}
 		runtime.context.onUpdate?.({ content: "Converting...", details: { status: "progress", phase: "converting", http_status: fetched.httpStatus } });
-		const { convertContent } = await converterPromise;
-		const converted = await convertContent(fetched.body, fetched.headers, fetched.finalUrl, mode);
+		const direct = await directImageConversion(fetched, mode, runtime.config.webfetch.media.response_bytes);
+		if (direct !== undefined) void converterPromise.catch(() => undefined);
+		const converted = direct ?? await (async () => {
+			const { convertContent } = await converterPromise;
+			return convertContent(
+				fetched.body,
+				fetched.headers,
+				fetched.finalUrl,
+				mode,
+				{ charThreshold: runtime.config.webfetch.readability.char_threshold },
+			);
+		})();
 		if ("status" in converted) {
 			const details: WebFetchFailureDetails = {
 				...converted,
@@ -91,7 +109,7 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 		return { content: failureContent(details), details };
 	}
 
-	if (sliced.nextOffset !== undefined && snapshotStatus !== "hit") {
+	if (sliced.nextOffset !== undefined && snapshotStatus !== "hit" && conversion.directMedia === undefined) {
 		snapshotStatus = "created";
 		runtime.snapshots.set({
 			key: snapshotKey,
@@ -107,13 +125,30 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 				authenticated: http.authenticated,
 				redirectCount: http.redirectCount,
 				downloadedBytes: http.downloadedBytes,
+				analysis: conversion.analysis,
 			},
-			sizeBytes: Buffer.byteLength(conversion.text, "utf8"),
+			sizeBytes: Buffer.byteLength(conversion.text, "utf8")
+				+ Buffer.byteLength(JSON.stringify(conversion.analysis), "utf8"),
 		});
 	}
 
+	const mediaResult = await resolvePrimaryMedia(conversion, offset, { ...runtime, startedAt });
+	const omissions = collectOmissions(conversion, sliced.start, sliced.nextOffset, mediaResult.omission);
+	if (
+		conversion.analysis.pageKind === "image"
+		&& mediaResult.media === undefined
+		&& !omissions.some((item) => item.kind === "primary_media")
+	) {
+		omissions.push({ kind: "primary_media", reason: "media_fetch_failed" });
+	}
+	const deferredFragments = conversion.analysis.deferredFragments;
 	const details = {
 		status: "success" as const,
+		scope: "static_response" as const,
+		page_kind: conversion.analysis.pageKind,
+		text_source: conversion.analysis.textSource,
+		completeness: omissions.length === 0 ? "complete" as const : "partial" as const,
+		omissions,
 		requested_url: http.requestedUrl,
 		final_url: http.finalUrl,
 		http_status: http.httpStatus,
@@ -134,10 +169,39 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 		authenticated: http.authenticated,
 		redirect_count: http.redirectCount,
 		snapshot: snapshotStatus,
+		deferred_fragments: deferredFragments,
+		media: {
+			discovered: conversion.directMedia !== undefined || conversion.analysis.primaryMedia !== undefined ? 1 : 0,
+			returned: mediaResult.media !== undefined ? 1 : 0,
+		},
 		duration_ms: runtime.now() - startedAt,
 		preview: preview(conversion.text),
 	};
-	return { content: successContent(details, sliced.text), details };
+	return {
+		content: successContent(details, sliced.text),
+		details,
+		...(mediaResult.media !== undefined ? { media: [mediaResult.media] } : {}),
+	};
+}
+
+function collectOmissions(
+	conversion: ContentConversion,
+	start: number,
+	nextOffset: number | undefined,
+	mediaOmission: WebFetchOmission | undefined,
+): WebFetchOmission[] {
+	const omissions: WebFetchOmission[] = [];
+	if (start > 0 || nextOffset !== undefined) omissions.push({ kind: "text_range", reason: "range" });
+	const deferred = conversion.analysis.deferredFragments;
+	if (deferred !== undefined && deferred.resolved < deferred.discovered) {
+		omissions.push({ kind: "deferred_content", reason: "unresolved_declaration" });
+	}
+	for (const omission of conversion.analysis.omissions) omissions.push(omission);
+	if (mediaOmission !== undefined) omissions.push(mediaOmission);
+	const pageKind = conversion.analysis.pageKind;
+	if (pageKind === "video") omissions.push({ kind: "primary_media", reason: "video_not_returned" });
+	if (pageKind === "audio") omissions.push({ kind: "primary_media", reason: "audio_not_returned" });
+	return omissions;
 }
 
 function validateParams(params: WebFetchParams, config: WebToolsConfig): WebFetchFailureDetails | undefined {
@@ -207,21 +271,29 @@ function safeBoundary(text: string, index: number): number {
 	return code >= 0xdc00 && code <= 0xdfff ? index + 1 : index;
 }
 
-function successContent(details: { requested_url: string; http_status: number; format: string; range: { start: number; end: number; total: number; has_more: boolean; next_offset?: number }; next?: string; authenticated: boolean }, text: string): string {
+function successContent(
+	details: Pick<
+		WebFetchSuccessDetails,
+		| "requested_url"
+		| "final_url"
+		| "page_kind"
+		| "text_source"
+		| "omissions"
+		| "range"
+	>,
+	text: string,
+): string {
+	const partialReasons = [...new Set(details.omissions.map((item) => item.reason))];
 	const attrs = [
-		`url="${escapeXml(details.requested_url)}"`,
-		`status="${details.http_status}"`,
-		`format="${escapeXml(details.format)}"`,
-		`range="${details.range.start}-${details.range.end}/${details.range.total}"`,
-		`has_more="${details.range.has_more ? "true" : "false"}"`,
-		details.range.next_offset !== undefined ? `next_offset="${details.range.next_offset}"` : undefined,
-		details.authenticated ? `auth="cookie"` : undefined,
-		`trust="untrusted"`,
+		`kind="${details.page_kind}"`,
+		details.final_url !== details.requested_url ? `final="${escapeXml(details.final_url)}"` : undefined,
+		details.text_source === "metadata" ? `source="metadata"` : undefined,
+		partialReasons.length > 0 ? `partial="${partialReasons.join(",")}"` : undefined,
+		details.range.next_offset !== undefined ? `next="${details.range.next_offset}"` : undefined,
 	]
 		.filter((item): item is string => item !== undefined)
 		.join(" ");
-	const next = details.next !== undefined ? `\n<next>${escapeXml(details.next)}</next>` : "";
-	return `<webfetch_result ${attrs}>\n${text}${next}\n</webfetch_result>`;
+	return `<webfetch ${attrs}>\n${text}\n</webfetch>`;
 }
 
 function failureContent(details: WebFetchFailureDetails): string {

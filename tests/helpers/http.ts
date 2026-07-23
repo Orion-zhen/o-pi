@@ -19,13 +19,13 @@ class FakeBody {
 
 export function httpResponse(
 	status: number,
-	body: string,
+	body: string | Uint8Array,
 	headers: Record<string, string> = { "content-type": "text/plain" },
 ): WebHttpResponse {
 	return {
 		status,
 		statusText: status >= 200 && status < 300 ? "OK" : "Error",
 		headers: new Headers(headers),
-		body: new FakeBody([Buffer.from(body)]),
+		body: new FakeBody([typeof body === "string" ? Buffer.from(body) : body]),
 	};
 }

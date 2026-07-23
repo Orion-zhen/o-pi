@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+	<body>
+		<main>
+			<h1>Image discussion</h1>
+			<p>Original post summary.</p>
+			<p data-pi-webfetch-deferred>Legitimate similarly named content.</p>
+			<img src="/post.jpg" alt="Original post image" width="960" height="540">
+			<div id="comments">Loading comments</div>
+		</main>
+	</body>
+	<template for="comments">
+		<section>
+			<h2>Comments</h2>
+			<div role="button">Join the conversation</div>
+			<div role="menu">
+				<div role="menuitem">Best</div>
+				<div role="menuitem">Newest</div>
+			</div>
+			<p>First useful deferred comment.</p>
+			<script>steal()</script>
+			<form><input value="unsafe">Unsafe composer</form>
+		</section>
+	</template>
+	<template><p>Unmatched ordinary template content.</p></template>
+</html>

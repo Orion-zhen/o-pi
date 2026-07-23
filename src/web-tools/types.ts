@@ -1,7 +1,11 @@
 import type { Dispatcher } from "undici";
 
+import type { PageAnalysis } from "./html-page-analyzer.js";
+
 export type WebFetchMode = "readable" | "source";
-export type WebFetchOutputFormat = "markdown" | "text" | "json" | "xml" | "source";
+export type WebFetchOutputFormat = "markdown" | "text" | "json" | "xml" | "image" | "source";
+export type WebFetchPageKind = "article" | "image" | "video" | "audio" | "generic";
+export type WebFetchTextSource = "readability" | "semantic" | "heading" | "body" | "metadata";
 export type SnapshotStatus = "created" | "hit" | "refetched" | "not_needed";
 /** 搜索运行时 provider 标识；不暴露为模型工具参数。 */
 export type FormalWebSearchProviderId = "brave_api" | "exa_api" | "tavily";
@@ -81,6 +85,13 @@ export interface WebToolsConfig {
 		timeout_seconds: number;
 		max_redirects: number;
 		user_agent: string;
+		readability: {
+			char_threshold: number;
+		};
+		media: {
+			mode: "auto" | "off";
+			response_bytes: number;
+		};
 		limits: {
 			response_bytes: number;
 			default_output_chars: number;
@@ -149,6 +160,11 @@ export interface WebFetchFailureDetails {
 
 export interface WebFetchSuccessDetails {
 	status: "success";
+	scope: "static_response";
+	page_kind: WebFetchPageKind;
+	text_source: WebFetchTextSource;
+	completeness: "complete" | "partial";
+	omissions: WebFetchOmission[];
 	requested_url: string;
 	final_url: string;
 	http_status: number;
@@ -169,9 +185,41 @@ export interface WebFetchSuccessDetails {
 	authenticated: boolean;
 	redirect_count: number;
 	snapshot: SnapshotStatus;
+	deferred_fragments: {
+		discovered: number;
+		resolved: number;
+	};
+	media: {
+		discovered: number;
+		returned: number;
+	};
 	duration_ms: number;
 	/** 供展开 renderer 使用的短预览，不含包装标签。 */
 	preview: string;
+}
+
+export interface WebFetchOmission {
+	kind:
+		| "text_range"
+		| "deferred_content"
+		| "primary_media"
+		| "embedded_content"
+		| "structured_data"
+		| "interactive_content";
+	reason:
+		| "range"
+		| "unresolved_declaration"
+		| "model_no_image_input"
+		| "media_disabled"
+		| "offset_range"
+		| "media_fetch_failed"
+		| "media_too_large"
+		| "unsupported_media_type"
+		| "video_not_returned"
+		| "audio_not_returned"
+		| "iframe_not_fetched"
+		| "invalid_or_limited"
+		| "client_rendered";
 }
 
 export interface WebFetchProgressDetails {
@@ -188,6 +236,14 @@ export type WebFetchDetails = WebFetchSuccessDetails | WebFetchFailureDetails | 
 export interface WebFetchResult {
 	content: string;
 	details: WebFetchSuccessDetails | WebFetchFailureDetails;
+	media?: WebFetchMedia[];
+}
+
+/** 只在 runtime 与 Pi 适配层之间传递；不写入 details、缓存或遥测。 */
+export interface WebFetchMedia {
+	data: Uint8Array;
+	mimeType: string;
+	sourceUrl: string;
 }
 
 /** 搜索工具 renderer 使用的阶段进度，不进入最终模型内容。 */
@@ -281,6 +337,7 @@ export interface WebFetchExecutionContext {
 	signal?: AbortSignal;
 	onUpdate?: (partial: { content: string; details: WebFetchProgressDetails }) => void;
 	hasUI: boolean;
+	acceptsImages?: boolean;
 	confirm?: (title: string, message: string) => Promise<boolean>;
 }
 
@@ -314,9 +371,43 @@ export type HttpFetchResult = HttpFetchSuccess | { status: "failed"; details: We
 export interface ContentConversion {
 	text: string;
 	format: WebFetchOutputFormat;
+	analysis: WebFetchAnalysisSummary;
 	contentType?: string;
 	charset?: string;
 	title?: string;
+	extraction?: WebFetchExtraction;
+	directMedia?: WebFetchMedia;
+}
+
+/** 分页和结果契约所需的静态分析摘要；不含 DOM、正文副本或媒体字节。 */
+export interface WebFetchAnalysisSummary {
+	pageKind: WebFetchPageKind;
+	textSource: WebFetchTextSource;
+	omissions: WebFetchOmission[];
+	deferredFragments: {
+		discovered: number;
+		resolved: number;
+	};
+	primaryMedia?: {
+		url: string;
+	};
+}
+
+export interface HtmlReadabilityOptions {
+	charThreshold: number;
+}
+
+export interface WebFetchExtraction {
+	analysis: PageAnalysis;
+	textSource: WebFetchTextSource;
+	deferredFragments: {
+		discovered: number;
+		resolved: number;
+	};
+	primaryMedia?: {
+		url: string;
+	};
+	mediaDominant: boolean;
 }
 
 /** 兼容 undici Headers 的最小响应头接口。 */
@@ -375,6 +466,7 @@ export interface WebFetchSnapshot {
 		authenticated: boolean;
 		redirectCount: number;
 		downloadedBytes: number;
+		analysis: WebFetchAnalysisSummary;
 	};
 	sizeBytes: number;
 }

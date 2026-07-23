@@ -93,8 +93,13 @@ function formatSuccess(details: WebFetchSuccessDetails, expanded: boolean, theme
 		summary: joinParts([
 			`${details.http_status}`,
 			format.toLowerCase(),
+			details.page_kind,
+			details.text_source,
 			range,
 			details.range.next_offset !== undefined ? "more" : undefined,
+			details.completeness === "partial" ? "partial" : undefined,
+			details.completeness === "partial" ? primaryOmission(details) : undefined,
+			details.media.returned > 0 ? `${details.media.returned} image` : undefined,
 			formatDuration(details.duration_ms),
 		]),
 	}, theme);
@@ -103,9 +108,13 @@ function formatSuccess(details: WebFetchSuccessDetails, expanded: boolean, theme
 		details.title ? `"${truncateMiddle(details.title, 48)}"` : undefined,
 		`${details.http_status}`,
 		format,
+		details.page_kind,
+		details.text_source,
 		range,
 		details.authenticated ? "auth" : undefined,
 		details.range.next_offset !== undefined ? "more" : undefined,
+		details.completeness === "partial" ? "partial" : undefined,
+		details.media.returned > 0 ? `${details.media.returned} image` : undefined,
 		details.snapshot === "hit" ? "snapshot" : undefined,
 		formatDuration(details.duration_ms),
 	].filter((item): item is string => item !== undefined);
@@ -120,6 +129,14 @@ function formatSuccess(details: WebFetchSuccessDetails, expanded: boolean, theme
 		details.charset ? `  Encoding        ${details.charset}` : undefined,
 		`  Downloaded      ${formatBytes(details.downloaded_bytes)}`,
 		`  Returned        chars ${details.range.start}-${details.range.end} of ${details.range.total}`,
+		`  Page            ${details.page_kind}`,
+		`  Text source     ${details.text_source}`,
+		`  Completeness    ${details.completeness}`,
+		details.deferred_fragments.discovered > 0
+			? `  Deferred       ${details.deferred_fragments.resolved}/${details.deferred_fragments.discovered} resolved`
+			: undefined,
+		details.media.discovered > 0 ? `  Media          ${details.media.returned}/${details.media.discovered} returned` : undefined,
+		details.omissions.length > 0 ? `  Omitted         ${details.omissions.map((item) => `${item.kind}:${item.reason}`).join(", ")}` : undefined,
 		details.authenticated ? "  Authentication  cookie" : undefined,
 		`  Snapshot        ${details.snapshot}`,
 		details.redirect_count > 0 ? `  Redirects       ${details.redirect_count}` : undefined,
@@ -128,6 +145,11 @@ function formatSuccess(details: WebFetchSuccessDetails, expanded: boolean, theme
 	]
 		.filter((item): item is string => item !== undefined)
 		.join("\n");
+}
+
+function primaryOmission(details: WebFetchSuccessDetails): string | undefined {
+	const omission = details.omissions[0];
+	return omission === undefined ? undefined : `${omission.kind}:${omission.reason}`;
 }
 
 function formatFailure(details: WebFetchFailureDetails, expanded: boolean, theme: Pick<Theme, "fg" | "bold">): string {
@@ -164,6 +186,7 @@ function labelFormat(format: string): string {
 	if (format === "markdown") return "Markdown";
 	if (format === "json") return "JSON";
 	if (format === "xml") return "XML";
+	if (format === "image") return "Image";
 	if (format === "source") return "Source";
 	return "Text";
 }
@@ -188,7 +211,25 @@ function indent(value: string): string {
 }
 
 function isSuccessDetails(value: unknown): value is WebFetchSuccessDetails {
-	return isRecord(value) && value["status"] === "success" && typeof value["http_status"] === "number" && isRecord(value["range"]);
+	return isRecord(value)
+		&& value["status"] === "success"
+		&& value["scope"] === "static_response"
+		&& isPageKind(value["page_kind"])
+		&& isTextSource(value["text_source"])
+		&& (value["completeness"] === "complete" || value["completeness"] === "partial")
+		&& Array.isArray(value["omissions"])
+		&& typeof value["http_status"] === "number"
+		&& isRecord(value["range"])
+		&& isRecord(value["deferred_fragments"])
+		&& isRecord(value["media"]);
+}
+
+function isPageKind(value: unknown): boolean {
+	return value === "article" || value === "image" || value === "video" || value === "audio" || value === "generic";
+}
+
+function isTextSource(value: unknown): boolean {
+	return value === "readability" || value === "semantic" || value === "heading" || value === "body" || value === "metadata";
 }
 
 function isFailureDetails(value: unknown): value is WebFetchFailureDetails {

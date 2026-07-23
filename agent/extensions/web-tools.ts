@@ -76,29 +76,29 @@ export function createWebToolsExtension(loadRuntime: WebToolsRuntimeLoader = loa
 
 		registerObservedTool(pi, {
 			tool: {
-			name: "websearch",
-			label: "websearch",
-			description: "Search the web; return page titles, URLs, and snippets.",
-			promptSnippet: "search the web",
-			promptGuidelines: [WEB_CONTENT_GUIDELINE],
-			parameters: webSearchParameters,
-			async execute(toolCallId, params, signal, onUpdate) {
-				const runtime = await getRuntime();
-				const result = await runtime.search(params, {
-					toolCallId,
-					...(signal !== undefined ? { signal } : {}),
-					...(onUpdate
-						? {
+				name: "websearch",
+				label: "websearch",
+				description: "Search the web; return page titles, URLs, and snippets.",
+				promptSnippet: "search the web",
+				promptGuidelines: [WEB_CONTENT_GUIDELINE],
+				parameters: webSearchParameters,
+				async execute(toolCallId, params, signal, onUpdate) {
+					const runtime = await getRuntime();
+					const result = await runtime.search(params, {
+						toolCallId,
+						...(signal !== undefined ? { signal } : {}),
+						...(onUpdate
+							? {
 								onUpdate(partial: { content: string; details: WebSearchProgressDetails }) {
 									onUpdate({ content: [{ type: "text", text: partial.content }], details: partial.details });
 								},
 							}
-						: {}),
-				});
-				return { content: [{ type: "text", text: result.content }], details: result.details };
-			},
-			renderCall: renderWebSearchCall,
-			renderResult: renderWebSearchResult,
+							: {}),
+					});
+					return { content: [{ type: "text", text: result.content }], details: result.details };
+				},
+				renderCall: renderWebSearchCall,
+				renderResult: renderWebSearchResult,
 			},
 			repair: { singleStringField: "query" },
 			telemetry: webSearchTelemetry,
@@ -106,32 +106,43 @@ export function createWebToolsExtension(loadRuntime: WebToolsRuntimeLoader = loa
 
 		registerObservedTool(pi, {
 			tool: {
-			name: "webfetch",
-			label: "webfetch",
-			description: "Fetch one HTTP(S) URL as readable text or source; no JavaScript.",
-			promptSnippet: "read a known URL",
-			promptGuidelines: [WEB_CONTENT_GUIDELINE],
-			parameters: webFetchParameters,
-			async execute(toolCallId, params, signal, onUpdate, ctx) {
-				const executionContext = {
-					toolCallId,
-					...(signal !== undefined ? { signal } : {}),
-					...(onUpdate
-						? {
+				name: "webfetch",
+				label: "webfetch",
+				description: "Fetch one HTTP(S) URL as readable text or source; no JavaScript.",
+				promptSnippet: "read a known URL",
+				promptGuidelines: [WEB_CONTENT_GUIDELINE, "Webfetch covers only detected static response content. Remind user of limitation if content is partial."],
+				parameters: webFetchParameters,
+				async execute(toolCallId, params, signal, onUpdate, ctx) {
+					const executionContext = {
+						toolCallId,
+						...(signal !== undefined ? { signal } : {}),
+						...(onUpdate
+							? {
 								onUpdate: (partial: { content: string; details: WebFetchProgressDetails }) => {
 									onUpdate({ content: [{ type: "text", text: partial.content }], details: partial.details });
 								},
 							}
-						: {}),
-					hasUI: ctx.hasUI,
-					...(ctx.hasUI ? { confirm: (title: string, message: string) => ctx.ui.confirm(title, message) } : {}),
-				};
-				const runtime = await getRuntime();
-				const result = await runtime.fetch(params, executionContext);
-				return { content: [{ type: "text", text: result.content }], details: result.details };
-			},
-			renderCall: renderWebFetchCall,
-			renderResult: renderWebFetchResult,
+							: {}),
+						hasUI: ctx.hasUI,
+						acceptsImages: ctx.model?.input.includes("image") === true,
+						...(ctx.hasUI ? { confirm: (title: string, message: string) => ctx.ui.confirm(title, message) } : {}),
+					};
+					const runtime = await getRuntime();
+					const result = await runtime.fetch(params, executionContext);
+					return {
+						content: [
+							{ type: "text" as const, text: result.content },
+							...(result.media ?? []).map((media) => ({
+								type: "image" as const,
+								data: Buffer.from(media.data).toString("base64"),
+								mimeType: media.mimeType,
+							})),
+						],
+						details: result.details,
+					};
+				},
+				renderCall: renderWebFetchCall,
+				renderResult: renderWebFetchResult,
 			},
 			repair: { singleStringField: "url" },
 			telemetry: webFetchTelemetry,

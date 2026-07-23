@@ -39,6 +39,8 @@ describe("web-tools config", () => {
 				},
 				"webfetch": {
 					"timeout_seconds": 5,
+					"readability": { "char_threshold": 800, },
+					"media": { "mode": "off", "response_bytes": 1048576, },
 					"limits": { "default_output_chars": 1000, "max_output_chars": 2000, },
 					"cookies": { "domains": ["example.com"], "confirmation": "never", },
 				},
@@ -57,6 +59,8 @@ describe("web-tools config", () => {
 			},
 			webfetch: {
 				timeout_seconds: 5,
+				readability: { char_threshold: 800 },
+				media: { mode: "off", response_bytes: 1048576 },
 				limits: { default_output_chars: 1000, max_output_chars: 2000 },
 				cookies: { domains: ["example.com"], confirmation: "never" },
 			},
@@ -84,6 +88,12 @@ describe("web-tools config", () => {
 		await expect(loadWebToolsConfig()).rejects.toThrow("does not match schema");
 
 		await writeFile(file, '{ "webfetch": { "cookies": { "confirmation": "sometimes" } } }');
+		await expect(loadWebToolsConfig()).rejects.toThrow("does not match schema");
+
+		await writeFile(file, '{ "webfetch": { "readability": { "char_threshold": 0 } } }');
+		await expect(loadWebToolsConfig()).rejects.toThrow("does not match schema");
+
+		await writeFile(file, '{ "webfetch": { "media": { "max_images": 1 } } }');
 		await expect(loadWebToolsConfig()).rejects.toThrow("does not match schema");
 
 		await writeFile(file, '{ "webfetch": { "limits": { "default_output_chars": 2000, "max_output_chars": 1000 } } }');

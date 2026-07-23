@@ -75,6 +75,18 @@
 		// 可在需要复用浏览器登录态的站点按需手动调整。
 		"user_agent": "pi-webfetch/1.0",
 
+		"readability": {
+			// Readability 接受正文结果所需的最少字符数。
+			"char_threshold": 500
+		},
+
+		"media": {
+			// auto: 向支持图像的模型附带统一排序后的单张主图；off: 只返回文本。
+			"mode": "auto",
+			// 主图解压后响应上限。
+			"response_bytes": 5242880
+		},
+
 		"limits": {
 			// 解压后允许读取的最大响应正文。
 			"response_bytes": 10485760,
@@ -97,7 +109,7 @@
 			],
 
 			// always: 每次询问；session: 每个 origin 每会话首次询问；never: 命中后直接发送。
-			"confirmation": "session"
+			"confirmation": "never"
 		}
 	}
 }

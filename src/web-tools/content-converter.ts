@@ -1,13 +1,19 @@
 import { parse as parseContentTypeHeader } from "content-type";
 
-import type { ContentConversion, WebFetchFailureDetails, WebFetchMode, WebFetchOutputFormat, WebHttpHeaders } from "./types.js";
+import type { ContentConversion, HtmlReadabilityOptions, WebFetchFailureDetails, WebFetchMode, WebFetchOutputFormat, WebHttpHeaders } from "./types.js";
 
 const TEXT_TYPES = new Set(["text/plain", "text/markdown", "text/csv", "application/javascript", "application/x-javascript"]);
 const JSON_TYPES = new Set(["application/json", "application/ld+json"]);
 const XML_TYPES = new Set(["application/xml", "text/xml", "application/rss+xml", "application/atom+xml"]);
 
 export interface HtmlContentConverter {
-	htmlToMarkdown(html: string, finalUrl: string, mime: string, charset?: string): ContentConversion | WebFetchFailureDetails;
+	htmlToMarkdown(
+		html: string,
+		finalUrl: string,
+		mime: string,
+		options: HtmlReadabilityOptions,
+		charset?: string,
+	): ContentConversion | WebFetchFailureDetails;
 }
 
 export type HtmlContentConverterLoader = () => Promise<HtmlContentConverter>;
@@ -20,6 +26,7 @@ export async function convertContent(
 	headers: WebHttpHeaders,
 	finalUrl: string,
 	mode: WebFetchMode,
+	readability: HtmlReadabilityOptions,
 	loadHtml: HtmlContentConverterLoader = loadHtmlContentConverter,
 ): Promise<ContentConversion | WebFetchFailureDetails> {
 	const contentTypeHeader = headers.get("content-type") ?? "text/plain";
@@ -37,13 +44,14 @@ export async function convertContent(
 		return {
 			text: normalized,
 			format: "source",
+			analysis: genericAnalysis(),
 			...(mime ? { contentType: mime } : {}),
 			...(decoded.charset ? { charset: decoded.charset } : {}),
 		};
 	}
 	if (kind === "html") {
 		try {
-			return (await loadHtml()).htmlToMarkdown(normalized, finalUrl, mime, decoded.charset);
+			return (await loadHtml()).htmlToMarkdown(normalized, finalUrl, mime, readability, decoded.charset);
 		} catch (error) {
 			return failure("CONVERSION_FAILED", error instanceof Error ? error.message : String(error));
 		}
@@ -51,8 +59,18 @@ export async function convertContent(
 	return {
 		text: normalized,
 		format: kind,
+		analysis: genericAnalysis(),
 		...(mime ? { contentType: mime } : {}),
 		...(decoded.charset ? { charset: decoded.charset } : {}),
+	};
+}
+
+function genericAnalysis(): ContentConversion["analysis"] {
+	return {
+		pageKind: "generic",
+		textSource: "body",
+		omissions: [],
+		deferredFragments: { discovered: 0, resolved: 0 },
 	};
 }
 

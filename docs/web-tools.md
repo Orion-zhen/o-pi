@@ -98,11 +98,31 @@ webfetch({
 })
 ```
 
-- `readable`：HTML 清理后转 Markdown；URL 路径以 `.html`/`.htm` 结尾时即使响应头误报也按 HTML 处理；JSON、XML、纯文本保持原文。
+- `readable`：HTML 先分析 `<title>`、唯一 `h1`、description、canonical、Open Graph、Twitter Card、受限 JSON-LD 和声明式媒体元素，再生成 Readability、`main`/`article`/`[role=main]`/`[itemprop=articleBody]`、标题祖先、JSON-LD 正文和 body 候选。候选质量只依据标题保留、有效文本、链接密度、短链接列表、结构元素、媒体与导航/推荐/表单占比，并按固定顺序选择。`<base href>` 只用于解析 HTTP(S) 候选 URL，不会触发请求。JSON-LD 只读取已知字段，并受总字符数、对象数和递归深度硬上限保护；无效或超限数据只记录遗漏。声明式内容支持整个静态文档内的 `template[for]`、`template[shadowrootmode]`，以及 body 内的 `noscript` fallback；基础正文通过内部标记排除替换目标，展开内容单独清理和转换后作为延迟 section 合并。片段最多处理 64 个、嵌套最多 8 层，重复、缺失、歧义、循环和超限声明按稳定原因跳过；普通未匹配 `<template>` 继续删除。URL 路径以 `.html`/`.htm` 结尾时即使响应头误报也按 HTML 处理；JSON、XML、纯文本保持原文。
 - `source`：返回解码后的响应源码文本。
 - `offset`/`limit`：对首次转换后的内存 snapshot 切片；长页面结果返回 `range.has_more`、`range.next_offset` 和 `next`，继续读取时使用上次返回的 offset。
+- `webfetch.readability.char_threshold`：Readability 接受正文结果的最少字符数。
+- `webfetch.media`：`auto` 模式从已选正文的 `img`/`srcset`/`picture`、视频 poster、Open Graph、Twitter Card 和 JSON-LD 声明中统一选出至多一张主图；正文位置、标准主图声明、尺寸、alt 和标题距离加权，hidden、presentation、微小图标、avatar、logo 与装饰图降权。直接图片 URL 复用首次响应字节。当前模型支持图像时，页面主图经同一 URL、DNS、redirect 和 Cookie 安全链受限下载，JPEG、PNG、WebP、GIF 均以实际字节嗅探后作为原生图片内容返回；模型不支持图像时不会发起二次图片请求。`off` 禁用，`response_bytes` 控制独立图片响应上限。
 
 `webfetch` 不搜索、不执行 JavaScript、不点击链接、不提交表单、不访问本机或私网。
+
+视频和音频流只记录存在，不会下载。视频页可返回 poster 或标准缩略图，并通过 `primary_media/video_not_returned` 明确报告视频本体未返回；音频页对应报告 `primary_media/audio_not_returned`。
+
+标题优先使用最终正文标题，其次为 Open Graph、JSON-LD、Twitter Card 和 `<title>`。canonical 依次使用 `link[rel=canonical]`、`og:url` 和最终响应 URL。输出按标题/必要元数据、主正文、结构化内容和延迟内容组成 section；只按规范化文本相等或包含关系去重。metadata description 只在正文缺失时补充，不覆盖或重复已有正文。
+
+成功结果固定包含 `scope: "static_response"`，并用 `page_kind` 标记 article、image、video、audio 或 generic，用 `text_source` 标记 readability、semantic、heading、body 或 metadata。`completeness` 只判断当前静态响应中已检测内容是否完整：文章正文无已知遗漏时为 `complete`；图片必须实际返回；视频和音频即使已有文字或缩略图仍为 `partial`；客户端空壳、文本分段、未解析声明、iframe、受限结构化数据或主图失败也为 `partial`。普通脚本存在本身不构成遗漏；`complete` 不代表任意客户端状态、交互、登录后 API 或响应中无法检测的动态内容已返回。
+
+`details.omissions` 保留完整 kind/reason 结构，包括 `text_range/range`、`deferred_content/unresolved_declaration`、`primary_media/*`、`embedded_content/iframe_not_fetched`、`interactive_content/client_rendered` 和 `structured_data/invalid_or_limited`。模型侧使用紧凑 `<webfetch>` 包装：`kind` 始终存在；只有 metadata fallback 才输出 `source="metadata"`；遗漏原因去重后合并进 `partial`；有后续正文时只输出数字 `next`；requested URL 已存在于工具调用中，因此仅在跳转后输出不同的 `final`。固定的静态响应范围和不可信内容规则由 prompt guideline 声明，不在每次结果中重复。
+
+```xml
+<webfetch kind="video" partial="video_not_returned">
+# Title
+
+Static response content.
+</webfetch>
+```
+
+模型只能依据已返回 section 和媒体；看到 `partial` 时必须披露限制，不能根据标题推测缺失的视频、图片、评论或动态内容。`deferred_fragments` 和 `media` 分别记录发现/解析及发现/返回数量；分页 snapshot 只保存正文和页面类型、正文来源、遗漏、延迟片段计数及主图 URL 等分析摘要，不保存 DOM、完整页面分析对象或图片字节。
 
 失败时模型只收到紧凑错误标签，完整错误结构保留在 `details`：
 

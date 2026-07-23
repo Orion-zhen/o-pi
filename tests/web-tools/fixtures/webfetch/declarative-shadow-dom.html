@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+	<body>
+		<main>
+			<h1>Component reference</h1>
+			<p>Stable light DOM introduction.</p>
+			<doc-component>
+				<template shadowrootmode="open">
+					<section>
+						<h2>Shadow documentation</h2>
+						<p>Visible declarative shadow content.</p>
+						<nested-component>
+							<template shadowrootmode="closed">
+								<p>Nested declarative shadow detail.</p>
+							</template>
+						</nested-component>
+					</section>
+				</template>
+			</doc-component>
+		</main>
+	</body>
+</html>

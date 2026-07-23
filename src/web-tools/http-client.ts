@@ -20,7 +20,13 @@ export interface HttpClientOptions {
 	now: () => number;
 }
 
-export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions): Promise<HttpFetchResult> {
+export interface HttpResourceOptions {
+	accept?: string;
+	maxBytes?: number;
+	imageMaxBytes?: number;
+}
+
+export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions, resource: HttpResourceOptions = {}): Promise<HttpFetchResult> {
 	const fetchImpl = options.fetchImpl;
 	const requested = validateRequestUrl(rawUrl);
 	if ("status" in requested) {
@@ -92,7 +98,7 @@ export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions): 
 				signal: combinedSignal(options),
 				headers: {
 					"User-Agent": options.config.webfetch.user_agent,
-					Accept: ACCEPT_HEADER,
+					Accept: resource.accept ?? ACCEPT_HEADER,
 					"Accept-Encoding": "gzip, deflate, br",
 					...(cookieAccess.header !== undefined ? { Cookie: cookieAccess.header } : {}),
 				},
@@ -155,8 +161,13 @@ export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions): 
 			},
 		});
 		let lastUpdate = 0;
+		const responseMaxBytes = resource.maxBytes
+			?? (isImageContentType(response.headers.get("content-type"))
+				? resource.imageMaxBytes
+				: undefined)
+			?? options.config.webfetch.limits.response_bytes;
 		const body = await readLimitedResponseBody(response, {
-			maxBytes: options.config.webfetch.limits.response_bytes,
+			maxBytes: responseMaxBytes,
 			...(options.context.signal !== undefined ? { signal: options.context.signal } : {}),
 			onProgress(receivedBytes) {
 				const now = options.now();
@@ -226,6 +237,10 @@ export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions): 
 			downloadedBytes: body.bytes.length,
 		};
 	}
+}
+
+function isImageContentType(value: string | null): boolean {
+	return value?.split(";", 1)[0]?.trim().toLowerCase().startsWith("image/") === true;
 }
 
 async function confirmAuth(url: URL, options: HttpClientOptions): Promise<boolean> {

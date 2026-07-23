@@ -23,6 +23,11 @@ describe("webfetch renderer", () => {
 		const success = formatWebFetchResult(
 			{
 				status: "success",
+				scope: "static_response",
+				page_kind: "article",
+				text_source: "readability",
+				completeness: "partial",
+				omissions: [{ kind: "text_range", reason: "range" }],
 				requested_url: "https://example.com/",
 				final_url: "https://example.com/",
 				http_status: 200,
@@ -34,6 +39,8 @@ describe("webfetch renderer", () => {
 				authenticated: true,
 				redirect_count: 1,
 				snapshot: "created",
+				deferred_fragments: { discovered: 1, resolved: 1 },
+				media: { discovered: 1, returned: 1 },
 				duration_ms: 12,
 				preview: "# Title",
 			},
@@ -41,7 +48,40 @@ describe("webfetch renderer", () => {
 			theme,
 		);
 		expect(success).toContain("more");
+		expect(success).toContain("partial");
+		expect(success).toContain("article");
+		expect(success).toContain("readability");
+		expect(success).toContain("text_range:range");
+		expect(success).toContain("1 image");
 		expect(success).toContain("Authentication  cookie");
+
+		expect(formatWebFetchResult(
+			{
+				status: "success",
+				scope: "static_response",
+				page_kind: "image",
+				text_source: "metadata",
+				completeness: "complete",
+				omissions: [],
+				requested_url: "https://example.com/direct.png",
+				final_url: "https://example.com/direct.png",
+				http_status: 200,
+				content_type: "image/png",
+				format: "image",
+				downloaded_bytes: 100,
+				total_chars: 26,
+				range: { start: 0, end: 26, total: 26, has_more: false },
+				authenticated: false,
+				redirect_count: 0,
+				snapshot: "not_needed",
+				deferred_fragments: { discovered: 0, resolved: 0 },
+				media: { discovered: 1, returned: 1 },
+				duration_ms: 1,
+				preview: "Image response [image/png]",
+			},
+			{ expanded: true },
+			theme,
+		)).toContain("image/png -> image");
 
 		const failure = formatWebFetchResult(
 			{ status: "failed", error: { code: "BLOCKED_ADDRESS", message: "private network address" }, duration_ms: 1 },

@@ -109,6 +109,21 @@
 				"timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 120, "default": 30 },
 				"max_redirects": { "type": "integer", "minimum": 0, "maximum": 10, "default": 5 },
 				"user_agent": { "type": "string", "minLength": 1, "maxLength": 512, "default": "pi-webfetch/1.0" },
+				"readability": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"char_threshold": { "type": "integer", "minimum": 1, "maximum": 100000, "default": 500 }
+					}
+				},
+				"media": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"mode": { "enum": ["auto", "off"], "default": "auto" },
+						"response_bytes": { "type": "integer", "minimum": 65536, "maximum": 20971520, "default": 5242880 }
+					}
+				},
 				"limits": {
 					"type": "object",
 					"additionalProperties": false,

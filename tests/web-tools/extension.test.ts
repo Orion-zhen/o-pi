@@ -12,7 +12,7 @@ import type { WebToolsCapabilityLoaders } from "../../src/web-tools/runtime-type
 import { createWebToolsRuntime } from "../../src/web-tools/web-tools-runtime.js";
 import type { WebSearchProvider } from "../../src/web-tools/search-providers/types.js";
 import { SearchCorpus } from "../../src/web-tools/search-corpus.js";
-import type { WebSearchParams, WebToolsRuntime } from "../../src/web-tools/types.js";
+import type { WebFetchExecutionContext, WebFetchParams, WebSearchParams, WebToolsRuntime } from "../../src/web-tools/types.js";
 import { createWebSearchRuntime, type WebSearchProviderLoaders } from "../../src/web-tools/websearch-runtime.js";
 import { httpResponse } from "../helpers/http.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -54,6 +54,7 @@ describe("web-tools extension", () => {
 		};
 		const fetchTool = registered[1] as {
 			name: string;
+			promptGuidelines: string[];
 			parameters: { properties: Record<string, unknown> };
 		};
 		expect(searchTool.name).toBe("websearch");
@@ -64,6 +65,12 @@ describe("web-tools extension", () => {
 			type: "string",
 			enum: ["readable", "source"],
 		});
+		const fetchGuidelines = fetchTool.promptGuidelines.join(" ");
+		expect(fetchGuidelines).toContain("returned sections and media");
+		expect(fetchGuidelines).toContain("static response");
+		expect(fetchGuidelines).toContain("partial");
+		expect(fetchGuidelines).toContain("never infer");
+		expect(fetchGuidelines).toContain("titles");
 
 		const eventResult = handlers.get("tool_result")?.({
 			toolName: "webfetch",
@@ -137,6 +144,78 @@ describe("web-tools extension", () => {
 		await expect(fetchExecution).resolves.toMatchObject({ content: [{ type: "text", text: "fetch" }] });
 		await handlers.get("session_shutdown")?.({});
 		expect(close).toHaveBeenCalledTimes(1);
+	});
+
+	it("只在模型支持图像时声明能力，并把 runtime 媒体转成 Pi ImageContent", async () => {
+		const registered: Array<{ name: string; execute: Function }> = [];
+		const fetch = vi.fn(async (_params: WebFetchParams, _context: WebFetchExecutionContext) => ({
+			content: "page",
+			details: {
+				status: "success" as const,
+				scope: "static_response" as const,
+				page_kind: "image" as const,
+				text_source: "metadata" as const,
+				completeness: "complete" as const,
+				omissions: [],
+				requested_url: "https://example.com/",
+				final_url: "https://example.com/",
+				http_status: 200,
+				format: "markdown" as const,
+				downloaded_bytes: 10,
+				total_chars: 4,
+				range: { start: 0, end: 4, total: 4, has_more: false },
+				authenticated: false,
+				redirect_count: 0,
+				snapshot: "not_needed" as const,
+				deferred_fragments: { discovered: 0, resolved: 0 },
+				media: { discovered: 1, returned: 1 },
+				duration_ms: 1,
+				preview: "page",
+			},
+			media: [{ data: Uint8Array.from([1, 2, 3]), mimeType: "image/png", sourceUrl: "https://example.com/image.png" }],
+		}));
+		const runtime: WebToolsRuntime = {
+			fetch,
+			async search() {
+				return {
+					content: "search",
+					details: {
+						status: "success",
+						query: "q",
+						provider: "exa_api",
+						results: [],
+						cached: false,
+						downloaded_bytes: 0,
+						duration_ms: 0,
+						attempts: [],
+					},
+				};
+			},
+			async close() {},
+		};
+		createWebToolsExtension(async () => runtime)({
+			registerTool(tool: unknown) {
+				registered.push(tool as { name: string; execute: Function });
+			},
+			on() {},
+		} as unknown as ExtensionAPI);
+		const tool = registered.find((item) => item.name === "webfetch");
+		if (tool === undefined) throw new Error("missing webfetch");
+		const result = await tool.execute(
+			"fetch-image",
+			{ url: "https://example.com/" },
+			undefined,
+			undefined,
+			{ hasUI: false, model: { input: ["text", "image"] } },
+		);
+		expect(fetch).toHaveBeenCalledWith(
+			{ url: "https://example.com/" },
+			expect.objectContaining({ acceptsImages: true }),
+		);
+		expect(result.content).toEqual([
+			{ type: "text", text: "page" },
+			{ type: "image", data: "AQID", mimeType: "image/png" },
+		]);
 	});
 
 	it("通过 Pi 的 Jiti 加载后首次调用可正常读取配置", async () => {

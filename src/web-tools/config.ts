@@ -58,6 +58,13 @@ const defaultConfig: WebToolsConfig = {
 		timeout_seconds: 30,
 		max_redirects: 5,
 		user_agent: "pi-webfetch/1.0",
+		readability: {
+			char_threshold: 500,
+		},
+		media: {
+			mode: "auto",
+			response_bytes: 5_242_880,
+		},
 		limits: {
 			response_bytes: 10_485_760,
 			default_output_chars: 20_000,
@@ -171,6 +178,8 @@ interface RawWebToolsConfig {
 		timeout_seconds?: number;
 		max_redirects?: number;
 		user_agent?: string;
+		readability?: Partial<WebToolsConfig["webfetch"]["readability"]>;
+		media?: Partial<WebToolsConfig["webfetch"]["media"]>;
 		limits?: Partial<WebToolsConfig["webfetch"]["limits"]>;
 		cookies?: Partial<WebToolsConfig["webfetch"]["cookies"]>;
 	};
@@ -225,6 +234,13 @@ function mergeConfig(raw: RawWebToolsConfig): WebToolsConfig {
 			timeout_seconds: raw.webfetch?.timeout_seconds ?? defaultConfig.webfetch.timeout_seconds,
 			max_redirects: raw.webfetch?.max_redirects ?? defaultConfig.webfetch.max_redirects,
 			user_agent: raw.webfetch?.user_agent ?? defaultConfig.webfetch.user_agent,
+			readability: {
+				char_threshold: raw.webfetch?.readability?.char_threshold ?? defaultConfig.webfetch.readability.char_threshold,
+			},
+			media: {
+				mode: raw.webfetch?.media?.mode ?? defaultConfig.webfetch.media.mode,
+				response_bytes: raw.webfetch?.media?.response_bytes ?? defaultConfig.webfetch.media.response_bytes,
+			},
 			limits: {
 				response_bytes: raw.webfetch?.limits?.response_bytes ?? defaultConfig.webfetch.limits.response_bytes,
 				default_output_chars: raw.webfetch?.limits?.default_output_chars ?? defaultConfig.webfetch.limits.default_output_chars,
