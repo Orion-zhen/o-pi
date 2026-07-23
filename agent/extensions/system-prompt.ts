@@ -185,6 +185,7 @@ function formatSkillPolicy(): string {
 - Relative paths mentioned by a loaded skill resolve under skill://<skill-name>/.
 - Load the narrowest skill that clearly matches the user's requested outcome.
 - Classify by the requested outcome, not incidental steps such as reading or editing a repository.
+- Do NOT load the same skill repeatedly.
 </skill_policy>`;
 }
 
