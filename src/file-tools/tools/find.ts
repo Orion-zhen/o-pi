@@ -10,19 +10,39 @@ import { createFindEntry, rankGlobEntries, type RankedFindEntry } from "../find/
 import { AbortFindSuggestionRanking, rankFindEntriesForSearch } from "../find/suggestion-pool.js";
 import { fuseRankedFindSources, selectRankedFindEntries } from "../find/fusion.js";
 import { renderFindResults } from "../find/renderer.js";
-import { createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE, rankingEvidenceSources } from "../ranking-evidence.js";
+import { compareRankingEvidence, createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE, rankingEvidenceSources } from "../ranking-evidence.js";
 import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
 import type { IgnoreSnapshot } from "../ignore/ignore-types.js";
 import { guardExistingPath, PathGuardBlockedError } from "../../safety/path-guard.js";
 import { normalizeToolPath, resolveWorkspaceRoot } from "../core/path-resolver.js";
-import type { FindEntry, FindMatch, FindNearbyResult, FindParams, FindSuccess, RepoMapRelatedResult, ToolOutcome } from "../types.js";
+import type { FailedResult, FindEntry, FindMatch, FindNearbyResult, FindParams, FindScopeError, FindSuccess, RepoMapRelatedResult, ToolOutcome } from "../types.js";
 import type { RepoMapFileToolQuery } from "../../repo-map/file-tool-query.js";
 import type { RepoMapQueryCandidate } from "../../repo-map/query.js";
 import { isRepoMapMainCandidate, isRepoMapNavigationCandidate, repoMapEvidenceTier, repoMapNavigationRelation, repoMapRankingEvidence } from "../repo-map-ranking.js";
 
 interface NormalizedFindParams {
 	query: string;
+	paths: string[];
+}
+
+interface NormalizedFindScope {
 	path: string;
+	order: number;
+}
+
+interface ScopeFindSuccess {
+	path: string;
+	strategy: "exact" | "glob" | "fuzzy";
+	ranked: RankedFindEntry[];
+	totalMatches: number;
+	scannedEntries: number;
+	ignoredCount: number;
+	skippedCount: number;
+	scanTruncated: boolean;
+	related?: RepoMapRelatedResult[];
+	nearby?: FindNearbyResult[];
+	missingPrefix?: string;
+	nearbyDirectory?: string;
 }
 
 interface SearchRoot {
@@ -100,54 +120,115 @@ export async function findWorkspaceFiles(
 	if (isFailed(validation)) return validation;
 	const config = await loadFileToolsConfig();
 	if (isFailed(config)) return config;
-	const searchRoot = await resolveWorkspaceSearchRoot(workspaceRoot, validation.path, config);
-	if (isFailed(searchRoot)) return searchRoot;
-	const normalizedQuery = normalizeFindQuery(searchRoot, validation.query);
-	if (isFailed(normalizedQuery)) return normalizedQuery;
-	const normalized = { ...validation, query: normalizedQuery };
 	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
+	const scopeErrors: FindScopeError[] = [];
+	const resolved: NormalizedFindScope[] = [];
+	for (const [order, inputPath] of validation.paths.entries()) {
+		const searchRoot = await resolveWorkspaceSearchRoot(workspaceRoot, inputPath, config);
+		if (isFailed(searchRoot)) {
+			scopeErrors.push({ path: inputPath, error: searchRoot.error });
+			continue;
+		}
+		resolved.push({ path: searchRoot.relativePath, order });
+	}
+	const effectiveScopes = resolveEffectiveScopes(workspaceRoot, resolved);
+	const successes: Array<{ scope: NormalizedFindScope; result: ScopeFindSuccess }> = [];
+	for (const scope of effectiveScopes) {
+		try {
+			assertNotAborted(signal);
+		} catch (error) {
+			if (error instanceof AbortFind) return fail("OPERATION_ABORTED", "find was aborted.");
+			throw error;
+		}
+		const searchRoot = await resolveWorkspaceSearchRoot(workspaceRoot, scope.path, config);
+		if (isFailed(searchRoot)) {
+			scopeErrors.push({ path: scope.path, error: searchRoot.error });
+			continue;
+		}
+		const result = await searchOneScope(workspaceRoot, searchRoot, validation.query, config, ignoreSnapshot, signal, runtime);
+		if (isFailed(result)) scopeErrors.push({ path: scope.path, error: result.error });
+		else successes.push({ scope, result });
+	}
+	if (successes.length === 0) {
+		const first = scopeErrors[0];
+		if (first === undefined) return fail("PATH_NOT_FOUND", "No searchable scope was provided.");
+		return withScopeErrors({ status: "failed", error: first.error }, validation.paths, scopeErrors);
+	}
 
+	let outputQuery = validation.query;
+	const firstRoot = await resolveWorkspaceSearchRoot(workspaceRoot, successes[0]?.scope.path ?? ".", config);
+	if (!isFailed(firstRoot)) {
+		const normalizedOutputQuery = normalizeFindQuery(firstRoot, validation.query);
+		if (!isFailed(normalizedOutputQuery)) outputQuery = normalizedOutputQuery;
+	}
+	return mergeScopeResults(outputQuery, successes, scopeErrors, config);
+}
+
+function validateFindParams(workspaceRoot: string, params: FindParams): ToolOutcome<NormalizedFindParams> {
+	if (typeof params.query !== "string" || params.query.length === 0) return fail("INVALID_PATH", "query must not be empty.");
+	if (params.query.includes("\0")) return fail("INVALID_PATH", "query must not contain NUL bytes.", { path: params.query });
+
+	const rawPaths = params.path === undefined ? ["."] : params.path;
+	if (!Array.isArray(rawPaths) || rawPaths.length === 0) return fail("INVALID_PATH", "path must contain at least one scope.");
+	const paths: string[] = [];
+	const seen = new Set<string>();
+	for (const searchPath of rawPaths) {
+		if (typeof searchPath !== "string" || searchPath.length === 0) return fail("INVALID_PATH", "path entries must be non-empty strings.");
+		if (searchPath.includes("\0")) return fail("INVALID_PATH", "path must not contain NUL bytes.", { path: searchPath });
+		const normalizedSearchPath = normalizeInputPath(workspaceRoot, searchPath);
+		if (isFailed(normalizedSearchPath)) return normalizedSearchPath;
+		if (!seen.has(normalizedSearchPath.path)) {
+			seen.add(normalizedSearchPath.path);
+			paths.push(normalizedSearchPath.path);
+		}
+	}
+	return { query: params.query, paths };
+}
+
+function resolveEffectiveScopes(workspaceRoot: string, scopes: NormalizedFindScope[]): NormalizedFindScope[] {
+	return scopes.filter((scope, index) => !scopes.some((parent, parentIndex) =>
+		parentIndex !== index
+		&& isPathAncestor(path.resolve(workspaceRoot, parent.path), path.resolve(workspaceRoot, scope.path)),
+	));
+}
+
+function isPathAncestor(parent: string, child: string): boolean {
+	const relative = path.relative(parent, child);
+	return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+async function searchOneScope(
+	workspaceRoot: string,
+	searchRoot: SearchRoot,
+	inputQuery: string,
+	config: FileToolsConfig,
+	ignoreSnapshot: IgnoreSnapshot,
+	signal: AbortSignal | undefined,
+	runtime: FindRuntime,
+): Promise<ToolOutcome<ScopeFindSuccess>> {
 	try {
 		assertNotAborted(signal);
-		const exact = await findExactPath(searchRoot, normalized.query, config);
+		const normalizedQuery = normalizeFindQuery(searchRoot, inputQuery);
+		if (isFailed(normalizedQuery)) return normalizedQuery;
+		const exact = await findExactPath(searchRoot, normalizedQuery, config);
 		if (isFailed(exact)) return exact;
-		if (exact === "excluded") {
-			return renderSuccess({
-				query: normalized.query,
-				path: searchRoot.relativePath,
-				strategy: "exact",
-				ranked: [],
-				totalMatches: 0,
-				scannedEntries: 0,
-				ignoredCount: 0,
-				skippedCount: 0,
-				scanTruncated: false,
-				config,
-			});
-		}
+		if (exact === "excluded") return emptyScopeResult(searchRoot.relativePath, "exact");
 		if (exact !== undefined) {
-			return renderSuccess({
-				query: normalized.query,
+			return {
 				path: searchRoot.relativePath,
 				strategy: "exact",
-				ranked: [{
-					entry: exact,
-					tier: 0,
-					evidence: createSourceRankingEvidence("path", 1),
-				}],
+				ranked: [{ entry: exact, tier: 0, evidence: createSourceRankingEvidence("path", 1) }],
 				totalMatches: 1,
 				scannedEntries: 0,
 				ignoredCount: 0,
 				skippedCount: 0,
 				scanTruncated: false,
-				config,
-			});
+			};
 		}
-
-		const glob = createQueryGlobFilter(normalized.query);
+		const glob = createQueryGlobFilter(normalizedQuery);
 		if (isFailed(glob)) return glob;
-		if (glob !== undefined) return await runGlobSearch(workspaceRoot, searchRoot, normalized, config, ignoreSnapshot, signal, glob);
-		return await runRankedSearch(workspaceRoot, searchRoot, normalized, config, ignoreSnapshot, signal, runtime);
+		if (glob !== undefined) return await runGlobSearch(workspaceRoot, searchRoot, config, ignoreSnapshot, signal, glob);
+		return await runRankedSearch(workspaceRoot, searchRoot, normalizedQuery, config, ignoreSnapshot, signal, runtime);
 	} catch (error) {
 		if (error instanceof AbortFind || error instanceof AbortFindSuggestionRanking) return fail("OPERATION_ABORTED", "find was aborted.", { path: searchRoot.relativePath });
 		if (isAccessDenied(error)) return fail("ACCESS_DENIED", "Directory cannot be searched.", { path: searchRoot.relativePath });
@@ -155,18 +236,93 @@ export async function findWorkspaceFiles(
 	}
 }
 
-function validateFindParams(workspaceRoot: string, params: FindParams): ToolOutcome<NormalizedFindParams> {
-	if (typeof params.query !== "string" || params.query.length === 0) return fail("INVALID_PATH", "query must not be empty.");
-	if (params.query.includes("\0")) return fail("INVALID_PATH", "query must not contain NUL bytes.", { path: params.query });
+function emptyScopeResult(pathValue: string, strategy: ScopeFindSuccess["strategy"]): ScopeFindSuccess {
+	return { path: pathValue, strategy, ranked: [], totalMatches: 0, scannedEntries: 0, ignoredCount: 0, skippedCount: 0, scanTruncated: false };
+}
 
-	const searchPath = params.path ?? ".";
-	if (typeof searchPath !== "string" || searchPath.length === 0) return fail("INVALID_PATH", "path must not be empty.", { path: searchPath });
-	if (searchPath.includes("\0")) return fail("INVALID_PATH", "path must not contain NUL bytes.", { path: searchPath });
-	const normalizedSearchPath = normalizeInputPath(workspaceRoot, searchPath);
-	if (isFailed(normalizedSearchPath)) return normalizedSearchPath;
+function mergeScopeResults(
+	query: string,
+	successes: Array<{ scope: NormalizedFindScope; result: ScopeFindSuccess }>,
+	scopeErrors: FindScopeError[],
+	config: FileToolsConfig,
+): FindSuccess {
+	const candidates = new Map<string, RankedFindEntry>();
+	for (const { scope, result } of successes) {
+		for (const candidate of result.ranked) {
+			const scoped = { ...candidate, scopeOrder: scope.order };
+			const existing = candidates.get(candidate.entry.path);
+			if (existing === undefined) {
+				candidates.set(candidate.entry.path, scoped);
+				continue;
+			}
+			const merged = fuseRankedFindSources([existing], [scoped])[0];
+			if (merged !== undefined) candidates.set(candidate.entry.path, { ...merged, scopeOrder: Math.min(existing.scopeOrder ?? scope.order, scope.order) });
+		}
+	}
+	const ranked = [...candidates.values()].sort(compareFindCandidates);
+	const related = ranked.length < FIND_RELATED_TRIGGER
+		? mergeRelated(successes.flatMap(({ result }) => result.related ?? []))
+		: [];
+	const nearby = ranked.length === 0
+		? mergeNearby(successes.flatMap(({ result }) => result.nearby ?? []))
+		: [];
+	const strategy = successes.some(({ result }) => result.strategy === "fuzzy") ? "fuzzy"
+		: successes.some(({ result }) => result.strategy === "glob") ? "glob" : "exact";
+	const paths = successes.map(({ scope }) => scope.path);
+	const missing = successes.map(({ result }) => result).find((result) => result.missingPrefix !== undefined);
+	return renderSuccess({
+		query,
+		path: paths[0] ?? ".",
+		paths,
+		scopeErrors,
+		strategy,
+		ranked,
+		totalMatches: ranked.length,
+		scannedEntries: successes.reduce((sum, item) => sum + item.result.scannedEntries, 0),
+		ignoredCount: successes.reduce((sum, item) => sum + item.result.ignoredCount, 0),
+		skippedCount: successes.reduce((sum, item) => sum + item.result.skippedCount, 0),
+		scanTruncated: successes.some(({ result }) => result.scanTruncated),
+		config,
+		...(missing?.missingPrefix !== undefined ? { missingPrefix: missing.missingPrefix } : {}),
+		...(missing?.nearbyDirectory !== undefined ? { nearbyDirectory: missing.nearbyDirectory } : {}),
+		...(related.length > 0 ? { related } : {}),
+		...(nearby.length > 0 ? { nearby } : {}),
+	});
+}
+
+function compareFindCandidates(left: RankedFindEntry, right: RankedFindEntry): number {
+	return left.tier - right.tier
+		|| compareRankingEvidence(left.evidence, right.evidence)
+		|| (left.scopeOrder ?? Number.MAX_SAFE_INTEGER) - (right.scopeOrder ?? Number.MAX_SAFE_INTEGER)
+		|| compareStableString(left.entry.path, right.entry.path);
+}
+
+function mergeRelated(results: RepoMapRelatedResult[]): RepoMapRelatedResult[] {
+	const merged = new Map<string, RepoMapRelatedResult>();
+	for (const result of results) {
+		const existing = merged.get(result.path);
+		if (existing === undefined) merged.set(result.path, { ...result, relations: [...result.relations] });
+		else for (const relation of result.relations) if (!existing.relations.includes(relation)) existing.relations.push(relation);
+	}
+	return [...merged.values()].slice(0, FIND_RELATED_LIMIT);
+}
+
+function mergeNearby(results: FindNearbyResult[]): FindNearbyResult[] {
+	const seen = new Set<string>();
+	return results.filter((result) => {
+		if (seen.has(result.path)) return false;
+		seen.add(result.path);
+		return true;
+	}).slice(0, FIND_NEARBY_LIMIT);
+}
+
+function withScopeErrors(result: FailedResult, paths: string[], scopeErrors: FindScopeError[]): FailedResult {
 	return {
-		query: params.query,
-		path: normalizedSearchPath.path,
+		...result,
+		error: {
+			...result.error,
+			details: { ...(result.error.details ?? {}), paths, scope_errors: scopeErrors },
+		},
 	};
 }
 
@@ -252,15 +408,25 @@ interface GlobFilter {
 async function runGlobSearch(
 	workspaceRoot: string,
 	searchRoot: SearchRoot,
-	params: NormalizedFindParams,
 	config: FileToolsConfig,
 	ignoreSnapshot: IgnoreSnapshot,
 	signal: AbortSignal | undefined,
 	filter: GlobFilter,
-): Promise<ToolOutcome<FindSuccess>> {
+): Promise<ToolOutcome<ScopeFindSuccess>> {
 	const walkRoot = await childSearchRoot(searchRoot, filter.base, config);
 	if (isFailed(walkRoot)) {
-		return renderMissingPrefix(params, searchRoot, config, filter.base, walkRoot.error.details?.["nearbyDirectory"]);
+		return {
+			path: searchRoot.relativePath,
+			strategy: "glob",
+			ranked: [],
+			totalMatches: 0,
+			scannedEntries: 0,
+			ignoredCount: 0,
+			skippedCount: 0,
+			scanTruncated: false,
+			missingPrefix: filter.base,
+			...(typeof walkRoot.error.details?.["nearbyDirectory"] === "string" ? { nearbyDirectory: walkRoot.error.details["nearbyDirectory"] as string } : {}),
+		};
 	}
 	const state = createWalkState(
 		workspaceRoot,
@@ -279,8 +445,7 @@ async function runGlobSearch(
 		relativeToSearchRoot(searchRoot.relativePath, walkRoot.relativePath),
 	);
 	const ranked = rankGlobEntries(state.entries);
-	return renderSuccess({
-		query: params.query,
+	return {
 		path: searchRoot.relativePath,
 		strategy: "glob",
 		ranked,
@@ -289,19 +454,18 @@ async function runGlobSearch(
 		ignoredCount: state.ignoredCount,
 		skippedCount: state.skippedCount,
 		scanTruncated: state.truncated,
-		config,
-	});
+	};
 }
 
 async function runRankedSearch(
 	workspaceRoot: string,
 	searchRoot: SearchRoot,
-	params: NormalizedFindParams,
+	query: string,
 	config: FileToolsConfig,
 	ignoreSnapshot: IgnoreSnapshot,
 	signal: AbortSignal | undefined,
 	runtime: FindRuntime,
-): Promise<ToolOutcome<FindSuccess>> {
+): Promise<ToolOutcome<ScopeFindSuccess>> {
 	const state = createWalkState(
 		workspaceRoot,
 		searchRoot,
@@ -321,18 +485,17 @@ async function runRankedSearch(
 		safeRepoMapFindCandidates(runtime.repoMap, {
 				workspaceRoot,
 				searchRoot,
-				query: params.query,
+				query,
 				config,
 				ignoreSnapshot,
 				ignoreBypass: state.ignoreBypass,
 				signal,
 			}),
 	]);
-	const ranked = await rankFindEntriesForSearch(state.entries, params.query, searchRoot.relativePath, signal);
+	const ranked = await rankFindEntriesForSearch(state.entries, query, searchRoot.relativePath, signal);
 	const merged = fuseRankedFindSources(ranked.matches, repoMapCandidates.matching);
 	const nearby = merged.length === 0 ? findNearbyResults(ranked.suggestions) : [];
-	return renderSuccess({
-		query: params.query,
+	return {
 		path: searchRoot.relativePath,
 		strategy: "fuzzy",
 		ranked: merged,
@@ -341,10 +504,9 @@ async function runRankedSearch(
 		ignoredCount: state.ignoredCount,
 		skippedCount: state.skippedCount,
 		scanTruncated: state.truncated,
-		config,
 		...(merged.length < FIND_RELATED_TRIGGER && repoMapCandidates.related.length > 0 ? { related: repoMapCandidates.related } : {}),
 		...(nearby.length > 0 ? { nearby } : {}),
-	});
+	};
 }
 
 async function safeRepoMapFindCandidates(
@@ -645,6 +807,8 @@ function findNearbyResults(suggestions: RankedFindEntry[]): FindNearbyResult[] {
 function renderSuccess(input: {
 	query: string;
 	path: string;
+	paths?: string[];
+	scopeErrors?: FindScopeError[];
 	strategy: "exact" | "glob" | "fuzzy";
 	ranked: RankedFindEntry[];
 	totalMatches: number;
@@ -665,6 +829,8 @@ function renderSuccess(input: {
 	return renderFindResults({
 		query: input.query,
 		path: input.path,
+		paths: input.paths ?? [input.path],
+		...(input.scopeErrors !== undefined ? { scopeErrors: input.scopeErrors } : {}),
 		strategy: input.strategy,
 		totalMatches: input.totalMatches,
 		scannedEntries: input.scannedEntries,
@@ -679,33 +845,6 @@ function renderSuccess(input: {
 		...(input.nearby !== undefined ? { nearby: input.nearby } : {}),
 		...(input.missingPrefix !== undefined ? { missingPrefix: input.missingPrefix } : {}),
 		...(input.nearbyDirectory !== undefined ? { nearbyDirectory: input.nearbyDirectory } : {}),
-	});
-}
-
-async function renderMissingPrefix(
-	params: NormalizedFindParams,
-	searchRoot: SearchRoot,
-	config: FileToolsConfig,
-	missingPrefix: string,
-	nearby: unknown,
-	related: RepoMapRelatedResult[] = [],
-): Promise<FindSuccess> {
-	const nearbyDirectory = typeof nearby === "string" ? nearby : undefined;
-	return renderFindResults({
-		query: params.query,
-		path: searchRoot.relativePath,
-		strategy: "glob",
-		totalMatches: 0,
-		scannedEntries: 0,
-		matches: [],
-		ignoredCount: 0,
-		skippedCount: 0,
-		scanTruncated: false,
-		resultLimited: false,
-		outputTokenBudget: config.limits.find_output_token_budget,
-		missingPrefix,
-		...(related.length > 0 ? { related } : {}),
-		...(nearbyDirectory !== undefined ? { nearbyDirectory } : {}),
 	});
 }
 

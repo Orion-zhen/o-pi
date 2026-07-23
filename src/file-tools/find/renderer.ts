@@ -1,6 +1,6 @@
 import { createPathIndex, sortedChildren, type PathIndexNode } from "./path-index.js";
 import { countTextTokensSync } from "../../token-counter.js";
-import type { FindCollapsedGroup, FindDetails, FindMatch, FindNearbyResult, RepoMapRelatedResult } from "../types.js";
+import type { FindCollapsedGroup, FindDetails, FindMatch, FindNearbyResult, FindScopeError, RepoMapRelatedResult } from "../types.js";
 
 const NARROW_RESULT_LIMIT = 20;
 const TOP_MATCH_LIMIT = 12;
@@ -8,6 +8,8 @@ const TOP_MATCH_LIMIT = 12;
 export interface RenderFindInput {
 	query: string;
 	path: string;
+	paths?: string[];
+	scopeErrors?: FindScopeError[];
 	strategy: FindDetails["strategy"];
 	totalMatches: number;
 	scannedEntries: number;
@@ -29,7 +31,7 @@ export function renderFindResults(input: RenderFindInput): { content: string; de
 	const tokenBudget = input.outputTokenBudget;
 	const collapsedGroups = collapseMatches(input.matches);
 	if (input.totalMatches === 0) {
-		const packed = packLines(renderNoMatches(input), input, tokenBudget);
+		const packed = packLines(withScopeWarning(renderNoMatches(input), input), input, tokenBudget);
 		const nearby = appendNearby(packed.content, input.nearby, tokenBudget);
 		const rendered = appendRelated(nearby.content, input.related, tokenBudget);
 		const hasNavigation = input.missingPrefix !== undefined
@@ -50,8 +52,9 @@ export function renderFindResults(input: RenderFindInput): { content: string; de
 
 	if (input.matches.length <= NARROW_RESULT_LIMIT) {
 		const formatted = formatConcreteMatches(input.matches);
-		const packed = packLines(formatted, input, tokenBudget);
-		const visibleMatches = input.matches.slice(0, concreteMatchCount(formatted, input.matches.length, packed.payloadLineCount));
+		const packed = packLines(withScopeWarning(formatted, input), input, tokenBudget);
+		const payloadLineCount = Math.max(0, packed.payloadLineCount - (scopeWarning(input) === undefined ? 0 : 1));
+		const visibleMatches = input.matches.slice(0, concreteMatchCount(formatted, input.matches.length, payloadLineCount));
 		const rendered = appendRelated(packed.content, input.related, tokenBudget);
 		return {
 			content: rendered.content,
@@ -63,10 +66,11 @@ export function renderFindResults(input: RenderFindInput): { content: string; de
 	const selectedPaths = new Set(selected.map((match) => match.path));
 	const groups = collapseMatches(input.matches.filter((match) => !selectedPaths.has(match.path)));
 	const formattedSelected = formatConcreteMatches(selected);
-	const lines = ["top:", ...formattedSelected];
+	const lines = withScopeWarning(["top:", ...formattedSelected], input);
 	if (groups.length > 0) lines.push("other:", ...groups.map(formatGroup));
 	const packed = packLines(lines, input, tokenBudget);
 	let remaining = packed.payloadLineCount;
+	if (scopeWarning(input) !== undefined && remaining > 0) remaining -= 1;
 	if (remaining > 0) remaining -= 1;
 	const selectedLineCount = Math.min(formattedSelected.length, remaining);
 	const visibleMatches = selected.slice(0, concreteMatchCount(formattedSelected, selected.length, selectedLineCount));
@@ -80,6 +84,18 @@ export function renderFindResults(input: RenderFindInput): { content: string; de
 			collapsedGroups: groups,
 		},
 	};
+}
+
+function scopeWarning(input: RenderFindInput): string | undefined {
+	const errors = input.scopeErrors;
+	if (errors === undefined || errors.length === 0) return undefined;
+	const summary = errors.map(({ path, error }) => `${path}:${error.code}`).join(",");
+	return `partial; scope_errors=${summary}`;
+}
+
+function withScopeWarning(lines: string[], input: RenderFindInput): string[] {
+	const warning = scopeWarning(input);
+	return warning === undefined ? lines : [warning, ...lines];
 }
 
 function renderNoMatches(input: RenderFindInput): string[] {
@@ -139,6 +155,8 @@ function buildDetails(
 	return {
 		query: input.query,
 		path: input.path,
+		paths: input.paths ?? [input.path],
+		...(input.scopeErrors !== undefined && input.scopeErrors.length > 0 ? { scope_errors: input.scopeErrors } : {}),
 		strategy: input.strategy,
 		totalMatches: input.totalMatches,
 		returnedMatches: matches.length,

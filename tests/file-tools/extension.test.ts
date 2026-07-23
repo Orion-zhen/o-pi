@@ -192,8 +192,8 @@ describe("file-tools extension", () => {
 		await expect(secondLs).resolves.toMatchObject({ details: { path: "." } });
 		expect(imports.ls).toHaveBeenCalledTimes(1);
 
-		await expect(executeTool(registered, "find", { query: "package.json", path: "." }, ctx)).rejects.toThrow("simulated import failure");
-		await expect(executeTool(registered, "find", { query: "package.json", path: "." }, ctx)).resolves.toMatchObject({
+		await expect(executeTool(registered, "find", { query: "package.json", path: ["."] }, ctx)).rejects.toThrow("simulated import failure");
+		await expect(executeTool(registered, "find", { query: "package.json", path: ["."] }, ctx)).resolves.toMatchObject({
 			details: { query: "package.json" },
 		});
 		expect(imports.find).toHaveBeenCalledTimes(2);

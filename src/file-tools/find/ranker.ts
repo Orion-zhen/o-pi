@@ -8,6 +8,8 @@ export interface RankedFindEntry {
 	entry: FindEntry;
 	tier: number;
 	evidence: RankingEvidence;
+	/** union scope 的稳定 tie-breaker；单 scope/其他来源未设置。 */
+	scopeOrder?: number;
 }
 
 export interface RankedFindEntries {

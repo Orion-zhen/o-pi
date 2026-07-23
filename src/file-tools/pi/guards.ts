@@ -29,6 +29,8 @@ export function isFindDetails(value: unknown): value is FindDetails {
 	return isPlainRecord(value)
 		&& typeof value["query"] === "string"
 		&& typeof value["path"] === "string"
+		&& (value["paths"] === undefined || (Array.isArray(value["paths"]) && value["paths"].every((path) => typeof path === "string")))
+		&& (value["scope_errors"] === undefined || Array.isArray(value["scope_errors"]))
 		&& (value["strategy"] === "exact" || value["strategy"] === "glob" || value["strategy"] === "fuzzy")
 		&& typeof value["totalMatches"] === "number"
 		&& typeof value["scannedEntries"] === "number"

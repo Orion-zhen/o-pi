@@ -38,7 +38,7 @@ const findParameters = Type.Object(
 			minLength: 1,
 			description: "Name, path fragment, concept, or glob.",
 		}),
-		path: Type.Optional(Type.String({ minLength: 1, description: "Search root; default workspace." })),
+		path: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: "Search roots; OR/union scope; default workspace." })),
 	},
 	{ additionalProperties: false },
 );

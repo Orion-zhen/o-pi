@@ -72,7 +72,7 @@ export interface LsParams {
 /** find 参数：query 自动路由精确路径、glob、名称/路径 fuzzy 与语义召回。 */
 export interface FindParams {
 	query: string;
-	path?: string;
+	path?: string[];
 }
 
 export type GrepMatchMode = "auto" | "literal" | "regex";
@@ -363,9 +363,17 @@ export interface FindCollapsedGroup {
 }
 
 /** find 的内部结构化详情；正文保持 token-efficient，完整统计留给 UI 和测试。 */
+export interface FindScopeError {
+	path: string;
+	error: FileToolError;
+}
+
 export interface FindDetails {
 	query: string;
+	/** 首个有效 scope；保留单路径调用的既有字段。 */
 	path: string;
+	paths: string[];
+	scope_errors?: FindScopeError[];
 	strategy: "exact" | "glob" | "fuzzy";
 	totalMatches: number;
 	returnedMatches: number;

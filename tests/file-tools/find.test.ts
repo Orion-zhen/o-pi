@@ -222,12 +222,12 @@ describe("find", () => {
 		expect(await findWorkspaceFiles(workspace, { query: "a\0b" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
 		expect(await findWorkspaceFiles(workspace, { query: "/tmp/a" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
 		expect(await findWorkspaceFiles(workspace, { query: "../a" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
-		expect(await findWorkspaceFiles(workspace, { path: "", query: "a" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
+		expect(await findWorkspaceFiles(workspace, { path: [""], query: "a" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
 		for (const query of ["/tmp/*.ts", "../*.ts", "src/../../*.ts"]) {
 			expect(await findWorkspaceFiles(workspace, { query })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
 		}
 		await writeFile(path.join(outside, "external.ts"), "");
-		const external = expectFindSuccess(await findWorkspaceFiles(workspace, { path: outside, query: "external.ts" }));
+		const external = expectFindSuccess(await findWorkspaceFiles(workspace, { path: [outside], query: "external.ts" }));
 		expect(external.details).toMatchObject({
 			path: path.normalize(outside),
 			strategy: "exact",
@@ -247,7 +247,7 @@ describe("find", () => {
 			matches: [{ path: "src/auth/service.ts", kind: "file" }],
 		});
 
-		const absoluteRoot = expectFindSuccess(await findWorkspaceFiles(workspace, { path: path.join(workspace, "src", "auth"), query: "session.ts" }));
+		const absoluteRoot = expectFindSuccess(await findWorkspaceFiles(workspace, { path: [path.join(workspace, "src", "auth")], query: "session.ts" }));
 		expect(absoluteRoot.details).toMatchObject({
 			query: "session.ts",
 			path: "src/auth",
@@ -256,7 +256,7 @@ describe("find", () => {
 		});
 
 		const absoluteQueryUnderRoot = expectFindSuccess(
-			await findWorkspaceFiles(workspace, { path: "src", query: path.join(workspace, "src", "auth", "service.ts") }),
+			await findWorkspaceFiles(workspace, { path: ["src"], query: path.join(workspace, "src", "auth", "service.ts") }),
 		);
 		expect(absoluteQueryUnderRoot.details).toMatchObject({
 			query: "auth/service.ts",
@@ -305,7 +305,7 @@ describe("find", () => {
 		await mkdir(path.join(workspace, "db", "migrations"), { recursive: true });
 
 		const rootGlob = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "src/**/*.ts" }));
-		const scopedGlob = expectFindSuccess(await findWorkspaceFiles(workspace, { path: "src", query: "*.ts" }));
+		const scopedGlob = expectFindSuccess(await findWorkspaceFiles(workspace, { path: ["src"], query: "*.ts" }));
 		expect(paths(rootGlob.details.matches)).toEqual(paths(scopedGlob.details.matches));
 		expect(paths(rootGlob.details.matches)).toEqual(["src/a.ts", "src/deep/c.ts"]);
 
@@ -494,7 +494,7 @@ describe("find", () => {
 
 		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "*.ts" })).details.matches)).toEqual([]);
 		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "ignored.ts" })).details.matches)).toEqual(["ignored.ts"]);
-		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { path: "ignored-dir", query: "*.ts" })).details.matches)).toEqual([
+		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { path: ["ignored-dir"], query: "*.ts" })).details.matches)).toEqual([
 			"ignored-dir/secret.ts",
 		]);
 		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "ignored-dir/**/*.ts" })).details.matches)).toEqual([
@@ -515,7 +515,7 @@ describe("find", () => {
 		expect(paths(git.details.matches)).toContain(".github");
 		expect(paths(git.details.matches)).not.toContain(".git/config");
 		expect(git.details.scannedEntries).toBe(3);
-		expect(await findWorkspaceFiles(workspace, { path: ".git", query: "*" })).toMatchObject({
+		expect(await findWorkspaceFiles(workspace, { path: [".git"], query: "*" })).toMatchObject({
 			status: "failed",
 			error: { code: "PROTECTED_PATH" },
 		});
@@ -536,7 +536,7 @@ describe("find", () => {
 		} catch {
 			return;
 		}
-		expect(await findWorkspaceFiles(workspace, { path: "protected-link", query: "*.ts" })).toMatchObject({
+		expect(await findWorkspaceFiles(workspace, { path: ["protected-link"], query: "*.ts" })).toMatchObject({
 			status: "failed",
 			error: { code: "PROTECTED_PATH" },
 		});
@@ -558,6 +558,63 @@ describe("find", () => {
 		expect(paths(result.details.matches)).not.toContain("link.ts");
 		expect(paths(result.details.matches)).not.toContain("link-dir/real.ts");
 		expect(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "link-dir" })).details.totalMatches).toBe(0);
+	});
+
+	it("多个 scope 按 union 合并、去重并保留 scope 顺序", async () => {
+		await writeFixture("src/shared.ts");
+		await writeFixture("src/only-src.ts");
+		await writeFixture("tests/shared.ts");
+		await writeFixture("tests/only-tests.ts");
+
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "*.ts", path: ["src", "tests"] }));
+		expect(result.details.paths).toEqual(["src", "tests"]);
+		expect(paths(result.details.matches)).toEqual([
+			"src/only-src.ts",
+			"tests/only-tests.ts",
+			"src/shared.ts",
+			"tests/shared.ts",
+		]);
+	});
+
+	it("嵌套和重复 scope 只保留外层扫描结果", async () => {
+		await writeFixture("src/lib/inside.ts");
+		await writeFixture("src/outside.ts");
+
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "*.ts", path: ["src/lib", "src", "src"] }));
+		expect(result.details.paths).toEqual(["src"]);
+		expect(paths(result.details.matches)).toEqual(["src/lib/inside.ts", "src/outside.ts"]);
+	});
+
+	it("一个 scope 失败时保留成功结果并记录 scope_errors", async () => {
+		await writeFixture("src/available.ts");
+
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "*.ts", path: ["src", "missing"] }));
+		expect(paths(result.details.matches)).toEqual(["src/available.ts"]);
+		expect(result.content).toContain("partial; scope_errors=missing:PATH_NOT_FOUND");
+		expect(result.details.scope_errors).toMatchObject([{ path: "missing", error: { code: "PATH_NOT_FOUND" } }]);
+	});
+
+	it("所有 scope 失败时返回结构化失败结果", async () => {
+		const result = await findWorkspaceFiles(workspace, { query: "*.ts", path: ["missing", "also-missing"] });
+		expect(result).toMatchObject({
+			status: "failed",
+			error: { code: "PATH_NOT_FOUND", details: { scope_errors: expect.any(Array) } },
+		});
+	});
+
+	it("多个 scope 共享全局结果限制", async () => {
+		const configPath = process.env.PI_FILE_TOOLS_CONFIG;
+		if (configPath === undefined) throw new Error("missing test config path");
+		await writeFile(configPath, JSON.stringify({ limits: { find_result_limit: 3 }, ignore: { builtin_profile: "none", gitignore: false } }));
+		await writeFixture("src/a.ts");
+		await writeFixture("src/b.ts");
+		await writeFixture("tests/c.ts");
+		await writeFixture("tests/d.ts");
+
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "*.ts", path: ["src", "tests"] }));
+		expect(result.details.totalMatches).toBe(4);
+		expect(result.details.returnedMatches).toBe(3);
+		expect(result.details.resultLimited).toBe(true);
 	});
 
 	it("零结果、missing prefix nearby 和 AbortSignal", async () => {

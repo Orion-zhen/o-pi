@@ -91,7 +91,7 @@ describe("Repo Map query and file-tool integration", () => {
 		const activeQuery = createRepoMapFileToolQuery(() => [activationEntry(generation.metadata)], { readActivated });
 		const active = await findWorkspaceFiles(workspaceTemp.path, { query: "RemoteSymbol" }, undefined, { repoMap: activeQuery });
 		expect("status" in active ? [] : active.details.matches).toContainEqual({ path: "odd-name.ts", kind: "file" });
-		const outside = await findWorkspaceFiles(workspaceTemp.path, { path: configTemp.path, query: "RemoteSymbol" }, undefined, { repoMap: activeQuery });
+		const outside = await findWorkspaceFiles(workspaceTemp.path, { path: [configTemp.path], query: "RemoteSymbol" }, undefined, { repoMap: activeQuery });
 		expect("status" in outside ? [] : outside.details.matches).toEqual([]);
 	});
 

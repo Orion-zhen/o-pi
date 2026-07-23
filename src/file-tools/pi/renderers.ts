@@ -381,11 +381,11 @@ function formatWriteCall(
 function formatFindCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, cwd: string): string {
 	const record = isPlainRecord(args) ? args : {};
 	const query = stringArg(record["query"]);
-	const rawPath = stringArg(record["path"]) ?? ".";
+	const rawPaths = pathArgs(record["path"]);
 	return formatToolCard({
 		tool: "find",
 		status: "running",
-		target: `${query === null ? "?" : `"${query}"`} in ${displayToolPath(rawPath, cwd)}`,
+		target: `${query === null ? "?" : `"${query}"`} in ${rawPaths.map((value) => displayToolPath(value, cwd)).join(", ")}`,
 		summary: "locating files/directories",
 	}, theme);
 }
@@ -412,7 +412,8 @@ function formatFindDetails(details: FindDetails, expanded: boolean, theme: Pick<
 		details.resultLimited ? "results limited" : undefined,
 		details.outputTruncated ? "output truncated" : undefined,
 	]);
-	const header = formatToolCard({ tool: "find", status: "success", target: `"${details.query}" in ${details.path}`, summary }, theme);
+	const scope = (details.paths ?? [details.path]).join(", ");
+	const header = formatToolCard({ tool: "find", status: "success", target: `"${details.query}" in ${scope}`, summary }, theme);
 	if (!expanded) return header;
 
 	const lines = [header, ""];
@@ -441,6 +442,7 @@ function formatFindDetails(details: FindDetails, expanded: boolean, theme: Pick<
 	if (details.scanTruncated) lines.push("Scan truncated.");
 	if (details.resultLimited) lines.push("Results limited.");
 	if (details.outputTruncated) lines.push("Model output truncated.");
+	if (details.scope_errors !== undefined && details.scope_errors.length > 0) lines.push(`Scope errors: ${details.scope_errors.map((item) => item.path).join(", ")}.`);
 	return lines.map((line) => line === header ? line : theme.fg("toolOutput", line)).join("\n");
 }
 
@@ -593,13 +595,18 @@ function grepTarget(args: unknown): string {
 	return `${query} in ${scope}`;
 }
 
+function pathArgs(value: unknown): string[] {
+	if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+	return typeof value === "string" && value.length > 0 ? [value] : ["."];
+}
+
 function findTarget(args: unknown, cwd: string): string {
 	const record = isPlainRecord(args) ? args : {};
 	const query = stringArg(record["query"]);
-	const rawPath = stringArg(record["path"]) ?? ".";
+	const rawPaths = pathArgs(record["path"]);
 	const glob = stringArg(record["glob"]);
 	return joinParts([
-		`${query === null ? "?" : `"${query}"`} in ${displayToolPath(rawPath, cwd)}`,
+		`${query === null ? "?" : `"${query}"`} in ${rawPaths.map((value) => displayToolPath(value, cwd)).join(", ")}`,
 		glob === null ? undefined : `glob ${glob}`,
 	]);
 }
