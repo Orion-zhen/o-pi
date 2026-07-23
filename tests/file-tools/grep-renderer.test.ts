@@ -25,6 +25,19 @@ describe("grep renderer", () => {
 		expect(result).toContain("1 regions · 1 files · 1 related · symbol+lexical · truncated");
 	});
 
+	it("部分 scope 在摘要和展开结果中明确标注错误", () => {
+		const details: GrepSuccess = {
+			...success(),
+			paths: ["src", "tests"],
+			scope_errors: [{ path: "missing", error: { code: "PATH_NOT_FOUND", message: "Directory does not exist." } }],
+		};
+		const collapsed = formatGrepResult(details, false, theme);
+		expect(collapsed).toContain("1 scope error");
+		expect(collapsed).toContain('"authentication flow" in src, tests');
+		const expanded = formatGrepResult(details, true, theme);
+		expect(expanded).toContain("Scope errors: missing:PATH_NOT_FOUND.");
+	});
+
 	it("展开状态显示区域元数据但不显示源码正文", () => {
 		const output = formatGrepResult(success(), true, theme);
 		expect(output).toContain("src/auth.ts:4-9 AuthService.login [body; exact symbol]");

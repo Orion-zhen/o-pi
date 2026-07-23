@@ -76,7 +76,7 @@ export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const scopes = normalizeGrepScopes(workspaceRoot, validation.paths);
 	if (isFailed(scopes)) return scopes;
-	const effectiveScopes = resolveEffectiveGrepScopes(workspaceRoot, scopes);
+	const effectiveScopes = await resolveEffectiveGrepScopes(workspaceRoot, scopes);
 	const scopeErrors: GrepScopeError[] = [];
 	const successes: GrepScopeResult[] = [];
 	for (const scope of effectiveScopes) {
@@ -361,9 +361,19 @@ function normalizeGrepScopes(workspaceRoot: string, paths: string[]): ToolOutcom
 	return normalized;
 }
 
-function resolveEffectiveGrepScopes(workspaceRoot: string, scopes: Array<{ path: string }>): Array<{ path: string }> {
+async function resolveEffectiveGrepScopes(workspaceRoot: string, scopes: Array<{ path: string }>): Promise<Array<{ path: string }>> {
+	const exists = await Promise.all(scopes.map(async (scope) => {
+		try {
+			await stat(path.resolve(workspaceRoot, scope.path));
+			return true;
+		} catch {
+			return false;
+		}
+	}));
 	return scopes.filter((scope, index) => !scopes.some((parent, parentIndex) =>
 		parentIndex !== index
+		&& exists[index] === true
+		&& exists[parentIndex] === true
 		&& isGrepPathAncestor(path.resolve(workspaceRoot, parent.path), path.resolve(workspaceRoot, scope.path)),
 	));
 }

@@ -32,6 +32,7 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 			details.related === undefined ? undefined : `${details.related.length} related`,
 			details.strategy.join("+"),
 			details.truncated ? "truncated" : undefined,
+			details.scope_errors === undefined || details.scope_errors.length === 0 ? undefined : `${details.scope_errors.length} scope ${details.scope_errors.length === 1 ? "error" : "errors"}`,
 		]),
 	}, theme);
 	if (!expanded) return header;
@@ -54,7 +55,7 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 		}
 	}
 	if (details.truncated) lines.push(theme.fg("muted", "truncated"));
-	if (details.scope_errors !== undefined && details.scope_errors.length > 0) lines.push(theme.fg("muted", `Scope errors: ${details.scope_errors.map((item) => item.path).join(", ")}.`));
+	if (details.scope_errors !== undefined && details.scope_errors.length > 0) lines.push(theme.fg("muted", `Scope errors: ${details.scope_errors.map((item) => `${item.path}:${item.error.code}`).join(", ")}.`));
 	if (details.skipped_files !== undefined) lines.push(theme.fg("muted", `skipped ${Object.entries(details.skipped_files).map(([key, value]) => `${key}:${value}`).join(" ")}`));
 	return lines.join("\n");
 }
@@ -90,7 +91,10 @@ function isGrepNearbyResults(value: unknown): value is GrepNearbyResult[] {
 }
 
 function pathArgs(value: unknown): string[] {
-	if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+	if (Array.isArray(value)) {
+		const paths = value.filter((item): item is string => typeof item === "string" && item.length > 0);
+		return paths.length > 0 ? paths : ["."];
+	}
 	return typeof value === "string" && value.length > 0 ? [value] : ["."];
 }
 

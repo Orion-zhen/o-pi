@@ -99,8 +99,12 @@ export function renderGrepCall(args: unknown, theme: Pick<Theme, "fg" | "bold">,
 	return text;
 }
 
-export function renderGrepResult(result: ToolTextResult, options: { expanded: boolean }, theme: Pick<Theme, "fg" | "bold">, context: { lastComponent?: unknown; args?: unknown }): Text {
+export function renderGrepResult(result: ToolTextResult, options: { expanded: boolean; isPartial: boolean }, theme: Pick<Theme, "fg" | "bold">, context: { lastComponent?: unknown; args?: unknown }): Text {
 	const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+	if (options.isPartial) {
+		text.setText(formatToolCard({ tool: "grep", status: "running", target: grepTarget(context.args), summary: "searching files" }, theme));
+		return text;
+	}
 	text.setText(formatFailureCard("grep", grepTarget(context.args), result.details, context.args, options.expanded, theme) ?? formatGrepResult(result.details, options.expanded, theme));
 	return text;
 }
@@ -411,6 +415,7 @@ function formatFindDetails(details: FindDetails, expanded: boolean, theme: Pick<
 		details.scanTruncated ? "scan truncated" : undefined,
 		details.resultLimited ? "results limited" : undefined,
 		details.outputTruncated ? "output truncated" : undefined,
+		details.scope_errors === undefined || details.scope_errors.length === 0 ? undefined : `${details.scope_errors.length} scope ${details.scope_errors.length === 1 ? "error" : "errors"}`,
 	]);
 	const scope = (details.paths ?? [details.path]).join(", ");
 	const header = formatToolCard({ tool: "find", status: "success", target: `"${details.query}" in ${scope}`, summary }, theme);
@@ -442,7 +447,7 @@ function formatFindDetails(details: FindDetails, expanded: boolean, theme: Pick<
 	if (details.scanTruncated) lines.push("Scan truncated.");
 	if (details.resultLimited) lines.push("Results limited.");
 	if (details.outputTruncated) lines.push("Model output truncated.");
-	if (details.scope_errors !== undefined && details.scope_errors.length > 0) lines.push(`Scope errors: ${details.scope_errors.map((item) => item.path).join(", ")}.`);
+	if (details.scope_errors !== undefined && details.scope_errors.length > 0) lines.push(`Scope errors: ${details.scope_errors.map((item) => `${item.path}:${item.error.code}`).join(", ")}.`);
 	return lines.map((line) => line === header ? line : theme.fg("toolOutput", line)).join("\n");
 }
 
@@ -596,7 +601,10 @@ function grepTarget(args: unknown): string {
 }
 
 function pathArgs(value: unknown): string[] {
-	if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+	if (Array.isArray(value)) {
+		const paths = value.filter((item): item is string => typeof item === "string" && item.length > 0);
+		return paths.length > 0 ? paths : ["."];
+	}
 	return typeof value === "string" && value.length > 0 ? [value] : ["."];
 }
 

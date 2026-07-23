@@ -69,6 +69,10 @@ describe("file-tools extension", () => {
 		};
 		expect(handlers.get("tool_result")?.({ toolName: "find", details: failure })).toEqual({ isError: true });
 		expect(handlers.get("tool_result")?.({ toolName: "find", details: { total: 0 } })).toBeUndefined();
+		expect(handlers.get("tool_result")?.({
+			toolName: "find",
+			details: { status: "success", paths: ["src"], scope_errors: [{ path: "missing", error: { code: "PATH_NOT_FOUND", message: "Directory does not exist." } }] },
+		})).toBeUndefined();
 
 		for (const toolName of ["ls", "find", "grep", "read"]) {
 			const output = renderToolResult(registered, toolName, failure);
@@ -94,6 +98,25 @@ describe("file-tools extension", () => {
 		expect(expanded).toContain("Next Read the file again, then create a new edit operation.");
 		expect(expanded).toContain('Details {"version":"new"}');
 		expect(expanded).not.toContain('"status": "failed"');
+	});
+
+	it("grep 部分执行在 renderer 中保持 running，而不是误报失败", () => {
+		const registered: Array<{ name: string; renderResult?: RenderResult }> = [];
+		fileTools({
+			registerTool(tool: { name: string; renderResult?: RenderResult }) { registered.push(tool); },
+			on() {},
+		} as unknown as ExtensionAPI);
+		const grep = registered.find((tool) => tool.name === "grep");
+		const component = grep?.renderResult?.(
+			{ content: [{ type: "text", text: "" }], details: undefined },
+			{ expanded: false, isPartial: true },
+			theme,
+			{ args: { query: "auth", path: ["src", "tests"] }, cwd: "/repo", lastComponent: undefined },
+		);
+		const output = component?.render(120).join("\n") ?? "";
+		expect(output).toContain("grep");
+		expect(output).toContain("searching files");
+		expect(output).not.toContain("error");
 	});
 
 	it("find UI details 独立展示 Repo Map 关联文件和语义声明", () => {
@@ -798,6 +821,14 @@ describe("file-tools extension", () => {
 			expect(textResult(grep)).toContain("a.ts");
 			expect(textResult(grep)).not.toContain("<error");
 			expect(textResult(grep)).not.toContain('"status"');
+
+			const partialFind = await executeTool(registered, "find", { query: "a.ts", path: [".", "missing"] }, ctx);
+			expect(textResult(partialFind)).toContain("partial; scope_errors=missing:PATH_NOT_FOUND");
+			expect(partialFind.details).toMatchObject({ paths: ["."], scope_errors: [{ path: "missing" }] });
+
+			const partialGrep = await executeTool(registered, "grep", { query: "one", path: [".", "missing"] }, ctx);
+			expect(textResult(partialGrep)).toContain("partial; scope_errors=missing:PATH_NOT_FOUND");
+			expect(partialGrep.details).toMatchObject({ paths: ["."], scope_errors: [{ path: "missing" }] });
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}
