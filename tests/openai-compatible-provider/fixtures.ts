@@ -11,6 +11,7 @@ import {
 	type FetchProviderModelsOptions,
 	type ModelsJsoncConfig,
 } from "../../src/openai-compatible-provider/index.js";
+import { mergeDiscoveredModelConfigs } from "../../src/openai-compatible-provider/models-endpoint.js";
 
 export async function fetchNormalizedProvider(
 	dir: string,
@@ -22,13 +23,11 @@ export async function fetchNormalizedProvider(
 	const source = config.providers[providerId];
 	if (!source) throw new Error(`provider ${providerId} missing`);
 	const discovered = await fetchProviderModelsFromEndpoint(providerId, source, configPath, options);
-	const configured = Array.isArray(source.models) ? source.models : [];
-	const configuredIds = new Set(configured.map((model) => typeof model === "string" ? model : model.id));
 	const [provider] = normalizeModelsJsoncConfig({
 		providers: {
 			[providerId]: {
 				...source,
-				models: [...configured, ...discovered.filter((model) => !configuredIds.has(model.id))],
+				models: mergeDiscoveredModelConfigs(source.models, discovered),
 			},
 		},
 	}, configPath);
@@ -90,4 +89,3 @@ export function createRegistryPi(registry: ModelRegistry): ExtensionAPI {
 		setThinkingLevel() {},
 	} as unknown as ExtensionAPI;
 }
-

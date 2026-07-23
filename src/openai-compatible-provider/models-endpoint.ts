@@ -99,6 +99,26 @@ export async function fetchProviderModelsFromEndpoint(
 	}
 }
 
+/** 以 endpoint 元数据为基底，手写模型按字段覆盖；保留手写顺序并追加远端独有模型。 */
+export function mergeDiscoveredModelConfigs(
+	configured: ProviderConfig["models"],
+	discovered: readonly ModelConfig[],
+): ModelConfig[] {
+	if (!Array.isArray(configured)) return discovered.map((model) => ({ ...model }));
+
+	const discoveredById = new Map(discovered.map((model) => [model.id, model]));
+	const merged = configured.map((entry) => {
+		const model = typeof entry === "string" ? { id: entry } : entry;
+		const remote = discoveredById.get(model.id);
+		return remote ? { ...remote, ...model } : { ...model };
+	});
+	const configuredIds = new Set(merged.map((model) => model.id));
+	for (const model of discovered) {
+		if (!configuredIds.has(model.id)) merged.push({ ...model });
+	}
+	return merged;
+}
+
 export function modelsEndpointUrl(provider: ProviderConfig): string {
 	return new URL(provider.modelsEndpoint ?? DEFAULT_MODELS_ENDPOINT, ensureTrailingSlash(provider.baseUrl)).toString();
 }

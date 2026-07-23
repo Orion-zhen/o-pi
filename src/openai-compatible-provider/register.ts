@@ -17,7 +17,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { createProviderAuth, resolvedProviderHeaders, resolveRefreshAuth } from "./auth.js";
 import { registerThinkingDisplayResolver } from "../thinking-level/display-capability.js";
 import { resolveHeadersOrThrow } from "./config-values.js";
-import { fetchProviderModelsFromEndpoint, modelsEndpointUrl } from "./models-endpoint.js";
+import { fetchProviderModelsFromEndpoint, mergeDiscoveredModelConfigs, modelsEndpointUrl } from "./models-endpoint.js";
 import {
 	applyRuntimePayloadConfig,
 	normalizeModelsJsoncConfig,
@@ -36,7 +36,11 @@ export function registerOpenAICompatibleProviders(
 	const providers = normalizedProviders.map((normalized) => {
 		const providerConfig = config.providers[normalized.id];
 		if (!providerConfig) throw new Error(`Missing normalized provider config: ${normalized.id}`);
-		return createNativeProvider(normalized, providerConfig, configPath);
+		let provider: Provider | undefined;
+		provider = createNativeProvider(normalized, providerConfig, configPath, () => {
+			if (provider) pi.registerProvider(provider);
+		});
+		return provider;
 	});
 	const defaults = new Map<string, RuntimeModelConfig>();
 	for (const normalized of normalizedProviders) {
@@ -72,8 +76,8 @@ export function createNativeProvider(
 	normalized: NormalizedProvider,
 	providerConfig: ProviderConfig,
 	configPath: string,
+	onModelsChanged?: () => void,
 ): Provider {
-	const configuredIds = new Set(normalized.models.map((model) => model.id));
 	const runtimeModels = new Map(normalized.runtimeModels);
 	const streams = createRuntimeStreams(normalized, runtimeModels);
 	const staticProvider = createProvider({
@@ -102,7 +106,10 @@ export function createNativeProvider(
 			try {
 				const stored = await context.store.read();
 				const restoredModels = restoreStoredModels(stored?.models ?? [], normalized, source);
-				if (dynamicModels.length === 0 && restoredModels.length > 0) dynamicModels = restoredModels;
+				if (dynamicModels.length === 0 && restoredModels.length > 0) {
+					dynamicModels = restoredModels;
+					onModelsChanged?.();
+				}
 				if (!context.allowNetwork || context.signal?.aborted) return;
 
 				const credential = context.credential?.type === "api_key" ? context.credential : undefined;
@@ -115,7 +122,7 @@ export function createNativeProvider(
 					providers: {
 						[normalized.id]: {
 							...providerConfig,
-							models: discovered.filter((model) => !configuredIds.has(model.id)),
+							models: mergeDiscoveredModelConfigs(providerConfig.models, discovered),
 						},
 					},
 				};
@@ -127,6 +134,7 @@ export function createNativeProvider(
 				});
 				for (const [modelId, runtime] of dynamic.runtimeModels) runtimeModels.set(modelId, runtime);
 				dynamicModels = dynamic.models;
+				onModelsChanged?.();
 			} finally {
 				refreshInFlight = undefined;
 				refreshAllowsNetwork = false;
@@ -137,7 +145,7 @@ export function createNativeProvider(
 
 	return {
 		...staticProvider,
-		getModels: () => [...normalized.models, ...dynamicModels.filter((model) => !configuredIds.has(model.id))],
+		getModels: () => mergeModelCatalogs(normalized.models, dynamicModels),
 		refreshModels,
 	};
 }
@@ -151,8 +159,19 @@ function modelSource(provider: ProviderConfig): string {
 		compatPreset: provider.compatPreset ?? "openai-compatible",
 		thinkingPreset: provider.thinkingPreset ?? "none",
 		compat: provider.compat ?? {},
+		models: provider.models ?? "auto",
 	});
 	return `sha256:${createHash("sha256").update(identity).digest("hex")}`;
+}
+
+function mergeModelCatalogs(baseline: readonly Model<Api>[], overlay: readonly Model<Api>[]): Model<Api>[] {
+	const merged = [...baseline];
+	for (const model of overlay) {
+		const index = merged.findIndex((entry) => entry.id === model.id);
+		if (index >= 0) merged[index] = model;
+		else merged.push(model);
+	}
+	return merged;
 }
 
 function markStoredModel(model: Model<Api>, source: string): Model<Api> {

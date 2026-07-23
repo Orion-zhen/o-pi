@@ -9,7 +9,7 @@ import { useOpenAICompatibleProviderTestSetup } from "./test-support.js";
 const temp = useOpenAICompatibleProviderTestSetup();
 
 describe("openai-compatible-provider model discovery", () => {
-	it("原生 Provider 从 Pi ModelsStore 恢复动态目录且不覆盖手写模型", async () => {
+	it("原生 Provider 用远端补齐手写模型并从 Pi ModelsStore 恢复合并目录", async () => {
 		const config = await loadConfigFromText(temp.path, `{
 			"providers": {
 				"local": {
@@ -19,7 +19,17 @@ describe("openai-compatible-provider model discovery", () => {
 				}
 			}
 		}`);
-		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response('{ "data": [{ "id": "manual", "name": "Remote" }, { "id": "dynamic" }] }'));
+		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(`{
+			"data": [
+				{
+					"id": "manual",
+					"name": "Remote",
+					"context_length": 200000,
+					"architecture": { "input_modalities": ["text", "image"] }
+				},
+				{ "id": "dynamic" }
+			]
+		}`));
 		const stores = new Map<string, ModelsStoreEntry>();
 		const store = {
 			read: async () => stores.get("local"),
@@ -29,27 +39,34 @@ describe("openai-compatible-provider model discovery", () => {
 		const firstHarness = createExtensionHarness();
 		const [first] = registerOpenAICompatibleProviders(firstHarness.pi, config, path.join(temp.path, "models.jsonc"));
 		await first?.refreshModels?.({ credential: { type: "api_key", key: "unused" }, store, allowNetwork: true });
-		expect(first?.getModels().map((model) => [model.id, model.name])).toEqual([
-			["manual", "Manual"],
-			["dynamic", "dynamic"],
+		expect(first?.getModels()).toMatchObject([
+			{
+				id: "manual",
+				name: "Manual",
+				contextWindow: 200000,
+				input: ["text", "image"],
+			},
+			{ id: "dynamic", name: "dynamic" },
 		]);
+		expect(firstHarness.providers).toEqual([first, first]);
 
 		const stored = stores.get("local");
-		if (!stored?.models[0]) throw new Error("dynamic model was not stored");
-		stores.set("local", {
-			...stored,
-			models: [
-				{ ...stored.models[0], id: "manual", name: "Stale Remote Manual", baseUrl: "https://stale.test/v1" },
-				...stored.models,
-			],
-		});
+		if (!stored) throw new Error("merged models were not stored");
+		expect(stored.models.map((model) => model.id)).toEqual(["manual", "dynamic"]);
 		const secondHarness = createExtensionHarness();
 		const [second] = registerOpenAICompatibleProviders(secondHarness.pi, config, path.join(temp.path, "models.jsonc"));
 		await second?.refreshModels?.({ credential: { type: "api_key", key: "unused" }, store, allowNetwork: false });
-		expect(second?.getModels().map((model) => [model.id, model.name, model.baseUrl])).toEqual([
-			["manual", "Manual", "http://127.0.0.1:8000/v1"],
-			["dynamic", "dynamic", "http://127.0.0.1:8000/v1"],
+		expect(second?.getModels()).toMatchObject([
+			{
+				id: "manual",
+				name: "Manual",
+				baseUrl: "http://127.0.0.1:8000/v1",
+				contextWindow: 200000,
+				input: ["text", "image"],
+			},
+			{ id: "dynamic", name: "dynamic", baseUrl: "http://127.0.0.1:8000/v1" },
 		]);
+		expect(secondHarness.providers).toEqual([second, second]);
 
 		stores.delete("local");
 		fetch.mockRejectedValueOnce(new Error("offline"));
@@ -72,16 +89,18 @@ describe("openai-compatible-provider model discovery", () => {
 		const changedConfig = await loadConfigFromText(temp.path, `{
 			"providers": {
 				"local": {
-					"baseUrl": "http://127.0.0.1:9000/v1",
+					"baseUrl": "http://127.0.0.1:8000/v1",
 					"apiKey": "EMPTY",
-					"models": ["manual"]
+					"models": [{ "id": "manual", "name": "Changed Manual" }]
 				}
 			}
 		}`);
 		const thirdHarness = createExtensionHarness();
 		const [third] = registerOpenAICompatibleProviders(thirdHarness.pi, changedConfig, path.join(temp.path, "models.jsonc"));
 		await third?.refreshModels?.({ credential: { type: "api_key", key: "unused" }, store, allowNetwork: false });
-		expect(third?.getModels().map((model) => model.id)).toEqual(["manual"]);
+		expect(third?.getModels().map((model) => [model.id, model.name, model.contextWindow])).toEqual([
+			["manual", "Changed Manual", 128000],
+		]);
 		expect(globalThis.fetch).toHaveBeenCalledTimes(3);
 	});
 
@@ -161,7 +180,7 @@ describe("openai-compatible-provider model discovery", () => {
 		});
 	});
 
-	it("手写 models 会合并 models endpoint，冲突时保留手写配置", async () => {
+	it("手写 models 覆盖显式字段并由 models endpoint 补齐缺失元数据", async () => {
 		const config = await loadConfigFromText(temp.path, `{
 			"providers": {
 				"gateway": {
@@ -185,7 +204,13 @@ describe("openai-compatible-provider model discovery", () => {
 				calls.push(url);
 				return jsonResponse({
 					data: [
-						{ id: "manual-model", name: "Endpoint Manual", context_length: 200000, max_completion_tokens: 8192 },
+						{
+							id: "manual-model",
+							name: "Endpoint Manual",
+							context_length: 200000,
+							max_completion_tokens: 8192,
+							architecture: { input_modalities: ["text", "image"] },
+						},
 						{ id: "manual-string", name: "Endpoint String", context_length: 200000 },
 						{ id: "endpoint-only", name: "Endpoint Only", context_length: 300000 },
 					],
@@ -201,11 +226,12 @@ describe("openai-compatible-provider model discovery", () => {
 			name: "Manual Model",
 			contextWindow: 1000,
 			maxTokens: 100,
+			input: ["text", "image"],
 		});
 		expect(models[1]).toMatchObject({
 			id: "manual-string",
-			name: "manual-string",
-			contextWindow: 128000,
+			name: "Endpoint String",
+			contextWindow: 200000,
 		});
 		expect(models[2]).toMatchObject({
 			id: "endpoint-only",
