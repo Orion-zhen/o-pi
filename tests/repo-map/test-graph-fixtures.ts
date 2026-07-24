@@ -52,7 +52,7 @@ export async function generationWithTestGraph(
 	const testGraph = await buildRepoMapTestGraph({ root, files, symbols: architecture.symbols, edges: baseEdges, readText });
 	const edges = [...baseEdges, ...testGraph.edges].sort(compareRepoMapEdge);
 	const metadata: RepoMapMetadata = {
-		schemaVersion: 5,
+		schemaVersion: 6,
 		mapId,
 		repositoryRoot: root,
 		worktreeRoot: root,

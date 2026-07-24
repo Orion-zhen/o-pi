@@ -619,7 +619,7 @@ function repoMapRegionsFromCandidates(
 			matchLines,
 			unit: liveUnit,
 			callees: candidate.reasons.includes("caller") ? liveUnit.calls.slice(0, 6) : [],
-			imports: candidate.reasons.includes("import") ? liveUnit.imports.slice(0, 4) : [],
+			imports: [],
 			repoMap: true,
 			lexicalRelevance: 0,
 			pathRelevance: 0,

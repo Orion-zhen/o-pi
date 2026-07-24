@@ -1,7 +1,7 @@
 import { languageFromPath } from "../code-index/language-registry.js";
-import { parseSyntaxTree } from "../code-index/syntax-tree.js";
+import { parseDocument, sourceRangeForNode } from "../code-index/syntax-tree.js";
 import type { SyntaxNode } from "../code-index/adapters/types.js";
-import type { SourceRange } from "../code-index/types.js";
+import type { SourceIndex, SourceRange } from "../code-index/types.js";
 
 export interface RegistrationFact extends SourceRange {
 	name: string;
@@ -44,19 +44,20 @@ export function javascriptSyntaxFacts(filePath: string, text: string): JavaScrip
 	const language = languageFromPath(filePath);
 	if (language !== "javascript" && language !== "jsx" && language !== "typescript" && language !== "tsx") return EMPTY_FACTS;
 	try {
-		const root = parseSyntaxTree(language, text);
-		if (root === undefined || root.hasError) return EMPTY_FACTS;
+		const document = parseDocument(language, text);
+		if (document === undefined || document.root.hasError) return EMPTY_FACTS;
+		const { root, sourceIndex } = document;
 
 		const constants = collectStringConstants(root);
 		const facts: JavaScriptSyntaxFacts = {
 			registrations: [], reExports: [], defaultExports: [], tests: [], mocks: [], fixtures: [], snapshots: [],
 		};
 		walk(root, (node) => {
-			if (node.type === "call_expression") collectCallFacts(node, constants, facts);
-			if (node.type === "export_statement") collectExportFacts(node, facts);
+			if (node.type === "call_expression") collectCallFacts(node, constants, facts, sourceIndex);
+			if (node.type === "export_statement") collectExportFacts(node, facts, sourceIndex);
 			if (node.type === "string" || node.type === "template_string") {
 				const value = stringValue(node);
-				if (value !== undefined && FIXTURE_PATH.test(value)) facts.fixtures.push({ name: value, ...range(node) });
+				if (value !== undefined && FIXTURE_PATH.test(value)) facts.fixtures.push({ name: value, ...range(sourceIndex, node) });
 			}
 		});
 		return facts;
@@ -77,7 +78,7 @@ function collectStringConstants(root: SyntaxNode): ReadonlyMap<string, string> {
 	return constants;
 }
 
-function collectCallFacts(node: SyntaxNode, constants: ReadonlyMap<string, string>, facts: JavaScriptSyntaxFacts): void {
+function collectCallFacts(node: SyntaxNode, constants: ReadonlyMap<string, string>, facts: JavaScriptSyntaxFacts, sourceIndex: SourceIndex): void {
 	const callable = node.childForFieldName("function") ?? node.namedChildren[0];
 	const args = node.childForFieldName("arguments") ?? node.namedChildren.find((child) => child.type === "arguments");
 	if (callable === undefined || args === undefined) return;
@@ -95,24 +96,24 @@ function collectCallFacts(node: SyntaxNode, constants: ReadonlyMap<string, strin
 			name: value ?? nameNode.text,
 			type: registrationType,
 			dynamic: value === undefined,
-			...range(node),
+			...range(sourceIndex, node),
 		});
 	}
 
 	if (base === "describe" || base === "it" || base === "test") {
 		const name = arguments_[0] === undefined ? undefined : stringValue(arguments_[0]);
-		if (name !== undefined) facts.tests.push({ name, ...range(node) });
+		if (name !== undefined) facts.tests.push({ name, ...range(sourceIndex, node) });
 	}
 	if (((base === "vi" || base === "jest") && callee === "mock") || (base === "mock" && callee === "patch") || base === "patch") {
 		const target = arguments_[0] === undefined ? undefined : stringValue(arguments_[0]);
-		if (target !== undefined) facts.mocks.push({ name: target, ...range(node) });
+		if (target !== undefined) facts.mocks.push({ name: target, ...range(sourceIndex, node) });
 	}
 	if (callee === "toMatchSnapshot" || callee === "toMatchInlineSnapshot") {
-		facts.snapshots.push({ name: arguments_[0] === undefined ? "snapshot" : stringValue(arguments_[0]) ?? "snapshot", ...range(node) });
+		facts.snapshots.push({ name: arguments_[0] === undefined ? "snapshot" : stringValue(arguments_[0]) ?? "snapshot", ...range(sourceIndex, node) });
 	}
 }
 
-function collectExportFacts(node: SyntaxNode, facts: JavaScriptSyntaxFacts): void {
+function collectExportFacts(node: SyntaxNode, facts: JavaScriptSyntaxFacts, sourceIndex: SourceIndex): void {
 	const targetNode = node.namedChildren.find((child) => child.type === "string");
 	const target = targetNode === undefined ? undefined : stringValue(targetNode);
 	if (target !== undefined) {
@@ -120,9 +121,9 @@ function collectExportFacts(node: SyntaxNode, facts: JavaScriptSyntaxFacts): voi
 		const names = clause === undefined
 			? "*" as const
 			: new Set(clause.namedChildren.flatMap((specifier) => specifier.namedChildren[0]?.text ?? []));
-		facts.reExports.push({ target, names, ...range(node) });
+		facts.reExports.push({ target, names, ...range(sourceIndex, node) });
 	}
-	if (node.children.some((child) => child.type === "default")) facts.defaultExports.push(range(node));
+	if (node.children.some((child) => child.type === "default")) facts.defaultExports.push(range(sourceIndex, node));
 }
 
 function objectProperty(node: SyntaxNode | undefined, key: string): SyntaxNode | undefined {
@@ -164,13 +165,8 @@ function baseCalleeName(node: SyntaxNode): string | undefined {
 	return undefined;
 }
 
-function range(node: SyntaxNode): SourceRange {
-	return {
-		startLine: node.startPosition.row + 1,
-		endLine: node.endPosition.row + 1,
-		startByte: node.startIndex,
-		endByte: node.endIndex,
-	};
+function range(sourceIndex: SourceIndex, node: SyntaxNode): SourceRange {
+	return sourceRangeForNode(sourceIndex, node);
 }
 
 function walk(node: SyntaxNode, visit: (node: SyntaxNode) => void): void {

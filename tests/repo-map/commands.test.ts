@@ -246,7 +246,7 @@ describe("/init command", () => {
 			["repo-map", "Repo Map: checking status"],
 			["repo-map", "Repo Map: active"],
 		]);
-		expect(active.notifications.at(-1)?.[0]).toContain("cache schema: 5");
+		expect(active.notifications.at(-1)?.[0]).toContain("cache schema: 6");
 		const missing = commandHarness({ readActivated: vi.fn(async () => undefined) });
 		await missing.handler("", missing.ctx);
 		await missing.handler("status", missing.ctx);
@@ -317,7 +317,7 @@ function commandHarness(overrides: Partial<RepoMapCommandDependencies> = {}) {
 
 function initializeResult(root = "/repo", mapCharacter = "a"): InitializeRepoMapResult {
 	const metadata = {
-		schemaVersion: 5,
+		schemaVersion: 6,
 		mapId: mapCharacter.repeat(64),
 		repositoryRoot: root,
 		worktreeRoot: root,

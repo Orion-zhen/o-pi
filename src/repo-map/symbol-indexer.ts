@@ -108,6 +108,7 @@ async function indexFile(
 				...(unit.name !== undefined ? { name: unit.name } : {}),
 				...(unit.qualifiedName !== undefined ? { qualifiedName: unit.qualifiedName } : {}),
 				...(unit.signature !== undefined ? { signature: unit.signature } : {}),
+				exported: unit.exported,
 				startLine: unit.startLine,
 				endLine: unit.endLine,
 				startByte: unit.startByte,
@@ -115,7 +116,6 @@ async function indexFile(
 				definitions: [...unit.definitions],
 				references: [...unit.references],
 				calls: [...unit.calls],
-				imports: [...unit.imports],
 			})),
 			imports: analyzed.imports.map((item) => ({
 				fileId: file.id,

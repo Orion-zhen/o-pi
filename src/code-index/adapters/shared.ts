@@ -21,12 +21,13 @@ function walkUnits(node: SyntaxNode, scope: string | undefined, rules: UnitRules
 	for (const child of node.namedChildren) walkUnits(child, childScope, rules, units);
 }
 
-export function rawUnit(node: SyntaxNode, kind: string, name: string, scope?: string): RawUnit {
+export function rawUnit(node: SyntaxNode, kind: string, name: string, scope?: string, exported = false): RawUnit {
 	const range = exportRangeNode(node);
 	return {
 		kind,
 		name,
 		qualifiedName: scope === undefined ? name : `${scope}.${name}`,
+		exported,
 		startChar: range.startIndex,
 		endChar: range.endIndex,
 	};

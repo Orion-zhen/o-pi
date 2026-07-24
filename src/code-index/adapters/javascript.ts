@@ -17,7 +17,7 @@ const tsRules: UnitRules = {
 	extract(node, scope) {
 		if (!TS_UNIT_KINDS.has(node.type)) return undefined;
 		const name = nameField(node) ?? firstNamedChildText(node, ["identifier", "property_identifier", "type_identifier"]);
-		return name === undefined ? undefined : rawUnit(node, normalizeTsKind(node.type), name, scope);
+		return name === undefined ? undefined : rawUnit(node, normalizeTsKind(node.type), name, scope, isExportedDeclaration(node));
 	},
 	childScope(_node, unit, current) {
 		return unit?.kind === "class" || unit?.kind === "interface" ? unit.qualifiedName ?? unit.name ?? current : current;
@@ -26,6 +26,13 @@ const tsRules: UnitRules = {
 		return unit.kind === "class" || unit.kind === "interface";
 	},
 };
+
+function isExportedDeclaration(node: SyntaxNode): boolean {
+	if (node.type === "method_definition" || node.type === "method_signature") return false;
+	const parent = node.parent;
+	return parent?.type === "export_statement"
+		|| (node.type === "variable_declarator" && parent?.type !== undefined && parent.parent?.type === "export_statement");
+}
 
 function normalizeTsKind(kind: string): string {
 	if (kind === "function_declaration") return "function";

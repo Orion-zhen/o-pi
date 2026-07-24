@@ -132,11 +132,11 @@ export interface IndexedCodeUnit extends SourceRange {
 	name?: string;
 	qualifiedName?: string;
 	signature?: string;
+	exported: boolean;
 	tokens: Map<string, number>;
 	definitions: string[];
 	references: string[];
 	calls: string[];
-	imports: string[];
 }
 
 export interface ParsedFileIndex extends FileIdentity {

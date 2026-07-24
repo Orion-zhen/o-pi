@@ -254,23 +254,14 @@ function relationCandidates(units: IndexedCodeUnit[], seedSymbols: Set<string>):
 	}
 	const result: RankedGrepRegion[] = [];
 	for (const unit of units) {
-		const symbol = unit.name ?? unit.qualifiedName;
 		const callsSeed = unit.calls.some((call) => seedSymbols.has(lastSegment(call)));
 		if (callsSeed) result.push(makeRegion(unit, 6, ["caller"], [], 0, 0));
 		for (const call of unit.calls) {
 			const callee = byDefinition.get(lastSegment(call));
 			if (callee !== undefined && seedSymbols.has(unit.name ?? "")) result.push(makeRegion(callee, 6, ["callee"], [], 0, 0));
 		}
-		if (symbol !== undefined && unit.imports.some((item) => containsAny(item, seedSymbols))) {
-			result.push(makeRegion(unit, 6, ["import"], [], 0, 0));
-		}
 	}
 	return result;
-}
-
-function containsAny(value: string, candidates: ReadonlySet<string>): boolean {
-	for (const candidate of candidates) if (value.includes(candidate)) return true;
-	return false;
 }
 
 function makeRegion(
@@ -297,7 +288,7 @@ function makeRegion(
 		matchLines,
 		unit,
 		callees: reasons.includes("caller") ? unit.calls.slice(0, 6) : [],
-		imports: reasons.includes("import") ? unit.imports.slice(0, 4) : [],
+		imports: [],
 		lexicalRelevance,
 		pathRelevance: pathScore,
 	};
@@ -322,7 +313,6 @@ function metadataLooksRelevant(unit: IndexedCodeUnit, input: RankInput, queryTok
 		...unit.definitions,
 		...unit.references,
 		...unit.calls,
-		...unit.imports,
 		...unit.tokens.keys(),
 	].filter((value): value is string => value !== undefined);
 	if (input.match === "regex") return values.some((value) => regexMatches(value, input.regex));

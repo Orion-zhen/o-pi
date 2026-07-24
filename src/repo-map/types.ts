@@ -22,10 +22,10 @@ export interface RepoMapSymbolNode extends SourceRange {
 	name?: string;
 	qualifiedName?: string;
 	signature?: string;
+	exported: boolean;
 	definitions: string[];
 	references: string[];
 	calls: string[];
-	imports: string[];
 	visibility?: "public" | "internal";
 }
 

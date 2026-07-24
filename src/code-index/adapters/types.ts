@@ -15,6 +15,7 @@ export interface RawUnit {
 	readonly kind: string;
 	readonly name?: string;
 	readonly qualifiedName?: string;
+	readonly exported: boolean;
 	readonly startChar: number;
 	readonly endChar: number;
 }

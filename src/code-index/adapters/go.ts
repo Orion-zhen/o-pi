@@ -9,7 +9,7 @@ const goRules: UnitRules = {
 		const name = nameField(node) ?? firstNamedChildText(node, ["identifier", "field_identifier", "type_identifier"]);
 		if (name === undefined) return undefined;
 		const receiver = node.type === "method_declaration" ? receiverType(node) : undefined;
-		return rawUnit(node, normalizeGoKind(node.type), name, receiver);
+		return rawUnit(node, normalizeGoKind(node.type), name, receiver, isPublicName(name));
 	},
 	childScope(_node, _unit, current) {
 		return current;
@@ -18,6 +18,10 @@ const goRules: UnitRules = {
 		return false;
 	},
 };
+
+function isPublicName(name: string): boolean {
+	return /^\p{Lu}/u.test(name);
+}
 
 function normalizeGoKind(kind: string): string {
 	if (kind === "function_declaration") return "function";

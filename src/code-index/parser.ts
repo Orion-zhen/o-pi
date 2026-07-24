@@ -143,7 +143,6 @@ function buildIndexedUnit(file: { id: string; path: string }, language: CodeLang
 	const tokens = tokenizeText(nameText);
 	const references = Array.from(new Set(splitTokens(content))).filter((token) => !/^\d+$/u.test(token));
 	const calls = Array.from(content.matchAll(/\b([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)\s*\(/gu), (match) => match[1] ?? "").filter(Boolean);
-	const imports = Array.from(content.matchAll(/\b(?:from|import|require)\s*(?:\(\s*)?["']([^"']+)["']/gu), (match) => match[1] ?? "").filter(Boolean);
 	return {
 		id: createSymbolId({
 			fileId: file.id,
@@ -158,6 +157,7 @@ function buildIndexedUnit(file: { id: string; path: string }, language: CodeLang
 		...(unit.name !== undefined ? { name: unit.name } : {}),
 		...(unit.qualifiedName !== undefined ? { qualifiedName: unit.qualifiedName } : {}),
 		...(signature !== undefined ? { signature } : {}),
+		exported: unit.exported,
 		startLine: range.startLine,
 		endLine: range.endLine,
 		startByte,
@@ -166,7 +166,6 @@ function buildIndexedUnit(file: { id: string; path: string }, language: CodeLang
 		definitions: unit.name === undefined ? [] : [unit.name],
 		references,
 		calls,
-		imports,
 	};
 }
 

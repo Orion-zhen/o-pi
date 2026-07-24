@@ -3,6 +3,7 @@ import path from "node:path";
 import { languageFromPath } from "../code-index/parser.js";
 import { coalesceRepoMapEdges, groupBy, type RepoMapImportFact } from "./graph.js";
 import { fileEvidence, symbolEvidence } from "./source.js";
+import { isRepoMapSymbolPublic } from "./visibility.js";
 import type { RepoMapEdge, RepoMapEvidence, RepoMapFileRecord, RepoMapSymbolNode } from "./types.js";
 
 export interface BuildRepoMapRelationshipsInput {
@@ -67,7 +68,7 @@ export function buildRepoMapRelationships(input: BuildRepoMapRelationshipsInput)
 			confidence: 1,
 			evidence: [evidence],
 		});
-		if (isExported(file.path, symbol)) {
+		if (isRepoMapSymbolPublic(symbol)) {
 			edges.push({
 				from: file.id,
 				to: symbol.id,
@@ -210,19 +211,6 @@ function shouldIndexReference(
 	if (target.length < 2 || RESERVED_WORDS.has(target.toLocaleLowerCase()) || calls.has(target)) return false;
 	if (target === from.name || target === from.qualifiedName) return false;
 	return lookup.has(target) || /^[A-Z_$]/u.test(target);
-}
-
-function isExported(filePath: string, symbol: RepoMapSymbolNode): boolean {
-	const language = languageFromPath(filePath);
-	const topLevel = symbol.qualifiedName === symbol.name;
-	if (!topLevel || symbol.name === undefined) return false;
-	if (language === "typescript" || language === "tsx" || language === "javascript" || language === "jsx") {
-		return /^export\b/u.test(symbol.signature ?? "");
-	}
-	if (language === "python") return !symbol.name.startsWith("_");
-	if (language === "go") return /^\p{Lu}/u.test(symbol.name);
-	if (language === "rust") return /^pub(?:\([^)]*\))?\s/u.test(symbol.signature ?? "");
-	return false;
 }
 
 function exportSource(filePath: string): RepoMapEdge["source"] {

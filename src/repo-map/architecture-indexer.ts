@@ -1,11 +1,11 @@
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 
-import { languageFromPath } from "../code-index/parser.js";
 import { throwIfAborted } from "./errors.js";
 import { coalesceRepoMapEdges, compareText, uniqueBy } from "./graph.js";
 import { fileEvidence, rangeEvidence, readTextNoFollow, sha256, sourceEvidence, symbolEvidence, type RepoMapReadText, type RepoMapSourceFile } from "./source.js";
 import { javascriptSyntaxFacts, type RegistrationFact } from "./syntax-facts.js";
+import { isRepoMapSymbolPublic } from "./visibility.js";
 import type {
 	RepoMapArchitectureNode,
 	RepoMapComponentNode,
@@ -231,8 +231,7 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 	}
 
 	const symbols = input.symbols.map((symbol) => {
-		const publicSymbol = isModulePublic(symbol, filesById)
-			|| reExportedSymbols.has(symbol.id);
+		const publicSymbol = isRepoMapSymbolPublic(symbol) || reExportedSymbols.has(symbol.id);
 		return { ...symbol, visibility: publicSymbol ? "public" as const : "internal" as const };
 	});
 	for (const symbol of symbols) {
@@ -502,17 +501,6 @@ function resolveDeclaredTarget(
 
 function isRequestedExport(symbol: RepoMapSymbolNode, names: "*" | ReadonlySet<string>): boolean {
 	return names === "*" || (symbol.name !== undefined && names.has(symbol.name));
-}
-
-function isModulePublic(symbol: RepoMapSymbolNode, files: ReadonlyMap<string, RepoMapFileRecord>): boolean {
-	const file = files.get(symbol.fileId);
-	if (file === undefined || symbol.name === undefined || symbol.qualifiedName !== symbol.name) return false;
-	const language = languageFromPath(file.path);
-	if (["typescript", "tsx", "javascript", "jsx"].includes(language)) return /^export\b/u.test(symbol.signature ?? "");
-	if (language === "python") return !symbol.name.startsWith("_");
-	if (language === "go") return /^\p{Lu}/u.test(symbol.name);
-	if (language === "rust") return /^pub(?:\([^)]*\))?\s/u.test(symbol.signature ?? "");
-	return false;
 }
 
 function groupByFile(symbols: readonly RepoMapSymbolNode[]): Map<string, RepoMapSymbolNode[]> {

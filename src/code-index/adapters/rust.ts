@@ -24,7 +24,7 @@ const rustRules: UnitRules = {
 		const name = nameField(node) ?? firstNamedChildText(node, ["identifier", "type_identifier"]);
 		if (name === undefined) return undefined;
 		const unitScope = node.type === "function_item" || node.type === "function_signature_item" || node.type === "mod_item" ? scope : undefined;
-		return rawUnit(node, normalizeRustKind(node.type), name, unitScope);
+		return rawUnit(node, normalizeRustKind(node.type), name, unitScope, hasVisibility(node));
 	},
 	childScope(node, unit, current) {
 		return node.type === "impl_item" || node.type === "trait_item" || node.type === "mod_item"
@@ -35,6 +35,10 @@ const rustRules: UnitRules = {
 		return node.type === "impl_item" || node.type === "trait_item" || node.type === "mod_item";
 	},
 };
+
+function hasVisibility(node: SyntaxNode): boolean {
+	return node.namedChildren.some((child) => child.type === "visibility_modifier");
+}
 
 function normalizeRustKind(kind: string): string {
 	if (kind === "function_item" || kind === "function_signature_item") return "function";

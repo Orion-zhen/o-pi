@@ -162,7 +162,7 @@ function calculateCanonicalGeneration(input: CalculateRepoMapGenerationInput): s
 	updateGenerationArray(hash, input.symbols, (symbol) => [
 		symbol.id, symbol.fileId, symbol.symbolKind, symbol.name ?? null, symbol.qualifiedName ?? null, symbol.signature ?? null,
 		symbol.startLine, symbol.endLine, symbol.startByte, symbol.endByte,
-		[...symbol.definitions], [...symbol.references], [...symbol.calls], [...symbol.imports], symbol.visibility ?? null,
+		[...symbol.definitions], [...symbol.references], [...symbol.calls], symbol.exported, symbol.visibility ?? null,
 	]);
 	updateGenerationArray(hash, input.tests, (node) => [
 		node.id, node.testKind, node.name, node.fileId, node.symbolId ?? null, node.source, node.confidence,

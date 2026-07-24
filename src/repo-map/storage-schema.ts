@@ -75,11 +75,11 @@ const SymbolSchema = Type.Unsafe<RepoMapSymbolNode>(Type.Object({
 	name: Type.Optional(nonEmptyString),
 	qualifiedName: Type.Optional(nonEmptyString),
 	signature: Type.Optional(Type.String()),
+	exported: Type.Boolean(),
 	...sourceRange,
 	definitions: Type.Array(Type.String()),
 	references: Type.Array(Type.String()),
 	calls: Type.Array(Type.String()),
-	imports: Type.Array(Type.String()),
 	visibility: Type.Optional(Type.Union([Type.Literal("public"), Type.Literal("internal")])),
 }, objectOptions));
 

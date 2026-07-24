@@ -301,7 +301,7 @@ function makeMetadata(
 		diagnostics: [],
 	});
 	return {
-		schemaVersion: 5,
+		schemaVersion: 6,
 		mapId,
 		repositoryRoot: root,
 		worktreeRoot: root,
@@ -342,6 +342,7 @@ function makeSymbol(file: RepoMapFileRecord): RepoMapSymbolNode {
 		name: symbol.name,
 		qualifiedName: symbol.qualifiedName,
 		signature: "export function a() {}",
+		exported: true,
 		startLine: 1,
 		endLine: 1,
 		startByte: 0,
@@ -349,7 +350,6 @@ function makeSymbol(file: RepoMapFileRecord): RepoMapSymbolNode {
 		definitions: ["a"],
 		references: ["a"],
 		calls: ["a"],
-		imports: [],
 	};
 }
 

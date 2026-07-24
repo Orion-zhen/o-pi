@@ -177,7 +177,7 @@ async function generationFromSources(root: string, sources: ReadonlyMap<string, 
 	const architecture = await buildRepoMapArchitecture({ root, mapId, files, symbols: indexed.symbols, async readText(absolutePath) { return sources.get(path.relative(root, absolutePath).replaceAll(path.sep, "/")) ?? ""; } });
 	const edges = [...buildRepoMapRelationships({ mapId, files, symbols: architecture.symbols, imports: indexed.imports }), ...architecture.edges];
 	const metadata: RepoMapMetadata = {
-		schemaVersion: 5, mapId, repositoryRoot: root, worktreeRoot: root, gitCommonDir: path.join(root, ".git"), generation: "b".repeat(64),
+		schemaVersion: 6, mapId, repositoryRoot: root, worktreeRoot: root, gitCommonDir: path.join(root, ".git"), generation: "b".repeat(64),
 		createdAt: "2026-07-18T00:00:00.000Z", updatedAt: "2026-07-18T00:00:00.000Z", freshness: "fresh",
 		fileCount: files.length, indexedFileCount: files.length, parsedFileCount: indexed.parsedFileCount, unsupportedFileCount: indexed.unsupportedFileCount,
 		parseErrorFileCount: indexed.parseErrorFileCount, symbolCount: architecture.symbols.length, testNodeCount: 0, edgeCount: edges.length, aliasCount: 0, tooLargeFileCount: 0,

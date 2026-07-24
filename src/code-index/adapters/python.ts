@@ -7,7 +7,7 @@ const pythonRules: UnitRules = {
 	extract(node, scope) {
 		if (!PYTHON_UNIT_KINDS.has(node.type)) return undefined;
 		const name = nameField(node);
-		return name === undefined ? undefined : rawUnit(node, node.type === "class_definition" ? "class" : "function", name, scope);
+		return name === undefined ? undefined : rawUnit(node, node.type === "class_definition" ? "class" : "function", name, scope, isPublicName(name));
 	},
 	childScope(_node, unit, current) {
 		return unit?.kind === "class" ? unit.qualifiedName ?? unit.name ?? current : current;
@@ -16,6 +16,10 @@ const pythonRules: UnitRules = {
 		return unit.kind === "class";
 	},
 };
+
+function isPublicName(name: string): boolean {
+	return !name.startsWith("_");
+}
 
 function extractPythonImports(root: SyntaxNode): RawImport[] {
 	const imports: RawImport[] = [];
