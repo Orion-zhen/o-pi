@@ -286,16 +286,16 @@ export class LspClient implements LspFeatureSession {
 		return symbols;
 	}
 
-	async workspaceSymbols(query: string): Promise<Array<SymbolInformation | WorkspaceSymbol> | undefined> {
-		return requestWorkspaceSymbols(this, query);
+	async workspaceSymbols(query: string, options?: LspRequestOptions): Promise<Array<SymbolInformation | WorkspaceSymbol> | undefined> {
+		return requestWorkspaceSymbols(this, query, options);
 	}
 
 	async resolveWorkspaceSymbol(symbol: WorkspaceSymbol, options?: LspRequestOptions): Promise<WorkspaceSymbol | undefined> {
 		return resolveWorkspaceSymbol(this, symbol, options);
 	}
 
-	async references(uri: string, line: number, character: number): Promise<Location[] | undefined> {
-		return requestReferences(this, uri, line, character);
+	async references(uri: string, line: number, character: number, options?: LspRequestOptions): Promise<Location[] | undefined> {
+		return requestReferences(this, uri, line, character, options);
 	}
 
 	private documentContext(filePath: string, text: string): LspClientDocumentContext {

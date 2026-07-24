@@ -147,6 +147,7 @@ async function grepScope(
 	};
 	const rankedSourceCount = sourceText.size;
 	let ranked = rankGrepRegions(rankInput);
+	const mainPaths = new Set(index.files.map((file) => file.path));
 	const repoMapQuery = repoMapQueryForGrep(validation);
 	const [repoMapResult, lspSymbolCandidates] = await Promise.all([
 		repoMapQuery === undefined
@@ -163,9 +164,10 @@ async function grepScope(
 			query: validation.query,
 			path: index.root.relativePath,
 			extensions: scopeExtensions(index, validation.glob),
+			allowedPaths: mainPaths,
+			...(signal !== undefined ? { signal } : {}),
 		}, validation.match),
 	]);
-	const mainPaths = new Set(index.files.map((file) => file.path));
 	const scopePaths = new Set(index.scopedFiles.map((file) => file.path));
 	const scopedRepoMapCandidates = repoMapResult?.candidates.filter((candidate) =>
 		(validation.match === "auto" ? mainPaths : scopePaths).has(candidate.path)

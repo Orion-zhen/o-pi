@@ -17,6 +17,12 @@ export interface WorkspaceSymbolSeed extends LspSymbolHit {
 	character: number;
 }
 
+export interface ReferenceHit extends LspSymbolHit {
+	uri: string;
+	line: number;
+	character: number;
+}
+
 const kindNames = new Map<number, string>([
 	[SymbolKind.File, "file"],
 	[SymbolKind.Module, "module"],
@@ -74,43 +80,33 @@ export function findEnclosingSymbol(symbols: LspDocumentSymbols | undefined, sta
 	return found === undefined ? undefined : found;
 }
 
-export function workspaceSymbolHits(root: string, query: string, symbols: Array<SymbolInformation | WorkspaceSymbol> | undefined, maxItems: number): LspSymbolHit[] {
-	return workspaceSymbolSeeds(root, query, symbols, maxItems).map(({ uri: _uri, line: _line, character: _character, ...hit }) => hit);
+export function workspaceSymbolSeed(root: string, query: string, symbol: SymbolInformation | WorkspaceSymbol): WorkspaceSymbolSeed | undefined {
+	if (typeof symbol.name !== "string" || typeof symbol.kind !== "number") return undefined;
+	const location = workspaceSymbolLocation(symbol);
+	if (location === undefined) return undefined;
+	const filePath = fileUriToPath(location.uri);
+	if (filePath === undefined) return undefined;
+	const relative = workspaceRelativePath(root, filePath);
+	if (relative === undefined) return undefined;
+	return {
+		path: relative,
+		start_line: location.range.start.line + 1,
+		end_line: location.range.end.line + 1,
+		kind: symbolKindName(symbol.kind),
+		symbol: symbol.name,
+		exact: symbol.name.toLocaleLowerCase() === query.toLocaleLowerCase(),
+		origin: "workspace-symbol",
+		uri: location.uri,
+		line: location.range.start.line,
+		character: location.range.start.character,
+	};
 }
 
-export function workspaceSymbolSeeds(root: string, query: string, symbols: Array<SymbolInformation | WorkspaceSymbol> | undefined, maxItems: number): WorkspaceSymbolSeed[] {
-	if (symbols === undefined || maxItems <= 0) return [];
-	const queryLower = query.toLocaleLowerCase();
-	const hits: WorkspaceSymbolSeed[] = [];
-	for (const symbol of symbols) {
-		if (hits.length >= maxItems) break;
-		if (typeof symbol.name !== "string" || typeof symbol.kind !== "number") continue;
-		const location = workspaceSymbolLocation(symbol);
+export function referenceHits(root: string, seed: WorkspaceSymbolSeed, locations: readonly Location[]): ReferenceHit[] {
+	const hits: ReferenceHit[] = [];
+	for (const rawLocation of locations) {
+		const location = validLocation(rawLocation);
 		if (location === undefined) continue;
-		const filePath = fileUriToPath(location.uri);
-		if (filePath === undefined) continue;
-		const relative = workspaceRelativePath(root, filePath);
-		if (relative === undefined) continue;
-		hits.push({
-			path: relative,
-			start_line: location.range.start.line + 1,
-			end_line: location.range.end.line + 1,
-			kind: symbolKindName(symbol.kind),
-			symbol: symbol.name,
-			exact: symbol.name.toLocaleLowerCase() === queryLower,
-			origin: "workspace-symbol",
-			uri: location.uri,
-			line: location.range.start.line,
-			character: location.range.start.character,
-		});
-	}
-	return hits;
-}
-
-export function referenceHits(root: string, seed: WorkspaceSymbolSeed, locations: readonly Location[], maxItems: number): LspSymbolHit[] {
-	const hits: LspSymbolHit[] = [];
-	for (const location of locations) {
-		if (hits.length >= maxItems) break;
 		const filePath = fileUriToPath(location.uri);
 		if (filePath === undefined) continue;
 		const relative = workspaceRelativePath(root, filePath);
@@ -123,6 +119,9 @@ export function referenceHits(root: string, seed: WorkspaceSymbolSeed, locations
 			symbol: seed.symbol,
 			exact: false,
 			origin: "reference",
+			uri: location.uri,
+			line: location.range.start.line,
+			character: location.range.start.character,
 		});
 	}
 	return hits;
@@ -172,10 +171,12 @@ function flattenDocumentSymbols(symbols: LspDocumentSymbols): LspEnclosingSymbol
 }
 
 export function workspaceSymbolLocation(symbol: unknown): Location | undefined {
-	if (!isRecord(symbol)) return undefined;
-	const location = symbol.location;
-	if (!isRecord(location) || typeof location.uri !== "string" || !isValidRange(location.range)) return undefined;
-	return { uri: location.uri, range: location.range };
+	return isRecord(symbol) ? validLocation(symbol.location) : undefined;
+}
+
+export function validLocation(value: unknown): Location | undefined {
+	if (!isRecord(value) || typeof value.uri !== "string" || !isValidRange(value.range)) return undefined;
+	return { uri: value.uri, range: value.range };
 }
 
 export function hasUriOnlyWorkspaceSymbolLocation(symbol: unknown): symbol is WorkspaceSymbol {

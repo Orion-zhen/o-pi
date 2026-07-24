@@ -119,16 +119,23 @@ describe("file-tools lsp hooks", () => {
 		await writeFile(path.join(workspace, "mixed", "a.ts"), "export const target = 1;\n");
 		await writeFile(path.join(workspace, "mixed", "b.py"), "target = 1\n");
 		const seen: string[][] = [];
+		const seenPaths: string[][] = [];
+		const seenSignals: Array<AbortSignal | undefined> = [];
 		const hooks: FileToolLspHooks = {
 			async grepSymbols(input) {
 				seen.push([...input.extensions]);
+				seenPaths.push([...input.allowedPaths].sort());
+				seenSignals.push(input.signal);
 				return [];
 			},
 		};
-		await grepWorkspaceFiles(workspace, { path: ["mixed"], query: "Target" }, undefined, { lsp: hooks });
+		const controller = new AbortController();
+		await grepWorkspaceFiles(workspace, { path: ["mixed"], query: "Target" }, controller.signal, { lsp: hooks });
 		await mkdir(path.join(workspace, "empty"));
 		await grepWorkspaceFiles(workspace, { path: ["empty"], query: "Target" }, undefined, { lsp: hooks });
 		expect(seen).toEqual([[".py", ".ts"], []]);
+		expect(seenPaths).toEqual([["mixed/a.ts", "mixed/b.py"], []]);
+		expect(seenSignals).toEqual([controller.signal, undefined]);
 	});
 
 	it("grep 并行请求 LSP 与 Repo Map", async () => {
