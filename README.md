@@ -4,16 +4,24 @@ Orion's Pi Agent.
 
 ## 安装使用
 
+首先确保系统中安装了 [Pi](https://github.com/earendil-works/pi).
+
 克隆到 Pi 配置路径:
 
 ```bash
 git clone https://github.com/Orion-zhen/o-pi.git ~/.pi
 ```
 
-安装依赖:
+安装依赖(不包含 Tree-sitter 相关包):
 
 ```bash
 cd ~/.pi && npm install
+```
+
+安装全部依赖:
+
+```bash
+cd ~/.pi && npm install --include=optional
 ```
 
 ## 文档
