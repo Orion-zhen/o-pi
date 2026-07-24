@@ -27,8 +27,7 @@ cd ~/.pi && npm install --include=optional
 ## 文档
 
 * [性能 Benchmark](docs/benchmark.md)
-* [文件工具设计](docs/fs-tools.md)
-* [文件工具排序算法](docs/file-tools-ranking.md)
+* [文件工具设计](docs/file-tools/README.md)
 * [Bash 工具](docs/bash-tool.md)
 * [LSP 内部增强](docs/lsp.md)
 * [Web 工具](docs/web-tools.md)
