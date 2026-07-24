@@ -37,8 +37,9 @@ import {
 } from "vscode-languageserver-protocol";
 
 import { diagnosticSourceKey, type DiagnosticsLedger } from "./diagnostics.js";
-import { incrementalContentChange, languageIdForServerPath, LspDocuments } from "./documents.js";
+import { incrementalContentChange, LspDocuments } from "./documents.js";
 import { requestDocumentSymbols, requestReferences, requestWorkspaceSymbols, resolveWorkspaceSymbol, type LspFeatureSession } from "./features/index.js";
+import { languageIdForServerPath } from "./routing.js";
 import { connectLspTransport, type LspTransportConnection } from "./transport.js";
 import type {
 	LspClientDocumentContext,
@@ -303,7 +304,7 @@ export class LspClient implements LspFeatureSession {
 	}
 
 	private documentContext(filePath: string, text: string): LspClientDocumentContext {
-		return this.documents.context(filePath, text, languageIdForServerPath(this.server, filePath));
+		return this.documents.context(filePath, text, languageIdForServerPath(this.server, this.root, filePath));
 	}
 
 	private async synchronizeDocument(connection: MessageConnection, document: LspClientDocumentContext): Promise<boolean> {
@@ -520,7 +521,7 @@ export class LspClient implements LspFeatureSession {
 						},
 						workspace: { symbol: { resolveSupport: { properties: ["location.range"] } } },
 					},
-					initializationOptions: this.server.initialization_options,
+					initializationOptions: this.server.initializationOptions,
 				})),
 				this.config.startup_timeout_ms,
 			) as InitializeResult;

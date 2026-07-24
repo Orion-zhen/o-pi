@@ -2,28 +2,22 @@ import path from "node:path";
 
 import { agentConfigPath, agentSchemaPath, createSchemaValidator, expandHomePath, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
 import { LspServerRegistry } from "./registry.js";
-import type { LoadedLspConfig, LspConfig, LspJsonValue, LspServerConfig, LspTransport } from "./types.js";
+import type { LoadedLspConfig, LspConfig, LspJsonValue, LspLanguageRoute, LspServerConfig, LspTransport } from "./types.js";
 
 const CONFIG_PATH_ENV = "PI_LSP_CONFIG";
 
+type RawSelectors = string | string[];
+
 const defaultServers: LspServerConfig[] = [
-	stdioServer(
-		"typescript",
-		"typescript-language-server",
-		["--stdio"],
-		[".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
-		{
-			".ts": "typescript",
-			".tsx": "typescriptreact",
-			".js": "javascript",
-			".jsx": "javascriptreact",
-			".mjs": "javascript",
-			".cjs": "javascript",
-		},
-	),
-	stdioServer("python", "pyright-langserver", ["--stdio"], [".py", ".pyi"], {}, "python"),
-	stdioServer("rust", "rust-analyzer", [], [".rs"], {}, "rust"),
-	stdioServer("yaml", "yaml-language-server", ["--stdio"], [".yaml", ".yml"], {}, "yaml"),
+	stdioServer("typescript", ["typescript-language-server", "--stdio"], {
+		typescript: "*.ts",
+		typescriptreact: "*.tsx",
+		javascript: "*.{js,mjs,cjs}",
+		javascriptreact: "*.jsx",
+	}),
+	stdioServer("python", ["pyright-langserver", "--stdio"], { python: "*.{py,pyi}" }),
+	stdioServer("rust", ["rust-analyzer"], { rust: "*.rs" }),
+	stdioServer("yaml", ["yaml-language-server", "--stdio"], { yaml: "*.{yaml,yml}" }, true),
 ];
 
 const defaultConfig: LspConfig = {
@@ -62,6 +56,18 @@ export class LspConfigError extends Error {
 	}
 }
 
+interface RawLspServer {
+	enabled?: boolean;
+	fallback?: boolean;
+	command?: [string, ...string[]];
+	tcp?: {
+		host: string;
+		port: number;
+	};
+	languages: Record<string, RawSelectors>;
+	init?: LspJsonValue;
+}
+
 interface RawLspConfig {
 	enabled?: boolean;
 	exclude_paths?: string[];
@@ -73,25 +79,7 @@ interface RawLspConfig {
 	diagnostics?: Partial<LspConfig["diagnostics"]>;
 	read?: Partial<LspConfig["read"]>;
 	grep?: Partial<LspConfig["grep"]>;
-	servers?: Array<{
-		id: string;
-		enabled?: boolean;
-		command?: string;
-		args?: string[];
-		transport?: {
-			type: "stdio";
-			command: string;
-			args?: string[];
-		} | {
-			type: "tcp";
-			host: string;
-			port: number;
-		};
-		language_id?: string;
-		language_ids?: Record<string, string>;
-		extensions: string[];
-		initialization_options?: LspJsonValue;
-	}>;
+	servers?: Record<string, RawLspServer>;
 }
 
 /** 读取用户级 LSP JSONC 配置；不会读取项目级配置，避免项目配置执行任意本地 command。 */
@@ -152,36 +140,31 @@ export function normalizeExcludePath(input: string): string {
 
 function stdioServer(
 	id: string,
-	command: string,
-	args: string[],
-	extensions: string[],
-	language_ids: Record<string, string>,
-	language_id?: string,
+	command: [string, ...string[]],
+	languages: Record<string, RawSelectors>,
+	fallback = false,
 ): LspServerConfig {
+	const [executable, ...args] = command;
 	return {
 		id,
 		enabled: true,
-		transport: { type: "stdio", command, args },
-		language_ids,
-		extensions,
-		...(language_id !== undefined ? { language_id } : {}),
+		fallback,
+		transport: { type: "stdio", command: executable, args },
+		routes: normalizeLanguages(id, languages),
 	};
 }
 
 function normalizeServers(servers: NonNullable<RawLspConfig["servers"]>): LspServerConfig[] {
-	const normalized = servers.map((server) => {
-		const extensions = [...new Set(server.extensions.map(normalizeExtension))];
-		const transport = normalizeTransport(server);
-		return {
-			id: server.id,
-			enabled: server.enabled ?? true,
-			transport,
-			language_ids: normalizeLanguageIds(server.id, server.language_ids ?? {}, extensions),
-			extensions,
-			...(server.language_id !== undefined ? { language_id: server.language_id } : {}),
-			...(server.initialization_options !== undefined ? { initialization_options: server.initialization_options } : {}),
-		};
-	});
+	const entries = Object.entries(servers);
+	if (entries.length > 50) throw new LspConfigError("LSP config cannot define more than 50 servers");
+	const normalized = entries.map(([id, server]) => ({
+		id,
+		enabled: server.enabled ?? true,
+		fallback: server.fallback ?? false,
+		transport: normalizeTransport(id, server),
+		routes: normalizeLanguages(id, server.languages),
+		...(server.init !== undefined ? { initializationOptions: server.init } : {}),
+	}));
 	try {
 		new LspServerRegistry(normalized);
 	} catch (error) {
@@ -190,36 +173,27 @@ function normalizeServers(servers: NonNullable<RawLspConfig["servers"]>): LspSer
 	return normalized;
 }
 
-function normalizeTransport(server: NonNullable<RawLspConfig["servers"]>[number]): LspTransport {
-	if (server.transport !== undefined) {
-		if (server.command !== undefined || server.args !== undefined) {
-			throw new LspConfigError(`LSP server "${server.id}" cannot combine transport with command or args`);
-		}
-		return server.transport.type === "stdio"
-			? { type: "stdio", command: server.transport.command, args: server.transport.args ?? [] }
-			: { type: "tcp", host: server.transport.host, port: server.transport.port };
+function normalizeTransport(id: string, server: RawLspServer): LspTransport {
+	if (server.command !== undefined && server.tcp !== undefined) {
+		throw new LspConfigError(`LSP server "${id}" cannot combine command with tcp`);
 	}
-	if (server.command === undefined) throw new LspConfigError(`LSP server "${server.id}" is missing a transport`);
-	return { type: "stdio", command: server.command, args: server.args ?? [] };
+	if (server.command !== undefined) {
+		const [command, ...args] = server.command;
+		return { type: "stdio", command, args };
+	}
+	if (server.tcp !== undefined) return { type: "tcp", host: server.tcp.host, port: server.tcp.port };
+	throw new LspConfigError(`LSP server "${id}" is missing command or tcp`);
 }
 
-function normalizeExtension(extension: string): string {
-	return extension.toLowerCase();
-}
-
-function normalizeLanguageIds(serverId: string, input: Record<string, string>, extensions: readonly string[]): Record<string, string> {
-	const normalized: Record<string, string> = {};
-	for (const [rawExtension, languageId] of Object.entries(input)) {
-		const extension = normalizeExtension(rawExtension);
-		if (!extensions.includes(extension)) {
-			throw new LspConfigError(`LSP server "${serverId}" language_ids extension "${rawExtension}" is not listed in extensions`);
-		}
-		if (normalized[extension] !== undefined) {
-			throw new LspConfigError(`LSP server "${serverId}" has duplicate language_ids extension "${extension}"`);
-		}
-		normalized[extension] = languageId;
-	}
-	return normalized;
+function normalizeLanguages(serverId: string, input: Record<string, RawSelectors>): LspLanguageRoute[] {
+	const routes = Object.entries(input).map(([languageId, value]) => ({
+		languageId,
+		selectors: [...new Set(typeof value === "string" ? [value] : value)],
+	}));
+	const selectorCount = routes.reduce((total, route) => total + route.selectors.length, 0);
+	if (selectorCount === 0) throw new LspConfigError(`LSP server "${serverId}" must define at least one file selector`);
+	if (selectorCount > 64) throw new LspConfigError(`LSP server "${serverId}" cannot define more than 64 file selectors`);
+	return routes;
 }
 
 const loadValidator = createSchemaValidator({

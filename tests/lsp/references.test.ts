@@ -30,13 +30,13 @@ describe("lsp references", () => {
 			JSON.stringify({
 				enabled: true,
 				exclude_paths: [workspace],
-				servers: [{ id: "fake", command: "missing-lsp", extensions: [".ts"] }],
+				servers: { fake: testServer("missing-lsp", ["ts"]) },
 			}),
 		);
 		process.env.PI_LSP_CONFIG = config;
 
 		const manager = new LspManager();
-		await expect(queryWorkspaceSymbols(manager, workspace, "target", [".ts"])).resolves.toEqual([]);
+		await expect(queryWorkspaceSymbols(manager, workspace, "target")).resolves.toEqual([]);
 		await expect(manager.didWrite(workspace, path.join(workspace, "a.ts"), "const x = 1;\n")).resolves.toBeUndefined();
 		await expect(manager.status(workspace)).resolves.toMatchObject({ enabled: false, servers: [] });
 		await manager.reload();
@@ -49,27 +49,27 @@ describe("lsp references", () => {
 			JSON.stringify({
 				enabled: true,
 				startup_timeout_ms: 200,
-				servers: [{ id: "missing", command: "definitely-missing-o-pi-lsp", extensions: [".ts"] }],
+				servers: { missing: testServer("definitely-missing-o-pi-lsp", ["ts"]) },
 			}),
 		);
 		process.env.PI_LSP_CONFIG = config;
 
 		const manager = new LspManager();
-		await expect(queryWorkspaceSymbols(manager, workspace, "target", [".ts"])).resolves.toEqual([]);
+		await expect(queryWorkspaceSymbols(manager, workspace, "target")).resolves.toEqual([]);
 		const status = await manager.status(workspace);
 		expect(status.servers[0]).toMatchObject({ id: "missing", status: "unavailable" });
 		expect(status.servers[0]?.last_error).toMatch(/failed to start|ENOENT/);
 		await manager.reload();
 	});
 
-	it("workspace symbols 按 scope 扩展名路由且空 scope 不启动 server", async () => {
+	it("workspace symbols 按 scope 文件 selector 路由且空 scope 不启动 server", async () => {
 		const config = path.join(configDir, "lsp.jsonc");
 		await writeFile(config, JSON.stringify({
-			servers: [
-				{ id: "ts", command: "unused-ts", extensions: [".ts"] },
-				{ id: "python", command: "unused-python", extensions: [".py"] },
-				{ id: "disabled", enabled: false, command: "unused-go", extensions: [".go"] },
-			],
+			servers: {
+				ts: testServer("unused-ts", ["ts"]),
+				python: testServer("unused-python", ["py"]),
+				disabled: testServer("unused-go", ["go"], false),
+			},
 		}));
 		process.env.PI_LSP_CONFIG = config;
 		const requests: string[] = [];
@@ -80,10 +80,10 @@ describe("lsp references", () => {
 		});
 
 		const manager = new LspManager();
-		await expect(queryWorkspaceSymbols(manager, workspace, "target", [".TS"])).resolves.toEqual([]);
-		await expect(queryWorkspaceSymbols(manager, workspace, "target", [".ts", ".py"])).resolves.toEqual([]);
+		await expect(queryWorkspaceSymbols(manager, workspace, "target", ["src/target.ts"])).resolves.toEqual([]);
+		await expect(queryWorkspaceSymbols(manager, workspace, "target", ["src/target.ts", "src/target.py"])).resolves.toEqual([]);
 		await expect(queryWorkspaceSymbols(manager, workspace, "target", [])).resolves.toEqual([]);
-		await expect(queryWorkspaceSymbols(manager, workspace, "target", [".go"])).resolves.toEqual([]);
+		await expect(queryWorkspaceSymbols(manager, workspace, "target", ["src/target.go"])).resolves.toEqual([]);
 		await manager.reload();
 
 		expect(requests).toEqual(["ts", "ts", "python"]);
@@ -93,7 +93,7 @@ describe("lsp references", () => {
 		const config = path.join(configDir, "lsp.jsonc");
 		await writeFile(config, JSON.stringify({
 			read: { outline: false, max_symbols: 40 },
-			servers: [{ id: "fake", command: "unused", extensions: [".ts"] }],
+			servers: { fake: testServer("unused", ["ts"]) },
 		}));
 		process.env.PI_LSP_CONFIG = config;
 		const ensureReady = vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
@@ -121,7 +121,7 @@ describe("lsp references", () => {
 		await writeFile(config, JSON.stringify({
 			enabled: true,
 			grep: { workspace_symbols: true, references: true, max_symbols: 4, max_references: 4 },
-			servers: [{ id: "fake", command: "unused-lsp", extensions: [".ts"] }],
+			servers: { fake: testServer("unused-lsp", ["ts"]) },
 		}));
 		process.env.PI_LSP_CONFIG = config;
 		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
@@ -145,7 +145,6 @@ describe("lsp references", () => {
 			workspaceRoot: workspace,
 			query: "target",
 			path: ".",
-			extensions: [".ts"],
 			allowedPaths: new Set(["src/def.ts", "src/use.ts"]),
 		});
 		await manager.reload();
@@ -156,12 +155,78 @@ describe("lsp references", () => {
 		]);
 	});
 
+	it("专用 server 覆盖 fallback，workspace symbol 只接收归属路径", async () => {
+		const config = path.join(configDir, "lsp.jsonc");
+		await writeFile(config, JSON.stringify({
+			servers: {
+				compose: { command: ["unused-compose"], languages: { dockercompose: "compose.yaml" } },
+				yaml: { fallback: true, command: ["unused-yaml"], languages: { yaml: "*.{yaml,yml}" } },
+			},
+		}));
+		process.env.PI_LSP_CONFIG = config;
+		const composeUri = pathToUri(path.join(workspace, "deploy", "compose.yaml"));
+		const yamlUri = pathToUri(path.join(workspace, "deploy", "service.yaml"));
+		const requests: string[] = [];
+		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
+		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockImplementation(async function (this: LspClient) {
+			requests.push(this.server.id);
+			return this.server.id === "compose"
+				? [
+					{ name: "ComposeTarget", kind: 12, location: { uri: composeUri, range: range(0) } },
+					{ name: "WrongService", kind: 12, location: { uri: yamlUri, range: range(0) } },
+				]
+				: [
+					{ name: "DuplicateCompose", kind: 12, location: { uri: composeUri, range: range(0) } },
+					{ name: "YamlTarget", kind: 12, location: { uri: yamlUri, range: range(0) } },
+				];
+		});
+
+		const manager = new LspManager();
+		const hits = await manager.workspaceSymbols({
+			root: workspace,
+			query: "Target",
+			allowedPaths: new Set(["deploy/compose.yaml", "deploy/service.yaml"]),
+		});
+		await manager.reload();
+
+		expect(requests).toEqual(["compose", "yaml"]);
+		expect(hits.map((hit) => `${hit.symbol}:${hit.path}`)).toEqual([
+			"ComposeTarget:deploy/compose.yaml",
+			"YamlTarget:deploy/service.yaml",
+		]);
+	});
+
+	it("歧义路由不启动 server 并暴露到 status", async () => {
+		const config = path.join(configDir, "lsp.jsonc");
+		await writeFile(config, JSON.stringify({
+			servers: {
+				one: { command: ["unused-one"], languages: { one: "*.ts" } },
+				two: { command: ["unused-two"], languages: { two: "*.ts" } },
+			},
+		}));
+		process.env.PI_LSP_CONFIG = config;
+		const ensureReady = vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
+		const manager = new LspManager();
+
+		await expect(manager.workspaceSymbols({
+			root: workspace,
+			query: "target",
+			allowedPaths: new Set(["src/target.ts"]),
+		})).resolves.toEqual([]);
+		await expect(manager.status(workspace)).resolves.toMatchObject({
+			last_error: expect.stringContaining("matches multiple"),
+			servers: [],
+		});
+		expect(ensureReady).not.toHaveBeenCalled();
+		await manager.reload();
+	});
+
 	it("scope 前置过滤、resolve 失败补位且不请求预算外候选", async () => {
 		const config = path.join(configDir, "lsp.jsonc");
 		await writeFile(config, JSON.stringify({
 			enabled: true,
 			grep: { workspace_symbols: true, references: false, max_symbols: 2, max_references: 0 },
-			servers: [{ id: "fake", command: "unused", extensions: [".ts"] }],
+			servers: { fake: testServer("unused", ["ts"]) },
 		}));
 		process.env.PI_LSP_CONFIG = config;
 		const uri = (name: string) => pathToUri(path.join(workspace, "src", name));
@@ -183,7 +248,6 @@ describe("lsp references", () => {
 		const hits = await manager.workspaceSymbols({
 			root: workspace,
 			query: "target",
-			extensions: [".ts"],
 			allowedPaths: new Set(["src/fail.ts", "src/good.ts", "src/complete.ts", "src/extra.ts"]),
 		});
 		await manager.reload();
@@ -196,10 +260,10 @@ describe("lsp references", () => {
 		await writeFile(config, JSON.stringify({
 			enabled: true,
 			grep: { workspace_symbols: true, references: false, max_symbols: 4, max_references: 0 },
-			servers: [
-				{ id: "ts", command: "unused-ts", extensions: [".ts"] },
-				{ id: "py", command: "unused-py", extensions: [".py"] },
-			],
+			servers: {
+				ts: testServer("unused-ts", ["ts"]),
+				py: testServer("unused-py", ["py"]),
+			},
 		}));
 		process.env.PI_LSP_CONFIG = config;
 		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
@@ -224,7 +288,6 @@ describe("lsp references", () => {
 		const pending = manager.workspaceSymbols({
 			root: workspace,
 			query: "target",
-			extensions: [".ts", ".py"],
 			allowedPaths: new Set(["src/a.ts", "src/b.py"]),
 		});
 		await pythonStarted;
@@ -239,7 +302,7 @@ describe("lsp references", () => {
 		await writeFile(config, JSON.stringify({
 			enabled: true,
 			grep: { workspace_symbols: true, references: true, max_symbols: 1, max_references: 2 },
-			servers: [{ id: "fake", command: "unused", extensions: [".ts"] }],
+			servers: { fake: testServer("unused", ["ts"]) },
 		}));
 		process.env.PI_LSP_CONFIG = config;
 		const definitionUri = pathToUri(path.join(workspace, "src", "def.ts"));
@@ -258,7 +321,6 @@ describe("lsp references", () => {
 		const hits = await manager.workspaceSymbols({
 			root: workspace,
 			query: "target",
-			extensions: [".ts"],
 			allowedPaths: new Set(["src/def.ts", "src/use.ts"]),
 		});
 		await manager.reload();
@@ -274,7 +336,7 @@ describe("lsp references", () => {
 		await writeFile(config, JSON.stringify({
 			enabled: true,
 			grep: { workspace_symbols: true, references: true, max_symbols: 6, max_references: 4 },
-			servers: [{ id: "fake", command: "unused", extensions: [".ts"] }],
+			servers: { fake: testServer("unused", ["ts"]) },
 		}));
 		process.env.PI_LSP_CONFIG = config;
 		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
@@ -308,7 +370,6 @@ describe("lsp references", () => {
 		const pending = manager.workspaceSymbols({
 			root: workspace,
 			query: "target",
-			extensions: [".ts"],
 			allowedPaths: new Set(Array.from({ length: 6 }, (_, index) => `src/def${index}.ts`).concat(
 				Array.from({ length: 6 }, (_, index) => `src/use${index}.ts`),
 			)),
@@ -335,12 +396,12 @@ describe("lsp references", () => {
 			enabled: true,
 			startup_timeout_ms: 2000,
 			request_timeout_ms: 2000,
-			servers: [{ id: "stubborn", command: process.execPath, args: [server], extensions: [".ts"] }],
+			servers: { stubborn: testServer([process.execPath, server], ["ts"]) },
 		}));
 		process.env.PI_LSP_CONFIG = config;
 
 		const manager = new LspManager();
-		await queryWorkspaceSymbols(manager, workspace, "target", [".ts"]);
+		await queryWorkspaceSymbols(manager, workspace, "target");
 		const pid = Number(await readFile(pidPath, "utf8"));
 		await manager.reload();
 
@@ -349,17 +410,26 @@ describe("lsp references", () => {
 	});
 });
 
+function testServer(command: string | readonly string[], extensions: readonly string[], enabled = true) {
+	const selectors = extensions.map((extension) => `*.${extension}`);
+	return {
+		...(enabled ? {} : { enabled: false }),
+		command: typeof command === "string" ? [command] : [...command],
+		languages: { test: selectors.length === 1 ? selectors[0] : selectors },
+	};
+}
+
 function range(line: number) {
 	return { start: { line, character: 0 }, end: { line, character: 6 } };
 }
 
-function queryWorkspaceSymbols(manager: LspManager, root: string, query: string, extensions: readonly string[]) {
-	return manager.workspaceSymbols({
-		root,
-		query,
-		extensions,
-		allowedPaths: new Set(["src/def.ts", "src/use.ts", "src/target.ts"]),
-	});
+function queryWorkspaceSymbols(
+	manager: LspManager,
+	root: string,
+	query: string,
+	paths: readonly string[] = ["src/def.ts", "src/use.ts", "src/target.ts"],
+) {
+	return manager.workspaceSymbols({ root, query, allowedPaths: new Set(paths) });
 }
 
 function fakeServerSource(root: string): string {

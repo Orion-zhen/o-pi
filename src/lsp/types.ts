@@ -26,19 +26,27 @@ export interface LspTcpTransport {
 /** LSP server 的规范化连接方式。 */
 export type LspTransport = LspStdioTransport | LspTcpTransport;
 
+/** 一个 language ID 对应的文件 selector。 */
+export interface LspLanguageRoute {
+	languageId: string;
+	selectors: readonly string[];
+}
+
 /** 单个 language server 的规范化配置。 */
 export interface LspServerConfig {
 	/** LSP server 的稳定 ID；同一 workspace 内用于区分进程。 */
 	id: string;
 	enabled: boolean;
+	/** 与专用 server 重叠时仅作为后备。 */
+	fallback: boolean;
 	transport: LspTransport;
-	/** 未命中 extension map 时使用的兼容 language ID。 */
-	language_id?: string;
-	/** 按规范化扩展名选择 didOpen language ID。 */
-	language_ids: Readonly<Record<string, string>>;
-	/** 由文件扩展名选择 server，值已规范化为小写并包含前导点。 */
-	extensions: string[];
-	initialization_options?: LspJsonValue;
+	routes: readonly LspLanguageRoute[];
+	initializationOptions?: LspJsonValue;
+}
+
+export interface LspFileRoute {
+	server: LspServerConfig;
+	languageId: string;
 }
 
 /** 可复用 LSP request 的超时和取消选项。 */

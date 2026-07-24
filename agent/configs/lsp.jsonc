@@ -1,5 +1,4 @@
 {
-	"$schema": "../schemas/lsp.schema.json",
 	"enabled": true,
 	"exclude_paths": ["~"],
 	"startup_timeout_ms": 8000,
@@ -29,50 +28,55 @@
 		"max_references": 20
 	},
 
-	"servers": [
-		{
-			"id": "typescript",
-			"enabled": true,
-			"transport": { "type": "stdio", "command": "typescript-language-server", "args": ["--stdio"] },
-			"language_ids": {
-				".ts": "typescript",
-				".tsx": "typescriptreact",
-				".js": "javascript",
-				".jsx": "javascriptreact",
-				".mjs": "javascript",
-				".cjs": "javascript"
-			},
-			"extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
+	"servers": {
+		"typescript": {
+			"command": ["typescript-language-server", "--stdio"],
+			"languages": {
+				"typescript": "*.ts",
+				"typescriptreact": "*.tsx",
+				"javascript": "*.{js,mjs,cjs}",
+				"javascriptreact": "*.jsx"
+			}
 		},
-		{
-			"id": "python",
-			"enabled": true,
-			"transport": { "type": "stdio", "command": "pyright-langserver", "args": ["--stdio"] },
-			"language_id": "python",
-			"extensions": [".py", ".pyi"]
+		"python": {
+			"command": ["pyright-langserver", "--stdio"],
+			"languages": { "python": "*.{py,pyi}" }
 		},
-		{
-			"id": "rust",
-			"enabled": true,
-			"transport": { "type": "stdio", "command": "rust-analyzer", "args": [] },
-			"language_id": "rust",
-			"extensions": [".rs"]
+		"rust": {
+			"command": ["rust-analyzer"],
+			"languages": { "rust": "*.rs" }
 		},
-		{
-			"id": "yaml",
-			"enabled": true,
-			"transport": { "type": "stdio", "command": "yaml-language-server", "args": ["--stdio"] },
-			"language_id": "yaml",
-			"extensions": [".yaml", ".yml"]
+		"clangd": {
+			"command": ["clangd"],
+			"languages": {
+				"c": "*.c",
+				"cpp": "*.{C,h,hh,hpp,hxx,cc,cpp,cxx}"
+			}
+		},
+		"docker": {
+			"command": ["docker-language-server", "start", "--stdio"],
+			"languages": {
+				"dockerfile": [
+					"{Dockerfile,Containerfile}",
+					"?*.{Dockerfile,Containerfile}",
+					"{Dockerfile,Containerfile}.?*"
+				],
+				"dockercompose": [
+					"{compose,docker-compose}.{yaml,yml}",
+					"{compose,docker-compose}.?*.{yaml,yml}"
+				]
+			}
+		},
+		"yaml": {
+			"fallback": true,
+			"command": ["yaml-language-server", "--stdio"],
+			"languages": { "yaml": "*.{yaml,yml}" }
 		}
 
 		// TCP example: uncomment and replace the endpoint with a user-provided server.
-		// ,{
-		// 	"id": "remote-example",
-		// 	"enabled": true,
-		// 	"transport": { "type": "tcp", "host": "127.0.0.1", "port": 2087 },
-		// 	"language_id": "remote",
-		// 	"extensions": [".remote"]
+		// ,"remote-example": {
+		// 	"tcp": { "host": "127.0.0.1", "port": 2087 },
+		// 	"languages": { "remote": "*.remote" }
 		// }
-	]
+	}
 }

@@ -1,6 +1,7 @@
-import type { LspServerConfig } from "./types.js";
+import { matchServerLanguage, validateServerRoutes } from "./routing.js";
+import type { LspFileRoute, LspServerConfig } from "./types.js";
 
-/** 配置中 server ID 或文件扩展名冲突。 */
+/** 配置中的 server ID 或运行时文件路由冲突。 */
 export class LspServerRegistryError extends Error {
 	constructor(message: string) {
 		super(message);
@@ -11,14 +12,12 @@ export class LspServerRegistryError extends Error {
 /** 不可变的 server 注册表；所有路由都从这里读取，避免出现第二套筛选规则。 */
 export class LspServerRegistry {
 	readonly servers: readonly LspServerConfig[];
-	private readonly byExtensionMap: ReadonlyMap<string, LspServerConfig>;
 
 	constructor(servers: readonly LspServerConfig[]) {
 		const ids = new Map<string, number>();
-		const extensions = new Map<string, { server: LspServerConfig; index: number }>();
 		const snapshot = servers.map((server) => ({
 			...server,
-			extensions: [...server.extensions],
+			routes: server.routes.map((route) => ({ ...route, selectors: [...route.selectors] })),
 			transport: server.transport.type === "stdio"
 				? { ...server.transport, args: [...server.transport.args] }
 				: { ...server.transport },
@@ -32,37 +31,48 @@ export class LspServerRegistry {
 				);
 			}
 			ids.set(server.id, index);
-			for (const extension of server.extensions) {
-				const normalized = extension.toLowerCase();
-				const previous = extensions.get(normalized);
-				if (previous !== undefined) {
-					throw new LspServerRegistryError(
-						`LSP extension "${normalized}" is assigned to servers[${previous.index}] ("${previous.server.id}") and servers[${index}] ("${server.id}")`,
-					);
-				}
-				extensions.set(normalized, { server, index });
+			try {
+				validateServerRoutes(server);
+			} catch (error) {
+				throw new LspServerRegistryError(error instanceof Error ? error.message : String(error));
 			}
 		}
 
 		this.servers = snapshot;
-		this.byExtensionMap = new Map(
-			Array.from(extensions, ([extension, entry]) => [extension, entry.server]),
-		);
 	}
 
-	/** 查找某个文件扩展名对应的 enabled server。 */
-	forExtension(extension: string): LspServerConfig | undefined {
-		const server = this.byExtensionMap.get(extension.toLowerCase());
-		return server?.enabled === true ? server : undefined;
+	route(relativePath: string): LspFileRoute | undefined {
+		const candidates: LspFileRoute[] = [];
+		for (const server of this.servers) {
+			if (!server.enabled) continue;
+			const languageId = matchServerLanguage(server, relativePath);
+			if (languageId !== undefined) candidates.push({ server, languageId });
+		}
+		const preferred = candidates.filter((candidate) => !candidate.server.fallback);
+		if (preferred.length === 1) return preferred[0];
+		if (preferred.length > 1) throw ambiguousRoute(relativePath, preferred);
+		if (candidates.length === 1) return candidates[0];
+		if (candidates.length > 1) throw ambiguousRoute(relativePath, candidates);
+		return undefined;
 	}
 
-	/** 查找 scope 中涉及的 enabled server，按配置顺序去重。 */
-	forExtensions(extensions: readonly string[]): LspServerConfig[] {
+	/** 查找 scope 中实际文件会使用的 enabled server，按配置顺序去重。 */
+	forPaths(paths: Iterable<string>): LspServerConfig[] {
 		const selected = new Set<LspServerConfig>();
-		for (const extension of extensions) {
-			const server = this.forExtension(extension);
-			if (server !== undefined) selected.add(server);
+		for (const filePath of paths) {
+			const route = this.route(filePath);
+			if (route !== undefined) selected.add(route.server);
 		}
 		return this.servers.filter((server) => selected.has(server));
 	}
+
+	ownsPath(server: LspServerConfig, relativePath: string): boolean {
+		return this.route(relativePath)?.server.id === server.id;
+	}
+}
+
+function ambiguousRoute(relativePath: string, candidates: readonly LspFileRoute[]): LspServerRegistryError {
+	return new LspServerRegistryError(
+		`LSP path "${relativePath}" matches multiple ${candidates[0]?.server.fallback === true ? "fallback " : ""}servers: ${candidates.map((candidate) => candidate.server.id).join(", ")}`,
+	);
 }

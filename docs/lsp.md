@@ -26,7 +26,7 @@ agent/configs/lsp.jsonc
 | `diagnostics` | 见下表 | 控制 `write` / `edit` 成功后的诊断等待和返回内容。 |
 | `read` | 见下表 | 控制 `read` 的 outline / enclosing symbol 增强。 |
 | `grep` | 见下表 | 控制 `grep` 的 workspace symbol 增强。 |
-| `servers` | TypeScript / Python / Rust / YAML | language server 列表，最多 50 个。配置文件缺失时使用同一份内置列表。ID 和扩展名必须全局唯一。 |
+| `servers` | TypeScript / Python / Rust / YAML | 以 server ID 为 key 的 language server 对象，最多 50 个。配置文件缺失时使用同一份内置集合。 |
 
 `diagnostics`：
 
@@ -54,47 +54,99 @@ agent/configs/lsp.jsonc
 | `max_symbols` | `20` | scope/URI 校验和去重后最多接收的有效 workspace symbol 数，范围 `0`-`200`。scope 外及 resolve 失败项不消耗预算。 |
 | `max_references` | `20` | scope 校验和全局去重后最多接收的有效引用数，范围 `0`-`200`。引用只针对最终接收的 symbol，并使用 `lsp reference` reason。 |
 
-`servers[]`：
+`servers` 的 key 就是稳定 server ID，必须以字母开头且只能包含字母、数字、`_`、`-`。每个 server 支持：
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `id` | 必填 | server 稳定 ID。只能包含字母、数字、`_`、`-`，且所有 server 必须唯一。 |
-| `enabled` | `true` | 单个 server 开关。关闭后不会匹配文件，也不会启动 transport；但仍参与 ID/扩展名冲突校验。 |
-| `transport` | 必填 | 连接方式。`{"type":"stdio","command":"...","args":[]}` 启动本地 server；`{"type":"tcp","host":"127.0.0.1","port":2087}` 连接用户提供的 endpoint。TCP server 由用户负责提供，Pi 只负责连接和清理。 |
-| `language_ids` | `{}` | 按扩展名选择 `textDocument/didOpen` 的 language ID；键会统一转小写，且必须同时列在 `extensions` 中。 |
-| `language_id` | 未设置 | 未命中 `language_ids` 时的兼容 fallback；仍未设置时按文件扩展名推断。选择顺序为 extension map -> singular fallback -> 内置推断。 |
-| `extensions` | 必填 | 文件扩展名列表，必须带前导点，加载时统一转小写。任意两个 server（包括 disabled server）不能共享扩展名；冲突会使整个配置加载失败。 |
-| `initialization_options` | 未设置 | 任意 JSON 值，原样传给 LSP `initialize.initializationOptions`，用于 server 私有配置。 |
+| `enabled` | `true` | 单个 server 开关。关闭后不参与文件路由，也不启动连接。 |
+| `fallback` | `false` | 与普通 server 同时匹配时让普通 server 接管；适合 YAML 等通用后备 server。 |
+| `command` | 与 `tcp` 二选一 | stdio server 的完整 argv；第一个元素是 executable，其余元素是参数，不经过 shell。 |
+| `tcp` | 与 `command` 二选一 | `{"host":"127.0.0.1","port":2087}` 连接用户提供的 endpoint；Pi 不启动 TCP server。 |
+| `languages` | 必填 | LSP language ID 到一个 selector 字符串或多个 selector 数组的映射。 |
+| `init` | 未设置 | 任意 JSON 值，原样传给 LSP `initialize.initializationOptions`。 |
 
-为保持旧配置可用，`command`/`args` 仍可直接写在 server 对象中，加载时会规范化为 `stdio transport`。
-
-仓库配置包含 TypeScript、Python、Rust、YAML stdio server，并在注释中提供 TCP endpoint 示例。配置结构如下；两种 server 都由用户提供，Pi 不启动 TCP server：
+配置不包含 `id`、`transport.type`、`args`、`extensions`、`language_id` 或 `language_ids` 等重复字段，也不从扩展名隐藏推断 language ID。仓库配置包含 TypeScript、Python、Rust、Clangd（C/C++）、Docker 和 YAML stdio server，并在注释中提供 TCP endpoint 示例：
 
 ```jsonc
 {
-  "servers": [
-    {
-      "id": "typescript",
-      "transport": { "type": "stdio", "command": "typescript-language-server", "args": ["--stdio"] },
-      "language_ids": { ".ts": "typescript", ".tsx": "typescriptreact" },
-      "extensions": [".ts", ".tsx"]
+  "servers": {
+    "typescript": {
+      "command": ["typescript-language-server", "--stdio"],
+      "languages": {
+        "typescript": "*.ts",
+        "typescriptreact": "*.tsx",
+        "javascript": "*.{js,mjs,cjs}",
+        "javascriptreact": "*.jsx"
+      }
     },
-    {
-      "id": "remote-example",
-      "transport": { "type": "tcp", "host": "127.0.0.1", "port": 2087 },
-      "language_id": "remote",
-      "extensions": [".remote"]
+    "yaml": {
+      "fallback": true,
+      "command": ["yaml-language-server", "--stdio"],
+      "languages": { "yaml": "*.{yaml,yml}" }
+    },
+    "remote-example": {
+      "tcp": { "host": "127.0.0.1", "port": 2087 },
+      "languages": { "remote": "*.remote" }
     }
-  ]
+  }
 }
 ```
+
+### 查找 language ID
+
+language ID 是客户端在 `textDocument/didOpen.textDocument.languageId` 中发给 server 的字符串，不是 server ID、可执行文件名或扩展名；LSP 没有涵盖所有 server 的统一映射表。按以下顺序确认：
+
+1. 查 server 的官方 README、client 配置或安装文档，搜索 `languageId`、`language ID`、`documentSelector`。
+2. 查该 server 维护的编辑器扩展源码。VS Code 扩展通常在 `package.json` 的 `contributes.languages[].id` 声明 ID，并在启动 language client 时通过 `documentSelector` 选择它。
+3. 查 server 源码中处理 `textDocument/didOpen` 的 `languageId`、`LanguageIdentifier` 常量或分支。可在源码目录运行 `rg 'languageId|LanguageIdentifier|documentSelector'`。
+4. 仍不确定时开启已支持该 server 的编辑器的 LSP trace，查看实际发出的 `textDocument/didOpen` JSON；其中 `textDocument.languageId` 是最直接的依据。
+
+不要仅根据文件扩展名猜测。例如 TypeScript React 常用 `typescriptreact`，Docker Language Server 使用 `dockerfile` 和 `dockercompose`。某些 server 会忽略 language ID 并只看 URI，但配置仍应使用其官方 client 或源码采用的值。
+
+### Selector
+
+Selector 使用受限 picomatch glob，并对规范化的 workspace-relative POSIX path 匹配：
+
+- 不含 `/` 时匹配任意目录中的 basename；`compose.yaml` 和 `*.ts` 都可命中嵌套文件。
+- 含 `/` 时匹配完整相对路径，例如 `deploy/**/*.yaml`。
+- 支持 `*`、`?`、`[]`、`{yaml,yml}` 和 `**`；不支持 negation、extglob、绝对路径、反斜杠或 `..`。
+- 匹配跨平台保持大小写敏感；例如 `*.c` 与 `*.C` 可以分别路由。
+- 多个 selector 无法清晰合并时使用数组，例如 `["Chart.yaml", "deploy/**/*.yaml"]`。
+
+Docker Language Server 可接管 Dockerfile、Containerfile 和 Compose 文件；通用 YAML server 作为 fallback 处理其余 YAML：
+
+```jsonc
+"docker": {
+  "command": ["docker-language-server", "start", "--stdio"],
+  "languages": {
+    "dockerfile": [
+      "{Dockerfile,Containerfile}",
+      "?*.{Dockerfile,Containerfile}",
+      "{Dockerfile,Containerfile}.?*"
+    ],
+    "dockercompose": [
+      "{compose,docker-compose}.{yaml,yml}",
+      "{compose,docker-compose}.?*.{yaml,yml}"
+    ]
+  }
+},
+"yaml": {
+  "fallback": true,
+  "command": ["yaml-language-server", "--stdio"],
+  "languages": { "yaml": "*.{yaml,yml}" }
+}
+```
+
+每个文件最多归属一个 server：一个普通 server 匹配时优先于所有 fallback server；多个普通 server、多个 fallback server 或同一 server 的多个 language ID 同时匹配均视为歧义。配置顺序不参与选择，歧义会让本次 LSP 增强安全降级并显示在 `/lsp status`。
+
+这是唯一配置格式；没有格式版本、旧格式兼容层或内置 preset。用户配置也不需要 `$schema` 字段。
 
 binary 不存在、TCP endpoint 不可达或 initialize 失败时 server 标记为 unavailable，文件工具继续成功执行。
 
 ## 行为
 
 * `read`：部分行范围读取时可返回 `lsp.enclosing_symbol`；内容截断时可返回紧凑 `lsp.outline`，根和嵌套后代共同受全树 symbol 上限约束。outline 关闭或上限为 `0` 且不需要 enclosing symbol 时不会启动 LSP。相同内容的暖态读取复用当前文档版本和 `documentSymbol` cache，不重复发送 `didChange` 或 symbol 请求。
-* `grep`：仅在 `match=auto` 且 query 像 symbol 时调用 workspace/symbol；请求只发送给当前有效 scope 文件扩展名对应的 server。目录 scope 会按实际文件扩展名选择多个 server；空 scope 或无相关 server 时不创建 client。多个 server 并行查询但按配置和 server 原始顺序稳定合并。scope 外 URI 在 resolve/reference 前过滤；URI-only symbol 只在 server 声明 resolveProvider 时小批量并发解析，失败后继续补位。`grep.references` 开启后只查询最终接收的 symbol，并以有界并发、全局去重和最终有效预算合并引用。调用方取消和统一操作 deadline 会贯穿 query、resolve、references 并触发协议级取消；所有 LSP 失败继续按普通 grep 降级。
+* `grep`：仅在 `match=auto` 且 query 像 symbol 时调用 workspace/symbol；请求只发送给 ignore/glob 过滤后实际 scope paths 对应的 server，空 scope 或无相关 server 时不创建 client。多个 server 并行查询但按配置顺序稳定合并；symbol、resolve 和 reference 的结果路径必须仍归属于返回它的 server，因此 fallback server 不会混入专用文件结果。scope 外 URI 在 resolve/reference 前过滤；URI-only symbol 只在 server 声明 resolveProvider 时小批量并发解析，失败后继续补位。`grep.references` 开启后只查询最终接收的 symbol，并以有界并发、全局去重和最终有效预算合并引用。调用方取消和统一操作 deadline 会贯穿 query、resolve、references 并触发协议级取消；所有 LSP 失败继续按普通 grep 降级。
 * `write`：写盘成功后按 server capability 同步文档并等待当前 client source+URI 的新 diagnostics revision；旧快照不会作为本次成功结果，诊断错误不改变 `status: "written"`。
 * `edit`：preview 不调用 LSP；成功写盘后只用同一 workspace/server source 的编辑前 baseline 计算 diagnostics diff；不同 source 的 baseline 标记为 unknown，诊断错误不改变 `status: "applied"`。
 * `ls` / `find`：不接入 LSP。

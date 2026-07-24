@@ -23,7 +23,6 @@ export function createLspFileHooks(manager: LspManager): FileToolLspHooks {
 				const hits = await manager.workspaceSymbols({
 					root: input.workspaceRoot,
 					query: input.query,
-					extensions: input.extensions,
 					allowedPaths: input.allowedPaths,
 					...(input.signal !== undefined ? { signal: input.signal } : {}),
 				});

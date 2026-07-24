@@ -217,8 +217,6 @@ export interface FileToolLspHooks {
 		workspaceRoot: string;
 		query: string;
 		path: string;
-		/** 当前 grep scope 中实际文件扩展名的规范化集合。 */
-		extensions: readonly string[];
 		/** 当前 grep 已完成 ignore/glob 过滤的 workspace-relative paths。 */
 		allowedPaths: ReadonlySet<string>;
 		signal?: AbortSignal;

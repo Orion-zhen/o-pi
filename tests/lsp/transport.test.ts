@@ -82,7 +82,7 @@ describe("lsp transport", () => {
 		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
 
 		manager = new LspManager();
-		await expect(queryManagerSymbols(manager, workspace, "target", [".ts"])).resolves.toEqual([
+		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([
 			expect.objectContaining({ path: "src/target.ts", origin: "workspace-symbol" }),
 		]);
 		const firstReload = manager.reload();
@@ -130,7 +130,7 @@ describe("lsp transport", () => {
 		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
 
 		manager = new LspManager();
-		await expect(queryManagerSymbols(manager, workspace, "target", [".ts"])).resolves.toEqual([
+		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([
 			expect.objectContaining({ path: "src/target.ts", start_line: 3, end_line: 3, origin: "workspace-symbol" }),
 		]);
 		expect(fake.messages.find((message) => message.method === "workspaceSymbol/resolve")).toMatchObject({
@@ -172,7 +172,7 @@ describe("lsp transport", () => {
 		);
 
 		manager = new LspManager();
-		await expect(queryManagerSymbols(manager, workspace, "target", [".ts"])).resolves.toEqual([]);
+		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([]);
 		if (expectsResolve) expect(fake.methods).toContain("workspaceSymbol/resolve");
 		else expect(fake.methods).not.toContain("workspaceSymbol/resolve");
 	});
@@ -186,7 +186,7 @@ describe("lsp transport", () => {
 		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
 
 		manager = new LspManager();
-		await expect(queryManagerSymbols(manager, workspace, "target", [".ts"])).resolves.toEqual([]);
+		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([]);
 		await expect(manager.status(workspace)).resolves.toMatchObject({
 			servers: [{ id: "tcp", status: "unavailable", last_error: expect.stringContaining("initialize failed") }],
 		});
@@ -213,9 +213,9 @@ describe("lsp transport", () => {
 			id: "tcp",
 			enabled: true,
 			transport: { type: "tcp", host: "127.0.0.1", port: fake.port },
-			language_id: "typescript",
-			language_ids: {},
-			extensions: [".ts"],
+			fallback: false,
+			routes: [{ languageId: "typescript", selectors: ["*.ts"] }],
+			initializationOptions: ["strict", { feature: true }],
 		}, config, new DiagnosticsLedger(), () => undefined, () => 0);
 		const diagnostics: string[] = [];
 		const logs: string[] = [];
@@ -237,6 +237,9 @@ describe("lsp transport", () => {
 		expect(diagnostics).toEqual([pathToFileUri(path.join(workspace, "a.ts"))]);
 		expect(logs).toEqual(["server log"]);
 		expect(progress).toEqual([{ kind: "begin" }]);
+		expect(fake.messages.find((message) => message.method === "initialize")).toMatchObject({
+			params: { initializationOptions: ["strict", { feature: true }] },
+		});
 		expect(fake.methods).toContain("textDocument/didOpen");
 		expect(fake.methods).toContain("textDocument/didClose");
 		await expect(fake.response).resolves.toMatchObject({ id: 77, error: { code: -32601 } });
@@ -310,7 +313,7 @@ describe("lsp transport", () => {
 		expect(saveParams).not.toHaveProperty("text");
 	});
 
-	it("incremental sync 使用 UTF-16 range，language_ids 与 save includeText 生效", async () => {
+	it("incremental sync 使用 UTF-16 range，language route 与 save includeText 生效", async () => {
 		const fake = await createFakeServer((message, socket) => {
 			if (message.method === "initialize") {
 				send(socket, { id: message.id, result: { capabilities: {
@@ -493,7 +496,7 @@ describe("lsp transport", () => {
 		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
 
 		manager = new LspManager();
-		await expect(queryManagerSymbols(manager, workspace, "target", [".ts"])).resolves.toEqual([]);
+		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([]);
 		expect(fake.methods).not.toContain("workspace/symbol");
 	});
 
@@ -519,7 +522,6 @@ describe("lsp transport", () => {
 		const pending = manager.workspaceSymbols({
 			root: workspace,
 			query: "target",
-			extensions: [".ts"],
 			allowedPaths: new Set(["src/target.ts"]),
 			signal: controller.signal,
 		});
@@ -552,7 +554,6 @@ describe("lsp transport", () => {
 		const pending = manager.workspaceSymbols({
 			root: workspace,
 			query: "target",
-			extensions: [".ts"],
 			allowedPaths: new Set(["src/target.ts"]),
 			signal: controller.signal,
 		});
@@ -590,7 +591,6 @@ describe("lsp transport", () => {
 		const pending = manager.workspaceSymbols({
 			root: workspace,
 			query: "target",
-			extensions: [".ts"],
 			allowedPaths: new Set(["src/target.ts"]),
 			signal: controller.signal,
 		});
@@ -694,10 +694,10 @@ describe("lsp transport", () => {
 		});
 		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
 		manager = new LspManager();
-		const first = queryManagerSymbols(manager, workspace, "first", [".ts"]);
+		const first = queryManagerSymbols(manager, workspace, "first");
 		await firstSeen;
 		const reloading = manager.reload();
-		const second = queryManagerSymbols(manager, workspace, "second", [".ts"]);
+		const second = queryManagerSymbols(manager, workspace, "second");
 		expect(fake.methods).not.toContain("shutdown");
 		releaseFirst();
 		await expect(first).resolves.toEqual([]);
@@ -728,15 +728,15 @@ describe("lsp transport", () => {
 		});
 		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port }, { max_restarts: 1 });
 		manager = new LspManager();
-		await expect(queryManagerSymbols(manager, workspace, "target", [".ts"])).resolves.toEqual([]);
+		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([]);
 		await expect(manager.status(workspace)).resolves.toMatchObject({
 			servers: [{ status: "crashed", open_documents: 0 }],
 		});
-		await expect(queryManagerSymbols(manager, workspace, "target", [".ts"])).resolves.toEqual([
+		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([
 			expect.objectContaining({ path: "src/target.ts", symbol: "target" }),
 		]);
-		await expect(queryManagerSymbols(manager, workspace, "crash-again", [".ts"])).resolves.toEqual([]);
-		await expect(queryManagerSymbols(manager, workspace, "restart-limit", [".ts"])).resolves.toEqual([]);
+		await expect(queryManagerSymbols(manager, workspace, "crash-again")).resolves.toEqual([]);
+		await expect(queryManagerSymbols(manager, workspace, "restart-limit")).resolves.toEqual([]);
 		await expect(manager.status(workspace)).resolves.toMatchObject({ servers: [{ status: "crashed" }] });
 		expect(fake.connections).toBe(2);
 	});
@@ -765,13 +765,13 @@ describe("lsp transport", () => {
 		);
 		manager = new LspManager();
 
-		await expect(queryManagerSymbols(manager, workspace, "crash", [".ts"])).resolves.toEqual([]);
+		await expect(queryManagerSymbols(manager, workspace, "crash")).resolves.toEqual([]);
 		await expect(manager.status(workspace)).resolves.toMatchObject({
 			servers: [{ status: "crashed", restarts: 0 }],
 		});
 		await Promise.all([
-			queryManagerSymbols(manager, workspace, "one", [".ts"]),
-			queryManagerSymbols(manager, workspace, "two", [".ts"]),
+			queryManagerSymbols(manager, workspace, "one"),
+			queryManagerSymbols(manager, workspace, "two"),
 		]);
 
 		expect(fake.connections).toBe(2);
@@ -835,13 +835,13 @@ function directClient(fake: FakeServer, maxOpenDocuments = 64, idleTimeoutMs?: n
 		id: "tcp",
 		enabled: true,
 		transport: { type: "tcp", host: "127.0.0.1", port: fake.port },
-		language_ids: {
-			".ts": "typescript",
-			".tsx": "typescriptreact",
-			".js": "javascript",
-			".jsx": "javascriptreact",
-		},
-		extensions: [".ts", ".tsx", ".js", ".jsx"],
+		fallback: false,
+		routes: [
+			{ languageId: "typescript", selectors: ["*.ts"] },
+			{ languageId: "typescriptreact", selectors: ["*.tsx"] },
+			{ languageId: "javascript", selectors: ["*.js"] },
+			{ languageId: "javascriptreact", selectors: ["*.jsx"] },
+		],
 	}, config, new DiagnosticsLedger(), () => undefined, () => 0);
 	directClients.push(client);
 	return client;
@@ -857,8 +857,8 @@ function stdioClient(mode: "notification-timeout" | "stderr-crash" | "stubborn")
 		id: "stdio",
 		enabled: true,
 		transport: { type: "stdio", command: process.execPath, args: [fixture, mode] },
-		language_ids: { ".ts": "typescript" },
-		extensions: [".ts"],
+		fallback: false,
+		routes: [{ languageId: "typescript", selectors: ["*.ts"] }],
 	}, config, new DiagnosticsLedger(), () => undefined, () => 0);
 	directClients.push(client);
 	return client;
@@ -878,11 +878,10 @@ function diagnostic(message: string, line: number): Record<string, unknown> {
 	};
 }
 
-function queryManagerSymbols(manager: LspManager, root: string, query: string, extensions: readonly string[]) {
+function queryManagerSymbols(manager: LspManager, root: string, query: string) {
 	return manager.workspaceSymbols({
 		root,
 		query,
-		extensions,
 		allowedPaths: new Set(["src/target.ts", "src/def.ts", "src/use.ts", "a.ts"]),
 	});
 }
@@ -894,7 +893,12 @@ async function writeConfig(transport: { type: "tcp"; host: string; port: number 
 		startup_timeout_ms: 500,
 		request_timeout_ms: 500,
 		...overrides,
-		servers: [{ id: "tcp", transport, extensions: [".ts"] }],
+		servers: {
+			tcp: {
+				tcp: { host: transport.host, port: transport.port },
+				languages: { typescript: "*.ts" },
+			},
+		},
 	}));
 	process.env.PI_LSP_CONFIG = file;
 }

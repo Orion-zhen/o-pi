@@ -8,7 +8,6 @@ import { loadLspConfig, normalizeExcludePath, resolveLspConfigPath } from "./con
 import { diagnosticSourceKey, DiagnosticsLedger, emptySummary, summarizeDiagnostics } from "./diagnostics.js";
 import {
 	compactOutline,
-	extensionForPath,
 	findEnclosingSymbol,
 	hasUriOnlyWorkspaceSymbolLocation,
 	referenceHits,
@@ -23,6 +22,7 @@ import type {
 	LspDiagnosticSnapshot,
 	LspDiagnosticsSummary,
 	LspEnclosingSymbol,
+	LspFileRoute,
 	LspOutlineItem,
 	LspServerConfig,
 	LspStatus,
@@ -56,7 +56,6 @@ interface OperationDeadline {
 export interface WorkspaceSymbolsInput {
 	root: string;
 	query: string;
-	extensions: readonly string[];
 	allowedPaths: ReadonlySet<string>;
 	signal?: AbortSignal;
 }
@@ -158,7 +157,7 @@ export class LspManager {
 			|| config.config.grep.max_symbols <= 0
 			|| input.allowedPaths.size === 0
 		) return [];
-		const servers = this.registry?.forExtensions(input.extensions) ?? [];
+		const servers = this.serversForPaths(input.allowedPaths);
 		if (servers.length === 0) return [];
 
 		const allowedPaths = new Set(input.allowedPaths);
@@ -182,7 +181,7 @@ export class LspManager {
 					const location = workspaceSymbolLocation(symbol);
 					if (location !== undefined) {
 						const seed = workspaceSymbolSeed(input.root, input.query, symbol);
-						if (seed === undefined || !allowedPaths.has(seed.path)) continue;
+						if (seed === undefined || !allowedPaths.has(seed.path) || !this.serverOwnsPath(result.client.server, seed.path)) continue;
 						const key = symbolHitKey(seed);
 						if (seenRaw.has(key)) continue;
 						seenRaw.add(key);
@@ -191,7 +190,7 @@ export class LspManager {
 					}
 					if (!hasUriOnlyWorkspaceSymbolLocation(symbol) || typeof symbol.name !== "string" || typeof symbol.kind !== "number") continue;
 					const relative = relativePathForUri(input.root, symbol.location.uri);
-					if (relative === undefined || !allowedPaths.has(relative)) continue;
+					if (relative === undefined || !allowedPaths.has(relative) || !this.serverOwnsPath(result.client.server, relative)) continue;
 					const key = unresolvedSymbolKey(symbol);
 					if (seenRaw.has(key)) continue;
 					seenRaw.add(key);
@@ -219,7 +218,9 @@ export class LspManager {
 						const symbol = await candidate.client.resolveWorkspaceSymbol(candidate.symbol, operation.requestOptions());
 						if (symbol === undefined || operation.signal.aborted) return undefined;
 						const seed = workspaceSymbolSeed(input.root, input.query, symbol);
-						return seed === undefined || !allowedPaths.has(seed.path) ? undefined : { client: candidate.client, seed };
+						return seed === undefined || !allowedPaths.has(seed.path) || !this.serverOwnsPath(candidate.client.server, seed.path)
+							? undefined
+							: { client: candidate.client, seed };
 					});
 				}));
 				for (const result of resolved) {
@@ -265,13 +266,14 @@ export class LspManager {
 			const batch = accepted.slice(index, index + batchSize);
 			index += batchSize;
 			const results = await Promise.all(batch.map(({ client, seed }) => limit(async () => {
-				if (operation.signal.aborted) return [];
+				if (operation.signal.aborted) return { client, candidates: [] };
 				const locations = await client.references(seed.uri, seed.line, seed.character, operation.requestOptions());
-				return locations === undefined || operation.signal.aborted ? [] : referenceHits(root, seed, locations);
+				const candidates = locations === undefined || operation.signal.aborted ? [] : referenceHits(root, seed, locations);
+				return { client, candidates };
 			})));
-			for (const candidates of results) {
-				for (const candidate of candidates) {
-					if (!allowedPaths.has(candidate.path)) continue;
+			for (const result of results) {
+				for (const candidate of result.candidates) {
+					if (!allowedPaths.has(candidate.path) || !this.serverOwnsPath(result.client.server, candidate.path)) continue;
 					const key = symbolHitKey(candidate);
 					if (seenHits.has(key)) continue;
 					seenHits.add(key);
@@ -324,28 +326,60 @@ export class LspManager {
 
 	async knownDiagnostics(root: string, filePath?: string): Promise<Array<{ path: string; items: LspDiagnosticsSummary["items"] }>> {
 		await this.ensureConfig();
-		const sources = new Set((this.registry?.servers ?? []).map((server) => diagnosticSourceKey(root, server.id)));
+		const sourceServers = new Map((this.registry?.servers ?? []).map((server) => [diagnosticSourceKey(root, server.id), server]));
 		const entries = this.diagnostics.all();
 		return entries.flatMap((entry) => {
-			if (!sources.has(entry.source)) return [];
+			const server = sourceServers.get(entry.source);
+			if (server === undefined) return [];
 			const absolute = uriToWorkspacePath(root, entry.uri);
-			if (absolute === undefined) return [];
+			if (absolute === undefined || !this.serverOwnsPath(server, absolute.relative)) return [];
 			if (filePath !== undefined && absolute.path !== filePath && absolute.relative !== filePath) return [];
 			return [{ path: absolute.relative, items: entry.items }];
 		});
 	}
 
 	private diagnosticSourceForFile(root: string, filePath: string): string | undefined {
-		const server = this.registry?.forExtension(extensionForPath(filePath));
-		return server === undefined ? undefined : diagnosticSourceKey(root, server.id);
+		const route = this.routeForFile(root, filePath);
+		return route === undefined ? undefined : diagnosticSourceKey(root, route.server.id);
 	}
 
 	private async clientForFile(root: string, filePath: string): Promise<LspClient | undefined> {
 		const config = await this.enabledConfig();
 		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths)) return undefined;
-		const server = this.registry?.forExtension(extensionForPath(filePath));
-		if (server === undefined) return undefined;
-		return this.clientForServer(root, server);
+		const route = this.routeForFile(root, filePath);
+		return route === undefined ? undefined : this.clientForServer(root, route.server);
+	}
+
+	private routeForFile(root: string, filePath: string): LspFileRoute | undefined {
+		const relativePath = workspaceRelativePath(root, filePath);
+		return relativePath === undefined ? undefined : this.routeForRelativePath(relativePath);
+	}
+
+	private routeForRelativePath(relativePath: string): LspFileRoute | undefined {
+		try {
+			return this.registry?.route(relativePath);
+		} catch (error) {
+			this.configError = error instanceof Error ? error.message : String(error);
+			return undefined;
+		}
+	}
+
+	private serversForPaths(paths: Iterable<string>): LspServerConfig[] {
+		try {
+			return this.registry?.forPaths(paths) ?? [];
+		} catch (error) {
+			this.configError = error instanceof Error ? error.message : String(error);
+			return [];
+		}
+	}
+
+	private serverOwnsPath(server: LspServerConfig, relativePath: string): boolean {
+		try {
+			return this.registry?.ownsPath(server, relativePath) ?? false;
+		} catch (error) {
+			this.configError = error instanceof Error ? error.message : String(error);
+			return false;
+		}
 	}
 
 	private async clientForServer(root: string, server: LspServerConfig): Promise<LspClient | undefined> {

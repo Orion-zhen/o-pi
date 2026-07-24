@@ -1,20 +1,7 @@
-import path from "node:path";
 import type { Position, TextDocumentContentChangeEvent } from "vscode-languageserver-protocol";
 
-import type { LspClientDocumentContext, LspDocumentSymbols, LspServerConfig } from "./types.js";
+import type { LspClientDocumentContext, LspDocumentSymbols } from "./types.js";
 import { pathToFileUri } from "./uri.js";
-
-const extensionLanguageIds = new Map<string, string>([
-	[".ts", "typescript"],
-	[".tsx", "typescriptreact"],
-	[".js", "javascript"],
-	[".jsx", "javascriptreact"],
-	[".mjs", "javascript"],
-	[".cjs", "javascript"],
-	[".py", "python"],
-	[".pyi", "python"],
-	[".rs", "rust"],
-]);
 
 export interface LspDocumentState extends LspClientDocumentContext {
 	version: number;
@@ -147,15 +134,6 @@ export class LspDocuments {
 		this.clock += 1;
 		return this.clock;
 	}
-}
-
-export function languageIdForServerPath(server: LspServerConfig, filePath: string): string {
-	const extension = path.extname(filePath).toLowerCase();
-	return server.language_ids[extension] ?? server.language_id ?? languageIdForPath(filePath);
-}
-
-export function languageIdForPath(filePath: string): string {
-	return extensionLanguageIds.get(path.extname(filePath).toLowerCase()) ?? "plaintext";
 }
 
 /** 生成一个基于旧文本 UTF-16 code unit 的最小 replacement change。 */

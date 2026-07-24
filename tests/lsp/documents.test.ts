@@ -1,46 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { incrementalContentChange, languageIdForServerPath, LspDocuments } from "../../src/lsp/documents.js";
-import type { LspServerConfig } from "../../src/lsp/types.js";
-
-const server: LspServerConfig = {
-	id: "test",
-	enabled: true,
-	transport: { type: "stdio", command: "test", args: [] },
-	language_ids: {
-		".ts": "mapped-ts",
-		".tsx": "mapped-tsx",
-	},
-	language_id: "fallback",
-	extensions: [".ts", ".tsx", ".js"],
-};
-
-const inferredServer: LspServerConfig = {
-	id: "inferred",
-	enabled: true,
-	transport: { type: "stdio", command: "test", args: [] },
-	language_ids: {},
-	extensions: [".ts", ".tsx", ".js", ".jsx"],
-};
+import { incrementalContentChange, LspDocuments } from "../../src/lsp/documents.js";
 
 describe("lsp documents", () => {
-	it.each([
-		["a.ts", "mapped-ts"],
-		["a.TSX", "mapped-tsx"],
-		["a.js", "fallback"],
-	])("按 extension map -> singular fallback 选择 %s", (filePath, expected) => {
-		expect(languageIdForServerPath(server, filePath)).toBe(expected);
-	});
-
-	it.each([
-		["a.ts", "typescript"],
-		["a.tsx", "typescriptreact"],
-		["a.js", "javascript"],
-		["a.jsx", "javascriptreact"],
-	])("没有配置 fallback 时按路径推断 %s", (filePath, expected) => {
-		expect(languageIdForServerPath(inferredServer, filePath)).toBe(expected);
-	});
-
 	it.each([
 		[
 			"const 😀x = 1;\r\nnext\r\n",

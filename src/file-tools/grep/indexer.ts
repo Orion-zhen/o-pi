@@ -41,6 +41,7 @@ export interface GrepIndexResult {
 	config: FileToolsConfig;
 	files: GrepCandidateFile[];
 	scopedFiles: Array<{ path: string; absolutePath: string }>;
+	matchedFiles: Array<{ path: string; absolutePath: string }>;
 	sourceText: Map<string, string>;
 	skipped: GrepSkippedFiles;
 	scanComplete: boolean;
@@ -91,6 +92,8 @@ interface WalkState {
 	files: GrepCandidateFile[];
 	scopedFiles: Array<{ path: string; absolutePath: string }>;
 	scopedFilePaths: Set<string>;
+	matchedFiles: Array<{ path: string; absolutePath: string }>;
+	matchedFilePaths: Set<string>;
 	sourceText: Map<string, string>;
 	skipped: Required<GrepSkippedFiles>;
 	scannedFiles: number;
@@ -156,6 +159,8 @@ export async function getGrepIndex(
 			files: [],
 			scopedFiles: [],
 			scopedFilePaths: new Set(),
+			matchedFiles: [],
+			matchedFilePaths: new Set(),
 			sourceText: new Map(),
 			skipped: { binary: 0, invalid_utf8: 0, access_denied: 0, too_large: 0 },
 			scannedFiles: 0,
@@ -196,12 +201,14 @@ async function buildGrepIndex(state: WalkState): Promise<ToolOutcome<GrepIndexRe
 
 	pruneScopedCache(state);
 	state.files.sort((left, right) => compareStableString(left.path, right.path));
+	state.matchedFiles.sort((left, right) => compareStableString(left.path, right.path));
 	return {
 		workspaceRoot,
 		root,
 		config,
 		files: state.files,
 		scopedFiles: state.scopedFiles,
+		matchedFiles: state.matchedFiles,
 		sourceText: state.sourceText,
 		skipped: compactSkipped(state.skipped),
 		scanComplete: state.scanComplete,
@@ -356,6 +363,7 @@ async function walkDirectory(
 		}
 		addScopedFile(state, childDisplayPath, childAbsolutePath);
 		if (state.matchesGlob !== undefined && !state.matchesGlob(childSearchPath)) continue;
+		addMatchedFile(state, childDisplayPath, childAbsolutePath);
 		queueFile(state, childAbsolutePath, childDisplayPath, false, childSearchPath);
 	}
 }
@@ -544,6 +552,7 @@ async function prepareFile(
 	}
 	addScopedFile(state, displayPath, absolutePath);
 	if (explicit && state.matchesGlob !== undefined && !state.matchesGlob(path.basename(searchPath)) && !state.matchesGlob(searchPath)) return;
+	addMatchedFile(state, displayPath, absolutePath);
 	const activeFilter = state.contentFilter ?? (state.semanticPrefilter ? state.semanticFilter : undefined);
 
 	const cached = state.cache.files.get(displayPath);
@@ -646,6 +655,12 @@ function addScopedFile(state: WalkState, filePath: string, absolutePath: string)
 	if (state.scopedFilePaths.has(filePath) || state.scopedFiles.length >= state.config.limits.grep_max_files_scanned) return;
 	state.scopedFilePaths.add(filePath);
 	state.scopedFiles.push({ path: filePath, absolutePath });
+}
+
+function addMatchedFile(state: WalkState, filePath: string, absolutePath: string): void {
+	if (state.matchedFilePaths.has(filePath) || state.matchedFiles.length >= state.config.limits.grep_max_files_scanned) return;
+	state.matchedFilePaths.add(filePath);
+	state.matchedFiles.push({ path: filePath, absolutePath });
 }
 
 async function readStableText(
