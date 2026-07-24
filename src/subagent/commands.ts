@@ -1,10 +1,17 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { Component } from "@earendil-works/pi-tui";
 import { discoverAgents, hasWriteCapability, resolveSubagentTools } from "./agents.js";
 import { loadSubagentConfig } from "./config.js";
 import { executeSubagent, resolveMode } from "./executor.js";
 import { formatModelReference } from "./model.js";
-import { renderSubagentCommandWidget, SUBAGENT_COMMAND_ENTRY } from "./renderer.js";
+import { SUBAGENT_COMMAND_ENTRY } from "./constants.js";
 import type { AgentDefinition, ExecutorContext, ParentModel, ParentSessionManager, SubagentConfig, SubagentTask, SubagentToolResult } from "./types.js";
+
+export type SubagentCommandWidgetRenderer = (
+	result: SubagentToolResult,
+	options: { expanded: boolean; isPartial: boolean },
+	theme: Theme,
+) => Component;
 
 interface AutocompleteItem {
 	value: string;
@@ -32,7 +39,8 @@ interface SubagentCommandContext {
 let commandWidgetSequence = 0;
 
 /** 注册不经过主模型的确定性命令入口。 */
-export function registerSubagentCommands(pi: SubagentCommandApi): void {
+export function registerSubagentCommands(pi: SubagentCommandApi, renderWidget?: SubagentCommandWidgetRenderer): (renderer: SubagentCommandWidgetRenderer) => void {
+	let commandRenderer = renderWidget;
 	pi.registerCommand("agents", {
 		description: "List available subagents",
 			handler: async (_args, ctx) => {
@@ -56,7 +64,7 @@ export function registerSubagentCommands(pi: SubagentCommandApi): void {
 				ctx.ui.notify(parsed.error, "error");
 				return;
 			}
-			await runSubagentCommand(pi, ctx, parsed.tasks);
+			await runSubagentCommand(pi, ctx, parsed.tasks, commandRenderer);
 		},
 	});
 
@@ -80,6 +88,9 @@ export function registerSubagentCommands(pi: SubagentCommandApi): void {
 			);
 		},
 	});
+	return (renderer) => {
+		commandRenderer = renderer;
+	};
 }
 
 export function tokenize(input: string): string[] {
@@ -133,11 +144,12 @@ export async function runSubagentCommand(
 	pi: Pick<SubagentCommandApi, "appendEntry" | "getActiveTools" | "getAllTools" | "getThinkingLevel">,
 	ctx: SubagentCommandContext,
 	tasks: SubagentTask[],
+	renderWidget?: SubagentCommandWidgetRenderer,
 ): Promise<void> {
 	const widgetKey = `subagent-command-${++commandWidgetSequence}`;
 	const show = (result: SubagentToolResult, isPartial: boolean): void => {
-		if (!ctx.hasUI) return;
-		ctx.ui.setWidget(widgetKey, (_tui, theme) => renderSubagentCommandWidget(result, {
+		if (!ctx.hasUI || renderWidget === undefined) return;
+		ctx.ui.setWidget(widgetKey, (_tui, theme) => renderWidget(result, {
 			expanded: ctx.ui.getToolsExpanded(),
 			isPartial,
 		}, theme));

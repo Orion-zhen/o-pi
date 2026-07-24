@@ -14,7 +14,7 @@ import {
 	loadAndValidateForkSystemPrompt,
 	validateForkRuntime,
 } from "../../src/subagent/session-context.js";
-import { SUBAGENT_COMMAND_ENTRY } from "../../src/subagent/renderer.js";
+import { SUBAGENT_COMMAND_ENTRY } from "../../src/subagent/constants.js";
 import type { AgentDefinition, ProcessRunInput, ProcessRunProgress } from "../../src/subagent/types.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -95,6 +95,7 @@ describe("subagent execution", () => {
 				},
 			},
 			[{ agent: "scout", task: "manual inspect" }],
+			(await import("../../src/subagent/renderer.js")).renderSubagentCommandWidget,
 		);
 
 		expect(widgets.length).toBeGreaterThanOrEqual(3);

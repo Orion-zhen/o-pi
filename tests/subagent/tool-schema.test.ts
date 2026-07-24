@@ -1,7 +1,7 @@
 import { Ajv, type AnySchema } from "ajv";
 import { describe, expect, it } from "vitest";
 import subagentExtension from "../../agent/extensions/subagent.js";
-import { SUBAGENT_COMMAND_ENTRY } from "../../src/subagent/renderer.js";
+import { SUBAGENT_COMMAND_ENTRY } from "../../src/subagent/constants.js";
 import { preserveEnv } from "../helpers/lifecycle.js";
 
 preserveEnv("PI_SUBAGENT_CHILD", "PI_SUBAGENT_FORK");
@@ -34,9 +34,10 @@ function validateParams(value: unknown): boolean {
 }
 
 describe("subagent tool schema", () => {
-	it("只注册 agents、run 和 subagent-config 命令", () => {
+	it("只注册 agents、run 和 subagent-config 命令", async () => {
 		const commands: string[] = [];
 		const entryRenderers: string[] = [];
+		let sessionStart: ((event: unknown, ctx: unknown) => Promise<void>) | undefined;
 		subagentExtension({
 			registerTool() {},
 			registerCommand(name: string) {
@@ -45,8 +46,13 @@ describe("subagent tool schema", () => {
 			registerEntryRenderer(type: string) {
 				entryRenderers.push(type);
 			},
-			on() {},
+			on(name: string, handler: (event: unknown, ctx: unknown) => Promise<void>) {
+				if (name === "session_start") sessionStart = handler;
+			},
 		} as never);
+		await sessionStart?.({}, { mode: "rpc", ui: { notify() {} } });
+		expect(entryRenderers).toEqual([]);
+		await sessionStart?.({}, { mode: "tui", ui: { notify() {} } });
 
 		expect(commands).toEqual(["agents", "run", "subagent-config"]);
 		expect(entryRenderers).toEqual([SUBAGENT_COMMAND_ENTRY]);

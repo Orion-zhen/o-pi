@@ -19,7 +19,7 @@ export interface ObservedToolOptions<TParams extends TSchema, TDetails, TState> 
 export function registerObservedTool<TParams extends TSchema, TDetails = unknown, TState = unknown>(
 	pi: ObservedPi,
 	options: ObservedToolOptions<TParams, TDetails, TState>,
-): void {
+): ToolDefinition<TParams, TDetails, TState> {
 	let service: ReturnType<typeof telemetryServiceFor> | undefined;
 	const prepared = repairableTool(options.tool, options.repair, {
 		onPreparation(observation) {
@@ -33,6 +33,7 @@ export function registerObservedTool<TParams extends TSchema, TDetails = unknown
 	} catch {
 		// Instrumentation cannot change registration.
 	}
+	return prepared;
 }
 
 export { defineToolTelemetry } from "./projection.js";

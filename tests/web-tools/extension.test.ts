@@ -110,7 +110,10 @@ describe("web-tools extension", () => {
 			close,
 		};
 		const loadRuntime = vi.fn(() => pendingRuntime);
-		const extension = createWebToolsExtension(loadRuntime);
+		const loadRenderers = vi.fn(async () => {
+			throw new Error("renderer must not load");
+		});
+		const extension = createWebToolsExtension(loadRuntime, loadRenderers);
 		const pi = {
 			registerTool(tool: unknown) {
 				registered.push(tool as { name: string; execute: Function });
@@ -121,9 +124,12 @@ describe("web-tools extension", () => {
 		};
 		extension(pi as ExtensionAPI);
 
-		expect(handlers.has("session_start")).toBe(false);
+		expect(handlers.has("session_start")).toBe(true);
 		expect(handlers.has("session_shutdown")).toBe(true);
+		await handlers.get("session_start")?.({}, { mode: "rpc", ui: { notify() {} } });
 		expect(loadRuntime).not.toHaveBeenCalled();
+		expect(loadRenderers).not.toHaveBeenCalled();
+		expect(registered.every((tool) => (tool as { renderCall?: unknown }).renderCall === undefined)).toBe(true);
 		const search = registered.find((tool) => tool.name === "websearch");
 		const fetch = registered.find((tool) => tool.name === "webfetch");
 		if (search === undefined) throw new Error("missing websearch");

@@ -6,6 +6,7 @@ export {
 } from "./agents.js";
 export { defaultSubagentConfig, loadSubagentConfig, mergeProjectConfig, mergeUserConfig, SubagentConfigError } from "./config.js";
 export { captureExecutorContext, registerSubagentCommands, runSubagentCommand } from "./commands.js";
+export { SUBAGENT_COMMAND_ENTRY } from "./constants.js";
 export { formatModelReference } from "./model.js";
 export { executeSubagent, resolveMode, SubagentExecutionError } from "./executor.js";
 export { exceedsTokenLimit, formatResultForContext, sanitizeFileName } from "./output.js";
@@ -21,7 +22,6 @@ export {
 	stableSerialize,
 	validateForkRuntime,
 } from "./session-context.js";
-export { renderSubagentCall, renderSubagentCommandEntry, renderSubagentCommandWidget, renderSubagentResult, SUBAGENT_COMMAND_ENTRY } from "./renderer.js";
 export type {
 	AgentDefinition,
 	AgentDiscovery,

@@ -4,9 +4,10 @@ import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { formatToolCard } from "../tui/tool-card.js";
 import { cleanText, compactWhitespace, formatDuration, joinParts, truncateEnd } from "../tui/text.js";
+import { SUBAGENT_COMMAND_ENTRY } from "./constants.js";
 import type { RenderEvent, SubagentDetails, SubagentRunResult, SubagentTask, SubagentToolResult, UsageStats } from "./types.js";
 
-export const SUBAGENT_COMMAND_ENTRY = "o-pi:subagent-command";
+export { SUBAGENT_COMMAND_ENTRY };
 
 export function renderSubagentCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, context?: { isPartial?: boolean }): Text {
 	if (context?.isPartial !== undefined) return new Text("", 0, 0);

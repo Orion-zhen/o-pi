@@ -3,9 +3,7 @@ import {
 	parseFrontmatter,
 	type BuildSystemPromptOptions,
 	type ExtensionAPI,
-	type Theme,
 } from "@earendil-works/pi-coding-agent";
-import { type Component, Key, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { discoverAgents } from "../../src/subagent/agents.js";
 import { loadSubagentConfig } from "../../src/subagent/config.js";
 import {
@@ -13,13 +11,10 @@ import {
 	validateForkRuntime,
 } from "../../src/subagent/session-context.js";
 import type { AgentDefinition } from "../../src/subagent/types.js";
-import { countTextTokensSync, type TokenCounterScope } from "../../src/token-counter.js";
+import type { TokenCounterScope } from "../../src/token-counter.js";
 import { collectModelInvocableSkillIndex } from "../../src/skill-context/loader.js";
 
 const SYSTEM_COMMAND_DESCRIPTION = "Show the current synthesized system prompt.";
-const VIEWER_BODY_ROWS_RATIO = 0.75;
-const VIEWER_NON_BODY_ROWS = 5;
-
 type PromptSections = {
 	/** Pi 传入的 appendSystemPrompt 会作为独立段落插入，避免和自定义 prompt 混写后边界不清。 */
 	appendSystemPrompt: string | undefined;
@@ -85,6 +80,7 @@ export function registerSystemCommand(pi: Pick<ExtensionAPI, "registerCommand">)
 			// 它不包含当前命令渲染出的 prompt，因此这里必须复用本扩展的构建函数。
 			const systemPromptOptions = ctx.getSystemPromptOptions();
 			const prompt = await buildRuntimeSystemPrompt(systemPromptOptions, ctx.cwd);
+			const { SystemPromptViewer } = await import("../../src/tui/system-prompt-viewer.js");
 			await ctx.ui.custom<void>(
 				(tui, theme, _keybindings, done) => new SystemPromptViewer(prompt, theme, () => tui.terminal.rows, done, tokenScopeFromModel(ctx.model)),
 			);
@@ -288,143 +284,12 @@ function normalizeLineEndings(value: string): string {
 	return value.replace(/\r\n?/g, "\n");
 }
 
-/** 只读滚动查看 system prompt；该组件只在 custom UI 生命周期内存在，不会修改模型上下文。 */
-export class SystemPromptViewer implements Component {
-	private readonly content: string;
-	private readonly tokenCount: number;
-	private scrollTop = 0;
-
-	constructor(
-		content: string,
-		private readonly theme: Theme,
-		private readonly getRows: () => number,
-		private readonly done: () => void,
-		tokenScope: TokenCounterScope = {},
-	) {
-		this.content = normalizeLineEndings(content);
-		this.tokenCount = countTextTokensSync(this.content, tokenScope).tokens;
-	}
-
-	handleInput(data: string): void {
-		const pageSize = this.getBodyHeight();
-		if (this.isCloseKey(data)) {
-			this.done();
-			return;
-		}
-
-		if (matchesKey(data, Key.up)) this.scrollBy(-1);
-		else if (matchesKey(data, Key.down)) this.scrollBy(1);
-		else if (matchesKey(data, Key.pageUp)) this.scrollBy(-pageSize);
-		else if (matchesKey(data, Key.pageDown)) this.scrollBy(pageSize);
-		else if (matchesKey(data, Key.home)) this.scrollTop = 0;
-		else if (matchesKey(data, Key.end)) this.scrollTop = Number.MAX_SAFE_INTEGER;
-	}
-
-	render(width: number): string[] {
-		if (width < 1) return [];
-
-		const bodyHeight = this.getBodyHeight();
-		const bodyLines = this.formatBody(width);
-		this.clampScroll(bodyLines.length, bodyHeight);
-
-		return [
-			this.formatHeader(width, bodyLines.length, bodyHeight),
-			this.fitLine(this.theme.fg("dim", "Read-only view. Up/Down/Page/Home/End scroll, Esc/q/Enter closes."), width),
-			this.fitLine("", width),
-			...this.formatVisibleBody(bodyLines, bodyHeight).map((line) => this.fitLine(line, width)),
-		];
-	}
-
-	invalidate(): void {}
-
-	private isCloseKey(data: string): boolean {
-		return matchesKey(data, Key.escape) || matchesKey(data, Key.enter) || matchesKey(data, "q");
-	}
-
-	private scrollBy(delta: number): void {
-		this.scrollTop = Math.max(0, this.scrollTop + delta);
-	}
-
-	private clampScroll(totalLines: number, bodyHeight: number): void {
-		const maxScrollTop = Math.max(0, totalLines - bodyHeight);
-		this.scrollTop = Math.min(Math.max(0, this.scrollTop), maxScrollTop);
-	}
-
-	private getBodyHeight(): number {
-		// custom UI 没有单独的视口高度参数；用终端行数估算，给标题和提示预留固定行。
-		return Math.max(1, Math.floor(this.getRows() * VIEWER_BODY_ROWS_RATIO) - VIEWER_NON_BODY_ROWS);
-	}
-
-	private formatHeader(width: number, bodyLineCount: number, bodyHeight: number): string {
-		const rawLineCount = this.content.split("\n").length;
-		const title = this.theme.bold(`System prompt (${this.content.length} chars, ~${this.tokenCount} tokens, ${rawLineCount} lines)`);
-		const position =
-			bodyLineCount > bodyHeight
-				? ` ${this.scrollTop + 1}-${Math.min(bodyLineCount, this.scrollTop + bodyHeight)}/${bodyLineCount}`
-				: "";
-		return this.fitLine(this.theme.fg("accent", title) + this.theme.fg("dim", position), width);
-	}
-
-	private formatVisibleBody(bodyLines: string[], bodyHeight: number): string[] {
-		const visibleBody = bodyLines.slice(this.scrollTop, this.scrollTop + bodyHeight);
-		while (visibleBody.length < bodyHeight) visibleBody.push("");
-		return visibleBody;
-	}
-
-	private formatBody(width: number): string[] {
-		const lines = this.content.split("\n");
-		const numberWidth = String(lines.length).length;
-		const textWidth = Math.max(1, width - numberWidth - 3);
-		const formatted: string[] = [];
-
-		lines.forEach((line, index) => {
-			// 每一行单独按终端列宽折行；后续折行保留空行号，让用户能区分原始行与视觉折行。
-			const wrapped = wrapByColumns(line.length > 0 ? line : " ", textWidth);
-			const firstPrefix = `${String(index + 1).padStart(numberWidth, " ")} | `;
-			const nextPrefix = `${" ".repeat(numberWidth)} | `;
-			wrapped.forEach((part, partIndex) => {
-				const prefix = partIndex === 0 ? firstPrefix : nextPrefix;
-				formatted.push(this.theme.fg("dim", prefix) + part);
-			});
-		});
-
-		return formatted;
-	}
-
-	private fitLine(content: string, width: number): string {
-		return truncateToWidth(content, width, "", true);
-	}
-}
-
 function tokenScopeFromModel(model: { provider?: string; id?: string; baseUrl?: string } | undefined): TokenCounterScope {
 	return {
 		...(model?.provider !== undefined ? { provider: model.provider } : {}),
 		...(model?.id !== undefined ? { modelId: model.id } : {}),
 		...(model?.baseUrl !== undefined ? { baseUrl: model.baseUrl } : {}),
 	};
-}
-
-function wrapByColumns(text: string, width: number): string[] {
-	const lines: string[] = [];
-	let current = "";
-	let currentWidth = 0;
-
-	// Intl.Segmenter 按字素簇切分，避免把中文、emoji 或组合字符截到不可显示的中间状态。
-	for (const { segment } of new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(text)) {
-		const segmentWidth = visibleWidth(segment);
-		if (current && currentWidth + segmentWidth > width) {
-			lines.push(current);
-			current = "";
-			currentWidth = 0;
-		}
-
-		if (segmentWidth > width) continue;
-		current += segment;
-		currentWidth += segmentWidth;
-	}
-
-	if (current) lines.push(current);
-	return lines.length > 0 ? lines : [" "];
 }
 
 export async function buildRuntimeSystemPrompt(

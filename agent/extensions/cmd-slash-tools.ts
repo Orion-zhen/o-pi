@@ -11,7 +11,6 @@
 
 import type { ExtensionAPI, ExtensionContext, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { getSettingsListTheme } from "@earendil-works/pi-coding-agent";
-import { Container, type SettingItem, SettingsList } from "@earendil-works/pi-tui";
 import {
 	loadToolDefaultsConfig,
 	resolveToolDefaults,
@@ -105,10 +104,11 @@ export default function toolsExtension(pi: ExtensionAPI) {
 
 			// Refresh tool list
 			allTools = pi.getAllTools();
+			const { Container, SettingsList } = await import("@earendil-works/pi-tui");
 
 			await ctx.ui.custom((tui, theme, _kb, done) => {
 				// Build settings items for each tool
-				const items: SettingItem[] = allTools.map((tool) => ({
+				const items = allTools.map((tool) => ({
 					id: tool.name,
 					label: tool.name,
 					currentValue: enabledTools.has(tool.name) ? "enabled" : "disabled",

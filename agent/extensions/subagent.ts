@@ -1,17 +1,19 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Type, type TSchema } from "typebox";
 import {
 	captureExecutorContext,
 	executeSubagent,
 	registerSubagentCommands,
-	renderSubagentCall,
-	renderSubagentCommandEntry,
-	renderSubagentResult,
 	SUBAGENT_COMMAND_ENTRY,
 	type SubagentToolParams,
 } from "../../src/subagent/index.js";
 import { subagentTelemetry } from "../../src/subagent/telemetry.js";
 import { registerObservedTool } from "../../src/telemetry/tool.js";
+
+type SubagentRendererModule = Pick<
+	typeof import("../../src/subagent/renderer.js"),
+	"renderSubagentCall" | "renderSubagentResult" | "renderSubagentCommandEntry" | "renderSubagentCommandWidget"
+>;
 
 const taskItem = Type.Object({
 	agent: Type.String({ minLength: 1 }),
@@ -26,13 +28,10 @@ const subagentParams = Type.Object(
 	{ additionalProperties: false },
 );
 
-/** 注册轻量 subagent 工具和确定性命令；核心逻辑在 src/subagent。 */
+/** 注册轻量 subagent 工具和确定性命令；native renderer 只在 TUI session 激活。 */
 export default function subagentExtension(pi: ExtensionAPI): void {
-	registerSubagentCommands(pi);
-	pi.registerEntryRenderer(SUBAGENT_COMMAND_ENTRY, (entry, { expanded }, theme) => {
-		return renderSubagentCommandEntry(entry.data, expanded, theme);
-	});
-	registerObservedTool(pi, {
+	const setCommandRenderer = registerSubagentCommands(pi);
+	const subagentTool = registerObservedTool(pi, {
 		tool: {
 			name: "subagent",
 			label: "subagent",
@@ -54,18 +53,47 @@ export default function subagentExtension(pi: ExtensionAPI): void {
 					...(onUpdate !== undefined ? { onUpdate } : {}),
 				});
 			},
-			renderCall: renderSubagentCall,
-			renderResult: renderSubagentResult,
 		},
 		repair: { pathFields: ["tasks.*.cwd"] },
 		telemetry: subagentTelemetry,
 	});
+
+	let nativeRendererLoad: Promise<void> | undefined;
+	pi.on("session_start", async (_event, ctx) => {
+		if (ctx.mode !== "tui") return;
+		if (nativeRendererLoad === undefined) {
+			const pending = loadSubagentRenderers().then((renderers) => {
+				registerNativeRenderers(pi, subagentTool, renderers, setCommandRenderer);
+			}, (error: unknown) => {
+				nativeRendererLoad = undefined;
+				ctx.ui.notify(`Subagent renderer initialization failed: ${error instanceof Error ? error.message : String(error)}`, "warning");
+			});
+			nativeRendererLoad = pending;
+		}
+		await nativeRendererLoad;
+	});
+
 	pi.on("tool_result", (event) => {
 		if (event.toolName !== "subagent") return undefined;
 		const details = event.details;
 		if (!isSubagentDetails(details)) return undefined;
 		return details.runId === "blocked" || details.results.some((result) => result.error !== undefined) ? { isError: true } : undefined;
 	});
+}
+
+function registerNativeRenderers<TParams extends TSchema, TDetails, TState>(
+	pi: ExtensionAPI,
+	tool: ToolDefinition<TParams, TDetails, TState>,
+	renderers: SubagentRendererModule,
+	setCommandRenderer: (renderer: SubagentRendererModule["renderSubagentCommandWidget"]) => void,
+): void {
+	pi.registerTool({ ...tool, renderCall: renderers.renderSubagentCall, renderResult: renderers.renderSubagentResult });
+	pi.registerEntryRenderer(SUBAGENT_COMMAND_ENTRY, (entry, { expanded }, theme) => renderers.renderSubagentCommandEntry(entry.data, expanded, theme));
+	setCommandRenderer((result, options, theme) => renderers.renderSubagentCommandWidget(result, options, theme));
+}
+
+async function loadSubagentRenderers(): Promise<SubagentRendererModule> {
+	return import("../../src/subagent/renderer.js");
 }
 
 function isSubagentDetails(value: unknown): value is { runId?: string; results: Array<{ error?: string }> } {

@@ -6,20 +6,6 @@ import { isFailedDetails, isFileToolName } from "../../src/file-tools/pi/guards.
 import { createLazyLspFileHooks } from "../../src/file-tools/pi/lazy-lsp.js";
 import { appendRepoMapEntry, createLazyRepoMap, type LazyRepoMap } from "../../src/file-tools/pi/lazy-repo-map.js";
 import { versionCacheFor } from "../../src/file-tools/pi/native.js";
-import {
-	renderEditCall,
-	renderEditResult,
-	renderFindCall,
-	renderFindResult,
-	renderGrepCall,
-	renderGrepResult,
-	renderLsCall,
-	renderLsResult,
-	renderReadCall,
-	renderReadResult,
-	renderWriteCall,
-	renderWriteResult,
-} from "../../src/file-tools/pi/renderers.js";
 import type { EditParams, FindParams, GrepParams, LsParams, ReadParams, WriteParams } from "../../src/file-tools/types.js";
 import { editTelemetry } from "../../src/file-tools/telemetry/edit.js";
 import { findTelemetry } from "../../src/file-tools/telemetry/find.js";
@@ -87,6 +73,7 @@ export interface FileToolsModuleImports {
 	read(): Promise<typeof import("../../src/file-tools/pi/adapters/read.js")>;
 	write(): Promise<typeof import("../../src/file-tools/pi/adapters/write.js")>;
 	edit(): Promise<typeof import("../../src/file-tools/pi/adapters/edit.js")>;
+	renderers?: () => Promise<typeof import("../../src/file-tools/pi/renderers.js")>;
 	lsp(): Promise<typeof import("../../src/lsp/index.js")>;
 	repoMap(): Promise<typeof import("../../src/file-tools/pi/repo-map-runtime.js")>;
 }
@@ -114,11 +101,17 @@ export function createFileToolsExtension(imports: FileToolsModuleImports = defau
 		lsp: createRetryableLoader(imports.lsp),
 		repoMap: createRetryableLoader(imports.repoMap),
 	};
-	return (pi) => registerFileTools(pi, loaders, cacheDisposers);
+	const loadRenderers = createRetryableLoader(imports.renderers ?? (() => import("../../src/file-tools/pi/renderers.js")));
+	return (pi) => registerFileTools(pi, loaders, cacheDisposers, loadRenderers);
 }
 
 /** 注册覆盖版 ls/find/grep/read/write/edit；扩展层只适配 Pi，工具实现和渲染细节在 src/file-tools。 */
-function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports, cacheDisposers: Set<() => void>): void {
+function registerFileTools(
+	pi: ExtensionAPI,
+	loaders: FileToolsModuleImports,
+	cacheDisposers: Set<() => void>,
+	loadRenderers: () => Promise<typeof import("../../src/file-tools/pi/renderers.js")>,
+): void {
 	const versionCaches = new Map<string, ReadVersionCache>();
 	const repoMaps = new Map<string, LazyRepoMap>();
 	const lsp = createLazyLspFileHooks(loaders.lsp);
@@ -138,7 +131,7 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports, ca
 		return created;
 	};
 
-	registerObservedTool(pi, {
+	const lsTool = registerObservedTool(pi, {
 		tool: {
 		name: "ls",
 		label: "ls",
@@ -148,14 +141,12 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports, ca
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			return (await loaders.ls()).executeLs(params as LsParams, ctx.cwd);
 		},
-		renderCall: renderLsCall,
-		renderResult: renderLsResult,
 		},
 		repair: { singleStringField: "path", pathFields: ["path"] },
 		telemetry: lsTelemetry,
 	});
 
-	registerObservedTool(pi, {
+	const findTool = registerObservedTool(pi, {
 		tool: {
 		name: "find",
 		label: "find",
@@ -169,14 +160,12 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports, ca
 				repoMap: repoMapFor(ctx),
 			});
 		},
-		renderCall: renderFindCall,
-		renderResult: renderFindResult,
 		},
 		repair: { singleStringField: "query", pathFields: ["path"], pathListFields: ["path"] },
 		telemetry: findTelemetry,
 	});
 
-	registerObservedTool(pi, {
+	const grepTool = registerObservedTool(pi, {
 		tool: {
 		name: "grep",
 		label: "grep",
@@ -191,14 +180,12 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports, ca
 				repoMap: repoMapFor(ctx),
 			});
 		},
-		renderCall: renderGrepCall,
-		renderResult: renderGrepResult,
 		},
 		repair: { singleStringField: "query", pathFields: ["path"], pathListFields: ["path"] },
 		telemetry: grepTelemetry,
 	});
 
-	registerObservedTool(pi, {
+	const readTool = registerObservedTool(pi, {
 		tool: {
 		name: "read",
 		label: "read",
@@ -216,8 +203,6 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports, ca
 				skillIndex: await skillReadIndex(),
 			});
 		},
-		renderCall: renderReadCall,
-		renderResult: renderReadResult,
 	}, repair: {
 		singleStringField: "path",
 		pathFields: ["path"],
@@ -229,7 +214,7 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports, ca
 		telemetry: readTelemetry,
 	});
 
-	registerObservedTool(pi, {
+	const writeTool = registerObservedTool(pi, {
 		tool: {
 		name: "write",
 		label: "write",
@@ -244,8 +229,6 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports, ca
 				repoMap: repoMapFor(ctx),
 			});
 		},
-		renderCall: renderWriteCall,
-		renderResult: renderWriteResult,
 	}, repair: {
 		pathFields: ["path"],
 		aliases: {
@@ -256,7 +239,7 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports, ca
 		telemetry: writeTelemetry,
 	});
 
-	registerObservedTool(pi, {
+	const editTool = registerObservedTool(pi, {
 		tool: {
 		name: "edit",
 		label: "edit",
@@ -273,8 +256,6 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports, ca
 				repoMap: repoMapFor(ctx),
 			});
 		},
-		renderCall: renderEditCall,
-		renderResult: renderEditResult,
 	}, repair: {
 		pathFields: ["path"],
 		aliases: {
@@ -288,6 +269,26 @@ function registerFileTools(pi: ExtensionAPI, loaders: FileToolsModuleImports, ca
 		objectArrayFromFields: [{ arrayField: "edits", fields: ["old", "new"] }],
 		},
 		telemetry: editTelemetry,
+	});
+
+	let nativeRendererLoad: Promise<void> | undefined;
+	pi.on("session_start", async (_event, ctx) => {
+		if (ctx.mode !== "tui") return;
+		if (nativeRendererLoad === undefined) {
+			const pending = loadRenderers().then((renderers) => {
+				pi.registerTool({ ...lsTool, renderCall: renderers.renderLsCall, renderResult: renderers.renderLsResult });
+				pi.registerTool({ ...findTool, renderCall: renderers.renderFindCall, renderResult: renderers.renderFindResult });
+				pi.registerTool({ ...grepTool, renderCall: renderers.renderGrepCall, renderResult: renderers.renderGrepResult });
+				pi.registerTool({ ...readTool, renderCall: renderers.renderReadCall, renderResult: renderers.renderReadResult });
+				pi.registerTool({ ...writeTool, renderCall: renderers.renderWriteCall, renderResult: renderers.renderWriteResult });
+				pi.registerTool({ ...editTool, renderCall: renderers.renderEditCall, renderResult: renderers.renderEditResult });
+			}, (error: unknown) => {
+				nativeRendererLoad = undefined;
+				ctx.ui.notify(`File tool renderer initialization failed: ${error instanceof Error ? error.message : String(error)}`, "warning");
+			});
+			nativeRendererLoad = pending;
+		}
+		await nativeRendererLoad;
 	});
 
 	pi.on("tool_result", (event) => {

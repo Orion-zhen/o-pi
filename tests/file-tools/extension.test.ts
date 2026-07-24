@@ -29,7 +29,6 @@ interface Renderable {
 	render(width: number): string[];
 }
 
-type ToolResultHandler = (event: { toolName: string; details: unknown }) => unknown;
 type LifecycleHandler = (...args: unknown[]) => unknown;
 type RenderResult = (result: unknown, options: { expanded: boolean; isPartial: boolean }, theme: ThemeStub, context: unknown) => Renderable;
 type RenderCall = (args: unknown, theme: ThemeStub, context: unknown) => Renderable;
@@ -51,17 +50,20 @@ describe("file-tools extension", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("文件工具失败结果标记为错误，并按失败分支渲染", () => {
+	it("文件工具失败结果标记为错误，并按失败分支渲染", async () => {
 		const registered: Array<{ name: string; renderResult?: RenderResult }> = [];
-		const handlers = new Map<string, ToolResultHandler>();
+		const handlers = new Map<string, LifecycleHandler>();
 		fileTools({
 			registerTool(tool: { name: string; renderResult?: RenderResult }) {
-				registered.push(tool);
+				const index = registered.findIndex((item) => item.name === tool.name);
+				if (index === -1) registered.push(tool);
+				else registered[index] = tool;
 			},
-			on(name: string, handler: ToolResultHandler) {
+			on(name: string, handler: LifecycleHandler) {
 				handlers.set(name, handler);
 			},
 		} as unknown as ExtensionAPI);
+		await activateFileTools(handlers.get("session_start"));
 
 		const failure = {
 			status: "failed" as const,
@@ -100,13 +102,43 @@ describe("file-tools extension", () => {
 		expect(expanded).not.toContain('"status": "failed"');
 	});
 
-	it("grep 部分执行在 renderer 中保持 running，而不是误报失败", () => {
+	it("RPC 保留文件工具但不加载 native renderer", async () => {
+		const registered: Array<{ name: string; renderCall?: unknown; renderResult?: unknown }> = [];
+		const handlers = new Map<string, LifecycleHandler>();
+		const loadRenderers = vi.fn(async () => {
+			throw new Error("renderer must not load");
+		});
+		const extension = createFileToolsExtension({
+			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
+			find: () => import("../../src/file-tools/pi/adapters/find.js"),
+			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
+			read: () => import("../../src/file-tools/pi/adapters/read.js"),
+			write: () => import("../../src/file-tools/pi/adapters/write.js"),
+			edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
+			lsp: () => import("../../src/lsp/index.js"),
+			repoMap: () => import("../../src/file-tools/pi/repo-map-runtime.js"),
+			renderers: loadRenderers,
+		});
+		extension({
+			registerTool(tool: { name: string; renderCall?: unknown; renderResult?: unknown }) { registered.push(tool); },
+			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
+		} as unknown as ExtensionAPI);
+		await activateFileTools(handlers.get("session_start"), "rpc");
+
+		expect(loadRenderers).not.toHaveBeenCalled();
+		expect(registered.map((tool) => tool.name)).toEqual(["ls", "find", "grep", "read", "write", "edit"]);
+		expect(registered.every((tool) => tool.renderCall === undefined && tool.renderResult === undefined)).toBe(true);
+	});
+
+	it("grep 部分执行在 renderer 中保持 running，而不是误报失败", async () => {
 		const registered: Array<{ name: string; renderResult?: RenderResult }> = [];
+		const handlers = new Map<string, LifecycleHandler>();
 		fileTools({
 			registerTool(tool: { name: string; renderResult?: RenderResult }) { registered.push(tool); },
-			on() {},
+			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
 		} as unknown as ExtensionAPI);
-		const grep = registered.find((tool) => tool.name === "grep");
+		await activateFileTools(handlers.get("session_start"));
+		const grep = registered.slice().reverse().find((tool) => tool.name === "grep");
 		const component = grep?.renderResult?.(
 			{ content: [{ type: "text", text: "" }], details: undefined },
 			{ expanded: false, isPartial: true },
@@ -119,12 +151,14 @@ describe("file-tools extension", () => {
 		expect(output).not.toContain("error");
 	});
 
-	it("find UI details 独立展示 Repo Map 关联文件和语义声明", () => {
+	it("find UI details 独立展示 Repo Map 关联文件和语义声明", async () => {
 		const registered: Array<{ name: string; renderResult?: RenderResult }> = [];
+		const handlers = new Map<string, LifecycleHandler>();
 		fileTools({
 			registerTool(tool: { name: string; renderResult?: RenderResult }) { registered.push(tool); },
-			on() {},
+			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
 		} as unknown as ExtensionAPI);
+		await activateFileTools(handlers.get("session_start"));
 		const details = {
 			query: "main",
 			path: ".",
@@ -189,7 +223,7 @@ describe("file-tools extension", () => {
 		};
 		extension(pi as unknown as ExtensionAPI);
 
-		expect(handlers.has("session_start")).toBe(false);
+		expect(handlers.has("session_start")).toBe(true);
 		expect(handlers.has("session_shutdown")).toBe(true);
 		expect(handlers.has("before_agent_start")).toBe(false);
 		expect(imports.ls).not.toHaveBeenCalled();
@@ -349,16 +383,18 @@ describe("file-tools extension", () => {
 		}
 	});
 
-	it("ls 失败结果渲染失败路径，而不是 workspace cwd", () => {
+	it("ls 失败结果渲染失败路径，而不是 workspace cwd", async () => {
 		const registered: Array<{ name: string; renderResult?: RenderResult }> = [];
+		const handlers = new Map<string, LifecycleHandler>();
 		fileTools({
 			registerTool(tool: { name: string; renderResult?: RenderResult }) {
 				registered.push(tool);
 			},
-			on() {},
+			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
 		} as unknown as ExtensionAPI);
+		await activateFileTools(handlers.get("session_start"));
 
-		const ls = registered.find((tool) => tool.name === "ls");
+		const ls = registered.slice().reverse().find((tool) => tool.name === "ls");
 		const failure = {
 			status: "failed" as const,
 			error: {
@@ -384,15 +420,17 @@ describe("file-tools extension", () => {
 		expect(output).not.toContain("ls        /home/orion/repo/homerail");
 	});
 
-	it("find 使用自定义调用和结果 renderer 展示 strategy、类型、折叠组和扫描统计", () => {
+	it("find 使用自定义调用和结果 renderer 展示 strategy、类型、折叠组和扫描统计", async () => {
 		const registered: Array<{ name: string; renderCall?: RenderCall; renderResult?: RenderResult }> = [];
+		const handlers = new Map<string, LifecycleHandler>();
 		fileTools({
 			registerTool(tool: { name: string; renderCall?: RenderCall; renderResult?: RenderResult }) {
 				registered.push(tool);
 			},
-			on() {},
+			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
 		} as unknown as ExtensionAPI);
-		const find = registered.find((tool) => tool.name === "find");
+		await activateFileTools(handlers.get("session_start"));
+		const find = registered.slice().reverse().find((tool) => tool.name === "find");
 		const call = find?.renderCall?.({ query: "auth service", path: "." }, theme, {
 			cwd: "/repo",
 			lastComponent: undefined,
@@ -471,14 +509,16 @@ describe("file-tools extension", () => {
 		expect(nearbyOutput).toContain("src/auth/service.ts [name similarity]");
 	});
 
-	it("edit 完成后保留 tool card 背景，折叠态只显示两行摘要，展开后显示 diff", () => {
+	it("edit 完成后保留 tool card 背景，折叠态只显示两行摘要，展开后显示 diff", async () => {
 		const registered: Array<{ name: string; renderResult?: RenderResult }> = [];
+		const handlers = new Map<string, LifecycleHandler>();
 		fileTools({
 			registerTool(tool: { name: string; renderResult?: RenderResult }) {
 				registered.push(tool);
 			},
-			on() {},
+			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
 		} as unknown as ExtensionAPI);
+		await activateFileTools(handlers.get("session_start"));
 
 		const success = renderEditResult(registered, {
 			status: "applied",
@@ -520,15 +560,17 @@ describe("file-tools extension", () => {
 		expect(expandedFailure).toContain("Edit 0");
 	});
 
-	it("write 调用和结果的折叠态只显示两行摘要，展开后显示正文和 diff", () => {
+	it("write 调用和结果的折叠态只显示两行摘要，展开后显示正文和 diff", async () => {
 		const registered: Array<{ name: string; renderCall?: RenderCall; renderResult?: RenderResult }> = [];
+		const handlers = new Map<string, LifecycleHandler>();
 		fileTools({
 			registerTool(tool: { name: string; renderCall?: RenderCall; renderResult?: RenderResult }) {
 				registered.push(tool);
 			},
-			on() {},
+			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
 		} as unknown as ExtensionAPI);
-		const write = registered.find((tool) => tool.name === "write");
+		await activateFileTools(handlers.get("session_start"));
+		const write = registered.slice().reverse().find((tool) => tool.name === "write");
 		const args = { path: "notes.txt", content: "first\nsecond" };
 		const collapsedCall = write?.renderCall?.(args, theme, {
 			argsComplete: true,
@@ -577,16 +619,18 @@ describe("file-tools extension", () => {
 
 	it("edit 参数完整后的折叠调用只显示摘要，展开后显示预览 diff", async () => {
 		const registered: Array<{ name: string; renderCall?: RenderCall }> = [];
+		const handlers = new Map<string, LifecycleHandler>();
 		fileTools({
 			registerTool(tool: { name: string; renderCall?: RenderCall }) {
 				registered.push(tool);
 			},
-			on() {},
+			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
 		} as unknown as ExtensionAPI);
+		await activateFileTools(handlers.get("session_start"));
 
 		const cwd = await mkdtemp(join(tmpdir(), "o-pi-edit-card-"));
 		await writeFile(join(cwd, "app.ts"), "old\n", "utf8");
-		const edit = registered.find((tool) => tool.name === "edit");
+		const edit = registered.slice().reverse().find((tool) => tool.name === "edit");
 		const args = { path: "app.ts", edits: [{ old: "old", new: "new" }] };
 		const context = {
 			args,
@@ -835,8 +879,12 @@ describe("file-tools extension", () => {
 	});
 });
 
+async function activateFileTools(handler: LifecycleHandler | undefined, mode: "tui" | "rpc" = "tui"): Promise<void> {
+	await handler?.({}, { mode, ui: { notify() {} } });
+}
+
 function renderToolResult(registered: Array<{ name: string; renderResult?: RenderResult }>, toolName: string, details: unknown, expanded = false, args?: unknown): string {
-	const tool = registered.find((item) => item.name === toolName);
+	const tool = registered.slice().reverse().find((item) => item.name === toolName);
 	const component = tool?.renderResult?.(
 		{ content: [{ type: "text", text: JSON.stringify(details, null, 2) }], details },
 		{ expanded, isPartial: false },
@@ -847,7 +895,7 @@ function renderToolResult(registered: Array<{ name: string; renderResult?: Rende
 }
 
 function renderEditResult(registered: Array<{ name: string; renderResult?: RenderResult }>, details: unknown, expanded = false): string {
-	const tool = registered.find((item) => item.name === "edit");
+	const tool = registered.slice().reverse().find((item) => item.name === "edit");
 	const component = tool?.renderResult?.(
 		{ content: [{ type: "text", text: JSON.stringify(details, null, 2) }], details },
 		{ expanded, isPartial: false },
@@ -864,7 +912,7 @@ function renderEditResult(registered: Array<{ name: string; renderResult?: Rende
 }
 
 function renderWriteResult(registered: Array<{ name: string; renderResult?: RenderResult }>, details: unknown, expanded = false): string {
-	const tool = registered.find((item) => item.name === "write");
+	const tool = registered.slice().reverse().find((item) => item.name === "write");
 	const component = tool?.renderResult?.(
 		{ content: [{ type: "text", text: JSON.stringify(details, null, 2) }], details },
 		{ expanded, isPartial: false },

@@ -1,7 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { collectCodexQuotaSnapshot } from "../../src/codex-quota/client.js";
-import { renderCodexQuota, renderCodexQuotaError } from "../../src/codex-quota/render.js";
-import { CodexQuotaViewer } from "../../src/codex-quota/viewer.js";
 
 const COMMAND_DESCRIPTION = "Show Codex quota and reset credits.";
 
@@ -18,6 +16,7 @@ export default function quotaExtension(pi: Pick<ExtensionAPI, "registerCommand">
 			}
 
 			if (ctx.mode === "tui") {
+				const { CodexQuotaViewer } = await import("../../src/codex-quota/viewer.js");
 				await ctx.ui.custom<void>((tui, theme, _keybindings, done) => new CodexQuotaViewer(result, theme, () => tui.terminal.rows, done), {
 					overlay: true,
 					overlayOptions: { anchor: "center", width: "90%", minWidth: 110, margin: 1 },
@@ -25,6 +24,7 @@ export default function quotaExtension(pi: Pick<ExtensionAPI, "registerCommand">
 				return;
 			}
 
+			const { renderCodexQuota, renderCodexQuotaError } = await import("../../src/codex-quota/render.js");
 			const lines = result instanceof Error ? renderCodexQuotaError(result, 96) : renderCodexQuota(result, 96);
 			ctx.ui.notify(lines.join("\n"), result instanceof Error ? "error" : "info");
 		},

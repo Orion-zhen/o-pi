@@ -46,7 +46,7 @@ describe("telemetry service", () => {
 		expect(loaded.errors).toEqual([]);
 		for (const event of ["session_start", "turn_start", "message_end", "tool_execution_start", "tool_result", "tool_execution_end", "session_shutdown"] as const) {
 			const handlers = loaded.extensions.reduce((count, extension) => count + (extension.handlers.get(event)?.length ?? 0), 0);
-			expect(handlers, event).toBe(event === "tool_result" ? 3 : 1);
+			expect(handlers, event).toBe(event === "tool_result" ? 3 : event === "session_start" ? 2 : 1);
 		}
 		const telemetry = loaded.extensions.find((extension) => extension.path.endsWith("agent/extensions/telemetry.ts"));
 		expect(telemetry?.commands.has("telemetry")).toBe(true);

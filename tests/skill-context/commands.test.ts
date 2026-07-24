@@ -13,21 +13,32 @@ let tempDir: string;
 beforeEach(() => { tempDir = temp.path; });
 
 describe("技能命令", () => {
-	it("扩展注册一个静态工具、一个管理命令、渲染器和事件钩子", () => {
+	it("扩展注册一个静态工具、一个管理命令、渲染器和事件钩子", async () => {
 		const tools: Array<{ name: string; parameters: unknown }> = [];
 		const commands: string[] = [];
 		const renderers: string[] = [];
 		const events: string[] = [];
+		let sessionStart: ((event: unknown, ctx: unknown) => Promise<void>) | undefined;
 		skillContextExtension({
-			registerTool(tool: { name: string; parameters: unknown }) { tools.push(tool); },
+			registerTool(tool: { name: string; parameters: unknown }) {
+				const index = tools.findIndex((item) => item.name === tool.name);
+				if (index === -1) tools.push(tool);
+				else tools[index] = tool;
+			},
 			registerCommand(name: string) { commands.push(name); },
 			registerMessageRenderer(type: string) { renderers.push(type); },
-			on(name: string) { events.push(name); },
+			on(name: string, handler: unknown) {
+				events.push(name);
+				if (name === "session_start") sessionStart = handler as typeof sessionStart;
+			},
 			getCommands: () => [],
 			getAllTools: () => [],
 			getThinkingLevel: () => "off",
 			events: {},
 		} as unknown as ExtensionAPI);
+		await sessionStart?.({}, { mode: "rpc", ui: { notify() {} } });
+		expect(renderers).toEqual([]);
+		await sessionStart?.({}, { mode: "tui", ui: { notify() {} } });
 
 		expect(tools.map((tool) => tool.name)).toEqual(["skill"]);
 		expect(JSON.stringify(tools[0]?.parameters)).not.toContain("enum");
