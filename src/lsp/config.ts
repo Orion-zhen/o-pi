@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { agentConfigPath, agentSchemaPath, createSchemaValidator, expandHomePath, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
 import { LspServerRegistry } from "./registry.js";
-import type { LoadedLspConfig, LspConfig, LspServerConfig, LspTransport } from "./types.js";
+import type { LoadedLspConfig, LspConfig, LspJsonValue, LspServerConfig, LspTransport } from "./types.js";
 
 const CONFIG_PATH_ENV = "PI_LSP_CONFIG";
 
@@ -90,7 +90,7 @@ interface RawLspConfig {
 		language_id?: string;
 		language_ids?: Record<string, string>;
 		extensions: string[];
-		initialization_options?: Record<string, unknown>;
+		initialization_options?: LspJsonValue;
 	}>;
 }
 

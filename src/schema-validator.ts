@@ -107,17 +107,25 @@ function validateSchema(schema: JsonSchema, value: unknown, instancePath: string
 	const reference = schema["$ref"];
 	if (typeof reference === "string") return validateSchema(resolveReference(root, reference), value, instancePath, root, context);
 
+	let valid = true;
 	const anyOf = schema["anyOf"];
 	if (Array.isArray(anyOf)) {
+		let matched = false;
 		for (const candidate of anyOf) {
 			if (!isSchema(candidate)) throw new Error("anyOf entries must be schemas");
 			const branch: ValidationContext = { errors: [], allErrors: context.allErrors };
-			if (validateSchema(candidate, value, instancePath, root, branch)) return true;
+			if (validateSchema(candidate, value, instancePath, root, branch)) {
+				matched = true;
+				break;
+			}
 		}
-		return fail(context, instancePath, "anyOf", {}, "must match a schema in anyOf");
+		if (!matched) {
+			valid = fail(context, instancePath, "anyOf", {}, "must match a schema in anyOf") && valid;
+			if (!context.allErrors) return false;
+		}
 	}
 
-	let valid = validateConstAndEnum(schema, value, instancePath, context);
+	valid = validateConstAndEnum(schema, value, instancePath, context) && valid;
 	if (!valid && !context.allErrors) return false;
 	const declaredType = schema["type"];
 	if (declaredType !== undefined && !matchesType(declaredType, value)) {

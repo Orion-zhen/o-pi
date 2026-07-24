@@ -64,6 +64,21 @@ describe("schema validator", () => {
 		expect(validate({ forbidden: true })).toBe(false);
 	});
 
+	it("anyOf 成功后继续校验同级关键字", () => {
+		const validate = compileSchemaValidator({
+			type: "object",
+			required: ["value"],
+			properties: { value: { type: "string" } },
+			anyOf: [{ required: ["value"] }],
+		});
+
+		expect(validate({ value: "valid" })).toBe(true);
+		expect(validate({ value: 1 })).toBe(false);
+		expect(validate.errors).toEqual([
+			expect.objectContaining({ instancePath: "/value", keyword: "type" }),
+		]);
+	});
+
 	it("在错误路径中转义 JSON Pointer 字符", () => {
 		const validate = compileSchemaValidator({
 			type: "object",

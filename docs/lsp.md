@@ -64,7 +64,7 @@ agent/configs/lsp.jsonc
 | `language_ids` | `{}` | 按扩展名选择 `textDocument/didOpen` 的 language ID；键会统一转小写，且必须同时列在 `extensions` 中。 |
 | `language_id` | 未设置 | 未命中 `language_ids` 时的兼容 fallback；仍未设置时按文件扩展名推断。选择顺序为 extension map -> singular fallback -> 内置推断。 |
 | `extensions` | 必填 | 文件扩展名列表，必须带前导点，加载时统一转小写。任意两个 server（包括 disabled server）不能共享扩展名；冲突会使整个配置加载失败。 |
-| `initialization_options` | 未设置 | 原样传给 LSP `initialize.initializationOptions`，用于 server 私有配置。 |
+| `initialization_options` | 未设置 | 任意 JSON 值，原样传给 LSP `initialize.initializationOptions`，用于 server 私有配置。 |
 
 为保持旧配置可用，`command`/`args` 仍可直接写在 server 对象中，加载时会规范化为 `stdio transport`。
 
@@ -93,7 +93,7 @@ binary 不存在、TCP endpoint 不可达或 initialize 失败时 server 标记�
 
 ## 行为
 
-* `read`：部分行范围读取时可返回 `lsp.enclosing_symbol`；内容截断时可返回紧凑 `lsp.outline`，根和嵌套后代共同受全树 symbol 上限约束。相同内容的暖态读取复用当前文档版本和 `documentSymbol` cache，不重复发送 `didChange` 或 symbol 请求。
+* `read`：部分行范围读取时可返回 `lsp.enclosing_symbol`；内容截断时可返回紧凑 `lsp.outline`，根和嵌套后代共同受全树 symbol 上限约束。outline 关闭或上限为 `0` 且不需要 enclosing symbol 时不会启动 LSP。相同内容的暖态读取复用当前文档版本和 `documentSymbol` cache，不重复发送 `didChange` 或 symbol 请求。
 * `grep`：仅在 `match=auto` 且 query 像 symbol 时调用 workspace/symbol；请求只发送给当前有效 scope 文件扩展名对应的 server。目录 scope 会按实际文件扩展名选择多个 server；空 scope 或无相关 server 时不创建 client。多个 server 并行查询但按配置和 server 原始顺序稳定合并。scope 外 URI 在 resolve/reference 前过滤；URI-only symbol 只在 server 声明 resolveProvider 时小批量并发解析，失败后继续补位。`grep.references` 开启后只查询最终接收的 symbol，并以有界并发、全局去重和最终有效预算合并引用。调用方取消和统一操作 deadline 会贯穿 query、resolve、references 并触发协议级取消；所有 LSP 失败继续按普通 grep 降级。
 * `write`：写盘成功后按 server capability 同步文档并等待当前 client source+URI 的新 diagnostics revision；旧快照不会作为本次成功结果，诊断错误不改变 `status: "written"`。
 * `edit`：preview 不调用 LSP；成功写盘后只用同一 workspace/server source 的编辑前 baseline 计算 diagnostics diff；不同 source 的 baseline 标记为 unknown，诊断错误不改变 `status: "applied"`。
@@ -107,9 +107,9 @@ initialize 返回的 capabilities 会保存在 session 中；不支持的 docume
 
 文档同步严格遵循 server 的 `textDocumentSync`：Full 发送全文 change，Incremental 发送基于 UTF-16 position 的最小 replacement，None 不发送 change；仅在 `openClose` 启用时发送平衡的 didOpen/didClose，仅在 `save` 启用时发送 didSave，且只有 `includeText: true` 时携带全文。同一 URI 的同步、保存、关闭和 documentSymbol 请求按顺序执行；内容未变化时版本和 symbol cache 保持不变。
 
-Diagnostics 按 workspace/server source+URI 分区，每次有效 publish 生成单调 revision，并保留可选文档 version。低于 client 当前文档版本的 publish 会被丢弃；未跟踪文档或没有 version 的 workspace diagnostics 仍会接收。write/edit 在同步前捕获 revision，并通过事件 listener、settle debounce 和总 deadline 等待更新，不轮询。
+Diagnostics 按 workspace/server source+URI 分区，每次有效 publish 生成单调 revision，并保留可选文档 version。低于 client 当前文档版本的 publish 会被丢弃；未跟踪文档或没有 version 的 workspace diagnostics 仍会接收。write/edit 在同步前捕获 revision，并通过事件 listener、settle debounce 和总 deadline 等待更新，不轮询。diff 使用 severity/source/code/message 的位置无关身份和重复计数，已有问题随编辑移动时不会误报为新增和已解决。
 
-并发启动共享同一个 initialize；idle 只在没有活动请求或通知时计时。`reload` 先阻止新增强操作，等待旧 client 的完整操作链结束后再关闭。请求、通知、shutdown 和 transport 清理都有界；崩溃会立即清除 connection、文档状态和底层 socket/child，后续在 `max_restarts` 内创建全新 client。stdio 持续消费 stderr 并只保留有界尾部用于 `last_error`；stdio initialize 使用当前 Pi PID，TCP initialize 使用 `processId: null`。
+并发启动共享同一个 initialize；取消或 deadline 只停止当前调用等待，不中断其他调用共享的启动。idle 只在没有活动请求或通知时计时。`reload` 先阻止新增强操作，等待旧 client 的完整操作链结束后再关闭。请求、通知、shutdown 和 transport 清理都有界；崩溃会立即清除 connection、文档状态和底层 socket/child，后续在 `max_restarts` 内创建全新 client，并发恢复共享同一次重启。stdio 持续消费 stderr 并只保留有界尾部用于 `last_error`；stdio initialize 使用当前 Pi PID，TCP initialize 使用 `processId: null`。
 
 server 主动 request 默认返回 `MethodNotFound`，不会自动执行 `workspace/applyEdit` 等有副作用操作；只有显式注册安全 handler 后才会处理。
 

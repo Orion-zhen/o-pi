@@ -6,6 +6,9 @@ export type LspSeverityName = "error" | "warning" | "information" | "hint";
 /** 单个 language server 进程的运行状态。 */
 export type LspRuntimeStatus = "idle" | "starting" | "ready" | "unavailable" | "crashed" | "stopped";
 
+/** 可原样传入 LSP 协议的 JSON 值。 */
+export type LspJsonValue = null | boolean | number | string | LspJsonValue[] | { [key: string]: LspJsonValue };
+
 /** 通过标准输入输出连接的 LSP server。 */
 export interface LspStdioTransport {
 	type: "stdio";
@@ -35,7 +38,7 @@ export interface LspServerConfig {
 	language_ids: Readonly<Record<string, string>>;
 	/** 由文件扩展名选择 server，值已规范化为小写并包含前导点。 */
 	extensions: string[];
-	initialization_options?: Record<string, unknown>;
+	initialization_options?: LspJsonValue;
 }
 
 /** 可复用 LSP request 的超时和取消选项。 */

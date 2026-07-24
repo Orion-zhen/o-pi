@@ -226,7 +226,7 @@ function diffCounts(before: Map<string, number>, after: Map<string, number>) {
 }
 
 function diffKey(item: LspDiagnosticItem): string {
-	return [item.severity, item.line, item.column, item.code ?? "", normalizeMessage(item.message)].join("|");
+	return [item.severity, item.source ?? "", item.code ?? "", normalizeMessage(item.message)].join("|");
 }
 
 function normalizeMessage(value: string): string {

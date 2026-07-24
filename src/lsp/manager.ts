@@ -35,6 +35,7 @@ const REFERENCE_CONCURRENCY = 4;
 interface ClientEntry {
 	client: LspClient;
 	restarts: number;
+	restartPromise?: Promise<LspClient | undefined>;
 }
 
 type SymbolCandidate =
@@ -126,12 +127,14 @@ export class LspManager {
 	private async readEnhancementOperation(root: string, filePath: string, text: string, range: { startLine: number; endLine: number }, options: { outline: boolean; enclosing: boolean }): Promise<ReadEnhancement | undefined> {
 		const config = await this.enabledConfig();
 		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths)) return undefined;
+		const wantsOutline = options.outline && config.config.read.outline && config.config.read.max_symbols > 0;
+		if (!wantsOutline && !options.enclosing) return undefined;
 		const client = await this.clientForFile(root, filePath);
 		if (client === undefined) return undefined;
 		const symbols = await client.documentSymbols(filePath, text);
 		if (symbols === undefined) return undefined;
 		const result: ReadEnhancement = {};
-		if (options.outline && config.config.read.outline) {
+		if (wantsOutline) {
 			const outline = compactOutline(symbols, config.config.read.max_symbols);
 			if (outline.length > 0) result.outline = outline;
 		}
@@ -163,7 +166,7 @@ export class LspManager {
 		try {
 			const serverResults = await Promise.all(servers.map(async (server) => {
 				if (operation.signal.aborted) return undefined;
-				const client = await this.clientForServer(input.root, server);
+				const client = await waitUnlessAborted(this.clientForServer(input.root, server), operation.signal);
 				if (client === undefined || operation.signal.aborted) return undefined;
 				const symbols = await client.workspaceSymbols(input.query, operation.requestOptions());
 				return symbols === undefined ? undefined : { client, symbols };
@@ -354,13 +357,51 @@ export class LspManager {
 			entry = { restarts: 0, client: this.createClient(key, root, server, loaded) };
 			this.clients.set(key, entry);
 		} else if (entry.client.status().status === "crashed") {
-			await entry.client.waitForCleanup();
-			if (entry.restarts >= loaded.config.max_restarts) return undefined;
-			entry.restarts += 1;
-			entry.client = this.createClient(key, root, server, loaded);
+			const restarted = await this.restartClient(key, root, server, loaded, entry);
+			if (restarted === undefined) return undefined;
 		}
-		const ready = await entry.client.ensureReady();
-		return ready ? entry.client : undefined;
+		const client = entry.client;
+		const ready = await client.ensureReady();
+		return ready ? client : undefined;
+	}
+
+	private restartClient(
+		key: string,
+		root: string,
+		server: LspServerConfig,
+		loaded: LoadedLspConfig,
+		entry: ClientEntry,
+	): Promise<LspClient | undefined> {
+		if (entry.restartPromise !== undefined) return entry.restartPromise;
+		const crashedClient = entry.client;
+		const pending = this.performClientRestart(key, root, server, loaded, entry, crashedClient);
+		entry.restartPromise = pending;
+		void pending.then(
+			() => {
+				if (entry.restartPromise === pending) delete entry.restartPromise;
+			},
+			() => {
+				if (entry.restartPromise === pending) delete entry.restartPromise;
+			},
+		);
+		return pending;
+	}
+
+	private async performClientRestart(
+		key: string,
+		root: string,
+		server: LspServerConfig,
+		loaded: LoadedLspConfig,
+		entry: ClientEntry,
+		crashedClient: LspClient,
+	): Promise<LspClient | undefined> {
+		await crashedClient.waitForCleanup();
+		if (this.clients.get(key) !== entry || entry.client !== crashedClient) return undefined;
+		if (entry.restarts >= loaded.config.max_restarts) return undefined;
+		entry.restarts += 1;
+		const replacement = this.createClient(key, root, server, loaded);
+		entry.client = replacement;
+		return replacement;
 	}
 
 	private async withClientOperation<T>(operation: () => Promise<T>): Promise<T> {
@@ -440,6 +481,27 @@ function createOperationDeadline(parent: AbortSignal | undefined, timeoutMs: num
 			parent?.removeEventListener("abort", onAbort);
 		},
 	};
+}
+
+function waitUnlessAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
+	if (signal.aborted) return Promise.resolve(undefined);
+	return new Promise<T | undefined>((resolve, reject) => {
+		const onAbort = (): void => {
+			signal.removeEventListener("abort", onAbort);
+			resolve(undefined);
+		};
+		signal.addEventListener("abort", onAbort, { once: true });
+		void promise.then(
+			(value) => {
+				signal.removeEventListener("abort", onAbort);
+				resolve(value);
+			},
+			(error: unknown) => {
+				signal.removeEventListener("abort", onAbort);
+				reject(error);
+			},
+		);
+	});
 }
 
 function relativePathForUri(root: string, uri: string): string | undefined {

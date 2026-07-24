@@ -20,6 +20,6 @@ export function fileUriToPath(uri: string): string | undefined {
 export function workspaceRelativePath(workspaceRoot: string, filePath: string): string | undefined {
 	const relative = path.relative(workspaceRoot, filePath);
 	if (relative === "") return ".";
-	if (relative.startsWith("..") || path.isAbsolute(relative)) return undefined;
+	if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return undefined;
 	return relative.replace(/\\/g, "/");
 }

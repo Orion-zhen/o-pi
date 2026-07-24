@@ -42,6 +42,37 @@ describe("lsp diagnostics", () => {
 		});
 	});
 
+	it("诊断身份包含 source 并按重复数量计算", () => {
+		const ledger = new DiagnosticsLedger();
+		ledger.update(source, uri, [
+			diag(DiagnosticSeverity.Error, 1, 1, "same", "eslint"),
+			diag(DiagnosticSeverity.Error, 2, 1, "duplicate"),
+			diag(DiagnosticSeverity.Error, 3, 1, "duplicate"),
+		], "warning");
+		const before = ledger.snapshot(source, uri);
+		ledger.update(source, uri, [
+			diag(DiagnosticSeverity.Error, 4, 1, "same", "typescript"),
+			diag(DiagnosticSeverity.Error, 5, 1, "duplicate"),
+		], "warning");
+
+		expect(summarizeDiagnostics(ledger.snapshot(source, uri), before, 10)).toMatchObject({
+			new_errors: 1,
+			resolved_errors: 2,
+		});
+	});
+
+	it("severity 改变仍计为旧级别已解决和新级别新增", () => {
+		const ledger = new DiagnosticsLedger();
+		ledger.update(source, uri, [diag(DiagnosticSeverity.Warning, 1, 1, "same")], "warning");
+		const before = ledger.snapshot(source, uri);
+		ledger.update(source, uri, [diag(DiagnosticSeverity.Error, 1, 1, "same")], "warning");
+
+		expect(summarizeDiagnostics(ledger.snapshot(source, uri), before, 10)).toMatchObject({
+			new_errors: 1,
+			resolved_warnings: 1,
+		});
+	});
+
 	it("限制 max_items 并按 min_severity 过滤", () => {
 		const ledger = new DiagnosticsLedger();
 		ledger.update(
@@ -135,7 +166,7 @@ describe("lsp diagnostics", () => {
 	});
 });
 
-function diag(severity: DiagnosticSeverity, line: number, column: number, message: string): Diagnostic {
+function diag(severity: DiagnosticSeverity, line: number, column: number, message: string, diagnosticSource = "test"): Diagnostic {
 	return {
 		severity,
 		range: {
@@ -143,6 +174,6 @@ function diag(severity: DiagnosticSeverity, line: number, column: number, messag
 			end: { line: line - 1, character: column },
 		},
 		message,
-		source: "test",
+		source: diagnosticSource,
 	};
 }
