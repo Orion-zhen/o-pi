@@ -29,6 +29,19 @@ describe("lsp diagnostics", () => {
 		});
 	});
 
+	it("诊断仅因行号移动时不算新增或已解决", () => {
+		const ledger = new DiagnosticsLedger();
+		ledger.update(source, uri, [diag(DiagnosticSeverity.Error, 10, 1, "same error")], "warning");
+		const before = ledger.snapshot(source, uri);
+		ledger.update(source, uri, [diag(DiagnosticSeverity.Error, 11, 1, "same error")], "warning");
+
+		expect(summarizeDiagnostics(ledger.snapshot(source, uri), before, 10)).toMatchObject({
+			file_errors: 1,
+			new_errors: 0,
+			resolved_errors: 0,
+		});
+	});
+
 	it("限制 max_items 并按 min_severity 过滤", () => {
 		const ledger = new DiagnosticsLedger();
 		ledger.update(

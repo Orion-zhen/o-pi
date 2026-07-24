@@ -562,6 +562,53 @@ describe("lsp transport", () => {
 		await fake.cancelled;
 	});
 
+	it("调用方取消后不等待共享 initialize 完成", async () => {
+		let markInitialize: () => void = () => undefined;
+		const initializeSeen = new Promise<void>((resolve) => {
+			markInitialize = resolve;
+		});
+		let releaseInitialize: () => void = () => undefined;
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				markInitialize();
+				releaseInitialize = () => send(socket, {
+					id: message.id,
+					result: { capabilities: { workspaceSymbolProvider: true } },
+				});
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		await writeConfig(
+			{ type: "tcp", host: "127.0.0.1", port: fake.port },
+			{ startup_timeout_ms: 1000, request_timeout_ms: 1000 },
+		);
+		manager = new LspManager();
+		const controller = new AbortController();
+		const pending = manager.workspaceSymbols({
+			root: workspace,
+			query: "target",
+			extensions: [".ts"],
+			allowedPaths: new Set(["src/target.ts"]),
+			signal: controller.signal,
+		});
+		await initializeSeen;
+
+		let settled = false;
+		void pending.then(() => {
+			settled = true;
+		});
+		controller.abort();
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		const settledAfterCancellation = settled;
+
+		releaseInitialize();
+		await expect(pending).resolves.toEqual([]);
+		expect(settledAfterCancellation).toBe(true);
+	});
+
 	it("并发 ensureReady 共享一次启动，TCP initialize 使用 null processId", async () => {
 		let releaseInitialize: () => void = () => undefined;
 		let markInitialize: () => void = () => undefined;
@@ -692,6 +739,45 @@ describe("lsp transport", () => {
 		await expect(queryManagerSymbols(manager, workspace, "restart-limit", [".ts"])).resolves.toEqual([]);
 		await expect(manager.status(workspace)).resolves.toMatchObject({ servers: [{ status: "crashed" }] });
 		expect(fake.connections).toBe(2);
+	});
+
+	it("并发请求共享同一次 crash restart", async () => {
+		let symbolRequests = 0;
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, {
+					id: message.id,
+					result: { capabilities: { workspaceSymbolProvider: true } },
+				});
+			} else if (message.method === "workspace/symbol") {
+				symbolRequests += 1;
+				if (symbolRequests === 1) socket.destroy();
+				else send(socket, { id: message.id, result: [] });
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		await writeConfig(
+			{ type: "tcp", host: "127.0.0.1", port: fake.port },
+			{ max_restarts: 2 },
+		);
+		manager = new LspManager();
+
+		await expect(queryManagerSymbols(manager, workspace, "crash", [".ts"])).resolves.toEqual([]);
+		await expect(manager.status(workspace)).resolves.toMatchObject({
+			servers: [{ status: "crashed", restarts: 0 }],
+		});
+		await Promise.all([
+			queryManagerSymbols(manager, workspace, "one", [".ts"]),
+			queryManagerSymbols(manager, workspace, "two", [".ts"]),
+		]);
+
+		expect(fake.connections).toBe(2);
+		await expect(manager.status(workspace)).resolves.toMatchObject({
+			servers: [{ status: "ready", restarts: 1 }],
+		});
 	});
 
 	it("stdio drain 大量 stderr、保留有界尾部并使用 Pi PID", async () => {

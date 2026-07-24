@@ -154,6 +154,41 @@ describe("lsp config", () => {
 		await expect(loadLspConfig()).rejects.toThrow(/language_ids extension/);
 	});
 
+	it("initialization_options 接受数组", async () => {
+		const file = path.join(dir, "array-init-options.jsonc");
+		await writeFile(file, JSON.stringify({
+			servers: [{
+				id: "demo",
+				command: "demo-lsp",
+				extensions: [".demo"],
+				initialization_options: ["strict", { feature: true }],
+			}],
+		}));
+		process.env.PI_LSP_CONFIG = file;
+
+		await expect(loadLspConfig()).resolves.toMatchObject({
+			config: {
+				servers: [{
+					initialization_options: ["strict", { feature: true }],
+				}],
+			},
+		});
+	});
+
+	it("server transport 分支仍校验同级 extensions schema", async () => {
+		const file = path.join(dir, "bad-server-extension.jsonc");
+		await writeFile(file, JSON.stringify({
+			servers: [{
+				id: "demo",
+				transport: { type: "stdio", command: "demo-lsp" },
+				extensions: ["ts"],
+			}],
+		}));
+		process.env.PI_LSP_CONFIG = file;
+
+		await expect(loadLspConfig()).rejects.toThrow("does not match schema");
+	});
+
 	it("环境变量覆盖配置路径", async () => {
 		const file = path.join(dir, "override.jsonc");
 		await writeFile(file, '{ "enabled": false }');

@@ -89,6 +89,31 @@ describe("lsp references", () => {
 		expect(requests).toEqual(["ts", "ts", "python"]);
 	});
 
+	it("outline 关闭且不需要 enclosing symbol 时不启动 client", async () => {
+		const config = path.join(configDir, "lsp.jsonc");
+		await writeFile(config, JSON.stringify({
+			read: { outline: false, max_symbols: 40 },
+			servers: [{ id: "fake", command: "unused", extensions: [".ts"] }],
+		}));
+		process.env.PI_LSP_CONFIG = config;
+		const ensureReady = vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
+		const documentSymbols = vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([]);
+
+		const manager = new LspManager();
+		const result = await manager.readEnhancement(
+			workspace,
+			path.join(workspace, "a.ts"),
+			"const value = 1;\n",
+			{ startLine: 1, endLine: 1 },
+			{ outline: true, enclosing: false },
+		);
+		await manager.reload();
+
+		expect(result).toBeUndefined();
+		expect(ensureReady).not.toHaveBeenCalled();
+		expect(documentSymbols).not.toHaveBeenCalled();
+	});
+
 	it("grep references 经 workspaceSymbols 与 file hook 保留 symbol 和 reference 来源", async () => {
 		const definitionUri = pathToUri(path.join(workspace, "src", "def.ts"));
 		const referenceUri = pathToUri(path.join(workspace, "src", "use.ts"));
