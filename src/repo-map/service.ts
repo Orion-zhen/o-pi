@@ -249,7 +249,7 @@ export async function initializeRepoMap(
 	const partial = summary.unreadable > 0
 		|| summary.unstable > 0
 		|| summary.parseErrors > 0
-		|| diagnostics.some((diagnostic) => diagnostic.code === "DIRECTORY_UNREADABLE" || diagnostic.code.startsWith("ARCHITECTURE_") || diagnostic.code.startsWith("TEST_GRAPH_"));
+		|| diagnostics.some((diagnostic) => diagnostic.code === "PARSER_SYNTAX_ERROR" || diagnostic.code === "DIRECTORY_UNREADABLE" || diagnostic.code.startsWith("ARCHITECTURE_") || diagnostic.code.startsWith("TEST_GRAPH_"));
 	const metadata: RepoMapMetadata = {
 		mapId,
 		repositoryRoot: identity.repositoryRoot,

@@ -13,25 +13,28 @@ const TS_UNIT_KINDS = new Set([
 	"variable_declarator",
 ]);
 
-const tsRules: UnitRules = {
-	extract(node, scope) {
-		if (!TS_UNIT_KINDS.has(node.type)) return undefined;
-		const name = nameField(node) ?? firstNamedChildText(node, ["identifier", "property_identifier", "type_identifier"]);
-		return name === undefined ? undefined : rawUnit(node, normalizeTsKind(node.type), name, scope, isExportedDeclaration(node));
-	},
-	childScope(_node, unit, current) {
-		return unit?.kind === "class" || unit?.kind === "interface" ? unit.qualifiedName ?? unit.name ?? current : current;
-	},
-	shouldDescend(_node, unit) {
-		return unit.kind === "class" || unit.kind === "interface";
-	},
-};
+function unitRules(exportedNames: ReadonlySet<string>): UnitRules {
+	return {
+		extract(node, scope) {
+			if (!TS_UNIT_KINDS.has(node.type)) return undefined;
+			const name = nameField(node) ?? firstNamedChildText(node, ["identifier", "property_identifier", "type_identifier"]);
+			return name === undefined ? undefined : rawUnit(node, normalizeTsKind(node.type), name, scope, isExportedDeclaration(node, name, exportedNames));
+		},
+		childScope(_node, unit, current) {
+			return unit?.kind === "class" || unit?.kind === "interface" ? unit.qualifiedName ?? unit.name ?? current : current;
+		},
+		shouldDescend(_node, unit) {
+			return unit.kind === "class" || unit.kind === "interface";
+		},
+	};
+}
 
-function isExportedDeclaration(node: SyntaxNode): boolean {
+function isExportedDeclaration(node: SyntaxNode, name: string, exportedNames: ReadonlySet<string>): boolean {
 	if (node.type === "method_definition" || node.type === "method_signature") return false;
 	const parent = node.parent;
-	return parent?.type === "export_statement"
-		|| (node.type === "variable_declarator" && parent?.type !== undefined && parent.parent?.type === "export_statement");
+	return exportedNames.has(name)
+		|| parent?.type === "export_statement"
+		|| (node.type === "variable_declarator" && parent?.parent?.type === "export_statement");
 }
 
 function normalizeTsKind(kind: string): string {
@@ -46,7 +49,19 @@ function normalizeTsKind(kind: string): string {
 }
 
 function extractJavaScriptUnits(root: SyntaxNode) {
-	return collectUnits(root, tsRules);
+	return collectUnits(root, unitRules(localExportNames(root)));
+}
+
+function localExportNames(root: SyntaxNode): Set<string> {
+	const names = new Set<string>();
+	for (const statement of root.descendantsOfType("export_statement")) {
+		if (statement.childForFieldName("source") !== null) continue;
+		for (const specifier of statement.descendantsOfType("export_specifier")) {
+			const name = specifier.childForFieldName("name");
+			if (name !== null) names.add(name.text);
+		}
+	}
+	return names;
 }
 
 function extractJavaScriptImports(root: SyntaxNode): RawImport[] {
@@ -60,7 +75,7 @@ function extractJavaScriptImports(root: SyntaxNode): RawImport[] {
 		}
 		if (node.type !== "call_expression") return;
 		const functionNode = node.childForFieldName("function");
-		if (functionNode === null || (functionNode.type !== "identifier" && functionNode.type !== "import")) return;
+		if (functionNode === null || (functionNode.type !== "import" && (functionNode.type !== "identifier" || functionNode.text !== "require"))) return;
 		const args = node.childForFieldName("arguments");
 		if (args === null || args.namedChildren.length !== 1) return;
 		const argument = args.namedChildren[0];

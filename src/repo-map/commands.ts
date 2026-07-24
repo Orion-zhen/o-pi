@@ -104,10 +104,17 @@ async function runRepoMapAutoActivation(
 	ctx: ExtensionContext,
 	deps: RepoMapAutoActivationDependencies,
 ): Promise<void> {
-	if (ctx.signal?.aborted) return;
+	if (ctx.signal?.aborted || isRepoMapAutoActivationDisabled(ctx.sessionManager.getBranch())) {
+		setRepoMapStatus(ctx, false);
+		return;
+	}
 	safeSetStatus(ctx, "Repo Map: discovering");
 	try {
 		const discovered = await deps.discover(ctx.cwd, ctx.signal);
+		if (isRepoMapAutoActivationDisabled(ctx.sessionManager.getBranch())) {
+			setRepoMapStatus(ctx, false);
+			return;
+		}
 		if (discovered === undefined) {
 			setRepoMapStatus(ctx, false);
 			return;
@@ -131,6 +138,10 @@ async function runRepoMapAutoActivation(
 				freshness: refreshed.metadata.freshness,
 				needsRefresh: false,
 			};
+		}
+		if (isRepoMapAutoActivationDisabled(ctx.sessionManager.getBranch())) {
+			setRepoMapStatus(ctx, false);
+			return;
 		}
 		appendActivationIfChanged(pi, ctx, deps.now, activation);
 		setRepoMapStatus(ctx, true);
@@ -263,11 +274,12 @@ function appendActivationIfChanged(
 }
 
 function turnOff(pi: RepoMapCommandApi, deps: RepoMapCommandDependencies, ctx: ExtensionCommandContext): void {
-	const activation = computeRepoMapActivation(ctx.sessionManager.getBranch());
-	if (activation !== undefined) {
+	const branch = ctx.sessionManager.getBranch();
+	const activation = computeRepoMapActivation(branch);
+	if (!isRepoMapAutoActivationDisabled(branch)) {
 		const entry: RepoMapDeactivationEntry = {
 			kind: "deactivation",
-			root: activation.root,
+			root: activation?.root ?? ctx.cwd,
 			deactivatedAt: deps.now().toISOString(),
 		};
 		pi.appendEntry<RepoMapDeactivationEntry>(REPO_MAP_SESSION_ENTRY, entry);

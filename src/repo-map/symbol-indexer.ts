@@ -11,7 +11,7 @@ import { throwIfAborted } from "./errors.js";
 import { compareText, groupBy, type RepoMapImportFact, type RepoMapSymbolIndex } from "./graph.js";
 import { readTextNoFollow, RepoMapReadLimitError, type RepoMapReadText } from "./source.js";
 import type { RepoMapDiagnostic, RepoMapEdge, RepoMapFileRecord, RepoMapSymbolNode } from "./types.js";
-import type { RepoMapParserFileResult } from "./parser-task.js"
+import { PARSER_SYNTAX_DIAGNOSTIC, type RepoMapParserFileResult } from "./parser-task.js";
 
 export interface IndexRepoMapSymbolsInput {
 	root: string;
@@ -88,7 +88,7 @@ export async function indexRepoMapSymbols(input: IndexRepoMapSymbolsInput): Prom
 	const previousImports = groupImportsByFile(input.previous?.edges ?? []);
 	const previousErrors = new Set(
 		(input.previous?.diagnostics ?? [])
-			.filter((diagnostic) => diagnostic.code === "PARSER_ERROR" || diagnostic.code === "FILE_CHANGED_DURING_PARSE")
+			.filter((diagnostic) => diagnostic.code === "PARSER_ERROR" || diagnostic.code === "PARSER_SYNTAX_ERROR" || diagnostic.code === "FILE_CHANGED_DURING_PARSE")
 			.flatMap((diagnostic) => diagnostic.path === undefined ? [] : [diagnostic.path]),
 	);
 	const workerResults = await parseWithWorkersIfUseful(input, previousFiles, previousErrors);
@@ -198,7 +198,7 @@ async function indexFile(
 		const syntaxFacts = analyzed.document !== undefined && isJavaScriptFamily(file.path)
 			? javascriptSyntaxFactsFromDocument(file.path, analyzed.document)
 			: undefined;
-		return parsedResult(file, analyzed, syntaxFacts);
+		return parsedResult(file, analyzed, syntaxFacts, analyzed.document?.root.hasError === true ? PARSER_SYNTAX_DIAGNOSTIC : undefined);
 	} catch (error) {
 		throwIfAborted(signal);
 		if (error instanceof RepoMapReadLimitError) return parseFailure(file.path, "FILE_CHANGED_DURING_PARSE", "File changed after scanning and was not parsed.");
@@ -211,13 +211,14 @@ function resultFromWorker(file: RepoMapFileRecord, result: RepoMapParserFileResu
 	if (result.status === "error" || result.index === undefined) {
 		return parseFailure(file.path, result.diagnostic?.code ?? "PARSER_ERROR", result.diagnostic?.message ?? "Tree-sitter could not parse this supported file.");
 	}
-	return parsedResult(file, { index: result.index, imports: result.imports ?? [] }, result.syntaxFacts);
+	return parsedResult(file, { index: result.index, imports: result.imports ?? [] }, result.syntaxFacts, result.diagnostic);
 }
 
 function parsedResult(
 	file: RepoMapFileRecord,
 	analyzed: Pick<AnalyzedFileIndex, "index" | "imports">,
 	syntaxFacts: JavaScriptSyntaxFacts | undefined,
+	diagnostic?: Pick<RepoMapDiagnostic, "code" | "message">,
 ): FileIndexResult {
 	const result: FileIndexResult = {
 		fileId: file.id,
@@ -244,7 +245,7 @@ function parsedResult(
 			...(item.importKind !== undefined ? { importKind: item.importKind } : {}),
 			evidence: { path: file.path, ...(file.contentHash !== undefined ? { textHash: file.contentHash } : {}), ...range(item) },
 		})),
-		diagnostics: [],
+		diagnostics: diagnostic === undefined ? [] : [{ ...diagnostic, path: file.path }],
 		status: "parsed",
 		reused: false,
 	};

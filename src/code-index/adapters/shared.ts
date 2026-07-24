@@ -116,6 +116,10 @@ export function hasAncestorType(node: SyntaxNode): boolean {
 	return false;
 }
 
+export function hasStorageClass(node: SyntaxNode, storageClass: string): boolean {
+	return node.namedChildren.some((child) => child.type === "storage_class_specifier" && child.text === storageClass);
+}
+
 export function indexRawImports(index: LineIndex, rawImports: readonly RawImport[]): IndexedImport[] {
 	const imports: IndexedImport[] = [];
 	const seen = new Set<string>();

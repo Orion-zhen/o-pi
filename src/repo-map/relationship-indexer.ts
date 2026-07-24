@@ -193,6 +193,7 @@ function resolveImport(
 }
 
 function importCandidates(importerPath: string, specifier: string, importKind: RepoMapImportFact["importKind"]): string[] {
+	if (languageFromPath(importerPath) === "python") return pythonImportCandidates(importerPath, specifier);
 	if (importKind === "external" || (importKind === undefined && !specifier.startsWith("."))) return [];
 	const base = path.posix.normalize(path.posix.join(path.posix.dirname(importerPath), specifier));
 	const candidates = [base];
@@ -200,6 +201,15 @@ function importCandidates(importerPath: string, specifier: string, importKind: R
 		for (const extension of CODE_EXTENSIONS) candidates.push(`${base}${extension}`, `${base}/index${extension}`);
 	}
 	return candidates;
+}
+
+function pythonImportCandidates(importerPath: string, specifier: string): string[] {
+	const relative = specifier.match(/^\.+/u)?.[0].length ?? 0;
+	let base = relative === 0 ? "" : path.posix.dirname(importerPath);
+	for (let level = 1; level < relative; level += 1) base = path.posix.dirname(base);
+	const modulePath = specifier.slice(relative).replaceAll(".", "/");
+	base = path.posix.normalize(path.posix.join(base, modulePath));
+	return [`${base}.py`, `${base}/__init__.py`];
 }
 
 function symbolLookup(symbols: readonly RepoMapSymbolNode[]): Map<string, RepoMapSymbolNode[]> {

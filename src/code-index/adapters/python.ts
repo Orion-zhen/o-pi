@@ -26,7 +26,15 @@ function extractPythonImports(root: SyntaxNode): RawImport[] {
 	walk(root, (node) => {
 		if (node.type === "import_from_statement") {
 			const module = node.childForFieldName("module_name");
-			if (module !== null) imports.push(rawImport(node, module));
+			if (module === null) return;
+			if (module.type === "relative_import" && module.namedChildren.every((child) => child.type === "import_prefix")) {
+				for (const imported of node.childrenForFieldName("name")) {
+					const target = imported.type === "aliased_import" ? imported.childForFieldName("name") : imported;
+					if (target !== null) imports.push({ specifier: `${module.text}${target.text}`, startChar: module.startIndex, endChar: target.endIndex, importKind: "relative" });
+				}
+				return;
+			}
+			imports.push(rawImport(node, module, module.type === "relative_import" ? "relative" : undefined));
 			return;
 		}
 		if (node.type !== "import_statement") return;

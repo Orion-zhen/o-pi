@@ -5,7 +5,7 @@ import { parentPort } from "node:worker_threads";
 import { analyzeCodeFile, languageFromPath } from "../code-index/parser.js";
 import { readTextNoFollow, RepoMapReadLimitError } from "./source.js";
 import { javascriptSyntaxFactsFromDocument } from "./syntax-facts.js";
-import type { RepoMapParserFileResult, RepoMapParserRequest, RepoMapParserResponse } from "./parser-task.js";
+import { PARSER_SYNTAX_DIAGNOSTIC, type RepoMapParserFileResult, type RepoMapParserRequest, type RepoMapParserResponse } from "./parser-task.js";
 
 if (parentPort === null) throw new Error("Repo Map parser worker requires a parent port");
 const workerPort = parentPort;
@@ -54,6 +54,7 @@ async function parseFile(root: string, file: RepoMapParserFileResult["file"]): P
 			index: analyzed.index,
 			imports: analyzed.imports,
 			...(syntaxFacts === undefined ? {} : { syntaxFacts }),
+			...(analyzed.document?.root.hasError === true ? { diagnostic: PARSER_SYNTAX_DIAGNOSTIC } : {}),
 		};
 	} catch (error) {
 		return {

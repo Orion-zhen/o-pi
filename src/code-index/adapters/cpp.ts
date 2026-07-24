@@ -5,6 +5,7 @@ import {
 	functionDeclaratorName,
 	hasAncestorType,
 	hasSimpleFunctionDeclarator,
+	hasStorageClass,
 	rawImport,
 	rawUnit,
 	type UnitRules,
@@ -17,7 +18,8 @@ const cppRules: UnitRules = {
 			case "function_definition": {
 				const name = functionDeclaratorName(node);
 				if (name === undefined) return undefined;
-				return rawUnit(node, hasAncestorType(node) || name.includes("::") ? "method" : "function", name, scope);
+				const method = hasAncestorType(node) || name.includes("::");
+				return rawUnit(node, method ? "method" : "function", name, scope, !method && hasExternalLinkage(node));
 			}
 			case "field_declaration": {
 				if (!hasSimpleFunctionDeclarator(node)) return undefined;
@@ -53,7 +55,8 @@ const cppRules: UnitRules = {
 				}
 				const name = declaratorName(node) ?? firstNamedChildText(node, ["identifier", "field_identifier"]);
 				if (name === undefined) return undefined;
-				return rawUnit(node, hasSimpleFunctionDeclarator(node) ? "function" : "declaration", name, scope);
+				const functionDeclaration = hasSimpleFunctionDeclarator(node);
+				return rawUnit(node, functionDeclaration ? "function" : "declaration", name, scope, functionDeclaration && hasExternalLinkage(node));
 			}
 			default:
 				return undefined;
@@ -67,6 +70,14 @@ const cppRules: UnitRules = {
 		return node.type === "namespace_definition" || node.type === "class_specifier" || node.type === "struct_specifier" || node.type === "declaration" || node.type === "type_definition";
 	},
 };
+
+function hasExternalLinkage(node: SyntaxNode): boolean {
+	if (hasStorageClass(node, "static")) return false;
+	for (let parent = node.parent; parent !== null; parent = parent.parent) {
+		if (parent.type === "namespace_definition" && parent.childForFieldName("name") === null) return false;
+	}
+	return true;
+}
 
 function extractCppImports(root: SyntaxNode): RawImport[] {
 	const imports: RawImport[] = [];

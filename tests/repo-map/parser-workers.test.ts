@@ -43,6 +43,25 @@ describe("Repo Map parser workers", () => {
 		expect(facts?.registrations.map((registration) => registration.name)).toEqual(["worker-command"]);
 	});
 
+	it("preserves recovered worker symbols and reports incomplete syntax facts", async () => {
+		const source = "export function recovered() {\n";
+		const filePath = "src/recovered.ts";
+		await mkdir(path.join(temp.path, "src"), { recursive: true });
+		await writeFile(path.join(temp.path, filePath), source);
+		const file = {
+			...createFileIdentity(filePath),
+			size: 300_000,
+			mtimeMs: 1,
+			status: "indexed" as const,
+			contentHash: createHash("sha256").update(source).digest("hex"),
+		};
+
+		const result = await indexRepoMapSymbols({ root: temp.path, files: [file], concurrency: 2 });
+
+		expect(result.symbols.some((symbol) => symbol.name === "recovered")).toBe(true);
+		expect(result.diagnostics).toContainEqual(expect.objectContaining({ code: "PARSER_SYNTAX_ERROR", path: filePath }));
+	});
+
 	it("把扫描后增长并超过记录大小的文件报告为 changed", async () => {
 		const source = "export const beforeGrowth = true;\n";
 		const filePath = "src/grew.ts";

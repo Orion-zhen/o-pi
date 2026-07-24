@@ -226,6 +226,7 @@ describe("Repo Map symbol and relationship graph", () => {
 
 	it.each([
 		["from .worker import run", ".worker"],
+		["from . import worker", ".worker"],
 		["from pkg.worker import run", "pkg.worker"],
 	])("resolves a repository-local Python import: %s", async (statement, lexicalTarget) => {
 		const sources = new Map([

@@ -4,6 +4,7 @@ import {
 	firstNamedChildText,
 	functionDeclaratorName,
 	hasSimpleFunctionDeclarator,
+	hasStorageClass,
 	rawImport,
 	rawUnit,
 	type UnitRules,
@@ -15,7 +16,7 @@ const cRules: UnitRules = {
 		switch (node.type) {
 			case "function_definition": {
 				const name = functionDeclaratorName(node);
-				return name === undefined ? undefined : rawUnit(node, "function", name);
+				return name === undefined ? undefined : rawUnit(node, "function", name, undefined, !hasStorageClass(node, "static"));
 			}
 			case "struct_specifier": {
 				const name = node.childForFieldName("name")?.text ?? firstNamedChildText(node, ["type_identifier"]);
@@ -32,7 +33,8 @@ const cRules: UnitRules = {
 			case "declaration": {
 				const name = declaratorName(node) ?? firstNamedChildText(node, ["identifier", "field_identifier"]);
 				if (name === undefined) return undefined;
-				return rawUnit(node, hasSimpleFunctionDeclarator(node) ? "function" : "declaration", name);
+				const functionDeclaration = hasSimpleFunctionDeclarator(node);
+				return rawUnit(node, functionDeclaration ? "function" : "declaration", name, undefined, functionDeclaration && !hasStorageClass(node, "static"));
 			}
 			default:
 				return undefined;

@@ -235,21 +235,13 @@ async function buildRecord(
 		};
 	}
 	if (info.size > maxBytes) {
-		return { record: { ...identity, size: info.size, mtimeMs: info.mtimeMs, status: "too_large" }, reused: false, hashed: false };
-	}
-	if (
-		previous?.status === "indexed"
-		&& previous.size === info.size
-		&& previous.mtimeMs === info.mtimeMs
-		&& previous.contentHash !== undefined
-	) {
-		return { record: { ...identity, size: info.size, mtimeMs: info.mtimeMs, status: "indexed", contentHash: previous.contentHash }, reused: true, hashed: false };
+		return { record: { ...identity, ...fileMetadata(info), status: "too_large" }, reused: false, hashed: false };
 	}
 	try {
 		const stable = await stableRead(candidate.absolutePath, maxBytes, fileSystem, signal);
 		if (stable === undefined) {
 			return {
-				record: { ...identity, size: info.size, mtimeMs: info.mtimeMs, status: "unstable" },
+				record: { ...identity, ...fileMetadata(info), status: "unstable" },
 				reused: false,
 				hashed: false,
 				diagnostic: { code: "FILE_UNSTABLE", message: "File changed repeatedly while being read.", path: candidate.relativePath },
@@ -257,26 +249,22 @@ async function buildRecord(
 		}
 		if (stable.kind === "too_large") {
 			return {
-				record: { ...identity, size: stable.info.size, mtimeMs: stable.info.mtimeMs, status: "too_large" },
+				record: { ...identity, ...fileMetadata(stable.info), status: "too_large" },
 				reused: false,
 				hashed: false,
 			};
 		}
+		const contentHash = createHash("sha256").update(stable.bytes).digest("hex");
+		const reused = previous?.status === "indexed" && previous.contentHash === contentHash;
 		return {
-			record: {
-				...identity,
-				size: stable.info.size,
-				mtimeMs: stable.info.mtimeMs,
-				status: "indexed",
-				contentHash: createHash("sha256").update(stable.bytes).digest("hex"),
-			},
-			reused: false,
-			hashed: true,
+			record: { ...identity, ...fileMetadata(stable.info), status: "indexed", contentHash },
+			reused,
+			hashed: !reused,
 		};
 	} catch (error) {
 		if (signal?.aborted === true || isAbortError(error)) throw new RepoMapError("OPERATION_ABORTED", "Repo Map initialization cancelled.", error);
 		return {
-			record: { ...identity, size: info.size, mtimeMs: info.mtimeMs, status: "unreadable" },
+			record: { ...identity, ...fileMetadata(info), status: "unreadable" },
 			reused: false,
 			hashed: false,
 			diagnostic: { code: "FILE_UNREADABLE", message: "File content could not be read.", path: candidate.relativePath },
@@ -297,7 +285,7 @@ async function stableRead(
 		const bytes = await fileSystem.readFile(filePath, signal, maxBytes);
 		const after = await fileSystem.stat(filePath);
 		if (after.size > maxBytes || bytes.length > maxBytes) return { kind: "too_large", info: after };
-		if (before.size === after.size && before.mtimeMs === after.mtimeMs && bytes.length === after.size) return { kind: "stable", bytes, info: after };
+		if (sameStats(before, after) && bytes.length === after.size) return { kind: "stable", bytes, info: after };
 	}
 	return undefined;
 }
@@ -308,6 +296,18 @@ async function symlinkIsDirectory(fileSystem: ScannerFileSystem, absolutePath: s
 	} catch {
 		return false;
 	}
+}
+
+function fileMetadata(info: Stats): Pick<RepoMapFileRecord, "size" | "mtimeMs"> {
+	return { size: info.size, mtimeMs: info.mtimeMs };
+}
+
+function sameStats(left: Stats, right: Stats): boolean {
+	return left.size === right.size
+		&& left.mtimeMs === right.mtimeMs
+		&& left.ctimeMs === right.ctimeMs
+		&& left.ino === right.ino
+		&& left.dev === right.dev;
 }
 
 function recordsEqual(left: RepoMapFileRecord, right: RepoMapFileRecord): boolean {
