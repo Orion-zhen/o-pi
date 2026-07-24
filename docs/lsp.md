@@ -66,7 +66,28 @@ agent/configs/lsp.jsonc
 
 为保持旧配置可用，`command`/`args` 仍可直接写在 server 对象中，加载时会规范化为 `stdio transport`。
 
-仓库配置包含 TypeScript、Python、Rust、YAML server。binary 不存在时 server 标记为 unavailable，文件工具继续成功执行。
+仓库配置包含 TypeScript、Python、Rust、YAML stdio server，并在注释中提供 TCP endpoint 示例。配置结构如下；两种 server 都由用户提供，Pi 不启动 TCP server：
+
+```jsonc
+{
+  "servers": [
+    {
+      "id": "typescript",
+      "transport": { "type": "stdio", "command": "typescript-language-server", "args": ["--stdio"] },
+      "language_id": "typescript",
+      "extensions": [".ts"]
+    },
+    {
+      "id": "remote-example",
+      "transport": { "type": "tcp", "host": "127.0.0.1", "port": 2087 },
+      "language_id": "remote",
+      "extensions": [".remote"]
+    }
+  ]
+}
+```
+
+binary 不存在、TCP endpoint 不可达或 initialize 失败时 server 标记为 unavailable，文件工具继续成功执行。
 
 ## 行为
 
@@ -83,6 +104,8 @@ agent/configs/lsp.jsonc
 initialize 返回的 capabilities 会保存在 session 中；不支持的 document symbols、workspace symbols 或 references 不会发送请求。session 提供带超时和协议级取消的 typed request/notification 入口，并统一接收 diagnostics、日志和 progress。文档生命周期包含 didOpen、didChange、didSave、didClose。
 
 server 主动 request 默认返回 `MethodNotFound`，不会自动执行 `workspace/applyEdit` 等有副作用操作；只有显式注册安全 handler 后才会处理。
+
+新增高级 feature 时，在 `src/lsp/features/index.ts` 增加 typed adapter：先用 `featureAvailable(session, definition)` 检查 capability，再通过 `session.request(RequestType, params, options)` 发送请求。将 adapter 加入 `lspFeatureAdapters` 后，manager、registry、transport 和 session 生命周期无需修改；不可用 capability 应返回 `undefined`，由 file-tools 继续普通降级。
 
 ## 命令
 
@@ -103,7 +126,10 @@ server 主动 request 默认返回 `MethodNotFound`，不会自动执行 `worksp
 
 * language server 未安装或不在 `PATH`；
 * `command` / `args` 配置错误；
-* initialize 超时；
+* TCP `host`/`port` 无效或 endpoint 未提供；
+* initialize 超时或协议握手失败；
 * server 启动后崩溃。
+
+先运行 `/lsp status` 查看 `config_path`、server 状态和 `last_error`。配置 ID/扩展名冲突会在加载阶段拒绝整个 server 列表，修复配置后执行 `/lsp reload`。
 
 这些情况不会让成功的文件读写搜索变成失败。

@@ -35,6 +35,10 @@ export class LspManager {
 	private loaded: LoadedLspConfig | undefined;
 	private registry: LspServerRegistry | undefined;
 	private configError: string | undefined;
+	private reloadPromise: Promise<void> | undefined;
+	private reloadRequested = false;
+	private activeClientOperations = 0;
+	private clientDrainResolve: (() => void) | undefined;
 	private readonly clients = new Map<string, ClientEntry>();
 	private readonly diagnostics = new DiagnosticsLedger();
 
@@ -50,7 +54,27 @@ export class LspManager {
 	}
 
 	async reload(): Promise<void> {
-		await Promise.all(Array.from(this.clients.values()).map((entry) => entry.client.shutdown()));
+		if (this.reloadPromise !== undefined) return this.reloadPromise;
+		this.reloadRequested = true;
+		const pending = this.performReload();
+		this.reloadPromise = pending;
+		try {
+			await pending;
+		} finally {
+			if (this.reloadPromise === pending) {
+				this.reloadPromise = undefined;
+				this.reloadRequested = false;
+			}
+		}
+	}
+
+	private async performReload(): Promise<void> {
+		if (this.activeClientOperations > 0) {
+			await new Promise<void>((resolve) => {
+				this.clientDrainResolve = resolve;
+			});
+		}
+		await Promise.allSettled(Array.from(this.clients.values()).map((entry) => entry.client.shutdown()));
 		this.clients.clear();
 		this.diagnostics.clear();
 		this.loaded = undefined;
@@ -154,20 +178,41 @@ export class LspManager {
 	}
 
 	private async clientForServer(root: string, server: LspServerConfig): Promise<LspClient | undefined> {
-		const loaded = await this.enabledConfig();
-		if (loaded === undefined) return undefined;
-		const key = `${path.resolve(root)}\0${server.id}`;
-		let entry = this.clients.get(key);
-		if (entry === undefined) {
-			entry = { restarts: 0, client: this.createClient(key, root, server, loaded) };
-			this.clients.set(key, entry);
-		} else if (entry.client.status().status === "crashed" && entry.restarts < loaded.config.max_restarts) {
-			entry.restarts += 1;
-			await entry.client.shutdown();
-			entry.client = this.createClient(key, root, server, loaded);
+		await this.waitForReload();
+		this.activeClientOperations += 1;
+		try {
+			const loaded = await this.enabledConfig();
+			if (loaded === undefined) return undefined;
+			const key = `${path.resolve(root)}\0${server.id}`;
+			let entry = this.clients.get(key);
+			if (entry === undefined) {
+				entry = { restarts: 0, client: this.createClient(key, root, server, loaded) };
+				this.clients.set(key, entry);
+			} else if (entry.client.status().status === "crashed" && entry.restarts < loaded.config.max_restarts) {
+				entry.restarts += 1;
+				await entry.client.shutdown();
+				entry.client = this.createClient(key, root, server, loaded);
+			}
+			const ready = await entry.client.ensureReady();
+			return ready ? entry.client : undefined;
+		} finally {
+			this.activeClientOperations -= 1;
+			if (this.activeClientOperations === 0) {
+				this.clientDrainResolve?.();
+				this.clientDrainResolve = undefined;
+			}
 		}
-		const ready = await entry.client.ensureReady();
-		return ready ? entry.client : undefined;
+	}
+
+	private async waitForReload(): Promise<void> {
+		while (this.reloadRequested) {
+			const pending = this.reloadPromise;
+			if (pending === undefined) {
+				await Promise.resolve();
+				continue;
+			}
+			await pending;
+		}
 	}
 
 	private createClient(key: string, root: string, server: LspServerConfig, loaded: LoadedLspConfig): LspClient {

@@ -56,5 +56,14 @@
 			"language_id": "yaml",
 			"extensions": [".yaml", ".yml"]
 		}
+
+		// TCP example: uncomment and replace the endpoint with a user-provided server.
+		// ,{
+		// 	"id": "remote-example",
+		// 	"enabled": true,
+		// 	"transport": { "type": "tcp", "host": "127.0.0.1", "port": 2087 },
+		// 	"language_id": "remote",
+		// 	"extensions": [".remote"]
+		// }
 	]
 }

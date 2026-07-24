@@ -78,11 +78,13 @@ describe("lsp transport", () => {
 		await expect(manager.workspaceSymbols(workspace, "target", [".ts"])).resolves.toEqual([
 			expect.objectContaining({ path: "src/target.ts", origin: "workspace-symbol" }),
 		]);
-		await manager.reload();
+		const firstReload = manager.reload();
+		const secondReload = manager.reload();
+		await Promise.all([firstReload, secondReload]);
 		await fake.closed;
 		expect(fake.methods).toContain("initialize");
 		expect(fake.methods).toContain("workspace/symbol");
-		expect(fake.methods).toContain("shutdown");
+		expect(fake.methods.filter((method) => method === "shutdown")).toHaveLength(1);
 		expect(fake.methods).toContain("exit");
 	});
 

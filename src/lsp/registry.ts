@@ -65,9 +65,4 @@ export class LspServerRegistry {
 		}
 		return this.servers.filter((server) => selected.has(server));
 	}
-
-	/** 返回所有 enabled server，用于尚未提供 scope 信息的旧 workspace symbol 调用。 */
-	enabled(): LspServerConfig[] {
-		return this.servers.filter((server) => server.enabled);
-	}
 }
