@@ -1,4 +1,3 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import {
@@ -29,12 +28,13 @@ import {
 
 import type { DiagnosticsLedger } from "./diagnostics.js";
 import { LspDocuments } from "./documents.js";
+import { connectLspTransport, type LspTransportConnection } from "./transport.js";
 import type { LspConfig, LspDocumentSymbols, LspServerConfig, LspServerStatus } from "./types.js";
 import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "./uri.js";
 
-/** 单个 stdio language server client，封装 initialize、文档同步、symbol 和诊断通知。 */
+/** 单个 language server client，封装 transport、initialize、文档同步、symbol 和诊断通知。 */
 export class LspClient {
-	private process: ChildProcessWithoutNullStreams | undefined;
+	private transport: LspTransportConnection | undefined;
 	private connection: MessageConnection | undefined;
 	private state: LspServerStatus["status"] = "idle";
 	private lastError: string | undefined;
@@ -80,9 +80,9 @@ export class LspClient {
 	async shutdown(): Promise<void> {
 		this.clearIdleTimer();
 		const connection = this.connection;
-		const child = this.process;
+		const transport = this.transport;
 		this.connection = undefined;
-		this.process = undefined;
+		this.transport = undefined;
 		this.state = "stopped";
 		this.rejectTransportWaiters("server stopped");
 		this.documents.clear();
@@ -99,7 +99,7 @@ export class LspClient {
 			}
 			connection.dispose();
 		}
-		if (child !== undefined) await terminateChild(child);
+		if (transport !== undefined) await transport.close();
 	}
 
 	async didOpenOrChange(filePath: string, text: string): Promise<boolean> {
@@ -171,35 +171,26 @@ export class LspClient {
 	private async start(): Promise<boolean> {
 		this.state = "starting";
 		this.lastError = undefined;
-		if (this.server.transport.type !== "stdio") {
-			this.markUnavailable(`transport "${this.server.transport.type}" is not supported yet`);
-			return false;
-		}
-		let child: ChildProcessWithoutNullStreams;
+		let transport: LspTransportConnection;
 		try {
-			child = spawn(this.server.transport.command, this.server.transport.args, { cwd: this.root, stdio: "pipe" });
+			transport = await connectLspTransport(this.server.transport, this.root, this.config.startup_timeout_ms);
 		} catch (error) {
 			this.markUnavailable(errorMessage(error));
 			return false;
 		}
-		this.process = child;
-		child.once("error", (error) => {
-			this.markUnavailable(error.message);
-			this.onCrash(this, error.message);
-		});
-		if (child.pid === undefined) {
-			this.process = undefined;
-			this.markUnavailable(`server failed to start: ${this.server.transport.command}`);
-			return false;
-		}
+		this.transport = transport;
 
 		let connection: MessageConnection | undefined;
-		const writer = new SafeMessageWriter(new StreamMessageWriter(child.stdin), (error) => {
+		const writer = new SafeMessageWriter(new StreamMessageWriter(transport.writer), (error) => {
 			if (connection === undefined || this.connection !== connection) return;
 			this.markTransportFailure(errorMessage(error));
 		});
-		connection = createMessageConnection(new StreamMessageReader(child.stdout), writer);
+		connection = createMessageConnection(new StreamMessageReader(transport.reader), writer);
 		this.connection = connection;
+		void transport.failure.catch((error) => {
+			if (this.transport !== transport) return;
+			this.markTransportFailure(errorMessage(error));
+		});
 		connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
 			this.diagnostics.update(params.uri, params.diagnostics as Diagnostic[], this.config.diagnostics.min_severity);
 		});
@@ -212,13 +203,6 @@ export class LspClient {
 			this.markTransportFailure("connection closed");
 		});
 		connection.listen();
-
-		child.once("exit", (code, signal) => {
-			if (this.state === "stopped" || this.state === "unavailable") return;
-			const message = `server exited${code === null ? "" : ` ${code}`}${signal === null ? "" : ` ${signal}`}`;
-			this.markCrashed(message);
-			this.onCrash(this, message);
-		});
 
 		try {
 			await withTimeout(
@@ -240,16 +224,16 @@ export class LspClient {
 				this.config.startup_timeout_ms,
 			);
 			const initialized = await this.sendNotification(connection, (active) => active.sendNotification(InitializedNotification.type, {}));
-			if (!initialized) return false;
+			if (!initialized) throw new Error("failed to send initialized notification");
 			this.state = "ready";
 			this.bumpIdleTimer();
 			return true;
 		} catch (error) {
 			this.markUnavailable(errorMessage(error));
 			this.connection = undefined;
-			this.process = undefined;
+			this.transport = undefined;
 			connection.dispose();
-			await terminateChild(child);
+			await transport.close();
 			return false;
 		}
 	}
@@ -286,12 +270,16 @@ export class LspClient {
 
 	private async withTransportFailure<T>(factory: () => Promise<T>): Promise<T> {
 		let rejectTransport: ((error: Error) => void) | undefined;
-		const transportFailure = new Promise<never>((_resolve, reject) => {
+		const localFailure = new Promise<never>((_resolve, reject) => {
 			rejectTransport = reject;
 			this.transportFailureRejectors.add(reject);
 		});
+		const transportFailure = this.transport?.failure;
 		try {
-			return await Promise.race([Promise.resolve().then(factory), transportFailure]);
+			const operation = Promise.resolve().then(factory);
+			return transportFailure === undefined
+				? await Promise.race([operation, localFailure])
+				: await Promise.race([operation, localFailure, transportFailure]);
 		} finally {
 			if (rejectTransport !== undefined) this.transportFailureRejectors.delete(rejectTransport);
 		}
@@ -303,8 +291,12 @@ export class LspClient {
 
 	private markTransportFailure(message: string): void {
 		if (this.state === "stopped" || this.state === "unavailable" || this.state === "crashed") return;
-		if (this.state === "starting") this.markUnavailable(message);
-		else this.markCrashed(message);
+		if (this.state === "starting") {
+			this.markUnavailable(message);
+			return;
+		}
+		this.markCrashed(message);
+		this.onCrash(this, message);
 	}
 
 	private markUnavailable(message: string): void {
@@ -388,33 +380,6 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 	} finally {
 		if (timer !== undefined) clearTimeout(timer);
 	}
-}
-
-async function terminateChild(child: ChildProcessWithoutNullStreams): Promise<void> {
-	if (hasExited(child)) return;
-	if (!child.killed) child.kill("SIGTERM");
-	if (await waitForChildExit(child, 1000)) return;
-	child.kill("SIGKILL");
-	await waitForChildExit(child, 1000);
-}
-
-async function waitForChildExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<boolean> {
-	if (hasExited(child)) return true;
-	return new Promise((resolve) => {
-		let timer: NodeJS.Timeout | undefined;
-		const finish = (exited: boolean): void => {
-			child.off("exit", onExit);
-			if (timer !== undefined) clearTimeout(timer);
-			resolve(exited);
-		};
-		const onExit = (): void => finish(true);
-		child.once("exit", onExit);
-		timer = setTimeout(() => finish(hasExited(child)), timeoutMs);
-	});
-}
-
-function hasExited(child: ChildProcessWithoutNullStreams): boolean {
-	return child.exitCode !== null || child.signalCode !== null;
 }
 
 function errorMessage(error: unknown): string {

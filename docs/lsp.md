@@ -59,7 +59,7 @@ agent/configs/lsp.jsonc
 | --- | --- | --- |
 | `id` | 必填 | server 稳定 ID。只能包含字母、数字、`_`、`-`，且所有 server 必须唯一。 |
 | `enabled` | `true` | 单个 server 开关。关闭后不会匹配文件，也不会启动 transport；但仍参与 ID/扩展名冲突校验。 |
-| `transport` | 必填 | 连接方式。`{"type":"stdio","command":"...","args":[]}` 启动本地 server；`{"type":"tcp","host":"127.0.0.1","port":2087}` 连接用户提供的 endpoint。TCP transport 将由后续阶段启用。 |
+| `transport` | 必填 | 连接方式。`{"type":"stdio","command":"...","args":[]}` 启动本地 server；`{"type":"tcp","host":"127.0.0.1","port":2087}` 连接用户提供的 endpoint。TCP server 由用户负责提供，Pi 只负责连接和清理。 |
 | `language_id` | 首个扩展名推断 | 发送 `textDocument/didOpen` 时使用的 language ID；建议显式配置。 |
 | `extensions` | 必填 | 文件扩展名列表，必须带前导点，加载时统一转小写。任意两个 server（包括 disabled server）不能共享扩展名；冲突会使整个配置加载失败。 |
 | `initialization_options` | 未设置 | 原样传给 LSP `initialize.initializationOptions`，用于 server 私有配置。 |
