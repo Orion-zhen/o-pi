@@ -71,7 +71,7 @@ agent/configs/lsp.jsonc
 ## 行为
 
 * `read`：部分行范围读取时可返回 `lsp.enclosing_symbol`；内容截断时可返回紧凑 `lsp.outline`。
-* `grep`：仅在 `match=auto` 且 query 像 symbol 时调用 workspace/symbol；`grep.references` 开启后再查询引用位置；命中仍经过现有 ignore、path scope 和输出预算。
+* `grep`：仅在 `match=auto` 且 query 像 symbol 时调用 workspace/symbol；请求只发送给当前有效 scope 文件扩展名对应的 server。目录 scope 会按实际文件扩展名选择多个 server；空 scope 或无相关 server 时不创建 client。`grep.references` 开启后再查询引用位置；命中仍经过现有 ignore、path scope 和输出预算。
 * `write`：写盘成功后发送 didOpen/didChange/didSave，等待当前文件 diagnostics；诊断错误不改变 `status: "written"`。
 * `edit`：preview 不调用 LSP；成功写盘后对比编辑前后 diagnostics；诊断错误不改变 `status: "applied"`。
 * `ls` / `find`：不接入 LSP。

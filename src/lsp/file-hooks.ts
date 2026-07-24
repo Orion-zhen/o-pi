@@ -22,7 +22,7 @@ export function createLspFileHooks(manager: LspManager): FileToolLspHooks {
 		},
 		async grepSymbols(input) {
 			try {
-				const hits = await manager.workspaceSymbols(input.workspaceRoot, input.query);
+				const hits = await manager.workspaceSymbols(input.workspaceRoot, input.query, input.extensions);
 				const candidates: FileToolLspSymbolCandidate[] = [];
 				for (const hit of hits) {
 					candidates.push({

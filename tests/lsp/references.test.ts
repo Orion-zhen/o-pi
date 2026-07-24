@@ -36,7 +36,7 @@ describe("lsp references", () => {
 		process.env.PI_LSP_CONFIG = config;
 
 		const manager = new LspManager();
-		await expect(manager.workspaceSymbols(workspace, "target")).resolves.toEqual([]);
+		await expect(manager.workspaceSymbols(workspace, "target", [".ts"])).resolves.toEqual([]);
 		await expect(manager.didWrite(workspace, path.join(workspace, "a.ts"), "const x = 1;\n")).resolves.toBeUndefined();
 		await expect(manager.status(workspace)).resolves.toMatchObject({ enabled: false, servers: [] });
 		await manager.reload();
@@ -55,11 +55,38 @@ describe("lsp references", () => {
 		process.env.PI_LSP_CONFIG = config;
 
 		const manager = new LspManager();
-		await expect(manager.workspaceSymbols(workspace, "target")).resolves.toEqual([]);
+		await expect(manager.workspaceSymbols(workspace, "target", [".ts"])).resolves.toEqual([]);
 		const status = await manager.status(workspace);
 		expect(status.servers[0]).toMatchObject({ id: "missing", status: "unavailable" });
 		expect(status.servers[0]?.last_error).toMatch(/failed to start|ENOENT/);
 		await manager.reload();
+	});
+
+	it("workspace symbols 按 scope 扩展名路由且空 scope 不启动 server", async () => {
+		const config = path.join(configDir, "lsp.jsonc");
+		await writeFile(config, JSON.stringify({
+			servers: [
+				{ id: "ts", command: "unused-ts", extensions: [".ts"] },
+				{ id: "python", command: "unused-python", extensions: [".py"] },
+				{ id: "disabled", enabled: false, command: "unused-go", extensions: [".go"] },
+			],
+		}));
+		process.env.PI_LSP_CONFIG = config;
+		const requests: string[] = [];
+		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
+		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockImplementation(async function (this: LspClient) {
+			requests.push(this.server.id);
+			return [];
+		});
+
+		const manager = new LspManager();
+		await expect(manager.workspaceSymbols(workspace, "target", [".TS"])).resolves.toEqual([]);
+		await expect(manager.workspaceSymbols(workspace, "target", [".ts", ".py"])).resolves.toEqual([]);
+		await expect(manager.workspaceSymbols(workspace, "target", [])).resolves.toEqual([]);
+		await expect(manager.workspaceSymbols(workspace, "target", [".go"])).resolves.toEqual([]);
+		await manager.reload();
+
+		expect(requests).toEqual(["ts", "ts", "python"]);
 	});
 
 	it("grep references 经 workspaceSymbols 与 file hook 保留 symbol 和 reference 来源", async () => {
@@ -89,7 +116,7 @@ describe("lsp references", () => {
 		const manager = new LspManager();
 		const grepSymbols = createLspFileHooks(manager).grepSymbols;
 		if (grepSymbols === undefined) throw new Error("grepSymbols hook missing");
-		const hits = await grepSymbols({ workspaceRoot: workspace, query: "target", path: "." });
+		const hits = await grepSymbols({ workspaceRoot: workspace, query: "target", path: ".", extensions: [".ts"] });
 		await manager.reload();
 
 		expect(hits).toEqual([
@@ -117,7 +144,7 @@ describe("lsp references", () => {
 		process.env.PI_LSP_CONFIG = config;
 
 		const manager = new LspManager();
-		await manager.workspaceSymbols(workspace, "target");
+		await manager.workspaceSymbols(workspace, "target", [".ts"]);
 		const pid = Number(await readFile(pidPath, "utf8"));
 		await manager.reload();
 

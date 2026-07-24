@@ -213,6 +213,8 @@ export interface FileToolLspHooks {
 		workspaceRoot: string;
 		query: string;
 		path: string;
+		/** 当前 grep scope 中实际文件扩展名的规范化集合。 */
+		extensions: readonly string[];
 	}): Promise<FileToolLspSymbolCandidate[]>;
 	beforeEdit?(input: {
 		workspaceRoot: string;

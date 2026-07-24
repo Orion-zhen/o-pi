@@ -162,6 +162,7 @@ async function grepScope(
 			workspaceRoot: index.workspaceRoot,
 			query: validation.query,
 			path: index.root.relativePath,
+			extensions: scopeExtensions(index, validation.glob),
 		}, validation.match),
 	]);
 	const mainPaths = new Set(index.files.map((file) => file.path));
@@ -490,6 +491,11 @@ async function defaultReadSourceText(file: { path: string; absolutePath: string 
 	const decoded = decodeTextFile(bytes, file.path);
 	if (isFailed(decoded)) return decoded;
 	return decoded.text;
+}
+
+function scopeExtensions(index: { files: Array<{ path: string }>; scopedFiles: Array<{ path: string }> }, glob: string | undefined): string[] {
+	const files = glob === undefined ? index.scopedFiles : index.files;
+	return [...new Set(files.map((file) => path.extname(file.path).toLowerCase()).filter((extension) => extension.length > 0))].sort();
 }
 
 async function safeLspSymbolCandidates(

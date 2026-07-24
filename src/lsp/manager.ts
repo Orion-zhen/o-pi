@@ -77,10 +77,10 @@ export class LspManager {
 		return Object.keys(result).length === 0 ? undefined : result;
 	}
 
-	async workspaceSymbols(root: string, query: string): Promise<LspSymbolHit[]> {
+	async workspaceSymbols(root: string, query: string, extensions: readonly string[]): Promise<LspSymbolHit[]> {
 		const config = await this.enabledConfig();
 		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths) || !config.config.grep.workspace_symbols) return [];
-		const servers = this.registry?.enabled() ?? [];
+		const servers = this.registry?.forExtensions(extensions) ?? [];
 		const hits: LspSymbolHit[] = [];
 		let symbolCount = 0;
 		let referenceCount = 0;

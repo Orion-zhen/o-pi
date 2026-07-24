@@ -84,8 +84,10 @@ describe("file-tools lsp hooks", () => {
 		await mkdir(path.join(workspace, "src"));
 		await writeFile(path.join(workspace, "src", "target.ts"), "export const unrelated = 1;\n");
 		await writeFile(path.join(workspace, "outside.ts"), "export const other = 1;\n");
+		let seenExtensions: readonly string[] = [];
 		const hooks: FileToolLspHooks = {
-			async grepSymbols() {
+			async grepSymbols(input) {
+				seenExtensions = input.extensions;
 				return [
 					{ path: "src/target.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "RemoteSymbol", reason: "lsp exact symbol" },
 					{ path: "outside.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "RemoteSymbol", reason: "lsp exact symbol" },
@@ -95,8 +97,26 @@ describe("file-tools lsp hooks", () => {
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: ["src"], query: "RemoteSymbol" }, undefined, { lsp: hooks }));
 		expect(result.regions).toHaveLength(1);
 		expect(result.regions[0]).toMatchObject({ path: "src/target.ts", symbol: "RemoteSymbol", reasons: ["lsp exact symbol"] });
+		expect(seenExtensions).toEqual([".ts"]);
 
 		await expect(grepWorkspaceFiles(workspace, { path: ["src"], query: "RemoteSymbol" }, undefined, { lsp: throwingHooks() })).resolves.toMatchObject({ status: "success" });
+	});
+
+	it("grep 为混合和空 scope 传递实际扩展名集合", async () => {
+		await mkdir(path.join(workspace, "mixed"));
+		await writeFile(path.join(workspace, "mixed", "a.ts"), "export const target = 1;\n");
+		await writeFile(path.join(workspace, "mixed", "b.py"), "target = 1\n");
+		const seen: string[][] = [];
+		const hooks: FileToolLspHooks = {
+			async grepSymbols(input) {
+				seen.push([...input.extensions]);
+				return [];
+			},
+		};
+		await grepWorkspaceFiles(workspace, { path: ["mixed"], query: "Target" }, undefined, { lsp: hooks });
+		await mkdir(path.join(workspace, "empty"));
+		await grepWorkspaceFiles(workspace, { path: ["empty"], query: "Target" }, undefined, { lsp: hooks });
+		expect(seen).toEqual([[".py", ".ts"], []]);
 	});
 
 	it("grep 并行请求 LSP 与 Repo Map", async () => {
