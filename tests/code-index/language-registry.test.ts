@@ -2,7 +2,6 @@ import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 
 import { javascriptAdapter } from "../../src/code-index/adapters/javascript.js";
-import { createParserFingerprint } from "../../src/code-index/identity.js";
 import {
 	adapterFromPath,
 	createLanguageRegistry,
@@ -107,11 +106,4 @@ describe("code language registry", () => {
 		}
 	});
 
-	it("fingerprint changes with extractor, runtime, grammar version, and descriptor", () => {
-		const base = createParserFingerprint({ extractorFormat: "extractor-a", runtimeVersion: "runtime-a", grammars: [{ packageName: "grammar", version: "1", exportName: "one" }] });
-		expect(createParserFingerprint({ extractorFormat: "extractor-b", runtimeVersion: "runtime-a", grammars: [{ packageName: "grammar", version: "1", exportName: "one" }] })).not.toBe(base);
-		expect(createParserFingerprint({ extractorFormat: "extractor-a", runtimeVersion: "runtime-b", grammars: [{ packageName: "grammar", version: "1", exportName: "one" }] })).not.toBe(base);
-		expect(createParserFingerprint({ extractorFormat: "extractor-a", runtimeVersion: "runtime-a", grammars: [{ packageName: "grammar", version: "2", exportName: "one" }] })).not.toBe(base);
-		expect(createParserFingerprint({ extractorFormat: "extractor-a", runtimeVersion: "runtime-a", grammars: [{ packageName: "grammar", version: "1", exportName: "two" }] })).not.toBe(base);
-	});
 });

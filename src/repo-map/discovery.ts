@@ -2,9 +2,8 @@ import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 import path from "node:path";
 
-import { CODE_INDEX_FORMAT_VERSION } from "../code-index/identity.js";
 import { repoMapCacheRoot } from "./cache-path.js";
-import { createRepoMapId, REPO_MAP_SCHEMA_VERSION } from "./identity.js";
+import { createRepoMapId } from "./identity.js";
 import { detectRepository, readHeadRevision, type RepositoryIdentity } from "./repository.js";
 import type { RepoMapFreshness } from "./types.js";
 
@@ -21,7 +20,6 @@ export interface DiscoveredRepoMap {
 }
 
 interface StoredMetadata {
-	schemaVersion: number;
 	mapId: string;
 	repositoryRoot: string;
 	worktreeRoot: string;
@@ -29,7 +27,6 @@ interface StoredMetadata {
 	generation: string;
 	freshness: RepoMapFreshness;
 	gitRevision?: string;
-	parserFingerprint: string;
 }
 
 /** 仅执行 Git 身份探测并读取 CURRENT/metadata；不加载图快照或扫描工作区。 */
@@ -51,8 +48,7 @@ export async function discoverCurrentRepoMap(cwd: string, signal?: AbortSignal):
 			freshness: metadata.freshness,
 			needsRefresh: metadata.freshness === "stale"
 				|| metadata.freshness === "unavailable"
-				|| metadata.gitRevision !== headRevision
-				|| metadata.parserFingerprint !== CODE_INDEX_FORMAT_VERSION,
+				|| metadata.gitRevision !== headRevision,
 		};
 	} catch {
 		return undefined;
@@ -80,14 +76,12 @@ function isMatchingMetadata(
 	generation: string,
 ): value is StoredMetadata {
 	if (!isRecord(value)) return false;
-	return value["schemaVersion"] === REPO_MAP_SCHEMA_VERSION
-		&& value["mapId"] === mapId
+	return value["mapId"] === mapId
 		&& value["generation"] === generation
 		&& samePath(value["repositoryRoot"], identity.repositoryRoot)
 		&& samePath(value["worktreeRoot"], identity.worktreeRoot)
 		&& samePath(value["gitCommonDir"], identity.gitCommonDir)
 		&& isFreshness(value["freshness"])
-		&& typeof value["parserFingerprint"] === "string"
 		&& (value["gitRevision"] === undefined || typeof value["gitRevision"] === "string");
 }
 

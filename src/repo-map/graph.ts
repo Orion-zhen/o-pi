@@ -1,9 +1,11 @@
+import type { ImportKind } from "../code-index/types.js";
 import type { JavaScriptSyntaxFacts } from "./syntax-facts.js";
 import type { RepoMapEdge, RepoMapEvidence, RepoMapSymbolNode } from "./types.js";
 
 export interface RepoMapImportFact {
 	fileId: string;
 	specifier: string;
+	importKind?: ImportKind;
 	evidence: RepoMapEvidence;
 }
 
@@ -24,6 +26,7 @@ export function compareRepoMapEdge(left: RepoMapEdge, right: RepoMapEdge): numbe
 		|| compareText(left.from, right.from)
 		|| compareText(left.to, right.to)
 		|| compareText(left.lexicalTarget ?? "", right.lexicalTarget ?? "")
+		|| compareText(left.importKind ?? "", right.importKind ?? "")
 		|| compareText(left.resolution, right.resolution)
 		|| compareText(left.source, right.source)
 		|| left.confidence - right.confidence;
@@ -32,7 +35,7 @@ export function compareRepoMapEdge(left: RepoMapEdge, right: RepoMapEdge): numbe
 export function coalesceRepoMapEdges(edges: readonly RepoMapEdge[]): RepoMapEdge[] {
 	const merged = new Map<string, { edge: RepoMapEdge; evidence?: RepoMapEvidence[] }>();
 	for (const edge of edges) {
-		const key = [edge.kind, edge.from, edge.to, edge.resolution, edge.source, edge.confidence, edge.lexicalTarget ?? ""].join("\0");
+		const key = [edge.kind, edge.from, edge.to, edge.resolution, edge.source, edge.confidence, edge.lexicalTarget ?? "", edge.importKind ?? ""].join("\0");
 		const existing = merged.get(key);
 		if (existing === undefined) merged.set(key, { edge });
 		else {

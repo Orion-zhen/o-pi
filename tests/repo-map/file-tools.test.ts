@@ -6,7 +6,6 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CODE_INDEX_FORMAT_VERSION } from "../../src/code-index/identity.js";
 import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
 import { formatReadModelResult } from "../../src/file-tools/pi/model-output-with-repo.js";
 import { editWorkspace } from "../../src/file-tools/tools/edit.js";
@@ -368,19 +367,17 @@ describe("Repo Map file-tool read and mutation integration", () => {
 });
 
 describe("Repo Map freshness and rebuild modes", () => {
-	it("classifies HEAD/config/ignore/parser changes as stale while preserving partial state otherwise", () => {
+	it("classifies HEAD/config/ignore changes as stale while preserving partial state otherwise", () => {
 		const metadata = {
 			freshness: "fresh" as const,
 			gitRevision: "a".repeat(40),
 			configFingerprint: "b".repeat(64),
 			ignoreFingerprint: "ignore-a",
-			parserFingerprint: CODE_INDEX_FORMAT_VERSION,
 		};
 		const current = {
 			gitRevision: metadata.gitRevision,
 			configFingerprint: metadata.configFingerprint,
 			ignoreFingerprint: metadata.ignoreFingerprint,
-			parserFingerprint: metadata.parserFingerprint,
 		};
 		expect(evaluateRepoMapFreshness(metadata, current)).toBe("fresh");
 		expect(evaluateRepoMapFreshness(metadata, current, "partially_stale")).toBe("partially_stale");
@@ -388,7 +385,6 @@ describe("Repo Map freshness and rebuild modes", () => {
 			{ ...current, gitRevision: "c".repeat(40) },
 			{ ...current, configFingerprint: "d".repeat(64) },
 			{ ...current, ignoreFingerprint: "ignore-b" },
-			{ ...current, parserFingerprint: "next-parser" },
 		]) expect(evaluateRepoMapFreshness(metadata, changed, "partially_stale")).toBe("stale");
 	});
 

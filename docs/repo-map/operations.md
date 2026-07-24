@@ -24,7 +24,7 @@
 
 ### `/init rebuild`
 
-不复用旧 generation，从当前仓库完整建立索引。适用于 generation 损坏、parser/schema 变化或 refresh 无法恢复时。
+不复用旧 generation，从当前仓库完整建立索引。适用于 generation 损坏或 refresh 无法恢复时。
 
 ### `/init off`
 

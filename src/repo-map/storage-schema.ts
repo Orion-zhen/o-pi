@@ -1,7 +1,6 @@
 import { Type } from "typebox";
 import { Compile } from "typebox/compile";
 
-import { REPO_MAP_SCHEMA_VERSION } from "./identity.js";
 import type {
 	RepoMapArchitectureNode,
 	RepoMapDiagnostic,
@@ -32,7 +31,6 @@ const EvidenceSchema = Type.Object({
 }, objectOptions);
 
 const MetadataSchema = Type.Unsafe<RepoMapMetadata>(Type.Object({
-	schemaVersion: Type.Literal(REPO_MAP_SCHEMA_VERSION),
 	mapId: hash,
 	repositoryRoot: nonEmptyString,
 	worktreeRoot: nonEmptyString,
@@ -55,7 +53,6 @@ const MetadataSchema = Type.Unsafe<RepoMapMetadata>(Type.Object({
 	gitRevision: Type.Optional(Type.String({ pattern: "^[0-9a-f]{40,64}$" })),
 	configFingerprint: hash,
 	ignoreFingerprint: nonEmptyString,
-	parserFingerprint: nonEmptyString,
 }, objectOptions));
 
 const FileSchema = Type.Unsafe<RepoMapFileRecord>(Type.Object({
@@ -155,6 +152,7 @@ const EdgeSchema = Type.Unsafe<RepoMapEdge>(Type.Object({
 	source: Type.Union([Type.Literal("tree-sitter"), Type.Literal("syntax"), Type.Literal("manifest"), Type.Literal("lsp"), Type.Literal("convention")]),
 	confidence,
 	lexicalTarget: Type.Optional(nonEmptyString),
+	importKind: Type.Optional(Type.Union([Type.Literal("relative"), Type.Literal("external")])),
 	evidence: Type.Array(EvidenceSchema, { minItems: 1 }),
 }, objectOptions));
 

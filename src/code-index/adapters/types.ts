@@ -1,6 +1,6 @@
 import type ParserModule from "tree-sitter";
 
-import type { SupportedCodeLanguage } from "../types.js";
+import type { ImportKind, SupportedCodeLanguage } from "../types.js";
 
 export type TreeSitterLanguage = ParserModule.Language;
 export type SyntaxNode = ParserModule.SyntaxNode;
@@ -18,12 +18,15 @@ export interface RawUnit {
 	readonly exported: boolean;
 	readonly startChar: number;
 	readonly endChar: number;
+	/** Transient declaration node used to derive lexical facts in the same parse. */
+	readonly sourceNode: SyntaxNode;
 }
 
 export interface RawImport {
 	readonly specifier: string;
 	readonly startChar: number;
 	readonly endChar: number;
+	readonly importKind?: ImportKind;
 }
 
 /** 阶段 1 使用的 adapter 元数据；不会在导入时加载 grammar。 */

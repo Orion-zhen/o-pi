@@ -75,12 +75,12 @@ function extractCppImports(root: SyntaxNode): RawImport[] {
 		const path = node.childForFieldName("path");
 		if (path === null) return;
 		if (path.type === "system_lib_string") {
-			imports.push({ specifier: path.text.slice(1, -1), startChar: path.startIndex + 1, endChar: path.endIndex - 1 });
+			imports.push({ specifier: path.text.slice(1, -1), startChar: path.startIndex + 1, endChar: path.endIndex - 1, importKind: "external" });
 			return;
 		}
 		if (path.type === "string_literal") {
 			const content = path.namedChildren[0];
-			if (content !== undefined) imports.push(rawImport(path, content));
+			if (content !== undefined) imports.push(rawImport(path, content, "relative"));
 		}
 	});
 	return imports;

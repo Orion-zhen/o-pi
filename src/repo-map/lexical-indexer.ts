@@ -120,7 +120,7 @@ async function sourceAliases(input: BuildRepoMapLexicalAliasesInput): Promise<Re
 			}
 			throwIfAborted(input.signal);
 			try {
-				const text = await readText(path.join(input.root, file.path), input.signal);
+				const text = await readText(path.join(input.root, file.path), input.signal, file.size);
 				throwIfAborted(input.signal);
 				return sha256(text) === file.contentHash ? extractSourceAliases(file, text) : [];
 			} catch {

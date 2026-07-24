@@ -1,4 +1,4 @@
-import type { IndexedImport, LineIndex } from "../types.js";
+import type { ImportKind, IndexedImport, LineIndex } from "../types.js";
 import type { RawImport, RawUnit, SyntaxNode } from "./types.js";
 
 export interface UnitRules {
@@ -30,14 +30,31 @@ export function rawUnit(node: SyntaxNode, kind: string, name: string, scope?: st
 		exported,
 		startChar: range.startIndex,
 		endChar: range.endIndex,
+		sourceNode: node,
 	};
 }
 
-export function rawImport(node: SyntaxNode, specifierNode: SyntaxNode = node): RawImport {
+export interface RawUnitRelations {
+	references: string[];
+	calls: string[];
+}
+
+/** Extract lexical facts from syntax nodes owned by this unit, excluding separately indexed child units. */
+export function extractUnitRelations(unit: RawUnit, unitNodeIds: ReadonlySet<number>): RawUnitRelations {
+	const references = new Set<string>();
+	const calls = new Set<string>();
+	walkRelations(unit.sourceNode, unit.sourceNode.id, unitNodeIds, references, calls);
+	if (unit.name !== undefined) references.delete(unit.name);
+	if (unit.qualifiedName !== undefined) references.delete(unit.qualifiedName);
+	return { references: [...references], calls: [...calls] };
+}
+
+export function rawImport(node: SyntaxNode, specifierNode: SyntaxNode = node, importKind?: ImportKind): RawImport {
 	return {
 		specifier: specifierNode.text,
 		startChar: specifierNode.startIndex,
 		endChar: specifierNode.endIndex,
+		...(importKind !== undefined ? { importKind } : {}),
 	};
 }
 
@@ -105,11 +122,12 @@ export function indexRawImports(index: LineIndex, rawImports: readonly RawImport
 	for (const match of rawImports) {
 		const startByte = index.byteForChar(match.startChar);
 		const endByte = index.byteForChar(match.endChar);
-		const key = `${match.specifier}\0${startByte}\0${endByte}`;
+		const key = `${match.specifier}\0${match.importKind ?? ""}\0${startByte}\0${endByte}`;
 		if (seen.has(key)) continue;
 		seen.add(key);
 		imports.push({
 			specifier: match.specifier,
+			...(match.importKind !== undefined ? { importKind: match.importKind } : {}),
 			startLine: index.lineForByte(startByte),
 			endLine: index.lineForByte(Math.max(startByte, endByte - 1)),
 			startByte,
@@ -117,6 +135,53 @@ export function indexRawImports(index: LineIndex, rawImports: readonly RawImport
 		});
 	}
 	return imports.sort((left, right) => left.startByte - right.startByte || left.endByte - right.endByte || (left.specifier < right.specifier ? -1 : left.specifier > right.specifier ? 1 : 0));
+}
+
+const CALL_NODE_TYPES = new Set(["call", "call_expression", "new_expression"]);
+const STATIC_CALLEE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/u;
+
+function walkRelations(
+	node: SyntaxNode,
+	rootNodeId: number,
+	unitNodeIds: ReadonlySet<number>,
+	references: Set<string>,
+	calls: Set<string>,
+): void {
+	if (node.id !== rootNodeId && unitNodeIds.has(node.id)) return;
+	const callable = callableNode(node);
+	if (callable !== undefined) {
+		const target = staticCallee(callable);
+		if (target === undefined) walkRelations(callable, rootNodeId, unitNodeIds, references, calls);
+		else calls.add(target);
+		for (const child of node.namedChildren) {
+			if (child.id !== callable.id) walkRelations(child, rootNodeId, unitNodeIds, references, calls);
+		}
+		return;
+	}
+	if (isIdentifierLeaf(node)) references.add(node.text);
+	for (const child of node.namedChildren) walkRelations(child, rootNodeId, unitNodeIds, references, calls);
+}
+
+function callableNode(node: SyntaxNode): SyntaxNode | undefined {
+	if (!CALL_NODE_TYPES.has(node.type)) return undefined;
+	return node.childForFieldName("function")
+		?? node.childForFieldName("constructor")
+		?? node.childForFieldName("type")
+		?? undefined;
+}
+
+function staticCallee(node: SyntaxNode): string | undefined {
+	if (isIdentifierLeaf(node)) return node.text;
+	const normalized = node.text
+		.replace(/\s+/gu, "")
+		.replaceAll("?.", ".")
+		.replaceAll("->", ".")
+		.replaceAll("::", ".");
+	return STATIC_CALLEE.test(normalized) ? normalized : undefined;
+}
+
+function isIdentifierLeaf(node: SyntaxNode): boolean {
+	return node.namedChildren.length === 0 && (node.type === "identifier" || node.type.endsWith("_identifier"));
 }
 
 function compareRawUnits(left: RawUnit, right: RawUnit): number {

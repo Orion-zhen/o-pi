@@ -96,7 +96,6 @@ describe("Repo Map generation storage", () => {
 			mapId,
 			configFingerprint: "c".repeat(64),
 			ignoreFingerprint: "ignore",
-			parserFingerprint: "format",
 			files: [file],
 			symbols: [symbol],
 			tests: [],
@@ -124,7 +123,6 @@ describe("Repo Map generation storage", () => {
 			mapId,
 			configFingerprint: "c".repeat(64),
 			ignoreFingerprint: "ignore",
-			parserFingerprint: "format",
 			files,
 			symbols: [symbol],
 			tests: [],
@@ -181,12 +179,12 @@ describe("Repo Map generation storage", () => {
 		expect(await readGeneration(temp.path, mapId, metadata.generation, root)).toBeUndefined();
 	});
 
-	it("rejects corrupt metadata, files, schema, map, and generation mismatches", async () => {
+	it("rejects corrupt metadata, files, map, and generation mismatches", async () => {
 		const files = [indexed("a.ts", "a")];
 		const metadata = makeMetadata(files);
 		await commitGeneration({ cacheRoot: temp.path, maxGenerations: 2, metadata, files, symbols: [], tests: [], architecture: [], aliases: [], edges: [], diagnostics: [] });
 		const directory = path.join(temp.path, mapId, "generations", metadata.generation);
-		await writeFile(path.join(directory, "metadata.json"), JSON.stringify({ ...metadata, schemaVersion: 1 }));
+		await writeFile(path.join(directory, "metadata.json"), JSON.stringify({ ...metadata, unexpected: true }));
 		expect(await readGeneration(temp.path, mapId, metadata.generation, root)).toBeUndefined();
 		await writeFile(path.join(directory, "metadata.json"), JSON.stringify(metadata));
 		await writeFile(path.join(directory, "files.json"), JSON.stringify([{ ...files[0], unexpected: true }]));
@@ -290,7 +288,6 @@ function makeMetadata(
 		mapId,
 		configFingerprint: "c".repeat(64),
 		ignoreFingerprint: "ignore",
-		parserFingerprint: "format",
 		headRevision: "d".repeat(40),
 		files,
 		symbols,
@@ -301,7 +298,6 @@ function makeMetadata(
 		diagnostics: [],
 	});
 	return {
-		schemaVersion: 6,
 		mapId,
 		repositoryRoot: root,
 		worktreeRoot: root,
@@ -324,7 +320,6 @@ function makeMetadata(
 		gitRevision: "d".repeat(40),
 		configFingerprint: "c".repeat(64),
 		ignoreFingerprint: "ignore",
-		parserFingerprint: "format",
 	};
 }
 

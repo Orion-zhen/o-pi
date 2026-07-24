@@ -143,6 +143,29 @@ describe("shared code parser", () => {
 		]);
 	});
 
+	it.each([
+		["caller.js", "function caller() { target(); obj.run(); const text = 'fake()'; /* ignored() */ return Value; }", "obj.run"],
+		["caller.jsx", "function caller() { target(); obj.run(); const text = 'fake()'; /* ignored() */ return Value; }", "obj.run"],
+		["caller.ts", "function caller() { target(); obj.run(); const text = 'fake()'; /* ignored() */ return Value; }", "obj.run"],
+		["caller.tsx", "function caller() { target(); obj.run(); const text = 'fake()'; /* ignored() */ return Value; }", "obj.run"],
+		["caller.py", "def caller():\n  target()\n  obj.run()\n  text = 'fake()'\n  # ignored()\n  return Value\n", "obj.run"],
+		["caller.go", "package p\nfunc caller() { target(); obj.Run(); text := \"fake()\"; _ = text; _ = Value /* ignored() */ }\n", "obj.Run"],
+		["caller.rs", "fn caller() { target(); obj.run(); let text = \"fake()\"; let _ = Value; /* ignored() */ }\n", "obj.run"],
+		["caller.c", "int caller(void) { target(); obj.run(); const char *text = \"fake()\"; return Value; /* ignored() */ }\n", "obj.run"],
+		["caller.cpp", "int caller() { target(); obj.run(); const char *text = \"fake()\"; return Value; /* ignored() */ }\n", "obj.run"],
+	])("从 %s AST 提取调用和引用，忽略字符串与注释", (filePath, text, memberCall) => {
+		const unit = parseCodeUnits(filePath, text).units.find((candidate) => candidate.name === "caller");
+		if (unit === undefined) throw new Error(`missing caller unit for ${filePath}`);
+		expect(unit.calls).toEqual(["target", memberCall]);
+		expect(unit.references).toContain("Value");
+		expect(unit.references).not.toEqual(expect.arrayContaining(["caller", "fake", "ignored"]));
+	});
+
+	it("动态外层调用仍保留可静态识别的内层调用", () => {
+		const unit = parseCodeUnits("nested-call.ts", "function caller() { return factory()(); }\n").units[0];
+		expect(unit?.calls).toEqual(["factory"]);
+	});
+
 	it("函数内部局部声明不拆分为独立 region", () => {
 		const parsed = parseCodeUnits("a.ts", "export function demo() {\n  const Token = 'Token';\n  return Token;\n}\n");
 		expect(parsed.units.map((unit) => unit.qualifiedName)).toEqual(["demo"]);
@@ -233,6 +256,26 @@ describe("shared code parser", () => {
 		const normalized = splitTokens(queryTokens.join(" ")).map((token) => token.toLocaleLowerCase());
 		const complete = tokenizeText(text);
 		expect(countTextTokenMatches(text, normalized)).toBe(normalized.filter((token) => complete.has(token)).length);
+	});
+
+	it.each([
+		{
+			text: "retry retry retry once",
+			expected: new Map([
+				["retry", 3],
+				["once", 1],
+			]),
+		},
+		{
+			text: "RetryWorker RetryWorker",
+			expected: new Map([
+				["retryworker", 2],
+				["retry", 2],
+				["worker", 2],
+			]),
+		},
+	])("tokenizeText 按 occurrence 累计原始和拆分 token 的 TF: $text", ({ text, expected }) => {
+		expect(tokenizeText(text)).toEqual(expected);
 	});
 
 	it("symbol ID 由 file、kind、qualified name 和 start byte 决定，同名位置可区分且不依赖 end byte", () => {

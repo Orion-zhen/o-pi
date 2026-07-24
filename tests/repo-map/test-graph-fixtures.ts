@@ -52,7 +52,6 @@ export async function generationWithTestGraph(
 	const testGraph = await buildRepoMapTestGraph({ root, files, symbols: architecture.symbols, edges: baseEdges, readText });
 	const edges = [...baseEdges, ...testGraph.edges].sort(compareRepoMapEdge);
 	const metadata: RepoMapMetadata = {
-		schemaVersion: 6,
 		mapId,
 		repositoryRoot: root,
 		worktreeRoot: root,
@@ -74,7 +73,6 @@ export async function generationWithTestGraph(
 		diagnosticCount: architecture.diagnostics.length + testGraph.diagnostics.length,
 		configFingerprint: "config",
 		ignoreFingerprint: "ignore",
-		parserFingerprint: "parser",
 	};
 	return {
 		metadata,

@@ -160,7 +160,6 @@ async function generationFromSources(root: string, sources: ReadonlyMap<string, 
 	const generation = "b".repeat(64);
 	const edges = buildRepoMapRelationships({ mapId, files, symbols: indexed.symbols, imports: indexed.imports });
 	const metadata: RepoMapMetadata = {
-		schemaVersion: 6,
 		mapId,
 		repositoryRoot: root,
 		worktreeRoot: root,
@@ -182,7 +181,6 @@ async function generationFromSources(root: string, sources: ReadonlyMap<string, 
 		diagnosticCount: 0,
 		configFingerprint: "config",
 		ignoreFingerprint: "ignore",
-		parserFingerprint: "parser",
 	};
 	return { metadata, files, symbols: indexed.symbols, tests: [], architecture: [], aliases: [], edges, diagnostics: [] };
 }

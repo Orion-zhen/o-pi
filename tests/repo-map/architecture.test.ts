@@ -90,6 +90,28 @@ describe("Repo Map architecture graph", () => {
 		expect(testReads).not.toContain("tests/plugin.test.ts");
 	});
 
+	it("export * 只公开目标文件的 exported top-level symbol", async () => {
+		const generation = await generationFromSources(temp.path, new Map([
+			["package.json", JSON.stringify({ name: "star-export", exports: "./src/index.ts" })],
+			["src/index.ts", "export * from './impl';\n"],
+			["src/impl.ts", "export const PublicValue = 1;\nconst internalValue = 2;\nclass Internal {}\nexport class PublicClass { method() {} }\n"],
+		]));
+		const publicValue = generation.symbols.find((symbol) => symbol.name === "PublicValue");
+		const publicClass = generation.symbols.find((symbol) => symbol.name === "PublicClass");
+		const publicMethod = generation.symbols.find((symbol) => symbol.qualifiedName === "PublicClass.method");
+		const internalValue = generation.symbols.find((symbol) => symbol.name === "internalValue");
+		const internalClass = generation.symbols.find((symbol) => symbol.name === "Internal");
+		const expected = [publicValue, publicClass, publicMethod, internalValue, internalClass];
+		if (expected.some((symbol) => symbol === undefined)) throw new Error("missing star-export symbols");
+
+		expect(publicValue?.visibility).toBe("public");
+		expect(publicClass?.visibility).toBe("public");
+		for (const symbol of [publicMethod, internalValue, internalClass]) expect(symbol?.visibility).toBe("internal");
+		expect(generation.edges).not.toEqual(expect.arrayContaining(
+			[publicMethod, internalValue, internalClass].map((symbol) => expect.objectContaining({ kind: "exports-publicly", to: symbol?.id })),
+		));
+	});
+
 	it("marks exported variable declarations as public API", async () => {
 		const generation = await generationFromSources(temp.path, new Map([
 			["package.json", JSON.stringify({ name: "variables", exports: "./src/index.ts" })],
@@ -212,11 +234,11 @@ async function generationFromSources(root: string, sources: ReadonlyMap<string, 
 	const architecture = await buildRepoMapArchitecture({ root, mapId, files, symbols: indexed.symbols, async readText(absolutePath) { return sources.get(path.relative(root, absolutePath).replaceAll(path.sep, "/")) ?? ""; } });
 	const edges = [...buildRepoMapRelationships({ mapId, files, symbols: architecture.symbols, imports: indexed.imports }), ...architecture.edges];
 	const metadata: RepoMapMetadata = {
-		schemaVersion: 6, mapId, repositoryRoot: root, worktreeRoot: root, gitCommonDir: path.join(root, ".git"), generation: "b".repeat(64),
+		mapId, repositoryRoot: root, worktreeRoot: root, gitCommonDir: path.join(root, ".git"), generation: "b".repeat(64),
 		createdAt: "2026-07-18T00:00:00.000Z", updatedAt: "2026-07-18T00:00:00.000Z", freshness: "fresh",
 		fileCount: files.length, indexedFileCount: files.length, parsedFileCount: indexed.parsedFileCount, unsupportedFileCount: indexed.unsupportedFileCount,
 		parseErrorFileCount: indexed.parseErrorFileCount, symbolCount: architecture.symbols.length, testNodeCount: 0, edgeCount: edges.length, aliasCount: 0, tooLargeFileCount: 0,
-		diagnosticCount: architecture.diagnostics.length, configFingerprint: "config", ignoreFingerprint: "ignore", parserFingerprint: "parser",
+		diagnosticCount: architecture.diagnostics.length, configFingerprint: "config", ignoreFingerprint: "ignore",
 	};
 	return { metadata, files, symbols: architecture.symbols, tests: [], architecture: architecture.nodes, aliases: [], edges, diagnostics: architecture.diagnostics };
 }

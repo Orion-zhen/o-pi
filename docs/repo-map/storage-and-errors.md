@@ -19,15 +19,15 @@
     └── diagnostics.json
 ```
 
-map ID 由 schema major、规范化 worktree root 和 Git common directory 计算。不同 worktree 即使共用 Git common directory，也有不同 map ID。
+map ID 由规范化 worktree root 和 Git common directory 计算。不同 worktree 即使共用 Git common directory，也有不同 map ID。
 
 ## Generation ID
 
 generation ID 是稳定快照的 SHA-256，输入包括：
 
-- map ID、schema version。
+- map ID。
 - Repo Map 与完整 File Tools 配置 fingerprint。
-- ignore 和 parser fingerprint。
+- ignore fingerprint。
 - 可选 HEAD revision。
 - 排序后的 files、symbols、tests、architecture、aliases、edges 和 diagnostics。
 

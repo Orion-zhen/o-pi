@@ -3,7 +3,7 @@ import { parse as parseToml } from "smol-toml";
 
 import { throwIfAborted } from "./errors.js";
 import { coalesceRepoMapEdges, compareText, groupBy, uniqueBy } from "./graph.js";
-import { fileEvidence, rangeEvidence, readTextNoFollow, sha256, sourceEvidence, type RepoMapReadText, type RepoMapSourceFile } from "./source.js";
+import { fileEvidence, rangeEvidence, readTextNoFollow, RepoMapReadLimitError, sha256, sourceEvidence, type RepoMapReadText, type RepoMapSourceFile } from "./source.js";
 import { javascriptSyntaxFacts, type JavaScriptSyntaxFacts, type NamedSyntaxFact } from "./syntax-facts.js";
 import type {
 	RepoMapDiagnostic,
@@ -56,14 +56,16 @@ export async function buildRepoMapTestGraph(input: BuildRepoMapTestGraphInput): 
 	for (const file of filesToRead.values()) {
 		throwIfAborted(input.signal);
 		try {
-			const text = await readText(path.join(input.root, file.path), input.signal);
+			const text = await readText(path.join(input.root, file.path), input.signal, file.size);
 			if (file.contentHash === undefined || sha256(text) !== file.contentHash) {
 				diagnostics.push({ code: "TEST_GRAPH_FILE_CHANGED", message: "File changed while test relationships were indexed.", path: file.path });
 				continue;
 			}
 			sources.set(file.id, { file, text });
-		} catch {
-			diagnostics.push({ code: "TEST_GRAPH_FILE_UNREADABLE", message: "File could not be read while test relationships were indexed.", path: file.path });
+		} catch (error) {
+			diagnostics.push(error instanceof RepoMapReadLimitError
+				? { code: "TEST_GRAPH_FILE_CHANGED", message: "File changed while test relationships were indexed.", path: file.path }
+				: { code: "TEST_GRAPH_FILE_UNREADABLE", message: "File could not be read while test relationships were indexed.", path: file.path });
 		}
 	}
 

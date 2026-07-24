@@ -22,7 +22,7 @@ Parser 按 grammar descriptor 缓存于当前进程或 worker，并在解析不�
 
 首次构建扫描并建立完整图。refresh 可以复用 previous file records、未变化文件的 symbol/import/architecture 数据；变化文件重新校验 content hash 并解析。正常 service 链中，symbol parser 产生的 syntax facts transient 传给 architecture/test，不再重复读取或解析同一变更 JS-family 文件。
 
-只有文件、Git revision、配置、ignore 和 parser fingerprint 都一致时，才会直接复用完整 generation。否则只复用仍然安全的局部结果。
+只有文件、Git revision、配置和 ignore 都一致时，才会直接复用完整 generation。否则只复用仍然安全的局部结果。
 
 ## 并发与 worker
 
@@ -38,7 +38,7 @@ grep 和 Repo Map 共用严格类型的 worker task lifecycle：queue、request 
 
 每个 map 保留有限数量 generation。新 generation 成功提交后，旧 generation 按稳定规则清理；current pointer 始终指向完整提交的 generation。
 
-缓存读取使用有限的进程内 reader cache，但 freshness 仍会检查磁盘 current pointer、Git revision、配置、ignore fingerprint 和 parser fingerprint。worker 生命周期结束后会 terminate/dispose，idle worker 使用 `unref`，不阻止进程自然退出。
+缓存读取使用有限的进程内 reader cache，但 freshness 仍会检查磁盘 current pointer、Git revision、配置和 ignore fingerprint。worker 生命周期结束后会 terminate/dispose，idle worker 使用 `unref`，不阻止进程自然退出。
 
 ## 调优方向
 

@@ -10,17 +10,37 @@ export interface RepoMapSourceFile {
 	text: string;
 }
 
-export type RepoMapReadText = (absolutePath: string, signal?: AbortSignal) => Promise<string>;
+export type RepoMapReadText = (absolutePath: string, signal?: AbortSignal, maxBytes?: number) => Promise<string>;
+
+export class RepoMapReadLimitError extends Error {
+	readonly code = "REPO_MAP_READ_LIMIT_EXCEEDED";
+
+	constructor(readonly maxBytes: number) {
+		super(`File exceeds the ${maxBytes} byte read limit.`);
+		this.name = "RepoMapReadLimitError";
+	}
+}
 
 export function sha256(value: string | Buffer): string {
 	return createHash("sha256").update(value).digest("hex");
 }
 
-export async function readTextNoFollow(absolutePath: string, signal?: AbortSignal): Promise<string> {
+export async function readTextNoFollow(absolutePath: string, signal?: AbortSignal, maxBytes?: number): Promise<string> {
 	throwIfAborted(signal);
+	if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes < 0)) throw new RangeError("maxBytes must be a non-negative safe integer.");
 	const handle = await open(absolutePath, constants.O_RDONLY | constants.O_NOFOLLOW);
 	try {
-		return await handle.readFile({ encoding: "utf8", ...(signal !== undefined ? { signal } : {}) });
+		if (maxBytes === undefined) return await handle.readFile({ encoding: "utf8", ...(signal !== undefined ? { signal } : {}) });
+		const buffer = Buffer.allocUnsafe(maxBytes + 1);
+		let offset = 0;
+		while (offset < buffer.length) {
+			throwIfAborted(signal);
+			const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset);
+			if (bytesRead === 0) break;
+			offset += bytesRead;
+		}
+		if (offset > maxBytes) throw new RepoMapReadLimitError(maxBytes);
+		return buffer.subarray(0, offset).toString("utf8");
 	} finally {
 		await handle.close();
 	}

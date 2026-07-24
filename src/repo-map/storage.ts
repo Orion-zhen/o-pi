@@ -7,7 +7,7 @@ import { lock } from "proper-lockfile";
 import { createFileIdentity, createSymbolId } from "../code-index/identity.js";
 import { RepoMapError, throwIfAborted } from "./errors.js";
 import { compareRepoMapEdge, compareRepoMapEvidence, compareText } from "./graph.js";
-import { createRepoMapId, REPO_MAP_SCHEMA_VERSION } from "./identity.js";
+import { createRepoMapId } from "./identity.js";
 import { storageValidators } from "./storage-schema.js";
 import type {
 	RepoMapArchitectureNode,
@@ -93,7 +93,6 @@ export interface CalculateRepoMapGenerationInput {
 	mapId: string;
 	configFingerprint: string;
 	ignoreFingerprint: string;
-	parserFingerprint: string;
 	headRevision?: string;
 	files: readonly RepoMapFileRecord[];
 	symbols: readonly RepoMapSymbolNode[];
@@ -154,7 +153,7 @@ export function calculateGeneration(input: CalculateRepoMapGenerationInput): str
 
 function calculateCanonicalGeneration(input: CalculateRepoMapGenerationInput): string {
 	const hash = createHash("sha256");
-	for (const value of [input.mapId, REPO_MAP_SCHEMA_VERSION, input.configFingerprint, input.ignoreFingerprint, input.parserFingerprint, input.headRevision ?? null]) {
+	for (const value of [input.mapId, input.configFingerprint, input.ignoreFingerprint, input.headRevision ?? null]) {
 		updateGenerationValue(hash, value);
 	}
 	updateGenerationArray(hash, input.files, (file) =>
@@ -173,7 +172,7 @@ function calculateCanonicalGeneration(input: CalculateRepoMapGenerationInput): s
 		alias.term, alias.canonical, alias.target, alias.source, alias.confidence, evidenceSnapshot(alias.evidence),
 	]);
 	updateGenerationArray(hash, input.edges, (edge) => [
-		edge.kind, edge.from, edge.to, edge.resolution, edge.source, edge.confidence, edge.lexicalTarget ?? null,
+		edge.kind, edge.from, edge.to, edge.resolution, edge.source, edge.confidence, edge.lexicalTarget ?? null, edge.importKind ?? null,
 		evidenceSnapshot(edge.evidence),
 	]);
 	updateGenerationArray(hash, input.diagnostics, (diagnostic) =>
@@ -262,7 +261,6 @@ export async function readGeneration(
 			mapId,
 			configFingerprint: metadata.configFingerprint,
 			ignoreFingerprint: metadata.ignoreFingerprint,
-			parserFingerprint: metadata.parserFingerprint,
 			...(metadata.gitRevision !== undefined ? { headRevision: metadata.gitRevision } : {}),
 			files,
 			symbols,
@@ -455,7 +453,6 @@ function validateCommitInput(input: CommitGenerationInput): void {
 		mapId: metadata.mapId,
 		configFingerprint: metadata.configFingerprint,
 		ignoreFingerprint: metadata.ignoreFingerprint,
-		parserFingerprint: metadata.parserFingerprint,
 		...(metadata.gitRevision !== undefined ? { headRevision: metadata.gitRevision } : {}),
 		files,
 		symbols,
@@ -642,6 +639,7 @@ function validateEdges(
 	assertShape(storageValidators.edges, value, "edges");
 	const nodes = new Set([`repository:${mapId}`, ...files.map((file) => file.id), ...symbols.map((symbol) => symbol.id), ...architecture.map((node) => node.id), ...tests.map((node) => node.id)]);
 	for (const edge of value) {
+		if (edge.importKind !== undefined && edge.kind !== "imports") throw new Error("invalid import edge metadata");
 		if (!nodes.has(edge.from) || (!nodes.has(edge.to) && !edge.to.startsWith("external:") && !edge.to.startsWith("lexical:symbol:"))) {
 			throw new Error("dangling edge");
 		}

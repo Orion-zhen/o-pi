@@ -3,7 +3,7 @@ import { parse as parseToml } from "smol-toml";
 
 import { throwIfAborted } from "./errors.js";
 import { coalesceRepoMapEdges, compareText, uniqueBy } from "./graph.js";
-import { fileEvidence, rangeEvidence, readTextNoFollow, sha256, sourceEvidence, symbolEvidence, type RepoMapReadText, type RepoMapSourceFile } from "./source.js";
+import { fileEvidence, rangeEvidence, readTextNoFollow, RepoMapReadLimitError, sha256, sourceEvidence, symbolEvidence, type RepoMapReadText, type RepoMapSourceFile } from "./source.js";
 import { javascriptSyntaxFacts, type JavaScriptSyntaxFacts, type RegistrationFact } from "./syntax-facts.js";
 import { isRepoMapSymbolPublic } from "./visibility.js";
 import type {
@@ -75,14 +75,16 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 		if (!shouldRead(file)) continue;
 		throwIfAborted(input.signal);
 		try {
-			const text = await readText(path.join(input.root, file.path), input.signal);
+			const text = await readText(path.join(input.root, file.path), input.signal, file.size);
 			if (file.contentHash === undefined || sha256(text) !== file.contentHash) {
 				diagnostics.push({ code: "ARCHITECTURE_FILE_CHANGED", message: "File changed while architecture facts were indexed.", path: file.path });
 				continue;
 			}
 			sourceFiles.set(file.path, { file, text });
-		} catch {
-			diagnostics.push({ code: "ARCHITECTURE_FILE_UNREADABLE", message: "File could not be read while architecture facts were indexed.", path: file.path });
+		} catch (error) {
+			diagnostics.push(error instanceof RepoMapReadLimitError
+				? { code: "ARCHITECTURE_FILE_CHANGED", message: "File changed while architecture facts were indexed.", path: file.path }
+				: { code: "ARCHITECTURE_FILE_UNREADABLE", message: "File could not be read while architecture facts were indexed.", path: file.path });
 		}
 	}
 
@@ -500,7 +502,8 @@ function resolveDeclaredTarget(
 }
 
 function isRequestedExport(symbol: RepoMapSymbolNode, names: "*" | ReadonlySet<string>): boolean {
-	return names === "*" || (symbol.name !== undefined && names.has(symbol.name));
+	if (!isRepoMapSymbolPublic(symbol) || symbol.name === undefined) return false;
+	return names === "*" || names.has(symbol.name);
 }
 
 function groupByFile(symbols: readonly RepoMapSymbolNode[]): Map<string, RepoMapSymbolNode[]> {

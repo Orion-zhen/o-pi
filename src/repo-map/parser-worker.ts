@@ -3,7 +3,7 @@ import path from "node:path";
 import { parentPort } from "node:worker_threads";
 
 import { analyzeCodeFile, languageFromPath } from "../code-index/parser.js";
-import { readTextNoFollow } from "./source.js";
+import { readTextNoFollow, RepoMapReadLimitError } from "./source.js";
 import { javascriptSyntaxFactsFromDocument } from "./syntax-facts.js";
 import type { RepoMapParserFileResult, RepoMapParserRequest, RepoMapParserResponse } from "./parser-task.js";
 
@@ -29,7 +29,7 @@ async function handle(request: RepoMapParserRequest): Promise<void> {
 async function parseFile(root: string, file: RepoMapParserFileResult["file"]): Promise<RepoMapParserFileResult> {
 	if (languageFromPath(file.path) === "text") return { file, status: "unsupported" };
 	try {
-		const text = await readTextNoFollow(path.join(root, file.path));
+		const text = await readTextNoFollow(path.join(root, file.path), undefined, file.size);
 		if (file.contentHash === undefined || createHash("sha256").update(text).digest("hex") !== file.contentHash) {
 			return {
 				file,
@@ -59,7 +59,9 @@ async function parseFile(root: string, file: RepoMapParserFileResult["file"]): P
 		return {
 			file,
 			status: "error",
-			diagnostic: { code: "PARSER_ERROR", message: error instanceof Error ? `File could not be parsed: ${error.message}` : "File could not be parsed." },
+			diagnostic: error instanceof RepoMapReadLimitError
+				? { code: "FILE_CHANGED_DURING_PARSE", message: "File changed after scanning and was not parsed." }
+				: { code: "PARSER_ERROR", message: error instanceof Error ? `File could not be parsed: ${error.message}` : "File could not be parsed." },
 		};
 	}
 }

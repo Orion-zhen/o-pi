@@ -43,6 +43,27 @@ describe("Repo Map parser workers", () => {
 		expect(facts?.registrations.map((registration) => registration.name)).toEqual(["worker-command"]);
 	});
 
+	it("把扫描后增长并超过记录大小的文件报告为 changed", async () => {
+		const source = "export const beforeGrowth = true;\n";
+		const filePath = "src/grew.ts";
+		await mkdir(path.join(temp.path, "src"), { recursive: true });
+		await writeFile(path.join(temp.path, filePath), `${source}${"export const added = true;\n".repeat(64)}`);
+		const file = {
+			...createFileIdentity(filePath),
+			size: Buffer.byteLength(source),
+			mtimeMs: 1,
+			status: "indexed" as const,
+			contentHash: createHash("sha256").update(source).digest("hex"),
+		};
+
+		const result = await indexRepoMapSymbols({ root: temp.path, files: [file], concurrency: 1 });
+
+		expect(result.symbols).toEqual([]);
+		expect(result.diagnostics).toEqual([
+			expect.objectContaining({ code: "FILE_CHANGED_DURING_PARSE", path: filePath }),
+		]);
+	});
+
 	it("falls back locally after worker creation failure", async () => {
 		const source = "export const localFallback = true;\n";
 		const filePath = "src/fallback.ts";

@@ -100,6 +100,84 @@ describe("Repo Map symbol and relationship graph", () => {
 		expect(withoutB.some((edge) => edge.to === helper.id || edge.to === value.id || edge.to === "file:b.ts")).toBe(false);
 	});
 
+	it("只把实际代码调用和引用建立为关系，不把控制语句、字符串和注释当成 symbol 关系", async () => {
+		const sources = new Map([
+			["caller.ts", [
+				"export function caller(value: boolean) {",
+				"  if (value) target();",
+				"  const message = \"fake() FakeReference\";",
+				"  // ignored(); IgnoredReference",
+				"  return ActualValue + message.length;",
+				"}",
+			].join("\n")],
+			["targets.ts", [
+				"export function target() {}",
+				"export function fake() {}",
+				"export function ignored() {}",
+				"export const ActualValue = 1;",
+				"export const FakeReference = 2;",
+				"export const IgnoredReference = 3;",
+			].join("\n")],
+		]);
+		const files = [...sources].map(([filePath, text]) => indexed(filePath, text));
+		const indexedSymbols = await indexRepoMapSymbols({ root, files, concurrency: 2, readText: readSources(sources) });
+		const edges = buildRepoMapRelationships({ mapId: "e".repeat(64), files, symbols: indexedSymbols.symbols, imports: indexedSymbols.imports });
+		const caller = indexedSymbols.symbols.find((symbol) => symbol.name === "caller");
+		if (caller === undefined) throw new Error("missing caller");
+		const callerEdges = edges.filter((edge) => edge.from === caller.id && (edge.kind === "calls" || edge.kind === "references"));
+
+		expect(callerEdges.filter((edge) => edge.kind === "calls").map((edge) => edge.lexicalTarget)).toEqual(["target"]);
+		expect(callerEdges.filter((edge) => edge.kind === "references").map((edge) => edge.lexicalTarget)).toEqual(["ActualValue"]);
+	});
+
+	it("不会把子 symbol 的调用和引用复制到外层 class symbol", async () => {
+		const sources = new Map([
+			["container.ts", "export class Container { child() { helper(); return HelperValue; } }\n"],
+			["helper.ts", "export function helper() {}\nexport const HelperValue = 1;\n"],
+		]);
+		const files = [...sources].map(([filePath, text]) => indexed(filePath, text));
+		const indexedSymbols = await indexRepoMapSymbols({ root, files, concurrency: 2, readText: readSources(sources) });
+		const edges = buildRepoMapRelationships({ mapId: "f".repeat(64), files, symbols: indexedSymbols.symbols, imports: indexedSymbols.imports });
+		const container = indexedSymbols.symbols.find((symbol) => symbol.name === "Container");
+		const child = indexedSymbols.symbols.find((symbol) => symbol.qualifiedName === "Container.child");
+		if (container === undefined || child === undefined) throw new Error("missing nested symbols");
+
+		for (const [kind, lexicalTarget] of [["calls", "helper"], ["references", "HelperValue"]] as const) {
+			expect(edges.filter((edge) => edge.kind === kind && edge.lexicalTarget === lexicalTarget).map((edge) => edge.from)).toEqual([child.id]);
+		}
+	});
+
+	it("解析 C/C++ include 时区分本地 header 与 system header", async () => {
+		const sources = new Map([
+			["src/main.c", "#include \"local.h\"\nint main(void) { return local(); }\n"],
+			["src/local.h", "int local(void);\n"],
+			["src/main.cpp", "#include \"header\"\n#include <stdio.h>\nint run() { return helper(); }\n"],
+			["src/header.hpp", "int helper();\n"],
+			["src/stdio.h", "int repository_stdio(void);\n"],
+		]);
+		const files = [...sources].map(([filePath, text]) => indexed(filePath, text));
+		const indexedSymbols = await indexRepoMapSymbols({ root, files, concurrency: 1, readText: readSources(sources) });
+		const edges = buildRepoMapRelationships({ mapId: "g".repeat(64), files, symbols: indexedSymbols.symbols, imports: indexedSymbols.imports });
+
+		expect(edges).toEqual(expect.arrayContaining([
+			expect.objectContaining({ kind: "imports", from: "file:src/main.c", to: "file:src/local.h", lexicalTarget: "local.h", importKind: "relative" }),
+			expect.objectContaining({ kind: "imports", from: "file:src/main.cpp", to: "file:src/header.hpp", lexicalTarget: "header", importKind: "relative" }),
+			expect.objectContaining({ kind: "imports", from: "file:src/main.cpp", to: "external:stdio.h", lexicalTarget: "stdio.h", importKind: "external" }),
+		]));
+		expect(edges).not.toContainEqual(expect.objectContaining({ kind: "imports", from: "file:src/main.cpp", to: "file:src/stdio.h" }));
+
+		const reused = await indexRepoMapSymbols({
+			root,
+			files,
+			concurrency: 1,
+			readText: readSources(sources),
+			previous: { files, symbols: indexedSymbols.symbols, edges, diagnostics: [] },
+		});
+		expect(reused.imports).toEqual(indexedSymbols.imports);
+		expect(buildRepoMapRelationships({ mapId: "g".repeat(64), files, symbols: reused.symbols, imports: reused.imports }))
+			.toEqual(edges);
+	});
+
 	it("creates export edges for every exported variable declarator", async () => {
 		const text = "export const first = 1, second = 2;\nexport let third = 3;\n";
 		const sources = new Map([["values.ts", text]]);

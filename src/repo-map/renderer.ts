@@ -34,7 +34,6 @@ export function renderStatus(metadata: RepoMapMetadata): string {
 		`aliases: ${metadata.aliasCount}`,
 		`too-large files: ${metadata.tooLargeFileCount}`,
 		`diagnostics: ${metadata.diagnosticCount}`,
-		`cache schema: ${metadata.schemaVersion}`,
 	].join("\n");
 }
 

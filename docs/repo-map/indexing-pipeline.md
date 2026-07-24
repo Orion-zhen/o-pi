@@ -49,7 +49,7 @@ generation 提交完成前不会成为查询可见状态；查询只读取完整
 - 没有新增、修改或删除文件。
 - 扫描没有 diagnostics。
 - 旧 generation 是 `fresh`。
-- config、ignore 和 parser fingerprint 相同。
+- config 和 ignore fingerprint 相同。
 - Git revision 没有变化。
 
 部分变化时，文件扫描和部分 parser 结果仍可复用，但最终 freshness 可能是 `partially_stale`。

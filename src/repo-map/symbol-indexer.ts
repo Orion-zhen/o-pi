@@ -9,7 +9,7 @@ import { createTypeScriptWorker } from "../file-tools/core/typescript-worker.js"
 import { javascriptSyntaxFactsFromDocument, type JavaScriptSyntaxFacts } from "./syntax-facts.js";
 import { throwIfAborted } from "./errors.js";
 import { compareText, groupBy, type RepoMapImportFact, type RepoMapSymbolIndex } from "./graph.js";
-import { readTextNoFollow, type RepoMapReadText } from "./source.js";
+import { readTextNoFollow, RepoMapReadLimitError, type RepoMapReadText } from "./source.js";
 import type { RepoMapDiagnostic, RepoMapEdge, RepoMapFileRecord, RepoMapSymbolNode } from "./types.js";
 import type { RepoMapParserFileResult } from "./parser-task.js"
 
@@ -168,7 +168,7 @@ async function indexFile(
 	previousImports: ReadonlyMap<string, RepoMapImportFact[]>,
 	previousErrors: ReadonlySet<string>,
 	analyze: (filePath: string, text: string) => AnalyzedFileIndex,
-	readText: (absolutePath: string, signal?: AbortSignal) => Promise<string>,
+	readText: RepoMapReadText,
 	signal?: AbortSignal,
 	workerResult?: RepoMapParserFileResult,
 ): Promise<FileIndexResult> {
@@ -188,7 +188,7 @@ async function indexFile(
 	if (workerResult !== undefined) return resultFromWorker(file, workerResult);
 	try {
 		throwIfAborted(signal);
-		const text = await readText(path.join(root, file.path), signal);
+		const text = await readText(path.join(root, file.path), signal, file.size);
 		throwIfAborted(signal);
 		if (file.contentHash === undefined || createHash("sha256").update(text).digest("hex") !== file.contentHash) {
 			return parseFailure(file.path, "FILE_CHANGED_DURING_PARSE", "File changed after scanning and was not parsed.");
@@ -201,6 +201,7 @@ async function indexFile(
 		return parsedResult(file, analyzed, syntaxFacts);
 	} catch (error) {
 		throwIfAborted(signal);
+		if (error instanceof RepoMapReadLimitError) return parseFailure(file.path, "FILE_CHANGED_DURING_PARSE", "File changed after scanning and was not parsed.");
 		return parseFailure(file.path, "PARSER_ERROR", error instanceof Error ? `File could not be parsed: ${error.message}` : "File could not be parsed.");
 	}
 }
@@ -240,6 +241,7 @@ function parsedResult(
 		imports: analyzed.imports.map((item) => ({
 			fileId: file.id,
 			specifier: item.specifier,
+			...(item.importKind !== undefined ? { importKind: item.importKind } : {}),
 			evidence: { path: file.path, ...(file.contentHash !== undefined ? { textHash: file.contentHash } : {}), ...range(item) },
 		})),
 		diagnostics: [],
@@ -292,7 +294,7 @@ function groupImportsByFile(edges: readonly RepoMapEdge[]): Map<string, RepoMapI
 		if (edge.kind !== "imports" || edge.lexicalTarget === undefined) continue;
 		for (const evidence of edge.evidence) {
 			const group = result.get(edge.from) ?? [];
-			group.push({ fileId: edge.from, specifier: edge.lexicalTarget, evidence });
+			group.push({ fileId: edge.from, specifier: edge.lexicalTarget, ...(edge.importKind !== undefined ? { importKind: edge.importKind } : {}), evidence });
 			result.set(edge.from, group);
 		}
 	}
@@ -308,5 +310,8 @@ function compareSymbol(left: RepoMapSymbolNode, right: RepoMapSymbolNode): numbe
 }
 
 function compareImport(left: RepoMapImportFact, right: RepoMapImportFact): number {
-	return compareText(left.fileId, right.fileId) || left.evidence.startByte - right.evidence.startByte || compareText(left.specifier, right.specifier);
+	return compareText(left.fileId, right.fileId)
+		|| left.evidence.startByte - right.evidence.startByte
+		|| compareText(left.specifier, right.specifier)
+		|| compareText(left.importKind ?? "", right.importKind ?? "");
 }

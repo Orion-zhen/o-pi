@@ -52,7 +52,6 @@ describe("Repo Map test graph", () => {
 		await writeSources(root, testGraphSources("export function loadUser() { return 'user'; }\n"));
 		const first = await initializeRepoMap({ cwd: root }, serviceDependencies(root, cacheRoot));
 		const initial = await readGeneration(root, cacheRoot, first.metadata.mapId, first.metadata.generation);
-		expect(initial.metadata.schemaVersion).toBe(6);
 		expect(initial.metadata.testNodeCount).toBe(initial.tests.length);
 		expect(initial.tests.length).toBeGreaterThan(1);
 		const testsSnapshot = JSON.parse(await readFile(path.join(cacheRoot, first.metadata.mapId, "generations", first.metadata.generation, "tests.json"), "utf8")) as unknown[];

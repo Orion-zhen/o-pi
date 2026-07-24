@@ -57,9 +57,9 @@ Repo Map 通过 `/init` 命令管理：
 
 | 状态 | 含义 | 一般处理 |
 | --- | --- | --- |
-| `fresh` | 与当前仓库、配置和 parser 版本一致 | 可以使用结构结果 |
+| `fresh` | 与当前仓库、配置和 ignore 一致 | 可以使用结构结果 |
 | `partially_stale` | 索引可用，但部分文件或解析步骤有问题 | 使用时查看 diagnostics，并用 `read` 验证 |
-| `stale` | Git revision、配置、ignore 或 parser 已变化 | `/init refresh` |
+| `stale` | Git revision、配置或 ignore 已变化 | `/init refresh` |
 | `unavailable` | generation 不存在、损坏或不能读取 | `/init rebuild` 或使用基础文件工具 |
 
 Repo Map 不会用旧索引替代实时文件内容：
@@ -89,10 +89,9 @@ ignore 规则的完整定义见 [File Tools ignore engine](../file-tools/ignore.
 - 文件新增、删除、内容变化或文件身份变化。
 - File Tools ignore 规则变化。
 - Repo Map 或 File Tools 配置变化。
-- parser/index format 变化。
 - 仓库在扫描期间继续发生变化。
 
-`refresh` 会尽量复用未变化文件和解析结果；`rebuild` 用于 generation 损坏、schema 变化或需要完全重新建立索引的场景。更新操作按 map 串行化，避免较旧的工作区快照覆盖较新的 generation。
+`refresh` 会尽量复用未变化文件和解析结果；`rebuild` 用于 generation 损坏或需要完全重新建立索引的场景。更新操作按 map 串行化，避免较旧的工作区快照覆盖较新的 generation。
 
 ## 输出和限制
 

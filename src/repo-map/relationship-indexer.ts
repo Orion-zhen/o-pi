@@ -24,7 +24,7 @@ interface ResolvedTarget {
 	confidence: number;
 }
 
-const CODE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".go", ".rs"];
+const CODE_EXTENSIONS = [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".go", ".rs", ".h", ".hh", ".hpp", ".hxx", ".c", ".cc", ".cpp", ".cxx"];
 const RESERVED_WORDS = new Set([
 	"as", "async", "await", "break", "case", "catch", "class", "const", "continue", "def", "defer", "do", "else", "enum",
 	"export", "extends", "false", "finally", "fn", "for", "from", "func", "function", "if", "impl", "import", "in", "interface",
@@ -93,7 +93,7 @@ export function buildRepoMapRelationships(input: BuildRepoMapRelationshipsInput)
 	for (const item of input.imports) {
 		const importer = filesById.get(item.fileId);
 		if (importer === undefined) continue;
-		const resolved = resolveImport(importer.path, item.specifier, filesByPath);
+		const resolved = resolveImport(importer.path, item.specifier, item.importKind, filesByPath);
 		edges.push({
 			from: item.fileId,
 			to: resolved.to,
@@ -102,6 +102,7 @@ export function buildRepoMapRelationships(input: BuildRepoMapRelationshipsInput)
 			source: "tree-sitter",
 			confidence: resolved.confidence,
 			lexicalTarget: item.specifier,
+			...(item.importKind !== undefined ? { importKind: item.importKind } : {}),
 			evidence: [item.evidence],
 		});
 	}
@@ -177,16 +178,22 @@ function resolveSymbol(from: RepoMapSymbolNode, lexicalTarget: string, lookup: R
 	return { to: `lexical:symbol:${encodeURIComponent(lexicalTarget)}`, resolution: "lexical", confidence: candidates.length > 1 ? 0.35 : 0.25 };
 }
 
-function resolveImport(importerPath: string, specifier: string, filesByPath: ReadonlyMap<string, RepoMapFileRecord>): ResolvedTarget {
-	for (const candidate of importCandidates(importerPath, specifier)) {
+function resolveImport(
+	importerPath: string,
+	specifier: string,
+	importKind: RepoMapImportFact["importKind"],
+	filesByPath: ReadonlyMap<string, RepoMapFileRecord>,
+): ResolvedTarget {
+	for (const candidate of importCandidates(importerPath, specifier, importKind)) {
 		const file = filesByPath.get(candidate);
 		if (file !== undefined) return { to: file.id, resolution: "syntactic", confidence: 0.92 };
 	}
-	return { to: `external:${encodeURIComponent(specifier)}`, resolution: "lexical", confidence: specifier.startsWith(".") ? 0.4 : 0.6 };
+	const relative = importKind === "relative" || (importKind === undefined && specifier.startsWith("."));
+	return { to: `external:${encodeURIComponent(specifier)}`, resolution: "lexical", confidence: relative ? 0.4 : 0.6 };
 }
 
-function importCandidates(importerPath: string, specifier: string): string[] {
-	if (!specifier.startsWith(".")) return [];
+function importCandidates(importerPath: string, specifier: string, importKind: RepoMapImportFact["importKind"]): string[] {
+	if (importKind === "external" || (importKind === undefined && !specifier.startsWith("."))) return [];
 	const base = path.posix.normalize(path.posix.join(path.posix.dirname(importerPath), specifier));
 	const candidates = [base];
 	if (path.posix.extname(base) === "") {

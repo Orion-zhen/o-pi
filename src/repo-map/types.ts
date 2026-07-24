@@ -1,4 +1,4 @@
-import type { FileIdentity, SourceRange } from "../code-index/types.js";
+import type { FileIdentity, ImportKind, SourceRange } from "../code-index/types.js";
 
 export type RepoMapFreshness = "fresh" | "partially_stale" | "stale" | "unavailable";
 
@@ -142,11 +142,11 @@ export interface RepoMapEdge {
 	source: RepoMapEdgeSource;
 	confidence: number;
 	lexicalTarget?: string;
+	importKind?: ImportKind;
 	evidence: RepoMapEvidence[];
 }
 
 export interface RepoMapMetadata {
-	schemaVersion: number;
 	mapId: string;
 	repositoryRoot: string;
 	worktreeRoot: string;
@@ -169,7 +169,6 @@ export interface RepoMapMetadata {
 	gitRevision?: string;
 	configFingerprint: string;
 	ignoreFingerprint: string;
-	parserFingerprint: string;
 }
 
 export type RepoMapFileStatus = "indexed" | "too_large" | "unreadable" | "unstable";

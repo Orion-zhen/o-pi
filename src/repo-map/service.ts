@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { CODE_INDEX_FORMAT_VERSION } from "../code-index/identity.js";
 import { ignoreConfigFromFileTools, loadFileToolsConfig, type FileToolsConfig } from "../file-tools/config.js";
 import { isFailed } from "../file-tools/core/errors.js";
 import { createIgnoreSnapshot } from "../file-tools/ignore/ignore-engine.js";
@@ -7,7 +6,7 @@ import type { IgnoreSnapshot } from "../file-tools/ignore/ignore-types.js";
 import { loadRepoMapConfig, repoMapCacheRoot, repoMapConfigFingerprint, type RepoMapConfig } from "./config.js";
 import type { BuildRepoMapArchitectureInput, RepoMapArchitectureIndex } from "./architecture-indexer.js";
 import { RepoMapError, throwIfAborted } from "./errors.js";
-import { createRepoMapId, REPO_MAP_SCHEMA_VERSION } from "./identity.js";
+import { createRepoMapId } from "./identity.js";
 import type { BuildRepoMapRelationshipsInput } from "./relationship-indexer.js";
 import type { BuildRepoMapLexicalAliasesInput } from "./lexical-indexer.js";
 import { detectRepository, readHeadRevision, type RepositoryIdentity } from "./repository.js";
@@ -236,7 +235,6 @@ export async function initializeRepoMap(
 		mapId,
 		configFingerprint,
 		ignoreFingerprint: ignoreSnapshot.fingerprint,
-		parserFingerprint: CODE_INDEX_FORMAT_VERSION,
 		...(identity.headRevision !== undefined ? { headRevision: identity.headRevision } : {}),
 		files: scan.files,
 		symbols: architecture.symbols,
@@ -253,7 +251,6 @@ export async function initializeRepoMap(
 		|| summary.parseErrors > 0
 		|| diagnostics.some((diagnostic) => diagnostic.code === "DIRECTORY_UNREADABLE" || diagnostic.code.startsWith("ARCHITECTURE_") || diagnostic.code.startsWith("TEST_GRAPH_"));
 	const metadata: RepoMapMetadata = {
-		schemaVersion: REPO_MAP_SCHEMA_VERSION,
 		mapId,
 		repositoryRoot: identity.repositoryRoot,
 		worktreeRoot: identity.worktreeRoot,
@@ -276,7 +273,6 @@ export async function initializeRepoMap(
 		...(identity.headRevision !== undefined ? { gitRevision: identity.headRevision } : {}),
 		configFingerprint,
 		ignoreFingerprint: ignoreSnapshot.fingerprint,
-		parserFingerprint: CODE_INDEX_FORMAT_VERSION,
 	};
 	safeProgress(input.onProgress, { phase: "saving" });
 	const committed = await deps.commit({
@@ -314,7 +310,6 @@ function canReusePreviousGeneration(
 		&& previous.metadata.freshness === "fresh"
 		&& previous.metadata.configFingerprint === current.configFingerprint
 		&& previous.metadata.ignoreFingerprint === current.ignoreFingerprint
-		&& previous.metadata.parserFingerprint === CODE_INDEX_FORMAT_VERSION
 		&& previous.metadata.gitRevision === current.gitRevision;
 }
 
@@ -348,7 +343,6 @@ export async function readActivatedRepoMapState(
 		const freshness = evaluateRepoMapFreshness(generation.metadata, {
 			configFingerprint: combinedConfigFingerprint(config, fileToolsConfig),
 			ignoreFingerprint: ignoreSnapshot.fingerprint,
-			parserFingerprint: CODE_INDEX_FORMAT_VERSION,
 			...(headRevision !== undefined ? { gitRevision: headRevision } : {}),
 		}, activation.freshness);
 		return { ...generation, metadata: { ...generation.metadata, freshness } };
@@ -380,15 +374,14 @@ export function combinedConfigFingerprint(repoMapConfig: RepoMapConfig, fileTool
 }
 
 export function evaluateRepoMapFreshness(
-	metadata: Pick<RepoMapMetadata, "freshness" | "gitRevision" | "configFingerprint" | "ignoreFingerprint" | "parserFingerprint">,
-	current: Pick<RepoMapMetadata, "configFingerprint" | "ignoreFingerprint" | "parserFingerprint"> & { gitRevision?: string },
+	metadata: Pick<RepoMapMetadata, "freshness" | "gitRevision" | "configFingerprint" | "ignoreFingerprint">,
+	current: Pick<RepoMapMetadata, "configFingerprint" | "ignoreFingerprint"> & { gitRevision?: string },
 	override?: RepoMapFreshness,
 ): RepoMapFreshness {
 	if (
 		metadata.gitRevision !== current.gitRevision
 		|| metadata.configFingerprint !== current.configFingerprint
 		|| metadata.ignoreFingerprint !== current.ignoreFingerprint
-		|| metadata.parserFingerprint !== current.parserFingerprint
 	) return "stale";
 	return override ?? metadata.freshness;
 }

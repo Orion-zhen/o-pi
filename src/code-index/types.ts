@@ -2,6 +2,7 @@ import type { SyntaxNode } from "./adapters/types.js";
 
 export type SupportedCodeLanguage = "javascript" | "jsx" | "typescript" | "tsx" | "python" | "go" | "rust" | "c" | "cpp";
 export type CodeLanguage = SupportedCodeLanguage | "text";
+export type ImportKind = "relative" | "external";
 
 export type ParseFailureCode =
 	| "RUNTIME_UNAVAILABLE"
@@ -161,6 +162,7 @@ export interface ParsedFileIndex extends FileIdentity {
 
 export interface IndexedImport extends SourceRange {
 	specifier: string;
+	importKind?: ImportKind;
 }
 
 export interface AnalyzedFileIndex {

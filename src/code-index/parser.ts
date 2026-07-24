@@ -1,5 +1,5 @@
 import type { RawImport, RawUnit } from "./adapters/types.js";
-import { indexRawImports } from "./adapters/shared.js";
+import { extractUnitRelations, indexRawImports } from "./adapters/shared.js";
 import { createFileIdentity, createSymbolId } from "./identity.js";
 import { getLanguageAdapter, languageFromPath } from "./language-registry.js";
 import { parseDocumentResult, type ParseDocumentResult } from "./syntax-tree.js";
@@ -8,7 +8,7 @@ import type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, LineIndex, Parse
 
 export { languageFromPath } from "./language-registry.js";
 export { parseDocument, parseDocumentForAdapter, parseDocumentResult, parseSyntaxTreeForAdapter, sourceRangeForNode } from "./syntax-tree.js";
-export type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, IndexedImport, LineIndex, ParseFailure, ParsedDocument, ParsedFileIndex, SourceRange } from "./types.js";
+export type { AnalyzedFileIndex, CodeLanguage, ImportKind, IndexedCodeUnit, IndexedImport, LineIndex, ParseFailure, ParsedDocument, ParsedFileIndex, SourceRange } from "./types.js";
 export type { ParseDocumentResult } from "./syntax-tree.js";
 export { SourceIndex } from "./types.js";
 
@@ -40,7 +40,9 @@ export function analyzeDocument(filePath: string, document: ParsedDocument | und
 	let units: IndexedCodeUnit[];
 	let rawImports: RawImport[];
 	try {
-		units = adapter.extractUnits(root).map((unit) => buildIndexedUnit(file, language, text, sourceIndex, unit));
+		const rawUnits = adapter.extractUnits(root);
+		const unitNodeIds = new Set(rawUnits.map((unit) => unit.sourceNode.id));
+		units = rawUnits.map((unit) => buildIndexedUnit(file, language, text, sourceIndex, unit, unitNodeIds));
 		rawImports = adapter.extractImports(root);
 	} catch {
 		return emptyAnalyzedFile(file, language, "error");
@@ -69,24 +71,19 @@ export function analyzeTextFile(filePath: string): AnalyzedFileIndex {
 
 export function tokenizeText(value: string): Map<string, number> {
 	const result = new Map<string, number>();
-	for (const raw of splitTokens(value)) {
+	visitTokenOccurrences(value, (raw) => {
 		const token = raw.toLocaleLowerCase();
-		if (token.length === 0) continue;
 		result.set(token, (result.get(token) ?? 0) + 1);
-	}
+	});
 	return result;
 }
 
 export function splitTokens(value: string): string[] {
-	const tokens: string[] = [];
-	for (const match of value.matchAll(IDENTIFIER)) {
-		const raw = match[0] ?? "";
-		tokens.push(raw);
-		// lower-case identifiers and numbers cannot gain another token from
-		// camel/snake/kebab splitting; avoid three regex passes for the common case.
-		if (!/^[a-z0-9]+$/u.test(raw)) tokens.push(...splitIdentifier(raw));
-	}
-	return Array.from(new Set(tokens.filter((token) => token.length > 0)));
+	const tokens = new Set<string>();
+	visitTokenOccurrences(value, (token) => {
+		tokens.add(token);
+	});
+	return [...tokens];
 }
 
 /** Count normalized query tokens present in text without materializing its complete token map. */
@@ -94,18 +91,11 @@ export function countTextTokenMatches(value: string, queryTokens: readonly strin
 	if (queryTokens.length === 0) return 0;
 	const expected = new Set(queryTokens);
 	const matched = new Set<string>();
-	for (const match of value.matchAll(IDENTIFIER)) {
-		const raw = match[0] ?? "";
+	visitTokenOccurrences(value, (raw) => {
 		const normalized = raw.toLocaleLowerCase();
 		if (expected.has(normalized)) matched.add(normalized);
-		if (!/^[a-z0-9]+$/u.test(raw)) {
-			for (const part of splitIdentifier(raw)) {
-				const normalizedPart = part.toLocaleLowerCase();
-				if (expected.has(normalizedPart)) matched.add(normalizedPart);
-			}
-		}
-		if (matched.size === expected.size) break;
-	}
+		return matched.size < expected.size;
+	});
 	let count = 0;
 	for (const token of queryTokens) if (matched.has(token)) count += 1;
 	return count;
@@ -138,15 +128,21 @@ function emptyAnalyzedFile(file: { id: string; path: string }, language: CodeLan
 	};
 }
 
-function buildIndexedUnit(file: { id: string; path: string }, language: CodeLanguage, text: string, sourceIndex: SourceIndex, unit: RawUnit): IndexedCodeUnit {
+function buildIndexedUnit(
+	file: { id: string; path: string },
+	language: CodeLanguage,
+	text: string,
+	sourceIndex: SourceIndex,
+	unit: RawUnit,
+	unitNodeIds: ReadonlySet<number>,
+): IndexedCodeUnit {
 	const range = sourceIndex.range(unit.startChar, unit.endChar);
 	const { startByte, endByte } = range;
 	const content = text.slice(unit.startChar, unit.endChar).replace(/\s+$/u, "");
 	const signature = firstNonEmptyLine(content);
 	const nameText = [file.path, unit.name, unit.qualifiedName, signature, content].join("\n");
 	const tokens = tokenizeText(nameText);
-	const references = Array.from(new Set(splitTokens(content))).filter((token) => !/^\d+$/u.test(token));
-	const calls = Array.from(content.matchAll(/\b([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?)\s*\(/gu), (match) => match[1] ?? "").filter(Boolean);
+	const { references, calls } = extractUnitRelations(unit, unitNodeIds);
 	return {
 		id: createSymbolId({
 			fileId: file.id,
@@ -179,6 +175,18 @@ function firstNonEmptyLine(text: string): string | undefined {
 
 export function buildLineIndex(text: string): SourceIndex {
 	return new SourceIndex(text);
+}
+
+function visitTokenOccurrences(value: string, visit: (token: string) => boolean | void): void {
+	for (const match of value.matchAll(IDENTIFIER)) {
+		const raw = match[0] ?? "";
+		if (raw.length === 0) continue;
+		if (visit(raw) === false) return;
+		// lower-case identifiers and numbers cannot gain another token from
+		// camel/snake/kebab splitting; avoid three regex passes for the common case.
+		if (/^[a-z0-9]+$/u.test(raw)) continue;
+		for (const part of splitIdentifier(raw)) if (visit(part) === false) return;
+	}
 }
 
 function splitIdentifier(value: string): string[] {

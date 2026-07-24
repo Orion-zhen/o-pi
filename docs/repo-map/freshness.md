@@ -1,6 +1,6 @@
 # Repo Map Freshness、Generation 与确定性
 
-Repo Map 不直接覆盖当前索引，而是以 generation 的形式保存完整快照，并通过 current pointer 指向可查询版本。
+Repo Map 不直接覆盖当前索引，而是以 generation 的形式保存完整快照，并通过 current pointer 指向可查询快照。
 
 ## Generation
 
@@ -9,8 +9,7 @@ generation 包含：
 - 文件记录。
 - symbols、tests、architecture 和 aliases。
 - relationships 和 evidence。
-- diagnostics。
-- metadata、schema version 和 parser fingerprint。
+- diagnostics 和 metadata。
 
 ParsedDocument、native syntax tree 和本次构建的 transient syntax facts 不写入 generation。generation 只有完整提交后才对查询可见；旧 generation 可以在 cache 中保留，用于 refresh 复用或故障恢复。
 
@@ -21,32 +20,17 @@ ParsedDocument、native syntax tree 和本次构建的 transient syntax facts �
 - Git HEAD revision。
 - Repo Map + File Tools config fingerprint。
 - ignore fingerprint。
-- Repo Map schema version。
-- parser/index format fingerprint。
 - generation 自身的 partial diagnostics。
 
-任一关键 fingerprint 不一致，generation 就不能继续标记为 fresh。schema 或 parser format 升级会强制旧 generation stale/rebuild，不保留兼容层。
-
-### Parser fingerprint
-
-`CODE_INDEX_FORMAT_VERSION` 是稳定 hash，输入包括：
-
-- code-index extractor format。
-- 实际安装的 `tree-sitter` runtime package version。
-- 每个内置 grammar package version。
-- grammar export descriptor（package name 和 export name）。
-
-这些版本通过 package metadata 解析，不加载 native runtime 或 grammar module；因此导入 code-index identity、registry 和 discovery API 不会把可选 native 依赖放入 `require.cache`。grammar package 缺失时 fingerprint 明确记录 `missing`，对应文件会安全降级，其他语言仍可用。
-
-fingerprint 的任一 extractor、runtime、grammar version 或 export descriptor 变化都会拒绝旧 generation 的完整复用。grammar descriptor 变化即使 package version 未变也会失效。
+配置或 ignore fingerprint 不一致时，generation 不能继续标记为 fresh。缓存只接受当前严格数据结构；不提供旧缓存兼容或迁移。
 
 ## 状态
 
 | 状态 | 条件 |
 | --- | --- |
-| `fresh` | 扫描和索引完整，所有 fingerprint 一致 |
+| `fresh` | 扫描和索引完整，revision、配置和 ignore 一致 |
 | `partially_stale` | 有不可读、不稳定、解析或架构 diagnostics，但 generation 可查询 |
-| `stale` | fingerprint、schema、revision 或 parser 版本不一致 |
+| `stale` | revision、配置或 ignore 不一致 |
 | `unavailable` | generation、current pointer 或依赖配置无法读取 |
 
 查询 gate 会拒绝 `stale` 和 `unavailable` generation。`partially_stale` 可以查询，但结果必须带有边界信息。
@@ -58,7 +42,6 @@ fingerprint 的任一 extractor、runtime、grammar version 或 export descripto
 `rebuild` 不读取旧 generation，适用于：
 
 - cache 或 generation 损坏。
-- schema、extractor、runtime、grammar 或 parser format 变化。
 - 需要排除旧索引残留。
 - refresh 后仍无法恢复一致性。
 
