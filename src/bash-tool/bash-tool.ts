@@ -8,7 +8,7 @@ import { CONFIG_DIR_NAME, createLocalBashOperations } from "@earendil-works/pi-c
 import { checkDeniedText, type PatternDenyMatch } from "../safety/pattern-guard.js";
 import { OutputCapture } from "./output-capture.js";
 import { cleanForModel, createBashOutputView } from "./output-view.js";
-import type { BashExecutionResult, BashParams, ExecuteBashRuntime } from "./types.js";
+import type { BashExecutionResult, BashParams, BashSessionMetadata, ExecuteBashRuntime } from "./types.js";
 
 const UPDATE_THROTTLE_MS = 100;
 const PYTHON_VIRTUAL_ENV_DIRS = [".venv", "venv", "env", ".env", "pyvenv", "pyenv", ".pyvenv", ".pyenv"] as const;
@@ -25,11 +25,14 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 	if (denied !== null) return blockedCommandResult(denied);
 	params = { ...params, command: normalizeWindowsPath(params.command) };
 	const pythonVirtualEnv = await resolvePythonVirtualEnvironment(runtime.cwd);
-	const executionEnv = pythonVirtualEnv === undefined ? undefined : virtualEnvironmentVariables(pythonVirtualEnv);
+	const baseEnvironment = createBashEnvironment(runtime.session);
+	const executionEnv = pythonVirtualEnv === undefined
+		? baseEnvironment
+		: virtualEnvironmentVariables(baseEnvironment, pythonVirtualEnv);
 	const timeoutSeconds = params.timeout ?? runtime.config.default_timeout_seconds;
 	const startedAt = runtime.now?.() ?? Date.now();
 	const capture = await OutputCapture.create({
-		sessionId: runtime.sessionId,
+		sessionId: runtime.session.sessionId,
 		toolCallId: runtime.toolCallId,
 		maxCaptureBytes: runtime.config.limits.max_capture_bytes,
 		previewBytes: Math.max(runtime.config.limits.failure_output_bytes * 4, runtime.config.limits.live_output_bytes * 2),
@@ -107,9 +110,12 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 				scheduleUpdate();
 			},
 			signal: controller.signal,
-			...(executionEnv !== undefined ? { env: executionEnv } : {}),
+			timeout: timeoutSeconds,
+			env: executionEnv,
 		});
 		exitCode = result.exitCode ?? undefined;
+		if (stopReason === "timeout") status = "timed_out";
+		else if (stopReason === "aborted") status = "aborted";
 	} catch (error) {
 		operationError = error;
 		if (stopReason === "timeout") status = "timed_out";
@@ -194,24 +200,41 @@ async function hasVirtualEnvironmentMarker(root: string): Promise<boolean> {
 	}
 }
 
-/** 模拟 activate，并保留 Pi 默认放在 PATH 中的托管二进制目录。 */
-function virtualEnvironmentVariables(virtualEnv: PythonVirtualEnvironment): NodeJS.ProcessEnv {
+/** 构造与 Pi 本地 shell 相同的完整环境，并只暴露当前会话的 PI_* 元数据。 */
+export function createBashEnvironment(session: BashSessionMetadata): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = { ...process.env };
 	const pathKey = environmentKey(env, "PATH");
 	const currentPath = env[pathKey] ?? "";
 	const managedBin = resolvePiManagedBin();
 	const pathEntries = currentPath.split(path.delimiter).filter(Boolean);
-	const basePath = pathEntries.some((entry) => samePath(entry, managedBin))
-		? currentPath
-		: [managedBin, currentPath].filter(Boolean).join(path.delimiter);
-	env[pathKey] = [virtualEnv.bin, basePath].filter(Boolean).join(path.delimiter);
+	if (!pathEntries.some((entry) => samePath(entry, managedBin))) {
+		env[pathKey] = [managedBin, currentPath].filter(Boolean).join(path.delimiter);
+	}
+
+	for (const name of ["PI_SESSION_ID", "PI_SESSION_FILE", "PI_PROVIDER", "PI_MODEL", "PI_REASONING_LEVEL"]) {
+		deleteEnvironmentVariable(env, name);
+	}
+	setEnvironmentVariable(env, "PI_SESSION_ID", session.sessionId);
+	setEnvironmentVariable(env, "PI_SESSION_FILE", session.sessionFile);
+	setEnvironmentVariable(env, "PI_PROVIDER", session.provider);
+	setEnvironmentVariable(env, "PI_MODEL", session.model);
+	setEnvironmentVariable(env, "PI_REASONING_LEVEL", session.reasoningLevel);
+	return env;
+}
+
+/** 模拟 activate，并保留 Pi 默认放在 PATH 中的托管二进制目录。 */
+function virtualEnvironmentVariables(baseEnvironment: NodeJS.ProcessEnv, virtualEnv: PythonVirtualEnvironment): NodeJS.ProcessEnv {
+	const env: NodeJS.ProcessEnv = { ...baseEnvironment };
+	const pathKey = environmentKey(env, "PATH");
+	const currentPath = env[pathKey] ?? "";
+	env[pathKey] = [virtualEnv.bin, currentPath].filter(Boolean).join(path.delimiter);
 
 	deleteEnvironmentVariable(env, "PYTHONHOME");
 	deleteEnvironmentVariable(env, "VIRTUAL_ENV");
 	deleteEnvironmentVariable(env, "PIP_REQUIRE_VIRTUALENV");
-	env.VIRTUAL_ENV = virtualEnv.root;
+	setEnvironmentVariable(env, "VIRTUAL_ENV", virtualEnv.root);
 	// 没有安装 pip 的 venv 也不能向后回退并修改全局环境。
-	env.PIP_REQUIRE_VIRTUALENV = "1";
+	setEnvironmentVariable(env, "PIP_REQUIRE_VIRTUALENV", "1");
 	return env;
 }
 
@@ -241,6 +264,12 @@ function deleteEnvironmentVariable(env: NodeJS.ProcessEnv, name: string): void {
 	for (const key of Object.keys(env)) {
 		if (key.toLowerCase() === name.toLowerCase()) delete env[key];
 	}
+}
+
+function setEnvironmentVariable(env: NodeJS.ProcessEnv, name: string, value: string | undefined): void {
+	if (value === undefined || value === "") return;
+	const key = environmentKey(env, name);
+	env[key] = value;
 }
 
 function samePath(left: string, right: string): boolean {

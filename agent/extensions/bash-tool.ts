@@ -7,6 +7,7 @@ import {
 	loadBashToolConfig,
 	type BashExecutionResult,
 	type BashParams,
+	type BashSessionMetadata,
 	type BashToolDetails,
 } from "../../src/bash-tool/index.js";
 import { bashTelemetry } from "../../src/bash-tool/telemetry.js";
@@ -32,9 +33,16 @@ export default function bashTool(pi: ExtensionAPI): void {
 			executionMode: "sequential",
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				const config = await loadBashToolConfig();
+				const sessionFile = ctx.sessionManager.getSessionFile();
+				const session: BashSessionMetadata = {
+					sessionId: ctx.sessionManager.getSessionId(),
+					...(sessionFile !== undefined ? { sessionFile } : {}),
+					...(ctx.model !== undefined ? { provider: ctx.model.provider, model: ctx.model.id } : {}),
+					...(ctx.thinkingLevel !== undefined ? { reasoningLevel: ctx.thinkingLevel } : {}),
+				};
 				const runtime = {
 					cwd: ctx.cwd,
-					sessionId: ctx.sessionManager.getSessionId(),
+					session,
 					toolCallId,
 					operations,
 					config,

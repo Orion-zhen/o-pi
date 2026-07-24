@@ -15,6 +15,19 @@
 - 模型可见正文只在输出真正截断或捕获不完整时提示 `full` 日志路径。
 - 小型成功输出完整返回，并删除临时日志。
 
+## Session 环境边界
+
+模型调用的自定义 `bash` 每次启动命令时从当前 Pi 上下文构造完整子进程环境，并注入：
+
+- `PI_SESSION_ID`：当前 session ID。
+- `PI_SESSION_FILE`：持久化 session 文件存在时才设置。
+- `PI_PROVIDER`、`PI_MODEL`：当前 model 存在时才设置。
+- `PI_REASONING_LEVEL`：当前 reasoning level 存在时才设置。
+
+每次命令都会先清除继承的旧 `PI_SESSION_ID`、`PI_SESSION_FILE`、`PI_PROVIDER`、`PI_MODEL` 和 `PI_REASONING_LEVEL`，因此切换 model 或 reasoning level 后下一条命令立即看到新值；缺失字段不会写入空字符串。环境仍保留基础 shell、Pi 托管 bin 和 Python venv 调整。
+
+该注入只属于模型调用的自定义 `bash` 工具：用户输入的 `!` / `!!` 命令和 RPC 直接 bash 不在范围内。RPC bash 的 `bash_execution_update` 仍由 Pi 核心产生，本工具不伪造或替换该事件。
+
 ## 配置
 
 配置文件：`agent/configs/bash-tool.jsonc`，schema：`agent/schemas/bash-tool.schema.json`。文件完整列出当前有效配置，便于直接修改。

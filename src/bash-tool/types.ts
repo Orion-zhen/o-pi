@@ -45,9 +45,17 @@ export interface BashExecutionResult {
 	details: BashToolDetails;
 }
 
+export interface BashSessionMetadata {
+	sessionId: string;
+	sessionFile?: string;
+	provider?: string;
+	model?: string;
+	reasoningLevel?: string;
+}
+
 export interface ExecuteBashRuntime {
 	cwd: string;
-	sessionId: string;
+	session: BashSessionMetadata;
 	toolCallId: string;
 	signal?: AbortSignal;
 	operations: BashOperations;
