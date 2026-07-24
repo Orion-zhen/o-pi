@@ -3,6 +3,20 @@ import type { SyntaxNode } from "./adapters/types.js";
 export type SupportedCodeLanguage = "javascript" | "jsx" | "typescript" | "tsx" | "python" | "go" | "rust" | "c" | "cpp";
 export type CodeLanguage = SupportedCodeLanguage | "text";
 
+export type ParseFailureCode =
+	| "RUNTIME_UNAVAILABLE"
+	| "GRAMMAR_UNAVAILABLE"
+	| "GRAMMAR_EXPORT_INVALID"
+	| "GRAMMAR_INCOMPATIBLE"
+	| "PARSER_INITIALIZATION_FAILED"
+	| "PARSER_EXCEPTION"
+	| "PARSER_TIMEOUT";
+
+export interface ParseFailure {
+	readonly code: ParseFailureCode;
+	readonly message: string;
+}
+
 /** 行范围为 1-based inclusive，字节范围为 UTF-8 [startByte, endByte)。 */
 export interface SourceRange {
 	startLine: number;
@@ -153,6 +167,7 @@ export interface AnalyzedFileIndex {
 	index: ParsedFileIndex;
 	status: "parsed" | "unsupported" | "error";
 	imports: IndexedImport[];
+	failure?: ParseFailure;
 	/** Transient AST ownership for consumers that extract additional facts in one parse. */
 	document?: ParsedDocument;
 }

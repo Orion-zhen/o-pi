@@ -105,7 +105,7 @@ async function indexFile(
 			return parseFailure(file.path, "FILE_CHANGED_DURING_PARSE", "File changed after scanning and was not parsed.");
 		}
 		const analyzed = analyze(file.path, text);
-		if (analyzed.status !== "parsed") return parseFailure(file.path, "PARSER_ERROR", "Tree-sitter could not parse this supported file.");
+		if (analyzed.status !== "parsed") return parseFailure(file.path, "PARSER_ERROR", analyzed.failure?.message ?? "Tree-sitter could not parse this supported file.");
 		const syntaxFacts = analyzed.document !== undefined && isJavaScriptFamily(file.path)
 			? javascriptSyntaxFactsFromDocument(file.path, analyzed.document)
 			: undefined;

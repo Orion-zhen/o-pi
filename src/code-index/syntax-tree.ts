@@ -1,32 +1,79 @@
-import { loadTreeSitterRuntime } from "./tree-sitter-loader.js";
-import type { CodeLanguage, ParsedDocument, SourceIndex, SourceRange } from "./types.js";
+import { getLanguageAdapter } from "./language-registry.js";
+import * as treeSitterLoader from "./tree-sitter-loader.js";
+import type { LanguageAdapter, SyntaxNode } from "./adapters/types.js";
+import type { CodeLanguage, ParseFailure, ParsedDocument, SourceIndex, SourceRange } from "./types.js";
 import { SourceIndex as SourceIndexClass } from "./types.js";
-import type { SyntaxNode } from "./adapters/types.js";
 
-/**
- * 创建无状态 Parser、设置对应 grammar 并解析一个文档。
- * 返回的 tree 可能包含 Tree-sitter error 节点；调用方按领域策略决定是否接受它。
- */
+export interface ParseDocumentResult {
+	document?: ParsedDocument;
+	failure?: ParseFailure;
+}
+
+/** Parse through the built-in registry; grammar loading remains lazy per language. */
 export function parseSyntaxTree(language: CodeLanguage, text: string): SyntaxNode | undefined {
+	return parseDocumentResult(language, text).document?.root;
+}
+
+/** Parse through the built-in registry and retain a serializable failure when native parsing cannot start. */
+export function parseDocumentResult(language: CodeLanguage, text: string): ParseDocumentResult {
+	const adapter = getLanguageAdapter(language);
+	return adapter === undefined
+		? { failure: { code: "RUNTIME_UNAVAILABLE", message: "No Tree-sitter adapter is registered for this language." } }
+		: parseDocumentForAdapter(adapter, text);
+}
+
+/** Direct registry path for isolated adapters; does not perform plugin discovery. */
+export function parseSyntaxTreeForAdapter(adapter: LanguageAdapter, text: string, timeoutMicros?: number): SyntaxNode | undefined {
+	return parseDocumentForAdapter(adapter, text, timeoutMicros).document?.root;
+}
+
+export function parseDocumentForAdapter(adapter: LanguageAdapter, text: string, timeoutMicros?: number): ParseDocumentResult {
+	const parserLoader = "loadTreeSitterParser" in treeSitterLoader ? treeSitterLoader.loadTreeSitterParser : undefined;
+	if (typeof parserLoader !== "function") {
+		try {
+			treeSitterLoader.loadTreeSitterRuntime(adapter.grammar);
+		} catch {
+			return { failure: { code: "RUNTIME_UNAVAILABLE", message: "Tree-sitter parser loader is unavailable." } };
+		}
+		return { failure: { code: "RUNTIME_UNAVAILABLE", message: "Tree-sitter parser loader is unavailable." } };
+	}
+	const parserResult = parserLoader(adapter, timeoutMicros);
+	if ("failure" in parserResult) return parserResult;
 	try {
-		const runtime = loadTreeSitterRuntime(language);
-		if (runtime === undefined) return undefined;
-		const parser = new runtime.Parser();
-		parser.setLanguage(runtime.language);
-		return parser.parse(text).rootNode;
+		parserResult.parser.reset();
+		const tree = parserResult.parser.parse(text);
+		if (tree === null || tree === undefined) {
+			safeReset(parserResult.parser);
+			return { failure: { code: "PARSER_TIMEOUT", message: "Tree-sitter parsing exceeded the configured timeout." } };
+		}
+		return {
+			document: {
+				language: adapter.language,
+				text,
+				root: tree.rootNode,
+				sourceIndex: new SourceIndexClass(text),
+			},
+		};
 	} catch {
-		return undefined;
+		safeReset(parserResult.parser);
+		return { failure: { code: "PARSER_EXCEPTION", message: "Tree-sitter raised an exception while parsing the file." } };
 	}
 }
 
-/** 一次解析并建立该文档唯一的源码坐标索引。 */
+/** Compatibility wrapper returning only the document. */
 export function parseDocument(language: CodeLanguage, text: string): ParsedDocument | undefined {
-	const root = parseSyntaxTree(language, text);
-	if (root === undefined) return undefined;
-	return { language, text, root, sourceIndex: new SourceIndexClass(text) };
+	return parseDocumentResult(language, text).document;
 }
 
 /** 将 Tree-sitter 的 UTF-16 字符范围转换为统一的 SourceRange。 */
 export function sourceRangeForNode(index: SourceIndex, node: SyntaxNode): SourceRange {
 	return index.range(node.startIndex, node.endIndex);
+}
+
+function safeReset(parser: { reset(): void }): void {
+	try {
+		parser.reset();
+	} catch {
+		// The next parse will create a fresh failure if the native parser is unusable.
+	}
 }

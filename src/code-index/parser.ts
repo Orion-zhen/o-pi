@@ -2,13 +2,14 @@ import type { RawImport, RawUnit } from "./adapters/types.js";
 import { indexRawImports } from "./adapters/shared.js";
 import { createFileIdentity, createSymbolId } from "./identity.js";
 import { getLanguageAdapter, languageFromPath } from "./language-registry.js";
-import { parseDocument } from "./syntax-tree.js";
+import { parseDocumentResult, type ParseDocumentResult } from "./syntax-tree.js";
 import { SourceIndex } from "./types.js";
 import type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, LineIndex, ParsedDocument, ParsedFileIndex, SourceRange } from "./types.js";
 
 export { languageFromPath } from "./language-registry.js";
-export { parseDocument, sourceRangeForNode } from "./syntax-tree.js";
-export type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, IndexedImport, LineIndex, ParsedDocument, ParsedFileIndex, SourceRange } from "./types.js";
+export { parseDocument, parseDocumentForAdapter, parseDocumentResult, parseSyntaxTreeForAdapter, sourceRangeForNode } from "./syntax-tree.js";
+export type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, IndexedImport, LineIndex, ParseFailure, ParsedDocument, ParsedFileIndex, SourceRange } from "./types.js";
+export type { ParseDocumentResult } from "./syntax-tree.js";
 export { SourceIndex } from "./types.js";
 
 const IDENTIFIER = /[A-Za-z_$][\w$]*|[A-Za-z_][A-Za-z0-9_]*[-_][A-Za-z0-9_-]+|\d+/g;
@@ -21,9 +22,10 @@ export function parseCodeUnits(filePath: string, text: string): ParsedFileIndex 
 /** Repo Map 使用的详细结果；保留 parser 失败状态与文件级 import 事实。 */
 export function analyzeCodeFile(filePath: string, text: string): AnalyzedFileIndex {
 	const language = languageFromPath(filePath);
-	const document = parseDocument(language, text);
-	const analyzed = analyzeDocument(filePath, document);
-	return document === undefined ? analyzed : { ...analyzed, document };
+	const parsed: ParseDocumentResult = parseDocumentResult(language, text);
+	const analyzed = analyzeDocument(filePath, parsed.document);
+	if (parsed.failure !== undefined && analyzed.status === "error") return { ...analyzed, failure: parsed.failure };
+	return parsed.document === undefined ? analyzed : { ...analyzed, document: parsed.document };
 }
 
 /** 在已解析的 ParsedDocument 上建立 code index；文档只在本次调用链中存活。 */

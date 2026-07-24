@@ -1,7 +1,8 @@
 import { createRequire } from "node:module";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { javascriptAdapter } from "../../src/code-index/adapters/javascript.js";
+import { createParserFingerprint } from "../../src/code-index/identity.js";
 import {
 	adapterFromPath,
 	createLanguageRegistry,
@@ -9,8 +10,8 @@ import {
 	languageFromPath,
 	registeredLanguageAdapters,
 } from "../../src/code-index/language-registry.js";
-import { loadGrammar, loadTreeSitterRuntime } from "../../src/code-index/tree-sitter-loader.js";
-import { parseSyntaxTree } from "../../src/code-index/syntax-tree.js";
+import { loadGrammar, loadTreeSitterParser, loadTreeSitterRuntime, loadTreeSitterRuntimeForGrammar } from "../../src/code-index/tree-sitter-loader.js";
+import { parseDocumentForAdapter, parseSyntaxTree } from "../../src/code-index/syntax-tree.js";
 import type { LanguageAdapter } from "../../src/code-index/adapters/types.js";
 import type { CodeLanguage } from "../../src/code-index/types.js";
 
@@ -72,10 +73,45 @@ describe("code language registry", () => {
 		expect(loadGrammar(simulated.grammar)).toBeDefined();
 	});
 
-	it("does not accept a missing or wrong grammar export", () => {
-		expect(loadGrammar({ packageName: "tree-sitter-typescript", exportName: "missing" })).toBeUndefined();
+	it("returns stable structured failures for missing and wrong grammar descriptors", () => {
+		const wrong = loadTreeSitterRuntimeForGrammar({ packageName: "tree-sitter-typescript", exportName: "missing" });
+		expect(wrong).toEqual({ failure: { code: "GRAMMAR_EXPORT_INVALID", message: expect.stringContaining("tree-sitter-typescript:missing") } });
+		expect(loadTreeSitterRuntimeForGrammar({ packageName: "tree-sitter-typescript", exportName: "missing" })).toBe(wrong);
+		const missing = loadTreeSitterRuntimeForGrammar({ packageName: "package-that-does-not-exist" });
+		expect(missing).toEqual({ failure: { code: "GRAMMAR_UNAVAILABLE", message: expect.stringContaining("package-that-does-not-exist") } });
 		expect(loadGrammar({ packageName: "tree-sitter-rust", exportName: "language" })).toBeUndefined();
-		expect(loadGrammar({ packageName: "package-that-does-not-exist" })).toBeUndefined();
 		expect(loadTreeSitterRuntime("ruby" as CodeLanguage)).toBeUndefined();
+	});
+
+	it("reuses a parser per descriptor and resets after a timeout", () => {
+		const first = loadTreeSitterParser(javascriptAdapter);
+		const second = loadTreeSitterParser(javascriptAdapter);
+		if (!("parser" in first) || !("parser" in second)) throw new Error("javascript parser unavailable");
+		expect(second.parser).toBe(first.parser);
+		const timeoutParser = loadTreeSitterParser(javascriptAdapter, 1);
+		if (!("parser" in timeoutParser)) throw new Error("timeout parser unavailable");
+		const originalParse = timeoutParser.parser.parse.bind(timeoutParser.parser);
+		const parseSpy = vi.spyOn(timeoutParser.parser, "parse")
+			.mockImplementationOnce(() => null as never)
+			.mockImplementationOnce(originalParse)
+			.mockImplementationOnce(() => { throw new Error("simulated parser exception"); })
+			.mockImplementation(originalParse);
+		try {
+			const timeout = parseDocumentForAdapter(javascriptAdapter, "function value() { return 1; }\n", 1);
+			expect(timeout).toEqual({ failure: { code: "PARSER_TIMEOUT", message: "Tree-sitter parsing exceeded the configured timeout." } });
+			expect(parseDocumentForAdapter(javascriptAdapter, "function value() { return 1; }\n", 1).document).toBeDefined();
+			expect(parseDocumentForAdapter(javascriptAdapter, "function value() { return 1; }\n", 1)).toEqual({ failure: { code: "PARSER_EXCEPTION", message: "Tree-sitter raised an exception while parsing the file." } });
+			expect(parseDocumentForAdapter(javascriptAdapter, "function value() { return 1; }\n", 1).document).toBeDefined();
+		} finally {
+			parseSpy.mockRestore();
+		}
+	});
+
+	it("fingerprint changes with extractor, runtime, grammar version, and descriptor", () => {
+		const base = createParserFingerprint({ extractorFormat: "extractor-a", runtimeVersion: "runtime-a", grammars: [{ packageName: "grammar", version: "1", exportName: "one" }] });
+		expect(createParserFingerprint({ extractorFormat: "extractor-b", runtimeVersion: "runtime-a", grammars: [{ packageName: "grammar", version: "1", exportName: "one" }] })).not.toBe(base);
+		expect(createParserFingerprint({ extractorFormat: "extractor-a", runtimeVersion: "runtime-b", grammars: [{ packageName: "grammar", version: "1", exportName: "one" }] })).not.toBe(base);
+		expect(createParserFingerprint({ extractorFormat: "extractor-a", runtimeVersion: "runtime-a", grammars: [{ packageName: "grammar", version: "2", exportName: "one" }] })).not.toBe(base);
+		expect(createParserFingerprint({ extractorFormat: "extractor-a", runtimeVersion: "runtime-a", grammars: [{ packageName: "grammar", version: "1", exportName: "two" }] })).not.toBe(base);
 	});
 });
