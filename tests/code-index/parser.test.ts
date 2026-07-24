@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFileIdentity, createSymbolId } from "../../src/code-index/identity.js";
-import { analyzeCodeFile, byteRangeForLines, countTextTokenMatches, parseCodeUnits, splitTokens, tokenizeText } from "../../src/code-index/parser.js";
+import { analyzeCodeFile, buildLineIndex, byteRangeForLines, countTextTokenMatches, parseCodeUnits, splitTokens, tokenizeText } from "../../src/code-index/parser.js";
 import { loadTreeSitterRuntime } from "../../src/code-index/tree-sitter-loader.js";
 
 const require = createRequire(import.meta.url);
@@ -28,6 +28,30 @@ function symbols(filePath: string, text: string): Array<[string, string | undefi
 }
 
 describe("shared code parser", () => {
+	it.each([
+		{ text: "", offsets: [0], bytes: [0] },
+		{ text: "abc", offsets: [0, 1, 3], bytes: [0, 1, 3] },
+		{ text: "é", offsets: [0, 1], bytes: [0, 2] },
+		{ text: "你😀", offsets: [0, 1, 2, 3], bytes: [0, 3, 7, 7] },
+		{ text: "a\n你😀\nb", offsets: [0, 1, 2, 3, 4, 5, 6, 7], bytes: [0, 1, 2, 5, 9, 9, 10, 11] },
+	])("SourceIndex 将 UTF-16 边界转换为 UTF-8 byte: $text", ({ text, offsets, bytes }) => {
+		const index = buildLineIndex(text);
+		expect(index.byteLength).toBe(Buffer.byteLength(text, "utf8"));
+		for (const [position, expected] of offsets.map((offset, index) => [offset, bytes[index]] as const)) {
+			expect(index.byteForChar(position)).toBe(expected);
+		}
+		expect(index.byteForChar(text.length)).toBe(index.byteLength);
+	});
+
+	it("SourceIndex 保留多行、EOF 和半开范围边界", () => {
+		const text = "first\n你😀\n";
+		const index = buildLineIndex(text);
+		expect(index.lineStarts).toEqual([0, 6, 14]);
+		expect(index.lineStartChars).toEqual([0, 6, 10]);
+		expect(index.range(6, 10)).toEqual({ startLine: 2, endLine: 2, startByte: 6, endByte: 14 });
+		expect(index.range(text.length, text.length)).toEqual({ startLine: 3, endLine: 3, startByte: 14, endByte: 14 });
+	});
+
 	it("导入 parser、grep 和注册 extension 时不加载 grammar，首次解析仅加载对应 grammar 并复用 runtime", async () => {
 		for (const modulePath of Object.values(treeSitterModules)) expect(require.cache[modulePath]).toBeUndefined();
 
@@ -62,6 +86,16 @@ describe("shared code parser", () => {
 		expect(require.cache[treeSitterModules.rust]).toBeUndefined();
 		expect(require.cache[treeSitterModules.c]).toBeUndefined();
 		expect(require.cache[treeSitterModules.cpp]).toBeUndefined();
+	});
+
+	it("dense ASCII units use exact source slices", () => {
+		const text = Array.from({ length: 64 }, (_, index) => `function item${index}() { return ${index}; }`).join("\n");
+		const units = parseCodeUnits("dense.ts", text).units;
+		expect(units).toHaveLength(64);
+		for (const [index, unit] of units.entries()) {
+			expect(unit.name).toBe(`item${index}`);
+			expect(text.slice(unit.startByte, unit.endByte)).toBe(`function item${index}() { return ${index}; }`);
+		}
 	});
 
 	it("提取 C/C++ symbol、文件级 include 和 UTF-8 byte range", () => {

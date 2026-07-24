@@ -1,5 +1,6 @@
 import { loadTreeSitterRuntime } from "./tree-sitter-loader.js";
-import type { CodeLanguage } from "./types.js";
+import type { CodeLanguage, ParsedDocument, SourceIndex, SourceRange } from "./types.js";
+import { SourceIndex as SourceIndexClass } from "./types.js";
 import type { SyntaxNode } from "./adapters/types.js";
 
 /**
@@ -16,4 +17,16 @@ export function parseSyntaxTree(language: CodeLanguage, text: string): SyntaxNod
 	} catch {
 		return undefined;
 	}
+}
+
+/** 一次解析并建立该文档唯一的源码坐标索引。 */
+export function parseDocument(language: CodeLanguage, text: string): ParsedDocument | undefined {
+	const root = parseSyntaxTree(language, text);
+	if (root === undefined) return undefined;
+	return { language, text, root, sourceIndex: new SourceIndexClass(text) };
+}
+
+/** 将 Tree-sitter 的 UTF-16 字符范围转换为统一的 SourceRange。 */
+export function sourceRangeForNode(index: SourceIndex, node: SyntaxNode): SourceRange {
+	return index.range(node.startIndex, node.endIndex);
 }

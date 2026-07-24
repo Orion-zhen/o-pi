@@ -1,12 +1,14 @@
-import { byteForCharWithIndex, lineForByteWithIndex } from "./adapters/shared.js";
 import type { RawUnit } from "./adapters/types.js";
 import { createFileIdentity, createSymbolId } from "./identity.js";
 import { getLanguageAdapter, languageFromPath } from "./language-registry.js";
-import { parseSyntaxTree } from "./syntax-tree.js";
-import type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, LineIndex, ParsedFileIndex, SourceRange } from "./types.js";
+import { parseDocument } from "./syntax-tree.js";
+import { SourceIndex } from "./types.js";
+import type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, LineIndex, ParsedDocument, ParsedFileIndex, SourceRange } from "./types.js";
 
 export { languageFromPath } from "./language-registry.js";
-export type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, IndexedImport, LineIndex, ParsedFileIndex, SourceRange } from "./types.js";
+export { parseDocument, sourceRangeForNode } from "./syntax-tree.js";
+export type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, IndexedImport, LineIndex, ParsedDocument, ParsedFileIndex, SourceRange } from "./types.js";
+export { SourceIndex } from "./types.js";
 
 const IDENTIFIER = /[A-Za-z_$][\w$]*|[A-Za-z_][A-Za-z0-9_]*[-_][A-Za-z0-9_-]+|\d+/g;
 
@@ -17,11 +19,25 @@ export function parseCodeUnits(filePath: string, text: string): ParsedFileIndex 
 
 /** Repo Map 使用的详细结果；保留 parser 失败状态与文件级 import 事实。 */
 export function analyzeCodeFile(filePath: string, text: string): AnalyzedFileIndex {
-	const file = createFileIdentity(filePath);
 	const language = languageFromPath(filePath);
-	const lineIndex = buildLineIndex(text);
-	const parsed = parseByLanguage(language, text);
-	const units = parsed.units.map((unit) => buildIndexedUnit(file, language, text, lineIndex, unit));
+	return analyzeDocument(filePath, parseDocument(language, text));
+}
+
+/** 在已解析的 ParsedDocument 上建立 code index；文档只在本次调用链中存活。 */
+export function analyzeDocument(filePath: string, document: ParsedDocument | undefined): AnalyzedFileIndex {
+	const file = createFileIdentity(filePath);
+	const language = document?.language ?? languageFromPath(filePath);
+	const adapter = getLanguageAdapter(language);
+	if (adapter === undefined) return emptyAnalyzedFile(file, language, "unsupported");
+	if (document === undefined) return emptyAnalyzedFile(file, language, "error");
+
+	const { sourceIndex, text, root } = document;
+	let units: IndexedCodeUnit[];
+	try {
+		units = adapter.extractUnits(root).map((unit) => buildIndexedUnit(file, language, text, sourceIndex, unit));
+	} catch {
+		return emptyAnalyzedFile(file, language, "error");
+	}
 	return {
 		index: {
 			...file,
@@ -29,8 +45,8 @@ export function analyzeCodeFile(filePath: string, text: string): AnalyzedFileInd
 			units,
 			symbols: units.flatMap((unit) => [unit.name, unit.qualifiedName].filter((value): value is string => value !== undefined)),
 		},
-		status: parsed.status,
-		imports: parsed.status === "parsed" ? collectFileImports(language, text, lineIndex) : [],
+		status: "parsed",
+		imports: collectFileImports(language, text, sourceIndex),
 	};
 }
 
@@ -89,7 +105,7 @@ export function countTextTokenMatches(value: string, queryTokens: readonly strin
 }
 
 export function lineForByte(text: string, byteOffset: number): number {
-	return lineForByteWithIndex(buildLineIndex(text), byteOffset);
+	return buildLineIndex(text).lineForByte(byteOffset);
 }
 
 export function byteRangeForLines(text: string, startLine: number, endLine: number): SourceRange {
@@ -102,30 +118,27 @@ export function byteRangeForLinesWithIndex(index: LineIndex, startLine: number, 
 	return { startLine, endLine, startByte, endByte };
 }
 
+/** 按 byte 截取 grep 展示文本；code unit 热路径使用 ParsedDocument 的 char slice。 */
 export function extractByteRange(text: string, startByte: number, endByte: number): string {
 	return Buffer.from(text, "utf8").subarray(startByte, endByte).toString("utf8").replace(/\s+$/u, "");
 }
 
-function parseByLanguage(language: CodeLanguage, text: string): { status: AnalyzedFileIndex["status"]; units: RawUnit[] } {
-	const adapter = getLanguageAdapter(language);
-	if (adapter === undefined) return { status: "unsupported", units: [] };
-	try {
-		const root = parseSyntaxTree(language, text);
-		if (root === undefined) return { status: "error", units: [] };
-		return { status: "parsed", units: adapter.extractUnits(root) };
-	} catch {
-		return { status: "error", units: [] };
-	}
+function emptyAnalyzedFile(file: { id: string; path: string }, language: CodeLanguage, status: AnalyzedFileIndex["status"]): AnalyzedFileIndex {
+	return {
+		index: { ...file, language, units: [], symbols: [] },
+		status,
+		imports: [],
+	};
 }
 
 function collectFileImports(language: CodeLanguage, text: string, lineIndex: LineIndex) {
 	return getLanguageAdapter(language)?.collectImports(text, lineIndex) ?? [];
 }
 
-function buildIndexedUnit(file: { id: string; path: string }, language: CodeLanguage, text: string, lineIndex: LineIndex, unit: RawUnit): IndexedCodeUnit {
-	const startByte = byteForCharWithIndex(text, lineIndex, unit.startChar);
-	const endByte = byteForCharWithIndex(text, lineIndex, unit.endChar);
-	const content = extractByteRange(text, startByte, endByte);
+function buildIndexedUnit(file: { id: string; path: string }, language: CodeLanguage, text: string, sourceIndex: SourceIndex, unit: RawUnit): IndexedCodeUnit {
+	const range = sourceIndex.range(unit.startChar, unit.endChar);
+	const { startByte, endByte } = range;
+	const content = text.slice(unit.startChar, unit.endChar).replace(/\s+$/u, "");
 	const signature = firstNonEmptyLine(content);
 	const nameText = [file.path, unit.name, unit.qualifiedName, signature, content].join("\n");
 	const tokens = tokenizeText(nameText);
@@ -146,8 +159,8 @@ function buildIndexedUnit(file: { id: string; path: string }, language: CodeLang
 		...(unit.name !== undefined ? { name: unit.name } : {}),
 		...(unit.qualifiedName !== undefined ? { qualifiedName: unit.qualifiedName } : {}),
 		...(signature !== undefined ? { signature } : {}),
-		startLine: lineForByteWithIndex(lineIndex, startByte),
-		endLine: lineForByteWithIndex(lineIndex, Math.max(startByte, endByte - 1)),
+		startLine: range.startLine,
+		endLine: range.endLine,
 		startByte,
 		endByte,
 		tokens,
@@ -162,31 +175,8 @@ function firstNonEmptyLine(text: string): string | undefined {
 	return text.split(/\n/u).find((line) => line.trim().length > 0)?.trim();
 }
 
-export function buildLineIndex(text: string): LineIndex {
-	const lineStarts = [0];
-	const lineStartChars = [0];
-	let bytes = 0;
-	for (let index = 0; index < text.length; index += 1) {
-		const code = text.charCodeAt(index);
-		if (code < 0x80) bytes += 1;
-		else if (code < 0x800) bytes += 2;
-		else if (code >= 0xd800 && code <= 0xdbff && index + 1 < text.length) {
-			const next = text.charCodeAt(index + 1);
-			if (next >= 0xdc00 && next <= 0xdfff) {
-				bytes += 4;
-				index += 1;
-			} else {
-				bytes += 3;
-			}
-		} else {
-			bytes += 3;
-		}
-		if (code === 0x0a) {
-			lineStarts.push(bytes);
-			lineStartChars.push(index + 1);
-		}
-	}
-	return { lineStarts, lineStartChars, byteLength: bytes };
+export function buildLineIndex(text: string): SourceIndex {
+	return new SourceIndex(text);
 }
 
 function splitIdentifier(value: string): string[] {

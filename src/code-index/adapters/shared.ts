@@ -156,31 +156,12 @@ function indexedImports(text: string, index: LineIndex, matches: readonly { spec
 	return imports.sort((left, right) => left.startByte - right.startByte || left.endByte - right.endByte || (left.specifier < right.specifier ? -1 : left.specifier > right.specifier ? 1 : 0));
 }
 
-export function byteForCharWithIndex(text: string, index: LineIndex, charOffset: number): number {
-	let low = 0;
-	let high = index.lineStartChars.length - 1;
-	while (low <= high) {
-		const middle = Math.floor((low + high) / 2);
-		const start = index.lineStartChars[middle] ?? 0;
-		if (start <= charOffset) low = middle + 1;
-		else high = middle - 1;
-	}
-	const line = Math.max(0, high);
-	const lineStartChar = index.lineStartChars[line] ?? 0;
-	const lineStartByte = index.lineStarts[line] ?? 0;
-	return lineStartByte + Buffer.byteLength(text.slice(lineStartChar, charOffset), "utf8");
+export function byteForCharWithIndex(_text: string, index: LineIndex, charOffset: number): number {
+	return index.byteForChar(charOffset);
 }
 
 export function lineForByteWithIndex(index: LineIndex, byteOffset: number): number {
-	let low = 0;
-	let high = index.lineStarts.length - 1;
-	while (low <= high) {
-		const middle = Math.floor((low + high) / 2);
-		const start = index.lineStarts[middle] ?? 0;
-		if (start <= byteOffset) low = middle + 1;
-		else high = middle - 1;
-	}
-	return Math.max(1, high + 1);
+	return index.lineForByte(byteOffset);
 }
 
 function compareRawUnits(left: RawUnit, right: RawUnit): number {
