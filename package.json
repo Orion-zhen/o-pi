@@ -62,6 +62,8 @@
 	},
 	"optionalDependencies": {
 		"tree-sitter": "latest",
+		"tree-sitter-c": "latest",
+		"tree-sitter-cpp": "latest",
 		"tree-sitter-go": "latest",
 		"tree-sitter-javascript": "latest",
 		"tree-sitter-python": "latest",
