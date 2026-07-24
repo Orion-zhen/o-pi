@@ -227,6 +227,45 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		expect(withDuplicateLsp).not.toContain("<lsp ");
 	});
 
+	it("skips refresh for mutations outside scan scope but keeps unignored untracked files refreshable", async () => {
+		await writeFile(path.join(temp.path, "file-tools.jsonc"), JSON.stringify({
+			blocked_path: [".git/"],
+			ignored_path: ["scratch/"],
+			ignore: { builtin_profile: "none", gitignore: true },
+		}));
+		const root = path.join(temp.path, "mutation-scope-repo");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		await mkdir(path.join(root, "agent", "sessions"), { recursive: true });
+		await mkdir(path.join(root, "scratch"), { recursive: true });
+		await writeFile(path.join(root, ".gitignore"), "agent/sessions\n");
+		await writeFile(path.join(root, "base.ts"), "export const Base = 1;\n");
+		const initialized = await initializeRepoMap({ cwd: root }, serviceDependencies(root));
+		const generation = await readActivatedRepoMap({
+			root,
+			mapId: initialized.metadata.mapId,
+			generation: initialized.metadata.generation,
+		}, path.join(temp.path, "cache"));
+		expect(generation?.files.map((file) => file.path)).not.toContain("agent/sessions/session.jsonl");
+		const branch = [activationEntry(initialized.metadata)];
+		const refresh = vi.fn(async () => initialized);
+		const query = createRepoMapFileToolQuery(() => branch, {
+			async readActivated(activation) {
+				return await readActivatedRepoMap(activation, path.join(temp.path, "cache"));
+			},
+			refresh,
+		});
+
+		for (const excludedPath of ["agent/sessions/session.jsonl", "scratch/runtime.log", ".git/runtime-state"]) {
+			await writeFile(path.join(root, excludedPath), "runtime data\n");
+			expect(await query.syncMutation({ requestedPath: path.join(root, excludedPath) })).toBeUndefined();
+		}
+		expect(refresh).not.toHaveBeenCalled();
+
+		await writeFile(path.join(root, "untracked.ts"), "export const Untracked = true;\n");
+		expect(await query.syncMutation({ requestedPath: path.join(root, "untracked.ts") })).toMatchObject({ status: "updated" });
+		expect(refresh).toHaveBeenCalledTimes(1);
+	});
+
 	it("refreshes after write/edit, switches activation, and removes obsolete symbols and edges", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });

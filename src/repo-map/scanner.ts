@@ -13,6 +13,7 @@ import {
 } from "../file-tools/config.js";
 import type { IgnoreSnapshot } from "../file-tools/ignore/ignore-types.js";
 import { RepoMapError, throwIfAborted } from "./errors.js";
+import { isRepoMapFileInScope } from "./scope.js";
 import type { RepoMapDiagnostic, RepoMapFileRecord, RepoMapScanSummary } from "./types.js";
 
 export interface RepoMapScanInput {
@@ -142,8 +143,12 @@ export async function scanRepoMap(input: RepoMapScanInput): Promise<RepoMapScanR
 				await walk(absolutePath, relativePath);
 				continue;
 			}
-			if (!entry.isFile() || isIgnoredPath(input.fileToolsConfig, identity)) continue;
-			if (input.ignoreSnapshot.evaluate({ path: relativePath, kind: "file", intent: "index" }).ignored) continue;
+			if (!entry.isFile() || !isRepoMapFileInScope({
+				relativePath,
+				absolutePath,
+				fileToolsConfig: input.fileToolsConfig,
+				ignoreSnapshot: input.ignoreSnapshot,
+			})) continue;
 			let initialStat: Stats | undefined;
 			try {
 				initialStat = await fileSystem.stat(absolutePath);

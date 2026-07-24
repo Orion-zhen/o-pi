@@ -15,6 +15,7 @@ import { analyzeRepoMapImpact, type AnalyzeRepoMapImpactInput, type RepoMapImpac
 import { REPO_MAP_OUTPUT_CANDIDATE_LIMIT } from "./output-config.js";
 import type { InitializeRepoMapResult, RefreshActivatedRepoMapInput } from "./service.js";
 import type { RepoMapGeneration } from "./storage.js";
+import { isRepoMapPathInScope, relativeRepoPath } from "./scope.js";
 import type { RepoMapEdge, RepoMapEntrypointNode, RepoMapSymbolNode } from "./types.js";
 
 export interface RepoMapReadContext {
@@ -64,6 +65,7 @@ export interface RepoMapFileToolQueryDependencies {
 	now(): Date;
 	analyzeImpact(input: AnalyzeRepoMapImpactInput): RepoMapImpactResult;
 	createQueryIndex(generation: RepoMapGeneration): RepoMapQueryIndex;
+	isMutationPathInScope(root: string, requestedPath: string): Promise<boolean>;
 }
 
 /** 未激活时只计算 session entry；磁盘读取、freshness 检查与查询均延后到调用时。 */
@@ -78,6 +80,7 @@ export function createRepoMapFileToolQuery(
 	const now = dependencies.now ?? (() => new Date());
 	const analyzeImpact = dependencies.analyzeImpact ?? analyzeRepoMapImpact;
 	const createQueryIndex = dependencies.createQueryIndex ?? ((generation: RepoMapGeneration) => new RepoMapQueryIndex(generation));
+	const isMutationPathInScope = dependencies.isMutationPathInScope ?? isRepoMapPathInScope;
 	const queryIndexes = new Map<string, RepoMapQueryIndex>();
 	let staleRefresh: Promise<{ activation: RepoMapActivation; generation: RepoMapGeneration } | undefined> | undefined;
 	const queryIndexFor = (generation: RepoMapGeneration): RepoMapQueryIndex => {
@@ -218,9 +221,20 @@ export function createRepoMapFileToolQuery(
 		},
 		async syncMutation(input) {
 			const activation = computeRepoMapActivation(getBranch());
-			if (activation === undefined || relativeRepoPath(activation.root, input.requestedPath) === undefined) return undefined;
+			if (activation === undefined) return undefined;
+			const changedPath = relativeRepoPath(activation.root, input.requestedPath);
+			if (changedPath === undefined) return undefined;
 			try {
 				const before = await readActivated(activation).catch(() => undefined);
+				if (!before?.files.some((file) => file.path === changedPath)) {
+					let inScope = true;
+					try {
+						inScope = await isMutationPathInScope(activation.root, input.requestedPath);
+					} catch {
+						// 无法证明 mutation 与索引无关时保留原有 refresh 行为。
+					}
+					if (!inScope) return undefined;
+				}
 				const result = await refresh({
 					activation,
 					...(input.signal !== undefined ? { signal: input.signal } : {}),
@@ -247,12 +261,12 @@ export function createRepoMapFileToolQuery(
 						activatedAt: result.metadata.updatedAt,
 						freshness: result.metadata.freshness,
 					});
-					const changedPath = relativeRepoPath(result.metadata.repositoryRoot, input.requestedPath);
-					if (after !== undefined && changedPath !== undefined) {
+					const refreshedPath = relativeRepoPath(result.metadata.repositoryRoot, input.requestedPath);
+					if (after !== undefined && refreshedPath !== undefined) {
 						const impact = analyzeImpact({
 							...(before !== undefined ? { before } : {}),
 							after,
-							changedPath,
+							changedPath: refreshedPath,
 							...(input.changedLine !== undefined ? { changedLine: input.changedLine } : {}),
 							maxCandidates: 8,
 						});
@@ -380,11 +394,4 @@ function compactLabel(value: string | undefined): string | undefined {
 
 function enclosingRank(symbol: RepoMapSymbolNode, startLine: number, endLine: number): number {
 	return symbol.startLine <= startLine && symbol.endLine >= endLine ? 0 : 1;
-}
-
-function relativeRepoPath(root: string, requestedPath: string): string | undefined {
-	const relative = path.relative(path.resolve(root), path.resolve(requestedPath));
-	if (relative === "") return undefined;
-	if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return undefined;
-	return relative.replaceAll(path.sep, "/");
 }

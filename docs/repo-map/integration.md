@@ -20,7 +20,7 @@ Repo Map 候选必须经过路径、ignore、新鲜度和结果去重处理，�
 
 ## Mutation
 
-`write` 和 `edit` 可以触发 diagnostics 或 mutation impact。修改后的 refresh 按 map ID 串行执行，防止并发 generation 提交乱序。
+`write` 和 `edit` 可以触发 diagnostics 或 mutation impact。只有已存在于 generation，或当前属于 Repo Map 扫描范围的文件才触发 refresh；blocked、`ignored_path`、`.gitignore` 和 `.piignore` 排除的新文件不会刷新索引。未被忽略的 untracked 新文件仍可进入 Repo Map。修改后的 refresh 按 map ID 串行执行，防止并发 generation 提交乱序。
 
 Repo Map 不提供写入权限，也不替代 edit 的 read-before-edit、版本检查或 path guard。
 
