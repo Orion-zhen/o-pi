@@ -87,7 +87,7 @@ describe("tui extension", () => {
 
 		const ctx: ExtensionContextStub = {
 			cwd: process.cwd(),
-			mode: "print",
+			mode: "tui",
 			ui: {
 				theme: { fg: (_name, text) => text },
 				notify() {},
@@ -145,7 +145,7 @@ describe("tui extension", () => {
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
 		const pi = createPi(handlers);
-		const ctx = createContext(calls);
+		const ctx = createContext(calls, { mode: "tui" });
 
 		tuiExtension(pi as unknown as ExtensionAPI);
 		await handlers.get("session_start")?.({}, ctx);
@@ -165,7 +165,7 @@ describe("tui extension", () => {
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
 		const pi = createPi(handlers);
-		const ctx = createContext(calls);
+		const ctx = createContext(calls, { mode: "tui" });
 
 		tuiExtension(pi as unknown as ExtensionAPI);
 		await handlers.get("session_start")?.({}, ctx);
@@ -185,7 +185,7 @@ describe("tui extension", () => {
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
 		const pi = createPi(handlers);
-		const ctx = createContext(calls);
+		const ctx = createContext(calls, { mode: "tui" });
 
 		tuiExtension(pi as unknown as ExtensionAPI);
 		await handlers.get("session_start")?.({}, ctx);
@@ -202,7 +202,7 @@ describe("tui extension", () => {
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
 		const pi = createPi(handlers);
-		const ctx = createContext(calls);
+		const ctx = createContext(calls, { mode: "tui" });
 
 		tuiExtension(pi as unknown as ExtensionAPI);
 		await handlers.get("session_start")?.({}, ctx);
@@ -221,7 +221,7 @@ describe("tui extension", () => {
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
 		const pi = createPi(handlers);
-		const ctx = createContext(calls);
+		const ctx = createContext(calls, { mode: "tui" });
 
 		tuiExtension(pi as unknown as ExtensionAPI);
 		await handlers.get("session_start")?.({}, ctx);
@@ -230,6 +230,44 @@ describe("tui extension", () => {
 		expect(calls.header.at(-1)).toBeUndefined();
 		expect(calls.footer.at(-1)).toBeUndefined();
 		expect(calls.status.at(-1)).toEqual({ key: "o-pi:tui", text: undefined });
+	});
+
+	it.each(["rpc", "json", "print"] as const)("%s 模式只执行 mode gate，不激活 TUI runtime", async (mode) => {
+		vi.useFakeTimers();
+		const loadRuntime = vi.fn(async () => {
+			throw new Error("TUI runtime must not load");
+		});
+		const calls = createUiCalls();
+		const handlers = new Map<string, Handler>();
+		const ctx = createContext(calls, { mode });
+
+		createTuiExtension(undefined, loadRuntime)(createPi(handlers) as unknown as ExtensionAPI);
+		await handlers.get("session_start")?.({}, ctx);
+
+		expect(loadRuntime).not.toHaveBeenCalled();
+		expect([...handlers.keys()]).toEqual(["session_start"]);
+		expect(calls.title).toEqual([]);
+		expect(calls.status).toEqual([]);
+		expect(calls.footer).toEqual([]);
+		expect(calls.header).toEqual([]);
+		expect(calls.working).toEqual([]);
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
+	it("native runtime 只加载并创建一次，但为每个 session_start 重置状态", async () => {
+		const startSession = vi.fn(async () => {});
+		const createRuntime = vi.fn(() => ({ startSession }));
+		const loadRuntime = vi.fn(async () => ({ createTuiRuntime: createRuntime }));
+		const handlers = new Map<string, Handler>();
+		const ctx = createContext(createUiCalls(), { mode: "tui" });
+
+		createTuiExtension(undefined, loadRuntime)(createPi(handlers) as unknown as ExtensionAPI);
+		await handlers.get("session_start")?.({}, ctx);
+		await handlers.get("session_start")?.({}, ctx);
+
+		expect(loadRuntime).toHaveBeenCalledOnce();
+		expect(createRuntime).toHaveBeenCalledOnce();
+		expect(startSession).toHaveBeenCalledTimes(2);
 	});
 
 	it("数学渲染器只在 TUI 空闲期加载，并在活跃 turn 期间暂停", async () => {
@@ -336,7 +374,7 @@ function createContext(
 ): ExtensionContextStub {
 	return {
 		cwd: process.cwd(),
-		mode: options.mode ?? "print",
+		mode: options.mode ?? "tui",
 		ui: {
 			theme: { fg: (_name, text) => text },
 			notify() {},
