@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -6,11 +6,13 @@ import { findWorkspaceFiles } from "../../src/file-tools/tools/find.js";
 import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
 import { readWorkspaceFile } from "../../src/file-tools/tools/read.js";
 import { buildRepoMapArchitecture } from "../../src/repo-map/architecture-indexer.js";
+import { buildRepoMapTestGraph } from "../../src/repo-map/test-indexer.js";
 import { createRepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
 import { buildRepoMapRelationships } from "../../src/repo-map/relationship-indexer.js";
 import { RepoMapQueryIndex } from "../../src/repo-map/query.js";
 import { initializeRepoMap } from "../../src/repo-map/service.js";
 import { indexRepoMapSymbols } from "../../src/repo-map/symbol-indexer.js";
+import { analyzeCodeFile } from "../../src/code-index/parser.js";
 import type { RepoMapGeneration } from "../../src/repo-map/storage.js";
 import type { RepoMapMetadata } from "../../src/repo-map/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -53,6 +55,39 @@ describe("Repo Map architecture graph", () => {
 		expect(publicSymbol?.visibility).toBe("public");
 		expect(internalSymbol?.visibility).toBe("internal");
 		expect(generation.edges).toContainEqual(expect.objectContaining({ kind: "belongs-to", from: publicSymbol?.id, to: expect.stringMatching(/^component:/u) }));
+	});
+
+	it("passes syntax facts through the service without re-reading JS sources", async () => {
+		const root = path.join(temp.path, "single-pass-service");
+		const cacheRoot = path.join(temp.path, "single-pass-cache");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		await writeSources(root, new Map([
+			["package.json", JSON.stringify({ name: "single-pass", scripts: { test: "vitest" } })],
+			["src/plugin.ts", "export default function plugin() { return true; }\n"],
+			["tests/plugin.test.ts", "test('plugin', () => expect(true).toBe(true));\n"],
+		]));
+		const readForSymbols = vi.fn(async (absolutePath: string) => await readFile(absolutePath, "utf8"));
+		const readForArchitecture = vi.fn(async (absolutePath: string) => await readFile(absolutePath, "utf8"));
+		const readForTests = vi.fn(async (absolutePath: string) => await readFile(absolutePath, "utf8"));
+		const analyze = vi.fn(analyzeCodeFile);
+		const indexSymbols = vi.fn(async (input: Parameters<typeof indexRepoMapSymbols>[0]) => await indexRepoMapSymbols({ ...input, analyze, readText: readForSymbols }));
+		const buildArchitecture = vi.fn(async (input: Parameters<typeof buildRepoMapArchitecture>[0]) => await buildRepoMapArchitecture({ ...input, readText: readForArchitecture }));
+		const buildTestGraph = vi.fn(async (input: Parameters<typeof buildRepoMapTestGraph>[0]) => await buildRepoMapTestGraph({ ...input, readText: readForTests }));
+
+		await initializeRepoMap({ cwd: root }, {
+			...serviceDependencies(root, cacheRoot, new Date("2026-07-18T00:00:00.000Z")),
+			indexSymbols,
+			buildArchitecture,
+			buildTestGraph,
+		});
+
+		const symbolIndex = await indexSymbols.mock.results[0]?.value;
+		expect(symbolIndex?.syntaxFactsByFile).toBeDefined();
+		expect(analyze).toHaveBeenCalledTimes(2);
+		const architectureReads = readForArchitecture.mock.calls.map(([filePath]) => path.relative(root, filePath).replaceAll(path.sep, "/"));
+		const testReads = readForTests.mock.calls.map(([filePath]) => path.relative(root, filePath).replaceAll(path.sep, "/"));
+		expect(architectureReads).not.toEqual(expect.arrayContaining(["src/plugin.ts", "tests/plugin.test.ts"]));
+		expect(testReads).not.toContain("tests/plugin.test.ts");
 	});
 
 	it("marks exported variable declarations as public API", async () => {

@@ -176,6 +176,7 @@ export async function initializeRepoMap(
 		mapId,
 		files: scan.files,
 		symbols: symbolIndex.symbols,
+		...(symbolIndex.syntaxFactsByFile !== undefined ? { syntaxFactsByFile: symbolIndex.syntaxFactsByFile } : {}),
 		...(previous !== undefined ? {
 			previous: {
 				files: previous.files,
@@ -200,6 +201,7 @@ export async function initializeRepoMap(
 		files: scan.files,
 		symbols: architecture.symbols,
 		edges: baseEdges,
+		...(symbolIndex.syntaxFactsByFile !== undefined ? { syntaxFactsByFile: symbolIndex.syntaxFactsByFile } : {}),
 		...(input.signal !== undefined ? { signal: input.signal } : {}),
 	});
 	const edges = coalesceRepoMapEdges([...baseEdges, ...testGraph.edges]);

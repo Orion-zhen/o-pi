@@ -1,7 +1,7 @@
 import { languageFromPath } from "../code-index/language-registry.js";
 import { parseDocument, sourceRangeForNode } from "../code-index/syntax-tree.js";
 import type { SyntaxNode } from "../code-index/adapters/types.js";
-import type { SourceIndex, SourceRange } from "../code-index/types.js";
+import type { CodeLanguage, ParsedDocument, SourceIndex, SourceRange } from "../code-index/types.js";
 
 export interface RegistrationFact extends SourceRange {
 	name: string;
@@ -39,15 +39,26 @@ const EMPTY_FACTS: JavaScriptSyntaxFacts = {
 };
 const FIXTURE_PATH = /(?:^|\/)(?:__fixtures__|fixtures?|testdata)(?:\/|$)/iu;
 
-/** Extract JS-family facts from a real syntax tree; malformed files simply produce no facts. */
+function isJavaScriptLanguage(language: CodeLanguage | undefined): boolean {
+	return language === "javascript" || language === "jsx" || language === "typescript" || language === "tsx";
+}
+
+/** Parse and extract JS-family facts for callers that do not already own a document. */
 export function javascriptSyntaxFacts(filePath: string, text: string): JavaScriptSyntaxFacts {
 	const language = languageFromPath(filePath);
-	if (language !== "javascript" && language !== "jsx" && language !== "typescript" && language !== "tsx") return EMPTY_FACTS;
+	if (!isJavaScriptLanguage(language)) return EMPTY_FACTS;
 	try {
-		const document = parseDocument(language, text);
-		if (document === undefined || document.root.hasError) return EMPTY_FACTS;
-		const { root, sourceIndex } = document;
+		return javascriptSyntaxFactsFromDocument(filePath, parseDocument(language, text));
+	} catch {
+		return EMPTY_FACTS;
+	}
+}
 
+/** Extract facts from an existing document; malformed roots intentionally produce no facts. */
+export function javascriptSyntaxFactsFromDocument(filePath: string, document: ParsedDocument | undefined): JavaScriptSyntaxFacts {
+	if (document === undefined || !isJavaScriptLanguage(document.language) || languageFromPath(filePath) !== document.language || document.root.hasError) return EMPTY_FACTS;
+	try {
+		const { root, sourceIndex } = document;
 		const constants = collectStringConstants(root);
 		const facts: JavaScriptSyntaxFacts = {
 			registrations: [], reExports: [], defaultExports: [], tests: [], mocks: [], fixtures: [], snapshots: [],

@@ -1,3 +1,4 @@
+import type { JavaScriptSyntaxFacts } from "./syntax-facts.js";
 import type { RepoMapEdge, RepoMapEvidence, RepoMapSymbolNode } from "./types.js";
 
 export interface RepoMapImportFact {
@@ -14,6 +15,8 @@ export interface RepoMapSymbolIndex {
 	unsupportedFileCount: number;
 	parseErrorFileCount: number;
 	reusedParsedFileCount: number;
+	/** Transient facts produced alongside symbols during this build. */
+	syntaxFactsByFile?: ReadonlyMap<string, JavaScriptSyntaxFacts>;
 }
 
 export function compareRepoMapEdge(left: RepoMapEdge, right: RepoMapEdge): number {

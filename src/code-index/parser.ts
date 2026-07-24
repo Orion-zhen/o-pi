@@ -21,7 +21,9 @@ export function parseCodeUnits(filePath: string, text: string): ParsedFileIndex 
 /** Repo Map 使用的详细结果；保留 parser 失败状态与文件级 import 事实。 */
 export function analyzeCodeFile(filePath: string, text: string): AnalyzedFileIndex {
 	const language = languageFromPath(filePath);
-	return analyzeDocument(filePath, parseDocument(language, text));
+	const document = parseDocument(language, text);
+	const analyzed = analyzeDocument(filePath, document);
+	return document === undefined ? analyzed : { ...analyzed, document };
 }
 
 /** 在已解析的 ParsedDocument 上建立 code index；文档只在本次调用链中存活。 */

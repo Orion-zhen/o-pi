@@ -4,7 +4,7 @@ import { parse as parseToml } from "smol-toml";
 import { throwIfAborted } from "./errors.js";
 import { coalesceRepoMapEdges, compareText, uniqueBy } from "./graph.js";
 import { fileEvidence, rangeEvidence, readTextNoFollow, sha256, sourceEvidence, symbolEvidence, type RepoMapReadText, type RepoMapSourceFile } from "./source.js";
-import { javascriptSyntaxFacts, type RegistrationFact } from "./syntax-facts.js";
+import { javascriptSyntaxFacts, type JavaScriptSyntaxFacts, type RegistrationFact } from "./syntax-facts.js";
 import { isRepoMapSymbolPublic } from "./visibility.js";
 import type {
 	RepoMapArchitectureNode,
@@ -24,6 +24,7 @@ export interface BuildRepoMapArchitectureInput {
 	mapId: string;
 	files: readonly RepoMapFileRecord[];
 	symbols: readonly RepoMapSymbolNode[];
+	syntaxFactsByFile?: ReadonlyMap<string, JavaScriptSyntaxFacts>;
 	previous?: {
 		files: readonly RepoMapFileRecord[];
 		architecture: readonly RepoMapArchitectureNode[];
@@ -68,7 +69,8 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 	const sourceFiles = new Map<string, RepoMapSourceFile>();
 	const diagnostics: RepoMapDiagnostic[] = [];
 	const shouldRead = (file: RepoMapFileRecord): boolean => file.status === "indexed"
-		&& (MANIFEST_NAMES.has(path.posix.basename(file.path)) || isScriptFile(file.path) && !reusableSourcePaths.has(file.path));
+		&& (MANIFEST_NAMES.has(path.posix.basename(file.path))
+			|| isJavaScriptFamily(file.path) && !reusableSourcePaths.has(file.path) && syntaxFactsForFile(input.syntaxFactsByFile, file) === undefined);
 	for (const file of input.files) {
 		if (!shouldRead(file)) continue;
 		throwIfAborted(input.signal);
@@ -172,52 +174,50 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 		edges.push(previousEdge);
 		if (previousEdge.kind === "exports-publicly" && symbolsById.has(previousEdge.to)) reExportedSymbols.add(previousEdge.to);
 	}
-	for (const source of sourceFiles.values()) {
-		if (!isJavaScriptFamily(source.file.path)) continue;
-		const syntax = javascriptSyntaxFacts(source.file.path, source.text);
-		const owner = packageForFile.get(source.file.id);
-		const component = componentForFile.get(source.file.id);
+	for (const { file, syntax } of syntaxSources(input, sourceFiles)) {
+		const owner = packageForFile.get(file.id);
+		const component = componentForFile.get(file.id);
 		for (const fact of syntax.registrations) {
-			const entrypoint = registrationEntrypoint(fact, source.file, owner?.node);
-			const evidence = rangeEvidence(source, fact);
+			const entrypoint = registrationEntrypoint(fact, file, owner?.node);
+			const evidence = rangeEvidence(file, fact);
 			nodes.push(entrypoint);
-			edges.push(edge(source.file.id, entrypoint.id, registrationEdgeKind(fact.type), "syntax", entrypoint.confidence, evidence, fact.name));
+			edges.push(edge(file.id, entrypoint.id, registrationEdgeKind(fact.type), "syntax", entrypoint.confidence, evidence, fact.name));
 			if (component !== undefined) edges.push(edge(entrypoint.id, component.id, "belongs-to", "convention", component.confidence, evidence));
 		}
 		const defaultExport = syntax.defaultExports[0];
-		if (defaultExport !== undefined && isExtensionConvention(source.file.path)) {
-			const entrypoint = conventionPluginEntrypoint(source.file, owner?.node);
+		if (defaultExport !== undefined && isExtensionConvention(file.path)) {
+			const entrypoint = conventionPluginEntrypoint(file, owner?.node);
 			nodes.push(entrypoint);
-			edges.push(edge(source.file.id, entrypoint.id, "registers-plugin", "convention", 0.72, rangeEvidence(source, defaultExport)));
+			edges.push(edge(file.id, entrypoint.id, "registers-plugin", "convention", 0.72, rangeEvidence(file, defaultExport)));
 		}
 		for (const fact of syntax.reExports) {
-			const target = resolveDeclaredTarget(path.posix.dirname(source.file.path), fact.target, filesByPath);
-			const evidence = rangeEvidence(source, fact);
+			const target = resolveDeclaredTarget(path.posix.dirname(file.path), fact.target, filesByPath);
+			const evidence = rangeEvidence(file, fact);
 			if (target === undefined) {
-				edges.push(edge(source.file.id, `external:${encodeURIComponent(fact.target)}`, "re-exports", "syntax", 0.45, evidence, fact.target));
+				edges.push(edge(file.id, `external:${encodeURIComponent(fact.target)}`, "re-exports", "syntax", 0.45, evidence, fact.target));
 				continue;
 			}
-			edges.push(edge(source.file.id, target.id, "re-exports", "syntax", 0.94, evidence, fact.target));
+			edges.push(edge(file.id, target.id, "re-exports", "syntax", 0.94, evidence, fact.target));
 			const targetSymbols = (symbolsByFile.get(target.id) ?? []).filter((symbol) => isRequestedExport(symbol, fact.names));
 			for (const symbol of targetSymbols) {
 				reExportedSymbols.add(symbol.id);
-				edges.push(edge(source.file.id, symbol.id, "exports-publicly", "syntax", 0.92, evidence, symbol.name));
+				edges.push(edge(file.id, symbol.id, "exports-publicly", "syntax", 0.92, evidence, symbol.name));
 			}
-			if (publicFiles.has(source.file.id)) publicFiles.add(target.id);
+			if (publicFiles.has(file.id)) publicFiles.add(target.id);
 		}
 		for (const exported of syntax.defaultExports) {
 			const entrypoint: RepoMapEntrypointNode = {
 				kind: "entrypoint",
-				id: architectureId("entrypoint", source.file.id, "export", "default"),
+				id: architectureId("entrypoint", file.id, "export", "default"),
 				name: "default",
 				entrypointType: "export",
 				...(owner !== undefined ? { packageId: owner.node.id } : {}),
-				fileId: source.file.id,
+				fileId: file.id,
 				source: "syntactic",
 				confidence: 0.96,
 			};
 			nodes.push(entrypoint);
-			edges.push(edge(source.file.id, entrypoint.id, "exports-publicly", "syntax", 0.96, rangeEvidence(source, exported)));
+			edges.push(edge(file.id, entrypoint.id, "exports-publicly", "syntax", 0.96, rangeEvidence(file, exported)));
 		}
 	}
 	let publicFileAdded = true;
@@ -523,6 +523,27 @@ function isScriptFile(filePath: string): boolean {
 
 function isJavaScriptFamily(filePath: string): boolean {
 	return /\.(?:[cm]?js|jsx|tsx?)$/u.test(filePath);
+}
+
+function syntaxFactsForFile(
+	factsByFile: ReadonlyMap<string, JavaScriptSyntaxFacts> | undefined,
+	file: RepoMapFileRecord,
+): JavaScriptSyntaxFacts | undefined {
+	return factsByFile?.get(file.id) ?? factsByFile?.get(file.path);
+}
+
+function syntaxSources(
+	input: BuildRepoMapArchitectureInput,
+	sourceFiles: ReadonlyMap<string, RepoMapSourceFile>,
+): Array<{ file: RepoMapFileRecord; syntax: JavaScriptSyntaxFacts }> {
+	return input.files
+		.filter((file) => file.status === "indexed" && isJavaScriptFamily(file.path))
+		.flatMap((file) => {
+			const facts = syntaxFactsForFile(input.syntaxFactsByFile, file);
+			if (facts !== undefined) return [{ file, syntax: facts }];
+			const source = sourceFiles.get(file.path);
+			return source === undefined ? [] : [{ file: source.file, syntax: javascriptSyntaxFacts(file.path, source.text) }];
+		});
 }
 
 function uniqueNodes(nodes: readonly RepoMapArchitectureNode[]): RepoMapArchitectureNode[] {

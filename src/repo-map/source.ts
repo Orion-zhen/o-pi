@@ -63,10 +63,10 @@ export function sourceEvidence(source: RepoMapSourceFile, start: number, end: nu
 	};
 }
 
-export function rangeEvidence(source: RepoMapSourceFile, range: { startLine: number; endLine: number; startByte: number; endByte: number }): RepoMapEvidence {
+export function rangeEvidence(file: RepoMapFileRecord, range: { startLine: number; endLine: number; startByte: number; endByte: number }): RepoMapEvidence {
 	return {
-		path: source.file.path,
-		...(source.file.contentHash !== undefined ? { textHash: source.file.contentHash } : {}),
+		path: file.path,
+		...(file.contentHash !== undefined ? { textHash: file.contentHash } : {}),
 		startLine: range.startLine,
 		endLine: range.endLine,
 		startByte: range.startByte,

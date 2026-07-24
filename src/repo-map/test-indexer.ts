@@ -19,6 +19,7 @@ export interface BuildRepoMapTestGraphInput {
 	files: readonly RepoMapFileRecord[];
 	symbols: readonly RepoMapSymbolNode[];
 	edges: readonly RepoMapEdge[];
+	syntaxFactsByFile?: ReadonlyMap<string, JavaScriptSyntaxFacts>;
 	signal?: AbortSignal;
 	readText?: RepoMapReadText;
 }
@@ -36,6 +37,9 @@ const FIXTURE_PATH = /(?:^|\/)(?:__fixtures__|fixtures?|testdata)(?:\/|$)/iu;
 const MOCK_PATH = /(?:^|\/)(?:__mocks__|mocks?)(?:\/|$)|[._-]mock(?:[._-]|$)/iu;
 const SNAPSHOT_PATH = /(?:^|\/)__snapshots__(?:\/|$)|\.snap$/iu;
 const RUNNER_CONFIG = /(?:^|\/)(?:vitest|jest|playwright|cypress)\.config\.[^/]+$|(?:^|\/)karma\.conf\.[^/]+$|(?:^|\/)pytest\.ini$|(?:^|\/)tox\.ini$/iu;
+const EMPTY_FACTS: JavaScriptSyntaxFacts = {
+	registrations: [], reExports: [], defaultExports: [], tests: [], mocks: [], fixtures: [], snapshots: [],
+};
 
 /** Build candidate test relationships from repository-local, deterministic syntax and naming facts. */
 export async function buildRepoMapTestGraph(input: BuildRepoMapTestGraphInput): Promise<RepoMapTestGraph> {
@@ -43,7 +47,10 @@ export async function buildRepoMapTestGraph(input: BuildRepoMapTestGraphInput): 
 	const readText = input.readText ?? readTextNoFollow;
 	const testFiles = input.files.filter((file) => file.status === "indexed" && isTestFile(file.path));
 	const configurationFiles = input.files.filter((file) => file.status === "indexed" && isConfigurationFile(file.path));
-	const filesToRead = new Map([...testFiles, ...configurationFiles].map((file) => [file.id, file]));
+	const filesToRead = new Map([
+		...configurationFiles,
+		...testFiles.filter((file) => !isJavaScriptFamily(file.path) || syntaxFactsForFile(input.syntaxFactsByFile, file) === undefined),
+	].map((file) => [file.id, file]));
 	const sources = new Map<string, RepoMapSourceFile>();
 	const diagnostics: RepoMapDiagnostic[] = [];
 	for (const file of filesToRead.values()) {
@@ -67,13 +74,14 @@ export async function buildRepoMapTestGraph(input: BuildRepoMapTestGraphInput): 
 	const edges: RepoMapEdge[] = [];
 	for (const testFile of testFiles) {
 		const source = sources.get(testFile.id);
-		if (source === undefined) continue;
-		const syntax = javascriptSyntaxFacts(testFile.path, source.text);
-		const fileNode = testFileNode(source);
+		const suppliedFacts = syntaxFactsForFile(input.syntaxFactsByFile, testFile);
+		const syntax = suppliedFacts ?? (source === undefined ? EMPTY_FACTS : javascriptSyntaxFacts(testFile.path, source.text));
+		if (source === undefined && suppliedFacts === undefined) continue;
+		const fileNode = testFileNode(testFile);
 		nodes.push(fileNode);
 		edges.push(edge(testFile.id, fileNode.id, "contains", "convention", fileNode.confidence, fileNode.evidence[0]));
 
-		const caseNodes = testCaseNodes(source, symbolsByFile.get(testFile.id) ?? [], syntax.tests);
+		const caseNodes = testCaseNodes(testFile, symbolsByFile.get(testFile.id) ?? [], syntax.tests);
 		for (const node of caseNodes) {
 			nodes.push(node);
 			edges.push(edge(testFile.id, node.id, "contains", "syntax", node.confidence, node.evidence[0]));
@@ -93,15 +101,15 @@ export async function buildRepoMapTestGraph(input: BuildRepoMapTestGraphInput): 
 			edges.push(edge(fileNode.id, conventionalTarget.id, "tests", "convention", 0.68, fileNode.evidence[0], conventionalTarget.path));
 		}
 
-		for (const fact of resourceFacts(source, syntax.mocks)) {
+		for (const fact of resourceFacts(testFile, syntax.mocks)) {
 			const target = resolveModuleTarget(testFile.path, fact.target, filesByPath, input.edges);
 			edges.push(edge(fileNode.id, target.id, "mocks", "syntax", target.resolved ? 0.94 : 0.58, fact.evidence, fact.target));
 		}
-		for (const fact of resourceFacts(source, syntax.fixtures)) {
+		for (const fact of resourceFacts(testFile, syntax.fixtures)) {
 			const target = resolveModuleTarget(testFile.path, fact.target, filesByPath, input.edges);
 			edges.push(edge(fileNode.id, target.id, "uses-fixture", "syntax", target.resolved ? 0.9 : 0.52, fact.evidence, fact.target));
 		}
-		for (const fact of snapshotFacts(source, syntax)) {
+		for (const fact of snapshotFacts(testFile, syntax)) {
 			const snapshots = matchingSnapshots(testFile.path, input.files);
 			if (snapshots.length === 0) {
 				edges.push(edge(fileNode.id, `external:snapshot:${encodeURIComponent(fact.name)}`, "uses-snapshot", "syntax", 0.7, fact.evidence, fact.name));
@@ -137,6 +145,17 @@ function isConfigurationFile(filePath: string): boolean {
 	return RUNNER_CONFIG.test(filePath) || basename === "package.json" || basename === "pyproject.toml";
 }
 
+function isJavaScriptFamily(filePath: string): boolean {
+	return /\.(?:[cm]?js|jsx|tsx?)$/u.test(filePath);
+}
+
+function syntaxFactsForFile(
+	factsByFile: ReadonlyMap<string, JavaScriptSyntaxFacts> | undefined,
+	file: RepoMapFileRecord,
+): JavaScriptSyntaxFacts | undefined {
+	return factsByFile?.get(file.id) ?? factsByFile?.get(file.path);
+}
+
 function relationForResource(filePath: string): "mocks" | "uses-fixture" | "uses-snapshot" | undefined {
 	if (MOCK_PATH.test(filePath)) return "mocks";
 	if (FIXTURE_PATH.test(filePath)) return "uses-fixture";
@@ -144,33 +163,33 @@ function relationForResource(filePath: string): "mocks" | "uses-fixture" | "uses
 	return undefined;
 }
 
-function testFileNode(source: RepoMapSourceFile): RepoMapTestNode {
-	const evidence = fileEvidence(source.file);
+function testFileNode(file: RepoMapFileRecord): RepoMapTestNode {
+	const evidence = fileEvidence(file);
 	return {
 		kind: "test",
-		id: testNodeId(source.file.id, "file", source.file.path, 0),
+		id: testNodeId(file.id, "file", file.path, 0),
 		testKind: "file",
-		name: source.file.path,
-		fileId: source.file.id,
+		name: file.path,
+		fileId: file.id,
 		source: "convention",
-		confidence: TEST_NAME.test(path.posix.basename(source.file.path)) ? 0.96 : 0.88,
+		confidence: TEST_NAME.test(path.posix.basename(file.path)) ? 0.96 : 0.88,
 		evidence: [evidence],
 	};
 }
 
-function testCaseNodes(source: RepoMapSourceFile, symbols: readonly RepoMapSymbolNode[], syntaxFacts: readonly NamedSyntaxFact[]): RepoMapTestNode[] {
+function testCaseNodes(file: RepoMapFileRecord, symbols: readonly RepoMapSymbolNode[], syntaxFacts: readonly NamedSyntaxFact[]): RepoMapTestNode[] {
 	const symbolFacts = symbols.filter((symbol) => symbol.name !== undefined && (/^test_/u.test(symbol.name) || /^Test\p{Lu}/u.test(symbol.name)));
 	return [
 		...syntaxFacts.map((fact) => ({ name: fact.name, range: fact })),
 		...symbolFacts.map((symbol) => ({ name: symbol.name ?? "test", range: symbol, symbolId: symbol.id })),
 	].map((fact) => {
-		const evidence = rangeEvidence(source, fact.range);
+		const evidence = rangeEvidence(file, fact.range);
 		return {
 			kind: "test",
-			id: testNodeId(source.file.id, "symbol", fact.name, fact.range.startByte),
+			id: testNodeId(file.id, "symbol", fact.name, fact.range.startByte),
 			testKind: "symbol",
 			name: fact.name,
-			fileId: source.file.id,
+			fileId: file.id,
 			...("symbolId" in fact ? { symbolId: fact.symbolId } : {}),
 			source: "syntax",
 			confidence: 0.96,
@@ -204,12 +223,12 @@ function sourceStem(filePath: string): string {
 	return withoutExtension.replace(/^test[_-]/iu, "").replace(/[._-](?:test|spec)$/iu, "").replace(/_test$/iu, "").toLocaleLowerCase();
 }
 
-function resourceFacts(source: RepoMapSourceFile, facts: readonly NamedSyntaxFact[]): Array<{ target: string; evidence: RepoMapEvidence }> {
-	return facts.map((fact) => ({ target: fact.name, evidence: rangeEvidence(source, fact) }));
+function resourceFacts(file: RepoMapFileRecord, facts: readonly NamedSyntaxFact[]): Array<{ target: string; evidence: RepoMapEvidence }> {
+	return facts.map((fact) => ({ target: fact.name, evidence: rangeEvidence(file, fact) }));
 }
 
-function snapshotFacts(source: RepoMapSourceFile, syntax: JavaScriptSyntaxFacts): Array<{ name: string; evidence: RepoMapEvidence }> {
-	return syntax.snapshots.map((fact) => ({ name: fact.name, evidence: rangeEvidence(source, fact) }));
+function snapshotFacts(file: RepoMapFileRecord, syntax: JavaScriptSyntaxFacts): Array<{ name: string; evidence: RepoMapEvidence }> {
+	return syntax.snapshots.map((fact) => ({ name: fact.name, evidence: rangeEvidence(file, fact) }));
 }
 
 function matchingSnapshots(testPath: string, files: readonly RepoMapFileRecord[]): RepoMapFileRecord[] {

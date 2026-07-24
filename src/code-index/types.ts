@@ -153,6 +153,8 @@ export interface AnalyzedFileIndex {
 	index: ParsedFileIndex;
 	status: "parsed" | "unsupported" | "error";
 	imports: IndexedImport[];
+	/** Transient AST ownership for consumers that extract additional facts in one parse. */
+	document?: ParsedDocument;
 }
 
 function buildCharToByte(text: string): Uint32Array {

@@ -3,6 +3,7 @@ import path from "node:path";
 import pLimit from "p-limit";
 
 import { analyzeCodeFile, languageFromPath, type AnalyzedFileIndex } from "../code-index/parser.js";
+import { javascriptSyntaxFactsFromDocument, type JavaScriptSyntaxFacts } from "./syntax-facts.js";
 import { throwIfAborted } from "./errors.js";
 import { compareText, groupBy, type RepoMapImportFact, type RepoMapSymbolIndex } from "./graph.js";
 import { readTextNoFollow, type RepoMapReadText } from "./source.js";
@@ -24,11 +25,13 @@ export interface IndexRepoMapSymbolsInput {
 }
 
 interface FileIndexResult {
+	fileId?: string;
 	symbols: RepoMapSymbolNode[];
 	imports: RepoMapImportFact[];
 	diagnostics: RepoMapDiagnostic[];
 	status: "parsed" | "unsupported" | "error" | "skipped";
 	reused: boolean;
+	syntaxFacts?: JavaScriptSyntaxFacts;
 }
 
 export async function indexRepoMapSymbols(input: IndexRepoMapSymbolsInput): Promise<RepoMapSymbolIndex> {
@@ -50,6 +53,9 @@ export async function indexRepoMapSymbols(input: IndexRepoMapSymbolsInput): Prom
 	});
 	throwIfAborted(input.signal);
 
+	const facts = results
+		.filter((result): result is FileIndexResult & { fileId: string; syntaxFacts: JavaScriptSyntaxFacts } => result.fileId !== undefined && result.syntaxFacts !== undefined)
+		.sort((left, right) => compareText(left.fileId, right.fileId));
 	return {
 		symbols: results.flatMap((result) => result.symbols).sort(compareSymbol),
 		imports: results.flatMap((result) => result.imports).sort(compareImport),
@@ -58,6 +64,7 @@ export async function indexRepoMapSymbols(input: IndexRepoMapSymbolsInput): Prom
 		unsupportedFileCount: results.filter((result) => result.status === "unsupported").length,
 		parseErrorFileCount: results.filter((result) => result.status === "error").length,
 		reusedParsedFileCount: results.filter((result) => result.status === "parsed" && result.reused).length,
+		syntaxFactsByFile: new Map(facts.map((result) => [result.fileId, result.syntaxFacts])),
 	};
 }
 
@@ -99,7 +106,11 @@ async function indexFile(
 		}
 		const analyzed = analyze(file.path, text);
 		if (analyzed.status !== "parsed") return parseFailure(file.path, "PARSER_ERROR", "Tree-sitter could not parse this supported file.");
-		return {
+		const syntaxFacts = analyzed.document !== undefined && isJavaScriptFamily(file.path)
+			? javascriptSyntaxFactsFromDocument(file.path, analyzed.document)
+			: undefined;
+		const result: FileIndexResult = {
+			fileId: file.id,
 			symbols: analyzed.index.units.map((unit) => ({
 				kind: "symbol",
 				id: unit.id,
@@ -126,10 +137,15 @@ async function indexFile(
 			status: "parsed",
 			reused: false,
 		};
+		return syntaxFacts === undefined ? result : { ...result, syntaxFacts };
 	} catch (error) {
 		throwIfAborted(signal);
 		return parseFailure(file.path, "PARSER_ERROR", error instanceof Error ? `File could not be parsed: ${error.message}` : "File could not be parsed.");
 	}
+}
+
+function isJavaScriptFamily(filePath: string): boolean {
+	return /\.(?:[cm]?js|jsx|tsx?)$/u.test(filePath);
 }
 
 function parseFailure(pathValue: string, code: string, message: string): FileIndexResult {
