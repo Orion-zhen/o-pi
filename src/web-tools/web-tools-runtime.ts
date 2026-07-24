@@ -31,6 +31,7 @@ export function createWebToolsRuntime(
 	let allowedFakeIpRanges: readonly string[] = [];
 	let dispatcher = options.dispatcher;
 	let dispatcherPromise: Promise<Dispatcher> | undefined;
+	let configModulePromise: Promise<typeof import("./config.js")> | undefined;
 	let closed = false;
 	let closePromise: Promise<void> | undefined;
 	const now = options.now ?? (() => Date.now());
@@ -68,6 +69,19 @@ export function createWebToolsRuntime(
 			if (dispatcherPromise === pending) dispatcherPromise = undefined;
 		});
 		return pending;
+	}
+
+	async function loadConfig(): Promise<WebToolsConfig> {
+		let modulePromise = configModulePromise;
+		if (modulePromise === undefined) {
+			const pending = import("./config.js");
+			configModulePromise = pending;
+			void pending.catch(() => {
+				if (configModulePromise === pending) configModulePromise = undefined;
+			});
+			modulePromise = pending;
+		}
+		return (await modulePromise).loadWebToolsConfig();
 	}
 
 	function assertOpen(): void {
@@ -108,6 +122,7 @@ export function createWebToolsRuntime(
 		await activeDispatcher?.close();
 		dispatcher = undefined;
 		dispatcherPromise = undefined;
+		configModulePromise = undefined;
 	}
 }
 
@@ -163,10 +178,6 @@ async function defaultFetch(input: URL, init: WebHttpRequestInit): Promise<WebHt
 		headers: response.headers,
 		body: response.body,
 	};
-}
-
-async function loadConfig(): Promise<WebToolsConfig> {
-	return (await import("./config.js")).loadWebToolsConfig();
 }
 
 let undiciModule: Promise<typeof import("undici")> | undefined;

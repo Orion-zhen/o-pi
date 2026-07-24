@@ -234,31 +234,41 @@ describe("web-tools extension", () => {
 	});
 
 	it("通过 Pi 的 Jiti 加载后首次调用可正常读取配置", async () => {
-		const extensionPath = path.join(process.cwd(), "agent/extensions/web-tools.ts");
 		const invalidConfigPath = path.join(process.cwd(), "package.json");
-		const script = `
-			import { createJiti } from "jiti/static";
-			const jiti = createJiti(import.meta.url, { moduleCache: false });
-			const extension = await jiti.import(${JSON.stringify(extensionPath)}, { default: true });
-			const tools = [];
-			const handlers = new Map();
-			extension({
-				registerTool(tool) { tools.push(tool); },
-				on(name, handler) { handlers.set(name, handler); },
-			});
+		const stdout = await runJitiExtension(`
 			const search = tools.find((tool) => tool.name === "websearch");
 			if (search === undefined) throw new Error("missing websearch");
 			const result = await search.execute("jiti-search", { query: "pi" }, undefined, undefined, {});
 			console.log(result.content[0].text);
-			await handlers.get("session_shutdown")?.({});
-		`;
-
-		const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", script], {
-			cwd: process.cwd(),
-			env: { ...process.env, PI_WEB_TOOLS_CONFIG: invalidConfigPath },
-		});
+		`, invalidConfigPath);
 
 		expect(stdout).toContain("web-tools config does not match schema.");
+		expect(stdout).not.toContain("agentConfigPath");
+	});
+
+	it("通过 Pi 的 Jiti 并发首次执行三个 webfetch 时共享配置模块加载", async () => {
+		const invalidConfigPath = path.join(process.cwd(), "package.json");
+		const stdout = await runJitiExtension(`
+			const fetch = tools.find((tool) => tool.name === "webfetch");
+			if (fetch === undefined) throw new Error("missing webfetch");
+			const results = await Promise.all([
+				fetch.execute("jiti-fetch-1", { url: "https://example.com/one" }, undefined, undefined, { hasUI: false }),
+				fetch.execute("jiti-fetch-2", { url: "https://example.com/two" }, undefined, undefined, { hasUI: false }),
+				fetch.execute("jiti-fetch-3", { url: "https://example.com/three" }, undefined, undefined, { hasUI: false }),
+			]);
+			console.log(JSON.stringify(results.map((result) => ({ content: result.content, details: result.details }))));
+		`, invalidConfigPath);
+		const results = JSON.parse(stdout.trim()) as Array<{
+			content: Array<{ text: string }>;
+			details: { status: string; error?: { code: string; message: string } };
+		}>;
+
+		expect(results).toHaveLength(3);
+		expect(results.every((result) => result.details.status === "failed")).toBe(true);
+		expect(results.every((result) => result.details.error?.code === "CONFIG_ERROR")).toBe(true);
+		expect(new Set(results.map((result) => result.details.error?.message)).size).toBe(1);
+		expect(results.every((result) => result.content[0]?.text.includes('code="CONFIG_ERROR"'))).toBe(true);
+		expect(results.every((result) => result.details.error?.message.includes("web-tools config does not match schema."))).toBe(true);
 		expect(stdout).not.toContain("agentConfigPath");
 	});
 });
@@ -414,6 +424,40 @@ describe("web-tools runtime", () => {
 		expect(closeDispatcher).toHaveBeenCalled();
 	});
 
+	it("配置模块导入失败后下一次调用可以重试", async () => {
+		const actualConfigModule = await import("../../src/web-tools/config.js");
+		let failImport = true;
+		vi.doMock("../../src/web-tools/config.js", () => {
+			if (failImport) throw new Error("simulated config module import failure");
+			return actualConfigModule;
+		});
+		const runtime = trackRuntime(createWebToolsRuntime({ dispatcher: new Agent() }, {
+			search: vi.fn(async () => { throw new Error("unused search loader"); }),
+			fetch: async (options) => ({
+				async fetch() {
+					const config = await options.loadConfig();
+					return {
+						content: config.webfetch.user_agent,
+						details: { status: "failed", error: { code: "INVALID_URL", message: "retry reached" } },
+					};
+				},
+				async close() {},
+			}),
+		}));
+		try {
+			await expect(runtime.fetch({ url: "https://example.com/first" }, { toolCallId: "fetch-first", hasUI: false })).rejects.toThrow();
+			failImport = false;
+			await expect(runtime.fetch({ url: "https://example.com/retry" }, { toolCallId: "fetch-retry", hasUI: false })).resolves.toMatchObject({
+				content: "pi-webfetch/1.0",
+				details: { status: "failed", error: { code: "INVALID_URL" } },
+			});
+		} finally {
+			await closeRuntime(runtime);
+			vi.doUnmock("../../src/web-tools/config.js");
+			vi.resetModules();
+		}
+	});
+
 	it("capability 加载失败后允许重试，shutdown 不加载未使用能力", async () => {
 		const dispatcher = new Agent();
 		let attempts = 0;
@@ -527,6 +571,28 @@ describe("web-tools runtime", () => {
 		await closeRuntime(runtime);
 	});
 });
+
+async function runJitiExtension(body: string, configPath: string): Promise<string> {
+	const extensionPath = path.join(process.cwd(), "agent/extensions/web-tools.ts");
+	const script = `
+		import { createJiti } from "jiti/static";
+		const jiti = createJiti(import.meta.url, { moduleCache: false });
+		const extension = await jiti.import(${JSON.stringify(extensionPath)}, { default: true });
+		const tools = [];
+		const handlers = new Map();
+		extension({
+			registerTool(tool) { tools.push(tool); },
+			on(name, handler) { handlers.set(name, handler); },
+		});
+		${body}
+		await handlers.get("session_shutdown")?.({});
+	`;
+	const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "--eval", script], {
+		cwd: process.cwd(),
+		env: { ...process.env, PI_WEB_TOOLS_CONFIG: configPath },
+	});
+	return stdout;
+}
 
 function trackRuntime(runtime: ReturnType<typeof createWebToolsRuntime>): ReturnType<typeof createWebToolsRuntime> {
 	runtimes.push(runtime);
