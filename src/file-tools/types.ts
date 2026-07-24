@@ -190,11 +190,15 @@ export interface FileToolLspSymbolCandidate {
 	origin?: "workspace-symbol" | "reference";
 }
 
-/** edit 前保存的诊断基线，用于成功写盘后的 diff。 */
+/** edit 前保存的 client source+URI 诊断基线，用于成功写盘后的 diff。 */
 export interface FileToolLspDiagnosticSnapshot {
+	source: string;
 	uri: string;
 	items: LspDiagnosticItem[];
 	known: boolean;
+	revision: number;
+	updatedAt?: number;
+	version?: number;
 }
 
 /** 文件工具可选 LSP hook；实现方必须自行退化，不能改变主工具成功语义。 */

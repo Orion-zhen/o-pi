@@ -1,5 +1,7 @@
+import path from "node:path";
 import type { Diagnostic } from "vscode-languageserver-protocol";
 import { DiagnosticSeverity } from "vscode-languageserver-protocol";
+
 import type { LspDiagnosticItem, LspDiagnosticSnapshot, LspDiagnosticsSummary, LspSeverityName } from "./types.js";
 
 const severityOrder: Record<LspSeverityName, number> = {
@@ -9,37 +11,117 @@ const severityOrder: Record<LspSeverityName, number> = {
 	hint: 4,
 };
 
-/** 保存 LSP 诊断快照，并提供写入/编辑后的 compact diff。 */
-export class DiagnosticsLedger {
-	private readonly itemsByUri = new Map<string, LspDiagnosticItem[]>();
-	private readonly updatedAtByUri = new Map<string, number>();
+type DiagnosticsListener = (snapshot: LspDiagnosticSnapshot) => void;
 
-	update(uri: string, diagnostics: readonly Diagnostic[], minSeverity: LspSeverityName): void {
-		this.itemsByUri.set(uri, diagnostics.map(toItem).filter((item) => severityOrder[item.severity] <= severityOrder[minSeverity]));
-		this.updatedAtByUri.set(uri, Date.now());
+/** 保存按 client source+URI 分区的诊断快照，并提供事件驱动等待和 compact diff。 */
+export class DiagnosticsLedger {
+	private readonly entries = new Map<string, LspDiagnosticSnapshot>();
+	private readonly listeners = new Map<string, Set<DiagnosticsListener>>();
+	private nextRevision = 0;
+
+	update(
+		source: string,
+		uri: string,
+		diagnostics: readonly Diagnostic[],
+		minSeverity: LspSeverityName,
+		version?: number,
+	): LspDiagnosticSnapshot {
+		this.nextRevision += 1;
+		const snapshot: LspDiagnosticSnapshot = {
+			source,
+			uri,
+			items: diagnostics.map(toItem).filter((item) => severityOrder[item.severity] <= severityOrder[minSeverity]),
+			known: true,
+			revision: this.nextRevision,
+			updatedAt: Date.now(),
+			...(version !== undefined ? { version } : {}),
+		};
+		const key = entryKey(source, uri);
+		this.entries.set(key, snapshot);
+		for (const listener of this.listeners.get(key) ?? []) listener(cloneSnapshot(snapshot));
+		return cloneSnapshot(snapshot);
 	}
 
 	clear(): void {
-		this.itemsByUri.clear();
-		this.updatedAtByUri.clear();
+		this.entries.clear();
+		this.listeners.clear();
+		this.nextRevision = 0;
 	}
 
-	snapshot(uri: string): LspDiagnosticSnapshot {
-		const items = this.itemsByUri.get(uri);
-		return { uri, items: items === undefined ? [] : items.map((item) => ({ ...item })), known: items !== undefined };
+	snapshot(source: string, uri: string): LspDiagnosticSnapshot {
+		const snapshot = this.entries.get(entryKey(source, uri));
+		return snapshot === undefined
+			? { source, uri, items: [], known: false, revision: 0 }
+			: cloneSnapshot(snapshot);
 	}
 
-	lastUpdatedAt(uri: string): number | undefined {
-		return this.updatedAtByUri.get(uri);
+	revision(source: string, uri: string): number {
+		return this.entries.get(entryKey(source, uri))?.revision ?? 0;
 	}
 
-	count(uri: string): number {
-		return this.itemsByUri.get(uri)?.length ?? 0;
+	all(): LspDiagnosticSnapshot[] {
+		return Array.from(this.entries.values(), cloneSnapshot);
 	}
 
-	all(): Array<{ uri: string; items: LspDiagnosticItem[] }> {
-		return Array.from(this.itemsByUri.entries()).map(([uri, items]) => ({ uri, items: items.map((item) => ({ ...item })) }));
+	waitForNewer(
+		source: string,
+		uri: string,
+		afterRevision: number,
+		maxWaitMs: number,
+		settleMs: number,
+	): Promise<LspDiagnosticSnapshot | undefined> {
+		const current = this.snapshot(source, uri);
+		if (maxWaitMs <= 0) return Promise.resolve(current.revision > afterRevision ? current : undefined);
+
+		return new Promise((resolve) => {
+			let finished = false;
+			let settleTimer: NodeJS.Timeout | undefined;
+			let deadlineTimer: NodeJS.Timeout | undefined;
+			let unsubscribe = (): void => undefined;
+
+			const finish = (snapshot: LspDiagnosticSnapshot | undefined): void => {
+				if (finished) return;
+				finished = true;
+				if (settleTimer !== undefined) clearTimeout(settleTimer);
+				if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+				unsubscribe();
+				resolve(snapshot);
+			};
+			const scheduleSettle = (snapshot: LspDiagnosticSnapshot): void => {
+				if (snapshot.revision <= afterRevision) return;
+				if (settleTimer !== undefined) clearTimeout(settleTimer);
+				const elapsed = snapshot.updatedAt === undefined ? 0 : Math.max(0, Date.now() - snapshot.updatedAt);
+				const remaining = Math.max(0, settleMs - elapsed);
+				if (remaining === 0) {
+					finish(snapshot);
+					return;
+				}
+				settleTimer = setTimeout(() => finish(this.snapshot(source, uri)), remaining);
+			};
+
+			unsubscribe = this.subscribe(source, uri, scheduleSettle);
+			deadlineTimer = setTimeout(() => finish(undefined), maxWaitMs);
+			scheduleSettle(current);
+		});
 	}
+
+	private subscribe(source: string, uri: string, listener: DiagnosticsListener): () => void {
+		const key = entryKey(source, uri);
+		let listeners = this.listeners.get(key);
+		if (listeners === undefined) {
+			listeners = new Set();
+			this.listeners.set(key, listeners);
+		}
+		listeners.add(listener);
+		return () => {
+			listeners?.delete(listener);
+			if (listeners?.size === 0) this.listeners.delete(key);
+		};
+	}
+}
+
+export function diagnosticSourceKey(root: string, serverId: string): string {
+	return `${path.resolve(root)}\0${serverId}`;
 }
 
 export function summarizeDiagnostics(
@@ -48,9 +130,9 @@ export function summarizeDiagnostics(
 	maxItems: number,
 	overrideStatus?: "unavailable" | "timeout",
 ): LspDiagnosticsSummary {
-	if (overrideStatus !== undefined) return emptySummary(overrideStatus, baseline?.known === true ? "known" : "unknown");
-	const baselineKnown = baseline?.known === true;
-	const beforeItems = baseline?.items ?? [];
+	const baselineKnown = baseline?.known === true && baseline.source === after.source && baseline.uri === after.uri;
+	if (overrideStatus !== undefined) return emptySummary(overrideStatus, baselineKnown ? "known" : "unknown");
+	const beforeItems = baselineKnown ? baseline.items : [];
 	const beforeKeys = countKeys(beforeItems);
 	const afterKeys = countKeys(after.items);
 	const diff = diffCounts(beforeKeys, afterKeys);
@@ -90,6 +172,14 @@ export function severityName(value: DiagnosticSeverity | undefined): LspSeverity
 	if (value === DiagnosticSeverity.Warning) return "warning";
 	if (value === DiagnosticSeverity.Information) return "information";
 	return "hint";
+}
+
+function cloneSnapshot(snapshot: LspDiagnosticSnapshot): LspDiagnosticSnapshot {
+	return { ...snapshot, items: snapshot.items.map((item) => ({ ...item })) };
+}
+
+function entryKey(source: string, uri: string): string {
+	return `${source}\0${uri}`;
 }
 
 function toItem(diagnostic: Diagnostic): LspDiagnosticItem {

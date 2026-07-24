@@ -7,10 +7,23 @@ import type { LoadedLspConfig, LspConfig, LspServerConfig, LspTransport } from "
 const CONFIG_PATH_ENV = "PI_LSP_CONFIG";
 
 const defaultServers: LspServerConfig[] = [
-	stdioServer("typescript", "typescript-language-server", ["--stdio"], [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"], "typescript"),
-	stdioServer("python", "pyright-langserver", ["--stdio"], [".py", ".pyi"], "python"),
-	stdioServer("rust", "rust-analyzer", [], [".rs"], "rust"),
-	stdioServer("yaml", "yaml-language-server", ["--stdio"], [".yaml", ".yml"], "yaml"),
+	stdioServer(
+		"typescript",
+		"typescript-language-server",
+		["--stdio"],
+		[".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
+		{
+			".ts": "typescript",
+			".tsx": "typescriptreact",
+			".js": "javascript",
+			".jsx": "javascriptreact",
+			".mjs": "javascript",
+			".cjs": "javascript",
+		},
+	),
+	stdioServer("python", "pyright-langserver", ["--stdio"], [".py", ".pyi"], {}, "python"),
+	stdioServer("rust", "rust-analyzer", [], [".rs"], {}, "rust"),
+	stdioServer("yaml", "yaml-language-server", ["--stdio"], [".yaml", ".yml"], {}, "yaml"),
 ];
 
 const defaultConfig: LspConfig = {
@@ -20,6 +33,7 @@ const defaultConfig: LspConfig = {
 	request_timeout_ms: 5000,
 	idle_timeout_ms: 300000,
 	max_restarts: 2,
+	max_open_documents: 64,
 	diagnostics: {
 		enabled: true,
 		max_wait_ms: 3000,
@@ -55,6 +69,7 @@ interface RawLspConfig {
 	request_timeout_ms?: number;
 	idle_timeout_ms?: number;
 	max_restarts?: number;
+	max_open_documents?: number;
 	diagnostics?: Partial<LspConfig["diagnostics"]>;
 	read?: Partial<LspConfig["read"]>;
 	grep?: Partial<LspConfig["grep"]>;
@@ -73,6 +88,7 @@ interface RawLspConfig {
 			port: number;
 		};
 		language_id?: string;
+		language_ids?: Record<string, string>;
 		extensions: string[];
 		initialization_options?: Record<string, unknown>;
 	}>;
@@ -108,6 +124,7 @@ function mergeConfig(raw: RawLspConfig): LspConfig {
 		request_timeout_ms: raw.request_timeout_ms ?? base.request_timeout_ms,
 		idle_timeout_ms: raw.idle_timeout_ms ?? base.idle_timeout_ms,
 		max_restarts: raw.max_restarts ?? base.max_restarts,
+		max_open_documents: raw.max_open_documents ?? base.max_open_documents,
 		diagnostics: {
 			enabled: raw.diagnostics?.enabled ?? base.diagnostics.enabled,
 			max_wait_ms: raw.diagnostics?.max_wait_ms ?? base.diagnostics.max_wait_ms,
@@ -133,8 +150,22 @@ export function normalizeExcludePath(input: string): string {
 	return path.resolve(expandHomePath(input));
 }
 
-function stdioServer(id: string, command: string, args: string[], extensions: string[], language_id: string): LspServerConfig {
-	return { id, enabled: true, transport: { type: "stdio", command, args }, language_id, extensions };
+function stdioServer(
+	id: string,
+	command: string,
+	args: string[],
+	extensions: string[],
+	language_ids: Record<string, string>,
+	language_id?: string,
+): LspServerConfig {
+	return {
+		id,
+		enabled: true,
+		transport: { type: "stdio", command, args },
+		language_ids,
+		extensions,
+		...(language_id !== undefined ? { language_id } : {}),
+	};
 }
 
 function normalizeServers(servers: NonNullable<RawLspConfig["servers"]>): LspServerConfig[] {
@@ -145,8 +176,9 @@ function normalizeServers(servers: NonNullable<RawLspConfig["servers"]>): LspSer
 			id: server.id,
 			enabled: server.enabled ?? true,
 			transport,
-			language_id: server.language_id ?? defaultLanguageId(extensions[0] ?? ""),
+			language_ids: normalizeLanguageIds(server.id, server.language_ids ?? {}, extensions),
 			extensions,
+			...(server.language_id !== undefined ? { language_id: server.language_id } : {}),
 			...(server.initialization_options !== undefined ? { initialization_options: server.initialization_options } : {}),
 		};
 	});
@@ -175,20 +207,19 @@ function normalizeExtension(extension: string): string {
 	return extension.toLowerCase();
 }
 
-function defaultLanguageId(extension: string): string {
-	return {
-		".ts": "typescript",
-		".tsx": "typescriptreact",
-		".js": "javascript",
-		".jsx": "javascriptreact",
-		".mjs": "javascript",
-		".cjs": "javascript",
-		".py": "python",
-		".pyi": "python",
-		".rs": "rust",
-		".yaml": "yaml",
-		".yml": "yaml",
-	}[extension] ?? extension.slice(1);
+function normalizeLanguageIds(serverId: string, input: Record<string, string>, extensions: readonly string[]): Record<string, string> {
+	const normalized: Record<string, string> = {};
+	for (const [rawExtension, languageId] of Object.entries(input)) {
+		const extension = normalizeExtension(rawExtension);
+		if (!extensions.includes(extension)) {
+			throw new LspConfigError(`LSP server "${serverId}" language_ids extension "${rawExtension}" is not listed in extensions`);
+		}
+		if (normalized[extension] !== undefined) {
+			throw new LspConfigError(`LSP server "${serverId}" has duplicate language_ids extension "${extension}"`);
+		}
+		normalized[extension] = languageId;
+	}
+	return normalized;
 }
 
 const loadValidator = createSchemaValidator({

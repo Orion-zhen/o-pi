@@ -26,20 +26,23 @@ import {
 	LogMessageNotification,
 	PublishDiagnosticsNotification,
 	ShutdownRequest,
+	TextDocumentSyncKind,
 	type Diagnostic,
 	type InitializeResult,
 	type Location,
 	type LogMessageParams,
 	type ServerCapabilities,
 	type SymbolInformation,
+	type TextDocumentSyncOptions,
 	type WorkspaceSymbol,
 } from "vscode-languageserver-protocol";
 
-import type { DiagnosticsLedger } from "./diagnostics.js";
-import { LspDocuments } from "./documents.js";
-import { requestDocumentSymbols, requestReferences, requestWorkspaceSymbols, resolveWorkspaceSymbol, type LspFeatureSession } from "./features/index.js";
+import { diagnosticSourceKey, type DiagnosticsLedger } from "./diagnostics.js";
+import { incrementalContentChange, languageIdForServerPath, LspDocuments } from "./documents.js";
+import { featureAvailable, lspFeatureDefinitions, requestDocumentSymbols, requestReferences, requestWorkspaceSymbols, resolveWorkspaceSymbol, type LspFeatureSession } from "./features/index.js";
 import { connectLspTransport, type LspTransportConnection } from "./transport.js";
 import type {
+	LspClientDocumentContext,
 	LspConfig,
 	LspDocumentSymbols,
 	LspProgressNotification,
@@ -59,10 +62,11 @@ export class LspClient implements LspFeatureSession {
 	private lastError: string | undefined;
 	private idleTimer: NodeJS.Timeout | undefined;
 	private readonly transportFailureRejectors = new Set<(error: Error) => void>();
-	private readonly documents = new LspDocuments();
+	private readonly documents: LspDocuments;
+	private readonly diagnosticsSource: string;
 	private readonly serverRequestHandlers = new Map<string, LspServerRequestHandler>();
 	private readonly serverRequestDisposables = new Map<string, Disposable>();
-	private readonly diagnosticListeners = new Set<(params: { uri: string; diagnostics: Diagnostic[] }) => void>();
+	private readonly diagnosticListeners = new Set<(params: { uri: string; diagnostics: Diagnostic[]; version?: number }) => void>();
 	private readonly logListeners = new Set<(params: LogMessageParams) => void>();
 	private readonly progressListeners = new Set<(params: LspProgressNotification) => void>();
 
@@ -73,13 +77,20 @@ export class LspClient implements LspFeatureSession {
 		private readonly diagnostics: DiagnosticsLedger,
 		private readonly onCrash: (client: LspClient, message: string) => void,
 		private readonly getRestartCount: () => number,
-	) {}
+	) {
+		this.documents = new LspDocuments(config.max_open_documents);
+		this.diagnosticsSource = diagnosticSourceKey(root, server.id);
+	}
 
 	capabilities(): ServerCapabilities | undefined {
 		return this.serverCapabilities;
 	}
 
-	onDiagnostics(listener: (params: { uri: string; diagnostics: Diagnostic[] }) => void): () => void {
+	diagnosticSource(): string {
+		return this.diagnosticsSource;
+	}
+
+	onDiagnostics(listener: (params: { uri: string; diagnostics: Diagnostic[]; version?: number }) => void): () => void {
 		this.diagnosticListeners.add(listener);
 		return () => this.diagnosticListeners.delete(listener);
 	}
@@ -112,8 +123,9 @@ export class LspClient implements LspFeatureSession {
 			root: this.root,
 			status: this.state,
 			restarts: this.getRestartCount(),
-			open_documents: this.documents.count(),
+			open_documents: this.documents.openCount(),
 			diagnostics: this.diagnostics.all().reduce((sum, entry) => {
+				if (entry.source !== this.diagnosticsSource) return sum;
 				const filePath = fileUriToPath(entry.uri);
 				return filePath !== undefined && workspaceRelativePath(this.root, filePath) !== undefined ? sum + entry.items.length : sum;
 			}, 0),
@@ -169,48 +181,41 @@ export class LspClient implements LspFeatureSession {
 	async didOpenOrChange(filePath: string, text: string): Promise<boolean> {
 		const connection = await this.readyConnection();
 		if (connection === undefined) return false;
-		const document = this.documents.context(filePath, text, this.server.language_id);
-		const version = this.documents.nextVersion(document.uri);
-		if (version === 1) {
-			const sent = await this.sendNotification(connection, (active) => active.sendNotification(DidOpenTextDocumentNotification.type, {
-				textDocument: {
-					uri: document.uri,
-					languageId: document.languageId,
-					version,
-					text: document.text,
-				},
-			}));
-			if (!sent) return false;
-		} else {
-			const sent = await this.sendNotification(connection, (active) => active.sendNotification(DidChangeTextDocumentNotification.type, {
-				textDocument: { uri: document.uri, version },
-				contentChanges: [{ text: document.text }],
-			}));
-			if (!sent) return false;
-		}
-		this.bumpIdleTimer();
-		return true;
+		const document = this.documentContext(filePath, text);
+		const synchronized = await this.documents.enqueue(document.uri, async () => {
+			const result = await this.synchronizeDocument(connection, document);
+			if (result) this.bumpIdleTimer();
+			return result;
+		});
+		await this.trimDocuments(connection, document.uri);
+		return synchronized;
 	}
 
 	async didSave(filePath: string, text: string): Promise<boolean> {
 		const connection = await this.readyConnection();
 		if (connection === undefined) return false;
-		const sent = await this.sendNotification(connection, (active) => active.sendNotification(DidSaveTextDocumentNotification.type, { textDocument: { uri: this.documents.context(filePath, text, this.server.language_id).uri }, text }));
-		if (!sent) return false;
-		this.bumpIdleTimer();
-		return true;
+		const document = this.documentContext(filePath, text);
+		const saved = await this.documents.enqueue(document.uri, async () => {
+			const synchronized = await this.synchronizeDocument(connection, document);
+			if (!synchronized) return false;
+			const policy = textDocumentSyncPolicy(this.serverCapabilities);
+			if (!policy.save) return true;
+			const sent = await this.sendNotification(connection, (active) => active.sendNotification(DidSaveTextDocumentNotification.type, {
+				textDocument: { uri: document.uri },
+				...(policy.includeText ? { text: document.text } : {}),
+			}));
+			if (sent) this.bumpIdleTimer();
+			return sent;
+		});
+		await this.trimDocuments(connection, document.uri);
+		return saved;
 	}
 
 	async didClose(filePath: string): Promise<boolean> {
 		const uri = pathToFileUri(filePath);
-		if (!this.documents.has(uri)) return true;
 		const connection = await this.readyConnection();
 		if (connection === undefined) return false;
-		const sent = await this.sendNotification(connection, (active) => active.sendNotification(DidCloseTextDocumentNotification.type, { textDocument: { uri } }));
-		if (!sent) return false;
-		this.documents.close(uri);
-		this.bumpIdleTimer();
-		return true;
+		return this.documents.enqueue(uri, async () => this.closeDocument(connection, uri));
 	}
 
 	async notification<P>(type: NotificationType<P>, params: P): Promise<boolean> {
@@ -263,7 +268,22 @@ export class LspClient implements LspFeatureSession {
 	}
 
 	async documentSymbols(filePath: string, text: string): Promise<LspDocumentSymbols | undefined> {
-		return requestDocumentSymbols(this, filePath, text);
+		if (!featureAvailable(this, lspFeatureDefinitions.documentSymbols)) return undefined;
+		const connection = await this.readyConnection();
+		if (connection === undefined) return undefined;
+		const document = this.documentContext(filePath, text);
+		const symbols = await this.documents.enqueue(document.uri, async () => {
+			if (!await this.synchronizeDocument(connection, document)) return undefined;
+			const state = this.documents.state(document.uri);
+			if (state === undefined) return undefined;
+			const cached = this.documents.cachedSymbols(document.uri, state.version);
+			if (cached !== undefined) return cached;
+			const requested = await requestDocumentSymbols(this, document.uri);
+			if (requested !== undefined) this.documents.cacheSymbols(document.uri, state.version, requested);
+			return requested;
+		});
+		await this.trimDocuments(connection, document.uri);
+		return symbols;
 	}
 
 	async workspaceSymbols(query: string): Promise<Array<SymbolInformation | WorkspaceSymbol> | undefined> {
@@ -276,6 +296,92 @@ export class LspClient implements LspFeatureSession {
 
 	async references(uri: string, line: number, character: number): Promise<Location[] | undefined> {
 		return requestReferences(this, uri, line, character);
+	}
+
+	private documentContext(filePath: string, text: string): LspClientDocumentContext {
+		return this.documents.context(filePath, text, languageIdForServerPath(this.server, filePath));
+	}
+
+	private async synchronizeDocument(connection: MessageConnection, document: LspClientDocumentContext): Promise<boolean> {
+		const previous = this.documents.state(document.uri);
+		if (previous?.text === document.text) {
+			this.documents.touch(document.uri);
+			return true;
+		}
+
+		if (previous === undefined) {
+			while (this.documents.needsCapacity(document.uri)) {
+				const evicted = await this.evictOneDocument(connection, document.uri);
+				if (!evicted) break;
+			}
+			const policy = textDocumentSyncPolicy(this.serverCapabilities);
+			if (policy.openClose) {
+				this.documents.setPendingVersion(document.uri, 1);
+				let sent: boolean;
+				try {
+					sent = await this.sendNotification(connection, (active) => active.sendNotification(DidOpenTextDocumentNotification.type, {
+						textDocument: {
+							uri: document.uri,
+							languageId: document.languageId,
+							version: 1,
+							text: document.text,
+						},
+					}));
+				} finally {
+					this.documents.clearPendingVersion(document.uri, 1);
+				}
+				if (!sent) return false;
+			}
+			this.documents.commit(document, 1, policy.openClose);
+			return true;
+		}
+
+		const policy = textDocumentSyncPolicy(this.serverCapabilities);
+		const version = previous.version + 1;
+		if (policy.change !== TextDocumentSyncKind.None) {
+			const contentChanges = policy.change === TextDocumentSyncKind.Incremental
+				? [incrementalContentChange(previous.text, document.text)]
+				: [{ text: document.text }];
+			this.documents.setPendingVersion(document.uri, version);
+			let sent: boolean;
+			try {
+				sent = await this.sendNotification(connection, (active) => active.sendNotification(DidChangeTextDocumentNotification.type, {
+					textDocument: { uri: document.uri, version },
+					contentChanges,
+				}));
+			} finally {
+				this.documents.clearPendingVersion(document.uri, version);
+			}
+			if (!sent) return false;
+		}
+		this.documents.commit(document, version, previous.open);
+		return true;
+	}
+
+	private async trimDocuments(connection: MessageConnection, excludeUri: string): Promise<void> {
+		while (this.documents.overCapacity()) {
+			if (!await this.evictOneDocument(connection, excludeUri)) return;
+		}
+	}
+
+	private async evictOneDocument(connection: MessageConnection, excludeUri: string): Promise<boolean> {
+		const uri = this.documents.evictionCandidate(excludeUri);
+		if (uri === undefined) return false;
+		return this.documents.enqueue(uri, async () => this.closeDocument(connection, uri));
+	}
+
+	private async closeDocument(connection: MessageConnection, uri: string): Promise<boolean> {
+		const state = this.documents.state(uri);
+		if (state === undefined) return true;
+		if (state.open) {
+			const sent = await this.sendNotification(connection, (active) => active.sendNotification(DidCloseTextDocumentNotification.type, {
+				textDocument: { uri },
+			}));
+			if (!sent) return false;
+		}
+		this.documents.remove(uri);
+		this.bumpIdleTimer();
+		return true;
 	}
 
 	private async readyConnection(): Promise<MessageConnection | undefined> {
@@ -309,9 +415,21 @@ export class LspClient implements LspFeatureSession {
 			this.markTransportFailure(errorMessage(error));
 		});
 		connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
+			const currentVersion = this.documents.currentVersion(params.uri);
+			if (params.version !== undefined && currentVersion !== undefined && params.version < currentVersion) return;
 			const diagnostics = params.diagnostics as Diagnostic[];
-			this.diagnostics.update(params.uri, diagnostics, this.config.diagnostics.min_severity);
-			this.notifyListeners(this.diagnosticListeners, { uri: params.uri, diagnostics });
+			this.diagnostics.update(
+				this.diagnosticsSource,
+				params.uri,
+				diagnostics,
+				this.config.diagnostics.min_severity,
+				params.version,
+			);
+			this.notifyListeners(this.diagnosticListeners, {
+				uri: params.uri,
+				diagnostics,
+				...(params.version !== undefined ? { version: params.version } : {}),
+			});
 		});
 		connection.onNotification(LogMessageNotification.type, (params) => {
 			this.notifyListeners(this.logListeners, params);
@@ -476,6 +594,35 @@ export class LspClient implements LspFeatureSession {
 		clearTimeout(this.idleTimer);
 		this.idleTimer = undefined;
 	}
+}
+
+interface TextDocumentSyncPolicy {
+	openClose: boolean;
+	change: TextDocumentSyncKind;
+	save: boolean;
+	includeText: boolean;
+}
+
+function textDocumentSyncPolicy(capabilities: ServerCapabilities | undefined): TextDocumentSyncPolicy {
+	const sync: TextDocumentSyncOptions | TextDocumentSyncKind | undefined = capabilities?.textDocumentSync;
+	if (typeof sync === "number") {
+		return {
+			openClose: sync !== TextDocumentSyncKind.None,
+			change: sync,
+			save: false,
+			includeText: false,
+		};
+	}
+	if (sync === undefined || sync === null) {
+		return { openClose: false, change: TextDocumentSyncKind.None, save: false, includeText: false };
+	}
+	const saveOptions = typeof sync.save === "object" && sync.save !== null ? sync.save : undefined;
+	return {
+		openClose: sync.openClose === true,
+		change: sync.change ?? TextDocumentSyncKind.None,
+		save: sync.save === true || saveOptions !== undefined,
+		includeText: saveOptions?.includeText === true,
+	};
 }
 
 class SafeMessageWriter implements MessageWriter {

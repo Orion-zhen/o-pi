@@ -33,6 +33,7 @@ interface FakeServer {
 let workspace: string;
 let configDir: string;
 let manager: LspManager | undefined;
+let directClients: LspClient[] = [];
 let fakeServers: FakeServer[] = [];
 const workspaceTemp = useTempDir("o-pi-lsp-transport-workspace-");
 const configTemp = useTempDir("o-pi-lsp-transport-config-");
@@ -46,6 +47,8 @@ beforeEach(() => {
 afterEach(async () => {
 	await manager?.reload();
 	manager = undefined;
+	await Promise.allSettled(directClients.map((client) => client.shutdown()));
+	directClients = [];
 	await Promise.all(fakeServers.map((fake) => fake.close()));
 	fakeServers = [];
 });
@@ -183,7 +186,7 @@ describe("lsp transport", () => {
 	it("TCP session 保存 capabilities、取消请求并安全处理 server request", async () => {
 		const fake = await createFakeServer((message, socket) => {
 			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
+				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true, textDocumentSync: { openClose: true, change: 1 } } } });
 				send(socket, { method: "window/logMessage", params: { type: 3, message: "server log" } });
 				send(socket, { method: "$/progress", params: { token: "work", value: { kind: "begin" } } });
 				send(socket, { method: "textDocument/publishDiagnostics", params: { uri: pathToFileUri(path.join(workspace, "a.ts")), diagnostics: [] } });
@@ -202,6 +205,7 @@ describe("lsp transport", () => {
 			enabled: true,
 			transport: { type: "tcp", host: "127.0.0.1", port: fake.port },
 			language_id: "typescript",
+			language_ids: {},
 			extensions: [".ts"],
 		}, config, new DiagnosticsLedger(), () => undefined, () => 0);
 		const diagnostics: string[] = [];
@@ -227,6 +231,248 @@ describe("lsp transport", () => {
 		expect(fake.methods).toContain("textDocument/didOpen");
 		expect(fake.methods).toContain("textDocument/didClose");
 		await expect(fake.response).resolves.toMatchObject({ id: 77, error: { code: -32601 } });
+	});
+
+	it("同文档并发同步保序、内容未变复用 documentSymbol cache", async () => {
+		let documentSymbolRequests = 0;
+		let markFirstRequest: () => void = () => undefined;
+		const firstRequest = new Promise<void>((resolve) => {
+			markFirstRequest = resolve;
+		});
+		let releaseFirstRequest: () => void = () => undefined;
+		const firstRequestGate = new Promise<void>((resolve) => {
+			releaseFirstRequest = resolve;
+		});
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: {
+					documentSymbolProvider: true,
+					textDocumentSync: { openClose: true, change: 1, save: true },
+				} } });
+			} else if (message.method === "textDocument/documentSymbol") {
+				documentSymbolRequests += 1;
+				const response = () => send(socket, { id: message.id, result: [documentSymbol("target", documentSymbolRequests)] });
+				if (documentSymbolRequests === 1) {
+					markFirstRequest();
+					void firstRequestGate.then(response);
+				} else {
+					response();
+				}
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		const client = directClient(fake);
+		expect(await client.ensureReady()).toBe(true);
+		const file = path.join(workspace, "a.ts");
+		const first = client.documentSymbols(file, "const target = 1;\n");
+		const second = client.documentSymbols(file, "const target = 2;\n");
+		await firstRequest;
+		expect(fake.methods).not.toContain("textDocument/didChange");
+		releaseFirstRequest();
+		const [firstSymbols, secondSymbols] = await Promise.all([first, second]);
+		expect(firstSymbols?.[0]?.name).toBe("target");
+		expect(secondSymbols?.[0]?.name).toBe("target");
+
+		const beforeWarmRead = fake.methods.length;
+		await expect(client.documentSymbols(file, "const target = 2;\n")).resolves.toEqual(secondSymbols);
+		expect(fake.methods).toHaveLength(beforeWarmRead);
+		await expect(client.didSave(file, "const target = 2;\n")).resolves.toBe(true);
+		await client.shutdown();
+
+		const documentMethods = fake.methods.filter((method) => method.startsWith("textDocument/"));
+		expect(documentMethods).toEqual([
+			"textDocument/didOpen",
+			"textDocument/documentSymbol",
+			"textDocument/didChange",
+			"textDocument/documentSymbol",
+			"textDocument/didSave",
+			"textDocument/didClose",
+		]);
+		expect(fake.messages.find((message) => message.method === "textDocument/didChange")).toMatchObject({
+			params: {
+				textDocument: { version: 2 },
+				contentChanges: [{ text: "const target = 2;\n" }],
+			},
+		});
+		const saveParams = fake.messages.find((message) => message.method === "textDocument/didSave")?.params;
+		expect(saveParams).not.toHaveProperty("text");
+	});
+
+	it("incremental sync 使用 UTF-16 range，language_ids 与 save includeText 生效", async () => {
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: {
+					textDocumentSync: { openClose: true, change: 2, save: { includeText: true } },
+				} } });
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		const client = directClient(fake);
+		expect(await client.ensureReady()).toBe(true);
+		const file = path.join(workspace, "a.tsx");
+		const previous = "const 😀x = 1;\r\n";
+		const next = "const 😀x = 2;\r\n";
+		await expect(client.didOpenOrChange(file, previous)).resolves.toBe(true);
+		await expect(client.didOpenOrChange(file, next)).resolves.toBe(true);
+		await expect(client.didSave(file, next)).resolves.toBe(true);
+		await client.shutdown();
+
+		expect(fake.messages.find((message) => message.method === "textDocument/didOpen")).toMatchObject({
+			params: { textDocument: { languageId: "typescriptreact", version: 1, text: previous } },
+		});
+		expect(fake.messages.find((message) => message.method === "textDocument/didChange")).toMatchObject({
+			params: {
+				textDocument: { version: 2 },
+				contentChanges: [{
+					range: { start: { line: 0, character: 12 }, end: { line: 0, character: 13 } },
+					text: "2",
+				}],
+			},
+		});
+		expect(fake.messages.find((message) => message.method === "textDocument/didSave")).toMatchObject({
+			params: { text: next },
+		});
+	});
+
+	it("textDocumentSync None 不发送 open/change/save/close", async () => {
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: {
+					textDocumentSync: { openClose: false, change: 0, save: false },
+				} } });
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		const client = directClient(fake);
+		expect(await client.ensureReady()).toBe(true);
+		const file = path.join(workspace, "a.ts");
+		await expect(client.didOpenOrChange(file, "one\n")).resolves.toBe(true);
+		await expect(client.didOpenOrChange(file, "two\n")).resolves.toBe(true);
+		await expect(client.didSave(file, "two\n")).resolves.toBe(true);
+		await expect(client.didClose(file)).resolves.toBe(true);
+		await client.shutdown();
+		expect(fake.methods.filter((method) => method.startsWith("textDocument/"))).toEqual([]);
+	});
+
+	it("document LRU 淘汰前 didClose，并清除旧 symbol cache", async () => {
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: {
+					documentSymbolProvider: true,
+					textDocumentSync: { openClose: true, change: 1 },
+				} } });
+			} else if (message.method === "textDocument/documentSymbol") {
+				send(socket, { id: message.id, result: [documentSymbol("target", 0)] });
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		const client = directClient(fake, 1);
+		expect(await client.ensureReady()).toBe(true);
+		const first = path.join(workspace, "a.ts");
+		const second = path.join(workspace, "b.ts");
+		await client.documentSymbols(first, "const a = 1;\n");
+		await client.documentSymbols(second, "const b = 1;\n");
+		await client.documentSymbols(first, "const a = 1;\n");
+
+		expect(fake.methods.filter((method) => method.startsWith("textDocument/"))).toEqual([
+			"textDocument/didOpen",
+			"textDocument/documentSymbol",
+			"textDocument/didClose",
+			"textDocument/didOpen",
+			"textDocument/documentSymbol",
+			"textDocument/didClose",
+			"textDocument/didOpen",
+			"textDocument/documentSymbol",
+		]);
+		expect(client.status().open_documents).toBe(1);
+	});
+
+	it("publishDiagnostics 丢弃旧文档版本，未打开或无 version 时仍接受", async () => {
+		const uri = pathToFileUri(path.join(workspace, "a.ts"));
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: { textDocumentSync: { openClose: true, change: 1 } } } });
+				send(socket, { method: "textDocument/publishDiagnostics", params: {
+					uri,
+					version: 5,
+					diagnostics: [diagnostic("workspace", 0)],
+				} });
+			} else if (message.method === "textDocument/didOpen") {
+				send(socket, { method: "textDocument/publishDiagnostics", params: {
+					uri,
+					version: 0,
+					diagnostics: [diagnostic("stale", 0)],
+				} });
+				send(socket, { method: "textDocument/publishDiagnostics", params: {
+					uri,
+					version: 1,
+					diagnostics: [diagnostic("current", 0)],
+				} });
+				send(socket, { method: "textDocument/publishDiagnostics", params: {
+					uri,
+					diagnostics: [diagnostic("unversioned", 0)],
+				} });
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		const client = directClient(fake);
+		const received: Array<number | undefined> = [];
+		client.onDiagnostics((params) => received.push(params.version));
+		expect(await client.ensureReady()).toBe(true);
+		await expect(client.didOpenOrChange(path.join(workspace, "a.ts"), "const a = 1;\n")).resolves.toBe(true);
+		await client.shutdown();
+		expect(received).toEqual([5, 1, undefined]);
+	});
+
+	it("didWrite 只接受 captured revision 之后的 diagnostics，旧快照不能伪装成功", async () => {
+		const uri = pathToFileUri(path.join(workspace, "a.ts"));
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: {
+					textDocumentSync: { openClose: true, change: 1, save: true },
+				} } });
+			} else if (message.method === "textDocument/didOpen") {
+				send(socket, { method: "textDocument/publishDiagnostics", params: {
+					uri,
+					version: 1,
+					diagnostics: [diagnostic("new error", 1)],
+				} });
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		await writeConfig(
+			{ type: "tcp", host: "127.0.0.1", port: fake.port },
+			{ diagnostics: { enabled: true, max_wait_ms: 100, settle_ms: 0, max_items: 8, min_severity: "warning" } },
+		);
+		manager = new LspManager();
+		const file = path.join(workspace, "a.ts");
+		await expect(manager.didWrite(workspace, file, "const a = 1;\n")).resolves.toMatchObject({
+			status: "errors",
+			items: [{ message: "new error" }],
+		});
+		await expect(manager.beforeDiagnostics(workspace, file)).resolves.toMatchObject({ known: true, version: 1 });
+		await expect(manager.didWrite(workspace, file, "const a = 2;\n")).resolves.toMatchObject({
+			status: "timeout",
+			total_items: 0,
+		});
 	});
 
 	it("capability 不支持时不发送不适用的 feature request", async () => {
@@ -262,6 +508,41 @@ describe("lsp transport", () => {
 		});
 	});
 });
+
+function directClient(fake: FakeServer, maxOpenDocuments = 64): LspClient {
+	const config = defaultLspConfig();
+	config.startup_timeout_ms = 500;
+	config.request_timeout_ms = 500;
+	config.max_open_documents = maxOpenDocuments;
+	const client = new LspClient(workspace, {
+		id: "tcp",
+		enabled: true,
+		transport: { type: "tcp", host: "127.0.0.1", port: fake.port },
+		language_ids: {
+			".ts": "typescript",
+			".tsx": "typescriptreact",
+			".js": "javascript",
+			".jsx": "javascriptreact",
+		},
+		extensions: [".ts", ".tsx", ".js", ".jsx"],
+	}, config, new DiagnosticsLedger(), () => undefined, () => 0);
+	directClients.push(client);
+	return client;
+}
+
+function documentSymbol(name: string, line: number): Record<string, unknown> {
+	const range = { start: { line, character: 0 }, end: { line, character: name.length } };
+	return { name, kind: 12, range, selectionRange: range };
+}
+
+function diagnostic(message: string, line: number): Record<string, unknown> {
+	return {
+		severity: 1,
+		range: { start: { line, character: 0 }, end: { line, character: 1 } },
+		message,
+		source: "fake",
+	};
+}
 
 async function writeConfig(transport: { type: "tcp"; host: string; port: number }, overrides: Record<string, unknown> = {}): Promise<void> {
 	const file = path.join(configDir, "lsp.jsonc");

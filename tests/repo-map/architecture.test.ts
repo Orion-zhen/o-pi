@@ -55,6 +55,19 @@ describe("Repo Map architecture graph", () => {
 		expect(generation.edges).toContainEqual(expect.objectContaining({ kind: "belongs-to", from: publicSymbol?.id, to: expect.stringMatching(/^component:/u) }));
 	});
 
+	it("marks exported variable declarations as public API", async () => {
+		const generation = await generationFromSources(temp.path, new Map([
+			["package.json", JSON.stringify({ name: "variables", exports: "./src/index.ts" })],
+			["src/index.ts", "export const PublicValue = 1;\nconst internalValue = 2;\n"],
+		]));
+		const publicValue = generation.symbols.find((symbol) => symbol.name === "PublicValue");
+		const internalValue = generation.symbols.find((symbol) => symbol.name === "internalValue");
+
+		expect(publicValue?.visibility).toBe("public");
+		expect(internalValue?.visibility).toBe("internal");
+		expect(generation.edges).toContainEqual(expect.objectContaining({ kind: "exports", from: "file:src/index.ts", to: publicValue?.id }));
+	});
+
 	it("uses architecture relevance in query, find, grep, and compact read context while inactive behavior stays unchanged", async () => {
 		const sources = fixtureSources();
 		await writeSources(temp.path, sources);

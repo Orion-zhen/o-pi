@@ -16,9 +16,19 @@ beforeEach(() => {
 });
 
 describe("lsp config", () => {
-	it("缺少配置文件采用默认值", async () => {
+	it("缺少配置文件采用默认值并为 JS/TS 变体配置 language IDs", async () => {
 		process.env.PI_LSP_CONFIG = path.join(dir, "missing.jsonc");
-		expect(await loadLspConfig()).toEqual({ path: path.join(dir, "missing.jsonc"), config: defaultLspConfig() });
+		const loaded = await loadLspConfig();
+		expect(loaded).toEqual({ path: path.join(dir, "missing.jsonc"), config: defaultLspConfig() });
+		expect(loaded.config.max_open_documents).toBe(64);
+		expect(loaded.config.servers[0]?.language_ids).toEqual({
+			".ts": "typescript",
+			".tsx": "typescriptreact",
+			".js": "javascript",
+			".jsx": "javascriptreact",
+			".mjs": "javascript",
+			".cjs": "javascript",
+		});
 	});
 
 	it("支持 JSONC、trailing comma 和部分覆盖", async () => {
@@ -46,7 +56,7 @@ describe("lsp config", () => {
 					id: "demo",
 					enabled: true,
 					transport: { type: "stdio", command: "demo-lsp", args: ["--stdio"] },
-					language_id: "demo",
+					language_ids: {},
 					extensions: [".demo"],
 				}],
 			},
@@ -66,7 +76,13 @@ describe("lsp config", () => {
 	it("规范化 server transport、language ID 和扩展名", async () => {
 		const file = path.join(dir, "normalized.jsonc");
 		await writeFile(file, JSON.stringify({
-			servers: [{ id: "demo", command: "demo-lsp", extensions: [".DEMO", ".demo"] }],
+			servers: [{
+				id: "demo",
+				command: "demo-lsp",
+				language_id: "demo-fallback",
+				language_ids: { ".DEMO": "demo-special" },
+				extensions: [".DEMO", ".demo"],
+			}],
 		}));
 		process.env.PI_LSP_CONFIG = file;
 		const loaded = await loadLspConfig();
@@ -74,7 +90,8 @@ describe("lsp config", () => {
 			id: "demo",
 			enabled: true,
 			transport: { type: "stdio", command: "demo-lsp", args: [] },
-			language_id: "demo",
+			language_id: "demo-fallback",
+			language_ids: { ".demo": "demo-special" },
 			extensions: [".demo"],
 		}]);
 	});
@@ -118,11 +135,23 @@ describe("lsp config", () => {
 		const config = (await loadLspConfig()).config;
 		expect(config.servers[0]).toMatchObject({
 			transport: { type: "tcp", host: "127.0.0.1", port: 2087 },
-			language_id: "remote",
+			language_ids: {},
 			extensions: [".remote"],
 		});
 		const registry = new LspServerRegistry(config.servers);
 		expect(registry.forExtension(".REMOTE")?.id).toBe("remote");
+	});
+
+	it.each([
+		["未列入 extensions", { ".other": "other" }],
+		["规范化后重复", { ".DEMO": "one", ".demo": "two" }],
+	])("拒绝 language_ids %s", async (_label, language_ids) => {
+		const file = path.join(dir, "bad-language-ids.jsonc");
+		await writeFile(file, JSON.stringify({
+			servers: [{ id: "demo", command: "demo", extensions: [".demo"], language_ids }],
+		}));
+		process.env.PI_LSP_CONFIG = file;
+		await expect(loadLspConfig()).rejects.toThrow(/language_ids extension/);
 	});
 
 	it("环境变量覆盖配置路径", async () => {

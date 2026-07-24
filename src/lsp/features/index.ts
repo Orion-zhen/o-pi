@@ -14,12 +14,10 @@ import type {
 	LspRequestOptions,
 	LspServerCapabilities,
 } from "../types.js";
-import { pathToFileUri } from "../uri.js";
 
 /** feature adapter 使用的最小 session 协议。 */
 export interface LspFeatureSession {
 	capabilities(): LspServerCapabilities | undefined;
-	didOpenOrChange(filePath: string, text: string): Promise<boolean>;
 	request<P, R, E>(type: RequestType<P, R, E>, params: P, options?: LspRequestOptions): Promise<R | undefined>;
 }
 
@@ -56,10 +54,9 @@ export function featureAvailable(session: LspFeatureSession, feature: LspFeature
 	return feature.capability(session.capabilities());
 }
 
-export async function requestDocumentSymbols(session: LspFeatureSession, filePath: string, text: string, options?: LspRequestOptions): Promise<LspDocumentSymbols | undefined> {
+export async function requestDocumentSymbols(session: LspFeatureSession, uri: string, options?: LspRequestOptions): Promise<LspDocumentSymbols | undefined> {
 	if (!featureAvailable(session, lspFeatureDefinitions.documentSymbols)) return undefined;
-	if (!await session.didOpenOrChange(filePath, text)) return undefined;
-	const result = await session.request(DocumentSymbolRequest.type, { textDocument: { uri: pathToFileUri(filePath) } }, options);
+	const result = await session.request(DocumentSymbolRequest.type, { textDocument: { uri } }, options);
 	return result === null ? undefined : result as LspDocumentSymbols | undefined;
 }
 

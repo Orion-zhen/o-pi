@@ -100,6 +100,18 @@ describe("Repo Map symbol and relationship graph", () => {
 		expect(withoutB.some((edge) => edge.to === helper.id || edge.to === value.id || edge.to === "file:b.ts")).toBe(false);
 	});
 
+	it("creates export edges for every exported variable declarator", async () => {
+		const text = "export const first = 1, second = 2;\nexport let third = 3;\n";
+		const sources = new Map([["values.ts", text]]);
+		const files = [indexed("values.ts", text)];
+		const result = await indexRepoMapSymbols({ root, files, concurrency: 1, readText: readSources(sources) });
+		const edges = buildRepoMapRelationships({ mapId: "d".repeat(64), files, symbols: result.symbols, imports: result.imports });
+		const exportedIds = new Set(edges.filter((edge) => edge.kind === "exports").map((edge) => edge.to));
+
+		expect(result.symbols.map((symbol) => symbol.name)).toEqual(["first", "second", "third"]);
+		expect(exportedIds).toEqual(new Set(result.symbols.map((symbol) => symbol.id)));
+	});
+
 	it("incrementally reuses stable relations and invalidates callers when the symbol lookup changes", async () => {
 		const firstSources = new Map([
 			["a.ts", "export function caller() { return target(); }\n"],

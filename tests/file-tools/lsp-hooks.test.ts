@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { editWorkspace } from "../../src/file-tools/tools/edit.js";
 import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
@@ -9,6 +9,8 @@ import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
 import { readWorkspaceFile } from "../../src/file-tools/tools/read.js";
 import { writeWorkspaceFile } from "../../src/file-tools/tools/write.js";
 import type { FileToolLspHooks, GrepSuccess, ToolOutcome } from "../../src/file-tools/types.js";
+import { createLspFileHooks } from "../../src/lsp/file-hooks.js";
+import { LspManager } from "../../src/lsp/manager.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
@@ -63,7 +65,7 @@ describe("file-tools lsp hooks", () => {
 		let afterCalled = false;
 		const hooks: FileToolLspHooks = {
 			async beforeEdit() {
-				return { uri: "file:///a.ts", items: [], known: true };
+				return { source: "/repo\0ts", uri: "file:///a.ts", items: [], known: true, revision: 1 };
 			},
 			async afterEdit(input) {
 				afterCalled = true;
@@ -78,6 +80,16 @@ describe("file-tools lsp hooks", () => {
 		expect(afterCalled).toBe(true);
 
 		await expect(editWorkspace(workspace, { path: "a.ts", edits: [{ old: "missing", new: "x" }] }, { versionCache: cache, lsp: hooks })).resolves.toMatchObject({ status: "failed" });
+	});
+
+	it("beforeEdit 使用调用方已解析的 absolutePath 和 workspace source", async () => {
+		const manager = new LspManager();
+		const beforeDiagnostics = vi.spyOn(manager, "beforeDiagnostics").mockResolvedValue(undefined);
+		const hooks = createLspFileHooks(manager);
+		const absolutePath = path.join(workspace, "resolved.ts");
+		await hooks.beforeEdit?.({ workspaceRoot: workspace, path: "unresolved.ts", absolutePath });
+		expect(beforeDiagnostics).toHaveBeenCalledWith(workspace, absolutePath);
+		beforeDiagnostics.mockRestore();
 	});
 
 	it("grep 合入 LSP symbol 候选且不绕过 path scope", async () => {

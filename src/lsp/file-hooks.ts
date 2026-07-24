@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import type { FileToolLspHooks, FileToolLspSymbolCandidate, LspDiagnosticsSummary } from "../file-tools/types.js";
 import { emptySummary } from "./diagnostics.js";
 import type { LspManager } from "./manager.js";
@@ -43,7 +41,7 @@ export function createLspFileHooks(manager: LspManager): FileToolLspHooks {
 		},
 		async beforeEdit(input) {
 			try {
-				return await manager.beforeDiagnostics(path.resolve(input.workspaceRoot, input.path));
+				return await manager.beforeDiagnostics(input.workspaceRoot, input.absolutePath);
 			} catch {
 				return undefined;
 			}

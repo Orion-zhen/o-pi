@@ -29,8 +29,10 @@ export interface LspServerConfig {
 	id: string;
 	enabled: boolean;
 	transport: LspTransport;
-	/** server 接收 textDocument/didOpen 时使用的 language ID。 */
-	language_id: string;
+	/** 未命中 extension map 时使用的兼容 language ID。 */
+	language_id?: string;
+	/** 按规范化扩展名选择 didOpen language ID。 */
+	language_ids: Readonly<Record<string, string>>;
 	/** 由文件扩展名选择 server，值已规范化为小写并包含前导点。 */
 	extensions: string[];
 	initialization_options?: Record<string, unknown>;
@@ -63,6 +65,7 @@ export interface LspConfig {
 	request_timeout_ms: number;
 	idle_timeout_ms: number;
 	max_restarts: number;
+	max_open_documents: number;
 	diagnostics: {
 		enabled: boolean;
 		max_wait_ms: number;
@@ -114,11 +117,15 @@ export interface LspDiagnosticsSummary {
 	items: LspDiagnosticItem[];
 }
 
-/** diagnostics ledger 中某个文件的已知快照。 */
+/** diagnostics ledger 中某个 client source+URI 的快照。 */
 export interface LspDiagnosticSnapshot {
+	source: string;
 	uri: string;
 	items: LspDiagnosticItem[];
 	known: boolean;
+	revision: number;
+	updatedAt?: number;
+	version?: number;
 }
 
 /** read outline 中的紧凑 symbol 条目。 */

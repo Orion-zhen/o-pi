@@ -1,10 +1,9 @@
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 
 import { LspClient } from "./client.js";
 import { LspServerRegistry } from "./registry.js";
 import { loadLspConfig, normalizeExcludePath, resolveLspConfigPath } from "./config.js";
-import { DiagnosticsLedger, emptySummary, summarizeDiagnostics } from "./diagnostics.js";
+import { diagnosticSourceKey, DiagnosticsLedger, emptySummary, summarizeDiagnostics } from "./diagnostics.js";
 import {
 	compactOutline,
 	extensionForPath,
@@ -151,27 +150,46 @@ export class LspManager {
 		return hits;
 	}
 
-	async beforeDiagnostics(filePath: string): Promise<LspDiagnosticSnapshot> {
-		return this.diagnostics.snapshot(pathToFileUri(filePath));
+	async beforeDiagnostics(root: string, filePath: string): Promise<LspDiagnosticSnapshot | undefined> {
+		const config = await this.enabledConfig();
+		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths) || !config.config.diagnostics.enabled) return undefined;
+		const source = this.diagnosticSourceForFile(root, filePath);
+		if (source === undefined) return undefined;
+		return this.diagnostics.snapshot(source, pathToFileUri(filePath));
 	}
 
 	async didWrite(root: string, filePath: string, text: string, baseline?: LspDiagnosticSnapshot): Promise<LspDiagnosticsSummary | undefined> {
 		const config = await this.enabledConfig();
 		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths) || !config.config.diagnostics.enabled) return undefined;
+		const expectedSource = this.diagnosticSourceForFile(root, filePath);
+		const uri = pathToFileUri(filePath);
 		const client = await this.clientForFile(root, filePath);
-		if (client === undefined) return emptySummary("unavailable", baseline?.known === true ? "known" : "unknown");
+		if (client === undefined) return emptySummary("unavailable", baselineState(baseline, expectedSource, uri));
+		const source = client.diagnosticSource();
+		const capturedRevision = this.diagnostics.revision(source, uri);
 		const changed = await client.didOpenOrChange(filePath, text);
-		if (!changed) return emptySummary("unavailable", baseline?.known === true ? "known" : "unknown");
-		await client.didSave(filePath, text);
-		const waited = await this.waitDiagnostics(pathToFileUri(filePath), config.config.diagnostics.max_wait_ms, config.config.diagnostics.settle_ms);
-		if (!waited) return summarizeDiagnostics(this.diagnostics.snapshot(pathToFileUri(filePath)), baseline, config.config.diagnostics.max_items, "timeout");
-		return summarizeDiagnostics(this.diagnostics.snapshot(pathToFileUri(filePath)), baseline, config.config.diagnostics.max_items);
+		if (!changed) return emptySummary("unavailable", baselineState(baseline, source, uri));
+		const saved = await client.didSave(filePath, text);
+		if (!saved) return emptySummary("unavailable", baselineState(baseline, source, uri));
+		const snapshot = await this.diagnostics.waitForNewer(
+			source,
+			uri,
+			capturedRevision,
+			config.config.diagnostics.max_wait_ms,
+			config.config.diagnostics.settle_ms,
+		);
+		if (snapshot === undefined) {
+			return summarizeDiagnostics(this.diagnostics.snapshot(source, uri), baseline, config.config.diagnostics.max_items, "timeout");
+		}
+		return summarizeDiagnostics(snapshot, baseline, config.config.diagnostics.max_items);
 	}
 
 	async knownDiagnostics(root: string, filePath?: string): Promise<Array<{ path: string; items: LspDiagnosticsSummary["items"] }>> {
 		await this.ensureConfig();
+		const sources = new Set((this.registry?.servers ?? []).map((server) => diagnosticSourceKey(root, server.id)));
 		const entries = this.diagnostics.all();
 		return entries.flatMap((entry) => {
+			if (!sources.has(entry.source)) return [];
 			const absolute = uriToWorkspacePath(root, entry.uri);
 			if (absolute === undefined) return [];
 			if (filePath !== undefined && absolute.path !== filePath && absolute.relative !== filePath) return [];
@@ -179,15 +197,9 @@ export class LspManager {
 		});
 	}
 
-	private async waitDiagnostics(uri: string, maxWaitMs: number, settleMs: number): Promise<boolean> {
-		const start = Date.now();
-		const previous = this.diagnostics.lastUpdatedAt(uri);
-		while (Date.now() - start <= maxWaitMs) {
-			const updated = this.diagnostics.lastUpdatedAt(uri);
-			if (updated !== undefined && updated !== previous && Date.now() - updated >= settleMs) return true;
-			await delay(25);
-		}
-		return previous !== undefined;
+	private diagnosticSourceForFile(root: string, filePath: string): string | undefined {
+		const server = this.registry?.forExtension(extensionForPath(filePath));
+		return server === undefined ? undefined : diagnosticSourceKey(root, server.id);
 	}
 
 	private async clientForFile(root: string, filePath: string): Promise<LspClient | undefined> {
@@ -204,7 +216,7 @@ export class LspManager {
 		try {
 			const loaded = await this.enabledConfig();
 			if (loaded === undefined) return undefined;
-			const key = `${path.resolve(root)}\0${server.id}`;
+			const key = diagnosticSourceKey(root, server.id);
 			let entry = this.clients.get(key);
 			if (entry === undefined) {
 				entry = { restarts: 0, client: this.createClient(key, root, server, loaded) };
@@ -270,6 +282,10 @@ export class LspManager {
 function isExcludedRoot(root: string, excludePaths: readonly string[]): boolean {
 	const normalizedRoot = normalizeExcludePath(root);
 	return excludePaths.some((excludePath) => normalizedRoot === normalizeExcludePath(excludePath));
+}
+
+function baselineState(baseline: LspDiagnosticSnapshot | undefined, source: string | undefined, uri: string): "known" | "unknown" {
+	return baseline?.known === true && source !== undefined && baseline.source === source && baseline.uri === uri ? "known" : "unknown";
 }
 
 function uriToWorkspacePath(root: string, uri: string): { path: string; relative: string } | undefined {

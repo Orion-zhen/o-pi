@@ -6,6 +6,7 @@
 	"request_timeout_ms": 5000,
 	"idle_timeout_ms": 300000,
 	"max_restarts": 2,
+	"max_open_documents": 64,
 
 	"diagnostics": {
 		"enabled": true,
@@ -32,7 +33,14 @@
 			"id": "typescript",
 			"enabled": true,
 			"transport": { "type": "stdio", "command": "typescript-language-server", "args": ["--stdio"] },
-			"language_id": "typescript",
+			"language_ids": {
+				".ts": "typescript",
+				".tsx": "typescriptreact",
+				".js": "javascript",
+				".jsx": "javascriptreact",
+				".mjs": "javascript",
+				".cjs": "javascript"
+			},
 			"extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
 		},
 		{
