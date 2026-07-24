@@ -1,10 +1,7 @@
-import type ParserModule from "tree-sitter";
-
 import { languageFromPath } from "../code-index/language-registry.js";
-import { loadTreeSitterRuntime } from "../code-index/tree-sitter-loader.js";
+import { parseSyntaxTree } from "../code-index/syntax-tree.js";
+import type { SyntaxNode } from "../code-index/adapters/types.js";
 import type { SourceRange } from "../code-index/types.js";
-
-type SyntaxNode = ParserModule.SyntaxNode;
 
 export interface RegistrationFact extends SourceRange {
 	name: string;
@@ -47,12 +44,8 @@ export function javascriptSyntaxFacts(filePath: string, text: string): JavaScrip
 	const language = languageFromPath(filePath);
 	if (language !== "javascript" && language !== "jsx" && language !== "typescript" && language !== "tsx") return EMPTY_FACTS;
 	try {
-		const runtime = loadTreeSitterRuntime(language);
-		if (runtime === undefined) return EMPTY_FACTS;
-		const parser = new runtime.Parser();
-		parser.setLanguage(runtime.language);
-		const root = parser.parse(text).rootNode;
-		if (root.hasError) return EMPTY_FACTS;
+		const root = parseSyntaxTree(language, text);
+		if (root === undefined || root.hasError) return EMPTY_FACTS;
 
 		const constants = collectStringConstants(root);
 		const facts: JavaScriptSyntaxFacts = {

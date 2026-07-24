@@ -1,13 +1,17 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
+import { javascriptAdapter } from "../../src/code-index/adapters/javascript.js";
 import {
 	adapterFromPath,
+	createLanguageRegistry,
 	getLanguageAdapter,
 	languageFromPath,
 	registeredLanguageAdapters,
 } from "../../src/code-index/language-registry.js";
 import { loadGrammar, loadTreeSitterRuntime } from "../../src/code-index/tree-sitter-loader.js";
+import { parseSyntaxTree } from "../../src/code-index/syntax-tree.js";
+import type { LanguageAdapter } from "../../src/code-index/adapters/types.js";
 import type { CodeLanguage } from "../../src/code-index/types.js";
 
 const require = createRequire(import.meta.url);
@@ -44,6 +48,17 @@ describe("code language registry", () => {
 		expect(languageFromPath("src/module.rb")).toBe("text");
 		expect(getLanguageAdapter("text")).toBeUndefined();
 		expect(loadTreeSitterRuntime("text")).toBeUndefined();
+	});
+
+	it("can register and load a simulated new adapter without parser dispatch changes", () => {
+		const simulated: LanguageAdapter = { ...javascriptAdapter, extensions: [".simulated"] };
+		const registry = createLanguageRegistry([simulated]);
+		expect(registry.languageFromPath("new.simulated")).toBe("javascript");
+		expect(registry.adapterFromPath("new.simulated")).toBe(simulated);
+		expect(loadGrammar(simulated.grammar)).toBeDefined();
+		const root = parseSyntaxTree(simulated.language, "function run() {}\n");
+		if (root === undefined) throw new Error("missing simulated adapter syntax tree");
+		expect(simulated.extractUnits(root).map((unit) => unit.name)).toEqual(["run"]);
 	});
 
 	it("does not accept a missing or wrong grammar export", () => {

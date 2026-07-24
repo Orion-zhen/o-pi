@@ -2,7 +2,7 @@ import { byteForCharWithIndex, lineForByteWithIndex } from "./adapters/shared.js
 import type { RawUnit } from "./adapters/types.js";
 import { createFileIdentity, createSymbolId } from "./identity.js";
 import { getLanguageAdapter, languageFromPath } from "./language-registry.js";
-import { loadTreeSitterRuntime } from "./tree-sitter-loader.js";
+import { parseSyntaxTree } from "./syntax-tree.js";
 import type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, LineIndex, ParsedFileIndex, SourceRange } from "./types.js";
 
 export { languageFromPath } from "./language-registry.js";
@@ -110,11 +110,9 @@ function parseByLanguage(language: CodeLanguage, text: string): { status: Analyz
 	const adapter = getLanguageAdapter(language);
 	if (adapter === undefined) return { status: "unsupported", units: [] };
 	try {
-		const runtime = loadTreeSitterRuntime(language);
-		if (runtime === undefined) return { status: "error", units: [] };
-		const parser = new runtime.Parser();
-		parser.setLanguage(runtime.language);
-		return { status: "parsed", units: adapter.extractUnits(parser.parse(text).rootNode) };
+		const root = parseSyntaxTree(language, text);
+		if (root === undefined) return { status: "error", units: [] };
+		return { status: "parsed", units: adapter.extractUnits(root) };
 	} catch {
 		return { status: "error", units: [] };
 	}

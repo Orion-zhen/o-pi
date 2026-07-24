@@ -147,9 +147,13 @@ Repo Map 复用 code-index 的 Tree-sitter runtime：
 | Go | `.go` | function、method、type、var、const |
 | Rust | `.rs` | function、struct、enum、type、trait、impl、const、static、module |
 
-每个 symbol 保存稳定 ID、file ID、kind、name、qualified name、signature、UTF-8 byte range、行范围，以及 definition、reference、call 和 import token。文件在扫描后、解析前会再次校验 content hash，避免把变化中的源码写入 generation。
+语言接入由静态 adapter registry 管理。adapter 声明语言、扩展名、grammar descriptor、AST unit 提取和 import 提取；新增语言只需增加 adapter、注册项、对应 grammar 依赖和测试，不需要修改核心 parser 的语言分派。`text` 是 unsupported fallback，不属于 registry。
 
-Tree-sitter 用于建立代码单元和 JavaScript-family syntax facts。文件级 import specifier 由各语言的受限 collector 提取，再进入统一关系解析；这不是编译器级 name resolution。parser 失败只丢弃该文件的 symbol/import 快照，file node 和 diagnostic 仍保留。
+Tree-sitter runtime 和 grammar 通过 `tree-sitter-loader.ts` 同步按需加载，并在当前进程或 worker 内缓存；registry 导入、grep 工具注册和 Repo Map 初始化不会加载 grammar。TypeScript 与 TSX 使用同一 package 的不同 grammar export，loader 会校验 CommonJS 导出，缺失或加载失败不会回退到其他语言。
+
+code-index 与 Repo Map syntax facts 共用 `syntax-tree.ts` 的 Parser 初始化和解析错误边界。普通 code-index parser 保留带 Tree-sitter error 节点的可用 unit；JavaScript-family syntax facts 遇到 `root.hasError` 返回空 facts。文件级 import specifier 由各语言的受限 collector 提取，再进入统一关系解析；这不是编译器级 name resolution。parser 失败只丢弃该文件的 symbol/import 快照，file node 和 diagnostic 仍保留。
+
+每个 symbol 保存稳定 ID、file ID、kind、name、qualified name、signature、UTF-8 byte range、行范围，以及 definition、reference、call 和 import token。文件在扫描后、解析前会再次校验 content hash，避免把变化中的源码写入 generation。
 
 ## 图数据模型
 

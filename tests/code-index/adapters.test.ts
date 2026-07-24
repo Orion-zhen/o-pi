@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { adapterFromPath } from "../../src/code-index/language-registry.js";
 import { buildLineIndex } from "../../src/code-index/parser.js";
-import { loadTreeSitterRuntime } from "../../src/code-index/tree-sitter-loader.js";
+import { parseSyntaxTree } from "../../src/code-index/syntax-tree.js";
 
 describe.each([
 	{
@@ -51,11 +51,8 @@ describe.each([
 	it("extracts units and imports through the adapter contract", () => {
 		const adapter = adapterFromPath(filePath);
 		if (adapter === undefined) throw new Error(`missing adapter for ${filePath}`);
-		const runtime = loadTreeSitterRuntime(adapter.language);
-		if (runtime === undefined) throw new Error(`missing runtime for ${adapter.language}`);
-		const parser = new runtime.Parser();
-		parser.setLanguage(runtime.language);
-		const root = parser.parse(text).rootNode;
+		const root = parseSyntaxTree(adapter.language, text);
+		if (root === undefined) throw new Error(`missing syntax tree for ${adapter.language}`);
 		expect(adapter.extractUnits(root).map((unit) => `${unit.kind}:${unit.qualifiedName}`)).toEqual(units);
 		expect(adapter.collectImports(text, buildLineIndex(text)).map((item) => item.specifier)).toEqual(imports);
 	});
