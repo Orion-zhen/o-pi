@@ -30,7 +30,7 @@
 - UI footer 第一行左侧的 git 后常驻显示 Repo Map active/inactive；初始化、refresh、rebuild 期间随扫描阶段和计数更新，active `/init status` 读取期间显示检查状态，命令结束后恢复 activation 状态。
 - 状态和摘要只通过 UI 显示，不进入模型上下文。
 - 不接受路径参数；非法参数提示 `usage: /init | /init status | /init refresh | /init rebuild | /init off`。
-- 完整边界见 [Repo Map](repo-map.md)。
+- 完整边界见 [Repo Map](repo-map/README.md)。
 
 ## `/tools`
 

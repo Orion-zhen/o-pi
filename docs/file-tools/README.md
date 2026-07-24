@@ -140,7 +140,7 @@ blocked path  → 不可列出、搜索、读取或写入
 - Repo Map 只有在当前 session 执行 `/init` 后才激活。
 - 增强失败时仍保留基础文件操作和文本搜索能力。
 
-详见 [LSP 内部增强](../lsp.md) 和 [Repo Map](../repo-map.md)。
+详见 [LSP 内部增强](../lsp.md) 和 [Repo Map](../repo-map/README.md)。
 
 ## 深入阅读
 
