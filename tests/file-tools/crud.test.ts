@@ -37,7 +37,7 @@ function editWorkspace(cwd: string, params: unknown, runtime: EditRuntime = {}):
 }
 
 function writeWorkspaceFile(cwd: string, params: unknown): Promise<ToolOutcome<WriteSuccess>> {
-	return writeWorkspaceFileImpl(cwd, params);
+	return writeWorkspaceFileImpl(cwd, params, undefined, { versionCache });
 }
 
 async function useFileToolsConfig(config: Record<string, unknown>): Promise<void> {
@@ -547,6 +547,21 @@ describe("write", () => {
 		expect(result).not.toHaveProperty("before_version");
 		expect(result).not.toHaveProperty("before_size_bytes");
 		expect(await readFile(path.join(workspace, "new", "dir", "file.txt"), "utf8")).toBe("hello\n你好\n");
+	});
+
+	it("写入后允许直接 edit，并继续检测外部修改", async () => {
+		await writeWorkspaceFile(workspace, { path: "a.txt", content: "old\n" });
+		expect(await editWorkspace(workspace, { path: "a.txt", edits: [{ old: "old", new: "new" }] })).toMatchObject({
+			status: "applied",
+			path: "a.txt",
+		});
+
+		await writeWorkspaceFile(workspace, { path: "a.txt", content: "old\n" });
+		await writeFile(path.join(workspace, "a.txt"), "external\n");
+		expect(await editWorkspace(workspace, { path: "a.txt", edits: [{ old: "old", new: "new" }] })).toMatchObject({
+			status: "failed",
+			error: { code: "STALE_READ", path: "a.txt" },
+		});
 	});
 
 	it("覆盖已有文件，不要求先 read", async () => {

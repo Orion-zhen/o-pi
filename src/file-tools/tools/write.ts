@@ -1,10 +1,11 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { generateDiffString, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { guardWritablePath, PathGuardBlockedError } from "../../safety/path-guard.js";
 import { loadFileToolsConfig } from "../config.js";
 import { fail, isAccessDenied, isFailed, protectedPathFailure } from "../core/errors.js";
 import { normalizeToolPath, resolveWorkspaceRoot } from "../core/path-resolver.js";
+import type { ReadVersionCache } from "../core/read-cache.js";
 import { normalizeLineEndings, sha256Version } from "../core/text-file.js";
 import type { FileToolLspHooks, LspDiagnosticsSummary, ToolOutcome, WriteParams, WriteSuccess } from "../types.js";
 
@@ -15,6 +16,8 @@ interface WritablePath {
 }
 
 export interface WriteRuntime {
+	/** 会话内 read/edit 版本缓存；写入成功后允许直接 edit。 */
+	versionCache?: ReadVersionCache;
 	/** 可选 LSP 增强；失败必须退化为普通 write。 */
 	lsp?: FileToolLspHooks;
 }
@@ -57,6 +60,7 @@ export async function writeWorkspaceFile(cwd: string, params: unknown, signal?: 
 		} catch {
 			return fail("ACCESS_DENIED", "File could not be written.", { path: target.relativePath });
 		}
+		await rememberWrittenVersion(runtime.versionCache, target.absolutePath, diff.afterVersion);
 
 		const result: WriteSuccess = {
 			status: "written",
@@ -109,6 +113,15 @@ async function buildWriteDiff(absolutePath: string, newText: string): Promise<{
 		afterSizeBytes: newBytes.byteLength,
 		...(result.firstChangedLine !== undefined ? { firstChangedLine: result.firstChangedLine } : {}),
 	};
+}
+
+async function rememberWrittenVersion(cache: ReadVersionCache | undefined, absolutePath: string, version: string): Promise<void> {
+	if (cache === undefined) return;
+	try {
+		cache.remember(await realpath(absolutePath), version);
+	} catch {
+		// 写入已成功；并发删除只会让下一次 edit 重新要求 read。
+	}
 }
 
 async function safeAfterWrite(

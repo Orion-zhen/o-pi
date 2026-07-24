@@ -720,6 +720,9 @@ describe("file-tools extension", () => {
 			expect(textResult(clean)).toBe('<write path="clean.ts"/>');
 			expect(clean.details).toMatchObject({ status: "written", path: "clean.ts", diff: expect.stringContaining("+1 export const ok = true;") });
 
+			const edited = await executeTool(registered, "edit", { path: "clean.ts", edits: [{ old: "true", new: "false" }] }, ctx);
+			expect(edited.details).toMatchObject({ status: "applied", path: "clean.ts" });
+
 			for (const status of ["timeout", "unavailable"] as const) {
 				lspFileHooks.afterWrite = vi.fn(async () => ({
 					status,

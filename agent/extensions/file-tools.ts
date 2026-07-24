@@ -53,7 +53,7 @@ const writeParameters = Type.Object(
 	{ additionalProperties: false },
 );
 const editParameters = Type.Object({
-	path: Type.String({ description: "Previously read file." }),
+	path: Type.String({ description: "Previously read or written file." }),
 	edits: Type.Array(
 		Type.Object(
 			{
@@ -225,6 +225,7 @@ function registerFileTools(
 			return (await loaders.write()).executeWrite(params as WriteParams, {
 				cwd: ctx.cwd,
 				...(signal !== undefined ? { signal } : {}),
+				versionCache: versionCacheFor(ctx, versionCaches),
 				lsp,
 				repoMap: repoMapFor(ctx),
 			});
@@ -243,8 +244,8 @@ function registerFileTools(
 		tool: {
 		name: "edit",
 		label: "edit",
-		description: "Edit one previously read file with exact replacements.",
-		promptSnippet: "edit one read file",
+		description: "Edit one previously read or written file with exact replacements.",
+		promptSnippet: "edit one known file",
 		parameters: editParameters,
 		renderShell: "self",
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
