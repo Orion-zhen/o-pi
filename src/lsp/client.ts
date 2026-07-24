@@ -105,7 +105,7 @@ export class LspClient {
 	async didOpenOrChange(filePath: string, text: string): Promise<boolean> {
 		const connection = await this.readyConnection();
 		if (connection === undefined) return false;
-		const document = this.documents.context(filePath, text);
+		const document = this.documents.context(filePath, text, this.server.language_id);
 		const version = this.documents.nextVersion(document.uri);
 		if (version === 1) {
 			const sent = await this.sendNotification(connection, (active) => active.sendNotification(DidOpenTextDocumentNotification.type, {
@@ -131,7 +131,7 @@ export class LspClient {
 	async didSave(filePath: string, text: string): Promise<boolean> {
 		const connection = await this.readyConnection();
 		if (connection === undefined) return false;
-		const sent = await this.sendNotification(connection, (active) => active.sendNotification(DidSaveTextDocumentNotification.type, { textDocument: { uri: this.documents.context(filePath, text).uri }, text }));
+		const sent = await this.sendNotification(connection, (active) => active.sendNotification(DidSaveTextDocumentNotification.type, { textDocument: { uri: this.documents.context(filePath, text, this.server.language_id).uri }, text }));
 		if (!sent) return false;
 		this.bumpIdleTimer();
 		return true;
@@ -142,7 +142,7 @@ export class LspClient {
 		if (!opened) return undefined;
 		const connection = this.connection;
 		if (connection === undefined) return undefined;
-		const uri = this.documents.context(filePath, text).uri;
+		const uri = this.documents.context(filePath, text, this.server.language_id).uri;
 		return (await this.request(() => connection.sendRequest(DocumentSymbolRequest.type, { textDocument: { uri } }))) ?? undefined;
 	}
 
@@ -171,9 +171,13 @@ export class LspClient {
 	private async start(): Promise<boolean> {
 		this.state = "starting";
 		this.lastError = undefined;
+		if (this.server.transport.type !== "stdio") {
+			this.markUnavailable(`transport "${this.server.transport.type}" is not supported yet`);
+			return false;
+		}
 		let child: ChildProcessWithoutNullStreams;
 		try {
-			child = spawn(this.server.command, this.server.args, { cwd: this.root, stdio: "pipe" });
+			child = spawn(this.server.transport.command, this.server.transport.args, { cwd: this.root, stdio: "pipe" });
 		} catch (error) {
 			this.markUnavailable(errorMessage(error));
 			return false;
@@ -185,7 +189,7 @@ export class LspClient {
 		});
 		if (child.pid === undefined) {
 			this.process = undefined;
-			this.markUnavailable(`server failed to start: ${this.server.command}`);
+			this.markUnavailable(`server failed to start: ${this.server.transport.command}`);
 			return false;
 		}
 

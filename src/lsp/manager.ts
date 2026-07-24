@@ -2,6 +2,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
 import { LspClient } from "./client.js";
+import { LspServerRegistry } from "./registry.js";
 import { loadLspConfig, normalizeExcludePath, resolveLspConfigPath } from "./config.js";
 import { DiagnosticsLedger, emptySummary, summarizeDiagnostics } from "./diagnostics.js";
 import { compactOutline, extensionForPath, findEnclosingSymbol, referenceHits, workspaceSymbolSeeds } from "./symbols.js";
@@ -32,6 +33,7 @@ export interface ReadEnhancement {
 /** 进程内 LSP 管理器：负责配置、server 选择、生命周期和 diagnostics ledger。 */
 export class LspManager {
 	private loaded: LoadedLspConfig | undefined;
+	private registry: LspServerRegistry | undefined;
 	private configError: string | undefined;
 	private readonly clients = new Map<string, ClientEntry>();
 	private readonly diagnostics = new DiagnosticsLedger();
@@ -52,6 +54,7 @@ export class LspManager {
 		this.clients.clear();
 		this.diagnostics.clear();
 		this.loaded = undefined;
+		this.registry = undefined;
 		this.configError = undefined;
 	}
 
@@ -77,7 +80,7 @@ export class LspManager {
 	async workspaceSymbols(root: string, query: string): Promise<LspSymbolHit[]> {
 		const config = await this.enabledConfig();
 		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths) || !config.config.grep.workspace_symbols) return [];
-		const servers = enabledServersForExtension(config.config.servers, undefined);
+		const servers = this.registry?.enabled() ?? [];
 		const hits: LspSymbolHit[] = [];
 		let symbolCount = 0;
 		let referenceCount = 0;
@@ -145,7 +148,7 @@ export class LspManager {
 	private async clientForFile(root: string, filePath: string): Promise<LspClient | undefined> {
 		const config = await this.enabledConfig();
 		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths)) return undefined;
-		const server = enabledServersForExtension(config.config.servers, extensionForPath(filePath))[0];
+		const server = this.registry?.forExtension(extensionForPath(filePath));
 		if (server === undefined) return undefined;
 		return this.clientForServer(root, server);
 	}
@@ -189,6 +192,7 @@ export class LspManager {
 		if (this.loaded !== undefined || this.configError !== undefined) return this.loaded;
 		try {
 			this.loaded = await loadLspConfig();
+			this.registry = new LspServerRegistry(this.loaded.config.servers);
 			return this.loaded;
 		} catch (error) {
 			this.configError = error instanceof Error ? error.message : String(error);
@@ -200,10 +204,6 @@ export class LspManager {
 function isExcludedRoot(root: string, excludePaths: readonly string[]): boolean {
 	const normalizedRoot = normalizeExcludePath(root);
 	return excludePaths.some((excludePath) => normalizedRoot === normalizeExcludePath(excludePath));
-}
-
-function enabledServersForExtension(servers: LspServerConfig[], extension: string | undefined): LspServerConfig[] {
-	return servers.filter((server) => server.enabled && (extension === undefined || server.extensions.includes(extension)));
 }
 
 function uriToWorkspacePath(root: string, uri: string): { path: string; relative: string } | undefined {

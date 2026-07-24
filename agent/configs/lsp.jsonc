@@ -31,30 +31,30 @@
 		{
 			"id": "typescript",
 			"enabled": true,
-			"command": "typescript-language-server",
-			"args": ["--stdio"],
+			"transport": { "type": "stdio", "command": "typescript-language-server", "args": ["--stdio"] },
+			"language_id": "typescript",
 			"extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]
 		},
 		{
 			"id": "python",
 			"enabled": true,
-			"command": "pyright-langserver",
-			"args": ["--stdio"],
+			"transport": { "type": "stdio", "command": "pyright-langserver", "args": ["--stdio"] },
+			"language_id": "python",
 			"extensions": [".py", ".pyi"]
 		},
 		{
 			"id": "rust",
 			"enabled": true,
-			"command": "rust-analyzer",
-			"args": [],
+			"transport": { "type": "stdio", "command": "rust-analyzer", "args": [] },
+			"language_id": "rust",
 			"extensions": [".rs"]
 		},
 		{
 			"id": "yaml",
 			"enabled": true,
-			"command": "yaml-language-server",
-			"args": ["--stdio"],
-			"extensions": [".yaml"]
+			"transport": { "type": "stdio", "command": "yaml-language-server", "args": ["--stdio"] },
+			"language_id": "yaml",
+			"extensions": [".yaml", ".yml"]
 		}
 	]
 }

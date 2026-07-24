@@ -5,14 +5,32 @@ export type LspSeverityName = "error" | "warning" | "information" | "hint";
 /** 单个 language server 进程的运行状态。 */
 export type LspRuntimeStatus = "idle" | "starting" | "ready" | "unavailable" | "crashed" | "stopped";
 
-/** 单个 language server 启动配置。 */
+/** 通过标准输入输出连接的 LSP server。 */
+export interface LspStdioTransport {
+	type: "stdio";
+	command: string;
+	args: string[];
+}
+
+/** 连接到已由用户提供的 TCP LSP endpoint。 */
+export interface LspTcpTransport {
+	type: "tcp";
+	host: string;
+	port: number;
+}
+
+/** LSP server 的规范化连接方式。 */
+export type LspTransport = LspStdioTransport | LspTcpTransport;
+
+/** 单个 language server 的规范化配置。 */
 export interface LspServerConfig {
 	/** LSP server 的稳定 ID；同一 workspace 内用于区分进程。 */
 	id: string;
 	enabled: boolean;
-	command: string;
-	args: string[];
-	/** 由文件扩展名选择 server，值必须包含前导点。 */
+	transport: LspTransport;
+	/** server 接收 textDocument/didOpen 时使用的 language ID。 */
+	language_id: string;
+	/** 由文件扩展名选择 server，值已规范化为小写并包含前导点。 */
 	extensions: string[];
 	initialization_options?: Record<string, unknown>;
 }

@@ -25,7 +25,7 @@ agent/configs/lsp.jsonc
 | `diagnostics` | 见下表 | 控制 `write` / `edit` 成功后的诊断等待和返回内容。 |
 | `read` | 见下表 | 控制 `read` 的 outline / enclosing symbol 增强。 |
 | `grep` | 见下表 | 控制 `grep` 的 workspace symbol 增强。 |
-| `servers` | TypeScript / Python / Rust / YAML | language server 列表，最多 50 个。配置文件缺失时内置回退列表不含 YAML。 |
+| `servers` | TypeScript / Python / Rust / YAML | language server 列表，最多 50 个。配置文件缺失时使用同一份内置列表。ID 和扩展名必须全局唯一。 |
 
 `diagnostics`：
 
@@ -57,12 +57,14 @@ agent/configs/lsp.jsonc
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `id` | 必填 | server 稳定 ID。只能包含字母、数字、`_`、`-`，同一 workspace 内与 root 共同组成进程 key。 |
-| `enabled` | `true` | 单个 server 开关。关闭后不会匹配文件，也不会启动 command。 |
-| `command` | 必填 | 启动 language server 的可执行文件或路径。会以 stdio 模式启动，必须可信。 |
-| `args` | `[]` | 启动参数，最多 64 项。例如 `typescript-language-server` 需要 `["--stdio"]`。 |
-| `extensions` | 必填 | 文件扩展名列表，必须带前导点，例如 `".ts"`。`read/write/edit` 按文件扩展名选择 server。 |
+| `id` | 必填 | server 稳定 ID。只能包含字母、数字、`_`、`-`，且所有 server 必须唯一。 |
+| `enabled` | `true` | 单个 server 开关。关闭后不会匹配文件，也不会启动 transport；但仍参与 ID/扩展名冲突校验。 |
+| `transport` | 必填 | 连接方式。`{"type":"stdio","command":"...","args":[]}` 启动本地 server；`{"type":"tcp","host":"127.0.0.1","port":2087}` 连接用户提供的 endpoint。TCP transport 将由后续阶段启用。 |
+| `language_id` | 首个扩展名推断 | 发送 `textDocument/didOpen` 时使用的 language ID；建议显式配置。 |
+| `extensions` | 必填 | 文件扩展名列表，必须带前导点，加载时统一转小写。任意两个 server（包括 disabled server）不能共享扩展名；冲突会使整个配置加载失败。 |
 | `initialization_options` | 未设置 | 原样传给 LSP `initialize.initializationOptions`，用于 server 私有配置。 |
+
+为保持旧配置可用，`command`/`args` 仍可直接写在 server 对象中，加载时会规范化为 `stdio transport`。
 
 仓库配置包含 TypeScript、Python、Rust、YAML server。binary 不存在时 server 标记为 unavailable，文件工具继续成功执行。
 

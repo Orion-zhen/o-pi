@@ -4,6 +4,7 @@ import { createLspFileHooks } from "./file-hooks.js";
 export { registerLspCommands } from "./commands.js";
 export { LspConfigError, defaultLspConfig, loadLspConfig, resolveLspConfigPath } from "./config.js";
 export { DiagnosticsLedger, emptySummary, summarizeDiagnostics } from "./diagnostics.js";
+export { LspServerRegistry, LspServerRegistryError } from "./registry.js";
 export { fileUriToPath, pathToFileUri } from "./uri.js";
 export type * from "./types.js";
 

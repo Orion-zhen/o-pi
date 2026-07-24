@@ -1,32 +1,16 @@
 import path from "node:path";
 
 import { agentConfigPath, agentSchemaPath, createSchemaValidator, expandHomePath, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
-import type { LoadedLspConfig, LspConfig, LspServerConfig } from "./types.js";
+import { LspServerRegistry } from "./registry.js";
+import type { LoadedLspConfig, LspConfig, LspServerConfig, LspTransport } from "./types.js";
 
 const CONFIG_PATH_ENV = "PI_LSP_CONFIG";
 
 const defaultServers: LspServerConfig[] = [
-	{
-		id: "typescript",
-		enabled: true,
-		command: "typescript-language-server",
-		args: ["--stdio"],
-		extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
-	},
-	{
-		id: "python",
-		enabled: true,
-		command: "pyright-langserver",
-		args: ["--stdio"],
-		extensions: [".py", ".pyi"],
-	},
-	{
-		id: "rust",
-		enabled: true,
-		command: "rust-analyzer",
-		args: [],
-		extensions: [".rs"],
-	},
+	stdioServer("typescript", "typescript-language-server", ["--stdio"], [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"], "typescript"),
+	stdioServer("python", "pyright-langserver", ["--stdio"], [".py", ".pyi"], "python"),
+	stdioServer("rust", "rust-analyzer", [], [".rs"], "rust"),
+	stdioServer("yaml", "yaml-language-server", ["--stdio"], [".yaml", ".yml"], "yaml"),
 ];
 
 const defaultConfig: LspConfig = {
@@ -77,8 +61,18 @@ interface RawLspConfig {
 	servers?: Array<{
 		id: string;
 		enabled?: boolean;
-		command: string;
+		command?: string;
 		args?: string[];
+		transport?: {
+			type: "stdio";
+			command: string;
+			args?: string[];
+		} | {
+			type: "tcp";
+			host: string;
+			port: number;
+		};
+		language_id?: string;
 		extensions: string[];
 		initialization_options?: Record<string, unknown>;
 	}>;
@@ -131,19 +125,70 @@ function mergeConfig(raw: RawLspConfig): LspConfig {
 			max_symbols: raw.grep?.max_symbols ?? base.grep.max_symbols,
 			max_references: raw.grep?.max_references ?? base.grep.max_references,
 		},
-		servers: (raw.servers ?? base.servers).map((server) => ({
-			id: server.id,
-			enabled: server.enabled ?? true,
-			command: server.command,
-			args: server.args ?? [],
-			extensions: server.extensions,
-			...(server.initialization_options !== undefined ? { initialization_options: server.initialization_options } : {}),
-		})),
+		servers: raw.servers === undefined ? base.servers : normalizeServers(raw.servers),
 	};
 }
 
 export function normalizeExcludePath(input: string): string {
 	return path.resolve(expandHomePath(input));
+}
+
+function stdioServer(id: string, command: string, args: string[], extensions: string[], language_id: string): LspServerConfig {
+	return { id, enabled: true, transport: { type: "stdio", command, args }, language_id, extensions };
+}
+
+function normalizeServers(servers: NonNullable<RawLspConfig["servers"]>): LspServerConfig[] {
+	const normalized = servers.map((server) => {
+		const extensions = [...new Set(server.extensions.map(normalizeExtension))];
+		const transport = normalizeTransport(server);
+		return {
+			id: server.id,
+			enabled: server.enabled ?? true,
+			transport,
+			language_id: server.language_id ?? defaultLanguageId(extensions[0] ?? ""),
+			extensions,
+			...(server.initialization_options !== undefined ? { initialization_options: server.initialization_options } : {}),
+		};
+	});
+	try {
+		new LspServerRegistry(normalized);
+	} catch (error) {
+		throw new LspConfigError(error instanceof Error ? error.message : String(error));
+	}
+	return normalized;
+}
+
+function normalizeTransport(server: NonNullable<RawLspConfig["servers"]>[number]): LspTransport {
+	if (server.transport !== undefined) {
+		if (server.command !== undefined || server.args !== undefined) {
+			throw new LspConfigError(`LSP server "${server.id}" cannot combine transport with command or args`);
+		}
+		return server.transport.type === "stdio"
+			? { type: "stdio", command: server.transport.command, args: server.transport.args ?? [] }
+			: { type: "tcp", host: server.transport.host, port: server.transport.port };
+	}
+	if (server.command === undefined) throw new LspConfigError(`LSP server "${server.id}" is missing a transport`);
+	return { type: "stdio", command: server.command, args: server.args ?? [] };
+}
+
+function normalizeExtension(extension: string): string {
+	return extension.toLowerCase();
+}
+
+function defaultLanguageId(extension: string): string {
+	return {
+		".ts": "typescript",
+		".tsx": "typescriptreact",
+		".js": "javascript",
+		".jsx": "javascriptreact",
+		".mjs": "javascript",
+		".cjs": "javascript",
+		".py": "python",
+		".pyi": "python",
+		".rs": "rust",
+		".yaml": "yaml",
+		".yml": "yaml",
+	}[extension] ?? extension.slice(1);
 }
 
 const loadValidator = createSchemaValidator({

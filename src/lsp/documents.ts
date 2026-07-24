@@ -19,12 +19,12 @@ const extensionLanguageIds = new Map<string, string>([
 export class LspDocuments {
 	private readonly versions = new Map<string, number>();
 
-	context(filePath: string, text: string): LspClientDocumentContext {
+	context(filePath: string, text: string, languageId = languageIdForPath(filePath)): LspClientDocumentContext {
 		return {
 			uri: pathToFileUri(filePath),
 			path: filePath,
 			text,
-			languageId: languageIdForPath(filePath),
+			languageId,
 		};
 	}
 
