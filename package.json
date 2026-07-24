@@ -52,12 +52,6 @@
 		"smol-toml": "latest",
 		"tldts": "latest",
 		"tough-cookie": "latest",
-		"tree-sitter": "latest",
-		"tree-sitter-go": "latest",
-		"tree-sitter-javascript": "latest",
-		"tree-sitter-python": "latest",
-		"tree-sitter-rust": "latest",
-		"tree-sitter-typescript": "latest",
 		"turndown": "latest",
 		"turndown-plugin-gfm": "latest",
 		"typebox": "latest",
@@ -65,5 +59,13 @@
 		"unified": "latest",
 		"vscode-jsonrpc": "latest",
 		"vscode-languageserver-protocol": "latest"
+	},
+	"optionalDependencies": {
+		"tree-sitter": "latest",
+		"tree-sitter-go": "latest",
+		"tree-sitter-javascript": "latest",
+		"tree-sitter-python": "latest",
+		"tree-sitter-rust": "latest",
+		"tree-sitter-typescript": "latest"
 	}
 }
