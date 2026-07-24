@@ -6,7 +6,7 @@
 	"request_timeout_ms": 5000,
 	"idle_timeout_ms": 300000,
 	"max_restarts": 2,
-	"max_open_documents": 64,
+	"max_open_documents": 128,
 
 	"diagnostics": {
 		"enabled": true,
