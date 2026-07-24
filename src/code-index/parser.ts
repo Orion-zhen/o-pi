@@ -1,4 +1,5 @@
-import type { RawUnit } from "./adapters/types.js";
+import type { RawImport, RawUnit } from "./adapters/types.js";
+import { indexRawImports } from "./adapters/shared.js";
 import { createFileIdentity, createSymbolId } from "./identity.js";
 import { getLanguageAdapter, languageFromPath } from "./language-registry.js";
 import { parseDocument } from "./syntax-tree.js";
@@ -33,8 +34,10 @@ export function analyzeDocument(filePath: string, document: ParsedDocument | und
 
 	const { sourceIndex, text, root } = document;
 	let units: IndexedCodeUnit[];
+	let rawImports: RawImport[];
 	try {
 		units = adapter.extractUnits(root).map((unit) => buildIndexedUnit(file, language, text, sourceIndex, unit));
+		rawImports = adapter.extractImports(root);
 	} catch {
 		return emptyAnalyzedFile(file, language, "error");
 	}
@@ -46,7 +49,7 @@ export function analyzeDocument(filePath: string, document: ParsedDocument | und
 			symbols: units.flatMap((unit) => [unit.name, unit.qualifiedName].filter((value): value is string => value !== undefined)),
 		},
 		status: "parsed",
-		imports: collectFileImports(language, text, sourceIndex),
+		imports: indexRawImports(sourceIndex, rawImports),
 	};
 }
 
@@ -129,10 +132,6 @@ function emptyAnalyzedFile(file: { id: string; path: string }, language: CodeLan
 		status,
 		imports: [],
 	};
-}
-
-function collectFileImports(language: CodeLanguage, text: string, lineIndex: LineIndex) {
-	return getLanguageAdapter(language)?.collectImports(text, lineIndex) ?? [];
 }
 
 function buildIndexedUnit(file: { id: string; path: string }, language: CodeLanguage, text: string, sourceIndex: SourceIndex, unit: RawUnit): IndexedCodeUnit {

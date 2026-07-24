@@ -133,7 +133,7 @@ describe("shared code parser", () => {
 		expect(symbols("server.go", "package main\ntype Server struct{}\nfunc Start() {}\nfunc (s Server) Stop() {}\n")).toEqual([
 			["type", "Server", "Server"],
 			["function", "Start", "Start"],
-			["function", "Stop", "Stop"],
+			["method", "Stop", "Server.Stop"],
 		]);
 		expect(symbols("server.rs", "pub struct Server;\nimpl Server { pub fn start(&self) {} }\npub fn stop() {}\n")).toEqual([
 			["type", "Server", "Server"],

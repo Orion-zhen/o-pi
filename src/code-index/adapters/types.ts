@@ -1,6 +1,6 @@
 import type ParserModule from "tree-sitter";
 
-import type { IndexedImport, LineIndex, SupportedCodeLanguage } from "../types.js";
+import type { SupportedCodeLanguage } from "../types.js";
 
 export type TreeSitterLanguage = ParserModule.Language;
 export type SyntaxNode = ParserModule.SyntaxNode;
@@ -19,6 +19,12 @@ export interface RawUnit {
 	readonly endChar: number;
 }
 
+export interface RawImport {
+	readonly specifier: string;
+	readonly startChar: number;
+	readonly endChar: number;
+}
+
 /** 阶段 1 使用的 adapter 元数据；不会在导入时加载 grammar。 */
 export interface LanguageAdapterMetadata {
 	readonly language: SupportedCodeLanguage;
@@ -26,8 +32,8 @@ export interface LanguageAdapterMetadata {
 	readonly grammar: GrammarSpec;
 }
 
-/** 完整语言 adapter 的公共契约，AST 和 import 逻辑在后续阶段实现。 */
+/** 完整语言 adapter 的公共契约；import 与 symbol 均从同一 AST 提取。 */
 export interface LanguageAdapter extends LanguageAdapterMetadata {
 	extractUnits(root: SyntaxNode): RawUnit[];
-	collectImports(text: string, index: LineIndex): IndexedImport[];
+	extractImports(root: SyntaxNode): RawImport[];
 }

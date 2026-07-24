@@ -1,15 +1,15 @@
 import {
-	collectCIncludeImports,
 	collectUnits,
 	declaratorName,
 	firstNamedChildText,
 	functionDeclaratorName,
 	hasAncestorType,
 	hasSimpleFunctionDeclarator,
+	rawImport,
 	rawUnit,
 	type UnitRules,
 } from "./shared.js";
-import type { LanguageAdapter } from "./types.js";
+import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
 
 const cppRules: UnitRules = {
 	extract(node, scope) {
@@ -68,10 +68,33 @@ const cppRules: UnitRules = {
 	},
 };
 
+function extractCppImports(root: SyntaxNode): RawImport[] {
+	const imports: RawImport[] = [];
+	walk(root, (node) => {
+		if (node.type !== "preproc_include") return;
+		const path = node.childForFieldName("path");
+		if (path === null) return;
+		if (path.type === "system_lib_string") {
+			imports.push({ specifier: path.text.slice(1, -1), startChar: path.startIndex + 1, endChar: path.endIndex - 1 });
+			return;
+		}
+		if (path.type === "string_literal") {
+			const content = path.namedChildren[0];
+			if (content !== undefined) imports.push(rawImport(path, content));
+		}
+	});
+	return imports;
+}
+
+function walk(node: SyntaxNode, visit: (node: SyntaxNode) => void): void {
+	visit(node);
+	for (const child of node.namedChildren) walk(child, visit);
+}
+
 export const cppAdapter: LanguageAdapter = {
 	language: "cpp",
 	extensions: [".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"],
 	grammar: { packageName: "tree-sitter-cpp" },
 	extractUnits: (root) => collectUnits(root, cppRules),
-	collectImports: collectCIncludeImports,
+	extractImports: extractCppImports,
 };

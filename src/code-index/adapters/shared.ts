@@ -1,5 +1,5 @@
 import type { IndexedImport, LineIndex } from "../types.js";
-import type { RawUnit, SyntaxNode } from "./types.js";
+import type { RawImport, RawUnit, SyntaxNode } from "./types.js";
 
 export interface UnitRules {
 	extract(node: SyntaxNode, scope: string | undefined): RawUnit | undefined;
@@ -32,6 +32,14 @@ export function rawUnit(node: SyntaxNode, kind: string, name: string, scope?: st
 	};
 }
 
+export function rawImport(node: SyntaxNode, specifierNode: SyntaxNode = node): RawImport {
+	return {
+		specifier: specifierNode.text,
+		startChar: specifierNode.startIndex,
+		endChar: specifierNode.endIndex,
+	};
+}
+
 export function exportRangeNode(node: SyntaxNode): SyntaxNode {
 	const parent = node.parent;
 	return parent?.type === "export_statement" ? parent : node;
@@ -43,30 +51,6 @@ export function nameField(node: SyntaxNode): string | undefined {
 
 export function firstNamedChildText(node: SyntaxNode, types: readonly string[]): string | undefined {
 	return node.namedChildren.find((child) => types.includes(child.type))?.text;
-}
-
-export function collectRegexImports(text: string, index: LineIndex, patterns: readonly RegExp[]): IndexedImport[] {
-	const matches: Array<{ specifier: string; startChar: number }> = [];
-	for (const pattern of patterns) {
-		for (const match of text.matchAll(pattern)) {
-			const specifier = match.groups?.["specifier"];
-			const full = match[0];
-			if (specifier === undefined || full === undefined || match.index === undefined) continue;
-			const relativeStart = full.indexOf(specifier);
-			if (relativeStart < 0) continue;
-			matches.push({ specifier, startChar: match.index + relativeStart });
-		}
-	}
-	return indexedImports(text, index, matches);
-}
-
-const C_INCLUDE_PATTERNS = [
-	/^[ \t]*#[ \t]*include[ \t]*<(?<specifier>[^>\r\n]+)>/gmu,
-	/^[ \t]*#[ \t]*include[ \t]*"(?<specifier>[^"\r\n]+)"/gmu,
-];
-
-export function collectCIncludeImports(text: string, index: LineIndex): IndexedImport[] {
-	return collectRegexImports(text, index, C_INCLUDE_PATTERNS);
 }
 
 const DECLARATOR_NAME_TYPES = new Set([
@@ -114,54 +98,24 @@ export function hasAncestorType(node: SyntaxNode): boolean {
 	return false;
 }
 
-export function collectGoImports(text: string, index: LineIndex): IndexedImport[] {
-	const matches: Array<{ specifier: string; startChar: number }> = [];
-	for (const match of text.matchAll(/\bimport\s+(?:[._A-Za-z]\w*\s+)?["'](?<specifier>[^"']+)["']/gu)) {
-		const specifier = match.groups?.["specifier"];
-		if (specifier === undefined || match.index === undefined) continue;
-		const relativeStart = match[0].indexOf(specifier);
-		if (relativeStart >= 0) matches.push({ specifier, startChar: match.index + relativeStart });
-	}
-	for (const block of text.matchAll(/\bimport\s*\((?<body>[\s\S]*?)\)/gu)) {
-		const body = block.groups?.["body"];
-		if (body === undefined || block.index === undefined) continue;
-		const bodyStart = block.index + block[0].indexOf(body);
-		for (const match of body.matchAll(/(?:^|\n)\s*(?:[._A-Za-z]\w*\s+)?["'](?<specifier>[^"']+)["']/gu)) {
-			const specifier = match.groups?.["specifier"];
-			if (specifier === undefined || match.index === undefined) continue;
-			const relativeStart = match[0].indexOf(specifier);
-			if (relativeStart >= 0) matches.push({ specifier, startChar: bodyStart + match.index + relativeStart });
-		}
-	}
-	return indexedImports(text, index, matches);
-}
-
-function indexedImports(text: string, index: LineIndex, matches: readonly { specifier: string; startChar: number }[]): IndexedImport[] {
+export function indexRawImports(index: LineIndex, rawImports: readonly RawImport[]): IndexedImport[] {
 	const imports: IndexedImport[] = [];
 	const seen = new Set<string>();
-	for (const match of matches) {
-		const startByte = byteForCharWithIndex(text, index, match.startChar);
-		const endByte = byteForCharWithIndex(text, index, match.startChar + match.specifier.length);
+	for (const match of rawImports) {
+		const startByte = index.byteForChar(match.startChar);
+		const endByte = index.byteForChar(match.endChar);
 		const key = `${match.specifier}\0${startByte}\0${endByte}`;
 		if (seen.has(key)) continue;
 		seen.add(key);
 		imports.push({
 			specifier: match.specifier,
-			startLine: lineForByteWithIndex(index, startByte),
-			endLine: lineForByteWithIndex(index, Math.max(startByte, endByte - 1)),
+			startLine: index.lineForByte(startByte),
+			endLine: index.lineForByte(Math.max(startByte, endByte - 1)),
 			startByte,
 			endByte,
 		});
 	}
 	return imports.sort((left, right) => left.startByte - right.startByte || left.endByte - right.endByte || (left.specifier < right.specifier ? -1 : left.specifier > right.specifier ? 1 : 0));
-}
-
-export function byteForCharWithIndex(_text: string, index: LineIndex, charOffset: number): number {
-	return index.byteForChar(charOffset);
-}
-
-export function lineForByteWithIndex(index: LineIndex, byteOffset: number): number {
-	return index.lineForByte(byteOffset);
 }
 
 function compareRawUnits(left: RawUnit, right: RawUnit): number {

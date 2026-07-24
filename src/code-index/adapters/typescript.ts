@@ -6,7 +6,7 @@ export const typescriptAdapter: LanguageAdapter = {
 	extensions: [".ts"],
 	grammar: { packageName: "tree-sitter-typescript", exportName: "typescript" },
 	extractUnits: javascriptAdapter.extractUnits,
-	collectImports: javascriptAdapter.collectImports,
+	extractImports: javascriptAdapter.extractImports,
 };
 
 export const tsxAdapter: LanguageAdapter = {
@@ -14,5 +14,5 @@ export const tsxAdapter: LanguageAdapter = {
 	extensions: [".tsx"],
 	grammar: { packageName: "tree-sitter-typescript", exportName: "tsx" },
 	extractUnits: javascriptAdapter.extractUnits,
-	collectImports: javascriptAdapter.collectImports,
+	extractImports: javascriptAdapter.extractImports,
 };

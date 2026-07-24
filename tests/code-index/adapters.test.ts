@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { adapterFromPath } from "../../src/code-index/language-registry.js";
-import { analyzeCodeFile, buildLineIndex } from "../../src/code-index/parser.js";
+import { analyzeCodeFile } from "../../src/code-index/parser.js";
 import { parseSyntaxTree } from "../../src/code-index/syntax-tree.js";
 
 describe.each([
@@ -78,7 +78,7 @@ describe.each([
 		const root = parseSyntaxTree(adapter.language, text);
 		if (root === undefined) throw new Error(`missing syntax tree for ${adapter.language}`);
 		expect(adapter.extractUnits(root).map((unit) => `${unit.kind}:${unit.qualifiedName}`)).toEqual(units);
-		expect(adapter.collectImports(text, buildLineIndex(text)).map((item) => item.specifier)).toEqual(imports);
+		expect(adapter.extractImports(root).map((item) => item.specifier)).toEqual(imports);
 	});
 });
 
