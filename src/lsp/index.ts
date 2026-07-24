@@ -1,7 +1,16 @@
 import { LspManager } from "./manager.js";
 import { createLspFileHooks } from "./file-hooks.js";
 
+export { LspClient } from "./client.js";
 export { registerLspCommands } from "./commands.js";
+export {
+	featureAvailable,
+	lspFeatureAdapters,
+	lspFeatureDefinitions,
+	requestDocumentSymbols,
+	requestReferences,
+	requestWorkspaceSymbols,
+} from "./features/index.js";
 export { LspConfigError, defaultLspConfig, loadLspConfig, resolveLspConfigPath } from "./config.js";
 export { DiagnosticsLedger, emptySummary, summarizeDiagnostics } from "./diagnostics.js";
 export { LspServerRegistry, LspServerRegistryError } from "./registry.js";

@@ -3,6 +3,9 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { LspClient } from "../../src/lsp/client.js";
+import { defaultLspConfig } from "../../src/lsp/config.js";
+import { DiagnosticsLedger } from "../../src/lsp/diagnostics.js";
 import { LspManager } from "../../src/lsp/manager.js";
 import { pathToFileUri } from "../../src/lsp/uri.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -11,6 +14,8 @@ interface JsonRpcMessage {
 	method?: string;
 	id?: number;
 	params?: unknown;
+	result?: unknown;
+	error?: { code: number; message: string };
 }
 
 type MessageHandler = (message: JsonRpcMessage, socket: Socket) => void;
@@ -18,6 +23,8 @@ type MessageHandler = (message: JsonRpcMessage, socket: Socket) => void;
 interface FakeServer {
 	port: number;
 	methods: string[];
+	response: Promise<JsonRpcMessage>;
+	cancelled: Promise<void>;
 	closed: Promise<void>;
 	close(): Promise<void>;
 }
@@ -94,11 +101,73 @@ describe("lsp transport", () => {
 		});
 	});
 
+	it("TCP session 保存 capabilities、取消请求并安全处理 server request", async () => {
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
+				send(socket, { method: "window/logMessage", params: { type: 3, message: "server log" } });
+				send(socket, { method: "$/progress", params: { token: "work", value: { kind: "begin" } } });
+				send(socket, { method: "textDocument/publishDiagnostics", params: { uri: pathToFileUri(path.join(workspace, "a.ts")), diagnostics: [] } });
+				send(socket, { id: 77, method: "workspace/applyEdit", params: { edit: {} } });
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		const config = defaultLspConfig();
+		config.startup_timeout_ms = 500;
+		config.request_timeout_ms = 100;
+		const client = new LspClient(workspace, {
+			id: "tcp",
+			enabled: true,
+			transport: { type: "tcp", host: "127.0.0.1", port: fake.port },
+			language_id: "typescript",
+			extensions: [".ts"],
+		}, config, new DiagnosticsLedger(), () => undefined, () => 0);
+		const diagnostics: string[] = [];
+		const logs: string[] = [];
+		const progress: unknown[] = [];
+		client.onDiagnostics((params) => diagnostics.push(params.uri));
+		client.onLogMessage((params) => logs.push(params.message));
+		client.onProgress((params) => progress.push(params.value));
+
+		expect(await client.ensureReady()).toBe(true);
+		expect(client.capabilities()?.workspaceSymbolProvider).toBe(true);
+		await expect(client.workspaceSymbols("slow")).resolves.toBeUndefined();
+		await fake.cancelled;
+		await fake.response;
+		await expect(client.didOpenOrChange(path.join(workspace, "a.ts"), "const a = 1;\n")).resolves.toBe(true);
+		await expect(client.didClose(path.join(workspace, "a.ts"))).resolves.toBe(true);
+		await client.shutdown();
+		await fake.closed;
+
+		expect(diagnostics).toEqual([pathToFileUri(path.join(workspace, "a.ts"))]);
+		expect(logs).toEqual(["server log"]);
+		expect(progress).toEqual([{ kind: "begin" }]);
+		expect(fake.methods).toContain("textDocument/didOpen");
+		expect(fake.methods).toContain("textDocument/didClose");
+		await expect(fake.response).resolves.toMatchObject({ id: 77, error: { code: -32601 } });
+	});
+
+	it("capability 不支持时不发送不适用的 feature request", async () => {
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: {} } });
+			}
+		});
+		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
+
+		manager = new LspManager();
+		await expect(manager.workspaceSymbols(workspace, "target", [".ts"])).resolves.toEqual([]);
+		expect(fake.methods).not.toContain("workspace/symbol");
+	});
+
 	it("TCP 请求超时和断开时保持 file-tools 降级", async () => {
 		let symbolRequests = 0;
 		const fake = await createFakeServer((message, socket) => {
 			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: {} } });
+				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
 			} else if (message.method === "workspace/symbol") {
 				symbolRequests += 1;
 				if (symbolRequests > 1) socket.destroy();
@@ -127,9 +196,17 @@ async function writeConfig(transport: { type: "tcp"; host: string; port: number 
 	process.env.PI_LSP_CONFIG = file;
 }
 
-async function createFakeServer(handler: MessageHandler): Promise<{ port: number; methods: string[]; closed: Promise<void>; close: () => Promise<void> }> {
+async function createFakeServer(handler: MessageHandler): Promise<FakeServer> {
 	const methods: string[] = [];
 	const sockets = new Set<Socket>();
+	let resolveResponse: (message: JsonRpcMessage) => void = () => undefined;
+	const response = new Promise<JsonRpcMessage>((resolve) => {
+		resolveResponse = resolve;
+	});
+	let resolveCancelled: () => void = () => undefined;
+	const cancelled = new Promise<void>((resolve) => {
+		resolveCancelled = resolve;
+	});
 	let resolveClosed: () => void = () => undefined;
 	const closed = new Promise<void>((resolve) => {
 		resolveClosed = resolve;
@@ -151,7 +228,12 @@ async function createFakeServer(handler: MessageHandler): Promise<{ port: number
 				if (buffer.length < start + length) return;
 				const message = JSON.parse(buffer.subarray(start, start + length).toString("utf8")) as JsonRpcMessage;
 				buffer = buffer.subarray(start + length);
-				if (message.method !== undefined) methods.push(message.method);
+				if (message.method !== undefined) {
+					methods.push(message.method);
+					if (message.method === "$/cancelRequest") resolveCancelled();
+				} else if (message.id !== undefined) {
+					resolveResponse(message);
+				}
 				handler(message, socket);
 			}
 		});
@@ -169,6 +251,8 @@ async function createFakeServer(handler: MessageHandler): Promise<{ port: number
 	const fake: FakeServer = {
 		port: address.port,
 		methods,
+		response,
+		cancelled,
 		closed,
 		close: async () => {
 			if (serverClosed) return;

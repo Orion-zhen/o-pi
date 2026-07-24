@@ -42,6 +42,14 @@ export class LspDocuments {
 		return this.versions.size;
 	}
 
+	close(uri: string): boolean {
+		return this.versions.delete(uri);
+	}
+
+	openUris(): string[] {
+		return Array.from(this.versions.keys());
+	}
+
 	clear(): void {
 		this.versions.clear();
 	}

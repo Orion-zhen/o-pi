@@ -78,6 +78,12 @@ agent/configs/lsp.jsonc
 
 不会自动 apply code actions、organize imports、跨文件 rename。
 
+### 协议 session
+
+initialize 返回的 capabilities 会保存在 session 中；不支持的 document symbols、workspace symbols 或 references 不会发送请求。session 提供带超时和协议级取消的 typed request/notification 入口，并统一接收 diagnostics、日志和 progress。文档生命周期包含 didOpen、didChange、didSave、didClose。
+
+server 主动 request 默认返回 `MethodNotFound`，不会自动执行 `workspace/applyEdit` 等有副作用操作；只有显式注册安全 handler 后才会处理。
+
 ## 命令
 
 ```text

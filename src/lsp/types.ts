@@ -1,4 +1,5 @@
-import type { Diagnostic, DocumentSymbol, SymbolInformation } from "vscode-languageserver-protocol";
+import type { CancellationToken } from "vscode-jsonrpc/node";
+import type { Diagnostic, DocumentSymbol, ServerCapabilities, SymbolInformation } from "vscode-languageserver-protocol";
 
 /** LSP 诊断严重级别名称，按 protocol 数值从高到低映射。 */
 export type LspSeverityName = "error" | "warning" | "information" | "hint";
@@ -33,6 +34,24 @@ export interface LspServerConfig {
 	/** 由文件扩展名选择 server，值已规范化为小写并包含前导点。 */
 	extensions: string[];
 	initialization_options?: Record<string, unknown>;
+}
+
+/** 可复用 LSP request 的超时和取消选项。 */
+export interface LspRequestOptions {
+	timeoutMs?: number;
+	signal?: AbortSignal;
+}
+
+/** initialize 返回的 server capabilities。 */
+export type LspServerCapabilities = ServerCapabilities;
+
+/** server 主动 request 的安全边界处理器。 */
+export type LspServerRequestHandler = (params: unknown, token: CancellationToken) => unknown | Promise<unknown>;
+
+/** LSP progress notification 的安全原始结构。 */
+export interface LspProgressNotification {
+	token: string | number;
+	value: unknown;
 }
 
 /** LSP 用户配置；只从用户配置路径读取，不读取项目级配置。 */
