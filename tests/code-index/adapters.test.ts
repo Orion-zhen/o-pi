@@ -1,0 +1,62 @@
+import { describe, expect, it } from "vitest";
+
+import { adapterFromPath } from "../../src/code-index/language-registry.js";
+import { buildLineIndex } from "../../src/code-index/parser.js";
+import { loadTreeSitterRuntime } from "../../src/code-index/tree-sitter-loader.js";
+
+describe.each([
+	{
+		filePath: "adapter.js",
+		text: "class Service { run() {} }\nfunction top() {}\n",
+		units: ["class:Service", "method:Service.run", "function:top"],
+		imports: [],
+	},
+	{
+		filePath: "adapter.jsx",
+		text: "import View from './view';\nfunction Page() { return <View />; }\n",
+		units: ["function:Page"],
+		imports: ["./view"],
+	},
+	{
+		filePath: "adapter.ts",
+		text: "import { load } from './loader';\nexport interface Config {}\nexport function run() {}\n",
+		units: ["interface:Config", "function:run"],
+		imports: ["./loader"],
+	},
+	{
+		filePath: "adapter.tsx",
+		text: "export const view = () => <main />;\n",
+		units: ["declaration:view"],
+		imports: [],
+	},
+	{
+		filePath: "adapter.py",
+		text: "from app.core import run\nclass Service:\n  def serve(self):\n    pass\n",
+		units: ["class:Service", "function:Service.serve"],
+		imports: ["app.core"],
+	},
+	{
+		filePath: "adapter.go",
+		text: "package adapter\nimport \"example/core\"\ntype Service struct{}\nfunc Run() {}\n",
+		units: ["type:Service", "function:Run"],
+		imports: ["example/core"],
+	},
+	{
+		filePath: "adapter.rs",
+		text: "use crate::core::run;\nstruct Service;\nimpl Service { fn run(&self) {} }\n",
+		units: ["type:Service", "module:Service", "function:Service.run"],
+		imports: ["crate::core::run"],
+	},
+])("$filePath adapter", ({ filePath, text, units, imports }) => {
+	it("extracts units and imports through the adapter contract", () => {
+		const adapter = adapterFromPath(filePath);
+		if (adapter === undefined) throw new Error(`missing adapter for ${filePath}`);
+		const runtime = loadTreeSitterRuntime(adapter.language);
+		if (runtime === undefined) throw new Error(`missing runtime for ${adapter.language}`);
+		const parser = new runtime.Parser();
+		parser.setLanguage(runtime.language);
+		const root = parser.parse(text).rootNode;
+		expect(adapter.extractUnits(root).map((unit) => `${unit.kind}:${unit.qualifiedName}`)).toEqual(units);
+		expect(adapter.collectImports(text, buildLineIndex(text)).map((item) => item.specifier)).toEqual(imports);
+	});
+});
