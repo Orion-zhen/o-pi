@@ -143,6 +143,7 @@ describe("lsp transport", () => {
 		["resolve 返回错误", "error", true],
 		["resolve 超时", "timeout", true],
 		["resolve 后仍无 range", "unresolved", true],
+		["resolve 返回非法 range", "invalid", true],
 	] as const)("%s 时安全跳过 URI-only symbol", async (_name, mode, expectsResolve) => {
 		const uri = pathToFileUri(path.join(workspace, "src", "target.ts"));
 		const fake = await createFakeServer((message, socket) => {
@@ -154,6 +155,11 @@ describe("lsp transport", () => {
 			} else if (message.method === "workspaceSymbol/resolve") {
 				if (mode === "error") send(socket, { id: message.id, error: { code: -32001, message: "resolve failed" } });
 				if (mode === "unresolved") send(socket, { id: message.id, result: { name: "target", kind: 12, location: { uri } } });
+				if (mode === "invalid") send(socket, { id: message.id, result: {
+					name: "target",
+					kind: 12,
+					location: { uri, range: { start: { line: -1, character: 0 }, end: { line: 0, character: 1 } } },
+				} });
 			} else if (message.method === "shutdown") {
 				send(socket, { id: message.id, result: null });
 			} else if (message.method === "exit") {
@@ -523,6 +529,39 @@ describe("lsp transport", () => {
 		await fake.cancelled;
 	});
 
+	it("grep 取消正在进行的 workspaceSymbol/resolve", async () => {
+		const uri = pathToFileUri(path.join(workspace, "src", "target.ts"));
+		let markResolve: () => void = () => undefined;
+		const resolveStarted = new Promise<void>((resolve) => { markResolve = resolve; });
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: { resolveProvider: true } } } });
+			} else if (message.method === "workspace/symbol") {
+				send(socket, { id: message.id, result: [{ name: "target", kind: 12, location: { uri }, data: { id: 1 } }] });
+			} else if (message.method === "workspaceSymbol/resolve") {
+				markResolve();
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port }, { request_timeout_ms: 1000 });
+		manager = new LspManager();
+		const controller = new AbortController();
+		const pending = manager.workspaceSymbols({
+			root: workspace,
+			query: "target",
+			extensions: [".ts"],
+			allowedPaths: new Set(["src/target.ts"]),
+			signal: controller.signal,
+		});
+		await resolveStarted;
+		controller.abort();
+		await expect(pending).resolves.toEqual([]);
+		await fake.cancelled;
+	});
+
 	it("并发 ensureReady 共享一次启动，TCP initialize 使用 null processId", async () => {
 		let releaseInitialize: () => void = () => undefined;
 		let markInitialize: () => void = () => undefined;
@@ -664,11 +703,14 @@ describe("lsp transport", () => {
 		await expect(log).resolves.toContain(`parent:${process.pid}`);
 		await expect(client.workspaceSymbols("crash")).resolves.toBeUndefined();
 		await client.waitForCleanup();
-		expect(client.status()).toMatchObject({
+		const status = client.status();
+		expect(status).toMatchObject({
 			status: "crashed",
 			open_documents: 0,
 			last_error: expect.stringContaining("STDERR_TAIL_MARKER"),
 		});
+		expect(status.last_error).not.toContain("\n");
+		expect(status.last_error?.length).toBeLessThanOrEqual(1024);
 	});
 
 	it("notification backpressure 超时后进入 crash cleanup", async () => {

@@ -38,7 +38,7 @@ import {
 
 import { diagnosticSourceKey, type DiagnosticsLedger } from "./diagnostics.js";
 import { incrementalContentChange, languageIdForServerPath, LspDocuments } from "./documents.js";
-import { featureAvailable, lspFeatureDefinitions, requestDocumentSymbols, requestReferences, requestWorkspaceSymbols, resolveWorkspaceSymbol, type LspFeatureSession } from "./features/index.js";
+import { requestDocumentSymbols, requestReferences, requestWorkspaceSymbols, resolveWorkspaceSymbol, type LspFeatureSession } from "./features/index.js";
 import { connectLspTransport, type LspTransportConnection } from "./transport.js";
 import type {
 	LspClientDocumentContext,
@@ -51,6 +51,8 @@ import type {
 	LspServerStatus,
 } from "./types.js";
 import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "./uri.js";
+
+const LAST_ERROR_MAX_CHARS = 1024;
 
 /** 单个 language server client，封装 transport、initialize、文档同步、symbol 和诊断通知。 */
 export class LspClient implements LspFeatureSession {
@@ -133,7 +135,7 @@ export class LspClient implements LspFeatureSession {
 				return filePath !== undefined && workspaceRelativePath(this.root, filePath) !== undefined ? sum + entry.items.length : sum;
 			}, 0),
 		};
-		if (this.lastError !== undefined) status.last_error = this.lastError;
+		if (this.lastError !== undefined) status.last_error = compactError(this.lastError);
 		return status;
 	}
 
@@ -270,7 +272,6 @@ export class LspClient implements LspFeatureSession {
 
 	async documentSymbols(filePath: string, text: string): Promise<LspDocumentSymbols | undefined> {
 		return this.withOperation(async () => {
-			if (!featureAvailable(this, lspFeatureDefinitions.documentSymbols)) return undefined;
 			const connection = await this.readyConnection();
 			if (connection === undefined) return undefined;
 			const document = this.documentContext(filePath, text);
@@ -595,7 +596,7 @@ export class LspClient implements LspFeatureSession {
 			await this.cleanupPromise;
 			return;
 		}
-		const failure = this.transportFailureMessage(message);
+		const failure = compactError(this.transportFailureMessage(message));
 		const crashed = this.state === "ready";
 		this.state = crashed ? "crashed" : "unavailable";
 		this.lastError = failure;
@@ -747,4 +748,13 @@ function isProgressNotification(value: unknown): value is LspProgressNotificatio
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function compactError(message: string): string {
+	const normalized = message.replace(/\s+/g, " ").trim();
+	if (normalized.length <= LAST_ERROR_MAX_CHARS) return normalized;
+	const marker = " ...[truncated]... ";
+	const headLength = 256;
+	const tailLength = LAST_ERROR_MAX_CHARS - headLength - marker.length;
+	return `${normalized.slice(0, headLength)}${marker}${normalized.slice(-tailLength)}`;
 }

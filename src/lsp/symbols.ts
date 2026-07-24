@@ -52,24 +52,26 @@ const kindNames = new Map<number, string>([
 	[SymbolKind.TypeParameter, "type_parameter"],
 ]);
 
-/** 将 documentSymbol 结果压缩为 read 可返回的 outline。 */
+/** 将 documentSymbol 结果按稳定 DFS 压缩为受全树预算限制的 outline。 */
 export function compactOutline(symbols: LspDocumentSymbols | undefined, maxSymbols: number): LspOutlineItem[] {
 	if (symbols === undefined || maxSymbols <= 0) return [];
+	const budget = { remaining: maxSymbols };
 	const output: LspOutlineItem[] = [];
-	for (const item of symbols) {
-		if (output.length >= maxSymbols) break;
-		if (isDocumentSymbol(item)) {
-			output.push(toOutline(item, maxSymbols, output));
-		} else {
-			output.push({
-				name: item.name,
-				kind: symbolKindName(item.kind),
-				line: item.location.range.start.line + 1,
-				end_line: item.location.range.end.line + 1,
-			});
+	for (const symbol of symbols) {
+		if (budget.remaining <= 0) break;
+		if (isDocumentSymbol(symbol)) {
+			output.push(toOutline(symbol, budget));
+			continue;
 		}
+		budget.remaining -= 1;
+		output.push({
+			name: symbol.name,
+			kind: symbolKindName(symbol.kind),
+			line: symbol.location.range.start.line + 1,
+			end_line: symbol.location.range.end.line + 1,
+		});
 	}
-	return output.slice(0, maxSymbols);
+	return output;
 }
 
 export function findEnclosingSymbol(symbols: LspDocumentSymbols | undefined, startLine: number, endLine: number): LspEnclosingSymbol | undefined {
@@ -127,7 +129,8 @@ export function referenceHits(root: string, seed: WorkspaceSymbolSeed, locations
 	return hits;
 }
 
-function toOutline(symbol: DocumentSymbol, maxSymbols: number, used: LspOutlineItem[]): LspOutlineItem {
+function toOutline(symbol: DocumentSymbol, budget: { remaining: number }): LspOutlineItem {
+	budget.remaining -= 1;
 	const item: LspOutlineItem = {
 		name: symbol.name,
 		kind: symbolKindName(symbol.kind),
@@ -135,11 +138,11 @@ function toOutline(symbol: DocumentSymbol, maxSymbols: number, used: LspOutlineI
 		end_line: symbol.range.end.line + 1,
 	};
 	if (symbol.detail !== undefined && symbol.detail.length > 0) item.detail = symbol.detail;
-	if (symbol.children !== undefined && symbol.children.length > 0 && used.length < maxSymbols) {
+	if (symbol.children !== undefined && budget.remaining > 0) {
 		const children: LspOutlineItem[] = [];
 		for (const child of symbol.children) {
-			if (used.length + children.length >= maxSymbols) break;
-			children.push(toOutline(child, maxSymbols, used));
+			if (budget.remaining <= 0) break;
+			children.push(toOutline(child, budget));
 		}
 		if (children.length > 0) item.children = children;
 	}
