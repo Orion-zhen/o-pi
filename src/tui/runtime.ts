@@ -25,6 +25,7 @@ export interface TuiRuntimeModule {
 
 export interface TuiRuntime {
 	startSession(ctx: ExtensionContext): Promise<void>;
+	dispose(ctx: ExtensionContext): Promise<void> | void;
 }
 
 /** 原生 Pi TUI runtime；由 extension bootstrap 仅在 native 模式激活。 */
@@ -46,33 +47,49 @@ export function createTuiRuntime(
 
 	registerHandlers();
 
-	return { startSession };
+	return { startSession, dispose };
 
 	async function startSession(ctx: ExtensionContext): Promise<void> {
-		sessionGeneration += 1;
-		cancelMathInitialization();
-		gitCache?.dispose();
+		await resetSession(ctx);
+		const nextConfig = await loadTuiConfig();
+		config = nextConfig;
+		skillsSnapshot = nextConfig.banner.enabled ? collectSkills(pi) : undefined;
+		const mathEnabled = nextConfig.enabled && nextConfig.math.enabled;
+		mathMarkdownModule?.installMathMarkdownRenderer({ ...nextConfig.math, enabled: mathEnabled });
+		setTitle = (title) => ctx.ui.setTitle(title);
+		if (!nextConfig.enabled) {
+			cleanup(ctx);
+			return;
+		}
 		gitCache = createGitCache(() => snapshot, (next) => {
 			snapshot = next;
 			refreshTitle();
 		});
-		config = await loadTuiConfig();
-		skillsSnapshot = config.banner.enabled ? collectSkills(pi) : undefined;
-		const mathEnabled = config.enabled && config.math.enabled;
-		mathMarkdownModule?.installMathMarkdownRenderer({ ...config.math, enabled: mathEnabled });
 		snapshot = makeSnapshot(ctx, pi, "ready", gitCache.get(ctx.cwd));
-		setTitle = (title) => ctx.ui.setTitle(title);
-		if (!config.enabled) {
-			startupBannerVisible = false;
-			cleanup(ctx);
-			return;
-		}
-		applyChrome(ctx, config, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot));
-		if (config.banner.enabled) {
+		applyChrome(ctx, nextConfig, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot));
+		if (nextConfig.banner.enabled) {
 			startupBannerVisible = true;
-			ctx.ui.setHeader(createStartupBannerComponent(config.banner, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot)));
+			ctx.ui.setHeader(createStartupBannerComponent(nextConfig.banner, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot)));
 		}
 		scheduleMathInitialization(ctx, sessionGeneration);
+	}
+
+	async function dispose(ctx: ExtensionContext): Promise<void> {
+		await resetSession(ctx);
+	}
+
+	async function resetSession(ctx: ExtensionContext): Promise<void> {
+		sessionGeneration += 1;
+		cancelMathInitialization();
+		const previousGitCache = gitCache;
+		gitCache = undefined;
+		if (config !== undefined || setTitle !== undefined || startupBannerVisible) cleanup(ctx);
+		config = undefined;
+		setTitle = undefined;
+		startupBannerVisible = false;
+		snapshot = {};
+		skillsSnapshot = undefined;
+		await previousGitCache?.dispose();
 	}
 
 	function registerHandlers(): void {
@@ -122,16 +139,7 @@ export function createTuiRuntime(
 		});
 
 		pi.on("session_shutdown", async (_event, ctx) => {
-			sessionGeneration += 1;
-			cancelMathInitialization();
-			cleanup(ctx);
-			gitCache?.dispose();
-			gitCache = undefined;
-			config = undefined;
-			setTitle = undefined;
-			startupBannerVisible = false;
-			snapshot = {};
-			skillsSnapshot = undefined;
+			await dispose(ctx);
 		});
 	}
 

@@ -9,13 +9,19 @@ const GIT_TIMEOUT_MS = 80;
 const NARROW_WIDTH = 80;
 
 /** 异步 git 状态缓存；TUI 生命周期只读缓存，避免同步子进程阻塞渲染。 */
+export type GitSegmentReader = (cwd: string, signal?: AbortSignal) => Promise<string | undefined>;
+
 export class GitSegmentCache {
 	private cwd: string | undefined;
 	private segment: string | undefined;
 	private inFlight: Promise<void> | undefined;
+	private inFlightController: AbortController | undefined;
 	private disposed = false;
 
-	constructor(private readonly onChange: (cwd: string, segment: string | undefined) => void) {}
+	constructor(
+		private readonly onChange: (cwd: string, segment: string | undefined) => void,
+		private readonly readSegment: GitSegmentReader = readGitSegment,
+	) {}
 
 	get(cwd: string): string | undefined {
 		if (this.cwd !== cwd) {
@@ -29,7 +35,9 @@ export class GitSegmentCache {
 	refresh(cwd: string): void {
 		if (this.disposed || this.inFlight !== undefined) return;
 		this.cwd = cwd;
-		this.inFlight = readGitSegment(cwd)
+		const controller = new AbortController();
+		this.inFlightController = controller;
+		this.inFlight = this.readSegment(cwd, controller.signal)
 			.then((segment) => {
 				if (this.disposed || this.cwd !== cwd) return;
 				if (this.segment === segment) return;
@@ -37,20 +45,25 @@ export class GitSegmentCache {
 				this.onChange(cwd, segment);
 			})
 			.finally(() => {
-				this.inFlight = undefined;
+				if (this.inFlightController === controller) this.inFlightController = undefined;
+				if (this.inFlight !== undefined && this.inFlightController === undefined) this.inFlight = undefined;
 			});
 	}
 
-	dispose(): void {
+	async dispose(): Promise<void> {
 		this.disposed = true;
+		this.inFlightController?.abort();
+		this.inFlightController = undefined;
+		const pending = this.inFlight;
+		if (pending !== undefined) await pending.catch(() => undefined);
 	}
 }
 
 /** 用安全 git 子进程异步读取分支；失败返回 undefined，footer 自动隐藏该字段。 */
-export async function readGitSegment(cwd: string): Promise<string | undefined> {
+export async function readGitSegment(cwd: string, signal?: AbortSignal): Promise<string | undefined> {
 	const [branch, dirty] = await Promise.all([
-		execGit(cwd, ["branch", "--show-current"]),
-		execGit(cwd, ["status", "--porcelain"]),
+		execGit(cwd, ["branch", "--show-current"], signal),
+		execGit(cwd, ["status", "--porcelain"], signal),
 	]);
 	if (branch === undefined || dirty === undefined) return undefined;
 	const cleanBranch = branch.trim();
@@ -59,9 +72,9 @@ export async function readGitSegment(cwd: string): Promise<string | undefined> {
 	return `${cleanBranch}${isDirty ? "*" : ""}`;
 }
 
-function execGit(cwd: string, args: string[]): Promise<string | undefined> {
+function execGit(cwd: string, args: string[], signal?: AbortSignal): Promise<string | undefined> {
 	return new Promise((resolve) => {
-		execFile("git", args, { cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS }, (error, stdout) => {
+		execFile("git", args, { cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS, ...(signal !== undefined ? { signal } : {}) }, (error, stdout) => {
 			resolve(error === null ? stdout : undefined);
 		});
 	});

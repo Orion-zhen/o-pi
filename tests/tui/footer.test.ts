@@ -1,6 +1,6 @@
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { formatFooter, readGitSegment } from "../../src/tui/footer.js";
+import { formatFooter, GitSegmentCache, readGitSegment, type GitSegmentReader } from "../../src/tui/footer.js";
 import type { TuiFooterConfig, TuiFooterSnapshot } from "../../src/tui/types.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
@@ -38,6 +38,23 @@ describe("tui footer", () => {
 		const lines = formatFooter({ cwd: "/repo/o-pi", status: "ready" }, config, 120, theme);
 		expect(lines.join("\n")).not.toMatch(/undefined|null/);
 		await expect(readGitSegment(temp.path)).resolves.toBeUndefined();
+	});
+
+	it("dispose 会取消 Git 查询并阻止完成回调", () => {
+		let observedSignal: AbortSignal | undefined;
+		const reader: GitSegmentReader = (_cwd, signal) => {
+			observedSignal = signal;
+			return new Promise<string | undefined>(() => {});
+		};
+		const onChange = () => {
+			throw new Error("disposed cache must not update the snapshot");
+		};
+		const cache = new GitSegmentCache(onChange, reader);
+
+		cache.get(temp.path);
+		cache.dispose();
+
+		expect(observedSignal?.aborted).toBe(true);
 	});
 });
 

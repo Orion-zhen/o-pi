@@ -8,6 +8,8 @@
 
 V1 不 fork、不 monkey patch、不替换主 TUI，不实现 sidebar、fixed editor、overlay、splash、重型 syntax theme、image paste 或 dashboard。目标是统一视觉语法，而不是重写交互框架。
 
+整个 o-pi TUI runtime 只在 Pi native TUI (`ctx.mode === "tui"`) 中启用：chrome、startup banner、footer、Git 状态、Math Markdown、工具/消息 renderer 和 command viewer 都不会在 RPC、JSON 或 print 模式初始化。非 TUI 模式仍注册相同的工具 schema、执行逻辑和结构化结果；自定义 renderer 不绑定，TUI 专用命令使用原有的错误通知或纯文本降级。session reload 会复用 native runtime，session shutdown 会清理 chrome、timer 和 Git 查询状态。
+
 ## 启用
 
 把本仓库作为 `~/.pi` 使用时，Pi 会加载：
@@ -19,7 +21,7 @@ agent/configs/tui.jsonc
 
 配置缺失时使用默认值；配置错误会抛出明确错误。
 
-数学 Markdown 解析器和 MathJax 不在 `session_start` 热路径加载。启用数学渲染时，扩展会在 TUI 连续空闲 750ms 后初始化；`turn_start` 会取消等待，`turn_end` 再重新安排。支持终端图片的环境会同时预热 MathJax；如果预热尚未完成就首次遇到块级公式，renderer 会先显示源码并按需启动初始化，后续重绘显示公式图片。`print`、`json` 和 `rpc` 模式不会加载这套 TUI 数学能力，session 关闭也会取消尚未开始的任务。
+Math Markdown 解析器和 MathJax 不在 `session_start` 热路径加载。启用数学渲染时，native TUI 会在连续空闲 750ms 后初始化；`turn_start` 会取消等待，`turn_end` 再重新安排。支持终端图片的环境会同时预热 MathJax；如果预热尚未完成就首次遇到块级公式，renderer 会先显示源码并按需启动初始化，后续重绘显示公式图片。RPC、JSON 和 print 模式不会加载整个 TUI runtime 或这套 TUI 数学能力，session 关闭也会取消尚未开始的任务。
 
 ## 配置
 

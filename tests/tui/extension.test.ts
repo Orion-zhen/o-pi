@@ -254,9 +254,29 @@ describe("tui extension", () => {
 		expect(vi.getTimerCount()).toBe(0);
 	});
 
+	it("重复加载同一 extension 不重复注册 native handler", async () => {
+		const handlers = new Map<string, Handler>();
+		const on = vi.fn((name: string, handler: Handler) => {
+			handlers.set(name, handler);
+		});
+		const pi = { ...createPi(handlers), on };
+		const loadRuntime = vi.fn(async () => ({
+			createTuiRuntime: () => ({ startSession: vi.fn(async () => {}), dispose: vi.fn() }),
+		}));
+		const extension = createTuiExtension(undefined, loadRuntime);
+
+		extension(pi as unknown as ExtensionAPI);
+		const registrationsAfterFirstLoad = on.mock.calls.length;
+		extension(pi as unknown as ExtensionAPI);
+
+		expect(on).toHaveBeenCalledTimes(registrationsAfterFirstLoad);
+		expect([...handlers.keys()]).toEqual(["session_start"]);
+	});
+
 	it("native runtime 只加载并创建一次，但为每个 session_start 重置状态", async () => {
 		const startSession = vi.fn(async () => {});
-		const createRuntime = vi.fn(() => ({ startSession }));
+		const dispose = vi.fn();
+		const createRuntime = vi.fn(() => ({ startSession, dispose }));
 		const loadRuntime = vi.fn(async () => ({ createTuiRuntime: createRuntime }));
 		const handlers = new Map<string, Handler>();
 		const ctx = createContext(createUiCalls(), { mode: "tui" });
@@ -268,6 +288,39 @@ describe("tui extension", () => {
 		expect(loadRuntime).toHaveBeenCalledOnce();
 		expect(createRuntime).toHaveBeenCalledOnce();
 		expect(startSession).toHaveBeenCalledTimes(2);
+	});
+
+	it("native runtime 动态加载失败时通知并保持非 TUI 隔离", async () => {
+		const loadRuntime = vi.fn(async () => {
+			throw new Error("runtime unavailable");
+		});
+		const handlers = new Map<string, Handler>();
+		const calls = createUiCalls();
+		const ctx = createContext(calls, { mode: "tui" });
+
+		createTuiExtension(undefined, loadRuntime)(createPi(handlers) as unknown as ExtensionAPI);
+		await handlers.get("session_start")?.({}, ctx);
+
+		expect(calls.notifications).toEqual([{ message: "TUI runtime initialization failed: runtime unavailable", type: "warning" }]);
+		expect(calls.title).toEqual([]);
+		expect(calls.status).toEqual([]);
+	});
+
+	it("native runtime session 初始化失败时清理已创建资源", async () => {
+		const startSession = vi.fn(async () => {
+			throw new Error("config unavailable");
+		});
+		const dispose = vi.fn();
+		const loadRuntime = vi.fn(async () => ({ createTuiRuntime: () => ({ startSession, dispose }) }));
+		const handlers = new Map<string, Handler>();
+		const calls = createUiCalls();
+		const ctx = createContext(calls, { mode: "tui" });
+
+		createTuiExtension(undefined, loadRuntime)(createPi(handlers) as unknown as ExtensionAPI);
+		await handlers.get("session_start")?.({}, ctx);
+
+		expect(dispose).toHaveBeenCalledWith(ctx);
+		expect(calls.notifications).toEqual([{ message: "TUI runtime initialization failed: config unavailable", type: "warning" }]);
 	});
 
 	it("数学渲染器只在 TUI 空闲期加载，并在活跃 turn 期间暂停", async () => {
@@ -377,7 +430,9 @@ function createContext(
 		mode: options.mode ?? "tui",
 		ui: {
 			theme: { fg: (_name, text) => text },
-			notify() {},
+			notify(message, type) {
+				calls.notifications.push({ message, type });
+			},
 			setTitle(title) {
 				calls.title.push(title);
 			},
@@ -412,5 +467,6 @@ function createUiCalls() {
 		footer: [] as Array<FooterFactory | undefined>,
 		header: [] as Array<HeaderFactory | undefined>,
 		working: [] as unknown[],
+		notifications: [] as Array<{ message: string; type: string | undefined }>,
 	};
 }
