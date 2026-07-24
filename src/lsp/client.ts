@@ -1,5 +1,4 @@
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import {
 	CancellationTokenSource,
 	createMessageConnection,
@@ -61,6 +60,10 @@ export class LspClient implements LspFeatureSession {
 	private state: LspServerStatus["status"] = "idle";
 	private lastError: string | undefined;
 	private idleTimer: NodeJS.Timeout | undefined;
+	private startPromise: Promise<boolean> | undefined;
+	private stopPromise: Promise<void> | undefined;
+	private cleanupPromise: Promise<void> | undefined;
+	private inFlightOperations = 0;
 	private readonly transportFailureRejectors = new Set<(error: Error) => void>();
 	private readonly documents: LspDocuments;
 	private readonly diagnosticsSource: string;
@@ -135,155 +138,155 @@ export class LspClient implements LspFeatureSession {
 	}
 
 	async ensureReady(): Promise<boolean> {
+		if (this.stopPromise !== undefined) await this.stopPromise;
 		if (this.state === "ready") {
 			this.bumpIdleTimer();
 			return true;
 		}
-		if (this.state === "starting") return this.waitUntilReady();
 		if (this.state === "unavailable" || this.state === "crashed") return false;
-		return this.start();
+		if (this.startPromise !== undefined) return this.startPromise;
+		const pending = this.start();
+		this.startPromise = pending;
+		try {
+			return await pending;
+		} finally {
+			if (this.startPromise === pending) this.startPromise = undefined;
+		}
 	}
 
 	async shutdown(): Promise<void> {
-		this.clearIdleTimer();
-		const connection = this.connection;
-		const transport = this.transport;
-		this.connection = undefined;
-		this.transport = undefined;
-		this.state = "stopped";
-		this.rejectTransportWaiters("server stopped");
-		if (connection !== undefined) {
-			for (const uri of this.documents.openUris()) {
-				try {
-					await connection.sendNotification(DidCloseTextDocumentNotification.type, { textDocument: { uri } });
-				} catch {
-					// didClose 失败不应阻塞后续 shutdown 和 transport 清理。
-				}
-			}
-			try {
-				await withTimeout(connection.sendRequest(ShutdownRequest.type, undefined), 1000);
-			} catch {
-				// shutdown 是清理路径；server 已退出或 pipe 已关闭时只需继续释放本地资源。
-			}
-			try {
-				await connection.sendNotification(ExitNotification.type);
-			} catch {
-				// exit notification 失败不影响文件工具主流程或后续重启。
-			}
-			connection.dispose();
+		if (this.stopPromise !== undefined) return this.stopPromise;
+		const pending = this.performShutdown();
+		this.stopPromise = pending;
+		try {
+			await pending;
+		} finally {
+			if (this.stopPromise === pending) this.stopPromise = undefined;
 		}
-		this.documents.clear();
-		this.disposeServerRequestDisposables();
-		this.serverCapabilities = undefined;
-		if (transport !== undefined) await transport.close();
+	}
+
+	async waitForCleanup(): Promise<void> {
+		await this.cleanupPromise;
 	}
 
 	async didOpenOrChange(filePath: string, text: string): Promise<boolean> {
-		const connection = await this.readyConnection();
-		if (connection === undefined) return false;
-		const document = this.documentContext(filePath, text);
-		const synchronized = await this.documents.enqueue(document.uri, async () => {
-			const result = await this.synchronizeDocument(connection, document);
-			if (result) this.bumpIdleTimer();
-			return result;
+		return this.withOperation(async () => {
+			const connection = await this.readyConnection();
+			if (connection === undefined) return false;
+			const document = this.documentContext(filePath, text);
+			const synchronized = await this.documents.enqueue(document.uri, async () => {
+				const result = await this.synchronizeDocument(connection, document);
+				if (result) this.bumpIdleTimer();
+				return result;
+			});
+			await this.trimDocuments(connection, document.uri);
+			return synchronized;
 		});
-		await this.trimDocuments(connection, document.uri);
-		return synchronized;
 	}
 
 	async didSave(filePath: string, text: string): Promise<boolean> {
-		const connection = await this.readyConnection();
-		if (connection === undefined) return false;
-		const document = this.documentContext(filePath, text);
-		const saved = await this.documents.enqueue(document.uri, async () => {
-			const synchronized = await this.synchronizeDocument(connection, document);
-			if (!synchronized) return false;
-			const policy = textDocumentSyncPolicy(this.serverCapabilities);
-			if (!policy.save) return true;
-			const sent = await this.sendNotification(connection, (active) => active.sendNotification(DidSaveTextDocumentNotification.type, {
-				textDocument: { uri: document.uri },
-				...(policy.includeText ? { text: document.text } : {}),
-			}));
-			if (sent) this.bumpIdleTimer();
-			return sent;
+		return this.withOperation(async () => {
+			const connection = await this.readyConnection();
+			if (connection === undefined) return false;
+			const document = this.documentContext(filePath, text);
+			const saved = await this.documents.enqueue(document.uri, async () => {
+				const synchronized = await this.synchronizeDocument(connection, document);
+				if (!synchronized) return false;
+				const policy = textDocumentSyncPolicy(this.serverCapabilities);
+				if (!policy.save) return true;
+				const sent = await this.sendNotification(connection, (active) => active.sendNotification(DidSaveTextDocumentNotification.type, {
+					textDocument: { uri: document.uri },
+					...(policy.includeText ? { text: document.text } : {}),
+				}));
+				if (sent) this.bumpIdleTimer();
+				return sent;
+			});
+			await this.trimDocuments(connection, document.uri);
+			return saved;
 		});
-		await this.trimDocuments(connection, document.uri);
-		return saved;
 	}
 
 	async didClose(filePath: string): Promise<boolean> {
-		const uri = pathToFileUri(filePath);
-		const connection = await this.readyConnection();
-		if (connection === undefined) return false;
-		return this.documents.enqueue(uri, async () => this.closeDocument(connection, uri));
+		return this.withOperation(async () => {
+			const uri = pathToFileUri(filePath);
+			const connection = await this.readyConnection();
+			if (connection === undefined) return false;
+			return this.documents.enqueue(uri, async () => this.closeDocument(connection, uri));
+		});
 	}
 
 	async notification<P>(type: NotificationType<P>, params: P): Promise<boolean> {
-		const connection = await this.readyConnection();
-		if (connection === undefined) return false;
-		const sent = await this.sendNotification(connection, (active) => active.sendNotification(type.method, params));
-		if (sent) this.bumpIdleTimer();
-		return sent;
+		return this.withOperation(async () => {
+			const connection = await this.readyConnection();
+			if (connection === undefined) return false;
+			const sent = await this.sendNotification(connection, (active) => active.sendNotification(type.method, params));
+			if (sent) this.bumpIdleTimer();
+			return sent;
+		});
 	}
 
 	async request<P, R, E>(type: RequestType<P, R, E>, params: P, options: LspRequestOptions = {}): Promise<R | undefined> {
-		const connection = await this.readyConnection();
-		if (connection === undefined) return undefined;
-		const source = new CancellationTokenSource();
-		const timeoutMs = options.timeoutMs ?? this.config.request_timeout_ms;
-		let timer: NodeJS.Timeout | undefined;
-		let rejectCancellation: (error: Error) => void = () => undefined;
-		const cancelled = new Promise<never>((_resolve, reject) => {
-			rejectCancellation = reject;
-		});
-		const cancel = (message: string): void => {
-			source.cancel();
-			rejectCancellation(new Error(message));
-		};
-		const onAbort = (): void => cancel("request cancelled");
-		if (options.signal?.aborted === true) onAbort();
-		else options.signal?.addEventListener("abort", onAbort, { once: true });
-		const timeout = new Promise<never>((_resolve, reject) => {
-			timer = setTimeout(() => {
+		return this.withOperation(async () => {
+			const connection = await this.readyConnection();
+			if (connection === undefined) return undefined;
+			const source = new CancellationTokenSource();
+			const timeoutMs = options.timeoutMs ?? this.config.request_timeout_ms;
+			let timer: NodeJS.Timeout | undefined;
+			let rejectCancellation: (error: Error) => void = () => undefined;
+			const cancelled = new Promise<never>((_resolve, reject) => {
+				rejectCancellation = reject;
+			});
+			const cancel = (message: string): void => {
 				source.cancel();
-				reject(new Error("timeout"));
-			}, timeoutMs);
+				rejectCancellation(new Error(message));
+			};
+			const onAbort = (): void => cancel("request cancelled");
+			if (options.signal?.aborted === true) onAbort();
+			else options.signal?.addEventListener("abort", onAbort, { once: true });
+			const timeout = new Promise<never>((_resolve, reject) => {
+				timer = setTimeout(() => {
+					source.cancel();
+					reject(new Error("timeout"));
+				}, timeoutMs);
+			});
+			try {
+				const result = await Promise.race([
+					this.withTransportFailure(() => connection.sendRequest(type.method, params, source.token) as Promise<R>),
+					timeout,
+					cancelled,
+				]);
+				this.bumpIdleTimer();
+				return result;
+			} catch (error) {
+				this.lastError = errorMessage(error);
+				return undefined;
+			} finally {
+				if (timer !== undefined) clearTimeout(timer);
+				options.signal?.removeEventListener("abort", onAbort);
+				source.dispose();
+			}
 		});
-		try {
-			const result = await Promise.race([
-				this.withTransportFailure(() => connection.sendRequest(type.method, params, source.token) as Promise<R>),
-				timeout,
-				cancelled,
-			]);
-			this.bumpIdleTimer();
-			return result;
-		} catch (error) {
-			this.lastError = errorMessage(error);
-			return undefined;
-		} finally {
-			if (timer !== undefined) clearTimeout(timer);
-			options.signal?.removeEventListener("abort", onAbort);
-			source.dispose();
-		}
 	}
 
 	async documentSymbols(filePath: string, text: string): Promise<LspDocumentSymbols | undefined> {
-		if (!featureAvailable(this, lspFeatureDefinitions.documentSymbols)) return undefined;
-		const connection = await this.readyConnection();
-		if (connection === undefined) return undefined;
-		const document = this.documentContext(filePath, text);
-		const symbols = await this.documents.enqueue(document.uri, async () => {
-			if (!await this.synchronizeDocument(connection, document)) return undefined;
-			const state = this.documents.state(document.uri);
-			if (state === undefined) return undefined;
-			const cached = this.documents.cachedSymbols(document.uri, state.version);
-			if (cached !== undefined) return cached;
-			const requested = await requestDocumentSymbols(this, document.uri);
-			if (requested !== undefined) this.documents.cacheSymbols(document.uri, state.version, requested);
-			return requested;
+		return this.withOperation(async () => {
+			if (!featureAvailable(this, lspFeatureDefinitions.documentSymbols)) return undefined;
+			const connection = await this.readyConnection();
+			if (connection === undefined) return undefined;
+			const document = this.documentContext(filePath, text);
+			const symbols = await this.documents.enqueue(document.uri, async () => {
+				if (!await this.synchronizeDocument(connection, document)) return undefined;
+				const state = this.documents.state(document.uri);
+				if (state === undefined) return undefined;
+				const cached = this.documents.cachedSymbols(document.uri, state.version);
+				if (cached !== undefined) return cached;
+				const requested = await requestDocumentSymbols(this, document.uri);
+				if (requested !== undefined) this.documents.cacheSymbols(document.uri, state.version, requested);
+				return requested;
+			});
+			await this.trimDocuments(connection, document.uri);
+			return symbols;
 		});
-		await this.trimDocuments(connection, document.uri);
-		return symbols;
 	}
 
 	async workspaceSymbols(query: string, options?: LspRequestOptions): Promise<Array<SymbolInformation | WorkspaceSymbol> | undefined> {
@@ -327,12 +330,13 @@ export class LspClient implements LspFeatureSession {
 							text: document.text,
 						},
 					}));
+					if (sent) this.documents.commit(document, 1, true);
 				} finally {
 					this.documents.clearPendingVersion(document.uri, 1);
 				}
-				if (!sent) return false;
+				return sent;
 			}
-			this.documents.commit(document, 1, policy.openClose);
+			this.documents.commit(document, 1, false);
 			return true;
 		}
 
@@ -349,10 +353,11 @@ export class LspClient implements LspFeatureSession {
 					textDocument: { uri: document.uri, version },
 					contentChanges,
 				}));
+				if (sent) this.documents.commit(document, version, previous.open);
 			} finally {
 				this.documents.clearPendingVersion(document.uri, version);
 			}
-			if (!sent) return false;
+			return sent;
 		}
 		this.documents.commit(document, version, previous.open);
 		return true;
@@ -390,6 +395,50 @@ export class LspClient implements LspFeatureSession {
 		return this.connection;
 	}
 
+	private async performShutdown(): Promise<void> {
+		this.clearIdleTimer();
+		this.state = "stopped";
+		this.rejectTransportWaiters("server stopped");
+		await this.startPromise;
+		await this.cleanupPromise;
+
+		const connection = this.connection;
+		const transport = this.transport;
+		const openUris = this.documents.openUris();
+		this.connection = undefined;
+		this.transport = undefined;
+		this.serverCapabilities = undefined;
+		this.disposeServerRequestDisposables();
+
+		if (connection !== undefined) {
+			const stepTimeout = Math.min(1000, this.config.request_timeout_ms);
+			try {
+				await withTimeout(Promise.all(openUris.map((uri) => connection.sendNotification(
+					DidCloseTextDocumentNotification.type,
+					{ textDocument: { uri } },
+				))), stepTimeout);
+			} catch {
+				// didClose 失败或超时后仍继续强制释放 session。
+			}
+			try {
+				await withTimeout(connection.sendRequest(ShutdownRequest.type, undefined), stepTimeout);
+			} catch {
+				// shutdown 是有界清理步骤；server 不响应时继续 exit。
+			}
+			try {
+				await withTimeout(connection.sendNotification(ExitNotification.type), stepTimeout);
+			} catch {
+				// exit 失败不阻止底层 transport 强制关闭。
+			}
+			connection.dispose();
+		}
+		try {
+			if (transport !== undefined) await transport.close();
+		} finally {
+			this.documents.clear();
+		}
+	}
+
 	private async start(): Promise<boolean> {
 		this.state = "starting";
 		this.lastError = undefined;
@@ -398,7 +447,11 @@ export class LspClient implements LspFeatureSession {
 		try {
 			transport = await connectLspTransport(this.server.transport, this.root, this.config.startup_timeout_ms);
 		} catch (error) {
-			this.markUnavailable(errorMessage(error));
+			await this.markTransportFailure(errorMessage(error));
+			return false;
+		}
+		if (this.state !== "starting") {
+			await transport.close();
 			return false;
 		}
 		this.transport = transport;
@@ -406,13 +459,13 @@ export class LspClient implements LspFeatureSession {
 		let connection: MessageConnection | undefined;
 		const writer = new SafeMessageWriter(new StreamMessageWriter(transport.writer), (error) => {
 			if (connection === undefined || this.connection !== connection) return;
-			this.markTransportFailure(errorMessage(error));
+			void this.markTransportFailure(errorMessage(error));
 		});
 		connection = createMessageConnection(new StreamMessageReader(transport.reader), writer);
 		this.connection = connection;
 		void transport.failure.catch((error) => {
 			if (this.transport !== transport) return;
-			this.markTransportFailure(errorMessage(error));
+			void this.markTransportFailure(errorMessage(error));
 		});
 		connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
 			const currentVersion = this.documents.currentVersion(params.uri);
@@ -443,18 +496,18 @@ export class LspClient implements LspFeatureSession {
 		for (const [method, handler] of this.serverRequestHandlers) this.installServerRequestHandler(method, handler);
 		connection.onError(([error]) => {
 			if (this.connection !== connection) return;
-			this.markTransportFailure(error.message);
+			void this.markTransportFailure(error.message);
 		});
 		connection.onClose(() => {
 			if (this.connection !== connection) return;
-			this.markTransportFailure("connection closed");
+			void this.markTransportFailure("connection closed");
 		});
 		connection.listen();
 
 		try {
 			const initializeResult = await withTimeout(
 				this.withTransportFailure(() => connection.sendRequest(InitializeRequest.type, {
-					processId: process.pid,
+					processId: this.server.transport.type === "tcp" ? null : process.pid,
 					rootUri: pathToFileUri(this.root),
 					workspaceFolders: [{ uri: pathToFileUri(this.root), name: path.basename(this.root) || this.root }],
 					capabilities: {
@@ -470,6 +523,7 @@ export class LspClient implements LspFeatureSession {
 				})),
 				this.config.startup_timeout_ms,
 			) as InitializeResult;
+			if (this.connection !== connection || this.state !== "starting") return false;
 			this.serverCapabilities = initializeResult.capabilities;
 			const initialized = await this.sendNotification(connection, (active) => active.sendNotification(InitializedNotification.type, {}));
 			if (!initialized) throw new Error("failed to send initialized notification");
@@ -477,30 +531,18 @@ export class LspClient implements LspFeatureSession {
 			this.bumpIdleTimer();
 			return true;
 		} catch (error) {
-			this.markUnavailable(errorMessage(error));
-			this.connection = undefined;
-			this.transport = undefined;
-			connection.dispose();
-			await transport.close();
+			await this.markTransportFailure(errorMessage(error));
 			return false;
 		}
-	}
-
-	private async waitUntilReady(): Promise<boolean> {
-		const started = Date.now();
-		while (this.state === "starting" && Date.now() - started < this.config.startup_timeout_ms) {
-			await delay(25);
-		}
-		return this.state === "ready";
 	}
 
 	private async sendNotification(connection: MessageConnection, factory: (connection: MessageConnection) => Promise<void>): Promise<boolean> {
 		if (this.connection !== connection || !this.canUseConnection()) return false;
 		try {
-			await this.withTransportFailure(() => factory(connection));
+			await withTimeout(this.withTransportFailure(() => factory(connection)), this.config.request_timeout_ms);
 			return this.connection === connection && this.canUseConnection();
 		} catch (error) {
-			this.markTransportFailure(errorMessage(error));
+			await this.markTransportFailure(errorMessage(error));
 			return false;
 		}
 	}
@@ -548,30 +590,45 @@ export class LspClient implements LspFeatureSession {
 		return this.state === "starting" || this.state === "ready";
 	}
 
-	private markTransportFailure(message: string): void {
-		if (this.state === "stopped" || this.state === "unavailable" || this.state === "crashed") return;
-		if (this.state === "starting") {
-			this.markUnavailable(message);
+	private async markTransportFailure(message: string): Promise<void> {
+		if (this.state === "stopped" || this.state === "unavailable" || this.state === "crashed") {
+			await this.cleanupPromise;
 			return;
 		}
-		this.markCrashed(message);
-		this.onCrash(this, message);
+		const failure = this.transportFailureMessage(message);
+		const crashed = this.state === "ready";
+		this.state = crashed ? "crashed" : "unavailable";
+		this.lastError = failure;
+		this.clearIdleTimer();
+		this.rejectTransportWaiters(failure);
+		if (crashed) this.onCrash(this, failure);
+		await this.cleanupCurrentSession();
 	}
 
-	private markUnavailable(message: string): void {
-		if (this.state === "stopped") return;
-		this.state = "unavailable";
-		this.lastError = message;
-		this.clearIdleTimer();
-		this.rejectTransportWaiters(message);
+	private async cleanupCurrentSession(): Promise<void> {
+		if (this.cleanupPromise !== undefined) return this.cleanupPromise;
+		const connection = this.connection;
+		const transport = this.transport;
+		this.connection = undefined;
+		this.transport = undefined;
+		this.serverCapabilities = undefined;
+		this.documents.clear();
+		this.disposeServerRequestDisposables();
+		connection?.dispose();
+		const pending = (async () => {
+			if (transport !== undefined) await transport.close();
+		})();
+		this.cleanupPromise = pending;
+		try {
+			await pending;
+		} finally {
+			if (this.cleanupPromise === pending) this.cleanupPromise = undefined;
+		}
 	}
 
-	private markCrashed(message: string): void {
-		if (this.state === "stopped" || this.state === "unavailable") return;
-		this.state = "crashed";
-		this.lastError = message;
-		this.clearIdleTimer();
-		this.rejectTransportWaiters(message);
+	private transportFailureMessage(message: string): string {
+		const stderr = this.transport?.stderrTail();
+		return stderr === undefined || message.includes(stderr) ? message : `${message}; stderr: ${stderr}`;
 	}
 
 	private rejectTransportWaiters(message: string): void {
@@ -580,11 +637,22 @@ export class LspClient implements LspFeatureSession {
 		this.transportFailureRejectors.clear();
 	}
 
+	private async withOperation<T>(operation: () => Promise<T>): Promise<T> {
+		this.inFlightOperations += 1;
+		this.clearIdleTimer();
+		try {
+			return await operation();
+		} finally {
+			this.inFlightOperations -= 1;
+			this.bumpIdleTimer();
+		}
+	}
+
 	private bumpIdleTimer(): void {
 		this.clearIdleTimer();
-		if (this.config.idle_timeout_ms <= 0) return;
+		if (this.state !== "ready" || this.inFlightOperations > 0 || this.config.idle_timeout_ms <= 0) return;
 		this.idleTimer = setTimeout(() => {
-			void this.shutdown();
+			if (this.inFlightOperations === 0 && this.state === "ready") void this.shutdown();
 		}, this.config.idle_timeout_ms);
 		this.idleTimer.unref();
 	}
@@ -644,6 +712,7 @@ class SafeMessageWriter implements MessageWriter {
 			await this.inner.write(msg);
 		} catch (error) {
 			this.onWriteError(error);
+			throw error;
 		}
 	}
 

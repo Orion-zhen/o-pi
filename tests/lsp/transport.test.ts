@@ -1,7 +1,9 @@
 import net, { type Socket } from "node:net";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { NotificationType } from "vscode-jsonrpc/node";
 
 import { LspClient } from "../../src/lsp/client.js";
 import { defaultLspConfig } from "../../src/lsp/config.js";
@@ -22,6 +24,7 @@ type MessageHandler = (message: JsonRpcMessage, socket: Socket) => void;
 
 interface FakeServer {
 	port: number;
+	connections: number;
 	methods: string[];
 	messages: JsonRpcMessage[];
 	response: Promise<JsonRpcMessage>;
@@ -520,32 +523,186 @@ describe("lsp transport", () => {
 		await fake.cancelled;
 	});
 
-	it("TCP 请求超时和断开时保持 file-tools 降级", async () => {
+	it("并发 ensureReady 共享一次启动，TCP initialize 使用 null processId", async () => {
+		let releaseInitialize: () => void = () => undefined;
+		let markInitialize: () => void = () => undefined;
+		const initializeSeen = new Promise<void>((resolve) => { markInitialize = resolve; });
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				markInitialize();
+				releaseInitialize = () => send(socket, { id: message.id, result: { capabilities: {} } });
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		const client = directClient(fake);
+		const starts = Array.from({ length: 8 }, () => client.ensureReady());
+		await initializeSeen;
+		expect(fake.connections).toBe(1);
+		expect(fake.methods.filter((method) => method === "initialize")).toHaveLength(1);
+		releaseInitialize();
+		await expect(Promise.all(starts)).resolves.toEqual(Array.from({ length: 8 }, () => true));
+		expect(fake.messages.find((message) => message.method === "initialize")).toMatchObject({
+			params: { processId: null },
+		});
+	});
+
+	it("idle timer 不会中断活动请求", async () => {
+		let releaseRequest: () => void = () => undefined;
+		let markRequest: () => void = () => undefined;
+		const requestSeen = new Promise<void>((resolve) => { markRequest = resolve; });
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
+			} else if (message.method === "workspace/symbol") {
+				markRequest();
+				releaseRequest = () => send(socket, { id: message.id, result: [] });
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		const client = directClient(fake, 64, 10);
+		expect(await client.ensureReady()).toBe(true);
+		vi.useFakeTimers();
+		try {
+			expect(await client.ensureReady()).toBe(true);
+			const pending = client.workspaceSymbols("target");
+			await vi.advanceTimersByTimeAsync(0);
+			await requestSeen;
+			await vi.advanceTimersByTimeAsync(20);
+			expect(client.status().status).toBe("ready");
+			expect(fake.methods).not.toContain("shutdown");
+			releaseRequest();
+			vi.useRealTimers();
+			await expect(pending).resolves.toEqual([]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("reload 等待活动请求，并阻止新操作进入旧 client", async () => {
 		let symbolRequests = 0;
+		let releaseFirst: () => void = () => undefined;
+		let markFirst: () => void = () => undefined;
+		const firstSeen = new Promise<void>((resolve) => { markFirst = resolve; });
 		const fake = await createFakeServer((message, socket) => {
 			if (message.method === "initialize") {
 				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
 			} else if (message.method === "workspace/symbol") {
 				symbolRequests += 1;
-				if (symbolRequests > 1) socket.destroy();
+				if (symbolRequests === 1) {
+					markFirst();
+					releaseFirst = () => send(socket, { id: message.id, result: [] });
+				} else {
+					send(socket, { id: message.id, result: [] });
+				}
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
 			}
 		});
-		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port }, { request_timeout_ms: 100 });
+		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
+		manager = new LspManager();
+		const first = queryManagerSymbols(manager, workspace, "first", [".ts"]);
+		await firstSeen;
+		const reloading = manager.reload();
+		const second = queryManagerSymbols(manager, workspace, "second", [".ts"]);
+		expect(fake.methods).not.toContain("shutdown");
+		releaseFirst();
+		await expect(first).resolves.toEqual([]);
+		await reloading;
+		await expect(second).resolves.toEqual([]);
+		expect(fake.connections).toBe(2);
+		expect(fake.methods.filter((method) => method === "initialize")).toHaveLength(2);
+	});
 
+	it("crash cleanup 后使用全新连接重启，达到上限不保留旧资源", async () => {
+		let symbolRequests = 0;
+		const uri = pathToFileUri(path.join(workspace, "src", "target.ts"));
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
+			} else if (message.method === "workspace/symbol") {
+				symbolRequests += 1;
+				if (symbolRequests !== 2) socket.destroy();
+				else send(socket, { id: message.id, result: [{ name: "target", kind: 12, location: {
+					uri,
+					range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } },
+				} }] });
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port }, { max_restarts: 1 });
 		manager = new LspManager();
 		await expect(queryManagerSymbols(manager, workspace, "target", [".ts"])).resolves.toEqual([]);
-		await expect(queryManagerSymbols(manager, workspace, "target", [".ts"])).resolves.toEqual([]);
 		await expect(manager.status(workspace)).resolves.toMatchObject({
-			servers: [{ id: "tcp", status: "crashed" }],
+			servers: [{ status: "crashed", open_documents: 0 }],
 		});
+		await expect(queryManagerSymbols(manager, workspace, "target", [".ts"])).resolves.toEqual([
+			expect.objectContaining({ path: "src/target.ts", symbol: "target" }),
+		]);
+		await expect(queryManagerSymbols(manager, workspace, "crash-again", [".ts"])).resolves.toEqual([]);
+		await expect(queryManagerSymbols(manager, workspace, "restart-limit", [".ts"])).resolves.toEqual([]);
+		await expect(manager.status(workspace)).resolves.toMatchObject({ servers: [{ status: "crashed" }] });
+		expect(fake.connections).toBe(2);
+	});
+
+	it("stdio drain 大量 stderr、保留有界尾部并使用 Pi PID", async () => {
+		const client = stdioClient("stderr-crash");
+		let resolveLog: (message: string) => void = () => undefined;
+		const log = new Promise<string>((resolve) => { resolveLog = resolve; });
+		client.onLogMessage((params) => resolveLog(params.message));
+		expect(await client.ensureReady()).toBe(true);
+		await expect(log).resolves.toContain(`parent:${process.pid}`);
+		await expect(client.workspaceSymbols("crash")).resolves.toBeUndefined();
+		await client.waitForCleanup();
+		expect(client.status()).toMatchObject({
+			status: "crashed",
+			open_documents: 0,
+			last_error: expect.stringContaining("STDERR_TAIL_MARKER"),
+		});
+	});
+
+	it("notification backpressure 超时后进入 crash cleanup", async () => {
+		const client = stdioClient("notification-timeout");
+		let markLog: () => void = () => undefined;
+		const log = new Promise<void>((resolve) => { markLog = resolve; });
+		client.onLogMessage(() => markLog());
+		expect(await client.ensureReady()).toBe(true);
+		await log;
+		await expect(client.notification(new NotificationType<string>("test/backpressure"), "x".repeat(16 * 1024 * 1024))).resolves.toBe(false);
+		expect(client.status()).toMatchObject({ status: "crashed", open_documents: 0 });
+	});
+
+	it("stdio 顽固 child 在 shutdown 后被强制终止", async () => {
+		const client = stdioClient("stubborn");
+		let resolveLog: (message: string) => void = () => undefined;
+		const log = new Promise<string>((resolve) => { resolveLog = resolve; });
+		client.onLogMessage((params) => resolveLog(params.message));
+		expect(await client.ensureReady()).toBe(true);
+		const message = await log;
+		const match = /pid:(\d+)/.exec(message);
+		expect(match).not.toBeNull();
+		const pid = Number(match?.[1]);
+		await client.shutdown();
+		expect(() => process.kill(pid, 0)).toThrow();
 	});
 });
 
-function directClient(fake: FakeServer, maxOpenDocuments = 64): LspClient {
+function directClient(fake: FakeServer, maxOpenDocuments = 64, idleTimeoutMs?: number): LspClient {
 	const config = defaultLspConfig();
 	config.startup_timeout_ms = 500;
 	config.request_timeout_ms = 500;
 	config.max_open_documents = maxOpenDocuments;
+	if (idleTimeoutMs !== undefined) config.idle_timeout_ms = idleTimeoutMs;
 	const client = new LspClient(workspace, {
 		id: "tcp",
 		enabled: true,
@@ -557,6 +714,23 @@ function directClient(fake: FakeServer, maxOpenDocuments = 64): LspClient {
 			".jsx": "javascriptreact",
 		},
 		extensions: [".ts", ".tsx", ".js", ".jsx"],
+	}, config, new DiagnosticsLedger(), () => undefined, () => 0);
+	directClients.push(client);
+	return client;
+}
+
+function stdioClient(mode: "notification-timeout" | "stderr-crash" | "stubborn"): LspClient {
+	const config = defaultLspConfig();
+	config.startup_timeout_ms = 3000;
+	config.request_timeout_ms = mode === "notification-timeout" ? 50 : 500;
+	config.idle_timeout_ms = 0;
+	const fixture = fileURLToPath(new URL("./fixtures/stdio-server.mjs", import.meta.url));
+	const client = new LspClient(workspace, {
+		id: "stdio",
+		enabled: true,
+		transport: { type: "stdio", command: process.execPath, args: [fixture, mode] },
+		language_ids: { ".ts": "typescript" },
+		extensions: [".ts"],
 	}, config, new DiagnosticsLedger(), () => undefined, () => 0);
 	directClients.push(client);
 	return client;
@@ -614,7 +788,9 @@ async function createFakeServer(handler: MessageHandler): Promise<FakeServer> {
 		resolveClosed = resolve;
 	});
 	let serverClosed = false;
+	let connections = 0;
 	const server = net.createServer((socket) => {
+		connections += 1;
 		sockets.add(socket);
 		let buffer = Buffer.alloc(0);
 		socket.on("data", (chunk: Buffer) => {
@@ -653,6 +829,9 @@ async function createFakeServer(handler: MessageHandler): Promise<FakeServer> {
 	if (address === null || typeof address === "string") throw new Error("fake server did not bind a TCP port");
 	const fake: FakeServer = {
 		port: address.port,
+		get connections() {
+			return connections;
+		},
 		methods,
 		messages,
 		response,

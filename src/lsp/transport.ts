@@ -3,12 +3,16 @@ import net, { type Socket } from "node:net";
 
 import type { LspTransport } from "./types.js";
 
+const STDERR_TAIL_BYTES = 8192;
+
 /** 已建立的 LSP 字节流连接及其底层资源。 */
 export interface LspTransportConnection {
 	readonly reader: NodeJS.ReadableStream;
 	readonly writer: NodeJS.WritableStream;
 	/** 连接异常时 reject；主动 close 不会触发该 promise。 */
 	readonly failure: Promise<never>;
+	/** stdio server 最近的有界 stderr；TCP transport 返回 undefined。 */
+	stderrTail(): string | undefined;
 	close(): Promise<void>;
 }
 
@@ -23,19 +27,31 @@ async function connectStdio(command: string, args: readonly string[], cwd: strin
 	const child = spawn(command, [...args], { cwd, stdio: "pipe" });
 	let closing = false;
 	let failed = false;
+	let stderrTail = Buffer.alloc(0);
 	let rejectFailure: (error: Error) => void = () => undefined;
 	const failure = new Promise<never>((_resolve, reject) => {
 		rejectFailure = reject;
 	});
 	void failure.catch(() => undefined);
+	const stderrText = (): string | undefined => {
+		const value = stderrTail.toString("utf8").trim();
+		return value.length === 0 ? undefined : value;
+	};
 	const fail = (error: unknown): void => {
 		if (closing || failed) return;
 		failed = true;
-		rejectFailure(toError(error));
+		const message = toError(error).message;
+		const stderr = stderrText();
+		rejectFailure(new Error(stderr === undefined ? message : `${message}; stderr: ${stderr}`));
 	};
+	child.stderr.on("data", (chunk: Buffer | string) => {
+		const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+		stderrTail = Buffer.concat([stderrTail, bytes]).subarray(-STDERR_TAIL_BYTES);
+	});
 	child.on("error", fail);
 	child.stdin.on("error", fail);
 	child.stdout.on("error", fail);
+	child.stderr.on("error", fail);
 	child.once("exit", (code, signal) => {
 		fail(`server exited${code === null ? "" : ` ${code}`}${signal === null ? "" : ` ${signal}`}`);
 	});
@@ -49,6 +65,7 @@ async function connectStdio(command: string, args: readonly string[], cwd: strin
 		reader: child.stdout,
 		writer: child.stdin,
 		failure,
+		stderrTail: stderrText,
 		close: async () => {
 			closing = true;
 			await terminateChild(child);
@@ -84,6 +101,7 @@ async function connectTcp(host: string, port: number, timeoutMs: number): Promis
 		reader: socket,
 		writer: socket,
 		failure,
+		stderrTail: () => undefined,
 		close: () => closeSocket(socket, () => { closing = true; }),
 	};
 }

@@ -120,6 +120,10 @@ export class LspManager {
 	}
 
 	async readEnhancement(root: string, filePath: string, text: string, range: { startLine: number; endLine: number }, options: { outline: boolean; enclosing: boolean }): Promise<ReadEnhancement | undefined> {
+		return this.withClientOperation(() => this.readEnhancementOperation(root, filePath, text, range, options));
+	}
+
+	private async readEnhancementOperation(root: string, filePath: string, text: string, range: { startLine: number; endLine: number }, options: { outline: boolean; enclosing: boolean }): Promise<ReadEnhancement | undefined> {
 		const config = await this.enabledConfig();
 		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths)) return undefined;
 		const client = await this.clientForFile(root, filePath);
@@ -139,6 +143,10 @@ export class LspManager {
 	}
 
 	async workspaceSymbols(input: WorkspaceSymbolsInput): Promise<LspSymbolHit[]> {
+		return this.withClientOperation(() => this.workspaceSymbolsOperation(input));
+	}
+
+	private async workspaceSymbolsOperation(input: WorkspaceSymbolsInput): Promise<LspSymbolHit[]> {
 		const config = await this.enabledConfig();
 		if (
 			config === undefined
@@ -282,6 +290,10 @@ export class LspManager {
 	}
 
 	async didWrite(root: string, filePath: string, text: string, baseline?: LspDiagnosticSnapshot): Promise<LspDiagnosticsSummary | undefined> {
+		return this.withClientOperation(() => this.didWriteOperation(root, filePath, text, baseline));
+	}
+
+	private async didWriteOperation(root: string, filePath: string, text: string, baseline?: LspDiagnosticSnapshot): Promise<LspDiagnosticsSummary | undefined> {
 		const config = await this.enabledConfig();
 		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths) || !config.config.diagnostics.enabled) return undefined;
 		const expectedSource = this.diagnosticSourceForFile(root, filePath);
@@ -334,23 +346,28 @@ export class LspManager {
 	}
 
 	private async clientForServer(root: string, server: LspServerConfig): Promise<LspClient | undefined> {
+		const loaded = await this.enabledConfig();
+		if (loaded === undefined) return undefined;
+		const key = diagnosticSourceKey(root, server.id);
+		let entry = this.clients.get(key);
+		if (entry === undefined) {
+			entry = { restarts: 0, client: this.createClient(key, root, server, loaded) };
+			this.clients.set(key, entry);
+		} else if (entry.client.status().status === "crashed") {
+			await entry.client.waitForCleanup();
+			if (entry.restarts >= loaded.config.max_restarts) return undefined;
+			entry.restarts += 1;
+			entry.client = this.createClient(key, root, server, loaded);
+		}
+		const ready = await entry.client.ensureReady();
+		return ready ? entry.client : undefined;
+	}
+
+	private async withClientOperation<T>(operation: () => Promise<T>): Promise<T> {
 		await this.waitForReload();
 		this.activeClientOperations += 1;
 		try {
-			const loaded = await this.enabledConfig();
-			if (loaded === undefined) return undefined;
-			const key = diagnosticSourceKey(root, server.id);
-			let entry = this.clients.get(key);
-			if (entry === undefined) {
-				entry = { restarts: 0, client: this.createClient(key, root, server, loaded) };
-				this.clients.set(key, entry);
-			} else if (entry.client.status().status === "crashed" && entry.restarts < loaded.config.max_restarts) {
-				entry.restarts += 1;
-				await entry.client.shutdown();
-				entry.client = this.createClient(key, root, server, loaded);
-			}
-			const ready = await entry.client.ensureReady();
-			return ready ? entry.client : undefined;
+			return await operation();
 		} finally {
 			this.activeClientOperations -= 1;
 			if (this.activeClientOperations === 0) {

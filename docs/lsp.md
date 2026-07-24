@@ -109,6 +109,8 @@ initialize 返回的 capabilities 会保存在 session 中；不支持的 docume
 
 Diagnostics 按 workspace/server source+URI 分区，每次有效 publish 生成单调 revision，并保留可选文档 version。低于 client 当前文档版本的 publish 会被丢弃；未跟踪文档或没有 version 的 workspace diagnostics 仍会接收。write/edit 在同步前捕获 revision，并通过事件 listener、settle debounce 和总 deadline 等待更新，不轮询。
 
+并发启动共享同一个 initialize；idle 只在没有活动请求或通知时计时。`reload` 先阻止新增强操作，等待旧 client 的完整操作链结束后再关闭。请求、通知、shutdown 和 transport 清理都有界；崩溃会立即清除 connection、文档状态和底层 socket/child，后续在 `max_restarts` 内创建全新 client。stdio 持续消费 stderr 并只保留有界尾部用于 `last_error`；stdio initialize 使用当前 Pi PID，TCP initialize 使用 `processId: null`。
+
 server 主动 request 默认返回 `MethodNotFound`，不会自动执行 `workspace/applyEdit` 等有副作用操作；只有显式注册安全 handler 后才会处理。
 
 新增高级 feature 时，在 `src/lsp/features/index.ts` 增加 typed adapter：先用 `featureAvailable(session, definition)` 检查 capability，再通过 `session.request(RequestType, params, options)` 发送请求。将 adapter 加入 `lspFeatureAdapters` 后，manager、registry、transport 和 session 生命周期无需修改；不可用 capability 应返回 `undefined`，由 file-tools 继续普通降级。
