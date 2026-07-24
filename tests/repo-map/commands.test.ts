@@ -2,7 +2,7 @@ import { createRequire } from "node:module";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
-import { REPO_MAP_SESSION_ENTRY } from "../../src/repo-map/activation.js";
+import { computeRepoMapActivation, REPO_MAP_SESSION_ENTRY } from "../../src/repo-map/activation.js";
 import {
 	createRepoMapCommandDependencies,
 	registerRepoMapAutoActivation,
@@ -53,6 +53,39 @@ describe("/init command", () => {
 		await waitForAsyncSessionStart();
 		expect(harness.appended).toHaveLength(1);
 		expect(initialize).not.toHaveBeenCalled();
+	});
+
+	it("explicit off cancels an auto activation that has already been scheduled", async () => {
+		vi.useFakeTimers();
+		try {
+			const starts: Array<(event: unknown, ctx: ExtensionContext) => Promise<void>> = [];
+			const harness = commandHarness();
+			const discover = vi.fn(async () => ({
+				root: "/repo",
+				mapId: "a".repeat(64),
+				generation: "b".repeat(64),
+				freshness: "fresh" as const,
+				needsRefresh: false,
+			}));
+			registerRepoMapAutoActivation({
+				on(_event, handler) { starts.push(handler); },
+				appendEntry: harness.api.appendEntry,
+			}, { discover, initialize: vi.fn(async () => initializeResult()), now: () => new Date("2026-07-17T00:00:00.000Z") });
+			const start = starts[0];
+			if (start === undefined) throw new Error("session_start was not registered");
+
+			await start({}, harness.ctx);
+			await harness.handler("off", harness.ctx);
+			await vi.runAllTimersAsync();
+
+			expect(discover).not.toHaveBeenCalled();
+			expect(computeRepoMapActivation(harness.branch)).toBeUndefined();
+			expect(harness.appended.map((entry) => entry.data)).toEqual([
+				expect.objectContaining({ kind: "deactivation", root: "/repo" }),
+			]);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("refreshes a stale discovered map and honors explicit off", async () => {

@@ -70,6 +70,25 @@ describe("Repo Map file scanner", () => {
 		expect(second.files.find((file) => file.path === "same.txt")?.contentHash).toBe(first.files.find((file) => file.path === "same.txt")?.contentHash);
 	});
 
+	it("rehashes same-size content changes even when mtime is unchanged", async () => {
+		const filePath = path.join(temp.path, "same-metadata.txt");
+		await writeFile(filePath, "aaaa");
+		const base = scannerFileSystem();
+		const fixedMtimeFileSystem: ScannerFileSystem = {
+			...base,
+			async stat(target) {
+				return fakeMtime(await base.stat(target), 1_000);
+			},
+		};
+		const first = await scan({ fileSystem: fixedMtimeFileSystem });
+
+		await writeFile(filePath, "bbbb");
+		const second = await scan({ fileSystem: fixedMtimeFileSystem, previousFiles: first.files });
+
+		expect(second.summary).toMatchObject({ changed: 1, reused: 0, hashed: 1 });
+		expect(second.files[0]?.contentHash).not.toBe(first.files[0]?.contentHash);
+	});
+
 	it("fails before hashing when the eligible file limit is exceeded", async () => {
 		await writeFile(path.join(temp.path, "a"), "a");
 		await writeFile(path.join(temp.path, "b"), "b");

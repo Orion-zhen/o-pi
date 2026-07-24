@@ -190,6 +190,61 @@ describe("Repo Map symbol and relationship graph", () => {
 		expect(exportedIds).toEqual(new Set(result.symbols.map((symbol) => symbol.id)));
 	});
 
+	it("creates an export relation for a local named export without exposing unrelated declarations", async () => {
+		const text = "const internal = 1;\nconst exposed = 2;\nexport { exposed };\n";
+		const sources = new Map([["values.ts", text]]);
+		const files = [indexed("values.ts", text)];
+		const result = await indexRepoMapSymbols({ root, files, concurrency: 1, readText: readSources(sources) });
+		const edges = buildRepoMapRelationships({ mapId: "h".repeat(64), files, symbols: result.symbols, imports: result.imports });
+		const symbolsByName = new Map(result.symbols.map((symbol) => [symbol.name, symbol]));
+		const exposed = symbolsByName.get("exposed");
+		const internal = symbolsByName.get("internal");
+		if (exposed === undefined || internal === undefined) throw new Error("missing local declarations");
+
+		expect(exposed.exported).toBe(true);
+		expect(internal.exported).toBe(false);
+		expect(edges.filter((edge) => edge.kind === "exports").map((edge) => edge.to)).toEqual([exposed.id]);
+	});
+
+	it.each([
+		["api.c", "int external_api(void) { return 1; }\nstatic int internal_helper(void) { return 2; }\n"],
+		["api.cpp", "int external_api() { return 1; }\nstatic int internal_helper() { return 2; }\n"],
+	])("distinguishes external and internal linkage exports in %s", async (filePath, text) => {
+		const sources = new Map([[filePath, text]]);
+		const files = [indexed(filePath, text)];
+		const result = await indexRepoMapSymbols({ root, files, concurrency: 1, readText: readSources(sources) });
+		const edges = buildRepoMapRelationships({ mapId: "i".repeat(64), files, symbols: result.symbols, imports: result.imports });
+		const symbolsByName = new Map(result.symbols.map((symbol) => [symbol.name, symbol]));
+		const external = symbolsByName.get("external_api");
+		const internal = symbolsByName.get("internal_helper");
+		if (external === undefined || internal === undefined) throw new Error("missing linkage declarations");
+
+		expect(external.exported).toBe(true);
+		expect(internal.exported).toBe(false);
+		expect(edges.filter((edge) => edge.kind === "exports").map((edge) => edge.to)).toEqual([external.id]);
+	});
+
+	it.each([
+		["from .worker import run", ".worker"],
+		["from pkg.worker import run", "pkg.worker"],
+	])("resolves a repository-local Python import: %s", async (statement, lexicalTarget) => {
+		const sources = new Map([
+			["pkg/main.py", `${statement}\n`],
+			["pkg/worker.py", "def run():\n  pass\n"],
+		]);
+		const files = [...sources].map(([filePath, text]) => indexed(filePath, text));
+		const result = await indexRepoMapSymbols({ root, files, concurrency: 1, readText: readSources(sources) });
+		const edges = buildRepoMapRelationships({ mapId: "j".repeat(64), files, symbols: result.symbols, imports: result.imports });
+
+		expect(edges).toContainEqual(expect.objectContaining({
+			kind: "imports",
+			from: "file:pkg/main.py",
+			to: "file:pkg/worker.py",
+			lexicalTarget,
+			resolution: "syntactic",
+		}));
+	});
+
 	it("incrementally reuses stable relations and invalidates callers when the symbol lookup changes", async () => {
 		const firstSources = new Map([
 			["a.ts", "export function caller() { return target(); }\n"],

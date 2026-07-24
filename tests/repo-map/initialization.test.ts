@@ -96,6 +96,29 @@ describe("Repo Map initialization service", () => {
 		for (const skipped of [indexSymbols, buildArchitecture, buildTestGraph, buildRelationships, buildLexicalAliases, commit]) expect(skipped).not.toHaveBeenCalled();
 	});
 
+	it("retains recovered symbols but marks incomplete syntax facts as partially stale", async () => {
+		const root = path.join(temp.path, "repo");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		await writeFile(
+			path.join(root, "extension.ts"),
+			'export function setup() {\n  registerCommand("demo", () => {});\n',
+		);
+
+		const result = await initializeRepoMap({ cwd: root }, dependencies());
+		const generation = await readActivatedRepoMap({
+			root,
+			mapId: result.metadata.mapId,
+			generation: result.metadata.generation,
+		}, path.join(temp.path, "cache"));
+
+		expect(generation?.symbols.some((symbol) => symbol.name === "setup")).toBe(true);
+		expect(generation?.diagnostics).toContainEqual(expect.objectContaining({
+			code: "PARSER_SYNTAX_ERROR",
+			path: "extension.ts",
+		}));
+		expect(result.metadata.freshness).toBe("partially_stale");
+	});
+
 	it("persists symbols for every supported language", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });

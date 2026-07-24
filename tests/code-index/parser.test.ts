@@ -235,6 +235,16 @@ describe("shared code parser", () => {
 		expect(go.imports.map((item) => item.specifier)).toEqual(["example/one", "example/two"]);
 	});
 
+	it.each([
+		["foo('./not-import')", []],
+		["describe('suite')", []],
+		["test('works')", []],
+		["require('./dependency')", ["./dependency"]],
+		["import('./lazy')", ["./lazy"]],
+	])("只把真实模块加载识别为 JavaScript import: %s", (source, expected) => {
+		expect(analyzeCodeFile("a.ts", source).imports.map((item) => item.specifier)).toEqual(expected);
+	});
+
 	it("SourceRange 使用 UTF-8 byte offset、1-based inclusive line 和半开字节区间", () => {
 		const text = "// 你😀\nexport function demo() {\n  return '好';\n}\n";
 		const unit = parseCodeUnits("utf8.ts", text).units[0];
