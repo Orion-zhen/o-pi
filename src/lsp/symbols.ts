@@ -3,6 +3,7 @@ import {
 	SymbolKind,
 	type DocumentSymbol,
 	type Location,
+	type Range,
 	type SymbolInformation,
 	type WorkspaceSymbol,
 } from "vscode-languageserver-protocol";
@@ -10,7 +11,7 @@ import {
 import type { LspDocumentSymbols, LspEnclosingSymbol, LspOutlineItem, LspSymbolHit } from "./types.js";
 import { fileUriToPath, workspaceRelativePath } from "./uri.js";
 
-interface WorkspaceSymbolSeed extends LspSymbolHit {
+export interface WorkspaceSymbolSeed extends LspSymbolHit {
 	uri: string;
 	line: number;
 	character: number;
@@ -83,7 +84,8 @@ export function workspaceSymbolSeeds(root: string, query: string, symbols: Array
 	const hits: WorkspaceSymbolSeed[] = [];
 	for (const symbol of symbols) {
 		if (hits.length >= maxItems) break;
-		const location = symbolLocation(symbol);
+		if (typeof symbol.name !== "string" || typeof symbol.kind !== "number") continue;
+		const location = workspaceSymbolLocation(symbol);
 		if (location === undefined) continue;
 		const filePath = fileUriToPath(location.uri);
 		if (filePath === undefined) continue;
@@ -169,11 +171,38 @@ function flattenDocumentSymbols(symbols: LspDocumentSymbols): LspEnclosingSymbol
 	return result;
 }
 
-function symbolLocation(symbol: SymbolInformation | WorkspaceSymbol): Location | undefined {
+export function workspaceSymbolLocation(symbol: unknown): Location | undefined {
+	if (!isRecord(symbol)) return undefined;
 	const location = symbol.location;
-	if (location === undefined) return undefined;
-	if ("uri" in location && "range" in location) return location;
-	return undefined;
+	if (!isRecord(location) || typeof location.uri !== "string" || !isValidRange(location.range)) return undefined;
+	return { uri: location.uri, range: location.range };
+}
+
+export function hasUriOnlyWorkspaceSymbolLocation(symbol: unknown): symbol is WorkspaceSymbol {
+	if (!isRecord(symbol)) return false;
+	const location = symbol.location;
+	return isRecord(location) && typeof location.uri === "string" && !("range" in location);
+}
+
+function isValidRange(value: unknown): value is Range {
+	if (!isRecord(value) || !isValidPosition(value.start) || !isValidPosition(value.end)) return false;
+	return value.start.line < value.end.line
+		|| (value.start.line === value.end.line && value.start.character <= value.end.character);
+}
+
+function isValidPosition(value: unknown): value is { line: number; character: number } {
+	if (!isRecord(value)) return false;
+	const { line, character } = value;
+	return typeof line === "number"
+		&& Number.isInteger(line)
+		&& line >= 0
+		&& typeof character === "number"
+		&& Number.isInteger(character)
+		&& character >= 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
 }
 
 function isDocumentSymbol(value: DocumentSymbol | SymbolInformation): value is DocumentSymbol {

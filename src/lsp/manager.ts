@@ -5,7 +5,16 @@ import { LspClient } from "./client.js";
 import { LspServerRegistry } from "./registry.js";
 import { loadLspConfig, normalizeExcludePath, resolveLspConfigPath } from "./config.js";
 import { DiagnosticsLedger, emptySummary, summarizeDiagnostics } from "./diagnostics.js";
-import { compactOutline, extensionForPath, findEnclosingSymbol, referenceHits, workspaceSymbolSeeds } from "./symbols.js";
+import {
+	compactOutline,
+	extensionForPath,
+	findEnclosingSymbol,
+	hasUriOnlyWorkspaceSymbolLocation,
+	referenceHits,
+	workspaceSymbolLocation,
+	workspaceSymbolSeeds,
+	type WorkspaceSymbolSeed,
+} from "./symbols.js";
 import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "./uri.js";
 import type {
 	LoadedLspConfig,
@@ -113,7 +122,19 @@ export class LspManager {
 			const client = await this.clientForServer(root, server);
 			if (client === undefined) continue;
 			const symbols = await client.workspaceSymbols(query);
-			const seeds = workspaceSymbolSeeds(root, query, symbols, config.config.grep.max_symbols - symbolCount);
+			const seeds: WorkspaceSymbolSeed[] = [];
+			for (const original of symbols ?? []) {
+				if (seeds.length >= config.config.grep.max_symbols - symbolCount) break;
+				let symbol = original;
+				if (workspaceSymbolLocation(symbol) === undefined) {
+					if (!hasUriOnlyWorkspaceSymbolLocation(symbol)) continue;
+					const resolved = await client.resolveWorkspaceSymbol(symbol);
+					if (resolved === undefined || workspaceSymbolLocation(resolved) === undefined) continue;
+					symbol = resolved;
+				}
+				const seed = workspaceSymbolSeeds(root, query, [symbol], 1)[0];
+				if (seed !== undefined) seeds.push(seed);
+			}
 			symbolCount += seeds.length;
 			hits.push(...seeds.map(({ uri: _uri, line: _line, character: _character, ...hit }) => hit));
 			if (config.config.grep.references) {

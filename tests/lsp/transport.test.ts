@@ -23,6 +23,7 @@ type MessageHandler = (message: JsonRpcMessage, socket: Socket) => void;
 interface FakeServer {
 	port: number;
 	methods: string[];
+	messages: JsonRpcMessage[];
 	response: Promise<JsonRpcMessage>;
 	cancelled: Promise<void>;
 	closed: Promise<void>;
@@ -84,8 +85,84 @@ describe("lsp transport", () => {
 		await fake.closed;
 		expect(fake.methods).toContain("initialize");
 		expect(fake.methods).toContain("workspace/symbol");
+		expect(fake.methods).not.toContain("workspaceSymbol/resolve");
+		expect(fake.messages.find((message) => message.method === "initialize")).toMatchObject({
+			params: {
+				capabilities: {
+					workspace: { symbol: { resolveSupport: { properties: ["location.range"] } } },
+				},
+			},
+		});
 		expect(fake.methods.filter((method) => method === "shutdown")).toHaveLength(1);
 		expect(fake.methods).toContain("exit");
+	});
+
+	it("URI-only workspace symbol 原样 resolve 并转换为 hit", async () => {
+		const uri = pathToFileUri(path.join(workspace, "src", "target.ts"));
+		const data = { serverKey: "target-1", nested: { revision: 3 } };
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: { resolveProvider: true } } } });
+			} else if (message.method === "workspace/symbol") {
+				send(socket, { id: message.id, result: [{ name: "target", kind: 12, location: { uri }, data }] });
+			} else if (message.method === "workspaceSymbol/resolve") {
+				send(socket, {
+					id: message.id,
+					result: {
+						name: "target",
+						kind: 12,
+						location: { uri, range: { start: { line: 2, character: 4 }, end: { line: 2, character: 10 } } },
+						data,
+					},
+				});
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
+
+		manager = new LspManager();
+		await expect(manager.workspaceSymbols(workspace, "target", [".ts"])).resolves.toEqual([
+			expect.objectContaining({ path: "src/target.ts", start_line: 3, end_line: 3, origin: "workspace-symbol" }),
+		]);
+		expect(fake.messages.find((message) => message.method === "workspaceSymbol/resolve")).toMatchObject({
+			params: { name: "target", kind: 12, location: { uri }, data },
+		});
+	});
+
+	it.each([
+		["server 未声明 resolveProvider", "unsupported", false],
+		["resolve 返回错误", "error", true],
+		["resolve 超时", "timeout", true],
+		["resolve 后仍无 range", "unresolved", true],
+	] as const)("%s 时安全跳过 URI-only symbol", async (_name, mode, expectsResolve) => {
+		const uri = pathToFileUri(path.join(workspace, "src", "target.ts"));
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				const workspaceSymbolProvider = mode === "unsupported" ? true : { resolveProvider: true };
+				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider } } });
+			} else if (message.method === "workspace/symbol") {
+				send(socket, { id: message.id, result: [{ name: "target", kind: 12, location: { uri }, data: { key: 1 } }] });
+			} else if (message.method === "workspaceSymbol/resolve") {
+				if (mode === "error") send(socket, { id: message.id, error: { code: -32001, message: "resolve failed" } });
+				if (mode === "unresolved") send(socket, { id: message.id, result: { name: "target", kind: 12, location: { uri } } });
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		await writeConfig(
+			{ type: "tcp", host: "127.0.0.1", port: fake.port },
+			{ request_timeout_ms: 100 },
+		);
+
+		manager = new LspManager();
+		await expect(manager.workspaceSymbols(workspace, "target", [".ts"])).resolves.toEqual([]);
+		if (expectsResolve) expect(fake.methods).toContain("workspaceSymbol/resolve");
+		else expect(fake.methods).not.toContain("workspaceSymbol/resolve");
 	});
 
 	it("TCP initialize 失败时退化为 unavailable", async () => {
@@ -200,6 +277,7 @@ async function writeConfig(transport: { type: "tcp"; host: string; port: number 
 
 async function createFakeServer(handler: MessageHandler): Promise<FakeServer> {
 	const methods: string[] = [];
+	const messages: JsonRpcMessage[] = [];
 	const sockets = new Set<Socket>();
 	let resolveResponse: (message: JsonRpcMessage) => void = () => undefined;
 	const response = new Promise<JsonRpcMessage>((resolve) => {
@@ -230,6 +308,7 @@ async function createFakeServer(handler: MessageHandler): Promise<FakeServer> {
 				if (buffer.length < start + length) return;
 				const message = JSON.parse(buffer.subarray(start, start + length).toString("utf8")) as JsonRpcMessage;
 				buffer = buffer.subarray(start + length);
+				messages.push(message);
 				if (message.method !== undefined) {
 					methods.push(message.method);
 					if (message.method === "$/cancelRequest") resolveCancelled();
@@ -253,6 +332,7 @@ async function createFakeServer(handler: MessageHandler): Promise<FakeServer> {
 	const fake: FakeServer = {
 		port: address.port,
 		methods,
+		messages,
 		response,
 		cancelled,
 		closed,

@@ -37,7 +37,7 @@ import {
 
 import type { DiagnosticsLedger } from "./diagnostics.js";
 import { LspDocuments } from "./documents.js";
-import { requestDocumentSymbols, requestReferences, requestWorkspaceSymbols, type LspFeatureSession } from "./features/index.js";
+import { requestDocumentSymbols, requestReferences, requestWorkspaceSymbols, resolveWorkspaceSymbol, type LspFeatureSession } from "./features/index.js";
 import { connectLspTransport, type LspTransportConnection } from "./transport.js";
 import type {
 	LspConfig,
@@ -77,11 +77,6 @@ export class LspClient implements LspFeatureSession {
 
 	capabilities(): ServerCapabilities | undefined {
 		return this.serverCapabilities;
-	}
-
-	supportsCapability(capability: keyof ServerCapabilities): boolean {
-		const value = this.serverCapabilities?.[capability];
-		return value !== undefined && value !== false;
 	}
 
 	onDiagnostics(listener: (params: { uri: string; diagnostics: Diagnostic[] }) => void): () => void {
@@ -275,6 +270,10 @@ export class LspClient implements LspFeatureSession {
 		return requestWorkspaceSymbols(this, query);
 	}
 
+	async resolveWorkspaceSymbol(symbol: WorkspaceSymbol, options?: LspRequestOptions): Promise<WorkspaceSymbol | undefined> {
+		return resolveWorkspaceSymbol(this, symbol, options);
+	}
+
 	async references(uri: string, line: number, character: number): Promise<Location[] | undefined> {
 		return requestReferences(this, uri, line, character);
 	}
@@ -347,7 +346,7 @@ export class LspClient implements LspFeatureSession {
 							references: { dynamicRegistration: false },
 							publishDiagnostics: { relatedInformation: false },
 						},
-						workspace: { symbol: { resolveSupport: { properties: [] } } },
+						workspace: { symbol: { resolveSupport: { properties: ["location.range"] } } },
 					},
 					initializationOptions: this.server.initialization_options,
 				})),

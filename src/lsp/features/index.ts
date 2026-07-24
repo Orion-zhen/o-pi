@@ -3,6 +3,7 @@ import {
 	DocumentSymbolRequest,
 	ReferencesRequest,
 	WorkspaceSymbolRequest,
+	WorkspaceSymbolResolveRequest,
 	type Location,
 	type SymbolInformation,
 	type WorkspaceSymbol,
@@ -17,24 +18,42 @@ import { pathToFileUri } from "../uri.js";
 
 /** feature adapter 使用的最小 session 协议。 */
 export interface LspFeatureSession {
-	supportsCapability(capability: keyof LspServerCapabilities): boolean;
+	capabilities(): LspServerCapabilities | undefined;
 	didOpenOrChange(filePath: string, text: string): Promise<boolean>;
 	request<P, R, E>(type: RequestType<P, R, E>, params: P, options?: LspRequestOptions): Promise<R | undefined>;
 }
 
 export interface LspFeatureDefinition {
-	readonly id: "documentSymbols" | "workspaceSymbols" | "references";
-	readonly capability: keyof LspServerCapabilities;
+	readonly id: "documentSymbols" | "workspaceSymbols" | "workspaceSymbolResolve" | "references";
+	readonly capability: (capabilities: LspServerCapabilities | undefined) => boolean;
 }
 
+const providerEnabled = (provider: unknown): boolean => provider !== undefined && provider !== false;
+
 export const lspFeatureDefinitions = {
-	documentSymbols: { id: "documentSymbols", capability: "documentSymbolProvider" },
-	workspaceSymbols: { id: "workspaceSymbols", capability: "workspaceSymbolProvider" },
-	references: { id: "references", capability: "referencesProvider" },
+	documentSymbols: {
+		id: "documentSymbols",
+		capability: (capabilities) => providerEnabled(capabilities?.documentSymbolProvider),
+	},
+	workspaceSymbols: {
+		id: "workspaceSymbols",
+		capability: (capabilities) => providerEnabled(capabilities?.workspaceSymbolProvider),
+	},
+	workspaceSymbolResolve: {
+		id: "workspaceSymbolResolve",
+		capability: (capabilities) => {
+			const provider = capabilities?.workspaceSymbolProvider;
+			return typeof provider === "object" && provider !== null && provider.resolveProvider === true;
+		},
+	},
+	references: {
+		id: "references",
+		capability: (capabilities) => providerEnabled(capabilities?.referencesProvider),
+	},
 } as const satisfies Readonly<Record<string, LspFeatureDefinition>>;
 
 export function featureAvailable(session: LspFeatureSession, feature: LspFeatureDefinition): boolean {
-	return session.supportsCapability(feature.capability);
+	return feature.capability(session.capabilities());
 }
 
 export async function requestDocumentSymbols(session: LspFeatureSession, filePath: string, text: string, options?: LspRequestOptions): Promise<LspDocumentSymbols | undefined> {
@@ -48,6 +67,11 @@ export async function requestWorkspaceSymbols(session: LspFeatureSession, query:
 	if (!featureAvailable(session, lspFeatureDefinitions.workspaceSymbols)) return undefined;
 	const result = await session.request(WorkspaceSymbolRequest.type, { query }, options);
 	return result === null ? undefined : result as Array<SymbolInformation | WorkspaceSymbol> | undefined;
+}
+
+export async function resolveWorkspaceSymbol(session: LspFeatureSession, symbol: WorkspaceSymbol, options?: LspRequestOptions): Promise<WorkspaceSymbol | undefined> {
+	if (!featureAvailable(session, lspFeatureDefinitions.workspaceSymbolResolve)) return undefined;
+	return session.request(WorkspaceSymbolResolveRequest.type, symbol, options);
 }
 
 export async function requestReferences(session: LspFeatureSession, uri: string, line: number, character: number, options?: LspRequestOptions): Promise<Location[] | undefined> {
@@ -64,6 +88,7 @@ export async function requestReferences(session: LspFeatureSession, uri: string,
 export const lspFeatureAdapters = {
 	documentSymbols: requestDocumentSymbols,
 	workspaceSymbols: requestWorkspaceSymbols,
+	workspaceSymbolResolve: resolveWorkspaceSymbol,
 	references: requestReferences,
 };
 
