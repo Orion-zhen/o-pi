@@ -9,6 +9,7 @@
 		"bench:file-tools:ranking": "node scripts/bench-file-tools-ranking.mjs",
 		"bench:file-tools:calibration": "node scripts/bench-file-tools-calibration.mjs",
 		"bench:repo-map": "node scripts/bench-repo-map.mjs",
+		"bench:code-index": "node scripts/bench-code-index.mjs",
 		"bench:web-tools": "node scripts/bench-web-tools.mjs",
 		"telemetry:report": "node scripts/generate-telemetry-report.mjs",
 		"test": "vitest --run",

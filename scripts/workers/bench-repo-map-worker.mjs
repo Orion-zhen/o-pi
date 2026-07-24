@@ -26,12 +26,14 @@ try {
 
 	const dependencies = benchmarkDependencies(workspace, cacheRoot, config, fileConfig);
 	const initial = await measure(() => service.initializeRepoMap({ cwd: workspace }, dependencies));
+	const initialMemory = process.memoryUsage();
 	const unchanged = await measure(() => service.initializeRepoMap({ cwd: workspace, mode: "refresh" }, dependencies));
 
 	const targetIndex = Math.floor(size / 2);
 	const targetPath = modulePath(targetIndex);
 	await writeModule(workspace, targetIndex, changedSource(targetIndex), changedTime);
 	const changed = await measure(() => service.initializeRepoMap({ cwd: workspace, mode: "refresh" }, dependencies));
+	const changedMemory = process.memoryUsage();
 
 	const coldRead = await measure(() => service.readActivatedRepoMap({
 		root: workspace,
@@ -111,6 +113,9 @@ try {
 		mutationRefreshMs: mutationRefresh.ms,
 		heapUsedMb: memory.heapUsed / 1024 / 1024,
 		rssMb: memory.rss / 1024 / 1024,
+		initialRssMb: initialMemory.rss / 1024 / 1024,
+		changedRssMb: changedMemory.rss / 1024 / 1024,
+		rssGrowthMb: (changedMemory.rss - initialMemory.rss) / 1024 / 1024,
 		generation: finalGeneration.metadata.generation,
 		oracleDigest: digestOracle(finalGeneration, firstQuery.value, readContext.value, mutationRefresh.value),
 		counts: {

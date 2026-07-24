@@ -36,7 +36,7 @@ const AGENT_LOOP_TOOL_CALLS = [
 	{ name: "grep", arguments: { query: "runAgentLoopSuite", path: "scripts", match: "literal", glob: "*.mjs" } },
 	{ name: "grep", arguments: { query: "runAgentLoopSuite", path: "scripts", match: "literal", glob: "*.mjs" } },
 ];
-const DEFAULT_SUITES = ["startup", "agent-loop", "lazy", "file-tools", "file-search", "repo-map", "web-tools"];
+const DEFAULT_SUITES = ["startup", "agent-loop", "lazy", "file-tools", "file-search", "code-index", "repo-map", "web-tools"];
 const options = readOptions(process.argv.slice(2));
 
 if (options.help) {
@@ -51,6 +51,7 @@ const registry = createSuiteRegistry([
 	{ id: "file-tools", execute: () => runExternalSuite("file-tools", "bench-file-tools.mjs", [`--runs=${options.runs}`]) },
 	{ id: "file-search", execute: () => runExternalSuite("file-tools search", "bench-file-tools-search.mjs", [`--runs=${options.runs}`]) },
 	{ id: "repo-map", execute: () => runExternalSuite("repo-map", "bench-repo-map.mjs", [`--runs=${options.runs}`, `--sizes=${options.repoSizes.join(",")}`]) },
+	{ id: "code-index", execute: () => runExternalSuite("code-index", "bench-code-index.mjs", [`--runs=${options.runs}`, "--sizes=4000,8000,16000"]) },
 	{ id: "web-tools", execute: () => runExternalSuite("web-tools", "bench-web-tools.mjs", [`--runs=${options.runs}`]) },
 ]);
 for (const pluginPath of options.pluginPaths) {
