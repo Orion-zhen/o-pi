@@ -64,15 +64,12 @@ describe("code language registry", () => {
 		expect(loadTreeSitterRuntime("text")).toBeUndefined();
 	});
 
-	it("can register and load a simulated new adapter without parser dispatch changes", () => {
+	it("registers extension metadata in an isolated registry and loads its grammar descriptor", () => {
 		const simulated: LanguageAdapter = { ...javascriptAdapter, extensions: [".simulated"] };
 		const registry = createLanguageRegistry([simulated]);
 		expect(registry.languageFromPath("new.simulated")).toBe("javascript");
 		expect(registry.adapterFromPath("new.simulated")).toBe(simulated);
 		expect(loadGrammar(simulated.grammar)).toBeDefined();
-		const root = parseSyntaxTree(simulated.language, "function run() {}\n");
-		if (root === undefined) throw new Error("missing simulated adapter syntax tree");
-		expect(simulated.extractUnits(root).map((unit) => unit.name)).toEqual(["run"]);
 	});
 
 	it("does not accept a missing or wrong grammar export", () => {

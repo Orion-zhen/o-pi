@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { adapterFromPath } from "../../src/code-index/language-registry.js";
-import { buildLineIndex } from "../../src/code-index/parser.js";
+import { analyzeCodeFile, buildLineIndex } from "../../src/code-index/parser.js";
 import { parseSyntaxTree } from "../../src/code-index/syntax-tree.js";
 
 describe.each([
@@ -80,4 +80,46 @@ describe.each([
 		expect(adapter.extractUnits(root).map((unit) => `${unit.kind}:${unit.qualifiedName}`)).toEqual(units);
 		expect(adapter.collectImports(text, buildLineIndex(text)).map((item) => item.specifier)).toEqual(imports);
 	});
+});
+
+it.each([
+	{
+		filePath: "imports.ts",
+		text: "// import fake from 'comment-only';\nconst fake = \"require('string-only')\";\nimport { real } from './real';\n",
+		expected: ["./real"],
+	},
+	{
+		filePath: "imports.py",
+		text: "'''\nimport string_only\n'''\n# import comment_only\nimport real\n",
+		expected: ["real"],
+	},
+	{
+		filePath: "imports.go",
+		text: "package imports\n// import \"comment-only\"\nimport \"example/real\"\n",
+		expected: ["example/real"],
+	},
+	{
+		filePath: "imports.rs",
+		text: "// use comment::only;\nconst TEXT: &str = \"use string::only\";\nuse crate::real;\n",
+		expected: ["crate::real"],
+	},
+	{
+		filePath: "imports.c",
+		text: "/*\n#include <comment-only.h>\n*/\n#include <real.h>\n",
+		expected: ["real.h"],
+	},
+])("$filePath ignores import syntax inside comments and strings", ({ filePath, text, expected }) => {
+	const analyzed = analyzeCodeFile(filePath, text);
+	expect(analyzed.status).toBe("parsed");
+	expect(analyzed.imports.map((item) => item.specifier)).toEqual(expected);
+});
+
+it.each([
+	["multiple.py", "import first, second as alias\n", ["first", "second"]],
+	["grouped.rs", "use crate::{first, second};\n", ["crate::first", "crate::second"]],
+	["raw.go", "package raw\nimport `example/raw`\n", ["example/raw"]],
+] as const)("preserves every static import target in %s", (filePath, text, expected) => {
+	const analyzed = analyzeCodeFile(filePath, text);
+	expect(analyzed.status).toBe("parsed");
+	expect(analyzed.imports.map((item) => item.specifier)).toEqual(expected);
 });

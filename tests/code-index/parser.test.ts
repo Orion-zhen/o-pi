@@ -114,6 +114,41 @@ describe("shared code parser", () => {
 		expect(parsed.units.map((unit) => unit.qualifiedName)).toEqual(["demo"]);
 	});
 
+	it.each([
+		{
+			filePath: "interface.ts",
+			text: "interface Service { run(): void; }\n",
+			expected: ["interface:Service", "method:Service.run"],
+		},
+		{
+			filePath: "nested.py",
+			text: "class Outer:\n  class Inner:\n    def run(self):\n      pass\n",
+			expected: ["class:Outer", "class:Outer.Inner", "function:Outer.Inner.run"],
+		},
+		{
+			filePath: "modules.rs",
+			text: "mod outer { fn run() {} mod inner { fn work() {} } }\n",
+			expected: ["module:outer", "function:outer.run", "module:outer.inner", "function:outer.inner.work"],
+		},
+		{
+			filePath: "implementation.rs",
+			text: "struct Worker;\ntrait Service { fn run(&self); }\nimpl Service for Worker { fn run(&self) {} }\n",
+			expected: ["Service.run", "Worker.run"],
+			functionsOnly: true,
+		},
+		{
+			filePath: "receiver.go",
+			text: "package receiver\ntype Server struct{}\nfunc (s Server) Stop() {}\n",
+			expected: ["type:Server", "method:Server.Stop"],
+		},
+	])("preserves complete declaration scope in $filePath", ({ filePath, text, expected, functionsOnly }) => {
+		const units = parseCodeUnits(filePath, text).units;
+		const actual = functionsOnly === true
+			? units.filter((unit) => unit.kind === "function").map((unit) => unit.qualifiedName)
+			: units.map((unit) => `${unit.kind}:${unit.qualifiedName}`);
+		expect(actual).toEqual(expected);
+	});
+
 	it("unsupported language 返回 text 空索引，且 file identity 使用规范化内部路径", () => {
 		expect(parseCodeUnits("./docs\\notes.conf", "section=true\n")).toEqual({
 			id: "file:docs/notes.conf",
