@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFileIdentity, createSymbolId } from "../../src/code-index/identity.js";
 import { analyzeCodeFile, byteRangeForLines, countTextTokenMatches, parseCodeUnits, splitTokens, tokenizeText } from "../../src/code-index/parser.js";
-import { loadTreeSitterRuntime } from "../../src/code-index/tree-sitter-runtime.js";
+import { loadTreeSitterRuntime } from "../../src/code-index/tree-sitter-loader.js";
 
 const require = createRequire(import.meta.url);
 const treeSitterModules = {
@@ -18,7 +18,7 @@ const treeSitterModules = {
 
 afterEach(() => {
 	vi.useRealTimers();
-	vi.doUnmock("../../src/code-index/tree-sitter-runtime.js");
+	vi.doUnmock("../../src/code-index/tree-sitter-loader.js");
 });
 
 function symbols(filePath: string, text: string): Array<[string, string | undefined, string | undefined]> {
@@ -157,7 +157,7 @@ describe("shared code parser", () => {
 
 	it("runtime 或 grammar 失败时安全降级为空代码单元", async () => {
 		vi.resetModules();
-		vi.doMock("../../src/code-index/tree-sitter-runtime.js", () => ({
+		vi.doMock("../../src/code-index/tree-sitter-loader.js", () => ({
 			loadTreeSitterRuntime() {
 				throw new Error("simulated grammar failure");
 			},

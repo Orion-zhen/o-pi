@@ -1,4 +1,11 @@
-export type CodeLanguage = "javascript" | "jsx" | "typescript" | "tsx" | "python" | "go" | "rust" | "text";
+export type SupportedCodeLanguage = "javascript" | "jsx" | "typescript" | "tsx" | "python" | "go" | "rust";
+export type CodeLanguage = SupportedCodeLanguage | "text";
+
+export interface LineIndex {
+	readonly lineStarts: number[];
+	readonly lineStartChars: number[];
+	readonly byteLength: number;
+}
 
 /** 行范围为 1-based inclusive，字节范围为 UTF-8 [startByte, endByte)。 */
 export interface SourceRange {

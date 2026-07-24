@@ -1,7 +1,7 @@
 import type ParserModule from "tree-sitter";
 
-import { languageFromPath } from "../code-index/parser.js";
-import { loadTreeSitterRuntime } from "../code-index/tree-sitter-runtime.js";
+import { languageFromPath } from "../code-index/language-registry.js";
+import { loadTreeSitterRuntime } from "../code-index/tree-sitter-loader.js";
 import type { SourceRange } from "../code-index/types.js";
 
 type SyntaxNode = ParserModule.SyntaxNode;

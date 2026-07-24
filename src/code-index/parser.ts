@@ -1,24 +1,13 @@
 import type ParserModule from "tree-sitter";
 
+import type { RawUnit } from "./adapters/types.js";
 import { createFileIdentity, createSymbolId } from "./identity.js";
-import { loadTreeSitterRuntime } from "./tree-sitter-runtime.js";
-import type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, IndexedImport, ParsedFileIndex, SourceRange } from "./types.js";
+import { languageFromPath } from "./language-registry.js";
+import { loadTreeSitterRuntime } from "./tree-sitter-loader.js";
+import type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, IndexedImport, LineIndex, ParsedFileIndex, SourceRange } from "./types.js";
 
-export type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, IndexedImport, ParsedFileIndex, SourceRange } from "./types.js";
-
-interface RawUnit {
-	kind: string;
-	name?: string;
-	qualifiedName?: string;
-	startChar: number;
-	endChar: number;
-}
-
-export interface LineIndex {
-	readonly lineStarts: number[];
-	readonly lineStartChars: number[];
-	readonly byteLength: number;
-}
+export { languageFromPath } from "./language-registry.js";
+export type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, IndexedImport, LineIndex, ParsedFileIndex, SourceRange } from "./types.js";
 
 const IDENTIFIER = /[A-Za-z_$][\w$]*|[A-Za-z_][A-Za-z0-9_]*[-_][A-Za-z0-9_-]+|\d+/g;
 type SyntaxNode = ParserModule.SyntaxNode;
@@ -82,18 +71,6 @@ export function analyzeTextFile(filePath: string): AnalyzedFileIndex {
 		status: "unsupported",
 		imports: [],
 	};
-}
-
-export function languageFromPath(filePath: string): CodeLanguage {
-	const lower = filePath.toLowerCase();
-	if (lower.endsWith(".tsx")) return "tsx";
-	if (lower.endsWith(".ts")) return "typescript";
-	if (lower.endsWith(".jsx")) return "jsx";
-	if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".cjs")) return "javascript";
-	if (lower.endsWith(".py")) return "python";
-	if (lower.endsWith(".go")) return "go";
-	if (lower.endsWith(".rs")) return "rust";
-	return "text";
 }
 
 export function tokenizeText(value: string): Map<string, number> {

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
-vi.mock("../../src/code-index/tree-sitter-runtime.js", () => ({
+vi.mock("../../src/code-index/tree-sitter-loader.js", () => ({
 	loadTreeSitterRuntime: () => undefined,
 }));
 
