@@ -60,6 +60,60 @@ export function collectRegexImports(text: string, index: LineIndex, patterns: re
 	return indexedImports(text, index, matches);
 }
 
+const C_INCLUDE_PATTERNS = [
+	/^[ \t]*#[ \t]*include[ \t]*<(?<specifier>[^>\r\n]+)>/gmu,
+	/^[ \t]*#[ \t]*include[ \t]*"(?<specifier>[^"\r\n]+)"/gmu,
+];
+
+export function collectCIncludeImports(text: string, index: LineIndex): IndexedImport[] {
+	return collectRegexImports(text, index, C_INCLUDE_PATTERNS);
+}
+
+const DECLARATOR_NAME_TYPES = new Set([
+	"identifier",
+	"field_identifier",
+	"type_identifier",
+	"qualified_identifier",
+	"scoped_identifier",
+	"operator_name",
+	"destructor_name",
+]);
+
+export function declaratorName(node: SyntaxNode): string | undefined {
+	const declarator = node.childForFieldName("declarator");
+	return declarator === null ? undefined : namedDeclarator(declarator);
+}
+
+export function functionDeclaratorName(node: SyntaxNode): string | undefined {
+	const functionDeclarator = findFunctionDeclarator(node);
+	return functionDeclarator === undefined ? undefined : namedDeclarator(functionDeclarator);
+}
+
+export function hasSimpleFunctionDeclarator(node: SyntaxNode): boolean {
+	const functionDeclarator = findFunctionDeclarator(node);
+	const declarator = functionDeclarator?.childForFieldName("declarator");
+	return declarator !== null && declarator !== undefined && (DECLARATOR_NAME_TYPES.has(declarator.type) || declarator.type === "reference_declarator");
+}
+
+function findFunctionDeclarator(node: SyntaxNode): SyntaxNode | undefined {
+	if (node.type === "function_declarator") return node;
+	const declarator = node.childForFieldName("declarator");
+	return declarator === null ? undefined : findFunctionDeclarator(declarator);
+}
+
+function namedDeclarator(node: SyntaxNode): string | undefined {
+	if (DECLARATOR_NAME_TYPES.has(node.type)) return node.text;
+	const declarator = node.childForFieldName("declarator");
+	return declarator === null ? undefined : namedDeclarator(declarator);
+}
+
+export function hasAncestorType(node: SyntaxNode): boolean {
+	for (let parent = node.parent; parent !== null; parent = parent.parent) {
+		if (parent.type === "class_specifier" || parent.type === "struct_specifier") return true;
+	}
+	return false;
+}
+
 export function collectGoImports(text: string, index: LineIndex): IndexedImport[] {
 	const matches: Array<{ specifier: string; startChar: number }> = [];
 	for (const match of text.matchAll(/\bimport\s+(?:[._A-Za-z]\w*\s+)?["'](?<specifier>[^"']+)["']/gu)) {

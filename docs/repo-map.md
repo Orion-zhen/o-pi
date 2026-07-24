@@ -146,6 +146,10 @@ Repo Map 复用 code-index 的 Tree-sitter runtime：
 | Python | `.py` | function、class |
 | Go | `.go` | function、method、type、var、const |
 | Rust | `.rs` | function、struct、enum、type、trait、impl、const、static、module |
+| C | `.c` | function、struct、enum、typedef、declaration |
+| C++ | `.h`、`.cc`、`.cpp`、`.cxx`、`.hh`、`.hpp`、`.hxx` | function、method、class/struct、enum、alias/typedef、namespace、declaration |
+
+C 使用 `tree-sitter-c`，C++ 使用 `tree-sitter-cpp`；`.h` 静态归入 C++。两者的 `#include <...>` 和 `#include "..."` 只记录源码中的 specifier 与 UTF-8 byte range，不解析 include 路径或编译语义。
 
 语言接入由静态 adapter registry 管理。adapter 声明语言、扩展名、grammar descriptor、AST unit 提取和 import 提取；新增语言只需增加 adapter、注册项、对应 grammar 依赖和测试，不需要修改核心 parser 的语言分派。`text` 是 unsupported fallback，不属于 registry。
 

@@ -489,7 +489,7 @@ token.ts:14 issueToken [callee]
 
 行为：
 
-* TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 `tree-sitter` 官方 grammar 提取函数、方法、类、接口/trait、类型/枚举、模块和顶层声明。
+* C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 `tree-sitter` 官方 grammar 提取函数、方法、类、接口/trait、类型/枚举、模块和顶层声明；C/C++ 还提取受限的 `#include` 文件关系。
 * 不支持或解析失败的语言退化为文本搜索和紧凑行窗口，不让整个调用失败。
 * 每次调用创建 ignore snapshot；默认目录遍历使用 ignore `index` intent，ignored 文件不进入索引；显式 `path` 指向 ignored 文件或目录时允许在该路径内检索。
 * 进程内按 query、scope 和匹配模式缓存文件 fingerprint、signature、token、筛选 miss 和关系元数据，不永久保存完整源码；相同查询与 scope 的并发构建共享索引，单个消费者取消不会中断仍有消费者的构建。

@@ -1,3 +1,5 @@
+import { cAdapter } from "./adapters/c.js";
+import { cppAdapter } from "./adapters/cpp.js";
 import { goAdapter } from "./adapters/go.js";
 import { javascriptAdapter, jsxAdapter } from "./adapters/javascript.js";
 import { pythonAdapter } from "./adapters/python.js";
@@ -14,6 +16,8 @@ export const LANGUAGE_ADAPTERS: readonly LanguageAdapter[] = [
 	pythonAdapter,
 	goAdapter,
 	rustAdapter,
+	cAdapter,
+	cppAdapter,
 ];
 
 export interface LanguageRegistry {

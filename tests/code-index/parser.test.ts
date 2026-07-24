@@ -14,6 +14,8 @@ const treeSitterModules = {
 	python: require.resolve("tree-sitter-python"),
 	go: require.resolve("tree-sitter-go"),
 	rust: require.resolve("tree-sitter-rust"),
+	c: require.resolve("tree-sitter-c"),
+	cpp: require.resolve("tree-sitter-cpp"),
 };
 
 afterEach(() => {
@@ -50,12 +52,32 @@ describe("shared code parser", () => {
 		expect(require.cache[treeSitterModules.python]).toBeUndefined();
 		expect(require.cache[treeSitterModules.go]).toBeUndefined();
 		expect(require.cache[treeSitterModules.rust]).toBeUndefined();
+		expect(require.cache[treeSitterModules.c]).toBeUndefined();
+		expect(require.cache[treeSitterModules.cpp]).toBeUndefined();
 		expect(loadTreeSitterRuntime("typescript")).toBe(loadTreeSitterRuntime("typescript"));
 		await expect(Promise.resolve(handlers.get("session_shutdown")?.())).resolves.toBeUndefined();
 		expect(require.cache[treeSitterModules.javascript]).toBeUndefined();
 		expect(require.cache[treeSitterModules.python]).toBeUndefined();
 		expect(require.cache[treeSitterModules.go]).toBeUndefined();
 		expect(require.cache[treeSitterModules.rust]).toBeUndefined();
+		expect(require.cache[treeSitterModules.c]).toBeUndefined();
+		expect(require.cache[treeSitterModules.cpp]).toBeUndefined();
+	});
+
+	it("提取 C/C++ symbol、文件级 include 和 UTF-8 byte range", () => {
+		const c = analyzeCodeFile("src/point.c", "// 你😀\n#include <stdio.h>\nint add(int value) { return value; }\n");
+		expect(c).toMatchObject({ status: "parsed", index: { language: "c" } });
+		expect(c.index.units.map((unit) => [unit.kind, unit.qualifiedName])).toEqual([["function", "add"]]);
+		expect(c.imports).toEqual([expect.objectContaining({ specifier: "stdio.h", startLine: 2, endLine: 2 })]);
+		expect(c.imports[0]?.startByte).toBe(Buffer.byteLength("// 你😀\n#include <", "utf8"));
+
+		const cpp = analyzeCodeFile("include/api.H", "namespace api { class Client { public: void run() {} }; }\n");
+		expect(cpp).toMatchObject({ status: "parsed", index: { language: "cpp" } });
+		expect(cpp.index.units.map((unit) => [unit.kind, unit.qualifiedName])).toEqual([
+			["namespace", "api"],
+			["class", "api.Client"],
+			["method", "api.Client.run"],
+		]);
 	});
 
 	it("提取 TypeScript、JavaScript、Python、Go 和 Rust symbol，并保留 class method scope", () => {
@@ -165,5 +187,7 @@ describe("shared code parser", () => {
 		const { analyzeCodeFile: analyzeWithFailure, parseCodeUnits: parseWithFailure } = await import("../../src/code-index/parser.js");
 		expect(parseWithFailure("broken.ts", "export function demo() {}\n")).toMatchObject({ language: "typescript", units: [] });
 		expect(analyzeWithFailure("broken.ts", "export function demo() {}\n").status).toBe("error");
+		expect(parseWithFailure("broken.c", "int demo(void) {}\n")).toMatchObject({ language: "c", units: [] });
+		expect(analyzeWithFailure("broken.c", "int demo(void) {}\n").status).toBe("error");
 	});
 });

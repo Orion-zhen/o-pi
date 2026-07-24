@@ -47,6 +47,30 @@ describe.each([
 		units: ["type:Service", "module:Service", "function:Service.run"],
 		imports: ["crate::core::run"],
 	},
+	{
+		filePath: "adapter.c",
+		text: "#include <stdio.h>\n# include \"point.h\"\n// #include <ignored.h>\ntypedef struct Point { int x; } Point;\nenum Color { Red };\nint add(int left, int right) { const char *text = \"#include <not-an-import.h>\"; int local = left + right; return local; }\nint answer = 42;\n",
+		units: ["typedef:Point", "struct:Point", "enum:Color", "function:add", "declaration:answer"],
+		imports: ["stdio.h", "point.h"],
+	},
+	{
+		filePath: "adapter.hpp",
+		text: "#include <vector>\n#include \"detail.hpp\"\nnamespace app {\nclass Service { public: Service() {} int run(int value) { int local = value; return local; } int pending(); };\nstruct Data { void load(); int value; };\nenum Color { Red };\nusing Number = int;\ntypedef int Old;\n}\nvoid freeFunction() {}\n",
+		units: [
+			"namespace:app",
+			"class:app.Service",
+			"method:app.Service.Service",
+			"method:app.Service.run",
+			"method:app.Service.pending",
+			"struct:app.Data",
+			"method:app.Data.load",
+			"enum:app.Color",
+			"alias:app.Number",
+			"typedef:app.Old",
+			"function:freeFunction",
+		],
+		imports: ["vector", "detail.hpp"],
+	},
 ])("$filePath adapter", ({ filePath, text, units, imports }) => {
 	it("extracts units and imports through the adapter contract", () => {
 		const adapter = adapterFromPath(filePath);

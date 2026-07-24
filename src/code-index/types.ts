@@ -1,4 +1,4 @@
-export type SupportedCodeLanguage = "javascript" | "jsx" | "typescript" | "tsx" | "python" | "go" | "rust";
+export type SupportedCodeLanguage = "javascript" | "jsx" | "typescript" | "tsx" | "python" | "go" | "rust" | "c" | "cpp";
 export type CodeLanguage = SupportedCodeLanguage | "text";
 
 export interface LineIndex {

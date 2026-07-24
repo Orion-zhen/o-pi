@@ -22,12 +22,14 @@ const grammarModules = [
 	require.resolve("tree-sitter-python"),
 	require.resolve("tree-sitter-go"),
 	require.resolve("tree-sitter-rust"),
+	require.resolve("tree-sitter-c"),
+	require.resolve("tree-sitter-cpp"),
 ];
 
 describe("code language registry", () => {
 	it("registers every supported language without loading grammar modules", () => {
 		expect(registeredLanguageAdapters().map((adapter) => adapter.language)).toEqual([
-			"javascript", "jsx", "typescript", "tsx", "python", "go", "rust",
+			"javascript", "jsx", "typescript", "tsx", "python", "go", "rust", "c", "cpp",
 		]);
 		for (const modulePath of grammarModules) expect(require.cache[modulePath]).toBeUndefined();
 	});
@@ -39,9 +41,21 @@ describe("code language registry", () => {
 		["src/worker.PY", "python", ".py"],
 		["src/service.GO", "go", ".go"],
 		["src/lib.RS", "rust", ".rs"],
+		["src/main.C", "c", ".c"],
+		["include/api.H", "cpp", ".h"],
+		["src/main.CPP", "cpp", ".cpp"],
 	] as const)("maps %s through the prebuilt extension map", (filePath, language, extension) => {
 		expect(languageFromPath(filePath)).toBe(language);
 		expect(adapterFromPath(filePath)).toMatchObject({ language, extensions: expect.arrayContaining([extension]) });
+	});
+
+	it("loads only the requested C/C++ grammar on first parse", () => {
+		expect(parseSyntaxTree("c", "int value;\n")).toBeDefined();
+		expect(require.cache[require.resolve("tree-sitter-c")]).toBeDefined();
+		expect(require.cache[require.resolve("tree-sitter-cpp")]).toBeUndefined();
+
+		expect(parseSyntaxTree("cpp", "class Value {};\n")).toBeDefined();
+		expect(require.cache[require.resolve("tree-sitter-cpp")]).toBeDefined();
 	});
 
 	it("returns text for unregistered extensions and no adapter for text", () => {
