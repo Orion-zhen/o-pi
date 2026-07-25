@@ -5,7 +5,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 vi.mock("../../src/code-index/tree-sitter-loader.js", () => ({
-	loadTreeSitterRuntime: () => undefined,
+	DEFAULT_PARSE_TIMEOUT_MICROS: 250_000,
+	disposeTreeSitterParsers() {},
+	loadTreeSitterParser: async () => ({ failure: { code: "RUNTIME_UNAVAILABLE", message: "simulated runtime failure" } }),
 }));
 
 import { clearGrepIndex } from "../../src/file-tools/grep/indexer.js";

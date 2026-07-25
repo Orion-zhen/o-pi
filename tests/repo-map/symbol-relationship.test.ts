@@ -64,7 +64,7 @@ describe.skipIf(!treeSitterAvailable())("Repo Map symbol and relationship graph"
 			previous: { files: firstFiles, symbols: first.symbols, edges: firstEdges, diagnostics: [] },
 		});
 		expect(analyze).toHaveBeenCalledTimes(1);
-		expect(analyze).toHaveBeenCalledWith("b.ts", changedSources.get("b.ts"));
+		expect(analyze).toHaveBeenCalledWith("b.ts", changedSources.get("b.ts"), { retainDocument: true });
 		expect(second.reusedParsedFileCount).toBe(1);
 		expect(second.imports).toEqual(first.imports);
 	});

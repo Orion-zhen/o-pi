@@ -176,7 +176,7 @@ export async function buildRepoMapArchitecture(input: BuildRepoMapArchitectureIn
 		edges.push(previousEdge);
 		if (previousEdge.kind === "exports-publicly" && symbolsById.has(previousEdge.to)) reExportedSymbols.add(previousEdge.to);
 	}
-	for (const { file, syntax } of syntaxSources(input, sourceFiles)) {
+	for (const { file, syntax } of await syntaxSources(input, sourceFiles)) {
 		const owner = packageForFile.get(file.id);
 		const component = componentForFile.get(file.id);
 		for (const fact of syntax.registrations) {
@@ -535,18 +535,22 @@ function syntaxFactsForFile(
 	return factsByFile?.get(file.id) ?? factsByFile?.get(file.path);
 }
 
-function syntaxSources(
+async function syntaxSources(
 	input: BuildRepoMapArchitectureInput,
 	sourceFiles: ReadonlyMap<string, RepoMapSourceFile>,
-): Array<{ file: RepoMapFileRecord; syntax: JavaScriptSyntaxFacts }> {
-	return input.files
-		.filter((file) => file.status === "indexed" && isJavaScriptFamily(file.path))
-		.flatMap((file) => {
-			const facts = syntaxFactsForFile(input.syntaxFactsByFile, file);
-			if (facts !== undefined) return [{ file, syntax: facts }];
-			const source = sourceFiles.get(file.path);
-			return source === undefined ? [] : [{ file: source.file, syntax: javascriptSyntaxFacts(file.path, source.text) }];
-		});
+): Promise<Array<{ file: RepoMapFileRecord; syntax: JavaScriptSyntaxFacts }>> {
+	const result: Array<{ file: RepoMapFileRecord; syntax: JavaScriptSyntaxFacts }> = [];
+	for (const file of input.files) {
+		if (file.status !== "indexed" || !isJavaScriptFamily(file.path)) continue;
+		const facts = syntaxFactsForFile(input.syntaxFactsByFile, file);
+		if (facts !== undefined) {
+			result.push({ file, syntax: facts });
+			continue;
+		}
+		const source = sourceFiles.get(file.path);
+		if (source !== undefined) result.push({ file: source.file, syntax: await javascriptSyntaxFacts(file.path, source.text) });
+	}
+	return result;
 }
 
 function uniqueNodes(nodes: readonly RepoMapArchitectureNode[]): RepoMapArchitectureNode[] {

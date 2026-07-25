@@ -1,15 +1,16 @@
+import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
+import { promisify } from "node:util";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFileIdentity, createSymbolId } from "../../src/code-index/identity.js";
 import { analyzeCodeFile, buildLineIndex, byteRangeForLines, countTextTokenMatches, parseCodeUnits, splitTokens, tokenizeText } from "../../src/code-index/parser.js";
-import { loadTreeSitterRuntime } from "../../src/code-index/tree-sitter-loader.js";
 import { optionalDependencyPath, treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
 const require = createRequire(import.meta.url);
+const execFileAsync = promisify(execFile);
 const treeSitterModules = {
-	runtime: optionalDependencyPath("tree-sitter") ?? "",
 	javascript: optionalDependencyPath("tree-sitter-javascript") ?? "",
 	typescript: optionalDependencyPath("tree-sitter-typescript") ?? "",
 	python: optionalDependencyPath("tree-sitter-python") ?? "",
@@ -24,8 +25,8 @@ afterEach(() => {
 	vi.doUnmock("../../src/code-index/tree-sitter-loader.js");
 });
 
-function symbols(filePath: string, text: string): Array<[string, string | undefined, string | undefined]> {
-	return parseCodeUnits(filePath, text).units.map((unit) => [unit.kind, unit.name, unit.qualifiedName]);
+async function symbols(filePath: string, text: string): Promise<Array<[string, string | undefined, string | undefined]>> {
+	return (await parseCodeUnits(filePath, text)).units.map((unit) => [unit.kind, unit.name, unit.qualifiedName]);
 }
 
 describe.skipIf(!treeSitterAvailable())("shared code parser", () => {
@@ -53,7 +54,21 @@ describe.skipIf(!treeSitterAvailable())("shared code parser", () => {
 		expect(index.range(text.length, text.length)).toEqual({ startLine: 3, endLine: 3, startByte: 14, endByte: 14 });
 	});
 
-	it("导入 parser、grep 和注册 extension 时不加载 grammar，首次解析仅加载对应 grammar 并复用 runtime", async () => {
+	it("导入 parser、grep 和注册 extension 时不初始化 runtime，解析时不导入 native grammar 模块", async () => {
+		const probe = [
+			'const imported = await import("./src/code-index/parser.ts");',
+			"const parserApi = imported.default ?? imported;",
+			'const { Parser } = await import("web-tree-sitter");',
+			"let initializedBeforeParse = true;",
+			"try { const parser = new Parser(); parser.delete(); } catch { initializedBeforeParse = false; }",
+			'await parserApi.parseCodeUnits("probe.ts", "export function probe() {}\\n");',
+			"let initializedAfterParse = true;",
+			"try { const parser = new Parser(); parser.delete(); } catch { initializedAfterParse = false; }",
+			"process.stdout.write(JSON.stringify({ initializedBeforeParse, initializedAfterParse }));",
+		].join("\n");
+		const { stdout } = await execFileAsync(process.execPath, ["--import", "jiti/register", "--input-type=module", "--eval", probe], { cwd: process.cwd() });
+		expect(JSON.parse(stdout)).toEqual({ initializedBeforeParse: false, initializedAfterParse: true });
+
 		for (const modulePath of Object.values(treeSitterModules)) expect(require.cache[modulePath]).toBeUndefined();
 
 		await import("../../src/file-tools/tools/grep.js");
@@ -67,19 +82,17 @@ describe.skipIf(!treeSitterAvailable())("shared code parser", () => {
 		} as unknown as ExtensionAPI);
 		expect(handlers.has("before_agent_start")).toBe(false);
 
-		parseCodeUnits("notes.txt", "plain text");
+		await parseCodeUnits("notes.txt", "plain text");
 		for (const modulePath of Object.values(treeSitterModules)) expect(require.cache[modulePath]).toBeUndefined();
 
-		parseCodeUnits("first.ts", "export function first() {}\n");
-		expect(require.cache[treeSitterModules.runtime]).toBeDefined();
-		expect(require.cache[treeSitterModules.typescript]).toBeDefined();
+		await parseCodeUnits("first.ts", "export function first() {}\n");
+		expect(require.cache[treeSitterModules.typescript]).toBeUndefined();
 		expect(require.cache[treeSitterModules.javascript]).toBeUndefined();
 		expect(require.cache[treeSitterModules.python]).toBeUndefined();
 		expect(require.cache[treeSitterModules.go]).toBeUndefined();
 		expect(require.cache[treeSitterModules.rust]).toBeUndefined();
 		expect(require.cache[treeSitterModules.c]).toBeUndefined();
 		expect(require.cache[treeSitterModules.cpp]).toBeUndefined();
-		expect(loadTreeSitterRuntime("typescript")).toBe(loadTreeSitterRuntime("typescript"));
 		await expect(Promise.resolve(handlers.get("session_shutdown")?.())).resolves.toBeUndefined();
 		expect(require.cache[treeSitterModules.javascript]).toBeUndefined();
 		expect(require.cache[treeSitterModules.python]).toBeUndefined();
@@ -89,9 +102,9 @@ describe.skipIf(!treeSitterAvailable())("shared code parser", () => {
 		expect(require.cache[treeSitterModules.cpp]).toBeUndefined();
 	});
 
-	it("dense ASCII units use exact source slices", () => {
+	it("dense ASCII units use exact source slices", async () => {
 		const text = Array.from({ length: 64 }, (_, index) => `function item${index}() { return ${index}; }`).join("\n");
-		const units = parseCodeUnits("dense.ts", text).units;
+		const units = (await parseCodeUnits("dense.ts", text)).units;
 		expect(units).toHaveLength(64);
 		for (const [index, unit] of units.entries()) {
 			expect(unit.name).toBe(`item${index}`);
@@ -99,14 +112,14 @@ describe.skipIf(!treeSitterAvailable())("shared code parser", () => {
 		}
 	});
 
-	it("提取 C/C++ symbol、文件级 include 和 UTF-8 byte range", () => {
-		const c = analyzeCodeFile("src/point.c", "// 你😀\n#include <stdio.h>\nint add(int value) { return value; }\n");
+	it("提取 C/C++ symbol、文件级 include 和 UTF-8 byte range", async () => {
+		const c = await analyzeCodeFile("src/point.c", "// 你😀\n#include <stdio.h>\nint add(int value) { return value; }\n");
 		expect(c).toMatchObject({ status: "parsed", index: { language: "c" } });
 		expect(c.index.units.map((unit) => [unit.kind, unit.qualifiedName])).toEqual([["function", "add"]]);
 		expect(c.imports).toEqual([expect.objectContaining({ specifier: "stdio.h", startLine: 2, endLine: 2 })]);
 		expect(c.imports[0]?.startByte).toBe(Buffer.byteLength("// 你😀\n#include <", "utf8"));
 
-		const cpp = analyzeCodeFile("include/api.H", "namespace api { class Client { public: void run() {} }; }\n");
+		const cpp = await analyzeCodeFile("include/api.H", "namespace api { class Client { public: void run() {} }; }\n");
 		expect(cpp).toMatchObject({ status: "parsed", index: { language: "cpp" } });
 		expect(cpp.index.units.map((unit) => [unit.kind, unit.qualifiedName])).toEqual([
 			["namespace", "api"],
@@ -115,28 +128,28 @@ describe.skipIf(!treeSitterAvailable())("shared code parser", () => {
 		]);
 	});
 
-	it("提取 TypeScript、JavaScript、Python、Go 和 Rust symbol，并保留 class method scope", () => {
-		expect(symbols("auth.ts", "export class AuthService {\n  async login() { return issueToken(); }\n}\nexport const makeSession = () => null;\n")).toEqual([
+	it("提取 TypeScript、JavaScript、Python、Go 和 Rust symbol，并保留 class method scope", async () => {
+		expect(await symbols("auth.ts", "export class AuthService {\n  async login() { return issueToken(); }\n}\nexport const makeSession = () => null;\n")).toEqual([
 			["class", "AuthService", "AuthService"],
 			["method", "login", "AuthService.login"],
 			["declaration", "makeSession", "makeSession"],
 		]);
-		expect(symbols("auth.js", "class AuthService { login() { return true; } }\nfunction top() {}\n")).toEqual([
+		expect(await symbols("auth.js", "class AuthService { login() { return true; } }\nfunction top() {}\n")).toEqual([
 			["class", "AuthService", "AuthService"],
 			["method", "login", "AuthService.login"],
 			["function", "top", "top"],
 		]);
-		expect(symbols("worker.py", "class Worker:\n  def run(self):\n    pass\ndef top():\n  pass\n")).toEqual([
+		expect(await symbols("worker.py", "class Worker:\n  def run(self):\n    pass\ndef top():\n  pass\n")).toEqual([
 			["class", "Worker", "Worker"],
 			["function", "run", "Worker.run"],
 			["function", "top", "top"],
 		]);
-		expect(symbols("server.go", "package main\ntype Server struct{}\nfunc Start() {}\nfunc (s Server) Stop() {}\n")).toEqual([
+		expect(await symbols("server.go", "package main\ntype Server struct{}\nfunc Start() {}\nfunc (s Server) Stop() {}\n")).toEqual([
 			["type", "Server", "Server"],
 			["function", "Start", "Start"],
 			["method", "Stop", "Server.Stop"],
 		]);
-		expect(symbols("server.rs", "pub struct Server;\nimpl Server { pub fn start(&self) {} }\npub fn stop() {}\n")).toEqual([
+		expect(await symbols("server.rs", "pub struct Server;\nimpl Server { pub fn start(&self) {} }\npub fn stop() {}\n")).toEqual([
 			["type", "Server", "Server"],
 			["module", "Server", "Server"],
 			["function", "start", "Server.start"],
@@ -154,21 +167,37 @@ describe.skipIf(!treeSitterAvailable())("shared code parser", () => {
 		["caller.rs", "fn caller() { target(); obj.run(); let text = \"fake()\"; let _ = Value; /* ignored() */ }\n", "obj.run"],
 		["caller.c", "int caller(void) { target(); obj.run(); const char *text = \"fake()\"; return Value; /* ignored() */ }\n", "obj.run"],
 		["caller.cpp", "int caller() { target(); obj.run(); const char *text = \"fake()\"; return Value; /* ignored() */ }\n", "obj.run"],
-	])("从 %s AST 提取调用和引用，忽略字符串与注释", (filePath, text, memberCall) => {
-		const unit = parseCodeUnits(filePath, text).units.find((candidate) => candidate.name === "caller");
+	])("从 %s AST 提取调用和引用，忽略字符串与注释", async (filePath, text, memberCall) => {
+		const unit = (await parseCodeUnits(filePath, text)).units.find((candidate) => candidate.name === "caller");
 		if (unit === undefined) throw new Error(`missing caller unit for ${filePath}`);
 		expect(unit.calls).toEqual(["target", memberCall]);
 		expect(unit.references).toContain("Value");
 		expect(unit.references).not.toEqual(expect.arrayContaining(["caller", "fake", "ignored"]));
 	});
 
-	it("动态外层调用仍保留可静态识别的内层调用", () => {
-		const unit = parseCodeUnits("nested-call.ts", "function caller() { return factory()(); }\n").units[0];
+	it("动态外层调用仍保留可静态识别的内层调用", async () => {
+		const unit = (await parseCodeUnits("nested-call.ts", "function caller() { return factory()(); }\n")).units[0];
 		expect(unit?.calls).toEqual(["factory"]);
 	});
 
-	it("函数内部局部声明不拆分为独立 region", () => {
-		const parsed = parseCodeUnits("a.ts", "export function demo() {\n  const Token = 'Token';\n  return Token;\n}\n");
+	it("迭代遍历合法的深层 AST，不因 JavaScript 调用栈上限降级", async () => {
+		const depth = 2_500;
+		const text = `function caller() { return ${"target(".repeat(depth)}value${")".repeat(depth)}; }\n`;
+		const analyzed = await analyzeCodeFile("deep.ts", text);
+		expect(analyzed.status).toBe("parsed");
+		expect(analyzed.index.units).toHaveLength(1);
+		expect(analyzed.index.units[0]?.calls).toEqual(["target"]);
+	});
+
+	it("在进入本地 Tree-sitter 分析前响应已取消的 signal", async () => {
+		const controller = new AbortController();
+		controller.abort();
+		await expect(analyzeCodeFile("aborted.ts", "export function value() {}\n", { signal: controller.signal }))
+			.rejects.toMatchObject({ name: "CodeAnalysisAbortedError" });
+	});
+
+	it("函数内部局部声明不拆分为独立 region", async () => {
+		const parsed = await parseCodeUnits("a.ts", "export function demo() {\n  const Token = 'Token';\n  return Token;\n}\n");
 		expect(parsed.units.map((unit) => unit.qualifiedName)).toEqual(["demo"]);
 	});
 
@@ -199,16 +228,16 @@ describe.skipIf(!treeSitterAvailable())("shared code parser", () => {
 			text: "package receiver\ntype Server struct{}\nfunc (s Server) Stop() {}\n",
 			expected: ["type:Server", "method:Server.Stop"],
 		},
-	])("preserves complete declaration scope in $filePath", ({ filePath, text, expected, functionsOnly }) => {
-		const units = parseCodeUnits(filePath, text).units;
+	])("preserves complete declaration scope in $filePath", async ({ filePath, text, expected, functionsOnly }) => {
+		const units = (await parseCodeUnits(filePath, text)).units;
 		const actual = functionsOnly === true
 			? units.filter((unit) => unit.kind === "function").map((unit) => unit.qualifiedName)
 			: units.map((unit) => `${unit.kind}:${unit.qualifiedName}`);
 		expect(actual).toEqual(expected);
 	});
 
-	it("unsupported language 返回 text 空索引，且 file identity 使用规范化内部路径", () => {
-		expect(parseCodeUnits("./docs\\notes.conf", "section=true\n")).toEqual({
+	it("unsupported language 返回 text 空索引，且 file identity 使用规范化内部路径", async () => {
+		expect(await parseCodeUnits("./docs\\notes.conf", "section=true\n")).toEqual({
 			id: "file:docs/notes.conf",
 			path: "docs/notes.conf",
 			language: "text",
@@ -224,15 +253,15 @@ describe.skipIf(!treeSitterAvailable())("shared code parser", () => {
 		["a.py", "from app.worker import run\n", "app.worker"],
 		["a.go", "package a\nimport \"example/x\"\n", "example/x"],
 		["a.rs", "use crate::worker::run;\n", "crate::worker::run"],
-	])("详细分析保留 %s 的文件级 import", (filePath, text, specifier) => {
-		const analyzed = analyzeCodeFile(filePath, text);
+	])("详细分析保留 %s 的文件级 import", async (filePath, text, specifier) => {
+		const analyzed = await analyzeCodeFile(filePath, text);
 		expect(analyzed.status).toBe("parsed");
 		expect(analyzed.imports).toEqual([expect.objectContaining({ specifier })]);
 	});
 
-	it("提取 dynamic import 和 Go import block，且不把普通 Go 字符串当作 import", () => {
-		expect(analyzeCodeFile("a.ts", "const lazy = import('./lazy');\n").imports.map((item) => item.specifier)).toEqual(["./lazy"]);
-		const go = analyzeCodeFile("a.go", "package a\nimport (\n  \"example/one\"\n  alias \"example/two\"\n)\nvar text = \"not/import\"\n");
+	it("提取 dynamic import 和 Go import block，且不把普通 Go 字符串当作 import", async () => {
+		expect((await analyzeCodeFile("a.ts", "const lazy = import('./lazy');\n")).imports.map((item) => item.specifier)).toEqual(["./lazy"]);
+		const go = await analyzeCodeFile("a.go", "package a\nimport (\n  \"example/one\"\n  alias \"example/two\"\n)\nvar text = \"not/import\"\n");
 		expect(go.imports.map((item) => item.specifier)).toEqual(["example/one", "example/two"]);
 	});
 
@@ -242,13 +271,13 @@ describe.skipIf(!treeSitterAvailable())("shared code parser", () => {
 		["test('works')", []],
 		["require('./dependency')", ["./dependency"]],
 		["import('./lazy')", ["./lazy"]],
-	])("只把真实模块加载识别为 JavaScript import: %s", (source, expected) => {
-		expect(analyzeCodeFile("a.ts", source).imports.map((item) => item.specifier)).toEqual(expected);
+	])("只把真实模块加载识别为 JavaScript import: %s", async (source, expected) => {
+		expect((await analyzeCodeFile("a.ts", source)).imports.map((item) => item.specifier)).toEqual(expected);
 	});
 
-	it("SourceRange 使用 UTF-8 byte offset、1-based inclusive line 和半开字节区间", () => {
+	it("SourceRange 使用 UTF-8 byte offset、1-based inclusive line 和半开字节区间", async () => {
 		const text = "// 你😀\nexport function demo() {\n  return '好';\n}\n";
-		const unit = parseCodeUnits("utf8.ts", text).units[0];
+		const unit = (await parseCodeUnits("utf8.ts", text)).units[0];
 		if (unit === undefined) throw new Error("missing parsed unit");
 		expect(unit).toMatchObject({ startLine: 2, endLine: 4, startByte: Buffer.byteLength("// 你😀\n", "utf8") });
 		expect(Buffer.from(text, "utf8").subarray(unit.startByte, unit.endByte).toString("utf8")).toBe("export function demo() {\n  return '好';\n}");
@@ -289,28 +318,27 @@ describe.skipIf(!treeSitterAvailable())("shared code parser", () => {
 		expect(tokenizeText(text)).toEqual(expected);
 	});
 
-	it("symbol ID 由 file、kind、qualified name 和 start byte 决定，同名位置可区分且不依赖 end byte", () => {
+	it("symbol ID 由 file、kind、qualified name 和 start byte 决定，同名位置可区分且不依赖 end byte", async () => {
 		const input = { fileId: "file:src/a.ts", kind: "function", qualifiedName: "demo", startByte: 12 };
 		expect(createSymbolId(input)).toBe("symbol:file%3Asrc%2Fa.ts:function:demo:12");
 		expect(createSymbolId(input)).toBe(createSymbolId({ ...input }));
 		expect(createSymbolId({ ...input, startByte: 48 })).not.toBe(createSymbolId(input));
 
-		const short = parseCodeUnits("a.ts", "export function demo() {}\n").units[0];
-		const long = parseCodeUnits("a.ts", "export function demo() { return 1; }\n").units[0];
+		const short = (await parseCodeUnits("a.ts", "export function demo() {}\n")).units[0];
+		const long = (await parseCodeUnits("a.ts", "export function demo() { return 1; }\n")).units[0];
 		expect(short?.id).toBe(long?.id);
 	});
 
 	it("runtime 或 grammar 失败时安全降级为空代码单元", async () => {
 		vi.resetModules();
 		vi.doMock("../../src/code-index/tree-sitter-loader.js", () => ({
-			loadTreeSitterRuntime() {
-				throw new Error("simulated grammar failure");
-			},
+			DEFAULT_PARSE_TIMEOUT_MICROS: 250_000,
+			loadTreeSitterParser: async () => ({ failure: { code: "RUNTIME_UNAVAILABLE", message: "simulated grammar failure" } }),
 		}));
 		const { analyzeCodeFile: analyzeWithFailure, parseCodeUnits: parseWithFailure } = await import("../../src/code-index/parser.js");
-		expect(parseWithFailure("broken.ts", "export function demo() {}\n")).toMatchObject({ language: "typescript", units: [] });
-		expect(analyzeWithFailure("broken.ts", "export function demo() {}\n").status).toBe("error");
-		expect(parseWithFailure("broken.c", "int demo(void) {}\n")).toMatchObject({ language: "c", units: [] });
-		expect(analyzeWithFailure("broken.c", "int demo(void) {}\n").status).toBe("error");
+		expect(await parseWithFailure("broken.ts", "export function demo() {}\n")).toMatchObject({ language: "typescript", units: [] });
+		expect((await analyzeWithFailure("broken.ts", "export function demo() {}\n")).status).toBe("error");
+		expect(await parseWithFailure("broken.c", "int demo(void) {}\n")).toMatchObject({ language: "c", units: [] });
+		expect((await analyzeWithFailure("broken.c", "int demo(void) {}\n")).status).toBe("error");
 	});
 });

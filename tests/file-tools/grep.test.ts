@@ -322,10 +322,10 @@ describe("grep", () => {
 		await writeFile(path.join(workspace, "z.ts"), preferredText);
 		await writeFile(path.join(workspace, "mixed.ts"), mixedText);
 		await writeFile(path.join(workspace, "excluded.ts"), excludedText);
-		const preferredUnit = parseCodeUnits("z.ts", preferredText).units.find((unit) => unit.name === "Preferred");
-		const unrelatedUnit = parseCodeUnits("mixed.ts", mixedText).units.find((unit) => unit.name === "Unrelated");
-		const excludedUnit = parseCodeUnits("excluded.ts", excludedText).units.find((unit) => unit.name === "Excluded");
-		const firstUnit = parseCodeUnits("a.ts", firstText).units.find((unit) => unit.name === "Alpha");
+		const preferredUnit = (await parseCodeUnits("z.ts", preferredText)).units.find((unit) => unit.name === "Preferred");
+		const unrelatedUnit = (await parseCodeUnits("mixed.ts", mixedText)).units.find((unit) => unit.name === "Unrelated");
+		const excludedUnit = (await parseCodeUnits("excluded.ts", excludedText)).units.find((unit) => unit.name === "Excluded");
+		const firstUnit = (await parseCodeUnits("a.ts", firstText)).units.find((unit) => unit.name === "Alpha");
 		if (preferredUnit === undefined || unrelatedUnit === undefined || excludedUnit === undefined || firstUnit === undefined) {
 			throw new Error("missing parsed fixture unit");
 		}
@@ -376,7 +376,7 @@ describe("grep", () => {
 	it.skipIf(!treeSitterAvailable())("严格主结果为空时单独返回有界的 Repo Map 关联区域", async () => {
 		const content = "export function RelatedDefinition() { return 'other'; }\n";
 		await writeFile(path.join(workspace, "related.ts"), content);
-		const unit = parseCodeUnits("related.ts", content).units.find((item) => item.name === "RelatedDefinition");
+		const unit = (await parseCodeUnits("related.ts", content)).units.find((item) => item.name === "RelatedDefinition");
 		if (unit === undefined) throw new Error("missing parsed fixture unit");
 		const query = vi.fn(async (input): Promise<RepoMapQueryResult> => ({
 			root: workspace,
@@ -412,7 +412,7 @@ describe("grep", () => {
 		await writeFile(path.join(workspace, "src", "match.ts"), "export const match = 'Needle42';\n");
 		const relatedText = "export function RelatedTest() { return 'Needle42'; }\n";
 		await writeFile(path.join(workspace, "tests", "related.test.ts"), relatedText);
-		const relatedUnit = parseCodeUnits("tests/related.test.ts", relatedText).units.find((item) => item.name === "RelatedTest");
+		const relatedUnit = (await parseCodeUnits("tests/related.test.ts", relatedText)).units.find((item) => item.name === "RelatedTest");
 		if (relatedUnit === undefined) throw new Error("missing parsed fixture unit");
 		const query = vi.fn(async (input): Promise<RepoMapQueryResult> => ({
 			root: workspace,
@@ -441,7 +441,7 @@ describe("grep", () => {
 		}
 		const relatedText = "export function RelatedDefinition() { return 'other'; }\n";
 		await writeFile(path.join(workspace, "related.ts"), relatedText);
-		const unit = parseCodeUnits("related.ts", relatedText).units.find((item) => item.name === "RelatedDefinition");
+		const unit = (await parseCodeUnits("related.ts", relatedText)).units.find((item) => item.name === "RelatedDefinition");
 		if (unit === undefined) throw new Error("missing parsed fixture unit");
 		const query = vi.fn(async (input): Promise<RepoMapQueryResult> => ({
 			root: workspace,

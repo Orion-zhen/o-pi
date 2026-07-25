@@ -1,4 +1,5 @@
-import { collectUnits, firstNamedChildText, nameField, rawImport, rawUnit, type UnitRules } from "./shared.js";
+import { collectUnits, firstNamedChildText, nameField, rawImport, rawUnit, walkNamed, type UnitRules } from "./shared.js";
+import type { AnalysisControl } from "../types.js";
 import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
 
 const TS_UNIT_KINDS = new Set([
@@ -48,8 +49,8 @@ function normalizeTsKind(kind: string): string {
 	return "declaration";
 }
 
-function extractJavaScriptUnits(root: SyntaxNode) {
-	return collectUnits(root, unitRules(localExportNames(root)));
+function extractJavaScriptUnits(root: SyntaxNode, control: AnalysisControl) {
+	return collectUnits(root, unitRules(localExportNames(root)), control);
 }
 
 function localExportNames(root: SyntaxNode): Set<string> {
@@ -64,9 +65,9 @@ function localExportNames(root: SyntaxNode): Set<string> {
 	return names;
 }
 
-function extractJavaScriptImports(root: SyntaxNode): RawImport[] {
+function extractJavaScriptImports(root: SyntaxNode, control: AnalysisControl): RawImport[] {
 	const imports: RawImport[] = [];
-	walk(root, (node) => {
+	walkNamed(root, (node) => {
 		if (node.type === "import_statement" || node.type === "export_statement") {
 			const source = node.childForFieldName("source");
 			const imported = source === null ? undefined : stringImport(source);
@@ -82,7 +83,7 @@ function extractJavaScriptImports(root: SyntaxNode): RawImport[] {
 		if (argument === undefined) return;
 		const imported = stringImport(argument);
 		if (imported !== undefined) imports.push(imported);
-	});
+	}, control);
 	return imports;
 }
 
@@ -92,15 +93,10 @@ function stringImport(node: SyntaxNode): RawImport | undefined {
 	return fragment === undefined ? undefined : rawImport(node, fragment);
 }
 
-function walk(node: SyntaxNode, visit: (node: SyntaxNode) => void): void {
-	visit(node);
-	for (const child of node.namedChildren) walk(child, visit);
-}
-
 export const javascriptAdapter: LanguageAdapter = {
 	language: "javascript",
 	extensions: [".js", ".mjs", ".cjs"],
-	grammar: { packageName: "tree-sitter-javascript" },
+	grammar: { packageName: "tree-sitter-javascript", wasmFile: "tree-sitter-javascript.wasm" },
 	extractUnits: extractJavaScriptUnits,
 	extractImports: extractJavaScriptImports,
 };
@@ -108,7 +104,7 @@ export const javascriptAdapter: LanguageAdapter = {
 export const jsxAdapter: LanguageAdapter = {
 	language: "jsx",
 	extensions: [".jsx"],
-	grammar: { packageName: "tree-sitter-javascript" },
+	grammar: { packageName: "tree-sitter-javascript", wasmFile: "tree-sitter-javascript.wasm" },
 	extractUnits: extractJavaScriptUnits,
 	extractImports: extractJavaScriptImports,
 };

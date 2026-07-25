@@ -2,30 +2,63 @@ import type { RawImport, RawUnit } from "./adapters/types.js";
 import { extractUnitRelations, indexRawImports } from "./adapters/shared.js";
 import { createFileIdentity, createSymbolId } from "./identity.js";
 import { getLanguageAdapter, languageFromPath } from "./language-registry.js";
-import { parseDocumentResult, type ParseDocumentResult } from "./syntax-tree.js";
+import { CodeAnalysisTimeoutError, isCodeAnalysisControlError, parseDocumentResult, type ParseDocumentResult } from "./syntax-tree.js";
 import { SourceIndex } from "./types.js";
-import type { AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, LineIndex, ParsedDocument, ParsedFileIndex, SourceRange } from "./types.js";
+import type { AnalysisControl, AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, LineIndex, ParsedDocument, ParsedFileIndex, SourceRange } from "./types.js";
 
 export { languageFromPath } from "./language-registry.js";
-export { parseDocument, parseDocumentForAdapter, parseDocumentResult, parseSyntaxTreeForAdapter, sourceRangeForNode } from "./syntax-tree.js";
+export { parseDocument, parseDocumentForAdapter, parseDocumentResult, sourceRangeForNode } from "./syntax-tree.js";
 export type { AnalyzedFileIndex, CodeLanguage, ImportKind, IndexedCodeUnit, IndexedImport, LineIndex, ParseFailure, ParsedDocument, ParsedFileIndex, SourceRange } from "./types.js";
 export type { ParseDocumentResult } from "./syntax-tree.js";
 export { SourceIndex } from "./types.js";
 
 const IDENTIFIER = /[A-Za-z_$][\w$]*|[A-Za-z_][A-Za-z0-9_]*[-_][A-Za-z0-9_-]+|\d+/g;
 
+export interface AnalyzeCodeFileOptions {
+	/** Keep the parsed document for immediate additional extraction. The caller must dispose it. */
+	retainDocument?: boolean;
+	timeoutMicros?: number;
+	signal?: AbortSignal;
+}
+
 /** 解析单个文件的代码单元；不支持或解析失败时返回空索引，由 grep 层退化为文本片段。 */
-export function parseCodeUnits(filePath: string, text: string): ParsedFileIndex {
-	return analyzeCodeFile(filePath, text).index;
+export async function parseCodeUnits(filePath: string, text: string): Promise<ParsedFileIndex> {
+	return (await analyzeCodeFile(filePath, text)).index;
 }
 
 /** Repo Map 使用的详细结果；保留 parser 失败状态与文件级 import 事实。 */
-export function analyzeCodeFile(filePath: string, text: string): AnalyzedFileIndex {
+export async function analyzeCodeFile(
+	filePath: string,
+	text: string,
+	options: AnalyzeCodeFileOptions = {},
+): Promise<AnalyzedFileIndex> {
 	const language = languageFromPath(filePath);
-	const parsed: ParseDocumentResult = parseDocumentResult(language, text);
-	const analyzed = analyzeDocument(filePath, parsed.document);
-	if (parsed.failure !== undefined && analyzed.status === "error") return { ...analyzed, failure: parsed.failure };
-	return parsed.document === undefined ? analyzed : { ...analyzed, document: parsed.document };
+	const parsed: ParseDocumentResult = await parseDocumentResult(language, text, {
+		...(options.timeoutMicros !== undefined ? { timeoutMicros: options.timeoutMicros } : {}),
+		...(options.signal !== undefined ? { signal: options.signal } : {}),
+	});
+	const document = parsed.document;
+	let retained = false;
+	try {
+		let analyzed: AnalyzedFileIndex;
+		try {
+			analyzed = analyzeDocument(filePath, document);
+		} catch (error) {
+			if (!(error instanceof CodeAnalysisTimeoutError)) throw error;
+			analyzed = {
+				...emptyAnalyzedFile(createFileIdentity(filePath), language, "error"),
+				failure: { code: "PARSER_TIMEOUT", message: error.message },
+			};
+		}
+		const result = parsed.failure !== undefined && analyzed.status === "error"
+			? { ...analyzed, failure: parsed.failure }
+			: analyzed;
+		if (document === undefined || options.retainDocument !== true || result.status !== "parsed") return result;
+		retained = true;
+		return { ...result, document };
+	} finally {
+		if (document !== undefined && !retained) document.dispose();
+	}
 }
 
 /** 在已解析的 ParsedDocument 上建立 code index；文档只在本次调用链中存活。 */
@@ -40,11 +73,12 @@ export function analyzeDocument(filePath: string, document: ParsedDocument | und
 	let units: IndexedCodeUnit[];
 	let rawImports: RawImport[];
 	try {
-		const rawUnits = adapter.extractUnits(root);
+		const rawUnits = adapter.extractUnits(root, document.control);
 		const unitNodeIds = new Set(rawUnits.map((unit) => unit.sourceNode.id));
-		units = rawUnits.map((unit) => buildIndexedUnit(file, language, text, sourceIndex, unit, unitNodeIds));
-		rawImports = adapter.extractImports(root);
-	} catch {
+		units = rawUnits.map((unit) => buildIndexedUnit(file, language, text, sourceIndex, unit, unitNodeIds, document.control));
+		rawImports = adapter.extractImports(root, document.control);
+	} catch (error) {
+		if (isCodeAnalysisControlError(error)) throw error;
 		return emptyAnalyzedFile(file, language, "error");
 	}
 	return {
@@ -135,6 +169,7 @@ function buildIndexedUnit(
 	sourceIndex: SourceIndex,
 	unit: RawUnit,
 	unitNodeIds: ReadonlySet<number>,
+	control: AnalysisControl,
 ): IndexedCodeUnit {
 	const range = sourceIndex.range(unit.startChar, unit.endChar);
 	const { startByte, endByte } = range;
@@ -142,7 +177,7 @@ function buildIndexedUnit(
 	const signature = firstNonEmptyLine(content);
 	const nameText = [file.path, unit.name, unit.qualifiedName, signature, content].join("\n");
 	const tokens = tokenizeText(nameText);
-	const { references, calls } = extractUnitRelations(unit, unitNodeIds);
+	const { references, calls } = extractUnitRelations(unit, unitNodeIds, control);
 	return {
 		id: createSymbolId({
 			fileId: file.id,

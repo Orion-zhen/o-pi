@@ -7,7 +7,6 @@ export type ImportKind = "relative" | "external";
 export type ParseFailureCode =
 	| "RUNTIME_UNAVAILABLE"
 	| "GRAMMAR_UNAVAILABLE"
-	| "GRAMMAR_EXPORT_INVALID"
 	| "GRAMMAR_INCOMPATIBLE"
 	| "PARSER_INITIALIZATION_FAILED"
 	| "PARSER_EXCEPTION"
@@ -48,13 +47,14 @@ export class SourceIndex implements LineIndex {
 	readonly #charLength: number;
 	readonly #charToByte: Uint32Array | undefined;
 
-	constructor(text: string) {
+	constructor(text: string, control?: AnalysisControl) {
 		const lineStarts = [0];
 		const lineStartChars = [0];
 		let bytes = 0;
 		let ascii = true;
 
 		for (let index = 0; index < text.length; index += 1) {
+			if ((index & 0xfff) === 0) control?.check();
 			const code = text.charCodeAt(index);
 			if (code < 0x80) {
 				bytes += 1;
@@ -79,7 +79,7 @@ export class SourceIndex implements LineIndex {
 		this.lineStartChars = lineStartChars;
 		this.byteLength = bytes;
 		this.#charLength = text.length;
-		this.#charToByte = ascii ? undefined : buildCharToByte(text);
+		this.#charToByte = ascii ? undefined : buildCharToByte(text, control);
 	}
 
 	get charLength(): number {
@@ -119,11 +119,19 @@ export class SourceIndex implements LineIndex {
 	}
 }
 
+export interface AnalysisControl {
+	/** Throw when parsing or AST analysis should stop. */
+	check(): void;
+}
+
 export interface ParsedDocument {
 	readonly language: CodeLanguage;
 	readonly text: string;
 	readonly root: SyntaxNode;
 	readonly sourceIndex: SourceIndex;
+	readonly control: AnalysisControl;
+	/** Release the underlying WebAssembly syntax tree. Idempotent. */
+	dispose(): void;
 }
 
 export interface FileIdentity {
@@ -174,10 +182,11 @@ export interface AnalyzedFileIndex {
 	document?: ParsedDocument;
 }
 
-function buildCharToByte(text: string): Uint32Array {
+function buildCharToByte(text: string, control?: AnalysisControl): Uint32Array {
 	const offsets = new Uint32Array(text.length + 1);
 	let bytes = 0;
 	for (let index = 0; index < text.length; index += 1) {
+		if ((index & 0xfff) === 0) control?.check();
 		const code = text.charCodeAt(index);
 		if (code < 0x80) {
 			bytes += 1;

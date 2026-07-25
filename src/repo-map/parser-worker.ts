@@ -37,25 +37,29 @@ async function parseFile(root: string, file: RepoMapParserFileResult["file"]): P
 				diagnostic: { code: "FILE_CHANGED_DURING_PARSE", message: "File changed after scanning and was not parsed." },
 			};
 		}
-		const analyzed = analyzeCodeFile(file.path, text);
-		if (analyzed.status !== "parsed") {
+		const analyzed = await analyzeCodeFile(file.path, text, { retainDocument: true });
+		try {
+			if (analyzed.status !== "parsed") {
+				return {
+					file,
+					status: analyzed.status === "unsupported" ? "unsupported" : "error",
+					...(analyzed.status === "error" ? { diagnostic: { code: "PARSER_ERROR", message: analyzed.failure?.message ?? "Tree-sitter could not parse this supported file." } } : {}),
+				};
+			}
+			const syntaxFacts = analyzed.document === undefined || !isJavaScriptFamily(file.path)
+				? undefined
+				: javascriptSyntaxFactsFromDocument(file.path, analyzed.document);
 			return {
 				file,
-				status: analyzed.status === "unsupported" ? "unsupported" : "error",
-				...(analyzed.status === "error" ? { diagnostic: { code: "PARSER_ERROR", message: analyzed.failure?.message ?? "Tree-sitter could not parse this supported file." } } : {}),
+				status: "parsed",
+				index: analyzed.index,
+				imports: analyzed.imports,
+				...(syntaxFacts === undefined ? {} : { syntaxFacts }),
+				...(analyzed.document?.root.hasError === true ? { diagnostic: PARSER_SYNTAX_DIAGNOSTIC } : {}),
 			};
+		} finally {
+			analyzed.document?.dispose();
 		}
-		const syntaxFacts = analyzed.document === undefined || !isJavaScriptFamily(file.path)
-			? undefined
-			: javascriptSyntaxFactsFromDocument(file.path, analyzed.document);
-		return {
-			file,
-			status: "parsed",
-			index: analyzed.index,
-			imports: analyzed.imports,
-			...(syntaxFacts === undefined ? {} : { syntaxFacts }),
-			...(analyzed.document?.root.hasError === true ? { diagnostic: PARSER_SYNTAX_DIAGNOSTIC } : {}),
-		};
 	} catch (error) {
 		return {
 			file,

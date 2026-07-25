@@ -64,7 +64,7 @@
 		"vscode-languageserver-protocol": "latest"
 	},
 	"optionalDependencies": {
-		"tree-sitter": "latest",
+		"web-tree-sitter": "latest",
 		"tree-sitter-c": "latest",
 		"tree-sitter-cpp": "latest",
 		"tree-sitter-go": "latest",
@@ -75,14 +75,6 @@
 	},
 	"allowScripts": {
 		"@google/genai": true,
-		"protobufjs": true,
-		"tree-sitter": true,
-		"tree-sitter-c": true,
-		"tree-sitter-cpp": true,
-		"tree-sitter-go": true,
-		"tree-sitter-javascript": true,
-		"tree-sitter-python": true,
-		"tree-sitter-rust": true,
-		"tree-sitter-typescript": true
+		"protobufjs": true
 	}
 }

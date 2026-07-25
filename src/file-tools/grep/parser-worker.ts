@@ -17,18 +17,21 @@ interface ParseFailure {
 	error: string;
 }
 
-const port = parentPort;
-if (port === null) throw new Error("grep parser worker requires a parent port");
+if (parentPort === null) throw new Error("grep parser worker requires a parent port");
+const workerPort = parentPort;
 
-port.on("message", (request: ParseRequest) => {
+workerPort.on("message", (request: ParseRequest) => {
+	void handle(request);
+});
+
+async function handle(request: ParseRequest): Promise<void> {
 	try {
-		const response: ParseSuccess = {
-			id: request.id,
-			results: request.files.map((file) => file.syntax ? analyzeCodeFile(file.path, file.text) : analyzeTextFile(file.path)),
-		};
-		port.postMessage(response);
+		const results = await Promise.all(request.files.map((file) =>
+			file.syntax ? analyzeCodeFile(file.path, file.text) : Promise.resolve(analyzeTextFile(file.path))));
+		const response: ParseSuccess = { id: request.id, results };
+		workerPort.postMessage(response);
 	} catch (error) {
 		const response: ParseFailure = { id: request.id, error: error instanceof Error ? error.message : String(error) };
-		port.postMessage(response);
+		workerPort.postMessage(response);
 	}
-});
+}

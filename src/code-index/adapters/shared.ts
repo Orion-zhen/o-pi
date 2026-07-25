@@ -1,4 +1,4 @@
-import type { ImportKind, IndexedImport, LineIndex } from "../types.js";
+import type { AnalysisControl, ImportKind, IndexedImport, LineIndex } from "../types.js";
 import type { RawImport, RawUnit, SyntaxNode } from "./types.js";
 
 export interface UnitRules {
@@ -7,18 +7,25 @@ export interface UnitRules {
 	shouldDescend(node: SyntaxNode, unit: RawUnit): boolean;
 }
 
-export function collectUnits(root: SyntaxNode, rules: UnitRules): RawUnit[] {
+export function collectUnits(root: SyntaxNode, rules: UnitRules, control: AnalysisControl): RawUnit[] {
 	const units: RawUnit[] = [];
-	walkUnits(root, undefined, rules, units);
+	const stack: Array<{ node: SyntaxNode; scope?: string }> = [{ node: root }];
+	while (stack.length > 0) {
+		control.check();
+		const current = stack.pop();
+		if (current === undefined) break;
+		const { node, scope } = current;
+		const unit = rules.extract(node, scope);
+		if (unit !== undefined) units.push(unit);
+		if (unit !== undefined && !rules.shouldDescend(node, unit)) continue;
+		const childScope = rules.childScope(node, unit, scope);
+		const children = node.namedChildren;
+		for (let index = children.length - 1; index >= 0; index -= 1) {
+			const child = children[index];
+			if (child !== undefined) stack.push({ node: child, ...(childScope !== undefined ? { scope: childScope } : {}) });
+		}
+	}
 	return units.sort(compareRawUnits);
-}
-
-function walkUnits(node: SyntaxNode, scope: string | undefined, rules: UnitRules, units: RawUnit[]): void {
-	const unit = rules.extract(node, scope);
-	if (unit !== undefined) units.push(unit);
-	if (unit !== undefined && !rules.shouldDescend(node, unit)) return;
-	const childScope = rules.childScope(node, unit, scope);
-	for (const child of node.namedChildren) walkUnits(child, childScope, rules, units);
 }
 
 export function rawUnit(node: SyntaxNode, kind: string, name: string, scope?: string, exported = false): RawUnit {
@@ -40,10 +47,14 @@ export interface RawUnitRelations {
 }
 
 /** Extract lexical facts from syntax nodes owned by this unit, excluding separately indexed child units. */
-export function extractUnitRelations(unit: RawUnit, unitNodeIds: ReadonlySet<number>): RawUnitRelations {
+export function extractUnitRelations(
+	unit: RawUnit,
+	unitNodeIds: ReadonlySet<number>,
+	control: AnalysisControl,
+): RawUnitRelations {
 	const references = new Set<string>();
 	const calls = new Set<string>();
-	walkRelations(unit.sourceNode, unit.sourceNode.id, unitNodeIds, references, calls);
+	walkRelations(unit.sourceNode, unit.sourceNode.id, unitNodeIds, references, calls, control);
 	if (unit.name !== undefined) references.delete(unit.name);
 	if (unit.qualifiedName !== undefined) references.delete(unit.qualifiedName);
 	return { references: [...references], calls: [...calls] };
@@ -98,15 +109,21 @@ export function hasSimpleFunctionDeclarator(node: SyntaxNode): boolean {
 }
 
 function findFunctionDeclarator(node: SyntaxNode): SyntaxNode | undefined {
-	if (node.type === "function_declarator") return node;
-	const declarator = node.childForFieldName("declarator");
-	return declarator === null ? undefined : findFunctionDeclarator(declarator);
+	let current: SyntaxNode | null = node;
+	while (current !== null) {
+		if (current.type === "function_declarator") return current;
+		current = current.childForFieldName("declarator");
+	}
+	return undefined;
 }
 
 function namedDeclarator(node: SyntaxNode): string | undefined {
-	if (DECLARATOR_NAME_TYPES.has(node.type)) return node.text;
-	const declarator = node.childForFieldName("declarator");
-	return declarator === null ? undefined : namedDeclarator(declarator);
+	let current: SyntaxNode | null = node;
+	while (current !== null) {
+		if (DECLARATOR_NAME_TYPES.has(current.type)) return current.text;
+		current = current.childForFieldName("declarator");
+	}
+	return undefined;
 }
 
 export function hasAncestorType(node: SyntaxNode): boolean {
@@ -145,25 +162,51 @@ const CALL_NODE_TYPES = new Set(["call", "call_expression", "new_expression"]);
 const STATIC_CALLEE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/u;
 
 function walkRelations(
-	node: SyntaxNode,
+	root: SyntaxNode,
 	rootNodeId: number,
 	unitNodeIds: ReadonlySet<number>,
 	references: Set<string>,
 	calls: Set<string>,
+	control: AnalysisControl,
 ): void {
-	if (node.id !== rootNodeId && unitNodeIds.has(node.id)) return;
-	const callable = callableNode(node);
-	if (callable !== undefined) {
-		const target = staticCallee(callable);
-		if (target === undefined) walkRelations(callable, rootNodeId, unitNodeIds, references, calls);
-		else calls.add(target);
-		for (const child of node.namedChildren) {
-			if (child.id !== callable.id) walkRelations(child, rootNodeId, unitNodeIds, references, calls);
+	const stack = [root];
+	while (stack.length > 0) {
+		control.check();
+		const node = stack.pop();
+		if (node === undefined || (node.id !== rootNodeId && unitNodeIds.has(node.id))) continue;
+		const callable = callableNode(node);
+		const children = node.namedChildren;
+		if (callable !== undefined) {
+			const target = staticCallee(callable);
+			if (target !== undefined) calls.add(target);
+			for (let index = children.length - 1; index >= 0; index -= 1) {
+				const child = children[index];
+				if (child !== undefined && child.id !== callable.id) stack.push(child);
+			}
+			if (target === undefined) stack.push(callable);
+			continue;
 		}
-		return;
+		if (isIdentifierLeaf(node)) references.add(node.text);
+		for (let index = children.length - 1; index >= 0; index -= 1) {
+			const child = children[index];
+			if (child !== undefined) stack.push(child);
+		}
 	}
-	if (isIdentifierLeaf(node)) references.add(node.text);
-	for (const child of node.namedChildren) walkRelations(child, rootNodeId, unitNodeIds, references, calls);
+}
+
+export function walkNamed(root: SyntaxNode, visit: (node: SyntaxNode) => void, control: AnalysisControl): void {
+	const stack = [root];
+	while (stack.length > 0) {
+		control.check();
+		const node = stack.pop();
+		if (node === undefined) break;
+		visit(node);
+		const children = node.namedChildren;
+		for (let index = children.length - 1; index >= 0; index -= 1) {
+			const child = children[index];
+			if (child !== undefined) stack.push(child);
+		}
+	}
 }
 
 function callableNode(node: SyntaxNode): SyntaxNode | undefined {

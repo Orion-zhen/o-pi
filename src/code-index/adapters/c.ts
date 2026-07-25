@@ -7,8 +7,10 @@ import {
 	hasStorageClass,
 	rawImport,
 	rawUnit,
+	walkNamed,
 	type UnitRules,
 } from "./shared.js";
+import type { AnalysisControl } from "../types.js";
 import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
 
 const cRules: UnitRules = {
@@ -48,9 +50,9 @@ const cRules: UnitRules = {
 	},
 };
 
-function extractCImports(root: SyntaxNode): RawImport[] {
+function extractCImports(root: SyntaxNode, control: AnalysisControl): RawImport[] {
 	const imports: RawImport[] = [];
-	walk(root, (node) => {
+	walkNamed(root, (node) => {
 		if (node.type !== "preproc_include") return;
 		const path = node.childForFieldName("path");
 		if (path === null) return;
@@ -62,19 +64,14 @@ function extractCImports(root: SyntaxNode): RawImport[] {
 			const content = path.namedChildren[0];
 			if (content !== undefined) imports.push(rawImport(path, content, "relative"));
 		}
-	});
+	}, control);
 	return imports;
-}
-
-function walk(node: SyntaxNode, visit: (node: SyntaxNode) => void): void {
-	visit(node);
-	for (const child of node.namedChildren) walk(child, visit);
 }
 
 export const cAdapter: LanguageAdapter = {
 	language: "c",
 	extensions: [".c"],
-	grammar: { packageName: "tree-sitter-c" },
-	extractUnits: (root) => collectUnits(root, cRules),
+	grammar: { packageName: "tree-sitter-c", wasmFile: "tree-sitter-c.wasm" },
+	extractUnits: (root, control) => collectUnits(root, cRules, control),
 	extractImports: extractCImports,
 };

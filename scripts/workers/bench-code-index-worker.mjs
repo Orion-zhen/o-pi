@@ -13,13 +13,13 @@ const source = fixture(size, scenario);
 const files = ["fixture.ts", "fixture.tsx", "fixture.mts", "fixture.cts"];
 
 const coldStarted = performance.now();
-const cold = parser.analyzeCodeFile(files[0], source);
+const cold = await parser.analyzeCodeFile(files[0], source);
 const coldParseMs = performance.now() - coldStarted;
 const warmStarted = performance.now();
-const warm = parser.analyzeCodeFile(files[0], source);
+const warm = await parser.analyzeCodeFile(files[0], source);
 const warmParseMs = performance.now() - warmStarted;
 const localStarted = performance.now();
-const local = files.map((file) => parser.analyzeCodeFile(file, source));
+const local = await Promise.all(files.map((file) => parser.analyzeCodeFile(file, source)));
 const localBatchMs = performance.now() - localStarted;
 const workerStarted = performance.now();
 const workerBatch = await runWorker(files, source);

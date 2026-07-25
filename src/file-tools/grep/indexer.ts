@@ -10,6 +10,7 @@ import { fail, isAccessDenied, isFailed, protectedPathFailure } from "../core/er
 import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
 import type { IgnoreSnapshot } from "../ignore/ignore-types.js";
 import { languageFromPath, splitTokens, type AnalyzedFileIndex, type ParsedFileIndex } from "../../code-index/parser.js";
+import { disposeTreeSitterParsers } from "../../code-index/tree-sitter-loader.js";
 import { guardExistingPath, PathGuardBlockedError } from "../../safety/path-guard.js";
 import { normalizeToolPath } from "../core/path-resolver.js";
 import { decodeUtf8Text } from "../core/text-file.js";
@@ -266,6 +267,7 @@ export function clearGrepIndex(): void {
 	}
 	pendingIndexes.clear();
 	clearGrepParserPool();
+	disposeTreeSitterParsers();
 }
 
 async function resolveGrepRoot(

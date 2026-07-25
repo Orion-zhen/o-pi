@@ -77,7 +77,7 @@ export async function buildRepoMapTestGraph(input: BuildRepoMapTestGraphInput): 
 	for (const testFile of testFiles) {
 		const source = sources.get(testFile.id);
 		const suppliedFacts = syntaxFactsForFile(input.syntaxFactsByFile, testFile);
-		const syntax = suppliedFacts ?? (source === undefined ? EMPTY_FACTS : javascriptSyntaxFacts(testFile.path, source.text));
+		const syntax = suppliedFacts ?? (source === undefined ? EMPTY_FACTS : await javascriptSyntaxFacts(testFile.path, source.text));
 		if (source === undefined && suppliedFacts === undefined) continue;
 		const fileNode = testFileNode(testFile);
 		nodes.push(fileNode);

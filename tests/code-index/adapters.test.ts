@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { adapterFromPath } from "../../src/code-index/language-registry.js";
 import { analyzeCodeFile } from "../../src/code-index/parser.js";
-import { parseSyntaxTree } from "../../src/code-index/syntax-tree.js";
+import { parseDocument } from "../../src/code-index/syntax-tree.js";
 import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
 describe.skipIf(!treeSitterAvailable())("tree-sitter adapters", () => {
@@ -74,13 +74,17 @@ describe.each([
 		imports: ["vector", "detail.hpp"],
 	},
 ])("$filePath adapter", ({ filePath, text, units, imports }) => {
-	it("extracts units and imports through the adapter contract", () => {
+	it("extracts units and imports through the adapter contract", async () => {
 		const adapter = adapterFromPath(filePath);
 		if (adapter === undefined) throw new Error(`missing adapter for ${filePath}`);
-		const root = parseSyntaxTree(adapter.language, text);
-		if (root === undefined) throw new Error(`missing syntax tree for ${adapter.language}`);
-		expect(adapter.extractUnits(root).map((unit) => `${unit.kind}:${unit.qualifiedName}`)).toEqual(units);
-		expect(adapter.extractImports(root).map((item) => item.specifier)).toEqual(imports);
+		const document = await parseDocument(adapter.language, text);
+		if (document === undefined) throw new Error(`missing syntax tree for ${adapter.language}`);
+		try {
+			expect(adapter.extractUnits(document.root, document.control).map((unit) => `${unit.kind}:${unit.qualifiedName}`)).toEqual(units);
+			expect(adapter.extractImports(document.root, document.control).map((item) => item.specifier)).toEqual(imports);
+		} finally {
+			document.dispose();
+		}
 	});
 });
 
@@ -110,8 +114,8 @@ it.each([
 		text: "/*\n#include <comment-only.h>\n*/\n#include <real.h>\n",
 		expected: ["real.h"],
 	},
-])("$filePath ignores import syntax inside comments and strings", ({ filePath, text, expected }) => {
-	const analyzed = analyzeCodeFile(filePath, text);
+])("$filePath ignores import syntax inside comments and strings", async ({ filePath, text, expected }) => {
+	const analyzed = await analyzeCodeFile(filePath, text);
 	expect(analyzed.status).toBe("parsed");
 	expect(analyzed.imports.map((item) => item.specifier)).toEqual(expected);
 });
@@ -120,8 +124,8 @@ it.each([
 	["multiple.py", "import first, second as alias\n", ["first", "second"]],
 	["grouped.rs", "use crate::{first, second};\n", ["crate::first", "crate::second"]],
 	["raw.go", "package raw\nimport `example/raw`\n", ["example/raw"]],
-] as const)("preserves every static import target in %s", (filePath, text, expected) => {
-	const analyzed = analyzeCodeFile(filePath, text);
+] as const)("preserves every static import target in %s", async (filePath, text, expected) => {
+	const analyzed = await analyzeCodeFile(filePath, text);
 	expect(analyzed.status).toBe("parsed");
 	expect(analyzed.imports.map((item) => item.specifier)).toEqual(expected);
 });

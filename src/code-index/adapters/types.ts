@@ -1,14 +1,14 @@
-import type ParserModule from "tree-sitter";
+import type { Language, Node } from "web-tree-sitter";
 
-import type { ImportKind, SupportedCodeLanguage } from "../types.js";
+import type { AnalysisControl, ImportKind, SupportedCodeLanguage } from "../types.js";
 
-export type TreeSitterLanguage = ParserModule.Language;
-export type SyntaxNode = ParserModule.SyntaxNode;
+export type TreeSitterLanguage = Language;
+export type SyntaxNode = Node;
 
-/** 描述 grammar package 的 CommonJS 导出位置；省略 exportName 表示使用整个模块导出。 */
+/** 描述 grammar package 中的 WebAssembly 语言文件。 */
 export interface GrammarSpec {
 	readonly packageName: string;
-	readonly exportName?: string;
+	readonly wasmFile: string;
 }
 
 export interface RawUnit {
@@ -38,6 +38,6 @@ export interface LanguageAdapterMetadata {
 
 /** 完整语言 adapter 的公共契约；import 与 symbol 均从同一 AST 提取。 */
 export interface LanguageAdapter extends LanguageAdapterMetadata {
-	extractUnits(root: SyntaxNode): RawUnit[];
-	extractImports(root: SyntaxNode): RawImport[];
+	extractUnits(root: SyntaxNode, control: AnalysisControl): RawUnit[];
+	extractImports(root: SyntaxNode, control: AnalysisControl): RawImport[];
 }

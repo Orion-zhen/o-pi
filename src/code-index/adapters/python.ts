@@ -1,4 +1,5 @@
-import { collectUnits, nameField, rawImport, rawUnit, type UnitRules } from "./shared.js";
+import { collectUnits, nameField, rawImport, rawUnit, walkNamed, type UnitRules } from "./shared.js";
+import type { AnalysisControl } from "../types.js";
 import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
 
 const PYTHON_UNIT_KINDS = new Set(["function_definition", "class_definition"]);
@@ -21,9 +22,9 @@ function isPublicName(name: string): boolean {
 	return !name.startsWith("_");
 }
 
-function extractPythonImports(root: SyntaxNode): RawImport[] {
+function extractPythonImports(root: SyntaxNode, control: AnalysisControl): RawImport[] {
 	const imports: RawImport[] = [];
-	walk(root, (node) => {
+	walkNamed(root, (node) => {
 		if (node.type === "import_from_statement") {
 			const module = node.childForFieldName("module_name");
 			if (module === null) return;
@@ -44,19 +45,14 @@ function extractPythonImports(root: SyntaxNode): RawImport[] {
 				imports.push(rawImport(node, target));
 			}
 		}
-	});
+	}, control);
 	return imports;
-}
-
-function walk(node: SyntaxNode, visit: (node: SyntaxNode) => void): void {
-	visit(node);
-	for (const child of node.namedChildren) walk(child, visit);
 }
 
 export const pythonAdapter: LanguageAdapter = {
 	language: "python",
 	extensions: [".py"],
-	grammar: { packageName: "tree-sitter-python" },
-	extractUnits: (root) => collectUnits(root, pythonRules),
+	grammar: { packageName: "tree-sitter-python", wasmFile: "tree-sitter-python.wasm" },
+	extractUnits: (root, control) => collectUnits(root, pythonRules, control),
 	extractImports: extractPythonImports,
 };

@@ -18,13 +18,13 @@ C 和 C++ 使用不同 grammar；`.h` 静态归入 C++。`#include` 只记录 `p
 
 语言 adapter registry 声明扩展名、grammar descriptor、AST unit 提取和 import 提取。新增语言需要 adapter、registry、grammar 依赖和测试；`text` 是 unsupported fallback，不属于 registry。
 
-Tree-sitter runtime 和 grammar 按请求延迟加载，并在进程或 worker 内按 descriptor 缓存。缺失、不兼容或错误 export 的 grammar 只影响对应文件，其他语言继续建图。
+`web-tree-sitter` runtime 和 grammar WASM 按请求异步延迟加载，并在进程或 worker 内按 descriptor 缓存。失败结果只短暂退避后重试，进程内安装或修复 grammar 后可自行恢复；缺失或 ABI 不兼容的 grammar 只影响对应文件，其他语言继续建图。
 
 ## 一次解析与源码坐标
 
-`analyzeCodeFile()` 建立短生命周期的 `ParsedDocument`：它包含 Tree-sitter root、原文和共享 `SourceIndex`。同一调用链内，adapter 从 root 产出 code units/imports，Repo Map 再从同一 root 产出 JavaScript syntax facts；native tree 不跨 generation 或 worker 持久化。
+`analyzeCodeFile()` 异步建立短生命周期的 `ParsedDocument`：它包含 Tree-sitter root、原文和共享 `SourceIndex`。默认路径在 adapter 产出 code units/imports 后立即释放 WASM tree；Repo Map 使用 `{ retainDocument: true }` 在同一调用链继续提取 JavaScript syntax facts，并在 `finally` 中调用 `dispose()`。tree 不跨 generation 或 worker 持久化。
 
-`SourceRange` 始终为 1-based inclusive line 和 UTF-8 `[startByte,endByte)`。Tree-sitter JS binding 的 UTF-16 char offset 通过 `SourceIndex` 转换：ASCII 文件直接使用 O(1) 偏移，非 ASCII 文件为整篇文本建立一次 char→byte 映射。unit 内容按 char range slice，避免每个 symbol 重新编码整文件。
+`SourceRange` 始终为 1-based inclusive line 和 UTF-8 `[startByte,endByte)`。Web Tree-sitter binding 的 UTF-16 char offset 通过 `SourceIndex` 转换：ASCII 文件直接使用 O(1) 偏移，非 ASCII 文件为整篇文本建立一次 char→byte 映射。unit 内容按 char range slice，避免每个 symbol 重新编码整文件。
 
 每个 symbol 保存：
 
@@ -74,9 +74,9 @@ JavaScript/TypeScript architecture facts 包括 `registerCommand`、`registerToo
 
 ## Parser failure 与降级
 
-稳定 failure code 包括：`RUNTIME_UNAVAILABLE`、`GRAMMAR_UNAVAILABLE`、`GRAMMAR_EXPORT_INVALID`、`GRAMMAR_INCOMPATIBLE`、`PARSER_INITIALIZATION_FAILED`、`PARSER_EXCEPTION` 和 `PARSER_TIMEOUT`。公开 `AnalyzedFileIndex.status` 对解析失败为 `error`，message 保留可操作原因。
+稳定 failure code 包括：`RUNTIME_UNAVAILABLE`、`GRAMMAR_UNAVAILABLE`、`GRAMMAR_INCOMPATIBLE`、`PARSER_INITIALIZATION_FAILED`、`PARSER_EXCEPTION` 和 `PARSER_TIMEOUT`。公开 `AnalyzedFileIndex.status` 对解析失败为 `error`，message 保留可操作原因。
 
-Grep 在 Tree-sitter 不可用、超时或解析异常时退化为文本索引；Repo Map 保留 file node、生成 `PARSER_ERROR` 或 `FILE_CHANGED_DURING_PARSE`，并继续处理其他文件。malformed AST 对 code units 保持宽容，对 Repo Map syntax facts 严格返回空 facts。直接调用 architecture/test indexer 或未收到 transient facts 时，仍可按需读取并解析源码。
+Grep 在 Tree-sitter 不可用、超时或解析异常时退化为文本索引；本地解析和 AST 提取共享 deadline 与取消信号，非有限 timeout 回退到默认值，worker 路径仍可通过终止 worker 取消。超时 parser reset 后复用，未知 parser 异常会释放并重建缓存实例。Repo Map 保留 file node、生成 `PARSER_ERROR` 或 `FILE_CHANGED_DURING_PARSE`，并继续处理其他文件。AST 使用显式栈迭代遍历，深层合法语法不依赖 JavaScript 调用栈；malformed AST 对 code units 保持宽容，对 Repo Map syntax facts 严格返回空 facts。直接调用 architecture/test indexer 或未收到 transient facts 时，仍可按需读取并解析源码。
 
 ## 测试图
 

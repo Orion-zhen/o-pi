@@ -248,7 +248,7 @@ async function grepScope(
 	if (lspCandidates.length > 0) strategy.push("lsp");
 	if (repoMapCandidates.length > 0) strategy.push("repo-map");
 	const related = finalRegions.length < GREP_RELATED_TRIGGER
-		? repoMapRelatedRegionsFromCandidates(
+		? await repoMapRelatedRegionsFromCandidates(
 			scopedRepoMapCandidates,
 			sourceText,
 			rankingContext,
@@ -630,14 +630,14 @@ function repoMapRegionsFromCandidates(
 	return result;
 }
 
-function repoMapRelatedRegionsFromCandidates(
+async function repoMapRelatedRegionsFromCandidates(
 	candidates: RepoMapQueryCandidate[],
 	sourceText: ReadonlyMap<string, string>,
 	context: GrepRankingContext,
 	mainPaths: ReadonlySet<string>,
 	query: Pick<NormalizedGrepParams, "query" | "match">,
 	regex: RegExp | undefined,
-): RepoMapRelatedResult[] {
+): Promise<RepoMapRelatedResult[]> {
 	const byId = new Map<string, { result: RepoMapRelatedResult; order: number }>();
 	for (const [order, candidate] of candidates.entries()) {
 		const requestedAsMain = query.match === "auto" && isRepoMapMainCandidate(candidate, query.query);
@@ -646,7 +646,7 @@ function repoMapRelatedRegionsFromCandidates(
 		const text = sourceText.get(candidate.path);
 		if (text === undefined || candidate.contentHash === undefined) continue;
 		if (sourceHash(candidate.path, text, context.sourceHashes) !== candidate.contentHash) continue;
-		const units = cachedUnitsForPath(context, candidate.path, text);
+		const units = await cachedUnitsForPath(context, candidate.path, text);
 		const unit = locateRepoMapUnit(candidate, units, query.query, context);
 		if (requestedAsMain && unit !== undefined) continue;
 		if (unit !== undefined && query.match !== "auto" && mainPaths.has(unit.path)
@@ -727,10 +727,10 @@ function cachedRepoMapReasons(context: GrepRankingContext, candidate: RepoMapQue
 	return reasons;
 }
 
-function cachedUnitsForPath(context: GrepRankingContext, filePath: string, text: string): IndexedCodeUnit[] {
+async function cachedUnitsForPath(context: GrepRankingContext, filePath: string, text: string): Promise<IndexedCodeUnit[]> {
 	const cached = context.unitsByPath.get(filePath);
 	if (cached !== undefined) return cached;
-	const units = parseCodeUnits(filePath, text).units;
+	const units = (await parseCodeUnits(filePath, text)).units;
 	context.unitsByPath.set(filePath, units);
 	context.unitsByIdByPath.set(filePath, new Map(units.map((unit) => [unit.id, unit])));
 	return units;

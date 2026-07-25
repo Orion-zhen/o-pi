@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { javascriptAdapter } from "../../src/code-index/adapters/javascript.js";
 import {
@@ -9,17 +9,22 @@ import {
 	languageFromPath,
 	registeredLanguageAdapters,
 } from "../../src/code-index/language-registry.js";
-import { loadGrammar, loadTreeSitterParser, loadTreeSitterRuntime, loadTreeSitterRuntimeForGrammar } from "../../src/code-index/tree-sitter-loader.js";
-import { parseDocumentForAdapter, parseSyntaxTree } from "../../src/code-index/syntax-tree.js";
+import {
+	disposeTreeSitterParsers,
+	loadTreeSitterParser,
+	loadTreeSitterRuntimeForGrammar,
+} from "../../src/code-index/tree-sitter-loader.js";
+import { parseDocument, parseDocumentForAdapter } from "../../src/code-index/syntax-tree.js";
 import type { LanguageAdapter } from "../../src/code-index/adapters/types.js";
-import type { CodeLanguage } from "../../src/code-index/types.js";
 import { treeSitterAvailable, treeSitterModulePaths } from "../helpers/optional-dependencies.js";
 
 const require = createRequire(import.meta.url);
-const grammarModules = treeSitterModulePaths();
+const grammarModules = treeSitterModulePaths().filter((modulePath) => !modulePath.includes("web-tree-sitter"));
+
+afterAll(() => disposeTreeSitterParsers());
 
 describe("code language registry", () => {
-	it("registers every supported language without loading grammar modules", () => {
+	it("registers every supported language without loading grammar JavaScript modules", () => {
 		expect(registeredLanguageAdapters().map((adapter) => adapter.language)).toEqual([
 			"javascript", "jsx", "typescript", "tsx", "python", "go", "rust", "c", "cpp",
 		]);
@@ -41,61 +46,138 @@ describe("code language registry", () => {
 		expect(adapterFromPath(filePath)).toMatchObject({ language, extensions: expect.arrayContaining([extension]) });
 	});
 
-	it.skipIf(!treeSitterAvailable(["tree-sitter", "tree-sitter-c", "tree-sitter-cpp"]))("loads only the requested C/C++ grammar on first parse", () => {
-		expect(parseSyntaxTree("c", "int value;\n")).toBeDefined();
-		expect(require.cache[require.resolve("tree-sitter-c")]).toBeDefined();
+	it.skipIf(!treeSitterAvailable(["web-tree-sitter", "tree-sitter-c", "tree-sitter-cpp"]))("loads C/C++ WebAssembly grammars without requiring their native modules", async () => {
+		const c = await parseDocument("c", "int value;\n");
+		expect(c).toBeDefined();
+		c?.dispose();
+		expect(require.cache[require.resolve("tree-sitter-c")]).toBeUndefined();
 		expect(require.cache[require.resolve("tree-sitter-cpp")]).toBeUndefined();
 
-		expect(parseSyntaxTree("cpp", "class Value {};\n")).toBeDefined();
-		expect(require.cache[require.resolve("tree-sitter-cpp")]).toBeDefined();
+		const cpp = await parseDocument("cpp", "class Value {};\n");
+		expect(cpp).toBeDefined();
+		cpp?.dispose();
+		expect(require.cache[require.resolve("tree-sitter-cpp")]).toBeUndefined();
 	});
 
 	it("returns text for unregistered extensions and no adapter for text", () => {
 		expect(languageFromPath("src/module.rb")).toBe("text");
 		expect(getLanguageAdapter("text")).toBeUndefined();
-		expect(loadTreeSitterRuntime("text")).toBeUndefined();
 	});
 
-	it.skipIf(!treeSitterAvailable(["tree-sitter-javascript"]))("registers extension metadata in an isolated registry and loads its grammar descriptor", () => {
+	it.skipIf(!treeSitterAvailable(["web-tree-sitter", "tree-sitter-javascript"]))("registers extension metadata in an isolated registry and loads its WASM descriptor", async () => {
 		const simulated: LanguageAdapter = { ...javascriptAdapter, extensions: [".simulated"] };
 		const registry = createLanguageRegistry([simulated]);
 		expect(registry.languageFromPath("new.simulated")).toBe("javascript");
 		expect(registry.adapterFromPath("new.simulated")).toBe(simulated);
-		expect(loadGrammar(simulated.grammar)).toBeDefined();
+		expect(await loadTreeSitterRuntimeForGrammar(simulated.grammar)).toHaveProperty("runtime");
 	});
 
-	it.skipIf(!treeSitterAvailable(["tree-sitter", "tree-sitter-typescript"]))("returns stable structured failures for missing and wrong grammar descriptors", () => {
-		const wrong = loadTreeSitterRuntimeForGrammar({ packageName: "tree-sitter-typescript", exportName: "missing" });
-		expect(wrong).toEqual({ failure: { code: "GRAMMAR_EXPORT_INVALID", message: expect.stringContaining("tree-sitter-typescript:missing") } });
-		expect(loadTreeSitterRuntimeForGrammar({ packageName: "tree-sitter-typescript", exportName: "missing" })).toBe(wrong);
-		const missing = loadTreeSitterRuntimeForGrammar({ packageName: "package-that-does-not-exist" });
-		expect(missing).toEqual({ failure: { code: "GRAMMAR_UNAVAILABLE", message: expect.stringContaining("package-that-does-not-exist") } });
-		expect(loadGrammar({ packageName: "tree-sitter-rust", exportName: "language" })).toBeUndefined();
-		expect(loadTreeSitterRuntime("ruby" as CodeLanguage)).toBeUndefined();
+	it.skipIf(!treeSitterAvailable(["web-tree-sitter", "tree-sitter-typescript"]))("returns stable structured failures and retries stale failure caches", async () => {
+		const clock = vi.spyOn(Date, "now").mockReturnValue(10_000);
+		try {
+			const missingSpec = { packageName: "tree-sitter-typescript", wasmFile: "missing.wasm" };
+			const first = loadTreeSitterRuntimeForGrammar(missingSpec);
+			expect(loadTreeSitterRuntimeForGrammar(missingSpec)).toBe(first);
+			expect(await first).toEqual({ failure: { code: "GRAMMAR_UNAVAILABLE", message: expect.stringContaining("tree-sitter-typescript/missing.wasm") } });
+			expect(loadTreeSitterRuntimeForGrammar(missingSpec)).toBe(first);
+
+			clock.mockReturnValue(70_000);
+			const retried = loadTreeSitterRuntimeForGrammar(missingSpec);
+			expect(retried).not.toBe(first);
+			expect(await retried).toEqual({ failure: { code: "GRAMMAR_UNAVAILABLE", message: expect.stringContaining("tree-sitter-typescript/missing.wasm") } });
+
+			const incompatible = await loadTreeSitterRuntimeForGrammar({ packageName: "tree-sitter-typescript", wasmFile: "package.json" });
+			expect(incompatible).toEqual({ failure: { code: "GRAMMAR_INCOMPATIBLE", message: expect.stringContaining("tree-sitter-typescript/package.json") } });
+		} finally {
+			clock.mockRestore();
+		}
 	});
 
-	it.skipIf(!treeSitterAvailable(["tree-sitter", "tree-sitter-javascript"]))("reuses a parser per descriptor and resets after a timeout", () => {
-		const first = loadTreeSitterParser(javascriptAdapter);
-		const second = loadTreeSitterParser(javascriptAdapter);
+	it.skipIf(!treeSitterAvailable(["web-tree-sitter", "tree-sitter-javascript"]))("reuses a parser after timeout and replaces it after an exception", async () => {
+		const first = await loadTreeSitterParser(javascriptAdapter);
+		const second = await loadTreeSitterParser(javascriptAdapter);
 		if (!("parser" in first) || !("parser" in second)) throw new Error("javascript parser unavailable");
 		expect(second.parser).toBe(first.parser);
-		const timeoutParser = loadTreeSitterParser(javascriptAdapter, 1);
-		if (!("parser" in timeoutParser)) throw new Error("timeout parser unavailable");
-		const originalParse = timeoutParser.parser.parse.bind(timeoutParser.parser);
-		const parseSpy = vi.spyOn(timeoutParser.parser, "parse")
-			.mockImplementationOnce(() => null as never)
+		const originalParse = first.parser.parse.bind(first.parser);
+		const parseSpy = vi.spyOn(first.parser, "parse")
+			.mockImplementationOnce(() => null)
 			.mockImplementationOnce(originalParse)
 			.mockImplementationOnce(() => { throw new Error("simulated parser exception"); })
 			.mockImplementation(originalParse);
 		try {
-			const timeout = parseDocumentForAdapter(javascriptAdapter, "function value() { return 1; }\n", 1);
-			expect(timeout).toEqual({ failure: { code: "PARSER_TIMEOUT", message: "Tree-sitter parsing exceeded the configured timeout." } });
-			expect(parseDocumentForAdapter(javascriptAdapter, "function value() { return 1; }\n", 1).document).toBeDefined();
-			expect(parseDocumentForAdapter(javascriptAdapter, "function value() { return 1; }\n", 1)).toEqual({ failure: { code: "PARSER_EXCEPTION", message: "Tree-sitter raised an exception while parsing the file." } });
-			expect(parseDocumentForAdapter(javascriptAdapter, "function value() { return 1; }\n", 1).document).toBeDefined();
+			expect(await parseDocumentForAdapter(javascriptAdapter, "function value() { return 1; }\n")).toEqual({ failure: { code: "PARSER_TIMEOUT", message: "Tree-sitter parsing exceeded the configured timeout." } });
+			const recovered = await parseDocumentForAdapter(javascriptAdapter, "function value() { return 1; }\n");
+			expect(recovered.document).toBeDefined();
+			recovered.document?.dispose();
+			expect(await parseDocumentForAdapter(javascriptAdapter, "function value() { return 1; }\n")).toEqual({ failure: { code: "PARSER_EXCEPTION", message: "Tree-sitter raised an exception while parsing the file." } });
+			const replacement = await loadTreeSitterParser(javascriptAdapter);
+			if (!("parser" in replacement)) throw new Error("replacement javascript parser unavailable");
+			expect(replacement.parser).not.toBe(first.parser);
+			const recoveredAgain = await parseDocumentForAdapter(javascriptAdapter, "function value() { return 1; }\n");
+			expect(recoveredAgain.document).toBeDefined();
+			recoveredAgain.document?.dispose();
 		} finally {
 			parseSpy.mockRestore();
 		}
 	});
 
+	it("cancels a real parse through the runtime progress callback and remains reusable", async () => {
+		const text = Array.from({ length: 5_000 }, (_, index) => `const value${index} = ${index};`).join("\n");
+		expect(await parseDocumentForAdapter(javascriptAdapter, text, 0)).toEqual({
+			failure: { code: "PARSER_TIMEOUT", message: "Tree-sitter parsing exceeded the configured timeout." },
+		});
+		const recovered = await parseDocumentForAdapter(javascriptAdapter, "const value = 1;\n");
+		expect(recovered.document).toBeDefined();
+		recovered.document?.dispose();
+	});
+
+	it.each([Number.NaN, Number.POSITIVE_INFINITY])("normalizes non-finite timeout %s to the default deadline", async (timeoutMicros) => {
+		const parserResult = await loadTreeSitterParser(javascriptAdapter);
+		if (!("parser" in parserResult)) throw new Error("javascript parser unavailable");
+		let now = 100;
+		const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+		const parseSpy = vi.spyOn(parserResult.parser, "parse").mockImplementation((_input, _oldTree, options) => {
+			now = 351;
+			expect(options?.progressCallback?.({ currentOffset: 0, hasError: false })).toBe(true);
+			return null;
+		});
+		try {
+			expect(await parseDocumentForAdapter(javascriptAdapter, "const value = 1;\n", timeoutMicros)).toEqual({
+				failure: { code: "PARSER_TIMEOUT", message: "Tree-sitter parsing exceeded the configured timeout." },
+			});
+		} finally {
+			parseSpy.mockRestore();
+			clock.mockRestore();
+		}
+	});
+
+	it("deletes a created tree and replaces its parser when document construction throws", async () => {
+		const parserResult = await loadTreeSitterParser(javascriptAdapter);
+		if (!("parser" in parserResult)) throw new Error("javascript parser unavailable");
+		const parser = parserResult.parser;
+		const originalParse = parser.parse.bind(parser);
+		let deleted = false;
+		const parseSpy = vi.spyOn(parser, "parse").mockImplementation((...args) => {
+			const tree = originalParse(...args);
+			if (tree === null) throw new Error("tree unavailable");
+			const originalDelete = tree.delete.bind(tree);
+			vi.spyOn(tree, "delete").mockImplementation(() => {
+				deleted = true;
+				originalDelete();
+			});
+			vi.spyOn(tree, "rootNode", "get").mockImplementation(() => { throw new Error("simulated root failure"); });
+			return tree;
+		});
+		try {
+			expect(await parseDocumentForAdapter(javascriptAdapter, "const value = 1;\n")).toEqual({
+				failure: { code: "PARSER_EXCEPTION", message: "Tree-sitter raised an exception while parsing the file." },
+			});
+			expect(deleted).toBe(true);
+			const replacement = await loadTreeSitterParser(javascriptAdapter);
+			if (!("parser" in replacement)) throw new Error("replacement javascript parser unavailable");
+			expect(replacement.parser).not.toBe(parser);
+		} finally {
+			parseSpy.mockRestore();
+		}
+	});
 });

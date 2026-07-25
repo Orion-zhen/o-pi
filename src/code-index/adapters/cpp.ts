@@ -8,8 +8,10 @@ import {
 	hasStorageClass,
 	rawImport,
 	rawUnit,
+	walkNamed,
 	type UnitRules,
 } from "./shared.js";
+import type { AnalysisControl } from "../types.js";
 import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
 
 const cppRules: UnitRules = {
@@ -79,9 +81,9 @@ function hasExternalLinkage(node: SyntaxNode): boolean {
 	return true;
 }
 
-function extractCppImports(root: SyntaxNode): RawImport[] {
+function extractCppImports(root: SyntaxNode, control: AnalysisControl): RawImport[] {
 	const imports: RawImport[] = [];
-	walk(root, (node) => {
+	walkNamed(root, (node) => {
 		if (node.type !== "preproc_include") return;
 		const path = node.childForFieldName("path");
 		if (path === null) return;
@@ -93,19 +95,14 @@ function extractCppImports(root: SyntaxNode): RawImport[] {
 			const content = path.namedChildren[0];
 			if (content !== undefined) imports.push(rawImport(path, content, "relative"));
 		}
-	});
+	}, control);
 	return imports;
-}
-
-function walk(node: SyntaxNode, visit: (node: SyntaxNode) => void): void {
-	visit(node);
-	for (const child of node.namedChildren) walk(child, visit);
 }
 
 export const cppAdapter: LanguageAdapter = {
 	language: "cpp",
 	extensions: [".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"],
-	grammar: { packageName: "tree-sitter-cpp" },
-	extractUnits: (root) => collectUnits(root, cppRules),
+	grammar: { packageName: "tree-sitter-cpp", wasmFile: "tree-sitter-cpp.wasm" },
+	extractUnits: (root, control) => collectUnits(root, cppRules, control),
 	extractImports: extractCppImports,
 };

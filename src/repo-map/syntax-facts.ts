@@ -1,7 +1,8 @@
 import { languageFromPath } from "../code-index/language-registry.js";
-import { parseDocument, sourceRangeForNode } from "../code-index/syntax-tree.js";
+import { isCodeAnalysisControlError, parseDocument, sourceRangeForNode } from "../code-index/syntax-tree.js";
+import { walkNamed } from "../code-index/adapters/shared.js";
 import type { SyntaxNode } from "../code-index/adapters/types.js";
-import type { CodeLanguage, ParsedDocument, SourceIndex, SourceRange } from "../code-index/types.js";
+import type { AnalysisControl, CodeLanguage, ParsedDocument, SourceIndex, SourceRange } from "../code-index/types.js";
 
 export interface RegistrationFact extends SourceRange {
 	name: string;
@@ -44,13 +45,17 @@ function isJavaScriptLanguage(language: CodeLanguage | undefined): boolean {
 }
 
 /** Parse and extract JS-family facts for callers that do not already own a document. */
-export function javascriptSyntaxFacts(filePath: string, text: string): JavaScriptSyntaxFacts {
+export async function javascriptSyntaxFacts(filePath: string, text: string): Promise<JavaScriptSyntaxFacts> {
 	const language = languageFromPath(filePath);
 	if (!isJavaScriptLanguage(language)) return EMPTY_FACTS;
+	let document: ParsedDocument | undefined;
 	try {
-		return javascriptSyntaxFactsFromDocument(filePath, parseDocument(language, text));
+		document = await parseDocument(language, text);
+		return javascriptSyntaxFactsFromDocument(filePath, document);
 	} catch {
 		return EMPTY_FACTS;
+	} finally {
+		document?.dispose();
 	}
 }
 
@@ -58,43 +63,50 @@ export function javascriptSyntaxFacts(filePath: string, text: string): JavaScrip
 export function javascriptSyntaxFactsFromDocument(filePath: string, document: ParsedDocument | undefined): JavaScriptSyntaxFacts {
 	if (document === undefined || !isJavaScriptLanguage(document.language) || languageFromPath(filePath) !== document.language || document.root.hasError) return EMPTY_FACTS;
 	try {
-		const { root, sourceIndex } = document;
-		const constants = collectStringConstants(root);
+		const { control, root, sourceIndex } = document;
+		const constants = collectStringConstants(root, control);
 		const facts: JavaScriptSyntaxFacts = {
 			registrations: [], reExports: [], defaultExports: [], tests: [], mocks: [], fixtures: [], snapshots: [],
 		};
-		walk(root, (node) => {
-			if (node.type === "call_expression") collectCallFacts(node, constants, facts, sourceIndex);
+		walkNamed(root, (node) => {
+			if (node.type === "call_expression") collectCallFacts(node, constants, facts, sourceIndex, control);
 			if (node.type === "export_statement") collectExportFacts(node, facts, sourceIndex);
 			if (node.type === "string" || node.type === "template_string") {
 				const value = stringValue(node);
 				if (value !== undefined && FIXTURE_PATH.test(value)) facts.fixtures.push({ name: value, ...range(sourceIndex, node) });
 			}
-		});
+		}, control);
 		return facts;
-	} catch {
+	} catch (error) {
+		if (isCodeAnalysisControlError(error)) throw error;
 		return EMPTY_FACTS;
 	}
 }
 
-function collectStringConstants(root: SyntaxNode): ReadonlyMap<string, string> {
+function collectStringConstants(root: SyntaxNode, control: AnalysisControl): ReadonlyMap<string, string> {
 	const constants = new Map<string, string>();
-	walk(root, (node) => {
+	walkNamed(root, (node) => {
 		if (node.type !== "variable_declarator") return;
 		const name = node.childForFieldName("name");
 		const value = node.childForFieldName("value");
 		const literal = value === null ? undefined : stringValue(value);
 		if (name?.type === "identifier" && literal !== undefined) constants.set(name.text, literal);
-	});
+	}, control);
 	return constants;
 }
 
-function collectCallFacts(node: SyntaxNode, constants: ReadonlyMap<string, string>, facts: JavaScriptSyntaxFacts, sourceIndex: SourceIndex): void {
+function collectCallFacts(
+	node: SyntaxNode,
+	constants: ReadonlyMap<string, string>,
+	facts: JavaScriptSyntaxFacts,
+	sourceIndex: SourceIndex,
+	control: AnalysisControl,
+): void {
 	const callable = node.childForFieldName("function") ?? node.namedChildren[0];
 	const args = node.childForFieldName("arguments") ?? node.namedChildren.find((child) => child.type === "arguments");
 	if (callable === undefined || args === undefined) return;
-	const callee = propertyName(callable);
-	const base = baseCalleeName(callable);
+	const callee = propertyName(callable, control);
+	const base = baseCalleeName(callable, control);
 	const arguments_ = args.namedChildren;
 
 	const registrationType = callee === "registerCommand" ? "command"
@@ -157,30 +169,29 @@ function stringValue(node: SyntaxNode): string | undefined {
 	return node.text.slice(1, -1);
 }
 
-function propertyName(node: SyntaxNode): string | undefined {
-	if (node.type === "identifier" || node.type === "property_identifier") return node.text;
-	if (node.type === "member_expression") return node.childForFieldName("property")?.text ?? node.namedChildren.at(-1)?.text;
-	if (node.type === "call_expression") {
-		const callable = node.childForFieldName("function") ?? node.namedChildren[0];
-		return callable === undefined ? undefined : propertyName(callable);
+function propertyName(node: SyntaxNode, control: AnalysisControl): string | undefined {
+	let current: SyntaxNode | undefined = node;
+	while (current !== undefined) {
+		control.check();
+		if (current.type === "identifier" || current.type === "property_identifier") return current.text;
+		if (current.type === "member_expression") return current.childForFieldName("property")?.text ?? current.namedChildren.at(-1)?.text;
+		if (current.type !== "call_expression") return undefined;
+		current = current.childForFieldName("function") ?? current.namedChildren[0];
 	}
 	return undefined;
 }
 
-function baseCalleeName(node: SyntaxNode): string | undefined {
-	if (node.type === "identifier") return node.text;
-	if (node.type === "member_expression" || node.type === "call_expression") {
-		const child = node.childForFieldName("object") ?? node.childForFieldName("function") ?? node.namedChildren[0];
-		return child === undefined ? undefined : baseCalleeName(child);
+function baseCalleeName(node: SyntaxNode, control: AnalysisControl): string | undefined {
+	let current: SyntaxNode | undefined = node;
+	while (current !== undefined) {
+		control.check();
+		if (current.type === "identifier") return current.text;
+		if (current.type !== "member_expression" && current.type !== "call_expression") return undefined;
+		current = current.childForFieldName("object") ?? current.childForFieldName("function") ?? current.namedChildren[0];
 	}
 	return undefined;
 }
 
 function range(sourceIndex: SourceIndex, node: SyntaxNode): SourceRange {
 	return sourceRangeForNode(sourceIndex, node);
-}
-
-function walk(node: SyntaxNode, visit: (node: SyntaxNode) => void): void {
-	visit(node);
-	for (const child of node.namedChildren) walk(child, visit);
 }

@@ -1,4 +1,5 @@
-import { collectUnits, firstNamedChildText, nameField, rawUnit, type UnitRules } from "./shared.js";
+import { collectUnits, firstNamedChildText, nameField, rawUnit, walkNamed, type UnitRules } from "./shared.js";
+import type { AnalysisControl } from "../types.js";
 import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
 
 const RUST_UNIT_KINDS = new Set([
@@ -48,42 +49,53 @@ function normalizeRustKind(kind: string): string {
 	return "declaration";
 }
 
-function extractRustImports(root: SyntaxNode): RawImport[] {
+function extractRustImports(root: SyntaxNode, control: AnalysisControl): RawImport[] {
 	const imports: RawImport[] = [];
-	walk(root, (node) => {
-		if (node.type === "use_declaration") collectUse(node.childForFieldName("argument"), "", imports);
-	});
+	walkNamed(root, (node) => {
+		if (node.type === "use_declaration") collectUse(node.childForFieldName("argument"), imports, control);
+	}, control);
 	return imports;
 }
 
-function collectUse(node: SyntaxNode | null, prefix: string, imports: RawImport[]): void {
-	if (node === null) return;
-	switch (node.type) {
-		case "scoped_use_list": {
-			const path = node.childForFieldName("path");
-			const list = node.childForFieldName("list");
-			if (path === null || list === null) return;
-			collectUse(list, qualify(prefix, path.text), imports);
-			return;
-		}
-		case "use_list":
-			for (const child of node.namedChildren) collectUse(child, prefix, imports);
-			return;
-		case "use_as_clause": {
-			const path = node.childForFieldName("path");
-			if (path !== null) addRustImport(qualify(prefix, path.text), path, imports);
-			return;
-		}
-		case "use_wildcard": {
-			const path = node.namedChildren[0];
-			const base = path === undefined ? prefix : qualify(prefix, path.text);
-			if (base.length > 0) addRustImport(`${base}::*`, node, imports);
-			return;
-		}
-		default:
-			if (node.type === "identifier" || node.type === "scoped_identifier" || node.type === "crate" || node.type === "self") {
-				addRustImport(qualify(prefix, node.text), node, imports);
+function collectUse(root: SyntaxNode | null, imports: RawImport[], control: AnalysisControl): void {
+	if (root === null) return;
+	const stack: Array<{ node: SyntaxNode; prefix: string }> = [{ node: root, prefix: "" }];
+	while (stack.length > 0) {
+		control.check();
+		const current = stack.pop();
+		if (current === undefined) break;
+		const { node, prefix } = current;
+		switch (node.type) {
+			case "scoped_use_list": {
+				const path = node.childForFieldName("path");
+				const list = node.childForFieldName("list");
+				if (path !== null && list !== null) stack.push({ node: list, prefix: qualify(prefix, path.text) });
+				break;
 			}
+			case "use_list": {
+				const children = node.namedChildren;
+				for (let index = children.length - 1; index >= 0; index -= 1) {
+					const child = children[index];
+					if (child !== undefined) stack.push({ node: child, prefix });
+				}
+				break;
+			}
+			case "use_as_clause": {
+				const path = node.childForFieldName("path");
+				if (path !== null) addRustImport(qualify(prefix, path.text), path, imports);
+				break;
+			}
+			case "use_wildcard": {
+				const path = node.namedChildren[0];
+				const base = path === undefined ? prefix : qualify(prefix, path.text);
+				if (base.length > 0) addRustImport(`${base}::*`, node, imports);
+				break;
+			}
+			default:
+				if (node.type === "identifier" || node.type === "scoped_identifier" || node.type === "crate" || node.type === "self") {
+					addRustImport(qualify(prefix, node.text), node, imports);
+				}
+		}
 	}
 }
 
@@ -95,15 +107,10 @@ function qualify(prefix: string, value: string): string {
 	return prefix.length === 0 ? value : `${prefix}::${value}`;
 }
 
-function walk(node: SyntaxNode, visit: (node: SyntaxNode) => void): void {
-	visit(node);
-	for (const child of node.namedChildren) walk(child, visit);
-}
-
 export const rustAdapter: LanguageAdapter = {
 	language: "rust",
 	extensions: [".rs"],
-	grammar: { packageName: "tree-sitter-rust" },
-	extractUnits: (root) => collectUnits(root, rustRules),
+	grammar: { packageName: "tree-sitter-rust", wasmFile: "tree-sitter-rust.wasm" },
+	extractUnits: (root, control) => collectUnits(root, rustRules, control),
 	extractImports: extractRustImports,
 };

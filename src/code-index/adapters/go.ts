@@ -1,4 +1,5 @@
-import { collectUnits, firstNamedChildText, nameField, rawImport, rawUnit, type UnitRules } from "./shared.js";
+import { collectUnits, firstNamedChildText, nameField, rawImport, rawUnit, walkNamed, type UnitRules } from "./shared.js";
+import type { AnalysisControl } from "../types.js";
 import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
 
 const GO_UNIT_KINDS = new Set(["function_declaration", "method_declaration", "type_spec", "var_spec", "const_spec"]);
@@ -38,18 +39,24 @@ function receiverType(node: SyntaxNode): string | undefined {
 	return findTypeIdentifier(parameter)?.text;
 }
 
-function findTypeIdentifier(node: SyntaxNode): SyntaxNode | undefined {
-	if (node.type === "type_identifier") return node;
-	for (const child of node.namedChildren) {
-		const found = findTypeIdentifier(child);
-		if (found !== undefined) return found;
+function findTypeIdentifier(root: SyntaxNode): SyntaxNode | undefined {
+	const stack = [root];
+	while (stack.length > 0) {
+		const node = stack.pop();
+		if (node === undefined) break;
+		if (node.type === "type_identifier") return node;
+		const children = node.namedChildren;
+		for (let index = children.length - 1; index >= 0; index -= 1) {
+			const child = children[index];
+			if (child !== undefined) stack.push(child);
+		}
 	}
 	return undefined;
 }
 
-function extractGoImports(root: SyntaxNode): RawImport[] {
+function extractGoImports(root: SyntaxNode, control: AnalysisControl): RawImport[] {
 	const imports: RawImport[] = [];
-	walk(root, (node) => {
+	walkNamed(root, (node) => {
 		if (node.type !== "import_declaration") return;
 		for (const child of node.namedChildren) {
 			if (child.type === "import_spec") {
@@ -62,7 +69,7 @@ function extractGoImports(root: SyntaxNode): RawImport[] {
 				}
 			}
 		}
-	});
+	}, control);
 	return imports;
 }
 
@@ -73,15 +80,10 @@ function importSpec(node: SyntaxNode): RawImport | undefined {
 	return content === undefined ? undefined : rawImport(path, content);
 }
 
-function walk(node: SyntaxNode, visit: (node: SyntaxNode) => void): void {
-	visit(node);
-	for (const child of node.namedChildren) walk(child, visit);
-}
-
 export const goAdapter: LanguageAdapter = {
 	language: "go",
 	extensions: [".go"],
-	grammar: { packageName: "tree-sitter-go" },
-	extractUnits: (root) => collectUnits(root, goRules),
+	grammar: { packageName: "tree-sitter-go", wasmFile: "tree-sitter-go.wasm" },
+	extractUnits: (root, control) => collectUnits(root, goRules, control),
 	extractImports: extractGoImports,
 };

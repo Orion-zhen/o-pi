@@ -1,16 +1,17 @@
 import { createRequire } from "node:module";
-import type ParserModule from "tree-sitter";
+import type { Language as WebTreeSitterLanguage, Parser as WebTreeSitterParser } from "web-tree-sitter";
 
 import type { GrammarSpec, LanguageAdapter } from "./adapters/types.js";
-import type { CodeLanguage, ParseFailure } from "./types.js";
+import type { ParseFailure } from "./types.js";
 
-type TreeSitterLanguage = ParserModule.Language;
-type ParserConstructor = typeof ParserModule;
-export type TreeSitterParser = InstanceType<ParserConstructor>;
+type WebTreeSitterModule = typeof import("web-tree-sitter");
+type ParserConstructor = WebTreeSitterModule["Parser"];
+
+export type TreeSitterParser = WebTreeSitterParser;
 
 export interface TreeSitterRuntime {
 	Parser: ParserConstructor;
-	language: TreeSitterLanguage;
+	language: WebTreeSitterLanguage;
 	grammar: GrammarSpec;
 }
 
@@ -25,163 +26,167 @@ export type TreeSitterParserResult =
 export const DEFAULT_PARSE_TIMEOUT_MICROS = 250_000;
 
 const require = createRequire(import.meta.url);
-const runtimes = new Map<string, TreeSitterRuntimeResult>();
-const grammars = new Map<string, TreeSitterLanguage | ParseFailure>();
-const parsers = new Map<string, TreeSitterParserResult>();
-let parserConstructor: ParserConstructor | undefined;
-let parserFailure: ParseFailure | undefined;
+type ModuleResult = { module: WebTreeSitterModule } | { failure: ParseFailure };
+type GrammarResult = { language: WebTreeSitterLanguage } | { failure: ParseFailure };
+interface CachedResult<T extends object> {
+	promise: Promise<T>;
+	value?: T;
+	failedAt?: number;
+}
+
+const TREE_SITTER_FAILURE_RETRY_MS = 1_000;
+
+const runtimes = new Map<string, CachedResult<TreeSitterRuntimeResult>>();
+const grammars = new Map<string, CachedResult<GrammarResult>>();
+const parsers = new Map<string, CachedResult<TreeSitterParserResult>>();
+const modules = new Map<string, CachedResult<ModuleResult>>();
 
 /** Load a grammar/runtime descriptor without consulting the language registry. */
-export function loadTreeSitterRuntimeForAdapter(adapter: Pick<LanguageAdapter, "grammar">): TreeSitterRuntimeResult {
+export function loadTreeSitterRuntimeForAdapter(adapter: Pick<LanguageAdapter, "grammar">): Promise<TreeSitterRuntimeResult> {
 	return loadTreeSitterRuntimeForGrammar(adapter.grammar);
 }
 
-/** Runtime and grammar failures are cached as serializable results. */
-export function loadTreeSitterRuntimeForGrammar(spec: GrammarSpec): TreeSitterRuntimeResult {
+/** Runtime and grammar results are deduplicated; failures are retried after a short backoff. */
+export function loadTreeSitterRuntimeForGrammar(spec: GrammarSpec): Promise<TreeSitterRuntimeResult> {
 	const key = descriptorKey(spec);
-	const cached = runtimes.get(key);
-	if (cached !== undefined) return cached;
-
-	const Parser = loadParserConstructor();
-	if (Parser === undefined) {
-		const result: TreeSitterRuntimeResult = { failure: parserFailure ?? failure("RUNTIME_UNAVAILABLE", "Tree-sitter runtime is unavailable.") };
-		runtimes.set(key, result);
-		return result;
-	}
-	const grammar = loadGrammarResult(spec);
-	if ("failure" in grammar) {
-		runtimes.set(key, grammar);
-		return grammar;
-	}
-	const result: TreeSitterRuntimeResult = { runtime: { Parser, language: grammar.language, grammar: spec } };
-	runtimes.set(key, result);
-	return result;
+	return cachedResult(runtimes, key, () => createRuntime(spec));
 }
 
-/** Cache one parser per grammar descriptor and configure its timeout once. */
-export function loadTreeSitterParser(
+/** Cache one parser per grammar descriptor. Parse deadlines are supplied per call. */
+export function loadTreeSitterParser(adapter: Pick<LanguageAdapter, "grammar">): Promise<TreeSitterParserResult> {
+	const key = descriptorKey(adapter.grammar);
+	return cachedResult(parsers, key, () => createParser(adapter));
+}
+
+/** Remove and release one parser after an unexpected parser-level exception. */
+export function invalidateTreeSitterParser(
 	adapter: Pick<LanguageAdapter, "grammar">,
-	timeoutMicros = DEFAULT_PARSE_TIMEOUT_MICROS,
-): TreeSitterParserResult {
-	const key = `${descriptorKey(adapter.grammar)}\0${timeoutMicros}`;
+	parser: TreeSitterParser,
+): void {
+	const key = descriptorKey(adapter.grammar);
 	const cached = parsers.get(key);
-	if (cached !== undefined) return cached;
-	const runtimeResult = loadTreeSitterRuntimeForAdapter(adapter);
-	if ("failure" in runtimeResult) {
-		parsers.set(key, runtimeResult);
-		return runtimeResult;
+	if (cached?.value !== undefined && "parser" in cached.value && cached.value.parser === parser) parsers.delete(key);
+	safeDeleteParser(parser);
+}
+
+/** Release cached parser handles. Runtime and languages remain reusable. */
+export function disposeTreeSitterParsers(): void {
+	for (const entry of parsers.values()) {
+		void entry.promise.then(
+			(result) => {
+				if ("parser" in result) safeDeleteParser(result.parser);
+			},
+			() => {},
+		);
 	}
+	parsers.clear();
+}
+
+async function createRuntime(spec: GrammarSpec): Promise<TreeSitterRuntimeResult> {
+	const loadedModule = await loadParserModule();
+	if ("failure" in loadedModule) return loadedModule;
+	const grammar = await loadGrammarResult(spec, loadedModule.module);
+	if ("failure" in grammar) return grammar;
+	return { runtime: { Parser: loadedModule.module.Parser, language: grammar.language, grammar: spec } };
+}
+
+async function createParser(adapter: Pick<LanguageAdapter, "grammar">): Promise<TreeSitterParserResult> {
+	const runtimeResult = await loadTreeSitterRuntimeForAdapter(adapter);
+	if ("failure" in runtimeResult) return runtimeResult;
 	let parser: TreeSitterParser;
 	try {
 		parser = new runtimeResult.runtime.Parser();
 	} catch {
-		const result: TreeSitterParserResult = { failure: failure("PARSER_INITIALIZATION_FAILED", "Tree-sitter parser could not be initialized.") };
-		parsers.set(key, result);
-		return result;
+		return { failure: failure("PARSER_INITIALIZATION_FAILED", "Tree-sitter parser could not be initialized.") };
 	}
 	try {
 		parser.setLanguage(runtimeResult.runtime.language);
-		parser.setTimeoutMicros(timeoutMicros);
 	} catch {
-		const result: TreeSitterParserResult = { failure: failure("GRAMMAR_INCOMPATIBLE", "Tree-sitter grammar is incompatible with the runtime.") };
-		parsers.set(key, result);
-		return result;
+		parser.delete();
+		return { failure: failure("GRAMMAR_INCOMPATIBLE", "Tree-sitter grammar is incompatible with the runtime.") };
 	}
-	const result: TreeSitterParserResult = { parser };
-	parsers.set(key, result);
-	return result;
+	return { parser };
 }
 
-/** Descriptor loader; the string overload is retained only for unsupported legacy language calls. */
-export function loadTreeSitterRuntime(spec: GrammarSpec | LanguageAdapter): TreeSitterRuntimeResult;
-export function loadTreeSitterRuntime(spec: CodeLanguage): TreeSitterRuntime | undefined;
-export function loadTreeSitterRuntime(spec: GrammarSpec | LanguageAdapter | CodeLanguage): TreeSitterRuntimeResult | TreeSitterRuntime | undefined {
-	if (typeof spec === "string") return undefined;
-	return "grammar" in spec ? loadTreeSitterRuntimeForAdapter(spec) : loadTreeSitterRuntimeForGrammar(spec);
+function loadParserModule(): Promise<ModuleResult> {
+	return cachedResult(modules, "runtime", initializeParserModule);
 }
 
-/** Legacy grammar-shaped wrapper; failures remain cached by the structured loader. */
-export function loadGrammar(spec: GrammarSpec): TreeSitterLanguage | undefined {
-	const result = loadGrammarResult(spec);
-	return "language" in result ? result.language : undefined;
+async function initializeParserModule(): Promise<ModuleResult> {
+	try {
+		const module = await import("web-tree-sitter");
+		const runtimeWasm = require.resolve("web-tree-sitter/web-tree-sitter.wasm");
+		await module.Parser.init({ locateFile: () => runtimeWasm });
+		return { module };
+	} catch {
+		return { failure: failure("RUNTIME_UNAVAILABLE", "Tree-sitter runtime is unavailable.") };
+	}
 }
 
-function loadGrammarResult(spec: GrammarSpec): { language: TreeSitterLanguage } | { failure: ParseFailure } {
+function loadGrammarResult(
+	spec: GrammarSpec,
+	module: WebTreeSitterModule,
+): Promise<{ language: WebTreeSitterLanguage } | { failure: ParseFailure }> {
 	const key = descriptorKey(spec);
-	const cached = grammars.get(key);
-	if (cached !== undefined) return isParseFailure(cached) ? { failure: cached } : { language: cached };
+	return cachedResult(grammars, key, () => loadGrammar(spec, module));
+}
 
+async function loadGrammar(
+	spec: GrammarSpec,
+	module: WebTreeSitterModule,
+): Promise<{ language: WebTreeSitterLanguage } | { failure: ParseFailure }> {
+	let wasmPath: string;
 	try {
-		const moduleValue: unknown = require(spec.packageName);
-		const exported = spec.exportName === undefined ? moduleValue : property(moduleValue, spec.exportName);
-		if (!isTreeSitterLanguage(exported)) {
-			const result = failure("GRAMMAR_EXPORT_INVALID", `Tree-sitter grammar export for ${descriptorLabel(spec)} is invalid.`);
-			grammars.set(key, result);
-			return { failure: result };
-		}
-		grammars.set(key, exported);
-		return { language: exported };
-	} catch (error) {
-		const code = isMissingModuleError(error, spec.packageName) ? "GRAMMAR_UNAVAILABLE" : "GRAMMAR_INCOMPATIBLE";
-		const message = code === "GRAMMAR_UNAVAILABLE"
-			? `Tree-sitter grammar ${descriptorLabel(spec)} is unavailable.`
-			: `Tree-sitter grammar ${descriptorLabel(spec)} is incompatible with the runtime.`;
-		const result = failure(code, message);
-		grammars.set(key, result);
-		return { failure: result };
+		wasmPath = require.resolve(`${spec.packageName}/${spec.wasmFile}`);
+	} catch {
+		return { failure: failure("GRAMMAR_UNAVAILABLE", `Tree-sitter grammar ${descriptorLabel(spec)} is unavailable.`) };
+	}
+	try {
+		return { language: await module.Language.load(wasmPath) };
+	} catch {
+		return { failure: failure("GRAMMAR_INCOMPATIBLE", `Tree-sitter grammar ${descriptorLabel(spec)} is incompatible with the runtime.`) };
 	}
 }
 
-function loadParserConstructor(): ParserConstructor | undefined {
-	if (parserConstructor !== undefined) return parserConstructor;
-	if (parserFailure !== undefined) return undefined;
+function cachedResult<T extends object>(
+	cache: Map<string, CachedResult<T>>,
+	key: string,
+	create: () => Promise<T>,
+): Promise<T> {
+	const cached = cache.get(key);
+	if (cached !== undefined && (cached.failedAt === undefined || Date.now() - cached.failedAt < TREE_SITTER_FAILURE_RETRY_MS)) {
+		return cached.promise;
+	}
+	const entry: CachedResult<T> = { promise: create() };
+	cache.set(key, entry);
+	void entry.promise.then(
+		(result) => {
+			entry.value = result;
+			if ("failure" in result) entry.failedAt = Date.now();
+		},
+		() => {
+			entry.failedAt = Date.now();
+		},
+	);
+	return entry.promise;
+}
+
+function safeDeleteParser(parser: TreeSitterParser): void {
 	try {
-		const moduleValue: unknown = require("tree-sitter");
-		if (!isParserConstructor(moduleValue)) throw new Error("invalid runtime export");
-		parserConstructor = moduleValue;
-		return parserConstructor;
+		parser.delete();
 	} catch {
-		parserFailure = failure("RUNTIME_UNAVAILABLE", "Tree-sitter runtime is unavailable.");
-		return undefined;
+		// The cache entry has already been removed; no invalid handle remains reusable.
 	}
 }
 
 function descriptorKey(spec: GrammarSpec): string {
-	return `${spec.packageName}\0${spec.exportName ?? ""}`;
+	return `${spec.packageName}\0${spec.wasmFile}`;
 }
 
 function descriptorLabel(spec: GrammarSpec): string {
-	return `${spec.packageName}${spec.exportName === undefined ? "" : `:${spec.exportName}`}`;
-}
-
-function isMissingModuleError(error: unknown, packageName: string): boolean {
-	if (!isRecord(error) || error["code"] !== "MODULE_NOT_FOUND") return false;
-	return error instanceof Error ? error.message.includes(packageName) : false;
+	return `${spec.packageName}/${spec.wasmFile}`;
 }
 
 function failure(code: ParseFailure["code"], message: string): ParseFailure {
 	return { code, message };
-}
-
-function property(value: unknown, name: string): unknown {
-	if (!isRecord(value)) return undefined;
-	return value[name];
-}
-
-function isParseFailure(value: TreeSitterLanguage | ParseFailure): value is ParseFailure {
-	return "code" in value && typeof value.code === "string";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null;
-}
-
-function isTreeSitterLanguage(value: unknown): value is TreeSitterLanguage {
-	if (!isRecord(value) || !isRecord(value.language)) return false;
-	return Array.isArray(value.nodeTypeInfo);
-}
-
-function isParserConstructor(value: unknown): value is ParserConstructor {
-	if (typeof value !== "function" || typeof value.prototype !== "object" || value.prototype === null) return false;
-	return typeof value.prototype.parse === "function" && typeof value.prototype.setLanguage === "function";
 }

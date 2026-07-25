@@ -52,7 +52,7 @@ export async function analyzeGrepFile(
 	offload: boolean,
 	syntax = true,
 ): Promise<AnalyzedFileIndex> {
-	return (await analyzeGrepFiles([{ path: filePath, text, syntax }], signal, offload))[0] ?? analyzeRequestedFile({ path: filePath, text, syntax });
+	return (await analyzeGrepFiles([{ path: filePath, text, syntax }], signal, offload))[0] ?? await analyzeRequestedFile({ path: filePath, text, syntax }, signal);
 }
 
 export async function analyzeGrepFiles(
@@ -60,25 +60,32 @@ export async function analyzeGrepFiles(
 	signal: AbortSignal | undefined,
 	offload: boolean,
 ): Promise<AnalyzedFileIndex[]> {
-	if (!offload) return files.map(analyzeRequestedFile);
 	if (signal?.aborted) throw new AbortGrepParse();
+	if (!offload) {
+		try {
+			return await Promise.all(files.map((file) => analyzeRequestedFile(file, signal)));
+		} catch (error) {
+			if (signal?.aborted === true) throw new AbortGrepParse();
+			throw error;
+		}
+	}
 	const syntaxFiles = files.filter((file) => file.syntax);
-	if (syntaxFiles.length === 0) return files.map(analyzeRequestedFile);
+	if (syntaxFiles.length === 0) return await Promise.all(files.map((file) => analyzeRequestedFile(file, signal)));
 	try {
 		sharedPool ??= createGrepParserPool();
 		const pool = sharedPool;
 		const batches = chunk(syntaxFiles, GREP_PARSER_BATCH_SIZE);
 		const syntaxResults = (await Promise.all(batches.map((batch) => pool.run(batch, signal)))).flat();
 		let syntaxIndex = 0;
-		return files.map((file) => {
+		return await Promise.all(files.map(async (file) => {
 			if (!file.syntax) return analyzeTextFile(file.path);
 			const result = syntaxResults[syntaxIndex];
 			syntaxIndex += 1;
-			return result ?? analyzeRequestedFile(file);
-		});
+			return result ?? await analyzeRequestedFile(file, signal);
+		}));
 	} catch (error) {
 		if (error instanceof AbortGrepParse || error instanceof WorkerTaskAbortedError) throw new AbortGrepParse();
-		return files.map(analyzeRequestedFile);
+		return await Promise.all(files.map((file) => analyzeRequestedFile(file, signal)));
 	}
 }
 
@@ -115,6 +122,6 @@ function chunk<T>(values: readonly T[], size: number): T[][] {
 	return result;
 }
 
-function analyzeRequestedFile(file: GrepParseFile): AnalyzedFileIndex {
-	return file.syntax ? analyzeCodeFile(file.path, file.text) : analyzeTextFile(file.path);
+async function analyzeRequestedFile(file: GrepParseFile, signal?: AbortSignal): Promise<AnalyzedFileIndex> {
+	return file.syntax ? await analyzeCodeFile(file.path, file.text, { ...(signal !== undefined ? { signal } : {}) }) : analyzeTextFile(file.path);
 }

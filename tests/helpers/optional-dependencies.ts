@@ -7,7 +7,7 @@ interface PackageManifest {
 const require = createRequire(import.meta.url);
 const packageManifest: unknown = require("../../package.json");
 const treeSitterPackages = isPackageManifest(packageManifest) && packageManifest.optionalDependencies !== undefined
-	? Object.keys(packageManifest.optionalDependencies).filter((packageName) => packageName.startsWith("tree-sitter"))
+	? Object.keys(packageManifest.optionalDependencies).filter((packageName) => packageName === "web-tree-sitter" || packageName.startsWith("tree-sitter-"))
 	: [];
 
 export function optionalDependencyPath(packageName: string): string | undefined {
