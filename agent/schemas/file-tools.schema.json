@@ -46,6 +46,12 @@
 					"maximum": 10485760,
 					"default": 51200
 				},
+				"read_suggestion_limit": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 10,
+					"default": 3
+				},
 				"find_output_token_budget": {
 					"type": "integer",
 					"minimum": 32,

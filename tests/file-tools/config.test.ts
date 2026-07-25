@@ -16,6 +16,16 @@ beforeEach(() => {
 });
 
 describe("file-tools config", () => {
+	it("默认启用三个 read 路径建议且支持覆盖数量", async () => {
+		delete process.env.PI_FILE_TOOLS_CONFIG;
+		expect(await loadFileToolsConfig()).toMatchObject({ limits: { read_suggestion_limit: 3 } });
+
+		const configPath = path.join(workspace, "read-suggestions.jsonc");
+		await writeFile(configPath, JSON.stringify({ limits: { read_suggestion_limit: 7 } }));
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		expect(await loadFileToolsConfig()).toMatchObject({ limits: { read_suggestion_limit: 7 } });
+	});
+
 	it("接受收缩后的 find 配置并拒绝旧 find 字段", async () => {
 		const validPath = path.join(workspace, "valid.jsonc");
 		await writeFile(
