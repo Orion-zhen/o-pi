@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 import { agentSchemaPath, createSchemaValidator, projectAgentConfigPath, readOptionalJsoncConfigWithSchema, userAgentConfigPath } from "../config-loader.js";
-import { pathMatchesAnyRule, type PathIdentity } from "../safety/path-guard.js";
+import { pathMatchesAnyRule, type PathIdentity } from "../filesystem/kernel/access-policy.js";
 import { fail, isFailed, type FailedResult, type ToolOutcome } from "./shared/result.js";
 import { DEFAULT_MAX_OUTPUT_BYTES, DEFAULT_MAX_OUTPUT_LINES } from "./core/text-file.js";
 import type { PartialIgnoreConfig } from "./ignore/ignore-types.js";

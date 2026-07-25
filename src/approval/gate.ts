@@ -2,7 +2,7 @@ import type { ExtensionContext, ToolCallEvent, ToolCallEventResult } from "@eare
 import { loadBashToolConfig } from "../bash-tool/config.js";
 import { loadFileToolsConfig } from "../file-tools/config.js";
 import { isFailed } from "../file-tools/shared/result.js";
-import { PathGuardBlockedError, guardWritablePath } from "../safety/path-guard.js";
+import { preflightWriteAccess } from "../filesystem/kernel/access-preflight.js";
 import { checkDeniedText } from "../safety/pattern-guard.js";
 import { loadApprovalGateConfig } from "./config.js";
 import { formatApprovalPrompt, formatDenyReason } from "./format.js";
@@ -207,17 +207,15 @@ async function precheckSafety(event: ToolCallEvent, cwd: string): Promise<ToolCa
 	if (filePath === undefined) return undefined;
 	const config = await loadFileToolsConfig(cwd);
 	if (isFailed(config)) return undefined;
-	try {
-		await guardWritablePath(filePath, { cwd, blocked_path: config.blocked_path });
-	} catch (error) {
-		if (error instanceof PathGuardBlockedError) {
-			return {
-				block: true,
-				reason: `Blocked by safety policy: ${error.block.message} Matched path rule: ${error.block.matched_rule ?? "unknown"}`,
-			};
-		}
-	}
-	return undefined;
+	const preflight = await preflightWriteAccess({ cwd, path: filePath, blockedPaths: config.blocked_path });
+	if (preflight.ok || preflight.error.code !== "blocked") return undefined;
+	const matchedRule = typeof preflight.error.details?.["matchedRule"] === "string"
+		? preflight.error.details["matchedRule"]
+		: "unknown";
+	return {
+		block: true,
+		reason: `Blocked by safety policy: Path is blocked by file-tools config. Matched path rule: ${matchedRule}`,
+	};
 }
 
 async function loadBashConfigForPrecheck(): Promise<Awaited<ReturnType<typeof loadBashToolConfig>> | undefined> {

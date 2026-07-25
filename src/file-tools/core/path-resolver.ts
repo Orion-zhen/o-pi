@@ -1,7 +1,8 @@
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
-import { guardExistingPath, PathGuardBlockedError, resolveInputPath } from "../../safety/path-guard.js";
+import { resolveNativeInputPath } from "../../filesystem/kernel/access-policy.js";
+import { guardExistingPath, PathGuardBlockedError } from "../../safety/path-guard.js";
 import type { FileToolsConfig } from "../config.js";
 import { protectedPathFailure } from "./errors.js";
 import { fail, isAccessDenied, isFailed, type ToolOutcome } from "../shared/result.js";
@@ -27,7 +28,7 @@ export function normalizeToolPath(workspaceRoot: string, inputPath: string): Too
 		return fail("INVALID_PATH", "skill:// is a read-only locator supported only by read.", { path: inputPath });
 	}
 
-	const absolutePath = resolveInputPath(workspaceRoot, inputPath);
+	const absolutePath = resolveNativeInputPath(workspaceRoot, inputPath);
 	const workspacePath = workspaceRelativePath(workspaceRoot, absolutePath);
 	return {
 		absolutePath,

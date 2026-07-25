@@ -11,11 +11,12 @@ import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
 const temp = useTempDir("o-pi-approval-gate-");
-preserveEnv("PI_APPROVAL_GATE_CONFIG");
+preserveEnv("PI_APPROVAL_GATE_CONFIG", "PI_FILE_TOOLS_CONFIG");
 
 beforeEach(() => {
 	dir = temp.path;
 	delete process.env.PI_APPROVAL_GATE_CONFIG;
+	delete process.env.PI_FILE_TOOLS_CONFIG;
 });
 
 describe("approval gate", () => {
@@ -90,6 +91,17 @@ describe("approval gate", () => {
 		const ui = fakeUi([]);
 		expect(await handle(edit("src/index.ts"), ctx(ui))).toBeUndefined();
 		expect(ui.selectCalls).toBe(0);
+	});
+
+	it("write preflight 使用 filesystem access policy 拒绝 blocked path", async () => {
+		const configPath = path.join(dir, "file-tools.jsonc");
+		await writeFile(configPath, JSON.stringify({ blocked_path: ["private/"] }));
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		const result = await handle(write("private/data.txt"), ctx(fakeUi([])));
+		expect(result).toMatchObject({
+			block: true,
+			reason: expect.stringContaining("Matched path rule: private/"),
+		});
 	});
 });
 
