@@ -411,7 +411,7 @@ function createPi(handlers: Map<string, Handler>) {
 				{ name: "skill:alpha", source: "skill", sourceInfo: { path: path.join(dir, "alpha-user", "SKILL.md"), source: "local", scope: "user", origin: "top-level" } },
 				{ name: "skill:alpha", source: "skill", sourceInfo: { path: path.join(dir, "alpha-project", "SKILL.md"), source: "local", scope: "project", origin: "top-level" } },
 				{ name: "skill:beta", source: "skill", sourceInfo: { path: path.join(dir, "beta", "SKILL.md"), source: "local", scope: "project", origin: "top-level" } },
-				{ name: "stats", source: "extension", sourceInfo: { path: "/home/me/.pi/agent/extensions/stats.ts", source: "local", scope: "user", origin: "top-level" } },
+				{ name: "stats", source: "extension", sourceInfo: { path: path.resolve(".pi", "agent", "extensions", "stats.ts"), source: "local", scope: "user", origin: "top-level" } },
 			];
 		},
 	};

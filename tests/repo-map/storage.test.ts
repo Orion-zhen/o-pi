@@ -16,8 +16,8 @@ import type { RepoMapArchitectureNode, RepoMapEdge, RepoMapFileRecord, RepoMapLe
 import { useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-repo-storage-");
-const root = "/canonical/repo";
-const gitCommonDir = "/canonical/repo/.git";
+const root = path.resolve("canonical", "repo");
+const gitCommonDir = path.join(root, ".git");
 const mapId = createRepoMapId({ worktreeRoot: root, gitCommonDir });
 
 describe("Repo Map generation storage", () => {

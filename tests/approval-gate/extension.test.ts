@@ -82,7 +82,7 @@ describe("approval gate", () => {
 
 	it("write /etc/hosts 命中 ask", async () => {
 		const ui = fakeUi(["Allow once"]);
-		expect(await handle(write("/etc/hosts"), ctx(ui))).toBeUndefined();
+		expect(await handle(write(systemPath("etc", "hosts")), ctx(ui))).toBeUndefined();
 		expect(ui.selectCalls).toBe(1);
 	});
 
@@ -92,6 +92,10 @@ describe("approval gate", () => {
 		expect(ui.selectCalls).toBe(0);
 	});
 });
+
+function systemPath(...segments: string[]): string {
+	return path.join(path.parse(dir).root, ...segments);
+}
 
 async function handle(event: ToolCallEvent, context: ExtensionContext): Promise<ToolCallEventResult | void> {
 	const config = configWith({});

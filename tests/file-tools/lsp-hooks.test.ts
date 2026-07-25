@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { editWorkspace } from "../../src/file-tools/tools/edit.js";
@@ -65,7 +66,7 @@ describe("file-tools lsp hooks", () => {
 		let afterCalled = false;
 		const hooks: FileToolLspHooks = {
 			async beforeEdit() {
-				return { source: "/repo\0ts", uri: "file:///a.ts", items: [], known: true, revision: 1 };
+				return { source: "/repo\0ts", uri: pathToFileURL("a.ts").toString(), items: [], known: true, revision: 1 };
 			},
 			async afterEdit(input) {
 				afterCalled = true;

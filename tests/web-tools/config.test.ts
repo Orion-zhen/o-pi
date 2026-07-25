@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { clearWebToolsConfigCacheForTests, defaultCookiePath, defaultWebToolsConfig, loadWebToolsConfig } from "../../src/web-tools/config.js";
@@ -124,7 +125,8 @@ describe("web-tools config", () => {
 		await writeFile(file, '{ "websearch": { "unknown_router_field": true } }');
 		await expect(loadWebToolsConfig()).rejects.toThrow("does not match schema");
 
-		await writeFile(file, '{ "websearch": { "exa_api": { "endpoint": "file:///tmp/key" } } }');
+		const fileEndpoint = pathToFileURL(path.join(dir, "key")).toString();
+		await writeFile(file, JSON.stringify({ websearch: { exa_api: { endpoint: fileEndpoint } } }));
 		await expect(loadWebToolsConfig()).rejects.toThrow("does not match schema");
 
 		await writeFile(file, '{ "websearch": { "brave_api": { "api_key": "" } } }');

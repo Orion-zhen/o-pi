@@ -1,7 +1,11 @@
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { SymbolKind, type DocumentSymbol, type SymbolInformation } from "vscode-languageserver-protocol";
 
 import { compactOutline } from "../../src/lsp/symbols.js";
+
+const workspace = path.resolve("workspace");
 
 const nestedSymbols = [symbol("root-a", 0, [
 	symbol("child-a", 1, [
@@ -47,7 +51,7 @@ function flatSymbol(name: string, line: number): SymbolInformation {
 		name,
 		kind: SymbolKind.Function,
 		location: {
-			uri: `file:///workspace/${name}.ts`,
+			uri: pathToFileURL(path.join(workspace, `${name}.ts`)).toString(),
 			range: { start: { line, character: 0 }, end: { line, character: name.length } },
 		},
 	};

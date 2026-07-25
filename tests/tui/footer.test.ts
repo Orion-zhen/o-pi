@@ -1,3 +1,4 @@
+import path from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { formatFooter, GitSegmentCache, readGitSegment, type GitSegmentReader } from "../../src/tui/footer.js";
@@ -5,6 +6,7 @@ import type { TuiFooterConfig, TuiFooterSnapshot } from "../../src/tui/types.js"
 import { useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-no-git-");
+const cwd = path.resolve("repo", "o-pi");
 const config: TuiFooterConfig = {
 	max_lines: 2,
 	segments: ["cwd", "git", "model", "ctx", "tokens", "cost", "status"],
@@ -12,7 +14,7 @@ const config: TuiFooterConfig = {
 	style: { workspace_color: "accent", git_color: "success", git_icon: "⑂" },
 };
 const snapshot: TuiFooterSnapshot = {
-	cwd: "/repo/o-pi",
+	cwd,
 	git: "main*",
 	modelId: "model-x",
 	context: { tokens: 41_000, contextWindow: 128_000, percent: 32 },
@@ -35,7 +37,7 @@ describe("tui footer", () => {
 	});
 
 	it("缺少数据与 git 仓库时安全退化", async () => {
-		const lines = formatFooter({ cwd: "/repo/o-pi", status: "ready" }, config, 120, theme);
+		const lines = formatFooter({ cwd, status: "ready" }, config, 120, theme);
 		expect(lines.join("\n")).not.toMatch(/undefined|null/);
 		await expect(readGitSegment(temp.path)).resolves.toBeUndefined();
 	});

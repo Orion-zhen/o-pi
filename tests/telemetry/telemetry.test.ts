@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 
+import path from "node:path";
 import { loadExtensions } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js";
 import { registerTelemetryCommand } from "../../agent/extensions/telemetry.js";
 import { defineToolTelemetry, fields } from "../../src/telemetry/projection.js";
@@ -48,7 +49,7 @@ describe("telemetry service", () => {
 			const handlers = loaded.extensions.reduce((count, extension) => count + (extension.handlers.get(event)?.length ?? 0), 0);
 			expect(handlers, event).toBe(event === "tool_result" ? 3 : event === "session_start" ? 2 : 1);
 		}
-		const telemetry = loaded.extensions.find((extension) => extension.path.endsWith("agent/extensions/telemetry.ts"));
+		const telemetry = loaded.extensions.find((extension) => extension.path.endsWith(path.join("agent", "extensions", "telemetry.ts")));
 		expect(telemetry?.commands.has("telemetry")).toBe(true);
 	});
 

@@ -5,7 +5,7 @@ import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "../../src/l
 
 describe("lsp uri", () => {
 	it("本地路径和 file URI 可互转", () => {
-		const filePath = path.resolve("/tmp/o pi/你好.ts");
+		const filePath = path.resolve("o pi", "你好.ts");
 		const uri = pathToFileUri(filePath);
 		expect(uri).toMatch(/^file:\/\//);
 		expect(fileUriToPath(uri)).toBe(filePath);
@@ -17,7 +17,7 @@ describe("lsp uri", () => {
 	});
 
 	it("接受 workspace 内以两个点开头的文件名", () => {
-		const root = path.resolve("/tmp/workspace");
+		const root = path.resolve("workspace");
 		const file = path.join(root, "..config.ts");
 		expect(workspaceRelativePath(root, file)).toBe("..config.ts");
 	});

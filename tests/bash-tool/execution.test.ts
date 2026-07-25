@@ -12,6 +12,9 @@ import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 let workspace: string;
 let config = defaultBashToolConfig();
 const temp = useTempDir("o-pi-bash-test-");
+const sessionFileOne = path.join("sessions", "1.jsonl");
+const sessionFile = path.join("sessions", "session-1.jsonl");
+const staleSessionFile = path.join("stale", "session.jsonl");
 preserveEnv(
 	"PI_BASH_TOOL_CONFIG",
 	"PI_CODING_AGENT_DIR",
@@ -117,7 +120,7 @@ describe("bash tool execution", () => {
 			thinking?: string;
 		} = {
 			id: "session-1",
-			file: "/sessions/1.jsonl",
+			file: sessionFileOne,
 			model: { provider: "provider-1", id: "model-1" },
 			thinking: "high",
 		};
@@ -136,14 +139,14 @@ describe("bash tool execution", () => {
 		state = { id: "session-2", thinking: "low" };
 		const second = await execute("tool:extension-2", { command }, undefined, undefined, context as Parameters<typeof execute>[4]);
 
-		expect(first.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("session-1|/sessions/1.jsonl|provider-1|model-1|high") });
+		expect(first.content[0]).toMatchObject({ type: "text", text: expect.stringContaining(`session-1|${sessionFileOne}|provider-1|model-1|high`) });
 		expect(first.details).toMatchObject({ status: "exited", exit_code: 0, output_state: "complete" });
 		expect(second.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("session-2||||low") });
 	});
 
 	it("注入当前 session metadata 并清除继承的过期字段", async () => {
 		process.env.PI_SESSION_ID = "stale-session";
-		process.env.PI_SESSION_FILE = "/stale/session.jsonl";
+		process.env.PI_SESSION_FILE = staleSessionFile;
 		process.env.PI_PROVIDER = "stale-provider";
 		process.env.PI_MODEL = "stale-model";
 		process.env.PI_REASONING_LEVEL = "stale-level";
@@ -155,7 +158,7 @@ describe("bash tool execution", () => {
 		const runtimeValue = runtime(operations);
 		runtimeValue.session = {
 			sessionId: "session-1",
-			sessionFile: "/sessions/session-1.jsonl",
+			sessionFile,
 			provider: "anthropic",
 			model: "claude-sonnet",
 			reasoningLevel: "high",
@@ -167,7 +170,7 @@ describe("bash tool execution", () => {
 		expect(seenEnvironments).toHaveLength(2);
 		expect(seenEnvironments[0]).toMatchObject({
 			PI_SESSION_ID: "session-1",
-			PI_SESSION_FILE: "/sessions/session-1.jsonl",
+			PI_SESSION_FILE: sessionFile,
 			PI_PROVIDER: "anthropic",
 			PI_MODEL: "claude-sonnet",
 			PI_REASONING_LEVEL: "high",

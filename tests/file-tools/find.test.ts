@@ -52,8 +52,9 @@ function paths(matches: FindMatch[]): string[] {
 }
 
 async function writeFixture(filePath: string): Promise<void> {
-	await mkdir(path.dirname(path.join(workspace, filePath)), { recursive: true });
-	await writeFile(path.join(workspace, filePath), "");
+	const absolutePath = path.join(workspace, ...filePath.split("/"));
+	await mkdir(path.dirname(absolutePath), { recursive: true });
+	await writeFile(absolutePath, "");
 }
 
 function repoMapCandidate(
@@ -220,10 +221,10 @@ describe("find", () => {
 	it("校验空值、NUL 和越界 query，但允许 workspace 外搜索路径", async () => {
 		expect(await findWorkspaceFiles(workspace, { query: "" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
 		expect(await findWorkspaceFiles(workspace, { query: "a\0b" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
-		expect(await findWorkspaceFiles(workspace, { query: "/tmp/a" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
+		expect(await findWorkspaceFiles(workspace, { query: path.resolve("outside", "a") })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
 		expect(await findWorkspaceFiles(workspace, { query: "../a" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
 		expect(await findWorkspaceFiles(workspace, { path: [""], query: "a" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
-		for (const query of ["/tmp/*.ts", "../*.ts", "src/../../*.ts"]) {
+		for (const query of [path.resolve("outside", "*.ts"), ".." + path.sep + "*.ts", path.join("src", "..", "..", "*.ts")]) {
 			expect(await findWorkspaceFiles(workspace, { query })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
 		}
 		await writeFile(path.join(outside, "external.ts"), "");

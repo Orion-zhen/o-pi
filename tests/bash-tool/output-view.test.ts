@@ -1,3 +1,4 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { cleanForModel, createBashOutputView } from "../../src/bash-tool/output-view.js";
@@ -5,6 +6,7 @@ import { defaultBashToolConfig } from "../../src/bash-tool/config.js";
 import type { BashOutputFormat, BashRunStatus } from "../../src/bash-tool/types.js";
 
 const config = defaultBashToolConfig();
+const fullOutputPath = path.join("o-pi", "bash", "s", "t.log");
 
 function view(text: string, overrides: Partial<Parameters<typeof createBashOutputView>[0]> = {}) {
 	return createBashOutputView({
@@ -14,7 +16,7 @@ function view(text: string, overrides: Partial<Parameters<typeof createBashOutpu
 		durationMs: 420,
 		totalBytes: Buffer.byteLength(text),
 		totalLines: text.length === 0 ? 0 : text.split("\n").length - (text.endsWith("\n") ? 1 : 0),
-		fullOutputPath: "/tmp/o-pi/bash/s/t.log",
+		fullOutputPath,
 		captureComplete: true,
 		binary: false,
 		limits: config.limits,
@@ -36,8 +38,8 @@ describe("bash output view", () => {
 		const text = Array.from({ length: 80 }, (_, index) => `line ${index}`).join("\n");
 		const result = view(text, { limits });
 		expect(result.details.output_state).toBe("truncated");
-		expect(result.details.full_output_path).toBe("/tmp/o-pi/bash/s/t.log");
-		expect(result.content).toContain("full=/tmp/o-pi/bash/s/t.log");
+		expect(result.details.full_output_path).toBe(fullOutputPath);
+		expect(result.content).toContain(`full=${fullOutputPath}`);
 		expect(result.content).toContain("line 0");
 		expect(result.content).toContain("line 79");
 		expect(result.content).toMatch(/\[\.\.\. \d+ lines omitted \.\.\.\]/);
@@ -66,7 +68,7 @@ describe("bash output view", () => {
 		const compacted = view("Retrying\nRetrying\nRetrying\nok\n");
 		expect(compacted.details.output_state).toBe("compacted");
 		expect(compacted.content).toContain("[same line repeated 2 more times]");
-		expect(compacted.content).not.toContain("full=/tmp/o-pi/bash/s/t.log");
+		expect(compacted.content).not.toContain(`full=${fullOutputPath}`);
 
 		const separate = view("Retrying\nother\nRetrying\n");
 		expect(separate.content).not.toContain("same line repeated");
@@ -75,9 +77,9 @@ describe("bash output view", () => {
 	it("完整失败输出保留日志但不提示读取完整日志", () => {
 		const result = view("bad\n", { status: "exited", exitCode: 1 });
 		expect(result.keepLog).toBe(true);
-		expect(result.details.full_output_path).toBe("/tmp/o-pi/bash/s/t.log");
+		expect(result.details.full_output_path).toBe(fullOutputPath);
 		expect(result.details.output_state).toBe("complete");
-		expect(result.content).not.toContain("full=/tmp/o-pi/bash/s/t.log");
+		expect(result.content).not.toContain(`full=${fullOutputPath}`);
 	});
 
 	it("回车进度只展示最终状态", () => {

@@ -157,14 +157,14 @@ describe("Repo Map architecture graph", () => {
 		await mkdir(path.join(root, ".git"), { recursive: true });
 		await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "single", main: "./src/index.ts" }));
 		await mkdir(path.join(root, "src"), { recursive: true });
-		await writeFile(path.join(root, "src/index.ts"), "export function oldApi() {}\nexport function extension(pi: any) { pi.registerCommand('old', {}); }\n");
+		await writeFile(path.join(root, "src", "index.ts"), "export function oldApi() {}\nexport function extension(pi: any) { pi.registerCommand('old', {}); }\n");
 		const first = await initializeRepoMap({ cwd: root }, serviceDependencies(root, path.join(temp.path, "cache")));
 		const firstGeneration = await readGeneration(root, path.join(temp.path, "cache"), first.metadata.mapId, first.metadata.generation);
 		expect(firstGeneration.architecture.some((node) => node.kind === "entrypoint" && node.name === "old")).toBe(true);
 
 		await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "single", exports: "./src/new.ts" }));
-		await writeFile(path.join(root, "src/new.ts"), "export function newApi() {}\nexport function extension(pi: any) { pi.registerCommand('new', {}); }\n");
-		await rm(path.join(root, "src/index.ts"));
+		await writeFile(path.join(root, "src", "new.ts"), "export function newApi() {}\nexport function extension(pi: any) { pi.registerCommand('new', {}); }\n");
+		await rm(path.join(root, "src", "index.ts"));
 		const refreshed = await initializeRepoMap({ cwd: root, mode: "refresh" }, serviceDependencies(root, path.join(temp.path, "cache")));
 		const generation = await readGeneration(root, path.join(temp.path, "cache"), refreshed.metadata.mapId, refreshed.metadata.generation);
 		expect(refreshed.metadata.generation).not.toBe(first.metadata.generation);

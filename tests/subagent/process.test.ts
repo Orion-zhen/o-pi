@@ -604,7 +604,7 @@ function agent(): AgentDefinition {
 		fork: false,
 		tools: ["read"],
 		source: "user",
-		filePath: "/agents/scout.md",
+		filePath: path.resolve("agents", "scout.md"),
 		hasWriteCapability: false,
 	};
 }

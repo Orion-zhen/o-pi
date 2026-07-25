@@ -35,8 +35,9 @@ export function fileRecord(filePath: string, text: string): RepoMapFileRecord {
 
 export async function writeSources(root: string, sources: ReadonlyMap<string, string>): Promise<void> {
 	for (const [filePath, source] of sources) {
-		await mkdir(path.dirname(path.join(root, filePath)), { recursive: true });
-		await writeFile(path.join(root, filePath), source);
+		const absolutePath = path.join(root, ...filePath.split("/"));
+		await mkdir(path.dirname(absolutePath), { recursive: true });
+		await writeFile(absolutePath, source);
 	}
 }
 

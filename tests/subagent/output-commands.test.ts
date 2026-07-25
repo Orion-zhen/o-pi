@@ -8,6 +8,7 @@ import type { SubagentRunResult } from "../../src/subagent/types.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-subagent-output-");
+const workspace = path.resolve("workspace");
 
 describe("subagent commands", () => {
 	it("解析引号和管道", () => {
@@ -32,7 +33,7 @@ describe("subagent output", () => {
 	});
 
 	it("自动 inline 短输出，超限时只给一行文件路径", () => {
-		const outputFile = "/workspace/.pi/subagents/runs/run-1/scout-1.md";
+		const outputFile = path.join(workspace, ".pi", "subagents", "runs", "run-1", "scout-1.md");
 		const result = { ...runResult(), output: "secret full output", outputFile };
 		const outputTokens = countTextTokensSync(result.output).tokens;
 
@@ -79,7 +80,7 @@ function runResult(): SubagentRunResult {
 		agent: "scout",
 		source: "user",
 		task: "inspect",
-		cwd: "/workspace",
+		cwd: workspace,
 		tools: ["read"],
 		attempts: 1,
 		exitCode: 0,

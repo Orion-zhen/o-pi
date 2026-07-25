@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { isAllowedResolvedAddress, isPublicAddress, resolveAllowedAddresses, validateRequestUrl } from "../../src/web-tools/network-policy.js";
@@ -6,7 +7,7 @@ describe("webfetch network policy", () => {
 	it("只允许 http/https 且拒绝 userinfo、localhost 和字面私网 IP", () => {
 		expect(validateRequestUrl("https://example.com/a#frag")).toMatchObject({ displayUrl: "https://example.com/a" });
 		expect(validateRequestUrl("http://example.com")).toMatchObject({ displayUrl: "http://example.com/" });
-		expect(validateRequestUrl("file:///etc/passwd")).toMatchObject({ status: "failed", error: { code: "INVALID_URL" } });
+		expect(validateRequestUrl(pathToFileURL("passwd").toString())).toMatchObject({ status: "failed", error: { code: "INVALID_URL" } });
 		expect(validateRequestUrl("https://u:p@example.com")).toMatchObject({ status: "failed", error: { code: "INVALID_URL" } });
 		expect(validateRequestUrl("https://localhost")).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
 		expect(validateRequestUrl("http://127.0.0.1")).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });

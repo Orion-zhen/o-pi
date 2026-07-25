@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LspClient } from "../../src/lsp/client.js";
@@ -488,5 +489,5 @@ function send(message) {
 }
 
 function pathToUri(filePath: string): string {
-	return new URL(`file://${path.resolve(filePath).replace(/\\/g, "/").startsWith("/") ? "" : "/"}${path.resolve(filePath).replace(/\\/g, "/")}`).toString();
+	return pathToFileURL(path.resolve(filePath)).toString();
 }

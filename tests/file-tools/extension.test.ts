@@ -428,13 +428,15 @@ describe("file-tools extension", () => {
 				path: "homerail_manager/src/manager-agent",
 			},
 		};
+		const cwd = join(process.cwd(), "homerail");
+		const requestedPath = join(cwd, "homerail_manager", "src", "manager-agent");
 		const component = ls?.renderResult?.(
 			{ content: [{ type: "text", text: "<error/>" }], details: failure },
 			{ expanded: false, isPartial: false },
 			theme,
 			{
-				args: { path: "/home/orion/repo/homerail/homerail_manager/src/manager-agent" },
-				cwd: "/home/orion/repo/homerail",
+				args: { path: requestedPath },
+				cwd,
 				lastComponent: undefined,
 			},
 		);
@@ -442,7 +444,7 @@ describe("file-tools extension", () => {
 		const output = component?.render(120).join("\n") ?? "";
 		expect(output).toContain("ls        homerail_manager/src/manager-agent");
 		expect(output).toContain("PATH_NOT_FOUND: Directory does not exist.");
-		expect(output).not.toContain("ls        /home/orion/repo/homerail");
+		expect(output).not.toContain(`ls        ${cwd}`);
 	});
 
 	it("find 使用自定义调用和结果 renderer 展示 strategy、类型、折叠组和扫描统计", async () => {

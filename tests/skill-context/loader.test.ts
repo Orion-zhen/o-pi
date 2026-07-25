@@ -7,6 +7,10 @@ import { useTempDir } from "../helpers/lifecycle.js";
 
 let tempDir: string;
 const temp = useTempDir("o-pi-skill-loader-");
+const firstSkillPath = path.resolve("first", "SKILL.md");
+const secondSkillPath = path.resolve("second", "SKILL.md");
+const userSkillPath = path.resolve("user", "SKILL.md");
+const projectSkillPath = path.resolve("project", "SKILL.md");
 
 beforeEach(() => {
 	tempDir = temp.path;
@@ -26,26 +30,26 @@ describe("skill loader", () => {
 				{
 					name: "demo",
 					description: "first",
-					filePath: "/first/SKILL.md",
-					baseDir: "/first",
-					sourceInfo: { path: "/first/SKILL.md", source: "user", scope: "user", origin: "top-level" },
+					filePath: firstSkillPath,
+					baseDir: path.dirname(firstSkillPath),
+					sourceInfo: { path: firstSkillPath, source: "user", scope: "user", origin: "top-level" },
 					disableModelInvocation: false,
 				},
 			],
 		};
-		const candidates = collectSkillCandidates(options, [skillCommand("skill:demo", "/second/SKILL.md")]);
+		const candidates = collectSkillCandidates(options, [skillCommand("skill:demo", secondSkillPath)]);
 		expect(candidates).toHaveLength(1);
-		expect(candidates[0]).toMatchObject({ name: "demo", path: "/first/SKILL.md", description: "first" });
+		expect(candidates[0]).toMatchObject({ name: "demo", path: firstSkillPath, description: "first" });
 	});
 
 	it("同名时 project skill 始终覆盖 user skill", () => {
-		const user = skillCommand("skill:demo", "/user/SKILL.md", "user");
-		const project = skillCommand("skill:demo", "/project/SKILL.md", "project");
+		const user = skillCommand("skill:demo", userSkillPath, "user");
+		const project = skillCommand("skill:demo", projectSkillPath, "project");
 		expect(collectSkillCandidates(undefined, [user, project])).toMatchObject([
-			{ name: "demo", path: "/project/SKILL.md", scope: "project" },
+			{ name: "demo", path: projectSkillPath, scope: "project" },
 		]);
 		expect(collectSkillCandidates(undefined, [project, user])).toMatchObject([
-			{ name: "demo", path: "/project/SKILL.md", scope: "project" },
+			{ name: "demo", path: projectSkillPath, scope: "project" },
 		]);
 	});
 

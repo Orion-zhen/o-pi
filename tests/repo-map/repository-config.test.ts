@@ -44,11 +44,11 @@ describe("Repo Map repository and identity", () => {
 	});
 
 	it("uses worktree and common-dir but not HEAD or cwd child in the map ID", () => {
-		const identity = { worktreeRoot: "/repo/worktree", gitCommonDir: "/repo/.git" };
+		const identity = { worktreeRoot: path.resolve("repo", "worktree"), gitCommonDir: path.resolve("repo", ".git") };
 		const first = createRepoMapId(identity);
 		expect(first).toMatch(/^[0-9a-f]{64}$/u);
 		expect(createRepoMapId(identity)).toBe(first);
-		expect(createRepoMapId({ ...identity, worktreeRoot: "/repo/other-worktree" })).not.toBe(first);
+		expect(createRepoMapId({ ...identity, worktreeRoot: path.resolve("repo", "other-worktree") })).not.toBe(first);
 	});
 });
 

@@ -1,6 +1,10 @@
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderSubagentCall, renderSubagentCommandEntry, renderSubagentResult } from "../../src/subagent/renderer.js";
 import type { SubagentDetails, SubagentRunResult, UsageStats } from "../../src/subagent/types.js";
+
+const workspace = path.resolve("workspace");
+const outputFile = path.join(workspace, ".pi", "subagents", "runs", "run-1", "scout-1.md");
 
 const theme = {
 	fg: (_color: string, text: string) => text,
@@ -116,19 +120,19 @@ describe("subagent renderer", () => {
 					agent: "scout",
 					task: "inspect output",
 					output: "full subagent output kept for the tool card",
-					outputFile: "/workspace/.pi/subagents/runs/run-1/scout-1.md",
+					outputFile,
 				}),
 			],
 			warnings: [],
 		};
 
 		const rendered = renderSubagentResult(
-			{ content: [{ type: "text", text: "Subagent scout produced too much output for inline return; full output saved to /workspace/.pi/subagents/runs/run-1/scout-1.md." }], details },
+			{ content: [{ type: "text", text: `Subagent scout produced too much output for inline return; full output saved to ${outputFile}.` }], details },
 			{ expanded: true, isPartial: false },
 			theme as never,
 		).render(160).join("\n");
 
-		expect(rendered).toContain("Saved   .pi/subagents/runs/run-1/scout-1.md");
+		expect(rendered).toContain(`Saved   ${path.join(".pi", "subagents", "runs", "run-1", "scout-1.md")}`);
 		expect(rendered).toContain("Result");
 		expect(rendered).toContain("full subagent output kept for the tool card");
 	});
@@ -169,7 +173,7 @@ function result(overrides: Partial<SubagentRunResult>): SubagentRunResult {
 		agent: "scout",
 		source: "user",
 		task: "inspect",
-		cwd: "/workspace",
+		cwd: workspace,
 		tools: ["read"],
 		attempts: 1,
 		exitCode: 0,

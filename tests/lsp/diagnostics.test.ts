@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DiagnosticSeverity, type Diagnostic } from "vscode-languageserver-protocol";
 
@@ -5,7 +6,7 @@ import { DiagnosticsLedger, summarizeDiagnostics } from "../../src/lsp/diagnosti
 
 const source = "/repo\0ts";
 const otherSource = "/other\0ts";
-const uri = "file:///repo/a.ts";
+const uri = pathToFileURL("repo/a.ts").toString();
 
 afterEach(() => {
 	vi.useRealTimers();

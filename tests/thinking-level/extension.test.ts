@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { Api, Model, ModelThinkingLevel, Provider, ThinkingLevelMap } from "@earendil-works/pi-ai";
 import { createEventBus, type EventBus, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
@@ -125,7 +126,7 @@ function registerResponsesModel(
 		on() {},
 		setThinkingLevel() {},
 	} as unknown as ExtensionAPI;
-	registerOpenAICompatibleProviders(pi, config, "/tmp/models.jsonc");
+	registerOpenAICompatibleProviders(pi, config, path.resolve("models.jsonc"));
 	const model = registered[0]?.getModels()[0];
 	if (!model) throw new Error("registered model missing");
 	return model;

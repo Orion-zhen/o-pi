@@ -242,7 +242,7 @@ function makeToolInfo(name: string): ToolInfo {
 		description: name,
 		parameters: { type: "object", properties: {} } as never,
 		sourceInfo: {
-			path: "/test/extension.ts",
+			path: path.resolve("test", "extension.ts"),
 			source: "test",
 			scope: "temporary",
 			origin: "top-level",

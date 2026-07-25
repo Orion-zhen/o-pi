@@ -1,6 +1,10 @@
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { incrementalContentChange, LspDocuments } from "../../src/lsp/documents.js";
+
+const documentUri = pathToFileURL(path.resolve("a.ts")).toString();
 
 describe("lsp documents", () => {
 	it.each([
@@ -30,13 +34,13 @@ describe("lsp documents", () => {
 		const gate = new Promise<void>((resolve) => {
 			release = resolve;
 		});
-		const first = documents.enqueue("file:///a.ts", async () => {
+		const first = documents.enqueue(documentUri, async () => {
 			events.push("first:start");
 			await gate;
 			events.push("first:end");
 			throw new Error("first failed");
 		});
-		const second = documents.enqueue("file:///a.ts", async () => {
+		const second = documents.enqueue(documentUri, async () => {
 			events.push("second");
 			return 2;
 		});

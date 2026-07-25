@@ -35,16 +35,18 @@ describe("approval store", () => {
 
 	it("exact_path 只匹配同一路径", () => {
 		const store = new FileApprovalStore(path.join(dir, "rules.jsonc"));
-		store.addSessionAllowRule({ created_at: "t", tool: "edit", kind: "exact_path", value: "/etc/hosts" });
-		expect(store.matchesAllowRule(pathRequest("edit", "/etc/hosts"))).toBe(true);
-		expect(store.matchesAllowRule(pathRequest("edit", "/etc/nginx/nginx.conf"))).toBe(false);
+		const hosts = systemPath("etc", "hosts");
+		store.addSessionAllowRule({ created_at: "t", tool: "edit", kind: "exact_path", value: hosts });
+		expect(store.matchesAllowRule(pathRequest("edit", hosts))).toBe(true);
+		expect(store.matchesAllowRule(pathRequest("edit", systemPath("etc", "nginx", "nginx.conf")))).toBe(false);
 	});
 
 	it("path_glob 匹配子路径", () => {
 		const store = new FileApprovalStore(path.join(dir, "rules.jsonc"));
-		store.addSessionAllowRule({ created_at: "t", tool: "edit", kind: "path_glob", value: "/etc/nginx/**" });
-		expect(store.matchesAllowRule(pathRequest("edit", "/etc/nginx/nginx.conf"))).toBe(true);
-		expect(store.matchesAllowRule(pathRequest("edit", "/etc/hosts"))).toBe(false);
+		const nginx = systemPath("etc", "nginx");
+		store.addSessionAllowRule({ created_at: "t", tool: "edit", kind: "path_glob", value: path.join(nginx, "**") });
+		expect(store.matchesAllowRule(pathRequest("edit", path.join(nginx, "nginx.conf")))).toBe(true);
+		expect(store.matchesAllowRule(pathRequest("edit", systemPath("etc", "hosts")))).toBe(false);
 	});
 
 	it("persistent store 能读写 JSONC 或 JSON 文件", async () => {
@@ -58,6 +60,10 @@ describe("approval store", () => {
 		expect(reloaded.matchesAllowRule(commandRequest("git push origin main"))).toBe(true);
 	});
 });
+
+function systemPath(...segments: string[]): string {
+	return path.join(path.parse(dir).root, ...segments);
+}
 
 function commandRequest(command: string): ApprovalRequest {
 	return {

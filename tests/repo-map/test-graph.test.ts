@@ -74,11 +74,11 @@ describe("Repo Map test graph", () => {
 		const active = createRepoMapFileToolQuery(() => [activationEntry(generation.metadata)], { readActivated: async () => generation });
 		const userHash = generation.files.find((file) => file.path === "src/user.ts")?.contentHash;
 		if (userHash === undefined) throw new Error("missing user hash");
-		const readContext = await active.readContext({ requestedPath: path.join(temp.path, "src/user.ts"), contentHash: userHash, startLine: 1, endLine: 1, partial: true, truncated: false });
+		const readContext = await active.readContext({ requestedPath: path.join(temp.path, "src", "user.ts"), contentHash: userHash, startLine: 1, endLine: 1, partial: true, truncated: false });
 		expect(readContext?.relatedTests).toContain("tests/user.test.ts");
 		const fresh = await active.query({ requestedPath: temp.path, query: "loadUser", limit: 30 });
 		expect(fresh?.candidates.map((candidate) => candidate.path)).toContain("tests/user.test.ts");
-		await writeFile(path.join(temp.path, "tests/user.test.ts"), "test('changed', () => true);\n");
+		await writeFile(path.join(temp.path, "tests", "user.test.ts"), "test('changed', () => true);\n");
 		const stale = await active.query({ requestedPath: temp.path, query: "loadUser", limit: 30 });
 		expect(stale?.candidates.map((candidate) => candidate.path)).not.toContain("tests/user.test.ts");
 	});

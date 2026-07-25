@@ -573,7 +573,7 @@ describe("web-tools runtime", () => {
 });
 
 async function runJitiExtension(body: string, configPath: string): Promise<string> {
-	const extensionPath = path.join(process.cwd(), "agent/extensions/web-tools.ts");
+	const extensionPath = path.join(process.cwd(), "agent", "extensions", "web-tools.ts");
 	const script = `
 		import { createJiti } from "jiti/static";
 		const jiti = createJiti(import.meta.url, { moduleCache: false });

@@ -2,7 +2,7 @@ import path from "node:path";
 import { isToolCallEventType, type ToolCallEvent } from "@earendil-works/pi-coding-agent";
 import type { ApprovalEffect, ApprovalRequest } from "./types.js";
 
-const SYSTEM_PATH_PREFIXES = ["/etc/", "/usr/", "/bin/", "/sbin/", "/System/", "/Library/", "/var/"];
+const SYSTEM_PATH_PREFIXES = ["etc", "usr", "bin", "sbin", "System", "Library", "var"];
 
 export function buildApprovalRequest(event: ToolCallEvent, cwd: string): ApprovalRequest | undefined {
 	if (isToolCallEventType("bash", event)) {
@@ -85,7 +85,9 @@ function pathEffects(targetPath: string): ApprovalEffect[] {
 
 function isSystemPath(targetPath: string): boolean {
 	const normalized = targetPath.replace(/\\/g, "/");
-	return SYSTEM_PATH_PREFIXES.some((prefix) => normalized === prefix.slice(0, -1) || normalized.startsWith(prefix));
+	const root = path.parse(normalized).root;
+	const relative = path.relative(root, normalized).replace(/\\/g, "/");
+	return SYSTEM_PATH_PREFIXES.some((prefix) => relative === prefix || relative.startsWith(`${prefix}/`));
 }
 
 function normalizeTargetPath(filePath: string, cwd: string): string {

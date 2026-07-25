@@ -1,8 +1,10 @@
+import path from "node:path";
 import type { ToolCallEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 import { buildApprovalRequest } from "../../src/approval/request-builder.js";
 
-const cwd = "/home/orion/project";
+const cwd = path.resolve("project");
+const systemPath = path.join(path.parse(cwd).root, "etc", "hosts");
 
 describe("approval request builder", () => {
 	it("bash 普通命令生成 execute effect", () => {
@@ -27,16 +29,16 @@ describe("approval request builder", () => {
 	});
 
 	it("write /etc/hosts 生成 write / system_change", () => {
-		const request = buildApprovalRequest(write("/etc/hosts"), cwd);
+		const request = buildApprovalRequest(write(systemPath), cwd);
 		expect(request).toMatchObject({ tool: "write", action: "write_file" });
 		expect(request?.effects).toEqual(expect.arrayContaining(["write", "system_change"]));
-		expect(request?.targets).toEqual([{ kind: "path", value: "/etc/hosts" }]);
+		expect(request?.targets).toEqual([{ kind: "path", value: systemPath.replace(/\\/g, "/") }]);
 	});
 
 	it("edit 普通项目文件只生成 write", () => {
 		const request = buildApprovalRequest(edit("src/index.ts"), cwd);
 		expect(request).toMatchObject({ tool: "edit", action: "edit_file", effects: ["write"] });
-		expect(request?.targets).toEqual([{ kind: "path", value: "/home/orion/project/src/index.ts" }]);
+		expect(request?.targets).toEqual([{ kind: "path", value: path.join(cwd, "src", "index.ts").replace(/\\/g, "/") }]);
 	});
 
 	it("read/find/grep/ls 返回 undefined", () => {

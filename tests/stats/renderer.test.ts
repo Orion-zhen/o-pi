@@ -1,3 +1,4 @@
+import path from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { renderStats } from "../../src/stats/render-stats.js";
@@ -33,10 +34,12 @@ describe("stats renderer", () => {
 	});
 });
 
+const cwd = path.resolve("o-pi");
+
 function snapshot(): StatsSnapshot {
 	return {
 		session: {
-			cwd: "/home/orion/repo/o-pi",
+			cwd,
 			git: "stats-ui*",
 			modelId: "claude-sonnet",
 			modelProvider: "anthropic",

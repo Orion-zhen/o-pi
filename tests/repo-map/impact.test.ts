@@ -87,7 +87,7 @@ describe("Repo Map change impact", () => {
 		const readActivated = vi.fn(async (activation: { generation: string }) => activation.generation === before.metadata.generation ? before : after);
 		const analyzeImpactSpy = vi.fn(analyzeRepoMapImpact);
 		const query = createRepoMapFileToolQuery(() => branch, { readActivated, refresh, analyzeImpact: analyzeImpactSpy });
-		const mutation = await query.syncMutation({ requestedPath: path.join(temp.path, "src/user.ts"), changedLine: 1 });
+		const mutation = await query.syncMutation({ requestedPath: path.join(temp.path, "src", "user.ts"), changedLine: 1 });
 		expect(mutation).toMatchObject({ status: "updated", impact: { candidate: true, changedPath: "src/user.ts" } });
 		expect(analyzeImpactSpy).toHaveBeenCalledWith(expect.objectContaining({ changedLine: 1, maxCandidates: 8 }));
 		if (mutation === undefined) throw new Error("missing mutation result");
@@ -131,13 +131,13 @@ describe("Repo Map change impact", () => {
 
 		const analyzeImpact = vi.fn(() => { throw new Error("simulated analysis failure"); });
 		const failing = createRepoMapFileToolQuery(() => branch, { readActivated, refresh, analyzeImpact });
-		expect(await failing.syncMutation({ requestedPath: path.join(temp.path, "src/user.ts") }))
+		expect(await failing.syncMutation({ requestedPath: path.join(temp.path, "src", "user.ts") }))
 			.toEqual({ status: "updated", generation: after.metadata.generation });
 		const inactiveRefresh = vi.fn(async () => initializeResult(after));
 		const inactiveRead = vi.fn(async () => before);
 		const inactiveAnalyze = vi.fn(analyzeRepoMapImpact);
 		const inactive = createRepoMapFileToolQuery(() => [], { readActivated: inactiveRead, refresh: inactiveRefresh, analyzeImpact: inactiveAnalyze });
-		expect(await inactive.syncMutation({ requestedPath: path.join(temp.path, "src/user.ts") })).toBeUndefined();
+		expect(await inactive.syncMutation({ requestedPath: path.join(temp.path, "src", "user.ts") })).toBeUndefined();
 		expect(inactiveRead).not.toHaveBeenCalled();
 		expect(inactiveRefresh).not.toHaveBeenCalled();
 		expect(inactiveAnalyze).not.toHaveBeenCalled();

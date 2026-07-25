@@ -106,7 +106,7 @@ describe("Repo Map lexical projection", () => {
 			expect(enhanced.regions.map((region) => region.path)).toEqual(plain.regions.map((region) => region.path));
 		}
 
-		await writeFile(path.join(temp.path, "src/repositoryClient.ts"), "export const changed = true;\n");
+		await writeFile(path.join(temp.path, "src", "repositoryClient.ts"), "export const changed = true;\n");
 		const changed = await active.query({ requestedPath: temp.path, query: "repo client", limit: 20 });
 		expect(changed?.candidates.map((candidate) => candidate.path)).not.toContain("src/repositoryClient.ts");
 	});
@@ -115,15 +115,15 @@ describe("Repo Map lexical projection", () => {
 		const root = path.join(temp.path, "incremental");
 		await mkdir(path.join(root, ".git"), { recursive: true });
 		await mkdir(path.join(root, "src"), { recursive: true });
-		await writeFile(path.join(root, "src/legacy-client.ts"), "export function legacyClient() {}\n");
+		await writeFile(path.join(root, "src", "legacy-client.ts"), "export function legacyClient() {}\n");
 		const first = await initializeRepoMap({ cwd: root }, serviceDependencies(root, path.join(temp.path, "cache")));
 		const firstGeneration = await readGeneration(root, path.join(temp.path, "cache"), first.metadata.mapId, first.metadata.generation);
 		expect(firstGeneration.aliases.some((alias) => alias.term === "legacy client")).toBe(true);
 
 		const stable = await initializeRepoMap({ cwd: root, mode: "refresh" }, serviceDependencies(root, path.join(temp.path, "cache")));
 		expect(stable.metadata.generation).toBe(first.metadata.generation);
-		await writeFile(path.join(root, "src/modern-client.ts"), "export function modernClient() {}\n");
-		await rm(path.join(root, "src/legacy-client.ts"));
+		await writeFile(path.join(root, "src", "modern-client.ts"), "export function modernClient() {}\n");
+		await rm(path.join(root, "src", "legacy-client.ts"));
 		const refreshed = await initializeRepoMap({ cwd: root, mode: "refresh" }, serviceDependencies(root, path.join(temp.path, "cache")));
 		const current = await readGeneration(root, path.join(temp.path, "cache"), refreshed.metadata.mapId, refreshed.metadata.generation);
 		expect(current.aliases.some((alias) => alias.term === "modern client")).toBe(true);

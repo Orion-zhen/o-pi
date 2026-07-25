@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
@@ -5,6 +6,9 @@ import lspExtension from "../../agent/extensions/lsp.js";
 import { registerLspCommands } from "../../src/lsp/commands.js";
 import { lspManager } from "../../src/lsp/index.js";
 import { LspManager } from "../../src/lsp/manager.js";
+
+const repositoryRoot = path.resolve("repo");
+const configPath = path.join(repositoryRoot, "config", "lsp.jsonc");
 
 describe("lsp extension", () => {
 	it("只注册 /lsp 命令，并在 session shutdown 释放 manager", async () => {
@@ -39,8 +43,8 @@ describe("lsp extension", () => {
 		const manager = new LspManager();
 		vi.spyOn(manager, "status").mockResolvedValue({
 			enabled: true,
-			config_path: "/config/lsp.jsonc",
-			servers: [{ id: "ts", status: "ready", root: "/repo", open_documents: 1, diagnostics: 1, restarts: 0 }],
+			config_path: configPath,
+			servers: [{ id: "ts", status: "ready", root: repositoryRoot, open_documents: 1, diagnostics: 1, restarts: 0 }],
 		});
 		vi.spyOn(manager, "reload").mockImplementation(async () => {
 			reloads += 1;
@@ -57,7 +61,7 @@ describe("lsp extension", () => {
 		if (options === undefined) throw new Error("lsp command not registered");
 		const notifications: Array<{ message: string; level: string | undefined }> = [];
 		const ctx = {
-			cwd: "/repo",
+			cwd: repositoryRoot,
 			ui: {
 				notify(message: string, level?: string) {
 					notifications.push({ message, level });
