@@ -61,7 +61,10 @@ describe("JSONL telemetry writer", () => {
 	});
 
 	it("hashes unsafe run ids", () => {
-		expect(telemetryRunFile("../escape", "/safe")).toMatch(/^\/safe\/invalid-[a-f0-9]{64}\.jsonl$/u);
+		const directory = path.join(temp.path, "safe");
+		const file = telemetryRunFile("../escape", directory);
+		expect(path.dirname(file)).toBe(directory);
+		expect(path.basename(file)).toMatch(/^invalid-[a-f0-9]{64}\.jsonl$/u);
 	});
 });
 

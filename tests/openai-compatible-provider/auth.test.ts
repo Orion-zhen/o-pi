@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -54,9 +54,14 @@ describe("openai-compatible-provider auth", () => {
 
 	it("auth check 不执行命令，resolve 才在请求边界执行并缓存结果", async () => {
 		const marker = path.join(temp.path, "auth-command-ran");
+		const resolver = path.join(temp.path, "resolve-key.cjs");
+		await writeFile(
+			resolver,
+			`require("node:fs").appendFileSync(${JSON.stringify(marker)}, "ran"); process.stdout.write("sk-command");`,
+		);
 		const auth = createProviderAuth("command", {
 			baseUrl: "https://gateway.test/v1",
-			apiKey: `!printf ran >> ${marker}; printf sk-command`,
+			apiKey: `!"${process.execPath}" "${resolver}"`,
 		});
 		const ctx = { env: async () => undefined, fileExists: async () => false };
 

@@ -1,4 +1,5 @@
-import { chmod, writeFile } from "node:fs/promises";
+import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from "node:child_process";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { collectCodexQuotaSnapshot, parseCodexQuotaSnapshot } from "../../src/codex-quota/client.js";
@@ -46,23 +47,27 @@ describe("codex quota client", () => {
 	});
 
 	it("通过 app-server 完成 initialize 和额度查询，并在结束后关闭进程", async () => {
-		const command = join(temp.path, "fake-codex");
-		await writeFile(command, fakeServerScript(), "utf8");
-		await chmod(command, 0o755);
+		const script = join(temp.path, "fake-codex.cjs");
+		await writeFile(script, fakeServerScript(), "utf8");
 
-		const snapshot = await collectCodexQuotaSnapshot({ command, timeoutMs: 5_000, now: new Date("2026-07-06T00:00:00Z") });
+		const snapshot = await collectCodexQuotaSnapshot({
+			command: script,
+			spawnImpl: nodeScriptSpawner(script),
+			timeoutMs: 5_000,
+			now: new Date("2026-07-06T00:00:00Z"),
+		});
 		expect(snapshot.buckets[0]?.id).toBe("codex");
 		expect(snapshot.resetCredits?.availableCount).toBe(1);
 	});
 
 	it("区分超时和外部取消", async () => {
-		const command = join(temp.path, "hang-codex");
-		await writeFile(command, "#!/usr/bin/env node\nprocess.stdin.on('data', () => {});", "utf8");
-		await chmod(command, 0o755);
-		await expect(collectCodexQuotaSnapshot({ command, timeoutMs: 20 })).rejects.toMatchObject({ code: "timeout" });
+		const script = join(temp.path, "hang-codex.cjs");
+		await writeFile(script, "process.stdin.on('data', () => {});", "utf8");
+		const spawnImpl = nodeScriptSpawner(script);
+		await expect(collectCodexQuotaSnapshot({ command: script, spawnImpl, timeoutMs: 20 })).rejects.toMatchObject({ code: "timeout" });
 
 		const controller = new AbortController();
-		const pending = collectCodexQuotaSnapshot({ command, timeoutMs: 5_000, signal: controller.signal });
+		const pending = collectCodexQuotaSnapshot({ command: script, spawnImpl, timeoutMs: 5_000, signal: controller.signal });
 		controller.abort();
 		await expect(pending).rejects.toMatchObject({ code: "aborted" });
 	});
@@ -72,9 +77,13 @@ describe("codex quota client", () => {
 	});
 });
 
+function nodeScriptSpawner(script: string) {
+	return (_command: string, args: readonly string[], options: SpawnOptionsWithoutStdio): ChildProcessWithoutNullStreams =>
+		spawn(process.execPath, [script, ...args], { ...options, stdio: ["pipe", "pipe", "pipe"] });
+}
+
 function fakeServerScript(): string {
-	return `#!/usr/bin/env node
-let buffer = "";
+	return `let buffer = "";
 process.stdin.on("data", (chunk) => {
   buffer += chunk.toString();
   const lines = buffer.split(/\\r?\\n/);

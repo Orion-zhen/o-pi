@@ -4,17 +4,17 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { formatAgents } from "../../src/subagent/commands.js";
 import { discoverAgents, resolveSubagentTools } from "../../src/subagent/agents.js";
 import { defaultSubagentConfig } from "../../src/subagent/config.js";
-import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
+import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
 const agentDirEnv = "PI_CODING_AGENT_DIR";
 const temp = useTempDir("o-pi-subagent-agents-");
-preserveEnv(agentDirEnv, "HOME");
+preserveEnv(agentDirEnv, "HOME", "USERPROFILE");
 
 beforeEach(async () => {
 	dir = temp.path;
 	process.env[agentDirEnv] = path.join(dir, "agent");
-	process.env.HOME = dir;
+	setTestHome(dir);
 	await mkdir(path.join(dir, "agent", "agents"), { recursive: true });
 });
 

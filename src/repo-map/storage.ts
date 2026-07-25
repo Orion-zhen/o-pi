@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { chmod, lstat, mkdir, mkdtemp, open, readdir, readFile, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { lock } from "proper-lockfile";
 
 import { createFileIdentity, createSymbolId } from "../code-index/identity.js";
@@ -23,6 +24,7 @@ import type {
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const JSON_WRITE_BUFFER_BYTES = 256 * 1024;
+const WINDOWS_RENAME_RETRY_DELAYS_MS = [10, 25, 50, 100, 200] as const;
 
 export interface RepoMapGeneration {
 	metadata: RepoMapMetadata;
@@ -354,7 +356,7 @@ export async function commitGeneration(input: CommitGenerationInput): Promise<Co
 					reused = true;
 				} else {
 					const corruptName = path.join(generationsDirectory, `.corrupt-${input.metadata.generation}-${randomUUID()}`);
-					await rename(destination, corruptName);
+					await quarantineCorruptGeneration(destination, corruptName, input.signal);
 				}
 			}
 			if (generation === undefined) {
@@ -374,6 +376,22 @@ export async function commitGeneration(input: CommitGenerationInput): Promise<Co
 	} finally {
 		if (temporaryDirectory !== undefined) await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
 		await releaseLock().catch(() => undefined);
+	}
+}
+
+async function quarantineCorruptGeneration(source: string, destination: string, signal?: AbortSignal): Promise<void> {
+	let retry = 0;
+	while (true) {
+		try {
+			await rename(source, destination);
+			return;
+		} catch (error) {
+			const delayMs = WINDOWS_RENAME_RETRY_DELAYS_MS[retry];
+			if (process.platform !== "win32" || delayMs === undefined || !["EPERM", "EACCES", "EBUSY"].some((code) => isErrorCode(error, code))) throw error;
+			throwIfAborted(signal);
+			await delay(delayMs);
+			retry += 1;
+		}
 	}
 }
 

@@ -2,15 +2,15 @@ import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { discoverAgentsPromptPaths } from "../../src/prompt-resources/discovery.js";
-import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
+import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
 const temp = useTempDir("o-pi-prompt-resources-");
-preserveEnv("HOME");
+preserveEnv("HOME", "USERPROFILE");
 
 beforeEach(() => {
 	dir = temp.path;
-	process.env.HOME = dir;
+	setTestHome(dir);
 });
 
 describe("agents prompt resource discovery", () => {

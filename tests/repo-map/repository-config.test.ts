@@ -7,10 +7,10 @@ import { isActivatedGenerationCurrent } from "../../src/repo-map/current-pointer
 import { RepoMapError } from "../../src/repo-map/errors.js";
 import { createRepoMapId } from "../../src/repo-map/identity.js";
 import { detectRepository, type GitRunner } from "../../src/repo-map/repository.js";
-import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
+import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-repo-foundation-");
-preserveEnv("HOME", "PI_REPO_MAP_CONFIG", "PI_REPO_MAP_CACHE_DIR");
+preserveEnv("HOME", "USERPROFILE", "PI_REPO_MAP_CONFIG", "PI_REPO_MAP_CACHE_DIR");
 
 describe("Repo Map repository and identity", () => {
 	it("canonicalizes a repository child and permits an unborn HEAD", async () => {
@@ -54,7 +54,7 @@ describe("Repo Map repository and identity", () => {
 
 describe("Repo Map config", () => {
 	it("将默认缓存放在统一的用户缓存目录", () => {
-		process.env.HOME = temp.path;
+		setTestHome(temp.path);
 		delete process.env.PI_REPO_MAP_CACHE_DIR;
 		expect(repoMapCacheRoot()).toBe(path.join(temp.path, ".pi", "cache", "repo-map"));
 	});

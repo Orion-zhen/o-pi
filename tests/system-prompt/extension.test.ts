@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { BuildSystemPromptOptions, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it } from "vitest";
-import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
+import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
 
 import {
 	buildRuntimeSystemPrompt,
@@ -12,14 +12,14 @@ import {
 	registerSystemCommand,
 } from "../../agent/extensions/system-prompt.js";
 
-preserveEnv("PI_SUBAGENT_CHILD", "PI_SUBAGENT_FORK", "PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE", "PI_SUBAGENT_FORK_MANIFEST", "PI_CODING_AGENT_DIR", "HOME");
+preserveEnv("PI_SUBAGENT_CHILD", "PI_SUBAGENT_FORK", "PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE", "PI_SUBAGENT_FORK_MANIFEST", "PI_CODING_AGENT_DIR", "HOME", "USERPROFILE");
 const temp = useTempDir("o-pi-fork-system-prompt-");
 let agentDir: string;
 
 beforeEach(async () => {
 	agentDir = temp.path;
 	process.env.PI_CODING_AGENT_DIR = path.join(agentDir, "agent");
-	process.env.HOME = agentDir;
+	setTestHome(agentDir);
 	await mkdir(path.join(agentDir, "agent", "agents"), { recursive: true });
 });
 

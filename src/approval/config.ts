@@ -23,7 +23,7 @@ const defaultConfig: ApprovalGateConfig = {
 		{
 			name: "system-path-write",
 			tools: ["write", "edit"],
-			path_globs: ["/etc/**", "/usr/**", "/bin/**", "/sbin/**", "/System/**", "/Library/**", "/var/**"],
+			effects: ["system_change"],
 			reason: "system path modification",
 		},
 		{

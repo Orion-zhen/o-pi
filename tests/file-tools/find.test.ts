@@ -232,7 +232,7 @@ describe("find", () => {
 		expect(external.details).toMatchObject({
 			path: path.normalize(outside),
 			strategy: "exact",
-			matches: [{ path: path.join(outside, "external.ts"), kind: "file" }],
+			matches: [{ path: path.join(outside, "external.ts").replace(/\\/gu, "/"), kind: "file" }],
 		});
 	});
 

@@ -17,15 +17,15 @@ import {
 import { SUBAGENT_COMMAND_ENTRY } from "../../src/subagent/constants.js";
 import type { AgentDefinition, ProcessRunInput, ProcessRunProgress } from "../../src/subagent/types.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
-import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
+import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
 const temp = useTempDir("o-pi-subagent-execution-");
-preserveEnv("HOME", "PI_CODING_AGENT_DIR", "PI_SUBAGENT_USER_CONFIG", "PI_SUBAGENT_PROJECT_CONFIG");
+preserveEnv("HOME", "USERPROFILE", "PI_CODING_AGENT_DIR", "PI_SUBAGENT_USER_CONFIG", "PI_SUBAGENT_PROJECT_CONFIG");
 
 beforeEach(async () => {
 	workspace = temp.path;
-	process.env.HOME = workspace;
+	setTestHome(workspace);
 	process.env.PI_CODING_AGENT_DIR = path.join(workspace, "agent");
 	process.env.PI_SUBAGENT_USER_CONFIG = path.join(workspace, "subagent.jsonc");
 	process.env.PI_SUBAGENT_PROJECT_CONFIG = path.join(workspace, "missing-project.jsonc");
@@ -280,10 +280,12 @@ describe("subagent execution", () => {
 			cwd: fork.cwd,
 		};
 		try {
-			expect((await stat(path.dirname(fork.snapshotPath))).mode & 0o777).toBe(0o700);
-			expect((await stat(fork.snapshotPath)).mode & 0o777).toBe(0o600);
-			expect((await stat(fork.systemPromptPath)).mode & 0o777).toBe(0o600);
-			expect((await stat(fork.manifestPath)).mode & 0o777).toBe(0o600);
+			if (process.platform !== "win32") {
+				expect((await stat(path.dirname(fork.snapshotPath))).mode & 0o777).toBe(0o700);
+				expect((await stat(fork.snapshotPath)).mode & 0o777).toBe(0o600);
+				expect((await stat(fork.systemPromptPath)).mode & 0o777).toBe(0o600);
+				expect((await stat(fork.manifestPath)).mode & 0o777).toBe(0o600);
+			}
 			await expect(validateForkRuntime(valid)).resolves.toBeUndefined();
 			await expect(validateForkRuntime({ ...valid, model: { ...fork.model, baseUrl: "https://other.invalid" } })).rejects.toThrow("fork context mismatch: model");
 			await expect(validateForkRuntime({ ...valid, activeTools: [...fork.activeTools].reverse() })).rejects.toThrow("fork context mismatch: tools");

@@ -164,7 +164,7 @@ async function waitForChildExit(child: ChildProcessWithoutNullStreams, timeoutMs
 }
 
 function hasExited(child: ChildProcessWithoutNullStreams): boolean {
-	return child.exitCode !== null || child.signalCode !== null;
+	return child.pid === undefined || child.exitCode !== null || child.signalCode !== null;
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

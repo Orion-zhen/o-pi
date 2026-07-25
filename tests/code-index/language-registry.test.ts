@@ -64,7 +64,7 @@ describe("code language registry", () => {
 		expect(loadGrammar(simulated.grammar)).toBeDefined();
 	});
 
-	it.skipIf(!treeSitterAvailable(["tree-sitter-typescript"]))("returns stable structured failures for missing and wrong grammar descriptors", () => {
+	it.skipIf(!treeSitterAvailable(["tree-sitter", "tree-sitter-typescript"]))("returns stable structured failures for missing and wrong grammar descriptors", () => {
 		const wrong = loadTreeSitterRuntimeForGrammar({ packageName: "tree-sitter-typescript", exportName: "missing" });
 		expect(wrong).toEqual({ failure: { code: "GRAMMAR_EXPORT_INVALID", message: expect.stringContaining("tree-sitter-typescript:missing") } });
 		expect(loadTreeSitterRuntimeForGrammar({ packageName: "tree-sitter-typescript", exportName: "missing" })).toBe(wrong);

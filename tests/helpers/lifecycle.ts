@@ -41,3 +41,9 @@ export function preserveEnv(...keys: string[]): void {
 		}
 	});
 }
+
+/** 设置当前平台供 os.homedir() 使用的测试 home。 */
+export function setTestHome(directory: string): void {
+	process.env.HOME = directory;
+	if (process.platform === "win32") process.env.USERPROFILE = directory;
+}
