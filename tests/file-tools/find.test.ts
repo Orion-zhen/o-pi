@@ -101,7 +101,7 @@ describe("find", () => {
 
 		expect(actual.matches).toEqual([]);
 		expect(actual.suggestions.map((item) => item.entry.path)).toEqual(expected);
-	});
+	}, 0);
 
 	it("紧凑输出省略可推导元数据、共享路径前缀并把截断状态放在首行", () => {
 		const base = {

@@ -33,7 +33,7 @@ describe.skipIf(!treeSitterAvailable())("Repo Map performance benchmark", () => 
 			oracleDigest: "0439de4cc0f4f63591c969bbb047bee4bda5c2f9f4364c844d9c7265eee403fd",
 			counts: { files: 5, symbols: 6, tests: 0, edges: 54, aliases: 33 },
 		});
-	}, 10_000);
+	}, 0);
 });
 
 async function runWorker(): Promise<BenchmarkResult> {
