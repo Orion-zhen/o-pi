@@ -17,6 +17,8 @@ export interface NativeMetadata {
 	readonly kind: NativePathKind;
 	readonly sizeBytes: number;
 	readonly modifiedAtMs: number;
+	/** Stable metadata stamp used to detect control-plane file changes. */
+	readonly version?: string;
 }
 
 export interface NativeDirectoryEntry {
@@ -189,13 +191,17 @@ function metadataFromStats(info: {
 	isFile(): boolean;
 	isDirectory(): boolean;
 	isSymbolicLink(): boolean;
+	dev: number;
+	ino: number;
 	size: number;
 	mtimeMs: number;
+	ctimeMs: number;
 }): NativeMetadata {
 	return {
 		kind: info.isSymbolicLink() ? "symlink" : info.isDirectory() ? "directory" : info.isFile() ? "file" : "other",
 		sizeBytes: info.size,
 		modifiedAtMs: info.mtimeMs,
+		version: `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`,
 	};
 }
 

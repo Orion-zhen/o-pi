@@ -207,7 +207,7 @@ async function precheckSafety(event: ToolCallEvent, cwd: string): Promise<ToolCa
 	if (filePath === undefined) return undefined;
 	const config = await loadFileToolsConfig(cwd);
 	if (isFailed(config)) return undefined;
-	const preflight = await preflightWriteAccess({ cwd, path: filePath, blockedPaths: config.blocked_path });
+	const preflight = await preflightWriteAccess({ cwd, path: filePath, blockedPaths: config.filesystem.blockedPaths });
 	if (preflight.ok || preflight.error.code !== "blocked") return undefined;
 	const matchedRule = typeof preflight.error.details?.["matchedRule"] === "string"
 		? preflight.error.details["matchedRule"]

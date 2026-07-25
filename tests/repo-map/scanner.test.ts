@@ -4,20 +4,19 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { defaultFileToolsConfig } from "../../src/file-tools/config.js";
-import { createIgnoreSnapshot, defaultIgnoreEngine } from "../../src/file-tools/ignore/ignore-engine.js";
+import { createVisibilitySnapshot, defaultVisibilityService } from "../../src/filesystem/services/visibility/service.js";
+import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
 import { scanRepoMap, type ScannerFileSystem } from "../../src/repo-map/scanner.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-repo-scanner-");
 
 async function scan(overrides: Partial<Parameters<typeof scanRepoMap>[0]> = {}) {
-	defaultIgnoreEngine.invalidate();
+	defaultVisibilityService.invalidate();
 	const config = overrides.fileToolsConfig ?? defaultFileToolsConfig();
-	const ignoreSnapshot = overrides.ignoreSnapshot ?? await createIgnoreSnapshot(temp.path, {
-		builtinProfile: "none",
-		gitignore: { enabled: true },
-		caseSensitivity: "sensitive",
-	});
+	const ignoreSnapshot = overrides.ignoreSnapshot ?? await createVisibilitySnapshot(temp.path, createVisibilityPolicy({
+		ignore: { builtinProfile: "none", gitignore: { enabled: true }, caseSensitivity: "sensitive" },
+	}));
 	return await scanRepoMap({
 		root: temp.path,
 		fileToolsConfig: config,
@@ -48,7 +47,7 @@ describe("Repo Map file scanner", () => {
 			// Some platforms do not permit symlink creation in tests.
 		}
 		const config = defaultFileToolsConfig();
-		config.blocked_path.push("blocked/");
+		(config.filesystem.blockedPaths as string[]).push("blocked/");
 		const result = await scan({ fileToolsConfig: config, maxFileBytes: 50 });
 		expect(result.files.map((file) => file.path)).toEqual([".gitignore", "large.bin", "src/a.txt", "z.txt"]);
 		const large = result.files.find((file) => file.path === "large.bin");

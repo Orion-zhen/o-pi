@@ -8,9 +8,9 @@
 - `agent/extensions/block-builtin-tools.ts`：屏蔽 Pi 内置工具，保留扩展和 SDK 工具。
 - `agent/configs/file-tools.jsonc`：用户级默认配置。
 - `agent/schemas/file-tools.schema.json`：配置 schema。
-- `src/file-tools/`：路径解析、目录枚举、文本读取、写入和 exact replacement。
-- `src/file-tools/ignore/`：统一 ignore engine、snapshot、explain 和 Git tracked set。
-- `src/safety/path-guard.ts`：共享的 blocked path lexical / realpath 检查。
+- `src/file-tools/`：工具预算、目录枚举、文本读取、写入和 exact replacement。
+- `src/filesystem/`：文件系统 policy、路径 access kernel，以及统一 visibility snapshot、explain 和 Git tracked set。
+- `src/safety/path-guard.ts`：迁移期复用 filesystem access kernel 的 blocked path 预检。
 - `src/lsp/`：可选 LSP 后端，为部分文件工具附加 symbol、outline 和 diagnostics。
 
 扩展入口与具体实现分离。扩展注册阶段只保留 Pi 所需的 schema、轻量 renderer 和事件；文件遍历、媒体识别、Tree-sitter grammar、LSP runtime 和 Repo Map runtime 不进入同步导入链。

@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { ignoreConfigFromFileTools, loadFileToolsConfig, type FileToolsConfig } from "../file-tools/config.js";
+import { loadFileToolsConfig, type FileToolsConfig } from "../file-tools/config.js";
 import { isFailed } from "../file-tools/shared/result.js";
-import { createIgnoreSnapshot } from "../file-tools/ignore/ignore-engine.js";
-import type { IgnoreSnapshot } from "../file-tools/ignore/ignore-types.js";
+import { createVisibilitySnapshot } from "../filesystem/services/visibility/service.js";
+import type { VisibilityPolicy, VisibilitySnapshot } from "../filesystem/contracts/visibility.js";
 import { loadRepoMapConfig, repoMapCacheRoot, repoMapConfigFingerprint, type RepoMapConfig } from "./config.js";
 import type { BuildRepoMapArchitectureInput, RepoMapArchitectureIndex } from "./architecture-indexer.js";
 import { RepoMapError, throwIfAborted } from "./errors.js";
@@ -46,7 +46,7 @@ export interface RepoMapServiceDependencies {
 	readHeadRevision(root: string, options: { signal?: AbortSignal }): Promise<string | undefined>;
 	loadRepoMapConfig(): Promise<RepoMapConfig>;
 	loadFileToolsConfig(root: string): Promise<FileToolsConfig>;
-	createIgnoreSnapshot(root: string, config: ReturnType<typeof ignoreConfigFromFileTools>): Promise<IgnoreSnapshot>;
+	createVisibilitySnapshot(root: string, policy: VisibilityPolicy): Promise<VisibilitySnapshot>;
 	scan(input: RepoMapScanInput): Promise<RepoMapScanResult>;
 	indexSymbols(input: IndexRepoMapSymbolsInput): Promise<RepoMapSymbolIndex>;
 	buildArchitecture(input: BuildRepoMapArchitectureInput): Promise<RepoMapArchitectureIndex>;
@@ -68,7 +68,7 @@ const defaultDependencies: RepoMapServiceDependencies = {
 		if (isFailed(result)) throw new RepoMapError("CONFIG_ERROR", result.error.message, result.error.details);
 		return result;
 	},
-	createIgnoreSnapshot,
+	createVisibilitySnapshot,
 	scan: scanRepoMap,
 	async indexSymbols(input) {
 		return await (await import("./symbol-indexer.js")).indexRepoMapSymbols(input);
@@ -105,7 +105,7 @@ export async function initializeRepoMap(
 		deps.loadFileToolsConfig(identity.repositoryRoot),
 	]);
 	throwIfAborted(input.signal);
-	const ignoreSnapshot = await deps.createIgnoreSnapshot(identity.repositoryRoot, ignoreConfigFromFileTools(fileToolsConfig));
+	const ignoreSnapshot = await deps.createVisibilitySnapshot(identity.repositoryRoot, fileToolsConfig.filesystem.visibility);
 	const mapId = createRepoMapId(identity);
 	const cacheRoot = deps.cacheRoot();
 	const previous = input.mode === "rebuild"
@@ -339,7 +339,7 @@ export async function readActivatedRepoMapState(
 			loadFileToolsConfigOrThrow(activation.root),
 			readHeadRevision(activation.root),
 		]);
-		const ignoreSnapshot = await createIgnoreSnapshot(activation.root, ignoreConfigFromFileTools(fileToolsConfig));
+		const ignoreSnapshot = await createVisibilitySnapshot(activation.root, fileToolsConfig.filesystem.visibility);
 		const freshness = evaluateRepoMapFreshness(generation.metadata, {
 			configFingerprint: combinedConfigFingerprint(config, fileToolsConfig),
 			ignoreFingerprint: ignoreSnapshot.fingerprint,

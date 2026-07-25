@@ -5,11 +5,11 @@ import path from "node:path";
 import picomatch from "picomatch";
 import pLimit from "p-limit";
 
-import { ignoreConfigFromFileTools, isBlockedPath, isIgnoredPath, loadFileToolsConfig, toolPathIdentity, type FileToolsConfig } from "../config.js";
+import { isBlockedPath, loadFileToolsConfig, toolPathIdentity, type FileToolsConfig } from "../config.js";
 import { protectedPathFailure } from "../core/errors.js";
 import { fail, isAccessDenied, isFailed, type ToolOutcome } from "../shared/result.js";
-import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
-import type { IgnoreSnapshot } from "../ignore/ignore-types.js";
+import { defaultVisibilityService } from "../../filesystem/services/visibility/service.js";
+import type { VisibilitySnapshot as IgnoreSnapshot } from "../../filesystem/contracts/visibility.js";
 import { languageFromPath, splitTokens, type AnalyzedFileIndex, type ParsedFileIndex } from "../../code-index/parser.js";
 import { disposeTreeSitterParsers } from "../../code-index/tree-sitter-loader.js";
 import { guardExistingPath, PathGuardBlockedError } from "../../safety/path-guard.js";
@@ -146,7 +146,7 @@ export async function getGrepIndex(
 	if (isFailed(contentFilter)) return contentFilter;
 	const semanticFilter = createSemanticFilter(params.query);
 	const matchesGlob = glob === undefined ? undefined : picomatch(glob, { dot: true, nonegate: true });
-	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
+	const ignoreSnapshot = await defaultVisibilityService.createSnapshot(workspaceRoot, config.filesystem.visibility);
 	const cache = cacheFor(workspaceRoot);
 	const key = [root.realPath, root.kind, glob ?? "", contentFilter?.key ?? semanticFilter.key, ignoreSnapshot.fingerprint, JSON.stringify(config)].join("\0");
 	let pending = pendingIndexes.get(key);
@@ -282,7 +282,7 @@ async function resolveGrepRoot(
 
 	let real: string;
 	try {
-		const guarded = await guardExistingPath(inputPath, { cwd: workspaceRoot, blocked_path: config.blocked_path });
+		const guarded = await guardExistingPath(inputPath, { cwd: workspaceRoot, blocked_path: [...config.filesystem.blockedPaths] });
 		real = guarded.real_path ?? lexical.absolutePath;
 	} catch (error) {
 		if (error instanceof PathGuardBlockedError) return protectedPathFailure(lexical.relativePath, error.block);
@@ -326,9 +326,14 @@ async function walkDirectory(
 	assertNotAborted(state.signal);
 	if (!state.scanComplete) return;
 	if (isBlockedPath(state.config, toolPathIdentity(displayDirectory, absoluteDirectory, workspaceDirectory))) return;
-	if (!ignoreBypass && isIgnoredPath(state.config, toolPathIdentity(displayDirectory, absoluteDirectory, workspaceDirectory))) return;
-	if (!ignoreBypass && workspaceDirectory !== undefined && workspaceDirectory !== ".") {
-		const decision = state.ignoreSnapshot.evaluate({ path: workspaceDirectory, kind: "directory", intent: "index" });
+	if (!ignoreBypass && workspaceDirectory !== ".") {
+		const decision = state.ignoreSnapshot.evaluate({
+			path: displayDirectory,
+			absolutePath: absoluteDirectory,
+			workspacePath: workspaceDirectory,
+			kind: "directory",
+			intent: "index",
+		});
 		if (decision.ignored && decision.prune) return;
 	}
 
@@ -352,17 +357,16 @@ async function walkDirectory(
 		if (isBlockedPath(state.config, identity)) continue;
 		if (entry.isSymbolicLink()) continue;
 		if (entry.isDirectory()) {
-			const decision = ignoreBypass || childWorkspacePath === undefined
+			const decision = ignoreBypass
 				? { ignored: false, prune: false }
-				: state.ignoreSnapshot.evaluate({ path: childWorkspacePath, kind: "directory", intent: "index" });
-			if (!ignoreBypass && (isIgnoredPath(state.config, identity) || (decision.ignored && decision.prune))) continue;
+				: state.ignoreSnapshot.evaluate({ path: childDisplayPath, absolutePath: childAbsolutePath, workspacePath: childWorkspacePath, kind: "directory", intent: "index" });
+			if (!ignoreBypass && decision.ignored && decision.prune) continue;
 			await walkDirectory(state, childAbsolutePath, childDisplayPath, childWorkspacePath, childSearchPath, ignoreBypass);
 			continue;
 		}
 		if (!entry.isFile()) continue;
 		if (!ignoreBypass) {
-			if (isIgnoredPath(state.config, identity)) continue;
-			const decision = childWorkspacePath === undefined ? { ignored: false } : state.ignoreSnapshot.evaluate({ path: childWorkspacePath, kind: "file", intent: "index" });
+			const decision = state.ignoreSnapshot.evaluate({ path: childDisplayPath, absolutePath: childAbsolutePath, workspacePath: childWorkspacePath, kind: "file", intent: "index" });
 			if (decision.ignored) continue;
 		}
 		addScopedFile(state, childDisplayPath, childAbsolutePath);
@@ -803,9 +807,14 @@ function compactSkipped(skipped: Required<GrepSkippedFiles>): GrepSkippedFiles {
 }
 
 function isRootIgnored(state: WalkState): boolean {
-	if (isIgnoredPath(state.config, toolPathIdentity(state.root.relativePath, state.root.realPath, state.root.workspacePath))) return true;
-	if (state.root.workspacePath === undefined || state.root.workspacePath === ".") return false;
-	return state.ignoreSnapshot.evaluate({ path: state.root.workspacePath, kind: state.root.kind, intent: "index" }).ignored;
+	if (state.root.workspacePath === ".") return false;
+	return state.ignoreSnapshot.evaluate({
+		path: state.root.relativePath,
+		absolutePath: state.root.realPath,
+		workspacePath: state.root.workspacePath,
+		kind: state.root.kind,
+		intent: "index",
+	}).ignored;
 }
 
 function hashText(text: string): string {

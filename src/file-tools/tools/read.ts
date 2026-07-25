@@ -1,6 +1,6 @@
 import { fail, isFailed, type ToolOutcome } from "../shared/result.js";
-import { ignoreConfigFromFileTools, isIgnoredPath, loadFileToolsConfig, toolPathIdentity } from "../config.js";
-import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
+import { loadFileToolsConfig } from "../config.js";
+import { defaultVisibilityService } from "../../filesystem/services/visibility/service.js";
 import { detectFileType, processInlineImage } from "../core/media-file.js";
 import { findPathSuggestions } from "../core/path-suggestions.js";
 import { normalizeToolPath, resolveExistingFile, resolveWorkspaceRoot } from "../core/path-resolver.js";
@@ -57,15 +57,15 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams, runtime
 		}
 		return resolved;
 	}
-	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
-	const ignoreDecision = resolved.workspacePath !== undefined
-		? ignoreSnapshot.evaluate({ path: resolved.workspacePath, kind: "file", intent: "explicit-read" })
-		: { ignored: false, matchedRule: undefined };
-	const ignoreSource = isIgnoredPath(config, toolPathIdentity(resolved.relativePath, resolved.absolutePath, resolved.workspacePath))
-		? "file-tools.jsonc"
-		: ignoreDecision.ignored
-			? shortIgnoreSource(ignoreDecision.matchedRule?.sourceType)
-			: undefined;
+	const visibility = await defaultVisibilityService.createSnapshot(workspaceRoot, config.filesystem.visibility);
+	const ignoreDecision = visibility.evaluate({
+		path: resolved.relativePath,
+		absolutePath: resolved.absolutePath,
+		workspacePath: resolved.workspacePath,
+		kind: "file",
+		intent: "explicit-read",
+	});
+	const ignoreSource = ignoreDecision.ignored ? shortIgnoreSource(ignoreDecision.matchedRule?.sourceType) : undefined;
 
 	const bytes = await readRawFile(resolved.realPath, resolved.relativePath);
 	if (isFailed(bytes)) return bytes;
@@ -188,6 +188,7 @@ function shortIgnoreSource(sourceType: string | undefined): string | undefined {
 	if (sourceType === "piignore") return ".piignore";
 	if (sourceType === "gitignore") return ".gitignore";
 	if (sourceType === "git-info-exclude") return ".git/info/exclude";
+	if (sourceType === "config") return "file-tools.jsonc";
 	return sourceType;
 }
 

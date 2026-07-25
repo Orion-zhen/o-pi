@@ -149,7 +149,7 @@ function benchmarkDependencies(workspace, cacheRoot, config, fileConfig) {
 		async readHeadRevision() { return identity.headRevision; },
 		async loadRepoMapConfig() { return config.defaultRepoMapConfig(); },
 		async loadFileToolsConfig() { return fileConfig.defaultFileToolsConfig(); },
-		async createIgnoreSnapshot() { return ignoreSnapshot; },
+		async createVisibilitySnapshot() { return ignoreSnapshot; },
 		cacheRoot: () => cacheRoot,
 		now: () => new Date("2026-07-18T00:00:00.000Z"),
 	};

@@ -4,7 +4,7 @@ import path from "node:path";
 import picomatch from "picomatch";
 import pLimit from "p-limit";
 
-import { ignoreConfigFromFileTools, isBlockedPath, isIgnoredPath, loadFileToolsConfig, toolPathIdentity, type FileToolsConfig } from "../config.js";
+import { isBlockedPath, loadFileToolsConfig, toolPathIdentity, type FileToolsConfig } from "../config.js";
 import { protectedPathFailure } from "../core/errors.js";
 import { fail, isAccessDenied, isFailed, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import { createFindEntry, rankGlobEntries, type RankedFindEntry } from "../find/ranker.js";
@@ -12,8 +12,8 @@ import { AbortFindSuggestionRanking, rankFindEntriesForSearch } from "../find/su
 import { fuseRankedFindSources, selectRankedFindEntries } from "../find/fusion.js";
 import { renderFindResults } from "../find/renderer.js";
 import { compareRankingEvidence, createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE, rankingEvidenceSources } from "../shared/ranking/evidence.js";
-import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
-import type { IgnoreSnapshot } from "../ignore/ignore-types.js";
+import { defaultVisibilityService } from "../../filesystem/services/visibility/service.js";
+import type { VisibilitySnapshot as IgnoreSnapshot } from "../../filesystem/contracts/visibility.js";
 import { guardExistingPath, PathGuardBlockedError } from "../../safety/path-guard.js";
 import { normalizeToolPath, resolveWorkspaceRoot } from "../core/path-resolver.js";
 import type { FindEntry, FindMatch, FindNearbyResult, FindParams, FindScopeError, FindSuccess, RepoMapRelatedResult } from "../types.js";
@@ -121,7 +121,7 @@ export async function findWorkspaceFiles(
 	if (isFailed(validation)) return validation;
 	const config = await loadFileToolsConfig(cwd);
 	if (isFailed(config)) return config;
-	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
+	const ignoreSnapshot = await defaultVisibilityService.createSnapshot(workspaceRoot, config.filesystem.visibility);
 	const scopeErrors: FindScopeError[] = [];
 	const resolved: NormalizedFindScope[] = [];
 	for (const [order, inputPath] of validation.paths.entries()) {
@@ -356,7 +356,7 @@ async function resolveWorkspaceSearchRoot(
 	if (isFailed(lexical)) return lexical;
 	let guardedRealPath: string | undefined;
 	try {
-		const guarded = await guardExistingPath(inputPath, { cwd: workspaceRoot, blocked_path: config.blocked_path });
+		const guarded = await guardExistingPath(inputPath, { cwd: workspaceRoot, blocked_path: [...config.filesystem.blockedPaths] });
 		guardedRealPath = guarded.real_path;
 	} catch (error) {
 		if (error instanceof PathGuardBlockedError) return protectedPathFailure(lexical.relativePath, error.block);
@@ -553,10 +553,13 @@ async function validateRepoMapFindCandidate(
 	const identity = toolPathIdentity(displayPath, absolutePath, workspaceRelative);
 	if (isBlockedPath(input.config, identity)) return undefined;
 	const matchesQuery = isRepoMapMainCandidate(candidate, input.query);
-	if (!input.ignoreBypass) {
-		if (isIgnoredPath(input.config, identity)) return undefined;
-		if (input.ignoreSnapshot.evaluate({ path: workspaceRelative, kind: "file", intent: "search" }).ignored) return undefined;
-	}
+	if (!input.ignoreBypass && input.ignoreSnapshot.evaluate({
+		path: displayPath,
+		absolutePath,
+		workspacePath: workspaceRelative,
+		kind: "file",
+		intent: "search",
+	}).ignored) return undefined;
 	let info;
 	try {
 		info = await lstat(absolutePath);
@@ -708,9 +711,14 @@ async function walkDirectory(
 	if (state.truncated) return;
 	const directoryIdentity = toolPathIdentity(displayDirectory, absoluteDirectory, workspaceDirectory);
 	if (isBlockedPath(state.config, directoryIdentity)) return;
-	if (!state.ignoreBypass && isIgnoredPath(state.config, directoryIdentity)) return;
-	if (!state.ignoreBypass && workspaceDirectory !== undefined && workspaceDirectory !== state.searchRoot.workspacePath) {
-		const decision = state.ignoreSnapshot.evaluate({ path: workspaceDirectory, kind: "directory", intent: "traverse" });
+	if (!state.ignoreBypass && workspaceDirectory !== state.searchRoot.workspacePath) {
+		const decision = state.ignoreSnapshot.evaluate({
+			path: displayDirectory,
+			absolutePath: absoluteDirectory,
+			workspacePath: workspaceDirectory,
+			kind: "directory",
+			intent: "traverse",
+		});
 		if (decision.ignored && decision.prune) return;
 	}
 
@@ -740,7 +748,7 @@ async function walkDirectory(
 
 		const childSearchPath = searchRelativeDirectory === "." ? entry.name : `${searchRelativeDirectory}/${entry.name}`;
 		if (entry.isDirectory()) {
-			await visitDirectoryEntry(state, childAbsolutePath, childDisplay, childWorkspace, childSearchPath, identity);
+			await visitDirectoryEntry(state, childAbsolutePath, childDisplay, childWorkspace, childSearchPath);
 			continue;
 		}
 		if (!entry.isFile()) continue;
@@ -754,17 +762,15 @@ async function visitDirectoryEntry(
 	displayPath: string,
 	workspacePath: string | undefined,
 	searchPath: string,
-	identity: ReturnType<typeof toolPathIdentity>,
 ): Promise<void> {
-	const decision = state.ignoreBypass || workspacePath === undefined
+	const decision = state.ignoreBypass
 		? { ignored: false, prune: false }
-		: state.ignoreSnapshot.evaluate({ path: workspacePath, kind: "directory", intent: "traverse" });
-	const ignoredByConfig = !state.ignoreBypass && isIgnoredPath(state.config, identity);
-	const ignored = ignoredByConfig || decision.ignored;
+		: state.ignoreSnapshot.evaluate({ path: displayPath, absolutePath, workspacePath, kind: "directory", intent: "traverse" });
+	const ignored = decision.ignored;
 	if (!ignored) recordFindEntry(state, displayPath, searchPath, "directory");
 	if (ignored) {
 		state.ignoredCount += 1;
-		if (ignoredByConfig || decision.prune) return;
+		if (decision.prune) return;
 	}
 	await walkDirectory(state, absolutePath, displayPath, workspacePath, searchPath);
 }
@@ -776,9 +782,10 @@ function visitFileEntry(
 	searchPath: string,
 	identity: ReturnType<typeof toolPathIdentity>,
 ): void {
-	const ignoredByConfig = !state.ignoreBypass && isIgnoredPath(state.config, identity);
-	const decision = state.ignoreBypass || workspacePath === undefined ? { ignored: false } : state.ignoreSnapshot.evaluate({ path: workspacePath, kind: "file", intent: "search" });
-	if (ignoredByConfig || decision.ignored) {
+	const decision = state.ignoreBypass
+		? { ignored: false }
+		: state.ignoreSnapshot.evaluate({ path: displayPath, absolutePath: identity.absolutePath, workspacePath, kind: "file", intent: "search" });
+	if (decision.ignored) {
 		state.ignoredCount += 1;
 		return;
 	}
@@ -879,10 +886,15 @@ async function childSearchRoot(root: SearchRoot, prefix: string, config: FileToo
 	return { relativePath: displayPath, absolutePath, ...(workspacePath !== undefined ? { workspacePath } : {}) };
 }
 
-function isDirectoryIgnored(root: SearchRoot, config: FileToolsConfig, ignoreSnapshot: IgnoreSnapshot): boolean {
-	if (isIgnoredPath(config, toolPathIdentity(root.relativePath, root.absolutePath, root.workspacePath))) return true;
-	if (root.workspacePath === undefined || root.workspacePath === ".") return false;
-	return ignoreSnapshot.evaluate({ path: root.workspacePath, kind: "directory", intent: "traverse" }).ignored;
+function isDirectoryIgnored(root: SearchRoot, _config: FileToolsConfig, ignoreSnapshot: IgnoreSnapshot): boolean {
+	if (root.workspacePath === ".") return false;
+	return ignoreSnapshot.evaluate({
+		path: root.relativePath,
+		absolutePath: root.absolutePath,
+		workspacePath: root.workspacePath,
+		kind: "directory",
+		intent: "traverse",
+	}).ignored;
 }
 
 async function nearbyDirectory(parentAbsolutePath: string, missingName: string, rootPath: string): Promise<string | undefined> {

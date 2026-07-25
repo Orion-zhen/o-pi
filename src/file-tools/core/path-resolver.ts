@@ -92,7 +92,7 @@ async function resolveExistingPath(
 
 	let guardedRealPath: string | undefined;
 	try {
-		const guarded = await guardExistingPath(inputPath, { cwd: workspaceRoot, blocked_path: config.blocked_path });
+		const guarded = await guardExistingPath(inputPath, { cwd: workspaceRoot, blocked_path: [...config.filesystem.blockedPaths] });
 		guardedRealPath = guarded.real_path;
 	} catch (error) {
 		if (error instanceof PathGuardBlockedError) return protectedPathFailure(lexical.relativePath, error.block);

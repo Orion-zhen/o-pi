@@ -39,7 +39,7 @@ export async function writeWorkspaceFile(cwd: string, params: unknown, signal?: 
 	return (runtime.mutationQueue ?? withFileMutationQueue)(target.absolutePath, async () => {
 		const aborted = checkAbort(signal);
 		if (aborted) return aborted;
-		const guarded = await checkWritablePath(input.path, workspaceRoot, config.blocked_path, target.relativePath);
+		const guarded = await checkWritablePath(input.path, workspaceRoot, [...config.filesystem.blockedPaths], target.relativePath);
 		if (guarded !== undefined) return guarded;
 		const abortedAfterGuard = checkAbort(signal);
 		if (abortedAfterGuard) return abortedAfterGuard;

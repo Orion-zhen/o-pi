@@ -1,55 +1,32 @@
 import { stat } from "node:fs/promises";
-import { agentSchemaPath, createSchemaValidator, projectAgentConfigPath, readOptionalJsoncConfigWithSchema, userAgentConfigPath } from "../config-loader.js";
-import { pathMatchesAnyRule, type PathIdentity } from "../filesystem/kernel/access-policy.js";
-import { fail, isFailed, type FailedResult, type ToolOutcome } from "./shared/result.js";
-import { DEFAULT_MAX_OUTPUT_BYTES, DEFAULT_MAX_OUTPUT_LINES } from "./core/text-file.js";
-import type { PartialIgnoreConfig } from "./ignore/ignore-types.js";
 
-const DEFAULT_MAX_LS_ENTRIES = 200;
-const DEFAULT_READ_SUGGESTION_LIMIT = 3;
-const DEFAULT_EDIT_MATCH_HINT_LIMIT = 3;
-const DEFAULT_GREP_OUTPUT_TOKEN_BUDGET = 1_600;
-const DEFAULT_GREP_RESULT_LIMIT = 8;
-const DEFAULT_GREP_MAX_FILE_BYTES = 1024 * 1024;
-const DEFAULT_GREP_MAX_FILES_SCANNED = 100_000;
-const DEFAULT_GREP_MAX_SEMANTIC_FILES = 1_024;
-const DEFAULT_GREP_MAX_SEMANTIC_PARSE_BYTES = 256 * 1024;
+import { agentSchemaPath, createSchemaValidator, projectAgentConfigPath, readOptionalJsoncConfigWithSchema, userAgentConfigPath } from "../config-loader.js";
+import type { FilesystemPolicy } from "../filesystem/contracts/policy.js";
+import type { BuiltinIgnoreProfile, IgnoreConfig } from "../filesystem/contracts/visibility.js";
+import { pathMatchesAnyRule, type PathIdentity } from "../filesystem/kernel/access-policy.js";
+import { createVisibilityPolicy } from "../filesystem/services/visibility/policy.js";
+import { fail, isFailed, type FailedResult, type ToolOutcome } from "./shared/result.js";
+import { defaultFileToolLimits, type FileToolLimits } from "./tool-limits.js";
+
 const USER_CONFIG_ENV = "PI_FILE_TOOLS_CONFIG";
 const PROJECT_CONFIG_ENV = "PI_FILE_TOOLS_PROJECT_CONFIG";
 const PROJECT_ROOT_ENV = "PI_FILE_TOOLS_PROJECT_ROOT";
 
 export interface FileToolsConfig {
-	blocked_path: string[];
-	ignored_path: string[];
-	limits: {
-		ls_entries: number;
-		read_lines: number;
-		read_bytes: number;
-		read_suggestion_limit: number;
-		edit_match_hint_limit: number;
-		find_output_token_budget: number;
-		find_result_limit: number;
-		find_max_entries_scanned: number;
-		grep_output_token_budget: number;
-		grep_result_limit: number;
-		grep_max_file_bytes: number;
-		grep_max_files_scanned: number;
-		grep_max_semantic_files: number;
-		grep_max_semantic_parse_bytes: number;
-	};
-	ignore: {
-		piignore: boolean;
-		gitignore: boolean;
-		git_tracked_files_bypass: boolean;
-		builtin_profile: "none" | "minimal" | "performance";
-	};
+	filesystem: FilesystemPolicy;
+	limits: FileToolLimits;
 }
 
 interface RawFileToolsConfig {
 	blocked_path?: string[];
 	ignored_path?: string[];
-	limits?: Partial<FileToolsConfig["limits"]>;
-	ignore?: Partial<FileToolsConfig["ignore"]>;
+	limits?: Partial<FileToolLimits>;
+	ignore?: {
+		piignore?: boolean;
+		gitignore?: boolean;
+		git_tracked_files_bypass?: boolean;
+		builtin_profile?: BuiltinIgnoreProfile;
+	};
 }
 
 interface ConfigCacheEntry {
@@ -58,33 +35,6 @@ interface ConfigCacheEntry {
 }
 
 export type ToolPathIdentity = PathIdentity;
-
-const defaultConfig: FileToolsConfig = {
-	blocked_path: [".git/"],
-	ignored_path: [],
-	limits: {
-		ls_entries: DEFAULT_MAX_LS_ENTRIES,
-		read_lines: DEFAULT_MAX_OUTPUT_LINES,
-		read_bytes: DEFAULT_MAX_OUTPUT_BYTES,
-		read_suggestion_limit: DEFAULT_READ_SUGGESTION_LIMIT,
-		edit_match_hint_limit: DEFAULT_EDIT_MATCH_HINT_LIMIT,
-		find_output_token_budget: 800,
-		find_result_limit: 50,
-		find_max_entries_scanned: 100_000,
-		grep_output_token_budget: DEFAULT_GREP_OUTPUT_TOKEN_BUDGET,
-		grep_result_limit: DEFAULT_GREP_RESULT_LIMIT,
-		grep_max_file_bytes: DEFAULT_GREP_MAX_FILE_BYTES,
-		grep_max_files_scanned: DEFAULT_GREP_MAX_FILES_SCANNED,
-		grep_max_semantic_files: DEFAULT_GREP_MAX_SEMANTIC_FILES,
-		grep_max_semantic_parse_bytes: DEFAULT_GREP_MAX_SEMANTIC_PARSE_BYTES,
-	},
-	ignore: {
-		piignore: true,
-		gitignore: true,
-		git_tracked_files_bypass: true,
-		builtin_profile: "minimal",
-	},
-};
 
 const configCache = new Map<string, ConfigCacheEntry>();
 const pendingConfigs = new Map<string, Promise<ConfigCacheEntry>>();
@@ -97,8 +47,8 @@ class FileToolsConfigError extends Error {
 	}
 }
 
-/** 读取用户与项目文件工具 JSONC 配置；项目配置只能追加路径规则并覆盖普通预算。 */
-export async function loadFileToolsConfig(cwd = process.cwd()): Promise<ToolOutcome<FileToolsConfig>> {
+/** Load user and invocation-cwd project JSONC before any workspace data-plane access. */
+export async function loadFileToolsConfig(cwd: string): Promise<ToolOutcome<FileToolsConfig>> {
 	const userPath = userConfigPath();
 	const projectPath = projectConfigPath(cwd);
 	const paths = projectPath === undefined ? [userPath] : [userPath, projectPath];
@@ -139,7 +89,9 @@ async function loadStableConfig(
 	for (let attempt = 0; attempt < 2; attempt += 1) {
 		const result = await loadMergedConfig(userPath, projectPath);
 		const current = await configFingerprint(paths);
-		if (current === fingerprint || attempt === 1) return { fingerprint: current, result };
+		if (current === fingerprint || attempt === 1) {
+			return { fingerprint: current, result: isFailed(result) ? result : bindConfigFingerprint(result, current) };
+		}
 		fingerprint = current;
 	}
 	throw new Error("unreachable config load state");
@@ -186,35 +138,29 @@ async function readConfig(configPath: string): Promise<RawFileToolsConfig | unde
 	}
 }
 
-export function ignoreConfigFromFileTools(config: FileToolsConfig): PartialIgnoreConfig {
-	return {
-		piignore: { enabled: config.ignore.piignore },
-		gitignore: { enabled: config.ignore.gitignore, trackedFilesBypass: config.ignore.git_tracked_files_bypass },
-		builtinProfile: config.ignore.builtin_profile,
-	};
-}
-
 export function isBlockedPath(config: FileToolsConfig, identity: ToolPathIdentity): boolean {
-	return pathMatchesAnyRule(identity, config.blocked_path);
-}
-
-export function isIgnoredPath(config: FileToolsConfig, identity: ToolPathIdentity): boolean {
-	return pathMatchesAnyRule(identity, config.ignored_path);
+	return pathMatchesAnyRule(identity, config.filesystem.blockedPaths);
 }
 
 export function toolPathIdentity(displayPath: string, absolutePath: string, workspacePath: string | undefined): ToolPathIdentity {
-	return {
-		displayPath,
-		absolutePath,
-		...(workspacePath !== undefined ? { workspacePath } : {}),
-	};
+	return { displayPath, absolutePath, ...(workspacePath === undefined ? {} : { workspacePath }) };
 }
 
 export function defaultFileToolsConfig(): FileToolsConfig {
-	return structuredClone(defaultConfig);
+	const visibility = createVisibilityPolicy();
+	const filesystem: FilesystemPolicy = {
+		blockedPaths: [".git/"],
+		visibility,
+		fingerprint: `defaults\0${JSON.stringify({ blockedPaths: [".git/"], visibility: visibility.fingerprint })}`,
+	};
+	return { filesystem, limits: defaultFileToolLimits() };
 }
 
-function mergeProjectConfig(userConfig: FileToolsConfig, raw: RawFileToolsConfig | undefined, sourcePath: string | undefined): ToolOutcome<FileToolsConfig> {
+function mergeProjectConfig(
+	userConfig: FileToolsConfig,
+	raw: RawFileToolsConfig | undefined,
+	sourcePath: string | undefined,
+): ToolOutcome<FileToolsConfig> {
 	if (raw === undefined) return userConfig;
 	const unsupportedIgnoreKeys = ["piignore", "gitignore", "git_tracked_files_bypass"].filter((key) => key in (raw.ignore ?? {}));
 	if (unsupportedIgnoreKeys.length > 0) {
@@ -223,19 +169,70 @@ function mergeProjectConfig(userConfig: FileToolsConfig, raw: RawFileToolsConfig
 		});
 	}
 	const merged = mergeConfig(userConfig, raw);
-	return {
-		...merged,
-		blocked_path: appendUnique(userConfig.blocked_path, raw.blocked_path),
-		ignored_path: appendUnique(userConfig.ignored_path, raw.ignored_path),
-	};
+	return withPolicies(merged, {
+		blockedPaths: appendUnique(userConfig.filesystem.blockedPaths, raw.blocked_path),
+		ignoredPaths: appendUnique(userConfig.filesystem.visibility.ignoredPaths, raw.ignored_path),
+	});
 }
 
 function mergeConfig(base: FileToolsConfig, raw: RawFileToolsConfig | undefined): FileToolsConfig {
+	const ignoredPaths = raw?.ignored_path ?? [...base.filesystem.visibility.ignoredPaths];
+	const visibility = createVisibilityPolicy({
+		ignoredPaths,
+		ignore: mergeIgnoreConfig(base.filesystem.visibility.ignore, raw?.ignore),
+	});
+	const blockedPaths = raw?.blocked_path ?? [...base.filesystem.blockedPaths];
 	return {
-		blocked_path: raw?.blocked_path ?? [...base.blocked_path],
-		ignored_path: raw?.ignored_path ?? [...base.ignored_path],
+		filesystem: {
+			blockedPaths,
+			visibility,
+			fingerprint: `pending\0${JSON.stringify({ blockedPaths, visibility: visibility.fingerprint })}`,
+		},
 		limits: { ...base.limits, ...raw?.limits },
-		ignore: { ...base.ignore, ...raw?.ignore },
+	};
+}
+
+function withPolicies(
+	config: FileToolsConfig,
+	overrides: { readonly blockedPaths: readonly string[]; readonly ignoredPaths: readonly string[] },
+): FileToolsConfig {
+	const visibility = createVisibilityPolicy({ ignoredPaths: overrides.ignoredPaths, ignore: config.filesystem.visibility.ignore });
+	return {
+		...config,
+		filesystem: {
+			blockedPaths: [...overrides.blockedPaths],
+			visibility,
+			fingerprint: `pending\0${JSON.stringify({ blockedPaths: overrides.blockedPaths, visibility: visibility.fingerprint })}`,
+		},
+	};
+}
+
+function bindConfigFingerprint(config: FileToolsConfig, sourceFingerprint: string): FileToolsConfig {
+	const visibility = createVisibilityPolicy({
+		ignoredPaths: config.filesystem.visibility.ignoredPaths,
+		ignore: config.filesystem.visibility.ignore,
+		configFingerprint: sourceFingerprint,
+	});
+	return {
+		...config,
+		filesystem: {
+			blockedPaths: [...config.filesystem.blockedPaths],
+			visibility,
+			fingerprint: `${sourceFingerprint}\0${JSON.stringify({ blockedPaths: config.filesystem.blockedPaths, visibility: visibility.fingerprint })}`,
+		},
+	};
+}
+
+function mergeIgnoreConfig(base: IgnoreConfig, raw: RawFileToolsConfig["ignore"]): IgnoreConfig {
+	return {
+		...structuredClone(base),
+		piignore: { ...base.piignore, enabled: raw?.piignore ?? base.piignore.enabled },
+		gitignore: {
+			...base.gitignore,
+			enabled: raw?.gitignore ?? base.gitignore.enabled,
+			trackedFilesBypass: raw?.git_tracked_files_bypass ?? base.gitignore.trackedFilesBypass,
+		},
+		builtinProfile: raw?.builtin_profile ?? base.builtinProfile,
 	};
 }
 
@@ -253,7 +250,7 @@ function projectConfigPath(cwd: string): string | undefined {
 	return projectAgentConfigPath(cwd, "file-tools.jsonc", PROJECT_CONFIG_ENV, PROJECT_ROOT_ENV);
 }
 
-function appendUnique(base: string[], extra: string[] | undefined): string[] {
+function appendUnique(base: readonly string[], extra: readonly string[] | undefined): string[] {
 	if (extra === undefined) return [...base];
 	return Array.from(new Set([...base, ...extra]));
 }

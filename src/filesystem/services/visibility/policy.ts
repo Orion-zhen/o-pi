@@ -1,4 +1,4 @@
-import type { IgnoreConfig, PartialIgnoreConfig } from "./ignore-types.js";
+import type { IgnoreConfig, PartialIgnoreConfig, VisibilityPolicy } from "../../contracts/visibility.js";
 
 export const defaultIgnoreConfig: IgnoreConfig = {
 	piignore: {
@@ -19,7 +19,13 @@ export const defaultIgnoreConfig: IgnoreConfig = {
 	sessionRules: [],
 };
 
-/** 合并调用方覆盖项；不暴露独立配置文件，避免配置来源分叉。 */
+export interface CreateVisibilityPolicyOptions {
+	readonly ignoredPaths?: readonly string[];
+	readonly ignore?: PartialIgnoreConfig;
+	readonly configFingerprint?: string;
+}
+
+/** Merge visibility overrides without creating an independent config source. */
 export function resolveIgnoreConfig(overrides: PartialIgnoreConfig = {}): IgnoreConfig {
 	return {
 		piignore: { ...defaultIgnoreConfig.piignore, ...overrides.piignore },
@@ -29,6 +35,16 @@ export function resolveIgnoreConfig(overrides: PartialIgnoreConfig = {}): Ignore
 		builtinProfile: overrides.builtinProfile ?? defaultIgnoreConfig.builtinProfile,
 		caseSensitivity: overrides.caseSensitivity ?? defaultIgnoreConfig.caseSensitivity,
 		diagnostics: overrides.diagnostics ?? defaultIgnoreConfig.diagnostics,
-		sessionRules: overrides.sessionRules ?? defaultIgnoreConfig.sessionRules,
+		sessionRules: overrides.sessionRules === undefined ? [...defaultIgnoreConfig.sessionRules] : [...overrides.sessionRules],
+	};
+}
+
+export function createVisibilityPolicy(options: CreateVisibilityPolicyOptions = {}): VisibilityPolicy {
+	const ignoredPaths = [...(options.ignoredPaths ?? [])];
+	const ignore = resolveIgnoreConfig(options.ignore);
+	return {
+		ignoredPaths,
+		ignore,
+		fingerprint: `${options.configFingerprint ?? "defaults"}\0${JSON.stringify({ ignoredPaths, ignore })}`,
 	};
 }

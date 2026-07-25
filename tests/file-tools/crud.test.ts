@@ -6,6 +6,7 @@ import { editWorkspace as editWorkspaceImpl, previewEditWorkspace, type EditRunt
 import { formatCompactLsResult, listWorkspaceDirectory } from "../../src/file-tools/tools/ls.js";
 import { findPathSuggestions, type PathSuggestionQuery } from "../../src/file-tools/core/path-suggestions.js";
 import { defaultFileToolsConfig, type FileToolsConfig } from "../../src/file-tools/config.js";
+import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
 import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
 import { isPlainRecord } from "../../src/file-tools/pi/guards.js";
 import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/tools/read.js";
@@ -1033,7 +1034,11 @@ describe("path-suggestions", () => {
 		await writeFile(path.join(workspace, "secret", "key.txt"), "");
 		await writeFile(path.join(workspace, "visible.txt"), "");
 
-		const config: FileToolsConfig = { ...defaultFileToolsConfig(), blocked_path: [".git/", "secret/"] };
+		const defaults = defaultFileToolsConfig();
+		const config: FileToolsConfig = {
+			...defaults,
+			filesystem: { ...defaults.filesystem, blockedPaths: [".git/", "secret/"] },
+		};
 		const suggestions = await findPathSuggestions(workspace, "anything", config, undefined, 10_000, 3);
 		for (const s of suggestions) {
 			expect(s.startsWith("secret/")).toBe(false);
@@ -1044,7 +1049,14 @@ describe("path-suggestions", () => {
 		await writeFile(path.join(workspace, "build.log"), "");
 		await writeFile(path.join(workspace, "source.ts"), "");
 
-		const config: FileToolsConfig = { ...defaultFileToolsConfig(), ignored_path: ["build.log"] };
+		const defaults = defaultFileToolsConfig();
+		const config: FileToolsConfig = {
+			...defaults,
+			filesystem: {
+				...defaults.filesystem,
+				visibility: createVisibilityPolicy({ ignoredPaths: ["build.log"], ignore: defaults.filesystem.visibility.ignore }),
+			},
+		};
 		const suggestions = await findPathSuggestions(workspace, "anything", config, undefined, 10_000, 3);
 		expect(suggestions).not.toContain("build.log");
 	});

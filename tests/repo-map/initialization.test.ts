@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 
 import { defaultFileToolsConfig } from "../../src/file-tools/config.js";
-import { createIgnoreSnapshot, defaultIgnoreEngine } from "../../src/file-tools/ignore/ignore-engine.js";
+import { createVisibilitySnapshot, defaultVisibilityService } from "../../src/filesystem/services/visibility/service.js";
 import { defaultRepoMapConfig } from "../../src/repo-map/config.js";
 import { RepoMapError } from "../../src/repo-map/errors.js";
 import { initializeRepoMap, readActivatedRepoMap, type RepoMapServiceDependencies } from "../../src/repo-map/service.js";
@@ -32,9 +32,9 @@ function dependencies(overrides: Partial<RepoMapServiceDependencies> = {}): Part
 		async readHeadRevision() { return "a".repeat(40); },
 		async loadRepoMapConfig() { return defaultRepoMapConfig(); },
 		async loadFileToolsConfig() { return defaultFileToolsConfig(); },
-		async createIgnoreSnapshot(scanRoot, config) {
-			defaultIgnoreEngine.invalidate();
-			return await createIgnoreSnapshot(scanRoot, config);
+		async createVisibilitySnapshot(scanRoot, policy) {
+			defaultVisibilityService.invalidate();
+			return await createVisibilitySnapshot(scanRoot, policy);
 		},
 		cacheRoot: () => path.join(temp.path, "cache"),
 		now: () => new Date("2026-07-17T00:00:00.000Z"),

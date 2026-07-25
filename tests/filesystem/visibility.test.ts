@@ -5,7 +5,10 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { editWorkspace as editWorkspaceImpl } from "../../src/file-tools/tools/edit.js";
-import { createIgnoreSnapshot, defaultIgnoreEngine } from "../../src/file-tools/ignore/ignore-engine.js";
+import { createVisibilitySnapshot, defaultVisibilityService as defaultIgnoreEngine, WorkspaceVisibilityService } from "../../src/filesystem/services/visibility/service.js";
+import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
+import type { PartialIgnoreConfig, VisibilitySnapshot } from "../../src/filesystem/contracts/visibility.js";
+import { NodeNativeFileSystem, type NativeFileSystem } from "../../src/filesystem/platform/node/native-filesystem.js";
 import { listWorkspaceDirectory } from "../../src/file-tools/tools/ls.js";
 import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
 import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/tools/read.js";
@@ -38,6 +41,10 @@ function readWorkspaceFile(cwd: string, params: ReadParams): Promise<ToolOutcome
 
 function editWorkspace(cwd: string, params: unknown): Promise<ToolOutcome<EditSuccess>> {
 	return editWorkspaceImpl(cwd, params, { versionCache });
+}
+
+async function createIgnoreSnapshot(root: string, ignore: PartialIgnoreConfig = {}): Promise<VisibilitySnapshot> {
+	return await createVisibilitySnapshot(root, createVisibilityPolicy({ ignore }));
 }
 
 describe("ignore engine", () => {
@@ -181,13 +188,12 @@ describe("ignore engine", () => {
 		expect(first.diagnostics).toEqual([]);
 		expect(first.evaluate({ path: "old.txt", kind: "file", intent: "search" }).ignored).toBe(true);
 
-		await new Promise((resolve) => setTimeout(resolve, 10));
-		await writeFile(path.join(workspace, ".piignore"), "new.txt\n");
+		await writeFile(path.join(workspace, ".piignore"), "new-longer-name.txt\n");
 		const second = await createIgnoreSnapshot(workspace, { builtinProfile: "none", gitignore: { enabled: false } });
 		expect(second.generation).not.toBe(first.generation);
 		expect(second.fingerprint).not.toBe(first.fingerprint);
-		expect(first.evaluate({ path: "new.txt", kind: "file", intent: "search" }).ignored).toBe(false);
-		expect(second.evaluate({ path: "new.txt", kind: "file", intent: "search" }).ignored).toBe(true);
+		expect(first.evaluate({ path: "new-longer-name.txt", kind: "file", intent: "search" }).ignored).toBe(false);
+		expect(second.evaluate({ path: "new-longer-name.txt", kind: "file", intent: "search" }).ignored).toBe(true);
 	});
 
 	it("并发请求共享同一 snapshot 构建", async () => {
@@ -197,6 +203,112 @@ describe("ignore engine", () => {
 
 		expect(new Set(snapshots.map((snapshot) => snapshot.generation))).toEqual(new Set([snapshots[0]?.generation]));
 		expect(snapshots.every((snapshot) => snapshot.evaluate({ path: "ignored.txt", kind: "file", intent: "search" }).ignored)).toBe(true);
+	});
+
+	it("在 snapshot 构建边界响应取消", async () => {
+		const controller = new AbortController();
+		controller.abort("test");
+		await expect(createVisibilitySnapshot(
+			workspace,
+			createVisibilityPolicy(),
+			{ signal: controller.signal },
+		)).rejects.toMatchObject({ code: "aborted" });
+	});
+
+	it("canonical root、policy 与 fingerprint 共同决定 snapshot cache", async () => {
+		await writeFile(path.join(workspace, ".piignore"), "ignored.txt\n");
+		const alias = path.join(outside, "workspace-link");
+		try {
+			await symlink(workspace, alias, "dir");
+		} catch {
+			return;
+		}
+		const policy = createVisibilityPolicy({
+			ignore: { builtinProfile: "none", gitignore: { enabled: false } },
+			configFingerprint: "one",
+		});
+		const direct = await createVisibilitySnapshot(workspace, policy);
+		const throughAlias = await createVisibilitySnapshot(alias, policy);
+		const changedPolicy = await createVisibilitySnapshot(workspace, createVisibilityPolicy({
+			ignore: { builtinProfile: "none", gitignore: { enabled: false } },
+			configFingerprint: "two",
+		}));
+
+		expect(throughAlias.generation).toBe(direct.generation);
+		expect(changedPolicy.generation).not.toBe(direct.generation);
+	});
+
+	it("失效中的旧构建不能回写 cache，控制面读取使用注入的 Node backend", async () => {
+		await writeFile(path.join(workspace, ".piignore"), "old.txt\n");
+		const base = new NodeNativeFileSystem();
+		let releaseFirstRead = (): void => undefined;
+		let markFirstReadStarted = (): void => undefined;
+		const firstReadStarted = new Promise<void>((resolve) => { markFirstReadStarted = resolve; });
+		const firstReadRelease = new Promise<void>((resolve) => { releaseFirstRead = resolve; });
+		let ignoreReads = 0;
+		const native: NativeFileSystem = {
+			lstat: base.lstat.bind(base),
+			stat: base.stat.bind(base),
+			realpath: base.realpath.bind(base),
+			readdir: base.readdir.bind(base),
+			readlink: base.readlink.bind(base),
+			async read(filePath, options) {
+				if (filePath !== path.join(workspace, ".piignore") || ignoreReads++ > 0) return await base.read(filePath, options);
+				const captured = await base.read(filePath, options);
+				markFirstReadStarted();
+				await firstReadRelease;
+				return captured;
+			},
+			open: base.open.bind(base),
+			write: base.write.bind(base),
+			mkdir: base.mkdir.bind(base),
+		};
+		const service = new WorkspaceVisibilityService(native);
+		const policy = createVisibilityPolicy({ ignore: { builtinProfile: "none", gitignore: { enabled: false } } });
+		const staleBuild = service.createSnapshot(workspace, policy);
+		await firstReadStarted;
+		service.invalidate(workspace);
+		await writeFile(path.join(workspace, ".piignore"), "new.txt\n");
+		const current = await service.createSnapshot(workspace, policy);
+		releaseFirstRead();
+		const stale = await staleBuild;
+		const cached = await service.createSnapshot(workspace, policy);
+
+		expect(stale.evaluate({ path: "old.txt", kind: "file", intent: "search" }).ignored).toBe(true);
+		expect(current.evaluate({ path: "new.txt", kind: "file", intent: "search" }).ignored).toBe(true);
+		expect(cached.generation).toBe(current.generation);
+		expect(cached.generation).not.toBe(stale.generation);
+	});
+
+	it("统一 config ignored_path、来源与 intent prune 语义", async () => {
+		const snapshot = await createVisibilitySnapshot(workspace, createVisibilityPolicy({
+			ignoredPaths: ["cache/", path.join(outside, "secret.txt")],
+			ignore: { builtinProfile: "none", gitignore: { enabled: false }, piignore: { enabled: false } },
+		}));
+		const search = snapshot.evaluate({
+			path: "cache",
+			absolutePath: path.join(workspace, "cache"),
+			workspacePath: "cache",
+			kind: "directory",
+			intent: "search",
+		});
+		const explicit = snapshot.evaluate({
+			path: "cache",
+			absolutePath: path.join(workspace, "cache"),
+			workspacePath: "cache",
+			kind: "directory",
+			intent: "explicit-read",
+		});
+		const outsideDecision = snapshot.evaluate({
+			path: path.join(outside, "secret.txt"),
+			absolutePath: path.join(outside, "secret.txt"),
+			kind: "file",
+			intent: "explicit-read",
+		});
+
+		expect(search).toMatchObject({ ignored: true, prune: true, matchedRule: { sourceType: "config", sourcePath: "file-tools.jsonc" } });
+		expect(explicit).toMatchObject({ ignored: true, prune: false });
+		expect(outsideDecision).toMatchObject({ ignored: true, matchedRule: { sourceType: "config" } });
 	});
 
 	it("explain 返回 trace、winner、来源文件和行号", async () => {

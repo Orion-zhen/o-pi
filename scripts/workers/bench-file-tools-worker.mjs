@@ -33,16 +33,16 @@ async function runSearchBenchmark() {
 	const { findWorkspaceFiles } = await loadTypeScript("src/file-tools/tools/find.ts");
 	const { grepWorkspaceFiles } = await loadTypeScript("src/file-tools/tools/grep.ts");
 	const { clearGrepIndex } = await loadTypeScript("src/file-tools/grep/indexer.ts");
-	const { defaultIgnoreEngine } = await loadTypeScript("src/file-tools/ignore/ignore-engine.ts");
+	const { defaultVisibilityService } = await loadTypeScript("src/filesystem/services/visibility/service.ts");
 
-	defaultIgnoreEngine.invalidate();
+	defaultVisibilityService.invalidate();
 	clearGrepIndex();
 	const coldFindMs = await measure(() => findWorkspaceFiles(fromRoot(""), { query: "file tools config" }));
 	const warmFindMs = await measure(() => findWorkspaceFiles(fromRoot(""), { query: "file tools config" }));
 	const coldGrepMs = await measure(() => grepWorkspaceFiles(fromRoot(""), { query: "createRetryableLoader", match: "literal" }));
 	const warmGrepMs = await measure(() => grepWorkspaceFiles(fromRoot(""), { query: "createRetryableLoader", match: "literal" }));
 
-	defaultIgnoreEngine.invalidate();
+	defaultVisibilityService.invalidate();
 	clearGrepIndex();
 	const concurrentGrepMs = await measure(() => Promise.all([
 		grepWorkspaceFiles(fromRoot(""), { query: "createRetryableLoader", match: "literal" }),

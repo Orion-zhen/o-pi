@@ -3,14 +3,14 @@ import { generateDiffString, withFileMutationQueue } from "@earendil-works/pi-co
 import { guardWritablePath, PathGuardBlockedError } from "../../safety/path-guard.js";
 import { protectedPathFailure } from "../core/errors.js";
 import { fail, isAccessDenied, isFailed, type ToolOutcome } from "../shared/result.js";
-import { ignoreConfigFromFileTools, loadFileToolsConfig } from "../config.js";
-import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
+import { loadFileToolsConfig } from "../config.js";
+import { defaultVisibilityService } from "../../filesystem/services/visibility/service.js";
 import { resolveExistingFile, resolveWorkspaceRoot } from "../core/path-resolver.js";
 import type { ReadVersionCache } from "../core/read-cache.js";
 import { buildTextBytes, normalizeLineEndings, readTextFile, sha256Version } from "../core/text-file.js";
 import { buildEditMatchHints } from "../core/edit-hints.js";
 import type { EditParams, EditPreviewSuccess, EditReplacement, EditSuccess, FileToolLspDiagnosticSnapshot, FileToolLspHooks, LspDiagnosticsSummary, TextFile } from "../types.js";
-import type { IgnoreSnapshot } from "../ignore/ignore-types.js";
+import type { VisibilitySnapshot } from "../../filesystem/contracts/visibility.js";
 
 interface PreparedEdit {
 	workspaceRoot: string;
@@ -148,20 +148,20 @@ async function resolveEdit(cwd: string, params: unknown): Promise<ToolOutcome<Re
 	const resolved = await resolveExistingFile(workspaceRoot, input.path, config);
 	if (isFailed(resolved)) return resolved;
 	try {
-		await guardWritablePath(input.path, { cwd: workspaceRoot, blocked_path: config.blocked_path });
+		await guardWritablePath(input.path, { cwd: workspaceRoot, blocked_path: [...config.filesystem.blockedPaths] });
 	} catch (error) {
 		if (error instanceof PathGuardBlockedError) return protectedPathFailure(resolved.relativePath, error.block);
 		if (isAccessDenied(error)) return fail("ACCESS_DENIED", "Parent path cannot be accessed.", { path: resolved.relativePath });
 		return fail("INVALID_PATH", "Parent path cannot be resolved.", { path: resolved.relativePath });
 	}
-	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
-	noteSoftIgnore(ignoreSnapshot, resolved.workspacePath);
+	const visibility = await defaultVisibilityService.createSnapshot(workspaceRoot, config.filesystem.visibility);
+	noteSoftIgnore(visibility, resolved.relativePath, resolved.absolutePath, resolved.workspacePath);
 	return {
 		workspaceRoot,
 		inputPath: input.path,
 		path: resolved.relativePath,
 		absolutePath: resolved.realPath,
-		blockedPath: config.blocked_path,
+		blockedPath: [...config.filesystem.blockedPaths],
 		edits: input.edits,
 		matchHintLimit: config.limits.edit_match_hint_limit,
 	};
@@ -231,9 +231,13 @@ function validateReplacement(value: unknown, index: number): ToolOutcome<EditRep
 	return { old: value["old"], new: value["new"] };
 }
 
-function noteSoftIgnore(ignoreSnapshot: IgnoreSnapshot, workspacePath: string | undefined): void {
-	if (workspacePath === undefined) return;
-	ignoreSnapshot.evaluate({ path: workspacePath, kind: "file", intent: "explicit-edit" });
+function noteSoftIgnore(
+	visibility: VisibilitySnapshot,
+	displayPath: string,
+	absolutePath: string,
+	workspacePath: string | undefined,
+): void {
+	visibility.evaluate({ path: displayPath, absolutePath, workspacePath, kind: "file", intent: "explicit-edit" });
 }
 
 async function readExistingWithVersion(

@@ -1,8 +1,8 @@
 import { readdir, readlink } from "node:fs/promises";
 import path from "node:path";
-import { ignoreConfigFromFileTools, isBlockedPath, isIgnoredPath, loadFileToolsConfig, type ToolPathIdentity } from "../config.js";
+import { isBlockedPath, loadFileToolsConfig, type ToolPathIdentity } from "../config.js";
 import { fail, isAccessDenied, isFailed, type ToolOutcome } from "../shared/result.js";
-import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
+import { defaultVisibilityService } from "../../filesystem/services/visibility/service.js";
 import { resolveExistingDirectory, resolveWorkspaceRoot } from "../core/path-resolver.js";
 import type { LsEntry, LsEntryType, LsParams, LsSuccess } from "../types.js";
 
@@ -20,7 +20,7 @@ export async function listWorkspaceDirectory(cwd: string, params: LsParams): Pro
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const resolved = await resolveExistingDirectory(workspaceRoot, params.path ?? ".", config);
 	if (isFailed(resolved)) return resolved;
-	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
+	const visibility = await defaultVisibilityService.createSnapshot(workspaceRoot, config.filesystem.visibility);
 
 	let rawEntries;
 	try {
@@ -39,9 +39,13 @@ export async function listWorkspaceDirectory(cwd: string, params: LsParams): Pro
 		if (isBlockedPath(config, identity)) continue;
 		const workspaceEntryPath = childWorkspacePath(resolved.workspacePath, entry.name);
 		const type = entryType(entry);
-		const ignoreDecision = workspaceEntryPath !== undefined
-			? ignoreSnapshot.evaluate({ path: workspaceEntryPath, kind: type, intent: "list-entry" })
-			: { ignored: false, matchedRule: undefined };
+		const ignoreDecision = visibility.evaluate({
+			path: entryPath,
+			absolutePath: identity.absolutePath,
+			workspacePath: workspaceEntryPath,
+			kind: type,
+			intent: "list-entry",
+		});
 		const lsEntry: LsEntry = {
 			name: entry.name,
 			path: entryPath,
@@ -51,10 +55,7 @@ export async function listWorkspaceDirectory(cwd: string, params: LsParams): Pro
 			const target = await readSymlinkTarget(path.join(resolved.realPath, entry.name));
 			if (target !== undefined) lsEntry.link_target = target;
 		}
-		if (isIgnoredPath(config, identity)) {
-			lsEntry.ignored = true;
-			lsEntry.ignore_source = "file-tools.jsonc";
-		} else if (ignoreDecision.ignored) {
+		if (ignoreDecision.ignored) {
 			lsEntry.ignored = true;
 			if (ignoreDecision.matchedRule !== undefined) lsEntry.ignore_source = shortIgnoreSource(ignoreDecision.matchedRule.sourceType);
 		}
@@ -161,6 +162,7 @@ function shortIgnoreSource(sourceType: string): string {
 	if (sourceType === "piignore") return ".piignore";
 	if (sourceType === "gitignore") return ".gitignore";
 	if (sourceType === "git-info-exclude") return ".git/info/exclude";
+	if (sourceType === "config") return "file-tools.jsonc";
 	return sourceType;
 }
 

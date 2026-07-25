@@ -2,18 +2,18 @@ import { readdir } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import path from "node:path";
 
-import { createIgnoreSnapshot } from "../ignore/ignore-engine.js";
+import { createVisibilitySnapshot } from "../../filesystem/services/visibility/service.js";
 import { createFindEntry, rankFindSuggestions } from "../find/ranker.js";
 import type { FindEntry } from "../types.js";
-import type { IgnoreSnapshot } from "../ignore/ignore-types.js";
-import { ignoreConfigFromFileTools, isBlockedPath, isIgnoredPath, toolPathIdentity, type FileToolsConfig } from "../config.js";
+import type { VisibilitySnapshot } from "../../filesystem/contracts/visibility.js";
+import { isBlockedPath, toolPathIdentity, type FileToolsConfig } from "../config.js";
 
 interface WalkCtx {
 	files: string[];
 	maxEntries: number;
 	workspaceRoot: string;
 	config: FileToolsConfig | undefined;
-	ignoreSnapshot: IgnoreSnapshot | undefined;
+	ignoreSnapshot: VisibilitySnapshot | undefined;
 }
 
 /** 轻量递归遍历 workspace，收集文件路径；达到 maxEntries 后停止。 */
@@ -47,7 +47,7 @@ function isDirSkipped(
 	workspaceRel: string,
 	fullPath: string,
 	config: FileToolsConfig | undefined,
-	ignoreSnapshot: IgnoreSnapshot | undefined,
+	ignoreSnapshot: VisibilitySnapshot | undefined,
 ): boolean {
 	if (config === undefined) {
 		// Degraded mode: only skip .git
@@ -55,9 +55,8 @@ function isDirSkipped(
 	}
 	const identity = toolPathIdentity(workspaceRel, fullPath, workspaceRel);
 	if (isBlockedPath(config, identity)) return true;
-	if (isIgnoredPath(config, identity)) return true;
 	if (ignoreSnapshot !== undefined) {
-		const decision = ignoreSnapshot.evaluate({ path: workspaceRel, kind: "directory", intent: "traverse" });
+		const decision = ignoreSnapshot.evaluate({ path: workspaceRel, absolutePath: fullPath, workspacePath: workspaceRel, kind: "directory", intent: "traverse" });
 		if (decision.ignored && decision.prune) return true;
 	}
 	return false;
@@ -67,14 +66,13 @@ function isFileSkipped(
 	workspaceRel: string,
 	fullPath: string,
 	config: FileToolsConfig | undefined,
-	ignoreSnapshot: IgnoreSnapshot | undefined,
+	ignoreSnapshot: VisibilitySnapshot | undefined,
 ): boolean {
 	if (config === undefined) return false;
 	const identity = toolPathIdentity(workspaceRel, fullPath, workspaceRel);
 	if (isBlockedPath(config, identity)) return true;
-	if (isIgnoredPath(config, identity)) return true;
 	if (ignoreSnapshot !== undefined) {
-		const decision = ignoreSnapshot.evaluate({ path: workspaceRel, kind: "file", intent: "search" });
+		const decision = ignoreSnapshot.evaluate({ path: workspaceRel, absolutePath: fullPath, workspacePath: workspaceRel, kind: "file", intent: "search" });
 		if (decision.ignored) return true;
 	}
 	return false;
@@ -115,10 +113,10 @@ export async function findPathSuggestions(
 
 	const files: string[] = [];
 
-	let ignoreSnapshot: IgnoreSnapshot | undefined;
+	let ignoreSnapshot: VisibilitySnapshot | undefined;
 	if (config !== undefined) {
 		try {
-			ignoreSnapshot = await createIgnoreSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
+			ignoreSnapshot = await createVisibilitySnapshot(workspaceRoot, config.filesystem.visibility);
 		} catch {
 			// Ignore snapshot build failure degrades gracefully — scan continues without gitignore filtering.
 		}

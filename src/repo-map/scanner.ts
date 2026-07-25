@@ -7,11 +7,10 @@ import pLimit from "p-limit";
 import { createFileIdentity } from "../code-index/identity.js";
 import {
 	isBlockedPath,
-	isIgnoredPath,
 	toolPathIdentity,
 	type FileToolsConfig,
 } from "../file-tools/config.js";
-import type { IgnoreSnapshot } from "../file-tools/ignore/ignore-types.js";
+import type { VisibilitySnapshot } from "../filesystem/contracts/visibility.js";
 import { RepoMapError, throwIfAborted } from "./errors.js";
 import { isRepoMapFileInScope } from "./scope.js";
 import type { RepoMapDiagnostic, RepoMapFileRecord, RepoMapScanSummary } from "./types.js";
@@ -19,7 +18,7 @@ import type { RepoMapDiagnostic, RepoMapFileRecord, RepoMapScanSummary } from ".
 export interface RepoMapScanInput {
 	root: string;
 	fileToolsConfig: FileToolsConfig;
-	ignoreSnapshot: IgnoreSnapshot;
+	ignoreSnapshot: VisibilitySnapshot;
 	maxFiles: number;
 	maxFileBytes: number;
 	concurrency: number;
@@ -131,11 +130,17 @@ export async function scanRepoMap(input: RepoMapScanInput): Promise<RepoMapScanR
 				continue;
 			}
 			if (entry.isDirectory()) {
-				if (entry.name === ".git" || isIgnoredPath(input.fileToolsConfig, identity)) {
+				if (entry.name === ".git") {
 					skippedDirectories += 1;
 					continue;
 				}
-				const decision = input.ignoreSnapshot.evaluate({ path: relativePath, kind: "directory", intent: "index" });
+				const decision = input.ignoreSnapshot.evaluate({
+					path: relativePath,
+					absolutePath,
+					workspacePath: relativePath,
+					kind: "directory",
+					intent: "index",
+				});
 				if (decision.ignored && decision.prune) {
 					skippedDirectories += 1;
 					continue;
