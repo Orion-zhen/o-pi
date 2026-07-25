@@ -23,6 +23,7 @@ import {
 	readActivatedRepoMap,
 	readActivatedRepoMapState,
 } from "../../src/repo-map/service.js";
+import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 import type { RepoMapGeneration } from "../../src/repo-map/storage.js";
 import { formatRepoMapReadContext, READ_REPO_MAP_TOKEN_BUDGET } from "../../src/repo-map/tool-output.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
@@ -49,7 +50,7 @@ beforeEach(async () => {
 	delete process.env.PI_FILE_TOOLS_PROJECT_ROOT;
 });
 
-describe("Repo Map file-tool read and mutation integration", () => {
+describe.skipIf(!treeSitterAvailable())("Repo Map file-tool read and mutation integration", () => {
 	it.skipIf(!gitAvailable)("wires an activated write through the extension and exposes the new symbol to grep", async () => {
 		const root = path.join(temp.path, "extension-repo");
 		await mkdir(root);
@@ -405,7 +406,7 @@ describe("Repo Map file-tool read and mutation integration", () => {
 	});
 });
 
-describe("Repo Map freshness and rebuild modes", () => {
+describe.skipIf(!treeSitterAvailable())("Repo Map freshness and rebuild modes", () => {
 	it("classifies HEAD/config/ignore changes as stale while preserving partial state otherwise", () => {
 		const metadata = {
 			freshness: "fresh" as const,

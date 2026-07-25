@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 import { analyzeCodeFile } from "../../src/code-index/parser.js";
 import { parseSyntaxTree } from "../../src/code-index/syntax-tree.js";
 import { javascriptSyntaxFacts } from "../../src/repo-map/syntax-facts.js";
+import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
-describe("shared syntax tree boundary", () => {
+describe.skipIf(!treeSitterAvailable())("shared syntax tree boundary", () => {
 	it("creates a syntax tree without exposing Parser initialization to callers", () => {
 		const root = parseSyntaxTree("typescript", "export function run() {}\n");
 		if (root === undefined) throw new Error("missing syntax tree");

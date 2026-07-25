@@ -10,10 +10,11 @@ import {
 	shouldOffloadRepoMapParsing,
 } from "../../src/repo-map/symbol-indexer.js";
 import { useTempDir } from "../helpers/lifecycle.js";
+import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
 const temp = useTempDir("o-pi-repo-map-workers-");
 
-describe("Repo Map parser workers", () => {
+describe.skipIf(!treeSitterAvailable())("Repo Map parser workers", () => {
 	it("uses local parsing for small workloads and bounded worker batches for large workloads", () => {
 		expect(shouldOffloadRepoMapParsing({ fileCount: 2, totalBytes: 200, maxFileBytes: 100 }, { concurrency: 8 })).toBe(false);
 		expect(shouldOffloadRepoMapParsing({ fileCount: REPO_MAP_PARSER_BATCH_SIZE * 4, totalBytes: 2_000_000, maxFileBytes: 20_000 }, { concurrency: 8 })).toBe(true);

@@ -17,6 +17,7 @@ import type { RepoMapGeneration } from "../../src/repo-map/storage.js";
 import type { RepoMapMetadata } from "../../src/repo-map/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { activationEntry, configureFileTools, fileRecord, readGeneration, serviceDependencies, writeSources } from "./fixtures.js";
+import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
 const temp = useTempDir("o-pi-repo-architecture-");
 preserveEnv("PI_FILE_TOOLS_CONFIG");
@@ -25,7 +26,7 @@ beforeEach(async () => {
 	await configureFileTools(temp.path, { read_lines: 20, read_bytes: 8192, find_result_limit: 20, grep_result_limit: 20 });
 });
 
-describe("Repo Map architecture graph", () => {
+describe.skipIf(!treeSitterAvailable())("Repo Map architecture graph", () => {
 	it("derives monorepo packages, components, manifest entrypoints, registrations, and public API", async () => {
 		const sources = fixtureSources();
 		const generation = await generationFromSources(temp.path, sources);

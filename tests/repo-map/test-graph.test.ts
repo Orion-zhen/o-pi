@@ -8,6 +8,7 @@ import { initializeRepoMap } from "../../src/repo-map/service.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { activationEntry, configureFileTools, readGeneration, serviceDependencies, writeSources } from "./fixtures.js";
 import { generationWithTestGraph, testGraphSources } from "./test-graph-fixtures.js";
+import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
 const temp = useTempDir("o-pi-repo-test-graph-");
 preserveEnv("PI_FILE_TOOLS_CONFIG");
@@ -16,7 +17,7 @@ beforeEach(async () => {
 	await configureFileTools(temp.path, { read_lines: 40, read_bytes: 16_384, find_result_limit: 30, grep_result_limit: 30 });
 });
 
-describe("Repo Map test graph", () => {
+describe.skipIf(!treeSitterAvailable())("Repo Map test graph", () => {
 	it("indexes named tests, imports, mocks, fixtures, snapshots, and runner configuration with evidence", async () => {
 		const generation = await generationWithTestGraph(temp.path, testGraphSources("export function loadUser() { return 'user'; }\n"), "1");
 		expect(generation.tests).toEqual(expect.arrayContaining([

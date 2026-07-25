@@ -5,17 +5,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFileIdentity, createSymbolId } from "../../src/code-index/identity.js";
 import { analyzeCodeFile, buildLineIndex, byteRangeForLines, countTextTokenMatches, parseCodeUnits, splitTokens, tokenizeText } from "../../src/code-index/parser.js";
 import { loadTreeSitterRuntime } from "../../src/code-index/tree-sitter-loader.js";
+import { optionalDependencyPath, treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
 const require = createRequire(import.meta.url);
 const treeSitterModules = {
-	runtime: require.resolve("tree-sitter"),
-	javascript: require.resolve("tree-sitter-javascript"),
-	typescript: require.resolve("tree-sitter-typescript"),
-	python: require.resolve("tree-sitter-python"),
-	go: require.resolve("tree-sitter-go"),
-	rust: require.resolve("tree-sitter-rust"),
-	c: require.resolve("tree-sitter-c"),
-	cpp: require.resolve("tree-sitter-cpp"),
+	runtime: optionalDependencyPath("tree-sitter") ?? "",
+	javascript: optionalDependencyPath("tree-sitter-javascript") ?? "",
+	typescript: optionalDependencyPath("tree-sitter-typescript") ?? "",
+	python: optionalDependencyPath("tree-sitter-python") ?? "",
+	go: optionalDependencyPath("tree-sitter-go") ?? "",
+	rust: optionalDependencyPath("tree-sitter-rust") ?? "",
+	c: optionalDependencyPath("tree-sitter-c") ?? "",
+	cpp: optionalDependencyPath("tree-sitter-cpp") ?? "",
 };
 
 afterEach(() => {
@@ -27,7 +28,7 @@ function symbols(filePath: string, text: string): Array<[string, string | undefi
 	return parseCodeUnits(filePath, text).units.map((unit) => [unit.kind, unit.name, unit.qualifiedName]);
 }
 
-describe("shared code parser", () => {
+describe.skipIf(!treeSitterAvailable())("shared code parser", () => {
 	it.each([
 		{ text: "", offsets: [0], bytes: [0] },
 		{ text: "abc", offsets: [0, 1, 3], bytes: [0, 1, 3] },

@@ -6,10 +6,11 @@ import { analyzeCodeFile } from "../../src/code-index/parser.js";
 import { buildRepoMapRelationships } from "../../src/repo-map/relationship-indexer.js";
 import { indexRepoMapSymbols } from "../../src/repo-map/symbol-indexer.js";
 import type { RepoMapFileRecord } from "../../src/repo-map/types.js";
+import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
 const root = "/repo";
 
-describe("Repo Map symbol and relationship graph", () => {
+describe.skipIf(!treeSitterAvailable())("Repo Map symbol and relationship graph", () => {
 	it("indexes every supported language, qualified duplicate names, unsupported files, and parser failures", async () => {
 		const sources = new Map([
 			["a.ts", "export function tsSymbol() {}\n"],

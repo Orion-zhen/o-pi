@@ -10,6 +10,7 @@ import { defaultRepoMapConfig } from "../../src/repo-map/config.js";
 import { RepoMapError } from "../../src/repo-map/errors.js";
 import { initializeRepoMap, readActivatedRepoMap, type RepoMapServiceDependencies } from "../../src/repo-map/service.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
+import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
 const temp = useTempDir("o-pi-repo-service-");
 const execFileAsync = promisify(execFile);
@@ -42,7 +43,7 @@ function dependencies(overrides: Partial<RepoMapServiceDependencies> = {}): Part
 }
 
 describe("Repo Map initialization service", () => {
-	it.skipIf(!gitAvailable)("runs the real Git/config/ignore/storage boundaries in a temporary repository", async () => {
+	it.skipIf(!gitAvailable || !treeSitterAvailable())("runs the real Git/config/ignore/storage boundaries in a temporary repository", async () => {
 		const root = path.join(temp.path, "real-repo");
 		await mkdir(root);
 		await execFileAsync("git", ["init", "--quiet", root]);
@@ -57,7 +58,7 @@ describe("Repo Map initialization service", () => {
 		expect(result.metadata).toMatchObject({ fileCount: 1, indexedFileCount: 1, parsedFileCount: 1, symbolCount: 1 });
 		expect(result.metadata.edgeCount).toBeGreaterThan(2);
 	});
-	it("builds, persists, and reuses a symbol graph generation", async () => {
+	it.skipIf(!treeSitterAvailable())("builds, persists, and reuses a symbol graph generation", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });
 		await writeFile(path.join(root, "a.ts"), "export const a = 1;\n");
@@ -71,7 +72,7 @@ describe("Repo Map initialization service", () => {
 		expect(second.summary).toMatchObject({ reused: 1, reusedParsed: 1, hashed: 0, added: 0, changed: 0, removed: 0 });
 	});
 
-	it("skips every graph builder and commit when the repository is unchanged", async () => {
+	it.skipIf(!treeSitterAvailable())("skips every graph builder and commit when the repository is unchanged", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });
 		await writeFile(path.join(root, "a.ts"), "export const a = 1;\n");
@@ -96,7 +97,7 @@ describe("Repo Map initialization service", () => {
 		for (const skipped of [indexSymbols, buildArchitecture, buildTestGraph, buildRelationships, buildLexicalAliases, commit]) expect(skipped).not.toHaveBeenCalled();
 	});
 
-	it("retains recovered symbols but marks incomplete syntax facts as partially stale", async () => {
+	it.skipIf(!treeSitterAvailable())("retains recovered symbols but marks incomplete syntax facts as partially stale", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });
 		await writeFile(
@@ -119,7 +120,7 @@ describe("Repo Map initialization service", () => {
 		expect(result.metadata.freshness).toBe("partially_stale");
 	});
 
-	it("persists symbols for every supported language", async () => {
+	it.skipIf(!treeSitterAvailable())("persists symbols for every supported language", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });
 		for (const [name, source] of [

@@ -13,17 +13,18 @@ import {
 import { RepoMapError } from "../../src/repo-map/errors.js";
 import type { InitializeRepoMapResult } from "../../src/repo-map/service.js";
 import type { RepoMapGeneration } from "../../src/repo-map/storage.js";
+import { treeSitterModulePaths } from "../helpers/optional-dependencies.js";
 
 type CommandOptions = Parameters<ExtensionAPI["registerCommand"]>[1];
 const require = createRequire(import.meta.url);
-const parserModules = [
-	require.resolve("tree-sitter"),
-	require.resolve("tree-sitter-javascript"),
-	require.resolve("tree-sitter-typescript"),
-	require.resolve("tree-sitter-python"),
-	require.resolve("tree-sitter-go"),
-	require.resolve("tree-sitter-rust"),
-];
+const parserModules = treeSitterModulePaths([
+	"tree-sitter",
+	"tree-sitter-javascript",
+	"tree-sitter-typescript",
+	"tree-sitter-python",
+	"tree-sitter-go",
+	"tree-sitter-rust",
+]);
 
 describe("/init command", () => {
 	it("discovers and activates an existing map without rebuilding or duplicate entries", async () => {

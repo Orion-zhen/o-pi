@@ -15,6 +15,7 @@ import { indexRepoMapSymbols } from "../../src/repo-map/symbol-indexer.js";
 import type { RepoMapEdge, RepoMapFileRecord, RepoMapMetadata, RepoMapSymbolNode } from "../../src/repo-map/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { activationEntry, configureFileTools, fileRecord, readGeneration, serviceDependencies, writeSources } from "./fixtures.js";
+import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
 const temp = useTempDir("o-pi-repo-lexical-");
 preserveEnv("PI_FILE_TOOLS_CONFIG");
@@ -24,7 +25,7 @@ beforeEach(async () => {
 });
 
 describe("Repo Map lexical projection", () => {
-	it("derives traceable camel/snake, import alias, registration, config, environment, and doc aliases", async () => {
+	it.skipIf(!treeSitterAvailable())("derives traceable camel/snake, import alias, registration, config, environment, and doc aliases", async () => {
 		const sources = new Map([
 			["package.json", JSON.stringify({ name: "repo-tools", main: "./src/repositoryClient.ts" })],
 			["src/transport.ts", "export function createTransport() { return true; }\nexport function secondTransport() { return false; }\n"],

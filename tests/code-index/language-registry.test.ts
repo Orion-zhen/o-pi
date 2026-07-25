@@ -13,18 +13,10 @@ import { loadGrammar, loadTreeSitterParser, loadTreeSitterRuntime, loadTreeSitte
 import { parseDocumentForAdapter, parseSyntaxTree } from "../../src/code-index/syntax-tree.js";
 import type { LanguageAdapter } from "../../src/code-index/adapters/types.js";
 import type { CodeLanguage } from "../../src/code-index/types.js";
+import { treeSitterAvailable, treeSitterModulePaths } from "../helpers/optional-dependencies.js";
 
 const require = createRequire(import.meta.url);
-const grammarModules = [
-	require.resolve("tree-sitter"),
-	require.resolve("tree-sitter-javascript"),
-	require.resolve("tree-sitter-typescript"),
-	require.resolve("tree-sitter-python"),
-	require.resolve("tree-sitter-go"),
-	require.resolve("tree-sitter-rust"),
-	require.resolve("tree-sitter-c"),
-	require.resolve("tree-sitter-cpp"),
-];
+const grammarModules = treeSitterModulePaths();
 
 describe("code language registry", () => {
 	it("registers every supported language without loading grammar modules", () => {
@@ -49,7 +41,7 @@ describe("code language registry", () => {
 		expect(adapterFromPath(filePath)).toMatchObject({ language, extensions: expect.arrayContaining([extension]) });
 	});
 
-	it("loads only the requested C/C++ grammar on first parse", () => {
+	it.skipIf(!treeSitterAvailable(["tree-sitter", "tree-sitter-c", "tree-sitter-cpp"]))("loads only the requested C/C++ grammar on first parse", () => {
 		expect(parseSyntaxTree("c", "int value;\n")).toBeDefined();
 		expect(require.cache[require.resolve("tree-sitter-c")]).toBeDefined();
 		expect(require.cache[require.resolve("tree-sitter-cpp")]).toBeUndefined();
@@ -64,7 +56,7 @@ describe("code language registry", () => {
 		expect(loadTreeSitterRuntime("text")).toBeUndefined();
 	});
 
-	it("registers extension metadata in an isolated registry and loads its grammar descriptor", () => {
+	it.skipIf(!treeSitterAvailable(["tree-sitter-javascript"]))("registers extension metadata in an isolated registry and loads its grammar descriptor", () => {
 		const simulated: LanguageAdapter = { ...javascriptAdapter, extensions: [".simulated"] };
 		const registry = createLanguageRegistry([simulated]);
 		expect(registry.languageFromPath("new.simulated")).toBe("javascript");
@@ -72,7 +64,7 @@ describe("code language registry", () => {
 		expect(loadGrammar(simulated.grammar)).toBeDefined();
 	});
 
-	it("returns stable structured failures for missing and wrong grammar descriptors", () => {
+	it.skipIf(!treeSitterAvailable(["tree-sitter-typescript"]))("returns stable structured failures for missing and wrong grammar descriptors", () => {
 		const wrong = loadTreeSitterRuntimeForGrammar({ packageName: "tree-sitter-typescript", exportName: "missing" });
 		expect(wrong).toEqual({ failure: { code: "GRAMMAR_EXPORT_INVALID", message: expect.stringContaining("tree-sitter-typescript:missing") } });
 		expect(loadTreeSitterRuntimeForGrammar({ packageName: "tree-sitter-typescript", exportName: "missing" })).toBe(wrong);
@@ -82,7 +74,7 @@ describe("code language registry", () => {
 		expect(loadTreeSitterRuntime("ruby" as CodeLanguage)).toBeUndefined();
 	});
 
-	it("reuses a parser per descriptor and resets after a timeout", () => {
+	it.skipIf(!treeSitterAvailable(["tree-sitter", "tree-sitter-javascript"]))("reuses a parser per descriptor and resets after a timeout", () => {
 		const first = loadTreeSitterParser(javascriptAdapter);
 		const second = loadTreeSitterParser(javascriptAdapter);
 		if (!("parser" in first) || !("parser" in second)) throw new Error("javascript parser unavailable");

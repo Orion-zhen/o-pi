@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import { adapterFromPath } from "../../src/code-index/language-registry.js";
 import { analyzeCodeFile } from "../../src/code-index/parser.js";
 import { parseSyntaxTree } from "../../src/code-index/syntax-tree.js";
+import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
+describe.skipIf(!treeSitterAvailable())("tree-sitter adapters", () => {
 describe.each([
 	{
 		filePath: "adapter.js",
@@ -122,4 +124,5 @@ it.each([
 	const analyzed = analyzeCodeFile(filePath, text);
 	expect(analyzed.status).toBe("parsed");
 	expect(analyzed.imports.map((item) => item.specifier)).toEqual(expected);
+});
 });
