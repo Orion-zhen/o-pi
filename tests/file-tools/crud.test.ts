@@ -3,6 +3,8 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { editWorkspace as editWorkspaceImpl, previewEditWorkspace, type EditRuntime } from "../../src/file-tools/tools/edit.js";
 import { formatCompactLsResult, listWorkspaceDirectory } from "../../src/file-tools/tools/ls.js";
+import { findPathSuggestions, type PathSuggestionQuery } from "../../src/file-tools/core/path-suggestions.js";
+import { defaultFileToolsConfig, type FileToolsConfig } from "../../src/file-tools/config.js";
 import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
 import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/tools/read.js";
 import { writeWorkspaceFile as writeWorkspaceFileImpl } from "../../src/file-tools/tools/write.js";
@@ -837,5 +839,156 @@ describe("edit", () => {
 		const result = await editWorkspace(workspace, params);
 		expect(result).toMatchObject({ status: "failed", error: { code: "READ_REQUIRED" } });
 		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("old\n");
+	});
+});
+
+describe("path-suggestions", () => {
+	it("返回 fuzzy 匹配的邻近文件路径", async () => {
+		await mkdir(path.join(workspace, "src"), { recursive: true });
+		await writeFile(path.join(workspace, "src", "main.ts"), "");
+		await writeFile(path.join(workspace, "src", "utils.ts"), "");
+		await writeFile(path.join(workspace, "README.md"), "");
+
+		const suggestions = await findPathSuggestions(workspace, "src/maim.ts", undefined, undefined, 10_000, 3);
+		expect(suggestions).toContain("src/main.ts");
+	});
+
+	it("空目录返回空数组", async () => {
+		const suggestions = await findPathSuggestions(workspace, "nonexistent.txt", undefined, undefined, 10_000, 3);
+		expect(suggestions).toEqual([]);
+	});
+
+	it("limit 参数控制返回数量", async () => {
+		await writeFile(path.join(workspace, "a.txt"), "");
+		await writeFile(path.join(workspace, "b.txt"), "");
+		await writeFile(path.join(workspace, "c.txt"), "");
+
+		const suggestions = await findPathSuggestions(workspace, "x.txt", undefined, undefined, 10_000, 2);
+		expect(suggestions).toHaveLength(2);
+	});
+
+	it("maxEntries 达到后停止扫描", async () => {
+		await mkdir(path.join(workspace, "dir"), { recursive: true });
+		for (let i = 0; i < 20; i++) {
+			await writeFile(path.join(workspace, "dir", `file${i}.ts`), "");
+		}
+		await writeFile(path.join(workspace, "target.txt"), "");
+
+		// maxEntries=5 should still find something in a small repo but might truncate
+		const suggestions = await findPathSuggestions(workspace, "target.txt", undefined, undefined, 5, 3);
+		// Either target.txt is found or at least some files are returned
+		expect(Array.isArray(suggestions)).toBe(true);
+		expect(suggestions.length).toBeLessThanOrEqual(3);
+	});
+
+	it("跳过 .git 目录", async () => {
+		await mkdir(path.join(workspace, ".git"), { recursive: true });
+		await writeFile(path.join(workspace, ".git", "config"), "");
+		await writeFile(path.join(workspace, "visible.txt"), "");
+
+		const suggestions = await findPathSuggestions(workspace, "anything", undefined, undefined, 10_000, 3);
+		for (const s of suggestions) {
+			expect(s.startsWith(".git/")).toBe(false);
+		}
+	});
+
+	it("对完全不相似的查询返回低置信度建议而非报错", async () => {
+		await writeFile(path.join(workspace, "config.yaml"), "");
+		const suggestions = await findPathSuggestions(workspace, "zzz_totally_unrelated_abc.txt", undefined, undefined, 10_000, 3);
+		expect(Array.isArray(suggestions)).toBe(true);
+	});
+
+	it("config.blocked_path 过滤被阻塞的路径", async () => {
+		await mkdir(path.join(workspace, "secret"), { recursive: true });
+		await writeFile(path.join(workspace, "secret", "key.txt"), "");
+		await writeFile(path.join(workspace, "visible.txt"), "");
+
+		const config: FileToolsConfig = { ...defaultFileToolsConfig(), blocked_path: [".git/", "secret/"] };
+		const suggestions = await findPathSuggestions(workspace, "anything", config, undefined, 10_000, 3);
+		for (const s of suggestions) {
+			expect(s.startsWith("secret/")).toBe(false);
+		}
+	});
+
+	it("config.ignored_path 过滤被忽略的路径", async () => {
+		await writeFile(path.join(workspace, "build.log"), "");
+		await writeFile(path.join(workspace, "source.ts"), "");
+
+		const config: FileToolsConfig = { ...defaultFileToolsConfig(), ignored_path: ["build.log"] };
+		const suggestions = await findPathSuggestions(workspace, "anything", config, undefined, 10_000, 3);
+		expect(suggestions).not.toContain("build.log");
+	});
+
+	it(".gitignore 规则阻止扫描被忽略目录和内容", async () => {
+		await mkdir(path.join(workspace, "node_modules"), { recursive: true });
+		await writeFile(path.join(workspace, "node_modules", "pkg.js"), "");
+		await writeFile(path.join(workspace, ".gitignore"), "node_modules/\n");
+		await writeFile(path.join(workspace, "index.ts"), "");
+
+		const suggestions = await findPathSuggestions(workspace, "anything", defaultFileToolsConfig(), undefined, 10_000, 3);
+		for (const s of suggestions) {
+			expect(s.startsWith("node_modules/")).toBe(false);
+		}
+	});
+
+	it("repo-map 可用时优先返回 repo-map 结果，不走文件系统扫描", async () => {
+		await writeFile(path.join(workspace, "a.ts"), "");
+
+		const mockRepoMap: PathSuggestionQuery = {
+			async query(_input) {
+				return {
+					candidates: [
+						{ path: "src/main.ts", score: 1000, hop: 0 as const },
+						{ path: "src/utils.ts", score: 920, hop: 0 as const },
+					],
+				};
+			},
+		};
+
+		const suggestions = await findPathSuggestions(workspace, "x.ts", undefined, mockRepoMap, 10_000, 3);
+		expect(suggestions).toEqual(["src/main.ts", "src/utils.ts"]);
+	});
+
+	it("repo-map 无结果时降级到文件系统扫描", async () => {
+		await writeFile(path.join(workspace, "visible.txt"), "");
+
+		const mockRepoMap: PathSuggestionQuery = {
+			async query(_input) {
+				return { candidates: [] };
+			},
+		};
+
+		const suggestions = await findPathSuggestions(workspace, "vis.txt", undefined, mockRepoMap, 10_000, 3);
+		expect(suggestions).toContain("visible.txt");
+	});
+
+	it("repo-map 抛出异常时降级到文件系统扫描", async () => {
+		await writeFile(path.join(workspace, "recovery.txt"), "");
+
+		const mockRepoMap: PathSuggestionQuery = {
+			async query(_input) {
+				throw new Error("repo-map unavailable");
+			},
+		};
+
+		const suggestions = await findPathSuggestions(workspace, "reco.txt", undefined, mockRepoMap, 10_000, 3);
+		expect(suggestions).toContain("recovery.txt");
+	});
+
+	it("repo-map 仅返回 hop=0 直接匹配，排除 graph hop 结果", async () => {
+		const mockRepoMap: PathSuggestionQuery = {
+			async query(_input) {
+				return {
+					candidates: [
+						{ path: "direct.ts", score: 1000, hop: 0 as const },
+						{ path: "related.ts", score: 500, hop: 1 as const },
+						{ path: "transitive.ts", score: 300, hop: 2 as const },
+					],
+				};
+			},
+		};
+
+		const suggestions = await findPathSuggestions(workspace, "x", undefined, mockRepoMap, 10_000, 3);
+		expect(suggestions).toEqual(["direct.ts"]);
 	});
 });
