@@ -7,6 +7,7 @@ interface SchemaNode {
 	required?: readonly string[];
 	properties?: Record<string, TSchema>;
 	items?: TSchema;
+	default?: unknown;
 }
 
 export function createRepairSpec(schema: TSchema, hints: RepairSpecHints = {}): RepairSpec {
@@ -19,10 +20,12 @@ export function createRepairSpec(schema: TSchema, hints: RepairSpecHints = {}): 
 		aliases: hints.aliases ?? {},
 		nestedAliases: hints.nestedAliases ?? {},
 		objectArrayFromFields: hints.objectArrayFromFields ?? [],
+		emptyValueToDefault: hints.emptyValueToDefault ?? false,
 		optionalFields: inferred.optionalFields,
 		numericFields: inferred.numericFields,
 		arrayFields: inferred.arrayFields,
 		objectToArrayFields: unique([...inferred.objectArrayFields, ...(hints.objectToArrayFields ?? [])]),
+		defaultValueMap: inferred.defaultValueMap,
 		schema,
 	};
 }
@@ -32,14 +35,17 @@ function inferSchemaRepairFields(schema: TSchema): {
 	numericFields: RepairPath[];
 	arrayFields: RepairPath[];
 	objectArrayFields: RepairPath[];
+	defaultValueMap: Record<RepairPath, unknown>;
 } {
 	const optionalFields: RepairPath[] = [];
 	const numericFields: RepairPath[] = [];
 	const arrayFields: RepairPath[] = [];
 	const objectArrayFields: RepairPath[] = [];
+	const defaultValueMap: Record<string, unknown> = {};
 
 	const visit = (node: TSchema, path: readonly string[]): void => {
 		const schemaNode = node as SchemaNode;
+		collectDefault(schemaNode, path);
 		if (schemaNode.type === "number" || schemaNode.type === "integer") {
 			numericFields.push(path.join("."));
 			return;
@@ -61,12 +67,20 @@ function inferSchemaRepairFields(schema: TSchema): {
 		}
 	};
 
+	function collectDefault(node: TSchema, path: readonly string[]): void {
+		const typed = node as SchemaNode;
+		if (typed.default !== undefined) {
+			defaultValueMap[path.join(".")] = typed.default;
+		}
+	}
+
 	visit(schema, []);
 	return {
 		optionalFields: unique(optionalFields),
 		numericFields: unique(numericFields),
 		arrayFields: unique(arrayFields),
 		objectArrayFields: unique(objectArrayFields),
+		defaultValueMap,
 	};
 }
 

@@ -54,6 +54,8 @@ repair spec 主要从工具的 TypeBox schema 推导，工具侧只补 schema �
   * 允许单对象转单元素数组，例如 `{...}` -> `[{...}]`。
 * object 的 `properties` 和 `required`
   * 不在 `required` 中的字段推导为 `optionalFields`，允许 optional 字段为 `null` 时删除。
+* schema 上带有 `default` 属性的字段自动收集为 `defaultValueMap`
+  * 例如 `{ type: "string", default: "auto" }` -> `defaultValueMap["mode"] = "auto"`。
 * 嵌套字段使用点路径表示
   * 例如 `tasks.*.cwd`、`edits.*.oldText`。
 
@@ -66,6 +68,7 @@ schema 不能表达的 hints：
 * `aliases`：根字段别名迁移，例如 `startLine` -> `start_line`。
 * `nestedAliases`：嵌套字段别名迁移，例如 `edits.*.oldText` -> `old`。
 * `objectArrayFromFields`：从根字段组合对象数组，例如 `{ old, new }` -> `{ edits: [{ old, new }] }`。
+* `emptyValueToDefault`：启用空值回退默认值修复。启用后，schema 中带有 `default` 的字段若被赋值为 null、undefined、空字符串、空白字符串、空数组或空对象时，会被替换为默认值。默认为 false。
 
 推导只决定“可以尝试哪些机械结构修复”。能否提交结果始终由原工具 schema 决定。
 
@@ -84,6 +87,7 @@ V1 只做机械结构修复：
 * 字符串迁移后去重，并逐项执行路径前缀清理；空 token、无法解析和超出最大数量时保留原参数并让 schema 校验失败。
 * 字段别名迁移。
 * 删除 unknown fields，但只提交最终能通过 schema validation 的结果。
+* **空值回退默认值**（`emptyValueToDefault: true`）：将具备空含义的值替换为 schema 中的 `default`。视为空的值包括 `null`、`undefined`、空字符串或纯空白字符串、空数组和空对象；不把 `0`、`false` 等语义有效值当作空值。未提供默认值的字段不做替换，保留原参数。
 
 特殊支持 `edit` 常见结构错误：
 

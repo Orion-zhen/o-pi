@@ -36,6 +36,13 @@ export function repairableTool<TParams extends TSchema, TDetails = unknown, TSta
 			throw error;
 		}
 		if (originalPrepareArguments !== undefined && !matchesStructuralJson(rawJson, args, prepared)) operations.push("original_prepare");
+
+		// emptyValueToDefault must run even on valid input, as schema-valid values like "" or 0 should still trigger replacement.
+		if (spec.emptyValueToDefault === true) {
+			const fanoutEmpty: RepairFanout[] = [];
+			repairsEmptyValues(prepared, spec, operations, fanoutEmpty);
+		}
+
 		if (isValid(tool.parameters, prepared)) {
 			const status: ToolArgumentStatus = rawWasValid ? "accepted" : "repaired";
 			notify(observer, tool.name, args, prepared, status, operations);
@@ -88,8 +95,9 @@ export function repairArguments(args: unknown, spec: RepairSpec, operations: Rep
 	repairArrayFields(candidate, spec, operations);
 	repairPathListFields(candidate, spec, operations, fanout);
 	migrateNestedAliases(candidate, spec, operations);
-	dropOptionalNullFields(candidate, spec, operations);
 	repairNumericFields(candidate, spec, operations);
+	repairsEmptyValues(candidate, spec, operations);
+	dropOptionalNullFields(candidate, spec, operations);
 	repairPathFields(candidate, spec, operations);
 	cleanUnknownFields(spec.schema, candidate, operations);
 
@@ -185,6 +193,36 @@ function repairNumericFields(target: JsonObject, spec: RepairSpec, operations: R
 			operations.push("numeric_string_to_number");
 		});
 	}
+}
+
+export function repairsEmptyValues(target: unknown, spec: RepairSpec, operations: RepairOperation[], _fanout?: RepairFanout[]): void {
+	if (!isPlainObject(target) || spec.emptyValueToDefault !== true) return;
+	for (const [path, defaultValue] of Object.entries(spec.defaultValueMap)) {
+		forEachParentAtPath(target as JsonObject, splitPath(path), (parent, key) => {
+			if (!Object.hasOwn(parent, key)) return;
+			const value = parent[key];
+			if (!isEmptyLike(value)) return;
+			parent[key] = cloneDefault(defaultValue);
+			operations.push("empty_value_to_default");
+		});
+	}
+}
+
+function isEmptyLike(value: unknown): boolean {
+	if (value === null || value === undefined) return true;
+	if (typeof value === "string" && value.trim().length === 0) return true;
+	if (Array.isArray(value) && value.length === 0) return true;
+	if (isPlainObject(value) && Object.keys(value).length === 0) return true;
+	return false;
+}
+
+function cloneDefault(value: unknown): unknown {
+	if (value === null || value === undefined) return value;
+	if (typeof value !== "object") return value;
+	if (Array.isArray(value)) return value.map((item) => cloneDefault(item));
+	const result: JsonObject = {};
+	for (const [k, v] of Object.entries(value)) result[k] = cloneDefault(v);
+	return result;
 }
 
 function repairPathListFields(target: JsonObject, spec: RepairSpec, operations: RepairOperation[], fanout: RepairFanout[]): void {

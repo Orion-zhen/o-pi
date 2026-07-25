@@ -24,7 +24,8 @@ export type RepairOperation =
 	| "strip_path_prefix"
 	| "scalar_to_array"
 	| "split_path_list"
-	| "drop_unknown_field";
+	| "drop_unknown_field"
+	| "empty_value_to_default";
 
 export interface RepairObservation {
 	toolName: string;
@@ -54,6 +55,7 @@ export interface RepairSpecHints {
 	objectToArrayFields?: readonly RepairPath[];
 	objectArrayFromFields?: readonly ObjectArrayFromFieldsSpec[];
 	dropOptionalNull?: boolean;
+	emptyValueToDefault?: boolean;
 }
 
 export interface RepairSpec extends RepairSpecHints {
@@ -61,5 +63,6 @@ export interface RepairSpec extends RepairSpecHints {
 	numericFields: readonly RepairPath[];
 	arrayFields: readonly RepairPath[];
 	objectToArrayFields: readonly RepairPath[];
+	defaultValueMap: Readonly<Record<RepairPath, unknown>>;
 	schema: TSchema;
 }

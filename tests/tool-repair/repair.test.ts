@@ -214,6 +214,128 @@ describe("tool-input repair", () => {
 			tasks: [{ agent: "scout", task: "inspect", cwd: "pkg" }],
 		});
 	});
+
+	it("将空值回退到 schema 中的默认值：null、undefined、空字符串、空数组和空对象", () => {
+		const schema = Type.Object({
+			query: Type.String(),
+			mode: Type.Optional(Type.String({ default: "auto" })),
+			timeout: Type.Optional(Type.Integer({ minimum: 1, default: 30 })),
+			tags: Type.Optional(Type.Array(Type.String(), { minItems: 1, default: ["all"] })),
+			filter: Type.Optional(Type.Object({ include: Type.String() }, { additionalProperties: false, default: { include: "*" } })),
+		}, { additionalProperties: false });
+
+		const tool = repairableTool(defineNoopTool(schema), {
+			emptyValueToDefault: true,
+		});
+
+		expect(tool.prepareArguments?.({ query: "test", mode: null })).toEqual({
+			query: "test",
+			mode: "auto",
+		});
+		// explicitly passing undefined is treated as empty and replaced with default
+		expect(tool.prepareArguments?.({ query: "test", timeout: undefined })).toEqual({
+			query: "test",
+			timeout: 30,
+		});
+		expect(tool.prepareArguments?.({ query: "test", mode: "" })).toEqual({
+			query: "test",
+			mode: "auto",
+		});
+		expect(tool.prepareArguments?.({ query: "test", mode: "  " })).toEqual({
+			query: "test",
+			mode: "auto",
+		});
+		expect(tool.prepareArguments?.({ query: "test", tags: [] })).toEqual({
+			query: "test",
+			tags: ["all"],
+		});
+		expect(tool.prepareArguments?.({ query: "test", filter: {} })).toEqual({
+			query: "test",
+			filter: { include: "*" },
+		});
+	});
+
+	it("不会把 0、false 和空字符串之外的有效值当作空值处理", () => {
+		const schema = Type.Object({
+			query: Type.String(),
+			count: Type.Optional(Type.Integer({ default: 10 })),
+			enable: Type.Optional(Type.Boolean({ default: true })),
+			label: Type.Optional(Type.String({ default: "default" })),
+		}, { additionalProperties: false });
+
+		const tool = repairableTool(defineNoopTool(schema), {
+			emptyValueToDefault: true,
+		});
+
+		expect(tool.prepareArguments?.({ query: "test", count: 0 })).toEqual({
+			query: "test",
+			count: 0,
+		});
+		expect(tool.prepareArguments?.({ query: "test", enable: false })).toEqual({
+			query: "test",
+			enable: false,
+		});
+		expect(tool.prepareArguments?.({ query: "test", label: "a" })).toEqual({
+			query: "test",
+			label: "a",
+		});
+	});
+
+	it("对没有默认值的空值不做替换，保留原参数让 schema 校验失败", () => {
+		const schema = Type.Object({
+			query: Type.String(),
+			mode: Type.Optional(Type.String()),
+		}, { additionalProperties: false });
+
+		const tool = repairableTool(defineNoopTool(schema), {
+			emptyValueToDefault: true,
+		});
+
+		expect(tool.prepareArguments?.({ query: "test", mode: "" })).toEqual({
+			query: "test",
+			mode: "",
+		});
+	});
+
+	it("不支持 emptyValueToDefault 时不触发默认值替换", () => {
+		const schema = Type.Object({
+			query: Type.String(),
+			mode: Type.Optional(Type.String({ default: "auto" })),
+		}, { additionalProperties: false });
+
+		const tool = repairableTool(defineNoopTool(schema));
+
+		expect(tool.prepareArguments?.({ query: "test", mode: null })).toEqual({
+			query: "test",
+		});
+		expect(tool.prepareArguments?.({ query: "test", mode: "" })).toEqual({
+			query: "test",
+			mode: "",
+		});
+	});
+
+	it("支持嵌套字段的空值默认值回退", () => {
+		const nestedSchema = Type.Object({
+			query: Type.String(),
+			options: Type.Optional(Type.Object({
+				limit: Type.Optional(Type.Integer({ default: 20 })),
+				strategy: Type.Optional(Type.String({ default: "fast" })),
+			}, { additionalProperties: false, default: { limit: 20, strategy: "fast" } })),
+		}, { additionalProperties: false });
+
+		const tool = repairableTool(defineNoopTool(nestedSchema), {
+			emptyValueToDefault: true,
+		});
+
+		expect(tool.prepareArguments?.({ query: "test", options: null })).toEqual({
+			query: "test",
+			options: { limit: 20, strategy: "fast" },
+		});
+		expect(tool.prepareArguments?.({ query: "test", options: { limit: null } })).toEqual({
+			query: "test",
+			options: { limit: 20 },
+		});
+	});
 });
 
 function defineNoopTool<TParams extends TSchema>(
