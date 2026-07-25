@@ -12,6 +12,7 @@
 		"bench:code-index": "node scripts/bench-code-index.mjs",
 		"bench:web-tools": "node scripts/bench-web-tools.mjs",
 		"telemetry:report": "node scripts/generate-telemetry-report.mjs",
+		"refresh": "npm update && npm rebuild",
 		"test": "vitest --run",
 		"test:coverage": "vitest --run --coverage",
 		"typecheck": "tsc --noEmit"
@@ -70,5 +71,17 @@
 		"tree-sitter-python": "latest",
 		"tree-sitter-rust": "latest",
 		"tree-sitter-typescript": "latest"
+	},
+	"allowScripts": {
+		"@google/genai": true,
+		"protobufjs": true,
+		"tree-sitter": true,
+		"tree-sitter-c": true,
+		"tree-sitter-cpp": true,
+		"tree-sitter-go": true,
+		"tree-sitter-javascript": true,
+		"tree-sitter-python": true,
+		"tree-sitter-rust": true,
+		"tree-sitter-typescript": true
 	}
 }
