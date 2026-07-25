@@ -333,6 +333,44 @@ describe("ls", () => {
 });
 
 describe("read", () => {
+	it("文件不存在时为 workspace 内路径附加相似路径建议", async () => {
+		await mkdir(path.join(workspace, "src"), { recursive: true });
+		await writeFile(path.join(workspace, "src", "main.ts"), "export const main = 1;\n");
+
+		const result = await readWorkspaceFile(workspace, { path: "src/maim.ts" });
+		expect(result).toMatchObject({
+			status: "failed",
+			error: {
+				code: "FILE_NOT_FOUND",
+				next: expect.stringContaining("Related paths: src/main.ts"),
+			},
+		});
+	});
+
+	it("workspace 外路径不存在时不附加路径建议", async () => {
+		const result = await readWorkspaceFile(workspace, { path: path.join(outside, "main.ts") });
+		expect(result).toMatchObject({ status: "failed", error: { code: "FILE_NOT_FOUND" } });
+		if ("status" in result) expect(result.error.next).toBeUndefined();
+	});
+
+	it("空 workspace 没有相似文件时保持原始 FILE_NOT_FOUND 错误", async () => {
+		const result = await readWorkspaceFile(workspace, { path: "missing-completely.ts" });
+		expect(result).toMatchObject({ status: "failed", error: { code: "FILE_NOT_FOUND" } });
+		if ("status" in result) expect(result.error.next).toBeUndefined();
+	});
+
+	it("配置 read_suggestion_limit 控制建议数量", async () => {
+		await writeFile(path.join(workspace, "main.ts"), "");
+		await writeFile(path.join(workspace, "main.test.ts"), "");
+		await useFileToolsConfig({ limits: { read_suggestion_limit: 1 } });
+
+		const result = await readWorkspaceFile(workspace, { path: "main.mts" });
+		expect(result).toMatchObject({ status: "failed", error: { code: "FILE_NOT_FOUND" } });
+		if ("status" in result) {
+			expect(result.error.next).toMatch(/^Related paths: [^,]+$/u);
+		}
+	});
+
 	it("读取完整 UTF-8 文件并返回版本和元数据", async () => {
 		await writeFile(path.join(workspace, "a.txt"), "one\ntwo\n", "utf8");
 		const result = await readWorkspaceFile(workspace, { path: "a.txt" });

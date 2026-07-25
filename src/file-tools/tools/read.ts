@@ -2,7 +2,8 @@ import { fail, isFailed } from "../core/errors.js";
 import { ignoreConfigFromFileTools, isIgnoredPath, loadFileToolsConfig, toolPathIdentity } from "../config.js";
 import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
 import { detectFileType, processInlineImage } from "../core/media-file.js";
-import { resolveExistingFile, resolveWorkspaceRoot } from "../core/path-resolver.js";
+import { findPathSuggestions } from "../core/path-suggestions.js";
+import { normalizeToolPath, resolveExistingFile, resolveWorkspaceRoot } from "../core/path-resolver.js";
 import type { ReadVersionCache } from "../core/read-cache.js";
 import { decodeTextFile, readRawFile, sha256Version, sliceTextByLineRange } from "../core/text-file.js";
 import type { FileToolLspHooks, ReadFileSuccess, ReadImageSuccess, ReadParams, ReadSuccess, ToolOutcome } from "../types.js";
@@ -16,7 +17,7 @@ export interface ReadRuntime {
 	/** 可选 LSP 增强；失败必须退化为普通 read。 */
 	lsp?: FileToolLspHooks;
 	/** 可选 Repo Map 上下文；实现方负责 activation、freshness 与实时 hash gate。 */
-	repoMap?: Pick<RepoMapFileToolQuery, "readContext">;
+	repoMap?: Pick<RepoMapFileToolQuery, "readContext"> & Partial<Pick<RepoMapFileToolQuery, "query">>;
 	/** 仅在 Repo Map 返回上下文后加载其 token-budget formatter。 */
 	formatRepoMapContext?(context: NonNullable<ReadSuccess["repo_map"]>): Promise<string | undefined>;
 }
@@ -29,7 +30,33 @@ export async function readWorkspaceFile(cwd: string, params: ReadParams, runtime
 	const rangeError = validateRangeSyntax(params, params.path);
 	if (rangeError) return rangeError;
 	const resolved = await resolveExistingFile(workspaceRoot, params.path, config);
-	if (isFailed(resolved)) return resolved;
+	if (isFailed(resolved)) {
+		if (resolved.error.code === "FILE_NOT_FOUND") {
+			const lexical = normalizeToolPath(workspaceRoot, params.path);
+			if (!isFailed(lexical) && lexical.workspacePath !== undefined) {
+				const repoMap = runtime.repoMap?.query === undefined ? undefined : { query: runtime.repoMap.query };
+				try {
+					const suggestions = await findPathSuggestions(
+						workspaceRoot,
+						lexical.workspacePath,
+						config,
+						repoMap,
+						10_000,
+						config.limits.read_suggestion_limit,
+					);
+					if (suggestions.length > 0) {
+						return {
+							...resolved,
+							error: { ...resolved.error, next: `Related paths: ${suggestions.join(", ")}` },
+						};
+					}
+				} catch {
+					// Path suggestions are best effort and must not alter the read error.
+				}
+			}
+		}
+		return resolved;
+	}
 	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
 	const ignoreDecision = resolved.workspacePath !== undefined
 		? ignoreSnapshot.evaluate({ path: resolved.workspacePath, kind: "file", intent: "explicit-read" })
