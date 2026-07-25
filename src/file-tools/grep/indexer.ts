@@ -131,9 +131,10 @@ export async function getGrepIndex(
 	cwd: string,
 	params: Omit<Pick<GrepParams, "query" | "path" | "glob" | "match">, "path"> & { path?: string },
 	signal?: AbortSignal,
+	loadedConfig?: FileToolsConfig,
 ): Promise<ToolOutcome<GrepIndexResult>> {
 	if (signal?.aborted) return fail("OPERATION_ABORTED", "grep was aborted.", { path: params.path ?? "." });
-	const config = await loadFileToolsConfig();
+	const config = loadedConfig ?? await loadFileToolsConfig(cwd);
 	if (isFailed(config)) return config;
 	const workspaceRoot = path.resolve(cwd);
 	const root = await resolveGrepRoot(workspaceRoot, params.path ?? ".", config);

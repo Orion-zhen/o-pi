@@ -151,6 +151,7 @@ blocked path  → 不可列出、搜索、读取或写入
 | 配置字段、优先级和缓存 | [configuration.md](configuration.md) |
 | ignore pattern、snapshot 和 explain | [ignore.md](ignore.md) |
 | 路径解析、symlink 和 blocked path | [path-security.md](path-security.md) |
+| 阶段 1 public contract 与可执行基线 | [baseline.md](baseline.md) |
 | 公共输出、错误和 prompt 契约 | [contracts.md](contracts.md) |
 | `ls` 完整行为 | [ls.md](ls.md) |
 | `read` 完整行为 | [read.md](read.md) |

@@ -16,6 +16,8 @@ interface WritablePath {
 }
 
 export interface WriteRuntime {
+	/** Pi host mutation queue seam；默认使用官方 per-file queue。 */
+	mutationQueue?: typeof withFileMutationQueue;
 	/** 会话内 read/edit 版本缓存；写入成功后允许直接 edit。 */
 	versionCache?: ReadVersionCache;
 	/** 可选 LSP 增强；失败必须退化为普通 write。 */
@@ -27,23 +29,19 @@ export async function writeWorkspaceFile(cwd: string, params: unknown, signal?: 
 	const input = validateWriteInput(params);
 	if (isFailed(input)) return input;
 
-	const config = await loadFileToolsConfig();
+	const config = await loadFileToolsConfig(cwd);
 	if (isFailed(config)) return config;
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const target = resolveWritablePath(workspaceRoot, input.path);
 	if (isFailed(target)) return target;
 
-	try {
-		await guardWritablePath(input.path, { cwd: workspaceRoot, blocked_path: config.blocked_path });
-	} catch (error) {
-		if (error instanceof PathGuardBlockedError) return protectedPathFailure(target.relativePath, error.block);
-		if (isAccessDenied(error)) return fail("ACCESS_DENIED", "Parent path cannot be accessed.", { path: target.relativePath });
-		return fail("INVALID_PATH", "Parent path cannot be resolved.", { path: target.relativePath });
-	}
-
-	return withFileMutationQueue(target.absolutePath, async () => {
+	return (runtime.mutationQueue ?? withFileMutationQueue)(target.absolutePath, async () => {
 		const aborted = checkAbort(signal);
 		if (aborted) return aborted;
+		const guarded = await checkWritablePath(input.path, workspaceRoot, config.blocked_path, target.relativePath);
+		if (guarded !== undefined) return guarded;
+		const abortedAfterGuard = checkAbort(signal);
+		if (abortedAfterGuard) return abortedAfterGuard;
 		try {
 			await mkdir(path.dirname(target.absolutePath), { recursive: true });
 		} catch {
@@ -83,6 +81,22 @@ export async function writeWorkspaceFile(cwd: string, params: unknown, signal?: 
 		if (diagnostics !== undefined) result.lsp = { diagnostics };
 		return result;
 	});
+}
+
+async function checkWritablePath(
+	inputPath: string,
+	workspaceRoot: string,
+	blockedPath: string[],
+	displayPath: string,
+): Promise<ReturnType<typeof protectedPathFailure> | ReturnType<typeof fail> | undefined> {
+	try {
+		await guardWritablePath(inputPath, { cwd: workspaceRoot, blocked_path: blockedPath });
+		return undefined;
+	} catch (error) {
+		if (error instanceof PathGuardBlockedError) return protectedPathFailure(displayPath, error.block);
+		if (isAccessDenied(error)) return fail("ACCESS_DENIED", "Parent path cannot be accessed.", { path: displayPath });
+		return fail("INVALID_PATH", "Parent path cannot be resolved.", { path: displayPath });
+	}
 }
 
 async function buildWriteDiff(absolutePath: string, newText: string): Promise<{

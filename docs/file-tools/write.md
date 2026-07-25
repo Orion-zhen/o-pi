@@ -21,7 +21,7 @@
 
 soft ignore 不阻止 `write`；`blocked_path` 会拒绝写入。写入前检查目标 lexical path、最近已存在父目录 realpath，以及已存在目标文件 realpath，避免通过 symlink 或 symlink parent 绕过保护。
 
-`write` 与 Pi 内置写入机制一致，不提供事务或回滚，也不更新 `read` 的版本缓存。
+`write` 与 Pi 内置写入机制一致，不提供事务或回滚。成功写入会记录 session observation，因此随后可以直接 `edit`；若外部进程再次修改文件，`edit` 仍返回 `STALE_READ`。
 
 写入后的 diff 保存在 `details.diff`，TUI 只在展开态展示；模型可见成功结果只确认写入路径：
 

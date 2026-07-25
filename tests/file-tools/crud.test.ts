@@ -1,5 +1,6 @@
-import { chmod, mkdir, readFile, readdir, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it } from "vitest";
 import { editWorkspace as editWorkspaceImpl, previewEditWorkspace, type EditRuntime } from "../../src/file-tools/tools/edit.js";
 import { formatCompactLsResult, listWorkspaceDirectory } from "../../src/file-tools/tools/ls.js";
@@ -645,6 +646,39 @@ describe("write", () => {
 		});
 	});
 
+	it.skipIf(process.platform === "win32")("提交 mutation 前重新检查排队期间变成 blocked target 的 symlink", async () => {
+		const target = path.join(workspace, "queued.txt");
+		const protectedDir = path.join(outside, "protected-queue");
+		const protectedFile = path.join(protectedDir, "secret.txt");
+		await mkdir(protectedDir);
+		await writeFile(target, "original\n");
+		await writeFile(protectedFile, "secret\n");
+		await useFileToolsConfig({ blocked_path: [`${protectedDir}/`] });
+
+		let releaseQueue: (() => void) | undefined;
+		let markQueueEntered: (() => void) | undefined;
+		const queueEntered = new Promise<void>((resolve) => { markQueueEntered = resolve; });
+		const queueRelease = new Promise<void>((resolve) => { releaseQueue = resolve; });
+		const pendingWrite = writeWorkspaceFileImpl(workspace, { path: "queued.txt", content: "unsafe\n" }, undefined, {
+			mutationQueue: (filePath, operation) => withFileMutationQueue(filePath, async () => {
+				markQueueEntered?.();
+				await queueRelease;
+				return operation();
+			}),
+		});
+		await queueEntered;
+
+		await rm(target);
+		await symlink(protectedFile, target);
+		releaseQueue?.();
+
+		await expect(pendingWrite).resolves.toMatchObject({
+			status: "failed",
+			error: { code: "PROTECTED_PATH", path: "queued.txt" },
+		});
+		expect(await readFile(protectedFile, "utf8")).toBe("secret\n");
+	});
+
 	it("拒绝通过 target symlink 或 parent symlink 写入 blocked_path", async () => {
 		const protectedDir = path.join(outside, "protected");
 		await mkdir(protectedDir);
@@ -824,6 +858,24 @@ describe("edit", () => {
 				],
 			}),
 		).toMatchObject({ status: "failed", error: { code: "OVERLAPPING_REPLACEMENTS", edit_index: 1 } });
+	});
+
+	it("AbortSignal 在提交前取消 edit 且不修改文件", async () => {
+		const file = path.join(workspace, "a.txt");
+		await writeFile(file, "old\n");
+		await readWorkspaceFile(workspace, { path: "a.txt" });
+		const controller = new AbortController();
+		const result = await editWorkspace(workspace, { path: "a.txt", edits: [{ old: "old", new: "new" }] }, {
+			signal: controller.signal,
+			lsp: {
+				async beforeEdit() {
+					controller.abort();
+					return undefined;
+				},
+			},
+		});
+		expect(result).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
+		expect(await readFile(file, "utf8")).toBe("old\n");
 	});
 
 	it("版本冲突不会覆盖外部修改", async () => {

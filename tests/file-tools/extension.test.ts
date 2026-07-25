@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -282,6 +282,11 @@ describe("file-tools extension", () => {
 		expect(imports.repoMap).not.toHaveBeenCalled();
 		await expect(Promise.resolve(handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();
 		expect(imports.lsp).not.toHaveBeenCalled();
+		expect(imports.repoMap).not.toHaveBeenCalled();
+		expect(imports.grep).not.toHaveBeenCalled();
+		expect(imports.read).not.toHaveBeenCalled();
+		expect(imports.write).not.toHaveBeenCalled();
+		expect(imports.edit).not.toHaveBeenCalled();
 		expect(disposeFileToolsCaches).toHaveBeenCalledTimes(1);
 	});
 
@@ -350,6 +355,80 @@ describe("file-tools extension", () => {
 			expect(createRepoMapFileToolQuery).toHaveBeenCalledTimes(2);
 			expect(loadRepoMapOutputConfig).toHaveBeenCalledTimes(2);
 		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("mutation 提交后 LSP 与 Repo Map 增强失败或取消仍返回成功", async () => {
+		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
+		const handlers = new Map<string, LifecycleHandler>();
+		const controller = new AbortController();
+		const imports = {
+			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
+			find: () => import("../../src/file-tools/pi/adapters/find.js"),
+			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
+			read: () => import("../../src/file-tools/pi/adapters/read.js"),
+			write: () => import("../../src/file-tools/pi/adapters/write.js"),
+			edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
+			async lsp() {
+				return {
+					...(await import("../../src/lsp/index.js")),
+					lspFileHooks: {
+						async afterWrite() { throw new Error("lsp unavailable"); },
+					},
+				};
+			},
+			async repoMap() {
+				return {
+					createRepoMapFileToolQuery: () => ({
+						async query() { return undefined; },
+						async readContext() { return undefined; },
+						async syncMutation() {
+							controller.abort();
+							throw new Error("repo map cancelled");
+						},
+					}),
+					async loadRepoMapOutputConfig() {
+						return { read_context_token_budget: 640, mutation_impact_token_budget: 480 };
+					},
+					formatRepoMapImpact: () => undefined,
+					formatRepoMapReadContext: () => undefined,
+				};
+			},
+		} satisfies FileToolsModuleImports;
+		createFileToolsExtension(imports)({
+			registerTool(tool: { name: string; execute?: ExecuteTool }) { registered.push(tool); },
+			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
+			appendEntry() {},
+		} as unknown as ExtensionAPI);
+
+		const cwd = await mkdtemp(join(tmpdir(), "o-pi-post-mutation-enhancement-"));
+		const branch = [{
+			type: "custom",
+			customType: "o-pi:repo-map",
+			data: {
+				kind: "activation",
+				root: cwd,
+				mapId: "0".repeat(64),
+				generation: "1".repeat(64),
+				activatedAt: "2026-07-18T00:00:00.000Z",
+			},
+		}];
+		const ctx = { cwd, sessionManager: { getSessionId: () => "post-mutation", getBranch: () => branch } };
+		try {
+			const result = await executeTool(registered, "write", { path: "committed.ts", content: "committed\n" }, ctx, controller.signal);
+			expect(result.details).toMatchObject({ status: "written", path: "committed.ts" });
+			expect(await readFile(join(cwd, "committed.ts"), "utf8")).toBe("committed\n");
+			expect(controller.signal.aborted).toBe(true);
+
+			const edit = await executeTool(registered, "edit", {
+				path: "committed.ts",
+				edits: [{ old: "committed", new: "changed" }],
+			}, ctx, controller.signal);
+			expect(edit.details).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
+			expect(await readFile(join(cwd, "committed.ts"), "utf8")).toBe("committed\n");
+		} finally {
+			await Promise.resolve(handlers.get("session_shutdown")?.({}, {}));
 			await rm(cwd, { recursive: true, force: true });
 		}
 	});
@@ -961,10 +1040,11 @@ async function executeTool(
 	name: string,
 	params: unknown,
 	ctx: { cwd: string; sessionManager: { getSessionId(): string } },
+	signal?: AbortSignal,
 ): Promise<ExecuteResult> {
 	const tool = registered.find((item) => item.name === name);
 	if (tool?.execute === undefined) throw new Error(`${name} execute not registered`);
-	return tool.execute(`${name}-1`, params, undefined, undefined, ctx);
+	return tool.execute(`${name}-1`, params, signal, undefined, ctx);
 }
 
 function textResult(result: ExecuteResult): string {

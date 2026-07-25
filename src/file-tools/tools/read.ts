@@ -24,7 +24,7 @@ export interface ReadRuntime {
 
 /** read 读取 UTF-8 文本或模型可内联图片，不写入任何文件。 */
 export async function readWorkspaceFile(cwd: string, params: ReadParams, runtime: ReadRuntime = {}): Promise<ToolOutcome<ReadFileSuccess>> {
-	const config = await loadFileToolsConfig();
+	const config = await loadFileToolsConfig(cwd);
 	if (isFailed(config)) return config;
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const rangeError = validateRangeSyntax(params, params.path);

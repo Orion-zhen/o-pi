@@ -6,6 +6,7 @@ import { createInterface } from "node:readline/promises";
 import pLimit from "p-limit";
 
 import { fail, isFailed } from "../core/errors.js";
+import { loadFileToolsConfig, type FileToolsConfig } from "../config.js";
 import { getGrepIndex } from "../grep/indexer.js";
 import { decodeTextFile } from "../core/text-file.js";
 import { packGrepResults, renderGrepSuccess, selectGrepCandidatesForPacking } from "../grep/packer.js";
@@ -73,6 +74,8 @@ export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal
 	if (isFailed(validation)) return validation;
 	const regex = validation.match === "regex" ? compileRegex(validation.query) : undefined;
 	if (isFailed(regex)) return regex;
+	const config = await loadFileToolsConfig(cwd);
+	if (isFailed(config)) return config;
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const scopes = normalizeGrepScopes(workspaceRoot, validation.paths);
 	if (isFailed(scopes)) return scopes;
@@ -80,7 +83,7 @@ export async function grepWorkspaceFiles(cwd: string, params: GrepParams, signal
 	const scopeErrors: GrepScopeError[] = [];
 	const successes: GrepScopeResult[] = [];
 	for (const scope of effectiveScopes) {
-		const result = await grepScope(cwd, { ...params, path: [scope.path] }, signal, runtime, regex);
+		const result = await grepScope(cwd, { ...params, path: [scope.path] }, signal, runtime, regex, config);
 		if (isFailed(result)) scopeErrors.push({ path: scope.path, error: result.error });
 		else successes.push(result);
 	}
@@ -123,6 +126,7 @@ async function grepScope(
 	signal: AbortSignal | undefined,
 	runtime: GrepRuntime,
 	compiledRegex: RegExp | undefined,
+	config: FileToolsConfig,
 ): Promise<ToolOutcome<GrepScopeResult>> {
 	const validation = validateGrepParams(params);
 	if (isFailed(validation)) return validation;
@@ -130,7 +134,7 @@ async function grepScope(
 	if (isFailed(regex)) return regex;
 	const scopePath = validation.paths[0];
 	if (scopePath === undefined) return fail("INVALID_PATH", "path must contain at least one scope.");
-	const index = await getGrepIndex(cwd, { ...validation, path: scopePath }, signal);
+	const index = await getGrepIndex(cwd, { ...validation, path: scopePath }, signal, config);
 	if (isFailed(index)) return index;
 	const sourceText = new Map(index.sourceText);
 	const filesByPath = new Map<string, { path: string; absolutePath: string; size?: number }>(index.scopedFiles.map((file) => [file.path, file]));

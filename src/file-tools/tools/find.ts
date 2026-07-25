@@ -118,7 +118,7 @@ export async function findWorkspaceFiles(
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const validation = validateFindParams(workspaceRoot, params);
 	if (isFailed(validation)) return validation;
-	const config = await loadFileToolsConfig();
+	const config = await loadFileToolsConfig(cwd);
 	if (isFailed(config)) return config;
 	const ignoreSnapshot = await defaultIgnoreEngine.createSnapshot(workspaceRoot, ignoreConfigFromFileTools(config));
 	const scopeErrors: FindScopeError[] = [];

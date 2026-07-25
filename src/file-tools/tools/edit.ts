@@ -22,8 +22,10 @@ interface PreparedEdit {
 
 interface ResolvedEdit {
 	workspaceRoot: string;
+	inputPath: string;
 	path: string;
 	absolutePath: string;
+	blockedPath: string[];
 	edits: EditReplacement[];
 	matchHintLimit: number;
 }
@@ -36,6 +38,8 @@ interface MatchedReplacement {
 }
 
 export interface EditRuntime {
+	/** 当前 invocation 的取消信号；提交写盘后取消不改变成功结果。 */
+	signal?: AbortSignal;
 	/** 会话内 read/edit 版本缓存，用于防止 stale edit。 */
 	versionCache?: ReadVersionCache;
 	/** 可选 LSP 增强；preview 阶段不会调用。 */
@@ -44,17 +48,27 @@ export interface EditRuntime {
 
 /** edit 只修改一个已读 UTF-8 文件；所有替换都基于调用开始时的原始内容匹配。 */
 export async function editWorkspace(cwd: string, params: unknown, runtime: EditRuntime = {}): Promise<ToolOutcome<EditSuccess>> {
+	const aborted = checkAbort(runtime.signal);
+	if (aborted !== undefined) return aborted;
 	const target = await resolveEdit(cwd, params);
 	if (isFailed(target)) return target;
 	return withFileMutationQueue(target.absolutePath, async () => {
+		const abortedInQueue = checkAbort(runtime.signal);
+		if (abortedInQueue !== undefined) return abortedInQueue;
+		const guarded = await recheckEditPath(target);
+		if (guarded !== undefined) return guarded;
 		const prepared = await prepareEdit(target, "cached", runtime.versionCache);
 		if (isFailed(prepared)) return prepared;
+		const abortedAfterRead = checkAbort(runtime.signal);
+		if (abortedAfterRead !== undefined) return abortedAfterRead;
 		const baseline = await safeBeforeEdit(runtime.lsp, {
 			workspaceRoot: prepared.workspaceRoot,
 			path: prepared.path,
 			absolutePath: prepared.absolutePath,
 		});
 
+		const abortedAfterBaseline = checkAbort(runtime.signal);
+		if (abortedAfterBaseline !== undefined) return abortedAfterBaseline;
 		const bytes = buildTextBytes(prepared.updatedText, prepared.file.hasBom);
 		try {
 			await writeFile(prepared.absolutePath, bytes);
@@ -127,7 +141,7 @@ async function resolveEdit(cwd: string, params: unknown): Promise<ToolOutcome<Re
 	const input = validateEditInput(params);
 	if (isFailed(input)) return input;
 
-	const config = await loadFileToolsConfig();
+	const config = await loadFileToolsConfig(cwd);
 	if (isFailed(config)) return config;
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const resolved = await resolveExistingFile(workspaceRoot, input.path, config);
@@ -143,11 +157,28 @@ async function resolveEdit(cwd: string, params: unknown): Promise<ToolOutcome<Re
 	noteSoftIgnore(ignoreSnapshot, resolved.workspacePath);
 	return {
 		workspaceRoot,
+		inputPath: input.path,
 		path: resolved.relativePath,
 		absolutePath: resolved.realPath,
+		blockedPath: config.blocked_path,
 		edits: input.edits,
 		matchHintLimit: config.limits.edit_match_hint_limit,
 	};
+}
+
+async function recheckEditPath(target: ResolvedEdit): Promise<ToolOutcome<never> | undefined> {
+	try {
+		await guardWritablePath(target.inputPath, { cwd: target.workspaceRoot, blocked_path: target.blockedPath });
+		return undefined;
+	} catch (error) {
+		if (error instanceof PathGuardBlockedError) return protectedPathFailure(target.path, error.block);
+		if (isAccessDenied(error)) return fail("ACCESS_DENIED", "Parent path cannot be accessed.", { path: target.path });
+		return fail("INVALID_PATH", "Parent path cannot be resolved.", { path: target.path });
+	}
+}
+
+function checkAbort(signal: AbortSignal | undefined): ToolOutcome<never> | undefined {
+	return signal?.aborted === true ? fail("OPERATION_ABORTED", "Operation aborted.") : undefined;
 }
 
 function validateEditInput(params: unknown): ToolOutcome<EditParams> {

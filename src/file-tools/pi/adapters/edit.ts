@@ -17,7 +17,11 @@ export async function executeEdit(
 		repoMap: LazyRepoMap;
 	},
 ) {
-	const result = await editWorkspace(runtime.cwd, params, { versionCache: runtime.versionCache, lsp: runtime.lsp });
+	const result = await editWorkspace(runtime.cwd, params, {
+		...(runtime.signal !== undefined ? { signal: runtime.signal } : {}),
+		versionCache: runtime.versionCache,
+		lsp: runtime.lsp,
+	});
 	if (isEditSuccessDetails(result)) await runtime.repoMap.syncMutation(result, runtime.cwd, runtime.signal);
 	const impact = isEditSuccessDetails(result) ? await runtime.repoMap.formatImpact(result.repo_map?.impact) : undefined;
 	const text = isEditSuccessDetails(result)

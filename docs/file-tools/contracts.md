@@ -56,7 +56,7 @@ File does not exist.
 
 ## 版本与 mutation
 
-`read` 可以在当前 session 记录原始字节版本。`edit` 写入前自动校验该版本，避免把外部修改覆盖掉。`write` 是独立的完整写入操作，不更新 `read` 版本缓存。
+`read` 可以在当前 session 记录原始字节版本。成功的 `write` 和 `edit` 也会记录写入后的版本，因此 `write → edit` 可以直接执行；`edit` 写入前自动校验该 observation，避免把外部修改覆盖掉。
 
 TUI 可以在展开态展示 `write` 或 `edit` 的精简 diff，但模型可见成功正文只确认写入事实，不包含完整 diff、版本字段或内部 fingerprint。
 

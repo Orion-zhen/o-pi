@@ -15,7 +15,7 @@ const TYPE_RANK: Record<LsEntryType, number> = {
 
 /** ls 只列出目录直属成员；不递归、不读取文件内容、不修改 workspace。 */
 export async function listWorkspaceDirectory(cwd: string, params: LsParams): Promise<ToolOutcome<LsSuccess>> {
-	const config = await loadFileToolsConfig();
+	const config = await loadFileToolsConfig(cwd);
 	if (isFailed(config)) return config;
 	const workspaceRoot = await resolveWorkspaceRoot(cwd);
 	const resolved = await resolveExistingDirectory(workspaceRoot, params.path ?? ".", config);
