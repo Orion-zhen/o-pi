@@ -24,6 +24,12 @@ cd ~/.pi && npm install
 cd ~/.pi && npm install --include=optional
 ```
 
+更新依赖:
+
+```bash
+cd ~/.pi && npm run refresh
+```
+
 ## 文档
 
 * [性能 Benchmark](docs/benchmark.md)
