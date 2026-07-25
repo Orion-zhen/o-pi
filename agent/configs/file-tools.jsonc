@@ -19,7 +19,7 @@
 		"read_lines": 3000,
 		"read_bytes": 51200,
 		"read_suggestion_limit": 3,
-		"edit_match_hint_limit": 3,
+		"edit_match_hint_limit": 5,
 		"find_output_token_budget": 1000,
 		"find_result_limit": 80,
 		"find_max_entries_scanned": 100000,
