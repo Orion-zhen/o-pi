@@ -17,7 +17,7 @@ export async function executeGrep(
 ) {
 	const result = await grepWorkspaceFiles(runtime.cwd, params, runtime.signal, { lsp: runtime.lsp, repoMap: runtime.repoMap.query });
 	if (isFailedDetails(result)) {
-		return { content: [{ type: "text" as const, text: formatErrorModelResult("grep", result) }], details: result };
+		return { content: [{ type: "text" as const, text: formatErrorModelResult(result) }], details: result };
 	}
 	return { content: [{ type: "text" as const, text: formatCompactGrepResult(result) }], details: result };
 }

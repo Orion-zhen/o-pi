@@ -13,7 +13,7 @@ export async function executeWrite(
 ) {
 	const result = await writeWorkspaceFile(runtime.cwd, params, runtime.signal, { versionCache: runtime.versionCache, lsp: runtime.lsp });
 	if (isFailedDetails(result)) {
-		return { content: [{ type: "text" as const, text: formatErrorModelResult("write", result) }], details: result };
+		return { content: [{ type: "text" as const, text: formatErrorModelResult(result) }], details: result };
 	}
 	await runtime.repoMap.syncMutation(result, runtime.cwd, runtime.signal);
 	const impact = await runtime.repoMap.formatImpact(result.repo_map?.impact);

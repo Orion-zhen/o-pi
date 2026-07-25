@@ -79,4 +79,27 @@ a/
 - 命中 blocked path：`PROTECTED_PATH`；
 - 无权访问：`ACCESS_DENIED`。
 
-遇到 `NOT_A_DIRECTORY` 时，应读取明确文件，或列出其父目录。公共错误格式见 [工具契约](contracts.md)。
+遇到 `NOT_A_DIRECTORY` 时，应读取明确文件，或列出其父目录。
+
+## 失败结果与模型输出
+
+失败总是返回紧凑 XML；`path`、匹配规则和配置字段保留在 `details`，不进入模型正文：
+
+```xml
+<error>
+Directory does not exist.
+</error>
+```
+
+常见失败及正文：
+
+| code | 模型正文 |
+| --- | --- |
+| `INVALID_PATH` | `Path must not be empty.`、`Path must not contain NUL bytes.` 或 `skill:// is a read-only locator supported only by read.` |
+| `PATH_NOT_FOUND` | `Directory does not exist.` |
+| `NOT_A_DIRECTORY` | `Path is not a directory.` |
+| `PROTECTED_PATH` | `Path is blocked by file-tools config.` |
+| `ACCESS_DENIED` | `Path cannot be accessed.` 或 `Directory cannot be listed.` |
+| `CONFIG_ERROR` | 配置错误消息 |
+
+`next:` 只有错误提供恢复建议时才出现。公共错误格式见 [工具契约](contracts.md)。

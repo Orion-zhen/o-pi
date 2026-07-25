@@ -42,10 +42,10 @@ TUI 展示不受模型可见 ASCII 协议限制，可以使用图标和其他显
 
 ## 统一错误
 
-错误使用短标签，完整结构保留在 `details`：
+错误使用紧凑 `<error>` 标签，完整结构（包括 `code`、`path` 和 `details`）保留在工具结果中；模型正文不重复工具名和错误码：
 
 ```xml
-<error tool="read" code="FILE_NOT_FOUND">
+<error>
 File does not exist.
 </error>
 ```

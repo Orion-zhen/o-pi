@@ -48,4 +48,27 @@ diag warning 30:7 'bar' is declared but never used.
 </write>
 ```
 
-LSP 失败时写入本身不会因此失败。公共 mutation 和错误协议见 [工具契约](contracts.md)。
+LSP 失败时写入本身不会因此失败。
+
+## 失败结果与模型输出
+
+失败总是返回紧凑 XML；`path`、字段名和路径保护详情保留在 `details`：
+
+```xml
+<error>
+File could not be written.
+</error>
+```
+
+常见失败及正文：
+
+| code | 模型正文 |
+| --- | --- |
+| `INVALID_OPERATION` | `write input must be an object.`、`Unsupported write field: ...`、`path must be a string.` 或 `content must be a string.` |
+| `INVALID_PATH` | `Target must be a file path, not the current directory.`、`Parent path cannot be resolved.` 或 `Parent path cannot be created.` |
+| `PROTECTED_PATH` | `Path is blocked by file-tools config.` |
+| `ACCESS_DENIED` | `Parent path cannot be accessed.` 或 `File could not be written.` |
+| `OPERATION_ABORTED` | `Operation aborted.` |
+| `CONFIG_ERROR` | 配置错误消息 |
+
+写入失败不会创建或覆盖目标文件；`next:` 只有错误提供恢复建议时才出现。公共 mutation 和错误协议见 [工具契约](contracts.md)。

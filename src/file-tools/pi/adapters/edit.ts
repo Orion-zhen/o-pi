@@ -23,7 +23,7 @@ export async function executeEdit(
 	const text = isEditSuccessDetails(result)
 		? formatEditModelResult(result, impact)
 		: isFailedDetails(result)
-			? formatErrorModelResult("edit", result)
+			? formatErrorModelResult(result)
 			: JSON.stringify(scrubVersions(result));
 	return { content: [{ type: "text" as const, text }], details: result };
 }

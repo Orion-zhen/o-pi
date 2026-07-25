@@ -93,4 +93,34 @@ src/auth/service.ts [name similarity]
 
 ## 限制
 
-输出预算、结果数和扫描条目数由 file-tools 配置控制，不暴露为工具参数。达到扫描上限时标记 `scanTruncated`；达到具体结果上限时标记 `resultLimited`。路径安全、配置错误和恢复方式见 [路径与安全](path-security.md) 和 [配置](configuration.md)。
+输出预算、结果数和扫描条目数由 file-tools 配置控制，不暴露为工具参数。达到扫描上限时标记 `scanTruncated`；达到具体结果上限时标记 `resultLimited`。
+
+## 失败结果与模型输出
+
+参数或所有 scope 失败时返回紧凑 XML；scope 路径、完整子错误和配置字段保留在 `details`：
+
+```xml
+<error>
+Directory does not exist.
+</error>
+```
+
+常见失败及正文：
+
+| code | 模型正文 |
+| --- | --- |
+| `INVALID_PATH` | `query must not be empty.`、`path must contain at least one scope.`、`query must not escape path.`、`query glob is not valid.` 或路径/NUL校验消息 |
+| `PATH_NOT_FOUND` | `Directory does not exist.` 或 `No searchable scope was provided.` |
+| `NOT_A_DIRECTORY` | `Path is not a directory.` |
+| `PROTECTED_PATH` | `Path is blocked by file-tools config.` |
+| `ACCESS_DENIED` | `Directory cannot be searched.` 或 `Path cannot be accessed.` |
+| `OPERATION_ABORTED` | `find was aborted.` |
+| `CONFIG_ERROR` | 配置错误消息 |
+
+只有部分 scope 失败时不是 error，而是成功正文中的警告：
+
+```text
+partial; scope_errors=missing:PATH_NOT_FOUND
+```
+
+路径安全、配置错误和恢复方式见 [路径与安全](path-security.md) 和 [配置](configuration.md)。

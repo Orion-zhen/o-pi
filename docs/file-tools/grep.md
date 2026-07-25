@@ -117,3 +117,42 @@ LSP 与 Repo Map 查询可以并行执行；候选源码和 related-file hash �
 Repo Map 关系使用独立的 `<related repo-map nonmatch>` 通道，明示 `query_match: not_guaranteed`，不能伪装成 literal/regex 命中。没有可信 nearby 或 related 时，输出 `searched=<scanned_files>; skipped=<count>` 和下一步建议。
 
 main、nearby、related 的完整边界见 [排序选择](ranking-selection.md)。
+
+## 失败结果与模型输出
+
+参数、正则或所有 scope 失败时返回紧凑 XML；路径、scope 子错误和解析详情保留在 `details`：
+
+```xml
+<error>
+query is not a valid regular expression.
+</error>
+```
+
+常见失败及正文：
+
+| code | 模型正文 |
+| --- | --- |
+| `INVALID_OPERATION` | `query must not be empty.`、`query must not contain NUL bytes.` 或 `match must be auto, literal, or regex.` |
+| `INVALID_PATH` | `path must contain at least one scope.`、`path entries must be non-empty strings.` 或 `glob must not be empty.` |
+| `INVALID_REGEX` | `query is not a valid regular expression.` |
+| `PATH_NOT_FOUND` | `Path does not exist.` 或 `No searchable scope was provided.` |
+| `PROTECTED_PATH` | `Path is blocked by file-tools config.` |
+| `ACCESS_DENIED` | `Path cannot be accessed.` 或 `Path cannot be searched.` |
+| `FILE_NOT_FOUND` | `File cannot be read.` |
+| `BINARY_FILE_UNSUPPORTED` | `Binary files are not supported.` |
+| `ENCODING_UNSUPPORTED` | `Only valid UTF-8 text is supported.` |
+| `OUTPUT_LIMIT_EXCEEDED` | `File is too large to search.` |
+| `OPERATION_ABORTED` | `grep was aborted.` |
+| `CONFIG_ERROR` | 配置错误消息 |
+
+只有部分 scope 失败时不是 error，而是成功正文中的警告：
+
+```text
+<grep>
+partial; scope_errors=missing:PATH_NOT_FOUND
+none
+...
+</grep>
+```
+
+`next:` 只有错误提供恢复建议时才出现。

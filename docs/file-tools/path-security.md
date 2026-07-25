@@ -57,7 +57,7 @@ blocked path → 访问本身被拒绝或跳过
 模型可见错误使用紧凑标签，完整结构保留在 `details`：
 
 ```xml
-<error tool="read" code="FILE_NOT_FOUND">
+<error>
 File does not exist.
 </error>
 ```

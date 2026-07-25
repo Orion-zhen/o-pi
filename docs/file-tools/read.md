@@ -73,4 +73,30 @@ LSP 可以在 partial/truncated read 时附加 enclosing symbol 或 outline；LS
 - `PROTECTED_PATH`：命中 blocked path；
 - `ACCESS_DENIED`：无权读取。
 
-编辑已有文件时必须先完成一次明确的 `read`，详见 [edit](edit.md)。
+## 失败结果与模型输出
+
+失败总是返回紧凑 XML；`path`、MIME、扩展名和版本保留在 `details`：
+
+```xml
+<error>
+File does not exist.
+next: Related paths: src/main.ts
+</error>
+```
+
+常见失败及正文：
+
+| code | 模型正文 |
+| --- | --- |
+| `INVALID_PATH` | `Path must not be empty.`、`start_line`/`end_line` 范围校验消息或路径越界消息 |
+| `FILE_NOT_FOUND` | `File does not exist.`；workspace 内有候选时通过 `next: Related paths: ...` 提示 |
+| `NOT_A_FILE` | `Path is not a regular file.` |
+| `PROTECTED_PATH` | `Path is blocked by file-tools config.` |
+| `ACCESS_DENIED` | `Path cannot be accessed.` |
+| `BINARY_FILE_UNSUPPORTED` | `<type> files are not supported by read.` |
+| `ENCODING_UNSUPPORTED` | `Only valid UTF-8 text is supported.` |
+| `OUTPUT_LIMIT_EXCEEDED` | `A single line exceeds the read output limit.` |
+| `INVALID_OPERATION` | `Line ranges apply only to text files.` |
+| `CONFIG_ERROR` | 配置错误消息 |
+
+`next:` 只有错误提供恢复建议时才出现。编辑已有文件时必须先完成一次明确的 `read`，详见 [edit](edit.md)。

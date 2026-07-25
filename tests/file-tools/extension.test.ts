@@ -44,7 +44,7 @@ type ExecuteTool = (
 
 describe("file-tools extension", () => {
 	it("将重复 old 的匹配提示压缩为可直接重试的行", () => {
-		const output = formatErrorModelResult("edit", {
+		const output = formatErrorModelResult({
 			status: "failed",
 			error: {
 				code: "OLD_TEXT_NOT_UNIQUE",
@@ -60,7 +60,7 @@ describe("file-tools extension", () => {
 				},
 			},
 		});
-		expect(output).toBe(`<error tool="edit" code="OLD_TEXT_NOT_UNIQUE">
+		expect(output).toBe(`<error>
  edits[0].old matched 6 locations, 2 shown.
  line 10 old="const mode = \\\"dev\\\"" new="const mode = \\\"staging\\\""
  line 24 old="const mode = \\\"prod\\\"" new="const mode = \\\"staging\\\""
@@ -719,7 +719,7 @@ describe("file-tools extension", () => {
 			expect(edit.details).toMatchObject({ status: "applied", path: "a.ts", replacements: 1, diff: expect.stringContaining("+2 TWO") });
 
 			const failedRead = await executeTool(registered, "read", { path: "missing.ts" }, ctx);
-			expect(textResult(failedRead)).toContain('<error tool="read" code="FILE_NOT_FOUND">');
+			expect(textResult(failedRead)).toContain('<error>\nFile does not exist.\n</error>');
 		} finally {
 			if (originalAfterEdit === undefined) delete lspFileHooks.afterEdit;
 			else lspFileHooks.afterEdit = originalAfterEdit;
@@ -883,7 +883,7 @@ describe("file-tools extension", () => {
 			] as const) {
 				const result = await executeTool(registered, tool, params, ctx);
 				const text = textResult(result);
-				expect(text).toMatch(new RegExp(`^<error tool="${tool}" code="[A-Z_]+">\\n[^]+\\n</error>$`));
+				expect(text).toMatch(/^<error>\n[^]+\n<\/error>$/);
 				expect(text).not.toContain("\n  ");
 				expect(result.details).toMatchObject({ status: "failed" });
 				if (tool === "edit") expect(text).toContain("next: Read the file, then create a new edit operation.");

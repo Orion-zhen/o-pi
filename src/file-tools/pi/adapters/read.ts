@@ -23,7 +23,7 @@ export async function executeRead(
 ) {
 	const resolution = await resolveReadLocator(params.path, runtime.branch, runtime.skillIndex);
 	if ("status" in resolution) {
-		return { content: [{ type: "text" as const, text: formatErrorModelResult("read", resolution) }], details: resolution };
+		return { content: [{ type: "text" as const, text: formatErrorModelResult(resolution) }], details: resolution };
 	}
 	const isSkillResource = resolution.kind === "skill";
 	const result = await readWorkspaceFile(runtime.cwd, {
@@ -52,7 +52,7 @@ export async function executeRead(
 	const text = isReadSuccess(result)
 		? formatReadModelResult(result, repoMap)
 		: isFailedDetails(result)
-			? formatErrorModelResult("read", result)
+			? formatErrorModelResult(result)
 			: JSON.stringify(scrubVersions(result));
 	return { content: [{ type: "text" as const, text }], details: result };
 }

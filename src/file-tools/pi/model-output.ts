@@ -13,12 +13,10 @@ import type {
 } from "../types.js";
 
 /** 文件工具失败的模型可见结果；完整错误结构保留在 details。 */
-export function formatErrorModelResult(tool: string, result: FailedResult): string {
+export function formatErrorModelResult(result: FailedResult): string {
 	const hints = result.error.code === "OLD_TEXT_NOT_UNIQUE" ? formatEditMatchHints(result.error.details) : "";
 	const next = result.error.next !== undefined ? `\nnext: ${escapeXmlText(result.error.next)}` : "";
-	return `<error tool="${escapeXmlAttribute(tool)}" code="${escapeXmlAttribute(result.error.code)}">
-${escapeXmlText(result.error.message)}${hints}${next}
-</error>`;
+	return `<error>\n${escapeXmlText(result.error.message)}${hints}${next}\n</error>`;
 }
 
 /** read 的模型可见成功结果：默认字段留在 details，只输出定位、正文和非默认状态。 */
