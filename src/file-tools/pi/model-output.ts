@@ -1,4 +1,5 @@
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
+import { isPlainRecord } from "./guards.js";
 import type {
 	EditSuccess,
 	FailedResult,
@@ -8,13 +9,15 @@ import type {
 	ReadImageSuccess,
 	ReadSuccess,
 	WriteSuccess,
+	EditMatchHint,
 } from "../types.js";
 
 /** 文件工具失败的模型可见结果；完整错误结构保留在 details。 */
 export function formatErrorModelResult(tool: string, result: FailedResult): string {
+	const hints = result.error.code === "OLD_TEXT_NOT_UNIQUE" ? formatEditMatchHints(result.error.details) : "";
 	const next = result.error.next !== undefined ? `\nnext: ${escapeXmlText(result.error.next)}` : "";
 	return `<error tool="${escapeXmlAttribute(tool)}" code="${escapeXmlAttribute(result.error.code)}">
-${escapeXmlText(result.error.message)}${next}
+${escapeXmlText(result.error.message)}${hints}${next}
 </error>`;
 }
 
@@ -146,6 +149,20 @@ function formatOutlineItem(item: LspOutlineItem): string {
 
 function formatSymbolRange(item: LspOutlineItem | LspEnclosingSymbol): string {
 	return `${item.kind} ${item.name} ${item.line}-${item.end_line}`;
+}
+
+function formatEditMatchHints(details: Record<string, unknown> | undefined): string {
+	if (details === undefined || !Array.isArray(details["hints"])) return "";
+	const hints = details["hints"].filter((value): value is EditMatchHint => isEditMatchHint(value));
+	if (hints.length === 0) return "";
+	return `\n${hints.map((hint) => `line ${hint.line} old=${JSON.stringify(hint.old)} new=${JSON.stringify(hint.new)}`).map(escapeXmlText).join("\n")}`;
+}
+
+function isEditMatchHint(value: unknown): value is EditMatchHint {
+	return isPlainRecord(value)
+		&& typeof value["line"] === "number"
+		&& typeof value["old"] === "string"
+		&& typeof value["new"] === "string";
 }
 
 function escapeXmlAttribute(value: string): string {

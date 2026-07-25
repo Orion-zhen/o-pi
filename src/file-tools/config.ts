@@ -8,6 +8,7 @@ import type { PartialIgnoreConfig } from "./ignore/ignore-types.js";
 
 const DEFAULT_MAX_LS_ENTRIES = 200;
 const DEFAULT_READ_SUGGESTION_LIMIT = 3;
+const DEFAULT_EDIT_MATCH_HINT_LIMIT = 3;
 const DEFAULT_GREP_OUTPUT_TOKEN_BUDGET = 1_600;
 const DEFAULT_GREP_RESULT_LIMIT = 8;
 const DEFAULT_GREP_MAX_FILE_BYTES = 1024 * 1024;
@@ -26,6 +27,7 @@ export interface FileToolsConfig {
 		read_lines: number;
 		read_bytes: number;
 		read_suggestion_limit: number;
+		edit_match_hint_limit: number;
 		find_output_token_budget: number;
 		find_result_limit: number;
 		find_max_entries_scanned: number;
@@ -66,6 +68,7 @@ const defaultConfig: FileToolsConfig = {
 		read_lines: DEFAULT_MAX_OUTPUT_LINES,
 		read_bytes: DEFAULT_MAX_OUTPUT_BYTES,
 		read_suggestion_limit: DEFAULT_READ_SUGGESTION_LIMIT,
+		edit_match_hint_limit: DEFAULT_EDIT_MATCH_HINT_LIMIT,
 		find_output_token_budget: 800,
 		find_result_limit: 50,
 		find_max_entries_scanned: 100_000,

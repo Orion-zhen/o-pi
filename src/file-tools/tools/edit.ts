@@ -7,6 +7,7 @@ import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
 import { resolveExistingFile, resolveWorkspaceRoot } from "../core/path-resolver.js";
 import type { ReadVersionCache } from "../core/read-cache.js";
 import { buildTextBytes, normalizeLineEndings, readTextFile, sha256Version } from "../core/text-file.js";
+import { buildEditMatchHints } from "../core/edit-hints.js";
 import type { EditParams, EditPreviewSuccess, EditReplacement, EditSuccess, FileToolLspDiagnosticSnapshot, FileToolLspHooks, LspDiagnosticsSummary, TextFile, ToolOutcome } from "../types.js";
 import type { IgnoreSnapshot } from "../ignore/ignore-types.js";
 
@@ -24,6 +25,7 @@ interface ResolvedEdit {
 	path: string;
 	absolutePath: string;
 	edits: EditReplacement[];
+	matchHintLimit: number;
 }
 
 interface MatchedReplacement {
@@ -109,7 +111,7 @@ async function prepareEdit(
 	const file = await readExistingWithVersion(target.absolutePath, target.path, versionCache?.get(target.absolutePath), readPolicy);
 	if (isFailed(file)) return file;
 
-	const updatedText = applyReplacements(file.text, target.edits, target.path);
+	const updatedText = applyReplacements(file.text, target.edits, target.path, target.matchHintLimit);
 	if (isFailed(updatedText)) return updatedText;
 	return {
 		workspaceRoot: target.workspaceRoot,
@@ -144,6 +146,7 @@ async function resolveEdit(cwd: string, params: unknown): Promise<ToolOutcome<Re
 		path: resolved.relativePath,
 		absolutePath: resolved.realPath,
 		edits: input.edits,
+		matchHintLimit: config.limits.edit_match_hint_limit,
 	};
 }
 
@@ -229,7 +232,7 @@ async function readExistingWithVersion(
 	return file;
 }
 
-function applyReplacements(text: string, replacements: EditReplacement[], relativePath: string): ToolOutcome<string> {
+function applyReplacements(text: string, replacements: EditReplacement[], relativePath: string, matchHintLimit: number): ToolOutcome<string> {
 	const matches: MatchedReplacement[] = [];
 	for (let index = 0; index < replacements.length; index += 1) {
 		const replacement = replacements[index];
@@ -242,10 +245,13 @@ function applyReplacements(text: string, replacements: EditReplacement[], relati
 			});
 		}
 		if (starts.length > 1) {
-			return fail("OLD_TEXT_NOT_UNIQUE", `edits[${index}].old matched multiple locations.`, {
+			const hints = buildEditMatchHints(text, replacement.old, replacement.new, starts, matchHintLimit);
+			const summary = hints.length < starts.length ? `${starts.length} locations, ${hints.length} shown` : `${starts.length} locations`;
+			return fail("OLD_TEXT_NOT_UNIQUE", `edits[${index}].old matched ${summary}.`, {
+				next: "Retry with one shown old/new pair; read only if the file changed.",
 				path: relativePath,
 				edit_index: index,
-				details: { matches: starts.length },
+				details: { matches: starts.length, shown: hints.length, hints },
 			});
 		}
 		const start = starts[0];

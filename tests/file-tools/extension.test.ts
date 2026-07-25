@@ -6,6 +6,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import fileTools, { createFileToolsExtension, type FileToolsModuleImports } from "../../agent/extensions/file-tools.js";
 import { lspFileHooks, lspManager } from "../../src/lsp/index.js";
+import { formatErrorModelResult } from "../../src/file-tools/pi/model-output.js";
 
 interface ThemeStub {
 	fg(name: string, text: string): string;
@@ -42,6 +43,30 @@ type ExecuteTool = (
 ) => Promise<ExecuteResult>;
 
 describe("file-tools extension", () => {
+	it("将重复 old 的匹配提示压缩为可直接重试的行", () => {
+		const output = formatErrorModelResult("edit", {
+			status: "failed",
+			error: {
+				code: "OLD_TEXT_NOT_UNIQUE",
+				message: "edits[0].old matched 6 locations, 2 shown.",
+				next: "Retry with one shown old/new pair; read only if the file changed.",
+				details: {
+					matches: 6,
+					shown: 2,
+					hints: [
+						{ line: 10, old: 'const mode = "dev"', new: 'const mode = "staging"' },
+						{ line: 24, old: 'const mode = "prod"', new: 'const mode = "staging"' },
+					],
+				},
+			},
+		});
+		expect(output).toBe(`<error tool="edit" code="OLD_TEXT_NOT_UNIQUE">
+ edits[0].old matched 6 locations, 2 shown.
+ line 10 old="const mode = \\\"dev\\\"" new="const mode = \\\"staging\\\""
+ line 24 old="const mode = \\\"prod\\\"" new="const mode = \\\"staging\\\""
+ next: Retry with one shown old/new pair; read only if the file changed.
+ </error>`.replaceAll("\n ", "\n"));
+	});
 	beforeAll(() => {
 		initTheme();
 	});

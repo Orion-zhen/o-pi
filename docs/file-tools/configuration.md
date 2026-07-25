@@ -37,6 +37,7 @@
     "ls_entries": 200,
     "read_lines": 2000,
     "read_bytes": 51200,
+    "edit_match_hint_limit": 3,
     "find_output_token_budget": 800,
     "find_result_limit": 50,
     "find_max_entries_scanned": 100000,
@@ -67,6 +68,7 @@
 
 - `ls_entries`：一次 `ls` 最多返回的直属成员数。
 - `read_lines` / `read_bytes`：一次 `read` 最多返回的行数和 UTF-8 字节数。
+- `edit_match_hint_limit`：`OLD_TEXT_NOT_UNIQUE` 最多返回的前序匹配提示数，默认 3，范围为 1-10。
 - `find_output_token_budget`：`find` 模型可见输出预算，最小为 32 token。
 - `find_result_limit`：`find` 最多保留的具体结果数。
 - `find_max_entries_scanned`：`find` 最多扫描的文件系统条目数。

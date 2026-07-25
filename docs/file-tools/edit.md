@@ -31,8 +31,9 @@
 - 未读过：返回 `READ_REQUIRED`；
 - 文件在读取后发生变化：返回 `STALE_READ`；
 - replacement 不唯一或旧文本不存在：返回 `OLD_TEXT_*`。
+- `OLD_TEXT_NOT_UNIQUE` 会返回前若干个最短唯一 `old/new` replacement，可直接重试；只有文件发生变化时才需要重新 `read`。
 
-这些错误不会自动合并或覆盖外部修改。应按 `error.next` 重新 `read`，基于最新内容生成新的 replacement。
+这些错误不会自动合并或覆盖外部修改。除非使用 `OLD_TEXT_NOT_UNIQUE` 返回的 pair，否则应按 `error.next` 重新 `read`，基于最新内容生成新的 replacement。
 
 soft ignore 不阻止 `edit`。是否修改只由文件系统访问结果、文件类型、上次读取版本和 operation 合法性决定。
 
@@ -46,4 +47,15 @@ TUI 在参数完整后可以执行只读预览，call 区只在展开态显示 d
 <edit path="src/main.ts" replacements="2" first_changed_line="81"/>
 ```
 
-成功正文不包含版本字段或完整 diff。LSP diagnostics 如有需要由 mutation hook 附加。公共协议见 [工具契约](contracts.md)。
+成功正文不包含版本字段或完整 diff。LSP diagnostics 如有需要由 mutation hook 附加。
+
+重复匹配时，模型可见错误保持紧凑：
+
+```text
+edits[0].old matched 6 locations, 3 shown.
+line 10 old="..." new="..."
+line 24 old="..." new="..."
+next: Retry with one shown old/new pair; read only if the file changed.
+```
+
+`old` 是原始 `old` 加上的最短唯一上下文，`new` 是对应的完整 replacement。公共协议见 [工具契约](contracts.md)。

@@ -81,6 +81,7 @@ blocked path  → 不可列出、搜索、读取或写入
 - `read` 被截断：根据 continuation 读取下一段。
 - `READ_REQUIRED`：先重新 `read`，再生成 `edit`。
 - `STALE_READ`：文件在读取后发生变化，重新 `read` 后再编辑。
+- `OLD_TEXT_NOT_UNIQUE`：优先使用错误中返回的唯一 `old/new` pair 重试；文件变化时再重新 `read`。
 - 无效正则、路径错误和权限错误不会伪装成零结果。
 
 公共输出和错误协议见 [工具契约](contracts.md)。

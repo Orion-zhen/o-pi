@@ -422,6 +422,12 @@ export interface EditReplacement {
 	new: string;
 }
 
+export interface EditMatchHint {
+	line: number;
+	old: string;
+	new: string;
+}
+
 export interface EditParams {
 	path: string;
 	/** 同一文件的一个或多个非重叠替换，全部针对调用开始时的原始内容匹配。 */

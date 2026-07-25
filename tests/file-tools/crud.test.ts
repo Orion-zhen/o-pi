@@ -6,6 +6,7 @@ import { formatCompactLsResult, listWorkspaceDirectory } from "../../src/file-to
 import { findPathSuggestions, type PathSuggestionQuery } from "../../src/file-tools/core/path-suggestions.js";
 import { defaultFileToolsConfig, type FileToolsConfig } from "../../src/file-tools/config.js";
 import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
+import { isPlainRecord } from "../../src/file-tools/pi/guards.js";
 import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/tools/read.js";
 import { writeWorkspaceFile as writeWorkspaceFileImpl } from "../../src/file-tools/tools/write.js";
 import { sha256Version } from "../../src/file-tools/core/text-file.js";
@@ -761,6 +762,44 @@ describe("edit", () => {
 			}),
 		).toMatchObject({ status: "failed", error: { code: "OLD_TEXT_NOT_FOUND", edit_index: 1 } });
 		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("a b c\n");
+	});
+
+	it("重复 old 返回总数、最短唯一 old/new 和起始行号", async () => {
+		await writeFile(path.join(workspace, "a.txt"), "const mode = \"dev\";\nconst mode = \"prod\";\nconst mode = \"test\";\n");
+		await readWorkspaceFile(workspace, { path: "a.txt" });
+
+		const result = await editWorkspace(workspace, { path: "a.txt", edits: [{ old: "const mode =", new: "let mode =" }] });
+		expect(result).toMatchObject({
+			status: "failed",
+			error: {
+				code: "OLD_TEXT_NOT_UNIQUE",
+				message: "edits[0].old matched 3 locations.",
+				next: "Retry with one shown old/new pair; read only if the file changed.",
+				details: { matches: 3, shown: 3, hints: [
+					{ line: 1, old: expect.stringContaining("d"), new: expect.stringContaining("let mode") },
+					{ line: 2, old: expect.stringContaining("p"), new: expect.stringContaining("let mode") },
+					{ line: 3, old: expect.stringContaining("t"), new: expect.stringContaining("let mode") },
+				] },
+			},
+		});
+		if (!("error" in result)) throw new Error("edit unexpectedly succeeded");
+		const hints = result.error.details?.["hints"];
+		if (!Array.isArray(hints) || hints.length === 0) throw new Error("edit hints missing");
+		const first = hints[0];
+		if (!isPlainRecord(first) || typeof first["old"] !== "string" || typeof first["new"] !== "string") throw new Error("invalid edit hint");
+		const retry = await editWorkspace(workspace, { path: "a.txt", edits: [{ old: first["old"], new: first["new"] }] });
+		expect(retry).toMatchObject({ status: "applied", replacements: 1 });
+		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("let mode = \"dev\";\nconst mode = \"prod\";\nconst mode = \"test\";\n");
+	});
+
+	it("配置 edit hint 数量", async () => {
+		await writeFile(path.join(workspace, "a.txt"), "same\nsame\nsame\n");
+		await readWorkspaceFile(workspace, { path: "a.txt" });
+		await useFileToolsConfig({ limits: { edit_match_hint_limit: 2 } });
+
+		const result = await editWorkspace(workspace, { path: "a.txt", edits: [{ old: "same", new: "new" }] });
+		expect(result).toMatchObject({ status: "failed", error: { code: "OLD_TEXT_NOT_UNIQUE", message: "edits[0].old matched 3 locations, 2 shown.", details: { matches: 3, shown: 2, hints: expect.any(Array) } } });
+		if ("error" in result) expect(result.error.details?.["hints"]).toHaveLength(2);
 	});
 
 	it("拒绝不存在、不唯一和重叠的 old", async () => {
