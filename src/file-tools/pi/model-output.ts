@@ -2,7 +2,6 @@ import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { isPlainRecord } from "./guards.js";
 import type {
 	EditSuccess,
-	FailedResult,
 	LspDiagnosticsSummary,
 	LspEnclosingSymbol,
 	LspOutlineItem,
@@ -11,6 +10,7 @@ import type {
 	WriteSuccess,
 	EditMatchHint,
 } from "../types.js";
+import type { FailedResult } from "../shared/result.js";
 
 /** 文件工具失败的模型可见结果；完整错误结构保留在 details。 */
 export function formatErrorModelResult(result: FailedResult): string {

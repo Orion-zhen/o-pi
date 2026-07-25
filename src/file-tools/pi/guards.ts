@@ -1,6 +1,5 @@
 import type {
 	EditSuccess,
-	FailedResult,
 	FindDetails,
 	FindNearbyResult,
 	LsSuccess,
@@ -10,6 +9,7 @@ import type {
 	RepoMapRelatedResult,
 	WriteSuccess,
 } from "../types.js";
+import type { FailedResult } from "../shared/result.js";
 
 export function isEditSuccessDetails(value: unknown): value is EditSuccess {
 	return isPlainRecord(value) && value["status"] === "applied" && typeof value["diff"] === "string";

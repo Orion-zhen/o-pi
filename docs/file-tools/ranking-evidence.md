@@ -21,7 +21,7 @@ familyContribution = max(sourceContribution in family)
 fusionScore = sum(familyContribution)
 ```
 
-默认权重集中在 `ranking-evidence.ts`：path/text/AST symbol 为 `1.0`，BM25 为 `0.9`，LSP workspace symbol 为 `0.95`，LSP reference 为 `0.5`，Repo Map direct 为 `0.85`，本地一跳与 Repo Map hop 1 为 `0.35`，hop 2 为 `0.18`。
+默认权重集中在 `src/file-tools/shared/ranking/evidence.ts`：path/text/AST symbol 为 `1.0`，BM25 为 `0.9`，LSP workspace symbol 为 `0.95`，LSP reference 为 `0.5`，Repo Map direct 为 `0.85`，本地一跳与 Repo Map hop 1 为 `0.35`，hop 2 为 `0.18`。
 
 固定宽度 `RankingEvidence` 只保存四个 family 的最大贡献、mask、family count、总分和最大贡献。合并与比较为 `O(1)`，热路径不分配动态证据集合。
 

@@ -7,10 +7,11 @@ import { mergeRankedFindSources } from "../../src/file-tools/find/fusion.js";
 import { createFindEntry, rankFindSuggestions } from "../../src/file-tools/find/ranker.js";
 import { renderFindResults } from "../../src/file-tools/find/renderer.js";
 import { clearFindSuggestionPool, FIND_CONCURRENCY, rankFindEntriesForSearch, shouldOffloadFindSuggestions } from "../../src/file-tools/find/suggestion-pool.js";
-import { createRankingEvidence } from "../../src/file-tools/ranking-evidence.js";
+import { createRankingEvidence } from "../../src/file-tools/shared/ranking/evidence.js";
 import { findWorkspaceFiles } from "../../src/file-tools/tools/find.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
-import type { FindMatch, FindSuccess, ToolOutcome } from "../../src/file-tools/types.js";
+import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
+import type { FindMatch, FindSuccess } from "../../src/file-tools/types.js";
 import type { RepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
 import type { RepoMapQueryCandidate, RepoMapQueryResult } from "../../src/repo-map/query.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -408,7 +409,7 @@ describe("find", () => {
 	});
 
 	it("未声明测试意图时实现文件排在同名测试文件前", async () => {
-		await writeFixture("src/file-tools/ranking-evidence.ts");
+		await writeFixture("src/file-tools/shared/ranking/evidence.ts");
 		await writeFixture("tests/file-tools/ranking-evidence.test.ts");
 		const query = vi.fn(async (input): Promise<RepoMapQueryResult> => ({
 			root: workspace,
@@ -423,7 +424,7 @@ describe("find", () => {
 			{ repoMap: repoMapQuery(query) },
 		));
 		expect(paths(result.details.matches).slice(0, 2)).toEqual([
-			"src/file-tools/ranking-evidence.ts",
+			"src/file-tools/shared/ranking/evidence.ts",
 			"tests/file-tools/ranking-evidence.test.ts",
 		]);
 	});

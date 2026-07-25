@@ -1,6 +1,7 @@
 import { defineToolTelemetry } from "../../telemetry/tool.js";
 import type { Candidate } from "../../telemetry/types.js";
-import type { GrepParams, GrepSuccess, ToolOutcome } from "../types.js";
+import type { ToolOutcome } from "../shared/result.js";
+import type { GrepParams, GrepSuccess } from "../types.js";
 import {
 	appendRegionCandidates,
 	fileResultFields,

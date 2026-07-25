@@ -2,7 +2,7 @@ import { countTextTokensSync } from "../../token-counter.js";
 import { byteRangeForLines, extractByteRange } from "../../code-index/parser.js";
 import type { RankedGrepRegion } from "./ranker.js";
 import { selectRankedGrepCandidates } from "./fusion.js";
-import { rankingEvidenceSources } from "../ranking-evidence.js";
+import { rankingEvidenceSources } from "../shared/ranking/evidence.js";
 import type { GrepMatchMode, GrepNearbyResult, GrepRegion, GrepScopeError, GrepSkippedFiles, GrepSuccess, RepoMapRelatedResult } from "../types.js";
 
 export interface GrepPackInput {

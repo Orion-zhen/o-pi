@@ -1,7 +1,7 @@
 import { Worker } from "node:worker_threads";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { WorkerTaskAbortedError, WorkerTaskPool } from "../../src/file-tools/core/worker-task-pool.js";
+import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../../src/worker-runtime/worker-task-pool.js";
 
 const pools: Array<WorkerTaskPool<number, number>> = [];
 
@@ -29,11 +29,27 @@ describe("WorkerTaskPool", () => {
 		await expect(crashed).rejects.toThrow("crashed");
 		crashedPool.dispose();
 	});
+
+	it("removes queued abort listeners and rejects all work on idempotent dispose", async () => {
+		const pool = createPool("parentPort.on('message', () => {});", 1);
+		const active = pool.run(1);
+		const controller = new AbortController();
+		const queued = pool.run(2, controller.signal);
+		controller.abort();
+
+		await expect(queued).rejects.toBeInstanceOf(WorkerTaskAbortedError);
+		expect(pool.workerCount).toBe(1);
+		pool.dispose();
+		pool.dispose();
+		await expect(active).rejects.toBeInstanceOf(WorkerTaskAbortedError);
+		expect(pool.workerCount).toBe(0);
+		await expect(pool.run(3)).rejects.toThrow("test pool is disposed");
+	});
 });
 
-function createPool(source: string): WorkerTaskPool<number, number> {
+function createPool(source: string, workerLimit = 2): WorkerTaskPool<number, number> {
 	const pool = new WorkerTaskPool<number, number>({
-		workerLimit: 2,
+		workerLimit,
 		createWorker: () => new Worker(`const { parentPort } = require('node:worker_threads'); ${source}`, { eval: true }),
 		workerName: "test",
 		requestForTask: (id, value) => ({ id, value }),
@@ -43,7 +59,7 @@ function createPool(source: string): WorkerTaskPool<number, number> {
 	return pool;
 }
 
-function decode(message: unknown): { id: number; result?: number; error?: string } | undefined {
+function decode(message: unknown): WorkerTaskResponse<number> | undefined {
 	if (typeof message !== "object" || message === null) return undefined;
 	const record = message as Record<string, unknown>;
 	if (typeof record.id !== "number") return undefined;

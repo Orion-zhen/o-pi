@@ -5,7 +5,7 @@ import {
 	createSourceRankingEvidence,
 	mergeRankingEvidence,
 	rrfContribution,
-} from "../../src/file-tools/ranking-evidence.js";
+} from "../../src/file-tools/shared/ranking/evidence.js";
 import { formatRepoMapAliasReason, isRepoMapMainCandidate, repoMapNavigationRelation, repoMapRankingEvidence } from "../../src/file-tools/repo-map-ranking.js";
 import type { RepoMapQueryCandidate } from "../../src/repo-map/query.js";
 

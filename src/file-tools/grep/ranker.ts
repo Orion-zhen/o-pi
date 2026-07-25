@@ -1,5 +1,5 @@
 import { buildLineIndex, byteRangeForLinesWithIndex, countTextTokenMatches, extractByteRange, splitTokens, tokenizeText, type AnalyzedFileIndex, type IndexedCodeUnit, type LineIndex, type SourceRange } from "../../code-index/parser.js";
-import { createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE, mergeRankingEvidence, type RankingEvidence } from "../ranking-evidence.js";
+import { createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE, mergeRankingEvidence, type RankingEvidence } from "../shared/ranking/evidence.js";
 import type { GrepMatchMode, GrepNearbyResult } from "../types.js";
 
 export interface RankedGrepRegion extends SourceRange {

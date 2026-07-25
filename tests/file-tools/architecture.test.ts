@@ -10,21 +10,19 @@ const TOOL_NAMES = new Set(["ls", "read", "write", "edit", "find", "grep"]);
 // Stage 1 freezes existing violations. Stage 12 removes this allowlist together with legacy paths.
 const LEGACY_VIOLATIONS = new Set(`
 external-tool-internal:src/approval/gate.ts:../file-tools/config.js
-external-tool-internal:src/approval/gate.ts:../file-tools/core/errors.js
+external-tool-internal:src/approval/gate.ts:../file-tools/shared/result.js
 external-tool-internal:src/lsp/file-hooks.ts:../file-tools/types.js
 external-tool-internal:src/repo-map/scanner.ts:../file-tools/config.js
 external-tool-internal:src/repo-map/scanner.ts:../file-tools/ignore/ignore-types.js
 external-tool-internal:src/repo-map/scope.ts:../file-tools/config.js
-external-tool-internal:src/repo-map/scope.ts:../file-tools/core/errors.js
+external-tool-internal:src/repo-map/scope.ts:../file-tools/shared/result.js
 external-tool-internal:src/repo-map/scope.ts:../file-tools/ignore/ignore-engine.js
 external-tool-internal:src/repo-map/scope.ts:../file-tools/ignore/ignore-types.js
 external-tool-internal:src/repo-map/service.ts:../file-tools/config.js
-external-tool-internal:src/repo-map/service.ts:../file-tools/core/errors.js
+external-tool-internal:src/repo-map/service.ts:../file-tools/shared/result.js
 external-tool-internal:src/repo-map/service.ts:../file-tools/ignore/ignore-engine.js
 external-tool-internal:src/repo-map/service.ts:../file-tools/ignore/ignore-types.js
-external-tool-internal:src/repo-map/symbol-indexer.ts:../file-tools/core/typescript-worker.js
-external-tool-internal:src/repo-map/symbol-indexer.ts:../file-tools/core/worker-task-pool.js
-external-tool-internal:src/skill-context/resources.ts:../file-tools/types.js
+external-tool-internal:src/skill-context/resources.ts:../file-tools/shared/result.js
 tool-data-plane:src/file-tools/find/ranker.ts:node:path
 tool-data-plane:src/file-tools/grep/indexer.ts:../../safety/path-guard.js
 tool-data-plane:src/file-tools/grep/indexer.ts:../config.js

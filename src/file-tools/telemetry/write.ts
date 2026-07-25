@@ -1,6 +1,7 @@
 import { fields, isRecord, textFields } from "../../telemetry/projection.js";
 import { defineToolTelemetry } from "../../telemetry/tool.js";
-import type { ToolOutcome, WriteParams, WriteSuccess } from "../types.js";
+import type { ToolOutcome } from "../shared/result.js";
+import type { WriteParams, WriteSuccess } from "../types.js";
 import { fileResultFields, pathTarget, record, string } from "./common.js";
 
 export const writeTelemetry = defineToolTelemetry<WriteParams, ToolOutcome<WriteSuccess>>({

@@ -3,11 +3,12 @@ import path from "node:path";
 import { generateDiffString, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { guardWritablePath, PathGuardBlockedError } from "../../safety/path-guard.js";
 import { loadFileToolsConfig } from "../config.js";
-import { fail, isAccessDenied, isFailed, protectedPathFailure } from "../core/errors.js";
+import { protectedPathFailure } from "../core/errors.js";
+import { fail, isAccessDenied, isFailed, type ToolOutcome } from "../shared/result.js";
 import { normalizeToolPath, resolveWorkspaceRoot } from "../core/path-resolver.js";
 import type { ReadVersionCache } from "../core/read-cache.js";
 import { normalizeLineEndings, sha256Version } from "../core/text-file.js";
-import type { FileToolLspHooks, LspDiagnosticsSummary, ToolOutcome, WriteParams, WriteSuccess } from "../types.js";
+import type { FileToolLspHooks, LspDiagnosticsSummary, WriteParams, WriteSuccess } from "../types.js";
 
 interface WritablePath {
 	relativePath: string;

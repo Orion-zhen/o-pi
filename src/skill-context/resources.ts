@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { FailedResult } from "../file-tools/types.js";
+import type { FailedResult } from "../file-tools/shared/result.js";
 import { isValidSkillName } from "./frontmatter.js";
 import { loadedSkillsByName } from "./state.js";
 import type { SkillCandidate } from "./types.js";

@@ -1,0 +1,33 @@
+import type { ContentVersion } from "./content.js";
+import type { TargetRef } from "./path.js";
+import type { FsOperationContext, FsResult } from "./result.js";
+
+export type MutationSnapshot =
+	| { readonly exists: false }
+	| { readonly exists: true; readonly bytes: Uint8Array; readonly hash: string; readonly sizeBytes: number };
+
+export type MutationTransform<TRejected> =
+	| { readonly type: "commit"; readonly bytes: Uint8Array }
+	| { readonly type: "reject"; readonly reason: TRejected };
+
+export interface MutationReceipt extends ContentVersion {
+	readonly before?: ContentVersion;
+	readonly created: boolean;
+}
+
+export type MutationRunResult<TRejected> =
+	| { readonly committed: true; readonly receipt: MutationReceipt }
+	| { readonly committed: false; readonly reason: TRejected; readonly snapshot: MutationSnapshot };
+
+export interface MutationOptions {
+	readonly createParents: boolean;
+}
+
+export interface MutationOperations {
+	run<TRejected>(
+		target: TargetRef,
+		options: MutationOptions,
+		transform: (snapshot: MutationSnapshot) => MutationTransform<TRejected> | Promise<MutationTransform<TRejected>>,
+		context: FsOperationContext,
+	): Promise<FsResult<MutationRunResult<TRejected>>>;
+}

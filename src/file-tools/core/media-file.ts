@@ -1,7 +1,6 @@
 import { convertToPng, formatDimensionNote, resizeImage } from "@earendil-works/pi-coding-agent";
 import { fileTypeFromBuffer } from "file-type";
-import { fail } from "./errors.js";
-import type { ToolOutcome } from "../types.js";
+import { fail, type ToolOutcome } from "../shared/result.js";
 
 export type DetectedMediaKind = "image" | "audio" | "video" | "other";
 

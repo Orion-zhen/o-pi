@@ -7,10 +7,14 @@ export class WorkerTaskAbortedError extends Error {
 	}
 }
 
+export type WorkerTaskResponse<TResult> =
+	| { readonly id: number; readonly result: TResult }
+	| { readonly id: number; readonly error: string };
+
 export interface WorkerTaskPoolOptions<TRequest, TResult> {
 	workerLimit: number;
 	createWorker: () => Worker;
-	decodeResponse: (message: unknown) => { id: number; result?: TResult; error?: string } | undefined;
+	decodeResponse: (message: unknown) => WorkerTaskResponse<TResult> | undefined;
 	workerName: string;
 	requestForTask: (id: number, request: TRequest) => unknown;
 }
@@ -139,8 +143,8 @@ export class WorkerTaskPool<TRequest, TResult> {
 		}
 		delete slot.task;
 		slot.worker.unref();
-		if (response.result !== undefined) this.resolveTask(task, response.result);
-		else this.rejectTask(task, new Error(response.error ?? `${this.options.workerName} worker failed`));
+		if ("result" in response) this.resolveTask(task, response.result);
+		else this.rejectTask(task, new Error(response.error));
 		this.dispatch();
 	}
 

@@ -1,6 +1,7 @@
 import { defineToolTelemetry } from "../../telemetry/tool.js";
 import type { Candidate } from "../../telemetry/types.js";
-import type { FailedResult, FindDetails, FindParams } from "../types.js";
+import type { FailedResult } from "../shared/result.js";
+import type { FindDetails, FindParams } from "../types.js";
 import {
 	appendPathCandidates,
 	fileResultFields,

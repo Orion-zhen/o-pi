@@ -1,4 +1,4 @@
-import { fail, isFailed } from "../core/errors.js";
+import { fail, isFailed, type ToolOutcome } from "../shared/result.js";
 import { ignoreConfigFromFileTools, isIgnoredPath, loadFileToolsConfig, toolPathIdentity } from "../config.js";
 import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
 import { detectFileType, processInlineImage } from "../core/media-file.js";
@@ -6,7 +6,7 @@ import { findPathSuggestions } from "../core/path-suggestions.js";
 import { normalizeToolPath, resolveExistingFile, resolveWorkspaceRoot } from "../core/path-resolver.js";
 import type { ReadVersionCache } from "../core/read-cache.js";
 import { decodeTextFile, readRawFile, sha256Version, sliceTextByLineRange } from "../core/text-file.js";
-import type { FileToolLspHooks, ReadFileSuccess, ReadImageSuccess, ReadParams, ReadSuccess, ToolOutcome } from "../types.js";
+import type { FileToolLspHooks, ReadFileSuccess, ReadImageSuccess, ReadParams, ReadSuccess } from "../types.js";
 import type { RepoMapFileToolQuery } from "../../repo-map/file-tool-query.js";
 
 const REPO_MAP_CONTEXT_LINES = 3;

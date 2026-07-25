@@ -4,7 +4,7 @@
 
 ## Relevance head 与 MMR
 
-融合候选先按完整 relevance 排序。选择器参数集中在 `ranking-selection.ts`：
+融合候选先按完整 relevance 排序。选择器参数集中在 `src/file-tools/shared/ranking/selection.ts`：
 
 - `HEAD_SIZE = 3`：前三条原样保留；limit 小于等于 3 时结果就是 relevance Top-K。
 - `lambda = 0.85`。

@@ -1,46 +1,5 @@
 import type { RepoMapMutationResult, RepoMapReadContext } from "../repo-map/file-tool-query.js";
-
-/** 文件工具返回给模型的稳定错误码。 */
-export type FileToolErrorCode =
-	| "FILE_NOT_FOUND"
-	| "PATH_NOT_FOUND"
-	| "NOT_A_FILE"
-	| "NOT_A_DIRECTORY"
-	| "PROTECTED_PATH"
-	| "ACCESS_DENIED"
-	| "CONFIG_ERROR"
-	| "INVALID_PATH"
-	| "INVALID_OPERATION"
-	| "READ_REQUIRED"
-	| "STALE_READ"
-	| "EMPTY_OLD_TEXT"
-	| "OLD_TEXT_NOT_FOUND"
-	| "OLD_TEXT_NOT_UNIQUE"
-	| "OVERLAPPING_REPLACEMENTS"
-	| "ENCODING_UNSUPPORTED"
-	| "BINARY_FILE_UNSUPPORTED"
-	| "OUTPUT_LIMIT_EXCEEDED"
-	| "OPERATION_ABORTED"
-	| "INVALID_REGEX";
-
-/** 机器可读错误；message 只用于帮助模型和人类理解。 */
-export interface FileToolError {
-	code: FileToolErrorCode;
-	message: string;
-	next?: string;
-	path?: string;
-	edit_index?: number;
-	expected?: string;
-	actual?: string;
-	details?: Record<string, unknown>;
-}
-
-export interface FailedResult {
-	status: "failed";
-	error: FileToolError;
-}
-
-export type ToolOutcome<T> = T | FailedResult;
+import type { FileToolError } from "./shared/result.js";
 
 export type NewlineKind = "lf" | "crlf" | "mixed" | "none";
 

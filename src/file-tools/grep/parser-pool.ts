@@ -1,10 +1,10 @@
 import { analyzeCodeFile, analyzeTextFile, type AnalyzedFileIndex } from "../../code-index/parser.js";
-import { WorkerTaskAbortedError, WorkerTaskPool } from "../core/worker-task-pool.js";
-import { FILE_SEARCH_CONCURRENCY } from "../core/search-concurrency.js";
-import { createTypeScriptWorker } from "../core/typescript-worker.js";
+import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../../worker-runtime/worker-task-pool.js";
+import { DEFAULT_WORKER_CONCURRENCY } from "../../worker-runtime/concurrency.js";
+import { createTypeScriptWorker } from "../../worker-runtime/typescript-worker.js";
 
 /** grep 的默认并发路数：逻辑核心数的一半，单核环境至少保留一路。 */
-export const GREP_CONCURRENCY = FILE_SEARCH_CONCURRENCY;
+export const GREP_CONCURRENCY = DEFAULT_WORKER_CONCURRENCY;
 
 export interface GrepParseWorkload {
 	fileCount: number;
@@ -106,7 +106,7 @@ function createGrepParserPool(): GrepParserWorkerPool {
 	});
 }
 
-function decodeGrepParserResponse(message: unknown): { id: number; result?: AnalyzedFileIndex[]; error?: string } | undefined {
+function decodeGrepParserResponse(message: unknown): WorkerTaskResponse<AnalyzedFileIndex[]> | undefined {
 	if (!isRecord(message) || typeof message.id !== "number") return undefined;
 	if (Array.isArray(message.results)) return { id: message.id, result: message.results as AnalyzedFileIndex[] };
 	return typeof message.error === "string" ? { id: message.id, error: message.error } : undefined;

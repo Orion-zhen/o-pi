@@ -8,7 +8,7 @@ import {
 	toolPathIdentity,
 	type FileToolsConfig,
 } from "../file-tools/config.js";
-import { isFailed } from "../file-tools/core/errors.js";
+import { isFailed } from "../file-tools/shared/result.js";
 import { createIgnoreSnapshot } from "../file-tools/ignore/ignore-engine.js";
 import type { IgnoreSnapshot } from "../file-tools/ignore/ignore-types.js";
 import { RepoMapError } from "./errors.js";

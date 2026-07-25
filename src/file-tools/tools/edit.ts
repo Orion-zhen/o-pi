@@ -1,14 +1,15 @@
 import { writeFile } from "node:fs/promises";
 import { generateDiffString, withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { guardWritablePath, PathGuardBlockedError } from "../../safety/path-guard.js";
-import { fail, isAccessDenied, isFailed, protectedPathFailure } from "../core/errors.js";
+import { protectedPathFailure } from "../core/errors.js";
+import { fail, isAccessDenied, isFailed, type ToolOutcome } from "../shared/result.js";
 import { ignoreConfigFromFileTools, loadFileToolsConfig } from "../config.js";
 import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
 import { resolveExistingFile, resolveWorkspaceRoot } from "../core/path-resolver.js";
 import type { ReadVersionCache } from "../core/read-cache.js";
 import { buildTextBytes, normalizeLineEndings, readTextFile, sha256Version } from "../core/text-file.js";
 import { buildEditMatchHints } from "../core/edit-hints.js";
-import type { EditParams, EditPreviewSuccess, EditReplacement, EditSuccess, FileToolLspDiagnosticSnapshot, FileToolLspHooks, LspDiagnosticsSummary, TextFile, ToolOutcome } from "../types.js";
+import type { EditParams, EditPreviewSuccess, EditReplacement, EditSuccess, FileToolLspDiagnosticSnapshot, FileToolLspHooks, LspDiagnosticsSummary, TextFile } from "../types.js";
 import type { IgnoreSnapshot } from "../ignore/ignore-types.js";
 
 interface PreparedEdit {

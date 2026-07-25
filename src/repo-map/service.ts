@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { ignoreConfigFromFileTools, loadFileToolsConfig, type FileToolsConfig } from "../file-tools/config.js";
-import { isFailed } from "../file-tools/core/errors.js";
+import { isFailed } from "../file-tools/shared/result.js";
 import { createIgnoreSnapshot } from "../file-tools/ignore/ignore-engine.js";
 import type { IgnoreSnapshot } from "../file-tools/ignore/ignore-types.js";
 import { loadRepoMapConfig, repoMapCacheRoot, repoMapConfigFingerprint, type RepoMapConfig } from "./config.js";

@@ -9,7 +9,8 @@ import { createIgnoreSnapshot, defaultIgnoreEngine } from "../../src/file-tools/
 import { listWorkspaceDirectory } from "../../src/file-tools/tools/ls.js";
 import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
 import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/tools/read.js";
-import type { EditSuccess, ReadFileSuccess, ReadParams, ToolOutcome } from "../../src/file-tools/types.js";
+import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
+import type { EditSuccess, ReadFileSuccess, ReadParams } from "../../src/file-tools/types.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
 const execFileAsync = promisify(execFile);

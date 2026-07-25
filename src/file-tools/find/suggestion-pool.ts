@@ -1,8 +1,8 @@
 import type { Worker } from "node:worker_threads";
 
 import type { FindEntry } from "../types.js";
-import { FILE_SEARCH_CONCURRENCY } from "../core/search-concurrency.js";
-import { createTypeScriptWorker } from "../core/typescript-worker.js";
+import { DEFAULT_WORKER_CONCURRENCY } from "../../worker-runtime/concurrency.js";
+import { createTypeScriptWorker } from "../../worker-runtime/typescript-worker.js";
 import { rankFindMatches, rankFindSuggestions, type RankedFindEntries } from "./ranker.js";
 
 interface SuggestionTask {
@@ -34,7 +34,7 @@ export interface FindSuggestionDecisionOptions {
 	workerWarm?: boolean;
 }
 
-export const FIND_CONCURRENCY = FILE_SEARCH_CONCURRENCY;
+export const FIND_CONCURRENCY = DEFAULT_WORKER_CONCURRENCY;
 export const FIND_SUGGESTION_CHUNK_SIZE = 4_096;
 const FUSE_FIELDS = 6;
 const LOCAL_WORK_UNITS_PER_MS = 170;

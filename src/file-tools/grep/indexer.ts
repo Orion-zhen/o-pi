@@ -6,7 +6,8 @@ import picomatch from "picomatch";
 import pLimit from "p-limit";
 
 import { ignoreConfigFromFileTools, isBlockedPath, isIgnoredPath, loadFileToolsConfig, toolPathIdentity, type FileToolsConfig } from "../config.js";
-import { fail, isAccessDenied, isFailed, protectedPathFailure } from "../core/errors.js";
+import { protectedPathFailure } from "../core/errors.js";
+import { fail, isAccessDenied, isFailed, type ToolOutcome } from "../shared/result.js";
 import { defaultIgnoreEngine } from "../ignore/ignore-engine.js";
 import type { IgnoreSnapshot } from "../ignore/ignore-types.js";
 import { languageFromPath, splitTokens, type AnalyzedFileIndex, type ParsedFileIndex } from "../../code-index/parser.js";
@@ -14,7 +15,7 @@ import { disposeTreeSitterParsers } from "../../code-index/tree-sitter-loader.js
 import { guardExistingPath, PathGuardBlockedError } from "../../safety/path-guard.js";
 import { normalizeToolPath } from "../core/path-resolver.js";
 import { decodeUtf8Text } from "../core/text-file.js";
-import type { GrepParams, GrepSkippedFiles, ToolOutcome } from "../types.js";
+import type { GrepParams, GrepSkippedFiles } from "../types.js";
 import { AbortGrepParse, analyzeGrepFile, analyzeGrepFiles, clearGrepParserPool, GREP_CONCURRENCY, GREP_PARSER_BATCH_SIZE, shouldOffloadGrepParsing } from "./parser-pool.js";
 
 export interface GrepCandidateFile {

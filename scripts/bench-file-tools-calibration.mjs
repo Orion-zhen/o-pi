@@ -15,7 +15,7 @@ const { grepWorkspaceFiles } = await loadTypeScript("src/file-tools/tools/grep.t
 const { clearGrepIndex } = await loadTypeScript("src/file-tools/grep/indexer.ts");
 
 const findCases = [
-	{ query: "ranking evidence", relevant: ["src/file-tools/ranking-evidence.ts"] },
+	{ query: "ranking evidence", relevant: ["src/file-tools/shared/ranking/evidence.ts"] },
 	{ query: "repo map ranking", relevant: ["src/file-tools/repo-map-ranking.ts"] },
 	{ query: "file tool query", relevant: ["src/repo-map/file-tool-query.ts"] },
 	{ query: "grep fusion", relevant: ["src/file-tools/grep/fusion.ts"] },
@@ -23,7 +23,7 @@ const findCases = [
 ];
 
 const grepCases = [
-	{ query: join("selectRelevance", "HeadMmr"), path: "src", match: "auto", relevant: ["src/file-tools/ranking-selection.ts"] },
+	{ query: join("selectRelevance", "HeadMmr"), path: "src", match: "auto", relevant: ["src/file-tools/shared/ranking/selection.ts"] },
 	{ query: join("repoMapRanking", "Evidence"), path: "src", match: "auto", relevant: ["src/file-tools/repo-map-ranking.ts"] },
 	{ query: join("locateRepoMap", "Unit"), path: "src", match: "auto", relevant: ["src/file-tools/tools/grep.ts"] },
 	{ query: join("region", "Identity"), path: "src", match: "auto", relevant: ["src/file-tools/grep/fusion.ts"] },
@@ -34,7 +34,7 @@ const grepCases = [
 		match: "literal",
 		relevant: ["src/file-tools/pi/guards.ts", "src/file-tools/grep/packer.ts", "src/file-tools/tools/find.ts", "src/file-tools/tools/grep.ts", "src/file-tools/types.ts"],
 	},
-	{ query: join("RRF_", "K|MMR_", "LAMBDA"), path: "src", match: "regex", relevant: ["src/file-tools/ranking-evidence.ts", "src/file-tools/ranking-selection.ts"] },
+	{ query: join("RRF_", "K|MMR_", "LAMBDA"), path: "src", match: "regex", relevant: ["src/file-tools/shared/ranking/evidence.ts", "src/file-tools/shared/ranking/selection.ts"] },
 	{ query: join("callers of selectRelevance", "HeadMmr"), path: "src", match: "auto", relevant: ["src/file-tools/find/fusion.ts", "src/file-tools/grep/fusion.ts"] },
 	{ query: join("selectRelevanceHead", "Mmr tests"), path: "tests", match: "auto", relevant: ["tests/file-tools/ranking-selection.test.ts"] },
 ];

@@ -4,8 +4,8 @@ import type { Worker } from "node:worker_threads";
 import pLimit from "p-limit";
 
 import { analyzeCodeFile, languageFromPath, type AnalyzeCodeFileOptions, type AnalyzedFileIndex } from "../code-index/parser.js";
-import { WorkerTaskAbortedError, WorkerTaskPool } from "../file-tools/core/worker-task-pool.js";
-import { createTypeScriptWorker } from "../file-tools/core/typescript-worker.js";
+import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../worker-runtime/worker-task-pool.js";
+import { createTypeScriptWorker } from "../worker-runtime/typescript-worker.js";
 import { javascriptSyntaxFactsFromDocument, type JavaScriptSyntaxFacts } from "./syntax-facts.js";
 import { throwIfAborted } from "./errors.js";
 import { compareText, groupBy, type RepoMapImportFact, type RepoMapSymbolIndex } from "./graph.js";
@@ -150,7 +150,7 @@ function createRepoMapParserPool(concurrency: number, workerFactory: (() => Work
 	});
 }
 
-function decodeRepoMapParserResponse(message: unknown): { id: number; result?: RepoMapParserFileResult[]; error?: string } | undefined {
+function decodeRepoMapParserResponse(message: unknown): WorkerTaskResponse<RepoMapParserFileResult[]> | undefined {
 	if (!isRecord(message) || typeof message.id !== "number") return undefined;
 	if (Array.isArray(message.results)) return { id: message.id, result: message.results as RepoMapParserFileResult[] };
 	return typeof message.error === "string" ? { id: message.id, error: message.error } : undefined;

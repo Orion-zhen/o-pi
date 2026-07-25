@@ -1,5 +1,5 @@
 import type { RepoMapMatchReason, RepoMapQueryCandidate } from "../repo-map/query.js";
-import { createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE, type RankingEvidence } from "./ranking-evidence.js";
+import { createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE, type RankingEvidence } from "./shared/ranking/evidence.js";
 
 const NAVIGATION_REASONS = new Set<RepoMapMatchReason>([
 	"definition",

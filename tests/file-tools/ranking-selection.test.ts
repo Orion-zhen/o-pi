@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { selectRelevanceHeadMmr } from "../../src/file-tools/ranking-selection.js";
+import { selectRelevanceHeadMmr } from "../../src/file-tools/shared/ranking/selection.js";
 
 interface Candidate {
 	id: string;

@@ -11,7 +11,8 @@ import { isPlainRecord } from "../../src/file-tools/pi/guards.js";
 import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/tools/read.js";
 import { writeWorkspaceFile as writeWorkspaceFileImpl } from "../../src/file-tools/tools/write.js";
 import { sha256Version } from "../../src/file-tools/core/text-file.js";
-import type { EditSuccess, LsSuccess, ReadFileSuccess, ReadParams, ToolOutcome, WriteSuccess } from "../../src/file-tools/types.js";
+import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
+import type { EditSuccess, LsSuccess, ReadFileSuccess, ReadParams, WriteSuccess } from "../../src/file-tools/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;

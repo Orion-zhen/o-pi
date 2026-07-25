@@ -24,12 +24,12 @@ import {
 import type {
 	EditPreviewSuccess,
 	EditSuccess,
-	FailedResult,
 	FindDetails,
 	LspDiagnosticsSummary,
 	ReadImageSuccess,
 	ReadSuccess,
 } from "../types.js";
+import type { FailedResult } from "../shared/result.js";
 
 type ToolTextResult = { content: Array<{ type: string; text?: string }>; details?: unknown };
 type ToolReadResult = { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; details?: unknown };

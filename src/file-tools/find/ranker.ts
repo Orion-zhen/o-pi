@@ -1,7 +1,7 @@
 import path from "node:path";
 import Fuse, { type FuseResult } from "fuse.js";
 
-import { createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE, type RankingEvidence } from "../ranking-evidence.js";
+import { createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE, type RankingEvidence } from "../shared/ranking/evidence.js";
 import type { FindEntry } from "../types.js";
 
 export interface RankedFindEntry {

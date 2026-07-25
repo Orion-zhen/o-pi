@@ -1,5 +1,5 @@
-import { compareRankingEvidence, mergeRankingEvidence } from "../ranking-evidence.js";
-import { selectRelevanceHeadMmr } from "../ranking-selection.js";
+import { compareRankingEvidence, mergeRankingEvidence } from "../shared/ranking/evidence.js";
+import { selectRelevanceHeadMmr } from "../shared/ranking/selection.js";
 import type { RankedFindEntry } from "./ranker.js";
 
 interface FindSimilarityProfile {
