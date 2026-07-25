@@ -15,13 +15,13 @@ git clone https://github.com/Orion-zhen/o-pi.git ~/.pi
 安装依赖(不包含 Tree-sitter 相关包):
 
 ```bash
-cd ~/.pi && npm install
+cd ~/.pi && npm install && npm rebuild
 ```
 
 安装全部依赖:
 
 ```bash
-cd ~/.pi && npm install --include=optional
+cd ~/.pi && npm install --include=optional && npm rebuild
 ```
 
 更新依赖:
