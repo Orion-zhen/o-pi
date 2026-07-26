@@ -1,5 +1,4 @@
 import { analyzeCodeFile, analyzeTextFile, type AnalyzedFileIndex } from "../../code-index/parser.js";
-import { disposeTreeSitterParsers } from "../../code-index/tree-sitter-loader.js";
 import { DEFAULT_WORKER_CONCURRENCY } from "../../worker-runtime/concurrency.js";
 import { createTypeScriptWorker } from "../../worker-runtime/typescript-worker.js";
 import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../../worker-runtime/worker-task-pool.js";
@@ -89,7 +88,6 @@ export class GrepParser {
 		this.disposed = true;
 		this.pool?.dispose();
 		this.pool = undefined;
-		disposeTreeSitterParsers();
 	}
 }
 

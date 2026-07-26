@@ -21,6 +21,7 @@ type RepoMapStatusContext = Pick<ExtensionCommandContext, "mode" | "sessionManag
 interface RepoMapAutoActivationApi {
 	appendEntry<T>(customType: string, data: T): void;
 	on(event: "session_start", handler: (event: unknown, ctx: ExtensionContext) => Promise<void>): void;
+	on(event: "session_shutdown", handler: (event: unknown, ctx: ExtensionContext) => Promise<void>): void;
 }
 
 export interface RepoMapAutoActivationDependencies {
@@ -84,33 +85,50 @@ export function registerRepoMapAutoActivation(
 	dependencies: Partial<RepoMapAutoActivationDependencies> = {},
 ): void {
 	const deps = { ...defaultAutoActivationDependencies, ...dependencies };
+	let pending: { controller: AbortController; timer?: ReturnType<typeof setTimeout> } | undefined;
+	const cancelPending = (): void => {
+		if (pending?.timer !== undefined) clearTimeout(pending.timer);
+		pending?.controller.abort();
+		pending = undefined;
+	};
 	pi.on("session_start", async (_event, ctx) => {
+		cancelPending();
 		if (isRepoMapAutoActivationDisabled(ctx.sessionManager.getBranch())) {
 			setRepoMapStatus(ctx, false);
 			return;
 		}
-		// Defer to keep session_start fast; other extensions (including TUI) should install
-		// their own UI hooks before repo-map progress status is emitted.
-		const timer = setTimeout(() => {
-			void runRepoMapAutoActivation(pi, ctx, deps);
+		const controller = new AbortController();
+		const current: { controller: AbortController; timer?: ReturnType<typeof setTimeout> } = { controller };
+		pending = current;
+		// Defer to keep session_start fast while retaining explicit session ownership.
+		current.timer = setTimeout(() => {
+			delete current.timer;
+			const signal = ctx.signal === undefined ? controller.signal : AbortSignal.any([controller.signal, ctx.signal]);
+			void runRepoMapAutoActivation(pi, ctx, deps, signal, () => pending === current)
+				.finally(() => {
+					if (pending === current) pending = undefined;
+				});
 		}, 0);
-		timer.unref?.();
-		return;
+		current.timer.unref?.();
 	});
+	pi.on("session_shutdown", async () => cancelPending());
 }
 
 async function runRepoMapAutoActivation(
 	pi: RepoMapAutoActivationApi,
 	ctx: ExtensionContext,
 	deps: RepoMapAutoActivationDependencies,
+	signal: AbortSignal,
+	isCurrent: () => boolean,
 ): Promise<void> {
-	if (ctx.signal?.aborted || isRepoMapAutoActivationDisabled(ctx.sessionManager.getBranch())) {
-		setRepoMapStatus(ctx, false);
+	if (!isCurrent() || signal.aborted || isRepoMapAutoActivationDisabled(ctx.sessionManager.getBranch())) {
+		if (isCurrent()) setRepoMapStatus(ctx, false);
 		return;
 	}
 	safeSetStatus(ctx, "Repo Map: discovering");
 	try {
-		const discovered = await deps.discover(ctx.cwd, ctx.signal);
+		const discovered = await deps.discover(ctx.cwd, signal);
+		if (!isCurrent() || signal.aborted) return;
 		if (isRepoMapAutoActivationDisabled(ctx.sessionManager.getBranch())) {
 			setRepoMapStatus(ctx, false);
 			return;
@@ -125,8 +143,9 @@ async function runRepoMapAutoActivation(
 			const refreshed = await deps.initialize({
 				cwd: discovered.root,
 				mode: "refresh",
-				...(ctx.signal !== undefined ? { signal: ctx.signal } : {}),
+				signal,
 				onProgress(progress) {
+					if (!isCurrent() || signal.aborted) return;
 					const status = renderProgressStatus(progress);
 					if (status !== undefined) safeSetStatus(ctx, status);
 				},
@@ -139,6 +158,7 @@ async function runRepoMapAutoActivation(
 				needsRefresh: false,
 			};
 		}
+		if (!isCurrent() || signal.aborted) return;
 		if (isRepoMapAutoActivationDisabled(ctx.sessionManager.getBranch())) {
 			setRepoMapStatus(ctx, false);
 			return;
@@ -146,7 +166,7 @@ async function runRepoMapAutoActivation(
 		appendActivationIfChanged(pi, ctx, deps.now, activation);
 		setRepoMapStatus(ctx, true);
 	} catch {
-		setRepoMapStatus(ctx, isRepoMapActive(ctx));
+		if (isCurrent() && !signal.aborted) setRepoMapStatus(ctx, isRepoMapActive(ctx));
 	}
 }
 

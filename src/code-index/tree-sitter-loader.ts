@@ -69,8 +69,8 @@ export function invalidateTreeSitterParser(
 	safeDeleteParser(parser);
 }
 
-/** Release cached parser handles. Runtime and languages remain reusable. */
-export function disposeTreeSitterParsers(): void {
+/** Process/test shutdown only: release the shared parser cache. Runtime and languages remain reusable. */
+export function disposeTreeSitterParserCache(): void {
 	for (const entry of parsers.values()) {
 		void entry.promise.then(
 			(result) => {

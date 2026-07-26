@@ -3,7 +3,6 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
-import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
 const execFileAsync = promisify(execFile);
 const worker = fileURLToPath(new URL("../../scripts/workers/bench-repo-map-worker.mjs", import.meta.url));
@@ -21,7 +20,7 @@ interface BenchmarkResult {
 	};
 }
 
-describe.skipIf(!treeSitterAvailable())("Repo Map performance benchmark", () => {
+describe("Repo Map performance benchmark", () => {
 	it("keeps the deterministic fixture generation and semantic oracle stable", async () => {
 		const first = await runWorker();
 		const second = await runWorker();

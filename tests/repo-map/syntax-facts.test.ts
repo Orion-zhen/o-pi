@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { analyzeCodeFile } from "../../src/code-index/parser.js";
 import { parseDocument } from "../../src/code-index/syntax-tree.js";
 import { javascriptSyntaxFacts } from "../../src/repo-map/syntax-facts.js";
-import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
 const EMPTY_FACTS = {
 	registrations: [],
@@ -15,7 +14,7 @@ const EMPTY_FACTS = {
 	snapshots: [],
 };
 
-describe.skipIf(!treeSitterAvailable())("shared syntax tree boundary", () => {
+describe("shared syntax tree boundary", () => {
 	it("creates an owned syntax tree without exposing Parser initialization to callers", async () => {
 		const document = await parseDocument("typescript", "export function run() {}\n");
 		if (document === undefined) throw new Error("missing syntax tree");

@@ -46,7 +46,7 @@ export interface RepoMapMutationResult {
 }
 
 export interface RepoMapFileToolQuery {
-	query(input: { requestedPath: string; query: string; limit: number }): Promise<RepoMapQueryResult | undefined>;
+	query(input: { requestedPath: string; query: string; limit: number; signal?: AbortSignal }): Promise<RepoMapQueryResult | undefined>;
 	readContext(input: {
 		requestedPath: string;
 		contentHash: string;
@@ -54,6 +54,7 @@ export interface RepoMapFileToolQuery {
 		endLine: number;
 		partial: boolean;
 		truncated: boolean;
+		signal?: AbortSignal;
 	}): Promise<RepoMapReadContext | undefined>;
 	syncMutation(input: { requestedPath: string; changedLine?: number; signal?: AbortSignal }): Promise<RepoMapMutationResult | undefined>;
 }
@@ -82,7 +83,13 @@ export function createRepoMapFileToolQuery(
 	const createQueryIndex = dependencies.createQueryIndex ?? ((generation: RepoMapGeneration) => new RepoMapQueryIndex(generation));
 	const isMutationPathInScope = dependencies.isMutationPathInScope ?? isRepoMapPathInScope;
 	const queryIndexes = new Map<string, RepoMapQueryIndex>();
-	let staleRefresh: Promise<{ activation: RepoMapActivation; generation: RepoMapGeneration } | undefined> | undefined;
+	interface PendingStaleRefresh {
+		promise: Promise<{ activation: RepoMapActivation; generation: RepoMapGeneration } | undefined>;
+		controller: AbortController;
+		consumers: number;
+		settled: boolean;
+	}
+	let staleRefresh: PendingStaleRefresh | undefined;
 	const queryIndexFor = (generation: RepoMapGeneration): RepoMapQueryIndex => {
 		const key = `${generation.metadata.repositoryRoot}\0${generation.metadata.mapId}\0${generation.metadata.generation}`;
 		const cached = queryIndexes.get(key);
@@ -112,35 +119,51 @@ export function createRepoMapFileToolQuery(
 		});
 	};
 
-	const refreshStale = async (activation: RepoMapActivation): Promise<{ activation: RepoMapActivation; generation: RepoMapGeneration } | undefined> => {
-		if (staleRefresh !== undefined) return await staleRefresh;
-		const created = (async () => {
-			const result = await refresh({ activation });
-			const entry: RepoMapActivationEntry = {
-				kind: "activation",
-				root: result.metadata.repositoryRoot,
-				mapId: result.metadata.mapId,
-				generation: result.metadata.generation,
-				activatedAt: now().toISOString(),
-				...(result.metadata.freshness !== "fresh" ? { freshness: result.metadata.freshness } : {}),
-			};
-			dependencies.appendActivation?.(entry);
-			if (entry.generation !== activation.generation) queryIndexes.clear();
-			const generation = await readActivated(entry);
-			return generation === undefined ? undefined : { activation: entry, generation };
-		})();
-		staleRefresh = created;
-		try {
-			return await created;
-		} finally {
-			if (staleRefresh === created) staleRefresh = undefined;
+	const refreshStale = (
+		activation: RepoMapActivation,
+		signal?: AbortSignal,
+	): Promise<{ activation: RepoMapActivation; generation: RepoMapGeneration } | undefined> => {
+		let pending = staleRefresh;
+		if (pending === undefined) {
+			const controller = new AbortController();
+			let created: PendingStaleRefresh;
+			const promise = (async () => {
+				const result = await refresh({ activation, signal: controller.signal });
+				const entry: RepoMapActivationEntry = {
+					kind: "activation",
+					root: result.metadata.repositoryRoot,
+					mapId: result.metadata.mapId,
+					generation: result.metadata.generation,
+					activatedAt: now().toISOString(),
+					...(result.metadata.freshness !== "fresh" ? { freshness: result.metadata.freshness } : {}),
+				};
+				dependencies.appendActivation?.(entry);
+				if (entry.generation !== activation.generation) queryIndexes.clear();
+				const generation = await readActivated(entry);
+				return generation === undefined ? undefined : { activation: entry, generation };
+			})().finally(() => {
+				created.settled = true;
+				if (staleRefresh === created) staleRefresh = undefined;
+			});
+			created = { promise, controller, consumers: 0, settled: false };
+			staleRefresh = created;
+			pending = created;
 		}
+		pending.consumers += 1;
+		return abortable(pending.promise, signal).finally(() => {
+			pending.consumers -= 1;
+			if (pending.consumers === 0 && !pending.settled) {
+				if (staleRefresh === pending) staleRefresh = undefined;
+				pending.controller.abort();
+			}
+		});
 	};
 
-	const loadEnabled = async (requestedPath: string): Promise<{ activation: RepoMapActivation; generation: RepoMapGeneration } | undefined> => {
+	const loadEnabled = async (requestedPath: string, signal?: AbortSignal): Promise<{ activation: RepoMapActivation; generation: RepoMapGeneration } | undefined> => {
+		throwIfQueryAborted(signal);
 		let activation = computeRepoMapActivation(getBranch());
 		if (activation === undefined) return undefined;
-		const loadedGeneration = await readActivated(activation);
+		const loadedGeneration = await abortable(readActivated(activation), signal);
 		let generation = loadedGeneration === undefined
 			|| activation.freshness === undefined
 			|| loadedGeneration.metadata.freshness === "stale"
@@ -160,7 +183,7 @@ export function createRepoMapFileToolQuery(
 			requestedPath,
 		});
 		if (!gate.enabled && gate.reason === "map_stale") {
-			const refreshed = await refreshStale(activation);
+			const refreshed = await refreshStale(activation, signal);
 			if (refreshed === undefined) return undefined;
 			({ activation, generation } = refreshed);
 			gate = evaluateRepoMapGate({
@@ -180,10 +203,12 @@ export function createRepoMapFileToolQuery(
 	return {
 		async query(input) {
 			try {
-				const loaded = await loadEnabled(input.requestedPath);
+				const loaded = await loadEnabled(input.requestedPath, input.signal);
 				if (loaded === undefined) return undefined;
+				throwIfQueryAborted(input.signal);
 				const result = queryIndexFor(loaded.generation).candidates(input.query, input.limit);
-				const candidates = await verifiedCandidates(loaded.generation, result.candidates);
+				const candidates = await verifiedCandidates(loaded.generation, result.candidates, input.signal);
+				throwIfQueryAborted(input.signal);
 				if (candidates.length !== result.candidates.length) {
 					appendPartial(loaded.activation, "Repo Map candidate hash differs from the live file.");
 				}
@@ -195,7 +220,7 @@ export function createRepoMapFileToolQuery(
 		async readContext(input) {
 			if (!input.partial && !input.truncated) return undefined;
 			try {
-				const loaded = await loadEnabled(input.requestedPath);
+				const loaded = await loadEnabled(input.requestedPath, input.signal);
 				if (loaded === undefined) return undefined;
 				const relativePath = relativeRepoPath(loaded.activation.root, input.requestedPath);
 				if (relativePath === undefined) return undefined;
@@ -211,7 +236,7 @@ export function createRepoMapFileToolQuery(
 				const directTests = await verifiedCandidates(loaded.generation, queryIndex.relatedTests(
 					[file.id, context.symbol.id],
 					REPO_MAP_OUTPUT_CANDIDATE_LIMIT,
-				));
+				), input.signal);
 				return directTests.length === 0
 					? context
 					: { ...context, relatedTests: [...new Set(directTests.map((candidate) => candidate.path))].slice(0, REPO_MAP_OUTPUT_CANDIDATE_LIMIT) };
@@ -270,7 +295,7 @@ export function createRepoMapFileToolQuery(
 							...(input.changedLine !== undefined ? { changedLine: input.changedLine } : {}),
 							maxCandidates: 8,
 						});
-						mutation.impact = await verifiedImpact(after, impact);
+						mutation.impact = await verifiedImpact(after, impact, input.signal);
 					}
 				} catch {
 					// Impact analysis is advisory and cannot change a successful map refresh.
@@ -285,14 +310,19 @@ export function createRepoMapFileToolQuery(
 	};
 }
 
-async function verifiedCandidates(generation: RepoMapGeneration, candidates: RepoMapQueryCandidate[]): Promise<RepoMapQueryCandidate[]> {
+async function verifiedCandidates(
+	generation: RepoMapGeneration,
+	candidates: RepoMapQueryCandidate[],
+	signal?: AbortSignal,
+): Promise<RepoMapQueryCandidate[]> {
 	const results = new Map<string, boolean>();
 	const verify = async (file: { path: string; contentHash?: string }): Promise<boolean> => {
+		throwIfQueryAborted(signal);
 		if (file.contentHash === undefined) return false;
 		const key = `${file.path}\0${file.contentHash}`;
 		const cached = results.get(key);
 		if (cached !== undefined) return cached;
-		const valid = await hashFile(path.join(generation.metadata.repositoryRoot, file.path)) === file.contentHash;
+		const valid = await hashFile(path.join(generation.metadata.repositoryRoot, file.path), signal) === file.contentHash;
 		results.set(key, valid);
 		return valid;
 	};
@@ -307,15 +337,18 @@ async function verifiedCandidates(generation: RepoMapGeneration, candidates: Rep
 	return verified;
 }
 
-async function hashFile(filePath: string): Promise<string | undefined> {
+async function hashFile(filePath: string, signal?: AbortSignal): Promise<string | undefined> {
 	try {
+		throwIfQueryAborted(signal);
 		const handle = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW);
 		try {
-			return createHash("sha256").update(await handle.readFile()).digest("hex");
+			const content = signal === undefined ? await handle.readFile() : await handle.readFile({ signal });
+			return createHash("sha256").update(content).digest("hex");
 		} finally {
 			await handle.close();
 		}
 	} catch {
+		throwIfQueryAborted(signal);
 		return undefined;
 	}
 }
@@ -367,10 +400,10 @@ function contextForRange(generation: RepoMapGeneration, fileId: string, startLin
 	};
 }
 
-async function verifiedImpact(generation: RepoMapGeneration, impact: RepoMapImpactResult): Promise<RepoMapImpactResult> {
+async function verifiedImpact(generation: RepoMapGeneration, impact: RepoMapImpactResult, signal?: AbortSignal): Promise<RepoMapImpactResult> {
 	const candidates = [];
 	for (const candidate of impact.candidates) {
-		if (candidate.contentHash === undefined || await hashFile(path.join(generation.metadata.repositoryRoot, candidate.path)) !== candidate.contentHash) continue;
+		if (candidate.contentHash === undefined || await hashFile(path.join(generation.metadata.repositoryRoot, candidate.path), signal) !== candidate.contentHash) continue;
 		candidates.push(candidate);
 	}
 	return { ...impact, candidates };
@@ -394,4 +427,21 @@ function compactLabel(value: string | undefined): string | undefined {
 
 function enclosingRank(symbol: RepoMapSymbolNode, startLine: number, endLine: number): number {
 	return symbol.startLine <= startLine && symbol.endLine >= endLine ? 0 : 1;
+}
+
+class RepoMapQueryAbortedError extends Error {}
+
+function throwIfQueryAborted(signal: AbortSignal | undefined): void {
+	if (signal?.aborted === true) throw new RepoMapQueryAbortedError();
+}
+
+function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+	if (signal === undefined) return promise;
+	throwIfQueryAborted(signal);
+	return new Promise<T>((resolve, reject) => {
+		const onAbort = (): void => reject(new RepoMapQueryAbortedError());
+		signal.addEventListener("abort", onAbort, { once: true });
+		if (signal.aborted) onAbort();
+		void promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+	});
 }

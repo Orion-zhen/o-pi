@@ -110,6 +110,16 @@ export async function initializeRepoMap(
 	const deps = { ...defaultDependencies, ...dependencies };
 	throwIfAborted(input.signal);
 	const identity = await deps.detectRepository(input.cwd, signalOptions(input.signal));
+	return await withMapUpdateLock(createRepoMapId(identity), async () =>
+		await initializeRepoMapLocked(input, deps, identity));
+}
+
+async function initializeRepoMapLocked(
+	input: InitializeRepoMapInput,
+	deps: RepoMapServiceDependencies,
+	identity: RepositoryIdentity,
+): Promise<InitializeRepoMapResult> {
+	throwIfAborted(input.signal);
 	const [config, fileToolsConfig] = await Promise.all([
 		deps.loadRepoMapConfig(),
 		deps.loadFileToolsConfig(identity.repositoryRoot),
@@ -378,13 +388,13 @@ export interface RefreshActivatedRepoMapInput {
 	signal?: AbortSignal;
 }
 
-/** mutation 后按 map 串行刷新，防止并发提交用较旧工作区快照覆盖较新 generation。 */
+/** mutation 后刷新；initializeRepoMap 统一按 map 串行所有本进程内构建。 */
 export async function refreshActivatedRepoMap(input: RefreshActivatedRepoMapInput): Promise<InitializeRepoMapResult> {
-	return await withMapUpdateLock(input.activation.mapId, async () => await initializeRepoMap({
+	return await initializeRepoMap({
 		cwd: input.activation.root,
 		mode: "refresh",
 		...(input.signal !== undefined ? { signal: input.signal } : {}),
-	}));
+	});
 }
 
 export function combinedConfigFingerprint(repoMapConfig: RepoMapConfig, fileToolsConfig: FileToolsConfig): string {

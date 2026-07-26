@@ -27,7 +27,7 @@ Repo Map 通过 `/init` 命令管理：
 | `/init rebuild` | 丢弃可复用 generation 后重建 |
 | `/init off` | 当前 session 禁用自动激活 |
 
-通常只需在仓库中执行一次 `/init`。session 启动时会轻量发现已有 Repo Map；没有建立过索引的仓库不会因为自动发现而扫描。
+通常只需在仓库中执行一次 `/init`。session 启动时会轻量发现已有 Repo Map；没有建立过索引的仓库不会因为自动发现而扫描。自动发现和刷新绑定当前 session，session shutdown/switch 会取消尚未完成的任务。
 
 初始化完成后，文件工具会按查询类型使用 Repo Map：
 
@@ -91,7 +91,7 @@ ignore 规则的完整定义见 [File Tools ignore engine](../file-tools/ignore.
 - Repo Map 或 File Tools 配置变化。
 - 仓库在扫描期间继续发生变化。
 
-`refresh` 会尽量复用未变化文件和解析结果；`rebuild` 用于 generation 损坏或需要完全重新建立索引的场景。更新操作按 map 串行化，避免较旧的工作区快照覆盖较新的 generation。
+`refresh` 会尽量复用未变化文件和解析结果；`rebuild` 用于 generation 损坏或需要完全重新建立索引的场景。显式初始化、自动刷新和 mutation refresh 均按 map 串行化，避免并发扫描在提交阶段互相失败或由较旧快照覆盖较新 generation。
 
 ## 输出和限制
 

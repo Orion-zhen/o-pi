@@ -13,18 +13,11 @@ import {
 import { RepoMapError } from "../../src/repo-map/errors.js";
 import type { InitializeRepoMapResult } from "../../src/repo-map/service.js";
 import type { RepoMapGeneration } from "../../src/repo-map/storage.js";
-import { treeSitterModulePaths } from "../helpers/optional-dependencies.js";
+import { treeSitterModulePaths } from "../helpers/tree-sitter-dependencies.js";
 
 type CommandOptions = Parameters<ExtensionAPI["registerCommand"]>[1];
 const require = createRequire(import.meta.url);
-const parserModules = treeSitterModulePaths([
-	"tree-sitter",
-	"tree-sitter-javascript",
-	"tree-sitter-typescript",
-	"tree-sitter-python",
-	"tree-sitter-go",
-	"tree-sitter-rust",
-]);
+const parserModules = treeSitterModulePaths();
 
 describe("/init command", () => {
 	it("discovers and activates an existing map without rebuilding or duplicate entries", async () => {
@@ -84,6 +77,51 @@ describe("/init command", () => {
 			expect(harness.appended.map((entry) => entry.data)).toEqual([
 				expect.objectContaining({ kind: "deactivation", root: "/repo" }),
 			]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("cancels scheduled and in-flight auto activation on session shutdown", async () => {
+		vi.useFakeTimers();
+		try {
+			const handlers = new Map<string, (event: unknown, ctx: ExtensionContext) => Promise<void>>();
+			const harness = commandHarness();
+			const discovered = deferred<{
+				root: string;
+				mapId: string;
+				generation: string;
+				freshness: "fresh";
+				needsRefresh: false;
+			}>();
+			let discoverySignal: AbortSignal | undefined;
+			const discover = vi.fn(async (_cwd: string, signal?: AbortSignal) => {
+				discoverySignal = signal;
+				return await discovered.promise;
+			});
+			registerRepoMapAutoActivation({
+				on(event, handler) { handlers.set(event, handler); },
+				appendEntry: harness.api.appendEntry,
+			}, { discover, initialize: vi.fn(async () => initializeResult()) });
+			const start = handlers.get("session_start");
+			const shutdown = handlers.get("session_shutdown");
+			if (start === undefined || shutdown === undefined) throw new Error("session lifecycle was not registered");
+
+			await start({}, harness.ctx);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(discover).toHaveBeenCalledTimes(1);
+			await shutdown({}, harness.ctx);
+			expect(discoverySignal?.aborted).toBe(true);
+			discovered.resolve({
+				root: "/repo",
+				mapId: "a".repeat(64),
+				generation: "b".repeat(64),
+				freshness: "fresh",
+				needsRefresh: false,
+			});
+			await vi.runAllTimersAsync();
+			await Promise.resolve();
+			expect(harness.appended).toEqual([]);
 		} finally {
 			vi.useRealTimers();
 		}

@@ -10,18 +10,18 @@ import {
 	registeredLanguageAdapters,
 } from "../../src/code-index/language-registry.js";
 import {
-	disposeTreeSitterParsers,
+	disposeTreeSitterParserCache,
 	loadTreeSitterParser,
 	loadTreeSitterRuntimeForGrammar,
 } from "../../src/code-index/tree-sitter-loader.js";
 import { parseDocument, parseDocumentForAdapter } from "../../src/code-index/syntax-tree.js";
 import type { LanguageAdapter } from "../../src/code-index/adapters/types.js";
-import { treeSitterAvailable, treeSitterModulePaths } from "../helpers/optional-dependencies.js";
+import { treeSitterModulePaths } from "../helpers/tree-sitter-dependencies.js";
 
 const require = createRequire(import.meta.url);
 const grammarModules = treeSitterModulePaths().filter((modulePath) => !modulePath.includes("web-tree-sitter"));
 
-afterAll(() => disposeTreeSitterParsers());
+afterAll(() => disposeTreeSitterParserCache());
 
 describe("code language registry", () => {
 	it("registers every supported language without loading grammar JavaScript modules", () => {
@@ -46,7 +46,7 @@ describe("code language registry", () => {
 		expect(adapterFromPath(filePath)).toMatchObject({ language, extensions: expect.arrayContaining([extension]) });
 	});
 
-	it.skipIf(!treeSitterAvailable(["web-tree-sitter", "tree-sitter-c", "tree-sitter-cpp"]))("loads C/C++ WebAssembly grammars without requiring their native modules", async () => {
+	it("loads C/C++ WebAssembly grammars without requiring their native modules", async () => {
 		const c = await parseDocument("c", "int value;\n");
 		expect(c).toBeDefined();
 		c?.dispose();
@@ -64,7 +64,7 @@ describe("code language registry", () => {
 		expect(getLanguageAdapter("text")).toBeUndefined();
 	});
 
-	it.skipIf(!treeSitterAvailable(["web-tree-sitter", "tree-sitter-javascript"]))("registers extension metadata in an isolated registry and loads its WASM descriptor", async () => {
+	it("registers extension metadata in an isolated registry and loads its WASM descriptor", async () => {
 		const simulated: LanguageAdapter = { ...javascriptAdapter, extensions: [".simulated"] };
 		const registry = createLanguageRegistry([simulated]);
 		expect(registry.languageFromPath("new.simulated")).toBe("javascript");
@@ -72,7 +72,7 @@ describe("code language registry", () => {
 		expect(await loadTreeSitterRuntimeForGrammar(simulated.grammar)).toHaveProperty("runtime");
 	});
 
-	it.skipIf(!treeSitterAvailable(["web-tree-sitter", "tree-sitter-typescript"]))("returns stable structured failures and retries stale failure caches", async () => {
+	it("returns stable structured failures and retries stale failure caches", async () => {
 		const clock = vi.spyOn(Date, "now").mockReturnValue(10_000);
 		try {
 			const missingSpec = { packageName: "tree-sitter-typescript", wasmFile: "missing.wasm" };
@@ -93,7 +93,7 @@ describe("code language registry", () => {
 		}
 	});
 
-	it.skipIf(!treeSitterAvailable(["web-tree-sitter", "tree-sitter-javascript"]))("reuses a parser after timeout and replaces it after an exception", async () => {
+	it("reuses a parser after timeout and replaces it after an exception", async () => {
 		const first = await loadTreeSitterParser(javascriptAdapter);
 		const second = await loadTreeSitterParser(javascriptAdapter);
 		if (!("parser" in first) || !("parser" in second)) throw new Error("javascript parser unavailable");

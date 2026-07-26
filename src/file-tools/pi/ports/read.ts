@@ -17,7 +17,12 @@ export function createMissingPathSource(invocation: FileToolsInvocation, repoMap
 		async suggest(input) {
 			const root = invocation.nativeBridge.getNativeIdentity(input.root);
 			if (root === undefined) return [];
-			const result = await repoMap.query.query({ requestedPath: root.canonicalPath, query: input.query, limit: input.limit });
+			const result = await repoMap.query.query({
+				requestedPath: root.canonicalPath,
+				query: input.query,
+				limit: input.limit,
+				...(input.signal === undefined ? {} : { signal: input.signal }),
+			});
 			return result?.candidates
 				.filter((candidate) => candidate.hop === 0)
 				.slice(0, input.limit)
@@ -63,6 +68,7 @@ export function createReadGraphContextSource(
 				endLine: input.endLine,
 				partial: input.partial,
 				truncated: input.truncated,
+				...(input.signal === undefined ? {} : { signal: input.signal }),
 			});
 			if (context === undefined) return undefined;
 			const rendered = await repoMap.formatReadContext(context);

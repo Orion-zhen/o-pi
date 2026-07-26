@@ -5,9 +5,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { parseCodeUnits, type IndexedCodeUnit } from "../../src/code-index/parser.js";
+import { javascriptAdapter } from "../../src/code-index/adapters/javascript.js";
+import { loadTreeSitterParser } from "../../src/code-index/tree-sitter-loader.js";
+import { parseDocumentForAdapter } from "../../src/code-index/syntax-tree.js";
 import type { ContentOperations } from "../../src/filesystem/contracts/content.js";
 import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspace.js";
-import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
 import { mergeRankedGrepSources } from "../../src/file-tools/grep/fusion.js";
 import { formatGraphAliasReason, graphNavigationRelation, graphRankingEvidence, isGraphMainCandidate, isGraphNavigationCandidate } from "../../src/file-tools/grep/graph-ranking.js";
@@ -196,8 +198,16 @@ describe("grep", () => {
 			true,
 		);
 		expect(worker).toHaveLength(33);
+		const shared = await loadTreeSitterParser(javascriptAdapter);
+		if (!("parser" in shared)) throw new Error("javascript parser unavailable");
 		parser.dispose();
 		parser.dispose();
+		const retained = await loadTreeSitterParser(javascriptAdapter);
+		if (!("parser" in retained)) throw new Error("javascript parser unavailable after grep disposal");
+		expect(retained.parser).toBe(shared.parser);
+		const document = await parseDocumentForAdapter(javascriptAdapter, "export const retained = true;\n");
+		expect(document.document).toBeDefined();
+		document.document?.dispose();
 		await expect(parser.analyzeFiles([], undefined, false)).rejects.toBeInstanceOf(AbortGrepParse);
 
 		const pendingParser = new GrepParser();
@@ -500,7 +510,7 @@ describe("grep", () => {
 		expect(countTextTokensSync(formatCompactGrepResult(result)).tokens).toBeLessThanOrEqual(100);
 	});
 
-	it.skipIf(!treeSitterAvailable())("path 默认 workspace，并按 symbol 返回完整函数", async () => {
+	it("path 默认 workspace，并按 symbol 返回完整函数", async () => {
 		await writeFile(path.join(workspace, "auth.ts"), "export function login() {\n  return issueToken();\n}\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "login" }));
 		expect(result).toMatchObject({ status: "success", path: ".", match: "auto" });
@@ -513,7 +523,7 @@ describe("grep", () => {
 		expect(text).not.toContain("tokens");
 	});
 
-	it.skipIf(!treeSitterAvailable())("workspace 内绝对 path 会按 workspace-relative path 检索", async () => {
+	it("workspace 内绝对 path 会按 workspace-relative path 检索", async () => {
 		await mkdir(path.join(workspace, "src"));
 		await writeFile(path.join(workspace, "src", "auth.ts"), "export function login() { return true; }\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: [path.join(workspace, "src")], query: "login" }));
@@ -521,14 +531,14 @@ describe("grep", () => {
 		expect(firstRegion(result)).toMatchObject({ path: "src/auth.ts", symbol: "login" });
 	});
 
-	it.skipIf(!treeSitterAvailable())("workspace 外绝对 path 可以检索", async () => {
+	it("workspace 外绝对 path 可以检索", async () => {
 		await writeFile(path.join(outside, "external.ts"), "export function externalNeedle() { return true; }\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: [outside], query: "externalNeedle" }));
 		expect(result).toMatchObject({ status: "success", path: path.normalize(outside) });
 		expect(firstRegion(result)).toMatchObject({ path: path.join(outside, "external.ts"), symbol: "externalNeedle" });
 	});
 
-	it.skipIf(!treeSitterAvailable())("exact symbol 的定义排在引用之前，并以独立 region 表达一跳 caller/callee", async () => {
+	it("exact symbol 的定义排在引用之前，并以独立 region 表达一跳 caller/callee", async () => {
 		await writeFile(path.join(workspace, "service.ts"), "export function login() {\n  return issueToken();\n}\nfunction issueToken() { return 't'; }\n");
 		await writeFile(path.join(workspace, "route.ts"), "import { login } from './service';\nexport function handle() {\n  return login();\n}\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "login" }));
@@ -538,14 +548,14 @@ describe("grep", () => {
 		expect(formatCompactGrepResult(result)).not.toContain("calls: issueToken");
 	});
 
-	it.skipIf(!treeSitterAvailable())("支持 qualified symbol", async () => {
+	it("支持 qualified symbol", async () => {
 		await writeFile(path.join(workspace, "auth.ts"), "export class AuthService {\n  async login(credentials: Credentials): Promise<Session> {\n    return issueToken();\n  }\n}\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "AuthService.login" }));
 		expect(firstRegion(result)).toMatchObject({ symbol: "AuthService.login" });
 		expect(firstRegion(result).reasons).toContain("exact qualified symbol");
 	});
 
-	it.skipIf(!treeSitterAvailable())("camelCase、snake_case、路径和 docstring 能被自然语言召回", async () => {
+	it("camelCase、snake_case、路径和 docstring 能被自然语言召回", async () => {
 		await mkdir(path.join(workspace, "src"));
 		await writeFile(path.join(workspace, "src", "session_token.py"), 'def issue_session_token(user):\n    """create authentication flow token"""\n    return user.id\n');
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "authentication flow session token" }));
@@ -553,7 +563,7 @@ describe("grep", () => {
 		expect(firstRegion(result).reasons).toContain("lexical");
 	});
 
-	it.skipIf(!treeSitterAvailable())("literal 精确且区分大小写，同一函数多处命中只返回一个 region", async () => {
+	it("literal 精确且区分大小写，同一函数多处命中只返回一个 region", async () => {
 		await writeFile(path.join(workspace, "a.ts"), "export function demo() {\n  const Token = 'Token';\n  const token = 'token';\n  return Token;\n}\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "Token", match: "literal" }));
 		expect(result.regions).toHaveLength(1);
@@ -568,7 +578,7 @@ describe("grep", () => {
 		expect(await grepWorkspaceFiles(workspace, { query: "(", match: "regex" })).toMatchObject({ status: "failed", error: { code: "INVALID_REGEX" } });
 	});
 
-	it.skipIf(!treeSitterAvailable()).each([
+	it.each([
 		{ match: "literal" as const, queryText: "Needle42", expectedReason: "exact literal" },
 		{ match: "regex" as const, queryText: "Needle\\d+", expectedReason: "regex" },
 	])("$match 严格验证 repo-map region，并增强排序、reasons 和去重", async ({ match, queryText, expectedReason }) => {
@@ -609,7 +619,12 @@ describe("grep", () => {
 			{ repoMap: repoMapQuery(query) },
 		));
 
-		expect(query).toHaveBeenCalledWith({ requestedPath: workspace, query: match === "regex" ? "Needle" : queryText, limit: 32 });
+		expect(query).toHaveBeenCalledWith({
+			requestedPath: workspace,
+			query: match === "regex" ? "Needle" : queryText,
+			limit: 32,
+			signal: expect.any(AbortSignal),
+		});
 		expect(result.strategy).toContain("repo-map");
 		expect(firstRegion(result)).toMatchObject({ path: "z.ts", symbol: "Preferred" });
 		expect(firstRegion(result).reasons).toEqual(expect.arrayContaining([expectedReason, "definition", "public api"]));
@@ -631,7 +646,7 @@ describe("grep", () => {
 		await assertStrictMatches(result, queryText, match);
 	});
 
-	it.skipIf(!treeSitterAvailable())("严格主结果为空时单独返回有界的 Repo Map 关联区域", async () => {
+	it("严格主结果为空时单独返回有界的 Repo Map 关联区域", async () => {
 		const content = "export function RelatedDefinition() { return 'other'; }\n";
 		await writeFile(path.join(workspace, "related.ts"), content);
 		const unit = (await parseCodeUnits("related.ts", content)).units.find((item) => item.name === "RelatedDefinition");
@@ -664,7 +679,7 @@ describe("grep", () => {
 		expect(countTextTokensSync(compact).tokens).toBeLessThanOrEqual(1600);
 	});
 
-	it.skipIf(!treeSitterAvailable())("grep glob 之外的 Repo Map 候选只能进入关联通道", async () => {
+	it("grep glob 之外的 Repo Map 候选只能进入关联通道", async () => {
 		await mkdir(path.join(workspace, "src"));
 		await mkdir(path.join(workspace, "tests"));
 		await writeFile(path.join(workspace, "src", "match.ts"), "export const match = 'Needle42';\n");
@@ -693,7 +708,7 @@ describe("grep", () => {
 		})]);
 	});
 
-	it.skipIf(!treeSitterAvailable())("严格主结果充足时不返回结构关联通道", async () => {
+	it("严格主结果充足时不返回结构关联通道", async () => {
 		for (const name of ["a", "b", "c", "d"]) {
 			await writeFile(path.join(workspace, `${name}.ts`), `export const ${name} = 'Needle42';\n`);
 		}
@@ -902,7 +917,7 @@ describe("grep", () => {
 		expect(query).not.toHaveBeenCalled();
 	});
 
-	it.skipIf(!treeSitterAvailable())("超大函数围绕命中压缩并保留 signature", async () => {
+	it("超大函数围绕命中压缩并保留 signature", async () => {
 		const configPath = path.join(outside, "small-budget.jsonc");
 		await writeConfig(configPath, { grep_output_token_budget: 220, grep_result_limit: 4 });
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
@@ -926,7 +941,7 @@ describe("grep", () => {
 		expect(testResult.regions[0]?.path).toContain("test");
 	});
 
-	it.skipIf(!treeSitterAvailable())("文件修改、删除、重命名和 ignore 变化会更新索引", async () => {
+	it("文件修改、删除、重命名和 ignore 变化会更新索引", async () => {
 		await writeFile(path.join(workspace, "a.ts"), "export function oldName() {}\n");
 		expect(firstRegion(expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "oldName" }))).symbol).toBe("oldName");
 		await writeFile(path.join(workspace, "a.ts"), "export function newName() {}\n");
@@ -940,7 +955,7 @@ describe("grep", () => {
 		expect(expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "hiddenNeedle" })).regions).toHaveLength(0);
 	});
 
-	it.skipIf(!treeSitterAvailable())("显式 grep 允许读取 soft ignored 文件和目录内容", async () => {
+	it("显式 grep 允许读取 soft ignored 文件和目录内容", async () => {
 		await writeFile(path.join(workspace, ".piignore"), "ignored.ts\nignored-dir/\n");
 		await mkdir(path.join(workspace, "ignored-dir"));
 		await writeFile(path.join(workspace, "ignored.ts"), "export function hiddenFileNeedle() {}\n");
@@ -958,7 +973,7 @@ describe("grep", () => {
 		});
 	});
 
-	it.skipIf(!treeSitterAvailable())("完整扫描清理已删除文件的 parsed cache", async () => {
+	it("完整扫描清理已删除文件的 parsed cache", async () => {
 		const oldSource = "export const oldName = 1;\n";
 		const newSource = "export const newName = 1;\n";
 		expect(Buffer.byteLength(oldSource)).toBe(Buffer.byteLength(newSource));
@@ -996,7 +1011,7 @@ describe("grep", () => {
 		}
 	});
 
-	it.skipIf(!treeSitterAvailable())("缓存只保存派生索引，重复查询仍返回实时正文", async () => {
+	it("缓存只保存派生索引，重复查询仍返回实时正文", async () => {
 		await writeFile(path.join(workspace, "target.ts"), "export function targetNeedle() {\n  return 42;\n}\n");
 		const first = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "targetNeedle" }));
 		expect(firstRegion(first).content).toContain("return 42");
@@ -1063,7 +1078,7 @@ describe("grep", () => {
 		}
 	});
 
-	it.skipIf(!treeSitterAvailable())("AbortSignal、稳定排序、零结果和相近 symbol", async () => {
+	it("AbortSignal、稳定排序、零结果和相近 symbol", async () => {
 		await writeFile(path.join(workspace, "b.ts"), "export function betaSearch() {}\n");
 		await writeFile(path.join(workspace, "a.ts"), "export function alphaSearch() {}\n");
 		const first = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "Search" }));
@@ -1079,7 +1094,7 @@ describe("grep", () => {
 		expect(await grepWorkspaceFiles(workspace, { query: "Search" }, controller.signal)).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
 	});
 
-	it.skipIf(!treeSitterAvailable())("auto 的 symbol typo 只进入带范围和原因的 nearby 非命中通道", async () => {
+	it("auto 的 symbol typo 只进入带范围和原因的 nearby 非命中通道", async () => {
 		await writeFile(path.join(workspace, "auth.ts"), "export function authenticate() { return true; }\n");
 
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "authentcate" }));
@@ -1119,7 +1134,7 @@ describe("grep", () => {
 		].join("\n"));
 	});
 
-	it.skipIf(!treeSitterAvailable())("共享索引构建时单个调用取消不影响其他调用", async () => {
+	it("共享索引构建时单个调用取消不影响其他调用", async () => {
 		for (let index = 0; index < 60; index += 1) {
 			await writeFile(path.join(workspace, `module-${index}.ts`), `export function symbol${index}() { return ${index}; }\n`);
 		}
@@ -1133,7 +1148,7 @@ describe("grep", () => {
 		expect(firstRegion(expectGrepSuccess(await completed)).symbol).toBe("sharedTarget");
 	});
 
-	it.skipIf(!treeSitterAvailable())("超大 auto scope 全量预筛后只解析最高相关候选，并显式标记语义截断", async () => {
+	it("超大 auto scope 全量预筛后只解析最高相关候选，并显式标记语义截断", async () => {
 		const configPath = path.join(outside, "semantic-limit.jsonc");
 		await writeConfig(configPath, { grep_max_semantic_files: 4, grep_result_limit: 8 });
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
@@ -1260,7 +1275,7 @@ describe("grep", () => {
 		expect(firstRegion(result).content).toContain("oversized semantic phrase");
 	});
 
-	it.skipIf(!treeSitterAvailable())("多个 scope 按 union 合并并共享输出结果", async () => {
+	it("多个 scope 按 union 合并并共享输出结果", async () => {
 		await mkdir(path.join(workspace, "src"), { recursive: true });
 		await mkdir(path.join(workspace, "tests"), { recursive: true });
 		await writeFile(path.join(workspace, "src", "a.ts"), "const needle = 1;\n");
@@ -1330,7 +1345,7 @@ describe("grep", () => {
 		expect(result.returned_regions).toBeLessThanOrEqual(2);
 	});
 
-	it.skipIf(!treeSitterAvailable())("token-efficiency fixture：高频命中合并，预算内至少一个完整函数，其余 signature", async () => {
+	it("token-efficiency fixture：高频命中合并，预算内至少一个完整函数，其余 signature", async () => {
 		const configPath = path.join(outside, "budget.jsonc");
 		await writeConfig(configPath, { grep_output_token_budget: 260, grep_result_limit: 6 });
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;

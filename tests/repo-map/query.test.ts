@@ -14,7 +14,6 @@ import type { RepoMapGeneration } from "../../src/repo-map/storage.js";
 import type { RepoMapMetadata } from "../../src/repo-map/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { activationEntry, configureFileTools, fileRecord, writeSources } from "./fixtures.js";
-import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
 const workspaceTemp = useTempDir("o-pi-repo-query-");
 const configTemp = useTempDir("o-pi-repo-query-config-");
@@ -25,7 +24,7 @@ beforeEach(async () => {
 	clearGrepIndex();
 });
 
-describe.skipIf(!treeSitterAvailable())("Repo Map query and file-tool integration", () => {
+describe("Repo Map query and file-tool integration", () => {
 	it("queries paths, qualified/short symbols, definitions, exports, and only one relation hop", async () => {
 		const sources = new Map([
 			["src/a.ts", "import { second, Value } from './b';\nexport class Auth { login() { return second(); } }\nexport function first() { second(); return Value; }\n"],

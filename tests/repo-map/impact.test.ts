@@ -9,7 +9,6 @@ import { countTextTokensSync } from "../../src/token-counter.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { activationEntry, configureFileTools, writeSources } from "./fixtures.js";
 import { generationWithTestGraph, initializeResult, testGraphSources } from "./test-graph-fixtures.js";
-import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
 const temp = useTempDir("o-pi-repo-impact-");
 preserveEnv("PI_FILE_TOOLS_CONFIG");
@@ -52,7 +51,7 @@ describe("Repo Map change impact", () => {
 		})).toBeUndefined();
 	});
 
-	it.skipIf(!treeSitterAvailable())("ranks callers, public API dependents, importers, tests, entrypoints, and bounded component candidates", async () => {
+	it("ranks callers, public API dependents, importers, tests, entrypoints, and bounded component candidates", async () => {
 		const before = await generationWithTestGraph(temp.path, testGraphSources("export function loadUser() { return 'user'; }\n"), "1");
 		const after = await generationWithTestGraph(temp.path, testGraphSources("export function loadUser(id: string) { return id; }\n"), "2");
 		const impact = analyzeRepoMapImpact({ before, after, changedPath: "src/user.ts", maxCandidates: 10 });
@@ -77,7 +76,7 @@ describe("Repo Map change impact", () => {
 		expect(bodyImpact.publicApiChanges).toEqual([]);
 	});
 
-	it.skipIf(!treeSitterAvailable())("attaches hash-verified compact mutation impact, while inactive or failed analysis stays non-blocking", async () => {
+	it("attaches hash-verified compact mutation impact, while inactive or failed analysis stays non-blocking", async () => {
 		const beforeSources = testGraphSources("export function loadUser() { return 'user'; }\n");
 		const afterSources = testGraphSources("export function loadUser(id: string) { return id; }\n");
 		const before = await generationWithTestGraph(temp.path, beforeSources, "1");

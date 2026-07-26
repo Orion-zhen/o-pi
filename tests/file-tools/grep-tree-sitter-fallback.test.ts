@@ -6,7 +6,6 @@ import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 vi.mock("../../src/code-index/tree-sitter-loader.js", () => ({
 	DEFAULT_PARSE_TIMEOUT_MICROS: 250_000,
-	disposeTreeSitterParsers() {},
 	loadTreeSitterParser: async () => ({ failure: { code: "RUNTIME_UNAVAILABLE", message: "simulated runtime failure" } }),
 }));
 

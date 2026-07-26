@@ -79,7 +79,12 @@ export function createGrepGraphSource(repoMap: RepoMapToolPorts, invocation: Fil
 			if (input.signal?.aborted === true) return undefined;
 			const identity = invocation.nativeBridge.getNativeIdentity(input.root);
 			if (identity === undefined) return undefined;
-			const result = await repoMap.query.query({ requestedPath: identity.nativePath, query: input.query, limit: input.limit });
+			const result = await repoMap.query.query({
+				requestedPath: identity.nativePath,
+				query: input.query,
+				limit: input.limit,
+				...(input.signal === undefined ? {} : { signal: input.signal }),
+			});
 			if (result === undefined || isAborted(input.signal)) return undefined;
 			const root = await invocation.filesystem.paths.resolveExisting(
 				result.root,

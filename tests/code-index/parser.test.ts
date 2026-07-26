@@ -6,18 +6,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFileIdentity, createSymbolId } from "../../src/code-index/identity.js";
 import { analyzeCodeFile, buildLineIndex, byteRangeForLines, countTextTokenMatches, parseCodeUnits, splitTokens, tokenizeText } from "../../src/code-index/parser.js";
-import { optionalDependencyPath, treeSitterAvailable } from "../helpers/optional-dependencies.js";
+import { dependencyPath } from "../helpers/tree-sitter-dependencies.js";
 
 const require = createRequire(import.meta.url);
 const execFileAsync = promisify(execFile);
 const treeSitterModules = {
-	javascript: optionalDependencyPath("tree-sitter-javascript") ?? "",
-	typescript: optionalDependencyPath("tree-sitter-typescript") ?? "",
-	python: optionalDependencyPath("tree-sitter-python") ?? "",
-	go: optionalDependencyPath("tree-sitter-go") ?? "",
-	rust: optionalDependencyPath("tree-sitter-rust") ?? "",
-	c: optionalDependencyPath("tree-sitter-c") ?? "",
-	cpp: optionalDependencyPath("tree-sitter-cpp") ?? "",
+	javascript: dependencyPath("tree-sitter-javascript"),
+	typescript: dependencyPath("tree-sitter-typescript"),
+	python: dependencyPath("tree-sitter-python"),
+	go: dependencyPath("tree-sitter-go"),
+	rust: dependencyPath("tree-sitter-rust"),
+	c: dependencyPath("tree-sitter-c"),
+	cpp: dependencyPath("tree-sitter-cpp"),
 };
 
 afterEach(() => {
@@ -29,7 +29,7 @@ async function symbols(filePath: string, text: string): Promise<Array<[string, s
 	return (await parseCodeUnits(filePath, text)).units.map((unit) => [unit.kind, unit.name, unit.qualifiedName]);
 }
 
-describe.skipIf(!treeSitterAvailable())("shared code parser", () => {
+describe("shared code parser", () => {
 	it.each([
 		{ text: "", offsets: [0], bytes: [0] },
 		{ text: "abc", offsets: [0, 1, 3], bytes: [0, 1, 3] },

@@ -55,23 +55,21 @@
 		"smol-toml": "latest",
 		"tldts": "latest",
 		"tough-cookie": "latest",
-		"turndown": "latest",
-		"turndown-plugin-gfm": "latest",
-		"typebox": "latest",
-		"undici": "latest",
-		"unified": "latest",
-		"vscode-jsonrpc": "latest",
-		"vscode-languageserver-protocol": "latest"
-	},
-	"optionalDependencies": {
-		"web-tree-sitter": "latest",
 		"tree-sitter-c": "latest",
 		"tree-sitter-cpp": "latest",
 		"tree-sitter-go": "latest",
 		"tree-sitter-javascript": "latest",
 		"tree-sitter-python": "latest",
 		"tree-sitter-rust": "latest",
-		"tree-sitter-typescript": "latest"
+		"tree-sitter-typescript": "latest",
+		"turndown": "latest",
+		"turndown-plugin-gfm": "latest",
+		"typebox": "latest",
+		"undici": "latest",
+		"unified": "latest",
+		"vscode-jsonrpc": "latest",
+		"vscode-languageserver-protocol": "latest",
+		"web-tree-sitter": "latest"
 	},
 	"allowScripts": {
 		"@google/genai": true,

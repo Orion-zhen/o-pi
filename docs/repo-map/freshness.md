@@ -49,7 +49,7 @@ ParsedDocument、native syntax tree 和本次构建的 transient syntax facts �
 
 节点、边、evidence、alias、diagnostics 和 generation cleanup 都使用显式比较器和稳定排序。并发任务完成顺序、local/worker 选择和 worker batch 边界不应改变最终图内容、generation digest 或 query oracle。
 
-worker 只返回可序列化的 file index/syntax facts；worker crash 会在不改变语义的情况下回到 local 分析，AbortSignal 则终止任务并保持取消状态。worker、Parser 和临时资源在 abort、timeout、error 与 service 完成后释放，idle worker 不阻止进程退出。
+worker 只返回可序列化的 file index/syntax facts；worker crash 会在不改变语义的情况下回到 local 分析，AbortSignal 则终止任务并保持取消状态。worker 和临时资源由各 owner 在 abort、timeout、error 与 service 完成后释放，idle worker 不阻止进程退出。主线程 Tree-sitter parser cache 是进程级共享资源，不由单个 grep 或 Repo Map owner 销毁。
 
 generation 的缓存布局、原子提交和损坏校验见 [storage-and-errors.md](storage-and-errors.md)。
 

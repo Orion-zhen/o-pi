@@ -3,9 +3,8 @@ import { describe, expect, it } from "vitest";
 import { adapterFromPath } from "../../src/code-index/language-registry.js";
 import { analyzeCodeFile } from "../../src/code-index/parser.js";
 import { parseDocument } from "../../src/code-index/syntax-tree.js";
-import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
-describe.skipIf(!treeSitterAvailable())("tree-sitter adapters", () => {
+describe("tree-sitter adapters", () => {
 describe.each([
 	{
 		filePath: "adapter.js",

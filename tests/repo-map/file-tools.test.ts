@@ -23,8 +23,8 @@ import {
 	initializeRepoMap,
 	readActivatedRepoMap,
 	readActivatedRepoMapState,
+	type RefreshActivatedRepoMapInput,
 } from "../../src/repo-map/service.js";
-import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 import type { RepoMapGeneration } from "../../src/repo-map/storage.js";
 import { formatRepoMapReadContext, READ_REPO_MAP_TOKEN_BUDGET } from "../../src/repo-map/tool-output.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
@@ -55,7 +55,7 @@ beforeEach(async () => {
 
 afterEach(() => fileToolsHost.dispose());
 
-describe.skipIf(!treeSitterAvailable())("Repo Map file-tool read and mutation integration", () => {
+describe("Repo Map file-tool read and mutation integration", () => {
 	it.skipIf(!gitAvailable)("wires an activated write through the extension and exposes the new symbol to grep", async () => {
 		const root = path.join(temp.path, "extension-repo");
 		await mkdir(root);
@@ -372,6 +372,58 @@ describe.skipIf(!treeSitterAvailable())("Repo Map file-tool read and mutation in
 		expect(computeRepoMapActivation(branch)?.generation).toBe(refreshedMetadata.generation);
 	});
 
+	it("stops waiting for Repo Map reads when a file-tool query is cancelled", async () => {
+		const root = path.join(temp.path, "cancelled-query-repo");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		await writeFile(path.join(root, "a.ts"), "export const A = 1;\n");
+		const initialized = await initializeRepoMap({ cwd: root }, serviceDependencies(root));
+		const branch: SessionEntry[] = [activationEntry(initialized.metadata)];
+		const pending = deferred<RepoMapGeneration | undefined>();
+		const readActivated = vi.fn(async () => await pending.promise);
+		const query = createRepoMapFileToolQuery(() => branch, { readActivated });
+		const controller = new AbortController();
+
+		const result = query.query({ requestedPath: root, query: "A", limit: 5, signal: controller.signal });
+		expect(readActivated).toHaveBeenCalledTimes(1);
+		controller.abort();
+		await expect(result).resolves.toBeUndefined();
+		pending.resolve(undefined);
+	});
+
+	it("cancels an automatic stale refresh when its last file-tool consumer is cancelled", async () => {
+		const root = path.join(temp.path, "cancelled-refresh-repo");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		await writeFile(path.join(root, "a.ts"), "export const A = 1;\n");
+		const initialized = await initializeRepoMap({ cwd: root }, serviceDependencies(root));
+		const branch: SessionEntry[] = [activationEntry(initialized.metadata)];
+		const started = deferred<void>();
+		let refreshSignal: AbortSignal | undefined;
+		const refresh = vi.fn(async (input: RefreshActivatedRepoMapInput) => {
+			if (input.signal === undefined) throw new Error("refresh signal missing");
+			refreshSignal = input.signal;
+			started.resolve(undefined);
+			await new Promise<void>((_resolve, reject) => {
+				input.signal?.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+			});
+			return initialized;
+		});
+		const query = createRepoMapFileToolQuery(() => branch, {
+			async readActivated() {
+				return {
+					metadata: { ...initialized.metadata, freshness: "stale" },
+					files: [], symbols: [], tests: [], architecture: [], aliases: [], edges: [], diagnostics: [],
+				};
+			},
+			refresh,
+		});
+		const controller = new AbortController();
+		const result = query.query({ requestedPath: root, query: "A", limit: 5, signal: controller.signal });
+		await started.promise;
+		controller.abort();
+		await expect(result).resolves.toBeUndefined();
+		expect(refreshSignal?.aborted).toBe(true);
+	});
+
 	it("keeps a successful write successful when map update fails and marks the activation partially stale", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });
@@ -410,7 +462,7 @@ describe.skipIf(!treeSitterAvailable())("Repo Map file-tool read and mutation in
 	});
 });
 
-describe.skipIf(!treeSitterAvailable())("Repo Map freshness and rebuild modes", () => {
+describe("Repo Map freshness and rebuild modes", () => {
 	it("classifies HEAD/config/ignore changes as stale while preserving partial state otherwise", () => {
 		const metadata = {
 			freshness: "fresh" as const,
@@ -556,4 +608,16 @@ async function hasGit(): Promise<boolean> {
 	} catch {
 		return false;
 	}
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+	let settle: ((value: T) => void) | undefined;
+	const promise = new Promise<T>((resolve) => { settle = resolve; });
+	return {
+		promise,
+		resolve(value) {
+			if (settle === undefined) throw new Error("Deferred promise was not initialized");
+			settle(value);
+		},
+	};
 }

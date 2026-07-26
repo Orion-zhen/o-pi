@@ -9,7 +9,6 @@ import { defaultRepoMapConfig } from "../../src/repo-map/config.js";
 import { RepoMapError } from "../../src/repo-map/errors.js";
 import { initializeRepoMap, readActivatedRepoMap, type RepoMapServiceDependencies } from "../../src/repo-map/service.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
-import { treeSitterAvailable } from "../helpers/optional-dependencies.js";
 
 const temp = useTempDir("o-pi-repo-service-");
 const execFileAsync = promisify(execFile);
@@ -38,7 +37,7 @@ function dependencies(overrides: Partial<RepoMapServiceDependencies> = {}): Part
 }
 
 describe("Repo Map initialization service", () => {
-	it.skipIf(!gitAvailable || !treeSitterAvailable())("runs the real Git/config/ignore/storage boundaries in a temporary repository", async () => {
+	it.skipIf(!gitAvailable)("runs the real Git/config/ignore/storage boundaries in a temporary repository", async () => {
 		const root = path.join(temp.path, "real-repo");
 		await mkdir(root);
 		await execFileAsync("git", ["init", "--quiet", root]);
@@ -53,7 +52,7 @@ describe("Repo Map initialization service", () => {
 		expect(result.metadata).toMatchObject({ fileCount: 1, indexedFileCount: 1, parsedFileCount: 1, symbolCount: 1 });
 		expect(result.metadata.edgeCount).toBeGreaterThan(2);
 	});
-	it.skipIf(!treeSitterAvailable())("builds, persists, and reuses a symbol graph generation", async () => {
+	it("builds, persists, and reuses a symbol graph generation", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });
 		await writeFile(path.join(root, "a.ts"), "export const a = 1;\n");
@@ -67,7 +66,7 @@ describe("Repo Map initialization service", () => {
 		expect(second.summary).toMatchObject({ reused: 1, reusedParsed: 1, hashed: 0, added: 0, changed: 0, removed: 0 });
 	});
 
-	it.skipIf(!treeSitterAvailable())("skips every graph builder and commit when the repository is unchanged", async () => {
+	it("skips every graph builder and commit when the repository is unchanged", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });
 		await writeFile(path.join(root, "a.ts"), "export const a = 1;\n");
@@ -92,7 +91,7 @@ describe("Repo Map initialization service", () => {
 		for (const skipped of [indexSymbols, buildArchitecture, buildTestGraph, buildRelationships, buildLexicalAliases, commit]) expect(skipped).not.toHaveBeenCalled();
 	});
 
-	it.skipIf(!treeSitterAvailable())("retains recovered symbols but marks incomplete syntax facts as partially stale", async () => {
+	it("retains recovered symbols but marks incomplete syntax facts as partially stale", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });
 		await writeFile(
@@ -115,7 +114,7 @@ describe("Repo Map initialization service", () => {
 		expect(result.metadata.freshness).toBe("partially_stale");
 	});
 
-	it.skipIf(!treeSitterAvailable())("persists symbols for every supported language", async () => {
+	it("persists symbols for every supported language", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });
 		for (const [name, source] of [
@@ -163,6 +162,45 @@ describe("Repo Map initialization service", () => {
 			expect(graphRebuilt).toMatchObject({ reusedGeneration: false, metadata: { generation: rebuilt.metadata.generation } });
 		}
 		expect(first.metadata.generation).not.toBe(changed.metadata.generation);
+	});
+
+	it("serializes concurrent initialization for the same map before scanning", async () => {
+		const root = path.join(temp.path, "repo");
+		await mkdir(root, { recursive: true });
+		const firstScan = deferred<void>();
+		const release = deferred<void>();
+		let scanCalls = 0;
+		let activeScans = 0;
+		let maximumActiveScans = 0;
+		const scan: RepoMapServiceDependencies["scan"] = async () => {
+			scanCalls += 1;
+			activeScans += 1;
+			maximumActiveScans = Math.max(maximumActiveScans, activeScans);
+			if (scanCalls === 1) {
+				firstScan.resolve(undefined);
+				await release.promise;
+			}
+			activeScans -= 1;
+			return {
+				files: [],
+				diagnostics: [],
+				summary: {
+					discovered: 0, indexed: 0, reused: 0, hashed: 0, added: 0, changed: 0, removed: 0,
+					tooLarge: 0, unreadable: 0, unstable: 0, parsed: 0, unsupported: 0, parseErrors: 0,
+					reusedParsed: 0, symbols: 0, testNodes: 0, edges: 0, skippedDirectories: 0, diagnostics: 0,
+				},
+			};
+		};
+		const deps = dependencies({ scan });
+		const first = initializeRepoMap({ cwd: root }, deps);
+		await firstScan.promise;
+		const second = initializeRepoMap({ cwd: root }, deps);
+		await Promise.resolve();
+		expect(scanCalls).toBe(1);
+		release.resolve(undefined);
+		await Promise.all([first, second]);
+		expect(scanCalls).toBe(2);
+		expect(maximumActiveScans).toBe(1);
 	});
 
 	it("rejects HEAD changes without committing", async () => {
@@ -219,4 +257,16 @@ async function hasGit(): Promise<boolean> {
 	} catch {
 		return false;
 	}
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+	let settle: ((value: T) => void) | undefined;
+	const promise = new Promise<T>((resolve) => { settle = resolve; });
+	return {
+		promise,
+		resolve(value) {
+			if (settle === undefined) throw new Error("Deferred promise was not initialized");
+			settle(value);
+		},
+	};
 }

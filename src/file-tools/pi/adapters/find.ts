@@ -54,6 +54,7 @@ export function createFindGraphSource(repoMap: RepoMapToolPorts, invocation: Fil
 				requestedPath: rootIdentity.nativePath,
 				query: input.query,
 				limit: input.limit,
+				...(input.signal === undefined ? {} : { signal: input.signal }),
 			});
 			if (result === undefined || isAborted(input.signal)) return undefined;
 			const graphRoot = await invocation.filesystem.paths.resolveExisting(
