@@ -527,7 +527,7 @@ describe("grep", () => {
 		await writeFile(path.join(outside, "external.ts"), "export function externalNeedle() { return true; }\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: [outside], query: "externalNeedle" }));
 		expect(result).toMatchObject({ status: "success", path: path.normalize(outside) });
-		expect(firstRegion(result)).toMatchObject({ path: path.join(outside, "external.ts"), symbol: "externalNeedle" });
+		expect(firstRegion(result)).toMatchObject({ path: path.join(outside, "external.ts").replaceAll("\\", "/"), symbol: "externalNeedle" });
 	});
 
 	it("exact symbol 的定义排在引用之前，并以独立 region 表达一跳 caller/callee", async () => {
