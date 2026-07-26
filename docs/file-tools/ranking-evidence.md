@@ -61,7 +61,7 @@ exact qualified symbol
     → reference
 ```
 
-`FileToolLspSymbolCandidate.origin` 区分 `workspace-symbol` 和 `reference`；旧适配未提供时按 workspace symbol 处理。reference 使用更差 tier 和更低 source weight。最终以 symbol、path 和 range 稳定打破平局。
+grep-local `GrepSymbolCandidate.origin` 区分 `workspace-symbol` 和 `reference`；port 未提供 origin 时按 workspace symbol 处理。reference 使用更差 tier 和更低 source weight。最终以 symbol、path 和 range 稳定打破平局。
 
 ## Region identity
 

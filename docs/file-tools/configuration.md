@@ -16,7 +16,7 @@
 .pi/configs/file-tools.jsonc
 ```
 
-项目配置在用户配置之后加载，但只能：
+项目配置按每次 Pi invocation 的 `ctx.cwd` 定位，而不是按 agent 进程的 `process.cwd()` 隐式选择。它在用户配置之后加载，但只能：
 
 - 追加 `blocked_path` 和 `ignored_path`；
 - 覆盖 `limits`；
@@ -112,8 +112,10 @@
 
 规则来源优先级从高到低为：session override、`.piignore`、`.gitignore`、`.git/info/exclude`、Git global excludes、builtin rules。后两类默认关闭。
 
-## 校验与缓存
+## 校验、分层与缓存
 
-配置损坏时工具返回 `CONFIG_ERROR`，不会继续执行文件访问。有效配置按用户/项目路径和文件 metadata 缓存在进程内；并发调用共享读取和 schema 校验。配置文件创建、替换或修改后 fingerprint 变化，下一次调用自动重载。
+配置损坏时 host 返回 `CONFIG_ERROR`，不会创建 filesystem namespace 或继续 workspace I/O。loader 将结果拆为 filesystem policy（blocked/visibility）和只读 tool limits；filesystem 不接收搜索、模型输出或增强配置，tool command 只接收自身所需 limits。
 
-每次调用获得独立配置副本，调用方不能污染缓存。配置和 ignore snapshot 的关系见 [Ignore engine](ignore.md)。
+有效配置按用户/项目路径和文件 metadata 缓存在进程内；同 cwd 并发调用共享读取和 schema 校验，不同 cwd 不共享错误或项目配置。配置文件创建、替换或修改后 fingerprint 变化，下一次调用自动重载。
+
+每次调用获得独立冻结/克隆后的配置值，调用方不能污染缓存。配置和 visibility snapshot 的关系见 [Ignore engine](ignore.md)。

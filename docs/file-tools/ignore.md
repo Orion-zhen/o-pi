@@ -9,7 +9,7 @@ ignore：路径是否应从自动发现、遍历、搜索或索引中排除
 路径解析：把相对或绝对输入交给文件系统操作
 ```
 
-soft ignored 路径默认不进入自动发现、递归搜索和索引，但明确提供路径时仍可被 `ls`、`find`、`grep`、`read`、`write` 和 `edit` 访问。blocked path 则由 path guard 拒绝或跳过。
+soft ignored 路径默认不进入自动发现、递归搜索和索引，但明确提供路径时仍可被 `ls`、`find`、`grep`、`read`、`write` 和 `edit` 访问。blocked path 则由 filesystem access-policy kernel 强制拒绝或跳过，不能因 ignore diagnostics 而 fail-open。
 
 ## 规则来源
 
@@ -25,6 +25,8 @@ soft ignored 路径默认不进入自动发现、递归搜索和索引，但明�
 同一来源中，子目录规则优先于父目录规则；同一文件中，后面的匹配规则覆盖前面的规则。规则使用 workspace-relative lexical path 匹配，内部统一使用 `/`，不会用 symlink realpath 改写逻辑路径。
 
 ## 决策模型
+
+visibility operation 显式携带 intent：`list-entry`、`traverse`、`search`、`index`、`explicit-read` 或 `explicit-edit`。intent 与 root 是否明确决定 ignored 路径是 annotation、过滤还是允许穿过；blocked 不属于 visibility decision。
 
 匹配结果不是简单 boolean：
 
@@ -49,7 +51,7 @@ type IgnoreDecision = {
 
 ## Snapshot
 
-每次工具调用创建一个不可变 ignore snapshot。snapshot 绑定：
+每次 filesystem invocation 获得一个不可变 visibility snapshot。snapshot 绑定：
 
 - 有效配置；
 - 规则文件版本；
@@ -57,9 +59,9 @@ type IgnoreDecision = {
 - builtin rules；
 - session override。
 
-`evaluate` 和 `explain` 不读取磁盘。引擎按 workspace 缓存 snapshot；稳定命中只并发核对已发现目录、规则文件和 Git index/config 的 metadata，不重新遍历规则目录或启动 Git 子进程。
+`evaluate` 和 `explain` 不读取磁盘。`FileSystemRuntime` 按 canonical workspace、policy 和 fingerprint 缓存 snapshot；稳定命中只并发核对已发现目录、规则文件和 Git index/config 的 metadata，不重新遍历规则目录或启动 Git 子进程。snapshot evaluation 本身不读取磁盘。
 
-同 workspace、同配置的并发调用共享一次 snapshot 构建。目录、规则文件、tracked set 或配置变化会生成新 snapshot；失效中的旧构建不能重新写回缓存。`edit` 修改 `.piignore` 或 `.gitignore` 后，后续调用通过新 snapshot 看到新规则。
+同 workspace、同配置的并发调用共享一次 snapshot 构建。目录、规则文件、tracked set 或配置变化会生成新 snapshot；失效中的旧构建不能重新写回缓存。`edit` 修改 `.piignore` 或 `.gitignore` 后，后续 invocation 通过新 snapshot 看到新规则。runtime dispose 会 invalidate cache 和进行中的 owner 状态。
 
 ## Git tracked files
 

@@ -1,6 +1,6 @@
 # `ls`
 
-`ls` 只列出指定目录的直属成员。它无副作用、不递归、不读取文件内容、不搜索内容，也不返回 size、mtime、权限、owner 或 inode 等 metadata。
+`ls` 只列出指定目录的直属成员。command 仅组合 filesystem 的 path、metadata 与 visibility capability；它无副作用、不递归、不读取文件内容、不搜索内容，也不返回 size、mtime、权限、owner 或 inode 等 metadata。
 
 ## 参数
 
@@ -79,7 +79,7 @@ a/
 - 命中 blocked path：`PROTECTED_PATH`；
 - 无权访问：`ACCESS_DENIED`。
 
-遇到 `NOT_A_DIRECTORY` 时，应读取明确文件，或列出其父目录。
+遇到 `NOT_A_DIRECTORY` 时，应读取明确文件，或列出其父目录。invocation 取消会终止 namespace、visibility 或枚举操作并释放 lease，不返回部分成功结果。
 
 ## 失败结果与模型输出
 

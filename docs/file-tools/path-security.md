@@ -1,10 +1,10 @@
 # 路径与安全
 
-六个文件工具共享同一套路径解析和 blocked path 检查。普通使用摘要见 [文件工具设计](README.md)。
+六个文件工具共享 filesystem namespace 与 access-policy kernel；工具只持有解析后的 opaque ref，不能用 native path 绕过检查。普通使用摘要见 [文件工具设计](README.md)。
 
 ## 路径解析
 
-路径先按当前 `cwd` 解析。工具只主动拒绝：
+路径先按当前 Pi invocation 的 `ctx.cwd` 解析；该 cwd 同时是 workspace root 和项目配置选择依据。kernel 主动拒绝：
 
 - 空路径；
 - 空字节；
@@ -26,9 +26,9 @@
 1. **lexical path**：检查按 `cwd` 解析后的绝对路径、展示路径和 workspace-relative path。
 2. **realpath**：检查已存在目标的真实路径。
 
-`write` 还会检查最近已存在父目录的真实路径；覆盖已有文件时同时检查目标真实路径。这样可以避免通过 symlink 或 symlink parent 绕过保护路径。
+`write` 还会检查最近已存在父目录的真实路径；覆盖已有文件时同时检查目标真实路径。approval gate 的轻量 preflight 可以提前拒绝，但不代替最终检查。write/edit 在 canonical target queue 内重新解析并检查 target、symlink 与最近父目录，避免排队期间的路径变化绕过策略。
 
-symlink 本身允许存在和访问，但如果它指向 blocked path 就会被拒绝。工具不要求 realpath 位于 workspace 内。
+symlink 本身允许存在和访问，但如果它指向 blocked path 就会被拒绝。工具不要求 realpath 位于 workspace 内。明确输入 symlink 可以跟随；目录枚举保留 child symlink 身份，递归 traversal 默认不跟随 child symlink。
 
 ## Ignore 与 blocked path
 
@@ -39,7 +39,7 @@ soft ignore  → 自动发现时跳过，明确路径仍允许访问
 blocked path → 访问本身被拒绝或跳过
 ```
 
-`.piignore` 和 `.gitignore` 不是访问控制机制。普通 dotfile 会正常出现；`.git/` 默认位于 `blocked_path`，因此不能直接被 `ls`、`find`、`grep`、`read`、`write` 或 `edit` 访问。
+`.piignore`、`.gitignore` 和 `ignored_path` 都不是访问控制机制。普通 dotfile 会正常出现；明确 read/write/edit 以及明确 find/grep scope 可以穿过 soft ignore。`.git/` 默认位于 `blocked_path`，因此不能直接被 `ls`、`find`、`grep`、`read`、`write` 或 `edit` 访问。blocked 检查不能 fail-open；ignore 规则读取失败则按 diagnostics 约定 fail-open。
 
 更多匹配细节见 [Ignore engine](ignore.md)。
 

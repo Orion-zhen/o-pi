@@ -15,7 +15,7 @@
 
 规则：
 
-- 文件必须存在且必须先显式 `read`；
+- 文件必须存在，且当前 session 必须已有显式 `read`、成功 `write` 或成功 `edit` observation；
 - `edits` 非空；
 - 每个 `old` 必须非空且在原文件中唯一；
 - 所有 replacement 都针对调用开始时的原始文件匹配；
@@ -26,7 +26,7 @@
 
 ## 版本校验
 
-`read` 会在当前 session 记录原始文件版本。`edit` 写入前自动校验该版本：
+`read` 会在当前 session 记录原始文件版本，成功 `write/edit` 的 filesystem commit callback 也会记录新版本。`edit` 在 canonical target mutation queue 内读取 current snapshot 后查询并校验 observation：
 
 - 未读过：返回 `READ_REQUIRED`；
 - 文件在读取后发生变化：返回 `STALE_READ`；
@@ -35,7 +35,7 @@
 
 这些错误不会自动合并或覆盖外部修改。除非使用 `OLD_TEXT_NOT_UNIQUE` 返回的 pair，否则应按 `error.next` 重新 `read`，基于最新内容生成新的 replacement。
 
-soft ignore 不阻止 `edit`。是否修改只由文件系统访问结果、文件类型、上次读取版本和 operation 合法性决定。原文件 snapshot 和替换后的提交内容均受 `edit_max_file_bytes` 限制；超限返回 `OUTPUT_LIMIT_EXCEEDED`，不会修改目标。
+soft ignore 不阻止 `edit`。是否修改只由 filesystem access policy、文件类型、session observation 和 replacement 合法性决定。queue 内会重新检查 blocked/symlink/parent identity；原文件 snapshot 和替换后的提交内容均受 `edit_max_file_bytes` 限制。提交前取消或超限不会修改目标。
 
 ## 预览与结果
 
@@ -47,7 +47,7 @@ TUI 在参数完整后可以执行只读预览，call 区只在展开态显示 d
 <edit path="src/main.ts" replacements="2" first_changed_line="81"/>
 ```
 
-成功正文不包含版本字段或完整 diff。LSP diagnostics 如有需要由 mutation hook 附加。
+成功正文不包含版本字段或完整 diff。diff、before/after LSP diagnostics 和 Repo Map mutation observer 通过 edit-local ports 组合；提交后的 port 失败或取消安全降级，不能回滚或覆盖成功结果。preview 只读取 queue 外的当前 snapshot，不写 observation，也不承诺保留到真正 execute。
 
 重复匹配时，模型可见错误保持紧凑：
 

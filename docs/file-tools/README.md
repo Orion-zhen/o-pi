@@ -11,7 +11,7 @@
 | 搜索正文、symbol、正则或代码意图 | `grep` | 不负责按路径找文件 |
 | 读取明确文件 | `read` | 不会把目录自动转换成目录列表 |
 | 创建或完整覆盖文件 | `write` | 不做局部合并 |
-| 修改已有文件的局部内容 | `edit` | 必须先 `read`，不创建、不完整覆盖 |
+| 修改已有文件的局部内容 | `edit` | 必须先 `read`，或紧接当前 session 的成功 `write/edit`；不创建、不完整覆盖 |
 
 常见工作流：
 
@@ -19,24 +19,29 @@
 探索仓库：       ls → find → read
 查找实现：       grep(match=auto) → read
 局部修改：       read → edit
+创建后继续修改： write → edit
 创建或完整重写： write
 ```
 
-不要用 `ls` 读取文件，不要用 `find` 搜索内容，也不要用 `grep` 代替完整文件读取。知道目标文件后直接 `read`，需要精确修改已有文件时先 `read` 再 `edit`。
+不要用 `ls` 读取文件，不要用 `find` 搜索内容，也不要用 `grep` 代替完整文件读取。知道目标文件后直接 `read`。需要精确修改已有文件时通常先 `read` 再 `edit`；成功 `write` 或 `edit` 已记录最新 observation，可以继续 `edit`。
 
 ## 总体设计
 
 ```text
 Pi extension
-    ↓ 注册 schema、renderer 和事件
-独立 tool adapters
+    ↓ schema、lazy adapter、renderer、telemetry
+独立 ls/read/write/edit/find/grep commands
+    ↓ tool-local ports                 ↑ LSP / Repo Map / skill / image / diff adapters
+WorkspaceFileSystem capability facade
     ↓
-path guard + ignore snapshot + filesystem
-    ↓ 可选增强
-Tree-sitter / LSP / Repo Map
+namespace/access kernel + visibility/content/traversal/catalog/mutation services
+    ↓
+Node platform backend
 ```
 
-六个工具的公共实现位于 `src/file-tools/`，Pi 扩展入口位于 `agent/extensions/file-tools.ts`。工具在首次使用时按执行路径懒加载，不使用文件工具的 session 不需要加载文件遍历、媒体识别、Tree-sitter grammar、LSP 或 Repo Map runtime。
+Pi 扩展入口位于 `agent/extensions/file-tools.ts`。六个工具分别位于 `src/file-tools/{ls,read,write,edit,find,grep}/`，互不导入；共享内容只限错误、diagnostics、diff 和纯 ranking primitives。`src/filesystem/` 是 workspace I/O 的唯一数据平面，不知道 Pi、模型输出、LSP、Repo Map、Tree-sitter 或具体工具结果。
+
+每次调用由 `FileToolsHost.open({ cwd, sessionId, signal })` 先按 invocation `cwd` 加载配置，再提供绑定不可变 policy/visibility snapshot 的 `WorkspaceFileSystem`、工具预算和 session observation。工具在首次使用时按执行路径懒加载；不使用文件工具的 session 不加载 filesystem runtime，`ls` 也不会加载 find/grep、mutation service、Tree-sitter、LSP 或 Repo Map runtime。
 
 工具职责保持分离：
 
@@ -110,7 +115,7 @@ blocked path  → 不可列出、搜索、读取或写入
 
 ### `edit`
 
-`edit` 一次只修改一个已有 UTF-8 文件。每个 `old` 文本必须非空且唯一，所有 replacement 都针对调用开始时的原文匹配，范围不得重叠。文件必须先被当前 session `read`，版本不一致时不会自动合并或覆盖。
+`edit` 一次只修改一个已有 UTF-8 文件。每个 `old` 文本必须非空且唯一，所有 replacement 都针对 mutation queue 内读取的当前原文匹配，范围不得重叠。文件必须有当前 session 的 `read`、成功 `write` 或成功 `edit` observation；版本不一致时不会自动合并或覆盖。
 
 ## 配置概览
 

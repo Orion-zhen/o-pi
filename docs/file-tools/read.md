@@ -1,6 +1,6 @@
 # `read`
 
-`read` 读取 UTF-8 文本文件和模型可内联图片文件。它不修改文件、不格式化、不改变换行符，也不写入工作区状态。
+`read` 读取 UTF-8 文本文件和模型可内联图片文件。它不修改文件、不格式化、不改变换行符；普通 workspace read 会在 session `ObservationStore` 记录原始字节版本，skill resource 不记录 workspace observation。
 
 ## 参数
 
@@ -54,15 +54,17 @@
 
 音频、视频和其他二进制文件返回 `BINARY_FILE_UNSUPPORTED`，错误详情包含识别到的 MIME。目录不会自动列出，`read(directory)` 返回 `NOT_A_FILE`。
 
-## 版本与增强
+## 版本、建议与增强
 
-`read` 会在当前 session 记录基于原始字节计算的文件版本，供后续 `edit` 自动校验；版本不进入模型可见输出。
+command 通过 filesystem content service 执行 stable bounded read、严格 UTF-8、BOM/newline 与范围切片，并在当前 session 记录基于原始字节计算的文件版本，供后续 `edit` 自动校验；版本不进入模型可见输出。明确 soft ignored 文件仍可读并带 annotation。
 
-LSP 可以在 partial/truncated read 时附加 enclosing symbol 或 outline；LSP 未配置或失败时仍返回基础内容。
+缺失 workspace path 先询问 read-local Repo Map suggestion port，再回退到 filesystem path catalog；候选受 blocked、visibility、symlink 与条目预算约束。workspace 外路径不做 workspace 建议。
+
+只有 partial/truncated read 才调用 read-local structure/graph ports附加 enclosing symbol、outline 或结构上下文；LSP/Repo Map 未配置、失败或取消时仍返回基础内容。图片转换通过 `InlineImageProcessor` port，`skill://` 在 Pi adapter 边界解析，不进入 workspace namespace。
 
 ## 限制与错误
 
-`read_lines` 和 `read_bytes` 控制模型可见输出，输出被截断时可根据 continuation 读取下一段。`read_max_file_bytes` 控制完整文件载入；即使只请求局部行范围，文件超过该上限也会返回 `OUTPUT_LIMIT_EXCEEDED`。
+`read_lines` 和 `read_bytes` 控制模型可见输出，输出被截断时可根据 continuation 读取下一段。`read_max_file_bytes` 控制完整文件载入；即使只请求局部行范围，文件超过该上限也会返回 `OUTPUT_LIMIT_EXCEEDED`。取消在 resolve、读取、媒体识别及可选 port 边界生效；已打开的 handle 由 content service 释放。
 
 常见错误：
 
@@ -100,4 +102,4 @@ next: Related paths: src/main.ts
 | `INVALID_OPERATION` | `Line ranges apply only to text files.` |
 | `CONFIG_ERROR` | 配置错误消息 |
 
-`next:` 只有错误提供恢复建议时才出现。编辑已有文件时必须先完成一次明确的 `read`，详见 [edit](edit.md)。
+`next:` 只有错误提供恢复建议时才出现。编辑已有文件前需要当前 session observation；明确 `read` 或成功 `write/edit` 均可建立，详见 [edit](edit.md)。

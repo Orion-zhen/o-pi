@@ -1,6 +1,6 @@
 # `find`
 
-`find` 是单入口路径定位器，不读取正文、不解析 AST、不搜索 symbol、不修改文件。它同时返回普通文件和目录；目录结果以 `/` 结尾展示。
+`find` 是单入口路径定位器，不把正文读取作为主搜索路径、不解析 AST、不修改文件。command 只组合 filesystem namespace/metadata/traversal/hash、本地路径算法和 find-owned graph port；它同时返回普通文件和目录，目录结果以 `/` 结尾展示。
 
 ## 参数
 
@@ -37,7 +37,7 @@ glob query 进入严格路径匹配，不查询 Repo Map：
 
 ### 普通查询
 
-非 glob query 用于路径召回、相关性排序和可选 Repo Map 语义召回。tokenization、smart case、tier、证据融合和多样性选择见 [排序总览](ranking.md)。
+非 glob query 用于路径召回、相关性排序和可选 Repo Map 语义召回。graph port 只返回不可信的 find-owned candidate DTO；find 通过 filesystem 重新验证 live kind、scope、visibility、symlink 和 hash，过期或越界候选会被丢弃。tokenization、smart case、tier、证据融合和多样性选择见 [排序总览](ranking.md)。
 
 ## 输出
 
@@ -93,7 +93,7 @@ src/auth/service.ts [name similarity]
 
 ## 限制
 
-输出预算、结果数和扫描条目数由 file-tools 配置控制，不暴露为工具参数。达到扫描上限时标记 `scanTruncated`；达到具体结果上限时标记 `resultLimited`。
+输出预算、结果数和扫描条目数由 file-tools 配置控制，不暴露为工具参数。达到扫描上限时标记 `scanTruncated`；达到具体结果上限时标记 `resultLimited`。traversal 和 suggestion worker 响应 invocation/tool-owner 取消；`FindTool.dispose()` 只释放自己的 pending suggestion/worker 状态，不清理 grep 或 filesystem cache。
 
 ## 失败结果与模型输出
 

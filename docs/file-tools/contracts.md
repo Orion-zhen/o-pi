@@ -2,6 +2,14 @@
 
 本文说明六个文件工具共享的参数、模型输出、错误和提示词约定。各工具的字段细节见 [工具文档](README.md#深入阅读)。
 
+## Filesystem capability 边界
+
+工具只依赖 `WorkspaceFileSystem` 的分组 capability：`paths`、`metadata`、`content`、`visibility`、`traversal`、`mutations` 和 `catalog`。路径解析返回 opaque ref，后续操作不重新接受裸 native path。每个 invocation 绑定 workspace identity、不可变 policy/visibility snapshot 和 operation context。
+
+filesystem 失败使用模型无关的 `FsResult` 与稳定 `FsError` code；tool command 在边界映射为既有 `FileToolError`，Pi presenter 再生成模型文本。filesystem error 不含工具名、`next`、模型文案、LSP 或 Repo Map 数据。合法零搜索结果仍是成功，不能与 I/O、配置、取消或索引失败混淆。
+
+配置先于 workspace I/O 加载。项目配置始终按 Pi invocation 的 `ctx.cwd` 选择，不隐式读取 `process.cwd()`；配置错误直接返回 `CONFIG_ERROR`。
+
 ## 输入约定
 
 路径参数按工具语义分为单路径和多路径：
@@ -54,9 +62,11 @@ File does not exist.
 
 带有恢复方式的错误会增加 `next:` 提示。`READ_REQUIRED`、`STALE_READ` 和 `OLD_TEXT_NOT_FOUND` 要求重新读取文件，并基于最新内容生成新的 `edit` replacement；`OLD_TEXT_NOT_UNIQUE` 会额外提供有限数量的可直接使用的唯一 `old/new` hints。
 
-## 版本与 mutation
+## 版本、取消与 mutation
 
-`read` 可以在当前 session 记录原始字节版本。成功的 `write` 和 `edit` 也会记录写入后的版本，因此 `write → edit` 可以直接执行；`edit` 写入前自动校验该 observation，避免把外部修改覆盖掉。
+`read` 可以在当前 session 记录原始字节版本。成功的 `write` 和 `edit` 由 filesystem commit callback 记录写入后的版本，因此 `write → edit` 可以直接执行；observation 以 canonical filesystem identity 为 key，明确 symlink 与目标共享版本身份。`edit` 在 per-target queue 内读取当前 snapshot 后校验 observation，避免覆盖排队期间或外部发生的修改。
+
+`AbortSignal` 贯穿 host、filesystem operation、遍历/stream、worker 和 mutation queue。提交前取消不得写盘；mutation 一旦提交，后置 LSP/Repo Map 失败或取消只会安全降级，不能把已提交结果改成失败。系统只承诺同进程 canonical target 串行与 content-hash 乐观校验，不承诺跨进程锁、事务、回滚或自动 merge。
 
 TUI 可以在展开态展示 `write` 或 `edit` 的精简 diff，但模型可见成功正文只确认写入事实，不包含完整 diff、版本字段或内部 fingerprint。
 

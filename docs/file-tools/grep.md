@@ -1,6 +1,6 @@
 # `grep`
 
-`grep` 按内容、symbol、正则或代码意图检索代码，不查找路径、不修改文件。结果按函数、方法、类、声明或紧凑文本片段聚合。
+`grep` 按内容、symbol、正则或代码意图检索代码，不查找路径、不修改文件。command 只通过 filesystem traversal/content/line scan/hash 访问文件，并组合 grep-local index/ranking/packing 与可选 symbol/graph ports。结果按函数、方法、类、声明或紧凑文本片段聚合。
 
 ## 参数
 
@@ -77,7 +77,7 @@ C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 Tree-sit
 
 ## 搜索流程
 
-每次调用创建 ignore snapshot。默认目录遍历使用 ignore 的 `index` intent；显式 path 指向 soft ignored 文件或目录时，允许在该路径内检索。普通 dotfile 可检索，blocked path 不可检索；递归不跟随文件或目录 symlink。
+每次 invocation 使用 host 已绑定的不可变 visibility snapshot。默认目录遍历使用 `index` intent；显式 path 指向 soft ignored 文件或目录时，允许在该路径内检索。普通 dotfile 可检索，blocked path 不可检索；递归不跟随 child symlink，明确 file/dir symlink root 可以解析后检索。
 
 `literal` / `regex` 先逐行预筛全部合规候选，只对真实命中文件运行 Tree-sitter，不受语义候选上限影响。
 
@@ -85,7 +85,7 @@ C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 Tree-sit
 
 文本 fallback 只统计 query 所需 token，并在首次真实命中时构建 UTF-8 行索引。缓存 AST 仍须经过当前 query 的预筛和统一 Top-K，不能绕过语义候选上限。
 
-LSP 与 Repo Map 查询可以并行执行；候选源码和 related-file hash 会在当前调用内复核。Tree-sitter/text、LSP 和 Repo Map 的职责与融合规则见 [排序证据](ranking-evidence.md)。
+LSP symbol 与 Repo Map graph ports 可以并行执行；它们只返回 grep-owned DTO。每个 external candidate 都必须命中 filesystem allowed ref，并通过 scope、visibility、glob、live text/range/hash 和预算 gate；related edge 的文件 hash 也在当前调用复核。Tree-sitter/text、LSP 和 Repo Map 的职责与融合规则见 [排序证据](ranking-evidence.md)。
 
 ## Scope、跳过和截断
 
@@ -102,7 +102,7 @@ LSP 与 Repo Map 查询可以并行执行；候选源码和 related-file hash �
 - 返回 region 被限制；
 - 模型文本被 token budget 降级。
 
-限制由 [配置](configuration.md) 控制，不作为工具参数暴露。
+限制由 [配置](configuration.md) 控制，不作为工具参数暴露。line stream、traversal、index build、parser 和 worker 都响应取消并释放 handle；共享 build 以 consumer 计数管理，只有最后消费者退出才取消底层构建。
 
 ## 零结果、nearby 与 related
 
@@ -156,3 +156,9 @@ none
 ```
 
 `next:` 只有错误提供恢复建议时才出现。
+
+## Cache 与生命周期
+
+`GrepTool` 按 canonical workspace identity、visibility fingerprint、scope、query filter 和 limits 管理 derived cache。单文件 entry 只保存 metadata/hash/index，不永久保存完整源码；使用前仍进行当前 visibility 与内容 gate。新增、修改、删除或 ignore fingerprint 变化会进入新 snapshot/cache key。
+
+pending index build、parser pool 和 worker 由该 `GrepTool` instance 持有。`dispose()` abort pending consumers、释放 parser/worker 并清理 derived cache，不要求 Pi adapter知道内部 cache 名称，也不影响 find 或 filesystem factual cache。
