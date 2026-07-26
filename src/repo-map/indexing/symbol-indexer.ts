@@ -3,14 +3,14 @@ import path from "node:path";
 import type { Worker } from "node:worker_threads";
 import pLimit from "p-limit";
 
-import { analyzeCodeFile, languageFromPath, type AnalyzeCodeFileOptions, type AnalyzedFileIndex } from "../code-index/parser.js";
-import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../worker-runtime/worker-task-pool.js";
-import { createTypeScriptWorker } from "../worker-runtime/typescript-worker.js";
+import { analyzeCodeFile, languageFromPath, type AnalyzeCodeFileOptions, type AnalyzedFileIndex } from "../../code-index/parser.js";
+import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../../worker-runtime/worker-task-pool.js";
+import { createTypeScriptWorker } from "../../worker-runtime/typescript-worker.js";
 import { javascriptSyntaxFactsFromDocument, type JavaScriptSyntaxFacts } from "./syntax-facts.js";
-import { throwIfAborted } from "./errors.js";
-import { compareText, groupBy, type RepoMapImportFact, type RepoMapSymbolIndex } from "./graph.js";
-import { readTextNoFollow, RepoMapReadLimitError, type RepoMapReadText } from "./source.js";
-import type { RepoMapDiagnostic, RepoMapEdge, RepoMapFileRecord, RepoMapSymbolNode } from "./types.js";
+import { throwIfAborted } from "../core/errors.js";
+import { compareText, groupBy, type RepoMapImportFact, type RepoMapSymbolIndex } from "../core/graph.js";
+import { readTextNoFollow, RepoMapReadLimitError, type RepoMapReadText } from "../core/source.js";
+import type { RepoMapDiagnostic, RepoMapEdge, RepoMapFileRecord, RepoMapSymbolNode } from "../core/types.js";
 import { PARSER_SYNTAX_DIAGNOSTIC, type RepoMapParserFileResult } from "./parser-task.js";
 
 export interface IndexRepoMapSymbolsInput {
@@ -143,7 +143,7 @@ async function parseWithWorkersIfUseful(
 function createRepoMapParserPool(concurrency: number, workerFactory: (() => Worker) | undefined): RepoMapWorkerPool {
 	return new WorkerTaskPool<RepoMapWorkerRequest, RepoMapParserFileResult[]>({
 		workerLimit: Math.max(1, concurrency),
-		createWorker: workerFactory ?? (() => createTypeScriptWorker(new URL("./parser-worker.ts", import.meta.url))),
+		createWorker: workerFactory ?? (() => createTypeScriptWorker(new URL("./parser-worker.js", import.meta.url))),
 		workerName: "Repo Map parser",
 		requestForTask: (id, request) => ({ id, ...request }),
 		decodeResponse: decodeRepoMapParserResponse,

@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { expandHomePath, userCachePath } from "../cache-path.js";
+import { expandHomePath, userCachePath } from "../../cache-path.js";
 
 const CACHE_DIR_ENV = "PI_REPO_MAP_CACHE_DIR";
 

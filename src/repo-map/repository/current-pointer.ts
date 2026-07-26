@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { RepoMapActivation } from "./activation.js";
+import type { RepoMapActivation } from "../runtime/activation.js";
 import { repoMapCacheRoot } from "./cache-path.js";
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/u;

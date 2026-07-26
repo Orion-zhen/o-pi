@@ -1,9 +1,9 @@
 import path from "node:path";
 
-import type { SourceRange } from "../code-index/types.js";
-import { compareRepoMapEdge, compareText, groupBy, uniqueBy } from "./graph.js";
-import { canonicalLexicalTerm, lexicalTerms } from "./lexical-indexer.js";
-import type { RepoMapGeneration } from "./storage.js";
+import type { SourceRange } from "../../code-index/types.js";
+import { compareRepoMapEdge, compareText, groupBy, uniqueBy } from "../core/graph.js";
+import { canonicalLexicalTerm, lexicalTerms } from "../indexing/lexical-indexer.js";
+import type { RepoMapGeneration } from "../storage/storage.js";
 import type {
 	RepoMapArchitectureNode,
 	RepoMapEdge,
@@ -12,7 +12,7 @@ import type {
 	RepoMapLexicalAlias,
 	RepoMapSymbolNode,
 	RepoMapTestNode,
-} from "./types.js";
+} from "../core/types.js";
 
 export type RepoMapMatchReason =
 	| "exact path"

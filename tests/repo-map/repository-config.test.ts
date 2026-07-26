@@ -2,11 +2,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { defaultRepoMapConfig, loadRepoMapConfig, repoMapCacheRoot, repoMapConfigFingerprint } from "../../src/repo-map/config.js";
-import { isActivatedGenerationCurrent } from "../../src/repo-map/current-pointer.js";
-import { RepoMapError } from "../../src/repo-map/errors.js";
-import { createRepoMapId } from "../../src/repo-map/identity.js";
-import { detectRepository, type GitRunner } from "../../src/repo-map/repository.js";
+import { defaultRepoMapConfig, loadRepoMapConfig, repoMapCacheRoot, repoMapConfigFingerprint } from "../../src/repo-map/config/config.js";
+import { isActivatedGenerationCurrent } from "../../src/repo-map/repository/current-pointer.js";
+import { RepoMapError } from "../../src/repo-map/core/errors.js";
+import { createRepoMapId } from "../../src/repo-map/core/identity.js";
+import { detectRepository, type GitRunner } from "../../src/repo-map/repository/repository.js";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-repo-foundation-");

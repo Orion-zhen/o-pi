@@ -3,9 +3,9 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { analyzeCodeFile } from "../../src/code-index/parser.js";
-import { buildRepoMapRelationships } from "../../src/repo-map/relationship-indexer.js";
-import { indexRepoMapSymbols } from "../../src/repo-map/symbol-indexer.js";
-import type { RepoMapFileRecord } from "../../src/repo-map/types.js";
+import { buildRepoMapRelationships } from "../../src/repo-map/indexing/relationship-indexer.js";
+import { indexRepoMapSymbols } from "../../src/repo-map/indexing/symbol-indexer.js";
+import type { RepoMapFileRecord } from "../../src/repo-map/core/types.js";
 
 const root = "/repo";
 

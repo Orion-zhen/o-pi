@@ -1,15 +1,15 @@
 import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
 
-import { computeRepoMapActivation, REPO_MAP_SESSION_ENTRY, type RepoMapActivationEntry } from "../../repo-map/activation.js";
-import type { RepoMapFileToolQuery, RepoMapReadContext } from "../../repo-map/file-tool-query.js";
-import type { RepoMapImpactResult } from "../../repo-map/impact.js";
-import type { RepoMapOutputConfig } from "../../repo-map/output-config.js";
+import { computeRepoMapActivation, REPO_MAP_SESSION_ENTRY, type RepoMapActivationEntry } from "../../repo-map/runtime/activation.js";
+import type { RepoMapFileToolQuery, RepoMapReadContext } from "../../repo-map/query/file-tool-query.js";
+import type { RepoMapImpactResult } from "../../repo-map/query/impact.js";
+import type { RepoMapOutputConfig } from "../../repo-map/config/output-config.js";
 
 export interface RepoMapRuntimeModule {
-	createRepoMapFileToolQuery: typeof import("../../repo-map/file-tool-query.js").createRepoMapFileToolQuery;
+	createRepoMapFileToolQuery: typeof import("../../repo-map/query/file-tool-query.js").createRepoMapFileToolQuery;
 	loadRepoMapOutputConfig(): Promise<RepoMapOutputConfig>;
-	formatRepoMapImpact: typeof import("../../repo-map/tool-output.js").formatRepoMapImpact;
-	formatRepoMapReadContext: typeof import("../../repo-map/tool-output.js").formatRepoMapReadContext;
+	formatRepoMapImpact: typeof import("../../repo-map/runtime/tool-output.js").formatRepoMapImpact;
+	formatRepoMapReadContext: typeof import("../../repo-map/runtime/tool-output.js").formatRepoMapReadContext;
 }
 
 export interface RepoMapToolPorts {

@@ -2,17 +2,17 @@ import { createRequire } from "node:module";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
-import { computeRepoMapActivation, REPO_MAP_SESSION_ENTRY } from "../../src/repo-map/activation.js";
+import { computeRepoMapActivation, REPO_MAP_SESSION_ENTRY } from "../../src/repo-map/runtime/activation.js";
 import {
 	createRepoMapCommandDependencies,
 	registerRepoMapAutoActivation,
 	registerRepoMapCommand,
 	type RepoMapCommandDependencies,
 	type RepoMapCommandModuleImports,
-} from "../../src/repo-map/commands.js";
-import { RepoMapError } from "../../src/repo-map/errors.js";
-import type { InitializeRepoMapResult } from "../../src/repo-map/service.js";
-import type { RepoMapGeneration } from "../../src/repo-map/storage.js";
+} from "../../src/repo-map/runtime/commands.js";
+import { RepoMapError } from "../../src/repo-map/core/errors.js";
+import type { InitializeRepoMapResult } from "../../src/repo-map/runtime/service.js";
+import type { RepoMapGeneration } from "../../src/repo-map/storage/storage.js";
 import { treeSitterModulePaths } from "../helpers/tree-sitter-dependencies.js";
 
 type CommandOptions = Parameters<ExtensionAPI["registerCommand"]>[1];

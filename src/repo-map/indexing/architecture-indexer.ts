@@ -1,11 +1,11 @@
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 
-import { throwIfAborted } from "./errors.js";
-import { coalesceRepoMapEdges, compareText, uniqueBy } from "./graph.js";
-import { fileEvidence, rangeEvidence, readTextNoFollow, RepoMapReadLimitError, sha256, sourceEvidence, symbolEvidence, type RepoMapReadText, type RepoMapSourceFile } from "./source.js";
+import { throwIfAborted } from "../core/errors.js";
+import { coalesceRepoMapEdges, compareText, uniqueBy } from "../core/graph.js";
+import { fileEvidence, rangeEvidence, readTextNoFollow, RepoMapReadLimitError, sha256, sourceEvidence, symbolEvidence, type RepoMapReadText, type RepoMapSourceFile } from "../core/source.js";
 import { javascriptSyntaxFacts, type JavaScriptSyntaxFacts, type RegistrationFact } from "./syntax-facts.js";
-import { isRepoMapSymbolPublic } from "./visibility.js";
+import { isRepoMapSymbolPublic } from "../core/visibility.js";
 import type {
 	RepoMapArchitectureNode,
 	RepoMapComponentNode,
@@ -17,7 +17,7 @@ import type {
 	RepoMapFileRecord,
 	RepoMapPackageNode,
 	RepoMapSymbolNode,
-} from "./types.js";
+} from "../core/types.js";
 
 export interface BuildRepoMapArchitectureInput {
 	root: string;

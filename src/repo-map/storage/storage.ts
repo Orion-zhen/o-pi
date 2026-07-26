@@ -5,10 +5,10 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { lock } from "proper-lockfile";
 
-import { createFileIdentity, createSymbolId } from "../code-index/identity.js";
-import { RepoMapError, throwIfAborted } from "./errors.js";
-import { compareRepoMapEdge, compareRepoMapEvidence, compareText } from "./graph.js";
-import { createRepoMapId } from "./identity.js";
+import { createFileIdentity, createSymbolId } from "../../code-index/identity.js";
+import { RepoMapError, throwIfAborted } from "../core/errors.js";
+import { compareRepoMapEdge, compareRepoMapEvidence, compareText } from "../core/graph.js";
+import { createRepoMapId } from "../core/identity.js";
 import { storageValidators } from "./storage-schema.js";
 import type {
 	RepoMapArchitectureNode,
@@ -20,7 +20,7 @@ import type {
 	RepoMapMetadata,
 	RepoMapSymbolNode,
 	RepoMapTestNode,
-} from "./types.js";
+} from "../core/types.js";
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const JSON_WRITE_BUFFER_BYTES = 256 * 1024;

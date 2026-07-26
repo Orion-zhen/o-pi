@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 
-import { agentSchemaPath, createSchemaValidator, readOptionalJsoncConfigWithSchema, userAgentConfigPath } from "../config-loader.js";
-import { RepoMapError } from "./errors.js";
+import { agentSchemaPath, createSchemaValidator, readOptionalJsoncConfigWithSchema, userAgentConfigPath } from "../../config-loader.js";
+import { RepoMapError } from "../core/errors.js";
 import { DEFAULT_REPO_MAP_OUTPUT_CONFIG, type RepoMapOutputConfig } from "./output-config.js";
-export { repoMapCacheRoot } from "./cache-path.js";
+export { repoMapCacheRoot } from "../repository/cache-path.js";
 
 const USER_CONFIG_ENV = "PI_REPO_MAP_CONFIG";
 

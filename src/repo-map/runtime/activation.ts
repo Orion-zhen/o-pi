@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
-import type { RepoMapFreshness } from "./types.js";
+import type { RepoMapFreshness } from "../core/types.js";
 
 /** Repo Map 状态只写入不进入模型上下文的 session custom entry。 */
 export const REPO_MAP_SESSION_ENTRY = "o-pi:repo-map";

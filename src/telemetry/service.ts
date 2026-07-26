@@ -13,7 +13,7 @@ import type {
 import { randomUUID } from "node:crypto";
 import type { TSchema } from "typebox";
 
-import { advanceRepoMapActivation, computeRepoMapActivation, type RepoMapActivation } from "../repo-map/activation.js";
+import { advanceRepoMapActivation, computeRepoMapActivation, type RepoMapActivation } from "../repo-map/runtime/activation.js";
 import type { RepairObservation, ToolArgumentStatus } from "../tool-repair/types.js";
 import { mergeFacts, safeProject, stableHash } from "./projection.js";
 import type {

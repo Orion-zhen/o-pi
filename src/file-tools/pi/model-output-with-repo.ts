@@ -1,11 +1,11 @@
 import type { EditSuccess } from "../edit/types.js";
 import type { WriteSuccess } from "../write/types.js";
-import type { RepoMapImpactResult } from "../../repo-map/impact.js";
+import type { RepoMapImpactResult } from "../../repo-map/query/impact.js";
 import type { ReadSuccess } from "../read/types.js";
 import { formatReadModelResult as formatReadResult } from "../read/presenter.js";
 import { formatEditModelResult as formatEditResult } from "../edit/presenter.js";
 import { formatWriteModelResult as formatWriteResult } from "../write/presenter.js";
-import { formatRepoMapImpact, formatRepoMapReadContext } from "../../repo-map/tool-output.js";
+import { formatRepoMapImpact, formatRepoMapReadContext } from "../../repo-map/runtime/tool-output.js";
 
 export { formatErrorModelResult, scrubVersions } from "./model-output.js";
 

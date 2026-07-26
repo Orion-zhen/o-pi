@@ -17,8 +17,8 @@ import { findWorkspaceFiles } from "../helpers/find-tool.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { FindMatch, FindSuccess } from "../../src/file-tools/find/types.js";
-import type { RepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
-import type { RepoMapQueryCandidate, RepoMapQueryResult } from "../../src/repo-map/query.js";
+import type { RepoMapFileToolQuery } from "../../src/repo-map/query/file-tool-query.js";
+import type { RepoMapQueryCandidate, RepoMapQueryResult } from "../../src/repo-map/query/query.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;

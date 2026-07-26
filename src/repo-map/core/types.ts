@@ -1,4 +1,4 @@
-import type { FileIdentity, ImportKind, SourceRange } from "../code-index/types.js";
+import type { FileIdentity, ImportKind, SourceRange } from "../../code-index/types.js";
 
 export type RepoMapFreshness = "fresh" | "partially_stale" | "stale" | "unavailable";
 

@@ -8,7 +8,7 @@ import {
 	indexRepoMapSymbols,
 	REPO_MAP_PARSER_BATCH_SIZE,
 	shouldOffloadRepoMapParsing,
-} from "../../src/repo-map/symbol-indexer.js";
+} from "../../src/repo-map/indexing/symbol-indexer.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-repo-map-workers-");

@@ -1,7 +1,7 @@
-import type { RepoMapGeneration } from "./storage.js";
-import { compareText } from "./graph.js";
-import { fileEvidence, symbolEvidence } from "./source.js";
-import type { RepoMapEdge, RepoMapEvidence, RepoMapFileRecord, RepoMapSymbolNode } from "./types.js";
+import type { RepoMapGeneration } from "../storage/storage.js";
+import { compareText } from "../core/graph.js";
+import { fileEvidence, symbolEvidence } from "../core/source.js";
+import type { RepoMapEdge, RepoMapEvidence, RepoMapFileRecord, RepoMapSymbolNode } from "../core/types.js";
 
 export type RepoMapImpactRole = "changed" | "dependent" | "caller" | "test" | "public_api" | "entrypoint" | "component";
 

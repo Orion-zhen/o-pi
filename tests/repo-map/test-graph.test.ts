@@ -2,9 +2,9 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createRepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
-import { RepoMapQueryIndex } from "../../src/repo-map/query.js";
-import { initializeRepoMap } from "../../src/repo-map/service.js";
+import { createRepoMapFileToolQuery } from "../../src/repo-map/query/file-tool-query.js";
+import { RepoMapQueryIndex } from "../../src/repo-map/query/query.js";
+import { initializeRepoMap } from "../../src/repo-map/runtime/service.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { activationEntry, configureFileTools, readGeneration, serviceDependencies, writeSources } from "./fixtures.js";
 import { generationWithTestGraph, testGraphSources } from "./test-graph-fixtures.js";

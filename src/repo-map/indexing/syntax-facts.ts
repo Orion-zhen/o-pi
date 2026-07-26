@@ -1,8 +1,8 @@
-import { languageFromPath } from "../code-index/language-registry.js";
-import { isCodeAnalysisControlError, parseDocument, sourceRangeForNode } from "../code-index/syntax-tree.js";
-import { walkNamed } from "../code-index/adapters/shared.js";
-import type { SyntaxNode } from "../code-index/adapters/types.js";
-import type { AnalysisControl, CodeLanguage, ParsedDocument, SourceIndex, SourceRange } from "../code-index/types.js";
+import { languageFromPath } from "../../code-index/language-registry.js";
+import { isCodeAnalysisControlError, parseDocument, sourceRangeForNode } from "../../code-index/syntax-tree.js";
+import { walkNamed } from "../../code-index/adapters/shared.js";
+import type { SyntaxNode } from "../../code-index/adapters/types.js";
+import type { AnalysisControl, CodeLanguage, ParsedDocument, SourceIndex, SourceRange } from "../../code-index/types.js";
 
 export interface RegistrationFact extends SourceRange {
 	name: string;

@@ -8,8 +8,8 @@ process.env.PI_REPO_MAP_CACHE_DIR = path.join(temporaryRoot, "cache");
 process.env.PI_REPO_MAP_CONFIG = path.join(root, "agent/configs/repo-map.jsonc");
 process.env.PI_FILE_TOOLS_CONFIG = path.join(root, "agent/configs/file-tools.jsonc");
 
-const { initializeRepoMap, readActivatedRepoMap } = await loadTypeScript("src/repo-map/service.ts");
-const { RepoMapQueryIndex } = await loadTypeScript("src/repo-map/query.ts");
+const { initializeRepoMap, readActivatedRepoMap } = await loadTypeScript("src/repo-map/runtime/service.ts");
+const { RepoMapQueryIndex } = await loadTypeScript("src/repo-map/query/query.ts");
 const { FindTool } = await loadTypeScript("src/file-tools/find/command.ts");
 const { FileToolsHost } = await loadTypeScript("src/file-tools/runtime/host.ts");
 const { createFindGraphSource } = await loadTypeScript("src/file-tools/pi/adapters/find.ts");
@@ -19,7 +19,7 @@ const { createGrepGraphSource } = await loadTypeScript("src/file-tools/pi/adapte
 const findCases = [
 	{ query: "ranking evidence", relevant: ["src/file-tools/shared/ranking/evidence.ts"] },
 	{ query: "graph ranking", relevant: ["src/file-tools/find/graph-ranking.ts", "src/file-tools/grep/graph-ranking.ts"] },
-	{ query: "file tool query", relevant: ["src/repo-map/file-tool-query.ts"] },
+	{ query: "file tool query", relevant: ["src/repo-map/query/file-tool-query.ts"] },
 	{ query: "grep fusion", relevant: ["src/file-tools/grep/fusion.ts"] },
 	{ query: "file tools ranking", relevant: ["docs/file-tools/ranking.md", "docs/file-tools/ranking-evidence.md", "docs/file-tools/ranking-selection.md"] },
 ];
@@ -29,7 +29,7 @@ const grepCases = [
 	{ query: join("graphRanking", "Evidence"), path: "src", match: "auto", relevant: ["src/file-tools/find/graph-ranking.ts", "src/file-tools/grep/graph-ranking.ts"] },
 	{ query: join("locateRepoMap", "Unit"), path: "src", match: "auto", relevant: ["src/file-tools/grep/command.ts"] },
 	{ query: join("region", "Identity"), path: "src", match: "auto", relevant: ["src/file-tools/grep/fusion.ts"] },
-	{ query: join("createRepoMapFileTool", "Query"), path: "src", match: "auto", relevant: ["src/repo-map/file-tool-query.ts"] },
+	{ query: join("createRepoMapFileTool", "Query"), path: "src", match: "auto", relevant: ["src/repo-map/query/file-tool-query.ts"] },
 	{
 		query: join("not_", "guaranteed"),
 		path: "src",

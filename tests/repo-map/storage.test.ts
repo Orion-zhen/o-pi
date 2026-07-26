@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { createFileIdentity, createSymbolId } from "../../src/code-index/identity.js";
-import { createRepoMapId } from "../../src/repo-map/identity.js";
+import { createRepoMapId } from "../../src/repo-map/core/identity.js";
 import {
 	calculateGeneration,
 	commitGeneration,
@@ -11,8 +11,8 @@ import {
 	prepareRepoMapGeneration,
 	readCurrentGeneration,
 	readGeneration,
-} from "../../src/repo-map/storage.js";
-import type { RepoMapArchitectureNode, RepoMapEdge, RepoMapFileRecord, RepoMapLexicalAlias, RepoMapMetadata, RepoMapSymbolNode } from "../../src/repo-map/types.js";
+} from "../../src/repo-map/storage/storage.js";
+import type { RepoMapArchitectureNode, RepoMapEdge, RepoMapFileRecord, RepoMapLexicalAlias, RepoMapMetadata, RepoMapSymbolNode } from "../../src/repo-map/core/types.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-repo-storage-");

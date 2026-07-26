@@ -26,8 +26,8 @@ import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { GrepMatchMode, GrepSuccess } from "../../src/file-tools/grep/types.js";
-import type { RepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
-import type { RepoMapQueryCandidate, RepoMapQueryResult } from "../../src/repo-map/query.js";
+import type { RepoMapFileToolQuery } from "../../src/repo-map/query/file-tool-query.js";
+import type { RepoMapQueryCandidate, RepoMapQueryResult } from "../../src/repo-map/query/query.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;

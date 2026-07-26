@@ -1,13 +1,13 @@
 import path from "node:path";
 
-import { buildRepoMapArchitecture } from "../../src/repo-map/architecture-indexer.js";
-import { compareRepoMapEdge } from "../../src/repo-map/graph.js";
-import { buildRepoMapRelationships } from "../../src/repo-map/relationship-indexer.js";
-import type { InitializeRepoMapResult } from "../../src/repo-map/service.js";
-import type { RepoMapGeneration } from "../../src/repo-map/storage.js";
-import { indexRepoMapSymbols } from "../../src/repo-map/symbol-indexer.js";
-import { buildRepoMapTestGraph } from "../../src/repo-map/test-indexer.js";
-import type { RepoMapMetadata } from "../../src/repo-map/types.js";
+import { buildRepoMapArchitecture } from "../../src/repo-map/indexing/architecture-indexer.js";
+import { compareRepoMapEdge } from "../../src/repo-map/core/graph.js";
+import { buildRepoMapRelationships } from "../../src/repo-map/indexing/relationship-indexer.js";
+import type { InitializeRepoMapResult } from "../../src/repo-map/runtime/service.js";
+import type { RepoMapGeneration } from "../../src/repo-map/storage/storage.js";
+import { indexRepoMapSymbols } from "../../src/repo-map/indexing/symbol-indexer.js";
+import { buildRepoMapTestGraph } from "../../src/repo-map/indexing/test-indexer.js";
+import type { RepoMapMetadata } from "../../src/repo-map/core/types.js";
 import { fileRecord } from "./fixtures.js";
 
 export function testGraphSources(userSource: string): Map<string, string> {

@@ -3,7 +3,7 @@ import type { FindParams, FindSuccess } from "../../src/file-tools/find/types.js
 import { createFindGraphSource } from "../../src/file-tools/pi/adapters/find.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
-import type { RepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
+import type { RepoMapFileToolQuery } from "../../src/repo-map/query/file-tool-query.js";
 
 export async function findWorkspaceFiles(
 	cwd: string,

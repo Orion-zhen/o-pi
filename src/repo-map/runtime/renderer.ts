@@ -1,5 +1,5 @@
 import type { InitializeRepoMapResult } from "./service.js";
-import type { RepoMapMetadata } from "./types.js";
+import type { RepoMapMetadata } from "../core/types.js";
 
 export function renderInitialization(result: InitializeRepoMapResult): string {
 	const summary = result.summary;

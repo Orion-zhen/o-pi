@@ -3,9 +3,9 @@ import { open } from "node:fs/promises";
 import path from "node:path";
 
 import { repoMapCacheRoot } from "./cache-path.js";
-import { createRepoMapId } from "./identity.js";
+import { createRepoMapId } from "../core/identity.js";
 import { detectRepository, readHeadRevision, type RepositoryIdentity } from "./repository.js";
-import type { RepoMapFreshness } from "./types.js";
+import type { RepoMapFreshness } from "../core/types.js";
 
 const HASH_PATTERN = /^[0-9a-f]{64}$/u;
 const MAX_POINTER_BYTES = 128;

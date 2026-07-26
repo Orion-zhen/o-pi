@@ -5,9 +5,9 @@ import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 
 import { defaultFileToolsConfig } from "../../src/file-tools/config.js";
-import { defaultRepoMapConfig } from "../../src/repo-map/config.js";
-import { RepoMapError } from "../../src/repo-map/errors.js";
-import { initializeRepoMap, readActivatedRepoMap, type RepoMapServiceDependencies } from "../../src/repo-map/service.js";
+import { defaultRepoMapConfig } from "../../src/repo-map/config/config.js";
+import { RepoMapError } from "../../src/repo-map/core/errors.js";
+import { initializeRepoMap, readActivatedRepoMap, type RepoMapServiceDependencies } from "../../src/repo-map/runtime/service.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-repo-service-");

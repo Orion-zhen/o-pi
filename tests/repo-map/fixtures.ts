@@ -4,11 +4,11 @@ import path from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import { defaultFileToolsConfig } from "../../src/file-tools/config.js";
-import { REPO_MAP_SESSION_ENTRY } from "../../src/repo-map/activation.js";
-import { defaultRepoMapConfig } from "../../src/repo-map/config.js";
-import { readActivatedRepoMap, type RepoMapServiceDependencies } from "../../src/repo-map/service.js";
-import type { RepoMapGeneration } from "../../src/repo-map/storage.js";
-import type { RepoMapFileRecord, RepoMapMetadata } from "../../src/repo-map/types.js";
+import { REPO_MAP_SESSION_ENTRY } from "../../src/repo-map/runtime/activation.js";
+import { defaultRepoMapConfig } from "../../src/repo-map/config/config.js";
+import { readActivatedRepoMap, type RepoMapServiceDependencies } from "../../src/repo-map/runtime/service.js";
+import type { RepoMapGeneration } from "../../src/repo-map/storage/storage.js";
+import type { RepoMapFileRecord, RepoMapMetadata } from "../../src/repo-map/core/types.js";
 
 export async function configureFileTools(configRoot: string, limits: Readonly<Record<string, number>>): Promise<void> {
 	const configPath = path.join(configRoot, "file-tools.jsonc");

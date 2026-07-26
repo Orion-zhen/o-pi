@@ -1,11 +1,11 @@
 import pLimit from "p-limit";
 
-import type { FileRef } from "../filesystem/contracts/path.js";
-import type { FsOperationContext } from "../filesystem/contracts/result.js";
-import type { WorkspaceFileSystem } from "../filesystem/contracts/workspace.js";
-import { createFileIdentity } from "../code-index/identity.js";
-import { RepoMapError, throwIfAborted } from "./errors.js";
-import type { RepoMapDiagnostic, RepoMapFileRecord, RepoMapScanSummary } from "./types.js";
+import type { FileRef } from "../../filesystem/contracts/path.js";
+import type { FsOperationContext } from "../../filesystem/contracts/result.js";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
+import { createFileIdentity } from "../../code-index/identity.js";
+import { RepoMapError, throwIfAborted } from "../core/errors.js";
+import type { RepoMapDiagnostic, RepoMapFileRecord, RepoMapScanSummary } from "../core/types.js";
 
 export interface RepoMapScanInput {
 	filesystem: RepoMapScannerFileSystem;

@@ -2,9 +2,9 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { formatEditModelResult, formatWriteModelResult } from "../../src/file-tools/pi/model-output-with-repo.js";
-import { createRepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
-import { analyzeRepoMapImpact } from "../../src/repo-map/impact.js";
-import { formatRepoMapImpact, REPO_IMPACT_TOKEN_BUDGET } from "../../src/repo-map/tool-output.js";
+import { createRepoMapFileToolQuery } from "../../src/repo-map/query/file-tool-query.js";
+import { analyzeRepoMapImpact } from "../../src/repo-map/query/impact.js";
+import { formatRepoMapImpact, REPO_IMPACT_TOKEN_BUDGET } from "../../src/repo-map/runtime/tool-output.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { activationEntry, configureFileTools, writeSources } from "./fixtures.js";

@@ -1,8 +1,8 @@
 import path from "node:path";
 
-import { loadFileToolsConfig } from "../file-tools/config.js";
-import { FileSystemRuntime } from "../filesystem/runtime.js";
-import { RepoMapError } from "./errors.js";
+import { loadFileToolsConfig } from "../../file-tools/config.js";
+import { FileSystemRuntime } from "../../filesystem/runtime.js";
+import { RepoMapError } from "../core/errors.js";
 
 /** Determines whether a live repository path belongs to the current automatic index scope. */
 export async function isRepoMapPathInScope(root: string, requestedPath: string): Promise<boolean> {

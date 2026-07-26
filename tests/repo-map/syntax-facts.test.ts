@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { analyzeCodeFile } from "../../src/code-index/parser.js";
 import { parseDocument } from "../../src/code-index/syntax-tree.js";
-import { javascriptSyntaxFacts } from "../../src/repo-map/syntax-facts.js";
+import { javascriptSyntaxFacts } from "../../src/repo-map/indexing/syntax-facts.js";
 
 const EMPTY_FACTS = {
 	registrations: [],

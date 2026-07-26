@@ -1,9 +1,9 @@
 import path from "node:path";
 import { parse as parseToml } from "smol-toml";
 
-import { throwIfAborted } from "./errors.js";
-import { coalesceRepoMapEdges, compareText, groupBy, uniqueBy } from "./graph.js";
-import { fileEvidence, rangeEvidence, readTextNoFollow, RepoMapReadLimitError, sha256, sourceEvidence, type RepoMapReadText, type RepoMapSourceFile } from "./source.js";
+import { throwIfAborted } from "../core/errors.js";
+import { coalesceRepoMapEdges, compareText, groupBy, uniqueBy } from "../core/graph.js";
+import { fileEvidence, rangeEvidence, readTextNoFollow, RepoMapReadLimitError, sha256, sourceEvidence, type RepoMapReadText, type RepoMapSourceFile } from "../core/source.js";
 import { javascriptSyntaxFacts, type JavaScriptSyntaxFacts, type NamedSyntaxFact } from "./syntax-facts.js";
 import type {
 	RepoMapDiagnostic,
@@ -12,7 +12,7 @@ import type {
 	RepoMapFileRecord,
 	RepoMapSymbolNode,
 	RepoMapTestNode,
-} from "./types.js";
+} from "../core/types.js";
 
 export interface BuildRepoMapTestGraphInput {
 	root: string;

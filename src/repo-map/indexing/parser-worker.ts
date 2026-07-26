@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { parentPort } from "node:worker_threads";
 
-import { analyzeCodeFile, languageFromPath } from "../code-index/parser.js";
-import { readTextNoFollow, RepoMapReadLimitError } from "./source.js";
+import { analyzeCodeFile, languageFromPath } from "../../code-index/parser.js";
+import { readTextNoFollow, RepoMapReadLimitError } from "../core/source.js";
 import { javascriptSyntaxFactsFromDocument } from "./syntax-facts.js";
 import { PARSER_SYNTAX_DIAGNOSTIC, type RepoMapParserFileResult, type RepoMapParserRequest, type RepoMapParserResponse } from "./parser-task.js";
 

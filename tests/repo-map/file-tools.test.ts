@@ -15,18 +15,18 @@ import { readWorkspaceFile } from "../helpers/read-tool.js";
 import { writeFile as writeFileCommand } from "../../src/file-tools/write/command.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
-import { computeRepoMapActivation, REPO_MAP_SESSION_ENTRY, type RepoMapActivationEntry } from "../../src/repo-map/activation.js";
-import { createRepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
-import { RepoMapQueryIndex } from "../../src/repo-map/query.js";
+import { computeRepoMapActivation, REPO_MAP_SESSION_ENTRY, type RepoMapActivationEntry } from "../../src/repo-map/runtime/activation.js";
+import { createRepoMapFileToolQuery } from "../../src/repo-map/query/file-tool-query.js";
+import { RepoMapQueryIndex } from "../../src/repo-map/query/query.js";
 import {
 	evaluateRepoMapFreshness,
 	initializeRepoMap,
 	readActivatedRepoMap,
 	readActivatedRepoMapState,
 	type RefreshActivatedRepoMapInput,
-} from "../../src/repo-map/service.js";
-import type { RepoMapGeneration } from "../../src/repo-map/storage.js";
-import { formatRepoMapReadContext, READ_REPO_MAP_TOKEN_BUDGET } from "../../src/repo-map/tool-output.js";
+} from "../../src/repo-map/runtime/service.js";
+import type { RepoMapGeneration } from "../../src/repo-map/storage/storage.js";
+import { formatRepoMapReadContext, READ_REPO_MAP_TOKEN_BUDGET } from "../../src/repo-map/runtime/tool-output.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { createFileToolsExtension } from "../../agent/extensions/file-tools.js";

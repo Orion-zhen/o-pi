@@ -6,7 +6,7 @@ import { defaultFileToolsConfig, type FileToolsConfig } from "../../src/file-too
 import { fsFailure } from "../../src/filesystem/contracts/result.js";
 import { FileSystemRuntime } from "../../src/filesystem/runtime.js";
 import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
-import { scanRepoMap, type RepoMapScannerFileSystem, type RepoMapScanInput } from "../../src/repo-map/scanner.js";
+import { scanRepoMap, type RepoMapScannerFileSystem, type RepoMapScanInput } from "../../src/repo-map/indexing/scanner.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-repo-scanner-");

@@ -9,14 +9,14 @@ import {
 	evaluateRepoMapGate,
 	type RepoMapActivation,
 	type RepoMapActivationEntry,
-} from "./activation.js";
+} from "../runtime/activation.js";
 import { RepoMapQueryIndex, type RepoMapQueryCandidate, type RepoMapQueryResult } from "./query.js";
 import { analyzeRepoMapImpact, type AnalyzeRepoMapImpactInput, type RepoMapImpactResult } from "./impact.js";
-import { REPO_MAP_OUTPUT_CANDIDATE_LIMIT } from "./output-config.js";
-import type { InitializeRepoMapResult, RefreshActivatedRepoMapInput } from "./service.js";
-import type { RepoMapGeneration } from "./storage.js";
-import { isRepoMapPathInScope, relativeRepoPath } from "./scope.js";
-import type { RepoMapEdge, RepoMapEntrypointNode, RepoMapSymbolNode } from "./types.js";
+import { REPO_MAP_OUTPUT_CANDIDATE_LIMIT } from "../config/output-config.js";
+import type { InitializeRepoMapResult, RefreshActivatedRepoMapInput } from "../runtime/service.js";
+import type { RepoMapGeneration } from "../storage/storage.js";
+import { isRepoMapPathInScope, relativeRepoPath } from "../config/scope.js";
+import type { RepoMapEdge, RepoMapEntrypointNode, RepoMapSymbolNode } from "../core/types.js";
 
 export interface RepoMapReadContext {
 	symbol: {
@@ -75,9 +75,9 @@ export function createRepoMapFileToolQuery(
 	dependencies: Partial<RepoMapFileToolQueryDependencies> = {},
 ): RepoMapFileToolQuery {
 	const readActivated = dependencies.readActivated ?? (async (activation) =>
-		await (await import("./service.js")).readActivatedRepoMapState(activation));
+		await (await import("../runtime/service.js")).readActivatedRepoMapState(activation));
 	const refresh = dependencies.refresh ?? (async (input) =>
-		await (await import("./service.js")).refreshActivatedRepoMap(input));
+		await (await import("../runtime/service.js")).refreshActivatedRepoMap(input));
 	const now = dependencies.now ?? (() => new Date());
 	const analyzeImpact = dependencies.analyzeImpact ?? analyzeRepoMapImpact;
 	const createQueryIndex = dependencies.createQueryIndex ?? ((generation: RepoMapGeneration) => new RepoMapQueryIndex(generation));

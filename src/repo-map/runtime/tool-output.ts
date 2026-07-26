@@ -1,7 +1,7 @@
-import { countTextTokensSync } from "../token-counter.js";
-import type { RepoMapReadContext } from "./file-tool-query.js";
-import type { RepoMapImpactResult } from "./impact.js";
-import { DEFAULT_REPO_MAP_OUTPUT_CONFIG, type RepoMapOutputConfig } from "./output-config.js";
+import { countTextTokensSync } from "../../token-counter.js";
+import type { RepoMapReadContext } from "../query/file-tool-query.js";
+import type { RepoMapImpactResult } from "../query/impact.js";
+import { DEFAULT_REPO_MAP_OUTPUT_CONFIG, type RepoMapOutputConfig } from "../config/output-config.js";
 
 export const READ_REPO_MAP_TOKEN_BUDGET = DEFAULT_REPO_MAP_OUTPUT_CONFIG.read_context_token_budget;
 export const REPO_IMPACT_TOKEN_BUDGET = DEFAULT_REPO_MAP_OUTPUT_CONFIG.mutation_impact_token_budget;

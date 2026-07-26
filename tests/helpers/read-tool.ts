@@ -9,8 +9,8 @@ import type { ReadFileSuccess, ReadOutputFormat, ReadParams } from "../../src/fi
 import { FileToolsHost, type FileToolsInvocation } from "../../src/file-tools/runtime/host.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
 import { createInlineImageProcessor } from "../../src/file-tools/pi/ports/read-image.js";
-import type { RepoMapFileToolQuery, RepoMapReadContext } from "../../src/repo-map/file-tool-query.js";
-import { formatRepoMapReadContext } from "../../src/repo-map/tool-output.js";
+import type { RepoMapFileToolQuery, RepoMapReadContext } from "../../src/repo-map/query/file-tool-query.js";
+import { formatRepoMapReadContext } from "../../src/repo-map/runtime/tool-output.js";
 
 export interface ReadWorkspaceTestOptions {
 	readonly host?: FileToolsHost;

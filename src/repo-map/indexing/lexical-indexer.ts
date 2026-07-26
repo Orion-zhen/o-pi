@@ -1,9 +1,9 @@
 import path from "node:path";
 import pLimit from "p-limit";
 
-import { throwIfAborted } from "./errors.js";
-import { compareText, groupBy, uniqueRepoMapEvidence } from "./graph.js";
-import { fileEvidence, readTextNoFollow, sha256, symbolEvidence, type RepoMapReadText } from "./source.js";
+import { throwIfAborted } from "../core/errors.js";
+import { compareText, groupBy, uniqueRepoMapEvidence } from "../core/graph.js";
+import { fileEvidence, readTextNoFollow, sha256, symbolEvidence, type RepoMapReadText } from "../core/source.js";
 import type {
 	RepoMapAliasSource,
 	RepoMapArchitectureNode,
@@ -12,7 +12,7 @@ import type {
 	RepoMapFileRecord,
 	RepoMapLexicalAlias,
 	RepoMapSymbolNode,
-} from "./types.js";
+} from "../core/types.js";
 
 export interface BuildRepoMapLexicalAliasesInput {
 	root: string;

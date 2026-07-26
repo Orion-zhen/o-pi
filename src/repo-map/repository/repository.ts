@@ -3,7 +3,7 @@ import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { RepoMapError, throwIfAborted } from "./errors.js";
+import { RepoMapError, throwIfAborted } from "../core/errors.js";
 
 const execFileAsync = promisify(execFile);
 

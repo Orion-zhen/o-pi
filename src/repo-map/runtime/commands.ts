@@ -8,12 +8,12 @@ import {
 	type RepoMapActivationEntry,
 	type RepoMapDeactivationEntry,
 } from "./activation.js";
-import { RepoMapError } from "./errors.js";
+import { RepoMapError } from "../core/errors.js";
 import { renderInitialization, renderStatus, renderUnavailableStatus } from "./renderer.js";
-import type { DiscoveredRepoMap } from "./discovery.js";
-import type { RepoMapProgress } from "./scanner.js";
+import type { DiscoveredRepoMap } from "../repository/discovery.js";
+import type { RepoMapProgress } from "../indexing/scanner.js";
 import type { InitializeRepoMapInput, InitializeRepoMapResult } from "./service.js";
-import type { RepoMapGeneration } from "./storage.js";
+import type { RepoMapGeneration } from "../storage/storage.js";
 
 type RepoMapCommandApi = Pick<ExtensionAPI, "registerCommand" | "appendEntry">;
 type RepoMapStatusContext = Pick<ExtensionCommandContext, "mode" | "sessionManager" | "ui">;
@@ -38,7 +38,7 @@ export interface RepoMapCommandDependencies {
 
 export interface RepoMapCommandModuleImports {
 	currentPointer(): Promise<{
-		isActivatedGenerationCurrent: typeof import("./current-pointer.js").isActivatedGenerationCurrent;
+		isActivatedGenerationCurrent: typeof import("../repository/current-pointer.js").isActivatedGenerationCurrent;
 	}>;
 	service(): Promise<{
 		initializeRepoMap: typeof import("./service.js").initializeRepoMap;
@@ -47,14 +47,14 @@ export interface RepoMapCommandModuleImports {
 }
 
 const defaultModuleImports: RepoMapCommandModuleImports = {
-	currentPointer: () => import("./current-pointer.js"),
+	currentPointer: () => import("../repository/current-pointer.js"),
 	service: () => import("./service.js"),
 };
 
 const defaultDependencies = createRepoMapCommandDependencies();
 const defaultAutoActivationDependencies: RepoMapAutoActivationDependencies = {
 	async discover(cwd, signal) {
-		return await (await import("./discovery.js")).discoverCurrentRepoMap(cwd, signal);
+		return await (await import("../repository/discovery.js")).discoverCurrentRepoMap(cwd, signal);
 	},
 	async initialize(input) {
 		return await (await import("./service.js")).initializeRepoMap(input);

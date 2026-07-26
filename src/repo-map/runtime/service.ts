@@ -2,21 +2,21 @@ import { createHash } from "node:crypto";
 import {
 	loadFileToolsConfig,
 	type FileToolsConfig,
-} from "../file-tools/config.js";
-import type { FilesystemPolicy } from "../filesystem/contracts/policy.js";
-import type { FsOperationContext } from "../filesystem/contracts/result.js";
-import type { WorkspaceFileSystem } from "../filesystem/contracts/workspace.js";
-import { FileSystemRuntime } from "../filesystem/runtime.js";
-import { loadRepoMapConfig, repoMapCacheRoot, repoMapConfigFingerprint, type RepoMapConfig } from "./config.js";
-import type { BuildRepoMapArchitectureInput, RepoMapArchitectureIndex } from "./architecture-indexer.js";
-import { RepoMapError, throwIfAborted } from "./errors.js";
-import { createRepoMapId } from "./identity.js";
-import type { BuildRepoMapRelationshipsInput } from "./relationship-indexer.js";
-import type { BuildRepoMapLexicalAliasesInput } from "./lexical-indexer.js";
-import { detectRepository, readHeadRevision, type RepositoryIdentity } from "./repository.js";
-import { scanRepoMap, type RepoMapProgress, type RepoMapScanInput, type RepoMapScanResult } from "./scanner.js";
-import type { IndexRepoMapSymbolsInput } from "./symbol-indexer.js";
-import type { BuildRepoMapTestGraphInput, RepoMapTestGraph } from "./test-indexer.js";
+} from "../../file-tools/config.js";
+import type { FilesystemPolicy } from "../../filesystem/contracts/policy.js";
+import type { FsOperationContext } from "../../filesystem/contracts/result.js";
+import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
+import { FileSystemRuntime } from "../../filesystem/runtime.js";
+import { loadRepoMapConfig, repoMapCacheRoot, repoMapConfigFingerprint, type RepoMapConfig } from "../config/config.js";
+import type { BuildRepoMapArchitectureInput, RepoMapArchitectureIndex } from "../indexing/architecture-indexer.js";
+import { RepoMapError, throwIfAborted } from "../core/errors.js";
+import { createRepoMapId } from "../core/identity.js";
+import type { BuildRepoMapRelationshipsInput } from "../indexing/relationship-indexer.js";
+import type { BuildRepoMapLexicalAliasesInput } from "../indexing/lexical-indexer.js";
+import { detectRepository, readHeadRevision, type RepositoryIdentity } from "../repository/repository.js";
+import { scanRepoMap, type RepoMapProgress, type RepoMapScanInput, type RepoMapScanResult } from "../indexing/scanner.js";
+import type { IndexRepoMapSymbolsInput } from "../indexing/symbol-indexer.js";
+import type { BuildRepoMapTestGraphInput, RepoMapTestGraph } from "../indexing/test-indexer.js";
 import {
 	commitGeneration,
 	createCachedRepoMapGenerationReader,
@@ -26,9 +26,9 @@ import {
 	type CommitGenerationInput,
 	type CommitGenerationResult,
 	type RepoMapGeneration,
-} from "./storage.js";
-import type { RepoMapEdge, RepoMapFreshness, RepoMapMetadata, RepoMapScanSummary } from "./types.js";
-import { coalesceRepoMapEdges, type RepoMapSymbolIndex } from "./graph.js";
+} from "../storage/storage.js";
+import type { RepoMapEdge, RepoMapFreshness, RepoMapMetadata, RepoMapScanSummary } from "../core/types.js";
+import { coalesceRepoMapEdges, type RepoMapSymbolIndex } from "../core/graph.js";
 import type { RepoMapActivation } from "./activation.js";
 
 export interface InitializeRepoMapInput {
@@ -81,19 +81,19 @@ const defaultDependencies: RepoMapServiceDependencies = {
 	openWorkspace,
 	scan: scanRepoMap,
 	async indexSymbols(input) {
-		return await (await import("./symbol-indexer.js")).indexRepoMapSymbols(input);
+		return await (await import("../indexing/symbol-indexer.js")).indexRepoMapSymbols(input);
 	},
 	async buildRelationships(input) {
-		return (await import("./relationship-indexer.js")).buildRepoMapRelationships(input);
+		return (await import("../indexing/relationship-indexer.js")).buildRepoMapRelationships(input);
 	},
 	async buildArchitecture(input) {
-		return await (await import("./architecture-indexer.js")).buildRepoMapArchitecture(input);
+		return await (await import("../indexing/architecture-indexer.js")).buildRepoMapArchitecture(input);
 	},
 	async buildTestGraph(input) {
-		return await (await import("./test-indexer.js")).buildRepoMapTestGraph(input);
+		return await (await import("../indexing/test-indexer.js")).buildRepoMapTestGraph(input);
 	},
 	async buildLexicalAliases(input) {
-		return await (await import("./lexical-indexer.js")).buildRepoMapLexicalAliases(input);
+		return await (await import("../indexing/lexical-indexer.js")).buildRepoMapLexicalAliases(input);
 	},
 	readCurrent: readCurrentGeneration,
 	commit: commitGeneration,

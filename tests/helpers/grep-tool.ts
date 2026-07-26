@@ -4,7 +4,7 @@ import { createGrepGraphSource, createGrepSymbolSource } from "../../src/file-to
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { LspFileOperations } from "../../src/lsp/file-hooks.js";
-import type { RepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
+import type { RepoMapFileToolQuery } from "../../src/repo-map/query/file-tool-query.js";
 
 let host = new FileToolsHost();
 let tool = new GrepTool();

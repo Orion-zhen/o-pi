@@ -4,15 +4,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { findWorkspaceFiles } from "../helpers/find-tool.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
-import { buildRepoMapArchitecture } from "../../src/repo-map/architecture-indexer.js";
-import { createRepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
-import { buildRepoMapLexicalAliases } from "../../src/repo-map/lexical-indexer.js";
-import { RepoMapQueryIndex } from "../../src/repo-map/query.js";
-import { buildRepoMapRelationships } from "../../src/repo-map/relationship-indexer.js";
-import { initializeRepoMap } from "../../src/repo-map/service.js";
-import type { RepoMapGeneration } from "../../src/repo-map/storage.js";
-import { indexRepoMapSymbols } from "../../src/repo-map/symbol-indexer.js";
-import type { RepoMapEdge, RepoMapFileRecord, RepoMapMetadata, RepoMapSymbolNode } from "../../src/repo-map/types.js";
+import { buildRepoMapArchitecture } from "../../src/repo-map/indexing/architecture-indexer.js";
+import { createRepoMapFileToolQuery } from "../../src/repo-map/query/file-tool-query.js";
+import { buildRepoMapLexicalAliases } from "../../src/repo-map/indexing/lexical-indexer.js";
+import { RepoMapQueryIndex } from "../../src/repo-map/query/query.js";
+import { buildRepoMapRelationships } from "../../src/repo-map/indexing/relationship-indexer.js";
+import { initializeRepoMap } from "../../src/repo-map/runtime/service.js";
+import type { RepoMapGeneration } from "../../src/repo-map/storage/storage.js";
+import { indexRepoMapSymbols } from "../../src/repo-map/indexing/symbol-indexer.js";
+import type { RepoMapEdge, RepoMapFileRecord, RepoMapMetadata, RepoMapSymbolNode } from "../../src/repo-map/core/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { activationEntry, configureFileTools, fileRecord, readGeneration, serviceDependencies, writeSources } from "./fixtures.js";
 

@@ -1,5 +1,5 @@
-import type { ImportKind } from "../code-index/types.js";
-import type { JavaScriptSyntaxFacts } from "./syntax-facts.js";
+import type { ImportKind } from "../../code-index/types.js";
+import type { JavaScriptSyntaxFacts } from "../indexing/syntax-facts.js";
 import type { RepoMapEdge, RepoMapEvidence, RepoMapSymbolNode } from "./types.js";
 
 export interface RepoMapImportFact {

@@ -1,6 +1,6 @@
-import type { IndexedImport, ParsedFileIndex } from "../code-index/types.js";
+import type { IndexedImport, ParsedFileIndex } from "../../code-index/types.js";
 import type { JavaScriptSyntaxFacts } from "./syntax-facts.js";
-import type { RepoMapFileRecord } from "./types.js";
+import type { RepoMapFileRecord } from "../core/types.js";
 
 export const PARSER_SYNTAX_DIAGNOSTIC = {
 	code: "PARSER_SYNTAX_ERROR",

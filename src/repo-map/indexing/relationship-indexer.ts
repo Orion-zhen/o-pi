@@ -1,10 +1,10 @@
 import path from "node:path";
 
-import { languageFromPath } from "../code-index/parser.js";
-import { coalesceRepoMapEdges, groupBy, type RepoMapImportFact } from "./graph.js";
-import { fileEvidence, symbolEvidence } from "./source.js";
-import { isRepoMapSymbolPublic } from "./visibility.js";
-import type { RepoMapEdge, RepoMapEvidence, RepoMapFileRecord, RepoMapSymbolNode } from "./types.js";
+import { languageFromPath } from "../../code-index/parser.js";
+import { coalesceRepoMapEdges, groupBy, type RepoMapImportFact } from "../core/graph.js";
+import { fileEvidence, symbolEvidence } from "../core/source.js";
+import { isRepoMapSymbolPublic } from "../core/visibility.js";
+import type { RepoMapEdge, RepoMapEvidence, RepoMapFileRecord, RepoMapSymbolNode } from "../core/types.js";
 
 export interface BuildRepoMapRelationshipsInput {
 	mapId: string;

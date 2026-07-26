@@ -1,4 +1,4 @@
-import type { RepoMapQueryCandidate } from "../../../repo-map/query.js";
+import type { RepoMapQueryCandidate } from "../../../repo-map/query/query.js";
 import { GrepTool, formatCompactGrepResult } from "../../grep/command.js";
 import type { GrepGraphCandidate, GrepGraphSource, GrepSymbolSource } from "../../grep/ports.js";
 import type { GrepParams } from "../../grep/types.js";

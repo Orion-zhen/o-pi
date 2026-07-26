@@ -6,12 +6,12 @@ import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js"
 import { findWorkspaceFiles } from "../helpers/find-tool.js";
 import { formatCompactGrepResult } from "../../src/file-tools/grep/command.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
-import { createRepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
-import { buildRepoMapRelationships } from "../../src/repo-map/relationship-indexer.js";
-import { RepoMapQueryIndex } from "../../src/repo-map/query.js";
-import { indexRepoMapSymbols } from "../../src/repo-map/symbol-indexer.js";
-import type { RepoMapGeneration } from "../../src/repo-map/storage.js";
-import type { RepoMapMetadata } from "../../src/repo-map/types.js";
+import { createRepoMapFileToolQuery } from "../../src/repo-map/query/file-tool-query.js";
+import { buildRepoMapRelationships } from "../../src/repo-map/indexing/relationship-indexer.js";
+import { RepoMapQueryIndex } from "../../src/repo-map/query/query.js";
+import { indexRepoMapSymbols } from "../../src/repo-map/indexing/symbol-indexer.js";
+import type { RepoMapGeneration } from "../../src/repo-map/storage/storage.js";
+import type { RepoMapMetadata } from "../../src/repo-map/core/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { activationEntry, configureFileTools, fileRecord, writeSources } from "./fixtures.js";
 

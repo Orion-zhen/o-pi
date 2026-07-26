@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { readTextNoFollow } from "../../src/repo-map/source.js";
+import { readTextNoFollow } from "../../src/repo-map/core/source.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-repo-map-source-");

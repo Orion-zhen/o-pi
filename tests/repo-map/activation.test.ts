@@ -9,8 +9,8 @@ import {
 	REPO_MAP_SESSION_ENTRY,
 	type RepoMapActivation,
 	type RepoMapSessionEntry,
-} from "../../src/repo-map/activation.js";
-import type { RepoMapFreshness } from "../../src/repo-map/types.js";
+} from "../../src/repo-map/runtime/activation.js";
+import type { RepoMapFreshness } from "../../src/repo-map/core/types.js";
 
 const root = path.resolve("repo");
 const activation: RepoMapActivation = {

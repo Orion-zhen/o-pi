@@ -10,7 +10,7 @@ import type {
 	RepoMapMetadata,
 	RepoMapSymbolNode,
 	RepoMapTestNode,
-} from "./types.js";
+} from "../core/types.js";
 
 const objectOptions = { additionalProperties: false } as const;
 const nonEmptyString = Type.String({ minLength: 1 });

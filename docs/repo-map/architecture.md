@@ -1,22 +1,33 @@
 # Repo Map 架构
 
-Repo Map 由扩展入口、服务层、扫描器、多个 indexer、generation storage 和 File Tools query adapter 组成。
+Repo Map 由扩展入口、服务层、扫描器、多个 indexer、generation storage 和 File Tools query adapter 组成。源码按职责分目录：
+
+```text
+src/repo-map/
+├── core/        types、errors、graph、source、identity、visibility
+├── repository/  repository、discovery、current-pointer、cache-path
+├── config/      config、output-config、scope
+├── indexing/    scanner、各类 indexer、syntax/parser worker
+├── storage/     generation storage 和 schema
+├── query/       query、impact、file-tool-query
+└── runtime/     service、commands、activation、renderer、tool-output
+```
 
 ## 模块边界
 
 ```text
 agent/extensions/repo-map.ts
         ↓
-src/repo-map/commands.ts / activation.ts
+src/repo-map/runtime/commands.ts / runtime/activation.ts
         ↓
-src/repo-map/service.ts
+src/repo-map/runtime/service.ts
         ├── repository / discovery
-        ├── scanner + ignore snapshot
-        ├── symbol / architecture / relationship / test indexers
-        ├── lexical aliases
+        ├── indexing/scanner + ignore snapshot
+        ├── indexing/symbol / architecture / relationship / test indexers
+        ├── indexing/lexical aliases
         └── storage generations
         ↓
-src/repo-map/file-tool-query.ts
+src/repo-map/query/file-tool-query.ts
         ↓
 file-tools find / grep / read / mutation
 ```

@@ -18,10 +18,10 @@ try {
 	await rm(temp, { recursive: true, force: true });
 	await writeFixture(workspace, size, initialTime);
 	const runtimeStarted = performance.now();
-	const service = await loadTypeScript("src/repo-map/service.ts");
-	const config = await loadTypeScript("src/repo-map/config.ts");
+	const service = await loadTypeScript("src/repo-map/runtime/service.ts");
+	const config = await loadTypeScript("src/repo-map/config/config.ts");
 	const fileConfig = await loadTypeScript("src/file-tools/config.ts");
-	const queryModule = await loadTypeScript("src/repo-map/file-tool-query.ts");
+	const queryModule = await loadTypeScript("src/repo-map/query/file-tool-query.ts");
 	const runtimeImported = performance.now();
 
 	const dependencies = benchmarkDependencies(workspace, cacheRoot, config, fileConfig);

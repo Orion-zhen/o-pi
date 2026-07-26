@@ -4,8 +4,8 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
-import { discoverCurrentRepoMap } from "../../src/repo-map/discovery.js";
-import { initializeRepoMap } from "../../src/repo-map/service.js";
+import { discoverCurrentRepoMap } from "../../src/repo-map/repository/discovery.js";
+import { initializeRepoMap } from "../../src/repo-map/runtime/service.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 const execFileAsync = promisify(execFile);

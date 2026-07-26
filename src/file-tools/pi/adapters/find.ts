@@ -3,7 +3,7 @@ import type { FindGraphCandidate, FindGraphSource } from "../../find/graph-sourc
 import type { FindParams } from "../../find/types.js";
 import type { FileToolsInvocation, FileToolsHost } from "../../runtime/host.js";
 import { isFailed } from "../../shared/result.js";
-import type { RepoMapQueryCandidate } from "../../../repo-map/query.js";
+import type { RepoMapQueryCandidate } from "../../../repo-map/query/query.js";
 import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 import { formatErrorModelResult } from "../model-output.js";
 
