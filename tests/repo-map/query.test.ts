@@ -2,9 +2,10 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { clearGrepIndex } from "../../src/file-tools/grep/indexer.js";
+import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
 import { findWorkspaceFiles } from "../helpers/find-tool.js";
-import { formatCompactGrepResult, grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
+import { formatCompactGrepResult } from "../../src/file-tools/grep/command.js";
+import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import { createRepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
 import { buildRepoMapRelationships } from "../../src/repo-map/relationship-indexer.js";
 import { RepoMapQueryIndex } from "../../src/repo-map/query.js";

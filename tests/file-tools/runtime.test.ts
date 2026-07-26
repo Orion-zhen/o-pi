@@ -131,6 +131,19 @@ describe("FileToolsHost runtime", () => {
 		expect(opened.observation.get(await resolveTarget(opened, "new.txt"))).toBeUndefined();
 	});
 
+	it("exposes a stable opaque workspace cache identity without sharing path refs", async () => {
+		await writeFile(path.join(workspace, "identity.txt"), "identity");
+		const host = track(new FileToolsHost({ config: staticConfig() }));
+		const first = await openHost(host, "identity-a");
+		const second = await openHost(host, "identity-b");
+		const firstRef = await resolveFile(first, "identity.txt");
+		const secondRef = await resolveFile(second, "identity.txt");
+
+		expect(first.filesystem.identity).toBe(second.filesystem.identity);
+		expect(String(first.filesystem.identity)).not.toContain(workspace);
+		expect(firstRef.id).not.toBe(secondRef.id);
+	});
+
 	it("closes a workspace that finishes opening during host shutdown", async () => {
 		const runtime = new DisposeAfterOpenRuntime();
 		const host = track(new FileToolsHost({ config: staticConfig(), filesystem: runtime }));

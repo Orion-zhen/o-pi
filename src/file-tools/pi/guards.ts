@@ -1,5 +1,5 @@
 import type { FailedResult } from "../shared/result.js";
-import type { RepoMapRelatedResult } from "../types.js";
+import type { GrepRelatedResult } from "../grep/types.js";
 
 export function isFailedDetails(value: unknown): value is FailedResult {
 	if (!isPlainRecord(value) || value["status"] !== "failed" || !isPlainRecord(value["error"])) return false;
@@ -7,7 +7,7 @@ export function isFailedDetails(value: unknown): value is FailedResult {
 	return typeof error["code"] === "string" && typeof error["message"] === "string";
 }
 
-export function isRepoMapRelatedResults(value: unknown): value is RepoMapRelatedResult[] {
+export function isRepoMapRelatedResults(value: unknown): value is GrepRelatedResult[] {
 	return Array.isArray(value) && value.every((item) =>
 		isPlainRecord(item)
 		&& typeof item["path"] === "string"

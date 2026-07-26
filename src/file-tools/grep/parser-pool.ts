@@ -1,10 +1,11 @@
 import { analyzeCodeFile, analyzeTextFile, type AnalyzedFileIndex } from "../../code-index/parser.js";
-import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../../worker-runtime/worker-task-pool.js";
+import { disposeTreeSitterParsers } from "../../code-index/tree-sitter-loader.js";
 import { DEFAULT_WORKER_CONCURRENCY } from "../../worker-runtime/concurrency.js";
 import { createTypeScriptWorker } from "../../worker-runtime/typescript-worker.js";
+import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../../worker-runtime/worker-task-pool.js";
 
-/** grep 的默认并发路数：逻辑核心数的一半，单核环境至少保留一路。 */
 export const GREP_CONCURRENCY = DEFAULT_WORKER_CONCURRENCY;
+export const GREP_PARSER_BATCH_SIZE = 32;
 
 export interface GrepParseWorkload {
 	fileCount: number;
@@ -17,7 +18,9 @@ export interface OffloadDecisionOptions {
 	workerWarm?: boolean;
 }
 
-export const GREP_PARSER_BATCH_SIZE = 32;
+type GrepParseFile = { path: string; text: string; syntax: boolean };
+type GrepParserWorkerPool = WorkerTaskPool<GrepParseFile[], AnalyzedFileIndex[]>;
+
 const MAIN_THREAD_MAX_PARSE_BYTES = 256 * 1024;
 const LOCAL_FILE_COST_MS = 0.4;
 const LOCAL_BYTES_PER_MS = 4_000;
@@ -26,12 +29,6 @@ const TRANSFER_BYTES_PER_MS = 100_000;
 const COLD_WORKER_START_MS = 105;
 const WARM_WORKER_START_MS = 3;
 
-type GrepParseFile = { path: string; text: string; syntax: boolean };
-type GrepParserWorkerPool = WorkerTaskPool<GrepParseFile[], AnalyzedFileIndex[]>;
-
-let sharedPool: GrepParserWorkerPool | undefined;
-
-/** 依据真实解析工作量估算本地与 worker 墙钟成本；大单文件优先保护主事件循环。 */
 export function shouldOffloadGrepParsing(workload: GrepParseWorkload, options: OffloadDecisionOptions = {}): boolean {
 	if (workload.fileCount <= 0 || workload.totalBytes <= 0) return false;
 	if (workload.maxFileBytes >= MAIN_THREAD_MAX_PARSE_BYTES) return true;
@@ -40,61 +37,72 @@ export function shouldOffloadGrepParsing(workload: GrepParseWorkload, options: O
 	if (workers <= 1) return false;
 	const localMs = workload.fileCount * LOCAL_FILE_COST_MS + workload.totalBytes / LOCAL_BYTES_PER_MS;
 	const transferMs = workload.fileCount * TRANSFER_FILE_COST_MS + workload.totalBytes / TRANSFER_BYTES_PER_MS;
-	const startupMs = (options.workerWarm ?? sharedPool !== undefined) ? WARM_WORKER_START_MS : COLD_WORKER_START_MS;
+	const startupMs = options.workerWarm === true ? WARM_WORKER_START_MS : COLD_WORKER_START_MS;
 	return startupMs + localMs / workers + transferMs < localMs;
 }
 
-/** 大批量 grep 解析移到 worker；worker 不可用时退回同一份本地 parser，结果语义不变。 */
-export async function analyzeGrepFile(
-	filePath: string,
-	text: string,
-	signal: AbortSignal | undefined,
-	offload: boolean,
-	syntax = true,
-): Promise<AnalyzedFileIndex> {
-	return (await analyzeGrepFiles([{ path: filePath, text, syntax }], signal, offload))[0] ?? await analyzeRequestedFile({ path: filePath, text, syntax }, signal);
-}
+/** Grep-owned parser and worker pool. No process-global worker survives its owner. */
+export class GrepParser {
+	private pool: GrepParserWorkerPool | undefined;
+	private disposed = false;
 
-export async function analyzeGrepFiles(
-	files: GrepParseFile[],
-	signal: AbortSignal | undefined,
-	offload: boolean,
-): Promise<AnalyzedFileIndex[]> {
-	if (signal?.aborted) throw new AbortGrepParse();
-	if (!offload) {
+	shouldOffload(workload: GrepParseWorkload): boolean {
+		return shouldOffloadGrepParsing(workload, { workerWarm: this.pool !== undefined });
+	}
+
+	async analyzeFile(filePath: string, text: string, signal: AbortSignal | undefined, offload: boolean, syntax = true): Promise<AnalyzedFileIndex> {
+		return (await this.analyzeFiles([{ path: filePath, text, syntax }], signal, offload))[0]
+			?? await analyzeRequestedFile({ path: filePath, text, syntax }, signal);
+	}
+
+	async analyzeFiles(files: GrepParseFile[], signal: AbortSignal | undefined, offload: boolean): Promise<AnalyzedFileIndex[]> {
+		if (this.disposed || signal?.aborted === true) throw new AbortGrepParse();
+		if (!offload) return await analyzeLocally(files, signal);
+		const syntaxFiles = files.filter((file) => file.syntax);
+		if (syntaxFiles.length === 0) return await analyzeLocally(files, signal);
 		try {
-			return await Promise.all(files.map((file) => analyzeRequestedFile(file, signal)));
+			this.pool ??= createGrepParserPool();
+			const pool = this.pool;
+			const batches = chunk(syntaxFiles, GREP_PARSER_BATCH_SIZE);
+			const syntaxResults = (await Promise.all(batches.map(async (batch) => await pool.run(batch, signal)))).flat();
+			let syntaxIndex = 0;
+			return await Promise.all(files.map(async (file) => {
+				if (!file.syntax) return analyzeTextFile(file.path);
+				const result = syntaxResults[syntaxIndex];
+				syntaxIndex += 1;
+				return result ?? await analyzeRequestedFile(file, signal);
+			}));
 		} catch (error) {
-			if (signal?.aborted === true) throw new AbortGrepParse();
-			throw error;
+			if (this.isDisposed() || isAborted(signal) || error instanceof AbortGrepParse || error instanceof WorkerTaskAbortedError) {
+				throw new AbortGrepParse();
+			}
+			return await analyzeLocally(files, signal);
 		}
 	}
-	const syntaxFiles = files.filter((file) => file.syntax);
-	if (syntaxFiles.length === 0) return await Promise.all(files.map((file) => analyzeRequestedFile(file, signal)));
-	try {
-		sharedPool ??= createGrepParserPool();
-		const pool = sharedPool;
-		const batches = chunk(syntaxFiles, GREP_PARSER_BATCH_SIZE);
-		const syntaxResults = (await Promise.all(batches.map((batch) => pool.run(batch, signal)))).flat();
-		let syntaxIndex = 0;
-		return await Promise.all(files.map(async (file) => {
-			if (!file.syntax) return analyzeTextFile(file.path);
-			const result = syntaxResults[syntaxIndex];
-			syntaxIndex += 1;
-			return result ?? await analyzeRequestedFile(file, signal);
-		}));
-	} catch (error) {
-		if (error instanceof AbortGrepParse || error instanceof WorkerTaskAbortedError) throw new AbortGrepParse();
-		return await Promise.all(files.map((file) => analyzeRequestedFile(file, signal)));
-	}
-}
 
-export function clearGrepParserPool(): void {
-	sharedPool?.dispose();
-	sharedPool = undefined;
+	private isDisposed(): boolean {
+		return this.disposed;
+	}
+
+	dispose(): void {
+		if (this.disposed) return;
+		this.disposed = true;
+		this.pool?.dispose();
+		this.pool = undefined;
+		disposeTreeSitterParsers();
+	}
 }
 
 export class AbortGrepParse extends Error {}
+
+async function analyzeLocally(files: GrepParseFile[], signal?: AbortSignal): Promise<AnalyzedFileIndex[]> {
+	try {
+		return await Promise.all(files.map(async (file) => await analyzeRequestedFile(file, signal)));
+	} catch (error) {
+		if (signal?.aborted === true) throw new AbortGrepParse();
+		throw error;
+	}
+}
 
 function createGrepParserPool(): GrepParserWorkerPool {
 	return new WorkerTaskPool<GrepParseFile[], AnalyzedFileIndex[]>({
@@ -112,6 +120,10 @@ function decodeGrepParserResponse(message: unknown): WorkerTaskResponse<Analyzed
 	return typeof message.error === "string" ? { id: message.id, error: message.error } : undefined;
 }
 
+function isAborted(signal: AbortSignal | undefined): boolean {
+	return signal?.aborted === true;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
 }
@@ -123,5 +135,5 @@ function chunk<T>(values: readonly T[], size: number): T[][] {
 }
 
 async function analyzeRequestedFile(file: GrepParseFile, signal?: AbortSignal): Promise<AnalyzedFileIndex> {
-	return file.syntax ? await analyzeCodeFile(file.path, file.text, { ...(signal !== undefined ? { signal } : {}) }) : analyzeTextFile(file.path);
+	return file.syntax ? await analyzeCodeFile(file.path, file.text, { ...(signal === undefined ? {} : { signal }) }) : analyzeTextFile(file.path);
 }

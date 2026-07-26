@@ -3,7 +3,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { findWorkspaceFiles } from "../helpers/find-tool.js";
-import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
+import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import { buildRepoMapArchitecture } from "../../src/repo-map/architecture-indexer.js";
 import { createRepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
 import { buildRepoMapLexicalAliases } from "../../src/repo-map/lexical-indexer.js";

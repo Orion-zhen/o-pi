@@ -3,7 +3,7 @@ import { byteRangeForLines, extractByteRange } from "../../code-index/parser.js"
 import type { RankedGrepRegion } from "./ranker.js";
 import { selectRankedGrepCandidates } from "./fusion.js";
 import { rankingEvidenceSources } from "../shared/ranking/evidence.js";
-import type { GrepMatchMode, GrepNearbyResult, GrepRegion, GrepScopeError, GrepSkippedFiles, GrepSuccess, RepoMapRelatedResult } from "../types.js";
+import type { GrepMatchMode, GrepNearbyResult, GrepRegion, GrepRelatedResult, GrepScopeError, GrepSkippedFiles, GrepSuccess } from "./types.js";
 
 export interface GrepPackInput {
 	query: string;
@@ -21,7 +21,7 @@ export interface GrepPackInput {
 	skipped?: GrepSkippedFiles;
 	scanComplete: boolean;
 	nearby: GrepNearbyResult[];
-	related?: RepoMapRelatedResult[];
+	related?: GrepRelatedResult[];
 }
 
 interface PackState {
@@ -31,7 +31,7 @@ interface PackState {
 	regions: GrepRegion[];
 	usedFiles: Set<string>;
 	repoMapUsed: boolean;
-	related: RepoMapRelatedResult[];
+	related: GrepRelatedResult[];
 	nearby: GrepNearbyResult[];
 }
 
@@ -133,7 +133,7 @@ function renderPackedBody(
 	regions: GrepRegion[],
 	returnedFiles: number,
 	truncated: boolean,
-	related: RepoMapRelatedResult[] = [],
+	related: GrepRelatedResult[] = [],
 	nearby: GrepNearbyResult[] = input.nearby,
 ): string {
 	return renderGrepSuccess({
@@ -250,7 +250,7 @@ function visibleReasons(reasons: string[], match: GrepMatchMode): string[] {
 		&& !(match === "regex" && reason === "regex"));
 }
 
-function renderRelated(related: RepoMapRelatedResult[]): string {
+function renderRelated(related: GrepRelatedResult[]): string {
 	const lines = ["<related repo-map nonmatch>"];
 	for (const result of related) {
 		const range = result.start_line === undefined

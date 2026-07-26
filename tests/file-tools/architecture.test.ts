@@ -17,17 +17,6 @@ external-tool-internal:src/repo-map/scope.ts:../file-tools/config.js
 external-tool-internal:src/repo-map/scope.ts:../file-tools/shared/result.js
 external-tool-internal:src/repo-map/service.ts:../file-tools/config.js
 external-tool-internal:src/repo-map/service.ts:../file-tools/shared/result.js
-tool-data-plane:src/file-tools/grep/indexer.ts:../../safety/path-guard.js
-tool-data-plane:src/file-tools/grep/indexer.ts:../config.js
-tool-data-plane:src/file-tools/grep/indexer.ts:node:fs
-tool-data-plane:src/file-tools/grep/indexer.ts:node:fs/promises
-tool-data-plane:src/file-tools/grep/indexer.ts:node:path
-tool-data-plane:src/file-tools/tools/grep.ts:../../repo-map/file-tool-query.js
-tool-data-plane:src/file-tools/tools/grep.ts:../../repo-map/query.js
-tool-data-plane:src/file-tools/tools/grep.ts:../config.js
-tool-data-plane:src/file-tools/tools/grep.ts:node:fs
-tool-data-plane:src/file-tools/tools/grep.ts:node:fs/promises
-tool-data-plane:src/file-tools/tools/grep.ts:node:path
 `.trim().split("\n"));
 
 type Rule = "filesystem-upward" | "tool-sibling" | "tool-data-plane" | "external-tool-internal";

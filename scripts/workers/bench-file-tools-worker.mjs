@@ -31,15 +31,13 @@ async function runRegistrationBenchmark() {
 
 async function runSearchBenchmark() {
 	const { FindTool } = await loadTypeScript("src/file-tools/find/command.ts");
+	const { GrepTool } = await loadTypeScript("src/file-tools/grep/command.ts");
 	const { FileToolsHost } = await loadTypeScript("src/file-tools/runtime/host.ts");
-	const { grepWorkspaceFiles } = await loadTypeScript("src/file-tools/tools/grep.ts");
-	const { clearGrepIndex } = await loadTypeScript("src/file-tools/grep/indexer.ts");
-	const { defaultVisibilityService } = await loadTypeScript("src/filesystem/services/visibility/service.ts");
 
-	defaultVisibilityService.invalidate();
-	clearGrepIndex();
 	const host = new FileToolsHost();
 	const findTool = new FindTool();
+	let grepHost = new FileToolsHost();
+	let grepTool = new GrepTool();
 	const find = async (params) => {
 		const opened = await host.open({ cwd: fromRoot(""), sessionId: "benchmark-find" });
 		if (opened.status === "failed") return opened;
@@ -49,20 +47,31 @@ async function runSearchBenchmark() {
 			opened.dispose();
 		}
 	};
+	const grep = async (params) => {
+		const opened = await grepHost.open({ cwd: fromRoot(""), sessionId: "benchmark-grep" });
+		if (opened.status === "failed") return opened;
+		try {
+			return await grepTool.execute(params, { filesystem: opened.filesystem, operation: opened.context, limits: opened.limits });
+		} finally { opened.dispose(); }
+	};
 	const coldFindMs = await measure(() => find({ query: "file tools config" }));
 	const warmFindMs = await measure(() => find({ query: "file tools config" }));
-	const coldGrepMs = await measure(() => grepWorkspaceFiles(fromRoot(""), { query: "createRetryableLoader", match: "literal" }));
-	const warmGrepMs = await measure(() => grepWorkspaceFiles(fromRoot(""), { query: "createRetryableLoader", match: "literal" }));
+	const coldGrepMs = await measure(() => grep({ query: "createRetryableLoader", match: "literal" }));
+	const warmGrepMs = await measure(() => grep({ query: "createRetryableLoader", match: "literal" }));
 
-	defaultVisibilityService.invalidate();
-	clearGrepIndex();
+	grepTool.dispose();
+	grepHost.dispose();
+	grepTool = new GrepTool();
+	grepHost = new FileToolsHost();
 	const concurrentGrepMs = await measure(() => Promise.all([
-		grepWorkspaceFiles(fromRoot(""), { query: "createRetryableLoader", match: "literal" }),
-		grepWorkspaceFiles(fromRoot(""), { query: "createLazyRepoMap", match: "literal" }),
+		grep({ query: "createRetryableLoader", match: "literal" }),
+		grep({ query: "createLazyRepoMap", match: "literal" }),
 	]));
 
 	findTool.dispose();
 	host.dispose();
+	grepTool.dispose();
+	grepHost.dispose();
 	console.log(JSON.stringify({ coldFindMs, warmFindMs, coldGrepMs, warmGrepMs, concurrentGrepMs }));
 }
 

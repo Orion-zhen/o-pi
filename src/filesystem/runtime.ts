@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto";
+
 import type { MutationReceipt } from "./contracts/mutation.js";
 import type { ExistingRef, TargetRef } from "./contracts/path.js";
 import type { FilesystemPolicy } from "./contracts/policy.js";
 import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "./contracts/result.js";
 import type { VisibilityService } from "./contracts/visibility.js";
-import type { WorkspaceFileSystem } from "./contracts/workspace.js";
+import type { WorkspaceFileSystem, WorkspaceIdentity } from "./contracts/workspace.js";
 import { mapNativeError } from "./kernel/native-error.js";
 import {
 	createWorkspaceNamespace,
@@ -85,6 +87,7 @@ export class FileSystemRuntime {
 			...(options.onCommitted === undefined ? {} : { onCommitted: options.onCommitted }),
 		});
 		const filesystem: WorkspaceFileSystem = {
+			identity: workspaceIdentity(rootIdentity.canonicalPath),
 			root: namespace.value.root,
 			paths: namespace.value.paths,
 			metadata: readonly.metadata,
@@ -133,6 +136,10 @@ class WorkspaceLease implements WorkspaceFileSystemLease {
 		this.controller.abort(new Error("Workspace filesystem lease is closed."));
 		this.onDispose();
 	}
+}
+
+function workspaceIdentity(canonicalRoot: string): WorkspaceIdentity {
+	return `workspace:${createHash("sha256").update(canonicalRoot).digest("hex")}` as WorkspaceIdentity;
 }
 
 function runtimeClosed(path: string): FsResult<never> {

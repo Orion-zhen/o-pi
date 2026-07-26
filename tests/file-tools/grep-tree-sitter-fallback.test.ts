@@ -10,8 +10,8 @@ vi.mock("../../src/code-index/tree-sitter-loader.js", () => ({
 	loadTreeSitterParser: async () => ({ failure: { code: "RUNTIME_UNAVAILABLE", message: "simulated runtime failure" } }),
 }));
 
-import { clearGrepIndex } from "../../src/file-tools/grep/indexer.js";
-import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
+import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
+import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 
 const workspaceTemp = useTempDir("o-pi-grep-no-tree-sitter-");
 const configTemp = useTempDir("o-pi-grep-no-tree-sitter-config-");

@@ -9,7 +9,7 @@ import type { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import type { ReadParams } from "../../src/file-tools/read/types.js";
 import type { EditParams } from "../../src/file-tools/edit/types.js";
 import type { FindParams } from "../../src/file-tools/find/types.js";
-import type { GrepParams } from "../../src/file-tools/types.js";
+import type { GrepParams } from "../../src/file-tools/grep/types.js";
 import type { WriteParams } from "../../src/file-tools/write/types.js";
 import { editTelemetry } from "../../src/file-tools/telemetry/edit.js";
 import { findTelemetry } from "../../src/file-tools/telemetry/find.js";
@@ -105,7 +105,11 @@ export function createFileToolsExtension(imports: FileToolsModuleImports = defau
 			cacheDisposers.add(module.dispose);
 			return module;
 		}),
-		grep: createRetryableLoader(async () => registerCacheDisposer(await imports.grep(), cacheDisposers)),
+		grep: createRetryableLoader(async () => {
+			const module = await imports.grep();
+			cacheDisposers.add(module.dispose);
+			return module;
+		}),
 		read: createRetryableLoader(imports.read),
 		write: createRetryableLoader(imports.write),
 		edit: createRetryableLoader(imports.edit),
@@ -203,9 +207,12 @@ function registerFileTools(
 		promptSnippet: "locate relevant code",
 		parameters: grepParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			return (await loaders.grep()).executeGrep(params as GrepParams, {
+			const [module, invocationHost] = await Promise.all([loaders.grep(), hostForInvocation()]);
+			return module.executeGrep(params as GrepParams, {
 				cwd: ctx.cwd,
+				sessionId: ctx.sessionManager.getSessionId(),
 				...(signal !== undefined ? { signal } : {}),
+				host: invocationHost,
 				lsp,
 				repoMap: repoMapFor(ctx),
 			});
@@ -340,11 +347,6 @@ function registerFileTools(
 		await lsp.shutdown();
 		for (const dispose of cacheDisposers) dispose();
 	});
-}
-
-function registerCacheDisposer<T extends { disposeFileToolsCaches(): void }>(module: T, disposers: Set<() => void>): T {
-	disposers.add(module.disposeFileToolsCaches);
-	return module;
 }
 
 function createRetryableLoader<T>(load: () => Promise<T>): () => Promise<T> {

@@ -13,8 +13,8 @@ const { RepoMapQueryIndex } = await loadTypeScript("src/repo-map/query.ts");
 const { FindTool } = await loadTypeScript("src/file-tools/find/command.ts");
 const { FileToolsHost } = await loadTypeScript("src/file-tools/runtime/host.ts");
 const { createFindGraphSource } = await loadTypeScript("src/file-tools/pi/adapters/find.ts");
-const { grepWorkspaceFiles } = await loadTypeScript("src/file-tools/tools/grep.ts");
-const { clearGrepIndex } = await loadTypeScript("src/file-tools/grep/indexer.ts");
+const { GrepTool } = await loadTypeScript("src/file-tools/grep/command.ts");
+const { createGrepGraphSource } = await loadTypeScript("src/file-tools/pi/adapters/grep.ts");
 
 const findCases = [
 	{ query: "ranking evidence", relevant: ["src/file-tools/shared/ranking/evidence.ts"] },
@@ -27,14 +27,14 @@ const findCases = [
 const grepCases = [
 	{ query: join("selectRelevance", "HeadMmr"), path: "src", match: "auto", relevant: ["src/file-tools/shared/ranking/selection.ts"] },
 	{ query: join("repoMapRanking", "Evidence"), path: "src", match: "auto", relevant: ["src/file-tools/repo-map-ranking.ts"] },
-	{ query: join("locateRepoMap", "Unit"), path: "src", match: "auto", relevant: ["src/file-tools/tools/grep.ts"] },
+	{ query: join("locateRepoMap", "Unit"), path: "src", match: "auto", relevant: ["src/file-tools/grep/command.ts"] },
 	{ query: join("region", "Identity"), path: "src", match: "auto", relevant: ["src/file-tools/grep/fusion.ts"] },
 	{ query: join("createRepoMapFileTool", "Query"), path: "src", match: "auto", relevant: ["src/repo-map/file-tool-query.ts"] },
 	{
 		query: join("not_", "guaranteed"),
 		path: "src",
 		match: "literal",
-		relevant: ["src/file-tools/find/types.ts", "src/file-tools/find/guards.ts", "src/file-tools/find/command.ts", "src/file-tools/grep/packer.ts", "src/file-tools/tools/grep.ts", "src/file-tools/types.ts"],
+		relevant: ["src/file-tools/find/types.ts", "src/file-tools/find/guards.ts", "src/file-tools/find/command.ts", "src/file-tools/grep/packer.ts", "src/file-tools/grep/command.ts", "src/file-tools/grep/types.ts"],
 	},
 	{ query: join("RRF_", "K|MMR_", "LAMBDA"), path: "src", match: "regex", relevant: ["src/file-tools/shared/ranking/evidence.ts", "src/file-tools/shared/ranking/selection.ts"] },
 	{ query: join("callers of selectRelevance", "HeadMmr"), path: "src", match: "auto", relevant: ["src/file-tools/find/fusion.ts", "src/file-tools/grep/fusion.ts"] },
@@ -43,6 +43,8 @@ const grepCases = [
 
 const findHost = new FileToolsHost();
 const findTool = new FindTool();
+const grepHost = new FileToolsHost();
+let grepTool = new GrepTool();
 
 try {
 	const buildStarted = performance.now();
@@ -81,9 +83,20 @@ try {
 		rows.push(calibrationRow("find", calibration, result.details.matches.map((match) => match.path), performance.now() - started));
 	}
 	for (const calibration of grepCases) {
-		clearGrepIndex();
+		grepTool.dispose();
+		grepTool = new GrepTool();
 		const started = performance.now();
-		const result = await grepWorkspaceFiles(root, { query: calibration.query, path: [calibration.path], match: calibration.match }, undefined, { repoMap });
+		const opened = await grepHost.open({ cwd: root, sessionId: "calibration-grep" });
+		if (opened.status === "failed") throw new Error(`grep host failed for ${calibration.query}: ${opened.error.message}`);
+		let result;
+		try {
+			result = await grepTool.execute({ query: calibration.query, path: [calibration.path], match: calibration.match }, {
+				filesystem: opened.filesystem,
+				operation: opened.context,
+				limits: opened.limits,
+				graph: createGrepGraphSource({ query: repoMap }, opened),
+			});
+		} finally { opened.dispose(); }
 		if (result.status === "failed") throw new Error(`grep failed for ${calibration.query}: ${result.error.message}`);
 		rows.push(calibrationRow("grep", calibration, result.regions.map((region) => region.path), performance.now() - started));
 	}
@@ -99,6 +112,8 @@ try {
 } finally {
 	findTool.dispose();
 	findHost.dispose();
+	grepTool.dispose();
+	grepHost.dispose();
 	await rm(temporaryRoot, { recursive: true, force: true });
 }
 

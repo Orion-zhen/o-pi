@@ -2,7 +2,7 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { formatToolCard } from "../../tui/tool-card.js";
 import { joinParts } from "../../tui/text.js";
 import { isRepoMapRelatedResults } from "../pi/guards.js";
-import type { GrepNearbyResult, GrepParams, GrepRegion, GrepSuccess } from "../types.js";
+import type { GrepNearbyResult, GrepParams, GrepRegion, GrepSuccess } from "./types.js";
 
 /** 渲染 grep 调用标题；TUI 只显示查询、scope 和 match mode。 */
 export function formatGrepCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {

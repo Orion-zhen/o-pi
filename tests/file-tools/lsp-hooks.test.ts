@@ -4,8 +4,8 @@ import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { editFile } from "../../src/file-tools/edit/command.js";
-import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
-import { clearGrepIndex } from "../../src/file-tools/grep/indexer.js";
+import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
+import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
 import { createEditPorts } from "../../src/file-tools/pi/ports/edit.js";
@@ -13,7 +13,8 @@ import { createWritePorts } from "../../src/file-tools/pi/ports/write.js";
 import { readWorkspaceFile } from "../helpers/read-tool.js";
 import { writeFile as writeFileCommand } from "../../src/file-tools/write/command.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
-import type { FileToolLspHooks, GrepSuccess } from "../../src/file-tools/types.js";
+import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
+import type { FileToolLspHooks } from "../../src/file-tools/types.js";
 import { createLspFileHooks } from "../../src/lsp/file-hooks.js";
 import { LspManager } from "../../src/lsp/manager.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -148,7 +149,8 @@ describe("file-tools lsp hooks", () => {
 			["mixed/a.ts"],
 			[],
 		]);
-		expect(seenSignals).toEqual([controller.signal, undefined, undefined]);
+		expect(seenSignals).toHaveLength(3);
+		expect(seenSignals.every((signal) => signal instanceof AbortSignal)).toBe(true);
 	});
 
 	it("grep 并行请求 LSP 与 Repo Map", async () => {

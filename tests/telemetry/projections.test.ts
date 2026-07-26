@@ -11,7 +11,7 @@ import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { ReadFileSuccess, ReadParams } from "../../src/file-tools/read/types.js";
 import type { EditParams, EditSuccess } from "../../src/file-tools/edit/types.js";
 import type { FindDetails, FindParams } from "../../src/file-tools/find/types.js";
-import type { GrepParams, GrepSuccess } from "../../src/file-tools/types.js";
+import type { GrepParams, GrepSuccess } from "../../src/file-tools/grep/types.js";
 import type { WriteParams, WriteSuccess } from "../../src/file-tools/write/types.js";
 import { safeProject } from "../../src/telemetry/projection.js";
 import type { TelemetryFacts, ToolTelemetry } from "../../src/telemetry/types.js";

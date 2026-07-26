@@ -71,7 +71,7 @@ describe.skipIf(!treeSitterAvailable())("shared code parser", () => {
 
 		for (const modulePath of Object.values(treeSitterModules)) expect(require.cache[modulePath]).toBeUndefined();
 
-		await import("../../src/file-tools/tools/grep.js");
+		await import("../../src/file-tools/grep/command.js");
 		const { default: fileTools } = await import("../../agent/extensions/file-tools.js");
 		const handlers = new Map<string, (...args: unknown[]) => unknown>();
 		fileTools({

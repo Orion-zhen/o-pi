@@ -5,7 +5,7 @@ import { clearFileToolsConfigCache } from "../../src/file-tools/config.js";
 import { editFile } from "../../src/file-tools/edit/command.js";
 import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
 import { findWorkspaceFiles } from "../helpers/find-tool.js";
-import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
+import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import { listDirectory } from "../../src/file-tools/ls/command.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";

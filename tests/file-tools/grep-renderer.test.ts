@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatGrepCall, formatGrepResult } from "../../src/file-tools/grep/renderer.js";
-import type { GrepSuccess } from "../../src/file-tools/types.js";
+import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
 
 const theme = {
 	fg(_name: string, text: string) {
