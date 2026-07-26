@@ -49,14 +49,13 @@ export class WorkspaceContentService implements ContentOperations {
 			if (options.maxBytes !== undefined && before.sizeBytes > options.maxBytes) {
 				outcome = tooLarge(file.displayPath, options.maxBytes, before.sizeBytes);
 			} else {
-				const loaded = await readHandleBytes(handle, options.maxBytes, context, file.displayPath);
+				const loaded = await readHandleBytes(handle, options.maxBytes, before.sizeBytes, context, file.displayPath);
 				if (!loaded.ok) outcome = loaded;
 				else if (options.stable === true) {
 					const stable = await verifyStable(
-						this.native,
 						this.bridge,
 						file,
-						handle,
+						handle.metadata,
 						identity.value,
 						before,
 						context,
@@ -119,7 +118,6 @@ export class WorkspaceContentService implements ContentOperations {
 				return tooLarge(file.displayPath, options.maxBytes, before.sizeBytes);
 			}
 			return fsSuccess(new NativeLineScan(
-				this.native,
 				this.bridge,
 				file,
 				handle,
@@ -146,7 +144,6 @@ class NativeLineScan implements LineScan {
 	};
 
 	constructor(
-		private readonly native: NativeFileSystem,
 		private readonly bridge: WorkspaceNamespaceBridge,
 		private readonly file: FileRef,
 		private readonly handle: NativeOpenFile,
@@ -202,10 +199,7 @@ class NativeLineScan implements LineScan {
 					yield fsFailure({ code: "aborted", message: "Operation aborted.", path: displayPath });
 					return;
 				}
-				const remaining = this.options.maxBytes === undefined
-					? READ_CHUNK_BYTES
-					: Math.min(READ_CHUNK_BYTES, this.options.maxBytes - position + 1);
-				const buffer = new Uint8Array(Math.max(1, remaining));
+				const buffer = new Uint8Array(readBufferSize(position, this.options.maxBytes, this.before.sizeBytes));
 				const bytesRead = await this.handle.read(buffer, 0, buffer.byteLength, position, this.context);
 				if (bytesRead === 0) break;
 				position += bytesRead;
@@ -262,10 +256,9 @@ class NativeLineScan implements LineScan {
 			}
 			if (!this.stopped && this.options.stable === true) {
 				const stable = await verifyStable(
-					this.native,
 					this.bridge,
 					this.file,
-					this.handle,
+					this.handle.metadata,
 					this.identity,
 					this.before,
 					this.context,
@@ -290,14 +283,14 @@ class NativeLineScan implements LineScan {
 export async function readHandleBytes(
 	handle: NativeOpenFile,
 	maxBytes: number | undefined,
+	sizeHint: number,
 	context: FsOperationContext,
 	displayPath: string,
 ): Promise<FsResult<Uint8Array>> {
 	const chunks: Uint8Array[] = [];
 	let total = 0;
 	while (true) {
-		const remaining = maxBytes === undefined ? READ_CHUNK_BYTES : Math.min(READ_CHUNK_BYTES, maxBytes - total + 1);
-		const buffer = new Uint8Array(Math.max(1, remaining));
+		const buffer = new Uint8Array(readBufferSize(total, maxBytes, sizeHint));
 		const bytesRead = await handle.read(buffer, 0, buffer.byteLength, total, context);
 		if (bytesRead === 0) break;
 		total += bytesRead;
@@ -348,7 +341,7 @@ export async function openValidatedFile(
 			: fsFailure(mapNativeError(error, file.displayPath));
 	}
 	try {
-		const validated = await revalidateOpenedFile(native, bridge, file, identity, handle, context);
+		const validated = await revalidateOpenedFile(bridge, file, identity, handle.metadata, context);
 		if (!validated.ok) {
 			await closeQuietly(handle);
 			return validated;
@@ -361,11 +354,10 @@ export async function openValidatedFile(
 }
 
 async function revalidateOpenedFile(
-	native: NativeFileSystem,
 	bridge: WorkspaceNamespaceBridge,
 	file: FileRef,
 	expected: NativePathIdentity,
-	handle: NativeOpenFile,
+	openedMetadata: NativeMetadata,
 	context: FsOperationContext,
 ): Promise<FsResult<NativeMetadata>> {
 	const fresh = await bridge.revalidateExisting(file, context);
@@ -379,36 +371,33 @@ async function revalidateOpenedFile(
 		|| !sameNativePath(fresh.value.identity.canonicalPath, expected.canonicalPath)
 		|| !sameNativePath(fresh.value.identity.nativePath, expected.nativePath)
 	) return changedDuringRead(file.displayPath, "read");
-	try {
-		const [handleMetadata, pathMetadata] = await Promise.all([
-			handle.stat(context),
-			native.lstat(expected.nativePath, context),
-		]);
-		if (handleMetadata.kind !== "file") {
-			return fsFailure({ code: "not-file", message: "Path is not a regular file.", path: file.displayPath });
-		}
-		if (pathMetadata.kind !== "file" || handleMetadata.identity !== pathMetadata.identity) {
-			return changedDuringRead(file.displayPath, "read");
-		}
-		return fsSuccess(handleMetadata);
-	} catch (error) {
-		if (nativeChanged(error)) return changedDuringRead(file.displayPath, "read");
-		return fsFailure(mapNativeError(error, file.displayPath));
+	if (openedMetadata.kind !== "file") {
+		return fsFailure({ code: "not-file", message: "Path is not a regular file.", path: file.displayPath });
 	}
+	if (fresh.value.metadata.kind !== "file" || openedMetadata.identity !== fresh.value.metadata.identity) {
+		return changedDuringRead(file.displayPath, "read");
+	}
+	return fsSuccess(fresh.value.metadata);
 }
 
 export async function verifyStable(
-	native: NativeFileSystem,
 	bridge: WorkspaceNamespaceBridge,
 	file: FileRef,
-	handle: NativeOpenFile,
+	openedMetadata: NativeMetadata,
 	identity: NativePathIdentity,
 	before: NativeMetadata,
 	context: FsOperationContext,
 ): Promise<FsResult<boolean>> {
-	const after = await revalidateOpenedFile(native, bridge, file, identity, handle, context);
+	const after = await revalidateOpenedFile(bridge, file, identity, openedMetadata, context);
 	if (!after.ok) return after.error.code === "changed-during-read" ? fsSuccess(false) : after;
 	return fsSuccess(sameVersion(before, after.value));
+}
+
+function readBufferSize(position: number, maxBytes: number | undefined, sizeHint: number): number {
+	const budget = maxBytes === undefined ? READ_CHUNK_BYTES : Math.min(READ_CHUNK_BYTES, maxBytes - position + 1);
+	if (position < sizeHint) return Math.max(1, Math.min(budget, sizeHint - position));
+	if (position === sizeHint) return 1;
+	return Math.max(1, budget);
 }
 
 function sameVersion(left: NativeMetadata, right: NativeMetadata): boolean {

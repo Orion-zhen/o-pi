@@ -46,13 +46,20 @@ export interface NativePathIdentity {
 type UnstoredNativePathIdentity = Omit<NativePathIdentity, "parentPath">;
 
 /** Host-only bridge. Tool commands must use opaque refs instead. */
+export interface ResolvedExistingPath {
+	readonly ref: ExistingRef;
+	readonly metadata: NativeMetadata;
+}
+
 export interface WorkspaceNamespaceBridge {
 	getNativeIdentity(ref: ExistingRef | TargetRef): NativePathIdentity | undefined;
+	/** Projects captured target state without I/O; consumers must revalidate before access. */
+	asExistingRef(ref: TargetRef): ExistingRef | undefined;
 	revalidateExisting(
 		ref: ExistingRef,
 		context: FsOperationContext,
-	): Promise<FsResult<{ readonly ref: ExistingRef; readonly identity: NativePathIdentity }>>;
-	resolveChild(parent: DirectoryRef, name: string, context: FsOperationContext): Promise<FsResult<ExistingRef>>;
+	): Promise<FsResult<ResolvedExistingPath & { readonly identity: NativePathIdentity }>>;
+	resolveChild(parent: DirectoryRef, name: string, context: FsOperationContext): Promise<FsResult<ResolvedExistingPath>>;
 }
 
 export interface WorkspaceNamespaceKernel {
@@ -110,6 +117,15 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		options: ResolveExistingOptions,
 		context: FsOperationContext,
 	): Promise<FsResult<ExistingRef>> {
+		const resolved = await this.resolveExistingWithMetadata(input, options, context);
+		return resolved.ok ? fsSuccess(resolved.value.ref) : resolved;
+	}
+
+	private async resolveExistingWithMetadata(
+		input: string,
+		options: ResolveExistingOptions,
+		context: FsOperationContext,
+	): Promise<FsResult<ResolvedExistingPath>> {
 		context = bindOperationContext(this.options.ownerSignal, context);
 		const lexical = this.resolveLexical(input);
 		if (!lexical.ok) return lexical;
@@ -136,19 +152,22 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		const canonicalBlock = this.policy.match(input, this.canonicalIdentity(canonicalPath), "canonical");
 		if (canonicalBlock !== undefined) return blockedFailure(lexical.value.displayPath, canonicalBlock);
 
-		let kind: NativePathKind = lexicalMetadata.kind;
+		let metadata = lexicalMetadata;
 		let nativePath = lexical.value.absolutePath;
-		if (lexicalMetadata.kind !== "symlink" || options.followFinalSymlink) {
+		if (lexicalMetadata.kind === "symlink" && options.followFinalSymlink) {
 			nativePath = canonicalPath;
 			try {
-				kind = (await this.options.native.stat(canonicalPath, context)).kind;
+				metadata = await this.options.native.stat(canonicalPath, context);
 			} catch (error) {
 				return fsFailure(mapNativeError(error, lexical.value.displayPath));
 			}
-		}
-		const expectedError = validateExpectedKind(kind, options.expected, lexical.value.displayPath);
+		} else if (lexicalMetadata.kind !== "symlink") nativePath = canonicalPath;
+		const expectedError = validateExpectedKind(metadata.kind, options.expected, lexical.value.displayPath);
 		if (expectedError !== undefined) return fsFailure(expectedError);
-		return fsSuccess(this.createExistingRef(kind, lexical.value, { nativePath, canonicalPath, lexicalPath: lexical.value.absolutePath }));
+		return fsSuccess({
+			ref: this.createExistingRef(metadata.kind, lexical.value, { nativePath, canonicalPath, lexicalPath: lexical.value.absolutePath }),
+			metadata,
+		});
 	}
 
 	async resolveTarget(
@@ -183,14 +202,14 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 			if (canonicalBlock !== undefined) return blockedFailure(lexical.value.displayPath, canonicalBlock);
 			let existingKind = lexicalMetadata.kind;
 			let nativePath = lexical.value.absolutePath;
-			if (lexicalMetadata.kind !== "symlink" || options.followExistingSymlink) {
+			if (lexicalMetadata.kind === "symlink" && options.followExistingSymlink) {
 				nativePath = canonicalPath;
 				try {
 					existingKind = (await this.options.native.stat(canonicalPath, context)).kind;
 				} catch (error) {
 					return fsFailure(mapNativeError(error, lexical.value.displayPath));
 				}
-			}
+			} else if (lexicalMetadata.kind !== "symlink") nativePath = canonicalPath;
 			return fsSuccess(this.createTargetRef(lexical.value, existingKind, {
 				nativePath,
 				canonicalPath,
@@ -221,28 +240,32 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 	async revalidateExisting(
 		ref: ExistingRef,
 		context: FsOperationContext,
-	): Promise<FsResult<{ readonly ref: ExistingRef; readonly identity: NativePathIdentity }>> {
+	): Promise<FsResult<ResolvedExistingPath & { readonly identity: NativePathIdentity }>> {
 		context = bindOperationContext(this.options.ownerSignal, context);
 		const stored = this.refs.get(ref.id);
 		if (stored === undefined) {
 			return fsFailure({ code: "invalid-path", message: "Path does not belong to this filesystem.", path: ref.displayPath });
 		}
-		const fresh = await this.resolveExisting(stored.lexicalPath, { expected: "any", followFinalSymlink: true }, context);
+		const fresh = await this.resolveExistingWithMetadata(
+			stored.lexicalPath,
+			{ expected: "any", followFinalSymlink: true },
+			context,
+		);
 		if (!fresh.ok) return fresh;
-		const identity = this.refs.get(fresh.value.id);
+		const identity = this.refs.get(fresh.value.ref.id);
 		if (identity === undefined) {
 			return fsFailure({ code: "invalid-path", message: "Path identity is unavailable.", path: ref.displayPath });
 		}
-		return fsSuccess({ ref: fresh.value, identity });
+		return fsSuccess({ ...fresh.value, identity });
 	}
 
-	async resolveChild(parent: DirectoryRef, name: string, context: FsOperationContext): Promise<FsResult<ExistingRef>> {
+	async resolveChild(parent: DirectoryRef, name: string, context: FsOperationContext): Promise<FsResult<ResolvedExistingPath>> {
 		context = bindOperationContext(this.options.ownerSignal, context);
 		const parentIdentity = this.refs.get(parent.id);
 		if (parentIdentity === undefined || name.length === 0 || name === "." || name === ".." || path.basename(name) !== name) {
 			return fsFailure({ code: "invalid-path", message: "Directory entry is invalid.", path: parent.displayPath });
 		}
-		return await this.resolveExisting(
+		return await this.resolveExistingWithMetadata(
 			path.join(parentIdentity.lexicalPath, name),
 			{ expected: "any", followFinalSymlink: false },
 			context,
@@ -251,6 +274,19 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 
 	getNativeIdentity(ref: ExistingRef | TargetRef): NativePathIdentity | undefined {
 		return this.refs.get(ref.id);
+	}
+
+	asExistingRef(ref: TargetRef): ExistingRef | undefined {
+		const identity = this.refs.get(ref.id);
+		if (identity === undefined || ref.existingKind === undefined) return undefined;
+		const existing = {
+			id: `namespace-${this.namespaceId}:ref-${this.nextRefId++}` as PathId,
+			displayPath: ref.displayPath,
+			...(ref.workspacePath === undefined ? {} : { workspacePath: ref.workspacePath }),
+			kind: ref.existingKind,
+		} satisfies ExistingRef;
+		this.refs.set(existing.id, identity);
+		return existing;
 	}
 
 	private resolveLexical(input: string): FsResult<PathIdentity & { readonly absolutePath: string }> {

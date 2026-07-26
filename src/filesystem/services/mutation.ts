@@ -6,9 +6,9 @@ import type {
 	MutationSnapshot,
 	MutationTransform,
 } from "../contracts/mutation.js";
-import type { FileRef, TargetRef } from "../contracts/path.js";
+import type { ExistingRef, TargetRef } from "../contracts/path.js";
 import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.js";
-import { mapNativeError } from "../kernel/native-error.js";
+import { isNativeError, mapNativeError } from "../kernel/native-error.js";
 import type { NativePathIdentity, WorkspaceNamespaceKernel } from "../kernel/namespace.js";
 import { bindOperationContext } from "../operation-context.js";
 import {
@@ -32,6 +32,8 @@ export interface WorkspaceMutationServiceOptions {
 interface PreparedTarget {
 	readonly target: TargetRef;
 	readonly identity: NativePathIdentity;
+	readonly existing?: ExistingRef;
+	readonly parentMetadata?: NativeMetadata;
 }
 
 interface SnapshotState {
@@ -64,11 +66,11 @@ export class WorkspaceMutationService implements MutationOperations {
 
 		try {
 			for (let attempt = 0; attempt < MAX_CANONICAL_KEY_ATTEMPTS; attempt += 1) {
-				const keyed = await this.prepareTarget(initialIdentity.lexicalPath, target.displayPath, options, context);
+				const keyed = await this.prepareTarget(initialIdentity.lexicalPath, options.createParents, context);
 				if (!keyed.ok) return keyed;
 				const queueKey = keyed.value.identity.canonicalPath;
 				const queued = await this.queue.run(queueKey, context.signal, async () => {
-					const current = await this.prepareTarget(initialIdentity.lexicalPath, target.displayPath, options, context);
+					const current = await this.prepareTarget(initialIdentity.lexicalPath, options.createParents, context);
 					if (!current.ok) return current;
 					if (!sameNativePath(current.value.identity.canonicalPath, queueKey)) return REKEY;
 					return await this.runLocked(current.value, initialIdentity.lexicalPath, options, transform, context);
@@ -103,7 +105,9 @@ export class WorkspaceMutationService implements MutationOperations {
 		transform: (snapshot: MutationSnapshot) => MutationTransform<TRejected> | Promise<MutationTransform<TRejected>>,
 		context: FsOperationContext,
 	): Promise<FsResult<MutationRunResult<TRejected>>> {
-		const parent = await this.readParentMetadata(current.identity, current.target.displayPath, context);
+		const parent = current.parentMetadata === undefined
+			? await this.readParentMetadata(current.identity, current.target.displayPath, context)
+			: fsSuccess(current.parentMetadata);
 		if (!parent.ok) return parent;
 		const snapshotState = await this.readSnapshot(current, options.maxSnapshotBytes, context);
 		if (!snapshotState.ok) return snapshotState;
@@ -183,7 +187,7 @@ export class WorkspaceMutationService implements MutationOperations {
 		context: FsOperationContext,
 	): Promise<FsResult<TargetRef>> {
 		if (isAborted(context)) return aborted(current.target.displayPath);
-		const finalTarget = await this.prepareTarget(lexicalPath, current.target.displayPath, options, context);
+		const finalTarget = await this.resolvePreparedTarget(lexicalPath, context);
 		if (!finalTarget.ok) return finalTarget;
 		if (!sameNativePath(finalTarget.value.identity.canonicalPath, current.identity.canonicalPath)) {
 			return changed(current.target.displayPath, snapshot, undefined);
@@ -204,30 +208,46 @@ export class WorkspaceMutationService implements MutationOperations {
 
 	private async prepareTarget(
 		lexicalPath: string,
-		displayPath: string,
-		options: MutationOptions,
+		createParents: boolean,
 		context: FsOperationContext,
 	): Promise<FsResult<PreparedTarget>> {
-		let target = await this.resolveTarget(lexicalPath, context);
-		if (!target.ok) return target;
-		let identity = this.options.namespace.bridge.getNativeIdentity(target.value);
-		if (identity === undefined) return invalidTarget(target.value);
-		if (options.createParents) {
-			try {
-				await this.options.native.mkdir(identity.parentPath, { ...context, recursive: true });
-			} catch (error) {
-				return fsFailure(mapNativeError(error, displayPath));
+		const prepared = await this.resolvePreparedTarget(lexicalPath, context);
+		if (!prepared.ok || !createParents) return prepared;
+		try {
+			const parentMetadata = await this.options.native.lstat(prepared.value.identity.parentPath, context);
+			if (parentMetadata.kind === "directory") return fsSuccess({ ...prepared.value, parentMetadata });
+		} catch (error) {
+			if (!isNativeError(error, "not-found")) {
+				return fsFailure(mapNativeError(error, prepared.value.target.displayPath));
 			}
-			target = await this.resolveTarget(lexicalPath, context);
-			if (!target.ok) return target;
-			identity = this.options.namespace.bridge.getNativeIdentity(target.value);
-			if (identity === undefined) return invalidTarget(target.value);
 		}
-		return fsSuccess({ target: target.value, identity });
+		try {
+			await this.options.native.mkdir(prepared.value.identity.parentPath, { ...context, recursive: true });
+		} catch (error) {
+			return fsFailure(mapNativeError(error, prepared.value.target.displayPath));
+		}
+		return await this.resolvePreparedTarget(lexicalPath, context);
 	}
 
-	private async resolveTarget(lexicalPath: string, context: FsOperationContext): Promise<FsResult<TargetRef>> {
-		return await this.options.namespace.paths.resolveTarget(lexicalPath, { followExistingSymlink: true }, context);
+	private async resolvePreparedTarget(
+		lexicalPath: string,
+		context: FsOperationContext,
+	): Promise<FsResult<PreparedTarget>> {
+		const target = await this.options.namespace.paths.resolveTarget(
+			lexicalPath,
+			{ followExistingSymlink: true },
+			context,
+		);
+		if (!target.ok) return target;
+		const identity = this.options.namespace.bridge.getNativeIdentity(target.value);
+		if (identity === undefined) return invalidTarget(target.value);
+		const existing = this.options.namespace.bridge.asExistingRef(target.value);
+		if (target.value.existingKind !== undefined && existing === undefined) return invalidTarget(target.value);
+		return fsSuccess({
+			target: target.value,
+			identity,
+			...(existing === undefined ? {} : { existing }),
+		});
 	}
 
 	private async readParentMetadata(
@@ -255,16 +275,8 @@ export class WorkspaceMutationService implements MutationOperations {
 		if (target.target.existingKind !== "file") {
 			return fsFailure({ code: "not-file", message: "Mutation target is not a regular file.", path: target.target.displayPath });
 		}
-		const resolved = await this.options.namespace.paths.resolveExisting(
-			target.identity.lexicalPath,
-			{ expected: "file", followFinalSymlink: true },
-			context,
-		);
-		if (!resolved.ok) return resolved;
-		if (resolved.value.kind !== "file") {
-			return fsFailure({ code: "not-file", message: "Mutation target is not a regular file.", path: target.target.displayPath });
-		}
-		const file = resolved.value as FileRef;
+		if (target.existing?.kind !== "file") return invalidTarget(target.target);
+		const file = target.existing;
 		const identity = this.options.namespace.bridge.getNativeIdentity(file);
 		if (identity === undefined || !sameNativePath(identity.canonicalPath, target.identity.canonicalPath)) {
 			return changed(target.target.displayPath, { exists: false }, undefined);
@@ -276,14 +288,19 @@ export class WorkspaceMutationService implements MutationOperations {
 			if (maxBytes !== undefined && opened.value.metadata.sizeBytes > maxBytes) {
 				outcome = tooLarge(target.target.displayPath, maxBytes, opened.value.metadata.sizeBytes);
 			} else {
-				const loaded = await readHandleBytes(opened.value.handle, maxBytes, context, target.target.displayPath);
+				const loaded = await readHandleBytes(
+					opened.value.handle,
+					maxBytes,
+					opened.value.metadata.sizeBytes,
+					context,
+					target.target.displayPath,
+				);
 				if (!loaded.ok) outcome = loaded;
 				else {
 					const stable = await verifyStable(
-						this.options.native,
 						this.options.namespace.bridge,
 						file,
-						opened.value.handle,
+						opened.value.handle.metadata,
 						identity,
 						opened.value.metadata,
 						context,

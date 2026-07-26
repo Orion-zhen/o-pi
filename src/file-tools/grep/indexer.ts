@@ -3,6 +3,7 @@ import pLimit from "p-limit";
 
 import { languageFromPath, splitTokens, type AnalyzedFileIndex, type ParsedFileIndex } from "../../code-index/parser.js";
 import type { TextContent } from "../../filesystem/contracts/content.js";
+import type { FileMetadata } from "../../filesystem/contracts/metadata.js";
 import type { DirectoryRef, ExistingRef, FileRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
@@ -67,7 +68,7 @@ interface PendingGrepIndex {
 }
 interface ContentFilter {
 	readonly key: string;
-	matchesLine(line: string): boolean;
+	matchesText(text: string): boolean;
 }
 interface WalkState {
 	readonly context: GrepIndexContext;
@@ -91,7 +92,7 @@ interface WalkState {
 	semanticPrefilter: boolean;
 	offloadParsing: boolean;
 }
-interface PendingFile { ref: FileRef; searchPath: string; explicit: boolean }
+interface PendingFile { ref: FileRef; metadata: GrepScopedFile; explicit: boolean }
 interface PreparedFile {
 	ref: FileRef;
 	metadata: GrepScopedFile;
@@ -223,7 +224,7 @@ export class GrepIndex {
 		const searchPath = basename(ref.displayPath);
 		if (state.matchesGlob !== undefined && !state.matchesGlob(searchPath)) return;
 		state.matchedFiles.push(metadata);
-		state.pendingFiles.push({ ref, searchPath, explicit: true });
+		state.pendingFiles.push({ ref, metadata, explicit: true });
 	}
 
 	private async discoverDirectory(state: WalkState, root: DirectoryRef): Promise<ToolOutcome<void>> {
@@ -252,17 +253,12 @@ export class GrepIndex {
 				}
 				state.scannedFiles += 1;
 				state.seenPaths.add(event.ref.displayPath);
-				const metadata = await scopedMetadata(event.ref, state);
-				if (isFailed(metadata)) {
-					if (metadata.error.code === "OPERATION_ABORTED") throw new AbortGrepIndex();
-					if (metadata.error.code === "ACCESS_DENIED") state.skipped.access_denied += 1;
-					continue;
-				}
+				const metadata = toScopedFile(event.ref, event.metadata);
 				addScopedFile(state, metadata);
 				const searchPath = relativeDisplayPath(root.displayPath, event.ref.displayPath);
 				if (state.matchesGlob !== undefined && !state.matchesGlob(searchPath)) continue;
 				state.matchedFiles.push(metadata);
-				state.pendingFiles.push({ ref: event.ref, searchPath, explicit: false });
+				state.pendingFiles.push({ ref: event.ref, metadata, explicit: false });
 			}
 		} finally { await opened.value.close(); }
 	}
@@ -325,8 +321,7 @@ export class GrepIndex {
 
 async function prepareFile(state: WalkState, pending: PendingFile): Promise<PreparedFile | undefined> {
 	assertNotAborted(state.signal);
-	const metadata = state.matchedFiles.find((file) => file.id === pending.ref.id);
-	if (metadata === undefined) return undefined;
+	const metadata = pending.metadata;
 	if (metadata.size > state.context.limits.grep_max_file_bytes) {
 		if (pending.explicit) throw new Error("explicit size was not rejected");
 		state.skipped.too_large += 1;
@@ -335,15 +330,6 @@ async function prepareFile(state: WalkState, pending: PendingFile): Promise<Prep
 	const cached = state.cache.files.get(cacheFileKey(pending.ref.displayPath));
 	const cacheCurrent = cached !== undefined && cached.metadataVersion === metadata.metadataVersion;
 	const parsedCached = cacheCurrent && isParsedCachedFile(cached) ? cached : undefined;
-	if (state.contentFilter !== undefined) {
-		const matched = await fileMatchesFilter(pending.ref, state.contentFilter, state);
-		if (isFailed(matched)) {
-			if (pending.explicit) throw new ExplicitFileFailure(matched);
-			countReadFailure(state, matched);
-			return undefined;
-		}
-		if (!matched) return undefined;
-	}
 	if (parsedCached !== undefined && parsedCached.parserStatus === "parsed" && state.contentFilter === undefined && !state.semanticPrefilter) {
 		state.files.push(toCandidate(parsedCached));
 		return undefined;
@@ -360,6 +346,7 @@ async function prepareFile(state: WalkState, pending: PendingFile): Promise<Prep
 		return undefined;
 	}
 	const loaded = loadedResult.value;
+	if (state.contentFilter !== undefined && !state.contentFilter.matchesText(loaded.text)) return undefined;
 	let semanticRank: number | undefined;
 	if (state.semanticPrefilter) {
 		semanticRank = state.semanticFilter(loaded.text, pending.ref.displayPath);
@@ -374,30 +361,18 @@ async function prepareFile(state: WalkState, pending: PendingFile): Promise<Prep
 	};
 }
 
-async function fileMatchesFilter(ref: FileRef, filter: ContentFilter, state: WalkState): Promise<ToolOutcome<boolean>> {
-	const opened = await state.context.filesystem.content.scanLines(
-		ref,
-		{ maxBytes: state.context.limits.grep_max_file_bytes, stable: true, rejectBinary: true },
-		{ signal: state.signal },
-	);
-	if (!opened.ok) return mapFsError(opened.error, { notFound: "file", path: ref.displayPath });
-	try {
-		for await (const line of opened.value) {
-			if (!line.ok) return mapFsError(line.error, { notFound: "file", path: ref.displayPath });
-			if (filter.matchesLine(line.value.text)) return true;
-		}
-		return false;
-	} finally { await opened.value.close(); }
-}
-
 async function scopedMetadata(ref: FileRef, state: WalkState): Promise<ToolOutcome<GrepScopedFile>> {
 	const result = await state.context.filesystem.metadata.stat(ref, { signal: state.signal });
 	if (!result.ok) return mapFsError(result.error, { notFound: "file", path: ref.displayPath });
+	return toScopedFile(ref, result.value);
+}
+
+function toScopedFile(ref: FileRef, metadata: FileMetadata): GrepScopedFile {
 	return {
 		path: ref.displayPath,
 		id: ref.id,
-		size: result.value.sizeBytes,
-		metadataVersion: result.value.version ?? `${result.value.sizeBytes}:${result.value.modifiedAtMs}`,
+		size: metadata.sizeBytes,
+		metadataVersion: metadata.version ?? `${metadata.sizeBytes}:${metadata.modifiedAtMs}`,
 	};
 }
 
@@ -476,10 +451,21 @@ function trimSemanticCandidates(files: PreparedFile[], limit: number): PreparedF
 
 function createContentFilter(query: string, match: GrepMatchMode): ToolOutcome<ContentFilter | undefined> {
 	if (match === "auto") return undefined;
-	if (match === "literal") return { key: `literal\0${query}`, matchesLine: (line) => !query.includes("\n") && line.includes(query) };
+	if (match === "literal") {
+		return { key: `literal\0${query}`, matchesText: (text) => !/[\r\n]/u.test(query) && text.includes(query) };
+	}
 	try {
 		const expression = new RegExp(query, "gu");
-		return { key: `regex\0${query}`, matchesLine(line) { const matched = expression.test(line); expression.lastIndex = 0; return matched; } };
+		return {
+			key: `regex\0${query}`,
+			matchesText(text) {
+				return text.split(/\r\n|[\r\n]/u).some((line) => {
+					const matched = expression.test(line);
+					expression.lastIndex = 0;
+					return matched;
+				});
+			},
+		};
 	} catch (error) {
 		return fail("INVALID_REGEX", "query is not a valid regular expression.", { details: { error: error instanceof Error ? error.message : String(error) } });
 	}

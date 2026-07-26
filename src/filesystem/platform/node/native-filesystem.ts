@@ -45,8 +45,9 @@ export interface NativeAtomicReplaceOptions extends NativeOperationOptions {
 }
 
 export interface NativeOpenFile {
+	/** Metadata captured from the opened handle during the no-follow identity check. */
+	readonly metadata: NativeMetadata;
 	read(buffer: Uint8Array, offset: number, length: number, position: number, options?: NativeOperationOptions): Promise<number>;
-	stat(options?: NativeOperationOptions): Promise<NativeMetadata>;
 	close(): Promise<void>;
 }
 
@@ -135,7 +136,7 @@ export class NodeNativeFileSystem implements NativeFileSystem {
 				if (!sameIdentity(beforeMetadata, openedMetadata) || !sameIdentity(openedMetadata, afterMetadata)) {
 					throw new NativeFileSystemError("changed", "open", pathname);
 				}
-				const result = new NodeNativeOpenFile(handle, pathname);
+				const result = new NodeNativeOpenFile(handle, pathname, openedMetadata);
 				handle = undefined;
 				return result;
 			} finally {
@@ -183,7 +184,11 @@ export class NodeNativeFileSystem implements NativeFileSystem {
 }
 
 class NodeNativeOpenFile implements NativeOpenFile {
-	constructor(private readonly handle: FileHandle, private readonly path: string) {}
+	constructor(
+		private readonly handle: FileHandle,
+		private readonly path: string,
+		readonly metadata: NativeMetadata,
+	) {}
 
 	async read(
 		buffer: Uint8Array,
@@ -196,10 +201,6 @@ class NodeNativeOpenFile implements NativeOpenFile {
 			const result = await this.handle.read(buffer, offset, length, position);
 			return result.bytesRead;
 		});
-	}
-
-	async stat(options: NativeOperationOptions = {}): Promise<NativeMetadata> {
-		return runNative("fstat", this.path, options.signal, async () => metadataFromStats(await this.handle.stat({ bigint: true })));
 	}
 
 	async close(): Promise<void> {

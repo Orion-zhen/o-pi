@@ -382,7 +382,8 @@ describe("workspace namespace", () => {
 				if (file === deniedPath) throw new NativeFileSystemError("access-denied", "lstat", file);
 				if (file === invalidPath) throw new NativeFileSystemError("invalid-path", "lstat", file);
 				if (file === unknownErrorPath) throw new Error("injected unknown error");
-				return base.lstat(file, options);
+				const metadata = await base.lstat(file, options);
+				return file === statDeniedPath ? { ...metadata, kind: "symlink" } : metadata;
 			},
 			stat: async (file, options) => {
 				if (file === statDeniedPath) throw new NativeFileSystemError("access-denied", "stat", file);

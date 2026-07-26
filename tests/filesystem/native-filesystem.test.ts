@@ -32,7 +32,7 @@ describe("NodeNativeFileSystem", () => {
 			const buffer = new Uint8Array(3);
 			expect(await handle.read(buffer, 0, 3, 1)).toBe(3);
 			expect(Buffer.from(buffer).toString("utf8")).toBe("ell");
-			expect(await handle.stat()).toMatchObject({ kind: "file", sizeBytes: 5 });
+			expect(handle.metadata).toMatchObject({ kind: "file", sizeBytes: 5 });
 		} finally {
 			await handle.close();
 		}

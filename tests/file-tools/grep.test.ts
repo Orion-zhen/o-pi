@@ -279,31 +279,23 @@ describe("grep", () => {
 		}
 	});
 
-	it("literal 预筛提前命中时关闭 line scan", async () => {
+	it("literal 预筛与索引共享一次稳定正文读取", async () => {
 		await writeFile(path.join(workspace, "stream.txt"), `needle\n${"tail\n".repeat(200)}`);
 		const host = new FileToolsHost();
 		const tool = new GrepTool();
 		const opened = await host.open({ cwd: workspace, sessionId: "grep-stream" });
 		if (isFailed(opened)) throw new Error(opened.error.message);
-		let closes = 0;
+		let reads = 0;
 		const original = opened.filesystem.content;
 		const content: ContentOperations = {
 			readBytes: original.readBytes.bind(original),
-			readText: original.readText.bind(original),
+			async readText(file, options, context) {
+				reads += 1;
+				return await original.readText(file, options, context);
+			},
 			decodeText: original.decodeText.bind(original),
 			sliceText: original.sliceText.bind(original),
-			async scanLines(file, options, context) {
-				const result = await original.scanLines(file, options, context);
-				if (!result.ok) return result;
-				const scan = result.value;
-				return {
-					ok: true,
-					value: {
-						[Symbol.asyncIterator]: () => scan[Symbol.asyncIterator](),
-						async close() { closes += 1; await scan.close(); },
-					},
-				};
-			},
+			scanLines: original.scanLines.bind(original),
 		};
 		const filesystem: WorkspaceFileSystem = { ...opened.filesystem, content };
 		try {
@@ -313,7 +305,7 @@ describe("grep", () => {
 				limits: opened.limits,
 			});
 			expect(result).toMatchObject({ status: "success", regions: [expect.objectContaining({ path: "stream.txt" })] });
-			expect(closes).toBeGreaterThan(0);
+			expect(reads).toBe(1);
 		} finally {
 			tool.dispose();
 			opened.dispose();
@@ -1176,24 +1168,12 @@ describe("grep", () => {
 		const tool = new GrepTool();
 		const opened = await host.open({ cwd: workspace, sessionId: "grep-file-budget" });
 		if (isFailed(opened)) throw new Error(opened.error.message);
-		let metadataReads = 0;
-		const filesystem: WorkspaceFileSystem = {
-			...opened.filesystem,
-			metadata: {
-				async stat(ref, context) {
-					metadataReads += 1;
-					return await opened.filesystem.metadata.stat(ref, context);
-				},
-				list: opened.filesystem.metadata.list.bind(opened.filesystem.metadata),
-			},
-		};
 		try {
 			const result = expectGrepSuccess(await tool.execute({ query: "needle", match: "literal", glob: "z-*.txt" }, {
-				filesystem,
+				filesystem: opened.filesystem,
 				operation: opened.context,
 				limits: { ...opened.limits, grep_max_files_scanned: 3 },
 			}));
-			expect(metadataReads).toBe(3);
 			expect(result.scanned_files).toBe(3);
 			expect(result.truncated).toBe(true);
 			expect(result.regions).toEqual([]);
@@ -1210,18 +1190,18 @@ describe("grep", () => {
 		const tool = new GrepTool();
 		const opened = await host.open({ cwd: workspace, sessionId: "grep-query-miss" });
 		if (isFailed(opened)) throw new Error(opened.error.message);
-		let scans = 0;
+		let reads = 0;
 		const filesystem: WorkspaceFileSystem = {
 			...opened.filesystem,
 			content: {
 				readBytes: opened.filesystem.content.readBytes.bind(opened.filesystem.content),
-				readText: opened.filesystem.content.readText.bind(opened.filesystem.content),
+				async readText(file, options, context) {
+					reads += 1;
+					return await opened.filesystem.content.readText(file, options, context);
+				},
 				decodeText: opened.filesystem.content.decodeText.bind(opened.filesystem.content),
 				sliceText: opened.filesystem.content.sliceText.bind(opened.filesystem.content),
-				async scanLines(file, options, context) {
-					scans += 1;
-					return await opened.filesystem.content.scanLines(file, options, context);
-				},
+				scanLines: opened.filesystem.content.scanLines.bind(opened.filesystem.content),
 			},
 		};
 		try {
@@ -1233,7 +1213,7 @@ describe("grep", () => {
 				}));
 				expect(result.regions).toEqual([]);
 			}
-			expect(scans).toBe(3);
+			expect(reads).toBe(3);
 		} finally {
 			tool.dispose();
 			opened.dispose();

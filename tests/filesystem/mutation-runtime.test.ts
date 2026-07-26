@@ -125,6 +125,40 @@ describe("filesystem mutation runtime", () => {
 		expect(await readFile(path.join(workspace, "nested/file.txt"), "utf8")).toBe("second\n");
 	});
 
+	it("creates missing parents once and skips redundant mkdir for existing parents", async () => {
+		const base = new NodeNativeFileSystem();
+		let mkdirCalls = 0;
+		let openCalls = 0;
+		const native = nativeOverride({
+			async mkdir(directory, options) {
+				mkdirCalls += 1;
+				await base.mkdir(directory, options);
+			},
+			async open(file, options) {
+				openCalls += 1;
+				return await base.open(file, options);
+			},
+		});
+		const opened = await openRuntime([], native);
+
+		await writeFile(path.join(workspace, "existing.txt"), "before");
+		expect(expectOk(await opened.filesystem.mutations.overwrite(
+			await resolveTarget(opened, "existing.txt"),
+			bytes("after"),
+			{ createParents: true },
+			opened.context,
+		))).toMatchObject({ created: false });
+		expect({ mkdirCalls, openCalls }).toEqual({ mkdirCalls: 0, openCalls: 2 });
+
+		expect(expectOk(await opened.filesystem.mutations.overwrite(
+			await resolveTarget(opened, "new-parent/new.txt"),
+			bytes("created"),
+			{ createParents: true },
+			opened.context,
+		))).toMatchObject({ created: true });
+		expect({ mkdirCalls, openCalls }).toEqual({ mkdirCalls: 1, openCalls: 2 });
+	});
+
 	it("serializes the same target, runs different targets concurrently, and releases after exceptions", async () => {
 		const opened = await openRuntime();
 		const same = await resolveTarget(opened, "same.txt");
@@ -296,17 +330,16 @@ describe("filesystem mutation runtime", () => {
 		const file = path.join(workspace, "underreported.txt");
 		await writeFile(file, "12345");
 		const base = new NodeNativeFileSystem();
+		let openedUnderreportedFile = false;
 		const underreportedNative = nativeOverride({
+			async lstat(pathname, options) {
+				const metadata = await base.lstat(pathname, options);
+				return openedUnderreportedFile && pathname === file ? { ...metadata, sizeBytes: 0 } : metadata;
+			},
 			async open(pathname, options) {
 				const handle = await base.open(pathname, options);
-				return {
-					read: handle.read.bind(handle),
-					async stat(operationOptions) {
-						const metadata = await handle.stat(operationOptions);
-						return { ...metadata, sizeBytes: 0 };
-					},
-					close: handle.close.bind(handle),
-				};
+				if (pathname === file) openedUnderreportedFile = true;
+				return handle;
 			},
 		});
 		const opened = await openRuntime([], underreportedNative);
@@ -714,10 +747,10 @@ function track(runtime: FileSystemRuntime): FileSystemRuntime {
 	return runtime;
 }
 
-function nativeOverride(overrides: Partial<Pick<NativeFileSystem, "atomicReplace" | "mkdir" | "open">>): NativeFileSystem {
+function nativeOverride(overrides: Partial<Pick<NativeFileSystem, "atomicReplace" | "lstat" | "mkdir" | "open">>): NativeFileSystem {
 	const base = new NodeNativeFileSystem();
 	return {
-		lstat: (file, options) => base.lstat(file, options),
+		lstat: overrides.lstat ?? ((file, options) => base.lstat(file, options)),
 		stat: (file, options) => base.stat(file, options),
 		realpath: (file, options) => base.realpath(file, options),
 		readdir: (directory, options) => base.readdir(directory, options),

@@ -1,3 +1,4 @@
+import type { FileMetadata } from "./metadata.js";
 import type { DirectoryRef, ExistingRef } from "./path.js";
 import type { FsError, FsOperationContext, FsResult } from "./result.js";
 import type { VisibilityAnnotation, VisibilityIntent } from "./visibility.js";
@@ -7,6 +8,8 @@ export type TraversalSkipReason = "blocked" | "ignored" | "symlink" | "entry-lim
 export interface TraversalEntryEvent {
 	readonly type: "entry";
 	readonly ref: ExistingRef;
+	/** Metadata captured by the same guarded resolution that created ref. */
+	readonly metadata: FileMetadata;
 	readonly depth: number;
 	readonly visibility: VisibilityAnnotation;
 }

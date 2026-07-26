@@ -9,6 +9,7 @@ import { mapNativeError } from "../kernel/native-error.js";
 import { bindOperationContext } from "../operation-context.js";
 import type { WorkspaceNamespaceBridge } from "../kernel/namespace.js";
 import type { NativeFileSystem } from "../platform/node/native-filesystem.js";
+import { DIRECTORY_ENTRY_CONCURRENCY } from "./concurrency.js";
 import { compareLogicalPath } from "./path-order.js";
 import { nativeIdentity } from "./ref.js";
 
@@ -46,26 +47,34 @@ export class WorkspaceMetadataService implements MetadataOperations {
 		}
 
 		const entries: DirectoryEntry[] = [];
-		for (const nativeEntry of [...nativeEntries].sort((left, right) => compareLogicalPath(left.name, right.name))) {
-			const child = await this.bridge.resolveChild(directory, nativeEntry.name, context);
-			if (!child.ok) {
-				if (child.error.code === "aborted") return child;
-				// Blocked, raced, or inaccessible children are not exposed by directory listing.
-				continue;
-			}
-			let linkTarget: string | undefined;
-			if (child.value.kind === "symlink") {
-				const childIdentity = nativeIdentity(this.bridge, child.value);
-				if (childIdentity.ok) {
-					try {
-						linkTarget = await this.native.readlink(childIdentity.value.lexicalPath, context);
-					} catch (error) {
-						const mapped = mapNativeError(error, child.value.displayPath);
-						if (mapped.code === "aborted") return fsFailure(mapped);
+		const sorted = [...nativeEntries].sort((left, right) => compareLogicalPath(left.name, right.name));
+		for (let start = 0; start < sorted.length; start += DIRECTORY_ENTRY_CONCURRENCY) {
+			const batch = sorted.slice(start, start + DIRECTORY_ENTRY_CONCURRENCY);
+			const children = await Promise.all(batch.map(async (entry) => ({
+				entry,
+				resolved: await this.bridge.resolveChild(directory, entry.name, context),
+			})));
+			for (const { entry: nativeEntry, resolved: child } of children) {
+				if (!child.ok) {
+					if (child.error.code === "aborted") return child;
+					// Blocked, raced, or inaccessible children are not exposed by directory listing.
+					continue;
+				}
+				const ref = child.value.ref;
+				let linkTarget: string | undefined;
+				if (ref.kind === "symlink") {
+					const childIdentity = nativeIdentity(this.bridge, ref);
+					if (childIdentity.ok) {
+						try {
+							linkTarget = await this.native.readlink(childIdentity.value.lexicalPath, context);
+						} catch (error) {
+							const mapped = mapNativeError(error, ref.displayPath);
+							if (mapped.code === "aborted") return fsFailure(mapped);
+						}
 					}
 				}
+				entries.push({ ref, name: nativeEntry.name, ...(linkTarget === undefined ? {} : { linkTarget }) });
 			}
-			entries.push({ ref: child.value, name: nativeEntry.name, ...(linkTarget === undefined ? {} : { linkTarget }) });
 		}
 		return fsSuccess(entries);
 	}

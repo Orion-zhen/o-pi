@@ -40,9 +40,8 @@ export interface EditPreviewContext {
 export async function editFile(params: unknown, context: EditCommandContext): Promise<ToolOutcome<EditSuccess>> {
 	const input = validateEditInput(params);
 	if (isFailed(input)) return input;
-	const resolved = await resolveEditTarget(input.path, context.filesystem, context.operation);
-	if (isFailed(resolved)) return resolved;
-	const { target } = resolved;
+	const target = await resolveEditMutationTarget(input.path, context.filesystem, context.operation);
+	if (isFailed(target)) return target;
 
 	let before: TextContent | undefined;
 	let updatedText: string | undefined;
@@ -99,43 +98,57 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 export async function previewEdit(params: unknown, context: EditPreviewContext): Promise<ToolOutcome<EditPreviewSuccess>> {
 	const input = validateEditInput(params);
 	if (isFailed(input)) return input;
-	const resolved = await resolveEditTarget(input.path, context.filesystem, context.operation);
-	if (isFailed(resolved)) return resolved;
+	const file = await resolveEditFile(input.path, context.filesystem, context.operation);
+	if (isFailed(file)) return file;
 	const loaded = await context.filesystem.content.readBytes(
-		resolved.file,
+		file,
 		{ stable: true, maxBytes: context.maxFileBytes },
 		context.operation,
 	);
 	if (!loaded.ok) return mapFsError(loaded.error, { notFound: "file" });
-	const decoded = context.filesystem.content.decodeText(loaded.value, { rejectBinary: true, path: resolved.file.displayPath });
+	const decoded = context.filesystem.content.decodeText(loaded.value, { rejectBinary: true, path: file.displayPath });
 	if (!decoded.ok) return mapFsError(decoded.error, { notFound: "file" });
-	const updated = applyReplacements(decoded.value.text, input.edits, resolved.file.displayPath, context.matchHintLimit);
+	const updated = applyReplacements(decoded.value.text, input.edits, file.displayPath, context.matchHintLimit);
 	if (isFailed(updated)) return updated;
-	const outputError = validateTextSize(updated, decoded.value.hasBom, resolved.file.displayPath, context.maxFileBytes);
+	const outputError = validateTextSize(updated, decoded.value.hasBom, file.displayPath, context.maxFileBytes);
 	if (outputError !== undefined) return outputError;
 	const rendered = await context.diff.generate(normalizeLineEndings(decoded.value.text), normalizeLineEndings(updated));
 	return {
 		status: "preview",
-		path: resolved.file.displayPath,
+		path: file.displayPath,
 		replacements: input.edits.length,
 		diff: rendered.diff,
 		...(rendered.firstChangedLine === undefined ? {} : { firstChangedLine: rendered.firstChangedLine }),
 	};
 }
 
-async function resolveEditTarget(
+async function resolveEditMutationTarget(
 	path: string,
 	filesystem: WorkspaceFileSystem,
 	operation: FsOperationContext,
-): Promise<ToolOutcome<{ file: FileRef; target: TargetRef }>> {
+): Promise<ToolOutcome<TargetRef>> {
+	const target = await filesystem.paths.resolveTarget(path, { followExistingSymlink: true }, operation);
+	if (!target.ok) return mapFsError(target.error, { notFound: "file" });
+	if (target.value.existingKind === undefined) {
+		return fail("FILE_NOT_FOUND", "File does not exist.", { path: target.value.displayPath });
+	}
+	if (target.value.existingKind !== "file") {
+		return fail("NOT_A_FILE", "Path is not a regular file.", { path: target.value.displayPath });
+	}
+	return target.value;
+}
+
+async function resolveEditFile(
+	path: string,
+	filesystem: WorkspaceFileSystem,
+	operation: FsOperationContext,
+): Promise<ToolOutcome<FileRef>> {
 	const existing = await filesystem.paths.resolveExisting(path, { expected: "file", followFinalSymlink: true }, operation);
 	if (!existing.ok) return mapFsError(existing.error, { notFound: "file" });
 	if (existing.value.kind !== "file") return fail("NOT_A_FILE", "Path is not a regular file.", { path: existing.value.displayPath });
 	const visibility = await filesystem.visibility.evaluate(existing.value, "explicit-edit", operation);
 	if (!visibility.ok) return mapFsError(visibility.error);
-	const target = await filesystem.paths.resolveTarget(path, { followExistingSymlink: true }, operation);
-	if (!target.ok) return mapFsError(target.error, { notFound: "file" });
-	return { file: existing.value, target: target.value };
+	return existing.value;
 }
 
 function prepareSnapshot(

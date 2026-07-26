@@ -1,4 +1,5 @@
 import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { availableParallelism } from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -13,6 +14,7 @@ import {
 	type NativeMetadata,
 	type NativeOpenFile,
 } from "../../src/filesystem/platform/node/native-filesystem.js";
+import { DIRECTORY_ENTRY_CONCURRENCY } from "../../src/filesystem/services/concurrency.js";
 import { pathNameSimilarity } from "../../src/filesystem/services/path-catalog.js";
 import { compareLogicalPath } from "../../src/filesystem/services/path-order.js";
 import {
@@ -147,12 +149,16 @@ describe("filesystem content and text services", () => {
 	});
 
 	it("detects metadata changes during stable reads", async () => {
-		await writeFile(path.join(workspace, "changing.txt"), "content");
-		let statCalls = 0;
+		const changingPath = path.join(workspace, "changing.txt");
+		await writeFile(changingPath, "content");
+		let fileOpened = false;
+		let revalidationCalls = 0;
 		const native = wrapNative(new NodeNativeFileSystem(), {
-			stat(metadata) {
-				statCalls += 1;
-				return statCalls > 1 ? { ...metadata, version: `${metadata.version}:changed` } : metadata;
+			async beforeOpen(pathname) { if (pathname === changingPath) fileOpened = true; },
+			lstat(pathname, metadata) {
+				if (!fileOpened || pathname !== changingPath) return metadata;
+				revalidationCalls += 1;
+				return revalidationCalls > 1 ? { ...metadata, version: `${metadata.version}:changed` } : metadata;
 			},
 		});
 		const opened = await openReadonly({ native });
@@ -196,8 +202,13 @@ describe("filesystem content and text services", () => {
 			error: { code: "invalid-path" },
 		});
 
+		const racePath = path.join(workspace, "race.txt");
+		let raceOpened = false;
 		const underreported = await openReadonly({ native: wrapNative(new NodeNativeFileSystem(), {
-			stat(metadata) { return { ...metadata, sizeBytes: 0 }; },
+			async beforeOpen(pathname) { if (pathname === racePath) raceOpened = true; },
+			lstat(pathname, metadata) {
+				return raceOpened && pathname === racePath ? { ...metadata, sizeBytes: 0 } : metadata;
+			},
 		}) });
 		expect(await underreported.services.content.readBytes(
 			await resolveFile(underreported.namespace, "race.txt"),
@@ -239,9 +250,18 @@ describe("filesystem content and text services", () => {
 			ok: false,
 			error: { code: "not-file" },
 		});
-		const statFailure = await openReadonly({ native: wrapNative(new NodeNativeFileSystem(), { statError: true }) });
-		expect(await statFailure.services.content.scanLines(
-			await resolveFile(statFailure.namespace, "race.txt"),
+		let openedRace = false;
+		const revalidationFailure = await openReadonly({ native: wrapNative(new NodeNativeFileSystem(), {
+			async beforeOpen(pathname) { if (pathname.endsWith("race.txt")) openedRace = true; },
+			lstat(pathname, metadata) {
+				if (openedRace && pathname.endsWith("race.txt")) {
+					throw new NativeFileSystemError("access-denied", "lstat", pathname);
+				}
+				return metadata;
+			},
+		}) });
+		expect(await revalidationFailure.services.content.scanLines(
+			await resolveFile(revalidationFailure.namespace, "race.txt"),
 			{},
 			{},
 		)).toMatchObject({ ok: false, error: { code: "access-denied" } });
@@ -358,13 +378,17 @@ describe("filesystem content and text services", () => {
 	});
 
 	it("reports stable scan changes and allows NUL when requested by full-text reads", async () => {
-		await writeFile(path.join(workspace, "changing-lines.txt"), "line\n");
+		const changingPath = path.join(workspace, "changing-lines.txt");
+		await writeFile(changingPath, "line\n");
 		await writeFile(path.join(workspace, "nul.txt"), new Uint8Array([0x61, 0x00, 0x62]));
-		let statCalls = 0;
+		let changingOpened = false;
+		let revalidationCalls = 0;
 		const opened = await openReadonly({ native: wrapNative(new NodeNativeFileSystem(), {
-			stat(metadata) {
-				statCalls += 1;
-				return statCalls > 1 ? { ...metadata, version: `${metadata.version}:changed` } : metadata;
+			async beforeOpen(pathname) { if (pathname === changingPath) changingOpened = true; },
+			lstat(pathname, metadata) {
+				if (!changingOpened || pathname !== changingPath) return metadata;
+				revalidationCalls += 1;
+				return revalidationCalls > 1 ? { ...metadata, version: `${metadata.version}:changed` } : metadata;
 			},
 		}) });
 		const scan = expectOk(await opened.services.content.scanLines(
@@ -415,6 +439,10 @@ describe("filesystem content and text services", () => {
 });
 
 describe("filesystem metadata, traversal and catalog services", () => {
+	it("uses half the logical cores for directory entry resolution", () => {
+		expect(DIRECTORY_ENTRY_CONCURRENCY).toBe(Math.max(1, Math.floor(availableParallelism() / 2)));
+	});
+
 	it.skipIf(process.platform === "win32")("lists and stats guarded entries while preserving symlinks and stable order", async () => {
 		await writeFile(path.join(workspace, "b.txt"), "b");
 		await writeFile(path.join(workspace, "a.txt"), "a");
@@ -468,6 +496,11 @@ describe("filesystem metadata, traversal and catalog services", () => {
 			".", ".piignore", "a-dir", "a-dir/a.txt", "b.txt", "cache", "cache/keep.txt",
 		]);
 		expect(events).toEqual(expect.arrayContaining([
+			expect.objectContaining({
+				type: "entry",
+				ref: expect.objectContaining({ displayPath: "b.txt" }),
+				metadata: expect.objectContaining({ kind: "file", sizeBytes: 1, version: expect.any(String) }),
+			}),
 			expect.objectContaining({ type: "skip", path: "a-dir/cycle", reason: "symlink" }),
 			expect.objectContaining({ type: "skip", path: "cache/drop.txt", reason: "ignored" }),
 			expect.objectContaining({ type: "skip", path: "ignored", reason: "ignored" }),
@@ -688,18 +721,17 @@ interface NativeOverrides {
 	readonly tracker?: { opened: number; closed: number };
 	readonly beforeOpen?: (path: string) => Promise<void>;
 	readonly stat?: (metadata: NativeMetadata) => NativeMetadata;
-	readonly lstat?: (path: string) => void;
+	readonly lstat?: (path: string, metadata: NativeMetadata) => NativeMetadata | void;
 	readonly readdir?: (path: string) => void;
 	readonly closeError?: boolean;
 	readonly readError?: boolean;
-	readonly statError?: boolean;
 }
 
 function wrapNative(base: NativeFileSystem, overrides: NativeOverrides): NativeFileSystem {
 	return {
 		async lstat(pathname, options) {
-			overrides.lstat?.(pathname);
-			return await base.lstat(pathname, options);
+			const metadata = await base.lstat(pathname, options);
+			return overrides.lstat?.(pathname, metadata) ?? metadata;
 		},
 		stat: (pathname, options) => base.stat(pathname, options),
 		realpath: (pathname, options) => base.realpath(pathname, options),
@@ -722,14 +754,10 @@ function wrapNative(base: NativeFileSystem, overrides: NativeOverrides): NativeF
 
 function wrapHandle(handle: NativeOpenFile, overrides: NativeOverrides): NativeOpenFile {
 	return {
+		metadata: overrides.stat?.(handle.metadata) ?? handle.metadata,
 		async read(buffer, offset, length, position, options) {
 			if (overrides.readError === true) throw new NativeFileSystemError("io-error", "read", "test");
 			return await handle.read(buffer, offset, length, position, options);
-		},
-		async stat(options) {
-			if (overrides.statError === true) throw new NativeFileSystemError("io-error", "stat", "test");
-			const metadata = await handle.stat(options);
-			return overrides.stat?.(metadata) ?? metadata;
 		},
 		async close() {
 			overrides.tracker && (overrides.tracker.closed += 1);
