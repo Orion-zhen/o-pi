@@ -12,16 +12,10 @@ Orion's Pi Agent.
 git clone https://github.com/Orion-zhen/o-pi.git ~/.pi
 ```
 
-安装全部依赖（包含 Repo Map 和语义检索所需的 Tree-sitter runtime/grammars）：
+安装依赖:
 
 ```bash
-cd ~/.pi && npm install && npm rebuild
-```
-
-更新依赖:
-
-```bash
-cd ~/.pi && npm run refresh
+cd ~/.pi && npm install
 ```
 
 ## 文档
