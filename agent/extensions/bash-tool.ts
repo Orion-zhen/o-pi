@@ -5,6 +5,7 @@ import {
 	createDefaultBashOperations,
 	executeBashCommand,
 	loadBashToolConfig,
+	renderBashCall,
 	type BashExecutionResult,
 	type BashParams,
 	type BashSessionMetadata,
@@ -31,6 +32,7 @@ export default function bashTool(pi: ExtensionAPI): void {
 			promptGuidelines: ["Use bash only for operations not covered by active dedicated tools."],
 			parameters: bashParameters,
 			executionMode: "sequential",
+			renderCall: renderBashCall,
 			async execute(toolCallId, params, signal, onUpdate, ctx) {
 				const config = await loadBashToolConfig();
 				const sessionFile = ctx.sessionManager.getSessionFile();

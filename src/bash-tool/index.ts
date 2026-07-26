@@ -1,6 +1,7 @@
 export { createBashEnvironment, executeBashCommand, createDefaultBashOperations } from "./bash-tool.js";
 export { BashConfigError, defaultBashToolConfig, loadBashToolConfig } from "./config.js";
 export { createBashOutputView, cleanForModel, detectOutputFormat } from "./output-view.js";
+export { renderBashCall } from "./renderer.js";
 export type {
 	BashExecutionResult,
 	BashLimits,

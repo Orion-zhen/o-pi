@@ -5,6 +5,7 @@ import type { BashOperations, ExtensionAPI } from "@earendil-works/pi-coding-age
 
 import bashToolExtension from "../../agent/extensions/bash-tool.js";
 import { createBashEnvironment, createDefaultBashOperations, executeBashCommand, normalizeWindowsPath } from "../../src/bash-tool/bash-tool.js";
+import { renderBashCall } from "../../src/bash-tool/renderer.js";
 import type { BashSessionMetadata, ExecuteBashRuntime } from "../../src/bash-tool/types.js";
 import { defaultBashToolConfig, loadBashToolConfig } from "../../src/bash-tool/config.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -55,6 +56,7 @@ describe("bash tool execution", () => {
 			name: string;
 			executionMode?: string;
 			parameters: { properties?: Record<string, unknown> };
+			renderCall?: unknown;
 		}> = [];
 		const handlers = new Map<string, (event: unknown) => unknown>();
 		bashToolExtension({
@@ -70,10 +72,74 @@ describe("bash tool execution", () => {
 		const tool = tools[0];
 		const parameters = tool?.parameters;
 		expect(Object.keys(parameters?.properties ?? {})).toEqual(["command", "timeout"]);
+		expect(tool?.renderCall).toBeTypeOf("function");
 		const base = { duration_ms: 1, output_state: "complete", capture_complete: true };
 		expect(handlers.get("tool_result")?.({ toolName: "bash", details: { ...base, status: "timed_out" } })).toEqual({ isError: true });
 		expect(handlers.get("tool_result")?.({ toolName: "bash", details: { ...base, status: "exited", exit_code: 0 } })).toBeUndefined();
 		expect(handlers.get("tool_result")?.({ toolName: "read", details: base })).toBeUndefined();
+	});
+
+	it("收起时命令独立滚动展示最后五个视觉行，展开时展示完整命令", () => {
+		const theme = {
+			fg(_color: string, text: string) { return text; },
+			bold(text: string) { return text; },
+		};
+		const state = {};
+		const firstCommand = Array.from({ length: 8 }, (_, index) => `command ${index + 1}`).join("\n");
+		const collapsed = renderBashCall(
+			{ command: firstCommand },
+			theme,
+			{ expanded: false, executionStarted: true, lastComponent: undefined, state },
+		);
+
+		expect(collapsed.render(80).map((line) => line.trimEnd())).toEqual([
+			"command 4", "command 5", "command 6", "command 7", "command 8",
+		]);
+		expect(state).toHaveProperty("startedAt");
+
+		const updated = renderBashCall(
+			{ command: `${firstCommand}\ncommand 9` },
+			theme,
+			{ expanded: false, executionStarted: true, lastComponent: collapsed, state },
+		);
+		expect(updated).toBe(collapsed);
+		expect(updated.render(80).map((line) => line.trimEnd())).toEqual([
+			"command 5", "command 6", "command 7", "command 8", "command 9",
+		]);
+
+		const expanded = renderBashCall(
+			{ command: `${firstCommand}\ncommand 9` },
+			theme,
+			{ expanded: true, executionStarted: true, lastComponent: updated, state },
+		);
+		expect(expanded.render(80).map((line) => line.trimEnd())).toEqual([
+			"$ command 1",
+			"command 2",
+			"command 3",
+			"command 4",
+			"command 5",
+			"command 6",
+			"command 7",
+			"command 8",
+			"command 9",
+		]);
+	});
+
+	it("收起的命令按终端自动换行后的视觉行限制为五行", () => {
+		const theme = {
+			fg(_color: string, text: string) { return text; },
+			bold(text: string) { return text; },
+		};
+		const component = renderBashCall(
+			{ command: "abcdefghijklmnopqrstuvwxyz" },
+			theme,
+			{ expanded: false, executionStarted: false, lastComponent: undefined, state: {} },
+		);
+
+		const lines = component.render(6);
+		expect(lines).toHaveLength(5);
+		expect(lines.at(-1)?.trimEnd()).toBe("yz");
+		expect(lines.join("")).not.toContain("$ abcdef");
 	});
 
 	it("无 session 文件或 model 时省略对应环境变量", () => {
