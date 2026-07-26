@@ -1,17 +1,17 @@
 import type { Dispatcher } from "undici";
 import { Parser } from "htmlparser2";
 
-import { classifyNetworkError } from "./http-client.js";
-import { readLimitedResponseBody, responseContentLength } from "./response-body.js";
-import type { WebHttpFetch, WebHttpResponse, WebSearchFailureDetails, WebSearchItem, WebToolsConfig } from "./types.js";
+import { classifyNetworkError } from "../network/http-client.js";
+import { readLimitedResponseBody, responseContentLength } from "../network/response-body.js";
+import type { WebHttpFetch, WebHttpResponse, WebSearchFailureDetails, WebSearchItem, WebToolsConfig } from "../core/types.js";
 import {
 	normalizeSearchResultUrl,
 	normalizeSearchText,
 	SEARCH_RESULT_MAX_SNIPPET_CHARS,
 	SEARCH_RESULT_MAX_TITLE_CHARS,
-} from "./url-utils.js";
+} from "../network/url-utils.js";
 
-export { normalizeSearchText } from "./url-utils.js";
+export { normalizeSearchText } from "../network/url-utils.js";
 
 export const SEARCH_ENDPOINT = new URL("https://html.duckduckgo.com/html/");
 

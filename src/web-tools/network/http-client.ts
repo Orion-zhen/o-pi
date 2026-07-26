@@ -1,8 +1,8 @@
 import type { Dispatcher } from "undici";
 
-import type { CookieStore, HttpFetchResult, WebFetchExecutionContext, WebToolsConfig, WebFetchFailureDetails, WebHttpFetch, WebHttpResponse, WebHttpHeaders, WebHttpBody } from "./types.js";
-import { isCookieAllowed } from "./cookie-policy.js";
-import { supportedImageMimeFromHeader } from "./image-types.js";
+import type { CookieStore, HttpFetchResult, WebFetchExecutionContext, WebToolsConfig, WebFetchFailureDetails, WebHttpFetch, WebHttpResponse, WebHttpHeaders, WebHttpBody } from "../core/types.js";
+import { isCookieAllowed } from "../fetch/cookie-policy.js";
+import { supportedImageMimeFromHeader } from "../content/image-types.js";
 import { validateRequestUrl } from "./network-policy.js";
 import { readLimitedResponseBody, responseContentLength } from "./response-body.js";
 import { originKey, redactUrl } from "./url-utils.js";

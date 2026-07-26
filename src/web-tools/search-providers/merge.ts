@@ -1,7 +1,7 @@
 import { getDomain } from "tldts";
 
-import type { FormalWebSearchProviderId, WebSearchItem } from "../types.js";
-import { normalizeSearchResultUrl, normalizeSearchText } from "../url-utils.js";
+import type { FormalWebSearchProviderId, WebSearchItem } from "../core/types.js";
+import { normalizeSearchResultUrl, normalizeSearchText } from "../network/url-utils.js";
 
 const RRF_K = 60;
 

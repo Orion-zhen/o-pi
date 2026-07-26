@@ -1,7 +1,7 @@
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { isAllowedResolvedAddress, isPublicAddress, resolveAllowedAddresses, validateRequestUrl } from "../../src/web-tools/network-policy.js";
+import { isAllowedResolvedAddress, isPublicAddress, resolveAllowedAddresses, validateRequestUrl } from "../../src/web-tools/network/network-policy.js";
 
 describe("webfetch network policy", () => {
 	it("只允许 http/https 且拒绝 userinfo、localhost 和字面私网 IP", () => {

@@ -1,4 +1,4 @@
-import type { WebFetchPageKind } from "./types.js";
+import type { WebFetchPageKind } from "../core/types.js";
 import { isAvatarImage } from "./html-avatar-filter.js";
 
 export type PageKind = WebFetchPageKind;

@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
 import { SearchProviderRouter } from "../../src/web-tools/search-providers/router.js";
 import type { SearchProviderContext, SearchProviderResult, WebSearchProvider } from "../../src/web-tools/search-providers/types.js";
-import { SearchCache } from "../../src/web-tools/search-cache.js";
-import type { WebSearchProviderId } from "../../src/web-tools/types.js";
-import { executeWebSearch } from "../../src/web-tools/websearch-tool.js";
+import { SearchCache } from "../../src/web-tools/search/search-cache.js";
+import type { WebSearchProviderId } from "../../src/web-tools/core/types.js";
+import { executeWebSearch } from "../../src/web-tools/search/websearch-tool.js";
 
 function runtime(providers: WebSearchProvider[], now = () => Date.now()) {
 	const config = defaultWebToolsConfig();

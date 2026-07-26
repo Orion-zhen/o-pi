@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { Agent } from "undici";
 
 import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
-import { SnapshotCache } from "../../src/web-tools/snapshot-cache.js";
-import type { CookieStore, WebHttpFetch } from "../../src/web-tools/types.js";
-import { executeWebFetch } from "../../src/web-tools/webfetch-tool.js";
+import { SnapshotCache } from "../../src/web-tools/fetch/snapshot-cache.js";
+import type { CookieStore, WebHttpFetch } from "../../src/web-tools/core/types.js";
+import { executeWebFetch } from "../../src/web-tools/fetch/webfetch-tool.js";
 import { httpResponse } from "../helpers/http.js";
 
 const cookieStore: CookieStore = {

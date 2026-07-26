@@ -4,7 +4,7 @@ import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
 import { normalizeSearchParams } from "../../src/web-tools/search-providers/query.js";
 import { SearchProviderRouter } from "../../src/web-tools/search-providers/router.js";
 import type { SearchProviderResult, WebSearchProvider } from "../../src/web-tools/search-providers/types.js";
-import type { WebSearchErrorCode, WebSearchProviderId } from "../../src/web-tools/types.js";
+import type { WebSearchErrorCode, WebSearchProviderId } from "../../src/web-tools/core/types.js";
 
 function provider(id: WebSearchProviderId, result: SearchProviderResult, calls: string[], configured = true): WebSearchProvider {
 	return { id, configured: () => configured, async search() { calls.push(id); return result; } };

@@ -1,7 +1,7 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import { Cookie, CookieJar } from "tough-cookie";
 
-import type { CookieAccess, CookieStore, WebFetchFailureDetails } from "./types.js";
+import type { CookieAccess, CookieStore, WebFetchFailureDetails } from "../core/types.js";
 
 interface LoadedCookies {
 	realpath: string;

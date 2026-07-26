@@ -1,6 +1,6 @@
-import { parseImageSrcset, type MediaCandidate } from "./html-page-analyzer.js";
-import { fetchHttpUrl, type HttpClientOptions } from "./http-client.js";
-import { mimeFromContentType, SUPPORTED_IMAGE_TYPES } from "./image-types.js";
+import { parseImageSrcset, type MediaCandidate } from "../content/html-page-analyzer.js";
+import { fetchHttpUrl, type HttpClientOptions } from "../network/http-client.js";
+import { mimeFromContentType, SUPPORTED_IMAGE_TYPES } from "../content/image-types.js";
 import type {
 	ContentConversion,
 	HttpFetchSuccess,
@@ -8,7 +8,7 @@ import type {
 	WebFetchMedia,
 	WebFetchMode,
 	WebFetchOmission,
-} from "./types.js";
+} from "../core/types.js";
 
 const IMAGE_ACCEPT = "image/webp,image/png,image/jpeg,image/gif;q=0.9,*/*;q=0.1";
 const MIN_PRIMARY_SCORE = 2_800;

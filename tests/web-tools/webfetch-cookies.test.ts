@@ -2,10 +2,10 @@ import { chmod, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { isCookieAllowed } from "../../src/web-tools/cookie-policy.js";
-import { NetscapeCookieStore } from "../../src/web-tools/cookie-store.js";
-import type { CookieStore } from "../../src/web-tools/types.js";
-import { createLazyCookieStore } from "../../src/web-tools/webfetch-runtime.js";
+import { isCookieAllowed } from "../../src/web-tools/fetch/cookie-policy.js";
+import { NetscapeCookieStore } from "../../src/web-tools/fetch/cookie-store.js";
+import type { CookieStore } from "../../src/web-tools/core/types.js";
+import { createLazyCookieStore } from "../../src/web-tools/fetch/webfetch-runtime.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;

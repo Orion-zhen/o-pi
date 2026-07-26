@@ -1,7 +1,7 @@
 import type { Dispatcher } from "undici";
 
-import type { WebSearchProvider } from "./search-providers/types.js";
-import type { SearchCorpus } from "./search-corpus.js";
+import type { WebSearchProvider } from "../search-providers/types.js";
+import type { SearchCorpus } from "../search/search-corpus.js";
 import type {
 	WebFetchExecutionContext,
 	WebFetchParams,

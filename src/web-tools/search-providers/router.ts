@@ -1,4 +1,4 @@
-import type { FormalWebSearchProviderId, WebSearchFailureDetails, WebSearchProviderAttempt, WebSearchProviderId, WebToolsConfig } from "../types.js";
+import type { FormalWebSearchProviderId, WebSearchFailureDetails, WebSearchProviderAttempt, WebSearchProviderId, WebToolsConfig } from "../core/types.js";
 import { assessSearchQuality, type QualityAssessment } from "./quality.js";
 import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult, WebSearchProvider } from "./types.js";
 

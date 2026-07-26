@@ -65,7 +65,7 @@ async function runToolBenchmark(toolMode) {
 async function runParserBenchmark() {
 	const fixture = readFileSync(fromRoot("tests/web-tools/fixtures/websearch/results.html"), "utf8");
 	const started = performance.now();
-	const module = await loadTypeScript("src/web-tools/duckduckgo-html.ts");
+	const module = await loadTypeScript("src/web-tools/search/duckduckgo-html.ts");
 	const imported = performance.now();
 	module.parseDuckDuckGoHtml(fixture);
 	const firstCompleted = performance.now();
@@ -77,7 +77,7 @@ async function runParserBenchmark() {
 async function runHtmlBenchmark(scenario) {
 	const html = htmlFixture(scenario);
 	const started = performance.now();
-	const module = await loadTypeScript("src/web-tools/html-content-converter.ts");
+	const module = await loadTypeScript("src/web-tools/content/html-content-converter.ts");
 	const imported = performance.now();
 	const result = module.htmlToMarkdown(html, "https://example.com/page", "text/html", { charThreshold: 500 }, "utf-8");
 	const completed = performance.now();

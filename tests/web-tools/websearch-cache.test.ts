@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { providerSignature, SearchCache, searchCacheKey } from "../../src/web-tools/search-cache.js";
+import { providerSignature, SearchCache, searchCacheKey } from "../../src/web-tools/search/search-cache.js";
 import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
 import { preserveEnv } from "../helpers/lifecycle.js";
 

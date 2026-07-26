@@ -17,7 +17,7 @@ import { safeProject } from "../../src/telemetry/projection.js";
 import type { TelemetryFacts, ToolTelemetry } from "../../src/telemetry/types.js";
 import { webFetchTelemetry } from "../../src/web-tools/telemetry/webfetch.js";
 import { webSearchTelemetry } from "../../src/web-tools/telemetry/websearch.js";
-import type { WebFetchDetails, WebFetchParams, WebSearchDetails, WebSearchParams } from "../../src/web-tools/types.js";
+import type { WebFetchDetails, WebFetchParams, WebSearchDetails, WebSearchParams } from "../../src/web-tools/core/types.js";
 
 describe("tool telemetry projections", () => {
 	it("bounds invalid and oversized facts without throwing", () => {

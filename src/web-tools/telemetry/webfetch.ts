@@ -1,6 +1,6 @@
 import { fields, isRecord, scalar } from "../../telemetry/projection.js";
 import { defineToolTelemetry } from "../../telemetry/tool.js";
-import type { WebFetchDetails, WebFetchParams } from "../types.js";
+import type { WebFetchDetails, WebFetchParams } from "../core/types.js";
 import { record, string, webResultFields } from "./common.js";
 
 export const webFetchTelemetry = defineToolTelemetry<WebFetchParams, WebFetchDetails>({

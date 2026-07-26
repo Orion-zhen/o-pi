@@ -1,7 +1,7 @@
 import { fields, isRecord, scalar, textFields } from "../../telemetry/projection.js";
 import { defineToolTelemetry } from "../../telemetry/tool.js";
 import type { Candidate } from "../../telemetry/types.js";
-import type { WebSearchDetails, WebSearchParams } from "../types.js";
+import type { WebSearchDetails, WebSearchParams } from "../core/types.js";
 import { record, string, webResultFields } from "./common.js";
 
 export const webSearchTelemetry = defineToolTelemetry<WebSearchParams, WebSearchDetails>({

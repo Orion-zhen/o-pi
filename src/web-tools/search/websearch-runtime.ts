@@ -1,11 +1,11 @@
-import { runtimeConfigFailure } from "./runtime-errors.js";
-import type { WebSearchCapability, WebSearchCapabilityOptions } from "./runtime-types.js";
+import { runtimeConfigFailure } from "../core/runtime-errors.js";
+import type { WebSearchCapability, WebSearchCapabilityOptions } from "../core/runtime-types.js";
 import { providerSignature, SearchCache } from "./search-cache.js";
 import { SearchRequestGate } from "./search-request-gate.js";
-import { resolveSearchApiKey } from "./search-providers/api-key.js";
-import { SearchProviderRouter } from "./search-providers/router.js";
-import type { SearchProviderContext, WebSearchProvider } from "./search-providers/types.js";
-import type { WebToolsConfig } from "./types.js";
+import { resolveSearchApiKey } from "../search-providers/api-key.js";
+import { SearchProviderRouter } from "../search-providers/router.js";
+import type { SearchProviderContext, WebSearchProvider } from "../search-providers/types.js";
+import type { WebToolsConfig } from "../core/types.js";
 import { executeWebSearch } from "./websearch-tool.js";
 
 export interface WebSearchProviderLoaders {
@@ -17,19 +17,19 @@ export interface WebSearchProviderLoaders {
 
 const defaultProviderLoaders: WebSearchProviderLoaders = {
 	async brave(config, options) {
-		const { createApiSearchProvider } = await import("./search-providers/api-provider.js");
+		const { createApiSearchProvider } = await import("../search-providers/api-provider.js");
 		return createApiSearchProvider({ id: "brave_api", config: config.websearch.brave_api, dispatcher: options.getDispatcher, fetchImpl: options.fetchImpl });
 	},
 	async exa(config, options) {
-		const { createApiSearchProvider } = await import("./search-providers/api-provider.js");
+		const { createApiSearchProvider } = await import("../search-providers/api-provider.js");
 		return createApiSearchProvider({ id: "exa_api", config: config.websearch.exa_api, dispatcher: options.getDispatcher, fetchImpl: options.fetchImpl });
 	},
 	async tavily(config, options) {
-		const { createApiSearchProvider } = await import("./search-providers/api-provider.js");
+		const { createApiSearchProvider } = await import("../search-providers/api-provider.js");
 		return createApiSearchProvider({ id: "tavily", config: config.websearch.tavily, dispatcher: options.getDispatcher, fetchImpl: options.fetchImpl });
 	},
 	async duckDuckGo(config, options, requestGate) {
-		const { createDuckDuckGoHtmlProvider } = await import("./search-providers/duckduckgo-html-provider.js");
+		const { createDuckDuckGoHtmlProvider } = await import("../search-providers/duckduckgo-html-provider.js");
 		return createDuckDuckGoHtmlProvider({
 			config: config.websearch.duckduckgo_html,
 			dispatcher: options.getDispatcher,

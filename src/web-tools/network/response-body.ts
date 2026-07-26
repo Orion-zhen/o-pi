@@ -1,4 +1,4 @@
-import type { WebHttpHeaders, WebHttpResponse } from "./types.js";
+import type { WebHttpHeaders, WebHttpResponse } from "../core/types.js";
 
 /** 共享受限正文读取结果；失败码保持通用，由调用工具映射到自身错误结构。 */
 export type ResponseBodyReadResult =

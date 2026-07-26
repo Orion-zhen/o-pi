@@ -1,7 +1,7 @@
 import type { Dispatcher } from "undici";
 
-import type { SearchRequestGate } from "../search-request-gate.js";
-import type { WebHttpFetch, WebSearchFailureDetails, WebToolsConfig } from "../types.js";
+import type { SearchRequestGate } from "../search/search-request-gate.js";
+import type { WebHttpFetch, WebSearchFailureDetails, WebToolsConfig } from "../core/types.js";
 import { filteredLexicalQuery } from "./query.js";
 import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResult, WebSearchProvider } from "./types.js";
 
@@ -14,7 +14,7 @@ export interface DuckDuckGoHtmlProviderOptions {
 
 /** 将既有 DDG HTML 后端包装成 provider；限流和 blocked 熔断只在此处生效。 */
 export function createDuckDuckGoHtmlProvider(options: DuckDuckGoHtmlProviderOptions): WebSearchProvider {
-	const backendPromise = options.config.enabled ? import("../duckduckgo-html.js") : undefined;
+	const backendPromise = options.config.enabled ? import("../search/duckduckgo-html.js") : undefined;
 	void backendPromise?.catch(() => undefined);
 	return {
 		id: "duckduckgo_html",
@@ -39,7 +39,7 @@ export function createDuckDuckGoHtmlProvider(options: DuckDuckGoHtmlProviderOpti
 			const timeoutSignal = AbortSignal.timeout(Math.min(options.config.timeout_seconds * 1000, remaining));
 			const signal = AbortSignal.any([context.signal ?? new AbortController().signal, timeoutSignal]);
 			const [{ searchDuckDuckGoHtml }, dispatcher] = await Promise.all([
-				backendPromise ?? import("../duckduckgo-html.js"),
+				backendPromise ?? import("../search/duckduckgo-html.js"),
 				resolveDispatcher(options.dispatcher),
 			]);
 			const effectiveUserSignal = context.userSignal ?? (context.deadlineAt === undefined ? context.signal : undefined);

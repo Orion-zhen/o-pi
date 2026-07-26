@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
 import { createDuckDuckGoHtmlProvider } from "../../src/web-tools/search-providers/duckduckgo-html-provider.js";
 import { normalizeSearchParams } from "../../src/web-tools/search-providers/query.js";
-import { SearchRequestGate } from "../../src/web-tools/search-request-gate.js";
-import type { WebHttpFetch, WebHttpRequestInit, WebHttpResponse } from "../../src/web-tools/types.js";
+import { SearchRequestGate } from "../../src/web-tools/search/search-request-gate.js";
+import type { WebHttpFetch, WebHttpRequestInit, WebHttpResponse } from "../../src/web-tools/core/types.js";
 import { httpResponse } from "../helpers/http.js";
 
 afterEach(() => {

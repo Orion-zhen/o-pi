@@ -1,4 +1,4 @@
-import type { WebHttpResponse } from "../../src/web-tools/types.js";
+import type { WebHttpResponse } from "../../src/web-tools/core/types.js";
 
 class FakeBody {
 	constructor(private readonly chunks: Uint8Array[]) {}

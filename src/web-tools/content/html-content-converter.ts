@@ -6,8 +6,8 @@ import { removeAvatarImages } from "./html-avatar-filter.js";
 import { removeHtmlOutputNoise, selectHtmlContent } from "./html-content-selector.js";
 import { extractDeferredContent } from "./html-deferred-content.js";
 import { analyzeHtmlPage, type PageAnalysis, type TextCandidate } from "./html-page-analyzer.js";
-import type { ContentConversion, HtmlReadabilityOptions, WebFetchFailureDetails, WebFetchTextSource } from "./types.js";
-import { selectedMediaUrls, selectPageMedia } from "./webfetch-media.js";
+import type { ContentConversion, HtmlReadabilityOptions, WebFetchFailureDetails, WebFetchTextSource } from "../core/types.js";
+import { selectedMediaUrls, selectPageMedia } from "../fetch/webfetch-media.js";
 
 const UNSAFE_HTML_SELECTOR = [
 	"script", "style", "noscript", "template", "svg", "canvas", "iframe", "object", "embed",

@@ -1,6 +1,6 @@
 import type { Dispatcher } from "undici";
 
-import type { PageAnalysis } from "./html-page-analyzer.js";
+import type { PageAnalysis } from "../content/html-page-analyzer.js";
 
 export type WebFetchMode = "readable" | "source";
 export type WebFetchOutputFormat = "markdown" | "text" | "json" | "xml" | "image" | "source";
@@ -498,5 +498,5 @@ export interface WebToolsRuntimeOptions {
 	fetchImpl?: WebHttpFetch;
 	cookiePath?: string;
 	now?: () => number;
-	searchProviders?: import("./search-providers/types.js").WebSearchProvider[];
+	searchProviders?: import("../search-providers/types.js").WebSearchProvider[];
 }

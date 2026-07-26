@@ -1,5 +1,5 @@
 import type { WebFetchResult, WebSearchResult } from "./types.js";
-import { escapeXml } from "./url-utils.js";
+import { escapeXml } from "../network/url-utils.js";
 
 export function runtimeConfigFailure(tool: "webfetch" | "websearch", error: unknown): WebFetchResult & WebSearchResult {
 	const message = error instanceof Error ? error.message : String(error);

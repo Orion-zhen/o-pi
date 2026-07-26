@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { normalizeSearchText, parseDuckDuckGoHtml, unwrapDuckDuckGoUrl } from "../../src/web-tools/duckduckgo-html.js";
+import { normalizeSearchText, parseDuckDuckGoHtml, unwrapDuckDuckGoUrl } from "../../src/web-tools/search/duckduckgo-html.js";
 
 const fixtureDir = path.join(process.cwd(), "tests", "web-tools", "fixtures", "websearch");
 

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
-import { resolveSearchApiKey } from "./search-providers/api-key.js";
-import type { WebSearchItem, WebSearchProviderId, WebToolsConfig } from "./types.js";
+import { resolveSearchApiKey } from "../search-providers/api-key.js";
+import type { WebSearchItem, WebSearchProviderId, WebToolsConfig } from "../core/types.js";
 
 export const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
 export const SEARCH_CACHE_MAX_ENTRIES = 64;

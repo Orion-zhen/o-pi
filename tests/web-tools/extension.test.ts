@@ -8,12 +8,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import webTools, { createWebToolsExtension } from "../../agent/extensions/web-tools.js";
 import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
-import type { WebToolsCapabilityLoaders } from "../../src/web-tools/runtime-types.js";
+import type { WebToolsCapabilityLoaders } from "../../src/web-tools/core/runtime-types.js";
 import { createWebToolsRuntime } from "../../src/web-tools/web-tools-runtime.js";
 import type { WebSearchProvider } from "../../src/web-tools/search-providers/types.js";
-import { SearchCorpus } from "../../src/web-tools/search-corpus.js";
-import type { WebFetchExecutionContext, WebFetchParams, WebSearchParams, WebToolsRuntime } from "../../src/web-tools/types.js";
-import { createWebSearchRuntime, type WebSearchProviderLoaders } from "../../src/web-tools/websearch-runtime.js";
+import { SearchCorpus } from "../../src/web-tools/search/search-corpus.js";
+import type { WebFetchExecutionContext, WebFetchParams, WebSearchParams, WebToolsRuntime } from "../../src/web-tools/core/types.js";
+import { createWebSearchRuntime, type WebSearchProviderLoaders } from "../../src/web-tools/search/websearch-runtime.js";
 import { httpResponse } from "../helpers/http.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 

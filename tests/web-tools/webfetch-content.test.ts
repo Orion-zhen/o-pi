@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import { describe, expect, it, vi } from "vitest";
 
-import { convertContent } from "../../src/web-tools/content-converter.js";
+import { convertContent } from "../../src/web-tools/content/content-converter.js";
 
 const readability = { charThreshold: 500 };
 

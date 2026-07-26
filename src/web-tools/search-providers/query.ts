@@ -1,4 +1,4 @@
-import type { WebSearchParams } from "../types.js";
+import type { WebSearchParams } from "../core/types.js";
 import type { CompiledSearchQuery, NormalizedSearchParams, SearchIntent } from "./types.js";
 
 const OPERATOR = /-?\b(?:site|filetype|intitle|inurl):(?:"[^"]+"|\S+)/giu;

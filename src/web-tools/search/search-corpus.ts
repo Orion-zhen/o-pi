@@ -1,6 +1,6 @@
-import type { FormalWebSearchProviderId, WebSearchItem } from "./types.js";
-import type { NormalizedSearchParams } from "./search-providers/types.js";
-import { normalizeSearchResultUrl } from "./url-utils.js";
+import type { FormalWebSearchProviderId, WebSearchItem } from "../core/types.js";
+import type { NormalizedSearchParams } from "../search-providers/types.js";
+import { normalizeSearchResultUrl } from "../network/url-utils.js";
 
 interface CorpusEntry {
 	query: string;

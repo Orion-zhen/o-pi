@@ -1,10 +1,10 @@
-import type { SearchProviderRouter } from "./search-providers/router.js";
-import { normalizeSearchParams } from "./search-providers/query.js";
+import type { SearchProviderRouter } from "../search-providers/router.js";
+import { normalizeSearchParams } from "../search-providers/query.js";
 import type { SearchCache } from "./search-cache.js";
 import { searchCacheKey } from "./search-cache.js";
 import type { SearchCorpus } from "./search-corpus.js";
-import type { WebSearchExecutionContext, WebSearchFailureDetails, WebSearchParams, WebSearchResult, WebSearchSuccessDetails, WebToolsConfig } from "./types.js";
-import { escapeXml } from "./url-utils.js";
+import type { WebSearchExecutionContext, WebSearchFailureDetails, WebSearchParams, WebSearchResult, WebSearchSuccessDetails, WebToolsConfig } from "../core/types.js";
+import { escapeXml } from "../network/url-utils.js";
 
 /** 搜索执行层依赖；provider 由 router 隔离，便于测试 fallback 和缓存。 */
 export interface ExecuteWebSearchRuntime {

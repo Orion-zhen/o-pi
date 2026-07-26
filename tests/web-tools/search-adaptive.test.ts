@@ -7,7 +7,7 @@ import { buildBraveRequest, buildExaRequest, buildTavilyRequest, createApiSearch
 import { mergeSearchResults } from "../../src/web-tools/search-providers/merge.js";
 import { assessSearchQuality } from "../../src/web-tools/search-providers/quality.js";
 import { compileSearchQuery, normalizeSearchParams } from "../../src/web-tools/search-providers/query.js";
-import { SearchCorpus } from "../../src/web-tools/search-corpus.js";
+import { SearchCorpus } from "../../src/web-tools/search/search-corpus.js";
 import { preserveEnv } from "../helpers/lifecycle.js";
 import { httpResponse } from "../helpers/http.js";
 

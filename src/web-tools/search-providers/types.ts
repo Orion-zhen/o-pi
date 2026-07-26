@@ -1,4 +1,4 @@
-import type { FormalWebSearchProviderId, WebSearchExecutionContext, WebSearchFailureDetails, WebSearchItem, WebSearchProviderId } from "../types.js";
+import type { FormalWebSearchProviderId, WebSearchExecutionContext, WebSearchFailureDetails, WebSearchItem, WebSearchProviderId } from "../core/types.js";
 
 export type SearchIntent = "exact" | "navigation" | "news" | "fact" | "paper" | "semantic" | "general";
 

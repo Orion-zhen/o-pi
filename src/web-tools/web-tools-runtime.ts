@@ -4,22 +4,22 @@ import type {
 	WebFetchCapabilityOptions,
 	WebSearchCapabilityOptions,
 	WebToolsCapabilityLoaders,
-} from "./runtime-types.js";
+} from "./core/runtime-types.js";
 import type {
 	WebHttpRequestInit,
 	WebHttpResponse,
 	WebToolsConfig,
 	WebToolsRuntime,
 	WebToolsRuntimeOptions,
-} from "./types.js";
-import { SearchCorpus } from "./search-corpus.js";
+} from "./core/types.js";
+import { SearchCorpus } from "./search/search-corpus.js";
 
 const defaultCapabilityLoaders: WebToolsCapabilityLoaders = {
 	async search(options) {
-		return (await import("./websearch-runtime.js")).createWebSearchRuntime(options);
+		return (await import("./search/websearch-runtime.js")).createWebSearchRuntime(options);
 	},
 	async fetch(options) {
-		return (await import("./webfetch-runtime.js")).createWebFetchRuntime(options);
+		return (await import("./fetch/webfetch-runtime.js")).createWebFetchRuntime(options);
 	},
 };
 
@@ -162,7 +162,7 @@ async function settledDispatcher(pending: Promise<Dispatcher> | undefined): Prom
 async function createDefaultDispatcher(getAllowedFakeIpRanges: () => readonly string[]): Promise<Dispatcher> {
 	const [{ Agent }, { createSecureLookup }] = await Promise.all([
 		loadUndici(),
-		import("./network-policy.js"),
+		import("./network/network-policy.js"),
 	]);
 	return new Agent({
 		connect: { lookup: createSecureLookup(getAllowedFakeIpRanges) },

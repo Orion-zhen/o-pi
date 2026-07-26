@@ -1,10 +1,10 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 
-import { formatToolCard } from "../tui/tool-card.js";
-import { formatBytes, formatDuration, joinParts } from "../tui/text.js";
-import type { WebSearchDetails, WebSearchFailureDetails, WebSearchProgressDetails, WebSearchProviderAttempt, WebSearchProviderId, WebSearchSuccessDetails } from "./types.js";
-import { stripTerminalControls } from "./url-utils.js";
+import { formatToolCard } from "../../tui/tool-card.js";
+import { formatBytes, formatDuration, joinParts } from "../../tui/text.js";
+import type { WebSearchDetails, WebSearchFailureDetails, WebSearchProgressDetails, WebSearchProviderAttempt, WebSearchProviderId, WebSearchSuccessDetails } from "../core/types.js";
+import { stripTerminalControls } from "../network/url-utils.js";
 
 interface WebSearchRenderState {
 	callComponent?: Text;

@@ -2,10 +2,10 @@ import type { Dispatcher } from "undici";
 import type { RegularSearchOptions } from "exa-js";
 import type { TavilySearchOptions } from "@tavily/core";
 
-import { classifyNetworkError } from "../http-client.js";
-import { readLimitedResponseBody } from "../response-body.js";
-import type { FormalWebSearchProviderId, WebHttpFetch, WebSearchErrorCode, WebSearchFailureDetails, WebSearchItem, WebToolsConfig } from "../types.js";
-import { normalizeSearchResultUrl, normalizeSearchText, SEARCH_RESULT_MAX_SNIPPET_CHARS, SEARCH_RESULT_MAX_TITLE_CHARS } from "../url-utils.js";
+import { classifyNetworkError } from "../network/http-client.js";
+import { readLimitedResponseBody } from "../network/response-body.js";
+import type { FormalWebSearchProviderId, WebHttpFetch, WebSearchErrorCode, WebSearchFailureDetails, WebSearchItem, WebToolsConfig } from "../core/types.js";
+import { normalizeSearchResultUrl, normalizeSearchText, SEARCH_RESULT_MAX_SNIPPET_CHARS, SEARCH_RESULT_MAX_TITLE_CHARS } from "../network/url-utils.js";
 import { resolveSearchApiKey } from "./api-key.js";
 import { filteredLexicalQuery } from "./query.js";
 import type { NormalizedSearchParams, SearchProviderResult, WebSearchProvider } from "./types.js";

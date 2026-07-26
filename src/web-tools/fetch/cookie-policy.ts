@@ -1,4 +1,4 @@
-import { matchesDomainRule } from "./url-utils.js";
+import { matchesDomainRule } from "../network/url-utils.js";
 
 /** Lightweight allowlist check; importing it must not initialize tough-cookie. */
 export function isCookieAllowed(hostname: string, domains: readonly string[]): boolean {

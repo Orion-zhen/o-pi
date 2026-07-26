@@ -11,9 +11,9 @@ import type {
 	WebToolsConfig,
 	WebFetchExecutionContext,
 	CookieStore,
-} from "./types.js";
-import { fetchHttpUrl, type HttpClientOptions } from "./http-client.js";
-import { escapeXml, normalizeUrl, redactUrl } from "./url-utils.js";
+} from "../core/types.js";
+import { fetchHttpUrl, type HttpClientOptions } from "../network/http-client.js";
+import { escapeXml, normalizeUrl, redactUrl } from "../network/url-utils.js";
 import { directImageConversion, resolvePrimaryMedia } from "./webfetch-media.js";
 import type { SnapshotCache } from "./snapshot-cache.js";
 
@@ -63,7 +63,7 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 	}
 
 	if (conversion === undefined || http === undefined) {
-		const converterPromise = import("./content-converter.js");
+		const converterPromise = import("../content/content-converter.js");
 		const fetched = await fetchHttpUrl(
 			params.url,
 			{ ...runtime, startedAt },
