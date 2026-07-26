@@ -8,7 +8,8 @@ import {
 import { Text } from "@earendil-works/pi-tui";
 import { formatToolCard } from "../../../tui/tool-card.js";
 import { formatBytes, formatChars, joinParts } from "../../../tui/text.js";
-import { isPlainRecord, isWriteSuccess } from "../guards.js";
+import { isWriteSuccess } from "../../write/guards.js";
+import { isPlainRecord } from "../guards.js";
 import type { TextRenderContext } from "./contracts.js";
 import { formatDiffStats, formatLspDiagnostics, formatLspSummary } from "./diagnostics.js";
 import { displayToolPath, formatFailureCard, stringArg, textComponent } from "./shared.js";

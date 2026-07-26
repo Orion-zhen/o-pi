@@ -1,14 +1,17 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { editWorkspace } from "../../src/file-tools/tools/edit.js";
+import { editFile } from "../../src/file-tools/edit/command.js";
 import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
 import { clearGrepIndex } from "../../src/file-tools/grep/indexer.js";
-import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
+import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
+import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
+import { createEditPorts } from "../../src/file-tools/pi/ports/edit.js";
+import { createWritePorts } from "../../src/file-tools/pi/ports/write.js";
 import { readWorkspaceFile } from "../helpers/read-tool.js";
-import { writeWorkspaceFile } from "../../src/file-tools/tools/write.js";
+import { writeFile as writeFileCommand } from "../../src/file-tools/write/command.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { FileToolLspHooks, GrepSuccess } from "../../src/file-tools/types.js";
 import { createLspFileHooks } from "../../src/lsp/file-hooks.js";
@@ -17,6 +20,7 @@ import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
 let outside: string;
+let host: FileToolsHost;
 const workspaceTemp = useTempDir("o-pi-lsp-hooks-");
 const configTemp = useTempDir("o-pi-lsp-hooks-config-");
 preserveEnv("PI_FILE_TOOLS_CONFIG");
@@ -27,7 +31,10 @@ beforeEach(async () => {
 	const config = path.join(outside, "file-tools.jsonc");
 	await writeFile(config, JSON.stringify({ ignore: { builtin_profile: "none", gitignore: false } }));
 	process.env.PI_FILE_TOOLS_CONFIG = config;
+	host = new FileToolsHost();
 });
+
+afterEach(() => host.dispose());
 
 describe("file-tools lsp hooks", () => {
 	it("read 附加 partial enclosing symbol，hook 失败时仍成功", async () => {
@@ -55,18 +62,17 @@ describe("file-tools lsp hooks", () => {
 				return diagnostics("errors");
 			},
 		};
-		await expect(writeWorkspaceFile(workspace, { path: "a.ts", content: "const x = 1;\n" }, undefined, { lsp: hooks })).resolves.toMatchObject({
+		await expect(writeWithHooks({ path: "a.ts", content: "const x = 1;\n" }, hooks)).resolves.toMatchObject({
 			status: "written",
 			path: "a.ts",
 			lsp: { diagnostics: { status: "errors", file_errors: 1 } },
 		});
-		await expect(writeWorkspaceFile(workspace, { path: "b.ts", content: "" }, undefined, { lsp: throwingHooks() })).resolves.toMatchObject({ status: "written" });
+		await expect(writeWithHooks({ path: "b.ts", content: "" }, throwingHooks())).resolves.toMatchObject({ status: "written" });
 	});
 
 	it("edit 只在成功写盘后调用 diagnostics hook", async () => {
 		await writeFile(path.join(workspace, "a.ts"), "const oldName = 1;\n");
-		const cache = new ReadVersionCache();
-		await readWorkspaceFile(workspace, { path: "a.ts" }, { versionCache: cache });
+		await readWorkspaceFile(workspace, { path: "a.ts" }, { host, sessionId: "lsp-hooks" });
 		let afterCalled = false;
 		const hooks: FileToolLspHooks = {
 			async beforeEdit() {
@@ -78,13 +84,13 @@ describe("file-tools lsp hooks", () => {
 				return diagnostics("warnings");
 			},
 		};
-		await expect(editWorkspace(workspace, { path: "a.ts", edits: [{ old: "oldName", new: "newName" }] }, { versionCache: cache, lsp: hooks })).resolves.toMatchObject({
+		await expect(editWithHooks({ path: "a.ts", edits: [{ old: "oldName", new: "newName" }] }, hooks)).resolves.toMatchObject({
 			status: "applied",
 			lsp: { diagnostics: { status: "warnings", file_warnings: 1 } },
 		});
 		expect(afterCalled).toBe(true);
 
-		await expect(editWorkspace(workspace, { path: "a.ts", edits: [{ old: "missing", new: "x" }] }, { versionCache: cache, lsp: hooks })).resolves.toMatchObject({ status: "failed" });
+		await expect(editWithHooks({ path: "a.ts", edits: [{ old: "missing", new: "x" }] }, hooks)).resolves.toMatchObject({ status: "failed" });
 	});
 
 	it("beforeEdit 使用调用方已解析的 absolutePath 和 workspace source", async () => {
@@ -195,6 +201,51 @@ describe("file-tools lsp hooks", () => {
 		expect(first.regions.find((region) => region.path === "reference.ts")?.sources).toContain("lsp-reference");
 	});
 });
+
+async function writeWithHooks(params: { path: string; content: string }, hooks: FileToolLspHooks) {
+	const opened = await host.open({ cwd: workspace, sessionId: "lsp-hooks" });
+	if ("status" in opened) return opened;
+	try {
+		const ports = createWritePorts(opened, hooks, inactiveRepoMap);
+		return await writeFileCommand(params, {
+			filesystem: opened.filesystem,
+			operation: opened.context,
+			diff: piTextDiffGenerator,
+			diagnostics: ports.diagnostics,
+		});
+	} finally {
+		opened.dispose();
+	}
+}
+
+async function editWithHooks(params: { path: string; edits: Array<{ old: string; new: string }> }, hooks: FileToolLspHooks) {
+	const opened = await host.open({ cwd: workspace, sessionId: "lsp-hooks" });
+	if ("status" in opened) return opened;
+	try {
+		const ports = createEditPorts(opened, hooks, inactiveRepoMap);
+		return await editFile(params, {
+			filesystem: opened.filesystem,
+			operation: opened.context,
+			observation: opened.observation,
+			matchHintLimit: opened.limits.edit_match_hint_limit,
+			diff: piTextDiffGenerator,
+			diagnostics: ports.diagnostics,
+		});
+	} finally {
+		opened.dispose();
+	}
+}
+
+const inactiveRepoMap = {
+	query: {
+		async query() { return undefined; },
+		async readContext() { return undefined; },
+		async syncMutation() { return undefined; },
+	},
+	async formatReadContext() { return undefined; },
+	async formatImpact() { return undefined; },
+	async syncMutation() {},
+};
 
 function diagnostics(status: "errors" | "warnings") {
 	return {

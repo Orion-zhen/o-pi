@@ -1,4 +1,3 @@
-import type { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
 import { readFile } from "../../src/file-tools/read/command.js";
 import type {
 	InlineImageProcessor,
@@ -14,7 +13,8 @@ import type { RepoMapFileToolQuery, RepoMapReadContext } from "../../src/repo-ma
 import { formatRepoMapReadContext } from "../../src/repo-map/tool-output.js";
 
 export interface ReadWorkspaceTestOptions {
-	readonly versionCache?: ReadVersionCache;
+	readonly host?: FileToolsHost;
+	readonly sessionId?: string;
 	readonly missingPaths?: MissingPathSource;
 	readonly structure?: ReadStructureSource;
 	readonly graph?: ReadGraphContextSource;
@@ -30,23 +30,17 @@ export async function readWorkspaceFile(
 	params: ReadParams,
 	options: ReadWorkspaceTestOptions = {},
 ): Promise<ToolOutcome<ReadFileSuccess>> {
-	const host = new FileToolsHost();
+	const host = options.host ?? new FileToolsHost();
+	const ownsHost = options.host === undefined;
 	try {
-		const opened = await host.open({ cwd, sessionId: "test-read", ...(options.signal === undefined ? {} : { signal: options.signal }) });
+		const opened = await host.open({ cwd, sessionId: options.sessionId ?? "test-read", ...(options.signal === undefined ? {} : { signal: options.signal }) });
 		if ("status" in opened) return opened;
 		try {
 			const graph = graphSource(options, opened);
 			return await readFile(params, {
 				filesystem: opened.filesystem,
 				operation: opened.context,
-				observation: {
-					remember(file, version) {
-						const remembered = opened.observation.remember(file, version);
-						const identity = opened.nativeBridge.getNativeIdentity(file);
-						if (identity !== undefined) options.versionCache?.remember(identity.canonicalPath, version.hash);
-						return remembered;
-					},
-				},
+				observation: opened.observation,
 				limits: {
 					bytes: opened.limits.read_bytes,
 					lines: opened.limits.read_lines,
@@ -62,7 +56,7 @@ export async function readWorkspaceFile(
 			opened.dispose();
 		}
 	} finally {
-		host.dispose();
+		if (ownsHost) host.dispose();
 	}
 }
 

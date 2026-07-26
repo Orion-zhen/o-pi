@@ -1,4 +1,4 @@
-import type { RepoMapMutationResult } from "../repo-map/file-tool-query.js";
+import type { DiagnosticSnapshot, DiagnosticsSummary } from "./shared/diagnostics.js";
 import type { FileToolError } from "./shared/result.js";
 
 export type NewlineKind = "lf" | "crlf" | "mixed" | "none";
@@ -11,11 +11,6 @@ export interface TextFile {
 	totalLines: number;
 	newline: NewlineKind;
 	hasBom: boolean;
-}
-
-export interface WriteParams {
-	path: string;
-	content: string;
 }
 
 /** find 参数：query 自动路由精确路径、glob、名称/路径 fuzzy 与语义召回。 */
@@ -78,35 +73,7 @@ export interface RepoMapRelatedResult {
 	query_match: "not_guaranteed";
 }
 
-/** LSP 诊断摘要状态；unavailable/timeout 只表示增强不可用，不影响文件工具主状态。 */
-export type LspDiagnosticStatus = "clean" | "warnings" | "errors" | "unavailable" | "timeout";
-/** LSP 诊断严重级别，保持与 protocol severity 的语义对应。 */
-export type LspDiagnosticSeverity = "error" | "warning" | "information" | "hint";
-
-/** 返回给模型和 TUI 的单条紧凑 LSP 诊断。 */
-export interface LspDiagnosticItem {
-	severity: LspDiagnosticSeverity;
-	line: number;
-	column: number;
-	message: string;
-	code?: string;
-	source?: string;
-}
-
-/** 写入或编辑后的 LSP 诊断摘要；用于展示 diff，不转成 FailedResult。 */
-export interface LspDiagnosticsSummary {
-	status: LspDiagnosticStatus;
-	file_errors: number;
-	file_warnings: number;
-	new_errors: number;
-	new_warnings: number;
-	resolved_errors: number;
-	resolved_warnings: number;
-	baseline: "known" | "unknown";
-	/** 符合 min_severity 的全部诊断数；items 只保留可展示的前 max_items 条。 */
-	total_items: number;
-	items: LspDiagnosticItem[];
-}
+export type LspDiagnosticsSummary = DiagnosticsSummary;
 
 /** grep 可接收的 LSP symbol 候选；调用方仍需执行 scope、ignore 和预算过滤。 */
 export interface FileToolLspSymbolCandidate {
@@ -120,16 +87,7 @@ export interface FileToolLspSymbolCandidate {
 	origin?: "workspace-symbol" | "reference";
 }
 
-/** edit 前保存的 client source+URI 诊断基线，用于成功写盘后的 diff。 */
-export interface FileToolLspDiagnosticSnapshot {
-	source: string;
-	uri: string;
-	items: LspDiagnosticItem[];
-	known: boolean;
-	revision: number;
-	updatedAt?: number;
-	version?: number;
-}
+export type FileToolLspDiagnosticSnapshot = DiagnosticSnapshot;
 
 /** 文件工具可选 LSP hook；实现方必须自行退化，不能改变主工具成功语义。 */
 export interface FileToolLspHooks {
@@ -200,24 +158,6 @@ export interface GrepSuccess {
 	nearby?: GrepNearbyResult[];
 }
 
-export interface WriteSuccess {
-	status: "written";
-	path: string;
-	bytes: number;
-	action: "create" | "modify";
-	before_version?: string;
-	after_version: string;
-	before_size_bytes?: number;
-	after_size_bytes: number;
-	/** Pi TUI 展示用的带行号 diff。 */
-	diff: string;
-	firstChangedLine?: number;
-	lsp?: {
-		diagnostics?: LspDiagnosticsSummary;
-	};
-	repo_map?: RepoMapMutationResult;
-}
-
 export type FindEntryKind = "file" | "directory";
 
 /** find 的统一路径条目；tokens 只服务路径相关性评分，不包含文件正文信息。 */
@@ -283,53 +223,6 @@ export interface FindDetails {
 export interface FindSuccess {
 	content: string;
 	details: FindDetails;
-}
-
-export interface EditReplacement {
-	/** 原文件中唯一且非空的精确匹配文本。 */
-	old: string;
-	/** 写入到匹配位置的新文本；允许为空字符串以删除该片段。 */
-	new: string;
-}
-
-export interface EditMatchHint {
-	line: number;
-	old: string;
-	new: string;
-}
-
-export interface EditParams {
-	path: string;
-	/** 同一文件的一个或多个非重叠替换，全部针对调用开始时的原始内容匹配。 */
-	edits: EditReplacement[];
-}
-
-export interface EditSuccess {
-	status: "applied";
-	path: string;
-	replacements: number;
-	old_version: string;
-	new_version: string;
-	old_size_bytes: number;
-	new_size_bytes: number;
-	/** Pi TUI 展示用的带行号 diff。 */
-	diff: string;
-	/** 第一处变更在新文件中的行号。 */
-	firstChangedLine?: number;
-	lsp?: {
-		diagnostics?: LspDiagnosticsSummary;
-	};
-	repo_map?: RepoMapMutationResult;
-}
-
-export interface EditPreviewSuccess {
-	status: "preview";
-	path: string;
-	replacements: number;
-	/** Pi TUI 展示用的带行号 diff。 */
-	diff: string;
-	/** 第一处变更在新文件中的行号。 */
-	firstChangedLine?: number;
 }
 
 export interface ResolvedPath {

@@ -4,14 +4,15 @@ import path from "node:path";
 import { promisify } from "node:util";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
+import { editFile } from "../../src/file-tools/edit/command.js";
 import { formatReadModelResult } from "../../src/file-tools/pi/model-output-with-repo.js";
-import { editWorkspace } from "../../src/file-tools/tools/edit.js";
+import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
+import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { findWorkspaceFiles } from "../../src/file-tools/tools/find.js";
 import { readWorkspaceFile } from "../helpers/read-tool.js";
-import { writeWorkspaceFile } from "../../src/file-tools/tools/write.js";
+import { writeFile as writeFileCommand } from "../../src/file-tools/write/command.js";
 import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
 import { clearGrepIndex } from "../../src/file-tools/grep/indexer.js";
 import { computeRepoMapActivation, REPO_MAP_SESSION_ENTRY, type RepoMapActivationEntry } from "../../src/repo-map/activation.js";
@@ -34,6 +35,7 @@ import { activationEntry, configureFileTools, serviceDependencies as sharedServi
 const temp = useTempDir("o-pi-repo-file-tools-");
 const execFileAsync = promisify(execFile);
 const gitAvailable = await hasGit();
+let fileToolsHost: FileToolsHost;
 preserveEnv(
 	"PI_REPO_MAP_CACHE_DIR",
 	"PI_REPO_MAP_CONFIG",
@@ -48,7 +50,10 @@ beforeEach(async () => {
 	process.env.PI_REPO_MAP_CONFIG = path.join(temp.path, "repo-map.jsonc");
 	delete process.env.PI_FILE_TOOLS_PROJECT_CONFIG;
 	delete process.env.PI_FILE_TOOLS_PROJECT_ROOT;
+	fileToolsHost = new FileToolsHost();
 });
+
+afterEach(() => fileToolsHost.dispose());
 
 describe.skipIf(!treeSitterAvailable())("Repo Map file-tool read and mutation integration", () => {
 	it.skipIf(!gitAvailable)("wires an activated write through the extension and exposes the new symbol to grep", async () => {
@@ -306,12 +311,11 @@ describe.skipIf(!treeSitterAvailable())("Repo Map file-tool read and mutation in
 		expect(grep.strategy).toContain("repo-map");
 		expect(grep.regions.some((region) => region.symbol === "Added")).toBe(true);
 
-		const versions = new ReadVersionCache();
-		await readWorkspaceFile(root, { path: "feature.ts" }, { versionCache: versions });
-		const edited = await editWorkspace(root, {
+		await readWorkspaceFile(root, { path: "feature.ts" }, { host: fileToolsHost, sessionId: "repo-mutation" });
+		const edited = await editWorkspaceFile(root, {
 			path: "feature.ts",
 			edits: [{ old: "Added", new: "Replacement" }],
-		}, { versionCache: versions });
+		});
 		if (edited.status !== "applied") throw new Error(edited.error.message);
 		const editUpdate = await query.syncMutation({ requestedPath: path.join(root, "feature.ts") });
 		if (editUpdate !== undefined) edited.repo_map = editUpdate;
@@ -511,6 +515,36 @@ async function activatedGeneration(branch: SessionEntry[]): Promise<RepoMapGener
 	const generation = await readActivatedRepoMap(activation, path.join(temp.path, "cache"));
 	if (generation === undefined) throw new Error("missing generation");
 	return generation;
+}
+
+async function writeWorkspaceFile(cwd: string, params: { path: string; content: string }) {
+	const opened = await fileToolsHost.open({ cwd, sessionId: "repo-mutation" });
+	if ("status" in opened) return opened;
+	try {
+		return await writeFileCommand(params, {
+			filesystem: opened.filesystem,
+			operation: opened.context,
+			diff: piTextDiffGenerator,
+		});
+	} finally {
+		opened.dispose();
+	}
+}
+
+async function editWorkspaceFile(cwd: string, params: { path: string; edits: Array<{ old: string; new: string }> }) {
+	const opened = await fileToolsHost.open({ cwd, sessionId: "repo-mutation" });
+	if ("status" in opened) return opened;
+	try {
+		return await editFile(params, {
+			filesystem: opened.filesystem,
+			operation: opened.context,
+			observation: opened.observation,
+			matchHintLimit: opened.limits.edit_match_hint_limit,
+			diff: piTextDiffGenerator,
+		});
+	} finally {
+		opened.dispose();
+	}
 }
 
 async function hasGit(): Promise<boolean> {

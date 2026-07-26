@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { editWorkspace as editWorkspaceImpl } from "../../src/file-tools/tools/edit.js";
+import { editFile } from "../../src/file-tools/edit/command.js";
+import type { EditSuccess } from "../../src/file-tools/edit/types.js";
 import { createVisibilitySnapshot, defaultVisibilityService as defaultIgnoreEngine, WorkspaceVisibilityService } from "../../src/filesystem/services/visibility/service.js";
 import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
 import type { PartialIgnoreConfig, VisibilitySnapshot } from "../../src/filesystem/contracts/visibility.js";
@@ -12,9 +13,8 @@ import { NodeNativeFileSystem, type NativeFileSystem } from "../../src/filesyste
 import { listDirectory } from "../../src/file-tools/ls/command.js";
 import type { LsParams, LsSuccess } from "../../src/file-tools/ls/types.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
-import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
+import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
-import type { EditSuccess } from "../../src/file-tools/types.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 import { readWorkspaceFile as readWorkspaceFileTest } from "../helpers/read-tool.js";
 
@@ -22,7 +22,6 @@ const execFileAsync = promisify(execFile);
 
 let workspace: string;
 let outside: string;
-let versionCache: ReadVersionCache;
 let host: FileToolsHost;
 const workspaceTemp = useTempDir("o-pi-ignore-");
 const outsideTemp = useTempDir("o-pi-ignore-outside-");
@@ -30,7 +29,6 @@ const outsideTemp = useTempDir("o-pi-ignore-outside-");
 beforeEach(() => {
 	workspace = workspaceTemp.path;
 	outside = outsideTemp.path;
-	versionCache = new ReadVersionCache();
 	host = new FileToolsHost();
 	defaultIgnoreEngine.invalidate();
 });
@@ -55,11 +53,23 @@ async function listWorkspaceDirectory(cwd: string, params: LsParams): Promise<To
 }
 
 function readWorkspaceFile(cwd: string, params: Parameters<typeof readWorkspaceFileTest>[1]) {
-	return readWorkspaceFileTest(cwd, params, { versionCache });
+	return readWorkspaceFileTest(cwd, params, { host, sessionId: "visibility-test" });
 }
 
-function editWorkspace(cwd: string, params: unknown): Promise<ToolOutcome<EditSuccess>> {
-	return editWorkspaceImpl(cwd, params, { versionCache });
+async function editWorkspace(cwd: string, params: unknown): Promise<ToolOutcome<EditSuccess>> {
+	const opened = await host.open({ cwd, sessionId: "visibility-test" });
+	if (isFailed(opened)) return opened;
+	try {
+		return await editFile(params, {
+			filesystem: opened.filesystem,
+			operation: opened.context,
+			observation: opened.observation,
+			matchHintLimit: opened.limits.edit_match_hint_limit,
+			diff: piTextDiffGenerator,
+		});
+	} finally {
+		opened.dispose();
+	}
 }
 
 async function createIgnoreSnapshot(root: string, ignore: PartialIgnoreConfig = {}): Promise<VisibilitySnapshot> {

@@ -4,7 +4,7 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSkillReadIndex, resolveReadLocator, type SkillReadIndex } from "../../src/skill-context/resources.js";
 import { executeRead } from "../../src/file-tools/pi/adapters/read.js";
-import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
+import { isFailed } from "../../src/file-tools/shared/result.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { normalizeToolPath } from "../../src/file-tools/core/path-resolver.js";
 import { SKILL_CONTEXT_ENTRY, type SkillCandidate, type SkillLoadEntry } from "../../src/skill-context/types.js";
@@ -47,14 +47,12 @@ describe("技能资源定位符", () => {
 	it("read 输出只展示逻辑 URI，并跳过 LSP、Repo Map 和可编辑版本缓存", async () => {
 		const enhanceRead = vi.fn();
 		const readContext = vi.fn();
-		const versionCache = new ReadVersionCache();
 		const host = new FileToolsHost();
 		const result = await executeRead({ path: "skill://demo/references/testing.md" }, {
 			cwd: temp.path,
 			sessionId: "skill-read",
 			model: undefined,
 			host,
-			legacyVersionCache: versionCache,
 			lsp: { enhanceRead },
 			repoMap: {
 				query: {
@@ -64,11 +62,15 @@ describe("技能资源定位符", () => {
 				},
 				formatReadContext: async () => undefined,
 				formatImpact: async () => undefined,
-				syncMutation: async () => undefined,
 			},
 			branch,
 			skillIndex,
 		});
+		const opened = await host.open({ cwd: temp.path, sessionId: "skill-read" });
+		if (isFailed(opened)) throw new Error(opened.error.message);
+		const file = await opened.filesystem.paths.resolveExisting(path.join(root, "references", "testing.md"), { expected: "file", followFinalSymlink: true }, opened.context);
+		expect(file.ok && opened.observation.get(file.value)).toBeUndefined();
+		opened.dispose();
 		host.dispose();
 		const text = result.content.find((item) => item.type === "text")?.text ?? "";
 		expect(text).toContain('path="skill://demo/references/testing.md"');
@@ -79,7 +81,6 @@ describe("技能资源定位符", () => {
 		});
 		expect(enhanceRead).not.toHaveBeenCalled();
 		expect(readContext).not.toHaveBeenCalled();
-		expect(versionCache.get(path.join(root, "references", "testing.md"))).toBeUndefined();
 	});
 
 	it("拒绝未加载技能和对受管理根目录的绝对路径访问", async () => {

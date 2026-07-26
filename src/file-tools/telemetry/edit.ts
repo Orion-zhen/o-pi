@@ -1,7 +1,7 @@
 import { fields, isRecord, textFields } from "../../telemetry/projection.js";
 import { defineToolTelemetry } from "../../telemetry/tool.js";
 import type { ToolOutcome } from "../shared/result.js";
-import type { EditParams, EditSuccess } from "../types.js";
+import type { EditParams, EditSuccess } from "../edit/types.js";
 import { fileResultFields, pathTarget, record, string } from "./common.js";
 
 export const editTelemetry = defineToolTelemetry<EditParams, ToolOutcome<EditSuccess>>({

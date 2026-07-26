@@ -1,19 +1,9 @@
 import type {
-	EditSuccess,
 	FindDetails,
 	FindNearbyResult,
 	RepoMapRelatedResult,
-	WriteSuccess,
 } from "../types.js";
 import type { FailedResult } from "../shared/result.js";
-
-export function isEditSuccessDetails(value: unknown): value is EditSuccess {
-	return isPlainRecord(value) && value["status"] === "applied" && typeof value["diff"] === "string";
-}
-
-export function isFailedEditDetails(value: unknown): value is FailedResult {
-	return isFailedDetails(value);
-}
 
 export function isFailedDetails(value: unknown): value is FailedResult {
 	if (!isPlainRecord(value) || value["status"] !== "failed" || !isPlainRecord(value["error"])) return false;
@@ -56,10 +46,6 @@ export function isRepoMapRelatedResults(value: unknown): value is RepoMapRelated
 		&& item["query_match"] === "not_guaranteed"
 		&& Array.isArray(item["relations"])
 		&& item["relations"].every((relation) => typeof relation === "string"));
-}
-
-export function isWriteSuccess(value: unknown): value is WriteSuccess {
-	return isPlainRecord(value) && value["status"] === "written" && typeof value["path"] === "string" && typeof value["bytes"] === "number";
 }
 
 export function isFileToolName(value: string): boolean {

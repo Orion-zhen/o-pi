@@ -1,20 +1,23 @@
 import { mkdir, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it } from "vitest";
-import { editWorkspace as editWorkspaceImpl, previewEditWorkspace, type EditRuntime } from "../../src/file-tools/tools/edit.js";
-import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { editFile, previewEdit } from "../../src/file-tools/edit/command.js";
+import type { EditDiagnosticsSource } from "../../src/file-tools/edit/ports.js";
+import type { EditSuccess } from "../../src/file-tools/edit/types.js";
+import { FileToolsHost, type FileToolsInvocation } from "../../src/file-tools/runtime/host.js";
 import { isPlainRecord } from "../../src/file-tools/pi/guards.js";
-import { writeWorkspaceFile as writeWorkspaceFileImpl } from "../../src/file-tools/tools/write.js";
-import { sha256Version } from "../../src/file-tools/core/text-file.js";
+import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
+import { contentHash as sha256Version } from "../../src/filesystem/services/text.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
-import type { EditSuccess, WriteSuccess } from "../../src/file-tools/types.js";
+import type { TextDiffGenerator } from "../../src/file-tools/shared/text-diff.js";
+import { writeFile as writeFileCommand } from "../../src/file-tools/write/command.js";
+import type { WriteSuccess } from "../../src/file-tools/write/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { readWorkspaceFile as readWorkspaceFileTest, type ReadWorkspaceTestOptions } from "../helpers/read-tool.js";
 
 let workspace: string;
 let outside: string;
-let versionCache: ReadVersionCache;
+let host: FileToolsHost;
 const workspaceTemp = useTempDir("o-pi-workspace-");
 const outsideTemp = useTempDir("o-pi-outside-");
 preserveEnv("PI_FILE_TOOLS_CONFIG");
@@ -22,19 +25,52 @@ preserveEnv("PI_FILE_TOOLS_CONFIG");
 beforeEach(() => {
 	workspace = workspaceTemp.path;
 	outside = outsideTemp.path;
-	versionCache = new ReadVersionCache();
+	host = new FileToolsHost();
 });
 
+afterEach(() => host.dispose());
+
 function readWorkspaceFile(cwd: string, params: Parameters<typeof readWorkspaceFileTest>[1], options: ReadWorkspaceTestOptions = {}) {
-	return readWorkspaceFileTest(cwd, params, { ...options, versionCache });
+	return readWorkspaceFileTest(cwd, params, { ...options, host, sessionId: "crud" });
 }
 
-function editWorkspace(cwd: string, params: unknown, runtime: EditRuntime = {}): Promise<ToolOutcome<EditSuccess>> {
-	return editWorkspaceImpl(cwd, params, { ...runtime, versionCache });
+async function editWorkspace(
+	cwd: string,
+	params: unknown,
+	runtime: { signal?: AbortSignal; diagnostics?: EditDiagnosticsSource } = {},
+): Promise<ToolOutcome<EditSuccess>> {
+	const opened = await openInvocation(cwd, runtime.signal);
+	if ("status" in opened) return opened;
+	try {
+		return await editFile(params, {
+			filesystem: opened.filesystem,
+			operation: opened.context,
+			observation: opened.observation,
+			matchHintLimit: opened.limits.edit_match_hint_limit,
+			diff: piTextDiffGenerator,
+			...(runtime.diagnostics === undefined ? {} : { diagnostics: runtime.diagnostics }),
+		});
+	} finally {
+		opened.dispose();
+	}
 }
 
-function writeWorkspaceFile(cwd: string, params: unknown): Promise<ToolOutcome<WriteSuccess>> {
-	return writeWorkspaceFileImpl(cwd, params, undefined, { versionCache });
+async function writeWorkspaceFile(
+	cwd: string,
+	params: unknown,
+	diff: TextDiffGenerator = piTextDiffGenerator,
+): Promise<ToolOutcome<WriteSuccess>> {
+	const opened = await openInvocation(cwd);
+	if ("status" in opened) return opened;
+	try {
+		return await writeFileCommand(params, { filesystem: opened.filesystem, operation: opened.context, diff });
+	} finally {
+		opened.dispose();
+	}
+}
+
+function openInvocation(cwd: string, signal?: AbortSignal): Promise<ToolOutcome<FileToolsInvocation>> {
+	return host.open({ cwd, sessionId: "crud", ...(signal === undefined ? {} : { signal }) });
 }
 
 async function useFileToolsConfig(config: Record<string, unknown>): Promise<void> {
@@ -368,12 +404,12 @@ describe("write", () => {
 		let markQueueEntered: (() => void) | undefined;
 		const queueEntered = new Promise<void>((resolve) => { markQueueEntered = resolve; });
 		const queueRelease = new Promise<void>((resolve) => { releaseQueue = resolve; });
-		const pendingWrite = writeWorkspaceFileImpl(workspace, { path: "queued.txt", content: "unsafe\n" }, undefined, {
-			mutationQueue: (filePath, operation) => withFileMutationQueue(filePath, async () => {
+		const pendingWrite = writeWorkspaceFile(workspace, { path: "queued.txt", content: "unsafe\n" }, {
+			async generate(before, after) {
 				markQueueEntered?.();
 				await queueRelease;
-				return operation();
-			}),
+				return await piTextDiffGenerator.generate(before, after);
+			},
 		});
 		await queueEntered;
 
@@ -576,11 +612,12 @@ describe("edit", () => {
 		const controller = new AbortController();
 		const result = await editWorkspace(workspace, { path: "a.txt", edits: [{ old: "old", new: "new" }] }, {
 			signal: controller.signal,
-			lsp: {
+			diagnostics: {
 				async beforeEdit() {
 					controller.abort();
 					return undefined;
 				},
+				async afterEdit() { return undefined; },
 			},
 		});
 		expect(result).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
@@ -667,7 +704,15 @@ describe("edit", () => {
 	it("预览只读生成 diff，执行仍保持 read-before-edit 约束", async () => {
 		await writeFile(path.join(workspace, "a.txt"), "old\n");
 		const params = { path: "a.txt", edits: [{ old: "old", new: "new" }] };
-		const preview = await previewEditWorkspace(workspace, params);
+		const opened = await openInvocation(workspace);
+		if ("status" in opened) throw new Error(opened.error.message);
+		const preview = await previewEdit(params, {
+			filesystem: opened.filesystem,
+			operation: opened.context,
+			matchHintLimit: opened.limits.edit_match_hint_limit,
+			diff: piTextDiffGenerator,
+		});
+		opened.dispose();
 		if ("error" in preview) throw new Error(`preview failed: ${preview.error.code}`);
 		expect(preview).toMatchObject({ status: "preview", path: "a.txt", replacements: 1, firstChangedLine: 1 });
 		expect(preview.diff).toContain("-1 old");

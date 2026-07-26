@@ -1,6 +1,5 @@
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { ReadVersionCache } from "../../core/read-cache.js";
 import { readFile } from "../../read/command.js";
 import { isReadImageSuccess, isReadSuccess } from "../../read/guards.js";
 import type { InlineImageProcessor } from "../../read/ports.js";
@@ -29,7 +28,6 @@ export interface ExecuteReadOptions {
 	readonly signal?: AbortSignal;
 	readonly model: { input?: readonly string[] } | undefined;
 	readonly host: FileToolsHost;
-	readonly legacyVersionCache?: ReadVersionCache;
 	readonly lsp: FileToolLspHooks;
 	readonly repoMap: LazyRepoMap;
 	readonly branch: SessionEntry[];
@@ -48,7 +46,7 @@ export async function executeRead(params: ReadParams, options: ExecuteReadOption
 	});
 	if (isFailed(opened)) return failedResult(opened);
 	try {
-		const observation = createReadObservationStore(opened, options.legacyVersionCache);
+		const observation = createReadObservationStore(opened);
 		const result = await readFile(
 			{ ...params, ...(skill === undefined ? {} : { path: skill.filePath }) },
 			{

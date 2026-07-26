@@ -1,10 +1,10 @@
-import type { EditSuccess, WriteSuccess } from "../types.js";
+import type { EditSuccess } from "../edit/types.js";
+import type { WriteSuccess } from "../write/types.js";
+import type { RepoMapImpactResult } from "../../repo-map/impact.js";
 import type { ReadSuccess } from "../read/types.js";
 import { formatReadModelResult as formatReadResult } from "../read/presenter.js";
-import {
-	formatEditModelResult as formatEditResult,
-	formatWriteModelResult as formatWriteResult,
-} from "./model-output.js";
+import { formatEditModelResult as formatEditResult } from "../edit/presenter.js";
+import { formatWriteModelResult as formatWriteResult } from "../write/presenter.js";
 import { formatRepoMapImpact, formatRepoMapReadContext } from "../../repo-map/tool-output.js";
 
 export { formatErrorModelResult, scrubVersions } from "./model-output.js";
@@ -15,9 +15,9 @@ export function formatReadModelResult(result: ReadSuccess): string {
 }
 
 export function formatEditModelResult(result: EditSuccess): string {
-	return formatEditResult(result, formatRepoMapImpact(result.repo_map?.impact));
+	return formatEditResult(result, formatRepoMapImpact(result.repo_map?.impact as RepoMapImpactResult | undefined));
 }
 
 export function formatWriteModelResult(result: WriteSuccess): string {
-	return formatWriteResult(result, formatRepoMapImpact(result.repo_map?.impact));
+	return formatWriteResult(result, formatRepoMapImpact(result.repo_map?.impact as RepoMapImpactResult | undefined));
 }

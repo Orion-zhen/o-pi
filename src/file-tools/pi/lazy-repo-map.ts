@@ -1,8 +1,7 @@
-import path from "node:path";
 import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import { computeRepoMapActivation, REPO_MAP_SESSION_ENTRY, type RepoMapActivationEntry } from "../../repo-map/activation.js";
-import type { RepoMapFileToolQuery, RepoMapMutationResult, RepoMapReadContext } from "../../repo-map/file-tool-query.js";
+import type { RepoMapFileToolQuery, RepoMapReadContext } from "../../repo-map/file-tool-query.js";
 import type { RepoMapImpactResult } from "../../repo-map/impact.js";
 import type { RepoMapOutputConfig } from "../../repo-map/output-config.js";
 
@@ -17,11 +16,6 @@ export interface LazyRepoMap {
 	query: RepoMapFileToolQuery;
 	formatReadContext(context: RepoMapReadContext): Promise<string | undefined>;
 	formatImpact(impact: RepoMapImpactResult | undefined): Promise<string | undefined>;
-	syncMutation(
-		result: { path: string; firstChangedLine?: number; repo_map?: RepoMapMutationResult },
-		cwd: string,
-		signal: AbortSignal | undefined,
-	): Promise<void>;
 }
 
 interface LazyRepoMapOptions {
@@ -96,18 +90,6 @@ export function createLazyRepoMap(options: LazyRepoMapOptions): LazyRepoMap {
 				return runtime.formatRepoMapImpact(impact, config);
 			} catch {
 				return undefined;
-			}
-		},
-		async syncMutation(result, cwd, signal) {
-			try {
-				const update = await query.syncMutation({
-					requestedPath: path.resolve(cwd, result.path),
-					...(result.firstChangedLine !== undefined ? { changedLine: result.firstChangedLine } : {}),
-					...(signal !== undefined ? { signal } : {}),
-				});
-				if (update !== undefined) result.repo_map = update;
-			} catch {
-				// Repo Map 是非阻塞增强；文件 mutation 已成功。
 			}
 		},
 	};

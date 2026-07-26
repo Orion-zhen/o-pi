@@ -1,21 +1,50 @@
-import type { ReadVersionCache } from "../../core/read-cache.js";
-import { formatErrorModelResult, formatWriteModelResult } from "../model-output.js";
-import { isFailedDetails } from "../guards.js";
+import { writeFile } from "../../write/command.js";
+import type { WriteParams } from "../../write/types.js";
+import type { FileToolsHost } from "../../runtime/host.js";
+import { isFailed } from "../../shared/result.js";
+import { formatWriteModelResult } from "../../write/presenter.js";
+import { formatErrorModelResult } from "../model-output.js";
 import type { LazyRepoMap } from "../lazy-repo-map.js";
-import { writeWorkspaceFile } from "../../tools/write.js";
-import type { FileToolLspHooks, WriteParams } from "../../types.js";
-
-export { disposeFileToolsCaches } from "../workspace-cache.js";
+import { createWritePorts } from "../ports/write.js";
+import { piTextDiffGenerator } from "../ports/text-diff.js";
+import type { FileToolLspHooks } from "../../types.js";
 
 export async function executeWrite(
 	params: WriteParams,
-	runtime: { cwd: string; signal?: AbortSignal; versionCache: ReadVersionCache; lsp: FileToolLspHooks; repoMap: LazyRepoMap },
+	runtime: {
+		cwd: string;
+		sessionId: string;
+		signal?: AbortSignal;
+		host: FileToolsHost;
+		lsp: FileToolLspHooks;
+		repoMap: LazyRepoMap;
+	},
 ) {
-	const result = await writeWorkspaceFile(runtime.cwd, params, runtime.signal, { versionCache: runtime.versionCache, lsp: runtime.lsp });
-	if (isFailedDetails(result)) {
-		return { content: [{ type: "text" as const, text: formatErrorModelResult(result) }], details: result };
+	const opened = await runtime.host.open({
+		cwd: runtime.cwd,
+		sessionId: runtime.sessionId,
+		...(runtime.signal === undefined ? {} : { signal: runtime.signal }),
+	});
+	if (isFailed(opened)) return failedResult(opened);
+	try {
+		const ports = createWritePorts(opened, runtime.lsp, runtime.repoMap);
+		const result = await writeFile(params, {
+			filesystem: opened.filesystem,
+			operation: opened.context,
+			diff: piTextDiffGenerator,
+			diagnostics: ports.diagnostics,
+			mutationObserver: ports.observer,
+		});
+		if (isFailed(result)) return failedResult(result);
+		return {
+			content: [{ type: "text" as const, text: formatWriteModelResult(result, ports.impact()) }],
+			details: result,
+		};
+	} finally {
+		opened.dispose();
 	}
-	await runtime.repoMap.syncMutation(result, runtime.cwd, runtime.signal);
-	const impact = await runtime.repoMap.formatImpact(result.repo_map?.impact);
-	return { content: [{ type: "text" as const, text: formatWriteModelResult(result, impact) }], details: result };
+}
+
+function failedResult(result: Parameters<typeof formatErrorModelResult>[0]) {
+	return { content: [{ type: "text" as const, text: formatErrorModelResult(result) }], details: result };
 }

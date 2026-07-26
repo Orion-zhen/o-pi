@@ -2,14 +2,15 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { clearFileToolsConfigCache } from "../../src/file-tools/config.js";
-import { editWorkspace } from "../../src/file-tools/tools/edit.js";
+import { editFile } from "../../src/file-tools/edit/command.js";
+import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
 import { findWorkspaceFiles } from "../../src/file-tools/tools/find.js";
 import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
 import { listDirectory } from "../../src/file-tools/ls/command.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
 import { readWorkspaceFile } from "../helpers/read-tool.js";
-import { writeWorkspaceFile } from "../../src/file-tools/tools/write.js";
+import { writeFile as writeFileCommand } from "../../src/file-tools/write/command.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 const workspaceTemp = useTempDir("o-pi-file-tools-invocation-config-");
@@ -24,6 +25,29 @@ beforeEach(async () => {
 	process.env.PI_FILE_TOOLS_CONFIG = userConfig;
 	clearFileToolsConfigCache();
 });
+
+async function runMutation(cwd: string, kind: "write" | "edit") {
+	const host = new FileToolsHost();
+	try {
+		const opened = await host.open({ cwd, sessionId: "config-invocation" });
+		if (isFailed(opened)) return opened;
+		try {
+			return kind === "write"
+				? await writeFileCommand({ path: "new.txt", content: "new\n" }, { filesystem: opened.filesystem, operation: opened.context, diff: piTextDiffGenerator })
+				: await editFile({ path: "missing.txt", edits: [{ old: "old", new: "new" }] }, {
+					filesystem: opened.filesystem,
+					operation: opened.context,
+					observation: opened.observation,
+					matchHintLimit: opened.limits.edit_match_hint_limit,
+					diff: piTextDiffGenerator,
+				});
+		} finally {
+			opened.dispose();
+		}
+	} finally {
+		host.dispose();
+	}
+}
 
 async function listWorkspaceDirectory(cwd: string) {
 	const host = new FileToolsHost();
@@ -56,8 +80,8 @@ describe("invocation cwd project config", () => {
 		const outcomes = await Promise.all([
 			listWorkspaceDirectory(workspace),
 			readWorkspaceFile(workspace, { path: "missing.txt" }),
-			writeWorkspaceFile(workspace, { path: "new.txt", content: "new\n" }),
-			editWorkspace(workspace, { path: "missing.txt", edits: [{ old: "old", new: "new" }] }),
+			runMutation(workspace, "write"),
+			runMutation(workspace, "edit"),
 			findWorkspaceFiles(workspace, { query: "anything" }),
 			grepWorkspaceFiles(workspace, { query: "anything" }),
 		]);

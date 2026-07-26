@@ -2,9 +2,10 @@ import { renderDiff, type Theme } from "@earendil-works/pi-coding-agent";
 import { Box, Spacer, Text } from "@earendil-works/pi-tui";
 import { formatToolCard } from "../../../tui/tool-card.js";
 import { joinParts } from "../../../tui/text.js";
-import type { EditPreviewSuccess, EditSuccess } from "../../types.js";
+import { isEditSuccess, isFailedEdit } from "../../edit/guards.js";
+import type { EditPreviewSuccess, EditSuccess } from "../../edit/types.js";
 import type { FailedResult } from "../../shared/result.js";
-import { isEditSuccessDetails, isFailedEditDetails, isPlainRecord } from "../guards.js";
+import { isPlainRecord } from "../guards.js";
 import { formatDiffStats, formatLspDiagnostics, formatLspSummary } from "./diagnostics.js";
 import { formatFailureCard } from "./shared.js";
 
@@ -49,7 +50,7 @@ export function renderEditCall(args: unknown, theme: Theme, context: EditCallCon
 	}
 	if (context.argsComplete && argsKey !== undefined && component.preview === undefined && !component.previewPending) {
 		component.previewPending = true;
-		void import("../../tools/edit.js")
+		void import("../adapters/edit.js")
 			.then(({ previewEditWorkspace }) => previewEditWorkspace(context.cwd, args))
 			.catch(previewException)
 			.then((preview) => {
@@ -73,12 +74,12 @@ export function renderEditResult(
 
 	const details = result.details;
 	const callComponent = getEditCallComponent(context.state, undefined);
-	if (isEditSuccessDetails(details)) {
+	if (isEditSuccess(details)) {
 		callComponent.preview = details;
 		callComponent.previewArgsKey = stableArgsKey(context.args);
 		callComponent.previewPending = false;
 		callComponent.settledError = false;
-	} else if (isFailedEditDetails(details)) {
+	} else if (isFailedEdit(details)) {
 		callComponent.settledError = true;
 	}
 	buildEditCallComponent(callComponent, context.args, theme, options.expanded);
@@ -110,7 +111,7 @@ function buildEditCallComponent(component: EditCallComponent, args: unknown, the
 	if (!expanded || component.preview === undefined) return component;
 
 	component.addChild(new Spacer(1));
-	if (isFailedEditDetails(component.preview)) {
+	if (isFailedEdit(component.preview)) {
 		component.addChild(new Text(theme.fg("error", formatEditError(component.preview)), 0, 0));
 	} else if (component.preview.diff !== "") {
 		component.addChild(new Text(renderDiff(component.preview.diff), 0, 0));
@@ -124,21 +125,21 @@ function editHeaderBg(
 	theme: Theme,
 ): ((text: string) => string) | undefined {
 	if (preview !== undefined) {
-		return isFailedEditDetails(preview) ? (text) => theme.bg("toolErrorBg", text) : (text) => theme.bg("toolSuccessBg", text);
+		return isFailedEdit(preview) ? (text) => theme.bg("toolErrorBg", text) : (text) => theme.bg("toolSuccessBg", text);
 	}
 	if (settledError) return (text) => theme.bg("toolErrorBg", text);
 	return (text) => theme.bg("toolPendingBg", text);
 }
 
 function editResultBg(details: unknown, theme: Theme): (text: string) => string {
-	if (isFailedEditDetails(details)) return (text) => theme.bg("toolErrorBg", text);
-	if (isEditSuccessDetails(details)) return (text) => theme.bg("toolSuccessBg", text);
+	if (isFailedEdit(details)) return (text) => theme.bg("toolErrorBg", text);
+	if (isEditSuccess(details)) return (text) => theme.bg("toolSuccessBg", text);
 	return (text) => theme.bg("toolPendingBg", text);
 }
 
 function formatEditResult(details: unknown, theme: Theme, args: unknown, expanded: boolean): string | undefined {
-	if (isFailedEditDetails(details)) return formatFailureCard("edit", editTarget(args), details, args, expanded, theme);
-	if (!isEditSuccessDetails(details)) return undefined;
+	if (isFailedEdit(details)) return formatFailureCard("edit", editTarget(args), details, args, expanded, theme);
+	if (!isEditSuccess(details)) return undefined;
 	const header = formatToolCard({
 		tool: "edit",
 		status: "success",

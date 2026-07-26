@@ -23,9 +23,6 @@ tool-data-plane:src/file-tools/grep/indexer.ts:../config.js
 tool-data-plane:src/file-tools/grep/indexer.ts:node:fs
 tool-data-plane:src/file-tools/grep/indexer.ts:node:fs/promises
 tool-data-plane:src/file-tools/grep/indexer.ts:node:path
-tool-data-plane:src/file-tools/tools/edit.ts:../../safety/path-guard.js
-tool-data-plane:src/file-tools/tools/edit.ts:../config.js
-tool-data-plane:src/file-tools/tools/edit.ts:node:fs/promises
 tool-data-plane:src/file-tools/tools/find.ts:../../repo-map/file-tool-query.js
 tool-data-plane:src/file-tools/tools/find.ts:../../repo-map/query.js
 tool-data-plane:src/file-tools/tools/find.ts:../../safety/path-guard.js
@@ -38,10 +35,6 @@ tool-data-plane:src/file-tools/tools/grep.ts:../config.js
 tool-data-plane:src/file-tools/tools/grep.ts:node:fs
 tool-data-plane:src/file-tools/tools/grep.ts:node:fs/promises
 tool-data-plane:src/file-tools/tools/grep.ts:node:path
-tool-data-plane:src/file-tools/tools/write.ts:../../safety/path-guard.js
-tool-data-plane:src/file-tools/tools/write.ts:../config.js
-tool-data-plane:src/file-tools/tools/write.ts:node:fs/promises
-tool-data-plane:src/file-tools/tools/write.ts:node:path
 `.trim().split("\n"));
 
 type Rule = "filesystem-upward" | "tool-sibling" | "tool-data-plane" | "external-tool-internal";

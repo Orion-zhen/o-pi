@@ -1,4 +1,3 @@
-import type { ReadVersionCache } from "../../core/read-cache.js";
 import type { ReadObservationStore } from "../../read/command.js";
 import type {
 	MissingPathSource,
@@ -9,19 +8,8 @@ import type { FileToolsInvocation } from "../../runtime/host.js";
 import type { FileToolLspHooks } from "../../types.js";
 import type { LazyRepoMap } from "../lazy-repo-map.js";
 
-/** Transitional composition sink: host observation is authoritative; legacy edit still receives the same version. */
-export function createReadObservationStore(
-	invocation: FileToolsInvocation,
-	legacy: ReadVersionCache | undefined,
-): ReadObservationStore {
-	return {
-		remember(file, version) {
-			const remembered = invocation.observation.remember(file, version);
-			const identity = invocation.nativeBridge.getNativeIdentity(file);
-			if (identity !== undefined) legacy?.remember(identity.canonicalPath, version.hash);
-			return remembered;
-		},
-	};
+export function createReadObservationStore(invocation: FileToolsInvocation): ReadObservationStore {
+	return invocation.observation;
 }
 
 export function createMissingPathSource(invocation: FileToolsInvocation, repoMap: LazyRepoMap): MissingPathSource {

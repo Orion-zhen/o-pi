@@ -5,12 +5,8 @@ export {
 	formatWriteModelResult,
 	scrubVersions,
 } from "./pi/model-output-with-repo.js";
-export { versionCacheFor } from "./pi/native.js";
-export {
-	isEditSuccessDetails,
-	isFailedDetails,
-	isFileToolName,
-} from "./pi/guards.js";
+export { isEditSuccess as isEditSuccessDetails } from "./edit/guards.js";
+export { isFailedDetails, isFileToolName } from "./pi/guards.js";
 export { isReadImageSuccess, isReadSuccess } from "./read/guards.js";
 export {
 	renderEditCall,

@@ -1,15 +1,15 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import type { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
 import { isFailedDetails, isFileToolName } from "../../src/file-tools/pi/guards.js";
 import { createLazyLspFileHooks } from "../../src/file-tools/pi/lazy-lsp.js";
 import { appendRepoMapEntry, createLazyRepoMap, type LazyRepoMap } from "../../src/file-tools/pi/lazy-repo-map.js";
-import { versionCacheFor } from "../../src/file-tools/pi/native.js";
 import type { LsParams } from "../../src/file-tools/ls/types.js";
 import type { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import type { ReadParams } from "../../src/file-tools/read/types.js";
-import type { EditParams, FindParams, GrepParams, WriteParams } from "../../src/file-tools/types.js";
+import type { EditParams } from "../../src/file-tools/edit/types.js";
+import type { FindParams, GrepParams } from "../../src/file-tools/types.js";
+import type { WriteParams } from "../../src/file-tools/write/types.js";
 import { editTelemetry } from "../../src/file-tools/telemetry/edit.js";
 import { findTelemetry } from "../../src/file-tools/telemetry/find.js";
 import { grepTelemetry } from "../../src/file-tools/telemetry/grep.js";
@@ -102,8 +102,8 @@ export function createFileToolsExtension(imports: FileToolsModuleImports = defau
 		find: createRetryableLoader(async () => registerCacheDisposer(await imports.find(), cacheDisposers)),
 		grep: createRetryableLoader(async () => registerCacheDisposer(await imports.grep(), cacheDisposers)),
 		read: createRetryableLoader(imports.read),
-		write: createRetryableLoader(async () => registerCacheDisposer(await imports.write(), cacheDisposers)),
-		edit: createRetryableLoader(async () => registerCacheDisposer(await imports.edit(), cacheDisposers)),
+		write: createRetryableLoader(imports.write),
+		edit: createRetryableLoader(imports.edit),
 		lsp: createRetryableLoader(imports.lsp),
 		repoMap: createRetryableLoader(imports.repoMap),
 	};
@@ -119,7 +119,6 @@ function registerFileTools(
 	loadHost: () => Promise<typeof import("../../src/file-tools/runtime/host.js")>,
 	loadRenderers: () => Promise<typeof import("../../src/file-tools/pi/renderers.js")>,
 ): void {
-	const versionCaches = new Map<string, ReadVersionCache>();
 	const repoMaps = new Map<string, LazyRepoMap>();
 	let host: FileToolsHost | undefined;
 	let shuttingDown = false;
@@ -223,7 +222,6 @@ function registerFileTools(
 				...(signal === undefined ? {} : { signal }),
 				model: ctx.model,
 				host: invocationHost,
-				legacyVersionCache: versionCacheFor(ctx, versionCaches),
 				lsp,
 				repoMap: repoMapFor(ctx),
 				branch: typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [],
@@ -249,10 +247,12 @@ function registerFileTools(
 		promptSnippet: "write one whole file",
 		parameters: writeParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			return (await loaders.write()).executeWrite(params as WriteParams, {
+			const [module, invocationHost] = await Promise.all([loaders.write(), hostForInvocation()]);
+			return module.executeWrite(params as WriteParams, {
 				cwd: ctx.cwd,
+				sessionId: ctx.sessionManager.getSessionId(),
 				...(signal !== undefined ? { signal } : {}),
-				versionCache: versionCacheFor(ctx, versionCaches),
+				host: invocationHost,
 				lsp,
 				repoMap: repoMapFor(ctx),
 			});
@@ -276,10 +276,12 @@ function registerFileTools(
 		parameters: editParameters,
 		renderShell: "self",
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			return (await loaders.edit()).executeEdit(params as EditParams, {
+			const [module, invocationHost] = await Promise.all([loaders.edit(), hostForInvocation()]);
+			return module.executeEdit(params as EditParams, {
 				cwd: ctx.cwd,
+				sessionId: ctx.sessionManager.getSessionId(),
 				...(signal !== undefined ? { signal } : {}),
-				versionCache: versionCacheFor(ctx, versionCaches),
+				host: invocationHost,
 				lsp,
 				repoMap: repoMapFor(ctx),
 			});
@@ -326,7 +328,6 @@ function registerFileTools(
 	pi.on("session_shutdown", async () => {
 		shuttingDown = true;
 		host?.dispose();
-		versionCaches.clear();
 		repoMaps.clear();
 		await lsp.shutdown();
 		for (const dispose of cacheDisposers) dispose();

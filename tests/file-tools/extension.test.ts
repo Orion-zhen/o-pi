@@ -357,9 +357,10 @@ describe("file-tools extension", () => {
 			expect(loadRepoMapOutputConfig).toHaveBeenCalledTimes(1);
 			expect(formatRepoMapImpact).toHaveBeenCalledWith(expect.anything(), outputConfig);
 			await expect(Promise.resolve(handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();
-			await executeTool(registered, "write", { path: "three.ts", content: "three\n" }, ctx);
-			expect(createRepoMapFileToolQuery).toHaveBeenCalledTimes(2);
-			expect(loadRepoMapOutputConfig).toHaveBeenCalledTimes(2);
+			const afterShutdown = await executeTool(registered, "write", { path: "three.ts", content: "three\n" }, ctx);
+			expect(afterShutdown.details).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
+			expect(createRepoMapFileToolQuery).toHaveBeenCalledTimes(1);
+			expect(loadRepoMapOutputConfig).toHaveBeenCalledTimes(1);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

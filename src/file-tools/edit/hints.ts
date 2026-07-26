@@ -1,6 +1,6 @@
-import type { EditMatchHint } from "../types.js";
+import type { EditMatchHint } from "./types.js";
 
-/** 为重复 old 生成可直接重试 edit 的最短唯一 replacement。 */
+/** Builds shortest unique retryable replacements for ambiguous matches. */
 export function buildEditMatchHints(
 	text: string,
 	old: string,
@@ -19,10 +19,7 @@ export function buildEditMatchHints(
 	});
 }
 
-interface Context {
-	start: number;
-	text: string;
-}
+interface Context { start: number; text: string }
 
 function shortestUniqueContext(text: string, old: string, start: number, starts: readonly number[]): Context {
 	const end = start + old.length;
@@ -30,15 +27,13 @@ function shortestUniqueContext(text: string, old: string, start: number, starts:
 	const right = boundariesAfter(text, end);
 	const otherStarts = starts.filter((candidate) => candidate !== start);
 	let best: { start: number; end: number; length: number; leftCount: number } | undefined;
-
 	for (const leftBoundary of left) {
 		const leftCount = leftBoundary.count;
 		let requiredRightCount = 0;
 		for (const otherStart of otherStarts) {
 			const otherEnd = otherStart + old.length;
 			if (leftCount <= commonSuffixCodePoints(text, start, otherStart)) {
-				const rightCount = commonPrefixCodePoints(text, end, otherEnd);
-				requiredRightCount = Math.max(requiredRightCount, rightCount + 1);
+				requiredRightCount = Math.max(requiredRightCount, commonPrefixCodePoints(text, end, otherEnd) + 1);
 			}
 		}
 		const rightBoundary = right.find((candidate) => candidate.count >= requiredRightCount);
@@ -48,16 +43,10 @@ function shortestUniqueContext(text: string, old: string, start: number, starts:
 			best = { start: leftBoundary.index, end: rightBoundary.index, length, leftCount };
 		}
 	}
-
 	if (best !== undefined) {
 		const candidate = text.slice(best.start, best.end);
-		if (findAll(text, candidate).length === 1) {
-			return { start: best.start, text: candidate };
-		}
+		if (findAll(text, candidate).length === 1) return { start: best.start, text: candidate };
 	}
-
-	// Overlapping matches can make the surrounding-occurrence calculation conservative.
-	// Keep correctness over the fast path and find a unique candidate by exhaustive expansion.
 	for (let length = 0; length <= left.length + right.length; length += 1) {
 		for (const leftBoundary of left) {
 			const rightCount = length - leftBoundary.count;
@@ -68,7 +57,6 @@ function shortestUniqueContext(text: string, old: string, start: number, starts:
 			if (findAll(text, candidate).length === 1) return { start: leftBoundary.index, text: candidate };
 		}
 	}
-
 	return { start: 0, text };
 }
 
@@ -78,8 +66,7 @@ function boundariesBefore(text: string, index: number): Array<{ index: number; c
 	let count = 0;
 	while (current > 0) {
 		current = previousCodePointIndex(text, current);
-		count += 1;
-		result.push({ index: current, count });
+		result.push({ index: current, count: ++count });
 	}
 	return result;
 }
@@ -90,8 +77,7 @@ function boundariesAfter(text: string, index: number): Array<{ index: number; co
 	let count = 0;
 	while (current < text.length) {
 		current = nextCodePointIndex(text, current);
-		count += 1;
-		result.push({ index: current, count });
+		result.push({ index: current, count: ++count });
 	}
 	return result;
 }
@@ -130,12 +116,10 @@ function previousCodePointIndex(text: string, index: number): number {
 	const code = text.charCodeAt(index - 1);
 	return code >= 0xdc00 && code <= 0xdfff ? index - 2 : index - 1;
 }
-
 function nextCodePointIndex(text: string, index: number): number {
 	const code = text.charCodeAt(index);
 	return code >= 0xd800 && code <= 0xdbff && index + 1 < text.length ? index + 2 : index + 1;
 }
-
 function findAll(text: string, needle: string): number[] {
 	const starts: number[] = [];
 	let cursor = 0;
@@ -147,16 +131,13 @@ function findAll(text: string, needle: string): number[] {
 	}
 	return starts;
 }
-
 function lineNumber(text: string, offset: number): number {
 	let line = 1;
 	for (let index = 0; index < offset; index += 1) {
 		if (text[index] === "\r") {
 			line += 1;
 			if (text[index + 1] === "\n") index += 1;
-		} else if (text[index] === "\n") {
-			line += 1;
-		}
+		} else if (text[index] === "\n") line += 1;
 	}
 	return line;
 }
