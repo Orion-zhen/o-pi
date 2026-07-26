@@ -165,18 +165,18 @@
 - 关闭：`Esc`、`q` 或 `Enter`。
 - 滚动：方向键、`PageUp`、`PageDown`、`Home`、`End`。
 
-## `/prune-tools`
+## `/prune`
 
-来源：`agent/extensions/prune-tools.ts`
+来源：`agent/extensions/prune.ts`
 
 用途：在下一次请求成本不会明显升高时，从模型上下文中移除已完成的历史工具事务。
 
 用法：
 
 ```text
-/prune-tools
-/prune-tools force
-/prune-tools restore
+/prune
+/prune force
+/prune restore
 ```
 
 行为：
@@ -187,9 +187,11 @@
 - 成本始终是估算值，只覆盖已经存在的 prompt，不把下一条用户输入或模型输出纳入决策；token framing、工具 schema 和图片 token 均为估算。
 - 缓存命中行为依赖 provider；usage 与价格字段只能作为缓存证据，不能完全证明缓存一定命中。
 - 高置信度估算下，裁剪成本更低或不超过保留成本的 1.1 倍时生效；低置信度 tokenizer 会取消这 10% 宽松条件，只在裁剪明确更便宜时生效。否则提示保留上下文更省钱且不修改状态。
-- `/prune-tools force` 是唯一跳过上述成本与缓存假设的路径：它跳过模型价格和 token 成本计算，强制裁剪当前所有完整工具事务；产生的裁剪状态仍可用 `restore` 撤销。
+- `/prune force` 是唯一跳过上述成本与缓存假设的路径：它跳过模型价格和 token 成本计算，强制裁剪当前所有完整工具事务；产生的裁剪状态仍可用 `restore` 撤销。
 - 生效状态以不进入模型上下文的 session custom entry 保存。原始消息和 JSONL 不删除；命令执行后新产生的工具事务不受本次裁剪影响。
-- `/prune-tools restore` 撤销最近一次尚未撤销的成功裁剪；连续执行会逐次向前恢复。恢复同样只追加状态，不改写原始消息或已有条目。
+- TUI transcript 只显示当前分支最新 checkpoint 的一行聚合摘要，包含本次 prune/restore 数量和当前隐藏总数；历史 checkpoint 仍保留在 session 中。
+- session 加载或通过 `/tree` 切换分支时，摘要状态按目标分支同步；非 TUI 模式不创建视觉状态。
+- `/prune restore` 撤销最近一次尚未撤销的成功裁剪；连续执行会逐次向前恢复。恢复同样只追加状态，不改写原始消息或已有条目。
 - restore 会先检查当前 branch 的 compaction-aware context 中，本次新增的每个 tool call 及对应 result 是否仍存在；若 compaction 已移除任一事务，则不写 restore 状态，也不做部分恢复。
 
 ## `/telemetry`

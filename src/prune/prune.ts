@@ -4,30 +4,27 @@ import type { SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 
 import { countTextTokensSync, type TokenCounterConfidence, type TokenCounterScope } from "../token-counter.js";
 
-export const PRUNE_TOOLS_STATE = "prune-tools";
-export const PRUNE_TOOLS_STATE_VERSION = 2;
+export const PRUNE_STATE = "prune";
 export const COST_CLOSE_RATIO = 0.1;
 
 const IMAGE_TOKEN_ESTIMATE = 1200;
 const TOKENS_PER_MILLION = 1_000_000;
 
-export interface PruneToolsPruneState {
-	version: typeof PRUNE_TOOLS_STATE_VERSION;
+export interface PruneCheckpointState {
 	operation: "prune";
 	toolCallIds: string[];
 	previousToolCallIds: string[];
 }
 
-export interface PruneToolsRestoreState {
-	version: typeof PRUNE_TOOLS_STATE_VERSION;
+export interface PruneRestoreState {
 	operation: "restore";
 	toolCallIds: string[];
 	restoredEntryId: string;
 }
 
-export type PruneToolsState = PruneToolsPruneState | PruneToolsRestoreState;
+export type PruneState = PruneCheckpointState | PruneRestoreState;
 
-export interface RestorablePruneToolsState extends PruneToolsPruneState {
+export interface RestorablePruneState extends PruneCheckpointState {
 	entryId: string;
 }
 
@@ -125,11 +122,11 @@ export function pruneToolTransactions(messages: readonly AgentMessage[], toolCal
 	};
 }
 
-export function readPruneToolsState(entries: readonly SessionEntry[]): PruneToolsState | undefined {
+export function readPruneState(entries: readonly SessionEntry[]): PruneState | undefined {
 	for (let index = entries.length - 1; index >= 0; index--) {
 		const entry = entries[index];
-		if (entry?.type !== "custom" || entry.customType !== PRUNE_TOOLS_STATE) continue;
-		const state = parsePruneToolsState(entry.data);
+		if (entry?.type !== "custom" || entry.customType !== PRUNE_STATE) continue;
+		const state = parsePruneState(entry.data);
 		if (state) return state;
 	}
 	return undefined;
@@ -139,7 +136,7 @@ export function applyPersistedToolPruning(
 	messages: AgentMessage[],
 	branchEntries: readonly SessionEntry[],
 ): AgentMessage[] {
-	const state = readPruneToolsState(branchEntries);
+	const state = readPruneState(branchEntries);
 	if (!state) return messages;
 	return pruneToolTransactions(messages, new Set(state.toolCallIds)).messages;
 }
@@ -152,13 +149,13 @@ export function findVisibleToolCallIds(
 	return findCompletedToolCallIds(applyPersistedToolPruning(messages, branchEntries));
 }
 
-export function findRestorablePruneToolsState(entries: readonly SessionEntry[]): RestorablePruneToolsState | undefined {
-	const prunes = new Map<string, RestorablePruneToolsState>();
+export function findRestorablePruneState(entries: readonly SessionEntry[]): RestorablePruneState | undefined {
+	const prunes = new Map<string, RestorablePruneState>();
 	const restored = new Set<string>();
 
 	for (const entry of entries) {
-		if (entry.type !== "custom" || entry.customType !== PRUNE_TOOLS_STATE) continue;
-		const state = parsePruneToolsState(entry.data);
+		if (entry.type !== "custom" || entry.customType !== PRUNE_STATE) continue;
+		const state = parsePruneState(entry.data);
 		if (!state) continue;
 		if (state.operation === "prune") {
 			prunes.set(entry.id, { ...state, entryId: entry.id });
@@ -284,24 +281,14 @@ export function buildPruneCostPreview(input: PruneCostInput): PruneCostPreview {
 	};
 }
 
-function parsePruneToolsState(value: unknown): PruneToolsState | undefined {
+export function parsePruneState(value: unknown): PruneState | undefined {
 	if (!isRecord(value)) return undefined;
 	const toolCallIds = parseStringArray(value.toolCallIds);
 	if (!toolCallIds) return undefined;
-	if (value.version === 1) {
-		return {
-			version: PRUNE_TOOLS_STATE_VERSION,
-			operation: "prune",
-			toolCallIds,
-			previousToolCallIds: [],
-		};
-	}
-	if (value.version !== PRUNE_TOOLS_STATE_VERSION) return undefined;
 	if (value.operation === "prune") {
 		const previousToolCallIds = parseStringArray(value.previousToolCallIds);
 		if (!previousToolCallIds) return undefined;
 		return {
-			version: PRUNE_TOOLS_STATE_VERSION,
 			operation: "prune",
 			toolCallIds,
 			previousToolCallIds,
@@ -309,7 +296,6 @@ function parsePruneToolsState(value: unknown): PruneToolsState | undefined {
 	}
 	if (value.operation !== "restore" || typeof value.restoredEntryId !== "string") return undefined;
 	return {
-		version: PRUNE_TOOLS_STATE_VERSION,
 		operation: "restore",
 		toolCallIds,
 		restoredEntryId: value.restoredEntryId,

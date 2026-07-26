@@ -6,7 +6,7 @@ import { Type } from "typebox";
 import { registerSkillCommands } from "../../src/skill-context/commands.js";
 import { executeSkillLoad, SkillLoadError } from "../../src/skill-context/executor.js";
 import { collectSkillCandidates } from "../../src/skill-context/loader.js";
-import { findVisibleToolCallIds } from "../../src/prune-tools/prune-tools.js";
+import { findVisibleToolCallIds } from "../../src/prune/prune.js";
 import type { SkillCandidate, SkillLoadDetails, SkillToolErrorDetails } from "../../src/skill-context/types.js";
 import { defineToolTelemetry } from "../../src/telemetry/projection.js";
 import { registerObservedTool } from "../../src/telemetry/tool.js";

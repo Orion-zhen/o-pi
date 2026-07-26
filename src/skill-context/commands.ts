@@ -4,7 +4,7 @@ import {
 	type ExtensionCommandContext,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { findVisibleToolCallIds } from "../prune-tools/prune-tools.js";
+import { findVisibleToolCallIds } from "../prune/prune.js";
 import { executeSkillLoad } from "./executor.js";
 import { isValidSkillName } from "./frontmatter.js";
 import { collectSkillCandidates } from "./loader.js";

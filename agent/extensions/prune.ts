@@ -13,29 +13,35 @@ import {
 	estimateStaticPrefixTokensWithConfidence,
 	findCommonPrefixTokens,
 	findCompletedToolCallIds,
-	findRestorablePruneToolsState,
+	findRestorablePruneState,
 	getLastUsage,
 	getUsageContextTokens,
 	hasObservedCacheWrite,
-	PRUNE_TOOLS_STATE,
-	PRUNE_TOOLS_STATE_VERSION,
+	PRUNE_STATE,
+	parsePruneState,
 	pruneToolTransactions,
-	readPruneToolsState,
+	readPruneState,
 	type PruneCostPreview,
-	type PruneToolsPruneState,
-	type PruneToolsRestoreState,
-} from "../../src/prune-tools/prune-tools.js";
+	type PruneCheckpointState,
+	type PruneRestoreState,
+} from "../../src/prune/prune.js";
+import { PruneSummaryComponent } from "../../src/prune/renderer.js";
+import { resetPruneTuiState, syncPruneTuiState } from "../../src/prune/tui-state.js";
 
-export { applyPersistedToolPruning } from "../../src/prune-tools/prune-tools.js";
+export { applyPersistedToolPruning } from "../../src/prune/prune.js";
 
-const COMMAND_NAME = "prune-tools";
+const COMMAND_NAME = "prune";
 const COMMAND_DESCRIPTION = "Remove stale tool transactions from context.";
 const COMMAND_OPERATIONS = ["force", "restore"] as const;
 
-type PruneToolsApi = Pick<ExtensionAPI, "appendEntry" | "getActiveTools" | "getAllTools" | "on" | "registerCommand">;
-export type PruneToolsCommandApi = Pick<PruneToolsApi, "appendEntry" | "getActiveTools" | "getAllTools">;
+type PruneApi = Pick<
+	ExtensionAPI,
+	"appendEntry" | "getActiveTools" | "getAllTools" | "on" | "registerCommand" | "registerEntryRenderer"
+>;
+export type PruneCommandApi = Pick<PruneApi, "appendEntry" | "getActiveTools" | "getAllTools">;
 
-export interface PruneToolsCommandContext {
+export interface PruneCommandContext {
+	mode: ExtensionCommandContext["mode"];
 	model: Model<Api> | undefined;
 	sessionManager: Pick<ExtensionCommandContext["sessionManager"], "buildContextEntries" | "getBranch">;
 	ui: Pick<ExtensionCommandContext["ui"], "notify">;
@@ -44,7 +50,22 @@ export interface PruneToolsCommandContext {
 	getSystemPrompt(): string;
 }
 
-export default function pruneToolsExtension(pi: PruneToolsApi): void {
+export default function pruneExtension(pi: PruneApi): void {
+	pi.registerEntryRenderer(PRUNE_STATE, (entry, _options, theme) => {
+		if (!parsePruneState(entry.data)) return undefined;
+		return new PruneSummaryComponent(entry.id, theme);
+	});
+
+	pi.on("session_start", (_event, ctx) => {
+		syncPruneTuiForContext(ctx);
+	});
+	pi.on("session_tree", (_event, ctx) => {
+		syncPruneTuiForContext(ctx);
+	});
+	pi.on("session_shutdown", () => {
+		resetPruneTuiState();
+	});
+
 	pi.on("context", (event, ctx) => {
 		const messages = applyPersistedToolPruning(event.messages, ctx.sessionManager.getBranch());
 		if (messages === event.messages) return;
@@ -61,37 +82,37 @@ export default function pruneToolsExtension(pi: PruneToolsApi): void {
 			return completions.length > 0 ? completions : null;
 		},
 		async handler(args, ctx) {
-			await runPruneToolsCommandArgs(pi, ctx, args);
+			await runPruneCommandArgs(pi, ctx, args);
 		},
 	});
 }
 
-export async function runPruneToolsCommandArgs(
-	pi: PruneToolsCommandApi,
-	ctx: PruneToolsCommandContext,
+export async function runPruneCommandArgs(
+	pi: PruneCommandApi,
+	ctx: PruneCommandContext,
 	args: string,
 ): Promise<void> {
 	const operation = args.trim().toLowerCase();
 	if (operation === "force") {
-		await runForcePruneToolsCommand(pi, ctx);
+		await runForcePruneCommand(pi, ctx);
 		return;
 	}
 	if (operation === "restore") {
-		await runRestorePruneToolsCommand(pi, ctx);
+		await runRestorePruneCommand(pi, ctx);
 		return;
 	}
 	if (operation.length > 0) {
-		ctx.ui.notify("usage: /prune-tools [force|restore]", "error");
+		ctx.ui.notify("usage: /prune [force|restore]", "error");
 		return;
 	}
-	await runPruneToolsCommand(pi, ctx);
+	await runPruneCommand(pi, ctx);
 }
 
-export async function runPruneToolsCommand(pi: PruneToolsCommandApi, ctx: PruneToolsCommandContext): Promise<void> {
+export async function runPruneCommand(pi: PruneCommandApi, ctx: PruneCommandContext): Promise<void> {
 	await ctx.waitForIdle();
 	const model = ctx.model;
 	if (!model) {
-		ctx.ui.notify("/prune-tools requires an active model", "error");
+		ctx.ui.notify("/prune requires an active model", "error");
 		return;
 	}
 
@@ -116,12 +137,13 @@ export async function runPruneToolsCommand(pi: PruneToolsCommandApi, ctx: PruneT
 	}
 
 	appendPruneState(pi, selection.previouslyPruned, selection.candidates);
+	syncPruneTuiForContext(ctx);
 	ctx.ui.notify(formatPruned(preview, selection.afterResult), "info");
 }
 
-export async function runForcePruneToolsCommand(
-	pi: Pick<PruneToolsCommandApi, "appendEntry">,
-	ctx: Pick<PruneToolsCommandContext, "sessionManager" | "ui" | "waitForIdle">,
+export async function runForcePruneCommand(
+	pi: Pick<PruneCommandApi, "appendEntry">,
+	ctx: Pick<PruneCommandContext, "mode" | "sessionManager" | "ui" | "waitForIdle">,
 ): Promise<void> {
 	await ctx.waitForIdle();
 	const selection = selectPrunableToolTransactions(ctx);
@@ -131,17 +153,18 @@ export async function runForcePruneToolsCommand(
 	}
 
 	appendPruneState(pi, selection.previouslyPruned, selection.candidates);
+	syncPruneTuiForContext(ctx);
 	ctx.ui.notify(formatForcePruned(selection.afterResult), "info");
 }
 
-export async function runRestorePruneToolsCommand(
-	pi: Pick<PruneToolsCommandApi, "appendEntry">,
-	ctx: Pick<PruneToolsCommandContext, "sessionManager" | "ui" | "waitForIdle">,
+export async function runRestorePruneCommand(
+	pi: Pick<PruneCommandApi, "appendEntry">,
+	ctx: Pick<PruneCommandContext, "mode" | "sessionManager" | "ui" | "waitForIdle">,
 ): Promise<void> {
 	await ctx.waitForIdle();
-	const target = findRestorablePruneToolsState(ctx.sessionManager.getBranch());
+	const target = findRestorablePruneState(ctx.sessionManager.getBranch());
 	if (!target) {
-		ctx.ui.notify("No /prune-tools change to restore.", "info");
+		ctx.ui.notify("No /prune change to restore.", "info");
 		return;
 	}
 
@@ -151,23 +174,30 @@ export async function runRestorePruneToolsCommand(
 	const completedToolCallIds = findCompletedToolCallIds(currentMessages);
 	if (restoredToolCallIds.some((id) => !completedToolCallIds.has(id))) {
 		ctx.ui.notify(
-			"Cannot restore the most recent /prune-tools change: compaction removed one or more tool transactions. No restore state was written.",
+			"Cannot restore the most recent /prune change: compaction removed one or more tool transactions. No restore state was written.",
 			"error",
 		);
 		return;
 	}
 
-	const state: PruneToolsRestoreState = {
-		version: PRUNE_TOOLS_STATE_VERSION,
+	const state: PruneRestoreState = {
 		operation: "restore",
 		toolCallIds: target.previousToolCallIds,
 		restoredEntryId: target.entryId,
 	};
-	pi.appendEntry(PRUNE_TOOLS_STATE, state);
+	pi.appendEntry(PRUNE_STATE, state);
+	syncPruneTuiForContext(ctx);
 	ctx.ui.notify(
-		`Restored the most recent /prune-tools change: ${restoredToolCallIds.length} tool calls returned to context.`,
+		`Restored the most recent /prune change: ${restoredToolCallIds.length} tool calls returned to context.`,
 		"info",
 	);
+}
+
+function syncPruneTuiForContext(
+	ctx: Pick<PruneCommandContext, "mode" | "sessionManager">,
+): void {
+	if (ctx.mode !== "tui") return;
+	syncPruneTuiState(ctx.sessionManager.getBranch());
 }
 
 interface PrunableToolTransactions {
@@ -179,10 +209,10 @@ interface PrunableToolTransactions {
 }
 
 function selectPrunableToolTransactions(
-	ctx: Pick<PruneToolsCommandContext, "sessionManager">,
+	ctx: Pick<PruneCommandContext, "sessionManager">,
 ): PrunableToolTransactions {
 	const rawMessages = ctx.sessionManager.buildContextEntries().flatMap(sessionEntryToContextMessages);
-	const previousState = readPruneToolsState(ctx.sessionManager.getBranch());
+	const previousState = readPruneState(ctx.sessionManager.getBranch());
 	const previouslyPruned = new Set(previousState?.toolCallIds ?? []);
 	const beforeMessages = pruneToolTransactions(rawMessages, previouslyPruned).messages;
 	const candidates = findCompletedToolCallIds(beforeMessages);
@@ -196,22 +226,21 @@ function selectPrunableToolTransactions(
 }
 
 function appendPruneState(
-	pi: Pick<PruneToolsCommandApi, "appendEntry">,
+	pi: Pick<PruneCommandApi, "appendEntry">,
 	previouslyPruned: ReadonlySet<string>,
 	candidates: ReadonlySet<string>,
 ): void {
-	const state: PruneToolsPruneState = {
-		version: PRUNE_TOOLS_STATE_VERSION,
+	const state: PruneCheckpointState = {
 		operation: "prune",
 		toolCallIds: [...new Set([...previouslyPruned, ...candidates])].sort(),
 		previousToolCallIds: [...previouslyPruned].sort(),
 	};
-	pi.appendEntry(PRUNE_TOOLS_STATE, state);
+	pi.appendEntry(PRUNE_STATE, state);
 }
 
 function previewPruneCost(
-	ctx: PruneToolsCommandContext,
-	pi: Pick<PruneToolsCommandApi, "getActiveTools" | "getAllTools">,
+	ctx: PruneCommandContext,
+	pi: Pick<PruneCommandApi, "getActiveTools" | "getAllTools">,
 	model: Model<Api>,
 	beforeMessages: readonly AgentMessage[],
 	afterMessages: readonly AgentMessage[],
