@@ -6,6 +6,8 @@ import type {
 	ScannedLine,
 	TextContent,
 	TextReadOptions,
+	TextSlice,
+	TextSliceOptions,
 } from "../contracts/content.js";
 import type { FileRef } from "../contracts/path.js";
 import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.js";
@@ -16,7 +18,7 @@ import type {
 	NativeMetadata,
 	NativeOpenFile,
 } from "../platform/node/native-filesystem.js";
-import { contentHash, decodeUtf8, describeText, hasUtf8Bom } from "./text.js";
+import { contentHash, decodeUtf8, describeText, hasUtf8Bom, sliceTextByLineRange } from "./text.js";
 import { nativeIdentity } from "./ref.js";
 
 const READ_CHUNK_BYTES = 64 * 1024;
@@ -81,12 +83,26 @@ export class WorkspaceContentService implements ContentOperations {
 	async readText(file: FileRef, options: TextReadOptions, context: FsOperationContext): Promise<FsResult<TextContent>> {
 		const loaded = await this.readBytes(file, options, context);
 		if (!loaded.ok) return loaded;
-		const decoded = decodeUtf8(loaded.value.bytes, {
-			rejectBinary: options.rejectBinary ?? true,
+		return this.decodeText(loaded.value, {
+			...(options.rejectBinary === undefined ? {} : { rejectBinary: options.rejectBinary }),
 			path: file.displayPath,
 		});
+	}
+
+	decodeText(
+		content: ByteContent,
+		options: Pick<TextReadOptions, "rejectBinary"> & { readonly path?: string },
+	): FsResult<TextContent> {
+		const decoded = decodeUtf8(content.bytes, {
+			rejectBinary: options.rejectBinary ?? true,
+			...(options.path === undefined ? {} : { path: options.path }),
+		});
 		if (!decoded.ok) return decoded;
-		return fsSuccess({ ...loaded.value, text: decoded.value, ...describeText(loaded.value.bytes, decoded.value) });
+		return fsSuccess({ ...content, text: decoded.value, ...describeText(content.bytes, decoded.value) });
+	}
+
+	sliceText(content: TextContent, options: TextSliceOptions): FsResult<TextSlice> {
+		return sliceTextByLineRange(content, options);
 	}
 
 	async scanLines(file: FileRef, options: TextReadOptions, context: FsOperationContext): Promise<FsResult<LineScan>> {

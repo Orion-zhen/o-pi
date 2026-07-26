@@ -5,20 +5,17 @@ import { listDirectory } from "../../src/file-tools/ls/command.js";
 import { formatCompactLsResult } from "../../src/file-tools/ls/presenter.js";
 import { executeLs } from "../../src/file-tools/pi/adapters/ls.js";
 import type { LsParams, LsSuccess } from "../../src/file-tools/ls/types.js";
-import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
 import { sha256Version } from "../../src/file-tools/core/text-file.js";
-import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/tools/read.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { defaultFileToolLimits } from "../../src/file-tools/tool-limits.js";
 import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
-import type { ReadFileSuccess, ReadParams } from "../../src/file-tools/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
+import { readWorkspaceFile } from "../helpers/read-tool.js";
 
 let workspace: string;
 let outside: string;
 let host: FileToolsHost;
-let versionCache: ReadVersionCache;
 const workspaceTemp = useTempDir("o-pi-ls-workspace-");
 const outsideTemp = useTempDir("o-pi-ls-outside-");
 preserveEnv("PI_FILE_TOOLS_CONFIG");
@@ -27,7 +24,6 @@ beforeEach(() => {
 	workspace = workspaceTemp.path;
 	outside = outsideTemp.path;
 	host = new FileToolsHost();
-	versionCache = new ReadVersionCache();
 });
 
 afterEach(() => { host.dispose(); });
@@ -49,10 +45,6 @@ async function listWorkspaceDirectory(cwd: string, params: LsParams): Promise<To
 	} finally {
 		opened.dispose();
 	}
-}
-
-function readWorkspaceFile(cwd: string, params: ReadParams): Promise<ToolOutcome<ReadFileSuccess>> {
-	return readWorkspaceFileImpl(cwd, params, { versionCache });
 }
 
 describe("ls", () => {

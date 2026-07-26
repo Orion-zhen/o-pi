@@ -13,10 +13,10 @@ import { listDirectory } from "../../src/file-tools/ls/command.js";
 import type { LsParams, LsSuccess } from "../../src/file-tools/ls/types.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
-import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/tools/read.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
-import type { EditSuccess, ReadFileSuccess, ReadParams } from "../../src/file-tools/types.js";
+import type { EditSuccess } from "../../src/file-tools/types.js";
 import { useTempDir } from "../helpers/lifecycle.js";
+import { readWorkspaceFile as readWorkspaceFileTest } from "../helpers/read-tool.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -54,8 +54,8 @@ async function listWorkspaceDirectory(cwd: string, params: LsParams): Promise<To
 	}
 }
 
-function readWorkspaceFile(cwd: string, params: ReadParams): Promise<ToolOutcome<ReadFileSuccess>> {
-	return readWorkspaceFileImpl(cwd, params, { versionCache });
+function readWorkspaceFile(cwd: string, params: Parameters<typeof readWorkspaceFileTest>[1]) {
+	return readWorkspaceFileTest(cwd, params, { versionCache });
 }
 
 function editWorkspace(cwd: string, params: unknown): Promise<ToolOutcome<EditSuccess>> {

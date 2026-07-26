@@ -7,7 +7,7 @@ import { editWorkspace } from "../../src/file-tools/tools/edit.js";
 import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
 import { clearGrepIndex } from "../../src/file-tools/grep/indexer.js";
 import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
-import { readWorkspaceFile } from "../../src/file-tools/tools/read.js";
+import { readWorkspaceFile } from "../helpers/read-tool.js";
 import { writeWorkspaceFile } from "../../src/file-tools/tools/write.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { FileToolLspHooks, GrepSuccess } from "../../src/file-tools/types.js";
@@ -32,18 +32,21 @@ beforeEach(async () => {
 describe("file-tools lsp hooks", () => {
 	it("read 附加 partial enclosing symbol，hook 失败时仍成功", async () => {
 		await writeFile(path.join(workspace, "a.ts"), "function demo() {\n  return 1;\n}\n");
-		const hooks: FileToolLspHooks = {
-			async enhanceRead(input) {
-				expect(input.partial).toBe(true);
-				return { enclosing_symbol: { name: "demo", kind: "function", line: 1, end_line: 3 } };
+		await expect(readWorkspaceFile(workspace, { path: "a.ts", start_line: 2, end_line: 2 }, {
+			structure: {
+				async context(input) {
+					expect(input.partial).toBe(true);
+					return { enclosing_symbol: { name: "demo", kind: "function", line: 1, end_line: 3 } };
+				},
 			},
-		};
-		await expect(readWorkspaceFile(workspace, { path: "a.ts", start_line: 2, end_line: 2 }, { lsp: hooks })).resolves.toMatchObject({
+		})).resolves.toMatchObject({
 			path: "a.ts",
 			lsp: { enclosing_symbol: { name: "demo" } },
 		});
 
-		await expect(readWorkspaceFile(workspace, { path: "a.ts" }, { lsp: throwingHooks() })).resolves.toMatchObject({ path: "a.ts" });
+		await expect(readWorkspaceFile(workspace, { path: "a.ts", start_line: 2 }, {
+			structure: { async context() { throw new Error("unavailable"); } },
+		})).resolves.toMatchObject({ path: "a.ts" });
 	});
 
 	it("write 返回 diagnostics 但不改变 written 状态", async () => {

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { findWorkspaceFiles } from "../../src/file-tools/tools/find.js";
 import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
-import { readWorkspaceFile } from "../../src/file-tools/tools/read.js";
+import { readWorkspaceFile } from "../helpers/read-tool.js";
 import { buildRepoMapArchitecture } from "../../src/repo-map/architecture-indexer.js";
 import { buildRepoMapTestGraph } from "../../src/repo-map/test-indexer.js";
 import { createRepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";

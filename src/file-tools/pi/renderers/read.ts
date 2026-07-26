@@ -2,8 +2,9 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { formatToolCard } from "../../../tui/tool-card.js";
 import { formatBytes, formatChars, joinParts } from "../../../tui/text.js";
-import type { ReadImageSuccess, ReadSuccess } from "../../types.js";
-import { isPlainRecord, isReadFileSuccess, isReadImageSuccess, isReadSuccess } from "../guards.js";
+import type { ReadImageSuccess, ReadSuccess } from "../../read/types.js";
+import { isReadFileSuccess, isReadImageSuccess, isReadSuccess } from "../../read/guards.js";
+import { isPlainRecord } from "../guards.js";
 import type { PartialTextRenderContext, TextRenderContext, ToolReadResult } from "./contracts.js";
 import { displayToolPath, fallbackTextResult, formatFailureCard, stringArg, textComponent } from "./shared.js";
 

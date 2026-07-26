@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSkillReadIndex, resolveReadLocator, type SkillReadIndex } from "../../src/skill-context/resources.js";
 import { executeRead } from "../../src/file-tools/pi/adapters/read.js";
 import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
+import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { normalizeToolPath } from "../../src/file-tools/core/path-resolver.js";
 import { SKILL_CONTEXT_ENTRY, type SkillCandidate, type SkillLoadEntry } from "../../src/skill-context/types.js";
 import { useTempDir } from "../helpers/lifecycle.js";
@@ -47,10 +48,13 @@ describe("技能资源定位符", () => {
 		const enhanceRead = vi.fn();
 		const readContext = vi.fn();
 		const versionCache = new ReadVersionCache();
+		const host = new FileToolsHost();
 		const result = await executeRead({ path: "skill://demo/references/testing.md" }, {
 			cwd: temp.path,
+			sessionId: "skill-read",
 			model: undefined,
-			versionCache,
+			host,
+			legacyVersionCache: versionCache,
 			lsp: { enhanceRead },
 			repoMap: {
 				query: {
@@ -65,6 +69,7 @@ describe("技能资源定位符", () => {
 			branch,
 			skillIndex,
 		});
+		host.dispose();
 		const text = result.content.find((item) => item.type === "text")?.text ?? "";
 		expect(text).toContain('path="skill://demo/references/testing.md"');
 		expect(text).not.toContain(root);
@@ -79,17 +84,17 @@ describe("技能资源定位符", () => {
 
 	it("拒绝未加载技能和对受管理根目录的绝对路径访问", async () => {
 		const unloaded = await resolveReadLocator("skill://demo/references/testing.md", [], skillIndex);
-		expect(unloaded).toMatchObject({ status: "failed", error: { code: "PROTECTED_PATH" } });
+		expect(unloaded).toMatchObject({ kind: "error", code: "access-denied" });
 
 		const absolute = await resolveReadLocator(path.join(root, "references", "testing.md"), [], skillIndex);
-		expect(absolute).toMatchObject({ status: "failed", error: { code: "PROTECTED_PATH" } });
+		expect(absolute).toMatchObject({ kind: "error", code: "access-denied" });
 	});
 
 	it("拒绝通过受管理根目录外部的符号链接读取技能资源", async () => {
 		const alias = path.join(temp.path, "skill-alias");
 		await symlink(root, alias);
 		const result = await resolveReadLocator(path.join(alias, "references", "testing.md"), [], skillIndex);
-		expect(result).toMatchObject({ status: "failed", error: { code: "PROTECTED_PATH" } });
+		expect(result).toMatchObject({ kind: "error", code: "access-denied" });
 	});
 
 	it("非 read 文件操作不会把 skill:// 当作系统路径", () => {
@@ -108,7 +113,7 @@ describe("技能资源定位符", () => {
 		"skill://demo/",
 	])("拒绝格式错误或可能逃逸的定位符 %s", async (locator) => {
 		const result = await resolveReadLocator(locator, branch, skillIndex);
-		expect(result).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
+		expect(result).toMatchObject({ kind: "error", code: "invalid-locator" });
 	});
 
 	it("拒绝空字符以及真实路径解析后的符号链接逃逸", async () => {
@@ -116,9 +121,9 @@ describe("技能资源定位符", () => {
 		await writeFile(outside, "secret");
 		await symlink(outside, path.join(root, "references", "escape.md"));
 		expect(await resolveReadLocator("skill://demo/references/testing.md\0", branch, skillIndex))
-			.toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
+			.toMatchObject({ kind: "error", code: "invalid-locator" });
 		expect(await resolveReadLocator("skill://demo/references/escape.md", branch, skillIndex))
-			.toMatchObject({ status: "failed", error: { code: "PROTECTED_PATH" } });
+			.toMatchObject({ kind: "error", code: "access-denied" });
 	});
 });
 

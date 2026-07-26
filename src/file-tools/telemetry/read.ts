@@ -1,6 +1,6 @@
 import { defineToolTelemetry } from "../../telemetry/tool.js";
 import type { ToolOutcome } from "../shared/result.js";
-import type { ReadFileSuccess, ReadParams } from "../types.js";
+import type { ReadFileSuccess, ReadParams } from "../read/types.js";
 import { fileResultFields, projectFileInput, record } from "./common.js";
 
 export const readTelemetry = defineToolTelemetry<ReadParams, ToolOutcome<ReadFileSuccess>>({

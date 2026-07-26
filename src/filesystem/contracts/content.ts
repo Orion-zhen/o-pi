@@ -60,5 +60,8 @@ export interface LineScan extends AsyncIterable<FsResult<ScannedLine>> {
 export interface ContentOperations {
 	readBytes(file: FileRef, options: ByteReadOptions, context: FsOperationContext): Promise<FsResult<ByteContent>>;
 	readText(file: FileRef, options: TextReadOptions, context: FsOperationContext): Promise<FsResult<TextContent>>;
+	/** Decodes bytes already loaded through this filesystem without a second disk read. */
+	decodeText(content: ByteContent, options: Pick<TextReadOptions, "rejectBinary"> & { readonly path?: string }): FsResult<TextContent>;
+	sliceText(content: TextContent, options: TextSliceOptions): FsResult<TextSlice>;
 	scanLines(file: FileRef, options: TextReadOptions, context: FsOperationContext): Promise<FsResult<LineScan>>;
 }

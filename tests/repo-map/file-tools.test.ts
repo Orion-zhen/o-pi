@@ -10,7 +10,7 @@ import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
 import { formatReadModelResult } from "../../src/file-tools/pi/model-output-with-repo.js";
 import { editWorkspace } from "../../src/file-tools/tools/edit.js";
 import { findWorkspaceFiles } from "../../src/file-tools/tools/find.js";
-import { readWorkspaceFile } from "../../src/file-tools/tools/read.js";
+import { readWorkspaceFile } from "../helpers/read-tool.js";
 import { writeWorkspaceFile } from "../../src/file-tools/tools/write.js";
 import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
 import { clearGrepIndex } from "../../src/file-tools/grep/indexer.js";

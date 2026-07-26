@@ -1,7 +1,6 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { FailedResult } from "../file-tools/shared/result.js";
 import { isValidSkillName } from "./frontmatter.js";
 import { loadedSkillsByName } from "./state.js";
 import type { SkillCandidate } from "./types.js";
@@ -24,6 +23,13 @@ export interface SkillReadIndex {
 	canonicalRoots(): Promise<string[]>;
 }
 
+export interface SkillResourceError {
+	kind: "error";
+	code: "invalid-locator" | "access-denied";
+	message: string;
+	path: string;
+}
+
 /** 为一个扩展实例构建只读 skill 候选及根目录索引。 */
 export function buildSkillReadIndex(candidates: SkillCandidate[]): SkillReadIndex {
 	const lexicalRoots = unique(candidates.map((candidate) => path.resolve(path.dirname(candidate.path))));
@@ -42,7 +48,7 @@ export async function resolveReadLocator(
 	inputPath: string,
 	branch: SessionEntry[],
 	index: SkillReadIndex,
-): Promise<SkillResourceResolution | OrdinaryPathResolution | FailedResult> {
+): Promise<SkillResourceResolution | OrdinaryPathResolution | SkillResourceError> {
 	if (!inputPath.startsWith("skill://")) {
 		if (path.isAbsolute(inputPath) && await isManagedSkillAbsolutePath(inputPath, branch, index)) {
 			return denied(inputPath, "Managed skill files must be read through an authorized skill:// locator.");
@@ -51,7 +57,7 @@ export async function resolveReadLocator(
 	}
 
 	const parsed = parseSkillLocator(inputPath);
-	if ("status" in parsed) return parsed;
+	if (parsed.kind === "error") return parsed;
 	const loaded = loadedSkillsByName(branch).get(parsed.skillName);
 	if (loaded === undefined) return denied(inputPath, `Skill "${parsed.skillName}" is not loaded on this branch.`);
 
@@ -72,7 +78,7 @@ export async function resolveReadLocator(
 	};
 }
 
-function parseSkillLocator(input: string): { skillName: string; relativePath: string; segments: string[] } | FailedResult {
+function parseSkillLocator(input: string): { skillName: string; relativePath: string; segments: string[]; kind?: never } | SkillResourceError {
 	if (input.includes("\0") || input.includes("\\") || input.includes("?") || input.includes("#") || input.includes("%")) {
 		return invalid(input, "Invalid skill locator syntax.");
 	}
@@ -122,10 +128,10 @@ async function resolveCanonicalRoots(lexicalRoots: string[]): Promise<string[]> 
 	}))).filter((root): root is string => root !== undefined));
 }
 
-function invalid(inputPath: string, message: string): FailedResult {
-	return { status: "failed", error: { code: "INVALID_PATH", message, path: inputPath } };
+function invalid(inputPath: string, message: string): SkillResourceError {
+	return { kind: "error", code: "invalid-locator", message, path: inputPath };
 }
 
-function denied(inputPath: string, message: string): FailedResult {
-	return { status: "failed", error: { code: "PROTECTED_PATH", message, path: inputPath } };
+function denied(inputPath: string, message: string): SkillResourceError {
+	return { kind: "error", code: "access-denied", message, path: inputPath };
 }

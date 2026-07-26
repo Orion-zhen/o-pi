@@ -8,7 +8,7 @@ import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
 import { listDirectory } from "../../src/file-tools/ls/command.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
-import { readWorkspaceFile } from "../../src/file-tools/tools/read.js";
+import { readWorkspaceFile } from "../helpers/read-tool.js";
 import { writeWorkspaceFile } from "../../src/file-tools/tools/write.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 

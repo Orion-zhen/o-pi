@@ -1,7 +1,6 @@
 export {
 	formatEditModelResult,
 	formatErrorModelResult,
-	formatReadImageModelContent,
 	formatReadModelResult,
 	formatWriteModelResult,
 	scrubVersions,
@@ -11,9 +10,8 @@ export {
 	isEditSuccessDetails,
 	isFailedDetails,
 	isFileToolName,
-	isReadImageSuccess,
-	isReadSuccess,
 } from "./pi/guards.js";
+export { isReadImageSuccess, isReadSuccess } from "./read/guards.js";
 export {
 	renderEditCall,
 	renderEditResult,

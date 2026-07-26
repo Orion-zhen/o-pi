@@ -8,7 +8,8 @@ import { appendRepoMapEntry, createLazyRepoMap, type LazyRepoMap } from "../../s
 import { versionCacheFor } from "../../src/file-tools/pi/native.js";
 import type { LsParams } from "../../src/file-tools/ls/types.js";
 import type { FileToolsHost } from "../../src/file-tools/runtime/host.js";
-import type { EditParams, FindParams, GrepParams, ReadParams, WriteParams } from "../../src/file-tools/types.js";
+import type { ReadParams } from "../../src/file-tools/read/types.js";
+import type { EditParams, FindParams, GrepParams, WriteParams } from "../../src/file-tools/types.js";
 import { editTelemetry } from "../../src/file-tools/telemetry/edit.js";
 import { findTelemetry } from "../../src/file-tools/telemetry/find.js";
 import { grepTelemetry } from "../../src/file-tools/telemetry/grep.js";
@@ -100,7 +101,7 @@ export function createFileToolsExtension(imports: FileToolsModuleImports = defau
 		host: createRetryableLoader(imports.host),
 		find: createRetryableLoader(async () => registerCacheDisposer(await imports.find(), cacheDisposers)),
 		grep: createRetryableLoader(async () => registerCacheDisposer(await imports.grep(), cacheDisposers)),
-		read: createRetryableLoader(async () => registerCacheDisposer(await imports.read(), cacheDisposers)),
+		read: createRetryableLoader(imports.read),
 		write: createRetryableLoader(async () => registerCacheDisposer(await imports.write(), cacheDisposers)),
 		edit: createRetryableLoader(async () => registerCacheDisposer(await imports.edit(), cacheDisposers)),
 		lsp: createRetryableLoader(imports.lsp),
@@ -214,15 +215,19 @@ function registerFileTools(
 		description: "Read one text, image or skill related file.",
 		promptSnippet: "read one file",
 		parameters: readParameters,
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			return (await loaders.read()).executeRead(params as ReadParams, {
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			const [module, invocationHost, index] = await Promise.all([loaders.read(), hostForInvocation(), skillReadIndex()]);
+			return module.executeRead(params as ReadParams, {
 				cwd: ctx.cwd,
+				sessionId: ctx.sessionManager.getSessionId(),
+				...(signal === undefined ? {} : { signal }),
 				model: ctx.model,
-				versionCache: versionCacheFor(ctx, versionCaches),
+				host: invocationHost,
+				legacyVersionCache: versionCacheFor(ctx, versionCaches),
 				lsp,
 				repoMap: repoMapFor(ctx),
 				branch: typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [],
-				skillIndex: await skillReadIndex(),
+				skillIndex: index,
 			});
 		},
 	}, repair: {

@@ -1,4 +1,4 @@
-import type { RepoMapMutationResult, RepoMapReadContext } from "../repo-map/file-tool-query.js";
+import type { RepoMapMutationResult } from "../repo-map/file-tool-query.js";
 import type { FileToolError } from "./shared/result.js";
 
 export type NewlineKind = "lf" | "crlf" | "mixed" | "none";
@@ -11,12 +11,6 @@ export interface TextFile {
 	totalLines: number;
 	newline: NewlineKind;
 	hasBom: boolean;
-}
-
-export interface ReadParams {
-	path: string;
-	start_line?: number;
-	end_line?: number;
 }
 
 export interface WriteParams {
@@ -114,25 +108,6 @@ export interface LspDiagnosticsSummary {
 	items: LspDiagnosticItem[];
 }
 
-/** read 截断时附加的紧凑 symbol outline。 */
-export interface LspOutlineItem {
-	name: string;
-	kind: string;
-	line: number;
-	end_line: number;
-	detail?: string;
-	children?: LspOutlineItem[];
-}
-
-/** read 行范围所属的最小包围 symbol。 */
-export interface LspEnclosingSymbol {
-	name: string;
-	kind: string;
-	line: number;
-	end_line: number;
-	detail?: string;
-}
-
 /** grep 可接收的 LSP symbol 候选；调用方仍需执行 scope、ignore 和预算过滤。 */
 export interface FileToolLspSymbolCandidate {
 	path: string;
@@ -167,7 +142,10 @@ export interface FileToolLspHooks {
 		end_line: number;
 		truncated: boolean;
 		partial: boolean;
-	}): Promise<{ outline?: LspOutlineItem[]; enclosing_symbol?: LspEnclosingSymbol } | undefined>;
+	}): Promise<{
+		outline?: Array<{ name: string; kind: string; line: number; end_line: number; detail?: string }>;
+		enclosing_symbol?: { name: string; kind: string; line: number; end_line: number; detail?: string };
+	} | undefined>;
 	grepSymbols?(input: {
 		workspaceRoot: string;
 		query: string;
@@ -221,48 +199,6 @@ export interface GrepSuccess {
 	skipped_files?: GrepSkippedFiles;
 	nearby?: GrepNearbyResult[];
 }
-
-export interface ReadSuccess {
-	path: string;
-	content: string;
-	start_line: number;
-	end_line: number;
-	total_lines: number;
-	size_bytes: number;
-	version: string;
-	encoding: "utf-8";
-	newline: NewlineKind;
-	truncated: boolean;
-	continuation?: { start_line: number };
-	bom: boolean;
-	ignored?: boolean;
-	ignore_source?: string;
-	lsp?: {
-		outline?: LspOutlineItem[];
-		enclosing_symbol?: LspEnclosingSymbol;
-	};
-	repo_map?: RepoMapReadContext;
-	skill_resource?: { skill: string; path: string };
-}
-
-export interface ReadImageSuccess {
-	path: string;
-	media_type: "image";
-	mime_type: string;
-	skill_resource?: { skill: string; path: string };
-	content: string;
-	size_bytes: number;
-	version: string;
-	image: {
-		data: string;
-		mime_type: string;
-	};
-	hints?: string[];
-	ignored?: boolean;
-	ignore_source?: string;
-}
-
-export type ReadFileSuccess = ReadSuccess | ReadImageSuccess;
 
 export interface WriteSuccess {
 	status: "written";
