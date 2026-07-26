@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { FileToolsConfigProvider, loadFileToolsConfig } from "../../src/file-tools-config/config.js";
+import { FileToolsConfigProvider, loadFileToolsConfig } from "../../src/file-tools/config.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;

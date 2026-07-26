@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import {
 	loadFileToolsConfig,
 	type FileToolsConfig,
-} from "../file-tools-config/config.js";
+} from "../file-tools/config.js";
 import type { FilesystemPolicy } from "../filesystem/contracts/policy.js";
 import type { FsOperationContext } from "../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../filesystem/contracts/workspace.js";

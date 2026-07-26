@@ -8,7 +8,7 @@ import {
 import {
 	FileToolsConfigProvider,
 	type FileToolsConfigLoader,
-} from "../../file-tools-config/config.js";
+} from "../config.js";
 import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
 import { ObservationStore } from "./observation-store.js";

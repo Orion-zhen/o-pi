@@ -20,7 +20,7 @@ try {
 	const runtimeStarted = performance.now();
 	const service = await loadTypeScript("src/repo-map/service.ts");
 	const config = await loadTypeScript("src/repo-map/config.ts");
-	const fileConfig = await loadTypeScript("src/file-tools-config/config.ts");
+	const fileConfig = await loadTypeScript("src/file-tools/config.ts");
 	const queryModule = await loadTypeScript("src/repo-map/file-tool-query.ts");
 	const runtimeImported = performance.now();
 

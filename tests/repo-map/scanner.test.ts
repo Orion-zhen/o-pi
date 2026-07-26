@@ -2,7 +2,7 @@ import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { defaultFileToolsConfig, type FileToolsConfig } from "../../src/file-tools-config/config.js";
+import { defaultFileToolsConfig, type FileToolsConfig } from "../../src/file-tools/config.js";
 import { fsFailure } from "../../src/filesystem/contracts/result.js";
 import { FileSystemRuntime } from "../../src/filesystem/runtime.js";
 import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";

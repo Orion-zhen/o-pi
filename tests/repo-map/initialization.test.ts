@@ -4,7 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 
-import { defaultFileToolsConfig } from "../../src/file-tools-config/config.js";
+import { defaultFileToolsConfig } from "../../src/file-tools/config.js";
 import { defaultRepoMapConfig } from "../../src/repo-map/config.js";
 import { RepoMapError } from "../../src/repo-map/errors.js";
 import { initializeRepoMap, readActivatedRepoMap, type RepoMapServiceDependencies } from "../../src/repo-map/service.js";

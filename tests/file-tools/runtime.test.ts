@@ -14,7 +14,7 @@ import {
 	type FileToolsConfig,
 	type FileToolsConfigLoader,
 	type FileToolsConfigResult,
-} from "../../src/file-tools-config/config.js";
+} from "../../src/file-tools/config.js";
 import { FileToolsHost, type FileToolsInvocation } from "../../src/file-tools/runtime/host.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
 import { defaultFileToolLimits } from "../../src/file-tool-limits.js";

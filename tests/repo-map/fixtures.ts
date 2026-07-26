@@ -3,7 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
-import { defaultFileToolsConfig } from "../../src/file-tools-config/config.js";
+import { defaultFileToolsConfig } from "../../src/file-tools/config.js";
 import { REPO_MAP_SESSION_ENTRY } from "../../src/repo-map/activation.js";
 import { defaultRepoMapConfig } from "../../src/repo-map/config.js";
 import { readActivatedRepoMap, type RepoMapServiceDependencies } from "../../src/repo-map/service.js";

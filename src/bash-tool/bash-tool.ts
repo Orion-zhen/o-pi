@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG_DIR_NAME, createLocalBashOperations } from "@earendil-works/pi-coding-agent";
 
-import { checkDeniedText, type PatternDenyMatch } from "../safety/pattern-guard.js";
+import { checkDeniedText, type PatternDenyMatch } from "./pattern-guard.js";
 import { OutputCapture } from "./output-capture.js";
 import { cleanForModel, createBashOutputView } from "./output-view.js";
 import type { BashExecutionResult, BashParams, BashSessionMetadata, ExecuteBashRuntime } from "./types.js";

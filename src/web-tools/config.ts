@@ -2,7 +2,7 @@ import ipaddr from "ipaddr.js";
 import { stat } from "node:fs/promises";
 
 import { agentConfigPath, agentPath, agentSchemaPath, createSchemaValidator, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
-import { guardPublicHttpUrlLiteral } from "../safety/url-guard.js";
+import { guardPublicHttpUrlLiteral } from "./url-guard.js";
 import { normalizeDomains } from "./search-providers/query.js";
 import type { WebToolsConfig } from "./types.js";
 

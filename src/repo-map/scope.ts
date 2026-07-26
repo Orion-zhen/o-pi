@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { loadFileToolsConfig } from "../file-tools-config/config.js";
+import { loadFileToolsConfig } from "../file-tools/config.js";
 import { FileSystemRuntime } from "../filesystem/runtime.js";
 import { RepoMapError } from "./errors.js";
 

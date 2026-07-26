@@ -1,5 +1,5 @@
 import { agentConfigPath, agentSchemaPath, createSchemaValidator, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
-import { PatternGuardConfigError, validatePatternGuardConfig } from "../safety/pattern-guard.js";
+import { PatternGuardConfigError, validatePatternGuardConfig } from "./pattern-guard.js";
 import type { BashToolConfig } from "./types.js";
 
 const CONFIG_PATH_ENV = "PI_BASH_TOOL_CONFIG";

@@ -65,7 +65,9 @@ function classifyViolations(edge: ImportEdge): string[] {
 	if (edge.importer.startsWith("src/filesystem/") && isFilesystemUpwardImport(edge)) rules.push("filesystem-upward");
 	if (isToolSiblingImport(edge)) rules.push("tool-sibling");
 	if (isToolImplementation(edge.importer) && bypassesFilesystemPlane(edge)) rules.push("tool-data-plane");
-	if (isExternalSubsystem(edge.importer) && edge.target?.startsWith("src/file-tools/")) rules.push("external-tool-internal");
+	if (isExternalSubsystem(edge.importer)
+		&& edge.target?.startsWith("src/file-tools/")
+		&& edge.target !== "src/file-tools/config.ts") rules.push("external-tool-internal");
 	return rules.map((rule) => `${rule}:${edge.importer}:${edge.specifier}`);
 }
 
@@ -122,9 +124,7 @@ function isToolImplementation(filePath: string): boolean {
 function bypassesFilesystemPlane(edge: ImportEdge): boolean {
 	if (edge.specifier === "node:path" || edge.specifier.startsWith("node:fs")) return true;
 	if (edge.target === undefined) return false;
-	return edge.target === "src/safety/path-guard.ts"
-		|| edge.target.startsWith("src/file-tools-config/")
-		|| edge.target.startsWith("src/file-tools/ignore/")
+	return edge.target.startsWith("src/file-tools/ignore/")
 		|| edge.target.startsWith("src/lsp/")
 		|| edge.target.startsWith("src/repo-map/")
 		|| edge.target.startsWith("src/skill-context/");
