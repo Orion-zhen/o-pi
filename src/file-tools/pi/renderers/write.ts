@@ -10,14 +10,20 @@ import { formatToolCard } from "../../../tui/tool-card.js";
 import { formatBytes, formatChars, joinParts } from "../../../tui/text.js";
 import { isWriteSuccess } from "../../write/guards.js";
 import { isPlainRecord } from "../guards.js";
+import { isMutationProgress, type MutationProgressPhase } from "../progress.js";
 import type { TextRenderContext } from "./contracts.js";
 import { formatDiffStats, formatLspDiagnostics, formatLspSummary } from "./diagnostics.js";
 import { displayToolPath, formatFailureCard, stringArg, textComponent } from "./shared.js";
+
+interface WriteRendererState {
+	callComponent?: WriteCallComponent;
+}
 
 interface WriteRenderContext extends TextRenderContext {
 	expanded: boolean;
 	isPartial: boolean;
 	argsComplete: boolean;
+	state: WriteRendererState;
 }
 
 interface WriteHighlightCache {
@@ -30,6 +36,10 @@ interface WriteHighlightCache {
 
 class WriteCallComponent extends Text {
 	cache: WriteHighlightCache | undefined;
+	phase: Extract<MutationProgressPhase, "writing" | "verifying"> = "writing";
+	progressDiff: string | undefined;
+	argsPath: string | null = null;
+	argsContent: string | null = null;
 
 	constructor() {
 		super("", 0, 0);
@@ -43,7 +53,13 @@ export function renderWriteCall(args: unknown, theme: Theme, context: WriteRende
 	const renderArgs = writeArgs(args);
 	const rawPath = stringArg(renderArgs?.file_path ?? renderArgs?.path);
 	const fileContent = stringArg(renderArgs?.content);
-	const component = getWriteCallComponent(context.lastComponent);
+	const component = getWriteCallComponent(context.state, context.lastComponent);
+	if (component.argsPath !== rawPath || component.argsContent !== fileContent) {
+		component.argsPath = rawPath;
+		component.argsContent = fileContent;
+		component.phase = "writing";
+		component.progressDiff = undefined;
+	}
 	if (fileContent !== null) {
 		component.cache = context.argsComplete
 			? rebuildWriteHighlightCacheFull(rawPath, fileContent)
@@ -51,23 +67,37 @@ export function renderWriteCall(args: unknown, theme: Theme, context: WriteRende
 	} else {
 		component.cache = undefined;
 	}
-	component.setText(formatWriteCall(renderArgs, { expanded: context.expanded, isPartial: context.isPartial }, theme, component.cache, context.cwd));
+	component.setText(formatWriteCall(component, renderArgs, { expanded: context.expanded, isPartial: context.isPartial }, theme, component.cache, context.cwd));
 	return component;
 }
 
 export function renderWriteResult(
 	result: { details?: unknown },
-	options: { expanded: boolean },
-	theme: Pick<Theme, "fg" | "bold">,
-	context: TextRenderContext,
+	options: { expanded: boolean; isPartial: boolean },
+	theme: Theme,
+	context: TextRenderContext & { state: WriteRendererState },
 ): Text {
+	if (options.isPartial) {
+		const component = getWriteCallComponent(context.state, undefined);
+		if (isMutationProgress(result.details)) {
+			if (result.details.status === "writing" || result.details.status === "verifying") component.phase = result.details.status;
+			if (result.details.diff !== undefined) component.progressDiff = result.details.diff;
+		}
+		const args = writeArgs(context.args);
+		component.setText(formatWriteCall(component, args, { expanded: options.expanded, isPartial: true }, theme, component.cache, context.cwd));
+		const partial = textComponent(context.lastComponent);
+		partial.setText("");
+		return partial;
+	}
 	const text = textComponent(context.lastComponent);
 	text.setText(formatWriteResult(result.details, theme, context.args, context.cwd, options.expanded));
 	return text;
 }
 
-function getWriteCallComponent(lastComponent: unknown): WriteCallComponent {
-	return lastComponent instanceof WriteCallComponent ? lastComponent : new WriteCallComponent();
+function getWriteCallComponent(state: WriteRendererState, lastComponent: unknown): WriteCallComponent {
+	if (lastComponent instanceof WriteCallComponent) state.callComponent = lastComponent;
+	state.callComponent ??= new WriteCallComponent();
+	return state.callComponent;
 }
 
 function highlightSingleLine(line: string, lang: string): string {
@@ -130,6 +160,7 @@ function updateWriteHighlightCacheIncremental(
 }
 
 function formatWriteCall(
+	component: WriteCallComponent,
 	args: { path?: string; file_path?: string; content?: string } | undefined,
 	options: ToolRenderResultOptions,
 	theme: Theme,
@@ -140,13 +171,13 @@ function formatWriteCall(
 	const fileContent = stringArg(args?.content);
 	const target = displayToolPath(rawPath, cwd);
 
-	if (fileContent === null) return formatToolCard({ tool: "write", status: "error", target, summary: "invalid content arg" }, theme);
+	if (fileContent === null) return formatToolCard({ tool: "write", status: "running", target, summary: component.phase }, theme);
 	const lineCount = fileContent === "" ? 0 : fileContent.split(/\r\n?|\n/).length;
 	const header = formatToolCard({
 		tool: "write",
 		status: "running",
 		target,
-		summary: joinParts([`${lineCount} lines`, formatChars(fileContent.length), options.expanded ? "preview" : "preview hidden"]),
+		summary: joinParts([component.phase, component.progressDiff === undefined ? undefined : formatDiffStats(component.progressDiff), `${lineCount} lines`, formatChars(fileContent.length), options.expanded ? "preview" : "preview hidden"]),
 	}, theme);
 	if (!options.expanded || fileContent.length === 0) return header;
 
@@ -174,7 +205,7 @@ function formatWriteResult(
 		tool: "write",
 		status: "success",
 		target: details.path,
-		summary: joinParts([formatDiffStats(diff), formatBytes(details.bytes), diff !== "" ? "diff available" : "no diff", formatLspSummary(details.lsp?.diagnostics)]),
+		summary: joinParts(["done", formatDiffStats(diff), formatBytes(details.bytes), formatLspSummary(details.lsp?.diagnostics)]),
 	}, theme);
 	const renderedDiff = diff === "" ? undefined : renderDiff(diff);
 	if (!expanded) return header;

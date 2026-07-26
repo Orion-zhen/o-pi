@@ -4,7 +4,7 @@ import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.j
 import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.js";
 import type { TextDiff, TextDiffGenerator } from "../shared/text-diff.js";
 import type { WriteDiagnosticsSource, WriteMutationObserver } from "./ports.js";
-import type { WriteParams, WriteSuccess } from "./types.js";
+import type { WriteParams, WritePreviewSuccess, WriteSuccess } from "./types.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
@@ -16,6 +16,7 @@ export interface WriteCommandContext {
 	readonly diff: TextDiffGenerator;
 	readonly diagnostics?: WriteDiagnosticsSource;
 	readonly mutationObserver?: WriteMutationObserver;
+	readonly onPrepared?: (preview: WritePreviewSuccess) => void;
 }
 
 /** Creates or fully overwrites one guarded UTF-8 file. */
@@ -47,6 +48,12 @@ export async function writeFile(params: unknown, context: WriteCommandContext): 
 		async (current) => {
 			snapshot = current;
 			renderedDiff = await context.diff.generate(normalizeLineEndings(snapshotText(current)), normalizeLineEndings(input.content));
+			safePrepared(context.onPrepared, {
+				status: "preview",
+				path: target.value.displayPath,
+				diff: renderedDiff.diff,
+				...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
+			});
 			return { type: "commit", bytes };
 		},
 		context.operation,
@@ -106,6 +113,12 @@ function snapshotText(snapshot: MutationSnapshot): string {
 
 function normalizeLineEndings(text: string): string {
 	return text.replace(/\r\n/gu, "\n").replace(/\r/gu, "\n");
+}
+
+function safePrepared(observer: WriteCommandContext["onPrepared"], preview: WritePreviewSuccess): void {
+	try {
+		observer?.(preview);
+	} catch {}
 }
 
 async function safeDiagnostics(

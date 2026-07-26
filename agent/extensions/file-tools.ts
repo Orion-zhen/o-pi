@@ -7,16 +7,18 @@ import { appendRepoMapEntry, createLazyRepoMap, type LazyRepoMap } from "../../s
 import type { LsParams } from "../../src/file-tools/ls/types.js";
 import type { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import type { ReadParams } from "../../src/file-tools/read/types.js";
-import type { EditParams } from "../../src/file-tools/edit/types.js";
+import type { EditParams, EditSuccess } from "../../src/file-tools/edit/types.js";
 import type { FindParams } from "../../src/file-tools/find/types.js";
 import type { GrepParams } from "../../src/file-tools/grep/types.js";
-import type { WriteParams } from "../../src/file-tools/write/types.js";
+import type { WriteParams, WriteSuccess } from "../../src/file-tools/write/types.js";
 import { editTelemetry } from "../../src/file-tools/telemetry/edit.js";
 import { findTelemetry } from "../../src/file-tools/telemetry/find.js";
 import { grepTelemetry } from "../../src/file-tools/telemetry/grep.js";
 import { lsTelemetry } from "../../src/file-tools/telemetry/ls.js";
 import { readTelemetry } from "../../src/file-tools/telemetry/read.js";
 import { writeTelemetry } from "../../src/file-tools/telemetry/write.js";
+import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
+import type { MutationProgressDetails } from "../../src/file-tools/pi/progress.js";
 import { registerObservedTool } from "../../src/telemetry/tool.js";
 import { collectSkillCandidates } from "../../src/skill-context/loader.js";
 import { buildSkillReadIndex } from "../../src/skill-context/resources.js";
@@ -259,14 +261,14 @@ function registerFileTools(
 		telemetry: readTelemetry,
 	});
 
-	const writeTool = registerObservedTool(pi, {
+	const writeTool = registerObservedTool<typeof writeParameters, ToolOutcome<WriteSuccess> | MutationProgressDetails>(pi, {
 		tool: {
 		name: "write",
 		label: "write",
 		description: "Create or overwrite one whole file.",
 		promptSnippet: "write one whole file",
 		parameters: writeParameters,
-		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const [module, invocationHost] = await Promise.all([loaders.write(), hostForInvocation()]);
 			return module.executeWrite(params as WriteParams, {
 				cwd: ctx.cwd,
@@ -275,6 +277,7 @@ function registerFileTools(
 				host: invocationHost,
 				lsp,
 				repoMap: repoMapFor(ctx),
+				...(onUpdate === undefined ? {} : { onUpdate }),
 			});
 		},
 	}, repair: {
@@ -287,7 +290,7 @@ function registerFileTools(
 		telemetry: writeTelemetry,
 	});
 
-	const editTool = registerObservedTool(pi, {
+	const editTool = registerObservedTool<typeof editParameters, ToolOutcome<EditSuccess> | MutationProgressDetails>(pi, {
 		tool: {
 		name: "edit",
 		label: "edit",
@@ -295,7 +298,7 @@ function registerFileTools(
 		promptSnippet: "edit one known file",
 		parameters: editParameters,
 		renderShell: "self",
-		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const [module, invocationHost] = await Promise.all([loaders.edit(), hostForInvocation()]);
 			return module.executeEdit(params as EditParams, {
 				cwd: ctx.cwd,
@@ -304,6 +307,7 @@ function registerFileTools(
 				host: invocationHost,
 				lsp,
 				repoMap: repoMapFor(ctx),
+				...(onUpdate === undefined ? {} : { onUpdate }),
 			});
 		},
 	}, repair: {

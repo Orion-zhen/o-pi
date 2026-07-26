@@ -5,6 +5,13 @@ export interface WriteParams {
 	content: string;
 }
 
+export interface WritePreviewSuccess {
+	status: "preview";
+	path: string;
+	diff: string;
+	firstChangedLine?: number;
+}
+
 export interface WriteMutationDetails {
 	status: "updated" | "partially_stale";
 	generation: string;

@@ -9,15 +9,21 @@ export interface WritePiPorts {
 	impact(): string | undefined;
 }
 
-export function createWritePorts(invocation: FileToolsInvocation, lsp: LspFileOperations, repoMap: RepoMapToolPorts): WritePiPorts {
+export function createWritePorts(
+	invocation: FileToolsInvocation,
+	lsp: LspFileOperations,
+	repoMap: RepoMapToolPorts,
+	onDiagnosticsStart?: () => void,
+): WritePiPorts {
 	let renderedImpact: string | undefined;
 	return {
 		diagnostics: {
 			async afterWrite(input) {
 				const root = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
 				const target = invocation.nativeBridge.getNativeIdentity(input.target);
-				if (root === undefined || target === undefined) return undefined;
-				return await lsp.afterWrite?.({
+				if (root === undefined || target === undefined || lsp.afterWrite === undefined) return undefined;
+				safeNotify(onDiagnosticsStart);
+				return await lsp.afterWrite({
 					workspaceRoot: root.canonicalPath,
 					filePath: target.canonicalPath,
 					content: input.content,
@@ -39,4 +45,10 @@ export function createWritePorts(invocation: FileToolsInvocation, lsp: LspFileOp
 		},
 		impact: () => renderedImpact,
 	};
+}
+
+function safeNotify(observer: (() => void) | undefined): void {
+	try {
+		observer?.();
+	} catch {}
 }

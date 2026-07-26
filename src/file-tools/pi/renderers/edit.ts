@@ -3,19 +3,22 @@ import { Box, Spacer, Text } from "@earendil-works/pi-tui";
 import { formatToolCard } from "../../../tui/tool-card.js";
 import { joinParts } from "../../../tui/text.js";
 import { isEditSuccess, isFailedEdit } from "../../edit/guards.js";
-import type { EditPreviewSuccess, EditSuccess } from "../../edit/types.js";
+import type { EditPreviewSuccess } from "../../edit/types.js";
 import type { FailedResult } from "../../shared/result.js";
 import { isPlainRecord } from "../guards.js";
+import { isMutationProgress, type MutationProgressPhase } from "../progress.js";
 import { formatDiffStats, formatLspDiagnostics, formatLspSummary } from "./diagnostics.js";
 import { formatFailureCard } from "./shared.js";
 
 type EditPreview = EditPreviewSuccess | FailedResult;
 
 class EditCallComponent extends Box {
-	preview: EditPreview | EditSuccess | undefined;
+	preview: EditPreview | undefined;
 	previewArgsKey: string | undefined;
 	previewPending = false;
 	settledError = false;
+	phase: Extract<MutationProgressPhase, "editing" | "verifying"> = "editing";
+	progressDiff: string | undefined;
 
 	constructor() {
 		super(1, 1);
@@ -47,6 +50,8 @@ export function renderEditCall(args: unknown, theme: Theme, context: EditCallCon
 		component.previewArgsKey = argsKey;
 		component.previewPending = false;
 		component.settledError = false;
+		component.phase = "editing";
+		component.progressDiff = undefined;
 	}
 	if (context.argsComplete && argsKey !== undefined && component.preview === undefined && !component.previewPending) {
 		component.previewPending = true;
@@ -70,16 +75,18 @@ export function renderEditResult(
 	theme: Theme,
 	context: EditResultContext,
 ): Text | Box {
-	if (options.isPartial) return new Text(formatToolCard({ tool: "edit", status: "running", target: editTarget(context.args), summary: "applying" }, theme), 0, 0);
-
 	const details = result.details;
 	const callComponent = getEditCallComponent(context.state, undefined);
-	if (isEditSuccess(details)) {
-		callComponent.preview = details;
-		callComponent.previewArgsKey = stableArgsKey(context.args);
-		callComponent.previewPending = false;
-		callComponent.settledError = false;
-	} else if (isFailedEdit(details)) {
+	if (options.isPartial) {
+		if (isMutationProgress(details)) {
+			if (details.status === "editing" || details.status === "verifying") callComponent.phase = details.status;
+			if (details.diff !== undefined) callComponent.progressDiff = details.diff;
+		}
+		buildEditCallComponent(callComponent, context.args, theme, options.expanded);
+		return new Text("", 0, 0);
+	}
+
+	if (isFailedEdit(details)) {
 		callComponent.settledError = true;
 	}
 	buildEditCallComponent(callComponent, context.args, theme, options.expanded);
@@ -107,26 +114,27 @@ function getEditCallComponent(state: { callComponent?: EditCallComponent }, last
 function buildEditCallComponent(component: EditCallComponent, args: unknown, theme: Theme, expanded: boolean): EditCallComponent {
 	component.setBgFn(editHeaderBg(component.preview, component.settledError, theme));
 	component.clear();
-	component.addChild(new Text(formatEditCall(args, theme), 0, 0));
-	if (!expanded || component.preview === undefined) return component;
-
-	component.addChild(new Spacer(1));
-	if (isFailedEdit(component.preview)) {
+	component.addChild(new Text(formatEditCall(component, args, theme), 0, 0));
+	if (!expanded) return component;
+	if (component.preview !== undefined && isFailedEdit(component.preview)) {
+		component.addChild(new Spacer(1));
 		component.addChild(new Text(theme.fg("error", formatEditError(component.preview)), 0, 0));
-	} else if (component.preview.diff !== "") {
-		component.addChild(new Text(renderDiff(component.preview.diff), 0, 0));
+		return component;
+	}
+	const diff = component.progressDiff ?? component.preview?.diff;
+	if (diff !== undefined && diff !== "") {
+		component.addChild(new Spacer(1));
+		component.addChild(new Text(renderDiff(diff), 0, 0));
 	}
 	return component;
 }
 
 function editHeaderBg(
-	preview: EditPreview | EditSuccess | undefined,
+	preview: EditPreview | undefined,
 	settledError: boolean,
 	theme: Theme,
 ): ((text: string) => string) | undefined {
-	if (preview !== undefined) {
-		return isFailedEdit(preview) ? (text) => theme.bg("toolErrorBg", text) : (text) => theme.bg("toolSuccessBg", text);
-	}
+	if (preview !== undefined && isFailedEdit(preview)) return (text) => theme.bg("toolErrorBg", text);
 	if (settledError) return (text) => theme.bg("toolErrorBg", text);
 	return (text) => theme.bg("toolPendingBg", text);
 }
@@ -144,7 +152,7 @@ function formatEditResult(details: unknown, theme: Theme, args: unknown, expande
 		tool: "edit",
 		status: "success",
 		target: details.path,
-		summary: joinParts([formatDiffStats(details.diff), `${details.replacements} replacements`, details.diff !== "" ? "diff available" : "no diff", formatLspSummary(details.lsp?.diagnostics)]),
+		summary: joinParts(["done", formatDiffStats(details.diff), `${details.replacements} replacements`, formatLspSummary(details.lsp?.diagnostics)]),
 	}, theme);
 	const diff = details.diff === "" ? undefined : renderDiff(details.diff);
 	if (!expanded) return header;
@@ -171,13 +179,14 @@ function previewException(error: unknown): FailedResult {
 	};
 }
 
-function formatEditCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
+function formatEditCall(component: EditCallComponent, args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
 	const replacements = isPlainRecord(args) && Array.isArray(args["edits"]) ? args["edits"].length : undefined;
+	const diff = component.progressDiff ?? (component.preview !== undefined && !isFailedEdit(component.preview) ? component.preview.diff : undefined);
 	return formatToolCard({
 		tool: "edit",
 		status: "running",
 		target: editTarget(args),
-		summary: joinParts(["previewing", replacements !== undefined ? `${replacements} replacements` : undefined]),
+		summary: joinParts([component.phase, diff === undefined ? undefined : formatDiffStats(diff), replacements !== undefined ? `${replacements} replacements` : undefined]),
 	}, theme);
 }
 

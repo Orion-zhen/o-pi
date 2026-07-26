@@ -1,5 +1,5 @@
 import { editFile, previewEdit } from "../../edit/command.js";
-import type { EditParams } from "../../edit/types.js";
+import type { EditParams, EditPreviewSuccess } from "../../edit/types.js";
 import { FileToolsHost, type FileToolsInvocation } from "../../runtime/host.js";
 import { isFailed } from "../../shared/result.js";
 import type { LspFileOperations } from "../../../lsp/file-hooks.js";
@@ -8,6 +8,7 @@ import { formatErrorModelResult, scrubVersions } from "../model-output.js";
 import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 import { createEditPorts } from "../ports/edit.js";
 import { piTextDiffGenerator } from "../ports/text-diff.js";
+import { mutationProgress, type MutationProgressCallback } from "../progress.js";
 
 export async function executeEdit(
 	params: EditParams,
@@ -18,6 +19,7 @@ export async function executeEdit(
 		host: FileToolsHost;
 		lsp: LspFileOperations;
 		repoMap: RepoMapToolPorts;
+		onUpdate?: MutationProgressCallback;
 	},
 ) {
 	const opened = await runtime.host.open({
@@ -27,8 +29,18 @@ export async function executeEdit(
 	});
 	if (isFailed(opened)) return failedResult(opened);
 	try {
-		const ports = createEditPorts(opened, runtime.lsp, runtime.repoMap);
-		const result = await editFile(params, commandContext(opened, ports));
+		let latestPreview: EditPreviewSuccess | undefined;
+		const ports = createEditPorts(opened, runtime.lsp, runtime.repoMap, () => {
+			runtime.onUpdate?.(mutationProgress({
+				status: "verifying",
+				replacements: latestPreview?.replacements ?? params.edits.length,
+				...(latestPreview === undefined ? {} : { diff: latestPreview.diff }),
+			}));
+		});
+		const result = await editFile(params, commandContext(opened, ports, (preview) => {
+			latestPreview = preview;
+			runtime.onUpdate?.(mutationProgress({ status: "editing", diff: preview.diff, replacements: preview.replacements }));
+		}));
 		const text = isFailed(result)
 			? formatErrorModelResult(result)
 			: result.status === "applied"
@@ -62,7 +74,11 @@ export async function previewEditWorkspace(cwd: string, params: unknown) {
 	}
 }
 
-function commandContext(opened: FileToolsInvocation, ports: ReturnType<typeof createEditPorts>) {
+function commandContext(
+	opened: FileToolsInvocation,
+	ports: ReturnType<typeof createEditPorts>,
+	onPrepared: (preview: EditPreviewSuccess) => void,
+) {
 	return {
 		filesystem: opened.filesystem,
 		operation: opened.context,
@@ -72,6 +88,7 @@ function commandContext(opened: FileToolsInvocation, ports: ReturnType<typeof cr
 		diff: piTextDiffGenerator,
 		diagnostics: ports.diagnostics,
 		mutationObserver: ports.observer,
+		onPrepared,
 	};
 }
 

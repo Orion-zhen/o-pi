@@ -9,7 +9,12 @@ export interface EditPiPorts {
 	impact(): string | undefined;
 }
 
-export function createEditPorts(invocation: FileToolsInvocation, lsp: LspFileOperations, repoMap: RepoMapToolPorts): EditPiPorts {
+export function createEditPorts(
+	invocation: FileToolsInvocation,
+	lsp: LspFileOperations,
+	repoMap: RepoMapToolPorts,
+	onDiagnosticsStart?: () => void,
+): EditPiPorts {
 	let renderedImpact: string | undefined;
 	return {
 		diagnostics: {
@@ -25,8 +30,9 @@ export function createEditPorts(invocation: FileToolsInvocation, lsp: LspFileOpe
 			async afterEdit(input) {
 				const root = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
 				const target = invocation.nativeBridge.getNativeIdentity(input.target);
-				if (root === undefined || target === undefined) return undefined;
-				return await lsp.afterWrite?.({
+				if (root === undefined || target === undefined || lsp.afterWrite === undefined) return undefined;
+				safeNotify(onDiagnosticsStart);
+				return await lsp.afterWrite({
 					workspaceRoot: root.canonicalPath,
 					filePath: target.canonicalPath,
 					content: input.content,
@@ -49,4 +55,10 @@ export function createEditPorts(invocation: FileToolsInvocation, lsp: LspFileOpe
 		},
 		impact: () => renderedImpact,
 	};
+}
+
+function safeNotify(observer: (() => void) | undefined): void {
+	try {
+		observer?.();
+	} catch {}
 }

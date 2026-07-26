@@ -26,6 +26,7 @@ export interface EditCommandContext {
 	readonly diff: TextDiffGenerator;
 	readonly diagnostics?: EditDiagnosticsSource;
 	readonly mutationObserver?: EditMutationObserver;
+	readonly onPrepared?: (preview: EditPreviewSuccess) => void;
 }
 
 export interface EditPreviewContext {
@@ -62,6 +63,13 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 			const output = buildTextBytes(updatedText, before.hasBom, target.displayPath, context.maxFileBytes);
 			if (isFailed(output)) return { type: "reject", reason: output };
 			renderedDiff = await context.diff.generate(normalizeLineEndings(before.text), normalizeLineEndings(updatedText));
+			safePrepared(context.onPrepared, {
+				status: "preview",
+				path: target.displayPath,
+				replacements: input.edits.length,
+				diff: renderedDiff.diff,
+				...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
+			});
 			baseline = await safeBeforeEdit(context.diagnostics, target, context.operation.signal);
 			return { type: "commit", bytes: output };
 		},
@@ -305,6 +313,12 @@ function mapMutationError(error: Parameters<typeof mapFsError>[0]): FailedResult
 		...(expected === undefined ? {} : { expected }),
 		...(actual === undefined ? {} : { actual }),
 	});
+}
+
+function safePrepared(observer: EditCommandContext["onPrepared"], preview: EditPreviewSuccess): void {
+	try {
+		observer?.(preview);
+	} catch {}
 }
 
 async function safeBeforeEdit(source: EditDiagnosticsSource | undefined, target: TargetRef, signal: AbortSignal | undefined) {
