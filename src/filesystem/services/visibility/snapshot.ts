@@ -134,7 +134,7 @@ export class CompiledVisibilitySnapshot implements VisibilitySnapshot {
 		for (const ruleSet of source.ruleSets) {
 			if (!pathIsInsideBase(pathname, ruleSet.baseDirectory)) continue;
 			const relative = toBaseRelative(pathname, ruleSet.baseDirectory);
-			if (relative === "") continue;
+			if (relative === "" || relative === ".") continue;
 			const testPath = kind === "directory" ? `${relative}/` : relative;
 			const ruleSetMatch = ruleSet.matcher.test(testPath);
 			if (!ruleSetMatch.ignored && !ruleSetMatch.unignored) continue;

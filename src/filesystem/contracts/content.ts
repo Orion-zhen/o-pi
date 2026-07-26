@@ -30,9 +30,27 @@ export interface TextReadOptions extends ByteReadOptions {
 
 export interface ScannedLine {
 	readonly line: number;
+	/** Logical line text without its line terminator. */
 	readonly text: string;
+	/** Raw UTF-8 payload offsets, excluding BOM and line terminators; end is exclusive. */
 	readonly byteStart: number;
 	readonly byteEnd: number;
+}
+
+export interface TextSliceOptions {
+	readonly startLine?: number;
+	readonly endLine?: number;
+	readonly maxBytes: number;
+	readonly maxLines: number;
+	readonly path?: string;
+}
+
+export interface TextSlice {
+	readonly content: string;
+	readonly startLine: number;
+	readonly endLine: number;
+	readonly truncated: boolean;
+	readonly continuation?: { readonly startLine: number };
 }
 
 export interface LineScan extends AsyncIterable<FsResult<ScannedLine>> {

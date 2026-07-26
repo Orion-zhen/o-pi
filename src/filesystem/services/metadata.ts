@@ -1,0 +1,68 @@
+import type {
+	DirectoryEntry,
+	FileMetadata,
+	MetadataOperations,
+} from "../contracts/metadata.js";
+import type { DirectoryRef, ExistingRef } from "../contracts/path.js";
+import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.js";
+import { mapNativeError } from "../kernel/native-error.js";
+import type { WorkspaceNamespaceBridge } from "../kernel/namespace.js";
+import type { NativeFileSystem } from "../platform/node/native-filesystem.js";
+import { compareLogicalPath } from "./path-order.js";
+import { nativeIdentity } from "./ref.js";
+
+/** Metadata and non-recursive enumeration over guarded refs. */
+export class WorkspaceMetadataService implements MetadataOperations {
+	constructor(
+		private readonly native: NativeFileSystem,
+		private readonly bridge: WorkspaceNamespaceBridge,
+	) {}
+
+	async stat(ref: ExistingRef, context: FsOperationContext): Promise<FsResult<FileMetadata>> {
+		const identity = nativeIdentity(this.bridge, ref);
+		if (!identity.ok) return identity;
+		try {
+			const metadata = ref.kind === "symlink"
+				? await this.native.lstat(identity.value.lexicalPath, context)
+				: await this.native.stat(identity.value.nativePath, context);
+			return fsSuccess(metadata);
+		} catch (error) {
+			return fsFailure(mapNativeError(error, ref.displayPath));
+		}
+	}
+
+	async list(directory: DirectoryRef, context: FsOperationContext): Promise<FsResult<readonly DirectoryEntry[]>> {
+		const identity = nativeIdentity(this.bridge, directory);
+		if (!identity.ok) return identity;
+		let nativeEntries;
+		try {
+			nativeEntries = await this.native.readdir(identity.value.nativePath, context);
+		} catch (error) {
+			return fsFailure(mapNativeError(error, directory.displayPath));
+		}
+
+		const entries: DirectoryEntry[] = [];
+		for (const nativeEntry of [...nativeEntries].sort((left, right) => compareLogicalPath(left.name, right.name))) {
+			const child = await this.bridge.resolveChild(directory, nativeEntry.name, context);
+			if (!child.ok) {
+				if (child.error.code === "aborted") return child;
+				// Blocked, raced, or inaccessible children are not exposed by directory listing.
+				continue;
+			}
+			let linkTarget: string | undefined;
+			if (child.value.kind === "symlink") {
+				const childIdentity = nativeIdentity(this.bridge, child.value);
+				if (childIdentity.ok) {
+					try {
+						linkTarget = await this.native.readlink(childIdentity.value.lexicalPath, context);
+					} catch (error) {
+						const mapped = mapNativeError(error, child.value.displayPath);
+						if (mapped.code === "aborted") return fsFailure(mapped);
+					}
+				}
+			}
+			entries.push({ ref: child.value, name: nativeEntry.name, ...(linkTarget === undefined ? {} : { linkTarget }) });
+		}
+		return fsSuccess(entries);
+	}
+}

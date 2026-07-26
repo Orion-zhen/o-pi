@@ -1,9 +1,11 @@
-import type { DirectoryRef, ExistingRef } from "./path.js";
+import type { DirectoryRef, ExistingPathKind, ExistingRef } from "./path.js";
 import type { FsOperationContext, FsResult } from "./result.js";
 
 export interface PathCatalogOptions {
 	readonly limit: number;
 	readonly maxEntries: number;
+	/** Defaults to regular files, matching missing-file suggestion semantics. */
+	readonly kinds?: readonly ExistingPathKind[];
 }
 
 export interface PathCatalogCandidate {

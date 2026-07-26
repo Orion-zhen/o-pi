@@ -20,12 +20,12 @@ import {
 	type PathIdentity,
 } from "./access-policy.js";
 import {
-	NativeFileSystemError,
 	NodeNativeFileSystem,
 	type NativeFileSystem,
 	type NativeMetadata,
 	type NativePathKind,
 } from "../platform/node/native-filesystem.js";
+import { isNativeError, mapNativeError } from "./native-error.js";
 
 export interface WorkspaceNamespaceOptions {
 	readonly workspaceRoot: string;
@@ -44,6 +44,7 @@ export interface NativePathIdentity {
 /** Host-only bridge. Tool commands must use opaque refs instead. */
 export interface WorkspaceNamespaceBridge {
 	getNativeIdentity(ref: ExistingRef | TargetRef): NativePathIdentity | undefined;
+	resolveChild(parent: DirectoryRef, name: string, context: FsOperationContext): Promise<FsResult<ExistingRef>>;
 }
 
 export interface WorkspaceNamespaceKernel {
@@ -203,6 +204,18 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		if (parentIdentity === undefined || candidateIdentity === undefined) return false;
 		const relative = path.relative(parentIdentity.canonicalPath, candidateIdentity.canonicalPath);
 		return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+	}
+
+	async resolveChild(parent: DirectoryRef, name: string, context: FsOperationContext): Promise<FsResult<ExistingRef>> {
+		const parentIdentity = this.refs.get(parent.id);
+		if (parentIdentity === undefined || name.length === 0 || name === "." || name === ".." || path.basename(name) !== name) {
+			return fsFailure({ code: "invalid-path", message: "Directory entry is invalid.", path: parent.displayPath });
+		}
+		return await this.resolveExisting(
+			path.join(parentIdentity.lexicalPath, name),
+			{ expected: "any", followFinalSymlink: false },
+			context,
+		);
 	}
 
 	getNativeIdentity(ref: ExistingRef | TargetRef): NativePathIdentity | undefined {
@@ -415,19 +428,4 @@ function blockedFailure(displayPath: string, match: BlockedPathMatch): FsResult<
 			phase: match.phase,
 		},
 	});
-}
-
-function mapNativeError(error: unknown, displayPath: string): FsError {
-	if (!(error instanceof NativeFileSystemError)) {
-		return { code: "access-denied", message: "Path cannot be accessed.", path: displayPath };
-	}
-	if (error.code === "aborted") return { code: "aborted", message: "Operation aborted.", path: displayPath };
-	if (error.code === "not-found") return { code: "not-found", message: "Path does not exist.", path: displayPath };
-	if (error.code === "not-directory") return { code: "not-directory", message: "Path component is not a directory.", path: displayPath };
-	if (error.code === "invalid-path") return { code: "invalid-path", message: "Path is invalid.", path: displayPath };
-	return { code: "access-denied", message: "Path cannot be accessed.", path: displayPath };
-}
-
-function isNativeError(error: unknown, code: NativeFileSystemError["code"]): boolean {
-	return error instanceof NativeFileSystemError && error.code === code;
 }
