@@ -4,10 +4,10 @@ import type { FileToolsHost } from "../../runtime/host.js";
 import { isFailed } from "../../shared/result.js";
 import { formatWriteModelResult } from "../../write/presenter.js";
 import { formatErrorModelResult } from "../model-output.js";
-import type { LazyRepoMap } from "../lazy-repo-map.js";
+import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 import { createWritePorts } from "../ports/write.js";
 import { piTextDiffGenerator } from "../ports/text-diff.js";
-import type { FileToolLspHooks } from "../../types.js";
+import type { LspFileOperations } from "../../../lsp/file-hooks.js";
 
 export async function executeWrite(
 	params: WriteParams,
@@ -16,8 +16,8 @@ export async function executeWrite(
 		sessionId: string;
 		signal?: AbortSignal;
 		host: FileToolsHost;
-		lsp: FileToolLspHooks;
-		repoMap: LazyRepoMap;
+		lsp: LspFileOperations;
+		repoMap: RepoMapToolPorts;
 	},
 ) {
 	const opened = await runtime.host.open({

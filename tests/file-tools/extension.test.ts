@@ -5,7 +5,7 @@ import { initTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import fileTools, { createFileToolsExtension, type FileToolsModuleImports } from "../../agent/extensions/file-tools.js";
-import { lspFileHooks, lspManager } from "../../src/lsp/index.js";
+import { lspFileOperations as lspFileHooks, lspManager } from "../../src/lsp/index.js";
 import { formatErrorModelResult } from "../../src/file-tools/pi/model-output.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 
@@ -381,7 +381,7 @@ describe("file-tools extension", () => {
 			async lsp() {
 				return {
 					...(await import("../../src/lsp/index.js")),
-					lspFileHooks: {
+					lspFileOperations: {
 						async afterWrite() { throw new Error("lsp unavailable"); },
 					},
 				};
@@ -456,7 +456,7 @@ describe("file-tools extension", () => {
 			read: vi.fn(() => import("../../src/file-tools/pi/adapters/read.js")),
 			write: () => import("../../src/file-tools/pi/adapters/write.js"),
 			edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
-			lsp: vi.fn(async () => ({ ...(await import("../../src/lsp/index.js")), lspFileHooks: { enhanceRead } })),
+			lsp: vi.fn(async () => ({ ...(await import("../../src/lsp/index.js")), lspFileOperations: { read: enhanceRead } })),
 			repoMap: vi.fn(() => import("../../src/file-tools/pi/repo-map-runtime.js")),
 		} satisfies FileToolsModuleImports;
 		const getCommands = vi.fn(() => []);
@@ -782,9 +782,9 @@ describe("file-tools extension", () => {
 		} as unknown as ExtensionAPI);
 
 		const cwd = await mkdtemp(join(tmpdir(), "o-pi-compact-file-output-"));
-		const originalAfterEdit = lspFileHooks.afterEdit;
+		const originalAfterEdit = lspFileHooks.afterWrite;
 		try {
-			delete lspFileHooks.afterEdit;
+			delete lspFileHooks.afterWrite;
 			await writeFile(join(cwd, "a.ts"), "one\ntwo\n", "utf8");
 			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1" } };
 			const read = await executeTool(registered, "read", { path: "a.ts" }, ctx);
@@ -811,8 +811,8 @@ describe("file-tools extension", () => {
 			const failedRead = await executeTool(registered, "read", { path: "missing.ts" }, ctx);
 			expect(textResult(failedRead)).toContain('<error>\nFile does not exist.\n</error>');
 		} finally {
-			if (originalAfterEdit === undefined) delete lspFileHooks.afterEdit;
-			else lspFileHooks.afterEdit = originalAfterEdit;
+			if (originalAfterEdit === undefined) delete lspFileHooks.afterWrite;
+			else lspFileHooks.afterWrite = originalAfterEdit;
 			await rm(cwd, { recursive: true, force: true });
 		}
 	});
@@ -905,10 +905,10 @@ describe("file-tools extension", () => {
 		} as unknown as ExtensionAPI);
 
 		const cwd = await mkdtemp(join(tmpdir(), "o-pi-compact-edit-output-"));
-		const originalAfterEdit = lspFileHooks.afterEdit;
+		const originalAfterEdit = lspFileHooks.afterWrite;
 		try {
 			await writeFile(join(cwd, "bad.ts"), "foo\n", "utf8");
-			lspFileHooks.afterEdit = vi.fn(async () => ({
+			lspFileHooks.afterWrite = vi.fn(async () => ({
 				status: "errors" as const,
 				file_errors: 2,
 				file_warnings: 4,
@@ -944,8 +944,8 @@ describe("file-tools extension", () => {
 			].join("\n"));
 			expect(edited.details).toMatchObject({ status: "applied", path: "bad.ts", lsp: { diagnostics: { status: "errors", items: expect.any(Array) } } });
 		} finally {
-			if (originalAfterEdit === undefined) delete lspFileHooks.afterEdit;
-			else lspFileHooks.afterEdit = originalAfterEdit;
+			if (originalAfterEdit === undefined) delete lspFileHooks.afterWrite;
+			else lspFileHooks.afterWrite = originalAfterEdit;
 			await rm(cwd, { recursive: true, force: true });
 		}
 	});

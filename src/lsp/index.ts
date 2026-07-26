@@ -1,5 +1,5 @@
 import { LspManager } from "./manager.js";
-import { createLspFileHooks } from "./file-hooks.js";
+import { createLspFileOperations } from "./file-hooks.js";
 
 export { LspClient } from "./client.js";
 export { registerLspCommands } from "./commands.js";
@@ -19,4 +19,4 @@ export type * from "./types.js";
 
 /** 进程内共享 LSP manager；文件工具和 /lsp 命令通过它观察同一状态。 */
 export const lspManager = new LspManager();
-export const lspFileHooks = createLspFileHooks(lspManager);
+export const lspFileOperations = createLspFileOperations(lspManager);

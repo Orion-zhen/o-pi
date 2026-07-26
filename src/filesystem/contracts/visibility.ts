@@ -137,7 +137,7 @@ export interface VisibilityAnnotation {
 
 export interface VisibilitySnapshotInfo {
 	readonly fingerprint: string;
-	readonly diagnostics: readonly string[];
+	readonly diagnostics: readonly IgnoreDiagnostic[];
 }
 
 export interface VisibilityOperations {

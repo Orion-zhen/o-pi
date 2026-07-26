@@ -7,14 +7,14 @@ import { formatReadModelResult } from "../../read/presenter.js";
 import type { ReadFileSuccess, ReadParams } from "../../read/types.js";
 import type { FileToolsHost } from "../../runtime/host.js";
 import { fail, isFailed, type FailedResult } from "../../shared/result.js";
-import type { FileToolLspHooks } from "../../types.js";
+import type { LspFileOperations } from "../../../lsp/file-hooks.js";
 import {
 	resolveReadLocator,
 	type SkillReadIndex,
 	type SkillResourceError,
 } from "../../../skill-context/resources.js";
 import { formatErrorModelResult, scrubVersions } from "../model-output.js";
-import type { LazyRepoMap } from "../lazy-repo-map.js";
+import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 import {
 	createMissingPathSource,
 	createReadGraphContextSource,
@@ -28,8 +28,8 @@ export interface ExecuteReadOptions {
 	readonly signal?: AbortSignal;
 	readonly model: { input?: readonly string[] } | undefined;
 	readonly host: FileToolsHost;
-	readonly lsp: FileToolLspHooks;
-	readonly repoMap: LazyRepoMap;
+	readonly lsp: LspFileOperations;
+	readonly repoMap: RepoMapToolPorts;
 	readonly branch: SessionEntry[];
 	readonly skillIndex: SkillReadIndex;
 }
@@ -85,7 +85,7 @@ const lazyInlineImageProcessor: InlineImageProcessor = {
 async function presentResult(
 	result: ReadFileSuccess | FailedResult,
 	model: { input?: readonly string[] } | undefined,
-	repoMap: LazyRepoMap,
+	repoMap: RepoMapToolPorts,
 ) {
 	if (isReadImageSuccess(result)) {
 		return { content: formatReadImageModelContent(result, model), details: result };

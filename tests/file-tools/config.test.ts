@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { clearFileToolsConfigCache, loadFileToolsConfig } from "../../src/file-tools/config.js";
+import { FileToolsConfigProvider, loadFileToolsConfig } from "../../src/file-tools-config/config.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
@@ -12,18 +12,17 @@ beforeEach(() => {
 	workspace = temp.path;
 	delete process.env.PI_FILE_TOOLS_PROJECT_CONFIG;
 	delete process.env.PI_FILE_TOOLS_PROJECT_ROOT;
-	clearFileToolsConfigCache();
 });
 
 describe("file-tools config", () => {
 	it("默认启用三个 read 路径建议且支持覆盖数量", async () => {
 		delete process.env.PI_FILE_TOOLS_CONFIG;
-		expect(await loadFileToolsConfig(workspace)).toMatchObject({ limits: { read_suggestion_limit: 3 } });
+		expect(await loadedConfig(workspace)).toMatchObject({ limits: { read_suggestion_limit: 3 } });
 
 		const configPath = path.join(workspace, "read-suggestions.jsonc");
 		await writeFile(configPath, JSON.stringify({ limits: { read_suggestion_limit: 7 } }));
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
-		expect(await loadFileToolsConfig(workspace)).toMatchObject({ limits: { read_suggestion_limit: 7 } });
+		expect(await loadedConfig(workspace)).toMatchObject({ limits: { read_suggestion_limit: 7 } });
 	});
 
 	it("接受收缩后的 find 配置并拒绝旧 find 字段", async () => {
@@ -41,7 +40,7 @@ describe("file-tools config", () => {
 			].join("\n"),
 		);
 		process.env.PI_FILE_TOOLS_CONFIG = validPath;
-		expect(await loadFileToolsConfig(workspace)).toMatchObject({
+		expect(await loadedConfig(workspace)).toMatchObject({
 			limits: {
 				find_output_token_budget: 800,
 				find_result_limit: 50,
@@ -64,12 +63,12 @@ describe("file-tools config", () => {
 			].join("\n"),
 		);
 		process.env.PI_FILE_TOOLS_CONFIG = invalidPath;
-		expect(await loadFileToolsConfig(workspace)).toMatchObject({ status: "failed", error: { code: "CONFIG_ERROR" } });
+		expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
 
 		const undersizedPath = path.join(workspace, "undersized.jsonc");
 		await writeFile(undersizedPath, JSON.stringify({ limits: { find_output_token_budget: 31 } }));
 		process.env.PI_FILE_TOOLS_CONFIG = undersizedPath;
-		expect(await loadFileToolsConfig(workspace)).toMatchObject({ status: "failed", error: { code: "CONFIG_ERROR" } });
+		expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
 	});
 
 	it("合并项目配置但不允许项目关闭用户级 ignore 开关", async () => {
@@ -90,7 +89,7 @@ describe("file-tools config", () => {
 			ignore: { builtin_profile: "performance" },
 		}));
 
-		expect(await loadFileToolsConfig(workspace)).toMatchObject({
+		expect(await loadedConfig(workspace)).toMatchObject({
 			filesystem: {
 				blockedPaths: ["user-block/", "project-block/"],
 				visibility: {
@@ -102,7 +101,7 @@ describe("file-tools config", () => {
 		});
 
 		await writeFile(path.join(workspace, ".pi", "configs", "file-tools.jsonc"), JSON.stringify({ ignore: { piignore: true } }));
-		expect(await loadFileToolsConfig(workspace)).toMatchObject({ status: "failed", error: { code: "CONFIG_ERROR" } });
+		expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
 	});
 
 	it("并发调用按各自 cwd 选择项目配置", async () => {
@@ -120,7 +119,7 @@ describe("file-tools config", () => {
 			writeFile(path.join(secondRoot, ".pi", "configs", "file-tools.jsonc"), JSON.stringify({ limits: { ls_entries: 22 } })),
 		]);
 
-		const [first, second] = await Promise.all([loadFileToolsConfig(firstRoot), loadFileToolsConfig(secondRoot)]);
+		const [first, second] = await Promise.all([loadedConfig(firstRoot), loadedConfig(secondRoot)]);
 		expect(first).toMatchObject({ limits: { ls_entries: 11 } });
 		expect(second).toMatchObject({ limits: { ls_entries: 22 } });
 	});
@@ -130,13 +129,28 @@ describe("file-tools config", () => {
 		await writeFile(configPath, JSON.stringify({ blocked_path: ["private/"] }));
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
 
-		const [first, second] = await Promise.all([loadFileToolsConfig(workspace), loadFileToolsConfig(workspace)]);
-		if ("status" in first || "status" in second) throw new Error("config failed");
-		expect(first).toEqual(second);
-		expect(first).not.toBe(second);
-		(first.filesystem.blockedPaths as string[]).push("mutated/");
-		expect(await loadFileToolsConfig(workspace)).not.toMatchObject({
-			filesystem: { blockedPaths: expect.arrayContaining(["mutated/"]) },
-		});
+		const provider = new FileToolsConfigProvider();
+		try {
+			const [firstResult, secondResult] = await Promise.all([provider.load(workspace), provider.load(workspace)]);
+			if (!firstResult.ok || !secondResult.ok) throw new Error("config failed");
+			const first = firstResult.value;
+			const second = secondResult.value;
+			expect(first).toEqual(second);
+			expect(first).not.toBe(second);
+			(first.filesystem.blockedPaths as string[]).push("mutated/");
+			const third = await provider.load(workspace);
+			expect(third).not.toMatchObject({
+				ok: true,
+				value: { filesystem: { blockedPaths: expect.arrayContaining(["mutated/"]) } },
+			});
+		} finally {
+			provider.dispose();
+		}
 	});
 });
+
+async function loadedConfig(cwd: string) {
+	const result = await loadFileToolsConfig(cwd);
+	if (!result.ok) throw new Error(result.error.message);
+	return result.value;
+}

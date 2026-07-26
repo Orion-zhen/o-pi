@@ -6,8 +6,12 @@ import {
 	mergeRankingEvidence,
 	rrfContribution,
 } from "../../src/file-tools/shared/ranking/evidence.js";
-import { formatRepoMapAliasReason, isRepoMapMainCandidate, repoMapNavigationRelation, repoMapRankingEvidence } from "../../src/file-tools/repo-map-ranking.js";
-import type { RepoMapQueryCandidate } from "../../src/repo-map/query.js";
+import {
+	graphNavigationRelation,
+	graphRankingEvidence,
+	isGraphMainCandidate,
+} from "../../src/file-tools/find/graph-ranking.js";
+import type { FindGraphCandidate } from "../../src/file-tools/find/graph-source.js";
 
 describe("ranking evidence", () => {
 	it("单 family 第一名可以超过多个 family 的末位候选", () => {
@@ -49,57 +53,43 @@ describe("ranking evidence", () => {
 	});
 
 	it("Repo Map confidence、hop 和 edge resolution 校准 family 强度", () => {
-		const direct = repoCandidate({ confidence: 1, hop: 0 });
-		const lowConfidence = repoCandidate({ confidence: 0.4, hop: 0 });
-		const hop1 = repoCandidate({
+		const direct = graphCandidate({ confidence: 1, hop: 0 });
+		const lowConfidence = graphCandidate({ confidence: 0.4, hop: 0 });
+		const hop1 = graphCandidate({
 			confidence: 0.8,
 			hop: 1,
 			reasons: ["caller"],
-			relatedEdges: [{
-				kind: "calls", from: "a", to: "b", confidence: 0.5, resolution: "lexical", source: "syntax", hop: 1,
-				evidence: [], relatedFiles: [],
-			}],
+			relatedEdges: [{ hop: 1, confidence: 0.5, resolution: "lexical", relatedFiles: [] }],
 		});
-		expect(repoMapRankingEvidence(direct, 1, true).structural).toBeGreaterThan(0);
-		expect(repoMapRankingEvidence(lowConfidence, 1, true).fusionScore).toBe(0);
-		const graph = repoMapRankingEvidence(hop1, 1, true);
+		expect(graphRankingEvidence(direct, 1).structural).toBeGreaterThan(0);
+		expect(graphRankingEvidence(lowConfidence, 1).fusionScore).toBe(0);
+		const graph = graphRankingEvidence(hop1, 1);
 		expect(graph.graph).toBeGreaterThan(0);
 		expect(graph.structural).toBe(0);
-		expect(graph.fusionScore).toBeLessThan(repoMapRankingEvidence(direct, 1, true).fusionScore);
-		expect(repoMapRankingEvidence(direct, 1, false).fusionScore).toBe(0);
+		expect(graph.fusionScore).toBeLessThan(graphRankingEvidence(direct, 1).fusionScore);
 	});
 
 	it("纯图关系默认属于 related，明确关系意图才进入主结果", () => {
-		const caller = repoCandidate({ hop: 1, reasons: ["caller"] });
-		const test = repoCandidate({ hop: 1, reasons: ["test"] });
-		expect(isRepoMapMainCandidate(caller, "login")).toBe(false);
-		expect(isRepoMapMainCandidate(caller, "callers of login")).toBe(true);
-		expect(isRepoMapMainCandidate(test, "login tests")).toBe(true);
+		const caller = graphCandidate({ hop: 1, reasons: ["caller"] });
+		const test = graphCandidate({ hop: 1, reasons: ["test"] });
+		expect(isGraphMainCandidate(caller, "login")).toBe(false);
+		expect(isGraphMainCandidate(caller, "callers of login")).toBe(true);
+		expect(isGraphMainCandidate(test, "login tests")).toBe(true);
 	});
 
 	it("Repo Map alias 使用紧凑 ASCII 映射标记", () => {
-		const alias = repoCandidate({
+		const alias = graphCandidate({
 			reasons: ["alias"],
-			matchedAliases: [{
-				term: "auth",
-				canonical: "authentication",
-				source: "symbol",
-				confidence: 1,
-				evidence: [],
-			}],
+			matchedAliases: [{ term: "auth", canonical: "authentication" }],
 		});
-
-		expect(formatRepoMapAliasReason(alias)).toBe("alias auth->authentication");
-		expect(repoMapNavigationRelation(alias)).toBe("alias auth->authentication");
+		expect(graphNavigationRelation(alias)).toBe("alias auth->authentication");
 	});
 });
 
-function repoCandidate(overrides: Partial<RepoMapQueryCandidate>): RepoMapQueryCandidate {
+function graphCandidate(overrides: Partial<FindGraphCandidate>): FindGraphCandidate {
 	return {
 		path: "target.ts",
-		fileId: "file:target.ts",
 		contentHash: "hash",
-		score: 1,
 		confidence: 1,
 		hop: 0,
 		reasons: ["definition"],

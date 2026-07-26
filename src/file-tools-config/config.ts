@@ -3,10 +3,8 @@ import { stat } from "node:fs/promises";
 import { agentSchemaPath, createSchemaValidator, projectAgentConfigPath, readOptionalJsoncConfigWithSchema, userAgentConfigPath } from "../config-loader.js";
 import type { FilesystemPolicy } from "../filesystem/contracts/policy.js";
 import type { BuiltinIgnoreProfile, IgnoreConfig } from "../filesystem/contracts/visibility.js";
-import { pathMatchesAnyRule, type PathIdentity } from "../filesystem/kernel/access-policy.js";
 import { createVisibilityPolicy } from "../filesystem/services/visibility/policy.js";
-import { fail, isFailed, type FailedResult, type ToolOutcome } from "./shared/result.js";
-import { defaultFileToolLimits, type FileToolLimits } from "./tool-limits.js";
+import { defaultFileToolLimits, type FileToolLimits } from "../file-tool-limits.js";
 
 const USER_CONFIG_ENV = "PI_FILE_TOOLS_CONFIG";
 const PROJECT_CONFIG_ENV = "PI_FILE_TOOLS_PROJECT_CONFIG";
@@ -31,14 +29,21 @@ interface RawFileToolsConfig {
 
 interface ConfigCacheEntry {
 	fingerprint: string;
-	result: ToolOutcome<FileToolsConfig>;
+	result: FileToolsConfigResult;
 }
+
+export interface FileToolsConfigFailure {
+	readonly ok: false;
+	readonly error: { readonly message: string; readonly details?: Record<string, unknown> };
+}
+
+export type FileToolsConfigResult =
+	| { readonly ok: true; readonly value: FileToolsConfig }
+	| FileToolsConfigFailure;
 
 export interface FileToolsConfigLoader {
-	load(cwd: string): Promise<ToolOutcome<FileToolsConfig>>;
+	load(cwd: string): Promise<FileToolsConfigResult>;
 }
-
-export type ToolPathIdentity = PathIdentity;
 
 class FileToolsConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
@@ -55,8 +60,8 @@ export class FileToolsConfigProvider implements FileToolsConfigLoader {
 	private disposed = false;
 
 	/** Load user and invocation-cwd project JSONC before workspace data-plane access. */
-	async load(cwd: string): Promise<ToolOutcome<FileToolsConfig>> {
-		if (this.disposed) return fail("CONFIG_ERROR", "File-tools config provider is shut down.");
+	async load(cwd: string): Promise<FileToolsConfigResult> {
+		if (this.disposed) return configFailure("File-tools config provider is shut down.");
 		const userPath = userConfigPath();
 		const projectPath = projectConfigPath(cwd);
 		const paths = projectPath === undefined ? [userPath] : [userPath, projectPath];
@@ -74,7 +79,7 @@ export class FileToolsConfigProvider implements FileToolsConfigLoader {
 		}
 		try {
 			const loaded = await pending;
-			if (this.disposed) return fail("CONFIG_ERROR", "File-tools config provider is shut down.");
+			if (this.disposed) return configFailure("File-tools config provider is shut down.");
 			if (this.epoch === epoch) this.cache.set(cacheKey, loaded);
 			return structuredClone(loaded.result);
 		} finally {
@@ -82,7 +87,7 @@ export class FileToolsConfigProvider implements FileToolsConfigLoader {
 		}
 	}
 
-	clear(): void {
+	private clear(): void {
 		this.epoch += 1;
 		this.cache.clear();
 		this.pending.clear();
@@ -95,14 +100,13 @@ export class FileToolsConfigProvider implements FileToolsConfigLoader {
 	}
 }
 
-const defaultConfigProvider = new FileToolsConfigProvider();
-
-export async function loadFileToolsConfig(cwd: string): Promise<ToolOutcome<FileToolsConfig>> {
-	return await defaultConfigProvider.load(cwd);
-}
-
-export function clearFileToolsConfigCache(): void {
-	defaultConfigProvider.clear();
+export async function loadFileToolsConfig(cwd: string): Promise<FileToolsConfigResult> {
+	const provider = new FileToolsConfigProvider();
+	try {
+		return await provider.load(cwd);
+	} finally {
+		provider.dispose();
+	}
 }
 
 async function loadStableConfig(
@@ -116,20 +120,20 @@ async function loadStableConfig(
 		const result = await loadMergedConfig(userPath, projectPath);
 		const current = await configFingerprint(paths);
 		if (current === fingerprint || attempt === 1) {
-			return { fingerprint: current, result: isFailed(result) ? result : bindConfigFingerprint(result, current) };
+			return { fingerprint: current, result: result.ok ? configSuccess(bindConfigFingerprint(result.value, current)) : result };
 		}
 		fingerprint = current;
 	}
 	throw new Error("unreachable config load state");
 }
 
-async function loadMergedConfig(userPath: string, projectPath: string | undefined): Promise<ToolOutcome<FileToolsConfig>> {
+async function loadMergedConfig(userPath: string, projectPath: string | undefined): Promise<FileToolsConfigResult> {
 	const userRaw = await readConfig(userPath);
-	if (isFailed(userRaw)) return userRaw;
+	if (isConfigReadFailure(userRaw)) return userRaw;
 	const userConfig = mergeConfig(defaultFileToolsConfig(), userRaw);
 
 	const projectRaw = projectPath === undefined ? undefined : await readConfig(projectPath);
-	if (projectRaw !== undefined && isFailed(projectRaw)) return projectRaw;
+	if (projectRaw !== undefined && isConfigReadFailure(projectRaw)) return projectRaw;
 	return mergeProjectConfig(userConfig, projectRaw, projectPath);
 }
 
@@ -147,7 +151,7 @@ async function fileFingerprint(filePath: string): Promise<string> {
 	}
 }
 
-async function readConfig(configPath: string): Promise<RawFileToolsConfig | undefined | FailedResult> {
+async function readConfig(configPath: string): Promise<RawFileToolsConfig | undefined | FileToolsConfigFailure> {
 	try {
 		const parsed = await readOptionalJsoncConfigWithSchema({
 			path: configPath,
@@ -157,19 +161,9 @@ async function readConfig(configPath: string): Promise<RawFileToolsConfig | unde
 		});
 		return parsed as RawFileToolsConfig | undefined;
 	} catch (error) {
-		if (error instanceof FileToolsConfigError) {
-			return error.details === undefined ? fail("CONFIG_ERROR", error.message) : fail("CONFIG_ERROR", error.message, { details: error.details });
-		}
+		if (error instanceof FileToolsConfigError) return configFailure(error.message, error.details);
 		throw error;
 	}
-}
-
-export function isBlockedPath(config: FileToolsConfig, identity: ToolPathIdentity): boolean {
-	return pathMatchesAnyRule(identity, config.filesystem.blockedPaths);
-}
-
-export function toolPathIdentity(displayPath: string, absolutePath: string, workspacePath: string | undefined): ToolPathIdentity {
-	return { displayPath, absolutePath, ...(workspacePath === undefined ? {} : { workspacePath }) };
 }
 
 export function defaultFileToolsConfig(): FileToolsConfig {
@@ -186,19 +180,20 @@ function mergeProjectConfig(
 	userConfig: FileToolsConfig,
 	raw: RawFileToolsConfig | undefined,
 	sourcePath: string | undefined,
-): ToolOutcome<FileToolsConfig> {
-	if (raw === undefined) return userConfig;
+): FileToolsConfigResult {
+	if (raw === undefined) return configSuccess(userConfig);
 	const unsupportedIgnoreKeys = ["piignore", "gitignore", "git_tracked_files_bypass"].filter((key) => key in (raw.ignore ?? {}));
 	if (unsupportedIgnoreKeys.length > 0) {
-		return fail("CONFIG_ERROR", "project file-tools config cannot change user ignore safety switches.", {
-			details: { path: sourcePath, fields: unsupportedIgnoreKeys.map((key) => `ignore.${key}`) },
+		return configFailure("project file-tools config cannot change user ignore safety switches.", {
+			path: sourcePath,
+			fields: unsupportedIgnoreKeys.map((key) => `ignore.${key}`),
 		});
 	}
 	const merged = mergeConfig(userConfig, raw);
-	return withPolicies(merged, {
+	return configSuccess(withPolicies(merged, {
 		blockedPaths: appendUnique(userConfig.filesystem.blockedPaths, raw.blocked_path),
 		ignoredPaths: appendUnique(userConfig.filesystem.visibility.ignoredPaths, raw.ignored_path),
-	});
+	}));
 }
 
 function mergeConfig(base: FileToolsConfig, raw: RawFileToolsConfig | undefined): FileToolsConfig {
@@ -274,6 +269,20 @@ function userConfigPath(): string {
 
 function projectConfigPath(cwd: string): string | undefined {
 	return projectAgentConfigPath(cwd, "file-tools.jsonc", PROJECT_CONFIG_ENV, PROJECT_ROOT_ENV);
+}
+
+function configSuccess(value: FileToolsConfig): FileToolsConfigResult {
+	return { ok: true, value };
+}
+
+function configFailure(message: string, details?: Record<string, unknown>): FileToolsConfigFailure {
+	return { ok: false, error: { message, ...(details === undefined ? {} : { details }) } };
+}
+
+function isConfigReadFailure(
+	value: RawFileToolsConfig | undefined | FileToolsConfigFailure,
+): value is FileToolsConfigFailure {
+	return value !== undefined && "ok" in value && !value.ok;
 }
 
 function appendUnique(base: readonly string[], extra: readonly string[] | undefined): string[] {

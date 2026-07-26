@@ -5,9 +5,9 @@ import { listDirectory } from "../../src/file-tools/ls/command.js";
 import { formatCompactLsResult } from "../../src/file-tools/ls/presenter.js";
 import { executeLs } from "../../src/file-tools/pi/adapters/ls.js";
 import type { LsParams, LsSuccess } from "../../src/file-tools/ls/types.js";
-import { sha256Version } from "../../src/file-tools/core/text-file.js";
+import { contentHash } from "../../src/filesystem/services/text.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
-import { defaultFileToolLimits } from "../../src/file-tools/tool-limits.js";
+import { defaultFileToolLimits } from "../../src/file-tool-limits.js";
 import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -236,12 +236,15 @@ describe("ls", () => {
 			config: {
 				async load() {
 					return {
-						filesystem: {
-							blockedPaths: [],
-							visibility: createVisibilityPolicy({ ignore: { builtinProfile: "minimal" } }),
-							fingerprint: "builtin-ls-test",
+						ok: true as const,
+						value: {
+							filesystem: {
+								blockedPaths: [],
+								visibility: createVisibilityPolicy({ ignore: { builtinProfile: "minimal" } }),
+								fingerprint: "builtin-ls-test",
+							},
+							limits: defaultFileToolLimits(),
 						},
-						limits: defaultFileToolLimits(),
 					};
 				},
 			},
@@ -372,7 +375,7 @@ describe("ls", () => {
 		const main = await readWorkspaceFile(workspace, { path: "src/main.ts" });
 		expect(main).toMatchObject({ content: "export const main = 1;\n" });
 		if (!("version" in main)) throw new Error("read failed");
-		expect(main.version).toBe(sha256Version(Buffer.from("export const main = 1;\n")));
+		expect(main.version).toBe(contentHash(Buffer.from("export const main = 1;\n")));
 
 		expect(await listWorkspaceDirectory(workspace, { path: "src/main.ts" })).toMatchObject({
 			status: "failed",

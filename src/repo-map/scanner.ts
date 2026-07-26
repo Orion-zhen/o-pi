@@ -1,32 +1,27 @@
-import { createHash } from "node:crypto";
-import { lstat, open, readdir } from "node:fs/promises";
-import path from "node:path";
-import { constants, type Dirent, type Stats } from "node:fs";
 import pLimit from "p-limit";
 
+import type { FileRef } from "../filesystem/contracts/path.js";
+import type { FsOperationContext } from "../filesystem/contracts/result.js";
+import type { WorkspaceFileSystem } from "../filesystem/contracts/workspace.js";
 import { createFileIdentity } from "../code-index/identity.js";
-import {
-	isBlockedPath,
-	toolPathIdentity,
-	type FileToolsConfig,
-} from "../file-tools/config.js";
-import type { VisibilitySnapshot } from "../filesystem/contracts/visibility.js";
 import { RepoMapError, throwIfAborted } from "./errors.js";
-import { isRepoMapFileInScope } from "./scope.js";
 import type { RepoMapDiagnostic, RepoMapFileRecord, RepoMapScanSummary } from "./types.js";
 
 export interface RepoMapScanInput {
-	root: string;
-	fileToolsConfig: FileToolsConfig;
-	ignoreSnapshot: VisibilitySnapshot;
+	filesystem: RepoMapScannerFileSystem;
+	operation: FsOperationContext;
 	maxFiles: number;
 	maxFileBytes: number;
 	concurrency: number;
 	previousFiles?: readonly RepoMapFileRecord[];
 	signal?: AbortSignal;
 	onProgress?: (progress: RepoMapProgress) => void;
-	fileSystem?: ScannerFileSystem;
 }
+
+export type RepoMapScannerFileSystem = Pick<
+	WorkspaceFileSystem,
+	"root" | "traversal" | "metadata" | "content" | "visibility"
+>;
 
 export interface RepoMapProgress {
 	phase: "discovering" | "scanning" | "hashing" | "parsing" | "saving";
@@ -40,135 +35,57 @@ export interface RepoMapScanResult {
 	summary: RepoMapScanSummary;
 }
 
-export interface ScannerFileSystem {
-	readdir(directory: string): Promise<Dirent[]>;
-	lstat(filePath: string): Promise<Stats>;
-	stat(filePath: string): Promise<Stats>;
-	readFile(filePath: string, signal: AbortSignal | undefined, maxBytes: number): Promise<Buffer>;
-}
-
 interface Candidate {
-	absolutePath: string;
+	ref?: FileRef;
 	relativePath: string;
-	initialStat?: Stats;
 }
-
-const defaultFileSystem: ScannerFileSystem = {
-	async readdir(directory) {
-		return await readdir(directory, { withFileTypes: true });
-	},
-	async lstat(filePath) {
-		return await lstat(filePath);
-	},
-	async stat(filePath) {
-		return await lstat(filePath);
-	},
-	async readFile(filePath, signal, maxBytes) {
-		const handle = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW);
-		try {
-			const buffer = Buffer.allocUnsafe(maxBytes + 1);
-			let offset = 0;
-			while (offset < buffer.length) {
-				throwIfAborted(signal);
-				const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset);
-				if (bytesRead === 0) break;
-				offset += bytesRead;
-			}
-			return buffer.subarray(0, offset);
-		} finally {
-			await handle.close();
-		}
-	},
-};
 
 export async function scanRepoMap(input: RepoMapScanInput): Promise<RepoMapScanResult> {
 	throwIfAborted(input.signal);
 	safeProgress(input.onProgress, { phase: "discovering" });
-	const fileSystem = input.fileSystem ?? defaultFileSystem;
 	const candidates: Candidate[] = [];
-	const diagnostics: RepoMapDiagnostic[] = input.ignoreSnapshot.diagnostics.map((diagnostic) => ({
+	const diagnostics: RepoMapDiagnostic[] = input.filesystem.visibility.snapshot.diagnostics.map((diagnostic) => ({
 		code: diagnostic.code,
 		message: diagnostic.message,
 		path: diagnostic.sourcePath,
 	}));
 	let skippedDirectories = 0;
-
-	const walk = async (absoluteDirectory: string, relativeDirectory: string): Promise<void> => {
-		throwIfAborted(input.signal);
-		if (relativeDirectory !== ".") {
-			try {
-				const directoryInfo = await fileSystem.lstat(absoluteDirectory);
-				if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()) {
-					skippedDirectories += 1;
-					return;
-				}
-			} catch {
-				skippedDirectories += 1;
-				return;
-			}
-		}
-		let entries: Dirent[];
-		try {
-			entries = await fileSystem.readdir(absoluteDirectory);
-		} catch {
-			skippedDirectories += 1;
-			diagnostics.push({ code: "DIRECTORY_UNREADABLE", message: "Directory could not be read.", path: relativeDirectory });
-			return;
-		}
-		entries.sort((left, right) => compareStable(left.name, right.name));
-		for (const entry of entries) {
+	const traversal = await input.filesystem.traversal.walk(input.filesystem.root, {
+		intent: "index",
+		explicitRoot: false,
+	}, input.operation);
+	if (!traversal.ok) throw scanFailure(traversal.error);
+	try {
+		for await (const event of traversal.value) {
 			throwIfAborted(input.signal);
-			const relativePath = relativeDirectory === "." ? entry.name : `${relativeDirectory}/${entry.name}`;
-			const absolutePath = path.join(absoluteDirectory, entry.name);
-			const identity = toolPathIdentity(relativePath, absolutePath, relativePath);
-			if (isBlockedPath(input.fileToolsConfig, identity)) {
-				if (entry.isDirectory()) skippedDirectories += 1;
+			if (event.type === "skip") {
+				if (event.kind === "directory") skippedDirectories += 1;
 				continue;
 			}
-			if (entry.isSymbolicLink()) {
-				if (await symlinkIsDirectory(fileSystem, absolutePath)) skippedDirectories += 1;
-				continue;
-			}
-			if (entry.isDirectory()) {
-				if (entry.name === ".git") {
+			if (event.type === "error") {
+				if (event.kind === "file") {
+					candidates.push({ relativePath: event.path });
+					if (candidates.length > input.maxFiles) {
+						throw new RepoMapError("SCAN_LIMIT_EXCEEDED", `Repo Map scan exceeds the ${input.maxFiles} file limit.`);
+					}
+				} else {
 					skippedDirectories += 1;
-					continue;
+					diagnostics.push({ code: "DIRECTORY_UNREADABLE", message: "Directory could not be read.", path: event.path });
 				}
-				const decision = input.ignoreSnapshot.evaluate({
-					path: relativePath,
-					absolutePath,
-					workspacePath: relativePath,
-					kind: "directory",
-					intent: "index",
-				});
-				if (decision.ignored && decision.prune) {
-					skippedDirectories += 1;
-					continue;
-				}
-				await walk(absolutePath, relativePath);
 				continue;
 			}
-			if (!entry.isFile() || !isRepoMapFileInScope({
-				relativePath,
-				absolutePath,
-				fileToolsConfig: input.fileToolsConfig,
-				ignoreSnapshot: input.ignoreSnapshot,
-			})) continue;
-			let initialStat: Stats | undefined;
-			try {
-				initialStat = await fileSystem.stat(absolutePath);
-				if (!initialStat.isFile()) continue;
-			} catch {
-				// Dirent established file existence; retain an unreadable record below.
-			}
-			candidates.push({ absolutePath, relativePath, ...(initialStat !== undefined ? { initialStat } : {}) });
+			if (event.ref.kind !== "file") continue;
+			const relativePath = event.ref.workspacePath;
+			if (relativePath === undefined || relativePath === ".") continue;
+			candidates.push({ ref: event.ref, relativePath });
 			if (candidates.length > input.maxFiles) {
 				throw new RepoMapError("SCAN_LIMIT_EXCEEDED", `Repo Map scan exceeds the ${input.maxFiles} file limit.`);
 			}
 		}
-	};
+	} finally {
+		await traversal.value.close();
+	}
 
-	await walk(input.root, ".");
 	candidates.sort((left, right) => compareStable(left.relativePath, right.relativePath));
 	safeProgress(input.onProgress, { phase: "scanning", completed: 0, total: candidates.length });
 	const previous = new Map((input.previousFiles ?? []).map((record) => [record.path, record]));
@@ -178,7 +95,7 @@ export async function scanRepoMap(input: RepoMapScanInput): Promise<RepoMapScanR
 	const limit = pLimit(input.concurrency);
 	const records = await limit.map(candidates, async (candidate) => {
 		throwIfAborted(input.signal);
-		const result = await buildRecord(candidate, previous.get(candidate.relativePath), input.maxFileBytes, fileSystem, input.signal);
+		const result = await buildRecord(candidate, previous.get(candidate.relativePath), input.maxFileBytes, input);
 		if (result.reused) reused += 1;
 		if (result.hashed) hashed += 1;
 		if (result.diagnostic !== undefined) diagnostics.push(result.diagnostic);
@@ -188,23 +105,22 @@ export async function scanRepoMap(input: RepoMapScanInput): Promise<RepoMapScanR
 	});
 	throwIfAborted(input.signal);
 
-	const files = records;
-	const currentPaths = new Set(files.map((record) => record.path));
+	const currentPaths = new Set(records.map((record) => record.path));
 	let added = 0;
 	let changed = 0;
-	for (const record of files) {
+	for (const record of records) {
 		const oldRecord = previous.get(record.path);
 		if (oldRecord === undefined) added += 1;
 		else if (!recordsEqual(record, oldRecord)) changed += 1;
 	}
 	let removed = 0;
 	for (const oldPath of previous.keys()) if (!currentPaths.has(oldPath)) removed += 1;
-	const indexed = files.filter((record) => record.status === "indexed").length;
-	const tooLarge = files.filter((record) => record.status === "too_large").length;
-	const unreadable = files.filter((record) => record.status === "unreadable").length;
-	const unstable = files.filter((record) => record.status === "unstable").length;
+	const indexed = records.filter((record) => record.status === "indexed").length;
+	const tooLarge = records.filter((record) => record.status === "too_large").length;
+	const unreadable = records.filter((record) => record.status === "unreadable").length;
+	const unstable = records.filter((record) => record.status === "unstable").length;
 	const summary: RepoMapScanSummary = {
-		discovered: files.length,
+		discovered: records.length,
 		indexed,
 		reused,
 		hashed,
@@ -224,100 +140,65 @@ export async function scanRepoMap(input: RepoMapScanInput): Promise<RepoMapScanR
 		skippedDirectories,
 		diagnostics: diagnostics.length,
 	};
-	return { files, diagnostics, summary };
+	return { files: records, diagnostics, summary };
 }
 
 async function buildRecord(
 	candidate: Candidate,
 	previous: RepoMapFileRecord | undefined,
 	maxBytes: number,
-	fileSystem: ScannerFileSystem,
-	signal?: AbortSignal,
+	input: RepoMapScanInput,
 ): Promise<{ record: RepoMapFileRecord; reused: boolean; hashed: boolean; diagnostic?: RepoMapDiagnostic }> {
 	const identity = createFileIdentity(candidate.relativePath);
-	const info = candidate.initialStat;
-	if (info === undefined) {
-		return {
-			record: { ...identity, size: 0, mtimeMs: 0, status: "unreadable" },
-			reused: false,
-			hashed: false,
-			diagnostic: { code: "FILE_UNREADABLE", message: "File metadata could not be read.", path: candidate.relativePath },
-		};
+	if (candidate.ref === undefined) return unreadableRecord(identity, candidate.relativePath);
+	const metadata = await input.filesystem.metadata.stat(candidate.ref, input.operation);
+	if (!metadata.ok) return unreadableRecord(identity, candidate.relativePath);
+	const base = { size: metadata.value.sizeBytes, mtimeMs: metadata.value.modifiedAtMs };
+	if (metadata.value.sizeBytes > maxBytes) {
+		return { record: { ...identity, ...base, status: "too_large" }, reused: false, hashed: false };
 	}
-	if (info.size > maxBytes) {
-		return { record: { ...identity, ...fileMetadata(info), status: "too_large" }, reused: false, hashed: false };
-	}
-	try {
-		const stable = await stableRead(candidate.absolutePath, maxBytes, fileSystem, signal);
-		if (stable === undefined) {
-			return {
-				record: { ...identity, ...fileMetadata(info), status: "unstable" },
-				reused: false,
-				hashed: false,
-				diagnostic: { code: "FILE_UNSTABLE", message: "File changed repeatedly while being read.", path: candidate.relativePath },
-			};
-		}
-		if (stable.kind === "too_large") {
-			return {
-				record: { ...identity, ...fileMetadata(stable.info), status: "too_large" },
-				reused: false,
-				hashed: false,
-			};
-		}
-		const contentHash = createHash("sha256").update(stable.bytes).digest("hex");
-		const reused = previous?.status === "indexed" && previous.contentHash === contentHash;
-		return {
-			record: { ...identity, ...fileMetadata(stable.info), status: "indexed", contentHash },
-			reused,
-			hashed: !reused,
-		};
-	} catch (error) {
-		if (signal?.aborted === true || isAbortError(error)) throw new RepoMapError("OPERATION_ABORTED", "Repo Map initialization cancelled.", error);
-		return {
-			record: { ...identity, ...fileMetadata(info), status: "unreadable" },
-			reused: false,
-			hashed: false,
-			diagnostic: { code: "FILE_UNREADABLE", message: "File content could not be read.", path: candidate.relativePath },
-		};
-	}
-}
-
-async function stableRead(
-	filePath: string,
-	maxBytes: number,
-	fileSystem: ScannerFileSystem,
-	signal?: AbortSignal,
-): Promise<{ kind: "stable"; bytes: Buffer; info: Stats } | { kind: "too_large"; info: Stats } | undefined> {
 	for (let attempt = 0; attempt < 2; attempt += 1) {
-		throwIfAborted(signal);
-		const before = await fileSystem.stat(filePath);
-		if (before.size > maxBytes) return { kind: "too_large", info: before };
-		const bytes = await fileSystem.readFile(filePath, signal, maxBytes);
-		const after = await fileSystem.stat(filePath);
-		if (after.size > maxBytes || bytes.length > maxBytes) return { kind: "too_large", info: after };
-		if (sameStats(before, after) && bytes.length === after.size) return { kind: "stable", bytes, info: after };
+		const content = await input.filesystem.content.readBytes(candidate.ref, { maxBytes, stable: true }, input.operation);
+		if (content.ok) {
+			const after = await input.filesystem.metadata.stat(candidate.ref, input.operation);
+			if (!after.ok) return unreadableRecord(identity, candidate.relativePath, base);
+			if (after.value.sizeBytes > maxBytes) {
+				return { record: { ...identity, size: after.value.sizeBytes, mtimeMs: after.value.modifiedAtMs, status: "too_large" }, reused: false, hashed: false };
+			}
+			if (after.value.sizeBytes !== content.value.sizeBytes) continue;
+			const contentHash = content.value.hash.replace(/^sha256:/u, "");
+			const reused = previous?.status === "indexed" && previous.contentHash === contentHash;
+			return {
+				record: { ...identity, size: content.value.sizeBytes, mtimeMs: after.value.modifiedAtMs, status: "indexed", contentHash },
+				reused,
+				hashed: !reused,
+			};
+		}
+		if (content.error.code === "aborted") throw new RepoMapError("OPERATION_ABORTED", "Repo Map initialization cancelled.", content.error);
+		if (content.error.code === "too-large") {
+			return { record: { ...identity, ...base, status: "too_large" }, reused: false, hashed: false };
+		}
+		if (content.error.code !== "changed-during-read") return unreadableRecord(identity, candidate.relativePath, base);
 	}
-	return undefined;
+	return {
+		record: { ...identity, ...base, status: "unstable" },
+		reused: false,
+		hashed: false,
+		diagnostic: { code: "FILE_UNSTABLE", message: "File changed repeatedly while being read.", path: candidate.relativePath },
+	};
 }
 
-async function symlinkIsDirectory(fileSystem: ScannerFileSystem, absolutePath: string): Promise<boolean> {
-	try {
-		return (await fileSystem.lstat(absolutePath)).isDirectory();
-	} catch {
-		return false;
-	}
-}
-
-function fileMetadata(info: Stats): Pick<RepoMapFileRecord, "size" | "mtimeMs"> {
-	return { size: info.size, mtimeMs: info.mtimeMs };
-}
-
-function sameStats(left: Stats, right: Stats): boolean {
-	return left.size === right.size
-		&& left.mtimeMs === right.mtimeMs
-		&& left.ctimeMs === right.ctimeMs
-		&& left.ino === right.ino
-		&& left.dev === right.dev;
+function unreadableRecord(
+	identity: ReturnType<typeof createFileIdentity>,
+	path: string,
+	metadata: { size: number; mtimeMs: number } = { size: 0, mtimeMs: 0 },
+): { record: RepoMapFileRecord; reused: false; hashed: false; diagnostic: RepoMapDiagnostic } {
+	return {
+		record: { ...identity, ...metadata, status: "unreadable" },
+		reused: false,
+		hashed: false,
+		diagnostic: { code: "FILE_UNREADABLE", message: "File content could not be read.", path },
+	};
 }
 
 function recordsEqual(left: RepoMapFileRecord, right: RepoMapFileRecord): boolean {
@@ -327,6 +208,10 @@ function recordsEqual(left: RepoMapFileRecord, right: RepoMapFileRecord): boolea
 		&& left.mtimeMs === right.mtimeMs
 		&& left.status === right.status
 		&& left.contentHash === right.contentHash;
+}
+
+function scanFailure(error: { readonly code: string; readonly message: string }): RepoMapError {
+	return new RepoMapError(error.code === "aborted" ? "OPERATION_ABORTED" : "SCAN_FAILED", error.message, error);
 }
 
 function safeProgress(callback: RepoMapScanInput["onProgress"], progress: RepoMapProgress): void {
@@ -339,8 +224,4 @@ function safeProgress(callback: RepoMapScanInput["onProgress"], progress: RepoMa
 
 function compareStable(left: string, right: string): number {
 	return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function isAbortError(error: unknown): boolean {
-	return error instanceof Error && error.name === "AbortError";
 }

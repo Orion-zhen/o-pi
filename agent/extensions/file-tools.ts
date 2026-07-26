@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { isFailedDetails, isFileToolName } from "../../src/file-tools/pi/guards.js";
-import { createLazyLspFileHooks } from "../../src/file-tools/pi/lazy-lsp.js";
+import { createLazyLspFileOperations } from "../../src/file-tools/pi/lazy-lsp.js";
 import { appendRepoMapEntry, createLazyRepoMap, type LazyRepoMap } from "../../src/file-tools/pi/lazy-repo-map.js";
 import type { LsParams } from "../../src/file-tools/ls/types.js";
 import type { FileToolsHost } from "../../src/file-tools/runtime/host.js";
@@ -83,6 +83,13 @@ export interface FileToolsModuleImports {
 	repoMap(): Promise<typeof import("../../src/file-tools/pi/repo-map-runtime.js")>;
 }
 
+type FindAdapter = ReturnType<(typeof import("../../src/file-tools/pi/adapters/find.js"))["createFindAdapter"]>;
+type GrepAdapter = ReturnType<(typeof import("../../src/file-tools/pi/adapters/grep.js"))["createGrepAdapter"]>;
+type FileToolsLoaders = Omit<FileToolsModuleImports, "find" | "grep" | "renderers"> & {
+	find(): Promise<FindAdapter>;
+	grep(): Promise<GrepAdapter>;
+};
+
 const defaultModuleImports: FileToolsModuleImports = {
 	ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
 	host: () => import("../../src/file-tools/runtime/host.js"),
@@ -96,19 +103,19 @@ const defaultModuleImports: FileToolsModuleImports = {
 };
 
 export function createFileToolsExtension(imports: FileToolsModuleImports = defaultModuleImports): (pi: ExtensionAPI) => void {
-	const cacheDisposers = new Set<() => void>();
-	const loaders: FileToolsModuleImports = {
+	const loadedToolInstances = new Set<{ dispose(): void }>();
+	const loaders: FileToolsLoaders = {
 		ls: createRetryableLoader(imports.ls),
 		host: createRetryableLoader(imports.host),
 		find: createRetryableLoader(async () => {
-			const module = await imports.find();
-			cacheDisposers.add(module.dispose);
-			return module;
+			const adapter = (await imports.find()).createFindAdapter();
+			loadedToolInstances.add(adapter);
+			return adapter;
 		}),
 		grep: createRetryableLoader(async () => {
-			const module = await imports.grep();
-			cacheDisposers.add(module.dispose);
-			return module;
+			const adapter = (await imports.grep()).createGrepAdapter();
+			loadedToolInstances.add(adapter);
+			return adapter;
 		}),
 		read: createRetryableLoader(imports.read),
 		write: createRetryableLoader(imports.write),
@@ -117,14 +124,14 @@ export function createFileToolsExtension(imports: FileToolsModuleImports = defau
 		repoMap: createRetryableLoader(imports.repoMap),
 	};
 	const loadRenderers = createRetryableLoader(imports.renderers ?? (() => import("../../src/file-tools/pi/renderers.js")));
-	return (pi) => registerFileTools(pi, loaders, cacheDisposers, loaders.host, loadRenderers);
+	return (pi) => registerFileTools(pi, loaders, loadedToolInstances, loaders.host, loadRenderers);
 }
 
 /** 注册覆盖版 ls/find/grep/read/write/edit；扩展层只适配 Pi，工具实现和渲染细节在 src/file-tools。 */
 function registerFileTools(
 	pi: ExtensionAPI,
-	loaders: FileToolsModuleImports,
-	cacheDisposers: Set<() => void>,
+	loaders: FileToolsLoaders,
+	loadedToolInstances: ReadonlySet<{ dispose(): void }>,
 	loadHost: () => Promise<typeof import("../../src/file-tools/runtime/host.js")>,
 	loadRenderers: () => Promise<typeof import("../../src/file-tools/pi/renderers.js")>,
 ): void {
@@ -133,13 +140,11 @@ function registerFileTools(
 	let shuttingDown = false;
 	const hostForInvocation = async (): Promise<FileToolsHost> => {
 		const { FileToolsHost: Host } = await loadHost();
-		if (host === undefined) {
-			host = new Host();
-			if (shuttingDown) host.dispose();
-		}
+		if (host === undefined) host = new Host();
+		if (shuttingDown) host.stop();
 		return host;
 	};
-	const lsp = createLazyLspFileHooks(loaders.lsp);
+	const lsp = createLazyLspFileOperations(loaders.lsp);
 	const skillReadIndex = createRetryableLoader(async () => buildSkillReadIndex(
 		collectSkillCandidates(undefined, typeof pi.getCommands === "function" ? pi.getCommands() : []),
 	));
@@ -185,8 +190,8 @@ function registerFileTools(
 		promptSnippet: "locate files or directories",
 		parameters: findParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const [module, invocationHost] = await Promise.all([loaders.find(), hostForInvocation()]);
-			return module.executeFind(params as FindParams, {
+			const [adapter, invocationHost] = await Promise.all([loaders.find(), hostForInvocation()]);
+			return adapter.execute(params as FindParams, {
 				cwd: ctx.cwd,
 				sessionId: ctx.sessionManager.getSessionId(),
 				...(signal !== undefined ? { signal } : {}),
@@ -207,8 +212,8 @@ function registerFileTools(
 		promptSnippet: "locate relevant code",
 		parameters: grepParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const [module, invocationHost] = await Promise.all([loaders.grep(), hostForInvocation()]);
-			return module.executeGrep(params as GrepParams, {
+			const [adapter, invocationHost] = await Promise.all([loaders.grep(), hostForInvocation()]);
+			return adapter.execute(params as GrepParams, {
 				cwd: ctx.cwd,
 				sessionId: ctx.sessionManager.getSessionId(),
 				...(signal !== undefined ? { signal } : {}),
@@ -342,10 +347,12 @@ function registerFileTools(
 	});
 	pi.on("session_shutdown", async () => {
 		shuttingDown = true;
-		host?.dispose();
+		host?.stop();
+		for (const instance of loadedToolInstances) instance.dispose();
+		for (const repoMap of repoMaps.values()) repoMap.dispose();
 		repoMaps.clear();
 		await lsp.shutdown();
-		for (const dispose of cacheDisposers) dispose();
+		host?.dispose();
 	});
 }
 

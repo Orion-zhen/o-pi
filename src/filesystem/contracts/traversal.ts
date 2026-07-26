@@ -15,12 +15,14 @@ export interface TraversalSkipEvent {
 	readonly type: "skip";
 	readonly path: string;
 	readonly reason: TraversalSkipReason;
+	readonly kind?: ExistingRef["kind"];
 }
 
 export interface TraversalErrorEvent {
 	readonly type: "error";
 	readonly path: string;
 	readonly error: FsError;
+	readonly kind?: ExistingRef["kind"];
 }
 
 export type TraversalEvent = TraversalEntryEvent | TraversalSkipEvent | TraversalErrorEvent;

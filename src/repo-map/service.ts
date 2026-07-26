@@ -1,8 +1,12 @@
 import { createHash } from "node:crypto";
-import { loadFileToolsConfig, type FileToolsConfig } from "../file-tools/config.js";
-import { isFailed } from "../file-tools/shared/result.js";
-import { createVisibilitySnapshot } from "../filesystem/services/visibility/service.js";
-import type { VisibilityPolicy, VisibilitySnapshot } from "../filesystem/contracts/visibility.js";
+import {
+	loadFileToolsConfig,
+	type FileToolsConfig,
+} from "../file-tools-config/config.js";
+import type { FilesystemPolicy } from "../filesystem/contracts/policy.js";
+import type { FsOperationContext } from "../filesystem/contracts/result.js";
+import type { WorkspaceFileSystem } from "../filesystem/contracts/workspace.js";
+import { FileSystemRuntime } from "../filesystem/runtime.js";
 import { loadRepoMapConfig, repoMapCacheRoot, repoMapConfigFingerprint, type RepoMapConfig } from "./config.js";
 import type { BuildRepoMapArchitectureInput, RepoMapArchitectureIndex } from "./architecture-indexer.js";
 import { RepoMapError, throwIfAborted } from "./errors.js";
@@ -41,12 +45,18 @@ export interface InitializeRepoMapResult {
 	reusedGeneration: boolean;
 }
 
+export interface RepoMapWorkspaceLease {
+	readonly filesystem: WorkspaceFileSystem;
+	readonly operation: FsOperationContext;
+	dispose(): void;
+}
+
 export interface RepoMapServiceDependencies {
 	detectRepository(cwd: string, options: { signal?: AbortSignal }): Promise<RepositoryIdentity>;
 	readHeadRevision(root: string, options: { signal?: AbortSignal }): Promise<string | undefined>;
 	loadRepoMapConfig(): Promise<RepoMapConfig>;
 	loadFileToolsConfig(root: string): Promise<FileToolsConfig>;
-	createVisibilitySnapshot(root: string, policy: VisibilityPolicy): Promise<VisibilitySnapshot>;
+	openWorkspace(root: string, policy: FilesystemPolicy, signal?: AbortSignal): Promise<RepoMapWorkspaceLease>;
 	scan(input: RepoMapScanInput): Promise<RepoMapScanResult>;
 	indexSymbols(input: IndexRepoMapSymbolsInput): Promise<RepoMapSymbolIndex>;
 	buildArchitecture(input: BuildRepoMapArchitectureInput): Promise<RepoMapArchitectureIndex>;
@@ -65,10 +75,10 @@ const defaultDependencies: RepoMapServiceDependencies = {
 	loadRepoMapConfig,
 	async loadFileToolsConfig(root) {
 		const result = await loadFileToolsConfig(root);
-		if (isFailed(result)) throw new RepoMapError("CONFIG_ERROR", result.error.message, result.error.details);
-		return result;
+		if (!result.ok) throw new RepoMapError("CONFIG_ERROR", result.error.message, result.error.details);
+		return result.value;
 	},
-	createVisibilitySnapshot,
+	openWorkspace,
 	scan: scanRepoMap,
 	async indexSymbols(input) {
 		return await (await import("./symbol-indexer.js")).indexRepoMapSymbols(input);
@@ -105,7 +115,6 @@ export async function initializeRepoMap(
 		deps.loadFileToolsConfig(identity.repositoryRoot),
 	]);
 	throwIfAborted(input.signal);
-	const ignoreSnapshot = await deps.createVisibilitySnapshot(identity.repositoryRoot, fileToolsConfig.filesystem.visibility);
 	const mapId = createRepoMapId(identity);
 	const cacheRoot = deps.cacheRoot();
 	const previous = input.mode === "rebuild"
@@ -113,22 +122,29 @@ export async function initializeRepoMap(
 		: await deps.readCurrent(cacheRoot, mapId, identity.repositoryRoot);
 	const maxFiles = Math.min(config.scan.max_files, fileToolsConfig.limits.grep_max_files_scanned);
 	const maxFileBytes = Math.min(config.scan.max_file_bytes, fileToolsConfig.limits.grep_max_file_bytes);
-	const scan = await deps.scan({
-		root: identity.repositoryRoot,
-		fileToolsConfig,
-		ignoreSnapshot,
-		maxFiles,
-		maxFileBytes,
-		concurrency: config.scan.concurrency,
-		...(previous !== undefined ? { previousFiles: previous.files } : {}),
-		...(input.signal !== undefined ? { signal: input.signal } : {}),
-		...(input.onProgress !== undefined ? { onProgress: input.onProgress } : {}),
-	});
+	const workspace = await deps.openWorkspace(identity.repositoryRoot, fileToolsConfig.filesystem, input.signal);
+	let scan: RepoMapScanResult;
+	let ignoreFingerprint: string;
+	try {
+		ignoreFingerprint = workspace.filesystem.visibility.snapshot.fingerprint;
+		scan = await deps.scan({
+			filesystem: workspace.filesystem,
+			operation: workspace.operation,
+			maxFiles,
+			maxFileBytes,
+			concurrency: config.scan.concurrency,
+			...(previous !== undefined ? { previousFiles: previous.files } : {}),
+			...(input.signal !== undefined ? { signal: input.signal } : {}),
+			...(input.onProgress !== undefined ? { onProgress: input.onProgress } : {}),
+		});
+	} finally {
+		workspace.dispose();
+	}
 	throwIfAborted(input.signal);
 	const configFingerprint = combinedConfigFingerprint(config, fileToolsConfig);
 	if (previous !== undefined && canReusePreviousGeneration(previous, scan, {
 		configFingerprint,
-		ignoreFingerprint: ignoreSnapshot.fingerprint,
+		ignoreFingerprint,
 		...(identity.headRevision !== undefined ? { gitRevision: identity.headRevision } : {}),
 	})) {
 		const endingRevision = await deps.readHeadRevision(identity.worktreeRoot, signalOptions(input.signal));
@@ -234,7 +250,7 @@ export async function initializeRepoMap(
 	const prepared = prepareRepoMapGeneration({
 		mapId,
 		configFingerprint,
-		ignoreFingerprint: ignoreSnapshot.fingerprint,
+		ignoreFingerprint,
 		...(identity.headRevision !== undefined ? { headRevision: identity.headRevision } : {}),
 		files: scan.files,
 		symbols: architecture.symbols,
@@ -272,7 +288,7 @@ export async function initializeRepoMap(
 		diagnosticCount: diagnostics.length,
 		...(identity.headRevision !== undefined ? { gitRevision: identity.headRevision } : {}),
 		configFingerprint,
-		ignoreFingerprint: ignoreSnapshot.fingerprint,
+		ignoreFingerprint,
 	};
 	safeProgress(input.onProgress, { phase: "saving" });
 	const committed = await deps.commit({
@@ -339,10 +355,16 @@ export async function readActivatedRepoMapState(
 			loadFileToolsConfigOrThrow(activation.root),
 			readHeadRevision(activation.root),
 		]);
-		const ignoreSnapshot = await createVisibilitySnapshot(activation.root, fileToolsConfig.filesystem.visibility);
+		const workspace = await openWorkspace(activation.root, fileToolsConfig.filesystem);
+		let ignoreFingerprint: string;
+		try {
+			ignoreFingerprint = workspace.filesystem.visibility.snapshot.fingerprint;
+		} finally {
+			workspace.dispose();
+		}
 		const freshness = evaluateRepoMapFreshness(generation.metadata, {
 			configFingerprint: combinedConfigFingerprint(config, fileToolsConfig),
-			ignoreFingerprint: ignoreSnapshot.fingerprint,
+			ignoreFingerprint,
 			...(headRevision !== undefined ? { gitRevision: headRevision } : {}),
 		}, activation.freshness);
 		return { ...generation, metadata: { ...generation.metadata, freshness } };
@@ -388,8 +410,29 @@ export function evaluateRepoMapFreshness(
 
 async function loadFileToolsConfigOrThrow(root: string): Promise<FileToolsConfig> {
 	const result = await loadFileToolsConfig(root);
-	if (isFailed(result)) throw new RepoMapError("CONFIG_ERROR", result.error.message, result.error.details);
-	return result;
+	if (!result.ok) throw new RepoMapError("CONFIG_ERROR", result.error.message, result.error.details);
+	return result.value;
+}
+
+async function openWorkspace(root: string, policy: FilesystemPolicy, signal?: AbortSignal): Promise<RepoMapWorkspaceLease> {
+	const runtime = new FileSystemRuntime();
+	const opened = await runtime.open({
+		cwd: root,
+		policy,
+		...(signal === undefined ? {} : { context: { signal } }),
+	});
+	if (!opened.ok) {
+		runtime.dispose();
+		throw new RepoMapError(opened.error.code === "aborted" ? "OPERATION_ABORTED" : "SCAN_FAILED", opened.error.message, opened.error);
+	}
+	return {
+		filesystem: opened.value.filesystem,
+		operation: opened.value.context,
+		dispose() {
+			opened.value.dispose();
+			runtime.dispose();
+		},
+	};
 }
 
 const mapUpdateTails = new Map<string, Promise<void>>();

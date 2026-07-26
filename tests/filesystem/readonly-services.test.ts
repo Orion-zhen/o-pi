@@ -437,7 +437,7 @@ describe("filesystem metadata, traversal and catalog services", () => {
 		const skipped = expectOk(await opened.services.traversal.walk(ignored, { intent: "search" }, {}));
 		const skippedEvents = [];
 		for await (const event of skipped) skippedEvents.push(event);
-		expect(skippedEvents).toEqual([{ type: "skip", path: "ignored", reason: "ignored" }]);
+		expect(skippedEvents).toEqual([{ type: "skip", path: "ignored", reason: "ignored", kind: "directory" }]);
 
 		const traversal = expectOk(await opened.services.traversal.walk(ignored, {
 			intent: "search",

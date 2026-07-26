@@ -13,10 +13,11 @@ import {
 	FileToolsConfigProvider,
 	type FileToolsConfig,
 	type FileToolsConfigLoader,
-} from "../../src/file-tools/config.js";
+	type FileToolsConfigResult,
+} from "../../src/file-tools-config/config.js";
 import { FileToolsHost, type FileToolsInvocation } from "../../src/file-tools/runtime/host.js";
-import { fail, isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
-import { defaultFileToolLimits } from "../../src/file-tools/tool-limits.js";
+import { isFailed } from "../../src/file-tools/shared/result.js";
+import { defaultFileToolLimits } from "../../src/file-tool-limits.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-file-tools-host-");
@@ -42,15 +43,15 @@ describe("FileToolsHost runtime", () => {
 		delete process.env.PI_FILE_TOOLS_PROJECT_CONFIG;
 		delete process.env.PI_FILE_TOOLS_PROJECT_ROOT;
 		const provider = new FileToolsConfigProvider();
-		expect(await provider.load(workspace)).toMatchObject({ limits: { ls_entries: expect.any(Number) } });
+		expect(await provider.load(workspace)).toMatchObject({ ok: true, value: { limits: { ls_entries: expect.any(Number) } } });
 		provider.dispose();
 		provider.dispose();
-		await expect(provider.load(workspace)).resolves.toMatchObject({ status: "failed", error: { code: "CONFIG_ERROR" } });
+		await expect(provider.load(workspace)).resolves.toMatchObject({ ok: false, error: { message: expect.any(String) } });
 	});
 	it("returns config failures before any workspace I/O", async () => {
 		const counted = countingNative();
 		const config: FileToolsConfigLoader = {
-			async load() { return fail("CONFIG_ERROR", "invalid project config"); },
+			async load() { return { ok: false, error: { message: "invalid project config" } }; },
 		};
 		const host = track(new FileToolsHost({ config, filesystem: new FileSystemRuntime({ native: counted.native }) }));
 		await expect(host.open({ cwd: workspace, sessionId: "config" })).resolves.toMatchObject({
@@ -74,7 +75,7 @@ describe("FileToolsHost runtime", () => {
 		const config: FileToolsConfigLoader = {
 			async load() {
 				during.abort();
-				return fileToolsConfig();
+				return configSuccess();
 			},
 		};
 		const afterConfig = track(new FileToolsHost({ config, filesystem: new FileSystemRuntime({ native: counted.native }) }));
@@ -105,7 +106,7 @@ describe("FileToolsHost runtime", () => {
 
 	it("does not start workspace I/O when shutdown wins an in-flight config load", async () => {
 		const counted = countingNative();
-		const release = deferredValue<ToolOutcome<FileToolsConfig>>();
+		const release = deferredValue<FileToolsConfigResult>();
 		let disposed = 0;
 		const config = {
 			load: () => release.promise,
@@ -115,7 +116,7 @@ describe("FileToolsHost runtime", () => {
 		const opening = host.open({ cwd: workspace, sessionId: "shutdown" });
 		host.dispose();
 		host.dispose();
-		release.resolve(fileToolsConfig());
+		release.resolve(configSuccess());
 		await expect(opening).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
 		expect(counted.calls()).toBe(0);
 		expect(disposed).toBe(1);
@@ -289,7 +290,11 @@ function expectOk<T>(result: FsResult<T>): T {
 }
 
 function staticConfig(): FileToolsConfigLoader {
-	return { async load() { return fileToolsConfig(); } };
+	return { async load() { return configSuccess(); } };
+}
+
+function configSuccess(): FileToolsConfigResult {
+	return { ok: true, value: fileToolsConfig() };
 }
 
 function fileToolsConfig(): FileToolsConfig {

@@ -2,10 +2,10 @@ import { editFile, previewEdit } from "../../edit/command.js";
 import type { EditParams } from "../../edit/types.js";
 import { FileToolsHost, type FileToolsInvocation } from "../../runtime/host.js";
 import { isFailed } from "../../shared/result.js";
-import type { FileToolLspHooks } from "../../types.js";
+import type { LspFileOperations } from "../../../lsp/file-hooks.js";
 import { formatEditModelResult } from "../../edit/presenter.js";
 import { formatErrorModelResult, scrubVersions } from "../model-output.js";
-import type { LazyRepoMap } from "../lazy-repo-map.js";
+import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 import { createEditPorts } from "../ports/edit.js";
 import { piTextDiffGenerator } from "../ports/text-diff.js";
 
@@ -16,8 +16,8 @@ export async function executeEdit(
 		sessionId: string;
 		signal?: AbortSignal;
 		host: FileToolsHost;
-		lsp: FileToolLspHooks;
-		repoMap: LazyRepoMap;
+		lsp: LspFileOperations;
+		repoMap: RepoMapToolPorts;
 	},
 ) {
 	const opened = await runtime.host.open({

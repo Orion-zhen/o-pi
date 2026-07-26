@@ -7,7 +7,7 @@ import type { DirectoryRef, ExistingRef, FileRef } from "../../filesystem/contra
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.js";
-import type { FileToolLimits } from "../tool-limits.js";
+import type { FileToolLimits } from "../../file-tool-limits.js";
 import { AbortGrepParse, GrepParser, GREP_CONCURRENCY, GREP_PARSER_BATCH_SIZE } from "./parser-pool.js";
 import type { GrepMatchMode, GrepSkippedFiles } from "./types.js";
 

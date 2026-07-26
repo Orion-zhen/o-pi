@@ -14,8 +14,7 @@ import { readWorkspaceFile } from "../helpers/read-tool.js";
 import { writeFile as writeFileCommand } from "../../src/file-tools/write/command.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
-import type { FileToolLspHooks } from "../../src/file-tools/types.js";
-import { createLspFileHooks } from "../../src/lsp/file-hooks.js";
+import { createLspFileOperations, type LspFileOperations } from "../../src/lsp/file-hooks.js";
 import { LspManager } from "../../src/lsp/manager.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
@@ -58,7 +57,7 @@ describe("file-tools lsp hooks", () => {
 	});
 
 	it("write 返回 diagnostics 但不改变 written 状态", async () => {
-		const hooks: FileToolLspHooks = {
+		const hooks: LspFileOperations = {
 			async afterWrite() {
 				return diagnostics("errors");
 			},
@@ -75,11 +74,11 @@ describe("file-tools lsp hooks", () => {
 		await writeFile(path.join(workspace, "a.ts"), "const oldName = 1;\n");
 		await readWorkspaceFile(workspace, { path: "a.ts" }, { host, sessionId: "lsp-hooks" });
 		let afterCalled = false;
-		const hooks: FileToolLspHooks = {
+		const hooks: LspFileOperations = {
 			async beforeEdit() {
 				return { source: "/repo\0ts", uri: pathToFileURL("a.ts").toString(), items: [], known: true, revision: 1 };
 			},
-			async afterEdit(input) {
+			async afterWrite(input) {
 				afterCalled = true;
 				expect(input.baseline?.known).toBe(true);
 				return diagnostics("warnings");
@@ -97,9 +96,9 @@ describe("file-tools lsp hooks", () => {
 	it("beforeEdit 使用调用方已解析的 absolutePath 和 workspace source", async () => {
 		const manager = new LspManager();
 		const beforeDiagnostics = vi.spyOn(manager, "beforeDiagnostics").mockResolvedValue(undefined);
-		const hooks = createLspFileHooks(manager);
+		const hooks = createLspFileOperations(manager);
 		const absolutePath = path.join(workspace, "resolved.ts");
-		await hooks.beforeEdit?.({ workspaceRoot: workspace, path: "unresolved.ts", absolutePath });
+		await hooks.beforeEdit?.({ workspaceRoot: workspace, filePath: absolutePath });
 		expect(beforeDiagnostics).toHaveBeenCalledWith(workspace, absolutePath);
 		beforeDiagnostics.mockRestore();
 	});
@@ -109,12 +108,12 @@ describe("file-tools lsp hooks", () => {
 		await writeFile(path.join(workspace, "src", "target.ts"), "export const unrelated = 1;\n");
 		await writeFile(path.join(workspace, "outside.ts"), "export const other = 1;\n");
 		let seenPaths: string[] = [];
-		const hooks: FileToolLspHooks = {
-			async grepSymbols(input) {
+		const hooks: LspFileOperations = {
+			async symbols(input) {
 				seenPaths = [...input.allowedPaths];
 				return [
-					{ path: "src/target.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "RemoteSymbol", reason: "lsp exact symbol" },
-					{ path: "outside.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "RemoteSymbol", reason: "lsp exact symbol" },
+					{ path: "src/target.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "RemoteSymbol", exact: true, origin: "workspace-symbol" },
+					{ path: "outside.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "RemoteSymbol", exact: true, origin: "workspace-symbol" },
 				];
 			},
 		};
@@ -132,8 +131,8 @@ describe("file-tools lsp hooks", () => {
 		await writeFile(path.join(workspace, "mixed", "b.py"), "target = 1\n");
 		const seenPaths: string[][] = [];
 		const seenSignals: Array<AbortSignal | undefined> = [];
-		const hooks: FileToolLspHooks = {
-			async grepSymbols(input) {
+		const hooks: LspFileOperations = {
+			async symbols(input) {
 				seenPaths.push([...input.allowedPaths].sort());
 				seenSignals.push(input.signal);
 				return [];
@@ -165,7 +164,7 @@ describe("file-tools lsp hooks", () => {
 		};
 
 		await grepWorkspaceFiles(workspace, { query: "RemoteSymbol" }, undefined, {
-			lsp: { async grepSymbols() { await pause(); return []; } },
+			lsp: { async symbols() { await pause(); return []; } },
 			repoMap: {
 				async query() { await pause(); return undefined; },
 				async readContext() { return undefined; },
@@ -181,16 +180,16 @@ describe("file-tools lsp hooks", () => {
 			await writeFile(path.join(workspace, `${name}.ts`), `export const ${name} = 1;\n`);
 		}
 		const candidates = [
-			{ path: "reference.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "Target", reason: "lsp reference" as const, origin: "reference" as const },
-			{ path: "prefix.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "TargetHelper", reason: "lsp symbol" as const, origin: "workspace-symbol" as const },
-			{ path: "exact.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "Target", reason: "lsp exact symbol" as const, origin: "workspace-symbol" as const },
+			{ path: "reference.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "Target", exact: true, origin: "reference" as const },
+			{ path: "prefix.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "TargetHelper", exact: false, origin: "workspace-symbol" as const },
+			{ path: "exact.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "Target", exact: true, origin: "workspace-symbol" as const },
 		];
 		const first = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "Target" }, undefined, {
-			lsp: { async grepSymbols() { return candidates; } },
+			lsp: { async symbols() { return candidates; } },
 		}));
 		clearGrepIndex();
 		const second = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "Target" }, undefined, {
-			lsp: { async grepSymbols() { return [...candidates].reverse(); } },
+			lsp: { async symbols() { return [...candidates].reverse(); } },
 		}));
 		const order = (result: GrepSuccess) => result.regions.map((region) => `${region.path}:${region.reasons[0]}`);
 		expect(order(first)).toEqual(order(second));
@@ -204,7 +203,7 @@ describe("file-tools lsp hooks", () => {
 	});
 });
 
-async function writeWithHooks(params: { path: string; content: string }, hooks: FileToolLspHooks) {
+async function writeWithHooks(params: { path: string; content: string }, hooks: LspFileOperations) {
 	const opened = await host.open({ cwd: workspace, sessionId: "lsp-hooks" });
 	if ("status" in opened) return opened;
 	try {
@@ -220,7 +219,7 @@ async function writeWithHooks(params: { path: string; content: string }, hooks: 
 	}
 }
 
-async function editWithHooks(params: { path: string; edits: Array<{ old: string; new: string }> }, hooks: FileToolLspHooks) {
+async function editWithHooks(params: { path: string; edits: Array<{ old: string; new: string }> }, hooks: LspFileOperations) {
 	const opened = await host.open({ cwd: workspace, sessionId: "lsp-hooks" });
 	if ("status" in opened) return opened;
 	try {
@@ -264,9 +263,9 @@ function diagnostics(status: "errors" | "warnings") {
 	};
 }
 
-function throwingHooks(): FileToolLspHooks {
+function throwingHooks(): LspFileOperations {
 	return {
-		async enhanceRead() {
+		async read() {
 			throw new Error("lsp unavailable");
 		},
 		async afterWrite() {
@@ -275,10 +274,7 @@ function throwingHooks(): FileToolLspHooks {
 		async beforeEdit() {
 			throw new Error("lsp unavailable");
 		},
-		async afterEdit() {
-			throw new Error("lsp unavailable");
-		},
-		async grepSymbols() {
+		async symbols() {
 			throw new Error("lsp unavailable");
 		},
 	};

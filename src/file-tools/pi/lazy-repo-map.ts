@@ -12,10 +12,14 @@ export interface RepoMapRuntimeModule {
 	formatRepoMapReadContext: typeof import("../../repo-map/tool-output.js").formatRepoMapReadContext;
 }
 
-export interface LazyRepoMap {
+export interface RepoMapToolPorts {
 	query: RepoMapFileToolQuery;
 	formatReadContext(context: RepoMapReadContext): Promise<string | undefined>;
 	formatImpact(impact: RepoMapImpactResult | undefined): Promise<string | undefined>;
+}
+
+export interface LazyRepoMap extends RepoMapToolPorts {
+	dispose(): void;
 }
 
 interface LazyRepoMapOptions {
@@ -28,11 +32,13 @@ interface LazyRepoMapOptions {
 export function createLazyRepoMap(options: LazyRepoMapOptions): LazyRepoMap {
 	let activeQuery: RepoMapFileToolQuery | undefined;
 	let outputRuntime: Promise<{ runtime: RepoMapRuntimeModule; config: RepoMapOutputConfig }> | undefined;
+	let disposed = false;
 	const formattedReadContexts = new WeakMap<RepoMapReadContext, Promise<string | undefined>>();
 	const getActiveQuery = async (): Promise<RepoMapFileToolQuery | undefined> => {
-		if (computeRepoMapActivation(options.getBranch()) === undefined) return undefined;
+		if (disposed || computeRepoMapActivation(options.getBranch()) === undefined) return undefined;
 		if (activeQuery !== undefined) return activeQuery;
 		const runtime = await options.load();
+		if (disposed) return undefined;
 		activeQuery = runtime.createRepoMapFileToolQuery(options.getBranch, {
 			appendActivation(entry) {
 				options.appendEntry(entry);
@@ -41,10 +47,14 @@ export function createLazyRepoMap(options: LazyRepoMapOptions): LazyRepoMap {
 		return activeQuery;
 	};
 	const getOutputRuntime = (): Promise<{ runtime: RepoMapRuntimeModule; config: RepoMapOutputConfig }> => {
+		if (disposed) return Promise.reject(new Error("Repo Map adapter is disposed."));
 		if (outputRuntime !== undefined) return outputRuntime;
 		const created = (async () => {
 			const runtime = await options.load();
-			return { runtime, config: await runtime.loadRepoMapOutputConfig() };
+			if (disposed) throw new Error("Repo Map adapter is disposed.");
+			const config = await runtime.loadRepoMapOutputConfig();
+			if (disposed) throw new Error("Repo Map adapter is disposed.");
+			return { runtime, config };
 		})();
 		outputRuntime = created;
 		void created.catch(() => {
@@ -84,13 +94,19 @@ export function createLazyRepoMap(options: LazyRepoMapOptions): LazyRepoMap {
 			return pending;
 		},
 		async formatImpact(impact) {
-			if (impact === undefined) return undefined;
+			if (disposed || impact === undefined) return undefined;
 			try {
 				const { runtime, config } = await getOutputRuntime();
 				return runtime.formatRepoMapImpact(impact, config);
 			} catch {
 				return undefined;
 			}
+		},
+		dispose() {
+			if (disposed) return;
+			disposed = true;
+			activeQuery = undefined;
+			outputRuntime = undefined;
 		},
 	};
 }

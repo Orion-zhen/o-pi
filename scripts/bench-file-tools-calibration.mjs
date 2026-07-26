@@ -18,7 +18,7 @@ const { createGrepGraphSource } = await loadTypeScript("src/file-tools/pi/adapte
 
 const findCases = [
 	{ query: "ranking evidence", relevant: ["src/file-tools/shared/ranking/evidence.ts"] },
-	{ query: "repo map ranking", relevant: ["src/file-tools/find/graph-ranking.ts", "src/file-tools/repo-map-ranking.ts"] },
+	{ query: "graph ranking", relevant: ["src/file-tools/find/graph-ranking.ts", "src/file-tools/grep/graph-ranking.ts"] },
 	{ query: "file tool query", relevant: ["src/repo-map/file-tool-query.ts"] },
 	{ query: "grep fusion", relevant: ["src/file-tools/grep/fusion.ts"] },
 	{ query: "file tools ranking", relevant: ["docs/file-tools/ranking.md", "docs/file-tools/ranking-evidence.md", "docs/file-tools/ranking-selection.md"] },
@@ -26,7 +26,7 @@ const findCases = [
 
 const grepCases = [
 	{ query: join("selectRelevance", "HeadMmr"), path: "src", match: "auto", relevant: ["src/file-tools/shared/ranking/selection.ts"] },
-	{ query: join("repoMapRanking", "Evidence"), path: "src", match: "auto", relevant: ["src/file-tools/repo-map-ranking.ts"] },
+	{ query: join("graphRanking", "Evidence"), path: "src", match: "auto", relevant: ["src/file-tools/find/graph-ranking.ts", "src/file-tools/grep/graph-ranking.ts"] },
 	{ query: join("locateRepoMap", "Unit"), path: "src", match: "auto", relevant: ["src/file-tools/grep/command.ts"] },
 	{ query: join("region", "Identity"), path: "src", match: "auto", relevant: ["src/file-tools/grep/fusion.ts"] },
 	{ query: join("createRepoMapFileTool", "Query"), path: "src", match: "auto", relevant: ["src/repo-map/file-tool-query.ts"] },

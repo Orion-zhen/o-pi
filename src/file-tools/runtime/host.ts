@@ -8,9 +8,9 @@ import {
 import {
 	FileToolsConfigProvider,
 	type FileToolsConfigLoader,
-} from "../config.js";
-import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.js";
-import type { FileToolLimits } from "../tool-limits.js";
+} from "../../file-tools-config/config.js";
+import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
+import type { FileToolLimits } from "../../file-tool-limits.js";
 import { ObservationStore } from "./observation-store.js";
 
 export interface FileToolsHostOpenOptions {
@@ -41,6 +41,7 @@ export class FileToolsHost {
 	private readonly filesystem: FileSystemRuntime;
 	private readonly sessions = new Map<string, ObservationStore>();
 	private readonly invocations = new Set<HostInvocation>();
+	private accepting = true;
 	private disposed = false;
 
 	constructor(options: FileToolsHostOptions = {}) {
@@ -49,12 +50,12 @@ export class FileToolsHost {
 	}
 
 	async open(options: FileToolsHostOpenOptions): Promise<ToolOutcome<FileToolsInvocation>> {
-		if (this.disposed) return hostClosed();
+		if (!this.accepting) return hostClosed();
 		if (isAborted(options.signal)) return operationAborted();
 
 		const config = await this.config.load(options.cwd);
-		if (this.disposed) return hostClosed();
-		if (isFailed(config)) return config;
+		if (!this.accepting) return hostClosed();
+		if (!config.ok) return fail("CONFIG_ERROR", config.error.message, config.error.details === undefined ? {} : { details: config.error.details });
 		if (isAborted(options.signal)) return operationAborted();
 
 		let observation = this.sessions.get(options.sessionId);
@@ -66,7 +67,7 @@ export class FileToolsHost {
 		}
 		const opened = await this.filesystem.open({
 			cwd: options.cwd,
-			policy: config.filesystem,
+			policy: config.value.filesystem,
 			...(options.signal === undefined ? {} : { context: { signal: options.signal } }),
 			onCommitted: (receipt) => { observation?.remember(receipt.target, receipt); },
 		});
@@ -77,7 +78,7 @@ export class FileToolsHost {
 			}
 			return mapFsError(opened.error);
 		}
-		if (this.disposed) {
+		if (!this.accepting) {
 			opened.value.dispose();
 			return hostClosed();
 		}
@@ -85,7 +86,7 @@ export class FileToolsHost {
 		let invocation: HostInvocation;
 		invocation = new HostInvocation(
 			opened.value,
-			Object.freeze(structuredClone(config.limits)),
+			Object.freeze(structuredClone(config.value.limits)),
 			observation,
 			detachObservation,
 			() => this.invocations.delete(invocation),
@@ -101,8 +102,13 @@ export class FileToolsHost {
 		observation.dispose();
 	}
 
+	stop(): void {
+		this.accepting = false;
+	}
+
 	dispose(): void {
 		if (this.disposed) return;
+		this.stop();
 		this.disposed = true;
 		for (const invocation of [...this.invocations]) invocation.dispose();
 		for (const observation of this.sessions.values()) observation.dispose();

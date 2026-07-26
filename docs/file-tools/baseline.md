@@ -1,6 +1,6 @@
 # 阶段 1 行为基线
 
-本文固化 Kernel 重构前六个模型可见文件工具的 public contract。结构化字段以 `src/file-tools/types.ts` 和 schema 为准；下表记录迁移时最容易发生漂移的边界。
+本文固化 Kernel 重构前六个模型可见文件工具的 public contract。结构化字段以各工具的 `types.ts` 和 schema 为准；下表记录迁移时最容易发生漂移的边界。
 
 ## 共享契约
 
@@ -39,6 +39,6 @@
 | mutation queue 重检、edit 取消、observation 与并发 edit | `tests/file-tools/crud.test.ts` |
 | multi-scope、排序、预算、nearby/related、外部候选复核与取消 | `tests/file-tools/find.test.ts`、`grep.test.ts`、`lsp-hooks.test.ts`、`tests/repo-map/file-tools.test.ts` |
 | post-mutation 增强降级、lazy import、RPC/TUI renderer、shutdown | `tests/file-tools/extension.test.ts`、`lsp-hooks.test.ts` |
-| 最终 import 方向与冻结 legacy allowlist | `tests/file-tools/architecture.test.ts` |
+| 最终 import 方向且无 legacy 例外 | `tests/file-tools/architecture.test.ts` |
 
 阶段 1 的完整测试、typecheck 和 coverage 结果记录在 `TASK.md`；后续阶段必须以本页和上述测试判断行为回归。

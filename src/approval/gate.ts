@@ -1,7 +1,6 @@
 import type { ExtensionContext, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { loadBashToolConfig } from "../bash-tool/config.js";
-import { loadFileToolsConfig } from "../file-tools/config.js";
-import { isFailed } from "../file-tools/shared/result.js";
+import { loadFileToolsConfig } from "../file-tools-config/config.js";
 import { preflightWriteAccess } from "../filesystem/kernel/access-preflight.js";
 import { checkDeniedText } from "../safety/pattern-guard.js";
 import { loadApprovalGateConfig } from "./config.js";
@@ -206,8 +205,8 @@ async function precheckSafety(event: ToolCallEvent, cwd: string): Promise<ToolCa
 	const filePath = typeof event.input.path === "string" ? event.input.path : undefined;
 	if (filePath === undefined) return undefined;
 	const config = await loadFileToolsConfig(cwd);
-	if (isFailed(config)) return undefined;
-	const preflight = await preflightWriteAccess({ cwd, path: filePath, blockedPaths: config.filesystem.blockedPaths });
+	if (!config.ok) return undefined;
+	const preflight = await preflightWriteAccess({ cwd, path: filePath, blockedPaths: config.value.filesystem.blockedPaths });
 	if (preflight.ok || preflight.error.code !== "blocked") return undefined;
 	const matchedRule = typeof preflight.error.details?.["matchedRule"] === "string"
 		? preflight.error.details["matchedRule"]

@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LspClient } from "../../src/lsp/client.js";
-import { createLspFileHooks } from "../../src/lsp/file-hooks.js";
+import { createLspFileOperations } from "../../src/lsp/file-hooks.js";
 import { LspManager } from "../../src/lsp/manager.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
@@ -140,19 +140,18 @@ describe("lsp references", () => {
 		}]);
 
 		const manager = new LspManager();
-		const grepSymbols = createLspFileHooks(manager).grepSymbols;
-		if (grepSymbols === undefined) throw new Error("grepSymbols hook missing");
-		const hits = await grepSymbols({
+		const symbols = createLspFileOperations(manager).symbols;
+		if (symbols === undefined) throw new Error("symbols operation missing");
+		const hits = await symbols({
 			workspaceRoot: workspace,
 			query: "target",
-			path: ".",
 			allowedPaths: new Set(["src/def.ts", "src/use.ts"]),
 		});
 		await manager.reload();
 
 		expect(hits).toEqual([
-			expect.objectContaining({ path: "src/def.ts", reason: "lsp exact symbol", origin: "workspace-symbol" }),
-			expect.objectContaining({ path: "src/use.ts", reason: "lsp reference", origin: "reference" }),
+			expect.objectContaining({ path: "src/def.ts", exact: true, origin: "workspace-symbol" }),
+			expect.objectContaining({ path: "src/use.ts", origin: "reference" }),
 		]);
 	});
 

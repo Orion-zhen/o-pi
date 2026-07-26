@@ -1,5 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { LspDiagnosticsSummary } from "../../types.js";
+import type { DiagnosticsSummary } from "../../shared/diagnostics.js";
 
 export function formatDiffStats(diff: string): string {
 	let added = 0;
@@ -11,7 +11,7 @@ export function formatDiffStats(diff: string): string {
 	return `+${added} -${removed}`;
 }
 
-export function formatLspSummary(diagnostics: LspDiagnosticsSummary | undefined): string | undefined {
+export function formatLspSummary(diagnostics: DiagnosticsSummary | undefined): string | undefined {
 	if (!hasVisibleLspDiagnostics(diagnostics)) return undefined;
 	return diagnostics.status === "errors"
 		? `LSP ${diagnostics.file_errors} errors`
@@ -19,7 +19,7 @@ export function formatLspSummary(diagnostics: LspDiagnosticsSummary | undefined)
 }
 
 export function formatLspDiagnostics(
-	diagnostics: LspDiagnosticsSummary | undefined,
+	diagnostics: DiagnosticsSummary | undefined,
 	theme: Pick<Theme, "fg">,
 ): string | undefined {
 	if (!hasVisibleLspDiagnostics(diagnostics) || (diagnostics.items.length === 0 && diagnostics.total_items === 0)) return undefined;
@@ -30,7 +30,7 @@ export function formatLspDiagnostics(
 }
 
 function hasVisibleLspDiagnostics(
-	diagnostics: LspDiagnosticsSummary | undefined,
-): diagnostics is LspDiagnosticsSummary & { status: "errors" | "warnings" } {
+	diagnostics: DiagnosticsSummary | undefined,
+): diagnostics is DiagnosticsSummary & { status: "errors" | "warnings" } {
 	return diagnostics?.status === "errors" || diagnostics?.status === "warnings";
 }

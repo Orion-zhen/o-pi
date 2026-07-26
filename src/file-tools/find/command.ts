@@ -4,7 +4,7 @@ import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import { compareRankingEvidence, createSourceRankingEvidence, rankingEvidenceSources } from "../shared/ranking/evidence.js";
-import type { FileToolLimits } from "../tool-limits.js";
+import type { FileToolLimits } from "../../file-tool-limits.js";
 import { fuseRankedFindSources, selectRankedFindEntries } from "./fusion.js";
 import { AbortFindGraph, findGraphCandidates } from "./graph-candidates.js";
 import type { FindGraphSource } from "./graph-source.js";

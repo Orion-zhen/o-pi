@@ -20,7 +20,7 @@ try {
 	const runtimeStarted = performance.now();
 	const service = await loadTypeScript("src/repo-map/service.ts");
 	const config = await loadTypeScript("src/repo-map/config.ts");
-	const fileConfig = await loadTypeScript("src/file-tools/config.ts");
+	const fileConfig = await loadTypeScript("src/file-tools-config/config.ts");
 	const queryModule = await loadTypeScript("src/repo-map/file-tool-query.ts");
 	const runtimeImported = performance.now();
 
@@ -137,19 +137,11 @@ function benchmarkDependencies(workspace, cacheRoot, config, fileConfig) {
 		gitCommonDir: path.join(workspace, ".git"),
 		headRevision: "a".repeat(40),
 	};
-	const ignoreSnapshot = {
-		generation: 1,
-		fingerprint: "repo-map-benchmark-ignore-v1",
-		diagnostics: [],
-		evaluate() { return { state: "none", ignored: false, prune: false }; },
-		explain(input) { return { path: input.path, ignored: false, prune: false, trace: [] }; },
-	};
 	return {
 		async detectRepository() { return identity; },
 		async readHeadRevision() { return identity.headRevision; },
 		async loadRepoMapConfig() { return config.defaultRepoMapConfig(); },
 		async loadFileToolsConfig() { return fileConfig.defaultFileToolsConfig(); },
-		async createVisibilitySnapshot() { return ignoreSnapshot; },
 		cacheRoot: () => cacheRoot,
 		now: () => new Date("2026-07-18T00:00:00.000Z"),
 	};

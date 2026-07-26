@@ -4,7 +4,7 @@ import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import { createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE } from "../shared/ranking/evidence.js";
-import type { FileToolLimits } from "../tool-limits.js";
+import type { FileToolLimits } from "../../file-tool-limits.js";
 import { compareRankedGrepRegions, fuseRankedGrepSources, mergeRankedGrepSources } from "./fusion.js";
 import { formatGraphAliasReason, graphNavigationRelation, graphRankingEvidence, isGraphMainCandidate, isGraphNavigationCandidate } from "./graph-ranking.js";
 import { hydrateGrepSourceText } from "./hydration.js";

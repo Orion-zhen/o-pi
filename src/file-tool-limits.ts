@@ -1,5 +1,3 @@
-import { DEFAULT_MAX_OUTPUT_BYTES, DEFAULT_MAX_OUTPUT_LINES } from "./core/text-file.js";
-
 export interface FileToolLimits {
 	ls_entries: number;
 	read_lines: number;
@@ -19,8 +17,8 @@ export interface FileToolLimits {
 
 const DEFAULT_LIMITS: FileToolLimits = {
 	ls_entries: 200,
-	read_lines: DEFAULT_MAX_OUTPUT_LINES,
-	read_bytes: DEFAULT_MAX_OUTPUT_BYTES,
+	read_lines: 2_000,
+	read_bytes: 50 * 1024,
 	read_suggestion_limit: 3,
 	edit_match_hint_limit: 3,
 	find_output_token_budget: 800,

@@ -19,7 +19,7 @@ export class SnapshotVisibilityOperations implements VisibilityOperations {
 	) {
 		this.snapshot = {
 			fingerprint: source.fingerprint,
-			diagnostics: source.diagnostics.map((diagnostic) => diagnostic.message),
+			diagnostics: source.diagnostics.map((diagnostic) => ({ ...diagnostic })),
 		};
 	}
 

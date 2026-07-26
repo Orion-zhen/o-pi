@@ -107,7 +107,7 @@ class NativeTraversal implements Traversal {
 		this.consumed = true;
 		try {
 			if (this.rootSkipped) {
-				yield { type: "skip", path: this.root.displayPath, reason: "ignored" };
+				yield { type: "skip", path: this.root.displayPath, reason: "ignored", kind: "directory" };
 				return;
 			}
 			if (this.options.includeRoot === true) {
@@ -133,24 +133,24 @@ class NativeTraversal implements Traversal {
 			}
 			const child = await this.bridge.resolveChild(directory, nativeEntry.name, this.context);
 			if (!child.ok && child.error.code === "blocked") {
-				yield { type: "skip", path: child.error.path ?? nativeEntry.name, reason: "blocked" };
+				yield { type: "skip", path: child.error.path ?? nativeEntry.name, reason: "blocked", kind: nativeEntry.kind };
 				continue;
 			}
 			// Blocked entries are hidden from both traversal statistics and the caller's scan budget.
 			if (this.options.maxEntries !== undefined && this.scannedEntries >= this.options.maxEntries) {
 				this.stopped = true;
-				yield { type: "skip", path: directory.displayPath, reason: "entry-limit" };
+				yield { type: "skip", path: directory.displayPath, reason: "entry-limit", kind: "directory" };
 				return;
 			}
 			this.scannedEntries += 1;
 			if (!child.ok) {
 				if (child.error.code === "aborted") this.stopped = true;
-				yield { type: "error", path: child.error.path ?? nativeEntry.name, error: child.error };
+				yield { type: "error", path: child.error.path ?? nativeEntry.name, error: child.error, kind: nativeEntry.kind };
 				if (this.stopped) return;
 				continue;
 			}
 			if (child.value.kind === "symlink") {
-				yield { type: "skip", path: child.value.displayPath, reason: "symlink" };
+				yield { type: "skip", path: child.value.displayPath, reason: "symlink", kind: "symlink" };
 				continue;
 			}
 
@@ -164,7 +164,7 @@ class NativeTraversal implements Traversal {
 				continue;
 			}
 			if (annotation.value.ignored) {
-				yield { type: "skip", path: child.value.displayPath, reason: "ignored" };
+				yield { type: "skip", path: child.value.displayPath, reason: "ignored", kind: child.value.kind };
 				if (child.value.kind !== "directory" || annotation.value.prune) continue;
 			} else {
 				yield entryEvent(child.value, depth, annotation.value);

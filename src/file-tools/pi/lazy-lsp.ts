@@ -1,16 +1,16 @@
-import type { FileToolLspHooks } from "../types.js";
+import type { LspFileOperations } from "../../lsp/file-hooks.js";
 
 export interface LspModule {
-	lspFileHooks: FileToolLspHooks;
+	lspFileOperations: LspFileOperations;
 	lspManager: { reload(): Promise<void> };
 }
 
-export interface LazyLspFileHooks extends FileToolLspHooks {
+export interface LazyLspFileOperations extends LspFileOperations {
 	shutdown(): Promise<void>;
 }
 
-/** LSP 模块只在某个文件工具实际请求增强时加载。 */
-export function createLazyLspFileHooks(load: () => Promise<LspModule>): LazyLspFileHooks {
+/** Loads LSP only when a tool-local composition port requests an enhancement. */
+export function createLazyLspFileOperations(load: () => Promise<LspModule>): LazyLspFileOperations {
 	let pending: Promise<LspModule> | undefined;
 	const getModule = (): Promise<LspModule> => {
 		if (pending !== undefined) return pending;
@@ -22,20 +22,17 @@ export function createLazyLspFileHooks(load: () => Promise<LspModule>): LazyLspF
 		return created;
 	};
 	return {
-		async enhanceRead(input) {
-			return (await getModule()).lspFileHooks.enhanceRead?.(input);
+		async read(input) {
+			return (await getModule()).lspFileOperations.read?.(input);
 		},
-		async grepSymbols(input) {
-			return (await getModule()).lspFileHooks.grepSymbols?.(input) ?? [];
+		async symbols(input) {
+			return (await getModule()).lspFileOperations.symbols?.(input) ?? [];
 		},
 		async beforeEdit(input) {
-			return (await getModule()).lspFileHooks.beforeEdit?.(input);
+			return (await getModule()).lspFileOperations.beforeEdit?.(input);
 		},
 		async afterWrite(input) {
-			return (await getModule()).lspFileHooks.afterWrite?.(input);
-		},
-		async afterEdit(input) {
-			return (await getModule()).lspFileHooks.afterEdit?.(input);
+			return (await getModule()).lspFileOperations.afterWrite?.(input);
 		},
 		async shutdown() {
 			const active = pending;

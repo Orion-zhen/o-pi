@@ -7,18 +7,6 @@ import { describe, expect, it } from "vitest";
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const TOOL_NAMES = new Set(["ls", "read", "write", "edit", "find", "grep"]);
 
-// Stage 1 freezes existing violations. Stage 12 removes this allowlist together with legacy paths.
-const LEGACY_VIOLATIONS = new Set(`
-external-tool-internal:src/approval/gate.ts:../file-tools/config.js
-external-tool-internal:src/approval/gate.ts:../file-tools/shared/result.js
-external-tool-internal:src/lsp/file-hooks.ts:../file-tools/types.js
-external-tool-internal:src/repo-map/scanner.ts:../file-tools/config.js
-external-tool-internal:src/repo-map/scope.ts:../file-tools/config.js
-external-tool-internal:src/repo-map/scope.ts:../file-tools/shared/result.js
-external-tool-internal:src/repo-map/service.ts:../file-tools/config.js
-external-tool-internal:src/repo-map/service.ts:../file-tools/shared/result.js
-`.trim().split("\n"));
-
 type Rule = "filesystem-upward" | "tool-sibling" | "tool-data-plane" | "external-tool-internal";
 
 interface ImportEdge {
@@ -28,15 +16,11 @@ interface ImportEdge {
 }
 
 describe("file-tools import architecture", () => {
-	it("matches the final dependency matrix without introducing violations beyond the frozen legacy set", async () => {
+	it("matches the final dependency matrix without legacy exceptions", async () => {
 		const files = await collectTypeScriptFiles(path.join(REPO_ROOT, "src"));
 		const edges = (await Promise.all(files.map(readImportEdges))).flat();
 		const violations = [...edges.flatMap(classifyViolations), ...findTransitiveToolSiblingViolations(edges)].sort();
-		const unexpected = violations.filter((violation) => !LEGACY_VIOLATIONS.has(violation));
-		const staleAllowlist = [...LEGACY_VIOLATIONS].filter((violation) => !violations.includes(violation)).sort();
-
-		expect(unexpected, "new architecture violations").toEqual([]);
-		expect(staleAllowlist, "remove resolved entries from LEGACY_VIOLATIONS").toEqual([]);
+		expect(violations).toEqual([]);
 	});
 });
 
@@ -132,15 +116,14 @@ function isToolSiblingImport(edge: ImportEdge): boolean {
 }
 
 function isToolImplementation(filePath: string): boolean {
-	return filePath.startsWith("src/file-tools/tools/") || finalToolName(filePath) !== undefined;
+	return finalToolName(filePath) !== undefined;
 }
 
 function bypassesFilesystemPlane(edge: ImportEdge): boolean {
 	if (edge.specifier === "node:path" || edge.specifier.startsWith("node:fs")) return true;
 	if (edge.target === undefined) return false;
 	return edge.target === "src/safety/path-guard.ts"
-		|| edge.target === "src/file-tools/config.ts"
-		|| edge.target.startsWith("src/file-tools/config/")
+		|| edge.target.startsWith("src/file-tools-config/")
 		|| edge.target.startsWith("src/file-tools/ignore/")
 		|| edge.target.startsWith("src/lsp/")
 		|| edge.target.startsWith("src/repo-map/")

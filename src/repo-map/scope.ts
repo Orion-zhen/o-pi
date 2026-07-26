@@ -1,49 +1,36 @@
 import path from "node:path";
 
-import {
-	isBlockedPath,
-	loadFileToolsConfig,
-	toolPathIdentity,
-	type FileToolsConfig,
-} from "../file-tools/config.js";
-import { isFailed } from "../file-tools/shared/result.js";
-import { createVisibilitySnapshot } from "../filesystem/services/visibility/service.js";
-import type { VisibilitySnapshot } from "../filesystem/contracts/visibility.js";
+import { loadFileToolsConfig } from "../file-tools-config/config.js";
+import { FileSystemRuntime } from "../filesystem/runtime.js";
 import { RepoMapError } from "./errors.js";
 
-export interface RepoMapFileScopeInput {
-	relativePath: string;
-	absolutePath: string;
-	fileToolsConfig: FileToolsConfig;
-	ignoreSnapshot: VisibilitySnapshot;
-}
-
-/** 与 scanner 相同的单文件 scope 判定；不包含文件大小、类型或可读性检查。 */
-export function isRepoMapFileInScope(input: RepoMapFileScopeInput): boolean {
-	const identity = toolPathIdentity(input.relativePath, input.absolutePath, input.relativePath);
-	return !isBlockedPath(input.fileToolsConfig, identity)
-		&& !input.ignoreSnapshot.evaluate({
-			path: input.relativePath,
-			absolutePath: input.absolutePath,
-			workspacePath: input.relativePath,
-			kind: "file",
-			intent: "index",
-		}).ignored;
-}
-
-/** 判断仓库内路径当前是否属于 Repo Map 自动扫描范围。 */
+/** Determines whether a live repository path belongs to the current automatic index scope. */
 export async function isRepoMapPathInScope(root: string, requestedPath: string): Promise<boolean> {
-	const relativePath = relativeRepoPath(root, requestedPath);
-	if (relativePath === undefined) return false;
-	const fileToolsConfig = await loadFileToolsConfig(root);
-	if (isFailed(fileToolsConfig)) throw new RepoMapError("CONFIG_ERROR", fileToolsConfig.error.message, fileToolsConfig.error.details);
-	const ignoreSnapshot = await createVisibilitySnapshot(root, fileToolsConfig.filesystem.visibility);
-	return isRepoMapFileInScope({
-		relativePath,
-		absolutePath: path.resolve(requestedPath),
-		fileToolsConfig,
-		ignoreSnapshot,
-	});
+	if (relativeRepoPath(root, requestedPath) === undefined) return false;
+	const config = await loadFileToolsConfig(root);
+	if (!config.ok) throw new RepoMapError("CONFIG_ERROR", config.error.message, config.error.details);
+	const runtime = new FileSystemRuntime();
+	try {
+		const opened = await runtime.open({ cwd: root, policy: config.value.filesystem });
+		if (!opened.ok) {
+			if (opened.error.code === "aborted") throw new RepoMapError("OPERATION_ABORTED", opened.error.message, opened.error);
+			return false;
+		}
+		try {
+			const resolved = await opened.value.filesystem.paths.resolveExisting(
+				requestedPath,
+				{ expected: "file", followFinalSymlink: true },
+				opened.value.context,
+			);
+			if (!resolved.ok || resolved.value.kind !== "file") return false;
+			const visibility = await opened.value.filesystem.visibility.evaluate(resolved.value, "index", opened.value.context);
+			return visibility.ok && !visibility.value.ignored;
+		} finally {
+			opened.value.dispose();
+		}
+	} finally {
+		runtime.dispose();
+	}
 }
 
 export function relativeRepoPath(root: string, requestedPath: string): string | undefined {

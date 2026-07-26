@@ -4,58 +4,58 @@ import type { GrepGraphCandidate, GrepGraphSource, GrepSymbolSource } from "../.
 import type { GrepParams } from "../../grep/types.js";
 import type { FileToolsHost, FileToolsInvocation } from "../../runtime/host.js";
 import { isFailed } from "../../shared/result.js";
-import type { FileToolLspHooks } from "../../types.js";
+import type { LspFileOperations } from "../../../lsp/file-hooks.js";
 import { formatErrorModelResult } from "../model-output.js";
-import type { LazyRepoMap } from "../lazy-repo-map.js";
+import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 
 export interface ExecuteGrepOptions {
 	readonly cwd: string;
 	readonly sessionId: string;
 	readonly signal?: AbortSignal;
 	readonly host: FileToolsHost;
-	readonly lsp: FileToolLspHooks;
-	readonly repoMap: LazyRepoMap;
+	readonly lsp: LspFileOperations;
+	readonly repoMap: RepoMapToolPorts;
 }
 
-let tool: GrepTool | undefined;
-
-export async function executeGrep(params: GrepParams, options: ExecuteGrepOptions) {
-	const opened = await options.host.open({
-		cwd: options.cwd,
-		sessionId: options.sessionId,
-		...(options.signal === undefined ? {} : { signal: options.signal }),
-	});
-	if (isFailed(opened)) return failedResult(opened);
-	try {
-		tool ??= new GrepTool();
-		const result = await tool.execute(params, {
-			filesystem: opened.filesystem,
-			operation: opened.context,
-			limits: opened.limits,
-			symbols: createGrepSymbolSource(options.lsp, opened),
-			graph: createGrepGraphSource(options.repoMap, opened),
-		});
-		if (isFailed(result)) return failedResult(result);
-		return { content: [{ type: "text" as const, text: formatCompactGrepResult(result) }], details: result };
-	} finally { opened.dispose(); }
+export function createGrepAdapter() {
+	const tool = new GrepTool();
+	return {
+		async execute(params: GrepParams, options: ExecuteGrepOptions) {
+			const opened = await options.host.open({
+				cwd: options.cwd,
+				sessionId: options.sessionId,
+				...(options.signal === undefined ? {} : { signal: options.signal }),
+			});
+			if (isFailed(opened)) return failedResult(opened);
+			try {
+				const result = await tool.execute(params, {
+					filesystem: opened.filesystem,
+					operation: opened.context,
+					limits: opened.limits,
+					symbols: createGrepSymbolSource(options.lsp, opened),
+					graph: createGrepGraphSource(options.repoMap, opened),
+				});
+				if (isFailed(result)) return failedResult(result);
+				return { content: [{ type: "text" as const, text: formatCompactGrepResult(result) }], details: result };
+			} finally {
+				opened.dispose();
+			}
+		},
+		dispose() {
+			tool.dispose();
+		},
+	};
 }
 
-/** Disposes only grep-owned indexes, pending builds, workers, and parsers. */
-export function dispose(): void {
-	tool?.dispose();
-	tool = undefined;
-}
-
-export function createGrepSymbolSource(lsp: FileToolLspHooks, invocation: FileToolsInvocation): GrepSymbolSource {
+export function createGrepSymbolSource(lsp: LspFileOperations, invocation: FileToolsInvocation): GrepSymbolSource {
 	return {
 		async query(input) {
-			if (input.signal?.aborted === true || lsp.grepSymbols === undefined) return [];
+			if (input.signal?.aborted === true || lsp.symbols === undefined) return [];
 			const workspace = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
 			if (workspace === undefined) return [];
-			const candidates = await lsp.grepSymbols({
+			const candidates = await lsp.symbols({
 				workspaceRoot: workspace.nativePath,
 				query: input.query,
-				path: input.root.displayPath,
 				allowedPaths: new Set(input.allowedPaths),
 				...(input.signal === undefined ? {} : { signal: input.signal }),
 			});
@@ -66,14 +66,14 @@ export function createGrepSymbolSource(lsp: FileToolLspHooks, invocation: FileTo
 				kind: candidate.kind,
 				symbol: candidate.symbol,
 				...(candidate.signature === undefined ? {} : { signature: candidate.signature }),
-				reason: candidate.reason,
-				...(candidate.origin === undefined ? {} : { origin: candidate.origin }),
+				reason: candidate.origin === "reference" ? "lsp reference" : candidate.exact ? "lsp exact symbol" : "lsp symbol",
+				origin: candidate.origin,
 			}));
 		},
 	};
 }
 
-export function createGrepGraphSource(repoMap: LazyRepoMap, invocation: FileToolsInvocation): GrepGraphSource {
+export function createGrepGraphSource(repoMap: RepoMapToolPorts, invocation: FileToolsInvocation): GrepGraphSource {
 	return {
 		async query(input) {
 			if (input.signal?.aborted === true) return undefined;

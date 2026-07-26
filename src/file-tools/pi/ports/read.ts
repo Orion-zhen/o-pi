@@ -5,14 +5,14 @@ import type {
 	ReadStructureSource,
 } from "../../read/ports.js";
 import type { FileToolsInvocation } from "../../runtime/host.js";
-import type { FileToolLspHooks } from "../../types.js";
-import type { LazyRepoMap } from "../lazy-repo-map.js";
+import type { LspFileOperations } from "../../../lsp/file-hooks.js";
+import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 
 export function createReadObservationStore(invocation: FileToolsInvocation): ReadObservationStore {
 	return invocation.observation;
 }
 
-export function createMissingPathSource(invocation: FileToolsInvocation, repoMap: LazyRepoMap): MissingPathSource {
+export function createMissingPathSource(invocation: FileToolsInvocation, repoMap: RepoMapToolPorts): MissingPathSource {
 	return {
 		async suggest(input) {
 			const root = invocation.nativeBridge.getNativeIdentity(input.root);
@@ -28,20 +28,19 @@ export function createMissingPathSource(invocation: FileToolsInvocation, repoMap
 
 export function createReadStructureSource(
 	invocation: FileToolsInvocation,
-	lsp: FileToolLspHooks,
+	lsp: LspFileOperations,
 ): ReadStructureSource {
 	return {
 		async context(input) {
 			const root = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
 			const file = invocation.nativeBridge.getNativeIdentity(input.file);
 			if (root === undefined || file === undefined) return undefined;
-			return await lsp.enhanceRead?.({
+			return await lsp.read?.({
 				workspaceRoot: root.canonicalPath,
-				absolutePath: file.canonicalPath,
-				relativePath: input.file.displayPath,
+				filePath: file.canonicalPath,
 				content: input.content,
-				start_line: input.startLine,
-				end_line: input.endLine,
+				startLine: input.startLine,
+				endLine: input.endLine,
 				truncated: input.truncated,
 				partial: input.partial,
 			});
@@ -51,7 +50,7 @@ export function createReadStructureSource(
 
 export function createReadGraphContextSource(
 	invocation: FileToolsInvocation,
-	repoMap: LazyRepoMap,
+	repoMap: RepoMapToolPorts,
 ): ReadGraphContextSource {
 	return {
 		async context(input) {

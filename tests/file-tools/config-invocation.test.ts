@@ -1,7 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { clearFileToolsConfigCache } from "../../src/file-tools/config.js";
 import { editFile } from "../../src/file-tools/edit/command.js";
 import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
 import { findWorkspaceFiles } from "../helpers/find-tool.js";
@@ -23,7 +22,6 @@ beforeEach(async () => {
 	const userConfig = path.join(userConfigTemp.path, "file-tools.jsonc");
 	await writeFile(userConfig, "{}\n");
 	process.env.PI_FILE_TOOLS_CONFIG = userConfig;
-	clearFileToolsConfigCache();
 });
 
 async function runMutation(cwd: string, kind: "write" | "edit") {

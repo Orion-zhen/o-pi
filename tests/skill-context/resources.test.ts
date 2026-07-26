@@ -6,7 +6,6 @@ import { buildSkillReadIndex, resolveReadLocator, type SkillReadIndex } from "..
 import { executeRead } from "../../src/file-tools/pi/adapters/read.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
-import { normalizeToolPath } from "../../src/file-tools/core/path-resolver.js";
 import { SKILL_CONTEXT_ENTRY, type SkillCandidate, type SkillLoadEntry } from "../../src/skill-context/types.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
@@ -53,7 +52,7 @@ describe("技能资源定位符", () => {
 			sessionId: "skill-read",
 			model: undefined,
 			host,
-			lsp: { enhanceRead },
+			lsp: { read: enhanceRead },
 			repoMap: {
 				query: {
 					query: async () => undefined,
@@ -98,9 +97,20 @@ describe("技能资源定位符", () => {
 		expect(result).toMatchObject({ kind: "error", code: "access-denied" });
 	});
 
-	it("非 read 文件操作不会把 skill:// 当作系统路径", () => {
-		expect(normalizeToolPath(temp.path, "skill://demo/references/testing.md"))
-			.toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
+	it("非 read 文件操作不会把 skill:// 当作系统路径", async () => {
+		const host = new FileToolsHost();
+		const opened = await host.open({ cwd: temp.path, sessionId: "skill-path" });
+		if (isFailed(opened)) throw new Error(opened.error.message);
+		try {
+			await expect(opened.filesystem.paths.resolveTarget(
+				"skill://demo/references/testing.md",
+				{ followExistingSymlink: true },
+				opened.context,
+			)).resolves.toMatchObject({ ok: false, error: { code: "invalid-path" } });
+		} finally {
+			opened.dispose();
+			host.dispose();
+		}
 	});
 
 	it.each([

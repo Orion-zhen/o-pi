@@ -1,7 +1,7 @@
 import type { EditDiagnosticsSource, EditMutationObserver } from "../../edit/ports.js";
 import type { FileToolsInvocation } from "../../runtime/host.js";
-import type { FileToolLspHooks } from "../../types.js";
-import type { LazyRepoMap } from "../lazy-repo-map.js";
+import type { LspFileOperations } from "../../../lsp/file-hooks.js";
+import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 
 export interface EditPiPorts {
 	readonly diagnostics: EditDiagnosticsSource;
@@ -9,7 +9,7 @@ export interface EditPiPorts {
 	impact(): string | undefined;
 }
 
-export function createEditPorts(invocation: FileToolsInvocation, lsp: FileToolLspHooks, repoMap: LazyRepoMap): EditPiPorts {
+export function createEditPorts(invocation: FileToolsInvocation, lsp: LspFileOperations, repoMap: RepoMapToolPorts): EditPiPorts {
 	let renderedImpact: string | undefined;
 	return {
 		diagnostics: {
@@ -19,18 +19,16 @@ export function createEditPorts(invocation: FileToolsInvocation, lsp: FileToolLs
 				if (root === undefined || target === undefined) return undefined;
 				return await lsp.beforeEdit?.({
 					workspaceRoot: root.canonicalPath,
-					path: input.target.displayPath,
-					absolutePath: target.canonicalPath,
+					filePath: target.canonicalPath,
 				});
 			},
 			async afterEdit(input) {
 				const root = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
 				const target = invocation.nativeBridge.getNativeIdentity(input.target);
 				if (root === undefined || target === undefined) return undefined;
-				return await lsp.afterEdit?.({
+				return await lsp.afterWrite?.({
 					workspaceRoot: root.canonicalPath,
-					path: input.target.displayPath,
-					absolutePath: target.canonicalPath,
+					filePath: target.canonicalPath,
 					content: input.content,
 					...(input.baseline === undefined ? {} : { baseline: input.baseline }),
 				});

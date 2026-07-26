@@ -1,61 +1,80 @@
-import type { FileToolLspHooks, FileToolLspSymbolCandidate, LspDiagnosticsSummary } from "../file-tools/types.js";
 import { emptySummary } from "./diagnostics.js";
-import type { LspManager } from "./manager.js";
+import type { LspManager, ReadEnhancement } from "./manager.js";
+import type { LspDiagnosticSnapshot, LspDiagnosticsSummary, LspSymbolHit } from "./types.js";
 
-/** 将 LSP manager 包装为 file-tools 可选 hook；所有异常都在这里吞掉并退化。 */
-export function createLspFileHooks(manager: LspManager): FileToolLspHooks {
+export interface LspReadInput {
+	readonly workspaceRoot: string;
+	readonly filePath: string;
+	readonly content: string;
+	readonly startLine: number;
+	readonly endLine: number;
+	readonly truncated: boolean;
+	readonly partial: boolean;
+}
+
+export interface LspSymbolInput {
+	readonly workspaceRoot: string;
+	readonly query: string;
+	readonly allowedPaths: ReadonlySet<string>;
+	readonly signal?: AbortSignal;
+}
+
+export interface LspMutationInput {
+	readonly workspaceRoot: string;
+	readonly filePath: string;
+	readonly content: string;
+	readonly baseline?: LspDiagnosticSnapshot;
+}
+
+/** LSP-owned, best-effort operations exposed to composition adapters. */
+export interface LspFileOperations {
+	read?(input: LspReadInput): Promise<ReadEnhancement | undefined>;
+	symbols?(input: LspSymbolInput): Promise<readonly LspSymbolHit[]>;
+	beforeEdit?(input: Pick<LspMutationInput, "workspaceRoot" | "filePath">): Promise<LspDiagnosticSnapshot | undefined>;
+	afterWrite?(input: LspMutationInput): Promise<LspDiagnosticsSummary | undefined>;
+}
+
+export function createLspFileOperations(manager: LspManager): LspFileOperations {
 	return {
-		async enhanceRead(input) {
+		async read(input) {
 			try {
 				return await manager.readEnhancement(
 					input.workspaceRoot,
-					input.absolutePath,
+					input.filePath,
 					input.content,
-					{ startLine: input.start_line, endLine: input.end_line },
+					{ startLine: input.startLine, endLine: input.endLine },
 					{ outline: input.truncated, enclosing: input.partial },
 				);
 			} catch {
 				return undefined;
 			}
 		},
-		async grepSymbols(input) {
+		async symbols(input) {
 			try {
-				const hits = await manager.workspaceSymbols({
+				return await manager.workspaceSymbols({
 					root: input.workspaceRoot,
 					query: input.query,
 					allowedPaths: input.allowedPaths,
-					...(input.signal !== undefined ? { signal: input.signal } : {}),
+					...(input.signal === undefined ? {} : { signal: input.signal }),
 				});
-				const candidates: FileToolLspSymbolCandidate[] = [];
-				for (const hit of hits) {
-					candidates.push({
-						path: hit.path,
-						start_line: hit.start_line,
-						end_line: hit.end_line,
-						kind: hit.kind,
-						symbol: hit.symbol,
-						...(hit.signature !== undefined ? { signature: hit.signature } : {}),
-						reason: hit.origin === "reference" ? "lsp reference" : hit.exact ? "lsp exact symbol" : "lsp symbol",
-						origin: hit.origin,
-					});
-				}
-				return candidates;
 			} catch {
 				return [];
 			}
 		},
 		async beforeEdit(input) {
 			try {
-				return await manager.beforeDiagnostics(input.workspaceRoot, input.absolutePath);
+				return await manager.beforeDiagnostics(input.workspaceRoot, input.filePath);
 			} catch {
 				return undefined;
 			}
 		},
 		async afterWrite(input) {
-			return diagnosticsOrUnavailable(async () => manager.didWrite(input.workspaceRoot, input.absolutePath, input.content));
-		},
-		async afterEdit(input) {
-			return diagnosticsOrUnavailable(async () => manager.didWrite(input.workspaceRoot, input.absolutePath, input.content, input.baseline));
+			return diagnosticsOrUnavailable(async () => manager.didWrite(
+				input.workspaceRoot,
+				input.filePath,
+				input.content,
+				input.baseline,
+			));
 		},
 	};
 }

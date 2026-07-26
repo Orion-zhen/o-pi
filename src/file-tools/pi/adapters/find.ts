@@ -4,7 +4,7 @@ import type { FindParams } from "../../find/types.js";
 import type { FileToolsInvocation, FileToolsHost } from "../../runtime/host.js";
 import { isFailed } from "../../shared/result.js";
 import type { RepoMapQueryCandidate } from "../../../repo-map/query.js";
-import type { LazyRepoMap } from "../lazy-repo-map.js";
+import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 import { formatErrorModelResult } from "../model-output.js";
 
 export interface ExecuteFindOptions {
@@ -12,40 +12,39 @@ export interface ExecuteFindOptions {
 	readonly sessionId: string;
 	readonly signal?: AbortSignal;
 	readonly host: FileToolsHost;
-	readonly repoMap: LazyRepoMap;
+	readonly repoMap: RepoMapToolPorts;
 }
 
-let tool: FindTool | undefined;
-
-export async function executeFind(params: FindParams, options: ExecuteFindOptions) {
-	const opened = await options.host.open({
-		cwd: options.cwd,
-		sessionId: options.sessionId,
-		...(options.signal === undefined ? {} : { signal: options.signal }),
-	});
-	if (isFailed(opened)) return failedResult(opened);
-	try {
-		tool ??= new FindTool();
-		const result = await tool.execute(params, {
-			filesystem: opened.filesystem,
-			operation: opened.context,
-			limits: opened.limits,
-			graph: createFindGraphSource(options.repoMap, opened),
-		});
-		if (isFailed(result)) return failedResult(result);
-		return { content: [{ type: "text" as const, text: result.content }], details: result.details };
-	} finally {
-		opened.dispose();
-	}
+export function createFindAdapter() {
+	const tool = new FindTool();
+	return {
+		async execute(params: FindParams, options: ExecuteFindOptions) {
+			const opened = await options.host.open({
+				cwd: options.cwd,
+				sessionId: options.sessionId,
+				...(options.signal === undefined ? {} : { signal: options.signal }),
+			});
+			if (isFailed(opened)) return failedResult(opened);
+			try {
+				const result = await tool.execute(params, {
+					filesystem: opened.filesystem,
+					operation: opened.context,
+					limits: opened.limits,
+					graph: createFindGraphSource(options.repoMap, opened),
+				});
+				if (isFailed(result)) return failedResult(result);
+				return { content: [{ type: "text" as const, text: result.content }], details: result.details };
+			} finally {
+				opened.dispose();
+			}
+		},
+		dispose() {
+			tool.dispose();
+		},
+	};
 }
 
-/** Disposes only find-owned workers; it does not know host or sibling caches. */
-export function dispose(): void {
-	tool?.dispose();
-	tool = undefined;
-}
-
-export function createFindGraphSource(repoMap: LazyRepoMap, invocation: FileToolsInvocation): FindGraphSource {
+export function createFindGraphSource(repoMap: RepoMapToolPorts, invocation: FileToolsInvocation): FindGraphSource {
 	return {
 		async query(input) {
 			if (isAborted(input.signal)) return undefined;

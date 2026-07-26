@@ -3,14 +3,14 @@ import type { GrepParams, GrepSuccess } from "../../src/file-tools/grep/types.js
 import { createGrepGraphSource, createGrepSymbolSource } from "../../src/file-tools/pi/adapters/grep.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
-import type { FileToolLspHooks } from "../../src/file-tools/types.js";
+import type { LspFileOperations } from "../../src/lsp/file-hooks.js";
 import type { RepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
 
 let host = new FileToolsHost();
 let tool = new GrepTool();
 
 export interface GrepTestRuntime {
-	readonly lsp?: FileToolLspHooks;
+	readonly lsp?: LspFileOperations;
 	readonly repoMap?: RepoMapFileToolQuery;
 }
 

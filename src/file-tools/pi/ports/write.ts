@@ -1,7 +1,7 @@
 import type { FileToolsInvocation } from "../../runtime/host.js";
 import type { WriteDiagnosticsSource, WriteMutationObserver } from "../../write/ports.js";
-import type { FileToolLspHooks } from "../../types.js";
-import type { LazyRepoMap } from "../lazy-repo-map.js";
+import type { LspFileOperations } from "../../../lsp/file-hooks.js";
+import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 
 export interface WritePiPorts {
 	readonly diagnostics: WriteDiagnosticsSource;
@@ -9,7 +9,7 @@ export interface WritePiPorts {
 	impact(): string | undefined;
 }
 
-export function createWritePorts(invocation: FileToolsInvocation, lsp: FileToolLspHooks, repoMap: LazyRepoMap): WritePiPorts {
+export function createWritePorts(invocation: FileToolsInvocation, lsp: LspFileOperations, repoMap: RepoMapToolPorts): WritePiPorts {
 	let renderedImpact: string | undefined;
 	return {
 		diagnostics: {
@@ -19,8 +19,7 @@ export function createWritePorts(invocation: FileToolsInvocation, lsp: FileToolL
 				if (root === undefined || target === undefined) return undefined;
 				return await lsp.afterWrite?.({
 					workspaceRoot: root.canonicalPath,
-					path: input.target.displayPath,
-					absolutePath: target.canonicalPath,
+					filePath: target.canonicalPath,
 					content: input.content,
 				});
 			},
