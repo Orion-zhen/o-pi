@@ -9,10 +9,12 @@ import { createVisibilitySnapshot, defaultVisibilityService as defaultIgnoreEngi
 import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
 import type { PartialIgnoreConfig, VisibilitySnapshot } from "../../src/filesystem/contracts/visibility.js";
 import { NodeNativeFileSystem, type NativeFileSystem } from "../../src/filesystem/platform/node/native-filesystem.js";
-import { listWorkspaceDirectory } from "../../src/file-tools/tools/ls.js";
+import { listDirectory } from "../../src/file-tools/ls/command.js";
+import type { LsParams, LsSuccess } from "../../src/file-tools/ls/types.js";
+import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { ReadVersionCache } from "../../src/file-tools/core/read-cache.js";
 import { readWorkspaceFile as readWorkspaceFileImpl } from "../../src/file-tools/tools/read.js";
-import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
+import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { EditSuccess, ReadFileSuccess, ReadParams } from "../../src/file-tools/types.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
@@ -21,6 +23,7 @@ const execFileAsync = promisify(execFile);
 let workspace: string;
 let outside: string;
 let versionCache: ReadVersionCache;
+let host: FileToolsHost;
 const workspaceTemp = useTempDir("o-pi-ignore-");
 const outsideTemp = useTempDir("o-pi-ignore-outside-");
 
@@ -28,12 +31,28 @@ beforeEach(() => {
 	workspace = workspaceTemp.path;
 	outside = outsideTemp.path;
 	versionCache = new ReadVersionCache();
+	host = new FileToolsHost();
 	defaultIgnoreEngine.invalidate();
 });
 
 afterEach(async () => {
+	host.dispose();
 	defaultIgnoreEngine.invalidate();
 });
+
+async function listWorkspaceDirectory(cwd: string, params: LsParams): Promise<ToolOutcome<LsSuccess>> {
+	const opened = await host.open({ cwd, sessionId: "visibility-test" });
+	if (isFailed(opened)) return opened;
+	try {
+		return await listDirectory(params, {
+			filesystem: opened.filesystem,
+			operation: opened.context,
+			entryLimit: opened.limits.ls_entries,
+		});
+	} finally {
+		opened.dispose();
+	}
+}
 
 function readWorkspaceFile(cwd: string, params: ReadParams): Promise<ToolOutcome<ReadFileSuccess>> {
 	return readWorkspaceFileImpl(cwd, params, { versionCache });

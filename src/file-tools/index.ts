@@ -6,7 +6,7 @@ export {
 	formatWriteModelResult,
 	scrubVersions,
 } from "./pi/model-output-with-repo.js";
-export { versionCacheFor, withNativeLsDetails } from "./pi/native.js";
+export { versionCacheFor } from "./pi/native.js";
 export {
 	isEditSuccessDetails,
 	isFailedDetails,

@@ -6,7 +6,9 @@ import { isFailedDetails, isFileToolName } from "../../src/file-tools/pi/guards.
 import { createLazyLspFileHooks } from "../../src/file-tools/pi/lazy-lsp.js";
 import { appendRepoMapEntry, createLazyRepoMap, type LazyRepoMap } from "../../src/file-tools/pi/lazy-repo-map.js";
 import { versionCacheFor } from "../../src/file-tools/pi/native.js";
-import type { EditParams, FindParams, GrepParams, LsParams, ReadParams, WriteParams } from "../../src/file-tools/types.js";
+import type { LsParams } from "../../src/file-tools/ls/types.js";
+import type { FileToolsHost } from "../../src/file-tools/runtime/host.js";
+import type { EditParams, FindParams, GrepParams, ReadParams, WriteParams } from "../../src/file-tools/types.js";
 import { editTelemetry } from "../../src/file-tools/telemetry/edit.js";
 import { findTelemetry } from "../../src/file-tools/telemetry/find.js";
 import { grepTelemetry } from "../../src/file-tools/telemetry/grep.js";
@@ -68,6 +70,7 @@ const editParameters = Type.Object({
 
 export interface FileToolsModuleImports {
 	ls(): Promise<typeof import("../../src/file-tools/pi/adapters/ls.js")>;
+	host(): Promise<typeof import("../../src/file-tools/runtime/host.js")>;
 	find(): Promise<typeof import("../../src/file-tools/pi/adapters/find.js")>;
 	grep(): Promise<typeof import("../../src/file-tools/pi/adapters/grep.js")>;
 	read(): Promise<typeof import("../../src/file-tools/pi/adapters/read.js")>;
@@ -80,6 +83,7 @@ export interface FileToolsModuleImports {
 
 const defaultModuleImports: FileToolsModuleImports = {
 	ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
+	host: () => import("../../src/file-tools/runtime/host.js"),
 	find: () => import("../../src/file-tools/pi/adapters/find.js"),
 	grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
 	read: () => import("../../src/file-tools/pi/adapters/read.js"),
@@ -92,7 +96,8 @@ const defaultModuleImports: FileToolsModuleImports = {
 export function createFileToolsExtension(imports: FileToolsModuleImports = defaultModuleImports): (pi: ExtensionAPI) => void {
 	const cacheDisposers = new Set<() => void>();
 	const loaders: FileToolsModuleImports = {
-		ls: createRetryableLoader(async () => registerCacheDisposer(await imports.ls(), cacheDisposers)),
+		ls: createRetryableLoader(imports.ls),
+		host: createRetryableLoader(imports.host),
 		find: createRetryableLoader(async () => registerCacheDisposer(await imports.find(), cacheDisposers)),
 		grep: createRetryableLoader(async () => registerCacheDisposer(await imports.grep(), cacheDisposers)),
 		read: createRetryableLoader(async () => registerCacheDisposer(await imports.read(), cacheDisposers)),
@@ -102,7 +107,7 @@ export function createFileToolsExtension(imports: FileToolsModuleImports = defau
 		repoMap: createRetryableLoader(imports.repoMap),
 	};
 	const loadRenderers = createRetryableLoader(imports.renderers ?? (() => import("../../src/file-tools/pi/renderers.js")));
-	return (pi) => registerFileTools(pi, loaders, cacheDisposers, loadRenderers);
+	return (pi) => registerFileTools(pi, loaders, cacheDisposers, loaders.host, loadRenderers);
 }
 
 /** 注册覆盖版 ls/find/grep/read/write/edit；扩展层只适配 Pi，工具实现和渲染细节在 src/file-tools。 */
@@ -110,10 +115,21 @@ function registerFileTools(
 	pi: ExtensionAPI,
 	loaders: FileToolsModuleImports,
 	cacheDisposers: Set<() => void>,
+	loadHost: () => Promise<typeof import("../../src/file-tools/runtime/host.js")>,
 	loadRenderers: () => Promise<typeof import("../../src/file-tools/pi/renderers.js")>,
 ): void {
 	const versionCaches = new Map<string, ReadVersionCache>();
 	const repoMaps = new Map<string, LazyRepoMap>();
+	let host: FileToolsHost | undefined;
+	let shuttingDown = false;
+	const hostForInvocation = async (): Promise<FileToolsHost> => {
+		const { FileToolsHost: Host } = await loadHost();
+		if (host === undefined) {
+			host = new Host();
+			if (shuttingDown) host.dispose();
+		}
+		return host;
+	};
 	const lsp = createLazyLspFileHooks(loaders.lsp);
 	const skillReadIndex = createRetryableLoader(async () => buildSkillReadIndex(
 		collectSkillCandidates(undefined, typeof pi.getCommands === "function" ? pi.getCommands() : []),
@@ -138,8 +154,14 @@ function registerFileTools(
 		description: "List direct entries of one directory.",
 		promptSnippet: "list one directory",
 		parameters: lsParameters,
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			return (await loaders.ls()).executeLs(params as LsParams, ctx.cwd);
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+			const [module, invocationHost] = await Promise.all([loaders.ls(), hostForInvocation()]);
+			return module.executeLs(params as LsParams, {
+				cwd: ctx.cwd,
+				sessionId: ctx.sessionManager.getSessionId(),
+				...(signal === undefined ? {} : { signal }),
+				host: invocationHost,
+			});
 		},
 		},
 		repair: { singleStringField: "path", pathFields: ["path"] },
@@ -297,6 +319,8 @@ function registerFileTools(
 		return undefined;
 	});
 	pi.on("session_shutdown", async () => {
+		shuttingDown = true;
+		host?.dispose();
 		versionCaches.clear();
 		repoMaps.clear();
 		await lsp.shutdown();

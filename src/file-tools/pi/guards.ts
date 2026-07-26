@@ -2,7 +2,6 @@ import type {
 	EditSuccess,
 	FindDetails,
 	FindNearbyResult,
-	LsSuccess,
 	ReadFileSuccess,
 	ReadImageSuccess,
 	ReadSuccess,
@@ -60,10 +59,6 @@ export function isRepoMapRelatedResults(value: unknown): value is RepoMapRelated
 		&& item["query_match"] === "not_guaranteed"
 		&& Array.isArray(item["relations"])
 		&& item["relations"].every((relation) => typeof relation === "string"));
-}
-
-export function isLsSuccess(value: unknown): value is LsSuccess {
-	return isPlainRecord(value) && typeof value["path"] === "string" && Array.isArray(value["entries"]) && typeof value["truncated"] === "boolean";
 }
 
 export function isReadFileSuccess(value: unknown): value is ReadFileSuccess {

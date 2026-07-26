@@ -5,7 +5,9 @@ import { clearFileToolsConfigCache } from "../../src/file-tools/config.js";
 import { editWorkspace } from "../../src/file-tools/tools/edit.js";
 import { findWorkspaceFiles } from "../../src/file-tools/tools/find.js";
 import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";
-import { listWorkspaceDirectory } from "../../src/file-tools/tools/ls.js";
+import { listDirectory } from "../../src/file-tools/ls/command.js";
+import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
+import { isFailed } from "../../src/file-tools/shared/result.js";
 import { readWorkspaceFile } from "../../src/file-tools/tools/read.js";
 import { writeWorkspaceFile } from "../../src/file-tools/tools/write.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -23,6 +25,25 @@ beforeEach(async () => {
 	clearFileToolsConfigCache();
 });
 
+async function listWorkspaceDirectory(cwd: string) {
+	const host = new FileToolsHost();
+	try {
+		const opened = await host.open({ cwd, sessionId: "config-invocation" });
+		if (isFailed(opened)) return opened;
+		try {
+			return await listDirectory({}, {
+				filesystem: opened.filesystem,
+				operation: opened.context,
+				entryLimit: opened.limits.ls_entries,
+			});
+		} finally {
+			opened.dispose();
+		}
+	} finally {
+		host.dispose();
+	}
+}
+
 describe("invocation cwd project config", () => {
 	it("六个工具都按 invocation cwd 加载项目配置并在 workspace I/O 前返回 CONFIG_ERROR", async () => {
 		const workspace = workspaceTemp.path;
@@ -33,7 +54,7 @@ describe("invocation cwd project config", () => {
 		);
 
 		const outcomes = await Promise.all([
-			listWorkspaceDirectory(workspace, {}),
+			listWorkspaceDirectory(workspace),
 			readWorkspaceFile(workspace, { path: "missing.txt" }),
 			writeWorkspaceFile(workspace, { path: "new.txt", content: "new\n" }),
 			editWorkspace(workspace, { path: "missing.txt", edits: [{ old: "old", new: "new" }] }),

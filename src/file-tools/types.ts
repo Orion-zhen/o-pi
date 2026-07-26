@@ -24,10 +24,6 @@ export interface WriteParams {
 	content: string;
 }
 
-export interface LsParams {
-	path?: string;
-}
-
 /** find 参数：query 自动路由精确路径、glob、名称/路径 fuzzy 与语义召回。 */
 export interface FindParams {
 	query: string;
@@ -224,27 +220,6 @@ export interface GrepSuccess {
 	related?: RepoMapRelatedResult[];
 	skipped_files?: GrepSkippedFiles;
 	nearby?: GrepNearbyResult[];
-}
-
-export type LsEntryType = "directory" | "file" | "symlink" | "other";
-
-export interface LsEntry {
-	name: string;
-	path: string;
-	type: LsEntryType;
-	/** 符号链接的原始目标；只用于 ls 展示，不解析权限或目标类型。 */
-	link_target?: string;
-	ignored?: boolean;
-	ignore_source?: string;
-}
-
-export interface LsSuccess {
-	path: string;
-	entries: LsEntry[];
-	truncated: boolean;
-	returned_entries?: number;
-	total_entries?: number;
-	continuation_hint?: string;
 }
 
 export interface ReadSuccess {

@@ -39,9 +39,6 @@ tool-data-plane:src/file-tools/tools/grep.ts:../config.js
 tool-data-plane:src/file-tools/tools/grep.ts:node:fs
 tool-data-plane:src/file-tools/tools/grep.ts:node:fs/promises
 tool-data-plane:src/file-tools/tools/grep.ts:node:path
-tool-data-plane:src/file-tools/tools/ls.ts:../config.js
-tool-data-plane:src/file-tools/tools/ls.ts:node:fs/promises
-tool-data-plane:src/file-tools/tools/ls.ts:node:path
 tool-data-plane:src/file-tools/tools/read.ts:../../repo-map/file-tool-query.js
 tool-data-plane:src/file-tools/tools/read.ts:../config.js
 tool-data-plane:src/file-tools/tools/write.ts:../../safety/path-guard.js

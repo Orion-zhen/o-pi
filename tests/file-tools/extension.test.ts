@@ -7,6 +7,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import fileTools, { createFileToolsExtension, type FileToolsModuleImports } from "../../agent/extensions/file-tools.js";
 import { lspFileHooks, lspManager } from "../../src/lsp/index.js";
 import { formatErrorModelResult } from "../../src/file-tools/pi/model-output.js";
+import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 
 interface ThemeStub {
 	fg(name: string, text: string): string;
@@ -135,6 +136,7 @@ describe("file-tools extension", () => {
 		});
 		const extension = createFileToolsExtension({
 			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
+			host: () => import("../../src/file-tools/runtime/host.js"),
 			find: () => import("../../src/file-tools/pi/adapters/find.js"),
 			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
 			read: () => import("../../src/file-tools/pi/adapters/read.js"),
@@ -216,7 +218,7 @@ describe("file-tools extension", () => {
 	it("注册阶段零预热，首次执行按工具加载，并发复用且失败可重试", async () => {
 		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
 		const handlers = new Map<string, LifecycleHandler>();
-		const disposeFileToolsCaches = vi.fn();
+		const disposeHost = vi.spyOn(FileToolsHost.prototype, "dispose");
 		let resolveLs: ((module: typeof import("../../src/file-tools/pi/adapters/ls.js")) => void) | undefined;
 		const pendingLs = new Promise<typeof import("../../src/file-tools/pi/adapters/ls.js")>((resolve) => {
 			resolveLs = resolve;
@@ -224,6 +226,7 @@ describe("file-tools extension", () => {
 		let findLoadAttempts = 0;
 		const imports = {
 			ls: vi.fn(() => pendingLs),
+			host: vi.fn(() => import("../../src/file-tools/runtime/host.js")),
 			find: vi.fn(() => {
 				findLoadAttempts += 1;
 				return findLoadAttempts === 1
@@ -252,6 +255,7 @@ describe("file-tools extension", () => {
 		expect(handlers.has("session_shutdown")).toBe(true);
 		expect(handlers.has("before_agent_start")).toBe(false);
 		expect(imports.ls).not.toHaveBeenCalled();
+		expect(imports.host).not.toHaveBeenCalled();
 		expect(imports.find).not.toHaveBeenCalled();
 		expect(imports.grep).not.toHaveBeenCalled();
 		expect(imports.read).not.toHaveBeenCalled();
@@ -269,10 +273,11 @@ describe("file-tools extension", () => {
 		expect(imports.ls).toHaveBeenCalledTimes(1);
 
 		if (resolveLs === undefined) throw new Error("missing ls module resolver");
-		resolveLs({ ...(await import("../../src/file-tools/pi/adapters/ls.js")), disposeFileToolsCaches });
+		resolveLs(await import("../../src/file-tools/pi/adapters/ls.js"));
 		await expect(firstLs).resolves.toMatchObject({ details: { path: "." } });
 		await expect(secondLs).resolves.toMatchObject({ details: { path: "." } });
 		expect(imports.ls).toHaveBeenCalledTimes(1);
+		expect(imports.host).toHaveBeenCalledTimes(1);
 
 		await expect(executeTool(registered, "find", { query: "package.json", path: ["."] }, ctx)).rejects.toThrow("simulated import failure");
 		await expect(executeTool(registered, "find", { query: "package.json", path: ["."] }, ctx)).resolves.toMatchObject({
@@ -287,7 +292,7 @@ describe("file-tools extension", () => {
 		expect(imports.read).not.toHaveBeenCalled();
 		expect(imports.write).not.toHaveBeenCalled();
 		expect(imports.edit).not.toHaveBeenCalled();
-		expect(disposeFileToolsCaches).toHaveBeenCalledTimes(1);
+		expect(disposeHost).toHaveBeenCalledTimes(1);
 	});
 
 	it("同一 session 复用 Repo Map runtime，shutdown 后释放", async () => {
@@ -310,6 +315,7 @@ describe("file-tools extension", () => {
 		}));
 		const imports = {
 			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
+			host: () => import("../../src/file-tools/runtime/host.js"),
 			find: () => import("../../src/file-tools/pi/adapters/find.js"),
 			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
 			read: () => import("../../src/file-tools/pi/adapters/read.js"),
@@ -365,6 +371,7 @@ describe("file-tools extension", () => {
 		const controller = new AbortController();
 		const imports = {
 			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
+			host: () => import("../../src/file-tools/runtime/host.js"),
 			find: () => import("../../src/file-tools/pi/adapters/find.js"),
 			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
 			read: () => import("../../src/file-tools/pi/adapters/read.js"),
@@ -442,6 +449,7 @@ describe("file-tools extension", () => {
 		}));
 		const imports = {
 			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
+			host: () => import("../../src/file-tools/runtime/host.js"),
 			find: () => import("../../src/file-tools/pi/adapters/find.js"),
 			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
 			read: vi.fn(() => import("../../src/file-tools/pi/adapters/read.js")),
