@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmod, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,7 +14,7 @@ import { formatGraphAliasReason, graphNavigationRelation, graphRankingEvidence, 
 import { hydrateGrepSourceText } from "../../src/file-tools/grep/hydration.js";
 import type { GrepScopedFile } from "../../src/file-tools/grep/indexer.js";
 import { AbortGrepParse, GrepParser, GREP_CONCURRENCY, shouldOffloadGrepParsing } from "../../src/file-tools/grep/parser-pool.js";
-import type { GrepGraphCandidate } from "../../src/file-tools/grep/ports.js";
+import type { GrepGraphCandidate, GrepGraphSource } from "../../src/file-tools/grep/ports.js";
 import { packGrepResults, renderGrepSuccess } from "../../src/file-tools/grep/packer.js";
 import type { RankedGrepRegion } from "../../src/file-tools/grep/ranker.js";
 import { createRankingEvidence, rankingEvidenceSources } from "../../src/file-tools/shared/ranking/evidence.js";
@@ -78,6 +78,12 @@ function firstRegion(result: GrepSuccess) {
 	const region = result.regions[0];
 	if (region === undefined) throw new Error("missing region");
 	return region;
+}
+
+function deferredVoid(): { readonly promise: Promise<void>; resolve(): void } {
+	let resolver: (() => void) | undefined;
+	const promise = new Promise<void>((resolve) => { resolver = resolve; });
+	return { promise, resolve() { resolver?.(); } };
 }
 
 function repoMapCandidate(
@@ -223,6 +229,46 @@ describe("grep", () => {
 		}
 	});
 
+	it("grep owner dispose 取消 index 后 graph 阶段的 active execute", async () => {
+		await writeFile(path.join(workspace, "active.ts"), "export const active = true;\n");
+		const host = new FileToolsHost();
+		const tool = new GrepTool();
+		const opened = await host.open({ cwd: workspace, sessionId: "grep-owner-active" });
+		if (isFailed(opened)) throw new Error(opened.error.message);
+		const started = deferredVoid();
+		let graphAborted = false;
+		const graph: GrepGraphSource = {
+			async query(input) {
+				started.resolve();
+				await new Promise<void>((_resolve, reject) => {
+					const onAbort = () => {
+						graphAborted = true;
+						reject(new Error("aborted"));
+					};
+					if (input.signal?.aborted === true) onAbort();
+					else input.signal?.addEventListener("abort", onAbort, { once: true });
+				});
+				return undefined;
+			},
+		};
+		try {
+			const active = tool.execute({ query: "missingSymbol" }, {
+				filesystem: opened.filesystem,
+				operation: {},
+				limits: opened.limits,
+				graph,
+			});
+			await started.promise;
+			tool.dispose();
+			await expect(active).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
+			expect(graphAborted).toBe(true);
+		} finally {
+			tool.dispose();
+			opened.dispose();
+			host.dispose();
+		}
+	});
+
 	it("literal 预筛提前命中时关闭 line scan", async () => {
 		await writeFile(path.join(workspace, "stream.txt"), `needle\n${"tail\n".repeat(200)}`);
 		const host = new FileToolsHost();
@@ -327,6 +373,24 @@ describe("grep", () => {
 			status: "failed",
 			error: { code: "INVALID_PATH" },
 		});
+	});
+
+	it.each([
+		{ match: "literal" as const, query: "needle\nnext" },
+		{ match: "literal" as const, query: "needle\rnext" },
+		{ match: "regex" as const, query: "needle\nnext" },
+		{ match: "regex" as const, query: "needle\rnext" },
+	])("$match 拒绝 CR/LF 多行 query", async ({ match, query }) => {
+		await expect(grepWorkspaceFiles(workspace, { query, match })).resolves.toMatchObject({
+			status: "failed",
+			error: { code: "INVALID_OPERATION" },
+		});
+	});
+
+	it("auto 保留现有多行 query 语义", async () => {
+		await writeFile(path.join(workspace, "multiline.txt"), "needle\nnext\n");
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "needle\nnext", match: "auto" }));
+		expect(result.regions).toEqual([]);
 	});
 
 	it("依据文件数、字节量、并发数和 worker 热状态动态决定 parser offload", () => {
@@ -862,12 +926,14 @@ describe("grep", () => {
 		expect(testResult.regions[0]?.path).toContain("test");
 	});
 
-	it.skipIf(!treeSitterAvailable())("文件修改、删除和 ignore 变化会更新索引", async () => {
+	it.skipIf(!treeSitterAvailable())("文件修改、删除、重命名和 ignore 变化会更新索引", async () => {
 		await writeFile(path.join(workspace, "a.ts"), "export function oldName() {}\n");
 		expect(firstRegion(expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "oldName" }))).symbol).toBe("oldName");
 		await writeFile(path.join(workspace, "a.ts"), "export function newName() {}\n");
 		expect(firstRegion(expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "newName" }))).symbol).toBe("newName");
-		await rm(path.join(workspace, "a.ts"));
+		await rename(path.join(workspace, "a.ts"), path.join(workspace, "renamed.ts"));
+		expect(firstRegion(expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "newName" })))).toMatchObject({ path: "renamed.ts" });
+		await rm(path.join(workspace, "renamed.ts"));
 		expect(expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "newName" })).regions).toHaveLength(0);
 		await writeFile(path.join(workspace, ".piignore"), "ignored.ts\n");
 		await writeFile(path.join(workspace, "ignored.ts"), "export function hiddenNeedle() {}\n");
@@ -890,6 +956,44 @@ describe("grep", () => {
 			path: "ignored-dir/secret.ts",
 			symbol: "hiddenDirNeedle",
 		});
+	});
+
+	it.skipIf(!treeSitterAvailable())("完整扫描清理已删除文件的 parsed cache", async () => {
+		const oldSource = "export const oldName = 1;\n";
+		const newSource = "export const newName = 1;\n";
+		expect(Buffer.byteLength(oldSource)).toBe(Buffer.byteLength(newSource));
+		await writeFile(path.join(workspace, "cached.ts"), oldSource);
+		const host = new FileToolsHost();
+		const tool = new GrepTool();
+		const opened = await host.open({ cwd: workspace, sessionId: "grep-cache-prune" });
+		if (isFailed(opened)) throw new Error(opened.error.message);
+		const filesystem: WorkspaceFileSystem = {
+			...opened.filesystem,
+			metadata: {
+				async stat(ref, context) {
+					const result = await opened.filesystem.metadata.stat(ref, context);
+					return result.ok ? { ok: true, value: { ...result.value, version: "stable-test-version" } } : result;
+				},
+				list: opened.filesystem.metadata.list.bind(opened.filesystem.metadata),
+			},
+		};
+		const execute = async (query: string): Promise<GrepSuccess> => expectGrepSuccess(await tool.execute({ query }, {
+			filesystem,
+			operation: opened.context,
+			limits: opened.limits,
+		}));
+		try {
+			expect(firstRegion(await execute("oldName"))).toMatchObject({ path: "cached.ts", symbol: "oldName" });
+			await rm(path.join(workspace, "cached.ts"));
+			expect((await execute("cleanupMiss")).regions).toEqual([]);
+			await writeFile(path.join(workspace, "cached.ts"), newSource);
+			expect((await execute("oldName")).regions.every((region) => region.symbol !== "oldName")).toBe(true);
+			expect(firstRegion(await execute("newName"))).toMatchObject({ path: "cached.ts", symbol: "newName" });
+		} finally {
+			tool.dispose();
+			opened.dispose();
+			host.dispose();
+		}
 	});
 
 	it.skipIf(!treeSitterAvailable())("缓存只保存派生索引，重复查询仍返回实时正文", async () => {
@@ -1046,6 +1150,80 @@ describe("grep", () => {
 		expect(result.scanned_files).toBe(57);
 		expect(result.truncated).toBe(true);
 		expect(result.regions).toEqual(expect.arrayContaining([expect.objectContaining({ path: "target.ts", symbol: "retryPolicy" })]));
+	});
+
+	it("窄 glob 的不匹配文件也受实际文件访问上限约束", async () => {
+		for (let index = 0; index < 8; index += 1) {
+			await writeFile(path.join(workspace, `a-${index}.txt`), "unrelated\n");
+		}
+		await writeFile(path.join(workspace, "z-target.txt"), "needle\n");
+		const host = new FileToolsHost();
+		const tool = new GrepTool();
+		const opened = await host.open({ cwd: workspace, sessionId: "grep-file-budget" });
+		if (isFailed(opened)) throw new Error(opened.error.message);
+		let metadataReads = 0;
+		const filesystem: WorkspaceFileSystem = {
+			...opened.filesystem,
+			metadata: {
+				async stat(ref, context) {
+					metadataReads += 1;
+					return await opened.filesystem.metadata.stat(ref, context);
+				},
+				list: opened.filesystem.metadata.list.bind(opened.filesystem.metadata),
+			},
+		};
+		try {
+			const result = expectGrepSuccess(await tool.execute({ query: "needle", match: "literal", glob: "z-*.txt" }, {
+				filesystem,
+				operation: opened.context,
+				limits: { ...opened.limits, grep_max_files_scanned: 3 },
+			}));
+			expect(metadataReads).toBe(3);
+			expect(result.scanned_files).toBe(3);
+			expect(result.truncated).toBe(true);
+			expect(result.regions).toEqual([]);
+		} finally {
+			tool.dispose();
+			opened.dispose();
+			host.dispose();
+		}
+	});
+
+	it("literal query miss 不作为永久缓存维度", async () => {
+		await writeFile(path.join(workspace, "miss.txt"), "unrelated\n");
+		const host = new FileToolsHost();
+		const tool = new GrepTool();
+		const opened = await host.open({ cwd: workspace, sessionId: "grep-query-miss" });
+		if (isFailed(opened)) throw new Error(opened.error.message);
+		let scans = 0;
+		const filesystem: WorkspaceFileSystem = {
+			...opened.filesystem,
+			content: {
+				readBytes: opened.filesystem.content.readBytes.bind(opened.filesystem.content),
+				readText: opened.filesystem.content.readText.bind(opened.filesystem.content),
+				decodeText: opened.filesystem.content.decodeText.bind(opened.filesystem.content),
+				sliceText: opened.filesystem.content.sliceText.bind(opened.filesystem.content),
+				async scanLines(file, options, context) {
+					scans += 1;
+					return await opened.filesystem.content.scanLines(file, options, context);
+				},
+			},
+		};
+		try {
+			for (const query of ["first-miss", "second-miss", "first-miss"]) {
+				const result = expectGrepSuccess(await tool.execute({ query, match: "literal" }, {
+					filesystem,
+					operation: opened.context,
+					limits: opened.limits,
+				}));
+				expect(result.regions).toEqual([]);
+			}
+			expect(scans).toBe(3);
+		} finally {
+			tool.dispose();
+			opened.dispose();
+			host.dispose();
+		}
 	});
 
 	it("超大 scope 的 literal 不受语义候选上限影响", async () => {

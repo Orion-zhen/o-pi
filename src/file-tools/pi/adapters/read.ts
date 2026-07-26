@@ -55,6 +55,7 @@ export async function executeRead(params: ReadParams, options: ExecuteReadOption
 				observation,
 				limits: {
 					bytes: opened.limits.read_bytes,
+					fileBytes: opened.limits.read_max_file_bytes,
 					lines: opened.limits.read_lines,
 					suggestions: opened.limits.read_suggestion_limit,
 				},

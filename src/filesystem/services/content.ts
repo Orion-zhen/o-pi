@@ -12,7 +12,8 @@ import type {
 import type { FileRef } from "../contracts/path.js";
 import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.js";
 import { mapNativeError } from "../kernel/native-error.js";
-import type { WorkspaceNamespaceBridge } from "../kernel/namespace.js";
+import type { NativePathIdentity, WorkspaceNamespaceBridge } from "../kernel/namespace.js";
+import { bindOperationContext } from "../operation-context.js";
 import type {
 	NativeFileSystem,
 	NativeMetadata,
@@ -29,27 +30,23 @@ export class WorkspaceContentService implements ContentOperations {
 	constructor(
 		private readonly native: NativeFileSystem,
 		private readonly bridge: WorkspaceNamespaceBridge,
+		private readonly ownerSignal?: AbortSignal,
 	) {}
 
 	async readBytes(file: FileRef, options: ByteReadOptions, context: FsOperationContext): Promise<FsResult<ByteContent>> {
+		context = bindOperationContext(this.ownerSignal, context);
 		const invalidLimit = validateMaxBytes(options.maxBytes, file.displayPath);
 		if (invalidLimit !== undefined) return invalidLimit;
 		const identity = nativeIdentity(this.bridge, file);
 		if (!identity.ok) return identity;
 
-		let handle: NativeOpenFile;
-		try {
-			handle = await this.native.open(identity.value.nativePath, context);
-		} catch (error) {
-			return fsFailure(mapNativeError(error, file.displayPath));
-		}
+		const opened = await openValidatedFile(this.native, this.bridge, file, identity.value, context);
+		if (!opened.ok) return opened;
+		const { handle, metadata: before } = opened.value;
 
 		let outcome: FsResult<ByteContent>;
 		try {
-			const before = await handle.stat(context);
-			if (before.kind !== "file") {
-				outcome = fsFailure({ code: "not-file", message: "Path is not a regular file.", path: file.displayPath });
-			} else if (options.maxBytes !== undefined && before.sizeBytes > options.maxBytes) {
+			if (options.maxBytes !== undefined && before.sizeBytes > options.maxBytes) {
 				outcome = tooLarge(file.displayPath, options.maxBytes, before.sizeBytes);
 			} else {
 				const loaded = await readHandleBytes(handle, options.maxBytes, context, file.displayPath);
@@ -57,11 +54,12 @@ export class WorkspaceContentService implements ContentOperations {
 				else if (options.stable === true) {
 					const stable = await verifyStable(
 						this.native,
+						this.bridge,
+						file,
 						handle,
-						identity.value.nativePath,
+						identity.value,
 						before,
 						context,
-						file.displayPath,
 					);
 					outcome = !stable.ok ? stable : stable.value
 						? fsSuccess(toByteContent(loaded.value))
@@ -81,6 +79,7 @@ export class WorkspaceContentService implements ContentOperations {
 	}
 
 	async readText(file: FileRef, options: TextReadOptions, context: FsOperationContext): Promise<FsResult<TextContent>> {
+		context = bindOperationContext(this.ownerSignal, context);
 		const loaded = await this.readBytes(file, options, context);
 		if (!loaded.ok) return loaded;
 		return this.decodeText(loaded.value, {
@@ -106,32 +105,26 @@ export class WorkspaceContentService implements ContentOperations {
 	}
 
 	async scanLines(file: FileRef, options: TextReadOptions, context: FsOperationContext): Promise<FsResult<LineScan>> {
+		context = bindOperationContext(this.ownerSignal, context);
 		const invalidLimit = validateMaxBytes(options.maxBytes, file.displayPath);
 		if (invalidLimit !== undefined) return invalidLimit;
 		const identity = nativeIdentity(this.bridge, file);
 		if (!identity.ok) return identity;
-		let handle: NativeOpenFile;
+		const opened = await openValidatedFile(this.native, this.bridge, file, identity.value, context);
+		if (!opened.ok) return opened;
+		const { handle, metadata: before } = opened.value;
 		try {
-			handle = await this.native.open(identity.value.nativePath, context);
-		} catch (error) {
-			return fsFailure(mapNativeError(error, file.displayPath));
-		}
-		try {
-			const before = await handle.stat(context);
-			if (before.kind !== "file") {
-				await closeQuietly(handle);
-				return fsFailure({ code: "not-file", message: "Path is not a regular file.", path: file.displayPath });
-			}
 			if (options.maxBytes !== undefined && before.sizeBytes > options.maxBytes) {
 				await closeQuietly(handle);
 				return tooLarge(file.displayPath, options.maxBytes, before.sizeBytes);
 			}
 			return fsSuccess(new NativeLineScan(
 				this.native,
+				this.bridge,
+				file,
 				handle,
 				before,
-				identity.value.nativePath,
-				file.displayPath,
+				identity.value,
 				options,
 				context,
 			));
@@ -144,31 +137,51 @@ export class WorkspaceContentService implements ContentOperations {
 
 class NativeLineScan implements LineScan {
 	private consumed = false;
-	private closed = false;
+	private stopped = false;
+	private aborted = false;
+	private closePromise: Promise<void> | undefined;
+	private readonly onAbort = () => {
+		this.aborted = true;
+		void this.closeHandle().catch(() => { /* Iterator cleanup owns close failures. */ });
+	};
 
 	constructor(
 		private readonly native: NativeFileSystem,
+		private readonly bridge: WorkspaceNamespaceBridge,
+		private readonly file: FileRef,
 		private readonly handle: NativeOpenFile,
 		private readonly before: NativeMetadata,
-		private readonly nativePath: string,
-		private readonly displayPath: string,
+		private readonly identity: NativePathIdentity,
 		private readonly options: TextReadOptions,
 		private readonly context: FsOperationContext,
-	) {}
+	) {
+		if (context.signal?.aborted === true) this.onAbort();
+		else context.signal?.addEventListener("abort", this.onAbort, { once: true });
+	}
 
 	[Symbol.asyncIterator](): AsyncIterator<FsResult<ScannedLine>> {
 		return this.iterate();
 	}
 
 	async close(): Promise<void> {
-		if (this.closed) return;
-		this.closed = true;
-		await this.handle.close();
+		this.stopped = true;
+		this.context.signal?.removeEventListener("abort", this.onAbort);
+		await this.closeHandle();
+	}
+
+	private closeHandle(): Promise<void> {
+		this.closePromise ??= this.handle.close();
+		return this.closePromise;
+	}
+
+	private isAborted(): boolean {
+		return this.aborted || this.context.signal?.aborted === true;
 	}
 
 	private async *iterate(): AsyncGenerator<FsResult<ScannedLine>> {
+		const displayPath = this.file.displayPath;
 		if (this.consumed) {
-			yield fsFailure({ code: "invalid-path", message: "Line scan has already been consumed.", path: this.displayPath });
+			yield fsFailure({ code: "invalid-path", message: "Line scan has already been consumed.", path: displayPath });
 			return;
 		}
 		this.consumed = true;
@@ -176,8 +189,19 @@ class NativeLineScan implements LineScan {
 		let pending: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
 		let pendingStart = 0;
 		let line = 1;
+		let yieldedAbort = false;
 		try {
-			while (!this.closed) {
+			if (this.isAborted()) {
+				yieldedAbort = true;
+				yield fsFailure({ code: "aborted", message: "Operation aborted.", path: displayPath });
+				return;
+			}
+			while (!this.stopped) {
+				if (this.isAborted()) {
+					yieldedAbort = true;
+					yield fsFailure({ code: "aborted", message: "Operation aborted.", path: displayPath });
+					return;
+				}
 				const remaining = this.options.maxBytes === undefined
 					? READ_CHUNK_BYTES
 					: Math.min(READ_CHUNK_BYTES, this.options.maxBytes - position + 1);
@@ -186,7 +210,7 @@ class NativeLineScan implements LineScan {
 				if (bytesRead === 0) break;
 				position += bytesRead;
 				if (this.options.maxBytes !== undefined && position > this.options.maxBytes) {
-					yield tooLarge(this.displayPath, this.options.maxBytes, position);
+					yield tooLarge(displayPath, this.options.maxBytes, position);
 					return;
 				}
 				pending = concatBytes(pending, buffer.subarray(0, bytesRead));
@@ -201,7 +225,7 @@ class NativeLineScan implements LineScan {
 						pendingStart + recordStart,
 						line,
 						this.options.rejectBinary ?? true,
-						this.displayPath,
+						displayPath,
 					);
 					if (!decoded.ok) {
 						yield decoded;
@@ -218,7 +242,7 @@ class NativeLineScan implements LineScan {
 				}
 			}
 
-			if (!this.closed && pending.byteLength > 0) {
+			if (!this.stopped && pending.byteLength > 0) {
 				const trailingCr = pending[pending.byteLength - 1] === 0x0d;
 				const payload = trailingCr ? pending.subarray(0, -1) : pending;
 				if (!(line === 1 && payload.byteLength === UTF8_BOM_BYTES && hasUtf8Bom(payload))) {
@@ -227,7 +251,7 @@ class NativeLineScan implements LineScan {
 						pendingStart,
 						line,
 						this.options.rejectBinary ?? true,
-						this.displayPath,
+						displayPath,
 					);
 					if (!decoded.ok) {
 						yield decoded;
@@ -236,20 +260,23 @@ class NativeLineScan implements LineScan {
 					yield decoded;
 				}
 			}
-			if (!this.closed && this.options.stable === true) {
+			if (!this.stopped && this.options.stable === true) {
 				const stable = await verifyStable(
 					this.native,
+					this.bridge,
+					this.file,
 					this.handle,
-					this.nativePath,
+					this.identity,
 					this.before,
 					this.context,
-					this.displayPath,
 				);
 				if (!stable.ok) yield stable;
-				else if (!stable.value) yield changedDuringRead(this.displayPath, "scan");
+				else if (!stable.value) yield changedDuringRead(displayPath, "scan");
 			}
 		} catch (error) {
-			yield fsFailure(mapNativeError(error, this.displayPath));
+			if (!yieldedAbort && this.isAborted()) {
+				yield fsFailure({ code: "aborted", message: "Operation aborted.", path: displayPath });
+			} else if (!yieldedAbort) yield fsFailure(mapNativeError(error, displayPath));
 		} finally {
 			try {
 				await this.close();
@@ -260,7 +287,7 @@ class NativeLineScan implements LineScan {
 	}
 }
 
-async function readHandleBytes(
+export async function readHandleBytes(
 	handle: NativeOpenFile,
 	maxBytes: number | undefined,
 	context: FsOperationContext,
@@ -303,28 +330,97 @@ function toByteContent(bytes: Uint8Array): ByteContent {
 	return { bytes, hash: contentHash(bytes), sizeBytes: bytes.byteLength };
 }
 
-async function verifyStable(
+export async function openValidatedFile(
 	native: NativeFileSystem,
-	handle: NativeOpenFile,
-	nativePath: string,
-	before: NativeMetadata,
+	bridge: WorkspaceNamespaceBridge,
+	file: FileRef,
+	identity: NativePathIdentity,
 	context: FsOperationContext,
-	displayPath: string,
-): Promise<FsResult<boolean>> {
+): Promise<FsResult<{ readonly handle: NativeOpenFile; readonly metadata: NativeMetadata }>> {
+	let handle: NativeOpenFile;
 	try {
-		const afterHandle = await handle.stat(context);
-		const afterPath = await native.stat(nativePath, context);
-		return fsSuccess(sameVersion(before, afterHandle) && sameVersion(before, afterPath));
+		handle = await native.open(identity.nativePath, context);
 	} catch (error) {
-		const mapped = mapNativeError(error, displayPath);
-		return mapped.code === "aborted" ? fsFailure(mapped) : fsSuccess(false);
+		const fresh = await bridge.revalidateExisting(file, context);
+		if (!fresh.ok) return fresh;
+		return nativeChanged(error)
+			? changedDuringRead(file.displayPath, "read")
+			: fsFailure(mapNativeError(error, file.displayPath));
+	}
+	try {
+		const validated = await revalidateOpenedFile(native, bridge, file, identity, handle, context);
+		if (!validated.ok) {
+			await closeQuietly(handle);
+			return validated;
+		}
+		return fsSuccess({ handle, metadata: validated.value });
+	} catch (error) {
+		await closeQuietly(handle);
+		return fsFailure(mapNativeError(error, file.displayPath));
 	}
 }
 
+async function revalidateOpenedFile(
+	native: NativeFileSystem,
+	bridge: WorkspaceNamespaceBridge,
+	file: FileRef,
+	expected: NativePathIdentity,
+	handle: NativeOpenFile,
+	context: FsOperationContext,
+): Promise<FsResult<NativeMetadata>> {
+	const fresh = await bridge.revalidateExisting(file, context);
+	if (!fresh.ok) {
+		return fresh.error.code === "not-found" || fresh.error.code === "not-file"
+			? changedDuringRead(file.displayPath, "read")
+			: fresh;
+	}
+	if (
+		fresh.value.ref.kind !== "file"
+		|| !sameNativePath(fresh.value.identity.canonicalPath, expected.canonicalPath)
+		|| !sameNativePath(fresh.value.identity.nativePath, expected.nativePath)
+	) return changedDuringRead(file.displayPath, "read");
+	try {
+		const [handleMetadata, pathMetadata] = await Promise.all([
+			handle.stat(context),
+			native.lstat(expected.nativePath, context),
+		]);
+		if (handleMetadata.kind !== "file") {
+			return fsFailure({ code: "not-file", message: "Path is not a regular file.", path: file.displayPath });
+		}
+		if (pathMetadata.kind !== "file" || handleMetadata.identity !== pathMetadata.identity) {
+			return changedDuringRead(file.displayPath, "read");
+		}
+		return fsSuccess(handleMetadata);
+	} catch (error) {
+		if (nativeChanged(error)) return changedDuringRead(file.displayPath, "read");
+		return fsFailure(mapNativeError(error, file.displayPath));
+	}
+}
+
+export async function verifyStable(
+	native: NativeFileSystem,
+	bridge: WorkspaceNamespaceBridge,
+	file: FileRef,
+	handle: NativeOpenFile,
+	identity: NativePathIdentity,
+	before: NativeMetadata,
+	context: FsOperationContext,
+): Promise<FsResult<boolean>> {
+	const after = await revalidateOpenedFile(native, bridge, file, identity, handle, context);
+	if (!after.ok) return after.error.code === "changed-during-read" ? fsSuccess(false) : after;
+	return fsSuccess(sameVersion(before, after.value));
+}
+
 function sameVersion(left: NativeMetadata, right: NativeMetadata): boolean {
-	if (left.kind !== right.kind) return false;
-	if (left.version !== undefined && right.version !== undefined) return left.version === right.version;
-	return left.sizeBytes === right.sizeBytes && left.modifiedAtMs === right.modifiedAtMs;
+	return left.kind === right.kind && left.version === right.version;
+}
+
+function sameNativePath(left: string, right: string): boolean {
+	return process.platform === "win32" ? left.toLocaleLowerCase() === right.toLocaleLowerCase() : left === right;
+}
+
+function nativeChanged(error: unknown): boolean {
+	return error instanceof Error && "code" in error && error.code === "changed";
 }
 
 function validateMaxBytes(maxBytes: number | undefined, displayPath: string): FsResult<never> | undefined {

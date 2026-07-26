@@ -2,6 +2,7 @@ import picomatch from "picomatch";
 import type { AnyPathRef, DirectoryRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
+import { bindOperationContext } from "../../filesystem/operation-context.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import { compareRankingEvidence, createSourceRankingEvidence, rankingEvidenceSources } from "../shared/ranking/evidence.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
@@ -10,7 +11,7 @@ import { AbortFindGraph, findGraphCandidates } from "./graph-candidates.js";
 import type { FindGraphSource } from "./graph-source.js";
 import { createFindEntry, rankGlobEntries, type RankedFindEntry } from "./ranker.js";
 import { renderFindResults } from "./renderer.js";
-import { AbortFindSuggestionRanking, FindSuggestionRanker } from "./suggestion-pool.js";
+import { AbortFindSuggestionRanking, FindSuggestionRanker } from "./suggestion-ranker.js";
 import type { FindEntry, FindNearbyResult, FindParams, FindRelatedResult, FindScopeError, FindSuccess } from "./types.js";
 
 interface NormalizedFindParams {
@@ -63,13 +64,15 @@ const RELATED_TRIGGER = 4;
 const RELATED_LIMIT = 3;
 const NEARBY_LIMIT = 3;
 
-/** Stateful find command. Only the optional suggestion worker pool survives invocations. */
+/** Stateful find command. Only its optional shared-runtime suggestion workers survive invocations. */
 export class FindTool {
 	private readonly suggestions = new FindSuggestionRanker();
+	private readonly owner = new AbortController();
 	private disposed = false;
 
 	async execute(params: FindParams, context: FindCommandContext): Promise<ToolOutcome<FindSuccess>> {
 		if (this.disposed) return fail("OPERATION_ABORTED", "find is shut down.");
+		context = { ...context, operation: bindOperationContext(this.owner.signal, context.operation) };
 		const validation = validateFindParams(params);
 		if (isFailed(validation)) return validation;
 		if (isOperationAborted(context.operation)) return aborted();
@@ -92,6 +95,7 @@ export class FindTool {
 			if (isFailed(result)) scopeErrors.push({ path: scope.root.displayPath, error: result.error });
 			else successes.push({ scope, result });
 		}
+		if (isOperationAborted(context.operation)) return aborted();
 		if (successes.length === 0) {
 			const first = scopeErrors[0];
 			if (first === undefined) return fail("PATH_NOT_FOUND", "No searchable scope was provided.");
@@ -103,6 +107,7 @@ export class FindTool {
 	dispose(): void {
 		if (this.disposed) return;
 		this.disposed = true;
+		this.owner.abort(new Error("find is shut down."));
 		this.suggestions.dispose();
 	}
 

@@ -95,13 +95,6 @@ export class FileToolsHost {
 		return invocation;
 	}
 
-	disposeSession(sessionId: string): void {
-		const observation = this.sessions.get(sessionId);
-		if (observation === undefined) return;
-		this.sessions.delete(sessionId);
-		observation.dispose();
-	}
-
 	stop(): void {
 		this.accepting = false;
 	}

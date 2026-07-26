@@ -60,7 +60,8 @@ export class FileSystemRuntime {
 		const leaseController = new AbortController();
 		const inputSignals = [this.shutdown.signal, leaseController.signal];
 		if (options.context?.signal !== undefined) inputSignals.push(options.context.signal);
-		const context: FsOperationContext = { signal: AbortSignal.any(inputSignals) };
+		const ownerSignal = AbortSignal.any(inputSignals);
+		const context: FsOperationContext = { signal: ownerSignal };
 		const namespace = await createWorkspaceNamespace({
 			workspaceRoot: options.cwd,
 			blockedPaths: options.policy.blockedPaths,
@@ -79,11 +80,17 @@ export class FileSystemRuntime {
 			return fsFailure(mapNativeError(error, namespace.value.root.displayPath));
 		}
 		if (this.disposed || context.signal?.aborted === true) return runtimeClosed(options.cwd);
-		const readonly = createReadonlyFileSystemServices({ native: this.native, namespace: namespace.value, visibilitySnapshot: snapshot });
+		const readonly = createReadonlyFileSystemServices({
+			native: this.native,
+			namespace: namespace.value,
+			visibilitySnapshot: snapshot,
+			ownerSignal,
+		});
 		const mutations = new WorkspaceMutationService({
 			native: this.native,
 			namespace: namespace.value,
 			queue: this.queue,
+			ownerSignal,
 			...(options.onCommitted === undefined ? {} : { onCommitted: options.onCommitted }),
 		});
 		const filesystem: WorkspaceFileSystem = {

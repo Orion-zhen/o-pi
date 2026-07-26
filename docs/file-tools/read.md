@@ -62,7 +62,7 @@ LSP 可以在 partial/truncated read 时附加 enclosing symbol 或 outline；LS
 
 ## 限制与错误
 
-`read_lines` 和 `read_bytes` 由 file-tools 配置控制。输出被限制时根据 continuation 读取下一段。
+`read_lines` 和 `read_bytes` 控制模型可见输出，输出被截断时可根据 continuation 读取下一段。`read_max_file_bytes` 控制完整文件载入；即使只请求局部行范围，文件超过该上限也会返回 `OUTPUT_LIMIT_EXCEEDED`。
 
 常见错误：
 
@@ -71,7 +71,8 @@ LSP 可以在 partial/truncated read 时附加 enclosing symbol 或 outline；LS
 - `BINARY_FILE_UNSUPPORTED`：不支持的二进制；
 - `INVALID_PATH`：路径或行范围非法；
 - `PROTECTED_PATH`：命中 blocked path；
-- `ACCESS_DENIED`：无权读取。
+- `ACCESS_DENIED`：无权读取；
+- `OUTPUT_LIMIT_EXCEEDED`：文件超过单文件载入上限。
 
 ## 失败结果与模型输出
 

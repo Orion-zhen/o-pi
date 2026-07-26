@@ -31,6 +31,7 @@ export async function executeWrite(
 		const result = await writeFile(params, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
+			maxFileBytes: opened.limits.write_max_file_bytes,
 			diff: piTextDiffGenerator,
 			diagnostics: ports.diagnostics,
 			mutationObserver: ports.observer,

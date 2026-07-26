@@ -35,7 +35,7 @@
 
 这些错误不会自动合并或覆盖外部修改。除非使用 `OLD_TEXT_NOT_UNIQUE` 返回的 pair，否则应按 `error.next` 重新 `read`，基于最新内容生成新的 replacement。
 
-soft ignore 不阻止 `edit`。是否修改只由文件系统访问结果、文件类型、上次读取版本和 operation 合法性决定。
+soft ignore 不阻止 `edit`。是否修改只由文件系统访问结果、文件类型、上次读取版本和 operation 合法性决定。原文件 snapshot 和替换后的提交内容均受 `edit_max_file_bytes` 限制；超限返回 `OUTPUT_LIMIT_EXCEEDED`，不会修改目标。
 
 ## 预览与结果
 

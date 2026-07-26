@@ -25,6 +25,7 @@ import {
 	type NativeMetadata,
 	type NativePathKind,
 } from "../platform/node/native-filesystem.js";
+import { bindOperationContext } from "../operation-context.js";
 import { isNativeError, mapNativeError } from "./native-error.js";
 
 export interface WorkspaceNamespaceOptions {
@@ -47,6 +48,10 @@ type UnstoredNativePathIdentity = Omit<NativePathIdentity, "parentPath">;
 /** Host-only bridge. Tool commands must use opaque refs instead. */
 export interface WorkspaceNamespaceBridge {
 	getNativeIdentity(ref: ExistingRef | TargetRef): NativePathIdentity | undefined;
+	revalidateExisting(
+		ref: ExistingRef,
+		context: FsOperationContext,
+	): Promise<FsResult<{ readonly ref: ExistingRef; readonly identity: NativePathIdentity }>>;
 	resolveChild(parent: DirectoryRef, name: string, context: FsOperationContext): Promise<FsResult<ExistingRef>>;
 }
 
@@ -65,6 +70,7 @@ export async function createWorkspaceNamespace(options: WorkspaceNamespaceOption
 		...(options.homeDirectory === undefined ? {} : { homeDirectory: options.homeDirectory }),
 		blockedPaths: options.blockedPaths,
 		native: options.native ?? new NodeNativeFileSystem(),
+		...(options.context?.signal === undefined ? {} : { ownerSignal: options.context.signal }),
 	});
 	const rootResult = await operations.resolveExisting(
 		".",
@@ -90,6 +96,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		readonly blockedPaths: readonly string[];
 		readonly homeDirectory?: string;
 		readonly native: NativeFileSystem;
+		readonly ownerSignal?: AbortSignal;
 	}) {
 		this.homeDirectory = options.homeDirectory;
 		this.policy = new WorkspaceAccessPolicy({
@@ -103,6 +110,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		options: ResolveExistingOptions,
 		context: FsOperationContext,
 	): Promise<FsResult<ExistingRef>> {
+		context = bindOperationContext(this.options.ownerSignal, context);
 		const lexical = this.resolveLexical(input);
 		if (!lexical.ok) return lexical;
 		const lexicalBlock = this.policy.match(input, lexical.value, "lexical");
@@ -148,6 +156,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		options: ResolveTargetOptions,
 		context: FsOperationContext,
 	): Promise<FsResult<TargetRef>> {
+		context = bindOperationContext(this.options.ownerSignal, context);
 		const lexical = this.resolveLexical(input);
 		if (!lexical.ok) return lexical;
 		const lexicalBlock = this.policy.match(input, lexical.value, "lexical");
@@ -209,7 +218,26 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 	}
 
+	async revalidateExisting(
+		ref: ExistingRef,
+		context: FsOperationContext,
+	): Promise<FsResult<{ readonly ref: ExistingRef; readonly identity: NativePathIdentity }>> {
+		context = bindOperationContext(this.options.ownerSignal, context);
+		const stored = this.refs.get(ref.id);
+		if (stored === undefined) {
+			return fsFailure({ code: "invalid-path", message: "Path does not belong to this filesystem.", path: ref.displayPath });
+		}
+		const fresh = await this.resolveExisting(stored.lexicalPath, { expected: "any", followFinalSymlink: true }, context);
+		if (!fresh.ok) return fresh;
+		const identity = this.refs.get(fresh.value.id);
+		if (identity === undefined) {
+			return fsFailure({ code: "invalid-path", message: "Path identity is unavailable.", path: ref.displayPath });
+		}
+		return fsSuccess({ ref: fresh.value, identity });
+	}
+
 	async resolveChild(parent: DirectoryRef, name: string, context: FsOperationContext): Promise<FsResult<ExistingRef>> {
+		context = bindOperationContext(this.options.ownerSignal, context);
 		const parentIdentity = this.refs.get(parent.id);
 		if (parentIdentity === undefined || name.length === 0 || name === "." || name === ".." || path.basename(name) !== name) {
 			return fsFailure({ code: "invalid-path", message: "Directory entry is invalid.", path: parent.displayPath });

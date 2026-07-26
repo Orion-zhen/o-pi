@@ -24,14 +24,15 @@ export function createReadonlyFileSystemServices(options: {
 	readonly native: NativeFileSystem;
 	readonly namespace: WorkspaceNamespaceKernel;
 	readonly visibilitySnapshot: VisibilitySnapshot;
+	readonly ownerSignal?: AbortSignal;
 }): ReadonlyFileSystemServices {
-	const visibility = new SnapshotVisibilityOperations(options.visibilitySnapshot, options.namespace.bridge);
-	const traversal = new WorkspaceTraversalService(options.native, options.namespace.bridge, visibility);
+	const visibility = new SnapshotVisibilityOperations(options.visibilitySnapshot, options.namespace.bridge, options.ownerSignal);
+	const traversal = new WorkspaceTraversalService(options.native, options.namespace.bridge, visibility, options.ownerSignal);
 	return {
-		metadata: new WorkspaceMetadataService(options.native, options.namespace.bridge),
-		content: new WorkspaceContentService(options.native, options.namespace.bridge),
+		metadata: new WorkspaceMetadataService(options.native, options.namespace.bridge, options.ownerSignal),
+		content: new WorkspaceContentService(options.native, options.namespace.bridge, options.ownerSignal),
 		visibility,
 		traversal,
-		catalog: new WorkspacePathCatalog(traversal),
+		catalog: new WorkspacePathCatalog(traversal, options.ownerSignal),
 	};
 }

@@ -121,6 +121,31 @@ describe("filesystem content and text services", () => {
 		)).toMatchObject({ ok: false, error: { code: "too-large", details: { limit: 4, size: 5 } } });
 	});
 
+	it.skipIf(process.platform === "win32")("blocks a protected final symlink introduced immediately before open", async () => {
+		const protectedDirectory = path.join(temp.path, "read-race-protected");
+		const protectedFile = path.join(protectedDirectory, "secret.txt");
+		const racedFile = path.join(workspace, "raced.txt");
+		await mkdir(protectedDirectory);
+		await writeFile(protectedFile, "secret");
+		await writeFile(racedFile, "safe");
+		let replaced = false;
+		const native = wrapNative(new NodeNativeFileSystem(), {
+			async beforeOpen(pathname) {
+				if (pathname !== racedFile || replaced) return;
+				replaced = true;
+				await rm(racedFile);
+				await symlink(protectedFile, racedFile);
+			},
+		});
+		const opened = await openReadonly({ native, blockedPaths: [`${protectedDirectory}${path.sep}`] });
+		const file = await resolveFile(opened.namespace, "raced.txt");
+		expect(await opened.services.content.readBytes(file, {}, {})).toMatchObject({
+			ok: false,
+			error: { code: "blocked", details: { phase: "canonical" } },
+		});
+		expect(await new NodeNativeFileSystem().read(protectedFile)).toEqual(Buffer.from("secret"));
+	});
+
 	it("detects metadata changes during stable reads", async () => {
 		await writeFile(path.join(workspace, "changing.txt"), "content");
 		let statCalls = 0;
@@ -250,6 +275,33 @@ describe("filesystem content and text services", () => {
 			ok: false,
 			error: { code: "invalid-path" },
 		});
+	});
+
+	it("binds readonly operations and active iterators to the workspace owner", async () => {
+		await writeFile(path.join(workspace, "owned.txt"), "one\ntwo\n");
+		const tracker = { opened: 0, closed: 0 };
+		const owner = new AbortController();
+		const opened = await openReadonly({
+			native: wrapNative(new NodeNativeFileSystem(), { tracker }),
+			ownerSignal: owner.signal,
+		});
+		const file = await resolveFile(opened.namespace, "owned.txt");
+		const scan = expectOk(await opened.services.content.scanLines(file, {}, {}));
+		const traversal = expectOk(await opened.services.traversal.walk(opened.namespace.root, { intent: "search" }, {}));
+
+		owner.abort("lease closed");
+		const scanResults = [];
+		for await (const result of scan) scanResults.push(result);
+		expect(scanResults).toEqual([expect.objectContaining({ ok: false, error: expect.objectContaining({ code: "aborted" }) })]);
+		expect(tracker).toEqual({ opened: 1, closed: 1 });
+
+		const traversalEvents = [];
+		for await (const event of traversal) traversalEvents.push(event);
+		expect(traversalEvents).toEqual([expect.objectContaining({ type: "error", error: expect.objectContaining({ code: "aborted" }) })]);
+		await expect(opened.services.content.readBytes(file, {}, { signal: new AbortController().signal }))
+			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
+		await expect(opened.namespace.paths.resolveTarget("fresh.txt", { followExistingSymlink: true }, {}))
+			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 	});
 
 	it("handles multi-chunk and binary-allowed scans, BOM-only files and repeated consumption", async () => {
@@ -597,12 +649,14 @@ async function openReadonly(options: {
 	readonly native?: NativeFileSystem;
 	readonly blockedPaths?: readonly string[];
 	readonly policy?: VisibilityPolicy;
+	readonly ownerSignal?: AbortSignal;
 } = {}): Promise<OpenedReadonly> {
 	const native = options.native ?? new NodeNativeFileSystem();
 	const namespace = expectOk(await createWorkspaceNamespace({
 		workspaceRoot: workspace,
 		blockedPaths: options.blockedPaths ?? [],
 		native,
+		...(options.ownerSignal === undefined ? {} : { context: { signal: options.ownerSignal } }),
 	}));
 	const visibilitySnapshot = await new WorkspaceVisibilityService(native).createSnapshot(
 		workspace,
@@ -610,7 +664,12 @@ async function openReadonly(options: {
 	);
 	return {
 		namespace,
-		services: createReadonlyFileSystemServices({ native, namespace, visibilitySnapshot }),
+		services: createReadonlyFileSystemServices({
+			native,
+			namespace,
+			visibilitySnapshot,
+			...(options.ownerSignal === undefined ? {} : { ownerSignal: options.ownerSignal }),
+		}),
 	};
 }
 
@@ -627,6 +686,7 @@ function expectOk<T>(result: FsResult<T>): T {
 
 interface NativeOverrides {
 	readonly tracker?: { opened: number; closed: number };
+	readonly beforeOpen?: (path: string) => Promise<void>;
 	readonly stat?: (metadata: NativeMetadata) => NativeMetadata;
 	readonly lstat?: (path: string) => void;
 	readonly readdir?: (path: string) => void;
@@ -650,11 +710,12 @@ function wrapNative(base: NativeFileSystem, overrides: NativeOverrides): NativeF
 		readlink: (pathname, options) => base.readlink(pathname, options),
 		read: (pathname, options) => base.read(pathname, options),
 		async open(pathname, options) {
+			await overrides.beforeOpen?.(pathname);
 			const handle = await base.open(pathname, options);
 			overrides.tracker && (overrides.tracker.opened += 1);
 			return wrapHandle(handle, overrides);
 		},
-		write: (pathname, bytes, options) => base.write(pathname, bytes, options),
+		atomicReplace: (pathname, bytes, options) => base.atomicReplace(pathname, bytes, options),
 		mkdir: (pathname, options) => base.mkdir(pathname, options),
 	};
 }

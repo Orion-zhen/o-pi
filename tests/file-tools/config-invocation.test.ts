@@ -31,11 +31,17 @@ async function runMutation(cwd: string, kind: "write" | "edit") {
 		if (isFailed(opened)) return opened;
 		try {
 			return kind === "write"
-				? await writeFileCommand({ path: "new.txt", content: "new\n" }, { filesystem: opened.filesystem, operation: opened.context, diff: piTextDiffGenerator })
+				? await writeFileCommand({ path: "new.txt", content: "new\n" }, {
+					filesystem: opened.filesystem,
+					operation: opened.context,
+					maxFileBytes: opened.limits.write_max_file_bytes,
+					diff: piTextDiffGenerator,
+				})
 				: await editFile({ path: "missing.txt", edits: [{ old: "old", new: "new" }] }, {
 					filesystem: opened.filesystem,
 					operation: opened.context,
 					observation: opened.observation,
+					maxFileBytes: opened.limits.edit_max_file_bytes,
 					matchHintLimit: opened.limits.edit_match_hint_limit,
 					diff: piTextDiffGenerator,
 				});

@@ -25,6 +25,7 @@ export interface ReadCommandContext {
 	readonly observation: ReadObservationStore;
 	readonly limits: {
 		readonly bytes: number;
+		readonly fileBytes: number;
 		readonly lines: number;
 		readonly suggestions: number;
 	};
@@ -67,7 +68,11 @@ export async function readFile(
 	if (!visibility.ok) return mapFsError(visibility.error);
 	const ignoreSource = visibility.value.ignored ? shortIgnoreSource(visibility.value.source) : undefined;
 
-	const loaded = await context.filesystem.content.readBytes(file, { stable: true }, context.operation);
+	const loaded = await context.filesystem.content.readBytes(
+		file,
+		{ stable: true, maxBytes: context.limits.fileBytes },
+		context.operation,
+	);
 	if (!loaded.ok) return mapFsError(loaded.error, { notFound: "file" });
 	if (isAborted(context.operation)) return aborted(file.displayPath);
 

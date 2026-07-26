@@ -7,6 +7,7 @@ import type {
 	VisibilitySnapshot,
 } from "../../contracts/visibility.js";
 import type { WorkspaceNamespaceBridge } from "../../kernel/namespace.js";
+import { bindOperationContext } from "../../operation-context.js";
 import { nativeIdentity } from "../ref.js";
 
 /** Binds one immutable visibility snapshot to opaque filesystem refs. */
@@ -16,6 +17,7 @@ export class SnapshotVisibilityOperations implements VisibilityOperations {
 	constructor(
 		private readonly source: VisibilitySnapshot,
 		private readonly bridge: WorkspaceNamespaceBridge,
+		private readonly ownerSignal?: AbortSignal,
 	) {
 		this.snapshot = {
 			fingerprint: source.fingerprint,
@@ -28,6 +30,7 @@ export class SnapshotVisibilityOperations implements VisibilityOperations {
 		intent: VisibilityIntent,
 		context: FsOperationContext,
 	): Promise<FsResult<VisibilityAnnotation>> {
+		context = bindOperationContext(this.ownerSignal, context);
 		if (context.signal?.aborted === true) {
 			return fsFailure({ code: "aborted", message: "Operation aborted.", path: ref.displayPath });
 		}

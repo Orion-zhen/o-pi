@@ -21,6 +21,7 @@ export interface EditCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
 	readonly observation: EditObservationStore;
+	readonly maxFileBytes: number;
 	readonly matchHintLimit: number;
 	readonly diff: TextDiffGenerator;
 	readonly diagnostics?: EditDiagnosticsSource;
@@ -30,6 +31,7 @@ export interface EditCommandContext {
 export interface EditPreviewContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
+	readonly maxFileBytes: number;
 	readonly matchHintLimit: number;
 	readonly diff: TextDiffGenerator;
 }
@@ -48,15 +50,21 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 	let baseline: DiagnosticSnapshot | undefined;
 	const mutated = await context.filesystem.mutations.run<FailedResult>(
 		target,
-		{ createParents: false },
+		{
+			createParents: false,
+			maxSnapshotBytes: context.maxFileBytes,
+			maxOutputBytes: context.maxFileBytes,
+		},
 		async (snapshot) => {
 			const prepared = prepareSnapshot(snapshot, target, input.edits, context);
 			if (isFailed(prepared)) return { type: "reject", reason: prepared };
 			before = prepared.file;
 			updatedText = prepared.updatedText;
+			const output = buildTextBytes(updatedText, before.hasBom, target.displayPath, context.maxFileBytes);
+			if (isFailed(output)) return { type: "reject", reason: output };
 			renderedDiff = await context.diff.generate(normalizeLineEndings(before.text), normalizeLineEndings(updatedText));
 			baseline = await safeBeforeEdit(context.diagnostics, target, context.operation.signal);
-			return { type: "commit", bytes: buildTextBytes(updatedText, before.hasBom) };
+			return { type: "commit", bytes: output };
 		},
 		context.operation,
 	);
@@ -93,12 +101,18 @@ export async function previewEdit(params: unknown, context: EditPreviewContext):
 	if (isFailed(input)) return input;
 	const resolved = await resolveEditTarget(input.path, context.filesystem, context.operation);
 	if (isFailed(resolved)) return resolved;
-	const loaded = await context.filesystem.content.readBytes(resolved.file, { stable: true }, context.operation);
+	const loaded = await context.filesystem.content.readBytes(
+		resolved.file,
+		{ stable: true, maxBytes: context.maxFileBytes },
+		context.operation,
+	);
 	if (!loaded.ok) return mapFsError(loaded.error, { notFound: "file" });
 	const decoded = context.filesystem.content.decodeText(loaded.value, { rejectBinary: true, path: resolved.file.displayPath });
 	if (!decoded.ok) return mapFsError(decoded.error, { notFound: "file" });
 	const updated = applyReplacements(decoded.value.text, input.edits, resolved.file.displayPath, context.matchHintLimit);
 	if (isFailed(updated)) return updated;
+	const outputError = validateTextSize(updated, decoded.value.hasBom, resolved.file.displayPath, context.maxFileBytes);
+	if (outputError !== undefined) return outputError;
 	const rendered = await context.diff.generate(normalizeLineEndings(decoded.value.text), normalizeLineEndings(updated));
 	return {
 		status: "preview",
@@ -239,13 +253,29 @@ function findAll(text: string, needle: string): number[] {
 	return starts;
 }
 
-function buildTextBytes(text: string, hasBom: boolean): Uint8Array {
+function buildTextBytes(
+	text: string,
+	hasBom: boolean,
+	path: string,
+	maxBytes: number,
+): ToolOutcome<Uint8Array> {
+	const outputError = validateTextSize(text, hasBom, path, maxBytes);
+	if (outputError !== undefined) return outputError;
 	const body = encoder.encode(text);
 	if (!hasBom) return body;
 	const bytes = new Uint8Array(UTF8_BOM.byteLength + body.byteLength);
 	bytes.set(UTF8_BOM);
 	bytes.set(body, UTF8_BOM.byteLength);
 	return bytes;
+}
+
+function validateTextSize(text: string, hasBom: boolean, path: string, maxBytes: number): FailedResult | undefined {
+	const size = Buffer.byteLength(text, "utf8") + (hasBom ? UTF8_BOM.byteLength : 0);
+	if (size <= maxBytes) return undefined;
+	return fail("OUTPUT_LIMIT_EXCEEDED", "File exceeds the configured byte limit.", {
+		path,
+		details: { limit: maxBytes, size },
+	});
 }
 
 function normalizeLineEndings(text: string): string {

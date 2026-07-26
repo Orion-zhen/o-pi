@@ -236,23 +236,21 @@ describe("FileToolsHost runtime", () => {
 			opened.context,
 		))).toMatchObject({ created: true });
 		expect(opened.limits.ls_entries).toBe(defaultFileToolLimits().ls_entries);
+		const file = await resolveFile(opened, "life.txt");
 
-		host.disposeSession("lifecycle");
-		host.disposeSession("lifecycle");
-		expect(opened.observation.get(target)).toBeUndefined();
-		const detached = opened.observation.attach(opened.nativeBridge);
-		detached();
-		expect(opened.observation.remember(target, { hash: "unused", sizeBytes: 0 })).toBe(false);
-		expect(opened.observation.forget(target)).toBe(false);
-		opened.observation.dispose();
 		opened.dispose();
 		opened.dispose();
 		expect(opened.disposed).toBe(true);
+		const freshController = new AbortController();
 		await expect(opened.filesystem.paths.resolveTarget(
 			"after-dispose.txt",
 			{ followExistingSymlink: true },
-			opened.context,
+			{},
 		)).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
+		await expect(opened.filesystem.content.readBytes(file, {}, { signal: freshController.signal }))
+			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
+		await expect(opened.filesystem.mutations.overwrite(target, bytes("unsafe"), { createParents: false }, {}))
+			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 
 		host.dispose();
 		host.dispose();
@@ -353,7 +351,7 @@ function countingNative(): { readonly native: NativeFileSystem; calls(): number 
 			readlink: called((file, options) => base.readlink(file, options)),
 			read: called((file, options) => base.read(file, options)),
 			open: called((file, options) => base.open(file, options)),
-			write: called((file, value, options) => base.write(file, value, options)),
+			atomicReplace: called((file, value, options) => base.atomicReplace(file, value, options)),
 			mkdir: called((directory, options) => base.mkdir(directory, options)),
 		},
 		calls: () => count,

@@ -15,14 +15,54 @@ beforeEach(() => {
 });
 
 describe("file-tools config", () => {
-	it("默认启用三个 read 路径建议且支持覆盖数量", async () => {
+	it("默认启用路径建议和三个 16 MiB 单文件上限且支持覆盖", async () => {
 		delete process.env.PI_FILE_TOOLS_CONFIG;
-		expect(await loadedConfig(workspace)).toMatchObject({ limits: { read_suggestion_limit: 3 } });
+		expect(await loadedConfig(workspace)).toMatchObject({
+			limits: {
+				read_suggestion_limit: 3,
+				read_max_file_bytes: 16 * 1024 * 1024,
+				write_max_file_bytes: 16 * 1024 * 1024,
+				edit_max_file_bytes: 16 * 1024 * 1024,
+			},
+		});
 
 		const configPath = path.join(workspace, "read-suggestions.jsonc");
 		await writeFile(configPath, JSON.stringify({ limits: { read_suggestion_limit: 7 } }));
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
 		expect(await loadedConfig(workspace)).toMatchObject({ limits: { read_suggestion_limit: 7 } });
+	});
+
+	it("接受单文件上限边界值", async () => {
+		const configPath = path.join(workspace, "file-byte-limits.jsonc");
+		await writeFile(configPath, JSON.stringify({
+			limits: {
+				read_max_file_bytes: 1024,
+				write_max_file_bytes: 104857600,
+				edit_max_file_bytes: 2048,
+			},
+		}));
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		expect(await loadedConfig(workspace)).toMatchObject({
+			limits: {
+				read_max_file_bytes: 1024,
+				write_max_file_bytes: 104857600,
+				edit_max_file_bytes: 2048,
+			},
+		});
+	});
+
+	it.each([
+		["read_max_file_bytes", 1023],
+		["read_max_file_bytes", 104857601],
+		["write_max_file_bytes", 1023],
+		["write_max_file_bytes", 104857601],
+		["edit_max_file_bytes", 1023],
+		["edit_max_file_bytes", 104857601],
+	])("拒绝非法单文件上限 %s=%i", async (field, value) => {
+		const configPath = path.join(workspace, `invalid-${field}-${value}.jsonc`);
+		await writeFile(configPath, JSON.stringify({ limits: { [field]: value } }));
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
 	});
 
 	it("接受收缩后的 find 配置并拒绝旧 find 字段", async () => {
@@ -76,7 +116,7 @@ describe("file-tools config", () => {
 		await writeFile(userPath, JSON.stringify({
 			blocked_path: ["user-block/"],
 			ignored_path: ["user-ignore/"],
-			limits: { ls_entries: 100 },
+			limits: { ls_entries: 100, write_max_file_bytes: 2048 },
 			ignore: { piignore: false, builtin_profile: "minimal" },
 		}));
 		process.env.PI_FILE_TOOLS_CONFIG = userPath;
@@ -85,7 +125,7 @@ describe("file-tools config", () => {
 		await writeFile(path.join(workspace, ".pi", "configs", "file-tools.jsonc"), JSON.stringify({
 			blocked_path: ["project-block/"],
 			ignored_path: ["project-ignore/"],
-			limits: { ls_entries: 20, grep_result_limit: 3 },
+			limits: { ls_entries: 20, grep_result_limit: 3, edit_max_file_bytes: 4096 },
 			ignore: { builtin_profile: "performance" },
 		}));
 
@@ -97,7 +137,12 @@ describe("file-tools config", () => {
 					ignore: { piignore: { enabled: false }, builtinProfile: "performance" },
 				},
 			},
-			limits: { ls_entries: 20, grep_result_limit: 3 },
+			limits: {
+				ls_entries: 20,
+				grep_result_limit: 3,
+				write_max_file_bytes: 2048,
+				edit_max_file_bytes: 4096,
+			},
 		});
 
 		await writeFile(path.join(workspace, ".pi", "configs", "file-tools.jsonc"), JSON.stringify({ ignore: { piignore: true } }));

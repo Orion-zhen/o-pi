@@ -297,7 +297,7 @@ describe("workspace namespace", () => {
 			readlink: base.readlink.bind(base),
 			read: base.read.bind(base),
 			open: base.open.bind(base),
-			write: base.write.bind(base),
+			atomicReplace: base.atomicReplace.bind(base),
 			mkdir: base.mkdir.bind(base),
 		};
 		const namespace = await openNamespace({ native });
@@ -331,7 +331,7 @@ describe("workspace namespace", () => {
 			readlink: base.readlink.bind(base),
 			read: base.read.bind(base),
 			open: base.open.bind(base),
-			write: base.write.bind(base),
+			atomicReplace: base.atomicReplace.bind(base),
 			mkdir: base.mkdir.bind(base),
 		};
 		const namespace = await openNamespace({ blockedPaths: [`${protectedDir}${path.sep}`], native });
@@ -346,7 +346,8 @@ describe("workspace namespace", () => {
 		const unusualPath = path.join(workspace, "unusual");
 		await writeFile(unusualPath, "x");
 		const base = new NodeNativeFileSystem();
-		const otherMetadata = { kind: "other" as const, sizeBytes: 1, modifiedAtMs: 0 };
+		const baseMetadata = await base.lstat(unusualPath);
+		const otherMetadata = { ...baseMetadata, kind: "other" as const, modifiedAtMs: 0 };
 		const native: NativeFileSystem = {
 			lstat: async (file, options) => file === unusualPath ? otherMetadata : base.lstat(file, options),
 			stat: async (file, options) => file === unusualPath ? otherMetadata : base.stat(file, options),
@@ -355,7 +356,7 @@ describe("workspace namespace", () => {
 			readlink: base.readlink.bind(base),
 			read: base.read.bind(base),
 			open: base.open.bind(base),
-			write: base.write.bind(base),
+			atomicReplace: base.atomicReplace.bind(base),
 			mkdir: base.mkdir.bind(base),
 		};
 		const namespace = await openNamespace({ native });
@@ -392,7 +393,7 @@ describe("workspace namespace", () => {
 			readlink: base.readlink.bind(base),
 			read: base.read.bind(base),
 			open: base.open.bind(base),
-			write: base.write.bind(base),
+			atomicReplace: base.atomicReplace.bind(base),
 			mkdir: base.mkdir.bind(base),
 		};
 		const namespace = await openNamespace({ native });

@@ -6,10 +6,11 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { editFile } from "../../src/file-tools/edit/command.js";
 import type { EditSuccess } from "../../src/file-tools/edit/types.js";
+import { GitTrackedFilesLoader } from "../../src/filesystem/services/visibility/git-tracked-files.js";
 import { createVisibilitySnapshot, defaultVisibilityService as defaultIgnoreEngine, WorkspaceVisibilityService } from "../../src/filesystem/services/visibility/service.js";
 import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
 import type { PartialIgnoreConfig, VisibilitySnapshot } from "../../src/filesystem/contracts/visibility.js";
-import { NodeNativeFileSystem, type NativeFileSystem } from "../../src/filesystem/platform/node/native-filesystem.js";
+import { NativeFileSystemError, NodeNativeFileSystem, type NativeFileSystem } from "../../src/filesystem/platform/node/native-filesystem.js";
 import { listDirectory } from "../../src/file-tools/ls/command.js";
 import type { LsParams, LsSuccess } from "../../src/file-tools/ls/types.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
@@ -64,6 +65,7 @@ async function editWorkspace(cwd: string, params: unknown): Promise<ToolOutcome<
 			filesystem: opened.filesystem,
 			operation: opened.context,
 			observation: opened.observation,
+			maxFileBytes: opened.limits.edit_max_file_bytes,
 			matchHintLimit: opened.limits.edit_match_hint_limit,
 			diff: piTextDiffGenerator,
 		});
@@ -234,6 +236,130 @@ describe("ignore engine", () => {
 		expect(snapshots.every((snapshot) => snapshot.evaluate({ path: "ignored.txt", kind: "file", intent: "search" }).ignored)).toBe(true);
 	});
 
+	it("snapshot 共享构建允许首个 consumer 独立取消", async () => {
+		const controlled = controlledVisibilityNative(workspace);
+		const service = new WorkspaceVisibilityService(controlled.native);
+		const policy = createVisibilityPolicy({ ignore: { builtinProfile: "none", gitignore: { enabled: false } } });
+		const firstController = new AbortController();
+		const secondController = new AbortController();
+		const first = service.createSnapshot(workspace, policy, { signal: firstController.signal });
+		await controlled.started.promise;
+		const second = service.createSnapshot(workspace, policy, { signal: secondController.signal });
+		await controlled.secondRealpath.promise;
+		await nextImmediate();
+		try {
+			firstController.abort("first left");
+			await expect(first).rejects.toMatchObject({ code: "aborted" });
+			expect(controlled.ownerAborts()).toBe(0);
+			controlled.release.resolve();
+			await expect(second).resolves.toMatchObject({ fingerprint: expect.any(String) });
+			expect(controlled.rootReads()).toBe(1);
+		} finally {
+			controlled.release.resolve();
+			service.invalidate();
+		}
+	});
+
+	it("snapshot 后加入的 consumer 可取消且不影响已有 consumer", async () => {
+		const controlled = controlledVisibilityNative(workspace);
+		const service = new WorkspaceVisibilityService(controlled.native);
+		const policy = createVisibilityPolicy({ ignore: { builtinProfile: "none", gitignore: { enabled: false } } });
+		const first = service.createSnapshot(workspace, policy);
+		await controlled.started.promise;
+		const laterController = new AbortController();
+		const later = service.createSnapshot(workspace, policy, { signal: laterController.signal });
+		await controlled.secondRealpath.promise;
+		await nextImmediate();
+		try {
+			laterController.abort("later left");
+			await expect(later).rejects.toMatchObject({ code: "aborted" });
+			expect(controlled.ownerAborts()).toBe(0);
+			controlled.release.resolve();
+			await expect(first).resolves.toMatchObject({ fingerprint: expect.any(String) });
+			expect(controlled.rootReads()).toBe(1);
+		} finally {
+			controlled.release.resolve();
+			service.invalidate();
+		}
+	});
+
+	it("最后一个 snapshot consumer 离开或 invalidate 时终止 owner I/O", async () => {
+		const policy = createVisibilityPolicy({ ignore: { builtinProfile: "none", gitignore: { enabled: false } } });
+		const abandoned = controlledVisibilityNative(workspace);
+		const abandonedService = new WorkspaceVisibilityService(abandoned.native);
+		const firstController = new AbortController();
+		const secondController = new AbortController();
+		const first = abandonedService.createSnapshot(workspace, policy, { signal: firstController.signal });
+		await abandoned.started.promise;
+		const second = abandonedService.createSnapshot(workspace, policy, { signal: secondController.signal });
+		await abandoned.secondRealpath.promise;
+		await nextImmediate();
+		firstController.abort("first left");
+		secondController.abort("second left");
+		await expect(first).rejects.toMatchObject({ code: "aborted" });
+		await expect(second).rejects.toMatchObject({ code: "aborted" });
+		await abandoned.ownerAborted.promise;
+		expect(abandoned.ownerAborts()).toBe(1);
+
+		const invalidated = controlledVisibilityNative(workspace);
+		const invalidatedService = new WorkspaceVisibilityService(invalidated.native);
+		const active = invalidatedService.createSnapshot(workspace, policy);
+		await invalidated.started.promise;
+		invalidatedService.invalidate(workspace);
+		await expect(active).rejects.toMatchObject({ code: "aborted" });
+		await invalidated.ownerAborted.promise;
+		expect(invalidated.ownerAborts()).toBe(1);
+
+		const globallyInvalidated = controlledVisibilityNative(workspace);
+		const globalService = new WorkspaceVisibilityService(globallyInvalidated.native);
+		const globallyActive = globalService.createSnapshot(workspace, policy);
+		await globallyInvalidated.started.promise;
+		globalService.invalidate();
+		await expect(globallyActive).rejects.toMatchObject({ code: "aborted" });
+		await globallyInvalidated.ownerAborted.promise;
+		expect(globallyInvalidated.ownerAborts()).toBe(1);
+
+		abandoned.release.resolve();
+		invalidated.release.resolve();
+		globallyInvalidated.release.resolve();
+		abandonedService.invalidate();
+		invalidatedService.invalidate();
+	});
+
+	it("Git shared refresh 分离 consumer 取消并由 clear 终止 pending owner", async () => {
+		if (!(await hasGit())) return;
+		await execFileAsync("git", ["init"], { cwd: workspace });
+		const shared = controlledGitNative(workspace);
+		const loader = new GitTrackedFilesLoader(shared.native);
+		const firstController = new AbortController();
+		const secondController = new AbortController();
+		const first = loader.load(workspace, firstController.signal);
+		const second = loader.load(workspace, secondController.signal);
+		await shared.started.promise;
+		await shared.secondMarker.promise;
+		await nextImmediate();
+		try {
+			firstController.abort("first left");
+			await expect(first).rejects.toMatchObject({ code: "aborted" });
+			expect(shared.ownerAborts()).toBe(0);
+			shared.release.resolve();
+			await expect(second).resolves.toMatchObject({ paths: expect.any(Set), fingerprint: expect.any(String) });
+		} finally {
+			shared.release.resolve();
+			loader.clear();
+		}
+
+		const cleared = controlledGitNative(workspace);
+		const clearedLoader = new GitTrackedFilesLoader(cleared.native);
+		const pending = clearedLoader.load(workspace);
+		await cleared.started.promise;
+		clearedLoader.clear();
+		await expect(pending).rejects.toMatchObject({ code: "aborted" });
+		await cleared.ownerAborted.promise;
+		expect(cleared.ownerAborts()).toBe(1);
+		cleared.release.resolve();
+	});
+
 	it("在 snapshot 构建边界响应取消", async () => {
 		const controller = new AbortController();
 		controller.abort("test");
@@ -289,7 +415,7 @@ describe("ignore engine", () => {
 				return captured;
 			},
 			open: base.open.bind(base),
-			write: base.write.bind(base),
+			atomicReplace: base.atomicReplace.bind(base),
 			mkdir: base.mkdir.bind(base),
 		};
 		const service = new WorkspaceVisibilityService(native);
@@ -479,6 +605,149 @@ describe("ignore engine", () => {
 		}
 	});
 });
+
+interface DeferredVoid {
+	readonly promise: Promise<void>;
+	resolve(): void;
+}
+
+interface ControlledNative {
+	readonly native: NativeFileSystem;
+	readonly started: DeferredVoid;
+	readonly release: DeferredVoid;
+	readonly ownerAborted: DeferredVoid;
+	ownerAborts(): number;
+}
+
+function controlledVisibilityNative(root: string): ControlledNative & {
+	readonly secondRealpath: DeferredVoid;
+	rootReads(): number;
+} {
+	const base = new NodeNativeFileSystem();
+	const started = deferredVoid();
+	const release = deferredVoid();
+	const ownerAborted = deferredVoid();
+	const secondRealpath = deferredVoid();
+	const canonicalRoot = path.resolve(root);
+	let realpaths = 0;
+	let rootReads = 0;
+	let ownerAborts = 0;
+	return {
+		started,
+		release,
+		ownerAborted,
+		secondRealpath,
+		ownerAborts: () => ownerAborts,
+		rootReads: () => rootReads,
+		native: {
+			lstat: base.lstat.bind(base),
+			stat: base.stat.bind(base),
+			async realpath(filePath, options) {
+				const resolved = await base.realpath(filePath, options);
+				if (path.resolve(filePath) === canonicalRoot) {
+					realpaths += 1;
+					if (realpaths >= 2) secondRealpath.resolve();
+				}
+				return resolved;
+			},
+			async readdir(directory, options) {
+				if (path.resolve(directory) !== canonicalRoot) return await base.readdir(directory, options);
+				rootReads += 1;
+				started.resolve();
+				await waitForReleaseOrAbort(options?.signal, release.promise, directory, () => {
+					ownerAborts += 1;
+					ownerAborted.resolve();
+				});
+				return await base.readdir(directory, options);
+			},
+			readlink: base.readlink.bind(base),
+			read: base.read.bind(base),
+			open: base.open.bind(base),
+			atomicReplace: base.atomicReplace.bind(base),
+			mkdir: base.mkdir.bind(base),
+		},
+	};
+}
+
+function controlledGitNative(root: string): ControlledNative & { readonly secondMarker: DeferredVoid } {
+	const base = new NodeNativeFileSystem();
+	const started = deferredVoid();
+	const release = deferredVoid();
+	const ownerAborted = deferredVoid();
+	const secondMarker = deferredVoid();
+	const gitMarker = path.join(path.resolve(root), ".git");
+	const gitConfig = path.join(gitMarker, "config");
+	let markerReads = 0;
+	let ownerAborts = 0;
+	return {
+		started,
+		release,
+		ownerAborted,
+		secondMarker,
+		ownerAborts: () => ownerAborts,
+		native: {
+			async lstat(filePath, options) {
+				const resolvedPath = path.resolve(filePath);
+				if (resolvedPath === gitMarker) {
+					const metadata = await base.lstat(filePath, options);
+					markerReads += 1;
+					if (markerReads >= 2) secondMarker.resolve();
+					return metadata;
+				}
+				if (resolvedPath !== gitConfig) return await base.lstat(filePath, options);
+				started.resolve();
+				await waitForReleaseOrAbort(options?.signal, release.promise, filePath, () => {
+					ownerAborts += 1;
+					ownerAborted.resolve();
+				});
+				return await base.lstat(filePath, options);
+			},
+			stat: base.stat.bind(base),
+			realpath: base.realpath.bind(base),
+			readdir: base.readdir.bind(base),
+			readlink: base.readlink.bind(base),
+			read: base.read.bind(base),
+			open: base.open.bind(base),
+			atomicReplace: base.atomicReplace.bind(base),
+			mkdir: base.mkdir.bind(base),
+		},
+	};
+}
+
+async function waitForReleaseOrAbort(
+	signal: AbortSignal | undefined,
+	release: Promise<void>,
+	filePath: string,
+	onAbort: () => void,
+): Promise<void> {
+	let abortListener: (() => void) | undefined;
+	let observed = false;
+	const canceled = new Promise<void>((_resolve, reject) => {
+		abortListener = () => {
+			if (observed) return;
+			observed = true;
+			onAbort();
+			reject(new NativeFileSystemError("aborted", "test", filePath));
+		};
+		if (signal?.aborted === true) abortListener();
+		else signal?.addEventListener("abort", abortListener, { once: true });
+	});
+	try {
+		await Promise.race([release, canceled]);
+	} finally {
+		if (abortListener !== undefined) signal?.removeEventListener("abort", abortListener);
+	}
+}
+
+function deferredVoid(): DeferredVoid {
+	let resolver: (() => void) | undefined;
+	const promise = new Promise<void>((resolve) => { resolver = resolve; });
+	return { promise, resolve() { resolver?.(); } };
+}
+
+async function nextImmediate(): Promise<void> {
+	await new Promise<void>((resolve) => setImmediate(resolve));
+}
 
 async function hasGit(): Promise<boolean> {
 	try {

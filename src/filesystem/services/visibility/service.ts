@@ -6,7 +6,7 @@ import type {
 	VisibilityService,
 	VisibilitySnapshot,
 } from "../../contracts/visibility.js";
-import { NodeNativeFileSystem, type NativeFileSystem } from "../../platform/node/native-filesystem.js";
+import { NativeFileSystemError, NodeNativeFileSystem, type NativeFileSystem } from "../../platform/node/native-filesystem.js";
 import { GitTrackedFilesLoader } from "./git-tracked-files.js";
 import type { VisibilitySnapshotCacheEntry } from "./model.js";
 import {
@@ -15,6 +15,7 @@ import {
 	resolveCaseInsensitive,
 } from "./rule-compiler.js";
 import { discoverVisibilityRules, visibilityStampsUnchanged } from "./rule-discovery.js";
+import { SharedBuild } from "./shared-build.js";
 import { CompiledVisibilitySnapshot } from "./snapshot.js";
 
 interface VisibilityCacheEpoch {
@@ -27,7 +28,7 @@ let nextGeneration = 1;
 /** Owns immutable visibility snapshots, shared builds, invalidation, and control-plane state. */
 export class WorkspaceVisibilityService implements VisibilityService {
 	private readonly cache = new Map<string, VisibilitySnapshotCacheEntry>();
-	private readonly pending = new Map<string, Promise<VisibilitySnapshot>>();
+	private readonly pending = new Map<string, SharedBuild<VisibilitySnapshot>>();
 	private readonly epochs = new Map<string, number>();
 	private readonly canonicalRoots = new Map<string, string>();
 	private readonly native: NativeFileSystem;
@@ -48,22 +49,29 @@ export class WorkspaceVisibilityService implements VisibilityService {
 		this.canonicalRoots.set(path.resolve(root), canonicalRoot);
 		if (!this.epochs.has(canonicalRoot)) this.epochs.set(canonicalRoot, 0);
 		const pendingKey = `${canonicalRoot}:${policy.fingerprint}`;
-		const existing = this.pending.get(pendingKey);
-		if (existing !== undefined) return existing;
-		const epoch = { generation: this.generation, workspace: this.epochs.get(canonicalRoot) ?? 0 };
-		const created = this.buildSnapshot(canonicalRoot, policy, epoch, context.signal);
-		this.pending.set(pendingKey, created);
-		try {
-			return await created;
-		} finally {
-			if (this.pending.get(pendingKey) === created) this.pending.delete(pendingKey);
+		let pending = this.pending.get(pendingKey);
+		if (pending === undefined) {
+			const epoch = { generation: this.generation, workspace: this.epochs.get(canonicalRoot) ?? 0 };
+			const created = new SharedBuild(
+				async (signal) => await this.buildSnapshot(canonicalRoot, policy, epoch, signal),
+				{
+					createConsumerAbort: () => new NativeFileSystemError("aborted", "visibility", canonicalRoot),
+					onSettled: () => {
+						if (this.pending.get(pendingKey) === created) this.pending.delete(pendingKey);
+					},
+				},
+			);
+			this.pending.set(pendingKey, created);
+			pending = created;
 		}
+		return await pending.consume(context.signal);
 	}
 
 	invalidate(root?: string): void {
 		if (root === undefined) {
 			this.generation += 1;
 			this.cache.clear();
+			for (const pending of this.pending.values()) pending.abort();
 			this.pending.clear();
 			this.epochs.clear();
 			this.canonicalRoots.clear();
@@ -75,8 +83,10 @@ export class WorkspaceVisibilityService implements VisibilityService {
 		for (const key of this.cache.keys()) {
 			if (key.startsWith(`${canonicalRoot}:`)) this.cache.delete(key);
 		}
-		for (const key of this.pending.keys()) {
-			if (key.startsWith(`${canonicalRoot}:`)) this.pending.delete(key);
+		for (const [key, pending] of this.pending) {
+			if (!key.startsWith(`${canonicalRoot}:`)) continue;
+			pending.abort();
+			this.pending.delete(key);
 		}
 	}
 

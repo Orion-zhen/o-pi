@@ -7,6 +7,7 @@ export function mapNativeError(error: unknown, displayPath: string): FsError {
 		return { code: "access-denied", message: "Path cannot be accessed.", path: displayPath };
 	}
 	if (error.code === "aborted") return { code: "aborted", message: "Operation aborted.", path: displayPath };
+	if (error.code === "changed") return { code: "changed-during-read", message: "Path changed during access.", path: displayPath };
 	if (error.code === "not-found") return { code: "not-found", message: "Path does not exist.", path: displayPath };
 	if (error.code === "not-directory") {
 		return { code: "not-directory", message: "Path component is not a directory.", path: displayPath };

@@ -3,6 +3,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { NativeFileSystemError, type NativeFileSystem } from "../../platform/node/native-filesystem.js";
+import { SharedBuild } from "./shared-build.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -22,7 +23,7 @@ interface GitCacheEntry {
 /** Visibility-owned Git index loader. Git and metadata failures intentionally fail open. */
 export class GitTrackedFilesLoader {
 	private readonly cache = new Map<string, GitCacheEntry>();
-	private readonly pending = new Map<string, Promise<GitCacheEntry>>();
+	private readonly pending = new Map<string, SharedBuild<GitCacheEntry>>();
 	private epoch = 0;
 
 	constructor(private readonly native: NativeFileSystem) {}
@@ -35,23 +36,32 @@ export class GitTrackedFilesLoader {
 			if (stateFingerprint === cached.stateFingerprint) return cached.result;
 		}
 
-		const existing = this.pending.get(workspaceRoot);
-		if (existing !== undefined) return (await existing).result;
-		const epoch = this.epoch;
-		const created = this.refreshGitState(workspaceRoot, marker, signal);
-		this.pending.set(workspaceRoot, created);
-		try {
-			const entry = await created;
-			if (this.epoch === epoch) this.cache.set(workspaceRoot, entry);
-			return entry.result;
-		} finally {
-			if (this.pending.get(workspaceRoot) === created) this.pending.delete(workspaceRoot);
+		let pending = this.pending.get(workspaceRoot);
+		if (pending === undefined) {
+			const epoch = this.epoch;
+			const created = new SharedBuild(
+				async (ownerSignal) => {
+					const entry = await this.refreshGitState(workspaceRoot, marker, ownerSignal);
+					if (this.epoch === epoch) this.cache.set(workspaceRoot, entry);
+					return entry;
+				},
+				{
+					createConsumerAbort: () => new NativeFileSystemError("aborted", "git", workspaceRoot),
+					onSettled: () => {
+						if (this.pending.get(workspaceRoot) === created) this.pending.delete(workspaceRoot);
+					},
+				},
+			);
+			this.pending.set(workspaceRoot, created);
+			pending = created;
 		}
+		return (await pending.consume(signal)).result;
 	}
 
 	clear(): void {
 		this.epoch += 1;
 		this.cache.clear();
+		for (const pending of this.pending.values()) pending.abort();
 		this.pending.clear();
 	}
 

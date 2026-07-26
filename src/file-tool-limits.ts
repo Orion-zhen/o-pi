@@ -2,7 +2,10 @@ export interface FileToolLimits {
 	ls_entries: number;
 	read_lines: number;
 	read_bytes: number;
+	read_max_file_bytes: number;
 	read_suggestion_limit: number;
+	write_max_file_bytes: number;
+	edit_max_file_bytes: number;
 	edit_match_hint_limit: number;
 	find_output_token_budget: number;
 	find_result_limit: number;
@@ -19,7 +22,10 @@ const DEFAULT_LIMITS: FileToolLimits = {
 	ls_entries: 200,
 	read_lines: 2_000,
 	read_bytes: 50 * 1024,
+	read_max_file_bytes: 16 * 1024 * 1024,
 	read_suggestion_limit: 3,
+	write_max_file_bytes: 16 * 1024 * 1024,
+	edit_max_file_bytes: 16 * 1024 * 1024,
 	edit_match_hint_limit: 3,
 	find_output_token_budget: 800,
 	find_result_limit: 50,

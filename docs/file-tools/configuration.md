@@ -37,6 +37,9 @@
     "ls_entries": 200,
     "read_lines": 2000,
     "read_bytes": 51200,
+    "read_max_file_bytes": 16777216,
+    "write_max_file_bytes": 16777216,
+    "edit_max_file_bytes": 16777216,
     "edit_match_hint_limit": 3,
     "find_output_token_budget": 800,
     "find_result_limit": 50,
@@ -68,6 +71,9 @@
 
 - `ls_entries`：一次 `ls` 最多返回的直属成员数。
 - `read_lines` / `read_bytes`：一次 `read` 最多返回的行数和 UTF-8 字节数。
+- `read_max_file_bytes`：`read` 可完整载入的单文件上限；局部行范围也不能绕过。
+- `write_max_file_bytes`：`write` 的已有 snapshot 和提交内容上限。
+- `edit_max_file_bytes`：`edit` 的已有 snapshot 和提交内容上限。
 - `edit_match_hint_limit`：`OLD_TEXT_NOT_UNIQUE` 最多返回的前序匹配提示数，默认 3，范围为 1-10。
 - `find_output_token_budget`：`find` 模型可见输出预算，最小为 32 token。
 - `find_result_limit`：`find` 最多保留的具体结果数。

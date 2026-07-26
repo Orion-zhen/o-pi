@@ -46,6 +46,7 @@ async function editWorkspace(
 			filesystem: opened.filesystem,
 			operation: opened.context,
 			observation: opened.observation,
+			maxFileBytes: opened.limits.edit_max_file_bytes,
 			matchHintLimit: opened.limits.edit_match_hint_limit,
 			diff: piTextDiffGenerator,
 			...(runtime.diagnostics === undefined ? {} : { diagnostics: runtime.diagnostics }),
@@ -63,7 +64,12 @@ async function writeWorkspaceFile(
 	const opened = await openInvocation(cwd);
 	if ("status" in opened) return opened;
 	try {
-		return await writeFileCommand(params, { filesystem: opened.filesystem, operation: opened.context, diff });
+		return await writeFileCommand(params, {
+			filesystem: opened.filesystem,
+			operation: opened.context,
+			maxFileBytes: opened.limits.write_max_file_bytes,
+			diff,
+		});
 	} finally {
 		opened.dispose();
 	}
@@ -154,6 +160,24 @@ describe("read", () => {
 		expect(await readWorkspaceFile(workspace, { path: "pixel.gif", start_line: 1 })).toMatchObject({
 			status: "failed",
 			error: { code: "INVALID_OPERATION" },
+		});
+	});
+
+	it("即使只请求局部行范围也拒绝超过 read 单文件上限的文件", async () => {
+		await useFileToolsConfig({ limits: { read_max_file_bytes: 1024 } });
+		await writeFile(path.join(workspace, "exact.txt"), "x".repeat(1024));
+		expect(await readWorkspaceFile(workspace, { path: "exact.txt" })).toMatchObject({
+			content: "x".repeat(1024),
+			size_bytes: 1024,
+		});
+		await writeFile(path.join(workspace, "oversized.txt"), `${"x".repeat(1024)}\n`);
+		expect(await readWorkspaceFile(workspace, { path: "oversized.txt", start_line: 1, end_line: 1 })).toMatchObject({
+			status: "failed",
+			error: {
+				code: "OUTPUT_LIMIT_EXCEEDED",
+				path: "oversized.txt",
+				details: { limit: 1024, size: 1025 },
+			},
 		});
 	});
 
@@ -318,6 +342,31 @@ describe("write", () => {
 		});
 	});
 
+	it("拒绝超过 write 单文件上限的输入和已有 snapshot，且不修改目标", async () => {
+		await useFileToolsConfig({ limits: { write_max_file_bytes: 1024 } });
+		const existing = path.join(workspace, "existing-large.txt");
+		const original = "x".repeat(1025);
+		await writeFile(existing, original);
+
+		expect(await writeWorkspaceFile(workspace, { path: "new-large.txt", content: "y".repeat(1025) })).toMatchObject({
+			status: "failed",
+			error: { code: "OUTPUT_LIMIT_EXCEEDED", details: { limit: 1024, size: 1025 } },
+		});
+		await expect(readFile(path.join(workspace, "new-large.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+
+		expect(await writeWorkspaceFile(workspace, { path: "existing-large.txt", content: "small" })).toMatchObject({
+			status: "failed",
+			error: { code: "OUTPUT_LIMIT_EXCEEDED", details: { limit: 1024, size: 1025 } },
+		});
+		expect(await readFile(existing, "utf8")).toBe(original);
+
+		expect(await writeWorkspaceFile(workspace, { path: "exact-limit.txt", content: "z".repeat(1024) })).toMatchObject({
+			status: "written",
+			after_size_bytes: 1024,
+		});
+		expect(await readFile(path.join(workspace, "exact-limit.txt"), "utf8")).toBe("z".repeat(1024));
+	});
+
 	it("创建缺失父目录并写入 UTF-8 内容", async () => {
 		const content = "hello\n你好\n";
 		const bytes = Buffer.from(content, "utf8");
@@ -479,6 +528,43 @@ describe("edit", () => {
 			error: { code: "READ_REQUIRED", path: "a.txt", next: "Read the file, then create a new edit operation." },
 		});
 		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("old\n");
+	});
+
+	it("拒绝超过 edit 单文件上限的 snapshot 和提交内容，且不修改目标", async () => {
+		await useFileToolsConfig({ limits: { read_max_file_bytes: 2048, edit_max_file_bytes: 1024 } });
+		const oversized = path.join(workspace, "edit-large.txt");
+		const oversizedText = `old${"x".repeat(1022)}`;
+		await writeFile(oversized, oversizedText);
+		await readWorkspaceFile(workspace, { path: "edit-large.txt" });
+		expect(await editWorkspace(workspace, {
+			path: "edit-large.txt",
+			edits: [{ old: "old", new: "new" }],
+		})).toMatchObject({
+			status: "failed",
+			error: { code: "OUTPUT_LIMIT_EXCEEDED", details: { limit: 1024, size: 1025 } },
+		});
+		expect(await readFile(oversized, "utf8")).toBe(oversizedText);
+
+		const growing = path.join(workspace, "edit-growing.txt");
+		await writeFile(growing, "old");
+		await readWorkspaceFile(workspace, { path: "edit-growing.txt" });
+		expect(await editWorkspace(workspace, {
+			path: "edit-growing.txt",
+			edits: [{ old: "old", new: "z".repeat(1025) }],
+		})).toMatchObject({
+			status: "failed",
+			error: { code: "OUTPUT_LIMIT_EXCEEDED", details: { limit: 1024, size: 1025 } },
+		});
+		expect(await readFile(growing, "utf8")).toBe("old");
+
+		const exact = path.join(workspace, "edit-exact.txt");
+		await writeFile(exact, "old");
+		await readWorkspaceFile(workspace, { path: "edit-exact.txt" });
+		expect(await editWorkspace(workspace, {
+			path: "edit-exact.txt",
+			edits: [{ old: "old", new: "q".repeat(1024) }],
+		})).toMatchObject({ status: "applied", new_size_bytes: 1024 });
+		expect(await readFile(exact, "utf8")).toBe("q".repeat(1024));
 	});
 
 	it("一次调用可对同一文件做多个非重叠替换", async () => {
@@ -709,6 +795,7 @@ describe("edit", () => {
 		const preview = await previewEdit(params, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
+			maxFileBytes: opened.limits.edit_max_file_bytes,
 			matchHintLimit: opened.limits.edit_match_hint_limit,
 			diff: piTextDiffGenerator,
 		});

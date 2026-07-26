@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -185,7 +185,7 @@ describe("filesystem mutation runtime", () => {
 
 		await writeFile(path.join(workspace, "read-fail.txt"), "before");
 		const readNative = nativeOverride({
-			async read(file) { throw new NativeFileSystemError("access-denied", "read", file); },
+			async open(file) { throw new NativeFileSystemError("access-denied", "open", file); },
 		});
 		const readOpen = await openRuntime([], readNative);
 		await expect(readOpen.filesystem.mutations.overwrite(
@@ -198,10 +198,10 @@ describe("filesystem mutation runtime", () => {
 		await writeFile(path.join(workspace, "abort-read.txt"), "before");
 		const readAbort = new AbortController();
 		const abortingReadNative = nativeOverride({
-			async read(file, options) {
-				const value = await new NodeNativeFileSystem().read(file, options);
+			async open(file, options) {
+				const handle = await new NodeNativeFileSystem().open(file, options);
 				readAbort.abort();
-				return value;
+				return handle;
 			},
 		});
 		const abortReadOpen = await openRuntime([], abortingReadNative);
@@ -292,6 +292,53 @@ describe("filesystem mutation runtime", () => {
 		expect(await readFile(path.join(workspace, "stale.txt"), "utf8")).toBe("external");
 	});
 
+	it("enforces snapshot and output byte limits despite metadata underreporting", async () => {
+		const file = path.join(workspace, "underreported.txt");
+		await writeFile(file, "12345");
+		const base = new NodeNativeFileSystem();
+		const underreportedNative = nativeOverride({
+			async open(pathname, options) {
+				const handle = await base.open(pathname, options);
+				return {
+					read: handle.read.bind(handle),
+					async stat(operationOptions) {
+						const metadata = await handle.stat(operationOptions);
+						return { ...metadata, sizeBytes: 0 };
+					},
+					close: handle.close.bind(handle),
+				};
+			},
+		});
+		const opened = await openRuntime([], underreportedNative);
+		let transformed = false;
+		await expect(opened.filesystem.mutations.run(
+			await resolveTarget(opened, "underreported.txt"),
+			{ createParents: false, maxSnapshotBytes: 2, maxOutputBytes: 2 },
+			() => {
+				transformed = true;
+				return { type: "commit", bytes: bytes("x") };
+			},
+			opened.context,
+		)).resolves.toMatchObject({
+			ok: false,
+			error: { code: "too-large", details: { limit: 2, size: 3 } },
+		});
+		expect(transformed).toBe(false);
+		expect(await readFile(file, "utf8")).toBe("12345");
+
+		const outputTarget = await resolveTarget(opened, "output-limit.txt");
+		await expect(opened.filesystem.mutations.overwrite(
+			outputTarget,
+			bytes("123"),
+			{ createParents: false, maxSnapshotBytes: 2, maxOutputBytes: 2 },
+			opened.context,
+		)).resolves.toMatchObject({
+			ok: false,
+			error: { code: "too-large", details: { limit: 2, size: 3 } },
+		});
+		await expect(readFile(path.join(workspace, "output-limit.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+	});
+
 	it("validates transform bytes and rechecks live existence and read failures", async () => {
 		const opened = await openRuntime();
 		const invalidTarget = await resolveTarget(opened, "invalid-transform.txt");
@@ -320,10 +367,10 @@ describe("filesystem mutation runtime", () => {
 		let reads = 0;
 		const base = new NodeNativeFileSystem();
 		const liveReadNative = nativeOverride({
-			async read(file, options) {
+			async open(file, options) {
 				reads += 1;
-				if (reads === 2) throw new NativeFileSystemError("access-denied", "read", file);
-				return await base.read(file, options);
+				if (reads === 2) throw new NativeFileSystemError("access-denied", "open", file);
+				return await base.open(file, options);
 			},
 		});
 		const liveReadOpen = await openRuntime([], liveReadNative);
@@ -338,11 +385,11 @@ describe("filesystem mutation runtime", () => {
 		const finalReadAbort = new AbortController();
 		let abortReads = 0;
 		const liveAbortNative = nativeOverride({
-			async read(file, options) {
-				const value = await base.read(file, options);
+			async open(file, options) {
+				const handle = await base.open(file, options);
 				abortReads += 1;
 				if (abortReads === 2) finalReadAbort.abort();
-				return value;
+				return handle;
 			},
 		});
 		const liveAbortOpen = await openRuntime([], liveAbortNative);
@@ -421,6 +468,143 @@ describe("filesystem mutation runtime", () => {
 		expect(await readFile(protectedFile, "utf8")).toBe("secret");
 	});
 
+	it.skipIf(process.platform === "win32")("replaces rather than follows a final symlink introduced after validation", async () => {
+		const protectedDirectory = path.join(temp.path, "commit-race-protected");
+		const protectedFile = path.join(protectedDirectory, "secret.txt");
+		const racedFile = path.join(workspace, "commit-race.txt");
+		await mkdir(protectedDirectory);
+		await writeFile(protectedFile, "secret");
+		await writeFile(racedFile, "safe");
+		const base = new NodeNativeFileSystem();
+		const racingNative = nativeOverride({
+			async atomicReplace(file, value, options) {
+				await base.atomicReplace(file, value, {
+					...options,
+					beforeCommit: async () => {
+						await options?.beforeCommit?.();
+						await rm(racedFile);
+						await symlink(protectedFile, racedFile);
+					},
+				});
+			},
+		});
+		const opened = await openRuntime([`${protectedDirectory}${path.sep}`], racingNative);
+		const result = expectOk(await opened.filesystem.mutations.overwrite(
+			await resolveTarget(opened, "commit-race.txt"),
+			bytes("replacement"),
+			{ createParents: false },
+			opened.context,
+		));
+		expect(result).toMatchObject({ created: false });
+		expect(await readFile(protectedFile, "utf8")).toBe("secret");
+		expect(await readFile(racedFile, "utf8")).toBe("replacement");
+	});
+
+	it.skipIf(process.platform === "win32")("serializes stale refs that freshly converge on one canonical target", async () => {
+		const one = path.join(workspace, "one-key.txt");
+		const two = path.join(workspace, "two-key.txt");
+		const shared = path.join(workspace, "shared-key.txt");
+		const firstLink = path.join(workspace, "first-key.txt");
+		const secondLink = path.join(workspace, "second-key.txt");
+		await writeFile(one, "one");
+		await writeFile(two, "two");
+		await writeFile(shared, "shared");
+		await symlink(one, firstLink);
+		await symlink(two, secondLink);
+		const opened = await openRuntime();
+		const first = await resolveTarget(opened, "first-key.txt");
+		const second = await resolveTarget(opened, "second-key.txt");
+		await rm(firstLink);
+		await rm(secondLink);
+		await symlink(shared, firstLink);
+		await symlink(shared, secondLink);
+		let active = 0;
+		let maxActive = 0;
+		const transform = async () => {
+			active += 1;
+			maxActive = Math.max(maxActive, active);
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			active -= 1;
+			return { type: "commit" as const, bytes: bytes("updated") };
+		};
+		const results = await Promise.all([
+			opened.filesystem.mutations.run(first, { createParents: false }, transform, opened.context),
+			opened.filesystem.mutations.run(second, { createParents: false }, transform, opened.context),
+		]);
+		for (const result of results) expect(expectOk(result)).toMatchObject({ committed: true });
+		expect(maxActive).toBe(1);
+		expect(await readFile(shared, "utf8")).toBe("updated");
+	});
+
+	it("runs the commit observer before the target queue admits the next transform", async () => {
+		const events: string[] = [];
+		const runtime = track(new FileSystemRuntime());
+		const opened = expectOk(await runtime.open({
+			cwd: workspace,
+			policy: policy(),
+			onCommitted() { events.push("observed"); },
+		}));
+		const target = await resolveTarget(opened, "observer-order.txt");
+		const entered = deferred();
+		const release = deferred();
+		const first = opened.filesystem.mutations.run(target, { createParents: false }, async () => {
+			events.push("first-transform");
+			entered.resolve();
+			await release.promise;
+			return { type: "commit", bytes: bytes("first") };
+		}, opened.context);
+		await entered.promise;
+		const second = opened.filesystem.mutations.run(target, { createParents: false }, () => {
+			events.push("second-transform");
+			return { type: "commit", bytes: bytes("second") };
+		}, opened.context);
+		release.resolve();
+		expect(expectOk(await first)).toMatchObject({ committed: true });
+		expect(expectOk(await second)).toMatchObject({ committed: true });
+		expect(events).toEqual(["first-transform", "observed", "second-transform", "observed"]);
+	});
+
+	it("cleans the temporary file when cancelled after final validation", async () => {
+		const file = path.join(workspace, "cancel-temp.txt");
+		await writeFile(file, "before");
+		const controller = new AbortController();
+		const base = new NodeNativeFileSystem();
+		const cancellingNative = nativeOverride({
+			async atomicReplace(destination, value, options) {
+				await base.atomicReplace(destination, value, {
+					...options,
+					beforeCommit: async () => {
+						await options?.beforeCommit?.();
+						controller.abort("cancel before rename");
+					},
+				});
+			},
+		});
+		const opened = await openRuntime([], cancellingNative);
+		await expect(opened.filesystem.mutations.overwrite(
+			await resolveTarget(opened, "cancel-temp.txt"),
+			bytes("unsafe"),
+			{ createParents: false },
+			{ signal: controller.signal },
+		)).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
+		expect(await readFile(file, "utf8")).toBe("before");
+		expect((await readdir(workspace)).filter((name) => name.startsWith(".pi-") && name.endsWith(".tmp"))).toEqual([]);
+	});
+
+	it.skipIf(process.platform === "win32")("preserves an existing file mode across mutation commit", async () => {
+		const file = path.join(workspace, "mode.txt");
+		await writeFile(file, "before");
+		await chmod(file, 0o640);
+		const opened = await openRuntime();
+		expect(expectOk(await opened.filesystem.mutations.overwrite(
+			await resolveTarget(opened, "mode.txt"),
+			bytes("after"),
+			{ createParents: false },
+			opened.context,
+		))).toMatchObject({ created: false });
+		expect((await stat(file)).mode & 0o7777).toBe(0o640);
+	});
+
 	it("maps write failures and keeps committed writes successful after cancellation or observer failure", async () => {
 		const observerRuntime = track(new FileSystemRuntime());
 		const observerOpen = expectOk(await observerRuntime.open({
@@ -438,7 +622,7 @@ describe("filesystem mutation runtime", () => {
 		expect(await readFile(path.join(workspace, "observed.txt"), "utf8")).toBe("observed");
 
 		const failingNative = nativeOverride({
-			async write(file) { throw new NativeFileSystemError("access-denied", "write", file); },
+			async atomicReplace(file) { throw new NativeFileSystemError("access-denied", "atomic-replace", file); },
 		});
 		const failedOpen = await openRuntime([], failingNative);
 		const failedTarget = await resolveTarget(failedOpen, "failed.txt");
@@ -451,8 +635,8 @@ describe("filesystem mutation runtime", () => {
 
 		const controller = new AbortController();
 		const committingNative = nativeOverride({
-			async write(file, value) {
-				await new NodeNativeFileSystem().write(file, value);
+			async atomicReplace(file, value, options) {
+				await new NodeNativeFileSystem().atomicReplace(file, value, options);
 				controller.abort();
 			},
 		});
@@ -530,7 +714,7 @@ function track(runtime: FileSystemRuntime): FileSystemRuntime {
 	return runtime;
 }
 
-function nativeOverride(overrides: Partial<Pick<NativeFileSystem, "write" | "mkdir" | "read">>): NativeFileSystem {
+function nativeOverride(overrides: Partial<Pick<NativeFileSystem, "atomicReplace" | "mkdir" | "open">>): NativeFileSystem {
 	const base = new NodeNativeFileSystem();
 	return {
 		lstat: (file, options) => base.lstat(file, options),
@@ -538,9 +722,9 @@ function nativeOverride(overrides: Partial<Pick<NativeFileSystem, "write" | "mkd
 		realpath: (file, options) => base.realpath(file, options),
 		readdir: (directory, options) => base.readdir(directory, options),
 		readlink: (file, options) => base.readlink(file, options),
-		read: overrides.read ?? ((file, options) => base.read(file, options)),
-		open: (file, options) => base.open(file, options),
-		write: overrides.write ?? ((file, value, options) => base.write(file, value, options)),
+		read: (file, options) => base.read(file, options),
+		open: overrides.open ?? ((file, options) => base.open(file, options)),
+		atomicReplace: overrides.atomicReplace ?? ((file, value, options) => base.atomicReplace(file, value, options)),
 		mkdir: overrides.mkdir ?? ((directory, options) => base.mkdir(directory, options)),
 	};
 }

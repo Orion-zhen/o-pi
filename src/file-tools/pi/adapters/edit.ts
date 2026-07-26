@@ -50,6 +50,7 @@ export async function previewEditWorkspace(cwd: string, params: unknown) {
 			return await previewEdit(params, {
 				filesystem: opened.filesystem,
 				operation: opened.context,
+				maxFileBytes: opened.limits.edit_max_file_bytes,
 				matchHintLimit: opened.limits.edit_match_hint_limit,
 				diff: piTextDiffGenerator,
 			});
@@ -66,6 +67,7 @@ function commandContext(opened: FileToolsInvocation, ports: ReturnType<typeof cr
 		filesystem: opened.filesystem,
 		operation: opened.context,
 		observation: opened.observation,
+		maxFileBytes: opened.limits.edit_max_file_bytes,
 		matchHintLimit: opened.limits.edit_match_hint_limit,
 		diff: piTextDiffGenerator,
 		diagnostics: ports.diagnostics,

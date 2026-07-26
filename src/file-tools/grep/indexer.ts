@@ -32,6 +32,7 @@ export interface GrepIndexResult {
 	readonly root: ExistingRef;
 	readonly files: GrepCandidateFile[];
 	readonly scopedFiles: GrepScopedFile[];
+	readonly scannedFiles: number;
 	readonly matchedFiles: GrepScopedFile[];
 	readonly sourceText: Map<string, string>;
 	readonly sourceHashes: Map<string, string>;
@@ -55,7 +56,6 @@ interface CachedFileIndex {
 	hash?: string;
 	index?: ParsedFileIndex;
 	parserStatus?: AnalyzedFileIndex["status"];
-	misses: Set<string>;
 }
 type ParsedCachedFile = CachedFileIndex & { hash: string; index: ParsedFileIndex; parserStatus: AnalyzedFileIndex["status"] };
 interface PendingGrepIndex {
@@ -77,7 +77,6 @@ interface WalkState {
 	readonly matchesGlob?: (candidate: string) => boolean;
 	readonly contentFilter?: ContentFilter;
 	readonly semanticFilter: (text: string, path: string) => number | undefined;
-	readonly semanticFilterKey: string;
 	files: GrepCandidateFile[];
 	scopedFiles: GrepScopedFile[];
 	matchedFiles: GrepScopedFile[];
@@ -86,6 +85,8 @@ interface WalkState {
 	skipped: Required<GrepSkippedFiles>;
 	pendingFiles: PendingFile[];
 	seenIds: Set<string>;
+	seenPaths: Set<string>;
+	scannedFiles: number;
 	scanComplete: boolean;
 	semanticPrefilter: boolean;
 	offloadParsing: boolean;
@@ -133,7 +134,6 @@ export class GrepIndex {
 				...(matchesGlob === undefined ? {} : { matchesGlob }),
 				...(contentFilter === undefined ? {} : { contentFilter }),
 				semanticFilter: createSemanticFilter(params.query),
-				semanticFilterKey: `auto\0${params.query.toLocaleLowerCase()}`,
 				files: [],
 				scopedFiles: [],
 				matchedFiles: [],
@@ -142,6 +142,8 @@ export class GrepIndex {
 				skipped: { binary: 0, invalid_utf8: 0, access_denied: 0, too_large: 0 },
 				pendingFiles: [],
 				seenIds: new Set(),
+				seenPaths: new Set(),
+				scannedFiles: 0,
 				scanComplete: true,
 				semanticPrefilter: false,
 				offloadParsing: false,
@@ -179,6 +181,7 @@ export class GrepIndex {
 			state.semanticPrefilter = state.contentFilter === undefined
 				&& state.pendingFiles.length > state.context.limits.grep_max_semantic_files;
 			await this.indexPendingFiles(state);
+			if (state.root.kind === "directory" && state.scanComplete) pruneCache(state);
 		} catch (error) {
 			if (error instanceof ExplicitFileFailure) return error.result;
 			if (error instanceof AbortGrepIndex || error instanceof AbortGrepParse) return aborted(state.root.displayPath);
@@ -190,6 +193,7 @@ export class GrepIndex {
 		return {
 			files: state.files,
 			scopedFiles: state.scopedFiles,
+			scannedFiles: state.scannedFiles,
 			matchedFiles: state.matchedFiles,
 			sourceText: state.sourceText,
 			sourceHashes: state.sourceHashes,
@@ -208,6 +212,8 @@ export class GrepIndex {
 	}
 
 	private async queueExplicitFile(state: WalkState, ref: FileRef): Promise<ToolOutcome<void>> {
+		state.scannedFiles += 1;
+		state.seenPaths.add(ref.displayPath);
 		const metadata = await scopedMetadata(ref, state);
 		if (isFailed(metadata)) return metadata;
 		if (metadata.size > state.context.limits.grep_max_file_bytes) {
@@ -224,6 +230,7 @@ export class GrepIndex {
 		const opened = await state.context.filesystem.traversal.walk(root, {
 			intent: "index",
 			explicitRoot: true,
+			maxEntries: state.context.limits.grep_max_files_scanned,
 		}, { signal: state.signal });
 		if (!opened.ok) return mapFsError(opened.error, { message: "Path cannot be searched." });
 		try {
@@ -234,7 +241,17 @@ export class GrepIndex {
 					if (event.error.code === "access-denied") state.skipped.access_denied += 1;
 					continue;
 				}
-				if (event.type !== "entry" || event.ref.kind !== "file") continue;
+				if (event.type === "skip") {
+					if (event.reason === "entry-limit") state.scanComplete = false;
+					continue;
+				}
+				if (event.ref.kind !== "file") continue;
+				if (state.scannedFiles >= state.context.limits.grep_max_files_scanned) {
+					state.scanComplete = false;
+					break;
+				}
+				state.scannedFiles += 1;
+				state.seenPaths.add(event.ref.displayPath);
 				const metadata = await scopedMetadata(event.ref, state);
 				if (isFailed(metadata)) {
 					if (metadata.error.code === "OPERATION_ABORTED") throw new AbortGrepIndex();
@@ -244,10 +261,6 @@ export class GrepIndex {
 				addScopedFile(state, metadata);
 				const searchPath = relativeDisplayPath(root.displayPath, event.ref.displayPath);
 				if (state.matchesGlob !== undefined && !state.matchesGlob(searchPath)) continue;
-				if (state.pendingFiles.length >= state.context.limits.grep_max_files_scanned) {
-					state.scanComplete = false;
-					break;
-				}
 				state.matchedFiles.push(metadata);
 				state.pendingFiles.push({ ref: event.ref, searchPath, explicit: false });
 			}
@@ -322,8 +335,6 @@ async function prepareFile(state: WalkState, pending: PendingFile): Promise<Prep
 	const cached = state.cache.files.get(cacheFileKey(pending.ref.displayPath));
 	const cacheCurrent = cached !== undefined && cached.metadataVersion === metadata.metadataVersion;
 	const parsedCached = cacheCurrent && isParsedCachedFile(cached) ? cached : undefined;
-	const filterKey = state.contentFilter?.key ?? (state.semanticPrefilter ? state.semanticFilterKey : undefined);
-	if (filterKey !== undefined && cacheCurrent && cached.misses.has(filterKey)) return undefined;
 	if (state.contentFilter !== undefined) {
 		const matched = await fileMatchesFilter(pending.ref, state.contentFilter, state);
 		if (isFailed(matched)) {
@@ -331,10 +342,7 @@ async function prepareFile(state: WalkState, pending: PendingFile): Promise<Prep
 			countReadFailure(state, matched);
 			return undefined;
 		}
-		if (!matched) {
-			rememberFilterMiss(state, cached, metadata, state.contentFilter.key);
-			return undefined;
-		}
+		if (!matched) return undefined;
 	}
 	if (parsedCached !== undefined && parsedCached.parserStatus === "parsed" && state.contentFilter === undefined && !state.semanticPrefilter) {
 		state.files.push(toCandidate(parsedCached));
@@ -355,10 +363,7 @@ async function prepareFile(state: WalkState, pending: PendingFile): Promise<Prep
 	let semanticRank: number | undefined;
 	if (state.semanticPrefilter) {
 		semanticRank = state.semanticFilter(loaded.text, pending.ref.displayPath);
-		if (semanticRank === undefined) {
-			rememberFilterMiss(state, cached, metadata, state.semanticFilterKey);
-			return undefined;
-		}
+		if (semanticRank === undefined) return undefined;
 	}
 	return {
 		ref: pending.ref,
@@ -417,21 +422,33 @@ function storeAnalyzedFile(state: WalkState, file: PreparedFile, analyzed: Analy
 		hash: file.loaded.hash,
 		index: analyzed.index,
 		parserStatus: analyzed.status,
-		misses: new Set(),
 	};
 	state.cache.files.set(cacheFileKey(file.ref.displayPath), cached);
 	addCandidate(state, cached, file.loaded.text);
 }
 
-function rememberFilterMiss(state: WalkState, cached: CachedFileIndex | undefined, metadata: GrepScopedFile, key: string): void {
-	const misses = new Set(cached?.metadataVersion === metadata.metadataVersion ? cached.misses : []);
-	misses.add(key);
-	state.cache.files.set(cacheFileKey(metadata.path), {
-		...(cached?.metadataVersion === metadata.metadataVersion ? cached : {
-			path: metadata.path, id: metadata.id, size: metadata.size, metadataVersion: metadata.metadataVersion,
-		}),
-		misses,
-	});
+function pruneCache(state: WalkState): void {
+	for (const [key, cached] of state.cache.files) {
+		if (isPathInDirectoryScope(state.root.displayPath, cached.path) && !state.seenPaths.has(cached.path)) {
+			state.cache.files.delete(key);
+		}
+	}
+}
+
+function isPathInDirectoryScope(rootPath: string, candidatePath: string): boolean {
+	const root = normalizeDisplayPath(rootPath);
+	const candidate = normalizeDisplayPath(candidatePath);
+	if (root === ".") return !isAbsoluteDisplayPath(candidate) && candidate !== ".." && !candidate.startsWith("../");
+	return candidate === root || candidate.startsWith(root.endsWith("/") ? root : `${root}/`);
+}
+
+function normalizeDisplayPath(value: string): string {
+	const normalized = value.replaceAll("\\", "/");
+	return normalized === "/" ? normalized : normalized.replace(/\/+$/u, "");
+}
+
+function isAbsoluteDisplayPath(value: string): boolean {
+	return value.startsWith("/") || value.startsWith("//") || /^[A-Za-z]:\//u.test(value);
 }
 
 function toCandidate(cached: ParsedCachedFile): GrepCandidateFile {
@@ -550,7 +567,7 @@ async function consumePending(pending: PendingGrepIndex, signal: AbortSignal | u
 
 function cloneRawResult(result: RawGrepIndexResult): RawGrepIndexResult {
 	return {
-		files: [...result.files], scopedFiles: [...result.scopedFiles], matchedFiles: [...result.matchedFiles],
+		files: [...result.files], scopedFiles: [...result.scopedFiles], scannedFiles: result.scannedFiles, matchedFiles: [...result.matchedFiles],
 		sourceText: new Map(result.sourceText), sourceHashes: new Map(result.sourceHashes),
 		skipped: { ...result.skipped }, scanComplete: result.scanComplete,
 	};

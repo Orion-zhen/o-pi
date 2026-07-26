@@ -2,11 +2,16 @@ import { createHash } from "node:crypto";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import path from "node:path";
+import { Worker } from "node:worker_threads";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { FindTool } from "../../src/file-tools/find/command.js";
 import { mergeRankedFindSources } from "../../src/file-tools/find/fusion.js";
 import { createFindEntry, rankFindSuggestions } from "../../src/file-tools/find/ranker.js";
 import { renderFindResults } from "../../src/file-tools/find/renderer.js";
-import { FIND_CONCURRENCY, FindSuggestionRanker, shouldOffloadFindSuggestions } from "../../src/file-tools/find/suggestion-pool.js";
+import type { FindGraphSource } from "../../src/file-tools/find/graph-source.js";
+import { AbortFindSuggestionRanking, FIND_CONCURRENCY, FindSuggestionRanker, shouldOffloadFindSuggestions } from "../../src/file-tools/find/suggestion-ranker.js";
+import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
+import { isFailed } from "../../src/file-tools/shared/result.js";
 import { createRankingEvidence } from "../../src/file-tools/shared/ranking/evidence.js";
 import { findWorkspaceFiles } from "../helpers/find-tool.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
@@ -46,6 +51,17 @@ function expectFindSuccess(result: ToolOutcome<FindSuccess>): FindSuccess {
 
 function paths(matches: FindMatch[]): string[] {
 	return matches.map((match) => match.path);
+}
+
+function deferredVoid(): { readonly promise: Promise<void>; resolve(): void } {
+	let resolver: (() => void) | undefined;
+	const promise = new Promise<void>((resolve) => { resolver = resolve; });
+	return { promise, resolve() { resolver?.(); } };
+}
+
+function suggestionEntries(count = 6_000) {
+	return Array.from({ length: count }, (_value, index) =>
+		createFindEntry(`packages/component-${index}/parser-runtime-${index}.ts`, "file"));
 }
 
 async function writeFixture(filePath: string): Promise<void> {
@@ -90,11 +106,10 @@ describe("find", () => {
 	});
 
 	it("分块 worker 合并得到与单线程 Fuse 相同的全局 suggestions", async () => {
-		const entries = Array.from({ length: 9_000 }, (_value, index) =>
-			createFindEntry(`packages/component-${index}/parser-runtime-${index}.ts`, "file"));
+		const entries = suggestionEntries(9_000);
 		const query = "parser worker runtime";
 		const expected = rankFindSuggestions(entries, query, ".").map((item) => item.entry.path);
-		const ranker = new FindSuggestionRanker();
+		const ranker = new FindSuggestionRanker({ workerLimit: 2 });
 		try {
 			const actual = await ranker.rank(entries, query, ".");
 			expect(actual.matches).toEqual([]);
@@ -104,16 +119,102 @@ describe("find", () => {
 		}
 	}, 0);
 
-	it("suggestion ranker 生命周期局部且 dispose 幂等", async () => {
+	it.each(["spawn", "post-message", "crash", "error-response", "invalid-response"] as const)("suggestion worker %s 失败时回退本地 ranking", async (failure) => {
+		const entries = suggestionEntries();
+		const query = "missing parser worker";
+		const expected = rankFindSuggestions(entries, query, ".").map((item) => item.entry.path);
+		const ranker = new FindSuggestionRanker({
+			workerLimit: 2,
+			createWorker: () => {
+				if (failure === "spawn") throw new Error("injected spawn failure");
+				const source = failure === "crash"
+					? "parentPort.on('message', () => { throw new Error('injected crash'); });"
+					: failure === "error-response"
+						? "parentPort.on('message', ({ id }) => parentPort.postMessage({ id, error: 'injected error' }));"
+						: "parentPort.on('message', ({ id }) => parentPort.postMessage({ id, paths: [42] }));";
+				const worker = new Worker(`const { parentPort } = require('node:worker_threads'); ${source}`, { eval: true });
+				if (failure === "post-message") worker.postMessage = () => { throw new Error("injected postMessage failure"); };
+				return worker;
+			},
+		});
+		try {
+			const result = await ranker.rank(entries, query, ".");
+			expect(result.matches).toEqual([]);
+			expect(result.suggestions.map((item) => item.entry.path)).toEqual(expected);
+		} finally {
+			ranker.dispose();
+		}
+	}, 0);
+
+	it.each(["abort", "dispose"] as const)("suggestion ranker active worker 在 %s 后退出且不执行本地 fallback", async (action) => {
+		const exits: Array<Promise<number>> = [];
+		const ranker = new FindSuggestionRanker({
+			workerLimit: 2,
+			createWorker: () => {
+				const worker = new Worker("const { parentPort } = require('node:worker_threads'); parentPort.on('message', () => {});", { eval: true });
+				exits.push(new Promise((resolve) => worker.once("exit", resolve)));
+				return worker;
+			},
+		});
+		const controller = new AbortController();
+		const active = ranker.rank(suggestionEntries(), "missing parser worker", ".", controller.signal);
+		if (action === "abort") controller.abort();
+		else ranker.dispose();
+		await expect(active).rejects.toBeInstanceOf(AbortFindSuggestionRanking);
+		ranker.dispose();
+		await Promise.all(exits);
+	});
+
+	it("suggestion ranker 生命周期局部、dispose 幂等且停止后拒绝调用", async () => {
 		const disposed = new FindSuggestionRanker();
 		const active = new FindSuggestionRanker();
 		disposed.dispose();
 		disposed.dispose();
-		await expect(disposed.rank([createFindEntry("src/target.ts", "file")], "target", ".")).rejects.toBeInstanceOf(Error);
+		await expect(disposed.rank([createFindEntry("src/target.ts", "file")], "target", ".")).rejects.toBeInstanceOf(AbortFindSuggestionRanking);
 		await expect(active.rank([createFindEntry("src/target.ts", "file")], "target", ".")).resolves.toMatchObject({
 			matches: [{ entry: { path: "src/target.ts" } }],
 		});
 		active.dispose();
+	});
+
+	it("find owner dispose 取消 graph 阶段的 active execute", async () => {
+		await writeFixture("src/example.ts");
+		const host = new FileToolsHost();
+		const tool = new FindTool();
+		const opened = await host.open({ cwd: workspace, sessionId: "find-owner-active" });
+		if (isFailed(opened)) throw new Error(opened.error.message);
+		const started = deferredVoid();
+		let graphAborted = false;
+		const graph: FindGraphSource = {
+			async query(input) {
+				started.resolve();
+				await new Promise<void>((_resolve, reject) => {
+					const onAbort = () => {
+						graphAborted = true;
+						reject(new Error("aborted"));
+					};
+					if (input.signal?.aborted === true) onAbort();
+					else input.signal?.addEventListener("abort", onAbort, { once: true });
+				});
+				return undefined;
+			},
+		};
+		try {
+			const active = tool.execute({ query: "missing-symbol" }, {
+				filesystem: opened.filesystem,
+				operation: {},
+				limits: opened.limits,
+				graph,
+			});
+			await started.promise;
+			tool.dispose();
+			await expect(active).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
+			expect(graphAborted).toBe(true);
+		} finally {
+			tool.dispose();
+			opened.dispose();
+			host.dispose();
+		}
 	});
 
 	it("紧凑输出省略可推导元数据、共享路径前缀并把截断状态放在首行", () => {

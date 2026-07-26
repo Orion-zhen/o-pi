@@ -2,6 +2,7 @@ import { buildLineIndex, byteRangeForLinesWithIndex, extractByteRange, parseCode
 import type { ExistingRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
+import { bindOperationContext } from "../../filesystem/operation-context.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import { createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE } from "../shared/ranking/evidence.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
@@ -65,10 +66,12 @@ const GREP_RELATED_LIMIT = 3;
 /** Stateful grep command; derived indexes, pending builds, workers, and parsers share this owner. */
 export class GrepTool {
 	private readonly index = new GrepIndex();
+	private readonly owner = new AbortController();
 	private disposed = false;
 
 	async execute(params: GrepParams, context: GrepCommandContext): Promise<ToolOutcome<GrepSuccess>> {
 		if (this.disposed || isAborted(context.operation.signal)) return aborted();
+		context = { ...context, operation: bindOperationContext(this.owner.signal, context.operation) };
 		const validation = validateGrepParams(params);
 		if (isFailed(validation)) return validation;
 		const regex = validation.match === "regex" ? compileRegex(validation.query) : undefined;
@@ -89,6 +92,7 @@ export class GrepTool {
 			if (isFailed(result)) scopeErrors.push({ path: scope.input, error: result.error });
 			else successes.push(result);
 		}
+		if (isAborted(context.operation.signal)) return aborted();
 		if (successes.length === 0) {
 			const first = scopeErrors[0];
 			if (first === undefined) return fail("PATH_NOT_FOUND", "No searchable scope was provided.");
@@ -100,6 +104,7 @@ export class GrepTool {
 	dispose(): void {
 		if (this.disposed) return;
 		this.disposed = true;
+		this.owner.abort(new Error("grep is shut down."));
 		this.index.dispose();
 	}
 
@@ -115,6 +120,7 @@ export class GrepTool {
 			...(validation.glob === undefined ? {} : { glob: validation.glob }),
 		}, context);
 		if (isFailed(index)) return index;
+		if (isAborted(context.operation.signal)) return aborted(root.displayPath);
 		const sourceText = new Map(index.sourceText);
 		const filesByPath = new Map<string, GrepScopedFile>(index.scopedFiles.map((file) => [file.path, file]));
 		for (const file of index.files) filesByPath.set(file.path, file);
@@ -148,6 +154,7 @@ export class GrepTool {
 				...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
 			}, validation.match),
 		]);
+		if (isAborted(context.operation.signal)) return aborted(root.displayPath);
 		const graphCandidates = graphResult?.candidates.filter((candidate) =>
 			(validation.match === "auto" ? mainPaths : scopePaths).has(candidate.path)
 			&& (validation.match !== "auto" || candidate.relatedEdges.every((edge) => edge.relatedFiles.every((file) => mainPaths.has(file.path))))) ?? [];
@@ -169,6 +176,7 @@ export class GrepTool {
 			maxFileBytes: context.limits.grep_max_file_bytes,
 		});
 		if (isFailed(loadedCandidates)) return loadedCandidates;
+		if (isAborted(context.operation.signal)) return aborted(root.displayPath);
 		let symbols = symbolRegionsFromCandidates(symbolCandidates, validation.query, validation.match, sourceText, mainPaths, rankingContext);
 		let graph = graphRegionsFromCandidates(graphMainCandidates, sourceText, rankingContext, validation, compiledRegex);
 		const regions = fuseRankedGrepSources(ranked.regions, symbols, graph);
@@ -181,6 +189,7 @@ export class GrepTool {
 			{ filesystem: context.filesystem, operation: context.operation, maxFileBytes: context.limits.grep_max_file_bytes },
 		);
 		if (isFailed(hydrated)) return hydrated;
+		if (isAborted(context.operation.signal)) return aborted(root.displayPath);
 		if (sourceText.size !== rankedSourceCount) ranked = rankGrepRegions({ ...rankInput, sourceText, allowMetadataCandidates: false });
 		if (sourceText.size !== externalRegionSourceCount) {
 			symbols = symbolRegionsFromCandidates(symbolCandidates, validation.query, validation.match, sourceText, mainPaths, rankingContext);
@@ -193,6 +202,7 @@ export class GrepTool {
 		const related = finalRegions.length < GREP_RELATED_TRIGGER
 			? await graphRelatedRegionsFromCandidates(graphCandidates, sourceText, rankingContext, mainPaths, validation, compiledRegex)
 			: [];
+		if (isAborted(context.operation.signal)) return aborted(root.displayPath);
 		return {
 			path: root.displayPath,
 			match: validation.match,
@@ -202,7 +212,7 @@ export class GrepTool {
 			sourceText,
 			tokenBudget: context.limits.grep_output_token_budget,
 			resultLimit: context.limits.grep_result_limit,
-			scannedFiles: index.scopedFiles.length,
+			scannedFiles: index.scannedFiles,
 			skipped: index.skipped,
 			scanComplete: index.scanComplete,
 			nearby: finalRegions.length === 0 ? ranked.nearby : [],
@@ -292,6 +302,9 @@ function validateGrepParams(params: GrepParams): ToolOutcome<NormalizedGrepParam
 	}
 	const match = params.match ?? "auto";
 	if (match !== "auto" && match !== "literal" && match !== "regex") return fail("INVALID_OPERATION", "match must be auto, literal, or regex.", { path: paths[0] ?? "." });
+	if (match !== "auto" && /[\r\n]/u.test(params.query)) {
+		return fail("INVALID_OPERATION", "literal and regex queries must not contain CR or LF.", { path: paths[0] ?? "." });
+	}
 	if (params.glob !== undefined && (typeof params.glob !== "string" || params.glob.length === 0)) {
 		return fail("INVALID_PATH", "glob must not be empty.", { path: paths[0] ?? "." });
 	}

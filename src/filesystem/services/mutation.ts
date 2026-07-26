@@ -6,23 +6,43 @@ import type {
 	MutationSnapshot,
 	MutationTransform,
 } from "../contracts/mutation.js";
-import type { TargetRef } from "../contracts/path.js";
+import type { FileRef, TargetRef } from "../contracts/path.js";
 import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.js";
 import { mapNativeError } from "../kernel/native-error.js";
 import type { NativePathIdentity, WorkspaceNamespaceKernel } from "../kernel/namespace.js";
-import type { NativeFileSystem } from "../platform/node/native-filesystem.js";
+import { bindOperationContext } from "../operation-context.js";
+import {
+	NativeFileSystemError,
+	type NativeFileSystem,
+	type NativeMetadata,
+} from "../platform/node/native-filesystem.js";
 import { MutationQueue, MutationQueueUnavailableError } from "../platform/node/mutation-queue.js";
+import { openValidatedFile, readHandleBytes, verifyStable } from "./content.js";
 import { contentHash } from "./text.js";
 
 export interface WorkspaceMutationServiceOptions {
 	readonly native: NativeFileSystem;
 	readonly namespace: WorkspaceNamespaceKernel;
 	readonly queue?: MutationQueue;
+	readonly ownerSignal?: AbortSignal;
 	/** Runs after a successful write and before the target queue is released. */
 	readonly onCommitted?: (receipt: MutationReceipt) => void;
 }
 
-/** Guarded full-overwrite mutations with process-local serialization and optimistic content checks. */
+interface PreparedTarget {
+	readonly target: TargetRef;
+	readonly identity: NativePathIdentity;
+}
+
+interface SnapshotState {
+	readonly snapshot: MutationSnapshot;
+	readonly metadata?: NativeMetadata;
+}
+
+const REKEY = Symbol("rekey");
+const MAX_CANONICAL_KEY_ATTEMPTS = 4;
+
+/** Guarded atomic replacements with canonical-target serialization and optimistic checks. */
 export class WorkspaceMutationService implements MutationOperations {
 	private readonly queue: MutationQueue;
 
@@ -36,59 +56,27 @@ export class WorkspaceMutationService implements MutationOperations {
 		transform: (snapshot: MutationSnapshot) => MutationTransform<TRejected> | Promise<MutationTransform<TRejected>>,
 		context: FsOperationContext,
 	): Promise<FsResult<MutationRunResult<TRejected>>> {
+		context = bindOperationContext(this.options.ownerSignal, context);
+		const invalidLimit = validateMutationLimits(options, target.displayPath);
+		if (invalidLimit !== undefined) return invalidLimit;
 		const initialIdentity = this.options.namespace.bridge.getNativeIdentity(target);
 		if (initialIdentity === undefined) return invalidTarget(target);
+
 		try {
-			return await this.queue.run(initialIdentity.canonicalPath, context.signal, async () => {
-				const current = await this.prepareTarget(initialIdentity.lexicalPath, target.displayPath, options, context);
-				if (!current.ok) return current;
-				const snapshot = await this.readSnapshot(current.value.target, current.value.identity, context);
-				if (!snapshot.ok) return snapshot;
-				if (isAborted(context)) return aborted(target.displayPath);
-
-				const transformed = await transform(cloneSnapshot(snapshot.value));
-				if (transformed.type === "reject") {
-					return fsSuccess({ committed: false, reason: transformed.reason, snapshot: snapshot.value });
-				}
-				if (!(transformed.bytes instanceof Uint8Array)) {
-					return fsFailure({ code: "invalid-path", message: "Mutation transform returned invalid bytes.", path: target.displayPath });
-				}
-				const committedBytes = transformed.bytes.slice();
-				if (isAborted(context)) return aborted(target.displayPath);
-
-				const finalTarget = await this.resolveTarget(initialIdentity.lexicalPath, context);
-				if (!finalTarget.ok) return finalTarget;
-				const finalIdentity = this.options.namespace.bridge.getNativeIdentity(finalTarget.value);
-				if (finalIdentity === undefined) return invalidTarget(finalTarget.value);
-				if (finalIdentity.canonicalPath !== current.value.identity.canonicalPath) {
-					return changed(target.displayPath, snapshot.value, undefined);
-				}
-				const live = await this.readSnapshot(finalTarget.value, finalIdentity, context);
-				if (!live.ok) return live;
-				if (!sameSnapshot(snapshot.value, live.value)) return changed(target.displayPath, snapshot.value, live.value);
-				if (isAborted(context)) return aborted(target.displayPath);
-
-				try {
-					// The commit boundary starts here. Cancellation after this point cannot turn a completed write into failure.
-					await this.options.native.write(finalIdentity.nativePath, committedBytes);
-				} catch (error) {
-					const mapped = mapNativeError(error, target.displayPath);
-					return fsFailure({ ...mapped, code: "write-failed", message: "File could not be written." });
-				}
-				const after = versionOf(committedBytes);
-				const receipt: MutationReceipt = {
-					...after,
-					target: finalTarget.value,
-					created: !snapshot.value.exists,
-					...(snapshot.value.exists ? { before: versionFromSnapshot(snapshot.value) } : {}),
-				};
-				try {
-					this.options.onCommitted?.(receipt);
-				} catch {
-					// The write is authoritative; owner-state observation is best effort after commit.
-				}
-				return fsSuccess({ committed: true, receipt });
-			});
+			for (let attempt = 0; attempt < MAX_CANONICAL_KEY_ATTEMPTS; attempt += 1) {
+				const keyed = await this.prepareTarget(initialIdentity.lexicalPath, target.displayPath, options, context);
+				if (!keyed.ok) return keyed;
+				const queueKey = keyed.value.identity.canonicalPath;
+				const queued = await this.queue.run(queueKey, context.signal, async () => {
+					const current = await this.prepareTarget(initialIdentity.lexicalPath, target.displayPath, options, context);
+					if (!current.ok) return current;
+					if (!sameNativePath(current.value.identity.canonicalPath, queueKey)) return REKEY;
+					return await this.runLocked(current.value, initialIdentity.lexicalPath, options, transform, context);
+				});
+				if (queued === REKEY) continue;
+				return queued;
+			}
+			return unstableCanonicalTarget(target.displayPath);
 		} catch (error) {
 			if (error instanceof MutationQueueUnavailableError) return aborted(target.displayPath);
 			throw error;
@@ -101,10 +89,117 @@ export class WorkspaceMutationService implements MutationOperations {
 		options: MutationOptions,
 		context: FsOperationContext,
 	): Promise<FsResult<MutationReceipt>> {
+		context = bindOperationContext(this.options.ownerSignal, context);
 		const result = await this.run<never>(target, options, () => ({ type: "commit", bytes }), context);
 		if (!result.ok) return result;
 		if (result.value.committed) return fsSuccess(result.value.receipt);
 		return fsFailure({ code: "write-failed", message: "Mutation was rejected unexpectedly.", path: target.displayPath });
+	}
+
+	private async runLocked<TRejected>(
+		current: PreparedTarget,
+		lexicalPath: string,
+		options: MutationOptions,
+		transform: (snapshot: MutationSnapshot) => MutationTransform<TRejected> | Promise<MutationTransform<TRejected>>,
+		context: FsOperationContext,
+	): Promise<FsResult<MutationRunResult<TRejected>>> {
+		const parent = await this.readParentMetadata(current.identity, current.target.displayPath, context);
+		if (!parent.ok) return parent;
+		const snapshotState = await this.readSnapshot(current, options.maxSnapshotBytes, context);
+		if (!snapshotState.ok) return snapshotState;
+		const snapshot = snapshotState.value.snapshot;
+		if (isAborted(context)) return aborted(current.target.displayPath);
+
+		const transformed = await transform(cloneSnapshot(snapshot));
+		if (transformed.type === "reject") {
+			return fsSuccess({ committed: false, reason: transformed.reason, snapshot });
+		}
+		if (!(transformed.bytes instanceof Uint8Array)) {
+			return fsFailure({
+				code: "invalid-path",
+				message: "Mutation transform returned invalid bytes.",
+				path: current.target.displayPath,
+			});
+		}
+		if (options.maxOutputBytes !== undefined && transformed.bytes.byteLength > options.maxOutputBytes) {
+			return tooLarge(current.target.displayPath, options.maxOutputBytes, transformed.bytes.byteLength);
+		}
+		const committedBytes = transformed.bytes.slice();
+		if (isAborted(context)) return aborted(current.target.displayPath);
+
+		let validationFailure: FsResult<never> | undefined;
+		let committedTarget: TargetRef | undefined;
+		try {
+			await this.options.native.atomicReplace(current.identity.nativePath, committedBytes, {
+				...context,
+				...(snapshotState.value.metadata === undefined ? {} : { mode: snapshotState.value.metadata.mode }),
+				beforeCommit: async () => {
+					const validation = await this.validateBeforeCommit(
+						lexicalPath,
+						options,
+						current,
+						parent.value,
+						snapshot,
+						context,
+					);
+					if (!validation.ok) {
+						validationFailure = validation;
+						throw new NativeFileSystemError("changed", "validate-before-commit", current.identity.nativePath);
+					}
+					committedTarget = validation.value;
+				},
+			});
+		} catch (error) {
+			if (validationFailure !== undefined) return validationFailure;
+			const mapped = mapNativeError(error, current.target.displayPath);
+			if (mapped.code === "aborted") return fsFailure(mapped);
+			return fsFailure({ ...mapped, code: "write-failed", message: "File could not be written." });
+		}
+
+		if (committedTarget === undefined) {
+			return fsFailure({ code: "write-failed", message: "File could not be written.", path: current.target.displayPath });
+		}
+		const after = versionOf(committedBytes);
+		const receipt: MutationReceipt = {
+			...after,
+			target: committedTarget,
+			created: !snapshot.exists,
+			...(snapshot.exists ? { before: versionFromSnapshot(snapshot) } : {}),
+		};
+		try {
+			this.options.onCommitted?.(receipt);
+		} catch {
+			// The rename is authoritative; owner-state observation is best effort after commit.
+		}
+		return fsSuccess({ committed: true, receipt });
+	}
+
+	private async validateBeforeCommit(
+		lexicalPath: string,
+		options: MutationOptions,
+		current: PreparedTarget,
+		parentBefore: NativeMetadata,
+		snapshot: MutationSnapshot,
+		context: FsOperationContext,
+	): Promise<FsResult<TargetRef>> {
+		if (isAborted(context)) return aborted(current.target.displayPath);
+		const finalTarget = await this.prepareTarget(lexicalPath, current.target.displayPath, options, context);
+		if (!finalTarget.ok) return finalTarget;
+		if (!sameNativePath(finalTarget.value.identity.canonicalPath, current.identity.canonicalPath)) {
+			return changed(current.target.displayPath, snapshot, undefined);
+		}
+		const live = await this.readSnapshot(finalTarget.value, options.maxSnapshotBytes, context);
+		if (!live.ok) return live;
+		if (!sameSnapshot(snapshot, live.value.snapshot)) {
+			return changed(current.target.displayPath, snapshot, live.value.snapshot);
+		}
+		const parentAfter = await this.readParentMetadata(finalTarget.value.identity, current.target.displayPath, context);
+		if (!parentAfter.ok) return parentAfter;
+		if (!sameIdentity(parentBefore, parentAfter.value)) {
+			return changed(current.target.displayPath, snapshot, undefined);
+		}
+		if (isAborted(context)) return aborted(current.target.displayPath);
+		return fsSuccess(finalTarget.value.target);
 	}
 
 	private async prepareTarget(
@@ -112,7 +207,7 @@ export class WorkspaceMutationService implements MutationOperations {
 		displayPath: string,
 		options: MutationOptions,
 		context: FsOperationContext,
-	): Promise<FsResult<{ readonly target: TargetRef; readonly identity: NativePathIdentity }>> {
+	): Promise<FsResult<PreparedTarget>> {
 		let target = await this.resolveTarget(lexicalPath, context);
 		if (!target.ok) return target;
 		let identity = this.options.namespace.bridge.getNativeIdentity(target.value);
@@ -135,22 +230,103 @@ export class WorkspaceMutationService implements MutationOperations {
 		return await this.options.namespace.paths.resolveTarget(lexicalPath, { followExistingSymlink: true }, context);
 	}
 
-	private async readSnapshot(
-		target: TargetRef,
+	private async readParentMetadata(
 		identity: NativePathIdentity,
+		displayPath: string,
 		context: FsOperationContext,
-	): Promise<FsResult<MutationSnapshot>> {
-		if (target.existingKind === undefined) return fsSuccess({ exists: false });
-		if (target.existingKind !== "file") {
-			return fsFailure({ code: "not-file", message: "Mutation target is not a regular file.", path: target.displayPath });
-		}
+	): Promise<FsResult<NativeMetadata>> {
 		try {
-			const bytes = await this.options.native.read(identity.nativePath, context);
-			return fsSuccess({ exists: true, bytes, hash: contentHash(bytes), sizeBytes: bytes.byteLength });
+			const metadata = await this.options.native.lstat(identity.parentPath, context);
+			if (metadata.kind !== "directory") {
+				return fsFailure({ code: "not-directory", message: "Writable parent is not a directory.", path: displayPath });
+			}
+			return fsSuccess(metadata);
 		} catch (error) {
-			return fsFailure(mapNativeError(error, target.displayPath));
+			return fsFailure(mapNativeError(error, displayPath));
 		}
 	}
+
+	private async readSnapshot(
+		target: PreparedTarget,
+		maxBytes: number | undefined,
+		context: FsOperationContext,
+	): Promise<FsResult<SnapshotState>> {
+		if (target.target.existingKind === undefined) return fsSuccess({ snapshot: { exists: false } });
+		if (target.target.existingKind !== "file") {
+			return fsFailure({ code: "not-file", message: "Mutation target is not a regular file.", path: target.target.displayPath });
+		}
+		const resolved = await this.options.namespace.paths.resolveExisting(
+			target.identity.lexicalPath,
+			{ expected: "file", followFinalSymlink: true },
+			context,
+		);
+		if (!resolved.ok) return resolved;
+		if (resolved.value.kind !== "file") {
+			return fsFailure({ code: "not-file", message: "Mutation target is not a regular file.", path: target.target.displayPath });
+		}
+		const file = resolved.value as FileRef;
+		const identity = this.options.namespace.bridge.getNativeIdentity(file);
+		if (identity === undefined || !sameNativePath(identity.canonicalPath, target.identity.canonicalPath)) {
+			return changed(target.target.displayPath, { exists: false }, undefined);
+		}
+		const opened = await openValidatedFile(this.options.native, this.options.namespace.bridge, file, identity, context);
+		if (!opened.ok) return opened;
+		let outcome: FsResult<SnapshotState>;
+		try {
+			if (maxBytes !== undefined && opened.value.metadata.sizeBytes > maxBytes) {
+				outcome = tooLarge(target.target.displayPath, maxBytes, opened.value.metadata.sizeBytes);
+			} else {
+				const loaded = await readHandleBytes(opened.value.handle, maxBytes, context, target.target.displayPath);
+				if (!loaded.ok) outcome = loaded;
+				else {
+					const stable = await verifyStable(
+						this.options.native,
+						this.options.namespace.bridge,
+						file,
+						opened.value.handle,
+						identity,
+						opened.value.metadata,
+						context,
+					);
+					if (!stable.ok) outcome = stable;
+					else if (!stable.value) outcome = changed(target.target.displayPath, { exists: false }, undefined);
+					else {
+						const bytes = loaded.value;
+						outcome = fsSuccess({
+							snapshot: { exists: true, bytes, hash: contentHash(bytes), sizeBytes: bytes.byteLength },
+							metadata: opened.value.metadata,
+						});
+					}
+				}
+			}
+		} catch (error) {
+			outcome = fsFailure(mapNativeError(error, target.target.displayPath));
+		}
+		try {
+			await opened.value.handle.close();
+		} catch (error) {
+			if (outcome.ok) return fsFailure(mapNativeError(error, target.target.displayPath));
+		}
+		return outcome;
+	}
+}
+
+function validateMutationLimits(options: MutationOptions, path: string): FsResult<never> | undefined {
+	for (const limit of [options.maxSnapshotBytes, options.maxOutputBytes]) {
+		if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 0)) {
+			return fsFailure({ code: "invalid-path", message: "Byte limit must be a non-negative integer.", path });
+		}
+	}
+	return undefined;
+}
+
+function tooLarge(path: string, limit: number, size: number): FsResult<never> {
+	return fsFailure({
+		code: "too-large",
+		message: "File exceeds the configured byte limit.",
+		path,
+		details: { limit, size },
+	});
 }
 
 function cloneSnapshot(snapshot: MutationSnapshot): MutationSnapshot {
@@ -161,6 +337,14 @@ function sameSnapshot(left: MutationSnapshot, right: MutationSnapshot): boolean 
 	if (left.exists !== right.exists) return false;
 	if (!left.exists || !right.exists) return true;
 	return left.hash === right.hash && left.sizeBytes === right.sizeBytes;
+}
+
+function sameIdentity(left: NativeMetadata, right: NativeMetadata): boolean {
+	return left.kind === right.kind && left.identity === right.identity;
+}
+
+function sameNativePath(left: string, right: string): boolean {
+	return process.platform === "win32" ? left.toLocaleLowerCase() === right.toLocaleLowerCase() : left === right;
 }
 
 function versionOf(bytes: Uint8Array): { readonly hash: string; readonly sizeBytes: number } {
@@ -181,6 +365,15 @@ function isAborted(context: FsOperationContext): boolean {
 
 function aborted(path: string): FsResult<never> {
 	return fsFailure({ code: "aborted", message: "Mutation was aborted.", path });
+}
+
+function unstableCanonicalTarget(path: string): FsResult<never> {
+	return fsFailure({
+		code: "changed-during-read",
+		message: "Mutation target could not be stabilized before locking.",
+		path,
+		details: { expected: "stable-target", actual: "changing-target" },
+	});
 }
 
 function changed(path: string, expected: MutationSnapshot, actual: MutationSnapshot | undefined): FsResult<never> {

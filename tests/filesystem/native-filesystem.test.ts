@@ -1,4 +1,4 @@
-import { symlink, writeFile } from "node:fs/promises";
+import { chmod, readdir, stat, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -15,11 +15,11 @@ beforeEach(() => {
 });
 
 describe("NodeNativeFileSystem", () => {
-	it("provides the narrow metadata, directory, link, read, open, write and mkdir primitives", async () => {
+	it("provides metadata, directory, link, read, no-follow open and mkdir primitives", async () => {
 		const nested = path.join(root, "nested");
 		const file = path.join(nested, "a.txt");
 		await native.mkdir(nested);
-		await native.write(file, Buffer.from("hello"));
+		await native.atomicReplace(file, Buffer.from("hello"));
 
 		expect(await native.lstat(file)).toMatchObject({ kind: "file", sizeBytes: 5 });
 		expect(await native.stat(file)).toMatchObject({ kind: "file", sizeBytes: 5 });
@@ -65,6 +65,50 @@ describe("NodeNativeFileSystem", () => {
 		const inFlight = native.realpath(root, { signal: inFlightController.signal });
 		inFlightController.abort("in-flight");
 		await expect(inFlight).rejects.toMatchObject({ code: "aborted" });
+	});
+
+	it.skipIf(process.platform === "win32")("does not follow a final symlink when opening", async () => {
+		const target = path.join(root, "target.txt");
+		const link = path.join(root, "link.txt");
+		await writeFile(target, "secret");
+		await symlink(target, link);
+		await expect(native.open(link)).rejects.toMatchObject({ code: "changed", operation: "open" });
+	});
+
+	it("atomically replaces only after validation and cleans temporary files on failure or cancellation", async () => {
+		const file = path.join(root, "atomic.txt");
+		await writeFile(file, "before");
+		let observedBeforeCommit = false;
+		await native.atomicReplace(file, Buffer.from("after"), {
+			async beforeCommit() {
+				observedBeforeCommit = true;
+				expect(await new NodeNativeFileSystem().read(file)).toEqual(Buffer.from("before"));
+			},
+		});
+		expect(observedBeforeCommit).toBe(true);
+		expect(Buffer.from(await native.read(file)).toString("utf8")).toBe("after");
+
+		await expect(native.atomicReplace(file, Buffer.from("unsafe"), {
+			async beforeCommit() { throw new Error("validation failed"); },
+		})).rejects.toMatchObject({ code: "io-error" });
+		expect(Buffer.from(await native.read(file)).toString("utf8")).toBe("after");
+
+		const controller = new AbortController();
+		await expect(native.atomicReplace(file, Buffer.from("cancelled"), {
+			signal: controller.signal,
+			async beforeCommit() { controller.abort("stop"); },
+		})).rejects.toMatchObject({ code: "aborted" });
+		expect(Buffer.from(await native.read(file)).toString("utf8")).toBe("after");
+		expect((await readdir(root)).filter((name) => name.startsWith(".pi-") && name.endsWith(".tmp"))).toEqual([]);
+	});
+
+	it.skipIf(process.platform === "win32")("preserves the requested mode during atomic replacement", async () => {
+		const file = path.join(root, "mode.txt");
+		await writeFile(file, "before");
+		await chmod(file, 0o640);
+		const mode = (await stat(file)).mode & 0o7777;
+		await native.atomicReplace(file, Buffer.from("after"), { mode });
+		expect((await stat(file)).mode & 0o7777).toBe(mode);
 	});
 
 	it.skipIf(process.platform === "win32")("normalizes common Node errno values", async () => {

@@ -211,6 +211,7 @@ async function writeWithHooks(params: { path: string; content: string }, hooks: 
 		return await writeFileCommand(params, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
+			maxFileBytes: opened.limits.write_max_file_bytes,
 			diff: piTextDiffGenerator,
 			diagnostics: ports.diagnostics,
 		});
@@ -228,6 +229,7 @@ async function editWithHooks(params: { path: string; edits: Array<{ old: string;
 			filesystem: opened.filesystem,
 			operation: opened.context,
 			observation: opened.observation,
+			maxFileBytes: opened.limits.edit_max_file_bytes,
 			matchHintLimit: opened.limits.edit_match_hint_limit,
 			diff: piTextDiffGenerator,
 			diagnostics: ports.diagnostics,

@@ -23,6 +23,8 @@ export type MutationRunResult<TRejected> =
 
 export interface MutationOptions {
 	readonly createParents: boolean;
+	readonly maxSnapshotBytes?: number;
+	readonly maxOutputBytes?: number;
 }
 
 export interface MutationOperations {

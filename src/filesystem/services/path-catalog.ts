@@ -6,13 +6,17 @@ import type {
 import type { DirectoryRef } from "../contracts/path.js";
 import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.js";
 import type { TraversalOperations } from "../contracts/traversal.js";
+import { bindOperationContext } from "../operation-context.js";
 import { compareLogicalPath } from "./path-order.js";
 
 const MINIMUM_SIMILARITY = 0.42;
 
 /** Lightweight typo-oriented path suggestions over policy-filtered traversal. */
 export class WorkspacePathCatalog implements PathCatalogOperations {
-	constructor(private readonly traversal: TraversalOperations) {}
+	constructor(
+		private readonly traversal: TraversalOperations,
+		private readonly ownerSignal?: AbortSignal,
+	) {}
 
 	async suggest(
 		root: DirectoryRef,
@@ -20,6 +24,10 @@ export class WorkspacePathCatalog implements PathCatalogOperations {
 		options: PathCatalogOptions,
 		context: FsOperationContext,
 	): Promise<FsResult<readonly PathCatalogCandidate[]>> {
+		context = bindOperationContext(this.ownerSignal, context);
+		if (context.signal?.aborted === true) {
+			return fsFailure({ code: "aborted", message: "Operation aborted.", path: root.displayPath });
+		}
 		if (!Number.isSafeInteger(options.limit) || options.limit < 0
 			|| !Number.isSafeInteger(options.maxEntries) || options.maxEntries < 0) {
 			return fsFailure({ code: "invalid-path", message: "Catalog limits must be non-negative integers.", path: root.displayPath });

@@ -48,7 +48,7 @@ diag warning 30:7 'bar' is declared but never used.
 </write>
 ```
 
-LSP 失败时写入本身不会因此失败。
+LSP 失败时写入本身不会因此失败。已有文件 snapshot 和新内容均受 `write_max_file_bytes` 限制；超限返回 `OUTPUT_LIMIT_EXCEEDED`，不会修改目标。
 
 ## 失败结果与模型输出
 
@@ -68,6 +68,7 @@ File could not be written.
 | `INVALID_PATH` | `Target must be a file path, not the current directory.`、`Parent path cannot be resolved.` 或 `Parent path cannot be created.` |
 | `PROTECTED_PATH` | `Path is blocked by file-tools config.` |
 | `ACCESS_DENIED` | `Parent path cannot be accessed.` 或 `File could not be written.` |
+| `OUTPUT_LIMIT_EXCEEDED` | `File exceeds the configured byte limit.` |
 | `OPERATION_ABORTED` | `Operation aborted.` |
 | `CONFIG_ERROR` | 配置错误消息 |
 

@@ -10,6 +10,7 @@ import type {
 import type { VisibilityAnnotation, VisibilityOperations } from "../contracts/visibility.js";
 import { mapNativeError } from "../kernel/native-error.js";
 import type { WorkspaceNamespaceBridge } from "../kernel/namespace.js";
+import { bindOperationContext } from "../operation-context.js";
 import type { NativeDirectoryEntry, NativeFileSystem } from "../platform/node/native-filesystem.js";
 import { compareLogicalPath } from "./path-order.js";
 import { nativeIdentity } from "./ref.js";
@@ -22,9 +23,11 @@ export class WorkspaceTraversalService implements TraversalOperations {
 		private readonly native: NativeFileSystem,
 		private readonly bridge: WorkspaceNamespaceBridge,
 		private readonly visibility: VisibilityOperations,
+		private readonly ownerSignal?: AbortSignal,
 	) {}
 
 	async walk(root: DirectoryRef, options: TraversalOptions, context: FsOperationContext): Promise<FsResult<Traversal>> {
+		context = bindOperationContext(this.ownerSignal, context);
 		if (options.maxEntries !== undefined && (!Number.isSafeInteger(options.maxEntries) || options.maxEntries < 0)) {
 			return fsFailure({ code: "invalid-path", message: "Traversal entry limit must be a non-negative integer.", path: root.displayPath });
 		}
@@ -106,6 +109,11 @@ class NativeTraversal implements Traversal {
 		}
 		this.consumed = true;
 		try {
+			if (this.context.signal?.aborted === true) {
+				this.stopped = true;
+				yield abortedEvent(this.root.displayPath);
+				return;
+			}
 			if (this.rootSkipped) {
 				yield { type: "skip", path: this.root.displayPath, reason: "ignored", kind: "directory" };
 				return;

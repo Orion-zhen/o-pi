@@ -12,6 +12,7 @@ const decoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: true });
 export interface WriteCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
+	readonly maxFileBytes: number;
 	readonly diff: TextDiffGenerator;
 	readonly diagnostics?: WriteDiagnosticsSource;
 	readonly mutationObserver?: WriteMutationObserver;
@@ -21,6 +22,8 @@ export interface WriteCommandContext {
 export async function writeFile(params: unknown, context: WriteCommandContext): Promise<ToolOutcome<WriteSuccess>> {
 	const input = validateWriteInput(params);
 	if (isFailed(input)) return input;
+	const inputBytes = Buffer.byteLength(input.content, "utf8");
+	if (inputBytes > context.maxFileBytes) return fileTooLarge(input.path, context.maxFileBytes, inputBytes);
 	const target = await context.filesystem.paths.resolveTarget(
 		input.path,
 		{ followExistingSymlink: true },
@@ -36,7 +39,11 @@ export async function writeFile(params: unknown, context: WriteCommandContext): 
 	let renderedDiff: TextDiff | undefined;
 	const mutated = await context.filesystem.mutations.run(
 		target.value,
-		{ createParents: true },
+		{
+			createParents: true,
+			maxSnapshotBytes: context.maxFileBytes,
+			maxOutputBytes: context.maxFileBytes,
+		},
 		async (current) => {
 			snapshot = current;
 			renderedDiff = await context.diff.generate(normalizeLineEndings(snapshotText(current)), normalizeLineEndings(input.content));
@@ -72,6 +79,13 @@ export async function writeFile(params: unknown, context: WriteCommandContext): 
 	if (diagnostics !== undefined) result.lsp = { diagnostics };
 	if (graph !== undefined) result.repo_map = graph;
 	return result;
+}
+
+function fileTooLarge(path: string, limit: number, size: number) {
+	return fail("OUTPUT_LIMIT_EXCEEDED", "File exceeds the configured byte limit.", {
+		path,
+		details: { limit, size },
+	});
 }
 
 function validateWriteInput(params: unknown): ToolOutcome<WriteParams> {

@@ -524,6 +524,7 @@ async function writeWorkspaceFile(cwd: string, params: { path: string; content: 
 		return await writeFileCommand(params, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
+			maxFileBytes: opened.limits.write_max_file_bytes,
 			diff: piTextDiffGenerator,
 		});
 	} finally {
@@ -539,6 +540,7 @@ async function editWorkspaceFile(cwd: string, params: { path: string; edits: Arr
 			filesystem: opened.filesystem,
 			operation: opened.context,
 			observation: opened.observation,
+			maxFileBytes: opened.limits.edit_max_file_bytes,
 			matchHintLimit: opened.limits.edit_match_hint_limit,
 			diff: piTextDiffGenerator,
 		});

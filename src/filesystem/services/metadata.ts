@@ -6,6 +6,7 @@ import type {
 import type { DirectoryRef, ExistingRef } from "../contracts/path.js";
 import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.js";
 import { mapNativeError } from "../kernel/native-error.js";
+import { bindOperationContext } from "../operation-context.js";
 import type { WorkspaceNamespaceBridge } from "../kernel/namespace.js";
 import type { NativeFileSystem } from "../platform/node/native-filesystem.js";
 import { compareLogicalPath } from "./path-order.js";
@@ -16,9 +17,11 @@ export class WorkspaceMetadataService implements MetadataOperations {
 	constructor(
 		private readonly native: NativeFileSystem,
 		private readonly bridge: WorkspaceNamespaceBridge,
+		private readonly ownerSignal?: AbortSignal,
 	) {}
 
 	async stat(ref: ExistingRef, context: FsOperationContext): Promise<FsResult<FileMetadata>> {
+		context = bindOperationContext(this.ownerSignal, context);
 		const identity = nativeIdentity(this.bridge, ref);
 		if (!identity.ok) return identity;
 		try {
@@ -32,6 +35,7 @@ export class WorkspaceMetadataService implements MetadataOperations {
 	}
 
 	async list(directory: DirectoryRef, context: FsOperationContext): Promise<FsResult<readonly DirectoryEntry[]>> {
+		context = bindOperationContext(this.ownerSignal, context);
 		const identity = nativeIdentity(this.bridge, directory);
 		if (!identity.ok) return identity;
 		let nativeEntries;
