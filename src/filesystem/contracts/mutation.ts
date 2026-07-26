@@ -13,6 +13,8 @@ export type MutationTransform<TRejected> =
 export interface MutationReceipt extends ContentVersion {
 	readonly before?: ContentVersion;
 	readonly created: boolean;
+	/** Destination identity revalidated immediately before commit. */
+	readonly target: TargetRef;
 }
 
 export type MutationRunResult<TRejected> =
@@ -30,4 +32,10 @@ export interface MutationOperations {
 		transform: (snapshot: MutationSnapshot) => MutationTransform<TRejected> | Promise<MutationTransform<TRejected>>,
 		context: FsOperationContext,
 	): Promise<FsResult<MutationRunResult<TRejected>>>;
+	overwrite(
+		target: TargetRef,
+		bytes: Uint8Array,
+		options: MutationOptions,
+		context: FsOperationContext,
+	): Promise<FsResult<MutationReceipt>>;
 }

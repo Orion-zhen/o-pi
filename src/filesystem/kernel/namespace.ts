@@ -39,7 +39,10 @@ export interface NativePathIdentity {
 	readonly nativePath: string;
 	readonly canonicalPath: string;
 	readonly lexicalPath: string;
+	readonly parentPath: string;
 }
+
+type UnstoredNativePathIdentity = Omit<NativePathIdentity, "parentPath">;
 
 /** Host-only bridge. Tool commands must use opaque refs instead. */
 export interface WorkspaceNamespaceBridge {
@@ -363,7 +366,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 	private createExistingRef(
 		kind: NativePathKind,
 		identity: PathIdentity,
-		nativeIdentity: NativePathIdentity,
+		nativeIdentity: UnstoredNativePathIdentity,
 	): ExistingRef {
 		const base = this.createRefBase(identity, nativeIdentity);
 		if (kind === "file") return { ...base, kind: "file" };
@@ -375,7 +378,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 	private createTargetRef(
 		identity: PathIdentity,
 		existingKind: ExistingPathKind | undefined,
-		nativeIdentity: NativePathIdentity,
+		nativeIdentity: UnstoredNativePathIdentity,
 	): TargetRef {
 		return {
 			...this.createRefBase(identity, nativeIdentity),
@@ -384,13 +387,13 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		};
 	}
 
-	private createRefBase(identity: PathIdentity, nativeIdentity: NativePathIdentity): {
+	private createRefBase(identity: PathIdentity, nativeIdentity: UnstoredNativePathIdentity): {
 		readonly id: PathId;
 		readonly displayPath: string;
 		readonly workspacePath?: string;
 	} {
 		const id = `namespace-${this.namespaceId}:ref-${this.nextRefId++}` as PathId;
-		this.refs.set(id, nativeIdentity);
+		this.refs.set(id, { ...nativeIdentity, parentPath: path.dirname(nativeIdentity.nativePath) });
 		return {
 			id,
 			displayPath: identity.displayPath,

@@ -34,11 +34,11 @@ interface ConfigCacheEntry {
 	result: ToolOutcome<FileToolsConfig>;
 }
 
-export type ToolPathIdentity = PathIdentity;
+export interface FileToolsConfigLoader {
+	load(cwd: string): Promise<ToolOutcome<FileToolsConfig>>;
+}
 
-const configCache = new Map<string, ConfigCacheEntry>();
-const pendingConfigs = new Map<string, Promise<ConfigCacheEntry>>();
-let configCacheEpoch = 0;
+export type ToolPathIdentity = PathIdentity;
 
 class FileToolsConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
@@ -47,36 +47,62 @@ class FileToolsConfigError extends Error {
 	}
 }
 
-/** Load user and invocation-cwd project JSONC before any workspace data-plane access. */
-export async function loadFileToolsConfig(cwd: string): Promise<ToolOutcome<FileToolsConfig>> {
-	const userPath = userConfigPath();
-	const projectPath = projectConfigPath(cwd);
-	const paths = projectPath === undefined ? [userPath] : [userPath, projectPath];
-	const cacheKey = paths.join("\0");
-	const fingerprint = await configFingerprint(paths);
-	const cached = configCache.get(cacheKey);
-	if (cached?.fingerprint === fingerprint) return structuredClone(cached.result);
+/** Owns config metadata caches for one file-tools runtime. */
+export class FileToolsConfigProvider implements FileToolsConfigLoader {
+	private readonly cache = new Map<string, ConfigCacheEntry>();
+	private readonly pending = new Map<string, Promise<ConfigCacheEntry>>();
+	private epoch = 0;
+	private disposed = false;
 
-	const pendingKey = `${cacheKey}\0${fingerprint}`;
-	const epoch = configCacheEpoch;
-	let pending = pendingConfigs.get(pendingKey);
-	if (pending === undefined) {
-		pending = loadStableConfig(userPath, projectPath, paths, fingerprint);
-		pendingConfigs.set(pendingKey, pending);
+	/** Load user and invocation-cwd project JSONC before workspace data-plane access. */
+	async load(cwd: string): Promise<ToolOutcome<FileToolsConfig>> {
+		if (this.disposed) return fail("CONFIG_ERROR", "File-tools config provider is shut down.");
+		const userPath = userConfigPath();
+		const projectPath = projectConfigPath(cwd);
+		const paths = projectPath === undefined ? [userPath] : [userPath, projectPath];
+		const cacheKey = paths.join("\0");
+		const fingerprint = await configFingerprint(paths);
+		const cached = this.cache.get(cacheKey);
+		if (cached?.fingerprint === fingerprint) return structuredClone(cached.result);
+
+		const pendingKey = `${cacheKey}\0${fingerprint}`;
+		const epoch = this.epoch;
+		let pending = this.pending.get(pendingKey);
+		if (pending === undefined) {
+			pending = loadStableConfig(userPath, projectPath, paths, fingerprint);
+			this.pending.set(pendingKey, pending);
+		}
+		try {
+			const loaded = await pending;
+			if (this.disposed) return fail("CONFIG_ERROR", "File-tools config provider is shut down.");
+			if (this.epoch === epoch) this.cache.set(cacheKey, loaded);
+			return structuredClone(loaded.result);
+		} finally {
+			if (this.pending.get(pendingKey) === pending) this.pending.delete(pendingKey);
+		}
 	}
-	try {
-		const loaded = await pending;
-		if (configCacheEpoch === epoch) configCache.set(cacheKey, loaded);
-		return structuredClone(loaded.result);
-	} finally {
-		if (pendingConfigs.get(pendingKey) === pending) pendingConfigs.delete(pendingKey);
+
+	clear(): void {
+		this.epoch += 1;
+		this.cache.clear();
+		this.pending.clear();
+	}
+
+	dispose(): void {
+		if (this.disposed) return;
+		this.disposed = true;
+		this.clear();
 	}
 }
 
+const defaultConfigProvider = new FileToolsConfigProvider();
+
+export async function loadFileToolsConfig(cwd: string): Promise<ToolOutcome<FileToolsConfig>> {
+	return await defaultConfigProvider.load(cwd);
+}
+
 export function clearFileToolsConfigCache(): void {
-	configCacheEpoch += 1;
-	configCache.clear();
-	pendingConfigs.clear();
+	defaultConfigProvider.clear();
 }
 
 async function loadStableConfig(
