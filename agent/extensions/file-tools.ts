@@ -63,8 +63,9 @@ const editParameters = Type.Object({
 	edits: Type.Array(
 		Type.Object(
 			{
-				old: Type.String({ minLength: 1, description: "Exact text occurring once in original content. Must be UNIQUE." }),
+				old: Type.String({ minLength: 1, description: "Exact text in original content. Must be unique unless replace_all is true." }),
 				new: Type.String(),
+				replace_all: Type.Optional(Type.Boolean({ default: false, description: "Replace ALL old matches; default false." })),
 			},
 			{ additionalProperties: false },
 		),

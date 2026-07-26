@@ -532,6 +532,10 @@ describe("edit", () => {
 			status: "failed",
 			error: { code: "INVALID_OPERATION", edit_index: 0 },
 		});
+		expect(await editWorkspace(workspace, { path: "a.txt", edits: [{ old: "x", new: "y", replace_all: "true" }] })).toMatchObject({
+			status: "failed",
+			error: { code: "INVALID_OPERATION", edit_index: 0 },
+		});
 	});
 
 	it("要求目标文件存在且必须先 read", async () => {
@@ -612,6 +616,35 @@ describe("edit", () => {
 			expect(result.diff).toContain("+2 TWO");
 			expect(result.firstChangedLine).toBe(2);
 		}
+	});
+
+	it("replace_all 替换所有匹配并按实际匹配数计数", async () => {
+		await writeFile(path.join(workspace, "a.txt"), "same\nsame\nunique\n");
+		const before = await readWorkspaceFile(workspace, { path: "a.txt" });
+		if (!("version" in before)) throw new Error("read failed");
+		const params = {
+			path: "a.txt",
+			edits: [
+				{ old: "same", new: "changed", replace_all: true },
+				{ old: "unique", new: "single" },
+			],
+		};
+
+		const opened = await openInvocation(workspace);
+		if ("status" in opened) throw new Error(opened.error.message);
+		const preview = await previewEdit(params, {
+			filesystem: opened.filesystem,
+			operation: opened.context,
+			maxFileBytes: opened.limits.edit_max_file_bytes,
+			matchHintLimit: opened.limits.edit_match_hint_limit,
+			diff: piTextDiffGenerator,
+		});
+		opened.dispose();
+		expect(preview).toMatchObject({ status: "preview", replacements: 3 });
+
+		const result = await editWorkspace(workspace, params);
+		expect(result).toMatchObject({ status: "applied", replacements: 3 });
+		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("changed\nchanged\nsingle\n");
 	});
 
 	it("并发 edit 同一文件时串行读取和写入，不丢失修改", async () => {
@@ -703,6 +736,15 @@ describe("edit", () => {
 				edits: [
 					{ old: "abc", new: "ABC" },
 					{ old: "bc same", new: "BC SAME" },
+				],
+			}),
+		).toMatchObject({ status: "failed", error: { code: "OVERLAPPING_REPLACEMENTS", edit_index: 1 } });
+		expect(
+			await editWorkspace(workspace, {
+				path: "a.txt",
+				edits: [
+					{ old: "same", new: "SAME", replace_all: true },
+					{ old: "same xyz", new: "tail" },
 				],
 			}),
 		).toMatchObject({ status: "failed", error: { code: "OVERLAPPING_REPLACEMENTS", edit_index: 1 } });

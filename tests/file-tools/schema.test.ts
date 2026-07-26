@@ -74,8 +74,14 @@ describe("file tool schemas", () => {
 		expect(validates(read, { path: "a.ts", start_line: 1.5 })).toBe(false);
 
 		expect(validates(edit, { path: "a.ts", edits: [{ old: "x", new: "y" }] })).toBe(true);
+		expect(validates(edit, { path: "a.ts", edits: [{ old: "x", new: "y", replace_all: true }] })).toBe(true);
+		expect(validates(edit, { path: "a.ts", edits: [{ old: "x", new: "y", replace_all: false }] })).toBe(true);
+		expect(validates(edit, { path: "a.ts", edits: [{ old: "x", new: "y", replace_all: "true" }] })).toBe(false);
 		expect(validates(edit, { path: "a.ts", edits: [] })).toBe(false);
 		expect(validates(edit, { path: "a.ts", edits: [{ old: "", new: "y" }] })).toBe(false);
 		expect(validates(edit, { path: "a.ts", edits: [{ old: "x", new: "y", extra: true }] })).toBe(false);
+		const replaceAllSchema = (edit as { properties: { edits: { items: { properties: { replace_all: unknown } } } } })
+			.properties.edits.items.properties.replace_all;
+		expect(replaceAllSchema).toMatchObject({ type: "boolean", default: false });
 	});
 });

@@ -46,6 +46,7 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 
 	let before: TextContent | undefined;
 	let updatedText: string | undefined;
+	let replacementCount: number | undefined;
 	let renderedDiff: TextDiff | undefined;
 	let baseline: DiagnosticSnapshot | undefined;
 	const mutated = await context.filesystem.mutations.run<FailedResult>(
@@ -60,13 +61,14 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 			if (isFailed(prepared)) return { type: "reject", reason: prepared };
 			before = prepared.file;
 			updatedText = prepared.updatedText;
+			replacementCount = prepared.replacementCount;
 			const output = buildTextBytes(updatedText, before.hasBom, target.displayPath, context.maxFileBytes);
 			if (isFailed(output)) return { type: "reject", reason: output };
 			renderedDiff = await context.diff.generate(normalizeLineEndings(before.text), normalizeLineEndings(updatedText));
 			safePrepared(context.onPrepared, {
 				status: "preview",
 				path: target.displayPath,
-				replacements: input.edits.length,
+				replacements: replacementCount,
 				diff: renderedDiff.diff,
 				...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
 			});
@@ -77,7 +79,7 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 	);
 	if (!mutated.ok) return mapMutationError(mutated.error);
 	if (!mutated.value.committed) return mutated.value.reason;
-	if (before === undefined || updatedText === undefined || renderedDiff === undefined) {
+	if (before === undefined || updatedText === undefined || replacementCount === undefined || renderedDiff === undefined) {
 		return fail("ACCESS_DENIED", "File could not be written.", { path: target.displayPath });
 	}
 
@@ -85,7 +87,7 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 	const result: EditSuccess = {
 		status: "applied",
 		path: receipt.target.displayPath,
-		replacements: input.edits.length,
+		replacements: replacementCount,
 		old_version: before.hash,
 		new_version: receipt.hash,
 		old_size_bytes: before.sizeBytes,
@@ -118,13 +120,13 @@ export async function previewEdit(params: unknown, context: EditPreviewContext):
 	if (!decoded.ok) return mapFsError(decoded.error, { notFound: "file" });
 	const updated = applyReplacements(decoded.value.text, input.edits, file.displayPath, context.matchHintLimit);
 	if (isFailed(updated)) return updated;
-	const outputError = validateTextSize(updated, decoded.value.hasBom, file.displayPath, context.maxFileBytes);
+	const outputError = validateTextSize(updated.text, decoded.value.hasBom, file.displayPath, context.maxFileBytes);
 	if (outputError !== undefined) return outputError;
-	const rendered = await context.diff.generate(normalizeLineEndings(decoded.value.text), normalizeLineEndings(updated));
+	const rendered = await context.diff.generate(normalizeLineEndings(decoded.value.text), normalizeLineEndings(updated.text));
 	return {
 		status: "preview",
 		path: file.displayPath,
-		replacements: input.edits.length,
+		replacements: updated.replacements,
 		diff: rendered.diff,
 		...(rendered.firstChangedLine === undefined ? {} : { firstChangedLine: rendered.firstChangedLine }),
 	};
@@ -164,7 +166,7 @@ function prepareSnapshot(
 	target: TargetRef,
 	edits: readonly EditReplacement[],
 	context: EditCommandContext,
-): ToolOutcome<{ file: TextContent; updatedText: string }> {
+): ToolOutcome<{ file: TextContent; updatedText: string; replacementCount: number }> {
 	if (!snapshot.exists) return fail("FILE_NOT_FOUND", "File does not exist.", { path: target.displayPath });
 	const file = context.filesystem.content.decodeText(
 		{ bytes: snapshot.bytes, hash: snapshot.hash, sizeBytes: snapshot.sizeBytes },
@@ -186,8 +188,8 @@ function prepareSnapshot(
 			actual: file.value.hash,
 		});
 	}
-	const updatedText = applyReplacements(file.value.text, edits, target.displayPath, context.matchHintLimit);
-	return isFailed(updatedText) ? updatedText : { file: file.value, updatedText };
+	const updated = applyReplacements(file.value.text, edits, target.displayPath, context.matchHintLimit);
+	return isFailed(updated) ? updated : { file: file.value, updatedText: updated.text, replacementCount: updated.replacements };
 }
 
 function validateEditInput(params: unknown): ToolOutcome<EditParams> {
@@ -211,24 +213,32 @@ function validateEditInput(params: unknown): ToolOutcome<EditParams> {
 function validateReplacement(value: unknown, index: number): ToolOutcome<EditReplacement> {
 	if (!isPlainRecord(value)) return fail("INVALID_OPERATION", "edit entry must be an object.", { edit_index: index });
 	for (const key of Object.keys(value)) {
-		if (key !== "old" && key !== "new") {
+		if (key !== "old" && key !== "new" && key !== "replace_all") {
 			return fail("INVALID_OPERATION", `Unsupported edits[${index}] field: ${key}.`, { edit_index: index, details: { field: key } });
 		}
 	}
 	if (typeof value["old"] !== "string") return fail("INVALID_OPERATION", `edits[${index}].old must be a string.`, { edit_index: index });
 	if (value["old"].length === 0) return fail("EMPTY_OLD_TEXT", `edits[${index}].old must not be empty.`, { edit_index: index });
 	if (typeof value["new"] !== "string") return fail("INVALID_OPERATION", `edits[${index}].new must be a string.`, { edit_index: index });
-	return { old: value["old"], new: value["new"] };
+	if (value["replace_all"] !== undefined && typeof value["replace_all"] !== "boolean") {
+		return fail("INVALID_OPERATION", `edits[${index}].replace_all must be a boolean.`, { edit_index: index });
+	}
+	return { old: value["old"], new: value["new"], replace_all: value["replace_all"] ?? false };
 }
 
-function applyReplacements(text: string, replacements: readonly EditReplacement[], path: string, hintLimit: number): ToolOutcome<string> {
+function applyReplacements(
+	text: string,
+	replacements: readonly EditReplacement[],
+	path: string,
+	hintLimit: number,
+): ToolOutcome<{ text: string; replacements: number }> {
 	const matches: Array<{ index: number; start: number; end: number; replacement: EditReplacement }> = [];
 	for (let index = 0; index < replacements.length; index += 1) {
 		const replacement = replacements[index];
 		if (replacement === undefined) continue;
 		const starts = findAll(text, replacement.old);
 		if (starts.length === 0) return fail("OLD_TEXT_NOT_FOUND", `edits[${index}].old was not found in the original file.`, { path, edit_index: index });
-		if (starts.length > 1) {
+		if (starts.length > 1 && replacement.replace_all !== true) {
 			const hints = buildEditMatchHints(text, replacement.old, replacement.new, starts, hintLimit);
 			const summary = hints.length < starts.length ? `${starts.length} locations, ${hints.length} shown` : `${starts.length} locations`;
 			return fail("OLD_TEXT_NOT_UNIQUE", `edits[${index}].old matched ${summary}.`, {
@@ -238,8 +248,7 @@ function applyReplacements(text: string, replacements: readonly EditReplacement[
 				details: { matches: starts.length, shown: hints.length, hints },
 			});
 		}
-		const start = starts[0];
-		if (start !== undefined) matches.push({ index, start, end: start + replacement.old.length, replacement });
+		for (const start of starts) matches.push({ index, start, end: start + replacement.old.length, replacement });
 	}
 	matches.sort((left, right) => left.start - right.start);
 	for (let index = 1; index < matches.length; index += 1) {
@@ -259,7 +268,7 @@ function applyReplacements(text: string, replacements: readonly EditReplacement[
 		output += text.slice(cursor, match.start) + match.replacement.new;
 		cursor = match.end;
 	}
-	return output + text.slice(cursor);
+	return { text: output + text.slice(cursor), replacements: matches.length };
 }
 
 function findAll(text: string, needle: string): number[] {

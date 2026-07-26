@@ -3,6 +3,7 @@ import type { DiagnosticsSummary } from "../shared/diagnostics.js";
 export interface EditReplacement {
 	old: string;
 	new: string;
+	replace_all?: boolean;
 }
 
 export interface EditMatchHint {
