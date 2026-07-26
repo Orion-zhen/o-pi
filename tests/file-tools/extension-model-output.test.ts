@@ -85,6 +85,41 @@ describe("file-tools extension model output", () => {
 		}
 	});
 
+	it("OpenAI completions API 只允许 read 返回文本", async () => {
+		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
+		fileTools({
+			registerTool(tool: { name: string; execute?: ExecuteTool }) {
+				registered.push(tool);
+			},
+			on() {},
+		} as unknown as ExtensionAPI);
+
+		const cwd = await mkdtemp(join(tmpdir(), "o-pi-read-completions-output-"));
+		try {
+			await writeFile(join(cwd, "a.txt"), "text\n", "utf8");
+			const imageBytes = Buffer.from("R0lGODlhAQABAIABAP///wAAACwAAAAAAQABAAACAkQBADs=", "base64");
+			await writeFile(join(cwd, "pixel.gif"), imageBytes);
+			const ctx = {
+				cwd,
+				sessionManager: { getSessionId: () => "session-completions" },
+				model: { api: "openai-completions", input: ["text", "image"] },
+			};
+
+			const textRead = await executeTool(registered, "read", { path: "a.txt" }, ctx);
+			expect(textResult(textRead)).toBe('<read path="a.txt" lines="1-1/1">\ntext\n</read>');
+
+			const imageRead = await executeTool(registered, "read", { path: "pixel.gif" }, ctx);
+			expect(textResult(imageRead)).toBe("<error>\nAPI does not support image format.\n</error>");
+			expect(imageRead.content).toHaveLength(1);
+			expect(imageRead.details).toMatchObject({
+				status: "failed",
+				error: { code: "API_NOT_SUPPORTED", message: "API does not support image format.", path: "pixel.gif" },
+			});
+		} finally {
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
 	it("write 成功结果返回紧凑 XML 和有限 LSP 诊断", async () => {
 		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
 		fileTools({

@@ -157,6 +157,23 @@ describe("read", () => {
 			},
 		});
 		if ("version" in result) expect(result.version).toBe(sha256Version(imageBytes));
+
+		let processedUnsupportedImage = false;
+		const unsupported = await readWorkspaceFile(workspace, { path: "pixel.gif" }, {
+			supportedOutputFormats: ["text"],
+			image: {
+				async process() {
+					processedUnsupportedImage = true;
+					throw new Error("unsupported image must not be processed");
+				},
+			},
+		});
+		expect(unsupported).toMatchObject({
+			status: "failed",
+			error: { code: "API_NOT_SUPPORTED", message: "API does not support image format.", path: "pixel.gif" },
+		});
+		expect(processedUnsupportedImage).toBe(false);
+
 		expect(await readWorkspaceFile(workspace, { path: "pixel.gif", start_line: 1 })).toMatchObject({
 			status: "failed",
 			error: { code: "INVALID_OPERATION" },

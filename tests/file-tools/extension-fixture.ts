@@ -24,12 +24,18 @@ export type LifecycleHandler = (...args: unknown[]) => unknown;
 export type RenderResult = (result: unknown, options: { expanded: boolean; isPartial: boolean }, theme: ThemeStub, context: unknown) => Renderable;
 export type RenderCall = (args: unknown, theme: ThemeStub, context: unknown) => Renderable;
 export type ExecuteResult = { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; details?: unknown };
+export interface ExecuteToolContext {
+	cwd: string;
+	sessionManager: { getSessionId(): string };
+	model?: { api: string; input: string[] };
+}
+
 export type ExecuteTool = (
 	toolCallId: string,
 	params: unknown,
 	signal: AbortSignal | undefined,
 	onUpdate: ((result: ExecuteResult) => void) | undefined,
-	ctx: { cwd: string; sessionManager: { getSessionId(): string } },
+	ctx: ExecuteToolContext,
 ) => Promise<ExecuteResult>;
 
 export async function activateFileTools(handler: LifecycleHandler | undefined, mode: "tui" | "rpc" = "tui"): Promise<void> {
@@ -97,7 +103,7 @@ export async function executeTool(
 	registered: Array<{ name: string; execute?: ExecuteTool }>,
 	name: string,
 	params: unknown,
-	ctx: { cwd: string; sessionManager: { getSessionId(): string } },
+	ctx: ExecuteToolContext,
 	signal?: AbortSignal,
 	onUpdate?: (result: ExecuteResult) => void,
 ): Promise<ExecuteResult> {

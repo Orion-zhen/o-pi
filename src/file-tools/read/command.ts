@@ -11,7 +11,7 @@ import type {
 	ReadStructureSource,
 } from "./ports.js";
 import { formatReadStructureContext } from "./presenter.js";
-import type { ReadFileSuccess, ReadGraphContext, ReadParams, ReadStructureContext } from "./types.js";
+import type { ReadFileSuccess, ReadGraphContext, ReadOutputFormat, ReadParams, ReadStructureContext } from "./types.js";
 
 const PATH_CATALOG_ENTRY_LIMIT = 10_000;
 
@@ -33,6 +33,7 @@ export interface ReadCommandContext {
 	readonly structure?: ReadStructureSource;
 	readonly graph?: ReadGraphContextSource;
 	readonly image?: InlineImageProcessor;
+	readonly supportedOutputFormats?: readonly ReadOutputFormat[];
 	readonly recordObservation?: boolean;
 }
 
@@ -79,6 +80,9 @@ export async function readFile(
 	const detected = await safeDetectFileType(loaded.value.bytes);
 	if (isAborted(context.operation)) return aborted(file.displayPath);
 	if (detected?.kind === "image") {
+		if (context.supportedOutputFormats?.includes("image") === false) {
+			return fail("API_NOT_SUPPORTED", "API does not support image format.", { path: file.displayPath });
+		}
 		if (params.start_line !== undefined || params.end_line !== undefined) {
 			return fail("INVALID_OPERATION", "Line ranges apply only to text files.", { path: file.displayPath });
 		}

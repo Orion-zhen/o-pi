@@ -4,7 +4,7 @@ import { readFile } from "../../read/command.js";
 import { isReadImageSuccess, isReadSuccess } from "../../read/guards.js";
 import type { InlineImageProcessor } from "../../read/ports.js";
 import { formatReadModelResult } from "../../read/presenter.js";
-import type { ReadFileSuccess, ReadParams } from "../../read/types.js";
+import type { ReadFileSuccess, ReadOutputFormat, ReadParams } from "../../read/types.js";
 import type { FileToolsHost } from "../../runtime/host.js";
 import { fail, isFailed, type FailedResult } from "../../shared/result.js";
 import type { LspFileOperations } from "../../../lsp/file-hooks.js";
@@ -26,7 +26,7 @@ export interface ExecuteReadOptions {
 	readonly cwd: string;
 	readonly sessionId: string;
 	readonly signal?: AbortSignal;
-	readonly model: { input?: readonly string[] } | undefined;
+	readonly model: { api?: string; input?: readonly string[] } | undefined;
 	readonly host: FileToolsHost;
 	readonly lsp: LspFileOperations;
 	readonly repoMap: RepoMapToolPorts;
@@ -35,6 +35,7 @@ export interface ExecuteReadOptions {
 }
 
 export async function executeRead(params: ReadParams, options: ExecuteReadOptions) {
+	const supportedOutputFormats = readOutputFormats(options.model?.api);
 	const resolution = await resolveReadLocator(params.path, options.branch, options.skillIndex);
 	if (resolution.kind === "error") return failedResult(mapSkillError(resolution));
 	const skill = resolution.kind === "skill" ? resolution : undefined;
@@ -60,6 +61,7 @@ export async function executeRead(params: ReadParams, options: ExecuteReadOption
 					suggestions: opened.limits.read_suggestion_limit,
 				},
 				image: lazyInlineImageProcessor,
+				supportedOutputFormats,
 				...(skill === undefined
 					? {
 							missingPaths: createMissingPathSource(opened, options.repoMap),
@@ -74,6 +76,10 @@ export async function executeRead(params: ReadParams, options: ExecuteReadOption
 	} finally {
 		opened.dispose();
 	}
+}
+
+function readOutputFormats(api: string | undefined): readonly ReadOutputFormat[] {
+	return api === "openai-completions" ? ["text"] : ["text", "image"];
 }
 
 const lazyInlineImageProcessor: InlineImageProcessor = {

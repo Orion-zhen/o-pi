@@ -6,6 +6,8 @@ export interface ReadParams {
 	end_line?: number;
 }
 
+export type ReadOutputFormat = "text" | "image";
+
 export interface ReadOutlineItem {
 	name: string;
 	kind: string;

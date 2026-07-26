@@ -5,7 +5,7 @@ import type {
 	ReadGraphContextSource,
 	ReadStructureSource,
 } from "../../src/file-tools/read/ports.js";
-import type { ReadFileSuccess, ReadParams } from "../../src/file-tools/read/types.js";
+import type { ReadFileSuccess, ReadOutputFormat, ReadParams } from "../../src/file-tools/read/types.js";
 import { FileToolsHost, type FileToolsInvocation } from "../../src/file-tools/runtime/host.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
 import { createInlineImageProcessor } from "../../src/file-tools/pi/ports/read-image.js";
@@ -21,6 +21,7 @@ export interface ReadWorkspaceTestOptions {
 	readonly repoMap?: Pick<RepoMapFileToolQuery, "readContext">;
 	formatRepoMapContext?(context: RepoMapReadContext): Promise<string | undefined>;
 	readonly image?: InlineImageProcessor;
+	readonly supportedOutputFormats?: readonly ReadOutputFormat[];
 	readonly signal?: AbortSignal;
 	readonly recordObservation?: boolean;
 }
@@ -48,6 +49,7 @@ export async function readWorkspaceFile(
 					suggestions: opened.limits.read_suggestion_limit,
 				},
 				image: options.image ?? createInlineImageProcessor(),
+				...(options.supportedOutputFormats === undefined ? {} : { supportedOutputFormats: options.supportedOutputFormats }),
 				...(options.missingPaths === undefined ? {} : { missingPaths: options.missingPaths }),
 				...(options.structure === undefined ? {} : { structure: options.structure }),
 				...(graph === undefined ? {} : { graph }),
