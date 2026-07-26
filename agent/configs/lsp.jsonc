@@ -39,7 +39,7 @@
 			}
 		},
 		"python": {
-			"command": ["pyright-langserver", "--stdio"],
+			"command": ["ty", "server"],
 			"languages": { "python": "*.{py,pyi}" }
 		},
 		"rust": {
