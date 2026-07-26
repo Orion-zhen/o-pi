@@ -10,16 +10,18 @@ process.env.PI_FILE_TOOLS_CONFIG = path.join(root, "agent/configs/file-tools.jso
 
 const { initializeRepoMap, readActivatedRepoMap } = await loadTypeScript("src/repo-map/service.ts");
 const { RepoMapQueryIndex } = await loadTypeScript("src/repo-map/query.ts");
-const { findWorkspaceFiles } = await loadTypeScript("src/file-tools/tools/find.ts");
+const { FindTool } = await loadTypeScript("src/file-tools/find/command.ts");
+const { FileToolsHost } = await loadTypeScript("src/file-tools/runtime/host.ts");
+const { createFindGraphSource } = await loadTypeScript("src/file-tools/pi/adapters/find.ts");
 const { grepWorkspaceFiles } = await loadTypeScript("src/file-tools/tools/grep.ts");
 const { clearGrepIndex } = await loadTypeScript("src/file-tools/grep/indexer.ts");
 
 const findCases = [
 	{ query: "ranking evidence", relevant: ["src/file-tools/shared/ranking/evidence.ts"] },
-	{ query: "repo map ranking", relevant: ["src/file-tools/repo-map-ranking.ts"] },
+	{ query: "repo map ranking", relevant: ["src/file-tools/find/graph-ranking.ts", "src/file-tools/repo-map-ranking.ts"] },
 	{ query: "file tool query", relevant: ["src/repo-map/file-tool-query.ts"] },
 	{ query: "grep fusion", relevant: ["src/file-tools/grep/fusion.ts"] },
-	{ query: "file tools ranking", relevant: ["docs/file-tools-ranking.md"] },
+	{ query: "file tools ranking", relevant: ["docs/file-tools/ranking.md", "docs/file-tools/ranking-evidence.md", "docs/file-tools/ranking-selection.md"] },
 ];
 
 const grepCases = [
@@ -32,12 +34,15 @@ const grepCases = [
 		query: join("not_", "guaranteed"),
 		path: "src",
 		match: "literal",
-		relevant: ["src/file-tools/pi/guards.ts", "src/file-tools/grep/packer.ts", "src/file-tools/tools/find.ts", "src/file-tools/tools/grep.ts", "src/file-tools/types.ts"],
+		relevant: ["src/file-tools/find/types.ts", "src/file-tools/find/guards.ts", "src/file-tools/find/command.ts", "src/file-tools/grep/packer.ts", "src/file-tools/tools/grep.ts", "src/file-tools/types.ts"],
 	},
 	{ query: join("RRF_", "K|MMR_", "LAMBDA"), path: "src", match: "regex", relevant: ["src/file-tools/shared/ranking/evidence.ts", "src/file-tools/shared/ranking/selection.ts"] },
 	{ query: join("callers of selectRelevance", "HeadMmr"), path: "src", match: "auto", relevant: ["src/file-tools/find/fusion.ts", "src/file-tools/grep/fusion.ts"] },
 	{ query: join("selectRelevanceHead", "Mmr tests"), path: "tests", match: "auto", relevant: ["tests/file-tools/ranking-selection.test.ts"] },
 ];
+
+const findHost = new FileToolsHost();
+const findTool = new FindTool();
 
 try {
 	const buildStarted = performance.now();
@@ -59,14 +64,26 @@ try {
 	const rows = [];
 	for (const calibration of findCases) {
 		const started = performance.now();
-		const result = await findWorkspaceFiles(root, { query: calibration.query }, undefined, { repoMap });
+		const opened = await findHost.open({ cwd: root, sessionId: "calibration-find" });
+		if (opened.status === "failed") throw new Error(`find host failed for ${calibration.query}: ${opened.error.message}`);
+		let result;
+		try {
+			result = await findTool.execute({ query: calibration.query }, {
+				filesystem: opened.filesystem,
+				operation: opened.context,
+				limits: opened.limits,
+				graph: createFindGraphSource({ query: repoMap }, opened),
+			});
+		} finally {
+			opened.dispose();
+		}
 		if ("status" in result) throw new Error(`find failed for ${calibration.query}: ${result.error.message}`);
 		rows.push(calibrationRow("find", calibration, result.details.matches.map((match) => match.path), performance.now() - started));
 	}
 	for (const calibration of grepCases) {
 		clearGrepIndex();
 		const started = performance.now();
-		const result = await grepWorkspaceFiles(root, { query: calibration.query, path: calibration.path, match: calibration.match }, undefined, { repoMap });
+		const result = await grepWorkspaceFiles(root, { query: calibration.query, path: [calibration.path], match: calibration.match }, undefined, { repoMap });
 		if (result.status === "failed") throw new Error(`grep failed for ${calibration.query}: ${result.error.message}`);
 		rows.push(calibrationRow("grep", calibration, result.regions.map((region) => region.path), performance.now() - started));
 	}
@@ -80,6 +97,8 @@ try {
 		throw new Error("current-repository ranking calibration fell below MRR/Recall@3 threshold 0.95");
 	}
 } finally {
+	findTool.dispose();
+	findHost.dispose();
 	await rm(temporaryRoot, { recursive: true, force: true });
 }
 

@@ -53,5 +53,5 @@ export interface ResolveTargetOptions {
 export interface PathOperations {
 	resolveExisting(input: string, options: ResolveExistingOptions, context: FsOperationContext): Promise<FsResult<ExistingRef>>;
 	resolveTarget(input: string, options: ResolveTargetOptions, context: FsOperationContext): Promise<FsResult<TargetRef>>;
-	isWithin(parent: DirectoryRef, candidate: ExistingRef): boolean;
+	isWithin(parent: DirectoryRef, candidate: ExistingRef | TargetRef): boolean;
 }

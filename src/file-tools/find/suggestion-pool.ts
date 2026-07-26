@@ -1,6 +1,6 @@
 import type { Worker } from "node:worker_threads";
 
-import type { FindEntry } from "../types.js";
+import type { FindEntry } from "./types.js";
 import { DEFAULT_WORKER_CONCURRENCY } from "../../worker-runtime/concurrency.js";
 import { createTypeScriptWorker } from "../../worker-runtime/typescript-worker.js";
 import { rankFindMatches, rankFindSuggestions, type RankedFindEntries } from "./ranker.js";
@@ -42,8 +42,6 @@ const TRANSFER_ENTRIES_PER_MS = 80;
 const COLD_WORKER_START_MS = 180;
 const WARM_WORKER_START_MS = 5;
 
-let sharedPool: FindSuggestionPool | undefined;
-
 /** 使用已有条目数和 query 复杂度估算本地与分块 worker 的墙钟成本。 */
 export function shouldOffloadFindSuggestions(
 	entryCount: number,
@@ -57,50 +55,54 @@ export function shouldOffloadFindSuggestions(
 	const workUnits = entryCount * Math.max(1, queryTermCount) * FUSE_FIELDS;
 	const localMs = workUnits / LOCAL_WORK_UNITS_PER_MS;
 	const transferMs = entryCount / TRANSFER_ENTRIES_PER_MS;
-	const startupMs = (options.workerWarm ?? sharedPool?.isWarm() === true) ? WARM_WORKER_START_MS : COLD_WORKER_START_MS;
+	const startupMs = options.workerWarm === true ? WARM_WORKER_START_MS : COLD_WORKER_START_MS;
 	return startupMs + localMs / workers + transferMs < localMs;
 }
 
-/** 主匹配留在本进程；只有零结果的全量 typo suggestions 才按独立文档块并行。 */
-export async function rankFindEntriesForSearch(
-	entries: FindEntry[],
-	query: string,
-	rootPath: string,
-	signal?: AbortSignal,
-): Promise<RankedFindEntries> {
-	const matches = rankFindMatches(entries, query, rootPath);
-	if (matches.length > 0) return { matches, suggestions: [] };
-	const queryTermCount = query.split(/[\/\s._-]+/u).filter(Boolean).length;
-	if (!shouldOffloadFindSuggestions(entries.length, queryTermCount)) {
-		return { matches, suggestions: rankFindSuggestions(entries, query, rootPath) };
-	}
-	if (signal?.aborted) throw new AbortFindSuggestionRanking();
-	try {
-		sharedPool ??= new FindSuggestionPool(FIND_CONCURRENCY);
-		const workers = Math.min(FIND_CONCURRENCY, Math.ceil(entries.length / FIND_SUGGESTION_CHUNK_SIZE));
-		const chunkSize = Math.ceil(entries.length / workers);
-		const tasks: Array<Promise<string[]>> = [];
-		for (let start = 0; start < entries.length; start += chunkSize) {
-			tasks.push(sharedPool.run(
-				entries.slice(start, start + chunkSize).map((entry) => ({ path: entry.path, kind: entry.kind })),
-				query,
-				rootPath,
-				signal,
-			));
-		}
-		const shortlistPaths = (await Promise.all(tasks)).flat();
-		const entriesByPath = new Map(entries.map((entry) => [entry.path, entry]));
-		const shortlist = shortlistPaths.map((entryPath) => entriesByPath.get(entryPath)).filter((entry): entry is FindEntry => entry !== undefined);
-		return { matches, suggestions: rankFindSuggestions(shortlist, query, rootPath) };
-	} catch (error) {
-		if (error instanceof AbortFindSuggestionRanking) throw error;
-		return { matches, suggestions: rankFindSuggestions(entries, query, rootPath) };
-	}
-}
+/** Owns the optional worker pool for one FindTool instance. */
+export class FindSuggestionRanker {
+	private pool: FindSuggestionPool | undefined;
+	private disposed = false;
 
-export function clearFindSuggestionPool(): void {
-	sharedPool?.dispose();
-	sharedPool = undefined;
+	/** Main matching stays local; only zero-result typo suggestions may be offloaded. */
+	async rank(entries: FindEntry[], query: string, rootPath: string, signal?: AbortSignal): Promise<RankedFindEntries> {
+		if (this.disposed) throw new AbortFindSuggestionRanking();
+		const matches = rankFindMatches(entries, query, rootPath);
+		if (matches.length > 0) return { matches, suggestions: [] };
+		const queryTermCount = query.split(/[\/\s._-]+/u).filter(Boolean).length;
+		if (!shouldOffloadFindSuggestions(entries.length, queryTermCount, { workerWarm: this.pool?.isWarm() === true })) {
+			return { matches, suggestions: rankFindSuggestions(entries, query, rootPath) };
+		}
+		if (signal?.aborted) throw new AbortFindSuggestionRanking();
+		try {
+			this.pool ??= new FindSuggestionPool(FIND_CONCURRENCY);
+			const workers = Math.min(FIND_CONCURRENCY, Math.ceil(entries.length / FIND_SUGGESTION_CHUNK_SIZE));
+			const chunkSize = Math.ceil(entries.length / workers);
+			const tasks: Array<Promise<string[]>> = [];
+			for (let start = 0; start < entries.length; start += chunkSize) {
+				tasks.push(this.pool.run(
+					entries.slice(start, start + chunkSize).map((entry) => ({ path: entry.path, kind: entry.kind })),
+					query,
+					rootPath,
+					signal,
+				));
+			}
+			const shortlistPaths = (await Promise.all(tasks)).flat();
+			const entriesByPath = new Map(entries.map((entry) => [entry.path, entry]));
+			const shortlist = shortlistPaths.map((entryPath) => entriesByPath.get(entryPath)).filter((entry): entry is FindEntry => entry !== undefined);
+			return { matches, suggestions: rankFindSuggestions(shortlist, query, rootPath) };
+		} catch (error) {
+			if (error instanceof AbortFindSuggestionRanking) throw error;
+			return { matches, suggestions: rankFindSuggestions(entries, query, rootPath) };
+		}
+	}
+
+	dispose(): void {
+		if (this.disposed) return;
+		this.disposed = true;
+		this.pool?.dispose();
+		this.pool = undefined;
+	}
 }
 
 export class AbortFindSuggestionRanking extends Error {}

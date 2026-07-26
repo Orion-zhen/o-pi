@@ -2,16 +2,16 @@ import { createHash } from "node:crypto";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mergeRankedFindSources } from "../../src/file-tools/find/fusion.js";
 import { createFindEntry, rankFindSuggestions } from "../../src/file-tools/find/ranker.js";
 import { renderFindResults } from "../../src/file-tools/find/renderer.js";
-import { clearFindSuggestionPool, FIND_CONCURRENCY, rankFindEntriesForSearch, shouldOffloadFindSuggestions } from "../../src/file-tools/find/suggestion-pool.js";
+import { FIND_CONCURRENCY, FindSuggestionRanker, shouldOffloadFindSuggestions } from "../../src/file-tools/find/suggestion-pool.js";
 import { createRankingEvidence } from "../../src/file-tools/shared/ranking/evidence.js";
-import { findWorkspaceFiles } from "../../src/file-tools/tools/find.js";
+import { findWorkspaceFiles } from "../helpers/find-tool.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
-import type { FindMatch, FindSuccess } from "../../src/file-tools/types.js";
+import type { FindMatch, FindSuccess } from "../../src/file-tools/find/types.js";
 import type { RepoMapFileToolQuery } from "../../src/repo-map/file-tool-query.js";
 import type { RepoMapQueryCandidate, RepoMapQueryResult } from "../../src/repo-map/query.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -37,10 +37,6 @@ beforeEach(async () => {
 		].join("\n"),
 	);
 	process.env.PI_FILE_TOOLS_CONFIG = configPath;
-});
-
-afterEach(() => {
-	clearFindSuggestionPool();
 });
 
 function expectFindSuccess(result: ToolOutcome<FindSuccess>): FindSuccess {
@@ -98,11 +94,27 @@ describe("find", () => {
 			createFindEntry(`packages/component-${index}/parser-runtime-${index}.ts`, "file"));
 		const query = "parser worker runtime";
 		const expected = rankFindSuggestions(entries, query, ".").map((item) => item.entry.path);
-		const actual = await rankFindEntriesForSearch(entries, query, ".");
-
-		expect(actual.matches).toEqual([]);
-		expect(actual.suggestions.map((item) => item.entry.path)).toEqual(expected);
+		const ranker = new FindSuggestionRanker();
+		try {
+			const actual = await ranker.rank(entries, query, ".");
+			expect(actual.matches).toEqual([]);
+			expect(actual.suggestions.map((item) => item.entry.path)).toEqual(expected);
+		} finally {
+			ranker.dispose();
+		}
 	}, 0);
+
+	it("suggestion ranker 生命周期局部且 dispose 幂等", async () => {
+		const disposed = new FindSuggestionRanker();
+		const active = new FindSuggestionRanker();
+		disposed.dispose();
+		disposed.dispose();
+		await expect(disposed.rank([createFindEntry("src/target.ts", "file")], "target", ".")).rejects.toBeInstanceOf(Error);
+		await expect(active.rank([createFindEntry("src/target.ts", "file")], "target", ".")).resolves.toMatchObject({
+			matches: [{ entry: { path: "src/target.ts" } }],
+		});
+		active.dispose();
+	});
 
 	it("紧凑输出省略可推导元数据、共享路径前缀并把截断状态放在首行", () => {
 		const base = {
@@ -266,6 +278,16 @@ describe("find", () => {
 			strategy: "exact",
 			matches: [{ path: "src/auth/service.ts", kind: "file" }],
 		});
+
+		const absoluteGlob = expectFindSuccess(await findWorkspaceFiles(workspace, { query: path.join(workspace, "src", "auth", "*.ts") }));
+		expect(absoluteGlob.details).toMatchObject({
+			query: "src/auth/*.ts",
+			strategy: "glob",
+			matches: [
+				{ path: "src/auth/service.ts", kind: "file" },
+				{ path: "src/auth/session.ts", kind: "file" },
+			],
+		});
 	});
 
 	it("精确文件和目录路径直接返回，且目录带尾随 slash", async () => {
@@ -318,6 +340,52 @@ describe("find", () => {
 		expect(paths(expectFindSuccess(await findWorkspaceFiles(workspace, { query: "**/migrations" })).details.matches)).toEqual([
 			"db/migrations",
 		]);
+	});
+
+	it("graph 候选必须通过实时 scope、visibility、kind、hash 和关联证据校验", async () => {
+		const live = "export const LiveGraphTarget = true;\n";
+		const stale = "export const StaleGraphTarget = true;\n";
+		await writeFile(path.join(workspace, ".piignore"), "src/ignored.ts\n");
+		await writeFixture("src/live.ts");
+		await writeFixture("src/stale.ts");
+		await writeFixture("src/ignored.ts");
+		await writeFixture("tests/outside.ts");
+		await writeFixture("src/dependency.ts");
+		await writeFile(path.join(workspace, "src", "live.ts"), live);
+		await writeFile(path.join(workspace, "src", "stale.ts"), stale);
+		const dependent = {
+			...repoMapCandidate("src/live.ts", live, ["exact symbol", "definition"]),
+			path: "src/dependent.ts",
+			fileId: "file:src/dependent.ts",
+			contentHash: createHash("sha256").update("").digest("hex"),
+			relatedEdges: [{
+				kind: "references" as const,
+				from: "symbol:a",
+				to: "symbol:b",
+				confidence: 1,
+				resolution: "semantic" as const,
+				source: "tree-sitter" as const,
+				hop: 1 as const,
+				evidence: [],
+				relatedFiles: [{ path: "src/dependency.ts", contentHash: "stale-hash" }],
+			}],
+		};
+		await writeFixture("src/dependent.ts");
+		const candidates = [
+			repoMapCandidate("src/live.ts", live, ["exact symbol", "definition"]),
+			repoMapCandidate("src/stale.ts", "not-current", ["exact symbol", "definition"]),
+			repoMapCandidate("src/ignored.ts", "", ["exact symbol", "definition"]),
+			repoMapCandidate("tests/outside.ts", "", ["exact symbol", "definition"]),
+			dependent,
+		];
+		const query = repoMapQuery(async (input): Promise<RepoMapQueryResult> => ({
+			root: workspace,
+			explanation: { queryTerms: [input.query], expandedTerms: [input.query], seedCount: candidates.length, maxHop: 2 },
+			candidates,
+		}));
+
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { path: ["src"], query: "GraphTarget" }, undefined, { repoMap: query }));
+		expect(paths(result.details.matches)).toEqual(["src/live.ts"]);
 	});
 
 	it("glob 查询不进入 Repo Map，普通 query 仍执行语义召回", async () => {
@@ -578,11 +646,11 @@ describe("find", () => {
 		]);
 	});
 
-	it("嵌套和重复 scope 只保留外层扫描结果", async () => {
+	it("嵌套、重复及同一目录的绝对 scope 只保留外层扫描结果", async () => {
 		await writeFixture("src/lib/inside.ts");
 		await writeFixture("src/outside.ts");
 
-		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "*.ts", path: ["src/lib", "src", "src"] }));
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "*.ts", path: ["src/lib", "src", path.join(workspace, "src"), "src"] }));
 		expect(result.details.paths).toEqual(["src"]);
 		expect(paths(result.details.matches)).toEqual(["src/lib/inside.ts", "src/outside.ts"]);
 	});

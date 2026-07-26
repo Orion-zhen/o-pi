@@ -10,7 +10,7 @@ import { editFile } from "../../src/file-tools/edit/command.js";
 import { formatReadModelResult } from "../../src/file-tools/pi/model-output-with-repo.js";
 import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
-import { findWorkspaceFiles } from "../../src/file-tools/tools/find.js";
+import { findWorkspaceFiles } from "../helpers/find-tool.js";
 import { readWorkspaceFile } from "../helpers/read-tool.js";
 import { writeFile as writeFileCommand } from "../../src/file-tools/write/command.js";
 import { grepWorkspaceFiles } from "../../src/file-tools/tools/grep.js";

@@ -1,6 +1,6 @@
 import { createPathIndex, sortedChildren, type PathIndexNode } from "./path-index.js";
 import { countTextTokensSync } from "../../token-counter.js";
-import type { FindCollapsedGroup, FindDetails, FindMatch, FindNearbyResult, FindScopeError, RepoMapRelatedResult } from "../types.js";
+import type { FindCollapsedGroup, FindDetails, FindMatch, FindNearbyResult, FindRelatedResult, FindScopeError } from "./types.js";
 
 const NARROW_RESULT_LIMIT = 20;
 const TOP_MATCH_LIMIT = 12;
@@ -19,7 +19,7 @@ export interface RenderFindInput {
 	scanTruncated: boolean;
 	resultLimited: boolean;
 	outputTokenBudget: number;
-	related?: RepoMapRelatedResult[];
+	related?: FindRelatedResult[];
 	nearby?: FindNearbyResult[];
 	missingPrefix?: string;
 	nearbyDirectory?: string;
@@ -142,7 +142,7 @@ function appendNoMatchDiagnostic(content: string, input: RenderFindInput, tokenB
 function buildDetails(
 	input: RenderFindInput,
 	collapsedGroups: FindCollapsedGroup[],
-	related: RepoMapRelatedResult[],
+	related: FindRelatedResult[],
 	outputTruncated: boolean,
 	displayedMatches: FindMatch[] = input.matches,
 	displayedCollapsedGroups: FindCollapsedGroup[] = collapsedGroups,
@@ -185,12 +185,12 @@ function concreteMatchCount(formatted: readonly string[], matchCount: number, vi
 
 function appendRelated(
 	content: string,
-	candidates: RepoMapRelatedResult[] | undefined,
+	candidates: FindRelatedResult[] | undefined,
 	tokenBudget: number,
-): { content: string; related: RepoMapRelatedResult[] } {
+): { content: string; related: FindRelatedResult[] } {
 	if (candidates === undefined || candidates.length === 0) return { content, related: [] };
 	const header = "<related repo-map nonmatch>";
-	const related: RepoMapRelatedResult[] = [];
+	const related: FindRelatedResult[] = [];
 	let output = content;
 	for (const candidate of candidates) {
 		const nextRelated = [...related, candidate];

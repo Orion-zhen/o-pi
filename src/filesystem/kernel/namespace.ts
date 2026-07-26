@@ -201,7 +201,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		}));
 	}
 
-	isWithin(parent: DirectoryRef, candidate: ExistingRef): boolean {
+	isWithin(parent: DirectoryRef, candidate: ExistingRef | TargetRef): boolean {
 		const parentIdentity = this.refs.get(parent.id);
 		const candidateIdentity = this.refs.get(candidate.id);
 		if (parentIdentity === undefined || candidateIdentity === undefined) return false;

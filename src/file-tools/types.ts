@@ -13,12 +13,6 @@ export interface TextFile {
 	hasBom: boolean;
 }
 
-/** find 参数：query 自动路由精确路径、glob、名称/路径 fuzzy 与语义召回。 */
-export interface FindParams {
-	query: string;
-	path?: string[];
-}
-
 export type GrepMatchMode = "auto" | "literal" | "regex";
 
 export interface GrepParams {
@@ -156,73 +150,6 @@ export interface GrepSuccess {
 	related?: RepoMapRelatedResult[];
 	skipped_files?: GrepSkippedFiles;
 	nearby?: GrepNearbyResult[];
-}
-
-export type FindEntryKind = "file" | "directory";
-
-/** find 的统一路径条目；tokens 只服务路径相关性评分，不包含文件正文信息。 */
-export interface FindEntry {
-	path: string;
-	kind: FindEntryKind;
-	basename: string;
-	stem: string;
-	extension?: string;
-	segments: string[];
-	tokens: string[];
-	depth: number;
-}
-
-export interface FindMatch {
-	path: string;
-	kind: FindEntryKind;
-}
-
-export interface FindNearbyResult extends FindMatch {
-	reason: "name similarity";
-}
-
-export interface FindCollapsedGroup {
-	path: string;
-	files: number;
-	directories: number;
-}
-
-/** find 的内部结构化详情；正文保持 token-efficient，完整统计留给 UI 和测试。 */
-export interface FindScopeError {
-	path: string;
-	error: FileToolError;
-}
-
-export interface FindDetails {
-	query: string;
-	/** 首个有效 scope；保留单路径调用的既有字段。 */
-	path: string;
-	paths: string[];
-	scope_errors?: FindScopeError[];
-	strategy: "exact" | "glob" | "fuzzy";
-	totalMatches: number;
-	returnedMatches: number;
-	scannedEntries: number;
-	matches: FindMatch[];
-	collapsedGroups: FindCollapsedGroup[];
-	displayedMatches?: FindMatch[];
-	displayedCollapsedGroups?: FindCollapsedGroup[];
-	ignoredCount: number;
-	skippedCount: number;
-	scanTruncated: boolean;
-	resultLimited: boolean;
-	outputTruncated: boolean;
-	related?: RepoMapRelatedResult[];
-	nearby?: FindNearbyResult[];
-	missingPrefix?: string;
-	nearbyDirectory?: string;
-	candidateSources?: Record<string, string[]>;
-}
-
-/** find 成功结果：content 是模型可见紧凑文本，details 供 UI/内部逻辑使用。 */
-export interface FindSuccess {
-	content: string;
-	details: FindDetails;
 }
 
 export interface ResolvedPath {

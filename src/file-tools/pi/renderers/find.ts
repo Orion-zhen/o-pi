@@ -2,8 +2,9 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { formatToolCard } from "../../../tui/tool-card.js";
 import { joinParts } from "../../../tui/text.js";
-import type { FindDetails } from "../../types.js";
-import { isFindDetails, isPlainRecord } from "../guards.js";
+import { isFindDetails } from "../../find/guards.js";
+import type { FindDetails } from "../../find/types.js";
+import { isPlainRecord } from "../guards.js";
 import type { PartialTextRenderContext, TextRenderContext, ToolTextResult } from "./contracts.js";
 import { displayToolPath, fallbackTextResult, formatFailureCard, pathArgs, stringArg, textComponent } from "./shared.js";
 

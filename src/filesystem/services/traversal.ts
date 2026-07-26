@@ -131,19 +131,19 @@ class NativeTraversal implements Traversal {
 				yield abortedEvent(directory.displayPath);
 				return;
 			}
+			const child = await this.bridge.resolveChild(directory, nativeEntry.name, this.context);
+			if (!child.ok && child.error.code === "blocked") {
+				yield { type: "skip", path: child.error.path ?? nativeEntry.name, reason: "blocked" };
+				continue;
+			}
+			// Blocked entries are hidden from both traversal statistics and the caller's scan budget.
 			if (this.options.maxEntries !== undefined && this.scannedEntries >= this.options.maxEntries) {
 				this.stopped = true;
 				yield { type: "skip", path: directory.displayPath, reason: "entry-limit" };
 				return;
 			}
 			this.scannedEntries += 1;
-
-			const child = await this.bridge.resolveChild(directory, nativeEntry.name, this.context);
 			if (!child.ok) {
-				if (child.error.code === "blocked") {
-					yield { type: "skip", path: child.error.path ?? nativeEntry.name, reason: "blocked" };
-					continue;
-				}
 				if (child.error.code === "aborted") this.stopped = true;
 				yield { type: "error", path: child.error.path ?? nativeEntry.name, error: child.error };
 				if (this.stopped) return;

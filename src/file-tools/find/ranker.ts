@@ -1,8 +1,7 @@
-import path from "node:path";
 import Fuse, { type FuseResult } from "fuse.js";
 
 import { createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE, type RankingEvidence } from "../shared/ranking/evidence.js";
-import type { FindEntry } from "../types.js";
+import type { FindEntry } from "./types.js";
 
 export interface RankedFindEntry {
 	entry: FindEntry;
@@ -265,9 +264,9 @@ function splitWords(value: string): string[] {
 }
 
 function extensionOf(basename: string): string | undefined {
-	const extension = path.extname(basename);
-	if (extension.length <= 1) return undefined;
-	return extension.slice(1);
+	const index = basename.lastIndexOf(".");
+	if (index <= 0 || index === basename.length - 1) return undefined;
+	return basename.slice(index + 1);
 }
 
 function searchRelativePath(rootPath: string, workspacePath: string): string {

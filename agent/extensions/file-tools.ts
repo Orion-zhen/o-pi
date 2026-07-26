@@ -8,7 +8,8 @@ import type { LsParams } from "../../src/file-tools/ls/types.js";
 import type { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import type { ReadParams } from "../../src/file-tools/read/types.js";
 import type { EditParams } from "../../src/file-tools/edit/types.js";
-import type { FindParams, GrepParams } from "../../src/file-tools/types.js";
+import type { FindParams } from "../../src/file-tools/find/types.js";
+import type { GrepParams } from "../../src/file-tools/types.js";
 import type { WriteParams } from "../../src/file-tools/write/types.js";
 import { editTelemetry } from "../../src/file-tools/telemetry/edit.js";
 import { findTelemetry } from "../../src/file-tools/telemetry/find.js";
@@ -99,7 +100,11 @@ export function createFileToolsExtension(imports: FileToolsModuleImports = defau
 	const loaders: FileToolsModuleImports = {
 		ls: createRetryableLoader(imports.ls),
 		host: createRetryableLoader(imports.host),
-		find: createRetryableLoader(async () => registerCacheDisposer(await imports.find(), cacheDisposers)),
+		find: createRetryableLoader(async () => {
+			const module = await imports.find();
+			cacheDisposers.add(module.dispose);
+			return module;
+		}),
 		grep: createRetryableLoader(async () => registerCacheDisposer(await imports.grep(), cacheDisposers)),
 		read: createRetryableLoader(imports.read),
 		write: createRetryableLoader(imports.write),
@@ -176,9 +181,12 @@ function registerFileTools(
 		promptSnippet: "locate files or directories",
 		parameters: findParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			return (await loaders.find()).executeFind(params as FindParams, {
+			const [module, invocationHost] = await Promise.all([loaders.find(), hostForInvocation()]);
+			return module.executeFind(params as FindParams, {
 				cwd: ctx.cwd,
+				sessionId: ctx.sessionManager.getSessionId(),
 				...(signal !== undefined ? { signal } : {}),
+				host: invocationHost,
 				repoMap: repoMapFor(ctx),
 			});
 		},

@@ -88,16 +88,6 @@ export function formatRepoMapAliasReason(candidate: RepoMapQueryCandidate): stri
 	return alias === undefined ? "alias" : `alias ${alias.term}->${alias.canonical}`;
 }
 
-/** Repo Map 主候选的语义等级；图距离只分层，不转换成固定 boost。 */
-export function repoMapEvidenceTier(candidate: RepoMapQueryCandidate): number {
-	if (candidate.reasons.includes("exact path")) return 0;
-	if (candidate.reasons.includes("exact filename")) return 1;
-	if (candidate.hop === 0 && (candidate.reasons.includes("exact qualified symbol") || candidate.reasons.includes("exact symbol"))) return 2;
-	if (candidate.reasons.includes("path match")) return 3;
-	if (candidate.hop === 0) return 4;
-	return candidate.hop === 1 ? 6 : 7;
-}
-
 function repoMapEdgeStrength(candidate: RepoMapQueryCandidate): number {
 	let best = 0.5;
 	for (const edge of candidate.relatedEdges) {

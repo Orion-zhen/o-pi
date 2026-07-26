@@ -1,7 +1,7 @@
 import { parentPort } from "node:worker_threads";
 
 import { createFindEntry, rankFindSuggestions } from "./ranker.js";
-import type { FindEntry } from "../types.js";
+import type { FindEntry } from "./types.js";
 
 interface SuggestionRequest {
 	id: number;
