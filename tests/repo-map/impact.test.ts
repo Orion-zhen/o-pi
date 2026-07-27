@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { formatEditModelResult, formatWriteModelResult } from "../../src/file-tools/pi/model-output-with-repo.js";
 import { createRepoMapFileToolQuery } from "../../src/repo-map/query/file-tool-query.js";
+import type { RepoMapEdge } from "../../src/repo-map/core/types.js";
 import { analyzeRepoMapImpact } from "../../src/repo-map/query/impact.js";
 import { formatRepoMapImpact, REPO_IMPACT_TOKEN_BUDGET } from "../../src/repo-map/runtime/tool-output.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
@@ -79,6 +80,62 @@ describe("Repo Map change impact", () => {
 		expect(bodyImpact.publicApiChanges).toEqual([]);
 	});
 
+	it("retains before-only removed symbols and their dependents", async () => {
+		const before = await generationWithTestGraph(temp.path, testGraphSources("export function loadUser() { return 'user'; }\n"), "1");
+		const after = await generationWithTestGraph(temp.path, testGraphSources("export const userVersion = 2;\n"), "2");
+
+		const impact = analyzeRepoMapImpact({ before, after, changedPath: "src/user.ts", maxCandidates: 24 });
+
+		expect(impact.changedSymbols).toContain("removed function loadUser");
+		expect(impact.publicApiChanges).toContain("removed function loadUser");
+		expect(impact.candidates).toEqual(expect.arrayContaining([
+			expect.objectContaining({ path: "src/caller.ts", role: "caller", impactReason: "direct caller" }),
+			expect.objectContaining({ path: "src/caller.ts", role: "public_api", impactReason: "depends on changed public API" }),
+		]));
+	});
+
+	it("preserves generation edge order when duplicate relations have equal rank", async () => {
+		const before = await generationWithTestGraph(temp.path, testGraphSources("export function loadUser() { return 'user'; }\n"), "1");
+		const builtAfter = await generationWithTestGraph(temp.path, testGraphSources("export function loadUser(id: string) { return id; }\n"), "2");
+		const target = builtAfter.symbols.find((symbol) => symbol.name === "loadUser");
+		const caller = builtAfter.symbols.find((symbol) => symbol.name === "renderUser");
+		const callerFile = builtAfter.files.find((file) => file.id === caller?.fileId);
+		if (target === undefined || caller === undefined || callerFile?.contentHash === undefined) throw new Error("impact fixture symbols missing");
+		const contentHash = callerFile.contentHash;
+		const relation = (startLine: number): RepoMapEdge => ({
+			from: caller.id,
+			to: target.id,
+			kind: "references",
+			resolution: "semantic",
+			source: "lsp",
+			confidence: 0.999,
+			evidence: [{ path: callerFile.path, startLine, endLine: startLine, startByte: startLine, endByte: startLine + 1, textHash: contentHash }],
+		});
+		const first = relation(90);
+		const after = { ...builtAfter, edges: [first, relation(91), ...builtAfter.edges] };
+
+		const impact = analyzeRepoMapImpact({ before, after, changedPath: "src/user.ts", maxCandidates: 24 });
+		const dependent = impact.candidates.find((candidate) => candidate.path === "src/caller.ts" && candidate.role === "dependent");
+
+		expect(dependent).toMatchObject({ confidence: 0.999, evidence: [{ startLine: 90 }] });
+	});
+
+	it("keeps entrypoint candidates and limits same-component candidates to two", async () => {
+		const before = await generationWithTestGraph(temp.path, testGraphSources("export function loadUser() { return 'user'; }\n"), "1");
+		const after = await generationWithTestGraph(temp.path, testGraphSources("export function loadUser(id: string) { return id; }\n"), "2");
+
+		const impact = analyzeRepoMapImpact({ before, after, changedPath: "src/user.ts", maxCandidates: 24 });
+		const components = impact.candidates.filter((candidate) => candidate.role === "component");
+
+		expect(impact.candidates).toContainEqual(expect.objectContaining({
+			path: "src/user.ts",
+			role: "entrypoint",
+			impactReason: "entrypoint or registration relation",
+		}));
+		expect(components).toHaveLength(2);
+		expect(components.map((candidate) => candidate.path)).toEqual(["src/caller.ts", "src/neighbor.ts"]);
+	});
+
 	it("attaches hash-verified compact mutation impact, while inactive or failed analysis stays non-blocking", async () => {
 		const beforeSources = testGraphSources("export function loadUser() { return 'user'; }\n");
 		const afterSources = testGraphSources("export function loadUser(id: string) { return id; }\n");
@@ -146,5 +203,23 @@ describe("Repo Map change impact", () => {
 		expect(inactiveRead).not.toHaveBeenCalled();
 		expect(inactiveRefresh).not.toHaveBeenCalled();
 		expect(inactiveAnalyze).not.toHaveBeenCalled();
+	});
+
+	it("drops impact candidates whose live content hash no longer matches", async () => {
+		const beforeSources = testGraphSources("export function loadUser() { return 'user'; }\n");
+		const afterSources = testGraphSources("export function loadUser(id: string) { return id; }\n");
+		const before = await generationWithTestGraph(temp.path, beforeSources, "1");
+		const after = await generationWithTestGraph(temp.path, afterSources, "2");
+		await writeSources(temp.path, afterSources);
+		await writeSources(temp.path, new Map([["src/caller.ts", "export const liveMismatch = true;\n"]]));
+		const query = createRepoMapFileToolQuery(() => [activationEntry(before.metadata)], {
+			async readActivated() { return before; },
+			async refresh() { return initializeResult(after); },
+		});
+
+		const mutation = await query.syncMutation({ requestedPath: path.join(temp.path, "src", "user.ts"), changedLine: 1 });
+
+		expect(mutation?.impact?.candidates.some((candidate) => candidate.path === "src/caller.ts")).toBe(false);
+		expect(mutation?.impact?.candidates).toContainEqual(expect.objectContaining({ path: "tests/user.test.ts", role: "test" }));
 	});
 });
