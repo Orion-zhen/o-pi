@@ -9,7 +9,6 @@ import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { DEFAULT_WORKER_CONCURRENCY } from "../../worker-runtime/concurrency.js";
 import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.js";
-import type { FileToolLimits } from "../../file-tool-limits.js";
 import { AbortGrepParse, GrepParser } from "./parser-pool.js";
 import type { GrepMatchMode, GrepSkippedFiles } from "./types.js";
 
@@ -45,7 +44,10 @@ export interface GrepIndexResult {
 export interface GrepIndexContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
-	readonly limits: Pick<FileToolLimits, "grep_max_text_file_bytes" | "grep_max_entries_traversed" | "grep_max_files_parsed" | "grep_max_parse_file_bytes">;
+	readonly limits: {
+		readonly grep_max_depth: number;
+		readonly grep_ast_max_file_bytes: number;
+	};
 }
 
 interface RawGrepIndexResult extends Omit<GrepIndexResult, "root"> {}
@@ -178,8 +180,7 @@ export class GrepIndex {
 				const walked = await this.discoverDirectory(state, state.root);
 				if (isFailed(walked)) return walked;
 			} else return fail("INVALID_PATH", "Path must be a regular file or directory.", { path: state.root.displayPath });
-			state.semanticPrefilter = state.contentFilter === undefined
-				&& state.pendingFiles.length > state.context.limits.grep_max_files_parsed;
+			state.semanticPrefilter = false;
 			await this.indexPendingFiles(state);
 			if (state.root.kind === "directory" && state.scanComplete) pruneCache(state);
 		} catch (error) {
@@ -216,9 +217,6 @@ export class GrepIndex {
 		state.seenPaths.add(ref.displayPath);
 		const metadata = await scopedMetadata(ref, state);
 		if (isFailed(metadata)) return metadata;
-		if (metadata.size > state.context.limits.grep_max_text_file_bytes) {
-			return fail("OUTPUT_LIMIT_EXCEEDED", "File is too large to search.", { path: ref.displayPath });
-		}
 		addScopedFile(state, metadata);
 		const searchPath = basename(ref.displayPath);
 		if (state.matchesGlob !== undefined && !state.matchesGlob(searchPath)) return;
@@ -230,7 +228,7 @@ export class GrepIndex {
 		const opened = await state.context.filesystem.traversal.walk(root, {
 			intent: "index",
 			explicitRoot: true,
-			maxEntries: state.context.limits.grep_max_entries_traversed,
+			maxDepth: state.context.limits.grep_max_depth,
 		}, { signal: state.signal });
 		if (!opened.ok) return mapFsError(opened.error, { message: "Path cannot be searched." });
 		try {
@@ -242,14 +240,10 @@ export class GrepIndex {
 					continue;
 				}
 				if (event.type === "skip") {
-					if (event.reason === "entry-limit") state.scanComplete = false;
+					if (event.reason === "depth-limit") state.scanComplete = false;
 					continue;
 				}
 				if (event.ref.kind !== "file") continue;
-				if (state.scannedFiles >= state.context.limits.grep_max_entries_traversed) {
-					state.scanComplete = false;
-					break;
-				}
 				state.scannedFiles += 1;
 				state.seenPaths.add(event.ref.displayPath);
 				const metadata = toScopedFile(event.ref, event.metadata);
@@ -266,11 +260,7 @@ export class GrepIndex {
 		const prepareLimit = pLimit(DEFAULT_WORKER_CONCURRENCY);
 		const prepared = (await Promise.all(state.pendingFiles.map(async (pending) => await prepareLimit(async () =>
 			await prepareFile(state, pending))))).filter((file): file is PreparedFile => file !== undefined);
-		const selected = state.semanticPrefilter
-			? trimSemanticCandidates(prepared, state.context.limits.grep_max_files_parsed)
-			: prepared;
-		if (state.semanticPrefilter && selected.length < prepared.length) state.scanComplete = false;
-		await this.parsePreparedFiles(state, selected);
+		await this.parsePreparedFiles(state, prepared);
 	}
 
 	private async parsePreparedFiles(state: WalkState, prepared: PreparedFile[]): Promise<void> {
@@ -297,11 +287,6 @@ export class GrepIndex {
 async function prepareFile(state: WalkState, pending: PendingFile): Promise<PreparedFile | undefined> {
 	assertNotAborted(state.signal);
 	const metadata = pending.metadata;
-	if (metadata.size > state.context.limits.grep_max_text_file_bytes) {
-		if (pending.explicit) throw new Error("explicit size was not rejected");
-		state.skipped.too_large += 1;
-		return undefined;
-	}
 	const cached = state.cache.files.get(cacheFileKey(pending.ref.displayPath));
 	const cacheCurrent = cached !== undefined && cached.metadataVersion === metadata.metadataVersion;
 	const parsedCached = cacheCurrent && isParsedCachedFile(cached) ? cached : undefined;
@@ -311,7 +296,7 @@ async function prepareFile(state: WalkState, pending: PendingFile): Promise<Prep
 	}
 	const loadedResult = await state.context.filesystem.content.readText(
 		pending.ref,
-		{ maxBytes: state.context.limits.grep_max_text_file_bytes, stable: true, rejectBinary: true },
+		{ stable: true, rejectBinary: true },
 		{ signal: state.signal },
 	);
 	if (!loadedResult.ok) {
@@ -354,7 +339,7 @@ function toScopedFile(ref: FileRef, metadata: FileMetadata): GrepScopedFile {
 function addScopedFile(state: WalkState, metadata: GrepScopedFile): void {
 	if (state.seenIds.has(metadata.id)) return;
 	state.seenIds.add(metadata.id);
-	if (state.scopedFiles.length < state.context.limits.grep_max_entries_traversed) state.scopedFiles.push(metadata);
+	state.scopedFiles.push(metadata);
 }
 
 function addCandidate(state: WalkState, cached: ParsedCachedFile, text: string): void {
@@ -415,13 +400,7 @@ function toCandidate(cached: ParsedCachedFile): GrepCandidateFile {
 
 function shouldParseSyntax(state: WalkState, file: PreparedFile): boolean {
 	return languageFromPath(file.ref.displayPath) !== "text"
-		&& (!state.semanticPrefilter || state.contentFilter !== undefined || file.loaded.sizeBytes <= state.context.limits.grep_max_parse_file_bytes);
-}
-
-function trimSemanticCandidates(files: PreparedFile[], limit: number): PreparedFile[] {
-	return [...files]
-		.sort((left, right) => (right.semanticRank ?? 0) - (left.semanticRank ?? 0) || compareStableString(left.ref.displayPath, right.ref.displayPath))
-		.slice(0, limit);
+		&& file.loaded.sizeBytes <= state.context.limits.grep_ast_max_file_bytes;
 }
 
 function createContentFilter(query: string, match: GrepMatchMode): ToolOutcome<ContentFilter | undefined> {

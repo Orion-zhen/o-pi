@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import fileTools from "../../agent/extensions/file-tools.js";
 import { formatErrorModelResult } from "../../src/file-tools/pi/model-output.js";
+import { isGrepSuccessDetails } from "../../src/file-tools/pi/guards.js";
+import { countTextTokensSync } from "../../src/token-counter.js";
 import { lspFileOperations as lspFileHooks } from "../../src/lsp/index.js";
 import { executeTool, textResult, type ExecuteTool } from "./extension-fixture.js";
 
@@ -316,9 +318,14 @@ describe("file-tools extension model output", () => {
 			}
 
 			const grep = await executeTool(registered, "grep", { query: "one" }, ctx);
-			expect(textResult(grep)).toContain("a.ts");
-			expect(textResult(grep)).not.toContain("<error");
-			expect(textResult(grep)).not.toContain('"status"');
+			const grepText = textResult(grep);
+			expect(grepText).toContain("a.ts");
+			expect(grepText).not.toContain("<error");
+			expect(grepText).not.toContain('"status"');
+			expect(isGrepSuccessDetails(grep.details)).toBe(true);
+			if (!isGrepSuccessDetails(grep.details)) throw new Error("missing grep success details");
+			expect(grep.details.approx_tokens).toBe(countTextTokensSync(grepText).tokens);
+			expect(grep.details).toMatchObject({ truncated_by: [], stats: { searched_files: 1 }, regions: [expect.objectContaining({ roles: expect.any(Array) })] });
 
 			const partialFind = await executeTool(registered, "find", { query: "a.ts", path: [".", "missing"] }, ctx);
 			expect(textResult(partialFind)).toContain("partial; scope_errors=missing:PATH_NOT_FOUND");

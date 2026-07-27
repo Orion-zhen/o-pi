@@ -32,6 +32,9 @@ export class WorkspaceTraversalService implements TraversalOperations {
 		if (options.maxEntries !== undefined && (!Number.isSafeInteger(options.maxEntries) || options.maxEntries < 0)) {
 			return fsFailure({ code: "invalid-path", message: "Traversal entry limit must be a non-negative integer.", path: root.displayPath });
 		}
+		if (options.maxDepth !== undefined && (!Number.isSafeInteger(options.maxDepth) || options.maxDepth < 0)) {
+			return fsFailure({ code: "invalid-path", message: "Traversal depth limit must be a non-negative integer.", path: root.displayPath });
+		}
 		const rootIdentity = nativeIdentity(this.bridge, root);
 		if (!rootIdentity.ok) return rootIdentity;
 		const rootVisibility = await this.visibility.evaluate(root, options.intent, context);
@@ -140,6 +143,10 @@ class NativeTraversal implements Traversal {
 		nativeEntries: readonly NativeDirectoryEntry[],
 		depth: number,
 	): AsyncGenerator<TraversalEvent> {
+		if (this.options.maxDepth !== undefined && depth > this.options.maxDepth) {
+			if (nativeEntries.length > 0) yield { type: "skip", path: directory.displayPath, reason: "depth-limit", kind: "directory" };
+			return;
+		}
 		const sorted = [...nativeEntries].sort((left, right) => compareLogicalPath(left.name, right.name));
 		let start = 0;
 		while (start < sorted.length) {

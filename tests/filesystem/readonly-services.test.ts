@@ -607,6 +607,20 @@ describe("filesystem metadata, traversal and catalog services", () => {
 			ok: false,
 			error: { code: "invalid-path" },
 		});
+		expect(await opened.services.traversal.walk(opened.namespace.root, { intent: "search", maxDepth: -1 }, {})).toMatchObject({
+			ok: false,
+			error: { code: "invalid-path" },
+		});
+		const depthLimited = expectOk(await opened.services.traversal.walk(opened.namespace.root, { intent: "search", maxDepth: 1 }, {}));
+		const depthEvents = [];
+		for await (const event of depthLimited) depthEvents.push(event);
+		expect(depthEvents).toEqual(expect.arrayContaining([
+			expect.objectContaining({ type: "entry", ref: expect.objectContaining({ displayPath: "src" }), depth: 1 }),
+			expect.objectContaining({ type: "skip", path: "src", reason: "depth-limit" }),
+		]));
+		expect(depthEvents).not.toEqual(expect.arrayContaining([
+			expect.objectContaining({ type: "entry", ref: expect.objectContaining({ displayPath: "src/a.ts" }) }),
+		]));
 		const controller = new AbortController();
 		controller.abort("stop");
 		expect(await opened.services.traversal.walk(opened.namespace.root, { intent: "search" }, { signal: controller.signal })).toMatchObject({

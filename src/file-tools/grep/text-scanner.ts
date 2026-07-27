@@ -32,8 +32,6 @@ export interface TextScanResult {
 export interface TextScannerContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
-	readonly maxTextBytesScanned: number;
-	readonly maxTextFileBytes: number;
 	readonly maxStoredHits?: number;
 	readonly maxStoredAnchors?: number;
 }
@@ -77,9 +75,6 @@ export async function scanInventoryText(
 	plan: Pick<QueryPlan, "query" | "match" | "regex" | "shape" | "targetTerms" | "targetQuery">,
 	context: TextScannerContext,
 ): Promise<ToolOutcome<TextScanResult>> {
-	if (!validLimit(context.maxTextBytesScanned) || !validLimit(context.maxTextFileBytes)) {
-		return fail("INVALID_OPERATION", "Text scan byte limits must be non-negative safe integers.");
-	}
 	const maxStoredHits = context.maxStoredHits ?? MAX_STORED_TEXT_HITS;
 	const maxStoredAnchors = context.maxStoredAnchors ?? MAX_STORED_LEXICAL_ANCHORS;
 	if (!validLimit(maxStoredHits) || !validLimit(maxStoredAnchors)) {
@@ -98,24 +93,12 @@ export async function scanInventoryText(
 	};
 	let searchedFiles = 0;
 	let searchedBytes = 0;
-	let reservedBytes = 0;
 	let totalHits = 0;
-	let textByteLimited = false;
 	let candidateLimited = false;
 	let storedAnchors = 0;
 
 	for (const file of inventory.files) {
 		if (context.operation.signal?.aborted === true) return aborted(file.path);
-		if (file.size > context.maxTextFileBytes) {
-			if (file.explicitFile) scopeErrors.push(scopeError(file, tooLargeFailure(file, context.maxTextFileBytes)));
-			else skipped.too_large += 1;
-			continue;
-		}
-		if (file.size > context.maxTextBytesScanned - reservedBytes) {
-			textByteLimited = true;
-			break;
-		}
-		reservedBytes += file.size;
 		const scanned = await scanFile(
 			file,
 			plan,
@@ -149,10 +132,7 @@ export async function scanInventoryText(
 			skipped: compactSkipped(skipped),
 		},
 		scopeErrors,
-		truncationReasons: [
-			...(textByteLimited ? ["text_byte_limit" as const] : []),
-			...(candidateLimited ? ["semantic_candidate_limit" as const] : []),
-		],
+		truncationReasons: candidateLimited ? ["semantic_candidate_limit"] : [],
 	};
 }
 
@@ -166,7 +146,7 @@ async function scanFile(
 ): Promise<{ readonly ok: true; readonly value: FileScanSuccess } | { readonly ok: false; readonly error: FsError }> {
 	const opened = await context.filesystem.content.scanLines(
 		file.ref,
-		{ maxBytes: context.maxTextFileBytes, stable: true, rejectBinary: true },
+		{ stable: true, rejectBinary: true },
 		context.operation,
 	);
 	if (!opened.ok) return opened;
@@ -346,13 +326,6 @@ function compactSkipped(skipped: Required<GrepSkippedFiles>): GrepSkippedFiles {
 	if (skipped.too_large > 0) result.too_large = skipped.too_large;
 	if (skipped.changed > 0) result.changed = skipped.changed;
 	return result;
-}
-
-function tooLargeFailure(file: ScopedFile, limit: number): ReturnType<typeof fail> {
-	return fail("OUTPUT_LIMIT_EXCEEDED", "File is too large to search.", {
-		path: file.path,
-		details: { limit, size: file.size },
-	});
 }
 
 function scopeError(file: ScopedFile, failure: ReturnType<typeof fail>): GrepScopeError {

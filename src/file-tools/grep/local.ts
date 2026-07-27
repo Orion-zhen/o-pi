@@ -68,7 +68,6 @@ export function buildLocalAutoResults(
 	plan: QueryPlan,
 	scan: TextScanResult,
 	regionized: AutoRegionizationResult,
-	resultLimit: number,
 ): LocalAutoResult {
 	const byId = new Map<string, VerifiedCodeRegion | SemanticMainRegion>();
 	for (const region of regionized.regions) byId.set(region.id, enrichVerifiedRegion(region, plan));
@@ -93,7 +92,7 @@ export function buildLocalAutoResults(
 	for (const entry of entries) addRegion(byId, withEvidence(entry, sourceRanks.get(entry) ?? Number.MAX_SAFE_INTEGER));
 	const regions = [...byId.values()];
 	const allRanked = rankCodeRegions(plan, regions);
-	const ranked = selectRankedRegions(allRanked, resultLimit);
+	const ranked = selectRankedRegions(allRanked, allRanked.length);
 	const nearby = allRanked.length === 0 ? nearbyResults(plan, unitFiles) : [];
 	return {
 		regions,

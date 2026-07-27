@@ -69,13 +69,33 @@ describe("tool telemetry projections", () => {
 		expect(grepInput.fields).toMatchObject({ input_path_count: 2 });
 		expect(grepInput.targets).toEqual([{ kind: "path", value: "src" }, { kind: "path", value: "tests" }]);
 		const grepOutput = resultFacts(grepTelemetry, grepParams, fixture<ToolOutcome<GrepSuccess>>({
-			status: "ok",
+			status: "success",
+			path: "src",
 			paths: ["src", "tests"],
+			total_candidates: 3,
+			returned_regions: 2,
+			returned_files: 2,
+			approx_tokens: 120,
+			stats: { traversed_entries: 20, searched_files: 10, searched_bytes: 2000, parsed_files: 4 },
+			truncated_by: ["result_limit"],
 			regions: [
 				{ path: "src/c.ts", start_line: 2, end_line: 4, sources: ["repo-map-direct"] },
 				{ path: "src/d.ts", start_line: 6, end_line: 8, sources: ["lsp-workspace-symbol", "lsp-reference"] },
 			],
 		}));
+		expect(grepOutput.fields).toMatchObject({
+			truncated: true,
+			truncation_reasons: ["result_limit"],
+			total_candidate_count: 3,
+			returned_match_count: 2,
+			returned_file_count: 2,
+			traversed_entry_count: 20,
+			searched_file_count: 10,
+			searched_byte_count: 2000,
+			parsed_file_count: 4,
+			approx_token_count: 120,
+		});
+		expect(grepOutput.fields).not.toHaveProperty("strategy");
 		expect(grepOutput.candidates).toEqual([
 			{ kind: "region", value: "src/c.ts", rank: 1, group: "primary", start_line: 2, end_line: 4, sources: ["repo-map-direct"] },
 			{ kind: "region", value: "src/d.ts", rank: 2, group: "primary", start_line: 6, end_line: 8, sources: ["lsp-reference", "lsp-workspace-symbol"] },

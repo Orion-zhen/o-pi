@@ -56,7 +56,7 @@ export interface ScopeInventory {
 export interface ScopeInventoryContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
-	readonly maxEntriesTraversed: number;
+	readonly maxDepth: number;
 }
 
 interface MutableInventoryState {
@@ -68,7 +68,7 @@ interface MutableInventoryState {
 	readonly seenFiles: Map<string, number>;
 	readonly skipped: Required<GrepSkippedFiles>;
 	traversedEntries: number;
-	traversalLimited: boolean;
+	depthLimited: boolean;
 }
 
 /** 只建立当前 visibility snapshot 下的文件事实清单，不读取正文或调用增强来源。 */
@@ -76,8 +76,8 @@ export async function buildScopeInventory(
 	input: { readonly paths: readonly string[]; readonly glob?: string },
 	context: ScopeInventoryContext,
 ): Promise<ToolOutcome<ScopeInventory>> {
-	if (!Number.isSafeInteger(context.maxEntriesTraversed) || context.maxEntriesTraversed < 0) {
-		return fail("INVALID_OPERATION", "Traversal entry limit must be a non-negative integer.");
+	if (!Number.isSafeInteger(context.maxDepth) || context.maxDepth < 0) {
+		return fail("INVALID_OPERATION", "Traversal depth limit must be a non-negative integer.");
 	}
 	if (input.paths.length === 0) return fail("INVALID_PATH", "path must contain at least one scope.");
 	const glob = input.glob === undefined ? undefined : createGlobPlan(input.glob);
@@ -91,7 +91,7 @@ export async function buildScopeInventory(
 		seenFiles: new Map(),
 		skipped: { binary: 0, invalid_utf8: 0, access_denied: 0, too_large: 0, changed: 0 },
 		traversedEntries: 0,
-		traversalLimited: false,
+		depthLimited: false,
 	};
 
 	for (const [order, scopeInput] of input.paths.entries()) {
@@ -139,7 +139,7 @@ export async function buildScopeInventory(
 		scopeErrors: state.scopeErrors,
 		skipped: compactSkipped(state.skipped),
 		traversedEntries: state.traversedEntries,
-		truncationReasons: state.traversalLimited ? ["traversal_limit"] : [],
+		truncationReasons: state.depthLimited ? ["depth_limit"] : [],
 	};
 }
 
@@ -200,18 +200,17 @@ async function discoverDirectory(scope: InventoryScope, state: MutableInventoryS
 	const start = await resolveTraversalStart(scope, state);
 	if (isFailed(start)) return start;
 	if (start === undefined) return;
-	const remaining = Math.max(0, state.context.maxEntriesTraversed - state.traversedEntries);
-	const opened = await state.context.filesystem.traversal.walk(start, {
+	const opened = await state.context.filesystem.traversal.walk(start.root, {
 		intent: "search",
-		explicitRoot: start.id === scope.root.id || scope.visibilityBypass,
-		maxEntries: remaining,
+		explicitRoot: start.root.id === scope.root.id || scope.visibilityBypass,
+		maxDepth: Math.max(0, state.context.maxDepth - start.depthOffset),
 	}, state.context.operation);
 	if (!opened.ok) return mapFsError(opened.error, { message: "Path cannot be searched.", path: scope.root.displayPath });
 	try {
 		for await (const event of opened.value) {
 			if (isAborted(state.context.operation.signal)) return aborted(scope.root.displayPath);
 			if (event.type === "skip") {
-				if (event.reason === "entry-limit") state.traversalLimited = true;
+				if (event.reason === "depth-limit") state.depthLimited = true;
 				else if (event.reason !== "blocked") state.traversedEntries += 1;
 				continue;
 			}
@@ -237,9 +236,9 @@ async function discoverDirectory(scope: InventoryScope, state: MutableInventoryS
 async function resolveTraversalStart(
 	scope: InventoryScope,
 	state: MutableInventoryState,
-): Promise<ToolOutcome<DirectoryRef | undefined>> {
+): Promise<ToolOutcome<{ readonly root: DirectoryRef; readonly depthOffset: number } | undefined>> {
 	const prefix = state.glob?.staticDirectoryPrefix;
-	if (prefix === undefined) return scope.root.kind === "directory" ? scope.root : undefined;
+	if (prefix === undefined) return scope.root.kind === "directory" ? { root: scope.root, depthOffset: 0 } : undefined;
 	const resolved = await state.context.filesystem.paths.resolveExisting(
 		joinDisplayPath(scope.root.displayPath, prefix),
 		{ expected: "any", followFinalSymlink: false },
@@ -250,7 +249,12 @@ async function resolveTraversalStart(
 		return mapFsError(resolved.error, { path: scope.root.displayPath });
 	}
 	if (resolved.value.kind !== "directory" || scope.root.kind !== "directory" || !state.context.filesystem.paths.isWithin(scope.root, resolved.value)) return undefined;
-	return resolved.value;
+	const depthOffset = normalizeRelativePath(prefix).split("/").filter((part) => part.length > 0).length;
+	if (depthOffset > state.context.maxDepth) {
+		state.depthLimited = true;
+		return undefined;
+	}
+	return { root: resolved.value, depthOffset };
 }
 
 function addFile(

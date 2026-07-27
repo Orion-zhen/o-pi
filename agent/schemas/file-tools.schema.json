@@ -94,31 +94,13 @@
 					"maximum": 1000000,
 					"default": 100000
 				},
-				"grep_max_entries_traversed": {
+				"grep_max_depth": {
 					"type": "integer",
-					"minimum": 1,
-					"maximum": 1000000,
-					"default": 100000
+					"minimum": 0,
+					"maximum": 256,
+					"default": 12
 				},
-				"grep_max_text_bytes_scanned": {
-					"type": "integer",
-					"minimum": 1024,
-					"maximum": 1073741824,
-					"default": 268435456
-				},
-				"grep_max_text_file_bytes": {
-					"type": "integer",
-					"minimum": 1024,
-					"maximum": 1073741824,
-					"default": 104857600
-				},
-				"grep_max_files_parsed": {
-					"type": "integer",
-					"minimum": 1,
-					"maximum": 100000,
-					"default": 1024
-				},
-				"grep_max_parse_file_bytes": {
+				"grep_ast_max_file_bytes": {
 					"type": "integer",
 					"minimum": 1024,
 					"maximum": 104857600,
@@ -128,13 +110,13 @@
 					"type": "integer",
 					"minimum": 100,
 					"maximum": 10000,
-					"default": 1600
+					"default": 4000
 				},
 				"grep_result_limit": {
 					"type": "integer",
 					"minimum": 1,
 					"maximum": 50,
-					"default": 8
+					"default": 24
 				}
 			}
 		},

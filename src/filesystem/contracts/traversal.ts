@@ -3,7 +3,7 @@ import type { DirectoryRef, ExistingRef } from "./path.js";
 import type { FsError, FsOperationContext, FsResult } from "./result.js";
 import type { VisibilityAnnotation, VisibilityIntent } from "./visibility.js";
 
-export type TraversalSkipReason = "blocked" | "ignored" | "symlink" | "entry-limit";
+export type TraversalSkipReason = "blocked" | "ignored" | "symlink" | "entry-limit" | "depth-limit";
 
 export interface TraversalEntryEvent {
 	readonly type: "entry";
@@ -35,6 +35,8 @@ export interface TraversalOptions {
 	readonly includeRoot?: boolean;
 	readonly explicitRoot?: boolean;
 	readonly maxEntries?: number;
+	/** 相对 traversal root；root 为 0，直属子项为 1。 */
+	readonly maxDepth?: number;
 }
 
 export interface Traversal extends AsyncIterable<TraversalEvent> {

@@ -12,14 +12,14 @@ import {
 	queryExternalChannels,
 	validateExternalCandidates,
 } from "./external.js";
-import { packAutoResults, packVerifiedTextResults, renderGrepSuccess } from "./packer.js";
+import { packGrepResults, renderGrepSuccess } from "./packer.js";
 import { GrepParser } from "./parser-pool.js";
 import { rankCodeRegions, selectRankedRegions } from "./ranking.js";
 import type { GrepGraphSource, GrepSymbolSource } from "./ports.js";
 import { createQueryPlan, type QueryPlan } from "./query-plan.js";
-import { GrepRegionizer, strictRegionContent } from "./regionizer.js";
+import { GrepRegionizer } from "./regionizer.js";
 import { scanInventoryText } from "./text-scanner.js";
-import type { GrepParams, GrepRegion, GrepScopeError, GrepStats, GrepSuccess, TruncationReason } from "./types.js";
+import type { GrepParams, GrepScopeError, GrepStats, GrepSuccess, TruncationReason } from "./types.js";
 
 type GrepSkippedStats = NonNullable<GrepSuccess["stats"]["skipped_files"]>;
 
@@ -27,8 +27,7 @@ export interface GrepCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
 	readonly limits: Pick<FileToolLimits,
-		"grep_max_entries_traversed" | "grep_max_text_bytes_scanned" | "grep_max_text_file_bytes"
-		| "grep_max_files_parsed" | "grep_max_parse_file_bytes" | "grep_output_token_budget" | "grep_result_limit">;
+		"grep_max_depth" | "grep_ast_max_file_bytes" | "grep_output_token_budget" | "grep_result_limit">;
 	readonly symbols?: GrepSymbolSource;
 	readonly graph?: GrepGraphSource;
 }
@@ -77,8 +76,6 @@ export class GrepTool {
 		const scanned = await scanInventoryText(inventory, plan, {
 			filesystem: context.filesystem,
 			operation: context.operation,
-			maxTextBytesScanned: context.limits.grep_max_text_bytes_scanned,
-			maxTextFileBytes: context.limits.grep_max_text_file_bytes,
 		});
 		if (isFailed(scanned)) return scanned;
 		const regionized = await this.regionizer.regionizeAuto(
@@ -88,24 +85,23 @@ export class GrepTool {
 			{
 				filesystem: context.filesystem,
 				operation: context.operation,
-				maxFilesParsed: context.limits.grep_max_files_parsed,
-				maxParseFileBytes: context.limits.grep_max_parse_file_bytes,
+				astMaxFileBytes: context.limits.grep_ast_max_file_bytes,
 			},
 		);
 		if (isFailed(regionized)) return regionized;
 		const scope = successfulScopeState(plan, inventory, scanned.scopeErrors, regionized.scopeErrors);
 		if (scope.failure !== undefined) return scope.failure;
-		const local = buildLocalAutoResults(plan, scanned, regionized, context.limits.grep_result_limit);
+		const local = buildLocalAutoResults(plan, scanned, regionized);
 		const external = await validateExternalCandidates(inventory, await externalPending, {
 			filesystem: context.filesystem,
 			operation: context.operation,
-			maxFileBytes: context.limits.grep_max_text_file_bytes,
 		});
 		if (isFailed(external)) return external;
-		const augmented = augmentAutoWithExternal(plan, local, external, context.limits.grep_result_limit);
-		return packAutoResults({
+		const augmented = augmentAutoWithExternal(plan, local, external);
+		return packGrepResults({
 			query: plan.query,
 			path: scope.paths[0] ?? ".",
+			match: "auto",
 			paths: scope.paths,
 			...(scope.errors.length === 0 ? {} : { scopeErrors: scope.errors }),
 			totalCandidates: augmented.totalCandidates,
@@ -139,15 +135,12 @@ export class GrepTool {
 		const scanned = await scanInventoryText(inventory, plan, {
 			filesystem: context.filesystem,
 			operation: context.operation,
-			maxTextBytesScanned: context.limits.grep_max_text_bytes_scanned,
-			maxTextFileBytes: context.limits.grep_max_text_file_bytes,
 		});
 		if (isFailed(scanned)) return scanned;
 		const regionized = await this.regionizer.regionize(inventory, scanned.hits, {
 			filesystem: context.filesystem,
 			operation: context.operation,
-			maxFilesParsed: context.limits.grep_max_files_parsed,
-			maxParseFileBytes: context.limits.grep_max_parse_file_bytes,
+			astMaxFileBytes: context.limits.grep_ast_max_file_bytes,
 		});
 		if (isFailed(regionized)) return regionized;
 		const scope = successfulScopeState(plan, inventory, scanned.scopeErrors, regionized.scopeErrors);
@@ -155,20 +148,22 @@ export class GrepTool {
 		const external = await validateExternalCandidates(inventory, await externalPending, {
 			filesystem: context.filesystem,
 			operation: context.operation,
-			maxFileBytes: context.limits.grep_max_text_file_bytes,
 		});
 		if (isFailed(external)) return external;
 		const augmented = augmentStrictWithExternal(regionized.regions, external);
 		const allRanked = rankCodeRegions(plan, augmented.regions);
-		const ranked = selectRankedRegions(allRanked, context.limits.grep_result_limit).filter(isVerifiedRankedRegion);
-		return packVerifiedTextResults({
+		const ranked = selectRankedRegions(allRanked, allRanked.length).filter(isVerifiedRankedRegion);
+		return packGrepResults({
 			query: plan.query,
 			path: scope.paths[0] ?? ".",
 			paths: scope.paths,
 			...(scope.errors.length === 0 ? {} : { scopeErrors: scope.errors }),
 			match: strictMatch,
 			totalCandidates: allRanked.length,
-			regions: ranked.map(strictPublicRegion),
+			regions: ranked,
+			sourceText: regionized.sourceText,
+			snippets: new Map(),
+			nearby: [],
 			related: augmented.related,
 			stats: grepStats(inventory, scanned.stats, regionized.parsedFiles, regionized.skipped),
 			truncationReasons: uniqueTruncationReasons([
@@ -188,7 +183,7 @@ export class GrepTool {
 		}, {
 			filesystem: context.filesystem,
 			operation: context.operation,
-			maxEntriesTraversed: context.limits.grep_max_entries_traversed,
+			maxDepth: context.limits.grep_max_depth,
 		});
 	}
 }
@@ -226,24 +221,6 @@ function grepStats(
 
 function isVerifiedRankedRegion(region: RankedRegion): region is RankedRegion & VerifiedCodeRegion {
 	return region.queryMatch === "verified";
-}
-
-function strictPublicRegion(region: VerifiedCodeRegion): GrepRegion {
-	const content = strictRegionContent(region);
-	return {
-		path: region.path,
-		start_line: region.startLine,
-		end_line: region.endLine,
-		kind: region.kind,
-		...(region.symbol === undefined ? {} : { symbol: region.symbol }),
-		...(region.signature === undefined ? {} : { signature: region.signature }),
-		detail: "snippet",
-		query_match: "verified",
-		reasons: uniqueStrings(region.evidence.map((item) => item.reason)),
-		sources: uniqueStrings(region.evidence.map((item) => item.source)),
-		match_lines: [...region.matchLines],
-		...(content.length === 0 ? {} : { content }),
-	};
 }
 
 function mergeGrepSkipped(values: readonly GrepSkippedStats[]): GrepSkippedStats {

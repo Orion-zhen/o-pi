@@ -111,29 +111,35 @@ describe("file-tools config", () => {
 		expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
 	});
 
-	it("接受分阶段 grep 预算并拒绝旧 grep 字段", async () => {
-		const validPath = path.join(workspace, "grep-budgets.jsonc");
+	it("接受深度与输出 grep 限制并拒绝旧字段", async () => {
+		const validPath = path.join(workspace, "grep-limits.jsonc");
 		await writeFile(validPath, JSON.stringify({ limits: {
-			grep_max_entries_traversed: 1234,
-			grep_max_text_bytes_scanned: 8 * 1024 * 1024,
-			grep_max_text_file_bytes: 2 * 1024 * 1024,
-			grep_max_files_parsed: 42,
-			grep_max_parse_file_bytes: 128 * 1024,
+			grep_max_depth: 6,
+			grep_ast_max_file_bytes: 128 * 1024,
 			grep_output_token_budget: 2000,
 			grep_result_limit: 12,
 		} }));
 		process.env.PI_FILE_TOOLS_CONFIG = validPath;
 		expect(await loadedConfig(workspace)).toMatchObject({ limits: {
-			grep_max_entries_traversed: 1234,
-			grep_max_text_bytes_scanned: 8 * 1024 * 1024,
-			grep_max_text_file_bytes: 2 * 1024 * 1024,
-			grep_max_files_parsed: 42,
-			grep_max_parse_file_bytes: 128 * 1024,
+			grep_max_depth: 6,
+			grep_ast_max_file_bytes: 128 * 1024,
 			grep_output_token_budget: 2000,
 			grep_result_limit: 12,
 		} });
 
+		for (const [field, value] of [["grep_max_depth", -1], ["grep_max_depth", 257], ["grep_ast_max_file_bytes", 1023]] as const) {
+			const invalidPath = path.join(workspace, `invalid-${field}-${value}.jsonc`);
+			await writeFile(invalidPath, JSON.stringify({ limits: { [field]: value } }));
+			process.env.PI_FILE_TOOLS_CONFIG = invalidPath;
+			expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
+		}
+
 		for (const field of [
+			"grep_max_entries_traversed",
+			"grep_max_text_bytes_scanned",
+			"grep_max_text_file_bytes",
+			"grep_max_files_parsed",
+			"grep_max_parse_file_bytes",
 			"grep_max_file_bytes",
 			"grep_max_files_scanned",
 			"grep_max_semantic_files",

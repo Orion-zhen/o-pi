@@ -3,8 +3,7 @@ import type { FileToolError } from "../shared/result.js";
 export type GrepMatchMode = "auto" | "literal" | "regex";
 export type QueryMatch = "verified" | "semantic" | "not_guaranteed";
 export type TruncationReason =
-	| "traversal_limit"
-	| "text_byte_limit"
+	| "depth_limit"
 	| "semantic_candidate_limit"
 	| "result_limit"
 	| "token_budget";
@@ -41,6 +40,7 @@ export interface GrepRegion {
 	signature?: string;
 	detail: "body" | "snippet" | "signature";
 	query_match: "verified" | "semantic";
+	roles?: string[];
 	reasons: string[];
 	sources: string[];
 	match_lines?: number[];

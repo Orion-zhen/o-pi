@@ -51,8 +51,7 @@
 
 ```text
 <grep>
-in src/auth/
-service.ts:41-88 AuthService.login [definition,exact symbol]
+src/auth/service.ts:41-88 AuthService.login [definition,exact symbol]
 async login(credentials: Credentials) {
 	...
 }
@@ -60,9 +59,9 @@ token.ts:14 issueToken [callee]
 </grep>
 ```
 
-输出按 `grep_output_token_budget` 选择正文、片段和 signature：默认最多两个完整 body；其余候选优先输出路径、范围和完整 signature。同目录区域共享 `in path/` 前缀。超大函数保留 signature、命中附近片段和省略标记，不吞掉全部预算。
+输出按 `grep_output_token_budget` 为每个候选生成完整 body、多命中行窗口、单匹配行和 signature 等版本。预算选择先尽量保留最高价值候选，再最大化条目数和相关性，最后用剩余预算提升正文完整度。超大函数只保留真实匹配行附近窗口，并使用紧凑 ASCII 标记说明省略行数；strict 结果不会降级成没有匹配内容的 signature。
 
-只有关系促成命中且正文已降级为 signature 时，才补充 calls/imports，避免重复正文。输出状态和公共协议见 [工具契约](contracts.md)。
+`grep_result_limit` 是 main、nearby 与 related 的全局条数上限。输出状态和公共协议见 [工具契约](contracts.md)。
 
 ## 语言与解析
 
@@ -77,33 +76,32 @@ C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 Tree-sit
 
 ## 搜索流程
 
-每次 invocation 使用 host 已绑定的不可变 visibility snapshot。默认目录遍历使用 `index` intent；显式 path 指向 soft ignored 文件或目录时，允许在该路径内检索。普通 dotfile 可检索，blocked path 不可检索；递归不跟随 child symlink，明确 file/dir symlink root 可以解析后检索。
+每次 invocation 使用 host 已绑定的不可变 visibility snapshot。默认目录遍历使用 `search` intent；显式 path 指向 soft ignored 文件或目录时，允许在该路径内检索。普通 dotfile 可检索，blocked path 不可检索；递归不跟随 child symlink，明确 file/dir symlink root 可以解析后检索。
 
 检索先建立 `ScopeInventory`：按输入顺序逐 scope 发现文件，应用 visibility 与 glob，再按 filesystem canonical identity 去重。glob 的静态目录前缀用于剪枝 traversal；前缀不存在表示该 scope 零匹配，不误报 scope 不存在。父 scope 不删除显式子 scope，因此 soft ignored 子目录仍可由显式 scope 补回。
 
 `literal` 和 `regex` 随后只通过 filesystem `scanLines` 执行稳定流式扫描，不完整读取正文、不解析 AST，也不调用 LSP 或 Repo Map。LF、CRLF、CR 和 BOM 由 filesystem logical line 语义统一处理；扫描失败的文件不会保留读取到一半的命中。
 
-所有 scope 共享 `grep_max_entries_traversed`。正文事实扫描使用独立的 `grep_max_text_bytes_scanned` 和 `grep_max_text_file_bytes`；语法增强只受 `grep_max_files_parsed` 与 `grep_max_parse_file_bytes` 约束，不能删除已验证文本命中。
+每个 scope 独立应用 `grep_max_depth`：scope 根为 0，直属子项为 1；glob 静态前缀剪枝不会重置深度。正文事实扫描不按文件数量、累计字节或单文件字节提前停止。语法增强只受 `grep_ast_max_file_bytes` 约束，超限文件仍保留已验证文本命中。
 
 `auto` 的增强阶段可并行执行 LSP symbol 与 Repo Map graph ports；它们只返回 grep-owned DTO。每个 external candidate 都必须命中 filesystem allowed ref，并通过 scope、visibility、glob、live text/range/hash 和预算 gate；related edge 的文件 hash 也在当前调用复核。Tree-sitter/text、LSP 和 Repo Map 的职责与融合规则见 [排序证据](ranking-evidence.md)。
 
 ## Scope、跳过和截断
 
-多个 scope 合并为一个全局结果，先按文件 canonical identity、再按稳定 region key 去重。所有 scope 共享 traversal、文本字节、区域数量和模型 token 预算。
+多个 scope 合并为一个全局结果，先按文件 canonical identity、再按稳定 region key 去重。每个 scope 分别应用深度边界；main、nearby 和 related 共享条目数量与模型 token 预算。
 
 至少一个 scope 成功时保留有效区域，并在 `details.scope_errors` 及模型输出中标注失败 scope；所有 scope 失败时返回结构化错误。
 
-二进制、非法 UTF-8、超大文件、读取期间变化和局部权限失败在递归检索中计入 `skipped_files`；显式检索单个文件时返回对应错误。
+二进制、非法 UTF-8、读取期间变化和局部权限失败在递归检索中计入 `skipped_files`；显式检索单个文件时返回对应错误。正文使用流式扫描，因此不因文件大小跳过。
 
 输出限制通过 `truncated_by` 分别标记：
 
-- `traversal_limit`；
-- `text_byte_limit`；
+- `depth_limit`；
 - `semantic_candidate_limit`；
 - `result_limit`；
 - `token_budget`。
 
-限制由 [配置](configuration.md) 控制，不作为工具参数暴露。line stream、traversal、index build、parser 和 worker 都响应取消并释放 handle；共享 build 以 consumer 计数管理，只有最后消费者退出才取消底层构建。
+打包器为候选建立 `body -> 多匹配窗口 -> 单匹配行 -> signature` 展示版本，在预算内优先保留最高价值候选，再尽量增加条目数。窗口按行合并并明确标记省略行；strict 最小版本必须包含真实匹配行，不能降级成伪 signature 命中。限制由 [配置](configuration.md) 控制，不作为工具参数暴露。line stream、traversal、parser 和 worker 都响应取消并释放 handle。
 
 ## 零结果、nearby 与 related
 
@@ -113,9 +111,9 @@ C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 Tree-sit
 - `partial terms`：只有部分 query terms 重合；
 - `path similarity`：只有路径相关。
 
-`nearby` 只在最终主结果为空时出现，不参与主候选排序、result limit 或 `returned_regions`，模型文本使用 `<nearby nonmatch>` 明示非命中。
+`nearby` 只在最终主结果为空时出现，不参与主候选排序或 `returned_regions`，模型文本使用 `<nearby nonmatch>` 明示非命中；它与 main、related 共享全局 `grep_result_limit`。
 
-Repo Map 关系使用独立的 `<related repo-map nonmatch>` 通道，明示 `query_match: not_guaranteed`，不能伪装成 literal/regex 命中。没有可信 nearby 或 related 时，输出 `searched=<scanned_files>; skipped=<count>` 和下一步建议。
+Repo Map 关系使用独立的 `<related nonmatch>` 通道，明示 `query_match: not_guaranteed`，不能伪装成 literal/regex 命中。没有可信 nearby 或 related 时，输出 `searched=<searched_files>; skipped=<count>` 和下一步建议。
 
 main、nearby、related 的完整边界见 [排序选择](ranking-selection.md)。
 

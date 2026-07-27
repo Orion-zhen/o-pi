@@ -44,7 +44,6 @@ export interface ExternalQueryContext {
 export interface ExternalValidationContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
-	readonly maxFileBytes: number;
 }
 
 export interface StrictExternalAugmentation {
@@ -147,7 +146,6 @@ export function augmentAutoWithExternal(
 	plan: QueryPlan,
 	local: LocalAutoResult,
 	candidates: readonly ValidatedExternalCandidate[],
-	resultLimit: number,
 ): LocalAutoResult {
 	const main = new Map<string, VerifiedCodeRegion | SemanticMainRegion>();
 	for (const region of local.regions) if (region.lane === "main") main.set(region.id, region);
@@ -187,7 +185,7 @@ export function augmentAutoWithExternal(
 	}
 	const regions = [...main.values()];
 	const allRanked = rankCodeRegions(plan, regions);
-	const ranked = selectRankedRegions(allRanked, resultLimit);
+	const ranked = selectRankedRegions(allRanked, allRanked.length);
 	return {
 		...local,
 		regions,
@@ -396,10 +394,8 @@ async function loadCurrentFile(file: ScopedFile, context: ExternalValidationCont
 	const identity = `${context.filesystem.identity}\0${metadata.value.identity ?? normalizePath(file.path)}`;
 	if (identity !== file.canonicalIdentity
 		|| metadata.value.sizeBytes !== file.size
-		|| metadataVersion(metadata.value) !== file.metadataVersion
-		|| metadata.value.sizeBytes > context.maxFileBytes) return undefined;
+		|| metadataVersion(metadata.value) !== file.metadataVersion) return undefined;
 	const content = await context.filesystem.content.readText(file.ref, {
-		maxBytes: context.maxFileBytes,
 		stable: true,
 		rejectBinary: true,
 	}, context.operation);

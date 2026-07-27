@@ -17,7 +17,7 @@ const { GrepTool } = await loadTypeScript("src/file-tools/grep/command.ts");
 const cases = [
 	{ kind: "identifier", query: "rankCodeRegions", path: "src", match: "auto", relevant: ["src/file-tools/grep/ranking.ts"] },
 	{ kind: "qualified", query: "GrepTool.execute", path: "src", match: "auto", relevant: ["src/file-tools/grep/command.ts"] },
-	{ kind: "error", query: "Parse limits must be non-negative safe integers.", path: "src", match: "auto", relevant: ["src/file-tools/grep/regionizer.ts"] },
+	{ kind: "error", query: "AST file byte limit must be a non-negative safe integer.", path: "src", match: "auto", relevant: ["src/file-tools/grep/regionizer.ts"] },
 	{ kind: "natural", query: "source local ranks are assigned", path: "src/file-tools/grep", match: "auto", relevant: ["src/file-tools/grep/ranking.ts", "src/file-tools/grep/local.ts", "src/file-tools/grep/external.ts", "src/file-tools/grep/regionizer.ts"] },
 	{ kind: "caller", query: "callers of rankCodeRegions", path: "src/file-tools/grep", match: "auto", relevant: ["src/file-tools/grep/local.ts", "src/file-tools/grep/external.ts", "src/file-tools/grep/command.ts"] },
 	{ kind: "test", query: "tests for rankCodeRegions", path: "tests", match: "auto", relevant: ["tests/file-tools/grep.test.ts"] },

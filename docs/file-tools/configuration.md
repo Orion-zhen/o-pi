@@ -52,13 +52,10 @@
 - `find_output_token_budget`：`find` 模型可见输出预算，最小为 32 token。
 - `find_result_limit`：`find` 最多保留的具体结果数。
 - `find_max_entries_scanned`：`find` 最多扫描的文件系统条目数。
-- `grep_max_entries_traversed`：`grep` 在所有 scope 中最多遍历的文件系统条目数。
-- `grep_max_text_bytes_scanned`：`grep` 单次事实文本扫描的全局字节预算。
-- `grep_max_text_file_bytes`：`grep` 可流式扫描的单文件硬上限。
-- `grep_max_files_parsed`：最多进入语法解析的候选文件数；不限制事实文本命中。
-- `grep_max_parse_file_bytes`：单文件进入 Tree-sitter 的最大字节数。
+- `grep_max_depth`：`grep` 相对每个显式 scope 的最大路径深度；scope 根为 0，直属子项为 1。
+- `grep_ast_max_file_bytes`：单文件进入 Tree-sitter 的最大字节数；不限制流式正文搜索。
 - `grep_output_token_budget`：`grep` 模型可见输出预算。
-- `grep_result_limit`：`grep` 最多返回的代码区域数。
+- `grep_result_limit`：`grep` 的 main、nearby 和 related 合计最多返回的条目数。
 
 `find` 和 `grep` 的输出预算按 [Token Counter](../token-counter.md) 控制，不作为工具参数暴露给模型。
 

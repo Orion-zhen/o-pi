@@ -1,12 +1,8 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { formatToolCard } from "../../tui/tool-card.js";
 import { joinParts } from "../../tui/text.js";
-import { isGrepRelatedResults } from "../pi/guards.js";
-import type { GrepNearbyResult, GrepParams, GrepRegion, GrepSuccess } from "./types.js";
-
-const TRUNCATION_REASONS = new Set<string>([
-	"traversal_limit", "text_byte_limit", "semantic_candidate_limit", "result_limit", "token_budget",
-]);
+import { isGrepSuccessDetails } from "../pi/guards.js";
+import type { GrepParams, GrepRegion } from "./types.js";
 
 /** 渲染 grep 调用标题；TUI 只显示查询、scope 和 match mode。 */
 export function formatGrepCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
@@ -23,7 +19,7 @@ export function formatGrepCall(args: unknown, theme: Pick<Theme, "fg" | "bold">)
 
 /** 渲染 grep 结果摘要；TUI 不展示源码正文或内部评分。 */
 export function formatGrepResult(details: unknown, expanded: boolean, theme: Pick<Theme, "fg" | "bold">): string {
-	if (!isGrepSuccess(details)) return "";
+	if (!isGrepSuccessDetails(details)) return "";
 	const scope = (details.paths ?? [details.path]).join(", ");
 	const header = formatToolCard({
 		tool: "grep",
@@ -34,7 +30,7 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 			`${details.returned_files} files`,
 			details.nearby === undefined ? undefined : `${details.nearby.length} nearby`,
 			details.related === undefined ? undefined : `${details.related.length} related`,
-			`${details.stats.searched_files} searched`,
+			`${details.stats.searched_files}/${details.stats.traversed_entries} searched/traversed`,
 			details.truncated_by.length > 0 ? `limited:${details.truncated_by.join(",")}` : undefined,
 			details.scope_errors === undefined || details.scope_errors.length === 0 ? undefined : `${details.scope_errors.length} scope ${details.scope_errors.length === 1 ? "error" : "errors"}`,
 		]),
@@ -50,7 +46,7 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 		}
 	}
 	if (details.related !== undefined && details.related.length > 0) {
-		lines.push(theme.fg("muted", "Related (repo-map; query match not guaranteed):"));
+		lines.push(theme.fg("muted", "Related (query match not guaranteed):"));
 		for (const result of details.related) {
 			const range = result.start_line === undefined
 				? result.path
@@ -67,56 +63,8 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 function formatRegion(region: GrepRegion, theme: Pick<Theme, "fg">): string {
 	const symbol = region.symbol ?? region.signature ?? region.kind;
 	const range = `${region.path}:${region.start_line}${region.end_line === region.start_line ? "" : `-${region.end_line}`}`;
-	return `${theme.fg("accent", range)} ${symbol} [${region.detail}; ${region.reasons.join(", ")}]`;
-}
-
-function isGrepSuccess(value: unknown): value is GrepSuccess {
-	return isRecord(value)
-		&& value["status"] === "success"
-		&& typeof value["query"] === "string"
-		&& typeof value["path"] === "string"
-		&& typeof value["returned_regions"] === "number"
-		&& typeof value["returned_files"] === "number"
-		&& isGrepStats(value["stats"])
-		&& isTruncationReasons(value["truncated_by"])
-		&& isGrepRegions(value["regions"])
-		&& (value["nearby"] === undefined || isGrepNearbyResults(value["nearby"]))
-		&& (value["related"] === undefined || isGrepRelatedResults(value["related"]));
-}
-
-function isGrepRegions(value: unknown): value is GrepRegion[] {
-	return Array.isArray(value) && value.every((item) =>
-		isRecord(item)
-		&& typeof item["path"] === "string"
-		&& typeof item["start_line"] === "number"
-		&& typeof item["end_line"] === "number"
-		&& typeof item["kind"] === "string"
-		&& (item["query_match"] === "verified" || item["query_match"] === "semantic")
-		&& Array.isArray(item["reasons"])
-		&& Array.isArray(item["sources"]));
-}
-
-function isGrepStats(value: unknown): boolean {
-	return isRecord(value)
-		&& typeof value["traversed_entries"] === "number"
-		&& typeof value["searched_files"] === "number"
-		&& typeof value["searched_bytes"] === "number"
-		&& typeof value["parsed_files"] === "number";
-}
-
-function isTruncationReasons(value: unknown): boolean {
-	return Array.isArray(value) && value.every((item) => typeof item === "string" && TRUNCATION_REASONS.has(item));
-}
-
-function isGrepNearbyResults(value: unknown): value is GrepNearbyResult[] {
-	return Array.isArray(value) && value.every((item) =>
-		isRecord(item)
-		&& typeof item["path"] === "string"
-		&& typeof item["start_line"] === "number"
-		&& typeof item["end_line"] === "number"
-		&& typeof item["kind"] === "string"
-		&& item["query_match"] === "not_guaranteed"
-		&& (item["reason"] === "symbol similarity" || item["reason"] === "partial terms" || item["reason"] === "path similarity"));
+	const metadata = [region.detail, ...(region.roles ?? []), ...region.reasons];
+	return `${theme.fg("accent", range)} ${symbol} [${metadata.join("; ")}]`;
 }
 
 function pathArgs(value: unknown): string[] {

@@ -22,7 +22,7 @@ describe("grep renderer", () => {
 		const result = formatGrepResult(success(), false, theme);
 		expect(result.split("\n")).toHaveLength(2);
 		expect(result).toContain('✓ grep');
-		expect(result).toContain("1 regions · 1 files · 1 related · 4 searched · limited:token_budget");
+		expect(result).toContain("1 regions · 1 files · 1 related · 4/4 searched/traversed · limited:token_budget");
 	});
 
 	it("部分 scope 在摘要和展开结果中明确标注错误", () => {
@@ -40,8 +40,8 @@ describe("grep renderer", () => {
 
 	it("展开状态显示区域元数据但不显示源码正文", () => {
 		const output = formatGrepResult(success(), true, theme);
-		expect(output).toContain("src/auth.ts:4-9 AuthService.login [body; exact symbol]");
-		expect(output).toContain("Related (repo-map; query match not guaranteed):");
+		expect(output).toContain("src/auth.ts:4-9 AuthService.login [body; definition; public_api; exact symbol]");
+		expect(output).toContain("Related (query match not guaranteed):");
 		expect(output).toContain("tests/auth.test.ts:2-6 auth flow [test]");
 		expect(output).toContain("limited: token_budget");
 		expect(output).not.toContain("async login");
@@ -100,6 +100,7 @@ function success(): GrepSuccess {
 				symbol: "AuthService.login",
 				detail: "body",
 				query_match: "semantic",
+				roles: ["definition", "public_api"],
 				reasons: ["exact symbol"],
 				sources: ["ast-symbol"],
 				content: "async login() {}",

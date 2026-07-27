@@ -50,6 +50,8 @@ export interface AutoRegionizationResult extends RegionizationResult {
 
 export interface RegionizationResult {
 	readonly regions: readonly VerifiedCodeRegion[];
+	/** 当前 stable read 的完整正文；仅供本次调用生成展示内容。 */
+	readonly sourceText: ReadonlyMap<string, string>;
 	readonly parsedFiles: number;
 	readonly skipped: GrepSkippedFiles;
 	readonly scopeErrors: readonly GrepScopeError[];
@@ -59,8 +61,7 @@ export interface RegionizationResult {
 export interface RegionizerContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
-	readonly maxFilesParsed: number;
-	readonly maxParseFileBytes: number;
+	readonly astMaxFileBytes: number;
 }
 
 /** 将流式事实命中映射到当前正文的最小代码区域；缓存只保存派生 AST。 */
@@ -76,8 +77,8 @@ export class GrepRegionizer {
 		context: RegionizerContext,
 	): Promise<ToolOutcome<RegionizationResult>> {
 		if (this.disposed || isAborted(context.operation.signal)) return aborted();
-		if (!validLimit(context.maxFilesParsed) || !validLimit(context.maxParseFileBytes)) {
-			return fail("INVALID_OPERATION", "Parse limits must be non-negative safe integers.");
+		if (!validLimit(context.astMaxFileBytes)) {
+			return fail("INVALID_OPERATION", "AST file byte limit must be a non-negative safe integer.");
 		}
 		const files = hitFiles(inventory, hits);
 		const rankByHit = textHitSourceRanks(hits);
@@ -92,7 +93,6 @@ export class GrepRegionizer {
 			changed: 0,
 		};
 		let semanticLimited = false;
-		let parseCandidates = 0;
 		let parsedFiles = 0;
 
 		for (const candidate of files) {
@@ -101,12 +101,11 @@ export class GrepRegionizer {
 				fallback.set(candidate.file.path, candidate.hits);
 				continue;
 			}
-			if (candidate.file.size > context.maxParseFileBytes || parseCandidates >= context.maxFilesParsed) {
+			if (candidate.file.size > context.astMaxFileBytes) {
 				semanticLimited = true;
 				fallback.set(candidate.file.path, candidate.hits);
 				continue;
 			}
-			parseCandidates += 1;
 			const loaded = await this.prepare(candidate, context);
 			if (!loaded.ok) {
 				if (loaded.error.code === "aborted") return aborted(candidate.file.path);
@@ -158,6 +157,7 @@ export class GrepRegionizer {
 		regions.sort((left, right) => left.order - right.order || compareRegion(left.region, right.region));
 		return {
 			regions: regions.map((item) => item.region),
+			sourceText: new Map(prepared.map((file) => [file.file.path, file.content.text])),
 			parsedFiles,
 			skipped: compactSkipped(skipped),
 			scopeErrors,
@@ -172,8 +172,8 @@ export class GrepRegionizer {
 		context: RegionizerContext,
 	): Promise<ToolOutcome<AutoRegionizationResult>> {
 		if (this.disposed || isAborted(context.operation.signal)) return aborted();
-		if (!validLimit(context.maxFilesParsed) || !validLimit(context.maxParseFileBytes)) {
-			return fail("INVALID_OPERATION", "Parse limits must be non-negative safe integers.");
+		if (!validLimit(context.astMaxFileBytes)) {
+			return fail("INVALID_OPERATION", "AST file byte limit must be a non-negative safe integer.");
 		}
 		const inventoryByPath = new Map(inventory.files.map((file) => [file.path, file]));
 		const hitsByPath = groupHits(hits);
@@ -190,15 +190,13 @@ export class GrepRegionizer {
 			changed: 0,
 		};
 		let semanticLimited = false;
-		let parseCandidates = 0;
 		for (const path of priorityPaths) {
 			const file = inventoryByPath.get(path);
 			if (file === undefined || languageFromPath(file.path) === "text") continue;
-			if (file.size > context.maxParseFileBytes || parseCandidates >= context.maxFilesParsed) {
+			if (file.size > context.astMaxFileBytes) {
 				semanticLimited = true;
 				continue;
 			}
-			parseCandidates += 1;
 			const candidate: RegionizeFile = { file, hits: hitsByPath.get(path) ?? [] };
 			const loaded = await this.prepare(candidate, context);
 			if (!loaded.ok) {
@@ -251,6 +249,7 @@ export class GrepRegionizer {
 		regions.sort((left, right) => left.order - right.order || compareRegion(left.region, right.region));
 		return {
 			regions: regions.map((item) => item.region),
+			sourceText: new Map(files.map((file) => [file.file.path, file.content.text])),
 			files,
 			parsedFiles,
 			skipped: compactSkipped(skipped),
@@ -273,7 +272,7 @@ export class GrepRegionizer {
 		if (!metadata.ok) return metadata;
 		if (metadataVersion(metadata.value) !== candidate.file.metadataVersion) return { ok: true, value: undefined };
 		const loaded = await context.filesystem.content.readText(candidate.file.ref, {
-			maxBytes: context.maxParseFileBytes,
+			maxBytes: context.astMaxFileBytes,
 			stable: true,
 			rejectBinary: true,
 		}, context.operation);
@@ -553,7 +552,3 @@ function aborted(path?: string): ReturnType<typeof fail> {
 }
 
 /** 阶段 4 先展示 scanner 保存的紧凑窗口；完整正文仅用于当前版本区域化。 */
-export function strictRegionContent(region: VerifiedCodeRegion): string {
-	const hit = region.verifiedHits[0];
-	return [...hit.before, hit.lineText, ...hit.after].join("\n");
-}
