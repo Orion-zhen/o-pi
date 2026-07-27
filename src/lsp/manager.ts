@@ -69,9 +69,9 @@ export interface ReadEnhancement {
 
 /** 进程内 LSP 管理器：负责配置、server 选择、生命周期和 diagnostics ledger。 */
 export class LspManager {
-	private loaded: LoadedLspConfig | undefined;
-	private registry: LspServerRegistry | undefined;
-	private configError: string | undefined;
+	private readonly loaded = new Map<string, LoadedLspConfig>();
+	private readonly registries = new Map<string, LspServerRegistry>();
+	private readonly configErrors = new Map<string, string>();
 	private reloadPromise: Promise<void> | undefined;
 	private reloadRequested = false;
 	private activeClientOperations = 0;
@@ -79,14 +79,19 @@ export class LspManager {
 	private readonly clients = new Map<string, ClientEntry>();
 	private readonly diagnostics = new DiagnosticsLedger();
 
-	async status(root?: string): Promise<LspStatus> {
-		await this.ensureConfig();
-		const excluded = root !== undefined && this.loaded !== undefined ? isExcludedRoot(root, this.loaded.config.exclude_paths) : false;
+	async status(root = process.cwd()): Promise<LspStatus> {
+		const normalizedRoot = path.resolve(root);
+		await this.ensureConfig(normalizedRoot);
+		const loaded = this.loaded.get(normalizedRoot);
+		const error = this.configErrors.get(normalizedRoot);
+		const excluded = loaded !== undefined && isExcludedRoot(normalizedRoot, loaded.config.exclude_paths);
 		return {
-			enabled: (this.loaded?.config.enabled ?? false) && !excluded,
-			config_path: this.loaded?.path ?? resolveLspConfigPath(),
-			...(this.configError !== undefined ? { last_error: this.configError } : {}),
-			servers: Array.from(this.clients.values()).map((entry) => entry.client.status()),
+			enabled: (loaded?.config.enabled ?? false) && !excluded,
+			config_path: loaded?.path ?? resolveLspConfigPath(),
+			...(error !== undefined ? { last_error: error } : {}),
+			servers: Array.from(this.clients.values())
+				.filter((entry) => entry.client.root === normalizedRoot)
+				.map((entry) => entry.client.status()),
 		};
 	}
 
@@ -114,9 +119,9 @@ export class LspManager {
 		await Promise.allSettled(Array.from(this.clients.values()).map((entry) => entry.client.shutdown()));
 		this.clients.clear();
 		this.diagnostics.clear();
-		this.loaded = undefined;
-		this.registry = undefined;
-		this.configError = undefined;
+		this.loaded.clear();
+		this.registries.clear();
+		this.configErrors.clear();
 	}
 
 	async readEnhancement(root: string, filePath: string, text: string, range: { startLine: number; endLine: number }, options: { outline: boolean; enclosing: boolean }): Promise<ReadEnhancement | undefined> {
@@ -124,7 +129,7 @@ export class LspManager {
 	}
 
 	private async readEnhancementOperation(root: string, filePath: string, text: string, range: { startLine: number; endLine: number }, options: { outline: boolean; enclosing: boolean }): Promise<ReadEnhancement | undefined> {
-		const config = await this.enabledConfig();
+		const config = await this.enabledConfig(root);
 		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths)) return undefined;
 		const wantsOutline = options.outline && config.config.read.outline && config.config.read.max_symbols > 0;
 		if (!wantsOutline && !options.enclosing) return undefined;
@@ -149,7 +154,7 @@ export class LspManager {
 	}
 
 	private async workspaceSymbolsOperation(input: WorkspaceSymbolsInput): Promise<LspSymbolHit[]> {
-		const config = await this.enabledConfig();
+		const config = await this.enabledConfig(input.root);
 		if (
 			config === undefined
 			|| isExcludedRoot(input.root, config.config.exclude_paths)
@@ -157,7 +162,7 @@ export class LspManager {
 			|| config.config.grep.max_symbols <= 0
 			|| input.allowedPaths.size === 0
 		) return [];
-		const servers = this.serversForPaths(input.allowedPaths);
+		const servers = this.serversForPaths(input.root, input.allowedPaths);
 		if (servers.length === 0) return [];
 
 		const allowedPaths = new Set(input.allowedPaths);
@@ -181,7 +186,7 @@ export class LspManager {
 					const location = workspaceSymbolLocation(symbol);
 					if (location !== undefined) {
 						const seed = workspaceSymbolSeed(input.root, input.query, symbol);
-						if (seed === undefined || !allowedPaths.has(seed.path) || !this.serverOwnsPath(result.client.server, seed.path)) continue;
+						if (seed === undefined || !allowedPaths.has(seed.path) || !this.serverOwnsPath(input.root, result.client.server, seed.path)) continue;
 						const key = symbolHitKey(seed);
 						if (seenRaw.has(key)) continue;
 						seenRaw.add(key);
@@ -190,7 +195,7 @@ export class LspManager {
 					}
 					if (!hasUriOnlyWorkspaceSymbolLocation(symbol) || typeof symbol.name !== "string" || typeof symbol.kind !== "number") continue;
 					const relative = relativePathForUri(input.root, symbol.location.uri);
-					if (relative === undefined || !allowedPaths.has(relative) || !this.serverOwnsPath(result.client.server, relative)) continue;
+					if (relative === undefined || !allowedPaths.has(relative) || !this.serverOwnsPath(input.root, result.client.server, relative)) continue;
 					const key = unresolvedSymbolKey(symbol);
 					if (seenRaw.has(key)) continue;
 					seenRaw.add(key);
@@ -218,7 +223,7 @@ export class LspManager {
 						const symbol = await candidate.client.resolveWorkspaceSymbol(candidate.symbol, operation.requestOptions());
 						if (symbol === undefined || operation.signal.aborted) return undefined;
 						const seed = workspaceSymbolSeed(input.root, input.query, symbol);
-						return seed === undefined || !allowedPaths.has(seed.path) || !this.serverOwnsPath(candidate.client.server, seed.path)
+						return seed === undefined || !allowedPaths.has(seed.path) || !this.serverOwnsPath(input.root, candidate.client.server, seed.path)
 							? undefined
 							: { client: candidate.client, seed };
 					});
@@ -273,7 +278,7 @@ export class LspManager {
 			})));
 			for (const result of results) {
 				for (const candidate of result.candidates) {
-					if (!allowedPaths.has(candidate.path) || !this.serverOwnsPath(result.client.server, candidate.path)) continue;
+					if (!allowedPaths.has(candidate.path) || !this.serverOwnsPath(root, result.client.server, candidate.path)) continue;
 					const key = symbolHitKey(candidate);
 					if (seenHits.has(key)) continue;
 					seenHits.add(key);
@@ -287,7 +292,7 @@ export class LspManager {
 	}
 
 	async beforeDiagnostics(root: string, filePath: string): Promise<LspDiagnosticSnapshot | undefined> {
-		const config = await this.enabledConfig();
+		const config = await this.enabledConfig(root);
 		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths) || !config.config.diagnostics.enabled) return undefined;
 		const source = this.diagnosticSourceForFile(root, filePath);
 		if (source === undefined) return undefined;
@@ -296,7 +301,7 @@ export class LspManager {
 
 	async didChangeWatchedFile(root: string, filePath: string, type: FileChangeType): Promise<void> {
 		return this.withClientOperation(async () => {
-			const config = await this.enabledConfig();
+			const config = await this.enabledConfig(root);
 			if (config === undefined || isExcludedRoot(root, config.config.exclude_paths)) return;
 			const resolvedRoot = path.resolve(root);
 			await Promise.all(Array.from(this.clients.values(), ({ client }) => (
@@ -310,7 +315,7 @@ export class LspManager {
 	}
 
 	private async didWriteOperation(root: string, filePath: string, text: string, baseline?: LspDiagnosticSnapshot): Promise<LspDiagnosticsSummary | undefined> {
-		const config = await this.enabledConfig();
+		const config = await this.enabledConfig(root);
 		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths) || !config.config.diagnostics.enabled) return undefined;
 		const expectedSource = this.diagnosticSourceForFile(root, filePath);
 		const uri = pathToFileUri(filePath);
@@ -343,14 +348,16 @@ export class LspManager {
 	}
 
 	async knownDiagnostics(root: string, filePath?: string): Promise<Array<{ path: string; items: LspDiagnosticsSummary["items"] }>> {
-		await this.ensureConfig();
-		const sourceServers = new Map((this.registry?.servers ?? []).map((server) => [diagnosticSourceKey(root, server.id), server]));
+		const normalizedRoot = path.resolve(root);
+		await this.ensureConfig(normalizedRoot);
+		const registry = this.registries.get(normalizedRoot);
+		const sourceServers = new Map((registry?.servers ?? []).map((server) => [diagnosticSourceKey(normalizedRoot, server.id), server]));
 		const entries = this.diagnostics.all();
 		return entries.flatMap((entry) => {
 			const server = sourceServers.get(entry.source);
 			if (server === undefined) return [];
-			const absolute = uriToWorkspacePath(root, entry.uri);
-			if (absolute === undefined || !this.serverOwnsPath(server, absolute.relative)) return [];
+			const absolute = uriToWorkspacePath(normalizedRoot, entry.uri);
+			if (absolute === undefined || !this.serverOwnsPath(normalizedRoot, server, absolute.relative)) return [];
 			if (filePath !== undefined && absolute.path !== filePath && absolute.relative !== filePath) return [];
 			return [{ path: absolute.relative, items: entry.items }];
 		});
@@ -362,7 +369,7 @@ export class LspManager {
 	}
 
 	private async clientForFile(root: string, filePath: string): Promise<LspClient | undefined> {
-		const config = await this.enabledConfig();
+		const config = await this.enabledConfig(root);
 		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths)) return undefined;
 		const route = this.routeForFile(root, filePath);
 		return route === undefined ? undefined : this.clientForServer(root, route.server);
@@ -370,38 +377,41 @@ export class LspManager {
 
 	private routeForFile(root: string, filePath: string): LspFileRoute | undefined {
 		const relativePath = workspaceRelativePath(root, filePath);
-		return relativePath === undefined ? undefined : this.routeForRelativePath(relativePath);
+		return relativePath === undefined ? undefined : this.routeForRelativePath(root, relativePath);
 	}
 
-	private routeForRelativePath(relativePath: string): LspFileRoute | undefined {
+	private routeForRelativePath(root: string, relativePath: string): LspFileRoute | undefined {
+		const normalizedRoot = path.resolve(root);
 		try {
-			return this.registry?.route(relativePath);
+			return this.registries.get(normalizedRoot)?.route(relativePath);
 		} catch (error) {
-			this.configError = error instanceof Error ? error.message : String(error);
+			this.configErrors.set(normalizedRoot, error instanceof Error ? error.message : String(error));
 			return undefined;
 		}
 	}
 
-	private serversForPaths(paths: Iterable<string>): LspServerConfig[] {
+	private serversForPaths(root: string, paths: Iterable<string>): LspServerConfig[] {
+		const normalizedRoot = path.resolve(root);
 		try {
-			return this.registry?.forPaths(paths) ?? [];
+			return this.registries.get(normalizedRoot)?.forPaths(paths) ?? [];
 		} catch (error) {
-			this.configError = error instanceof Error ? error.message : String(error);
+			this.configErrors.set(normalizedRoot, error instanceof Error ? error.message : String(error));
 			return [];
 		}
 	}
 
-	private serverOwnsPath(server: LspServerConfig, relativePath: string): boolean {
+	private serverOwnsPath(root: string, server: LspServerConfig, relativePath: string): boolean {
+		const normalizedRoot = path.resolve(root);
 		try {
-			return this.registry?.ownsPath(server, relativePath) ?? false;
+			return this.registries.get(normalizedRoot)?.ownsPath(server, relativePath) ?? false;
 		} catch (error) {
-			this.configError = error instanceof Error ? error.message : String(error);
+			this.configErrors.set(normalizedRoot, error instanceof Error ? error.message : String(error));
 			return false;
 		}
 	}
 
 	private async clientForServer(root: string, server: LspServerConfig): Promise<LspClient | undefined> {
-		const loaded = await this.enabledConfig();
+		const loaded = await this.enabledConfig(root);
 		if (loaded === undefined) return undefined;
 		const key = diagnosticSourceKey(root, server.id);
 		let entry = this.clients.get(key);
@@ -490,23 +500,25 @@ export class LspManager {
 	private handleCrash(key: string, client: LspClient, message: string): void {
 		const entry = this.clients.get(key);
 		if (entry === undefined || entry.client !== client) return;
-		this.configError = message;
+		this.configErrors.set(path.resolve(client.root), message);
 	}
 
-	private async enabledConfig(): Promise<LoadedLspConfig | undefined> {
-		const loaded = await this.ensureConfig();
+	private async enabledConfig(root: string): Promise<LoadedLspConfig | undefined> {
+		const loaded = await this.ensureConfig(root);
 		if (loaded === undefined || !loaded.config.enabled) return undefined;
 		return loaded;
 	}
 
-	private async ensureConfig(): Promise<LoadedLspConfig | undefined> {
-		if (this.loaded !== undefined || this.configError !== undefined) return this.loaded;
+	private async ensureConfig(root: string): Promise<LoadedLspConfig | undefined> {
+		const normalizedRoot = path.resolve(root);
+		if (this.loaded.has(normalizedRoot) || this.configErrors.has(normalizedRoot)) return this.loaded.get(normalizedRoot);
 		try {
-			this.loaded = await loadLspConfig();
-			this.registry = new LspServerRegistry(this.loaded.config.servers);
-			return this.loaded;
+			const loaded = await loadLspConfig(normalizedRoot);
+			this.loaded.set(normalizedRoot, loaded);
+			this.registries.set(normalizedRoot, new LspServerRegistry(loaded.config.servers));
+			return loaded;
 		} catch (error) {
-			this.configError = error instanceof Error ? error.message : String(error);
+			this.configErrors.set(normalizedRoot, error instanceof Error ? error.message : String(error));
 			return undefined;
 		}
 	}

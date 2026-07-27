@@ -1,10 +1,20 @@
 import path from "node:path";
 
-import { agentConfigPath, agentSchemaPath, createSchemaValidator, expandHomePath, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
+import {
+	agentConfigPath,
+	agentSchemaPath,
+	createSchemaValidator,
+	expandHomePath,
+	projectAgentConfigPath,
+	readOptionalJsoncConfig,
+	readOptionalJsoncConfigWithSchema,
+} from "../config-loader.js";
 import { LspServerRegistry } from "./registry.js";
 import type { LoadedLspConfig, LspConfig, LspJsonValue, LspLanguageRoute, LspServerConfig, LspTransport } from "./types.js";
 
 const CONFIG_PATH_ENV = "PI_LSP_CONFIG";
+const PROJECT_CONFIG_ENV = "PI_LSP_PROJECT_CONFIG";
+const PROJECT_ROOT_ENV = "PI_LSP_PROJECT_ROOT";
 
 type RawSelectors = string | string[];
 
@@ -84,17 +94,16 @@ interface RawLspConfig {
 	servers?: Record<string, RawLspServer>;
 }
 
-/** 读取用户级 LSP JSONC 配置；不会读取项目级配置，避免项目配置执行任意本地 command。 */
-export async function loadLspConfig(): Promise<LoadedLspConfig> {
-	const configPath = resolveLspConfigPath();
-	const parsed = await readOptionalJsoncConfigWithSchema({
-		path: configPath,
-		label: "lsp",
-		loadValidator,
-		createError: (message, details) => new LspConfigError(message, details),
-	});
-	if (parsed === undefined) return { path: configPath, config: defaultLspConfig() };
-	return { path: configPath, config: mergeConfig(parsed as RawLspConfig) };
+/** 读取全局与项目级 LSP JSONC 配置；项目配置按字段覆盖全局配置。 */
+export async function loadLspConfig(cwd = process.cwd()): Promise<LoadedLspConfig> {
+	const globalPath = resolveLspConfigPath();
+	const globalRaw = await readGlobalConfig(globalPath);
+	const projectPath = resolveProjectLspConfigPath(cwd);
+	const projectRaw = projectPath === undefined ? undefined : await readProjectConfig(projectPath);
+	const raw = mergeRawConfig(globalRaw, projectRaw);
+	const configPath = projectRaw === undefined ? globalPath : projectPath ?? globalPath;
+	if (projectRaw !== undefined) await validateRawConfig(raw, configPath);
+	return { path: configPath, config: mergeConfig(raw) };
 }
 
 export function defaultLspConfig(): LspConfig {
@@ -103,6 +112,97 @@ export function defaultLspConfig(): LspConfig {
 
 export function resolveLspConfigPath(): string {
 	return agentConfigPath("lsp.jsonc", CONFIG_PATH_ENV);
+}
+
+export function resolveProjectLspConfigPath(cwd: string): string | undefined {
+	return projectAgentConfigPath(cwd, "lsp.jsonc", PROJECT_CONFIG_ENV, PROJECT_ROOT_ENV);
+}
+
+async function readGlobalConfig(configPath: string): Promise<RawLspConfig | undefined> {
+	const parsed = await readOptionalJsoncConfigWithSchema({
+		path: configPath,
+		label: "lsp",
+		loadValidator,
+		createError: (message, details) => new LspConfigError(message, details),
+	});
+	return parsed as RawLspConfig | undefined;
+}
+
+async function readProjectConfig(configPath: string): Promise<RawLspConfig | undefined> {
+	const parsed = await readOptionalJsoncConfig({
+		path: configPath,
+		label: "lsp",
+		createError: (message, details) => new LspConfigError(message, details),
+	});
+	return parsed as RawLspConfig | undefined;
+}
+
+async function validateRawConfig(raw: RawLspConfig, configPath: string): Promise<void> {
+	const validator = await loadValidator();
+	if (!validator(raw)) {
+		throw new LspConfigError("lsp config does not match schema.", {
+			path: configPath,
+			errors: validator.errors ?? [],
+		});
+	}
+}
+
+function mergeRawConfig(global: RawLspConfig | undefined, project: RawLspConfig | undefined): RawLspConfig {
+	if (global === undefined) return project ?? {};
+	if (project === undefined) return global;
+	const merged: RawLspConfig = { ...global, ...project };
+	const diagnostics = mergeObject(global.diagnostics, project.diagnostics);
+	const read = mergeObject(global.read, project.read);
+	const grep = mergeObject(global.grep, project.grep);
+	const servers = mergeServers(global.servers, project.servers);
+	if (diagnostics !== undefined) merged.diagnostics = diagnostics;
+	if (read !== undefined) merged.read = read;
+	if (grep !== undefined) merged.grep = grep;
+	if (servers !== undefined) merged.servers = servers;
+	return merged;
+}
+
+function mergeServers(
+	global: RawLspConfig["servers"],
+	project: RawLspConfig["servers"],
+): RawLspConfig["servers"] {
+	if (global === undefined) return project;
+	if (project === undefined) return global;
+	const merged = { ...global };
+	for (const [id, projectServer] of Object.entries(project)) {
+		const globalServer = global[id];
+		const init = mergeJsonValue(globalServer?.init, projectServer.init);
+		const settings = mergeJsonValue(globalServer?.settings, projectServer.settings);
+		const mergedServer: RawLspServer = {
+			...globalServer,
+			...projectServer,
+			languages: { ...globalServer?.languages, ...projectServer.languages },
+		};
+		if (init !== undefined) mergedServer.init = init;
+		if (settings !== undefined) mergedServer.settings = settings;
+		merged[id] = mergedServer;
+	}
+	return merged;
+}
+
+function mergeObject<T extends Record<string, unknown>>(global: T | undefined, project: T | undefined): T | undefined {
+	if (global === undefined) return project;
+	if (project === undefined) return global;
+	return { ...global, ...project };
+}
+
+function mergeJsonValue(global: LspJsonValue | undefined, project: LspJsonValue | undefined): LspJsonValue | undefined {
+	if (project === undefined) return global;
+	if (isJsonObject(global) && isJsonObject(project)) {
+		const merged: Record<string, LspJsonValue> = { ...global };
+		for (const [key, value] of Object.entries(project)) merged[key] = mergeJsonValue(global[key], value) ?? null;
+		return merged;
+	}
+	return project;
+}
+
+function isJsonObject(value: LspJsonValue | undefined): value is { [key: string]: LspJsonValue } {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function mergeConfig(raw: RawLspConfig): LspConfig {

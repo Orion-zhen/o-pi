@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -9,7 +9,7 @@ import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
 const temp = useTempDir("o-pi-lsp-config-");
-preserveEnv("PI_LSP_CONFIG");
+preserveEnv("PI_LSP_CONFIG", "PI_LSP_PROJECT_CONFIG", "PI_LSP_PROJECT_ROOT");
 
 beforeEach(() => {
 	dir = temp.path;
@@ -33,6 +33,44 @@ describe("lsp config", () => {
 			],
 		});
 		expect(loaded.config.servers.find((server) => server.id === "yaml")?.fallback).toBe(true);
+	});
+
+	it("项目配置覆盖全局配置并保留未覆盖的全局字段", async () => {
+		const globalPath = path.join(dir, "global.jsonc");
+		const projectRoot = path.join(dir, "project");
+		const projectPath = path.join(projectRoot, ".pi", "configs", "lsp.jsonc");
+		await mkdir(path.dirname(projectPath), { recursive: true });
+		await writeFile(globalPath, JSON.stringify({
+			request_timeout_ms: 700,
+			diagnostics: { max_items: 3 },
+			servers: {
+				gopls: {
+					command: ["gopls"],
+					languages: { go: "*.go" },
+					settings: { gopls: { staticcheck: true } },
+				},
+			},
+		}));
+		await writeFile(projectPath, JSON.stringify({
+			request_timeout_ms: 900,
+			diagnostics: { min_severity: "error" },
+			servers: {
+				gopls: {
+					settings: { gopls: { gofumpt: true } },
+				},
+			},
+		}));
+		process.env.PI_LSP_CONFIG = globalPath;
+		const loaded = await loadLspConfig(projectRoot);
+		expect(loaded.path).toBe(projectPath);
+		expect(loaded.config.request_timeout_ms).toBe(900);
+		expect(loaded.config.diagnostics).toMatchObject({ max_items: 3, min_severity: "error" });
+		expect(loaded.config.servers).toHaveLength(1);
+		expect(loaded.config.servers[0]).toMatchObject({
+			id: "gopls",
+			transport: { type: "stdio", command: "gopls", args: [] },
+			settings: { gopls: { staticcheck: true, gofumpt: true } },
+		});
 	});
 
 	it("支持 JSONC、trailing comma、字符串 selector 和部分覆盖", async () => {

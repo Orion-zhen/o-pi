@@ -69,7 +69,7 @@ export interface LspProgressNotification {
 	value: unknown;
 }
 
-/** LSP 用户配置；只从用户配置路径读取，不读取项目级配置。 */
+/** LSP 配置；由全局配置和可选项目配置合并得到。 */
 export interface LspConfig {
 	enabled: boolean;
 	/** 精确匹配这些 workspace root 时不启动 LSP。 */

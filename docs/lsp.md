@@ -4,13 +4,21 @@ LSP 只作为 `grep` / `read` / `write` / `edit` 的可选内部后端，不注�
 
 ## 配置
 
-主配置：
+全局配置：
 
 ```text
 agent/configs/lsp.jsonc
 ```
 
-环境变量 `PI_LSP_CONFIG` 可覆盖路径。当前实现不读取项目级 `.pi/configs/lsp.jsonc`，因为配置会执行本地 language server command。
+环境变量 `PI_LSP_CONFIG` 可覆盖全局配置路径。若 workspace root 或其祖先存在项目配置：
+
+```text
+<project>/.pi/configs/lsp.jsonc
+```
+
+项目配置优先于全局配置，未设置的字段从全局配置继承；对象递归合并，数组和标量由项目配置整体替换。`servers` 按 server ID 合并，项目配置可覆盖或新增 server。也可用 `PI_LSP_PROJECT_CONFIG` 指定项目配置路径，或用 `PI_LSP_PROJECT_ROOT` 指定项目根目录。
+
+项目配置会执行其中的本地 language server command，因此只应使用可信项目中的配置。
 
 顶层字段：
 
@@ -65,9 +73,9 @@ agent/configs/lsp.jsonc
 | `tcp` | 与 `command` 二选一 | `{"host":"127.0.0.1","port":2087}` 连接用户提供的 endpoint；Pi 不启动 TCP server。 |
 | `languages` | 必填 | LSP language ID 到一个 selector 字符串或多个 selector 数组的映射。 |
 | `init` | 未设置 | server 自己定义的初始化 JSON，原样传给 LSP `initialize.initializationOptions`；字段名和嵌套结构不由 Pi 定义。 |
-| `settings` | 未设置 | server 自己定义的运行时配置树，供 `workspace/configuration` 按 section 返回，并在初始化后通过 `workspace/didChangeConfiguration` 整体发送；不会读取项目配置或环境变量。 |
+| `settings` | 未设置 | server 自己定义的运行时配置树，供 `workspace/configuration` 按 section 返回，并在初始化后通过 `workspace/didChangeConfiguration` 整体发送；不会自动从 Go 项目配置或环境变量补充。 |
 
-配置不包含 `id`、`transport.type`、`args`、`extensions`、`language_id` 或 `language_ids` 等重复字段，也不从扩展名隐藏推断 language ID。仓库配置包含 TypeScript、Python、Rust、Clangd（C/C++）、Docker 和 YAML stdio server，并在注释中提供 TCP endpoint 示例：
+配置不包含 `id`、`transport.type`、`args`、`extensions`、`language_id` 或 `language_ids` 等重复字段，也不从扩展名隐藏推断 language ID。合并后的全局与项目配置使用同一 schema；项目 server 可以只提供需要覆盖的字段。仓库配置包含 TypeScript、Python、Rust、Clangd（C/C++）、Docker 和 YAML stdio server，并在注释中提供 TCP endpoint 示例：
 
 ```jsonc
 {
