@@ -43,6 +43,33 @@ describe("Repo Map parser workers", () => {
 		expect(facts?.registrations.map((registration) => registration.name)).toEqual(["worker-command"]);
 	});
 
+	it("reports intermediate parsing progress as worker batches finish", async () => {
+		const directory = path.join(temp.path, "worker-progress");
+		await mkdir(directory, { recursive: true });
+		const files = await Promise.all(Array.from({ length: REPO_MAP_PARSER_BATCH_SIZE + 1 }, async (_, index) => {
+			const relativePath = `worker-progress/file-${index}.ts`;
+			const source = `export const value${index} = ${index};\n`;
+			await writeFile(path.join(temp.path, relativePath), source);
+			return {
+				...createFileIdentity(relativePath),
+				size: 100_000,
+				mtimeMs: 1,
+				status: "indexed" as const,
+				contentHash: createHash("sha256").update(source).digest("hex"),
+			};
+		}));
+		const progress: number[] = [];
+
+		await indexRepoMapSymbols({
+			root: temp.path,
+			files,
+			concurrency: 4,
+			onProgress(completed) { progress.push(completed); },
+		});
+
+		expect(progress).toEqual(Array.from({ length: files.length }, (_, index) => index + 1));
+	});
+
 	it("preserves recovered worker symbols and reports incomplete syntax facts", async () => {
 		const source = "export function recovered() {\n";
 		const filePath = "src/recovered.ts";

@@ -194,6 +194,9 @@ async function initializeRepoMapLocked(
 			},
 		} : {}),
 		...(input.signal !== undefined ? { signal: input.signal } : {}),
+		...(input.onProgress !== undefined ? {
+			onProgress: (completed: number) => safeProgress(input.onProgress, { phase: "parsing", completed, total: scan.summary.indexed }),
+		} : {}),
 	});
 	throwIfAborted(input.signal);
 	const architecture = await deps.buildArchitecture({

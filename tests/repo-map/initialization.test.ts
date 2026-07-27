@@ -66,6 +66,24 @@ describe("Repo Map initialization service", () => {
 		expect(second.summary).toMatchObject({ reused: 1, reusedParsed: 1, hashed: 0, added: 0, changed: 0, removed: 0 });
 	});
 
+	it("forwards per-file parsing progress through initialization", async () => {
+		const root = path.join(temp.path, "repo");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		await Promise.all([
+			writeFile(path.join(root, "a.ts"), "export const a = 1;\n"),
+			writeFile(path.join(root, "b.ts"), "export const b = 2;\n"),
+		]);
+		const progress: Array<{ phase: string; completed?: number; total?: number }> = [];
+
+		await initializeRepoMap({ cwd: root, onProgress(update) { progress.push(update); } }, dependencies());
+
+		expect(progress.filter((update) => update.phase === "parsing")).toEqual([
+			{ phase: "parsing", completed: 0, total: 2 },
+			{ phase: "parsing", completed: 1, total: 2 },
+			{ phase: "parsing", completed: 2, total: 2 },
+		]);
+	});
+
 	it("skips every graph builder and commit when the repository is unchanged", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });

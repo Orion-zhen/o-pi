@@ -27,6 +27,7 @@ export interface IndexRepoMapSymbolsInput {
 	analyze?: (filePath: string, text: string, options?: AnalyzeCodeFileOptions) => AnalyzedFileIndex | Promise<AnalyzedFileIndex>;
 	readText?: RepoMapReadText;
 	workerFactory?: () => Worker;
+	onProgress?: (completed: number) => void;
 }
 
 export interface RepoMapParseWorkload {
@@ -91,12 +92,20 @@ export async function indexRepoMapSymbols(input: IndexRepoMapSymbolsInput): Prom
 			.filter((diagnostic) => diagnostic.code === "PARSER_ERROR" || diagnostic.code === "PARSER_SYNTAX_ERROR" || diagnostic.code === "FILE_CHANGED_DURING_PARSE")
 			.flatMap((diagnostic) => diagnostic.path === undefined ? [] : [diagnostic.path]),
 	);
-	const workerResults = await parseWithWorkersIfUseful(input, previousFiles, previousErrors);
+	const completedPaths = new Set<string>();
+	const reportCompleted = (filePath: string): void => {
+		if (completedPaths.has(filePath)) return;
+		completedPaths.add(filePath);
+		safeProgress(input.onProgress, completedPaths.size);
+	};
+	const workerResults = await parseWithWorkersIfUseful(input, previousFiles, previousErrors, reportCompleted);
 	const limit = pLimit(input.concurrency);
 	const results = await limit.map(input.files, async (file) => {
 		throwIfAborted(input.signal);
 		const workerResult = workerResults?.get(file.path);
-		return await indexFile(file, input.root, previousFiles, previousSymbols, previousImports, previousErrors, analyze, readText, input.signal, workerResult);
+		const result = await indexFile(file, input.root, previousFiles, previousSymbols, previousImports, previousErrors, analyze, readText, input.signal, workerResult);
+		if (file.status === "indexed") reportCompleted(file.path);
+		return result;
 	});
 	throwIfAborted(input.signal);
 
@@ -119,6 +128,7 @@ async function parseWithWorkersIfUseful(
 	input: IndexRepoMapSymbolsInput,
 	previousFiles: ReadonlyMap<string, RepoMapFileRecord>,
 	previousErrors: ReadonlySet<string>,
+	reportCompleted: (filePath: string) => void,
 ): Promise<ReadonlyMap<string, RepoMapParserFileResult> | undefined> {
 	if (input.analyze !== undefined || input.readText !== undefined) return undefined;
 	const candidates = input.files.filter((file) => isWorkerCandidate(file) && !canReuse(file, previousFiles, previousErrors));
@@ -127,13 +137,22 @@ async function parseWithWorkersIfUseful(
 	const pool = createRepoMapParserPool(input.concurrency, input.workerFactory);
 	try {
 		const batches = chunk(candidates, REPO_MAP_PARSER_BATCH_SIZE);
-		const responses = await Promise.all(batches.map((files) => pool.run({ root: input.root, files: [...files] }, input.signal)));
+		const responses = await Promise.all(batches.map(async (files) => {
+			try {
+				const results = await pool.run({ root: input.root, files: [...files] }, input.signal);
+				for (const result of results) reportCompleted(result.file.path);
+				return results;
+			} catch (error) {
+				if (input.signal?.aborted === true || error instanceof WorkerTaskAbortedError) throw error;
+				return [];
+			}
+		}));
 		return new Map(responses.flat().map((result) => [result.file.path, result]));
 	} catch (error) {
 		if (input.signal?.aborted === true || error instanceof WorkerTaskAbortedError) {
 			throwIfAborted(input.signal);
 		}
-		// Worker creation/crash is deliberately transparent: the caller reruns the same files locally.
+		// Worker cancellation without an aborted caller signal is treated like a worker failure.
 		return undefined;
 	} finally {
 		pool.dispose();
@@ -308,6 +327,14 @@ function groupImportsByFile(edges: readonly RepoMapEdge[]): Map<string, RepoMapI
 
 function range(value: { startLine: number; endLine: number; startByte: number; endByte: number }) {
 	return { startLine: value.startLine, endLine: value.endLine, startByte: value.startByte, endByte: value.endByte };
+}
+
+function safeProgress(callback: IndexRepoMapSymbolsInput["onProgress"], completed: number): void {
+	try {
+		callback?.(completed);
+	} catch {
+		// UI progress is best effort and cannot affect indexing.
+	}
 }
 
 function compareSymbol(left: RepoMapSymbolNode, right: RepoMapSymbolNode): number {
