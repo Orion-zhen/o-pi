@@ -217,25 +217,29 @@
 - 关闭：`Esc`、`q` 或 `Enter`。
 - 滚动：方向键、`PageUp`、`PageDown`、`Home`、`End`。
 
-## `/codex-quota`
+## `/usage`
 
-来源：`agent/extensions/quota.ts`
+来源：`agent/extensions/usage.ts`
 
-用途：通过 `codex app-server` 查询当前 Codex 剩余额度、窗口重置时间和可用额度重置卡详情。
+用途：查询已通过 Pi OAuth 登录的官方 plan 当前消耗和额度窗口。
 
 用法：
 
 ```text
-/codex-quota
+/usage
+/usage --refresh
 ```
 
 行为：
 
-- 启动 `codex app-server --stdio`，先完成 `initialize`，再调用 `account/rateLimits/read`。
-- 用 ASCII 进度条展示各额度窗口的剩余百分比、窗口周期和重置时间，以及 plan 和账户额度信息。
-- 可用额度重置卡采用宽屏表格/窄屏分块列表，展示数量、状态、发放时间、到期时间，以及距离过期的相对时长。
-- TUI 悬浮层统一使用英文；非 TUI 模式使用 UI notification 输出。
-- 查询结果和错误详情不写入会话历史，不进入模型上下文；进程错误和协议正文会脱敏。
+- 支持 Claude (`anthropic`)、Codex (`openai-codex`)、Kimi Code (`kimi-coding`) 和 Grok (`xai`)；只展示已通过 OAuth 登录的 provider，未登录项隐藏，全部未登录时显示统一空状态。GitHub Copilot、OpenRouter、Radius 暂无同类额度窗口查询。
+- 凭据仅通过 `ctx.modelRegistry.getProviderAuth()` 获取并自动刷新；API key 不会发送到订阅额度端点。
+- 并发查询各 provider；单个 provider 失败只在对应区块显示脱敏错误。
+- 用 ASCII 进度条展示剩余/已用百分比、窗口周期和重置时间，并补充 provider 返回的 plan、credits 或 extra usage 信息。
+- Codex 直接使用 Pi OAuth 查询 usage 和 banked reset credits，不依赖 `codex` 命令或 app-server；宽屏使用表格、窄屏使用分块列表展示状态、标题、发放时间、到期时间和相对过期时长，详情查询失败时仍保留 usage 窗口与可用数量。
+- 结果缓存 60 秒；`--refresh` 强制刷新。
+- TUI 使用只读浮层；非 TUI 模式通过 UI notification 输出。结果、OAuth token 和响应正文不写入会话历史或模型上下文。
+- Provider 的额度接口未公开承诺稳定性；响应有超时、大小和结构边界，接口变化只会让对应 provider 降级失败。
 - 关闭：`Esc`、`q` 或 `Enter`；内容较长时可滚动。
 
 ## `/thinking-level`
