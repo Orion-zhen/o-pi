@@ -45,3 +45,7 @@
 - 测试 TypeScript 遵守源码的严格类型规则；平台差异用最小 `skipIf` 或分支断言表达，不静默降低通用覆盖。
 - 修改后运行 `npm run typecheck`、`npm test` 和 `npm run test:coverage`。不得降低覆盖率门槛、扩大排除范围或删除有效断言来规避失败。
 - 运行 `npm run bench` 可运行全套性能 benchmark, 更多细节可以查看 `packages.json`
+
+## 语言
+
+使用简体中文与用户交流, 使用简体中文编写代码注释.
