@@ -72,6 +72,18 @@
 			},
 			"languages": { "rust": "*.rs" }
 		},
+		"gopls": {
+			"command": ["gopls"],
+			// 官方 Neovim 配置示例中的 gopls 设置。
+			"settings": {
+				"gopls": {
+					"analyses": { "unusedparams": true },
+					"staticcheck": true,
+					"gofumpt": true
+				}
+			},
+			"languages": { "go": "*.go" }
+		},
 		"clangd": {
 			"command": ["clangd"],
 			"languages": {
