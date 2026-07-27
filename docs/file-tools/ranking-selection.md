@@ -8,7 +8,7 @@
 
 - `HEAD_SIZE = 3`：前三条原样保留；limit 小于等于 3 时结果就是 relevance Top-K。
 - `lambda = 0.85`。
-- 同 tier 动态 cutoff 比例为 `0.30`。
+- 不使用按分数比例删除合格候选的 cutoff；只在当前最佳 tier 内做多样性选择。
 
 剩余名额使用确定性 MMR：
 
@@ -38,7 +38,7 @@ MMR 结束后，tail 恢复完整 relevance 顺序，relevance head 保持在最
 
 ### related
 
-`related` 来自 Repo Map 的已验证可导航关系，明示 `query_match: not_guaranteed`，同样不参与主结果的 RRF rank、cutoff 或 limit。
+`related` 来自已验证的 LSP/Repo Map 关系或文件级结构候选，明示 `query_match: not_guaranteed`，同样不参与主结果的 RRF rank、cutoff 或 limit。
 
 `nearby` 表达本地相似性，`related` 表达代码图关系；两条通道可以同时存在，但不能互相替代或混入 main。
 

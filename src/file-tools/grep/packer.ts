@@ -16,7 +16,8 @@ import type {
 const MAX_MATCH_WINDOWS = 16;
 const CANDIDATE_POOL_MIN = 32;
 const TRUNCATION_ORDER: readonly TruncationReason[] = [
-	"depth_limit",
+	"traversal_limit",
+	"text_byte_limit",
 	"semantic_candidate_limit",
 	"result_limit",
 	"token_budget",

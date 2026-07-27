@@ -1,6 +1,6 @@
 # `grep`
 
-`grep` 按内容、symbol、正则或代码意图检索代码，不查找路径、不修改文件。command 只通过 filesystem traversal/content/line scan/hash 访问文件，并组合 grep-local index/ranking/packing 与可选 symbol/graph ports。结果按函数、方法、类、声明或紧凑文本片段聚合。
+`grep` 按内容、symbol、正则或代码意图检索代码，不查找路径、不修改文件。执行链固定为 `QueryPlan -> ScopeInventory -> text/local channels -> live validation -> regionization -> ranking -> packing`；command 只通过 filesystem traversal/content/line scan/hash 访问文件，LSP 与 Repo Map 通过独立 port 接入。结果按函数、方法、类、声明或紧凑文本片段聚合。
 
 ## 参数
 
@@ -96,7 +96,8 @@ C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 Tree-sit
 
 输出限制通过 `truncated_by` 分别标记：
 
-- `depth_limit`；
+- `traversal_limit`；
+- `text_byte_limit`；
 - `semantic_candidate_limit`；
 - `result_limit`；
 - `token_budget`。
@@ -158,6 +159,6 @@ none
 
 ## Cache 与生命周期
 
-`GrepTool` 按 canonical workspace identity、visibility fingerprint、scope、query filter 和 limits 管理 derived cache。单文件 entry 只保存 metadata/hash/index，不永久保存完整源码；使用前仍进行当前 visibility 与内容 gate。新增、修改、删除或 ignore fingerprint 变化会进入新 snapshot/cache key。
+`GrepTool` 按 canonical workspace identity、visibility fingerprint、scope、query filter 和 limits 管理派生 AST cache；cache 只保存 metadata/hash/parsed units，不取代当前 inventory 与正文事实扫描。单文件 entry 只保存 metadata/hash/index，不永久保存完整源码；使用前仍进行当前 visibility 与内容 gate。新增、修改、删除或 ignore fingerprint 变化会进入新 snapshot/cache key。
 
 pending index build、parser pool 和 worker 由该 `GrepTool` instance 持有。`dispose()` abort pending consumers、释放 parser/worker 并清理 derived cache，不要求 Pi adapter知道内部 cache 名称，也不影响 find 或 filesystem factual cache。

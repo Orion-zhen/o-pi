@@ -139,7 +139,7 @@ export async function buildScopeInventory(
 		scopeErrors: state.scopeErrors,
 		skipped: compactSkipped(state.skipped),
 		traversedEntries: state.traversedEntries,
-		truncationReasons: state.depthLimited ? ["depth_limit"] : [],
+		truncationReasons: state.depthLimited ? ["traversal_limit"] : [],
 	};
 }
 

@@ -35,7 +35,7 @@ Repo Map 候选必须通过当前文件 content hash；自动模式还保留 rel
 - semantic/syntactic/lexical resolution 系数依次为 `1/0.9/0.65`。
 - graph 候选不继承 seed 的 exact symbol tier；二跳只补充召回。
 
-Repo Map 查询层在实时验证后重新编号。main 与 related 分开编号，因此增加 related 候选不会稀释 main 的 RRF rank。
+每个独立来源先在完整 scope+glob inventory 内查询，再在实时验证后重新编号。main 与 related 分开编号，因此增加 related 候选不会稀释 main 的 RRF rank；外部候选不受本地 parse/semantic Top-K 门控。
 
 文件候选投影到代码区域时依次尝试 candidate symbol ID、candidate range、alias/evidence 名称和查询 token 最匹配的 unit。无法定位时不会使用 `units[0]`；候选转为文件级 related，避免把任意首个函数伪装成目标。
 

@@ -4,13 +4,10 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { parseCodeUnits } from "../../src/code-index/parser.js";
-import { mergeRankedGrepSources } from "../../src/file-tools/grep/fusion.js";
 import { packGrepResults } from "../../src/file-tools/grep/packer.js";
-import { createRankingEvidence } from "../../src/file-tools/shared/ranking/evidence.js";
 import { formatCompactGrepResult, GrepTool } from "../../src/file-tools/grep/command.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import type { GrepExternalCandidate, GrepGraphSource, GrepSymbolSource } from "../../src/file-tools/grep/ports.js";
-import type { RankedGrepRegion } from "../../src/file-tools/grep/ranker.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
@@ -479,86 +476,6 @@ describe("grep external", () => {
 		expect(result.truncated_by).toEqual(["result_limit"]);
 		expect(formatCompactGrepResult(result)).toContain('<grep truncated="result_limit">');
 		expect(formatCompactGrepResult(result)).not.toContain("repo-map");
-	});
-
-	it("单次融合跨通道共识且不修改输入候选", () => {
-		const native: RankedGrepRegion = {
-			id: "native",
-			path: "target.ts",
-			kind: "function",
-			symbol: "Target",
-			startLine: 2,
-			endLine: 4,
-			startByte: 10,
-			endByte: 40,
-			tier: 3,
-			evidence: createRankingEvidence("structural", 0.8),
-			lexicalRelevance: 0,
-			pathRelevance: 0,
-			reasons: ["exact symbol"],
-			matchLines: [2],
-			callees: [],
-			imports: [],
-		};
-		const semantic: RankedGrepRegion = {
-			...native,
-			id: "lsp",
-			symbol: "target",
-			evidence: createRankingEvidence("semantic", 0.6),
-			reasons: ["lsp symbol"],
-			matchLines: [3],
-		};
-
-		const merged = mergeRankedGrepSources([native], [semantic], []);
-
-		expect(merged).toHaveLength(1);
-		expect(merged[0]?.evidence.familyCount).toBe(2);
-		expect(merged[0]?.reasons).toEqual(["exact symbol", "lsp symbol"]);
-		expect(merged[0]?.matchLines).toEqual([2, 3]);
-		expect(native.reasons).toEqual(["exact symbol"]);
-		expect(native.matchLines).toEqual([2]);
-	});
-
-	it("AST/LSP 同一 symbol 的范围相差两行仍合并，但 overload signature 不合并", () => {
-		const base: RankedGrepRegion = {
-			id: "ast-a",
-			path: "target.ts",
-			kind: "function",
-			symbol: "Target",
-			signature: "function Target(value: string)",
-			startLine: 10,
-			endLine: 14,
-			startByte: 100,
-			endByte: 180,
-			tier: 3,
-			evidence: createRankingEvidence("structural", 1),
-			lexicalRelevance: 0,
-			pathRelevance: 0,
-			reasons: ["exact symbol"],
-			matchLines: [],
-			callees: [],
-			imports: [],
-		};
-		const { signature: _signature, ...withoutSignature } = base;
-		const lsp: RankedGrepRegion = {
-			...withoutSignature,
-			id: "lsp",
-			kind: "Function",
-			startLine: 8,
-			endLine: 10,
-			evidence: createRankingEvidence("semantic", 1),
-			reasons: ["lsp exact symbol"],
-		};
-		expect(mergeRankedGrepSources([base], [lsp])).toHaveLength(1);
-
-		const overload: RankedGrepRegion = {
-			...base,
-			id: "ast-b",
-			signature: "function Target(value: number)",
-			startLine: 11,
-			endLine: 15,
-		};
-		expect(mergeRankedGrepSources([base, overload], [])).toHaveLength(2);
 	});
 
 	it("无 symbol/range 的 Repo Map 文件候选不会投影到 units[0]", async () => {

@@ -22,7 +22,7 @@ scope / ignore / glob / freshness 校验
 
 `tier` 是离散语义边界。连续证据只能重排同一 tier，不能让 fuzzy、BM25、reference 或 hop 1/2 越过 exact path、exact filename、exact qualified symbol 等直接命中。
 
-`literal` 和 `regex` 的主候选必须在当前正文中重新命中；纯图关系默认进入 `related`。Repo Map 候选没有实时 freshness 证明时，不进入主结果，也不提供排序贡献。
+`literal` 和 `regex` 的主候选必须在当前正文中重新命中；纯图关系默认进入 `related`。Repo Map 和 LSP 候选不受本地 AST/词法 Top-K 门控，但都必须先经过完整 inventory、visibility、glob、版本/hash 和 range 验证。没有实时 freshness 证明时，不进入主结果，也不提供排序贡献。
 
 ## 证据来源
 
@@ -47,7 +47,7 @@ scope / ignore / glob / freshness 校验
 - `nearby`：本地相似但没有主命中的候选，必须明确标记 `nonmatch`。
 - `related`：经过实时验证的 Repo Map 或关系候选，表示可导航关系，不保证查询命中。
 
-`nearby` 和 `related` 不参与主结果的 RRF rank、cutoff、limit 或返回计数，不能互相替代或混入 main。
+`nearby` 和 `related` 不参与主结果的 RRF rank、cutoff、limit 或返回计数，不能互相替代或混入 main；无显式关系意图的 caller/test/import 等结构候选只能进入 `related`。
 
 ## 最终选择
 

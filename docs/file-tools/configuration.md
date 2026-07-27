@@ -57,7 +57,7 @@
 - `grep_output_token_budget`：`grep` 模型可见输出预算。
 - `grep_result_limit`：`grep` 的 main、nearby 和 related 合计最多返回的条目数。
 
-`find` 和 `grep` 的输出预算按 [Token Counter](../token-counter.md) 控制，不作为工具参数暴露给模型。
+grep 只接受以上四个 `grep_` limit。正文事实扫描不会读取或接受旧的文件数、累计字节、单文件字节或语义解析字段；AST 单文件字节只控制语法增强。`find` 和 `grep` 的输出预算按 [Token Counter](../token-counter.md) 控制，不作为工具参数暴露给模型。
 
 ### ignore
 

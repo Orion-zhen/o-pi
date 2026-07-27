@@ -39,8 +39,8 @@ const grepParameters = Type.Object(
 	{
 		query: Type.String({ minLength: 1, description: "Text, symbol, concept, definition, or relationship." }),
 		path: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: "File or directory scopes; OR/union scope; default workspace." })),
-		match: Type.Optional(StringEnum(["auto", "literal", "regex"] as const, { description: "Matching strategy. literal: case-sensitive text; regex: per-line regular expression; default auto." })),
-		glob: Type.Optional(Type.String({ minLength: 1, description: "Relative filter per scope; patterns without / match basenames recursively." })),
+		match: Type.Optional(StringEnum(["auto", "literal", "regex"] as const, { description: "Matching strategy. literal: case-sensitive text; regex: independent per-line regular expression; no cross-line matches; default auto." })),
+		glob: Type.Optional(Type.String({ minLength: 1, description: "Relative to each scope; without / matches basenames recursively; use a path pattern such as src/**/*.ts for scoped paths." })),
 	},
 	{ additionalProperties: false },
 );

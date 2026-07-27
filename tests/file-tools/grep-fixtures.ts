@@ -7,7 +7,6 @@ import type { IndexedCodeUnit } from "../../src/code-index/parser.js";
 import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspace.js";
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
 import { buildScopeInventory, type ScopeInventory } from "../../src/file-tools/grep/inventory.js";
-import { hydrateGrepSourceText } from "../../src/file-tools/grep/hydration.js";
 import { GrepTool } from "../../src/file-tools/grep/command.js";
 import type { GrepGraphSource, GrepSymbolSource } from "../../src/file-tools/grep/ports.js";
 import type { GrepMatchMode, GrepSuccess } from "../../src/file-tools/grep/types.js";
@@ -199,5 +198,3 @@ export function repoMapQuery(query: RepoMapFileToolQuery["query"]): RepoMapFileT
 		async syncMutation() { return undefined; },
 	};
 }
-
-export { hydrateGrepSourceText };

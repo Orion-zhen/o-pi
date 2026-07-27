@@ -3,7 +3,8 @@ import type { FileToolError } from "../shared/result.js";
 export type GrepMatchMode = "auto" | "literal" | "regex";
 export type QueryMatch = "verified" | "semantic" | "not_guaranteed";
 export type TruncationReason =
-	| "depth_limit"
+	| "traversal_limit"
+	| "text_byte_limit"
 	| "semantic_candidate_limit"
 	| "result_limit"
 	| "token_budget";

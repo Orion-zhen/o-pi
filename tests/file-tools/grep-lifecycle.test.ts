@@ -3,59 +3,20 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { javascriptAdapter } from "../../src/code-index/adapters/javascript.js";
-import { rankingEvidenceSources } from "../../src/file-tools/shared/ranking/evidence.js";
 import { loadTreeSitterParser } from "../../src/code-index/tree-sitter-loader.js";
 import { parseDocumentForAdapter } from "../../src/code-index/syntax-tree.js";
 import type { ContentOperations } from "../../src/filesystem/contracts/content.js";
 import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspace.js";
-import { formatGraphAliasReason, graphNavigationRelation, graphRankingEvidence, isGraphMainCandidate, isGraphNavigationCandidate, type GrepGraphCandidate } from "../../src/file-tools/grep/graph-ranking.js";
 import { AbortGrepParse, GrepParser } from "../../src/file-tools/grep/parser-pool.js";
 import type { GrepGraphSource } from "../../src/file-tools/grep/ports.js";
 import { GrepTool } from "../../src/file-tools/grep/command.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
-import type { GrepScopedFile } from "../../src/file-tools/grep/indexer.js";
-import { createGrepTestContext, deferredVoid, hydrateGrepSourceText } from "./grep-fixtures.js";
+import { createGrepTestContext, deferredVoid } from "./grep-fixtures.js";
 
 const testContext = createGrepTestContext();
 
 describe("grep lifecycle", () => {
-	it("graph ranking 覆盖直接证据、多跳强度、关系意图和 alias 映射", () => {
-		const candidate = (overrides: Partial<GrepGraphCandidate> = {}): GrepGraphCandidate => ({
-			path: "target.ts",
-			confidence: 0.8,
-			hop: 0,
-			reasons: ["definition"],
-			matchedAliases: [],
-			relatedEdges: [],
-			...overrides,
-		});
-		const direct = candidate();
-		expect(isGraphNavigationCandidate(direct)).toBe(true);
-		expect(isGraphNavigationCandidate(candidate({ confidence: 0.4 }))).toBe(false);
-		expect(rankingEvidenceSources(graphRankingEvidence(direct, 1))).toEqual(["repo-map-direct"]);
-		expect(graphRankingEvidence(candidate({ reasons: ["path similarity"] }), 1).familyCount).toBe(0);
-		expect(rankingEvidenceSources(graphRankingEvidence(candidate({ hop: 1, reasons: ["caller"], relatedEdges: [
-			{ hop: 1, confidence: 0.9, resolution: "semantic", relatedFiles: [] },
-		] }), 2))).toEqual(["repo-map-hop-1"]);
-		expect(rankingEvidenceSources(graphRankingEvidence(candidate({ hop: 2, reasons: ["callee"], relatedEdges: [
-			{ hop: 1, confidence: 1, resolution: "syntactic", relatedFiles: [] },
-			{ hop: 2, confidence: 0.7, resolution: "lexical", relatedFiles: [] },
-		] }), 3))).toEqual(["repo-map-hop-2"]);
-		expect(graphRankingEvidence(candidate({ hop: 1, reasons: ["reference"], relatedEdges: [
-			{ hop: 1, confidence: 0.6, resolution: "syntactic", relatedFiles: [] },
-		] }), 4).graph).toBeGreaterThan(0);
-		expect(isGraphMainCandidate(direct, "target")).toBe(true);
-		expect(isGraphMainCandidate(candidate({ hop: 1, reasons: ["caller"] }), "show callers")).toBe(true);
-		expect(isGraphMainCandidate(candidate({ hop: 1, reasons: ["caller"] }), "target")).toBe(false);
-		expect(graphNavigationRelation(candidate({ reasons: ["exact symbol"] }))).toBe("symbol");
-		expect(graphNavigationRelation(candidate({ reasons: ["unknown"] }))).toBeUndefined();
-		const alias = candidate({ reasons: ["alias"], matchedAliases: [{ term: "auth", canonical: "authentication" }] });
-		expect(graphNavigationRelation(alias)).toBe("alias auth->authentication");
-		expect(formatGraphAliasReason(candidate({ matchedAliases: [] }))).toBe("alias");
-		expect(formatGraphAliasReason(candidate({ matchedAliases: [{ term: "Auth", canonical: "auth" }] }))).toBe("alias");
-	});
-
 	it("parser owner 支持本地、worker 和幂等 dispose", async () => {
 		const parser = new GrepParser();
 		const local = await parser.analyzeFile("notes.txt", "needle\n", undefined, false);
@@ -225,60 +186,4 @@ describe("grep lifecycle", () => {
 		}
 	});
 
-	it("external hydration 对预加载、缺失、stale、size 和取消候选安全降级", async () => {
-		await writeFile(path.join(testContext.workspace, "hydrate.txt"), "needle\n");
-		const host = new FileToolsHost();
-		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-hydration" });
-		if (isFailed(opened)) throw new Error(opened.error.message);
-		try {
-			const resolved = await opened.filesystem.paths.resolveExisting("hydrate.txt", { expected: "file", followFinalSymlink: false }, opened.context);
-			if (!resolved.ok || resolved.value.kind !== "file") throw new Error("fixture was not resolved");
-			const metadata = await opened.filesystem.metadata.stat(resolved.value, opened.context);
-			if (!metadata.ok) throw new Error(metadata.error.message);
-			const file: GrepScopedFile = {
-				path: "hydrate.txt",
-				id: resolved.value.id,
-				size: metadata.value.sizeBytes,
-				metadataVersion: metadata.value.version ?? `${metadata.value.sizeBytes}:${metadata.value.modifiedAtMs}`,
-			};
-			const context = { filesystem: opened.filesystem, operation: opened.context, maxFileBytes: 1024 };
-			const preloaded = new Map([[file.path, "cached"]]);
-			expect(await hydrateGrepSourceText(preloaded, new Map(), new Map([[file.path, file]]), [file.path], context)).toBe(preloaded);
-			expect(await hydrateGrepSourceText(new Map(), new Map(), new Map(), [file.path], context)).toEqual(new Map());
-			const hydrated = await hydrateGrepSourceText(new Map(), new Map(), new Map([[file.path, file]]), [file.path], context);
-			expect(hydrated).toEqual(new Map([[file.path, "needle\n"]]));
-			expect(await hydrateGrepSourceText(
-				new Map(),
-				new Map(),
-				new Map([["missing.txt", { ...file, path: "missing.txt" }]]),
-				["missing.txt"],
-				context,
-			)).toEqual(new Map());
-			expect(await hydrateGrepSourceText(new Map(), new Map(), new Map([[file.path, { ...file, metadataVersion: "stale" }]]), [file.path], context)).toEqual(new Map());
-			expect(await hydrateGrepSourceText(new Map(), new Map(), new Map([[file.path, file]]), [file.path], { ...context, maxFileBytes: 1 })).toEqual(new Map());
-			const contentFailure = (code: "binary" | "aborted"): ContentOperations => ({
-				readBytes: opened.filesystem.content.readBytes.bind(opened.filesystem.content),
-				async readText() { return { ok: false, error: { code, message: "injected read failure", path: file.path } }; },
-				decodeText: opened.filesystem.content.decodeText.bind(opened.filesystem.content),
-				sliceText: opened.filesystem.content.sliceText.bind(opened.filesystem.content),
-				scanLines: opened.filesystem.content.scanLines.bind(opened.filesystem.content),
-			});
-			for (const code of ["binary", "aborted"] as const) {
-				const failed = await hydrateGrepSourceText(new Map(), new Map(), new Map([[file.path, file]]), [file.path], {
-					...context,
-					filesystem: { ...opened.filesystem, content: contentFailure(code) },
-				});
-				if (code === "aborted") expect(failed).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
-				else expect(failed).toEqual(new Map());
-			}
-			const abortedResult = await hydrateGrepSourceText(new Map(), new Map(), new Map([[file.path, file]]), [file.path], {
-				...context,
-				operation: { signal: AbortSignal.abort() },
-			});
-			expect(abortedResult).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
-		} finally {
-			opened.dispose();
-			host.dispose();
-		}
-	});
 });

@@ -10,9 +10,9 @@ Repo Map 候选必须经过路径、ignore、新鲜度和结果去重处理，�
 
 ## `grep`
 
-`grep(auto)` 可以使用 Repo Map 的 symbol、alias、relationship 和 architecture 候选，随后用当前文件内容验证主结果。
+`grep(auto)` 与 `literal`/`regex` 共享完整 `ScopeInventory`；Repo Map 通过独立 graph port 提供 symbol、alias、relationship 和 architecture 候选。候选不受本地 parse/semantic Top-K 门控，随后统一用当前文件内容验证 scope、glob、visibility、版本/hash 和 range。
 
-`literal` 和 `regex` 的主结果以实时正文匹配为准。Repo Map 只能补充结构上下文或 related/nearby 结果，不能把没有正文证据的候选标记为 literal 命中。
+`literal` 和 `regex` 的主结果以实时正文匹配为准。Repo Map 只能增强已验证 region，或补充 `related`；不能把没有正文证据的候选标记为 strict 命中。无显式关系意图的 caller/test/import 等结构候选保持在 `related`。
 
 ## `read`
 

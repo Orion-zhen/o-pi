@@ -56,7 +56,7 @@ seed 有数量上限。alias 只代表仓库内已有词汇，不代表模型生
 - `literal` 的主结果必须在当前 code unit 中包含原始大小写敏感文本。
 - symbol ID 和 candidate file hash 必须与当前内容一致。
 
-Repo Map、文本/syntax ranker 和可选 LSP 候选先独立生成，再读取实时源码 hydration。通过验证的 region 才能进入主结果；其他结构候选只能进入 `related`。
+Repo Map、文本/Tree-sitter、本地语义和可选 LSP 候选先独立生成，再由 grep 统一 validator 读取当前正文并检查 scope、glob、visibility、版本/hash 和 range。通过验证的 region 才能进入主结果；其他结构候选只能进入 `related`。外部候选不受本地 parse/semantic Top-K 门控。
 
 `related` 与 File Tools 的 `nearby` 不同：
 

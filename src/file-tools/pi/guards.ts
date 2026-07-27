@@ -2,7 +2,8 @@ import type { GrepNearbyResult, GrepRegion, GrepRelatedResult, GrepSuccess, Trun
 import type { FailedResult } from "../shared/result.js";
 
 const TRUNCATION_REASONS = new Set<TruncationReason>([
-	"depth_limit",
+	"traversal_limit",
+	"text_byte_limit",
 	"semantic_candidate_limit",
 	"result_limit",
 	"token_budget",

@@ -42,9 +42,9 @@ TUI 展示不受模型可见 ASCII 协议限制，可以使用图标和其他显
 - `ls` 限制直属 entry 数；
 - `read` 限制行数和字节数；
 - `find` 限制扫描条目、具体结果和模型文本；
-- `grep` 限制扫描文件、代码区域和模型文本。
+- `grep` 配置 scope 深度、AST 单文件增强字节、结果条数和模型文本 token；正文扫描本身使用 filesystem line stream，不受旧扫描文件/字节字段限制。
 
-预算不足时，输出必须保留状态首行，不能让尾部截断掩盖结果不完整。`read` 返回 continuation 行号；`find` 区分 `scanTruncated`、`resultLimited` 和 `outputTruncated`；`grep` 区分扫描跳过、候选上限和输出降级。
+预算不足时，输出必须保留状态首行，不能让尾部截断掩盖结果不完整。`read` 返回 continuation 行号；`find` 区分 `scanTruncated`、`resultLimited` 和 `outputTruncated`；`grep` 在 `truncated_by` 中区分 `traversal_limit`、`text_byte_limit`、`semantic_candidate_limit`、`result_limit` 和 `token_budget`。
 
 正文、片段和 signature 按预算降级，而不是随机截断。详细 token 估算见 [Token Counter](../token-counter.md)。
 

@@ -19,6 +19,10 @@ describe("file-tools config", () => {
 		delete process.env.PI_FILE_TOOLS_CONFIG;
 		expect(await loadedConfig(workspace)).toMatchObject({
 			limits: {
+				grep_max_depth: 12,
+				grep_ast_max_file_bytes: 262144,
+				grep_output_token_budget: 4000,
+				grep_result_limit: 24,
 				read_suggestion_limit: 3,
 				read_max_file_bytes: 16 * 1024 * 1024,
 				write_max_file_bytes: 16 * 1024 * 1024,
@@ -127,7 +131,16 @@ describe("file-tools config", () => {
 			grep_result_limit: 12,
 		} });
 
-		for (const [field, value] of [["grep_max_depth", -1], ["grep_max_depth", 257], ["grep_ast_max_file_bytes", 1023]] as const) {
+		for (const [field, value] of [
+			["grep_max_depth", -1],
+			["grep_max_depth", 257],
+			["grep_ast_max_file_bytes", 1023],
+			["grep_ast_max_file_bytes", 104857601],
+			["grep_output_token_budget", 99],
+			["grep_output_token_budget", 10001],
+			["grep_result_limit", 0],
+			["grep_result_limit", 51],
+		] as const) {
 			const invalidPath = path.join(workspace, `invalid-${field}-${value}.jsonc`);
 			await writeFile(invalidPath, JSON.stringify({ limits: { [field]: value } }));
 			process.env.PI_FILE_TOOLS_CONFIG = invalidPath;

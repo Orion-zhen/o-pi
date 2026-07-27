@@ -143,10 +143,10 @@ describe("grep ScopeInventory", () => {
 		await writeFile(path.join(testContext.workspace, "src", "nested", "deep", "three.ts"), "three");
 		const limited = expectInventorySuccess(await inventoryWorkspace(testContext.workspace, { paths: ["."], glob: "src/**/*.ts" }, 2));
 		expect(limited.files.map((file) => file.path)).toEqual(["src/one.ts"]);
-		expect(limited.truncationReasons).toEqual(["depth_limit"]);
+		expect(limited.truncationReasons).toEqual(["traversal_limit"]);
 		const nestedScope = expectInventorySuccess(await inventoryWorkspace(testContext.workspace, { paths: ["src"] }, 2));
 		expect(nestedScope.files.map((file) => file.path)).toEqual(["src/nested/two.ts", "src/one.ts"]);
-		expect(nestedScope.truncationReasons).toEqual(["depth_limit"]);
+		expect(nestedScope.truncationReasons).toEqual(["traversal_limit"]);
 	});
 
 	it("保留 scope union 的成功结果和 blocked/missing 部分错误", async () => {

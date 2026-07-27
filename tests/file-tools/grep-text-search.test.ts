@@ -94,7 +94,7 @@ describe("grep text search", () => {
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "Needle42", match: "literal" }));
 		expect(result.regions.map((region) => region.path)).toEqual(["a.txt", "b.txt"]);
 		expect(result.stats).toMatchObject({ searched_files: 2, searched_bytes: 1418, parsed_files: 0 });
-		expect(result.truncated_by).not.toContain("depth_limit");
+		expect(result.truncated_by).not.toContain("traversal_limit");
 	});
 
 	it("TextScanner 对命中存储设界并显式报告候选截断", async () => {
@@ -301,12 +301,12 @@ describe("grep text search", () => {
 		const result = packRegions([oversized, second, third], {
 			resultLimit: 2,
 			tokenBudget: 180,
-			truncationReasons: ["semantic_candidate_limit", "depth_limit"],
+			truncationReasons: ["semantic_candidate_limit", "traversal_limit"],
 		});
 
 		expect(result.regions.map((region) => region.path)).toEqual(["b-second.ts", "c-third.ts"]);
 		expect(result.truncated_by).toEqual([
-			"depth_limit",
+			"traversal_limit",
 			"semantic_candidate_limit",
 			"result_limit",
 			"token_budget",

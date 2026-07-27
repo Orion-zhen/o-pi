@@ -60,7 +60,7 @@ port 由消费者工具声明，而不是由外部子系统或 filesystem 声明
 - read：缺失路径、structure/graph context、inline image；skill locator 在 adapter 边界预处理；
 - write/edit：diagnostics、mutation observer、共享 text diff contract；
 - find：Repo Map graph candidates；
-- grep：LSP symbol 与 Repo Map graph candidates。
+- grep：独立 LSP symbol 与 Repo Map graph candidates；两者不反向导入 grep 实现。
 
 port 输入输出使用工具自己的 DTO 和 opaque ref。所有调用都有 safe wrapper；未配置、失败、超时或取消时保留基础行为。find/grep 会重新检查候选 scope、visibility、kind、symlink、glob、live content/hash/range 和预算，外部结果不能绕过 filesystem 数据平面。
 
@@ -85,7 +85,7 @@ port 输入输出使用工具自己的 DTO 和 opaque ref。所有调用都有 s
 | invocation lease | policy/snapshot-bound filesystem 与组合 bridge attachment | abort 本 invocation 并 detach observation bridge |
 | `ObservationStore` | canonical identity 到 content version 的 session map | session/host 结束时 clear |
 | `FindTool` | suggestion worker/pool | abort pending work 并 dispose worker |
-| `GrepTool` | derived index、共享 in-flight build、parser/worker | abort pending work 并 dispose index/parser/worker |
+| `GrepTool` | 派生 AST cache、parser/worker 与 active invocation | abort pending work 并 dispose parser/worker/cache owner |
 | lazy LSP / Repo Map | 各自 manager、query/storage state | extension shutdown 时仅释放已激活实例 |
 
 shutdown 顺序是：拒绝新 invocation，dispose 已加载 tool instances，dispose Repo Map，shutdown LSP，最后 dispose host/filesystem。所有 `dispose` 幂等。

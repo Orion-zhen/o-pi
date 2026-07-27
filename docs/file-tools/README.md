@@ -77,12 +77,12 @@ blocked path  → 不可列出、搜索、读取或写入
 
 ### 输出、截断和错误
 
-模型可见结果使用紧凑文本或短标签，完整结构保存在工具 `details` 中。目录条目、搜索结果、读取内容和代码片段都有数量或 token 限制；结果被限制时会明确返回 `truncated`、`scanTruncated`、`resultLimited` 或 continuation 信息，而不是假装完整。
+模型可见结果使用紧凑文本或短标签，完整结构保存在工具 `details` 中。目录条目、搜索结果、读取内容和代码片段都有数量或 token 限制；`grep` 通过 `truncated_by` 暴露遍历、正文字节、语义候选、结果和 token 原因，不把多种限制合并成一个布尔字段。
 
 常见恢复方式：
 
 - 目录太大：用 `ls` 查看更具体的子目录。
-- `find` 或 `grep` 被截断：缩小 `path`、增加 glob 约束或拆分查询。
+- `find` 或 `grep` 被截断：缩小 `path`、增加 glob 约束或拆分查询；先根据 `truncated_by` 判断是遍历、正文、语义、结果还是 token 限制。
 - `read` 被截断：根据 continuation 读取下一段。
 - `READ_REQUIRED`：先重新 `read`，再生成 `edit`。
 - `STALE_READ`：文件在读取后发生变化，重新 `read` 后再编辑。
@@ -137,7 +137,7 @@ blocked path  → 不可列出、搜索、读取或写入
 - 默认 blocked `.git/`。
 - `ls` 最多 200 项。
 - `read` 最多 2000 行或 51200 字节。
-- `find` 和 `grep` 受结果数、扫描数和模型输出 token budget 限制。
+- `find` 受结果数、扫描条目数和模型输出 token budget 限制；`grep` 只配置 scope 深度、AST 单文件字节、结果条数和模型输出 token budget，正文事实扫描不受旧文件数/累计字节/单文件字节字段限制。
 
 完整字段、优先级和缓存行为见 [配置](configuration.md)。
 

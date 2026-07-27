@@ -225,7 +225,7 @@ binary 不存在、TCP endpoint 不可达或 initialize 失败时 server 标记�
 ## 行为
 
 - `read`：部分行范围读取时可返回 `lsp.enclosing_symbol`；内容截断时可返回紧凑 `lsp.outline`，根和嵌套后代共同受全树 symbol 上限约束。outline 关闭或上限为 `0` 且不需要 enclosing symbol 时不会启动 LSP。只为 `documentSymbol` 打开的文档会在请求后关闭，但保留有界的本地内容版本和 symbol cache；相同内容的暖态读取直接复用 cache，不重新打开文档或发送 symbol 请求。
-- `grep`：仅在 `match=auto` 且 query 像 symbol 时调用 workspace/symbol；请求只发送给 ignore/glob 过滤后实际 scope paths 对应的 server，空 scope 或无相关 server 时不创建 client。多个 server 并行查询但按配置顺序稳定合并；symbol、resolve 和 reference 的结果路径必须仍归属于返回它的 server，因此 fallback server 不会混入专用文件结果。scope 外 URI 在 resolve/reference 前过滤；URI-only symbol 只在 server 声明 resolveProvider 时小批量并发解析，失败后继续补位。`grep.references` 开启后只查询最终接收的 symbol，并以有界并发、全局去重和最终有效预算合并引用。调用方取消和统一操作 deadline 会贯穿 query、resolve、references 并触发协议级取消；所有 LSP 失败继续按普通 grep 降级。
+- `grep`：仅在 `match=auto` 且 query 像 symbol 时调用 workspace/symbol；请求范围来自完整 `ScopeInventory` 的 scope+glob allowed paths，不受本地解析或词法 Top-K 门控。多个 server 并行查询但按配置顺序稳定合并；symbol、resolve 和 reference 的结果由 grep 统一检查 scope、visibility、glob、live version/hash 和 range。`grep.references` 开启后只查询有效接收的 symbol，并以有界并发、全局去重和最终预算合并引用。调用方取消和统一操作 deadline 会贯穿 query、resolve、references 并触发协议级取消；所有 LSP 失败继续按独立文本链降级。
 - `write`：写盘成功后先向已启动且 watcher 匹配的 server 发送 create/change 事件；配置文件不需要属于源码路由，也不会因此启动新 server。同一并行 mutation 批次按 client 合并 watcher 通知，随后先同步该 client 的全部文档。server 声明 `diagnosticProvider` 时以有界并发 pull diagnostics；未声明 pull 但公开 `typescript.tsserverRequest` 命令时走 TSLS 同步诊断 fast path；其余 server 并行等待 publish。诊断错误不改变 `status: "written"`。
 - `edit`：preview 不调用 LSP；成功写盘后发送 watched-file change，并只用同一 workspace/server source 的编辑前 baseline 计算 diagnostics diff；不同 source 的 baseline 标记为 unknown，诊断错误不改变 `status: "applied"`。
 - `ls` / `find`：不接入 LSP。
