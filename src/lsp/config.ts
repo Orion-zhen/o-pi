@@ -33,6 +33,7 @@ const defaultConfig: LspConfig = {
 		max_wait_ms: 3000,
 		settle_ms: 150,
 		max_items: 8,
+		max_related_locations: 2,
 		min_severity: "warning",
 	},
 	read: {
@@ -118,6 +119,7 @@ function mergeConfig(raw: RawLspConfig): LspConfig {
 			max_wait_ms: raw.diagnostics?.max_wait_ms ?? base.diagnostics.max_wait_ms,
 			settle_ms: raw.diagnostics?.settle_ms ?? base.diagnostics.settle_ms,
 			max_items: raw.diagnostics?.max_items ?? base.diagnostics.max_items,
+			max_related_locations: raw.diagnostics?.max_related_locations ?? base.diagnostics.max_related_locations,
 			min_severity: raw.diagnostics?.min_severity ?? base.diagnostics.min_severity,
 		},
 		read: {

@@ -82,6 +82,7 @@ export interface LspConfig {
 		max_wait_ms: number;
 		settle_ms: number;
 		max_items: number;
+		max_related_locations: number;
 		min_severity: LspSeverityName;
 	};
 	read: {

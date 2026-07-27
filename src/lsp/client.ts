@@ -19,6 +19,7 @@ import {
 	DidCloseTextDocumentNotification,
 	DidOpenTextDocumentNotification,
 	DidSaveTextDocumentNotification,
+	DocumentDiagnosticRequest,
 	ExitNotification,
 	InitializedNotification,
 	InitializeRequest,
@@ -27,12 +28,15 @@ import {
 	ShutdownRequest,
 	TextDocumentSyncKind,
 	type Diagnostic,
+	type DocumentDiagnosticReport,
+	type FullDocumentDiagnosticReport,
 	type InitializeResult,
 	type Location,
 	type LogMessageParams,
 	type ServerCapabilities,
 	type SymbolInformation,
 	type TextDocumentSyncOptions,
+	type UnchangedDocumentDiagnosticReport,
 	type WorkspaceSymbol,
 } from "vscode-languageserver-protocol";
 
@@ -44,6 +48,7 @@ import { connectLspTransport, type LspTransportConnection } from "./transport.js
 import type {
 	LspClientDocumentContext,
 	LspConfig,
+	LspDiagnosticSnapshot,
 	LspDocumentSymbols,
 	LspProgressNotification,
 	LspRequestOptions,
@@ -54,6 +59,11 @@ import type {
 import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "./uri.js";
 
 const LAST_ERROR_MAX_CHARS = 1024;
+
+type LspSaveDiagnosticsResult =
+	| { kind: "unavailable" }
+	| { kind: "publish" }
+	| { kind: "pull"; snapshot?: LspDiagnosticSnapshot };
 
 /** 单个 language server client，封装 transport、initialize、文档同步、symbol 和诊断通知。 */
 export class LspClient implements LspFeatureSession {
@@ -70,6 +80,7 @@ export class LspClient implements LspFeatureSession {
 	private readonly transportFailureRejectors = new Set<(error: Error) => void>();
 	private readonly documents: LspDocuments;
 	private readonly diagnosticsSource: string;
+	private readonly diagnosticResultIds = new Map<string, string>();
 	private readonly serverRequestHandlers = new Map<string, LspServerRequestHandler>();
 	private readonly serverRequestDisposables = new Map<string, Disposable>();
 	private readonly diagnosticListeners = new Set<(params: { uri: string; diagnostics: Diagnostic[]; version?: number }) => void>();
@@ -192,20 +203,33 @@ export class LspClient implements LspFeatureSession {
 			const connection = await this.readyConnection();
 			if (connection === undefined) return false;
 			const document = this.documentContext(filePath, text);
-			const saved = await this.documents.enqueue(document.uri, async () => {
-				const synchronized = await this.synchronizeDocument(connection, document);
-				if (!synchronized) return false;
-				const policy = textDocumentSyncPolicy(this.serverCapabilities);
-				if (!policy.save) return true;
-				const sent = await this.sendNotification(connection, (active) => active.sendNotification(DidSaveTextDocumentNotification.type, {
-					textDocument: { uri: document.uri },
-					...(policy.includeText ? { text: document.text } : {}),
-				}));
-				if (sent) this.bumpIdleTimer();
-				return sent;
-			});
+			const saved = await this.documents.enqueue(document.uri, async () => this.synchronizeAndSave(connection, document));
 			await this.trimDocuments(connection, document.uri);
 			return saved;
+		});
+	}
+
+	async saveAndCollectDiagnostics(filePath: string, text: string, options: LspRequestOptions): Promise<LspSaveDiagnosticsResult> {
+		return this.withOperation(async () => {
+			const connection = await this.readyConnection();
+			if (connection === undefined) return { kind: "unavailable" };
+			const document = this.documentContext(filePath, text);
+			const result = await this.documents.enqueue(document.uri, async (): Promise<LspSaveDiagnosticsResult> => {
+				if (!await this.synchronizeAndSave(connection, document)) return { kind: "unavailable" };
+				const provider = this.serverCapabilities?.diagnosticProvider;
+				if (typeof provider !== "object" || provider === null) return { kind: "publish" };
+				const previousResultId = this.diagnosticResultIds.get(document.uri);
+				const report = await this.requestOnConnection(connection, DocumentDiagnosticRequest.type, {
+					textDocument: { uri: document.uri },
+					...(provider.identifier === undefined ? {} : { identifier: provider.identifier }),
+					...(previousResultId === undefined ? {} : { previousResultId }),
+				}, options);
+				if (report === undefined) return { kind: "pull" };
+				const snapshot = this.applyDocumentDiagnosticReport(document.uri, report);
+				return snapshot === undefined ? { kind: "pull" } : { kind: "pull", snapshot };
+			});
+			await this.trimDocuments(connection, document.uri);
+			return result;
 		});
 	}
 
@@ -231,43 +255,7 @@ export class LspClient implements LspFeatureSession {
 	async request<P, R, E>(type: RequestType<P, R, E>, params: P, options: LspRequestOptions = {}): Promise<R | undefined> {
 		return this.withOperation(async () => {
 			const connection = await this.readyConnection();
-			if (connection === undefined) return undefined;
-			const source = new CancellationTokenSource();
-			const timeoutMs = options.timeoutMs ?? this.config.request_timeout_ms;
-			let timer: NodeJS.Timeout | undefined;
-			let rejectCancellation: (error: Error) => void = () => undefined;
-			const cancelled = new Promise<never>((_resolve, reject) => {
-				rejectCancellation = reject;
-			});
-			const cancel = (message: string): void => {
-				source.cancel();
-				rejectCancellation(new Error(message));
-			};
-			const onAbort = (): void => cancel("request cancelled");
-			if (options.signal?.aborted === true) onAbort();
-			else options.signal?.addEventListener("abort", onAbort, { once: true });
-			const timeout = new Promise<never>((_resolve, reject) => {
-				timer = setTimeout(() => {
-					source.cancel();
-					reject(new Error("timeout"));
-				}, timeoutMs);
-			});
-			try {
-				const result = await Promise.race([
-					this.withTransportFailure(() => connection.sendRequest(type.method, params, source.token) as Promise<R>),
-					timeout,
-					cancelled,
-				]);
-				this.bumpIdleTimer();
-				return result;
-			} catch (error) {
-				this.lastError = errorMessage(error);
-				return undefined;
-			} finally {
-				if (timer !== undefined) clearTimeout(timer);
-				options.signal?.removeEventListener("abort", onAbort);
-				source.dispose();
-			}
+			return connection === undefined ? undefined : this.requestOnConnection(connection, type, params, options);
 		});
 	}
 
@@ -305,6 +293,91 @@ export class LspClient implements LspFeatureSession {
 
 	private documentContext(filePath: string, text: string): LspClientDocumentContext {
 		return this.documents.context(filePath, text, languageIdForServerPath(this.server, this.root, filePath));
+	}
+
+	private async synchronizeAndSave(connection: MessageConnection, document: LspClientDocumentContext): Promise<boolean> {
+		if (!await this.synchronizeDocument(connection, document)) return false;
+		const policy = textDocumentSyncPolicy(this.serverCapabilities);
+		if (!policy.save) return true;
+		const sent = await this.sendNotification(connection, (active) => active.sendNotification(DidSaveTextDocumentNotification.type, {
+			textDocument: { uri: document.uri },
+			...(policy.includeText ? { text: document.text } : {}),
+		}));
+		if (sent) this.bumpIdleTimer();
+		return sent;
+	}
+
+	private async requestOnConnection<P, R, E>(
+		connection: MessageConnection,
+		type: RequestType<P, R, E>,
+		params: P,
+		options: LspRequestOptions,
+	): Promise<R | undefined> {
+		const source = new CancellationTokenSource();
+		const timeoutMs = options.timeoutMs ?? this.config.request_timeout_ms;
+		let timer: NodeJS.Timeout | undefined;
+		let rejectCancellation: (error: Error) => void = () => undefined;
+		const cancelled = new Promise<never>((_resolve, reject) => {
+			rejectCancellation = reject;
+		});
+		const cancel = (message: string): void => {
+			source.cancel();
+			rejectCancellation(new Error(message));
+		};
+		const onAbort = (): void => cancel("request cancelled");
+		if (options.signal?.aborted === true) onAbort();
+		else options.signal?.addEventListener("abort", onAbort, { once: true });
+		const timeout = new Promise<never>((_resolve, reject) => {
+			timer = setTimeout(() => {
+				source.cancel();
+				reject(new Error("timeout"));
+			}, timeoutMs);
+		});
+		try {
+			const result = await Promise.race([
+				this.withTransportFailure(() => connection.sendRequest(type.method, params, source.token) as Promise<R>),
+				timeout,
+				cancelled,
+			]);
+			this.bumpIdleTimer();
+			return result;
+		} catch (error) {
+			this.lastError = errorMessage(error);
+			return undefined;
+		} finally {
+			if (timer !== undefined) clearTimeout(timer);
+			options.signal?.removeEventListener("abort", onAbort);
+			source.dispose();
+		}
+	}
+
+	private applyDocumentDiagnosticReport(uri: string, report: DocumentDiagnosticReport): LspDiagnosticSnapshot | undefined {
+		for (const [relatedUri, relatedReport] of Object.entries(report.relatedDocuments ?? {})) {
+			this.applyDiagnosticReport(relatedUri, relatedReport);
+		}
+		return this.applyDiagnosticReport(uri, report);
+	}
+
+	private applyDiagnosticReport(
+		uri: string,
+		report: FullDocumentDiagnosticReport | UnchangedDocumentDiagnosticReport,
+	): LspDiagnosticSnapshot | undefined {
+		if (report.kind === "unchanged") {
+			const snapshot = this.diagnostics.snapshot(this.diagnosticsSource, uri);
+			if (!snapshot.known) return undefined;
+			this.diagnosticResultIds.set(uri, report.resultId);
+			return snapshot;
+		}
+		if (report.resultId === undefined) this.diagnosticResultIds.delete(uri);
+		else this.diagnosticResultIds.set(uri, report.resultId);
+		return this.diagnostics.update(
+			this.diagnosticsSource,
+			uri,
+			report.items,
+			this.config.diagnostics.min_severity,
+			this.documents.currentVersion(uri),
+			this.config.diagnostics.max_related_locations,
+		);
 	}
 
 	private async synchronizeDocument(connection: MessageConnection, document: LspClientDocumentContext): Promise<boolean> {
@@ -438,6 +511,7 @@ export class LspClient implements LspFeatureSession {
 			if (transport !== undefined) await transport.close();
 		} finally {
 			this.documents.clear();
+			this.diagnosticResultIds.clear();
 		}
 	}
 
@@ -479,6 +553,7 @@ export class LspClient implements LspFeatureSession {
 				diagnostics,
 				this.config.diagnostics.min_severity,
 				params.version,
+				this.config.diagnostics.max_related_locations,
 			);
 			this.notifyListeners(this.diagnosticListeners, {
 				uri: params.uri,
@@ -517,7 +592,8 @@ export class LspClient implements LspFeatureSession {
 							synchronization: { didSave: true },
 							documentSymbol: { hierarchicalDocumentSymbolSupport: true },
 							references: { dynamicRegistration: false },
-							publishDiagnostics: { relatedInformation: false },
+							diagnostic: { dynamicRegistration: false, relatedDocumentSupport: true },
+							publishDiagnostics: { relatedInformation: true },
 						},
 						workspace: { symbol: { resolveSupport: { properties: ["location.range"] } } },
 					},
@@ -615,6 +691,7 @@ export class LspClient implements LspFeatureSession {
 		this.transport = undefined;
 		this.serverCapabilities = undefined;
 		this.documents.clear();
+		this.diagnosticResultIds.clear();
 		this.disposeServerRequestDisposables();
 		connection?.dispose();
 		const pending = (async () => {

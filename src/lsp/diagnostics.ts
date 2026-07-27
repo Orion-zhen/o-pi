@@ -1,8 +1,9 @@
 import path from "node:path";
-import type { Diagnostic } from "vscode-languageserver-protocol";
+import type { Diagnostic, DiagnosticRelatedInformation } from "vscode-languageserver-protocol";
 import { DiagnosticSeverity } from "vscode-languageserver-protocol";
 
 import type { LspDiagnosticItem, LspDiagnosticSnapshot, LspDiagnosticsSummary, LspSeverityName } from "./types.js";
+import { fileUriToPath, workspaceRelativePath } from "./uri.js";
 
 const severityOrder: Record<LspSeverityName, number> = {
 	error: 1,
@@ -25,12 +26,15 @@ export class DiagnosticsLedger {
 		diagnostics: readonly Diagnostic[],
 		minSeverity: LspSeverityName,
 		version?: number,
+		maxRelatedLocations = 0,
 	): LspDiagnosticSnapshot {
 		this.nextRevision += 1;
 		const snapshot: LspDiagnosticSnapshot = {
 			source,
 			uri,
-			items: diagnostics.map(toItem).filter((item) => severityOrder[item.severity] <= severityOrder[minSeverity]),
+			items: diagnostics
+				.map((diagnostic) => toItem(source, diagnostic, maxRelatedLocations))
+				.filter((item) => severityOrder[item.severity] <= severityOrder[minSeverity]),
 			known: true,
 			revision: this.nextRevision,
 			updatedAt: Date.now(),
@@ -182,16 +186,32 @@ function entryKey(source: string, uri: string): string {
 	return `${source}\0${uri}`;
 }
 
-function toItem(diagnostic: Diagnostic): LspDiagnosticItem {
+function toItem(source: string, diagnostic: Diagnostic, maxRelatedLocations: number): LspDiagnosticItem {
+	const message = normalizeMessage(diagnosticMessage(diagnostic.message));
+	const related = diagnostic.relatedInformation
+		?.slice(0, maxRelatedLocations)
+		.map((information) => formatRelatedInformation(source, information));
 	const item: LspDiagnosticItem = {
 		severity: severityName(diagnostic.severity),
 		line: diagnostic.range.start.line + 1,
 		column: diagnostic.range.start.character + 1,
-		message: normalizeMessage(diagnosticMessage(diagnostic.message)),
+		message: related === undefined || related.length === 0 ? message : `${message} [related: ${related.join("; ")}]`,
 	};
 	if (diagnostic.code !== undefined) item.code = String(diagnostic.code);
 	if (diagnostic.source !== undefined) item.source = diagnostic.source;
 	return item;
+}
+
+function formatRelatedInformation(source: string, information: DiagnosticRelatedInformation): string {
+	const filePath = fileUriToPath(information.location.uri);
+	const separator = source.lastIndexOf("\0");
+	const root = separator < 0 ? undefined : source.slice(0, separator);
+	const location = filePath === undefined
+		? information.location.uri
+		: root === undefined ? filePath : workspaceRelativePath(root, filePath) ?? filePath;
+	const line = information.location.range.start.line + 1;
+	const column = information.location.range.start.character + 1;
+	return `${location}:${line}:${column} ${normalizeMessage(information.message)}`;
 }
 
 function countKeys(items: readonly LspDiagnosticItem[]): Map<string, number> {

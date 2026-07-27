@@ -307,10 +307,17 @@ export class LspManager {
 		if (client === undefined) return emptySummary("unavailable", baselineState(baseline, expectedSource, uri));
 		const source = client.diagnosticSource();
 		const capturedRevision = this.diagnostics.revision(source, uri);
-		const changed = await client.didOpenOrChange(filePath, text);
-		if (!changed) return emptySummary("unavailable", baselineState(baseline, source, uri));
-		const saved = await client.didSave(filePath, text);
-		if (!saved) return emptySummary("unavailable", baselineState(baseline, source, uri));
+		const collected = await client.saveAndCollectDiagnostics(filePath, text, {
+			timeoutMs: Math.max(1, config.config.diagnostics.max_wait_ms),
+		});
+		if (collected.kind === "unavailable") return emptySummary("unavailable", baselineState(baseline, source, uri));
+		if (collected.kind === "pull") {
+			const current = this.diagnostics.snapshot(source, uri);
+			const snapshot = collected.snapshot ?? (current.revision > capturedRevision ? current : undefined);
+			return snapshot === undefined
+				? summarizeDiagnostics(current, baseline, config.config.diagnostics.max_items, "timeout")
+				: summarizeDiagnostics(snapshot, baseline, config.config.diagnostics.max_items);
+		}
 		const snapshot = await this.diagnostics.waitForNewer(
 			source,
 			uri,

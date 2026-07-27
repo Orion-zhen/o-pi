@@ -95,6 +95,10 @@ describe("lsp transport", () => {
 		expect(fake.messages.find((message) => message.method === "initialize")).toMatchObject({
 			params: {
 				capabilities: {
+					textDocument: {
+						diagnostic: { dynamicRegistration: false, relatedDocumentSupport: true },
+						publishDiagnostics: { relatedInformation: true },
+					},
 					workspace: { symbol: { resolveSupport: { properties: ["location.range"] } } },
 				},
 			},
@@ -451,6 +455,70 @@ describe("lsp transport", () => {
 		expect(received).toEqual([5, 1, undefined]);
 	});
 
+	it("didWrite 优先 pull diagnostics，复用 resultId 并保存 related documents", async () => {
+		const uri = pathToFileUri(path.join(workspace, "a.ts"));
+		const relatedUri = pathToFileUri(path.join(workspace, "related.ts"));
+		let pulls = 0;
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: {
+					diagnosticProvider: {
+						identifier: "typescript",
+						interFileDependencies: true,
+						workspaceDiagnostics: false,
+					},
+					textDocumentSync: { openClose: true, change: 1, save: true },
+				} } });
+			} else if (message.method === "textDocument/diagnostic") {
+				pulls += 1;
+				if (pulls === 1) {
+					send(socket, { id: message.id, result: {
+						kind: "full",
+						resultId: "current-r1",
+						items: [diagnostic("pulled error", 1)],
+						relatedDocuments: {
+							[relatedUri]: {
+								kind: "full",
+								resultId: "related-r1",
+								items: [diagnostic("related error", 2)],
+							},
+						},
+					} });
+				} else {
+					send(socket, { id: message.id, result: { kind: "unchanged", resultId: "current-r1" } });
+				}
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		await writeConfig(
+			{ type: "tcp", host: "127.0.0.1", port: fake.port },
+			{ diagnostics: { enabled: true, max_wait_ms: 100, settle_ms: 0, max_items: 8, max_related_locations: 2, min_severity: "warning" } },
+		);
+		manager = new LspManager();
+		const file = path.join(workspace, "a.ts");
+		await expect(manager.didWrite(workspace, file, "const a = 1;\n")).resolves.toMatchObject({
+			status: "errors",
+			items: [{ message: "pulled error" }],
+		});
+		const baseline = await manager.beforeDiagnostics(workspace, file);
+		await expect(manager.didWrite(workspace, file, "const a = 2;\n", baseline)).resolves.toMatchObject({
+			status: "errors",
+			new_errors: 0,
+			items: [{ message: "pulled error" }],
+		});
+		await expect(manager.knownDiagnostics(workspace, "related.ts")).resolves.toEqual([
+			{ path: "related.ts", items: [expect.objectContaining({ message: "related error" })] },
+		]);
+		const requests = fake.messages.filter((message) => message.method === "textDocument/diagnostic");
+		expect(requests).toHaveLength(2);
+		expect(requests[0]).toMatchObject({ params: { textDocument: { uri }, identifier: "typescript" } });
+		expect(requests[0]?.params).not.toHaveProperty("previousResultId");
+		expect(requests[1]).toMatchObject({ params: { textDocument: { uri }, identifier: "typescript", previousResultId: "current-r1" } });
+	});
+
 	it("didWrite 只接受 captured revision 之后的 diagnostics，旧快照不能伪装成功", async () => {
 		const uri = pathToFileUri(path.join(workspace, "a.ts"));
 		const fake = await createFakeServer((message, socket) => {
@@ -485,6 +553,7 @@ describe("lsp transport", () => {
 			status: "timeout",
 			total_items: 0,
 		});
+		expect(fake.methods).not.toContain("textDocument/diagnostic");
 	});
 
 	it("capability 不支持时不发送不适用的 feature request", async () => {

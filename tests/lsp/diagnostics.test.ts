@@ -74,6 +74,32 @@ describe("lsp diagnostics", () => {
 		});
 	});
 
+	it("按配置限制 related locations 并保留 workspace 相对位置", () => {
+		const ledger = new DiagnosticsLedger();
+		const relatedDiagnostic = diag(DiagnosticSeverity.Error, 1, 1, "conflict");
+		relatedDiagnostic.relatedInformation = [
+			{
+				location: {
+					uri: pathToFileURL("/repo/first.ts").toString(),
+					range: { start: { line: 4, character: 2 }, end: { line: 4, character: 3 } },
+				},
+				message: "first declaration",
+			},
+			{
+				location: {
+					uri: pathToFileURL("/repo/second.ts").toString(),
+					range: { start: { line: 6, character: 1 }, end: { line: 6, character: 2 } },
+				},
+				message: "second declaration",
+			},
+		];
+
+		ledger.update(source, uri, [relatedDiagnostic], "warning", undefined, 1);
+		expect(ledger.snapshot(source, uri).items[0]?.message).toBe(
+			"conflict [related: first.ts:5:3 first declaration]",
+		);
+	});
+
 	it("限制 max_items 并按 min_severity 过滤", () => {
 		const ledger = new DiagnosticsLedger();
 		ledger.update(

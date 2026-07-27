@@ -21,6 +21,7 @@ describe("lsp config", () => {
 		const loaded = await loadLspConfig();
 		expect(loaded).toEqual({ path: path.join(dir, "missing.jsonc"), config: defaultLspConfig() });
 		expect(loaded.config.max_open_documents).toBe(64);
+		expect(loaded.config.diagnostics.max_related_locations).toBe(2);
 		expect(loaded.config.servers[0]).toMatchObject({
 			id: "typescript",
 			fallback: false,
@@ -41,7 +42,7 @@ describe("lsp config", () => {
 			`{
 				"exclude_paths": ["~"],
 				"request_timeout_ms": 700,
-				"diagnostics": { "max_items": 3, "min_severity": "error", },
+				"diagnostics": { "max_items": 3, "max_related_locations": 1, "min_severity": "error", },
 				"servers": {
 					"demo": {
 						"command": ["demo-lsp", "--stdio"],
@@ -56,7 +57,7 @@ describe("lsp config", () => {
 			config: {
 				request_timeout_ms: 700,
 				exclude_paths: [os.homedir()],
-				diagnostics: { max_items: 3, min_severity: "error" },
+				diagnostics: { max_items: 3, max_related_locations: 1, min_severity: "error" },
 				servers: [{
 					id: "demo",
 					enabled: true,
@@ -71,6 +72,7 @@ describe("lsp config", () => {
 	it.each([
 		["未知顶层字段", { unknown: true }],
 		["非法诊断级别", { diagnostics: { min_severity: "fatal" } }],
+		["过多 related locations", { diagnostics: { max_related_locations: 11 } }],
 		["旧 servers 数组格式", { servers: [{ id: "demo", command: "demo", extensions: [".demo"] }] }],
 		["非法 server ID", { servers: { "1demo": { command: ["demo"], languages: { demo: "*.demo" } } } }],
 		["空 selector", { servers: { demo: { command: ["demo"], languages: { demo: "" } } } }],
