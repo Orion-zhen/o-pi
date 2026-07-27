@@ -82,7 +82,7 @@
 
 		"media": {
 			// auto: 向支持图像的模型附带统一排序后的单张主图；off: 只返回文本。
-			"mode": "auto",
+			"mode": "off",
 			// 主图解压后响应上限。
 			"response_bytes": 5242880
 		},
