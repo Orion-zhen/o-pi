@@ -122,7 +122,7 @@ describe("Repo Map query and file-tool integration", () => {
 		expect(JSON.stringify(staleResult)).not.toContain("return 1");
 	});
 
-	it("Repo Map candidates enhance literal/regex within existing result and token limits", async () => {
+	it("literal/regex remain independent of Repo Map and within result/token limits", async () => {
 		const sources = new Map([
 			["a.ts", "export function Needle() { return 'literalNeedle'; }\n"],
 			["b.ts", "export function caller() { return Needle(); }\n"],
@@ -136,8 +136,9 @@ describe("Repo Map query and file-tool integration", () => {
 			expect(result.regions.length).toBeGreaterThan(0);
 			expect(result.regions.length).toBeLessThanOrEqual(8);
 			expect(result.approx_tokens).toBeLessThanOrEqual(1600);
-			expect(result.regions.some((region) => region.sources.includes("repo-map-direct"))).toBe(true);
-			expect(result.regions.every((region) => (region.match_lines?.length ?? 0) > 0)).toBe(true);
+			expect(result.regions.some((region) => region.sources.includes("repo-map-direct"))).toBe(false);
+			expect(result.regions.every((region) => region.sources.includes(match === "literal" ? "text-literal" : "text-regex"))).toBe(true);
+			expect(result.regions.every((region) => region.query_match === "verified" && (region.match_lines?.length ?? 0) > 0)).toBe(true);
 		}
 	});
 });

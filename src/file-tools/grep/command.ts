@@ -9,12 +9,15 @@ import type { FileToolLimits } from "../../file-tool-limits.js";
 import { compareRankedGrepRegions, fuseRankedGrepSources, mergeRankedGrepSources } from "./fusion.js";
 import { formatGraphAliasReason, graphNavigationRelation, graphRankingEvidence, isGraphMainCandidate, isGraphNavigationCandidate } from "./graph-ranking.js";
 import { hydrateGrepSourceText } from "./hydration.js";
+import { buildScopeInventory } from "./inventory.js";
 import { GrepIndex, type GrepScopedFile } from "./indexer.js";
-import { packGrepResults, renderGrepSuccess, selectGrepCandidatesForPacking } from "./packer.js";
+import { packGrepResults, packVerifiedTextResults, renderGrepSuccess, selectGrepCandidatesForPacking } from "./packer.js";
 import type { GrepGraphCandidate, GrepGraphSource, GrepSymbolCandidate, GrepSymbolSource } from "./ports.js";
 import { rankGrepRegions, type RankedGrepRegion } from "./ranker.js";
 import { createQueryPlan, type QueryPlan } from "./query-plan.js";
-import type { GrepMatchMode, GrepNearbyResult, GrepParams, GrepRelatedResult, GrepScopeError, GrepSuccess } from "./types.js";
+import { scanInventoryText } from "./text-scanner.js";
+import { createVerifiedCodeRegion, type TextHit } from "./candidates.js";
+import type { GrepMatchMode, GrepNearbyResult, GrepParams, GrepRegion, GrepRelatedResult, GrepScopeError, GrepStats, GrepSuccess, TruncationReason } from "./types.js";
 
 interface GrepScopeResult {
 	path: string;
@@ -68,6 +71,7 @@ export class GrepTool {
 		const validation = createQueryPlan(params);
 		if (isFailed(validation)) return validation;
 		const regex = validation.regex;
+		if (validation.match !== "auto") return await this.grepStrict(validation, context);
 
 		const scopeErrors: GrepScopeError[] = [];
 		const resolved: Array<{ root: ExistingRef; input: string; order: number }> = [];
@@ -99,6 +103,56 @@ export class GrepTool {
 		this.index.dispose();
 	}
 
+	private async grepStrict(validation: QueryPlan, context: GrepCommandContext): Promise<ToolOutcome<GrepSuccess>> {
+		if (validation.match === "auto") return fail("INVALID_OPERATION", "Strict grep requires literal or regex mode.");
+		const strictMatch = validation.match;
+		const inventory = await buildScopeInventory({
+			paths: validation.paths,
+			...(validation.glob === undefined ? {} : { glob: validation.glob }),
+		}, {
+			filesystem: context.filesystem,
+			operation: context.operation,
+			maxEntriesTraversed: context.limits.grep_max_entries_traversed,
+		});
+		if (isFailed(inventory)) return inventory;
+		const scanned = await scanInventoryText(inventory, validation, {
+			filesystem: context.filesystem,
+			operation: context.operation,
+			maxTextBytesScanned: context.limits.grep_max_text_bytes_scanned,
+			maxTextFileBytes: context.limits.grep_max_text_file_bytes,
+		});
+		if (isFailed(scanned)) return scanned;
+		const scopeErrors = [...inventory.scopeErrors, ...scanned.scopeErrors];
+		const failedScopes = new Set(scanned.scopeErrors.map((item) => item.path));
+		const successfulScopes = inventory.scopes.filter((scope) => !failedScopes.has(scope.input));
+		if (successfulScopes.length === 0 && scopeErrors.length > 0) {
+			const first = scopeErrors[0];
+			if (first !== undefined) return withGrepScopeErrors({ status: "failed", error: first.error }, [...validation.paths], scopeErrors);
+		}
+		const paths = uniqueStrings(successfulScopes.map((scope) => scope.root.displayPath));
+		const skipped = mergeGrepSkipped([inventory.skipped, scanned.stats.skipped]);
+		const stats: GrepStats = {
+			traversed_entries: inventory.traversedEntries,
+			searched_files: scanned.stats.searchedFiles,
+			searched_bytes: scanned.stats.searchedBytes,
+			parsed_files: 0,
+			...(Object.keys(skipped).length === 0 ? {} : { skipped_files: skipped }),
+		};
+		return packVerifiedTextResults({
+			query: validation.query,
+			path: paths[0] ?? ".",
+			paths,
+			...(scopeErrors.length === 0 ? {} : { scopeErrors }),
+			match: strictMatch,
+			totalCandidates: scanned.totalHits,
+			regions: strictTextRegions(scanned.hits),
+			stats,
+			truncationReasons: uniqueTruncationReasons([...inventory.truncationReasons, ...scanned.truncationReasons]),
+			tokenBudget: context.limits.grep_output_token_budget,
+			resultLimit: context.limits.grep_result_limit,
+		});
+	}
+
 	private async grepScope(
 		root: ExistingRef,
 		validation: QueryPlan,
@@ -122,7 +176,6 @@ export class GrepTool {
 			files: index.files.map((file) => ({ path: file.path, units: file.index.units, parserStatus: file.parserStatus })),
 			sourceText,
 			lineIndexes: rankingContext.lineIndexes,
-			allowMetadataCandidates: validation.match !== "auto",
 			...(compiledRegex === undefined ? {} : { regex: compiledRegex }),
 		};
 		const rankedSourceCount = sourceText.size;
@@ -181,7 +234,7 @@ export class GrepTool {
 		);
 		if (isFailed(hydrated)) return hydrated;
 		if (isAborted(context.operation.signal)) return aborted(root.displayPath);
-		if (sourceText.size !== rankedSourceCount) ranked = rankGrepRegions({ ...rankInput, sourceText, allowMetadataCandidates: false });
+		if (sourceText.size !== rankedSourceCount) ranked = rankGrepRegions({ ...rankInput, sourceText });
 		if (sourceText.size !== externalRegionSourceCount) {
 			symbols = symbolRegionsFromCandidates(symbolCandidates, validation.query, validation.match, sourceText, mainPaths, rankingContext);
 			graph = graphRegionsFromCandidates(graphMainCandidates, sourceText, rankingContext, validation, compiledRegex);
@@ -206,6 +259,47 @@ export class GrepTool {
 			...(related.length === 0 ? {} : { related }),
 		};
 	}
+}
+
+function strictTextRegions(hits: readonly TextHit[]): GrepRegion[] {
+	return hits.map((hit, index) => {
+		const source = hit.mode === "literal" ? "text-literal" : "text-regex";
+		const reason = hit.mode === "literal" ? "exact literal" : "regex";
+		const startLine = Math.max(1, hit.line - hit.before.length);
+		const endLine = hit.line + hit.after.length;
+		const verified = createVerifiedCodeRegion({
+			id: `${hit.path}:${hit.line}:${hit.byteStart}:${hit.byteEnd}`,
+			path: hit.path,
+			startLine,
+			endLine,
+			startByte: hit.byteStart,
+			endByte: hit.byteEnd,
+			kind: "text",
+			roles: ["text"],
+			signals: ["verified_text_window"],
+			evidence: [{ source, rank: index + 1, confidence: 1, reason }],
+		}, [hit]);
+		return {
+			path: verified.path,
+			start_line: verified.startLine,
+			end_line: verified.endLine,
+			kind: verified.kind,
+			detail: "snippet",
+			query_match: "verified",
+			reasons: [reason],
+			sources: [source],
+			match_lines: [...verified.matchLines],
+			content: [...hit.before, hit.lineText, ...hit.after].join("\n"),
+		};
+	});
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+	return [...new Set(values)];
+}
+
+function uniqueTruncationReasons(values: readonly TruncationReason[]): TruncationReason[] {
+	return [...new Set(values)];
 }
 
 async function resolveScope(input: string, context: GrepCommandContext): Promise<ToolOutcome<ExistingRef>> {

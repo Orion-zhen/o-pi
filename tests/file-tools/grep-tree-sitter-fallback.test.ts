@@ -48,5 +48,12 @@ describe("grep without tree-sitter", () => {
 			status: "success",
 			regions: [{ path: "target.ts", kind: "text", reasons: ["lexical"] }],
 		});
+
+		const strict = await grepWorkspaceFiles(workspaceTemp.path, { query: "RemoteSymbol", match: "literal" });
+		expect(strict).toMatchObject({
+			status: "success",
+			stats: { parsed_files: 0 },
+			regions: [expect.objectContaining({ path: "target.ts", kind: "text", query_match: "verified", match_lines: [1] })],
+		});
 	});
 });

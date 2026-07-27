@@ -140,7 +140,7 @@ export class GrepIndex {
 				matchedFiles: [],
 				sourceText: new Map(),
 				sourceHashes: new Map(),
-				skipped: { binary: 0, invalid_utf8: 0, access_denied: 0, too_large: 0 },
+				skipped: { binary: 0, invalid_utf8: 0, access_denied: 0, too_large: 0, changed: 0 },
 				pendingFiles: [],
 				seenIds: new Set(),
 				seenPaths: new Set(),

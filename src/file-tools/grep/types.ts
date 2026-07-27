@@ -21,6 +21,7 @@ export interface GrepSkippedFiles {
 	invalid_utf8?: number;
 	access_denied?: number;
 	too_large?: number;
+	changed?: number;
 }
 
 export interface GrepStats {

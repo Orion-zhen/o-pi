@@ -136,13 +136,15 @@ export class NodeNativeFileSystem implements NativeFileSystem {
 				if (!sameIdentity(beforeMetadata, openedMetadata) || !sameIdentity(openedMetadata, afterMetadata)) {
 					throw new NativeFileSystemError("changed", "open", pathname);
 				}
+				// 资源所有权转移前检查取消；转移后由调用方负责关闭，避免 runNative 丢失已打开 handle。
+				throwIfAborted(options.signal, "open", pathname);
 				const result = new NodeNativeOpenFile(handle, pathname, openedMetadata);
 				handle = undefined;
 				return result;
 			} finally {
 				if (handle !== undefined) await closeIgnoringError(handle);
 			}
-		});
+		}, false);
 	}
 
 	async atomicReplace(pathname: string, bytes: Uint8Array, options: NativeAtomicReplaceOptions = {}): Promise<void> {

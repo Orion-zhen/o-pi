@@ -39,7 +39,7 @@
 
 ### `literal`
 
-执行区分大小写的精确字符串搜索，同一 code unit 内多次命中合并为一个 region。主候选必须在当前正文中重新命中。
+对每个 logical line 执行区分大小写的精确字符串搜索。阶段化区域解析前，每个命中行先形成带有限前后文的 verified 文本窗口；后续区域化再按 code unit 聚合。
 
 ### `regex`
 
@@ -81,9 +81,11 @@ C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 Tree-sit
 
 检索先建立 `ScopeInventory`：按输入顺序逐 scope 发现文件，应用 visibility 与 glob，再按 filesystem canonical identity 去重。glob 的静态目录前缀用于剪枝 traversal；前缀不存在表示该 scope 零匹配，不误报 scope 不存在。父 scope 不删除显式子 scope，因此 soft ignored 子目录仍可由显式 scope 补回。
 
+`literal` 和 `regex` 随后只通过 filesystem `scanLines` 执行稳定流式扫描，不完整读取正文、不解析 AST，也不调用 LSP 或 Repo Map。LF、CRLF、CR 和 BOM 由 filesystem logical line 语义统一处理；扫描失败的文件不会保留读取到一半的命中。
+
 所有 scope 共享 `grep_max_entries_traversed`。正文事实扫描使用独立的 `grep_max_text_bytes_scanned` 和 `grep_max_text_file_bytes`；语法增强只受 `grep_max_files_parsed` 与 `grep_max_parse_file_bytes` 约束，不能删除已验证文本命中。
 
-LSP symbol 与 Repo Map graph ports 可以并行执行；它们只返回 grep-owned DTO。每个 external candidate 都必须命中 filesystem allowed ref，并通过 scope、visibility、glob、live text/range/hash 和预算 gate；related edge 的文件 hash 也在当前调用复核。Tree-sitter/text、LSP 和 Repo Map 的职责与融合规则见 [排序证据](ranking-evidence.md)。
+`auto` 的增强阶段可并行执行 LSP symbol 与 Repo Map graph ports；它们只返回 grep-owned DTO。每个 external candidate 都必须命中 filesystem allowed ref，并通过 scope、visibility、glob、live text/range/hash 和预算 gate；related edge 的文件 hash 也在当前调用复核。Tree-sitter/text、LSP 和 Repo Map 的职责与融合规则见 [排序证据](ranking-evidence.md)。
 
 ## Scope、跳过和截断
 
@@ -91,7 +93,7 @@ LSP symbol 与 Repo Map graph ports 可以并行执行；它们只返回 grep-ow
 
 至少一个 scope 成功时保留有效区域，并在 `details.scope_errors` 及模型输出中标注失败 scope；所有 scope 失败时返回结构化错误。
 
-二进制、非法 UTF-8、超大文件和局部权限失败在递归检索中计入 `skipped_files`；显式检索单个文件时返回对应错误。
+二进制、非法 UTF-8、超大文件、读取期间变化和局部权限失败在递归检索中计入 `skipped_files`；显式检索单个文件时返回对应错误。
 
 输出限制通过 `truncated_by` 分别标记：
 

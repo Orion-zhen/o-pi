@@ -5,7 +5,7 @@ import type { DirectoryRef, FileRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
-import type { GrepScopeError, TruncationReason } from "./types.js";
+import type { GrepScopeError, GrepSkippedFiles, TruncationReason } from "./types.js";
 
 export interface GlobPlan {
 	readonly pattern: string;
@@ -38,6 +38,7 @@ export interface ScopeInventory {
 	readonly scopes: readonly InventoryScope[];
 	readonly files: readonly ScopedFile[];
 	readonly scopeErrors: readonly GrepScopeError[];
+	readonly skipped: GrepSkippedFiles;
 	readonly traversedEntries: number;
 	readonly truncationReasons: readonly TruncationReason[];
 }
@@ -54,7 +55,8 @@ interface MutableInventoryState {
 	readonly scopes: InventoryScope[];
 	readonly files: ScopedFile[];
 	readonly scopeErrors: GrepScopeError[];
-	readonly seenFiles: Set<string>;
+	readonly seenFiles: Map<string, number>;
+	readonly skipped: Required<GrepSkippedFiles>;
 	traversedEntries: number;
 	traversalLimited: boolean;
 }
@@ -76,7 +78,8 @@ export async function buildScopeInventory(
 		scopes: [],
 		files: [],
 		scopeErrors: [],
-		seenFiles: new Set(),
+		seenFiles: new Map(),
+		skipped: { binary: 0, invalid_utf8: 0, access_denied: 0, too_large: 0, changed: 0 },
 		traversedEntries: 0,
 		traversalLimited: false,
 	};
@@ -124,6 +127,7 @@ export async function buildScopeInventory(
 		scopes: state.scopes,
 		files: state.files,
 		scopeErrors: state.scopeErrors,
+		skipped: compactSkipped(state.skipped),
 		traversedEntries: state.traversedEntries,
 		truncationReasons: state.traversalLimited ? ["traversal_limit"] : [],
 	};
@@ -203,6 +207,8 @@ async function discoverDirectory(scope: InventoryScope, state: MutableInventoryS
 			}
 			if (event.type === "error") {
 				if (event.error.code === "aborted") return aborted(scope.root.displayPath);
+				if (event.error.code === "access-denied") state.skipped.access_denied += 1;
+				else if (event.error.code === "not-found" || event.error.code === "not-file") state.skipped.changed += 1;
 				// 子项解析错误消耗一个 traversal entry；目录读取错误对应已统计的目录 entry。
 				if (event.kind !== undefined) state.traversedEntries += 1;
 				continue;
@@ -246,8 +252,20 @@ function addFile(
 	state: MutableInventoryState,
 ): void {
 	const canonicalIdentity = `${state.context.filesystem.identity}\0${metadata.identity ?? normalizeDisplayPath(ref.displayPath)}`;
-	if (state.seenFiles.has(canonicalIdentity)) return;
-	state.seenFiles.add(canonicalIdentity);
+	const existingIndex = state.seenFiles.get(canonicalIdentity);
+	if (existingIndex !== undefined) {
+		const existing = state.files[existingIndex];
+		if (existing !== undefined && ((explicitFile && !existing.explicitFile) || (scope.visibilityBypass && !existing.visibilityBypass))) {
+			state.files[existingIndex] = {
+				...existing,
+				...(explicitFile && !existing.explicitFile ? { scopeInput: scope.input, scopeOrder: scope.order } : {}),
+				explicitFile: existing.explicitFile || explicitFile,
+				visibilityBypass: existing.visibilityBypass || scope.visibilityBypass,
+			};
+		}
+		return;
+	}
+	state.seenFiles.set(canonicalIdentity, state.files.length);
 	state.files.push({
 		ref,
 		path: ref.displayPath,
@@ -310,6 +328,16 @@ function isAborted(signal: AbortSignal | undefined): boolean {
 
 function aborted(path?: string): FailedResult {
 	return fail("OPERATION_ABORTED", "Operation aborted.", path === undefined ? {} : { path });
+}
+
+function compactSkipped(skipped: Required<GrepSkippedFiles>): GrepSkippedFiles {
+	const result: GrepSkippedFiles = {};
+	if (skipped.binary > 0) result.binary = skipped.binary;
+	if (skipped.invalid_utf8 > 0) result.invalid_utf8 = skipped.invalid_utf8;
+	if (skipped.access_denied > 0) result.access_denied = skipped.access_denied;
+	if (skipped.too_large > 0) result.too_large = skipped.too_large;
+	if (skipped.changed > 0) result.changed = skipped.changed;
+	return result;
 }
 
 function withScopeErrors(result: FailedResult, paths: readonly string[], scopeErrors: readonly GrepScopeError[]): FailedResult {

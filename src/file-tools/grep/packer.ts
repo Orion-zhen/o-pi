@@ -5,6 +5,20 @@ import { selectRankedGrepCandidates } from "./fusion.js";
 import { rankingEvidenceSources } from "../shared/ranking/evidence.js";
 import type { GrepMatchMode, GrepNearbyResult, GrepRegion, GrepRelatedResult, GrepScopeError, GrepSkippedFiles, GrepStats, GrepSuccess, TruncationReason } from "./types.js";
 
+export interface VerifiedTextPackInput {
+	query: string;
+	path: string;
+	paths?: string[];
+	scopeErrors?: GrepScopeError[];
+	match: Extract<GrepMatchMode, "literal" | "regex">;
+	totalCandidates: number;
+	regions: GrepRegion[];
+	stats: GrepStats;
+	truncationReasons: readonly TruncationReason[];
+	tokenBudget: number;
+	resultLimit: number;
+}
+
 export interface GrepPackInput {
 	query: string;
 	path: string;
@@ -31,6 +45,30 @@ interface PackState {
 	usedFiles: Set<string>;
 	related: GrepRelatedResult[];
 	nearby: GrepNearbyResult[];
+}
+
+/** 打包流式事实扫描产生的临时文本窗口；候选过大时降级后继续尝试后续候选。 */
+export function packVerifiedTextResults(input: VerifiedTextPackInput): GrepSuccess {
+	const knownReasons = uniqueReasons([
+		...input.truncationReasons,
+		...(input.regions.length > input.resultLimit || input.totalCandidates > input.resultLimit ? ["result_limit" as const] : []),
+	]);
+	let tokenLimited = false;
+	const packed: GrepRegion[] = [];
+	for (const candidate of input.regions.slice(0, input.resultLimit)) {
+		if (fitsVerifiedTextResult(input, [...packed, candidate], reasonsWithToken(knownReasons, tokenLimited))) {
+			packed.push(candidate);
+			continue;
+		}
+		tokenLimited = true;
+		while (packed.length > 0 && !fitsVerifiedTextResult(input, packed, reasonsWithToken(knownReasons, true))) packed.pop();
+		const signature = { ...candidate, detail: "signature" as const };
+		delete signature.content;
+		if (fitsVerifiedTextResult(input, [...packed, signature], reasonsWithToken(knownReasons, true))) packed.push(signature);
+	}
+	const reasons = reasonsWithToken(knownReasons, tokenLimited);
+	while (packed.length > 0 && !fitsVerifiedTextResult(input, packed, reasons)) packed.pop();
+	return verifiedTextSuccess(input, packed, reasons);
 }
 
 /** 在预算内选择正文、片段和签名；不会对已选 UTF-8 文本做任意字节截断。 */
@@ -315,6 +353,46 @@ function budgetedNearby(input: GrepPackInput): GrepNearbyResult[] {
 	return nearby;
 }
 
+function fitsVerifiedTextResult(
+	input: VerifiedTextPackInput,
+	regions: GrepRegion[],
+	reasons: TruncationReason[],
+): boolean {
+	return tokenCount(renderGrepSuccess(verifiedTextSuccess(input, regions, reasons))) <= input.tokenBudget;
+}
+
+function verifiedTextSuccess(
+	input: VerifiedTextPackInput,
+	regions: GrepRegion[],
+	reasons: TruncationReason[],
+): GrepSuccess {
+	const returnedFiles = new Set(regions.map((region) => region.path)).size;
+	const base: GrepSuccess = {
+		status: "success",
+		query: input.query,
+		path: input.path,
+		...(input.paths === undefined ? {} : { paths: input.paths }),
+		...(input.scopeErrors === undefined || input.scopeErrors.length === 0 ? {} : { scope_errors: input.scopeErrors }),
+		match: input.match,
+		total_candidates: input.totalCandidates,
+		returned_regions: regions.length,
+		returned_files: returnedFiles,
+		approx_tokens: 0,
+		stats: input.stats,
+		truncated_by: reasons,
+		regions,
+	};
+	return { ...base, approx_tokens: tokenCount(renderGrepSuccess(base)) };
+}
+
+function reasonsWithToken(reasons: readonly TruncationReason[], tokenLimited: boolean): TruncationReason[] {
+	return uniqueReasons([...reasons, ...(tokenLimited ? ["token_budget" as const] : [])]);
+}
+
+function uniqueReasons(reasons: readonly TruncationReason[]): TruncationReason[] {
+	return [...new Set(reasons)];
+}
+
 function tokenCount(text: string): number {
 	return countTextTokensSync(text).tokens;
 }
@@ -325,6 +403,7 @@ function formatSkipped(skipped: GrepSkippedFiles): string {
 	if (skipped.invalid_utf8 !== undefined) parts.push(`${skipped.invalid_utf8} invalid_utf8`);
 	if (skipped.access_denied !== undefined) parts.push(`${skipped.access_denied} access_denied`);
 	if (skipped.too_large !== undefined) parts.push(`${skipped.too_large} too_large`);
+	if (skipped.changed !== undefined) parts.push(`${skipped.changed} changed`);
 	return parts.join(", ");
 }
 

@@ -27,7 +27,6 @@ export interface RankInput {
 	sourceText?: Map<string, string>;
 	lineIndexes?: Map<string, LineIndex>;
 	regex?: RegExp;
-	allowMetadataCandidates?: boolean;
 }
 
 interface RankContext {
@@ -133,11 +132,7 @@ function rankUnit(unit: IndexedCodeUnit, input: RankInput, context: RankContext)
 	}
 
 	const occurrence = occurrenceLines(unit, input);
-	if (occurrence.length > 0) {
-		reasons.push(input.match === "regex" ? "regex" : "exact literal");
-	} else if (input.match !== "auto" && input.allowMetadataCandidates === true && metadataLooksRelevant(unit, input, context.queryTokens)) {
-		reasons.push("lexical");
-	}
+	if (occurrence.length > 0) reasons.push(input.match === "regex" ? "regex" : "exact literal");
 	if (unit.definitions.some((definition) => definition.toLocaleLowerCase() === context.queryLower)) {
 		if (!reasons.includes("definition")) reasons.push("definition");
 	}
@@ -303,22 +298,6 @@ function occurrenceLines(unit: IndexedCodeUnit, input: RankInput): number[] {
 		return Array.from(new Set(lines));
 	}
 	return [];
-}
-
-function metadataLooksRelevant(unit: IndexedCodeUnit, input: RankInput, queryTokens: string[]): boolean {
-	const values = [
-		unit.name,
-		unit.qualifiedName,
-		unit.signature,
-		...unit.definitions,
-		...unit.references,
-		...unit.calls,
-		...unit.tokens.keys(),
-	].filter((value): value is string => value !== undefined);
-	if (input.match === "regex") return values.some((value) => regexMatches(value, input.regex));
-	if (queryTokens.length === 0) return values.some((value) => value.includes(input.query));
-	const tokenSet = new Set(Array.from(unit.tokens.keys()));
-	return queryTokens.some((token) => tokenSet.has(token));
 }
 
 function regexMatches(value: string, regex: RegExp | undefined): boolean {
