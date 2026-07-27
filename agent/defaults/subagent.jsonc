@@ -14,5 +14,6 @@
 	"allow_project_agents": false,
 	"project_agents_override_user": false,
 	"confirm_write_agents": true,
-	"default_tools": ["read", "grep", "find", "ls"]
+	"default_tools": ["read", "grep", "find", "ls"],
+	"agent_overrides": {}
 }

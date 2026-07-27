@@ -111,10 +111,11 @@ describe("web-tools config", () => {
 		const file = path.join(dir, "search.jsonc");
 		process.env.PI_WEB_TOOLS_CONFIG = file;
 		await writeFile(file, '{}');
+		const defaults = defaultWebToolsConfig();
 		await expect(loadWebToolsConfig()).resolves.toMatchObject({
 			websearch: {
-				include_domains: [],
-				exclude_domains: [],
+				include_domains: defaults.websearch.include_domains,
+				exclude_domains: defaults.websearch.exclude_domains,
 				brave_api: { api_key: "$BRAVE_SEARCH_API_KEY" },
 				exa_api: { api_key: "$EXA_API_KEY" },
 				tavily: { api_key: "$TAVILY_API_KEY" },

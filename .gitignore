@@ -6,6 +6,7 @@ agent/cookies.txt
 agent/models.jsonc
 agent/models-store.json
 agent/tools.jsonc
+/agent/configs/
 
 cache/
 /telemetry/

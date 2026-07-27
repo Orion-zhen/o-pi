@@ -4,6 +4,12 @@
 
 ## 配置位置与优先级
 
+默认配置：
+
+```text
+~/.pi/agent/defaults/file-tools.jsonc
+```
+
 用户配置：
 
 ```text
@@ -16,7 +22,7 @@
 .pi/configs/file-tools.jsonc
 ```
 
-项目配置按每次 Pi invocation 的 `ctx.cwd` 定位，而不是按 agent 进程的 `process.cwd()` 隐式选择。它在用户配置之后加载，但只能：
+配置按默认、用户、项目顺序合并。项目配置按每次 Pi invocation 的 `ctx.cwd` 定位，而不是按 agent 进程的 `process.cwd()` 隐式选择。它在用户配置之后加载，但只能：
 
 - 追加 `blocked_path` 和 `ignored_path`；
 - 覆盖 `limits`；
@@ -26,39 +32,7 @@
 
 ## 默认配置
 
-仓库当前默认配置为：
-
-```jsonc
-{
-  "$schema": "../schemas/file-tools.schema.json",
-  "blocked_path": [".git/"],
-  "ignored_path": [],
-  "limits": {
-    "ls_entries": 200,
-    "read_lines": 2000,
-    "read_bytes": 51200,
-    "read_max_file_bytes": 16777216,
-    "write_max_file_bytes": 16777216,
-    "edit_max_file_bytes": 16777216,
-    "edit_match_hint_limit": 3,
-    "find_output_token_budget": 800,
-    "find_result_limit": 50,
-    "find_max_entries_scanned": 100000,
-    "grep_output_token_budget": 1600,
-    "grep_result_limit": 8,
-    "grep_max_file_bytes": 1048576,
-    "grep_max_files_scanned": 100000,
-    "grep_max_semantic_files": 1024,
-    "grep_max_semantic_parse_bytes": 262144
-  },
-  "ignore": {
-    "piignore": true,
-    "gitignore": true,
-    "git_tracked_files_bypass": true,
-    "builtin_profile": "minimal"
-  }
-}
-```
+完整默认值以 `agent/defaults/file-tools.jsonc` 为准。默认文件必须包含 schema 中的全部固定字段；缺失或损坏会作为配置错误处理，不再回退到 TypeScript 常量。
 
 ## 字段
 

@@ -45,7 +45,7 @@ Safety guardrail 负责硬性拒绝明显危险操作，例如 bash deny pattern
 
 ## 配置
 
-配置文件：`agent/configs/approval-gate.jsonc`，schema：`agent/schemas/approval-gate.schema.json`。文件完整列出默认规则，便于直接修改。
+默认配置位于 `agent/defaults/approval-gate.jsonc`，用户覆盖位于 `agent/configs/approval-gate.jsonc`，schema 为 `agent/schemas/approval-gate.schema.json`。该配置只允许用户全局覆盖，不读取项目配置。分层规则见[配置分层](configuration.md)。
 
 关键字段：
 

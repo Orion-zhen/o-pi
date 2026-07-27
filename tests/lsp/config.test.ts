@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { defaultAgentConfigPath } from "../../src/config-loader.js";
 import { defaultLspConfig, loadLspConfig, normalizeExcludePath } from "../../src/lsp/config.js";
 import { LspServerRegistry } from "../../src/lsp/registry.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -19,9 +20,7 @@ describe("lsp config", () => {
 	it("缺少配置文件采用默认值并规范化内置 glob 路由", async () => {
 		process.env.PI_LSP_CONFIG = path.join(dir, "missing.jsonc");
 		const loaded = await loadLspConfig();
-		expect(loaded).toEqual({ path: path.join(dir, "missing.jsonc"), config: defaultLspConfig() });
-		expect(loaded.config.max_open_documents).toBe(64);
-		expect(loaded.config.diagnostics.max_related_locations).toBe(2);
+		expect(loaded).toEqual({ path: defaultAgentConfigPath("lsp.jsonc"), config: defaultLspConfig() });
 		expect(loaded.config.servers[0]).toMatchObject({
 			id: "typescript",
 			fallback: false,

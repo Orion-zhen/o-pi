@@ -1,10 +1,12 @@
 import { countTextTokensSync } from "../../token-counter.js";
 import type { RepoMapReadContext } from "../query/file-tool-query.js";
 import type { RepoMapImpactResult } from "../query/impact.js";
-import { DEFAULT_REPO_MAP_OUTPUT_CONFIG, type RepoMapOutputConfig } from "../config/output-config.js";
+import { defaultRepoMapConfig } from "../config/config.js";
+import type { RepoMapOutputConfig } from "../config/output-config.js";
 
-export const READ_REPO_MAP_TOKEN_BUDGET = DEFAULT_REPO_MAP_OUTPUT_CONFIG.read_context_token_budget;
-export const REPO_IMPACT_TOKEN_BUDGET = DEFAULT_REPO_MAP_OUTPUT_CONFIG.mutation_impact_token_budget;
+const defaultOutputConfig = defaultRepoMapConfig().output;
+export const READ_REPO_MAP_TOKEN_BUDGET = defaultOutputConfig.read_context_token_budget;
+export const REPO_IMPACT_TOKEN_BUDGET = defaultOutputConfig.mutation_impact_token_budget;
 
 interface OutputAttribute {
 	name: string;
@@ -20,7 +22,7 @@ interface OutputAttributeGroup {
 /** Render only model-actionable read context under a hard token budget. */
 export function formatRepoMapReadContext(
 	context: RepoMapReadContext | undefined,
-	config: RepoMapOutputConfig = DEFAULT_REPO_MAP_OUTPUT_CONFIG,
+	config: RepoMapOutputConfig = defaultOutputConfig,
 ): string | undefined {
 	if (context === undefined) return undefined;
 	const symbolName = context.symbol.qualifiedName ?? context.symbol.name ?? "anonymous";
@@ -46,7 +48,7 @@ export function formatRepoMapReadContext(
 /** Render mutation impact without repeating facts already present on the outer write/edit result. */
 export function formatRepoMapImpact(
 	impact: RepoMapImpactResult | undefined,
-	config: RepoMapOutputConfig = DEFAULT_REPO_MAP_OUTPUT_CONFIG,
+	config: RepoMapOutputConfig = defaultOutputConfig,
 ): string | undefined {
 	if (impact === undefined) return undefined;
 	const budget = config.mutation_impact_token_budget;

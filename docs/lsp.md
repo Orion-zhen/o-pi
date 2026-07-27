@@ -4,13 +4,14 @@ LSP 只作为 `grep` / `read` / `write` / `edit` 的可选内部后端，不注�
 
 ## 配置
 
-全局配置：
+默认配置和用户全局覆盖分别位于：
 
 ```text
+agent/defaults/lsp.jsonc
 agent/configs/lsp.jsonc
 ```
 
-环境变量 `PI_LSP_CONFIG` 可覆盖全局配置路径。若 workspace root 或其祖先存在项目配置：
+环境变量 `PI_LSP_CONFIG` 可覆盖用户全局配置路径，但不替换默认层。若 workspace root 或其祖先存在项目配置：
 
 ```text
 <project>/.pi/configs/lsp.jsonc
@@ -25,16 +26,16 @@ agent/configs/lsp.jsonc
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
 | `enabled` | `true` | 总开关。设为 `false` 后不启动任何 language server，文件工具保持普通行为。 |
-| `exclude_paths` | `["~"]` | 精确匹配这些 workspace root 时不启动 LSP。支持 `~` 表示用户家目录；仓库配置排除 home 根目录，避免触发全盘扫描。配置文件缺失时内置回退值为 `[]`。 |
+| `exclude_paths` | 见默认文件 | 精确匹配这些 workspace root 时不启动 LSP。支持 `~` 表示用户家目录。 |
 | `startup_timeout_ms` | `8000` | server `initialize` 请求超时，范围 `100`-`60000`。超时后该 server 视为 unavailable。 |
 | `request_timeout_ms` | `5000` | 单次 LSP 请求超时，范围 `100`-`60000`。用于 `documentSymbol`、`workspace/symbol` 等请求。 |
 | `idle_timeout_ms` | `300000` | server 空闲关闭时间，范围 `1000`-`3600000`。关闭后下次文件工具调用会按需重启。 |
 | `max_restarts` | `2` | server 崩溃后的最多重启次数，范围 `0`-`10`。binary 缺失属于 unavailable，不做崩溃重启。 |
-| `max_open_documents` | `64` | 每个 server session 最多保留的文档状态数，范围 `1`-`1024`。LRU 淘汰会先发送所需的 `didClose`，并清理全文和 symbol cache；仓库配置显式覆盖为 `128`。 |
+| `max_open_documents` | 见默认文件 | 每个 server session 最多保留的文档状态数，范围 `1`-`1024`。LRU 淘汰会先发送所需的 `didClose`，并清理全文和 symbol cache。 |
 | `diagnostics` | 见下表 | 控制 `write` / `edit` 成功后的诊断等待和返回内容。 |
 | `read` | 见下表 | 控制 `read` 的 outline / enclosing symbol 增强。 |
 | `grep` | 见下表 | 控制 `grep` 的 workspace symbol 增强。 |
-| `servers` | TypeScript / Python / Rust / YAML | 以 server ID 为 key 的 language server 对象，最多 50 个。配置文件缺失时使用同一份内置集合。 |
+| `servers` | 见默认文件 | 以 server ID 为 key 的 language server 对象，最多 50 个。 |
 
 `diagnostics`：
 
@@ -75,7 +76,7 @@ agent/configs/lsp.jsonc
 | `init` | 未设置 | server 自己定义的初始化 JSON，原样传给 LSP `initialize.initializationOptions`；字段名和嵌套结构不由 Pi 定义。 |
 | `settings` | 未设置 | server 自己定义的运行时配置树，供 `workspace/configuration` 按 section 返回，并在初始化后通过 `workspace/didChangeConfiguration` 整体发送；不会自动从 Go 项目配置或环境变量补充。 |
 
-配置不包含 `id`、`transport.type`、`args`、`extensions`、`language_id` 或 `language_ids` 等重复字段，也不从扩展名隐藏推断 language ID。合并后的全局与项目配置使用同一 schema；项目 server 可以只提供需要覆盖的字段。仓库配置包含 TypeScript、Python、Rust、Clangd（C/C++）、Docker 和 YAML stdio server，并在注释中提供 TCP endpoint 示例：
+配置不包含 `id`、`transport.type`、`args`、`extensions`、`language_id` 或 `language_ids` 等重复字段，也不从扩展名隐藏推断 language ID。合并后的全局与项目配置使用同一 schema；项目 server 可以只提供需要覆盖的字段。用户可以覆盖默认 server 集合；项目配置再按 server ID 合并。示例配置可包含 TypeScript、Python、Rust、Clangd（C/C++）、Docker 和 YAML stdio server，并在注释中提供 TCP endpoint 示例：
 
 ```jsonc
 {

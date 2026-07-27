@@ -242,7 +242,7 @@ describe("web-tools extension", () => {
 			console.log(result.content[0].text);
 		`, invalidConfigPath);
 
-		expect(stdout).toContain("web-tools config does not match schema.");
+		expect(stdout).toContain("web-tools user config does not match schema.");
 		expect(stdout).not.toContain("agentConfigPath");
 	});
 
@@ -268,7 +268,7 @@ describe("web-tools extension", () => {
 		expect(results.every((result) => result.details.error?.code === "CONFIG_ERROR")).toBe(true);
 		expect(new Set(results.map((result) => result.details.error?.message)).size).toBe(1);
 		expect(results.every((result) => result.content[0]?.text.includes('code="CONFIG_ERROR"'))).toBe(true);
-		expect(results.every((result) => result.details.error?.message.includes("web-tools config does not match schema."))).toBe(true);
+		expect(results.every((result) => result.details.error?.message.includes("web-tools user config does not match schema."))).toBe(true);
 		expect(stdout).not.toContain("agentConfigPath");
 	});
 });

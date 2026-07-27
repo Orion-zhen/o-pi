@@ -122,6 +122,7 @@ blocked path  → 不可列出、搜索、读取或写入
 配置位置：
 
 ```text
+默认配置：~/.pi/agent/defaults/file-tools.jsonc
 用户配置：~/.pi/agent/configs/file-tools.jsonc
 项目配置：.pi/configs/file-tools.jsonc
 ```

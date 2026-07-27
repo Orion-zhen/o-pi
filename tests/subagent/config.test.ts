@@ -15,8 +15,8 @@ beforeEach(() => {
 });
 
 describe("subagent config", () => {
-	it("加载默认配置且默认并发为 1", async () => {
-		expect(await loadSubagentConfig(dir)).toMatchObject({ maxConcurrency: 1, allowProjectAgents: false, agentOverrides: {} });
+	it("缺少覆盖文件时加载完整默认层", async () => {
+		expect(await loadSubagentConfig(dir)).toEqual(defaultSubagentConfig());
 	});
 
 	it("支持 JSONC 注释和 trailing comma", async () => {
@@ -36,7 +36,7 @@ describe("subagent config", () => {
 		await writeFile(process.env.PI_SUBAGENT_USER_CONFIG!, "{");
 		await expect(loadSubagentConfig(dir)).rejects.toThrow("not valid JSONC");
 		await writeFile(process.env.PI_SUBAGENT_USER_CONFIG!, '{ "max_concurrency": 0 }');
-		await expect(loadSubagentConfig(dir)).rejects.toThrow("out of range");
+		await expect(loadSubagentConfig(dir)).rejects.toThrow("does not match schema");
 	});
 
 	it("项目配置不能扩大安全边界", () => {
@@ -45,5 +45,10 @@ describe("subagent config", () => {
 		expect(merged.allowProjectAgents).toBe(false);
 		expect(merged.confirmWriteAgents).toBe(true);
 		expect(merged.maxConcurrency).toBe(2);
+	});
+
+	it("加载时明确拒绝项目配置中的全局专用字段", async () => {
+		await writeFile(process.env.PI_SUBAGENT_PROJECT_CONFIG!, '{ "allow_project_agents": true }');
+		await expect(loadSubagentConfig(dir)).rejects.toThrow("does not match schema");
 	});
 });

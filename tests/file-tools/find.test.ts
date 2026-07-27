@@ -37,6 +37,7 @@ beforeEach(async () => {
 			"{",
 			'  "blocked_path": [".git/"],',
 			'  "ignored_path": [],',
+			'  "limits": { "find_result_limit": 50 },',
 			'  "ignore": { "builtin_profile": "none", "gitignore": false }',
 			"}",
 		].join("\n"),

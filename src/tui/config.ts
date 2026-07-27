@@ -1,56 +1,17 @@
-import { agentConfigPath, agentSchemaPath, createSchemaValidator, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
+import {
+	CONFIG_DEFINITIONS,
+	agentSchemaPath,
+	createCompleteSchemaValidator,
+	createSchemaValidator,
+	defaultAgentConfigPath,
+	loadConfigLayers,
+	mergeConfigValues,
+	readDefaultJsoncConfigSync,
+	validateConfigValue,
+} from "../config-loader.js";
 import type { TuiConfig } from "./types.js";
 
-const CONFIG_PATH_ENV = "PI_TUI_CONFIG";
-
-const defaultConfig: TuiConfig = {
-	enabled: true,
-	preset: "compact",
-	icons: "unicode",
-	chrome: {
-		title: true,
-		header: false,
-		footer: true,
-		working_indicator: "dot",
-	},
-	footer: {
-		max_lines: 2,
-		segments: ["cwd", "git", "model", "ctx", "tokens", "cost", "status"],
-		narrow_segments: ["cwd", "git", "model", "ctx", "tokens", "cost", "status"],
-		style: {
-			workspace_color: "accent",
-			git_color: "success",
-			git_icon: "⑂",
-		},
-	},
-	tools: {
-		expanded_default: false,
-		show_timing: true,
-		show_provider: false,
-		max_target_chars: 72,
-		max_summary_chars: 96,
-		collapsed_lines: 2,
-	},
-	banner: {
-		enabled: true,
-		style: "ascii",
-		layout: "auto",
-		side_by_side_min_width: 96,
-		tiny_width: 44,
-		show_hints: true,
-		show_capabilities: true,
-		clear_on_first_turn: false,
-	},
-	math: {
-		enabled: true,
-		display: true,
-		inline: "text",
-		max_width_cells: 120,
-		max_height_cells: 18,
-		svg_scale: 2,
-		foreground: "#d4d4d4",
-	},
-};
+const SCHEMA_PATH = agentSchemaPath("tui.schema.json");
 
 export class TuiConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
@@ -61,19 +22,24 @@ export class TuiConfigError extends Error {
 
 /** 读取 o-pi TUI JSONC 配置；配置错误直接抛出，避免静默丢失 UI 行为。 */
 export async function loadTuiConfig(): Promise<TuiConfig> {
-	const configPath = resolveConfigPath();
-	const parsed = await readOptionalJsoncConfigWithSchema({
-		path: configPath,
-		label: "tui",
-		loadValidator,
-		createError: (message, details) => new TuiConfigError(message, details),
-	});
-	if (parsed === undefined) return defaultTuiConfig();
-	return mergeConfig(parsed as RawTuiConfig);
+	const loaded = await loadConfigLayers(CONFIG_DEFINITIONS.tui, process.cwd(), createError);
+	let merged: unknown = {};
+	for (const layer of loaded.layers) {
+		await validateConfigValue({
+			path: layer.path,
+			label: `tui ${layer.kind}`,
+			value: layer.value,
+			layer: layer.kind,
+			loadValidator: layer.kind === "default" ? loadCompleteValidator : loadValidator,
+			createError,
+		});
+		merged = mergeConfigValues(merged, layer.value);
+	}
+	return materializeConfig(merged as CompleteTuiConfig);
 }
 
 export function defaultTuiConfig(): TuiConfig {
-	return structuredClone(defaultConfig);
+	return materializeConfig(readDefaultConfig());
 }
 
 interface RawTuiConfig {
@@ -87,65 +53,46 @@ interface RawTuiConfig {
 	math?: Partial<TuiConfig["math"]>;
 }
 
-function mergeConfig(raw: RawTuiConfig): TuiConfig {
-	const merged: TuiConfig = {
-		enabled: raw.enabled ?? defaultConfig.enabled,
-		preset: raw.preset ?? defaultConfig.preset,
-		icons: raw.icons ?? defaultConfig.icons,
-		chrome: {
-			title: raw.chrome?.title ?? defaultConfig.chrome.title,
-			header: raw.chrome?.header ?? defaultConfig.chrome.header,
-			footer: raw.chrome?.footer ?? defaultConfig.chrome.footer,
-			working_indicator: raw.chrome?.working_indicator ?? defaultConfig.chrome.working_indicator,
-		},
+interface CompleteTuiConfig extends Required<RawTuiConfig> {
+	chrome: TuiConfig["chrome"];
+	footer: TuiConfig["footer"];
+	tools: TuiConfig["tools"];
+	banner: TuiConfig["banner"];
+	math: TuiConfig["math"];
+}
+
+function materializeConfig(raw: CompleteTuiConfig): TuiConfig {
+	const config: TuiConfig = {
+		enabled: raw.enabled,
+		preset: raw.preset,
+		icons: raw.icons,
+		chrome: { ...raw.chrome },
 		footer: {
-			max_lines: 2,
-			segments: [...(raw.footer?.segments ?? defaultConfig.footer.segments)],
-			narrow_segments: [...(raw.footer?.narrow_segments ?? defaultConfig.footer.narrow_segments)],
-			style: {
-				workspace_color: raw.footer?.style?.workspace_color ?? defaultConfig.footer.style.workspace_color,
-				git_color: raw.footer?.style?.git_color ?? defaultConfig.footer.style.git_color,
-				git_icon: raw.footer?.style?.git_icon ?? defaultConfig.footer.style.git_icon,
-			},
+			max_lines: raw.footer.max_lines,
+			segments: [...raw.footer.segments],
+			narrow_segments: [...raw.footer.narrow_segments],
+			style: { ...raw.footer.style },
 		},
-		tools: {
-			expanded_default: raw.tools?.expanded_default ?? defaultConfig.tools.expanded_default,
-			show_timing: raw.tools?.show_timing ?? defaultConfig.tools.show_timing,
-			show_provider: raw.tools?.show_provider ?? defaultConfig.tools.show_provider,
-			max_target_chars: raw.tools?.max_target_chars ?? defaultConfig.tools.max_target_chars,
-			max_summary_chars: raw.tools?.max_summary_chars ?? defaultConfig.tools.max_summary_chars,
-			collapsed_lines: raw.tools?.collapsed_lines ?? defaultConfig.tools.collapsed_lines,
-		},
-		banner: {
-			enabled: raw.banner?.enabled ?? defaultConfig.banner.enabled,
-			style: raw.banner?.style ?? defaultConfig.banner.style,
-			layout: raw.banner?.layout ?? defaultConfig.banner.layout,
-			side_by_side_min_width: raw.banner?.side_by_side_min_width ?? defaultConfig.banner.side_by_side_min_width,
-			tiny_width: raw.banner?.tiny_width ?? defaultConfig.banner.tiny_width,
-			show_hints: raw.banner?.show_hints ?? defaultConfig.banner.show_hints,
-			show_capabilities: raw.banner?.show_capabilities ?? defaultConfig.banner.show_capabilities,
-			clear_on_first_turn: raw.banner?.clear_on_first_turn ?? defaultConfig.banner.clear_on_first_turn,
-		},
-		math: {
-			enabled: raw.math?.enabled ?? defaultConfig.math.enabled,
-			display: raw.math?.display ?? defaultConfig.math.display,
-			inline: raw.math?.inline ?? defaultConfig.math.inline,
-			max_width_cells: raw.math?.max_width_cells ?? defaultConfig.math.max_width_cells,
-			max_height_cells: raw.math?.max_height_cells ?? defaultConfig.math.max_height_cells,
-			svg_scale: raw.math?.svg_scale ?? defaultConfig.math.svg_scale,
-			foreground: raw.math?.foreground ?? defaultConfig.math.foreground,
-		},
+		tools: { ...raw.tools },
+		banner: { ...raw.banner },
+		math: { ...raw.math },
 	};
-	if (merged.tools.collapsed_lines !== 2) throw new TuiConfigError("tools.collapsed_lines only supports 2.");
-	return merged;
+	if (config.tools.collapsed_lines !== 2) throw new TuiConfigError("tools.collapsed_lines only supports 2.");
+	return config;
 }
 
-const loadValidator = createSchemaValidator({
-	schemaPath: agentSchemaPath("tui.schema.json"),
-	label: "tui",
-	createError: (message, details) => new TuiConfigError(message, details),
-});
-
-function resolveConfigPath(): string {
-	return agentConfigPath("tui.jsonc", CONFIG_PATH_ENV);
+function readDefaultConfig(): CompleteTuiConfig {
+	return readDefaultJsoncConfigSync({
+		configPath: defaultAgentConfigPath("tui.jsonc"),
+		schemaPath: SCHEMA_PATH,
+		label: "tui",
+		createError,
+	}) as CompleteTuiConfig;
 }
+
+function createError(message: string, details?: Record<string, unknown>): TuiConfigError {
+	return new TuiConfigError(message, details);
+}
+
+const loadValidator = createSchemaValidator({ schemaPath: SCHEMA_PATH, label: "tui", createError });
+const loadCompleteValidator = createCompleteSchemaValidator({ schemaPath: SCHEMA_PATH, label: "tui", createError });

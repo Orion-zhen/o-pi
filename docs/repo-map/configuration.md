@@ -4,13 +4,14 @@ Repo Map 配置使用 JSONC，并通过 schema 校验。当前配置结构只有
 
 ## 配置来源
 
-默认配置文件名为：
+默认配置和用户覆盖分别位于：
 
 ```text
-repo-map.jsonc
+agent/defaults/repo-map.jsonc
+agent/configs/repo-map.jsonc
 ```
 
-可以通过 `PI_REPO_MAP_CONFIG` 指定配置位置。加载失败会返回结构化 `CONFIG_ERROR`，不会使用部分无效配置继续扫描。
+可以通过 `PI_REPO_MAP_CONFIG` 重定向用户配置。Repo Map 不读取项目配置。加载失败会返回结构化 `CONFIG_ERROR`，不会使用部分无效配置继续扫描。
 
 Repo Map 同时加载 File Tools 配置；后者提供 ignore 和 grep scan limits。两者不是同一份 schema。
 
@@ -52,16 +53,7 @@ Repo Map 同时加载 File Tools 配置；后者提供 ignore 和 grep scan limi
 
 ## 默认值和有效限制
 
-源码内置默认值为：
-
-- `max_files`: 100,000
-- `max_file_bytes`: 1 MiB
-- `concurrency`: 8
-- `max_generations`: 2
-- `read_context_token_budget`: 160
-- `mutation_impact_token_budget`: 120
-
-扫描最终限制还会与 File Tools 的 grep limits 取更严格值。仓库中的 `agent/configs/repo-map.jsonc` 可以覆盖内置 output budget；阅读实际配置时应以配置文件和 schema 为准。
+完整默认值以 `agent/defaults/repo-map.jsonc` 为准。扫描最终限制还会与 File Tools 的 grep limits 取更严格值。用户可以在 `agent/configs/repo-map.jsonc` 中覆盖默认值；Repo Map 不读取项目配置。通用规则见[配置分层](../configuration.md)。
 
 ## Fingerprint
 

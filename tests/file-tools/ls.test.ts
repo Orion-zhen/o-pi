@@ -6,8 +6,8 @@ import { formatCompactLsResult } from "../../src/file-tools/ls/presenter.js";
 import { executeLs } from "../../src/file-tools/pi/adapters/ls.js";
 import type { LsParams, LsSuccess } from "../../src/file-tools/ls/types.js";
 import { contentHash } from "../../src/filesystem/services/text.js";
+import { defaultFileToolsConfig } from "../../src/file-tools/config.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
-import { defaultFileToolLimits } from "../../src/file-tool-limits.js";
 import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -243,7 +243,7 @@ describe("ls", () => {
 								visibility: createVisibilityPolicy({ ignore: { builtinProfile: "minimal" } }),
 								fingerprint: "builtin-ls-test",
 							},
-							limits: defaultFileToolLimits(),
+							limits: defaultFileToolsConfig().limits,
 						},
 					};
 				},

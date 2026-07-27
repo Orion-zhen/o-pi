@@ -2,11 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
-import { loadTypeScript, root } from "./benchmark/loader.mjs";
+import { loadTypeScript } from "./benchmark/loader.mjs";
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "o-pi-ranking-calibration-"));
 process.env.PI_REPO_MAP_CACHE_DIR = path.join(temporaryRoot, "cache");
-process.env.PI_REPO_MAP_CONFIG = path.join(root, "agent/configs/repo-map.jsonc");
-process.env.PI_FILE_TOOLS_CONFIG = path.join(root, "agent/configs/file-tools.jsonc");
 
 const { initializeRepoMap, readActivatedRepoMap } = await loadTypeScript("src/repo-map/runtime/service.ts");
 const { RepoMapQueryIndex } = await loadTypeScript("src/repo-map/query/query.ts");

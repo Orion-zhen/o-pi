@@ -81,11 +81,7 @@ describe("Repo Map config", () => {
 		expect(repoMapConfigFingerprint(first)).toBe(repoMapConfigFingerprint(second));
 		first.scan.concurrency = 1;
 		expect(repoMapConfigFingerprint(first)).not.toBe(repoMapConfigFingerprint(second));
-		expect(defaultRepoMapConfig().scan.concurrency).toBe(8);
-		expect(defaultRepoMapConfig().output).toEqual({
-			read_context_token_budget: 160,
-			mutation_impact_token_budget: 120,
-		});
+		expect(defaultRepoMapConfig()).toEqual(second);
 		const outputOnly = defaultRepoMapConfig();
 		outputOnly.output.read_context_token_budget = 640;
 		expect(repoMapConfigFingerprint(outputOnly)).toBe(repoMapConfigFingerprint(second));
@@ -95,10 +91,11 @@ describe("Repo Map config", () => {
 		const configPath = path.join(temp.path, "repo-map.jsonc");
 		process.env["PI_REPO_MAP_CONFIG"] = configPath;
 		await writeFile(configPath, `{ "scan": { "concurrency": 3, }, // comment\n "output": { "read_context_token_budget": 640 } }`);
+		const defaults = defaultRepoMapConfig();
 		expect(await loadRepoMapConfig()).toMatchObject({
-			scan: { concurrency: 3, max_files: 100_000 },
-			cache: { max_generations: 2 },
-			output: { read_context_token_budget: 640, mutation_impact_token_budget: 120 },
+			scan: { ...defaults.scan, concurrency: 3 },
+			cache: defaults.cache,
+			output: { ...defaults.output, read_context_token_budget: 640 },
 		});
 	});
 

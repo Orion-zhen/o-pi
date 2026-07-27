@@ -16,7 +16,7 @@ V1 不 fork、不 monkey patch、不替换主 TUI，不实现 sidebar、fixed ed
 
 ```text
 agent/extensions/tui.ts
-agent/configs/tui.jsonc
+agent/defaults/tui.jsonc
 ```
 
 配置缺失时使用默认值；配置错误会抛出明确错误。
@@ -31,7 +31,7 @@ TUI 在 `agent_settled` 触发后通过 `node-notifier` 发送系统通知，确
 
 ## 配置
 
-仓库配置完整列出当前有效值；内置回退值由 `src/tui/config.ts` 提供。可配置字段：
+默认配置位于 `agent/defaults/tui.jsonc`，用户覆盖位于 `agent/configs/tui.jsonc`；不读取项目配置。分层规则见[配置分层](configuration.md)。可配置字段：
 
 * `enabled`: 开关。
 * `preset`: 保留的兼容字段；当前 renderer 不按该值分支。

@@ -306,7 +306,7 @@
 - `|` 分隔任务段。
 - 直接调用 subagent executor。
 - 任一任务包含 `{previous}` 时自动串行，否则并行。
-- 并发数来自 `agent/configs/subagent.jsonc`，默认 `1`。
+- 并发数来自合并后的 Subagent 配置，默认文件为 `agent/defaults/subagent.jsonc`。
 - 单个任务失败默认不取消其他任务。
 - 写能力工具需要确认；无 UI 时拒绝执行。
 - 主 TUI 在编辑器上方实时展示运行进度、事件、耗时和 token；结束后卡片进入聊天记录。

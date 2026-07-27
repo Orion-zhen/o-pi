@@ -35,7 +35,10 @@ describe("Repo Map change impact", () => {
 				})),
 			],
 		};
-		const defaultTag = formatRepoMapImpact(impact);
+		const defaultTag = formatRepoMapImpact(impact, {
+			read_context_token_budget: 160,
+			mutation_impact_token_budget: 120,
+		});
 		const expandedTag = formatRepoMapImpact(impact, {
 			read_context_token_budget: 160,
 			mutation_impact_token_budget: 640,

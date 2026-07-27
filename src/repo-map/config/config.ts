@@ -1,11 +1,21 @@
 import { createHash } from "node:crypto";
 
-import { agentSchemaPath, createSchemaValidator, readOptionalJsoncConfigWithSchema, userAgentConfigPath } from "../../config-loader.js";
+import {
+	CONFIG_DEFINITIONS,
+	agentSchemaPath,
+	createCompleteSchemaValidator,
+	createSchemaValidator,
+	defaultAgentConfigPath,
+	loadConfigLayers,
+	mergeConfigValues,
+	readDefaultJsoncConfigSync,
+	validateConfigValue,
+} from "../../config-loader.js";
 import { RepoMapError } from "../core/errors.js";
-import { DEFAULT_REPO_MAP_OUTPUT_CONFIG, type RepoMapOutputConfig } from "./output-config.js";
+import type { RepoMapOutputConfig } from "./output-config.js";
 export { repoMapCacheRoot } from "../repository/cache-path.js";
 
-const USER_CONFIG_ENV = "PI_REPO_MAP_CONFIG";
+const SCHEMA_PATH = agentSchemaPath("repo-map.schema.json");
 
 export interface RepoMapConfig {
 	scan: {
@@ -25,27 +35,28 @@ interface RawRepoMapConfig {
 	output?: Partial<RepoMapConfig["output"]>;
 }
 
-const defaults: RepoMapConfig = {
-	scan: { max_files: 100_000, max_file_bytes: 1024 * 1024, concurrency: 8 },
-	cache: { max_generations: 2 },
-	output: { ...DEFAULT_REPO_MAP_OUTPUT_CONFIG },
-};
+interface CompleteRepoMapConfig extends Required<RawRepoMapConfig> {
+	scan: RepoMapConfig["scan"];
+	cache: RepoMapConfig["cache"];
+	output: RepoMapConfig["output"];
+}
 
 export async function loadRepoMapConfig(): Promise<RepoMapConfig> {
 	try {
-		const parsed = await readOptionalJsoncConfigWithSchema({
-			path: userAgentConfigPath("repo-map.jsonc", USER_CONFIG_ENV),
-			label: "repo-map",
-			loadValidator,
-			createError: (message, details) => new RepoMapConfigError(message, details),
-		});
-		if (parsed === undefined) return defaultRepoMapConfig();
-		const raw = parsed as RawRepoMapConfig;
-		return {
-			scan: { ...defaults.scan, ...raw.scan },
-			cache: { ...defaults.cache, ...raw.cache },
-			output: { ...defaults.output, ...raw.output },
-		};
+		const loaded = await loadConfigLayers(CONFIG_DEFINITIONS.repoMap, process.cwd(), createError);
+		let merged: unknown = {};
+		for (const layer of loaded.layers) {
+			await validateConfigValue({
+				path: layer.path,
+				label: `repo-map ${layer.kind}`,
+				value: layer.value,
+				layer: layer.kind,
+				loadValidator: layer.kind === "default" ? loadCompleteValidator : loadValidator,
+				createError,
+			});
+			merged = mergeConfigValues(merged, layer.value);
+		}
+		return materializeConfig(merged as CompleteRepoMapConfig);
 	} catch (error) {
 		if (error instanceof RepoMapConfigError) throw new RepoMapError("CONFIG_ERROR", error.message, error.details);
 		throw error;
@@ -53,12 +64,16 @@ export async function loadRepoMapConfig(): Promise<RepoMapConfig> {
 }
 
 export function defaultRepoMapConfig(): RepoMapConfig {
-	return structuredClone(defaults);
+	return materializeConfig(readDefaultConfig());
 }
 
 /** Preserve existing generation fingerprint inputs while excluding model-output budgets. */
 export function repoMapConfigFingerprint(config: RepoMapConfig): string {
 	return createHash("sha256").update(JSON.stringify({ scan: config.scan, cache: config.cache })).digest("hex");
+}
+
+function materializeConfig(raw: CompleteRepoMapConfig): RepoMapConfig {
+	return { scan: { ...raw.scan }, cache: { ...raw.cache }, output: { ...raw.output } };
 }
 
 class RepoMapConfigError extends Error {
@@ -67,8 +82,18 @@ class RepoMapConfigError extends Error {
 	}
 }
 
-const loadValidator = createSchemaValidator({
-	schemaPath: agentSchemaPath("repo-map.schema.json"),
-	label: "repo-map",
-	createError: (message, details) => new RepoMapConfigError(message, details),
-});
+function readDefaultConfig(): CompleteRepoMapConfig {
+	return readDefaultJsoncConfigSync({
+		configPath: defaultAgentConfigPath("repo-map.jsonc"),
+		schemaPath: SCHEMA_PATH,
+		label: "repo-map",
+		createError,
+	}) as CompleteRepoMapConfig;
+}
+
+function createError(message: string, details?: Record<string, unknown>): RepoMapConfigError {
+	return new RepoMapConfigError(message, details);
+}
+
+const loadValidator = createSchemaValidator({ schemaPath: SCHEMA_PATH, label: "repo-map", createError });
+const loadCompleteValidator = createCompleteSchemaValidator({ schemaPath: SCHEMA_PATH, label: "repo-map", createError });

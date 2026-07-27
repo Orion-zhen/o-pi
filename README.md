@@ -20,6 +20,7 @@ cd ~/.pi && npm install
 
 ## 文档
 
+* [配置分层](docs/configuration.md)
 * [性能 Benchmark](docs/benchmark.md)
 * [文件工具设计](docs/file-tools/README.md)
 * [Bash 工具](docs/bash-tool.md)

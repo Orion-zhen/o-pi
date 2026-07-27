@@ -267,29 +267,15 @@ chain handoff：
 
 项目配置不能修改 `allow_project_agents`、`project_agents_override_user`、`confirm_write_agents`、`default_tools` 或 `agent_overrides`，避免项目扩大用户级能力边界。Fork 执行还会忽略 `default_model`、`default_tools` 和对应 `agent_overrides`；timeout、retry 与受信任用户 Agent 的 `auto_confirm` 仍可生效。
 
-仓库配置文件位于：
+完整默认配置位于：
 
 ```text
-agent/configs/subagent.jsonc
+agent/defaults/subagent.jsonc
 ```
 
-该文件完整列出默认值，便于直接修改；内置回退值定义在 `src/subagent/config.ts`。
+用户配置只需在 `agent/configs/subagent.jsonc` 中写覆盖字段。项目配置中的禁止字段会作为配置错误拒绝。通用规则见[配置分层](configuration.md)。
 
-重要默认值：
-
-```jsonc
-{
-	"max_parallel_tasks": 4,
-	"max_concurrency": 1,
-	"retries": 1,
-	"retry_on_empty_output": true,
-	"max_inline_output_tokens": 3000,
-	"max_handoff_tokens": 4000,
-	"allow_project_agents": false,
-	"confirm_write_agents": true,
-	"default_tools": ["read", "grep", "find", "ls"]
-}
-```
+默认值以 `agent/defaults/subagent.jsonc` 为准。
 
 配置解析失败或数值越界会直接报错，不静默回退。
 

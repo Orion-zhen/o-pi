@@ -140,9 +140,9 @@ Static response content.
 
 ## 共享网络策略
 
-配置文件：`agent/configs/web-tools.jsonc`。未知字段会被 schema 拒绝。仓库文件完整列出当前有效值，便于直接修改。
+默认配置位于 `agent/defaults/web-tools.jsonc`，用户覆盖位于 `agent/configs/web-tools.jsonc`；不读取项目配置。未知字段会被 schema 拒绝。分层规则见[配置分层](configuration.md)。
 
-- `network.fake_ip_ranges`：两个 Web 工具共用的安全 DNS fake-ip CIDR。默认空；只支持 `198.18.0.0/15` 内的子网。
+- `network.fake_ip_ranges`：两个 Web 工具共用的安全 DNS fake-ip CIDR；只支持 `198.18.0.0/15` 内的子网。
 - 配置的 fake-ip CIDR 只放行域名 DNS 解析结果；URL 直接写 IP 仍会拒绝。
 - 三家正式搜索 endpoint 的静态 URL 检查复用基础 URL guard；`webfetch` 仍保留自己的 DNS、redirect 和 SSRF 复检逻辑。
 - 每次连接时 DNS 解析结果必须全部是公网地址或已配置 fake-ip。

@@ -1,64 +1,18 @@
-import { agentConfigPath, agentSchemaPath, createSchemaValidator, expandHomePath, readOptionalJsoncConfigWithSchema } from "../config-loader.js";
+import {
+	CONFIG_DEFINITIONS,
+	agentSchemaPath,
+	createCompleteSchemaValidator,
+	createSchemaValidator,
+	defaultAgentConfigPath,
+	expandHomePath,
+	loadConfigLayers,
+	mergeConfigValues,
+	readDefaultJsoncConfigSync,
+	validateConfigValue,
+} from "../config-loader.js";
 import type { ApprovalGateConfig, ApprovalRule } from "./types.js";
 
-const CONFIG_PATH_ENV = "PI_APPROVAL_GATE_CONFIG";
-
-const defaultConfig: ApprovalGateConfig = {
-	enabled: true,
-	ui: {
-		timeout_ms: 0,
-		non_interactive: "block",
-	},
-	remember: {
-		allow_session: true,
-		allow_persistent: true,
-		persistent_store: "~/.pi/agent/state/approval-gate.rules.jsonc",
-	},
-	defaults: {
-		bash: "allow",
-		write: "allow",
-		edit: "allow",
-	},
-	ask_rules: [
-		{
-			name: "system-path-write",
-			tools: ["write", "edit"],
-			effects: ["system_change"],
-			reason: "system path modification",
-		},
-		{
-			name: "destructive-bash",
-			tools: ["bash"],
-			command_regex: "\\b(rm\\s+-rf|git\\s+reset\\s+--hard|git\\s+clean\\s+-fd|docker\\s+system\\s+prune)\\b",
-			reason: "destructive command",
-		},
-		{
-			name: "package-management",
-			tools: ["bash"],
-			command_regex: "\\b(apt|dnf|yum|pacman|brew|npm|pnpm|pip|uv|cargo)\\b[\\s\\S]*\\b(install|remove|uninstall|upgrade|update)\\b",
-			reason: "package management",
-		},
-		{
-			name: "external-publish",
-			tools: ["bash"],
-			command_regex: "\\b(git\\s+push|npm\\s+publish|gh\\s+release|twine\\s+upload)\\b",
-			reason: "external publishing",
-		},
-		{
-			name: "service-management",
-			tools: ["bash"],
-			command_regex: "\\b(sudo|systemctl|service|launchctl)\\b",
-			reason: "system-level command",
-		},
-		{
-			name: "infra-side-effect",
-			tools: ["bash"],
-			command_regex: "\\b(kubectl\\s+(apply|delete)|terraform\\s+(apply|destroy)|docker\\s+(rm|prune|system\\s+prune))\\b",
-			reason: "infrastructure side effect",
-		},
-	],
-	deny_rules: [],
-};
+const SCHEMA_PATH = agentSchemaPath("approval-gate.schema.json");
 
 export class ApprovalConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
@@ -68,19 +22,24 @@ export class ApprovalConfigError extends Error {
 }
 
 export async function loadApprovalGateConfig(): Promise<ApprovalGateConfig> {
-	const configPath = resolveConfigPath();
-	const parsed = await readOptionalJsoncConfigWithSchema({
-		path: configPath,
-		label: "approval-gate",
-		loadValidator,
-		createError: (message, details) => new ApprovalConfigError(message, details),
-	});
-	if (parsed === undefined) return defaultApprovalGateConfig();
-	return mergeConfig(parsed as RawApprovalGateConfig);
+	const loaded = await loadConfigLayers(CONFIG_DEFINITIONS.approvalGate, process.cwd(), createError);
+	let merged: unknown = {};
+	for (const layer of loaded.layers) {
+		await validateConfigValue({
+			path: layer.path,
+			label: `approval-gate ${layer.kind}`,
+			value: layer.value,
+			layer: layer.kind,
+			loadValidator: layer.kind === "default" ? loadCompleteValidator : loadValidator,
+			createError,
+		});
+		merged = mergeConfigValues(merged, layer.value);
+	}
+	return materializeConfig(merged as CompleteApprovalGateConfig);
 }
 
 export function defaultApprovalGateConfig(): ApprovalGateConfig {
-	return structuredClone(defaultConfig);
+	return materializeConfig(readDefaultConfig());
 }
 
 interface RawApprovalGateConfig {
@@ -92,24 +51,22 @@ interface RawApprovalGateConfig {
 	deny_rules?: ApprovalRule[];
 }
 
-function mergeConfig(raw: RawApprovalGateConfig): ApprovalGateConfig {
-	const merged: ApprovalGateConfig = {
-		enabled: raw.enabled ?? defaultConfig.enabled,
-		ui: {
-			timeout_ms: raw.ui?.timeout_ms ?? defaultConfig.ui.timeout_ms,
-			non_interactive: raw.ui?.non_interactive ?? defaultConfig.ui.non_interactive,
-		},
-		remember: {
-			allow_session: raw.remember?.allow_session ?? defaultConfig.remember.allow_session,
-			allow_persistent: raw.remember?.allow_persistent ?? defaultConfig.remember.allow_persistent,
-			persistent_store: expandHomePath(raw.remember?.persistent_store ?? defaultConfig.remember.persistent_store),
-		},
-		defaults: raw.defaults ?? { ...defaultConfig.defaults },
-		ask_rules: cloneRules(raw.ask_rules ?? defaultConfig.ask_rules),
-		deny_rules: cloneRules(raw.deny_rules ?? defaultConfig.deny_rules),
+interface CompleteApprovalGateConfig extends Required<RawApprovalGateConfig> {
+	ui: ApprovalGateConfig["ui"];
+	remember: ApprovalGateConfig["remember"];
+}
+
+function materializeConfig(raw: CompleteApprovalGateConfig): ApprovalGateConfig {
+	const config: ApprovalGateConfig = {
+		enabled: raw.enabled,
+		ui: { ...raw.ui },
+		remember: { ...raw.remember, persistent_store: expandHomePath(raw.remember.persistent_store) },
+		defaults: { ...raw.defaults },
+		ask_rules: cloneRules(raw.ask_rules),
+		deny_rules: cloneRules(raw.deny_rules),
 	};
-	validateRules([...merged.ask_rules, ...merged.deny_rules]);
-	return merged;
+	validateRules([...config.ask_rules, ...config.deny_rules]);
+	return config;
 }
 
 function validateRules(rules: ApprovalRule[]): void {
@@ -138,12 +95,18 @@ function cloneRules(rules: ApprovalRule[]): ApprovalRule[] {
 	}));
 }
 
-const loadValidator = createSchemaValidator({
-	schemaPath: agentSchemaPath("approval-gate.schema.json"),
-	label: "approval-gate",
-	createError: (message, details) => new ApprovalConfigError(message, details),
-});
-
-function resolveConfigPath(): string {
-	return agentConfigPath("approval-gate.jsonc", CONFIG_PATH_ENV);
+function readDefaultConfig(): CompleteApprovalGateConfig {
+	return readDefaultJsoncConfigSync({
+		configPath: defaultAgentConfigPath("approval-gate.jsonc"),
+		schemaPath: SCHEMA_PATH,
+		label: "approval-gate",
+		createError,
+	}) as CompleteApprovalGateConfig;
 }
+
+function createError(message: string, details?: Record<string, unknown>): ApprovalConfigError {
+	return new ApprovalConfigError(message, details);
+}
+
+const loadValidator = createSchemaValidator({ schemaPath: SCHEMA_PATH, label: "approval-gate", createError });
+const loadCompleteValidator = createCompleteSchemaValidator({ schemaPath: SCHEMA_PATH, label: "approval-gate", createError });

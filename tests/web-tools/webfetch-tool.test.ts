@@ -26,6 +26,7 @@ function runtime(
 	const config = defaultWebToolsConfig();
 	config.webfetch.limits.default_output_chars = 1000;
 	config.webfetch.limits.max_output_chars = maxChars;
+	config.webfetch.media.mode = "auto";
 	return {
 		dispatcher: new Agent(),
 		fetchImpl,

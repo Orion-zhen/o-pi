@@ -1,9 +1,15 @@
-import { findNearestProjectRoot as findNearestProjectRootBase, projectAgentConfigPath, readOptionalJsoncConfig, userAgentConfigPath } from "../config-loader.js";
+import {
+	CONFIG_DEFINITIONS,
+	agentSchemaPath,
+	createCompleteSchemaValidator,
+	createSchemaValidator,
+	defaultAgentConfigPath,
+	findNearestProjectRoot as findNearestProjectRootBase,
+	loadConfigLayers,
+	readDefaultJsoncConfigSync,
+	validateConfigValue,
+} from "../config-loader.js";
 import type { AgentOverride, SubagentConfig } from "./types.js";
-
-const USER_CONFIG_ENV = "PI_SUBAGENT_USER_CONFIG";
-const PROJECT_CONFIG_ENV = "PI_SUBAGENT_PROJECT_CONFIG";
-const PROJECT_ROOT_ENV = "PI_SUBAGENT_PROJECT_ROOT";
 
 const NUMBER_RANGES = {
 	maxParallelTasks: [1, 32],
@@ -15,23 +21,8 @@ const NUMBER_RANGES = {
 	maxHandoffTokens: [250, 50_000],
 } as const;
 
-const defaultConfig: SubagentConfig = {
-	maxParallelTasks: 4,
-	maxConcurrency: 1,
-	timeoutMs: 600_000,
-	retries: 1,
-	retryDelayMs: 1_000,
-	retryOnEmptyOutput: true,
-	retryOnTimeout: false,
-	maxInlineOutputTokens: 3_000,
-	maxHandoffTokens: 4_000,
-	agentScope: "user",
-	allowProjectAgents: false,
-	projectAgentsOverrideUser: false,
-	confirmWriteAgents: true,
-	defaultTools: ["read", "grep", "find", "ls"],
-	agentOverrides: {},
-};
+const SCHEMA_PATH = agentSchemaPath("subagent.schema.json");
+const PROJECT_SCHEMA_PATH = agentSchemaPath("subagent-project.schema.json");
 
 export const findNearestProjectRoot = findNearestProjectRootBase;
 
@@ -42,23 +33,36 @@ export class SubagentConfigError extends Error {
 	}
 }
 
-/** 返回内置默认配置；默认并发为 1，适合单 GPU 本地模型。 */
+/** 返回默认层配置。 */
 export function defaultSubagentConfig(): SubagentConfig {
-	return structuredClone(defaultConfig);
+	return materializeDefaultConfig(readDefaultJsoncConfigSync({
+		configPath: defaultAgentConfigPath("subagent.jsonc"),
+		schemaPath: SCHEMA_PATH,
+		label: "subagent",
+		createError,
+	}));
 }
 
 /** 加载用户与项目 JSONC 配置；项目配置只能覆盖普通运行参数。 */
 export async function loadSubagentConfig(cwd = process.cwd()): Promise<SubagentConfig> {
-	const defaults = defaultSubagentConfig();
-	const userPath = userConfigPath();
-	const userRaw = await readOptionalConfig(userPath);
-	const userMerged = mergeUserConfig(defaults, userRaw);
-	validateConfig(userMerged, userPath);
-
-	const projectPath = projectConfigPath(cwd);
-	const projectRaw = projectPath === undefined ? undefined : await readOptionalConfig(projectPath);
-	const merged = mergeProjectConfig(userMerged, projectRaw);
-	validateConfig(merged, projectPath ?? userPath);
+	const loaded = await loadConfigLayers(CONFIG_DEFINITIONS.subagent, cwd, createError);
+	let merged: SubagentConfig | undefined;
+	let sourcePath: string | undefined;
+	for (const layer of loaded.layers) {
+		await validateConfigValue({
+			path: layer.path,
+			label: `subagent ${layer.kind}`,
+			value: layer.value,
+			layer: layer.kind,
+			loadValidator: layer.kind === "default" ? loadCompleteValidator : layer.kind === "project" ? loadProjectValidator : loadValidator,
+			createError,
+		});
+		if (layer.kind === "default") merged = materializeDefaultConfig(layer.value);
+		else if (merged !== undefined) merged = layer.kind === "project" ? mergeProjectConfig(merged, layer.value) : mergeUserConfig(merged, layer.value);
+		sourcePath = layer.path;
+	}
+	if (merged === undefined) throw new SubagentConfigError("subagent default config is missing.");
+	validateConfig(merged, sourcePath);
 	return merged;
 }
 
@@ -118,20 +122,30 @@ export function validateConfig(config: SubagentConfig, sourcePath?: string): voi
 	if (config.defaultTools.length === 0) throw new SubagentConfigError("default_tools must not be empty.", { path: sourcePath });
 }
 
-function userConfigPath(): string {
-	return userAgentConfigPath("subagent.jsonc", USER_CONFIG_ENV);
-}
-
-function projectConfigPath(cwd: string): string | undefined {
-	return projectAgentConfigPath(cwd, "subagent.jsonc", PROJECT_CONFIG_ENV, PROJECT_ROOT_ENV);
-}
-
-async function readOptionalConfig(filePath: string): Promise<unknown | undefined> {
-	return readOptionalJsoncConfig({
-		path: filePath,
-		label: "subagent",
-		createError: (message, details) => new SubagentConfigError(message, details),
-	});
+function materializeDefaultConfig(raw: unknown): SubagentConfig {
+	const record = asRecord(raw, "subagent default config");
+	const scope = requireString(record["agent_scope"], "agent_scope");
+	if (scope !== "user") throw new SubagentConfigError("agent_scope only supports user in this extension.");
+	const config: SubagentConfig = {
+		maxParallelTasks: requireInteger(record["max_parallel_tasks"], "max_parallel_tasks"),
+		maxConcurrency: requireInteger(record["max_concurrency"], "max_concurrency"),
+		timeoutMs: requireInteger(record["timeout_ms"], "timeout_ms"),
+		retries: requireInteger(record["retries"], "retries"),
+		retryDelayMs: requireInteger(record["retry_delay_ms"], "retry_delay_ms"),
+		retryOnEmptyOutput: requireBoolean(record["retry_on_empty_output"], "retry_on_empty_output"),
+		retryOnTimeout: requireBoolean(record["retry_on_timeout"], "retry_on_timeout"),
+		maxInlineOutputTokens: requireInteger(record["max_inline_output_tokens"], "max_inline_output_tokens"),
+		maxHandoffTokens: requireInteger(record["max_handoff_tokens"], "max_handoff_tokens"),
+		agentScope: scope,
+		allowProjectAgents: requireBoolean(record["allow_project_agents"], "allow_project_agents"),
+		projectAgentsOverrideUser: requireBoolean(record["project_agents_override_user"], "project_agents_override_user"),
+		confirmWriteAgents: requireBoolean(record["confirm_write_agents"], "confirm_write_agents"),
+		defaultTools: requireToolList(record["default_tools"], "default_tools"),
+		agentOverrides: parseOverrides(record["agent_overrides"]),
+	};
+	const model = optionalString(record["default_model"], "default_model");
+	if (model !== undefined) config.defaultModel = model;
+	return config;
 }
 
 function parseOverrides(value: unknown): Record<string, AgentOverride> {
@@ -186,3 +200,11 @@ function asRecord(value: unknown, field: string): Record<string, unknown> {
 	if (typeof value === "object" && value !== null && !Array.isArray(value)) return value as Record<string, unknown>;
 	throw new SubagentConfigError(`${field} must be an object.`);
 }
+
+function createError(message: string, details?: Record<string, unknown>): SubagentConfigError {
+	return new SubagentConfigError(message, details);
+}
+
+const loadValidator = createSchemaValidator({ schemaPath: SCHEMA_PATH, label: "subagent", createError });
+const loadCompleteValidator = createCompleteSchemaValidator({ schemaPath: SCHEMA_PATH, label: "subagent", createError });
+const loadProjectValidator = createSchemaValidator({ schemaPath: PROJECT_SCHEMA_PATH, label: "subagent project", createError });

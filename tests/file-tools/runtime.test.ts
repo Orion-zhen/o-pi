@@ -10,6 +10,7 @@ import { FileSystemRuntime, type OpenWorkspaceOptions } from "../../src/filesyst
 import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
 import { contentHash } from "../../src/filesystem/services/text.js";
 import {
+	defaultFileToolsConfig,
 	FileToolsConfigProvider,
 	type FileToolsConfig,
 	type FileToolsConfigLoader,
@@ -17,7 +18,6 @@ import {
 } from "../../src/file-tools/config.js";
 import { FileToolsHost, type FileToolsInvocation } from "../../src/file-tools/runtime/host.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
-import { defaultFileToolLimits } from "../../src/file-tool-limits.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-file-tools-host-");
@@ -235,7 +235,7 @@ describe("FileToolsHost runtime", () => {
 			{ createParents: false },
 			opened.context,
 		))).toMatchObject({ created: true });
-		expect(opened.limits.ls_entries).toBe(defaultFileToolLimits().ls_entries);
+		expect(opened.limits.ls_entries).toBe(defaultFileToolsConfig().limits.ls_entries);
 		const file = await resolveFile(opened, "life.txt");
 
 		opened.dispose();
@@ -296,7 +296,7 @@ function configSuccess(): FileToolsConfigResult {
 }
 
 function fileToolsConfig(): FileToolsConfig {
-	return { filesystem: policy(), limits: defaultFileToolLimits() };
+	return { filesystem: policy(), limits: defaultFileToolsConfig().limits };
 }
 
 function policy(): FilesystemPolicy {

@@ -208,7 +208,10 @@ describe("Repo Map file-tool read and mutation integration", () => {
 			references: [],
 			imports: [],
 		};
-		const defaultTag = formatRepoMapReadContext(expandableContext);
+		const defaultTag = formatRepoMapReadContext(expandableContext, {
+			read_context_token_budget: 160,
+			mutation_impact_token_budget: 120,
+		});
 		const expandedTag = formatRepoMapReadContext(expandableContext, {
 			read_context_token_budget: 640,
 			mutation_impact_token_budget: 120,
