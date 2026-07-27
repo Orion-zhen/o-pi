@@ -280,7 +280,15 @@ async function initializeRepoMapLocked(
 		architecture: architecture.nodes,
 		edges,
 		concurrency: config.scan.concurrency,
-		...(previous !== undefined ? { previous: { files: previous.files, aliases: previous.aliases } } : {}),
+		...(previous !== undefined ? {
+			previous: {
+				files: previous.files,
+				symbols: previous.symbols,
+				architecture: previous.architecture,
+				edges: previous.edges,
+				aliases: previous.aliases,
+			},
+		} : {}),
 		...(input.signal !== undefined ? { signal: input.signal } : {}),
 	});
 	throwIfAborted(input.signal);

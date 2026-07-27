@@ -183,19 +183,49 @@ function calculateCanonicalGeneration(input: CalculateRepoMapGenerationInput): s
 }
 
 function updateGenerationValue(hash: ReturnType<typeof createHash>, value: unknown): void {
-	const encoded = JSON.stringify(value);
+	const encoded = encodeGenerationValue(value);
 	hash.update(`${Buffer.byteLength(encoded)}:`).update(encoded);
 }
 
+const MAX_MEMOIZED_GENERATION_VALUES = 20_000;
+const MAX_MEMOIZED_GENERATION_BYTES = 8 * 1024 * 1024;
+
 function updateGenerationArray<T>(hash: ReturnType<typeof createHash>, values: readonly T[], project: (value: T) => unknown): void {
+	const memoized = memoizedGenerationValues(values, project);
+	if (memoized !== undefined) {
+		hash.update(`${memoized.encodedBytes}:`).update(`[${memoized.values.join(",")}]`);
+		return;
+	}
 	let encodedBytes = 2 + Math.max(0, values.length - 1);
-	for (const value of values) encodedBytes += Buffer.byteLength(JSON.stringify(project(value)));
+	for (const value of values) encodedBytes += Buffer.byteLength(encodeGenerationValue(project(value)));
 	hash.update(`${encodedBytes}:`).update("[");
 	for (const [index, value] of values.entries()) {
 		if (index > 0) hash.update(",");
-		hash.update(JSON.stringify(project(value)));
+		hash.update(encodeGenerationValue(project(value)));
 	}
 	hash.update("]");
+}
+
+function memoizedGenerationValues<T>(
+	values: readonly T[],
+	project: (value: T) => unknown,
+): { values: string[]; encodedBytes: number } | undefined {
+	if (values.length > MAX_MEMOIZED_GENERATION_VALUES) return undefined;
+	const encodedValues: string[] = [];
+	let encodedBytes = 2 + Math.max(0, values.length - 1);
+	for (const value of values) {
+		const encoded = encodeGenerationValue(project(value));
+		encodedBytes += Buffer.byteLength(encoded);
+		if (encodedBytes > MAX_MEMOIZED_GENERATION_BYTES) return undefined;
+		encodedValues.push(encoded);
+	}
+	return { values: encodedValues, encodedBytes };
+}
+
+function encodeGenerationValue(value: unknown): string {
+	const encoded = JSON.stringify(value);
+	if (encoded === undefined) throw new TypeError("Repo Map generation value is not JSON serializable.");
+	return encoded;
 }
 
 function evidenceSnapshot(evidence: readonly RepoMapEvidence[]): unknown[][] {

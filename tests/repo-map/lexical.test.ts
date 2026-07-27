@@ -151,7 +151,7 @@ describe("Repo Map lexical projection", () => {
 			architecture: [],
 			edges: [],
 			concurrency: 2,
-			previous: { files: previousFiles, aliases: previousAliases },
+			previous: { files: previousFiles, symbols: [], architecture: [], edges: [], aliases: previousAliases },
 			readText: incrementalRead,
 		});
 		const rebuilt = await buildRepoMapLexicalAliases({ root, files, symbols: [], architecture: [], edges: [], concurrency: 2, readText: read });
