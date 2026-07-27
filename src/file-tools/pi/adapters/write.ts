@@ -8,6 +8,7 @@ import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 import { createWritePorts } from "../ports/write.js";
 import { piTextDiffGenerator } from "../ports/text-diff.js";
 import type { LspFileOperations } from "../../../lsp/file-hooks.js";
+import type { MutationBatchInvocation } from "../mutation-batch.js";
 import { createMutationPostProcessObserver, mutationProgress, type MutationProgressCallback } from "../progress.js";
 
 export async function executeWrite(
@@ -20,6 +21,7 @@ export async function executeWrite(
 		lsp: LspFileOperations;
 		repoMap: RepoMapToolPorts;
 		onUpdate?: MutationProgressCallback;
+		batch?: MutationBatchInvocation;
 	},
 ) {
 	const opened = await runtime.host.open({
@@ -33,7 +35,7 @@ export async function executeWrite(
 		const progress = createMutationPostProcessObserver(runtime.onUpdate, () => (
 			latestPreview === undefined ? {} : { diff: latestPreview.diff }
 		));
-		const ports = createWritePorts(opened, runtime.lsp, runtime.repoMap, progress);
+		const ports = createWritePorts(opened, runtime.lsp, runtime.repoMap, progress, runtime.batch);
 		const result = await writeFile(params, {
 			filesystem: opened.filesystem,
 			operation: opened.context,

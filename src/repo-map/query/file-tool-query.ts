@@ -45,6 +45,12 @@ export interface RepoMapMutationResult {
 	impact?: RepoMapImpactResult;
 }
 
+export interface RepoMapMutationInput {
+	requestedPath: string;
+	changedLine?: number;
+	signal?: AbortSignal;
+}
+
 export interface RepoMapFileToolQuery {
 	query(input: { requestedPath: string; query: string; limit: number; signal?: AbortSignal }): Promise<RepoMapQueryResult | undefined>;
 	readContext(input: {
@@ -56,7 +62,8 @@ export interface RepoMapFileToolQuery {
 		truncated: boolean;
 		signal?: AbortSignal;
 	}): Promise<RepoMapReadContext | undefined>;
-	syncMutation(input: { requestedPath: string; changedLine?: number; signal?: AbortSignal }): Promise<RepoMapMutationResult | undefined>;
+	syncMutation(input: RepoMapMutationInput): Promise<RepoMapMutationResult | undefined>;
+	syncMutations?(inputs: readonly RepoMapMutationInput[]): Promise<readonly (RepoMapMutationResult | undefined)[]>;
 }
 
 export interface RepoMapFileToolQueryDependencies {
@@ -200,6 +207,88 @@ export function createRepoMapFileToolQuery(
 		return gate.enabled && generation !== undefined ? { activation, generation } : undefined;
 	};
 
+	const syncMutations = async (
+		inputs: readonly RepoMapMutationInput[],
+	): Promise<readonly (RepoMapMutationResult | undefined)[]> => {
+		if (inputs.length === 0) return [];
+		const activation = computeRepoMapActivation(getBranch());
+		if (activation === undefined) return inputs.map(() => undefined);
+		const changedPaths = inputs.map((input) => relativeRepoPath(activation.root, input.requestedPath));
+		if (changedPaths.every((changedPath) => changedPath === undefined)) return inputs.map(() => undefined);
+		let included = changedPaths.map((changedPath) => changedPath !== undefined);
+		try {
+			const before = await readActivated(activation).catch(() => undefined);
+			included = await Promise.all(inputs.map(async (input, index) => {
+				const changedPath = changedPaths[index];
+				if (changedPath === undefined) return false;
+				if (before?.files.some((file) => file.path === changedPath)) return true;
+				try {
+					return await isMutationPathInScope(activation.root, input.requestedPath);
+				} catch {
+					// 无法证明变更与索引无关时保留刷新行为。
+					return true;
+				}
+			}));
+			if (!included.some(Boolean)) return inputs.map(() => undefined);
+			const sharedSignal = inputs.length === 1 ? inputs[0]?.signal : undefined;
+			const result = await refresh({
+				activation,
+				...(sharedSignal === undefined ? {} : { signal: sharedSignal }),
+			});
+			const entry: RepoMapActivationEntry = {
+				kind: "activation",
+				root: result.metadata.repositoryRoot,
+				mapId: result.metadata.mapId,
+				generation: result.metadata.generation,
+				activatedAt: now().toISOString(),
+				...(result.metadata.freshness !== "fresh" ? { freshness: result.metadata.freshness } : {}),
+			};
+			dependencies.appendActivation?.(entry);
+			if (result.metadata.generation !== activation.generation) queryIndexes.clear();
+			const base: RepoMapMutationResult = {
+				status: result.metadata.freshness === "fresh" ? "updated" : "partially_stale",
+				generation: result.metadata.generation,
+			};
+			let after: RepoMapGeneration | undefined;
+			try {
+				after = await readActivated({
+					root: result.metadata.repositoryRoot,
+					mapId: result.metadata.mapId,
+					generation: result.metadata.generation,
+					activatedAt: result.metadata.updatedAt,
+					freshness: result.metadata.freshness,
+				});
+			} catch {
+				// 影响分析是附加信息，不能改变已成功的刷新结果。
+			}
+			return await Promise.all(inputs.map(async (input, index) => {
+				if (!included[index]) return undefined;
+				const mutation: RepoMapMutationResult = { ...base };
+				const refreshedPath = relativeRepoPath(result.metadata.repositoryRoot, input.requestedPath);
+				if (after === undefined || refreshedPath === undefined) return mutation;
+				try {
+					const impact = analyzeImpact({
+						...(before === undefined ? {} : { before }),
+						after,
+						changedPath: refreshedPath,
+						...(input.changedLine === undefined ? {} : { changedLine: input.changedLine }),
+						maxCandidates: 8,
+					});
+					mutation.impact = await verifiedImpact(after, impact, inputs.length === 1 ? input.signal : undefined);
+				} catch {
+					// 单个文件的影响分析失败不影响同批次其他结果。
+				}
+				return mutation;
+			}));
+		} catch (error) {
+			const diagnostic = error instanceof Error ? error.message : "Repo Map update failed.";
+			appendPartial(activation, diagnostic);
+			return inputs.map((_input, index) => included[index]
+				? { status: "partially_stale", generation: activation.generation, diagnostic }
+				: undefined);
+		}
+	};
+
 	return {
 		async query(input) {
 			try {
@@ -245,68 +334,9 @@ export function createRepoMapFileToolQuery(
 			}
 		},
 		async syncMutation(input) {
-			const activation = computeRepoMapActivation(getBranch());
-			if (activation === undefined) return undefined;
-			const changedPath = relativeRepoPath(activation.root, input.requestedPath);
-			if (changedPath === undefined) return undefined;
-			try {
-				const before = await readActivated(activation).catch(() => undefined);
-				if (!before?.files.some((file) => file.path === changedPath)) {
-					let inScope = true;
-					try {
-						inScope = await isMutationPathInScope(activation.root, input.requestedPath);
-					} catch {
-						// 无法证明 mutation 与索引无关时保留原有 refresh 行为。
-					}
-					if (!inScope) return undefined;
-				}
-				const result = await refresh({
-					activation,
-					...(input.signal !== undefined ? { signal: input.signal } : {}),
-				});
-				const entry: RepoMapActivationEntry = {
-					kind: "activation",
-					root: result.metadata.repositoryRoot,
-					mapId: result.metadata.mapId,
-					generation: result.metadata.generation,
-					activatedAt: now().toISOString(),
-					...(result.metadata.freshness !== "fresh" ? { freshness: result.metadata.freshness } : {}),
-				};
-				dependencies.appendActivation?.(entry);
-				if (result.metadata.generation !== activation.generation) queryIndexes.clear();
-				const mutation: RepoMapMutationResult = {
-					status: result.metadata.freshness === "fresh" ? "updated" : "partially_stale",
-					generation: result.metadata.generation,
-				};
-				try {
-					const after = await readActivated({
-						root: result.metadata.repositoryRoot,
-						mapId: result.metadata.mapId,
-						generation: result.metadata.generation,
-						activatedAt: result.metadata.updatedAt,
-						freshness: result.metadata.freshness,
-					});
-					const refreshedPath = relativeRepoPath(result.metadata.repositoryRoot, input.requestedPath);
-					if (after !== undefined && refreshedPath !== undefined) {
-						const impact = analyzeImpact({
-							...(before !== undefined ? { before } : {}),
-							after,
-							changedPath: refreshedPath,
-							...(input.changedLine !== undefined ? { changedLine: input.changedLine } : {}),
-							maxCandidates: 8,
-						});
-						mutation.impact = await verifiedImpact(after, impact, input.signal);
-					}
-				} catch {
-					// Impact analysis is advisory and cannot change a successful map refresh.
-				}
-				return mutation;
-			} catch (error) {
-				const diagnostic = error instanceof Error ? error.message : "Repo Map update failed.";
-				appendPartial(activation, diagnostic);
-				return { status: "partially_stale", generation: activation.generation, diagnostic };
-			}
+			return (await syncMutations([input]))[0];
 		},
+		syncMutations,
 	};
 }
 

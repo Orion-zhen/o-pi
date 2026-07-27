@@ -6,6 +6,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFileToolsExtension, type FileToolsModuleImports } from "../../agent/extensions/file-tools.js";
 import { lspManager } from "../../src/lsp/index.js";
+import type { LspMutationInput } from "../../src/lsp/file-hooks.js";
+import type { RepoMapImpactResult } from "../../src/repo-map/query/impact.js";
+import type { RepoMapMutationInput } from "../../src/repo-map/query/file-tool-query.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { activateFileTools, executeTool, type ExecuteResult, type ExecuteTool, type LifecycleHandler } from "./extension-fixture.js";
 
@@ -287,6 +290,172 @@ describe("file-tools extension lifecycle", () => {
 		}
 	});
 
+	it("并发 write 批次先完成全部提交，再统一刷新 Repo Map 并按文件回填 LSP diagnostics", async () => {
+		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
+		const handlers = new Map<string, LifecycleHandler>();
+		const directLsp = vi.fn(async () => undefined);
+		const batchLsp = vi.fn(async (inputs: readonly LspMutationInput[]) => {
+			expect(await readFile(join(cwd, "a.ts"), "utf8")).toBe("export const a = 1;\n");
+			expect(await readFile(join(cwd, "b.ts"), "utf8")).toBe("export const b = 2;\n");
+			return inputs.map((input) => input.filePath.endsWith("a.ts") ? diagnostics("errors", "a failed") : diagnostics("warnings", "b warned"));
+		});
+		const directRepoMap = vi.fn(async () => undefined);
+		const batchRepoMap = vi.fn(async (inputs: readonly RepoMapMutationInput[]) => {
+			expect(await readFile(join(cwd, "a.ts"), "utf8")).toBe("export const a = 1;\n");
+			expect(await readFile(join(cwd, "b.ts"), "utf8")).toBe("export const b = 2;\n");
+			return inputs.map((input) => ({
+				status: "updated" as const,
+				generation: "2".repeat(64),
+				impact: {
+					candidate: true as const,
+					changedPath: input.requestedPath,
+					changedSymbols: [],
+					publicApiChanges: [],
+					candidates: [],
+				},
+			}));
+		});
+		const imports = {
+			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
+			host: () => import("../../src/file-tools/runtime/host.js"),
+			find: () => import("../../src/file-tools/pi/adapters/find.js"),
+			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
+			read: () => import("../../src/file-tools/pi/adapters/read.js"),
+			write: () => import("../../src/file-tools/pi/adapters/write.js"),
+			edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
+			async lsp() {
+				return {
+					...(await import("../../src/lsp/index.js")),
+					lspFileOperations: { afterWrite: directLsp, afterWriteBatch: batchLsp },
+				};
+			},
+			async repoMap() {
+				return {
+					createRepoMapFileToolQuery: () => ({
+						async query() { return undefined; },
+						async readContext() { return undefined; },
+						syncMutation: directRepoMap,
+						syncMutations: batchRepoMap,
+					}),
+					async loadRepoMapOutputConfig() {
+						return { read_context_token_budget: 640, mutation_impact_token_budget: 480 };
+					},
+					formatRepoMapImpact: (impact: RepoMapImpactResult | undefined) => impact === undefined ? undefined : `<repo_impact path="${impact.changedPath}"/>`,
+					formatRepoMapReadContext: () => undefined,
+				};
+			},
+		} satisfies FileToolsModuleImports;
+		createFileToolsExtension(imports)({
+			registerTool(tool: { name: string; execute?: ExecuteTool }) { registered.push(tool); },
+			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
+			appendEntry() {},
+		} as unknown as ExtensionAPI);
+
+		const cwd = await mkdtemp(join(tmpdir(), "o-pi-mutation-batch-"));
+		const branch = [{
+			type: "custom",
+			customType: "o-pi:repo-map",
+			data: {
+				kind: "activation",
+				root: cwd,
+				mapId: "0".repeat(64),
+				generation: "1".repeat(64),
+				activatedAt: "2026-07-27T00:00:00.000Z",
+			},
+		}];
+		const ctx = { cwd, sessionManager: { getSessionId: () => "mutation-batch", getBranch: () => branch } };
+		const write = registered.find((tool) => tool.name === "write")?.execute;
+		const edit = registered.find((tool) => tool.name === "edit")?.execute;
+		const read = registered.find((tool) => tool.name === "read")?.execute;
+		if (write === undefined || edit === undefined || read === undefined) throw new Error("mutation tools not registered");
+		try {
+			await writeFile(join(cwd, "b.ts"), "export const b = 1;\n");
+			await read("read-b", { path: "b.ts" }, undefined, undefined, ctx);
+			await announceMutationBatch(handlers, [
+				{ id: "write-a", name: "write" },
+				{ id: "edit-b", name: "edit" },
+			]);
+			const [a, b] = await Promise.all([
+				write("write-a", { path: "a.ts", content: "export const a = 1;\n" }, undefined, undefined, ctx),
+				edit("edit-b", { path: "b.ts", edits: [{ old: "b = 1", new: "b = 2" }] }, undefined, undefined, ctx),
+			]);
+			expect(batchLsp).toHaveBeenCalledTimes(1);
+			expect(batchRepoMap).toHaveBeenCalledTimes(1);
+			expect(directLsp).not.toHaveBeenCalled();
+			expect(directRepoMap).not.toHaveBeenCalled();
+			expect(a.details).toMatchObject({ status: "written", path: "a.ts", lsp: { diagnostics: { status: "errors", items: [{ message: "a failed" }] } } });
+			expect(b.details).toMatchObject({ status: "applied", path: "b.ts", lsp: { diagnostics: { status: "warnings", items: [{ message: "b warned" }] } } });
+			expect(a.content[0]?.text).toContain("a failed");
+			expect(a.content[0]?.text).not.toContain("b warned");
+			expect(b.content[0]?.text).toContain("b warned");
+			expect(b.content[0]?.text).not.toContain("a failed");
+			expect(a.content[0]?.text).toContain("a.ts");
+			expect(b.content[0]?.text).toContain("b.ts");
+			await endMutationBatch(handlers, ["write-a", "edit-b"]);
+
+			await announceMutationBatch(handlers, [
+				{ id: "write-invalid", name: "write" },
+				{ id: "write-valid", name: "write" },
+			]);
+			const [invalid, valid] = await Promise.all([
+				write("write-invalid", { path: ".", content: "invalid" }, undefined, undefined, ctx),
+				write("write-valid", { path: "valid.ts", content: "valid\n" }, undefined, undefined, ctx),
+			]);
+			expect(invalid.details).toMatchObject({ status: "failed" });
+			expect(valid.details).toMatchObject({ status: "written", path: "valid.ts" });
+			expect(batchLsp).toHaveBeenCalledTimes(2);
+			expect(batchRepoMap).toHaveBeenCalledTimes(2);
+			expect(batchLsp.mock.calls[1]?.[0]).toHaveLength(1);
+			expect(batchRepoMap.mock.calls[1]?.[0]).toHaveLength(1);
+		} finally {
+			await Promise.resolve(handlers.get("session_shutdown")?.({}, {}));
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
+	it("顺序执行的 mutation 调用保持逐项后处理且不会等待尚未启动的调用", async () => {
+		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
+		const handlers = new Map<string, LifecycleHandler>();
+		const directLsp = vi.fn(async () => diagnostics("clean", ""));
+		const batchLsp = vi.fn(async () => []);
+		const imports = {
+			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
+			host: () => import("../../src/file-tools/runtime/host.js"),
+			find: () => import("../../src/file-tools/pi/adapters/find.js"),
+			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
+			read: () => import("../../src/file-tools/pi/adapters/read.js"),
+			write: () => import("../../src/file-tools/pi/adapters/write.js"),
+			edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
+			async lsp() {
+				return { ...(await import("../../src/lsp/index.js")), lspFileOperations: { afterWrite: directLsp, afterWriteBatch: batchLsp } };
+			},
+			repoMap: () => import("../../src/file-tools/pi/repo-map-runtime.js"),
+		} satisfies FileToolsModuleImports;
+		createFileToolsExtension(imports)({
+			registerTool(tool: { name: string; execute?: ExecuteTool }) { registered.push(tool); },
+			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
+		} as unknown as ExtensionAPI);
+		const cwd = await mkdtemp(join(tmpdir(), "o-pi-sequential-mutation-"));
+		const ctx = { cwd, sessionManager: { getSessionId: () => "sequential-mutation", getBranch: () => [] } };
+		const write = registered.find((tool) => tool.name === "write")?.execute;
+		if (write === undefined) throw new Error("write tool not registered");
+		try {
+			await Promise.resolve(handlers.get("message_end")?.({ message: assistantToolMessage([
+				{ id: "sequential-a", name: "write" },
+				{ id: "sequential-b", name: "write" },
+			]) }));
+			await Promise.resolve(handlers.get("tool_execution_start")?.({ toolCallId: "sequential-a" }));
+			await expect(write("sequential-a", { path: "a.ts", content: "a\n" }, undefined, undefined, ctx)).resolves.toMatchObject({ details: { status: "written" } });
+			await Promise.resolve(handlers.get("tool_execution_start")?.({ toolCallId: "sequential-b" }));
+			await expect(write("sequential-b", { path: "b.ts", content: "b\n" }, undefined, undefined, ctx)).resolves.toMatchObject({ details: { status: "written" } });
+			expect(directLsp).toHaveBeenCalledTimes(2);
+			expect(batchLsp).not.toHaveBeenCalled();
+		} finally {
+			await Promise.resolve(handlers.get("session_shutdown")?.({}, {}));
+			await rm(cwd, { recursive: true, force: true });
+		}
+	});
+
 	it("完整 read 不加载 LSP，局部 read 首次请求增强时才加载并复用", async () => {
 		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
 		const handlers = new Map<string, LifecycleHandler>();
@@ -342,3 +511,42 @@ describe("file-tools extension lifecycle", () => {
 		}
 	});
 });
+
+function diagnostics(status: "clean" | "warnings" | "errors", message: string) {
+	const severity = status === "errors" ? "error" as const : "warning" as const;
+	return {
+		status,
+		file_errors: status === "errors" ? 1 : 0,
+		file_warnings: status === "warnings" ? 1 : 0,
+		new_errors: status === "errors" ? 1 : 0,
+		new_warnings: status === "warnings" ? 1 : 0,
+		resolved_errors: 0,
+		resolved_warnings: 0,
+		baseline: "unknown" as const,
+		total_items: status === "clean" ? 0 : 1,
+		items: status === "clean" ? [] : [{ severity, line: 1, column: 1, message }],
+	};
+}
+
+function assistantToolMessage(calls: readonly { id: string; name: string }[]) {
+	return {
+		role: "assistant",
+		content: calls.map((call) => ({ type: "toolCall", id: call.id, name: call.name, arguments: {} })),
+	};
+}
+
+async function announceMutationBatch(
+	handlers: ReadonlyMap<string, LifecycleHandler>,
+	calls: readonly { id: string; name: string }[],
+): Promise<void> {
+	await Promise.resolve(handlers.get("message_end")?.({ message: assistantToolMessage(calls) }));
+	for (const call of calls) {
+		await Promise.resolve(handlers.get("tool_execution_start")?.({ toolCallId: call.id, toolName: call.name, args: {} }));
+	}
+}
+
+async function endMutationBatch(handlers: ReadonlyMap<string, LifecycleHandler>, ids: readonly string[]): Promise<void> {
+	for (const id of ids) {
+		await Promise.resolve(handlers.get("tool_execution_end")?.({ toolCallId: id, toolName: "write", result: {}, isError: false }));
+	}
+}

@@ -35,6 +35,7 @@ export interface LspFileOperations {
 	symbols?(input: LspSymbolInput): Promise<readonly LspSymbolHit[]>;
 	beforeEdit?(input: Pick<LspMutationInput, "workspaceRoot" | "filePath">): Promise<LspDiagnosticSnapshot | undefined>;
 	afterWrite?(input: LspMutationInput): Promise<LspDiagnosticsSummary | undefined>;
+	afterWriteBatch?(inputs: readonly LspMutationInput[]): Promise<readonly (LspDiagnosticsSummary | undefined)[]>;
 }
 
 export function createLspFileOperations(manager: LspManager): LspFileOperations {
@@ -79,22 +80,41 @@ export function createLspFileOperations(manager: LspManager): LspFileOperations 
 					input.created ? FileChangeType.Created : FileChangeType.Changed,
 				);
 			} catch {
-				// 文件变更通知是 best-effort，不影响 diagnostics 或已提交写入。
+				// 文件变更通知仅为尽力而为，不影响诊断或已提交写入。
 			}
-			return diagnosticsOrUnavailable(async () => manager.didWrite(
-				input.workspaceRoot,
-				input.filePath,
-				input.content,
-				input.baseline,
-			));
+			try {
+				return await manager.didWrite(input.workspaceRoot, input.filePath, input.content, input.baseline);
+			} catch {
+				return emptySummary("unavailable");
+			}
+		},
+		async afterWriteBatch(inputs) {
+			return await afterWriteBatch(manager, inputs);
 		},
 	};
 }
 
-async function diagnosticsOrUnavailable(factory: () => Promise<LspDiagnosticsSummary | undefined>): Promise<LspDiagnosticsSummary | undefined> {
+async function afterWriteBatch(
+	manager: LspManager,
+	inputs: readonly LspMutationInput[],
+): Promise<readonly (LspDiagnosticsSummary | undefined)[]> {
 	try {
-		return await factory();
+		await manager.didChangeWatchedFiles(inputs.map((input) => ({
+			root: input.workspaceRoot,
+			filePath: input.filePath,
+			type: input.created ? FileChangeType.Created : FileChangeType.Changed,
+		})));
 	} catch {
-		return emptySummary("unavailable");
+		// 文件变更通知仅为尽力而为，不影响诊断或已提交写入。
+	}
+	try {
+		return await manager.didWriteBatch(inputs.map((input) => ({
+			root: input.workspaceRoot,
+			filePath: input.filePath,
+			text: input.content,
+			...(input.baseline === undefined ? {} : { baseline: input.baseline }),
+		})));
+	} catch {
+		return inputs.map(() => emptySummary("unavailable"));
 	}
 }

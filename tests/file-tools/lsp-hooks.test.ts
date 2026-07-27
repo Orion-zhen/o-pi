@@ -117,6 +117,31 @@ describe("file-tools lsp hooks", () => {
 		expect(diagnosticsAfterWrite).toHaveBeenCalledTimes(2);
 	});
 
+	it("afterWriteBatch 统一转发文件通知与 diagnostics，并保持结果顺序", async () => {
+		const manager = new LspManager();
+		const watched = vi.spyOn(manager, "didChangeWatchedFiles").mockResolvedValue();
+		const first = diagnostics("errors");
+		const second = diagnostics("warnings");
+		const diagnosticsBatch = vi.spyOn(manager, "didWriteBatch").mockResolvedValue([first, second]);
+		const hooks = createLspFileOperations(manager);
+		const inputs = [
+			{ workspaceRoot: workspace, filePath: path.join(workspace, "a.ts"), content: "a\n", created: true },
+			{ workspaceRoot: workspace, filePath: path.join(workspace, "b.ts"), content: "b\n", created: false },
+		];
+
+		await expect(hooks.afterWriteBatch?.(inputs)).resolves.toEqual([first, second]);
+		expect(watched).toHaveBeenCalledTimes(1);
+		expect(watched).toHaveBeenCalledWith([
+			{ root: workspace, filePath: path.join(workspace, "a.ts"), type: FileChangeType.Created },
+			{ root: workspace, filePath: path.join(workspace, "b.ts"), type: FileChangeType.Changed },
+		]);
+		expect(diagnosticsBatch).toHaveBeenCalledTimes(1);
+		expect(diagnosticsBatch).toHaveBeenCalledWith([
+			{ root: workspace, filePath: path.join(workspace, "a.ts"), text: "a\n" },
+			{ root: workspace, filePath: path.join(workspace, "b.ts"), text: "b\n" },
+		]);
+	});
+
 	it("beforeEdit 使用调用方已解析的 absolutePath 和 workspace source", async () => {
 		const manager = new LspManager();
 		const beforeDiagnostics = vi.spyOn(manager, "beforeDiagnostics").mockResolvedValue(undefined);

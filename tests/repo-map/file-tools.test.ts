@@ -338,6 +338,41 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		expect(generation.edges.every((edge) => nodeIds.has(edge.from) && (nodeIds.has(edge.to) || edge.to.startsWith("external:") || edge.to.startsWith("lexical:symbol:")))).toBe(true);
 	});
 
+	it("批量 mutation 只刷新一次并分别计算每个文件的 impact", async () => {
+		const root = path.join(temp.path, "batch-mutation-repo");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		await writeFile(path.join(root, "a.ts"), "export function A() { return 1; }\n");
+		await writeFile(path.join(root, "b.ts"), "export function B() { return 1; }\n");
+		const deps = serviceDependencies(root);
+		const initialized = await initializeRepoMap({ cwd: root }, deps);
+		const branch: SessionEntry[] = [activationEntry(initialized.metadata)];
+		const refresh = vi.fn(async (input: RefreshActivatedRepoMapInput) => await initializeRepoMap({
+			cwd: input.activation.root,
+			mode: "refresh",
+			...(input.signal === undefined ? {} : { signal: input.signal }),
+		}, deps));
+		const query = createRepoMapFileToolQuery(() => branch, {
+			async readActivated(activation) {
+				return await readActivatedRepoMap(activation, path.join(temp.path, "cache"));
+			},
+			refresh,
+			appendActivation(entry) { appendEntry(branch, entry); },
+		});
+		await writeFile(path.join(root, "a.ts"), "export function A2() { return 2; }\n");
+		await writeFile(path.join(root, "b.ts"), "export function B2() { return 2; }\n");
+		if (query.syncMutations === undefined) throw new Error("batch mutation API unavailable");
+		const results = await query.syncMutations([
+			{ requestedPath: path.join(root, "a.ts"), changedLine: 1 },
+			{ requestedPath: path.join(root, "b.ts"), changedLine: 1 },
+		]);
+		expect(refresh).toHaveBeenCalledTimes(1);
+		expect(results).toHaveLength(2);
+		expect(results[0]).toMatchObject({ status: "updated", impact: { changedPath: "a.ts" } });
+		expect(results[1]).toMatchObject({ status: "updated", impact: { changedPath: "b.ts" } });
+		const generation = await activatedGeneration(branch);
+		expect(generation.symbols.map((symbol) => symbol.name)).toEqual(expect.arrayContaining(["A2", "B2"]));
+	});
+
 	it("automatically refreshes a stale map once for concurrent file-tool queries", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });

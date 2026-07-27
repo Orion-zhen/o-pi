@@ -73,6 +73,12 @@ export function createLazyRepoMap(options: LazyRepoMapOptions): LazyRepoMap {
 		async syncMutation(input) {
 			return (await getActiveQuery())?.syncMutation(input);
 		},
+		async syncMutations(inputs) {
+			const active = await getActiveQuery();
+			if (active === undefined) return inputs.map(() => undefined);
+			if (active.syncMutations !== undefined) return await active.syncMutations(inputs);
+			return await Promise.all(inputs.map((input) => active.syncMutation(input)));
+		},
 	};
 
 	async function renderReadContext(context: RepoMapReadContext): Promise<string | undefined> {

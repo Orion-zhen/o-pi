@@ -300,18 +300,37 @@ export class LspManager {
 	}
 
 	async didChangeWatchedFile(root: string, filePath: string, type: FileChangeType): Promise<void> {
+		await this.didChangeWatchedFiles([{ root, filePath, type }]);
+	}
+
+	async didChangeWatchedFiles(
+		changes: readonly { root: string; filePath: string; type: FileChangeType }[],
+	): Promise<void> {
 		return this.withClientOperation(async () => {
-			const config = await this.enabledConfig(root);
-			if (config === undefined || isExcludedRoot(root, config.config.exclude_paths)) return;
-			const resolvedRoot = path.resolve(root);
-			await Promise.all(Array.from(this.clients.values(), ({ client }) => (
-				client.root === resolvedRoot ? client.didChangeWatchedFile(filePath, type) : Promise.resolve(false)
-			)));
+			await Promise.all(changes.map(async (change) => {
+				const config = await this.enabledConfig(change.root);
+				if (config === undefined || isExcludedRoot(change.root, config.config.exclude_paths)) return;
+				const resolvedRoot = path.resolve(change.root);
+				await Promise.all(Array.from(this.clients.values(), ({ client }) => (
+					client.root === resolvedRoot ? client.didChangeWatchedFile(change.filePath, change.type) : Promise.resolve(false)
+				)));
+			}));
 		});
 	}
 
 	async didWrite(root: string, filePath: string, text: string, baseline?: LspDiagnosticSnapshot): Promise<LspDiagnosticsSummary | undefined> {
-		return this.withClientOperation(() => this.didWriteOperation(root, filePath, text, baseline));
+		return (await this.didWriteBatch([{ root, filePath, text, ...(baseline === undefined ? {} : { baseline }) }]))[0];
+	}
+
+	async didWriteBatch(
+		writes: readonly { root: string; filePath: string; text: string; baseline?: LspDiagnosticSnapshot }[],
+	): Promise<readonly (LspDiagnosticsSummary | undefined)[]> {
+		return this.withClientOperation(async () => await Promise.all(writes.map((write) => this.didWriteOperation(
+			write.root,
+			write.filePath,
+			write.text,
+			write.baseline,
+		))));
 	}
 
 	private async didWriteOperation(root: string, filePath: string, text: string, baseline?: LspDiagnosticSnapshot): Promise<LspDiagnosticsSummary | undefined> {

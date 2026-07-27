@@ -2,6 +2,7 @@ import type { EditDiagnosticsSource, EditMutationObserver } from "../../edit/por
 import type { FileToolsInvocation } from "../../runtime/host.js";
 import type { LspFileOperations } from "../../../lsp/file-hooks.js";
 import type { RepoMapToolPorts } from "../lazy-repo-map.js";
+import type { MutationBatchInvocation } from "../mutation-batch.js";
 import type { MutationPostProcessObserver } from "../progress.js";
 
 export interface EditPiPorts {
@@ -15,6 +16,7 @@ export function createEditPorts(
 	lsp: LspFileOperations,
 	repoMap: RepoMapToolPorts,
 	progress?: MutationPostProcessObserver,
+	batch?: MutationBatchInvocation,
 ): EditPiPorts {
 	let renderedImpact: string | undefined;
 	return {
@@ -29,21 +31,23 @@ export function createEditPorts(
 				});
 			},
 			async afterEdit(input) {
-				safeNotify(() => progress?.lspStarted());
 				const root = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
 				const target = invocation.nativeBridge.getNativeIdentity(input.target);
-				if (root === undefined || target === undefined || lsp.afterWrite === undefined) {
+				const lspInput = root === undefined || target === undefined ? undefined : {
+					workspaceRoot: root.canonicalPath,
+					filePath: target.canonicalPath,
+					content: input.content,
+					created: false,
+					...(input.baseline === undefined ? {} : { baseline: input.baseline }),
+				};
+				if (batch !== undefined) return await batch.lsp(lspInput, lsp, progress);
+				safeNotify(() => progress?.lspStarted());
+				if (lspInput === undefined || lsp.afterWrite === undefined) {
 					safeNotify(() => progress?.lspCompleted(undefined));
 					return undefined;
 				}
 				try {
-					const diagnostics = await lsp.afterWrite({
-						workspaceRoot: root.canonicalPath,
-						filePath: target.canonicalPath,
-						content: input.content,
-						created: false,
-						...(input.baseline === undefined ? {} : { baseline: input.baseline }),
-					});
+					const diagnostics = await lsp.afterWrite(lspInput);
 					safeNotify(() => progress?.lspCompleted(diagnostics));
 					return diagnostics;
 				} catch (error) {
@@ -54,18 +58,24 @@ export function createEditPorts(
 		},
 		observer: {
 			async observe(input) {
-				safeNotify(() => progress?.repoMapStarted());
 				const target = invocation.nativeBridge.getNativeIdentity(input.target);
-				if (target === undefined) {
+				const mutationInput = target === undefined ? undefined : {
+					requestedPath: target.canonicalPath,
+					...(input.firstChangedLine === undefined ? {} : { changedLine: input.firstChangedLine }),
+					...(input.signal === undefined ? {} : { signal: input.signal }),
+				};
+				if (batch !== undefined) {
+					const update = await batch.repoMap(mutationInput, repoMap, progress);
+					renderedImpact = await repoMap.formatImpact(update?.impact);
+					return update;
+				}
+				safeNotify(() => progress?.repoMapStarted());
+				if (mutationInput === undefined) {
 					safeNotify(() => progress?.repoMapUnavailable());
 					return undefined;
 				}
 				try {
-					const update = await repoMap.query.syncMutation({
-						requestedPath: target.canonicalPath,
-						...(input.firstChangedLine === undefined ? {} : { changedLine: input.firstChangedLine }),
-						...(input.signal === undefined ? {} : { signal: input.signal }),
-					});
+					const update = await repoMap.query.syncMutation(mutationInput);
 					renderedImpact = await repoMap.formatImpact(update?.impact);
 					safeNotify(() => progress?.repoMapCompleted(update?.status));
 					return update;

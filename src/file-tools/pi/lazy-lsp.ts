@@ -34,6 +34,11 @@ export function createLazyLspFileOperations(load: () => Promise<LspModule>): Laz
 		async afterWrite(input) {
 			return (await getModule()).lspFileOperations.afterWrite?.(input);
 		},
+		async afterWriteBatch(inputs) {
+			const operations = (await getModule()).lspFileOperations;
+			if (operations.afterWriteBatch !== undefined) return await operations.afterWriteBatch(inputs);
+			return await Promise.all(inputs.map((input) => operations.afterWrite?.(input)));
+		},
 		async shutdown() {
 			const active = pending;
 			pending = undefined;

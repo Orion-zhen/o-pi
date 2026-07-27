@@ -8,6 +8,7 @@ import { formatErrorModelResult, scrubVersions } from "../model-output.js";
 import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 import { createEditPorts } from "../ports/edit.js";
 import { piTextDiffGenerator } from "../ports/text-diff.js";
+import type { MutationBatchInvocation } from "../mutation-batch.js";
 import { createMutationPostProcessObserver, mutationProgress, type MutationProgressCallback } from "../progress.js";
 
 export async function executeEdit(
@@ -20,6 +21,7 @@ export async function executeEdit(
 		lsp: LspFileOperations;
 		repoMap: RepoMapToolPorts;
 		onUpdate?: MutationProgressCallback;
+		batch?: MutationBatchInvocation;
 	},
 ) {
 	const opened = await runtime.host.open({
@@ -34,7 +36,7 @@ export async function executeEdit(
 			replacements: latestPreview?.replacements ?? params.edits.length,
 			...(latestPreview === undefined ? {} : { diff: latestPreview.diff }),
 		}));
-		const ports = createEditPorts(opened, runtime.lsp, runtime.repoMap, progress);
+		const ports = createEditPorts(opened, runtime.lsp, runtime.repoMap, progress, runtime.batch);
 		const result = await editFile(params, commandContext(opened, ports, (preview) => {
 			latestPreview = preview;
 			runtime.onUpdate?.(mutationProgress({ status: "editing", diff: preview.diff, replacements: preview.replacements }));

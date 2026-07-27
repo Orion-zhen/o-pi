@@ -18,6 +18,7 @@ import { lsTelemetry } from "../../src/file-tools/telemetry/ls.js";
 import { readTelemetry } from "../../src/file-tools/telemetry/read.js";
 import { writeTelemetry } from "../../src/file-tools/telemetry/write.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
+import { MutationBatchCoordinator } from "../../src/file-tools/pi/mutation-batch.js";
 import type { MutationProgressDetails } from "../../src/file-tools/pi/progress.js";
 import { registerObservedTool } from "../../src/telemetry/tool.js";
 import { collectSkillCandidates } from "../../src/skill-context/loader.js";
@@ -148,6 +149,7 @@ function registerFileTools(
 		return host;
 	};
 	const lsp = createLazyLspFileOperations(loaders.lsp);
+	const mutationBatches = new MutationBatchCoordinator();
 	const skillReadIndex = createRetryableLoader(async () => buildSkillReadIndex(
 		collectSkillCandidates(undefined, typeof pi.getCommands === "function" ? pi.getCommands() : []),
 	));
@@ -269,17 +271,23 @@ function registerFileTools(
 		description: "Create or overwrite one whole file.",
 		promptSnippet: "write one whole file",
 		parameters: writeParameters,
-		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			const [module, invocationHost] = await Promise.all([loaders.write(), hostForInvocation()]);
-			return module.executeWrite(params as WriteParams, {
-				cwd: ctx.cwd,
-				sessionId: ctx.sessionManager.getSessionId(),
-				...(signal !== undefined ? { signal } : {}),
-				host: invocationHost,
-				lsp,
-				repoMap: repoMapFor(ctx),
-				...(onUpdate === undefined ? {} : { onUpdate }),
-			});
+		async execute(toolCallId, params, signal, onUpdate, ctx) {
+			const batch = mutationBatches.invocation(toolCallId);
+			try {
+				const [module, invocationHost] = await Promise.all([loaders.write(), hostForInvocation()]);
+				return await module.executeWrite(params as WriteParams, {
+					cwd: ctx.cwd,
+					sessionId: ctx.sessionManager.getSessionId(),
+					...(signal !== undefined ? { signal } : {}),
+					host: invocationHost,
+					lsp,
+					repoMap: repoMapFor(ctx),
+					...(onUpdate === undefined ? {} : { onUpdate }),
+					...(batch === undefined ? {} : { batch }),
+				});
+			} finally {
+				batch?.settle();
+			}
 		},
 	}, repair: {
 		pathFields: ["path"],
@@ -299,17 +307,23 @@ function registerFileTools(
 		promptSnippet: "edit one known file",
 		parameters: editParameters,
 		renderShell: "self",
-		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			const [module, invocationHost] = await Promise.all([loaders.edit(), hostForInvocation()]);
-			return module.executeEdit(params as EditParams, {
-				cwd: ctx.cwd,
-				sessionId: ctx.sessionManager.getSessionId(),
-				...(signal !== undefined ? { signal } : {}),
-				host: invocationHost,
-				lsp,
-				repoMap: repoMapFor(ctx),
-				...(onUpdate === undefined ? {} : { onUpdate }),
-			});
+		async execute(toolCallId, params, signal, onUpdate, ctx) {
+			const batch = mutationBatches.invocation(toolCallId);
+			try {
+				const [module, invocationHost] = await Promise.all([loaders.edit(), hostForInvocation()]);
+				return await module.executeEdit(params as EditParams, {
+					cwd: ctx.cwd,
+					sessionId: ctx.sessionManager.getSessionId(),
+					...(signal !== undefined ? { signal } : {}),
+					host: invocationHost,
+					lsp,
+					repoMap: repoMapFor(ctx),
+					...(onUpdate === undefined ? {} : { onUpdate }),
+					...(batch === undefined ? {} : { batch }),
+				});
+			} finally {
+				batch?.settle();
+			}
 		},
 	}, repair: {
 		pathFields: ["path"],
@@ -346,12 +360,21 @@ function registerFileTools(
 		await nativeRendererLoad;
 	});
 
+	pi.on("message_end", (event) => {
+		if (event.message.role !== "assistant") return;
+		mutationBatches.capture(event.message.content.flatMap((item) => item.type === "toolCall"
+			? [{ id: item.id, name: item.name }]
+			: []));
+	});
+	pi.on("tool_execution_start", (event) => mutationBatches.started(event.toolCallId));
+	pi.on("tool_execution_end", (event) => mutationBatches.ended(event.toolCallId));
 	pi.on("tool_result", (event) => {
 		if (isFileToolName(event.toolName) && isFailedDetails(event.details)) return { isError: true };
 		return undefined;
 	});
 	pi.on("session_shutdown", async () => {
 		shuttingDown = true;
+		mutationBatches.dispose();
 		host?.stop();
 		for (const instance of loadedToolInstances) instance.dispose();
 		for (const repoMap of repoMaps.values()) repoMap.dispose();
