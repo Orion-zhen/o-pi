@@ -2,6 +2,7 @@ export type UsageProviderId = "anthropic" | "openai-codex" | "kimi-coding" | "xa
 
 export interface UsageWindow {
 	label: string;
+	sectionLabel?: string;
 	usedPercent: number | undefined;
 	windowDurationMins: number | undefined;
 	resetsAt: Date | undefined;

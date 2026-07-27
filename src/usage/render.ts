@@ -17,8 +17,12 @@ const STATE_WIDTH = 12;
 const TABLE_GAP = "   ";
 const MAX_DISPLAY_TEXT = 240;
 
+export interface UsageRenderOptions {
+	formatProviderHeading?: (heading: string) => string;
+}
+
 /** 用剩余额度进度条和响应式重置卡列表渲染所有 OAuth plan。 */
-export function renderUsage(snapshot: UsageSnapshot, width: number): string[] {
+export function renderUsage(snapshot: UsageSnapshot, width: number, options: UsageRenderOptions = {}): string[] {
 	const safeWidth = Math.max(1, width);
 	const lines = [
 		`Plan Usage · Queried ${formatDateTime(snapshot.generatedAt, snapshot.timeZone)}`,
@@ -31,7 +35,7 @@ export function renderUsage(snapshot: UsageSnapshot, width: number): string[] {
 	} else {
 		for (const [index, provider] of providers.entries()) {
 			if (index > 0) lines.push("");
-			lines.push(...renderProvider(provider, snapshot, safeWidth));
+			lines.push(...renderProvider(provider, snapshot, safeWidth, options.formatProviderHeading ?? identity));
 		}
 	}
 	lines.push("", "Esc / Enter / q to close");
@@ -47,23 +51,29 @@ export function renderUsageError(error: unknown, width: number): string[] {
 	return ["Plan Usage · Request failed", "", message, "", "Esc / Enter / q to close"].flatMap((line) => wrapLine(line, safeWidth));
 }
 
-function renderProvider(provider: ProviderUsage, snapshot: UsageSnapshot, width: number): string[] {
+function renderProvider(
+	provider: ProviderUsage,
+	snapshot: UsageSnapshot,
+	width: number,
+	formatHeading: (heading: string) => string,
+): string[] {
 	const name = cleanDisplayText(provider.name);
 	if (provider.status === "not_logged_in") {
-		return [`${name} · OAuth not logged in`, `Run /login ${provider.loginProvider} to connect this plan.`];
+		return joinBlocks([[formatHeading(`${name} · OAuth not logged in`)], [`Run /login ${provider.loginProvider} to connect this plan.`]]);
 	}
 	if (provider.status === "error") {
-		return [`${name} · Request failed`, formatProviderError(provider.error)];
+		return joinBlocks([[formatHeading(`${name} · Request failed`)], [formatProviderError(provider.error)]]);
 	}
 
-	const lines = [`${name} · ${provider.plan === undefined ? "plan unknown" : cleanDisplayText(provider.plan)}`];
-	if (provider.windows.length === 0) lines.push("Usage window information unavailable.");
-	else lines.push(...provider.windows.map((window) => renderWindow(window, snapshot)));
+	const heading = `${name} · ${provider.plan === undefined ? "plan unknown" : cleanDisplayText(provider.plan)}`;
+	const blocks: string[][] = [[formatHeading(heading)]];
+	if (provider.windows.length === 0) blocks.push(["Usage window information unavailable."]);
+	else blocks.push(...renderWindowBlocks(provider.windows, snapshot));
 	for (const detail of provider.details) {
-		lines.push(`${cleanDisplayText(detail.label)}: ${cleanDisplayText(detail.value)}`);
+		blocks.push([`${cleanDisplayText(detail.label)}: ${cleanDisplayText(detail.value)}`]);
 	}
-	if (provider.resetCredits !== undefined) lines.push("", ...renderResetCredits(provider.resetCredits, snapshot, width));
-	return lines;
+	if (provider.resetCredits !== undefined) blocks.push(renderResetCredits(provider.resetCredits, snapshot, width));
+	return joinBlocks(blocks);
 }
 
 function renderResetCredits(resetCredits: UsageResetCredits, snapshot: UsageSnapshot, width: number): string[] {
@@ -107,6 +117,30 @@ function renderCompactResetCredits(credits: UsageResetCredit[], snapshot: UsageS
 
 function formatResetCreditExpiry(credit: UsageResetCredit, now: Date): string {
 	return `Expires ${formatExpiryDistance(credit.expiresAt, now)}`;
+}
+
+function renderWindowBlocks(windows: UsageWindow[], snapshot: UsageSnapshot): string[][] {
+	const blocks: string[][] = [];
+	let currentBlock: string[] | undefined;
+	let previousSection: string | undefined;
+	for (const window of windows) {
+		if (currentBlock === undefined || window.sectionLabel !== previousSection) {
+			currentBlock = [];
+			if (window.sectionLabel !== undefined) currentBlock.push(cleanDisplayText(window.sectionLabel));
+			blocks.push(currentBlock);
+			previousSection = window.sectionLabel;
+		}
+		currentBlock.push(renderWindow(window, snapshot));
+	}
+	return blocks;
+}
+
+function joinBlocks(blocks: string[][]): string[] {
+	return blocks.flatMap((block, index) => index === 0 ? block : ["", ...block]);
+}
+
+function identity(value: string): string {
+	return value;
 }
 
 function renderWindow(window: UsageWindow, snapshot: UsageSnapshot): string {

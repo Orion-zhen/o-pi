@@ -45,9 +45,14 @@ describe("usage client", () => {
 			status: "ok",
 			plan: "pro",
 			windows: [
-				{ label: "Session (5h)", usedPercent: 20 },
-				{ label: "Week", usedPercent: 70 },
-				{ label: "Spark · Session (1h)", usedPercent: 40, resetsAt: new Date("2026-07-27T00:30:00Z") },
+				{ label: "Session (5h)", sectionLabel: "Plan quota", usedPercent: 20 },
+				{ label: "Week", sectionLabel: "Plan quota", usedPercent: 70 },
+				{
+					label: "Session (1h)",
+					sectionLabel: "GPT-5.3-Codex-Spark quota",
+					usedPercent: 40,
+					resetsAt: new Date("2026-07-27T00:30:00Z"),
+				},
 			],
 			details: [{ label: "Account credits", value: "9 · available" }],
 			resetCredits: {
@@ -74,8 +79,14 @@ describe("usage client", () => {
 		expect(provider(snapshot, "xai")).toMatchObject({
 			status: "ok",
 			plan: "SuperGrok",
-			windows: [{ label: "Month (credits)", usedPercent: 25 }],
-			details: [{ label: "Credits", value: "250 / 1000 used" }],
+			windows: [
+				{ label: "Week (shared pool)", usedPercent: 56, resetsAt: new Date("2026-08-03T00:00:00Z") },
+				{ label: "Month (included allowance)", usedPercent: 25 },
+			],
+			details: [
+				{ label: "Weekly usage split", value: "xAI API 33% used · Grok Build 23% used" },
+				{ label: "Monthly included credits", value: "250 / 1000 used" },
+			],
 		});
 
 		expect(requests.every(({ request }) => request.headers.Authorization?.startsWith("Bearer "))).toBe(true);
@@ -86,6 +97,28 @@ describe("usage client", () => {
 			"ChatGPT-Account-Id": CODEX_ACCOUNT_ID,
 			"OpenAI-Beta": "codex-1",
 			originator: "Codex Desktop",
+		});
+		const grokRequest = requests.find(({ url }) => url.endsWith("/v1/billing?format=credits"));
+		expect(grokRequest?.request.headers["X-XAI-Token-Auth"]).toBe("xai-grok-cli");
+	});
+
+	it("Grok 周总量缺失时使用产品占比合计", async () => {
+		const snapshot = await collectUsageSnapshot(oauthContext(), {
+			fetchImpl: async (url, request) => url.endsWith("/v1/billing?format=credits")
+				? jsonResponse({ config: {
+					currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", end: "2026-08-03T00:00:00Z" },
+					productUsage: [
+						{ product: "Api", usagePercent: 12 },
+						{ product: "GrokBuild", usagePercent: 8 },
+					],
+				} })
+				: fixtureResponse(url, request),
+			now: NOW,
+		});
+
+		expect(provider(snapshot, "xai")).toMatchObject({
+			status: "ok",
+			windows: expect.arrayContaining([expect.objectContaining({ label: "Week (shared pool)", usedPercent: 20 })]),
 		});
 	});
 
@@ -232,6 +265,8 @@ describe("usage renderer", () => {
 		expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
 		expect(lines.join("\n")).toContain("% remaining");
 		expect(lines.join("\n")).toContain("Expires in");
+		expect(lines.join("\n")).toContain("GPT-5.3-Codex-Spark quota");
+		expect(lines.join("\n")).not.toContain("Additional quota");
 		expect(lines.join("\n")).not.toContain("One free rate limit reset");
 	});
 
@@ -288,8 +323,13 @@ describe("usage renderer", () => {
 	it("viewer 可渲染成功和错误结果并响应关闭键", async () => {
 		const snapshot = await collectUsageSnapshot(oauthContext(), { fetchImpl: fixtureFetch(), now: NOW });
 		let closed = 0;
-		const theme: Pick<Theme, "fg"> = {
+		let boldCalls = 0;
+		const theme: Pick<Theme, "fg" | "bold"> = {
 			fg(_name, text) {
+				return text;
+			},
+			bold(text) {
+				boldCalls += 1;
 				return text;
 			},
 		};
@@ -297,6 +337,7 @@ describe("usage renderer", () => {
 			closed += 1;
 		});
 		expect(viewer.render(80).length).toBeGreaterThan(0);
+		expect(boldCalls).toBe(4);
 		viewer.handleInput("q");
 		expect(closed).toBe(1);
 		expect(new UsageViewer(new Error("secret"), theme, () => 20, () => {}).render(80).join("\n")).not.toContain("secret");
@@ -394,8 +435,8 @@ function fixtureResponse(url: string, _request: UsageHttpRequest): UsageHttpResp
 				secondary_window: { used_percent: 70, limit_window_seconds: 604_800, reset_at: 1_785_672_000 },
 			},
 			additional_rate_limits: [{
-				id: "spark",
-				name: "Spark",
+				limit_name: "GPT-5.3-Codex-Spark",
+				metered_feature: "codex_bengalfox",
 				rate_limit: { primary_window: { usedPercent: 40, limitWindowSeconds: 3_600, resetAfterSeconds: 1_800 } },
 			}],
 			rate_limit_reset_credits: { available_count: 2 },
@@ -432,6 +473,20 @@ function fixtureResponse(url: string, _request: UsageHttpRequest): UsageHttpResp
 			limits: [{ window: { timeUnit: "TIME_UNIT_MINUTE", duration: 300 }, detail: { remaining: "75", limit: "100", resetTime: "2026-07-27T05:00:00Z" } }],
 			usage: { used: 4, limit: 8, resetTime: "2026-08-03T00:00:00Z" },
 		});
+	}
+	if (url.endsWith("/v1/billing?format=credits")) {
+		return jsonResponse({ config: {
+			creditUsagePercent: 56,
+			currentPeriod: {
+				type: "USAGE_PERIOD_TYPE_WEEKLY",
+				start: "2026-07-27T00:00:00Z",
+				end: "2026-08-03T00:00:00Z",
+			},
+			productUsage: [
+				{ product: "Api", usagePercent: 33 },
+				{ product: "GrokBuild", usagePercent: 23 },
+			],
+		} });
 	}
 	if (url.endsWith("/v1/billing")) {
 		return jsonResponse({ config: {

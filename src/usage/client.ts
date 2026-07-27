@@ -189,11 +189,14 @@ async function fetchCodexUsage(token: string, options: ResolvedClientOptions): P
 	]);
 	const usage = requireRecord(usageValue);
 	const windows: UsageWindow[] = [];
-	pushCodexRateLimitWindows(windows, recordValue(usage.rate_limit), undefined, options.now);
+	pushCodexRateLimitWindows(windows, recordValue(usage.rate_limit), "Plan quota", options.now);
 	for (const value of arrayValue(usage.additional_rate_limits).slice(0, MAX_PROVIDER_ITEMS)) {
 		const entry = recordValue(value);
-		const label = displayString(entry?.name, MAX_LABEL_LENGTH) ?? displayString(entry?.id, MAX_LABEL_LENGTH) ?? "Additional";
-		pushCodexRateLimitWindows(windows, recordValue(entry?.rate_limit), label, options.now);
+		const limitName = entry === undefined
+			? undefined
+			: displayString(firstField(entry, ["limit_name", "limitName", "name", "label", "id"]), MAX_LABEL_LENGTH);
+		const sectionLabel = limitName === undefined ? "Model-specific quota" : `${limitName} quota`;
+		pushCodexRateLimitWindows(windows, recordValue(entry?.rate_limit), sectionLabel, options.now);
 	}
 
 	const details: UsageDetail[] = [];
@@ -250,26 +253,59 @@ async function fetchKimiUsage(token: string, options: ResolvedClientOptions): Pr
 }
 
 async function fetchXaiUsage(token: string, options: ResolvedClientOptions): Promise<ProviderUsageData> {
-	const [billingValue, settingsValue] = await Promise.all([
-		getJson("https://cli-chat-proxy.grok.com/v1/billing", token, requestOptions(options, options.timeoutMs)),
-		getOptionalJson("https://cli-chat-proxy.grok.com/v1/settings", token, requestOptions(options, options.optionalTimeoutMs)),
+	const headers = { "X-XAI-Token-Auth": "xai-grok-cli" };
+	const [creditsValue, billingValue, settingsValue] = await Promise.all([
+		getJson("https://cli-chat-proxy.grok.com/v1/billing?format=credits", token, requestOptions(options, options.timeoutMs, headers)),
+		getOptionalJson("https://cli-chat-proxy.grok.com/v1/billing", token, requestOptions(options, options.optionalTimeoutMs, headers)),
+		getOptionalJson("https://cli-chat-proxy.grok.com/v1/settings", token, requestOptions(options, options.optionalTimeoutMs, headers)),
 	]);
-	const billing = requireRecord(billingValue);
+	const creditsPayload = requireRecord(creditsValue);
+	const credits = recordValue(creditsPayload.config) ?? creditsPayload;
+	const billing = recordValue(billingValue);
 	const settings = recordValue(settingsValue);
-	const config = recordValue(billing.config);
-	const used = numberValue(recordValue(config?.used)?.val);
-	const limit = numberValue(recordValue(config?.monthlyLimit)?.val);
-	const start = dateValue(config?.billingPeriodStart);
-	const end = dateValue(config?.billingPeriodEnd);
-	const durationMins = start && end ? Math.max(0, (end.getTime() - start.getTime()) / 60_000) : undefined;
+	const config = recordValue(billing?.config);
 	const windows: UsageWindow[] = [];
-	if (limit !== undefined && limit > 0) {
-		windows.push({ label: "Month (credits)", usedPercent: ratioPercent(used, limit), windowDurationMins: durationMins, resetsAt: end });
+
+	const weeklyPeriod = recordValue(credits.currentPeriod);
+	const weeklyStart = dateValue(weeklyPeriod?.start);
+	const weeklyEnd = dateValue(weeklyPeriod?.end);
+	const weeklyDurationMins = weeklyStart && weeklyEnd
+		? Math.max(0, (weeklyEnd.getTime() - weeklyStart.getTime()) / 60_000)
+		: SEVEN_DAYS_MINS;
+	const weeklyUsed = xaiWeeklyUsedPercent(credits);
+	if (weeklyPeriod !== undefined || weeklyUsed !== undefined) {
+		windows.push({
+			label: "Week (shared pool)",
+			usedPercent: weeklyUsed,
+			windowDurationMins: weeklyDurationMins,
+			resetsAt: weeklyEnd,
+		});
 	}
+
+	const monthlyUsed = numberValue(recordValue(config?.used)?.val);
+	const monthlyLimit = numberValue(recordValue(config?.monthlyLimit)?.val);
+	const monthlyStart = dateValue(config?.billingPeriodStart);
+	const monthlyEnd = dateValue(config?.billingPeriodEnd);
+	const monthlyDurationMins = monthlyStart && monthlyEnd
+		? Math.max(0, (monthlyEnd.getTime() - monthlyStart.getTime()) / 60_000)
+		: undefined;
+	if (monthlyLimit !== undefined && monthlyLimit > 0) {
+		windows.push({
+			label: "Month (included allowance)",
+			usedPercent: ratioPercent(monthlyUsed, monthlyLimit),
+			windowDurationMins: monthlyDurationMins,
+			resetsAt: monthlyEnd,
+		});
+	}
+
 	const details: UsageDetail[] = [];
-	if (used !== undefined) {
-		const absolute = limit !== undefined && limit > 0 ? `${formatNumber(used)} / ${formatNumber(limit)} used` : `${formatNumber(used)} used; no limit reported`;
-		details.push({ label: "Credits", value: absolute });
+	const productUsage = xaiProductUsage(credits.productUsage ?? credits.product_usage);
+	if (productUsage.length > 0) details.push({ label: "Weekly usage split", value: productUsage.join(" · ") });
+	if (monthlyUsed !== undefined) {
+		const absolute = monthlyLimit !== undefined && monthlyLimit > 0
+			? `${formatNumber(monthlyUsed)} / ${formatNumber(monthlyLimit)} used`
+			: `${formatNumber(monthlyUsed)} used; no limit reported`;
+		details.push({ label: "Monthly included credits", value: absolute });
 	}
 	return {
 		plan: displayString(settings?.subscription_tier_display, MAX_LABEL_LENGTH),
@@ -279,10 +315,44 @@ async function fetchXaiUsage(token: string, options: ResolvedClientOptions): Pro
 	};
 }
 
+function xaiWeeklyUsedPercent(credits: Record<string, unknown>): number | undefined {
+	const direct = percentValue(credits.creditUsagePercent ?? credits.credit_usage_percent);
+	if (direct !== undefined) return direct;
+	let total = 0;
+	let found = false;
+	for (const value of arrayValue(credits.productUsage ?? credits.product_usage).slice(0, MAX_PROVIDER_ITEMS)) {
+		const product = recordValue(value);
+		const used = product === undefined ? undefined : usagePercent(product);
+		if (used === undefined) continue;
+		total += used;
+		found = true;
+	}
+	return found ? percentValue(total) : undefined;
+}
+
+function xaiProductUsage(value: unknown): string[] {
+	const details: string[] = [];
+	for (const rawProduct of arrayValue(value).slice(0, MAX_PROVIDER_ITEMS)) {
+		const product = recordValue(rawProduct);
+		const rawName = displayString(product?.product, MAX_LABEL_LENGTH);
+		const used = product === undefined ? undefined : usagePercent(product);
+		if (rawName === undefined || used === undefined) continue;
+		details.push(`${xaiProductLabel(rawName)} ${formatNumber(used)}% used`);
+	}
+	return details;
+}
+
+function xaiProductLabel(value: string): string {
+	if (value === "Api") return "xAI API";
+	if (value === "GrokBuild") return "Grok Build";
+	if (value === "GrokChat") return "Grok Chat";
+	return value.replace(/([a-z])([A-Z])/gu, "$1 $2");
+}
+
 function pushCodexRateLimitWindows(
 	windows: UsageWindow[],
 	rateLimit: Record<string, unknown> | undefined,
-	bucketLabel: string | undefined,
+	sectionLabel: string,
 	now: Date,
 ): void {
 	for (const value of [rateLimit?.primary_window, rateLimit?.secondary_window]) {
@@ -292,7 +362,8 @@ function pushCodexRateLimitWindows(
 		const durationMins = durationSeconds === undefined ? undefined : durationSeconds / 60;
 		const label = windowLabel(durationMins);
 		windows.push({
-			label: bucketLabel === undefined ? label : `${bucketLabel} · ${label}`,
+			label,
+			sectionLabel,
 			usedPercent: usagePercent(window),
 			windowDurationMins: durationMins,
 			resetsAt: codexResetAt(window, now),

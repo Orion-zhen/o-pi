@@ -9,14 +9,18 @@ const BODY_ROWS_RATIO = 0.72;
 export class UsageViewer extends BorderedScrollViewer {
 	constructor(
 		private readonly result: UsageSnapshot | Error,
-		theme: Pick<Theme, "fg">,
+		private readonly usageTheme: Pick<Theme, "fg" | "bold">,
 		getRows: () => number,
 		done: () => void,
 	) {
-		super(theme, getRows, done, BODY_ROWS_RATIO, false);
+		super(usageTheme, getRows, done, BODY_ROWS_RATIO, false);
 	}
 
 	protected renderLines(width: number): string[] {
-		return this.result instanceof Error ? renderUsageError(this.result, width) : renderUsage(this.result, width);
+		return this.result instanceof Error
+			? renderUsageError(this.result, width)
+			: renderUsage(this.result, width, {
+				formatProviderHeading: (heading) => this.usageTheme.fg("accent", this.usageTheme.bold(heading)),
+			});
 	}
 }
