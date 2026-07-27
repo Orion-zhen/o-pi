@@ -3,21 +3,25 @@ import { DEFAULT_WORKER_CONCURRENCY } from "../../worker-runtime/concurrency.js"
 import { createTypeScriptWorker } from "../../worker-runtime/typescript-worker.js";
 import { WorkerTaskAbortedError, WorkerTaskPool, type WorkerTaskResponse } from "../../worker-runtime/worker-task-pool.js";
 
-export const GREP_CONCURRENCY = DEFAULT_WORKER_CONCURRENCY;
-export const GREP_PARSER_BATCH_SIZE = 32;
+const GREP_CONCURRENCY = DEFAULT_WORKER_CONCURRENCY;
+const GREP_PARSER_BATCH_SIZE = 32;
 
-export interface GrepParseWorkload {
+interface GrepParseWorkload {
 	fileCount: number;
 	totalBytes: number;
 	maxFileBytes: number;
 }
 
-export interface OffloadDecisionOptions {
+interface OffloadDecisionOptions {
 	concurrency?: number;
 	workerWarm?: boolean;
 }
 
-type GrepParseFile = { path: string; text: string; syntax: boolean };
+export interface GrepParseFile {
+	readonly path: string;
+	readonly text: string;
+	readonly syntax: boolean;
+}
 type GrepParserWorkerPool = WorkerTaskPool<GrepParseFile[], AnalyzedFileIndex[]>;
 
 const MAIN_THREAD_MAX_PARSE_BYTES = 256 * 1024;
@@ -28,7 +32,7 @@ const TRANSFER_BYTES_PER_MS = 100_000;
 const COLD_WORKER_START_MS = 105;
 const WARM_WORKER_START_MS = 3;
 
-export function shouldOffloadGrepParsing(workload: GrepParseWorkload, options: OffloadDecisionOptions = {}): boolean {
+function shouldOffloadGrepParsing(workload: GrepParseWorkload, options: OffloadDecisionOptions = {}): boolean {
 	if (workload.fileCount <= 0 || workload.totalBytes <= 0) return false;
 	if (workload.maxFileBytes >= MAIN_THREAD_MAX_PARSE_BYTES) return true;
 	const concurrency = Math.max(1, options.concurrency ?? GREP_CONCURRENCY);
@@ -45,20 +49,17 @@ export class GrepParser {
 	private pool: GrepParserWorkerPool | undefined;
 	private disposed = false;
 
-	shouldOffload(workload: GrepParseWorkload): boolean {
-		return shouldOffloadGrepParsing(workload, { workerWarm: this.pool !== undefined });
-	}
-
-	async analyzeFile(filePath: string, text: string, signal: AbortSignal | undefined, offload: boolean, syntax = true): Promise<AnalyzedFileIndex> {
-		return (await this.analyzeFiles([{ path: filePath, text, syntax }], signal, offload))[0]
+	async analyzeFile(filePath: string, text: string, signal: AbortSignal | undefined, syntax = true): Promise<AnalyzedFileIndex> {
+		return (await this.analyzeFiles([{ path: filePath, text, syntax }], signal))[0]
 			?? await analyzeRequestedFile({ path: filePath, text, syntax }, signal);
 	}
 
-	async analyzeFiles(files: GrepParseFile[], signal: AbortSignal | undefined, offload: boolean): Promise<AnalyzedFileIndex[]> {
+	async analyzeFiles(files: readonly GrepParseFile[], signal: AbortSignal | undefined): Promise<AnalyzedFileIndex[]> {
 		if (this.disposed || signal?.aborted === true) throw new AbortGrepParse();
-		if (!offload) return await analyzeLocally(files, signal);
 		const syntaxFiles = files.filter((file) => file.syntax);
-		if (syntaxFiles.length === 0) return await analyzeLocally(files, signal);
+		const workload = parseWorkload(syntaxFiles);
+		const offload = shouldOffloadGrepParsing(workload, { workerWarm: this.pool !== undefined });
+		if (!offload) return await analyzeLocally(files, signal);
 		try {
 			this.pool ??= createGrepParserPool();
 			const pool = this.pool;
@@ -93,9 +94,14 @@ export class GrepParser {
 
 export class AbortGrepParse extends Error {}
 
-async function analyzeLocally(files: GrepParseFile[], signal?: AbortSignal): Promise<AnalyzedFileIndex[]> {
+async function analyzeLocally(files: readonly GrepParseFile[], signal?: AbortSignal): Promise<AnalyzedFileIndex[]> {
+	const result: AnalyzedFileIndex[] = [];
 	try {
-		return await Promise.all(files.map(async (file) => await analyzeRequestedFile(file, signal)));
+		for (const file of files) {
+			if (signal?.aborted === true) throw new AbortGrepParse();
+			result.push(await analyzeRequestedFile(file, signal));
+		}
+		return result;
 	} catch (error) {
 		if (signal?.aborted === true) throw new AbortGrepParse();
 		throw error;
@@ -124,6 +130,17 @@ function isAborted(signal: AbortSignal | undefined): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null;
+}
+
+function parseWorkload(files: readonly GrepParseFile[]): GrepParseWorkload {
+	let totalBytes = 0;
+	let maxFileBytes = 0;
+	for (const file of files) {
+		const bytes = Buffer.byteLength(file.text);
+		totalBytes += bytes;
+		maxFileBytes = Math.max(maxFileBytes, bytes);
+	}
+	return { fileCount: files.length, totalBytes, maxFileBytes };
 }
 
 function chunk<T>(values: readonly T[], size: number): T[][] {

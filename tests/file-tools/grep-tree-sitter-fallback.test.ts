@@ -4,9 +4,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
+const treeSitterFailure = vi.hoisted(() => ({
+	code: "RUNTIME_UNAVAILABLE",
+	message: "simulated runtime failure",
+}));
+
 vi.mock("../../src/code-index/tree-sitter-loader.js", () => ({
 	DEFAULT_PARSE_TIMEOUT_MICROS: 250_000,
-	loadTreeSitterParser: async () => ({ failure: { code: "RUNTIME_UNAVAILABLE", message: "simulated runtime failure" } }),
+	loadTreeSitterParser: async () => ({ failure: { ...treeSitterFailure } }),
 }));
 
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
@@ -18,6 +23,8 @@ preserveEnv("PI_FILE_TOOLS_CONFIG");
 
 beforeEach(async () => {
 	clearGrepIndex();
+	treeSitterFailure.code = "RUNTIME_UNAVAILABLE";
+	treeSitterFailure.message = "simulated runtime failure";
 	const configPath = path.join(configTemp.path, "file-tools.jsonc");
 	process.env["PI_FILE_TOOLS_CONFIG"] = configPath;
 	await writeFile(configPath, [
@@ -30,7 +37,7 @@ beforeEach(async () => {
 });
 
 describe("grep without tree-sitter", () => {
-	it("受支持语言在 grammar runtime 缺失时由 auto 降级到文本 lexical 通道", async () => {
+	it("受支持语言在 Tree-sitter runtime 缺失时安全降级", async () => {
 		await writeFile(path.join(workspaceTemp.path, "target.ts"), [
 			"export function RemoteSymbol() {",
 			"  throw new Error('fatal authentication token failure');",
@@ -54,6 +61,29 @@ describe("grep without tree-sitter", () => {
 			status: "success",
 			stats: { parsed_files: 0 },
 			regions: [expect.objectContaining({ path: "target.ts", kind: "text", query_match: "verified", match_lines: [1] })],
+		});
+	});
+
+	it.each([
+		["GRAMMAR_UNAVAILABLE", "grammar"],
+		["PARSER_TIMEOUT", "timeout"],
+	] as const)("%s 时 strict 保留 verified 文本窗口", async (code, name) => {
+		treeSitterFailure.code = code;
+		treeSitterFailure.message = `simulated ${name} failure`;
+		const query = `${name}Needle`;
+		await writeFile(path.join(workspaceTemp.path, `${name}.ts`), `export function ${name}() { return '${query}'; }\n`);
+
+		const result = await grepWorkspaceFiles(workspaceTemp.path, { query, match: "literal" });
+
+		expect(result).toMatchObject({
+			status: "success",
+			stats: { parsed_files: 0 },
+			regions: [expect.objectContaining({
+				path: `${name}.ts`,
+				kind: "text",
+				query_match: "verified",
+				match_lines: [1],
+			})],
 		});
 	});
 });

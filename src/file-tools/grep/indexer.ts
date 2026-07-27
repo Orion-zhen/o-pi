@@ -7,9 +7,10 @@ import type { FileMetadata } from "../../filesystem/contracts/metadata.js";
 import type { DirectoryRef, ExistingRef, FileRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
+import { DEFAULT_WORKER_CONCURRENCY } from "../../worker-runtime/concurrency.js";
 import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
-import { AbortGrepParse, GrepParser, GREP_CONCURRENCY, GREP_PARSER_BATCH_SIZE } from "./parser-pool.js";
+import { AbortGrepParse, GrepParser } from "./parser-pool.js";
 import type { GrepMatchMode, GrepSkippedFiles } from "./types.js";
 
 export interface GrepCandidateFile {
@@ -90,7 +91,6 @@ interface WalkState {
 	scannedFiles: number;
 	scanComplete: boolean;
 	semanticPrefilter: boolean;
-	offloadParsing: boolean;
 }
 interface PendingFile { ref: FileRef; metadata: GrepScopedFile; explicit: boolean }
 interface PreparedFile {
@@ -103,10 +103,11 @@ interface PreparedFile {
 
 /** Grep-owned derived index and shared-build lifecycle. */
 export class GrepIndex {
-	private readonly parser = new GrepParser();
 	private readonly workspaceCaches = new Map<string, WorkspaceCache>();
 	private readonly pendingIndexes = new Map<string, PendingGrepIndex>();
 	private disposed = false;
+
+	constructor(private readonly parser: GrepParser) {}
 
 	async get(
 		root: ExistingRef,
@@ -147,7 +148,6 @@ export class GrepIndex {
 				scannedFiles: 0,
 				scanComplete: true,
 				semanticPrefilter: false,
-				offloadParsing: false,
 			};
 			pending = { promise: this.build(state), controller, consumers: 0, settled: false };
 			this.pendingIndexes.set(key, pending);
@@ -166,7 +166,6 @@ export class GrepIndex {
 			pending.controller.abort();
 		}
 		this.pendingIndexes.clear();
-		this.parser.dispose();
 	}
 
 	private async build(state: WalkState): Promise<ToolOutcome<RawGrepIndexResult>> {
@@ -264,7 +263,7 @@ export class GrepIndex {
 	}
 
 	private async indexPendingFiles(state: WalkState): Promise<void> {
-		const prepareLimit = pLimit(GREP_CONCURRENCY);
+		const prepareLimit = pLimit(DEFAULT_WORKER_CONCURRENCY);
 		const prepared = (await Promise.all(state.pendingFiles.map(async (pending) => await prepareLimit(async () =>
 			await prepareFile(state, pending))))).filter((file): file is PreparedFile => file !== undefined);
 		const selected = state.semanticPrefilter
@@ -275,37 +274,13 @@ export class GrepIndex {
 	}
 
 	private async parsePreparedFiles(state: WalkState, prepared: PreparedFile[]): Promise<void> {
-		let syntaxFileCount = 0;
-		let syntaxBytes = 0;
-		let maxSyntaxFileBytes = 0;
-		for (const file of prepared) {
-			if (file.cachedAnalysis !== undefined || !shouldParseSyntax(state, file)) continue;
-			syntaxFileCount += 1;
-			syntaxBytes += file.loaded.sizeBytes;
-			maxSyntaxFileBytes = Math.max(maxSyntaxFileBytes, file.loaded.sizeBytes);
-		}
-		state.offloadParsing = this.parser.shouldOffload({ fileCount: syntaxFileCount, totalBytes: syntaxBytes, maxFileBytes: maxSyntaxFileBytes });
-		let cursor = 0;
-		const worker = async (): Promise<void> => {
-			while (cursor < prepared.length) {
-				const start = cursor;
-				cursor += GREP_PARSER_BATCH_SIZE;
-				await this.analyzePreparedFiles(state, prepared.slice(start, start + GREP_PARSER_BATCH_SIZE));
-			}
-		};
-		const batches = Math.ceil(prepared.length / GREP_PARSER_BATCH_SIZE);
-		const concurrency = state.offloadParsing ? Math.min(GREP_CONCURRENCY, batches) : Math.min(1, batches);
-		await Promise.all(Array.from({ length: concurrency }, worker));
-	}
-
-	private async analyzePreparedFiles(state: WalkState, prepared: PreparedFile[]): Promise<void> {
 		if (prepared.length === 0) return;
 		const pending = prepared.filter((file) => file.cachedAnalysis === undefined);
 		const analyzed = await this.parser.analyzeFiles(pending.map((file) => ({
 			path: file.ref.displayPath,
 			text: file.loaded.text,
 			syntax: shouldParseSyntax(state, file),
-		})), state.signal, state.offloadParsing);
+		})), state.signal);
 		let analyzedIndex = 0;
 		for (const file of prepared) {
 			if (file.cachedAnalysis !== undefined) {

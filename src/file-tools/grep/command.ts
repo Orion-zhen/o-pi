@@ -15,8 +15,10 @@ import { packGrepResults, packVerifiedTextResults, renderGrepSuccess, selectGrep
 import type { GrepGraphCandidate, GrepGraphSource, GrepSymbolCandidate, GrepSymbolSource } from "./ports.js";
 import { rankGrepRegions, type RankedGrepRegion } from "./ranker.js";
 import { createQueryPlan, type QueryPlan } from "./query-plan.js";
+import { GrepParser } from "./parser-pool.js";
+import { GrepRegionizer, strictRegionContent } from "./regionizer.js";
 import { scanInventoryText } from "./text-scanner.js";
-import { createVerifiedCodeRegion, type TextHit } from "./candidates.js";
+import type { VerifiedCodeRegion } from "./candidates.js";
 import type { GrepMatchMode, GrepNearbyResult, GrepParams, GrepRegion, GrepRelatedResult, GrepScopeError, GrepStats, GrepSuccess, TruncationReason } from "./types.js";
 
 interface GrepScopeResult {
@@ -61,7 +63,9 @@ const GREP_RELATED_LIMIT = 3;
 
 /** Stateful grep command; derived indexes, pending builds, workers, and parsers share this owner. */
 export class GrepTool {
-	private readonly index = new GrepIndex();
+	private readonly parser = new GrepParser();
+	private readonly index = new GrepIndex(this.parser);
+	private readonly regionizer = new GrepRegionizer(this.parser);
 	private readonly owner = new AbortController();
 	private disposed = false;
 
@@ -101,6 +105,8 @@ export class GrepTool {
 		this.disposed = true;
 		this.owner.abort(new Error("grep is shut down."));
 		this.index.dispose();
+		this.regionizer.dispose();
+		this.parser.dispose();
 	}
 
 	private async grepStrict(validation: QueryPlan, context: GrepCommandContext): Promise<ToolOutcome<GrepSuccess>> {
@@ -122,20 +128,27 @@ export class GrepTool {
 			maxTextFileBytes: context.limits.grep_max_text_file_bytes,
 		});
 		if (isFailed(scanned)) return scanned;
-		const scopeErrors = [...inventory.scopeErrors, ...scanned.scopeErrors];
-		const failedScopes = new Set(scanned.scopeErrors.map((item) => item.path));
+		const regionized = await this.regionizer.regionize(inventory, scanned.hits, {
+			filesystem: context.filesystem,
+			operation: context.operation,
+			maxFilesParsed: context.limits.grep_max_files_parsed,
+			maxParseFileBytes: context.limits.grep_max_parse_file_bytes,
+		});
+		if (isFailed(regionized)) return regionized;
+		const scopeErrors = [...inventory.scopeErrors, ...scanned.scopeErrors, ...regionized.scopeErrors];
+		const failedScopes = new Set([...scanned.scopeErrors, ...regionized.scopeErrors].map((item) => item.path));
 		const successfulScopes = inventory.scopes.filter((scope) => !failedScopes.has(scope.input));
 		if (successfulScopes.length === 0 && scopeErrors.length > 0) {
 			const first = scopeErrors[0];
 			if (first !== undefined) return withGrepScopeErrors({ status: "failed", error: first.error }, [...validation.paths], scopeErrors);
 		}
 		const paths = uniqueStrings(successfulScopes.map((scope) => scope.root.displayPath));
-		const skipped = mergeGrepSkipped([inventory.skipped, scanned.stats.skipped]);
+		const skipped = mergeGrepSkipped([inventory.skipped, scanned.stats.skipped, regionized.skipped]);
 		const stats: GrepStats = {
 			traversed_entries: inventory.traversedEntries,
 			searched_files: scanned.stats.searchedFiles,
 			searched_bytes: scanned.stats.searchedBytes,
-			parsed_files: 0,
+			parsed_files: regionized.parsedFiles,
 			...(Object.keys(skipped).length === 0 ? {} : { skipped_files: skipped }),
 		};
 		return packVerifiedTextResults({
@@ -144,10 +157,14 @@ export class GrepTool {
 			paths,
 			...(scopeErrors.length === 0 ? {} : { scopeErrors }),
 			match: strictMatch,
-			totalCandidates: scanned.totalHits,
-			regions: strictTextRegions(scanned.hits),
+			totalCandidates: regionized.regions.length,
+			regions: regionized.regions.map(strictPublicRegion),
 			stats,
-			truncationReasons: uniqueTruncationReasons([...inventory.truncationReasons, ...scanned.truncationReasons]),
+			truncationReasons: uniqueTruncationReasons([
+				...inventory.truncationReasons,
+				...scanned.truncationReasons,
+				...regionized.truncationReasons,
+			]),
 			tokenBudget: context.limits.grep_output_token_budget,
 			resultLimit: context.limits.grep_result_limit,
 		});
@@ -261,37 +278,24 @@ export class GrepTool {
 	}
 }
 
-function strictTextRegions(hits: readonly TextHit[]): GrepRegion[] {
-	return hits.map((hit, index) => {
-		const source = hit.mode === "literal" ? "text-literal" : "text-regex";
-		const reason = hit.mode === "literal" ? "exact literal" : "regex";
-		const startLine = Math.max(1, hit.line - hit.before.length);
-		const endLine = hit.line + hit.after.length;
-		const verified = createVerifiedCodeRegion({
-			id: `${hit.path}:${hit.line}:${hit.byteStart}:${hit.byteEnd}`,
-			path: hit.path,
-			startLine,
-			endLine,
-			startByte: hit.byteStart,
-			endByte: hit.byteEnd,
-			kind: "text",
-			roles: ["text"],
-			signals: ["verified_text_window"],
-			evidence: [{ source, rank: index + 1, confidence: 1, reason }],
-		}, [hit]);
-		return {
-			path: verified.path,
-			start_line: verified.startLine,
-			end_line: verified.endLine,
-			kind: verified.kind,
-			detail: "snippet",
-			query_match: "verified",
-			reasons: [reason],
-			sources: [source],
-			match_lines: [...verified.matchLines],
-			content: [...hit.before, hit.lineText, ...hit.after].join("\n"),
-		};
-	});
+function strictPublicRegion(region: VerifiedCodeRegion): GrepRegion {
+	const reasons = [...new Set(region.evidence.map((item) => item.reason))];
+	const sources = [...new Set(region.evidence.map((item) => item.source))];
+	const content = strictRegionContent(region);
+	return {
+		path: region.path,
+		start_line: region.startLine,
+		end_line: region.endLine,
+		kind: region.kind,
+		...(region.symbol === undefined ? {} : { symbol: region.symbol }),
+		...(region.signature === undefined ? {} : { signature: region.signature }),
+		detail: "snippet",
+		query_match: "verified",
+		reasons,
+		sources,
+		match_lines: [...region.matchLines],
+		...(content === undefined || content.length === 0 ? {} : { content }),
+	};
 }
 
 function uniqueStrings(values: readonly string[]): string[] {
