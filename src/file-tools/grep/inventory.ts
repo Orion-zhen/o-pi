@@ -21,6 +21,14 @@ export interface InventoryScope {
 	readonly visibilityBypass: boolean;
 }
 
+export interface ScopedFileMembership {
+	readonly scopeInput: string;
+	readonly scopeOrder: number;
+	readonly scopeRelativePath: string;
+	readonly explicitFile: boolean;
+	readonly visibilityBypass: boolean;
+}
+
 export interface ScopedFile {
 	readonly ref: FileRef;
 	readonly path: string;
@@ -30,6 +38,8 @@ export interface ScopedFile {
 	readonly scopeRelativePath: string;
 	readonly explicitFile: boolean;
 	readonly visibilityBypass: boolean;
+	/** 同一文件可由多个显式 scope 发现；外部通道按此集合获得完整准入范围。 */
+	readonly memberships: readonly ScopedFileMembership[];
 	readonly size: number;
 	readonly metadataVersion: string;
 }
@@ -253,14 +263,26 @@ function addFile(
 ): void {
 	const canonicalIdentity = `${state.context.filesystem.identity}\0${metadata.identity ?? normalizeDisplayPath(ref.displayPath)}`;
 	const existingIndex = state.seenFiles.get(canonicalIdentity);
+	const membership: ScopedFileMembership = {
+		scopeInput: scope.input,
+		scopeOrder: scope.order,
+		scopeRelativePath: normalizeRelativePath(relativePath),
+		explicitFile,
+		visibilityBypass: scope.visibilityBypass,
+	};
 	if (existingIndex !== undefined) {
 		const existing = state.files[existingIndex];
-		if (existing !== undefined && ((explicitFile && !existing.explicitFile) || (scope.visibilityBypass && !existing.visibilityBypass))) {
+		if (existing !== undefined && !existing.memberships.some((item) => item.scopeOrder === scope.order)) {
 			state.files[existingIndex] = {
 				...existing,
-				...(explicitFile && !existing.explicitFile ? { scopeInput: scope.input, scopeOrder: scope.order } : {}),
+				...(explicitFile && !existing.explicitFile ? {
+					scopeInput: scope.input,
+					scopeOrder: scope.order,
+					scopeRelativePath: membership.scopeRelativePath,
+				} : {}),
 				explicitFile: existing.explicitFile || explicitFile,
 				visibilityBypass: existing.visibilityBypass || scope.visibilityBypass,
+				memberships: [...existing.memberships, membership],
 			};
 		}
 		return;
@@ -275,6 +297,7 @@ function addFile(
 		scopeRelativePath: normalizeRelativePath(relativePath),
 		explicitFile,
 		visibilityBypass: scope.visibilityBypass,
+		memberships: [membership],
 		size: metadata.sizeBytes,
 		metadataVersion: metadata.version ?? `${metadata.sizeBytes}:${metadata.modifiedAtMs}`,
 	});

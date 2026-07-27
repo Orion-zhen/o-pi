@@ -1,5 +1,17 @@
 import { createSourceRankingEvidence, EMPTY_RANKING_EVIDENCE, type RankingEvidence } from "../shared/ranking/evidence.js";
-import type { GrepGraphCandidate } from "./ports.js";
+export interface GrepGraphCandidate {
+	readonly path: string;
+	readonly confidence: number;
+	readonly hop: 0 | 1 | 2;
+	readonly reasons: readonly string[];
+	readonly matchedAliases: readonly { readonly term: string; readonly canonical: string }[];
+	readonly relatedEdges: readonly {
+		readonly hop: 1 | 2;
+		readonly confidence: number;
+		readonly resolution: "semantic" | "syntactic" | "lexical";
+		readonly relatedFiles?: readonly unknown[];
+	}[];
+}
 
 const NAVIGATION_REASONS = new Set([
 	"definition", "alias", "exact qualified symbol", "exact symbol", "short symbol", "caller", "test",

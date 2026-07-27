@@ -14,6 +14,7 @@ export interface VerifiedTextPackInput {
 	match: Extract<GrepMatchMode, "literal" | "regex">;
 	totalCandidates: number;
 	regions: GrepRegion[];
+	related: readonly GrepRelatedResult[];
 	stats: GrepStats;
 	truncationReasons: readonly TruncationReason[];
 	tokenBudget: number;
@@ -74,19 +75,25 @@ export function packVerifiedTextResults(input: VerifiedTextPackInput): GrepSucce
 	let tokenLimited = false;
 	const packed: GrepRegion[] = [];
 	for (const candidate of input.regions.slice(0, input.resultLimit)) {
-		if (fitsVerifiedTextResult(input, [...packed, candidate], reasonsWithToken(knownReasons, tokenLimited))) {
+		if (fitsVerifiedTextResult(input, [...packed, candidate], [], reasonsWithToken(knownReasons, tokenLimited))) {
 			packed.push(candidate);
 			continue;
 		}
 		tokenLimited = true;
-		while (packed.length > 0 && !fitsVerifiedTextResult(input, packed, reasonsWithToken(knownReasons, true))) packed.pop();
+		while (packed.length > 0 && !fitsVerifiedTextResult(input, packed, [], reasonsWithToken(knownReasons, true))) packed.pop();
 		const signature = { ...candidate, detail: "signature" as const };
 		delete signature.content;
-		if (fitsVerifiedTextResult(input, [...packed, signature], reasonsWithToken(knownReasons, true))) packed.push(signature);
+		if (fitsVerifiedTextResult(input, [...packed, signature], [], reasonsWithToken(knownReasons, true))) packed.push(signature);
+	}
+	const related: GrepRelatedResult[] = [];
+	for (const candidate of input.related) {
+		if (fitsVerifiedTextResult(input, packed, [...related, candidate], reasonsWithToken(knownReasons, tokenLimited))) related.push(candidate);
+		else tokenLimited = true;
 	}
 	const reasons = reasonsWithToken(knownReasons, tokenLimited);
-	while (packed.length > 0 && !fitsVerifiedTextResult(input, packed, reasons)) packed.pop();
-	return verifiedTextSuccess(input, packed, reasons);
+	while (packed.length > 0 && !fitsVerifiedTextResult(input, packed, related, reasons)) packed.pop();
+	while (related.length > 0 && !fitsVerifiedTextResult(input, packed, related, reasons)) related.pop();
+	return verifiedTextSuccess(input, packed, related, reasons);
 }
 
 /** 打包新 auto 本地候选；正文不可用时使用 scanner 窗口，不保留缓存源码。 */
@@ -484,14 +491,16 @@ function budgetedNearby(input: GrepPackInput): GrepNearbyResult[] {
 function fitsVerifiedTextResult(
 	input: VerifiedTextPackInput,
 	regions: GrepRegion[],
+	related: GrepRelatedResult[],
 	reasons: TruncationReason[],
 ): boolean {
-	return tokenCount(renderGrepSuccess(verifiedTextSuccess(input, regions, reasons))) <= input.tokenBudget;
+	return tokenCount(renderGrepSuccess(verifiedTextSuccess(input, regions, related, reasons))) <= input.tokenBudget;
 }
 
 function verifiedTextSuccess(
 	input: VerifiedTextPackInput,
 	regions: GrepRegion[],
+	related: GrepRelatedResult[],
 	reasons: TruncationReason[],
 ): GrepSuccess {
 	const returnedFiles = new Set(regions.map((region) => region.path)).size;
@@ -509,6 +518,7 @@ function verifiedTextSuccess(
 		stats: input.stats,
 		truncated_by: reasons,
 		regions,
+		...(related.length === 0 ? {} : { related }),
 	};
 	return { ...base, approx_tokens: tokenCount(renderGrepSuccess(base)) };
 }

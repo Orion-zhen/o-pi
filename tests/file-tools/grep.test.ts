@@ -14,13 +14,13 @@ import { mergeRankedGrepSources } from "../../src/file-tools/grep/fusion.js";
 import { createSemanticCodeRegion, createVerifiedCodeRegion, type CandidateSignal, type CodeRegion, type RegionEvidence, type TextHit } from "../../src/file-tools/grep/candidates.js";
 import { createQueryPlan, type QueryPlan, type RelationIntent } from "../../src/file-tools/grep/query-plan.js";
 import { rankCodeRegions, selectRankedRegions, sourceContribution, summarizeEvidence } from "../../src/file-tools/grep/ranking.js";
-import { formatGraphAliasReason, graphNavigationRelation, graphRankingEvidence, isGraphMainCandidate, isGraphNavigationCandidate } from "../../src/file-tools/grep/graph-ranking.js";
+import { formatGraphAliasReason, graphNavigationRelation, graphRankingEvidence, isGraphMainCandidate, isGraphNavigationCandidate, type GrepGraphCandidate } from "../../src/file-tools/grep/graph-ranking.js";
 import { hydrateGrepSourceText } from "../../src/file-tools/grep/hydration.js";
 import { buildScopeInventory, createGlobPlan, type ScopeInventory } from "../../src/file-tools/grep/inventory.js";
 import { scanInventoryText } from "../../src/file-tools/grep/text-scanner.js";
 import type { GrepScopedFile } from "../../src/file-tools/grep/indexer.js";
 import { AbortGrepParse, GrepParser } from "../../src/file-tools/grep/parser-pool.js";
-import type { GrepGraphCandidate, GrepGraphSource } from "../../src/file-tools/grep/ports.js";
+import type { GrepExternalCandidate, GrepGraphSource, GrepSymbolSource } from "../../src/file-tools/grep/ports.js";
 import { packGrepResults, renderGrepSuccess } from "../../src/file-tools/grep/packer.js";
 import type { RankedGrepRegion } from "../../src/file-tools/grep/ranker.js";
 import { createRankingEvidence, rankingEvidenceSources } from "../../src/file-tools/shared/ranking/evidence.js";
@@ -83,6 +83,34 @@ function expectGrepSuccess(result: ToolOutcome<GrepSuccess>): GrepSuccess {
 function expectInventorySuccess(result: ToolOutcome<ScopeInventory>): ScopeInventory {
 	if (isFailed(result)) throw new Error(`inventory failed: ${result.error.code}: ${result.error.message}`);
 	return result;
+}
+
+async function grepWithSources(
+	params: Parameters<GrepTool["execute"]>[0],
+	sources: { readonly symbols?: GrepSymbolSource; readonly graph?: GrepGraphSource },
+	mapFilesystem: (filesystem: WorkspaceFileSystem) => WorkspaceFileSystem = (filesystem) => filesystem,
+): Promise<ToolOutcome<GrepSuccess>> {
+	const host = new FileToolsHost();
+	const tool = new GrepTool();
+	const opened = await host.open({ cwd: workspace, sessionId: "grep-external" });
+	if (isFailed(opened)) {
+		tool.dispose();
+		host.dispose();
+		return opened;
+	}
+	try {
+		return await tool.execute(params, {
+			filesystem: mapFilesystem(opened.filesystem),
+			operation: opened.context,
+			limits: opened.limits,
+			...(sources.symbols === undefined ? {} : { symbols: sources.symbols }),
+			...(sources.graph === undefined ? {} : { graph: sources.graph }),
+		});
+	} finally {
+		tool.dispose();
+		opened.dispose();
+		host.dispose();
+	}
 }
 
 async function inventoryWorkspace(
@@ -665,7 +693,7 @@ describe("grep", () => {
 					if (input.signal?.aborted === true) onAbort();
 					else input.signal?.addEventListener("abort", onAbort, { once: true });
 				});
-				return undefined;
+				return [];
 			},
 		};
 		try {
@@ -1376,7 +1404,7 @@ describe("grep", () => {
 	it.each([
 		{ match: "literal" as const, queryText: "Needle42", source: "text-literal" },
 		{ match: "regex" as const, queryText: "Needle\\d+", source: "text-regex" },
-	])("$match 严格事实链不调用 Repo Map，主结果全部来自 line scan", async ({ match, queryText, source }) => {
+	])("$match 严格事实链可查询 Repo Map，但主结果仍全部来自 line scan", async ({ match, queryText, source }) => {
 		await writeFile(path.join(workspace, "a.ts"), "export const first = 'Needle42';\n");
 		await writeFile(path.join(workspace, "z.ts"), "export const second = 'Needle42';\n");
 		const query = vi.fn(async (): Promise<RepoMapQueryResult | undefined> => undefined);
@@ -1387,14 +1415,14 @@ describe("grep", () => {
 			{ repoMap: repoMapQuery(query) },
 		));
 
-		expect(query).not.toHaveBeenCalled();
+		expect(query).toHaveBeenCalledOnce();
 		expect(result.regions.map((region) => region.path)).toEqual(["a.ts", "z.ts"]);
 		expect(result.regions.every((region) => region.sources.includes(source) && region.query_match === "verified")).toBe(true);
 		expect(result.related).toBeUndefined();
 		await assertStrictMatches(result, queryText, match);
 	});
 
-	it("严格主结果为空时也不调用 Repo Map", async () => {
+	it("严格主结果为空时外部通道仍可独立安全降级", async () => {
 		await writeFile(path.join(workspace, "related.ts"), "export function RelatedDefinition() { return 'other'; }\n");
 		const query = vi.fn(async (): Promise<RepoMapQueryResult | undefined> => undefined);
 		const result = expectGrepSuccess(await grepWorkspaceFiles(
@@ -1404,13 +1432,13 @@ describe("grep", () => {
 			{ repoMap: repoMapQuery(query) },
 		));
 
-		expect(query).not.toHaveBeenCalled();
+		expect(query).toHaveBeenCalledOnce();
 		expect(result.regions).toEqual([]);
 		expect(result.related).toBeUndefined();
 		expect(formatCompactGrepResult(result)).toContain("none");
 	});
 
-	it("strict basename glob 递归扫描匹配文件且不启动 Repo Map", async () => {
+	it("strict basename glob 排除 scope/glob 外 Repo Map 候选", async () => {
 		await mkdir(path.join(workspace, "src", "deep"), { recursive: true });
 		await mkdir(path.join(workspace, "tests"));
 		await writeFile(path.join(workspace, "src", "deep", "match.ts"), "export const match = 'Needle42';\n");
@@ -1432,11 +1460,11 @@ describe("grep", () => {
 		));
 
 		expect(result.regions.map((region) => region.path)).toEqual(["src/deep/match.ts"]);
-		expect(query).not.toHaveBeenCalled();
+		expect(query).toHaveBeenCalledOnce();
 		expect(result.related).toBeUndefined();
 	});
 
-	it("strict 主结果充足时仍不启动结构关联通道", async () => {
+	it("strict 主结果充足时外部候选保持 related", async () => {
 		for (const name of ["a", "b", "c", "d"]) {
 			await writeFile(path.join(workspace, `${name}.ts`), `export const ${name} = 'Needle42';\n`);
 		}
@@ -1458,8 +1486,338 @@ describe("grep", () => {
 		));
 
 		expect(result.regions).toHaveLength(4);
-		expect(query).not.toHaveBeenCalled();
+		expect(query).toHaveBeenCalledOnce();
+		expect(result.related).toEqual([expect.objectContaining({ path: "related.ts", symbol: "RelatedDefinition" })]);
+	});
+
+	it("外部 direct symbol 不受本地 parse priority 限制", async () => {
+		const configPath = path.join(outside, "external-independent.jsonc");
+		await writeConfig(configPath, { grep_max_files_parsed: 1 });
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await writeFile(path.join(workspace, "a.ts"), "export const RemoteTarget = true;\n");
+		await writeFile(path.join(workspace, "z.ts"), "export const unrelated = true;\n");
+		const symbols: GrepSymbolSource = {
+			async query(input) {
+				expect(input.allowedPaths).toContain("z.ts");
+				return [{
+					path: "z.ts",
+					range: { startLine: 1, endLine: 1 },
+					kind: "variable",
+					symbol: "RemoteTarget",
+					origin: "lsp-symbol",
+					confidence: 1,
+					relation: "definition",
+					reasons: ["lsp exact symbol"],
+				}];
+			},
+		};
+		const result = expectGrepSuccess(await grepWithSources({ query: "RemoteTarget" }, { symbols }));
+		expect(result.regions).toEqual(expect.arrayContaining([
+			expect.objectContaining({ path: "z.ts", symbol: "RemoteTarget", sources: ["lsp-symbol"], query_match: "semantic" }),
+		]));
+	});
+
+	it("多 scope 外部查询保留各自完整 allowed paths，并按文件 identity 去重", async () => {
+		await mkdir(path.join(workspace, "src"));
+		await writeFile(path.join(workspace, "src", "target.ts"), "export const unrelated = true;\n");
+		await writeFile(path.join(workspace, "root.ts"), "export const rootOnly = true;\n");
+		const calls: Array<{ readonly root: string; readonly allowed: readonly string[] }> = [];
+		const candidate: GrepExternalCandidate = {
+			path: "src/target.ts",
+			range: { startLine: 1, endLine: 1 },
+			kind: "variable",
+			symbol: "RemoteTarget",
+			origin: "lsp-symbol",
+			confidence: 1,
+			relation: "definition",
+			reasons: ["lsp exact symbol"],
+		};
+		const symbols: GrepSymbolSource = {
+			async query(input) {
+				calls.push({ root: input.root.displayPath, allowed: input.allowedPaths });
+				return [candidate];
+			},
+		};
+		const result = expectGrepSuccess(await grepWithSources({ path: [".", "src"], query: "RemoteTarget" }, { symbols }));
+		expect(calls).toEqual([
+			{ root: ".", allowed: ["root.ts", "src/target.ts"] },
+			{ root: "src", allowed: ["src/target.ts"] },
+		]);
+		expect(result.regions.filter((region) => region.path === "src/target.ts")).toHaveLength(1);
+	});
+
+	it("统一 validator 排除 stale hash/version、非法 range、scope 外和缺失文件", async () => {
+		await mkdir(path.join(workspace, "scope"));
+		const content = "export const current = true;\n";
+		await writeFile(path.join(workspace, "scope", "valid.ts"), content);
+		await writeFile(path.join(workspace, "outside.ts"), content);
+		const hash = createHash("sha256").update(content).digest("hex");
+		const graph: GrepGraphSource = {
+			async query() {
+				const base = {
+					range: { startLine: 1, endLine: 1 },
+					kind: "variable",
+					symbol: "RemoteTarget",
+					origin: "repo-map" as const,
+					confidence: 1,
+					hop: 0 as const,
+					relation: "definition",
+					reasons: ["definition"],
+				};
+				return [
+					{ ...base, path: "scope/valid.ts", contentHash: hash },
+					{ ...base, path: "scope/valid.ts", symbol: "StaleHash", contentHash: "stale" },
+					{ ...base, path: "scope/valid.ts", symbol: "StaleVersion", contentVersion: "stale" },
+					{ ...base, path: "scope/valid.ts", symbol: "InvalidRange", range: { startLine: 9, endLine: 10 }, contentHash: hash },
+					{ ...base, path: "scope/valid.ts", symbol: "InvalidBytes", range: { startLine: 2, endLine: 2, startByte: 0, endByte: 1 }, contentHash: hash },
+					{ ...base, path: "outside.ts", symbol: "Outside", contentHash: hash },
+					{ ...base, path: "scope/missing.ts", symbol: "Missing", contentHash: hash },
+				];
+			},
+		};
+		const result = expectGrepSuccess(await grepWithSources({ path: ["scope"], query: "RemoteTarget" }, { graph }));
+		expect(result.regions.map((region) => region.symbol)).toEqual(["RemoteTarget"]);
 		expect(result.related).toBeUndefined();
+	});
+
+	it("外部候选返回前文件变化会被 live metadata gate 排除", async () => {
+		await writeFile(path.join(workspace, "changed.txt"), "before\n");
+		const scanCompleted = deferredVoid();
+		const symbols: GrepSymbolSource = {
+			async query() {
+				await scanCompleted.promise;
+				await writeFile(path.join(workspace, "changed.txt"), "after changed\n");
+				return [{
+					path: "changed.txt",
+					range: { startLine: 1, endLine: 1 },
+					kind: "variable",
+					symbol: "RemoteTarget",
+					origin: "lsp-symbol",
+					confidence: 1,
+					relation: "definition",
+					reasons: ["lsp exact symbol"],
+				}];
+			},
+		};
+		const result = expectGrepSuccess(await grepWithSources({ query: "RemoteTarget" }, { symbols }, (filesystem) => {
+			const original = filesystem.content;
+			return {
+				...filesystem,
+				content: {
+					readBytes: original.readBytes.bind(original),
+					readText: original.readText.bind(original),
+					decodeText: original.decodeText.bind(original),
+					sliceText: original.sliceText.bind(original),
+					async scanLines(file, options, context) {
+						const opened = await original.scanLines(file, options, context);
+						if (!opened.ok) return opened;
+						return { ok: true, value: {
+							[Symbol.asyncIterator]: opened.value[Symbol.asyncIterator].bind(opened.value),
+							async close() {
+								await opened.value.close();
+								scanCompleted.resolve();
+							},
+						} };
+					},
+				},
+			};
+		}));
+		expect(result.regions).toEqual([]);
+		expect(result.related).toBeUndefined();
+	});
+
+	it("inventory 后文本与外部通道并行启动", async () => {
+		await writeFile(path.join(workspace, "parallel.txt"), "needle\n");
+		const externalStarted = deferredVoid();
+		const scanStarted = deferredVoid();
+		const symbols: GrepSymbolSource = {
+			async query() {
+				externalStarted.resolve();
+				await scanStarted.promise;
+				return [];
+			},
+		};
+		const result = await grepWithSources({ query: "needle" }, { symbols }, (filesystem) => {
+			const original = filesystem.content;
+			return {
+				...filesystem,
+				content: {
+					readBytes: original.readBytes.bind(original),
+					readText: original.readText.bind(original),
+					decodeText: original.decodeText.bind(original),
+					sliceText: original.sliceText.bind(original),
+					async scanLines(file, options, context) {
+						scanStarted.resolve();
+						await externalStarted.promise;
+						return await original.scanLines(file, options, context);
+					},
+				},
+			};
+		});
+		expect(result.status).toBe("success");
+	});
+
+	it("text、AST、LSP 和 Repo Map 的同一区域只输出一次并合并 evidence family", async () => {
+		const content = "export function Target() { return Target; }\n";
+		await writeFile(path.join(workspace, "target.ts"), content);
+		const unit = (await parseCodeUnits("target.ts", content)).units.find((item) => item.name === "Target");
+		if (unit === undefined) throw new Error("missing parsed fixture unit");
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "Target" }, undefined, {
+			lsp: {
+				async symbols() {
+					return [{ path: "target.ts", start_line: unit.startLine, end_line: unit.endLine, kind: unit.kind, symbol: "Target", exact: true, origin: "workspace-symbol" }];
+				},
+			},
+			repoMap: repoMapQuery(async (input) => ({
+				root: workspace,
+				explanation: { queryTerms: [input.query], expandedTerms: [input.query], seedCount: 1, maxHop: 2 },
+				candidates: [repoMapCandidate("target.ts", content, unit, ["definition"])],
+			})),
+		}));
+		const matches = result.regions.filter((region) => region.path === "target.ts" && region.symbol === "Target");
+		expect(matches).toHaveLength(1);
+		expect(matches[0]?.sources).toEqual(expect.arrayContaining(["text-literal", "ast-symbol", "lsp-symbol", "repo-map-direct"]));
+	});
+
+	it("相同 symbol/range 的不同 overload signature 不误合并", async () => {
+		await writeFile(path.join(workspace, "overload.ts"), "export const unrelated = true;\n");
+		const symbols: GrepSymbolSource = {
+			async query() {
+				return ["string", "number"].map((type): GrepExternalCandidate => ({
+					path: "overload.ts",
+					range: { startLine: 1, endLine: 1 },
+					kind: "function",
+					symbol: "Target",
+					signature: `function Target(value: ${type})`,
+					origin: "lsp-symbol",
+					confidence: 1,
+					relation: "definition",
+					reasons: ["lsp exact symbol"],
+				}));
+			},
+		};
+		const result = expectGrepSuccess(await grepWithSources({ query: "Target" }, { symbols }));
+		expect(result.regions.map((region) => region.signature)).toEqual([
+			"function Target(value: string)",
+			"function Target(value: number)",
+		]);
+	});
+
+	it("LSP reference 仅在显式 relation intent 下进入 main", async () => {
+		await writeFile(path.join(workspace, "caller.ts"), "export function caller() { return login(); }\n");
+		const symbols: GrepSymbolSource = {
+			async query() {
+				return [{
+					path: "caller.ts",
+					range: { startLine: 1, endLine: 1 },
+					kind: "reference",
+					symbol: "login",
+					origin: "lsp-reference",
+					confidence: 1,
+					relation: "reference",
+					reasons: ["lsp reference"],
+				}];
+			},
+		};
+		const ordinary = expectGrepSuccess(await grepWithSources({ query: "MissingLogin" }, { symbols }));
+		expect(ordinary.regions.some((region) => region.sources.includes("lsp-reference"))).toBe(false);
+		expect(ordinary.related).toEqual([expect.objectContaining({ path: "caller.ts", relations: ["reference"] })]);
+		const explicit = expectGrepSuccess(await grepWithSources({ query: "references to login" }, { symbols }));
+		expect(explicit.regions).toEqual(expect.arrayContaining([
+			expect.objectContaining({ path: "caller.ts", sources: ["lsp-reference"], query_match: "semantic" }),
+		]));
+	});
+
+	it("strict 仅用外部证据增强 verified region，不伪造 match_lines", async () => {
+		const content = "export function target() { return 'Needle42'; }\n";
+		await writeFile(path.join(workspace, "target.ts"), content);
+		const symbols: GrepSymbolSource = {
+			async query() {
+				return [{
+					path: "target.ts",
+					range: { startLine: 1, endLine: 1 },
+					kind: "function",
+					symbol: "target",
+					origin: "lsp-symbol",
+					confidence: 1,
+					relation: "definition",
+					reasons: ["lsp exact symbol"],
+				}];
+			},
+		};
+		const result = expectGrepSuccess(await grepWithSources({ query: "Needle42", match: "literal" }, { symbols }));
+		expect(result.regions).toEqual([
+			expect.objectContaining({ query_match: "verified", match_lines: [1], sources: expect.arrayContaining(["text-literal", "lsp-symbol"]) }),
+		]);
+		await assertStrictMatches(result, "Needle42", "literal");
+	});
+
+	it("caller 取消时不等待忽略 signal 的外部来源", async () => {
+		await writeFile(path.join(workspace, "cancel-external.txt"), "needle\n");
+		const host = new FileToolsHost();
+		const tool = new GrepTool();
+		const opened = await host.open({ cwd: workspace, sessionId: "grep-external-cancel" });
+		if (isFailed(opened)) throw new Error(opened.error.message);
+		const started = deferredVoid();
+		const symbols: GrepSymbolSource = {
+			async query() {
+				started.resolve();
+				return await new Promise<readonly GrepExternalCandidate[]>(() => {});
+			},
+		};
+		const controller = new AbortController();
+		try {
+			const active = tool.execute({ query: "needle" }, {
+				filesystem: opened.filesystem,
+				operation: { signal: controller.signal },
+				limits: opened.limits,
+				symbols,
+			});
+			await started.promise;
+			controller.abort();
+			await expect(active).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
+		} finally {
+			tool.dispose();
+			opened.dispose();
+			host.dispose();
+		}
+	});
+
+	it("外部超时式拒绝仅降级对应通道", async () => {
+		await writeFile(path.join(workspace, "timeout.ts"), "export const TimeoutNeedle = true;\n");
+		const symbols: GrepSymbolSource = { query() { throw new Error("LSP timeout"); } };
+		const graph: GrepGraphSource = { async query() { throw new Error("Repo Map timeout"); } };
+		const result = expectGrepSuccess(await grepWithSources({ query: "TimeoutNeedle" }, { symbols, graph }));
+		expect(firstRegion(result)).toMatchObject({ path: "timeout.ts", query_match: "verified" });
+	});
+
+	it("Repo Map related edge 的 stale hash 不进入 related", async () => {
+		const content = "export function Target() { return true; }\n";
+		const relatedContent = "export function Related() { return true; }\n";
+		await writeFile(path.join(workspace, "target.ts"), content);
+		await writeFile(path.join(workspace, "related.ts"), relatedContent);
+		const unit = (await parseCodeUnits("target.ts", content)).units.find((item) => item.name === "Target");
+		if (unit === undefined) throw new Error("missing parsed fixture unit");
+		const candidate = repoMapCandidate("target.ts", content, unit, ["definition"]);
+		candidate.relatedEdges.push({
+			kind: "calls",
+			from: unit.id,
+			to: "file:related.ts",
+			confidence: 1,
+			resolution: "semantic",
+			source: "tree-sitter",
+			hop: 1,
+			evidence: [],
+			relatedFiles: [{ path: "related.ts", contentHash: "stale" }],
+		});
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "Target" }, undefined, {
+			repoMap: repoMapQuery(async (input) => ({
+				root: workspace,
+				explanation: { queryTerms: [input.query], expandedTerms: [input.query], seedCount: 1, maxHop: 2 },
+				candidates: [candidate],
+			})),
+		}));
+		expect(result.related?.some((item) => item.path === "related.ts")).not.toBe(true);
 	});
 
 	it("最终协议以候选 sources 和具体截断原因解释结果", () => {
@@ -1614,7 +1972,7 @@ describe("grep", () => {
 		expect(result.related?.[0]?.symbol).toBeUndefined();
 	});
 
-	it.each(["literal", "regex"] as const)("%s 不依赖也不调用 repo-map", async (match) => {
+	it.each(["literal", "regex"] as const)("%s 在 repo-map 失败时保持事实结果不变", async (match) => {
 		const content = "export function Target() { return 'Needle42'; }\n";
 		await writeFile(path.join(workspace, "target.ts"), content);
 		const queryText = match === "literal" ? "Needle42" : "Needle\\d+";
@@ -1628,11 +1986,11 @@ describe("grep", () => {
 			{ repoMap: repoMapQuery(query) },
 		));
 
-		expect(query).not.toHaveBeenCalled();
+		expect(query).toHaveBeenCalledOnce();
 		expect(degraded).toEqual(baseline);
 	});
 
-	it("无字面标识片段的 regex 不发起无收益的 repo-map 查询", async () => {
+	it("无字面标识片段的 regex 在外部空结果时仍保留事实命中", async () => {
 		await writeFile(path.join(workspace, "number.ts"), "export const value = 42;\n");
 		const query = vi.fn(async (): Promise<RepoMapQueryResult | undefined> => undefined);
 		const result = expectGrepSuccess(await grepWorkspaceFiles(
@@ -1643,7 +2001,7 @@ describe("grep", () => {
 		));
 
 		expect(result.regions.length).toBeGreaterThan(0);
-		expect(query).not.toHaveBeenCalled();
+		expect(query).toHaveBeenCalledOnce();
 	});
 
 	it("阶段 4 对超大函数保留 enclosing identity 和命中附近窗口", async () => {

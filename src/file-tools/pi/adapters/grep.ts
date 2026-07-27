@@ -1,6 +1,6 @@
 import type { RepoMapQueryCandidate } from "../../../repo-map/query/query.js";
 import { GrepTool, formatCompactGrepResult } from "../../grep/command.js";
-import type { GrepGraphCandidate, GrepGraphSource, GrepSymbolSource } from "../../grep/ports.js";
+import type { GrepExternalCandidate, GrepGraphSource, GrepSymbolSource } from "../../grep/ports.js";
 import type { GrepParams } from "../../grep/types.js";
 import type { FileToolsHost, FileToolsInvocation } from "../../runtime/host.js";
 import { isFailed } from "../../shared/result.js";
@@ -59,15 +59,16 @@ export function createGrepSymbolSource(lsp: LspFileOperations, invocation: FileT
 				allowedPaths: new Set(input.allowedPaths),
 				...(input.signal === undefined ? {} : { signal: input.signal }),
 			});
-			return candidates.map((candidate) => ({
+			return candidates.map((candidate): GrepExternalCandidate => ({
 				path: candidate.path,
-				startLine: candidate.start_line,
-				endLine: candidate.end_line,
+				range: { startLine: candidate.start_line, endLine: candidate.end_line },
 				kind: candidate.kind,
 				symbol: candidate.symbol,
 				...(candidate.signature === undefined ? {} : { signature: candidate.signature }),
-				reason: candidate.origin === "reference" ? "lsp reference" : candidate.exact ? "lsp exact symbol" : "lsp symbol",
-				origin: candidate.origin,
+				origin: candidate.origin === "reference" ? "lsp-reference" : "lsp-symbol",
+				confidence: candidate.exact ? 1 : candidate.origin === "reference" ? 0.9 : 0.8,
+				relation: candidate.origin === "reference" ? "reference" : "definition",
+				reasons: [candidate.origin === "reference" ? "lsp reference" : candidate.exact ? "lsp exact symbol" : "lsp symbol"],
 			}));
 		},
 	};
@@ -76,53 +77,58 @@ export function createGrepSymbolSource(lsp: LspFileOperations, invocation: FileT
 export function createGrepGraphSource(repoMap: RepoMapToolPorts, invocation: FileToolsInvocation): GrepGraphSource {
 	return {
 		async query(input) {
-			if (input.signal?.aborted === true) return undefined;
+			if (input.signal?.aborted === true) return [];
 			const identity = invocation.nativeBridge.getNativeIdentity(input.root);
-			if (identity === undefined) return undefined;
+			if (identity === undefined) return [];
 			const result = await repoMap.query.query({
 				requestedPath: identity.nativePath,
 				query: input.query,
 				limit: input.limit,
 				...(input.signal === undefined ? {} : { signal: input.signal }),
 			});
-			if (result === undefined || isAborted(input.signal)) return undefined;
-			const root = await invocation.filesystem.paths.resolveExisting(
-				result.root,
-				{ expected: "directory", followFinalSymlink: true },
-				invocation.context,
-			);
-			if (!root.ok || root.value.kind !== "directory") return undefined;
-			return { root: root.value, candidates: result.candidates.map(toGraphCandidate) };
+			if (result === undefined || isAborted(input.signal)) return [];
+			return result.candidates.flatMap(toGraphCandidates);
 		},
 	};
 }
 
-function toGraphCandidate(candidate: RepoMapQueryCandidate): GrepGraphCandidate {
-	return {
+function toGraphCandidates(candidate: RepoMapQueryCandidate): GrepExternalCandidate[] {
+	const symbol = candidate.symbol;
+	const range = symbol?.range ?? candidate.range;
+	const aliasReasons = candidate.matchedAliases
+		.filter(({ term, canonical }) => term.toLocaleLowerCase() !== canonical.toLocaleLowerCase())
+		.map(({ term, canonical }) => `alias ${term}->${canonical}`);
+	const relation = relationFromReasons(candidate.reasons);
+	const primary: GrepExternalCandidate = {
 		path: candidate.path,
-		...(candidate.contentHash === undefined ? {} : { contentHash: candidate.contentHash }),
-		...(candidate.symbol === undefined ? {} : {
-			symbol: {
-				id: candidate.symbol.id,
-				kind: candidate.symbol.kind,
-				...(candidate.symbol.name === undefined ? {} : { name: candidate.symbol.name }),
-				...(candidate.symbol.qualifiedName === undefined ? {} : { qualifiedName: candidate.symbol.qualifiedName }),
-				...(candidate.symbol.signature === undefined ? {} : { signature: candidate.symbol.signature }),
-				range: { ...candidate.symbol.range },
-			},
-		}),
-		...(candidate.range === undefined ? {} : { range: { ...candidate.range } }),
+		...(range === undefined ? {} : { range: { ...range } }),
+		...(symbol?.kind === undefined ? {} : { kind: symbol.kind }),
+		...(symbol?.name === undefined ? {} : { symbol: symbol.name }),
+		...(symbol?.qualifiedName === undefined ? {} : { qualifiedSymbol: symbol.qualifiedName }),
+		...(symbol?.signature === undefined ? {} : { signature: symbol.signature }),
+		origin: "repo-map",
 		confidence: candidate.confidence,
+		...(candidate.contentHash === undefined ? {} : { contentHash: candidate.contentHash }),
+		...(relation === undefined ? {} : { relation }),
 		hop: candidate.hop,
-		reasons: [...candidate.reasons],
-		matchedAliases: candidate.matchedAliases.map(({ term, canonical }) => ({ term, canonical })),
-		relatedEdges: candidate.relatedEdges.map(({ hop, confidence, resolution, relatedFiles }) => ({
-			hop,
-			confidence,
-			resolution,
-			relatedFiles: relatedFiles.map(({ path, contentHash }) => ({ path, ...(contentHash === undefined ? {} : { contentHash }) })),
-		})),
+		reasons: [...candidate.reasons, ...aliasReasons],
 	};
+	const related = candidate.relatedEdges.flatMap((edge) => edge.relatedFiles.map((file): GrepExternalCandidate => ({
+		path: file.path,
+		origin: "repo-map",
+		confidence: Math.min(candidate.confidence, edge.confidence),
+		...(file.contentHash === undefined ? {} : { contentHash: file.contentHash }),
+		relation: edge.kind,
+		hop: edge.hop,
+		reasons: [edge.kind],
+	})));
+	return [primary, ...related];
+}
+
+function relationFromReasons(reasons: readonly string[]): string | undefined {
+	return reasons.find((reason) => reason === "caller" || reason === "callee" || reason === "reference"
+		|| reason === "test" || reason === "import" || reason === "registration")
+		?? (reasons.some((reason) => reason === "definition" || reason === "export" || reason === "public api") ? "definition" : undefined);
 }
 
 function isAborted(signal: AbortSignal | undefined): boolean {

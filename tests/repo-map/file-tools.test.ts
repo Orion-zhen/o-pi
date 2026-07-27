@@ -87,7 +87,7 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		]) });
 	});
 
-	it("keeps find glob deterministic while strict grep stays on its independent text channel", async () => {
+	it("keeps find glob deterministic while strict grep main remains verified text", async () => {
 		const root = path.join(temp.path, "strict-search-repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });
 		await writeFile(path.join(root, "a-service.ts"), "export function Alpha() { return 'Preferred'; }\n");
@@ -111,7 +111,6 @@ describe("Repo Map file-tool read and mutation integration", () => {
 			clearGrepIndex();
 			const grep = await grepWorkspaceFiles(root, params, undefined, { repoMap: query });
 			if (grep.status === "failed") throw new Error(grep.error.message);
-			expect(grep.regions.some((region) => region.sources.includes("repo-map-direct"))).toBe(false);
 			expect(grep.regions.every((region) => region.sources.includes(params.match === "literal" ? "text-literal" : "text-regex"))).toBe(true);
 			expect(grep.regions.every((region) => region.query_match === "verified" && (region.match_lines?.length ?? 0) > 0)).toBe(true);
 		}

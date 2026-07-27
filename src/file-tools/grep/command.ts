@@ -5,7 +5,13 @@ import type { FileToolLimits } from "../../file-tool-limits.js";
 import { fail, isFailed, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import type { VerifiedCodeRegion } from "./candidates.js";
 import { buildScopeInventory, type ScopeInventory } from "./inventory.js";
-import { augmentLocalAutoResults, buildLocalAutoResults, semanticParsePriority, type ExternalAutoCandidates } from "./local.js";
+import { buildLocalAutoResults, semanticParsePriority } from "./local.js";
+import {
+	augmentAutoWithExternal,
+	augmentStrictWithExternal,
+	queryExternalChannels,
+	validateExternalCandidates,
+} from "./external.js";
 import { packAutoResults, packVerifiedTextResults, renderGrepSuccess } from "./packer.js";
 import { GrepParser } from "./parser-pool.js";
 import type { GrepGraphSource, GrepSymbolSource } from "./ports.js";
@@ -35,10 +41,18 @@ export class GrepTool {
 
 	async execute(params: GrepParams, context: GrepCommandContext): Promise<ToolOutcome<GrepSuccess>> {
 		if (this.disposed || isAborted(context.operation.signal)) return aborted();
-		context = { ...context, operation: bindOperationContext(this.owner.signal, context.operation) };
-		const plan = createQueryPlan(params);
-		if (isFailed(plan)) return plan;
-		return plan.match === "auto" ? await this.grepAuto(plan, context) : await this.grepStrict(plan, context);
+		const invocation = new AbortController();
+		context = {
+			...context,
+			operation: bindOperationContext(invocation.signal, bindOperationContext(this.owner.signal, context.operation)),
+		};
+		try {
+			const plan = createQueryPlan(params);
+			if (isFailed(plan)) return plan;
+			return plan.match === "auto" ? await this.grepAuto(plan, context) : await this.grepStrict(plan, context);
+		} finally {
+			invocation.abort(new Error("grep invocation completed."));
+		}
 	}
 
 	dispose(): void {
@@ -53,6 +67,12 @@ export class GrepTool {
 		if (plan.match !== "auto") return fail("INVALID_OPERATION", "Auto grep requires auto mode.");
 		const inventory = await this.inventory(plan, context);
 		if (isFailed(inventory)) return inventory;
+		const externalPending = queryExternalChannels(inventory, plan, {
+			...(context.symbols === undefined ? {} : { symbols: context.symbols }),
+			...(context.graph === undefined ? {} : { graph: context.graph }),
+			...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+			resultLimit: context.limits.grep_result_limit,
+		});
 		const scanned = await scanInventoryText(inventory, plan, {
 			filesystem: context.filesystem,
 			operation: context.operation,
@@ -75,9 +95,13 @@ export class GrepTool {
 		const scope = successfulScopeState(plan, inventory, scanned.scopeErrors, regionized.scopeErrors);
 		if (scope.failure !== undefined) return scope.failure;
 		const local = buildLocalAutoResults(plan, scanned, regionized, context.limits.grep_result_limit);
-		const external = await queryExternalCandidates(inventory, plan, context);
-		if (isAborted(context.operation.signal)) return aborted(scope.paths[0]);
-		const augmented = augmentLocalAutoResults(plan, local, regionized, external, context.limits.grep_result_limit);
+		const external = await validateExternalCandidates(inventory, await externalPending, {
+			filesystem: context.filesystem,
+			operation: context.operation,
+			maxFileBytes: context.limits.grep_max_text_file_bytes,
+		});
+		if (isFailed(external)) return external;
+		const augmented = augmentAutoWithExternal(plan, local, external, context.limits.grep_result_limit);
 		return packAutoResults({
 			query: plan.query,
 			path: scope.paths[0] ?? ".",
@@ -105,6 +129,12 @@ export class GrepTool {
 		const strictMatch = plan.match;
 		const inventory = await this.inventory(plan, context);
 		if (isFailed(inventory)) return inventory;
+		const externalPending = queryExternalChannels(inventory, plan, {
+			...(context.symbols === undefined ? {} : { symbols: context.symbols }),
+			...(context.graph === undefined ? {} : { graph: context.graph }),
+			...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+			resultLimit: context.limits.grep_result_limit,
+		});
 		const scanned = await scanInventoryText(inventory, plan, {
 			filesystem: context.filesystem,
 			operation: context.operation,
@@ -121,14 +151,22 @@ export class GrepTool {
 		if (isFailed(regionized)) return regionized;
 		const scope = successfulScopeState(plan, inventory, scanned.scopeErrors, regionized.scopeErrors);
 		if (scope.failure !== undefined) return scope.failure;
+		const external = await validateExternalCandidates(inventory, await externalPending, {
+			filesystem: context.filesystem,
+			operation: context.operation,
+			maxFileBytes: context.limits.grep_max_text_file_bytes,
+		});
+		if (isFailed(external)) return external;
+		const augmented = augmentStrictWithExternal(regionized.regions, external);
 		return packVerifiedTextResults({
 			query: plan.query,
 			path: scope.paths[0] ?? ".",
 			paths: scope.paths,
 			...(scope.errors.length === 0 ? {} : { scopeErrors: scope.errors }),
 			match: strictMatch,
-			totalCandidates: regionized.regions.length,
-			regions: regionized.regions.map(strictPublicRegion),
+			totalCandidates: augmented.regions.length,
+			regions: augmented.regions.map(strictPublicRegion),
+			related: augmented.related,
 			stats: grepStats(inventory, scanned.stats, regionized.parsedFiles, regionized.skipped),
 			truncationReasons: uniqueTruncationReasons([
 				...inventory.truncationReasons,
@@ -198,42 +236,6 @@ function strictPublicRegion(region: VerifiedCodeRegion): GrepRegion {
 		sources: uniqueStrings(region.evidence.map((item) => item.source)),
 		match_lines: [...region.matchLines],
 		...(content.length === 0 ? {} : { content }),
-	};
-}
-
-async function queryExternalCandidates(
-	inventory: ScopeInventory,
-	plan: QueryPlan,
-	context: GrepCommandContext,
-): Promise<ExternalAutoCandidates> {
-	const allowed = new Set(inventory.files.map((file) => file.path));
-	const requests = inventory.scopes.flatMap((scope) => {
-		const allowedPaths = inventory.files.filter((file) => file.scopeOrder === scope.order).map((file) => file.path);
-		const symbols = context.symbols === undefined
-			? Promise.resolve([])
-			: context.symbols.query({
-				root: scope.root,
-				query: plan.targetQuery.length === 0 ? plan.query : plan.targetQuery,
-				allowedPaths,
-				...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
-			}).catch(() => []);
-		const graph = context.graph === undefined
-			? Promise.resolve(undefined)
-			: context.graph.query({
-				root: scope.root,
-				query: plan.targetQuery.length === 0 ? plan.query : plan.targetQuery,
-				limit: Math.max(24, context.limits.grep_result_limit * 6),
-				...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
-			}).catch(() => undefined);
-		return [{ symbols, graph }];
-	});
-	const results = await Promise.all(requests.map(async (request) => {
-		const [symbols, graph] = await Promise.all([request.symbols, request.graph]);
-		return { symbols, graph };
-	}));
-	return {
-		symbols: results.flatMap((result) => result.symbols).filter((candidate) => allowed.has(candidate.path)),
-		graph: results.flatMap((result) => result.graph?.candidates ?? []).filter((candidate) => allowed.has(candidate.path)),
 	};
 }
 

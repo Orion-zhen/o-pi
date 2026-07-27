@@ -111,7 +111,10 @@ describe("Repo Map query and file-tool integration", () => {
 		const result = await grepWorkspaceFiles(workspaceTemp.path, { query: "target" }, undefined, { repoMap: query });
 		if (result.status === "failed") throw new Error(result.error.message);
 		expect(result.regions.some((region) => region.sources.includes("repo-map-direct"))).toBe(true);
-		expect(result.regions.map((region) => region.reasons).flat()).toEqual(expect.arrayContaining(["definition", "caller"]));
+		expect(result.regions.map((region) => region.reasons).flat()).toContain("definition");
+		expect(result.related).toEqual(expect.arrayContaining([
+			expect.objectContaining({ path: "a.ts", relations: expect.arrayContaining(["caller"]) }),
+		]));
 		expect(result.regions.find((region) => region.path === "b.ts")?.content).toContain("function target");
 
 		await writeFile(path.join(workspaceTemp.path, "b.ts"), "export function replacement() { return 2; }\n");
@@ -122,7 +125,7 @@ describe("Repo Map query and file-tool integration", () => {
 		expect(JSON.stringify(staleResult)).not.toContain("return 1");
 	});
 
-	it("literal/regex remain independent of Repo Map and within result/token limits", async () => {
+	it("literal/regex only accept verified main while allowing validated Repo Map evidence", async () => {
 		const sources = new Map([
 			["a.ts", "export function Needle() { return 'literalNeedle'; }\n"],
 			["b.ts", "export function caller() { return Needle(); }\n"],
@@ -136,7 +139,6 @@ describe("Repo Map query and file-tool integration", () => {
 			expect(result.regions.length).toBeGreaterThan(0);
 			expect(result.regions.length).toBeLessThanOrEqual(8);
 			expect(result.approx_tokens).toBeLessThanOrEqual(1600);
-			expect(result.regions.some((region) => region.sources.includes("repo-map-direct"))).toBe(false);
 			expect(result.regions.every((region) => region.sources.includes(match === "literal" ? "text-literal" : "text-regex"))).toBe(true);
 			expect(result.regions.every((region) => region.query_match === "verified" && (region.match_lines?.length ?? 0) > 0)).toBe(true);
 		}
