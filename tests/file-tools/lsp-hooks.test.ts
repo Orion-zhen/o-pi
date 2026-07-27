@@ -224,7 +224,7 @@ describe("file-tools lsp hooks", () => {
 		expect(maxActive).toBe(2);
 	});
 
-	it("LSP 显式语义排序不依赖服务器顺序，并把 reference 放在 workspace symbol 后", async () => {
+	it("LSP 语义排序不依赖服务器顺序，非显式 reference 进入 related", async () => {
 		for (const name of ["exact", "prefix", "reference"]) {
 			await writeFile(path.join(workspace, `${name}.ts`), `export const ${name} = 1;\n`);
 		}
@@ -245,10 +245,11 @@ describe("file-tools lsp hooks", () => {
 		expect(order(first)).toEqual([
 			"exact.ts:lsp exact symbol",
 			"prefix.ts:lsp symbol",
-			"reference.ts:lsp reference",
 		]);
-		expect(first.regions.find((region) => region.path === "exact.ts")?.sources).toContain("lsp-workspace-symbol");
-		expect(first.regions.find((region) => region.path === "reference.ts")?.sources).toContain("lsp-reference");
+		expect(first.regions.find((region) => region.path === "exact.ts")?.sources).toContain("lsp-symbol");
+		expect(first.related).toEqual(expect.arrayContaining([
+			expect.objectContaining({ path: "reference.ts", sources: ["lsp-reference"], relations: ["reference"] }),
+		]));
 	});
 });
 

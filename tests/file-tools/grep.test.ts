@@ -1099,13 +1099,16 @@ describe("grep", () => {
 		expect(firstRegion(result)).toMatchObject({ path: path.join(outside, "external.ts").replaceAll("\\", "/"), symbol: "externalNeedle" });
 	});
 
-	it("exact symbol 的定义排在引用之前，并以独立 region 表达一跳 caller/callee", async () => {
+	it("无显式关系意图时定义进入 main，caller/callee 保持 related", async () => {
 		await writeFile(path.join(workspace, "service.ts"), "export function login() {\n  return issueToken();\n}\nfunction issueToken() { return 't'; }\n");
 		await writeFile(path.join(workspace, "route.ts"), "import { login } from './service';\nexport function handle() {\n  return login();\n}\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "login" }));
 		expect(firstRegion(result)).toMatchObject({ path: "service.ts", symbol: "login" });
-		expect(result.regions.some((region) => region.symbol === "handle" && region.reasons.includes("caller"))).toBe(true);
-		expect(result.regions.some((region) => region.symbol === "issueToken" && region.reasons.includes("callee"))).toBe(true);
+		expect(result.regions.some((region) => region.reasons.includes("caller") || region.reasons.includes("callee"))).toBe(false);
+		expect(result.related).toEqual(expect.arrayContaining([
+			expect.objectContaining({ symbol: "handle", relations: ["caller"] }),
+			expect.objectContaining({ symbol: "issueToken", relations: ["callee"] }),
+		]));
 		expect(formatCompactGrepResult(result)).not.toContain("calls: issueToken");
 	});
 
@@ -1708,18 +1711,8 @@ describe("grep", () => {
 		const tool = new GrepTool();
 		const opened = await host.open({ cwd: workspace, sessionId: "grep-cache-prune" });
 		if (isFailed(opened)) throw new Error(opened.error.message);
-		const filesystem: WorkspaceFileSystem = {
-			...opened.filesystem,
-			metadata: {
-				async stat(ref, context) {
-					const result = await opened.filesystem.metadata.stat(ref, context);
-					return result.ok ? { ok: true, value: { ...result.value, version: "stable-test-version" } } : result;
-				},
-				list: opened.filesystem.metadata.list.bind(opened.filesystem.metadata),
-			},
-		};
 		const execute = async (query: string): Promise<GrepSuccess> => expectGrepSuccess(await tool.execute({ query }, {
-			filesystem,
+			filesystem: opened.filesystem,
 			operation: opened.context,
 			limits: opened.limits,
 		}));
@@ -1746,6 +1739,100 @@ describe("grep", () => {
 		const second = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "targetNeedle" }));
 		expect(firstRegion(second).content).toContain("return 84");
 		expect(firstRegion(second).content).not.toContain("return 42");
+	});
+
+	it.each([
+		{ name: "AST 外注释", file: "comment.ts", query: "AutoCommentNeedle", content: "// AutoCommentNeedle\nexport const value = true;\n" },
+		{ name: "字符串", file: "string.ts", query: "AutoStringNeedle", content: "export const message = 'AutoStringNeedle';\n" },
+		{ name: "顶层正文", file: "top-level.ts", query: "AutoTopLevelNeedle", content: "AutoTopLevelNeedle\nexport const value = true;\n" },
+		{ name: "unsupported 文件", file: "notes.conf", query: "AutoUnsupportedNeedle", content: "mode=AutoUnsupportedNeedle\n" },
+	])("auto 基础文本召回覆盖 literal：$name", async ({ file, query, content }) => {
+		await writeFile(path.join(workspace, file), content);
+		const literal = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: [file], query, match: "literal" }));
+		const cold = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: [file], query }));
+		const warm = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: [file], query }));
+		const verifiedLines = (result: GrepSuccess) => result.regions.flatMap((region) =>
+			(region.match_lines ?? []).map((line) => `${region.path}:${line}`));
+
+		expect(verifiedLines(cold).length).toBeGreaterThan(0);
+		for (const line of verifiedLines(literal)) expect(verifiedLines(cold)).toContain(line);
+		expect(verifiedLines(warm)).toEqual(verifiedLines(cold));
+		expect(warm.regions.map(({ path: filePath, start_line, end_line, kind, symbol }) => ({ filePath, start_line, end_line, kind, symbol })))
+			.toEqual(cold.regions.map(({ path: filePath, start_line, end_line, kind, symbol }) => ({ filePath, start_line, end_line, kind, symbol })));
+	});
+
+	it("auto parse 上限只限制增强，保留全部直接文本候选", async () => {
+		const configPath = path.join(outside, "auto-parse-count.jsonc");
+		await writeConfig(configPath, { grep_max_files_parsed: 1 });
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await writeFile(path.join(workspace, "a.ts"), "export function first() { return 'AutoBudgetNeedle'; }\n");
+		await writeFile(path.join(workspace, "b.ts"), "export function second() { return 'AutoBudgetNeedle'; }\n");
+
+		const literal = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "AutoBudgetNeedle", match: "literal" }));
+		const auto = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "AutoBudgetNeedle" }));
+		expect(auto.regions.map((region) => region.path)).toEqual(literal.regions.map((region) => region.path));
+		expect(auto.stats.parsed_files).toBe(1);
+		expect(auto.truncated_by).toContain("semantic_candidate_limit");
+	});
+
+	it("auto 单次 line scan 同时服务 exact 与 lexical，不重复扫描正文", async () => {
+		await writeFile(path.join(workspace, "first.ts"), "export function retryPolicy() { return 'session delay'; }\n");
+		await writeFile(path.join(workspace, "second.conf"), "session retry delay\n");
+		const host = new FileToolsHost();
+		const tool = new GrepTool();
+		const opened = await host.open({ cwd: workspace, sessionId: "grep-auto-single-scan" });
+		if (isFailed(opened)) throw new Error(opened.error.message);
+		let lineScans = 0;
+		const original = opened.filesystem.content;
+		const filesystem: WorkspaceFileSystem = {
+			...opened.filesystem,
+			content: {
+				readBytes: original.readBytes.bind(original),
+				readText: original.readText.bind(original),
+				decodeText: original.decodeText.bind(original),
+				sliceText: original.sliceText.bind(original),
+				async scanLines(file, options, context) {
+					lineScans += 1;
+					return await original.scanLines(file, options, context);
+				},
+			},
+		};
+		try {
+			const result = expectGrepSuccess(await tool.execute({ query: "session retry delay" }, {
+				filesystem,
+				operation: opened.context,
+				limits: opened.limits,
+			}));
+			expect(result.regions.length).toBeGreaterThan(0);
+			expect(lineScans).toBe(2);
+		} finally {
+			tool.dispose();
+			opened.dispose();
+			host.dispose();
+		}
+	});
+
+	it("显式本地关系进入 main，普通 symbol 的结构关系留在 related", async () => {
+		await writeFile(path.join(workspace, "service.ts"), "export function login() { return true; }\n");
+		await writeFile(path.join(workspace, "route.ts"), "export function handleRequest() { return login(); }\n");
+
+		const explicit = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "callers of login" }));
+		expect(explicit.regions).toEqual(expect.arrayContaining([
+			expect.objectContaining({ symbol: "handleRequest", query_match: "semantic", reasons: expect.arrayContaining(["caller"]) }),
+		]));
+		const ordinary = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "login" }));
+		expect(ordinary.regions.some((region) => region.reasons.includes("caller"))).toBe(false);
+		expect(ordinary.related).toEqual(expect.arrayContaining([
+			expect.objectContaining({ symbol: "handleRequest", relations: ["caller"] }),
+		]));
+	});
+
+	it("自然语言 lexical 要求多词覆盖，path-only 不产生 main", async () => {
+		await mkdir(path.join(workspace, "session"));
+		await writeFile(path.join(workspace, "session", "common.ts"), "export const data = true;\n");
+		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "data retry policy" }));
+		expect(result.regions).toEqual([]);
+		expect(result.nearby).toEqual(expect.arrayContaining([expect.objectContaining({ reason: "partial terms" })]));
 	});
 
 	it("unsupported language 安全退化到文本片段", async () => {
@@ -1976,7 +2063,7 @@ describe("grep", () => {
 
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "oversized semantic phrase" }));
 
-		expect(result.truncated_by).toEqual([]);
+		expect(result.truncated_by).toContain("semantic_candidate_limit");
 		expect(firstRegion(result)).toMatchObject({ path: "generated.ts", kind: "text" });
 		expect(firstRegion(result).content).toContain("oversized semantic phrase");
 	});

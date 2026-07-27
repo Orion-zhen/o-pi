@@ -17,6 +17,7 @@ export type CandidateRole =
 export type RetrievalSource =
 	| "text-literal"
 	| "text-regex"
+	| "text-lexical"
 	| "ast-symbol"
 	| "ast-lexical"
 	| "ast-relation"
@@ -59,6 +60,30 @@ export interface TextHit {
 	readonly lineText: string;
 	readonly before: readonly string[];
 	readonly after: readonly string[];
+}
+
+export interface LexicalTextAnchor {
+	readonly path: string;
+	readonly line: number;
+	readonly byteStart: number;
+	readonly byteEnd: number;
+	readonly lineText: string;
+	readonly before: readonly string[];
+	readonly after: readonly string[];
+	readonly matchedTerms: readonly string[];
+	readonly phrase: boolean;
+	readonly identifier: boolean;
+	readonly commentLike: boolean;
+	readonly stringLike: boolean;
+}
+
+export interface TextFileEvidence {
+	readonly path: string;
+	readonly matchedTerms: readonly string[];
+	readonly pathTerms: readonly string[];
+	readonly phraseLines: readonly number[];
+	readonly identifierLines: readonly number[];
+	readonly anchors: readonly LexicalTextAnchor[];
 }
 
 export interface SourceLocalRank {

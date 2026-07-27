@@ -25,16 +25,26 @@ interface CachedAst {
 interface PreparedFile {
 	readonly file: ScopedFile;
 	readonly content: TextContent;
-	readonly hits: readonly [TextHit, ...TextHit[]];
+	readonly hits: readonly TextHit[];
 	readonly filesystemIdentity: string;
 	readonly visibilityFingerprint: string;
 	readonly cacheKey: string;
 	readonly cached?: CachedAst;
 }
 
-interface HitFile {
+interface RegionizeFile {
 	readonly file: ScopedFile;
-	readonly hits: readonly [TextHit, ...TextHit[]];
+	readonly hits: readonly TextHit[];
+}
+
+export interface AutoRegionizedFile {
+	readonly file: ScopedFile;
+	readonly content: TextContent;
+	readonly analysis: AnalyzedFileIndex;
+}
+
+export interface AutoRegionizationResult extends RegionizationResult {
+	readonly files: readonly AutoRegionizedFile[];
 }
 
 export interface RegionizationResult {
@@ -127,11 +137,11 @@ export class GrepRegionizer {
 		for (const [index, file] of prepared.entries()) {
 			const analysis = analyses.values[index];
 			if (analysis === undefined || analysis.status !== "parsed") {
-				fallback.set(file.file.path, file.hits);
+				fallback.set(file.file.path, asNonEmpty(file.hits));
 				continue;
 			}
 			parsedFiles += 1;
-			const parsed = parsedRegions(file, analysis.index.units, rankByHit);
+			const parsed = parsedRegions({ ...file, hits: asNonEmpty(file.hits) }, analysis.index.units, rankByHit);
 			for (const region of parsed) {
 				regions.push({ order: rankByHit.get(region.verifiedHits[0]) ?? Number.MAX_SAFE_INTEGER, region });
 			}
@@ -154,6 +164,100 @@ export class GrepRegionizer {
 		};
 	}
 
+	async regionizeAuto(
+		inventory: ScopeInventory,
+		hits: readonly TextHit[],
+		priorityPaths: readonly string[],
+		context: RegionizerContext,
+	): Promise<ToolOutcome<AutoRegionizationResult>> {
+		if (this.disposed || isAborted(context.operation.signal)) return aborted();
+		if (!validLimit(context.maxFilesParsed) || !validLimit(context.maxParseFileBytes)) {
+			return fail("INVALID_OPERATION", "Parse limits must be non-negative safe integers.");
+		}
+		const inventoryByPath = new Map(inventory.files.map((file) => [file.path, file]));
+		const hitsByPath = groupHits(hits);
+		const rankByHit = new Map(hits.map((hit, index) => [hit, index + 1]));
+		const fallback = new Map<string, readonly [TextHit, ...TextHit[]]>();
+		for (const [path, grouped] of hitsByPath) fallback.set(path, asNonEmpty(grouped));
+		const prepared: PreparedFile[] = [];
+		const scopeErrors: GrepScopeError[] = [];
+		const skipped: Required<GrepSkippedFiles> = {
+			binary: 0,
+			invalid_utf8: 0,
+			access_denied: 0,
+			too_large: 0,
+			changed: 0,
+		};
+		let semanticLimited = false;
+		let parseCandidates = 0;
+		for (const path of priorityPaths) {
+			const file = inventoryByPath.get(path);
+			if (file === undefined || languageFromPath(file.path) === "text") continue;
+			if (file.size > context.maxParseFileBytes || parseCandidates >= context.maxFilesParsed) {
+				semanticLimited = true;
+				continue;
+			}
+			parseCandidates += 1;
+			const candidate: RegionizeFile = { file, hits: hitsByPath.get(path) ?? [] };
+			const loaded = await this.prepare(candidate, context);
+			if (!loaded.ok) {
+				if (loaded.error.code === "aborted") return aborted(file.path);
+				fallback.delete(file.path);
+				if (file.explicitFile) scopeErrors.push({
+					path: file.scopeInput,
+					error: mapFsError(loaded.error, { notFound: "file", path: file.path }).error,
+				});
+				else countSkipped(skipped, loaded.error);
+				continue;
+			}
+			if (loaded.value === undefined) {
+				fallback.delete(file.path);
+				if (file.explicitFile) scopeErrors.push({
+					path: file.scopeInput,
+					error: fail("STALE_READ", "File changed after text scanning.", { path: file.path }).error,
+				});
+				else skipped.changed += 1;
+				continue;
+			}
+			if (hasBareCr(loaded.value.content.text)) continue;
+			prepared.push(loaded.value);
+		}
+		const analyses = await this.analyzePrepared(prepared, context.operation.signal);
+		if (analyses.status === "failed") return analyses;
+		const files: AutoRegionizedFile[] = [];
+		const regions: Array<{ readonly order: number; readonly region: VerifiedCodeRegion }> = [];
+		let parsedFiles = 0;
+		for (const [index, file] of prepared.entries()) {
+			const analysis = analyses.values[index];
+			if (analysis === undefined || analysis.status !== "parsed") continue;
+			parsedFiles += 1;
+			files.push({ file: file.file, content: file.content, analysis });
+			if (file.hits.length === 0) continue;
+			const parsed = parsedRegions({ ...file, hits: asNonEmpty(file.hits) }, analysis.index.units, rankByHit);
+			for (const region of parsed) {
+				regions.push({ order: rankByHit.get(region.verifiedHits[0]) ?? Number.MAX_SAFE_INTEGER, region });
+			}
+			const mappedHits = new Set(parsed.flatMap((region) => region.verifiedHits));
+			const outside = file.hits.filter((hit) => !mappedHits.has(hit));
+			if (outside.length === 0) fallback.delete(file.file.path);
+			else fallback.set(file.file.path, asNonEmpty(outside));
+		}
+		for (const fileHits of fallback.values()) {
+			for (const region of textRegions(fileHits, rankByHit)) {
+				regions.push({ order: rankByHit.get(region.verifiedHits[0]) ?? Number.MAX_SAFE_INTEGER, region });
+			}
+		}
+		regions.sort((left, right) => left.order - right.order || compareRegion(left.region, right.region));
+		return {
+			regions: regions.map((item) => item.region),
+			files,
+			parsedFiles,
+			skipped: compactSkipped(skipped),
+			scopeErrors,
+			truncationReasons: semanticLimited ? ["semantic_candidate_limit"] : [],
+		};
+	}
+
 	dispose(): void {
 		if (this.disposed) return;
 		this.disposed = true;
@@ -161,7 +265,7 @@ export class GrepRegionizer {
 	}
 
 	private async prepare(
-		candidate: HitFile,
+		candidate: RegionizeFile,
 		context: RegionizerContext,
 	): Promise<{ readonly ok: true; readonly value: PreparedFile | undefined } | { readonly ok: false; readonly error: FsError }> {
 		const metadata = await context.filesystem.metadata.stat(candidate.file.ref, context.operation);
@@ -254,14 +358,19 @@ export class GrepRegionizer {
 	}
 }
 
-function hitFiles(inventory: ScopeInventory, hits: readonly TextHit[]): HitFile[] {
+function groupHits(hits: readonly TextHit[]): Map<string, TextHit[]> {
 	const hitsByPath = new Map<string, TextHit[]>();
 	for (const hit of hits) {
 		const grouped = hitsByPath.get(hit.path);
 		if (grouped === undefined) hitsByPath.set(hit.path, [hit]);
 		else grouped.push(hit);
 	}
-	const result: HitFile[] = [];
+	return hitsByPath;
+}
+
+function hitFiles(inventory: ScopeInventory, hits: readonly TextHit[]): Array<RegionizeFile & { readonly hits: readonly [TextHit, ...TextHit[]] }> {
+	const hitsByPath = groupHits(hits);
+	const result: Array<RegionizeFile & { readonly hits: readonly [TextHit, ...TextHit[]] }> = [];
 	for (const file of inventory.files) {
 		const grouped = hitsByPath.get(file.path);
 		if (grouped === undefined || grouped.length === 0) continue;

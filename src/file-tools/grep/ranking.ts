@@ -17,6 +17,7 @@ export const GREP_RRF_K = 60;
 export const GREP_SOURCE_FAMILY: Readonly<Record<RetrievalSource, RankingEvidenceFamily>> = {
 	"text-literal": "factual",
 	"text-regex": "factual",
+	"text-lexical": "lexical",
 	"ast-symbol": "symbol",
 	"ast-lexical": "lexical",
 	"ast-relation": "graph",
@@ -31,11 +32,11 @@ export const GREP_SOURCE_FAMILY: Readonly<Record<RetrievalSource, RankingEvidenc
 /** 查询形态的相对权重只在此表中校准。 */
 export const GREP_SOURCE_WEIGHTS: Readonly<Record<RankingPolicyKey, Readonly<Record<RetrievalSource, number>>>> = {
 	strict: weights({ "text-literal": 1.5, "text-regex": 1.5, "ast-symbol": 0.45, "lsp-symbol": 0.3, "repo-map-direct": 0.25 }),
-	identifier: weights({ "text-literal": 1.05, "ast-symbol": 1.35, "ast-lexical": 0.55, "ast-relation": 0.25, "lsp-symbol": 1.15, "lsp-reference": 0.45, "repo-map-direct": 0.9, "repo-map-hop-1": 0.25, "repo-map-hop-2": 0.1, path: 0.15 }),
-	qualified_symbol: weights({ "text-literal": 1.1, "ast-symbol": 1.5, "ast-lexical": 0.45, "ast-relation": 0.35, "lsp-symbol": 1.25, "lsp-reference": 0.75, "repo-map-direct": 1, "repo-map-hop-1": 0.3, "repo-map-hop-2": 0.12, path: 0.1 }),
-	long_text: weights({ "text-literal": 1.6, "ast-symbol": 0.35, "ast-lexical": 0.8, "lsp-symbol": 0.3, "lsp-reference": 0.2, "repo-map-direct": 0.45, "repo-map-hop-1": 0.15, "repo-map-hop-2": 0.05, path: 0.08 }),
-	natural_language: weights({ "text-literal": 0.8, "ast-symbol": 0.65, "ast-lexical": 1.25, "ast-relation": 0.35, "lsp-symbol": 0.75, "lsp-reference": 0.45, "repo-map-direct": 1.1, "repo-map-hop-1": 0.4, "repo-map-hop-2": 0.16, path: 0.2 }),
-	relation: weights({ "text-literal": 0.75, "ast-symbol": 0.8, "ast-lexical": 0.4, "ast-relation": 1.3, "lsp-symbol": 0.8, "lsp-reference": 1.35, "repo-map-direct": 0.9, "repo-map-hop-1": 1.15, "repo-map-hop-2": 0.45, path: 0.05 }),
+	identifier: weights({ "text-literal": 1.05, "text-lexical": 0.5, "ast-symbol": 1.35, "ast-lexical": 0.55, "ast-relation": 0.25, "lsp-symbol": 1.15, "lsp-reference": 0.45, "repo-map-direct": 0.9, "repo-map-hop-1": 0.25, "repo-map-hop-2": 0.1, path: 0.15 }),
+	qualified_symbol: weights({ "text-literal": 1.1, "text-lexical": 0.45, "ast-symbol": 1.5, "ast-lexical": 0.45, "ast-relation": 0.35, "lsp-symbol": 1.25, "lsp-reference": 0.75, "repo-map-direct": 1, "repo-map-hop-1": 0.3, "repo-map-hop-2": 0.12, path: 0.1 }),
+	long_text: weights({ "text-literal": 1.6, "text-lexical": 0.8, "ast-symbol": 0.35, "ast-lexical": 0.8, "lsp-symbol": 0.3, "lsp-reference": 0.2, "repo-map-direct": 0.45, "repo-map-hop-1": 0.15, "repo-map-hop-2": 0.05, path: 0.08 }),
+	natural_language: weights({ "text-literal": 0.8, "text-lexical": 1.2, "ast-symbol": 0.65, "ast-lexical": 1.25, "ast-relation": 0.35, "lsp-symbol": 0.75, "lsp-reference": 0.45, "repo-map-direct": 1.1, "repo-map-hop-1": 0.4, "repo-map-hop-2": 0.16, path: 0.2 }),
+	relation: weights({ "text-literal": 0.75, "text-lexical": 0.4, "ast-symbol": 0.8, "ast-lexical": 0.4, "ast-relation": 1.3, "lsp-symbol": 0.8, "lsp-reference": 1.35, "repo-map-direct": 0.9, "repo-map-hop-1": 1.15, "repo-map-hop-2": 0.45, path: 0.05 }),
 };
 
 const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<CandidateSignal, number>>>>> = {
@@ -213,6 +214,7 @@ function weights(overrides: Partial<Record<RetrievalSource, number>>): Readonly<
 	return {
 		"text-literal": 0,
 		"text-regex": 0,
+		"text-lexical": 0,
 		"ast-symbol": 0,
 		"ast-lexical": 0,
 		"ast-relation": 0,

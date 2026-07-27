@@ -1,6 +1,7 @@
 import { countTextTokensSync } from "../../token-counter.js";
 import { byteRangeForLines, extractByteRange } from "../../code-index/parser.js";
 import type { RankedGrepRegion } from "./ranker.js";
+import type { RankedRegion } from "./candidates.js";
 import { selectRankedGrepCandidates } from "./fusion.js";
 import { rankingEvidenceSources } from "../shared/ranking/evidence.js";
 import type { GrepMatchMode, GrepNearbyResult, GrepRegion, GrepRelatedResult, GrepScopeError, GrepSkippedFiles, GrepStats, GrepSuccess, TruncationReason } from "./types.js";
@@ -17,6 +18,23 @@ export interface VerifiedTextPackInput {
 	truncationReasons: readonly TruncationReason[];
 	tokenBudget: number;
 	resultLimit: number;
+}
+
+export interface AutoPackInput {
+	query: string;
+	path: string;
+	paths?: string[];
+	scopeErrors?: GrepScopeError[];
+	totalCandidates: number;
+	regions: readonly RankedRegion[];
+	sourceText: ReadonlyMap<string, string>;
+	snippets: ReadonlyMap<string, string>;
+	stats: GrepStats;
+	truncationReasons: readonly TruncationReason[];
+	tokenBudget: number;
+	resultLimit: number;
+	nearby: readonly GrepNearbyResult[];
+	related: readonly GrepRelatedResult[];
 }
 
 export interface GrepPackInput {
@@ -69,6 +87,116 @@ export function packVerifiedTextResults(input: VerifiedTextPackInput): GrepSucce
 	const reasons = reasonsWithToken(knownReasons, tokenLimited);
 	while (packed.length > 0 && !fitsVerifiedTextResult(input, packed, reasons)) packed.pop();
 	return verifiedTextSuccess(input, packed, reasons);
+}
+
+/** 打包新 auto 本地候选；正文不可用时使用 scanner 窗口，不保留缓存源码。 */
+export function packAutoResults(input: AutoPackInput): GrepSuccess {
+	const baseReasons = uniqueReasons([
+		...input.truncationReasons,
+		...(input.totalCandidates > input.resultLimit ? ["result_limit" as const] : []),
+	]);
+	const packed: GrepRegion[] = [];
+	let tokenLimited = false;
+	for (const candidate of input.regions.slice(0, input.resultLimit)) {
+		let accepted = false;
+		for (const variant of autoRegionVariants(candidate, input)) {
+			const reasons = reasonsWithToken(baseReasons, tokenLimited);
+			if (fitsAutoResult(input, [...packed, variant], reasons, [])) {
+				packed.push(variant);
+				accepted = true;
+				break;
+			}
+			tokenLimited = true;
+		}
+		if (!accepted) tokenLimited = true;
+	}
+	const related: GrepRelatedResult[] = [];
+	if (packed.length < 4) {
+		for (const candidate of input.related) {
+			if (!fitsAutoResult(input, packed, reasonsWithToken(baseReasons, tokenLimited), [...related, candidate])) {
+				tokenLimited = true;
+				continue;
+			}
+			related.push(candidate);
+		}
+	}
+	const reasons = reasonsWithToken(baseReasons, tokenLimited);
+	while (packed.length > 0 && !fitsAutoResult(input, packed, reasons, related)) packed.pop();
+	const nearby = packed.length === 0 ? [...input.nearby] : [];
+	const result = autoSuccess(input, packed, related, nearby, reasons);
+	return { ...result, approx_tokens: tokenCount(renderGrepSuccess(result)) };
+}
+
+function autoRegionVariants(candidate: RankedRegion, input: AutoPackInput): GrepRegion[] {
+	const base: Omit<GrepRegion, "detail"> = {
+		path: candidate.path,
+		start_line: candidate.startLine,
+		end_line: candidate.endLine,
+		kind: candidate.kind,
+		...(candidate.symbol === undefined ? {} : { symbol: candidate.symbol }),
+		...(candidate.signature === undefined ? {} : { signature: candidate.signature }),
+		query_match: candidate.queryMatch === "verified" ? "verified" : "semantic",
+		reasons: uniqueText(candidate.evidence.map((item) => item.reason)),
+		sources: uniqueText(candidate.evidence.map((item) => item.source)),
+		...(candidate.matchLines.length === 0 ? {} : { match_lines: [...candidate.matchLines] }),
+	};
+	const source = input.sourceText.get(candidate.path);
+	const storedSnippet = input.snippets.get(candidate.id);
+	const fallback = candidate.queryMatch === "verified"
+		? [...candidate.verifiedHits[0].before, candidate.verifiedHits[0].lineText, ...candidate.verifiedHits[0].after].join("\n")
+		: storedSnippet;
+	const body = source === undefined ? fallback : extractByteRange(source, candidate.startByte, candidate.endByte);
+	const variants: GrepRegion[] = [];
+	if (body !== undefined && body.length > 0) variants.push({ ...base, detail: candidate.kind === "text" ? "snippet" : "body", content: body });
+	if (source !== undefined) {
+		const center = candidate.matchLines[0] ?? candidate.startLine;
+		const startLine = Math.max(candidate.startLine, center - 3);
+		const endLine = Math.min(candidate.endLine, center + 4);
+		const range = byteRangeForLines(source, startLine, endLine);
+		const content = extractByteRange(source, range.startByte, range.endByte);
+		if (content.length > 0 && content !== body) variants.push({ ...base, start_line: startLine, end_line: endLine, detail: "snippet", content });
+	}
+	variants.push({ ...base, detail: "signature" });
+	return variants;
+}
+
+function fitsAutoResult(
+	input: AutoPackInput,
+	regions: readonly GrepRegion[],
+	reasons: readonly TruncationReason[],
+	related: readonly GrepRelatedResult[],
+): boolean {
+	return tokenCount(renderGrepSuccess(autoSuccess(input, regions, related, regions.length === 0 ? input.nearby : [], reasons))) <= input.tokenBudget;
+}
+
+function autoSuccess(
+	input: AutoPackInput,
+	regions: readonly GrepRegion[],
+	related: readonly GrepRelatedResult[],
+	nearby: readonly GrepNearbyResult[],
+	reasons: readonly TruncationReason[],
+): GrepSuccess {
+	return {
+		status: "success",
+		query: input.query,
+		path: input.path,
+		...(input.paths === undefined ? {} : { paths: input.paths }),
+		...(input.scopeErrors === undefined || input.scopeErrors.length === 0 ? {} : { scope_errors: input.scopeErrors }),
+		match: "auto",
+		total_candidates: input.totalCandidates,
+		returned_regions: regions.length,
+		returned_files: new Set(regions.map((region) => region.path)).size,
+		approx_tokens: 0,
+		stats: input.stats,
+		truncated_by: [...reasons],
+		regions: [...regions],
+		...(nearby.length === 0 ? {} : { nearby: [...nearby] }),
+		...(related.length === 0 ? {} : { related: [...related] }),
+	};
+}
+
+function uniqueText(values: readonly string[]): string[] {
+	return [...new Set(values)];
 }
 
 /** 在预算内选择正文、片段和签名；不会对已选 UTF-8 文本做任意字节截断。 */
