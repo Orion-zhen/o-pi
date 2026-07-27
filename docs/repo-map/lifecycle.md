@@ -57,8 +57,22 @@ activation 是 session branch 中的 custom entry，包含：
 
 gate 失败时返回结构化原因，调用方应退回基础文件工具，而不是继续使用旧图。
 
+## Mutation 同步更新
+
+`write`/`edit` 成功写盘后的 Repo Map 增强保持同步语义：
+
+1. 从 activation 读取并验证 mutation 前 generation。
+2. 判断变更路径是否已在 generation 中或仍属于扫描 scope。
+3. 按 map ID 串行 refresh，并把已验证 before generation 作为可选 previous 传入。
+4. service 再核对 root、map ID、activation generation 和磁盘 `CURRENT`；不匹配时回到正常读取边界。
+5. refresh 扫描并原子提交 generation，成功后才追加 activation。
+6. 直接使用 refresh 返回的内存 generation 计算 before/after impact，并对最终候选执行实时 content hash 校验。
+7. Repo Map refresh 或 impact enhancement 失败时降级为 partial diagnostic，不回滚已成功的文件 mutation。
+
+工具返回时同步 refresh 已结束；mutation 链路没有后台任务、debounce 或允许 stale query 的最终一致性窗口。并行启动且属于同一 assistant 消息的 mutation 可以共享一次 batch refresh，串行 mutation 仍分别刷新。
+
 ## 更新并发
 
-同一个 map ID 的 refresh 按顺序执行。mutation 后的 refresh 不允许与另一个 refresh 并发提交，以避免较旧工作区快照覆盖较新的 generation。
+同一个 map ID 的 refresh 按顺序执行。mutation 后的 refresh 不允许与另一个 refresh 并发提交，以避免较旧工作区快照覆盖较新的 generation。锁内仍检查 `CURRENT`、扫描结束时的 HEAD 和取消信号；generation 只有完整提交并原子切换 `CURRENT` 后才可见。
 
 跨不同仓库的更新不共享这一串行锁。

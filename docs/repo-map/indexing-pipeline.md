@@ -36,6 +36,8 @@ scanner 负责：
 
 各阶段都保留 diagnostics，不把解析失败当成空结果。语言支持、Tree-sitter adapter、架构识别、测试图和 alias 规则见 [parsing-and-relations.md](parsing-and-relations.md)。
 
+Test graph 会接收 previous files、symbols、tests、相关 edges 和 diagnostics。文件身份集合、test/config/resource 内容、test files 的 import 关系及 symbol name/file identity 均等价时，复用 previous test nodes 与 test-owned edges；普通 production body mutation 因此无需重新读取或解析 test files。任一条件无法证明时都保守重建。重建时先建立 imports-by-file、symbols-by-name/file、source stem、resource/snapshot 和 runner configuration lookup，再生成保持稳定排序、evidence、confidence 与 lexical target 的节点和边。
+
 ## 5. 合并和提交
 
 关系边经过 coalesce、evidence 去重和稳定排序。随后生成 metadata 和 generation，并以提交操作更新 current pointer。
@@ -44,15 +46,15 @@ generation 提交完成前不会成为查询可见状态；查询只读取完整
 
 ## 增量复用
 
-只有在以下条件同时满足时，才复用上一 generation：
+只有在以下条件同时满足时，才完整复用上一 generation：
 
 - 没有新增、修改或删除文件。
 - 扫描没有 diagnostics。
-- 旧 generation 是 `fresh`。
-- config 和 ignore fingerprint 相同。
-- Git revision 没有变化。
+- config、ignore fingerprint 和 Git revision 相同。
+- 旧 generation 是无 diagnostics 的 `fresh`；或是 diagnostics 全部为绑定到前后相同 indexed content hash 的 `PARSER_SYNTAX_ERROR` 的 `partially_stale`。
+- metadata diagnostic count 与 generation payload 一致。
 
-部分变化时，文件扫描和部分 parser 结果仍可复用，但最终 freshness 可能是 `partially_stale`。
+完整复用仍执行扫描、HEAD 二次检查和 progress 收尾，但不运行 graph builders 或 commit，并保留旧 generation 的 freshness、diagnostics 和计数。部分变化时，文件扫描和局部 parser/architecture/test/alias 结果仍可按各自安全条件复用；稳定 syntax diagnostic 随未变化文件保留，瞬态 diagnostic 继续重试。
 
 ## 取消和仓库变化
 

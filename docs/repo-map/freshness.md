@@ -20,9 +20,11 @@ ParsedDocument、native syntax tree 和本次构建的 transient syntax facts �
 - Git HEAD revision。
 - Repo Map + File Tools config fingerprint。
 - ignore fingerprint。
-- generation 自身的 partial diagnostics。
+- generation 自身的 partial diagnostics 及其是否可由 content hash 证明稳定。
 
 配置或 ignore fingerprint 不一致时，generation 不能继续标记为 fresh。缓存只接受当前严格数据结构；不提供旧缓存兼容或迁移。
+
+当前唯一可稳定复用的 diagnostic 是带 path 的 `PARSER_SYNTAX_ERROR`：该 path 在 previous/current 中都必须是 `indexed`，且 content hash 相同。`PARSER_ERROR`、`FILE_CHANGED_DURING_PARSE`、读取/扫描错误以及 architecture/test diagnostics 都视为瞬态或依赖更广，必须重试对应流程。
 
 ## 状态
 
@@ -37,7 +39,11 @@ ParsedDocument、native syntax tree 和本次构建的 transient syntax facts �
 
 ## Refresh 与 rebuild
 
-`refresh` 使用 previous file records、已有 symbol/edge/architecture 数据尽量复用未变化内容。变化文件在解析前重新校验 content hash；文件变化、parser failure、worker failure fallback 和 architecture/test diagnostics 不会原子提交为 fresh generation。
+`refresh` 使用 previous file records、已有 symbol/edge/architecture/test 数据尽量复用未变化内容。变化文件在解析前重新校验 content hash；文件变化、parser failure、worker failure fallback 和 architecture/test diagnostics 不会原子提交为 fresh generation。
+
+完整 generation 快速复用要求没有文件增删改和 scan diagnostics，HEAD、配置及 ignore fingerprint 一致，且 metadata diagnostic count 与 payload 一致。旧 generation 可以是无 diagnostics 的 `fresh`，也可以是 diagnostics 全部满足上述 content-hash 条件的 `partially_stale`。快速复用保留原 freshness、diagnostics、generation ID 和图计数，不会把 partial 状态提升为 fresh。
+
+局部刷新也只携带内容稳定的 syntax diagnostics；瞬态 parser diagnostics 对应文件会重新解析。Test graph 只有在文件身份集合、test/config/resource 内容、test import 关系和 symbol name/file identity 均等价时才整体复用，否则保守重建。
 
 `rebuild` 不读取旧 generation，适用于：
 

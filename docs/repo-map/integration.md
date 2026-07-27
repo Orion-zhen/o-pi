@@ -20,9 +20,11 @@ Repo Map 候选必须经过路径、ignore、新鲜度和结果去重处理，�
 
 ## Mutation
 
-`write` 和 `edit` 可以触发 diagnostics 或 mutation impact。只有已存在于 generation，或当前属于 Repo Map 扫描范围的文件才触发 refresh；blocked、`ignored_path`、`.gitignore` 和 `.piignore` 排除的新文件不会刷新索引。未被忽略的 untracked 新文件仍可进入 Repo Map。修改后的 refresh 按 map ID 串行执行，防止并发 generation 提交乱序。
+`write` 和 `edit` 可以触发 diagnostics 或 mutation impact。只有已存在于 generation，或当前属于 Repo Map 扫描范围的文件才触发 refresh；blocked、`ignored_path`、`.gitignore` 和 `.piignore` 排除的新文件不会刷新索引。未被忽略的 untracked 新文件仍可进入 Repo Map。
 
-Repo Map 不提供写入权限，也不替代 edit 的 read-before-edit、版本检查或 path guard。
+文件成功提交后，工具同步等待按 map ID 串行的 refresh；不会在后台刷新，也不存在 debounce 或最终一致性窗口。mutation 链路把调用开始时已验证的 before generation 交给 service，service 在锁内确认 root、map ID、activation generation 和磁盘 `CURRENT` 后才复用；失配则回到正常 generation reader。原子 commit 成功后追加 activation，并直接使用 refresh 返回的内存 generation 分析 impact，不再重读 after generation。impact 最终候选仍以实时 content hash 过滤。
+
+Repo Map 不提供写入权限，也不替代 edit 的 read-before-edit、版本检查或 path guard。Repo Map refresh、impact 索引或格式化失败都属于 best-effort enhancement 降级，不能回滚或伪装已成功的文件 mutation。
 
 ## LSP
 
