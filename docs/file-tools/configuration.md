@@ -51,7 +51,7 @@
 - `edit_match_hint_limit`：`OLD_TEXT_NOT_UNIQUE` 匹配提示或 `OLD_TEXT_NOT_FOUND` anchor 候选的最大返回数，默认 3，范围为 1-10。
 - `find_output_token_budget`：`find` 模型可见输出预算，最小为 32 token。
 - `find_result_limit`：`find` 最多保留的具体结果数。
-- `find_max_entries_scanned`：`find` 最多扫描的文件系统条目数。
+- `find_max_depth`：`find` 相对每个搜索 scope 的最大路径深度；scope 根为 0，直属子项为 1。
 - `grep_max_depth`：`grep` 相对每个显式 scope 的最大路径深度；scope 根为 0，直属子项为 1。
 - `grep_ast_max_file_bytes`：单文件进入 Tree-sitter 的最大字节数；不限制流式正文搜索。
 - `grep_output_token_budget`：`grep` 模型可见输出预算。

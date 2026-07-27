@@ -19,6 +19,7 @@ describe("file-tools config", () => {
 		delete process.env.PI_FILE_TOOLS_CONFIG;
 		expect(await loadedConfig(workspace)).toMatchObject({
 			limits: {
+				find_max_depth: 12,
 				grep_max_depth: 12,
 				grep_ast_max_file_bytes: 262144,
 				grep_output_token_budget: 4000,
@@ -69,7 +70,7 @@ describe("file-tools config", () => {
 		expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
 	});
 
-	it("接受收缩后的 find 配置并拒绝旧 find 字段", async () => {
+	it("接受 find 深度配置并拒绝旧 find 字段", async () => {
 		const validPath = path.join(workspace, "valid.jsonc");
 		await writeFile(
 			validPath,
@@ -78,7 +79,7 @@ describe("file-tools config", () => {
 				'  "limits": {',
 				'    "find_output_token_budget": 800,',
 				'    "find_result_limit": 50,',
-				'    "find_max_entries_scanned": 100000',
+				'    "find_max_depth": 6',
 				"  }",
 				"}",
 			].join("\n"),
@@ -88,7 +89,7 @@ describe("file-tools config", () => {
 			limits: {
 				find_output_token_budget: 800,
 				find_result_limit: 50,
-				find_max_entries_scanned: 100000,
+				find_max_depth: 6,
 			},
 		});
 
@@ -101,7 +102,8 @@ describe("file-tools config", () => {
 				'    "find_flat_result_limit": 5,',
 				'    "find_grouped_result_limit": 40,',
 				'    "find_max_matches_scanned": 100000,',
-				'    "find_max_exact_paths": 200',
+				'    "find_max_exact_paths": 200,',
+				'    "find_max_entries_scanned": 100000',
 				"  }",
 				"}",
 			].join("\n"),
@@ -109,10 +111,16 @@ describe("file-tools config", () => {
 		process.env.PI_FILE_TOOLS_CONFIG = invalidPath;
 		expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
 
-		const undersizedPath = path.join(workspace, "undersized.jsonc");
-		await writeFile(undersizedPath, JSON.stringify({ limits: { find_output_token_budget: 31 } }));
-		process.env.PI_FILE_TOOLS_CONFIG = undersizedPath;
-		expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
+		for (const [field, value] of [
+			["find_output_token_budget", 31],
+			["find_max_depth", -1],
+			["find_max_depth", 257],
+		] as const) {
+			const invalidLimitPath = path.join(workspace, `invalid-${field}-${value}.jsonc`);
+			await writeFile(invalidLimitPath, JSON.stringify({ limits: { [field]: value } }));
+			process.env.PI_FILE_TOOLS_CONFIG = invalidLimitPath;
+			expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
+		}
 	});
 
 	it("接受深度与输出 grep 限制并拒绝旧字段", async () => {

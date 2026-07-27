@@ -581,7 +581,7 @@ function outputFacts(result: AgentToolResult<unknown>): { chars: number; lines: 
 
 function detectsTruncation(value: unknown): boolean {
 	if (!isRecord(value)) return false;
-	if (["truncated", "outputTruncated", "resultLimited", "scanTruncated"].some((key) => value[key] === true)) return true;
+	if (["truncated", "outputTruncated", "resultLimited", "depthLimited"].some((key) => value[key] === true)) return true;
 	if (value["output_state"] === "truncated" || value["output_state"] === "capture_truncated") return true;
 	const truncation = value["truncation"];
 	return isRecord(truncation) && truncation["truncated"] === true;

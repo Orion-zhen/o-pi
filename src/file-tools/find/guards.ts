@@ -8,10 +8,9 @@ export function isFindDetails(value: unknown): value is FindDetails {
 		&& (value["scope_errors"] === undefined || Array.isArray(value["scope_errors"]))
 		&& (value["strategy"] === "exact" || value["strategy"] === "glob" || value["strategy"] === "fuzzy")
 		&& typeof value["totalMatches"] === "number"
-		&& typeof value["scannedEntries"] === "number"
 		&& Array.isArray(value["matches"])
 		&& Array.isArray(value["collapsedGroups"])
-		&& typeof value["scanTruncated"] === "boolean"
+		&& typeof value["depthLimited"] === "boolean"
 		&& typeof value["resultLimited"] === "boolean"
 		&& typeof value["outputTruncated"] === "boolean"
 		&& (value["nearby"] === undefined || isFindNearbyResults(value["nearby"]))

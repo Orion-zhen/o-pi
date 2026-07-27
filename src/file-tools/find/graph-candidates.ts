@@ -26,6 +26,7 @@ export interface FindGraphCandidateContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
 	readonly resultLimit: number;
+	readonly maxDepth: number;
 	readonly graph?: FindGraphSource;
 }
 
@@ -38,7 +39,7 @@ export async function findGraphCandidates(
 	query: string,
 	context: FindGraphCandidateContext,
 ): Promise<GraphCandidates> {
-	if (context.graph === undefined) return emptyGraphCandidates();
+	if (context.graph === undefined || !Number.isSafeInteger(context.maxDepth) || context.maxDepth < 0) return emptyGraphCandidates();
 	try {
 		const queried = await context.graph.query({
 			root: searchRoot,
@@ -50,10 +51,11 @@ export async function findGraphCandidates(
 		const rootVisibility = await context.filesystem.visibility.evaluate(searchRoot, "search", context.operation);
 		if (!rootVisibility.ok) return emptyGraphCandidates();
 		const bypassVisibility = rootVisibility.value.ignored;
+		const resolvedFiles = new Map<string, Promise<FileRef | undefined>>();
 		const hashes = new Map<string, Promise<string | undefined>>();
 		const limit = pLimit(VALIDATION_CONCURRENCY);
 		const validated = await Promise.all(queried.candidates.map((candidate, order) => limit(async () =>
-			await validateCandidate(candidate, order, queried.root, searchRoot, query, bypassVisibility, hashes, context))));
+			await validateCandidate(candidate, order, queried.root, searchRoot, query, bypassVisibility, resolvedFiles, hashes, context))));
 		return partitionCandidates(validated.filter((candidate): candidate is ValidatedGraphEntry => candidate !== undefined));
 	} catch {
 		if (context.operation.signal?.aborted === true) throw new AbortFindGraph();
@@ -68,22 +70,23 @@ async function validateCandidate(
 	searchRoot: DirectoryRef,
 	query: string,
 	bypassVisibility: boolean,
+	resolvedFiles: Map<string, Promise<FileRef | undefined>>,
 	hashes: Map<string, Promise<string | undefined>>,
 	context: FindGraphCandidateContext,
 ): Promise<ValidatedGraphEntry | undefined> {
 	if (context.operation.signal?.aborted === true) throw new AbortFindGraph();
-	const resolved = await resolveGraphFile(graphRoot, candidate.path, context);
-	if (resolved === undefined
-		|| !context.filesystem.paths.isWithin(context.filesystem.root, resolved)
-		|| !context.filesystem.paths.isWithin(searchRoot, resolved)) return undefined;
+	const resolved = await resolveGraphFile(graphRoot, candidate.path, resolvedFiles, context);
+	if (resolved === undefined || !context.filesystem.paths.isWithin(context.filesystem.root, resolved)) return undefined;
+	const relativePath = context.filesystem.paths.relative(searchRoot, resolved);
+	if (relativePath === undefined || pathDepth(relativePath) > context.maxDepth) return undefined;
 	if (!bypassVisibility) {
 		const visibility = await context.filesystem.visibility.evaluate(resolved, "search", context.operation);
 		if (!visibility.ok || visibility.value.ignored) return undefined;
 	}
 	if (!await matchesCurrentHash(resolved, candidate.contentHash, hashes, context)) return undefined;
 	for (const related of candidate.relatedEdges.flatMap((edge) => edge.relatedFiles)) {
-		const relatedRef = await resolveGraphFile(graphRoot, related.path, context);
-		if (relatedRef === undefined || !context.filesystem.paths.isWithin(searchRoot, relatedRef)
+		const relatedRef = await resolveGraphFile(graphRoot, related.path, resolvedFiles, context);
+		if (relatedRef === undefined || context.filesystem.paths.relative(searchRoot, relatedRef) === undefined
 			|| !await matchesCurrentHash(relatedRef, related.contentHash, hashes, context)) return undefined;
 	}
 	const matchesQuery = isGraphMainCandidate(candidate, query);
@@ -105,14 +108,22 @@ async function validateCandidate(
 async function resolveGraphFile(
 	root: DirectoryRef,
 	candidatePath: string,
+	cache: Map<string, Promise<FileRef | undefined>>,
 	context: FindGraphCandidateContext,
 ): Promise<FileRef | undefined> {
-	const resolved = await context.filesystem.paths.resolveExisting(
-		joinDisplayPath(root.displayPath, candidatePath),
-		{ expected: "file", followFinalSymlink: false },
-		context.operation,
-	);
-	return resolved.ok && resolved.value.kind === "file" ? resolved.value : undefined;
+	let pending = cache.get(candidatePath);
+	if (pending === undefined) {
+		pending = (async () => {
+			const resolved = await context.filesystem.paths.resolveExisting(
+				joinDisplayPath(root.displayPath, candidatePath),
+				{ expected: "file", followFinalSymlink: false },
+				context.operation,
+			);
+			return resolved.ok && resolved.value.kind === "file" ? resolved.value : undefined;
+		})();
+		cache.set(candidatePath, pending);
+	}
+	return await pending;
 }
 
 async function matchesCurrentHash(
@@ -162,6 +173,10 @@ function partitionCandidates(candidates: readonly ValidatedGraphEntry[]): GraphC
 
 function emptyGraphCandidates(): GraphCandidates {
 	return { matching: [], related: [] };
+}
+
+function pathDepth(relativePath: string): number {
+	return relativePath === "." ? 0 : relativePath.split("/").length;
 }
 
 function joinDisplayPath(parent: string, child: string): string {

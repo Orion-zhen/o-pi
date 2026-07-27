@@ -57,14 +57,13 @@ export interface FindDetails {
 	strategy: "exact" | "glob" | "fuzzy";
 	totalMatches: number;
 	returnedMatches: number;
-	scannedEntries: number;
 	matches: FindMatch[];
 	collapsedGroups: FindCollapsedGroup[];
 	displayedMatches?: FindMatch[];
 	displayedCollapsedGroups?: FindCollapsedGroup[];
 	ignoredCount: number;
 	skippedCount: number;
-	scanTruncated: boolean;
+	depthLimited: boolean;
 	resultLimited: boolean;
 	outputTruncated: boolean;
 	related?: FindRelatedResult[];

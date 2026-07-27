@@ -25,7 +25,7 @@
 		"edit_match_hint_limit": 5,
 		"find_output_token_budget": 1000,
 		"find_result_limit": 80,
-		"find_max_entries_scanned": 100000,
+		"find_max_depth": 12,
 		"grep_max_depth": 12,
 		"grep_ast_max_file_bytes": 262144,
 		"grep_output_token_budget": 4000,

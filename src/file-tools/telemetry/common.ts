@@ -164,7 +164,7 @@ function errorCode(details: Record<string, unknown>): string | undefined {
 
 function truncated(details: Record<string, unknown>): boolean | undefined {
 	if (Array.isArray(details["truncated_by"]) && details["truncated_by"].length > 0) return true;
-	if (["truncated", "outputTruncated", "resultLimited", "scanTruncated"].some((key) => details[key] === true)) return true;
+	if (["truncated", "outputTruncated", "resultLimited", "depthLimited"].some((key) => details[key] === true)) return true;
 	return undefined;
 }
 

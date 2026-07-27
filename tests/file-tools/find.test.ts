@@ -218,20 +218,60 @@ describe("find", () => {
 		}
 	});
 
+	it("路径发现统一委托 filesystem discovery，成功 glob 不重复预检静态前缀", async () => {
+		await writeFixture("src/example.ts");
+		const host = new FileToolsHost();
+		const tool = new FindTool();
+		const opened = await host.open({ cwd: workspace, sessionId: "find-discovery" });
+		if (isFailed(opened)) throw new Error(opened.error.message);
+		const calls: unknown[] = [];
+		const resolveExisting = vi.spyOn(opened.filesystem.paths, "resolveExisting");
+		const filesystem = {
+			...opened.filesystem,
+			discovery: {
+				async discover(root, options, operation) {
+					calls.push(options);
+					return await opened.filesystem.discovery.discover(root, options, operation);
+				},
+			},
+			traversal: {
+				async walk() { throw new Error("find must not call traversal directly"); },
+			},
+		} satisfies typeof opened.filesystem;
+		try {
+			const result = await tool.execute({ query: "src/**/*.ts" }, {
+				filesystem,
+				operation: opened.context,
+				limits: opened.limits,
+			});
+			expectFindSuccess(result);
+			expect(calls).toEqual([{
+				intent: "search",
+				explicitRoot: true,
+				maxDepth: opened.limits.find_max_depth,
+				glob: "src/**/*.ts",
+			}]);
+			expect(resolveExisting.mock.calls.map(([input]) => input)).not.toContain("src");
+		} finally {
+			tool.dispose();
+			opened.dispose();
+			host.dispose();
+		}
+	});
+
 	it("紧凑输出省略可推导元数据、共享路径前缀并把截断状态放在首行", () => {
 		const base = {
 			query: "handler",
 			path: ".",
 			strategy: "fuzzy" as const,
 			totalMatches: 2,
-			scannedEntries: 20,
 			matches: [
 				{ path: "src/features/authentication/first-handler.ts", kind: "file" as const },
 				{ path: "src/features/authentication/second-handler.ts", kind: "file" as const },
 			],
 			ignoredCount: 0,
 			skippedCount: 0,
-			scanTruncated: false,
+			depthLimited: false,
 			resultLimited: false,
 			outputTokenBudget: 1_000,
 		};
@@ -242,9 +282,9 @@ describe("find", () => {
 			"  second-handler.ts",
 		].join("\n"));
 
-		const constrained = renderFindResults({ ...base, scanTruncated: true, outputTokenBudget: 14 });
-		expect(constrained.content.split("\n")[0]).toBe("found>=2; truncated=scan,output");
-		expect(constrained.details).toMatchObject({ scanTruncated: true, resultLimited: false, outputTruncated: true });
+		const constrained = renderFindResults({ ...base, depthLimited: true, outputTokenBudget: 14 });
+		expect(constrained.content.split("\n")[0]).toBe("found>=2; truncated=depth,output");
+		expect(constrained.details).toMatchObject({ depthLimited: true, resultLimited: false, outputTruncated: true });
 		expect(countTextTokensSync(constrained.content).tokens).toBeLessThanOrEqual(14);
 	});
 
@@ -254,18 +294,17 @@ describe("find", () => {
 			path: ".",
 			strategy: "fuzzy",
 			totalMatches: 0,
-			scannedEntries: 12,
 			matches: [],
 			ignoredCount: 1,
 			skippedCount: 2,
-			scanTruncated: false,
+			depthLimited: false,
 			resultLimited: false,
 			outputTokenBudget: 32,
 			nearby: [{ path: `src/${"very-long-segment-".repeat(20)}.ts`, kind: "file", reason: "name similarity" }],
 		});
 
 		expect(result.content).not.toContain("<nearby");
-		expect(result.content).toContain("searched=12; ignored=1; skipped=2");
+		expect(result.content).toContain("ignored=1; skipped=2");
 		expect(result.details.nearby).toBeUndefined();
 		expect(result.details.outputTruncated).toBe(false);
 		expect(countTextTokensSync(result.content).tokens).toBeLessThanOrEqual(32);
@@ -277,11 +316,10 @@ describe("find", () => {
 			path: ".",
 			strategy: "fuzzy",
 			totalMatches: 0,
-			scannedEntries: 3,
 			matches: [],
 			ignoredCount: 0,
 			skippedCount: 0,
-			scanTruncated: false,
+			depthLimited: false,
 			resultLimited: false,
 			outputTokenBudget: 200,
 			related: [{
@@ -322,7 +360,7 @@ describe("find", () => {
 			strategy: "glob",
 			totalMatches: 2,
 			returnedMatches: 2,
-			scanTruncated: false,
+			depthLimited: false,
 			resultLimited: false,
 			outputTruncated: false,
 		});
@@ -399,7 +437,6 @@ describe("find", () => {
 
 		const file = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "src/auth/service.ts" }));
 		expect(file.details.strategy).toBe("exact");
-		expect(file.details.scannedEntries).toBe(0);
 		expect(file.content).toContain("src/auth/service.ts");
 
 		const directory = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "src/auth" }));
@@ -488,6 +525,85 @@ describe("find", () => {
 
 		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { path: ["src"], query: "GraphTarget" }, undefined, { repoMap: query }));
 		expect(paths(result.details.matches)).toEqual(["src/live.ts"]);
+	});
+
+	it("Repo Map 重复候选和关联文件在单次调用内只解析一次路径", async () => {
+		const live = "export const CachedGraphTarget = true;\n";
+		const dependency = "export const Dependency = true;\n";
+		await writeFixture("src/live.ts");
+		await writeFixture("src/dependency.ts");
+		await writeFile(path.join(workspace, "src", "live.ts"), live);
+		await writeFile(path.join(workspace, "src", "dependency.ts"), dependency);
+		const candidate = {
+			path: "src/live.ts",
+			contentHash: createHash("sha256").update(live).digest("hex"),
+			confidence: 1,
+			hop: 0 as const,
+			reasons: ["exact symbol", "definition"],
+			matchedAliases: [],
+			relatedEdges: [{
+				hop: 1 as const,
+				confidence: 1,
+				resolution: "semantic" as const,
+				relatedFiles: [{
+					path: "src/dependency.ts",
+					contentHash: createHash("sha256").update(dependency).digest("hex"),
+				}],
+			}],
+		};
+		const host = new FileToolsHost();
+		const tool = new FindTool();
+		const opened = await host.open({ cwd: workspace, sessionId: "find-graph-resolve-cache" });
+		if (isFailed(opened)) throw new Error(opened.error.message);
+		const resolveExisting = vi.spyOn(opened.filesystem.paths, "resolveExisting");
+		const graph: FindGraphSource = {
+			async query(input) { return { root: input.root, candidates: [candidate, candidate] }; },
+		};
+		try {
+			expectFindSuccess(await tool.execute({ query: "CachedGraphTarget" }, {
+				filesystem: opened.filesystem,
+				operation: opened.context,
+				limits: opened.limits,
+				graph,
+			}));
+			const resolvedPaths = resolveExisting.mock.calls.map(([input]) => input);
+			expect(resolvedPaths.filter((input) => input === "src/live.ts")).toHaveLength(1);
+			expect(resolvedPaths.filter((input) => input === "src/dependency.ts")).toHaveLength(1);
+		} finally {
+			tool.dispose();
+			opened.dispose();
+			host.dispose();
+		}
+	});
+
+	it("深度限制同时约束 filesystem discovery 和 Repo Map 候选，但不阻止显式 exact path", async () => {
+		const configPath = path.join(outside, "find-depth.jsonc");
+		await writeFile(configPath, JSON.stringify({
+			limits: { find_max_depth: 1 },
+			ignore: { builtin_profile: "none", gitignore: false },
+		}));
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		const content = "export const DeepGraphTarget = true;\n";
+		await writeFixture("src/deep/target.ts");
+		await writeFile(path.join(workspace, "src", "deep", "target.ts"), content);
+		const query = repoMapQuery(async (input): Promise<RepoMapQueryResult> => ({
+			root: workspace,
+			explanation: { queryTerms: [input.query], expandedTerms: [input.query], seedCount: 1, maxHop: 2 },
+			candidates: [repoMapCandidate("src/deep/target.ts", content, ["exact symbol", "definition"])],
+		}));
+
+		const limited = expectFindSuccess(await findWorkspaceFiles(
+			workspace,
+			{ path: ["src"], query: "DeepGraphTarget" },
+			undefined,
+			{ repoMap: query },
+		));
+		expect(limited.details.matches).toEqual([]);
+		expect(limited.details.depthLimited).toBe(true);
+
+		const exact = expectFindSuccess(await findWorkspaceFiles(workspace, { path: ["src"], query: "deep/target.ts" }));
+		expect(paths(exact.details.matches)).toEqual(["src/deep/target.ts"]);
+		expect(exact.details.depthLimited).toBe(false);
 	});
 
 	it("glob 查询不进入 Repo Map，普通 query 仍执行语义召回", async () => {
@@ -609,7 +725,7 @@ describe("find", () => {
 		expect(first).toEqual(second);
 		expect(first.details.totalMatches).toBe(90);
 		expect(first.details.returnedMatches).toBe(50);
-		expect(first.details).toMatchObject({ scanTruncated: false, resultLimited: true, outputTruncated: false });
+		expect(first.details).toMatchObject({ depthLimited: false, resultLimited: true, outputTruncated: false });
 		expect(first.content).toContain("top:");
 		expect(first.content).toContain("other:");
 		const topMatches = first.content.split("other:")[0] ?? "";
@@ -619,7 +735,7 @@ describe("find", () => {
 		expect(topMatches.indexOf("a/file-00.ts")).toBeLessThan(topMatches.indexOf("a/file-01.ts"));
 	});
 
-	it("输出遵守 token budget，find_result_limit 和 find_max_entries_scanned 生效", async () => {
+	it("输出遵守 token budget 和结果限制，遍历只按路径深度限制而不按条目数截断", async () => {
 		const configPath = path.join(outside, "find-limits.jsonc");
 		await writeFile(
 			configPath,
@@ -629,20 +745,22 @@ describe("find", () => {
 				'  "limits": {',
 				'    "find_output_token_budget": 32,',
 				'    "find_result_limit": 3,',
-				'    "find_max_entries_scanned": 5',
+				'    "find_max_depth": 2',
 				"  }",
 				"}",
 			].join("\n"),
 		);
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
 		for (let index = 0; index < 20; index += 1) await writeFixture(`many/file-${String(index).padStart(2, "0")}.ts`);
+		await writeFixture("many/deep/hidden.ts");
 
 		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "**/*.ts" }));
 		expect(countTextTokensSync(result.content).tokens).toBeLessThanOrEqual(32);
+		expect(result.details.totalMatches).toBe(20);
 		expect(result.details.returnedMatches).toBeLessThanOrEqual(3);
-		expect(result.details.scannedEntries).toBe(5);
-		expect(result.details.scanTruncated).toBe(true);
-		expect(result.content.split("\n")[0]).toContain("truncated=scan");
+		expect(result.details.depthLimited).toBe(true);
+		expect(paths(result.details.matches)).not.toContain("many/deep/hidden.ts");
+		expect(result.content.split("\n")[0]).toContain("truncated=depth");
 	});
 
 	it("遵守 .piignore 的 search、traverse、反向 include 和 prune 语义", async () => {
@@ -686,7 +804,6 @@ describe("find", () => {
 		const git = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "git" }));
 		expect(paths(git.details.matches)).toContain(".github");
 		expect(paths(git.details.matches)).not.toContain(".git/config");
-		expect(git.details.scannedEntries).toBe(3);
 		expect(await findWorkspaceFiles(workspace, { path: [".git"], query: "*" })).toMatchObject({
 			status: "failed",
 			error: { code: "PROTECTED_PATH" },
@@ -794,7 +911,7 @@ describe("find", () => {
 		await writeFile(path.join(workspace, "src", "a.ts"), "");
 
 		const none = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "no-such-file" }));
-		expect(none.content).toBe("none\nsearched=2; ignored=0; skipped=0\nnext: broaden query or path");
+		expect(none.content).toBe("none\nignored=0; skipped=0\nnext: broaden query or path");
 		expect(none.details.nearby).toBeUndefined();
 
 		const missing = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "srcs/**/*.ts" }));

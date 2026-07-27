@@ -52,13 +52,14 @@ describe("tool telemetry projections", () => {
 			paths: ["src"],
 			scope_errors: [{ path: "missing", error: { code: "PATH_NOT_FOUND", message: "missing" } }],
 			displayedMatches: [{ path: "src/a.ts" }],
+			depthLimited: true,
 			candidateSources: { "src/a.ts": ["lexical", "repo-map"] },
 			related: [{ path: "src/b.ts" }],
 		}));
 		expect(findInput.fields).toMatchObject({ input_query_chars: 14, input_path_count: 2 });
 		expect(findInput.targets).toEqual([{ kind: "directory", value: "src" }, { kind: "directory", value: "tests" }]);
 		expect(JSON.stringify(findInput)).not.toContain("private symbol");
-		expect(findOutput.fields).toMatchObject({ scope_count: 2, scope_error_count: 1 });
+		expect(findOutput.fields).toMatchObject({ scope_count: 2, scope_error_count: 1, truncated: true });
 		expect(findOutput.candidates).toEqual([
 			{ kind: "path", value: "src/a.ts", rank: 1, group: "primary", sources: ["lexical", "repo-map"] },
 			{ kind: "path", value: "src/b.ts", rank: 2, group: "related", sources: ["repo-map"] },

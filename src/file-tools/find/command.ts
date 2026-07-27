@@ -1,5 +1,5 @@
 import picomatch from "picomatch";
-import type { AnyPathRef, DirectoryRef } from "../../filesystem/contracts/path.js";
+import type { DirectoryRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { bindOperationContext } from "../../filesystem/operation-context.js";
@@ -30,33 +30,35 @@ interface ScopeFindSuccess {
 	readonly strategy: "exact" | "glob" | "fuzzy";
 	readonly ranked: RankedFindEntry[];
 	readonly totalMatches: number;
-	readonly scannedEntries: number;
 	readonly ignoredCount: number;
 	readonly skippedCount: number;
-	readonly scanTruncated: boolean;
+	readonly depthLimited: boolean;
 	readonly related?: FindRelatedResult[];
 	readonly nearby?: FindNearbyResult[];
 	readonly missingPrefix?: string;
 	readonly nearbyDirectory?: string;
 }
 
-interface WalkResult {
+interface FindDiscoveryResult {
 	readonly entries: FindEntry[];
-	readonly scannedEntries: number;
 	readonly ignoredCount: number;
 	readonly skippedCount: number;
-	readonly truncated: boolean;
+	readonly depthLimited: boolean;
 }
 
-interface GlobFilter {
+interface GlobQuery {
 	readonly base: string;
-	matches(candidate: string, kind: FindEntry["kind"]): boolean;
+}
+
+interface GlobPrefixDiagnostic {
+	readonly missingPrefix: string;
+	readonly nearbyDirectory?: string;
 }
 
 export interface FindCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
-	readonly limits: Pick<FileToolLimits, "find_output_token_budget" | "find_result_limit" | "find_max_entries_scanned">;
+	readonly limits: Pick<FileToolLimits, "find_output_token_budget" | "find_result_limit" | "find_max_depth">;
 	readonly graph?: FindGraphSource;
 }
 
@@ -128,14 +130,13 @@ export class FindTool {
 					strategy: "exact",
 					ranked: exact.entry === undefined ? [] : [{ entry: exact.entry, tier: 0, evidence: createSourceRankingEvidence("path", 1) }],
 					totalMatches: exact.entry === undefined ? 0 : 1,
-					scannedEntries: 0,
 					ignoredCount: 0,
 					skippedCount: 0,
-					scanTruncated: false,
+					depthLimited: false,
 				};
 			}
 			const query = normalizedQuery;
-			const glob = createQueryGlobFilter(query);
+			const glob = createQueryGlob(query);
 			if (isFailed(glob)) return glob;
 			if (glob !== undefined) return await this.runGlobSearch(root, query, glob, context);
 			return await this.runRankedSearch(root, query, context);
@@ -148,40 +149,39 @@ export class FindTool {
 	private async runGlobSearch(
 		searchRoot: DirectoryRef,
 		query: string,
-		filter: GlobFilter,
+		glob: GlobQuery,
 		context: FindCommandContext,
 	): Promise<ToolOutcome<ScopeFindSuccess>> {
-		const walkRoot = await resolveGlobRoot(searchRoot, filter.base, context);
-		if (isFailed(walkRoot)) {
+		const walked = await discoverFindEntries(searchRoot, context, query);
+		if (isFailed(walked)) {
+			const missing = await diagnoseGlobPrefix(searchRoot, glob.base, context);
+			if (missing === undefined) return walked;
 			return {
 				path: searchRoot.displayPath,
 				query,
 				strategy: "glob",
 				ranked: [],
 				totalMatches: 0,
-				scannedEntries: 0,
 				ignoredCount: 0,
 				skippedCount: 0,
-				scanTruncated: false,
-				missingPrefix: filter.base,
-				...(typeof walkRoot.error.details?.["nearbyDirectory"] === "string"
-					? { nearbyDirectory: walkRoot.error.details["nearbyDirectory"] }
-					: {}),
+				depthLimited: false,
+				...missing,
 			};
 		}
-		const walked = await walkFindEntries(walkRoot, searchRoot, context, filter.matches);
-		if (isFailed(walked)) return walked;
 		const ranked = rankGlobEntries(walked.entries);
+		const missing = ranked.length === 0 && !walked.depthLimited
+			? await diagnoseGlobPrefix(searchRoot, glob.base, context)
+			: undefined;
 		return {
 			path: searchRoot.displayPath,
 			query,
 			strategy: "glob",
 			ranked,
 			totalMatches: ranked.length,
-			scannedEntries: walked.scannedEntries,
 			ignoredCount: walked.ignoredCount,
 			skippedCount: walked.skippedCount,
-			scanTruncated: walked.truncated,
+			depthLimited: walked.depthLimited,
+			...(missing === undefined ? {} : missing),
 		};
 	}
 
@@ -191,11 +191,12 @@ export class FindTool {
 		context: FindCommandContext,
 	): Promise<ToolOutcome<ScopeFindSuccess>> {
 		const [walked, graph] = await Promise.all([
-			walkFindEntries(searchRoot, searchRoot, context),
+			discoverFindEntries(searchRoot, context),
 			findGraphCandidates(searchRoot, query, {
 				filesystem: context.filesystem,
 				operation: context.operation,
 				resultLimit: context.limits.find_result_limit,
+				maxDepth: context.limits.find_max_depth,
 				...(context.graph === undefined ? {} : { graph: context.graph }),
 			}),
 		]);
@@ -209,10 +210,9 @@ export class FindTool {
 			strategy: "fuzzy",
 			ranked: merged,
 			totalMatches: merged.length,
-			scannedEntries: walked.scannedEntries,
 			ignoredCount: walked.ignoredCount,
 			skippedCount: walked.skippedCount,
-			scanTruncated: walked.truncated,
+			depthLimited: walked.depthLimited,
 			...(merged.length < RELATED_TRIGGER && graph.related.length > 0 ? { related: graph.related } : {}),
 			...(nearby.length > 0 ? { nearby } : {}),
 		};
@@ -299,7 +299,7 @@ async function normalizeFindQuery(root: DirectoryRef, input: string, context: Fi
 		return mapFsError(target.error);
 	}
 	if (!context.filesystem.paths.isWithin(root, target.value)) return fail("INVALID_PATH", "query must not escape path.", { path: input });
-	const query = relativeRefPath(root, target.value);
+	const query = context.filesystem.paths.relative(root, target.value);
 	return query ?? fail("INVALID_PATH", "query must be relative to path.", { path: input });
 }
 
@@ -327,6 +327,22 @@ async function resolveGlobRoot(
 	return current;
 }
 
+async function diagnoseGlobPrefix(
+	searchRoot: DirectoryRef,
+	prefix: string,
+	context: FindCommandContext,
+): Promise<GlobPrefixDiagnostic | undefined> {
+	if (prefix === ".") return undefined;
+	const resolved = await resolveGlobRoot(searchRoot, prefix, context);
+	if (!isFailed(resolved)) return undefined;
+	return {
+		missingPrefix: prefix,
+		...(typeof resolved.error.details?.["nearbyDirectory"] === "string"
+			? { nearbyDirectory: resolved.error.details["nearbyDirectory"] }
+			: {}),
+	};
+}
+
 async function nearbyDirectory(root: DirectoryRef, name: string, context: FindCommandContext): Promise<string | undefined> {
 	const suggested = await context.filesystem.catalog.suggest(
 		root,
@@ -337,41 +353,36 @@ async function nearbyDirectory(root: DirectoryRef, name: string, context: FindCo
 	return suggested.ok ? suggested.value[0]?.ref.displayPath : undefined;
 }
 
-async function walkFindEntries(
-	walkRoot: DirectoryRef,
-	searchRoot: DirectoryRef,
+async function discoverFindEntries(
+	root: DirectoryRef,
 	context: FindCommandContext,
-	matches?: (candidate: string, kind: FindEntry["kind"]) => boolean,
-): Promise<ToolOutcome<WalkResult>> {
-	const opened = await context.filesystem.traversal.walk(walkRoot, {
+	glob?: string,
+): Promise<ToolOutcome<FindDiscoveryResult>> {
+	const opened = await context.filesystem.discovery.discover(root, {
 		intent: "search",
 		explicitRoot: true,
-		maxEntries: context.limits.find_max_entries_scanned,
+		maxDepth: context.limits.find_max_depth,
+		...(glob === undefined ? {} : { glob }),
 	}, context.operation);
 	if (!opened.ok) return mapFsError(opened.error, { message: "Directory cannot be searched." });
 	const entries: FindEntry[] = [];
-	let scannedEntries = 0;
 	let ignoredCount = 0;
 	let skippedCount = 0;
-	let truncated = false;
+	let depthLimited = false;
 	try {
 		for await (const event of opened.value) {
 			if (event.type === "entry") {
-				scannedEntries += 1;
-				if (event.ref.kind !== "file" && event.ref.kind !== "directory") continue;
-				const relative = relativeRefPath(searchRoot, event.ref);
-				if (relative !== undefined && (matches === undefined || matches(relative, event.ref.kind))) {
+				if (event.ref.kind === "file" || event.ref.kind === "directory") {
 					entries.push(createFindEntry(event.ref.displayPath, event.ref.kind));
 				}
 				continue;
 			}
 			if (event.type === "skip") {
-				if (event.reason === "entry-limit") {
-					truncated = true;
+				if (event.reason === "depth-limit") {
+					depthLimited = true;
 					continue;
 				}
 				if (event.reason === "blocked") continue;
-				scannedEntries += 1;
 				if (event.reason === "ignored") ignoredCount += 1;
 				continue;
 			}
@@ -381,7 +392,7 @@ async function walkFindEntries(
 	} finally {
 		await opened.value.close();
 	}
-	return { entries, scannedEntries, ignoredCount, skippedCount, truncated };
+	return { entries, ignoredCount, skippedCount, depthLimited };
 }
 
 function mergeScopeResults(
@@ -418,12 +429,11 @@ function mergeScopeResults(
 		...(scopeErrors.length === 0 ? {} : { scopeErrors }),
 		strategy,
 		totalMatches: ranked.length,
-		scannedEntries: successes.reduce((sum, item) => sum + item.result.scannedEntries, 0),
 		matches,
 		candidateSources,
 		ignoredCount: successes.reduce((sum, item) => sum + item.result.ignoredCount, 0),
 		skippedCount: successes.reduce((sum, item) => sum + item.result.skippedCount, 0),
-		scanTruncated: successes.some(({ result }) => result.scanTruncated),
+		depthLimited: successes.some(({ result }) => result.depthLimited),
 		resultLimited: selected.length < ranked.length,
 		outputTokenBudget: limits.find_output_token_budget,
 		...(related.length === 0 ? {} : { related }),
@@ -475,31 +485,16 @@ function withScopeErrors(result: FailedResult, paths: readonly string[], scopeEr
 	return { ...result, error: { ...result.error, details: { ...(result.error.details ?? {}), paths: [...paths], scope_errors: scopeErrors } } };
 }
 
-function createQueryGlobFilter(query: string): ToolOutcome<GlobFilter | undefined> {
+function createQueryGlob(query: string): ToolOutcome<GlobQuery | undefined> {
 	try {
 		const scanned = picomatch.scan(query, { tokens: true });
 		if (!scanned.isGlob) return undefined;
 		const basenameOnly = !query.includes("/");
 		const base = normalizeLogical(basenameOnly ? "." : (scanned.base.length === 0 ? "." : scanned.base));
-		const matchPattern = picomatch(query, { dot: true, nonegate: true });
-		return {
-			base,
-			matches(candidate, kind) {
-				const target = basenameOnly ? basename(candidate) : candidate;
-				return matchPattern(target) || (kind === "directory" && matchPattern(`${target}/`));
-			},
-		};
+		return { base };
 	} catch (error) {
 		return fail("INVALID_PATH", "query glob is not valid.", { details: { error: error instanceof Error ? error.message : String(error) } });
 	}
-}
-
-function relativeRefPath(root: DirectoryRef, candidate: AnyPathRef): string | undefined {
-	if (root.id === candidate.id) return ".";
-	if (root.workspacePath !== undefined && candidate.workspacePath !== undefined) {
-		return relativeLogicalPath(root.workspacePath, candidate.workspacePath);
-	}
-	return relativeLogicalPath(root.displayPath, candidate.displayPath);
 }
 
 function relativeDisplayPath(root: DirectoryRef, candidateDisplayPath: string): string | undefined {
@@ -531,11 +526,6 @@ function normalizeLogical(value: string): string {
 
 function normalizeForComparison(value: string): string {
 	return value.replace(/\\/gu, "/").replace(/\/$/u, "");
-}
-
-function basename(value: string): string {
-	const normalized = normalizeForComparison(value);
-	return normalized.slice(normalized.lastIndexOf("/") + 1);
 }
 
 function isAbsolutePath(value: string): boolean {

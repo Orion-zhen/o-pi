@@ -1,6 +1,6 @@
 # `find`
 
-`find` 是单入口路径定位器，不把正文读取作为主搜索路径、不解析 AST、不修改文件。command 只组合 filesystem namespace/metadata/traversal/hash、本地路径算法和 find-owned graph port；它同时返回普通文件和目录，目录结果以 `/` 结尾展示。
+`find` 是单入口路径定位器，不把正文读取作为主搜索路径、不解析 AST、不修改文件。command 只组合 filesystem discovery/path/hash、本地路径算法和 find-owned graph port；它同时返回普通文件和目录，目录结果以 `/` 结尾展示。
 
 ## 参数
 
@@ -32,7 +32,7 @@ glob query 进入严格路径匹配，不查询 Repo Map：
 
 - 无 `/` 的模式递归匹配每层 basename，因此 `*.py` 可以命中任意深度；
 - 带 `/` 的模式匹配相对搜索路径；
-- 静态前缀会缩小遍历范围；
+- filesystem discovery 用静态前缀缩小遍历范围；只有零结果且未达到深度边界时，command 才按需诊断缺失前缀；
 - `path=src, query=*.ts` 与 `query=src/**/*.ts` 等价。
 
 ### 普通查询
@@ -64,7 +64,7 @@ b/** (29 files)
 c/** (29 files)
 ```
 
-`scanTruncated`、`resultLimited` 和 `outputTruncated` 分别表示扫描未完成、具体结果受数量限制和模型文本受 token budget 限制。状态会放在首行，不能被尾部裁剪：
+`depthLimited`、`resultLimited` 和 `outputTruncated` 分别表示搜索范围达到路径深度边界、具体结果受数量限制和模型文本受 token budget 限制。状态会放在首行，不能被尾部裁剪：
 
 ```text
 found=90 selected=50; truncated=result
@@ -72,7 +72,7 @@ found=90 selected=50; truncated=result
 
 ## Scope、ignore 和 symlink
 
-多个 scope 统一排序并按规范化相对路径去重；重复或嵌套 scope 不会重复条目。所有 scope 共享结果数量、扫描条目数和模型 token 预算。
+多个 scope 统一排序并按规范化相对路径去重；重复或嵌套 scope 不会重复条目。每个 scope 使用相同的路径深度限制；所有 scope 共享结果数量和模型 token 预算。
 
 至少一个 scope 成功时保留有效条目，并在 `details.scope_errors` 及模型输出中标注失败 scope；所有 scope 失败时返回结构化错误。
 
@@ -89,11 +89,11 @@ src/auth/service.ts [name similarity]
 </nearby>
 ```
 
-若无可信邻近项或 Repo Map 关联项，则返回 `searched`、`ignored`、`skipped` 摘要和 `next` 提示。glob 缺少静态前缀时优先提示 `missing prefix` 和 `near dir`。相关通道的边界见 [排序选择](ranking-selection.md)。
+若无可信邻近项或 Repo Map 关联项，则返回 `ignored`、`skipped` 摘要和 `next` 提示。glob 缺少静态前缀时优先提示 `missing prefix` 和 `near dir`。相关通道的边界见 [排序选择](ranking-selection.md)。
 
 ## 限制
 
-输出预算、结果数和扫描条目数由 file-tools 配置控制，不暴露为工具参数。达到扫描上限时标记 `scanTruncated`；达到具体结果上限时标记 `resultLimited`。traversal 和 suggestion worker 响应 invocation/tool-owner 取消；`FindTool.dispose()` 只释放自己的 pending suggestion/worker 状态，不清理 grep 或 filesystem cache。
+输出预算、结果数和相对 scope 的最大路径深度由 file-tools 配置控制，不暴露为工具参数。达到深度边界时标记 `depthLimited`；达到具体结果上限时标记 `resultLimited`。discovery 和 suggestion worker 响应 invocation/tool-owner 取消；`FindTool.dispose()` 只释放自己的 pending suggestion/worker 状态，不清理 grep 或 filesystem cache。
 
 ## 失败结果与模型输出
 

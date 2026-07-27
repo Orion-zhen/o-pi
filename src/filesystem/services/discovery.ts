@@ -3,6 +3,7 @@ import picomatch from "picomatch";
 
 import type {
 	Discovery,
+	DiscoveryEntryKind,
 	DiscoveryEntryEvent,
 	DiscoveryEvent,
 	DiscoveryOperations,
@@ -19,7 +20,7 @@ import { bindOperationContext } from "../operation-context.js";
 
 interface GlobSelector {
 	readonly staticDirectoryPrefix?: string;
-	matches(relativePath: string): boolean;
+	matches(relativePath: string, kind: DiscoveryEntryKind): boolean;
 }
 
 interface TraversalStart {
@@ -78,7 +79,7 @@ export class WorkspaceDiscoveryService implements DiscoveryOperations {
 			return fsFailure({ code: "invalid-path", message: "Path does not belong to this filesystem.", path: root.displayPath });
 		}
 		const relativePath = path.basename(identity.lexicalPath);
-		if (selector !== undefined && !selector.matches(relativePath)) return fsSuccess(eventStream([]));
+		if (selector !== undefined && !selector.matches(relativePath, "file")) return fsSuccess(eventStream([]));
 		if (options.maxEntries === 0) {
 			return fsSuccess(eventStream([{ type: "skip", path: root.displayPath, reason: "entry-limit", kind: "file" }]));
 		}
@@ -126,10 +127,9 @@ export class WorkspaceDiscoveryService implements DiscoveryOperations {
 				kind: "directory",
 			}]));
 		}
-		const explicitRoot = start.value.depthOffset === 0 ? options.explicitRoot : rootIgnored;
 		const opened = await this.traversal.walk(start.value.root, {
 			intent: options.intent,
-			...(explicitRoot === undefined ? {} : { explicitRoot }),
+			...(options.explicitRoot === true ? { explicitRoot: true } : {}),
 			...(options.maxEntries === undefined ? {} : { maxEntries: options.maxEntries }),
 			...(options.maxDepth === undefined ? {} : { maxDepth: options.maxDepth - start.value.depthOffset }),
 		}, context);
@@ -194,7 +194,7 @@ export class WorkspaceDiscoveryService implements DiscoveryOperations {
 					} satisfies DiscoveryEvent;
 					continue;
 				}
-				if (selector !== undefined && !selector.matches(relativePath)) continue;
+				if (selector !== undefined && !selector.matches(relativePath, event.ref.kind)) continue;
 				yield discoveryEntry(event, relativePath, depthOffset);
 			}
 		}, async () => await traversal.close());
@@ -292,8 +292,9 @@ function compileGlob(input: string, rootPath: string): FsResult<GlobSelector> {
 		const staticDirectoryPrefix = matchBasename ? undefined : extractStaticDirectoryPrefix(pattern);
 		return fsSuccess({
 			...(staticDirectoryPrefix === undefined ? {} : { staticDirectoryPrefix }),
-			matches(relativePath) {
-				return matcher(matchBasename ? path.posix.basename(relativePath) : relativePath);
+			matches(relativePath, kind) {
+				const target = matchBasename ? path.posix.basename(relativePath) : relativePath;
+				return matcher(target) || (kind === "directory" && matcher(`${target}/`));
 			},
 		});
 	} catch (error) {

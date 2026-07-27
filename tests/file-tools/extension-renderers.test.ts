@@ -114,12 +114,11 @@ describe("file-tools extension renderers", () => {
 			strategy: "fuzzy",
 			totalMatches: 1,
 			returnedMatches: 1,
-			scannedEntries: 4,
 			matches: [{ path: "src/main.ts", kind: "file" }],
 			collapsedGroups: [],
 			ignoredCount: 0,
 			skippedCount: 0,
-			scanTruncated: false,
+			depthLimited: false,
 			resultLimited: false,
 			outputTruncated: false,
 			related: [{
@@ -176,7 +175,7 @@ describe("file-tools extension renderers", () => {
 		expect(output).not.toContain(`ls        ${cwd}`);
 	});
 
-	it("find 使用自定义调用和结果 renderer 展示 strategy、类型、折叠组和扫描统计", async () => {
+	it("find 使用自定义调用和结果 renderer 展示 strategy、类型、折叠组和跳过统计", async () => {
 		const registered: Array<{ name: string; renderCall?: RenderCall; renderResult?: RenderResult }> = [];
 		const handlers = new Map<string, LifecycleHandler>();
 		fileTools({
@@ -201,7 +200,6 @@ describe("file-tools extension renderers", () => {
 			strategy: "fuzzy",
 			totalMatches: 5,
 			returnedMatches: 3,
-			scannedEntries: 42,
 			matches: [
 				{ path: "src/auth", kind: "directory" },
 				{ path: "src/auth/service.ts", kind: "file" },
@@ -209,7 +207,7 @@ describe("file-tools extension renderers", () => {
 			collapsedGroups: [{ path: "tests/auth", files: 2, directories: 0 }],
 			ignoredCount: 1,
 			skippedCount: 0,
-			scanTruncated: true,
+			depthLimited: true,
 			resultLimited: true,
 			outputTruncated: false,
 		};
@@ -221,7 +219,7 @@ describe("file-tools extension renderers", () => {
 		);
 		const collapsedOutput = collapsed?.render(120).join("\n") ?? "";
 		expect(collapsedOutput.split("\n")).toHaveLength(2);
-		expect(collapsedOutput).toContain("5 matches · 1 file · 1 directory · fuzzy · scan truncated · results limited");
+		expect(collapsedOutput).toContain("5 matches · 1 file · 1 directory · fuzzy · depth limited · results limited");
 
 		const expanded = find?.renderResult?.(
 			{ content: [{ type: "text", text: "" }], details },
@@ -233,8 +231,8 @@ describe("file-tools extension renderers", () => {
 		expect(output).toContain("src/auth/ (directory)");
 		expect(output).toContain("src/auth/service.ts (file)");
 		expect(output).toContain("tests/auth/** (2 files)");
-		expect(output).toContain("Scanned 42 entries; skipped 0; ignored 1.");
-		expect(output).toContain("Scan truncated.");
+		expect(output).toContain("Skipped 0; ignored 1.");
+		expect(output).toContain("Depth limited.");
 		expect(output).toContain("Results limited.");
 
 		const nearbyDetails = {
@@ -243,12 +241,11 @@ describe("file-tools extension renderers", () => {
 			strategy: "fuzzy",
 			totalMatches: 0,
 			returnedMatches: 0,
-			scannedEntries: 12,
 			matches: [],
 			collapsedGroups: [],
 			ignoredCount: 0,
 			skippedCount: 0,
-			scanTruncated: false,
+			depthLimited: false,
 			resultLimited: false,
 			outputTruncated: false,
 			nearby: [{ path: "src/auth/service.ts", kind: "file", reason: "name similarity" }],

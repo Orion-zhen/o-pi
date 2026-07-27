@@ -137,7 +137,7 @@ blocked path  → 不可列出、搜索、读取或写入
 - 默认 blocked `.git/`。
 - `ls` 最多 200 项。
 - `read` 最多 2000 行或 51200 字节。
-- `find` 受结果数、扫描条目数和模型输出 token budget 限制；`grep` 只配置 scope 深度、AST 单文件字节、结果条数和模型输出 token budget，正文事实扫描不受旧文件数/累计字节/单文件字节字段限制。
+- `find` 受 scope 深度、结果数和模型输出 token budget 限制；`grep` 只配置 scope 深度、AST 单文件字节、结果条数和模型输出 token budget，正文事实扫描不受旧文件数/累计字节/单文件字节字段限制。
 
 完整字段、优先级和缓存行为见 [配置](configuration.md)。
 

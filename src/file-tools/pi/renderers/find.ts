@@ -66,7 +66,7 @@ function formatFindDetails(details: FindDetails, expanded: boolean, theme: Pick<
 		details.strategy,
 		details.nearby === undefined ? undefined : `${details.nearby.length} nearby`,
 		details.related === undefined ? undefined : `${details.related.length} related`,
-		details.scanTruncated ? "scan truncated" : undefined,
+		details.depthLimited ? "depth limited" : undefined,
 		details.resultLimited ? "results limited" : undefined,
 		details.outputTruncated ? "output truncated" : undefined,
 		details.scope_errors === undefined || details.scope_errors.length === 0 ? undefined : `${details.scope_errors.length} scope ${details.scope_errors.length === 1 ? "error" : "errors"}`,
@@ -97,8 +97,8 @@ function formatFindDetails(details: FindDetails, expanded: boolean, theme: Pick<
 		lines.push("", "Related (repo-map; query match not guaranteed):");
 		for (const result of details.related) lines.push(`${result.path} [${result.relations.join(", ")}]`);
 	}
-	lines.push("", `Scanned ${details.scannedEntries} entries; skipped ${details.skippedCount}; ignored ${details.ignoredCount}.`);
-	if (details.scanTruncated) lines.push("Scan truncated.");
+	lines.push("", `Skipped ${details.skippedCount}; ignored ${details.ignoredCount}.`);
+	if (details.depthLimited) lines.push("Depth limited.");
 	if (details.resultLimited) lines.push("Results limited.");
 	if (details.outputTruncated) lines.push("Model output truncated.");
 	if (details.scope_errors !== undefined && details.scope_errors.length > 0) lines.push(`Scope errors: ${details.scope_errors.map((item) => `${item.path}:${item.error.code}`).join(", ")}.`);

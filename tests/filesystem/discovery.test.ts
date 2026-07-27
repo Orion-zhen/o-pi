@@ -89,6 +89,16 @@ describe("filesystem discovery", () => {
 		expect(reads).toEqual([]);
 	});
 
+	it("目录 glob 的尾随 slash 按目录类型匹配", async () => {
+		await mkdir(path.join(workspace, "packages", "api"), { recursive: true });
+		await mkdir(path.join(workspace, "packages", "web"), { recursive: true });
+		await writeFile(path.join(workspace, "packages", "note.txt"), "note");
+		const opened = await openReadonly();
+
+		const events = await discover(opened, opened.namespace.root, { glob: "packages/*/", kind: "directory" });
+		expect(entryPaths(events)).toEqual(["packages/api", "packages/web"]);
+	});
+
 	it("文件 root 只以 basename 匹配且不扩大范围", async () => {
 		await mkdir(path.join(workspace, "src"));
 		await writeFile(path.join(workspace, "src", "a.ts"), "a");
@@ -125,6 +135,12 @@ describe("filesystem discovery", () => {
 		]);
 		const explicit = await discover(opened, ignored, { glob: "deep/*.ts", kind: "file", explicitRoot: true });
 		expect(entryPaths(explicit)).toEqual(["deep/explicit.ts"]);
+		const selectedPrefix = await discover(opened, opened.namespace.root, {
+			glob: "ignored/**/*.ts",
+			kind: "file",
+			explicitRoot: true,
+		});
+		expect(entryPaths(selectedPrefix)).toEqual(["ignored/deep/explicit.ts"]);
 	});
 
 	it("静态前缀不重置深度限制", async () => {

@@ -12,11 +12,10 @@ export interface RenderFindInput {
 	scopeErrors?: FindScopeError[];
 	strategy: FindDetails["strategy"];
 	totalMatches: number;
-	scannedEntries: number;
 	matches: FindMatch[];
 	ignoredCount: number;
 	skippedCount: number;
-	scanTruncated: boolean;
+	depthLimited: boolean;
 	resultLimited: boolean;
 	outputTokenBudget: number;
 	related?: FindRelatedResult[];
@@ -127,7 +126,7 @@ function appendNearby(
 
 function appendNoMatchDiagnostic(content: string, input: RenderFindInput, tokenBudget: number): string {
 	const lines = [
-		`searched=${input.scannedEntries}; ignored=${input.ignoredCount}; skipped=${input.skippedCount}`,
+		`ignored=${input.ignoredCount}; skipped=${input.skippedCount}`,
 		"next: broaden query or path",
 	];
 	let output = content;
@@ -160,14 +159,13 @@ function buildDetails(
 		strategy: input.strategy,
 		totalMatches: input.totalMatches,
 		returnedMatches: matches.length,
-		scannedEntries: input.scannedEntries,
 		matches,
 		collapsedGroups,
 		displayedMatches: displayedMatches.map(({ path, kind }) => ({ path, kind })),
 		displayedCollapsedGroups,
 		ignoredCount: input.ignoredCount,
 		skippedCount: input.skippedCount,
-		scanTruncated: input.scanTruncated,
+		depthLimited: input.depthLimited,
 		resultLimited: input.resultLimited,
 		outputTruncated,
 		...(related.length > 0 ? { related } : {}),
@@ -294,7 +292,7 @@ function withDirectorySlash(value: string): string {
 
 function packLines(
 	lines: string[],
-	input: Pick<RenderFindInput, "totalMatches" | "matches" | "scanTruncated" | "resultLimited">,
+	input: Pick<RenderFindInput, "totalMatches" | "matches" | "depthLimited" | "resultLimited">,
 	tokenBudget: number,
 ): { content: string; outputTruncated: boolean; payloadLineCount: number } {
 	const firstStatus = formatIncompleteStatus(input, false);
@@ -308,16 +306,16 @@ function packLines(
 }
 
 function formatIncompleteStatus(
-	input: Pick<RenderFindInput, "totalMatches" | "matches" | "scanTruncated" | "resultLimited">,
+	input: Pick<RenderFindInput, "totalMatches" | "matches" | "depthLimited" | "resultLimited">,
 	outputTruncated: boolean,
 ): string | undefined {
 	const flags = [
-		input.scanTruncated ? "scan" : undefined,
+		input.depthLimited ? "depth" : undefined,
 		input.resultLimited ? "result" : undefined,
 		outputTruncated ? "output" : undefined,
 	].filter((flag): flag is string => flag !== undefined);
 	if (flags.length === 0) return undefined;
-	const found = input.scanTruncated ? `found>=${input.totalMatches}` : `found=${input.totalMatches}`;
+	const found = input.depthLimited ? `found>=${input.totalMatches}` : `found=${input.totalMatches}`;
 	const selected = input.resultLimited ? ` selected=${input.matches.length}` : "";
 	return `${found}${selected}; truncated=${flags.join(",")}`;
 }
