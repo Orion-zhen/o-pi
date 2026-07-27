@@ -3,6 +3,7 @@ import { loadBashToolConfig } from "../bash-tool/config.js";
 import { loadFileToolsConfig } from "../file-tools/config.js";
 import { preflightWriteAccess } from "../filesystem/kernel/access-preflight.js";
 import { checkDeniedText } from "../bash-tool/pattern-guard.js";
+import { notifyWaiting, type WaitingNotifier } from "../notification/native.js";
 import { loadApprovalGateConfig } from "./config.js";
 import { formatApprovalPrompt, formatDenyReason } from "./format.js";
 import { evaluateApproval } from "./policy.js";
@@ -24,6 +25,7 @@ export interface ApprovalGateOptions {
 	loadConfig?: () => Promise<ApprovalGateConfig>;
 	store?: ApprovalStore;
 	telemetry?: ApprovalTelemetryObserver;
+	notifyUser?: WaitingNotifier;
 }
 
 export function createApprovalGate(options: ApprovalGateOptions = {}): ApprovalGate {
@@ -86,7 +88,17 @@ export function createApprovalGate(options: ApprovalGateOptions = {}): ApprovalG
 				return { block: true, reason: `Approval required but no interactive UI is available: ${decision.reason}` };
 			}
 
-			return handleAskDecision(event.toolCallId, event.toolName, request, decision, config, store, ctx, options.telemetry);
+			return handleAskDecision(
+				event.toolCallId,
+				event.toolName,
+				request,
+				decision,
+				config,
+				store,
+				ctx,
+				options.telemetry,
+				options.notifyUser ?? notifyWaiting,
+			);
 		},
 	};
 }
@@ -104,8 +116,10 @@ async function handleAskDecision(
 	store: ApprovalStore,
 	ctx: ExtensionContext,
 	telemetry: ApprovalTelemetryObserver | undefined,
+	notifyUser: WaitingNotifier,
 ): Promise<ToolCallEventResult | void> {
 	const options = approvalOptions(config);
+	await notifyUserSafely(notifyUser);
 	const startedAt = Date.now();
 	const choice = await ctx.ui.select(formatApprovalPrompt(request, decision), options, dialogOptions(config));
 	const selectionWaitMs = Math.max(0, Date.now() - startedAt);
@@ -143,6 +157,14 @@ async function handleAskDecision(
 	}
 	recordAsk(telemetry, toolCallId, toolName, choice === DENY ? "deny" : "dismissed", selectionWaitMs, decision.rule_name);
 	return { block: true, reason: formatDenyReason(undefined) };
+}
+
+async function notifyUserSafely(notifyUser: WaitingNotifier): Promise<void> {
+	try {
+		await notifyUser();
+	} catch {
+		// 通知后端不可用时不得阻塞权限审批。
+	}
 }
 
 function recordAsk(

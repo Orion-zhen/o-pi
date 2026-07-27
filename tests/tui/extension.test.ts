@@ -5,6 +5,7 @@ import type { Component } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import tuiExtension, { createTuiExtension } from "../../agent/extensions/tui.js";
+import { createTuiRuntime } from "../../src/tui/runtime.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 type Handler = (event: unknown, ctx: ExtensionContextStub) => Promise<void> | void;
@@ -215,6 +216,28 @@ describe("tui extension", () => {
 		expect(header?.render(120).join("\n")).toContain("gpt-5.2 • medium");
 		expect(calls.title.at(-1)).toContain("gpt-5.2");
 		expect(calls.status.at(-1)).toEqual({ key: "o-pi:tui", text: "✓ ready" });
+	});
+
+	it("agent_settled 仅在 TUI 模式通知用户", async () => {
+		const handlers = new Map<string, Handler>();
+		const notifyUser = vi.fn(async () => {});
+		createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, undefined, notifyUser);
+
+		await handlers.get("agent_settled")?.({}, createContext(createUiCalls(), { mode: "tui" }));
+		await handlers.get("agent_settled")?.({}, createContext(createUiCalls(), { mode: "rpc" }));
+
+		expect(notifyUser).toHaveBeenCalledOnce();
+	});
+
+	it("agent_settled 不受通知失败影响", async () => {
+		const handlers = new Map<string, Handler>();
+		createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, undefined, async () => {
+			throw new Error("notification unavailable");
+		});
+
+		await expect(
+			handlers.get("agent_settled")?.({}, createContext(createUiCalls(), { mode: "tui" })),
+		).resolves.toBeUndefined();
 	});
 
 	it("session_shutdown 清理 header/footer/status", async () => {

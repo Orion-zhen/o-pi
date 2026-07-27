@@ -34,6 +34,7 @@ describe("approval gate", () => {
 		const gate = createApprovalGate({
 			loadConfig: async () => configWith({}),
 			store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
+			notifyUser: async () => {},
 			telemetry(_toolCallId, _toolName, approval) {
 				observations.push(approval);
 			},
@@ -45,6 +46,35 @@ describe("approval gate", () => {
 			outcome: "allow_once",
 			wait_ms: expect.any(Number),
 		}));
+	});
+
+	it("ask 会在打开审批选择前通知用户", async () => {
+		const order: string[] = [];
+		const ui = fakeUi(["Allow once"], undefined, () => order.push("select"));
+		const gate = createApprovalGate({
+			loadConfig: async () => configWith({}),
+			store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
+			notifyUser: async () => {
+				order.push("notify");
+			},
+		});
+
+		expect(await gate.handleToolCall(bash("git push origin main"), ctx(ui))).toBeUndefined();
+		expect(order).toEqual(["notify", "select"]);
+	});
+
+	it("通知失败不阻塞审批", async () => {
+		const ui = fakeUi(["Allow once"]);
+		const gate = createApprovalGate({
+			loadConfig: async () => configWith({}),
+			store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
+			notifyUser: async () => {
+				throw new Error("notification unavailable");
+			},
+		});
+
+		expect(await gate.handleToolCall(bash("git push origin main"), ctx(ui))).toBeUndefined();
+		expect(ui.selectCalls).toBe(1);
 	});
 
 	it("git push 命中 ask，用户 Deny 后返回 block", async () => {
@@ -62,7 +92,11 @@ describe("approval gate", () => {
 	it("用户 Allow for session 后，第二次相同请求不弹窗", async () => {
 		const ui = fakeUi(["Allow for session"]);
 		const config = configWith({ remember: { ...defaultApprovalGateConfig().remember, allow_persistent: false } });
-		const gate = createApprovalGate({ loadConfig: async () => config, store: new FileApprovalStore(path.join(dir, "rules.jsonc")) });
+		const gate = createApprovalGate({
+			loadConfig: async () => config,
+			store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
+			notifyUser: async () => {},
+		});
 		expect(await gate.handleToolCall(bash("git push origin main"), ctx(ui))).toBeUndefined();
 		expect(await gate.handleToolCall(bash("git push origin main"), ctx(ui))).toBeUndefined();
 		expect(ui.selectCalls).toBe(1);
@@ -111,7 +145,11 @@ function systemPath(...segments: string[]): string {
 
 async function handle(event: ToolCallEvent, context: ExtensionContext): Promise<ToolCallEventResult | void> {
 	const config = configWith({});
-	const gate = createApprovalGate({ loadConfig: async () => config, store: new FileApprovalStore(path.join(dir, "rules.jsonc")) });
+	const gate = createApprovalGate({
+		loadConfig: async () => config,
+		store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
+		notifyUser: async () => {},
+	});
 	return gate.handleToolCall(event, context);
 }
 
@@ -140,11 +178,12 @@ interface FakeUi {
 	notify(): void;
 }
 
-function fakeUi(choices: string[], instruction?: string): FakeUi {
+function fakeUi(choices: string[], instruction?: string, onSelect?: () => void): FakeUi {
 	return {
 		selectCalls: 0,
 		async select(_title: string, _options: string[]) {
 			this.selectCalls += 1;
+			onSelect?.();
 			return choices.shift();
 		},
 		async input() {

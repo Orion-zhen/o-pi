@@ -12,7 +12,7 @@ approval UI
 execute or block
 ```
 
-审批拒绝通过 `{ block: true, reason }` 返回，不调用 `ctx.abort()`。
+策略返回 `ask` 且交互 UI 可用时，Gate 会先尽力发送系统通知，再打开审批选择框；通知失败不影响审批。审批拒绝通过 `{ block: true, reason }` 返回，不调用 `ctx.abort()`。
 
 Gate 会把 allow/ask/deny、具体 UI 选择、规则名和等待时间直接附加到当前 Pi `TelemetryService` 的 pending call，最终随该调用唯一的 `call` record 落盘。遥测不解析 `reason` 文本，也不会写入 session tree；采集失败不影响审批或工具执行。
 

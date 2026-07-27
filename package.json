@@ -19,6 +19,7 @@
 	},
 	"devDependencies": {
 		"@types/node": "latest",
+		"@types/node-notifier": "latest",
 		"@types/picomatch": "latest",
 		"@types/proper-lockfile": "latest",
 		"@types/turndown": "latest",
@@ -47,6 +48,7 @@
 		"ipaddr.js": "latest",
 		"jsonc-parser": "latest",
 		"linkedom": "latest",
+		"node-notifier": "latest",
 		"p-limit": "latest",
 		"picomatch": "latest",
 		"proper-lockfile": "latest",
@@ -74,5 +76,10 @@
 	"allowScripts": {
 		"@google/genai": true,
 		"protobufjs": true
+	},
+	"overrides": {
+		"node-notifier": {
+			"uuid": "latest"
+		}
 	}
 }

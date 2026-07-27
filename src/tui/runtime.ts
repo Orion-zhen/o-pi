@@ -1,7 +1,8 @@
 import path from "node:path";
 import { loadSkillsFromDir, type ExtensionAPI, type ExtensionContext, type Skill } from "@earendil-works/pi-coding-agent";
-import { createStartupBannerComponent } from "./banner.js";
+import { notifyWaiting, type WaitingNotifier } from "../notification/native.js";
 import { collectSkillCandidates } from "../skill-context/loader.js";
+import { createStartupBannerComponent } from "./banner.js";
 import { createHeaderComponent, formatTitle, workingIndicatorOptions } from "./chrome.js";
 import { loadTuiConfig } from "./config.js";
 import { createFooterComponent, GitSegmentCache } from "./footer.js";
@@ -20,7 +21,7 @@ export interface MathMarkdownModule {
 export type MathMarkdownLoader = () => Promise<MathMarkdownModule>;
 
 export interface TuiRuntimeModule {
-	createTuiRuntime(pi: ExtensionAPI, loadMathMarkdown?: MathMarkdownLoader): TuiRuntime;
+	createTuiRuntime(pi: ExtensionAPI, loadMathMarkdown?: MathMarkdownLoader, notifyUser?: WaitingNotifier): TuiRuntime;
 }
 
 export interface TuiRuntime {
@@ -32,6 +33,7 @@ export interface TuiRuntime {
 export function createTuiRuntime(
 	pi: ExtensionAPI,
 	loadMathMarkdown: MathMarkdownLoader = loadDefaultMathMarkdown,
+	notifyUser: WaitingNotifier = notifyWaiting,
 ): TuiRuntime {
 	let config: TuiConfig | undefined;
 	let snapshot: TuiFooterSnapshot = {};
@@ -126,6 +128,15 @@ export function createTuiRuntime(
 			snapshot = makeSnapshot(ctx, pi, "ready", gitCache?.get(ctx.cwd));
 			gitCache?.refresh(ctx.cwd);
 			refreshTitle();
+		});
+
+		pi.on("agent_settled", async (_event, ctx) => {
+			if (ctx.mode !== "tui") return;
+			try {
+				await notifyUser();
+			} catch {
+				// 通知失败不得影响 Agent 的结束状态。
+			}
 		});
 
 		pi.on("model_select", async (_event, ctx) => {
