@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
 import { findWorkspaceFiles } from "../helpers/find-tool.js";
-import { formatCompactGrepResult } from "../../src/file-tools/grep/command.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import { createRepoMapFileToolQuery } from "../../src/repo-map/query/file-tool-query.js";
 import { buildRepoMapRelationships } from "../../src/repo-map/indexing/relationship-indexer.js";
@@ -111,8 +110,7 @@ describe("Repo Map query and file-tool integration", () => {
 		const query = createRepoMapFileToolQuery(() => [activationEntry(generation.metadata)], { readActivated });
 		const result = await grepWorkspaceFiles(workspaceTemp.path, { query: "target" }, undefined, { repoMap: query });
 		if (result.status === "failed") throw new Error(result.error.message);
-		expect(result.strategy).toContain("repo-map");
-		expect(formatCompactGrepResult(result)).toContain("<grep repo-map");
+		expect(result.regions.some((region) => region.sources.includes("repo-map-direct"))).toBe(true);
 		expect(result.regions.map((region) => region.reasons).flat()).toEqual(expect.arrayContaining(["definition", "caller"]));
 		expect(result.regions.find((region) => region.path === "b.ts")?.content).toContain("function target");
 
@@ -120,7 +118,6 @@ describe("Repo Map query and file-tool integration", () => {
 		clearGrepIndex();
 		const staleResult = await grepWorkspaceFiles(workspaceTemp.path, { path: ["b.ts"], query: "target" }, undefined, { repoMap: query });
 		if (staleResult.status === "failed") throw new Error(staleResult.error.message);
-		expect(staleResult.strategy).not.toContain("repo-map");
 		expect(staleResult.regions).toEqual([]);
 		expect(JSON.stringify(staleResult)).not.toContain("return 1");
 	});
@@ -139,7 +136,7 @@ describe("Repo Map query and file-tool integration", () => {
 			expect(result.regions.length).toBeGreaterThan(0);
 			expect(result.regions.length).toBeLessThanOrEqual(8);
 			expect(result.approx_tokens).toBeLessThanOrEqual(1600);
-			expect(result.strategy).toContain("repo-map");
+			expect(result.regions.some((region) => region.sources.includes("repo-map-direct"))).toBe(true);
 			expect(result.regions.every((region) => (region.match_lines?.length ?? 0) > 0)).toBe(true);
 		}
 	});

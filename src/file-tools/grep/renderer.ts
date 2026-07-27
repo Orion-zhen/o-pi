@@ -1,8 +1,12 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { formatToolCard } from "../../tui/tool-card.js";
 import { joinParts } from "../../tui/text.js";
-import { isRepoMapRelatedResults } from "../pi/guards.js";
+import { isGrepRelatedResults } from "../pi/guards.js";
 import type { GrepNearbyResult, GrepParams, GrepRegion, GrepSuccess } from "./types.js";
+
+const TRUNCATION_REASONS = new Set<string>([
+	"traversal_limit", "text_byte_limit", "semantic_candidate_limit", "result_limit", "token_budget",
+]);
 
 /** 渲染 grep 调用标题；TUI 只显示查询、scope 和 match mode。 */
 export function formatGrepCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
@@ -30,8 +34,8 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 			`${details.returned_files} files`,
 			details.nearby === undefined ? undefined : `${details.nearby.length} nearby`,
 			details.related === undefined ? undefined : `${details.related.length} related`,
-			details.strategy.join("+"),
-			details.truncated ? "truncated" : undefined,
+			`${details.stats.searched_files} searched`,
+			details.truncated_by.length > 0 ? `limited:${details.truncated_by.join(",")}` : undefined,
 			details.scope_errors === undefined || details.scope_errors.length === 0 ? undefined : `${details.scope_errors.length} scope ${details.scope_errors.length === 1 ? "error" : "errors"}`,
 		]),
 	}, theme);
@@ -54,9 +58,9 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 			lines.push(`${theme.fg("accent", range)} ${result.symbol ?? result.signature ?? result.kind} [${result.relations.join(", ")}]`);
 		}
 	}
-	if (details.truncated) lines.push(theme.fg("muted", "truncated"));
+	if (details.truncated_by.length > 0) lines.push(theme.fg("muted", `limited: ${details.truncated_by.join(", ")}`));
 	if (details.scope_errors !== undefined && details.scope_errors.length > 0) lines.push(theme.fg("muted", `Scope errors: ${details.scope_errors.map((item) => `${item.path}:${item.error.code}`).join(", ")}.`));
-	if (details.skipped_files !== undefined) lines.push(theme.fg("muted", `skipped ${Object.entries(details.skipped_files).map(([key, value]) => `${key}:${value}`).join(" ")}`));
+	if (details.stats.skipped_files !== undefined) lines.push(theme.fg("muted", `skipped ${Object.entries(details.stats.skipped_files).map(([key, value]) => `${key}:${value}`).join(" ")}`));
 	return lines.join("\n");
 }
 
@@ -73,11 +77,35 @@ function isGrepSuccess(value: unknown): value is GrepSuccess {
 		&& typeof value["path"] === "string"
 		&& typeof value["returned_regions"] === "number"
 		&& typeof value["returned_files"] === "number"
-		&& typeof value["scanned_files"] === "number"
-		&& Array.isArray(value["strategy"])
-		&& Array.isArray(value["regions"])
+		&& isGrepStats(value["stats"])
+		&& isTruncationReasons(value["truncated_by"])
+		&& isGrepRegions(value["regions"])
 		&& (value["nearby"] === undefined || isGrepNearbyResults(value["nearby"]))
-		&& (value["related"] === undefined || isRepoMapRelatedResults(value["related"]));
+		&& (value["related"] === undefined || isGrepRelatedResults(value["related"]));
+}
+
+function isGrepRegions(value: unknown): value is GrepRegion[] {
+	return Array.isArray(value) && value.every((item) =>
+		isRecord(item)
+		&& typeof item["path"] === "string"
+		&& typeof item["start_line"] === "number"
+		&& typeof item["end_line"] === "number"
+		&& typeof item["kind"] === "string"
+		&& (item["query_match"] === "verified" || item["query_match"] === "semantic")
+		&& Array.isArray(item["reasons"])
+		&& Array.isArray(item["sources"]));
+}
+
+function isGrepStats(value: unknown): boolean {
+	return isRecord(value)
+		&& typeof value["traversed_entries"] === "number"
+		&& typeof value["searched_files"] === "number"
+		&& typeof value["searched_bytes"] === "number"
+		&& typeof value["parsed_files"] === "number";
+}
+
+function isTruncationReasons(value: unknown): boolean {
+	return Array.isArray(value) && value.every((item) => typeof item === "string" && TRUNCATION_REASONS.has(item));
 }
 
 function isGrepNearbyResults(value: unknown): value is GrepNearbyResult[] {
@@ -87,6 +115,7 @@ function isGrepNearbyResults(value: unknown): value is GrepNearbyResult[] {
 		&& typeof item["start_line"] === "number"
 		&& typeof item["end_line"] === "number"
 		&& typeof item["kind"] === "string"
+		&& item["query_match"] === "not_guaranteed"
 		&& (item["reason"] === "symbol similarity" || item["reason"] === "partial terms" || item["reason"] === "path similarity"));
 }
 

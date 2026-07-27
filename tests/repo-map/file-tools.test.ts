@@ -82,8 +82,8 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		const written = await write.execute("write-1", { path: "feature.ts", content: "export function ExtensionAdded() { return Base; }\n" }, undefined, undefined, ctx);
 		expect(written.details).toMatchObject({ status: "written", repo_map: { status: "updated" } });
 		const grep = await grepTool.execute("grep-1", { query: "ExtensionAdded" }, undefined, undefined, ctx);
-		expect(grep.details).toMatchObject({ strategy: expect.arrayContaining(["repo-map"]), regions: expect.arrayContaining([
-			expect.objectContaining({ symbol: "ExtensionAdded" }),
+		expect(grep.details).toMatchObject({ regions: expect.arrayContaining([
+			expect.objectContaining({ symbol: "ExtensionAdded", sources: expect.arrayContaining(["repo-map-direct"]) }),
 		]) });
 	});
 
@@ -111,7 +111,7 @@ describe("Repo Map file-tool read and mutation integration", () => {
 			clearGrepIndex();
 			const grep = await grepWorkspaceFiles(root, params, undefined, { repoMap: query });
 			if (grep.status === "failed") throw new Error(grep.error.message);
-			expect(grep.strategy).toContain("repo-map");
+			expect(grep.regions.some((region) => region.sources.includes("repo-map-direct"))).toBe(true);
 			expect(grep.regions.find((region) => region.symbol === "Preferred")?.reasons).toContain(params.match === "literal" ? "definition" : "alias");
 			expect(grep.regions.every((region) => (region.match_lines?.length ?? 0) > 0)).toBe(true);
 		}
@@ -313,7 +313,7 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		clearGrepIndex();
 		const grep = await grepWorkspaceFiles(root, { query: "Added" }, undefined, { repoMap: query });
 		if (grep.status === "failed") throw new Error(grep.error.message);
-		expect(grep.strategy).toContain("repo-map");
+		expect(grep.regions.some((region) => region.sources.includes("repo-map-direct"))).toBe(true);
 		expect(grep.regions.some((region) => region.symbol === "Added")).toBe(true);
 
 		await readWorkspaceFile(root, { path: "feature.ts" }, { host: fileToolsHost, sessionId: "repo-mutation" });

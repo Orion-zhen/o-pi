@@ -406,6 +406,7 @@ function nearbyUnits(query: string, match: GrepMatchMode, units: IndexedCodeUnit
 			...(symbol !== undefined ? { symbol } : {}),
 			...(unit.signature !== undefined ? { signature: unit.signature } : {}),
 			reason,
+			query_match: "not_guaranteed",
 		}));
 }
 

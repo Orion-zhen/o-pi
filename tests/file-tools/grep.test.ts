@@ -12,6 +12,9 @@ import type { ContentOperations } from "../../src/filesystem/contracts/content.j
 import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspace.js";
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
 import { mergeRankedGrepSources } from "../../src/file-tools/grep/fusion.js";
+import { createSemanticCodeRegion, createVerifiedCodeRegion, type CandidateSignal, type CodeRegion, type RegionEvidence, type TextHit } from "../../src/file-tools/grep/candidates.js";
+import { createQueryPlan, type QueryPlan, type RelationIntent } from "../../src/file-tools/grep/query-plan.js";
+import { rankCodeRegions, selectRankedRegions, sourceContribution, summarizeEvidence } from "../../src/file-tools/grep/ranking.js";
 import { formatGraphAliasReason, graphNavigationRelation, graphRankingEvidence, isGraphMainCandidate, isGraphNavigationCandidate } from "../../src/file-tools/grep/graph-ranking.js";
 import { hydrateGrepSourceText } from "../../src/file-tools/grep/hydration.js";
 import type { GrepScopedFile } from "../../src/file-tools/grep/indexer.js";
@@ -82,6 +85,66 @@ function firstRegion(result: GrepSuccess) {
 	return region;
 }
 
+function queryPlan(query: string, match: GrepMatchMode = "auto"): QueryPlan {
+	const result = createQueryPlan({ query, match });
+	if (isFailed(result)) throw new Error(result.error.message);
+	return result;
+}
+
+function rankingEvidence(source: RegionEvidence["source"], rank = 1, confidence = 1, hop?: 0 | 1 | 2): RegionEvidence {
+	return { source, rank, confidence, reason: source, ...(hop === undefined ? {} : { hop }) };
+}
+
+function semanticRegion(input: {
+	id: string;
+	signals: readonly CandidateSignal[];
+	evidence: readonly RegionEvidence[];
+	roles?: CodeRegion["roles"];
+	path?: string;
+	startLine?: number;
+	endLine?: number;
+}): CodeRegion {
+	return createSemanticCodeRegion({
+		id: input.id,
+		path: input.path ?? `${input.id}.ts`,
+		startLine: input.startLine ?? 1,
+		endLine: input.endLine ?? 3,
+		startByte: 0,
+		endByte: 30,
+		kind: "function",
+		roles: input.roles ?? ["definition"],
+		signals: input.signals,
+		evidence: input.evidence,
+		lane: "main",
+	});
+}
+
+function verifiedRegion(input: { id: string; signals: readonly CandidateSignal[]; evidence: readonly RegionEvidence[] }): CodeRegion {
+	const path = `${input.id}.ts`;
+	const hit: TextHit = {
+		path,
+		line: 2,
+		byteStart: 10,
+		byteEnd: 16,
+		mode: "literal",
+		lineText: "needle",
+		before: [],
+		after: [],
+	};
+	return createVerifiedCodeRegion({
+		id: input.id,
+		path,
+		startLine: 1,
+		endLine: 3,
+		startByte: 0,
+		endByte: 30,
+		kind: "function",
+		roles: ["occurrence"],
+		signals: input.signals,
+		evidence: input.evidence,
+	}, [hit]);
+}
+
 function deferredVoid(): { readonly promise: Promise<void>; resolve(): void } {
 	let resolver: (() => void) | undefined;
 	const promise = new Promise<void>((resolve) => { resolver = resolve; });
@@ -146,6 +209,137 @@ async function assertStrictMatches(result: GrepSuccess, query: string, match: Ex
 		}
 	}
 }
+
+describe("grep QueryPlan 与纯排序", () => {
+	it.each([
+		["login", "identifier"],
+		["AuthService.login", "qualified_symbol"],
+		["Error: connection reset by peer", "long_text"],
+		["where retry delays are calculated", "natural_language"],
+	] as const)("将 %s 分类为 %s", (query, shape) => {
+		expect(queryPlan(query).shape).toBe(shape);
+	});
+
+	it.each([
+		["callers of login", "caller", ["login"]],
+		["callees of login", "callee", ["login"]],
+		["references to login", "reference", ["login"]],
+		["tests for AuthService", "test", ["AuthService"]],
+		["where UserConfig is imported", "import", ["UserConfig"]],
+		["where handler is registered", "registration", ["handler"]],
+	] as const)("识别显式关系查询 %s", (query, intent, targets) => {
+		const plan = queryPlan(query);
+		expect(plan.relationIntents).toEqual([intent satisfies RelationIntent]);
+		expect(plan.targetTerms).toEqual(targets);
+	});
+
+	it.each([
+		[{ query: "   " }, "INVALID_OPERATION"],
+		[{ query: "a\0b" }, "INVALID_OPERATION"],
+		[{ query: "a\nb", match: "literal" as const }, "INVALID_OPERATION"],
+		[{ query: "[", match: "regex" as const }, "INVALID_REGEX"],
+		[{ query: "x", path: [] as string[] }, "INVALID_PATH"],
+	] as const)("拒绝无效查询参数 %#", (params, code) => {
+		const result = createQueryPlan(params);
+		expect(isFailed(result) ? result.error.code : undefined).toBe(code);
+	});
+
+	it("编译无全局状态的逐行 regex", () => {
+		const regex = queryPlan("user_\\d+", "regex").regex;
+		expect(regex?.flags).toBe("u");
+		expect(regex?.test("user_1")).toBe(true);
+		expect(regex?.test("user_2")).toBe(true);
+	});
+
+	it("verified 主区域只能由所属范围内的真实 TextHit 构造", () => {
+		const region = verifiedRegion({ id: "verified", signals: ["verified_text"], evidence: [rankingEvidence("text-literal")] });
+		expect(region.queryMatch).toBe("verified");
+		expect(region.matchLines).toEqual([2]);
+		const wrongHit: TextHit = { path: "other.ts", line: 2, byteStart: 0, byteEnd: 1, mode: "literal", lineText: "x", before: [], after: [] };
+		expect(() => createVerifiedCodeRegion({
+			id: "invalid",
+			path: "target.ts",
+			startLine: 1,
+			endLine: 2,
+			startByte: 0,
+			endByte: 10,
+			kind: "text",
+			roles: ["text"],
+			signals: ["verified_text"],
+			evidence: [rankingEvidence("text-literal")],
+		}, [wrongHit])).toThrow(RangeError);
+	});
+
+	it.each([
+		["login", ["exact", "verified", "lsp", "lexical"]],
+		["AuthService.login", ["exact-qualified", "member", "reference", "lexical"]],
+		["Error: connection reset by peer", ["phrase", "enclosing", "lexical"]],
+		["where retry delays are calculated", ["phrase", "lexical", "summary"]],
+	] as const)("按查询形态建立硬 tier：%s", (query, expected) => {
+		const candidates: CodeRegion[] = query === "login" ? [
+			semanticRegion({ id: "lexical", signals: ["lexical"], evidence: [rankingEvidence("ast-lexical")] }),
+			semanticRegion({ id: "exact", signals: ["exact_symbol_definition"], evidence: [rankingEvidence("ast-symbol")] }),
+			verifiedRegion({ id: "verified", signals: ["verified_text"], evidence: [rankingEvidence("text-literal")] }),
+			semanticRegion({ id: "lsp", signals: ["direct_symbol"], evidence: [rankingEvidence("lsp-symbol")] }),
+		] : query === "AuthService.login" ? [
+			semanticRegion({ id: "lexical", signals: ["lexical"], evidence: [rankingEvidence("ast-lexical")] }),
+			semanticRegion({ id: "reference", signals: ["direct_reference"], evidence: [rankingEvidence("lsp-reference")], roles: ["reference"] }),
+			semanticRegion({ id: "member", signals: ["exact_member_definition"], evidence: [rankingEvidence("ast-symbol")] }),
+			semanticRegion({ id: "exact-qualified", signals: ["exact_qualified_definition"], evidence: [rankingEvidence("ast-symbol")] }),
+		] : query.startsWith("Error") ? [
+			semanticRegion({ id: "lexical", signals: ["lexical_high_coverage"], evidence: [rankingEvidence("ast-lexical")] }),
+			verifiedRegion({ id: "phrase", signals: ["verified_phrase"], evidence: [rankingEvidence("text-literal")] }),
+			verifiedRegion({ id: "enclosing", signals: ["verified_enclosing_region"], evidence: [rankingEvidence("text-literal", 2)] }),
+		] : [
+			semanticRegion({ id: "summary", signals: ["repo_summary"], evidence: [rankingEvidence("repo-map-direct")] }),
+			semanticRegion({ id: "lexical", signals: ["lexical_high_coverage"], evidence: [rankingEvidence("ast-lexical")] }),
+			verifiedRegion({ id: "phrase", signals: ["verified_phrase"], evidence: [rankingEvidence("text-literal")] }),
+		];
+		expect(rankCodeRegions(queryPlan(query), candidates).map((candidate) => candidate.id)).toEqual(expected);
+	});
+
+	it("只有显式关系意图允许纯关系候选进入 main", () => {
+		const caller = semanticRegion({ id: "caller", signals: ["requested_relation"], evidence: [rankingEvidence("lsp-reference")], roles: ["caller"] });
+		const target = semanticRegion({ id: "target", signals: ["target_definition"], evidence: [rankingEvidence("ast-symbol")], roles: ["definition"] });
+		expect(rankCodeRegions(queryPlan("login"), [caller, target]).map((item) => item.id)).toEqual([]);
+		expect(rankCodeRegions(queryPlan("callers of login"), [target, caller]).map((item) => item.id)).toEqual(["caller", "target"]);
+	});
+
+	it("strict 排序排除没有 verified hit 的增强候选", () => {
+		const semantic = semanticRegion({ id: "semantic", signals: ["exact_symbol_definition"], evidence: [rankingEvidence("ast-symbol")] });
+		const verified = verifiedRegion({ id: "verified", signals: ["verified_text_window"], evidence: [rankingEvidence("text-literal")] });
+		expect(rankCodeRegions(queryPlan("needle", "literal"), [semantic, verified]).map((item) => item.id)).toEqual(["verified"]);
+	});
+
+	it("weighted RRF 奖励高排名和独立共识，同 family 不重复累加", () => {
+		const first = summarizeEvidence("natural_language", [rankingEvidence("ast-lexical", 1)]);
+		const weakConsensus = summarizeEvidence("natural_language", [rankingEvidence("ast-lexical", 200), rankingEvidence("lsp-symbol", 200)]);
+		const strongConsensus = summarizeEvidence("natural_language", [rankingEvidence("ast-lexical", 2), rankingEvidence("lsp-symbol", 2)]);
+		const duplicateFamily = summarizeEvidence("natural_language", [rankingEvidence("ast-lexical", 3), rankingEvidence("path", 1)]);
+		expect(first.fusionScore).toBeGreaterThan(weakConsensus.fusionScore);
+		expect(strongConsensus.fusionScore).toBeGreaterThan(first.fusionScore);
+		expect(duplicateFamily.fusionScore).toBeCloseTo(sourceContribution("natural_language", rankingEvidence("ast-lexical", 3)));
+	});
+
+	it("confidence 与 hop 只缩放对应来源贡献", () => {
+		const full = sourceContribution("relation", rankingEvidence("repo-map-hop-1", 1, 1, 0));
+		const lowConfidence = sourceContribution("relation", rankingEvidence("repo-map-hop-1", 1, 0.5, 0));
+		const hop = sourceContribution("relation", rankingEvidence("repo-map-hop-1", 1, 1, 1));
+		expect(lowConfidence).toBeCloseTo(full * 0.5);
+		expect(hop).toBeCloseTo(full * 0.7);
+	});
+
+	it("融合分数和多样性不能跨越 tier，稳定键不依赖输入顺序", () => {
+		const bestA = semanticRegion({ id: "best-a", path: "b.ts", signals: ["exact_symbol_definition"], evidence: [] });
+		const bestB = semanticRegion({ id: "best-b", path: "a.ts", signals: ["exact_symbol_definition"], evidence: [], roles: ["definition"] });
+		const weakTier = semanticRegion({ id: "weak-tier", signals: ["lexical"], evidence: [rankingEvidence("ast-lexical", 1), rankingEvidence("lsp-symbol", 1), rankingEvidence("repo-map-direct", 1)] });
+		const forward = rankCodeRegions(queryPlan("login"), [weakTier, bestA, bestB]);
+		const reverse = rankCodeRegions(queryPlan("login"), [bestB, bestA, weakTier]);
+		expect(forward.map((item) => item.id)).toEqual(["best-b", "best-a", "weak-tier"]);
+		expect(reverse.map((item) => item.id)).toEqual(forward.map((item) => item.id));
+		expect(selectRankedRegions(forward, 2).map((item) => item.tier)).toEqual([2, 2]);
+	});
+});
 
 describe("grep", () => {
 	it("I/O 与 parser 默认并发路数为逻辑核心数的一半", () => {
@@ -425,13 +619,12 @@ describe("grep", () => {
 			query: "handler",
 			path: ".",
 			match: "auto",
-			strategy: ["symbol"],
 			total_candidates: 2,
 			returned_regions: 2,
 			returned_files: 2,
 			approx_tokens: 0,
-			scanned_files: 2,
-			truncated: false,
+			stats: { traversed_entries: 2, searched_files: 2, searched_bytes: 100, parsed_files: 2 },
+			truncated_by: [],
 			regions: [
 				{
 					path: "src/features/authentication/first-handler.ts",
@@ -441,7 +634,9 @@ describe("grep", () => {
 					symbol: "firstHandler",
 					signature: "function firstHandler(input: AuthInput): Session",
 					detail: "signature",
+					query_match: "semantic",
 					reasons: ["exact symbol"],
+					sources: ["ast-symbol"],
 				},
 				{
 					path: "src/features/authentication/second-handler.ts",
@@ -450,7 +645,9 @@ describe("grep", () => {
 					kind: "function",
 					symbol: "secondHandler",
 					detail: "signature",
+					query_match: "semantic",
 					reasons: ["caller"],
+					sources: ["ast-graph"],
 				},
 			],
 		});
@@ -486,7 +683,6 @@ describe("grep", () => {
 			query: "needle",
 			path: ".",
 			match: "literal",
-			strategy: ["literal"],
 			totalCandidates: 1,
 			regions: [candidate],
 			sourceText: new Map([[candidate.path, source]]),
@@ -617,7 +813,7 @@ describe("grep", () => {
 			limit: 32,
 			signal: expect.any(AbortSignal),
 		});
-		expect(result.strategy).toContain("repo-map");
+		expect(firstRegion(result).sources).toContain("repo-map-direct");
 		expect(firstRegion(result)).toMatchObject({ path: "z.ts", symbol: "Preferred" });
 		expect(firstRegion(result).reasons).toEqual(expect.arrayContaining([expectedReason, "definition", "public api"]));
 		const compact = formatCompactGrepResult(result);
@@ -628,10 +824,10 @@ describe("grep", () => {
 		expect(result.regions.some((region) => region.symbol === "Unrelated")).toBe(false);
 		expect(result.regions.some((region) => region.path === "excluded.ts")).toBe(false);
 		expect(result.related).toEqual(expect.arrayContaining([
-			expect.objectContaining({ path: "mixed.ts", symbol: "Unrelated", source: "repo-map", relations: ["caller", "test"], query_match: "not_guaranteed" }),
+			expect.objectContaining({ path: "mixed.ts", symbol: "Unrelated", sources: ["repo-map"], relations: ["caller", "test"], query_match: "not_guaranteed" }),
 		]));
 		expect(result.related?.length).toBeLessThanOrEqual(3);
-		expect(compact).toContain("<related repo-map nonmatch>");
+		expect(compact).toContain("<related nonmatch>");
 		expect(compact).toContain("export function Unrelated() { return 'other'; } [caller,test]");
 		expect(compact).not.toMatch(/[·→]/u);
 		expect(result.regions.find((region) => region.path === "a.ts")?.reasons).not.toContain("public api");
@@ -657,17 +853,16 @@ describe("grep", () => {
 		));
 
 		expect(result.regions).toEqual([]);
-		expect(result.strategy).not.toContain("repo-map");
 		expect(result.related).toEqual([expect.objectContaining({
 			path: "related.ts",
 			symbol: "RelatedDefinition",
-			source: "repo-map",
+			sources: ["repo-map"],
 			relations: ["definition"],
 			query_match: "not_guaranteed",
 		})]);
 		const compact = formatCompactGrepResult(result);
 		expect(compact).toContain("none");
-		expect(compact).toContain("<related repo-map nonmatch>");
+		expect(compact).toContain("<related nonmatch>");
 		expect(countTextTokensSync(compact).tokens).toBeLessThanOrEqual(1600);
 	});
 
@@ -725,7 +920,7 @@ describe("grep", () => {
 		expect(result.related).toBeUndefined();
 	});
 
-	it("只在最终打包结果使用结构增强时标记 repo-map strategy", () => {
+	it("最终协议以候选 sources 和具体截断原因解释结果", () => {
 		const native: RankedGrepRegion = {
 			id: "native",
 			path: "native.ts",
@@ -755,7 +950,6 @@ describe("grep", () => {
 			query: "needle",
 			path: ".",
 			match: "literal",
-			strategy: ["literal", "repo-map"],
 			totalCandidates: 2,
 			regions: [native, structural],
 			sourceText: new Map(),
@@ -766,8 +960,9 @@ describe("grep", () => {
 			nearby: [],
 		});
 
-		expect(result.strategy).toEqual(["literal"]);
-		expect(formatCompactGrepResult(result)).toContain("<grep truncated>");
+		expect(firstRegion(result).sources).toEqual([]);
+		expect(result.truncated_by).toEqual(["result_limit"]);
+		expect(formatCompactGrepResult(result)).toContain('<grep truncated="result_limit">');
 		expect(formatCompactGrepResult(result)).not.toContain("repo-map");
 	});
 
@@ -1031,7 +1226,7 @@ describe("grep", () => {
 		await writeFile(path.join(workspace, "bad.txt"), Buffer.from([0xc3, 0x28]));
 		await writeFile(path.join(workspace, "large.txt"), `${"x".repeat(5000)}needle\n`);
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "needle", match: "literal" }));
-		expect(result.skipped_files).toMatchObject({ binary: 1, invalid_utf8: 1, too_large: 1 });
+		expect(result.stats.skipped_files).toMatchObject({ binary: 1, invalid_utf8: 1, too_large: 1 });
 		await mkdir(path.join(workspace, ".git"));
 		await writeFile(path.join(workspace, ".git", "config"), "needle\n");
 		expect(await grepWorkspaceFiles(workspace, { path: [".git/config"], query: "needle" })).toMatchObject({ status: "failed", error: { code: "PROTECTED_PATH" } });
@@ -1064,7 +1259,7 @@ describe("grep", () => {
 		await chmod(path.join(workspace, "locked"), 0o000);
 		try {
 			const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "needle", match: "literal" }));
-			expect(result.skipped_files).toMatchObject({ access_denied: 1 });
+			expect(result.stats.skipped_files).toMatchObject({ access_denied: 1 });
 		} finally {
 			await chmod(path.join(workspace, "locked"), 0o700);
 		}
@@ -1116,7 +1311,7 @@ describe("grep", () => {
 
 		expect(result.regions).toEqual([]);
 		expect(result.nearby).toBeUndefined();
-		expect(result.scanned_files).toBe(1);
+		expect(result.stats.searched_files).toBe(1);
 		expect(formatCompactGrepResult(result)).toBe([
 			"<grep>",
 			"none",
@@ -1154,8 +1349,8 @@ describe("grep", () => {
 
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "semantic loader retry policy" }));
 
-		expect(result.scanned_files).toBe(57);
-		expect(result.truncated).toBe(true);
+		expect(result.stats.searched_files).toBe(57);
+		expect(result.truncated_by.length).toBeGreaterThan(0);
 		expect(result.regions).toEqual(expect.arrayContaining([expect.objectContaining({ path: "target.ts", symbol: "retryPolicy" })]));
 	});
 
@@ -1174,8 +1369,8 @@ describe("grep", () => {
 				operation: opened.context,
 				limits: { ...opened.limits, grep_max_files_scanned: 3 },
 			}));
-			expect(result.scanned_files).toBe(3);
-			expect(result.truncated).toBe(true);
+			expect(result.stats.searched_files).toBe(3);
+			expect(result.truncated_by.length).toBeGreaterThan(0);
 			expect(result.regions).toEqual([]);
 		} finally {
 			tool.dispose();
@@ -1232,7 +1427,7 @@ describe("grep", () => {
 
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "StrictNeedle", match: "literal" }));
 
-		expect(result.truncated).toBe(false);
+		expect(result.truncated_by).toEqual([]);
 		expect(firstRegion(result).path).toBe("z-target.ts");
 	});
 
@@ -1250,7 +1445,7 @@ describe("grep", () => {
 
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "oversized semantic phrase" }));
 
-		expect(result.truncated).toBe(false);
+		expect(result.truncated_by).toEqual([]);
 		expect(firstRegion(result)).toMatchObject({ path: "generated.ts", kind: "text" });
 		expect(firstRegion(result).content).toContain("oversized semantic phrase");
 	});

@@ -41,6 +41,7 @@ export function projectFileInput(
 
 export function fileResultFields(details: Record<string, unknown>): Fields {
 	const repoMap = record(details["repo_map"]);
+	const stats = record(details["stats"]);
 	const scope = scopeFacts(details);
 	return fields({
 		status: string(details["status"]),
@@ -51,7 +52,7 @@ export function fileResultFields(details: Record<string, unknown>): Fields {
 		returned_match_count: firstNumber(details, ["returnedMatches", "returned_regions"]),
 		returned_file_count: number(details["returned_files"]),
 		returned_entry_count: number(details["returned_entries"]),
-		scanned_file_count: number(details["scanned_files"]),
+		scanned_file_count: number(details["scanned_files"]) ?? number(stats["searched_files"]),
 		replacement_count: number(details["replacements"]),
 		size_bytes: firstNumber(details, ["size_bytes", "bytes"]),
 		before_size_bytes: firstNumber(details, ["before_size_bytes", "old_size_bytes"]),
@@ -162,6 +163,7 @@ function errorCode(details: Record<string, unknown>): string | undefined {
 }
 
 function truncated(details: Record<string, unknown>): boolean | undefined {
+	if (Array.isArray(details["truncated_by"]) && details["truncated_by"].length > 0) return true;
 	if (["truncated", "outputTruncated", "resultLimited", "scanTruncated"].some((key) => details[key] === true)) return true;
 	return undefined;
 }

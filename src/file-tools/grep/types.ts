@@ -1,6 +1,13 @@
 import type { FileToolError } from "../shared/result.js";
 
 export type GrepMatchMode = "auto" | "literal" | "regex";
+export type QueryMatch = "verified" | "semantic" | "not_guaranteed";
+export type TruncationReason =
+	| "traversal_limit"
+	| "text_byte_limit"
+	| "semantic_candidate_limit"
+	| "result_limit"
+	| "token_budget";
 
 export interface GrepParams {
 	query: string;
@@ -16,6 +23,14 @@ export interface GrepSkippedFiles {
 	too_large?: number;
 }
 
+export interface GrepStats {
+	traversed_entries: number;
+	searched_files: number;
+	searched_bytes: number;
+	parsed_files: number;
+	skipped_files?: GrepSkippedFiles;
+}
+
 export interface GrepRegion {
 	path: string;
 	start_line: number;
@@ -24,8 +39,9 @@ export interface GrepRegion {
 	symbol?: string;
 	signature?: string;
 	detail: "body" | "snippet" | "signature";
+	query_match: "verified" | "semantic";
 	reasons: string[];
-	sources?: string[];
+	sources: string[];
 	match_lines?: number[];
 	content?: string;
 	callees?: string[];
@@ -40,6 +56,7 @@ export interface GrepNearbyResult {
 	symbol?: string;
 	signature?: string;
 	reason: "symbol similarity" | "partial terms" | "path similarity";
+	query_match: "not_guaranteed";
 }
 
 export interface GrepRelatedResult {
@@ -49,7 +66,7 @@ export interface GrepRelatedResult {
 	end_line?: number;
 	symbol?: string;
 	signature?: string;
-	source: "repo-map";
+	sources: string[];
 	relations: string[];
 	query_match: "not_guaranteed";
 }
@@ -66,15 +83,13 @@ export interface GrepSuccess {
 	paths?: string[];
 	scope_errors?: GrepScopeError[];
 	match: GrepMatchMode;
-	strategy: string[];
 	total_candidates: number;
 	returned_regions: number;
 	returned_files: number;
 	approx_tokens: number;
-	scanned_files: number;
-	truncated: boolean;
+	stats: GrepStats;
+	truncated_by: TruncationReason[];
 	regions: GrepRegion[];
-	related?: GrepRelatedResult[];
-	skipped_files?: GrepSkippedFiles;
 	nearby?: GrepNearbyResult[];
+	related?: GrepRelatedResult[];
 }

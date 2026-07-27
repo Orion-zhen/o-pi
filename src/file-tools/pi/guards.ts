@@ -7,12 +7,13 @@ export function isFailedDetails(value: unknown): value is FailedResult {
 	return typeof error["code"] === "string" && typeof error["message"] === "string";
 }
 
-export function isRepoMapRelatedResults(value: unknown): value is GrepRelatedResult[] {
+export function isGrepRelatedResults(value: unknown): value is GrepRelatedResult[] {
 	return Array.isArray(value) && value.every((item) =>
 		isPlainRecord(item)
 		&& typeof item["path"] === "string"
 		&& typeof item["kind"] === "string"
-		&& item["source"] === "repo-map"
+		&& Array.isArray(item["sources"])
+		&& item["sources"].every((source) => typeof source === "string")
 		&& item["query_match"] === "not_guaranteed"
 		&& Array.isArray(item["relations"])
 		&& item["relations"].every((relation) => typeof relation === "string"));

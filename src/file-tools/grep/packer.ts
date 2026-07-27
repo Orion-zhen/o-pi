@@ -3,7 +3,7 @@ import { byteRangeForLines, extractByteRange } from "../../code-index/parser.js"
 import type { RankedGrepRegion } from "./ranker.js";
 import { selectRankedGrepCandidates } from "./fusion.js";
 import { rankingEvidenceSources } from "../shared/ranking/evidence.js";
-import type { GrepMatchMode, GrepNearbyResult, GrepRegion, GrepRelatedResult, GrepScopeError, GrepSkippedFiles, GrepSuccess } from "./types.js";
+import type { GrepMatchMode, GrepNearbyResult, GrepRegion, GrepRelatedResult, GrepScopeError, GrepSkippedFiles, GrepStats, GrepSuccess, TruncationReason } from "./types.js";
 
 export interface GrepPackInput {
 	query: string;
@@ -11,7 +11,6 @@ export interface GrepPackInput {
 	paths?: string[];
 	scopeErrors?: GrepScopeError[];
 	match: GrepMatchMode;
-	strategy: string[];
 	totalCandidates: number;
 	regions: RankedGrepRegion[];
 	sourceText: Map<string, string>;
@@ -30,7 +29,6 @@ interface PackState {
 	usedTokens: number;
 	regions: GrepRegion[];
 	usedFiles: Set<string>;
-	repoMapUsed: boolean;
 	related: GrepRelatedResult[];
 	nearby: GrepNearbyResult[];
 }
@@ -41,31 +39,30 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 	const state: PackState = {
 		budgetTokens: input.tokenBudget,
 		bodyCount: 0,
-		usedTokens: tokenCount(headerText(effectiveInput(input, false), false)),
+		usedTokens: tokenCount(headerText(input, false)),
 		regions: [],
 		usedFiles: new Set(),
-		repoMapUsed: false,
 		related: [],
 		nearby: budgetedNearby(input),
 	};
 
 	for (const candidate of selected) {
 		const region = packRegion(candidate, input.sourceText.get(candidate.path), state);
-		const projected = projectedTokens(input, state, region, candidate);
+		const projected = projectedTokens(input, state, region);
 		if (projected > state.budgetTokens) {
 			const signature = signatureRegion(candidate);
-			const signatureCost = projectedTokens(input, state, signature, candidate);
+			const signatureCost = projectedTokens(input, state, signature);
 			if (signatureCost > state.budgetTokens) break;
-			addRegion(input, state, signature, candidate);
+			addRegion(input, state, signature);
 			continue;
 		}
-		addRegion(input, state, region, candidate);
+		addRegion(input, state, region);
 	}
 	const mainTruncated = !input.scanComplete || state.regions.length < input.regions.length;
 	for (const candidate of input.related ?? []) {
 		const next = [...state.related, candidate];
 		const projected = tokenCount(renderPackedBody(
-			effectiveInput(input, state.repoMapUsed),
+			input,
 			state.regions,
 			state.usedFiles.size,
 			mainTruncated,
@@ -77,10 +74,8 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 	}
 
 	const returnedFiles = state.usedFiles.size;
-	const truncated = mainTruncated;
-	const outputInput = effectiveInput(input, state.repoMapUsed);
-	const strategy = outputInput.strategy;
-	const approxTokens = tokenCount(renderPackedBody(outputInput, state.regions, returnedFiles, truncated, state.related, state.nearby));
+	const truncatedBy = truncationReasons(input, state.regions.length);
+	const approxTokens = tokenCount(renderPackedBody(input, state.regions, returnedFiles, mainTruncated, state.related, state.nearby));
 	const success: GrepSuccess = {
 		status: "success",
 		query: input.query,
@@ -88,17 +83,15 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 		...(input.paths !== undefined ? { paths: input.paths } : {}),
 		...(input.scopeErrors !== undefined && input.scopeErrors.length > 0 ? { scope_errors: input.scopeErrors } : {}),
 		match: input.match,
-		strategy,
 		total_candidates: input.totalCandidates,
 		returned_regions: state.regions.length,
 		returned_files: returnedFiles,
 		approx_tokens: approxTokens,
-		scanned_files: input.scannedFiles,
-		truncated,
+		stats: grepStats(input),
+		truncated_by: truncatedBy,
 		regions: state.regions,
 		...(state.related.length > 0 ? { related: state.related } : {}),
 	};
-	if (input.skipped !== undefined && Object.keys(input.skipped).length > 0) success.skipped_files = input.skipped;
 	if (state.nearby.length > 0) success.nearby = state.nearby;
 	return success;
 }
@@ -118,10 +111,10 @@ export function renderGrepSuccess(result: GrepSuccess): string {
 	}
 	const omitted = result.total_candidates - result.returned_regions;
 	if (omitted > 0) lines.push(`+${omitted} lower-ranked omitted`);
-	if (result.skipped_files !== undefined) lines.push(`skipped: ${formatSkipped(result.skipped_files)}`);
+	if (result.stats.skipped_files !== undefined) lines.push(`skipped: ${formatSkipped(result.stats.skipped_files)}`);
 	if (result.related !== undefined && result.related.length > 0) lines.push(renderRelated(result.related));
 	if (result.regions.length === 0 && result.nearby === undefined && result.related === undefined) {
-		lines.push(`searched=${result.scanned_files}; skipped=${skippedCount(result.skipped_files)}`);
+		lines.push(`searched=${result.stats.searched_files}; skipped=${skippedCount(result.stats.skipped_files)}`);
 		lines.push(result.match === "auto" ? "next: broaden query or path" : "next: use match=auto or broaden path");
 	}
 	lines.push("</grep>");
@@ -132,7 +125,7 @@ function renderPackedBody(
 	input: GrepPackInput,
 	regions: GrepRegion[],
 	returnedFiles: number,
-	truncated: boolean,
+	_truncated: boolean,
 	related: GrepRelatedResult[] = [],
 	nearby: GrepNearbyResult[] = input.nearby,
 ): string {
@@ -143,16 +136,14 @@ function renderPackedBody(
 		...(input.paths !== undefined ? { paths: input.paths } : {}),
 		...(input.scopeErrors !== undefined && input.scopeErrors.length > 0 ? { scope_errors: input.scopeErrors } : {}),
 		match: input.match,
-		strategy: input.strategy,
 		total_candidates: input.totalCandidates,
 		returned_regions: regions.length,
 		returned_files: returnedFiles,
 		approx_tokens: 0,
-		scanned_files: input.scannedFiles,
-		truncated,
+		stats: grepStats(input),
+		truncated_by: truncationReasons(input, regions.length),
 		regions,
 		...(related.length > 0 ? { related } : {}),
-		...(hasSkipped(input.skipped) ? { skipped_files: input.skipped } : {}),
 		...(nearby.length > 0 ? { nearby } : {}),
 	});
 }
@@ -190,6 +181,7 @@ function baseRegion(candidate: RankedGrepRegion, detail: GrepRegion["detail"], c
 		end_line: candidate.endLine,
 		kind: candidate.kind,
 		detail,
+		query_match: candidate.matchLines.length > 0 ? "verified" : "semantic",
 		reasons: candidate.reasons,
 		sources: rankingEvidenceSources(candidate.evidence),
 	};
@@ -251,7 +243,7 @@ function visibleReasons(reasons: string[], match: GrepMatchMode): string[] {
 }
 
 function renderRelated(related: GrepRelatedResult[]): string {
-	const lines = ["<related repo-map nonmatch>"];
+	const lines = ["<related nonmatch>"];
 	for (const result of related) {
 		const range = result.start_line === undefined
 			? result.path
@@ -272,14 +264,13 @@ function renderNearby(nearby: GrepNearbyResult[]): string {
 	return lines.join("\n");
 }
 
-function addRegion(input: GrepPackInput, state: PackState, region: GrepRegion, candidate: RankedGrepRegion): void {
+function addRegion(input: GrepPackInput, state: PackState, region: GrepRegion): void {
 	state.regions.push(region);
 	state.usedFiles.add(region.path);
 	if (region.detail === "body") state.bodyCount += 1;
-	if (candidate.repoMap === true) state.repoMapUsed = true;
 	const truncated = !input.scanComplete || state.regions.length < input.regions.length;
 	state.usedTokens = tokenCount(renderPackedBody(
-		effectiveInput(input, state.repoMapUsed),
+		input,
 		state.regions,
 		state.usedFiles.size,
 		truncated,
@@ -293,19 +284,16 @@ export function selectGrepCandidatesForPacking(regions: RankedGrepRegion[], limi
 }
 
 function headerText(input: GrepPackInput, truncated: boolean): string {
-	return grepOpenTag({
-		strategy: input.strategy,
-		truncated,
-	});
+	return grepOpenTag({ truncated_by: truncated ? truncationReasons(input, 0) : [] });
 }
 
-function projectedTokens(input: GrepPackInput, state: PackState, region: GrepRegion, candidate: RankedGrepRegion): number {
+function projectedTokens(input: GrepPackInput, state: PackState, region: GrepRegion): number {
 	const files = new Set(state.usedFiles);
 	files.add(region.path);
 	const regions = [...state.regions, region];
 	const truncated = !input.scanComplete || regions.length < input.regions.length;
 	return tokenCount(renderPackedBody(
-		effectiveInput(input, state.repoMapUsed || candidate.repoMap === true),
+		input,
 		regions,
 		files.size,
 		truncated,
@@ -325,11 +313,6 @@ function budgetedNearby(input: GrepPackInput): GrepNearbyResult[] {
 		nearby,
 	)) > input.tokenBudget) nearby.pop();
 	return nearby;
-}
-
-function effectiveInput(input: GrepPackInput, repoMapUsed: boolean): GrepPackInput {
-	if (repoMapUsed || !input.strategy.includes("repo-map")) return input;
-	return { ...input, strategy: input.strategy.filter((item) => item !== "repo-map") };
 }
 
 function tokenCount(text: string): number {
@@ -353,9 +336,24 @@ function skippedCount(skipped: GrepSkippedFiles | undefined): number {
 	return skipped === undefined ? 0 : Object.values(skipped).reduce((sum, count) => sum + (count ?? 0), 0);
 }
 
-function grepOpenTag(result: Pick<GrepSuccess, "strategy" | "truncated">): string {
-	const attrs: string[] = [];
-	if (result.strategy.includes("repo-map")) attrs.push("repo-map");
-	if (result.truncated) attrs.push("truncated");
-	return attrs.length === 0 ? "<grep>" : `<grep ${attrs.join(" ")}>`;
+function grepOpenTag(result: Pick<GrepSuccess, "truncated_by">): string {
+	return result.truncated_by.length === 0 ? "<grep>" : `<grep truncated="${result.truncated_by.join(",")}">`;
+}
+
+function grepStats(input: GrepPackInput): GrepStats {
+	return {
+		traversed_entries: input.scannedFiles,
+		searched_files: input.scannedFiles,
+		searched_bytes: 0,
+		parsed_files: input.sourceText.size,
+		...(hasSkipped(input.skipped) ? { skipped_files: input.skipped } : {}),
+	};
+}
+
+function truncationReasons(input: GrepPackInput, returnedRegions: number): TruncationReason[] {
+	const reasons: TruncationReason[] = [];
+	if (!input.scanComplete) reasons.push("semantic_candidate_limit");
+	if (input.regions.length > input.resultLimit) reasons.push("result_limit");
+	if (returnedRegions < Math.min(input.regions.length, input.resultLimit)) reasons.push("token_budget");
+	return reasons;
 }

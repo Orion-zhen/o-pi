@@ -22,7 +22,7 @@ describe("grep renderer", () => {
 		const result = formatGrepResult(success(), false, theme);
 		expect(result.split("\n")).toHaveLength(2);
 		expect(result).toContain('✓ grep');
-		expect(result).toContain("1 regions · 1 files · 1 related · symbol+lexical · truncated");
+		expect(result).toContain("1 regions · 1 files · 1 related · 4 searched · limited:token_budget");
 	});
 
 	it("部分 scope 在摘要和展开结果中明确标注错误", () => {
@@ -43,7 +43,7 @@ describe("grep renderer", () => {
 		expect(output).toContain("src/auth.ts:4-9 AuthService.login [body; exact symbol]");
 		expect(output).toContain("Related (repo-map; query match not guaranteed):");
 		expect(output).toContain("tests/auth.test.ts:2-6 auth flow [test]");
-		expect(output).toContain("truncated");
+		expect(output).toContain("limited: token_budget");
 		expect(output).not.toContain("async login");
 	});
 
@@ -53,13 +53,12 @@ describe("grep renderer", () => {
 			query: "authentcateUser",
 			path: ".",
 			match: "auto",
-			strategy: ["symbol", "literal", "lexical", "graph"],
 			total_candidates: 0,
 			returned_regions: 0,
 			returned_files: 0,
 			approx_tokens: 30,
-			scanned_files: 1,
-			truncated: false,
+			stats: { traversed_entries: 1, searched_files: 1, searched_bytes: 20, parsed_files: 1 },
+			truncated_by: [],
 			regions: [],
 			nearby: [{
 				path: "src/auth.ts",
@@ -69,6 +68,7 @@ describe("grep renderer", () => {
 				symbol: "authenticateUser",
 				signature: "function authenticateUser()",
 				reason: "symbol similarity",
+				query_match: "not_guaranteed",
 			}],
 		};
 
@@ -85,13 +85,12 @@ function success(): GrepSuccess {
 		query: "authentication flow",
 		path: ".",
 		match: "auto",
-		strategy: ["symbol", "lexical"],
 		total_candidates: 3,
 		returned_regions: 1,
 		returned_files: 1,
 		approx_tokens: 120,
-		scanned_files: 4,
-		truncated: true,
+		stats: { traversed_entries: 4, searched_files: 4, searched_bytes: 200, parsed_files: 2 },
+		truncated_by: ["token_budget"],
 		regions: [
 			{
 				path: "src/auth.ts",
@@ -100,7 +99,9 @@ function success(): GrepSuccess {
 				kind: "method",
 				symbol: "AuthService.login",
 				detail: "body",
+				query_match: "semantic",
 				reasons: ["exact symbol"],
+				sources: ["ast-symbol"],
 				content: "async login() {}",
 			},
 		],
@@ -110,7 +111,7 @@ function success(): GrepSuccess {
 			end_line: 6,
 			kind: "test",
 			symbol: "auth flow",
-			source: "repo-map",
+			sources: ["repo-map"],
 			relations: ["test"],
 			query_match: "not_guaranteed",
 		}],

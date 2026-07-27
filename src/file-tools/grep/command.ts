@@ -13,19 +13,12 @@ import { GrepIndex, type GrepScopedFile } from "./indexer.js";
 import { packGrepResults, renderGrepSuccess, selectGrepCandidatesForPacking } from "./packer.js";
 import type { GrepGraphCandidate, GrepGraphSource, GrepSymbolCandidate, GrepSymbolSource } from "./ports.js";
 import { rankGrepRegions, type RankedGrepRegion } from "./ranker.js";
+import { createQueryPlan, type QueryPlan } from "./query-plan.js";
 import type { GrepMatchMode, GrepNearbyResult, GrepParams, GrepRelatedResult, GrepScopeError, GrepSuccess } from "./types.js";
-
-interface NormalizedGrepParams {
-	query: string;
-	paths: string[];
-	match: GrepMatchMode;
-	glob?: string;
-}
 
 interface GrepScopeResult {
 	path: string;
 	match: GrepMatchMode;
-	strategy: string[];
 	totalCandidates: number;
 	regions: RankedGrepRegion[];
 	sourceText: Map<string, string>;
@@ -38,7 +31,7 @@ interface GrepScopeResult {
 	related?: GrepRelatedResult[];
 }
 
-type GrepScopeIndexStats = NonNullable<GrepSuccess["skipped_files"]>;
+type GrepScopeIndexStats = NonNullable<GrepSuccess["stats"]["skipped_files"]>;
 
 interface GrepRankingContext {
 	readonly unitsByPath: Map<string, IndexedCodeUnit[]>;
@@ -72,10 +65,9 @@ export class GrepTool {
 	async execute(params: GrepParams, context: GrepCommandContext): Promise<ToolOutcome<GrepSuccess>> {
 		if (this.disposed || isAborted(context.operation.signal)) return aborted();
 		context = { ...context, operation: bindOperationContext(this.owner.signal, context.operation) };
-		const validation = validateGrepParams(params);
+		const validation = createQueryPlan(params);
 		if (isFailed(validation)) return validation;
-		const regex = validation.match === "regex" ? compileRegex(validation.query) : undefined;
-		if (isFailed(regex)) return regex;
+		const regex = validation.regex;
 
 		const scopeErrors: GrepScopeError[] = [];
 		const resolved: Array<{ root: ExistingRef; input: string; order: number }> = [];
@@ -96,7 +88,7 @@ export class GrepTool {
 		if (successes.length === 0) {
 			const first = scopeErrors[0];
 			if (first === undefined) return fail("PATH_NOT_FOUND", "No searchable scope was provided.");
-			return withGrepScopeErrors({ status: "failed", error: first.error }, validation.paths, scopeErrors);
+			return withGrepScopeErrors({ status: "failed", error: first.error }, [...validation.paths], scopeErrors);
 		}
 		return mergeScopeSuccesses(validation, successes, scopeErrors);
 	}
@@ -110,7 +102,7 @@ export class GrepTool {
 
 	private async grepScope(
 		root: ExistingRef,
-		validation: NormalizedGrepParams,
+		validation: QueryPlan,
 		compiledRegex: RegExp | undefined,
 		context: GrepCommandContext,
 	): Promise<ToolOutcome<GrepScopeResult>> {
@@ -196,9 +188,6 @@ export class GrepTool {
 			graph = graphRegionsFromCandidates(graphMainCandidates, sourceText, rankingContext, validation, compiledRegex);
 		}
 		const finalRegions = fuseRankedGrepSources(ranked.regions, symbols, graph);
-		const strategy = [...ranked.strategy];
-		if (symbols.length > 0) strategy.push("lsp");
-		if (graph.length > 0) strategy.push("repo-map");
 		const related = finalRegions.length < GREP_RELATED_TRIGGER
 			? await graphRelatedRegionsFromCandidates(graphCandidates, sourceText, rankingContext, mainPaths, validation, compiledRegex)
 			: [];
@@ -206,7 +195,6 @@ export class GrepTool {
 		return {
 			path: root.displayPath,
 			match: validation.match,
-			strategy,
 			totalCandidates: finalRegions.length,
 			regions: finalRegions,
 			sourceText,
@@ -239,7 +227,7 @@ function effectiveScopes(
 }
 
 function mergeScopeSuccesses(
-	validation: NormalizedGrepParams,
+	validation: QueryPlan,
 	successes: readonly GrepScopeResult[],
 	scopeErrors: GrepScopeError[],
 ): GrepSuccess {
@@ -256,7 +244,6 @@ function mergeScopeSuccesses(
 		paths,
 		scopeErrors,
 		match: validation.match,
-		strategy: [...new Set(successes.flatMap((result) => result.strategy))],
 		totalCandidates: regions.length,
 		regions,
 		sourceText,
@@ -289,31 +276,6 @@ function createGrepRankingContext(
 
 export function formatCompactGrepResult(result: GrepSuccess): string {
 	return renderGrepSuccess(result);
-}
-
-function validateGrepParams(params: GrepParams): ToolOutcome<NormalizedGrepParams> {
-	if (typeof params.query !== "string" || params.query.length === 0) return fail("INVALID_OPERATION", "query must not be empty.");
-	if (params.query.includes("\0")) return fail("INVALID_OPERATION", "query must not contain NUL bytes.");
-	const paths = params.path ?? ["."];
-	if (!Array.isArray(paths) || paths.length === 0) return fail("INVALID_PATH", "path must contain at least one scope.");
-	for (const scope of paths) {
-		if (typeof scope !== "string" || scope.length === 0) return fail("INVALID_PATH", "path entries must be non-empty strings.");
-		if (scope.includes("\0")) return fail("INVALID_PATH", "path must not contain NUL bytes.", { path: scope });
-	}
-	const match = params.match ?? "auto";
-	if (match !== "auto" && match !== "literal" && match !== "regex") return fail("INVALID_OPERATION", "match must be auto, literal, or regex.", { path: paths[0] ?? "." });
-	if (match !== "auto" && /[\r\n]/u.test(params.query)) {
-		return fail("INVALID_OPERATION", "literal and regex queries must not contain CR or LF.", { path: paths[0] ?? "." });
-	}
-	if (params.glob !== undefined && (typeof params.glob !== "string" || params.glob.length === 0)) {
-		return fail("INVALID_PATH", "glob must not be empty.", { path: paths[0] ?? "." });
-	}
-	return {
-		query: params.query,
-		paths,
-		match,
-		...(params.glob !== undefined ? { glob: params.glob } : {}),
-	};
 }
 
 function mergeScopeRegions(regions: RankedGrepRegion[]): RankedGrepRegion[] {
@@ -361,18 +323,8 @@ function withGrepScopeErrors(result: FailedResult, paths: string[], scopeErrors:
 	};
 }
 
-function compileRegex(query: string): ToolOutcome<RegExp> {
-	try {
-		return new RegExp(query, "gu");
-	} catch (error) {
-		return fail("INVALID_REGEX", "query is not a valid regular expression.", {
-			details: { error: error instanceof Error ? error.message : String(error) },
-		});
-	}
-}
-
 /** regex 仅用最长字面标识片段召回图候选；严格验证仍使用原表达式。 */
-function graphQueryForGrep(params: Pick<NormalizedGrepParams, "query" | "match">): string | undefined {
+function graphQueryForGrep(params: Pick<QueryPlan, "query" | "match">): string | undefined {
 	if (params.match !== "regex") return params.query;
 	return params.query.match(/[A-Za-z_$][A-Za-z0-9_$]{2,}/gu)
 		?.sort((left, right) => right.length - left.length || compareStableString(left, right))[0];
@@ -454,7 +406,7 @@ function graphRegionsFromCandidates(
 	candidates: readonly GrepGraphCandidate[],
 	sourceText: ReadonlyMap<string, string>,
 	context: GrepRankingContext,
-	query: Pick<NormalizedGrepParams, "query" | "match">,
+	query: Pick<QueryPlan, "query" | "match">,
 	regex: RegExp | undefined,
 ): RankedGrepRegion[] {
 	const result: RankedGrepRegion[] = [];
@@ -522,7 +474,7 @@ async function graphRelatedRegionsFromCandidates(
 	sourceText: ReadonlyMap<string, string>,
 	context: GrepRankingContext,
 	mainPaths: ReadonlySet<string>,
-	query: Pick<NormalizedGrepParams, "query" | "match">,
+	query: Pick<QueryPlan, "query" | "match">,
 	regex: RegExp | undefined,
 ): Promise<GrepRelatedResult[]> {
 	const byId = new Map<string, { result: GrepRelatedResult; order: number }>();
@@ -552,7 +504,7 @@ async function graphRelatedRegionsFromCandidates(
 				...(unit !== undefined ? { start_line: unit.startLine, end_line: unit.endLine } : {}),
 				...(unit?.qualifiedName ?? unit?.name ? { symbol: unit.qualifiedName ?? unit.name } : {}),
 				...(unit?.signature !== undefined ? { signature: unit.signature } : {}),
-				source: "repo-map",
+				sources: ["repo-map"],
 				relations: [relation],
 				query_match: "not_guaranteed",
 			},
