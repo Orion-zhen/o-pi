@@ -6,10 +6,24 @@ import { describe, expect, it, vi } from "vitest";
 
 import fileTools from "../../agent/extensions/file-tools.js";
 import { lspFileOperations as lspFileHooks } from "../../src/lsp/index.js";
+import type { DiagnosticsSummary } from "../../src/file-tools/shared/diagnostics.js";
 import { executeTool, type ExecuteResult, type ExecuteTool, type LifecycleHandler } from "./extension-fixture.js";
 
+const cleanDiagnostics: DiagnosticsSummary = {
+	status: "clean",
+	file_errors: 0,
+	file_warnings: 0,
+	new_errors: 0,
+	new_warnings: 0,
+	resolved_errors: 0,
+	resolved_warnings: 0,
+	baseline: "unknown",
+	total_items: 0,
+	items: [],
+};
+
 describe("file-tools extension mutation progress", () => {
-	it("edit/write 在提交前报告实时 diff，并在文件落盘后进入验证阶段", async () => {
+	it("edit/write 在提交前报告实时 diff，并分别报告 LSP 与 Repo Map 后处理状态", async () => {
 		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
 		const handlers = new Map<string, LifecycleHandler>();
 		fileTools({
@@ -27,7 +41,7 @@ describe("file-tools extension mutation progress", () => {
 			lspFileHooks.afterWrite = async () => {
 				writeAtDiagnostics = await readFile(join(cwd, "a.ts"), "utf8");
 				await writeGate;
-				return undefined;
+				return cleanDiagnostics;
 			};
 			const writeUpdates: ExecuteResult[] = [];
 			const pendingWrite = executeTool(
@@ -38,14 +52,18 @@ describe("file-tools extension mutation progress", () => {
 				undefined,
 				(update) => writeUpdates.push(update),
 			);
-			await vi.waitFor(() => expect(writeUpdates).toHaveLength(2));
-			expect(writeUpdates).toEqual([
+			await vi.waitFor(() => expect(writeUpdates).toEqual(expect.arrayContaining([
 				expect.objectContaining({ details: expect.objectContaining({ status: "writing", diff: expect.stringContaining("+1 const value = 1;") }) }),
-				expect.objectContaining({ details: expect.objectContaining({ status: "verifying", diff: expect.stringContaining("+1 const value = 1;") }) }),
-			]);
+				expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "running", errors: 0, warnings: 0 }, repo_map: "pending" }) }),
+				expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "running", errors: 0, warnings: 0 }, repo_map: "running" }) }),
+				expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "running", errors: 0, warnings: 0 }, repo_map: "inactive" }) }),
+			])));
 			expect(writeAtDiagnostics).toBe("const value = 1;\n");
 			releaseWrite?.();
-			await expect(pendingWrite).resolves.toMatchObject({ details: { status: "written" } });
+			await expect(pendingWrite).resolves.toMatchObject({ details: { status: "written", lsp: { diagnostics: { status: "clean" } } } });
+			expect(writeUpdates).toEqual(expect.arrayContaining([
+				expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "clean", errors: 0, warnings: 0 }, repo_map: "inactive" }) }),
+			]));
 
 			await executeTool(registered, "read", { path: "a.ts" }, ctx);
 			let releaseEdit: (() => void) | undefined;
@@ -54,7 +72,7 @@ describe("file-tools extension mutation progress", () => {
 			lspFileHooks.afterWrite = async () => {
 				editAtDiagnostics = await readFile(join(cwd, "a.ts"), "utf8");
 				await editGate;
-				return undefined;
+				return cleanDiagnostics;
 			};
 			const editUpdates: ExecuteResult[] = [];
 			const pendingEdit = executeTool(
@@ -65,14 +83,18 @@ describe("file-tools extension mutation progress", () => {
 				undefined,
 				(update) => editUpdates.push(update),
 			);
-			await vi.waitFor(() => expect(editUpdates).toHaveLength(2));
-			expect(editUpdates).toEqual([
+			await vi.waitFor(() => expect(editUpdates).toEqual(expect.arrayContaining([
 				expect.objectContaining({ details: expect.objectContaining({ status: "editing", replacements: 1, diff: expect.stringContaining("+1 const value = 2;") }) }),
-				expect.objectContaining({ details: expect.objectContaining({ status: "verifying", replacements: 1, diff: expect.stringContaining("+1 const value = 2;") }) }),
-			]);
+				expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", replacements: 1, lsp: { status: "running", errors: 0, warnings: 0 }, repo_map: "pending" }) }),
+				expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", replacements: 1, lsp: { status: "running", errors: 0, warnings: 0 }, repo_map: "running" }) }),
+				expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", replacements: 1, lsp: { status: "running", errors: 0, warnings: 0 }, repo_map: "inactive" }) }),
+			])));
 			expect(editAtDiagnostics).toBe("const value = 2;\n");
 			releaseEdit?.();
-			await expect(pendingEdit).resolves.toMatchObject({ details: { status: "applied" } });
+			await expect(pendingEdit).resolves.toMatchObject({ details: { status: "applied", lsp: { diagnostics: { status: "clean" } } } });
+			expect(editUpdates).toEqual(expect.arrayContaining([
+				expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "clean", errors: 0, warnings: 0 }, repo_map: "inactive" }) }),
+			]));
 
 			const failedUpdates: ExecuteResult[] = [];
 			await expect(executeTool(

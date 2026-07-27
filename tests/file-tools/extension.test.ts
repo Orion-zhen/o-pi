@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFileToolsExtension, type FileToolsModuleImports } from "../../agent/extensions/file-tools.js";
 import { lspManager } from "../../src/lsp/index.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
-import { activateFileTools, executeTool, type ExecuteTool, type LifecycleHandler } from "./extension-fixture.js";
+import { activateFileTools, executeTool, type ExecuteResult, type ExecuteTool, type LifecycleHandler } from "./extension-fixture.js";
 
 describe("file-tools extension lifecycle", () => {
 	afterEach(() => {
@@ -253,8 +253,25 @@ describe("file-tools extension lifecycle", () => {
 		}];
 		const ctx = { cwd, sessionManager: { getSessionId: () => "post-mutation", getBranch: () => branch } };
 		try {
-			const result = await executeTool(registered, "write", { path: "committed.ts", content: "committed\n" }, ctx, controller.signal);
+			const updates: ExecuteResult[] = [];
+			const result = await executeTool(
+				registered,
+				"write",
+				{ path: "committed.ts", content: "committed\n" },
+				ctx,
+				controller.signal,
+				(update) => updates.push(update),
+			);
 			expect(result.details).toMatchObject({ status: "written", path: "committed.ts" });
+			expect(updates).toEqual(expect.arrayContaining([
+				expect.objectContaining({
+					details: expect.objectContaining({
+						status: "post-processing",
+						lsp: { status: "unavailable", errors: 0, warnings: 0 },
+						repo_map: "unavailable",
+					}),
+				}),
+			]));
 			expect(await readFile(join(cwd, "committed.ts"), "utf8")).toBe("committed\n");
 			expect(controller.signal.aborted).toBe(true);
 

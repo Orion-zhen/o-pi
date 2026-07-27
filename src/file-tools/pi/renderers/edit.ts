@@ -6,8 +6,8 @@ import { isEditSuccess, isFailedEdit } from "../../edit/guards.js";
 import type { EditPreviewSuccess } from "../../edit/types.js";
 import type { FailedResult } from "../../shared/result.js";
 import { isPlainRecord } from "../guards.js";
-import { isMutationProgress, type MutationProgressPhase } from "../progress.js";
-import { formatDiffStats, formatLspDiagnostics, formatLspSummary } from "./diagnostics.js";
+import { isMutationProgress, type MutationPostProcessProgressDetails } from "../progress.js";
+import { formatDiffStats, formatLspDiagnostics, formatLspSummary, formatMutationPostProcessSummary } from "./diagnostics.js";
 import { formatFailureCard } from "./shared.js";
 
 type EditPreview = EditPreviewSuccess | FailedResult;
@@ -17,7 +17,8 @@ class EditCallComponent extends Box {
 	previewArgsKey: string | undefined;
 	previewPending = false;
 	settledError = false;
-	phase: Extract<MutationProgressPhase, "editing" | "verifying"> = "editing";
+	phase: "editing" = "editing";
+	postProcess: MutationPostProcessProgressDetails | undefined;
 	progressDiff: string | undefined;
 
 	constructor() {
@@ -51,6 +52,7 @@ export function renderEditCall(args: unknown, theme: Theme, context: EditCallCon
 		component.previewPending = false;
 		component.settledError = false;
 		component.phase = "editing";
+		component.postProcess = undefined;
 		component.progressDiff = undefined;
 	}
 	if (context.argsComplete && argsKey !== undefined && component.preview === undefined && !component.previewPending) {
@@ -79,7 +81,8 @@ export function renderEditResult(
 	const callComponent = getEditCallComponent(context.state, undefined);
 	if (options.isPartial) {
 		if (isMutationProgress(details)) {
-			if (details.status === "editing" || details.status === "verifying") callComponent.phase = details.status;
+			if (details.status === "editing") callComponent.postProcess = undefined;
+			else if (details.status === "post-processing") callComponent.postProcess = details;
 			if (details.diff !== undefined) callComponent.progressDiff = details.diff;
 		}
 		buildEditCallComponent(callComponent, context.args, theme, options.expanded);
@@ -186,7 +189,11 @@ function formatEditCall(component: EditCallComponent, args: unknown, theme: Pick
 		tool: "edit",
 		status: "running",
 		target: editTarget(args),
-		summary: joinParts([component.phase, diff === undefined ? undefined : formatDiffStats(diff), replacements !== undefined ? `${replacements} replacements` : undefined]),
+		summary: joinParts([
+			component.postProcess === undefined ? component.phase : formatMutationPostProcessSummary(component.postProcess),
+			diff === undefined ? undefined : formatDiffStats(diff),
+			replacements !== undefined ? `${replacements} replacements` : undefined,
+		]),
 	}, theme);
 }
 

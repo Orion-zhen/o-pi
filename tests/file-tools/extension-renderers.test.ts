@@ -287,6 +287,7 @@ describe("file-tools extension renderers", () => {
 		expect(success).toContain("toolSuccessBg");
 		expect(success).toContain("edit      src/app.ts");
 		expect(success).toContain("+1 -1");
+		expect(success).toContain("LSP unavailable");
 		expect(success).not.toContain("-old");
 		expect(success).not.toContain("+new");
 
@@ -328,7 +329,7 @@ describe("file-tools extension renderers", () => {
 		await activateFileTools(handlers.get("session_start"));
 		const write = registered.slice().reverse().find((tool) => tool.name === "write");
 		const args = { path: "notes.txt", content: "first\nsecond" };
-		const state: { callComponent?: { phase?: unknown } } = {};
+		const state: { callComponent?: { phase?: unknown; postProcess?: unknown } } = {};
 		const collapsedCall = write?.renderCall?.(args, theme, {
 			argsComplete: true,
 			cwd: "/repo",
@@ -355,13 +356,23 @@ describe("file-tools extension renderers", () => {
 		expect(expandedCallOutput).toContain("second");
 
 		const partialResult = write?.renderResult?.(
-			{ content: [], details: { status: "verifying", diff: "-1 old\n+1 new" } },
+			{
+				content: [],
+				details: {
+					status: "post-processing",
+					diff: "-1 old\n+1 new",
+					lsp: { status: "clean", errors: 0, warnings: 0 },
+					repo_map: "running",
+				},
+			},
 			{ expanded: false, isPartial: true },
 			theme,
 			{ args, cwd: "/repo", lastComponent: undefined, state },
 		);
 		expect(partialResult?.render(120)).toEqual([]);
-		expect(state.callComponent?.phase).toBe("verifying");
+		expect(state.callComponent?.postProcess).toMatchObject({ lsp: { status: "clean" }, repo_map: "running" });
+		expect(collapsedCall?.render(120).join("\n")).toContain("LSP clean");
+		expect(collapsedCall?.render(120).join("\n")).toContain("Repo Map updating");
 		expect(collapsedCall?.render(120).join("\n")).toContain("+1 -1");
 
 		const output = renderWriteResult(registered, {
@@ -369,9 +380,11 @@ describe("file-tools extension renderers", () => {
 			path: "src/app.ts",
 			bytes: 4,
 			diff: "-1 old\n+1 new",
+			lsp: { diagnostics: { status: "clean", file_errors: 0, file_warnings: 0 } },
 		});
 		expect(output).toContain("write     src/app.ts");
 		expect(output).toContain("+1 -1");
+		expect(output).toContain("LSP clean");
 		expect(output.split("\n")).toHaveLength(2);
 		expect(output).not.toContain("-1 old");
 		expect(output).not.toContain("+1 new");
@@ -401,7 +414,7 @@ describe("file-tools extension renderers", () => {
 		await writeFile(join(cwd, "app.ts"), "old\n", "utf8");
 		const edit = registered.slice().reverse().find((tool) => tool.name === "edit");
 		const args = { path: "app.ts", edits: [{ old: "old", new: "new" }] };
-		const state: { callComponent?: { phase?: unknown } } = {};
+		const state: { callComponent?: { phase?: unknown; postProcess?: unknown } } = {};
 		const context = {
 			args,
 			argsComplete: true,
@@ -427,13 +440,24 @@ describe("file-tools extension renderers", () => {
 		expect(expandedOutput).toContain("+1 new");
 
 		const partialResult = edit?.renderResult?.(
-			{ content: [], details: { status: "verifying", diff: "-1 old\n+1 new", replacements: 1 } },
+			{
+				content: [],
+				details: {
+					status: "post-processing",
+					diff: "-1 old\n+1 new",
+					replacements: 1,
+					lsp: { status: "errors", errors: 2, warnings: 1 },
+					repo_map: "inactive",
+				},
+			},
 			{ expanded: false, isPartial: true },
 			theme,
 			{ args, cwd, expanded: false, lastComponent: undefined, state },
 		);
 		expect(partialResult?.render(120)).toEqual([]);
-		expect(state.callComponent?.phase).toBe("verifying");
+		expect(state.callComponent?.postProcess).toMatchObject({ lsp: { status: "errors", errors: 2 }, repo_map: "inactive" });
+		expect(collapsed?.render(120).join("\n")).toContain("LSP 2 errors");
+		expect(collapsed?.render(120).join("\n")).toContain("Repo Map inactive");
 		expect(collapsed?.render(120).join("\n")).toContain("+1 -1");
 	});
 });

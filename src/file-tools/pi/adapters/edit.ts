@@ -8,7 +8,7 @@ import { formatErrorModelResult, scrubVersions } from "../model-output.js";
 import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 import { createEditPorts } from "../ports/edit.js";
 import { piTextDiffGenerator } from "../ports/text-diff.js";
-import { mutationProgress, type MutationProgressCallback } from "../progress.js";
+import { createMutationPostProcessObserver, mutationProgress, type MutationProgressCallback } from "../progress.js";
 
 export async function executeEdit(
 	params: EditParams,
@@ -30,13 +30,11 @@ export async function executeEdit(
 	if (isFailed(opened)) return failedResult(opened);
 	try {
 		let latestPreview: EditPreviewSuccess | undefined;
-		const ports = createEditPorts(opened, runtime.lsp, runtime.repoMap, () => {
-			runtime.onUpdate?.(mutationProgress({
-				status: "verifying",
-				replacements: latestPreview?.replacements ?? params.edits.length,
-				...(latestPreview === undefined ? {} : { diff: latestPreview.diff }),
-			}));
-		});
+		const progress = createMutationPostProcessObserver(runtime.onUpdate, () => ({
+			replacements: latestPreview?.replacements ?? params.edits.length,
+			...(latestPreview === undefined ? {} : { diff: latestPreview.diff }),
+		}));
+		const ports = createEditPorts(opened, runtime.lsp, runtime.repoMap, progress);
 		const result = await editFile(params, commandContext(opened, ports, (preview) => {
 			latestPreview = preview;
 			runtime.onUpdate?.(mutationProgress({ status: "editing", diff: preview.diff, replacements: preview.replacements }));

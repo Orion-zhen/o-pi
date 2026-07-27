@@ -10,9 +10,9 @@ import { formatToolCard } from "../../../tui/tool-card.js";
 import { formatBytes, formatChars, joinParts } from "../../../tui/text.js";
 import { isWriteSuccess } from "../../write/guards.js";
 import { isPlainRecord } from "../guards.js";
-import { isMutationProgress, type MutationProgressPhase } from "../progress.js";
+import { isMutationProgress, type MutationPostProcessProgressDetails } from "../progress.js";
 import type { TextRenderContext } from "./contracts.js";
-import { formatDiffStats, formatLspDiagnostics, formatLspSummary } from "./diagnostics.js";
+import { formatDiffStats, formatLspDiagnostics, formatLspSummary, formatMutationPostProcessSummary } from "./diagnostics.js";
 import { displayToolPath, formatFailureCard, stringArg, textComponent } from "./shared.js";
 
 interface WriteRendererState {
@@ -36,7 +36,8 @@ interface WriteHighlightCache {
 
 class WriteCallComponent extends Text {
 	cache: WriteHighlightCache | undefined;
-	phase: Extract<MutationProgressPhase, "writing" | "verifying"> = "writing";
+	phase: "writing" = "writing";
+	postProcess: MutationPostProcessProgressDetails | undefined;
 	progressDiff: string | undefined;
 	argsPath: string | null = null;
 	argsContent: string | null = null;
@@ -58,6 +59,7 @@ export function renderWriteCall(args: unknown, theme: Theme, context: WriteRende
 		component.argsPath = rawPath;
 		component.argsContent = fileContent;
 		component.phase = "writing";
+		component.postProcess = undefined;
 		component.progressDiff = undefined;
 	}
 	if (fileContent !== null) {
@@ -80,7 +82,8 @@ export function renderWriteResult(
 	if (options.isPartial) {
 		const component = getWriteCallComponent(context.state, undefined);
 		if (isMutationProgress(result.details)) {
-			if (result.details.status === "writing" || result.details.status === "verifying") component.phase = result.details.status;
+			if (result.details.status === "writing") component.postProcess = undefined;
+			else if (result.details.status === "post-processing") component.postProcess = result.details;
 			if (result.details.diff !== undefined) component.progressDiff = result.details.diff;
 		}
 		const args = writeArgs(context.args);
@@ -171,13 +174,14 @@ function formatWriteCall(
 	const fileContent = stringArg(args?.content);
 	const target = displayToolPath(rawPath, cwd);
 
-	if (fileContent === null) return formatToolCard({ tool: "write", status: "running", target, summary: component.phase }, theme);
+	const progressSummary = component.postProcess === undefined ? component.phase : formatMutationPostProcessSummary(component.postProcess);
+	if (fileContent === null) return formatToolCard({ tool: "write", status: "running", target, summary: progressSummary }, theme);
 	const lineCount = fileContent === "" ? 0 : fileContent.split(/\r\n?|\n/).length;
 	const header = formatToolCard({
 		tool: "write",
 		status: "running",
 		target,
-		summary: joinParts([component.phase, component.progressDiff === undefined ? undefined : formatDiffStats(component.progressDiff), `${lineCount} lines`, formatChars(fileContent.length), options.expanded ? "preview" : "preview hidden"]),
+		summary: joinParts([progressSummary, component.progressDiff === undefined ? undefined : formatDiffStats(component.progressDiff), `${lineCount} lines`, formatChars(fileContent.length)]),
 	}, theme);
 	if (!options.expanded || fileContent.length === 0) return header;
 

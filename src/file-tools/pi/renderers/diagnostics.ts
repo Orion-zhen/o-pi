@@ -1,5 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { DiagnosticsSummary } from "../../shared/diagnostics.js";
+import type { DiagnosticsSummary, DiagnosticStatus } from "../../shared/diagnostics.js";
+import type { MutationPostProcessProgressDetails, MutationRepoMapProgressStatus } from "../progress.js";
 
 export function formatDiffStats(diff: string): string {
 	let added = 0;
@@ -11,11 +12,21 @@ export function formatDiffStats(diff: string): string {
 	return `+${added} -${removed}`;
 }
 
-export function formatLspSummary(diagnostics: DiagnosticsSummary | undefined): string | undefined {
-	if (!hasVisibleLspDiagnostics(diagnostics)) return undefined;
-	return diagnostics.status === "errors"
-		? `LSP ${diagnostics.file_errors} errors`
-		: `LSP ${diagnostics.file_warnings} warnings`;
+export function formatLspSummary(diagnostics: DiagnosticsSummary | undefined): string {
+	return formatLspStatus(
+		diagnostics?.status ?? "unavailable",
+		diagnostics?.file_errors ?? 0,
+		diagnostics?.file_warnings ?? 0,
+	);
+}
+
+export function formatMutationPostProcessSummary(progress: MutationPostProcessProgressDetails): string {
+	const lsp = progress.lsp.status === "pending"
+		? "LSP pending"
+		: progress.lsp.status === "running"
+			? "LSP checking"
+			: formatLspStatus(progress.lsp.status, progress.lsp.errors, progress.lsp.warnings);
+	return `${lsp} · ${formatRepoMapProgress(progress.repo_map)}`;
 }
 
 export function formatLspDiagnostics(
@@ -27,6 +38,19 @@ export function formatLspDiagnostics(
 	const remaining = Math.max(0, diagnostics.total_items - diagnostics.items.length);
 	if (remaining > 0) lines.push(theme.fg("toolOutput", `... ${remaining} more diagnostics`));
 	return lines.join("\n");
+}
+
+function formatLspStatus(status: DiagnosticStatus, errors: number, warnings: number): string {
+	if (status === "errors") return `LSP ${errors} errors`;
+	if (status === "warnings") return `LSP ${warnings} warnings`;
+	return `LSP ${status}`;
+}
+
+function formatRepoMapProgress(status: MutationRepoMapProgressStatus): string {
+	if (status === "pending") return "Repo Map pending";
+	if (status === "running") return "Repo Map updating";
+	if (status === "partially_stale") return "Repo Map partially stale";
+	return `Repo Map ${status}`;
 }
 
 function hasVisibleLspDiagnostics(
