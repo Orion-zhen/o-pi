@@ -123,5 +123,6 @@ export function initializeResult(generation: RepoMapGeneration): InitializeRepoM
 			diagnostics: generation.diagnostics.length,
 		},
 		reusedGeneration: false,
+		generation,
 	};
 }

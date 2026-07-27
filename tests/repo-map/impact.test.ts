@@ -92,7 +92,9 @@ describe("Repo Map change impact", () => {
 		const query = createRepoMapFileToolQuery(() => branch, { readActivated, refresh, analyzeImpact: analyzeImpactSpy });
 		const mutation = await query.syncMutation({ requestedPath: path.join(temp.path, "src", "user.ts"), changedLine: 1 });
 		expect(mutation).toMatchObject({ status: "updated", impact: { candidate: true, changedPath: "src/user.ts" } });
-		expect(analyzeImpactSpy).toHaveBeenCalledWith(expect.objectContaining({ changedLine: 1, maxCandidates: 8 }));
+		expect(readActivated).toHaveBeenCalledTimes(1);
+		expect(refresh).toHaveBeenCalledWith(expect.objectContaining({ previous: before }));
+		expect(analyzeImpactSpy).toHaveBeenCalledWith(expect.objectContaining({ before, after, changedLine: 1, maxCandidates: 8 }));
 		if (mutation === undefined) throw new Error("missing mutation result");
 		expect(mutation.impact?.candidates).toEqual(expect.arrayContaining([
 			expect.objectContaining({ path: "src/caller.ts", role: "caller" }),

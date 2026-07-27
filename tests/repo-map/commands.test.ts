@@ -411,6 +411,16 @@ function initializeResult(root = "/repo", mapCharacter = "a"): InitializeRepoMap
 		configFingerprint: "d".repeat(64),
 		ignoreFingerprint: "ignore",
 	};
+	const generation: RepoMapGeneration = {
+		metadata,
+		files: [],
+		symbols: [],
+		tests: [],
+		architecture: [],
+		aliases: [],
+		edges: [],
+		diagnostics: [],
+	};
 	return {
 		identity: { repositoryRoot: root, worktreeRoot: root, gitCommonDir: `${root}/.git`, headRevision: "c".repeat(40) },
 		metadata,
@@ -420,11 +430,12 @@ function initializeResult(root = "/repo", mapCharacter = "a"): InitializeRepoMap
 			edges: 0, skippedDirectories: 0, diagnostics: 0,
 		},
 		reusedGeneration: false,
+		generation,
 	};
 }
 
 function generationFor(result: InitializeRepoMapResult): RepoMapGeneration {
-	return { metadata: result.metadata, files: [], symbols: [], tests: [], architecture: [], aliases: [], edges: [], diagnostics: [] };
+	return result.generation;
 }
 
 function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {

@@ -8,8 +8,15 @@ import { analyzeCodeFile } from "../../src/code-index/parser.js";
 import { defaultFileToolsConfig } from "../../src/file-tools/config.js";
 import { defaultRepoMapConfig } from "../../src/repo-map/config/config.js";
 import { RepoMapError } from "../../src/repo-map/core/errors.js";
+import { scanRepoMap } from "../../src/repo-map/indexing/scanner.js";
 import { indexRepoMapSymbols } from "../../src/repo-map/indexing/symbol-indexer.js";
-import { initializeRepoMap, readActivatedRepoMap, type RepoMapServiceDependencies } from "../../src/repo-map/runtime/service.js";
+import {
+	initializeRepoMap,
+	readActivatedRepoMap,
+	refreshActivatedRepoMap,
+	type RepoMapServiceDependencies,
+} from "../../src/repo-map/runtime/service.js";
+import { readCurrentGeneration } from "../../src/repo-map/storage/storage.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-repo-service-");
@@ -66,6 +73,108 @@ describe("Repo Map initialization service", () => {
 		expect(second.reusedGeneration).toBe(true);
 		expect(second.metadata.generation).toBe(first.metadata.generation);
 		expect(second.summary).toMatchObject({ reused: 1, reusedParsed: 1, hashed: 0, added: 0, changed: 0, removed: 0 });
+	});
+
+	it("uses a verified supplied generation and returns the committed generation without a full current read", async () => {
+		const root = path.join(temp.path, "repo");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		await writeFile(path.join(root, "a.ts"), "export const a = 1;\n");
+		const first = await initializeRepoMap({ cwd: root }, dependencies());
+		await writeFile(path.join(root, "a.ts"), "export const renamed = 2;\n");
+		const readCurrent = vi.fn(async () => { throw new Error("unexpected full generation read"); });
+
+		const refreshed = await refreshActivatedRepoMap({
+			activation: {
+				root,
+				mapId: first.metadata.mapId,
+				generation: first.metadata.generation,
+				activatedAt: first.metadata.updatedAt,
+			},
+			previous: first.generation,
+		}, dependencies({ readCurrent }));
+
+		expect(readCurrent).not.toHaveBeenCalled();
+		expect(refreshed.generation.metadata).toBe(refreshed.metadata);
+		expect(refreshed.generation.symbols.map((symbol) => symbol.name)).toContain("renamed");
+		expect(refreshed.metadata.generation).not.toBe(first.metadata.generation);
+	});
+
+	it.each(["CURRENT", "root", "map"] as const)("falls back to a verified disk read when supplied previous mismatches %s", async (mismatch) => {
+		const root = path.join(temp.path, "repo");
+		const cacheRoot = path.join(temp.path, "cache");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		await writeFile(path.join(root, "a.ts"), "export const a = 1;\n");
+		const first = await initializeRepoMap({ cwd: root }, dependencies());
+		const previous = mismatch === "root"
+			? { ...first.generation, metadata: { ...first.metadata, repositoryRoot: path.join(temp.path, "other") } }
+			: mismatch === "map"
+				? { ...first.generation, metadata: { ...first.metadata, mapId: "f".repeat(64) } }
+				: first.generation;
+		const readCurrent = vi.fn(async (resolvedCacheRoot: string, mapId: string, expectedRoot: string) =>
+			await readCurrentGeneration(resolvedCacheRoot, mapId, expectedRoot));
+		const readCurrentId = mismatch === "CURRENT"
+			? vi.fn(async () => "f".repeat(64))
+			: vi.fn(async () => first.metadata.generation);
+
+		const refreshed = await refreshActivatedRepoMap({
+			activation: {
+				root,
+				mapId: first.metadata.mapId,
+				generation: first.metadata.generation,
+				activatedAt: first.metadata.updatedAt,
+			},
+			previous,
+		}, dependencies({ cacheRoot: () => cacheRoot, readCurrent, readCurrentId }));
+
+		expect(readCurrent).toHaveBeenCalledOnce();
+		expect(refreshed.generation).not.toBe(previous);
+		expect(refreshed.metadata.generation).toBe(first.metadata.generation);
+		if (mismatch === "CURRENT") expect(readCurrentId).toHaveBeenCalledOnce();
+		else expect(readCurrentId).not.toHaveBeenCalled();
+	});
+
+	it("rechecks CURRENT under the map lock before reusing a supplied generation", async () => {
+		const root = path.join(temp.path, "repo");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		await writeFile(path.join(root, "a.ts"), "export const a = 1;\n");
+		const first = await initializeRepoMap({ cwd: root }, dependencies());
+		await writeFile(path.join(root, "a.ts"), "export const changed = 2;\n");
+		const firstScanStarted = deferred<void>();
+		const releaseFirstScan = deferred<void>();
+		let scanCalls = 0;
+		const readCurrent = vi.fn(async (cacheRoot: string, mapId: string, expectedRoot: string) =>
+			await readCurrentGeneration(cacheRoot, mapId, expectedRoot));
+		const deps = dependencies({
+			readCurrent,
+			async scan(input) {
+				scanCalls += 1;
+				if (scanCalls === 1) {
+					firstScanStarted.resolve(undefined);
+					await releaseFirstScan.promise;
+				}
+				return await scanRepoMap(input);
+			},
+		});
+		const refreshInput = {
+			activation: {
+				root,
+				mapId: first.metadata.mapId,
+				generation: first.metadata.generation,
+				activatedAt: first.metadata.updatedAt,
+			},
+			previous: first.generation,
+		};
+
+		const firstRefresh = refreshActivatedRepoMap(refreshInput, deps);
+		await firstScanStarted.promise;
+		const secondRefresh = refreshActivatedRepoMap(refreshInput, deps);
+		releaseFirstScan.resolve(undefined);
+		const [firstResult, secondResult] = await Promise.all([firstRefresh, secondRefresh]);
+
+		expect(firstResult.metadata.generation).not.toBe(first.metadata.generation);
+		expect(secondResult.metadata.generation).toBe(firstResult.metadata.generation);
+		expect(readCurrent).toHaveBeenCalledOnce();
+		expect(scanCalls).toBe(2);
 	});
 
 	it("forwards per-file parsing progress through initialization", async () => {

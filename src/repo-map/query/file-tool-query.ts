@@ -128,6 +128,7 @@ export function createRepoMapFileToolQuery(
 
 	const refreshStale = (
 		activation: RepoMapActivation,
+		previous: RepoMapGeneration | undefined,
 		signal?: AbortSignal,
 	): Promise<{ activation: RepoMapActivation; generation: RepoMapGeneration } | undefined> => {
 		let pending = staleRefresh;
@@ -135,7 +136,11 @@ export function createRepoMapFileToolQuery(
 			const controller = new AbortController();
 			let created: PendingStaleRefresh;
 			const promise = (async () => {
-				const result = await refresh({ activation, signal: controller.signal });
+				const result = await refresh({
+					activation,
+					...(previous === undefined ? {} : { previous }),
+					signal: controller.signal,
+				});
 				const entry: RepoMapActivationEntry = {
 					kind: "activation",
 					root: result.metadata.repositoryRoot,
@@ -146,8 +151,7 @@ export function createRepoMapFileToolQuery(
 				};
 				dependencies.appendActivation?.(entry);
 				if (entry.generation !== activation.generation) queryIndexes.clear();
-				const generation = await readActivated(entry);
-				return generation === undefined ? undefined : { activation: entry, generation };
+				return { activation: entry, generation: result.generation };
 			})().finally(() => {
 				created.settled = true;
 				if (staleRefresh === created) staleRefresh = undefined;
@@ -190,7 +194,7 @@ export function createRepoMapFileToolQuery(
 			requestedPath,
 		});
 		if (!gate.enabled && gate.reason === "map_stale") {
-			const refreshed = await refreshStale(activation, signal);
+			const refreshed = await refreshStale(activation, generation, signal);
 			if (refreshed === undefined) return undefined;
 			({ activation, generation } = refreshed);
 			gate = evaluateRepoMapGate({
@@ -233,6 +237,7 @@ export function createRepoMapFileToolQuery(
 			const sharedSignal = inputs.length === 1 ? inputs[0]?.signal : undefined;
 			const result = await refresh({
 				activation,
+				...(before === undefined ? {} : { previous: before }),
 				...(sharedSignal === undefined ? {} : { signal: sharedSignal }),
 			});
 			const entry: RepoMapActivationEntry = {
@@ -249,23 +254,12 @@ export function createRepoMapFileToolQuery(
 				status: result.metadata.freshness === "fresh" ? "updated" : "partially_stale",
 				generation: result.metadata.generation,
 			};
-			let after: RepoMapGeneration | undefined;
-			try {
-				after = await readActivated({
-					root: result.metadata.repositoryRoot,
-					mapId: result.metadata.mapId,
-					generation: result.metadata.generation,
-					activatedAt: result.metadata.updatedAt,
-					freshness: result.metadata.freshness,
-				});
-			} catch {
-				// 影响分析是附加信息，不能改变已成功的刷新结果。
-			}
+			const after = result.generation;
 			return await Promise.all(inputs.map(async (input, index) => {
 				if (!included[index]) return undefined;
 				const mutation: RepoMapMutationResult = { ...base };
 				const refreshedPath = relativeRepoPath(result.metadata.repositoryRoot, input.requestedPath);
-				if (after === undefined || refreshedPath === undefined) return mutation;
+				if (refreshedPath === undefined) return mutation;
 				try {
 					const impact = analyzeImpact({
 						...(before === undefined ? {} : { before }),

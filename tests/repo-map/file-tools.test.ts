@@ -23,6 +23,7 @@ import {
 	evaluateRepoMapFreshness,
 	initializeRepoMap,
 	readActivatedRepoMap,
+	refreshActivatedRepoMap,
 	readActivatedRepoMapState,
 	type RefreshActivatedRepoMapInput,
 } from "../../src/repo-map/runtime/service.js";
@@ -290,7 +291,7 @@ describe("Repo Map file-tool read and mutation integration", () => {
 				return await readActivatedRepoMap(activation, path.join(temp.path, "cache"));
 			},
 			async refresh(input) {
-				return await initializeRepoMap({ cwd: input.activation.root, mode: "refresh", ...(input.signal !== undefined ? { signal: input.signal } : {}) }, deps);
+				return await refreshActivatedRepoMap(input, deps);
 			},
 			appendActivation,
 			now: () => new Date("2026-07-17T01:00:00.000Z"),
@@ -354,11 +355,7 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		});
 		const refresh = vi.fn(async (input: RefreshActivatedRepoMapInput) => {
 			calls.push("refresh");
-			return await initializeRepoMap({
-				cwd: input.activation.root,
-				mode: "refresh",
-				...(input.signal === undefined ? {} : { signal: input.signal }),
-			}, deps);
+			return await refreshActivatedRepoMap(input, deps);
 		});
 		const analyzeImpact = vi.fn((input: AnalyzeRepoMapImpactInput) => {
 			calls.push(`impact:${input.changedPath}`);
@@ -378,9 +375,10 @@ describe("Repo Map file-tool read and mutation integration", () => {
 			{ requestedPath: path.join(root, "b.ts"), changedLine: 1 },
 		]);
 		expect(refresh).toHaveBeenCalledTimes(1);
-		expect(readActivated).toHaveBeenCalledTimes(2);
+		expect(readActivated).toHaveBeenCalledTimes(1);
+		expect(refresh).toHaveBeenCalledWith(expect.objectContaining({ previous: initialized.generation }));
 		expect(analyzeImpact).toHaveBeenCalledTimes(2);
-		expect(calls).toEqual(["read:before", "refresh", "read:after", "impact:a.ts", "impact:b.ts"]);
+		expect(calls).toEqual(["read:before", "refresh", "impact:a.ts", "impact:b.ts"]);
 		expect(results).toHaveLength(2);
 		expect(results[0]).toMatchObject({ status: "updated", impact: { changedPath: "a.ts" } });
 		expect(results[1]).toMatchObject({ status: "updated", impact: { changedPath: "b.ts" } });
@@ -405,7 +403,8 @@ describe("Repo Map file-tool read and mutation integration", () => {
 			edges: [],
 			diagnostics: [],
 		});
-		const refresh = vi.fn(async () => ({ ...initialized, metadata: refreshedMetadata }));
+		const refreshedGeneration = generation(refreshedMetadata);
+		const refresh = vi.fn(async () => ({ ...initialized, metadata: refreshedMetadata, generation: refreshedGeneration }));
 		const query = createRepoMapFileToolQuery(() => branch, {
 			async readActivated(activation) {
 				return generation(activation.generation === refreshedMetadata.generation

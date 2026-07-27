@@ -44,6 +44,7 @@ export interface InitializeRepoMapResult {
 	metadata: RepoMapMetadata;
 	summary: RepoMapScanSummary;
 	reusedGeneration: boolean;
+	generation: RepoMapGeneration;
 }
 
 export interface RepoMapWorkspaceLease {
@@ -67,6 +68,7 @@ export interface RepoMapServiceDependencies {
 	buildRelationships(input: BuildRepoMapRelationshipsInput): Promise<RepoMapEdge[]>;
 	buildLexicalAliases(input: BuildRepoMapLexicalAliasesInput): Promise<RepoMapGeneration["aliases"]>;
 	readCurrent(cacheRoot: string, mapId: string, expectedRoot: string): Promise<RepoMapGeneration | undefined>;
+	readCurrentId(cacheRoot: string, mapId: string): Promise<string | undefined>;
 	commit(input: CommitGenerationInput): Promise<CommitGenerationResult>;
 	measureStage<T>(stage: RepoMapServiceStage, operation: () => Promise<T>): Promise<T>;
 	cacheRoot(): string;
@@ -100,6 +102,7 @@ const defaultDependencies: RepoMapServiceDependencies = {
 		return await (await import("../indexing/lexical-indexer.js")).buildRepoMapLexicalAliases(input);
 	},
 	readCurrent: readCurrentGeneration,
+	readCurrentId: readCurrentGenerationId,
 	commit: commitGeneration,
 	async measureStage(_stage, operation) {
 		return await operation();
@@ -114,17 +117,31 @@ export async function initializeRepoMap(
 	input: InitializeRepoMapInput,
 	dependencies: Partial<RepoMapServiceDependencies> = {},
 ): Promise<InitializeRepoMapResult> {
+	return await initializeRepoMapWithPrevious(input, dependencies);
+}
+
+interface SuppliedPreviousGeneration {
+	activation: RepoMapActivation;
+	generation: RepoMapGeneration;
+}
+
+async function initializeRepoMapWithPrevious(
+	input: InitializeRepoMapInput,
+	dependencies: Partial<RepoMapServiceDependencies>,
+	suppliedPrevious?: SuppliedPreviousGeneration,
+): Promise<InitializeRepoMapResult> {
 	const deps = { ...defaultDependencies, ...dependencies };
 	throwIfAborted(input.signal);
 	const identity = await deps.detectRepository(input.cwd, signalOptions(input.signal));
 	return await withMapUpdateLock(createRepoMapId(identity), async () =>
-		await initializeRepoMapLocked(input, deps, identity));
+		await initializeRepoMapLocked(input, deps, identity, suppliedPrevious));
 }
 
 async function initializeRepoMapLocked(
 	input: InitializeRepoMapInput,
 	deps: RepoMapServiceDependencies,
 	identity: RepositoryIdentity,
+	suppliedPrevious?: SuppliedPreviousGeneration,
 ): Promise<InitializeRepoMapResult> {
 	throwIfAborted(input.signal);
 	const [config, fileToolsConfig] = await Promise.all([
@@ -136,8 +153,13 @@ async function initializeRepoMapLocked(
 	const cacheRoot = deps.cacheRoot();
 	const previous = input.mode === "rebuild"
 		? undefined
-		: await deps.measureStage("generation-read", async () =>
-			await deps.readCurrent(cacheRoot, mapId, identity.repositoryRoot));
+		: await deps.measureStage("generation-read", async () => {
+			if (suppliedPrevious !== undefined && isMatchingSuppliedPrevious(suppliedPrevious, identity, mapId)) {
+				const currentGeneration = await deps.readCurrentId(cacheRoot, mapId);
+				if (currentGeneration === suppliedPrevious.generation.metadata.generation) return suppliedPrevious.generation;
+			}
+			return await deps.readCurrent(cacheRoot, mapId, identity.repositoryRoot);
+		});
 	const maxFiles = Math.min(config.scan.max_files, fileToolsConfig.limits.grep_max_files_scanned);
 	const maxFileBytes = Math.min(config.scan.max_file_bytes, fileToolsConfig.limits.grep_max_file_bytes);
 	const workspace = await deps.openWorkspace(identity.repositoryRoot, fileToolsConfig.filesystem, input.signal);
@@ -186,6 +208,7 @@ async function initializeRepoMapLocked(
 				diagnostics: previous.metadata.diagnosticCount,
 			},
 			reusedGeneration: true,
+			generation: previous,
 		};
 	}
 	safeProgress(input.onProgress, { phase: "parsing", completed: 0, total: scan.summary.indexed });
@@ -340,7 +363,21 @@ async function initializeRepoMapLocked(
 		metadata: committed.generation.metadata,
 		summary,
 		reusedGeneration: committed.reused,
+		generation: committed.generation,
 	};
+}
+
+function isMatchingSuppliedPrevious(
+	supplied: SuppliedPreviousGeneration,
+	identity: RepositoryIdentity,
+	mapId: string,
+): boolean {
+	const { activation, generation } = supplied;
+	return activation.root === identity.repositoryRoot
+		&& activation.mapId === mapId
+		&& activation.generation === generation.metadata.generation
+		&& generation.metadata.repositoryRoot === identity.repositoryRoot
+		&& generation.metadata.mapId === mapId;
 }
 
 function canReusePreviousGeneration(
@@ -409,15 +446,22 @@ export async function readActivatedRepoMapState(
 
 export interface RefreshActivatedRepoMapInput {
 	activation: RepoMapActivation;
+	previous?: RepoMapGeneration;
 	signal?: AbortSignal;
 }
 
 /** mutation 后刷新；initializeRepoMap 统一按 map 串行所有本进程内构建。 */
-export async function refreshActivatedRepoMap(input: RefreshActivatedRepoMapInput): Promise<InitializeRepoMapResult> {
-	return await initializeRepoMap({
+export async function refreshActivatedRepoMap(
+	input: RefreshActivatedRepoMapInput,
+	dependencies: Partial<RepoMapServiceDependencies> = {},
+): Promise<InitializeRepoMapResult> {
+	return await initializeRepoMapWithPrevious({
 		cwd: input.activation.root,
 		mode: "refresh",
 		...(input.signal !== undefined ? { signal: input.signal } : {}),
+	}, dependencies, input.previous === undefined ? undefined : {
+		activation: input.activation,
+		generation: input.previous,
 	});
 }
 

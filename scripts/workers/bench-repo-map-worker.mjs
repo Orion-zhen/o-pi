@@ -204,11 +204,8 @@ function benchmarkQuery({ service, queryModule, impactModule, dependencies, trac
 	return queryModule.createRepoMapFileToolQuery(() => branch, {
 		readActivated: async (activation) => await tracker.measure("generation-read", async () =>
 			await service.readActivatedRepoMap(activation, cacheRoot)),
-		refresh: async (input) => await tracker.measure("refresh", async () => await service.initializeRepoMap({
-			cwd: input.activation.root,
-			mode: "refresh",
-			...(input.signal === undefined ? {} : { signal: input.signal }),
-		}, dependencies)),
+		refresh: async (input) => await tracker.measure("refresh", async () =>
+			await service.refreshActivatedRepoMap(input, dependencies)),
 		analyzeImpact(input) {
 			return tracker.measureSync("impact", () => impactModule.analyzeRepoMapImpact(input));
 		},
