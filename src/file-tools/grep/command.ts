@@ -317,9 +317,7 @@ function validateGrepParams(params: GrepParams): ToolOutcome<NormalizedGrepParam
 }
 
 function mergeScopeRegions(regions: RankedGrepRegion[]): RankedGrepRegion[] {
-	let merged: RankedGrepRegion[] = [];
-	for (const region of regions) merged = mergeRankedGrepSources(merged, [region]);
-	return merged.sort(compareRankedGrepRegions);
+	return mergeRankedGrepSources([], regions).sort(compareRankedGrepRegions);
 }
 
 function mergeGrepRelated(results: GrepRelatedResult[]): GrepRelatedResult[] {
