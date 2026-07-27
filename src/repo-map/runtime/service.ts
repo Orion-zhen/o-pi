@@ -160,8 +160,8 @@ async function initializeRepoMapLocked(
 			}
 			return await deps.readCurrent(cacheRoot, mapId, identity.repositoryRoot);
 		});
-	const maxFiles = Math.min(config.scan.max_files, fileToolsConfig.limits.grep_max_files_scanned);
-	const maxFileBytes = Math.min(config.scan.max_file_bytes, fileToolsConfig.limits.grep_max_file_bytes);
+	const maxFiles = config.scan.max_files;
+	const maxFileBytes = config.scan.max_file_bytes;
 	const workspace = await deps.openWorkspace(identity.repositoryRoot, fileToolsConfig.filesystem, input.signal);
 	let scan: RepoMapScanResult;
 	let ignoreFingerprint: string;
@@ -477,7 +477,7 @@ export function combinedConfigFingerprint(repoMapConfig: RepoMapConfig, fileTool
 	return createHash("sha256")
 		.update(repoMapConfigFingerprint(repoMapConfig))
 		.update("\0")
-		.update(JSON.stringify(fileToolsConfig))
+		.update(JSON.stringify(fileToolsConfig.filesystem))
 		.digest("hex");
 }
 

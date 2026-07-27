@@ -16,7 +16,7 @@
 - `query`：文本、symbol、qualified symbol、显式正则或自然语言代码意图。
 - `path`：非空目录或普通文件 scope 数组，默认 `["."]`。多个 scope 是 OR/union。
 - `match`：`auto`、`literal` 或 `regex`，默认 `auto`。
-- `glob`：相对每个 path 的候选文件 glob，只进一步缩小范围。
+- `glob`：相对每个 path 的候选文件 glob，只进一步缩小范围；不含 `/` 时递归匹配 basename，含 `/` 时匹配 scope-relative path。
 - 相对路径按 `cwd` 解析；目录递归检索，文件只检索该文件。
 - `path: []` 和空元素非法。
 
@@ -43,7 +43,7 @@
 
 ### `regex`
 
-执行显式正则搜索。无效正则返回 `INVALID_REGEX`，不会伪装成零结果。
+对每个 logical line 独立执行显式正则搜索，不支持跨行。无效正则返回 `INVALID_REGEX`，不会伪装成零结果。
 
 ## 成功输出
 
@@ -79,28 +79,27 @@ C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 Tree-sit
 
 每次 invocation 使用 host 已绑定的不可变 visibility snapshot。默认目录遍历使用 `index` intent；显式 path 指向 soft ignored 文件或目录时，允许在该路径内检索。普通 dotfile 可检索，blocked path 不可检索；递归不跟随 child symlink，明确 file/dir symlink root 可以解析后检索。
 
-`literal` / `regex` 先逐行预筛全部合规候选，只对真实命中文件运行 Tree-sitter，不受语义候选上限影响。
+检索先建立 `ScopeInventory`：按输入顺序逐 scope 发现文件，应用 visibility 与 glob，再按 filesystem canonical identity 去重。glob 的静态目录前缀用于剪枝 traversal；前缀不存在表示该 scope 零匹配，不误报 scope 不存在。父 scope 不删除显式子 scope，因此 soft ignored 子目录仍可由显式 scope 补回。
 
-候选文件数不超过 `grep_max_semantic_files` 时，`auto` 构建完整语义索引。超过时启用语义预筛，根据 exact phrase、查询词覆盖、路径覆盖和 declaration 优先级选择高相关文件，并显式标记 `truncated`。大于 `grep_max_semantic_parse_bytes` 的候选保留文本召回，但不进入可能耗时过长的语法解析。
-
-文本 fallback 只统计 query 所需 token，并在首次真实命中时构建 UTF-8 行索引。缓存 AST 仍须经过当前 query 的预筛和统一 Top-K，不能绕过语义候选上限。
+所有 scope 共享 `grep_max_entries_traversed`。正文事实扫描使用独立的 `grep_max_text_bytes_scanned` 和 `grep_max_text_file_bytes`；语法增强只受 `grep_max_files_parsed` 与 `grep_max_parse_file_bytes` 约束，不能删除已验证文本命中。
 
 LSP symbol 与 Repo Map graph ports 可以并行执行；它们只返回 grep-owned DTO。每个 external candidate 都必须命中 filesystem allowed ref，并通过 scope、visibility、glob、live text/range/hash 和预算 gate；related edge 的文件 hash 也在当前调用复核。Tree-sitter/text、LSP 和 Repo Map 的职责与融合规则见 [排序证据](ranking-evidence.md)。
 
 ## Scope、跳过和截断
 
-多个 scope 合并为一个全局结果，按稳定 region key 去重。所有 scope 共享区域数量、扫描文件数和模型 token 预算。
+多个 scope 合并为一个全局结果，先按文件 canonical identity、再按稳定 region key 去重。所有 scope 共享 traversal、文本字节、区域数量和模型 token 预算。
 
 至少一个 scope 成功时保留有效区域，并在 `details.scope_errors` 及模型输出中标注失败 scope；所有 scope 失败时返回结构化错误。
 
 二进制、非法 UTF-8、超大文件和局部权限失败在递归检索中计入 `skipped_files`；显式检索单个文件时返回对应错误。
 
-输出限制可能同时包含：
+输出限制通过 `truncated_by` 分别标记：
 
-- 扫描文件被限制；
-- 语义候选被限制；
-- 返回 region 被限制；
-- 模型文本被 token budget 降级。
+- `traversal_limit`；
+- `text_byte_limit`；
+- `semantic_candidate_limit`；
+- `result_limit`；
+- `token_budget`。
 
 限制由 [配置](configuration.md) 控制，不作为工具参数暴露。line stream、traversal、index build、parser 和 worker 都响应取消并释放 handle；共享 build 以 consumer 计数管理，只有最后消费者退出才取消底层构建。
 

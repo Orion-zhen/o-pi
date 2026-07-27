@@ -17,6 +17,7 @@ import { createQueryPlan, type QueryPlan, type RelationIntent } from "../../src/
 import { rankCodeRegions, selectRankedRegions, sourceContribution, summarizeEvidence } from "../../src/file-tools/grep/ranking.js";
 import { formatGraphAliasReason, graphNavigationRelation, graphRankingEvidence, isGraphMainCandidate, isGraphNavigationCandidate } from "../../src/file-tools/grep/graph-ranking.js";
 import { hydrateGrepSourceText } from "../../src/file-tools/grep/hydration.js";
+import { buildScopeInventory, createGlobPlan, type ScopeInventory } from "../../src/file-tools/grep/inventory.js";
 import type { GrepScopedFile } from "../../src/file-tools/grep/indexer.js";
 import { AbortGrepParse, GrepParser, GREP_CONCURRENCY, shouldOffloadGrepParsing } from "../../src/file-tools/grep/parser-pool.js";
 import type { GrepGraphCandidate, GrepGraphSource } from "../../src/file-tools/grep/ports.js";
@@ -63,8 +64,8 @@ async function writeConfig(configPath: string, limits: Record<string, number> = 
 				limits: {
 					grep_output_token_budget: 1600,
 					grep_result_limit: 8,
-					grep_max_file_bytes: 4096,
-					grep_max_files_scanned: 100000,
+					grep_max_text_file_bytes: 4096,
+					grep_max_entries_traversed: 100000,
 					...limits,
 				},
 			},
@@ -77,6 +78,34 @@ async function writeConfig(configPath: string, limits: Record<string, number> = 
 function expectGrepSuccess(result: ToolOutcome<GrepSuccess>): GrepSuccess {
 	if (result.status === "failed") throw new Error(`grep failed: ${result.error.code}: ${result.error.message}`);
 	return result;
+}
+
+function expectInventorySuccess(result: ToolOutcome<ScopeInventory>): ScopeInventory {
+	if (isFailed(result)) throw new Error(`inventory failed: ${result.error.code}: ${result.error.message}`);
+	return result;
+}
+
+async function inventoryWorkspace(
+	params: { readonly paths: readonly string[]; readonly glob?: string },
+	maxEntriesTraversed = 100_000,
+	mapFilesystem: (filesystem: WorkspaceFileSystem) => WorkspaceFileSystem = (filesystem) => filesystem,
+): Promise<ToolOutcome<ScopeInventory>> {
+	const host = new FileToolsHost();
+	const opened = await host.open({ cwd: workspace, sessionId: "grep-inventory" });
+	if (isFailed(opened)) {
+		host.dispose();
+		return opened;
+	}
+	try {
+		return await buildScopeInventory(params, {
+			filesystem: mapFilesystem(opened.filesystem),
+			operation: opened.context,
+			maxEntriesTraversed,
+		});
+	} finally {
+		opened.dispose();
+		host.dispose();
+	}
 }
 
 function firstRegion(result: GrepSuccess) {
@@ -338,6 +367,192 @@ describe("grep QueryPlan 与纯排序", () => {
 		expect(forward.map((item) => item.id)).toEqual(["best-b", "best-a", "weak-tier"]);
 		expect(reverse.map((item) => item.id)).toEqual(forward.map((item) => item.id));
 		expect(selectRankedRegions(forward, 2).map((item) => item.tier)).toEqual([2, 2]);
+	});
+});
+
+describe("grep ScopeInventory", () => {
+	it.each([
+		["/src/*.ts"],
+		["../src/*.ts"],
+		["src/../*.ts"],
+		["C:/src/*.ts"],
+		["src/\0*.ts"],
+	] as const)("拒绝越出 scope 的 glob：%s", (glob) => {
+		expect(createGlobPlan(glob)).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
+	});
+
+	it("无斜杠 glob 递归匹配 basename，结果按 traversal 稳定排序且不读取正文", async () => {
+		await mkdir(path.join(workspace, "src", "deep"), { recursive: true });
+		await mkdir(path.join(workspace, "docs"), { recursive: true });
+		await writeFile(path.join(workspace, "src", "a.ts"), "a");
+		await writeFile(path.join(workspace, "src", "deep", "b.ts"), "b");
+		await writeFile(path.join(workspace, "docs", "c.ts"), "c");
+		await writeFile(path.join(workspace, "src", "deep", "skip.js"), "skip");
+		let contentReads = 0;
+		const result = expectInventorySuccess(await inventoryWorkspace({ paths: ["."], glob: "*.ts" }, 100, (filesystem) => ({
+			...filesystem,
+			content: {
+				readBytes: async (...args) => { contentReads += 1; return await filesystem.content.readBytes(...args); },
+				readText: async (...args) => { contentReads += 1; return await filesystem.content.readText(...args); },
+				decodeText: filesystem.content.decodeText.bind(filesystem.content),
+				sliceText: (...args) => { contentReads += 1; return filesystem.content.sliceText(...args); },
+				scanLines: async (...args) => { contentReads += 1; return await filesystem.content.scanLines(...args); },
+			},
+		})));
+
+		expect(result.files.map((file) => file.path)).toEqual(["docs/c.ts", "src/a.ts", "src/deep/b.ts"]);
+		expect(result.files.map((file) => file.scopeRelativePath)).toEqual(["docs/c.ts", "src/a.ts", "src/deep/b.ts"]);
+		expect(contentReads).toBe(0);
+		expect(result.truncationReasons).toEqual([]);
+	});
+
+	it("带斜杠 glob 相对 scope 匹配并从静态目录前缀开始 traversal", async () => {
+		await mkdir(path.join(workspace, "src", "deep"), { recursive: true });
+		await mkdir(path.join(workspace, "other"), { recursive: true });
+		await writeFile(path.join(workspace, "src", "a.ts"), "a");
+		await writeFile(path.join(workspace, "src", "deep", "b.ts"), "b");
+		await writeFile(path.join(workspace, "other", "c.ts"), "c");
+		const starts: string[] = [];
+		const result = expectInventorySuccess(await inventoryWorkspace({ paths: ["."], glob: "src/**/*.ts" }, 100, (filesystem) => ({
+			...filesystem,
+			traversal: {
+				async walk(root, options, context) {
+					starts.push(root.displayPath);
+					return await filesystem.traversal.walk(root, options, context);
+				},
+			},
+		})));
+
+		expect(starts).toEqual(["src"]);
+		expect(result.files.map((file) => file.path)).toEqual(["src/a.ts", "src/deep/b.ts"]);
+	});
+
+	it("不存在的静态前缀表示 scope 内零匹配，不产生 scope error", async () => {
+		await writeFile(path.join(workspace, "a.ts"), "a");
+		let traversals = 0;
+		const result = expectInventorySuccess(await inventoryWorkspace({ paths: ["."], glob: "missing/**/*.ts" }, 100, (filesystem) => ({
+			...filesystem,
+			traversal: {
+				async walk(root, options, context) {
+					traversals += 1;
+					return await filesystem.traversal.walk(root, options, context);
+				},
+			},
+		})));
+		expect(result.files).toEqual([]);
+		expect(result.scopeErrors).toEqual([]);
+		expect(result.traversedEntries).toBe(0);
+		expect(traversals).toBe(0);
+	});
+
+	it("文件 scope 仅以 basename 判断 glob，且 glob 不扩大 scope", async () => {
+		await mkdir(path.join(workspace, "src"), { recursive: true });
+		await writeFile(path.join(workspace, "src", "a.ts"), "a");
+		expect(expectInventorySuccess(await inventoryWorkspace({ paths: ["src/a.ts"], glob: "*.ts" })).files)
+			.toEqual([expect.objectContaining({ path: "src/a.ts", scopeRelativePath: "a.ts", explicitFile: true })]);
+		expect(expectInventorySuccess(await inventoryWorkspace({ paths: ["src/a.ts"], glob: "src/*.ts" })).files).toEqual([]);
+	});
+
+	it("显式 symlink 文件 scope 可跟随最终目标，自动 traversal 不跟随且 canonical identity 去重", async () => {
+		await writeFile(path.join(workspace, "real.ts"), "real");
+		await symlink("real.ts", path.join(workspace, "alias.ts"));
+		const explicit = expectInventorySuccess(await inventoryWorkspace({ paths: ["alias.ts", "real.ts"] }));
+		expect(explicit.files.map((file) => file.path)).toEqual(["alias.ts"]);
+		const discovered = expectInventorySuccess(await inventoryWorkspace({ paths: ["."] }));
+		expect(discovered.files.map((file) => file.path)).toEqual(["real.ts"]);
+	});
+
+	it("glob 前缀剪枝保留显式 ignored root 的 visibility bypass", async () => {
+		const configPath = path.join(outside, "ignored-prefix-inventory.jsonc");
+		await writeFile(configPath, JSON.stringify({
+			blocked_path: [".git/"],
+			ignored_path: ["ignored/"],
+			ignore: { builtin_profile: "none", gitignore: false },
+		}));
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await mkdir(path.join(workspace, "ignored", "deep"), { recursive: true });
+		await writeFile(path.join(workspace, "ignored", "deep", "explicit.ts"), "ignored");
+		const result = expectInventorySuccess(await inventoryWorkspace({ paths: ["ignored"], glob: "deep/*.ts" }));
+		expect(result.files).toEqual([expect.objectContaining({ path: "ignored/deep/explicit.ts", visibilityBypass: true })]);
+	});
+
+	it("逐 scope 发现后按 canonical identity 去重，显式 ignored 子 scope 可补回文件", async () => {
+		const configPath = path.join(outside, "ignored-inventory.jsonc");
+		await writeFile(configPath, JSON.stringify({
+			blocked_path: [".git/"],
+			ignored_path: ["ignored/"],
+			ignore: { builtin_profile: "none", gitignore: false },
+		}));
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await mkdir(path.join(workspace, "src"), { recursive: true });
+		await mkdir(path.join(workspace, "ignored"), { recursive: true });
+		await writeFile(path.join(workspace, "src", "visible.ts"), "visible");
+		await writeFile(path.join(workspace, "ignored", "explicit.ts"), "ignored");
+
+		const result = expectInventorySuccess(await inventoryWorkspace({ paths: [".", "src", "ignored"] }));
+		expect(result.files.map((file) => file.path)).toEqual(["src/visible.ts", "ignored/explicit.ts"]);
+		expect(result.files[0]).toMatchObject({ scopeOrder: 0, visibilityBypass: false });
+		expect(result.files[1]).toMatchObject({ scopeOrder: 2, visibilityBypass: true });
+		expect(new Set(result.files.map((file) => file.canonicalIdentity)).size).toBe(result.files.length);
+	});
+
+	it("多个 scope 共享 traversal budget；不匹配文件只消耗 traversal entries", async () => {
+		for (let index = 0; index < 5; index += 1) await writeFile(path.join(workspace, `a-${index}.txt`), "skip");
+		await writeFile(path.join(workspace, "z-target.txt"), "needle");
+		const limited = expectInventorySuccess(await inventoryWorkspace({ paths: [".", "."], glob: "z-*.txt" }, 3));
+		expect(limited.files).toEqual([]);
+		expect(limited.traversedEntries).toBe(3);
+		expect(limited.truncationReasons).toEqual(["traversal_limit"]);
+		const complete = expectInventorySuccess(await inventoryWorkspace({ paths: ["."], glob: "z-*.txt" }, 10));
+		expect(complete.files.map((file) => file.path)).toEqual(["z-target.txt"]);
+		expect(complete.truncationReasons).toEqual([]);
+	});
+
+	it("保留 scope union 的成功结果和 blocked/missing 部分错误", async () => {
+		await mkdir(path.join(workspace, ".git"), { recursive: true });
+		await mkdir(path.join(workspace, "src"), { recursive: true });
+		await writeFile(path.join(workspace, ".git", "secret.ts"), "secret");
+		await writeFile(path.join(workspace, "src", "ok.ts"), "ok");
+		const result = expectInventorySuccess(await inventoryWorkspace({ paths: [".git", "missing", "src"] }));
+		expect(result.files.map((file) => file.path)).toEqual(["src/ok.ts"]);
+		expect(result.scopeErrors.map((error) => [error.path, error.error.code])).toEqual([
+			[".git", "PROTECTED_PATH"],
+			["missing", "PATH_NOT_FOUND"],
+		]);
+		const failed = await inventoryWorkspace({ paths: [".git", "missing"] });
+		expect(failed).toMatchObject({
+			status: "failed",
+			error: { code: "PROTECTED_PATH", details: { scope_errors: expect.arrayContaining([
+				expect.objectContaining({ path: ".git" }),
+				expect.objectContaining({ path: "missing" }),
+			]) } },
+		});
+	});
+
+	it("相同 visibility snapshot 的重复 inventory 文件集合和顺序一致", async () => {
+		await mkdir(path.join(workspace, "src"), { recursive: true });
+		await writeFile(path.join(workspace, "src", "b.ts"), "b");
+		await writeFile(path.join(workspace, "src", "a.ts"), "a");
+		const host = new FileToolsHost();
+		const opened = await host.open({ cwd: workspace, sessionId: "grep-inventory-stability" });
+		if (isFailed(opened)) throw new Error(opened.error.message);
+		try {
+			const input = { paths: [".", "src"], glob: "*.ts" } as const;
+			const context = { filesystem: opened.filesystem, operation: opened.context, maxEntriesTraversed: 100_000 };
+			const first = expectInventorySuccess(await buildScopeInventory(input, context));
+			const second = expectInventorySuccess(await buildScopeInventory(input, context));
+			const snapshot = (inventory: ScopeInventory) => inventory.files.map((file) => ({
+				path: file.path,
+				identity: file.canonicalIdentity,
+				scopeOrder: file.scopeOrder,
+				relative: file.scopeRelativePath,
+				version: file.metadataVersion,
+			}));
+			expect(snapshot(second)).toEqual(snapshot(first));
+		} finally {
+			opened.dispose();
+			host.dispose();
+		}
 	});
 });
 
@@ -1337,7 +1552,7 @@ describe("grep", () => {
 
 	it("超大 auto scope 全量预筛后只解析最高相关候选，并显式标记语义截断", async () => {
 		const configPath = path.join(outside, "semantic-limit.jsonc");
-		await writeConfig(configPath, { grep_max_semantic_files: 4, grep_result_limit: 8 });
+		await writeConfig(configPath, { grep_max_files_parsed: 4, grep_result_limit: 8 });
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
 		for (let index = 0; index < 56; index += 1) {
 			await writeFile(path.join(workspace, `low-${index}.ts`), `export function low${index}() { return 'semantic loader'; }\n`);
@@ -1352,31 +1567,6 @@ describe("grep", () => {
 		expect(result.stats.searched_files).toBe(57);
 		expect(result.truncated_by.length).toBeGreaterThan(0);
 		expect(result.regions).toEqual(expect.arrayContaining([expect.objectContaining({ path: "target.ts", symbol: "retryPolicy" })]));
-	});
-
-	it("窄 glob 的不匹配文件也受实际文件访问上限约束", async () => {
-		for (let index = 0; index < 8; index += 1) {
-			await writeFile(path.join(workspace, `a-${index}.txt`), "unrelated\n");
-		}
-		await writeFile(path.join(workspace, "z-target.txt"), "needle\n");
-		const host = new FileToolsHost();
-		const tool = new GrepTool();
-		const opened = await host.open({ cwd: workspace, sessionId: "grep-file-budget" });
-		if (isFailed(opened)) throw new Error(opened.error.message);
-		try {
-			const result = expectGrepSuccess(await tool.execute({ query: "needle", match: "literal", glob: "z-*.txt" }, {
-				filesystem: opened.filesystem,
-				operation: opened.context,
-				limits: { ...opened.limits, grep_max_files_scanned: 3 },
-			}));
-			expect(result.stats.searched_files).toBe(3);
-			expect(result.truncated_by.length).toBeGreaterThan(0);
-			expect(result.regions).toEqual([]);
-		} finally {
-			tool.dispose();
-			opened.dispose();
-			host.dispose();
-		}
 	});
 
 	it("literal query miss 不作为永久缓存维度", async () => {
@@ -1418,7 +1608,7 @@ describe("grep", () => {
 
 	it("超大 scope 的 literal 不受语义候选上限影响", async () => {
 		const configPath = path.join(outside, "strict-no-semantic-limit.jsonc");
-		await writeConfig(configPath, { grep_max_semantic_files: 1 });
+		await writeConfig(configPath, { grep_max_files_parsed: 1 });
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
 		for (let index = 0; index < 52; index += 1) {
 			await writeFile(path.join(workspace, `filler-${index}.ts`), `export const filler${index} = ${index};\n`);
@@ -1433,7 +1623,7 @@ describe("grep", () => {
 
 	it("大语义文件跳过 Tree-sitter 但保留完整文本召回", async () => {
 		const configPath = path.join(outside, "semantic-parse-bytes.jsonc");
-		await writeConfig(configPath, { grep_max_semantic_files: 1, grep_max_semantic_parse_bytes: 1024 });
+		await writeConfig(configPath, { grep_max_files_parsed: 1, grep_max_parse_file_bytes: 1024 });
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
 		for (let index = 0; index < 48; index += 1) {
 			await writeFile(path.join(workspace, `small-${index}.ts`), `export const small${index} = ${index};\n`);
@@ -1476,7 +1666,7 @@ describe("grep", () => {
 			path: ["src/lib", "src", "src"],
 			match: "literal",
 		}));
-		expect(result.paths).toEqual(["src"]);
+		expect(result.paths).toEqual(["src/lib", "src"]);
 		expect(new Set(result.regions.map((region) => region.path)).size).toBe(result.regions.length);
 	});
 

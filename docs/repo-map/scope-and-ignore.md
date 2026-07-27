@@ -21,12 +21,7 @@ ignore 的完整优先级、反向规则、nested ignore、tracked set 和 expla
 
 ## 扫描限制
 
-Repo Map 同时受到两层限制：
-
-- `repo-map.jsonc` 的 `scan.max_files` 和 `scan.max_file_bytes`。
-- File Tools `limits.grep_max_files_scanned` 和 `limits.grep_max_file_bytes`。
-
-最终使用两者中更严格的值。超限文件会被计入 summary 或 diagnostics，不会被当作完整解析文件。
+Repo Map 使用 `repo-map.jsonc` 的 `scan.max_files` 和 `scan.max_file_bytes`。grep 的 traversal、文本扫描和解析预算只约束 grep 自身，不反向限制独立的 Repo Map 构建。超限文件会被计入 summary 或 diagnostics，不会被当作完整解析文件。
 
 ## 文件状态
 

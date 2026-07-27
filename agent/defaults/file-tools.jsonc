@@ -26,12 +26,13 @@
 		"find_output_token_budget": 1000,
 		"find_result_limit": 80,
 		"find_max_entries_scanned": 100000,
+		"grep_max_entries_traversed": 100000,
+		"grep_max_text_bytes_scanned": 268435456,
+		"grep_max_text_file_bytes": 104857600,
+		"grep_max_files_parsed": 1024,
+		"grep_max_parse_file_bytes": 262144,
 		"grep_output_token_budget": 4000,
-		"grep_result_limit": 24,
-		"grep_max_file_bytes": 1048576,
-		"grep_max_files_scanned": 100000,
-		"grep_max_semantic_files": 1024,
-		"grep_max_semantic_parse_bytes": 262144
+		"grep_result_limit": 24
 	},
 
 	"ignore": {

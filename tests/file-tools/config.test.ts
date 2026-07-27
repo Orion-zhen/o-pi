@@ -111,6 +111,41 @@ describe("file-tools config", () => {
 		expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
 	});
 
+	it("接受分阶段 grep 预算并拒绝旧 grep 字段", async () => {
+		const validPath = path.join(workspace, "grep-budgets.jsonc");
+		await writeFile(validPath, JSON.stringify({ limits: {
+			grep_max_entries_traversed: 1234,
+			grep_max_text_bytes_scanned: 8 * 1024 * 1024,
+			grep_max_text_file_bytes: 2 * 1024 * 1024,
+			grep_max_files_parsed: 42,
+			grep_max_parse_file_bytes: 128 * 1024,
+			grep_output_token_budget: 2000,
+			grep_result_limit: 12,
+		} }));
+		process.env.PI_FILE_TOOLS_CONFIG = validPath;
+		expect(await loadedConfig(workspace)).toMatchObject({ limits: {
+			grep_max_entries_traversed: 1234,
+			grep_max_text_bytes_scanned: 8 * 1024 * 1024,
+			grep_max_text_file_bytes: 2 * 1024 * 1024,
+			grep_max_files_parsed: 42,
+			grep_max_parse_file_bytes: 128 * 1024,
+			grep_output_token_budget: 2000,
+			grep_result_limit: 12,
+		} });
+
+		for (const field of [
+			"grep_max_file_bytes",
+			"grep_max_files_scanned",
+			"grep_max_semantic_files",
+			"grep_max_semantic_parse_bytes",
+		]) {
+			const invalidPath = path.join(workspace, `old-${field}.jsonc`);
+			await writeFile(invalidPath, JSON.stringify({ limits: { [field]: 1024 } }));
+			process.env.PI_FILE_TOOLS_CONFIG = invalidPath;
+			expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
+		}
+	});
+
 	it("合并项目配置但不允许项目关闭用户级 ignore 开关", async () => {
 		const userPath = path.join(workspace, "user.jsonc");
 		await writeFile(userPath, JSON.stringify({

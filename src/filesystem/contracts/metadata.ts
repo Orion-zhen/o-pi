@@ -3,6 +3,8 @@ import type { FsOperationContext, FsResult } from "./result.js";
 
 export interface FileMetadata {
 	readonly kind: ExistingPathKind;
+	/** Stable identity of one filesystem object when the backend can provide it. */
+	readonly identity?: string;
 	readonly sizeBytes: number;
 	readonly modifiedAtMs: number;
 	readonly version?: string;

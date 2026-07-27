@@ -47,8 +47,8 @@ export interface GrepCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
 	readonly limits: Pick<FileToolLimits,
-		"grep_output_token_budget" | "grep_result_limit" | "grep_max_file_bytes" | "grep_max_files_scanned"
-		| "grep_max_semantic_files" | "grep_max_semantic_parse_bytes">;
+		"grep_max_entries_traversed" | "grep_max_text_bytes_scanned" | "grep_max_text_file_bytes"
+		| "grep_max_files_parsed" | "grep_max_parse_file_bytes" | "grep_output_token_budget" | "grep_result_limit">;
 	readonly symbols?: GrepSymbolSource;
 	readonly graph?: GrepGraphSource;
 }
@@ -76,9 +76,8 @@ export class GrepTool {
 			if (isFailed(root)) scopeErrors.push({ path: input, error: root.error });
 			else if (!resolved.some((item) => item.root.displayPath === root.displayPath)) resolved.push({ root, input, order });
 		}
-		const effective = effectiveScopes(resolved, context.filesystem);
 		const successes: GrepScopeResult[] = [];
-		for (const scope of effective) {
+		for (const scope of resolved) {
 			if (isAborted(context.operation.signal)) return aborted(scope.root.displayPath);
 			const result = await this.grepScope(scope.root, validation, regex, context);
 			if (isFailed(result)) scopeErrors.push({ path: scope.input, error: result.error });
@@ -159,13 +158,13 @@ export class GrepTool {
 			context.limits.grep_result_limit * (validation.match === "auto" ? 10 : 4),
 		);
 		const candidatePaths = limitedUniquePaths(
-			[...symbolSourcePaths, ...graphSourcePaths].filter((path) => (filesByPath.get(path)?.size ?? Number.POSITIVE_INFINITY) <= context.limits.grep_max_file_bytes),
+			[...symbolSourcePaths, ...graphSourcePaths].filter((path) => (filesByPath.get(path)?.size ?? Number.POSITIVE_INFINITY) <= context.limits.grep_max_text_file_bytes),
 			symbolSourcePaths.length + graphSourcePaths.length,
 		);
 		const loadedCandidates = await hydrateGrepSourceText(sourceText, rankingContext.sourceHashes, filesByPath, candidatePaths, {
 			filesystem: context.filesystem,
 			operation: context.operation,
-			maxFileBytes: context.limits.grep_max_file_bytes,
+			maxFileBytes: context.limits.grep_max_text_file_bytes,
 		});
 		if (isFailed(loadedCandidates)) return loadedCandidates;
 		if (isAborted(context.operation.signal)) return aborted(root.displayPath);
@@ -178,7 +177,7 @@ export class GrepTool {
 			rankingContext.sourceHashes,
 			filesByPath,
 			hydrationPaths(regions, context.limits.grep_result_limit),
-			{ filesystem: context.filesystem, operation: context.operation, maxFileBytes: context.limits.grep_max_file_bytes },
+			{ filesystem: context.filesystem, operation: context.operation, maxFileBytes: context.limits.grep_max_text_file_bytes },
 		);
 		if (isFailed(hydrated)) return hydrated;
 		if (isAborted(context.operation.signal)) return aborted(root.displayPath);
@@ -216,14 +215,6 @@ async function resolveScope(input: string, context: GrepCommandContext): Promise
 		return fail("INVALID_PATH", "Path must be a regular file or directory.", { path: resolved.value.displayPath });
 	}
 	return resolved.value;
-}
-
-function effectiveScopes(
-	scopes: readonly { root: ExistingRef; input: string; order: number }[],
-	filesystem: WorkspaceFileSystem,
-): Array<{ root: ExistingRef; input: string; order: number }> {
-	return scopes.filter((scope, index) => !scopes.some((parent, parentIndex) =>
-		parentIndex !== index && parent.root.kind === "directory" && filesystem.paths.isWithin(parent.root, scope.root)));
 }
 
 function mergeScopeSuccesses(
