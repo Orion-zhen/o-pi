@@ -4,113 +4,235 @@ import { measureOperation } from "./benchmark/runtime.mjs";
 import { row as summaryRow } from "./benchmark/stats.mjs";
 
 const loadTypeScript = createTypeScriptLoader({ moduleCache: true });
-const { compareRankedGrepRegions, fuseRankedGrepSources, mergeRankedGrepSources, selectRankedGrepCandidates } = await loadTypeScript("src/file-tools/grep/fusion.ts");
-const { compareRankedFindEntries, fuseRankedFindSources, mergeRankedFindSources, selectRankedFindEntries } = await loadTypeScript("src/file-tools/find/fusion.ts");
-const { createFindEntry } = await loadTypeScript("src/file-tools/find/ranker.ts");
-const { createSourceRankingEvidence, mergeRankingEvidence } = await loadTypeScript("src/file-tools/shared/ranking/evidence.ts");
-const { MMR_LAMBDA, RELEVANCE_HEAD_SIZE, SAME_TIER_SCORE_RATIO_CUTOFF } = await loadTypeScript("src/file-tools/shared/ranking/selection.ts");
-const { renderFindResults } = await loadTypeScript("src/file-tools/find/renderer.ts");
+const {
+	GREP_MMR_LAMBDA,
+	GREP_RELEVANCE_HEAD_SIZE,
+	GREP_SIMILARITY_WINDOW,
+	assignSourceLocalRanks,
+	compareRankedRegions,
+	rankCodeRegions,
+	selectRankedRegions,
+	sourceContribution,
+	summarizeEvidence,
+} = await loadTypeScript("src/file-tools/grep/ranking.ts");
+const { createQueryPlan } = await loadTypeScript("src/file-tools/grep/query-plan.ts");
 const runs = readRuns(process.argv.slice(2), { defaultRuns: 15 });
 const sizes = [1_000, 5_000, 20_000];
 const rows = [];
 
-validateFixedRelevanceScenarios();
+validateFixedScenarios();
 
+const plan = queryPlan("login");
 for (const size of sizes) {
-	const sources = buildSources(size);
-	const merged = mergeRankedGrepSources(...sources);
-	const unsorted = permute(merged);
-	const limit = 32;
-	const expected = referenceHeadMmr(unsorted, limit, compareRankedGrepRegions, (item) => item.tier, (item) => item.evidence.fusionScore, (item) => item.evidence.familyCount >= 2, (item) => item.id, grepSimilarity);
-	const selected = selectRankedGrepCandidates(unsorted, limit);
-	if (selected.length !== limit || merged.length < size) throw new Error("ranking benchmark fixture is invalid");
-	if (selected.some((item, index) => item !== expected[index])) {
-		throw new Error("grep selector changed the reference head+MMR result");
-	}
-	rows.push(row(`fusion + full sort N=${size}`, sample(() => mergeRankedGrepSources(...sources))));
-	rows.push(row(`fusion + head+MMR top-32 N=${size}`, sample(() => selectRankedGrepCandidates(fuseGrepSources(sources), limit))));
-	rows.push(row(`full sort only N=${merged.length}`, sample(() => [...unsorted].sort(compareRankedGrepRegions))));
-	rows.push(row(`head+MMR top-32 N=${merged.length}`, sample(() => selectRankedGrepCandidates(unsorted, limit))));
+	const candidates = buildCandidates(size);
+	const ranked = rankCodeRegions(plan, candidates);
+	const permuted = permute(candidates);
+	const permutedRanked = rankCodeRegions(plan, permuted);
+	if (ranked.length !== candidates.length) throw new Error(`ranking fixture dropped candidates for N=${size}`);
+	if (!sameIds(ranked, permutedRanked)) throw new Error(`ranking depends on insertion order for N=${size}`);
 
-	const findSources = buildFindSources(size);
-	const mergedFind = mergeRankedFindSources(...findSources);
-	const unsortedFind = permute(mergedFind);
-	const findLimit = 50;
-	const expectedFind = referenceHeadMmr(unsortedFind, findLimit, compareRankedFindEntries, (item) => item.tier, (item) => item.evidence.fusionScore, (item) => item.evidence.familyCount >= 2, (item) => item.entry.path, findSimilarity);
-	const selectedFind = selectRankedFindEntries(unsortedFind, findLimit);
-	if (selectedFind.some((item, index) => item !== expectedFind[index])) throw new Error("bounded find selector changed the diverse top-K result");
-	rows.push(row(`find fusion + full sort N=${size}`, sample(() => mergeRankedFindSources(...findSources))));
-	rows.push(row(`find fusion + head+MMR top-50 N=${size}`, sample(() => selectRankedFindEntries(fuseFindSources(findSources), findLimit))));
-	rows.push(row(`find full sort only N=${mergedFind.length}`, sample(() => [...unsortedFind].sort(compareRankedFindEntries))));
-	rows.push(row(`find head+MMR top-50 N=${mergedFind.length}`, sample(() => selectRankedFindEntries(unsortedFind, findLimit))));
+	const limit = 32;
+	const expected = referenceSelection(ranked, limit);
+	const selected = selectRankedRegions(permutedRanked, limit);
+	if (!sameIds(selected, expected)) throw new Error(`selector changed the bounded reference result for N=${size}`);
+
+	rows.push(row(`adaptive rank N=${size}`, sample(() => rankCodeRegions(plan, candidates))));
+	rows.push(row(`tier MMR top-32 N=${size}`, sample(() => selectRankedRegions(ranked, limit))));
+	rows.push(row(`rank + select N=${size}`, sample(() => selectRankedRegions(rankCodeRegions(plan, permuted), limit))));
 }
 
-console.log(`file-tools multi-channel ranking benchmark (${runs} measured runs, 3 warmups; synthetic channels, 50% identity overlap)`);
+console.log(`grep query-adaptive ranking benchmark (${runs} measured runs, 3 warmups; bounded similarity window=${GREP_SIMILARITY_WINDOW})`);
 console.table(rows);
 
-function buildSources(size) {
-	const primary = Array.from({ length: size }, (_, index) => region("native", index, index, "lexical", size));
-	const channelSize = Math.max(1, Math.floor(size / 3));
-	const lsp = Array.from({ length: channelSize }, (_, index) => {
-		const identity = index % 2 === 0 ? index * 2 : size + index;
-		return region("lsp", index, identity, "semantic", channelSize);
+function buildCandidates(size) {
+	return Array.from({ length: size }, (_, index) => {
+		const profile = index % 5;
+		const source = profile === 0 ? "ast-symbol" : profile === 1 ? "lsp-symbol" : profile === 2 ? "text-literal" : profile === 3 ? "ast-lexical" : "text-lexical";
+		const signal = profile === 0 ? "exact_symbol_definition" : profile === 1 ? "direct_symbol" : profile === 2 ? "verified_text" : profile === 3 ? "lexical_high_coverage" : "lexical";
+		const role = index % 17 === 0 ? "test" : index % 19 === 0 ? "public_api" : index % 23 === 0 ? "config" : "definition";
+		const base = {
+			id: `candidate-${index}`,
+			path: `${role === "test" ? "tests" : role === "config" ? "config" : "src/group-" + (index % 64)}/file-${index % Math.max(128, Math.floor(size / 8))}.ts`,
+			startLine: index * 3 + 1,
+			endLine: index * 3 + 1 + index % 24,
+			startByte: index * 100,
+			endByte: index * 100 + 80,
+			kind: "function",
+			symbol: `symbol${index % 512}`,
+			roles: role === "definition" ? ["definition"] : ["definition", role],
+			signals: [signal],
+			evidence: [{ source, rank: index + 1, confidence: 1, reason: source }],
+			lane: "main",
+		};
+		if (source !== "text-literal") return { ...base, queryMatch: "semantic", matchLines: [] };
+		const hit = { path: base.path, line: base.startLine, byteStart: base.startByte, byteEnd: base.endByte, mode: "literal", lineText: "login", before: [], after: [] };
+		return { ...base, queryMatch: "verified", verifiedHits: [hit], matchLines: [hit.line] };
 	});
-	const repoMap = Array.from({ length: channelSize }, (_, index) => {
-		const identity = index % 2 === 0 ? index * 2 : size + channelSize + index;
-		return region("repo", index, identity, "structural", channelSize);
-	});
-	return [primary, lsp, repoMap];
 }
 
-function fuseGrepSources(sources) {
-	const [primary, lsp, repoMap] = sources;
-	return fuseRankedGrepSources(primary, lsp, repoMap);
+function validateFixedScenarios() {
+	for (const [query, expectedFirst] of [
+		["login", "exact"],
+		["AuthService.login", "qualified"],
+		["Error: connection reset by peer", "phrase"],
+		["where retry delays are calculated", "phrase"],
+		["callers of login", "caller"],
+	]) {
+		const candidates = query.startsWith("callers")
+			? [region("target", "target_definition", "ast-symbol", 1, ["definition"]), region("caller", "requested_relation", "ast-relation", 1, ["caller"])]
+			: query.includes("AuthService")
+				? [region("lexical", "lexical", "ast-lexical", 1), region("qualified", "exact_qualified_definition", "ast-symbol", 2)]
+				: query === "login"
+					? [region("lexical", "lexical", "ast-lexical", 1), region("exact", "exact_symbol_definition", "ast-symbol", 2)]
+					: [region("lexical", "lexical_high_coverage", "ast-lexical", 1), verifiedRegion("phrase", "verified_phrase", 2)];
+		const first = rankCodeRegions(queryPlan(query), candidates)[0]?.id;
+		if (first !== expectedFirst) throw new Error(`${query} tier boundary changed: expected ${expectedFirst}, got ${first}`);
+	}
+
+	const highRankSingle = summarizeEvidence("natural_language", [evidence("ast-lexical", 1)]);
+	const highRankConsensus = summarizeEvidence("natural_language", [evidence("ast-lexical", 2), evidence("lsp-symbol", 2)]);
+	const lowRankConsensus = summarizeEvidence("natural_language", [evidence("ast-lexical", 200), evidence("lsp-symbol", 200)]);
+	const duplicateFamily = summarizeEvidence("natural_language", [evidence("ast-lexical", 3), evidence("path", 1)]);
+	if (highRankConsensus.fusionScore <= highRankSingle.fusionScore || lowRankConsensus.fusionScore >= highRankSingle.fusionScore) {
+		throw new Error("family-max weighted RRF consensus boundary changed");
+	}
+	if (Math.abs(duplicateFamily.fusionScore - sourceContribution("natural_language", evidence("ast-lexical", 3))) > 1e-12) {
+		throw new Error("same-family evidence was counted more than once");
+	}
+	if (sourceContribution("relation", { ...evidence("repo-map-hop-1", 1), hop: 1 }) >= sourceContribution("relation", evidence("repo-map-hop-1", 1))) {
+		throw new Error("graph hop penalty changed");
+	}
+
+	const sourceValues = [
+		{ id: "low", source: "ast-symbol", quality: 1 },
+		{ id: "text", source: "text-literal", quality: 1 },
+		{ id: "high", source: "ast-symbol", quality: 2 },
+	];
+	const ranks = assignSourceLocalRanks(sourceValues, (value) => value.source, (left, right) => right.quality - left.quality || left.id.localeCompare(right.id));
+	if (ranks.get(sourceValues[2]) !== 1 || ranks.get(sourceValues[0]) !== 2 || ranks.get(sourceValues[1]) !== 1) {
+		throw new Error("source-local rank generation changed");
+	}
+
+	const diverse = Array.from({ length: 20 }, (_, index) => region(
+		`role-${index}`,
+		"exact_symbol_definition",
+		"ast-symbol",
+		index + 1,
+		index === 4 ? ["definition", "test"] : index === 5 ? ["definition", "public_api"] : index === 6 ? ["definition", "config"] : ["definition"],
+		index < 4 ? "src/login.ts" : `src/file-${index}.ts`,
+	));
+	const selected = selectRankedRegions(rankCodeRegions(queryPlan("login"), diverse), 7);
+	if (!sameIds(selected.slice(0, 3), diverse.slice(0, 3)) || !selected.some((candidate) => candidate.roles.includes("test"))) {
+		throw new Error("relevance head or role diversity changed");
+	}
 }
 
-function fuseFindSources(sources) {
-	const [primary, repoMap] = sources;
-	return fuseRankedFindSources(primary, repoMap);
+function referenceSelection(candidates, limit) {
+	const unique = new Map();
+	for (const candidate of candidates) {
+		const prior = unique.get(candidate.id);
+		if (prior === undefined || compareRankedRegions(candidate, prior) < 0) unique.set(candidate.id, candidate);
+	}
+	const ranked = [...unique.values()].sort(compareRankedRegions);
+	const target = Math.min(limit, ranked.length);
+	const headCount = Math.min(GREP_RELEVANCE_HEAD_SIZE, target);
+	const selected = ranked.slice(0, headCount);
+	const remaining = ranked.slice(headCount);
+	const relevance = new Map(ranked.map((candidate, index) => [candidate, 1 - index / Math.max(1, ranked.length - 1)]));
+	while (selected.length < target && remaining.length > 0) {
+		const tier = remaining[0].tier;
+		let tierEnd = 0;
+		while (remaining[tierEnd]?.tier === tier) tierEnd += 1;
+		const evaluated = Math.min(tierEnd, GREP_SIMILARITY_WINDOW);
+		let bestIndex = 0;
+		let bestUtility = -Infinity;
+		for (let index = 0; index < evaluated; index += 1) {
+			const candidateRelevance = relevance.get(remaining[index]) ?? 0;
+			const redundancy = Math.max(0, ...selected.map((chosen) => similarity(remaining[index], chosen)));
+			const utility = GREP_MMR_LAMBDA * candidateRelevance - (1 - GREP_MMR_LAMBDA) * redundancy;
+			if (utility > bestUtility) { bestUtility = utility; bestIndex = index; }
+		}
+		selected.push(remaining.splice(bestIndex, 1)[0]);
+	}
+	return selected;
 }
 
-function buildFindSources(size) {
-	const primary = Array.from({ length: size }, (_, index) => findCandidate(index, index, "lexical", size));
-	const channelSize = Math.max(1, Math.floor(size / 3));
-	const repoMap = Array.from({ length: channelSize }, (_, index) => {
-		const identity = index % 2 === 0 ? index * 2 : size + index;
-		return findCandidate(index, identity, "structural", channelSize);
-	});
-	return [primary, repoMap];
+function similarity(left, right) {
+	const samePath = left.path === right.path;
+	const leftSymbol = normalizeSymbol(left.qualifiedSymbol ?? left.symbol ?? "");
+	const rightSymbol = normalizeSymbol(right.qualifiedSymbol ?? right.symbol ?? "");
+	if (samePath && leftSymbol.length > 0 && leftSymbol === rightSymbol) return 1;
+	if (samePath && left.startLine <= right.endLine && right.startLine <= left.endLine) return 0.95;
+	if (leftSymbol.length > 0 && leftSymbol === rightSymbol) return 0.85;
+	const sameRole = primaryRole(left.roles) === primaryRole(right.roles);
+	if (samePath && sameRole) return 0.8;
+	if (samePath) return 0.65;
+	const sameComponent = topComponent(left.path) === topComponent(right.path);
+	if (sameRole && sameComponent) return 0.35;
+	if (sameRole) return 0.2;
+	return sameComponent ? 0.1 : 0;
 }
 
-function findCandidate(sourceIndex, identity, family, sourceSize) {
+function region(id, signal, source, rank, roles = ["definition"], path = `${id}.ts`) {
 	return {
-		entry: createFindEntry(`group-${identity % 64}/feature-${identity}.ts`, "file"),
-		tier: identity % 8,
-		evidence: createSourceRankingEvidence(findSource(family), sourceIndex + 1),
-	};
-}
-
-function region(source, sourceIndex, identity, family, sourceSize) {
-	const pathIndex = identity % Math.max(64, Math.floor(sourceSize / 4));
-	const startLine = identity * 3 + 1;
-	return {
-		id: `${source}:${identity}`,
-		path: `src/group-${pathIndex % 32}/file-${pathIndex}.ts`,
+		id,
+		path,
+		startLine: rank,
+		endLine: rank + 2,
+		startByte: rank * 10,
+		endByte: rank * 10 + 20,
 		kind: "function",
-		symbol: `symbol${identity}`,
-		startLine,
-		endLine: startLine + identity % 12,
-		startByte: startLine * 10,
-		endByte: startLine * 10 + 80,
-		tier: identity % 8,
-		evidence: createSourceRankingEvidence(grepSource(family), sourceIndex + 1),
-		reasons: [source],
-		matchLines: [startLine],
-		callees: [],
-		imports: [],
-		lexicalRelevance: 0,
-		pathRelevance: 0,
+		roles,
+		signals: [signal],
+		evidence: [evidence(source, rank)],
+		lane: "main",
+		queryMatch: "semantic",
+		matchLines: [],
 	};
+}
+
+function verifiedRegion(id, signal, rank) {
+	const path = `${id}.ts`;
+	const hit = { path, line: rank, byteStart: rank * 10, byteEnd: rank * 10 + 5, mode: "literal", lineText: id, before: [], after: [] };
+	return {
+		id,
+		path,
+		startLine: rank,
+		endLine: rank + 2,
+		startByte: rank * 10,
+		endByte: rank * 10 + 20,
+		kind: "function",
+		roles: ["occurrence"],
+		signals: [signal],
+		evidence: [evidence("text-literal", rank)],
+		lane: "main",
+		queryMatch: "verified",
+		verifiedHits: [hit],
+		matchLines: [rank],
+	};
+}
+
+function evidence(source, rank) {
+	return { source, rank, confidence: 1, reason: source };
+}
+
+function queryPlan(query) {
+	const result = createQueryPlan({ query });
+	if (result.status === "failed") throw new Error(result.error.message);
+	return result;
+}
+
+function primaryRole(roles) {
+	return ["caller", "callee", "reference", "test", "import", "registration", "public_api", "config", "definition", "occurrence", "text"].find((role) => roles.includes(role)) ?? "other";
+}
+
+function topComponent(value) {
+	const slash = value.indexOf("/");
+	return slash === -1 ? "." : value.slice(0, slash);
+}
+
+function normalizeSymbol(value) {
+	return value.trim().replace(/::|#/gu, ".").toLocaleLowerCase();
 }
 
 function permute(values) {
@@ -119,116 +241,8 @@ function permute(values) {
 	return result;
 }
 
-function referenceHeadMmr(candidates, limit, compare, tier, score, consensus, identity, similarity) {
-	const unique = new Map();
-	for (const candidate of candidates) {
-		const prior = unique.get(identity(candidate));
-		if (prior === undefined || compare(candidate, prior) < 0) unique.set(identity(candidate), candidate);
-	}
-	const ranked = [...unique.values()].sort(compare);
-	const best = new Map();
-	for (const candidate of ranked) if (!best.has(tier(candidate))) best.set(tier(candidate), score(candidate));
-	const eligible = ranked.filter((candidate) => (best.get(tier(candidate)) ?? 0) <= 0 || score(candidate) >= best.get(tier(candidate)) * SAME_TIER_SCORE_RATIO_CUTOFF || consensus(candidate));
-	const target = Math.min(limit, eligible.length);
-	const headSize = Math.min(RELEVANCE_HEAD_SIZE, target);
-	const selected = eligible.slice(0, headSize);
-	const remaining = eligible.slice(headSize);
-	const relevance = remaining.map((_candidate, index) => eligible.length <= 1 ? 1 : 1 - (index + headSize) / (eligible.length - 1));
-	while (selected.length < target && remaining.length > 0) {
-		const currentTier = tier(remaining[0]);
-		let bestIndex = -1;
-		let utility = -Infinity;
-		for (let index = 0; index < remaining.length && tier(remaining[index]) === currentTier; index += 1) {
-			const candidateRelevance = relevance[index];
-			if (MMR_LAMBDA * candidateRelevance <= utility) break;
-			const redundancy = Math.max(0, ...selected.map((chosen) => similarity(remaining[index], chosen)));
-			const next = MMR_LAMBDA * candidateRelevance - (1 - MMR_LAMBDA) * redundancy;
-			if (next > utility) { utility = next; bestIndex = index; }
-		}
-		selected.push(remaining.splice(bestIndex, 1)[0]);
-		relevance.splice(bestIndex, 1);
-	}
-	return [...selected.slice(0, headSize), ...selected.slice(headSize).sort(compare)];
-}
-
-function topDirectory(value) {
-	const slash = value.indexOf("/");
-	return slash === -1 ? "." : value.slice(0, slash);
-}
-
-function findSource(family) {
-	return family === "structural" ? "repo-map-direct" : "path";
-}
-
-function grepSource(family) {
-	if (family === "semantic") return "lsp-workspace-symbol";
-	if (family === "structural") return "ast-symbol";
-	return "text";
-}
-
-function findSimilarity(left, right) {
-	if (left.entry.path === right.entry.path) return 1;
-	const sameComponent = topDirectory(left.entry.path) === topDirectory(right.entry.path);
-	const sameKind = left.entry.kind === right.entry.kind;
-	if (left.entry.basename.toLowerCase() === right.entry.basename.toLowerCase() && sameKind) return 0.8;
-	if (sameComponent && sameKind) return 0.22;
-	return sameComponent ? 0.1 : 0;
-}
-
-function grepSimilarity(left, right) {
-	if (left.path === right.path && left.symbol?.toLowerCase() === right.symbol?.toLowerCase()
-		&& left.kind.toLowerCase() === right.kind.toLowerCase()) return 1;
-	if (left.symbol !== undefined && left.symbol.toLowerCase() === right.symbol?.toLowerCase()) return 0.92;
-	const samePath = left.path === right.path;
-	const sameRole = role(left) === role(right);
-	if (samePath && sameRole) return 0.8;
-	if (samePath) return 0.55;
-	const sameComponent = topDirectory(left.path) === topDirectory(right.path);
-	if (sameComponent && sameRole) return 0.25;
-	return sameComponent ? 0.1 : 0;
-}
-
-function role(candidate) {
-	return candidate.reasons.find((reason) => ["caller", "callee", "reference", "test", "registration"].includes(reason))
-		?? (candidate.reasons.some((reason) => reason.includes("symbol") || reason === "definition") ? "definition" : "text");
-}
-
-function validateFixedRelevanceScenarios() {
-	const dense = Array.from({ length: 5 }, (_, index) => ({
-		entry: createFindEntry(`src/auth/high-${index}.ts`, "file"), tier: 2, evidence: createSourceRankingEvidence("path", index + 1),
-	}));
-	dense.push({ entry: createFindEntry("other/low.ts", "file"), tier: 2, evidence: createSourceRankingEvidence("path", 40) });
-	const denseSelected = selectRankedFindEntries(dense, 3);
-	if (denseSelected.some((item, index) => item !== dense[index])) throw new Error("relevance head did not preserve dense top-3");
-
-	const consensus = mergeRankingEvidence(createSourceRankingEvidence("text", 2), createSourceRankingEvidence("lsp-workspace-symbol", 2));
-	const strongSingle = createSourceRankingEvidence("text", 1);
-	const weakConsensus = mergeRankingEvidence(createSourceRankingEvidence("text", 180), createSourceRankingEvidence("lsp-workspace-symbol", 180));
-	if (consensus.fusionScore <= strongSingle.fusionScore) throw new Error("high-rank independent consensus was not rewarded");
-	if (weakConsensus.fusionScore >= strongSingle.fusionScore) throw new Error("low-rank pseudo-consensus beat a source winner");
-
-	const hop0 = { ...region("repo", 0, 1, "structural", 2), tier: 3, evidence: createSourceRankingEvidence("repo-map-direct", 1) };
-	const hop1 = { ...region("repo", 0, 2, "structural", 2), tier: 6, evidence: createSourceRankingEvidence("repo-map-hop-1", 1) };
-	if (compareRankedGrepRegions(hop0, hop1) >= 0) throw new Error("graph hop crossed direct tier");
-
-	const roles = [
-		{ ...region("ast", 0, 10, "structural", 4), tier: 1, reasons: ["exact qualified symbol"] },
-		{ ...region("lsp", 1, 11, "semantic", 4), tier: 6, reasons: ["reference"] },
-		{ ...region("repo", 2, 12, "structural", 4), tier: 6, reasons: ["test"] },
-		{ ...region("repo", 3, 13, "structural", 4), tier: 5, reasons: ["registration"] },
-	];
-	if (selectRankedGrepCandidates(roles, 1)[0] !== roles[0]) throw new Error("exact symbol lost mixed-role top-1");
-
-	const rendered = renderFindResults({
-		query: "file", path: ".", strategy: "fuzzy", totalMatches: 25, totalFiles: 25, totalDirectories: 0,
-		scannedEntries: 25, matches: Array.from({ length: 25 }, (_, index) => ({ path: `${index < 12 ? "z" : "a"}/file-${index}.ts`, kind: "file" })),
-		ignoredCount: 0, skippedCount: 0, truncated: false, outputTokenBudget: 2000,
-	}).content;
-	const top = rendered.split("Other matches:")[0];
-	const ordered = Array.from({ length: 12 }, (_, index) => top.indexOf(`z/file-${index}.ts`));
-	if (ordered.some((position) => position < 0) || ordered.some((position, index) => index > 0 && position <= ordered[index - 1]) || top.includes("a/file-12.ts")) {
-		throw new Error("renderer changed selected relevance order");
-	}
+function sameIds(left, right) {
+	return left.length === right.length && left.every((value, index) => value.id === right[index]?.id);
 }
 
 function sample(operation) {

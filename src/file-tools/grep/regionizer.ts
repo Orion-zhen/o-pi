@@ -7,6 +7,7 @@ import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
 import { createVerifiedCodeRegion, type RegionEvidence, type TextHit, type VerifiedCodeRegion } from "./candidates.js";
 import type { ScopeInventory, ScopedFile } from "./inventory.js";
 import { AbortGrepParse, GrepParser } from "./parser-pool.js";
+import { assignSourceLocalRanks } from "./ranking.js";
 import type { GrepScopeError, GrepSkippedFiles, TruncationReason } from "./types.js";
 
 const AST_CACHE_MAX_ENTRIES = 2_048;
@@ -79,7 +80,7 @@ export class GrepRegionizer {
 			return fail("INVALID_OPERATION", "Parse limits must be non-negative safe integers.");
 		}
 		const files = hitFiles(inventory, hits);
-		const rankByHit = new Map(hits.map((hit, index) => [hit, index + 1]));
+		const rankByHit = textHitSourceRanks(hits);
 		const fallback = new Map<string, readonly [TextHit, ...TextHit[]]>();
 		const prepared: PreparedFile[] = [];
 		const scopeErrors: GrepScopeError[] = [];
@@ -176,7 +177,7 @@ export class GrepRegionizer {
 		}
 		const inventoryByPath = new Map(inventory.files.map((file) => [file.path, file]));
 		const hitsByPath = groupHits(hits);
-		const rankByHit = new Map(hits.map((hit, index) => [hit, index + 1]));
+		const rankByHit = textHitSourceRanks(hits);
 		const fallback = new Map<string, readonly [TextHit, ...TextHit[]]>();
 		for (const [path, grouped] of hitsByPath) fallback.set(path, asNonEmpty(grouped));
 		const prepared: PreparedFile[] = [];
@@ -436,6 +437,17 @@ function textRegions(
 		signals: ["verified_text_window"],
 		evidence: [textEvidence(hit, rankByHit)],
 	}, [hit]));
+}
+
+function textHitSourceRanks(hits: readonly TextHit[]): ReadonlyMap<TextHit, number> {
+	return assignSourceLocalRanks(
+		hits,
+		(hit) => hit.mode === "literal" ? "text-literal" : "text-regex",
+		(left, right) => compareStableString(left.path, right.path)
+			|| left.line - right.line
+			|| left.byteStart - right.byteStart
+			|| left.byteEnd - right.byteEnd,
+	);
 }
 
 function textEvidence(hit: TextHit, rankByHit: ReadonlyMap<TextHit, number>): RegionEvidence {

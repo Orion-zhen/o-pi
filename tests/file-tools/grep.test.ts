@@ -13,7 +13,7 @@ import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js"
 import { mergeRankedGrepSources } from "../../src/file-tools/grep/fusion.js";
 import { createSemanticCodeRegion, createVerifiedCodeRegion, type CandidateSignal, type CodeRegion, type RegionEvidence, type TextHit } from "../../src/file-tools/grep/candidates.js";
 import { createQueryPlan, type QueryPlan, type RelationIntent } from "../../src/file-tools/grep/query-plan.js";
-import { rankCodeRegions, selectRankedRegions, sourceContribution, summarizeEvidence } from "../../src/file-tools/grep/ranking.js";
+import { assignSourceLocalRanks, rankCodeRegions, selectRankedRegions, sourceContribution, summarizeEvidence } from "../../src/file-tools/grep/ranking.js";
 import { formatGraphAliasReason, graphNavigationRelation, graphRankingEvidence, isGraphMainCandidate, isGraphNavigationCandidate, type GrepGraphCandidate } from "../../src/file-tools/grep/graph-ranking.js";
 import { hydrateGrepSourceText } from "../../src/file-tools/grep/hydration.js";
 import { buildScopeInventory, createGlobPlan, type ScopeInventory } from "../../src/file-tools/grep/inventory.js";
@@ -160,6 +160,8 @@ function semanticRegion(input: {
 	path?: string;
 	startLine?: number;
 	endLine?: number;
+	symbol?: string;
+	qualifiedSymbol?: string;
 }): CodeRegion {
 	return createSemanticCodeRegion({
 		id: input.id,
@@ -169,6 +171,8 @@ function semanticRegion(input: {
 		startByte: 0,
 		endByte: 30,
 		kind: "function",
+		...(input.symbol === undefined ? {} : { symbol: input.symbol }),
+		...(input.qualifiedSymbol === undefined ? {} : { qualifiedSymbol: input.qualifiedSymbol }),
 		roles: input.roles ?? ["definition"],
 		signals: input.signals,
 		evidence: input.evidence,
@@ -368,6 +372,32 @@ describe("grep QueryPlan 与纯排序", () => {
 		expect(rankCodeRegions(queryPlan("needle", "literal"), [semantic, verified]).map((item) => item.id)).toEqual(["verified"]);
 	});
 
+	it("strict tier 优先命中符号、普通代码区域和文本窗口", () => {
+		const make = (id: string, signal: CandidateSignal, kind: string, symbol?: string): CodeRegion => {
+			const path = `${id}.ts`;
+			const hit: TextHit = { path, line: 2, byteStart: 10, byteEnd: 16, mode: "literal", lineText: "needle", before: [], after: [] };
+			return createVerifiedCodeRegion({
+				id,
+				path,
+				startLine: 1,
+				endLine: 3,
+				startByte: 0,
+				endByte: 30,
+				kind,
+				...(symbol === undefined ? {} : { symbol }),
+				roles: symbol === undefined ? ["occurrence"] : ["definition"],
+				signals: [signal],
+				evidence: [rankingEvidence("text-literal")],
+			}, [hit]);
+		};
+		const candidates = [
+			make("window", "verified_text_window", "text"),
+			make("region", "verified_enclosing_region", "function"),
+			make("symbol", "exact_symbol_definition", "function", "needle"),
+		];
+		expect(rankCodeRegions(queryPlan("needle", "literal"), candidates).map((item) => item.id)).toEqual(["symbol", "region", "window"]);
+	});
+
 	it("weighted RRF 奖励高排名和独立共识，同 family 不重复累加", () => {
 		const first = summarizeEvidence("natural_language", [rankingEvidence("ast-lexical", 1)]);
 		const weakConsensus = summarizeEvidence("natural_language", [rankingEvidence("ast-lexical", 200), rankingEvidence("lsp-symbol", 200)]);
@@ -386,15 +416,84 @@ describe("grep QueryPlan 与纯排序", () => {
 		expect(hop).toBeCloseTo(full * 0.7);
 	});
 
+	it("按来源独立生成稳定名次，不依赖候选插入顺序", () => {
+		const values = [
+			{ id: "ast-low", source: "ast-symbol" as const, quality: 1 },
+			{ id: "text", source: "text-literal" as const, quality: 4 },
+			{ id: "ast-high", source: "ast-symbol" as const, quality: 8 },
+		];
+		const compare = (left: typeof values[number], right: typeof values[number]) => right.quality - left.quality || left.id.localeCompare(right.id);
+		const forward = assignSourceLocalRanks(values, (value) => value.source, compare);
+		const reverseValues = [...values].reverse();
+		const reverse = assignSourceLocalRanks(reverseValues, (value) => value.source, compare);
+		expect(Object.fromEntries(values.map((value) => [value.id, forward.get(value)]))).toEqual({ "ast-low": 2, text: 1, "ast-high": 1 });
+		expect(Object.fromEntries(reverseValues.map((value) => [value.id, reverse.get(value)]))).toEqual({ "ast-high": 1, text: 1, "ast-low": 2 });
+	});
+
+	it("弱来源不能借用不满足事实条件的信号降低 tier", () => {
+		const forged = semanticRegion({ id: "forged", signals: ["verified_phrase"], evidence: [rankingEvidence("repo-map-direct")] });
+		const direct = semanticRegion({ id: "direct", signals: ["direct_symbol"], evidence: [rankingEvidence("repo-map-direct")] });
+		expect(rankCodeRegions(queryPlan("where retry delays are calculated"), [forged, direct]).map((item) => item.id)).toEqual(["direct"]);
+	});
+
+	it("稳定 tie-break 依次考虑 verified coverage、请求角色、区域大小和路径", () => {
+		const plan = queryPlan("login");
+		const compact = semanticRegion({ id: "compact", path: "z.ts", startLine: 1, endLine: 2, signals: ["direct_symbol"], evidence: [rankingEvidence("lsp-symbol")] });
+		const large = semanticRegion({ id: "large", path: "a.ts", startLine: 1, endLine: 20, signals: ["direct_symbol"], evidence: [rankingEvidence("lsp-symbol")] });
+		expect(rankCodeRegions(plan, [large, compact]).map((item) => item.id)).toEqual(["compact", "large"]);
+
+		const relationPlan = queryPlan("callers of login");
+		const requested = semanticRegion({ id: "requested", path: "z.ts", signals: ["requested_relation"], evidence: [rankingEvidence("lsp-reference")], roles: ["caller"] });
+		const definition = semanticRegion({ id: "definition", path: "a.ts", signals: ["requested_relation"], evidence: [rankingEvidence("lsp-reference")], roles: ["definition"] });
+		expect(rankCodeRegions(relationPlan, [definition, requested]).map((item) => item.id)).toEqual(["requested"]);
+	});
+
+	it("selection 保留 relevance head，并在尾部覆盖角色和文件", () => {
+		const roles: CodeRegion["roles"][] = [
+			["definition"], ["definition"], ["definition"], ["definition"],
+			["definition", "test"], ["definition", "public_api"], ["definition", "config"],
+			...Array.from({ length: 13 }, () => ["definition"] as const),
+		];
+		const candidates = roles.map((candidateRoles, index) => semanticRegion({
+			id: `candidate-${index}`,
+			path: index < 4 ? "src/login.ts" : index === 4 ? "tests/login.test.ts" : index === 5 ? "api/login.ts" : index === 6 ? "config/login.ts" : `src/other-${index}.ts`,
+			startLine: index + 1,
+			endLine: index + 1,
+			signals: ["exact_symbol_definition"],
+			evidence: [rankingEvidence("ast-symbol", index + 1)],
+			roles: candidateRoles,
+		}));
+		const selected = selectRankedRegions(rankCodeRegions(queryPlan("login"), candidates), 7);
+		expect(selected.slice(0, 3).map((item) => item.id)).toEqual(["candidate-0", "candidate-1", "candidate-2"]);
+		expect(new Set(selected.flatMap((item) => item.roles))).toEqual(new Set(["definition", "test", "public_api", "config"]));
+		expect(new Set(selected.map((item) => item.path)).size).toBeGreaterThan(3);
+	});
+
+	it("关系查询的 MMR 尾部优先覆盖不同文件", () => {
+		const candidates = Array.from({ length: 20 }, (_, index) => semanticRegion({
+			id: `caller-${index}`,
+			path: index < 4 ? "src/auth.ts" : `src/caller-${index}.ts`,
+			startLine: index + 1,
+			endLine: index + 1,
+			signals: ["requested_relation"],
+			evidence: [rankingEvidence("ast-relation", index + 1)],
+			roles: ["caller"],
+		}));
+		const selected = selectRankedRegions(rankCodeRegions(queryPlan("callers of login"), candidates), 4);
+		expect(selected.slice(0, 3).map((item) => item.id)).toEqual(["caller-0", "caller-1", "caller-2"]);
+		expect(selected[3]?.path).not.toBe("src/auth.ts");
+	});
+
 	it("融合分数和多样性不能跨越 tier，稳定键不依赖输入顺序", () => {
-		const bestA = semanticRegion({ id: "best-a", path: "b.ts", signals: ["exact_symbol_definition"], evidence: [] });
-		const bestB = semanticRegion({ id: "best-b", path: "a.ts", signals: ["exact_symbol_definition"], evidence: [], roles: ["definition"] });
+		const bestA = semanticRegion({ id: "best-a", path: "b.ts", signals: ["exact_symbol_definition"], evidence: [rankingEvidence("ast-symbol")] });
+		const bestB = semanticRegion({ id: "best-b", path: "a.ts", signals: ["exact_symbol_definition"], evidence: [rankingEvidence("ast-symbol")], roles: ["definition"] });
 		const weakTier = semanticRegion({ id: "weak-tier", signals: ["lexical"], evidence: [rankingEvidence("ast-lexical", 1), rankingEvidence("lsp-symbol", 1), rankingEvidence("repo-map-direct", 1)] });
 		const forward = rankCodeRegions(queryPlan("login"), [weakTier, bestA, bestB]);
 		const reverse = rankCodeRegions(queryPlan("login"), [bestB, bestA, weakTier]);
 		expect(forward.map((item) => item.id)).toEqual(["best-b", "best-a", "weak-tier"]);
 		expect(reverse.map((item) => item.id)).toEqual(forward.map((item) => item.id));
 		expect(selectRankedRegions(forward, 2).map((item) => item.tier)).toEqual([2, 2]);
+		expect(selectRankedRegions(reverse, 3).map((item) => item.id)).toEqual(selectRankedRegions(forward, 3).map((item) => item.id));
 	});
 });
 

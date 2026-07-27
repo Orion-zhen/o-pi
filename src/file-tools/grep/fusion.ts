@@ -41,6 +41,7 @@ export function selectRankedGrepCandidates(candidates: readonly RankedGrepRegion
 		consensus: (candidate) => candidate.evidence.familyCount >= 2,
 		identity: regionIdentity,
 		similarity: grepSimilarity,
+		applyScoreCutoff: false,
 	});
 }
 

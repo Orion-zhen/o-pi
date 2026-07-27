@@ -3,7 +3,7 @@ import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.j
 import { bindOperationContext } from "../../filesystem/operation-context.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
 import { fail, isFailed, type FailedResult, type ToolOutcome } from "../shared/result.js";
-import type { VerifiedCodeRegion } from "./candidates.js";
+import type { RankedRegion, VerifiedCodeRegion } from "./candidates.js";
 import { buildScopeInventory, type ScopeInventory } from "./inventory.js";
 import { buildLocalAutoResults, semanticParsePriority } from "./local.js";
 import {
@@ -14,6 +14,7 @@ import {
 } from "./external.js";
 import { packAutoResults, packVerifiedTextResults, renderGrepSuccess } from "./packer.js";
 import { GrepParser } from "./parser-pool.js";
+import { rankCodeRegions, selectRankedRegions } from "./ranking.js";
 import type { GrepGraphSource, GrepSymbolSource } from "./ports.js";
 import { createQueryPlan, type QueryPlan } from "./query-plan.js";
 import { GrepRegionizer, strictRegionContent } from "./regionizer.js";
@@ -107,7 +108,7 @@ export class GrepTool {
 			path: scope.paths[0] ?? ".",
 			paths: scope.paths,
 			...(scope.errors.length === 0 ? {} : { scopeErrors: scope.errors }),
-			totalCandidates: augmented.ranked.length,
+			totalCandidates: augmented.totalCandidates,
 			regions: augmented.ranked,
 			sourceText: augmented.sourceText,
 			snippets: augmented.snippets,
@@ -158,14 +159,16 @@ export class GrepTool {
 		});
 		if (isFailed(external)) return external;
 		const augmented = augmentStrictWithExternal(regionized.regions, external);
+		const allRanked = rankCodeRegions(plan, augmented.regions);
+		const ranked = selectRankedRegions(allRanked, context.limits.grep_result_limit).filter(isVerifiedRankedRegion);
 		return packVerifiedTextResults({
 			query: plan.query,
 			path: scope.paths[0] ?? ".",
 			paths: scope.paths,
 			...(scope.errors.length === 0 ? {} : { scopeErrors: scope.errors }),
 			match: strictMatch,
-			totalCandidates: augmented.regions.length,
-			regions: augmented.regions.map(strictPublicRegion),
+			totalCandidates: allRanked.length,
+			regions: ranked.map(strictPublicRegion),
 			related: augmented.related,
 			stats: grepStats(inventory, scanned.stats, regionized.parsedFiles, regionized.skipped),
 			truncationReasons: uniqueTruncationReasons([
@@ -219,6 +222,10 @@ function grepStats(
 		parsed_files: parsedFiles,
 		...(Object.keys(skipped).length === 0 ? {} : { skipped_files: skipped }),
 	};
+}
+
+function isVerifiedRankedRegion(region: RankedRegion): region is RankedRegion & VerifiedCodeRegion {
+	return region.queryMatch === "verified";
 }
 
 function strictPublicRegion(region: VerifiedCodeRegion): GrepRegion {

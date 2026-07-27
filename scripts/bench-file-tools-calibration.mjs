@@ -3,46 +3,31 @@ import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { loadTypeScript } from "./benchmark/loader.mjs";
+
+const root = process.cwd();
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "o-pi-ranking-calibration-"));
 process.env.PI_REPO_MAP_CACHE_DIR = path.join(temporaryRoot, "cache");
 
 const { initializeRepoMap, readActivatedRepoMap } = await loadTypeScript("src/repo-map/runtime/service.ts");
 const { RepoMapQueryIndex } = await loadTypeScript("src/repo-map/query/query.ts");
-const { FindTool } = await loadTypeScript("src/file-tools/find/command.ts");
 const { FileToolsHost } = await loadTypeScript("src/file-tools/runtime/host.ts");
-const { createFindGraphSource } = await loadTypeScript("src/file-tools/pi/adapters/find.ts");
-const { GrepTool } = await loadTypeScript("src/file-tools/grep/command.ts");
 const { createGrepGraphSource } = await loadTypeScript("src/file-tools/pi/adapters/grep.ts");
+const { GrepTool } = await loadTypeScript("src/file-tools/grep/command.ts");
 
-const findCases = [
-	{ query: "ranking evidence", relevant: ["src/file-tools/shared/ranking/evidence.ts"] },
-	{ query: "graph ranking", relevant: ["src/file-tools/find/graph-ranking.ts", "src/file-tools/grep/graph-ranking.ts"] },
-	{ query: "file tool query", relevant: ["src/repo-map/query/file-tool-query.ts"] },
-	{ query: "grep fusion", relevant: ["src/file-tools/grep/fusion.ts"] },
-	{ query: "file tools ranking", relevant: ["docs/file-tools/ranking.md", "docs/file-tools/ranking-evidence.md", "docs/file-tools/ranking-selection.md"] },
+const cases = [
+	{ kind: "identifier", query: "rankCodeRegions", path: "src", match: "auto", relevant: ["src/file-tools/grep/ranking.ts"] },
+	{ kind: "qualified", query: "GrepTool.execute", path: "src", match: "auto", relevant: ["src/file-tools/grep/command.ts"] },
+	{ kind: "error", query: "Parse limits must be non-negative safe integers.", path: "src", match: "auto", relevant: ["src/file-tools/grep/regionizer.ts"] },
+	{ kind: "natural", query: "source local ranks are assigned", path: "src/file-tools/grep", match: "auto", relevant: ["src/file-tools/grep/ranking.ts", "src/file-tools/grep/local.ts", "src/file-tools/grep/external.ts", "src/file-tools/grep/regionizer.ts"] },
+	{ kind: "caller", query: "callers of rankCodeRegions", path: "src/file-tools/grep", match: "auto", relevant: ["src/file-tools/grep/local.ts", "src/file-tools/grep/external.ts", "src/file-tools/grep/command.ts"] },
+	{ kind: "test", query: "tests for rankCodeRegions", path: "tests", match: "auto", relevant: ["tests/file-tools/grep.test.ts"] },
+	{ kind: "import", query: "where ranking is imported", path: "src/file-tools/grep", match: "auto", relevant: ["src/file-tools/grep/local.ts", "src/file-tools/grep/external.ts", "src/file-tools/grep/command.ts", "src/file-tools/grep/regionizer.ts"] },
+	{ kind: "literal", query: "not_guaranteed", path: "src/file-tools/grep", match: "literal", relevant: ["src/file-tools/grep/candidates.ts", "src/file-tools/grep/types.ts", "src/file-tools/grep/local.ts", "src/file-tools/grep/external.ts"] },
+	{ kind: "regex", query: "GREP_(?:RRF_K|SOURCE_WEIGHTS)", path: "src/file-tools/grep", match: "regex", relevant: ["src/file-tools/grep/ranking.ts"] },
 ];
 
-const grepCases = [
-	{ query: join("selectRelevance", "HeadMmr"), path: "src", match: "auto", relevant: ["src/file-tools/shared/ranking/selection.ts"] },
-	{ query: join("graphRanking", "Evidence"), path: "src", match: "auto", relevant: ["src/file-tools/find/graph-ranking.ts", "src/file-tools/grep/graph-ranking.ts"] },
-	{ query: join("locateRepoMap", "Unit"), path: "src", match: "auto", relevant: ["src/file-tools/grep/command.ts"] },
-	{ query: join("region", "Identity"), path: "src", match: "auto", relevant: ["src/file-tools/grep/fusion.ts"] },
-	{ query: join("createRepoMapFileTool", "Query"), path: "src", match: "auto", relevant: ["src/repo-map/query/file-tool-query.ts"] },
-	{
-		query: join("not_", "guaranteed"),
-		path: "src",
-		match: "literal",
-		relevant: ["src/file-tools/find/types.ts", "src/file-tools/find/guards.ts", "src/file-tools/find/command.ts", "src/file-tools/grep/packer.ts", "src/file-tools/grep/command.ts", "src/file-tools/grep/types.ts"],
-	},
-	{ query: join("RRF_", "K|MMR_", "LAMBDA"), path: "src", match: "regex", relevant: ["src/file-tools/shared/ranking/evidence.ts", "src/file-tools/shared/ranking/selection.ts"] },
-	{ query: join("callers of selectRelevance", "HeadMmr"), path: "src", match: "auto", relevant: ["src/file-tools/find/fusion.ts", "src/file-tools/grep/fusion.ts"] },
-	{ query: join("selectRelevanceHead", "Mmr tests"), path: "tests", match: "auto", relevant: ["tests/file-tools/ranking-selection.test.ts"] },
-];
-
-const findHost = new FileToolsHost();
-const findTool = new FindTool();
-const grepHost = new FileToolsHost();
-let grepTool = new GrepTool();
+const host = new FileToolsHost();
+const tool = new GrepTool();
 
 try {
 	const buildStarted = performance.now();
@@ -62,79 +47,62 @@ try {
 	};
 
 	const rows = [];
-	for (const calibration of findCases) {
+	for (const calibration of cases) {
 		const started = performance.now();
-		const opened = await findHost.open({ cwd: root, sessionId: "calibration-find" });
-		if (opened.status === "failed") throw new Error(`find host failed for ${calibration.query}: ${opened.error.message}`);
-		let result;
-		try {
-			result = await findTool.execute({ query: calibration.query }, {
-				filesystem: opened.filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-				graph: createFindGraphSource({ query: repoMap }, opened),
-			});
-		} finally {
-			opened.dispose();
-		}
-		if ("status" in result) throw new Error(`find failed for ${calibration.query}: ${result.error.message}`);
-		rows.push(calibrationRow("find", calibration, result.details.matches.map((match) => match.path), performance.now() - started));
-	}
-	for (const calibration of grepCases) {
-		grepTool.dispose();
-		grepTool = new GrepTool();
-		const started = performance.now();
-		const opened = await grepHost.open({ cwd: root, sessionId: "calibration-grep" });
+		const opened = await host.open({ cwd: root, sessionId: `calibration-${calibration.kind}` });
 		if (opened.status === "failed") throw new Error(`grep host failed for ${calibration.query}: ${opened.error.message}`);
 		let result;
 		try {
-			result = await grepTool.execute({ query: calibration.query, path: [calibration.path], match: calibration.match }, {
+			result = await tool.execute({ query: calibration.query, path: [calibration.path], match: calibration.match }, {
 				filesystem: opened.filesystem,
 				operation: opened.context,
 				limits: opened.limits,
 				graph: createGrepGraphSource({ query: repoMap }, opened),
 			});
-		} finally { opened.dispose(); }
+		} finally {
+			opened.dispose();
+		}
 		if (result.status === "failed") throw new Error(`grep failed for ${calibration.query}: ${result.error.message}`);
-		rows.push(calibrationRow("grep", calibration, result.regions.map((region) => region.path), performance.now() - started));
+		rows.push(calibrationRow(calibration, result.regions, performance.now() - started));
 	}
 
 	const meanReciprocalRank = mean(rows.map((row) => row.reciprocalRank));
-	const recallAt3 = mean(rows.map((row) => Number(row.rank !== undefined && row.rank <= 3)));
-	console.log(`o-pi repository ranking calibration (${generation.files.length} files, ${generation.symbols.length} symbols, Repo Map build ${round(buildMs)} ms)`);
-	console.table(rows.map(({ reciprocalRank: _reciprocalRank, ...row }) => row));
-	console.log(`MRR=${round(meanReciprocalRank)} · Recall@3=${round(recallAt3)} · cases=${rows.length}`);
+	const recallAt3 = mean(rows.map((row) => row.recallAt3));
+	const fileHitAt3 = mean(rows.map((row) => row.fileHitAt3));
+	console.log(`o-pi grep ranking calibration (${generation.files.length} files, ${generation.symbols.length} symbols, Repo Map build ${round(buildMs)} ms)`);
+	console.table(rows.map(({ reciprocalRank: _reciprocalRank, recallAt3: _recallAt3, fileHitAt3: _fileHitAt3, ...row }) => row));
+	console.log(`MRR=${round(meanReciprocalRank)} · Recall@3=${round(recallAt3)} · FileHit@3=${round(fileHitAt3)} · cases=${rows.length}`);
 	if (meanReciprocalRank < 0.95 || recallAt3 < 0.95) {
-		throw new Error("current-repository ranking calibration fell below MRR/Recall@3 threshold 0.95");
+		throw new Error("current-repository grep ranking calibration fell below MRR/Recall@3 threshold 0.95");
 	}
 } finally {
-	findTool.dispose();
-	findHost.dispose();
-	grepTool.dispose();
-	grepHost.dispose();
+	tool.dispose();
+	host.dispose();
 	await rm(temporaryRoot, { recursive: true, force: true });
 }
 
-function calibrationRow(tool, calibration, paths, elapsedMs) {
+function calibrationRow(calibration, regions, elapsedMs) {
 	const relevant = new Set(calibration.relevant);
-	const index = paths.findIndex((filePath) => relevant.has(filePath));
-	const rank = index === -1 ? undefined : index + 1;
+	const firstIndex = regions.findIndex((region) => relevant.has(region.path));
+	const firstRelevantRank = firstIndex === -1 ? undefined : firstIndex + 1;
+	const top3 = regions.slice(0, 3);
+	const relevantRegionsAt3 = top3.filter((region) => relevant.has(region.path)).length;
+	const recallAt3 = Number(firstRelevantRank !== undefined && firstRelevantRank <= 3);
 	return {
-		tool,
+		kind: calibration.kind,
 		query: calibration.query,
-		rank,
-		"top-3": paths.slice(0, 3).join(" · "),
+		firstRelevantRank,
+		"top-3": top3.map((region) => `${region.path}:${region.start_line}`).join(" · "),
+		"region-recall@3": round(relevantRegionsAt3 / Math.max(1, Math.min(3, regions.filter((region) => relevant.has(region.path)).length))),
 		"ms": round(elapsedMs),
-		reciprocalRank: rank === undefined ? 0 : 1 / rank,
+		reciprocalRank: firstRelevantRank === undefined ? 0 : 1 / firstRelevantRank,
+		recallAt3,
+		fileHitAt3: recallAt3,
 	};
 }
 
 function mean(values) {
 	return values.reduce((sum, value) => sum + value, 0) / Math.max(1, values.length);
-}
-
-function join(...parts) {
-	return parts.join("");
 }
 
 function round(value) {

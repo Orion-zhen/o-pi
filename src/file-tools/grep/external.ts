@@ -16,7 +16,7 @@ import type { InventoryScope, ScopeInventory, ScopedFile } from "./inventory.js"
 import type { GrepExternalCandidate, GrepExternalRange, GrepGraphSource, GrepSymbolSource } from "./ports.js";
 import type { LocalAutoResult } from "./local.js";
 import type { QueryPlan } from "./query-plan.js";
-import { rankCodeRegions, selectRankedRegions } from "./ranking.js";
+import { assignSourceLocalRanks, rankCodeRegions, selectRankedRegions } from "./ranking.js";
 import type { GrepRelatedResult } from "./types.js";
 
 export interface RetrievedExternalCandidate {
@@ -117,12 +117,11 @@ export async function validateExternalCandidates(
 			source: retrievalSource(retrieved.candidate),
 		});
 	}
-	const ranks = new Map<RetrievalSource, number>();
-	return provisional.map((candidate) => {
-		const sourceRank = (ranks.get(candidate.source) ?? 0) + 1;
-		ranks.set(candidate.source, sourceRank);
-		return { ...candidate, sourceRank };
-	});
+	const ranks = assignSourceLocalRanks(provisional, (candidate) => candidate.source, compareExternalSourceOrder);
+	return provisional.map((candidate) => ({
+		...candidate,
+		sourceRank: ranks.get(candidate) ?? Number.MAX_SAFE_INTEGER,
+	}));
 }
 
 /** strict 外部候选只能给事实主区域增加证据，不能创建 main。 */
@@ -151,7 +150,7 @@ export function augmentAutoWithExternal(
 	resultLimit: number,
 ): LocalAutoResult {
 	const main = new Map<string, VerifiedCodeRegion | SemanticMainRegion>();
-	for (const region of local.ranked) if (region.lane === "main") main.set(region.id, region);
+	for (const region of local.regions) if (region.lane === "main") main.set(region.id, region);
 	const related = [...local.related];
 	const sourceText = new Map(local.sourceText);
 	for (const candidate of candidates) {
@@ -186,10 +185,14 @@ export function augmentAutoWithExternal(
 		});
 		if (region.lane === "main") main.set(region.id, region);
 	}
-	const ranked = selectRankedRegions(rankCodeRegions(plan, [...main.values()]), Math.max(resultLimit, main.size));
+	const regions = [...main.values()];
+	const allRanked = rankCodeRegions(plan, regions);
+	const ranked = selectRankedRegions(allRanked, resultLimit);
 	return {
 		...local,
+		regions,
 		ranked,
+		totalCandidates: allRanked.length,
 		sourceText,
 		nearby: ranked.length === 0 ? local.nearby : [],
 		related: dedupeRelated(related),
@@ -220,7 +223,11 @@ function candidateRole(candidate: ValidatedExternalCandidate): CandidateRole[] {
 	const relation = normalizedRelation(candidate.candidate);
 	if (relation === "caller" || relation === "callee" || relation === "reference" || relation === "test"
 		|| relation === "import" || relation === "registration") return [relation];
-	return ["definition"];
+	const roles: CandidateRole[] = ["definition"];
+	if (candidate.candidate.reasons.some((reason) => reason === "public api" || reason === "export" || reason === "entrypoint")) roles.push("public_api");
+	if (/(?:^|\/)(?:test|tests|spec|specs)(?:\/|$)|(?:\.test|\.spec)\.[^/]+$/iu.test(candidate.candidate.path)) roles.push("test");
+	if (/(?:^|\/)(?:config|configs)(?:\/|$)|(?:^|\/)[^/]*config[^/]*\.[^/]+$/iu.test(candidate.candidate.path)) roles.push("config");
+	return roles;
 }
 
 function candidateSignals(
@@ -319,6 +326,18 @@ function dedupeRelated(values: readonly GrepRelatedResult[]): GrepRelatedResult[
 	return [...result.values()].sort((left, right) => compareString(left.path, right.path)
 		|| (left.start_line ?? 0) - (right.start_line ?? 0)
 		|| compareString(left.symbol ?? "", right.symbol ?? ""));
+}
+
+function compareExternalSourceOrder(
+	left: Omit<ValidatedExternalCandidate, "sourceRank">,
+	right: Omit<ValidatedExternalCandidate, "sourceRank">,
+): number {
+	return left.scopeOrder - right.scopeOrder
+		|| left.channelOrder - right.channelOrder
+		|| left.candidateOrder - right.candidateOrder
+		|| compareString(left.candidate.path, right.candidate.path)
+		|| (left.range?.startLine ?? 0) - (right.range?.startLine ?? 0)
+		|| compareString(left.candidate.symbol ?? "", right.candidate.symbol ?? "");
 }
 
 function externalRegionId(candidate: ValidatedExternalCandidate): string {

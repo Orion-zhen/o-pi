@@ -11,6 +11,7 @@ export interface RankingSelectionOptions<T> {
 	similarity(left: T, right: T): number;
 	headSize?: number;
 	lambda?: number;
+	applyScoreCutoff?: boolean;
 }
 
 /** relevance head 原样保留，剩余名额按 tier 约束的轻量 MMR 软选择。 */
@@ -21,7 +22,7 @@ export function selectRelevanceHeadMmr<T>(
 ): T[] {
 	if (limit <= 0 || candidates.length === 0) return [];
 	const ranked = deduplicate(candidates, options).sort(options.compare);
-	const eligible = applyDynamicCutoff(ranked, options);
+	const eligible = options.applyScoreCutoff === false ? ranked : applyDynamicCutoff(ranked, options);
 	const target = Math.min(limit, eligible.length);
 	const headCount = Math.min(options.headSize ?? RELEVANCE_HEAD_SIZE, target);
 	const selected = eligible.slice(0, headCount);

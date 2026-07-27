@@ -1,8 +1,8 @@
 import { extractByteRange, languageFromPath, tokenizeText, type IndexedCodeUnit } from "../../code-index/parser.js";
-import { type CandidateRole, type CandidateSignal, type RegionEvidence, type RetrievalSource, type SemanticMainRegion, type TextFileEvidence, type VerifiedCodeRegion, type RankedRegion } from "./candidates.js";
+import { type CandidateRole, type CandidateSignal, type CodeRegion, type RegionEvidence, type RetrievalSource, type SemanticMainRegion, type TextFileEvidence, type VerifiedCodeRegion, type RankedRegion } from "./candidates.js";
 import type { ScopeInventory } from "./inventory.js";
 import type { QueryPlan, RelationIntent } from "./query-plan.js";
-import { rankCodeRegions, selectRankedRegions } from "./ranking.js";
+import { assignSourceLocalRanks, rankCodeRegions, selectRankedRegions } from "./ranking.js";
 import type { AutoRegionizationResult, AutoRegionizedFile } from "./regionizer.js";
 import type { TextScanResult } from "./text-scanner.js";
 import type { GrepNearbyResult, GrepRelatedResult } from "./types.js";
@@ -25,7 +25,9 @@ interface UnitFile {
 }
 
 export interface LocalAutoResult {
+	readonly regions: readonly CodeRegion[];
 	readonly ranked: readonly RankedRegion[];
+	readonly totalCandidates: number;
 	readonly sourceText: ReadonlyMap<string, string>;
 	readonly snippets: ReadonlyMap<string, string>;
 	readonly nearby: readonly GrepNearbyResult[];
@@ -87,16 +89,16 @@ export function buildLocalAutoResults(
 
 	const relation = relationCandidates(unitFiles, regionized.files, plan, targetLast);
 	entries.push(...relation.main);
-	const sourceRanks = new Map<RetrievalSource, number>();
-	for (const entry of sourceRankedEntries(entries)) {
-		const rank = (sourceRanks.get(entry.source) ?? 0) + 1;
-		sourceRanks.set(entry.source, rank);
-		addRegion(byId, withEvidence(entry, rank));
-	}
-	const ranked = selectRankedRegions(rankCodeRegions(plan, [...byId.values()]), Math.max(resultLimit, byId.size));
-	const nearby = ranked.length === 0 ? nearbyResults(plan, unitFiles) : [];
+	const sourceRanks = assignSourceLocalRanks(entries, (entry) => entry.source, compareLocalEntries);
+	for (const entry of entries) addRegion(byId, withEvidence(entry, sourceRanks.get(entry) ?? Number.MAX_SAFE_INTEGER));
+	const regions = [...byId.values()];
+	const allRanked = rankCodeRegions(plan, regions);
+	const ranked = selectRankedRegions(allRanked, resultLimit);
+	const nearby = allRanked.length === 0 ? nearbyResults(plan, unitFiles) : [];
 	return {
+		regions,
 		ranked,
+		totalCandidates: allRanked.length,
 		sourceText: new Map(regionized.files.map((file) => [file.file.path, file.content.text])),
 		snippets,
 		nearby,
@@ -157,7 +159,7 @@ function symbolCandidate(item: UnitFile, plan: QueryPlan, target: string, target
 	const signals = plan.relationIntents.length > 0 && (symbol === targetLast || qualified === target)
 		? [signal, "target_definition" as const]
 		: [signal];
-	return localEntry(item, "ast-symbol", reason, quality, ["definition"], signals);
+	return localEntry(item, "ast-symbol", reason, quality, unitRoles(item), signals);
 }
 
 function lexicalCandidate(item: UnitFile, plan: QueryPlan, queryTerms: readonly string[]): LocalEntry | undefined {
@@ -170,7 +172,7 @@ function lexicalCandidate(item: UnitFile, plan: QueryPlan, queryTerms: readonly 
 		"ast-lexical",
 		"lexical",
 		matched.length * 100 + Math.round(coverage * 50) - Math.min(40, item.unit.endLine - item.unit.startLine),
-		["definition"],
+		unitRoles(item),
 		[highCoverage ? "lexical_high_coverage" : "lexical"],
 	);
 }
@@ -340,20 +342,11 @@ function semanticMainRegion(input: Omit<SemanticMainRegion, "queryMatch" | "matc
 	return { ...input, queryMatch: "semantic", matchLines: [] };
 }
 
-function sourceRankedEntries(entries: readonly LocalEntry[]): LocalEntry[] {
-	const bySource = new Map<RetrievalSource, LocalEntry[]>();
-	for (const entry of entries) {
-		const grouped = bySource.get(entry.source);
-		if (grouped === undefined) bySource.set(entry.source, [entry]);
-		else grouped.push(entry);
-	}
-	const ranked: LocalEntry[] = [];
-	for (const source of [...bySource.keys()].sort(compareString)) {
-		const sourceEntries = bySource.get(source) ?? [];
-		sourceEntries.sort((left, right) => right.quality - left.quality || compareString(left.path, right.path) || left.startLine - right.startLine || compareString(left.id, right.id));
-		ranked.push(...sourceEntries);
-	}
-	return ranked;
+function compareLocalEntries(left: LocalEntry, right: LocalEntry): number {
+	return right.quality - left.quality
+		|| compareString(left.path, right.path)
+		|| left.startLine - right.startLine
+		|| compareString(left.id, right.id);
 }
 
 function withEvidence(entry: LocalEntry, rank: number): SemanticMainRegion {
@@ -460,8 +453,20 @@ function unitMentionsTarget(item: UnitFile, target: string): boolean {
 		|| item.unit.references.some((reference) => lastSegment(reference.toLocaleLowerCase()) === target);
 }
 
+function unitRoles(item: UnitFile): CandidateRole[] {
+	const roles: CandidateRole[] = ["definition"];
+	if (item.unit.exported) roles.push("public_api");
+	if (isTestPath(item.unit.path)) roles.push("test");
+	if (isConfigPath(item.unit.path)) roles.push("config");
+	return roles;
+}
+
 function isTestPath(path: string): boolean {
 	return /(?:^|\/)(?:test|tests|spec|specs)(?:\/|$)|(?:\.test|\.spec)\.[^/]+$/iu.test(path);
+}
+
+function isConfigPath(path: string): boolean {
+	return /(?:^|\/)(?:config|configs)(?:\/|$)|(?:^|\/)[^/]*config[^/]*\.[^/]+$/iu.test(path);
 }
 
 function uniqueTerms(values: readonly string[]): string[] {

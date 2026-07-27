@@ -13,6 +13,9 @@ export type RankingEvidenceFamily = "factual" | "symbol" | "lexical" | "semantic
 export type RankingPolicyKey = "strict" | "identifier" | "qualified_symbol" | "long_text" | "natural_language" | "relation";
 
 export const GREP_RRF_K = 60;
+export const GREP_RELEVANCE_HEAD_SIZE = 3;
+export const GREP_MMR_LAMBDA = 0.85;
+export const GREP_SIMILARITY_WINDOW = 256;
 
 export const GREP_SOURCE_FAMILY: Readonly<Record<RetrievalSource, RankingEvidenceFamily>> = {
 	"text-literal": "factual",
@@ -108,6 +111,13 @@ const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<Can
 	},
 };
 
+const FACTUAL_SIGNALS = new Set<CandidateSignal>([
+	"verified_phrase", "verified_text", "verified_qualified_occurrence", "verified_enclosing_region", "verified_text_window",
+]);
+const SYMBOL_SIGNALS = new Set<CandidateSignal>([
+	"exact_qualified_definition", "exact_symbol_definition", "exact_member_definition", "direct_symbol", "symbol_prefix", "partial_symbol", "target_definition",
+]);
+const LEXICAL_SIGNALS = new Set<CandidateSignal>(["lexical_high_coverage", "lexical"]);
 const RELATION_ROLES = new Set<CandidateRole>(["caller", "callee", "reference", "test", "import", "registration"]);
 const ROLE_BY_INTENT: Readonly<Record<RelationIntent, CandidateRole>> = {
 	caller: "caller",
@@ -128,18 +138,44 @@ const EMPTY_RANKING: RankingEvidenceSummary = {
 	bestContribution: 0,
 };
 
+/** 为每个独立来源生成从 1 开始的稳定局部名次。 */
+export function assignSourceLocalRanks<T>(
+	candidates: readonly T[],
+	sourceOf: (candidate: T) => RetrievalSource,
+	compareWithinSource: (left: T, right: T) => number,
+): ReadonlyMap<T, number> {
+	const grouped = new Map<RetrievalSource, T[]>();
+	for (const candidate of candidates) {
+		const source = sourceOf(candidate);
+		const values = grouped.get(source);
+		if (values === undefined) grouped.set(source, [candidate]);
+		else values.push(candidate);
+	}
+	const result = new Map<T, number>();
+	for (const source of [...grouped.keys()].sort(compareString)) {
+		const values = grouped.get(source) ?? [];
+		values.sort(compareWithinSource);
+		for (const [index, candidate] of values.entries()) result.set(candidate, index + 1);
+	}
+	return result;
+}
+
 /** 对已准入区域执行纯排序；path-only 和 lane 非 main 候选不会进入主结果。 */
 export function rankCodeRegions(plan: QueryPlan, regions: readonly CodeRegion[]): RankedRegion[] {
 	const policy = rankingPolicyFor(plan);
 	const ranked: RankedRegion[] = [];
 	for (const region of regions) {
 		if (!isMainEligible(plan, region)) continue;
-		const tier = bestTier(policy, region.signals);
+		const evidence = canonicalEvidence(region.evidence);
+		const signals = effectiveSignals(plan, { ...region, evidence });
+		const tier = bestTier(policy, signals);
 		if (tier === undefined) continue;
 		ranked.push({
 			...region,
+			signals,
+			evidence,
 			tier,
-			ranking: summarizeEvidence(policy, region.evidence),
+			ranking: summarizeEvidence(policy, evidence),
 			verifiedCoverage: verifiedCoverage(region),
 			requestedRolePriority: rolePriority(plan, region.roles),
 		});
@@ -156,7 +192,6 @@ export function rankingPolicyFor(plan: QueryPlan): RankingPolicyKey {
 export function compareRankedRegions(left: RankedRegion, right: RankedRegion): number {
 	return left.tier - right.tier
 		|| right.ranking.fusionScore - left.ranking.fusionScore
-		|| right.ranking.bestContribution - left.ranking.bestContribution
 		|| right.verifiedCoverage - left.verifiedCoverage
 		|| right.requestedRolePriority - left.requestedRolePriority
 		|| regionSize(left) - regionSize(right)
@@ -166,22 +201,41 @@ export function compareRankedRegions(left: RankedRegion, right: RankedRegion): n
 		|| compareString(left.id, right.id);
 }
 
-/** relevance head 后只在同一 tier 内重排，永不让较差 tier 越级。 */
-export function selectRankedRegions(candidates: readonly RankedRegion[], limit: number, headSize = 3): RankedRegion[] {
-	if (limit <= 0) return [];
-	const ranked = [...candidates].sort(compareRankedRegions);
-	const selected: RankedRegion[] = [];
-	let offset = 0;
-	while (offset < ranked.length && selected.length < limit) {
-		const tier = ranked[offset]?.tier;
-		if (tier === undefined) break;
-		let end = offset + 1;
-		while (ranked[end]?.tier === tier) end += 1;
-		const group = ranked.slice(offset, end);
-		const remainingCapacity = limit - selected.length;
-		if (group.length <= remainingCapacity) selected.push(...group);
-		else selected.push(...selectWithinTier(group, remainingCapacity, headSize));
-		offset = end;
+/** relevance head 原样保留，尾部只从当前最佳 tier 的有界窗口执行 MMR。 */
+export function selectRankedRegions(
+	candidates: readonly RankedRegion[],
+	limit: number,
+	headSize = GREP_RELEVANCE_HEAD_SIZE,
+	similarityWindow = GREP_SIMILARITY_WINDOW,
+): RankedRegion[] {
+	if (limit <= 0 || candidates.length === 0) return [];
+	const ranked = deduplicateRanked(candidates);
+	const target = Math.min(limit, ranked.length);
+	const headCount = Math.min(Math.max(0, headSize), target);
+	const selected = ranked.slice(0, headCount);
+	const remaining = ranked.slice(headCount);
+	const relevance = new Map(ranked.map((candidate, index) => [candidate, 1 - index / Math.max(1, ranked.length - 1)]));
+	while (selected.length < target && remaining.length > 0) {
+		const bestTier = remaining[0]?.tier;
+		if (bestTier === undefined) break;
+		let tierEnd = 0;
+		while (remaining[tierEnd]?.tier === bestTier) tierEnd += 1;
+		const evaluated = Math.min(tierEnd, Math.max(1, similarityWindow));
+		let bestIndex = 0;
+		let bestUtility = Number.NEGATIVE_INFINITY;
+		for (let index = 0; index < evaluated; index += 1) {
+			const candidate = remaining[index];
+			if (candidate === undefined) continue;
+			const candidateRelevance = relevance.get(candidate) ?? 0;
+			const redundancy = selected.reduce((maximum, chosen) => Math.max(maximum, similarity(candidate, chosen)), 0);
+			const utility = GREP_MMR_LAMBDA * candidateRelevance - (1 - GREP_MMR_LAMBDA) * redundancy;
+			if (utility > bestUtility) {
+				bestUtility = utility;
+				bestIndex = index;
+			}
+		}
+		const [next] = remaining.splice(bestIndex, 1);
+		if (next !== undefined) selected.push(next);
 	}
 	return selected;
 }
@@ -228,6 +282,50 @@ function weights(overrides: Partial<Record<RetrievalSource, number>>): Readonly<
 	};
 }
 
+function effectiveSignals(plan: QueryPlan, region: CodeRegion): CandidateSignal[] {
+	const candidates = [...region.signals, ...derivedSignals(plan, region)];
+	return [...new Set(candidates)].filter((signal) => signalSupported(plan, region, signal));
+}
+
+function derivedSignals(plan: QueryPlan, region: CodeRegion): CandidateSignal[] {
+	const result: CandidateSignal[] = [];
+	const target = normalizeSymbol(plan.targetQuery.length > 0 ? plan.targetQuery : plan.query);
+	const symbol = normalizeSymbol(region.qualifiedSymbol ?? region.symbol ?? "");
+	const member = lastSymbolSegment(symbol);
+	if (region.roles.includes("definition") && target.length > 0 && symbol.length > 0) {
+		if (symbol === target && target.includes(".")) result.push("exact_qualified_definition");
+		else if (symbol === target || member === target) result.push("exact_symbol_definition");
+		else if (plan.shape === "qualified_symbol" && member === lastSymbolSegment(target)) result.push("exact_member_definition");
+		if (plan.relationIntents.length > 0 && (symbol === target || member === lastSymbolSegment(target))) result.push("target_definition");
+	}
+	if (plan.relationIntents.length > 0 && region.queryMatch === "verified") result.push("target_occurrence");
+	if (summarizeFamilies(region.evidence) >= 2) result.push("multiview_consensus");
+	return result;
+}
+
+function signalSupported(plan: QueryPlan, region: CodeRegion, signal: CandidateSignal): boolean {
+	const sources = new Set(region.evidence.map((item) => item.source));
+	if (signal === "path") return false;
+	if (FACTUAL_SIGNALS.has(signal)) return region.queryMatch === "verified" && hasFamily(region, "factual");
+	if (SYMBOL_SIGNALS.has(signal)) {
+		if (!region.roles.includes("definition")) return false;
+		return hasAnySource(sources, ["ast-symbol", "lsp-symbol", "repo-map-direct"])
+			|| (region.queryMatch === "verified" && hasFamily(region, "factual") && region.symbol !== undefined);
+	}
+	if (LEXICAL_SIGNALS.has(signal)) return hasAnySource(sources, ["text-lexical", "ast-lexical"]);
+	if (signal === "repo_summary") return sources.has("repo-map-direct");
+	if (signal === "multiview_consensus") return summarizeFamilies(region.evidence) >= 2;
+	if (signal === "direct_reference") return region.roles.includes("reference") && hasAnySource(sources, ["lsp-reference", "repo-map-direct"]);
+	if (signal === "requested_relation") {
+		const requested = new Set(plan.relationIntents.map((intent) => ROLE_BY_INTENT[intent]));
+		return region.roles.some((role) => requested.has(role))
+			&& hasAnySource(sources, ["ast-relation", "lsp-reference", "repo-map-direct", "repo-map-hop-1", "repo-map-hop-2"]);
+	}
+	if (signal === "target_occurrence") return region.queryMatch === "verified" || region.roles.includes("occurrence") || region.roles.includes("reference");
+	if (signal === "indirect_relation") return hasAnySource(sources, ["ast-relation", "repo-map-hop-1", "repo-map-hop-2"]);
+	return true;
+}
+
 function bestTier(policy: RankingPolicyKey, signals: readonly CandidateSignal[]): number | undefined {
 	let best: number | undefined;
 	for (const signal of signals) {
@@ -247,6 +345,33 @@ function isMainEligible(plan: QueryPlan, region: CodeRegion): boolean {
 	return plan.shape === "qualified_symbol" && region.roles.every((role) => role === "reference");
 }
 
+function canonicalEvidence(evidence: readonly RegionEvidence[]): RegionEvidence[] {
+	const strongest = new Map<string, RegionEvidence>();
+	for (const item of evidence) {
+		const key = `${item.source}\0${item.reason}`;
+		const current = strongest.get(key);
+		if (current === undefined || compareEvidence(item, current) < 0) strongest.set(key, item);
+	}
+	return [...strongest.values()].sort(compareEvidence);
+}
+
+function compareEvidence(left: RegionEvidence, right: RegionEvidence): number {
+	return compareString(left.source, right.source)
+		|| left.rank - right.rank
+		|| right.confidence - left.confidence
+		|| (left.hop ?? 0) - (right.hop ?? 0)
+		|| compareString(left.reason, right.reason);
+}
+
+function deduplicateRanked(candidates: readonly RankedRegion[]): RankedRegion[] {
+	const best = new Map<string, RankedRegion>();
+	for (const candidate of candidates) {
+		const prior = best.get(candidate.id);
+		if (prior === undefined || compareRankedRegions(candidate, prior) < 0) best.set(candidate.id, candidate);
+	}
+	return [...best.values()].sort(compareRankedRegions);
+}
+
 function verifiedCoverage(region: CodeRegion): number {
 	if (region.queryMatch !== "verified") return 0;
 	return region.matchLines.length / Math.max(1, region.endLine - region.startLine + 1);
@@ -255,38 +380,44 @@ function verifiedCoverage(region: CodeRegion): number {
 function rolePriority(plan: QueryPlan, roles: readonly CandidateRole[]): number {
 	const requested = new Set(plan.relationIntents.map((intent) => ROLE_BY_INTENT[intent]));
 	if (roles.some((role) => requested.has(role))) return 3;
-	if (roles.includes("definition")) return 2;
+	if (roles.includes("definition") || roles.includes("public_api")) return 2;
 	if (roles.includes("occurrence") || roles.includes("text")) return 1;
 	return 0;
 }
 
-function selectWithinTier(group: readonly RankedRegion[], limit: number, headSize: number): RankedRegion[] {
-	const head = group.slice(0, Math.min(limit, headSize));
-	const remaining = group.slice(head.length);
-	while (head.length < limit && remaining.length > 0) {
-		let bestIndex = 0;
-		let bestUtility = Number.NEGATIVE_INFINITY;
-		for (const [index, candidate] of remaining.entries()) {
-			const relevance = 1 - index / Math.max(1, remaining.length);
-			const redundancy = head.reduce((maximum, selected) => Math.max(maximum, similarity(candidate, selected)), 0);
-			const utility = 0.85 * relevance - 0.15 * redundancy;
-			if (utility > bestUtility) {
-				bestUtility = utility;
-				bestIndex = index;
-			}
-		}
-		const [next] = remaining.splice(bestIndex, 1);
-		if (next !== undefined) head.push(next);
-	}
-	return head;
+function similarity(left: RankedRegion, right: RankedRegion): number {
+	const samePath = left.path === right.path;
+	const leftSymbol = normalizeSymbol(left.qualifiedSymbol ?? left.symbol ?? "");
+	const rightSymbol = normalizeSymbol(right.qualifiedSymbol ?? right.symbol ?? "");
+	if (samePath && leftSymbol.length > 0 && leftSymbol === rightSymbol) return 1;
+	if (samePath && rangesOverlap(left, right)) return 0.95;
+	if (leftSymbol.length > 0 && leftSymbol === rightSymbol) return 0.85;
+	const sameRole = primaryRole(left.roles) === primaryRole(right.roles);
+	if (samePath && sameRole) return 0.8;
+	if (samePath) return 0.65;
+	const sameComponent = topComponent(left.path) === topComponent(right.path);
+	if (sameRole && sameComponent) return 0.35;
+	if (sameRole) return 0.2;
+	return sameComponent ? 0.1 : 0;
 }
 
-function similarity(left: RankedRegion, right: RankedRegion): number {
-	if (left.path === right.path && left.symbol !== undefined && left.symbol === right.symbol) return 1;
-	if (left.path === right.path && rangesOverlap(left, right)) return 0.9;
-	if (left.path === right.path) return 0.6;
-	if (left.roles.some((role) => right.roles.includes(role))) return 0.25;
-	return 0;
+function primaryRole(roles: readonly CandidateRole[]): CandidateRole | "other" {
+	for (const role of ["caller", "callee", "reference", "test", "import", "registration", "public_api", "config", "definition", "occurrence", "text"] as const) {
+		if (roles.includes(role)) return role;
+	}
+	return "other";
+}
+
+function summarizeFamilies(evidence: readonly RegionEvidence[]): number {
+	return new Set(evidence.filter((item) => item.source !== "path").map((item) => GREP_SOURCE_FAMILY[item.source])).size;
+}
+
+function hasFamily(region: CodeRegion, family: RankingEvidenceFamily): boolean {
+	return region.evidence.some((item) => GREP_SOURCE_FAMILY[item.source] === family);
+}
+
+function hasAnySource(sources: ReadonlySet<RetrievalSource>, expected: readonly RetrievalSource[]): boolean {
+	return expected.some((source) => sources.has(source));
 }
 
 function rangesOverlap(left: RankedRegion, right: RankedRegion): boolean {
@@ -295,6 +426,19 @@ function rangesOverlap(left: RankedRegion, right: RankedRegion): boolean {
 
 function regionSize(region: RankedRegion): number {
 	return Math.max(1, region.endLine - region.startLine + 1);
+}
+
+function topComponent(value: string): string {
+	const slash = value.indexOf("/");
+	return slash === -1 ? "." : value.slice(0, slash);
+}
+
+function normalizeSymbol(value: string): string {
+	return value.trim().replace(/::|#/gu, ".").toLocaleLowerCase();
+}
+
+function lastSymbolSegment(value: string): string {
+	return value.split(".").at(-1) ?? value;
 }
 
 function compareString(left: string, right: string): number {
