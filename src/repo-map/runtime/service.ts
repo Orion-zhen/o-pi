@@ -51,6 +51,8 @@ export interface RepoMapWorkspaceLease {
 	dispose(): void;
 }
 
+export type RepoMapServiceStage = "generation-read" | "test-graph" | "generation-commit";
+
 export interface RepoMapServiceDependencies {
 	detectRepository(cwd: string, options: { signal?: AbortSignal }): Promise<RepositoryIdentity>;
 	readHeadRevision(root: string, options: { signal?: AbortSignal }): Promise<string | undefined>;
@@ -65,6 +67,7 @@ export interface RepoMapServiceDependencies {
 	buildLexicalAliases(input: BuildRepoMapLexicalAliasesInput): Promise<RepoMapGeneration["aliases"]>;
 	readCurrent(cacheRoot: string, mapId: string, expectedRoot: string): Promise<RepoMapGeneration | undefined>;
 	commit(input: CommitGenerationInput): Promise<CommitGenerationResult>;
+	measureStage<T>(stage: RepoMapServiceStage, operation: () => Promise<T>): Promise<T>;
 	cacheRoot(): string;
 	now(): Date;
 }
@@ -97,6 +100,9 @@ const defaultDependencies: RepoMapServiceDependencies = {
 	},
 	readCurrent: readCurrentGeneration,
 	commit: commitGeneration,
+	async measureStage(_stage, operation) {
+		return await operation();
+	},
 	cacheRoot: repoMapCacheRoot,
 	now: () => new Date(),
 };
@@ -129,7 +135,8 @@ async function initializeRepoMapLocked(
 	const cacheRoot = deps.cacheRoot();
 	const previous = input.mode === "rebuild"
 		? undefined
-		: await deps.readCurrent(cacheRoot, mapId, identity.repositoryRoot);
+		: await deps.measureStage("generation-read", async () =>
+			await deps.readCurrent(cacheRoot, mapId, identity.repositoryRoot));
 	const maxFiles = Math.min(config.scan.max_files, fileToolsConfig.limits.grep_max_files_scanned);
 	const maxFileBytes = Math.min(config.scan.max_file_bytes, fileToolsConfig.limits.grep_max_file_bytes);
 	const workspace = await deps.openWorkspace(identity.repositoryRoot, fileToolsConfig.filesystem, input.signal);
@@ -224,14 +231,14 @@ async function initializeRepoMapLocked(
 		...(previous !== undefined ? { previous: { files: previous.files, symbols: previous.symbols, edges: previous.edges } } : {}),
 	});
 	const baseEdges = coalesceRepoMapEdges([...relationshipEdges, ...architecture.edges]);
-	const testGraph = await deps.buildTestGraph({
+	const testGraph = await deps.measureStage("test-graph", async () => await deps.buildTestGraph({
 		root: identity.repositoryRoot,
 		files: scan.files,
 		symbols: architecture.symbols,
 		edges: baseEdges,
 		...(symbolIndex.syntaxFactsByFile !== undefined ? { syntaxFactsByFile: symbolIndex.syntaxFactsByFile } : {}),
 		...(input.signal !== undefined ? { signal: input.signal } : {}),
-	});
+	}));
 	const edges = coalesceRepoMapEdges([...baseEdges, ...testGraph.edges]);
 	const aliases = await deps.buildLexicalAliases({
 		root: identity.repositoryRoot,
@@ -304,7 +311,7 @@ async function initializeRepoMapLocked(
 		ignoreFingerprint,
 	};
 	safeProgress(input.onProgress, { phase: "saving" });
-	const committed = await deps.commit({
+	const committed = await deps.measureStage("generation-commit", async () => await deps.commit({
 		cacheRoot,
 		maxGenerations: config.cache.max_generations,
 		prepared,
@@ -317,7 +324,7 @@ async function initializeRepoMapLocked(
 		edges: prepared.edges,
 		diagnostics: prepared.diagnostics,
 		...(input.signal !== undefined ? { signal: input.signal } : {}),
-	});
+	}));
 	return {
 		identity,
 		metadata: committed.generation.metadata,

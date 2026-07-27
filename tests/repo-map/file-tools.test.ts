@@ -17,6 +17,7 @@ import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
 import { computeRepoMapActivation, REPO_MAP_SESSION_ENTRY, type RepoMapActivationEntry } from "../../src/repo-map/runtime/activation.js";
 import { createRepoMapFileToolQuery } from "../../src/repo-map/query/file-tool-query.js";
+import { analyzeRepoMapImpact, type AnalyzeRepoMapImpactInput } from "../../src/repo-map/query/impact.js";
 import { RepoMapQueryIndex } from "../../src/repo-map/query/query.js";
 import {
 	evaluateRepoMapFreshness,
@@ -346,16 +347,27 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		const deps = serviceDependencies(root);
 		const initialized = await initializeRepoMap({ cwd: root }, deps);
 		const branch: SessionEntry[] = [activationEntry(initialized.metadata)];
-		const refresh = vi.fn(async (input: RefreshActivatedRepoMapInput) => await initializeRepoMap({
-			cwd: input.activation.root,
-			mode: "refresh",
-			...(input.signal === undefined ? {} : { signal: input.signal }),
-		}, deps));
+		const calls: string[] = [];
+		const readActivated = vi.fn(async (activation: Parameters<typeof readActivatedRepoMap>[0]) => {
+			calls.push(activation.generation === initialized.metadata.generation ? "read:before" : "read:after");
+			return await readActivatedRepoMap(activation, path.join(temp.path, "cache"));
+		});
+		const refresh = vi.fn(async (input: RefreshActivatedRepoMapInput) => {
+			calls.push("refresh");
+			return await initializeRepoMap({
+				cwd: input.activation.root,
+				mode: "refresh",
+				...(input.signal === undefined ? {} : { signal: input.signal }),
+			}, deps);
+		});
+		const analyzeImpact = vi.fn((input: AnalyzeRepoMapImpactInput) => {
+			calls.push(`impact:${input.changedPath}`);
+			return analyzeRepoMapImpact(input);
+		});
 		const query = createRepoMapFileToolQuery(() => branch, {
-			async readActivated(activation) {
-				return await readActivatedRepoMap(activation, path.join(temp.path, "cache"));
-			},
+			readActivated,
 			refresh,
+			analyzeImpact,
 			appendActivation(entry) { appendEntry(branch, entry); },
 		});
 		await writeFile(path.join(root, "a.ts"), "export function A2() { return 2; }\n");
@@ -366,6 +378,9 @@ describe("Repo Map file-tool read and mutation integration", () => {
 			{ requestedPath: path.join(root, "b.ts"), changedLine: 1 },
 		]);
 		expect(refresh).toHaveBeenCalledTimes(1);
+		expect(readActivated).toHaveBeenCalledTimes(2);
+		expect(analyzeImpact).toHaveBeenCalledTimes(2);
+		expect(calls).toEqual(["read:before", "refresh", "read:after", "impact:a.ts", "impact:b.ts"]);
 		expect(results).toHaveLength(2);
 		expect(results[0]).toMatchObject({ status: "updated", impact: { changedPath: "a.ts" } });
 		expect(results[1]).toMatchObject({ status: "updated", impact: { changedPath: "b.ts" } });

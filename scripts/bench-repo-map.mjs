@@ -31,24 +31,40 @@ console.table([
 
 for (const size of sizes) {
 	const samples = measureJsonWorker(runtimeWorker, [`--size=${size}`], { warmups, runs });
-	assertStableOracle(samples, size);
+	assertStableOracle(samples, `${size}-module`);
 	console.log(`Repo Map fixture: ${size} TypeScript modules (+ package.json)`);
 	console.table(rowsForSamples(samples));
-	const representative = samples[0];
-	console.log({ generation: representative.generation, oracleDigest: representative.oracleDigest, counts: representative.counts });
+	printOracle(samples[0]);
 }
 
+const testDenseSize = 100;
+const testDenseSamples = measureJsonWorker(runtimeWorker, ["--fixture=test-dense", `--size=${testDenseSize}`], { warmups, runs });
+assertStableOracle(testDenseSamples, `${testDenseSize}-test-dense`);
+console.log(`Repo Map fixture: ${testDenseSize} source/test pairs + resources + stable syntax diagnostic`);
+console.table(rowsForSamples(testDenseSamples));
+printOracle(testDenseSamples[0]);
+
 function rowsForSamples(samples) {
-	const ignored = new Set(["size", "generation", "oracleDigest", "counts"]);
+	const ignored = new Set(["fixture", "size", "generation", "oracleDigest", "counts"]);
 	return Object.keys(samples[0])
 		.filter((key) => !ignored.has(key) && samples.every((sample) => typeof sample[key] === "number"))
 		.map((metric) => row(metric, samples.map((sample) => sample[metric])));
 }
 
-function assertStableOracle(samples, size) {
+function assertStableOracle(samples, fixtureName) {
 	const generations = new Set(samples.map((sample) => sample.generation));
 	const digests = new Set(samples.map((sample) => sample.oracleDigest));
-	if (generations.size !== 1 || digests.size !== 1) {
-		throw new Error(`Repo Map fixture ${size} produced non-deterministic generation or query output`);
+	const counts = new Set(samples.map((sample) => JSON.stringify(sample.counts)));
+	if (generations.size !== 1 || digests.size !== 1 || counts.size !== 1) {
+		throw new Error(`Repo Map fixture ${fixtureName} produced non-deterministic generation, query output, or graph counts`);
 	}
+}
+
+function printOracle(representative) {
+	console.log({
+		generation: representative.generation,
+		oracleDigest: representative.oracleDigest,
+		counts: representative.counts,
+		...(representative.stableDiagnosticCount === undefined ? {} : { stableDiagnosticCount: representative.stableDiagnosticCount }),
+	});
 }
