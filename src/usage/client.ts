@@ -228,7 +228,7 @@ async function fetchKimiUsage(token: string, options: ResolvedClientOptions): Pr
 		const duration = numberValue(minuteWindow?.duration) ?? FIVE_HOURS_MINS;
 		windows.push({
 			label: windowLabel(duration),
-			usedPercent: usagePercent(minuteDetail) ?? ratioPercent(minuteDetail.used, minuteDetail.limit),
+			usedPercent: quotaPercent(minuteDetail),
 			windowDurationMins: duration,
 			resetsAt: dateField(minuteDetail),
 		});
@@ -237,7 +237,7 @@ async function fetchKimiUsage(token: string, options: ResolvedClientOptions): Pr
 	if (weekly !== undefined) {
 		windows.push({
 			label: "Week",
-			usedPercent: usagePercent(weekly) ?? ratioPercent(weekly.used, weekly.limit),
+			usedPercent: quotaPercent(weekly),
 			windowDurationMins: SEVEN_DAYS_MINS,
 			resetsAt: dateField(weekly),
 		});
@@ -326,16 +326,11 @@ function parseResetCredits(value: unknown, fallbackCount: number | undefined): U
 
 function parseResetCredit(value: unknown): UsageResetCredit | undefined {
 	const credit = recordValue(value);
-	const id = displayString(credit?.id, MAX_DETAIL_LENGTH);
-	if (credit === undefined || id === undefined) return undefined;
+	if (credit === undefined) return undefined;
 	return {
-		id,
-		resetType: displayString(credit.reset_type ?? credit.resetType, MAX_LABEL_LENGTH) ?? "unknown",
 		status: displayString(credit.status, MAX_LABEL_LENGTH) ?? "unknown",
 		grantedAt: dateValue(credit.granted_at ?? credit.grantedAt),
 		expiresAt: dateValue(credit.expires_at ?? credit.expiresAt),
-		title: displayString(credit.title, MAX_DETAIL_LENGTH),
-		description: displayString(credit.description, MAX_DETAIL_LENGTH),
 	};
 }
 
@@ -564,6 +559,14 @@ function firstField(value: Record<string, unknown>, fields: readonly string[]): 
 		if (value[field] !== undefined && value[field] !== null) return value[field];
 	}
 	return undefined;
+}
+
+function quotaPercent(value: Record<string, unknown>): number | undefined {
+	const direct = usagePercent(value) ?? ratioPercent(value.used, value.limit);
+	if (direct !== undefined) return direct;
+	const remaining = numberValue(value.remaining);
+	const limit = numberValue(value.limit);
+	return remaining === undefined || limit === undefined || limit <= 0 ? undefined : percentValue(((limit - remaining) / limit) * 100);
 }
 
 function ratioPercent(usedValue: unknown, limitValue: unknown): number | undefined {

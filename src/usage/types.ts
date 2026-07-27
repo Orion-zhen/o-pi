@@ -13,13 +13,9 @@ export interface UsageDetail {
 }
 
 export interface UsageResetCredit {
-	id: string;
-	resetType: string;
 	status: string;
 	grantedAt: Date | undefined;
 	expiresAt: Date | undefined;
-	title: string | undefined;
-	description: string | undefined;
 }
 
 export interface UsageResetCredits {

@@ -77,9 +77,9 @@ function renderResetCredits(resetCredits: UsageResetCredits, snapshot: UsageSnap
 
 function renderWideResetCredits(credits: UsageResetCredit[], snapshot: UsageSnapshot, width: number): string[] {
 	const fixedWidth = INDEX_WIDTH + STATE_WIDTH + TIME_WIDTH + TIME_WIDTH + visibleWidth(TABLE_GAP) * 4;
-	const detailsWidth = Math.max(visibleWidth("Details"), width - fixedWidth);
+	const detailsWidth = Math.max(visibleWidth("Expiry distance"), width - fixedWidth);
 	const lines = [
-		[padEnd("#", INDEX_WIDTH), padEnd("Status", STATE_WIDTH), padEnd("Granted", TIME_WIDTH), padEnd("Expires", TIME_WIDTH), "Details"].join(TABLE_GAP),
+		[padEnd("#", INDEX_WIDTH), padEnd("Status", STATE_WIDTH), padEnd("Granted", TIME_WIDTH), padEnd("Expires", TIME_WIDTH), "Expiry distance"].join(TABLE_GAP),
 		["-".repeat(INDEX_WIDTH), "-".repeat(STATE_WIDTH), "-".repeat(TIME_WIDTH), "-".repeat(TIME_WIDTH), "-".repeat(detailsWidth)].join(TABLE_GAP),
 	];
 	for (const [index, credit] of credits.entries()) {
@@ -88,7 +88,7 @@ function renderWideResetCredits(credits: UsageResetCredit[], snapshot: UsageSnap
 			padEnd(cleanDisplayText(credit.status), STATE_WIDTH),
 			padEnd(formatDateTime(credit.grantedAt, snapshot.timeZone), TIME_WIDTH),
 			padEnd(formatDateTime(credit.expiresAt, snapshot.timeZone), TIME_WIDTH),
-			formatResetCreditDetails(credit, snapshot.generatedAt),
+			formatResetCreditExpiry(credit, snapshot.generatedAt),
 		].join(TABLE_GAP));
 	}
 	return lines;
@@ -98,16 +98,15 @@ function renderCompactResetCredits(credits: UsageResetCredit[], snapshot: UsageS
 	const lines: string[] = [];
 	for (const [index, credit] of credits.entries()) {
 		if (lines.length > 0) lines.push("");
-		lines.push(`#${index + 1} ${cleanDisplayText(credit.status)} · ${formatResetCreditDetails(credit, snapshot.generatedAt)}`);
+		lines.push(`#${index + 1} ${cleanDisplayText(credit.status)} · ${formatResetCreditExpiry(credit, snapshot.generatedAt)}`);
 		lines.push(`Granted ${formatDateTime(credit.grantedAt, snapshot.timeZone)}`);
 		lines.push(`Expires ${formatDateTime(credit.expiresAt, snapshot.timeZone)}`);
 	}
 	return lines;
 }
 
-function formatResetCreditDetails(credit: UsageResetCredit, now: Date): string {
-	const details = [...new Set([credit.title, credit.description, credit.resetType].filter((value): value is string => value !== undefined))];
-	return `${details.map(cleanDisplayText).join(" · ")} · expires ${formatExpiryDistance(credit.expiresAt, now)}`;
+function formatResetCreditExpiry(credit: UsageResetCredit, now: Date): string {
+	return `Expires ${formatExpiryDistance(credit.expiresAt, now)}`;
 }
 
 function renderWindow(window: UsageWindow, snapshot: UsageSnapshot): string {

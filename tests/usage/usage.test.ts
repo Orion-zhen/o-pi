@@ -54,14 +54,15 @@ describe("usage client", () => {
 				availableCount: 2,
 				credits: [
 					{
-						id: "RateLimitResetCredit_1",
-						resetType: "codex_rate_limits",
 						status: "available",
 						grantedAt: new Date("2026-07-12T00:00:00Z"),
 						expiresAt: new Date("2026-08-12T00:00:00Z"),
-						title: "One free rate limit reset",
 					},
-					{ id: "RateLimitResetCredit_2", title: "Referral reset" },
+					{
+						status: "available",
+						grantedAt: new Date("2026-07-13T00:00:00Z"),
+						expiresAt: new Date("2026-08-13T00:00:00Z"),
+					},
 				],
 			},
 		});
@@ -230,7 +231,8 @@ describe("usage renderer", () => {
 		const lines = renderUsage(snapshot, width);
 		expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
 		expect(lines.join("\n")).toContain("% remaining");
-		expect(lines.join("\n")).toContain("One free rate limit reset");
+		expect(lines.join("\n")).toContain("Expires in");
+		expect(lines.join("\n")).not.toContain("One free rate limit reset");
 	});
 
 	it("隐藏未登录 provider", async () => {
@@ -427,7 +429,7 @@ function fixtureResponse(url: string, _request: UsageHttpRequest): UsageHttpResp
 	if (url.endsWith("/coding/v1/usages")) {
 		return jsonResponse({
 			user: { membership: { level: "LEVEL_ULTRA" } },
-			limits: [{ window: { timeUnit: "TIME_UNIT_MINUTE", duration: 300 }, detail: { used: 25, limit: 100, resetTime: "2026-07-27T05:00:00Z" } }],
+			limits: [{ window: { timeUnit: "TIME_UNIT_MINUTE", duration: 300 }, detail: { remaining: "75", limit: "100", resetTime: "2026-07-27T05:00:00Z" } }],
 			usage: { used: 4, limit: 8, resetTime: "2026-08-03T00:00:00Z" },
 		});
 	}
