@@ -5,7 +5,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFileIdentity, createSymbolId } from "../../src/code-index/identity.js";
-import { analyzeCodeFile, buildLineIndex, byteRangeForLines, countTextTokenMatches, parseCodeUnits, splitTokens, tokenizeText } from "../../src/code-index/parser.js";
+import { analyzeCodeFile, buildLineIndex, countTextTokenMatches, parseCodeUnits, splitTokens, tokenizeText } from "../../src/code-index/parser.js";
 import { dependencyPath } from "../helpers/tree-sitter-dependencies.js";
 
 const require = createRequire(import.meta.url);
@@ -281,12 +281,6 @@ describe("shared code parser", () => {
 		if (unit === undefined) throw new Error("missing parsed unit");
 		expect(unit).toMatchObject({ startLine: 2, endLine: 4, startByte: Buffer.byteLength("// 你😀\n", "utf8") });
 		expect(Buffer.from(text, "utf8").subarray(unit.startByte, unit.endByte).toString("utf8")).toBe("export function demo() {\n  return '好';\n}");
-		expect(byteRangeForLines(text, 2, 3)).toEqual({
-			startLine: 2,
-			endLine: 3,
-			startByte: Buffer.byteLength("// 你😀\n", "utf8"),
-			endByte: Buffer.byteLength("// 你😀\nexport function demo() {\n  return '好';\n", "utf8"),
-		});
 	});
 
 	it.each([

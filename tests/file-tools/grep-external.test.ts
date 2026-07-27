@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
@@ -173,7 +173,7 @@ describe("grep external", () => {
 
 	it("统一 validator 排除 stale hash/version、非法 range、scope 外和缺失文件", async () => {
 		await mkdir(path.join(testContext.workspace, "scope"));
-		const content = "export const current = true;\n";
+		const content = "你 export const current = true;\n";
 		await writeFile(path.join(testContext.workspace, "scope", "valid.ts"), content);
 		await writeFile(path.join(testContext.workspace, "outside.ts"), content);
 		const hash = createHash("sha256").update(content).digest("hex");
@@ -195,6 +195,9 @@ describe("grep external", () => {
 					{ ...base, path: "scope/valid.ts", symbol: "StaleVersion", contentVersion: "stale" },
 					{ ...base, path: "scope/valid.ts", symbol: "InvalidRange", range: { startLine: 9, endLine: 10 }, contentHash: hash },
 					{ ...base, path: "scope/valid.ts", symbol: "InvalidBytes", range: { startLine: 2, endLine: 2, startByte: 0, endByte: 1 }, contentHash: hash },
+					{ ...base, path: "scope/valid.ts", symbol: "PartialBytes", range: { startLine: 1, endLine: 1, startByte: 0 }, contentHash: hash },
+					{ ...base, path: "scope/valid.ts", symbol: "SplitUtf8", range: { startLine: 1, endLine: 1, startByte: 1, endByte: 3 }, contentHash: hash },
+					{ ...base, path: "scope/valid.ts", symbol: "FractionalLine", range: { startLine: 1.5, endLine: 1 }, contentHash: hash },
 					{ ...base, path: "outside.ts", symbol: "Outside", contentHash: hash },
 					{ ...base, path: "scope/missing.ts", symbol: "Missing", contentHash: hash },
 				];
@@ -249,6 +252,68 @@ describe("grep external", () => {
 		}));
 		expect(result.regions).toEqual([]);
 		expect(result.related).toBeUndefined();
+	});
+
+	it("无 hash/version 外部候选不会越过 stat 后发生的同 size snapshot 变化", async () => {
+		const filePath = path.join(testContext.workspace, "external-race.ts");
+		const originalText = "export const before = true;\n";
+		const replacementText = "export const after_ = true;\n";
+		expect(Buffer.byteLength(replacementText)).toBe(Buffer.byteLength(originalText));
+		await writeFile(filePath, originalText);
+		const symbols: GrepSymbolSource = {
+			async query() {
+				return [{
+					path: "external-race.ts",
+					range: { startLine: 1, endLine: 1 },
+					kind: "variable",
+					symbol: "RemoteTarget",
+					origin: "lsp-symbol",
+					confidence: 1,
+					relation: "definition",
+					reasons: ["lsp exact symbol"],
+				}];
+			},
+		};
+		let changed = false;
+		let metadataReads = 0;
+		const result = expectGrepSuccess(await grepWithSources(
+			testContext.workspace,
+			{ query: "MissingNeedle", match: "literal" },
+			{ symbols },
+			(filesystem) => {
+				const originalContent = filesystem.content;
+				const originalMetadata = filesystem.metadata;
+				return {
+					...filesystem,
+					metadata: {
+						...originalMetadata,
+						async stat(ref, context) {
+							metadataReads += 1;
+							return await originalMetadata.stat(ref, context);
+						},
+					},
+					content: {
+						readBytes: originalContent.readBytes.bind(originalContent),
+						async readText(file, options, context) {
+							expect(options.expectedSnapshot).toBeDefined();
+							if (!changed) {
+								changed = true;
+								await writeFile(filePath, replacementText);
+								await utimes(filePath, new Date(946_684_800_000), new Date(946_684_800_000));
+							}
+							return await originalContent.readText(file, options, context);
+						},
+						decodeText: originalContent.decodeText.bind(originalContent),
+						sliceText: originalContent.sliceText.bind(originalContent),
+						scanLines: originalContent.scanLines.bind(originalContent),
+					},
+				};
+			},
+		));
+		expect(result.regions).toEqual([]);
+		expect(result.related).toBeUndefined();
+		expect(changed).toBe(true);
+		expect(metadataReads).toBe(0);
 	});
 
 	it("inventory 后文本与外部通道并行启动", async () => {

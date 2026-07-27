@@ -1,8 +1,9 @@
-import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { toFileSnapshot } from "../../src/filesystem/contracts/metadata.js";
 import type { FileRef } from "../../src/filesystem/contracts/path.js";
 import type { FsResult } from "../../src/filesystem/contracts/result.js";
 import type { VisibilityPolicy } from "../../src/filesystem/contracts/visibility.js";
@@ -23,9 +24,13 @@ import {
 } from "../../src/filesystem/services/readonly.js";
 import {
 	buildTextBytes,
+	byteRangeForLines,
+	extractByteRange,
 	logicalLines,
 	normalizeLineEndings,
+	resolveTextRange,
 	sliceTextByLineRange,
+	utf8ByteOffset,
 } from "../../src/filesystem/services/text.js";
 import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
 import { WorkspaceVisibilityService } from "../../src/filesystem/services/visibility/service.js";
@@ -58,6 +63,43 @@ describe("filesystem content and text services", () => {
 			maxLines: 1,
 			path: "text.txt",
 		}))).toEqual({ content: "second\r\n", startLine: 2, endLine: 2, truncated: false });
+	});
+
+	it("validates decoded-text line, code-unit and UTF-8 byte coordinates", () => {
+		const text = "你😀\r\nb\rc\n\n";
+		expect([
+			utf8ByteOffset(text, 0),
+			utf8ByteOffset(text, 1),
+			utf8ByteOffset(text, 2),
+			utf8ByteOffset(text, 3),
+		]).toEqual([0, 3, undefined, 7]);
+		expect(utf8ByteOffset(text, -1)).toBeUndefined();
+		expect(utf8ByteOffset(text, 1.5)).toBeUndefined();
+		expect(utf8ByteOffset(text, text.length + 1)).toBeUndefined();
+
+		expect(byteRangeForLines(text, 2, 3)).toEqual({ startLine: 2, endLine: 3, startByte: 9, endByte: 13 });
+		expect(byteRangeForLines(text, 4, 4)).toEqual({ startLine: 4, endLine: 4, startByte: 13, endByte: 14 });
+		expect(byteRangeForLines("", 1, 1)).toBeUndefined();
+		expect(byteRangeForLines(text, 0, 1)).toBeUndefined();
+		expect(byteRangeForLines(text, 3, 2)).toBeUndefined();
+		expect(byteRangeForLines(text, 1, 5)).toBeUndefined();
+
+		expect(resolveTextRange(text, { startLine: 1, endLine: 1 })).toEqual({
+			startLine: 1, endLine: 1, startByte: 0, endByte: 9,
+		});
+		expect(resolveTextRange(text, { startLine: 1, endLine: 1, startByte: 3, endByte: 7 })).toEqual({
+			startLine: 1, endLine: 1, startByte: 3, endByte: 7,
+		});
+		expect(resolveTextRange(text, { startLine: 1, endLine: 1, startByte: 4, endByte: 7 })).toBeUndefined();
+		expect(resolveTextRange(text, { startLine: 1, endLine: 1, startByte: 3 })).toBeUndefined();
+		expect(resolveTextRange(text, { startLine: 2, endLine: 2, startByte: 0, endByte: 1 })).toBeUndefined();
+		expect(resolveTextRange(text, { startLine: 1.5, endLine: 2 })).toBeUndefined();
+
+		expect(extractByteRange(text, 3, 7)).toBe("😀");
+		expect(extractByteRange(text, 9, 13)).toBe("b\rc\n");
+		expect(extractByteRange(text, 4, 7)).toBeUndefined();
+		expect(extractByteRange(text, -1, 0)).toBeUndefined();
+		expect(extractByteRange(text, 0, 99)).toBeUndefined();
 	});
 
 	it("handles empty and mixed-newline text and rejects a single over-budget line", async () => {
@@ -148,12 +190,82 @@ describe("filesystem content and text services", () => {
 		expect(await new NodeNativeFileSystem().read(protectedFile)).toEqual(Buffer.from("secret"));
 	});
 
-	it("detects metadata changes during stable reads", async () => {
+	it("binds reads and scans to a caller-captured snapshot", async () => {
+		await writeFile(path.join(workspace, "snapshot.txt"), "first\nsecond\n");
+		const tracker = { opened: 0, closed: 0 };
+		const opened = await openReadonly({ native: wrapNative(new NodeNativeFileSystem(), { tracker }) });
+		const file = await resolveFile(opened.namespace, "snapshot.txt");
+		const snapshot = toFileSnapshot(expectOk(await opened.services.metadata.stat(file, {})));
+
+		const bytes = expectOk(await opened.services.content.readBytes(file, { expectedSnapshot: snapshot }, {}));
+		expect(Buffer.from(bytes.bytes).toString("utf8")).toBe("first\nsecond\n");
+		const text = expectOk(await opened.services.content.readText(file, { expectedSnapshot: snapshot }, {}));
+		expect(text.text).toBe("first\nsecond\n");
+		const scan = expectOk(await opened.services.content.scanLines(file, { expectedSnapshot: snapshot }, {}));
+		const lines = [];
+		for await (const result of scan) lines.push(expectOk(result).text);
+		expect(lines).toEqual(["first", "second"]);
+		expect(tracker).toEqual({ opened: 3, closed: 3 });
+	});
+
+	it("rejects a snapshot changed before read or scan and closes each opened handle", async () => {
+		const filePath = path.join(workspace, "stale.txt");
+		await writeFile(filePath, "old");
+		const tracker = { opened: 0, closed: 0 };
+		const opened = await openReadonly({ native: wrapNative(new NodeNativeFileSystem(), { tracker }) });
+		const file = await resolveFile(opened.namespace, "stale.txt");
+		const snapshot = toFileSnapshot(expectOk(await opened.services.metadata.stat(file, {})));
+		await writeFile(filePath, "new-content");
+
+		expect(await opened.services.content.readText(file, { expectedSnapshot: snapshot }, {})).toEqual({
+			ok: false,
+			error: {
+				code: "changed-during-read",
+				message: "File changed while it was being read.",
+				path: "stale.txt",
+			},
+		});
+		expect(await opened.services.content.scanLines(file, { expectedSnapshot: snapshot }, {})).toEqual({
+			ok: false,
+			error: {
+				code: "changed-during-read",
+				message: "File changed while it was being scanned.",
+				path: "stale.txt",
+			},
+		});
+		expect(tracker).toEqual({ opened: 2, closed: 2 });
+	});
+
+	it("rejects an identity replacement even when its size matches the expected snapshot", async () => {
+		const filePath = path.join(workspace, "replaced.txt");
+		const replacementPath = path.join(workspace, "replacement.txt");
+		await writeFile(filePath, "old");
+		await writeFile(replacementPath, "new");
+		const tracker = { opened: 0, closed: 0 };
+		const opened = await openReadonly({ native: wrapNative(new NodeNativeFileSystem(), { tracker }) });
+		const file = await resolveFile(opened.namespace, "replaced.txt");
+		const snapshot = toFileSnapshot(expectOk(await opened.services.metadata.stat(file, {})));
+		await rm(filePath);
+		await rename(replacementPath, filePath);
+		const replacement = toFileSnapshot(expectOk(await opened.services.metadata.stat(file, {})));
+		expect(replacement).toMatchObject({ sizeBytes: snapshot.sizeBytes });
+		expect(replacement.identity).not.toBe(snapshot.identity);
+
+		expect(await opened.services.content.readBytes(file, { expectedSnapshot: snapshot }, {})).toMatchObject({
+			ok: false,
+			error: { code: "changed-during-read", path: "replaced.txt" },
+		});
+		expect(tracker).toEqual({ opened: 1, closed: 1 });
+	});
+
+	it("detects metadata changes during snapshot-bound stable reads", async () => {
 		const changingPath = path.join(workspace, "changing.txt");
 		await writeFile(changingPath, "content");
 		let fileOpened = false;
 		let revalidationCalls = 0;
+		const tracker = { opened: 0, closed: 0 };
 		const native = wrapNative(new NodeNativeFileSystem(), {
+			tracker,
 			async beforeOpen(pathname) { if (pathname === changingPath) fileOpened = true; },
 			lstat(pathname, metadata) {
 				if (!fileOpened || pathname !== changingPath) return metadata;
@@ -162,11 +274,14 @@ describe("filesystem content and text services", () => {
 			},
 		});
 		const opened = await openReadonly({ native });
+		const file = await resolveFile(opened.namespace, "changing.txt");
+		const snapshot = toFileSnapshot(expectOk(await opened.services.metadata.stat(file, {})));
 		expect(await opened.services.content.readBytes(
-			await resolveFile(opened.namespace, "changing.txt"),
-			{ stable: true },
+			file,
+			{ expectedSnapshot: snapshot, stable: true },
 			{},
 		)).toMatchObject({ ok: false, error: { code: "changed-during-read" } });
+		expect(tracker).toEqual({ opened: 1, closed: 1 });
 	});
 
 	it("streams logical lines with exact byte ranges and closes on completion", async () => {
@@ -182,9 +297,9 @@ describe("filesystem content and text services", () => {
 		const lines = [];
 		for await (const result of scan) lines.push(expectOk(result));
 		expect(lines).toEqual([
-			{ line: 1, text: "alpha", byteStart: 3, byteEnd: 8 },
-			{ line: 2, text: "β", byteStart: 10, byteEnd: 12 },
-			{ line: 3, text: "last", byteStart: 13, byteEnd: 17 },
+			{ line: 1, text: "alpha", byteStart: 0, byteEnd: 5 },
+			{ line: 2, text: "β", byteStart: 7, byteEnd: 9 },
+			{ line: 3, text: "last", byteStart: 10, byteEnd: 14 },
 		]);
 		expect(tracker).toEqual({ opened: 1, closed: 1 });
 	});
@@ -330,6 +445,7 @@ describe("filesystem content and text services", () => {
 		await writeFile(path.join(workspace, "invalid-eof.txt"), new Uint8Array([0xc3, 0x28]));
 		await writeFile(path.join(workspace, "binary-lines.dat"), new Uint8Array([0x61, 0x0d, 0x62, 0x0a, 0x00]));
 		await writeFile(path.join(workspace, "bom-only.txt"), buildTextBytes("", true));
+		await writeFile(path.join(workspace, "bom-cr.txt"), buildTextBytes("\r", true));
 		const opened = await openReadonly();
 		const large = expectOk(await opened.services.content.readBytes(
 			await resolveFile(opened.namespace, "large-line.txt"),
@@ -344,7 +460,10 @@ describe("filesystem content and text services", () => {
 		));
 		const boundaryLines = [];
 		for await (const result of boundaryScan) boundaryLines.push(expectOk(result));
-		expect(boundaryLines.map((line) => line.text.length)).toEqual([65_535, 3]);
+		expect(boundaryLines.map((line) => ({ length: line.text.length, start: line.byteStart, end: line.byteEnd }))).toEqual([
+			{ length: 65_535, start: 0, end: 65_535 },
+			{ length: 3, start: 65_537, end: 65_540 },
+		]);
 		const invalidEof = expectOk(await opened.services.content.scanLines(
 			await resolveFile(opened.namespace, "invalid-eof.txt"),
 			{},
@@ -375,15 +494,26 @@ describe("filesystem content and text services", () => {
 		const bomLines = [];
 		for await (const result of bomOnly) bomLines.push(result);
 		expect(bomLines).toEqual([]);
+
+		const bomCr = expectOk(await opened.services.content.scanLines(
+			await resolveFile(opened.namespace, "bom-cr.txt"),
+			{},
+			{},
+		));
+		const bomCrLines = [];
+		for await (const result of bomCr) bomCrLines.push(expectOk(result));
+		expect(bomCrLines).toEqual([{ line: 1, text: "", byteStart: 0, byteEnd: 0 }]);
 	});
 
-	it("reports stable scan changes and allows NUL when requested by full-text reads", async () => {
+	it("reports stable changes after a snapshot-bound scan and allows NUL in full-text reads", async () => {
 		const changingPath = path.join(workspace, "changing-lines.txt");
 		await writeFile(changingPath, "line\n");
 		await writeFile(path.join(workspace, "nul.txt"), new Uint8Array([0x61, 0x00, 0x62]));
 		let changingOpened = false;
 		let revalidationCalls = 0;
+		const tracker = { opened: 0, closed: 0 };
 		const opened = await openReadonly({ native: wrapNative(new NodeNativeFileSystem(), {
+			tracker,
 			async beforeOpen(pathname) { if (pathname === changingPath) changingOpened = true; },
 			lstat(pathname, metadata) {
 				if (!changingOpened || pathname !== changingPath) return metadata;
@@ -391,14 +521,17 @@ describe("filesystem content and text services", () => {
 				return revalidationCalls > 1 ? { ...metadata, version: `${metadata.version}:changed` } : metadata;
 			},
 		}) });
+		const changingFile = await resolveFile(opened.namespace, "changing-lines.txt");
+		const snapshot = toFileSnapshot(expectOk(await opened.services.metadata.stat(changingFile, {})));
 		const scan = expectOk(await opened.services.content.scanLines(
-			await resolveFile(opened.namespace, "changing-lines.txt"),
-			{ stable: true },
+			changingFile,
+			{ expectedSnapshot: snapshot, stable: true },
 			{},
 		));
 		const results = [];
 		for await (const result of scan) results.push(result);
 		expect(results.at(-1)).toMatchObject({ ok: false, error: { code: "changed-during-read" } });
+		expect(tracker).toEqual({ opened: 1, closed: 1 });
 		const nul = expectOk(await opened.services.content.readText(
 			await resolveFile(opened.namespace, "nul.txt"),
 			{ rejectBinary: false },
@@ -412,8 +545,10 @@ describe("filesystem content and text services", () => {
 		await writeFile(path.join(workspace, "invalid.txt"), new Uint8Array([0xc3, 0x28, 0x0a]));
 		const tracker = { opened: 0, closed: 0 };
 		const opened = await openReadonly({ native: wrapNative(new NodeNativeFileSystem(), { tracker }) });
+		const validFile = await resolveFile(opened.namespace, "valid.txt");
+		const snapshot = toFileSnapshot(expectOk(await opened.services.metadata.stat(validFile, {})));
 
-		const early = expectOk(await opened.services.content.scanLines(await resolveFile(opened.namespace, "valid.txt"), {}, {}));
+		const early = expectOk(await opened.services.content.scanLines(validFile, { expectedSnapshot: snapshot }, {}));
 		for await (const result of early) {
 			expect(result.ok).toBe(true);
 			break;
@@ -421,8 +556,8 @@ describe("filesystem content and text services", () => {
 
 		const controller = new AbortController();
 		const aborted = expectOk(await opened.services.content.scanLines(
-			await resolveFile(opened.namespace, "valid.txt"),
-			{},
+			validFile,
+			{ expectedSnapshot: snapshot },
 			{ signal: controller.signal },
 		));
 		controller.abort("test");

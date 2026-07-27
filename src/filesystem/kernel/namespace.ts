@@ -229,12 +229,18 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		}));
 	}
 
-	isWithin(parent: DirectoryRef, candidate: ExistingRef | TargetRef): boolean {
+	relative(parent: DirectoryRef, candidate: ExistingRef | TargetRef): string | undefined {
 		const parentIdentity = this.refs.get(parent.id);
 		const candidateIdentity = this.refs.get(candidate.id);
-		if (parentIdentity === undefined || candidateIdentity === undefined) return false;
+		if (parentIdentity === undefined || candidateIdentity === undefined) return undefined;
 		const relative = path.relative(parentIdentity.canonicalPath, candidateIdentity.canonicalPath);
-		return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+		if (relative === "") return "";
+		if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return undefined;
+		return normalizeLogicalPath(relative);
+	}
+
+	isWithin(parent: DirectoryRef, candidate: ExistingRef | TargetRef): boolean {
+		return this.relative(parent, candidate) !== undefined;
 	}
 
 	async revalidateExisting(

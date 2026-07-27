@@ -1,5 +1,5 @@
-import { byteRangeForLines } from "../../code-index/parser.js";
 import type { TextContent } from "../../filesystem/contracts/content.js";
+import { resolveTextRange } from "../../filesystem/services/text.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, type ToolOutcome } from "../shared/result.js";
@@ -389,13 +389,8 @@ async function settleExternal(
 }
 
 async function loadCurrentFile(file: ScopedFile, context: ExternalValidationContext): Promise<TextContent | undefined> {
-	const metadata = await context.filesystem.metadata.stat(file.ref, context.operation);
-	if (!metadata.ok || metadata.value.kind !== "file") return undefined;
-	const identity = `${context.filesystem.identity}\0${metadata.value.identity ?? normalizePath(file.path)}`;
-	if (identity !== file.canonicalIdentity
-		|| metadata.value.sizeBytes !== file.size
-		|| metadataVersion(metadata.value) !== file.metadataVersion) return undefined;
 	const content = await context.filesystem.content.readText(file.ref, {
+		expectedSnapshot: file.snapshot,
 		stable: true,
 		rejectBinary: true,
 	}, context.operation);
@@ -403,23 +398,14 @@ async function loadCurrentFile(file: ScopedFile, context: ExternalValidationCont
 }
 
 function matchesExternalVersion(candidate: GrepExternalCandidate, file: ScopedFile, content: TextContent): boolean {
-	if (candidate.contentVersion !== undefined && candidate.contentVersion !== file.metadataVersion) return false;
+	if (candidate.contentVersion !== undefined && candidate.contentVersion !== file.snapshot.version) return false;
 	if (candidate.contentHash === undefined) return true;
 	return normalizeHash(candidate.contentHash) === normalizeHash(content.hash);
 }
 
 function validateRange(range: GrepExternalRange | undefined, content: TextContent): Required<GrepExternalRange> | undefined {
 	if (range === undefined) return undefined;
-	if (!positiveInteger(range.startLine) || !positiveInteger(range.endLine)
-		|| range.endLine < range.startLine || range.endLine > content.totalLines) return undefined;
-	if ((range.startByte === undefined) !== (range.endByte === undefined)) return undefined;
-	const lineBytes = byteRangeForLines(content.text, range.startLine, range.endLine);
-	const startByte = range.startByte ?? lineBytes.startByte;
-	const endByte = range.endByte ?? lineBytes.endByte;
-	const textBytes = Buffer.byteLength(content.text, "utf8");
-	if (!nonNegativeInteger(startByte) || !nonNegativeInteger(endByte) || endByte < startByte || endByte > textBytes
-		|| startByte < lineBytes.startByte || endByte > lineBytes.endByte) return undefined;
-	return { startLine: range.startLine, endLine: range.endLine, startByte, endByte };
+	return resolveTextRange(content.text, range);
 }
 
 function validCandidateShape(candidate: GrepExternalCandidate): boolean {
@@ -459,24 +445,8 @@ function dedupeRetrieved(values: readonly RetrievedExternalCandidate[]): Retriev
 	return [...result.values()];
 }
 
-function metadataVersion(metadata: { readonly version?: string; readonly sizeBytes: number; readonly modifiedAtMs: number }): string {
-	return metadata.version ?? `${metadata.sizeBytes}:${metadata.modifiedAtMs}`;
-}
-
 function normalizeHash(value: string): string {
 	return value.replace(/^sha256:/u, "").toLocaleLowerCase();
-}
-
-function normalizePath(value: string): string {
-	return value.replaceAll("\\", "/").replace(/\/+$/u, "");
-}
-
-function positiveInteger(value: number): boolean {
-	return Number.isSafeInteger(value) && value > 0;
-}
-
-function nonNegativeInteger(value: number): boolean {
-	return Number.isSafeInteger(value) && value >= 0;
 }
 
 function isAborted(signal: AbortSignal | undefined): boolean {

@@ -110,14 +110,6 @@ export type RetrievalCandidate = RetrievalCandidateBase & (
 	| { readonly lane: "nearby" | "related"; readonly queryMatch: "not_guaranteed" }
 );
 
-export type ValidatedAnchor = RetrievalCandidate & {
-	readonly startLine: number;
-	readonly endLine: number;
-	readonly metadataVersion: string | number;
-	readonly contentHash?: string;
-	readonly validatedAt: number;
-};
-
 export interface RegionEvidence extends SourceLocalRank {
 	readonly reason: string;
 }

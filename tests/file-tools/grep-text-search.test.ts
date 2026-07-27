@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -97,8 +97,9 @@ describe("grep text search", () => {
 		expect(result.truncated_by).not.toContain("traversal_limit");
 	});
 
-	it("TextScanner 对命中存储设界并显式报告候选截断", async () => {
-		await writeFile(path.join(testContext.workspace, "hits.txt"), "hit\nhit\nhit\nhit\nhit\n");
+	it("TextScanner 以正文 UTF-8 坐标存储 BOM 后的多字节命中并显式报告候选截断", async () => {
+		const lines = "你😀hit\n你😀hit\n你😀hit\n你😀hit\n你😀hit\n";
+		await writeFile(path.join(testContext.workspace, "hits.txt"), Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(lines)]));
 		const host = new FileToolsHost();
 		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-hit-limit" });
 		if (isFailed(opened)) throw new Error(opened.error.message);
@@ -115,9 +116,48 @@ describe("grep text search", () => {
 			});
 			if (isFailed(scanned)) throw new Error(scanned.error.message);
 			expect(scanned.hits).toHaveLength(2);
-			expect(scanned.hits[0]).toMatchObject({ line: 1, byteStart: 0, byteEnd: 3, before: [], after: ["hit", "hit"] });
+			expect(scanned.hits[0]).toMatchObject({
+				line: 1,
+				byteStart: 7,
+				byteEnd: 10,
+				before: [],
+				after: ["你😀hit", "你😀hit"],
+			});
 			expect(scanned.totalHits).toBe(5);
 			expect(scanned.truncationReasons).toEqual(["semantic_candidate_limit"]);
+		} finally {
+			opened.dispose();
+			host.dispose();
+		}
+	});
+
+	it("inventory 后 identity 替换时 TextScanner 丢弃旧快照并区分递归跳过与显式错误", async () => {
+		const filePath = path.join(testContext.workspace, "snapshot-race.txt");
+		const replacementPath = path.join(testContext.outside, "snapshot-replacement.txt");
+		const host = new FileToolsHost();
+		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-snapshot-race" });
+		if (isFailed(opened)) throw new Error(opened.error.message);
+		try {
+			for (const [paths, explicit] of [[["."], false], [["snapshot-race.txt"], true]] as const) {
+				await writeFile(filePath, "needle\n");
+				await writeFile(replacementPath, "current");
+				const inventory = expectInventorySuccess(await buildScopeInventory({ paths }, {
+					filesystem: opened.filesystem,
+					operation: opened.context,
+					maxDepth: 12,
+				}));
+				await rm(filePath);
+				await rename(replacementPath, filePath);
+				const scanned = await scanInventoryText(inventory, queryPlan("needle", "literal"), {
+					filesystem: opened.filesystem,
+					operation: opened.context,
+				});
+				if (isFailed(scanned)) throw new Error(scanned.error.message);
+				expect(scanned.hits).toEqual([]);
+				expect(scanned.stats.searchedFiles).toBe(0);
+				if (explicit) expect(scanned.scopeErrors).toMatchObject([{ error: { code: "STALE_READ" } }]);
+				else expect(scanned.stats.skipped).toMatchObject({ changed: 1 });
+			}
 		} finally {
 			opened.dispose();
 			host.dispose();

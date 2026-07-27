@@ -1,13 +1,26 @@
 import type { DirectoryRef, ExistingPathKind, ExistingRef } from "./path.js";
 import type { FsOperationContext, FsResult } from "./result.js";
 
-export interface FileMetadata {
-	readonly kind: ExistingPathKind;
-	/** Stable identity of one filesystem object when the backend can provide it. */
-	readonly identity?: string;
+export interface FileSnapshot {
+	/** Stable identity of one filesystem object, independent of content changes. */
+	readonly identity: string;
+	/** Stable metadata stamp for one version of the object. */
+	readonly version: string;
 	readonly sizeBytes: number;
+}
+
+export interface FileMetadata extends FileSnapshot {
+	readonly kind: ExistingPathKind;
 	readonly modifiedAtMs: number;
-	readonly version?: string;
+}
+
+/** Projects backend metadata into the public snapshot used to bind later content reads. */
+export function toFileSnapshot(metadata: FileMetadata): FileSnapshot {
+	return {
+		identity: metadata.identity,
+		version: metadata.version,
+		sizeBytes: metadata.sizeBytes,
+	};
 }
 
 export interface DirectoryEntry {

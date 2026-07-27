@@ -1,4 +1,4 @@
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -181,28 +181,46 @@ describe("grep local search", () => {
 		expect(deleted.regions).toEqual([]);
 	});
 
-	it("regionizer 的 live gate 不会把 scanner 旧 range 混入新正文", async () => {
-		await writeFile(path.join(testContext.workspace, "race-region.ts"), "export function before() { return 'RaceNeedle'; }\n");
+	it("regionizer 用 inventory snapshot 拒绝 stat 后发生的同 size 正文替换", async () => {
+		const filePath = path.join(testContext.workspace, "race-region.ts");
+		const hitLine = "  return 'RaceNeedle';";
+		const originalFirstLine = "export function before() {";
+		const replacementFirstLine = "export const changed = 1;".padEnd(originalFirstLine.length, " ");
+		const originalText = `${originalFirstLine}\n${hitLine}\n}\n`;
+		const replacementText = `${replacementFirstLine}\n${hitLine}\n}\n`;
+		expect(Buffer.byteLength(replacementText)).toBe(Buffer.byteLength(originalText));
+		await writeFile(filePath, originalText);
 		const host = new FileToolsHost();
 		const tool = new GrepTool();
 		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-region-race" });
 		if (isFailed(opened)) throw new Error(opened.error.message);
-		const original = opened.filesystem.content;
+		const originalContent = opened.filesystem.content;
+		const originalMetadata = opened.filesystem.metadata;
 		let changed = false;
+		let metadataReads = 0;
 		const filesystem: WorkspaceFileSystem = {
 			...opened.filesystem,
+			metadata: {
+				...originalMetadata,
+				async stat(ref, context) {
+					metadataReads += 1;
+					return await originalMetadata.stat(ref, context);
+				},
+			},
 			content: {
-				readBytes: original.readBytes.bind(original),
+				readBytes: originalContent.readBytes.bind(originalContent),
 				async readText(file, options, context) {
+					expect(options.expectedSnapshot).toBeDefined();
 					if (!changed) {
 						changed = true;
-						await writeFile(path.join(testContext.workspace, "race-region.ts"), "export function after() { return 'current'; }\n");
+						await writeFile(filePath, replacementText);
+						await utimes(filePath, new Date(946_684_800_000), new Date(946_684_800_000));
 					}
-					return await original.readText(file, options, context);
+					return await originalContent.readText(file, options, context);
 				},
-				decodeText: original.decodeText.bind(original),
-				sliceText: original.sliceText.bind(original),
-				scanLines: original.scanLines.bind(original),
+				decodeText: originalContent.decodeText.bind(originalContent),
+				sliceText: originalContent.sliceText.bind(originalContent),
+				scanLines: originalContent.scanLines.bind(originalContent),
 			},
 		};
 		try {
@@ -213,6 +231,7 @@ describe("grep local search", () => {
 			}));
 			expect(result.regions).toEqual([]);
 			expect(result.stats.skipped_files).toMatchObject({ changed: 1 });
+			expect(metadataReads).toBe(0);
 		} finally {
 			tool.dispose();
 			opened.dispose();
@@ -244,7 +263,7 @@ describe("grep local search", () => {
 		expect(firstRegion(explicit)).toMatchObject({ path: "hidden/cached.ts", kind: "function" });
 	});
 
-	it("regionizer 统一 scanner 原始 BOM offset 与 AST UTF-8 byte offset", async () => {
+	it("regionizer 直接使用 scanner 与 AST 的正文 UTF-8 byte offset", async () => {
 		await writeFile(path.join(testContext.workspace, "utf8.ts"), Buffer.concat([
 			Buffer.from([0xef, 0xbb, 0xbf]),
 			Buffer.from("export function utf8() { return '😀 Utf8RegionNeedle'; }\n"),

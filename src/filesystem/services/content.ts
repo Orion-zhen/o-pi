@@ -9,6 +9,7 @@ import type {
 	TextSlice,
 	TextSliceOptions,
 } from "../contracts/content.js";
+import type { FileSnapshot } from "../contracts/metadata.js";
 import type { FileRef } from "../contracts/path.js";
 import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.js";
 import { mapNativeError } from "../kernel/native-error.js";
@@ -43,6 +44,10 @@ export class WorkspaceContentService implements ContentOperations {
 		const opened = await openValidatedFile(this.native, this.bridge, file, identity.value, context);
 		if (!opened.ok) return opened;
 		const { handle, metadata: before } = opened.value;
+		if (options.expectedSnapshot !== undefined && !sameSnapshot(before, options.expectedSnapshot)) {
+			await closeQuietly(handle);
+			return changedDuringRead(file.displayPath, "read");
+		}
 
 		let outcome: FsResult<ByteContent>;
 		try {
@@ -112,6 +117,10 @@ export class WorkspaceContentService implements ContentOperations {
 		const opened = await openValidatedFile(this.native, this.bridge, file, identity.value, context);
 		if (!opened.ok) return opened;
 		const { handle, metadata: before } = opened.value;
+		if (options.expectedSnapshot !== undefined && !sameSnapshot(before, options.expectedSnapshot)) {
+			await closeQuietly(handle);
+			return changedDuringRead(file.displayPath, "scan");
+		}
 		try {
 			if (options.maxBytes !== undefined && before.sizeBytes > options.maxBytes) {
 				await closeQuietly(handle);
@@ -186,6 +195,7 @@ class NativeLineScan implements LineScan {
 		let pending: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
 		let pendingStart = 0;
 		let line = 1;
+		let bodyBomBytes = 0;
 		let yieldedAbort = false;
 		try {
 			if (this.isAborted()) {
@@ -214,10 +224,13 @@ class NativeLineScan implements LineScan {
 					if (byte !== 0x0a && byte !== 0x0d) continue;
 					if (byte === 0x0d && index + 1 === pending.byteLength) break;
 					const terminatorBytes = byte === 0x0d && pending[index + 1] === 0x0a ? 2 : 1;
+					const lineBytes = pending.subarray(recordStart, index);
+					if (line === 1 && hasUtf8Bom(lineBytes)) bodyBomBytes = UTF8_BOM_BYTES;
 					const decoded = decodeScannedLine(
-						pending.subarray(recordStart, index),
+						lineBytes,
 						pendingStart + recordStart,
 						line,
+						bodyBomBytes,
 						this.options.rejectBinary ?? true,
 						displayPath,
 					);
@@ -239,11 +252,13 @@ class NativeLineScan implements LineScan {
 			if (!this.stopped && pending.byteLength > 0) {
 				const trailingCr = pending[pending.byteLength - 1] === 0x0d;
 				const payload = trailingCr ? pending.subarray(0, -1) : pending;
-				if (!(line === 1 && payload.byteLength === UTF8_BOM_BYTES && hasUtf8Bom(payload))) {
+				if (!(line === 1 && !trailingCr && payload.byteLength === UTF8_BOM_BYTES && hasUtf8Bom(payload))) {
+					if (line === 1 && hasUtf8Bom(payload)) bodyBomBytes = UTF8_BOM_BYTES;
 					const decoded = decodeScannedLine(
 						payload,
 						pendingStart,
 						line,
+						bodyBomBytes,
 						this.options.rejectBinary ?? true,
 						displayPath,
 					);
@@ -304,18 +319,18 @@ function decodeScannedLine(
 	bytes: Uint8Array,
 	rawStart: number,
 	line: number,
+	bodyBomBytes: number,
 	rejectBinary: boolean,
 	displayPath: string,
 ): FsResult<ScannedLine> {
-	const bomBytes = line === 1 && hasUtf8Bom(bytes) ? UTF8_BOM_BYTES : 0;
-	const payload = bytes.subarray(bomBytes);
-	const decoded = decodeUtf8(payload, { rejectBinary, path: displayPath });
+	const leadingBomBytes = line === 1 && hasUtf8Bom(bytes) ? bodyBomBytes : 0;
+	const decoded = decodeUtf8(bytes.subarray(leadingBomBytes), { rejectBinary, path: displayPath });
 	if (!decoded.ok) return decoded;
 	return fsSuccess({
 		line,
 		text: decoded.value,
-		byteStart: rawStart + bomBytes,
-		byteEnd: rawStart + bytes.byteLength,
+		byteStart: Math.max(0, rawStart - bodyBomBytes),
+		byteEnd: rawStart + bytes.byteLength - bodyBomBytes,
 	});
 }
 
@@ -402,6 +417,12 @@ function readBufferSize(position: number, maxBytes: number | undefined, sizeHint
 
 function sameVersion(left: NativeMetadata, right: NativeMetadata): boolean {
 	return left.kind === right.kind && left.version === right.version;
+}
+
+function sameSnapshot(metadata: NativeMetadata, expected: FileSnapshot): boolean {
+	return metadata.identity === expected.identity
+		&& metadata.version === expected.version
+		&& metadata.sizeBytes === expected.sizeBytes;
 }
 
 function sameNativePath(left: string, right: string): boolean {

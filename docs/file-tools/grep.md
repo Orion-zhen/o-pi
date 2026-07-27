@@ -1,6 +1,6 @@
 # `grep`
 
-`grep` 按内容、symbol、正则或代码意图检索代码，不查找路径、不修改文件。执行链固定为 `QueryPlan -> ScopeInventory -> text/local channels -> live validation -> regionization -> ranking -> packing`；command 只通过 filesystem traversal/content/line scan/hash 访问文件，LSP 与 Repo Map 通过独立 port 接入。结果按函数、方法、类、声明或紧凑文本片段聚合。
+`grep` 按内容、symbol、正则或代码意图检索代码，不查找路径、不修改文件。执行链固定为 `QueryPlan -> ScopeInventory -> text/local channels -> live validation -> regionization -> ranking -> packing`；command 通过 filesystem discovery 建立 inventory，并只以 snapshot-bound content/line scan 读取正文，LSP 与 Repo Map 通过独立 port 接入。结果按函数、方法、类、声明或紧凑文本片段聚合。
 
 ## 参数
 
@@ -78,13 +78,15 @@ C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 Tree-sit
 
 每次 invocation 使用 host 已绑定的不可变 visibility snapshot。默认目录遍历使用 `search` intent；显式 path 指向 soft ignored 文件或目录时，允许在该路径内检索。普通 dotfile 可检索，blocked path 不可检索；递归不跟随 child symlink，明确 file/dir symlink root 可以解析后检索。
 
-检索先建立 `ScopeInventory`：按输入顺序逐 scope 发现文件，应用 visibility 与 glob，再按 filesystem canonical identity 去重。glob 的静态目录前缀用于剪枝 traversal；前缀不存在表示该 scope 零匹配，不误报 scope 不存在。父 scope 不删除显式子 scope，因此 soft ignored 子目录仍可由显式 scope 补回。
+检索先建立 `ScopeInventory`：按输入顺序逐 scope 消费 filesystem discovery，应用 visibility 与 scope-relative glob，再按 snapshot 中的 canonical object identity 去重。glob 拒绝 absolute、NUL 和 `..` segment；不含 `/` 时递归匹配 basename，含 `/` 时匹配相对原始 scope 的 `/` 规范化路径。filesystem 使用静态目录前缀剪枝 traversal；前缀不存在表示该 scope 零匹配，不误报 scope 不存在，也不重置原始深度。父 scope 不删除显式子 scope，因此 soft ignored 子目录仍可由显式 scope 补回。
 
-`literal` 和 `regex` 随后只通过 filesystem `scanLines` 执行稳定流式扫描，不完整读取正文、不解析 AST，也不调用 LSP 或 Repo Map。LF、CRLF、CR 和 BOM 由 filesystem logical line 语义统一处理；扫描失败的文件不会保留读取到一半的命中。
+inventory entry 携带 filesystem 捕获的 object identity、version 和 size snapshot。`literal` 和 `regex` 随后通过 `scanLines` 要求打开的文件仍等于该 snapshot，并在扫描结束再次验证稳定性；不完整读取正文、不解析 AST，也不调用 LSP 或 Repo Map。文件在 inventory 后或读取期间变化时不会保留部分命中：递归 scope 计入 `skipped_files.changed`，显式文件 scope 返回对应错误。
+
+LF、CRLF、CR 和 UTF-8 BOM 由 filesystem logical line 语义统一处理。`ScannedLine`、`TextContent.text`、AST 和 external range 均使用剥离 BOM 后正文的 UTF-8 byte 坐标；行扫描的 byte 范围不包含行终止符。grep 不修正 BOM offset，也不把原始文件 byte 坐标与正文坐标混用。
 
 每个 scope 独立应用 `grep_max_depth`：scope 根为 0，直属子项为 1；glob 静态前缀剪枝不会重置深度。正文事实扫描不按文件数量、累计字节或单文件字节提前停止。语法增强只受 `grep_ast_max_file_bytes` 约束，超限文件仍保留已验证文本命中。
 
-`auto` 的增强阶段可并行执行 LSP symbol 与 Repo Map graph ports；它们只返回 grep-owned DTO。每个 external candidate 都必须命中 filesystem allowed ref，并通过 scope、visibility、glob、live text/range/hash 和预算 gate；related edge 的文件 hash 也在当前调用复核。Tree-sitter/text、LSP 和 Repo Map 的职责与融合规则见 [排序证据](ranking-evidence.md)。
+`auto` 的增强阶段可并行执行 LSP symbol 与 Repo Map graph ports；它们只返回 grep-owned DTO。每个 external candidate 都必须命中 filesystem allowed ref，并以 inventory snapshot 读取同一版正文，再通过 scope、visibility、glob、正文 range、可选 content version/hash 和预算 gate；即使候选没有 hash/version，也不能应用到 inventory 后变化的正文。related edge 的文件 hash 也在当前调用复核。Tree-sitter/text、LSP 和 Repo Map 的职责与融合规则见 [排序证据](ranking-evidence.md)。
 
 ## Scope、跳过和截断
 
@@ -159,6 +161,6 @@ none
 
 ## Cache 与生命周期
 
-`GrepTool` 按 canonical workspace identity、visibility fingerprint、scope、query filter 和 limits 管理派生 AST cache；cache 只保存 metadata/hash/parsed units，不取代当前 inventory 与正文事实扫描。单文件 entry 只保存 metadata/hash/index，不永久保存完整源码；使用前仍进行当前 visibility 与内容 gate。新增、修改、删除或 ignore fingerprint 变化会进入新 snapshot/cache key。
+`GrepTool` 按 canonical workspace identity、visibility fingerprint、scope、query filter 和 limits 管理派生 AST cache；cache 只保存 snapshot/hash/parsed units，不取代当前 inventory 与正文事实扫描。单文件 entry 只保存 snapshot/hash/index，不永久保存完整源码；使用前仍进行当前 visibility 与 snapshot-bound 内容 gate。新增、修改、删除或 ignore fingerprint 变化会进入新 snapshot/cache key。
 
 pending index build、parser pool 和 worker 由该 `GrepTool` instance 持有。`dispose()` abort pending consumers、释放 parser/worker 并清理 derived cache，不要求 Pi adapter知道内部 cache 名称，也不影响 find 或 filesystem factual cache。

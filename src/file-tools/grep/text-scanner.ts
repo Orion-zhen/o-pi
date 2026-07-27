@@ -1,5 +1,6 @@
 import { tokenizeText } from "../../code-index/parser.js";
 import type { ScannedLine } from "../../filesystem/contracts/content.js";
+import { utf8ByteOffset } from "../../filesystem/services/text.js";
 import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
@@ -12,7 +13,6 @@ const CONTEXT_LINES = 2;
 const MAX_ANCHORS_PER_FILE = 64;
 export const MAX_STORED_TEXT_HITS = 10_000;
 export const MAX_STORED_LEXICAL_ANCHORS = 10_000;
-const UTF8 = new TextEncoder();
 
 export interface TextScanStats {
 	readonly searchedFiles: number;
@@ -114,7 +114,7 @@ export async function scanInventoryText(
 			continue;
 		}
 		searchedFiles += 1;
-		searchedBytes += file.size;
+		searchedBytes += file.snapshot.sizeBytes;
 		totalHits += scanned.value.totalHits;
 		hits.push(...scanned.value.hits);
 		fileEvidence.push(scanned.value.evidence);
@@ -146,7 +146,7 @@ async function scanFile(
 ): Promise<{ readonly ok: true; readonly value: FileScanSuccess } | { readonly ok: false; readonly error: FsError }> {
 	const opened = await context.filesystem.content.scanLines(
 		file.ref,
-		{ stable: true, rejectBinary: true },
+		{ expectedSnapshot: file.snapshot, stable: true, rejectBinary: true },
 		context.operation,
 	);
 	if (!opened.ok) return opened;
@@ -177,8 +177,10 @@ async function scanFile(
 				totalHits += 1;
 				if (fileHits.length < remainingHitCapacity) {
 					const hit = createTextHit(file.path, line, match, plan.match === "regex" ? "regex" : "literal", before);
-					fileHits.push(hit);
-					pending.push({ value: hit, line: hit.line });
+					if (hit !== undefined) {
+						fileHits.push(hit);
+						pending.push({ value: hit, line: hit.line });
+					}
 				} else hitLimitReached = true;
 			}
 			if (plan.match === "auto") {
@@ -252,12 +254,15 @@ function createTextHit(
 	match: LineMatch,
 	mode: "literal" | "regex",
 	before: readonly string[],
-): TextHit & { readonly after: string[] } {
+): (TextHit & { readonly after: string[] }) | undefined {
+	const startByte = utf8ByteOffset(line.text, match.start);
+	const endByte = utf8ByteOffset(line.text, match.end);
+	if (startByte === undefined || endByte === undefined) return undefined;
 	return {
 		path,
 		line: line.line,
-		byteStart: line.byteStart + utf8Length(line.text.slice(0, match.start)),
-		byteEnd: line.byteStart + utf8Length(line.text.slice(0, match.end)),
+		byteStart: line.byteStart + startByte,
+		byteEnd: line.byteStart + endByte,
 		mode,
 		lineText: line.text,
 		before: [...before],
@@ -278,7 +283,7 @@ function createLexicalAnchor(
 		path,
 		line: line.line,
 		byteStart: line.byteStart,
-		byteEnd: line.byteStart + utf8Length(line.text),
+		byteEnd: line.byteEnd,
 		lineText: line.text,
 		before: [...before],
 		after: [],
@@ -299,10 +304,6 @@ function appendAfterContext(pending: PendingContext[], line: ScannedLine): void 
 
 function uniqueLowerTerms(terms: readonly string[]): string[] {
 	return [...new Set(terms.map((term) => term.toLocaleLowerCase()).filter((term) => term.length > 0))];
-}
-
-function utf8Length(value: string): number {
-	return UTF8.encode(value).byteLength;
 }
 
 function countSkippedFile(skipped: Required<GrepSkippedFiles>, error: FsError): boolean {

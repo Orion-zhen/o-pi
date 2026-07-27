@@ -4,7 +4,7 @@ import { createFileIdentity, createSymbolId } from "./identity.js";
 import { getLanguageAdapter, languageFromPath } from "./language-registry.js";
 import { CodeAnalysisTimeoutError, isCodeAnalysisControlError, parseDocumentResult, type ParseDocumentResult } from "./syntax-tree.js";
 import { SourceIndex } from "./types.js";
-import type { AnalysisControl, AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, LineIndex, ParsedDocument, ParsedFileIndex, SourceRange } from "./types.js";
+import type { AnalysisControl, AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, ParsedDocument, ParsedFileIndex } from "./types.js";
 
 export { languageFromPath } from "./language-registry.js";
 export { parseDocument, parseDocumentForAdapter, parseDocumentResult, sourceRangeForNode } from "./syntax-tree.js";
@@ -137,21 +137,6 @@ export function countTextTokenMatches(value: string, queryTokens: readonly strin
 
 export function lineForByte(text: string, byteOffset: number): number {
 	return buildLineIndex(text).lineForByte(byteOffset);
-}
-
-export function byteRangeForLines(text: string, startLine: number, endLine: number): SourceRange {
-	return byteRangeForLinesWithIndex(buildLineIndex(text), startLine, endLine);
-}
-
-export function byteRangeForLinesWithIndex(index: LineIndex, startLine: number, endLine: number): SourceRange {
-	const startByte = index.lineStarts[Math.max(0, startLine - 1)] ?? 0;
-	const endByte = index.lineStarts[endLine] ?? index.byteLength;
-	return { startLine, endLine, startByte, endByte };
-}
-
-/** 按 byte 截取 grep 展示文本；code unit 热路径使用 ParsedDocument 的 char slice。 */
-export function extractByteRange(text: string, startByte: number, endByte: number): string {
-	return Buffer.from(text, "utf8").subarray(startByte, endByte).toString("utf8").replace(/\s+$/u, "");
 }
 
 function emptyAnalyzedFile(file: { id: string; path: string }, language: CodeLanguage, status: AnalyzedFileIndex["status"]): AnalyzedFileIndex {

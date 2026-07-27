@@ -1,4 +1,4 @@
-import { byteRangeForLines, extractByteRange } from "../../code-index/parser.js";
+import { byteRangeForLines, extractByteRange } from "../../filesystem/services/text.js";
 import { countTextTokensSync } from "../../token-counter.js";
 import type { RankedRegion, TextHit } from "./candidates.js";
 import type {
@@ -240,9 +240,8 @@ function displayVariants(candidate: RankedRegion, input: GrepPackInput): RegionV
 	const source = input.sourceText.get(candidate.path);
 	const variants: RegionVariant[] = [];
 	if (source !== undefined && candidate.kind !== "text") {
-		const range = byteRangeForLines(source, candidate.startLine, candidate.endLine);
-		const body = extractByteRange(source, range.startByte, range.endByte);
-		if (body.length > 0) variants.push({ region: { ...base, detail: "body", content: body } });
+		const body = extractLineRange(source, candidate.startLine, candidate.endLine);
+		if (body !== undefined && body.length > 0) variants.push({ region: { ...base, detail: "body", content: body } });
 	}
 	if (candidate.queryMatch === "verified" && source !== undefined) {
 		for (const contextLines of [3, 1, 0]) {
@@ -308,8 +307,9 @@ function sourceMatchWindow(
 	for (const interval of intervals) {
 		const omitted = interval.start - previous - 1;
 		if (omitted > 0) chunks.push(`[...] ${omitted} lines omitted [...]`);
-		const range = byteRangeForLines(source, interval.start, interval.end);
-		chunks.push(extractByteRange(source, range.startByte, range.endByte));
+		const content = extractLineRange(source, interval.start, interval.end);
+		if (content === undefined) return undefined;
+		chunks.push(content);
 		previous = interval.end;
 	}
 	const tail = candidate.endLine - previous;
@@ -323,14 +323,19 @@ function sourceStartWindow(
 	source: string,
 ): { readonly startLine: number; readonly endLine: number; readonly content: string } | undefined {
 	const endLine = Math.min(candidate.endLine, candidate.startLine + 6);
-	const range = byteRangeForLines(source, candidate.startLine, endLine);
-	const content = extractByteRange(source, range.startByte, range.endByte);
-	if (content.length === 0) return undefined;
+	const content = extractLineRange(source, candidate.startLine, endLine);
+	if (content === undefined || content.length === 0) return undefined;
 	return {
 		startLine: candidate.startLine,
 		endLine,
 		content: `${content}${endLine < candidate.endLine ? `\n[...] ${candidate.endLine - endLine} lines omitted [...]` : ""}`,
 	};
+}
+
+function extractLineRange(source: string, startLine: number, endLine: number): string | undefined {
+	const range = byteRangeForLines(source, startLine, endLine);
+	if (range === undefined) return undefined;
+	return extractByteRange(source, range.startByte, range.endByte)?.replace(/\s+$/u, "");
 }
 
 function hitOnlyWindow(hits: readonly [TextHit, ...TextHit[]]): { readonly startLine: number; readonly endLine: number; readonly content: string } {

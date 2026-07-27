@@ -4,9 +4,11 @@
 
 ## Filesystem capability 边界
 
-工具只依赖 `WorkspaceFileSystem` 的分组 capability：`paths`、`metadata`、`content`、`visibility`、`traversal`、`mutations` 和 `catalog`。路径解析返回 opaque ref，后续操作不重新接受裸 native path。每个 invocation 绑定 workspace identity、不可变 policy/visibility snapshot 和 operation context。
+工具只依赖 `WorkspaceFileSystem` 的分组 capability：`paths`、`metadata`、`content`、`visibility`、`traversal`、`discovery`、`mutations` 和 `catalog`。路径解析返回 opaque ref，后续操作不重新接受裸 native path。每个 invocation 绑定 workspace identity、不可变 policy/visibility snapshot 和 operation context。
 
-filesystem 失败使用模型无关的 `FsResult` 与稳定 `FsError` code；tool command 在边界映射为既有 `FileToolError`，Pi presenter 再生成模型文本。filesystem error 不含工具名、`next`、模型文案、LSP 或 Repo Map 数据。合法零搜索结果仍是成功，不能与 I/O、配置、取消或索引失败混淆。
+filesystem discovery 组合 namespace、visibility、metadata 与 traversal，统一解释 scope-relative glob、静态前缀剪枝、原始 scope 深度、显式 ignored root 和 child symlink。每个文件 entry 携带必填 object identity、version 与 size snapshot；`content` 的 `expectedSnapshot` 约束打开的文件必须等于调用方捕获版本，`stable` 则检测读取期间的变化，两者职责独立。
+
+filesystem 失败使用模型无关的 `FsResult` 与稳定 `FsError` code；tool command 在边界映射为既有 `FileToolError`，Pi presenter 再生成模型文本。snapshot 不匹配和读取期间变化统一为 `changed-during-read`。filesystem error 不含工具名、`next`、模型文案、LSP 或 Repo Map 数据。合法零搜索结果仍是成功，不能与 I/O、配置、取消或索引失败混淆。
 
 配置先于 workspace I/O 加载。项目配置始终按 Pi invocation 的 `ctx.cwd` 选择，不隐式读取 `process.cwd()`；配置错误直接返回 `CONFIG_ERROR`。
 
@@ -19,7 +21,7 @@ filesystem 失败使用模型无关的 `FsResult` 与稳定 `FsError` code；too
 - 相对路径按当前 `cwd` 解析；空路径、空数组和空元素非法。
 - `find` 和 `grep` 的旧单路径或分隔字符串由 `tool-repair` 迁移；无法可靠解析时交给 schema 校验失败，不猜测真实路径。
 
-`find` 的 `query` 可以是路径、名称、路径片段、概念或 glob；`grep` 的 `query` 可以是文本、symbol、正则或代码意图。glob 只限制候选范围，不改变公共路径安全规则。
+`find` 的 `query` 可以是路径、名称、路径片段、概念或 glob；`grep` 的 `query` 可以是文本、symbol、正则或代码意图。grep glob 由 filesystem discovery 相对每个 scope 解释，只限制候选范围，不改变公共路径安全规则。
 
 ## 模型可见结果
 
@@ -46,7 +48,7 @@ TUI 展示不受模型可见 ASCII 协议限制，可以使用图标和其他显
 
 预算不足时，输出必须保留状态首行，不能让尾部截断掩盖结果不完整。`read` 返回 continuation 行号；`find` 区分 `scanTruncated`、`resultLimited` 和 `outputTruncated`；`grep` 在 `truncated_by` 中区分 `traversal_limit`、`text_byte_limit`、`semantic_candidate_limit`、`result_limit` 和 `token_budget`。
 
-正文、片段和 signature 按预算降级，而不是随机截断。详细 token 估算见 [Token Counter](../token-counter.md)。
+正文、片段和 signature 按预算降级，而不是随机截断。filesystem 文本 API 统一使用剥离 UTF-8 BOM 后正文的 UTF-8 byte 坐标；logical line、正文窗口、AST 和 external range 不使用原始文件 BOM offset。详细 token 估算见 [Token Counter](../token-counter.md)。
 
 ## 统一错误
 

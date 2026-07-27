@@ -167,7 +167,7 @@ function toDirectoryStamp(absolutePath: string, metadata: NativeMetadata): Visib
 }
 
 function metadataStamp(metadata: NativeMetadata): string {
-	return metadata.version ?? `${metadata.kind}:${metadata.sizeBytes}:${metadata.modifiedAtMs}`;
+	return metadata.version;
 }
 
 function compareRuleFiles(left: VisibilityRuleFile, right: VisibilityRuleFile): number {

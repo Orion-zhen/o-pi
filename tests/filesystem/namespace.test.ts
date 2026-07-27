@@ -233,7 +233,8 @@ describe("workspace namespace", () => {
 	it("validates expected kinds and canonical containment", async () => {
 		await mkdir(path.join(workspace, "dir"));
 		await writeFile(path.join(workspace, "dir", "file.txt"), "x");
-		await writeFile(path.join(outside, "outside.txt"), "x");
+		await mkdir(path.join(outside, "external-dir"));
+		await writeFile(path.join(outside, "external-dir", "outside.txt"), "x");
 		const namespace = await openNamespace();
 		expect(await namespace.paths.resolveExisting(
 			"dir",
@@ -260,20 +261,51 @@ describe("workspace namespace", () => {
 			{ expected: "file", followFinalSymlink: true },
 			{},
 		));
+		const externalDirectory = expectOk(await namespace.paths.resolveExisting(
+			path.join(outside, "external-dir"),
+			{ expected: "directory", followFinalSymlink: true },
+			{},
+		));
+		if (externalDirectory.kind !== "directory") throw new Error("Expected external directory ref");
 		const external = expectOk(await namespace.paths.resolveExisting(
-			path.join(outside, "outside.txt"),
+			path.join(outside, "external-dir", "outside.txt"),
 			{ expected: "file", followFinalSymlink: true },
 			{},
 		));
+		expect(namespace.paths.relative(directory, directory)).toBe("");
+		expect(namespace.paths.relative(directory, inside)).toBe("file.txt");
+		expect(namespace.paths.relative(externalDirectory, external)).toBe("outside.txt");
+		expect(namespace.paths.relative(directory, external)).toBeUndefined();
 		expect(namespace.paths.isWithin(directory, inside)).toBe(true);
 		expect(namespace.paths.isWithin(directory, external)).toBe(false);
 		const otherNamespace = await openNamespace();
 		const otherExternal = expectOk(await otherNamespace.paths.resolveExisting(
-			path.join(outside, "outside.txt"),
+			path.join(outside, "external-dir", "outside.txt"),
 			{ expected: "file", followFinalSymlink: true },
 			{},
 		));
+		expect(namespace.paths.relative(directory, otherExternal)).toBeUndefined();
 		expect(namespace.paths.isWithin(directory, otherExternal)).toBe(false);
+	});
+
+	it.runIf(process.platform === "win32")("computes ref-relative paths with Windows case and normalized separators", async () => {
+		await mkdir(path.join(workspace, "CaseDir", "Nested"), { recursive: true });
+		await writeFile(path.join(workspace, "CaseDir", "Nested", "File.txt"), "x");
+		const namespace = await openNamespace();
+		const directory = expectOk(await namespace.paths.resolveExisting(
+			"casedir",
+			{ expected: "directory", followFinalSymlink: true },
+			{},
+		));
+		if (directory.kind !== "directory") throw new Error("Expected directory ref");
+		const file = expectOk(await namespace.paths.resolveExisting(
+			"CASEDIR\\NESTED\\FILE.TXT",
+			{ expected: "file", followFinalSymlink: true },
+			{},
+		));
+		const relative = namespace.paths.relative(directory, file);
+		expect(relative?.toLowerCase()).toBe("nested/file.txt");
+		expect(relative).not.toContain("\\");
 	});
 
 	it.skipIf(process.platform === "win32")("hydrates a dangling-link destination that appears during resolution", async () => {

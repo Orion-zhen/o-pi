@@ -1,18 +1,10 @@
-import picomatch from "picomatch";
-
-import type { FileMetadata } from "../../filesystem/contracts/metadata.js";
+import type { DiscoveryEvent } from "../../filesystem/contracts/discovery.js";
+import type { FileSnapshot } from "../../filesystem/contracts/metadata.js";
 import type { DirectoryRef, FileRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import type { GrepScopeError, GrepSkippedFiles, TruncationReason } from "./types.js";
-
-export interface GlobPlan {
-	readonly pattern: string;
-	readonly matchBasename: boolean;
-	readonly staticDirectoryPrefix?: string;
-	matches(scopeRelativePath: string): boolean;
-}
 
 export interface InventoryScope {
 	readonly input: string;
@@ -32,7 +24,7 @@ export interface ScopedFileMembership {
 export interface ScopedFile {
 	readonly ref: FileRef;
 	readonly path: string;
-	readonly canonicalIdentity: string;
+	readonly snapshot: FileSnapshot;
 	readonly scopeInput: string;
 	readonly scopeOrder: number;
 	readonly scopeRelativePath: string;
@@ -40,8 +32,6 @@ export interface ScopedFile {
 	readonly visibilityBypass: boolean;
 	/** 同一文件可由多个显式 scope 发现；外部通道按此集合获得完整准入范围。 */
 	readonly memberships: readonly ScopedFileMembership[];
-	readonly size: number;
-	readonly metadataVersion: string;
 }
 
 export interface ScopeInventory {
@@ -61,17 +51,17 @@ export interface ScopeInventoryContext {
 
 interface MutableInventoryState {
 	readonly context: ScopeInventoryContext;
-	readonly glob?: GlobPlan;
+	readonly glob?: string;
 	readonly scopes: InventoryScope[];
 	readonly files: ScopedFile[];
 	readonly scopeErrors: GrepScopeError[];
 	readonly seenFiles: Map<string, number>;
 	readonly skipped: Required<GrepSkippedFiles>;
 	traversedEntries: number;
-	depthLimited: boolean;
+	traversalLimited: boolean;
 }
 
-/** 只建立当前 visibility snapshot 下的文件事实清单，不读取正文或调用增强来源。 */
+/** 只聚合每个 scope 的 discovery 事实，不读取正文或实现文件发现策略。 */
 export async function buildScopeInventory(
 	input: { readonly paths: readonly string[]; readonly glob?: string },
 	context: ScopeInventoryContext,
@@ -80,18 +70,16 @@ export async function buildScopeInventory(
 		return fail("INVALID_OPERATION", "Traversal depth limit must be a non-negative integer.");
 	}
 	if (input.paths.length === 0) return fail("INVALID_PATH", "path must contain at least one scope.");
-	const glob = input.glob === undefined ? undefined : createGlobPlan(input.glob);
-	if (isFailed(glob)) return glob;
 	const state: MutableInventoryState = {
 		context,
-		...(glob === undefined ? {} : { glob }),
+		...(input.glob === undefined ? {} : { glob: input.glob }),
 		scopes: [],
 		files: [],
 		scopeErrors: [],
 		seenFiles: new Map(),
 		skipped: { binary: 0, invalid_utf8: 0, access_denied: 0, too_large: 0, changed: 0 },
 		traversedEntries: 0,
-		depthLimited: false,
+		traversalLimited: false,
 	};
 
 	for (const [order, scopeInput] of input.paths.entries()) {
@@ -119,9 +107,7 @@ export async function buildScopeInventory(
 			root: resolved,
 			visibilityBypass: visibility.value.ignored,
 		};
-		const discovered = resolved.kind === "file"
-			? await discoverFile(scope, state)
-			: await discoverDirectory(scope, state);
+		const discovered = await discoverScope(scope, state);
 		if (isFailed(discovered)) {
 			if (discovered.error.code === "OPERATION_ABORTED") return discovered;
 			state.scopeErrors.push({ path: scopeInput, error: discovered.error });
@@ -139,37 +125,7 @@ export async function buildScopeInventory(
 		scopeErrors: state.scopeErrors,
 		skipped: compactSkipped(state.skipped),
 		traversedEntries: state.traversedEntries,
-		truncationReasons: state.depthLimited ? ["traversal_limit"] : [],
-	};
-}
-
-/** 规范化并编译相对每个 scope 的 glob。 */
-export function createGlobPlan(input: string): ToolOutcome<GlobPlan> {
-	if (typeof input !== "string" || input.length === 0 || input.includes("\0")) {
-		return fail("INVALID_PATH", "glob must be a non-empty string without NUL bytes.");
-	}
-	const slashed = input.replaceAll("\\", "/");
-	if (isAbsolutePath(slashed)) return fail("INVALID_PATH", "glob must be relative to each scope.");
-	let pattern = slashed.replace(/\/{2,}/gu, "/");
-	while (pattern.startsWith("./")) pattern = pattern.slice(2);
-	if (pattern.length === 0 || pattern.split("/").some((part) => part === "..")) {
-		return fail("INVALID_PATH", "glob must not escape its scope.");
-	}
-	let matcher: (candidate: string) => boolean;
-	try { matcher = picomatch(pattern, { dot: true, nonegate: true }); }
-	catch (error) {
-		return fail("INVALID_PATH", error instanceof Error ? error.message : "Invalid glob.");
-	}
-	const matchBasename = !pattern.includes("/");
-	const staticDirectoryPrefix = matchBasename ? undefined : extractStaticDirectoryPrefix(pattern);
-	return {
-		pattern,
-		matchBasename,
-		...(staticDirectoryPrefix === undefined ? {} : { staticDirectoryPrefix }),
-		matches(scopeRelativePath) {
-			const candidate = normalizeRelativePath(scopeRelativePath);
-			return matcher(matchBasename ? basename(candidate) : candidate);
-		},
+		truncationReasons: state.traversalLimited ? ["traversal_limit"] : [],
 	};
 }
 
@@ -186,91 +142,62 @@ async function resolveScope(input: string, context: ScopeInventoryContext): Prom
 	return resolved.value;
 }
 
-async function discoverFile(scope: InventoryScope, state: MutableInventoryState): Promise<ToolOutcome<void>> {
-	if (scope.root.kind !== "file") return fail("INVALID_PATH", "Path must be a regular file.", { path: scope.root.displayPath });
-	const relativePath = basename(scope.root.displayPath);
-	if (state.glob !== undefined && !state.glob.matches(relativePath)) return;
-	const metadata = await state.context.filesystem.metadata.stat(scope.root, state.context.operation);
-	if (!metadata.ok) return mapFsError(metadata.error, { notFound: "file", path: scope.root.displayPath });
-	addFile(scope.root, metadata.value, scope, relativePath, true, state);
-}
-
-async function discoverDirectory(scope: InventoryScope, state: MutableInventoryState): Promise<ToolOutcome<void>> {
-	if (scope.root.kind !== "directory") return fail("INVALID_PATH", "Path must be a directory.", { path: scope.root.displayPath });
-	const start = await resolveTraversalStart(scope, state);
-	if (isFailed(start)) return start;
-	if (start === undefined) return;
-	const opened = await state.context.filesystem.traversal.walk(start.root, {
+async function discoverScope(scope: InventoryScope, state: MutableInventoryState): Promise<ToolOutcome<void>> {
+	const opened = await state.context.filesystem.discovery.discover(scope.root, {
 		intent: "search",
-		explicitRoot: start.root.id === scope.root.id || scope.visibilityBypass,
-		maxDepth: Math.max(0, state.context.maxDepth - start.depthOffset),
+		explicitRoot: true,
+		maxDepth: state.context.maxDepth,
+		...(state.glob === undefined ? {} : { glob: state.glob }),
 	}, state.context.operation);
-	if (!opened.ok) return mapFsError(opened.error, { message: "Path cannot be searched.", path: scope.root.displayPath });
+	if (!opened.ok) {
+		return mapFsError(opened.error, {
+			...(scope.root.kind === "file" ? { notFound: "file" as const } : { message: "Path cannot be searched." }),
+			path: scope.root.displayPath,
+		});
+	}
 	try {
 		for await (const event of opened.value) {
 			if (isAborted(state.context.operation.signal)) return aborted(scope.root.displayPath);
-			if (event.type === "skip") {
-				if (event.reason === "depth-limit") state.depthLimited = true;
-				else if (event.reason !== "blocked") state.traversedEntries += 1;
-				continue;
-			}
-			if (event.type === "error") {
-				if (event.error.code === "aborted") return aborted(scope.root.displayPath);
-				if (event.error.code === "access-denied") state.skipped.access_denied += 1;
-				else if (event.error.code === "not-found" || event.error.code === "not-file") state.skipped.changed += 1;
-				// 子项解析错误消耗一个 traversal entry；目录读取错误对应已统计的目录 entry。
-				if (event.kind !== undefined) state.traversedEntries += 1;
-				continue;
-			}
-			state.traversedEntries += 1;
-			if (event.ref.kind !== "file") continue;
-			const relativePath = relativeDisplayPath(scope.root.displayPath, event.ref.displayPath);
-			if (relativePath === undefined || (state.glob !== undefined && !state.glob.matches(relativePath))) continue;
-			addFile(event.ref, event.metadata, scope, relativePath, false, state);
+			const failure = consumeDiscoveryEvent(event, scope, state);
+			if (failure !== undefined) return failure;
 		}
 	} finally {
 		await opened.value.close();
 	}
 }
 
-async function resolveTraversalStart(
-	scope: InventoryScope,
-	state: MutableInventoryState,
-): Promise<ToolOutcome<{ readonly root: DirectoryRef; readonly depthOffset: number } | undefined>> {
-	const prefix = state.glob?.staticDirectoryPrefix;
-	if (prefix === undefined) return scope.root.kind === "directory" ? { root: scope.root, depthOffset: 0 } : undefined;
-	const resolved = await state.context.filesystem.paths.resolveExisting(
-		joinDisplayPath(scope.root.displayPath, prefix),
-		{ expected: "any", followFinalSymlink: false },
-		state.context.operation,
-	);
-	if (!resolved.ok) {
-		if (resolved.error.code === "not-found" || resolved.error.code === "not-directory") return undefined;
-		return mapFsError(resolved.error, { path: scope.root.displayPath });
+function consumeDiscoveryEvent(event: DiscoveryEvent, scope: InventoryScope, state: MutableInventoryState): FailedResult | undefined {
+	if (event.type === "skip") {
+		if (event.reason === "depth-limit" || event.reason === "entry-limit") state.traversalLimited = true;
+		else if (scope.root.kind === "directory" && event.reason !== "blocked") state.traversedEntries += 1;
+		return;
 	}
-	if (resolved.value.kind !== "directory" || scope.root.kind !== "directory" || !state.context.filesystem.paths.isWithin(scope.root, resolved.value)) return undefined;
-	const depthOffset = normalizeRelativePath(prefix).split("/").filter((part) => part.length > 0).length;
-	if (depthOffset > state.context.maxDepth) {
-		state.depthLimited = true;
-		return undefined;
+	if (event.type === "error") {
+		if (event.error.code === "aborted") return aborted(scope.root.displayPath);
+		if (event.error.code === "access-denied") state.skipped.access_denied += 1;
+		else if (event.error.code === "not-found" || event.error.code === "not-file") state.skipped.changed += 1;
+		// 子项解析错误消耗一个 traversal entry；目录读取错误对应已统计的目录 entry。
+		if (scope.root.kind === "directory" && event.kind !== undefined) state.traversedEntries += 1;
+		return;
 	}
-	return { root: resolved.value, depthOffset };
+	if (scope.root.kind === "directory") state.traversedEntries += 1;
+	if (event.ref.kind !== "file") return;
+	addFile(event.ref, event.snapshot, scope, event.relativePath, scope.root.kind === "file", state);
 }
 
 function addFile(
 	ref: FileRef,
-	metadata: FileMetadata,
+	snapshot: FileSnapshot,
 	scope: InventoryScope,
 	relativePath: string,
 	explicitFile: boolean,
 	state: MutableInventoryState,
 ): void {
-	const canonicalIdentity = `${state.context.filesystem.identity}\0${metadata.identity ?? normalizeDisplayPath(ref.displayPath)}`;
-	const existingIndex = state.seenFiles.get(canonicalIdentity);
+	const existingIndex = state.seenFiles.get(snapshot.identity);
 	const membership: ScopedFileMembership = {
 		scopeInput: scope.input,
 		scopeOrder: scope.order,
-		scopeRelativePath: normalizeRelativePath(relativePath),
+		scopeRelativePath: relativePath,
 		explicitFile,
 		visibilityBypass: scope.visibilityBypass,
 	};
@@ -291,62 +218,18 @@ function addFile(
 		}
 		return;
 	}
-	state.seenFiles.set(canonicalIdentity, state.files.length);
+	state.seenFiles.set(snapshot.identity, state.files.length);
 	state.files.push({
 		ref,
 		path: ref.displayPath,
-		canonicalIdentity,
+		snapshot,
 		scopeInput: scope.input,
 		scopeOrder: scope.order,
-		scopeRelativePath: normalizeRelativePath(relativePath),
+		scopeRelativePath: relativePath,
 		explicitFile,
 		visibilityBypass: scope.visibilityBypass,
 		memberships: [membership],
-		size: metadata.sizeBytes,
-		metadataVersion: metadata.version ?? `${metadata.sizeBytes}:${metadata.modifiedAtMs}`,
 	});
-}
-
-function extractStaticDirectoryPrefix(pattern: string): string | undefined {
-	const scanned = picomatch.scan(pattern);
-	const base = normalizeRelativePath(scanned.base);
-	if (base.length === 0) return undefined;
-	if (scanned.isGlob) return base;
-	const separator = base.lastIndexOf("/");
-	return separator <= 0 ? undefined : base.slice(0, separator);
-}
-
-function relativeDisplayPath(rootPath: string, childPath: string): string | undefined {
-	const root = normalizeDisplayPath(rootPath);
-	const child = normalizeDisplayPath(childPath);
-	if (root === ".") return isAbsolutePath(child) ? undefined : normalizeRelativePath(child);
-	if (child === root) return "";
-	const prefix = root.endsWith("/") ? root : `${root}/`;
-	return child.startsWith(prefix) ? normalizeRelativePath(child.slice(prefix.length)) : undefined;
-}
-
-function joinDisplayPath(root: string, relative: string): string {
-	if (root === ".") return relative;
-	if (root === "/") return `/${relative}`;
-	return `${root.replace(/\/+$/u, "")}/${relative}`;
-}
-
-function normalizeDisplayPath(value: string): string {
-	const normalized = value.replaceAll("\\", "/");
-	return normalized === "/" ? normalized : normalized.replace(/\/+$/u, "");
-}
-
-function normalizeRelativePath(value: string): string {
-	return value.replaceAll("\\", "/").replace(/^\.\//u, "").replace(/\/{2,}/gu, "/");
-}
-
-function basename(value: string): string {
-	const normalized = normalizeDisplayPath(value);
-	return normalized.slice(normalized.lastIndexOf("/") + 1);
-}
-
-function isAbsolutePath(value: string): boolean {
-	return value.startsWith("/") || value.startsWith("//") || /^[A-Za-z]:\//u.test(value);
 }
 
 function isAborted(signal: AbortSignal | undefined): boolean {

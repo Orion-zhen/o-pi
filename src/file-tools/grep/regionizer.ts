@@ -1,6 +1,5 @@
 import { languageFromPath, type AnalyzedFileIndex, type IndexedCodeUnit } from "../../code-index/parser.js";
 import type { TextContent } from "../../filesystem/contracts/content.js";
-import type { FileMetadata } from "../../filesystem/contracts/metadata.js";
 import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
@@ -11,15 +10,8 @@ import { assignSourceLocalRanks } from "./ranking.js";
 import type { GrepScopeError, GrepSkippedFiles, TruncationReason } from "./types.js";
 
 const AST_CACHE_MAX_ENTRIES = 2_048;
-const UTF8_BOM_BYTES = 3;
 
 interface CachedAst {
-	readonly filesystemIdentity: string;
-	readonly visibilityFingerprint: string;
-	readonly canonicalIdentity: string;
-	readonly path: string;
-	readonly metadataVersion: string;
-	readonly contentHash: string;
 	readonly analysis: AnalyzedFileIndex;
 }
 
@@ -27,8 +19,6 @@ interface PreparedFile {
 	readonly file: ScopedFile;
 	readonly content: TextContent;
 	readonly hits: readonly TextHit[];
-	readonly filesystemIdentity: string;
-	readonly visibilityFingerprint: string;
 	readonly cacheKey: string;
 	readonly cached?: CachedAst;
 }
@@ -101,7 +91,7 @@ export class GrepRegionizer {
 				fallback.set(candidate.file.path, candidate.hits);
 				continue;
 			}
-			if (candidate.file.size > context.astMaxFileBytes) {
+			if (candidate.file.snapshot.sizeBytes > context.astMaxFileBytes) {
 				semanticLimited = true;
 				fallback.set(candidate.file.path, candidate.hits);
 				continue;
@@ -193,7 +183,7 @@ export class GrepRegionizer {
 		for (const path of priorityPaths) {
 			const file = inventoryByPath.get(path);
 			if (file === undefined || languageFromPath(file.path) === "text") continue;
-			if (file.size > context.astMaxFileBytes) {
+			if (file.snapshot.sizeBytes > context.astMaxFileBytes) {
 				semanticLimited = true;
 				continue;
 			}
@@ -268,11 +258,9 @@ export class GrepRegionizer {
 		candidate: RegionizeFile,
 		context: RegionizerContext,
 	): Promise<{ readonly ok: true; readonly value: PreparedFile | undefined } | { readonly ok: false; readonly error: FsError }> {
-		const metadata = await context.filesystem.metadata.stat(candidate.file.ref, context.operation);
-		if (!metadata.ok) return metadata;
-		if (metadataVersion(metadata.value) !== candidate.file.metadataVersion) return { ok: true, value: undefined };
 		const loaded = await context.filesystem.content.readText(candidate.file.ref, {
 			maxBytes: context.astMaxFileBytes,
+			expectedSnapshot: candidate.file.snapshot,
 			stable: true,
 			rejectBinary: true,
 		}, context.operation);
@@ -286,8 +274,6 @@ export class GrepRegionizer {
 				file: candidate.file,
 				content: loaded.value,
 				hits: candidate.hits,
-				filesystemIdentity: context.filesystem.identity,
-				visibilityFingerprint: context.filesystem.visibility.snapshot.fingerprint,
 				cacheKey,
 				...(cached === undefined ? {} : { cached }),
 			},
@@ -317,19 +303,11 @@ export class GrepRegionizer {
 			if (analysis === undefined) {
 				analysis = fresh[freshIndex];
 				freshIndex += 1;
-				if (analysis !== undefined) this.cacheSet(file.cacheKey, {
-					filesystemIdentity: file.filesystemIdentity,
-					visibilityFingerprint: file.visibilityFingerprint,
-					canonicalIdentity: file.file.canonicalIdentity,
-					path: file.file.path,
-					metadataVersion: file.file.metadataVersion,
-					contentHash: file.content.hash,
-					analysis,
-				});
+				if (analysis !== undefined) this.cacheSet(file.cacheKey, { analysis });
 			}
 			if (analysis === undefined) {
 				analysis = {
-					index: { id: file.file.canonicalIdentity, path: file.file.path, language: languageFromPath(file.file.path), units: [], symbols: [] },
+					index: { id: file.file.snapshot.identity, path: file.file.path, language: languageFromPath(file.file.path), units: [], symbols: [] },
 					status: "error",
 					imports: [],
 				};
@@ -386,11 +364,8 @@ function parsedRegions(
 ): VerifiedCodeRegion[] {
 	const grouped = new Map<string, { readonly unit: IndexedCodeUnit; readonly hits: TextHit[] }>();
 	for (const hit of file.hits) {
-		const offset = file.content.hasBom ? UTF8_BOM_BYTES : 0;
-		const startByte = Math.max(0, hit.byteStart - offset);
-		const endByte = Math.max(startByte, hit.byteEnd - offset);
 		const unit = units
-			.filter((candidate) => candidate.startByte <= startByte && endByte <= candidate.endByte)
+			.filter((candidate) => candidate.startByte <= hit.byteStart && hit.byteEnd <= candidate.endByte)
 			.sort((left, right) => (left.endByte - left.startByte) - (right.endByte - right.startByte)
 				|| left.startByte - right.startByte || compareStableString(left.id, right.id))[0];
 		if (unit === undefined) continue;
@@ -480,15 +455,11 @@ function astCacheKey(file: ScopedFile, hash: string, filesystem: WorkspaceFileSy
 	return [
 		filesystem.identity,
 		filesystem.visibility.snapshot.fingerprint,
-		file.canonicalIdentity,
+		file.snapshot.identity,
 		file.path,
-		file.metadataVersion,
+		file.snapshot.version,
 		hash,
 	].join("\0");
-}
-
-function metadataVersion(metadata: FileMetadata): string {
-	return metadata.version ?? `${metadata.sizeBytes}:${metadata.modifiedAtMs}`;
 }
 
 function stripLineTerminator(value: string): string {

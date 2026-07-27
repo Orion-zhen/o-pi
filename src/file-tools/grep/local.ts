@@ -1,4 +1,5 @@
-import { extractByteRange, languageFromPath, tokenizeText, type IndexedCodeUnit } from "../../code-index/parser.js";
+import { languageFromPath, tokenizeText, type IndexedCodeUnit } from "../../code-index/parser.js";
+import { extractByteRange } from "../../filesystem/services/text.js";
 import { type CandidateRole, type CandidateSignal, type CodeRegion, type RegionEvidence, type RetrievalSource, type SemanticMainRegion, type TextFileEvidence, type VerifiedCodeRegion, type RankedRegion } from "./candidates.js";
 import type { ScopeInventory } from "./inventory.js";
 import type { QueryPlan, RelationIntent } from "./query-plan.js";
@@ -56,7 +57,7 @@ export function semanticParsePriority(
 			return {
 				path: file.path,
 				score: exact * 1_000_000 + phrase * 100_000 + shapeBoost + covered * 10_000 + pathTerms * 1_000,
-				size: file.size,
+				size: file.snapshot.sizeBytes,
 			};
 		})
 		.sort((left, right) => right.score - left.score || left.size - right.size || compareString(left.path, right.path))
@@ -109,7 +110,9 @@ function collectUnitFiles(files: readonly AutoRegionizedFile[]): UnitFile[] {
 	const result: UnitFile[] = [];
 	for (const file of files) {
 		for (const unit of file.analysis.index.units) {
-			const content = extractByteRange(file.content.text, unit.startByte, unit.endByte);
+			const extracted = extractByteRange(file.content.text, unit.startByte, unit.endByte);
+			if (extracted === undefined) continue;
+			const content = extracted.replace(/\s+$/u, "");
 			result.push({ file, unit, content, tokens: tokenizeText(content) });
 		}
 	}

@@ -113,6 +113,7 @@ export class FileSystemRuntime {
 			content: readonly.content,
 			visibility: readonly.visibility,
 			traversal: readonly.traversal,
+			discovery: readonly.discovery,
 			mutations,
 			catalog: readonly.catalog,
 		};
