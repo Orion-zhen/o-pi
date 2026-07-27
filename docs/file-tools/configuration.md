@@ -48,7 +48,7 @@
 - `read_max_file_bytes`：`read` 可完整载入的单文件上限；局部行范围也不能绕过。
 - `write_max_file_bytes`：`write` 的已有 snapshot 和提交内容上限。
 - `edit_max_file_bytes`：`edit` 的已有 snapshot 和提交内容上限。
-- `edit_match_hint_limit`：`OLD_TEXT_NOT_UNIQUE` 最多返回的前序匹配提示数，默认 3，范围为 1-10。
+- `edit_match_hint_limit`：`OLD_TEXT_NOT_UNIQUE` 匹配提示或 `OLD_TEXT_NOT_FOUND` anchor 候选的最大返回数，默认 3，范围为 1-10。
 - `find_output_token_budget`：`find` 模型可见输出预算，最小为 32 token。
 - `find_result_limit`：`find` 最多保留的具体结果数。
 - `find_max_entries_scanned`：`find` 最多扫描的文件系统条目数。

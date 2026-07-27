@@ -31,9 +31,10 @@
 - 未读过：返回 `READ_REQUIRED`；
 - 文件在读取后发生变化：返回 `STALE_READ`；
 - replacement 不唯一或旧文本不存在：返回 `OLD_TEXT_*`。
-- `OLD_TEXT_NOT_UNIQUE` 会返回前若干个最短唯一 `old/new` replacement，可直接重试；只有文件发生变化时才需要重新 `read`。
+- `OLD_TEXT_NOT_UNIQUE` 会返回前若干个最短唯一 `old/new` replacement，可直接重试；
+- `OLD_TEXT_NOT_FOUND` 保持严格匹配，但会依次诊断前序 replacement 依赖、唯一格式等价候选和基于稳定 anchor 的邻近候选；候选数量受 `limits.edit_match_hint_limit` 限制。
 
-这些错误不会自动合并或覆盖外部修改。除非使用 `OLD_TEXT_NOT_UNIQUE` 返回的 pair，否则应按 `error.next` 重新 `read`，基于最新内容生成新的 replacement。
+这些错误不会自动修正、合并或覆盖文件。前序依赖应改写为全部针对原文的 replacement，或合并依赖修改；格式候选可直接复制为 `old`，并按需调整 `new`；anchor 候选只提供局部上下文，无法确认时按 `error.next` 重新 `read`。
 
 soft ignore 不阻止 `edit`。是否修改只由 filesystem access policy、文件类型、session observation 和 replacement 合法性决定。queue 内会重新检查 blocked/symlink/parent identity；原文件 snapshot 和替换后的提交内容均受 `edit_max_file_bytes` 限制。提交前取消或超限不会修改目标。
 
@@ -58,4 +59,47 @@ line 24 old="..." new="..."
 next: Retry with one shown old/new pair; read only if the file changed.
 ```
 
-`old` 是原始 `old` 加上的最短唯一上下文，`new` 是对应的完整 replacement。公共协议见 [工具契约](contracts.md)。
+`old` 是原始 `old` 加上的最短唯一上下文，`new` 是对应的完整 replacement。
+
+### `OLD_TEXT_NOT_FOUND` 模型输出
+
+诊断为依赖前序 replacement：
+
+```xml
+<error>
+edits[1].old is absent from the original file, but appears after edits[0].
+next: Rewrite edits[1] against the original content, or merge the dependent changes into one replacement.
+</error>
+```
+
+归一化后存在唯一格式等价候选：
+
+```xml
+<error>
+edits[0].old was not found exactly; one formatting-equivalent candidate exists.
+line 4 old="if (a &lt; b) {\r\n\tcall();\r\n}"
+next: Retry with the shown old text, adapting new if needed; read only if the file changed.
+</error>
+```
+
+找到基于稳定 anchor 排序的邻近候选：
+
+```xml
+<error>
+edits[0].old was not found in the original file; 2 nearby candidates shown.
+near line 9 text="before\ntargetHandler();\nafter\n"
+near line 24 text="before\notherHandler();\nafter\n"
+next: Rewrite edits[0].old using a matching candidate, or read the file if none is correct.
+</error>
+```
+
+没有可靠候选：
+
+```xml
+<error>
+edits[0].old was not found in the original file.
+next: Refine your edit and try again.
+</error>
+```
+
+格式归一化只覆盖换行符、行尾空格、缩进、连续水平空白和单个首尾边界行，不改变 replacement 的严格匹配与写入语义。anchor 通过最长非空行和低频 identifier/string 定位，并只比较附近若干行，不对全文计算编辑距离。格式等价候选使用 `line N old="..."`，anchor 邻近片段使用 `near line N text="..."`；anchor 返回数量受 `limits.edit_match_hint_limit` 限制。公共协议见 [工具契约](contracts.md)。

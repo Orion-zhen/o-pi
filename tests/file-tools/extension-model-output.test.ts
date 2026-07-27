@@ -15,6 +15,39 @@ describe("file-tools extension model output", () => {
 		vi.restoreAllMocks();
 	});
 
+	it("将 not-found 恢复候选输出为紧凑且转义安全的文本", () => {
+		const formatDrift = formatErrorModelResult({
+			status: "failed",
+			error: {
+				code: "OLD_TEXT_NOT_FOUND",
+				message: "edits[0].old was not found exactly; one formatting-equivalent candidate exists.",
+				next: "Retry with the shown old text.",
+				details: {
+					reason: "format_drift",
+					candidates: [{ line: 4, old: "if (a < b) {\r\n\tcall();\r\n}" }],
+				},
+			},
+		});
+		expect(formatDrift).toBe(`<error>
+ edits[0].old was not found exactly; one formatting-equivalent candidate exists.
+ line 4 old="if (a &lt; b) {\\r\\n\\tcall();\\r\\n}"
+ next: Retry with the shown old text.
+ </error>`.replaceAll("\n ", "\n"));
+
+		const anchors = formatErrorModelResult({
+			status: "failed",
+			error: {
+				code: "OLD_TEXT_NOT_FOUND",
+				message: "edits[0].old was not found; one nearby candidate shown.",
+				details: { reason: "anchor_candidates", candidates: [{ line: 9, text: "before\ntarget\nafter\n" }] },
+			},
+		});
+		expect(anchors).toBe(`<error>
+ edits[0].old was not found; one nearby candidate shown.
+ near line 9 text="before\\ntarget\\nafter\\n"
+ </error>`.replaceAll("\n ", "\n"));
+	});
+
 	it("将重复 old 的匹配提示压缩为可直接重试的行", () => {
 		const output = formatErrorModelResult({
 			status: "failed",

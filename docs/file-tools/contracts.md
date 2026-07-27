@@ -60,7 +60,7 @@ File does not exist.
 
 错误不会伪装成成功的零结果。无效正则、路径错误、权限错误、取消和索引基础设施错误都返回相应结构化错误；只有合法搜索但没有命中时才返回 success/none。
 
-带有恢复方式的错误会增加 `next:` 提示。`READ_REQUIRED`、`STALE_READ` 和 `OLD_TEXT_NOT_FOUND` 要求重新读取文件，并基于最新内容生成新的 `edit` replacement；`OLD_TEXT_NOT_UNIQUE` 会额外提供有限数量的可直接使用的唯一 `old/new` hints。
+带有恢复方式的错误会增加 `next:` 提示。`READ_REQUIRED` 和 `STALE_READ` 要求重新读取文件；`OLD_TEXT_NOT_UNIQUE` 提供有限数量的可直接使用的唯一 `old/new` hints；`OLD_TEXT_NOT_FOUND` 优先说明前序 replacement 依赖或提供格式等价、稳定 anchor 候选，没有可靠候选时才要求重新读取。诊断不会放宽 edit 的严格匹配语义。
 
 ## 版本、取消与 mutation
 

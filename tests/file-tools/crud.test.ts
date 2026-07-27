@@ -662,7 +662,7 @@ describe("edit", () => {
 		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("ALPHA BETA\n");
 	});
 
-	it("所有 old 都针对原始文件匹配，而不是按前序替换后的内容匹配", async () => {
+	it("所有 old 都针对原始文件匹配，并诊断依赖前序 replacement 的 old", async () => {
 		await writeFile(path.join(workspace, "a.txt"), "a b c\n");
 		const before = await readWorkspaceFile(workspace, { path: "a.txt" });
 		if (!("version" in before)) throw new Error("read failed");
@@ -675,8 +675,112 @@ describe("edit", () => {
 					{ old: "x", new: "y" },
 				],
 			}),
-		).toMatchObject({ status: "failed", error: { code: "OLD_TEXT_NOT_FOUND", edit_index: 1 } });
+		).toMatchObject({
+			status: "failed",
+			error: {
+				code: "OLD_TEXT_NOT_FOUND",
+				edit_index: 1,
+				message: "edits[1].old is absent from the original file, but appears after edits[0].",
+				next: "Rewrite edits[1] against the original content, or merge the dependent changes into one replacement.",
+				details: { reason: "dependent_edit", after_edit_index: 0 },
+			},
+		});
 		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("a b c\n");
+	});
+
+	it.each([
+		{
+			name: "CRLF、缩进、连续空白和行尾空格",
+			file: "function run() {\r\n\treturn   value;  \r\n}\r\n",
+			old: "function run() {\n  return value;\n}\n",
+			candidate: "function run() {\r\n\treturn   value;  \r\n}\r\n",
+		},
+		{
+			name: "old 首部多一行",
+			file: "before\ncore();\nafter\n",
+			old: "missing context\ncore();\n",
+			candidate: "core();\n",
+		},
+	])("为格式漂移返回唯一原文候选：$name", async ({ file, old, candidate }) => {
+		await writeFile(path.join(workspace, "a.txt"), file);
+		await readWorkspaceFile(workspace, { path: "a.txt" });
+
+		const result = await editWorkspace(workspace, { path: "a.txt", edits: [{ old, new: "replacement" }] });
+		expect(result).toMatchObject({
+			status: "failed",
+			error: {
+				code: "OLD_TEXT_NOT_FOUND",
+				message: "edits[0].old was not found exactly; one formatting-equivalent candidate exists.",
+				next: "Retry with the shown old text, adapting new if needed; read only if the file changed.",
+				details: {
+					reason: "format_drift",
+					candidates: [{ line: expect.any(Number), old: candidate }],
+				},
+			},
+		});
+		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe(file);
+		if (!("error" in result)) throw new Error("edit unexpectedly succeeded");
+		const candidates = result.error.details?.["candidates"];
+		const first = Array.isArray(candidates) ? candidates[0] : undefined;
+		if (!isPlainRecord(first) || typeof first["old"] !== "string") throw new Error("format candidate missing");
+		expect(await editWorkspace(workspace, { path: "a.txt", edits: [{ old: first["old"], new: "replacement" }] })).toMatchObject({
+			status: "applied",
+			replacements: 1,
+		});
+	});
+
+	it("格式归一化存在多个候选时不把其中一个报告为唯一候选", async () => {
+		const source = "first: return value;\nsecond: return   value;\n";
+		await writeFile(path.join(workspace, "a.txt"), source);
+		await readWorkspaceFile(workspace, { path: "a.txt" });
+		const result = await editWorkspace(workspace, {
+			path: "a.txt",
+			edits: [{ old: "return  value;", new: "return next;" }],
+		});
+		expect(result).toMatchObject({ status: "failed", error: { code: "OLD_TEXT_NOT_FOUND" } });
+		if (!("error" in result)) throw new Error("edit unexpectedly succeeded");
+		expect(result.error.details?.["reason"]).not.toBe("format_drift");
+		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe(source);
+	});
+
+	it("基于稀有 anchor 返回有限数量的邻近候选", async () => {
+		await useFileToolsConfig({ limits: { edit_match_hint_limit: 2 } });
+		const source = [
+			"function first() {",
+			"  return commonValue;",
+			"}",
+			"function targetHandler() {",
+			"  return actualValue;",
+			"}",
+			"function last() {",
+			"  return commonValue;",
+			"}",
+			"",
+		].join("\n");
+		await writeFile(path.join(workspace, "a.txt"), source);
+		await readWorkspaceFile(workspace, { path: "a.txt" });
+
+		const result = await editWorkspace(workspace, {
+			path: "a.txt",
+			edits: [{ old: "function targetHandler() {\n  return expectedValue;\n}", new: "updated" }],
+		});
+		expect(result).toMatchObject({
+			status: "failed",
+			error: {
+				code: "OLD_TEXT_NOT_FOUND",
+				message: "edits[0].old was not found in the original file; 2 nearby candidates shown.",
+				next: "Rewrite edits[0].old using a matching candidate, or read the file if none is correct.",
+				details: {
+					reason: "anchor_candidates",
+					shown: 2,
+					candidates: expect.arrayContaining([
+						{ line: 2, text: expect.stringContaining("targetHandler") },
+					]),
+				},
+			},
+		});
+		if ("error" in result) expect(result.error.details?.["candidates"]).toHaveLength(2);
+		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe(source);
 	});
 
 	it("重复 old 返回总数、最短唯一 old/new 和起始行号", async () => {

@@ -12,6 +12,22 @@ export interface EditMatchHint {
 	new: string;
 }
 
+export interface EditFormatCandidate {
+	line: number;
+	old: string;
+}
+
+export interface EditAnchorCandidate {
+	line: number;
+	text: string;
+}
+
+export type EditNotFoundRecovery =
+	| { kind: "dependent"; afterEditIndex: number }
+	| { kind: "format"; candidate: EditFormatCandidate }
+	| { kind: "anchors"; candidates: EditAnchorCandidate[] }
+	| { kind: "none" };
+
 export interface EditParams {
 	path: string;
 	edits: EditReplacement[];

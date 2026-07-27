@@ -6,7 +6,7 @@ import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.j
 import type { DiagnosticSnapshot } from "../shared/diagnostics.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import type { TextDiff, TextDiffGenerator } from "../shared/text-diff.js";
-import { buildEditMatchHints } from "./hints.js";
+import { buildEditMatchHints, buildEditNotFoundRecovery } from "./hints.js";
 import type { EditDiagnosticsSource, EditMutationObserver } from "./ports.js";
 import type { EditParams, EditPreviewSuccess, EditReplacement, EditSuccess } from "./types.js";
 
@@ -237,7 +237,7 @@ function applyReplacements(
 		const replacement = replacements[index];
 		if (replacement === undefined) continue;
 		const starts = findAll(text, replacement.old);
-		if (starts.length === 0) return fail("OLD_TEXT_NOT_FOUND", `edits[${index}].old was not found in the original file.`, { path, edit_index: index });
+		if (starts.length === 0) return notFoundFailure(text, replacement.old, replacements.slice(0, index), path, index, hintLimit);
 		if (starts.length > 1 && replacement.replace_all !== true) {
 			const hints = buildEditMatchHints(text, replacement.old, replacement.new, starts, hintLimit);
 			const summary = hints.length < starts.length ? `${starts.length} locations, ${hints.length} shown` : `${starts.length} locations`;
@@ -269,6 +269,48 @@ function applyReplacements(
 		cursor = match.end;
 	}
 	return { text: output + text.slice(cursor), replacements: matches.length };
+}
+
+function notFoundFailure(
+	text: string,
+	old: string,
+	previous: readonly EditReplacement[],
+	path: string,
+	index: number,
+	hintLimit: number,
+): FailedResult {
+	const recovery = buildEditNotFoundRecovery(text, old, previous, hintLimit);
+	switch (recovery.kind) {
+		case "dependent":
+			return fail("OLD_TEXT_NOT_FOUND", `edits[${index}].old is absent from the original file, but appears after edits[${recovery.afterEditIndex}].`, {
+				path,
+				edit_index: index,
+				next: `Rewrite edits[${index}] against the original content, or merge the dependent changes into one replacement.`,
+				details: { reason: "dependent_edit", after_edit_index: recovery.afterEditIndex },
+			});
+		case "format":
+			return fail("OLD_TEXT_NOT_FOUND", `edits[${index}].old was not found exactly; one formatting-equivalent candidate exists.`, {
+				path,
+				edit_index: index,
+				next: "Retry with the shown old text, adapting new if needed; read only if the file changed.",
+				details: { reason: "format_drift", candidates: [recovery.candidate] },
+			});
+		case "anchors": {
+			const shown = recovery.candidates.length;
+			return fail("OLD_TEXT_NOT_FOUND", `edits[${index}].old was not found in the original file; ${shown} nearby ${shown === 1 ? "candidate" : "candidates"} shown.`, {
+				path,
+				edit_index: index,
+				next: `Rewrite edits[${index}].old using a matching candidate, or read the file if none is correct.`,
+				details: { reason: "anchor_candidates", shown, candidates: recovery.candidates },
+			});
+		}
+		case "none":
+			return fail("OLD_TEXT_NOT_FOUND", `edits[${index}].old was not found in the original file.`, {
+				path,
+				edit_index: index,
+				next: "Refine your edit and try again.",
+			});
+	}
 }
 
 function findAll(text: string, needle: string): number[] {
