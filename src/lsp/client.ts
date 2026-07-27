@@ -1,4 +1,5 @@
 import path from "node:path";
+import pLimit from "p-limit";
 import {
 	CancellationTokenSource,
 	createMessageConnection,
@@ -67,6 +68,7 @@ import type {
 import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "./uri.js";
 
 const LAST_ERROR_MAX_CHARS = 1024;
+const DIAGNOSTIC_PULL_CONCURRENCY = 4;
 const PROTOCOL_SERVER_REQUEST_METHODS = new Set<string>([
 	ConfigurationRequest.method,
 	WorkspaceFoldersRequest.method,
@@ -206,7 +208,7 @@ export class LspClient implements LspFeatureSession {
 			if (connection === undefined) return false;
 			const document = this.documentContext(filePath, text);
 			const synchronized = await this.documents.enqueue(document.uri, async () => {
-				const result = await this.synchronizeDocument(connection, document);
+				const result = await this.synchronizeDocument(connection, document, true);
 				if (result) this.bumpIdleTimer();
 				return result;
 			});
@@ -227,39 +229,103 @@ export class LspClient implements LspFeatureSession {
 	}
 
 	async saveAndCollectDiagnostics(filePath: string, text: string, options: LspRequestOptions): Promise<LspSaveDiagnosticsResult> {
+		const results = await this.saveAndCollectDiagnosticsBatch([{ filePath, text }], options);
+		return results[0] ?? { kind: "unavailable" };
+	}
+
+	async saveAndCollectDiagnosticsBatch(
+		inputs: readonly { filePath: string; text: string }[],
+		options: LspRequestOptions,
+	): Promise<readonly LspSaveDiagnosticsResult[]> {
+		if (inputs.length === 0) return [];
 		return this.withOperation(async () => {
 			const connection = await this.readyConnection();
-			if (connection === undefined) return { kind: "unavailable" };
-			const document = this.documentContext(filePath, text);
-			const result = await this.documents.enqueue(document.uri, async (): Promise<LspSaveDiagnosticsResult> => {
-				if (!await this.synchronizeAndSave(connection, document)) return { kind: "unavailable" };
-				const provider = this.serverCapabilities?.diagnosticProvider;
-				if (typeof provider !== "object" || provider === null) return { kind: "publish" };
-				const previousResultId = this.diagnosticResultIds.get(document.uri);
-				const report = await this.requestOnConnection(connection, DocumentDiagnosticRequest.type, {
-					textDocument: { uri: document.uri },
-					...(provider.identifier === undefined ? {} : { identifier: provider.identifier }),
-					...(previousResultId === undefined ? {} : { previousResultId }),
-				}, options);
-				if (report === undefined) return { kind: "pull" };
-				const snapshot = this.applyDocumentDiagnosticReport(document.uri, report);
-				return snapshot === undefined ? { kind: "pull" } : { kind: "pull", snapshot };
+			if (connection === undefined) return inputs.map(() => ({ kind: "unavailable" }));
+
+			const buckets = new Map<string, { document: LspClientDocumentContext; indices: number[] }>();
+			for (let index = 0; index < inputs.length; index += 1) {
+				const input = inputs[index];
+				if (input === undefined) continue;
+				const document = this.documentContext(input.filePath, input.text);
+				const bucket = buckets.get(document.uri);
+				if (bucket === undefined) buckets.set(document.uri, { document, indices: [index] });
+				else {
+					bucket.document = document;
+					bucket.indices.push(index);
+				}
+			}
+
+			const unique = Array.from(buckets.values());
+			let remainingSyncs = unique.length;
+			let releaseSynchronized: () => void = () => undefined;
+			const synchronized = new Promise<void>((resolve) => {
+				releaseSynchronized = resolve;
 			});
-			await this.trimDocuments(connection, document.uri);
-			return result;
+			let diagnosticDeadline = Number.POSITIVE_INFINITY;
+			const pullLimit = pLimit(DIAGNOSTIC_PULL_CONCURRENCY);
+			const provider = this.serverCapabilities?.diagnosticProvider;
+			const supportsPull = typeof provider === "object" && provider !== null;
+			const timeoutMs = options.timeoutMs ?? this.config.request_timeout_ms;
+
+			const collected = await Promise.all(unique.map(({ document }) => this.documents.enqueue(
+				document.uri,
+				async (): Promise<LspSaveDiagnosticsResult> => {
+					let saved = false;
+					try {
+						saved = await this.synchronizeAndSave(connection, document);
+					} finally {
+						remainingSyncs -= 1;
+						if (remainingSyncs === 0) {
+							diagnosticDeadline = Date.now() + timeoutMs;
+							releaseSynchronized();
+						}
+					}
+					await synchronized;
+					if (!saved) return { kind: "unavailable" };
+					if (!supportsPull) return { kind: "publish" };
+					return pullLimit(async () => {
+						const remainingMs = diagnosticDeadline - Date.now();
+						if (remainingMs <= 0 || options.signal?.aborted === true) return { kind: "pull" };
+						const previousResultId = this.diagnosticResultIds.get(document.uri);
+						const report = await this.requestOnConnection(connection, DocumentDiagnosticRequest.type, {
+							textDocument: { uri: document.uri },
+							...(provider.identifier === undefined ? {} : { identifier: provider.identifier }),
+							...(previousResultId === undefined ? {} : { previousResultId }),
+						}, { ...options, timeoutMs: remainingMs });
+						if (report === undefined) return { kind: "pull" };
+						const snapshot = this.applyDocumentDiagnosticReport(document.uri, report);
+						return snapshot === undefined ? { kind: "pull" } : { kind: "pull", snapshot };
+					});
+				},
+			)));
+
+			for (const { document } of unique) await this.trimDocuments(connection, document.uri);
+			const results: LspSaveDiagnosticsResult[] = inputs.map(() => ({ kind: "unavailable" }));
+			for (let bucketIndex = 0; bucketIndex < unique.length; bucketIndex += 1) {
+				const result = collected[bucketIndex] ?? { kind: "unavailable" };
+				for (const inputIndex of unique[bucketIndex]?.indices ?? []) results[inputIndex] = result;
+			}
+			return results;
 		});
 	}
 
 	async didChangeWatchedFile(filePath: string, type: FileChangeType): Promise<boolean> {
+		return this.didChangeWatchedFiles([{ filePath, type }]);
+	}
+
+	async didChangeWatchedFiles(changes: readonly { filePath: string; type: FileChangeType }[]): Promise<boolean> {
 		if (this.state !== "ready") return false;
-		const event = this.protocol.watchedFileEvent(filePath, type);
-		if (event === undefined) return false;
+		const events = changes.flatMap((change) => {
+			const event = this.protocol.watchedFileEvent(change.filePath, change.type);
+			return event === undefined ? [] : [event];
+		});
+		if (events.length === 0) return false;
 		return this.withOperation(async () => {
 			const connection = this.connection;
 			if (connection === undefined || this.state !== "ready") return false;
 			return this.sendNotification(connection, (active) => active.sendNotification(
 				DidChangeWatchedFilesNotification.type,
-				{ changes: [event] },
+				{ changes: events },
 			));
 		});
 	}
@@ -296,15 +362,19 @@ export class LspClient implements LspFeatureSession {
 			if (connection === undefined) return undefined;
 			const document = this.documentContext(filePath, text);
 			const symbols = await this.documents.enqueue(document.uri, async () => {
-				if (!await this.synchronizeDocument(connection, document)) return undefined;
+				const previous = this.documents.state(document.uri);
+				if (previous?.text === document.text && previous.languageId === document.languageId) {
+					const cached = this.documents.cachedSymbols(document.uri, previous.version);
+					if (cached !== undefined) return cached;
+				}
+				if (!await this.synchronizeDocument(connection, document, false)) return undefined;
 				const state = this.documents.state(document.uri);
 				if (state === undefined) return undefined;
-				const cached = this.documents.cachedSymbols(document.uri, state.version);
-				if (cached !== undefined) return cached;
 				const requested = await requestDocumentSymbols(this, document.uri);
 				if (requested !== undefined) this.documents.cacheSymbols(document.uri, state.version, requested);
 				return requested;
 			});
+			await this.closeTransientDocument(connection, document.uri);
 			await this.trimDocuments(connection, document.uri);
 			return symbols;
 		});
@@ -327,7 +397,7 @@ export class LspClient implements LspFeatureSession {
 	}
 
 	private async synchronizeAndSave(connection: MessageConnection, document: LspClientDocumentContext): Promise<boolean> {
-		if (!await this.synchronizeDocument(connection, document)) return false;
+		if (!await this.synchronizeDocument(connection, document, true)) return false;
 		const policy = textDocumentSyncPolicy(this.serverCapabilities);
 		if (!policy.save) return true;
 		const sent = await this.sendNotification(connection, (active) => active.sendNotification(DidSaveTextDocumentNotification.type, {
@@ -411,42 +481,49 @@ export class LspClient implements LspFeatureSession {
 		);
 	}
 
-	private async synchronizeDocument(connection: MessageConnection, document: LspClientDocumentContext): Promise<boolean> {
+	private async synchronizeDocument(
+		connection: MessageConnection,
+		document: LspClientDocumentContext,
+		persistent: boolean,
+	): Promise<boolean> {
 		const previous = this.documents.state(document.uri);
-		if (previous?.text === document.text) {
-			this.documents.touch(document.uri);
+		const policy = textDocumentSyncPolicy(this.serverCapabilities);
+		if (previous?.text === document.text && previous.languageId === document.languageId && (previous.open || !policy.openClose)) {
+			if (persistent) this.documents.markPersistent(document.uri);
+			else this.documents.touch(document.uri);
 			return true;
 		}
 
-		if (previous === undefined) {
-			while (this.documents.needsCapacity(document.uri)) {
-				const evicted = await this.evictOneDocument(connection, document.uri);
-				if (!evicted) break;
+		if (previous === undefined || (policy.openClose && !previous.open)) {
+			if (previous === undefined) {
+				while (this.documents.needsCapacity(document.uri)) {
+					const evicted = await this.evictOneDocument(connection, document.uri);
+					if (!evicted) break;
+				}
 			}
-			const policy = textDocumentSyncPolicy(this.serverCapabilities);
+			const version = (previous?.version ?? 0) + 1;
 			if (policy.openClose) {
-				this.documents.setPendingVersion(document.uri, 1);
+				this.documents.setPendingVersion(document.uri, version);
 				let sent: boolean;
 				try {
 					sent = await this.sendNotification(connection, (active) => active.sendNotification(DidOpenTextDocumentNotification.type, {
 						textDocument: {
 							uri: document.uri,
 							languageId: document.languageId,
-							version: 1,
+							version,
 							text: document.text,
 						},
 					}));
-					if (sent) this.documents.commit(document, 1, true);
+					if (sent) this.documents.commit(document, version, true, persistent);
 				} finally {
-					this.documents.clearPendingVersion(document.uri, 1);
+					this.documents.clearPendingVersion(document.uri, version);
 				}
 				return sent;
 			}
-			this.documents.commit(document, 1, false);
+			this.documents.commit(document, version, false, persistent);
 			return true;
 		}
 
-		const policy = textDocumentSyncPolicy(this.serverCapabilities);
 		const version = previous.version + 1;
 		if (policy.change !== TextDocumentSyncKind.None) {
 			const contentChanges = policy.change === TextDocumentSyncKind.Incremental
@@ -459,13 +536,13 @@ export class LspClient implements LspFeatureSession {
 					textDocument: { uri: document.uri, version },
 					contentChanges,
 				}));
-				if (sent) this.documents.commit(document, version, previous.open);
+				if (sent) this.documents.commit(document, version, previous.open, persistent);
 			} finally {
 				this.documents.clearPendingVersion(document.uri, version);
 			}
 			return sent;
 		}
-		this.documents.commit(document, version, previous.open);
+		this.documents.commit(document, version, previous.open, persistent);
 		return true;
 	}
 
@@ -481,7 +558,15 @@ export class LspClient implements LspFeatureSession {
 		return this.documents.enqueue(uri, async () => this.closeDocument(connection, uri));
 	}
 
-	private async closeDocument(connection: MessageConnection, uri: string): Promise<boolean> {
+	private async closeTransientDocument(connection: MessageConnection, uri: string): Promise<boolean> {
+		return this.documents.enqueue(uri, async () => {
+			const state = this.documents.state(uri);
+			if (state === undefined || state.persistent) return true;
+			return this.closeDocument(connection, uri, true);
+		});
+	}
+
+	private async closeDocument(connection: MessageConnection, uri: string, retainState = false): Promise<boolean> {
 		const state = this.documents.state(uri);
 		if (state === undefined) return true;
 		if (state.open) {
@@ -490,7 +575,8 @@ export class LspClient implements LspFeatureSession {
 			}));
 			if (!sent) return false;
 		}
-		this.documents.remove(uri);
+		if (retainState) this.documents.markClosed(uri);
+		else this.documents.remove(uri);
 		this.bumpIdleTimer();
 		return true;
 	}

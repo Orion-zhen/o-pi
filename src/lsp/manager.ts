@@ -307,12 +307,19 @@ export class LspManager {
 		changes: readonly { root: string; filePath: string; type: FileChangeType }[],
 	): Promise<void> {
 		return this.withClientOperation(async () => {
-			await Promise.all(changes.map(async (change) => {
-				const config = await this.enabledConfig(change.root);
-				if (config === undefined || isExcludedRoot(change.root, config.config.exclude_paths)) return;
-				const resolvedRoot = path.resolve(change.root);
+			const byRoot = new Map<string, Array<{ filePath: string; type: FileChangeType }>>();
+			for (const change of changes) {
+				const root = path.resolve(change.root);
+				const group = byRoot.get(root);
+				const item = { filePath: change.filePath, type: change.type };
+				if (group === undefined) byRoot.set(root, [item]);
+				else group.push(item);
+			}
+			await Promise.all(Array.from(byRoot, async ([root, grouped]) => {
+				const config = await this.enabledConfig(root);
+				if (config === undefined || isExcludedRoot(root, config.config.exclude_paths)) return;
 				await Promise.all(Array.from(this.clients.values(), ({ client }) => (
-					client.root === resolvedRoot ? client.didChangeWatchedFile(change.filePath, change.type) : Promise.resolve(false)
+					client.root === root ? client.didChangeWatchedFiles(grouped) : Promise.resolve(false)
 				)));
 			}));
 		});
@@ -325,45 +332,73 @@ export class LspManager {
 	async didWriteBatch(
 		writes: readonly { root: string; filePath: string; text: string; baseline?: LspDiagnosticSnapshot }[],
 	): Promise<readonly (LspDiagnosticsSummary | undefined)[]> {
-		return this.withClientOperation(async () => await Promise.all(writes.map((write) => this.didWriteOperation(
-			write.root,
-			write.filePath,
-			write.text,
-			write.baseline,
-		))));
-	}
+		return this.withClientOperation(async () => {
+			const results: Array<LspDiagnosticsSummary | undefined> = writes.map(() => undefined);
+			const pending = await Promise.all(writes.map(async (write, index) => {
+				const config = await this.enabledConfig(write.root);
+				if (config === undefined || isExcludedRoot(write.root, config.config.exclude_paths) || !config.config.diagnostics.enabled) return undefined;
+				const expectedSource = this.diagnosticSourceForFile(write.root, write.filePath);
+				const uri = pathToFileUri(write.filePath);
+				const client = await this.clientForFile(write.root, write.filePath);
+				if (client === undefined) {
+					results[index] = emptySummary("unavailable", baselineState(write.baseline, expectedSource, uri));
+					return undefined;
+				}
+				const source = client.diagnosticSource();
+				return {
+					index,
+					write,
+					config,
+					client,
+					source,
+					uri,
+					capturedRevision: this.diagnostics.revision(source, uri),
+				};
+			}));
 
-	private async didWriteOperation(root: string, filePath: string, text: string, baseline?: LspDiagnosticSnapshot): Promise<LspDiagnosticsSummary | undefined> {
-		const config = await this.enabledConfig(root);
-		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths) || !config.config.diagnostics.enabled) return undefined;
-		const expectedSource = this.diagnosticSourceForFile(root, filePath);
-		const uri = pathToFileUri(filePath);
-		const client = await this.clientForFile(root, filePath);
-		if (client === undefined) return emptySummary("unavailable", baselineState(baseline, expectedSource, uri));
-		const source = client.diagnosticSource();
-		const capturedRevision = this.diagnostics.revision(source, uri);
-		const collected = await client.saveAndCollectDiagnostics(filePath, text, {
-			timeoutMs: Math.max(1, config.config.diagnostics.max_wait_ms),
+			const byClient = new Map<LspClient, Array<NonNullable<(typeof pending)[number]>>>();
+			for (const item of pending) {
+				if (item === undefined) continue;
+				const group = byClient.get(item.client);
+				if (group === undefined) byClient.set(item.client, [item]);
+				else group.push(item);
+			}
+
+			await Promise.all(Array.from(byClient, async ([client, grouped]) => {
+				const diagnosticsConfig = grouped[0]?.config.config.diagnostics;
+				if (diagnosticsConfig === undefined) return;
+				const collected = await client.saveAndCollectDiagnosticsBatch(
+					grouped.map(({ write }) => ({ filePath: write.filePath, text: write.text })),
+					{ timeoutMs: Math.max(1, diagnosticsConfig.max_wait_ms) },
+				);
+				await Promise.all(grouped.map(async (item, groupIndex) => {
+					const value = collected[groupIndex];
+					if (value === undefined || value.kind === "unavailable") {
+						results[item.index] = emptySummary("unavailable", baselineState(item.write.baseline, item.source, item.uri));
+						return;
+					}
+					if (value.kind === "pull") {
+						const current = this.diagnostics.snapshot(item.source, item.uri);
+						const snapshot = value.snapshot ?? (current.revision > item.capturedRevision ? current : undefined);
+						results[item.index] = snapshot === undefined
+							? summarizeDiagnostics(current, item.write.baseline, diagnosticsConfig.max_items, "timeout")
+							: summarizeDiagnostics(snapshot, item.write.baseline, diagnosticsConfig.max_items);
+						return;
+					}
+					const snapshot = await this.diagnostics.waitForNewer(
+						item.source,
+						item.uri,
+						item.capturedRevision,
+						diagnosticsConfig.max_wait_ms,
+						diagnosticsConfig.settle_ms,
+					);
+					results[item.index] = snapshot === undefined
+						? summarizeDiagnostics(this.diagnostics.snapshot(item.source, item.uri), item.write.baseline, diagnosticsConfig.max_items, "timeout")
+						: summarizeDiagnostics(snapshot, item.write.baseline, diagnosticsConfig.max_items);
+				}));
+			}));
+			return results;
 		});
-		if (collected.kind === "unavailable") return emptySummary("unavailable", baselineState(baseline, source, uri));
-		if (collected.kind === "pull") {
-			const current = this.diagnostics.snapshot(source, uri);
-			const snapshot = collected.snapshot ?? (current.revision > capturedRevision ? current : undefined);
-			return snapshot === undefined
-				? summarizeDiagnostics(current, baseline, config.config.diagnostics.max_items, "timeout")
-				: summarizeDiagnostics(snapshot, baseline, config.config.diagnostics.max_items);
-		}
-		const snapshot = await this.diagnostics.waitForNewer(
-			source,
-			uri,
-			capturedRevision,
-			config.config.diagnostics.max_wait_ms,
-			config.config.diagnostics.settle_ms,
-		);
-		if (snapshot === undefined) {
-			return summarizeDiagnostics(this.diagnostics.snapshot(source, uri), baseline, config.config.diagnostics.max_items, "timeout");
-		}
-		return summarizeDiagnostics(snapshot, baseline, config.config.diagnostics.max_items);
 	}
 
 	async knownDiagnostics(root: string, filePath?: string): Promise<Array<{ path: string; items: LspDiagnosticsSummary["items"] }>> {

@@ -121,10 +121,9 @@ describe("lsp transport", () => {
 		const responsesReceived = new Promise<void>((resolve) => {
 			resolveResponses = resolve;
 		});
-		let watchedNotifications = 0;
-		let resolveWatchedNotifications: () => void = () => undefined;
-		const watchedNotificationsReceived = new Promise<void>((resolve) => {
-			resolveWatchedNotifications = resolve;
+		let resolveWatchedNotification: () => void = () => undefined;
+		const watchedNotificationReceived = new Promise<void>((resolve) => {
+			resolveWatchedNotification = resolve;
 		});
 		const fake = await createFakeServer((message, socket) => {
 			if (message.method === "initialize") {
@@ -159,8 +158,7 @@ describe("lsp transport", () => {
 					}] },
 				}] } });
 			} else if (message.method === "workspace/didChangeWatchedFiles") {
-				watchedNotifications += 1;
-				if (watchedNotifications === 2) resolveWatchedNotifications();
+				resolveWatchedNotification();
 			} else if (message.method === "shutdown") {
 				send(socket, { id: message.id, result: null });
 			} else if (message.method === "exit") {
@@ -196,14 +194,18 @@ describe("lsp transport", () => {
 			params: { settings: { typescript: { preferences: { quoteStyle: "single" } } } },
 		});
 
-		expect(await client.didChangeWatchedFile(path.join(workspace, "nested", "tsconfig.json"), FileChangeType.Changed)).toBe(true);
-		expect(await client.didChangeWatchedFile(path.join(workspace, "package.json"), FileChangeType.Created)).toBe(true);
-		expect(await client.didChangeWatchedFile(path.join(workspace, "pyproject.toml"), FileChangeType.Changed)).toBe(false);
-		expect(await client.didChangeWatchedFile(path.join(configDir, "tsconfig.json"), FileChangeType.Changed)).toBe(false);
-		await watchedNotificationsReceived;
+		expect(await client.didChangeWatchedFiles([
+			{ filePath: path.join(workspace, "nested", "tsconfig.json"), type: FileChangeType.Changed },
+			{ filePath: path.join(workspace, "package.json"), type: FileChangeType.Created },
+			{ filePath: path.join(workspace, "pyproject.toml"), type: FileChangeType.Changed },
+			{ filePath: path.join(configDir, "tsconfig.json"), type: FileChangeType.Changed },
+		])).toBe(true);
+		await watchedNotificationReceived;
 		expect(fake.messages.filter((message) => message.method === "workspace/didChangeWatchedFiles")).toMatchObject([
-			{ params: { changes: [{ uri: pathToFileUri(path.join(workspace, "nested", "tsconfig.json")), type: FileChangeType.Changed }] } },
-			{ params: { changes: [{ uri: pathToFileUri(path.join(workspace, "package.json")), type: FileChangeType.Created }] } },
+			{ params: { changes: [
+				{ uri: pathToFileUri(path.join(workspace, "nested", "tsconfig.json")), type: FileChangeType.Changed },
+				{ uri: pathToFileUri(path.join(workspace, "package.json")), type: FileChangeType.Created },
+			] } },
 		]);
 	});
 
@@ -240,17 +242,24 @@ describe("lsp transport", () => {
 		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
 		manager = new LspManager();
 		const configFile = path.join(workspace, "nested", "tsconfig.json");
+		const secondConfigFile = path.join(workspace, "other", "tsconfig.json");
 
 		await manager.didChangeWatchedFile(workspace, configFile, FileChangeType.Changed);
 		expect(fake.connections).toBe(0);
 		await queryManagerSymbols(manager, workspace, "start");
 		await registered;
-		await manager.didChangeWatchedFile(workspace, configFile, FileChangeType.Changed);
+		await manager.didChangeWatchedFiles([
+			{ root: workspace, filePath: configFile, type: FileChangeType.Changed },
+			{ root: workspace, filePath: secondConfigFile, type: FileChangeType.Changed },
+		]);
 		await watched;
 
-		expect(fake.messages.find((message) => message.method === "workspace/didChangeWatchedFiles")).toMatchObject({
-			params: { changes: [{ uri: pathToFileUri(configFile), type: FileChangeType.Changed }] },
-		});
+		expect(fake.messages.filter((message) => message.method === "workspace/didChangeWatchedFiles")).toMatchObject([{
+			params: { changes: [
+				{ uri: pathToFileUri(configFile), type: FileChangeType.Changed },
+				{ uri: pathToFileUri(secondConfigFile), type: FileChangeType.Changed },
+			] },
+		}]);
 	});
 
 	it("URI-only workspace symbol 原样 resolve 并转换为 hit", async () => {
@@ -438,6 +447,7 @@ describe("lsp transport", () => {
 		expect(firstSymbols?.[0]?.name).toBe("target");
 		expect(secondSymbols?.[0]?.name).toBe("target");
 
+		expect(client.status().open_documents).toBe(0);
 		const beforeWarmRead = fake.methods.length;
 		await expect(client.documentSymbols(file, "const target = 2;\n")).resolves.toEqual(secondSymbols);
 		expect(fake.methods).toHaveLength(beforeWarmRead);
@@ -450,6 +460,8 @@ describe("lsp transport", () => {
 			"textDocument/documentSymbol",
 			"textDocument/didChange",
 			"textDocument/documentSymbol",
+			"textDocument/didClose",
+			"textDocument/didOpen",
 			"textDocument/didSave",
 			"textDocument/didClose",
 		]);
@@ -525,7 +537,7 @@ describe("lsp transport", () => {
 		expect(fake.methods.filter((method) => method.startsWith("textDocument/"))).toEqual([]);
 	});
 
-	it("document LRU 淘汰前 didClose，并清除旧 symbol cache", async () => {
+	it("documentSymbol 临时关闭文档，并按 LRU 清除旧 symbol cache", async () => {
 		const fake = await createFakeServer((message, socket) => {
 			if (message.method === "initialize") {
 				send(socket, { id: message.id, result: { capabilities: {
@@ -547,6 +559,7 @@ describe("lsp transport", () => {
 		await client.documentSymbols(first, "const a = 1;\n");
 		await client.documentSymbols(second, "const b = 1;\n");
 		await client.documentSymbols(first, "const a = 1;\n");
+		await client.shutdown();
 
 		expect(fake.methods.filter((method) => method.startsWith("textDocument/"))).toEqual([
 			"textDocument/didOpen",
@@ -557,8 +570,9 @@ describe("lsp transport", () => {
 			"textDocument/didClose",
 			"textDocument/didOpen",
 			"textDocument/documentSymbol",
+			"textDocument/didClose",
 		]);
-		expect(client.status().open_documents).toBe(1);
+		expect(client.status().open_documents).toBe(0);
 	});
 
 	it("publishDiagnostics 丢弃旧文档版本，未打开或无 version 时仍接受", async () => {
@@ -663,6 +677,59 @@ describe("lsp transport", () => {
 		expect(requests[0]).toMatchObject({ params: { textDocument: { uri }, identifier: "typescript" } });
 		expect(requests[0]?.params).not.toHaveProperty("previousResultId");
 		expect(requests[1]).toMatchObject({ params: { textDocument: { uri }, identifier: "typescript", previousResultId: "current-r1" } });
+	});
+
+	it("didWriteBatch 先同步同一 server 的全部文档，并限制并发 pull diagnostics", async () => {
+		let opened = 0;
+		let pulls = 0;
+		let markFirstPullBatch: () => void = () => undefined;
+		const firstPullBatch = new Promise<void>((resolve) => {
+			markFirstPullBatch = resolve;
+		});
+		let releaseFirstPullBatch: () => void = () => undefined;
+		const firstPullGate = new Promise<void>((resolve) => {
+			releaseFirstPullBatch = resolve;
+		});
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: {
+					diagnosticProvider: { interFileDependencies: true, workspaceDiagnostics: false },
+					textDocumentSync: { openClose: true, change: 1, save: true },
+				} } });
+			} else if (message.method === "textDocument/didOpen") {
+				opened += 1;
+			} else if (message.method === "textDocument/diagnostic") {
+				pulls += 1;
+				const respond = () => send(socket, { id: message.id, result: { kind: "full", resultId: `r${pulls}`, items: [] } });
+				if (pulls <= 4) {
+					if (pulls === 4) markFirstPullBatch();
+					void firstPullGate.then(respond);
+				} else {
+					respond();
+				}
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			}
+		});
+		await writeConfig(
+			{ type: "tcp", host: "127.0.0.1", port: fake.port },
+			{ diagnostics: { enabled: true, max_wait_ms: 1000, settle_ms: 0, max_items: 8, max_related_locations: 2, min_severity: "warning" } },
+		);
+		manager = new LspManager();
+		const pending = manager.didWriteBatch(Array.from({ length: 5 }, (_, index) => ({
+			root: workspace,
+			filePath: path.join(workspace, `${index}.ts`),
+			text: `export const value${index} = ${index};\n`,
+		})));
+
+		await firstPullBatch;
+		expect(opened).toBe(5);
+		expect(pulls).toBe(4);
+		releaseFirstPullBatch();
+		await expect(pending).resolves.toEqual(Array.from({ length: 5 }, () => expect.objectContaining({ status: "clean" })));
+		expect(pulls).toBe(5);
 	});
 
 	it("didWrite 只接受 captured revision 之后的 diagnostics，旧快照不能伪装成功", async () => {

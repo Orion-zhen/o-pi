@@ -6,6 +6,8 @@ import { pathToFileUri } from "./uri.js";
 export interface LspDocumentState extends LspClientDocumentContext {
 	version: number;
 	open: boolean;
+	/** mutation 等持久操作需要让文档继续在 server 中保持打开。 */
+	persistent: boolean;
 	lastUsed: number;
 	cachedSymbols?: {
 		version: number;
@@ -59,16 +61,35 @@ export class LspDocuments {
 		if (this.pendingVersions.get(uri) === version) this.pendingVersions.delete(uri);
 	}
 
-	commit(context: LspClientDocumentContext, version: number, open: boolean): void {
+	commit(context: LspClientDocumentContext, version: number, open: boolean, persistent: boolean): void {
 		const previous = this.states.get(context.uri);
-		const unchanged = previous?.version === version && previous.text === context.text;
+		const sameContent = previous?.text === context.text && previous.languageId === context.languageId;
 		this.states.set(context.uri, {
 			...context,
 			version,
 			open,
+			persistent: persistent || previous?.persistent === true,
 			lastUsed: this.nextClock(),
-			...(unchanged && previous.cachedSymbols !== undefined ? { cachedSymbols: previous.cachedSymbols } : {}),
+			...(sameContent && previous.cachedSymbols !== undefined
+				? { cachedSymbols: { version, value: previous.cachedSymbols.value } }
+				: {}),
 		});
+	}
+
+	markPersistent(uri: string): void {
+		const state = this.states.get(uri);
+		if (state === undefined) return;
+		state.persistent = true;
+		state.lastUsed = this.nextClock();
+	}
+
+	markClosed(uri: string): boolean {
+		const state = this.states.get(uri);
+		if (state === undefined) return false;
+		state.open = false;
+		state.persistent = false;
+		state.lastUsed = this.nextClock();
+		return true;
 	}
 
 	touch(uri: string): void {
