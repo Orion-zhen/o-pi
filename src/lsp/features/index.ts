@@ -14,6 +14,7 @@ import type {
 	LspRequestOptions,
 	LspServerCapabilities,
 } from "../types.js";
+import { requestTypeScriptDiagnostics, typescriptDiagnosticsAvailable } from "./typescript-diagnostics.js";
 
 /** feature adapter 使用的最小 session 协议。 */
 export interface LspFeatureSession {
@@ -22,7 +23,7 @@ export interface LspFeatureSession {
 }
 
 export interface LspFeatureDefinition {
-	readonly id: "documentSymbols" | "workspaceSymbols" | "workspaceSymbolResolve" | "references";
+	readonly id: "documentSymbols" | "workspaceSymbols" | "workspaceSymbolResolve" | "references" | "typescriptDiagnostics";
 	readonly capability: (capabilities: LspServerCapabilities | undefined) => boolean;
 }
 
@@ -47,6 +48,10 @@ export const lspFeatureDefinitions = {
 	references: {
 		id: "references",
 		capability: (capabilities) => providerEnabled(capabilities?.referencesProvider),
+	},
+	typescriptDiagnostics: {
+		id: "typescriptDiagnostics",
+		capability: typescriptDiagnosticsAvailable,
 	},
 } as const satisfies Readonly<Record<string, LspFeatureDefinition>>;
 
@@ -87,7 +92,9 @@ export const lspFeatureAdapters = {
 	workspaceSymbols: requestWorkspaceSymbols,
 	workspaceSymbolResolve: resolveWorkspaceSymbol,
 	references: requestReferences,
+	typescriptDiagnostics: requestTypeScriptDiagnostics,
 };
 
+export { requestTypeScriptDiagnostics };
 export type LspFeatureRequest = typeof lspFeatureAdapters;
 

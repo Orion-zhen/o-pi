@@ -389,7 +389,7 @@ export class LspManager {
 						item.source,
 						item.uri,
 						item.capturedRevision,
-						diagnosticsConfig.max_wait_ms,
+						Math.min(diagnosticsConfig.max_wait_ms, value.waitMs),
 						diagnosticsConfig.settle_ms,
 					);
 					results[item.index] = snapshot === undefined

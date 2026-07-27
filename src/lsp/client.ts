@@ -50,7 +50,16 @@ import {
 
 import { diagnosticSourceKey, type DiagnosticsLedger } from "./diagnostics.js";
 import { incrementalContentChange, LspDocuments } from "./documents.js";
-import { requestDocumentSymbols, requestReferences, requestWorkspaceSymbols, resolveWorkspaceSymbol, type LspFeatureSession } from "./features/index.js";
+import {
+	featureAvailable,
+	lspFeatureDefinitions,
+	requestDocumentSymbols,
+	requestReferences,
+	requestTypeScriptDiagnostics,
+	requestWorkspaceSymbols,
+	resolveWorkspaceSymbol,
+	type LspFeatureSession,
+} from "./features/index.js";
 import { LspProtocolInfrastructure, LspProtocolValidationError } from "./protocol-infrastructure.js";
 import { languageIdForServerPath } from "./routing.js";
 import { connectLspTransport, type LspTransportConnection } from "./transport.js";
@@ -68,7 +77,7 @@ import type {
 import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "./uri.js";
 
 const LAST_ERROR_MAX_CHARS = 1024;
-const DIAGNOSTIC_PULL_CONCURRENCY = 4;
+const DIAGNOSTIC_REQUEST_CONCURRENCY = 4;
 const PROTOCOL_SERVER_REQUEST_METHODS = new Set<string>([
 	ConfigurationRequest.method,
 	WorkspaceFoldersRequest.method,
@@ -78,7 +87,7 @@ const PROTOCOL_SERVER_REQUEST_METHODS = new Set<string>([
 
 type LspSaveDiagnosticsResult =
 	| { kind: "unavailable" }
-	| { kind: "publish" }
+	| { kind: "publish"; waitMs: number }
 	| { kind: "pull"; snapshot?: LspDiagnosticSnapshot };
 
 /** 单个 language server client，封装 transport、initialize、文档同步、symbol 和诊断通知。 */
@@ -228,11 +237,6 @@ export class LspClient implements LspFeatureSession {
 		});
 	}
 
-	async saveAndCollectDiagnostics(filePath: string, text: string, options: LspRequestOptions): Promise<LspSaveDiagnosticsResult> {
-		const results = await this.saveAndCollectDiagnosticsBatch([{ filePath, text }], options);
-		return results[0] ?? { kind: "unavailable" };
-	}
-
 	async saveAndCollectDiagnosticsBatch(
 		inputs: readonly { filePath: string; text: string }[],
 		options: LspRequestOptions,
@@ -262,9 +266,10 @@ export class LspClient implements LspFeatureSession {
 				releaseSynchronized = resolve;
 			});
 			let diagnosticDeadline = Number.POSITIVE_INFINITY;
-			const pullLimit = pLimit(DIAGNOSTIC_PULL_CONCURRENCY);
+			const diagnosticLimit = pLimit(DIAGNOSTIC_REQUEST_CONCURRENCY);
 			const provider = this.serverCapabilities?.diagnosticProvider;
 			const supportsPull = typeof provider === "object" && provider !== null;
+			const supportsTypeScriptDiagnostics = featureAvailable(this, lspFeatureDefinitions.typescriptDiagnostics);
 			const timeoutMs = options.timeoutMs ?? this.config.request_timeout_ms;
 
 			const collected = await Promise.all(unique.map(({ document }) => this.documents.enqueue(
@@ -282,16 +287,37 @@ export class LspClient implements LspFeatureSession {
 					}
 					await synchronized;
 					if (!saved) return { kind: "unavailable" };
-					if (!supportsPull) return { kind: "publish" };
-					return pullLimit(async () => {
-						const remainingMs = diagnosticDeadline - Date.now();
-						if (remainingMs <= 0 || options.signal?.aborted === true) return { kind: "pull" };
+					const remainingMs = (): number => Math.max(0, diagnosticDeadline - Date.now());
+					if (!supportsPull) {
+						if (!supportsTypeScriptDiagnostics) return { kind: "publish", waitMs: remainingMs() };
+						return diagnosticLimit(async () => {
+							const availableMs = remainingMs();
+							if (availableMs <= 0 || options.signal?.aborted === true) return { kind: "publish", waitMs: 0 };
+							const diagnostics = await requestTypeScriptDiagnostics(this, document.uri, {
+								...options,
+								timeoutMs: availableMs,
+							});
+							if (diagnostics === undefined) return { kind: "publish", waitMs: remainingMs() };
+							const snapshot = this.diagnostics.update(
+								this.diagnosticsSource,
+								document.uri,
+								diagnostics,
+								this.config.diagnostics.min_severity,
+								this.documents.currentVersion(document.uri),
+								this.config.diagnostics.max_related_locations,
+							);
+							return { kind: "pull", snapshot };
+						});
+					}
+					return diagnosticLimit(async () => {
+						const availableMs = remainingMs();
+						if (availableMs <= 0 || options.signal?.aborted === true) return { kind: "pull" };
 						const previousResultId = this.diagnosticResultIds.get(document.uri);
 						const report = await this.requestOnConnection(connection, DocumentDiagnosticRequest.type, {
 							textDocument: { uri: document.uri },
 							...(provider.identifier === undefined ? {} : { identifier: provider.identifier }),
 							...(previousResultId === undefined ? {} : { previousResultId }),
-						}, { ...options, timeoutMs: remainingMs });
+						}, { ...options, timeoutMs: availableMs });
 						if (report === undefined) return { kind: "pull" };
 						const snapshot = this.applyDocumentDiagnosticReport(document.uri, report);
 						return snapshot === undefined ? { kind: "pull" } : { kind: "pull", snapshot };
