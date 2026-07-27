@@ -80,7 +80,7 @@ export async function writeFile(params: unknown, context: WriteCommandContext): 
 	};
 
 	const [diagnostics, graph] = await Promise.all([
-		safeDiagnostics(context.diagnostics, receipt.target, input.content, context.operation.signal),
+		safeDiagnostics(context.diagnostics, receipt.target, input.content, receipt.created, context.operation.signal),
 		safeMutationObserver(context.mutationObserver, receipt.target, renderedDiff.firstChangedLine, context.operation.signal),
 	]);
 	if (diagnostics !== undefined) result.lsp = { diagnostics };
@@ -125,10 +125,11 @@ async function safeDiagnostics(
 	source: WriteDiagnosticsSource | undefined,
 	target: Parameters<WriteDiagnosticsSource["afterWrite"]>[0]["target"],
 	content: string,
+	created: boolean,
 	signal: AbortSignal | undefined,
 ) {
 	try {
-		return await source?.afterWrite({ target, content, ...(signal === undefined ? {} : { signal }) });
+		return await source?.afterWrite({ target, content, created, ...(signal === undefined ? {} : { signal }) });
 	} catch {
 		return undefined;
 	}

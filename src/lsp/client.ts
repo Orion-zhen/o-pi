@@ -15,7 +15,10 @@ import {
 	type RequestType,
 } from "vscode-jsonrpc/node";
 import {
+	ConfigurationRequest,
+	DidChangeConfigurationNotification,
 	DidChangeTextDocumentNotification,
+	DidChangeWatchedFilesNotification,
 	DidCloseTextDocumentNotification,
 	DidOpenTextDocumentNotification,
 	DidSaveTextDocumentNotification,
@@ -25,10 +28,14 @@ import {
 	InitializeRequest,
 	LogMessageNotification,
 	PublishDiagnosticsNotification,
+	RegistrationRequest,
 	ShutdownRequest,
 	TextDocumentSyncKind,
+	WorkDoneProgressCreateRequest,
+	WorkspaceFoldersRequest,
 	type Diagnostic,
 	type DocumentDiagnosticReport,
+	type FileChangeType,
 	type FullDocumentDiagnosticReport,
 	type InitializeResult,
 	type Location,
@@ -43,6 +50,7 @@ import {
 import { diagnosticSourceKey, type DiagnosticsLedger } from "./diagnostics.js";
 import { incrementalContentChange, LspDocuments } from "./documents.js";
 import { requestDocumentSymbols, requestReferences, requestWorkspaceSymbols, resolveWorkspaceSymbol, type LspFeatureSession } from "./features/index.js";
+import { LspProtocolInfrastructure, LspProtocolValidationError } from "./protocol-infrastructure.js";
 import { languageIdForServerPath } from "./routing.js";
 import { connectLspTransport, type LspTransportConnection } from "./transport.js";
 import type {
@@ -59,6 +67,12 @@ import type {
 import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "./uri.js";
 
 const LAST_ERROR_MAX_CHARS = 1024;
+const PROTOCOL_SERVER_REQUEST_METHODS = new Set<string>([
+	ConfigurationRequest.method,
+	WorkspaceFoldersRequest.method,
+	WorkDoneProgressCreateRequest.method,
+	RegistrationRequest.method,
+]);
 
 type LspSaveDiagnosticsResult =
 	| { kind: "unavailable" }
@@ -80,6 +94,7 @@ export class LspClient implements LspFeatureSession {
 	private readonly transportFailureRejectors = new Set<(error: Error) => void>();
 	private readonly documents: LspDocuments;
 	private readonly diagnosticsSource: string;
+	private readonly protocol: LspProtocolInfrastructure;
 	private readonly diagnosticResultIds = new Map<string, string>();
 	private readonly serverRequestHandlers = new Map<string, LspServerRequestHandler>();
 	private readonly serverRequestDisposables = new Map<string, Disposable>();
@@ -97,6 +112,7 @@ export class LspClient implements LspFeatureSession {
 	) {
 		this.documents = new LspDocuments(config.max_open_documents);
 		this.diagnosticsSource = diagnosticSourceKey(root, server.id);
+		this.protocol = new LspProtocolInfrastructure(root, server.settings);
 	}
 
 	capabilities(): ServerCapabilities | undefined {
@@ -123,6 +139,7 @@ export class LspClient implements LspFeatureSession {
 	}
 
 	registerServerRequestHandler(method: string, handler: LspServerRequestHandler): () => void {
+		if (PROTOCOL_SERVER_REQUEST_METHODS.has(method)) throw new Error(`Cannot replace built-in server request handler: ${method}`);
 		this.serverRequestDisposables.get(method)?.dispose();
 		this.serverRequestHandlers.set(method, handler);
 		if (this.connection !== undefined) this.installServerRequestHandler(method, handler);
@@ -230,6 +247,20 @@ export class LspClient implements LspFeatureSession {
 			});
 			await this.trimDocuments(connection, document.uri);
 			return result;
+		});
+	}
+
+	async didChangeWatchedFile(filePath: string, type: FileChangeType): Promise<boolean> {
+		if (this.state !== "ready") return false;
+		const event = this.protocol.watchedFileEvent(filePath, type);
+		if (event === undefined) return false;
+		return this.withOperation(async () => {
+			const connection = this.connection;
+			if (connection === undefined || this.state !== "ready") return false;
+			return this.sendNotification(connection, (active) => active.sendNotification(
+				DidChangeWatchedFilesNotification.type,
+				{ changes: [event] },
+			));
 		});
 	}
 
@@ -512,6 +543,7 @@ export class LspClient implements LspFeatureSession {
 		} finally {
 			this.documents.clear();
 			this.diagnosticResultIds.clear();
+			this.protocol.reset();
 		}
 	}
 
@@ -570,6 +602,7 @@ export class LspClient implements LspFeatureSession {
 		connection.onRequest((method, _params, _token) => {
 			throw new ResponseError(ErrorCodes.MethodNotFound, `Unsupported server request: ${method}`);
 		});
+		this.installProtocolServerRequestHandlers(connection);
 		for (const [method, handler] of this.serverRequestHandlers) this.installServerRequestHandler(method, handler);
 		connection.onError(([error]) => {
 			if (this.connection !== connection) return;
@@ -595,7 +628,14 @@ export class LspClient implements LspFeatureSession {
 							diagnostic: { dynamicRegistration: false, relatedDocumentSupport: true },
 							publishDiagnostics: { relatedInformation: true },
 						},
-						workspace: { symbol: { resolveSupport: { properties: ["location.range"] } } },
+						workspace: {
+							configuration: true,
+							workspaceFolders: true,
+							didChangeConfiguration: { dynamicRegistration: true },
+							didChangeWatchedFiles: { dynamicRegistration: true, relativePatternSupport: true },
+							symbol: { resolveSupport: { properties: ["location.range"] } },
+						},
+						window: { workDoneProgress: true },
 					},
 					initializationOptions: this.server.initializationOptions,
 				})),
@@ -605,6 +645,14 @@ export class LspClient implements LspFeatureSession {
 			this.serverCapabilities = initializeResult.capabilities;
 			const initialized = await this.sendNotification(connection, (active) => active.sendNotification(InitializedNotification.type, {}));
 			if (!initialized) throw new Error("failed to send initialized notification");
+			const settings = this.protocol.configurationSettings();
+			if (settings !== undefined) {
+				const configured = await this.sendNotification(connection, (active) => active.sendNotification(
+					DidChangeConfigurationNotification.type,
+					{ settings },
+				));
+				if (!configured) throw new Error("failed to send workspace configuration");
+			}
 			this.state = "ready";
 			this.bumpIdleTimer();
 			return true;
@@ -640,6 +688,23 @@ export class LspClient implements LspFeatureSession {
 		} finally {
 			if (rejectTransport !== undefined) this.transportFailureRejectors.delete(rejectTransport);
 		}
+	}
+
+	private installProtocolServerRequestHandlers(connection: MessageConnection): void {
+		this.serverRequestDisposables.set(ConfigurationRequest.method, connection.onRequest(ConfigurationRequest.type, (params) => (
+			validatedProtocolResult(() => this.protocol.configuration(params))
+		)));
+		this.serverRequestDisposables.set(WorkspaceFoldersRequest.method, connection.onRequest(WorkspaceFoldersRequest.type, () => (
+			this.protocol.workspaceFolders()
+		)));
+		this.serverRequestDisposables.set(WorkDoneProgressCreateRequest.method, connection.onRequest(WorkDoneProgressCreateRequest.type, (params) => {
+			validatedProtocolResult(() => {
+				if (!isWorkDoneProgressCreateParams(params)) throw new LspProtocolValidationError("work-done progress token is invalid");
+			});
+		}));
+		this.serverRequestDisposables.set(RegistrationRequest.method, connection.onRequest(RegistrationRequest.type, (params) => {
+			validatedProtocolResult(() => this.protocol.registerCapabilities(params));
+		}));
 	}
 
 	private installServerRequestHandler(method: string, handler: LspServerRequestHandler): void {
@@ -692,6 +757,7 @@ export class LspClient implements LspFeatureSession {
 		this.serverCapabilities = undefined;
 		this.documents.clear();
 		this.diagnosticResultIds.clear();
+		this.protocol.reset();
 		this.disposeServerRequestDisposables();
 		connection?.dispose();
 		const pending = (async () => {
@@ -816,6 +882,21 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T
 	} finally {
 		if (timer !== undefined) clearTimeout(timer);
 	}
+}
+
+function validatedProtocolResult<T>(factory: () => T): T {
+	try {
+		return factory();
+	} catch (error) {
+		if (error instanceof LspProtocolValidationError) throw new ResponseError(ErrorCodes.InvalidParams, error.message);
+		throw error;
+	}
+}
+
+function isWorkDoneProgressCreateParams(value: unknown): boolean {
+	if (typeof value !== "object" || value === null) return false;
+	const token = Reflect.get(value, "token");
+	return typeof token === "string" || typeof token === "number";
 }
 
 function isProgressNotification(value: unknown): value is LspProgressNotification {

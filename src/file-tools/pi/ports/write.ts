@@ -27,6 +27,7 @@ export function createWritePorts(
 					workspaceRoot: root.canonicalPath,
 					filePath: target.canonicalPath,
 					content: input.content,
+					created: input.created,
 				});
 			},
 		},

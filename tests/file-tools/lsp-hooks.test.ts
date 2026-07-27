@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FileChangeType } from "vscode-languageserver-protocol";
 
 import { editFile } from "../../src/file-tools/edit/command.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
@@ -56,9 +57,11 @@ describe("file-tools lsp hooks", () => {
 		})).resolves.toMatchObject({ path: "a.ts" });
 	});
 
-	it("write 返回 diagnostics 但不改变 written 状态", async () => {
+	it("write 返回 diagnostics 但不改变 written 状态，并区分 create/change", async () => {
+		const createdEvents: boolean[] = [];
 		const hooks: LspFileOperations = {
-			async afterWrite() {
+			async afterWrite(input) {
+				createdEvents.push(input.created);
 				return diagnostics("errors");
 			},
 		};
@@ -67,6 +70,11 @@ describe("file-tools lsp hooks", () => {
 			path: "a.ts",
 			lsp: { diagnostics: { status: "errors", file_errors: 1 } },
 		});
+		await expect(writeWithHooks({ path: "a.ts", content: "const x = 2;\n" }, hooks)).resolves.toMatchObject({
+			status: "written",
+			action: "modify",
+		});
+		expect(createdEvents).toEqual([true, false]);
 		await expect(writeWithHooks({ path: "b.ts", content: "" }, throwingHooks())).resolves.toMatchObject({ status: "written" });
 	});
 
@@ -80,6 +88,7 @@ describe("file-tools lsp hooks", () => {
 			},
 			async afterWrite(input) {
 				afterCalled = true;
+				expect(input.created).toBe(false);
 				expect(input.baseline?.known).toBe(true);
 				return diagnostics("warnings");
 			},
@@ -91,6 +100,21 @@ describe("file-tools lsp hooks", () => {
 		expect(afterCalled).toBe(true);
 
 		await expect(editWithHooks({ path: "a.ts", edits: [{ old: "missing", new: "x" }] }, hooks)).resolves.toMatchObject({ status: "failed" });
+	});
+
+	it("afterWrite 对无源码路由的配置文件仍转发 watched-file create/change", async () => {
+		const manager = new LspManager();
+		const watched = vi.spyOn(manager, "didChangeWatchedFile").mockResolvedValue();
+		const diagnosticsAfterWrite = vi.spyOn(manager, "didWrite").mockResolvedValue(undefined);
+		const hooks = createLspFileOperations(manager);
+		const configFile = path.join(workspace, "tsconfig.json");
+
+		await hooks.afterWrite?.({ workspaceRoot: workspace, filePath: configFile, content: "{}\n", created: true });
+		await hooks.afterWrite?.({ workspaceRoot: workspace, filePath: configFile, content: "{\"compilerOptions\":{}}\n", created: false });
+
+		expect(watched).toHaveBeenNthCalledWith(1, workspace, configFile, FileChangeType.Created);
+		expect(watched).toHaveBeenNthCalledWith(2, workspace, configFile, FileChangeType.Changed);
+		expect(diagnosticsAfterWrite).toHaveBeenCalledTimes(2);
 	});
 
 	it("beforeEdit 使用调用方已解析的 absolutePath 和 workspace source", async () => {

@@ -67,6 +67,7 @@ interface RawLspServer {
 	};
 	languages: Record<string, RawSelectors>;
 	init?: LspJsonValue;
+	settings?: LspJsonValue;
 }
 
 interface RawLspConfig {
@@ -166,6 +167,7 @@ function normalizeServers(servers: NonNullable<RawLspConfig["servers"]>): LspSer
 		transport: normalizeTransport(id, server),
 		routes: normalizeLanguages(id, server.languages),
 		...(server.init !== undefined ? { initializationOptions: server.init } : {}),
+		...(server.settings !== undefined ? { settings: server.settings } : {}),
 	}));
 	try {
 		new LspServerRegistry(normalized);

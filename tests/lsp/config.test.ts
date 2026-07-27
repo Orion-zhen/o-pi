@@ -205,19 +205,23 @@ describe("lsp config", () => {
 		await expect(loadLspConfig()).rejects.toThrow(/cannot combine command with tcp/);
 	});
 
-	it("init 接受任意 JSON 值", async () => {
+	it("init 与用户级 settings 分别保留任意 JSON 值", async () => {
 		const file = path.join(dir, "array-init.jsonc");
 		await writeFile(file, JSON.stringify({ servers: {
 			demo: {
 				command: ["demo-lsp"],
 				languages: { demo: "*.demo" },
 				init: ["strict", { feature: true }],
+				settings: { demo: { lint: true } },
 			},
 		} }));
 		process.env.PI_LSP_CONFIG = file;
 
 		await expect(loadLspConfig()).resolves.toMatchObject({
-			config: { servers: [{ initializationOptions: ["strict", { feature: true }] }] },
+			config: { servers: [{
+				initializationOptions: ["strict", { feature: true }],
+				settings: { demo: { lint: true } },
+			}] },
 		});
 	});
 

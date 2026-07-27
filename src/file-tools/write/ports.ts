@@ -6,6 +6,7 @@ export interface WriteDiagnosticsSource {
 	afterWrite(input: {
 		readonly target: TargetRef;
 		readonly content: string;
+		readonly created: boolean;
 		readonly signal?: AbortSignal;
 	}): Promise<DiagnosticsSummary | undefined>;
 }

@@ -1,6 +1,6 @@
 import path from "node:path";
 import pLimit from "p-limit";
-import type { WorkspaceSymbol } from "vscode-languageserver-protocol";
+import type { FileChangeType, WorkspaceSymbol } from "vscode-languageserver-protocol";
 
 import { LspClient } from "./client.js";
 import { LspServerRegistry } from "./registry.js";
@@ -292,6 +292,17 @@ export class LspManager {
 		const source = this.diagnosticSourceForFile(root, filePath);
 		if (source === undefined) return undefined;
 		return this.diagnostics.snapshot(source, pathToFileUri(filePath));
+	}
+
+	async didChangeWatchedFile(root: string, filePath: string, type: FileChangeType): Promise<void> {
+		return this.withClientOperation(async () => {
+			const config = await this.enabledConfig();
+			if (config === undefined || isExcludedRoot(root, config.config.exclude_paths)) return;
+			const resolvedRoot = path.resolve(root);
+			await Promise.all(Array.from(this.clients.values(), ({ client }) => (
+				client.root === resolvedRoot ? client.didChangeWatchedFile(filePath, type) : Promise.resolve(false)
+			)));
+		});
 	}
 
 	async didWrite(root: string, filePath: string, text: string, baseline?: LspDiagnosticSnapshot): Promise<LspDiagnosticsSummary | undefined> {

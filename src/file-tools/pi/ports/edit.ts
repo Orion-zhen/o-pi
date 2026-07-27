@@ -36,6 +36,7 @@ export function createEditPorts(
 					workspaceRoot: root.canonicalPath,
 					filePath: target.canonicalPath,
 					content: input.content,
+					created: false,
 					...(input.baseline === undefined ? {} : { baseline: input.baseline }),
 				});
 			},

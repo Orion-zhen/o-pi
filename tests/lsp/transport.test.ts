@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NotificationType } from "vscode-jsonrpc/node";
+import { FileChangeType } from "vscode-languageserver-protocol";
 
 import { LspClient } from "../../src/lsp/client.js";
 import { defaultLspConfig } from "../../src/lsp/config.js";
@@ -99,12 +100,157 @@ describe("lsp transport", () => {
 						diagnostic: { dynamicRegistration: false, relatedDocumentSupport: true },
 						publishDiagnostics: { relatedInformation: true },
 					},
-					workspace: { symbol: { resolveSupport: { properties: ["location.range"] } } },
+					workspace: {
+						configuration: true,
+						workspaceFolders: true,
+						didChangeConfiguration: { dynamicRegistration: true },
+						didChangeWatchedFiles: { dynamicRegistration: true, relativePatternSupport: true },
+						symbol: { resolveSupport: { properties: ["location.range"] } },
+					},
+					window: { workDoneProgress: true },
 				},
 			},
 		});
 		expect(fake.methods.filter((method) => method === "shutdown")).toHaveLength(1);
 		expect(fake.methods).toContain("exit");
+	});
+
+	it("安全响应基础 server requests，并按白名单 watcher 发送文件变更", async () => {
+		const responseIds = new Set<number>();
+		let resolveResponses: () => void = () => undefined;
+		const responsesReceived = new Promise<void>((resolve) => {
+			resolveResponses = resolve;
+		});
+		let watchedNotifications = 0;
+		let resolveWatchedNotifications: () => void = () => undefined;
+		const watchedNotificationsReceived = new Promise<void>((resolve) => {
+			resolveWatchedNotifications = resolve;
+		});
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: {} } });
+			} else if (message.method === "initialized") {
+				send(socket, { id: 81, method: "workspace/configuration", params: { items: [
+					{ section: "typescript.preferences" },
+					{ section: "missing" },
+					{ scopeUri: pathToFileUri(path.join(configDir, "outside.ts")), section: "typescript" },
+				] } });
+				send(socket, { id: 82, method: "workspace/workspaceFolders", params: null });
+				send(socket, { id: 83, method: "window/workDoneProgress/create", params: { token: "index" } });
+				send(socket, { id: 84, method: "client/registerCapability", params: { registrations: [
+					{
+						id: "watch-config",
+						method: "workspace/didChangeWatchedFiles",
+						registerOptions: { watchers: [{
+							globPattern: { baseUri: pathToFileUri(workspace), pattern: "**/{tsconfig.json,package.json}" },
+							kind: 3,
+						}] },
+					},
+					{ id: "config", method: "workspace/didChangeConfiguration", registerOptions: { section: "typescript" } },
+				] } });
+				send(socket, { id: 85, method: "client/registerCapability", params: { registrations: [
+					{ id: "unsafe", method: "textDocument/hover" },
+				] } });
+				send(socket, { id: 86, method: "client/registerCapability", params: { registrations: [{
+					id: "outside-watch",
+					method: "workspace/didChangeWatchedFiles",
+					registerOptions: { watchers: [{
+						globPattern: { baseUri: pathToFileUri(configDir), pattern: "**/*.json" },
+					}] },
+				}] } });
+			} else if (message.method === "workspace/didChangeWatchedFiles") {
+				watchedNotifications += 1;
+				if (watchedNotifications === 2) resolveWatchedNotifications();
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			} else if (message.method === undefined && message.id !== undefined && message.id >= 81 && message.id <= 86) {
+				responseIds.add(message.id);
+				if (responseIds.size === 6) resolveResponses();
+			}
+		});
+		const config = defaultLspConfig();
+		config.startup_timeout_ms = 500;
+		config.request_timeout_ms = 500;
+		const client = new LspClient(workspace, {
+			id: "tcp",
+			enabled: true,
+			transport: { type: "tcp", host: "127.0.0.1", port: fake.port },
+			fallback: false,
+			routes: [{ languageId: "typescript", selectors: ["*.ts"] }],
+			settings: { typescript: { preferences: { quoteStyle: "single" } } },
+		}, config, new DiagnosticsLedger(), () => undefined, () => 0);
+		directClients.push(client);
+
+		expect(await client.ensureReady()).toBe(true);
+		await responsesReceived;
+		const response = (id: number) => fake.messages.find((message) => message.method === undefined && message.id === id);
+		expect(response(81)).toMatchObject({ result: [{ quoteStyle: "single" }, null, null] });
+		expect(response(82)).toMatchObject({ result: [{ uri: pathToFileUri(workspace), name: path.basename(workspace) }] });
+		expect(response(83)).toMatchObject({ result: null });
+		expect(response(84)).toMatchObject({ result: null });
+		expect(response(85)).toMatchObject({ error: { code: -32602, message: expect.stringContaining("not allowed") } });
+		expect(response(86)).toMatchObject({ error: { code: -32602, message: expect.stringContaining("inside the workspace") } });
+		expect(fake.messages.find((message) => message.method === "workspace/didChangeConfiguration")).toMatchObject({
+			params: { settings: { typescript: { preferences: { quoteStyle: "single" } } } },
+		});
+
+		expect(await client.didChangeWatchedFile(path.join(workspace, "nested", "tsconfig.json"), FileChangeType.Changed)).toBe(true);
+		expect(await client.didChangeWatchedFile(path.join(workspace, "package.json"), FileChangeType.Created)).toBe(true);
+		expect(await client.didChangeWatchedFile(path.join(workspace, "pyproject.toml"), FileChangeType.Changed)).toBe(false);
+		expect(await client.didChangeWatchedFile(path.join(configDir, "tsconfig.json"), FileChangeType.Changed)).toBe(false);
+		await watchedNotificationsReceived;
+		expect(fake.messages.filter((message) => message.method === "workspace/didChangeWatchedFiles")).toMatchObject([
+			{ params: { changes: [{ uri: pathToFileUri(path.join(workspace, "nested", "tsconfig.json")), type: FileChangeType.Changed }] } },
+			{ params: { changes: [{ uri: pathToFileUri(path.join(workspace, "package.json")), type: FileChangeType.Created }] } },
+		]);
+	});
+
+	it("manager 对未路由配置文件只通知已启动且已注册 watcher 的 server", async () => {
+		let resolveRegistration: () => void = () => undefined;
+		const registered = new Promise<void>((resolve) => {
+			resolveRegistration = resolve;
+		});
+		let resolveWatched: () => void = () => undefined;
+		const watched = new Promise<void>((resolve) => {
+			resolveWatched = resolve;
+		});
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
+			} else if (message.method === "initialized") {
+				send(socket, { id: 90, method: "client/registerCapability", params: { registrations: [{
+					id: "project-config",
+					method: "workspace/didChangeWatchedFiles",
+					registerOptions: { watchers: [{ globPattern: "**/tsconfig.json", kind: 2 }] },
+				}] } });
+			} else if (message.method === "workspace/symbol") {
+				send(socket, { id: message.id, result: [] });
+			} else if (message.method === "workspace/didChangeWatchedFiles") {
+				resolveWatched();
+			} else if (message.method === "shutdown") {
+				send(socket, { id: message.id, result: null });
+			} else if (message.method === "exit") {
+				socket.end();
+			} else if (message.method === undefined && message.id === 90) {
+				resolveRegistration();
+			}
+		});
+		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
+		manager = new LspManager();
+		const configFile = path.join(workspace, "nested", "tsconfig.json");
+
+		await manager.didChangeWatchedFile(workspace, configFile, FileChangeType.Changed);
+		expect(fake.connections).toBe(0);
+		await queryManagerSymbols(manager, workspace, "start");
+		await registered;
+		await manager.didChangeWatchedFile(workspace, configFile, FileChangeType.Changed);
+		await watched;
+
+		expect(fake.messages.find((message) => message.method === "workspace/didChangeWatchedFiles")).toMatchObject({
+			params: { changes: [{ uri: pathToFileUri(configFile), type: FileChangeType.Changed }] },
+		});
 	});
 
 	it("URI-only workspace symbol 原样 resolve 并转换为 hit", async () => {

@@ -89,7 +89,8 @@
 							},
 							"additionalProperties": false
 						},
-						"init": {}
+						"init": {},
+						"settings": {}
 					},
 					"anyOf": [
 						{ "required": ["command"] },

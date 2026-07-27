@@ -32,6 +32,19 @@
 	"servers": {
 		"typescript": {
 			"command": ["typescript-language-server", "--stdio"],
+			// typescript-language-server 文档中的静态初始化选项:
+			"init": {
+				"preferences": {
+					"importModuleSpecifierPreference": "relative",
+					"quotePreference": "double"
+				}
+			},
+			// 运行时 didChangeConfiguration 的值与请求配置:
+			"settings": {
+				// "formattingOptions": { "tabSize": 2, "insertSpaces": true },
+				"typescript": { "format": { "semicolons": "insert" } },
+				"javascript": { "format": { "semicolons": "insert" } }
+			},
 			"languages": {
 				"typescript": "*.ts",
 				"typescriptreact": "*.tsx",
@@ -41,10 +54,22 @@
 		},
 		"python": {
 			"command": ["ty", "server"],
+			"settings": {
+				"ty": {
+					"diagnosticMode": "workspace",
+					"completions": { "autoImport": true }
+				}
+			},
 			"languages": { "python": "*.{py,pyi}" }
 		},
 		"rust": {
 			"command": ["rust-analyzer"],
+			"settings": {
+				"rust-analyzer": {
+					"cargo": { "features": "all" },
+					"check": { "command": "clippy" }
+				}
+			},
 			"languages": { "rust": "*.rs" }
 		},
 		"clangd": {
@@ -71,10 +96,17 @@
 		"yaml": {
 			"fallback": true,
 			"command": ["yaml-language-server", "--stdio"],
+			"settings": {
+				"yaml": {
+					"validate": true,
+					"hover": true,
+					"format": { "enable": true }
+				}
+			},
 			"languages": { "yaml": "*.{yaml,yml}" }
 		}
 
-		// TCP example: uncomment and replace the endpoint with a user-provided server.
+		// TCP 示例: 取消注释并将端点替换为用户提供的服务器.
 		// ,"remote-example": {
 		// 	"tcp": { "host": "127.0.0.1", "port": 2087 },
 		// 	"languages": { "remote": "*.remote" }

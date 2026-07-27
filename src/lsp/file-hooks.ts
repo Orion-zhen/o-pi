@@ -1,3 +1,5 @@
+import { FileChangeType } from "vscode-languageserver-protocol";
+
 import { emptySummary } from "./diagnostics.js";
 import type { LspManager, ReadEnhancement } from "./manager.js";
 import type { LspDiagnosticSnapshot, LspDiagnosticsSummary, LspSymbolHit } from "./types.js";
@@ -23,6 +25,7 @@ export interface LspMutationInput {
 	readonly workspaceRoot: string;
 	readonly filePath: string;
 	readonly content: string;
+	readonly created: boolean;
 	readonly baseline?: LspDiagnosticSnapshot;
 }
 
@@ -69,6 +72,15 @@ export function createLspFileOperations(manager: LspManager): LspFileOperations 
 			}
 		},
 		async afterWrite(input) {
+			try {
+				await manager.didChangeWatchedFile(
+					input.workspaceRoot,
+					input.filePath,
+					input.created ? FileChangeType.Created : FileChangeType.Changed,
+				);
+			} catch {
+				// 文件变更通知是 best-effort，不影响 diagnostics 或已提交写入。
+			}
 			return diagnosticsOrUnavailable(async () => manager.didWrite(
 				input.workspaceRoot,
 				input.filePath,

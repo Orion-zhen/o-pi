@@ -17,6 +17,8 @@ export class LspServerRegistry {
 		const ids = new Map<string, number>();
 		const snapshot = servers.map((server) => ({
 			...server,
+			...(server.initializationOptions === undefined ? {} : { initializationOptions: structuredClone(server.initializationOptions) }),
+			...(server.settings === undefined ? {} : { settings: structuredClone(server.settings) }),
 			routes: server.routes.map((route) => ({ ...route, selectors: [...route.selectors] })),
 			transport: server.transport.type === "stdio"
 				? { ...server.transport, args: [...server.transport.args] }

@@ -42,6 +42,8 @@ export interface LspServerConfig {
 	transport: LspTransport;
 	routes: readonly LspLanguageRoute[];
 	initializationOptions?: LspJsonValue;
+	/** workspace/configuration 与 didChangeConfiguration 使用的用户级设置。 */
+	settings?: LspJsonValue;
 }
 
 export interface LspFileRoute {
