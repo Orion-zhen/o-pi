@@ -238,6 +238,15 @@ async function initializeRepoMapLocked(
 		symbols: architecture.symbols,
 		edges: baseEdges,
 		...(symbolIndex.syntaxFactsByFile !== undefined ? { syntaxFactsByFile: symbolIndex.syntaxFactsByFile } : {}),
+		...(previous !== undefined ? {
+			previous: {
+				files: previous.files,
+				symbols: previous.symbols,
+				tests: previous.tests,
+				edges: previous.edges,
+				diagnostics: previous.diagnostics,
+			},
+		} : {}),
 		...(input.signal !== undefined ? { signal: input.signal } : {}),
 	}));
 	const edges = coalesceRepoMapEdges([...baseEdges, ...testGraph.edges]);

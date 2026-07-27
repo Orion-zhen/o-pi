@@ -33,11 +33,7 @@ export function testGraphSources(userSource: string): Map<string, string> {
 	]);
 }
 
-export async function generationWithTestGraph(
-	root: string,
-	sources: ReadonlyMap<string, string>,
-	generationCharacter: string,
-): Promise<RepoMapGeneration> {
+export async function testGraphBuildInput(root: string, sources: ReadonlyMap<string, string>) {
 	const files = [...sources]
 		.map(([filePath, text]) => fileRecord(filePath, text))
 		.sort((left, right) => left.path.localeCompare(right.path));
@@ -45,11 +41,22 @@ export async function generationWithTestGraph(
 	const indexed = await indexRepoMapSymbols({ root, files, concurrency: 2, readText });
 	const mapId = "a".repeat(64);
 	const architecture = await buildRepoMapArchitecture({ root, mapId, files, symbols: indexed.symbols, readText });
-	const baseEdges = [
+	const edges = [
 		...buildRepoMapRelationships({ mapId, files, symbols: architecture.symbols, imports: indexed.imports }),
 		...architecture.edges,
 	].sort(compareRepoMapEdge);
-	const testGraph = await buildRepoMapTestGraph({ root, files, symbols: architecture.symbols, edges: baseEdges, readText });
+	return { root, files, symbols: architecture.symbols, edges, readText, indexed, architecture };
+}
+
+export async function generationWithTestGraph(
+	root: string,
+	sources: ReadonlyMap<string, string>,
+	generationCharacter: string,
+): Promise<RepoMapGeneration> {
+	const input = await testGraphBuildInput(root, sources);
+	const { files, symbols, edges: baseEdges, indexed, architecture } = input;
+	const testGraph = await buildRepoMapTestGraph(input);
+	const mapId = "a".repeat(64);
 	const edges = [...baseEdges, ...testGraph.edges].sort(compareRepoMapEdge);
 	const metadata: RepoMapMetadata = {
 		mapId,
@@ -65,7 +72,7 @@ export async function generationWithTestGraph(
 		parsedFileCount: indexed.parsedFileCount,
 		unsupportedFileCount: indexed.unsupportedFileCount,
 		parseErrorFileCount: indexed.parseErrorFileCount,
-		symbolCount: architecture.symbols.length,
+		symbolCount: symbols.length,
 		testNodeCount: testGraph.nodes.length,
 		edgeCount: edges.length,
 		aliasCount: 0,
@@ -77,7 +84,7 @@ export async function generationWithTestGraph(
 	return {
 		metadata,
 		files,
-		symbols: architecture.symbols,
+		symbols,
 		tests: testGraph.nodes,
 		architecture: architecture.nodes,
 		aliases: [],

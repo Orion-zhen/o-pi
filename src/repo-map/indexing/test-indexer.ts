@@ -20,8 +20,16 @@ export interface BuildRepoMapTestGraphInput {
 	symbols: readonly RepoMapSymbolNode[];
 	edges: readonly RepoMapEdge[];
 	syntaxFactsByFile?: ReadonlyMap<string, JavaScriptSyntaxFacts>;
+	previous?: {
+		files: readonly RepoMapFileRecord[];
+		symbols: readonly RepoMapSymbolNode[];
+		tests: readonly RepoMapTestNode[];
+		edges: readonly RepoMapEdge[];
+		diagnostics: readonly RepoMapDiagnostic[];
+	};
 	signal?: AbortSignal;
 	readText?: RepoMapReadText;
+	parseJavaScriptFacts?: (filePath: string, text: string) => Promise<JavaScriptSyntaxFacts>;
 }
 
 export interface RepoMapTestGraph {
@@ -41,10 +49,18 @@ const EMPTY_FACTS: JavaScriptSyntaxFacts = {
 	registrations: [], reExports: [], defaultExports: [], tests: [], mocks: [], fixtures: [], snapshots: [],
 };
 
+interface SymbolNameLookup {
+	byNormalizedName: ReadonlyMap<string, RepoMapSymbolNode[]>;
+	nameLengths: readonly number[];
+}
+
 /** Build candidate test relationships from repository-local, deterministic syntax and naming facts. */
 export async function buildRepoMapTestGraph(input: BuildRepoMapTestGraphInput): Promise<RepoMapTestGraph> {
 	throwIfAborted(input.signal);
+	const reused = reusableTestGraph(input);
+	if (reused !== undefined) return reused;
 	const readText = input.readText ?? readTextNoFollow;
+	const parseJavaScriptFacts = input.parseJavaScriptFacts ?? javascriptSyntaxFacts;
 	const testFiles = input.files.filter((file) => file.status === "indexed" && isTestFile(file.path));
 	const configurationFiles = input.files.filter((file) => file.status === "indexed" && isConfigurationFile(file.path));
 	const filesToRead = new Map([
@@ -72,12 +88,26 @@ export async function buildRepoMapTestGraph(input: BuildRepoMapTestGraphInput): 
 	const filesById = new Map(input.files.map((file) => [file.id, file]));
 	const filesByPath = new Map(input.files.map((file) => [file.path, file]));
 	const symbolsByFile = groupBy(input.symbols, (symbol) => symbol.fileId);
+	const symbolNames = createSymbolNameLookup(input.symbols);
+	const importsByFile = groupBy(input.edges.filter((edge) => edge.kind === "imports"), (edge) => edge.from);
+	const sourcesByStem = groupBy(
+		input.files.filter((file) => !isTestFile(file.path) && relationForResource(file.path) === undefined),
+		(file) => sourceStem(file.path),
+	);
+	const snapshotsByDirectory = groupBy(
+		input.files.filter((file) => relationForResource(file.path) === "uses-snapshot"),
+		(file) => path.posix.dirname(file.path),
+	);
+	const configurationsByDirectory = groupBy(
+		configurationFiles.filter((file) => configurationDeclaresTests(file, sources.get(file.id)?.text ?? "")),
+		(file) => path.posix.dirname(file.path),
+	);
 	const nodes: RepoMapTestNode[] = [];
 	const edges: RepoMapEdge[] = [];
 	for (const testFile of testFiles) {
 		const source = sources.get(testFile.id);
 		const suppliedFacts = syntaxFactsForFile(input.syntaxFactsByFile, testFile);
-		const syntax = suppliedFacts ?? (source === undefined ? EMPTY_FACTS : await javascriptSyntaxFacts(testFile.path, source.text));
+		const syntax = suppliedFacts ?? (source === undefined ? EMPTY_FACTS : await parseJavaScriptFacts(testFile.path, source.text));
 		if (source === undefined && suppliedFacts === undefined) continue;
 		const fileNode = testFileNode(testFile);
 		nodes.push(fileNode);
@@ -87,32 +117,34 @@ export async function buildRepoMapTestGraph(input: BuildRepoMapTestGraphInput): 
 		for (const node of caseNodes) {
 			nodes.push(node);
 			edges.push(edge(testFile.id, node.id, "contains", "syntax", node.confidence, node.evidence[0]));
-			const target = symbolNamedByTest(node.name, input.symbols, testFile.id);
+			const target = symbolNamedByTest(node.name, symbolNames, testFile.id);
 			if (target !== undefined) edges.push(edge(node.id, target.id, "tests", "syntax", 0.86, node.evidence[0], target.name));
 		}
 
-		for (const importEdge of input.edges.filter((candidate) => candidate.kind === "imports" && candidate.from === testFile.id)) {
+		const importedTestTargets = new Set<string>();
+		for (const importEdge of importsByFile.get(testFile.id) ?? []) {
 			const target = filesById.get(importEdge.to);
 			const relation = target === undefined ? "tests" : relationForResource(target.path) ?? "tests";
 			if (relation === "tests" && (target === undefined || isTestFile(target.path) || isConfigurationFile(target.path))) continue;
 			edges.push(edge(fileNode.id, importEdge.to, relation, importEdge.source, importEdge.confidence, importEdge.evidence[0], importEdge.lexicalTarget));
+			if (relation === "tests") importedTestTargets.add(importEdge.to);
 		}
 
-		const conventionalTarget = sourceByNamingConvention(testFile.path, input.files);
-		if (conventionalTarget !== undefined && !edges.some((candidate) => candidate.kind === "tests" && candidate.from === fileNode.id && candidate.to === conventionalTarget.id)) {
+		const conventionalTarget = sourceByNamingConvention(testFile.path, sourcesByStem);
+		if (conventionalTarget !== undefined && !importedTestTargets.has(conventionalTarget.id)) {
 			edges.push(edge(fileNode.id, conventionalTarget.id, "tests", "convention", 0.68, fileNode.evidence[0], conventionalTarget.path));
 		}
 
 		for (const fact of resourceFacts(testFile, syntax.mocks)) {
-			const target = resolveModuleTarget(testFile.path, fact.target, filesByPath, input.edges);
+			const target = resolveModuleTarget(testFile, fact.target, filesByPath, filesById, importsByFile);
 			edges.push(edge(fileNode.id, target.id, "mocks", "syntax", target.resolved ? 0.94 : 0.58, fact.evidence, fact.target));
 		}
 		for (const fact of resourceFacts(testFile, syntax.fixtures)) {
-			const target = resolveModuleTarget(testFile.path, fact.target, filesByPath, input.edges);
+			const target = resolveModuleTarget(testFile, fact.target, filesByPath, filesById, importsByFile);
 			edges.push(edge(fileNode.id, target.id, "uses-fixture", "syntax", target.resolved ? 0.9 : 0.52, fact.evidence, fact.target));
 		}
 		for (const fact of snapshotFacts(testFile, syntax)) {
-			const snapshots = matchingSnapshots(testFile.path, input.files);
+			const snapshots = matchingSnapshots(testFile.path, snapshotsByDirectory);
 			if (snapshots.length === 0) {
 				edges.push(edge(fileNode.id, `external:snapshot:${encodeURIComponent(fact.name)}`, "uses-snapshot", "syntax", 0.7, fact.evidence, fact.name));
 			} else {
@@ -120,7 +152,7 @@ export async function buildRepoMapTestGraph(input: BuildRepoMapTestGraphInput): 
 			}
 		}
 
-		for (const config of applicableConfigurations(testFile.path, configurationFiles, sources)) {
+		for (const config of applicableConfigurations(testFile.path, configurationsByDirectory)) {
 			const configSource = sources.get(config.id);
 			if (configSource === undefined) continue;
 			const evidence = evidenceForNeedle(configSource, "test");
@@ -133,6 +165,57 @@ export async function buildRepoMapTestGraph(input: BuildRepoMapTestGraphInput): 
 		edges: coalesceRepoMapEdges(edges),
 		diagnostics,
 	};
+}
+
+function reusableTestGraph(input: BuildRepoMapTestGraphInput): RepoMapTestGraph | undefined {
+	const previous = input.previous;
+	if (previous === undefined
+		|| previous.files.length !== input.files.length
+		|| previous.diagnostics.some((diagnostic) => diagnostic.code.startsWith("TEST_GRAPH_"))) return undefined;
+	const previousFiles = new Map(previous.files.map((file) => [file.path, file]));
+	for (const file of input.files) {
+		const old = previousFiles.get(file.path);
+		if (old?.id !== file.id || old.status !== file.status) return undefined;
+		if (isTestGraphContentFile(file.path) && (file.contentHash === undefined || old.contentHash !== file.contentHash)) return undefined;
+	}
+	if (!sameSymbolIdentity(previous.symbols, input.symbols)) return undefined;
+	const testFileIds = new Set(input.files.filter((file) => file.status === "indexed" && isTestFile(file.path)).map((file) => file.id));
+	if (testImportIdentity(previous.edges, testFileIds).join("\n") !== testImportIdentity(input.edges, testFileIds).join("\n")) return undefined;
+	const testIds = new Set(previous.tests.map((node) => node.id));
+	return {
+		nodes: [...previous.tests],
+		edges: previous.edges.filter((edgeValue) => testIds.has(edgeValue.from) || testIds.has(edgeValue.to)),
+		diagnostics: [],
+	};
+}
+
+function isTestGraphContentFile(filePath: string): boolean {
+	return isTestFile(filePath) || isConfigurationFile(filePath) || relationForResource(filePath) !== undefined;
+}
+
+function sameSymbolIdentity(previous: readonly RepoMapSymbolNode[], current: readonly RepoMapSymbolNode[]): boolean {
+	if (previous.length !== current.length) return false;
+	const previousById = new Map(previous.map((symbol) => [symbol.id, symbol]));
+	return current.every((symbol) => {
+		const old = previousById.get(symbol.id);
+		return old?.fileId === symbol.fileId && old.name === symbol.name;
+	});
+}
+
+function testImportIdentity(edges: readonly RepoMapEdge[], testFileIds: ReadonlySet<string>): string[] {
+	return edges
+		.filter((edgeValue) => edgeValue.kind === "imports" && testFileIds.has(edgeValue.from))
+		.map((edgeValue) => JSON.stringify([
+			edgeValue.from,
+			edgeValue.to,
+			edgeValue.resolution,
+			edgeValue.source,
+			edgeValue.confidence,
+			edgeValue.lexicalTarget ?? "",
+			edgeValue.importKind ?? "",
+			edgeValue.evidence.map((evidence) => [evidence.path, evidence.startLine, evidence.endLine, evidence.startByte, evidence.endByte, evidence.textHash ?? ""]),
+		]))
+		.sort(compareText);
 }
 
 export function isTestFile(filePath: string): boolean {
@@ -200,20 +283,41 @@ function testCaseNodes(file: RepoMapFileRecord, symbols: readonly RepoMapSymbolN
 	});
 }
 
-function symbolNamedByTest(name: string, symbols: readonly RepoMapSymbolNode[], testFileId: string): RepoMapSymbolNode | undefined {
+function createSymbolNameLookup(symbols: readonly RepoMapSymbolNode[]): SymbolNameLookup {
+	const named = symbols.filter((symbol) => symbol.name !== undefined && symbol.name.length >= 3);
+	const byNormalizedName = groupBy(named, (symbol) => normalizeWords(symbol.name ?? ""));
+	const nameLengths = [...new Set([...byNormalizedName.keys()].map((name) => name.length))].filter((length) => length > 0).sort((left, right) => left - right);
+	return { byNormalizedName, nameLengths };
+}
+
+function symbolNamedByTest(name: string, lookup: SymbolNameLookup, testFileId: string): RepoMapSymbolNode | undefined {
 	const normalized = normalizeWords(name);
-	const candidates = symbols
-		.filter((symbol) => symbol.fileId !== testFileId && symbol.name !== undefined && symbol.name.length >= 3 && normalized.includes(normalizeWords(symbol.name)))
+	const matched = new Map<string, RepoMapSymbolNode>();
+	for (const symbol of lookup.byNormalizedName.get("") ?? []) {
+		if (symbol.fileId !== testFileId) matched.set(symbol.id, symbol);
+	}
+	for (const length of lookup.nameLengths) {
+		if (length > normalized.length) break;
+		for (let start = 0; start + length <= normalized.length; start += 1) {
+			for (const symbol of lookup.byNormalizedName.get(normalized.slice(start, start + length)) ?? []) {
+				if (symbol.fileId !== testFileId) matched.set(symbol.id, symbol);
+			}
+		}
+	}
+	const candidates = [...matched.values()]
 		.sort((left, right) => (right.name?.length ?? 0) - (left.name?.length ?? 0) || compareText(left.id, right.id));
 	const first = candidates[0];
 	const second = candidates[1];
 	return first !== undefined && (second === undefined || first.name?.length !== second.name?.length) ? first : undefined;
 }
 
-function sourceByNamingConvention(testPath: string, files: readonly RepoMapFileRecord[]): RepoMapFileRecord | undefined {
+function sourceByNamingConvention(
+	testPath: string,
+	filesByStem: ReadonlyMap<string, RepoMapFileRecord[]>,
+): RepoMapFileRecord | undefined {
 	const testStem = sourceStem(testPath);
 	if (testStem.length < 2) return undefined;
-	const candidates = files.filter((file) => !isTestFile(file.path) && relationForResource(file.path) === undefined && sourceStem(file.path) === testStem);
+	const candidates = filesByStem.get(testStem) ?? [];
 	if (candidates.length === 1) return candidates[0];
 	const testDirectory = path.posix.dirname(testPath).replace(/(?:^|\/)(?:tests?|specs?|__tests__)(?=\/|$)/giu, "/src").replace(/^\//u, "");
 	return candidates.find((candidate) => path.posix.dirname(candidate.path) === testDirectory);
@@ -233,21 +337,30 @@ function snapshotFacts(file: RepoMapFileRecord, syntax: JavaScriptSyntaxFacts): 
 	return syntax.snapshots.map((fact) => ({ name: fact.name, evidence: rangeEvidence(file, fact) }));
 }
 
-function matchingSnapshots(testPath: string, files: readonly RepoMapFileRecord[]): RepoMapFileRecord[] {
+function matchingSnapshots(
+	testPath: string,
+	filesByDirectory: ReadonlyMap<string, RepoMapFileRecord[]>,
+): RepoMapFileRecord[] {
 	const basename = path.posix.basename(testPath).toLocaleLowerCase();
-	const directory = path.posix.dirname(testPath);
-	return files.filter((file) => relationForResource(file.path) === "uses-snapshot"
-		&& path.posix.dirname(file.path) === path.posix.join(directory, "__snapshots__")
-		&& path.posix.basename(file.path).toLocaleLowerCase().includes(basename));
+	const snapshotDirectory = path.posix.join(path.posix.dirname(testPath), "__snapshots__");
+	return (filesByDirectory.get(snapshotDirectory) ?? [])
+		.filter((file) => path.posix.basename(file.path).toLocaleLowerCase().includes(basename));
 }
 
 function applicableConfigurations(
 	testPath: string,
-	configurations: readonly RepoMapFileRecord[],
-	sources: ReadonlyMap<string, RepoMapSourceFile>,
+	configurationsByDirectory: ReadonlyMap<string, RepoMapFileRecord[]>,
 ): RepoMapFileRecord[] {
-	return configurations
-		.filter((file) => isAncestor(path.posix.dirname(file.path), testPath) && configurationDeclaresTests(file, sources.get(file.id)?.text ?? ""))
+	const result: RepoMapFileRecord[] = [];
+	let directory = path.posix.dirname(testPath);
+	while (true) {
+		result.push(...configurationsByDirectory.get(directory) ?? []);
+		if (directory === ".") break;
+		const parent = path.posix.dirname(directory);
+		if (parent === directory) break;
+		directory = parent;
+	}
+	return result
 		.sort((left, right) => path.posix.dirname(right.path).length - path.posix.dirname(left.path).length || compareText(left.path, right.path))
 		.slice(0, 4);
 }
@@ -273,14 +386,15 @@ function configurationDeclaresTests(file: RepoMapFileRecord, text: string): bool
 }
 
 function resolveModuleTarget(
-	importerPath: string,
+	importer: RepoMapFileRecord,
 	specifier: string,
 	filesByPath: ReadonlyMap<string, RepoMapFileRecord>,
-	edges: readonly RepoMapEdge[],
+	filesById: ReadonlyMap<string, RepoMapFileRecord>,
+	importsByFile: ReadonlyMap<string, RepoMapEdge[]>,
 ): { id: string; resolved: boolean } {
-	const existingImport = edges.find((candidate) => candidate.kind === "imports" && candidate.lexicalTarget === specifier && filesByPath.get(importerPath)?.id === candidate.from);
-	if (existingImport !== undefined && [...filesByPath.values()].some((file) => file.id === existingImport.to)) return { id: existingImport.to, resolved: true };
-	for (const candidate of moduleCandidates(importerPath, specifier)) {
+	const existingImport = (importsByFile.get(importer.id) ?? []).find((candidate) => candidate.lexicalTarget === specifier);
+	if (existingImport !== undefined && filesById.has(existingImport.to)) return { id: existingImport.to, resolved: true };
+	for (const candidate of moduleCandidates(importer.path, specifier)) {
 		const file = filesByPath.get(candidate);
 		if (file !== undefined) return { id: file.id, resolved: true };
 	}
@@ -333,10 +447,6 @@ function evidenceForRange(source: RepoMapSourceFile, start: number, end: number)
 function uniqueNodes(values: readonly RepoMapTestNode[]): RepoMapTestNode[] {
 	return uniqueBy(values, (value) => value.id)
 		.sort((left, right) => compareText(left.fileId, right.fileId) || compareText(left.testKind, right.testKind) || compareText(left.id, right.id));
-}
-
-function isAncestor(directory: string, filePath: string): boolean {
-	return directory === "." || filePath.startsWith(`${directory}/`);
 }
 
 function normalizeWords(value: string): string {
