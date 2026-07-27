@@ -22,7 +22,19 @@ describe("grep renderer", () => {
 		const result = formatGrepResult(success(), false, theme);
 		expect(result.split("\n")).toHaveLength(2);
 		expect(result).toContain('✓ grep');
-		expect(result).toContain("1 regions · 1 files · 1 related · 4/4 searched/traversed · limited:token_budget");
+		expect(result).toContain("1 regions · 1 files · 1 related · 4/4 searched/traversed · limit:token");
+	});
+
+	it("多个限制原因在摘要宽度内完整显示", () => {
+		const details: GrepSuccess = {
+			...success(),
+			truncated_by: ["traversal_limit", "text_byte_limit", "semantic_candidate_limit", "result_limit", "token_budget"],
+		};
+		const summary = formatGrepResult(details, false, theme).split("\n")[1];
+		expect(summary).toBeDefined();
+		expect(summary?.length).toBeLessThanOrEqual(98);
+		expect(summary).toContain("limit:depth,bytes,sem,result,token");
+		expect(summary).not.toContain("…");
 	});
 
 	it("部分 scope 在摘要和展开结果中明确标注错误", () => {
@@ -43,7 +55,7 @@ describe("grep renderer", () => {
 		expect(output).toContain("src/auth.ts:4-9 AuthService.login [body; definition; public_api; exact symbol]");
 		expect(output).toContain("Related (query match not guaranteed):");
 		expect(output).toContain("tests/auth.test.ts:2-6 auth flow [test]");
-		expect(output).toContain("limited: token_budget");
+		expect(output).toContain("limit: token");
 		expect(output).not.toContain("async login");
 	});
 

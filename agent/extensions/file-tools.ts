@@ -107,28 +107,30 @@ const defaultModuleImports: FileToolsModuleImports = {
 };
 
 export function createFileToolsExtension(imports: FileToolsModuleImports = defaultModuleImports): (pi: ExtensionAPI) => void {
-	const loadedToolInstances = new Set<{ dispose(): void }>();
-	const loaders: FileToolsLoaders = {
-		ls: createRetryableLoader(imports.ls),
-		host: createRetryableLoader(imports.host),
-		find: createRetryableLoader(async () => {
-			const adapter = (await imports.find()).createFindAdapter();
-			loadedToolInstances.add(adapter);
-			return adapter;
-		}),
-		grep: createRetryableLoader(async () => {
-			const adapter = (await imports.grep()).createGrepAdapter();
-			loadedToolInstances.add(adapter);
-			return adapter;
-		}),
-		read: createRetryableLoader(imports.read),
-		write: createRetryableLoader(imports.write),
-		edit: createRetryableLoader(imports.edit),
-		lsp: createRetryableLoader(imports.lsp),
-		repoMap: createRetryableLoader(imports.repoMap),
+	return (pi) => {
+		const loadedToolInstances = new Set<{ dispose(): void }>();
+		const loaders: FileToolsLoaders = {
+			ls: createRetryableLoader(imports.ls),
+			host: createRetryableLoader(imports.host),
+			find: createRetryableLoader(async () => {
+				const adapter = (await imports.find()).createFindAdapter();
+				loadedToolInstances.add(adapter);
+				return adapter;
+			}),
+			grep: createRetryableLoader(async () => {
+				const adapter = (await imports.grep()).createGrepAdapter();
+				loadedToolInstances.add(adapter);
+				return adapter;
+			}),
+			read: createRetryableLoader(imports.read),
+			write: createRetryableLoader(imports.write),
+			edit: createRetryableLoader(imports.edit),
+			lsp: createRetryableLoader(imports.lsp),
+			repoMap: createRetryableLoader(imports.repoMap),
+		};
+		const loadRenderers = createRetryableLoader(imports.renderers ?? (() => import("../../src/file-tools/pi/renderers.js")));
+		registerFileTools(pi, loaders, loadedToolInstances, loaders.host, loadRenderers);
 	};
-	const loadRenderers = createRetryableLoader(imports.renderers ?? (() => import("../../src/file-tools/pi/renderers.js")));
-	return (pi) => registerFileTools(pi, loaders, loadedToolInstances, loaders.host, loadRenderers);
 }
 
 /** 注册覆盖版 ls/find/grep/read/write/edit；扩展层只适配 Pi，工具实现和渲染细节在 src/file-tools。 */

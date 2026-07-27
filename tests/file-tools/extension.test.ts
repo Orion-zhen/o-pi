@@ -127,6 +127,54 @@ describe("file-tools extension lifecycle", () => {
 		expect(disposeHost).toHaveBeenCalledTimes(1);
 	});
 
+	it("同一 factory 创建新 session 时重建已释放的 find 和 grep adapter", async () => {
+		const imports = {
+			ls: vi.fn(() => import("../../src/file-tools/pi/adapters/ls.js")),
+			host: vi.fn(() => import("../../src/file-tools/runtime/host.js")),
+			find: vi.fn(() => import("../../src/file-tools/pi/adapters/find.js")),
+			grep: vi.fn(() => import("../../src/file-tools/pi/adapters/grep.js")),
+			read: vi.fn(() => import("../../src/file-tools/pi/adapters/read.js")),
+			write: vi.fn(() => import("../../src/file-tools/pi/adapters/write.js")),
+			edit: vi.fn(() => import("../../src/file-tools/pi/adapters/edit.js")),
+			lsp: vi.fn(() => import("../../src/lsp/index.js")),
+			repoMap: vi.fn(() => import("../../src/file-tools/pi/repo-map-runtime.js")),
+		} satisfies FileToolsModuleImports;
+		const extension = createFileToolsExtension(imports);
+		const createSession = () => {
+			const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
+			const handlers = new Map<string, LifecycleHandler>();
+			extension({
+				registerTool(tool: { name: string; execute?: ExecuteTool }) { registered.push(tool); },
+				on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
+			} as unknown as ExtensionAPI);
+			return { registered, handlers };
+		};
+		const executeSearchTools = async (registered: Array<{ name: string; execute?: ExecuteTool }>, sessionId: string) => {
+			const ctx = { cwd: process.cwd(), sessionManager: { getSessionId: () => sessionId } };
+			await expect(executeTool(registered, "find", { query: "package.json", path: ["."] }, ctx)).resolves.toMatchObject({
+				details: { query: "package.json" },
+			});
+			await expect(executeTool(registered, "grep", {
+				query: "createFileToolsExtension",
+				path: ["agent/extensions/file-tools.ts"],
+				match: "literal",
+			}, ctx)).resolves.toMatchObject({ details: { status: "success" } });
+		};
+
+		const first = createSession();
+		await executeSearchTools(first.registered, "search-session-1");
+		await expect(Promise.resolve(first.handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();
+
+		const second = createSession();
+		try {
+			await executeSearchTools(second.registered, "search-session-2");
+			expect(imports.find).toHaveBeenCalledTimes(2);
+			expect(imports.grep).toHaveBeenCalledTimes(2);
+		} finally {
+			await Promise.resolve(second.handlers.get("session_shutdown")?.({}, {}));
+		}
+	});
+
 	it("同一 session 复用 Repo Map runtime，shutdown 后释放", async () => {
 		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
 		const handlers = new Map<string, LifecycleHandler>();

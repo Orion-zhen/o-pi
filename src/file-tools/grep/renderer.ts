@@ -2,7 +2,15 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { formatToolCard } from "../../tui/tool-card.js";
 import { joinParts } from "../../tui/text.js";
 import { isGrepSuccessDetails } from "../pi/guards.js";
-import type { GrepParams, GrepRegion } from "./types.js";
+import type { GrepParams, GrepRegion, TruncationReason } from "./types.js";
+
+const LIMIT_LABELS: Record<TruncationReason, string> = {
+	traversal_limit: "depth",
+	text_byte_limit: "bytes",
+	semantic_candidate_limit: "sem",
+	result_limit: "result",
+	token_budget: "token",
+};
 
 /** 渲染 grep 调用标题；TUI 只显示查询、scope 和 match mode。 */
 export function formatGrepCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
@@ -31,7 +39,7 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 			details.nearby === undefined ? undefined : `${details.nearby.length} nearby`,
 			details.related === undefined ? undefined : `${details.related.length} related`,
 			`${details.stats.searched_files}/${details.stats.traversed_entries} searched/traversed`,
-			details.truncated_by.length > 0 ? `limited:${details.truncated_by.join(",")}` : undefined,
+			details.truncated_by.length > 0 ? `limit:${formatLimitReasons(details.truncated_by)}` : undefined,
 			details.scope_errors === undefined || details.scope_errors.length === 0 ? undefined : `${details.scope_errors.length} scope ${details.scope_errors.length === 1 ? "error" : "errors"}`,
 		]),
 	}, theme);
@@ -54,10 +62,14 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 			lines.push(`${theme.fg("accent", range)} ${result.symbol ?? result.signature ?? result.kind} [${result.relations.join(", ")}]`);
 		}
 	}
-	if (details.truncated_by.length > 0) lines.push(theme.fg("muted", `limited: ${details.truncated_by.join(", ")}`));
+	if (details.truncated_by.length > 0) lines.push(theme.fg("muted", `limit: ${formatLimitReasons(details.truncated_by, ", ")}`));
 	if (details.scope_errors !== undefined && details.scope_errors.length > 0) lines.push(theme.fg("muted", `Scope errors: ${details.scope_errors.map((item) => `${item.path}:${item.error.code}`).join(", ")}.`));
 	if (details.stats.skipped_files !== undefined) lines.push(theme.fg("muted", `skipped ${Object.entries(details.stats.skipped_files).map(([key, value]) => `${key}:${value}`).join(" ")}`));
 	return lines.join("\n");
+}
+
+function formatLimitReasons(reasons: readonly TruncationReason[], separator = ","): string {
+	return reasons.map((reason) => LIMIT_LABELS[reason]).join(separator);
 }
 
 function formatRegion(region: GrepRegion, theme: Pick<Theme, "fg">): string {
