@@ -1,13 +1,14 @@
 {
 	"enabled": true,
-	"exclude_paths": ["~"],
+	"exclude_paths": [
+		"~"
+	],
 	"startup_timeout_ms": 8000,
 	"request_timeout_ms": 5000,
 	"idle_timeout_ms": 300000,
 	"max_restarts": 2,
 	// 仓库配置覆盖内置默认值 64。
 	"max_open_documents": 128,
-
 	"diagnostics": {
 		"enabled": true,
 		"max_wait_ms": 3000,
@@ -16,22 +17,22 @@
 		"max_related_locations": 3,
 		"min_severity": "warning"
 	},
-
 	"read": {
 		"outline": true,
 		"max_symbols": 40
 	},
-
 	"grep": {
 		"workspace_symbols": true,
 		"references": false,
 		"max_symbols": 20,
 		"max_references": 20
 	},
-
 	"servers": {
 		"typescript": {
-			"command": ["typescript-language-server", "--stdio"],
+			"command": [
+				"typescript-language-server",
+				"--stdio"
+			],
 			// typescript-language-server 文档中的静态初始化选项:
 			"init": {
 				"preferences": {
@@ -42,8 +43,16 @@
 			// 运行时 didChangeConfiguration 的值与请求配置:
 			"settings": {
 				// "formattingOptions": { "tabSize": 2, "insertSpaces": true },
-				"typescript": { "format": { "semicolons": "insert" } },
-				"javascript": { "format": { "semicolons": "insert" } }
+				"typescript": {
+					"format": {
+						"semicolons": "insert"
+					}
+				},
+				"javascript": {
+					"format": {
+						"semicolons": "insert"
+					}
+				}
 			},
 			"languages": {
 				"typescript": "*.ts",
@@ -53,46 +62,85 @@
 			}
 		},
 		"python": {
-			"command": ["ty", "server"],
+			"command": [
+				"ty",
+				"server"
+			],
 			"settings": {
 				"ty": {
 					"diagnosticMode": "workspace",
-					"completions": { "autoImport": true }
+					"completions": {
+						"autoImport": true
+					}
 				}
 			},
-			"languages": { "python": "*.{py,pyi}" }
+			"languages": {
+				"python": "*.{py,pyi}"
+			}
 		},
 		"rust": {
-			"command": ["rust-analyzer"],
+			"command": [
+				"rust-analyzer"
+			],
 			"settings": {
 				"rust-analyzer": {
-					"cargo": { "features": "all" },
-					"check": { "command": "clippy" }
+					"cargo": {
+						"features": "all"
+					},
+					"check": {
+						"command": "clippy"
+					}
 				}
 			},
-			"languages": { "rust": "*.rs" }
+			"languages": {
+				"rust": "*.rs"
+			}
 		},
 		"gopls": {
-			"command": ["gopls"],
+			"command": [
+				"gopls"
+			],
 			// 官方 Neovim 配置示例中的 gopls 设置。
 			"settings": {
 				"gopls": {
-					"analyses": { "unusedparams": true },
+					"analyses": {
+						"unusedparams": true
+					},
 					"staticcheck": true,
 					"gofumpt": true
 				}
 			},
-			"languages": { "go": "*.go" }
+			"languages": {
+				"go": "*.go"
+			}
 		},
 		"clangd": {
-			"command": ["clangd"],
+			"command": [
+				"clangd"
+			],
 			"languages": {
 				"c": "*.c",
 				"cpp": "*.{C,h,hh,hpp,hxx,cc,cpp,cxx}"
 			}
 		},
+		"texlab": {
+			"command": [
+				"texlab"
+			],
+			"languages": {
+				"latex": [
+					"*.tex",
+					"*.sty",
+					"*.cls"
+				]
+			}
+		},
 		"docker": {
-			"command": ["docker-language-server", "start", "--stdio"],
+			"command": [
+				"docker-language-server",
+				"start",
+				"--stdio"
+			],
 			"languages": {
 				"dockerfile": [
 					"{Dockerfile,Containerfile}",
@@ -107,17 +155,23 @@
 		},
 		"yaml": {
 			"fallback": true,
-			"command": ["yaml-language-server", "--stdio"],
+			"command": [
+				"yaml-language-server",
+				"--stdio"
+			],
 			"settings": {
 				"yaml": {
 					"validate": true,
 					"hover": true,
-					"format": { "enable": true }
+					"format": {
+						"enable": true
+					}
 				}
 			},
-			"languages": { "yaml": "*.{yaml,yml}" }
+			"languages": {
+				"yaml": "*.{yaml,yml}"
+			}
 		}
-
 		// TCP 示例: 取消注释并将端点替换为用户提供的服务器.
 		// ,"remote-example": {
 		// 	"tcp": { "host": "127.0.0.1", "port": 2087 },
