@@ -11,6 +11,7 @@ import { throwIfAborted } from "../core/errors.js";
 import { compareText, groupBy, type RepoMapImportFact, type RepoMapSymbolIndex } from "../core/graph.js";
 import { readTextNoFollow, RepoMapReadLimitError, type RepoMapReadText } from "../core/source.js";
 import type { RepoMapDiagnostic, RepoMapEdge, RepoMapFileRecord, RepoMapSymbolNode } from "../core/types.js";
+import { isStableParserDiagnostic } from "./diagnostic-reuse.js";
 import { PARSER_SYNTAX_DIAGNOSTIC, type RepoMapParserFileResult } from "./parser-task.js";
 
 export interface IndexRepoMapSymbolsInput {
@@ -85,11 +86,14 @@ export async function indexRepoMapSymbols(input: IndexRepoMapSymbolsInput): Prom
 	const analyze = input.analyze ?? analyzeCodeFile;
 	const readText = input.readText ?? readTextNoFollow;
 	const previousFiles = new Map(input.previous?.files.map((file) => [file.path, file]) ?? []);
+	const currentFiles = new Map(input.files.map((file) => [file.path, file]));
 	const previousSymbols = groupSymbolsByFile(input.previous?.symbols ?? []);
 	const previousImports = groupImportsByFile(input.previous?.edges ?? []);
-	const previousErrors = new Set(
-		(input.previous?.diagnostics ?? [])
-			.filter((diagnostic) => diagnostic.code === "PARSER_ERROR" || diagnostic.code === "PARSER_SYNTAX_ERROR" || diagnostic.code === "FILE_CHANGED_DURING_PARSE")
+	const previousDiagnostics = input.previous?.diagnostics ?? [];
+	const stableDiagnostics = groupStableDiagnosticsByPath(previousDiagnostics, previousFiles, currentFiles);
+	const retryPaths = new Set(
+		previousDiagnostics
+			.filter((diagnostic) => isRetryableParserDiagnostic(diagnostic) && !isStableParserDiagnostic(diagnostic, previousFiles, currentFiles))
 			.flatMap((diagnostic) => diagnostic.path === undefined ? [] : [diagnostic.path]),
 	);
 	const completedPaths = new Set<string>();
@@ -98,12 +102,12 @@ export async function indexRepoMapSymbols(input: IndexRepoMapSymbolsInput): Prom
 		completedPaths.add(filePath);
 		safeProgress(input.onProgress, completedPaths.size);
 	};
-	const workerResults = await parseWithWorkersIfUseful(input, previousFiles, previousErrors, reportCompleted);
+	const workerResults = await parseWithWorkersIfUseful(input, previousFiles, retryPaths, reportCompleted);
 	const limit = pLimit(input.concurrency);
 	const results = await limit.map(input.files, async (file) => {
 		throwIfAborted(input.signal);
 		const workerResult = workerResults?.get(file.path);
-		const result = await indexFile(file, input.root, previousFiles, previousSymbols, previousImports, previousErrors, analyze, readText, input.signal, workerResult);
+		const result = await indexFile(file, input.root, previousFiles, previousSymbols, previousImports, stableDiagnostics, retryPaths, analyze, readText, input.signal, workerResult);
 		if (file.status === "indexed") reportCompleted(file.path);
 		return result;
 	});
@@ -127,11 +131,11 @@ export async function indexRepoMapSymbols(input: IndexRepoMapSymbolsInput): Prom
 async function parseWithWorkersIfUseful(
 	input: IndexRepoMapSymbolsInput,
 	previousFiles: ReadonlyMap<string, RepoMapFileRecord>,
-	previousErrors: ReadonlySet<string>,
+	retryPaths: ReadonlySet<string>,
 	reportCompleted: (filePath: string) => void,
 ): Promise<ReadonlyMap<string, RepoMapParserFileResult> | undefined> {
 	if (input.analyze !== undefined || input.readText !== undefined) return undefined;
-	const candidates = input.files.filter((file) => isWorkerCandidate(file) && !canReuse(file, previousFiles, previousErrors));
+	const candidates = input.files.filter((file) => isWorkerCandidate(file) && !canReuse(file, previousFiles, retryPaths));
 	const workload = workloadFor(candidates);
 	if (!shouldOffloadRepoMapParsing(workload, { concurrency: input.concurrency })) return undefined;
 	const pool = createRepoMapParserPool(input.concurrency, input.workerFactory);
@@ -185,7 +189,8 @@ async function indexFile(
 	previousFiles: ReadonlyMap<string, RepoMapFileRecord>,
 	previousSymbols: ReadonlyMap<string, RepoMapSymbolNode[]>,
 	previousImports: ReadonlyMap<string, RepoMapImportFact[]>,
-	previousErrors: ReadonlySet<string>,
+	stableDiagnostics: ReadonlyMap<string, RepoMapDiagnostic[]>,
+	retryPaths: ReadonlySet<string>,
 	analyze: (filePath: string, text: string, options?: AnalyzeCodeFileOptions) => AnalyzedFileIndex | Promise<AnalyzedFileIndex>,
 	readText: RepoMapReadText,
 	signal?: AbortSignal,
@@ -195,11 +200,11 @@ async function indexFile(
 	if (languageFromPath(file.path) === "text") {
 		return { symbols: [], imports: [], diagnostics: [], status: "unsupported", reused: false };
 	}
-	if (canReuse(file, previousFiles, previousErrors)) {
+	if (canReuse(file, previousFiles, retryPaths)) {
 		return {
 			symbols: previousSymbols.get(file.id) ?? [],
 			imports: previousImports.get(file.id) ?? [],
-			diagnostics: [],
+			diagnostics: stableDiagnostics.get(file.path) ?? [],
 			status: "parsed",
 			reused: true,
 		};
@@ -275,11 +280,32 @@ function parsedResult(
 	return syntaxFacts === undefined ? result : { ...result, syntaxFacts };
 }
 
-function canReuse(file: RepoMapFileRecord, previousFiles: ReadonlyMap<string, RepoMapFileRecord>, previousErrors: ReadonlySet<string>): boolean {
+function canReuse(file: RepoMapFileRecord, previousFiles: ReadonlyMap<string, RepoMapFileRecord>, retryPaths: ReadonlySet<string>): boolean {
 	const old = previousFiles.get(file.path);
 	return old?.status === "indexed"
 		&& old.contentHash === file.contentHash
-		&& !previousErrors.has(file.path);
+		&& !retryPaths.has(file.path);
+}
+
+function isRetryableParserDiagnostic(diagnostic: RepoMapDiagnostic): boolean {
+	return diagnostic.code === "PARSER_ERROR"
+		|| diagnostic.code === "PARSER_SYNTAX_ERROR"
+		|| diagnostic.code === "FILE_CHANGED_DURING_PARSE";
+}
+
+function groupStableDiagnosticsByPath(
+	diagnostics: readonly RepoMapDiagnostic[],
+	previousFiles: ReadonlyMap<string, RepoMapFileRecord>,
+	currentFiles: ReadonlyMap<string, RepoMapFileRecord>,
+): Map<string, RepoMapDiagnostic[]> {
+	const result = new Map<string, RepoMapDiagnostic[]>();
+	for (const diagnostic of diagnostics) {
+		if (!isStableParserDiagnostic(diagnostic, previousFiles, currentFiles) || diagnostic.path === undefined) continue;
+		const group = result.get(diagnostic.path);
+		if (group === undefined) result.set(diagnostic.path, [diagnostic]);
+		else group.push(diagnostic);
+	}
+	return result;
 }
 
 function isWorkerCandidate(file: RepoMapFileRecord): boolean {

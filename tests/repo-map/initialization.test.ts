@@ -4,9 +4,11 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 
+import { analyzeCodeFile } from "../../src/code-index/parser.js";
 import { defaultFileToolsConfig } from "../../src/file-tools/config.js";
 import { defaultRepoMapConfig } from "../../src/repo-map/config/config.js";
 import { RepoMapError } from "../../src/repo-map/core/errors.js";
+import { indexRepoMapSymbols } from "../../src/repo-map/indexing/symbol-indexer.js";
 import { initializeRepoMap, readActivatedRepoMap, type RepoMapServiceDependencies } from "../../src/repo-map/runtime/service.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
@@ -130,6 +132,96 @@ describe("Repo Map initialization service", () => {
 			path: "extension.ts",
 		}));
 		expect(result.metadata.freshness).toBe("partially_stale");
+	});
+
+	it("reuses an unchanged partially stale generation with stable syntax diagnostics", async () => {
+		const root = path.join(temp.path, "repo");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		await writeFile(path.join(root, "extension.ts"), "export function setup() {\n");
+		const first = await initializeRepoMap({ cwd: root }, dependencies());
+		const indexSymbols = vi.fn(async () => { throw new Error("unexpected symbol indexing"); });
+		const buildArchitecture = vi.fn(async () => { throw new Error("unexpected architecture indexing"); });
+		const buildTestGraph = vi.fn(async () => { throw new Error("unexpected test indexing"); });
+		const buildRelationships = vi.fn(async () => { throw new Error("unexpected relationship indexing"); });
+		const buildLexicalAliases = vi.fn(async () => { throw new Error("unexpected lexical indexing"); });
+		const commit = vi.fn(async () => { throw new Error("unexpected commit"); });
+		const progress: Array<{ phase: string; completed?: number; total?: number }> = [];
+
+		const result = await initializeRepoMap({
+			cwd: root,
+			mode: "refresh",
+			onProgress(update) { progress.push(update); },
+		}, dependencies({ indexSymbols, buildArchitecture, buildTestGraph, buildRelationships, buildLexicalAliases, commit }));
+
+		expect(result).toMatchObject({
+			reusedGeneration: true,
+			metadata: {
+				generation: first.metadata.generation,
+				freshness: "partially_stale",
+				diagnosticCount: 1,
+			},
+			summary: { diagnostics: 1, reusedParsed: 1 },
+		});
+		for (const skipped of [indexSymbols, buildArchitecture, buildTestGraph, buildRelationships, buildLexicalAliases, commit]) expect(skipped).not.toHaveBeenCalled();
+		expect(progress.filter((update) => update.phase === "parsing" || update.phase === "saving")).toEqual([
+			{ phase: "parsing", completed: 1, total: 1 },
+			{ phase: "saving" },
+		]);
+	});
+
+	it("retains a stable syntax diagnostic without reparsing its file when another file changes", async () => {
+		const root = path.join(temp.path, "repo");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		await Promise.all([
+			writeFile(path.join(root, "broken.ts"), "export function broken() {\n"),
+			writeFile(path.join(root, "healthy.ts"), "export const healthy = 1;\n"),
+		]);
+		await initializeRepoMap({ cwd: root }, dependencies());
+		await writeFile(path.join(root, "healthy.ts"), "export const healthy = 2;\n");
+		const analyze = vi.fn(analyzeCodeFile);
+
+		const result = await initializeRepoMap({ cwd: root, mode: "refresh" }, dependencies({
+			async indexSymbols(input) {
+				return await indexRepoMapSymbols({ ...input, analyze });
+			},
+		}));
+		const generation = await readActivatedRepoMap({
+			root,
+			mapId: result.metadata.mapId,
+			generation: result.metadata.generation,
+		}, path.join(temp.path, "cache"));
+
+		expect(analyze).toHaveBeenCalledTimes(1);
+		expect(analyze).toHaveBeenCalledWith("healthy.ts", "export const healthy = 2;\n", { retainDocument: true });
+		expect(generation?.diagnostics).toEqual([
+			expect.objectContaining({ code: "PARSER_SYNTAX_ERROR", path: "broken.ts" }),
+		]);
+		expect(result.metadata).toMatchObject({ freshness: "partially_stale", diagnosticCount: 1 });
+	});
+
+	it("retries transient parser diagnostics instead of reusing the partial generation", async () => {
+		const root = path.join(temp.path, "repo");
+		await mkdir(path.join(root, ".git"), { recursive: true });
+		await writeFile(path.join(root, "a.ts"), "export const recovered = 1;\n");
+		const first = await initializeRepoMap({ cwd: root }, dependencies({
+			async indexSymbols(input) {
+				return await indexRepoMapSymbols({
+					...input,
+					analyze(filePath, text, options) {
+						return { ...analyzeCodeFile(filePath, text, options), status: "error", imports: [] };
+					},
+				});
+			},
+		}));
+		const indexSymbols = vi.fn(async (input: Parameters<typeof indexRepoMapSymbols>[0]) =>
+			await indexRepoMapSymbols({ ...input, analyze: analyzeCodeFile }));
+
+		const result = await initializeRepoMap({ cwd: root, mode: "refresh" }, dependencies({ indexSymbols }));
+
+		expect(first.metadata).toMatchObject({ freshness: "partially_stale", diagnosticCount: 1, parseErrorFileCount: 1 });
+		expect(indexSymbols).toHaveBeenCalledOnce();
+		expect(result.metadata).toMatchObject({ freshness: "fresh", diagnosticCount: 0, parseErrorFileCount: 0, symbolCount: 1 });
+		expect(result.metadata.generation).not.toBe(first.metadata.generation);
 	});
 
 	it("persists symbols for every supported language", async () => {

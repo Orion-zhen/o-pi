@@ -48,7 +48,7 @@ describe("Repo Map performance benchmark", () => {
 			fixture: "test-dense-stable-diagnostic",
 			size: 4,
 			stableDiagnosticCount: 1,
-			oracleDigest: "1540fba10077e0dffa80d08485e29ce697d1ad276819c62cc742ff53af5d0417",
+			oracleDigest: "ec11b92419c3cabfc5e7b10fabda9ea503f48a44613afac992a2013c52ac40eb",
 			counts: { files: 19, symbols: 4, tests: 9, edges: 140, aliases: 141 },
 		});
 	}, 0);

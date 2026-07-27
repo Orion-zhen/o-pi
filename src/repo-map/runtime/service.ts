@@ -9,6 +9,7 @@ import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.j
 import { FileSystemRuntime } from "../../filesystem/runtime.js";
 import { loadRepoMapConfig, repoMapCacheRoot, repoMapConfigFingerprint, type RepoMapConfig } from "../config/config.js";
 import type { BuildRepoMapArchitectureInput, RepoMapArchitectureIndex } from "../indexing/architecture-indexer.js";
+import { isStableParserDiagnostic } from "../indexing/diagnostic-reuse.js";
 import { RepoMapError, throwIfAborted } from "../core/errors.js";
 import { createRepoMapId } from "../core/identity.js";
 import type { BuildRepoMapRelationshipsInput } from "../indexing/relationship-indexer.js";
@@ -338,15 +339,19 @@ function canReusePreviousGeneration(
 	scan: RepoMapScanResult,
 	current: { configFingerprint: string; ignoreFingerprint: string; gitRevision?: string },
 ): boolean {
-	return scan.summary.added === 0
-		&& scan.summary.changed === 0
-		&& scan.summary.removed === 0
-		&& scan.diagnostics.length === 0
-		&& previous.metadata.diagnosticCount === 0
-		&& previous.metadata.freshness === "fresh"
-		&& previous.metadata.configFingerprint === current.configFingerprint
-		&& previous.metadata.ignoreFingerprint === current.ignoreFingerprint
-		&& previous.metadata.gitRevision === current.gitRevision;
+	if (scan.summary.added !== 0
+		|| scan.summary.changed !== 0
+		|| scan.summary.removed !== 0
+		|| scan.diagnostics.length !== 0
+		|| previous.metadata.diagnosticCount !== previous.diagnostics.length
+		|| previous.metadata.configFingerprint !== current.configFingerprint
+		|| previous.metadata.ignoreFingerprint !== current.ignoreFingerprint
+		|| previous.metadata.gitRevision !== current.gitRevision) return false;
+	if (previous.metadata.freshness === "fresh") return previous.diagnostics.length === 0;
+	if (previous.metadata.freshness !== "partially_stale" || previous.diagnostics.length === 0) return false;
+	const previousFiles = new Map(previous.files.map((file) => [file.path, file]));
+	const currentFiles = new Map(scan.files.map((file) => [file.path, file]));
+	return previous.diagnostics.every((diagnostic) => isStableParserDiagnostic(diagnostic, previousFiles, currentFiles));
 }
 
 export async function readActivatedRepoMap(
