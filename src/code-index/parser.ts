@@ -13,6 +13,7 @@ export type { ParseDocumentResult } from "./syntax-tree.js";
 export { SourceIndex } from "./types.js";
 
 const IDENTIFIER = /[A-Za-z_$][\w$]*|[A-Za-z_][A-Za-z0-9_]*[-_][A-Za-z0-9_-]+|\d+/g;
+const DECLARATION_CODE_POINT_LIMIT = 240;
 
 export interface AnalyzeCodeFileOptions {
 	/** Keep the parsed document for immediate additional extraction. The caller must dispose it. */
@@ -168,8 +169,8 @@ function buildIndexedUnit(
 	const range = sourceIndex.range(unit.startChar, unit.endChar);
 	const { startByte, endByte } = range;
 	const content = text.slice(unit.startChar, unit.endChar).replace(/\s+$/u, "");
-	const signature = firstNonEmptyLine(content);
-	const nameText = [file.path, unit.name, unit.qualifiedName, signature, content].join("\n");
+	const declaration = compactDeclaration(text, sourceIndex, unit);
+	const nameText = [file.path, unit.name, unit.qualifiedName, declaration?.text, content].join("\n");
 	const tokens = tokenizeText(nameText);
 	const { references, calls } = extractUnitRelations(unit, unitNodeIds, control);
 	return {
@@ -185,7 +186,7 @@ function buildIndexedUnit(
 		kind: unit.kind,
 		...(unit.name !== undefined ? { name: unit.name } : {}),
 		...(unit.qualifiedName !== undefined ? { qualifiedName: unit.qualifiedName } : {}),
-		...(signature !== undefined ? { signature } : {}),
+		...(declaration === undefined ? {} : { signature: declaration.text, declarationEndByte: declaration.endByte }),
 		exported: unit.exported,
 		startLine: range.startLine,
 		endLine: range.endLine,
@@ -198,8 +199,21 @@ function buildIndexedUnit(
 	};
 }
 
-function firstNonEmptyLine(text: string): string | undefined {
-	return text.split(/\n/u).find((line) => line.trim().length > 0)?.trim();
+function compactDeclaration(
+	text: string,
+	sourceIndex: SourceIndex,
+	unit: RawUnit,
+): { readonly text: string; readonly endByte: number } | undefined {
+	if (unit.declarationEndChar === null) return undefined;
+	const end = unit.declarationEndChar ?? unit.endChar;
+	if (end <= unit.startChar || end > unit.endChar) return undefined;
+	const compact = text.slice(unit.startChar, end).replace(/\s+/gu, " ").trim();
+	if (compact.length === 0) return undefined;
+	const points = [...compact];
+	const declaration = points.length <= DECLARATION_CODE_POINT_LIMIT
+		? compact
+		: `${points.slice(0, DECLARATION_CODE_POINT_LIMIT - 3).join("")}...`;
+	return { text: declaration, endByte: sourceIndex.byteForChar(end) };
 }
 
 export function buildLineIndex(text: string): SourceIndex {

@@ -27,7 +27,7 @@ export interface GrepCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
 	readonly limits: Pick<FileToolLimits,
-		"grep_max_depth" | "grep_ast_max_file_bytes" | "grep_output_token_budget" | "grep_result_limit">;
+		"grep_max_depth" | "grep_ast_max_file_bytes" | "grep_output_token_budget" | "grep_result_limit" | "grep_regional_display_limit">;
 	readonly symbols?: GrepSymbolSource;
 	readonly graph?: GrepGraphSource;
 }
@@ -91,7 +91,7 @@ export class GrepTool {
 		if (isFailed(regionized)) return regionized;
 		const scope = successfulScopeState(plan, inventory, scanned.scopeErrors, regionized.scopeErrors);
 		if (scope.failure !== undefined) return scope.failure;
-		const local = buildLocalAutoResults(plan, scanned, regionized);
+		const local = buildLocalAutoResults(plan, scanned, regionized, context.limits.grep_regional_display_limit);
 		const external = await validateExternalCandidates(inventory, await externalPending, {
 			filesystem: context.filesystem,
 			operation: context.operation,
@@ -106,8 +106,6 @@ export class GrepTool {
 			...(scope.errors.length === 0 ? {} : { scopeErrors: scope.errors }),
 			totalCandidates: augmented.totalCandidates,
 			regions: augmented.ranked,
-			sourceText: augmented.sourceText,
-			snippets: augmented.snippets,
 			stats: grepStats(inventory, scanned.stats, regionized.parsedFiles, regionized.skipped),
 			truncationReasons: uniqueTruncationReasons([
 				...inventory.truncationReasons,
@@ -116,6 +114,7 @@ export class GrepTool {
 			]),
 			tokenBudget: context.limits.grep_output_token_budget,
 			resultLimit: context.limits.grep_result_limit,
+			regionalDisplayLimit: context.limits.grep_regional_display_limit,
 			nearby: augmented.nearby,
 			related: augmented.related,
 		});
@@ -161,8 +160,6 @@ export class GrepTool {
 			match: strictMatch,
 			totalCandidates: allRanked.length,
 			regions: ranked,
-			sourceText: regionized.sourceText,
-			snippets: new Map(),
 			nearby: [],
 			related: augmented.related,
 			stats: grepStats(inventory, scanned.stats, regionized.parsedFiles, regionized.skipped),
@@ -173,6 +170,7 @@ export class GrepTool {
 			]),
 			tokenBudget: context.limits.grep_output_token_budget,
 			resultLimit: context.limits.grep_result_limit,
+			regionalDisplayLimit: context.limits.grep_regional_display_limit,
 		});
 	}
 

@@ -50,10 +50,10 @@ export function verifiedRegion(input: { id: string; signals: readonly CandidateS
 		line: 2,
 		byteStart: 10,
 		byteEnd: 16,
+		matchStart: 0,
+		matchEnd: 6,
 		mode: "literal",
 		lineText: "needle",
-		before: [],
-		after: [],
 	};
 	return createVerifiedCodeRegion({
 		id: input.id,
@@ -76,19 +76,22 @@ export function packCandidate(input: {
 	endLine: number;
 	endByte: number;
 	matchLine: number;
+	lineText?: string;
 	symbol?: string;
-	signature?: string;
+	declaration?: string;
 	evidence?: readonly RegionEvidence[];
 }): RankedRegion {
+	const lineText = input.lineText ?? "needle";
+	const matchStart = lineText.indexOf("needle");
 	const hit: TextHit = {
 		path: input.path,
 		line: input.matchLine,
 		byteStart: 0,
 		byteEnd: 1,
+		matchStart: Math.max(0, matchStart),
+		matchEnd: Math.max(0, matchStart) + 6,
 		mode: "literal",
-		lineText: "needle",
-		before: [],
-		after: [],
+		lineText,
 	};
 	const region = createVerifiedCodeRegion({
 		id: input.id,
@@ -99,7 +102,7 @@ export function packCandidate(input: {
 		endByte: input.endByte,
 		kind: "function",
 		...(input.symbol === undefined ? {} : { symbol: input.symbol }),
-		...(input.signature === undefined ? {} : { signature: input.signature }),
+		...(input.declaration === undefined ? {} : { declaration: input.declaration }),
 		roles: ["definition"],
 		signals: ["verified_enclosing_region"],
 		evidence: input.evidence ?? [rankingEvidence("text-literal")],
@@ -116,12 +119,11 @@ export function packRegions(regions: readonly RankedRegion[], overrides: Partial
 		match: "literal",
 		totalCandidates: regions.length,
 		regions,
-		sourceText: new Map(),
-		snippets: new Map(),
 		stats: { traversed_entries: regions.length, searched_files: regions.length, searched_bytes: regions.length, parsed_files: 0 },
 		truncationReasons: [],
 		tokenBudget: 400,
 		resultLimit: 8,
+		regionalDisplayLimit: 3,
 		nearby: [],
 		related: [],
 		...overrides,

@@ -1,6 +1,9 @@
 import type { GrepNearbyResult, GrepRegion, GrepRelatedResult, GrepSuccess, TruncationReason } from "../grep/types.js";
 import type { FailedResult } from "../shared/result.js";
 
+const GREP_MATCHED_BY = new Set([
+	"exact-qualified-symbol", "exact-symbol", "symbol-prefix", "literal", "regex", "lexical", "relationship",
+]);
 const TRUNCATION_REASONS = new Set<TruncationReason>([
 	"traversal_limit",
 	"text_byte_limit",
@@ -20,6 +23,8 @@ export function isGrepSuccessDetails(value: unknown): value is GrepSuccess {
 		&& value["status"] === "success"
 		&& typeof value["query"] === "string"
 		&& typeof value["path"] === "string"
+		&& (value["paths"] === undefined || isStrings(value["paths"]))
+		&& (value["scope_errors"] === undefined || isGrepScopeErrors(value["scope_errors"]))
 		&& (value["match"] === "auto" || value["match"] === "literal" || value["match"] === "regex")
 		&& isNumber(value["total_candidates"])
 		&& isNumber(value["returned_regions"])
@@ -59,13 +64,25 @@ function isGrepRegions(value: unknown): value is GrepRegion[] {
 		&& isNumber(item["start_line"])
 		&& isNumber(item["end_line"])
 		&& typeof item["kind"] === "string"
-		&& (item["detail"] === "body" || item["detail"] === "snippet" || item["detail"] === "signature")
+		&& (item["symbol"] === undefined || typeof item["symbol"] === "string")
+		&& (item["declaration"] === undefined || typeof item["declaration"] === "string")
 		&& (item["query_match"] === "verified" || item["query_match"] === "semantic")
 		&& (item["roles"] === undefined || isStrings(item["roles"]))
-		&& isStrings(item["reasons"])
+		&& isMatchedBy(item["matched_by"])
 		&& isStrings(item["sources"])
 		&& (item["match_lines"] === undefined || isNumbers(item["match_lines"]))
-		&& (item["content"] === undefined || typeof item["content"] === "string"));
+		&& (item["display_lines"] === undefined || isDisplayLines(item["display_lines"])));
+}
+
+function isDisplayLines(value: unknown): boolean {
+	return Array.isArray(value) && value.every((item) => isPlainRecord(item)
+		&& isNumber(item["line"])
+		&& typeof item["text"] === "string"
+		&& (item["type"] === "match" || item["type"] === "evidence"));
+}
+
+function isMatchedBy(value: unknown): boolean {
+	return Array.isArray(value) && value.every((item) => typeof item === "string" && GREP_MATCHED_BY.has(item));
 }
 
 function isGrepNearbyResults(value: unknown): value is GrepNearbyResult[] {
@@ -84,7 +101,22 @@ function isGrepStats(value: unknown): boolean {
 		&& isNumber(value["traversed_entries"])
 		&& isNumber(value["searched_files"])
 		&& isNumber(value["searched_bytes"])
-		&& isNumber(value["parsed_files"]);
+		&& isNumber(value["parsed_files"])
+		&& (value["skipped_files"] === undefined || isGrepSkippedFiles(value["skipped_files"]));
+}
+
+function isGrepScopeErrors(value: unknown): boolean {
+	return Array.isArray(value) && value.every((item) => isPlainRecord(item)
+		&& typeof item["path"] === "string"
+		&& isPlainRecord(item["error"])
+		&& typeof item["error"]["code"] === "string"
+		&& typeof item["error"]["message"] === "string");
+}
+
+function isGrepSkippedFiles(value: unknown): boolean {
+	if (!isPlainRecord(value)) return false;
+	return ["binary", "invalid_utf8", "access_denied", "too_large", "changed"]
+		.every((key) => value[key] === undefined || isNumber(value[key]));
 }
 
 function isTruncationReasons(value: unknown): value is TruncationReason[] {

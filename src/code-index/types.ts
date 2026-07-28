@@ -155,6 +155,8 @@ export interface IndexedCodeUnit extends SourceRange {
 	name?: string;
 	qualifiedName?: string;
 	signature?: string;
+	/** UTF-8 半开边界；用于判断事实命中是否已由 signature 展示。 */
+	declarationEndByte?: number;
 	exported: boolean;
 	tokens: Map<string, number>;
 	definitions: string[];

@@ -1,6 +1,8 @@
 import { languageFromPath, tokenizeText, type IndexedCodeUnit } from "../../code-index/parser.js";
 import { extractByteRange } from "../../filesystem/services/text.js";
-import { type CandidateRole, type CandidateSignal, type CodeRegion, type LexicalTextAnchor, type RegionEvidence, type RetrievalSource, type SemanticMainRegion, type TextFileEvidence, type VerifiedCodeRegion, type RankedRegion } from "./candidates.js";
+import { compactDisplayLine, firstTermFocus } from "./display.js";
+import { createSemanticCodeRegion, normalizeMatchedBy, type CandidateRole, type CandidateSignal, type CodeRegion, type LexicalTextAnchor, type RegionEvidence, type RetrievalSource, type SemanticMainRegion, type TextFileEvidence, type VerifiedCodeRegion, type RankedRegion } from "./candidates.js";
+import type { GrepDisplayLine } from "./types.js";
 import type { ScopeInventory } from "./inventory.js";
 import type { QueryPlan, RelationIntent } from "./query-plan.js";
 import { scoreLexicalRegions, type LexicalRegionScore } from "./lexical-scorer.js";
@@ -16,7 +18,7 @@ interface LocalEntry {
 	readonly quality: number;
 	readonly source: RetrievalSource;
 	readonly reason: string;
-	readonly region: Omit<SemanticMainRegion, "evidence">;
+	readonly region: SemanticMainRegion;
 }
 
 interface UnitFile {
@@ -30,8 +32,6 @@ export interface LocalAutoResult {
 	readonly regions: readonly CodeRegion[];
 	readonly ranked: readonly RankedRegion[];
 	readonly totalCandidates: number;
-	readonly sourceText: ReadonlyMap<string, string>;
-	readonly snippets: ReadonlyMap<string, string>;
 	readonly nearby: readonly GrepNearbyResult[];
 	readonly related: readonly GrepRelatedResult[];
 }
@@ -70,11 +70,11 @@ export function buildLocalAutoResults(
 	plan: QueryPlan,
 	scan: TextScanResult,
 	regionized: AutoRegionizationResult,
+	displayLimit: number,
 ): LocalAutoResult {
 	const byId = new Map<string, VerifiedCodeRegion | SemanticMainRegion>();
 	for (const region of regionized.regions) byId.set(region.id, enrichVerifiedRegion(region, plan));
 	const entries: LocalEntry[] = [];
-	const snippets = new Map<string, string>();
 	const unitFiles = collectUnitFiles(regionized.files);
 	const queryTerms = uniqueTerms(plan.targetTerms.length > 0 ? plan.targetTerms : [plan.query]);
 	const target = (plan.targetQuery.length > 0 ? plan.targetQuery : plan.query).toLocaleLowerCase();
@@ -89,10 +89,10 @@ export function buildLocalAutoResults(
 	for (const item of unitFiles) {
 		const symbolEntry = symbolCandidate(item, plan, target, targetLast);
 		if (symbolEntry !== undefined) entries.push(symbolEntry);
-		const lexicalEntry = lexicalCandidate(item, plan, queryTerms, lexicalScores.get(item.unit.id));
+		const lexicalEntry = lexicalCandidate(item, plan, queryTerms, lexicalScores.get(item.unit.id), displayLimit);
 		if (lexicalEntry !== undefined) entries.push(lexicalEntry);
 	}
-	entries.push(...lexicalAnchorCandidates(groupedAnchors.outside, scan.hits, plan, queryTerms, snippets));
+	entries.push(...lexicalAnchorCandidates(groupedAnchors.outside, scan.hits, plan, queryTerms));
 
 	const relation = relationCandidates(unitFiles, regionized.files, plan, targetLast);
 	entries.push(...relation.main);
@@ -106,8 +106,6 @@ export function buildLocalAutoResults(
 		regions,
 		ranked,
 		totalCandidates: allRanked.length,
-		sourceText: new Map(regionized.files.map((file) => [file.file.path, file.content.text])),
-		snippets,
 		nearby,
 		related: ranked.length < 4 ? relation.related : [],
 	};
@@ -176,8 +174,19 @@ function lexicalCandidate(
 	plan: QueryPlan,
 	queryTerms: readonly string[],
 	score: LexicalRegionScore | undefined,
+	displayLimit: number,
 ): LocalEntry | undefined {
 	if (score === undefined || !passesCoverage(plan, score.matchedTerms.length, queryTerms.length)) return undefined;
+	const declarationTerms = item.unit.signature === undefined
+		? new Set<string>()
+		: new Set([...tokenizeText(item.unit.signature).keys()]);
+	const displayLines = score.evidenceLines
+		.filter((line) => !line.matchedTerms.every((term) => declarationTerms.has(term)))
+		.slice(0, displayLimit)
+		.map((line): GrepDisplayLine => {
+			const focus = firstTermFocus(line.text, line.matchedTerms);
+			return { line: line.line, text: compactDisplayLine(line.text, focus.start, focus.end), type: "evidence" };
+		});
 	return localEntry(
 		item,
 		"ast-lexical",
@@ -185,6 +194,7 @@ function lexicalCandidate(
 		score.quality,
 		unitRoles(item),
 		[score.highCoverage ? "lexical_high_coverage" : "lexical"],
+		displayLines,
 	);
 }
 
@@ -195,6 +205,7 @@ function localEntry(
 	quality: number,
 	roles: readonly CandidateRole[],
 	signals: readonly CandidateSignal[],
+	displayLines: readonly GrepDisplayLine[] = [],
 ): LocalEntry {
 	return {
 		id: item.unit.id,
@@ -203,7 +214,7 @@ function localEntry(
 		quality,
 		source,
 		reason,
-		region: semanticMainRegion({
+		region: createSemanticCodeRegion({
 			id: item.unit.id,
 			path: item.unit.path,
 			startLine: item.unit.startLine,
@@ -213,10 +224,12 @@ function localEntry(
 			kind: item.unit.kind,
 			...(item.unit.name === undefined ? {} : { symbol: item.unit.qualifiedName ?? item.unit.name }),
 			...(item.unit.qualifiedName === undefined ? {} : { qualifiedSymbol: item.unit.qualifiedName }),
-			...(item.unit.signature === undefined ? {} : { signature: item.unit.signature }),
+			...(item.unit.signature === undefined ? {} : { declaration: item.unit.signature }),
+			...(item.unit.declarationEndByte === undefined ? {} : { declarationEndByte: item.unit.declarationEndByte }),
 			roles,
 			signals,
 			evidence: [],
+			displayLines,
 			lane: "main",
 		}),
 	};
@@ -257,7 +270,6 @@ function lexicalAnchorCandidates(
 	hits: readonly { readonly path: string; readonly line: number }[],
 	plan: QueryPlan,
 	queryTerms: readonly string[],
-	snippets: Map<string, string>,
 ): LocalEntry[] {
 	const exactLines = new Set(hits.map((hit) => `${hit.path}\0${hit.line}`));
 	const result: LocalEntry[] = [];
@@ -266,25 +278,26 @@ function lexicalAnchorCandidates(
 		if (!passesCoverage(plan, anchor.matchedTerms.length, queryTerms.length) && !anchor.phrase && !anchor.identifier) continue;
 		const highCoverage = anchor.phrase || (queryTerms.length > 1 && anchor.matchedTerms.length / queryTerms.length >= 0.6);
 		const id = `${anchor.path}:${anchor.line}:${anchor.byteStart}:${anchor.byteEnd}:lexical`;
-		snippets.set(id, [...anchor.before, anchor.lineText, ...anchor.after].join("\n"));
+		const focus = firstTermFocus(anchor.lineText, anchor.matchedTerms);
 		result.push({
 			id,
 			path: anchor.path,
-			startLine: Math.max(1, anchor.line - anchor.before.length),
+			startLine: anchor.line,
 			quality: anchor.matchedTerms.length * 100 + (anchor.phrase ? 100 : 0) + (anchor.commentLike || anchor.stringLike ? 5 : 0),
 			source: "text-lexical",
 			reason: "lexical",
-			region: semanticMainRegion({
+			region: createSemanticCodeRegion({
 				id,
 				path: anchor.path,
-				startLine: Math.max(1, anchor.line - anchor.before.length),
-				endLine: anchor.line + anchor.after.length,
+				startLine: anchor.line,
+				endLine: anchor.line,
 				startByte: anchor.byteStart,
 				endByte: anchor.byteEnd,
 				kind: "text",
 				roles: ["text"],
 				signals: [highCoverage ? "lexical_high_coverage" : "lexical"],
 				evidence: [],
+				displayLines: [{ line: anchor.line, text: compactDisplayLine(anchor.lineText, focus.start, focus.end), type: "evidence" }],
 				lane: "main",
 			}),
 		});
@@ -341,7 +354,7 @@ function relationCandidates(
 					quality: 100,
 					source: "ast-relation",
 					reason: "import",
-					region: semanticMainRegion({
+					region: createSemanticCodeRegion({
 						id,
 						path: file.file.path,
 						startLine: imported.startLine,
@@ -371,10 +384,6 @@ function relationCandidates(
 	return { main, related: dedupeRelated(related) };
 }
 
-function semanticMainRegion(input: Omit<SemanticMainRegion, "queryMatch" | "matchLines">): SemanticMainRegion {
-	return { ...input, queryMatch: "semantic", matchLines: [] };
-}
-
 function compareLocalEntries(left: LocalEntry, right: LocalEntry): number {
 	return right.quality - left.quality
 		|| compareString(left.path, right.path)
@@ -383,7 +392,8 @@ function compareLocalEntries(left: LocalEntry, right: LocalEntry): number {
 }
 
 function withEvidence(entry: LocalEntry, rank: number): SemanticMainRegion {
-	return { ...entry.region, evidence: [{ source: entry.source, rank, confidence: 1, reason: entry.reason }] };
+	const evidence = [{ source: entry.source, rank, confidence: 1, reason: entry.reason }] as const;
+	return { ...entry.region, evidence, matchedBy: normalizeMatchedBy(entry.region.signals, evidence) };
 }
 
 function addRegion(
@@ -398,8 +408,9 @@ function addRegion(
 	const roles = unique([...existing.roles, ...incoming.roles]);
 	const signals = unique([...existing.signals, ...incoming.signals]);
 	const evidence = mergeEvidence(existing.evidence, incoming.evidence);
-	if (existing.queryMatch === "verified") regions.set(existing.id, { ...existing, roles, signals, evidence });
-	else regions.set(existing.id, { ...existing, roles, signals, evidence });
+	const matchedBy = normalizeMatchedBy(signals, evidence);
+	if (existing.queryMatch === "verified") regions.set(existing.id, { ...existing, roles, signals, evidence, matchedBy });
+	else regions.set(existing.id, { ...existing, roles, signals, evidence, matchedBy });
 }
 
 function mergeEvidence(left: readonly RegionEvidence[], right: readonly RegionEvidence[]): RegionEvidence[] {
@@ -451,7 +462,6 @@ function nearbyResults(plan: QueryPlan, units: readonly UnitFile[]): GrepNearbyR
 			end_line: item.unit.endLine,
 			kind: item.unit.kind,
 			...(symbol === undefined ? {} : { symbol }),
-			...(item.unit.signature === undefined ? {} : { signature: item.unit.signature }),
 			reason,
 			query_match: "not_guaranteed",
 		}));
@@ -464,7 +474,6 @@ function toRelated(unit: IndexedCodeUnit, relation: string): GrepRelatedResult {
 		start_line: unit.startLine,
 		end_line: unit.endLine,
 		...(unit.qualifiedName ?? unit.name ? { symbol: unit.qualifiedName ?? unit.name } : {}),
-		...(unit.signature === undefined ? {} : { signature: unit.signature }),
 		sources: ["ast-relation"],
 		relations: [relation],
 		query_match: "not_guaranteed",

@@ -32,12 +32,19 @@ export interface LexicalScoringRegion {
 	readonly anchors: readonly LexicalTextAnchor[];
 }
 
+export interface LexicalEvidenceLine {
+	readonly line: number;
+	readonly text: string;
+	readonly matchedTerms: readonly string[];
+}
+
 export interface LexicalRegionScore {
 	readonly quality: number;
 	readonly matchedTerms: readonly string[];
 	readonly exactTokenCoverage: number;
 	readonly expandedCoverage: number;
 	readonly highCoverage: boolean;
+	readonly evidenceLines: readonly LexicalEvidenceLine[];
 }
 
 interface WeightedField {
@@ -87,9 +94,28 @@ export function scoreLexicalRegions(
 			exactTokenCoverage,
 			expandedCoverage,
 			highCoverage,
+			evidenceLines: lexicalEvidenceLines(region, terms),
 		});
 	}
 	return scores;
+}
+
+function lexicalEvidenceLines(region: LexicalScoringRegion, terms: readonly string[]): LexicalEvidenceLine[] {
+	return region.content.split(/\r?\n/u)
+		.map((text, offset) => {
+			const tokens = tokenizeText(text);
+			const matchedTerms = terms.filter((term) => tokens.has(term));
+			const positions = matchedTerms.flatMap((term) => {
+				const index = text.toLocaleLowerCase().indexOf(term);
+				return index < 0 ? [] : [index];
+			});
+			const span = positions.length < 2 ? 0 : Math.max(...positions) - Math.min(...positions);
+			return { line: region.unit.startLine + offset, text, matchedTerms, span, length: [...text].length };
+		})
+		.filter((line) => line.matchedTerms.length > 0)
+		.sort((left, right) => right.matchedTerms.length - left.matchedTerms.length
+			|| left.span - right.span || left.length - right.length || left.line - right.line)
+		.map(({ line, text, matchedTerms }) => ({ line, text, matchedTerms }));
 }
 
 function collectRegionFacts(region: LexicalScoringRegion): RegionFacts {
@@ -382,9 +408,7 @@ function quotedEnd(line: string, start: number, delimiter: "'" | "\"" | "`"): nu
 }
 
 function signatureFieldText(signature: string | undefined): string {
-	if (signature === undefined) return "";
-	const bodyStart = signature.indexOf("{");
-	return (bodyStart === -1 ? signature : signature.slice(0, bodyStart)).trim();
+	return signature ?? "";
 }
 
 function exactQueryTerms(plan: QueryPlan): string[] {

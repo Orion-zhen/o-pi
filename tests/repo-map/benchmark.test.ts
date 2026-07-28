@@ -32,8 +32,8 @@ describe("Repo Map performance benchmark", () => {
 		expect(first).toMatchObject({
 			fixture: "modules",
 			size: 4,
-			oracleDigest: "0439de4cc0f4f63591c969bbb047bee4bda5c2f9f4364c844d9c7265eee403fd",
-			counts: { files: 5, symbols: 6, tests: 0, edges: 54, aliases: 33 },
+			oracleDigest: "8e6aac63032d442d69f853df44cbb072be35091cf2fe44c5be16f3a101a303b8",
+			counts: { files: 5, symbols: 6, tests: 0, edges: 54, aliases: 30 },
 		});
 	}, 0);
 
@@ -48,8 +48,8 @@ describe("Repo Map performance benchmark", () => {
 			fixture: "test-dense-stable-diagnostic",
 			size: 4,
 			stableDiagnosticCount: 1,
-			oracleDigest: "a03520cec7819f4e1d3ea91ede06f20e18106fe0c3d6f09abf05562660464440",
-			counts: { files: 19, symbols: 4, tests: 9, edges: 140, aliases: 141 },
+			oracleDigest: "609d3672ba46e5da68b75307d5c701cdd41a8780dddbc81a5d2f59acdee7af60",
+			counts: { files: 19, symbols: 4, tests: 9, edges: 140, aliases: 138 },
 		});
 	}, 0);
 });

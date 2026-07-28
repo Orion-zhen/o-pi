@@ -31,8 +31,18 @@ describe("grep renderer", () => {
 			scope_errors: [{ path: "missing", error: { code: "PATH_NOT_FOUND", message: "Directory does not exist." } }],
 		}, true, theme);
 
-		for (const value of ["src/auth.ts", "tests/auth.test.ts", "missing", "PATH_NOT_FOUND"]) expect(output).toContain(value);
-		expect(output).not.toContain("async login");
+		for (const value of [
+			"src/auth.ts:4-9",
+			"kind=method",
+			"symbol=AuthService.login",
+			"roles=definition,public-api",
+			"matched-by=literal",
+			"matches=2",
+			"tests/auth.test.ts",
+			"missing",
+			"PATH_NOT_FOUND",
+		]) expect(output).toContain(value);
+		for (const sourceLine of ["async login", "return secretSession"]) expect(output).not.toContain(sourceLine);
 	});
 
 	it("零命中时保留 nearby 候选", () => {
@@ -54,7 +64,6 @@ describe("grep renderer", () => {
 				end_line: 3,
 				kind: "function",
 				symbol: "authenticateUser",
-				signature: "function authenticateUser()",
 				reason: "symbol similarity",
 				query_match: "not_guaranteed",
 			}],
@@ -82,12 +91,16 @@ function success(): GrepSuccess {
 			end_line: 9,
 			kind: "method",
 			symbol: "AuthService.login",
-			detail: "body",
-			query_match: "semantic",
+			declaration: "async login()",
+			query_match: "verified",
 			roles: ["definition", "public_api"],
-			reasons: ["exact symbol"],
-			sources: ["ast-symbol"],
-			content: "async login() {}",
+			matched_by: ["literal"],
+			sources: ["text-literal"],
+			match_lines: [5, 8],
+			display_lines: [
+				{ line: 5, text: "const secretSession = authenticate();", type: "match" },
+				{ line: 8, text: "return secretSession;", type: "match" },
+			],
 		}],
 		related: [{
 			path: "tests/auth.test.ts",

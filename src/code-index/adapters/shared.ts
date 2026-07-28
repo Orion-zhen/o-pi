@@ -30,6 +30,7 @@ export function collectUnits(root: SyntaxNode, rules: UnitRules, control: Analys
 
 export function rawUnit(node: SyntaxNode, kind: string, name: string, scope?: string, exported = false): RawUnit {
 	const range = exportRangeNode(node);
+	const declarationEndChar = declarationBoundary(node);
 	return {
 		kind,
 		name,
@@ -37,8 +38,47 @@ export function rawUnit(node: SyntaxNode, kind: string, name: string, scope?: st
 		exported,
 		startChar: range.startIndex,
 		endChar: range.endIndex,
+		...(declarationEndChar === undefined ? {} : { declarationEndChar }),
 		sourceNode: node,
 	};
+}
+
+const DECLARATION_BODY_NODE_TYPES = new Set([
+	"class_body",
+	"declaration_list",
+	"enum_variant_list",
+	"field_declaration_list",
+	"interface_body",
+]);
+
+function declarationBoundary(root: SyntaxNode): number | null | undefined {
+	const directBody = root.childForFieldName("body");
+	if (directBody !== null) {
+		// 默认参数中的 lambda/closure 也有 body，无法用单一范围安全移除时省略 declaration。
+		return nestedBodyStart(root, directBody.id) === undefined ? directBody.startIndex : null;
+	}
+	return nestedBodyStart(root);
+}
+
+function nestedBodyStart(root: SyntaxNode, excludedNodeId?: number): number | undefined {
+	let earliest: number | undefined;
+	const stack = [...root.namedChildren];
+	while (stack.length > 0) {
+		const node = stack.pop();
+		if (node === undefined) break;
+		if (node.id === excludedNodeId) continue;
+		const body = node.childForFieldName("body");
+		if (body !== null) earliest = Math.min(earliest ?? Number.POSITIVE_INFINITY, body.startIndex);
+		if (DECLARATION_BODY_NODE_TYPES.has(node.type)) {
+			earliest = Math.min(earliest ?? Number.POSITIVE_INFINITY, node.startIndex);
+			continue;
+		}
+		for (const child of node.namedChildren) {
+			if (body !== null && child.id === body.id) continue;
+			stack.push(child);
+		}
+	}
+	return earliest;
 }
 
 export interface RawUnitRelations {

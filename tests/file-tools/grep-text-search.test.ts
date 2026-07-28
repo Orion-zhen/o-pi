@@ -9,6 +9,7 @@ import { packGrepResults, renderGrepSuccess } from "../../src/file-tools/grep/pa
 import { scanInventoryText } from "../../src/file-tools/grep/text-scanner.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import { formatCompactGrepResult } from "../../src/file-tools/grep/command.js";
+import { compactDisplayLine } from "../../src/file-tools/grep/display.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
@@ -45,7 +46,61 @@ describe("grep text search", () => {
 		await writeFile(path.join(testContext.workspace, "lines.txt"), content);
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "Needle42", match: "literal" }));
 		expect(firstRegion(result)).toMatchObject({ match_lines: [2], query_match: "verified" });
-		expect(firstRegion(result).content).toContain("Needle42");
+		expect(firstRegion(result).display_lines?.[0]?.text).toContain("Needle42");
+	});
+
+	it("AST 外文本使用单行协议，并对同一行的多个 occurrence 去重", async () => {
+		await writeFile(path.join(testContext.workspace, "facts.conf"), "needle needle\n");
+		const verified = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { path: ["facts.conf"], query: "needle", match: "literal" }));
+		expect(verified.regions).toHaveLength(1);
+		expect(firstRegion(verified)).toMatchObject({ kind: "text", match_lines: [1], display_lines: [{ line: 1, text: "needle needle", type: "match" }] });
+		expect(formatCompactGrepResult(verified)).toContain("facts.conf:1: needle needle");
+		expect(formatCompactGrepResult(verified)).not.toContain("kind=text");
+
+		await writeFile(path.join(testContext.workspace, "semantic.conf"), "authentication request rejected\n");
+		const semantic = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { path: ["semantic.conf"], query: "authentication rejected" }));
+		expect(firstRegion(semantic)).toMatchObject({ kind: "text", query_match: "semantic", matched_by: ["lexical"] });
+		expect(formatCompactGrepResult(semantic)).toContain("semantic.conf:1 [evidence=lexical]: authentication request rejected");
+	});
+
+	it("超长 Unicode 行围绕真实匹配点安全截取", async () => {
+		const line = `${"前".repeat(300)}😀needle目标${"后".repeat(300)}`;
+		await writeFile(path.join(testContext.workspace, "unicode.conf"), `${line}\n`);
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle", match: "literal" }));
+		const evidence = firstRegion(result).display_lines?.[0]?.text;
+		expect(evidence).toBeDefined();
+		expect([...(evidence ?? "")]).toHaveLength(240);
+		expect(evidence).toContain("😀needle目标");
+		expect(evidence?.startsWith("...")).toBe(true);
+		expect(evidence?.endsWith("...")).toBe(true);
+	});
+
+	it.each([
+		{
+			name: "行首",
+			line: `needle目标${"后".repeat(400)}`,
+			start: 0,
+			end: 6,
+			assertion: (value: string) => value.startsWith("needle目标") && value.endsWith("..."),
+		},
+		{
+			name: "行尾",
+			line: `${"前".repeat(400)}目标needle`,
+			start: 402,
+			end: 408,
+			assertion: (value: string) => value.startsWith("...") && value.endsWith("目标needle"),
+		},
+		{
+			name: "超长匹配本身",
+			line: `prefix${"😀".repeat(300)}suffix`,
+			start: 6,
+			end: 606,
+			assertion: (value: string) => value.includes("😀".repeat(100)),
+		},
+	])("证据截取覆盖$name匹配", ({ line, start, end, assertion }) => {
+		const compact = compactDisplayLine(line, start, end);
+		expect([...compact]).toHaveLength(240);
+		expect(assertion(compact)).toBe(true);
 	});
 
 	it("regex 正确处理空行、UTF-8 BOM、逐行状态重置和无字面锚点表达式", async () => {
@@ -56,7 +111,7 @@ describe("grep text search", () => {
 		await writeFile(path.join(testContext.workspace, "bom.txt"), Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("Needle42\n")]));
 		const bom = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { path: ["bom.txt"], query: "^Needle\\d+$", match: "regex" }));
 		expect(firstRegion(bom)).toMatchObject({ match_lines: [1] });
-		expect(firstRegion(bom).content).toBe("Needle42");
+		expect(firstRegion(bom).display_lines?.[0]?.text).toBe("Needle42");
 
 		await writeFile(path.join(testContext.workspace, "state.txt"), "a1\na2\n---\n");
 		const reset = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { path: ["state.txt"], query: "\\d", match: "regex" }));
@@ -65,7 +120,7 @@ describe("grep text search", () => {
 		expect(anchorless.regions.map((region) => region.match_lines)).toEqual([[3]]);
 	});
 
-	it("中文注释 literal 只返回携带可复核 match_lines 的真实文本窗口", async () => {
+	it("中文注释 literal 只返回携带可复核 match_lines 的真实文本行", async () => {
 		const query = "Repo Map 使用的详细结果；保留 parser 失败状态与文件级 import 事实。";
 		await writeFile(path.join(testContext.workspace, "design.ts"), `export const unrelated = true;\n// ${query}\nexport function lexicalOnly() { return unrelated; }\n`);
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query, match: "literal" }));
@@ -120,8 +175,8 @@ describe("grep text search", () => {
 				line: 1,
 				byteStart: 7,
 				byteEnd: 10,
-				before: [],
-				after: ["你😀hit", "你😀hit"],
+				matchStart: 3,
+				matchEnd: 6,
 			});
 			expect(scanned.totalHits).toBe(5);
 			expect(scanned.truncationReasons).toEqual(["semantic_candidate_limit"]);
@@ -215,7 +270,7 @@ describe("grep text search", () => {
 		expect(result.regions).toEqual([]);
 	});
 
-	it("紧凑输出的 signature 模式保留完整签名", () => {
+	it("紧凑输出使用显式 region metadata 和 body-free declaration", () => {
 		const output = renderGrepSuccess({
 			status: "success",
 			query: "handler",
@@ -234,10 +289,9 @@ describe("grep text search", () => {
 					end_line: 3,
 					kind: "function",
 					symbol: "firstHandler",
-					signature: "function firstHandler(input: AuthInput): Session",
-					detail: "signature",
+					declaration: "function firstHandler(input: AuthInput): Session",
 					query_match: "semantic",
-					reasons: ["exact symbol"],
+					matched_by: ["exact-symbol"],
 					sources: ["ast-symbol"],
 				},
 				{
@@ -246,18 +300,18 @@ describe("grep text search", () => {
 					end_line: 7,
 					kind: "function",
 					symbol: "secondHandler",
-					detail: "signature",
 					query_match: "semantic",
-					reasons: ["caller"],
-					sources: ["ast-graph"],
+					matched_by: ["relationship"],
+					sources: ["ast-relation"],
 				},
 			],
 		});
 
-		expect(output).toContain("src/features/authentication/first-handler.ts:1-3 function firstHandler(input: AuthInput): Session [exact symbol]");
+		expect(output).toContain("src/features/authentication/first-handler.ts:1-3 [kind=function; symbol=firstHandler; matched-by=exact-symbol]");
+		expect(output).toContain("declaration: function firstHandler(input: AuthInput): Session");
 	});
 
-	it("strict 匹配行本身超预算时跳过候选而不伪装成 signature 命中", () => {
+	it("strict 匹配行本身超预算时跳过候选而不伪装成无证据命中", () => {
 		const longLine = `  const value = '${"needle".repeat(80)}';\n`;
 		const source = `export function oversizedNeedle(): string {\n${longLine.repeat(80)}  return value;\n}\n`;
 		const candidate = packCandidate({
@@ -268,7 +322,8 @@ describe("grep text search", () => {
 			endByte: Buffer.byteLength(source),
 			matchLine: 40,
 			symbol: "oversizedNeedle",
-			signature: "function oversizedNeedle(): string",
+			declaration: "function oversizedNeedle(): string",
+			lineText: longLine.trimEnd(),
 		});
 		const result = packGrepResults({
 			query: "needle",
@@ -276,12 +331,11 @@ describe("grep text search", () => {
 			match: "literal",
 			totalCandidates: 1,
 			regions: [candidate],
-			sourceText: new Map([[candidate.path, source]]),
-			snippets: new Map(),
 			stats: { traversed_entries: 1, searched_files: 1, searched_bytes: Buffer.byteLength(source), parsed_files: 1 },
 			truncationReasons: [],
 			tokenBudget: 100,
 			resultLimit: 1,
+			regionalDisplayLimit: 3,
 			nearby: [],
 			related: [],
 		});
@@ -291,7 +345,7 @@ describe("grep text search", () => {
 		expect(countTextTokensSync(formatCompactGrepResult(result)).tokens).toBeLessThanOrEqual(100);
 	});
 
-	it("预算选择将大型函数压缩为匹配窗口以保留更多条目", () => {
+	it("固定区域胶囊不随 source body 或剩余预算升级", () => {
 		const source = [
 			"export function largeNeedle() {",
 			...Array.from({ length: 70 }, (_, index) => `  const padding${index} = '${"value ".repeat(8)}';`),
@@ -306,35 +360,35 @@ describe("grep text search", () => {
 			endByte: Buffer.byteLength(source),
 			matchLine: 72,
 			symbol: "largeNeedle",
-			signature: "function largeNeedle()",
+			declaration: "function largeNeedle()",
+			lineText: "  return needle;",
 		});
-		const second = packCandidate({ id: "second-window", path: "b.ts", startLine: 1, endLine: 1, endByte: 1, matchLine: 1 });
-		const third = packCandidate({ id: "third-window", path: "c.ts", startLine: 1, endLine: 1, endByte: 1, matchLine: 1 });
+		const second = packCandidate({ id: "second", path: "b.ts", startLine: 1, endLine: 1, endByte: 1, matchLine: 1 });
+		const third = packCandidate({ id: "third", path: "c.ts", startLine: 1, endLine: 1, endByte: 1, matchLine: 1 });
 		const result = packRegions([large, second, third], {
 			resultLimit: 3,
 			tokenBudget: 180,
-			sourceText: new Map([[large.path, source]]),
 		});
+		const expandedBudget = packRegions([large, second, third], { resultLimit: 3, tokenBudget: 400 });
 
 		expect(result.regions.map((region) => region.path)).toEqual(["a-large.ts", "b.ts", "c.ts"]);
-		expect(firstRegion(result)).toMatchObject({ detail: "snippet", match_lines: [72] });
-		expect(firstRegion(result).content).toContain("return needle");
-		expect(firstRegion(result).content).toContain("lines omitted");
-		expect(firstRegion(result).content).not.toContain("padding0");
-		expect(result.truncated_by).toContain("token_budget");
+		expect(firstRegion(expandedBudget)).toEqual(firstRegion(result));
+		expect(firstRegion(result)).toMatchObject({ match_lines: [72], display_lines: [expect.objectContaining({ text: "  return needle;" })] });
+		expect(formatCompactGrepResult(result)).not.toContain("lines omitted");
+		expect(formatCompactGrepResult(result)).not.toContain("padding0");
 		expect(result.approx_tokens).toBeLessThanOrEqual(180);
 	});
 
-	it("超大 signature 被跳过后继续返回后续便宜候选，并稳定合并截断原因", () => {
-		const hugeSignature = `function oversized(${Array.from({ length: 400 }, (_, index) => `parameter${index}: string`).join(", ")})`;
+	it("超长 declaration 被固定截取并稳定合并截断原因", () => {
+		const hugeDeclaration = `function oversized(${Array.from({ length: 400 }, (_, index) => `parameter${index}: string`).join(", ")})`;
 		const oversized = packCandidate({
-			id: "oversized-signature",
+			id: "oversized-declaration",
 			path: "a-oversized.ts",
 			startLine: 1,
 			endLine: 1,
 			endByte: 1,
 			matchLine: 1,
-			signature: hugeSignature,
+			declaration: hugeDeclaration,
 		});
 		const second = packCandidate({ id: "second", path: "b-second.ts", startLine: 1, endLine: 1, endByte: 1, matchLine: 1 });
 		const third = packCandidate({ id: "third", path: "c-third.ts", startLine: 1, endLine: 1, endByte: 1, matchLine: 1 });
@@ -344,25 +398,25 @@ describe("grep text search", () => {
 			truncationReasons: ["semantic_candidate_limit", "traversal_limit"],
 		});
 
-		expect(result.regions.map((region) => region.path)).toEqual(["b-second.ts", "c-third.ts"]);
+		expect(result.regions.map((region) => region.path)).toContain("a-oversized.ts");
+		expect(firstRegion(result).declaration).toHaveLength(240);
 		expect(result.truncated_by).toEqual([
 			"traversal_limit",
 			"semantic_candidate_limit",
 			"result_limit",
-			"token_budget",
 		]);
 		expect(result.approx_tokens).toBe(countTextTokensSync(formatCompactGrepResult(result)).tokens);
 		expect(result.approx_tokens).toBeLessThanOrEqual(180);
 	});
 
 	it("nearby 只在 main 为空时占用预算，辅助候选超限后继续尝试", () => {
-		const hugeSignature = `function oversized(${Array.from({ length: 400 }, (_, index) => `parameter${index}: string`).join(", ")})`;
+		const hugePath = `a/${Array.from({ length: 400 }, (_, index) => `segment-${index}`).join("/")}.ts`;
 		const nearby = [
-			{ path: "a.ts", start_line: 1, end_line: 1, kind: "function", signature: hugeSignature, reason: "symbol similarity" as const, query_match: "not_guaranteed" as const },
+			{ path: hugePath, start_line: 1, end_line: 1, kind: "function", reason: "symbol similarity" as const, query_match: "not_guaranteed" as const },
 			{ path: "b.ts", start_line: 1, end_line: 1, kind: "function", symbol: "near", reason: "symbol similarity" as const, query_match: "not_guaranteed" as const },
 		];
 		const related = [
-			{ path: "c.ts", kind: "function", signature: hugeSignature, sources: ["repo-map-direct"], relations: ["test"], query_match: "not_guaranteed" as const },
+			{ path: hugePath, kind: "function", sources: ["repo-map-direct"], relations: ["test"], query_match: "not_guaranteed" as const },
 			{ path: "d.ts", kind: "function", symbol: "related", sources: ["repo-map-direct"], relations: ["test"], query_match: "not_guaranteed" as const },
 		];
 		const empty = packRegions([], { nearby, related, tokenBudget: 140 });

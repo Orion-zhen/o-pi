@@ -14,4 +14,5 @@ export interface FileToolLimits {
 	grep_ast_max_file_bytes: number;
 	grep_output_token_budget: number;
 	grep_result_limit: number;
+	grep_regional_display_limit: number;
 }

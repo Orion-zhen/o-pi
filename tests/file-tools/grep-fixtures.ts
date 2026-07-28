@@ -54,6 +54,7 @@ export async function writeConfig(configPath: string, limits: Record<string, num
 				limits: {
 					grep_output_token_budget: 1600,
 					grep_result_limit: 8,
+					grep_regional_display_limit: 3,
 					grep_max_depth: 12,
 					grep_ast_max_file_bytes: 4096,
 					...limits,

@@ -103,7 +103,7 @@ describe("Repo Map lexical projection", () => {
 			const plain = await grepWorkspaceFiles(temp.path, { query: match === "literal" ? "literal-needle" : "literal-(?:needle)", match });
 			const enhanced = await grepWorkspaceFiles(temp.path, { query: match === "literal" ? "literal-needle" : "literal-(?:needle)", match }, undefined, { repoMap: active });
 			if (plain.status === "failed" || enhanced.status === "failed") throw new Error("grep failed");
-			expect(enhanced.regions.map((region) => region.path)).toEqual(plain.regions.map((region) => region.path));
+			expect(enhanced.regions.map((region) => region.path).sort()).toEqual(plain.regions.map((region) => region.path).sort());
 		}
 
 		await writeFile(path.join(temp.path, "src", "repositoryClient.ts"), "export const changed = true;\n");

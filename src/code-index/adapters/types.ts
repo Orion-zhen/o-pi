@@ -18,6 +18,8 @@ export interface RawUnit {
 	readonly exported: boolean;
 	readonly startChar: number;
 	readonly endChar: number;
+	/** Body/implementation 开始处；缺失时整个 sourceNode 都是声明，null 表示无法安全生成。 */
+	readonly declarationEndChar?: number | null;
 	/** Transient declaration node used to derive lexical facts in the same parse. */
 	readonly sourceNode: SyntaxNode;
 }

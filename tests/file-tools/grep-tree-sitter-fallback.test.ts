@@ -47,13 +47,13 @@ describe("grep without tree-sitter", () => {
 		const exact = await grepWorkspaceFiles(workspaceTemp.path, { query: "RemoteSymbol" });
 		expect(exact).toMatchObject({
 			status: "success",
-			regions: [{ path: "target.ts", kind: "text", reasons: ["exact literal"] }],
+			regions: [{ path: "target.ts", kind: "text", matched_by: ["literal"] }],
 		});
 
 		const lexical = await grepWorkspaceFiles(workspaceTemp.path, { query: "authentication failure" });
 		expect(lexical).toMatchObject({
 			status: "success",
-			regions: [{ path: "target.ts", kind: "text", reasons: ["lexical"] }],
+			regions: [{ path: "target.ts", kind: "text", matched_by: ["lexical"] }],
 		});
 
 		const strict = await grepWorkspaceFiles(workspaceTemp.path, { query: "RemoteSymbol", match: "literal" });
@@ -67,7 +67,7 @@ describe("grep without tree-sitter", () => {
 	it.each([
 		["GRAMMAR_UNAVAILABLE", "grammar"],
 		["PARSER_TIMEOUT", "timeout"],
-	] as const)("%s 时 strict 保留 verified 文本窗口", async (code, name) => {
+	] as const)("%s 时 strict 保留 verified 文本行", async (code, name) => {
 		treeSitterFailure.code = code;
 		treeSitterFailure.message = `simulated ${name} failure`;
 		const query = `${name}Needle`;

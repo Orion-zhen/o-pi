@@ -5,6 +5,7 @@ import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.j
 import { fail, type ToolOutcome } from "../shared/result.js";
 import {
 	createSemanticCodeRegion,
+	normalizeMatchedBy,
 	type CandidateRole,
 	type CandidateSignal,
 	type RegionEvidence,
@@ -150,9 +151,7 @@ export function augmentAutoWithExternal(
 	const main = new Map<string, VerifiedCodeRegion | SemanticMainRegion>();
 	for (const region of local.regions) if (region.lane === "main") main.set(region.id, region);
 	const related = [...local.related];
-	const sourceText = new Map(local.sourceText);
 	for (const candidate of candidates) {
-		sourceText.set(candidate.file.path, candidate.content.text);
 		const role = candidateRole(candidate);
 		if (!eligibleForAutoMain(plan, candidate, role) || candidate.range === undefined) {
 			related.push(toRelated(candidate));
@@ -165,6 +164,7 @@ export function augmentAutoWithExternal(
 			continue;
 		}
 		const raw = candidate.candidate;
+		const declaration = safeExternalDeclaration(raw.signature);
 		const region = createSemanticCodeRegion({
 			id: externalRegionId(candidate),
 			path: raw.path,
@@ -175,7 +175,7 @@ export function augmentAutoWithExternal(
 			kind: raw.kind ?? (role.includes("definition") ? "symbol" : "region"),
 			...(raw.qualifiedSymbol ?? raw.symbol ? { symbol: raw.qualifiedSymbol ?? raw.symbol } : {}),
 			...(raw.qualifiedSymbol === undefined ? {} : { qualifiedSymbol: raw.qualifiedSymbol }),
-			...(raw.signature === undefined ? {} : { signature: raw.signature }),
+			...(declaration === undefined ? {} : { declaration }),
 			roles: role,
 			signals,
 			evidence: candidateEvidence(candidate),
@@ -191,7 +191,6 @@ export function augmentAutoWithExternal(
 		regions,
 		ranked,
 		totalCandidates: allRanked.length,
-		sourceText,
 		nearby: ranked.length === 0 ? local.nearby : [],
 		related: dedupeRelated(related),
 	};
@@ -235,7 +234,11 @@ function candidateSignals(
 ): CandidateSignal[] {
 	if (roles.some((role) => RELATION_ROLES.has(role))
 		&& roles.some((role) => plan.relationIntents.includes(role as typeof plan.relationIntents[number]))) return ["requested_relation"];
-	if (candidate.candidate.origin === "repo-map" && candidate.candidate.reasons.some((reason) => reason === "alias" || reason === "component" || reason === "package")) {
+	const reasons = new Set(candidate.candidate.reasons);
+	if (reasons.has("exact qualified symbol") || reasons.has("lsp exact qualified symbol")) return ["exact_qualified_definition"];
+	if (reasons.has("exact symbol") || reasons.has("lsp exact symbol")) return ["exact_symbol_definition"];
+	if (reasons.has("short symbol") || reasons.has("lsp symbol")) return ["symbol_prefix"];
+	if (candidate.candidate.origin === "repo-map" && [...reasons].some((reason) => reason === "alias" || reason === "component" || reason === "package")) {
 		return ["repo_summary"];
 	}
 	return ["direct_symbol"];
@@ -267,8 +270,8 @@ function findMatchingRegion<T extends VerifiedCodeRegion | SemanticMainRegion>(
 	const symbol = candidate.candidate.qualifiedSymbol ?? candidate.candidate.symbol;
 	const matches = [...regions].filter((region) => {
 		if (region.path !== candidate.candidate.path) return false;
-		if (candidate.candidate.signature !== undefined && region.signature !== undefined
-			&& candidate.candidate.signature !== region.signature) return false;
+		const declaration = safeExternalDeclaration(candidate.candidate.signature);
+		if (declaration !== undefined && region.declaration !== undefined && declaration !== region.declaration) return false;
 		if (symbol !== undefined && region.symbol !== undefined && !sameSymbol(symbol, region.symbol)) return false;
 		const exactRange = region.startLine === range.startLine && region.endLine === range.endLine;
 		const enclosing = region.startLine <= range.startLine && range.endLine <= region.endLine;
@@ -290,11 +293,14 @@ function mergeEvidence<T extends VerifiedCodeRegion | SemanticMainRegion>(
 		const existing = merged.get(key);
 		if (existing === undefined || item.rank < existing.rank) merged.set(key, item);
 	}
+	const mergedSignals = unique([...region.signals, ...signals]);
+	const mergedEvidence = [...merged.values()];
 	return {
 		...region,
 		roles: unique([...region.roles, ...roles]),
-		signals: unique([...region.signals, ...signals]),
-		evidence: [...merged.values()],
+		signals: mergedSignals,
+		evidence: mergedEvidence,
+		matchedBy: normalizeMatchedBy(mergedSignals, mergedEvidence),
 	};
 }
 
@@ -306,7 +312,6 @@ function toRelated(candidate: ValidatedExternalCandidate): GrepRelatedResult {
 		kind: raw.kind ?? (candidate.range === undefined ? "file" : "region"),
 		...(candidate.range === undefined ? {} : { start_line: candidate.range.startLine, end_line: candidate.range.endLine }),
 		...(raw.qualifiedSymbol ?? raw.symbol ? { symbol: raw.qualifiedSymbol ?? raw.symbol } : {}),
-		...(raw.signature === undefined ? {} : { signature: raw.signature }),
 		sources: [candidate.source],
 		relations: relation === undefined ? (raw.reasons.length === 0 ? ["related"] : [...raw.reasons]) : [relation],
 		query_match: "not_guaranteed",
@@ -316,7 +321,7 @@ function toRelated(candidate: ValidatedExternalCandidate): GrepRelatedResult {
 function dedupeRelated(values: readonly GrepRelatedResult[]): GrepRelatedResult[] {
 	const result = new Map<string, GrepRelatedResult>();
 	for (const value of values) {
-		const key = [value.path, value.start_line ?? "", value.end_line ?? "", value.symbol ?? "", value.signature ?? "", ...value.relations].join("\0");
+		const key = [value.path, value.start_line ?? "", value.end_line ?? "", value.symbol ?? "", ...value.relations].join("\0");
 		const existing = result.get(key);
 		if (existing === undefined) result.set(key, value);
 		else result.set(key, { ...existing, sources: unique([...existing.sources, ...value.sources]) });
@@ -342,6 +347,14 @@ function externalRegionId(candidate: ValidatedExternalCandidate): string {
 	const raw = candidate.candidate;
 	const range = candidate.range;
 	return ["external", raw.path, range?.startLine ?? 0, range?.endLine ?? 0, raw.qualifiedSymbol ?? raw.symbol ?? "", raw.signature ?? ""].join(":");
+}
+
+function safeExternalDeclaration(value: string | undefined): string | undefined {
+	if (value === undefined || /[{}]|=>/u.test(value)) return undefined;
+	const compact = value.replace(/\s+/gu, " ").trim();
+	if (compact.length === 0) return undefined;
+	const points = [...compact];
+	return points.length <= 240 ? compact : `${points.slice(0, 237).join("")}...`;
 }
 
 function sameSymbol(left: string, right: string): boolean {

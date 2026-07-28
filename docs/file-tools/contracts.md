@@ -44,11 +44,11 @@ TUI 展示不受模型可见 ASCII 协议限制，可以使用图标和其他显
 - `ls` 限制直属 entry 数；
 - `read` 限制行数和字节数；
 - `find` 配置 scope 深度、具体结果和模型文本；
-- `grep` 配置 scope 深度、AST 单文件增强字节、结果条数和模型文本 token；正文扫描本身使用 filesystem line stream，不受旧扫描文件/字节字段限制。
+- `grep` 配置 scope 深度、AST 单文件增强字节、每区域展示行、结果条数和模型文本 token；正文扫描本身使用 filesystem line stream，不受旧扫描文件/字节字段限制。
 
 预算不足时，输出必须保留状态首行，不能让尾部截断掩盖结果不完整。`read` 返回 continuation 行号；`find` 区分 `depthLimited`、`resultLimited` 和 `outputTruncated`；`grep` 在 `truncated_by` 中区分 `traversal_limit`、`text_byte_limit`、`semantic_candidate_limit`、`result_limit` 和 `token_budget`。
 
-正文、片段和 signature 按预算降级，而不是随机截断。filesystem 文本 API 统一使用剥离 UTF-8 BOM 后正文的 UTF-8 byte 坐标；logical line、正文窗口、AST 和 external range 不使用原始文件 BOM offset。详细 token 估算见 [Token Counter](../token-counter.md)。
+候选使用各工具定义的固定表示，预算只决定保留哪些完整候选，不随机截断或扩展同一候选。grep 的语法锚点、declaration 和代表行不随 token budget 改变。filesystem 文本 API 统一使用剥离 UTF-8 BOM 后正文的 UTF-8 byte 坐标；logical line、AST 和 external range 不使用原始文件 BOM offset。详细 token 估算见 [Token Counter](../token-counter.md)。
 
 ## 统一错误
 

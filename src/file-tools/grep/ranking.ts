@@ -51,7 +51,7 @@ const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<Can
 		verified_phrase: 2,
 		verified_text: 2,
 		verified_qualified_occurrence: 2,
-		verified_text_window: 3,
+		verified_text_line: 3,
 	},
 	identifier: {
 		exact_qualified_definition: 1,
@@ -83,7 +83,7 @@ const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<Can
 		verified_phrase: 1,
 		verified_text: 1,
 		verified_enclosing_region: 2,
-		verified_text_window: 2,
+		verified_text_line: 2,
 		lexical_high_coverage: 3,
 		multiview_consensus: 3,
 		lexical: 4,
@@ -112,7 +112,7 @@ const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<Can
 };
 
 const FACTUAL_SIGNALS = new Set<CandidateSignal>([
-	"verified_phrase", "verified_text", "verified_qualified_occurrence", "verified_enclosing_region", "verified_text_window",
+	"verified_phrase", "verified_text", "verified_qualified_occurrence", "verified_enclosing_region", "verified_text_line",
 ]);
 const SYMBOL_SIGNALS = new Set<CandidateSignal>([
 	"exact_qualified_definition", "exact_symbol_definition", "exact_member_definition", "direct_symbol", "symbol_prefix", "partial_symbol", "target_definition",

@@ -246,6 +246,8 @@ describe("file-tools extension model output", () => {
 			expect(grepText).toContain("a.ts");
 			expect(grepText).not.toContain("<error");
 			expect(grepText).not.toContain('"status"');
+			for (const value of ["a.ts:1-1 [kind=declaration", "symbol=one", "matched-by="]) expect(grepText).toContain(value);
+			for (const legacy of ["lines omitted", "sig|"]) expect(grepText).not.toContain(legacy);
 			expect(isGrepSuccessDetails(grep.details)).toBe(true);
 			if (!isGrepSuccessDetails(grep.details)) throw new Error("missing grep success details");
 			expect(grep.details.approx_tokens).toBe(countTextTokensSync(grepText).tokens);

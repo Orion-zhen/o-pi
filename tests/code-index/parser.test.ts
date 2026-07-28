@@ -158,6 +158,56 @@ describe("shared code parser", () => {
 	});
 
 	it.each([
+		{
+			filePath: "declaration.ts",
+			text: "export class Service { run(value: string) { BODY_SENTINEL(); } }\nexport function multiline(\n value: string,\n count: number\n): boolean { BODY_SENTINEL(); }\n",
+			expected: ["export class Service", "run(value: string)", "export function multiline( value: string, count: number ): boolean"],
+		},
+		{
+			filePath: "declaration.js",
+			text: "class Service { run(value) { BODY_SENTINEL(); } }\nfunction oneLine() { BODY_SENTINEL(); }\n",
+			expected: ["class Service", "run(value)", "function oneLine()"],
+		},
+		{
+			filePath: "declaration.py",
+			text: "class Service:\n  def run(\n    self, value: str\n  ) -> str:\n    BODY_SENTINEL()\ndef one_line(): BODY_SENTINEL()\n",
+			expected: ["class Service:", "def run( self, value: str ) -> str:", "def one_line():"],
+		},
+		{
+			filePath: "declaration.go",
+			text: "package p\ntype Service struct { BODY_SENTINEL string }\nfunc (s Service) Run(\n value string,\n) string { BODY_SENTINEL() }\n",
+			expected: ["Service struct", "func (s Service) Run( value string, ) string"],
+		},
+		{
+			filePath: "declaration.rs",
+			text: "pub struct Service { BODY_SENTINEL: String }\nimpl Service { pub fn run(\n &self, value: String\n) -> String { BODY_SENTINEL(); value } }\n",
+			expected: ["pub struct Service", "impl Service", "pub fn run( &self, value: String ) -> String"],
+		},
+		{
+			filePath: "declaration.c",
+			text: "struct Service { int BODY_SENTINEL; };\nint run(\n int value\n) { BODY_SENTINEL(); return value; }\n",
+			expected: ["struct Service", "int run( int value )"],
+		},
+		{
+			filePath: "declaration.cpp",
+			text: "class Service { public: int run(\n int value\n) { BODY_SENTINEL(); return value; } };\nint oneLine() { BODY_SENTINEL(); }\n",
+			expected: ["class Service", "int run( int value )", "int oneLine()"],
+		},
+	])("为 $filePath 生成紧凑且不含 body 的 declaration", async ({ filePath, text, expected }) => {
+		const declarations = (await parseCodeUnits(filePath, text)).units.map((unit) => unit.signature);
+		expect(declarations).toEqual(expected);
+		expect(declarations.every((value) => value !== undefined && !value.includes("BODY_SENTINEL") && [...value].length <= 240)).toBe(true);
+	});
+
+	it("声明中嵌套 callable body 时安全省略 declaration", async () => {
+		const unit = (await parseCodeUnits(
+			"nested-default.ts",
+			"export function run(callback = () => BODY_SENTINEL) { return callback(); }\n",
+		)).units[0];
+		expect(unit?.signature).toBeUndefined();
+	});
+
+	it.each([
 		["caller.js", "function caller() { target(); obj.run(); const text = 'fake()'; /* ignored() */ return Value; }", "obj.run"],
 		["caller.jsx", "function caller() { target(); obj.run(); const text = 'fake()'; /* ignored() */ return Value; }", "obj.run"],
 		["caller.ts", "function caller() { target(); obj.run(); const text = 'fake()'; /* ignored() */ return Value; }", "obj.run"],

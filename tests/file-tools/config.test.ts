@@ -25,6 +25,7 @@ describe("file-tools config", () => {
 				grep_ast_max_file_bytes: 262144,
 				grep_output_token_budget: 4000,
 				grep_result_limit: 24,
+				grep_regional_display_limit: 3,
 				read_suggestion_limit: 3,
 				read_max_file_bytes: 16 * 1024 * 1024,
 				write_max_file_bytes: 16 * 1024 * 1024,
@@ -48,6 +49,7 @@ describe("file-tools config", () => {
 			grep_ast_max_file_bytes: 128 * 1024,
 			grep_output_token_budget: 2000,
 			grep_result_limit: 12,
+			grep_regional_display_limit: 7,
 		};
 		await useConfig("valid-limits.jsonc", { limits });
 		expect(await loadedConfig(workspace)).toMatchObject({ limits });
@@ -62,6 +64,7 @@ describe("file-tools config", () => {
 		["grep_ast_max_file_bytes", 1023], ["grep_ast_max_file_bytes", 104857601],
 		["grep_output_token_budget", 99], ["grep_output_token_budget", 10001],
 		["grep_result_limit", 0], ["grep_result_limit", 51],
+		["grep_regional_display_limit", 0], ["grep_regional_display_limit", 21],
 	] as const)("拒绝越界限制 %s=%i", async (field, value) => {
 		await useConfig(`invalid-${field}-${value}.jsonc`, { limits: { [field]: value } });
 		expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });
@@ -84,7 +87,7 @@ describe("file-tools config", () => {
 		await writeFile(projectConfig, JSON.stringify({
 			blocked_path: ["project-block/"],
 			ignored_path: ["project-ignore/"],
-			limits: { ls_entries: 20, grep_result_limit: 3, edit_max_file_bytes: 4096 },
+			limits: { ls_entries: 20, grep_result_limit: 3, grep_regional_display_limit: 5, edit_max_file_bytes: 4096 },
 			ignore: { builtin_profile: "performance" },
 		}));
 
@@ -96,7 +99,7 @@ describe("file-tools config", () => {
 					ignore: { piignore: { enabled: false }, builtinProfile: "performance" },
 				},
 			},
-			limits: { ls_entries: 20, grep_result_limit: 3, write_max_file_bytes: 2048, edit_max_file_bytes: 4096 },
+			limits: { ls_entries: 20, grep_result_limit: 3, grep_regional_display_limit: 5, write_max_file_bytes: 2048, edit_max_file_bytes: 4096 },
 		});
 
 		await writeFile(projectConfig, JSON.stringify({ ignore: { piignore: true } }));

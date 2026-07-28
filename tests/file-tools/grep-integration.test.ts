@@ -75,15 +75,15 @@ describe("grep integration", () => {
 		}
 	});
 
-	it("缓存只保存派生索引，重复查询仍返回实时正文", async () => {
+	it("缓存只保存派生索引，重复事实查询仍返回实时证据行", async () => {
 		await writeFile(path.join(testContext.workspace, "target.ts"), "export function targetNeedle() {\n  return 42;\n}\n");
-		const first = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "targetNeedle" }));
-		expect(firstRegion(first).content).toContain("return 42");
+		const first = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "return 42", match: "literal" }));
+		expect(firstRegion(first).display_lines?.[0]?.text).toContain("return 42");
 
 		await writeFile(path.join(testContext.workspace, "target.ts"), "export function targetNeedle() {\n  return 84;\n}\n");
-		const second = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "targetNeedle" }));
-		expect(firstRegion(second).content).toContain("return 84");
-		expect(firstRegion(second).content).not.toContain("return 42");
+		const second = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "return 84", match: "literal" }));
+		expect(firstRegion(second).display_lines?.[0]?.text).toContain("return 84");
+		expect(firstRegion(second).display_lines?.[0]?.text).not.toContain("return 42");
 	});
 
 	it.each([
@@ -160,10 +160,10 @@ describe("grep integration", () => {
 
 		const explicit = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "callers of login" }));
 		expect(explicit.regions).toEqual(expect.arrayContaining([
-			expect.objectContaining({ symbol: "handleRequest", query_match: "semantic", reasons: expect.arrayContaining(["caller"]) }),
+			expect.objectContaining({ symbol: "handleRequest", query_match: "semantic", matched_by: expect.arrayContaining(["relationship"]) }),
 		]));
 		const ordinary = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "login" }));
-		expect(ordinary.regions.some((region) => region.reasons.includes("caller"))).toBe(false);
+		expect(ordinary.regions.some((region) => region.matched_by.includes("relationship"))).toBe(false);
 		expect(ordinary.related).toEqual(expect.arrayContaining([
 			expect.objectContaining({ symbol: "handleRequest", relations: ["caller"] }),
 		]));
@@ -177,15 +177,16 @@ describe("grep integration", () => {
 		expect(result.nearby).toEqual(expect.arrayContaining([expect.objectContaining({ reason: "partial terms" })]));
 	});
 
-	it("unsupported language 安全退化到文本片段", async () => {
+	it("unsupported language 安全退化到文本行", async () => {
 		await writeFile(path.join(testContext.workspace, "notes.conf"), "section=true\nfatal authentication error\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "fatal authentication error", match: "literal" }));
-		expect(firstRegion(result)).toMatchObject({ path: "notes.conf", kind: "text", detail: "snippet" });
+		expect(firstRegion(result)).toMatchObject({ path: "notes.conf", kind: "text", display_lines: [expect.objectContaining({ type: "match" })] });
 
 		const auto = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "authentication error" }));
-		expect(firstRegion(auto)).toMatchObject({ path: "notes.conf", kind: "text", reasons: ["exact literal"] });
+		expect(firstRegion(auto)).toMatchObject({ path: "notes.conf", kind: "text", matched_by: ["literal"] });
 		const warmLexical = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "fatal error" }));
-		expect(firstRegion(warmLexical)).toMatchObject({ path: "notes.conf", kind: "text", reasons: ["lexical"] });
+		expect(firstRegion(warmLexical)).toMatchObject({ path: "notes.conf", kind: "text", matched_by: ["lexical"] });
+		expect(formatCompactGrepResult(warmLexical)).toContain("notes.conf:2 [evidence=lexical]: fatal authentication error");
 	});
 
 	it("binary、invalid UTF-8、无正文大小上限、blocked path 和 symlink 行为保持", async () => {
@@ -278,8 +279,8 @@ describe("grep integration", () => {
 			}),
 		]);
 		const compact = formatCompactGrepResult(result);
-		expect(compact).toContain("<nearby nonmatch>");
-		expect(compact).toContain("auth.ts:1 authenticate [symbol similarity]");
+		expect(compact).toContain('<nearby query-match="not-guaranteed">');
+		expect(compact).toContain("auth.ts:1 [kind=function; symbol=authenticate; reason=symbol-similarity]");
 		expect(compact).toContain("</nearby>");
 	});
 
@@ -402,7 +403,7 @@ describe("grep integration", () => {
 
 		expect(result.truncated_by).toContain("semantic_candidate_limit");
 		expect(firstRegion(result)).toMatchObject({ path: "generated.ts", kind: "text" });
-		expect(firstRegion(result).content).toContain("oversized semantic phrase");
+		expect(firstRegion(result).display_lines?.[0]?.text).toContain("oversized semantic phrase");
 	});
 
 	it("多个 scope 按 union 合并并共享输出结果", async () => {
@@ -418,7 +419,7 @@ describe("grep integration", () => {
 		}));
 		expect(result.paths).toEqual(["src", "tests"]);
 		expect(result.regions.map((region) => region.path)).toEqual(["src/a.ts", "tests/b.ts"]);
-		expect(formatCompactGrepResult(result)).toContain("const needle = 1");
+		expect(formatCompactGrepResult(result)).toContain("declaration: needle = 1");
 	});
 
 	it("嵌套和重复 scope 不产生重复区域", async () => {
@@ -475,18 +476,16 @@ describe("grep integration", () => {
 		expect(result.returned_regions).toBeLessThanOrEqual(2);
 	});
 
-	it("阶段 4 区域窗口严格遵守 token budget，过大窗口降级后继续", async () => {
+	it("固定区域胶囊严格遵守 token budget 且不升级为 body", async () => {
 		const configPath = path.join(testContext.outside, "budget.jsonc");
 		await writeConfig(configPath, { grep_output_token_budget: 260, grep_result_limit: 6 });
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
 		await writeFile(path.join(testContext.workspace, "main.ts"), `export function importantNeedle() {\n  return "${"needle ".repeat(400)}";\n}\n`);
 		await writeFile(path.join(testContext.workspace, "other.ts"), "export function otherNeedle() { return 'needle'; }\nexport function thirdNeedle() { return 'needle'; }\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle", match: "literal" }));
-		expect(result.regions.filter((region) => region.path === "main.ts")).toHaveLength(0);
 		expect(result.regions.some((region) => region.path === "other.ts")).toBe(true);
-		expect(result.regions.some((region) => region.detail === "body")).toBe(true);
-		expect(result.regions.every((region) => region.query_match === "verified" ? region.content?.includes("needle") === true : true)).toBe(true);
-		expect(result.truncated_by).toContain("token_budget");
+		expect(result.regions.every((region) => !("content" in region) && !("detail" in region))).toBe(true);
+		expect(result.regions.flatMap((region) => region.display_lines ?? []).every((line) => [...line.text].length <= 240)).toBe(true);
 		expect(countTextTokensSync(formatCompactGrepResult(result)).tokens).toBeLessThanOrEqual(260);
 	});
 });

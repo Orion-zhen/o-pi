@@ -50,7 +50,7 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 		lines.push(theme.fg("muted", "Nearby (query match not guaranteed):"));
 		for (const result of details.nearby) {
 			const range = `${result.path}:${result.start_line}${result.end_line === result.start_line ? "" : `-${result.end_line}`}`;
-			lines.push(`${theme.fg("accent", range)} ${result.signature ?? result.symbol ?? result.kind} [${result.reason}]`);
+			lines.push(`${theme.fg("accent", range)} ${result.symbol ?? result.kind} [${result.reason}]`);
 		}
 	}
 	if (details.related !== undefined && details.related.length > 0) {
@@ -59,7 +59,7 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 			const range = result.start_line === undefined
 				? result.path
 				: `${result.path}:${result.start_line}${result.end_line === undefined || result.end_line === result.start_line ? "" : `-${result.end_line}`}`;
-			lines.push(`${theme.fg("accent", range)} ${result.symbol ?? result.signature ?? result.kind} [${result.relations.join(", ")}]`);
+			lines.push(`${theme.fg("accent", range)} ${result.symbol ?? result.kind} [${result.relations.join(", ")}]`);
 		}
 	}
 	if (details.truncated_by.length > 0) lines.push(theme.fg("muted", `limit: ${formatLimitReasons(details.truncated_by, ", ")}`));
@@ -73,10 +73,19 @@ function formatLimitReasons(reasons: readonly TruncationReason[], separator = ",
 }
 
 function formatRegion(region: GrepRegion, theme: Pick<Theme, "fg">): string {
-	const symbol = region.symbol ?? region.signature ?? region.kind;
 	const range = `${region.path}:${region.start_line}${region.end_line === region.start_line ? "" : `-${region.end_line}`}`;
-	const metadata = [region.detail, ...(region.roles ?? []), ...region.reasons];
-	return `${theme.fg("accent", range)} ${symbol} [${metadata.join("; ")}]`;
+	const metadata = [
+		`kind=${region.kind}`,
+		...(region.symbol === undefined ? [] : [`symbol=${region.symbol}`]),
+		...(region.roles === undefined || region.roles.length === 0 ? [] : [`roles=${region.roles.map(kebabCase).join(",")}`]),
+		...(region.matched_by.length === 0 ? [] : [`matched-by=${region.matched_by.join(",")}`]),
+		...(region.match_lines === undefined ? [] : [`matches=${region.match_lines.length}`]),
+	];
+	return `${theme.fg("accent", range)} [${metadata.join("; ")}]`;
+}
+
+function kebabCase(value: string): string {
+	return value.replaceAll("_", "-").replace(/\s+/gu, "-").toLocaleLowerCase();
 }
 
 function pathArgs(value: unknown): string[] {

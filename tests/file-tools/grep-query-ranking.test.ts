@@ -51,7 +51,7 @@ describe("grep QueryPlan 与纯排序", () => {
 		const region = verifiedRegion({ id: "verified", signals: ["verified_text"], evidence: [rankingEvidence("text-literal")] });
 		expect(region.queryMatch).toBe("verified");
 		expect(region.matchLines).toEqual([2]);
-		const wrongHit: TextHit = { path: "other.ts", line: 2, byteStart: 0, byteEnd: 1, mode: "literal", lineText: "x", before: [], after: [] };
+		const wrongHit: TextHit = { path: "other.ts", line: 2, byteStart: 0, byteEnd: 1, matchStart: 0, matchEnd: 1, mode: "literal", lineText: "x" };
 		expect(() => createVerifiedCodeRegion({
 			id: "invalid",
 			path: "target.ts",
@@ -103,14 +103,14 @@ describe("grep QueryPlan 与纯排序", () => {
 
 	it("strict 排序排除没有 verified hit 的增强候选", () => {
 		const semantic = semanticRegion({ id: "semantic", signals: ["exact_symbol_definition"], evidence: [rankingEvidence("ast-symbol")] });
-		const verified = verifiedRegion({ id: "verified", signals: ["verified_text_window"], evidence: [rankingEvidence("text-literal")] });
+		const verified = verifiedRegion({ id: "verified", signals: ["verified_text_line"], evidence: [rankingEvidence("text-literal")] });
 		expect(rankCodeRegions(queryPlan("needle", "literal"), [semantic, verified]).map((item) => item.id)).toEqual(["verified"]);
 	});
 
-	it("strict tier 优先命中符号、普通代码区域和文本窗口", () => {
+	it("strict tier 优先命中符号、普通代码区域和文本行", () => {
 		const make = (id: string, signal: CandidateSignal, kind: string, symbol?: string): CodeRegion => {
 			const path = `${id}.ts`;
-			const hit: TextHit = { path, line: 2, byteStart: 10, byteEnd: 16, mode: "literal", lineText: "needle", before: [], after: [] };
+			const hit: TextHit = { path, line: 2, byteStart: 10, byteEnd: 16, matchStart: 0, matchEnd: 6, mode: "literal", lineText: "needle" };
 			return createVerifiedCodeRegion({
 				id,
 				path,
@@ -126,11 +126,11 @@ describe("grep QueryPlan 与纯排序", () => {
 			}, [hit]);
 		};
 		const candidates = [
-			make("window", "verified_text_window", "text"),
+			make("line", "verified_text_line", "text"),
 			make("region", "verified_enclosing_region", "function"),
 			make("symbol", "exact_symbol_definition", "function", "needle"),
 		];
-		expect(rankCodeRegions(queryPlan("needle", "literal"), candidates).map((item) => item.id)).toEqual(["symbol", "region", "window"]);
+		expect(rankCodeRegions(queryPlan("needle", "literal"), candidates).map((item) => item.id)).toEqual(["symbol", "region", "line"]);
 	});
 
 	it("按来源独立生成稳定名次，不依赖候选插入顺序", () => {

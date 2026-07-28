@@ -380,7 +380,7 @@ describe("grep external", () => {
 			},
 		};
 		const result = expectGrepSuccess(await grepWithSources(testContext.workspace, { query: "Target" }, { symbols }));
-		expect(result.regions.map((region) => region.signature)).toEqual([
+		expect(result.regions.map((region) => region.declaration)).toEqual([
 			"function Target(value: string)",
 			"function Target(value: number)",
 		]);
@@ -520,12 +520,11 @@ describe("grep external", () => {
 			match: "literal",
 			totalCandidates: 2,
 			regions: [native, structural],
-			sourceText: new Map(),
-			snippets: new Map(),
 			stats: { traversed_entries: 2, searched_files: 2, searched_bytes: 2, parsed_files: 0 },
 			truncationReasons: [],
 			tokenBudget: 200,
 			resultLimit: 1,
+			regionalDisplayLimit: 3,
 			nearby: [],
 			related: [],
 		});
@@ -594,17 +593,21 @@ describe("grep external", () => {
 		expect(query).toHaveBeenCalledOnce();
 	});
 
-	it("阶段 4 对超大函数保留 enclosing identity 和命中附近窗口", async () => {
+	it("超大函数只返回稳定 enclosing identity、declaration 和命中行", async () => {
 		const configPath = path.join(testContext.outside, "small-budget.jsonc");
 		await writeConfig(configPath, { grep_output_token_budget: 220, grep_result_limit: 4 });
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
 		const body = Array.from({ length: 80 }, (_, index) => `  const value${index} = ${index};`).join("\n");
 		await writeFile(path.join(testContext.workspace, "large.ts"), `export function hugeFunction() {\n${body}\n  return needle;\n}\n`);
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle", match: "literal" }));
-		expect(firstRegion(result)).toMatchObject({ detail: "snippet", kind: "function", symbol: "hugeFunction", query_match: "verified" });
-		expect(firstRegion(result).signature).toContain("function hugeFunction");
-		expect(firstRegion(result).content).toContain("needle");
-		expect(firstRegion(result).content).toContain("lines omitted");
+		expect(firstRegion(result)).toMatchObject({
+			kind: "function",
+			symbol: "hugeFunction",
+			declaration: "export function hugeFunction()",
+			query_match: "verified",
+			display_lines: [expect.objectContaining({ line: 82, text: expect.stringContaining("needle"), type: "match" })],
+		});
+		expect(formatCompactGrepResult(result)).not.toContain("lines omitted");
 		expect(countTextTokensSync(formatCompactGrepResult(result)).tokens).toBeLessThanOrEqual(220);
 	});
 

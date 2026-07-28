@@ -40,8 +40,6 @@ export interface AutoRegionizationResult extends RegionizationResult {
 
 export interface RegionizationResult {
 	readonly regions: readonly VerifiedCodeRegion[];
-	/** 当前 stable read 的完整正文；仅供本次调用生成展示内容。 */
-	readonly sourceText: ReadonlyMap<string, string>;
 	readonly parsedFiles: number;
 	readonly skipped: GrepSkippedFiles;
 	readonly scopeErrors: readonly GrepScopeError[];
@@ -147,7 +145,6 @@ export class GrepRegionizer {
 		regions.sort((left, right) => left.order - right.order || compareRegion(left.region, right.region));
 		return {
 			regions: regions.map((item) => item.region),
-			sourceText: new Map(prepared.map((file) => [file.file.path, file.content.text])),
 			parsedFiles,
 			skipped: compactSkipped(skipped),
 			scopeErrors,
@@ -239,7 +236,6 @@ export class GrepRegionizer {
 		regions.sort((left, right) => left.order - right.order || compareRegion(left.region, right.region));
 		return {
 			regions: regions.map((item) => item.region),
-			sourceText: new Map(files.map((file) => [file.file.path, file.content.text])),
 			files,
 			parsedFiles,
 			skipped: compactSkipped(skipped),
@@ -387,7 +383,8 @@ function parsedRegions(
 			kind: unit.kind,
 			...(unit.name === undefined ? {} : { symbol: unit.qualifiedName ?? unit.name }),
 			...(unit.qualifiedName === undefined ? {} : { qualifiedSymbol: unit.qualifiedName }),
-			...(unit.signature === undefined ? {} : { signature: unit.signature }),
+			...(unit.signature === undefined ? {} : { declaration: unit.signature }),
+			...(unit.declarationEndByte === undefined ? {} : { declarationEndByte: unit.declarationEndByte }),
 			roles: ["occurrence"],
 			signals: ["verified_enclosing_region"],
 			evidence: [textEvidence(first, rankByHit)],
@@ -402,13 +399,13 @@ function textRegions(
 	return hits.map((hit) => createVerifiedCodeRegion({
 		id: `${hit.path}:${hit.line}:${hit.byteStart}:${hit.byteEnd}`,
 		path: hit.path,
-		startLine: Math.max(1, hit.line - hit.before.length),
-		endLine: hit.line + hit.after.length,
+		startLine: hit.line,
+		endLine: hit.line,
 		startByte: hit.byteStart,
 		endByte: hit.byteEnd,
 		kind: "text",
 		roles: ["text"],
-		signals: ["verified_text_window"],
+		signals: ["verified_text_line"],
 		evidence: [textEvidence(hit, rankByHit)],
 	}, [hit]));
 }
@@ -521,5 +518,3 @@ function validLimit(value: number): boolean {
 function aborted(path?: string): ReturnType<typeof fail> {
 	return fail("OPERATION_ABORTED", "grep was aborted.", path === undefined ? {} : { path });
 }
-
-/** 阶段 4 先展示 scanner 保存的紧凑窗口；完整正文仅用于当前版本区域化。 */

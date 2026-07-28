@@ -168,7 +168,7 @@ describe("file-tools lsp hooks", () => {
 		};
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: ["src"], query: "RemoteSymbol" }, undefined, { lsp: hooks }));
 		expect(result.regions).toHaveLength(1);
-		expect(result.regions[0]).toMatchObject({ path: "src/target.ts", symbol: "RemoteSymbol", reasons: ["lsp exact symbol"] });
+		expect(result.regions[0]).toMatchObject({ path: "src/target.ts", symbol: "RemoteSymbol", matched_by: ["exact-symbol"] });
 		expect(seenPaths).toEqual(["src/target.ts"]);
 
 		await expect(grepWorkspaceFiles(workspace, { path: ["src"], query: "RemoteSymbol" }, undefined, { lsp: throwingHooks() })).resolves.toMatchObject({ status: "success" });
@@ -240,11 +240,11 @@ describe("file-tools lsp hooks", () => {
 		const second = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "Target" }, undefined, {
 			lsp: { async symbols() { return [...candidates].reverse(); } },
 		}));
-		const order = (result: GrepSuccess) => result.regions.map((region) => `${region.path}:${region.reasons[0]}`);
+		const order = (result: GrepSuccess) => result.regions.map((region) => `${region.path}:${region.matched_by[0]}`);
 		expect(order(first)).toEqual(order(second));
 		expect(order(first)).toEqual([
-			"exact.ts:lsp exact symbol",
-			"prefix.ts:lsp symbol",
+			"exact.ts:exact-symbol",
+			"prefix.ts:symbol-prefix",
 		]);
 		expect(first.regions.find((region) => region.path === "exact.ts")?.sources).toContain("lsp-symbol");
 		expect(first.related).toEqual(expect.arrayContaining([

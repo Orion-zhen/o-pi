@@ -9,7 +9,6 @@ import type { ScopeInventory, ScopedFile } from "./inventory.js";
 import type { QueryPlan } from "./query-plan.js";
 import type { GrepScopeError, GrepSkippedFiles, TruncationReason } from "./types.js";
 
-const CONTEXT_LINES = 2;
 const MAX_ANCHORS_PER_FILE = 64;
 export const MAX_STORED_TEXT_HITS = 10_000;
 export const MAX_STORED_LEXICAL_ANCHORS = 10_000;
@@ -41,19 +40,12 @@ interface LineMatch {
 	readonly end: number;
 }
 
-interface PendingContext {
-	readonly value: { readonly after: string[] };
-	readonly line: number;
-}
-
 interface MutableLexicalAnchor {
 	readonly path: string;
 	readonly line: number;
 	readonly byteStart: number;
 	readonly byteEnd: number;
 	readonly lineText: string;
-	readonly before: readonly string[];
-	readonly after: string[];
 	readonly matchedTerms: readonly string[];
 	readonly phrase: boolean;
 	readonly identifier: boolean;
@@ -150,8 +142,6 @@ async function scanFile(
 		context.operation,
 	);
 	if (!opened.ok) return opened;
-	const before: string[] = [];
-	const pending: PendingContext[] = [];
 	const fileHits: TextHit[] = [];
 	const anchors: MutableLexicalAnchor[] = [];
 	const matchedTerms = new Set<string>();
@@ -171,16 +161,12 @@ async function scanFile(
 				break;
 			}
 			const line = result.value;
-			appendAfterContext(pending, line);
 			const match = matcher(line.text);
 			if (match !== undefined) {
 				totalHits += 1;
 				if (fileHits.length < remainingHitCapacity) {
-					const hit = createTextHit(file.path, line, match, plan.match === "regex" ? "regex" : "literal", before);
-					if (hit !== undefined) {
-						fileHits.push(hit);
-						pending.push({ value: hit, line: hit.line });
-					}
+					const hit = createTextHit(file.path, line, match, plan.match === "regex" ? "regex" : "literal");
+					if (hit !== undefined) fileHits.push(hit);
 				} else hitLimitReached = true;
 			}
 			if (plan.match === "auto") {
@@ -196,14 +182,10 @@ async function scanFile(
 				else if (hasIdentifier) anchorLimitReached = true;
 				if (lineTerms.length > 0 || hasPhrase || hasIdentifier) {
 					if (anchors.length < MAX_ANCHORS_PER_FILE && anchors.length < remainingAnchorCapacity) {
-						const anchor = createLexicalAnchor(file.path, line, before, lineTerms, hasPhrase, hasIdentifier);
-						anchors.push(anchor);
-						pending.push({ value: anchor, line: anchor.line });
+						anchors.push(createLexicalAnchor(file.path, line, lineTerms, hasPhrase, hasIdentifier));
 					} else anchorLimitReached = true;
 				}
 			}
-			before.push(line.text);
-			if (before.length > CONTEXT_LINES) before.shift();
 		}
 	} finally {
 		await opened.value.close();
@@ -253,8 +235,7 @@ function createTextHit(
 	line: ScannedLine,
 	match: LineMatch,
 	mode: "literal" | "regex",
-	before: readonly string[],
-): (TextHit & { readonly after: string[] }) | undefined {
+): TextHit | undefined {
 	const startByte = utf8ByteOffset(line.text, match.start);
 	const endByte = utf8ByteOffset(line.text, match.end);
 	if (startByte === undefined || endByte === undefined) return undefined;
@@ -263,17 +244,16 @@ function createTextHit(
 		line: line.line,
 		byteStart: line.byteStart + startByte,
 		byteEnd: line.byteStart + endByte,
+		matchStart: match.start,
+		matchEnd: match.end,
 		mode,
 		lineText: line.text,
-		before: [...before],
-		after: [],
 	};
 }
 
 function createLexicalAnchor(
 	path: string,
 	line: ScannedLine,
-	before: readonly string[],
 	matchedTerms: readonly string[],
 	phrase: boolean,
 	identifier: boolean,
@@ -285,21 +265,12 @@ function createLexicalAnchor(
 		byteStart: line.byteStart,
 		byteEnd: line.byteEnd,
 		lineText: line.text,
-		before: [...before],
-		after: [],
 		matchedTerms: [...matchedTerms],
 		phrase,
 		identifier,
 		commentLike: /^(?:\/\/|\/\*|\*|#|--)/u.test(trimmed),
 		stringLike: /["'`]/u.test(line.text),
 	};
-}
-
-function appendAfterContext(pending: PendingContext[], line: ScannedLine): void {
-	for (const candidate of pending) {
-		if (line.line > candidate.line && candidate.value.after.length < CONTEXT_LINES) candidate.value.after.push(line.text);
-	}
-	while (pending[0]?.value.after.length === CONTEXT_LINES) pending.shift();
 }
 
 function uniqueLowerTerms(terms: readonly string[]): string[] {

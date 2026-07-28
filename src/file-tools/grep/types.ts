@@ -2,6 +2,14 @@ import type { FileToolError } from "../shared/result.js";
 
 export type GrepMatchMode = "auto" | "literal" | "regex";
 export type QueryMatch = "verified" | "semantic" | "not_guaranteed";
+export type GrepMatchedBy =
+	| "exact-qualified-symbol"
+	| "exact-symbol"
+	| "symbol-prefix"
+	| "literal"
+	| "regex"
+	| "lexical"
+	| "relationship";
 export type TruncationReason =
 	| "traversal_limit"
 	| "text_byte_limit"
@@ -32,22 +40,27 @@ export interface GrepStats {
 	skipped_files?: GrepSkippedFiles;
 }
 
+export interface GrepDisplayLine {
+	line: number;
+	text: string;
+	type: "match" | "evidence";
+}
+
 export interface GrepRegion {
 	path: string;
 	start_line: number;
 	end_line: number;
 	kind: string;
 	symbol?: string;
-	signature?: string;
-	detail: "body" | "snippet" | "signature";
+	declaration?: string;
 	query_match: "verified" | "semantic";
 	roles?: string[];
-	reasons: string[];
+	matched_by: GrepMatchedBy[];
+	/** details/TUI/telemetry only；不进入模型正文。 */
 	sources: string[];
+	/** verified region 的完整唯一命中行号，不受展示限制影响。 */
 	match_lines?: number[];
-	content?: string;
-	callees?: string[];
-	imports?: string[];
+	display_lines?: GrepDisplayLine[];
 }
 
 export interface GrepNearbyResult {
@@ -56,7 +69,6 @@ export interface GrepNearbyResult {
 	end_line: number;
 	kind: string;
 	symbol?: string;
-	signature?: string;
 	reason: "symbol similarity" | "partial terms" | "path similarity";
 	query_match: "not_guaranteed";
 }
@@ -67,7 +79,6 @@ export interface GrepRelatedResult {
 	start_line?: number;
 	end_line?: number;
 	symbol?: string;
-	signature?: string;
 	sources: string[];
 	relations: string[];
 	query_match: "not_guaranteed";

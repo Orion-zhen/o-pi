@@ -1,7 +1,7 @@
-import { byteRangeForLines, extractByteRange } from "../../filesystem/services/text.js";
 import { countTextTokensSync } from "../../token-counter.js";
-import type { RankedRegion, TextHit } from "./candidates.js";
+import type { RankedRegion } from "./candidates.js";
 import type {
+	GrepDisplayLine,
 	GrepMatchMode,
 	GrepNearbyResult,
 	GrepRegion,
@@ -13,7 +13,6 @@ import type {
 	TruncationReason,
 } from "./types.js";
 
-const MAX_MATCH_WINDOWS = 16;
 const CANDIDATE_POOL_MIN = 32;
 const TRUNCATION_ORDER: readonly TruncationReason[] = [
 	"traversal_limit",
@@ -31,30 +30,19 @@ export interface GrepPackInput {
 	match: GrepMatchMode;
 	totalCandidates: number;
 	regions: readonly RankedRegion[];
-	sourceText: ReadonlyMap<string, string>;
-	snippets: ReadonlyMap<string, string>;
 	stats: GrepStats;
 	truncationReasons: readonly TruncationReason[];
 	tokenBudget: number;
 	resultLimit: number;
+	regionalDisplayLimit: number;
 	nearby: readonly GrepNearbyResult[];
 	related: readonly GrepRelatedResult[];
 }
 
-interface RegionVariant {
-	readonly region: GrepRegion;
-}
-
 interface CandidateChoice {
 	readonly rank: number;
-	readonly candidate: RankedRegion;
-	readonly variants: readonly RegionVariant[];
-	readonly minimumCost: number;
-}
-
-interface PackedChoice {
-	readonly choice: CandidateChoice;
-	variantIndex: number;
+	readonly region: GrepRegion;
+	readonly cost: number;
 }
 
 interface SelectionNode {
@@ -67,21 +55,17 @@ interface SelectionState {
 	readonly node?: SelectionNode;
 }
 
-/** 在精确 token 预算内优先保留首个高价值候选，再最大化条目数、相关性与展示完整度。 */
+/** 每个候选只有一个固定表示；预算只决定保留哪些候选。 */
 export function packGrepResults(input: GrepPackInput): GrepSuccess {
 	const knownReasons = orderedReasons(input.truncationReasons);
-	// 选择阶段预留两个可能出现的标签，最终协议只保留实际发生的原因。
 	const assumedReasons = orderedReasons([...knownReasons, "result_limit", "token_budget"]);
 	const choices = candidatePool(input);
-	const packed = selectMainChoices(input, choices, assumedReasons);
-	fillMainChoices(input, packed, choices, assumedReasons);
-	upgradeMainChoices(input, packed, assumedReasons);
-	const selectedRanks = new Set(packed.map((item) => item.choice.rank));
+	const selected = selectMainChoices(input, choices, assumedReasons);
+	const selectedRanks = new Set(selected.map((item) => item.rank));
 	const lastSelectedRank = Math.max(-1, ...selectedRanks);
-	let tokenLimited = packed.length < Math.min(input.regions.length, input.resultLimit)
-		|| packed.some((item) => item.variantIndex > 0)
+	let tokenLimited = selected.length < Math.min(input.regions.length, input.resultLimit)
 		|| choices.some((choice) => choice.rank < lastSelectedRank && !selectedRanks.has(choice.rank));
-	const regions = packed.map((item) => item.choice.variants[item.variantIndex]?.region).filter(isGrepRegion);
+	const regions = selected.map((item) => item.region);
 	const nearby: GrepNearbyResult[] = [];
 	const related: GrepRelatedResult[] = [];
 	let usedCount = regions.length;
@@ -116,35 +100,29 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 }
 
 function candidatePool(input: GrepPackInput): CandidateChoice[] {
-	const minimums = input.regions.map((candidate, rank) => {
-		const minimum = minimumVariant(candidate, input);
-		return { rank, candidate, minimum, minimumCost: regionCost(minimum.region, input.match) };
+	const choices = input.regions.map((candidate, rank) => {
+		const region = publicRegion(candidate, input.regionalDisplayLimit);
+		return { rank, region, cost: regionCost(region) };
 	});
 	const span = Math.max(CANDIDATE_POOL_MIN, input.resultLimit * 4);
-	const selectedRanks = new Set(minimums.slice(0, span).map((item) => item.rank));
-	for (const item of minimums.slice(span)
-		.sort((left, right) => left.minimumCost - right.minimumCost || left.rank - right.rank)
+	const selectedRanks = new Set(choices.slice(0, span).map((item) => item.rank));
+	for (const item of choices.slice(span)
+		.sort((left, right) => left.cost - right.cost || left.rank - right.rank)
 		.slice(0, span)) selectedRanks.add(item.rank);
-	return minimums
-		.filter((item) => selectedRanks.has(item.rank))
-		.sort((left, right) => left.rank - right.rank)
-		.map((item) => {
-			const variants = displayVariants(item.candidate, input);
-			return { rank: item.rank, candidate: item.candidate, variants, minimumCost: regionCost(variants.at(-1)?.region ?? item.minimum.region, input.match) };
-		});
+	return choices.filter((item) => selectedRanks.has(item.rank)).sort((left, right) => left.rank - right.rank);
 }
 
 function selectMainChoices(
 	input: GrepPackInput,
 	choices: readonly CandidateChoice[],
 	reasons: readonly TruncationReason[],
-): PackedChoice[] {
+): CandidateChoice[] {
 	if (input.resultLimit <= 0 || choices.length === 0) return [];
 	const empty = createSuccess(input, [], [], [], reasons);
 	const availableBudget = Math.max(0, input.tokenBudget - tokenCount(renderGrepSuccess(empty)));
 	const first = choices[0];
-	const mandatory = first !== undefined && first.minimumCost <= availableBudget ? first : undefined;
-	const startCost = mandatory?.minimumCost ?? 0;
+	const mandatory = first !== undefined && first.cost <= availableBudget ? first : undefined;
+	const startCost = mandatory?.cost ?? 0;
 	const startCount = mandatory === undefined ? 0 : 1;
 	const states = Array.from({ length: input.resultLimit + 1 }, () => new Map<number, SelectionState>());
 	states[startCount]?.set(startCost, {
@@ -159,7 +137,7 @@ function selectMainChoices(
 			const current = states[count];
 			if (previous === undefined || current === undefined) continue;
 			for (const [cost, state] of [...previous.entries()]) {
-				const nextCost = cost + choice.minimumCost;
+				const nextCost = cost + choice.cost;
 				if (nextCost > availableBudget) continue;
 				const score = state.score + choices.length - choiceIndex;
 				const existing = current.get(nextCost);
@@ -171,222 +149,61 @@ function selectMainChoices(
 		if (choiceIndex % 8 === 7) for (const state of states) pruneDominatedStates(state);
 	}
 
-	let best: { readonly count: number; readonly cost: number; readonly state: SelectionState } | undefined;
+	let best: { readonly cost: number; readonly state: SelectionState } | undefined;
 	for (let count = input.resultLimit; count >= 0 && best === undefined; count -= 1) {
 		for (const [cost, state] of states[count] ?? []) {
-			if (best === undefined || state.score > best.state.score || (state.score === best.state.score && cost < best.cost)) {
-				best = { count, cost, state };
-			}
+			if (best === undefined || state.score > best.state.score || (state.score === best.state.score && cost < best.cost)) best = { cost, state };
 		}
 	}
-	const ranks = selectionRanks(best?.state.node);
 	const byRank = new Map(choices.map((choice) => [choice.rank, choice]));
-	const selected = ranks.flatMap((rank) => {
-		const choice = byRank.get(rank);
-		return choice === undefined ? [] : [{ choice, variantIndex: choice.variants.length - 1 }];
-	}).sort((left, right) => left.choice.rank - right.choice.rank);
+	const selected = selectionRanks(best?.state.node)
+		.flatMap((rank) => {
+			const choice = byRank.get(rank);
+			return choice === undefined ? [] : [choice];
+		})
+		.sort((left, right) => left.rank - right.rank);
 
-	while (selected.length > 0 && !fits(input, selectedRegions(selected), [], [], reasons)) {
+	while (selected.length > 0 && !fits(input, selected.map((item) => item.region), [], [], reasons)) {
 		let removable = selected.length - 1;
-		while (removable >= 0 && selected[removable]?.choice === mandatory) removable -= 1;
+		while (removable >= 0 && selected[removable] === mandatory) removable -= 1;
 		if (removable >= 0) selected.splice(removable, 1);
 		else selected.pop();
 	}
 	if (selected.length === 0) {
-		for (const choice of choices) {
-			const fallback: PackedChoice = { choice, variantIndex: choice.variants.length - 1 };
-			if (fits(input, selectedRegions([fallback]), [], [], reasons)) return [fallback];
-		}
+		for (const choice of choices) if (fits(input, [choice.region], [], [], reasons)) return [choice];
 	}
 	return selected;
 }
 
-function fillMainChoices(
-	input: GrepPackInput,
-	selected: PackedChoice[],
-	choices: readonly CandidateChoice[],
-	reasons: readonly TruncationReason[],
-): void {
-	const selectedRanks = new Set(selected.map((item) => item.choice.rank));
-	for (const choice of choices) {
-		if (selected.length >= input.resultLimit) break;
-		if (selectedRanks.has(choice.rank)) continue;
-		const candidate: PackedChoice = { choice, variantIndex: choice.variants.length - 1 };
-		const projected = [...selected, candidate].sort((left, right) => left.choice.rank - right.choice.rank);
-		if (!fits(input, selectedRegions(projected), [], [], reasons)) continue;
-		selected.push(candidate);
-		selected.sort((left, right) => left.choice.rank - right.choice.rank);
-		selectedRanks.add(choice.rank);
-	}
-}
-
-function upgradeMainChoices(
-	input: GrepPackInput,
-	selected: PackedChoice[],
-	reasons: readonly TruncationReason[],
-): void {
-	for (const item of selected) {
-		for (let index = 0; index < item.variantIndex; index += 1) {
-			const previous = item.variantIndex;
-			item.variantIndex = index;
-			if (fits(input, selectedRegions(selected), [], [], reasons)) break;
-			item.variantIndex = previous;
-		}
-	}
-}
-
-function displayVariants(candidate: RankedRegion, input: GrepPackInput): RegionVariant[] {
-	const base = publicRegionBase(candidate);
-	const source = input.sourceText.get(candidate.path);
-	const variants: RegionVariant[] = [];
-	if (source !== undefined && candidate.kind !== "text") {
-		const body = extractLineRange(source, candidate.startLine, candidate.endLine);
-		if (body !== undefined && body.length > 0) variants.push({ region: { ...base, detail: "body", content: body } });
-	}
-	if (candidate.queryMatch === "verified" && source !== undefined) {
-		for (const contextLines of [3, 1, 0]) {
-			const snippet = sourceMatchWindow(candidate, source, contextLines, MAX_MATCH_WINDOWS);
-			if (snippet !== undefined) variants.push({ region: withSnippet(base, snippet) });
-		}
-	} else {
-		const stored = input.snippets.get(candidate.id) ?? verifiedContext(candidate);
-		if (stored !== undefined && stored.length > 0) variants.push({
-			region: { ...base, detail: "snippet", content: stored },
-		});
-		if (source !== undefined && candidate.queryMatch !== "verified") {
-			const snippet = sourceStartWindow(candidate, source);
-			if (snippet !== undefined) variants.push({ region: withSnippet(base, snippet) });
-		}
-	}
-	variants.push(minimumVariant(candidate, input));
-	return dedupeVariants(variants);
-}
-
-function minimumVariant(candidate: RankedRegion, input: GrepPackInput): RegionVariant {
-	const base = publicRegionBase(candidate);
-	if (candidate.queryMatch === "verified") {
-		const source = input.sourceText.get(candidate.path);
-		const snippet = source === undefined ? hitOnlyWindow(candidate.verifiedHits) : sourceMatchWindow(candidate, source, 0, 1);
-		if (snippet !== undefined) return { region: withSnippet(base, snippet) };
-		const content = verifiedContext(candidate) ?? input.snippets.get(candidate.id);
-		if (content !== undefined) return { region: { ...base, detail: "snippet", content } };
-	}
-	return { region: { ...base, detail: "signature" } };
-}
-
-function publicRegionBase(candidate: RankedRegion): Omit<GrepRegion, "detail"> {
+function publicRegion(candidate: RankedRegion, displayLimit: number): GrepRegion {
+	const displayLines = candidate.queryMatch === "verified"
+		? representativeLines(candidate.displayLines, displayLimit)
+		: candidate.displayLines.slice(0, displayLimit);
 	return {
 		path: candidate.path,
 		start_line: candidate.startLine,
 		end_line: candidate.endLine,
 		kind: candidate.kind,
 		...(candidate.symbol === undefined ? {} : { symbol: candidate.symbol }),
-		...(candidate.signature === undefined ? {} : { signature: candidate.signature }),
+		...(candidate.declaration === undefined ? {} : { declaration: boundedDeclaration(candidate.declaration) }),
 		query_match: candidate.queryMatch === "verified" ? "verified" : "semantic",
 		roles: unique(candidate.roles),
-		reasons: unique(candidate.evidence.map((item) => item.reason)),
+		matched_by: [...candidate.matchedBy],
 		sources: unique(candidate.evidence.map((item) => item.source)),
-		...(candidate.matchLines.length === 0 ? {} : { match_lines: [...candidate.matchLines].sort((left, right) => left - right) }),
+		...(candidate.matchLines.length === 0 ? {} : { match_lines: [...candidate.matchLines] }),
+		...(displayLines.length === 0 ? {} : { display_lines: displayLines.map((line) => ({ ...line })) }),
 	};
 }
 
-function sourceMatchWindow(
-	candidate: RankedRegion,
-	source: string,
-	contextLines: number,
-	maxMatches: number,
-): { readonly startLine: number; readonly endLine: number; readonly content: string } | undefined {
-	const matches = representativeLines(candidate.matchLines, maxMatches);
-	if (matches.length === 0) return undefined;
-	const intervals = mergeIntervals(matches.map((line) => ({
-		start: Math.max(candidate.startLine, line - contextLines),
-		end: Math.min(candidate.endLine, line + contextLines),
-	})));
-	const chunks: string[] = [];
-	let previous = candidate.startLine - 1;
-	for (const interval of intervals) {
-		const omitted = interval.start - previous - 1;
-		if (omitted > 0) chunks.push(`[...] ${omitted} lines omitted [...]`);
-		const content = extractLineRange(source, interval.start, interval.end);
-		if (content === undefined) return undefined;
-		chunks.push(content);
-		previous = interval.end;
-	}
-	const tail = candidate.endLine - previous;
-	if (tail > 0) chunks.push(`[...] ${tail} lines omitted [...]`);
-	if (candidate.matchLines.length > matches.length) chunks.push(`[...] ${candidate.matchLines.length - matches.length} matching lines omitted [...]`);
-	return { startLine: intervals[0]?.start ?? candidate.startLine, endLine: intervals.at(-1)?.end ?? candidate.endLine, content: chunks.join("\n") };
-}
-
-function sourceStartWindow(
-	candidate: RankedRegion,
-	source: string,
-): { readonly startLine: number; readonly endLine: number; readonly content: string } | undefined {
-	const endLine = Math.min(candidate.endLine, candidate.startLine + 6);
-	const content = extractLineRange(source, candidate.startLine, endLine);
-	if (content === undefined || content.length === 0) return undefined;
-	return {
-		startLine: candidate.startLine,
-		endLine,
-		content: `${content}${endLine < candidate.endLine ? `\n[...] ${candidate.endLine - endLine} lines omitted [...]` : ""}`,
-	};
-}
-
-function extractLineRange(source: string, startLine: number, endLine: number): string | undefined {
-	const range = byteRangeForLines(source, startLine, endLine);
-	if (range === undefined) return undefined;
-	return extractByteRange(source, range.startByte, range.endByte)?.replace(/\s+$/u, "");
-}
-
-function hitOnlyWindow(hits: readonly [TextHit, ...TextHit[]]): { readonly startLine: number; readonly endLine: number; readonly content: string } {
-	const hit = [...hits].sort((left, right) => left.lineText.length - right.lineText.length || left.line - right.line)[0] ?? hits[0];
-	return { startLine: hit.line, endLine: hit.line, content: hit.lineText };
-}
-
-function verifiedContext(candidate: RankedRegion): string | undefined {
-	if (candidate.queryMatch !== "verified") return undefined;
-	const hit = candidate.verifiedHits[0];
-	return [...hit.before, hit.lineText, ...hit.after].join("\n");
-}
-
-function withSnippet(
-	base: Omit<GrepRegion, "detail">,
-	snippet: { readonly startLine: number; readonly endLine: number; readonly content: string },
-): GrepRegion {
-	return { ...base, start_line: snippet.startLine, end_line: snippet.endLine, detail: "snippet", content: snippet.content };
-}
-
-function representativeLines(lines: readonly number[], limit: number): number[] {
-	const uniqueLines = unique(lines).sort((left, right) => left - right);
-	if (uniqueLines.length <= limit) return uniqueLines;
-	if (limit <= 1) return uniqueLines.slice(0, 1);
-	const result = new Set<number>();
+function representativeLines(lines: readonly GrepDisplayLine[], limit: number): GrepDisplayLine[] {
+	if (lines.length <= limit) return [...lines];
+	if (limit <= 1) return lines.slice(0, 1);
+	const selected = new Map<number, GrepDisplayLine>();
 	for (let index = 0; index < limit; index += 1) {
-		result.add(uniqueLines[Math.round(index * (uniqueLines.length - 1) / (limit - 1))] ?? uniqueLines[0] ?? 1);
+		const line = lines[Math.round(index * (lines.length - 1) / (limit - 1))];
+		if (line !== undefined) selected.set(line.line, line);
 	}
-	return [...result].sort((left, right) => left - right);
-}
-
-function mergeIntervals(intervals: readonly { readonly start: number; readonly end: number }[]): Array<{ start: number; end: number }> {
-	const result: Array<{ start: number; end: number }> = [];
-	for (const interval of [...intervals].sort((left, right) => left.start - right.start || left.end - right.end)) {
-		const previous = result.at(-1);
-		if (previous === undefined || interval.start > previous.end + 1) result.push({ ...interval });
-		else previous.end = Math.max(previous.end, interval.end);
-	}
-	return result;
-}
-
-function dedupeVariants(variants: readonly RegionVariant[]): RegionVariant[] {
-	const result: RegionVariant[] = [];
-	const seen = new Set<string>();
-	for (const variant of variants) {
-		const key = `${variant.region.detail}\0${variant.region.content ?? ""}`;
-		if (seen.has(key)) continue;
-		seen.add(key);
-		result.push(variant);
-	}
-	return result;
+	return [...selected.values()].sort((left, right) => left.line - right.line);
 }
 
 function pruneDominatedStates(states: Map<number, SelectionState>): void {
@@ -403,15 +220,8 @@ function selectionRanks(node: SelectionNode | undefined): number[] {
 	return result.reverse();
 }
 
-function selectedRegions(selected: readonly PackedChoice[]): GrepRegion[] {
-	return selected.flatMap((item) => {
-		const region = item.choice.variants[item.variantIndex]?.region;
-		return region === undefined ? [] : [region];
-	});
-}
-
-function regionCost(region: GrepRegion, match: GrepMatchMode): number {
-	return tokenCount(renderRegion(region, match)) + 1;
+function regionCost(region: GrepRegion): number {
+	return tokenCount(renderRegion(region)) + 1;
 }
 
 function fits(
@@ -461,7 +271,7 @@ export function renderGrepSuccess(result: GrepSuccess): string {
 		lines.push("none");
 		if (result.nearby !== undefined && result.nearby.length > 0) lines.push(renderNearby(result.nearby));
 	} else {
-		for (const region of result.regions) lines.push(renderRegion(region, result.match));
+		for (const region of result.regions) lines.push(renderRegion(region));
 	}
 	const omitted = Math.max(0, result.total_candidates - result.returned_regions);
 	if (omitted > 0) lines.push(`+${omitted} lower-ranked omitted`);
@@ -476,46 +286,83 @@ export function renderGrepSuccess(result: GrepSuccess): string {
 	return lines.join("\n");
 }
 
-function renderRegion(region: GrepRegion, match: GrepMatchMode): string {
-	const headerSymbol = region.detail === "body"
-		? region.symbol ?? region.signature
-		: region.signature ?? region.symbol;
-	const header = `${region.path}:${region.start_line}${region.end_line === region.start_line ? "" : `-${region.end_line}`}`;
-	const reasons = visibleReasons(region.reasons, match);
-	const subject = headerSymbol ?? region.kind;
-	const label = reasons.length === 0 ? subject : `${subject} [${reasons.join(",")}]`;
-	const lines = [`${header} ${label}`];
-	if (region.content !== undefined) lines.push(region.content);
+function renderRegion(region: GrepRegion): string {
+	const displayLines = region.display_lines ?? [];
+	if (region.kind === "text") {
+		const evidence = displayLines[0];
+		if (evidence === undefined) return `${region.path}:${region.start_line}:`;
+		return evidence.type === "match"
+			? `${region.path}:${evidence.line}: ${evidence.text}`
+			: `${region.path}:${evidence.line} [evidence=lexical]: ${evidence.text}`;
+	}
+	const range = `${region.path}:${region.start_line}-${region.end_line}`;
+	const metadata = [
+		`kind=${metadataValue(region.kind)}`,
+		...(region.symbol === undefined ? [] : [`symbol=${metadataValue(region.symbol)}`]),
+		...(region.roles === undefined || region.roles.length === 0 ? [] : [`roles=${region.roles.map(kebabCase).map(metadataValue).join(",")}`]),
+		...(region.matched_by.length === 0 ? [] : [`matched-by=${region.matched_by.map(metadataValue).join(",")}`]),
+	];
+	const lines = [`${range} [${metadata.join("; ")}]`];
+	if (region.declaration !== undefined) lines.push(`  declaration: ${region.declaration}`);
+	if (region.query_match === "verified") appendMatchingLines(lines, displayLines, region.match_lines?.length ?? 0);
+	else appendEvidenceLines(lines, displayLines);
 	return lines.join("\n");
 }
 
+function appendMatchingLines(output: string[], displayLines: readonly GrepDisplayLine[], total: number): void {
+	const matches = displayLines.filter((line) => line.type === "match");
+	if (matches.length === 0) return;
+	if (matches.length === 1 && total === 1) {
+		const line = matches[0];
+		if (line !== undefined) output.push(`  matching line ${line.line}: ${line.text}`);
+		return;
+	}
+	output.push(`  matching lines (${matches.length} of ${total} shown):`);
+	for (const line of matches) output.push(`    ${line.line}: ${line.text}`);
+}
+
+function appendEvidenceLines(output: string[], displayLines: readonly GrepDisplayLine[]): void {
+	const evidence = displayLines.filter((line) => line.type === "evidence");
+	if (evidence.length === 0) return;
+	if (evidence.length === 1) {
+		const line = evidence[0];
+		if (line !== undefined) output.push(`  evidence line ${line.line}: ${line.text}`);
+		return;
+	}
+	output.push(`  evidence lines (${evidence.length} shown):`);
+	for (const line of evidence) output.push(`    ${line.line}: ${line.text}`);
+}
+
 function renderRelated(related: readonly GrepRelatedResult[]): string {
-	const lines = ["<related nonmatch>"];
+	const lines = ["<related query-match=\"not-guaranteed\">"];
 	for (const result of related) {
 		const range = result.start_line === undefined
 			? result.path
 			: `${result.path}:${result.start_line}${result.end_line === undefined || result.end_line === result.start_line ? "" : `-${result.end_line}`}`;
-		lines.push(`${range} ${result.signature ?? result.symbol ?? result.kind} [${result.relations.join(",")}]`);
+		const metadata = [
+			`kind=${metadataValue(result.kind)}`,
+			...(result.symbol === undefined ? [] : [`symbol=${metadataValue(result.symbol)}`]),
+			`relation=${result.relations.map(metadataValue).join(",")}`,
+		];
+		lines.push(`${range} [${metadata.join("; ")}]`);
 	}
 	lines.push("</related>");
 	return lines.join("\n");
 }
 
 function renderNearby(nearby: readonly GrepNearbyResult[]): string {
-	const lines = ["<nearby nonmatch>"];
+	const lines = ["<nearby query-match=\"not-guaranteed\">"];
 	for (const result of nearby) {
 		const range = `${result.path}:${result.start_line}${result.end_line === result.start_line ? "" : `-${result.end_line}`}`;
-		lines.push(`${range} ${result.symbol ?? result.signature ?? result.kind} [${result.reason}]`);
+		const metadata = [
+			`kind=${metadataValue(result.kind)}`,
+			...(result.symbol === undefined ? [] : [`symbol=${metadataValue(result.symbol)}`]),
+			`reason=${metadataValue(kebabCase(result.reason))}`,
+		];
+		lines.push(`${range} [${metadata.join("; ")}]`);
 	}
 	lines.push("</nearby>");
 	return lines.join("\n");
-}
-
-function visibleReasons(reasons: readonly string[], match: GrepMatchMode): string[] {
-	return reasons.filter((reason) =>
-		reason !== "hop 1"
-		&& !(match === "literal" && reason === "exact literal")
-		&& !(match === "regex" && reason === "regex"));
 }
 
 function orderedReasons(reasons: readonly TruncationReason[]): TruncationReason[] {
@@ -555,6 +402,15 @@ function compactPath(value: string): string {
 	return `...${characters.slice(-29).join("")}`;
 }
 
-function isGrepRegion(value: GrepRegion | undefined): value is GrepRegion {
-	return value !== undefined;
+function boundedDeclaration(value: string): string {
+	const points = [...value];
+	return points.length <= 240 ? value : `${points.slice(0, 237).join("")}...`;
+}
+
+function metadataValue(value: string): string {
+	return value.replace(/[;\]\r\n]/gu, " ").trim();
+}
+
+function kebabCase(value: string): string {
+	return value.replaceAll("_", "-").replace(/\s+/gu, "-").toLocaleLowerCase();
 }

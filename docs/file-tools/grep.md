@@ -1,6 +1,6 @@
 # `grep`
 
-`grep` 按内容、symbol、正则或代码意图检索代码，不查找路径、不修改文件。执行链固定为 `QueryPlan -> ScopeInventory -> text/local channels -> live validation -> regionization -> ranking -> packing`；command 通过 filesystem discovery 建立 inventory，并只以 snapshot-bound content/line scan 读取正文，LSP 与 Repo Map 通过独立 port 接入。结果按函数、方法、类、声明或紧凑文本片段聚合。
+`grep` 按内容、symbol、正则或代码意图检索代码，不查找路径、不修改文件。执行链固定为 `QueryPlan -> ScopeInventory -> text/local channels -> live validation -> regionization -> ranking -> packing`；command 通过 filesystem discovery 建立 inventory，并只以 snapshot-bound content/line scan 读取正文，LSP 与 Repo Map 通过独立 port 接入。结果按函数、方法、类、声明聚合；没有语法归属的结果保持为独立文本行。
 
 ## 参数
 
@@ -39,7 +39,7 @@
 
 ### `literal`
 
-对每个 logical line 执行区分大小写的精确字符串搜索。阶段化区域解析前，每个命中行先形成带有限前后文的 verified 文本窗口；后续区域化再按 code unit 聚合。
+对每个 logical line 执行区分大小写的精确字符串搜索。受支持代码中的命中随后按最小 enclosing code unit 聚合；AST 外命中保持逐行事实。
 
 ### `regex`
 
@@ -51,17 +51,29 @@
 
 ```text
 <grep>
-src/auth/service.ts:41-88 AuthService.login [definition,exact symbol]
-async login(credentials: Credentials) {
-	...
-}
-token.ts:14 issueToken [callee]
+src/auth/service.ts:41-88 [kind=method; symbol=AuthService.login; roles=definition,public-api; matched-by=exact-symbol]
+  declaration: async login(credentials: Credentials): Promise<Session>
+
+src/auth/handler.ts:20-64 [kind=function; symbol=handleLogin; roles=occurrence; matched-by=literal]
+  declaration: export async function handleLogin(req: Request)
+  matching lines (2 of 5 shown):
+    37: const session = await auth.login(credentials);
+    59: return session;
+
+src/session/cache.ts:12-46 [kind=method; symbol=SessionCache.restore; roles=definition; matched-by=lexical]
+  declaration: restore(key: SessionKey): Promise<Session | undefined>
+  evidence line 29: const cachedSession = await this.storage.load(key);
+
+notes.conf:14: fatal authentication error
+notes.conf:27 [evidence=lexical]: authentication request rejected
 </grep>
 ```
 
-输出按 `grep_output_token_budget` 为每个候选生成完整 body、多命中行窗口、单匹配行和 signature 等版本。预算选择先尽量保留最高价值候选，再最大化条目数和相关性，最后用剩余预算提升正文完整度。超大函数只保留真实匹配行附近窗口，并使用紧凑 ASCII 标记说明省略行数；strict 结果不会降级成没有匹配内容的 signature。
+代码结果始终保留完整最小语法区域范围，并只携带 body-free declaration 与有界 matching/evidence 行。1 个 verified 展示行使用 `matching line N:`；多个命中或展示受限时使用 `matching lines (K of N shown):`。semantic 证据使用 `evidence line N:`，不与 verified 命中混写。declaration 和证据行各自最多 240 个 Unicode code point；超长行围绕相关位置使用 ASCII `...` 截取。完整源码由 `read(path,start_line,end_line)` 返回。
 
-`grep_result_limit` 是 main、nearby 与 related 的全局条数上限。输出状态和公共协议见 [工具契约](contracts.md)。
+`details.regions` 保留相同的 range、kind、symbol、roles、matched_by，以及完整 `match_lines` 和有界 `display_lines`；内部 `sources` 只留在 details/telemetry。TUI 展开视图只显示这些区域元数据和匹配总数，不显示 declaration 或 evidence 源码。
+
+每个候选只有一个固定表示。`grep_regional_display_limit` 控制每个语法区域展示的源码行数，但不裁剪 `details.match_lines`；`grep_output_token_budget` 只决定保留哪些候选，不升级 body、上下文或更多行。`grep_result_limit` 是 main、nearby 与 related 的全局条数上限。输出状态和公共协议见 [工具契约](contracts.md)。
 
 ## 语言与解析
 
@@ -72,7 +84,7 @@ C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 Tree-sit
 - 模块和顶层声明；
 - C/C++ 的受限 `#include` 文件关系。
 
-不支持或解析失败的语言退化为文本搜索和紧凑行窗口。无 Tree-sitter grammar 的文件直接建立等价文本索引，不启动语法解析。
+不支持或解析失败的语言退化为逐行文本搜索。verified 文本使用 `path:line: content`，semantic 文本使用 `path:line [evidence=lexical]: content`；无 Tree-sitter grammar 的文件不启动语法解析。
 
 ## 搜索流程
 
@@ -104,7 +116,7 @@ LF、CRLF、CR 和 UTF-8 BOM 由 filesystem logical line 语义统一处理。`S
 - `result_limit`；
 - `token_budget`。
 
-打包器为候选建立 `body -> 多匹配窗口 -> 单匹配行 -> signature` 展示版本，在预算内优先保留最高价值候选，再尽量增加条目数。窗口按行合并并明确标记省略行；strict 最小版本必须包含真实匹配行，不能降级成伪 signature 命中。限制由 [配置](configuration.md) 控制，不作为工具参数暴露。line stream、traversal、parser 和 worker 都响应取消并释放 handle。
+打包器为每个候选建立唯一固定胶囊，在预算内优先保留最高价值候选，再尽量增加独立区域数。token 预算不会改变区域锚点、declaration 或代表行；只有整个候选未返回时才标记 `token_budget`。限制由 [配置](configuration.md) 控制，不作为工具参数暴露。line stream、traversal、parser 和 worker 都响应取消并释放 handle。
 
 ## 零结果、nearby 与 related
 
@@ -114,9 +126,9 @@ LF、CRLF、CR 和 UTF-8 BOM 由 filesystem logical line 语义统一处理。`S
 - `partial terms`：只有部分 query terms 重合；
 - `path similarity`：只有路径相关。
 
-`nearby` 只在最终主结果为空时出现，不参与主候选排序或 `returned_regions`，模型文本使用 `<nearby nonmatch>` 明示非命中；它与 main、related 共享全局 `grep_result_limit`。
+`nearby` 只在最终主结果为空时出现，不参与主候选排序或 `returned_regions`，模型文本使用 `<nearby query-match="not-guaranteed">` 明示非命中；它与 main、related 共享全局 `grep_result_limit`。
 
-Repo Map 关系使用独立的 `<related nonmatch>` 通道，明示 `query_match: not_guaranteed`，不能伪装成 literal/regex 命中。没有可信 nearby 或 related 时，输出 `searched=<searched_files>; skipped=<count>` 和下一步建议。
+Repo Map 关系使用独立的 `<related query-match="not-guaranteed">` 通道，不能伪装成 literal/regex 命中。没有可信 nearby 或 related 时，输出 `searched=<searched_files>; skipped=<count>` 和下一步建议。
 
 main、nearby、related 的完整边界见 [排序选择](ranking-selection.md)。
 
@@ -161,6 +173,6 @@ none
 
 ## Cache 与生命周期
 
-`GrepTool` 按 canonical workspace identity、visibility fingerprint、scope、query filter 和 limits 管理派生 AST cache；cache 只保存 snapshot/hash/parsed units，不取代当前 inventory 与正文事实扫描。单文件 entry 只保存 snapshot/hash/index，不永久保存完整源码；使用前仍进行当前 visibility 与 snapshot-bound 内容 gate。新增、修改、删除或 ignore fingerprint 变化会进入新 snapshot/cache key。
+`GrepTool` 按 canonical workspace identity、visibility fingerprint 和文件 snapshot/hash 管理派生 AST cache；cache 只保存 parsed units，不取代当前 inventory 与正文事实扫描。packer 不持有完整源码；使用索引前仍进行当前 visibility 与 snapshot-bound 内容 gate。新增、修改、删除或 ignore fingerprint 变化会进入新 snapshot/cache key。
 
 pending index build、parser pool 和 worker 由该 `GrepTool` instance 持有。`dispose()` abort pending consumers、释放 parser/worker 并清理 derived cache，不要求 Pi adapter知道内部 cache 名称，也不影响 find 或 filesystem factual cache。
