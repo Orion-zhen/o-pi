@@ -73,7 +73,7 @@ notes.conf:27 [evidence=lexical]: authentication request rejected
 
 `details.regions` 保留相同的 range、kind、symbol、roles、matched_by，以及完整 `match_lines` 和有界 `display_lines`；内部 `sources` 只留在 details/telemetry。TUI 展开视图只显示这些区域元数据和匹配总数，不显示 declaration 或 evidence 源码。
 
-每个候选只有一个固定表示。`grep_regional_display_limit` 控制每个语法区域展示的源码行数，但不裁剪 `details.match_lines`；`grep_output_token_budget` 只决定保留哪些候选，不升级 body、上下文或更多行。`grep_result_limit` 是 main、nearby 与 related 的全局条数上限。输出状态和公共协议见 [工具契约](contracts.md)。
+每个候选只有一个固定表示。`grep_regional_display_limit` 控制每个语法区域展示的源码行数，但不裁剪 `details.match_lines`；`grep_output_token_budget` 只决定保留哪些候选，不升级 body、上下文或更多行。`grep_result_limit` 是 main、nearby 与 related 的全局条数上限；returned related 在 main 为空时最多 2 条，否则不得超过 returned main 的两倍。输出状态和公共协议见 [工具契约](contracts.md)。
 
 ## 语言与解析
 
@@ -126,7 +126,7 @@ LF、CRLF、CR 和 UTF-8 BOM 由 filesystem logical line 语义统一处理。`S
 - `partial terms`：只有部分 query terms 重合；
 - `path similarity`：只有路径相关。
 
-`nearby` 只在最终主结果为空时出现，不参与主候选排序或 `returned_regions`，模型文本使用 `<nearby query-match="not-guaranteed">` 明示非命中；它与 main、related 共享全局 `grep_result_limit`。
+`nearby` 只在最终主结果为空时出现，不参与主候选排序或 `returned_regions`，模型文本使用 `<nearby query-match="not-guaranteed">` 明示非命中；它与其他通道共享全局 `grep_result_limit`。main 为空时仍可同时返回最多 2 条 related。
 
 Repo Map 关系使用独立的 `<related query-match="not-guaranteed">` 通道，不能伪装成 literal/regex 命中。没有可信 nearby 或 related 时，输出 `searched=<searched_files>; skipped=<count>` 和下一步建议。
 

@@ -433,4 +433,30 @@ describe("grep text search", () => {
 		expect(withMain.related).toBeUndefined();
 		expect(withMain.truncated_by).toContain("result_limit");
 	});
+
+	it.each([
+		[0, 2],
+		[1, 2],
+		[2, 4],
+	] as const)("%i 个 main 最多返回 %i 个 related", (mainCount, expectedRelated) => {
+		const main = Array.from({ length: mainCount }, (_, index) => packCandidate({
+			id: `main-${index}`,
+			path: `main-${index}.ts`,
+			startLine: 1,
+			endLine: 1,
+			endByte: 1,
+			matchLine: 1,
+		}));
+		const related = Array.from({ length: 6 }, (_, index) => ({
+			path: `related-${index}.ts`,
+			kind: "function",
+			sources: ["repo-map-direct"],
+			relations: ["test"],
+			query_match: "not_guaranteed" as const,
+		}));
+		const result = packRegions(main, { related, resultLimit: 10, tokenBudget: 2_000 });
+		expect(result.regions).toHaveLength(mainCount);
+		expect(result.related ?? []).toHaveLength(expectedRelated);
+		expect(result.truncated_by).toContain("result_limit");
+	});
 });

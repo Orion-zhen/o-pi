@@ -38,9 +38,9 @@ MMR 返回确定性的选择顺序，relevance head 保持在最前；不使用�
 
 ### related
 
-`related` 来自已验证的 LSP/Repo Map 关系或文件级结构候选，明示 `query_match: not_guaranteed`，同样不参与主结果的 RRF rank、cutoff 或 limit。
+`related` 来自已验证的 LSP/Repo Map 关系或文件级结构候选，明示 `query_match: not_guaranteed`，不参与主结果的 RRF rank 或 cutoff。它参与全局 `grep_result_limit`；main 为空时最多返回 2 条，否则不得超过已返回 main 的两倍。
 
-`nearby` 表达本地相似性，`related` 表达代码图关系；两条通道可以同时存在，但不能互相替代或混入 main。
+`nearby` 表达本地相似性，`related` 表达代码图关系；两者不能互相替代或混入 main。main 为空时可以同时包含 nearby 与 related，但 related 仍受两条基础额度和全局剩余额度约束。
 
 ## Renderer 与稳定性
 

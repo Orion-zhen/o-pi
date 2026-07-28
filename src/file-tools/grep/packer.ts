@@ -14,6 +14,7 @@ import type {
 } from "./types.js";
 
 const CANDIDATE_POOL_MIN = 32;
+const GREP_RELATED_PER_MAIN_LIMIT = 2;
 const TRUNCATION_ORDER: readonly TruncationReason[] = [
 	"traversal_limit",
 	"text_byte_limit",
@@ -79,20 +80,22 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 			} else tokenLimited = true;
 		}
 	}
+	const relatedLimit = regions.length === 0 ? GREP_RELATED_PER_MAIN_LIMIT : regions.length * GREP_RELATED_PER_MAIN_LIMIT;
 	for (const candidate of input.related) {
-		if (usedCount >= input.resultLimit) break;
+		if (usedCount >= input.resultLimit || related.length >= relatedLimit) break;
 		if (fits(input, regions, nearby, [...related, candidate], assumedReasons)) {
 			related.push(candidate);
 			usedCount += 1;
 		} else tokenLimited = true;
 	}
 
+	const relatedLimited = input.related.length > relatedLimit;
 	const eligibleCount = regions.length > 0
 		? input.regions.length + input.related.length
 		: input.nearby.length + input.related.length;
 	const baseReasons = orderedReasons([
 		...knownReasons,
-		...(eligibleCount > input.resultLimit ? ["result_limit" as const] : []),
+		...(eligibleCount > input.resultLimit || relatedLimited ? ["result_limit" as const] : []),
 	]);
 	const reasons = tokenLimited ? orderedReasons([...baseReasons, "token_budget"]) : baseReasons;
 	const result = createSuccess(input, regions, nearby, related, reasons);
