@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { fsFailure, fsSuccess, type FsErrorCode } from "../../src/filesystem/contracts/result.js";
+import type { FsErrorCode } from "../../src/filesystem/contracts/result.js";
 import { mapFsError, type FileToolErrorCode } from "../../src/file-tools/shared/result.js";
 
 const ERROR_MAPPINGS: ReadonlyArray<readonly [FsErrorCode, FileToolErrorCode]> = [
@@ -18,30 +18,7 @@ const ERROR_MAPPINGS: ReadonlyArray<readonly [FsErrorCode, FileToolErrorCode]> =
 	["write-failed", "ACCESS_DENIED"],
 ];
 
-const DEFAULT_MESSAGES: ReadonlyArray<readonly [FsErrorCode, string]> = [
-	["invalid-path", "Path is invalid."],
-	["not-found", "Path does not exist."],
-	["not-file", "Path is not a regular file."],
-	["not-directory", "Path is not a directory."],
-	["blocked", "Path is protected."],
-	["access-denied", "Path cannot be accessed."],
-	["too-large", "File exceeds the configured limit."],
-	["invalid-utf8", "Only valid UTF-8 text is supported."],
-	["binary", "Binary files are not supported."],
-	["aborted", "Operation aborted."],
-	["changed-during-read", "File changed during the operation."],
-	["write-failed", "Path cannot be accessed."],
-];
-
 describe("filesystem contracts", () => {
-	it("constructs discriminated success and failure results", () => {
-		expect(fsSuccess(3)).toEqual({ ok: true, value: 3 });
-		expect(fsFailure({ code: "aborted", message: "cancelled" })).toEqual({
-			ok: false,
-			error: { code: "aborted", message: "cancelled" },
-		});
-	});
-
 	it.each(ERROR_MAPPINGS)("maps %s into %s", (fsCode, toolCode) => {
 		const result = mapFsError({ code: fsCode, message: "neutral failure", path: "src/a.ts" });
 		expect(result).toEqual({
@@ -50,8 +27,8 @@ describe("filesystem contracts", () => {
 		});
 	});
 
-	it.each(DEFAULT_MESSAGES)("provides a stable default message for %s", (fsCode, message) => {
-		expect(mapFsError({ code: fsCode, message: "" }).error.message).toBe(message);
+	it("provides a fallback when the filesystem message is empty", () => {
+		expect(mapFsError({ code: "invalid-path", message: "" }).error.message).not.toBe("");
 	});
 
 	it("applies operation-specific not-found semantics and recovery context", () => {

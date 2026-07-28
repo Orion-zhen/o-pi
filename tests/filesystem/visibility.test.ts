@@ -1,84 +1,38 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { editFile } from "../../src/file-tools/edit/command.js";
-import type { EditSuccess } from "../../src/file-tools/edit/types.js";
-import { GitTrackedFilesLoader } from "../../src/filesystem/services/visibility/git-tracked-files.js";
-import { createVisibilitySnapshot, defaultVisibilityService as defaultIgnoreEngine, WorkspaceVisibilityService } from "../../src/filesystem/services/visibility/service.js";
-import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
+
 import type { PartialIgnoreConfig, VisibilitySnapshot } from "../../src/filesystem/contracts/visibility.js";
-import { NativeFileSystemError, NodeNativeFileSystem, type NativeFileSystem } from "../../src/filesystem/platform/node/native-filesystem.js";
-import { listDirectory } from "../../src/file-tools/ls/command.js";
-import type { LsParams, LsSuccess } from "../../src/file-tools/ls/types.js";
-import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
-import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
-import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
+import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
+import { createVisibilitySnapshot, defaultVisibilityService as defaultIgnoreEngine } from "../../src/filesystem/services/visibility/service.js";
 import { useTempDir } from "../helpers/lifecycle.js";
-import { readWorkspaceFile as readWorkspaceFileTest } from "../helpers/read-tool.js";
+import { hasGit } from "./visibility-fixtures.js";
 
 const execFileAsync = promisify(execFile);
 
 let workspace: string;
 let outside: string;
-let host: FileToolsHost;
 const workspaceTemp = useTempDir("o-pi-ignore-");
 const outsideTemp = useTempDir("o-pi-ignore-outside-");
 
 beforeEach(() => {
 	workspace = workspaceTemp.path;
 	outside = outsideTemp.path;
-	host = new FileToolsHost();
 	defaultIgnoreEngine.invalidate();
 });
 
-afterEach(async () => {
-	host.dispose();
+afterEach(() => {
 	defaultIgnoreEngine.invalidate();
 });
-
-async function listWorkspaceDirectory(cwd: string, params: LsParams): Promise<ToolOutcome<LsSuccess>> {
-	const opened = await host.open({ cwd, sessionId: "visibility-test" });
-	if (isFailed(opened)) return opened;
-	try {
-		return await listDirectory(params, {
-			filesystem: opened.filesystem,
-			operation: opened.context,
-			entryLimit: opened.limits.ls_entries,
-		});
-	} finally {
-		opened.dispose();
-	}
-}
-
-function readWorkspaceFile(cwd: string, params: Parameters<typeof readWorkspaceFileTest>[1]) {
-	return readWorkspaceFileTest(cwd, params, { host, sessionId: "visibility-test" });
-}
-
-async function editWorkspace(cwd: string, params: unknown): Promise<ToolOutcome<EditSuccess>> {
-	const opened = await host.open({ cwd, sessionId: "visibility-test" });
-	if (isFailed(opened)) return opened;
-	try {
-		return await editFile(params, {
-			filesystem: opened.filesystem,
-			operation: opened.context,
-			observation: opened.observation,
-			maxFileBytes: opened.limits.edit_max_file_bytes,
-			matchHintLimit: opened.limits.edit_match_hint_limit,
-			diff: piTextDiffGenerator,
-		});
-	} finally {
-		opened.dispose();
-	}
-}
 
 async function createIgnoreSnapshot(root: string, ignore: PartialIgnoreConfig = {}): Promise<VisibilitySnapshot> {
 	return await createVisibilitySnapshot(root, createVisibilityPolicy({ ignore }));
 }
 
-describe("ignore engine", () => {
+describe("visibility rules", () => {
 	it("支持 Gitignore grammar 的基础规则", async () => {
 		await writeFile(
 			path.join(workspace, ".piignore"),
@@ -106,21 +60,15 @@ describe("ignore engine", () => {
 			caseSensitivity: "sensitive",
 		});
 
-		expect(snapshot.evaluate({ path: "#literal", kind: "file", intent: "search" }).ignored).toBe(true);
-		expect(snapshot.evaluate({ path: "!bang", kind: "file", intent: "search" }).ignored).toBe(true);
-		expect(snapshot.evaluate({ path: "a.log", kind: "file", intent: "search" }).ignored).toBe(true);
-		expect(snapshot.evaluate({ path: "q1.txt", kind: "file", intent: "search" }).ignored).toBe(true);
-		expect(snapshot.evaluate({ path: "a.js", kind: "file", intent: "search" }).ignored).toBe(true);
-		expect(snapshot.evaluate({ path: "docs/a/b.md", kind: "file", intent: "search" }).ignored).toBe(true);
-		expect(snapshot.evaluate({ path: "root-only.txt", kind: "file", intent: "search" }).ignored).toBe(true);
+		for (const candidate of [
+			"#literal", "!bang", "a.log", "q1.txt", "a.js", "docs/a/b.md", "root-only.txt",
+			"src/inner.txt", "trail-space", "escaped-space ", ".env", "nonewline",
+		]) {
+			expect(snapshot.evaluate({ path: candidate, kind: "file", intent: "search" }).ignored).toBe(true);
+		}
 		expect(snapshot.evaluate({ path: "nested/root-only.txt", kind: "file", intent: "search" }).ignored).toBe(false);
-		expect(snapshot.evaluate({ path: "src/inner.txt", kind: "file", intent: "search" }).ignored).toBe(true);
 		expect(snapshot.evaluate({ path: "build", kind: "directory", intent: "traverse" }).ignored).toBe(true);
 		expect(snapshot.evaluate({ path: "build", kind: "file", intent: "search" }).ignored).toBe(false);
-		expect(snapshot.evaluate({ path: "trail-space", kind: "file", intent: "search" }).ignored).toBe(true);
-		expect(snapshot.evaluate({ path: "escaped-space ", kind: "file", intent: "search" }).ignored).toBe(true);
-		expect(snapshot.evaluate({ path: ".env", kind: "file", intent: "search" }).ignored).toBe(true);
-		expect(snapshot.evaluate({ path: "nonewline", kind: "file", intent: "search" }).ignored).toBe(true);
 	});
 
 	it("按来源、目录层级和后置规则决定优先级", async () => {
@@ -209,232 +157,6 @@ describe("ignore engine", () => {
 		snapshot = await createIgnoreSnapshot(workspace, { builtinProfile: "none", caseSensitivity: "sensitive" });
 		expect(snapshot.evaluate({ path: "tracked.json", kind: "file", intent: "search" }).ignored).toBe(true);
 	});
-
-	it("snapshot 不可变，新 snapshot 才看到 ignore 文件变化，并支持缓存复用", async () => {
-		await writeFile(path.join(workspace, ".piignore"), "old.txt\n");
-		const first = await createIgnoreSnapshot(workspace, { builtinProfile: "none", gitignore: { enabled: false } });
-		const cached = await createIgnoreSnapshot(workspace, { builtinProfile: "none", gitignore: { enabled: false } });
-		expect(cached.generation).toBe(first.generation);
-		expect(cached.fingerprint).toBe(first.fingerprint);
-		expect(first.diagnostics).toEqual([]);
-		expect(first.evaluate({ path: "old.txt", kind: "file", intent: "search" }).ignored).toBe(true);
-
-		await writeFile(path.join(workspace, ".piignore"), "new-longer-name.txt\n");
-		const second = await createIgnoreSnapshot(workspace, { builtinProfile: "none", gitignore: { enabled: false } });
-		expect(second.generation).not.toBe(first.generation);
-		expect(second.fingerprint).not.toBe(first.fingerprint);
-		expect(first.evaluate({ path: "new-longer-name.txt", kind: "file", intent: "search" }).ignored).toBe(false);
-		expect(second.evaluate({ path: "new-longer-name.txt", kind: "file", intent: "search" }).ignored).toBe(true);
-	});
-
-	it("并发请求共享同一 snapshot 构建", async () => {
-		await writeFile(path.join(workspace, ".piignore"), "ignored.txt\n");
-		const config = { builtinProfile: "none" as const, gitignore: { enabled: false } };
-		const snapshots = await Promise.all(Array.from({ length: 8 }, async () => await createIgnoreSnapshot(workspace, config)));
-
-		expect(new Set(snapshots.map((snapshot) => snapshot.generation))).toEqual(new Set([snapshots[0]?.generation]));
-		expect(snapshots.every((snapshot) => snapshot.evaluate({ path: "ignored.txt", kind: "file", intent: "search" }).ignored)).toBe(true);
-	});
-
-	it("snapshot 共享构建允许首个 consumer 独立取消", async () => {
-		const controlled = controlledVisibilityNative(workspace);
-		const service = new WorkspaceVisibilityService(controlled.native);
-		const policy = createVisibilityPolicy({ ignore: { builtinProfile: "none", gitignore: { enabled: false } } });
-		const firstController = new AbortController();
-		const secondController = new AbortController();
-		const first = service.createSnapshot(workspace, policy, { signal: firstController.signal });
-		await controlled.started.promise;
-		const second = service.createSnapshot(workspace, policy, { signal: secondController.signal });
-		await controlled.secondRealpath.promise;
-		await nextImmediate();
-		try {
-			firstController.abort("first left");
-			await expect(first).rejects.toMatchObject({ code: "aborted" });
-			expect(controlled.ownerAborts()).toBe(0);
-			controlled.release.resolve();
-			await expect(second).resolves.toMatchObject({ fingerprint: expect.any(String) });
-			expect(controlled.rootReads()).toBe(1);
-		} finally {
-			controlled.release.resolve();
-			service.invalidate();
-		}
-	});
-
-	it("snapshot 后加入的 consumer 可取消且不影响已有 consumer", async () => {
-		const controlled = controlledVisibilityNative(workspace);
-		const service = new WorkspaceVisibilityService(controlled.native);
-		const policy = createVisibilityPolicy({ ignore: { builtinProfile: "none", gitignore: { enabled: false } } });
-		const first = service.createSnapshot(workspace, policy);
-		await controlled.started.promise;
-		const laterController = new AbortController();
-		const later = service.createSnapshot(workspace, policy, { signal: laterController.signal });
-		await controlled.secondRealpath.promise;
-		await nextImmediate();
-		try {
-			laterController.abort("later left");
-			await expect(later).rejects.toMatchObject({ code: "aborted" });
-			expect(controlled.ownerAborts()).toBe(0);
-			controlled.release.resolve();
-			await expect(first).resolves.toMatchObject({ fingerprint: expect.any(String) });
-			expect(controlled.rootReads()).toBe(1);
-		} finally {
-			controlled.release.resolve();
-			service.invalidate();
-		}
-	});
-
-	it("最后一个 snapshot consumer 离开或 invalidate 时终止 owner I/O", async () => {
-		const policy = createVisibilityPolicy({ ignore: { builtinProfile: "none", gitignore: { enabled: false } } });
-		const abandoned = controlledVisibilityNative(workspace);
-		const abandonedService = new WorkspaceVisibilityService(abandoned.native);
-		const firstController = new AbortController();
-		const secondController = new AbortController();
-		const first = abandonedService.createSnapshot(workspace, policy, { signal: firstController.signal });
-		await abandoned.started.promise;
-		const second = abandonedService.createSnapshot(workspace, policy, { signal: secondController.signal });
-		await abandoned.secondRealpath.promise;
-		await nextImmediate();
-		firstController.abort("first left");
-		secondController.abort("second left");
-		await expect(first).rejects.toMatchObject({ code: "aborted" });
-		await expect(second).rejects.toMatchObject({ code: "aborted" });
-		await abandoned.ownerAborted.promise;
-		expect(abandoned.ownerAborts()).toBe(1);
-
-		const invalidated = controlledVisibilityNative(workspace);
-		const invalidatedService = new WorkspaceVisibilityService(invalidated.native);
-		const active = invalidatedService.createSnapshot(workspace, policy);
-		await invalidated.started.promise;
-		invalidatedService.invalidate(workspace);
-		await expect(active).rejects.toMatchObject({ code: "aborted" });
-		await invalidated.ownerAborted.promise;
-		expect(invalidated.ownerAborts()).toBe(1);
-
-		const globallyInvalidated = controlledVisibilityNative(workspace);
-		const globalService = new WorkspaceVisibilityService(globallyInvalidated.native);
-		const globallyActive = globalService.createSnapshot(workspace, policy);
-		await globallyInvalidated.started.promise;
-		globalService.invalidate();
-		await expect(globallyActive).rejects.toMatchObject({ code: "aborted" });
-		await globallyInvalidated.ownerAborted.promise;
-		expect(globallyInvalidated.ownerAborts()).toBe(1);
-
-		abandoned.release.resolve();
-		invalidated.release.resolve();
-		globallyInvalidated.release.resolve();
-		abandonedService.invalidate();
-		invalidatedService.invalidate();
-	});
-
-	it("Git shared refresh 分离 consumer 取消并由 clear 终止 pending owner", async () => {
-		if (!(await hasGit())) return;
-		await execFileAsync("git", ["init"], { cwd: workspace });
-		const shared = controlledGitNative(workspace);
-		const loader = new GitTrackedFilesLoader(shared.native);
-		const firstController = new AbortController();
-		const secondController = new AbortController();
-		const first = loader.load(workspace, firstController.signal);
-		const second = loader.load(workspace, secondController.signal);
-		await shared.started.promise;
-		await shared.secondMarker.promise;
-		await nextImmediate();
-		try {
-			firstController.abort("first left");
-			await expect(first).rejects.toMatchObject({ code: "aborted" });
-			expect(shared.ownerAborts()).toBe(0);
-			shared.release.resolve();
-			await expect(second).resolves.toMatchObject({ paths: expect.any(Set), fingerprint: expect.any(String) });
-		} finally {
-			shared.release.resolve();
-			loader.clear();
-		}
-
-		const cleared = controlledGitNative(workspace);
-		const clearedLoader = new GitTrackedFilesLoader(cleared.native);
-		const pending = clearedLoader.load(workspace);
-		await cleared.started.promise;
-		clearedLoader.clear();
-		await expect(pending).rejects.toMatchObject({ code: "aborted" });
-		await cleared.ownerAborted.promise;
-		expect(cleared.ownerAborts()).toBe(1);
-		cleared.release.resolve();
-	});
-
-	it("在 snapshot 构建边界响应取消", async () => {
-		const controller = new AbortController();
-		controller.abort("test");
-		await expect(createVisibilitySnapshot(
-			workspace,
-			createVisibilityPolicy(),
-			{ signal: controller.signal },
-		)).rejects.toMatchObject({ code: "aborted" });
-	});
-
-	it("canonical root、policy 与 fingerprint 共同决定 snapshot cache", async () => {
-		await writeFile(path.join(workspace, ".piignore"), "ignored.txt\n");
-		const alias = path.join(outside, "workspace-link");
-		try {
-			await symlink(workspace, alias, "dir");
-		} catch {
-			return;
-		}
-		const policy = createVisibilityPolicy({
-			ignore: { builtinProfile: "none", gitignore: { enabled: false } },
-			configFingerprint: "one",
-		});
-		const direct = await createVisibilitySnapshot(workspace, policy);
-		const throughAlias = await createVisibilitySnapshot(alias, policy);
-		const changedPolicy = await createVisibilitySnapshot(workspace, createVisibilityPolicy({
-			ignore: { builtinProfile: "none", gitignore: { enabled: false } },
-			configFingerprint: "two",
-		}));
-
-		expect(throughAlias.generation).toBe(direct.generation);
-		expect(changedPolicy.generation).not.toBe(direct.generation);
-	});
-
-	it("失效中的旧构建不能回写 cache，控制面读取使用注入的 Node backend", async () => {
-		await writeFile(path.join(workspace, ".piignore"), "old.txt\n");
-		const base = new NodeNativeFileSystem();
-		let releaseFirstRead = (): void => undefined;
-		let markFirstReadStarted = (): void => undefined;
-		const firstReadStarted = new Promise<void>((resolve) => { markFirstReadStarted = resolve; });
-		const firstReadRelease = new Promise<void>((resolve) => { releaseFirstRead = resolve; });
-		let ignoreReads = 0;
-		const native: NativeFileSystem = {
-			lstat: base.lstat.bind(base),
-			stat: base.stat.bind(base),
-			realpath: base.realpath.bind(base),
-			readdir: base.readdir.bind(base),
-			readlink: base.readlink.bind(base),
-			async read(filePath, options) {
-				if (filePath !== path.join(workspace, ".piignore") || ignoreReads++ > 0) return await base.read(filePath, options);
-				const captured = await base.read(filePath, options);
-				markFirstReadStarted();
-				await firstReadRelease;
-				return captured;
-			},
-			open: base.open.bind(base),
-			atomicReplace: base.atomicReplace.bind(base),
-			mkdir: base.mkdir.bind(base),
-		};
-		const service = new WorkspaceVisibilityService(native);
-		const policy = createVisibilityPolicy({ ignore: { builtinProfile: "none", gitignore: { enabled: false } } });
-		const staleBuild = service.createSnapshot(workspace, policy);
-		await firstReadStarted;
-		service.invalidate(workspace);
-		await writeFile(path.join(workspace, ".piignore"), "new.txt\n");
-		const current = await service.createSnapshot(workspace, policy);
-		releaseFirstRead();
-		const stale = await staleBuild;
-		const cached = await service.createSnapshot(workspace, policy);
-
-		expect(stale.evaluate({ path: "old.txt", kind: "file", intent: "search" }).ignored).toBe(true);
-		expect(current.evaluate({ path: "new.txt", kind: "file", intent: "search" }).ignored).toBe(true);
-		expect(cached.generation).toBe(current.generation);
-		expect(cached.generation).not.toBe(stale.generation);
-	});
-
 	it("统一 config ignored_path、来源与 intent prune 语义", async () => {
 		const snapshot = await createVisibilitySnapshot(workspace, createVisibilityPolicy({
 			ignoredPaths: ["cache/", path.join(outside, "secret.txt")],
@@ -520,249 +242,4 @@ describe("ignore engine", () => {
 			diagnostics: [{ sourcePath: ".piignore", code: "UNSUPPORTED_IGNORE_ENCODING" }],
 		});
 	});
-
-	it("工具集成：ls 标记 ignored，read 允许读取，edit 不因 soft ignore 拒绝", async () => {
-		await mkdir(path.join(workspace, "dist"));
-		await writeFile(path.join(workspace, ".piignore"), "dist/\n");
-		await writeFile(path.join(workspace, "dist", "schema.json"), "{\"a\":1}\n");
-
-		expect(await listWorkspaceDirectory(workspace, { path: "." })).toMatchObject({
-			entries: [
-				{ name: "dist", path: "dist", type: "directory", ignored: true, ignore_source: ".piignore" },
-				{ name: ".piignore", path: ".piignore", type: "file" },
-			],
-		});
-		expect(await listWorkspaceDirectory(workspace, { path: "dist" })).toMatchObject({
-			path: "dist",
-			entries: [{ name: "schema.json", path: "dist/schema.json", type: "file", ignored: true, ignore_source: ".piignore" }],
-		});
-		const read = await readWorkspaceFile(workspace, { path: "dist/schema.json" });
-		expect(read).toMatchObject({ content: "{\"a\":1}\n", ignored: true, ignore_source: ".piignore" });
-		if (!("version" in read)) throw new Error("read failed");
-		expect(
-			await editWorkspace(workspace, {
-				path: "dist/schema.json",
-				edits: [{ old: "{\"a\":1}", new: "{\"a\":2}" }],
-			}),
-		).toMatchObject({ status: "applied" });
-		expect(await readFile(path.join(workspace, "dist", "schema.json"), "utf8")).toBe("{\"a\":2}\n");
-
-		await mkdir(path.join(workspace, ".git"));
-		await writeFile(path.join(workspace, ".git", "config"), "[core]\n");
-		const withGit = await listWorkspaceDirectory(workspace, { path: "." });
-		if ("status" in withGit) throw new Error("ls failed");
-		expect(withGit.entries.find((entry) => entry.name === ".git")).toBeUndefined();
-		expect(await readWorkspaceFile(workspace, { path: ".git/config" })).toMatchObject({
-			status: "failed",
-			error: { code: "PROTECTED_PATH" },
-		});
-	});
-
-	it("成功 edit 修改 .piignore 后，后续工具调用使用新规则", async () => {
-		await writeFile(path.join(workspace, ".piignore"), "old.txt\n");
-		await writeFile(path.join(workspace, "old.txt"), "old\n");
-		await writeFile(path.join(workspace, "new.txt"), "new\n");
-		const before = await readWorkspaceFile(workspace, { path: ".piignore" });
-		if (!("version" in before)) throw new Error("read failed");
-		await editWorkspace(workspace, {
-			path: ".piignore",
-			edits: [{ old: "old.txt", new: "new.txt" }],
-		});
-		const listed = await listWorkspaceDirectory(workspace, { path: "." });
-		expect(listed).toMatchObject({
-			entries: [{ name: ".piignore" }, { name: "new.txt", ignored: true }, { name: "old.txt" }],
-		});
-		if ("status" in listed) throw new Error("ls failed");
-		expect(listed.entries.find((entry) => entry.name === ".piignore")).not.toHaveProperty("ignored");
-		expect(listed.entries.find((entry) => entry.name === "old.txt")).not.toHaveProperty("ignored");
-	});
-
-	it("可选 Git 差分：基础 .gitignore 结果与 git check-ignore 一致", async () => {
-		if (!(await hasGit())) return;
-		await execFileAsync("git", ["init"], { cwd: workspace });
-		await mkdir(path.join(workspace, "src"));
-		await mkdir(path.join(workspace, "build"));
-		await writeFile(path.join(workspace, ".gitignore"), "*.log\nbuild/\n!important.log\n");
-		await writeFile(path.join(workspace, "src", ".gitignore"), "local.tmp\n");
-		await writeFile(path.join(workspace, "debug.log"), "");
-		await writeFile(path.join(workspace, "important.log"), "");
-		await writeFile(path.join(workspace, "src", "local.tmp"), "");
-		await writeFile(path.join(workspace, "src", "keep.tmp"), "");
-
-		const snapshot = await createIgnoreSnapshot(workspace, {
-			builtinProfile: "none",
-			piignore: { enabled: false },
-			gitignore: { trackedFilesBypass: false },
-			caseSensitivity: "sensitive",
-		});
-		for (const candidate of ["debug.log", "build/", "important.log", "src/local.tmp", "src/keep.tmp"]) {
-			const engineIgnored = snapshot.evaluate({
-				path: candidate.replace(/\/$/, ""),
-				kind: candidate.endsWith("/") ? "directory" : "file",
-				intent: "search",
-			}).ignored;
-			expect(engineIgnored).toBe(await gitCheckIgnore(candidate));
-		}
-	});
 });
-
-interface DeferredVoid {
-	readonly promise: Promise<void>;
-	resolve(): void;
-}
-
-interface ControlledNative {
-	readonly native: NativeFileSystem;
-	readonly started: DeferredVoid;
-	readonly release: DeferredVoid;
-	readonly ownerAborted: DeferredVoid;
-	ownerAborts(): number;
-}
-
-function controlledVisibilityNative(root: string): ControlledNative & {
-	readonly secondRealpath: DeferredVoid;
-	rootReads(): number;
-} {
-	const base = new NodeNativeFileSystem();
-	const started = deferredVoid();
-	const release = deferredVoid();
-	const ownerAborted = deferredVoid();
-	const secondRealpath = deferredVoid();
-	const canonicalRoot = path.resolve(root);
-	let realpaths = 0;
-	let rootReads = 0;
-	let ownerAborts = 0;
-	return {
-		started,
-		release,
-		ownerAborted,
-		secondRealpath,
-		ownerAborts: () => ownerAborts,
-		rootReads: () => rootReads,
-		native: {
-			lstat: base.lstat.bind(base),
-			stat: base.stat.bind(base),
-			async realpath(filePath, options) {
-				const resolved = await base.realpath(filePath, options);
-				if (path.resolve(filePath) === canonicalRoot) {
-					realpaths += 1;
-					if (realpaths >= 2) secondRealpath.resolve();
-				}
-				return resolved;
-			},
-			async readdir(directory, options) {
-				if (path.resolve(directory) !== canonicalRoot) return await base.readdir(directory, options);
-				rootReads += 1;
-				started.resolve();
-				await waitForReleaseOrAbort(options?.signal, release.promise, directory, () => {
-					ownerAborts += 1;
-					ownerAborted.resolve();
-				});
-				return await base.readdir(directory, options);
-			},
-			readlink: base.readlink.bind(base),
-			read: base.read.bind(base),
-			open: base.open.bind(base),
-			atomicReplace: base.atomicReplace.bind(base),
-			mkdir: base.mkdir.bind(base),
-		},
-	};
-}
-
-function controlledGitNative(root: string): ControlledNative & { readonly secondMarker: DeferredVoid } {
-	const base = new NodeNativeFileSystem();
-	const started = deferredVoid();
-	const release = deferredVoid();
-	const ownerAborted = deferredVoid();
-	const secondMarker = deferredVoid();
-	const gitMarker = path.join(path.resolve(root), ".git");
-	const gitConfig = path.join(gitMarker, "config");
-	let markerReads = 0;
-	let ownerAborts = 0;
-	return {
-		started,
-		release,
-		ownerAborted,
-		secondMarker,
-		ownerAborts: () => ownerAborts,
-		native: {
-			async lstat(filePath, options) {
-				const resolvedPath = path.resolve(filePath);
-				if (resolvedPath === gitMarker) {
-					const metadata = await base.lstat(filePath, options);
-					markerReads += 1;
-					if (markerReads >= 2) secondMarker.resolve();
-					return metadata;
-				}
-				if (resolvedPath !== gitConfig) return await base.lstat(filePath, options);
-				started.resolve();
-				await waitForReleaseOrAbort(options?.signal, release.promise, filePath, () => {
-					ownerAborts += 1;
-					ownerAborted.resolve();
-				});
-				return await base.lstat(filePath, options);
-			},
-			stat: base.stat.bind(base),
-			realpath: base.realpath.bind(base),
-			readdir: base.readdir.bind(base),
-			readlink: base.readlink.bind(base),
-			read: base.read.bind(base),
-			open: base.open.bind(base),
-			atomicReplace: base.atomicReplace.bind(base),
-			mkdir: base.mkdir.bind(base),
-		},
-	};
-}
-
-async function waitForReleaseOrAbort(
-	signal: AbortSignal | undefined,
-	release: Promise<void>,
-	filePath: string,
-	onAbort: () => void,
-): Promise<void> {
-	let abortListener: (() => void) | undefined;
-	let observed = false;
-	const canceled = new Promise<void>((_resolve, reject) => {
-		abortListener = () => {
-			if (observed) return;
-			observed = true;
-			onAbort();
-			reject(new NativeFileSystemError("aborted", "test", filePath));
-		};
-		if (signal?.aborted === true) abortListener();
-		else signal?.addEventListener("abort", abortListener, { once: true });
-	});
-	try {
-		await Promise.race([release, canceled]);
-	} finally {
-		if (abortListener !== undefined) signal?.removeEventListener("abort", abortListener);
-	}
-}
-
-function deferredVoid(): DeferredVoid {
-	let resolver: (() => void) | undefined;
-	const promise = new Promise<void>((resolve) => { resolver = resolve; });
-	return { promise, resolve() { resolver?.(); } };
-}
-
-async function nextImmediate(): Promise<void> {
-	await new Promise<void>((resolve) => setImmediate(resolve));
-}
-
-async function hasGit(): Promise<boolean> {
-	try {
-		await execFileAsync("git", ["--version"]);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-async function gitCheckIgnore(candidate: string): Promise<boolean> {
-	try {
-		await execFileAsync("git", ["check-ignore", "-q", candidate], { cwd: workspace });
-		return true;
-	} catch {
-		return false;
-	}
-}

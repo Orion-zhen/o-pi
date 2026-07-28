@@ -2,23 +2,24 @@ import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { Discovery, DiscoveryEvent } from "../../src/filesystem/contracts/discovery.js";
+import type { DiscoveryEvent } from "../../src/filesystem/contracts/discovery.js";
 import type { DirectoryRef, FileRef } from "../../src/filesystem/contracts/path.js";
-import type { FsResult } from "../../src/filesystem/contracts/result.js";
-import type { VisibilityPolicy } from "../../src/filesystem/contracts/visibility.js";
-import { createWorkspaceNamespace, type WorkspaceNamespaceKernel } from "../../src/filesystem/kernel/namespace.js";
 import {
 	NativeFileSystemError,
 	NodeNativeFileSystem,
 	type NativeFileSystem,
 } from "../../src/filesystem/platform/node/native-filesystem.js";
-import {
-	createReadonlyFileSystemServices,
-	type ReadonlyFileSystemServices,
-} from "../../src/filesystem/services/readonly.js";
-import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
-import { WorkspaceVisibilityService } from "../../src/filesystem/services/visibility/service.js";
+import type { ReadonlyFileSystemServices } from "../../src/filesystem/services/readonly.js";
 import { useTempDir } from "../helpers/lifecycle.js";
+import {
+	collectAsync,
+	expectFsOk,
+	openReadonly,
+	overrideNativeFileSystem,
+	resolveDirectory,
+	resolveFile,
+	type OpenedReadonly,
+} from "./fixtures.js";
 
 const temp = useTempDir("o-pi-discovery-");
 let workspace: string;
@@ -36,7 +37,7 @@ describe("filesystem discovery", () => {
 		"C:/src/*.ts",
 		"src/\0*.ts",
 	] as const)("拒绝越出 root 的 glob：%s", async (glob) => {
-		const opened = await openReadonly();
+		const opened = await openReadonly(workspace);
 		expect(await opened.services.discovery.discover(opened.namespace.root, { intent: "search", glob }, {})).toMatchObject({
 			ok: false,
 			error: { code: "invalid-path" },
@@ -50,7 +51,7 @@ describe("filesystem discovery", () => {
 		await writeFile(path.join(workspace, "src", "a.ts"), "a");
 		await writeFile(path.join(workspace, "src", "deep", "b.ts"), "b");
 		await writeFile(path.join(workspace, "src", "deep", "skip.js"), "skip");
-		const opened = await openReadonly();
+		const opened = await openReadonly(workspace);
 
 		const events = await discover(opened, opened.namespace.root, { glob: "*.ts", kind: "file" });
 		const entries = events.filter((event) => event.type === "entry");
@@ -75,7 +76,7 @@ describe("filesystem discovery", () => {
 		await writeFile(path.join(workspace, "src", "deep", "b.ts"), "b");
 		await writeFile(path.join(workspace, "other", "c.ts"), "c");
 		const reads: string[] = [];
-		const opened = await openReadonly({ native: observeReaddir(new NodeNativeFileSystem(), reads) });
+		const opened = await openReadonly(workspace, { native: observeReaddir(new NodeNativeFileSystem(), reads) });
 		reads.length = 0;
 
 		const matched = await discover(opened, opened.namespace.root, { glob: "src/**/*.ts", kind: "file" });
@@ -93,7 +94,7 @@ describe("filesystem discovery", () => {
 		await mkdir(path.join(workspace, "packages", "api"), { recursive: true });
 		await mkdir(path.join(workspace, "packages", "web"), { recursive: true });
 		await writeFile(path.join(workspace, "packages", "note.txt"), "note");
-		const opened = await openReadonly();
+		const opened = await openReadonly(workspace);
 
 		const events = await discover(opened, opened.namespace.root, { glob: "packages/*/", kind: "directory" });
 		expect(entryPaths(events)).toEqual(["packages/api", "packages/web"]);
@@ -102,7 +103,7 @@ describe("filesystem discovery", () => {
 	it("文件 root 只以 basename 匹配且不扩大范围", async () => {
 		await mkdir(path.join(workspace, "src"));
 		await writeFile(path.join(workspace, "src", "a.ts"), "a");
-		const opened = await openReadonly();
+		const opened = await openReadonly(workspace);
 		const file = await resolveFile(opened.namespace, "src/a.ts");
 		expect(entryPaths(await discover(opened, file, { glob: "*.ts", kind: "file" }))).toEqual(["a.ts"]);
 		expect(await discover(opened, file, { glob: "src/*.ts", kind: "file" })).toEqual([]);
@@ -112,7 +113,7 @@ describe("filesystem discovery", () => {
 	it.skipIf(process.platform === "win32")("显式文件 symlink 可跟随，目录 child symlink 不跟随", async () => {
 		await writeFile(path.join(workspace, "real.ts"), "real");
 		await symlink("real.ts", path.join(workspace, "alias.ts"));
-		const opened = await openReadonly();
+		const opened = await openReadonly(workspace);
 		const alias = await resolveFile(opened.namespace, "alias.ts");
 		expect(entryPaths(await discover(opened, alias, { kind: "file" }))).toEqual(["alias.ts"]);
 
@@ -127,7 +128,7 @@ describe("filesystem discovery", () => {
 		await mkdir(path.join(workspace, "ignored", "deep"), { recursive: true });
 		await writeFile(path.join(workspace, "ignored", "deep", "explicit.ts"), "ignored");
 		await writeFile(path.join(workspace, ".piignore"), "ignored/\n");
-		const opened = await openReadonly();
+		const opened = await openReadonly(workspace);
 		const ignored = await resolveDirectory(opened.namespace, "ignored");
 
 		expect(await discover(opened, ignored, { glob: "deep/*.ts", kind: "file" })).toEqual([
@@ -148,7 +149,7 @@ describe("filesystem discovery", () => {
 		await writeFile(path.join(workspace, "src", "one.ts"), "one");
 		await writeFile(path.join(workspace, "src", "nested", "two.ts"), "two");
 		await writeFile(path.join(workspace, "src", "nested", "deep", "three.ts"), "three");
-		const opened = await openReadonly();
+		const opened = await openReadonly(workspace);
 
 		const events = await discover(opened, opened.namespace.root, {
 			glob: "src/**/*.ts",
@@ -165,7 +166,7 @@ describe("filesystem discovery", () => {
 		await mkdir(path.join(workspace, "real"));
 		await writeFile(path.join(workspace, "real", "x.ts"), "x");
 		await symlink("real", path.join(workspace, "linked"), "dir");
-		const opened = await openReadonly();
+		const opened = await openReadonly(workspace);
 		const events = await discover(opened, opened.namespace.root, { glob: "linked/**/*.ts", kind: "file" });
 		expect(events).toEqual([expect.objectContaining({ type: "skip", path: "linked", reason: "symlink" })]);
 	});
@@ -176,7 +177,7 @@ describe("filesystem discovery", () => {
 		await writeFile(path.join(workspace, "z.txt"), "z");
 		const base = new NodeNativeFileSystem();
 		const brokenPath = path.join(workspace, "broken.txt");
-		const opened = await openReadonly({ native: overrideLstat(base, brokenPath) });
+		const opened = await openReadonly(workspace, { native: overrideLstat(base, brokenPath) });
 
 		const partial = await discover(opened, opened.namespace.root, { kind: "file" });
 		expect(entryPaths(partial)).toEqual(["a.txt", "z.txt"]);
@@ -185,7 +186,7 @@ describe("filesystem discovery", () => {
 		]));
 
 		const controller = new AbortController();
-		const cancelled = expectOk(await opened.services.discovery.discover(
+		const cancelled = expectFsOk(await opened.services.discovery.discover(
 			opened.namespace.root,
 			{ intent: "search", kind: "file" },
 			{ signal: controller.signal },
@@ -197,13 +198,13 @@ describe("filesystem discovery", () => {
 		}
 		expect(cancelledEvents.at(-1)).toMatchObject({ type: "error", error: { code: "aborted" } });
 
-		const closed = expectOk(await opened.services.discovery.discover(opened.namespace.root, { intent: "search" }, {}));
+		const closed = expectFsOk(await opened.services.discovery.discover(opened.namespace.root, { intent: "search" }, {}));
 		await closed.close();
-		expect(await collect(closed)).toEqual([]);
+		expect(await collectAsync(closed)).toEqual([]);
 
-		const early = expectOk(await opened.services.discovery.discover(opened.namespace.root, { intent: "search" }, {}));
+		const early = expectFsOk(await opened.services.discovery.discover(opened.namespace.root, { intent: "search" }, {}));
 		for await (const _event of early) break;
-		expect(await collect(early)).toEqual([
+		expect(await collectAsync(early)).toEqual([
 			expect.objectContaining({ type: "error", error: expect.objectContaining({ code: "invalid-path" }) }),
 		]);
 	});
@@ -211,10 +212,10 @@ describe("filesystem discovery", () => {
 	it("将活动 discovery 绑定到 readonly owner signal", async () => {
 		await writeFile(path.join(workspace, "a.txt"), "a");
 		const owner = new AbortController();
-		const opened = await openReadonly({ ownerSignal: owner.signal });
-		const stream = expectOk(await opened.services.discovery.discover(opened.namespace.root, { intent: "search" }, {}));
+		const opened = await openReadonly(workspace, { ownerSignal: owner.signal });
+		const stream = expectFsOk(await opened.services.discovery.discover(opened.namespace.root, { intent: "search" }, {}));
 		owner.abort("lease closed");
-		expect(await collect(stream)).toEqual([
+		expect(await collectAsync(stream)).toEqual([
 			expect.objectContaining({ type: "error", error: expect.objectContaining({ code: "aborted" }) }),
 		]);
 		expect(await opened.services.discovery.discover(opened.namespace.root, { intent: "search" }, {})).toMatchObject({
@@ -225,7 +226,7 @@ describe("filesystem discovery", () => {
 
 	it("在公开边界验证 limit，并让显式文件的 entry limit 零开销结束", async () => {
 		await writeFile(path.join(workspace, "a.txt"), "a");
-		const opened = await openReadonly();
+		const opened = await openReadonly(workspace);
 		for (const options of [{ maxDepth: -1 }, { maxEntries: -1 }]) {
 			expect(await opened.services.discovery.discover(opened.namespace.root, { intent: "search", ...options }, {})).toMatchObject({
 				ok: false,
@@ -239,107 +240,33 @@ describe("filesystem discovery", () => {
 	});
 });
 
-interface OpenedReadonly {
-	readonly namespace: WorkspaceNamespaceKernel;
-	readonly services: ReadonlyFileSystemServices;
-}
-
-async function openReadonly(options: {
-	readonly native?: NativeFileSystem;
-	readonly policy?: VisibilityPolicy;
-	readonly ownerSignal?: AbortSignal;
-} = {}): Promise<OpenedReadonly> {
-	const native = options.native ?? new NodeNativeFileSystem();
-	const namespace = expectOk(await createWorkspaceNamespace({
-		workspaceRoot: workspace,
-		blockedPaths: [],
-		native,
-		...(options.ownerSignal === undefined ? {} : { context: { signal: options.ownerSignal } }),
-	}));
-	const visibilitySnapshot = await new WorkspaceVisibilityService(native).createSnapshot(
-		workspace,
-		options.policy ?? createVisibilityPolicy({ ignore: { builtinProfile: "none" } }),
-	);
-	return {
-		namespace,
-		services: createReadonlyFileSystemServices({
-			native,
-			namespace,
-			visibilitySnapshot,
-			...(options.ownerSignal === undefined ? {} : { ownerSignal: options.ownerSignal }),
-		}),
-	};
-}
-
 async function discover(
 	opened: OpenedReadonly,
 	root: FileRef | DirectoryRef,
 	options: Omit<Parameters<ReadonlyFileSystemServices["discovery"]["discover"]>[1], "intent">,
 ): Promise<DiscoveryEvent[]> {
-	const stream = expectOk(await opened.services.discovery.discover(root, { intent: "search", ...options }, {}));
-	return await collect(stream);
-}
-
-async function collect(stream: Discovery): Promise<DiscoveryEvent[]> {
-	const events: DiscoveryEvent[] = [];
-	for await (const event of stream) events.push(event);
-	return events;
+	const stream = expectFsOk(await opened.services.discovery.discover(root, { intent: "search", ...options }, {}));
+	return await collectAsync(stream);
 }
 
 function entryPaths(events: readonly DiscoveryEvent[]): string[] {
 	return events.filter((event) => event.type === "entry").map((event) => event.relativePath);
 }
 
-async function resolveFile(namespace: WorkspaceNamespaceKernel, input: string): Promise<FileRef> {
-	const ref = expectOk(await namespace.paths.resolveExisting(input, { expected: "file", followFinalSymlink: true }, {}));
-	if (ref.kind !== "file") throw new Error(`Expected file ref for ${input}.`);
-	return ref;
-}
-
-async function resolveDirectory(namespace: WorkspaceNamespaceKernel, input: string): Promise<DirectoryRef> {
-	const ref = expectOk(await namespace.paths.resolveExisting(input, { expected: "directory", followFinalSymlink: true }, {}));
-	if (ref.kind !== "directory") throw new Error(`Expected directory ref for ${input}.`);
-	return ref;
-}
-
-function expectOk<T>(result: FsResult<T>): T {
-	if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`);
-	return result.value;
-}
-
 function observeReaddir(base: NativeFileSystem, reads: string[]): NativeFileSystem {
-	return wrapNative(base, {
-		readdir(pathname) { reads.push(pathname); },
-	});
+	return overrideNativeFileSystem({
+		async readdir(pathname, options) {
+			reads.push(pathname);
+			return await base.readdir(pathname, options);
+		},
+	}, base);
 }
 
 function overrideLstat(base: NativeFileSystem, deniedPath: string): NativeFileSystem {
-	return wrapNative(base, {
-		lstat(pathname) {
-			if (pathname === deniedPath) throw new NativeFileSystemError("access-denied", "lstat", pathname);
-		},
-	});
-}
-
-function wrapNative(base: NativeFileSystem, overrides: {
-	readonly lstat?: (path: string) => void;
-	readonly readdir?: (path: string) => void;
-}): NativeFileSystem {
-	return {
+	return overrideNativeFileSystem({
 		async lstat(pathname, options) {
-			overrides.lstat?.(pathname);
+			if (pathname === deniedPath) throw new NativeFileSystemError("access-denied", "lstat", pathname);
 			return await base.lstat(pathname, options);
 		},
-		stat: (pathname, options) => base.stat(pathname, options),
-		realpath: (pathname, options) => base.realpath(pathname, options),
-		async readdir(pathname, options) {
-			overrides.readdir?.(pathname);
-			return await base.readdir(pathname, options);
-		},
-		readlink: (pathname, options) => base.readlink(pathname, options),
-		read: (pathname, options) => base.read(pathname, options),
-		open: (pathname, options) => base.open(pathname, options),
-		atomicReplace: (pathname, bytes, options) => base.atomicReplace(pathname, bytes, options),
-		mkdir: (pathname, options) => base.mkdir(pathname, options),
-	};
+	}, base);
 }
