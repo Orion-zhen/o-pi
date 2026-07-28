@@ -6,7 +6,7 @@ import { findWorkspaceFiles } from "../helpers/find-tool.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import { buildRepoMapArchitecture } from "../../src/repo-map/indexing/architecture-indexer.js";
 import { createRepoMapFileToolQuery } from "../../src/repo-map/query/file-tool-query.js";
-import { buildRepoMapLexicalAliases } from "../../src/repo-map/indexing/lexical-indexer.js";
+import { buildRepoMapLexicalAliases, lexicalTerms } from "../../src/repo-map/indexing/lexical-indexer.js";
 import { RepoMapQueryIndex } from "../../src/repo-map/query/query.js";
 import { buildRepoMapRelationships } from "../../src/repo-map/indexing/relationship-indexer.js";
 import { initializeRepoMap } from "../../src/repo-map/runtime/service.js";
@@ -57,6 +57,69 @@ describe("Repo Map lexical projection", () => {
 		expect(index.candidates("cmd").explanation.expandedTerms).toContain("command");
 		expect(index.candidates("cmd").candidates.map((candidate) => candidate.path)).toContain("agent/extensions/tools.ts");
 		expect(index.candidates("inspect cfg").candidates.map((candidate) => candidate.path)).toContain("agent/extensions/tools.ts");
+	});
+
+	it("keeps the exact per-target top-k while merging evidence for retained aliases", async () => {
+		const file: RepoMapFileRecord = { id: "file:0.ts", path: "0.ts", size: 0, mtimeMs: 1, status: "too_large" };
+		const lowConfidence = Array.from({ length: 100 }, (_, index) => ({
+			...edge(file.id, `external:low:${index}`, "imports", 0.9, "syntactic", file.path),
+			lexicalTarget: `lowalias${index.toString().padStart(3, "0")}`,
+		}));
+		const highConfidence = Array.from({ length: 10 }, (_, index) => ({
+			...edge(file.id, `external:high:${index}`, "calls", 0.9, "syntactic", file.path),
+			lexicalTarget: `highalias${index.toString().padStart(3, "0")}`,
+		}));
+		const duplicate = {
+			...edge(file.id, "external:duplicate", "calls", 0.9, "syntactic", file.path),
+			lexicalTarget: "highalias000",
+			evidence: [{ path: file.path, startLine: 2, endLine: 2, startByte: 2, endByte: 3 }],
+		};
+
+		const aliases = await buildRepoMapLexicalAliases({
+			root: temp.path,
+			files: [file],
+			symbols: [],
+			architecture: [],
+			edges: [...lowConfidence, ...highConfidence, duplicate],
+			concurrency: 2,
+		});
+
+		expect(aliases).toHaveLength(96);
+		expect(aliases.filter((alias) => alias.term.startsWith("highalias"))).toHaveLength(10);
+		expect(aliases.filter((alias) => alias.term.startsWith("lowalias"))).toHaveLength(86);
+		expect(aliases.some((alias) => alias.term === "lowalias085")).toBe(true);
+		expect(aliases.some((alias) => alias.term === "lowalias086")).toBe(false);
+		expect(aliases.find((alias) => alias.term === "highalias000")?.evidence).toHaveLength(2);
+	});
+
+	it("streams source aliases for a 500k-line codebase beyond V8's argument limit", async () => {
+		const suffixes = ["ALPHA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT", "GOLF"];
+		const environmentNames = suffixes.map((suffix) => `LARGE_REPOSITORY_ALIAS_${suffix}`);
+		const linesPerFile = 100;
+		const source = Array.from({ length: linesPerFile }, (_, index) =>
+			index < environmentNames.length ? `const ${environmentNames[index]} = true;` : "").join("\n");
+		const template = fileRecord("0.ts", source);
+		const fileCount = 5_000;
+		const files = Array.from({ length: fileCount }, (_, index): RepoMapFileRecord => {
+			const filePath = `${index}.ts`;
+			return { ...template, id: `file:${filePath}`, path: filePath };
+		});
+
+		const aliases = await buildRepoMapLexicalAliases({
+			root: temp.path,
+			files,
+			symbols: [],
+			architecture: [],
+			edges: [],
+			concurrency: 8,
+			readText: async () => source,
+		});
+
+		const generatedAliasCount = fileCount * environmentNames.reduce((count, name) => count + lexicalTerms(name).length, 0);
+		const retainedTermsPerFile = new Set(environmentNames.flatMap(lexicalTerms)).size;
+		expect(fileCount * linesPerFile).toBe(500_000);
+		expect(generatedAliasCount).toBeGreaterThan(150_000);
+		expect(aliases).toHaveLength(fileCount * retainedTermsPerFile);
 	});
 
 	it("walks at most two hops, stops low-confidence lexical propagation, and suppresses hub fan-out", () => {
