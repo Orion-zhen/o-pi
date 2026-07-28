@@ -4,26 +4,27 @@
 
 ## Family-aware weighted RRF
 
-证据分为四个独立 family：
+证据分为五个独立 family：
 
 | family | 来源 |
 | --- | --- |
-| lexical | path、literal/regex occurrence、BM25/text fallback |
-| semantic | LSP workspace symbol 或低权重 reference |
-| structural | Tree-sitter definition/symbol、已验证的 Repo Map hop 0 direct evidence |
-| graph | Repo Map hop 1/2、本地一跳关系 |
+| factual | 当前正文的 literal/regex occurrence |
+| symbol | Tree-sitter definition/symbol |
+| lexical | path、BM25 与 text fallback |
+| semantic | LSP symbol/reference 与已验证的 Repo Map direct evidence |
+| graph | Repo Map hop 1/2 与本地一跳关系 |
 
 每个有效来源按自身已验证顺序取得一基 rank：
 
 ```text
-sourceContribution = sourceWeight * confidence / (60 + sourceRank)
+sourceContribution = sourceWeight * confidence * hopFactor / (60 + sourceRank)
 familyContribution = max(sourceContribution in family)
 fusionScore = sum(familyContribution)
 ```
 
-默认权重集中在 `src/file-tools/shared/ranking/evidence.ts`：path/text/AST symbol 为 `1.0`，BM25 为 `0.9`，LSP workspace symbol 为 `0.95`，LSP reference 为 `0.5`，Repo Map direct 为 `0.85`，本地一跳与 Repo Map hop 1 为 `0.35`，hop 2 为 `0.18`。
+权重集中在 `src/file-tools/grep/ranking.ts`，并按 strict、identifier、qualified symbol、long text、natural language 和 relation 查询策略分别校准。`RankingEvidenceSummary` 只保存五个 family 的最大贡献、family count、总分和最大贡献。
 
-固定宽度 `RankingEvidence` 只保存四个 family 的最大贡献、mask、family count、总分和最大贡献。合并与比较为 `O(1)`，热路径不分配动态证据集合。
+单 identifier 已获得 exact symbol 时，同一正文派生的 lexical 证据仍可展示，但不再作为独立 family 累加；它不是相对于 symbol/literal 的独立共识。
 
 ## Repo Map 校准
 
@@ -47,7 +48,18 @@ Repo Map 候选必须通过当前文件 content hash；自动模式还保留 rel
 
 ### Tree-sitter / text
 
-Tree-sitter/text 按 tier、来源内 BM25、真实命中行数、路径 token、region 大小及稳定范围排序。definition/symbol 提供 structural family；实时 occurrence 提供 lexical family。同一 region 可以同时获得两个 family，但每个 family 仍只保留最大贡献。
+Tree-sitter/text 按 tier、来源内 BM25、真实命中行数、路径 token、region 大小及稳定范围排序。definition/symbol 提供 symbol family；实时 occurrence 提供 factual family。同一 region 可以同时获得多个 family，但每个 family 仍只保留最大贡献。
+
+### Symbol 语义与测试上下文
+
+exact/prefix 不信任检索来源的自报标签，由 ranker 根据规范化查询和候选名称统一推导：
+
+- 裸 identifier 只与叶子 symbol 比较；
+- qualified symbol 与完整 qualified name 比较；
+- qualified query 只有叶子相等时是 exact member；
+- prefix 始终检查叶子名称，不会被 qualified name 遮蔽。
+
+普通 identifier/qualified 查询对 `test` role 施加有界上下文 tier 惩罚，使生产 direct/prefix 候选可以超过测试中的偶然同名声明；测试候选不会被过滤。显式 test/spec 意图取消该惩罚，并由 requested relation tier 提升测试候选。该规则只依赖 role，不硬编码 `src/`、`lib/` 或 `packages/` 路径。
 
 ### LSP
 

@@ -58,7 +58,7 @@ function buildCandidates(size) {
 			startByte: index * 100,
 			endByte: index * 100 + 80,
 			kind: "function",
-			symbol: `symbol${index % 512}`,
+			symbol: signal === "exact_symbol_definition" ? "login" : `symbol${index % 512}`,
 			roles: role === "definition" ? ["definition"] : ["definition", role],
 			signals: [signal],
 			evidence: [{ source, rank: index + 1, confidence: 1, reason: source }],
@@ -122,8 +122,8 @@ function validateFixedScenarios() {
 		index < 4 ? "src/login.ts" : `src/file-${index}.ts`,
 	));
 	const selected = selectRankedRegions(rankCodeRegions(queryPlan("login"), diverse), 7);
-	if (!sameIds(selected.slice(0, 3), diverse.slice(0, 3)) || !selected.some((candidate) => candidate.roles.includes("test"))) {
-		throw new Error("relevance head or role diversity changed");
+	if (selected[0]?.id !== "role-5" || selected.some((candidate) => candidate.roles.includes("test"))) {
+		throw new Error("context-aware relevance head or role diversity changed");
 	}
 }
 
@@ -174,9 +174,13 @@ function similarity(left, right) {
 }
 
 function region(id, signal, source, rank, roles = ["definition"], path = `${id}.ts`) {
+	const exactSymbol = signal === "exact_symbol_definition" ? "login" : undefined;
+	const exactQualified = signal === "exact_qualified_definition" ? "AuthService.login" : undefined;
 	return {
 		id,
 		path,
+		...(exactSymbol === undefined && exactQualified === undefined ? {} : { symbol: exactSymbol ?? "login" }),
+		...(exactQualified === undefined ? {} : { qualifiedSymbol: exactQualified }),
 		startLine: rank,
 		endLine: rank + 2,
 		startByte: rank * 10,

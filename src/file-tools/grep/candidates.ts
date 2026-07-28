@@ -173,7 +173,8 @@ export type RankedRegion = CodeRegion & {
 	readonly tier: number;
 	readonly ranking: RankingEvidenceSummary;
 	readonly verifiedCoverage: number;
-	readonly requestedRolePriority: number;
+	readonly contextPriority: number;
+	readonly rolePriority: number;
 };
 
 type DerivedDisplayFields = "lane" | "matchedBy" | "displayLines";

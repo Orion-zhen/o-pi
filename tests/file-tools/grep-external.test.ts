@@ -611,6 +611,17 @@ describe("grep external", () => {
 		expect(countTextTokensSync(formatCompactGrepResult(result)).tokens).toBeLessThanOrEqual(220);
 	});
 
+	it("普通 symbol 查询优先生产 prefix，显式 test 查询恢复测试优先级", async () => {
+		await writeFile(path.join(testContext.workspace, "grep-runtime.ts"), "export function grepAuto() { return true; }\n");
+		await writeFile(path.join(testContext.workspace, "grep-runtime.test.ts"), "export const grep = () => true;\n");
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "grep" }));
+		expect(firstRegion(result)).toMatchObject({ path: "grep-runtime.ts", symbol: "grepAuto" });
+		expect(result.regions.find((region) => region.path === "grep-runtime.test.ts")?.matched_by).toContain("exact-symbol");
+		expect(result.regions.find((region) => region.path === "grep-runtime.test.ts")?.matched_by).not.toContain("exact-qualified-symbol");
+		const tests = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "tests for grep" }));
+		expect(firstRegion(tests).path).toBe("grep-runtime.test.ts");
+	});
+
 	it("多文件结果先覆盖不同文件，test 查询把测试意图作为来源内排序依据", async () => {
 		await writeFile(path.join(testContext.workspace, "service.ts"), "export function login() { return true; }\n");
 		await writeFile(path.join(testContext.workspace, "service.test.ts"), "export function loginTest() { return login(); }\n");

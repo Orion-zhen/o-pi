@@ -4,7 +4,7 @@
 
 ## Relevance head 与 MMR
 
-融合候选先按完整 relevance 排序。选择器参数集中在 `src/file-tools/shared/ranking/selection.ts`：
+融合候选先按 tier、查询上下文优先级、family-aware RRF、verified coverage 和稳定键完成 relevance 排序。选择器参数集中在 `src/file-tools/grep/ranking.ts`：
 
 - `HEAD_SIZE = 3`：前三条原样保留；limit 小于等于 3 时结果就是 relevance Top-K。
 - `lambda = 0.85`。
@@ -19,15 +19,15 @@ utility = 0.85 * normalizedRelevance
 
 每一步只在当前最优 tier 内选择，因此多样性不能提升较差 tier。`find` 相似度使用 identity、basename、顶层 component 和 kind；`grep` 使用 identity、symbol、path、candidate role 和 component。相似度只是软惩罚。
 
-MMR 结束后，tail 恢复完整 relevance 顺序，relevance head 保持在最前。同 tier 候选若 RRF 分数低于该 tier 最佳分数的 30%，会被 cutoff；该 tier 没有有效证据时不截断。
+MMR 返回确定性的选择顺序，relevance head 保持在最前；不使用按分数比例删除合格候选的 cutoff。
 
 ## Main、nearby 与 related
 
 主结果需要直接 path、symbol 或 textual 证据，或者查询明确要求关系角色。轻量 intent 规则识别 caller/callee/reference、test/mock/fixture、registration/entrypoint 等明显 token：
 
-- `login`：definition 为 main；仅图传播得到的 caller/test 为 related。
+- `login`：definition 为 main；仅图传播得到的 caller/test 为 related。普通 identifier/qualified 查询会有界降权 test role，但不删除测试候选。
 - `callers of login`：caller 可以进入 main，但仍保持 hop tier 和 graph 弱权重。
-- `login tests`：test 关系可以进入 main。
+- `login tests`：test 关系可以进入 main，并取消默认测试上下文降权。
 - `literal` / `regex`：只有实时正文命中进入 main；其他可导航结构候选进入 related。
 
 ### nearby

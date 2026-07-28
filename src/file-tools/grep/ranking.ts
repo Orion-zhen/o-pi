@@ -1,11 +1,12 @@
-import type {
-	CandidateRole,
-	CandidateSignal,
-	CodeRegion,
-	RankedRegion,
-	RankingEvidenceSummary,
-	RegionEvidence,
-	RetrievalSource,
+import {
+	normalizeMatchedBy,
+	type CandidateRole,
+	type CandidateSignal,
+	type CodeRegion,
+	type RankedRegion,
+	type RankingEvidenceSummary,
+	type RegionEvidence,
+	type RetrievalSource,
 } from "./candidates.js";
 import type { QueryPlan, RelationIntent } from "./query-plan.js";
 
@@ -16,6 +17,7 @@ export const GREP_RRF_K = 60;
 export const GREP_RELEVANCE_HEAD_SIZE = 3;
 export const GREP_MMR_LAMBDA = 0.85;
 export const GREP_SIMILARITY_WINDOW = 256;
+export const GREP_TEST_CONTEXT_TIER_PENALTY = 3;
 
 export const GREP_SOURCE_FAMILY: Readonly<Record<RetrievalSource, RankingEvidenceFamily>> = {
 	"text-literal": "factual",
@@ -54,16 +56,15 @@ const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<Can
 		verified_text_line: 3,
 	},
 	identifier: {
-		exact_qualified_definition: 1,
-		exact_symbol_definition: 2,
-		verified_phrase: 3,
-		verified_text: 3,
-		verified_enclosing_region: 3,
-		direct_symbol: 4,
-		symbol_prefix: 5,
-		partial_symbol: 5,
-		lexical_high_coverage: 6,
-		lexical: 7,
+		exact_symbol_definition: 1,
+		verified_phrase: 2,
+		verified_text: 2,
+		verified_enclosing_region: 2,
+		direct_symbol: 3,
+		symbol_prefix: 4,
+		partial_symbol: 4,
+		lexical_high_coverage: 5,
+		lexical: 6,
 	},
 	qualified_symbol: {
 		exact_qualified_definition: 1,
@@ -117,6 +118,9 @@ const FACTUAL_SIGNALS = new Set<CandidateSignal>([
 const SYMBOL_SIGNALS = new Set<CandidateSignal>([
 	"exact_qualified_definition", "exact_symbol_definition", "exact_member_definition", "direct_symbol", "symbol_prefix", "partial_symbol", "target_definition",
 ]);
+const CANONICAL_SYMBOL_MATCH_SIGNALS = new Set<CandidateSignal>([
+	"exact_qualified_definition", "exact_symbol_definition", "exact_member_definition", "symbol_prefix",
+]);
 const LEXICAL_SIGNALS = new Set<CandidateSignal>(["lexical_high_coverage", "lexical"]);
 const RELATION_ROLES = new Set<CandidateRole>(["caller", "callee", "reference", "test", "import", "registration"]);
 const ROLE_BY_INTENT: Readonly<Record<RelationIntent, CandidateRole>> = {
@@ -168,16 +172,18 @@ export function rankCodeRegions(plan: QueryPlan, regions: readonly CodeRegion[])
 		if (!isMainEligible(plan, region)) continue;
 		const evidence = canonicalEvidence(region.evidence);
 		const signals = effectiveSignals(plan, { ...region, evidence });
-		const tier = bestTier(policy, signals);
-		if (tier === undefined) continue;
+		const baseTier = bestTier(policy, signals);
+		if (baseTier === undefined) continue;
 		ranked.push({
 			...region,
 			signals,
 			evidence,
-			tier,
-			ranking: summarizeEvidence(policy, evidence),
+			matchedBy: normalizeMatchedBy(signals, evidence),
+			tier: contextAdjustedTier(plan, baseTier, region.roles),
+			ranking: summarizeEvidence(policy, independentRankingEvidence(plan, signals, evidence)),
 			verifiedCoverage: verifiedCoverage(region),
-			requestedRolePriority: rolePriority(plan, region.roles),
+			contextPriority: contextPriority(plan, region.roles),
+			rolePriority: rolePriority(plan, region.roles),
 		});
 	}
 	return ranked.sort(compareRankedRegions);
@@ -191,9 +197,10 @@ export function rankingPolicyFor(plan: QueryPlan): RankingPolicyKey {
 
 export function compareRankedRegions(left: RankedRegion, right: RankedRegion): number {
 	return left.tier - right.tier
+		|| right.contextPriority - left.contextPriority
 		|| right.ranking.fusionScore - left.ranking.fusionScore
 		|| right.verifiedCoverage - left.verifiedCoverage
-		|| right.requestedRolePriority - left.requestedRolePriority
+		|| right.rolePriority - left.rolePriority
 		|| regionSize(left) - regionSize(right)
 		|| compareString(left.path, right.path)
 		|| left.startLine - right.startLine
@@ -283,24 +290,42 @@ function weights(overrides: Partial<Record<RetrievalSource, number>>): Readonly<
 }
 
 function effectiveSignals(plan: QueryPlan, region: CodeRegion): CandidateSignal[] {
-	const candidates = [...region.signals, ...derivedSignals(plan, region)];
+	const claimed = region.signals.filter((signal) => !CANONICAL_SYMBOL_MATCH_SIGNALS.has(signal));
+	const candidates = [...claimed, ...derivedSignals(plan, region)];
 	return [...new Set(candidates)].filter((signal) => signalSupported(plan, region, signal));
 }
 
 function derivedSignals(plan: QueryPlan, region: CodeRegion): CandidateSignal[] {
 	const result: CandidateSignal[] = [];
-	const target = normalizeSymbol(plan.targetQuery.length > 0 ? plan.targetQuery : plan.query);
-	const symbol = normalizeSymbol(region.qualifiedSymbol ?? region.symbol ?? "");
-	const member = lastSymbolSegment(symbol);
-	if (region.roles.includes("definition") && target.length > 0 && symbol.length > 0) {
-		if (symbol === target && target.includes(".")) result.push("exact_qualified_definition");
-		else if (symbol === target || member === target) result.push("exact_symbol_definition");
-		else if (plan.shape === "qualified_symbol" && member === lastSymbolSegment(target)) result.push("exact_member_definition");
-		if (plan.relationIntents.length > 0 && (symbol === target || member === lastSymbolSegment(target))) result.push("target_definition");
+	const symbolMatch = classifySymbolMatch(plan, region.symbol, region.qualifiedSymbol);
+	if (region.roles.includes("definition") && symbolMatch !== undefined) result.push(symbolMatch);
+	if (plan.relationIntents.length > 0 && region.roles.includes("definition") && isExactSymbolMatch(symbolMatch)) {
+		result.push("target_definition");
 	}
 	if (plan.relationIntents.length > 0 && region.queryMatch === "verified") result.push("target_occurrence");
 	if (summarizeFamilies(region.evidence) >= 2) result.push("multiview_consensus");
 	return result;
+}
+
+/** 只根据规范化查询与候选名称判定 symbol match，来源不能自行提升 exact tier。 */
+export function classifySymbolMatch(
+	plan: QueryPlan,
+	symbol: string | undefined,
+	qualifiedSymbol: string | undefined,
+): Extract<CandidateSignal, "exact_qualified_definition" | "exact_symbol_definition" | "exact_member_definition" | "symbol_prefix"> | undefined {
+	const target = normalizeSymbol(plan.targetQuery.length > 0 ? plan.targetQuery : plan.query);
+	if (target.length === 0 || target.includes(" ")) return undefined;
+	const full = normalizeSymbol(qualifiedSymbol ?? symbol ?? "");
+	const leaf = normalizeSymbol(symbol === undefined ? lastSymbolSegment(full) : lastSymbolSegment(symbol));
+	if (full.length === 0 || leaf.length === 0) return undefined;
+	if (target.includes(".")) {
+		if (full === target) return "exact_qualified_definition";
+		if (leaf === lastSymbolSegment(target)) return "exact_member_definition";
+		return undefined;
+	}
+	if (leaf === target) return "exact_symbol_definition";
+	if (target.length >= 2 && leaf.startsWith(target)) return "symbol_prefix";
+	return undefined;
 }
 
 function signalSupported(plan: QueryPlan, region: CodeRegion, signal: CandidateSignal): boolean {
@@ -377,12 +402,46 @@ function verifiedCoverage(region: CodeRegion): number {
 	return region.matchLines.length / Math.max(1, region.endLine - region.startLine + 1);
 }
 
+function contextAdjustedTier(plan: QueryPlan, tier: number, roles: readonly CandidateRole[]): number {
+	if (plan.match !== "auto" || plan.relationIntents.length > 0) return tier;
+	if ((plan.shape === "identifier" || plan.shape === "qualified_symbol") && roles.includes("test")) {
+		return tier + GREP_TEST_CONTEXT_TIER_PENALTY;
+	}
+	return tier;
+}
+
+function contextPriority(plan: QueryPlan, roles: readonly CandidateRole[]): number {
+	if (plan.match !== "auto") return 0;
+	if (hasRequestedRole(plan, roles)) return 4;
+	if (plan.relationIntents.length === 0 && roles.includes("test")) return 0;
+	if (roles.includes("public_api")) return 3;
+	if (roles.includes("definition")) return 2;
+	if (roles.includes("occurrence") || roles.includes("text")) return 1;
+	return 0;
+}
+
 function rolePriority(plan: QueryPlan, roles: readonly CandidateRole[]): number {
-	const requested = new Set(plan.relationIntents.map((intent) => ROLE_BY_INTENT[intent]));
-	if (roles.some((role) => requested.has(role))) return 3;
+	if (hasRequestedRole(plan, roles)) return 3;
 	if (roles.includes("definition") || roles.includes("public_api")) return 2;
 	if (roles.includes("occurrence") || roles.includes("text")) return 1;
 	return 0;
+}
+
+function hasRequestedRole(plan: QueryPlan, roles: readonly CandidateRole[]): boolean {
+	return plan.relationIntents.some((intent) => roles.includes(ROLE_BY_INTENT[intent]));
+}
+
+function independentRankingEvidence(
+	plan: QueryPlan,
+	signals: readonly CandidateSignal[],
+	evidence: readonly RegionEvidence[],
+): readonly RegionEvidence[] {
+	if (plan.match !== "auto" || plan.targetTerms.length !== 1 || !signals.some(isExactSymbolMatch)) return evidence;
+	return evidence.filter((item) => item.source !== "ast-lexical" && item.source !== "text-lexical");
+}
+
+function isExactSymbolMatch(signal: CandidateSignal | undefined): boolean {
+	return signal === "exact_qualified_definition" || signal === "exact_symbol_definition" || signal === "exact_member_definition";
 }
 
 function similarity(left: RankedRegion, right: RankedRegion): number {

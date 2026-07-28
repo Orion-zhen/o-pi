@@ -6,7 +6,7 @@ import type { GrepDisplayLine } from "./types.js";
 import type { ScopeInventory } from "./inventory.js";
 import type { QueryPlan, RelationIntent } from "./query-plan.js";
 import { scoreLexicalRegions, type LexicalRegionScore } from "./lexical-scorer.js";
-import { assignSourceLocalRanks, rankCodeRegions, selectRankedRegions } from "./ranking.js";
+import { assignSourceLocalRanks, classifySymbolMatch, rankCodeRegions, selectRankedRegions } from "./ranking.js";
 import type { AutoRegionizationResult, AutoRegionizedFile } from "./regionizer.js";
 import type { TextScanResult } from "./text-scanner.js";
 import type { GrepNearbyResult, GrepRelatedResult } from "./types.js";
@@ -87,7 +87,7 @@ export function buildLocalAutoResults(
 	})), plan, queryTerms);
 
 	for (const item of unitFiles) {
-		const symbolEntry = symbolCandidate(item, plan, target, targetLast);
+		const symbolEntry = symbolCandidate(item, plan, targetLast);
 		if (symbolEntry !== undefined) entries.push(symbolEntry);
 		const lexicalEntry = lexicalCandidate(item, plan, queryTerms, lexicalScores.get(item.unit.id), displayLimit);
 		if (lexicalEntry !== undefined) entries.push(lexicalEntry);
@@ -136,34 +136,19 @@ function enrichVerifiedRegion(region: VerifiedCodeRegion, plan: QueryPlan): Veri
 	};
 }
 
-function symbolCandidate(item: UnitFile, plan: QueryPlan, target: string, targetLast: string): LocalEntry | undefined {
-	const symbol = item.unit.name?.toLocaleLowerCase();
-	const qualified = item.unit.qualifiedName?.toLocaleLowerCase();
-	let signal: CandidateSignal | undefined;
-	let reason: string | undefined;
-	let quality = 0;
-	if (qualified !== undefined && qualified === target) {
-		signal = "exact_qualified_definition";
-		reason = "exact qualified symbol";
-		quality = 100;
-	} else if (symbol !== undefined && symbol === target) {
-		signal = "exact_symbol_definition";
-		reason = "exact symbol";
-		quality = 90;
-	} else if (plan.shape === "qualified_symbol" && symbol !== undefined && symbol === targetLast) {
-		signal = "exact_member_definition";
-		reason = "exact member";
-		quality = 80;
-	} else {
-		const candidate = qualified ?? symbol;
-		if (candidate !== undefined && target.length >= 2 && candidate.startsWith(target)) {
-			signal = "symbol_prefix";
-			reason = "symbol prefix";
-			quality = 50 - Math.min(20, candidate.length - target.length);
-		}
-	}
-	if (signal === undefined || reason === undefined) return undefined;
-	const signals = plan.relationIntents.length > 0 && (symbol === targetLast || qualified === target)
+function symbolCandidate(item: UnitFile, plan: QueryPlan, targetLast: string): LocalEntry | undefined {
+	const signal = classifySymbolMatch(plan, item.unit.name, item.unit.qualifiedName);
+	if (signal === undefined) return undefined;
+	const leaf = item.unit.name?.toLocaleLowerCase() ?? "";
+	const quality = signal === "exact_qualified_definition" ? 100
+		: signal === "exact_symbol_definition" ? 90
+			: signal === "exact_member_definition" ? 80
+				: 50 - Math.min(20, Math.max(0, leaf.length - targetLast.length));
+	const reason = signal === "exact_qualified_definition" ? "exact qualified symbol"
+		: signal === "exact_symbol_definition" ? "exact symbol"
+			: signal === "exact_member_definition" ? "exact member"
+				: "symbol prefix";
+	const signals = plan.relationIntents.length > 0 && signal !== "symbol_prefix"
 		? [signal, "target_definition" as const]
 		: [signal];
 	return localEntry(item, "ast-symbol", reason, quality, unitRoles(item), signals);
