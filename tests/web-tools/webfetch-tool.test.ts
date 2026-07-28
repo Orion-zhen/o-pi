@@ -97,6 +97,18 @@ describe("webfetch tool", () => {
 		expect(calls).toBe(1);
 	});
 
+	it("offset 超过正文长度时从正文末尾返回空结果", async () => {
+		const result = await executeWebFetch(
+			{ url: "https://example.com/short", offset: 1000 },
+			runtime(async () => httpResponse(200, "short body")),
+		);
+		expect(result.details.status).toBe("success");
+		if (result.details.status !== "success") throw new Error("failed");
+		expect(result.details.range).toMatchObject({ start: 10, end: 10, total: 10, has_more: false });
+		expect(result.content).toContain('<webfetch kind="generic" partial="range">');
+		expect(result.content).toMatch(/<webfetch[^>]*>\n\n<\/webfetch>/);
+	});
+
 	it("模型标签只在跳转后输出 final URL", async () => {
 		let calls = 0;
 		const result = await executeWebFetch(

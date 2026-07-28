@@ -122,8 +122,7 @@ export type WebFetchErrorCode =
 	| "RESPONSE_TOO_LARGE"
 	| "UNSUPPORTED_CONTENT_TYPE"
 	| "DECODE_FAILED"
-	| "CONVERSION_FAILED"
-	| "OFFSET_OUT_OF_RANGE";
+	| "CONVERSION_FAILED";
 
 /** 搜索工具对模型和 renderer 暴露的稳定错误码。 */
 export type WebSearchErrorCode =

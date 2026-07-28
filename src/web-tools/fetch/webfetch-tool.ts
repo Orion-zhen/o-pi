@@ -106,18 +106,6 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 	}
 
 	const sliced = sliceText(conversion.text, offset, limit);
-	if ("status" in sliced) {
-		const details = {
-			...sliced,
-			requested_url: http.requestedUrl,
-			final_url: http.finalUrl,
-			http_status: http.httpStatus,
-			authenticated: http.authenticated,
-			redirect_count: http.redirectCount,
-			duration_ms: runtime.now() - startedAt,
-		};
-		return { content: failureContent(details), details };
-	}
 
 	if (sliced.nextOffset !== undefined && snapshotStatus !== "hit" && conversion.directMedia === undefined) {
 		snapshotStatus = "created";
@@ -255,11 +243,8 @@ function snapshotToHttp(snapshot: WebFetchSnapshot, requestedUrl: string): HttpF
 	};
 }
 
-function sliceText(text: string, offset: number, limit: number): { text: string; start: number; end: number; nextOffset?: number } | WebFetchFailureDetails {
-	if (offset > text.length || (offset === text.length && text.length > 0)) {
-		return { status: "failed", error: { code: "OFFSET_OUT_OF_RANGE", message: "offset is beyond the result length." } };
-	}
-	const start = safeBoundary(text, offset);
+function sliceText(text: string, offset: number, limit: number): { text: string; start: number; end: number; nextOffset?: number } {
+	const start = safeBoundary(text, Math.min(text.length, offset));
 	let end = safeBoundary(text, Math.min(text.length, start + limit));
 	if (end < text.length) {
 		const newline = text.lastIndexOf("\n", end);
