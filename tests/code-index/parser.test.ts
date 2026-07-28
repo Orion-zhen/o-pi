@@ -5,7 +5,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFileIdentity, createSymbolId } from "../../src/code-index/identity.js";
-import { analyzeCodeFile, buildLineIndex, countTextTokenMatches, parseCodeUnits, splitTokens, tokenizeText } from "../../src/code-index/parser.js";
+import { analyzeCodeFile, buildLineIndex, countTextTokenMatches, parseCodeUnits, splitTokens, tokenizeText, tokenizeTextSequence } from "../../src/code-index/parser.js";
 import { dependencyPath } from "../helpers/tree-sitter-dependencies.js";
 
 const require = createRequire(import.meta.url);
@@ -310,6 +310,12 @@ describe("shared code parser", () => {
 		},
 	])("tokenizeText 按 occurrence 累计原始和拆分 token 的 TF: $text", ({ text, expected }) => {
 		expect(tokenizeText(text)).toEqual(expected);
+	});
+
+	it("tokenizeTextSequence 保留原始及拆分 token 的 occurrence 顺序", () => {
+		expect(tokenizeTextSequence("createRetryLoader retry_count")).toEqual([
+			"createretryloader", "create", "retry", "loader", "retry_count", "retry", "count",
+		]);
 	});
 
 	it("symbol ID 由 file、kind、qualified name 和 start byte 决定，同名位置可区分且不依赖 end byte", async () => {

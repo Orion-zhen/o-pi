@@ -112,6 +112,15 @@ export function tokenizeText(value: string): Map<string, number> {
 	return result;
 }
 
+/** 保留标准归一化和标识符拆分后的词项顺序。 */
+export function tokenizeTextSequence(value: string): string[] {
+	const result: string[] = [];
+	visitTokenOccurrences(value, (raw) => {
+		result.push(raw.toLocaleLowerCase());
+	});
+	return result;
+}
+
 export function splitTokens(value: string): string[] {
 	const tokens = new Set<string>();
 	visitTokenOccurrences(value, (token) => {

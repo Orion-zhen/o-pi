@@ -90,8 +90,12 @@ export function classifyQueryShape(query: string): GrepQueryShape {
 	if (QUALIFIED_SYMBOL.test(normalized)) return "qualified_symbol";
 	if (IDENTIFIER.test(normalized)) return "identifier";
 	const terms = lexicalTerms(normalized);
-	if (terms.length >= 2 && NATURAL_LANGUAGE.test(normalized) && !ERROR_LANGUAGE.test(normalized)) return "natural_language";
+	if (terms.length >= 2 && NATURAL_LANGUAGE.test(normalized) && !isErrorLikeQuery(normalized)) return "natural_language";
 	return "long_text";
+}
+
+export function isErrorLikeQuery(query: string): boolean {
+	return ERROR_LANGUAGE.test(query);
 }
 
 export function detectRelationIntents(query: string): RelationIntent[] {

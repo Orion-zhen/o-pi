@@ -1,8 +1,9 @@
 import { languageFromPath, tokenizeText, type IndexedCodeUnit } from "../../code-index/parser.js";
 import { extractByteRange } from "../../filesystem/services/text.js";
-import { type CandidateRole, type CandidateSignal, type CodeRegion, type RegionEvidence, type RetrievalSource, type SemanticMainRegion, type TextFileEvidence, type VerifiedCodeRegion, type RankedRegion } from "./candidates.js";
+import { type CandidateRole, type CandidateSignal, type CodeRegion, type LexicalTextAnchor, type RegionEvidence, type RetrievalSource, type SemanticMainRegion, type TextFileEvidence, type VerifiedCodeRegion, type RankedRegion } from "./candidates.js";
 import type { ScopeInventory } from "./inventory.js";
 import type { QueryPlan, RelationIntent } from "./query-plan.js";
+import { scoreLexicalRegions, type LexicalRegionScore } from "./lexical-scorer.js";
 import { assignSourceLocalRanks, rankCodeRegions, selectRankedRegions } from "./ranking.js";
 import type { AutoRegionizationResult, AutoRegionizedFile } from "./regionizer.js";
 import type { TextScanResult } from "./text-scanner.js";
@@ -78,14 +79,20 @@ export function buildLocalAutoResults(
 	const queryTerms = uniqueTerms(plan.targetTerms.length > 0 ? plan.targetTerms : [plan.query]);
 	const target = (plan.targetQuery.length > 0 ? plan.targetQuery : plan.query).toLocaleLowerCase();
 	const targetLast = lastSegment(target);
+	const groupedAnchors = groupLexicalAnchors(scan.fileEvidence, unitFiles);
+	const lexicalScores = scoreLexicalRegions(unitFiles.map((item) => ({
+		unit: item.unit,
+		content: item.content,
+		anchors: groupedAnchors.byUnit.get(item.unit.id) ?? [],
+	})), plan, queryTerms);
 
 	for (const item of unitFiles) {
 		const symbolEntry = symbolCandidate(item, plan, target, targetLast);
 		if (symbolEntry !== undefined) entries.push(symbolEntry);
-		const lexicalEntry = lexicalCandidate(item, plan, queryTerms);
+		const lexicalEntry = lexicalCandidate(item, plan, queryTerms, lexicalScores.get(item.unit.id));
 		if (lexicalEntry !== undefined) entries.push(lexicalEntry);
 	}
-	entries.push(...lexicalAnchorCandidates(scan.fileEvidence, scan.hits, regionized.files, plan, queryTerms, snippets));
+	entries.push(...lexicalAnchorCandidates(groupedAnchors.outside, scan.hits, plan, queryTerms, snippets));
 
 	const relation = relationCandidates(unitFiles, regionized.files, plan, targetLast);
 	entries.push(...relation.main);
@@ -164,18 +171,20 @@ function symbolCandidate(item: UnitFile, plan: QueryPlan, target: string, target
 	return localEntry(item, "ast-symbol", reason, quality, unitRoles(item), signals);
 }
 
-function lexicalCandidate(item: UnitFile, plan: QueryPlan, queryTerms: readonly string[]): LocalEntry | undefined {
-	const matched = queryTerms.filter((term) => item.tokens.has(term));
-	if (!passesCoverage(plan, matched.length, queryTerms.length)) return undefined;
-	const coverage = matched.length / Math.max(1, queryTerms.length);
-	const highCoverage = queryTerms.length > 1 && coverage >= 0.6;
+function lexicalCandidate(
+	item: UnitFile,
+	plan: QueryPlan,
+	queryTerms: readonly string[],
+	score: LexicalRegionScore | undefined,
+): LocalEntry | undefined {
+	if (score === undefined || !passesCoverage(plan, score.matchedTerms.length, queryTerms.length)) return undefined;
 	return localEntry(
 		item,
 		"ast-lexical",
 		"lexical",
-		matched.length * 100 + Math.round(coverage * 50) - Math.min(40, item.unit.endLine - item.unit.startLine),
+		score.quality,
 		unitRoles(item),
-		[highCoverage ? "lexical_high_coverage" : "lexical"],
+		[score.highCoverage ? "lexical_high_coverage" : "lexical"],
 	);
 }
 
@@ -213,50 +222,72 @@ function localEntry(
 	};
 }
 
-function lexicalAnchorCandidates(
+function groupLexicalAnchors(
 	evidence: readonly TextFileEvidence[],
+	units: readonly UnitFile[],
+): { readonly byUnit: ReadonlyMap<string, readonly LexicalTextAnchor[]>; readonly outside: readonly LexicalTextAnchor[] } {
+	const unitsByPath = new Map<string, UnitFile[]>();
+	for (const item of units) {
+		const grouped = unitsByPath.get(item.unit.path);
+		if (grouped === undefined) unitsByPath.set(item.unit.path, [item]);
+		else grouped.push(item);
+	}
+	const byUnit = new Map<string, LexicalTextAnchor[]>();
+	const outside: LexicalTextAnchor[] = [];
+	for (const file of evidence) {
+		for (const anchor of file.anchors) {
+			const enclosing = unitsByPath.get(file.path)
+				?.filter((item) => item.unit.startLine <= anchor.line && anchor.line <= item.unit.endLine)
+				.sort((left, right) => (left.unit.endLine - left.unit.startLine) - (right.unit.endLine - right.unit.startLine)
+					|| left.unit.startLine - right.unit.startLine || compareString(left.unit.id, right.unit.id))[0];
+			if (enclosing === undefined) {
+				outside.push(anchor);
+				continue;
+			}
+			const grouped = byUnit.get(enclosing.unit.id);
+			if (grouped === undefined) byUnit.set(enclosing.unit.id, [anchor]);
+			else grouped.push(anchor);
+		}
+	}
+	return { byUnit, outside };
+}
+
+function lexicalAnchorCandidates(
+	anchors: readonly LexicalTextAnchor[],
 	hits: readonly { readonly path: string; readonly line: number }[],
-	parsedFiles: readonly AutoRegionizedFile[],
 	plan: QueryPlan,
 	queryTerms: readonly string[],
 	snippets: Map<string, string>,
 ): LocalEntry[] {
-	const unitsByPath = new Map(parsedFiles.map((file) => [file.file.path, file.analysis.index.units]));
 	const exactLines = new Set(hits.map((hit) => `${hit.path}\0${hit.line}`));
 	const result: LocalEntry[] = [];
-	for (const file of evidence) {
-		for (const anchor of file.anchors) {
-			if (exactLines.has(`${anchor.path}\0${anchor.line}`)) continue;
-			if (!passesCoverage(plan, anchor.matchedTerms.length, queryTerms.length) && !anchor.phrase && !anchor.identifier) continue;
-			const enclosing = unitsByPath.get(file.path)
-				?.filter((unit) => unit.startLine <= anchor.line && anchor.line <= unit.endLine)
-				.sort((left, right) => (left.endLine - left.startLine) - (right.endLine - right.startLine))[0];
-			if (enclosing !== undefined) continue;
-			const highCoverage = anchor.phrase || (queryTerms.length > 1 && anchor.matchedTerms.length / queryTerms.length >= 0.6);
-			const id = `${anchor.path}:${anchor.line}:${anchor.byteStart}:${anchor.byteEnd}:lexical`;
-			snippets.set(id, [...anchor.before, anchor.lineText, ...anchor.after].join("\n"));
-			result.push({
+	for (const anchor of anchors) {
+		if (exactLines.has(`${anchor.path}\0${anchor.line}`)) continue;
+		if (!passesCoverage(plan, anchor.matchedTerms.length, queryTerms.length) && !anchor.phrase && !anchor.identifier) continue;
+		const highCoverage = anchor.phrase || (queryTerms.length > 1 && anchor.matchedTerms.length / queryTerms.length >= 0.6);
+		const id = `${anchor.path}:${anchor.line}:${anchor.byteStart}:${anchor.byteEnd}:lexical`;
+		snippets.set(id, [...anchor.before, anchor.lineText, ...anchor.after].join("\n"));
+		result.push({
+			id,
+			path: anchor.path,
+			startLine: Math.max(1, anchor.line - anchor.before.length),
+			quality: anchor.matchedTerms.length * 100 + (anchor.phrase ? 100 : 0) + (anchor.commentLike || anchor.stringLike ? 5 : 0),
+			source: "text-lexical",
+			reason: "lexical",
+			region: semanticMainRegion({
 				id,
 				path: anchor.path,
 				startLine: Math.max(1, anchor.line - anchor.before.length),
-				quality: anchor.matchedTerms.length * 100 + (anchor.phrase ? 100 : 0) + (anchor.commentLike || anchor.stringLike ? 5 : 0),
-				source: "text-lexical",
-				reason: "lexical",
-				region: semanticMainRegion({
-					id,
-					path: anchor.path,
-					startLine: Math.max(1, anchor.line - anchor.before.length),
-					endLine: anchor.line + anchor.after.length,
-					startByte: anchor.byteStart,
-					endByte: anchor.byteEnd,
-					kind: "text",
-					roles: ["text"],
-					signals: [highCoverage ? "lexical_high_coverage" : "lexical"],
-					evidence: [],
-					lane: "main",
-				}),
-			});
-		}
+				endLine: anchor.line + anchor.after.length,
+				startByte: anchor.byteStart,
+				endByte: anchor.byteEnd,
+				kind: "text",
+				roles: ["text"],
+				signals: [highCoverage ? "lexical_high_coverage" : "lexical"],
+				evidence: [],
+				lane: "main",
+			}),
+		});
 	}
 	return result;
 }
