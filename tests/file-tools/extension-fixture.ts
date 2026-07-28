@@ -59,27 +59,6 @@ export function renderToolResult(
 	return component?.render(120).join("\n") ?? "";
 }
 
-export function renderEditResult(
-	registered: Array<{ name: string; renderResult?: RenderResult }>,
-	details: unknown,
-	expanded = false,
-): string {
-	const tool = registered.slice().reverse().find((item) => item.name === "edit");
-	const component = tool?.renderResult?.(
-		{ content: [{ type: "text", text: JSON.stringify(details, null, 2) }], details },
-		{ expanded, isPartial: false },
-		theme,
-		{
-			args: { path: "src/app.ts", edits: [{ old: "old", new: "new" }] },
-			cwd: "/repo",
-			expanded,
-			lastComponent: undefined,
-			state: {},
-		},
-	);
-	return component?.render(120).join("\n") ?? "";
-}
-
 export function renderWriteResult(
 	registered: Array<{ name: string; renderResult?: RenderResult }>,
 	details: unknown,

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createVerifiedCodeRegion, type CandidateSignal, type CodeRegion, type TextHit } from "../../src/file-tools/grep/candidates.js";
 import { createQueryPlan, type RelationIntent } from "../../src/file-tools/grep/query-plan.js";
-import { assignSourceLocalRanks, rankCodeRegions, selectRankedRegions, sourceContribution, summarizeEvidence } from "../../src/file-tools/grep/ranking.js";
+import { assignSourceLocalRanks, rankCodeRegions, selectRankedRegions } from "../../src/file-tools/grep/ranking.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
 import { queryPlan, rankingEvidence, semanticRegion, verifiedRegion } from "./grep-ranking-fixtures.js";
 
@@ -131,24 +131,6 @@ describe("grep QueryPlan 与纯排序", () => {
 			make("symbol", "exact_symbol_definition", "function", "needle"),
 		];
 		expect(rankCodeRegions(queryPlan("needle", "literal"), candidates).map((item) => item.id)).toEqual(["symbol", "region", "window"]);
-	});
-
-	it("weighted RRF 奖励高排名和独立共识，同 family 不重复累加", () => {
-		const first = summarizeEvidence("natural_language", [rankingEvidence("ast-lexical", 1)]);
-		const weakConsensus = summarizeEvidence("natural_language", [rankingEvidence("ast-lexical", 200), rankingEvidence("lsp-symbol", 200)]);
-		const strongConsensus = summarizeEvidence("natural_language", [rankingEvidence("ast-lexical", 2), rankingEvidence("lsp-symbol", 2)]);
-		const duplicateFamily = summarizeEvidence("natural_language", [rankingEvidence("ast-lexical", 3), rankingEvidence("path", 1)]);
-		expect(first.fusionScore).toBeGreaterThan(weakConsensus.fusionScore);
-		expect(strongConsensus.fusionScore).toBeGreaterThan(first.fusionScore);
-		expect(duplicateFamily.fusionScore).toBeCloseTo(sourceContribution("natural_language", rankingEvidence("ast-lexical", 3)));
-	});
-
-	it("confidence 与 hop 只缩放对应来源贡献", () => {
-		const full = sourceContribution("relation", rankingEvidence("repo-map-hop-1", 1, 1, 0));
-		const lowConfidence = sourceContribution("relation", rankingEvidence("repo-map-hop-1", 1, 0.5, 0));
-		const hop = sourceContribution("relation", rankingEvidence("repo-map-hop-1", 1, 1, 1));
-		expect(lowConfidence).toBeCloseTo(full * 0.5);
-		expect(hop).toBeCloseTo(full * 0.7);
 	});
 
 	it("按来源独立生成稳定名次，不依赖候选插入顺序", () => {

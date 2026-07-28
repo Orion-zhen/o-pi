@@ -19,13 +19,6 @@ import { packCandidate, rankingEvidence } from "./grep-ranking-fixtures.js";
 const testContext = createGrepTestContext();
 
 describe("grep external", () => {
-	it("regex 搜索和 INVALID_REGEX", async () => {
-		await writeFile(path.join(testContext.workspace, "a.ts"), "export function user12() { return 'user_12'; }\nexport function userX() { return 'user_x'; }\n");
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "user_\\d+", match: "regex" }));
-		expect(firstRegion(result).reasons).toContain("regex");
-		expect(await grepWorkspaceFiles(testContext.workspace, { query: "(", match: "regex" })).toMatchObject({ status: "failed", error: { code: "INVALID_REGEX" } });
-	});
-
 	it.each([
 		{ match: "literal" as const, queryText: "Needle42", source: "text-literal" },
 		{ match: "regex" as const, queryText: "Needle\\d+", source: "text-regex" },

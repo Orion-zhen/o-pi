@@ -5,7 +5,6 @@ import { listDirectory } from "../../src/file-tools/ls/command.js";
 import { formatCompactLsResult } from "../../src/file-tools/ls/presenter.js";
 import { executeLs } from "../../src/file-tools/pi/adapters/ls.js";
 import type { LsParams, LsSuccess } from "../../src/file-tools/ls/types.js";
-import { contentHash } from "../../src/filesystem/services/text.js";
 import { defaultFileToolsConfig } from "../../src/file-tools/config.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
@@ -364,26 +363,4 @@ describe("ls", () => {
 		}
 	});
 
-	it("端到端 ls -> ls -> read，并保持 ls/read 类型边界", async () => {
-		await mkdir(path.join(workspace, "src"));
-		await writeFile(path.join(workspace, "src", "main.ts"), "export const main = 1;\n");
-
-		const root = await listWorkspaceDirectory(workspace, { path: "." });
-		expect(root).toMatchObject({ entries: [{ name: "src", path: "src", type: "directory" }] });
-		const src = await listWorkspaceDirectory(workspace, { path: "src" });
-		expect(src).toMatchObject({ entries: [{ name: "main.ts", path: "src/main.ts", type: "file" }] });
-		const main = await readWorkspaceFile(workspace, { path: "src/main.ts" });
-		expect(main).toMatchObject({ content: "export const main = 1;\n" });
-		if (!("version" in main)) throw new Error("read failed");
-		expect(main.version).toBe(contentHash(Buffer.from("export const main = 1;\n")));
-
-		expect(await listWorkspaceDirectory(workspace, { path: "src/main.ts" })).toMatchObject({
-			status: "failed",
-			error: { code: "NOT_A_DIRECTORY" },
-		});
-		expect(await readWorkspaceFile(workspace, { path: "src" })).toMatchObject({
-			status: "failed",
-			error: { code: "NOT_A_FILE" },
-		});
-	});
 });

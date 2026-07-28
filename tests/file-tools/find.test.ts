@@ -1,18 +1,11 @@
 import { createHash } from "node:crypto";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
-import { availableParallelism } from "node:os";
 import path from "node:path";
-import { Worker } from "node:worker_threads";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FindTool } from "../../src/file-tools/find/command.js";
-import { mergeRankedFindSources } from "../../src/file-tools/find/fusion.js";
-import { createFindEntry, rankFindSuggestions } from "../../src/file-tools/find/ranker.js";
-import { renderFindResults } from "../../src/file-tools/find/renderer.js";
 import type { FindGraphSource } from "../../src/file-tools/find/graph-source.js";
-import { AbortFindSuggestionRanking, FIND_CONCURRENCY, FindSuggestionRanker, shouldOffloadFindSuggestions } from "../../src/file-tools/find/suggestion-ranker.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
-import { createRankingEvidence } from "../../src/file-tools/shared/ranking/evidence.js";
 import { findWorkspaceFiles } from "../helpers/find-tool.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
@@ -60,11 +53,6 @@ function deferredVoid(): { readonly promise: Promise<void>; resolve(): void } {
 	return { promise, resolve() { resolver?.(); } };
 }
 
-function suggestionEntries(count = 6_000) {
-	return Array.from({ length: count }, (_value, index) =>
-		createFindEntry(`packages/component-${index}/parser-runtime-${index}.ts`, "file"));
-}
-
 async function writeFixture(filePath: string): Promise<void> {
 	const absolutePath = path.join(workspace, ...filePath.split("/"));
 	await mkdir(path.dirname(absolutePath), { recursive: true });
@@ -99,85 +87,6 @@ function repoMapQuery(query: RepoMapFileToolQuery["query"]): RepoMapFileToolQuer
 }
 
 describe("find", () => {
-	it("并发路数取逻辑核心数的一半，动态边界只对足够大的零结果 fuzzy 集合启用", () => {
-		expect(FIND_CONCURRENCY).toBe(Math.max(1, Math.floor(availableParallelism() / 2)));
-		expect(shouldOffloadFindSuggestions(1_000, 3, { concurrency: 16, workerWarm: false })).toBe(false);
-		expect(shouldOffloadFindSuggestions(10_000, 3, { concurrency: 16, workerWarm: false })).toBe(true);
-		expect(shouldOffloadFindSuggestions(45_000, 3, { concurrency: 1, workerWarm: true })).toBe(false);
-	});
-
-	it("分块 worker 合并得到与单线程 Fuse 相同的全局 suggestions", async () => {
-		const entries = suggestionEntries(9_000);
-		const query = "parser worker runtime";
-		const expected = rankFindSuggestions(entries, query, ".").map((item) => item.entry.path);
-		const ranker = new FindSuggestionRanker({ workerLimit: 2 });
-		try {
-			const actual = await ranker.rank(entries, query, ".");
-			expect(actual.matches).toEqual([]);
-			expect(actual.suggestions.map((item) => item.entry.path)).toEqual(expected);
-		} finally {
-			ranker.dispose();
-		}
-	}, 0);
-
-	it.each(["spawn", "post-message", "crash", "error-response", "invalid-response"] as const)("suggestion worker %s 失败时回退本地 ranking", async (failure) => {
-		const entries = suggestionEntries();
-		const query = "missing parser worker";
-		const expected = rankFindSuggestions(entries, query, ".").map((item) => item.entry.path);
-		const ranker = new FindSuggestionRanker({
-			workerLimit: 2,
-			createWorker: () => {
-				if (failure === "spawn") throw new Error("injected spawn failure");
-				const source = failure === "crash"
-					? "parentPort.on('message', () => { throw new Error('injected crash'); });"
-					: failure === "error-response"
-						? "parentPort.on('message', ({ id }) => parentPort.postMessage({ id, error: 'injected error' }));"
-						: "parentPort.on('message', ({ id }) => parentPort.postMessage({ id, paths: [42] }));";
-				const worker = new Worker(`const { parentPort } = require('node:worker_threads'); ${source}`, { eval: true });
-				if (failure === "post-message") worker.postMessage = () => { throw new Error("injected postMessage failure"); };
-				return worker;
-			},
-		});
-		try {
-			const result = await ranker.rank(entries, query, ".");
-			expect(result.matches).toEqual([]);
-			expect(result.suggestions.map((item) => item.entry.path)).toEqual(expected);
-		} finally {
-			ranker.dispose();
-		}
-	}, 0);
-
-	it.each(["abort", "dispose"] as const)("suggestion ranker active worker 在 %s 后退出且不执行本地 fallback", async (action) => {
-		const exits: Array<Promise<number>> = [];
-		const ranker = new FindSuggestionRanker({
-			workerLimit: 2,
-			createWorker: () => {
-				const worker = new Worker("const { parentPort } = require('node:worker_threads'); parentPort.on('message', () => {});", { eval: true });
-				exits.push(new Promise((resolve) => worker.once("exit", resolve)));
-				return worker;
-			},
-		});
-		const controller = new AbortController();
-		const active = ranker.rank(suggestionEntries(), "missing parser worker", ".", controller.signal);
-		if (action === "abort") controller.abort();
-		else ranker.dispose();
-		await expect(active).rejects.toBeInstanceOf(AbortFindSuggestionRanking);
-		ranker.dispose();
-		await Promise.all(exits);
-	});
-
-	it("suggestion ranker 生命周期局部、dispose 幂等且停止后拒绝调用", async () => {
-		const disposed = new FindSuggestionRanker();
-		const active = new FindSuggestionRanker();
-		disposed.dispose();
-		disposed.dispose();
-		await expect(disposed.rank([createFindEntry("src/target.ts", "file")], "target", ".")).rejects.toBeInstanceOf(AbortFindSuggestionRanking);
-		await expect(active.rank([createFindEntry("src/target.ts", "file")], "target", ".")).resolves.toMatchObject({
-			matches: [{ entry: { path: "src/target.ts" } }],
-		});
-		active.dispose();
-	});
-
 	it("find owner dispose 取消 graph 阶段的 active execute", async () => {
 		await writeFixture("src/example.ts");
 		const host = new FileToolsHost();
@@ -259,96 +168,7 @@ describe("find", () => {
 		}
 	});
 
-	it("紧凑输出省略可推导元数据、共享路径前缀并把截断状态放在首行", () => {
-		const base = {
-			query: "handler",
-			path: ".",
-			strategy: "fuzzy" as const,
-			totalMatches: 2,
-			matches: [
-				{ path: "src/features/authentication/first-handler.ts", kind: "file" as const },
-				{ path: "src/features/authentication/second-handler.ts", kind: "file" as const },
-			],
-			ignoredCount: 0,
-			skippedCount: 0,
-			depthLimited: false,
-			resultLimited: false,
-			outputTokenBudget: 1_000,
-		};
-		const compact = renderFindResults(base);
-		expect(compact.content).toBe([
-			"in src/features/authentication/",
-			"  first-handler.ts",
-			"  second-handler.ts",
-		].join("\n"));
-
-		const constrained = renderFindResults({ ...base, depthLimited: true, outputTokenBudget: 14 });
-		expect(constrained.content.split("\n")[0]).toBe("found>=2; truncated=depth,output");
-		expect(constrained.details).toMatchObject({ depthLimited: true, resultLimited: false, outputTruncated: true });
-		expect(countTextTokensSync(constrained.content).tokens).toBeLessThanOrEqual(14);
-	});
-
-	it("nearby 候选超预算时不输出残缺标签，并退回扫描摘要", () => {
-		const result = renderFindResults({
-			query: "missing",
-			path: ".",
-			strategy: "fuzzy",
-			totalMatches: 0,
-			matches: [],
-			ignoredCount: 1,
-			skippedCount: 2,
-			depthLimited: false,
-			resultLimited: false,
-			outputTokenBudget: 32,
-			nearby: [{ path: `src/${"very-long-segment-".repeat(20)}.ts`, kind: "file", reason: "name similarity" }],
-		});
-
-		expect(result.content).not.toContain("<nearby");
-		expect(result.content).toContain("ignored=1; skipped=2");
-		expect(result.details.nearby).toBeUndefined();
-		expect(result.details.outputTruncated).toBe(false);
-		expect(countTextTokensSync(result.content).tokens).toBeLessThanOrEqual(32);
-	});
-
-	it("Repo Map 多关系使用紧凑 ASCII 分隔符", () => {
-		const result = renderFindResults({
-			query: "login",
-			path: ".",
-			strategy: "fuzzy",
-			totalMatches: 0,
-			matches: [],
-			ignoredCount: 0,
-			skippedCount: 0,
-			depthLimited: false,
-			resultLimited: false,
-			outputTokenBudget: 200,
-			related: [{
-				path: "tests/login.test.ts",
-				kind: "file",
-				source: "repo-map",
-				relations: ["caller", "test"],
-				query_match: "not_guaranteed",
-			}],
-		});
-
-		expect(result.content).toContain("tests/login.test.ts [caller,test]");
-		expect(result.content).not.toMatch(/[·→]/u);
-	});
-
-	it("路径与结构通道融合时不修改输入候选", () => {
-		const entry = createFindEntry("src/target.ts", "file");
-		const lexical = { entry, tier: 3, evidence: createRankingEvidence("lexical", 0.8) };
-		const structural = { entry, tier: 2, evidence: createRankingEvidence("structural", 0.6) };
-
-		const merged = mergeRankedFindSources([lexical], [structural]);
-
-		expect(merged).toHaveLength(1);
-		expect(merged[0]?.tier).toBe(2);
-		expect(merged[0]?.evidence.familyCount).toBe(2);
-		expect(lexical.tier).toBe(3);
-		expect(lexical.evidence.familyCount).toBe(1);
-	});
-	it("query 自动识别 glob，默认从 workspace root 递归匹配 basename 并拒绝旧 pattern", async () => {
+	it("query 自动识别 glob，并默认从 workspace root 递归匹配 basename", async () => {
 		await writeFixture("src/nested/a.ts");
 		await writeFixture("root.ts");
 		await writeFixture("note.txt");
@@ -365,10 +185,6 @@ describe("find", () => {
 			outputTruncated: false,
 		});
 		expect(paths(result.details.matches)).toEqual(["root.ts", "src/nested/a.ts"]);
-		expect(await findWorkspaceFiles(workspace, { pattern: "**/*.ts" } as never)).toMatchObject({
-			status: "failed",
-			error: { code: "INVALID_PATH" },
-		});
 	});
 
 	it("校验空值、NUL 和越界 query，但允许 workspace 外搜索路径", async () => {

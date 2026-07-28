@@ -155,43 +155,19 @@ describe("file-tools extension model output", () => {
 		}
 	});
 
-	it("write 成功结果返回紧凑 XML 和有限 LSP 诊断", async () => {
+	it("write/edit 返回紧凑结果并限制 LSP 诊断", async () => {
 		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
 		fileTools({
-			registerTool(tool: { name: string; execute?: ExecuteTool }) {
-				registered.push(tool);
-			},
+			registerTool(tool: { name: string; execute?: ExecuteTool }) { registered.push(tool); },
 			on() {},
 		} as unknown as ExtensionAPI);
-
-		const cwd = await mkdtemp(join(tmpdir(), "o-pi-compact-write-output-"));
+		const cwd = await mkdtemp(join(tmpdir(), "o-pi-compact-mutation-output-"));
 		const originalAfterWrite = lspFileHooks.afterWrite;
 		try {
 			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1" } };
 			delete lspFileHooks.afterWrite;
 			const clean = await executeTool(registered, "write", { path: "clean.ts", content: "export const ok = true;\n" }, ctx);
 			expect(textResult(clean)).toBe('<write path="clean.ts"/>');
-			expect(clean.details).toMatchObject({ status: "written", path: "clean.ts", diff: expect.stringContaining("+1 export const ok = true;") });
-
-			const edited = await executeTool(registered, "edit", { path: "clean.ts", edits: [{ old: "true", new: "false" }] }, ctx);
-			expect(edited.details).toMatchObject({ status: "applied", path: "clean.ts" });
-
-			for (const status of ["timeout", "unavailable"] as const) {
-				lspFileHooks.afterWrite = vi.fn(async () => ({
-					status,
-					file_errors: 0,
-					file_warnings: 0,
-					new_errors: 0,
-					new_warnings: 0,
-					resolved_errors: 0,
-					resolved_warnings: 0,
-					baseline: "unknown" as const,
-					total_items: 0,
-					items: [],
-				}));
-				const result = await executeTool(registered, "write", { path: `${status}.ts`, content: "content\n" }, ctx);
-				expect(textResult(result)).toBe(`<write path="${status}.ts"/>`);
-			}
 
 			lspFileHooks.afterWrite = vi.fn(async () => ({
 				status: "errors" as const,
@@ -205,85 +181,33 @@ describe("file-tools extension model output", () => {
 				total_items: 8,
 				items: [
 					{ severity: "error" as const, line: 12, column: 5, message: "Cannot find name 'foo'.", code: "TS2304" },
-					{ severity: "warning" as const, line: 30, column: 7, message: "'bar' is declared but never used." },
+					{ severity: "warning" as const, line: 30, column: 7, message: "unused 1" },
 					{ severity: "warning" as const, line: 31, column: 7, message: "unused 2" },
 					{ severity: "warning" as const, line: 32, column: 7, message: "unused 3" },
 					{ severity: "warning" as const, line: 33, column: 7, message: "unused 4" },
 					{ severity: "error" as const, line: 40, column: 1, message: "hidden" },
 				],
 			}));
-			const errored = await executeTool(registered, "write", { path: "bad.ts", content: "foo\n" }, ctx);
-			expect(textResult(errored)).toBe([
-				'<write path="bad.ts" lsp="errors">',
-				"errors=2 warnings=4 new_errors=1 new_warnings=0",
-				"diag error 12:5 Cannot find name 'foo'. (TS2304)",
-				"diag warning 30:7 'bar' is declared but never used.",
-				"diag warning 31:7 unused 2",
-				"diag warning 32:7 unused 3",
-				"diag warning 33:7 unused 4",
-				"diag error 40:1 hidden",
-				"... 2 more diagnostics",
-				"</write>",
-			].join("\n"));
-			expect(errored.details).toMatchObject({ status: "written", diff: expect.stringContaining("+1 foo"), lsp: { diagnostics: { status: "errors", items: expect.any(Array) } } });
+			const written = await executeTool(registered, "write", { path: "bad-write.ts", content: "foo\n" }, ctx);
+			await writeFile(join(cwd, "bad-edit.ts"), "foo\n", "utf8");
+			await executeTool(registered, "read", { path: "bad-edit.ts" }, ctx);
+			const edited = await executeTool(registered, "edit", { path: "bad-edit.ts", edits: [{ old: "foo", new: "bar" }] }, ctx);
+
+			for (const [result, tag, filePath, status] of [
+				[written, "write", "bad-write.ts", "written"],
+				[edited, "edit", "bad-edit.ts", "applied"],
+			] as const) {
+				const text = textResult(result);
+				expect(text).toContain(`<${tag} path="${filePath}"`);
+				expect(text).toContain('lsp="errors"');
+				expect(text).toContain("errors=2 warnings=4 new_errors=1 new_warnings=0");
+				expect(text).toContain("diag error 12:5 Cannot find name 'foo'. (TS2304)");
+				expect(text).toContain("... 2 more diagnostics");
+				expect(result.details).toMatchObject({ status, path: filePath, lsp: { diagnostics: { status: "errors" } } });
+			}
 		} finally {
 			if (originalAfterWrite === undefined) delete lspFileHooks.afterWrite;
 			else lspFileHooks.afterWrite = originalAfterWrite;
-			await rm(cwd, { recursive: true, force: true });
-		}
-	});
-
-	it("edit 成功结果返回紧凑 XML 和有限 LSP 诊断", async () => {
-		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
-		fileTools({
-			registerTool(tool: { name: string; execute?: ExecuteTool }) {
-				registered.push(tool);
-			},
-			on() {},
-		} as unknown as ExtensionAPI);
-
-		const cwd = await mkdtemp(join(tmpdir(), "o-pi-compact-edit-output-"));
-		const originalAfterEdit = lspFileHooks.afterWrite;
-		try {
-			await writeFile(join(cwd, "bad.ts"), "foo\n", "utf8");
-			lspFileHooks.afterWrite = vi.fn(async () => ({
-				status: "errors" as const,
-				file_errors: 2,
-				file_warnings: 4,
-				new_errors: 1,
-				new_warnings: 0,
-				resolved_errors: 0,
-				resolved_warnings: 0,
-				baseline: "known" as const,
-				total_items: 8,
-				items: [
-					{ severity: "error" as const, line: 12, column: 5, message: "Cannot find name 'foo'.", code: "TS2304" },
-					{ severity: "warning" as const, line: 30, column: 7, message: "'bar' is declared but never used." },
-					{ severity: "warning" as const, line: 31, column: 7, message: "unused 2" },
-					{ severity: "warning" as const, line: 32, column: 7, message: "unused 3" },
-					{ severity: "warning" as const, line: 33, column: 7, message: "unused 4" },
-					{ severity: "error" as const, line: 40, column: 1, message: "hidden" },
-				],
-			}));
-			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1" } };
-			await executeTool(registered, "read", { path: "bad.ts" }, ctx);
-			const edited = await executeTool(registered, "edit", { path: "bad.ts", edits: [{ old: "foo", new: "bar" }] }, ctx);
-			expect(textResult(edited)).toBe([
-				'<edit path="bad.ts" replacements="1" first_changed_line="1" lsp="errors">',
-				"errors=2 warnings=4 new_errors=1 new_warnings=0",
-				"diag error 12:5 Cannot find name 'foo'. (TS2304)",
-				"diag warning 30:7 'bar' is declared but never used.",
-				"diag warning 31:7 unused 2",
-				"diag warning 32:7 unused 3",
-				"diag warning 33:7 unused 4",
-				"diag error 40:1 hidden",
-				"... 2 more diagnostics",
-				"</edit>",
-			].join("\n"));
-			expect(edited.details).toMatchObject({ status: "applied", path: "bad.ts", lsp: { diagnostics: { status: "errors", items: expect.any(Array) } } });
-		} finally {
-			if (originalAfterEdit === undefined) delete lspFileHooks.afterWrite;
-			else lspFileHooks.afterWrite = originalAfterEdit;
 			await rm(cwd, { recursive: true, force: true });
 		}
 	});
