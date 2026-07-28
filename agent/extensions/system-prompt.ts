@@ -128,13 +128,14 @@ function collectPromptSections(
 	modelInvocableSkills: Array<{ name: string; description: string }>,
 ): PromptSections {
 	const contextFiles = options.contextFiles ?? [];
+	const cwd = options.cwd.replace(/\\/g, "/");
 
 	return {
 		appendSystemPrompt: formatAppendSystemPrompt(options.appendSystemPrompt),
 		toolPolicy: formatToolPolicy(options.promptGuidelines),
 		modelInvocableSkills: formatModelInvocableSkills(modelInvocableSkills),
 		skillPolicy: modelInvocableSkills.length > 0 ? formatSkillPolicy() : undefined,
-		projectContext: formatProjectContext(contextFiles),
+		projectContext: formatProjectContext(contextFiles, cwd),
 		extraSections,
 		date: formatLocalDate(new Date()),
 		cwd: options.cwd.replace(/\\/g, "/"),
@@ -222,14 +223,19 @@ function normalizeGuidelines(promptGuidelines: BuildSystemPromptOptions["promptG
 	return (promptGuidelines ?? []).map((guideline) => guideline.trim()).filter((guideline) => guideline.length > 0);
 }
 
-function formatProjectContext(contextFiles: NonNullable<BuildSystemPromptOptions["contextFiles"]>): string | undefined {
+function formatProjectContext(contextFiles: NonNullable<BuildSystemPromptOptions["contextFiles"]>, cwd: string): string | undefined {
 	if (contextFiles.length === 0) return undefined;
 
 	const files = contextFiles
 		.map(
-			({ path, content }) => `<project_instructions path="${escapeXml(path)}">
-${normalizeLineEndings(content)}
-</project_instructions>`,
+			({ path, content }) => {
+				const relPath = path.startsWith(cwd)
+					? path.slice(cwd.length + 1).replace(/\\/g, "/")
+					: path;
+				return `<project_instructions path="${escapeXml(relPath)}">
+${normalizeLineEndings(content).trim()}
+</project_instructions>`;
+			},
 		)
 		.join("\n\n");
 
