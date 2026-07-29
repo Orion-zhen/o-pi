@@ -145,23 +145,20 @@ export interface LspDiagnosticSnapshot {
 	version?: number;
 }
 
-/** read outline 中的紧凑 symbol 条目。 */
-export interface LspOutlineItem {
+/** 长文件截断 read 中尚未出现的顶层 symbol。 */
+export interface LspRemainingSymbol {
 	name: string;
 	kind: string;
 	line: number;
 	end_line: number;
-	detail?: string;
-	children?: LspOutlineItem[];
 }
 
-/** 行范围所属的最小包围 symbol。 */
+/** partial read 中声明行不可见的最小包围 symbol。 */
 export interface LspEnclosingSymbol {
 	name: string;
 	kind: string;
 	line: number;
 	end_line: number;
-	detail?: string;
 }
 
 /** workspace/symbol 转换后的 grep 候选。 */

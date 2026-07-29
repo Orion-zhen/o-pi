@@ -33,7 +33,7 @@ agent/configs/lsp.jsonc
 | `max_restarts` | `2` | server 崩溃后的最多重启次数，范围 `0`-`10`。binary 缺失属于 unavailable，不做崩溃重启。 |
 | `max_open_documents` | 见默认文件 | 每个 server session 最多保留的文档状态数，范围 `1`-`1024`。LRU 淘汰会先发送所需的 `didClose`，并清理全文和 symbol cache。 |
 | `diagnostics` | 见下表 | 控制 `write` / `edit` 成功后的诊断等待和返回内容。 |
-| `read` | 见下表 | 控制 `read` 的 outline / enclosing symbol 增强。 |
+| `read` | 见下表 | 控制 `read` 的长文件导航回退和 enclosing symbol 增强。 |
 | `grep` | 见下表 | 控制 `grep` 的 workspace symbol 增强。 |
 | `servers` | 见默认文件 | 以 server ID 为 key 的 language server 对象，最多 50 个。 |
 
@@ -52,8 +52,8 @@ agent/configs/lsp.jsonc
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `outline` | `true` | 内容被 `read` 截断时是否附加 `lsp.outline`。完整小文件不会触发 LSP outline。 |
-| `max_symbols` | `40` | `lsp.outline` 整棵树最多返回的 symbol 数，范围 `0`-`200`。根和所有后代按 server 原始顺序执行稳定 DFS 并共享预算；partial range 的 `lsp.enclosing_symbol` 不受此开关影响。 |
+| `outline` | `true` | 是否启用长文件导航 fallback。仅整文件读取发生截断，且可见片段中的顶层声明不超过总数一半时返回 `remaining_symbols`。 |
+| `max_symbols` | `40` | `remaining_symbols` 最多返回的顶层 symbol 数，范围 `0`-`200`；不递归 children。partial range 的 `lsp.enclosing_symbol` 不受此开关影响。 |
 
 `grep`：
 
@@ -225,7 +225,7 @@ binary 不存在、TCP endpoint 不可达或 initialize 失败时 server 标记�
 
 ## 行为
 
-- `read`：部分行范围读取时可返回 `lsp.enclosing_symbol`；内容截断时可返回紧凑 `lsp.outline`，根和嵌套后代共同受全树 symbol 上限约束。outline 关闭或上限为 `0` 且不需要 enclosing symbol 时不会启动 LSP。只为 `documentSymbol` 打开的文档会在请求后关闭，但保留有界的本地内容版本和 symbol cache；相同内容的暖态读取直接复用 cache，不重新打开文档或发送 symbol 请求。
+- `read`：部分行范围读取且最小包围 symbol 的声明行不可见时可返回 `lsp.enclosing_symbol`；整文件读取被截断且可见片段不足以覆盖大部分顶层声明时，才可返回非递归的 `remaining_symbols` 长文件导航 fallback。outline 关闭或上限为 `0` 且不需要 enclosing symbol 时不会启动 LSP。只为 `documentSymbol` 打开的文档会在请求后关闭，但保留有界的本地内容版本和 symbol cache；相同内容的暖态读取直接复用 cache，不重新打开文档或发送 symbol 请求。
 - `grep`：仅在 `match=auto` 且 query 像 symbol 时调用 workspace/symbol；请求范围来自完整 `ScopeInventory` 的 scope+glob allowed paths，不受本地解析或词法 Top-K 门控。多个 server 并行查询但按配置顺序稳定合并；symbol、resolve 和 reference 的结果由 grep 统一检查 scope、visibility、glob、live version/hash 和 range。`grep.references` 开启后只查询有效接收的 symbol，并以有界并发、全局去重和最终预算合并引用。调用方取消和统一操作 deadline 会贯穿 query、resolve、references 并触发协议级取消；所有 LSP 失败继续按独立文本链降级。
 - `write`：写盘成功后先向已启动且 watcher 匹配的 server 发送 create/change 事件；配置文件不需要属于源码路由，也不会因此启动新 server。同一并行 mutation 批次按 client 合并 watcher 通知，随后先同步该 client 的全部文档。server 声明 `diagnosticProvider` 时以有界并发 pull diagnostics；未声明 pull 但公开 `typescript.tsserverRequest` 命令时走 TSLS 同步诊断 fast path；其余 server 并行等待 publish。诊断错误不改变 `status: "written"`。
 - `edit`：preview 不调用 LSP；成功写盘后发送 watched-file change，并只用同一 workspace/server source 的编辑前 baseline 计算 diagnostics diff；不同 source 的 baseline 标记为 unknown，诊断错误不改变 `status: "applied"`。

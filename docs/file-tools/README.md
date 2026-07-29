@@ -143,7 +143,7 @@ blocked path  → 不可列出、搜索、读取或写入
 
 ## 可选增强
 
-- LSP 为 `grep`、`read`、`write`、`edit` 提供 symbol、outline 和 diagnostics 等附加信息。
+- LSP 为 `grep`、`read`、`write`、`edit` 提供 symbol、read 结构边界、长文件剩余 symbol 导航和 diagnostics 等附加信息。
 - Repo Map 为 `find` 和 `grep` 提供可验证的跨文件结构召回，并为读取和 mutation 提供上下文。
 - Repo Map 只有在当前 session 执行 `/init` 后才激活。
 - 增强失败时仍保留基础文件操作和文本搜索能力。

@@ -60,7 +60,7 @@ command 通过 filesystem content service 执行 stable bounded read、严格 UT
 
 缺失 workspace path 先询问 read-local Repo Map suggestion port，再回退到 filesystem path catalog；候选受 blocked、visibility、symlink 与条目预算约束。workspace 外路径不做 workspace 建议。
 
-只有 partial/truncated read 才调用 read-local structure/graph ports附加 enclosing symbol、outline 或结构上下文；LSP/Repo Map 未配置、失败或取消时仍返回基础内容。图片转换通过 `InlineImageProcessor` port，`skill://` 在 Pi adapter 边界解析，不进入 workspace namespace。
+只有 partial/truncated read 才调用 read-local structure/graph ports；LSP 仅在 partial read 的最小包围 symbol 声明行不可见且 Repo Map 未提供同一事实时附加 enclosing symbol。整文件因长度截断且可见片段不足以覆盖大部分顶层声明时，可附加非递归的 `remaining_symbols` 导航 fallback。LSP/Repo Map 未配置、失败或取消时仍返回基础内容。图片转换通过 `InlineImageProcessor` port，`skill://` 在 Pi adapter 边界解析，不进入 workspace namespace。
 
 ## 限制与错误
 

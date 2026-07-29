@@ -49,7 +49,7 @@ export function createLspFileOperations(manager: LspManager): LspFileOperations 
 					input.filePath,
 					input.content,
 					{ startLine: input.startLine, endLine: input.endLine },
-					{ outline: input.truncated, enclosing: input.partial },
+					{ outline: input.truncated && !input.partial, enclosing: input.partial },
 				);
 			} catch {
 				return undefined;

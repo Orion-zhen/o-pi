@@ -38,6 +38,28 @@ beforeEach(async () => {
 afterEach(() => host.dispose());
 
 describe("file-tools lsp hooks", () => {
+	it("read 只为整文件截断请求 outline fallback", async () => {
+		const manager = new LspManager();
+		const enhancement = vi.spyOn(manager, "readEnhancement").mockResolvedValue(undefined);
+		const read = createLspFileOperations(manager).read;
+		if (read === undefined) throw new Error("read operation missing");
+		const base = {
+			workspaceRoot: workspace,
+			filePath: path.join(workspace, "a.ts"),
+			content: "const value = 1;\n",
+			startLine: 1,
+			endLine: 1,
+		};
+
+		await read({ ...base, truncated: true, partial: true });
+		await read({ ...base, truncated: false, partial: false });
+		await read({ ...base, truncated: true, partial: false });
+
+		expect(enhancement).toHaveBeenNthCalledWith(1, workspace, path.join(workspace, "a.ts"), base.content, { startLine: 1, endLine: 1 }, { outline: false, enclosing: true });
+		expect(enhancement).toHaveBeenNthCalledWith(2, workspace, path.join(workspace, "a.ts"), base.content, { startLine: 1, endLine: 1 }, { outline: false, enclosing: false });
+		expect(enhancement).toHaveBeenNthCalledWith(3, workspace, path.join(workspace, "a.ts"), base.content, { startLine: 1, endLine: 1 }, { outline: true, enclosing: false });
+	});
+
 	it("read 附加 partial enclosing symbol，hook 失败时仍成功", async () => {
 		await writeFile(path.join(workspace, "a.ts"), "function demo() {\n  return 1;\n}\n");
 		await expect(readWorkspaceFile(workspace, { path: "a.ts", start_line: 2, end_line: 2 }, {

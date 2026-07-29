@@ -3,6 +3,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { contentHash as sha256Version } from "../../src/filesystem/services/text.js";
+import { formatReadStructureContext } from "../../src/file-tools/read/presenter.js";
 import { createCrudTestContext } from "./crud-fixtures.js";
 
 const testContext = createCrudTestContext();
@@ -51,6 +52,17 @@ describe("read", () => {
 		if ("status" in result) {
 			expect(result.error.next).toMatch(/^Related paths: [^,]+$/u);
 		}
+	});
+
+	it("模型输出只展示未出现的顶层 remaining symbols", () => {
+		expect(formatReadStructureContext({
+			remaining_symbols: [
+				{ line: 240, end_line: 418, kind: "class", name: "RequestParser" },
+				{ line: 412, end_line: 487, kind: "function", name: "validate_config" },
+			],
+		}, undefined)).toBe(
+			"<remaining_symbols>\nline 240-418: class RequestParser\nline 412-487: function validate_config\n</remaining_symbols>",
+		);
 	});
 
 	it("读取完整 UTF-8 文件并返回版本和元数据", async () => {

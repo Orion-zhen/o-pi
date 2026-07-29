@@ -8,7 +8,7 @@ import {
 	type WorkspaceSymbol,
 } from "vscode-languageserver-protocol";
 
-import type { LspDocumentSymbols, LspEnclosingSymbol, LspOutlineItem, LspSymbolHit } from "./types.js";
+import type { LspDocumentSymbols, LspEnclosingSymbol, LspRemainingSymbol, LspSymbolHit } from "./types.js";
 import { fileUriToPath, workspaceRelativePath } from "./uri.js";
 
 export interface WorkspaceSymbolSeed extends LspSymbolHit {
@@ -52,26 +52,22 @@ const kindNames = new Map<number, string>([
 	[SymbolKind.TypeParameter, "type_parameter"],
 ]);
 
-/** 将 documentSymbol 结果按稳定 DFS 压缩为受全树预算限制的 outline。 */
-export function compactOutline(symbols: LspDocumentSymbols | undefined, maxSymbols: number): LspOutlineItem[] {
-	if (symbols === undefined || maxSymbols <= 0) return [];
-	const budget = { remaining: maxSymbols };
-	const output: LspOutlineItem[] = [];
-	for (const symbol of symbols) {
-		if (budget.remaining <= 0) break;
-		if (isDocumentSymbol(symbol)) {
-			output.push(toOutline(symbol, budget));
-			continue;
-		}
-		budget.remaining -= 1;
-		output.push({
-			name: symbol.name,
-			kind: symbolKindName(symbol.kind),
-			line: symbol.location.range.start.line + 1,
-			end_line: symbol.location.range.end.line + 1,
-		});
-	}
-	return output;
+/** 长文件截断时返回尚未出现在可见片段中的顶层 symbol。 */
+export function remainingSymbols(
+	symbols: LspDocumentSymbols | undefined,
+	startLine: number,
+	endLine: number,
+	maxSymbols: number,
+): LspRemainingSymbol[] {
+	if (symbols === undefined || symbols.length === 0 || maxSymbols <= 0) return [];
+	const topLevel = symbols
+		.filter((symbol) => isDocumentSymbol(symbol) || symbol.containerName === undefined || symbol.containerName.trim().length === 0)
+		.map(toRemainingSymbol);
+	const visibleCount = topLevel.filter((symbol) => symbol.line >= startLine && symbol.line <= endLine).length;
+	if (visibleCount * 2 > topLevel.length) return [];
+	return topLevel
+		.filter((symbol) => symbol.line < startLine || symbol.line > endLine)
+		.slice(0, maxSymbols);
 }
 
 export function findEnclosingSymbol(symbols: LspDocumentSymbols | undefined, startLine: number, endLine: number): LspEnclosingSymbol | undefined {
@@ -79,7 +75,8 @@ export function findEnclosingSymbol(symbols: LspDocumentSymbols | undefined, sta
 	const all = flattenDocumentSymbols(symbols).filter((symbol) => symbol.line <= startLine && symbol.end_line >= endLine);
 	all.sort((left, right) => (left.end_line - left.line) - (right.end_line - right.line));
 	const found = all[0];
-	return found === undefined ? undefined : found;
+	if (found === undefined || found.line >= startLine) return undefined;
+	return found;
 }
 
 export function workspaceSymbolSeed(root: string, query: string, symbol: SymbolInformation | WorkspaceSymbol): WorkspaceSymbolSeed | undefined {
@@ -134,24 +131,21 @@ export function referenceHits(root: string, seed: WorkspaceSymbolSeed, locations
 	return hits;
 }
 
-function toOutline(symbol: DocumentSymbol, budget: { remaining: number }): LspOutlineItem {
-	budget.remaining -= 1;
-	const item: LspOutlineItem = {
+function toRemainingSymbol(symbol: DocumentSymbol | SymbolInformation): LspRemainingSymbol {
+	if (isDocumentSymbol(symbol)) {
+		return {
+			name: symbol.name,
+			kind: symbolKindName(symbol.kind),
+			line: symbol.range.start.line + 1,
+			end_line: symbol.range.end.line + 1,
+		};
+	}
+	return {
 		name: symbol.name,
 		kind: symbolKindName(symbol.kind),
-		line: symbol.range.start.line + 1,
-		end_line: symbol.range.end.line + 1,
+		line: symbol.location.range.start.line + 1,
+		end_line: symbol.location.range.end.line + 1,
 	};
-	if (symbol.detail !== undefined && symbol.detail.length > 0) item.detail = symbol.detail;
-	if (symbol.children !== undefined && budget.remaining > 0) {
-		const children: LspOutlineItem[] = [];
-		for (const child of symbol.children) {
-			if (budget.remaining <= 0) break;
-			children.push(toOutline(child, budget));
-		}
-		if (children.length > 0) item.children = children;
-	}
-	return item;
 }
 
 function flattenDocumentSymbols(symbols: LspDocumentSymbols): LspEnclosingSymbol[] {
@@ -163,7 +157,6 @@ function flattenDocumentSymbols(symbols: LspDocumentSymbols): LspEnclosingSymbol
 				kind: symbolKindName(symbol.kind),
 				line: symbol.range.start.line + 1,
 				end_line: symbol.range.end.line + 1,
-				...(symbol.detail !== undefined ? { detail: symbol.detail } : {}),
 			});
 			if (symbol.children !== undefined) result.push(...flattenDocumentSymbols(symbol.children));
 		} else {

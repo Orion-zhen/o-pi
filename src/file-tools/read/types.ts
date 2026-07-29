@@ -8,13 +8,11 @@ export interface ReadParams {
 
 export type ReadOutputFormat = "text" | "image";
 
-export interface ReadOutlineItem {
+export interface ReadRemainingSymbol {
 	name: string;
 	kind: string;
 	line: number;
 	end_line: number;
-	detail?: string;
-	children?: ReadOutlineItem[];
 }
 
 export interface ReadEnclosingSymbol {
@@ -22,11 +20,10 @@ export interface ReadEnclosingSymbol {
 	kind: string;
 	line: number;
 	end_line: number;
-	detail?: string;
 }
 
 export interface ReadStructureContext {
-	outline?: ReadOutlineItem[];
+	remaining_symbols?: ReadRemainingSymbol[];
 	enclosing_symbol?: ReadEnclosingSymbol;
 }
 

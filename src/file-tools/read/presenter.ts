@@ -1,7 +1,7 @@
 import type {
 	ReadEnclosingSymbol,
 	ReadGraphContext,
-	ReadOutlineItem,
+	ReadRemainingSymbol,
 	ReadStructureContext,
 	ReadSuccess,
 } from "./types.js";
@@ -35,10 +35,12 @@ export function formatReadStructureContext(
 	if (structure.enclosing_symbol !== undefined && !sameSymbol(structure.enclosing_symbol, graph)) {
 		attrs.push(`enclosing="${escapeXmlAttribute(formatSymbolRange(structure.enclosing_symbol))}"`);
 	}
-	if (structure.outline !== undefined && structure.outline.length > 0) {
-		attrs.push(`outline="${escapeXmlAttribute(structure.outline.map(formatOutlineItem).join("; "))}"`);
+	const sections: string[] = [];
+	if (attrs.length > 0) sections.push(`<lsp ${attrs.join(" ")}/>`);
+	if (structure.remaining_symbols !== undefined && structure.remaining_symbols.length > 0) {
+		sections.push(`<remaining_symbols>\n${structure.remaining_symbols.map(formatRemainingSymbol).join("\n")}\n</remaining_symbols>`);
 	}
-	return attrs.length === 0 ? undefined : `<lsp ${attrs.join(" ")}/>`;
+	return sections.length === 0 ? undefined : sections.join("\n");
 }
 
 function sameSymbol(enclosing: ReadEnclosingSymbol, graph: ReadGraphContext | undefined): boolean {
@@ -50,20 +52,21 @@ function sameSymbol(enclosing: ReadEnclosingSymbol, graph: ReadGraphContext | un
 	return graphName === enclosing.name || graphName?.endsWith(`.${enclosing.name}`) === true;
 }
 
-function formatOutlineItem(item: ReadOutlineItem): string {
-	const current = formatSymbolRange(item);
-	if (item.children === undefined || item.children.length === 0) return current;
-	return `${current} > ${item.children.map(formatOutlineItem).join(", ")}`;
+function formatRemainingSymbol(item: ReadRemainingSymbol): string {
+	return `line ${item.line}-${item.end_line}: ${escapeXmlText(`${item.kind} ${item.name}`)}`;
 }
 
-function formatSymbolRange(item: ReadOutlineItem | ReadEnclosingSymbol): string {
+function formatSymbolRange(item: ReadEnclosingSymbol): string {
 	return `${item.kind} ${item.name} ${item.line}-${item.end_line}`;
 }
 
-function escapeXmlAttribute(value: string): string {
+function escapeXmlText(value: string): string {
 	return value
 		.replace(/&/gu, "&amp;")
 		.replace(/</gu, "&lt;")
-		.replace(/>/gu, "&gt;")
-		.replace(/"/gu, "&quot;");
+		.replace(/>/gu, "&gt;");
+}
+
+function escapeXmlAttribute(value: string): string {
+	return escapeXmlText(value).replace(/"/gu, "&quot;");
 }

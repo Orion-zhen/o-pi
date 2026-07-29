@@ -7,8 +7,8 @@ import { LspServerRegistry } from "./registry.js";
 import { loadLspConfig, normalizeExcludePath, resolveLspConfigPath } from "./config.js";
 import { diagnosticSourceKey, DiagnosticsLedger, emptySummary, summarizeDiagnostics } from "./diagnostics.js";
 import {
-	compactOutline,
 	findEnclosingSymbol,
+	remainingSymbols,
 	hasUriOnlyWorkspaceSymbolLocation,
 	referenceHits,
 	workspaceSymbolLocation,
@@ -23,7 +23,7 @@ import type {
 	LspDiagnosticsSummary,
 	LspEnclosingSymbol,
 	LspFileRoute,
-	LspOutlineItem,
+	LspRemainingSymbol,
 	LspServerConfig,
 	LspStatus,
 	LspSymbolHit,
@@ -63,8 +63,8 @@ export interface WorkspaceSymbolsInput {
 }
 
 export interface ReadEnhancement {
-	/** 截断读取时可返回的紧凑 outline。 */
-	outline?: LspOutlineItem[];
+	/** 整文件截断且可见部分不足以覆盖顶层结构时的导航回退。 */
+	remaining_symbols?: LspRemainingSymbol[];
 	/** partial range 所属的最小包围 symbol。 */
 	enclosing_symbol?: LspEnclosingSymbol;
 }
@@ -133,7 +133,10 @@ export class LspManager {
 	private async readEnhancementOperation(root: string, filePath: string, text: string, range: { startLine: number; endLine: number }, options: { outline: boolean; enclosing: boolean }): Promise<ReadEnhancement | undefined> {
 		const config = await this.enabledConfig(root);
 		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths)) return undefined;
-		const wantsOutline = options.outline && config.config.read.outline && config.config.read.max_symbols > 0;
+		const wantsOutline = options.outline
+			&& !options.enclosing
+			&& config.config.read.outline
+			&& config.config.read.max_symbols > 0;
 		if (!wantsOutline && !options.enclosing) return undefined;
 		const client = await this.clientForFile(root, filePath);
 		if (client === undefined) return undefined;
@@ -141,8 +144,8 @@ export class LspManager {
 		if (symbols === undefined) return undefined;
 		const result: ReadEnhancement = {};
 		if (wantsOutline) {
-			const outline = compactOutline(symbols, config.config.read.max_symbols);
-			if (outline.length > 0) result.outline = outline;
+			const remaining = remainingSymbols(symbols, range.startLine, range.endLine, config.config.read.max_symbols);
+			if (remaining.length > 0) result.remaining_symbols = remaining;
 		}
 		if (options.enclosing) {
 			const enclosing = findEnclosingSymbol(symbols, range.startLine, range.endLine);
