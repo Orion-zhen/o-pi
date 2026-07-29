@@ -21,7 +21,7 @@ export function summarizeSearchEffectiveness(
 	const tools = [...new Set(searchCalls.map((call) => call.tool))].sort(compare);
 	return {
 		heuristic: true,
-		method: "search candidates use the candidate-ranking target-match heuristic",
+		method: "legacy broad candidate use after normalization and unique successful-consumer attribution (10 calls/5 minutes)",
 		...statistics(searchCalls, observations),
 		by_tool: Object.fromEntries(tools.map((tool) => [
 			tool,

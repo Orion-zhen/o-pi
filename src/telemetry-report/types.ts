@@ -75,21 +75,98 @@ export interface ConversionAtK {
 export interface CandidateRankingCoreStatistics {
 	producer_calls: number;
 	candidates: number;
+	/** Legacy alias for broad adopted candidate facts. */
 	converted_candidates: number;
+	/** Legacy broad heuristic; do not use as the primary adoption rate. */
 	candidate_conversion_rate: number;
 	conversion_at_k: ConversionAtK[];
 	mrr: { samples: number; value: number };
 	downstream_consumers: Record<string, number>;
 }
 
+export interface RetentionAtK {
+	k: number;
+	adopted_events: number;
+	retained_events: number;
+	rate: number;
+}
+
+export interface AdoptionWindowStatistics {
+	lists: number;
+	adopted_lists: number;
+	adoption_rate: number;
+	unknown_lists: number;
+	hit_at_k: ConversionAtK[];
+	mrr: { samples: number; value: number };
+	retention_at_k: RetentionAtK[];
+}
+
+export interface CandidateActionStatistics {
+	inspection: number;
+	mutation: number;
+	productive: number;
+	inspection_only: number;
+}
+
+export interface CandidateNoveltyStatistics {
+	novel_exposures: number;
+	novel_exposure_rate: number;
+	novel_immediate_adopted: number;
+	novel_immediate_adoption_rate: number;
+	novel_productive: number;
+	novel_productive_adoption_rate: number;
+	prior_known_exposures: number;
+	prior_known_rate: number;
+}
+
+export interface CandidateLevelStatistics {
+	producer_calls: number;
+	exposures: number;
+	immediate: AdoptionWindowStatistics;
+	pre_refinement: AdoptionWindowStatistics;
+	broad: AdoptionWindowStatistics;
+	productive: AdoptionWindowStatistics;
+	actions: CandidateActionStatistics;
+	novelty: CandidateNoveltyStatistics;
+	search_abandonment: number;
+	search_abandonment_rate: number;
+}
+
+export interface SourceContributionStatistics {
+	participation_exposures: number;
+	participation_productive: number;
+	participation_productive_rate: number;
+	exclusive_exposures: number;
+	exclusive_productive: number;
+	exclusive_productive_rate: number;
+	redundant_exposures: number;
+	redundancy_rate: number;
+}
+
+export interface OutputEfficiencyStatistics {
+	producer_calls: number;
+	output_chars: number;
+	immediate_adopted_lists: number;
+	productive_adopted_lists: number;
+	immediate_adopted_lists_per_1000_chars: number;
+	productive_adopted_lists_per_1000_chars: number;
+	chars_per_productive_adopted_list?: number;
+	no_action_output_chars: number;
+	no_action_output_share: number;
+}
+
 export interface CandidateRankingStatistics extends CandidateRankingCoreStatistics {
-	by_source: Record<string, CandidateRankingCoreStatistics>;
-	by_source_family: Record<string, CandidateRankingCoreStatistics>;
+	file_level: CandidateLevelStatistics;
+	region_level: CandidateLevelStatistics;
+	by_source: Record<string, SourceContributionStatistics>;
+	by_source_family: Record<string, SourceContributionStatistics>;
+	output_efficiency: OutputEfficiencyStatistics;
 }
 
 export interface CandidateRankingReport extends CandidateRankingStatistics {
 	heuristic: true;
 	method: string;
+	participation_note: string;
 	by_tool: Record<string, CandidateRankingStatistics>;
 }
 

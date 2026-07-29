@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import type { CallRecord, Candidate, RunRecord, TelemetryRecord } from "../../src/telemetry/types.js";
 import { aggregateTelemetry } from "../../src/telemetry-report/aggregate.js";
+import { collectCandidateObservations } from "../../src/telemetry-report/analyzers/candidate-observations.js";
 import { analyzeCandidateRanking } from "../../src/telemetry-report/analyzers/candidate-ranking.js";
 import { analyzeEdits } from "../../src/telemetry-report/analyzers/edit.js";
 import { analyzeSearchEffectiveness } from "../../src/telemetry-report/analyzers/search-effectiveness.js";
@@ -134,11 +135,10 @@ describe("telemetry report", () => {
 		const html = renderTelemetryHtml(aggregateTelemetry([run("run-a", "commit-a"), ...records], { generatedAt: at(9) }));
 		expect(html).toContain("搜索有效产出");
 		expect(html).toContain("扫描 125 / 2 次有统计");
-		expect(html).toContain("有候选调用");
-		expect(html).toContain("2 (66.67%)");
-		expect(html).toContain("有效搜索");
-		expect(html).toContain("3 (100%)");
-		expect(html).toContain("返回 3 / 读取 2 / 修改 1 / 其他 0");
+		expect(html).toContain("File 曝光");
+		expect(html).toContain("Immediate");
+		expect(html).toContain("Productive");
+		expect(html).toContain("Legacy broad 搜索明细");
 		expect(html).toContain("扫描 100 / 1 次有统计");
 		expect(html).toContain("扫描 — / 0 次有统计");
 		expect(html).toContain("primary");
@@ -171,51 +171,185 @@ describe("telemetry report", () => {
 		});
 	});
 
-	it("uses later target calls as a deliberately small candidate-ranking heuristic", () => {
-		const candidates: Candidate[] = [
-			{ kind: "file", value: "src/a.ts", rank: 1, sources: ["lexical"] },
-			{ kind: "file", value: "src/b.ts", rank: 2, sources: ["repo-map-direct"] },
-			{ kind: "file", value: "src/c.ts", rank: 3, sources: ["lsp-workspace-symbol", "lsp-reference"] },
-		];
+	it("normalizes regions and only adopts the intersecting region", () => {
 		const records = [
-			call("grep", 0, "grep", { candidates, batch: batch("parallel", 2, 0) }),
-			call("parallel-read", 1, "read", { targets: [file("src/a.ts")], batch: batch("parallel", 2, 1) }),
-			call("read", 2, "read", { targets: [file("src/b.ts")] }),
-			call("edit", 3, "edit", { targets: [file("src/c.ts")] }),
+			call("grep", 0, "grep", { candidates: [
+				candidate("src/a.ts", 3, ["lexical"], 10, 20),
+				candidate("src/a.ts", 1, ["lsp-reference"], 10, 20),
+				candidate("src/a.ts", 2, ["repo-map-direct"], 30, 40),
+			] }),
+			call("read", 1, "read", { targets: [region("src/a.ts", 15, 16)] }),
 		];
-		const report = analyzeCandidateRanking(records, new Map([["run-a", "/repo"]]));
-		expect(report).toMatchObject({
-			producer_calls: 1,
-			candidates: 3,
-			converted_candidates: 2,
-			candidate_conversion_rate: 2 / 3,
-			mrr: { samples: 1, value: 0.5 },
-			by_source_family: {
-				lsp: { candidates: 1, converted_candidates: 1, candidate_conversion_rate: 1, mrr: { value: 1 / 3 } },
-				"repo-map": { candidates: 1, converted_candidates: 1, candidate_conversion_rate: 1, mrr: { value: 0.5 } },
-			},
-			downstream_consumers: { edit: 1, read: 1 },
+		const observed = collectCandidateObservations(records, cwd());
+		const report = analyzeCandidateRanking(records, cwd());
+		expect(report.file_level).toMatchObject({ exposures: 1, actions: { inspection: 1 } });
+		expect(report.region_level).toMatchObject({
+			exposures: 2,
+			immediate: { adopted_lists: 1, unknown_lists: 0 },
+			broad: { adopted_lists: 1 },
 		});
-		expect(report.by_source["lsp-workspace-symbol"]).toMatchObject({
-			producer_calls: 1,
-			candidates: 1,
-			converted_candidates: 1,
-			downstream_consumers: { edit: 1 },
+		expect(observed.region_observations.filter((item) => item.consumer !== undefined)).toHaveLength(1);
+		expect(observed.region_observations.find((item) => item.consumer !== undefined)?.candidate).toMatchObject({
+			start_line: 10,
+			end_line: 20,
+			rank: 1,
+			sources: ["lexical", "lsp-reference"],
 		});
-		expect(report.by_source["lsp-workspace-symbol"]?.conversion_at_k).toEqual([
-			{ k: 1, lists: 1, converted_lists: 0, rate: 0 },
-			{ k: 3, lists: 1, converted_lists: 1, rate: 1 },
-			{ k: 5, lists: 1, converted_lists: 1, rate: 1 },
-			{ k: 10, lists: 1, converted_lists: 1, rate: 1 },
-		]);
-		expect(report.by_source["lsp-reference"]).toEqual(report.by_source["lsp-workspace-symbol"]);
-		expect(report.by_tool.grep?.by_source_family).toEqual(report.by_source_family);
-		expect(report.conversion_at_k).toEqual([
-			{ k: 1, lists: 1, converted_lists: 0, rate: 0 },
-			{ k: 3, lists: 1, converted_lists: 1, rate: 1 },
-			{ k: 5, lists: 1, converted_lists: 1, rate: 1 },
-			{ k: 10, lists: 1, converted_lists: 1, rate: 1 },
-		]);
+	});
+
+	it("treats a whole-file read as file adoption and unknown region adoption", () => {
+		const report = analyzeCandidateRanking([
+			call("grep", 0, "grep", { candidates: [candidate("src/a.ts", 1, ["lexical"], 10, 20)] }),
+			call("read", 1, "read", { targets: [file("src/a.ts")] }),
+		], cwd());
+		expect(report.file_level.immediate.adopted_lists).toBe(1);
+		expect(report.region_level.immediate).toMatchObject({ adopted_lists: 0, unknown_lists: 1 });
+		expect(report.region_level.actions.inspection).toBe(0);
+	});
+
+	it("attributes one consumer to only the most recent producer", () => {
+		const records = [
+			call("first", 0, "find", { candidates: [candidate("src/a.ts", 1, ["lexical"])] }),
+			call("second", 1, "grep", { candidates: [candidate("src/a.ts", 3, ["repo-map-direct"])] }),
+			call("read", 2, "read", { targets: [file("src/a.ts")] }),
+		];
+		const observed = collectCandidateObservations(records, cwd());
+		expect(observed.attributions).toHaveLength(1);
+		expect(observed.attributions[0]?.producer.call_id).toBe("second");
+		const report = analyzeCandidateRanking(records, cwd());
+		expect(report.file_level.broad).toMatchObject({ lists: 2, adopted_lists: 1 });
+	});
+
+	it("excludes failed and same-batch consumers", () => {
+		const records = [
+			call("grep", 0, "grep", { candidates: [candidate("src/a.ts", 1, ["lexical"])], batch: batch("parallel", 2, 0) }),
+			call("parallel", 1, "read", { targets: [file("src/a.ts")], batch: batch("parallel", 2, 1) }),
+			call("failed", 2, "read", { targets: [file("src/a.ts")], status: "error" }),
+		];
+		const report = analyzeCandidateRanking(records, cwd());
+		expect(report.file_level.immediate.adopted_lists).toBe(0);
+		expect(report.file_level.broad.adopted_lists).toBe(0);
+	});
+
+	it("records search abandonment before refinement", () => {
+		const report = analyzeCandidateRanking([
+			call("find", 0, "find", { candidates: [candidate("src/a.ts", 1, ["lexical"])] }),
+			call("grep", 1, "grep"),
+			call("read", 2, "read", { targets: [file("src/a.ts")] }),
+		], cwd());
+		expect(report.file_level).toMatchObject({
+			search_abandonment: 1,
+			search_abandonment_rate: 1,
+			pre_refinement: { adopted_lists: 0 },
+			broad: { adopted_lists: 1 },
+		});
+	});
+
+	it("distinguishes novel and prior-known candidate files", () => {
+		const report = analyzeCandidateRanking([
+			call("prior", 0, "read", { targets: [file("src/known.ts")] }),
+			call("find", 1, "find", { candidates: [
+				candidate("src/known.ts", 1, ["lexical"]),
+				candidate("src/novel.ts", 2, ["lexical"]),
+			] }),
+			call("read", 2, "read", { targets: [file("src/novel.ts")] }),
+		], cwd());
+		expect(report.file_level.novelty).toEqual({
+			novel_exposures: 1,
+			novel_exposure_rate: 0.5,
+			novel_immediate_adopted: 1,
+			novel_immediate_adoption_rate: 1,
+			novel_productive: 0,
+			novel_productive_adoption_rate: 0,
+			prior_known_exposures: 1,
+			prior_known_rate: 0.5,
+		});
+	});
+
+	it("reports source contribution bounds and read-to-edit productivity", () => {
+		const report = analyzeCandidateRanking([
+			call("grep", 0, "grep", { outputChars: 1000, candidates: [
+				candidate("src/a.ts", 1, ["repo-map-direct", "lsp-reference"]),
+				candidate("src/b.ts", 2, ["repo-map-hop-1"]),
+			] }),
+			call("read-a", 1, "read", { targets: [file("src/a.ts")] }),
+			call("edit-a", 2, "edit", { targets: [file("src/a.ts")] }),
+			call("edit-b", 3, "write", { targets: [file("src/b.ts")] }),
+		], cwd());
+		expect(report.file_level.actions).toEqual({ inspection: 1, mutation: 2, productive: 2, inspection_only: 0 });
+		expect(report.by_source["repo-map-direct"]).toMatchObject({
+			participation_exposures: 1,
+			exclusive_exposures: 0,
+			participation_productive: 1,
+			exclusive_productive: 0,
+			redundancy_rate: 1,
+		});
+		expect(report.by_source_family["repo-map"]).toMatchObject({
+			participation_exposures: 2,
+			exclusive_exposures: 1,
+			participation_productive: 2,
+			exclusive_productive: 1,
+			redundancy_rate: 0.5,
+		});
+		expect(report.output_efficiency).toMatchObject({
+			immediate_adopted_lists_per_1000_chars: 1,
+			productive_adopted_lists_per_1000_chars: 1,
+			chars_per_productive_adopted_list: 1000,
+			no_action_output_share: 0,
+		});
+	});
+
+	it("computes output-character efficiency and no-action share per producer tool", () => {
+		const report = analyzeCandidateRanking([
+			call("productive", 0, "find", { outputChars: 1000, candidates: [candidate("src/a.ts", 1, ["lexical"])] }),
+			call("edit", 1, "edit", { targets: [file("src/a.ts")] }),
+			call("no-action", 2, "find", { outputChars: 1000, candidates: [candidate("src/b.ts", 1, ["lexical"])] }),
+		], cwd());
+		expect(report.output_efficiency).toMatchObject({
+			output_chars: 2000,
+			immediate_adopted_lists_per_1000_chars: 0.5,
+			productive_adopted_lists_per_1000_chars: 0.5,
+			chars_per_productive_adopted_list: 2000,
+			no_action_output_chars: 1000,
+			no_action_output_share: 0.5,
+		});
+		expect(report.by_tool.find?.output_efficiency).toEqual(report.output_efficiency);
+	});
+
+	it("computes Hit@K, MRR, and adoption retention from unique events", () => {
+		const report = analyzeCandidateRanking([
+			call("find", 0, "find", { candidates: [
+				candidate("src/one.ts", 1, ["lexical"]),
+				candidate("src/two.ts", 2, ["lexical"]),
+				candidate("src/four.ts", 4, ["lexical"]),
+				candidate("src/six.ts", 6, ["lexical"]),
+			] }),
+			call("read-four", 1, "read", { targets: [file("src/four.ts")] }),
+			call("read-two", 2, "read", { targets: [file("src/two.ts")] }),
+			call("edit-six", 3, "edit", { targets: [file("src/six.ts")] }),
+		], cwd());
+		expect(report.file_level.immediate.hit_at_k.map((item) => item.converted_lists)).toEqual([0, 0, 1, 1]);
+		expect(report.file_level.immediate.mrr.value).toBe(0.25);
+		expect(report.file_level.pre_refinement.mrr.value).toBe(0.5);
+		expect(report.file_level.pre_refinement.retention_at_k.map((item) => item.rate)).toEqual([0, 1 / 3, 2 / 3, 1]);
+		expect(report.file_level.productive.hit_at_k.map((item) => item.converted_lists)).toEqual([0, 0, 0, 1]);
+		expect(report.file_level.productive.mrr.value).toBe(1 / 6);
+	});
+
+	it("keeps broad adoption bounded by ten calls and five minutes", () => {
+		const records = [
+			call("edge", 0, "find", { runId: "edge", candidates: [candidate("src/a.ts", 1, ["lexical"])] }),
+			...Array.from({ length: 9 }, (_, index) => call(`edge-gap-${index}`, index + 1, "bash", { runId: "edge" })),
+			call("edge-read", 10, "read", { runId: "edge", targets: [file("src/a.ts")] }),
+			call("late-call", 0, "find", { runId: "late-call", candidates: [candidate("src/b.ts", 1, ["lexical"])] }),
+			...Array.from({ length: 10 }, (_, index) => call(`late-gap-${index}`, index + 1, "bash", { runId: "late-call" })),
+			call("late-read", 11, "read", { runId: "late-call", targets: [file("src/b.ts")] }),
+			call("late-time", 0, "find", { runId: "late-time", atOffset: 0, candidates: [candidate("src/c.ts", 1, ["lexical"])] }),
+			call("timed-read", 1, "read", { runId: "late-time", atOffset: 301, targets: [file("src/c.ts")] }),
+		];
+		const report = analyzeCandidateRanking(records, new Map([["edge", "/repo"], ["late-call", "/repo"], ["late-time", "/repo"]]));
+		expect(report.file_level.broad).toMatchObject({ lists: 3, adopted_lists: 1 });
+		expect(report.converted_candidates).toBe(1);
 	});
 
 	it("renders per-tool error reason counts in the HTML report", () => {
@@ -252,7 +386,7 @@ describe("telemetry report", () => {
 		expect(html).toContain("工具性能");
 		expect(html).toContain("编辑调用：单文件与多文件");
 		expect(html).toContain("搜索有效产出");
-		expect(html).toContain("按排名统计命中率");
+		expect(html).toContain("Hit@K / MRR / retention");
 		expect(html).not.toContain("<pre>");
 		expect(html).not.toContain('"candidate_ranking"');
 		expect(formatTelemetrySummary(result.report)).toContain("工具调用 1 次");
@@ -328,6 +462,7 @@ interface CallOptions {
 	fields?: CallRecord["fields"];
 	targets?: CallRecord["targets"];
 	candidates?: CallRecord["candidates"];
+	atOffset?: number;
 }
 
 function run(id: string, commit: string, dirty = false): RunRecord {
@@ -338,12 +473,12 @@ function call(id: string, index: number, tool: string, options: CallOptions = {}
 	return {
 		type: "call",
 		run_id: options.runId ?? "run-a",
-		at: at(index + 1),
+		at: at(options.atOffset ?? index + 1),
 		call_id: id,
 		call_index: index,
 		tool,
-		started_at: at(index + 1),
-		ended_at: at(index + 1),
+		started_at: at(options.atOffset ?? index + 1),
+		ended_at: at(options.atOffset ?? index + 1),
 		duration_ms: options.durationMs ?? 1,
 		status: options.status ?? "success",
 		...(options.outputChars === undefined ? {} : { output_chars: options.outputChars }),
@@ -363,6 +498,25 @@ function batch(id: string, size: number, index: number): NonNullable<CallRecord[
 
 function file(value: string): NonNullable<CallRecord["targets"]>[number] {
 	return { kind: "file", value };
+}
+
+function region(value: string, startLine: number, endLine: number): NonNullable<CallRecord["targets"]>[number] {
+	return { kind: "region", value, start_line: startLine, end_line: endLine };
+}
+
+function candidate(value: string, rank: number, sources: string[], startLine?: number, endLine?: number): Candidate {
+	return {
+		kind: startLine === undefined && endLine === undefined ? "file" : "region",
+		value,
+		rank,
+		sources,
+		...(startLine === undefined ? {} : { start_line: startLine }),
+		...(endLine === undefined ? {} : { end_line: endLine }),
+	};
+}
+
+function cwd(): ReadonlyMap<string, string> {
+	return new Map([["run-a", "/repo"]]);
 }
 
 function at(offset: number): string {

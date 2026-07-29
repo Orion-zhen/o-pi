@@ -1,6 +1,6 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-import type { CandidateRankingCoreStatistics, ToolStatistics } from "./types.js";
+import type { CandidateRankingStatistics, SourceContributionStatistics, ToolStatistics } from "./types.js";
 import type { LiveTelemetryReport } from "./live.js";
 
 const WIDE_WIDTH = 76;
@@ -34,12 +34,17 @@ export function renderLiveTelemetry(value: LiveTelemetryReport, width: number): 
 		"Edits & Batches",
 		inlineValues([["Calls", report.edit.calls], ["Failed", report.edit.failed_calls], ["No Change", report.edit.no_change_calls]]),
 		inlineValues([["Batches", report.edit.batches.batches], ["Multi-file", report.edit.batches.multi_file_batches], ["Partial Failure", report.edit.batches.partial_failure_batches], ["Reduction", report.edit.batches.potential_call_reduction]]),
-		"Candidate Ranking (Heuristic)",
+		"Candidate Adoption (Unique Attribution)",
 		...candidateBlock("Overall", report.candidate_ranking),
+		inlineValues([
+			["Immediate", `${report.candidate_ranking.file_level.immediate.adopted_lists}/${report.candidate_ranking.file_level.immediate.lists}`],
+			["Pre-refinement", `${report.candidate_ranking.file_level.pre_refinement.adopted_lists}/${report.candidate_ranking.file_level.pre_refinement.lists}`],
+			["Productive", `${report.candidate_ranking.file_level.productive.adopted_lists}/${report.candidate_ranking.file_level.productive.lists}`],
+		]),
 		"Candidate Source Families",
 		...(["repo-map", "lsp"] as const).flatMap((source) => {
 			const statistics = report.candidate_ranking.by_source_family[source];
-			return statistics === undefined ? [`  ${source}  no candidates`] : candidateBlock(source, statistics);
+			return statistics === undefined ? [`  ${source}  no candidates`] : sourceContributionBlock(source, statistics);
 		}),
 		"Candidate Sources",
 		...sourceLines(report.candidate_ranking.by_source),
@@ -60,7 +65,7 @@ export function formatLiveTelemetrySummary(value: LiveTelemetryReport): string {
 		`Multi-scope calls ${report.tools.reduce((sum, tool) => sum + tool.multi_scope_calls, 0)}`,
 		`Scope errors ${report.tools.reduce((sum, tool) => sum + tool.scope_errors, 0)}`,
 		`Path-list repairs ${report.tools.reduce((sum, tool) => sum + (tool.repair.operations["split_path_list"] ?? 0), 0)}`,
-		`Candidates used ${report.candidate_ranking.converted_candidates}/${report.candidate_ranking.candidates}`,
+		`Immediate candidate lists ${report.candidate_ranking.file_level.immediate.adopted_lists}/${report.candidate_ranking.file_level.immediate.lists}`,
 		`Status ${status}`,
 		...(value.pending_calls === 0 ? [] : [`Pending ${value.pending_calls}`]),
 	].join("  ");
@@ -100,28 +105,28 @@ function toolLines(tools: readonly ToolStatistics[], width: number): string[] {
 	];
 }
 
-function candidateBlock(label: string, statistics: CandidateRankingCoreStatistics): string[] {
-	const converted = statistics.candidates === 0 ? "n/a" : `${statistics.converted_candidates}/${statistics.candidates}(${percent(statistics.candidate_conversion_rate)})`;
-	const mrr = statistics.mrr.samples === 0 ? "n/a" : decimal(statistics.mrr.value);
+function candidateBlock(label: string, statistics: CandidateRankingStatistics): string[] {
+	const immediate = statistics.file_level.immediate;
+	const adopted = immediate.lists === 0 ? "n/a" : `${immediate.adopted_lists}/${immediate.lists}(${percent(immediate.adoption_rate)})`;
+	const mrr = immediate.mrr.samples === 0 ? "n/a" : decimal(immediate.mrr.value);
 	return [
-		`  ${label}  generated ${statistics.producer_calls}  candidates ${statistics.candidates}  used ${converted}`,
-		`    MRR ${mrr}  hits ${conversionSummary(statistics)}  downstream ${consumerSummary(statistics)}`,
+		`  ${label}  generated ${statistics.producer_calls}  exposures ${statistics.file_level.exposures}  immediate ${adopted}`,
+		`    MRR ${mrr}  hits ${conversionSummary(statistics)}`,
 	];
 }
 
-function conversionSummary(statistics: CandidateRankingCoreStatistics): string {
-	const values = statistics.conversion_at_k.filter((item) => item.lists > 0);
+function conversionSummary(statistics: CandidateRankingStatistics): string {
+	const values = statistics.file_level.immediate.hit_at_k.filter((item) => item.lists > 0);
 	return values.length === 0 ? "n/a" : values.map((item) => `K${item.k} ${item.converted_lists}/${item.lists}(${percent(item.rate)})`).join(" ");
 }
 
-function consumerSummary(statistics: CandidateRankingCoreStatistics): string {
-	const consumers = Object.entries(statistics.downstream_consumers);
-	return consumers.length === 0 ? "none" : consumers.map(([tool, count]) => `${tool}:${count}`).join(" ");
+function sourceLines(sources: Readonly<Record<string, SourceContributionStatistics>>): string[] {
+	const values = Object.entries(sources);
+	return values.length === 0 ? ["  no candidate sources"] : values.flatMap(([source, statistics]) => sourceContributionBlock(source, statistics));
 }
 
-function sourceLines(sources: Readonly<Record<string, CandidateRankingCoreStatistics>>): string[] {
-	const values = Object.entries(sources);
-	return values.length === 0 ? ["  no candidate sources"] : values.flatMap(([source, statistics]) => candidateBlock(source, statistics));
+function sourceContributionBlock(label: string, statistics: SourceContributionStatistics): string[] {
+	return [`  ${label}  participation ${statistics.participation_exposures}  exclusive ${statistics.exclusive_exposures}  productive bounds ${statistics.exclusive_productive}-${statistics.participation_productive}`];
 }
 
 function inlineValues(values: readonly (readonly [string, string | number])[]): string {

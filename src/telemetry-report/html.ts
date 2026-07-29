@@ -1,10 +1,13 @@
 import type {
-	CandidateRankingCoreStatistics,
+	AdoptionWindowStatistics,
+	CandidateLevelStatistics,
 	CandidateRankingReport,
+	OutputEfficiencyStatistics,
 	RateSummary,
 	SearchCandidateUse,
 	SearchEffectivenessReport,
 	SearchEffectivenessStatistics,
+	SourceContributionStatistics,
 	TelemetryReport,
 	ToolStatistics,
 } from "./types.js";
@@ -39,7 +42,7 @@ export function renderTelemetryHtml(report: TelemetryReport): string {
 
 export function formatTelemetrySummary(report: TelemetryReport): string {
 	return `工具调用 ${report.inventory.calls} 次；多文件批次 ${report.edit.batches.multi_file_batches}/${report.edit.batches.batches}`
-		+ `；候选项已使用 ${report.candidate_ranking.converted_candidates}/${report.candidate_ranking.candidates}`;
+		+ `；候选列表即时采纳 ${report.candidate_ranking.file_level.immediate.adopted_lists}/${report.candidate_ranking.file_level.immediate.lists}`;
 }
 
 function renderToolRow(tool: ToolStatistics, index: number): string {
@@ -63,13 +66,47 @@ function errorReasons(tool: ToolStatistics): Array<[string, number]> {
 }
 
 function renderCandidateRanking(report: CandidateRankingReport, search: SearchEffectivenessReport): string {
-	const summary = report as CandidateRankingCoreStatistics;
-	return `<div class="note"><strong>阅读说明：</strong>候选项在 10 次调用、5 分钟内被后续调用命中时，计为已使用；同一并行批次不计入。“有效搜索”表示至少一个候选被采用；扫描量只汇总提供该投影的调用。</div>
-<h3>搜索有效产出</h3><div class="grid-4">${stat("搜索调用", search.calls, "", scanDetail(search))}${stat("有候选调用", countRate(search.calls_with_candidates, search.calls), "", `零候选 ${search.zero_candidate_calls} 次`)}${stat("有效搜索", countRate(search.calls_with_converted_candidates, search.calls), search.calls_with_converted_candidates > 0 ? "good" : "", "至少 1 个候选被采用")}${stat("候选采用", candidateUse(search), search.converted_candidates > 0 ? "good" : "", `返回 ${search.candidates} / 读取 ${search.downstream_inspections} / 修改 ${search.downstream_mutations} / 其他 ${search.downstream_other}`)}</div>
-<div class="split" style="margin-top:16px"><div><h3>按搜索工具</h3>${searchToolTable(search.by_tool)}</div><div><h3>按候选分组</h3>${searchGroupTable(search.by_group)}</div></div>
-<h3 style="margin-top:20px">候选排名</h3><div class="grid-4">${stat("生成调用", summary.producer_calls)}${stat("候选项", summary.candidates)}${stat("已使用", `${summary.converted_candidates} (${percentage(summary.candidate_conversion_rate)})`, summary.converted_candidates > 0 ? "good" : "")}${stat("平均倒数排名", formatDecimal(summary.mrr.value), "")}</div>
-<div class="split" style="margin-top:16px"><div><h3>按排名统计命中率</h3><table class="list-table"><thead><tr><th>前 K 项</th><th>候选列表</th><th>已命中</th><th>比例</th></tr></thead><tbody>${summary.conversion_at_k.length === 0 ? emptyRow(4, "没有候选列表") : summary.conversion_at_k.map((item) => `<tr><td>前 ${item.k} 项</td><td class="number">${item.lists}</td><td class="number">${item.converted_lists}</td><td class="number">${percentage(item.rate)}</td></tr>`).join("")}</tbody></table></div><div><h3>后续使用的工具</h3>${frequencyTable(summary.downstream_consumers, "没有已使用的候选项")}</div></div>
-<div class="split" style="margin-top:16px"><div><h3>来源类别</h3>${coreTable(report.by_source_family, "没有来源类别数据")}</div><div><h3>具体来源</h3>${coreTable(report.by_source, "没有来源数据")}</div></div>`;
+	const file = report.file_level;
+	const region = report.region_level;
+	return `<div class="note"><strong>阅读说明：</strong>主要指标使用唯一归因：只统计成功且非同批次的消费调用，优先范围相交、最近 producer、较高排名和更具体范围。整文件读取只确认 file-level；region-level 记为 unknown。Broad 保留 10-call/5-minute 宽松窗口作为 legacy 上界。来源 participation 会重叠，不可相加。</div>
+<h3>搜索与候选曝光</h3><div class="grid-4">${stat("搜索调用", search.calls, "", scanDetail(search))}${stat("File 曝光", file.exposures, "", `${file.producer_calls} 个 producer`)}${stat("Region 曝光", region.exposures, "", `${region.producer_calls} 个 producer`)}${stat("搜索放弃", `${file.search_abandonment} (${percentage(file.search_abandonment_rate)})`, file.search_abandonment > 0 ? "warning" : "", "新搜索前无候选采纳")}</div>
+<h3 style="margin-top:20px">File-level 列表采纳</h3><div class="grid-4">${windowStat("Immediate", file.immediate)}${windowStat("Pre-refinement", file.pre_refinement)}${windowStat("Broad (legacy)", file.broad)}${windowStat("Productive", file.productive)}</div>
+<div class="grid-4" style="margin-top:12px">${stat("Inspection", file.actions.inspection)}${stat("Mutation", file.actions.mutation)}${stat("Productive", file.actions.productive, file.actions.productive > 0 ? "good" : "")}${stat("Inspection only", file.actions.inspection_only)}</div>
+<h3 style="margin-top:20px">新发现与已知文件</h3><div class="grid-4">${stat("Novel exposure", countRate(file.novelty.novel_exposures, file.exposures))}${stat("Novel immediate", countRate(file.novelty.novel_immediate_adopted, file.novelty.novel_exposures))}${stat("Novel productive", countRate(file.novelty.novel_productive, file.novelty.novel_exposures))}${stat("Prior-known", countRate(file.novelty.prior_known_exposures, file.exposures))}</div>
+<div class="split" style="margin-top:16px"><div><h3>File-level Hit@K / MRR / retention</h3>${rankingTable(file)}</div><div><h3>Region-level（不推断整文件读取）</h3>${regionTable(region)}</div></div>
+<div class="split" style="margin-top:16px"><div><h3>来源族贡献区间</h3>${sourceTable(report.by_source_family, "没有来源类别数据")}</div><div><h3>具体来源贡献区间</h3>${sourceTable(report.by_source, "没有来源数据")}</div></div>
+<h3 style="margin-top:20px">输出字符效率（不分摊到来源）</h3>${efficiencyTable(report)}
+<details class="details"><summary>Legacy broad 搜索明细与后续工具</summary><div class="details-content"><div class="split"><div>${searchToolTable(search.by_tool)}</div><div>${searchGroupTable(search.by_group)}</div></div>${frequencyTable(report.downstream_consumers, "没有 broad 消费调用")}</div></details>`;
+}
+
+function windowStat(label: string, value: AdoptionWindowStatistics): string {
+	return stat(label, countRate(value.adopted_lists, value.lists), value.adopted_lists > 0 ? "good" : "", value.unknown_lists === 0 ? "" : `unknown ${value.unknown_lists}`);
+}
+
+function rankingTable(value: CandidateLevelStatistics): string {
+	return `<table class="list-table"><thead><tr><th>K</th><th>即时 Hit</th><th>Refine 前 Hit</th><th>Productive Hit</th><th>即时保留</th><th>Refine 前保留</th><th>Productive 保留</th></tr></thead><tbody>${value.immediate.hit_at_k.map((item, index) => {
+		const pre = value.pre_refinement.hit_at_k[index];
+		const productive = value.productive.hit_at_k[index];
+		const immediateRetention = value.immediate.retention_at_k[index];
+		const preRetention = value.pre_refinement.retention_at_k[index];
+		const productiveRetention = value.productive.retention_at_k[index];
+		return `<tr><td>${item.k}</td><td class="number">${percentage(item.rate)}</td><td class="number">${percentage(pre?.rate)}</td><td class="number">${percentage(productive?.rate)}</td><td class="number">${percentage(immediateRetention?.rate)}</td><td class="number">${percentage(preRetention?.rate)}</td><td class="number">${percentage(productiveRetention?.rate)}</td></tr>`;
+	}).join("")}</tbody></table><div class="note" style="margin-top:10px;margin-bottom:0">MRR：即时 ${formatDecimal(value.immediate.mrr.value)} / refine 前 ${formatDecimal(value.pre_refinement.mrr.value)} / productive ${formatDecimal(value.productive.mrr.value)}</div>`;
+}
+
+function regionTable(value: CandidateLevelStatistics): string {
+	return `<div class="grid-3">${windowStat("Immediate", value.immediate)}${windowStat("Pre-refinement", value.pre_refinement)}${windowStat("Broad", value.broad)}</div><div class="note" style="margin-top:10px;margin-bottom:0">局部 inspection ${value.actions.inspection}；mutation/productive 不报告 region 精度。Immediate unknown ${value.immediate.unknown_lists}，pre-refinement unknown ${value.pre_refinement.unknown_lists}。</div>`;
+}
+
+function sourceTable(values: Record<string, SourceContributionStatistics>, empty: string): string {
+	const entries = Object.entries(values);
+	if (entries.length === 0) return `<div class="empty">${escapeHtml(empty)}</div>`;
+	return `<table class="list-table"><thead><tr><th>来源</th><th>参与曝光</th><th>独占曝光</th><th>冗余率</th><th>产出下界</th><th>产出上界</th></tr></thead><tbody>${entries.map(([name, value]) => `<tr><td>${escapeHtml(name)}</td><td class="number">${value.participation_exposures}</td><td class="number">${value.exclusive_exposures}</td><td class="number">${percentage(value.redundancy_rate)}</td><td class="number">${value.exclusive_productive} (${percentage(value.exclusive_productive_rate)})</td><td class="number">${value.participation_productive} (${percentage(value.participation_productive_rate)})</td></tr>`).join("")}</tbody></table>`;
+}
+
+function efficiencyTable(report: CandidateRankingReport): string {
+	const entries: Array<[string, OutputEfficiencyStatistics]> = [["全部", report.output_efficiency], ...Object.entries(report.by_tool).map(([tool, value]) => [tool, value.output_efficiency] as [string, OutputEfficiencyStatistics])];
+	return `<table class="list-table"><thead><tr><th>工具</th><th>输出字符</th><th>即时列表 / 1k chars</th><th>Productive 列表 / 1k chars</th><th>Chars / productive</th><th>No-action 输出占比</th></tr></thead><tbody>${entries.map(([name, value]) => `<tr><td>${escapeHtml(name)}</td><td class="number">${value.output_chars}</td><td class="number">${formatDecimal(value.immediate_adopted_lists_per_1000_chars)}</td><td class="number">${formatDecimal(value.productive_adopted_lists_per_1000_chars)}</td><td class="number">${formatDecimal(value.chars_per_productive_adopted_list)}</td><td class="number">${percentage(value.no_action_output_share)}</td></tr>`).join("")}</tbody></table>`;
 }
 
 function searchToolTable(values: Readonly<Record<string, SearchEffectivenessStatistics>>): string {
@@ -91,12 +128,6 @@ function candidateUse(value: SearchCandidateUse): string {
 function scanDetail(value: SearchEffectivenessStatistics): string {
 	const files = value.calls_with_scanned_file_count === 0 ? "—" : String(value.scanned_files);
 	return `扫描 ${files} / ${value.calls_with_scanned_file_count} 次有统计`;
-}
-
-function coreTable(values: Record<string, CandidateRankingCoreStatistics>, empty: string): string {
-	const entries = Object.entries(values);
-	if (entries.length === 0) return `<div class="empty">${escapeHtml(empty)}</div>`;
-	return `<table class="list-table"><thead><tr><th>来源</th><th>候选项</th><th>已使用</th><th>比例</th></tr></thead><tbody>${entries.map(([name, value]) => `<tr><td>${escapeHtml(name)}</td><td class="number">${value.candidates}</td><td class="number">${value.converted_candidates}</td><td class="number">${percentage(value.candidate_conversion_rate)}</td></tr>`).join("")}</tbody></table>`;
 }
 
 function frequencyTable(values: Record<string, number>, empty: string): string {
