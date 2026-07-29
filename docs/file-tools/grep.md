@@ -26,14 +26,7 @@
 
 ### `auto`
 
-组合使用：
-
-- exact qualified symbol；
-- exact symbol；
-- symbol prefix；
-- literal occurrence；
-- 词法相关性；
-- 一跳 caller/callee/import 关系。
+组合使用本地正文、AST、LSP 与 Repo Map 排序信号。只有 exact qualified symbol、exact symbol，以及用户明确请求的 caller/reference/test/registration/entrypoint 等关系候选可以脱离正文命中独立进入主结果。symbol prefix、short symbol、alias、package、component 和普通 export 只参与内部排序。
 
 `auto` 不会猜测正则。
 
@@ -73,7 +66,7 @@ notes.conf:27 [evidence=lexical]: authentication request rejected
 
 `details.regions` 保留相同的 range、kind、symbol、roles、matched_by，以及完整 `match_lines` 和有界 `display_lines`；内部 `sources` 只留在 details/telemetry。TUI 展开视图只显示这些区域元数据和匹配总数，不显示 declaration 或 evidence 源码。
 
-每个候选只有一个固定表示。`grep_regional_display_limit` 控制每个语法区域展示的源码行数，但不裁剪 `details.match_lines`；`grep_output_token_budget` 只决定保留哪些候选，不升级 body、上下文或更多行。`grep_result_limit` 是 main、nearby 与 related 的全局条数上限；returned related 在 main 为空时最多 2 条，否则不得超过 returned main 的两倍。输出状态和公共协议见 [工具契约](contracts.md)。
+每个候选只有一个固定表示。`grep_regional_display_limit` 控制每个语法区域展示的源码行数，但不裁剪 `details.match_lines`；`grep_output_token_budget` 只决定保留哪些候选，不升级 body、上下文或更多行。`grep_result_limit` 是 main、nearby 与 related 的全局条数上限；`grep_relation_action_limit` 另外限制整次调用中的关系行动总数，默认 2，不随 main 数量增长。输出状态和公共协议见 [工具契约](contracts.md)。
 
 ## 语言与解析
 
@@ -92,13 +85,13 @@ C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 Tree-sit
 
 检索先建立 `ScopeInventory`：按输入顺序逐 scope 消费 filesystem discovery，应用 visibility 与 scope-relative glob，再按 snapshot 中的 canonical object identity 去重。glob 拒绝 absolute、NUL 和 `..` segment；不含 `/` 时递归匹配 basename，含 `/` 时匹配相对原始 scope 的 `/` 规范化路径。filesystem 使用静态目录前缀剪枝 traversal；前缀不存在表示该 scope 零匹配，不误报 scope 不存在，也不重置原始深度。父 scope 不删除显式子 scope，因此 soft ignored 子目录仍可由显式 scope 补回。
 
-inventory entry 携带 filesystem 捕获的 object identity、version 和 size snapshot。`literal` 和 `regex` 随后通过 `scanLines` 要求打开的文件仍等于该 snapshot，并在扫描结束再次验证稳定性；不完整读取正文、不解析 AST，也不调用 LSP 或 Repo Map。文件在 inventory 后或读取期间变化时不会保留部分命中：递归 scope 计入 `skipped_files.changed`，显式文件 scope 返回对应错误。
+inventory entry 携带 filesystem 捕获的 object identity、version 和 size snapshot。`literal` 和 `regex` 随后通过 `scanLines` 要求打开的文件仍等于该 snapshot，并在扫描结束再次验证稳定性；Repo Map/LSP 只能给这些事实区域补充排序证据，不能创建 main 或 related。文件在 inventory 后或读取期间变化时不会保留部分命中：递归 scope 计入 `skipped_files.changed`，显式文件 scope 返回对应错误。
 
 LF、CRLF、CR 和 UTF-8 BOM 由 filesystem logical line 语义统一处理。`ScannedLine`、`TextContent.text`、AST 和 external range 均使用剥离 BOM 后正文的 UTF-8 byte 坐标；行扫描的 byte 范围不包含行终止符。grep 不修正 BOM offset，也不把原始文件 byte 坐标与正文坐标混用。
 
 每个 scope 独立应用 `grep_max_depth`：scope 根为 0，直属子项为 1；glob 静态前缀剪枝不会重置深度。正文事实扫描不按文件数量、累计字节或单文件字节提前停止。语法增强只受 `grep_ast_max_file_bytes` 约束，超限文件仍保留已验证文本命中。
 
-`auto` 的增强阶段可并行执行 LSP symbol 与 Repo Map graph ports；它们只返回 grep-owned DTO。每个 external candidate 都必须命中 filesystem allowed ref，并以 inventory snapshot 读取同一版正文，再通过 scope、visibility、glob、正文 range、可选 content version/hash 和预算 gate；即使候选没有 hash/version，也不能应用到 inventory 后变化的正文。related edge 的文件 hash 也在当前调用复核。Tree-sitter/text、LSP 和 Repo Map 的职责与融合规则见 [排序证据](ranking-evidence.md)。
+增强阶段可并行执行 LSP symbol 与 Repo Map graph ports；它们只返回 grep-owned DTO。每个 external candidate 都必须命中 filesystem allowed ref，并以 inventory snapshot 读取同一版正文，再通过 scope、visibility、glob、正文 range、可选 content version/hash 和预算 gate；即使候选没有 hash/version，也不能应用到 inventory 后变化的正文。Repo Map hop-2 在 adapter 边界丢弃，hop-1 仅在显式关系查询或主结果为空时可见。Tree-sitter/text、LSP 和 Repo Map 的职责与融合规则见 [排序证据](ranking-evidence.md)。
 
 ## Scope、跳过和截断
 
@@ -126,9 +119,9 @@ LF、CRLF、CR 和 UTF-8 BOM 由 filesystem logical line 语义统一处理。`S
 - `partial terms`：只有部分 query terms 重合；
 - `path similarity`：只有路径相关。
 
-`nearby` 只在最终主结果为空时出现，不参与主候选排序或 `returned_regions`，模型文本使用 `<nearby query-match="not-guaranteed">` 明示非命中；它与其他通道共享全局 `grep_result_limit`。main 为空时仍可同时返回最多 2 条 related。
+`nearby` 只在最终主结果为空时出现，不参与主候选排序或 `returned_regions`，模型文本使用 `<nearby query-match="not-guaranteed">` 明示非命中；它与其他通道共享全局 `grep_result_limit`。
 
-Repo Map 关系使用独立的 `<related query-match="not-guaranteed">` 通道，不能伪装成 literal/regex 命中。没有可信 nearby 或 related 时，输出 `searched=<searched_files>; skipped=<count>` 和下一步建议。
+显式关系查询把 direct/hop-1 关系作为 main 行动；没有主结果时，可信 Repo Map hop-1 可使用 `<related query-match="not-guaranteed">` 提供回退导航。两者共用 `grep_relation_action_limit`。literal/regex、普通 direct、hop-2、package/component/alias/same-component 不生成 related。没有可信 nearby 或 related 时，输出 `searched=<searched_files>; skipped=<count>` 和下一步建议。
 
 main、nearby、related 的完整边界见 [排序选择](ranking-selection.md)。
 

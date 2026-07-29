@@ -22,7 +22,7 @@ export interface GrepExternalCandidate {
 	readonly contentHash?: string;
 	readonly contentVersion?: string;
 	readonly relation?: string;
-	readonly hop?: 0 | 1 | 2;
+	readonly hop?: 0 | 1;
 	readonly reasons: readonly string[];
 }
 

@@ -47,8 +47,7 @@ export interface ExternalValidationContext {
 	readonly operation: FsOperationContext;
 }
 
-export interface StrictExternalAugmentation {
-	readonly regions: readonly VerifiedCodeRegion[];
+export interface AugmentedAutoResult extends LocalAutoResult {
 	readonly related: readonly GrepRelatedResult[];
 }
 
@@ -130,19 +129,15 @@ export function augmentStrictWithExternal(
 	plan: QueryPlan,
 	regions: readonly VerifiedCodeRegion[],
 	candidates: readonly ValidatedExternalCandidate[],
-): StrictExternalAugmentation {
+): readonly VerifiedCodeRegion[] {
 	const main = new Map(regions.map((region) => [region.id, region]));
-	const related: GrepRelatedResult[] = [];
 	for (const candidate of candidates) {
 		if (suppressedLspReference(plan, candidate)) continue;
 		const matching = findMatchingRegion(main.values(), candidate);
-		if (matching === undefined) {
-			if (!isLspCandidate(candidate)) related.push(toRelated(candidate));
-			continue;
-		}
-		main.set(matching.id, mergeEvidence(matching, candidateEvidence(candidate), candidateRole(candidate), []));
+		if (matching === undefined) continue;
+		main.set(matching.id, mergeEvidence(matching, candidateEvidence(candidate), [], []));
 	}
-	return { regions: [...main.values()], related: dedupeRelated(related) };
+	return [...main.values()];
 }
 
 /** 将已统一验证的增强候选融入 auto；lane 决策只依赖 QueryPlan 和候选关系。 */
@@ -150,25 +145,26 @@ export function augmentAutoWithExternal(
 	plan: QueryPlan,
 	local: LocalAutoResult,
 	candidates: readonly ValidatedExternalCandidate[],
-): LocalAutoResult {
+): AugmentedAutoResult {
 	const main = new Map<string, VerifiedCodeRegion | SemanticMainRegion>();
 	for (const region of local.regions) if (region.lane === "main") main.set(region.id, region);
-	const related = [...local.related];
+	const fallback: ValidatedExternalCandidate[] = [];
 	for (const candidate of candidates) {
 		if (suppressedLspReference(plan, candidate)) continue;
 		const role = candidateRole(candidate);
 		if (candidate.range === undefined) {
-			if (!isLspCandidate(candidate)) related.push(toRelated(candidate));
+			if (eligibleRelationFallback(plan, candidate, role)) fallback.push(candidate);
 			continue;
 		}
 		const existing = findMatchingRegion(main.values(), candidate);
 		const signals = candidateSignals(plan, candidate, role);
+		const visible = eligibleForAutoMain(plan, candidate, role);
 		if (existing !== undefined && canAugmentExisting(plan, candidate, role)) {
-			main.set(existing.id, mergeEvidence(existing, candidateEvidence(candidate), role, signals));
+			main.set(existing.id, mergeEvidence(existing, candidateEvidence(candidate), visible ? role : [], signals));
 			continue;
 		}
-		if (!eligibleForAutoMain(plan, candidate, role)) {
-			if (!isLspCandidate(candidate)) related.push(toRelated(candidate));
+		if (!visible) {
+			if (eligibleRelationFallback(plan, candidate, role)) fallback.push(candidate);
 			continue;
 		}
 		const raw = candidate.candidate;
@@ -200,38 +196,48 @@ export function augmentAutoWithExternal(
 		ranked,
 		totalCandidates: allRanked.length,
 		nearby: ranked.length === 0 ? local.nearby : [],
-		related: dedupeRelated(related),
+		related: plan.relationIntents.length > 0 || ranked.length === 0
+			? dedupeRelated(fallback.map(toRelated))
+			: [],
 	};
 }
 
-const RELATION_ROLES = new Set<CandidateRole>(["caller", "callee", "reference", "test", "import", "registration"]);
+const RELATION_ROLES = new Set<CandidateRole>(["caller", "callee", "reference", "test", "import", "registration", "entrypoint"]);
 const STABLE_LSP_KINDS = new Set([
 	"class", "interface", "enum", "struct", "function", "method", "constructor", "namespace", "module", "package",
 ]);
-const DIRECT_REPO_REASONS = new Set([
-	"exact qualified symbol", "exact symbol", "short symbol", "signature", "alias", "definition", "export",
-	"public api", "entrypoint", "registration", "package", "component",
-]);
-
 function eligibleForAutoMain(
 	plan: QueryPlan,
 	candidate: ValidatedExternalCandidate,
 	roles: readonly CandidateRole[],
 ): boolean {
 	if (candidate.range === undefined) return false;
-	const relationRole = roles.find((role) => RELATION_ROLES.has(role));
+	const relationRole = candidateRelationRole(roles);
 	if (relationRole !== undefined) return plan.relationIntents.includes(relationRole as typeof plan.relationIntents[number]);
 	if (candidate.candidate.origin === "lsp-symbol") {
 		if (!stableLspKind(candidate.candidate.kind)) return false;
 		return exactLspMainMatch(plan, candidate);
 	}
-	return candidate.candidate.origin === "repo-map"
-		&& (candidate.candidate.hop ?? 0) === 0
-		&& candidate.candidate.reasons.some((reason) => DIRECT_REPO_REASONS.has(reason));
+	if (candidate.candidate.origin !== "repo-map" || (candidate.candidate.hop ?? 0) !== 0) return false;
+	const match = classifySymbolMatch(plan, candidate.candidate.symbol, candidate.candidate.qualifiedSymbol);
+	return match === "exact_qualified_definition" || match === "exact_symbol_definition";
 }
 
-function isLspCandidate(candidate: ValidatedExternalCandidate): boolean {
-	return candidate.candidate.origin === "lsp-symbol" || candidate.candidate.origin === "lsp-reference";
+function eligibleRelationFallback(
+	plan: QueryPlan,
+	candidate: ValidatedExternalCandidate,
+	roles: readonly CandidateRole[],
+): boolean {
+	if (candidate.candidate.origin !== "repo-map") return false;
+	const relationRole = candidateRelationRole(roles);
+	if (relationRole === undefined) return false;
+	if (plan.relationIntents.includes(relationRole as typeof plan.relationIntents[number])) return true;
+	return plan.relationIntents.length === 0 && candidate.candidate.hop === 1;
+}
+
+function candidateRelationRole(roles: readonly CandidateRole[]): CandidateRole | undefined {
+	const role = roles[0];
+	return roles.length === 1 && role !== undefined && RELATION_ROLES.has(role) ? role : undefined;
 }
 
 function suppressedLspReference(plan: QueryPlan, candidate: ValidatedExternalCandidate): boolean {
@@ -244,7 +250,9 @@ function canAugmentExisting(
 	roles: readonly CandidateRole[],
 ): boolean {
 	if (eligibleForAutoMain(plan, candidate, roles)) return true;
-	return candidate.candidate.origin === "lsp-symbol" && !roles.some((role) => RELATION_ROLES.has(role));
+	if (candidateRelationRole(roles) !== undefined) return false;
+	return candidate.candidate.origin === "lsp-symbol"
+		|| (candidate.candidate.origin === "repo-map" && (candidate.candidate.hop ?? 0) === 0);
 }
 
 function exactLspMainMatch(plan: QueryPlan, candidate: ValidatedExternalCandidate): boolean {
@@ -264,7 +272,7 @@ function stableLspKind(kind: string | undefined): boolean {
 function candidateRole(candidate: ValidatedExternalCandidate): CandidateRole[] {
 	const relation = normalizedRelation(candidate.candidate);
 	if (relation === "caller" || relation === "callee" || relation === "reference" || relation === "test"
-		|| relation === "import" || relation === "registration") return [relation];
+		|| relation === "import" || relation === "registration" || relation === "entrypoint") return [relation];
 	const roles: CandidateRole[] = ["definition"];
 	if (candidate.candidate.reasons.some((reason) => reason === "public api" || reason === "export" || reason === "entrypoint")) roles.push("public_api");
 	if (/(?:^|\/)(?:test|tests|spec|specs)(?:\/|$)|(?:\.test|\.spec)\.[^/]+$/iu.test(candidate.candidate.path)) roles.push("test");
@@ -277,8 +285,8 @@ function candidateSignals(
 	candidate: ValidatedExternalCandidate,
 	roles: readonly CandidateRole[],
 ): CandidateSignal[] {
-	if (roles.some((role) => RELATION_ROLES.has(role))
-		&& roles.some((role) => plan.relationIntents.includes(role as typeof plan.relationIntents[number]))) return ["requested_relation"];
+	const relationRole = candidateRelationRole(roles);
+	if (relationRole !== undefined && plan.relationIntents.includes(relationRole as typeof plan.relationIntents[number])) return ["requested_relation"];
 	const reasons = new Set(candidate.candidate.reasons);
 	if (reasons.has("exact qualified symbol") || reasons.has("lsp exact qualified symbol")) return ["exact_qualified_definition"];
 	if (reasons.has("exact symbol") || reasons.has("lsp exact symbol")) return ["exact_symbol_definition"];
@@ -290,9 +298,15 @@ function candidateSignals(
 }
 
 function normalizedRelation(candidate: GrepExternalCandidate): string | undefined {
-	if (candidate.relation !== undefined) return candidate.relation;
-	return candidate.reasons.find((reason) => reason === "caller" || reason === "callee" || reason === "reference"
-		|| reason === "test" || reason === "import" || reason === "registration");
+	const relation = candidate.relation ?? candidate.reasons.find((reason) => reason === "caller" || reason === "callee" || reason === "reference"
+		|| reason === "test" || reason === "import" || reason === "registration" || reason === "entrypoint");
+	if (relation === "calls") return "caller";
+	if (relation === "references") return "reference";
+	if (relation === "tests") return "test";
+	if (relation === "imports") return "import";
+	if (relation === "declares-entrypoint" || relation === "declares-script") return "entrypoint";
+	if (relation?.startsWith("registers-") === true) return "registration";
+	return relation;
 }
 
 function candidateEvidence(candidate: ValidatedExternalCandidate): RegionEvidence[] {
@@ -469,13 +483,13 @@ function validateRange(range: GrepExternalRange | undefined, content: TextConten
 function validCandidateShape(candidate: GrepExternalCandidate): boolean {
 	return typeof candidate.path === "string" && candidate.path.length > 0 && !candidate.path.includes("\0")
 		&& Number.isFinite(candidate.confidence) && candidate.confidence >= 0 && candidate.confidence <= 1
-		&& (candidate.hop === undefined || candidate.hop === 0 || candidate.hop === 1 || candidate.hop === 2);
+		&& (candidate.hop === undefined || candidate.hop === 0 || candidate.hop === 1);
 }
 
 function retrievalSource(candidate: GrepExternalCandidate): RetrievalSource {
 	if (candidate.origin === "lsp-symbol") return "lsp-symbol";
 	if (candidate.origin === "lsp-reference") return "lsp-reference";
-	return candidate.hop === 1 ? "repo-map-hop-1" : candidate.hop === 2 ? "repo-map-hop-2" : "repo-map-direct";
+	return candidate.hop === 1 ? "repo-map-hop-1" : "repo-map-direct";
 }
 
 function dedupeRetrieved(values: readonly RetrievedExternalCandidate[]): RetrievedExternalCandidate[] {

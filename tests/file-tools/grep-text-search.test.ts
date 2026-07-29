@@ -336,6 +336,7 @@ describe("grep text search", () => {
 			tokenBudget: 100,
 			resultLimit: 1,
 			regionalDisplayLimit: 3,
+			relationActionLimit: 2,
 			nearby: [],
 			related: [],
 		});
@@ -434,11 +435,20 @@ describe("grep text search", () => {
 		expect(withMain.truncated_by).toContain("result_limit");
 	});
 
-	it.each([
-		[0, 2],
-		[1, 2],
-		[2, 4],
-	] as const)("%i 个 main 最多返回 %i 个 related", (mainCount, expectedRelated) => {
+	it("关系行动预算可配置为一条", () => {
+		const related = Array.from({ length: 3 }, (_, index) => ({
+			path: `related-${index}.ts`,
+			kind: "function",
+			sources: ["repo-map-hop-1"],
+			relations: ["caller"],
+			query_match: "not_guaranteed" as const,
+		}));
+		const result = packRegions([], { related, relationActionLimit: 1, resultLimit: 10, tokenBudget: 2_000 });
+		expect(result.related).toHaveLength(1);
+		expect(result.truncated_by).toContain("result_limit");
+	});
+
+	it.each([0, 1, 2] as const)("%i 个 main 仍只共享两个全局关系行动", (mainCount) => {
 		const main = Array.from({ length: mainCount }, (_, index) => packCandidate({
 			id: `main-${index}`,
 			path: `main-${index}.ts`,
@@ -456,7 +466,7 @@ describe("grep text search", () => {
 		}));
 		const result = packRegions(main, { related, resultLimit: 10, tokenBudget: 2_000 });
 		expect(result.regions).toHaveLength(mainCount);
-		expect(result.related ?? []).toHaveLength(expectedRelated);
+		expect(result.related ?? []).toHaveLength(2);
 		expect(result.truncated_by).toContain("result_limit");
 	});
 });

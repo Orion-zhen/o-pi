@@ -112,10 +112,15 @@ describe("Repo Map query and file-tool integration", () => {
 		if (result.status === "failed") throw new Error(result.error.message);
 		expect(result.regions.some((region) => region.sources.includes("repo-map-direct"))).toBe(true);
 		expect(result.regions.some((region) => region.matched_by.includes("literal"))).toBe(true);
-		expect(result.related).toEqual(expect.arrayContaining([
-			expect.objectContaining({ path: "a.ts", relations: expect.arrayContaining(["caller"]) }),
-		]));
+		expect(result.related).toBeUndefined();
 		expect(result.regions.find((region) => region.path === "b.ts")?.declaration).toContain("function target");
+
+		const callers = await grepWorkspaceFiles(workspaceTemp.path, { query: "callers of target" }, undefined, { repoMap: query });
+		if (callers.status === "failed") throw new Error(callers.error.message);
+		expect(callers.regions).toEqual(expect.arrayContaining([
+			expect.objectContaining({ path: "a.ts", roles: expect.arrayContaining(["caller"]) }),
+		]));
+		expect(callers.regions.filter((region) => region.roles?.includes("caller") === true).length).toBeLessThanOrEqual(2);
 
 		await writeFile(path.join(workspaceTemp.path, "b.ts"), "export function replacement() { return 2; }\n");
 		clearGrepIndex();

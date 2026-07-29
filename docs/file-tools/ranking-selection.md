@@ -23,24 +23,17 @@ MMR 返回确定性的选择顺序，relevance head 保持在最前；不使用�
 
 ## Main、nearby 与 related
 
-主结果需要直接 path、symbol 或 textual 证据，或者查询明确要求关系角色。轻量 intent 规则识别 caller/callee/reference、test/mock/fixture、registration/entrypoint 等明显 token：
+`grep` 的 main 需要正文/本地语义证据、exact qualified symbol、exact symbol，或者查询明确要求的关系角色。Repo Map direct 默认只调整已有候选排序；short symbol、alias、package、component 和普通 export 不能独立进入可见结果。literal/regex 的外部候选只能增强真实文本命中。
 
-- `login`：definition 为 main；仅图传播得到的 caller/test 为 related。普通 identifier/qualified 查询会有界降权 test role，但不删除测试候选。
-- `callers of login`：caller 可以进入 main，但仍保持 hop tier 和 graph 弱权重。
-- `login tests`：test 关系可以进入 main，并取消默认测试上下文降权。
-- `literal` / `regex`：只有实时正文命中进入 main；其他可导航结构候选进入 related。
+显式 caller/callee/reference/test/import/registration/entrypoint 查询允许 direct 或 hop-1 关系进入 main。普通查询只有在主结果为空时才允许可信 hop-1 进入 related；hop-2 永不进入 grep 可见候选。
 
 ### nearby
 
-只有 fuzzy 主结果为空时，`find` 可从本地 Fuse 建议生成最多 3 条 `nearby`；`grep` 可从当前代码单元生成 symbol edit-distance、部分 query terms 或路径重合建议。
+只有主结果为空时，`grep` 才可从当前代码单元生成最多 3 条 symbol edit-distance、部分 query terms 或路径重合建议。`nearby` 明示 `query_match: not_guaranteed`，不参与主结果排序或返回计数。
 
-`nearby` 必须明示 `nonmatch` 和单一原因，不参与主结果的 RRF rank、cutoff、limit 或返回计数，也不会触发关系扩展。
+### related 与全局行动预算
 
-### related
-
-`related` 来自已验证的 LSP/Repo Map 关系或文件级结构候选，明示 `query_match: not_guaranteed`，不参与主结果的 RRF rank 或 cutoff。它参与全局 `grep_result_limit`；main 为空时最多返回 2 条，否则不得超过已返回 main 的两倍。
-
-`nearby` 表达本地相似性，`related` 表达代码图关系；两者不能互相替代或混入 main。main 为空时可以同时包含 nearby 与 related，但 related 仍受两条基础额度和全局剩余额度约束。
+`related` 只承担主结果为空时的 Repo Map hop-1 回退导航。显式关系 main 与 related 共用 `grep_relation_action_limit`，默认全局最多 2 条；预算不随 main 数量增长，并继续受 `grep_result_limit` 和 token budget 约束。来源、hop、confidence、reason、hash 等只保留在 details/telemetry。
 
 ## Renderer 与稳定性
 

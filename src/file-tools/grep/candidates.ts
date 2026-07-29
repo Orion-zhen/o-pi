@@ -11,6 +11,7 @@ export type CandidateRole =
 	| "test"
 	| "import"
 	| "registration"
+	| "entrypoint"
 	| "public_api"
 	| "config"
 	| "text";
@@ -26,7 +27,6 @@ export type RetrievalSource =
 	| "lsp-reference"
 	| "repo-map-direct"
 	| "repo-map-hop-1"
-	| "repo-map-hop-2"
 	| "path";
 
 export type CandidateSignal =
@@ -90,7 +90,7 @@ export interface SourceLocalRank {
 	readonly source: RetrievalSource;
 	readonly rank: number;
 	readonly confidence: number;
-	readonly hop?: 0 | 1 | 2;
+	readonly hop?: 0 | 1;
 }
 
 interface RetrievalCandidateBase {
@@ -256,8 +256,8 @@ export function normalizeMatchedBy(
 	if (signalSet.has("symbol_prefix") || signalSet.has("partial_symbol")) methods.add("symbol-prefix");
 	if (sources.has("text-literal")) methods.add("literal");
 	if (sources.has("text-regex")) methods.add("regex");
-	if (sources.has("ast-lexical") || sources.has("text-lexical") || signalSet.has("repo_summary")) methods.add("lexical");
-	if (sources.has("ast-relation") || sources.has("lsp-reference") || sources.has("repo-map-hop-1") || sources.has("repo-map-hop-2")
+	if (sources.has("ast-lexical") || sources.has("text-lexical")) methods.add("lexical");
+	if (sources.has("ast-relation") || sources.has("lsp-reference") || sources.has("repo-map-hop-1")
 		|| signalSet.has("requested_relation") || signalSet.has("indirect_relation")) methods.add("relationship");
 	const order: readonly GrepMatchedBy[] = ["exact-qualified-symbol", "exact-symbol", "symbol-prefix", "literal", "regex", "lexical", "relationship"];
 	return order.filter((method) => methods.has(method));

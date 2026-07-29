@@ -12,7 +12,7 @@
 | symbol | Tree-sitter definition/symbol |
 | lexical | path、BM25 与 text fallback |
 | semantic | LSP symbol/reference 与已验证的 Repo Map direct evidence |
-| graph | Repo Map hop 1/2 与本地一跳关系 |
+| graph | grep 的 Repo Map hop 1、本地一跳关系，以及 find 内部使用的图传播 |
 
 每个有效来源按自身已验证顺序取得一基 rank：
 
@@ -30,15 +30,14 @@ fusionScore = sum(familyContribution)
 
 Repo Map 候选必须通过当前文件 content hash；自动模式还保留 related-file hash gate。没有实时 freshness 证明的候选不进入主结果，也不提供 RRF 贡献。
 
-- hop 0 且 confidence `>= 0.5`，并具有直接 path/symbol/definition/architecture 理由时，进入 structural family；贡献仍乘 candidate confidence。
-- hop 0 低 confidence 可以保留召回，但不形成独立 structural family。
-- hop 1/2 只进入 graph family，分别使用低权重；还要乘 candidate confidence、edge confidence 和 resolution 系数。
-- semantic/syntactic/lexical resolution 系数依次为 `1/0.9/0.65`。
-- graph 候选不继承 seed 的 exact symbol tier；二跳只补充召回。
+- grep 的 hop 0 direct 默认只给已有区域增加排序证据；只有规范化名称真正匹配 exact qualified/exact symbol 时可独立建 main。
+- short symbol、alias、package、component 和普通 export 只保留为内部排序信号。
+- grep hop 1 只进入 graph family，并且仅在显式关系查询或主结果为空时可见。
+- grep adapter 丢弃 hop 2；二跳不进入其候选类型、权重表或模型输出。
 
 每个独立来源先在完整 scope+glob inventory 内查询，再在实时验证后重新编号。main 与 related 分开编号，因此增加 related 候选不会稀释 main 的 RRF rank；外部候选不受本地 parse/semantic Top-K 门控。
 
-文件候选投影到代码区域时依次尝试 candidate symbol ID、candidate range、alias/evidence 名称和查询 token 最匹配的 unit。无法定位时不会使用 `units[0]`；候选转为文件级 related，避免把任意首个函数伪装成目标。
+grep 只接受候选明确提供的有效 range，不把文件候选投影到 `units[0]`。无 range 的 direct、package、component、alias 等候选保持内部信息；只有符合可见门控的关系回退可转为 related。
 
 ## 来源内部顺序
 

@@ -82,7 +82,7 @@ describe("grep external", () => {
 		expect(result.related).toBeUndefined();
 	});
 
-	it("strict 主结果充足时外部候选保持 related", async () => {
+	it("strict 主结果充足时丢弃未命中的 Repo Map 候选", async () => {
 		for (const name of ["a", "b", "c", "d"]) {
 			await writeFile(path.join(testContext.workspace, `${name}.ts`), `export const ${name} = 'Needle42';\n`);
 		}
@@ -105,7 +105,7 @@ describe("grep external", () => {
 
 		expect(result.regions).toHaveLength(4);
 		expect(query).toHaveBeenCalledOnce();
-		expect(result.related).toEqual([expect.objectContaining({ path: "related.ts", symbol: "RelatedDefinition" })]);
+		expect(result.related).toBeUndefined();
 	});
 
 	it("外部 direct symbol 不受本地 AST 单文件上限限制", async () => {
@@ -480,6 +480,109 @@ describe("grep external", () => {
 		await assertStrictMatches(testContext.workspace, result, "Needle42", "literal");
 	});
 
+
+	it("Repo Map 的 short symbol、alias、package、component 和普通 export 只参与内部排序", async () => {
+		for (const file of ["short.ts", "alias.ts", "package.ts", "component.ts", "export.ts"]) {
+			await writeFile(path.join(testContext.workspace, file), "export const unrelated = true;\n");
+		}
+		const reasons = ["short symbol", "alias", "package", "component", "export"] as const;
+		const graph: GrepGraphSource = {
+			async query() {
+				return reasons.map((reason, index): GrepExternalCandidate => ({
+					path: `${reason.replace(" ", "-")}.ts`.replace("short-symbol", "short"),
+					range: { startLine: 1, endLine: 1 },
+					kind: "function",
+					symbol: reason === "short symbol" ? "TargetHelper" : `Canonical${index}`,
+					origin: "repo-map",
+					confidence: 1,
+					hop: 0,
+					relation: "definition",
+					reasons: [reason],
+				}));
+			},
+		};
+
+		const result = expectGrepSuccess(await grepWithSources(testContext.workspace, { query: "Target" }, { graph }));
+		expect(result.regions).toEqual([]);
+		expect(result.related).toBeUndefined();
+	});
+
+	it("显式关系查询使用全局两个行动预算", async () => {
+		for (let index = 0; index < 5; index += 1) {
+			await writeFile(path.join(testContext.workspace, `caller-${index}.ts`), "export const unrelated = true;\n");
+		}
+		const graph: GrepGraphSource = {
+			async query() {
+				return Array.from({ length: 5 }, (_, index): GrepExternalCandidate => ({
+					path: `caller-${index}.ts`,
+					range: { startLine: 1, endLine: 1 },
+					kind: "function",
+					symbol: `caller${index}`,
+					origin: "repo-map",
+					confidence: 1,
+					hop: 1,
+					relation: "caller",
+					reasons: ["caller"],
+				}));
+			},
+		};
+
+		const result = expectGrepSuccess(await grepWithSources(testContext.workspace, { query: "callers of Target" }, { graph }));
+		expect(result.regions).toHaveLength(2);
+		expect(result.regions.every((region) => region.roles?.includes("caller") === true)).toBe(true);
+		expect(result.truncated_by).toContain("result_limit");
+		const output = formatCompactGrepResult(result);
+		for (const internal of ["repo-map", "hop=", "confidence", "reasons=", "hash="]) expect(output).not.toContain(internal);
+	});
+
+	it("hop-1 只在显式关系查询或主结果为空时可见", async () => {
+		await writeFile(path.join(testContext.workspace, "target.ts"), "export function Target() { return true; }\n");
+		await writeFile(path.join(testContext.workspace, "fallback.ts"), "export const fallback = true;\n");
+		const graph: GrepGraphSource = {
+			async query() {
+				return [{
+					path: "fallback.ts",
+					origin: "repo-map",
+					confidence: 1,
+					hop: 1,
+					relation: "caller",
+					reasons: ["caller"],
+				}];
+			},
+		};
+
+		const empty = expectGrepSuccess(await grepWithSources(testContext.workspace, { query: "MissingTarget" }, { graph }));
+		expect(empty.regions).toEqual([]);
+		expect(empty.related).toEqual([expect.objectContaining({ path: "fallback.ts", relations: ["caller"] })]);
+
+		const withMain = expectGrepSuccess(await grepWithSources(testContext.workspace, { query: "Target" }, { graph }));
+		expect(withMain.regions.length).toBeGreaterThan(0);
+		expect(withMain.related).toBeUndefined();
+	});
+
+	it("Repo Map hop-2 永不进入 grep 可见候选", async () => {
+		await writeFile(path.join(testContext.workspace, "hop-two.ts"), "export const unrelated = true;\n");
+		const candidate: RepoMapQueryCandidate = {
+			path: "hop-two.ts",
+			fileId: "file:hop-two.ts",
+			score: 900,
+			confidence: 1,
+			hop: 2,
+			reasons: ["caller"],
+			matchedAliases: [],
+			relatedEdges: [],
+		};
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "callers of MissingTarget" }, undefined, {
+			repoMap: repoMapQuery(async (input) => ({
+				root: testContext.workspace,
+				explanation: { queryTerms: [input.query], expandedTerms: [input.query], seedCount: 1, maxHop: 2 },
+				candidates: [candidate],
+			})),
+		}));
+		expect(result.regions).toEqual([]);
+		expect(result.related).toBeUndefined();
+	});
+
 	it("caller 取消时不等待忽略 signal 的外部来源", async () => {
 		await writeFile(path.join(testContext.workspace, "cancel-external.txt"), "needle\n");
 		const host = new FileToolsHost();
@@ -570,6 +673,7 @@ describe("grep external", () => {
 			tokenBudget: 200,
 			resultLimit: 1,
 			regionalDisplayLimit: 3,
+			relationActionLimit: 2,
 			nearby: [],
 			related: [],
 		});
@@ -602,8 +706,7 @@ describe("grep external", () => {
 			})),
 		}));
 		expect(result.regions.some((region) => region.symbol === "FirstFunction")).toBe(false);
-		expect(result.related).toEqual([expect.objectContaining({ path: "ambiguous.ts", kind: "file" })]);
-		expect(result.related?.[0]?.symbol).toBeUndefined();
+		expect(result.related).toBeUndefined();
 	});
 
 	it.each(["literal", "regex"] as const)("%s 在 repo-map 失败时保持事实结果不变", async (match) => {

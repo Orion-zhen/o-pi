@@ -9,7 +9,7 @@ import { scoreLexicalRegions, type LexicalRegionScore } from "./lexical-scorer.j
 import { assignSourceLocalRanks, classifySymbolMatch, rankCodeRegions, selectRankedRegions } from "./ranking.js";
 import type { AutoRegionizationResult, AutoRegionizedFile } from "./regionizer.js";
 import type { TextScanResult } from "./text-scanner.js";
-import type { GrepNearbyResult, GrepRelatedResult } from "./types.js";
+import type { GrepNearbyResult } from "./types.js";
 
 interface LocalEntry {
 	readonly id: string;
@@ -33,7 +33,6 @@ export interface LocalAutoResult {
 	readonly ranked: readonly RankedRegion[];
 	readonly totalCandidates: number;
 	readonly nearby: readonly GrepNearbyResult[];
-	readonly related: readonly GrepRelatedResult[];
 }
 
 /** scanner 证据只决定增强成本；任何直接 TextHit 均不经过此优先级过滤。 */
@@ -94,8 +93,7 @@ export function buildLocalAutoResults(
 	}
 	entries.push(...lexicalAnchorCandidates(groupedAnchors.outside, scan.hits, plan, queryTerms));
 
-	const relation = relationCandidates(unitFiles, regionized.files, plan, targetLast);
-	entries.push(...relation.main);
+	entries.push(...relationCandidates(unitFiles, regionized.files, plan, targetLast));
 	const sourceRanks = assignSourceLocalRanks(entries, (entry) => entry.source, compareLocalEntries);
 	for (const entry of entries) addRegion(byId, withEvidence(entry, sourceRanks.get(entry) ?? Number.MAX_SAFE_INTEGER));
 	const regions = [...byId.values()];
@@ -107,7 +105,6 @@ export function buildLocalAutoResults(
 		ranked,
 		totalCandidates: allRanked.length,
 		nearby,
-		related: ranked.length < 4 ? relation.related : [],
 	};
 }
 
@@ -295,8 +292,8 @@ function relationCandidates(
 	files: readonly AutoRegionizedFile[],
 	plan: QueryPlan,
 	target: string,
-): { readonly main: LocalEntry[]; readonly related: GrepRelatedResult[] } {
-	if (target.length === 0) return { main: [], related: [] };
+): LocalEntry[] {
+	if (target.length === 0 || plan.relationIntents.length === 0) return [];
 	const definitions = new Map<string, UnitFile[]>();
 	for (const item of units) {
 		for (const definition of item.unit.definitions) {
@@ -308,13 +305,8 @@ function relationCandidates(
 	}
 	const requested = new Set(plan.relationIntents);
 	const main: LocalEntry[] = [];
-	const related: GrepRelatedResult[] = [];
 	const add = (item: UnitFile, role: Extract<CandidateRole, "caller" | "callee" | "reference" | "test" | "registration">, intent: RelationIntent): void => {
-		if (requested.has(intent)) {
-			main.push(localEntry(item, "ast-relation", intent, 100, [role], ["requested_relation"]));
-		} else if (plan.relationIntents.length === 0) {
-			related.push(toRelated(item.unit, intent));
-		}
+		if (requested.has(intent)) main.push(localEntry(item, "ast-relation", intent, 100, [role], ["requested_relation"]));
 	};
 	for (const item of units) {
 		if (item.unit.calls.some((call) => lastSegment(call.toLocaleLowerCase()) === target)) add(item, "caller", "caller");
@@ -353,20 +345,10 @@ function relationCandidates(
 						lane: "main",
 					}),
 				});
-			} else if (plan.relationIntents.length === 0) {
-				related.push({
-					path: file.file.path,
-					kind: "import",
-					start_line: imported.startLine,
-					end_line: imported.endLine,
-					sources: ["ast-relation"],
-					relations: ["import"],
-					query_match: "not_guaranteed",
-				});
 			}
 		}
 	}
-	return { main, related: dedupeRelated(related) };
+	return main;
 }
 
 function compareLocalEntries(left: LocalEntry, right: LocalEntry): number {
@@ -450,28 +432,6 @@ function nearbyResults(plan: QueryPlan, units: readonly UnitFile[]): GrepNearbyR
 			reason,
 			query_match: "not_guaranteed",
 		}));
-}
-
-function toRelated(unit: IndexedCodeUnit, relation: string): GrepRelatedResult {
-	return {
-		path: unit.path,
-		kind: unit.kind,
-		start_line: unit.startLine,
-		end_line: unit.endLine,
-		...(unit.qualifiedName ?? unit.name ? { symbol: unit.qualifiedName ?? unit.name } : {}),
-		sources: ["ast-relation"],
-		relations: [relation],
-		query_match: "not_guaranteed",
-	};
-}
-
-function dedupeRelated(values: readonly GrepRelatedResult[]): GrepRelatedResult[] {
-	const result = new Map<string, GrepRelatedResult>();
-	for (const value of values) {
-		const key = `${value.path}\0${value.start_line ?? 0}\0${value.end_line ?? 0}\0${value.relations.join(",")}`;
-		if (!result.has(key)) result.set(key, value);
-	}
-	return [...result.values()].sort((left, right) => compareString(left.path, right.path) || (left.start_line ?? 0) - (right.start_line ?? 0)).slice(0, 12);
 }
 
 function unitMentionsTarget(item: UnitFile, target: string): boolean {

@@ -40,7 +40,7 @@ function grepResultFields(details: Record<string, unknown>): Fields {
 		searched_byte_count: number(stats["searched_bytes"]),
 		parsed_file_count: number(stats["parsed_files"]),
 		skipped_file_count: skippedCount(stats["skipped_files"]),
-		repo_map_used: hasSource(details["regions"], "repo-map-direct") || hasSource(details["related"], "repo-map-direct") ? true : undefined,
+		repo_map_used: hasRepoMapSource(details["regions"]) || hasRepoMapSource(details["related"]) ? true : undefined,
 		scope_count: paths === undefined ? (typeof details["path"] === "string" ? 1 + (scopeErrors ?? 0) : undefined) : paths.length + (scopeErrors ?? 0),
 		scope_error_count: scopeErrors,
 	});
@@ -54,8 +54,9 @@ function grepCandidates(details: Record<string, unknown>): Candidate[] {
 	return result;
 }
 
-function hasSource(value: unknown, source: string): boolean {
-	return Array.isArray(value) && value.some((item) => stringList(record(item)["sources"])?.includes(source) === true);
+function hasRepoMapSource(value: unknown): boolean {
+	return Array.isArray(value) && value.some((item) =>
+		stringList(record(item)["sources"])?.some((source) => source.startsWith("repo-map-")) === true);
 }
 
 function arrayLength(value: unknown): number | undefined {

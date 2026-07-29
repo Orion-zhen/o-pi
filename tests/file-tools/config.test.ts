@@ -26,6 +26,7 @@ describe("file-tools config", () => {
 				grep_output_token_budget: 4000,
 				grep_result_limit: 24,
 				grep_regional_display_limit: 3,
+				grep_relation_action_limit: 2,
 				read_suggestion_limit: 3,
 				read_max_file_bytes: 16 * 1024 * 1024,
 				write_max_file_bytes: 16 * 1024 * 1024,
@@ -50,6 +51,7 @@ describe("file-tools config", () => {
 			grep_output_token_budget: 2000,
 			grep_result_limit: 12,
 			grep_regional_display_limit: 7,
+			grep_relation_action_limit: 4,
 		};
 		await useConfig("valid-limits.jsonc", { limits });
 		expect(await loadedConfig(workspace)).toMatchObject({ limits });
@@ -65,6 +67,7 @@ describe("file-tools config", () => {
 		["grep_output_token_budget", 99], ["grep_output_token_budget", 10001],
 		["grep_result_limit", 0], ["grep_result_limit", 51],
 		["grep_regional_display_limit", 0], ["grep_regional_display_limit", 21],
+		["grep_relation_action_limit", -1], ["grep_relation_action_limit", 21],
 	] as const)("拒绝越界限制 %s=%i", async (field, value) => {
 		await useConfig(`invalid-${field}-${value}.jsonc`, { limits: { [field]: value } });
 		expect(await loadFileToolsConfig(workspace)).toMatchObject({ ok: false, error: { message: expect.any(String) } });

@@ -14,7 +14,7 @@ import type {
 } from "./types.js";
 
 const CANDIDATE_POOL_MIN = 32;
-const GREP_RELATED_PER_MAIN_LIMIT = 2;
+const RELATION_ROLES = new Set(["caller", "callee", "reference", "test", "import", "registration", "entrypoint"]);
 const TRUNCATION_ORDER: readonly TruncationReason[] = [
 	"traversal_limit",
 	"text_byte_limit",
@@ -36,6 +36,7 @@ export interface GrepPackInput {
 	tokenBudget: number;
 	resultLimit: number;
 	regionalDisplayLimit: number;
+	relationActionLimit: number;
 	nearby: readonly GrepNearbyResult[];
 	related: readonly GrepRelatedResult[];
 }
@@ -60,11 +61,12 @@ interface SelectionState {
 export function packGrepResults(input: GrepPackInput): GrepSuccess {
 	const knownReasons = orderedReasons(input.truncationReasons);
 	const assumedReasons = orderedReasons([...knownReasons, "result_limit", "token_budget"]);
-	const choices = candidatePool(input);
+	const eligibleRegions = limitRelationActions(input.regions, input.relationActionLimit);
+	const choices = candidatePool(input, eligibleRegions);
 	const selected = selectMainChoices(input, choices, assumedReasons);
 	const selectedRanks = new Set(selected.map((item) => item.rank));
 	const lastSelectedRank = Math.max(-1, ...selectedRanks);
-	let tokenLimited = selected.length < Math.min(input.regions.length, input.resultLimit)
+	let tokenLimited = selected.length < Math.min(eligibleRegions.length, input.resultLimit)
 		|| choices.some((choice) => choice.rank < lastSelectedRank && !selectedRanks.has(choice.rank));
 	const regions = selected.map((item) => item.region);
 	const nearby: GrepNearbyResult[] = [];
@@ -80,7 +82,8 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 			} else tokenLimited = true;
 		}
 	}
-	const relatedLimit = regions.length === 0 ? GREP_RELATED_PER_MAIN_LIMIT : regions.length * GREP_RELATED_PER_MAIN_LIMIT;
+	const relationActionsUsed = regions.filter(isRelationAction).length;
+	const relatedLimit = Math.max(0, input.relationActionLimit - relationActionsUsed);
 	for (const candidate of input.related) {
 		if (usedCount >= input.resultLimit || related.length >= relatedLimit) break;
 		if (fits(input, regions, nearby, [...related, candidate], assumedReasons)) {
@@ -89,21 +92,21 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 		} else tokenLimited = true;
 	}
 
-	const relatedLimited = input.related.length > relatedLimit;
+	const relationLimited = eligibleRegions.length < input.regions.length || input.related.length > relatedLimit;
 	const eligibleCount = regions.length > 0
-		? input.regions.length + input.related.length
-		: input.nearby.length + input.related.length;
+		? eligibleRegions.length + Math.min(input.related.length, relatedLimit)
+		: input.nearby.length + Math.min(input.related.length, relatedLimit);
 	const baseReasons = orderedReasons([
 		...knownReasons,
-		...(eligibleCount > input.resultLimit || relatedLimited ? ["result_limit" as const] : []),
+		...(eligibleCount > input.resultLimit || relationLimited ? ["result_limit" as const] : []),
 	]);
 	const reasons = tokenLimited ? orderedReasons([...baseReasons, "token_budget"]) : baseReasons;
 	const result = createSuccess(input, regions, nearby, related, reasons);
 	return { ...result, approx_tokens: tokenCount(renderGrepSuccess(result)) };
 }
 
-function candidatePool(input: GrepPackInput): CandidateChoice[] {
-	const choices = input.regions.map((candidate, rank) => {
+function candidatePool(input: GrepPackInput, candidates: readonly RankedRegion[]): CandidateChoice[] {
+	const choices = candidates.map((candidate, rank) => {
 		const region = publicRegion(candidate, input.regionalDisplayLimit);
 		return { rank, region, cost: regionCost(region) };
 	});
@@ -113,6 +116,19 @@ function candidatePool(input: GrepPackInput): CandidateChoice[] {
 		.sort((left, right) => left.cost - right.cost || left.rank - right.rank)
 		.slice(0, span)) selectedRanks.add(item.rank);
 	return choices.filter((item) => selectedRanks.has(item.rank)).sort((left, right) => left.rank - right.rank);
+}
+
+function limitRelationActions(candidates: readonly RankedRegion[], limit: number): RankedRegion[] {
+	let used = 0;
+	return candidates.filter((candidate) => {
+		if (!isRelationAction(candidate)) return true;
+		used += 1;
+		return used <= limit;
+	});
+}
+
+function isRelationAction(region: Pick<RankedRegion | GrepRegion, "roles">): boolean {
+	return region.roles !== undefined && region.roles.length > 0 && region.roles.every((role) => RELATION_ROLES.has(role));
 }
 
 function selectMainChoices(

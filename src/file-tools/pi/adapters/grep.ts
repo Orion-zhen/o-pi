@@ -105,7 +105,7 @@ function toGraphCandidates(candidate: RepoMapQueryCandidate): GrepExternalCandid
 		.filter(({ term, canonical }) => term.toLocaleLowerCase() !== canonical.toLocaleLowerCase())
 		.map(({ term, canonical }) => `alias ${term}->${canonical}`);
 	const relation = relationFromReasons(candidate.reasons);
-	const primary: GrepExternalCandidate = {
+	const primary: GrepExternalCandidate[] = candidate.hop === 2 ? [] : [{
 		path: candidate.path,
 		...(range === undefined ? {} : { range: { ...range } }),
 		...(symbol?.kind === undefined ? {} : { kind: symbol.kind }),
@@ -118,22 +118,24 @@ function toGraphCandidates(candidate: RepoMapQueryCandidate): GrepExternalCandid
 		...(relation === undefined ? {} : { relation }),
 		hop: candidate.hop,
 		reasons: [...candidate.reasons, ...aliasReasons],
-	};
-	const related = candidate.relatedEdges.flatMap((edge) => edge.relatedFiles.map((file): GrepExternalCandidate => ({
-		path: file.path,
-		origin: "repo-map",
-		confidence: Math.min(candidate.confidence, edge.confidence),
-		...(file.contentHash === undefined ? {} : { contentHash: file.contentHash }),
-		relation: edge.kind,
-		hop: edge.hop,
-		reasons: [edge.kind],
-	})));
-	return [primary, ...related];
+	}];
+	const related = candidate.relatedEdges
+		.filter((edge) => edge.hop === 1)
+		.flatMap((edge) => edge.relatedFiles.map((file): GrepExternalCandidate => ({
+			path: file.path,
+			origin: "repo-map",
+			confidence: Math.min(candidate.confidence, edge.confidence),
+			...(file.contentHash === undefined ? {} : { contentHash: file.contentHash }),
+			relation: edge.kind,
+			hop: 1,
+			reasons: [edge.kind],
+		})));
+	return [...primary, ...related];
 }
 
 function relationFromReasons(reasons: readonly string[]): string | undefined {
 	return reasons.find((reason) => reason === "caller" || reason === "callee" || reason === "reference"
-		|| reason === "test" || reason === "import" || reason === "registration")
+		|| reason === "test" || reason === "import" || reason === "registration" || reason === "entrypoint")
 		?? (reasons.some((reason) => reason === "definition" || reason === "export" || reason === "public api") ? "definition" : undefined);
 }
 

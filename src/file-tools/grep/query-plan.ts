@@ -2,7 +2,7 @@ import { fail, type ToolOutcome } from "../shared/result.js";
 import type { GrepMatchMode, GrepParams } from "./types.js";
 
 export type GrepQueryShape = "long_text" | "identifier" | "qualified_symbol" | "natural_language";
-export type RelationIntent = "caller" | "callee" | "reference" | "test" | "import" | "registration";
+export type RelationIntent = "caller" | "callee" | "reference" | "test" | "import" | "registration" | "entrypoint";
 
 export interface QueryPlan {
 	readonly query: string;
@@ -28,6 +28,7 @@ const RELATION_PATTERNS: Readonly<Record<RelationIntent, readonly RegExp[]>> = {
 	test: [/(?:^|\b)(?:tests?|specs?)\s+(?:for|of)\b/iu, /\bwhere\b.+\b(?:tested|specified)\b/iu, /\S+\s+(?:tests?|specs?)$/iu],
 	import: [/(?:^|\b)imports?\s+(?:of|for)\b/iu, /\bwhere\b.+\b(?:is|are)\s+imported\b/iu],
 	registration: [/(?:^|\b)registrations?\s+(?:of|for)\b/iu, /\bwhere\b.+\b(?:is|are)\s+registered\b/iu],
+	entrypoint: [/(?:^|\b)entrypoints?\s+(?:of|for)\b/iu, /\bwhere\b.+\b(?:enters|starts)\b/iu],
 };
 
 const RELATION_WORDS = new Set([
@@ -35,6 +36,7 @@ const RELATION_WORDS = new Set([
 	"reference", "references", "referenced", "usage", "usages", "used",
 	"test", "tests", "tested", "spec", "specs", "specified",
 	"import", "imports", "imported", "registration", "registrations", "registered",
+	"entrypoint", "entrypoints", "entry", "enters", "starts",
 	"where", "what", "does", "is", "are", "by", "of", "for", "from", "to",
 ]);
 
@@ -100,7 +102,7 @@ export function isErrorLikeQuery(query: string): boolean {
 
 export function detectRelationIntents(query: string): RelationIntent[] {
 	const intents: RelationIntent[] = [];
-	for (const intent of ["caller", "callee", "reference", "test", "import", "registration"] as const) {
+	for (const intent of ["caller", "callee", "reference", "test", "import", "registration", "entrypoint"] as const) {
 		if (RELATION_PATTERNS[intent].some((pattern) => pattern.test(query))) intents.push(intent);
 	}
 	return intents;

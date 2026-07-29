@@ -15,4 +15,5 @@ export interface FileToolLimits {
 	grep_output_token_budget: number;
 	grep_result_limit: number;
 	grep_regional_display_limit: number;
+	grep_relation_action_limit: number;
 }

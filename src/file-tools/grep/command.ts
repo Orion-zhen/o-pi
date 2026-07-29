@@ -27,7 +27,7 @@ export interface GrepCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
 	readonly limits: Pick<FileToolLimits,
-		"grep_max_depth" | "grep_ast_max_file_bytes" | "grep_output_token_budget" | "grep_result_limit" | "grep_regional_display_limit">;
+		"grep_max_depth" | "grep_ast_max_file_bytes" | "grep_output_token_budget" | "grep_result_limit" | "grep_regional_display_limit" | "grep_relation_action_limit">;
 	readonly symbols?: GrepSymbolSource;
 	readonly graph?: GrepGraphSource;
 }
@@ -115,6 +115,7 @@ export class GrepTool {
 			tokenBudget: context.limits.grep_output_token_budget,
 			resultLimit: context.limits.grep_result_limit,
 			regionalDisplayLimit: context.limits.grep_regional_display_limit,
+			relationActionLimit: context.limits.grep_relation_action_limit,
 			nearby: augmented.nearby,
 			related: augmented.related,
 		});
@@ -150,7 +151,7 @@ export class GrepTool {
 		});
 		if (isFailed(external)) return external;
 		const augmented = augmentStrictWithExternal(plan, regionized.regions, external);
-		const allRanked = rankCodeRegions(plan, augmented.regions);
+		const allRanked = rankCodeRegions(plan, augmented);
 		const ranked = selectRankedRegions(allRanked, allRanked.length).filter(isVerifiedRankedRegion);
 		return packGrepResults({
 			query: plan.query,
@@ -161,7 +162,7 @@ export class GrepTool {
 			totalCandidates: allRanked.length,
 			regions: ranked,
 			nearby: [],
-			related: augmented.related,
+			related: [],
 			stats: grepStats(inventory, scanned.stats, regionized.parsedFiles, regionized.skipped),
 			truncationReasons: uniqueTruncationReasons([
 				...inventory.truncationReasons,
@@ -171,6 +172,7 @@ export class GrepTool {
 			tokenBudget: context.limits.grep_output_token_budget,
 			resultLimit: context.limits.grep_result_limit,
 			regionalDisplayLimit: context.limits.grep_regional_display_limit,
+			relationActionLimit: context.limits.grep_relation_action_limit,
 		});
 	}
 

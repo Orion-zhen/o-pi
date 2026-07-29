@@ -11,7 +11,7 @@ export function queryPlan(query: string, match: GrepMatchMode = "auto"): QueryPl
 	return result;
 }
 
-export function rankingEvidence(source: RegionEvidence["source"], rank = 1, confidence = 1, hop?: 0 | 1 | 2): RegionEvidence {
+export function rankingEvidence(source: RegionEvidence["source"], rank = 1, confidence = 1, hop?: 0 | 1): RegionEvidence {
 	return { source, rank, confidence, reason: source, ...(hop === undefined ? {} : { hop }) };
 }
 
@@ -124,6 +124,7 @@ export function packRegions(regions: readonly RankedRegion[], overrides: Partial
 		tokenBudget: 400,
 		resultLimit: 8,
 		regionalDisplayLimit: 3,
+		relationActionLimit: 2,
 		nearby: [],
 		related: [],
 		...overrides,

@@ -30,18 +30,17 @@ export const GREP_SOURCE_FAMILY: Readonly<Record<RetrievalSource, RankingEvidenc
 	"lsp-reference": "semantic",
 	"repo-map-direct": "semantic",
 	"repo-map-hop-1": "graph",
-	"repo-map-hop-2": "graph",
 	path: "lexical",
 };
 
 /** 查询形态的相对权重只在此表中校准。 */
 export const GREP_SOURCE_WEIGHTS: Readonly<Record<RankingPolicyKey, Readonly<Record<RetrievalSource, number>>>> = {
 	strict: weights({ "text-literal": 1.5, "text-regex": 1.5, "ast-symbol": 0.45, "lsp-symbol": 0.3, "repo-map-direct": 0.25 }),
-	identifier: weights({ "text-literal": 1.05, "text-lexical": 0.5, "ast-symbol": 1.35, "ast-lexical": 0.55, "ast-relation": 0.25, "lsp-symbol": 1.15, "repo-map-direct": 0.9, "repo-map-hop-1": 0.25, "repo-map-hop-2": 0.1, path: 0.15 }),
-	qualified_symbol: weights({ "text-literal": 1.1, "text-lexical": 0.45, "ast-symbol": 1.5, "ast-lexical": 0.45, "ast-relation": 0.35, "lsp-symbol": 1.25, "repo-map-direct": 1, "repo-map-hop-1": 0.3, "repo-map-hop-2": 0.12, path: 0.1 }),
-	long_text: weights({ "text-literal": 1.6, "text-lexical": 0.8, "ast-symbol": 0.35, "ast-lexical": 0.8, "lsp-symbol": 0.3, "repo-map-direct": 0.45, "repo-map-hop-1": 0.15, "repo-map-hop-2": 0.05, path: 0.08 }),
-	natural_language: weights({ "text-literal": 0.8, "text-lexical": 1.2, "ast-symbol": 0.65, "ast-lexical": 1.25, "ast-relation": 0.35, "lsp-symbol": 0.75, "repo-map-direct": 1.1, "repo-map-hop-1": 0.4, "repo-map-hop-2": 0.16, path: 0.2 }),
-	relation: weights({ "text-literal": 0.75, "text-lexical": 0.4, "ast-symbol": 0.8, "ast-lexical": 0.4, "ast-relation": 1.3, "lsp-symbol": 0.8, "lsp-reference": 1.35, "repo-map-direct": 0.9, "repo-map-hop-1": 1.15, "repo-map-hop-2": 0.45, path: 0.05 }),
+	identifier: weights({ "text-literal": 1.05, "text-lexical": 0.5, "ast-symbol": 1.35, "ast-lexical": 0.55, "ast-relation": 0.25, "lsp-symbol": 1.15, "repo-map-direct": 0.9, "repo-map-hop-1": 0.25, path: 0.15 }),
+	qualified_symbol: weights({ "text-literal": 1.1, "text-lexical": 0.45, "ast-symbol": 1.5, "ast-lexical": 0.45, "ast-relation": 0.35, "lsp-symbol": 1.25, "repo-map-direct": 1, "repo-map-hop-1": 0.3, path: 0.1 }),
+	long_text: weights({ "text-literal": 1.6, "text-lexical": 0.8, "ast-symbol": 0.35, "ast-lexical": 0.8, "lsp-symbol": 0.3, "repo-map-direct": 0.45, "repo-map-hop-1": 0.15, path: 0.08 }),
+	natural_language: weights({ "text-literal": 0.8, "text-lexical": 1.2, "ast-symbol": 0.65, "ast-lexical": 1.25, "ast-relation": 0.35, "lsp-symbol": 0.75, "repo-map-direct": 1.1, "repo-map-hop-1": 0.4, path: 0.2 }),
+	relation: weights({ "text-literal": 0.75, "text-lexical": 0.4, "ast-symbol": 0.8, "ast-lexical": 0.4, "ast-relation": 1.3, "lsp-symbol": 0.8, "lsp-reference": 1.35, "repo-map-direct": 0.9, "repo-map-hop-1": 1.15, path: 0.05 }),
 };
 
 const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<CandidateSignal, number>>>>> = {
@@ -122,7 +121,7 @@ const CANONICAL_SYMBOL_MATCH_SIGNALS = new Set<CandidateSignal>([
 	"exact_qualified_definition", "exact_symbol_definition", "exact_member_definition", "symbol_prefix",
 ]);
 const LEXICAL_SIGNALS = new Set<CandidateSignal>(["lexical_high_coverage", "lexical"]);
-const RELATION_ROLES = new Set<CandidateRole>(["caller", "callee", "reference", "test", "import", "registration"]);
+const RELATION_ROLES = new Set<CandidateRole>(["caller", "callee", "reference", "test", "import", "registration", "entrypoint"]);
 const ROLE_BY_INTENT: Readonly<Record<RelationIntent, CandidateRole>> = {
 	caller: "caller",
 	callee: "callee",
@@ -130,6 +129,7 @@ const ROLE_BY_INTENT: Readonly<Record<RelationIntent, CandidateRole>> = {
 	test: "test",
 	import: "import",
 	registration: "registration",
+	entrypoint: "entrypoint",
 };
 const EMPTY_RANKING: RankingEvidenceSummary = {
 	factual: 0,
@@ -267,7 +267,7 @@ export function summarizeEvidence(policy: RankingPolicyKey, evidence: readonly R
 export function sourceContribution(policy: RankingPolicyKey, evidence: RegionEvidence): number {
 	const rank = Math.max(1, Math.floor(evidence.rank));
 	const confidence = clamp(evidence.confidence, 0, 1);
-	const hopFactor = evidence.hop === undefined || evidence.hop === 0 ? 1 : evidence.hop === 1 ? 0.7 : 0.4;
+	const hopFactor = evidence.hop === 1 ? 0.7 : 1;
 	return GREP_SOURCE_WEIGHTS[policy][evidence.source] * confidence * hopFactor / (GREP_RRF_K + rank);
 }
 
@@ -283,7 +283,6 @@ function weights(overrides: Partial<Record<RetrievalSource, number>>): Readonly<
 		"lsp-reference": 0,
 		"repo-map-direct": 0,
 		"repo-map-hop-1": 0,
-		"repo-map-hop-2": 0,
 		path: 0,
 		...overrides,
 	};
@@ -344,10 +343,10 @@ function signalSupported(plan: QueryPlan, region: CodeRegion, signal: CandidateS
 	if (signal === "requested_relation") {
 		const requested = new Set(plan.relationIntents.map((intent) => ROLE_BY_INTENT[intent]));
 		return region.roles.some((role) => requested.has(role))
-			&& hasAnySource(sources, ["ast-relation", "lsp-reference", "repo-map-direct", "repo-map-hop-1", "repo-map-hop-2"]);
+			&& hasAnySource(sources, ["ast-relation", "lsp-reference", "repo-map-direct", "repo-map-hop-1"]);
 	}
 	if (signal === "target_occurrence") return region.queryMatch === "verified" || region.roles.includes("occurrence") || region.roles.includes("reference");
-	if (signal === "indirect_relation") return hasAnySource(sources, ["ast-relation", "repo-map-hop-1", "repo-map-hop-2"]);
+	if (signal === "indirect_relation") return hasAnySource(sources, ["ast-relation", "repo-map-hop-1"]);
 	return true;
 }
 
@@ -461,7 +460,7 @@ function similarity(left: RankedRegion, right: RankedRegion): number {
 }
 
 function primaryRole(roles: readonly CandidateRole[]): CandidateRole | "other" {
-	for (const role of ["caller", "callee", "reference", "test", "import", "registration", "public_api", "config", "definition", "occurrence", "text"] as const) {
+	for (const role of ["caller", "callee", "reference", "test", "import", "registration", "entrypoint", "public_api", "config", "definition", "occurrence", "text"] as const) {
 		if (roles.includes(role)) return role;
 	}
 	return "other";
