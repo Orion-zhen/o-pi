@@ -39,3 +39,7 @@ cd ~/.pi && npm install
 * [Pi 工具提示词字段](docs/tool-prompt-fields.md)
 * [Token counter](docs/token-counter.md)
 * [Repo Map](docs/repo-map/README.md)
+
+## 致谢
+
+特别感谢 [lzhao013](https://github.com/lzhao013-web) 为本项目的开发和后续优化提供的优秀的测试反馈.
