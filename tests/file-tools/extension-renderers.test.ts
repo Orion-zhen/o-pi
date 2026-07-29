@@ -56,7 +56,7 @@ describe("file-tools extension renderers", () => {
 		expect(partial).not.toContain("error");
 	});
 
-	it("find 展开结果保留匹配、关联文件和部分 scope 错误", async () => {
+	it("find 展开结果保留匹配和部分 scope 错误", async () => {
 		const { registered } = await registerRenderers();
 		const output = renderToolResult(registered, "find", {
 			query: "main",
@@ -71,17 +71,10 @@ describe("file-tools extension renderers", () => {
 			depthLimited: false,
 			resultLimited: false,
 			outputTruncated: false,
-			related: [{
-				path: "tests/main.test.ts",
-				kind: "file",
-				source: "repo-map",
-				relations: ["test"],
-				query_match: "not_guaranteed",
-			}],
 			scope_errors: [{ path: "missing", error: { code: "PATH_NOT_FOUND", message: "missing" } }],
 		}, true);
 
-		for (const value of ["src/main.ts", "tests/main.test.ts", "missing", "PATH_NOT_FOUND"]) {
+		for (const value of ["src/main.ts", "missing", "PATH_NOT_FOUND"]) {
 			expect(output).toContain(value);
 		}
 	});

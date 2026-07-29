@@ -21,6 +21,7 @@ describe("file-tools config", () => {
 		expect(await loadedConfig(workspace)).toMatchObject({
 			limits: {
 				find_max_depth: 12,
+				find_repo_map_fallback_limit: 3,
 				grep_max_depth: 12,
 				grep_ast_max_file_bytes: 262144,
 				grep_output_token_budget: 4000,
@@ -46,6 +47,7 @@ describe("file-tools config", () => {
 			find_output_token_budget: 800,
 			find_result_limit: 50,
 			find_max_depth: 6,
+			find_repo_map_fallback_limit: 4,
 			grep_max_depth: 6,
 			grep_ast_max_file_bytes: 128 * 1024,
 			grep_output_token_budget: 2000,
@@ -62,6 +64,7 @@ describe("file-tools config", () => {
 		["write_max_file_bytes", 1023], ["write_max_file_bytes", 104857601],
 		["edit_max_file_bytes", 1023], ["edit_max_file_bytes", 104857601],
 		["find_output_token_budget", 31], ["find_max_depth", -1], ["find_max_depth", 257],
+		["find_repo_map_fallback_limit", -1], ["find_repo_map_fallback_limit", 21],
 		["grep_max_depth", -1], ["grep_max_depth", 257],
 		["grep_ast_max_file_bytes", 1023], ["grep_ast_max_file_bytes", 104857601],
 		["grep_output_token_budget", 99], ["grep_output_token_budget", 10001],

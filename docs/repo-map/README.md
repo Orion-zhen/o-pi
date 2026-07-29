@@ -132,7 +132,7 @@ Repo Map 配置文件为 `repo-map.jsonc`，默认配置包括：
 
 Repo Map 是 File Tools 的内部增强，不会增加额外的模型可见工具：
 
-- `find` 可以使用 Repo Map 的路径和架构候选。
+- `find` 默认只使用 Repo Map 排序已有路径结果；零路径结果时可回退少量高置信 exact symbol、registration 或 entrypoint 文件。
 - `grep` 可以使用 symbol、结构和关系候选。
 - `read` 可以请求 symbol 或关系上下文。
 - mutation 后可以触发影响分析和 refresh。

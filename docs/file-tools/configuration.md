@@ -52,6 +52,7 @@
 - `find_output_token_budget`：`find` 模型可见输出预算，最小为 32 token。
 - `find_result_limit`：`find` 最多保留的具体结果数。
 - `find_max_depth`：`find` 相对每个搜索 scope 的最大路径深度；scope 根为 0，直属子项为 1。
+- `find_repo_map_fallback_limit`：基础路径召回为空时，高置信 exact symbol、registration 或 entrypoint 文件的全局回退上限，默认 3，范围为 0-20。
 - `grep_max_depth`：`grep` 相对每个显式 scope 的最大路径深度；scope 根为 0，直属子项为 1。
 - `grep_ast_max_file_bytes`：单文件进入 Tree-sitter 的最大字节数；不限制流式正文搜索。
 - `grep_output_token_budget`：`grep` 模型可见输出预算。

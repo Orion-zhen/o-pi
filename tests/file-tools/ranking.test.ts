@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { FindGraphCandidate } from "../../src/file-tools/find/graph-source.js";
-import { graphNavigationRelation, graphRankingEvidence, isGraphMainCandidate } from "../../src/file-tools/find/graph-ranking.js";
+import { graphRankingEvidence, isGraphFallbackCandidate } from "../../src/file-tools/find/graph-ranking.js";
 import {
 	compareRankingEvidence,
 	createSourceRankingEvidence,
@@ -60,20 +60,14 @@ describe("shared ranking", () => {
 			expect(graph.fusionScore).toBeLessThan(graphRankingEvidence(direct, 1).fusionScore);
 		});
 
-		it("纯图关系仅在显式关系意图下进入主结果", () => {
-			const caller = graphCandidate({ hop: 1, reasons: ["caller"] });
-			const test = graphCandidate({ hop: 1, reasons: ["test"] });
-			expect(isGraphMainCandidate(caller, "login")).toBe(false);
-			expect(isGraphMainCandidate(caller, "callers of login")).toBe(true);
-			expect(isGraphMainCandidate(test, "login tests")).toBe(true);
-		});
-
-		it("Repo Map alias 使用紧凑 ASCII 映射", () => {
-			const alias = graphCandidate({
-				reasons: ["alias"],
-				matchedAliases: [{ term: "auth", canonical: "authentication" }],
-			});
-			expect(graphNavigationRelation(alias)).toBe("alias auth->authentication");
+		it("find fallback 只接受高置信 exact symbol、registration 或 entrypoint", () => {
+			expect(isGraphFallbackCandidate(graphCandidate({ reasons: ["exact symbol"] }))).toBe(true);
+			expect(isGraphFallbackCandidate(graphCandidate({ hop: 1, reasons: ["exact symbol", "caller"] }))).toBe(false);
+			expect(isGraphFallbackCandidate(graphCandidate({ hop: 1, reasons: ["registration"] }))).toBe(true);
+			expect(isGraphFallbackCandidate(graphCandidate({ reasons: ["entrypoint"], confidence: 0.79 }))).toBe(false);
+			for (const reason of ["alias", "package", "component", "short symbol", "export"]) {
+				expect(isGraphFallbackCandidate(graphCandidate({ reasons: [reason] }))).toBe(false);
+			}
 		});
 	});
 
@@ -141,7 +135,6 @@ function graphCandidate(overrides: Partial<FindGraphCandidate>): FindGraphCandid
 		confidence: 1,
 		hop: 0,
 		reasons: ["definition"],
-		matchedAliases: [],
 		relatedEdges: [],
 		...overrides,
 	};

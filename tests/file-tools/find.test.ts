@@ -444,6 +444,63 @@ describe("find", () => {
 		expect(query).toHaveBeenCalledWith(expect.objectContaining({ query: "PreferredService" }));
 	});
 
+	it("Repo Map 默认只调整已有路径结果排序，不追加普通关联文件", async () => {
+		const preferred = "export const Target = true;\n";
+		await writeFixture("src/lexical-target.ts");
+		await writeFixture("src/preferred-target.ts");
+		await writeFixture("src/package-only.ts");
+		await writeFile(path.join(workspace, "src", "preferred-target.ts"), preferred);
+		const query = repoMapQuery(async (input): Promise<RepoMapQueryResult> => ({
+			root: workspace,
+			explanation: { queryTerms: [input.query], expandedTerms: [input.query], seedCount: 2, maxHop: 2 },
+			candidates: [
+				repoMapCandidate("src/preferred-target.ts", preferred, ["exact symbol", "definition"]),
+				repoMapCandidate("src/package-only.ts", "", ["package"]),
+			],
+		}));
+
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "target" }, undefined, { repoMap: query }));
+		expect(paths(result.details.matches).slice(0, 2)).toEqual(["src/preferred-target.ts", "src/lexical-target.ts"]);
+		expect(paths(result.details.matches)).not.toContain("src/package-only.ts");
+		expect(result.details.candidateSources?.["src/preferred-target.ts"]).toContain("repo-map-direct");
+	});
+
+	it("基础路径搜索为空时只按配置回退高置信 exact symbol、registration 或 entrypoint", async () => {
+		const configPath = path.join(outside, "find-fallback.jsonc");
+		await writeFile(configPath, JSON.stringify({
+			limits: { find_repo_map_fallback_limit: 2 },
+			ignore: { builtin_profile: "none", gitignore: false },
+		}));
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		const fixtures = [
+			["src/exact.ts", "export const Exact = true;\n", ["exact symbol", "definition"]],
+			["src/registration.ts", "export const Registration = true;\n", ["registration"]],
+			["src/entrypoint.ts", "export const Entrypoint = true;\n", ["entrypoint"]],
+			["src/alias.ts", "export const Alias = true;\n", ["alias"]],
+			["src/component.ts", "export const Component = true;\n", ["component"]],
+			["src/low-confidence.ts", "export const Weak = true;\n", ["exact symbol"]],
+		] as const;
+		for (const [filePath, content] of fixtures) {
+			await writeFixture(filePath);
+			await writeFile(path.join(workspace, filePath), content);
+		}
+		const query = repoMapQuery(async (input): Promise<RepoMapQueryResult> => ({
+			root: workspace,
+			explanation: { queryTerms: [input.query], expandedTerms: [input.query], seedCount: fixtures.length, maxHop: 2 },
+			candidates: fixtures.map(([filePath, content, reasons]) => repoMapCandidate(
+				filePath,
+				content,
+				[...reasons],
+				filePath === "src/low-confidence.ts" ? { confidence: 0.79 } : {},
+			)),
+		}));
+
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "NoPathMatch" }, undefined, { repoMap: query }));
+		expect(paths(result.details.matches)).toEqual(["src/exact.ts", "src/registration.ts"]);
+		expect(result.details.matches).toHaveLength(2);
+		expect(JSON.stringify(result)).not.toMatch(/alias\.ts|component\.ts|low-confidence\.ts/u);
+	});
+
 	it("按 basename、stem、segment、path fragment 和多词 token 定位路径", async () => {
 		await writeFixture("src/file-tools/find-tool.ts");
 		await writeFixture("src/file-tools/config.ts");

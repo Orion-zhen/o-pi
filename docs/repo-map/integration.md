@@ -4,9 +4,9 @@ Repo Map 是 File Tools 的内部增强，不增加模型可见的独立工具�
 
 ## `find`
 
-`find` 可以把 Repo Map 用作路径、architecture 和 semantic candidate 来源。基础路径匹配仍然可用；Repo Map 不可用时，`find` 退回 filesystem scan。
+`find` 默认只用 Repo Map 调整已有路径结果的排序。package、component、alias、same-component 和普通关联候选不会独立进入结果；基础路径召回为空时，仅允许高置信 exact symbol、registration 或 entrypoint 文件按配置上限回退。`find` 不生成 Repo Map `related` 输出。
 
-Repo Map 候选必须经过路径、ignore、新鲜度和结果去重处理，不能让 stale 图中的路径取代实时 scope 规则。
+Repo Map 候选必须经过路径、ignore、新鲜度、实时 hash 和结果去重处理，不能让 stale 图中的路径取代实时 scope 规则。Repo Map 不可用时，`find` 保持 filesystem 路径扫描和排序。
 
 ## `grep`
 

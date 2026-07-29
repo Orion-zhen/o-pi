@@ -100,7 +100,7 @@ blocked path  → 不可列出、搜索、读取或写入
 
 ### `find`
 
-`find` 支持精确路径、文件名、路径片段和 glob，也支持多个搜索根。多个 `path` 是 OR/union scope，不是 AND。glob 进入严格路径匹配；普通查询可以使用路径相关性和 Repo Map 语义召回。它不会读取正文或解析 AST。
+`find` 支持精确路径、文件名、路径片段和 glob，也支持多个搜索根。多个 `path` 是 OR/union scope，不是 AND。glob 进入严格路径匹配；普通查询以路径召回为主，Repo Map 默认只参与排序；路径召回为空时仅回退少量高置信 exact symbol、registration 或 entrypoint 文件。它不会读取正文或解析 AST。
 
 ### `grep`
 
@@ -144,7 +144,7 @@ blocked path  → 不可列出、搜索、读取或写入
 ## 可选增强
 
 - LSP 为 `grep`、`read`、`write`、`edit` 提供 symbol、read 结构边界、长文件剩余 symbol 导航和 diagnostics 等附加信息。
-- Repo Map 为 `find` 和 `grep` 提供可验证的跨文件结构召回，并为读取和 mutation 提供上下文。
+- Repo Map 为 `find` 提供可验证的排序与受限回退、为 `grep` 提供跨文件结构召回，并为读取和 mutation 提供上下文。
 - Repo Map 只有在当前 session 执行 `/init` 后才激活。
 - 增强失败时仍保留基础文件操作和文本搜索能力。
 

@@ -1,6 +1,6 @@
 import { createPathIndex, sortedChildren, type PathIndexNode } from "./path-index.js";
 import { countTextTokensSync } from "../../token-counter.js";
-import type { FindCollapsedGroup, FindDetails, FindMatch, FindNearbyResult, FindRelatedResult, FindScopeError } from "./types.js";
+import type { FindCollapsedGroup, FindDetails, FindMatch, FindNearbyResult, FindScopeError } from "./types.js";
 
 const NARROW_RESULT_LIMIT = 20;
 const TOP_MATCH_LIMIT = 12;
@@ -18,7 +18,6 @@ export interface RenderFindInput {
 	depthLimited: boolean;
 	resultLimited: boolean;
 	outputTokenBudget: number;
-	related?: FindRelatedResult[];
 	nearby?: FindNearbyResult[];
 	missingPrefix?: string;
 	nearbyDirectory?: string;
@@ -32,18 +31,15 @@ export function renderFindResults(input: RenderFindInput): { content: string; de
 	if (input.totalMatches === 0) {
 		const packed = packLines(withScopeWarning(renderNoMatches(input), input), input, tokenBudget);
 		const nearby = appendNearby(packed.content, input.nearby, tokenBudget);
-		const rendered = appendRelated(nearby.content, input.related, tokenBudget);
 		const hasNavigation = input.missingPrefix !== undefined
 			|| input.nearbyDirectory !== undefined
-			|| nearby.nearby.length > 0
-			|| rendered.related.length > 0;
-		const content = hasNavigation ? rendered.content : appendNoMatchDiagnostic(rendered.content, input, tokenBudget);
+			|| nearby.nearby.length > 0;
+		const content = hasNavigation ? nearby.content : appendNoMatchDiagnostic(nearby.content, input, tokenBudget);
 		return {
 			content,
-				details: buildDetails(
+			details: buildDetails(
 				{ ...input, nearby: nearby.nearby },
 				collapsedGroups,
-				rendered.related,
 				packed.outputTruncated,
 			),
 		};
@@ -54,10 +50,9 @@ export function renderFindResults(input: RenderFindInput): { content: string; de
 		const packed = packLines(withScopeWarning(formatted, input), input, tokenBudget);
 		const payloadLineCount = Math.max(0, packed.payloadLineCount - (scopeWarning(input) === undefined ? 0 : 1));
 		const visibleMatches = input.matches.slice(0, concreteMatchCount(formatted, input.matches.length, payloadLineCount));
-		const rendered = appendRelated(packed.content, input.related, tokenBudget);
 		return {
-			content: rendered.content,
-			details: buildDetails(input, collapsedGroups, rendered.related, packed.outputTruncated, visibleMatches, []),
+			content: packed.content,
+			details: buildDetails(input, collapsedGroups, packed.outputTruncated, visibleMatches, []),
 		};
 	}
 
@@ -79,7 +74,7 @@ export function renderFindResults(input: RenderFindInput): { content: string; de
 	return {
 		content: packed.content,
 		details: {
-			...buildDetails(input, collapsedGroups, [], packed.outputTruncated, visibleMatches, visibleGroups),
+			...buildDetails(input, collapsedGroups, packed.outputTruncated, visibleMatches, visibleGroups),
 			collapsedGroups: groups,
 		},
 	};
@@ -141,7 +136,6 @@ function appendNoMatchDiagnostic(content: string, input: RenderFindInput, tokenB
 function buildDetails(
 	input: RenderFindInput,
 	collapsedGroups: FindCollapsedGroup[],
-	related: FindRelatedResult[],
 	outputTruncated: boolean,
 	displayedMatches: FindMatch[] = input.matches,
 	displayedCollapsedGroups: FindCollapsedGroup[] = collapsedGroups,
@@ -168,7 +162,6 @@ function buildDetails(
 		depthLimited: input.depthLimited,
 		resultLimited: input.resultLimited,
 		outputTruncated,
-		...(related.length > 0 ? { related } : {}),
 		...(input.nearby !== undefined && input.nearby.length > 0 ? { nearby: input.nearby } : {}),
 		...(input.missingPrefix !== undefined ? { missingPrefix: input.missingPrefix } : {}),
 		...(input.nearbyDirectory !== undefined ? { nearbyDirectory: input.nearbyDirectory } : {}),
@@ -179,26 +172,6 @@ function buildDetails(
 function concreteMatchCount(formatted: readonly string[], matchCount: number, visibleLines: number): number {
 	const grouped = formatted.length === matchCount + 1;
 	return Math.max(0, Math.min(matchCount, visibleLines - (grouped ? 1 : 0)));
-}
-
-function appendRelated(
-	content: string,
-	candidates: FindRelatedResult[] | undefined,
-	tokenBudget: number,
-): { content: string; related: FindRelatedResult[] } {
-	if (candidates === undefined || candidates.length === 0) return { content, related: [] };
-	const header = "<related repo-map nonmatch>";
-	const related: FindRelatedResult[] = [];
-	let output = content;
-	for (const candidate of candidates) {
-		const nextRelated = [...related, candidate];
-		const next = `${content}\n${header}\n${nextRelated.map((item) => `${item.path} [${item.relations.join(",")}]`).join("\n")}\n</related>`;
-		if (tokenCount(next) > tokenBudget) break;
-		related.push(candidate);
-		output = next;
-	}
-	if (related.length === 0) return { content, related };
-	return { content: output, related };
 }
 
 function selectConcreteMatches(matches: FindMatch[]): FindMatch[] {

@@ -25,6 +25,8 @@ MMR 返回确定性的选择顺序，relevance head 保持在最前；不使用�
 
 `grep` 的 main 需要正文/本地语义证据、exact qualified symbol、exact symbol，或者查询明确要求的关系角色。Repo Map direct 默认只调整已有候选排序；short symbol、alias、package、component 和普通 export 不能独立进入可见结果。literal/regex 的外部候选只能增强真实文本命中。
 
+`find` 的 Repo Map direct 也默认只调整已有路径候选排序。基础路径召回为空时，仅高置信 exact symbol、registration 或 entrypoint 文件可按 `find_repo_map_fallback_limit` 回退；不提供 `related` 通道。
+
 显式 caller/callee/reference/test/import/registration/entrypoint 查询允许 direct 或 hop-1 关系进入 main。普通查询只有在主结果为空时才允许可信 hop-1 进入 related；hop-2 永不进入 grep 可见候选。
 
 ### nearby

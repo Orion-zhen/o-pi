@@ -5,21 +5,16 @@ import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { EMPTY_RANKING_EVIDENCE } from "../shared/ranking/evidence.js";
 import { createFindEntry, type RankedFindEntry } from "./ranker.js";
-import { graphEvidenceTier, graphNavigationRelation, graphRankingEvidence, isGraphMainCandidate, isGraphNavigationCandidate } from "./graph-ranking.js";
+import { graphEvidenceTier, graphRankingEvidence, isGraphFallbackCandidate } from "./graph-ranking.js";
 import type { FindGraphCandidate, FindGraphSource } from "./graph-source.js";
-import type { FindRelatedResult } from "./types.js";
 
 interface ValidatedGraphEntry extends RankedFindEntry {
 	readonly candidate: FindGraphCandidate;
-	readonly matchesQuery: boolean;
-	readonly navigation: boolean;
-	readonly graphOrder: number;
-	readonly relation?: string;
 }
 
 export interface GraphCandidates {
-	readonly matching: RankedFindEntry[];
-	readonly related: FindRelatedResult[];
+	readonly ranking: RankedFindEntry[];
+	readonly fallback: RankedFindEntry[];
 }
 
 export interface FindGraphCandidateContext {
@@ -31,7 +26,6 @@ export interface FindGraphCandidateContext {
 }
 
 const VALIDATION_CONCURRENCY = 8;
-const RELATED_LIMIT = 3;
 
 /** Treats graph output as untrusted and revalidates every filesystem fact live. */
 export async function findGraphCandidates(
@@ -54,8 +48,8 @@ export async function findGraphCandidates(
 		const resolvedFiles = new Map<string, Promise<FileRef | undefined>>();
 		const hashes = new Map<string, Promise<string | undefined>>();
 		const limit = pLimit(VALIDATION_CONCURRENCY);
-		const validated = await Promise.all(queried.candidates.map((candidate, order) => limit(async () =>
-			await validateCandidate(candidate, order, queried.root, searchRoot, query, bypassVisibility, resolvedFiles, hashes, context))));
+		const validated = await Promise.all(queried.candidates.map((candidate) => limit(async () =>
+			await validateCandidate(candidate, queried.root, searchRoot, query, bypassVisibility, resolvedFiles, hashes, context))));
 		return partitionCandidates(validated.filter((candidate): candidate is ValidatedGraphEntry => candidate !== undefined));
 	} catch {
 		if (context.operation.signal?.aborted === true) throw new AbortFindGraph();
@@ -65,7 +59,6 @@ export async function findGraphCandidates(
 
 async function validateCandidate(
 	candidate: FindGraphCandidate,
-	order: number,
 	graphRoot: DirectoryRef,
 	searchRoot: DirectoryRef,
 	query: string,
@@ -89,8 +82,6 @@ async function validateCandidate(
 		if (relatedRef === undefined || context.filesystem.paths.relative(searchRoot, relatedRef) === undefined
 			|| !await matchesCurrentHash(relatedRef, related.contentHash, hashes, context)) return undefined;
 	}
-	const matchesQuery = isGraphMainCandidate(candidate, query);
-	const relation = graphNavigationRelation(candidate);
 	const baseTier = graphEvidenceTier(candidate);
 	const tier = !hasTestIntent(query) && !/[A-Z]/u.test(query) && isTestLikeCandidate(candidate) ? Math.max(5, baseTier) : baseTier;
 	return {
@@ -98,10 +89,6 @@ async function validateCandidate(
 		entry: createFindEntry(resolved.displayPath, "file"),
 		tier,
 		evidence: EMPTY_RANKING_EVIDENCE,
-		matchesQuery,
-		navigation: isGraphNavigationCandidate(candidate),
-		graphOrder: order,
-		...(relation === undefined ? {} : { relation }),
 	};
 }
 
@@ -146,33 +133,15 @@ async function matchesCurrentHash(
 }
 
 function partitionCandidates(candidates: readonly ValidatedGraphEntry[]): GraphCandidates {
-	const matching = candidates.filter((candidate) => candidate.matchesQuery);
-	for (const [index, candidate] of matching.entries()) candidate.evidence = graphRankingEvidence(candidate.candidate, index + 1);
-	const relatedByPath = new Map<string, { result: FindRelatedResult; order: number }>();
-	for (const candidate of candidates) {
-		if (candidate.matchesQuery || !candidate.navigation || candidate.relation === undefined) continue;
-		const existing = relatedByPath.get(candidate.entry.path);
-		if (existing === undefined) {
-			relatedByPath.set(candidate.entry.path, {
-				result: { path: candidate.entry.path, kind: "file", source: "repo-map", relations: [candidate.relation], query_match: "not_guaranteed" },
-				order: candidate.graphOrder,
-			});
-			continue;
-		}
-		if (existing.result.relations.length < 2 && !existing.result.relations.includes(candidate.relation)) existing.result.relations.push(candidate.relation);
-		existing.order = Math.min(existing.order, candidate.graphOrder);
-	}
+	for (const [index, candidate] of candidates.entries()) candidate.evidence = graphRankingEvidence(candidate.candidate, index + 1);
 	return {
-		matching,
-		related: [...relatedByPath.values()]
-			.sort((left, right) => left.order - right.order || compareStableString(left.result.path, right.result.path))
-			.slice(0, RELATED_LIMIT)
-			.map((item) => item.result),
+		ranking: [...candidates],
+		fallback: candidates.filter((candidate) => isGraphFallbackCandidate(candidate.candidate)),
 	};
 }
 
 function emptyGraphCandidates(): GraphCandidates {
-	return { matching: [], related: [] };
+	return { ranking: [], fallback: [] };
 }
 
 function pathDepth(relativePath: string): number {
@@ -194,7 +163,3 @@ function isTestLikeCandidate(candidate: FindGraphCandidate): boolean {
 }
 
 export class AbortFindGraph extends Error {}
-
-function compareStableString(left: string, right: string): number {
-	return left < right ? -1 : left > right ? 1 : 0;
-}

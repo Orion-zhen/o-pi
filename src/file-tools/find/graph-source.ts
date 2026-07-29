@@ -12,11 +12,6 @@ export interface FindGraphEdge {
 	readonly relatedFiles: readonly FindGraphRelatedFile[];
 }
 
-export interface FindGraphAlias {
-	readonly term: string;
-	readonly canonical: string;
-}
-
 /** Find-owned projection of one external graph candidate. */
 export interface FindGraphCandidate {
 	readonly path: string;
@@ -24,7 +19,6 @@ export interface FindGraphCandidate {
 	readonly confidence: number;
 	readonly hop: 0 | 1 | 2;
 	readonly reasons: readonly string[];
-	readonly matchedAliases: readonly FindGraphAlias[];
 	readonly relatedEdges: readonly FindGraphEdge[];
 }
 

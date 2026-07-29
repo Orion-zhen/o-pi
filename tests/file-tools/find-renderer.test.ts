@@ -58,31 +58,6 @@ describe("find renderer and fusion", () => {
 		expect(countTextTokensSync(result.content).tokens).toBeLessThanOrEqual(32);
 	});
 
-	it("Repo Map 多关系使用紧凑 ASCII 分隔符", () => {
-		const result = renderFindResults({
-			query: "login",
-			path: ".",
-			strategy: "fuzzy",
-			totalMatches: 0,
-			matches: [],
-			ignoredCount: 0,
-			skippedCount: 0,
-			depthLimited: false,
-			resultLimited: false,
-			outputTokenBudget: 200,
-			related: [{
-				path: "tests/login.test.ts",
-				kind: "file",
-				source: "repo-map",
-				relations: ["caller", "test"],
-				query_match: "not_guaranteed",
-			}],
-		});
-
-		expect(result.content).toContain("tests/login.test.ts [caller,test]");
-		expect(result.content).not.toMatch(/[·→]/u);
-	});
-
 	it("路径与结构通道融合时不修改输入候选", () => {
 		const entry = createFindEntry("src/target.ts", "file");
 		const lexical = { entry, tier: 3, evidence: createRankingEvidence("lexical", 0.8) };

@@ -1,4 +1,4 @@
-import type { FindDetails, FindNearbyResult, FindRelatedResult } from "./types.js";
+import type { FindDetails, FindNearbyResult } from "./types.js";
 
 export function isFindDetails(value: unknown): value is FindDetails {
 	return isPlainRecord(value)
@@ -13,8 +13,7 @@ export function isFindDetails(value: unknown): value is FindDetails {
 		&& typeof value["depthLimited"] === "boolean"
 		&& typeof value["resultLimited"] === "boolean"
 		&& typeof value["outputTruncated"] === "boolean"
-		&& (value["nearby"] === undefined || isFindNearbyResults(value["nearby"]))
-		&& (value["related"] === undefined || isFindRelatedResults(value["related"]));
+		&& (value["nearby"] === undefined || isFindNearbyResults(value["nearby"]));
 }
 
 function isFindNearbyResults(value: unknown): value is FindNearbyResult[] {
@@ -27,15 +26,4 @@ function isFindNearbyResults(value: unknown): value is FindNearbyResult[] {
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isFindRelatedResults(value: unknown): value is FindRelatedResult[] {
-	return Array.isArray(value) && value.every((item) =>
-		isPlainRecord(item)
-		&& typeof item["path"] === "string"
-		&& item["kind"] === "file"
-		&& item["source"] === "repo-map"
-		&& item["query_match"] === "not_guaranteed"
-		&& Array.isArray(item["relations"])
-		&& item["relations"].every((relation) => typeof relation === "string"));
 }

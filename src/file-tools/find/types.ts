@@ -29,14 +29,6 @@ export interface FindNearbyResult extends FindMatch {
 	reason: "name similarity";
 }
 
-export interface FindRelatedResult {
-	path: string;
-	kind: "file";
-	source: "repo-map";
-	relations: string[];
-	query_match: "not_guaranteed";
-}
-
 export interface FindCollapsedGroup {
 	path: string;
 	files: number;
@@ -66,7 +58,6 @@ export interface FindDetails {
 	depthLimited: boolean;
 	resultLimited: boolean;
 	outputTruncated: boolean;
-	related?: FindRelatedResult[];
 	nearby?: FindNearbyResult[];
 	missingPrefix?: string;
 	nearbyDirectory?: string;

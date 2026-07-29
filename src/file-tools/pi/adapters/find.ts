@@ -75,7 +75,6 @@ function toFindGraphCandidate(candidate: RepoMapQueryCandidate): FindGraphCandid
 		confidence: candidate.confidence,
 		hop: candidate.hop,
 		reasons: [...candidate.reasons],
-		matchedAliases: candidate.matchedAliases.map(({ term, canonical }) => ({ term, canonical })),
 		relatedEdges: candidate.relatedEdges.map(({ hop, confidence, resolution, relatedFiles }) => ({
 			hop,
 			confidence,

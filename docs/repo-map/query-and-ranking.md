@@ -41,11 +41,10 @@ seed 有数量上限。alias 只代表仓库内已有词汇，不代表模型生
 `find` 先检查 exact path，再识别 glob：
 
 - glob query 只做严格路径匹配，不进入 Repo Map 语义召回。
-- 其他 query 可以使用 fuzzy path、symbol、alias、package/component、entrypoint、registration、public API 和测试关系。
+- 其他 query 先使用 fuzzy path 召回；Repo Map 的 symbol、alias、package/component、entrypoint、registration、public API 和关系信号默认只调整已有文件排序。
+- 基础路径召回为空时，仅高置信 exact symbol、registration 或 entrypoint 文件可以按配置上限回退；不返回普通关联文件，也没有 `related` 字段。
 - 每个候选及 evidence 相关文件都要重新检查 scope、ignore、blocked path、symlink 和实时 content hash。
 - Repo Map 不会排除原本能找到的文件，也不会返回虚拟文件。
-
-主结果不足时可以追加少量高置信度结构关联文件，但必须进入独立 `related` 字段，并使用 `<related repo-map nonmatch>` 明确声明它们不保证匹配 query。
 
 ## `grep`
 

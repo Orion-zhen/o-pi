@@ -59,7 +59,7 @@ port 由消费者工具声明，而不是由外部子系统或 filesystem 声明
 
 - read：缺失路径、structure/graph context、inline image；skill locator 在 adapter 边界预处理；
 - write/edit：diagnostics、mutation observer、共享 text diff contract；
-- find：Repo Map graph candidates；
+- find：用于排序和受限零结果回退的 Repo Map graph candidates；
 - grep：独立 LSP symbol 与 Repo Map graph candidates；两者不反向导入 grep 实现。
 
 port 输入输出使用工具自己的 DTO 和 opaque ref。所有调用都有 safe wrapper；未配置、失败、超时或取消时保留基础行为。find/grep 会重新检查候选 scope、visibility、kind、symlink、glob、live content/hash/range 和预算，外部结果不能绕过 filesystem 数据平面。

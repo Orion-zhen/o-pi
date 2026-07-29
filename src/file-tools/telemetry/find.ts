@@ -28,6 +28,5 @@ function findCandidates(details: Record<string, unknown>): Candidate[] {
 	});
 	appendPathCandidates(result, details["displayedCollapsedGroups"] ?? details["collapsedGroups"], "collapsed", () => ["collapsed"], "group");
 	appendPathCandidates(result, details["nearby"], "nearby", () => ["fuzzy"]);
-	appendPathCandidates(result, details["related"], "related", () => ["repo-map"]);
 	return result;
 }

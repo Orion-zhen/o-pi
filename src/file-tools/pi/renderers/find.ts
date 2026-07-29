@@ -65,7 +65,6 @@ function formatFindDetails(details: FindDetails, expanded: boolean, theme: Pick<
 		`${directories} ${directories === 1 ? "directory" : "directories"}`,
 		details.strategy,
 		details.nearby === undefined ? undefined : `${details.nearby.length} nearby`,
-		details.related === undefined ? undefined : `${details.related.length} related`,
 		details.depthLimited ? "depth limited" : undefined,
 		details.resultLimited ? "results limited" : undefined,
 		details.outputTruncated ? "output truncated" : undefined,
@@ -92,10 +91,6 @@ function formatFindDetails(details: FindDetails, expanded: boolean, theme: Pick<
 	if (details.nearby !== undefined && details.nearby.length > 0) {
 		lines.push("", "Nearby (query match not guaranteed):");
 		for (const result of details.nearby) lines.push(`${result.kind === "directory" ? `${result.path}/` : result.path} [${result.reason}]`);
-	}
-	if (details.related !== undefined && details.related.length > 0) {
-		lines.push("", "Related (repo-map; query match not guaranteed):");
-		for (const result of details.related) lines.push(`${result.path} [${result.relations.join(", ")}]`);
 	}
 	lines.push("", `Skipped ${details.skippedCount}; ignored ${details.ignoredCount}.`);
 	if (details.depthLimited) lines.push("Depth limited.");

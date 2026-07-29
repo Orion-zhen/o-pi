@@ -12,7 +12,7 @@ import type { FindGraphSource } from "./graph-source.js";
 import { createFindEntry, rankGlobEntries, type RankedFindEntry } from "./ranker.js";
 import { renderFindResults } from "./renderer.js";
 import { AbortFindSuggestionRanking, FindSuggestionRanker } from "./suggestion-ranker.js";
-import type { FindEntry, FindNearbyResult, FindParams, FindRelatedResult, FindScopeError, FindSuccess } from "./types.js";
+import type { FindEntry, FindNearbyResult, FindParams, FindScopeError, FindSuccess } from "./types.js";
 
 interface NormalizedFindParams {
 	readonly query: string;
@@ -33,7 +33,7 @@ interface ScopeFindSuccess {
 	readonly ignoredCount: number;
 	readonly skippedCount: number;
 	readonly depthLimited: boolean;
-	readonly related?: FindRelatedResult[];
+	readonly fallback?: RankedFindEntry[];
 	readonly nearby?: FindNearbyResult[];
 	readonly missingPrefix?: string;
 	readonly nearbyDirectory?: string;
@@ -58,12 +58,10 @@ interface GlobPrefixDiagnostic {
 export interface FindCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
-	readonly limits: Pick<FileToolLimits, "find_output_token_budget" | "find_result_limit" | "find_max_depth">;
+	readonly limits: Pick<FileToolLimits, "find_output_token_budget" | "find_result_limit" | "find_max_depth" | "find_repo_map_fallback_limit">;
 	readonly graph?: FindGraphSource;
 }
 
-const RELATED_TRIGGER = 4;
-const RELATED_LIMIT = 3;
 const NEARBY_LIMIT = 3;
 
 /** Stateful find command. Only its optional shared-runtime suggestion workers survive invocations. */
@@ -202,7 +200,9 @@ export class FindTool {
 		]);
 		if (isFailed(walked)) return walked;
 		const ranked = await this.suggestions.rank(walked.entries, query, searchRoot.displayPath, context.operation.signal);
-		const merged = fuseRankedFindSources(ranked.matches, graph.matching);
+		const pathMatches = new Set(ranked.matches.map((candidate) => candidate.entry.path));
+		const rankingSignals = graph.ranking.filter((candidate) => pathMatches.has(candidate.entry.path));
+		const merged = fuseRankedFindSources(ranked.matches, rankingSignals);
 		const nearby = merged.length === 0 ? findNearbyResults(ranked.suggestions) : [];
 		return {
 			path: searchRoot.displayPath,
@@ -213,7 +213,7 @@ export class FindTool {
 			ignoredCount: walked.ignoredCount,
 			skippedCount: walked.skippedCount,
 			depthLimited: walked.depthLimited,
-			...(merged.length < RELATED_TRIGGER && graph.related.length > 0 ? { related: graph.related } : {}),
+			...(graph.fallback.length > 0 ? { fallback: graph.fallback } : {}),
 			...(nearby.length > 0 ? { nearby } : {}),
 		};
 	}
@@ -412,8 +412,22 @@ function mergeScopeResults(
 			}
 		}
 	}
-	const ranked = [...candidates.values()].sort(compareFindCandidates);
-	const related = ranked.length < RELATED_TRIGGER ? mergeRelated(successes.flatMap(({ result }) => result.related ?? [])) : [];
+	let ranked = [...candidates.values()].sort(compareFindCandidates);
+	if (ranked.length === 0 && limits.find_repo_map_fallback_limit > 0) {
+		const fallback = new Map<string, RankedFindEntry>();
+		for (const { scope, result } of successes) {
+			for (const candidate of result.fallback ?? []) {
+				const scoped = { ...candidate, scopeOrder: scope.order };
+				const existing = fallback.get(candidate.entry.path);
+				if (existing === undefined) fallback.set(candidate.entry.path, scoped);
+				else {
+					const merged = fuseRankedFindSources([existing], [scoped])[0];
+					if (merged !== undefined) fallback.set(candidate.entry.path, { ...merged, scopeOrder: Math.min(existing.scopeOrder ?? scope.order, scope.order) });
+				}
+			}
+		}
+		ranked = [...fallback.values()].sort(compareFindCandidates).slice(0, limits.find_repo_map_fallback_limit);
+	}
 	const nearby = ranked.length === 0 ? mergeNearby(successes.flatMap(({ result }) => result.nearby ?? [])) : [];
 	const strategy = successes.some(({ result }) => result.strategy === "fuzzy") ? "fuzzy"
 		: successes.some(({ result }) => result.strategy === "glob") ? "glob" : "exact";
@@ -436,7 +450,6 @@ function mergeScopeResults(
 		depthLimited: successes.some(({ result }) => result.depthLimited),
 		resultLimited: selected.length < ranked.length,
 		outputTokenBudget: limits.find_output_token_budget,
-		...(related.length === 0 ? {} : { related }),
 		...(nearby.length === 0 ? {} : { nearby }),
 		...(missing?.missingPrefix === undefined ? {} : { missingPrefix: missing.missingPrefix }),
 		...(missing?.nearbyDirectory === undefined ? {} : { nearbyDirectory: missing.nearbyDirectory }),
@@ -448,16 +461,6 @@ function compareFindCandidates(left: RankedFindEntry, right: RankedFindEntry): n
 		|| compareRankingEvidence(left.evidence, right.evidence)
 		|| (left.scopeOrder ?? Number.MAX_SAFE_INTEGER) - (right.scopeOrder ?? Number.MAX_SAFE_INTEGER)
 		|| compareStableString(left.entry.path, right.entry.path);
-}
-
-function mergeRelated(results: readonly FindRelatedResult[]): FindRelatedResult[] {
-	const merged = new Map<string, FindRelatedResult>();
-	for (const result of results) {
-		const existing = merged.get(result.path);
-		if (existing === undefined) merged.set(result.path, { ...result, relations: [...result.relations] });
-		else for (const relation of result.relations) if (!existing.relations.includes(relation)) existing.relations.push(relation);
-	}
-	return [...merged.values()].slice(0, RELATED_LIMIT);
 }
 
 function mergeNearby(results: readonly FindNearbyResult[]): FindNearbyResult[] {
