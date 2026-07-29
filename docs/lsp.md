@@ -59,11 +59,9 @@ agent/configs/lsp.jsonc
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `workspace_symbols` | `true` | 是否允许 `grep(auto)` 在本地精确符号歧义或缺少显式关系结果时调用 `workspace/symbol` 获取位置提示。 |
-| `references` | `false` | 显式关系查询请求 LSP hint 时，是否在 workspace symbol 命中后继续调用 `textDocument/references`。默认关闭，避免慢 server 放大请求量。 |
+| `workspace_symbols` | `true` | 是否允许 `grep` 在本地精确符号歧义或整次零正文命中时调用 `workspace/symbol` 获取位置提示。 |
 | `max_symbols` | `20` | scope/URI 校验和去重后最多接收的有效 workspace symbol 数，范围 `0`-`200`。scope 外及 resolve 失败项不消耗预算。 |
 | `max_exact_leaf_symbols` | `2` | exact leaf symbol 的同名定义最多接收数，范围 `0`-`200`；只限制同名 exact leaf，不限制 exact qualified symbol。 |
-| `max_references` | `2` | 显式关系查询最多接收的有效引用数，范围 `0`-`200`。普通符号查询不启动 references；引用只针对最终接收的 symbol。 |
 
 `servers` 的 key 就是稳定 server ID，必须以字母开头且只能包含字母、数字、`_`、`-`。每个 server 支持：
 
@@ -226,7 +224,7 @@ binary 不存在、TCP endpoint 不可达或 initialize 失败时 server 标记�
 ## 行为
 
 - `read`：部分行范围读取且最小包围 symbol 的声明行不可见时可返回 `lsp.enclosing_symbol`；整文件读取被截断且可见片段不足以覆盖大部分顶层声明时，才可返回非递归的 `remaining_symbols` 长文件导航 fallback。outline 关闭或上限为 `0` 且不需要 enclosing symbol 时不会启动 LSP。只为 `documentSymbol` 打开的文档会在请求后关闭，但保留有界的本地内容版本和 symbol cache；相同内容的暖态读取直接复用 cache，不重新打开文档或发送 symbol 请求。
-- `grep`：只在 `match=auto` 且本地排序完成后按需调用 LSP。多个本地 exact definition 需要消歧时请求 workspace symbol；显式关系查询没有对应本地 AST relation 时才允许继续请求 references。普通唯一 symbol、已有本地关系、natural-language、long-text、`literal` 和 `regex` 都不启动 LSP。请求范围来自完整 `ScopeInventory` 的 scope+glob allowed paths；多个 server 并行查询但按配置顺序稳定合并。LSP 对 grep 只提供以 path/range 为定位主体的 hint，grep 必须把它映射到本次读取的 live AST unit；公开 path、range、kind、symbol 和 declaration 来自该 unit，LSP origin 和排序元数据不进入模型输出、details、TUI 或 grep telemetry 候选投影。调用方取消和统一操作 deadline 会贯穿 query、resolve、references 并触发协议级取消；所有 LSP 失败继续按正文/AST 链降级。
+- `grep`：多个本地 exact definition 需要消歧，或整次扫描零正文命中需要 related symbol 时，请求 workspace symbol。请求范围来自完整 `ScopeInventory` 的 scope+glob allowed paths；多个 server 并行查询但按配置顺序稳定合并。LSP 只提供 path/range hint，grep 必须将其映射到本次读取的 live AST unit；公开 path、range、kind、symbol 和 declaration 来自该 unit。grep 不请求 LSP references。调用方取消和统一 operation deadline 贯穿 workspace symbol 请求并触发协议级取消；所有 LSP 失败继续按正文/AST 链降级。
 - `write`：写盘成功后先向已启动且 watcher 匹配的 server 发送 create/change 事件；配置文件不需要属于源码路由，也不会因此启动新 server。同一并行 mutation 批次按 client 合并 watcher 通知，随后先同步该 client 的全部文档。server 声明 `diagnosticProvider` 时以有界并发 pull diagnostics；未声明 pull 但公开 `typescript.tsserverRequest` 命令时走 TSLS 同步诊断 fast path；其余 server 并行等待 publish。诊断错误不改变 `status: "written"`。
 - `edit`：preview 不调用 LSP；成功写盘后发送 watched-file change，并只用同一 workspace/server source 的编辑前 baseline 计算 diagnostics diff。baseline 已知时只返回新增 error，以及修改范围内的新增 warning；baseline 未知时只返回修改范围或所属 symbol 内的 error，并标记 `causality uncertain`。原有、已解决、clean、total 和文件级统计不进入 edit 模型输出；不同 source 的 baseline 标记为 unknown，诊断错误不改变 `status: "applied"`。
 - `ls` / `find`：不接入 LSP。

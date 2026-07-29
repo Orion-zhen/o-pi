@@ -2,6 +2,14 @@ import type {
 	AdoptionWindowStatistics,
 	CandidateLevelStatistics,
 	CandidateRankingReport,
+	GrepCandidateChannelStatistics,
+	GrepPressureStatistics,
+	GrepRankingAlgorithmStatistics,
+	GrepRankingBucketStatistics,
+	GrepRankingReport,
+	GrepReport,
+	GrepSourceStatistics,
+	NumericSummary,
 	OutputEfficiencyStatistics,
 	RateSummary,
 	SearchCandidateUse,
@@ -33,6 +41,7 @@ export function renderTelemetryHtml(report: TelemetryReport): string {
 <header class="header"><div><h1>Pi 工具调用分析</h1><p class="subtitle">本地工具调用的可读摘要</p>${renderQuery(report)}</div><div class="timestamp">生成时间<strong>${escapeHtml(formatTimestamp(report.metadata.generated_at))}</strong></div></header>
 <section class="cards">${metricCard("运行次数", report.inventory.runs, `${report.inventory.sessions} 个会话`)}${metricCard("工具调用", report.inventory.calls, `${report.inventory.tools} 个工具`)}${metricCard("成功率", percentage(successRate), `${totalSuccess} / ${totalCalls} 次调用`, successTone)}${metricCard("失败调用", totalErrors, totalErrors === 0 ? "没有失败调用" : "次调用出错", totalErrors === 0 ? "good" : "bad")}${metricCard("编辑调用", report.edit.calls, `${report.edit.batches.multi_file_batches} 个多文件批次`)}</section>
 <section class="section"><div class="panel"><div class="panel-header"><h2>工具性能</h2><span class="muted">按工具汇总响应耗时和输出；悬浮错误数可查看原因</span></div><div class="panel-body"><table><thead><tr><th>工具</th><th>调用</th><th>成功率</th><th>错误</th><th>p50 耗时</th><th>p95 耗时</th><th>平均输出</th><th>已截断</th><th>已修复</th><th>多 scope</th><th>scope 错误</th></tr></thead><tbody>${report.tools.length === 0 ? emptyRow(11, "没有工具调用") : report.tools.map((tool, index) => renderToolRow(tool, index)).join("")}</tbody></table></div></div></section>
+<section class="section"><h2>Grep 执行链分析 <small class="muted">（下游采用为启发式）</small></h2><div class="panel"><div class="panel-body">${renderGrepReport(report.grep)}</div></div></section>
 <section class="section"><h2>编辑调用：单文件与多文件</h2><div class="split"><div class="panel"><div class="panel-header"><h3>统计结果</h3></div><div class="panel-body grid-4">${stat("编辑调用", report.edit.calls)}${stat("成功", report.edit.successful_calls, "good")}${stat("失败", report.edit.failed_calls, report.edit.failed_calls === 0 ? "good" : "bad")}${stat("无变化", report.edit.no_change_calls)}</div></div><div class="panel"><div class="panel-header"><h3>批处理机会</h3></div><div class="panel-body grid-4">${stat("批次", report.edit.batches.batches)}${stat("多文件", report.edit.batches.multi_file_batches)}${stat("部分失败", report.edit.batches.partial_failure_batches, report.edit.batches.partial_failure_batches === 0 ? "good" : "warning")}${stat("可能减少调用", report.edit.batches.potential_call_reduction, report.edit.batches.potential_call_reduction > 0 ? "good" : "")}</div></div></div></section>
 <section class="section"><h2>搜索有效产出与候选排名 <small class="muted">（启发式）</small></h2><div class="panel"><div class="panel-body">${renderCandidateRanking(report.candidate_ranking, report.search_effectiveness)}</div></div></section>
 <section class="section"><div class="panel"><div class="panel-header"><h2>最近运行</h2><span class="muted">${hiddenRuns > 0 ? `显示最近 ${latestRuns.length} 次，共 ${report.runs.length} 次` : `共 ${report.runs.length} 次`}</span></div>${renderRuns(latestRuns)}</div></section>
@@ -41,8 +50,11 @@ export function renderTelemetryHtml(report: TelemetryReport): string {
 }
 
 export function formatTelemetrySummary(report: TelemetryReport): string {
+	const related = report.grep.related_recovery.samples === 0
+		? ""
+		: `；grep related 找回 ${report.grep.related_recovery.numerator}/${report.grep.related_recovery.samples}`;
 	return `工具调用 ${report.inventory.calls} 次；多文件批次 ${report.edit.batches.multi_file_batches}/${report.edit.batches.batches}`
-		+ `；候选列表即时采纳 ${report.candidate_ranking.file_level.immediate.adopted_lists}/${report.candidate_ranking.file_level.immediate.lists}`;
+		+ `；候选列表即时采纳 ${report.candidate_ranking.file_level.immediate.adopted_lists}/${report.candidate_ranking.file_level.immediate.lists}${related}`;
 }
 
 function renderToolRow(tool: ToolStatistics, index: number): string {
@@ -65,6 +77,93 @@ function errorReasons(tool: ToolStatistics): Array<[string, number]> {
 	return entries;
 }
 
+function renderGrepReport(report: GrepReport): string {
+	const findings = report.findings.map((finding) =>
+		`<div class="note ${finding.severity === "warning" ? "warning" : ""}"><strong>${finding.severity === "warning" ? "需关注：" : "结论："}</strong>${escapeHtml(finding.summary)}</div>`).join("");
+	return `<div class="grid-4">${stat("Grep 调用", report.calls, "", `${report.successful_calls} 成功 / ${report.failed_calls} 失败`)}${stat("直接命中", formatRate(report.direct_match))}${stat("Related fallback", formatRate(report.related_fallback))}${stat("仍无结果", formatRate(report.empty_result), report.empty_result.numerator > 0 ? "warning" : "good")}</div>
+<div class="note" style="margin-top:12px"><strong>执行路径覆盖：</strong>${report.execution_path_observed_calls}/${report.successful_calls} 次成功调用包含新版事实。无直接命中时，related 找回率为 ${escapeHtml(formatRate(report.related_recovery))}。</div>
+${findings}
+<h3 style="margin-top:20px">排序算法质量与选择行为</h3>${grepRankingReport(report.ranking)}
+<h3 style="margin-top:20px">返回类型与下游采用</h3>${grepChannelTable(report.by_result_kind)}
+<h3 style="margin-top:20px">检索来源参与</h3>${grepSourceTable(report.by_source)}
+<div class="split" style="margin-top:16px"><div><h3>每次调用工作量</h3>${grepWorkTable(report)}</div><div><h3>限制与内部容量</h3>${grepPressureTable(report)}</div></div>`;
+}
+
+function grepRankingReport(report: GrepRankingReport): string {
+	const entries = Object.entries(report.by_algorithm);
+	const coverage = `<div class="note"><strong>排序事实覆盖：</strong>${report.observed_calls} 次；缺失 ${report.unobserved_calls} 次。Hit/MRR/nDCG 使用模型可见候选的唯一归因下游采用；分数只应在同算法、同查询内解释。</div>`;
+	if (entries.length === 0) return `${coverage}<div class="empty">没有可比较的排序算法事实</div>`;
+	const overview = `<table class="list-table"><thead><tr><th>算法</th><th>调用</th><th>候选池均值</th><th>准入均值</th><th>返回均值</th><th>Tier / Top-tier</th><th>Head / MMR</th><th>MMR 替换</th><th>选择改变</th><th>文件覆盖</th><th>多样性增益</th></tr></thead><tbody>${entries.map(([algorithm, value]) =>
+		`<tr><td>${escapeHtml(algorithm)}</td><td class="number">${value.calls}</td><td class="number">${formatDecimal(value.candidate_pool.mean)}</td><td class="number">${formatDecimal(value.eligible_candidates.mean)}</td><td class="number">${formatDecimal(value.selected_candidates.mean)}</td><td class="number">${formatDecimal(value.tiers.mean)} / ${formatDecimal(value.top_tier_candidates.mean)}</td><td class="number">${formatDecimal(value.relevance_head.mean)} / ${formatDecimal(value.mmr_selected.mean)}</td><td class="number">${formatDecimal(value.mmr_replacements.mean)}</td><td class="number">${formatRate(value.selection_changed)}</td><td class="number">${formatDecimal(value.relevance_prefix_files.mean)} → ${formatDecimal(value.selected_files.mean)}</td><td class="number">${formatDecimal(value.file_diversity_gain.mean)}</td></tr>`).join("")}</tbody></table>`;
+	const quality = `<h3 style="margin-top:16px">按算法的采用质量</h3>${grepRankingQualityTable(entries)}`;
+	const details = entries.map(([algorithm, value]) =>
+		`<details class="details"><summary>${escapeHtml(algorithm)}：tier、选择阶段与分数</summary><div class="details-content"><div class="split"><div><h3>Tier</h3>${grepRankingBucketTable(value.by_tier, "没有 tier 事实")}</div><div><h3>选择阶段</h3>${grepRankingBucketTable(value.by_selection, "没有选择阶段事实")}</div></div></div></details>`).join("");
+	return `${coverage}${overview}${quality}${details}`;
+}
+
+function grepRankingQualityTable(entries: readonly [string, GrepRankingAlgorithmStatistics][]): string {
+	const rows = entries.flatMap(([algorithm, value]) => [
+		[algorithm, "Immediate", value.immediate],
+		[algorithm, "Refine 前", value.pre_refinement],
+		[algorithm, "Productive", value.productive],
+	] as const);
+	return `<table class="list-table"><thead><tr><th>算法</th><th>窗口</th><th>列表</th><th>Hit@1</th><th>Hit@3</th><th>Hit@5</th><th>Hit@10</th><th>MRR</th><th>nDCG@10</th></tr></thead><tbody>${rows.map(([algorithm, window, value]) =>
+		`<tr><td>${escapeHtml(algorithm)}</td><td>${window}</td><td class="number">${value.lists}</td>${[1, 3, 5, 10].map((k) => `<td class="number">${percentage(value.hit_at_k.find((item) => item.k === k)?.rate)}</td>`).join("")}<td class="number">${formatDecimal(value.mrr.value)}</td><td class="number">${formatDecimal(value.ndcg_at_k.find((item) => item.k === 10)?.value)}</td></tr>`).join("")}</tbody></table>`;
+}
+
+function grepRankingBucketTable(
+	values: Readonly<Record<string, GrepRankingBucketStatistics>>,
+	empty: string,
+): string {
+	const entries = Object.entries(values);
+	if (entries.length === 0) return `<div class="empty">${escapeHtml(empty)}</div>`;
+	return `<table class="list-table"><thead><tr><th>Bucket</th><th>候选</th><th>Immediate</th><th>Refine 前</th><th>Productive</th><th>原始 rank</th><th>提升</th><th>产出提升</th><th>主分数均值</th><th>产出主分数</th><th>辅助分数均值</th><th>产出辅助分数</th></tr></thead><tbody>${entries.map(([name, value]) =>
+		`<tr><td>${escapeHtml(name)}</td><td class="number">${value.candidates}</td><td class="number">${formatRate(value.immediate_adoption)}</td><td class="number">${formatRate(value.pre_refinement_adoption)}</td><td class="number">${formatRate(value.productive_adoption)}</td><td class="number">${formatDecimal(value.relevance_rank.mean)}</td><td class="number">${formatDecimal(value.rank_promotion.mean)}</td><td class="number">${formatDecimal(value.productive_rank_promotion.mean)}</td><td class="number">${formatDecimal(value.primary_score.mean)}</td><td class="number">${formatDecimal(value.productive_primary_score.mean)}</td><td class="number">${formatDecimal(value.auxiliary_score.mean)}</td><td class="number">${formatDecimal(value.productive_auxiliary_score.mean)}</td></tr>`).join("")}</tbody></table>`;
+}
+
+function grepChannelTable(values: GrepReport["by_result_kind"]): string {
+	const entries: Array<[string, GrepCandidateChannelStatistics]> = [
+		["verified", values.verified],
+		["related", values.related],
+	];
+	return `<table class="list-table"><thead><tr><th>结果类型</th><th>调用</th><th>Region 候选</th><th>Immediate</th><th>Refine 前</th><th>Productive</th><th>读取</th><th>修改</th></tr></thead><tbody>${entries.map(([name, value]) => `<tr><td>${name}</td><td class="number">${value.calls}</td><td class="number">${value.candidates}</td><td class="number">${formatRate(value.immediate_adoption)}</td><td class="number">${formatRate(value.pre_refinement_adoption)}</td><td class="number">${formatRate(value.productive_adoption)}</td><td class="number">${value.downstream_inspections}</td><td class="number">${value.downstream_mutations}</td></tr>`).join("")}</tbody></table>`;
+}
+
+function grepSourceTable(values: Readonly<Record<string, GrepSourceStatistics>>): string {
+	const entries = Object.entries(values);
+	if (entries.length === 0) return `<div class="empty">没有 grep 候选来源数据</div>`;
+	return `<table class="list-table"><thead><tr><th>来源</th><th>File 候选参与</th><th>Immediate</th><th>Refine 前</th><th>Productive</th></tr></thead><tbody>${entries.map(([source, value]) => `<tr><td>${escapeHtml(source)}</td><td class="number">${value.candidates}</td><td class="number">${formatRate(value.immediate_adoption)}</td><td class="number">${formatRate(value.pre_refinement_adoption)}</td><td class="number">${formatRate(value.productive_adoption)}</td></tr>`).join("")}</tbody></table><div class="note" style="margin-top:10px;margin-bottom:0">${escapeHtml("同一模型可见候选可有多个来源，来源参与数不可直接相加。")}</div>`;
+}
+
+function grepWorkTable(report: GrepReport): string {
+	const work: Array<[string, NumericSummary]> = [
+		["搜索文件", report.work.searched_files],
+		["搜索字节", report.work.searched_bytes],
+		["正文命中", report.work.text_hits],
+		["AST 解析文件", report.work.parsed_files],
+		["返回 region", report.work.returned_regions],
+		["返回文件", report.work.returned_files],
+		["近似 token", report.work.approx_tokens],
+	];
+	return `<table class="list-table"><thead><tr><th>指标</th><th>有统计调用</th><th>平均</th><th>P95</th></tr></thead><tbody>${work.map(([name, value]) => `<tr><td>${name}</td><td class="number">${value.samples}</td><td class="number">${formatDecimal(value.mean)}</td><td class="number">${formatDecimal(value.p95)}</td></tr>`).join("")}</tbody></table><div class="note" style="margin-top:10px;margin-bottom:0">有 AST 增强 ${escapeHtml(formatRate(report.work.ast_augmented_calls))}。</div>`;
+}
+
+function grepPressureTable(report: GrepReport): string {
+	const values: Array<[string, string]> = [
+		["结果条数限制", formatRate(report.limits.result)],
+		["遍历限制", formatRate(report.limits.traversal)],
+		["丢弃正文命中", formatPressure(report.capacity.dropped_text_hits)],
+		["丢弃 related anchor", formatPressure(report.capacity.dropped_related_anchors)],
+		["静默过滤 related", formatPressure(report.capacity.dropped_related_results)],
+		["AST 超大文件", formatPressure(report.capacity.ast_skipped_oversized_files)],
+	];
+	return `<table class="list-table"><thead><tr><th>压力</th><th>观测</th></tr></thead><tbody>${values.map(([name, value]) => `<tr><td>${name}</td><td class="number">${escapeHtml(value)}</td></tr>`).join("")}</tbody></table>`;
+}
+
+function formatPressure(value: GrepPressureStatistics): string {
+	return `${value.total} 项 / ${formatRate(value.calls)}`;
+}
+
 function renderCandidateRanking(report: CandidateRankingReport, search: SearchEffectivenessReport): string {
 	const file = report.file_level;
 	const region = report.region_level;
@@ -73,7 +172,7 @@ function renderCandidateRanking(report: CandidateRankingReport, search: SearchEf
 <h3 style="margin-top:20px">File-level 列表采纳</h3><div class="grid-4">${windowStat("Immediate", file.immediate)}${windowStat("Pre-refinement", file.pre_refinement)}${windowStat("Broad (legacy)", file.broad)}${windowStat("Productive", file.productive)}</div>
 <div class="grid-4" style="margin-top:12px">${stat("Inspection", file.actions.inspection)}${stat("Mutation", file.actions.mutation)}${stat("Productive", file.actions.productive, file.actions.productive > 0 ? "good" : "")}${stat("Inspection only", file.actions.inspection_only)}</div>
 <h3 style="margin-top:20px">新发现与已知文件</h3><div class="grid-4">${stat("Novel exposure", countRate(file.novelty.novel_exposures, file.exposures))}${stat("Novel immediate", countRate(file.novelty.novel_immediate_adopted, file.novelty.novel_exposures))}${stat("Novel productive", countRate(file.novelty.novel_productive, file.novelty.novel_exposures))}${stat("Prior-known", countRate(file.novelty.prior_known_exposures, file.exposures))}</div>
-<div class="split" style="margin-top:16px"><div><h3>File-level Hit@K / MRR / retention</h3>${rankingTable(file)}</div><div><h3>Region-level（不推断整文件读取）</h3>${regionTable(region)}</div></div>
+<div class="split" style="margin-top:16px"><div><h3>File-level Hit@K / MRR / nDCG / retention</h3>${rankingTable(file)}</div><div><h3>Region-level（不推断整文件读取）</h3>${regionTable(region)}</div></div>
 <div class="split" style="margin-top:16px"><div><h3>来源族贡献区间</h3>${sourceTable(report.by_source_family, "没有来源类别数据")}</div><div><h3>具体来源贡献区间</h3>${sourceTable(report.by_source, "没有来源数据")}</div></div>
 <h3 style="margin-top:20px">输出字符效率（不分摊到来源）</h3>${efficiencyTable(report)}
 <details class="details"><summary>Legacy broad 搜索明细与后续工具</summary><div class="details-content"><div class="split"><div>${searchToolTable(search.by_tool)}</div><div>${searchGroupTable(search.by_group)}</div></div>${frequencyTable(report.downstream_consumers, "没有 broad 消费调用")}</div></details>`;
@@ -84,14 +183,17 @@ function windowStat(label: string, value: AdoptionWindowStatistics): string {
 }
 
 function rankingTable(value: CandidateLevelStatistics): string {
-	return `<table class="list-table"><thead><tr><th>K</th><th>即时 Hit</th><th>Refine 前 Hit</th><th>Productive Hit</th><th>即时保留</th><th>Refine 前保留</th><th>Productive 保留</th></tr></thead><tbody>${value.immediate.hit_at_k.map((item, index) => {
+	return `<table class="list-table"><thead><tr><th>K</th><th>即时 Hit</th><th>Refine 前 Hit</th><th>Productive Hit</th><th>即时保留</th><th>Refine 前保留</th><th>Productive 保留</th><th>即时 nDCG</th><th>Refine 前 nDCG</th><th>Productive nDCG</th></tr></thead><tbody>${value.immediate.hit_at_k.map((item, index) => {
 		const pre = value.pre_refinement.hit_at_k[index];
 		const productive = value.productive.hit_at_k[index];
 		const immediateRetention = value.immediate.retention_at_k[index];
 		const preRetention = value.pre_refinement.retention_at_k[index];
 		const productiveRetention = value.productive.retention_at_k[index];
-		return `<tr><td>${item.k}</td><td class="number">${percentage(item.rate)}</td><td class="number">${percentage(pre?.rate)}</td><td class="number">${percentage(productive?.rate)}</td><td class="number">${percentage(immediateRetention?.rate)}</td><td class="number">${percentage(preRetention?.rate)}</td><td class="number">${percentage(productiveRetention?.rate)}</td></tr>`;
-	}).join("")}</tbody></table><div class="note" style="margin-top:10px;margin-bottom:0">MRR：即时 ${formatDecimal(value.immediate.mrr.value)} / refine 前 ${formatDecimal(value.pre_refinement.mrr.value)} / productive ${formatDecimal(value.productive.mrr.value)}</div>`;
+		const immediateNdcg = value.immediate.ndcg_at_k[index];
+		const preNdcg = value.pre_refinement.ndcg_at_k[index];
+		const productiveNdcg = value.productive.ndcg_at_k[index];
+		return `<tr><td>${item.k}</td><td class="number">${percentage(item.rate)}</td><td class="number">${percentage(pre?.rate)}</td><td class="number">${percentage(productive?.rate)}</td><td class="number">${percentage(immediateRetention?.rate)}</td><td class="number">${percentage(preRetention?.rate)}</td><td class="number">${percentage(productiveRetention?.rate)}</td><td class="number">${formatDecimal(immediateNdcg?.value)}</td><td class="number">${formatDecimal(preNdcg?.value)}</td><td class="number">${formatDecimal(productiveNdcg?.value)}</td></tr>`;
+	}).join("")}</tbody></table><div class="note" style="margin-top:10px;margin-bottom:0">MRR：即时 ${formatDecimal(value.immediate.mrr.value)} / refine 前 ${formatDecimal(value.pre_refinement.mrr.value)} / productive ${formatDecimal(value.productive.mrr.value)}。nDCG 使用下游采用作为二元相关性。</div>`;
 }
 
 function regionTable(value: CandidateLevelStatistics): string {

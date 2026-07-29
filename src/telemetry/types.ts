@@ -14,6 +14,15 @@ export interface Candidate extends Resource {
 	rank: number;
 	group?: string;
 	sources: string[];
+	/** 排序器选择前的完整 relevance 名次。 */
+	relevance_rank?: number;
+	/** 离散 relevance tier；数值越小越强。 */
+	ranking_tier?: number;
+	/** 算法定义的主、辅助连续分数，只能在同算法语义下解释。 */
+	ranking_score?: number;
+	ranking_aux_score?: number;
+	/** 候选进入可见结果的选择阶段。 */
+	selection?: string;
 }
 
 /** Tool-owned, payload-free facts used by focused offline analyzers. */

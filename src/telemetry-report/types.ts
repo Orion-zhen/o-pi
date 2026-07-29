@@ -91,6 +91,12 @@ export interface RetentionAtK {
 	rate: number;
 }
 
+export interface NdcgAtK {
+	k: number;
+	lists: number;
+	value: number;
+}
+
 export interface AdoptionWindowStatistics {
 	lists: number;
 	adopted_lists: number;
@@ -98,6 +104,7 @@ export interface AdoptionWindowStatistics {
 	unknown_lists: number;
 	hit_at_k: ConversionAtK[];
 	mrr: { samples: number; value: number };
+	ndcg_at_k: NdcgAtK[];
 	retention_at_k: RetentionAtK[];
 }
 
@@ -195,6 +202,129 @@ export interface SearchEffectivenessReport extends SearchEffectivenessStatistics
 	by_group: Record<string, SearchCandidateUse>;
 }
 
+export interface GrepCandidateChannelStatistics {
+	calls: number;
+	candidates: number;
+	immediate_adoption: RateSummary;
+	pre_refinement_adoption: RateSummary;
+	productive_adoption: RateSummary;
+	downstream_inspections: number;
+	downstream_mutations: number;
+}
+
+export interface GrepSourceStatistics {
+	candidates: number;
+	immediate_adoption: RateSummary;
+	pre_refinement_adoption: RateSummary;
+	productive_adoption: RateSummary;
+}
+
+export interface GrepPressureStatistics {
+	total: number;
+	calls: RateSummary;
+}
+
+export interface GrepRankingBucketStatistics {
+	candidates: number;
+	immediate_adoption: RateSummary;
+	pre_refinement_adoption: RateSummary;
+	productive_adoption: RateSummary;
+	relevance_rank: NumericSummary;
+	rank_promotion: NumericSummary;
+	productive_rank_promotion: NumericSummary;
+	primary_score: NumericSummary;
+	productive_primary_score: NumericSummary;
+	auxiliary_score: NumericSummary;
+	productive_auxiliary_score: NumericSummary;
+}
+
+export interface GrepRankingAlgorithmStatistics {
+	calls: number;
+	candidate_pool: NumericSummary;
+	eligible_candidates: NumericSummary;
+	selected_candidates: NumericSummary;
+	relevance_head: NumericSummary;
+	tiers: NumericSummary;
+	top_tier_candidates: NumericSummary;
+	mmr_selected: NumericSummary;
+	mmr_replacements: NumericSummary;
+	selection_changed: RateSummary;
+	relevance_prefix_files: NumericSummary;
+	selected_files: NumericSummary;
+	file_diversity_gain: NumericSummary;
+	immediate: AdoptionWindowStatistics;
+	pre_refinement: AdoptionWindowStatistics;
+	productive: AdoptionWindowStatistics;
+	by_tier: Record<string, GrepRankingBucketStatistics>;
+	by_selection: Record<string, GrepRankingBucketStatistics>;
+}
+
+export interface GrepRankingReport {
+	observed_calls: number;
+	unobserved_calls: number;
+	by_algorithm: Record<string, GrepRankingAlgorithmStatistics>;
+}
+
+export type GrepFindingCode =
+	| "no_samples"
+	| "incomplete_pipeline_facts"
+	| "incomplete_ranking_facts"
+	| "related_fallback_recovery"
+	| "related_fallback_follow_up"
+	| "frequent_empty_results"
+	| "result_limit_pressure"
+	| "related_limit_pressure"
+	| "ast_size_limit_pressure"
+	| "lsp_assistance_observed";
+
+export interface GrepFinding {
+	code: GrepFindingCode;
+	severity: "info" | "warning";
+	summary: string;
+	evidence: RateSummary;
+	total?: number;
+}
+
+export interface GrepReport {
+	heuristic: true;
+	method: string;
+	calls: number;
+	successful_calls: number;
+	failed_calls: number;
+	execution_path_observed_calls: number;
+	direct_match: RateSummary;
+	related_fallback: RateSummary;
+	empty_result: RateSummary;
+	related_recovery: RateSummary;
+	work: {
+		searched_files: NumericSummary;
+		searched_bytes: NumericSummary;
+		text_hits: NumericSummary;
+		parsed_files: NumericSummary;
+		ast_augmented_calls: RateSummary;
+		returned_regions: NumericSummary;
+		returned_files: NumericSummary;
+		approx_tokens: NumericSummary;
+	};
+	limits: {
+		result: RateSummary;
+		traversal: RateSummary;
+	};
+	capacity: {
+		dropped_text_hits: GrepPressureStatistics;
+		dropped_related_anchors: GrepPressureStatistics;
+		dropped_related_results: GrepPressureStatistics;
+		ast_skipped_oversized_files: GrepPressureStatistics;
+	};
+	ranking: GrepRankingReport;
+	by_result_kind: {
+		verified: GrepCandidateChannelStatistics;
+		related: GrepCandidateChannelStatistics;
+	};
+	by_source: Record<string, GrepSourceStatistics>;
+	findings: GrepFinding[];
+}
+
 export interface TelemetryReport {
 	metadata: {
 		generated_at: string;
@@ -212,6 +342,7 @@ export interface TelemetryReport {
 	runs: RunRecord[];
 	tools: ToolStatistics[];
 	edit: EditReport;
+	grep: GrepReport;
 	search_effectiveness: SearchEffectivenessReport;
 	candidate_ranking: CandidateRankingReport;
 }

@@ -13,11 +13,11 @@ import {
 	type VerifiedCodeRegion,
 } from "./candidates.js";
 import type { ScopeInventory } from "./inventory.js";
-import type { LocalAutoResult } from "./local.js";
+import type { LocalResult } from "./local.js";
 import type { GrepHintSource, GrepPositionHint } from "./ports.js";
-import type { QueryPlan, RelationIntent } from "./query-plan.js";
+import type { QueryPlan } from "./query-plan.js";
 import { assignSourceLocalRanks, classifySymbolMatch, rankCodeRegions } from "./ranking.js";
-import type { AutoRegionizedFile } from "./regionizer.js";
+import type { RegionizedFile } from "./regionizer.js";
 
 interface HintDemand {
 	readonly lsp: boolean;
@@ -30,35 +30,21 @@ interface RetrievedHint {
 }
 
 interface MaterializedHint extends RetrievedHint {
-	readonly file: AutoRegionizedFile;
+	readonly file: RegionizedFile;
 	readonly unit: IndexedCodeUnit;
 	readonly source: RetrievalSource;
 	readonly roles: readonly CandidateRole[];
 	readonly signals: readonly CandidateSignal[];
 }
 
-const RELATION_ROLE: Readonly<Partial<Record<string, Extract<CandidateRole,
-	"caller" | "callee" | "reference" | "test" | "import" | "registration" | "entrypoint">>>> = {
-	caller: "caller",
-	callee: "callee",
-	reference: "reference",
-	test: "test",
-	import: "import",
-	registration: "registration",
-	entrypoint: "entrypoint",
-};
-
-/** 精确符号歧义时请求消歧；显式关系始终先尝试 LSP，再由 AST 回退。 */
-export function grepHintDemand(plan: QueryPlan, local: LocalAutoResult): HintDemand {
-	if (plan.match !== "auto") return { lsp: false };
-	if (plan.relationIntents.length > 0) return { lsp: true };
-	if (plan.shape === "identifier" || plan.shape === "qualified_symbol") {
-		const exactDefinitions = local.regions.filter((region) =>
-			region.roles.includes("definition")
-			&& isExactSymbolMatch(classifySymbolMatch(plan, region.symbol, region.qualifiedSymbol)));
-		return { lsp: exactDefinitions.length > 1 };
-	}
-	return { lsp: false };
+/** 零正文命中时请求 related symbol；多个精确符号定义时请求位置消歧。 */
+export function grepHintDemand(plan: QueryPlan, local: LocalResult): HintDemand {
+	const verified = local.regions.filter((region) => region.queryMatch === "verified");
+	if (verified.length === 0) return { lsp: true };
+	const exactDefinitions = verified.filter((region) =>
+		region.roles.includes("definition")
+		&& isExactSymbolMatch(classifySymbolMatch(plan, region.symbol, region.qualifiedSymbol)));
+	return { lsp: exactDefinitions.length > 1 };
 }
 
 /** 根据 demand 查询提示；提示失败不影响本地 grep，取消仍沿调用链传播。 */
@@ -81,7 +67,6 @@ export async function queryGrepHints(
 			query,
 			allowedPaths,
 			limit: Math.max(24, resultLimit * 6),
-			...(plan.relationIntents.length === 0 ? {} : { relationQuery: true }),
 			...(signal === undefined ? {} : { signal }),
 		};
 		return demand.lsp && source !== undefined
@@ -110,21 +95,28 @@ export async function queryGrepHints(
  */
 export function applyGrepHints(
 	plan: QueryPlan,
-	local: LocalAutoResult,
-	files: readonly AutoRegionizedFile[],
+	local: LocalResult,
+	files: readonly RegionizedFile[],
 	retrieved: readonly RetrievedHint[],
-): LocalAutoResult {
+): LocalResult {
+	const relatedFallback = !local.regions.some((region) => region.queryMatch === "verified");
 	const filesByPath = new Map(files.map((file) => [file.file.path, file]));
 	const materialized = retrieved.flatMap((item) => {
-		const value = materializeHint(plan, filesByPath.get(item.hint.path), item);
+		const value = materializeHint(plan, filesByPath.get(item.hint.path), item, relatedFallback);
 		return value === undefined ? [] : [value];
 	});
-	const ranks = assignSourceLocalRanks(materialized, (item) => item.source, compareMaterializedHints);
+	const ranks = assignSourceLocalRanks(
+		materialized,
+		(item) => item.source,
+		(left, right) => left.candidateOrder - right.candidateOrder
+			|| right.hint.confidence - left.hint.confidence,
+		compareMaterializedHintsStable,
+	);
 	const regions = new Map(local.regions.map((region) => [region.id, region]));
 	for (const item of materialized) {
 		const incoming = regionFromHint(item, ranks.get(item) ?? Number.MAX_SAFE_INTEGER);
 		const existing = regions.get(incoming.id);
-		if (existing === undefined && item.source === "lsp-symbol") continue;
+		if (existing === undefined && !relatedFallback) continue;
 		regions.set(incoming.id, existing === undefined ? incoming : mergeRegion(existing, incoming));
 	}
 	const values = [...regions.values()];
@@ -132,16 +124,16 @@ export function applyGrepHints(
 	return {
 		regions: values,
 		ranked,
-		totalCandidates: ranked.length,
 	};
 }
 
 function materializeHint(
 	plan: QueryPlan,
-	file: AutoRegionizedFile | undefined,
+	file: RegionizedFile | undefined,
 	retrieved: RetrievedHint,
+	relatedFallback: boolean,
 ): MaterializedHint | undefined {
-	if (file === undefined || !validHint(retrieved.hint)) return undefined;
+	if (file === undefined || !validHint(retrieved.hint) || retrieved.hint.origin !== "lsp-symbol") return undefined;
 	if (retrieved.hint.contentHash !== undefined
 		&& normalizeHash(retrieved.hint.contentHash) !== normalizeHash(file.content.hash)) return undefined;
 	const range = resolveTextRange(file.content.text, retrieved.hint.range);
@@ -151,31 +143,20 @@ function materializeHint(
 		.sort((left, right) => (left.endByte - left.startByte) - (right.endByte - right.startByte)
 			|| left.startByte - right.startByte || compareString(left.id, right.id))[0];
 	if (unit === undefined) return undefined;
-	const relation = normalizedRelation(retrieved.hint);
-	const relationRole = relation === undefined ? undefined : RELATION_ROLE[relation];
-	if (relationRole !== undefined) {
-		if (!plan.relationIntents.includes(relationRole as RelationIntent)) return undefined;
-		return {
-			...retrieved,
-			file,
-			unit,
-			source: sourceFor(retrieved.hint),
-			roles: [relationRole],
-			signals: ["requested_relation"],
-		};
-	}
 	const symbolMatch = classifySymbolMatch(plan, unit.name, unit.qualifiedName);
 	if (symbolMatch !== "exact_symbol_definition"
 		&& symbolMatch !== "exact_qualified_definition"
-		&& symbolMatch !== "exact_member_definition") return undefined;
+		&& symbolMatch !== "exact_member_definition"
+		&& symbolMatch !== "symbol_prefix"
+		&& !relatedFallback) return undefined;
 	const roles = unitRoles(unit);
 	return {
 		...retrieved,
 		file,
 		unit,
-		source: sourceFor(retrieved.hint),
+		source: "lsp-symbol",
 		roles,
-		signals: [symbolMatch],
+		signals: [symbolMatch ?? "lexical"],
 	};
 }
 
@@ -236,22 +217,6 @@ function unitRoles(unit: IndexedCodeUnit): CandidateRole[] {
 	return roles;
 }
 
-function normalizedRelation(hint: GrepPositionHint): string | undefined {
-	const relation = hint.relation ?? hint.reasons.find((reason) => Object.hasOwn(RELATION_ROLE, reason));
-	if (relation === "calls") return "caller";
-	if (relation === "references") return "reference";
-	if (relation === "tests") return "test";
-	if (relation === "imports") return "import";
-	if (relation === "declares-entrypoint" || relation === "declares-script") return "entrypoint";
-	if (relation?.startsWith("registers-") === true) return "registration";
-	return relation;
-}
-
-function sourceFor(hint: GrepPositionHint): RetrievalSource {
-	if (hint.origin === "lsp-symbol") return "lsp-symbol";
-	return "lsp-reference";
-}
-
 function validHint(hint: GrepPositionHint): boolean {
 	return hint.path.length > 0
 		&& !hint.path.includes("\0")
@@ -260,9 +225,8 @@ function validHint(hint: GrepPositionHint): boolean {
 		&& hint.confidence <= 1;
 }
 
-function compareMaterializedHints(left: MaterializedHint, right: MaterializedHint): number {
+function compareMaterializedHintsStable(left: MaterializedHint, right: MaterializedHint): number {
 	return left.scopeOrder - right.scopeOrder
-		|| left.candidateOrder - right.candidateOrder
 		|| compareString(left.unit.path, right.unit.path)
 		|| left.unit.startLine - right.unit.startLine
 		|| compareString(left.unit.id, right.unit.id);
@@ -279,7 +243,6 @@ function dedupeHints(values: readonly RetrievedHint[]): RetrievedHint[] {
 			hint.range.endLine,
 			hint.range.startByte ?? "",
 			hint.range.endByte ?? "",
-			hint.relation ?? "",
 			hint.contentHash ?? "",
 		].join("\0");
 		if (!result.has(key)) result.set(key, value);

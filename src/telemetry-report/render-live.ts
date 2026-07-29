@@ -1,6 +1,6 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 
-import type { CandidateRankingStatistics, SourceContributionStatistics, ToolStatistics } from "./types.js";
+import type { CandidateRankingStatistics, GrepReport, SourceContributionStatistics, ToolStatistics } from "./types.js";
 import type { LiveTelemetryReport } from "./live.js";
 
 const WIDE_WIDTH = 76;
@@ -31,6 +31,8 @@ export function renderLiveTelemetry(value: LiveTelemetryReport, width: number): 
 		`  Generated ${report.metadata.generated_at}`,
 		"Tool Calls",
 		...toolLines(report.tools, maxWidth),
+		"Grep Pipeline",
+		...grepLines(report.grep),
 		"Edits & Batches",
 		inlineValues([["Calls", report.edit.calls], ["Failed", report.edit.failed_calls], ["No Change", report.edit.no_change_calls]]),
 		inlineValues([["Batches", report.edit.batches.batches], ["Multi-file", report.edit.batches.multi_file_batches], ["Partial Failure", report.edit.batches.partial_failure_batches], ["Reduction", report.edit.batches.potential_call_reduction]]),
@@ -65,10 +67,34 @@ export function formatLiveTelemetrySummary(value: LiveTelemetryReport): string {
 		`Multi-scope calls ${report.tools.reduce((sum, tool) => sum + tool.multi_scope_calls, 0)}`,
 		`Scope errors ${report.tools.reduce((sum, tool) => sum + tool.scope_errors, 0)}`,
 		`Path-list repairs ${report.tools.reduce((sum, tool) => sum + (tool.repair.operations["split_path_list"] ?? 0), 0)}`,
+		...(report.grep.related_recovery.samples === 0
+			? []
+			: [`Grep related recovery ${report.grep.related_recovery.numerator}/${report.grep.related_recovery.samples}`]),
 		`Immediate candidate lists ${report.candidate_ranking.file_level.immediate.adopted_lists}/${report.candidate_ranking.file_level.immediate.lists}`,
 		`Status ${status}`,
 		...(value.pending_calls === 0 ? [] : [`Pending ${value.pending_calls}`]),
 	].join("  ");
+}
+
+function grepLines(report: GrepReport): string[] {
+	if (report.calls === 0) return ["  no grep calls"];
+	const relatedDrops = report.capacity.dropped_related_results;
+	return [
+		`  Calls ${report.calls}  success ${report.successful_calls}  direct ${rateValue(report.direct_match)}  related ${rateValue(report.related_fallback)}  empty ${rateValue(report.empty_result)}`,
+		`  Related recovery ${rateValue(report.related_recovery)}  pre-refinement adoption ${rateValue(report.by_result_kind.related.pre_refinement_adoption)}`,
+		`  Limits result ${report.limits.result.numerator}  traversal ${report.limits.traversal.numerator}`,
+		`  Internal drops text ${report.capacity.dropped_text_hits.total}  anchors ${report.capacity.dropped_related_anchors.total}  related ${relatedDrops.total}  AST oversized ${report.capacity.ast_skipped_oversized_files.total}`,
+		`  Ranking facts ${report.ranking.observed_calls}/${report.successful_calls}`,
+		...Object.entries(report.ranking.by_algorithm).flatMap(([algorithm, statistics]) => {
+			const immediateNdcg = statistics.immediate.ndcg_at_k.find((item) => item.k === 10)?.value;
+			const productiveNdcg = statistics.productive.ndcg_at_k.find((item) => item.k === 10)?.value;
+			return [
+				`    ${algorithm}  calls ${statistics.calls}  pool ${number(statistics.candidate_pool.mean)} -> eligible ${number(statistics.eligible_candidates.mean)} -> selected ${number(statistics.selected_candidates.mean)}`,
+				`      replacements ${number(statistics.mmr_replacements.mean)}  file gain ${number(statistics.file_diversity_gain.mean)}  immediate MRR/nDCG10 ${decimal(statistics.immediate.mrr.value)}/${decimal(immediateNdcg)}  productive ${decimal(statistics.productive.mrr.value)}/${decimal(productiveNdcg)}`,
+			];
+		}),
+		...(report.findings.length === 0 ? [] : [`  Findings ${report.findings.map((finding) => finding.code).join(", ")}`]),
+	];
 }
 
 function toolLines(tools: readonly ToolStatistics[], width: number): string[] {
@@ -169,8 +195,12 @@ function percent(value: number | undefined): string {
 	return value === undefined ? "n/a" : `${Math.round(value * 10_000) / 100}%`;
 }
 
-function decimal(value: number): string {
-	return value.toFixed(3);
+function decimal(value: number | undefined): string {
+	return value === undefined ? "n/a" : value.toFixed(3);
+}
+
+function rateValue(value: { numerator: number; samples: number; value?: number }): string {
+	return value.samples === 0 ? "n/a" : `${value.numerator}/${value.samples}(${percent(value.value)})`;
 }
 
 function number(value: number | undefined): string | number {

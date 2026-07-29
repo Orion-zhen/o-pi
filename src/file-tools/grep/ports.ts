@@ -1,6 +1,6 @@
 import type { ExistingRef } from "../../filesystem/contracts/path.js";
 
-export type GrepHintOrigin = "lsp-symbol" | "lsp-reference";
+export type GrepHintOrigin = "lsp-symbol";
 
 export interface GrepHintRange {
 	readonly startLine: number;
@@ -19,7 +19,6 @@ export interface GrepPositionHint {
 	readonly origin: GrepHintOrigin;
 	readonly confidence: number;
 	readonly contentHash?: string;
-	readonly relation?: string;
 	readonly reasons: readonly string[];
 }
 
@@ -28,7 +27,6 @@ export interface GrepHintQueryInput {
 	readonly query: string;
 	readonly allowedPaths: readonly string[];
 	readonly limit: number;
-	readonly relationQuery?: boolean;
 	readonly signal?: AbortSignal;
 }
 

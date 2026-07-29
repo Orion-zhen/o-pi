@@ -37,7 +37,8 @@ export function summarizeSearchEffectiveness(
 function statistics(calls: readonly CallRecord[], observations: readonly CandidateObservation[]): SearchEffectivenessStatistics {
 	const converted = observations.filter((item) => item.consumer !== undefined);
 	const convertedProducers = new Set(converted.map((item) => callKey(item.producer)));
-	const scannedFileCounts = calls.flatMap((call) => scannedFileCount(call.fields?.["scanned_file_count"]) ?? []);
+	const scannedFileCounts = calls.flatMap((call) =>
+		scannedFileCount(call.fields?.["scanned_file_count"] ?? call.fields?.["searched_file_count"]) ?? []);
 	return {
 		calls: calls.length,
 		calls_with_candidates: calls.filter((call) => (call.candidates?.length ?? 0) > 0).length,

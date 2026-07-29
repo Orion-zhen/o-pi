@@ -1,27 +1,18 @@
 import { compactDisplayLine } from "./display.js";
-import type { GrepDisplayLine, GrepMatchedBy, GrepMatchMode } from "./types.js";
+import type { GrepDisplayLine, GrepMatchedBy } from "./types.js";
 
 export type CandidateRole =
 	| "definition"
 	| "occurrence"
-	| "caller"
-	| "callee"
-	| "reference"
-	| "test"
-	| "import"
-	| "registration"
-	| "entrypoint"
 	| "public_api"
 	| "config"
+	| "test"
 	| "text";
 
 export type RetrievalSource =
-	| "text-literal"
 	| "text-regex"
 	| "text-lexical"
-	| "ast-relation"
-	| "lsp-symbol"
-	| "lsp-reference";
+	| "lsp-symbol";
 
 export type CandidateSignal =
 	| "exact_qualified_definition"
@@ -33,11 +24,10 @@ export type CandidateSignal =
 	| "verified_enclosing_region"
 	| "verified_text_line"
 	| "symbol_prefix"
+	| "structured_symbol_match"
+	| "structured_path_match"
 	| "lexical_high_coverage"
-	| "lexical"
-	| "requested_relation"
-	| "target_definition"
-	| "target_occurrence";
+	| "lexical";
 
 export interface TextHit {
 	readonly path: string;
@@ -47,7 +37,6 @@ export interface TextHit {
 	/** 0-based UTF-16 offsets within lineText. */
 	readonly matchStart: number;
 	readonly matchEnd: number;
-	readonly mode: Extract<GrepMatchMode, "literal" | "regex">;
 	readonly lineText: string;
 }
 
@@ -59,7 +48,6 @@ export interface LexicalTextAnchor {
 	readonly lineText: string;
 	readonly matchedTerms: readonly string[];
 	readonly phrase: boolean;
-	readonly identifier: boolean;
 }
 
 export interface TextFileEvidence {
@@ -116,15 +104,14 @@ export interface RankingEvidenceSummary {
 	readonly factual: number;
 	readonly lexical: number;
 	readonly semantic: number;
-	readonly graph: number;
 	readonly fusionScore: number;
 }
 
 export type RankedRegion = CodeRegion & {
 	readonly tier: number;
+	readonly fieldScore: number;
 	readonly ranking: RankingEvidenceSummary;
 	readonly verifiedCoverage: number;
-	readonly contextPriority: number;
 	readonly rolePriority: number;
 };
 
@@ -135,7 +122,7 @@ type SemanticMainInput = Omit<CodeRegionBase, "matchedBy" | "displayLines"> & {
 	readonly queryMatch?: "semantic";
 };
 
-/** strict/事实主区域只能通过真实 TextHit 构造。 */
+/** verified 主区域只能通过真实 TextHit 构造。 */
 export function createVerifiedCodeRegion(
 	input: VerifiedRegionInput,
 	hits: readonly [TextHit, ...TextHit[]],
@@ -192,11 +179,12 @@ export function normalizeMatchedBy(
 	if (signalSet.has("exact_qualified_definition")) methods.add("exact-qualified-symbol");
 	if (signalSet.has("exact_symbol_definition") || signalSet.has("exact_member_definition")) methods.add("exact-symbol");
 	if (signalSet.has("symbol_prefix")) methods.add("symbol-prefix");
-	if (sources.has("text-literal")) methods.add("literal");
 	if (sources.has("text-regex")) methods.add("regex");
 	if (sources.has("text-lexical")) methods.add("lexical");
-	if (sources.has("ast-relation") || sources.has("lsp-reference") || signalSet.has("requested_relation")) methods.add("relationship");
-	const order: readonly GrepMatchedBy[] = ["exact-qualified-symbol", "exact-symbol", "symbol-prefix", "literal", "regex", "lexical", "relationship"];
+	if (sources.has("lsp-symbol") && !signalSet.has("exact_qualified_definition")
+		&& !signalSet.has("exact_symbol_definition") && !signalSet.has("exact_member_definition")
+		&& !signalSet.has("symbol_prefix")) methods.add("related");
+	const order: readonly GrepMatchedBy[] = ["exact-qualified-symbol", "exact-symbol", "symbol-prefix", "regex", "lexical", "related"];
 	return order.filter((method) => methods.has(method));
 }
 

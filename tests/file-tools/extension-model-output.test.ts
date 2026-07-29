@@ -262,7 +262,7 @@ describe("file-tools extension model output", () => {
 			for (const [tool, params] of [
 				["ls", { path: "missing" }],
 				["find", { query: "" }],
-				["grep", { query: "[", match: "regex" }],
+				["grep", { query: "[" }],
 				["read", { path: "missing.ts" }],
 				["write", { path: ".git/config", content: "x" }],
 				["edit", { path: "a.ts", edits: [{ old: "one", new: "two" }] }],
@@ -280,7 +280,10 @@ describe("file-tools extension model output", () => {
 			expect(grepText).toContain("a.ts");
 			expect(grepText).not.toContain("<error");
 			expect(grepText).not.toContain('"status"');
-			for (const value of ["a.ts:1-1 [kind=declaration", "symbol=one", "matched-by="]) expect(grepText).toContain(value);
+			expect(grepText).toContain("a.ts:1 one");
+			for (const metadata of ["kind=", "symbol=", "roles=", "matched-by=", "declaration:"]) {
+				expect(grepText).not.toContain(metadata);
+			}
 			for (const legacy of ["lines omitted", "sig|"]) expect(grepText).not.toContain(legacy);
 			expect(isGrepSuccessDetails(grep.details)).toBe(true);
 			if (!isGrepSuccessDetails(grep.details)) throw new Error("missing grep success details");

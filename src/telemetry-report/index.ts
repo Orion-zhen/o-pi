@@ -1,6 +1,7 @@
 export { aggregateTelemetry, type AggregateTelemetryOptions } from "./aggregate.js";
 export { analyzeCandidateRanking } from "./analyzers/candidate-ranking.js";
 export { analyzeEdits } from "./analyzers/edit.js";
+export { analyzeGrep } from "./analyzers/grep.js";
 export { analyzeSearchEffectiveness } from "./analyzers/search-effectiveness.js";
 export { generateTelemetryReport, type GenerateTelemetryReportOptions, type GenerateTelemetryReportResult } from "./command.js";
 export { formatTelemetrySummary, renderTelemetryHtml } from "./html.js";

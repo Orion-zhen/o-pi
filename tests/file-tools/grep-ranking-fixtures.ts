@@ -2,11 +2,11 @@ import { createSemanticCodeRegion, createVerifiedCodeRegion, type CandidateSigna
 import { packGrepResults, type GrepPackInput } from "../../src/file-tools/grep/packer.js";
 import { createQueryPlan, type QueryPlan } from "../../src/file-tools/grep/query-plan.js";
 import { rankCodeRegions } from "../../src/file-tools/grep/ranking.js";
-import type { GrepMatchMode, GrepSuccess } from "../../src/file-tools/grep/types.js";
+import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
 
-export function queryPlan(query: string, match: GrepMatchMode = "auto"): QueryPlan {
-	const result = createQueryPlan({ query, match });
+export function queryPlan(query: string): QueryPlan {
+	const result = createQueryPlan({ query });
 	if (isFailed(result)) throw new Error(result.error.message);
 	return result;
 }
@@ -51,7 +51,6 @@ export function verifiedRegion(input: { id: string; signals: readonly CandidateS
 		byteEnd: 16,
 		matchStart: 0,
 		matchEnd: 6,
-		mode: "literal",
 		lineText: "needle",
 	};
 	return createVerifiedCodeRegion({
@@ -89,7 +88,6 @@ export function packCandidate(input: {
 		byteEnd: 1,
 		matchStart: Math.max(0, matchStart),
 		matchEnd: Math.max(0, matchStart) + 6,
-		mode: "literal",
 		lineText,
 	};
 	const region = createVerifiedCodeRegion({
@@ -104,9 +102,9 @@ export function packCandidate(input: {
 		...(input.declaration === undefined ? {} : { declaration: input.declaration }),
 		roles: ["definition"],
 		signals: ["verified_enclosing_region"],
-		evidence: input.evidence ?? [rankingEvidence("text-literal")],
+		evidence: input.evidence ?? [rankingEvidence("text-regex")],
 	}, [hit]);
-	const ranked = rankCodeRegions(queryPlan("needle", "literal"), [region])[0];
+	const ranked = rankCodeRegions(queryPlan("needle"), [region])[0];
 	if (ranked === undefined) throw new Error("pack candidate was not ranked");
 	return ranked;
 }
@@ -115,15 +113,21 @@ export function packRegions(regions: readonly RankedRegion[], overrides: Partial
 	return packGrepResults({
 		query: "needle",
 		path: ".",
-		match: "literal",
-		totalCandidates: regions.length,
 		regions,
-		stats: { traversed_entries: regions.length, searched_files: regions.length, searched_bytes: regions.length, parsed_files: 0 },
+		stats: {
+			traversed_entries: regions.length,
+			searched_files: regions.length,
+			searched_bytes: regions.length,
+			text_hits: regions.reduce((sum, region) => sum + region.matchLines.length, 0),
+			parsed_files: 0,
+			dropped_text_hits: 0,
+			dropped_related_anchors: 0,
+			ast_skipped_oversized_files: 0,
+		},
 		truncationReasons: [],
-		tokenBudget: 400,
 		resultLimit: 8,
+		relatedResultLimit: 8,
 		regionalDisplayLimit: 3,
-		relationActionLimit: 2,
 		...overrides,
 	});
 }

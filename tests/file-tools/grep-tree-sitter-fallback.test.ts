@@ -47,7 +47,7 @@ describe("grep without tree-sitter", () => {
 		const exact = await grepWorkspaceFiles(workspaceTemp.path, { query: "RemoteSymbol" });
 		expect(exact).toMatchObject({
 			status: "success",
-			regions: [{ path: "target.ts", kind: "text", matched_by: ["literal"] }],
+			regions: [{ path: "target.ts", kind: "text", matched_by: ["regex"] }],
 		});
 
 		const lexical = await grepWorkspaceFiles(workspaceTemp.path, { query: "authentication failure" });
@@ -56,7 +56,7 @@ describe("grep without tree-sitter", () => {
 			regions: [{ path: "target.ts", kind: "text", matched_by: ["lexical"] }],
 		});
 
-		const strict = await grepWorkspaceFiles(workspaceTemp.path, { query: "RemoteSymbol", match: "literal" });
+		const strict = await grepWorkspaceFiles(workspaceTemp.path, { query: "RemoteSymbol" });
 		expect(strict).toMatchObject({
 			status: "success",
 			stats: { parsed_files: 0 },
@@ -67,13 +67,13 @@ describe("grep without tree-sitter", () => {
 	it.each([
 		["GRAMMAR_UNAVAILABLE", "grammar"],
 		["PARSER_TIMEOUT", "timeout"],
-	] as const)("%s 时 strict 保留 verified 文本行", async (code, name) => {
+	] as const)("%s 时 regex 保留 verified 文本行", async (code, name) => {
 		treeSitterFailure.code = code;
 		treeSitterFailure.message = `simulated ${name} failure`;
 		const query = `${name}Needle`;
 		await writeFile(path.join(workspaceTemp.path, `${name}.ts`), `export function ${name}() { return '${query}'; }\n`);
 
-		const result = await grepWorkspaceFiles(workspaceTemp.path, { query, match: "literal" });
+		const result = await grepWorkspaceFiles(workspaceTemp.path, { query });
 
 		expect(result).toMatchObject({
 			status: "success",

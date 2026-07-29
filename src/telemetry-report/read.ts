@@ -114,7 +114,12 @@ function resources(value: unknown): value is Resource[] {
 function candidates(value: unknown): value is Candidate[] {
 	return Array.isArray(value) && value.every((item) => resource(item) && isRecord(item)
 		&& positiveInteger(item["rank"]) && (item["group"] === undefined || text(item["group"]))
-		&& Array.isArray(item["sources"]) && item["sources"].every(text));
+		&& Array.isArray(item["sources"]) && item["sources"].every(text)
+		&& optionalPositiveInteger(item["relevance_rank"])
+		&& optionalPositiveInteger(item["ranking_tier"])
+		&& optionalNumber(item["ranking_score"])
+		&& optionalNumber(item["ranking_aux_score"])
+		&& optionalText(item["selection"]));
 }
 
 function resource(value: unknown): boolean {
@@ -158,6 +163,10 @@ function nonNegativeNumber(value: unknown): value is number {
 
 function optionalNonNegativeNumber(value: unknown): boolean {
 	return value === undefined || nonNegativeNumber(value);
+}
+
+function optionalNumber(value: unknown): boolean {
+	return value === undefined || (typeof value === "number" && Number.isFinite(value));
 }
 
 function nonNegativeInteger(value: unknown): value is number {

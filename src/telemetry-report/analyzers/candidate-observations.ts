@@ -125,6 +125,7 @@ function normalizeCandidates(
 					rank: candidate.rank,
 					...(candidate.group === undefined ? {} : { group: candidate.group }),
 					sources: candidate.sources,
+					...rankingFacts(candidate),
 				}
 				: candidate;
 			merged.set(factKey, {
@@ -141,9 +142,29 @@ function normalizeCandidates(
 			existing.rank = candidate.rank;
 			if (candidate.group === undefined) delete existing.group;
 			else existing.group = candidate.group;
+			replaceRankingFacts(existing, candidate);
 		}
 	}
 	return [...merged.values()].sort((left, right) => left.rank - right.rank || left.fact_key.localeCompare(right.fact_key, "en"));
+}
+
+function rankingFacts(candidate: Candidate): Pick<Candidate,
+	"relevance_rank" | "ranking_tier" | "ranking_score" | "ranking_aux_score" | "selection"> {
+	return {
+		...(candidate.relevance_rank === undefined ? {} : { relevance_rank: candidate.relevance_rank }),
+		...(candidate.ranking_tier === undefined ? {} : { ranking_tier: candidate.ranking_tier }),
+		...(candidate.ranking_score === undefined ? {} : { ranking_score: candidate.ranking_score }),
+		...(candidate.ranking_aux_score === undefined ? {} : { ranking_aux_score: candidate.ranking_aux_score }),
+		...(candidate.selection === undefined ? {} : { selection: candidate.selection }),
+	};
+}
+
+function replaceRankingFacts(target: Candidate, source: Candidate): void {
+	for (const key of ["relevance_rank", "ranking_tier", "ranking_score", "ranking_aux_score", "selection"] as const) {
+		const value = source[key];
+		if (value === undefined) delete target[key];
+		else Object.assign(target, { [key]: value });
+	}
 }
 
 function attributeConsumers(

@@ -160,13 +160,23 @@ function resource(value: unknown): Resource | undefined {
 function candidate(value: unknown): Candidate | undefined {
 	const base = resource(value);
 	if (base === undefined || !isRecord(value) || !positiveInteger(value["rank"])
-		|| !Array.isArray(value["sources"]) || !value["sources"].every((item) => typeof item === "string")) return undefined;
+		|| !Array.isArray(value["sources"]) || !value["sources"].every((item) => typeof item === "string")
+		|| !optionalPositiveInteger(value["relevance_rank"])
+		|| !optionalPositiveInteger(value["ranking_tier"])
+		|| !optionalFiniteNumber(value["ranking_score"])
+		|| !optionalFiniteNumber(value["ranking_aux_score"])
+		|| (value["selection"] !== undefined && typeof value["selection"] !== "string")) return undefined;
 	const sources = value["sources"].slice(0, MAX_SOURCES).map(label);
 	return {
 		...base,
 		rank: value["rank"],
 		...(typeof value["group"] === "string" ? { group: label(value["group"]) } : {}),
 		sources: [...new Set(sources)].sort(),
+		...(positiveInteger(value["relevance_rank"]) ? { relevance_rank: value["relevance_rank"] } : {}),
+		...(positiveInteger(value["ranking_tier"]) ? { ranking_tier: value["ranking_tier"] } : {}),
+		...(finiteNumber(value["ranking_score"]) ? { ranking_score: value["ranking_score"] } : {}),
+		...(finiteNumber(value["ranking_aux_score"]) ? { ranking_aux_score: value["ranking_aux_score"] } : {}),
+		...(typeof value["selection"] === "string" ? { selection: label(value["selection"]) } : {}),
 	};
 }
 
@@ -177,7 +187,8 @@ function resourceLimited(value: unknown): boolean {
 
 function candidateLimited(value: unknown): boolean {
 	return resourceLimited(value) || (isRecord(value) && Array.isArray(value["sources"])
-		&& (value["sources"].length > MAX_SOURCES || value["sources"].some((item) => typeof item === "string" && item.length > 128)));
+		&& (value["sources"].length > MAX_SOURCES || value["sources"].some((item) => typeof item === "string" && item.length > 128)))
+		|| (isRecord(value) && typeof value["selection"] === "string" && value["selection"].length > 128);
 }
 
 function optionalLine(key: "start_line" | "end_line", value: Record<string, unknown>): Partial<Resource> {
@@ -187,6 +198,18 @@ function optionalLine(key: "start_line" | "end_line", value: Record<string, unkn
 
 function positiveInteger(value: unknown): value is number {
 	return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
+function finiteNumber(value: unknown): value is number {
+	return typeof value === "number" && Number.isFinite(value);
+}
+
+function optionalPositiveInteger(value: unknown): boolean {
+	return value === undefined || positiveInteger(value);
+}
+
+function optionalFiniteNumber(value: unknown): boolean {
+	return value === undefined || finiteNumber(value);
 }
 
 function resourceValue(value: string): string {

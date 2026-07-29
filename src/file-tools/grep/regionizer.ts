@@ -6,8 +6,7 @@ import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
 import { createVerifiedCodeRegion, type RegionEvidence, type TextHit, type VerifiedCodeRegion } from "./candidates.js";
 import type { ScopeInventory, ScopedFile } from "./inventory.js";
 import { AbortGrepParse, GrepParser } from "./parser-pool.js";
-import { assignSourceLocalRanks } from "./ranking.js";
-import type { GrepScopeError, GrepSkippedFiles, TruncationReason } from "./types.js";
+import type { GrepScopeError, GrepSkippedFiles } from "./types.js";
 
 const AST_CACHE_MAX_ENTRIES = 2_048;
 
@@ -28,22 +27,19 @@ interface RegionizeFile {
 	readonly hits: readonly TextHit[];
 }
 
-export interface AutoRegionizedFile {
+export interface RegionizedFile {
 	readonly file: ScopedFile;
 	readonly content: TextContent;
 	readonly analysis: AnalyzedFileIndex;
 }
 
-export interface AutoRegionizationResult extends RegionizationResult {
-	readonly files: readonly AutoRegionizedFile[];
-}
-
 export interface RegionizationResult {
 	readonly regions: readonly VerifiedCodeRegion[];
+	readonly files: readonly RegionizedFile[];
 	readonly parsedFiles: number;
+	readonly astSkippedOversizedFiles: number;
 	readonly skipped: GrepSkippedFiles;
 	readonly scopeErrors: readonly GrepScopeError[];
-	readonly truncationReasons: readonly TruncationReason[];
 }
 
 export interface RegionizerContext {
@@ -62,109 +58,15 @@ export class GrepRegionizer {
 	async regionize(
 		inventory: ScopeInventory,
 		hits: readonly TextHit[],
+		priorityPaths: readonly string[],
 		context: RegionizerContext,
 	): Promise<ToolOutcome<RegionizationResult>> {
 		if (this.disposed || isAborted(context.operation.signal)) return aborted();
 		if (!validLimit(context.astMaxFileBytes)) {
 			return fail("INVALID_OPERATION", "AST file byte limit must be a non-negative safe integer.");
 		}
-		const files = hitFiles(inventory, hits);
-		const rankByHit = textHitSourceRanks(hits);
-		const fallback = new Map<string, readonly [TextHit, ...TextHit[]]>();
-		const prepared: PreparedFile[] = [];
-		const scopeErrors: GrepScopeError[] = [];
-		const skipped: Required<GrepSkippedFiles> = {
-			binary: 0,
-			invalid_utf8: 0,
-			access_denied: 0,
-			too_large: 0,
-			changed: 0,
-		};
-		let semanticLimited = false;
-		let parsedFiles = 0;
-
-		for (const candidate of files) {
-			if (isAborted(context.operation.signal)) return aborted(candidate.file.path);
-			if (languageFromPath(candidate.file.path) === "text") {
-				fallback.set(candidate.file.path, candidate.hits);
-				continue;
-			}
-			if (candidate.file.snapshot.sizeBytes > context.astMaxFileBytes) {
-				semanticLimited = true;
-				fallback.set(candidate.file.path, candidate.hits);
-				continue;
-			}
-			const loaded = await this.prepare(candidate, context);
-			if (!loaded.ok) {
-				if (loaded.error.code === "aborted") return aborted(candidate.file.path);
-				if (candidate.file.explicitFile) scopeErrors.push({
-					path: candidate.file.scopeInput,
-					error: mapFsError(loaded.error, { notFound: "file", path: candidate.file.path }).error,
-				});
-				else countSkipped(skipped, loaded.error);
-				continue;
-			}
-			if (loaded.value === undefined) {
-				if (candidate.file.explicitFile) scopeErrors.push({
-					path: candidate.file.scopeInput,
-					error: fail("STALE_READ", "File changed after text scanning.", { path: candidate.file.path }).error,
-				});
-				else skipped.changed += 1;
-				continue;
-			}
-			if (hasBareCr(loaded.value.content.text)) {
-				fallback.set(candidate.file.path, candidate.hits);
-				continue;
-			}
-			prepared.push(loaded.value);
-		}
-
-		const analyses = await this.analyzePrepared(prepared, context.operation.signal);
-		if (analyses.status === "failed") return analyses;
-		const regions: Array<{ readonly order: number; readonly region: VerifiedCodeRegion }> = [];
-		for (const [index, file] of prepared.entries()) {
-			const analysis = analyses.values[index];
-			if (analysis === undefined || analysis.status !== "parsed") {
-				fallback.set(file.file.path, asNonEmpty(file.hits));
-				continue;
-			}
-			parsedFiles += 1;
-			const parsed = parsedRegions({ ...file, hits: asNonEmpty(file.hits) }, analysis.index.units, rankByHit);
-			for (const region of parsed) {
-				regions.push({ order: rankByHit.get(region.verifiedHits[0]) ?? Number.MAX_SAFE_INTEGER, region });
-			}
-			const mappedHits = new Set(parsed.flatMap((region) => region.verifiedHits));
-			const outside = file.hits.filter((hit) => !mappedHits.has(hit));
-			if (outside.length > 0) fallback.set(file.file.path, asNonEmpty(outside));
-		}
-		for (const fileHits of fallback.values()) {
-			for (const region of textRegions(fileHits, rankByHit)) {
-				regions.push({ order: rankByHit.get(region.verifiedHits[0]) ?? Number.MAX_SAFE_INTEGER, region });
-			}
-		}
-		regions.sort((left, right) => left.order - right.order || compareRegion(left.region, right.region));
-		return {
-			regions: regions.map((item) => item.region),
-			parsedFiles,
-			skipped: compactSkipped(skipped),
-			scopeErrors,
-			truncationReasons: semanticLimited ? ["semantic_candidate_limit"] : [],
-		};
-	}
-
-	async regionizeAuto(
-		inventory: ScopeInventory,
-		hits: readonly TextHit[],
-		priorityPaths: readonly string[],
-		context: RegionizerContext,
-	): Promise<ToolOutcome<AutoRegionizationResult>> {
-		if (this.disposed || isAborted(context.operation.signal)) return aborted();
-		if (!validLimit(context.astMaxFileBytes)) {
-			return fail("INVALID_OPERATION", "AST file byte limit must be a non-negative safe integer.");
-		}
 		const inventoryByPath = new Map(inventory.files.map((file) => [file.path, file]));
 		const hitsByPath = groupHits(hits);
-		const rankByHit = textHitSourceRanks(hits);
 		const fallback = new Map<string, readonly [TextHit, ...TextHit[]]>();
 		for (const [path, grouped] of hitsByPath) fallback.set(path, asNonEmpty(grouped));
 		const prepared: PreparedFile[] = [];
@@ -176,12 +78,12 @@ export class GrepRegionizer {
 			too_large: 0,
 			changed: 0,
 		};
-		let semanticLimited = false;
+		let astSkippedOversizedFiles = 0;
 		for (const path of priorityPaths) {
 			const file = inventoryByPath.get(path);
 			if (file === undefined || languageFromPath(file.path) === "text") continue;
 			if (file.snapshot.sizeBytes > context.astMaxFileBytes) {
-				semanticLimited = true;
+				astSkippedOversizedFiles += 1;
 				continue;
 			}
 			const candidate: RegionizeFile = { file, hits: hitsByPath.get(path) ?? [] };
@@ -210,8 +112,8 @@ export class GrepRegionizer {
 		}
 		const analyses = await this.analyzePrepared(prepared, context.operation.signal);
 		if (analyses.status === "failed") return analyses;
-		const files: AutoRegionizedFile[] = [];
-		const regions: Array<{ readonly order: number; readonly region: VerifiedCodeRegion }> = [];
+		const files: RegionizedFile[] = [];
+		const regions: VerifiedCodeRegion[] = [];
 		let parsedFiles = 0;
 		for (const [index, file] of prepared.entries()) {
 			const analysis = analyses.values[index];
@@ -219,28 +121,24 @@ export class GrepRegionizer {
 			parsedFiles += 1;
 			files.push({ file: file.file, content: file.content, analysis });
 			if (file.hits.length === 0) continue;
-			const parsed = parsedRegions({ ...file, hits: asNonEmpty(file.hits) }, analysis.index.units, rankByHit);
-			for (const region of parsed) {
-				regions.push({ order: rankByHit.get(region.verifiedHits[0]) ?? Number.MAX_SAFE_INTEGER, region });
-			}
+			const parsed = parsedRegions({ ...file, hits: asNonEmpty(file.hits) }, analysis.index.units);
+			regions.push(...parsed);
 			const mappedHits = new Set(parsed.flatMap((region) => region.verifiedHits));
 			const outside = file.hits.filter((hit) => !mappedHits.has(hit));
 			if (outside.length === 0) fallback.delete(file.file.path);
 			else fallback.set(file.file.path, asNonEmpty(outside));
 		}
 		for (const fileHits of fallback.values()) {
-			for (const region of textRegions(fileHits, rankByHit)) {
-				regions.push({ order: rankByHit.get(region.verifiedHits[0]) ?? Number.MAX_SAFE_INTEGER, region });
-			}
+			regions.push(...textRegions(fileHits));
 		}
-		regions.sort((left, right) => left.order - right.order || compareRegion(left.region, right.region));
+		regions.sort(compareRegion);
 		return {
-			regions: regions.map((item) => item.region),
+			regions,
 			files,
 			parsedFiles,
+			astSkippedOversizedFiles,
 			skipped: compactSkipped(skipped),
 			scopeErrors,
-			truncationReasons: semanticLimited ? ["semantic_candidate_limit"] : [],
 		};
 	}
 
@@ -342,21 +240,9 @@ function groupHits(hits: readonly TextHit[]): Map<string, TextHit[]> {
 	return hitsByPath;
 }
 
-function hitFiles(inventory: ScopeInventory, hits: readonly TextHit[]): Array<RegionizeFile & { readonly hits: readonly [TextHit, ...TextHit[]] }> {
-	const hitsByPath = groupHits(hits);
-	const result: Array<RegionizeFile & { readonly hits: readonly [TextHit, ...TextHit[]] }> = [];
-	for (const file of inventory.files) {
-		const grouped = hitsByPath.get(file.path);
-		if (grouped === undefined || grouped.length === 0) continue;
-		result.push({ file, hits: asNonEmpty(grouped) });
-	}
-	return result;
-}
-
 function parsedRegions(
 	file: PreparedFile,
 	units: readonly IndexedCodeUnit[],
-	rankByHit: ReadonlyMap<TextHit, number>,
 ): VerifiedCodeRegion[] {
 	const grouped = new Map<string, { readonly unit: IndexedCodeUnit; readonly hits: TextHit[] }>();
 	for (const hit of file.hits) {
@@ -392,14 +278,13 @@ function parsedRegions(
 				...(isConfigPath(unit.path) ? ["config" as const] : []),
 			],
 			signals: ["verified_enclosing_region"],
-			evidence: [textEvidence(first, rankByHit)],
+			evidence: [textEvidence()],
 		}, asNonEmpty(sortedHits));
 	});
 }
 
 function textRegions(
 	hits: readonly [TextHit, ...TextHit[]],
-	rankByHit: ReadonlyMap<TextHit, number>,
 ): VerifiedCodeRegion[] {
 	return hits.map((hit) => createVerifiedCodeRegion({
 		id: `${hit.path}:${hit.line}:${hit.byteStart}:${hit.byteEnd}`,
@@ -411,27 +296,16 @@ function textRegions(
 		kind: "text",
 		roles: ["text"],
 		signals: ["verified_text_line"],
-		evidence: [textEvidence(hit, rankByHit)],
+		evidence: [textEvidence()],
 	}, [hit]));
 }
 
-function textHitSourceRanks(hits: readonly TextHit[]): ReadonlyMap<TextHit, number> {
-	return assignSourceLocalRanks(
-		hits,
-		(hit) => hit.mode === "literal" ? "text-literal" : "text-regex",
-		(left, right) => compareStableString(left.path, right.path)
-			|| left.line - right.line
-			|| left.byteStart - right.byteStart
-			|| left.byteEnd - right.byteEnd,
-	);
-}
-
-function textEvidence(hit: TextHit, rankByHit: ReadonlyMap<TextHit, number>): RegionEvidence {
+function textEvidence(): RegionEvidence {
 	return {
-		source: hit.mode === "literal" ? "text-literal" : "text-regex",
-		rank: rankByHit.get(hit) ?? Number.MAX_SAFE_INTEGER,
+		source: "text-regex",
+		rank: 1,
 		confidence: 1,
-		reason: hit.mode === "literal" ? "exact literal" : "regex",
+		reason: "regex",
 	};
 }
 

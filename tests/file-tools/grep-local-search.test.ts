@@ -13,10 +13,34 @@ import { createGrepTestContext, expectGrepSuccess, firstRegion, assertStrictMatc
 const testContext = createGrepTestContext();
 
 describe("grep local search", () => {
+	it("结构化路径命中不会被靠前文件中的重复正文命中挤出结果窗口", async () => {
+		const configPath = path.join(testContext.outside, "structured-path-ranking.jsonc");
+		await writeConfig(configPath, { grep_result_limit: 6 });
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await mkdir(path.join(testContext.workspace, "aaa"), { recursive: true });
+		await mkdir(path.join(testContext.workspace, "src", "file-tools", "find"), { recursive: true });
+		await writeFile(path.join(testContext.workspace, "aaa", "noise.ts"), Array.from(
+			{ length: 9 },
+			(_, index) => `export function unrelated${index}() { return find(${index}); }`,
+		).join("\n"));
+		await writeFile(
+			path.join(testContext.workspace, "src", "file-tools", "find", "command.ts"),
+			"export function executeSearch() { return find('target'); }\n",
+		);
+
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "find" }));
+
+		expect(result.regions[0]).toMatchObject({
+			path: "src/file-tools/find/command.ts",
+			symbol: "executeSearch",
+		});
+		expect(result.truncated_by).toContain("result_limit");
+	});
+
 	it("path 默认 workspace，并按 symbol 返回 body-free 语法锚点", async () => {
 		await writeFile(path.join(testContext.workspace, "auth.ts"), "export function login() {\n  return issueToken();\n}\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "login" }));
-		expect(result).toMatchObject({ status: "success", path: ".", match: "auto" });
+		expect(result).toMatchObject({ status: "success", path: "." });
 		expect(firstRegion(result)).toMatchObject({ path: "auth.ts", symbol: "login", declaration: "export function login()" });
 		expect(firstRegion(result)).not.toHaveProperty("content");
 		const text = formatCompactGrepResult(result);
@@ -39,20 +63,23 @@ describe("grep local search", () => {
 			"}",
 		].join("\n"));
 
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle", match: "literal" }));
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle" }));
 		expect(firstRegion(result)).toMatchObject({
 			start_line: 1,
 			end_line: 6,
 			match_lines: [2, 3, 4, 5],
 			display_lines: [expect.objectContaining({ line: 2 }), expect.objectContaining({ line: 5 })],
 		});
-		expect(formatCompactGrepResult(result)).toContain("matching lines (2 of 4 shown):");
+		const output = formatCompactGrepResult(result);
+		expect(output).toContain("  2:   consume(needle);");
+		expect(output).toContain("  5:   return needle;");
+		expect(output).toContain("  +2 match lines");
 	});
 
 	it.each([
-		{ limit: 1, shown: [2], label: "matching lines (1 of 4 shown):" },
-		{ limit: 4, shown: [2, 3, 4, 5], label: "matching lines (4 of 4 shown):" },
-	])("区域展示限制 $limit 生成固定代表行", async ({ limit, shown, label }) => {
+		{ limit: 1, shown: [2], omitted: 3 },
+		{ limit: 4, shown: [2, 3, 4, 5], omitted: 0 },
+	])("区域展示限制 $limit 生成固定代表行", async ({ limit, shown, omitted }) => {
 		const configPath = path.join(testContext.outside, `regional-display-${limit}.jsonc`);
 		await writeConfig(configPath, { grep_regional_display_limit: limit });
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
@@ -65,16 +92,18 @@ describe("grep local search", () => {
 			"}",
 		].join("\n"));
 
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle", match: "literal" }));
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle" }));
 		expect(firstRegion(result).match_lines).toEqual([2, 3, 4, 5]);
 		expect(firstRegion(result).display_lines?.map((line) => line.line)).toEqual(shown);
-		expect(formatCompactGrepResult(result)).toContain(label);
+		const output = formatCompactGrepResult(result);
+		if (omitted > 0) expect(output).toContain(`  +${omitted} match lines`);
+		else expect(output).not.toContain("match lines");
 	});
 
-	it("单个代码命中使用 matching line 单行格式", async () => {
+	it("单个代码命中直接使用行号格式", async () => {
 		await writeFile(path.join(testContext.workspace, "single.ts"), "export function run() {\n  return needle;\n}\n");
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle", match: "literal" }));
-		expect(formatCompactGrepResult(result)).toContain("matching line 2:   return needle;");
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle" }));
+		expect(formatCompactGrepResult(result)).toContain("  2:   return needle;");
 	});
 
 	it("workspace 内绝对 path 会按 workspace-relative path 检索", async () => {
@@ -92,12 +121,12 @@ describe("grep local search", () => {
 		expect(firstRegion(result)).toMatchObject({ path: path.join(testContext.outside, "external.ts").replaceAll("\\", "/"), symbol: "externalNeedle" });
 	});
 
-	it("无显式关系意图时只显示定义", async () => {
+	it("普通 query 不生成关系候选", async () => {
 		await writeFile(path.join(testContext.workspace, "service.ts"), "export function login() {\n  return issueToken();\n}\nfunction issueToken() { return 't'; }\n");
 		await writeFile(path.join(testContext.workspace, "route.ts"), "import { login } from './service';\nexport function handle() {\n  return login();\n}\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "login" }));
 		expect(firstRegion(result)).toMatchObject({ path: "service.ts", symbol: "login" });
-		expect(result.regions.some((region) => region.matched_by.includes("relationship"))).toBe(false);
+		expect(result.regions.every((region) => region.query_match === "verified")).toBe(true);
 		expect(formatCompactGrepResult(result)).not.toContain("calls: issueToken");
 	});
 
@@ -114,6 +143,69 @@ describe("grep local search", () => {
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "authentication flow session token" }));
 		expect(firstRegion(result)).toMatchObject({ path: "src/session_token.py", symbol: "issue_session_token" });
 		expect(firstRegion(result).matched_by).toContain("lexical");
+	});
+
+	it("related result 配置在排序后静默限制 semantic region", async () => {
+		const configPath = path.join(testContext.outside, "related-result-limit.jsonc");
+		await writeConfig(configPath, { grep_related_result_limit: 2 });
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		for (const name of ["alpha", "beta", "gamma"]) {
+			await writeFile(path.join(testContext.workspace, `${name}.ts`), [
+				`export function ${name}Candidate() {`,
+				"  const authentication = true;",
+				"  const flow = true;",
+				"  return token;",
+				"}",
+			].join("\n"));
+		}
+
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, {
+			query: "authentication flow token",
+		}));
+		expect(result).toMatchObject({
+			total_candidates: 2,
+			returned_regions: 2,
+			truncated_by: [],
+			stats: { dropped_related_results: 1 },
+		});
+		expect(result.regions.every((region) => region.query_match === "semantic")).toBe(true);
+		const output = formatCompactGrepResult(result);
+		expect(output).not.toContain("truncated=");
+		expect(output).not.toContain("omitted");
+	});
+
+	it("related result limit 为 0 时只禁用 semantic region", async () => {
+		const configPath = path.join(testContext.outside, "related-result-disabled.jsonc");
+		await writeConfig(configPath, { grep_related_result_limit: 0 });
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await writeFile(path.join(testContext.workspace, "candidates.ts"), [
+			"export function semanticCandidate() {",
+			"  const authentication = true;",
+			"  const flow = true;",
+			"  return token;",
+			"}",
+			"export function verifiedCandidate() {",
+			"  return 'DirectNeedle';",
+			"}",
+		].join("\n"));
+
+		const related = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, {
+			query: "authentication flow token",
+		}));
+		expect(related).toMatchObject({
+			total_candidates: 0,
+			returned_regions: 0,
+			truncated_by: [],
+			regions: [],
+		});
+		expect(related.stats.dropped_related_results).toBeGreaterThan(0);
+		expect(formatCompactGrepResult(related)).not.toContain("truncated=");
+
+		const verified = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, {
+			query: "DirectNeedle",
+		}));
+		expect(verified.returned_regions).toBe(1);
+		expect(firstRegion(verified).query_match).toBe("verified");
 	});
 
 	it("有序且集中的同行命中优于反序散布命中", async () => {
@@ -153,9 +245,9 @@ describe("grep local search", () => {
 		expect(firstRegion(result).matched_by).toContain("lexical");
 	});
 
-	it("literal 区分大小写并将同一代码单元的多个真实命中聚合", async () => {
+	it("regex 区分大小写并将同一代码单元的多个真实命中聚合", async () => {
 		await writeFile(path.join(testContext.workspace, "a.ts"), "export function demo() {\n  const Token = 'Token';\n  const token = 'token';\n  return Token;\n}\n");
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "Token", match: "literal" }));
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "Token" }));
 		expect(result.regions).toEqual([
 			expect.objectContaining({
 				path: "a.ts",
@@ -166,7 +258,7 @@ describe("grep local search", () => {
 			}),
 		]);
 		expect(result.stats.parsed_files).toBe(1);
-		await assertStrictMatches(testContext.workspace, result, "Token", "literal");
+		await assertStrictMatches(testContext.workspace, result, "Token");
 	});
 
 	it("同一 method 的多个命中聚合，两个 sibling methods 保持独立锚点", async () => {
@@ -181,7 +273,7 @@ describe("grep local search", () => {
 			"  }",
 			"}",
 		].join("\n"));
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle", match: "literal" }));
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle" }));
 		expect(result.regions).toEqual([
 			expect.objectContaining({ symbol: "Service.first", start_line: 2, end_line: 5, match_lines: [3, 4] }),
 			expect.objectContaining({ symbol: "Service.second", start_line: 6, end_line: 8, match_lines: [7] }),
@@ -194,7 +286,7 @@ describe("grep local search", () => {
 			"  return needle();",
 			"}",
 		].join("\n"));
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle", match: "literal" }));
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle" }));
 		expect(firstRegion(result)).toMatchObject({
 			declaration: "export function needle()",
 			match_lines: [1, 2],
@@ -222,11 +314,11 @@ describe("grep local search", () => {
 			content: "export const declaration = 'DeclarationNeedle';\n",
 			expected: { kind: "declaration", symbol: "declaration", match_lines: [1] },
 		},
-	] as const)("strict 将命中映射到最小 enclosing $name", async ({ query, content, expected }) => {
+	] as const)("regex 将命中映射到最小 enclosing $name", async ({ query, content, expected }) => {
 		await writeFile(path.join(testContext.workspace, "region.ts"), content);
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query, match: "literal" }));
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query }));
 		expect(firstRegion(result)).toMatchObject(expected);
-		await assertStrictMatches(testContext.workspace, result, query, "literal");
+		await assertStrictMatches(testContext.workspace, result, query);
 	});
 
 	it.each([
@@ -235,37 +327,38 @@ describe("grep local search", () => {
 		["TopBodyNeedle", "console.log('TopBodyNeedle');\nexport const value = true;\n", 1],
 	] as const)("AST 外正文 %s 安全降级为 verified 文本行", async (query, content, line) => {
 		await writeFile(path.join(testContext.workspace, "outside.ts"), content);
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query, match: "literal" }));
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query }));
 		expect(firstRegion(result)).toMatchObject({ kind: "text", query_match: "verified", match_lines: [line] });
-		await assertStrictMatches(testContext.workspace, result, query, "literal");
+		await assertStrictMatches(testContext.workspace, result, query);
 	});
 
 	it("深度范围内的合规文件不受解析文件数量限制", async () => {
 		await writeFile(path.join(testContext.workspace, "a.ts"), "export function first() { return 'BudgetNeedle'; }\n");
 		await writeFile(path.join(testContext.workspace, "b.ts"), "export function second() { return 'BudgetNeedle'; }\n");
 
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "BudgetNeedle", match: "literal" }));
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "BudgetNeedle" }));
 
 		expect(result.regions).toEqual([
 			expect.objectContaining({ path: "a.ts", kind: "function", symbol: "first", match_lines: [1] }),
 			expect.objectContaining({ path: "b.ts", kind: "function", symbol: "second", match_lines: [1] }),
 		]);
 		expect(result.stats.parsed_files).toBe(2);
-		expect(result.truncated_by).not.toContain("semantic_candidate_limit");
-		await assertStrictMatches(testContext.workspace, result, "BudgetNeedle", "literal");
+		expect(result.stats.ast_skipped_oversized_files).toBe(0);
+		await assertStrictMatches(testContext.workspace, result, "BudgetNeedle");
 	});
 
-	it("parse 单文件字节上限保留 verified 文本行并报告语义预算", async () => {
+	it("parse 单文件字节上限保留 verified 文本行并记录内部观测", async () => {
 		const configPath = path.join(testContext.outside, "strict-parse-bytes.jsonc");
 		await writeConfig(configPath, { grep_ast_max_file_bytes: 1024 });
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
 		await writeFile(path.join(testContext.workspace, "large-region.ts"), `export function largeRegion() {\n  return '${"padding".repeat(180)} ParseBytesNeedle';\n}\n`);
 
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "ParseBytesNeedle", match: "literal" }));
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "ParseBytesNeedle" }));
 
 		expect(firstRegion(result)).toMatchObject({ path: "large-region.ts", kind: "text", match_lines: [2] });
 		expect(result.stats.parsed_files).toBe(0);
-		expect(result.truncated_by).toContain("semantic_candidate_limit");
+		expect(result.stats.ast_skipped_oversized_files).toBe(1);
+		expect(result.truncated_by).toEqual([]);
 	});
 
 	it("派生 AST cache 冷暖结果一致，修改、重命名和删除不会复用 stale range", async () => {
@@ -281,21 +374,21 @@ describe("grep local search", () => {
 			match_lines,
 		}));
 
-		const cold = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "CacheNeedle", match: "literal" }));
-		const warm = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "CacheNeedle", match: "literal" }));
+		const cold = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "CacheNeedle" }));
+		const warm = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "CacheNeedle" }));
 		expect(snapshot(warm)).toEqual(snapshot(cold));
 		expect(firstRegion(warm)).toMatchObject({ kind: "function", symbol: "cached", match_lines: [2] });
 
 		await writeFile(originalPath, "// CacheNeedle moved outside every declaration\nexport const current = true;\n");
-		const modified = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "CacheNeedle", match: "literal" }));
+		const modified = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "CacheNeedle" }));
 		expect(firstRegion(modified)).toMatchObject({ path: "cache.ts", kind: "text", match_lines: [1] });
 		expect(firstRegion(modified).symbol).toBeUndefined();
 
 		await rename(originalPath, renamedPath);
-		const renamed = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "CacheNeedle", match: "literal" }));
+		const renamed = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "CacheNeedle" }));
 		expect(renamed.regions.map((region) => region.path)).toEqual(["renamed.ts"]);
 		await rm(renamedPath);
-		const deleted = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "CacheNeedle", match: "literal" }));
+		const deleted = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "CacheNeedle" }));
 		expect(deleted.regions).toEqual([]);
 	});
 
@@ -342,7 +435,7 @@ describe("grep local search", () => {
 			},
 		};
 		try {
-			const result = expectGrepSuccess(await tool.execute({ query: "RaceNeedle", match: "literal" }, {
+			const result = expectGrepSuccess(await tool.execute({ query: "RaceNeedle" }, {
 				filesystem,
 				operation: opened.context,
 				limits: opened.limits,
@@ -363,7 +456,7 @@ describe("grep local search", () => {
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
 		await mkdir(path.join(testContext.workspace, "hidden"));
 		await writeFile(path.join(testContext.workspace, "hidden", "cached.ts"), "export function hidden() { return 'VisibilityNeedle'; }\n");
-		const visible = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "VisibilityNeedle", match: "literal" }));
+		const visible = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "VisibilityNeedle" }));
 		expect(firstRegion(visible)).toMatchObject({ path: "hidden/cached.ts", kind: "function" });
 
 		await writeFile(configPath, JSON.stringify({
@@ -371,13 +464,12 @@ describe("grep local search", () => {
 			ignored_path: ["hidden/"],
 			ignore: { builtin_profile: "none", gitignore: false },
 		}));
-		const ignored = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "VisibilityNeedle", match: "literal" }));
+		const ignored = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "VisibilityNeedle" }));
 		expect(ignored.regions).toEqual([]);
 		const explicit = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, {
 			path: ["hidden/cached.ts"],
 			query: "VisibilityNeedle",
-			match: "literal",
-		}));
+					}));
 		expect(firstRegion(explicit)).toMatchObject({ path: "hidden/cached.ts", kind: "function" });
 	});
 
@@ -386,7 +478,7 @@ describe("grep local search", () => {
 			Buffer.from([0xef, 0xbb, 0xbf]),
 			Buffer.from("export function utf8() { return '😀 Utf8RegionNeedle'; }\n"),
 		]));
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "Utf8RegionNeedle", match: "literal" }));
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "Utf8RegionNeedle" }));
 		expect(firstRegion(result)).toMatchObject({ kind: "function", symbol: "utf8", match_lines: [1] });
 	});
 
@@ -395,11 +487,11 @@ describe("grep local search", () => {
 		["CR", "export function newline() {\r  return 'RegionNewlineNeedle';\r}\r", "text"],
 	] as const)("regionizer 对 %s 保持 logical match line，不能安全解析时降级", async (_name, content, kind) => {
 		await writeFile(path.join(testContext.workspace, "newline.ts"), content);
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "RegionNewlineNeedle", match: "literal" }));
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "RegionNewlineNeedle" }));
 		expect(firstRegion(result)).toMatchObject({ kind, match_lines: [2], query_match: "verified" });
 	});
 
-	it("strict 冷暖 cache 都重新执行 inventory line scan", async () => {
+	it("regex 冷暖 cache 都重新执行 inventory line scan", async () => {
 		await writeFile(path.join(testContext.workspace, "warm.ts"), "export function warm() { return 'WarmNeedle'; }\n");
 		const host = new FileToolsHost();
 		const tool = new GrepTool();
@@ -427,7 +519,7 @@ describe("grep local search", () => {
 		try {
 			const results: GrepSuccess[] = [];
 			for (let index = 0; index < 2; index += 1) {
-				results.push(expectGrepSuccess(await tool.execute({ query: "WarmNeedle", match: "literal" }, {
+				results.push(expectGrepSuccess(await tool.execute({ query: "WarmNeedle" }, {
 					filesystem,
 					operation: opened.context,
 					limits: opened.limits,

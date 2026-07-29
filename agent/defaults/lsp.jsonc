@@ -23,10 +23,8 @@
 	},
 	"grep": {
 		"workspace_symbols": true,
-		"references": false,
 		"max_symbols": 20,
-		"max_exact_leaf_symbols": 2,
-		"max_references": 2
+		"max_exact_leaf_symbols": 2
 	},
 	"servers": {
 		"typescript": {

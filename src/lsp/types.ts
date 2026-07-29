@@ -93,12 +93,9 @@ export interface LspConfig {
 	};
 	grep: {
 		workspace_symbols: boolean;
-		references: boolean;
 		max_symbols: number;
 		/** 普通 exact leaf symbol 最多接收多少个同名定义。 */
 		max_exact_leaf_symbols: number;
-		/** 显式关系查询最多接收多少个 reference。 */
-		max_references: number;
 	};
 	servers: LspServerConfig[];
 }
@@ -166,9 +163,6 @@ export interface LspEnclosingSymbol {
 	end_line: number;
 }
 
-/** workspace/symbol 转换后的 grep 候选。 */
-export type LspSymbolOrigin = "workspace-symbol" | "reference";
-
 export interface LspSymbolHit {
 	path: string;
 	start_line: number;
@@ -177,7 +171,7 @@ export interface LspSymbolHit {
 	symbol: string;
 	qualified_symbol?: string;
 	exact: boolean;
-	origin: LspSymbolOrigin;
+	origin: "workspace-symbol";
 }
 
 /** /lsp status 展示的单个 server 状态。 */

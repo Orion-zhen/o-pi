@@ -17,12 +17,6 @@ export interface WorkspaceSymbolSeed extends LspSymbolHit {
 	character: number;
 }
 
-export interface ReferenceHit extends LspSymbolHit {
-	uri: string;
-	line: number;
-	character: number;
-}
-
 const kindNames = new Map<number, string>([
 	[SymbolKind.File, "file"],
 	[SymbolKind.Module, "module"],
@@ -121,31 +115,6 @@ export function workspaceSymbolSeed(root: string, query: string, symbol: SymbolI
 		line: location.range.start.line,
 		character: location.range.start.character,
 	};
-}
-
-export function referenceHits(root: string, seed: WorkspaceSymbolSeed, locations: readonly Location[]): ReferenceHit[] {
-	const hits: ReferenceHit[] = [];
-	for (const rawLocation of locations) {
-		const location = validLocation(rawLocation);
-		if (location === undefined) continue;
-		const filePath = fileUriToPath(location.uri);
-		if (filePath === undefined) continue;
-		const relative = workspaceRelativePath(root, filePath);
-		if (relative === undefined) continue;
-		hits.push({
-			path: relative,
-			start_line: location.range.start.line + 1,
-			end_line: location.range.end.line + 1,
-			kind: seed.kind,
-			symbol: seed.symbol,
-			exact: false,
-			origin: "reference",
-			uri: location.uri,
-			line: location.range.start.line,
-			character: location.range.start.character,
-		});
-	}
-	return hits;
 }
 
 function toRemainingSymbol(symbol: DocumentSymbol | SymbolInformation): LspRemainingSymbol {

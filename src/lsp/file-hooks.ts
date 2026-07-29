@@ -18,8 +18,6 @@ export interface LspSymbolInput {
 	readonly workspaceRoot: string;
 	readonly query: string;
 	readonly allowedPaths: ReadonlySet<string>;
-	/** 只有显式关系查询才允许触发 references。 */
-	readonly relationQuery?: boolean;
 	readonly signal?: AbortSignal;
 }
 
@@ -62,7 +60,6 @@ export function createLspFileOperations(manager: LspManager): LspFileOperations 
 					root: input.workspaceRoot,
 					query: input.query,
 					allowedPaths: input.allowedPaths,
-					...(input.relationQuery === undefined ? {} : { relationQuery: input.relationQuery }),
 					...(input.signal === undefined ? {} : { signal: input.signal }),
 				});
 			} catch {

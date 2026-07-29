@@ -149,8 +149,7 @@ describe("file-tools extension lifecycle", () => {
 			await expect(executeTool(registered, "grep", {
 				query: "createFileToolsExtension",
 				path: ["agent/extensions/file-tools.ts"],
-				match: "literal",
-			}, ctx)).resolves.toMatchObject({ details: { status: "success" } });
+							}, ctx)).resolves.toMatchObject({ details: { status: "success" } });
 		};
 
 		const first = createSession();

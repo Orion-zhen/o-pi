@@ -2,14 +2,11 @@ import type { GrepRegion, GrepSuccess, TruncationReason } from "../grep/types.js
 import type { FailedResult } from "../shared/result.js";
 
 const GREP_MATCHED_BY = new Set([
-	"exact-qualified-symbol", "exact-symbol", "symbol-prefix", "literal", "regex", "lexical", "relationship",
+	"exact-qualified-symbol", "exact-symbol", "symbol-prefix", "regex", "lexical", "related",
 ]);
 const TRUNCATION_REASONS = new Set<TruncationReason>([
 	"traversal_limit",
-	"text_byte_limit",
-	"semantic_candidate_limit",
 	"result_limit",
-	"token_budget",
 ]);
 
 export function isFailedDetails(value: unknown): value is FailedResult {
@@ -25,7 +22,6 @@ export function isGrepSuccessDetails(value: unknown): value is GrepSuccess {
 		&& typeof value["path"] === "string"
 		&& (value["paths"] === undefined || isStrings(value["paths"]))
 		&& (value["scope_errors"] === undefined || isGrepScopeErrors(value["scope_errors"]))
-		&& (value["match"] === "auto" || value["match"] === "literal" || value["match"] === "regex")
 		&& isNumber(value["total_candidates"])
 		&& isNumber(value["returned_regions"])
 		&& isNumber(value["returned_files"])
@@ -76,7 +72,12 @@ function isGrepStats(value: unknown): boolean {
 		&& isNumber(value["traversed_entries"])
 		&& isNumber(value["searched_files"])
 		&& isNumber(value["searched_bytes"])
+		&& isNumber(value["text_hits"])
 		&& isNumber(value["parsed_files"])
+		&& isNumber(value["dropped_text_hits"])
+		&& isNumber(value["dropped_related_anchors"])
+		&& isNumber(value["dropped_related_results"])
+		&& isNumber(value["ast_skipped_oversized_files"])
 		&& (value["skipped_files"] === undefined || isGrepSkippedFiles(value["skipped_files"]));
 }
 

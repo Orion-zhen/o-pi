@@ -106,29 +106,23 @@
 					"maximum": 104857600,
 					"default": 262144
 				},
-				"grep_output_token_budget": {
-					"type": "integer",
-					"minimum": 100,
-					"maximum": 10000,
-					"default": 4000
-				},
 				"grep_result_limit": {
 					"type": "integer",
 					"minimum": 1,
 					"maximum": 50,
 					"default": 24
 				},
+				"grep_related_result_limit": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 50,
+					"default": 8
+				},
 				"grep_regional_display_limit": {
 					"type": "integer",
 					"minimum": 1,
 					"maximum": 20,
 					"default": 3
-				},
-				"grep_relation_action_limit": {
-					"type": "integer",
-					"minimum": 0,
-					"maximum": 20,
-					"default": 2
 				}
 			}
 		},

@@ -1,10 +1,15 @@
 import { countTextTokensSync } from "../../token-counter.js";
 import type { RankedRegion } from "./candidates.js";
-import { selectRankedRegionsInOrder } from "./ranking.js";
+import {
+	GREP_RANKING_ALGORITHM,
+	GREP_RELEVANCE_HEAD_SIZE,
+	selectRankedRegions,
+} from "./ranking.js";
 import type {
 	GrepDisplayLine,
-	GrepMatchMode,
+	GrepRankingDiagnostics,
 	GrepRegion,
+	GrepRegionRanking,
 	GrepScopeError,
 	GrepSkippedFiles,
 	GrepStats,
@@ -12,14 +17,9 @@ import type {
 	TruncationReason,
 } from "./types.js";
 
-const CANDIDATE_POOL_MIN = 32;
-const RELATION_ROLES = new Set(["caller", "callee", "reference", "test", "import", "registration", "entrypoint"]);
 const TRUNCATION_ORDER: readonly TruncationReason[] = [
 	"traversal_limit",
-	"text_byte_limit",
-	"semantic_candidate_limit",
 	"result_limit",
-	"token_budget",
 ];
 
 export interface GrepPackInput {
@@ -27,156 +27,49 @@ export interface GrepPackInput {
 	path: string;
 	paths?: string[];
 	scopeErrors?: GrepScopeError[];
-	match: GrepMatchMode;
-	totalCandidates: number;
 	regions: readonly RankedRegion[];
-	stats: GrepStats;
+	stats: Omit<GrepStats, "dropped_related_results">;
 	truncationReasons: readonly TruncationReason[];
-	tokenBudget: number;
 	resultLimit: number;
+	relatedResultLimit: number;
 	regionalDisplayLimit: number;
-	relationActionLimit: number;
 }
 
-interface CandidateChoice {
-	readonly rank: number;
-	readonly region: GrepRegion;
-	readonly cost: number;
-}
-
-interface SelectionNode {
-	readonly previous?: SelectionNode;
-	readonly rank: number;
-}
-
-interface SelectionState {
-	readonly score: number;
-	readonly node?: SelectionNode;
-}
-
-/** 每个候选只有一个固定表示；预算只决定保留哪些候选。 */
+/** 先保留 relevance head，再从同 tier 候选中选择互补结果。 */
 export function packGrepResults(input: GrepPackInput): GrepSuccess {
 	const knownReasons = orderedReasons(input.truncationReasons);
-	const assumedReasons = orderedReasons([...knownReasons, "result_limit", "token_budget"]);
-	const diversified = diversifyCandidateOrder(input.regions, candidatePoolSpan(input.resultLimit));
-	const eligibleRegions = limitRelationActions(diversified, input.relationActionLimit);
-	const choices = candidatePool(input, eligibleRegions);
-	const selected = selectMainChoices(input, choices, assumedReasons);
-	const selectedRanks = new Set(selected.map((item) => item.rank));
-	const lastSelectedRank = Math.max(-1, ...selectedRanks);
-	let tokenLimited = selected.length < Math.min(eligibleRegions.length, input.resultLimit)
-		|| choices.some((choice) => choice.rank < lastSelectedRank && !selectedRanks.has(choice.rank));
-	const regions = selected.map((item) => item.region);
-
-	const relationLimited = eligibleRegions.length < input.regions.length;
-	const baseReasons = orderedReasons([
+	const limited = limitRelatedResults(input.regions, input.relatedResultLimit);
+	const candidates = limited.regions;
+	const selected = selectRankedRegions(candidates, input.resultLimit);
+	const regions = selected
+		.map((candidate) => publicRegion(candidate, input.regionalDisplayLimit));
+	const reasons = orderedReasons([
 		...knownReasons,
-		...(eligibleRegions.length > input.resultLimit || relationLimited ? ["result_limit" as const] : []),
+		...(candidates.length > regions.length ? ["result_limit" as const] : []),
 	]);
-	const reasons = tokenLimited ? orderedReasons([...baseReasons, "token_budget"]) : baseReasons;
-	const result = createSuccess(input, regions, reasons);
+	const ranking = rankingDiagnostics(input.regions, candidates, selected, input.resultLimit);
+	const result = createSuccess(input, candidates.length, regions, reasons, limited.dropped, ranking);
 	return { ...result, approx_tokens: tokenCount(renderGrepSuccess(result)) };
 }
 
-function candidatePool(input: GrepPackInput, candidates: readonly RankedRegion[]): CandidateChoice[] {
-	const choices = candidates.map((candidate, rank) => {
-		const region = publicRegion(candidate, input.regionalDisplayLimit);
-		return { rank, region, cost: regionCost(region) };
-	});
-	const span = candidatePoolSpan(input.resultLimit);
-	const selectedRanks = new Set(choices.slice(0, span).map((item) => item.rank));
-	for (const item of choices.slice(span)
-		.sort((left, right) => left.cost - right.cost || left.rank - right.rank)
-		.slice(0, span)) selectedRanks.add(item.rank);
-	return choices.filter((item) => selectedRanks.has(item.rank)).sort((left, right) => left.rank - right.rank);
-}
-
-/** MMR 只重排 packer 会优先考虑的有界头部；尾部保留完整相关性顺序供低成本候选回退。 */
-function diversifyCandidateOrder(candidates: readonly RankedRegion[], limit: number): RankedRegion[] {
-	const selected = selectRankedRegionsInOrder(candidates, Math.min(limit, candidates.length));
-	if (selected.length === candidates.length) return selected;
-	const selectedIds = new Set(selected.map((candidate) => candidate.id));
-	return [...selected, ...candidates.filter((candidate) => !selectedIds.has(candidate.id))];
-}
-
-function candidatePoolSpan(resultLimit: number): number {
-	return Math.max(CANDIDATE_POOL_MIN, resultLimit * 4);
-}
-
-function limitRelationActions(candidates: readonly RankedRegion[], limit: number): RankedRegion[] {
-	let used = 0;
-	return candidates.filter((candidate) => {
-		if (!isRelationAction(candidate)) return true;
-		used += 1;
-		return used <= limit;
-	});
-}
-
-function isRelationAction(region: Pick<RankedRegion | GrepRegion, "roles">): boolean {
-	return region.roles !== undefined && region.roles.length > 0 && region.roles.every((role) => RELATION_ROLES.has(role));
-}
-
-function selectMainChoices(
-	input: GrepPackInput,
-	choices: readonly CandidateChoice[],
-	reasons: readonly TruncationReason[],
-): CandidateChoice[] {
-	if (input.resultLimit <= 0 || choices.length === 0) return [];
-	const empty = createSuccess(input, [], reasons);
-	const availableBudget = Math.max(0, input.tokenBudget - tokenCount(renderGrepSuccess(empty)));
-	const first = choices[0];
-	const mandatory = first !== undefined && first.cost <= availableBudget ? first : undefined;
-	const startCost = mandatory?.cost ?? 0;
-	const startCount = mandatory === undefined ? 0 : 1;
-	const states = Array.from({ length: input.resultLimit + 1 }, () => new Map<number, SelectionState>());
-	states[startCount]?.set(startCost, {
-		score: mandatory === undefined ? 0 : choices.length + 1,
-		...(mandatory === undefined ? {} : { node: { rank: mandatory.rank } }),
-	});
-
-	for (const [choiceIndex, choice] of choices.entries()) {
-		if (choice === mandatory) continue;
-		for (let count = input.resultLimit; count > startCount; count -= 1) {
-			const previous = states[count - 1];
-			const current = states[count];
-			if (previous === undefined || current === undefined) continue;
-			for (const [cost, state] of [...previous.entries()]) {
-				const nextCost = cost + choice.cost;
-				if (nextCost > availableBudget) continue;
-				const score = state.score + choices.length - choiceIndex;
-				const existing = current.get(nextCost);
-				if (existing === undefined || score > existing.score) {
-					current.set(nextCost, { score, node: { ...(state.node === undefined ? {} : { previous: state.node }), rank: choice.rank } });
-				}
+function limitRelatedResults(
+	regions: readonly RankedRegion[],
+	limit: number,
+): { regions: RankedRegion[]; dropped: number } {
+	const result: RankedRegion[] = [];
+	let related = 0;
+	let dropped = 0;
+	for (const region of regions) {
+		if (region.queryMatch === "semantic") {
+			if (related >= limit) {
+				dropped += 1;
+				continue;
 			}
+			related += 1;
 		}
-		if (choiceIndex % 8 === 7) for (const state of states) pruneDominatedStates(state);
+		result.push(region);
 	}
-
-	let best: { readonly cost: number; readonly state: SelectionState } | undefined;
-	for (let count = input.resultLimit; count >= 0 && best === undefined; count -= 1) {
-		for (const [cost, state] of states[count] ?? []) {
-			if (best === undefined || state.score > best.state.score || (state.score === best.state.score && cost < best.cost)) best = { cost, state };
-		}
-	}
-	const byRank = new Map(choices.map((choice) => [choice.rank, choice]));
-	const selected = selectionRanks(best?.state.node)
-		.flatMap((rank) => {
-			const choice = byRank.get(rank);
-			return choice === undefined ? [] : [choice];
-		})
-		.sort((left, right) => left.rank - right.rank);
-
-	while (selected.length > 0 && !fits(input, selected.map((item) => item.region), reasons)) {
-		let removable = selected.length - 1;
-		while (removable >= 0 && selected[removable] === mandatory) removable -= 1;
-		if (removable >= 0) selected.splice(removable, 1);
-		else selected.pop();
-	}
-	if (selected.length === 0) {
-		for (const choice of choices) if (fits(input, [choice.region], reasons)) return [choice];
-	}
-	return selected;
+	return { regions: result, dropped };
 }
 
 function publicRegion(candidate: RankedRegion, displayLimit: number): GrepRegion {
@@ -193,7 +86,7 @@ function publicRegion(candidate: RankedRegion, displayLimit: number): GrepRegion
 		query_match: candidate.queryMatch === "verified" ? "verified" : "semantic",
 		roles: unique(candidate.roles),
 		matched_by: [...candidate.matchedBy],
-		sources: unique(candidate.evidence.map((item) => item.source).filter(isLocalSource)),
+		sources: unique(candidate.evidence.map((item) => item.source).filter(isRetrievalSource)),
 		...(candidate.matchLines.length === 0 ? {} : { match_lines: [...candidate.matchLines] }),
 		...(displayLines.length === 0 ? {} : { display_lines: displayLines.map((line) => ({ ...line })) }),
 	};
@@ -210,36 +103,13 @@ function representativeLines(lines: readonly GrepDisplayLine[], limit: number): 
 	return [...selected.values()].sort((left, right) => left.line - right.line);
 }
 
-function pruneDominatedStates(states: Map<number, SelectionState>): void {
-	let bestScore = Number.NEGATIVE_INFINITY;
-	for (const [cost, state] of [...states.entries()].sort((left, right) => left[0] - right[0])) {
-		if (state.score <= bestScore) states.delete(cost);
-		else bestScore = state.score;
-	}
-}
-
-function selectionRanks(node: SelectionNode | undefined): number[] {
-	const result: number[] = [];
-	for (let current = node; current !== undefined; current = current.previous) result.push(current.rank);
-	return result.reverse();
-}
-
-function regionCost(region: GrepRegion): number {
-	return tokenCount(renderRegion(region)) + 1;
-}
-
-function fits(
-	input: GrepPackInput,
-	regions: readonly GrepRegion[],
-	reasons: readonly TruncationReason[],
-): boolean {
-	return tokenCount(renderGrepSuccess(createSuccess(input, regions, reasons))) <= input.tokenBudget;
-}
-
 function createSuccess(
 	input: GrepPackInput,
+	totalCandidates: number,
 	regions: readonly GrepRegion[],
 	reasons: readonly TruncationReason[],
+	droppedRelatedResults: number,
+	ranking: GrepRankingDiagnostics,
 ): GrepSuccess {
 	return {
 		status: "success",
@@ -247,15 +117,60 @@ function createSuccess(
 		path: input.path,
 		...(input.paths === undefined ? {} : { paths: input.paths }),
 		...(input.scopeErrors === undefined || input.scopeErrors.length === 0 ? {} : { scope_errors: input.scopeErrors }),
-		match: input.match,
-		total_candidates: input.totalCandidates,
+		total_candidates: totalCandidates,
 		returned_regions: regions.length,
 		returned_files: new Set(regions.map((region) => region.path)).size,
 		approx_tokens: 0,
-		stats: input.stats,
+		stats: { ...input.stats, dropped_related_results: droppedRelatedResults },
 		truncated_by: [...reasons],
 		regions: [...regions],
+		ranking,
 	};
+}
+
+function rankingDiagnostics(
+	allCandidates: readonly RankedRegion[],
+	eligible: readonly RankedRegion[],
+	selected: readonly RankedRegion[],
+	limit: number,
+): GrepRankingDiagnostics {
+	const target = Math.min(limit, eligible.length);
+	const headCount = Math.min(GREP_RELEVANCE_HEAD_SIZE, target);
+	const relevanceRank = new Map(eligible.map((candidate, index) => [candidate.id, index + 1]));
+	const baseline = eligible.slice(0, target);
+	const baselineIds = new Set(baseline.map((candidate) => candidate.id));
+	const regions: GrepRegionRanking[] = selected.map((candidate) => {
+		const rank = relevanceRank.get(candidate.id) ?? Number.MAX_SAFE_INTEGER;
+		return {
+			relevance_rank: rank,
+			tier: candidate.tier,
+			primary_score: candidate.fieldScore,
+			auxiliary_score: candidate.ranking.fusionScore,
+			selection: rank <= headCount ? "head" : "mmr",
+		};
+	});
+	const tiers = new Set(eligible.map((candidate) => candidate.tier));
+	const topTier = eligible[0]?.tier;
+	return {
+		algorithm: GREP_RANKING_ALGORITHM,
+		candidate_count: allCandidates.length,
+		eligible_candidate_count: eligible.length,
+		selected_candidate_count: selected.length,
+		relevance_head_size: headCount,
+		tier_count: tiers.size,
+		top_tier_candidate_count: topTier === undefined
+			? 0
+			: eligible.filter((candidate) => candidate.tier === topTier).length,
+		mmr_selected_count: regions.filter((region) => region.selection === "mmr").length,
+		mmr_replacement_count: selected.filter((candidate) => !baselineIds.has(candidate.id)).length,
+		relevance_prefix_file_count: uniqueFileCount(baseline),
+		selected_file_count: uniqueFileCount(selected),
+		regions,
+	};
+}
+
+function uniqueFileCount(regions: readonly RankedRegion[]): number {
+	return new Set(regions.map((region) => region.path)).size;
 }
 
 export function renderGrepSuccess(result: GrepSuccess): string {
@@ -268,7 +183,7 @@ export function renderGrepSuccess(result: GrepSuccess): string {
 	if (result.regions.length === 0) {
 		lines.push("none");
 	} else {
-		for (const region of result.regions) lines.push(renderRegion(region));
+		appendRenderedRegions(lines, result.regions);
 	}
 	const omitted = Math.max(0, result.total_candidates - result.returned_regions);
 	if (omitted > 0) lines.push(`+${omitted} lower-ranked omitted`);
@@ -276,30 +191,71 @@ export function renderGrepSuccess(result: GrepSuccess): string {
 	if (result.regions.length === 0) {
 		lines.push(`searched=${result.stats.searched_files}; skipped=${skippedCount(result.stats.skipped_files)}`);
 		if (result.truncated_by.length > 0) lines.push(`next: resolve ${result.truncated_by.join(",")}; narrow path/glob`);
-		else lines.push(result.match === "auto" ? "next: broaden query/path/glob" : "next: use match=auto or broaden path/glob");
+		else lines.push("next: broaden query/path/glob");
 	}
 	lines.push("</grep>");
+	return lines.join("\n");
+}
+
+function appendRenderedRegions(output: string[], regions: readonly GrepRegion[]): void {
+	let index = 0;
+	while (index < regions.length) {
+		const region = regions[index];
+		if (region === undefined) break;
+		if (region.kind !== "text") {
+			output.push(renderRegion(region));
+			index += 1;
+			continue;
+		}
+		const grouped = [region];
+		let nextIndex = index + 1;
+		while (nextIndex < regions.length) {
+			const next = regions[nextIndex];
+			if (next === undefined || !sameTextDisplayGroup(region, next)) break;
+			grouped.push(next);
+			nextIndex += 1;
+		}
+		output.push(grouped.length === 1 ? renderRegion(region) : renderTextRegionGroup(region, grouped));
+		index = nextIndex;
+	}
+}
+
+function sameTextDisplayGroup(left: GrepRegion, right: GrepRegion): boolean {
+	return right.kind === "text"
+		&& left.path === right.path
+		&& left.query_match === right.query_match
+		&& left.matched_by.join("\0") === right.matched_by.join("\0");
+}
+
+function renderTextRegionGroup(first: GrepRegion, regions: readonly GrepRegion[]): string {
+	const related = first.query_match === "semantic" ? " [related]" : "";
+	const lines = [`${first.path}${related}:`];
+	for (const region of regions) {
+		const display = region.display_lines?.[0];
+		lines.push(display === undefined
+			? `  ${region.start_line}:`
+			: `  ${display.line}: ${display.text}`);
+	}
 	return lines.join("\n");
 }
 
 function renderRegion(region: GrepRegion): string {
 	const displayLines = region.display_lines ?? [];
 	if (region.kind === "text") {
-		const evidence = displayLines[0];
-		if (evidence === undefined) return `${region.path}:${region.start_line}:`;
-		return evidence.type === "match"
-			? `${region.path}:${evidence.line}: ${evidence.text}`
-			: `${region.path}:${evidence.line} [evidence=lexical]: ${evidence.text}`;
+		const display = displayLines[0];
+		if (display === undefined) {
+			const related = region.query_match === "semantic" ? " [related]" : "";
+			return `${region.path}:${region.start_line}${related}:`;
+		}
+		return display.type === "match"
+			? `${region.path}:${display.line}: ${display.text}`
+			: `${region.path}:${display.line} [related]: ${display.text}`;
 	}
-	const range = `${region.path}:${region.start_line}-${region.end_line}`;
-	const metadata = [
-		`kind=${metadataValue(region.kind)}`,
-		...(region.symbol === undefined ? [] : [`symbol=${metadataValue(region.symbol)}`]),
-		...(region.roles === undefined || region.roles.length === 0 ? [] : [`roles=${region.roles.map(kebabCase).map(metadataValue).join(",")}`]),
-		...(region.matched_by.length === 0 ? [] : [`matched-by=${region.matched_by.map(metadataValue).join(",")}`]),
-	];
-	const lines = [`${range} [${metadata.join("; ")}]`];
-	if (region.declaration !== undefined) lines.push(`  declaration: ${region.declaration}`);
+	const range = `${region.path}:${region.start_line}${region.end_line === region.start_line ? "" : `-${region.end_line}`}`;
+	const symbol = region.symbol === undefined ? "" : ` ${metadataValue(region.symbol)}`;
+	const related = region.query_match === "semantic" ? " [related]" : "";
+	const lines = [`${range}${symbol}${related}`];
+	if (region.declaration !== undefined) lines.push(`  ${region.declaration}`);
 	if (region.query_match === "verified") appendMatchingLines(lines, displayLines, region.match_lines?.length ?? 0);
 	else appendEvidenceLines(lines, displayLines);
 	return lines.join("\n");
@@ -307,26 +263,14 @@ function renderRegion(region: GrepRegion): string {
 
 function appendMatchingLines(output: string[], displayLines: readonly GrepDisplayLine[], total: number): void {
 	const matches = displayLines.filter((line) => line.type === "match");
-	if (matches.length === 0) return;
-	if (matches.length === 1 && total === 1) {
-		const line = matches[0];
-		if (line !== undefined) output.push(`  matching line ${line.line}: ${line.text}`);
-		return;
-	}
-	output.push(`  matching lines (${matches.length} of ${total} shown):`);
-	for (const line of matches) output.push(`    ${line.line}: ${line.text}`);
+	for (const line of matches) output.push(`  ${line.line}: ${line.text}`);
+	const omitted = Math.max(0, total - matches.length);
+	if (omitted > 0) output.push(`  +${omitted} match lines`);
 }
 
 function appendEvidenceLines(output: string[], displayLines: readonly GrepDisplayLine[]): void {
 	const evidence = displayLines.filter((line) => line.type === "evidence");
-	if (evidence.length === 0) return;
-	if (evidence.length === 1) {
-		const line = evidence[0];
-		if (line !== undefined) output.push(`  evidence line ${line.line}: ${line.text}`);
-		return;
-	}
-	output.push(`  evidence lines (${evidence.length} shown):`);
-	for (const line of evidence) output.push(`    ${line.line}: ${line.text}`);
+	for (const line of evidence) output.push(`  ${line.line}: ${line.text}`);
 }
 
 function orderedReasons(reasons: readonly TruncationReason[]): TruncationReason[] {
@@ -338,11 +282,10 @@ function unique<T>(values: readonly T[]): T[] {
 	return [...new Set(values)];
 }
 
-function isLocalSource(source: string): boolean {
-	return source === "text-literal"
-		|| source === "text-regex"
+function isRetrievalSource(source: string): boolean {
+	return source === "text-regex"
 		|| source === "text-lexical"
-		|| source === "ast-relation";
+		|| source === "lsp-symbol";
 }
 
 function tokenCount(text: string): number {
@@ -380,8 +323,4 @@ function boundedDeclaration(value: string): string {
 
 function metadataValue(value: string): string {
 	return value.replace(/[;\]\r\n]/gu, " ").trim();
-}
-
-function kebabCase(value: string): string {
-	return value.replaceAll("_", "-").replace(/\s+/gu, "-").toLocaleLowerCase();
 }

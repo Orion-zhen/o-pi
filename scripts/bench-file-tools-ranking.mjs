@@ -5,11 +5,7 @@ import { row as summaryRow } from "./benchmark/stats.mjs";
 
 const loadTypeScript = createTypeScriptLoader({ moduleCache: true });
 const {
-	GREP_MMR_LAMBDA,
-	GREP_RELEVANCE_HEAD_SIZE,
-	GREP_SIMILARITY_WINDOW,
 	assignSourceLocalRanks,
-	compareRankedRegions,
 	rankCodeRegions,
 	selectRankedRegions,
 	sourceContribution,
@@ -31,24 +27,25 @@ for (const size of sizes) {
 	if (ranked.length !== candidates.length) throw new Error(`ranking fixture dropped candidates for N=${size}`);
 	if (!sameIds(ranked, permutedRanked)) throw new Error(`ranking depends on insertion order for N=${size}`);
 
-	const limit = 32;
-	const expected = referenceSelection(ranked, limit);
-	const selected = selectRankedRegions(permutedRanked, limit);
-	if (!sameIds(selected, expected)) throw new Error(`selector changed the bounded reference result for N=${size}`);
-
-	rows.push(row(`adaptive rank N=${size}`, sample(() => rankCodeRegions(plan, candidates))));
-	rows.push(row(`tier MMR top-32 N=${size}`, sample(() => selectRankedRegions(ranked, limit))));
-	rows.push(row(`rank + select N=${size}`, sample(() => selectRankedRegions(rankCodeRegions(plan, permuted), limit))));
+	rows.push(row(`fixed rank N=${size}`, sample(() => rankCodeRegions(plan, candidates))));
+	rows.push(row(`rank + select top-32 N=${size}`, sample(() =>
+		selectRankedRegions(rankCodeRegions(plan, permuted), 32))));
 }
 
-console.log(`grep query-adaptive ranking benchmark (${runs} measured runs, 3 warmups; bounded similarity window=${GREP_SIMILARITY_WINDOW})`);
+console.log(`grep fixed ranking benchmark (${runs} measured runs, 3 warmups)`);
 console.table(rows);
 
 function buildCandidates(size) {
 	return Array.from({ length: size }, (_, index) => {
 		const profile = index % 5;
-		const source = profile === 0 || profile === 1 ? "lsp-symbol" : profile === 2 ? "text-literal" : "text-lexical";
-		const signal = profile === 0 ? "exact_symbol_definition" : profile === 1 ? "symbol_prefix" : profile === 2 ? "verified_text" : profile === 3 ? "lexical_high_coverage" : "lexical";
+		const source = profile === 0 || profile === 1 ? "lsp-symbol" : profile === 2 ? "text-regex" : "text-lexical";
+		const signal = profile === 0
+			? "exact_symbol_definition"
+			: profile === 1
+				? "symbol_prefix"
+				: profile === 2
+					? "verified_text"
+					: profile === 3 ? "lexical_high_coverage" : "lexical";
 		const role = index % 17 === 0 ? "test" : index % 19 === 0 ? "public_api" : index % 23 === 0 ? "config" : "definition";
 		const base = {
 			id: `candidate-${index}`,
@@ -61,10 +58,19 @@ function buildCandidates(size) {
 			symbol: signal === "exact_symbol_definition" ? "login" : signal === "symbol_prefix" ? "loginHandler" : `symbol${index % 512}`,
 			roles: role === "definition" ? ["definition"] : ["definition", role],
 			signals: [signal],
-			evidence: [{ source, rank: index + 1, confidence: 1, reason: source }],
+			evidence: [evidence(source, index + 1)],
+			displayLines: [],
 		};
-		if (source !== "text-literal") return { ...base, queryMatch: "semantic", matchLines: [] };
-		const hit = { path: base.path, line: base.startLine, byteStart: base.startByte, byteEnd: base.endByte, mode: "literal", lineText: "login", before: [], after: [] };
+		if (source !== "text-regex") return { ...base, queryMatch: "semantic", matchLines: [] };
+		const hit = {
+			path: base.path,
+			line: base.startLine,
+			byteStart: base.startByte,
+			byteEnd: base.endByte,
+			matchStart: 0,
+			matchEnd: 5,
+			lineText: "login",
+		};
 		return { ...base, queryMatch: "verified", verifiedHits: [hit], matchLines: [hit.line] };
 	});
 }
@@ -74,92 +80,40 @@ function validateFixedScenarios() {
 		["login", "exact"],
 		["AuthService.login", "qualified"],
 		["Error: connection reset by peer", "phrase"],
-		["where retry delays are calculated", "phrase"],
-		["callers of login", "caller"],
 	]) {
-		const candidates = query.startsWith("callers")
-			? [region("target", "target_definition", "lsp-symbol", 1, ["definition"]), region("caller", "requested_relation", "ast-relation", 1, ["caller"])]
-			: query.includes("AuthService")
-				? [region("lexical", "lexical", "text-lexical", 1), region("qualified", "exact_qualified_definition", "lsp-symbol", 2)]
-				: query === "login"
-					? [region("lexical", "lexical", "text-lexical", 1), region("exact", "exact_symbol_definition", "lsp-symbol", 2)]
-					: [region("lexical", "lexical_high_coverage", "text-lexical", 1), verifiedRegion("phrase", "verified_phrase", 2)];
+		const candidates = query.includes("AuthService")
+			? [region("lexical", "lexical", "text-lexical", 1), region("qualified", "exact_qualified_definition", "lsp-symbol", 2)]
+			: query === "login"
+				? [region("lexical", "lexical", "text-lexical", 1), region("exact", "exact_symbol_definition", "lsp-symbol", 2)]
+				: [region("lexical", "lexical_high_coverage", "text-lexical", 1), verifiedRegion("phrase", "verified_phrase", 2)];
 		const first = rankCodeRegions(queryPlan(query), candidates)[0]?.id;
 		if (first !== expectedFirst) throw new Error(`${query} tier boundary changed: expected ${expectedFirst}, got ${first}`);
 	}
 
-	const duplicateFamily = summarizeEvidence("natural_language", [evidence("text-lexical", 3), evidence("text-lexical", 1)]);
-	if (Math.abs(duplicateFamily.fusionScore - sourceContribution("natural_language", evidence("text-lexical", 1))) > 1e-12) {
+	const duplicateFamily = summarizeEvidence([evidence("text-lexical", 3), evidence("text-lexical", 1)]);
+	if (Math.abs(duplicateFamily.fusionScore - sourceContribution(evidence("text-lexical", 1))) > 1e-12) {
 		throw new Error("same-family evidence was counted more than once");
 	}
 	const sourceValues = [
 		{ id: "low", source: "text-lexical", quality: 1 },
-		{ id: "text", source: "text-literal", quality: 1 },
+		{ id: "text", source: "text-regex", quality: 1 },
 		{ id: "high", source: "text-lexical", quality: 2 },
 	];
-	const ranks = assignSourceLocalRanks(sourceValues, (value) => value.source, (left, right) => right.quality - left.quality || left.id.localeCompare(right.id));
+	const ranks = assignSourceLocalRanks(
+		sourceValues,
+		(value) => value.source,
+		(left, right) => right.quality - left.quality,
+		(left, right) => left.id.localeCompare(right.id),
+	);
 	if (ranks.get(sourceValues[2]) !== 1 || ranks.get(sourceValues[0]) !== 2 || ranks.get(sourceValues[1]) !== 1) {
 		throw new Error("source-local rank generation changed");
 	}
 
-	const diverse = Array.from({ length: 20 }, (_, index) => region(
-		`role-${index}`,
-		"exact_symbol_definition",
-		"lsp-symbol",
-		index + 1,
-		index === 4 ? ["definition", "test"] : index === 5 ? ["definition", "public_api"] : index === 6 ? ["definition", "config"] : ["definition"],
-		index < 4 ? "src/login.ts" : `src/file-${index}.ts`,
-	));
-	const selected = selectRankedRegions(rankCodeRegions(queryPlan("login"), diverse), 7);
-	if (selected[0]?.id !== "role-5" || selected.some((candidate) => candidate.roles.includes("test"))) {
-		throw new Error("context-aware relevance head or role diversity changed");
+	const test = region("test", "exact_symbol_definition", "lsp-symbol", 1, ["definition", "test"], "tests/login.test.ts");
+	const production = verifiedRegion("production", "verified_enclosing_region", 1);
+	if (rankCodeRegions(queryPlan("login"), [production, test])[0]?.id !== "test") {
+		throw new Error("path context unexpectedly changed ranking");
 	}
-}
-
-function referenceSelection(candidates, limit) {
-	const unique = new Map();
-	for (const candidate of candidates) {
-		const prior = unique.get(candidate.id);
-		if (prior === undefined || compareRankedRegions(candidate, prior) < 0) unique.set(candidate.id, candidate);
-	}
-	const ranked = [...unique.values()].sort(compareRankedRegions);
-	const target = Math.min(limit, ranked.length);
-	const headCount = Math.min(GREP_RELEVANCE_HEAD_SIZE, target);
-	const selected = ranked.slice(0, headCount);
-	const remaining = ranked.slice(headCount);
-	const relevance = new Map(ranked.map((candidate, index) => [candidate, 1 - index / Math.max(1, ranked.length - 1)]));
-	while (selected.length < target && remaining.length > 0) {
-		const tier = remaining[0].tier;
-		let tierEnd = 0;
-		while (remaining[tierEnd]?.tier === tier) tierEnd += 1;
-		const evaluated = Math.min(tierEnd, GREP_SIMILARITY_WINDOW);
-		let bestIndex = 0;
-		let bestUtility = -Infinity;
-		for (let index = 0; index < evaluated; index += 1) {
-			const candidateRelevance = relevance.get(remaining[index]) ?? 0;
-			const redundancy = Math.max(0, ...selected.map((chosen) => similarity(remaining[index], chosen)));
-			const utility = GREP_MMR_LAMBDA * candidateRelevance - (1 - GREP_MMR_LAMBDA) * redundancy;
-			if (utility > bestUtility) { bestUtility = utility; bestIndex = index; }
-		}
-		selected.push(remaining.splice(bestIndex, 1)[0]);
-	}
-	return selected;
-}
-
-function similarity(left, right) {
-	const samePath = left.path === right.path;
-	const leftSymbol = normalizeSymbol(left.qualifiedSymbol ?? left.symbol ?? "");
-	const rightSymbol = normalizeSymbol(right.qualifiedSymbol ?? right.symbol ?? "");
-	if (samePath && leftSymbol.length > 0 && leftSymbol === rightSymbol) return 1;
-	if (samePath && left.startLine <= right.endLine && right.startLine <= left.endLine) return 0.95;
-	if (leftSymbol.length > 0 && leftSymbol === rightSymbol) return 0.85;
-	const sameRole = primaryRole(left.roles) === primaryRole(right.roles);
-	if (samePath && sameRole) return 0.8;
-	if (samePath) return 0.65;
-	const sameComponent = topComponent(left.path) === topComponent(right.path);
-	if (sameRole && sameComponent) return 0.35;
-	if (sameRole) return 0.2;
-	return sameComponent ? 0.1 : 0;
 }
 
 function region(id, signal, source, rank, roles = ["definition"], path = `${id}.ts`) {
@@ -180,12 +134,21 @@ function region(id, signal, source, rank, roles = ["definition"], path = `${id}.
 		evidence: [evidence(source, rank)],
 		queryMatch: "semantic",
 		matchLines: [],
+		displayLines: [],
 	};
 }
 
 function verifiedRegion(id, signal, rank) {
 	const path = `${id}.ts`;
-	const hit = { path, line: rank, byteStart: rank * 10, byteEnd: rank * 10 + 5, mode: "literal", lineText: id, before: [], after: [] };
+	const hit = {
+		path,
+		line: rank,
+		byteStart: rank * 10,
+		byteEnd: rank * 10 + 5,
+		matchStart: 0,
+		matchEnd: 5,
+		lineText: id,
+	};
 	return {
 		id,
 		path,
@@ -196,7 +159,7 @@ function verifiedRegion(id, signal, rank) {
 		kind: "function",
 		roles: ["occurrence"],
 		signals: [signal],
-		evidence: [evidence("text-literal", rank)],
+		evidence: [evidence("text-regex", rank)],
 		queryMatch: "verified",
 		verifiedHits: [hit],
 		matchLines: [rank],
@@ -211,19 +174,6 @@ function queryPlan(query) {
 	const result = createQueryPlan({ query });
 	if (result.status === "failed") throw new Error(result.error.message);
 	return result;
-}
-
-function primaryRole(roles) {
-	return ["caller", "callee", "reference", "test", "import", "registration", "public_api", "config", "definition", "occurrence", "text"].find((role) => roles.includes(role)) ?? "other";
-}
-
-function topComponent(value) {
-	const slash = value.indexOf("/");
-	return slash === -1 ? "." : value.slice(0, slash);
-}
-
-function normalizeSymbol(value) {
-	return value.trim().replace(/::|#/gu, ".").toLocaleLowerCase();
 }
 
 function permute(values) {

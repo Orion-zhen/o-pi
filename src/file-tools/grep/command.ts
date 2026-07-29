@@ -3,18 +3,16 @@ import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.j
 import { bindOperationContext } from "../../filesystem/operation-context.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
 import { fail, isFailed, type FailedResult, type ToolOutcome } from "../shared/result.js";
-import type { RankedRegion, VerifiedCodeRegion } from "./candidates.js";
 import { buildScopeInventory, type ScopeInventory } from "./inventory.js";
-import { applyAstRelationFallback, buildLocalAutoResults, semanticParsePriority } from "./local.js";
+import { buildLocalResults, semanticParsePriority } from "./local.js";
 import { applyGrepHints, grepHintDemand, queryGrepHints } from "./hints.js";
 import { packGrepResults, renderGrepSuccess } from "./packer.js";
 import { GrepParser } from "./parser-pool.js";
-import { rankCodeRegions } from "./ranking.js";
 import type { GrepHintSource } from "./ports.js";
 import { createQueryPlan, type QueryPlan } from "./query-plan.js";
 import { GrepRegionizer } from "./regionizer.js";
 import { scanInventoryText } from "./text-scanner.js";
-import type { GrepParams, GrepScopeError, GrepStats, GrepSuccess, TruncationReason } from "./types.js";
+import type { GrepParams, GrepScopeError, GrepStats, GrepSuccess } from "./types.js";
 
 type GrepSkippedStats = NonNullable<GrepSuccess["stats"]["skipped_files"]>;
 
@@ -22,7 +20,7 @@ export interface GrepCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
 	readonly limits: Pick<FileToolLimits,
-		"grep_max_depth" | "grep_ast_max_file_bytes" | "grep_output_token_budget" | "grep_result_limit" | "grep_regional_display_limit" | "grep_relation_action_limit">;
+		"grep_max_depth" | "grep_ast_max_file_bytes" | "grep_result_limit" | "grep_related_result_limit" | "grep_regional_display_limit">;
 	readonly lspHints?: GrepHintSource;
 }
 
@@ -43,7 +41,7 @@ export class GrepTool {
 		try {
 			const plan = createQueryPlan(params);
 			if (isFailed(plan)) return plan;
-			return plan.match === "auto" ? await this.grepAuto(plan, context) : await this.grepStrict(plan, context);
+			return await this.grep(plan, context);
 		} finally {
 			invocation.abort(new Error("grep invocation completed."));
 		}
@@ -57,8 +55,7 @@ export class GrepTool {
 		this.parser.dispose();
 	}
 
-	private async grepAuto(plan: QueryPlan, context: GrepCommandContext): Promise<ToolOutcome<GrepSuccess>> {
-		if (plan.match !== "auto") return fail("INVALID_OPERATION", "Auto grep requires auto mode.");
+	private async grep(plan: QueryPlan, context: GrepCommandContext): Promise<ToolOutcome<GrepSuccess>> {
 		const inventory = await this.inventory(plan, context);
 		if (isFailed(inventory)) return inventory;
 		const scanned = await scanInventoryText(inventory, plan, {
@@ -66,10 +63,10 @@ export class GrepTool {
 			operation: context.operation,
 		});
 		if (isFailed(scanned)) return scanned;
-		const regionized = await this.regionizer.regionizeAuto(
+		const regionized = await this.regionizer.regionize(
 			inventory,
 			scanned.hits,
-			semanticParsePriority(inventory, scanned, plan),
+			semanticParsePriority(inventory, scanned),
 			{
 				filesystem: context.filesystem,
 				operation: context.operation,
@@ -79,7 +76,7 @@ export class GrepTool {
 		if (isFailed(regionized)) return regionized;
 		const scope = successfulScopeState(plan, inventory, scanned.scopeErrors, regionized.scopeErrors);
 		if (scope.failure !== undefined) return scope.failure;
-		const local = buildLocalAutoResults(plan, scanned, regionized, context.limits.grep_regional_display_limit);
+		const local = buildLocalResults(plan, scanned, regionized, context.limits.grep_regional_display_limit);
 		const demand = grepHintDemand(plan, local);
 		const hints = await queryGrepHints(
 			inventory,
@@ -91,66 +88,24 @@ export class GrepTool {
 		);
 		if (isFailed(hints)) return hints;
 		const hinted = applyGrepHints(plan, local, regionized.files, hints);
-		const augmented = applyAstRelationFallback(plan, hinted, regionized.files);
-		return packGrepResults({
-			query: plan.query,
-			path: scope.paths[0] ?? ".",
-			match: "auto",
-			paths: scope.paths,
-			...(scope.errors.length === 0 ? {} : { scopeErrors: scope.errors }),
-			totalCandidates: augmented.totalCandidates,
-			regions: augmented.ranked,
-			stats: grepStats(inventory, scanned.stats, regionized.parsedFiles, regionized.skipped),
-			truncationReasons: uniqueTruncationReasons([
-				...inventory.truncationReasons,
-				...scanned.truncationReasons,
-				...regionized.truncationReasons,
-			]),
-			tokenBudget: context.limits.grep_output_token_budget,
-			resultLimit: context.limits.grep_result_limit,
-			regionalDisplayLimit: context.limits.grep_regional_display_limit,
-			relationActionLimit: context.limits.grep_relation_action_limit,
-		});
-	}
-
-	private async grepStrict(plan: QueryPlan, context: GrepCommandContext): Promise<ToolOutcome<GrepSuccess>> {
-		if (plan.match === "auto") return fail("INVALID_OPERATION", "Strict grep requires literal or regex mode.");
-		const strictMatch = plan.match;
-		const inventory = await this.inventory(plan, context);
-		if (isFailed(inventory)) return inventory;
-		const scanned = await scanInventoryText(inventory, plan, {
-			filesystem: context.filesystem,
-			operation: context.operation,
-		});
-		if (isFailed(scanned)) return scanned;
-		const regionized = await this.regionizer.regionize(inventory, scanned.hits, {
-			filesystem: context.filesystem,
-			operation: context.operation,
-			astMaxFileBytes: context.limits.grep_ast_max_file_bytes,
-		});
-		if (isFailed(regionized)) return regionized;
-		const scope = successfulScopeState(plan, inventory, scanned.scopeErrors, regionized.scopeErrors);
-		if (scope.failure !== undefined) return scope.failure;
-		const allRanked = rankCodeRegions(plan, regionized.regions);
-		const ranked = allRanked.filter(isVerifiedRankedRegion);
 		return packGrepResults({
 			query: plan.query,
 			path: scope.paths[0] ?? ".",
 			paths: scope.paths,
 			...(scope.errors.length === 0 ? {} : { scopeErrors: scope.errors }),
-			match: strictMatch,
-			totalCandidates: allRanked.length,
-			regions: ranked,
-			stats: grepStats(inventory, scanned.stats, regionized.parsedFiles, regionized.skipped),
-			truncationReasons: uniqueTruncationReasons([
-				...inventory.truncationReasons,
-				...scanned.truncationReasons,
-				...regionized.truncationReasons,
-			]),
-			tokenBudget: context.limits.grep_output_token_budget,
+			regions: hinted.ranked,
+			stats: grepStats(
+				inventory,
+				scanned.stats,
+				scanned.totalHits,
+				regionized.parsedFiles,
+				regionized.astSkippedOversizedFiles,
+				regionized.skipped,
+			),
+			truncationReasons: inventory.truncationReasons,
 			resultLimit: context.limits.grep_result_limit,
+			relatedResultLimit: context.limits.grep_related_result_limit,
 			regionalDisplayLimit: context.limits.grep_regional_display_limit,
-			relationActionLimit: context.limits.grep_relation_action_limit,
 		});
 	}
 
@@ -183,22 +138,30 @@ function successfulScopeState(
 
 function grepStats(
 	inventory: ScopeInventory,
-	scan: { readonly searchedFiles: number; readonly searchedBytes: number; readonly skipped: GrepSkippedStats },
+	scan: {
+		readonly searchedFiles: number;
+		readonly searchedBytes: number;
+		readonly droppedTextHits: number;
+		readonly droppedRelatedAnchors: number;
+		readonly skipped: GrepSkippedStats;
+	},
+	textHits: number,
 	parsedFiles: number,
+	astSkippedOversizedFiles: number,
 	regionSkipped: GrepSkippedStats,
-): GrepStats {
+): Omit<GrepStats, "dropped_related_results"> {
 	const skipped = mergeGrepSkipped([inventory.skipped, scan.skipped, regionSkipped]);
 	return {
 		traversed_entries: inventory.traversedEntries,
 		searched_files: scan.searchedFiles,
 		searched_bytes: scan.searchedBytes,
+		text_hits: textHits,
 		parsed_files: parsedFiles,
+		dropped_text_hits: scan.droppedTextHits,
+		dropped_related_anchors: scan.droppedRelatedAnchors,
+		ast_skipped_oversized_files: astSkippedOversizedFiles,
 		...(Object.keys(skipped).length === 0 ? {} : { skipped_files: skipped }),
 	};
-}
-
-function isVerifiedRankedRegion(region: RankedRegion): region is RankedRegion & VerifiedCodeRegion {
-	return region.queryMatch === "verified";
 }
 
 function mergeGrepSkipped(values: readonly GrepSkippedStats[]): GrepSkippedStats {
@@ -222,10 +185,6 @@ function withGrepScopeErrors(result: FailedResult, paths: string[], scopeErrors:
 }
 
 function uniqueStrings(values: readonly string[]): string[] {
-	return [...new Set(values)];
-}
-
-function uniqueTruncationReasons(values: readonly TruncationReason[]): TruncationReason[] {
 	return [...new Set(values)];
 }
 

@@ -1,5 +1,4 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { isFailedDetails, isFileToolName } from "../../src/file-tools/pi/guards.js";
 import { createLazyLspFileOperations } from "../../src/file-tools/pi/lazy-lsp.js";
@@ -36,9 +35,8 @@ const findParameters = Type.Object(
 );
 const grepParameters = Type.Object(
 	{
-		query: Type.String({ minLength: 1, description: "Text, symbol, concept, definition, or relationship." }),
+		query: Type.String({ minLength: 1, description: "Case-sensitive regular expression matched independently on each line; zero direct hits fall back to related code units." }),
 		path: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: "File or directory scopes; OR/union scope; default workspace." })),
-		match: Type.Optional(StringEnum(["auto", "literal", "regex"] as const, { description: "Matching strategy. literal: case-sensitive text; regex: independent per-line regular expression; no cross-line matches; default auto." })),
 		glob: Type.Optional(Type.String({ minLength: 1, description: "Relative to each scope; without / matches basenames recursively; use a path pattern such as src/**/*.ts for scoped paths." })),
 	},
 	{ additionalProperties: false },
@@ -197,7 +195,7 @@ function registerFileTools(
 		tool: {
 		name: "grep",
 		label: "grep",
-		description: "Locate code regions by text, symbol, concept, definition, or relationship.",
+		description: "Search text with a line regex, aggregate hits into code regions, and return related code units only when no text matches.",
 		promptSnippet: "locate relevant code",
 		parameters: grepParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {

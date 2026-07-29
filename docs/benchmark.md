@@ -59,7 +59,7 @@ npm run bench -- --plugin=./scripts/my-benchmark.mjs --suites=my-benchmark
 npm run bench:file-tools:ranking -- --runs=15
 ```
 
-该基准对比 `find`/`grep` 的完整融合排序与精确多样性 Top-K，使用固定合成候选和 50% identity 重叠，不访问文件系统或 LSP 后端。
+该基准覆盖 `find` 的融合排序与多样性 Top-K，以及 `grep` 的字段排序、证据融合与多样性 Top-K；使用合成候选，不访问文件系统或 LSP 后端。
 
 ## 启动场景
 

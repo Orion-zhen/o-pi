@@ -7,7 +7,7 @@ import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js"
 import { buildScopeInventory, type ScopeInventory } from "../../src/file-tools/grep/inventory.js";
 import { GrepTool } from "../../src/file-tools/grep/command.js";
 import type { GrepHintSource } from "../../src/file-tools/grep/ports.js";
-import type { GrepMatchMode, GrepSuccess } from "../../src/file-tools/grep/types.js";
+import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -48,8 +48,8 @@ export async function writeConfig(configPath: string, limits: Record<string, num
 				ignored_path: [],
 				ignore: { builtin_profile: "none", gitignore: false },
 				limits: {
-					grep_output_token_budget: 1600,
 					grep_result_limit: 8,
+					grep_related_result_limit: 8,
 					grep_regional_display_limit: 3,
 					grep_max_depth: 12,
 					grep_ast_max_file_bytes: 4096,
@@ -130,14 +130,14 @@ export function firstRegion(result: GrepSuccess) {
 	return region;
 }
 
-export async function assertStrictMatches(workspace: string, result: GrepSuccess, query: string, match: Exclude<GrepMatchMode, "auto">): Promise<void> {
+export async function assertStrictMatches(workspace: string, result: GrepSuccess, query: string): Promise<void> {
 	for (const region of result.regions) {
 		const text = await readFile(path.join(workspace, region.path), "utf8");
 		const lines = text.split(/\n/u);
 		expect(region.match_lines?.length).toBeGreaterThan(0);
 		for (const lineNumber of region.match_lines ?? []) {
 			const line = lines[lineNumber - 1] ?? "";
-			expect(match === "literal" ? line.includes(query) : new RegExp(query, "u").test(line)).toBe(true);
+			expect(new RegExp(query, "u").test(line)).toBe(true);
 		}
 	}
 }

@@ -6,26 +6,22 @@ import type { GrepParams, GrepRegion, TruncationReason } from "./types.js";
 
 const LIMIT_LABELS: Record<TruncationReason, string> = {
 	traversal_limit: "depth",
-	text_byte_limit: "bytes",
-	semantic_candidate_limit: "sem",
 	result_limit: "result",
-	token_budget: "token",
 };
 
-/** 渲染 grep 调用标题；TUI 只显示查询、scope 和 match mode。 */
+/** 渲染 grep 调用标题；TUI 只显示查询、scope 和 glob。 */
 export function formatGrepCall(args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
 	const record = isRecord(args) ? args : {};
 	const query = typeof record["query"] === "string" ? record["query"] : "";
 	const paths = pathArgs(record["path"]);
-	const match = typeof record["match"] === "string" ? record["match"] : "auto";
 	const glob = typeof record["glob"] === "string" ? record["glob"] : undefined;
 	return formatToolCard(
-		{ tool: "grep", status: "running", target: `${JSON.stringify(query)} in ${paths.join(", ")}`, summary: joinParts([match, glob]) },
+		{ tool: "grep", status: "running", target: `${JSON.stringify(query)} in ${paths.join(", ")}`, summary: joinParts([glob]) },
 		theme,
 	);
 }
 
-/** 渲染 grep 结果摘要；TUI 不展示源码正文或内部评分。 */
+/** 渲染 grep 结果；展开态压缩展示 text 匹配行，不展开代码区域正文或内部评分。 */
 export function formatGrepResult(details: unknown, expanded: boolean, theme: Pick<Theme, "fg" | "bold">): string {
 	if (!isGrepSuccessDetails(details)) return "";
 	const scope = (details.paths ?? [details.path]).join(", ");
@@ -43,11 +39,66 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 	}, theme);
 	if (!expanded) return header;
 	const lines = [header];
-	for (const region of details.regions) lines.push(formatRegion(region, theme));
+	appendRegions(lines, details.regions, theme);
 	if (details.truncated_by.length > 0) lines.push(theme.fg("muted", `limit: ${formatLimitReasons(details.truncated_by, ", ")}`));
 	if (details.scope_errors !== undefined && details.scope_errors.length > 0) lines.push(theme.fg("muted", `Scope errors: ${details.scope_errors.map((item) => `${item.path}:${item.error.code}`).join(", ")}.`));
 	if (details.stats.skipped_files !== undefined) lines.push(theme.fg("muted", `skipped ${Object.entries(details.stats.skipped_files).map(([key, value]) => `${key}:${value}`).join(" ")}`));
 	return lines.join("\n");
+}
+
+function appendRegions(output: string[], regions: readonly GrepRegion[], theme: Pick<Theme, "fg">): void {
+	let index = 0;
+	while (index < regions.length) {
+		const region = regions[index];
+		if (region === undefined) break;
+		if (region.kind !== "text") {
+			output.push(formatRegion(region, theme));
+			index += 1;
+			continue;
+		}
+		const grouped = [region];
+		let nextIndex = index + 1;
+		while (nextIndex < regions.length) {
+			const next = regions[nextIndex];
+			if (next === undefined || !sameTextDisplayGroup(region, next)) break;
+			grouped.push(next);
+			nextIndex += 1;
+		}
+		output.push(grouped.length === 1 ? formatTextRegion(region, theme) : formatTextRegionGroup(region, grouped, theme));
+		index = nextIndex;
+	}
+}
+
+function sameTextDisplayGroup(left: GrepRegion, right: GrepRegion): boolean {
+	return right.kind === "text"
+		&& left.path === right.path
+		&& left.query_match === right.query_match
+		&& left.matched_by.join("\0") === right.matched_by.join("\0");
+}
+
+function formatTextRegionGroup(
+	first: GrepRegion,
+	regions: readonly GrepRegion[],
+	theme: Pick<Theme, "fg">,
+): string {
+	const evidence = first.query_match === "semantic" ? " [evidence=lexical]" : "";
+	const lines = [theme.fg("accent", `${first.path}${evidence}:`)];
+	for (const region of regions) {
+		const display = region.display_lines?.[0];
+		lines.push(display === undefined
+			? `  ${region.start_line}:`
+			: `  ${display.line}: ${display.text}`);
+	}
+	return lines.join("\n");
+}
+
+function formatTextRegion(region: GrepRegion, theme: Pick<Theme, "fg">): string {
+	const display = region.display_lines?.[0];
+	if (display === undefined) return theme.fg("accent", `${region.path}:${region.start_line}:`);
+	const range = theme.fg("accent", `${region.path}:${display.line}`);
+	return display.type === "match"
+		? `${range}: ${display.text}`
+		: `${range} [evidence=lexical]: ${display.text}`;
 }
 
 function formatLimitReasons(reasons: readonly TruncationReason[], separator = ","): string {

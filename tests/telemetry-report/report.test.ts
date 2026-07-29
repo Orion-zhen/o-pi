@@ -8,6 +8,7 @@ import { aggregateTelemetry } from "../../src/telemetry-report/aggregate.js";
 import { collectCandidateObservations } from "../../src/telemetry-report/analyzers/candidate-observations.js";
 import { analyzeCandidateRanking } from "../../src/telemetry-report/analyzers/candidate-ranking.js";
 import { analyzeEdits } from "../../src/telemetry-report/analyzers/edit.js";
+import { analyzeGrep } from "../../src/telemetry-report/analyzers/grep.js";
 import { analyzeSearchEffectiveness } from "../../src/telemetry-report/analyzers/search-effectiveness.js";
 import { generateTelemetryReport } from "../../src/telemetry-report/command.js";
 import { formatTelemetrySummary, renderTelemetryHtml } from "../../src/telemetry-report/html.js";
@@ -23,7 +24,10 @@ describe("telemetry report", () => {
 		await mkdir(directory, { recursive: true });
 		await writeFile(path.join(directory, "run.jsonl"), [
 			JSON.stringify(run("run-a", "commit-a")),
-			JSON.stringify(call("call-a", 0, "read", { repair: { status: "repaired", operations: ["split_path_list"] } })),
+			JSON.stringify(call("call-a", 0, "grep", {
+				repair: { status: "repaired", operations: ["split_path_list"] },
+				candidates: [rankedCandidate("src/a.ts", 1, 3, 2, "mmr", 2.5, 0.01)],
+			})),
 			JSON.stringify({ ...call("bad", 1, "read"), status: "unfinished" }),
 			JSON.stringify({ type: "tool", run_id: "run-a", at: at(0) }),
 			"{bad-json",
@@ -32,6 +36,13 @@ describe("telemetry report", () => {
 
 		const result = await readTelemetryDirectory(directory);
 		expect(result.records).toHaveLength(2);
+		expect((result.records[1] as CallRecord).candidates?.[0]).toMatchObject({
+			relevance_rank: 3,
+			ranking_tier: 2,
+			ranking_score: 2.5,
+			ranking_aux_score: 0.01,
+			selection: "mmr",
+		});
 		expect(result.invalid_lines).toBe(3);
 		expect(result.files).toEqual([path.join(directory, "run.jsonl")]);
 	});
@@ -144,6 +155,213 @@ describe("telemetry report", () => {
 		expect(html).toContain("primary");
 		expect(html).toContain("related");
 		expect(html).not.toContain("grid-6");
+	});
+
+	it("分析 grep 的 direct、related、空结果、内部容量和下游采用", () => {
+		const records = [
+			call("direct", 0, "grep", {
+				fields: grepFields({
+					text_hit_count: 6,
+					returned_match_count: 2,
+					returned_file_count: 2,
+					returned_verified_candidate_count: 2,
+					truncation_reasons: ["result_limit"],
+					parsed_file_count: 2,
+				}),
+				candidates: [
+					{ kind: "region", value: "src/direct-a.ts", rank: 1, group: "verified", sources: ["text-regex"], start_line: 1, end_line: 8 },
+					{ kind: "region", value: "src/direct-b.ts", rank: 2, group: "verified", sources: ["text-regex"], start_line: 10, end_line: 18 },
+				],
+			}),
+			call("read-direct", 1, "read", { targets: [file("src/direct-a.ts")] }),
+			call("related", 2, "grep", {
+				fields: grepFields({
+					text_hit_count: 0,
+					returned_match_count: 1,
+					returned_file_count: 1,
+					returned_related_candidate_count: 1,
+					dropped_related_result_count: 3,
+					dropped_related_anchor_count: 4,
+					ast_skipped_oversized_file_count: 1,
+				}),
+				candidates: [
+					{ kind: "region", value: "src/related.ts", rank: 1, group: "related", sources: ["lsp-symbol", "text-lexical"], start_line: 4, end_line: 12 },
+				],
+			}),
+			call("read-related", 3, "read", { targets: [file("src/related.ts")] }),
+			call("empty", 4, "grep", {
+				fields: grepFields({
+					text_hit_count: 0,
+					returned_match_count: 0,
+					returned_file_count: 0,
+					returned_related_candidate_count: 0,
+				}),
+			}),
+		];
+		const report = analyzeGrep(records, cwd());
+		expect(report).toMatchObject({
+			calls: 3,
+			successful_calls: 3,
+			failed_calls: 0,
+			execution_path_observed_calls: 3,
+			direct_match: { numerator: 1, samples: 3 },
+			related_fallback: { numerator: 1, samples: 3 },
+			empty_result: { numerator: 1, samples: 3 },
+			related_recovery: { numerator: 1, samples: 2, value: 0.5 },
+			work: {
+				text_hits: { samples: 3, mean: 2 },
+				ast_augmented_calls: { numerator: 1, samples: 3 },
+			},
+			limits: { result: { numerator: 1, samples: 3 } },
+			capacity: {
+				dropped_related_results: { total: 3, calls: { numerator: 1, samples: 3 } },
+				dropped_related_anchors: { total: 4, calls: { numerator: 1, samples: 3 } },
+				ast_skipped_oversized_files: { total: 1, calls: { numerator: 1, samples: 3 } },
+			},
+			ranking: { observed_calls: 0, unobserved_calls: 3, by_algorithm: {} },
+			by_result_kind: {
+				verified: { calls: 1, candidates: 2, pre_refinement_adoption: { numerator: 1, samples: 1 } },
+				related: { calls: 1, candidates: 1, pre_refinement_adoption: { numerator: 1, samples: 1 } },
+			},
+			by_source: {
+				"lsp-symbol": { candidates: 1, pre_refinement_adoption: { numerator: 1, samples: 1 } },
+			},
+		});
+		expect(report.findings.map((finding) => finding.code)).toEqual([
+			"incomplete_ranking_facts",
+			"related_fallback_recovery",
+			"related_fallback_follow_up",
+			"result_limit_pressure",
+			"related_limit_pressure",
+			"ast_size_limit_pressure",
+			"lsp_assistance_observed",
+		]);
+
+		const aggregate = aggregateTelemetry([run("run-a", "commit-a"), ...records], { generatedAt: at(9) });
+		expect(aggregate.grep.related_recovery).toMatchObject({ numerator: 1, samples: 2 });
+		const html = renderTelemetryHtml(aggregate);
+		expect(html).toContain("Grep 执行链分析");
+		expect(html).toContain("LSP 参与");
+		expect(html).toContain("静默过滤 related");
+	});
+
+	it("样本足够时将持续空结果提升为 grep finding", () => {
+		const records = Array.from({ length: 5 }, (_, index) =>
+			call(`empty-${index}`, index, "grep", { fields: grepFields() }));
+		const report = analyzeGrep(records, cwd());
+		expect(report.empty_result).toMatchObject({ numerator: 5, samples: 5, value: 1 });
+		expect(report.findings).toContainEqual(expect.objectContaining({
+			code: "frequent_empty_results",
+			severity: "warning",
+			evidence: { numerator: 5, samples: 5, value: 1 },
+		}));
+	});
+
+	it("按排序算法展示 Hit、MRR、nDCG、tier、选择阶段、分数和多样性", () => {
+		const records = [
+			call("rank-v1", 0, "grep", {
+				runId: "rank-v1",
+				fields: grepFields({
+					returned_match_count: 2,
+					returned_file_count: 2,
+					ranking_algorithm: "tier-bm25f-rrf-mmr-v1",
+					ranking_candidate_count: 10,
+					ranking_eligible_candidate_count: 6,
+					ranking_selected_candidate_count: 2,
+					ranking_head_size: 1,
+					ranking_tier_count: 2,
+					ranking_top_tier_candidate_count: 1,
+					ranking_mmr_selected_count: 1,
+					ranking_mmr_replacement_count: 1,
+					ranking_relevance_prefix_file_count: 1,
+					ranking_selected_file_count: 2,
+				}),
+				candidates: [
+					rankedCandidate("src/head.ts", 1, 1, 1, "head", 5, 0.02),
+					rankedCandidate("src/mmr.ts", 2, 5, 2, "mmr", 2, 0.01),
+				],
+			}),
+			call("rank-v1-read", 1, "read", { runId: "rank-v1", targets: [file("src/mmr.ts")] }),
+			call("rank-v1-edit", 2, "edit", { runId: "rank-v1", targets: [file("src/mmr.ts")] }),
+			call("rank-v2", 0, "grep", {
+				runId: "rank-v2",
+				fields: grepFields({
+					returned_match_count: 1,
+					returned_file_count: 1,
+					ranking_algorithm: "experimental-v2",
+					ranking_candidate_count: 4,
+					ranking_eligible_candidate_count: 4,
+					ranking_selected_candidate_count: 1,
+					ranking_head_size: 1,
+					ranking_tier_count: 1,
+					ranking_top_tier_candidate_count: 4,
+					ranking_mmr_selected_count: 0,
+					ranking_mmr_replacement_count: 0,
+					ranking_relevance_prefix_file_count: 1,
+					ranking_selected_file_count: 1,
+				}),
+				candidates: [rankedCandidate("src/v2.ts", 1, 1, 1, "head", 7, 0)],
+			}),
+			call("rank-v2-read", 1, "read", { runId: "rank-v2", targets: [file("src/v2.ts")] }),
+		];
+		const cwdByRun = new Map([["rank-v1", "/repo"], ["rank-v2", "/repo"]]);
+		const report = analyzeGrep(records, cwdByRun);
+
+		expect(report.ranking).toMatchObject({
+			observed_calls: 2,
+			unobserved_calls: 0,
+			by_algorithm: {
+				"tier-bm25f-rrf-mmr-v1": {
+					calls: 1,
+					candidate_pool: { mean: 10 },
+					eligible_candidates: { mean: 6 },
+					selected_candidates: { mean: 2 },
+					selection_changed: { numerator: 1, samples: 1, value: 1 },
+					file_diversity_gain: { mean: 1 },
+					immediate: { mrr: { value: 0.5 } },
+					by_tier: {
+						"2": {
+							candidates: 1,
+							immediate_adoption: { numerator: 1, samples: 1 },
+							productive_adoption: { numerator: 1, samples: 1 },
+							relevance_rank: { mean: 5 },
+							rank_promotion: { mean: 3 },
+							productive_rank_promotion: { mean: 3 },
+							productive_primary_score: { mean: 2 },
+						},
+					},
+					by_selection: {
+						mmr: {
+							candidates: 1,
+							immediate_adoption: { numerator: 1, samples: 1 },
+						},
+					},
+				},
+				"experimental-v2": {
+					calls: 1,
+					candidate_pool: { mean: 4 },
+					selection_changed: { numerator: 0, samples: 1, value: 0 },
+				},
+			},
+		});
+		expect(report.ranking.by_algorithm["tier-bm25f-rrf-mmr-v1"]?.immediate.ndcg_at_k
+			.find((item) => item.k === 10)?.value).toBeCloseTo(1 / Math.log2(3));
+
+		const aggregate = aggregateTelemetry([
+			run("rank-v1", "commit-a"),
+			run("rank-v2", "commit-b"),
+			...records,
+		], { generatedAt: at(9) });
+		const html = renderTelemetryHtml(aggregate);
+		expect(html).toContain("排序算法质量与选择行为");
+		expect(html).toContain("tier-bm25f-rrf-mmr-v1");
+		expect(html).toContain("experimental-v2");
+		expect(html).toContain("nDCG@10");
+		expect(html).toContain("多样性增益");
+		const live = renderLiveTelemetry({ report: aggregate, enabled: true, pending_calls: 0 }, 100).join("\n");
+		expect(live).toContain("Ranking facts 2/2");
+		expect(live).toContain("tier-bm25f-rrf-mmr-v1");
+		expect(live).toContain("MRR/nDCG10");
 	});
 
 	it("measures multi-file edit demand, partial failures, and possible call reduction", () => {
@@ -316,7 +534,7 @@ describe("telemetry report", () => {
 		expect(report.by_tool.find?.output_efficiency).toEqual(report.output_efficiency);
 	});
 
-	it("computes Hit@K, MRR, and adoption retention from unique events", () => {
+	it("computes Hit@K, MRR, nDCG, and adoption retention from unique events", () => {
 		const report = analyzeCandidateRanking([
 			call("find", 0, "find", { candidates: [
 				candidate("src/one.ts", 1, ["lexical"]),
@@ -330,6 +548,12 @@ describe("telemetry report", () => {
 		], cwd());
 		expect(report.file_level.immediate.hit_at_k.map((item) => item.converted_lists)).toEqual([0, 0, 1, 1]);
 		expect(report.file_level.immediate.mrr.value).toBe(0.25);
+		expect(report.file_level.immediate.ndcg_at_k.map((item) => item.value)).toEqual([
+			0,
+			0,
+			1 / Math.log2(5),
+			1 / Math.log2(5),
+		]);
 		expect(report.file_level.pre_refinement.mrr.value).toBe(0.5);
 		expect(report.file_level.pre_refinement.retention_at_k.map((item) => item.rate)).toEqual([0, 1 / 3, 2 / 3, 1]);
 		expect(report.file_level.productive.hit_at_k.map((item) => item.converted_lists)).toEqual([0, 0, 0, 1]);
@@ -386,7 +610,7 @@ describe("telemetry report", () => {
 		expect(html).toContain("工具性能");
 		expect(html).toContain("编辑调用：单文件与多文件");
 		expect(html).toContain("搜索有效产出");
-		expect(html).toContain("Hit@K / MRR / retention");
+		expect(html).toContain("Hit@K / MRR / nDCG / retention");
 		expect(html).not.toContain("<pre>");
 		expect(html).not.toContain('"candidate_ranking"');
 		expect(formatTelemetrySummary(result.report)).toContain("工具调用 1 次");
@@ -512,6 +736,46 @@ function candidate(value: string, rank: number, sources: string[], startLine?: n
 		sources,
 		...(startLine === undefined ? {} : { start_line: startLine }),
 		...(endLine === undefined ? {} : { end_line: endLine }),
+	};
+}
+
+function rankedCandidate(
+	value: string,
+	rank: number,
+	relevanceRank: number,
+	tier: number,
+	selection: string,
+	primaryScore: number,
+	auxiliaryScore: number,
+): Candidate {
+	return {
+		...candidate(value, rank, ["text-regex"]),
+		relevance_rank: relevanceRank,
+		ranking_tier: tier,
+		ranking_score: primaryScore,
+		ranking_aux_score: auxiliaryScore,
+		selection,
+	};
+}
+
+function grepFields(overrides: NonNullable<CallRecord["fields"]> = {}): NonNullable<CallRecord["fields"]> {
+	return {
+		status: "success",
+		searched_file_count: 10,
+		searched_byte_count: 1_000,
+		text_hit_count: 0,
+		parsed_file_count: 0,
+		returned_match_count: 0,
+		returned_file_count: 0,
+		approx_token_count: 20,
+		dropped_text_hit_count: 0,
+		dropped_related_anchor_count: 0,
+		dropped_related_result_count: 0,
+		ast_skipped_oversized_file_count: 0,
+		returned_verified_candidate_count: 0,
+		returned_related_candidate_count: 0,
+		truncation_reasons: [],
+		...overrides,
 	};
 }
 

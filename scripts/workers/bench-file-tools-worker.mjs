@@ -56,28 +56,27 @@ async function runSearchBenchmark() {
 	};
 	const coldFindMs = await measure(() => find({ query: "file tools config" }));
 	const warmFindMs = await measure(() => find({ query: "file tools config" }));
-	const coldGrepMs = await measure(() => grep({ query: "createRetryableLoader", match: "literal" }));
-	const warmGrepMs = await measure(() => grep({ query: "createRetryableLoader", match: "literal" }));
+	const coldGrepMs = await measure(() => grep({ query: "createRetryableLoader" }));
+	const warmGrepMs = await measure(() => grep({ query: "createRetryableLoader" }));
 
 	grepTool.dispose();
 	grepHost.dispose();
 	grepTool = new GrepTool();
 	grepHost = new FileToolsHost();
 	const concurrentGrepMs = await measure(() => Promise.all([
-		grep({ query: "createRetryableLoader", match: "literal" }),
-		grep({ query: "createFileToolsExtension", match: "literal" }),
+		grep({ query: "createRetryableLoader" }),
+		grep({ query: "createFileToolsExtension" }),
 	]));
-	const broadAutoGrepMs = await measure(() => grep({
+	const broadGrepMs = await measure(() => grep({
 		query: "File Tools",
 		path: ["src", "tests", "docs", "agent"],
-		match: "auto",
 	}));
 
 	findTool.dispose();
 	host.dispose();
 	grepTool.dispose();
 	grepHost.dispose();
-	console.log(JSON.stringify({ coldFindMs, warmFindMs, coldGrepMs, warmGrepMs, concurrentGrepMs, broadAutoGrepMs }));
+	console.log(JSON.stringify({ coldFindMs, warmFindMs, coldGrepMs, warmGrepMs, concurrentGrepMs, broadGrepMs }));
 }
 
 async function measure(operation) {

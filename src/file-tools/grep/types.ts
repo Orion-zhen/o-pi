@@ -1,25 +1,19 @@
 import type { FileToolError } from "../shared/result.js";
 
-export type GrepMatchMode = "auto" | "literal" | "regex";
 export type GrepMatchedBy =
 	| "exact-qualified-symbol"
 	| "exact-symbol"
 	| "symbol-prefix"
-	| "literal"
 	| "regex"
 	| "lexical"
-	| "relationship";
+	| "related";
 export type TruncationReason =
 	| "traversal_limit"
-	| "text_byte_limit"
-	| "semantic_candidate_limit"
-	| "result_limit"
-	| "token_budget";
+	| "result_limit";
 
 export interface GrepParams {
 	query: string;
 	path?: string[];
-	match?: GrepMatchMode;
 	glob?: string;
 }
 
@@ -35,7 +29,13 @@ export interface GrepStats {
 	traversed_entries: number;
 	searched_files: number;
 	searched_bytes: number;
+	text_hits: number;
 	parsed_files: number;
+	/** 内部容量观测；不进入模型截断状态。 */
+	dropped_text_hits: number;
+	dropped_related_anchors: number;
+	dropped_related_results: number;
+	ast_skipped_oversized_files: number;
 	skipped_files?: GrepSkippedFiles;
 }
 
@@ -67,13 +67,38 @@ export interface GrepScopeError {
 	error: FileToolError;
 }
 
+export type GrepRankingSelection = "head" | "mmr";
+
+export interface GrepRegionRanking {
+	relevance_rank: number;
+	tier: number;
+	primary_score: number;
+	auxiliary_score: number;
+	selection: GrepRankingSelection;
+}
+
+/** details/telemetry only；不进入模型正文或 TUI 结果区域。 */
+export interface GrepRankingDiagnostics {
+	algorithm: string;
+	candidate_count: number;
+	eligible_candidate_count: number;
+	selected_candidate_count: number;
+	relevance_head_size: number;
+	tier_count: number;
+	top_tier_candidate_count: number;
+	mmr_selected_count: number;
+	mmr_replacement_count: number;
+	relevance_prefix_file_count: number;
+	selected_file_count: number;
+	regions: GrepRegionRanking[];
+}
+
 export interface GrepSuccess {
 	status: "success";
 	query: string;
 	path: string;
 	paths?: string[];
 	scope_errors?: GrepScopeError[];
-	match: GrepMatchMode;
 	total_candidates: number;
 	returned_regions: number;
 	returned_files: number;
@@ -81,4 +106,5 @@ export interface GrepSuccess {
 	stats: GrepStats;
 	truncated_by: TruncationReason[];
 	regions: GrepRegion[];
+	ranking?: GrepRankingDiagnostics;
 }

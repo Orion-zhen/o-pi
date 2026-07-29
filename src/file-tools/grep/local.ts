@@ -14,9 +14,9 @@ import {
 	type VerifiedCodeRegion,
 } from "./candidates.js";
 import type { ScopeInventory } from "./inventory.js";
-import type { QueryPlan, RelationIntent } from "./query-plan.js";
+import type { QueryPlan } from "./query-plan.js";
 import { assignSourceLocalRanks, rankCodeRegions } from "./ranking.js";
-import type { AutoRegionizationResult, AutoRegionizedFile } from "./regionizer.js";
+import type { RegionizationResult, RegionizedFile } from "./regionizer.js";
 import type { TextScanResult } from "./text-scanner.js";
 import type { GrepDisplayLine } from "./types.js";
 
@@ -34,17 +34,15 @@ interface UnitFile {
 	readonly unit: IndexedCodeUnit;
 }
 
-export interface LocalAutoResult {
+export interface LocalResult {
 	readonly regions: readonly CodeRegion[];
 	readonly ranked: readonly RankedRegion[];
-	readonly totalCandidates: number;
 }
 
-/** 普通查询只解析已有文本候选的文件；显式关系查询允许 AST 扫描 scope 作为回退。 */
+/** 有正文命中时只解析命中文件；零命中时解析代码 scope，为 related 回退提供 live AST。 */
 export function semanticParsePriority(
 	inventory: ScopeInventory,
 	scan: TextScanResult,
-	plan: QueryPlan,
 ): string[] {
 	const evidenceByPath = new Map(scan.fileEvidence.map((item) => [item.path, item]));
 	const hitCount = new Map<string, number>();
@@ -52,7 +50,7 @@ export function semanticParsePriority(
 	return inventory.files
 		.filter((file) => languageFromPath(file.path) !== "text")
 		.filter((file) => {
-			if (plan.relationIntents.length > 0) return true;
+			if (scan.totalHits === 0) return true;
 			const evidence = evidenceByPath.get(file.path);
 			return (hitCount.get(file.path) ?? 0) > 0 || (evidence?.anchors.length ?? 0) > 0;
 		})
@@ -60,11 +58,10 @@ export function semanticParsePriority(
 			const evidence = evidenceByPath.get(file.path);
 			const covered = evidence?.matchedTerms.length ?? 0;
 			const phrase = evidence?.anchors.filter((anchor) => anchor.phrase).length ?? 0;
-			const identifier = evidence?.anchors.filter((anchor) => anchor.identifier).length ?? 0;
 			const exact = hitCount.get(file.path) ?? 0;
 			return {
 				path: file.path,
-				score: exact * 1_000_000 + phrase * 100_000 + identifier * 20_000 + covered * 10_000,
+				score: exact * 1_000_000 + phrase * 100_000 + covered * 10_000,
 				size: file.snapshot.sizeBytes,
 			};
 		})
@@ -72,64 +69,45 @@ export function semanticParsePriority(
 		.map((item) => item.path);
 }
 
-/** 文本 hit/anchor 是普通查询的唯一候选来源；AST 只折叠、补充结构并合并。 */
-export function buildLocalAutoResults(
+/** 正文命中优先；仅在整次零命中时将词法 anchor 转成明确标记的 related 候选。 */
+export function buildLocalResults(
 	plan: QueryPlan,
 	scan: TextScanResult,
-	regionized: AutoRegionizationResult,
+	regionized: RegionizationResult,
 	displayLimit: number,
-): LocalAutoResult {
+): LocalResult {
 	const byId = new Map<string, VerifiedCodeRegion | SemanticMainRegion>();
-	for (const region of regionized.regions) byId.set(region.id, enrichVerifiedRegion(region, plan));
+	for (const region of regionized.regions) byId.set(region.id, enrichVerifiedRegion(region));
+	if (scan.totalHits > 0) return rankedResult(plan, byId);
 
 	const unitFiles = collectUnitFiles(regionized.files);
 	const queryTerms = uniqueTerms(plan.targetTerms.length > 0 ? plan.targetTerms : [plan.query]);
 	const groupedAnchors = groupLexicalAnchors(scan.fileEvidence, unitFiles);
 	const entries = [
-		...anchoredUnitCandidates(groupedAnchors.byUnit, unitFiles, plan, queryTerms, displayLimit),
-		...lexicalAnchorCandidates(groupedAnchors.outside, scan.hits, plan, queryTerms),
+		...anchoredUnitCandidates(groupedAnchors.byUnit, unitFiles, queryTerms, displayLimit),
+		...lexicalAnchorCandidates(groupedAnchors.outside, scan.hits, queryTerms),
 	];
 	mergeEntries(byId, entries);
 	return rankedResult(plan, byId);
 }
 
-/** LSP 没有提供显式关系结果时，才用本次 live AST 生成关系回退。 */
-export function applyAstRelationFallback(
-	plan: QueryPlan,
-	local: LocalAutoResult,
-	files: readonly AutoRegionizedFile[],
-): LocalAutoResult {
-	if (plan.relationIntents.length === 0 || hasRequestedRelation(plan, local.regions)) return local;
-	const byId = new Map(local.regions.map((region) => [region.id, region]));
-	const units = collectUnitFiles(files);
-	const target = lastSegment((plan.targetQuery.length > 0 ? plan.targetQuery : plan.query).toLocaleLowerCase());
-	mergeEntries(byId, relationCandidates(units, files, plan, target));
-	return rankedResult(plan, byId);
-}
-
-function collectUnitFiles(files: readonly AutoRegionizedFile[]): UnitFile[] {
+function collectUnitFiles(files: readonly RegionizedFile[]): UnitFile[] {
 	return files.flatMap((file) => file.analysis.index.units.map((unit) => ({ unit })));
 }
 
-function enrichVerifiedRegion(region: VerifiedCodeRegion, plan: QueryPlan): VerifiedCodeRegion {
+function enrichVerifiedRegion(region: VerifiedCodeRegion): VerifiedCodeRegion {
 	const declarationEndByte = region.declarationEndByte;
 	const definitionHit = declarationEndByte !== undefined
 		&& region.verifiedHits.some((hit) => hit.byteStart < declarationEndByte);
 	const roles = definitionHit
 		? unique([...region.roles, "definition" as const, ...structuralRoles(region.path, undefined)])
 		: region.roles;
-	const exactSignal: CandidateSignal = plan.shape === "qualified_symbol"
-		? "verified_qualified_occurrence"
-		: plan.shape === "identifier"
-			? "verified_text"
-			: "verified_phrase";
-	return { ...region, roles, signals: unique([...region.signals, exactSignal]) };
+	return { ...region, roles };
 }
 
 function anchoredUnitCandidates(
 	anchorsByUnit: ReadonlyMap<string, readonly LexicalTextAnchor[]>,
 	units: readonly UnitFile[],
-	plan: QueryPlan,
 	queryTerms: readonly string[],
 	displayLimit: number,
 ): LocalEntry[] {
@@ -144,7 +122,7 @@ function anchoredUnitCandidates(
 			item.unit.signature,
 		].filter((value): value is string => value !== undefined).join(" "));
 		const matchedTerms = queryTerms.filter((term) => anchorTerms.has(term) || structureTerms.has(term));
-		if (!passesCoverage(plan, matchedTerms.length, queryTerms.length)) continue;
+		if (!passesCoverage(matchedTerms.length, queryTerms.length)) continue;
 		const highCoverage = anchors.some((anchor) => anchor.phrase)
 			|| (queryTerms.length > 1 && matchedTerms.length / queryTerms.length >= 0.6);
 		const declarationTerms = item.unit.signature === undefined
@@ -208,14 +186,13 @@ function smallestEnclosingUnit(units: readonly UnitFile[], anchor: LexicalTextAn
 function lexicalAnchorCandidates(
 	anchors: readonly LexicalTextAnchor[],
 	hits: readonly { readonly path: string; readonly line: number }[],
-	plan: QueryPlan,
 	queryTerms: readonly string[],
 ): LocalEntry[] {
 	const exactLines = new Set(hits.map((hit) => `${hit.path}\0${hit.line}`));
 	const result: LocalEntry[] = [];
 	for (const anchor of anchors) {
 		if (exactLines.has(`${anchor.path}\0${anchor.line}`)) continue;
-		if (!passesCoverage(plan, anchor.matchedTerms.length, queryTerms.length) && !anchor.phrase && !anchor.identifier) continue;
+		if (!passesCoverage(anchor.matchedTerms.length, queryTerms.length) && !anchor.phrase) continue;
 		const highCoverage = anchor.phrase || (queryTerms.length > 1 && anchor.matchedTerms.length / queryTerms.length >= 0.6);
 		const id = `${anchor.path}:${anchor.line}:${anchor.byteStart}:${anchor.byteEnd}:lexical`;
 		result.push({
@@ -237,67 +214,6 @@ function lexicalAnchorCandidates(
 				signals: [highCoverage ? "lexical_high_coverage" : "lexical"],
 				evidence: [],
 				displayLines: [anchorDisplayLine(anchor)],
-			}),
-		});
-	}
-	return result;
-}
-
-function relationCandidates(
-	units: readonly UnitFile[],
-	files: readonly AutoRegionizedFile[],
-	plan: QueryPlan,
-	target: string,
-): LocalEntry[] {
-	if (target.length === 0) return [];
-	const definitions = new Map<string, UnitFile[]>();
-	for (const item of units) for (const definition of item.unit.definitions) {
-		const key = definition.toLocaleLowerCase();
-		const grouped = definitions.get(key);
-		if (grouped === undefined) definitions.set(key, [item]);
-		else grouped.push(item);
-	}
-	const requested = new Set(plan.relationIntents);
-	const result: LocalEntry[] = [];
-	const add = (
-		item: UnitFile,
-		role: Extract<CandidateRole, "caller" | "callee" | "reference" | "test" | "registration">,
-		intent: RelationIntent,
-	): void => {
-		if (requested.has(intent)) result.push(localEntry(item, "ast-relation", intent, 100, [role], ["requested_relation"]));
-	};
-	for (const item of units) {
-		if (item.unit.calls.some((call) => lastSegment(call.toLocaleLowerCase()) === target)) add(item, "caller", "caller");
-		if (item.unit.references.some((reference) => lastSegment(reference.toLocaleLowerCase()) === target)) add(item, "reference", "reference");
-		if (isTestPath(item.unit.path) && unitMentionsTarget(item, target)) add(item, "test", "test");
-		if (item.unit.calls.some((call) => /register/iu.test(call)) && unitMentionsTarget(item, target)) add(item, "registration", "registration");
-	}
-	for (const definition of definitions.get(target) ?? []) {
-		for (const call of definition.unit.calls) {
-			for (const callee of definitions.get(lastSegment(call.toLocaleLowerCase())) ?? []) add(callee, "callee", "callee");
-		}
-	}
-	if (requested.has("import")) for (const file of files) for (const imported of file.analysis.imports) {
-		if (!imported.specifier.toLocaleLowerCase().includes(target)) continue;
-		const id = `${file.file.path}:${imported.startByte}:${imported.endByte}:import`;
-		result.push({
-			id,
-			path: file.file.path,
-			startLine: imported.startLine,
-			quality: 100,
-			source: "ast-relation",
-			reason: "import",
-			region: createSemanticCodeRegion({
-				id,
-				path: file.file.path,
-				startLine: imported.startLine,
-				endLine: imported.endLine,
-				startByte: imported.startByte,
-				endByte: imported.endByte,
-				kind: "import",
-				roles: ["import"],
-				signals: ["requested_relation"],
-				evidence: [],
 			}),
 		});
 	}
@@ -344,17 +260,22 @@ function mergeEntries(
 	regions: Map<string, VerifiedCodeRegion | SemanticMainRegion>,
 	entries: readonly LocalEntry[],
 ): void {
-	const ranks = assignSourceLocalRanks(entries, (entry) => entry.source, compareLocalEntries);
+	const ranks = assignSourceLocalRanks(
+		entries,
+		(entry) => entry.source,
+		(left, right) => right.quality - left.quality,
+		compareLocalEntriesStable,
+	);
 	for (const entry of entries) addRegion(regions, withEvidence(entry, ranks.get(entry) ?? Number.MAX_SAFE_INTEGER));
 }
 
 function rankedResult(
 	plan: QueryPlan,
 	regions: ReadonlyMap<string, VerifiedCodeRegion | SemanticMainRegion>,
-): LocalAutoResult {
+): LocalResult {
 	const values = [...regions.values()];
 	const ranked = rankCodeRegions(plan, values);
-	return { regions: values, ranked, totalCandidates: ranked.length };
+	return { regions: values, ranked };
 }
 
 function addRegion(
@@ -397,20 +318,10 @@ function mergeDisplayLines(left: readonly GrepDisplayLine[], right: readonly Gre
 	return [...result.values()].sort((leftLine, rightLine) => leftLine.line - rightLine.line);
 }
 
-function hasRequestedRelation(plan: QueryPlan, regions: readonly CodeRegion[]): boolean {
-	const requested = new Set(plan.relationIntents);
-	return regions.some((region) =>
-		region.signals.includes("requested_relation")
-		&& region.roles.some((role) => requested.has(role as RelationIntent)));
-}
-
-function passesCoverage(plan: QueryPlan, matched: number, total: number): boolean {
+function passesCoverage(matched: number, total: number): boolean {
 	if (total === 0) return false;
 	if (total === 1) return matched === 1;
-	const required = plan.shape === "natural_language" || plan.shape === "long_text"
-		? Math.max(2, Math.ceil(total * 0.6))
-		: Math.min(2, total);
-	return matched >= required;
+	return matched >= Math.max(2, Math.ceil(total * 0.6));
 }
 
 function unitRoles(item: UnitFile): CandidateRole[] {
@@ -425,12 +336,6 @@ function structuralRoles(path: string, exported: boolean | undefined): Candidate
 	return roles;
 }
 
-function unitMentionsTarget(item: UnitFile, target: string): boolean {
-	return item.unit.tokens.has(target)
-		|| item.unit.calls.some((call) => lastSegment(call.toLocaleLowerCase()) === target)
-		|| item.unit.references.some((reference) => lastSegment(reference.toLocaleLowerCase()) === target);
-}
-
 function anchorDisplayLine(anchor: LexicalTextAnchor): GrepDisplayLine {
 	const focus = firstTermFocus(anchor.lineText, anchor.matchedTerms);
 	return { line: anchor.line, text: compactDisplayLine(anchor.lineText, focus.start, focus.end), type: "evidence" };
@@ -442,9 +347,8 @@ function compareAnchors(left: LexicalTextAnchor, right: LexicalTextAnchor): numb
 		|| left.line - right.line;
 }
 
-function compareLocalEntries(left: LocalEntry, right: LocalEntry): number {
-	return right.quality - left.quality
-		|| compareString(left.path, right.path)
+function compareLocalEntriesStable(left: LocalEntry, right: LocalEntry): number {
+	return compareString(left.path, right.path)
 		|| left.startLine - right.startLine
 		|| compareString(left.id, right.id);
 }
@@ -467,10 +371,6 @@ function normalizeTerm(value: string): string {
 
 function unique<T>(values: readonly T[]): T[] {
 	return [...new Set(values)];
-}
-
-function lastSegment(value: string): string {
-	return value.split(/[.:#]/u).at(-1) ?? value;
 }
 
 function compareString(left: string, right: string): number {

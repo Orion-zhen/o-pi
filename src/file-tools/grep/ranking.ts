@@ -1,6 +1,7 @@
+import { tokenizeText } from "../../code-index/parser.js";
+import { selectRelevanceHeadMmr } from "../shared/ranking/selection.js";
 import {
 	normalizeMatchedBy,
-	type CandidateRole,
 	type CandidateSignal,
 	type CodeRegion,
 	type RankedRegion,
@@ -8,126 +9,95 @@ import {
 	type RegionEvidence,
 	type RetrievalSource,
 } from "./candidates.js";
-import type { QueryPlan, RelationIntent } from "./query-plan.js";
+import type { QueryPlan } from "./query-plan.js";
 
-export type RankingEvidenceFamily = "factual" | "lexical" | "semantic" | "graph";
-export type RankingPolicyKey = "strict" | "identifier" | "qualified_symbol" | "long_text" | "natural_language" | "relation";
+export type RankingEvidenceFamily = "factual" | "lexical" | "semantic";
 
 export const GREP_RRF_K = 60;
-export const GREP_RELEVANCE_HEAD_SIZE = 3;
+export const GREP_RELEVANCE_HEAD_SIZE = 4;
 export const GREP_MMR_LAMBDA = 0.85;
-export const GREP_SIMILARITY_WINDOW = 256;
-export const GREP_TEST_CONTEXT_TIER_PENALTY = 3;
+export const GREP_RANKING_ALGORITHM = "tier-bm25f-rrf-mmr-v1";
 
 export const GREP_SOURCE_FAMILY: Readonly<Record<RetrievalSource, RankingEvidenceFamily>> = {
-	"text-literal": "factual",
 	"text-regex": "factual",
 	"text-lexical": "lexical",
-	"ast-relation": "graph",
 	"lsp-symbol": "semantic",
-	"lsp-reference": "semantic",
 };
 
-/** 查询形态的相对权重只在此表中校准。 */
-export const GREP_SOURCE_WEIGHTS: Readonly<Record<RankingPolicyKey, Readonly<Record<RetrievalSource, number>>>> = {
-	strict: weights({ "text-literal": 1.5, "text-regex": 1.5 }),
-	identifier: weights({ "text-literal": 1.05, "text-lexical": 0.55, "lsp-symbol": 1.15 }),
-	qualified_symbol: weights({ "text-literal": 1.1, "text-lexical": 0.55, "lsp-symbol": 1.25 }),
-	long_text: weights({ "text-literal": 1.6, "text-lexical": 0.8 }),
-	natural_language: weights({ "text-literal": 0.8, "text-lexical": 1.25 }),
-	relation: weights({ "text-literal": 0.75, "text-lexical": 0.4, "ast-relation": 1.3, "lsp-symbol": 0.8, "lsp-reference": 1.35 }),
+const SOURCE_WEIGHT: Readonly<Record<RetrievalSource, number>> = {
+	"text-regex": 1,
+	"text-lexical": 0.75,
+	"lsp-symbol": 0.9,
 };
 
-const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<CandidateSignal, number>>>>> = {
-	strict: {
-		exact_qualified_definition: 1,
-		exact_symbol_definition: 1,
-		exact_member_definition: 1,
-		verified_enclosing_region: 2,
-		verified_phrase: 2,
-		verified_text: 2,
-		verified_qualified_occurrence: 2,
-		verified_text_line: 3,
-	},
-	identifier: {
-		exact_symbol_definition: 1,
-		verified_phrase: 2,
-		verified_text: 2,
-		verified_enclosing_region: 2,
-		symbol_prefix: 4,
-		lexical_high_coverage: 5,
-		lexical: 6,
-	},
-	qualified_symbol: {
-		exact_qualified_definition: 1,
-		exact_member_definition: 2,
-		exact_symbol_definition: 2,
-		verified_qualified_occurrence: 3,
-		verified_phrase: 3,
-		verified_text: 3,
-		symbol_prefix: 5,
-		lexical_high_coverage: 6,
-		lexical: 7,
-	},
-	long_text: {
-		verified_phrase: 1,
-		verified_text: 1,
-		verified_enclosing_region: 2,
-		verified_text_line: 2,
-		lexical_high_coverage: 3,
-		lexical: 4,
-	},
-	natural_language: {
-		verified_phrase: 1,
-		verified_text: 1,
-		lexical_high_coverage: 2,
-		lexical: 5,
-	},
-	relation: {
-		requested_relation: 1,
-		target_definition: 2,
-		exact_qualified_definition: 2,
-		exact_symbol_definition: 2,
-		target_occurrence: 3,
-		verified_text: 3,
-		lexical_high_coverage: 5,
-		lexical: 6,
-	},
+const TIER_POLICY: Readonly<Partial<Record<CandidateSignal, number>>> = {
+	exact_qualified_definition: 1,
+	exact_symbol_definition: 1,
+	exact_member_definition: 2,
+	symbol_prefix: 2,
+	structured_symbol_match: 2,
+	structured_path_match: 2,
+	verified_phrase: 3,
+	verified_text: 3,
+	verified_qualified_occurrence: 3,
+	verified_enclosing_region: 3,
+	verified_text_line: 4,
+	lexical_high_coverage: 5,
+	lexical: 6,
 };
 
-const FACTUAL_SIGNALS = new Set<CandidateSignal>([
-	"verified_phrase", "verified_text", "verified_qualified_occurrence", "verified_enclosing_region", "verified_text_line",
-]);
-const SYMBOL_SIGNALS = new Set<CandidateSignal>([
-	"exact_qualified_definition", "exact_symbol_definition", "exact_member_definition", "symbol_prefix", "target_definition",
-]);
 const CANONICAL_SYMBOL_MATCH_SIGNALS = new Set<CandidateSignal>([
-	"exact_qualified_definition", "exact_symbol_definition", "exact_member_definition", "symbol_prefix",
+	"exact_qualified_definition",
+	"exact_symbol_definition",
+	"exact_member_definition",
+	"symbol_prefix",
+	"structured_symbol_match",
+	"structured_path_match",
 ]);
-const LEXICAL_SIGNALS = new Set<CandidateSignal>(["lexical_high_coverage", "lexical"]);
-const RELATION_ROLES = new Set<CandidateRole>(["caller", "callee", "reference", "test", "import", "registration", "entrypoint"]);
-const ROLE_BY_INTENT: Readonly<Record<RelationIntent, CandidateRole>> = {
-	caller: "caller",
-	callee: "callee",
-	reference: "reference",
-	test: "test",
-	import: "import",
-	registration: "registration",
-	entrypoint: "entrypoint",
-};
+
 const EMPTY_RANKING: RankingEvidenceSummary = {
 	factual: 0,
 	lexical: 0,
 	semantic: 0,
-	graph: 0,
 	fusionScore: 0,
 };
 
-/** 为每个独立来源生成从 1 开始的稳定局部名次。 */
+type FieldName = "symbol" | "qualified" | "path" | "declaration" | "body";
+
+interface FieldProfile {
+	readonly terms: ReadonlyMap<string, number>;
+	readonly length: number;
+}
+
+type RegionFieldProfile = Readonly<Record<FieldName, FieldProfile>>;
+
+const FIELD_NAMES: readonly FieldName[] = ["symbol", "qualified", "path", "declaration", "body"];
+const FIELD_WEIGHT: Readonly<Record<FieldName, number>> = {
+	symbol: 8,
+	qualified: 6,
+	path: 5,
+	declaration: 3,
+	body: 1,
+};
+const FIELD_LENGTH_NORMALIZATION: Readonly<Record<FieldName, number>> = {
+	symbol: 0,
+	qualified: 0.2,
+	path: 0.3,
+	declaration: 0.5,
+	body: 0.75,
+};
+const BM25_K1 = 1.2;
+const FIELD_PROFILE_CACHE = new WeakMap<CodeRegion, RegionFieldProfile>();
+
+/**
+ * 为每个独立来源生成从 1 开始的稠密相关性名次。
+ * 稳定比较只负责破平，不能把等相关候选伪装成不同来源名次。
+ */
 export function assignSourceLocalRanks<T>(
 	candidates: readonly T[],
 	sourceOf: (candidate: T) => RetrievalSource,
-	compareWithinSource: (left: T, right: T) => number,
+	compareRelevance: (left: T, right: T) => number,
+	compareStable: (left: T, right: T) => number,
 ): ReadonlyMap<T, number> {
 	const grouped = new Map<RetrievalSource, T[]>();
 	for (const candidate of candidates) {
@@ -139,46 +109,45 @@ export function assignSourceLocalRanks<T>(
 	const result = new Map<T, number>();
 	for (const source of [...grouped.keys()].sort(compareString)) {
 		const values = grouped.get(source) ?? [];
-		values.sort(compareWithinSource);
-		for (const [index, candidate] of values.entries()) result.set(candidate, index + 1);
+		values.sort((left, right) => compareRelevance(left, right) || compareStable(left, right));
+		let rank = 0;
+		let previous: T | undefined;
+		for (const candidate of values) {
+			if (previous === undefined || compareRelevance(previous, candidate) !== 0) rank += 1;
+			result.set(candidate, rank);
+			previous = candidate;
+		}
 	}
 	return result;
 }
 
-/** 对已准入区域执行纯排序；path-only 和 lane 非 main 候选不会进入主结果。 */
+/** 先按结构 tier 和 BM25F 相关性排序，来源融合只合并独立检索排名。 */
 export function rankCodeRegions(plan: QueryPlan, regions: readonly CodeRegion[]): RankedRegion[] {
-	const policy = rankingPolicyFor(plan);
+	const fieldScores = scoreFields(plan, regions);
 	const ranked: RankedRegion[] = [];
 	for (const region of regions) {
-		if (!isMainEligible(plan, region)) continue;
 		const evidence = canonicalEvidence(region.evidence);
-		const signals = effectiveSignals(plan, { ...region, evidence });
-		const baseTier = bestTier(policy, signals);
-		if (baseTier === undefined) continue;
+		const signals = effectiveSignals(plan, region);
+		const tier = bestTier(signals);
+		if (tier === undefined) continue;
 		ranked.push({
 			...region,
 			signals,
 			evidence,
 			matchedBy: normalizeMatchedBy(signals, evidence),
-			tier: contextAdjustedTier(plan, baseTier, region.roles),
-			ranking: summarizeEvidence(policy, independentRankingEvidence(plan, signals, evidence)),
+			tier,
+			fieldScore: fieldScores.get(region) ?? 0,
+			ranking: summarizeEvidence(evidence),
 			verifiedCoverage: verifiedCoverage(region),
-			contextPriority: contextPriority(plan, region.roles),
-			rolePriority: rolePriority(plan, region.roles),
+			rolePriority: rolePriority(region),
 		});
 	}
 	return ranked.sort(compareRankedRegions);
 }
 
-export function rankingPolicyFor(plan: QueryPlan): RankingPolicyKey {
-	if (plan.match !== "auto") return "strict";
-	if (plan.relationIntents.length > 0) return "relation";
-	return plan.shape;
-}
-
 export function compareRankedRegions(left: RankedRegion, right: RankedRegion): number {
 	return left.tier - right.tier
-		|| right.contextPriority - left.contextPriority
+		|| right.fieldScore - left.fieldScore
 		|| right.ranking.fusionScore - left.ranking.fusionScore
 		|| right.verifiedCoverage - left.verifiedCoverage
 		|| right.rolePriority - left.rolePriority
@@ -189,123 +158,65 @@ export function compareRankedRegions(left: RankedRegion, right: RankedRegion): n
 		|| compareString(left.id, right.id);
 }
 
-/** relevance head 原样保留，尾部只从当前最佳 tier 的有界窗口执行 MMR。 */
+/** relevance head 原样保留，剩余名额只在当前最佳 tier 内执行确定性 MMR。 */
 export function selectRankedRegions(
 	candidates: readonly RankedRegion[],
 	limit: number,
-	headSize = GREP_RELEVANCE_HEAD_SIZE,
-	similarityWindow = GREP_SIMILARITY_WINDOW,
 ): RankedRegion[] {
-	if (limit <= 0 || candidates.length === 0) return [];
-	const ranked = deduplicateRanked(candidates);
-	return selectRankedInOrder(ranked, limit, headSize, similarityWindow);
+	return selectRelevanceHeadMmr(candidates, limit, {
+		compare: compareRankedRegions,
+		tier: (candidate) => candidate.tier,
+		score: (candidate) => candidate.fieldScore + candidate.ranking.fusionScore,
+		identity: (candidate) => candidate.id,
+		similarity: regionSimilarity,
+		headSize: GREP_RELEVANCE_HEAD_SIZE,
+		lambda: GREP_MMR_LAMBDA,
+		applyScoreCutoff: false,
+	});
 }
 
-/** 上游已完成稳定排名时保留其顺序，只在当前顺序内执行有界 MMR。 */
-export function selectRankedRegionsInOrder(
-	candidates: readonly RankedRegion[],
-	limit: number,
-	headSize = GREP_RELEVANCE_HEAD_SIZE,
-	similarityWindow = GREP_SIMILARITY_WINDOW,
-): RankedRegion[] {
-	if (limit <= 0 || candidates.length === 0) return [];
-	return selectRankedInOrder(deduplicateRankedInOrder(candidates), limit, headSize, similarityWindow);
-}
-
-function selectRankedInOrder(
-	ranked: readonly RankedRegion[],
-	limit: number,
-	headSize: number,
-	similarityWindow: number,
-): RankedRegion[] {
-	const target = Math.min(limit, ranked.length);
-	const headCount = Math.min(Math.max(0, headSize), target);
-	const selected = ranked.slice(0, headCount);
-	const remaining = ranked.slice(headCount);
-	const relevance = new Map(ranked.map((candidate, index) => [candidate, 1 - index / Math.max(1, ranked.length - 1)]));
-	while (selected.length < target && remaining.length > 0) {
-		const bestTier = remaining[0]?.tier;
-		if (bestTier === undefined) break;
-		let tierEnd = 0;
-		while (remaining[tierEnd]?.tier === bestTier) tierEnd += 1;
-		const evaluated = Math.min(tierEnd, Math.max(1, similarityWindow));
-		let bestIndex = 0;
-		let bestUtility = Number.NEGATIVE_INFINITY;
-		for (let index = 0; index < evaluated; index += 1) {
-			const candidate = remaining[index];
-			if (candidate === undefined) continue;
-			const candidateRelevance = relevance.get(candidate) ?? 0;
-			const redundancy = selected.reduce((maximum, chosen) => Math.max(maximum, similarity(candidate, chosen)), 0);
-			const utility = GREP_MMR_LAMBDA * candidateRelevance - (1 - GREP_MMR_LAMBDA) * redundancy;
-			if (utility > bestUtility) {
-				bestUtility = utility;
-				bestIndex = index;
-			}
-		}
-		const [next] = remaining.splice(bestIndex, 1);
-		if (next !== undefined) selected.push(next);
-	}
-	return selected;
-}
-
-export function summarizeEvidence(policy: RankingPolicyKey, evidence: readonly RegionEvidence[]): RankingEvidenceSummary {
+export function summarizeEvidence(evidence: readonly RegionEvidence[]): RankingEvidenceSummary {
 	if (evidence.length === 0) return EMPTY_RANKING;
-	const strongest: Record<RankingEvidenceFamily, number> = { factual: 0, lexical: 0, semantic: 0, graph: 0 };
+	const strongest: Record<RankingEvidenceFamily, number> = { factual: 0, lexical: 0, semantic: 0 };
 	for (const item of evidence) {
 		const family = GREP_SOURCE_FAMILY[item.source];
-		const contribution = sourceContribution(policy, item);
+		const contribution = sourceContribution(item);
 		if (contribution > strongest[family]) strongest[family] = contribution;
 	}
-	const values = Object.values(strongest);
 	return {
 		...strongest,
-		fusionScore: values.reduce((sum, value) => sum + value, 0),
+		fusionScore: Object.values(strongest).reduce((sum, value) => sum + value, 0),
 	};
 }
 
-export function sourceContribution(policy: RankingPolicyKey, evidence: RegionEvidence): number {
+export function sourceContribution(evidence: RegionEvidence): number {
 	const rank = Math.max(1, Math.floor(evidence.rank));
 	const confidence = clamp(evidence.confidence, 0, 1);
-	return GREP_SOURCE_WEIGHTS[policy][evidence.source] * confidence / (GREP_RRF_K + rank);
-}
-
-function weights(overrides: Partial<Record<RetrievalSource, number>>): Readonly<Record<RetrievalSource, number>> {
-	return {
-		"text-literal": 0,
-		"text-regex": 0,
-		"text-lexical": 0,
-		"ast-relation": 0,
-		"lsp-symbol": 0,
-		"lsp-reference": 0,
-		...overrides,
-	};
+	return SOURCE_WEIGHT[evidence.source] * confidence / (GREP_RRF_K + rank);
 }
 
 function effectiveSignals(plan: QueryPlan, region: CodeRegion): CandidateSignal[] {
 	const claimed = region.signals.filter((signal) => !CANONICAL_SYMBOL_MATCH_SIGNALS.has(signal));
-	const candidates = [...claimed, ...derivedSignals(plan, region)];
-	return [...new Set(candidates)].filter((signal) => signalSupported(plan, region, signal));
-}
-
-function derivedSignals(plan: QueryPlan, region: CodeRegion): CandidateSignal[] {
-	const result: CandidateSignal[] = [];
+	const derived: CandidateSignal[] = [];
 	const symbolMatch = classifySymbolMatch(plan, region.symbol, region.qualifiedSymbol);
-	if (region.roles.includes("definition") && symbolMatch !== undefined) result.push(symbolMatch);
-	if (plan.relationIntents.length > 0 && region.roles.includes("definition") && isExactSymbolMatch(symbolMatch)) {
-		result.push("target_definition");
+	if (region.roles.includes("definition") && symbolMatch !== undefined) derived.push(symbolMatch);
+	const structuredTerms = structuredQueryTerms(plan);
+	if (structuredTerms.length > 0) {
+		const profile = fieldProfile(region);
+		if (fieldsContainAll(profile, ["symbol", "qualified"], structuredTerms)) derived.push("structured_symbol_match");
+		if (fieldsContainAll(profile, ["path"], structuredTerms)) derived.push("structured_path_match");
 	}
-	if (plan.relationIntents.length > 0 && region.queryMatch === "verified") result.push("target_occurrence");
-	return result;
+	return [...new Set([...claimed, ...derived])];
 }
 
-/** 只根据规范化查询与候选名称判定 symbol match，来源不能自行提升 exact tier。 */
+/** 只对无正则操作符的名称或路径查询推导 symbol match。 */
 export function classifySymbolMatch(
 	plan: QueryPlan,
 	symbol: string | undefined,
 	qualifiedSymbol: string | undefined,
 ): Extract<CandidateSignal, "exact_qualified_definition" | "exact_symbol_definition" | "exact_member_definition" | "symbol_prefix"> | undefined {
-	const target = normalizeSymbol(plan.targetQuery.length > 0 ? plan.targetQuery : plan.query);
-	if (target.length === 0 || target.includes(" ")) return undefined;
+	const target = normalizeSymbol(plan.structuredQuery ?? "");
+	if (target.length === 0) return undefined;
 	const full = normalizeSymbol(qualifiedSymbol ?? symbol ?? "");
 	const leaf = normalizeSymbol(symbol === undefined ? lastSymbolSegment(full) : lastSymbolSegment(symbol));
 	if (full.length === 0 || leaf.length === 0) return undefined;
@@ -319,39 +230,94 @@ export function classifySymbolMatch(
 	return undefined;
 }
 
-function signalSupported(plan: QueryPlan, region: CodeRegion, signal: CandidateSignal): boolean {
-	const sources = new Set(region.evidence.map((item) => item.source));
-	if (FACTUAL_SIGNALS.has(signal)) return region.queryMatch === "verified" && hasFamily(region, "factual");
-	if (SYMBOL_SIGNALS.has(signal)) {
-		if (!region.roles.includes("definition")) return false;
-		return hasAnySource(sources, ["text-lexical", "lsp-symbol"])
-			|| (region.queryMatch === "verified" && hasFamily(region, "factual") && region.symbol !== undefined);
+function scoreFields(plan: QueryPlan, regions: readonly CodeRegion[]): ReadonlyMap<CodeRegion, number> {
+	const queryTerms = [...tokenizeText(plan.targetTerms.join(" ")).keys()];
+	if (queryTerms.length === 0 || regions.length === 0) return new Map();
+	const profiles = regions.map((region) => ({ region, profile: fieldProfile(region) }));
+	const averageLength = Object.fromEntries(FIELD_NAMES.map((field) => [
+		field,
+		profiles.reduce((sum, item) => sum + item.profile[field].length, 0) / profiles.length,
+	])) as Record<FieldName, number>;
+	const documentFrequency = new Map(queryTerms.map((term) => [
+		term,
+		profiles.filter((item) => FIELD_NAMES.some((field) => item.profile[field].terms.has(term))).length,
+	]));
+	const result = new Map<CodeRegion, number>();
+	for (const item of profiles) {
+		let score = 0;
+		for (const term of queryTerms) {
+			let weightedFrequency = 0;
+			for (const field of FIELD_NAMES) {
+				const value = item.profile[field];
+				const frequency = value.terms.get(term) ?? 0;
+				if (frequency === 0) continue;
+				const average = Math.max(1, averageLength[field]);
+				const b = FIELD_LENGTH_NORMALIZATION[field];
+				weightedFrequency += FIELD_WEIGHT[field] * frequency
+					/ (1 - b + b * value.length / average);
+			}
+			if (weightedFrequency === 0) continue;
+			const frequency = documentFrequency.get(term) ?? 0;
+			const inverseDocumentFrequency = Math.log(1 + (regions.length - frequency + 0.5) / (frequency + 0.5));
+			score += inverseDocumentFrequency * (BM25_K1 + 1) * weightedFrequency / (BM25_K1 + weightedFrequency);
+		}
+		result.set(item.region, score);
 	}
-	if (LEXICAL_SIGNALS.has(signal)) return sources.has("text-lexical");
-	if (signal === "requested_relation") {
-		const requested = new Set(plan.relationIntents.map((intent) => ROLE_BY_INTENT[intent]));
-		return region.roles.some((role) => requested.has(role))
-			&& hasAnySource(sources, ["ast-relation", "lsp-reference"]);
-	}
-	if (signal === "target_occurrence") return region.queryMatch === "verified" || region.roles.includes("occurrence") || region.roles.includes("reference");
-	return true;
+	return result;
 }
 
-function bestTier(policy: RankingPolicyKey, signals: readonly CandidateSignal[]): number | undefined {
+function fieldProfile(region: CodeRegion): RegionFieldProfile {
+	const cached = FIELD_PROFILE_CACHE.get(region);
+	if (cached !== undefined) return cached;
+	const fullSymbol = region.qualifiedSymbol ?? region.symbol ?? "";
+	const body = region.queryMatch === "verified"
+		? region.verifiedHits.map((hit) => hit.lineText).join("\n")
+		: region.displayLines.map((line) => line.text).join("\n");
+	const values: Readonly<Record<FieldName, string>> = {
+		symbol: lastSymbolSegment(region.symbol ?? fullSymbol),
+		qualified: fullSymbol,
+		path: region.path,
+		declaration: region.declaration ?? "",
+		body,
+	};
+	const profile: RegionFieldProfile = {
+		symbol: createFieldProfile(values.symbol),
+		qualified: createFieldProfile(values.qualified),
+		path: createFieldProfile(values.path),
+		declaration: createFieldProfile(values.declaration),
+		body: createFieldProfile(values.body),
+	};
+	FIELD_PROFILE_CACHE.set(region, profile);
+	return profile;
+}
+
+function createFieldProfile(value: string): FieldProfile {
+	const terms = tokenizeText(value);
+	return {
+		terms,
+		length: [...terms.values()].reduce((sum, count) => sum + count, 0),
+	};
+}
+
+function structuredQueryTerms(plan: QueryPlan): string[] {
+	return plan.structuredQuery === undefined ? [] : [...tokenizeText(plan.structuredQuery).keys()];
+}
+
+function fieldsContainAll(
+	profile: RegionFieldProfile,
+	fields: readonly FieldName[],
+	terms: readonly string[],
+): boolean {
+	return terms.every((term) => fields.some((field) => profile[field].terms.has(term)));
+}
+
+function bestTier(signals: readonly CandidateSignal[]): number | undefined {
 	let best: number | undefined;
 	for (const signal of signals) {
-		const tier = TIER_POLICY[policy][signal];
+		const tier = TIER_POLICY[signal];
 		if (tier !== undefined && (best === undefined || tier < best)) best = tier;
 	}
 	return best;
-}
-
-function isMainEligible(plan: QueryPlan, region: CodeRegion): boolean {
-	if (region.signals.length === 0) return false;
-	if (plan.match !== "auto") return region.queryMatch === "verified";
-	if (plan.relationIntents.length > 0) return true;
-	const relationOnly = region.roles.length > 0 && region.roles.every((role) => RELATION_ROLES.has(role));
-	return !relationOnly;
 }
 
 function canonicalEvidence(evidence: readonly RegionEvidence[]): RegionEvidence[] {
@@ -371,108 +337,34 @@ function compareEvidence(left: RegionEvidence, right: RegionEvidence): number {
 		|| compareString(left.reason, right.reason);
 }
 
-function deduplicateRanked(candidates: readonly RankedRegion[]): RankedRegion[] {
-	const best = new Map<string, RankedRegion>();
-	for (const candidate of candidates) {
-		const prior = best.get(candidate.id);
-		if (prior === undefined || compareRankedRegions(candidate, prior) < 0) best.set(candidate.id, candidate);
-	}
-	return [...best.values()].sort(compareRankedRegions);
-}
-
-function deduplicateRankedInOrder(candidates: readonly RankedRegion[]): RankedRegion[] {
-	const seen = new Set<string>();
-	return candidates.filter((candidate) => {
-		if (seen.has(candidate.id)) return false;
-		seen.add(candidate.id);
-		return true;
-	});
-}
-
 function verifiedCoverage(region: CodeRegion): number {
 	if (region.queryMatch !== "verified") return 0;
 	return region.matchLines.length / Math.max(1, region.endLine - region.startLine + 1);
 }
 
-function contextAdjustedTier(plan: QueryPlan, tier: number, roles: readonly CandidateRole[]): number {
-	if (plan.match !== "auto" || plan.relationIntents.length > 0) return tier;
-	if ((plan.shape === "identifier" || plan.shape === "qualified_symbol") && roles.includes("test")) {
-		return tier + GREP_TEST_CONTEXT_TIER_PENALTY;
-	}
-	return tier;
-}
-
-function contextPriority(plan: QueryPlan, roles: readonly CandidateRole[]): number {
-	if (plan.match !== "auto") return 0;
-	if (hasRequestedRole(plan, roles)) return 4;
-	if (plan.relationIntents.length === 0 && roles.includes("test")) return 0;
-	if (roles.includes("public_api")) return 3;
-	if (roles.includes("definition")) return 2;
-	if (roles.includes("occurrence") || roles.includes("text")) return 1;
+function rolePriority(region: CodeRegion): number {
+	if (region.roles.includes("public_api")) return 2;
+	if (region.roles.includes("definition")) return 1;
 	return 0;
 }
 
-function rolePriority(plan: QueryPlan, roles: readonly CandidateRole[]): number {
-	if (hasRequestedRole(plan, roles)) return 3;
-	if (roles.includes("definition") || roles.includes("public_api")) return 2;
-	if (roles.includes("occurrence") || roles.includes("text")) return 1;
-	return 0;
-}
-
-function hasRequestedRole(plan: QueryPlan, roles: readonly CandidateRole[]): boolean {
-	return plan.relationIntents.some((intent) => roles.includes(ROLE_BY_INTENT[intent]));
-}
-
-function independentRankingEvidence(
-	plan: QueryPlan,
-	signals: readonly CandidateSignal[],
-	evidence: readonly RegionEvidence[],
-): readonly RegionEvidence[] {
-	if (plan.match !== "auto" || plan.targetTerms.length !== 1 || !signals.some(isExactSymbolMatch)) return evidence;
-	return evidence.filter((item) => item.source !== "text-lexical");
-}
-
-function isExactSymbolMatch(signal: CandidateSignal | undefined): boolean {
-	return signal === "exact_qualified_definition" || signal === "exact_symbol_definition" || signal === "exact_member_definition";
-}
-
-function similarity(left: RankedRegion, right: RankedRegion): number {
-	const samePath = left.path === right.path;
+function regionSimilarity(left: RankedRegion, right: RankedRegion): number {
+	if (left.id === right.id) return 1;
+	if (left.path === right.path) return 1;
 	const leftSymbol = normalizeSymbol(left.qualifiedSymbol ?? left.symbol ?? "");
 	const rightSymbol = normalizeSymbol(right.qualifiedSymbol ?? right.symbol ?? "");
-	if (samePath && leftSymbol.length > 0 && leftSymbol === rightSymbol) return 1;
-	if (samePath && rangesOverlap(left, right)) return 0.95;
-	if (leftSymbol.length > 0 && leftSymbol === rightSymbol) return 0.85;
-	const sameRole = primaryRole(left.roles) === primaryRole(right.roles);
-	if (samePath && sameRole) return 0.8;
-	if (samePath) return 0.65;
-	const sameComponent = topComponent(left.path) === topComponent(right.path);
-	if (sameRole && sameComponent) return 0.35;
-	if (sameRole) return 0.2;
-	return sameComponent ? 0.1 : 0;
-}
-
-function primaryRole(roles: readonly CandidateRole[]): CandidateRole | "other" {
-	for (const role of ["caller", "callee", "reference", "test", "import", "registration", "entrypoint", "public_api", "config", "definition", "occurrence", "text"] as const) {
-		if (roles.includes(role)) return role;
-	}
-	return "other";
-}
-
-function hasFamily(region: CodeRegion, family: RankingEvidenceFamily): boolean {
-	return region.evidence.some((item) => GREP_SOURCE_FAMILY[item.source] === family);
-}
-
-function hasAnySource(sources: ReadonlySet<RetrievalSource>, expected: readonly RetrievalSource[]): boolean {
-	return expected.some((source) => sources.has(source));
-}
-
-function rangesOverlap(left: RankedRegion, right: RankedRegion): boolean {
-	return left.startLine <= right.endLine && right.startLine <= left.endLine;
+	if (leftSymbol.length > 0 && leftSymbol === rightSymbol) return 0.8;
+	if (directoryOf(left.path) === directoryOf(right.path)) return 0.25;
+	return topComponent(left.path) === topComponent(right.path) ? 0.08 : 0;
 }
 
 function regionSize(region: RankedRegion): number {
 	return Math.max(1, region.endLine - region.startLine + 1);
+}
+
+function directoryOf(value: string): string {
+	const slash = value.lastIndexOf("/");
+	return slash === -1 ? "." : value.slice(0, slash);
 }
 
 function topComponent(value: string): string {
@@ -485,7 +377,7 @@ function normalizeSymbol(value: string): string {
 }
 
 function lastSymbolSegment(value: string): string {
-	return value.split(".").at(-1) ?? value;
+	return value.split(/[.:#]/u).at(-1) ?? value;
 }
 
 function compareString(left: string, right: string): number {

@@ -53,19 +53,16 @@ export function createLspGrepHintSource(lsp: LspFileOperations, invocation: File
 				workspaceRoot: workspace.nativePath,
 				query: input.query,
 				allowedPaths: new Set(input.allowedPaths),
-				...(input.relationQuery === undefined ? {} : { relationQuery: input.relationQuery }),
 				...(input.signal === undefined ? {} : { signal: input.signal }),
 			});
-			return candidates.map((candidate): GrepPositionHint => ({
+			return candidates
+				.map((candidate): GrepPositionHint => ({
 				path: candidate.path,
 				range: { startLine: candidate.start_line, endLine: candidate.end_line },
-				origin: candidate.origin === "reference" ? "lsp-reference" : "lsp-symbol",
-				confidence: candidate.exact ? 1 : candidate.origin === "reference" ? 0.9 : 0.8,
-				relation: candidate.origin === "reference" ? "reference" : "definition",
-				reasons: [candidate.origin === "reference"
-					? "lsp reference"
-					: candidate.exact ? "lsp exact symbol" : "lsp symbol"],
-			}));
+				origin: "lsp-symbol",
+				confidence: candidate.exact ? 1 : 0.8,
+				reasons: [candidate.exact ? "lsp exact symbol" : "lsp symbol"],
+				}));
 		},
 	};
 }

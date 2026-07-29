@@ -4,14 +4,13 @@ import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LspClient } from "../../src/lsp/client.js";
-import { createLspFileOperations } from "../../src/lsp/file-hooks.js";
 import { LspManager } from "../../src/lsp/manager.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
 let configDir: string;
-const workspaceTemp = useTempDir("o-pi-lsp-ref-workspace-");
-const configTemp = useTempDir("o-pi-lsp-ref-config-");
+const workspaceTemp = useTempDir("o-pi-lsp-symbol-workspace-");
+const configTemp = useTempDir("o-pi-lsp-symbol-config-");
 preserveEnv("PI_LSP_CONFIG");
 
 beforeEach(() => {
@@ -23,7 +22,7 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-describe("lsp references", () => {
+describe("lsp workspace symbols", () => {
 	it("root 命中 exclude_paths 时不启动 LSP", async () => {
 		const config = path.join(configDir, "lsp.jsonc");
 		await writeFile(
@@ -115,52 +114,11 @@ describe("lsp references", () => {
 		expect(documentSymbols).not.toHaveBeenCalled();
 	});
 
-	it("grep references 经 workspaceSymbols 与 file hook 保留 symbol 和 reference 来源", async () => {
-		const definitionUri = pathToUri(path.join(workspace, "src", "def.ts"));
-		const referenceUri = pathToUri(path.join(workspace, "src", "use.ts"));
+	it("workspace symbol 按配置限制同名 exact leaf", async () => {
 		const config = path.join(configDir, "lsp.jsonc");
 		await writeFile(config, JSON.stringify({
 			enabled: true,
-			grep: { workspace_symbols: true, references: true, max_symbols: 4, max_references: 4 },
-			servers: { fake: testServer("unused-lsp", ["ts"]) },
-		}));
-		process.env.PI_LSP_CONFIG = config;
-		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
-		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([{
-			name: "target",
-			kind: 12,
-			location: {
-				uri: definitionUri,
-				range: { start: { line: 0, character: 16 }, end: { line: 0, character: 22 } },
-			},
-		}]);
-		vi.spyOn(LspClient.prototype, "references").mockResolvedValue([{
-			uri: referenceUri,
-			range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } },
-		}]);
-
-		const manager = new LspManager();
-		const symbols = createLspFileOperations(manager).symbols;
-		if (symbols === undefined) throw new Error("symbols operation missing");
-		const hits = await symbols({
-			workspaceRoot: workspace,
-			query: "target",
-			allowedPaths: new Set(["src/def.ts", "src/use.ts"]),
-			relationQuery: true,
-		});
-		await manager.reload();
-
-		expect(hits).toEqual([
-			expect.objectContaining({ path: "src/def.ts", exact: true, origin: "workspace-symbol" }),
-			expect.objectContaining({ path: "src/use.ts", origin: "reference" }),
-		]);
-	});
-
-	it("普通符号查询不启动 references，并按配置限制同名 exact leaf", async () => {
-		const config = path.join(configDir, "lsp.jsonc");
-		await writeFile(config, JSON.stringify({
-			enabled: true,
-			grep: { workspace_symbols: true, references: true, max_symbols: 10, max_exact_leaf_symbols: 2, max_references: 10 },
+			grep: { workspace_symbols: true, max_symbols: 10, max_exact_leaf_symbols: 2 },
 			servers: { fake: testServer("unused-lsp", ["ts"]) },
 		}));
 		process.env.PI_LSP_CONFIG = config;
@@ -172,7 +130,6 @@ describe("lsp references", () => {
 			kind: 12,
 			location: { uri: pathToUri(path.join(workspace, "src", `target${index}.ts`)), range: range(index) },
 		})));
-		const references = vi.spyOn(LspClient.prototype, "references").mockResolvedValue([]);
 
 		const manager = new LspManager();
 		const hits = await manager.workspaceSymbols({
@@ -184,41 +141,6 @@ describe("lsp references", () => {
 
 		expect(hits).toHaveLength(2);
 		expect(hits.every((hit) => hit.origin === "workspace-symbol")).toBe(true);
-		expect(references).not.toHaveBeenCalled();
-	});
-
-	it("显式关系查询使用可配置的 reference 上限", async () => {
-		const config = path.join(configDir, "lsp.jsonc");
-		await writeFile(config, JSON.stringify({
-			enabled: true,
-			grep: { workspace_symbols: true, references: true, max_symbols: 1, max_references: 3 },
-			servers: { fake: testServer("unused-lsp", ["ts"]) },
-		}));
-		process.env.PI_LSP_CONFIG = config;
-		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
-		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([{
-			name: "Target",
-			kind: 12,
-			location: { uri: pathToUri(path.join(workspace, "src", "target.ts")), range: range(0) },
-		}]);
-		const references = vi.spyOn(LspClient.prototype, "references").mockResolvedValue([
-			{ uri: pathToUri(path.join(workspace, "src", "use-a.ts")), range: range(1) },
-			{ uri: pathToUri(path.join(workspace, "src", "use-b.ts")), range: range(2) },
-			{ uri: pathToUri(path.join(workspace, "src", "use-c.ts")), range: range(3) },
-			{ uri: pathToFileURL(path.join(workspace, "src", "use-d.ts")).toString(), range: range(4) },
-		]);
-
-		const manager = new LspManager();
-		const hits = await manager.workspaceSymbols({
-			root: workspace,
-			query: "Target",
-			allowedPaths: new Set(["src/target.ts", "src/use-a.ts", "src/use-b.ts", "src/use-c.ts", "src/use-d.ts"]),
-			relationQuery: true,
-		});
-		await manager.reload();
-
-		expect(references).toHaveBeenCalledOnce();
-		expect(hits.filter((hit) => hit.origin === "reference")).toHaveLength(3);
 	});
 
 	it("workspace symbol 保留 exact qualified symbol", async () => {
@@ -314,7 +236,7 @@ describe("lsp references", () => {
 		const config = path.join(configDir, "lsp.jsonc");
 		await writeFile(config, JSON.stringify({
 			enabled: true,
-			grep: { workspace_symbols: true, references: false, max_symbols: 2, max_references: 0 },
+			grep: { workspace_symbols: true, max_symbols: 2 },
 			servers: { fake: testServer("unused", ["ts"]) },
 		}));
 		process.env.PI_LSP_CONFIG = config;
@@ -348,7 +270,7 @@ describe("lsp references", () => {
 		const config = path.join(configDir, "lsp.jsonc");
 		await writeFile(config, JSON.stringify({
 			enabled: true,
-			grep: { workspace_symbols: true, references: false, max_symbols: 4, max_references: 0 },
+			grep: { workspace_symbols: true, max_symbols: 4 },
 			servers: {
 				ts: testServer("unused-ts", ["ts"]),
 				py: testServer("unused-py", ["py"]),
@@ -384,93 +306,6 @@ describe("lsp references", () => {
 		const hits = await pending;
 		await manager.reload();
 		expect(hits.map((hit) => hit.symbol)).toEqual(["tsFirst", "pySecond"]);
-	});
-
-	it("symbol/reference 全局去重并在最终有效结果后计数", async () => {
-		const config = path.join(configDir, "lsp.jsonc");
-		await writeFile(config, JSON.stringify({
-			enabled: true,
-			grep: { workspace_symbols: true, references: true, max_symbols: 1, max_references: 2 },
-			servers: { fake: testServer("unused", ["ts"]) },
-		}));
-		process.env.PI_LSP_CONFIG = config;
-		const definitionUri = pathToUri(path.join(workspace, "src", "def.ts"));
-		const useUri = pathToUri(path.join(workspace, "src", "use.ts"));
-		const symbol = { name: "target", kind: 12 as const, location: { uri: definitionUri, range: range(0) } };
-		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
-		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([symbol, symbol]);
-		const references = vi.spyOn(LspClient.prototype, "references").mockResolvedValue([
-			{ uri: definitionUri, range: range(0) },
-			{ uri: useUri, range: range(1) },
-			{ uri: useUri, range: range(1) },
-			{ uri: pathToUri(path.join(workspace, "outside.ts")), range: range(1) },
-		]);
-
-		const manager = new LspManager();
-		const hits = await manager.workspaceSymbols({
-			root: workspace,
-			query: "target",
-			allowedPaths: new Set(["src/def.ts", "src/use.ts"]),
-			relationQuery: true,
-		});
-		await manager.reload();
-		expect(hits.map((hit) => `${hit.origin}:${hit.path}`)).toEqual([
-			"workspace-symbol:src/def.ts",
-			"reference:src/use.ts",
-		]);
-		expect(references).toHaveBeenCalledTimes(1);
-	});
-
-	it("references 使用有界并发，剩余预算限制新请求数", async () => {
-		const config = path.join(configDir, "lsp.jsonc");
-		await writeFile(config, JSON.stringify({
-			enabled: true,
-			grep: { workspace_symbols: true, references: true, max_symbols: 6, max_references: 4 },
-			servers: { fake: testServer("unused", ["ts"]) },
-		}));
-		process.env.PI_LSP_CONFIG = config;
-		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
-		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue(Array.from({ length: 6 }, (_, index) => ({
-			name: `target${index}`,
-			kind: 12,
-			location: { uri: pathToUri(path.join(workspace, "src", `def${index}.ts`)), range: range(index) },
-		})));
-		let active = 0;
-		let maxActive = 0;
-		let started = 0;
-		let markFirstBatch: () => void = () => undefined;
-		const firstBatch = new Promise<void>((resolve) => {
-			markFirstBatch = resolve;
-		});
-		let releaseFirstBatch: () => void = () => undefined;
-		const firstBatchGate = new Promise<void>((resolve) => {
-			releaseFirstBatch = resolve;
-		});
-		const references = vi.spyOn(LspClient.prototype, "references").mockImplementation(async (_uri, line) => {
-			active += 1;
-			started += 1;
-			maxActive = Math.max(maxActive, active);
-			if (started === 4) markFirstBatch();
-			await firstBatchGate;
-			active -= 1;
-			return [{ uri: pathToUri(path.join(workspace, "src", `use${line}.ts`)), range: range(line) }];
-		});
-
-		const manager = new LspManager();
-		const pending = manager.workspaceSymbols({
-			root: workspace,
-			query: "target",
-			allowedPaths: new Set(Array.from({ length: 6 }, (_, index) => `src/def${index}.ts`).concat(
-				Array.from({ length: 6 }, (_, index) => `src/use${index}.ts`),
-			)),
-			relationQuery: true,
-		});
-		await firstBatch;
-		expect(maxActive).toBe(4);
-		releaseFirstBatch();
-		await pending;
-		await manager.reload();
-		expect(references).toHaveBeenCalledTimes(4);
 	});
 
 	it.skipIf(process.platform === "win32")("reload 等待顽固 language server 退出并在超时后强杀", async () => {
@@ -525,7 +360,6 @@ function queryWorkspaceSymbols(
 
 function fakeServerSource(root: string): string {
 	const defUri = pathToUri(path.join(root, "src", "def.ts"));
-	const useUri = pathToUri(path.join(root, "src", "use.ts"));
 	return `
 let buffer = Buffer.alloc(0);
 setInterval(() => {}, 60_000);
@@ -549,7 +383,7 @@ process.stdin.on("data", (chunk) => {
 
 function handle(message) {
 	if (message.method === "initialize") {
-		send({ jsonrpc: "2.0", id: message.id, result: { capabilities: { workspaceSymbolProvider: true, referencesProvider: true } } });
+		send({ jsonrpc: "2.0", id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
 		return;
 	}
 	if (message.method === "workspace/symbol") {
@@ -558,12 +392,6 @@ function handle(message) {
 			kind: 12,
 			location: { uri: ${JSON.stringify(defUri)}, range: { start: { line: 0, character: 16 }, end: { line: 0, character: 22 } } }
 		}] });
-		return;
-	}
-	if (message.method === "textDocument/references") {
-		send({ jsonrpc: "2.0", id: message.id, result: [
-			{ uri: ${JSON.stringify(useUri)}, range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } } }
-		] });
 		return;
 	}
 	if (message.method === "shutdown") {

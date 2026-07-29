@@ -21,7 +21,7 @@ filesystem 失败使用模型无关的 `FsResult` 与稳定 `FsError` code；too
 - 相对路径按当前 `cwd` 解析；空路径、空数组和空元素非法。
 - `find` 和 `grep` 的旧单路径或分隔字符串由 `tool-repair` 迁移；无法可靠解析时交给 schema 校验失败，不猜测真实路径。
 
-`find` 的 `query` 可以是路径、名称、路径片段、概念或 glob；`grep` 的 `query` 可以是文本、symbol、正则或代码意图。grep glob 由 filesystem discovery 相对每个 scope 解释，只限制候选范围，不改变公共路径安全规则。
+`find` 的 `query` 可以是路径、名称、路径片段、概念或 glob；`grep` 的 `query` 是区分大小写、逐行执行的 ECMAScript 正则。grep glob 由 filesystem discovery 相对每个 scope 解释，只限制候选范围，不改变公共路径安全规则。
 
 ## 模型可见结果
 
@@ -39,16 +39,16 @@ TUI 展示不受模型可见 ASCII 协议限制，可以使用图标和其他显
 
 ## 输出预算
 
-`ls`、`read`、`find` 和 `grep` 都有数量或 token budget：
+`ls`、`read`、`find` 和 `grep` 都有各自的输出限制：
 
 - `ls` 限制直属 entry 数；
 - `read` 限制行数和字节数；
 - `find` 配置 scope 深度、具体结果和模型文本；
-- `grep` 配置 scope 深度、AST 单文件增强字节、每区域展示行、结果条数和模型文本 token；正文扫描本身使用 filesystem line stream，不受旧扫描文件/字节字段限制。
+- `grep` 配置 scope 深度、AST 单文件增强字节、related 数、每区域展示行和总结果条数；模型文本不设 token budget，正文扫描本身使用 filesystem line stream。
 
-预算不足时，输出必须保留状态首行，不能让尾部截断掩盖结果不完整。`read` 返回 continuation 行号；`find` 区分 `depthLimited`、`resultLimited` 和 `outputTruncated`；`grep` 在 `truncated_by` 中区分 `traversal_limit`、`text_byte_limit`、`semantic_candidate_limit`、`result_limit` 和 `token_budget`。
+预算不足时，输出必须保留状态首行，不能让尾部截断掩盖结果不完整。`read` 返回 continuation 行号；`find` 区分 `depthLimited`、`resultLimited` 和 `outputTruncated`；`grep` 在 `truncated_by` 中区分 `traversal_limit` 和 `result_limit`，不应用输出 token budget。正文 hit、related anchor、related 静默限额和 AST 增强的内部容量仅进入准确命名的 stats/telemetry 计数。
 
-候选使用各工具定义的固定表示，预算只决定保留哪些完整候选，不随机截断或扩展同一候选。grep 的语法锚点、declaration 和代表行不随 token budget 改变。filesystem 文本 API 统一使用剥离 UTF-8 BOM 后正文的 UTF-8 byte 坐标；logical line、AST 和 position-hint range 不使用原始文件 BOM offset。详细 token 估算见 [Token Counter](../token-counter.md)。
+候选使用各工具定义的固定表示，预算只决定保留哪些完整候选，不随机截断或扩展同一候选。filesystem 文本 API 统一使用剥离 UTF-8 BOM 后正文的 UTF-8 byte 坐标；logical line、AST 和 position-hint range 不使用原始文件 BOM offset。详细 token 估算见 [Token Counter](../token-counter.md)。
 
 ## 统一错误
 

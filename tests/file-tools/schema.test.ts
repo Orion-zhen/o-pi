@@ -38,15 +38,13 @@ const schemaCases = [
 		tool: "grep",
 		valid: [
 			{ query: "x" },
-			{ query: "x", path: ["src", "tests"], match: "auto", glob: "**/*.ts" },
-			{ query: "x", match: "literal" },
-			{ query: "x", match: "regex" },
+			{ query: "x", path: ["src", "tests"], glob: "**/*.ts" },
 		],
 		invalid: [
 			{ query: "" },
 			{ query: "x", path: [] },
 			{ query: "x", path: "." },
-			{ query: "x", match: "content" },
+			{ query: "x", match: "auto" },
 			{ query: "x", extra: true },
 		],
 	},

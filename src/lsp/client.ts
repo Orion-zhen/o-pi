@@ -39,7 +39,6 @@ import {
 	type FileChangeType,
 	type FullDocumentDiagnosticReport,
 	type InitializeResult,
-	type Location,
 	type LogMessageParams,
 	type ServerCapabilities,
 	type SymbolInformation,
@@ -54,7 +53,6 @@ import {
 	featureAvailable,
 	lspFeatureDefinitions,
 	requestDocumentSymbols,
-	requestReferences,
 	requestTypeScriptDiagnostics,
 	requestWorkspaceSymbols,
 	resolveWorkspaceSymbol,
@@ -412,10 +410,6 @@ export class LspClient implements LspFeatureSession {
 
 	async resolveWorkspaceSymbol(symbol: WorkspaceSymbol, options?: LspRequestOptions): Promise<WorkspaceSymbol | undefined> {
 		return resolveWorkspaceSymbol(this, symbol, options);
-	}
-
-	async references(uri: string, line: number, character: number, options?: LspRequestOptions): Promise<Location[] | undefined> {
-		return requestReferences(this, uri, line, character, options);
 	}
 
 	private documentContext(filePath: string, text: string): LspClientDocumentContext {

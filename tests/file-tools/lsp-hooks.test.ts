@@ -174,7 +174,7 @@ describe("file-tools lsp hooks", () => {
 		beforeDiagnostics.mockRestore();
 	});
 
-	it("grep 本地零结果的普通 symbol 查询不启动 LSP", async () => {
+	it("grep 本地零结果请求 LSP workspace symbol", async () => {
 		await mkdir(path.join(workspace, "src"));
 		await writeFile(path.join(workspace, "src", "target.ts"), "export const unrelated = 1;\n");
 		const symbols = vi.fn(async () => []);
@@ -183,10 +183,10 @@ describe("file-tools lsp hooks", () => {
 		};
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: ["src"], query: "RemoteSymbol" }, undefined, { lsp: hooks }));
 		expect(result.regions).toEqual([]);
-		expect(symbols).not.toHaveBeenCalled();
+		expect(symbols).toHaveBeenCalledOnce();
 	});
 
-	it("grep 只为本地不足的关系查询向 LSP 传递过滤后的实际路径", async () => {
+	it("grep 为零命中 related 查询向 LSP 传递过滤后的实际路径", async () => {
 		await mkdir(path.join(workspace, "mixed"));
 		await writeFile(path.join(workspace, "mixed", "a.ts"), "export const target = 1;\n");
 		await writeFile(path.join(workspace, "mixed", "b.py"), "target = 1\n");

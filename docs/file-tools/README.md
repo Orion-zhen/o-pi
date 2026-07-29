@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 查看目录 | `ls` | 只列直属成员，不递归、不读文件内容 |
 | 按路径、名称或 glob 找文件 | `find` | 不搜索文件正文或 symbol |
-| 搜索正文、symbol、正则或代码意图 | `grep` | 不负责按路径找文件 |
+| 用行正则搜索正文或相关代码区域 | `grep` | 不负责按路径找文件 |
 | 读取明确文件 | `read` | 不会把目录自动转换成目录列表 |
 | 创建或完整覆盖文件 | `write` | 不做局部合并 |
 | 修改已有文件的局部内容 | `edit` | 必须先 `read`，或紧接当前 session 的成功 `write/edit`；不创建、不完整覆盖 |
@@ -17,7 +17,7 @@
 
 ```text
 探索仓库：       ls → find → read
-查找实现：       grep(match=auto) → read
+查找实现：       grep → read
 局部修改：       read → edit
 创建后继续修改： write → edit
 创建或完整重写： write
@@ -77,12 +77,12 @@ blocked path  → 不可列出、搜索、读取或写入
 
 ### 输出、截断和错误
 
-模型可见结果使用紧凑文本或短标签，完整结构保存在工具 `details` 中。目录条目、搜索结果、读取内容和代码片段都有数量或 token 限制；`grep` 通过 `truncated_by` 暴露遍历、正文字节、语义候选、结果和 token 原因，不把多种限制合并成一个布尔字段。
+模型可见结果使用紧凑文本或短标签，完整结构保存在工具 `details` 中。目录条目、搜索结果、读取内容和代码片段都有各自的数量或 token 限制；`grep` 只按结果条数限制模型输出，并通过 `truncated_by` 暴露遍历、正文字节和结果原因。正文 hit、related anchor 或 AST 增强的内部容量不作为模型截断原因。
 
 常见恢复方式：
 
 - 目录太大：用 `ls` 查看更具体的子目录。
-- `find` 或 `grep` 被截断：缩小 `path`、增加 glob 约束或拆分查询；先根据 `truncated_by` 判断是遍历、正文、语义、结果还是 token 限制。
+- `find` 或 `grep` 被截断：缩小 `path`、增加 glob 约束或拆分查询；先根据 `truncated_by` 判断具体限制。
 - `read` 被截断：根据 continuation 读取下一段。
 - `READ_REQUIRED`：先重新 `read`，再生成 `edit`。
 - `STALE_READ`：文件在读取后发生变化，重新 `read` 后再编辑。
@@ -104,7 +104,7 @@ blocked path  → 不可列出、搜索、读取或写入
 
 ### `grep`
 
-`grep` 支持 `auto`、`literal` 和 `regex`。普通查询只由实时正文产生候选，Tree-sitter 将候选折叠到最小代码单元并补充结构。精确符号有歧义时用可选 LSP hint 消歧；明确关系查询先用 LSP，没有结果时才用 AST relation 回退。`literal` 和 `regex` 不调用 LSP。结果按函数、方法、类、声明或紧凑文本区域聚合，而不是简单返回每一行。
+`grep` 对 `query` 执行区分大小写的逐行正则搜索。Tree-sitter 将真实正文命中折叠到最小代码单元；多个精确 symbol 可用 LSP hint 消歧。整次零正文命中时，固定词项覆盖和 LSP workspace symbol 可以形成明确标记的 related region；其数量由 `grep_related_result_limit` 静默限制。剩余结果按 tier、BM25F 字段相关性和独立来源融合排序，再以 relevance head + 同 tier MMR 受 `grep_result_limit` 限制，不按输出 token 数删改。
 
 ### `read`
 
@@ -137,7 +137,7 @@ blocked path  → 不可列出、搜索、读取或写入
 - 默认 blocked `.git/`。
 - `ls` 最多 200 项。
 - `read` 最多 2000 行或 51200 字节。
-- `find` 受 scope 深度、结果数和模型输出 token budget 限制；`grep` 只配置 scope 深度、AST 单文件字节、结果条数和模型输出 token budget，正文事实扫描不受旧文件数/累计字节/单文件字节字段限制。
+- `find` 受 scope 深度、结果数和模型输出 token budget 限制；`grep` 配置 scope 深度、AST 单文件字节、related 数、总结果条数和每区域展示行数，正文事实扫描不受旧文件数/累计字节/单文件字节字段限制。
 
 完整字段、优先级和缓存行为见 [配置](configuration.md)。
 
@@ -166,5 +166,5 @@ blocked path  → 不可列出、搜索、读取或写入
 | `edit` 完整行为 | [edit.md](edit.md) |
 | 搜索排序总览 | [ranking.md](ranking.md) |
 | 证据融合和来源排序 | [ranking-evidence.md](ranking-evidence.md) |
-| Top-K 和 MMR | [ranking-selection.md](ranking-selection.md) |
+| Top-K 选择 | [ranking-selection.md](ranking-selection.md) |
 | lazy loading、缓存和 benchmark | [performance.md](performance.md) |

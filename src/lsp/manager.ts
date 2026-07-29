@@ -11,10 +11,8 @@ import {
 	modifiedSymbolRanges,
 	remainingSymbols,
 	hasUriOnlyWorkspaceSymbolLocation,
-	referenceHits,
 	workspaceSymbolLocation,
 	workspaceSymbolSeed,
-	type ReferenceHit,
 	type WorkspaceSymbolSeed,
 } from "./symbols.js";
 import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "./uri.js";
@@ -32,7 +30,6 @@ import type {
 } from "./types.js";
 
 const RESOLVE_CONCURRENCY = 4;
-const REFERENCE_CONCURRENCY = 4;
 
 interface ClientEntry {
 	client: LspClient;
@@ -44,11 +41,6 @@ type SymbolCandidate =
 	| { kind: "complete"; client: LspClient; seed: WorkspaceSymbolSeed }
 	| { kind: "resolve"; client: LspClient; symbol: WorkspaceSymbol };
 
-interface AcceptedSymbol {
-	client: LspClient;
-	seed: WorkspaceSymbolSeed;
-}
-
 interface OperationDeadline {
 	signal: AbortSignal;
 	requestOptions(): { signal: AbortSignal; timeoutMs: number };
@@ -59,8 +51,6 @@ export interface WorkspaceSymbolsInput {
 	root: string;
 	query: string;
 	allowedPaths: ReadonlySet<string>;
-	/** 仅显式关系查询允许继续请求 references。 */
-	relationQuery?: boolean;
 	signal?: AbortSignal;
 }
 
@@ -211,7 +201,7 @@ export class LspManager {
 			}
 
 			candidates.sort((left, right) => symbolCandidatePriority(input.query, left) - symbolCandidatePriority(input.query, right));
-			const accepted: AcceptedSymbol[] = [];
+			const accepted: WorkspaceSymbolSeed[] = [];
 			const seenHits = new Set<string>();
 			const resolveLimit = pLimit(RESOLVE_CONCURRENCY);
 			let exactLeafCount = 0;
@@ -244,63 +234,16 @@ export class LspManager {
 					const key = symbolHitKey(result.seed);
 					if (seenHits.has(key)) continue;
 					seenHits.add(key);
-					accepted.push(result);
+					accepted.push(result.seed);
 					if (exactLeaf) exactLeafCount += 1;
 					if (accepted.length >= config.config.grep.max_symbols) break;
 				}
 			}
 
-			const symbolHits = accepted.map(({ seed }) => publicSymbolHit(seed));
-			if (!input.relationQuery || !config.config.grep.references || config.config.grep.max_references <= 0 || operation.signal.aborted) return symbolHits;
-			const references = await this.referenceHits(
-				input.root,
-				accepted,
-				allowedPaths,
-				seenHits,
-				config.config.grep.max_references,
-				operation,
-			);
-			return [...symbolHits, ...references];
+			return accepted.map(publicSymbolHit);
 		} finally {
 			operation.dispose();
 		}
-	}
-
-	private async referenceHits(
-		root: string,
-		accepted: readonly AcceptedSymbol[],
-		allowedPaths: ReadonlySet<string>,
-		seenHits: Set<string>,
-		maxReferences: number,
-		operation: OperationDeadline,
-	): Promise<LspSymbolHit[]> {
-		const hits: LspSymbolHit[] = [];
-		const limit = pLimit(REFERENCE_CONCURRENCY);
-		let index = 0;
-		while (hits.length < maxReferences && index < accepted.length && !operation.signal.aborted) {
-			const remaining = maxReferences - hits.length;
-			const batchSize = Math.min(REFERENCE_CONCURRENCY, remaining, accepted.length - index);
-			const batch = accepted.slice(index, index + batchSize);
-			index += batchSize;
-			const results = await Promise.all(batch.map(({ client, seed }) => limit(async () => {
-				if (operation.signal.aborted) return { client, candidates: [] };
-				const locations = await client.references(seed.uri, seed.line, seed.character, operation.requestOptions());
-				const candidates = locations === undefined || operation.signal.aborted ? [] : referenceHits(root, seed, locations);
-				return { client, candidates };
-			})));
-			for (const result of results) {
-				for (const candidate of result.candidates) {
-					if (!allowedPaths.has(candidate.path) || !this.serverOwnsPath(root, result.client.server, candidate.path)) continue;
-					const key = symbolHitKey(candidate);
-					if (seenHits.has(key)) continue;
-					seenHits.add(key);
-					hits.push(publicReferenceHit(candidate));
-					if (hits.length >= maxReferences) break;
-				}
-				if (hits.length >= maxReferences) break;
-			}
-		}
-		return hits;
 	}
 
 	async beforeDiagnostics(root: string, filePath: string): Promise<LspDiagnosticSnapshot | undefined> {
@@ -710,11 +653,6 @@ function symbolHitKey(hit: LspSymbolHit): string {
 
 function publicSymbolHit(seed: WorkspaceSymbolSeed): LspSymbolHit {
 	const { uri: _uri, line: _line, character: _character, ...hit } = seed;
-	return hit;
-}
-
-function publicReferenceHit(candidate: ReferenceHit): LspSymbolHit {
-	const { uri: _uri, line: _line, character: _character, ...hit } = candidate;
 	return hit;
 }
 

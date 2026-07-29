@@ -111,7 +111,7 @@ describe("grep lifecycle", () => {
 		}
 	});
 
-	it("literal 只执行一次稳定 line scan，不完整读取正文", async () => {
+	it("regex 只执行一次稳定 line scan，不完整读取正文", async () => {
 		await writeFile(path.join(testContext.workspace, "stream.txt"), `needle\n${"tail\n".repeat(200)}`);
 		const host = new FileToolsHost();
 		const tool = new GrepTool();
@@ -135,7 +135,7 @@ describe("grep lifecycle", () => {
 		};
 		const filesystem: WorkspaceFileSystem = { ...opened.filesystem, content };
 		try {
-			const result = await tool.execute({ path: ["stream.txt"], query: "needle", match: "literal" }, {
+			const result = await tool.execute({ path: ["stream.txt"], query: "needle" }, {
 				filesystem,
 				operation: opened.context,
 				limits: opened.limits,
@@ -149,7 +149,7 @@ describe("grep lifecycle", () => {
 		}
 	});
 
-	it("active strict line scan 响应取消且不继续返回部分命中", async () => {
+	it("active regex line scan 响应取消且不继续返回部分命中", async () => {
 		await writeFile(path.join(testContext.workspace, "cancel.txt"), `${"line\n".repeat(20_000)}needle\n`);
 		const host = new FileToolsHost();
 		const tool = new GrepTool();
@@ -172,7 +172,7 @@ describe("grep lifecycle", () => {
 			},
 		};
 		try {
-			const active = tool.execute({ path: ["cancel.txt"], query: "needle", match: "literal" }, {
+			const active = tool.execute({ path: ["cancel.txt"], query: "needle" }, {
 				filesystem,
 				operation: { signal: controller.signal },
 				limits: opened.limits,

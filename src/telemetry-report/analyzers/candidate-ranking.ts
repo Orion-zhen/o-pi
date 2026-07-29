@@ -155,11 +155,47 @@ function rankingWindow(
 			samples: reciprocalRanks.length,
 			value: ratio(reciprocalRanks.reduce((sum, value) => sum + value, 0), reciprocalRanks.length),
 		},
+		ndcg_at_k: K_VALUES.map((k) => ndcgAtK(k, producers, relevant)),
 		retention_at_k: K_VALUES.map((k) => {
 			const retained = relevant.filter((event) => event.candidate.rank <= k).length;
 			return { k, adopted_events: relevant.length, retained_events: retained, rate: ratio(retained, relevant.length) };
 		}),
 	};
+}
+
+function ndcgAtK(
+	k: number,
+	producers: readonly CallRecord[],
+	events: readonly AdoptionEvent[],
+): { k: number; lists: number; value: number } {
+	const values = producers.map((producer) => {
+		const byCandidate = new Map<string, number>();
+		for (const event of events) {
+			if (event.producer !== producer) continue;
+			const current = byCandidate.get(event.candidate.fact_key);
+			if (current === undefined || event.candidate.rank < current) {
+				byCandidate.set(event.candidate.fact_key, event.candidate.rank);
+			}
+		}
+		const ranks = [...byCandidate.values()];
+		const dcg = ranks
+			.filter((rank) => rank <= k)
+			.reduce((sum, rank) => sum + discountedGain(rank), 0);
+		const ideal = Array.from(
+			{ length: Math.min(k, ranks.length) },
+			(_value, index) => discountedGain(index + 1),
+		).reduce((sum, value) => sum + value, 0);
+		return ratio(dcg, ideal);
+	});
+	return {
+		k,
+		lists: producers.length,
+		value: ratio(values.reduce((sum, value) => sum + value, 0), values.length),
+	};
+}
+
+function discountedGain(rank: number): number {
+	return 1 / Math.log2(rank + 1);
 }
 
 function hitAtK(k: number, producers: readonly CallRecord[], events: readonly AdoptionEvent[]): ConversionAtK {

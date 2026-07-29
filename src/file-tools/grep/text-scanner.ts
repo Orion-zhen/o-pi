@@ -7,7 +7,7 @@ import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
 import type { TextFileEvidence, TextHit } from "./candidates.js";
 import type { ScopeInventory, ScopedFile } from "./inventory.js";
 import type { QueryPlan } from "./query-plan.js";
-import type { GrepScopeError, GrepSkippedFiles, TruncationReason } from "./types.js";
+import type { GrepScopeError, GrepSkippedFiles } from "./types.js";
 
 const MAX_ANCHORS_PER_FILE = 64;
 export const MAX_STORED_TEXT_HITS = 10_000;
@@ -16,6 +16,8 @@ export const MAX_STORED_LEXICAL_ANCHORS = 10_000;
 export interface TextScanStats {
 	readonly searchedFiles: number;
 	readonly searchedBytes: number;
+	readonly droppedTextHits: number;
+	readonly droppedRelatedAnchors: number;
 	readonly skipped: GrepSkippedFiles;
 }
 
@@ -25,7 +27,6 @@ export interface TextScanResult {
 	readonly fileEvidence: readonly TextFileEvidence[];
 	readonly stats: TextScanStats;
 	readonly scopeErrors: readonly GrepScopeError[];
-	readonly truncationReasons: readonly TruncationReason[];
 }
 
 export interface TextScannerContext {
@@ -48,21 +49,20 @@ interface MutableLexicalAnchor {
 	readonly lineText: string;
 	readonly matchedTerms: readonly string[];
 	readonly phrase: boolean;
-	readonly identifier: boolean;
 }
 
 interface FileScanSuccess {
 	readonly hits: TextHit[];
 	readonly totalHits: number;
-	readonly hitLimitReached: boolean;
+	readonly droppedTextHits: number;
 	readonly evidence: TextFileEvidence;
-	readonly anchorLimitReached: boolean;
+	readonly droppedRelatedAnchors: number;
 }
 
-/** 仅通过 filesystem line scan 产生事实命中，并在 auto 中同步收集有界词法证据。 */
+/** 通过 filesystem line scan 产生正则事实命中，并同步收集零命中回退所需的有界词法证据。 */
 export async function scanInventoryText(
 	inventory: ScopeInventory,
-	plan: Pick<QueryPlan, "query" | "match" | "regex" | "shape" | "targetTerms" | "targetQuery">,
+	plan: Pick<QueryPlan, "regex" | "targetTerms" | "targetQuery">,
 	context: TextScannerContext,
 ): Promise<ToolOutcome<TextScanResult>> {
 	const maxStoredHits = context.maxStoredHits ?? MAX_STORED_TEXT_HITS;
@@ -84,8 +84,9 @@ export async function scanInventoryText(
 	let searchedFiles = 0;
 	let searchedBytes = 0;
 	let totalHits = 0;
-	let candidateLimited = false;
 	let storedAnchors = 0;
+	let droppedTextHits = 0;
+	let droppedRelatedAnchors = 0;
 
 	for (const file of inventory.files) {
 		if (context.operation.signal?.aborted === true) return aborted(file.path);
@@ -109,7 +110,8 @@ export async function scanInventoryText(
 		hits.push(...scanned.value.hits);
 		fileEvidence.push(scanned.value.evidence);
 		storedAnchors += scanned.value.evidence.anchors.length;
-		candidateLimited ||= scanned.value.hitLimitReached || scanned.value.anchorLimitReached;
+		droppedTextHits += scanned.value.droppedTextHits;
+		droppedRelatedAnchors += scanned.value.droppedRelatedAnchors;
 	}
 
 	return {
@@ -119,16 +121,17 @@ export async function scanInventoryText(
 		stats: {
 			searchedFiles,
 			searchedBytes,
+			droppedTextHits,
+			droppedRelatedAnchors,
 			skipped: compactSkipped(skipped),
 		},
 		scopeErrors,
-		truncationReasons: candidateLimited ? ["semantic_candidate_limit"] : [],
 	};
 }
 
 async function scanFile(
 	file: ScopedFile,
-	plan: Pick<QueryPlan, "query" | "match" | "shape" | "targetTerms" | "targetQuery">,
+	plan: Pick<QueryPlan, "targetTerms" | "targetQuery">,
 	matcher: (line: string) => LineMatch | undefined,
 	context: TextScannerContext,
 	remainingHitCapacity: number,
@@ -145,10 +148,9 @@ async function scanFile(
 	const matchedTerms = new Set<string>();
 	const queryTerms = uniqueLowerTerms(plan.targetTerms.flatMap(splitTokens));
 	const phrase = plan.targetQuery.trim().toLocaleLowerCase();
-	const identifier = plan.shape === "identifier" || plan.shape === "qualified_symbol" ? phrase : "";
 	let totalHits = 0;
-	let hitLimitReached = false;
-	let anchorLimitReached = false;
+	let droppedTextHits = 0;
+	let droppedRelatedAnchors = 0;
 	let failure: FsError | undefined;
 	try {
 		for await (const result of opened.value) {
@@ -161,22 +163,19 @@ async function scanFile(
 			if (match !== undefined) {
 				totalHits += 1;
 				if (fileHits.length < remainingHitCapacity) {
-					const hit = createTextHit(file.path, line, match, plan.match === "regex" ? "regex" : "literal");
+					const hit = createTextHit(file.path, line, match);
 					if (hit !== undefined) fileHits.push(hit);
-				} else hitLimitReached = true;
+				} else droppedTextHits += 1;
 			}
-			if (plan.match === "auto") {
-				const lineTokens = tokenizeText(line.text);
-				const lineTerms = queryTerms.filter((term) => lineTokens.has(term));
-				for (const term of lineTerms) matchedTerms.add(term);
-				const lineLower = line.text.toLocaleLowerCase();
-				const hasPhrase = phrase.length > 0 && lineLower.includes(phrase);
-				const hasIdentifier = identifier.length > 0 && lineLower.includes(identifier);
-				if (lineTerms.length > 0 || hasPhrase || hasIdentifier) {
-					if (anchors.length < MAX_ANCHORS_PER_FILE && anchors.length < remainingAnchorCapacity) {
-						anchors.push(createLexicalAnchor(file.path, line, lineTerms, hasPhrase, hasIdentifier));
-					} else anchorLimitReached = true;
-				}
+			const lineTokens = tokenizeText(line.text);
+			const lineTerms = queryTerms.filter((term) => lineTokens.has(term));
+			for (const term of lineTerms) matchedTerms.add(term);
+			const lineLower = line.text.toLocaleLowerCase();
+			const hasPhrase = phrase.length > 0 && lineLower.includes(phrase);
+			if (lineTerms.length > 0 || hasPhrase) {
+				if (anchors.length < MAX_ANCHORS_PER_FILE && anchors.length < remainingAnchorCapacity) {
+					anchors.push(createLexicalAnchor(file.path, line, lineTerms, hasPhrase));
+				} else droppedRelatedAnchors += 1;
 			}
 		}
 	} finally {
@@ -188,8 +187,8 @@ async function scanFile(
 		value: {
 			hits: fileHits,
 			totalHits,
-			hitLimitReached,
-			anchorLimitReached,
+			droppedTextHits,
+			droppedRelatedAnchors,
 			evidence: {
 				path: file.path,
 				matchedTerms: queryTerms.filter((term) => matchedTerms.has(term)),
@@ -200,16 +199,10 @@ async function scanFile(
 }
 
 function createLineMatcher(
-	plan: Pick<QueryPlan, "query" | "match" | "regex">,
+	plan: Pick<QueryPlan, "regex">,
 ): (line: string) => LineMatch | undefined {
-	if (plan.match === "literal" || plan.match === "auto") {
-		return (line) => {
-			const start = line.indexOf(plan.query);
-			return start < 0 ? undefined : { start, end: start + plan.query.length };
-		};
-	}
-	const source = plan.regex?.source ?? plan.query;
-	const flags = plan.regex?.flags.replaceAll("g", "").replaceAll("y", "") ?? "u";
+	const source = plan.regex.source;
+	const flags = plan.regex.flags.replaceAll("g", "").replaceAll("y", "");
 	const expression = new RegExp(source, flags);
 	return (line) => {
 		const match = expression.exec(line);
@@ -222,7 +215,6 @@ function createTextHit(
 	path: string,
 	line: ScannedLine,
 	match: LineMatch,
-	mode: "literal" | "regex",
 ): TextHit | undefined {
 	const startByte = utf8ByteOffset(line.text, match.start);
 	const endByte = utf8ByteOffset(line.text, match.end);
@@ -234,7 +226,6 @@ function createTextHit(
 		byteEnd: line.byteStart + endByte,
 		matchStart: match.start,
 		matchEnd: match.end,
-		mode,
 		lineText: line.text,
 	};
 }
@@ -244,7 +235,6 @@ function createLexicalAnchor(
 	line: ScannedLine,
 	matchedTerms: readonly string[],
 	phrase: boolean,
-	identifier: boolean,
 ): MutableLexicalAnchor {
 	return {
 		path,
@@ -254,7 +244,6 @@ function createLexicalAnchor(
 		lineText: line.text,
 		matchedTerms: [...matchedTerms],
 		phrase,
-		identifier,
 	};
 }
 

@@ -2,6 +2,7 @@ import type { CallRecord, RunRecord, TelemetryRecord } from "../telemetry/types.
 import { collectCandidateObservations } from "./analyzers/candidate-observations.js";
 import { summarizeCandidateRanking } from "./analyzers/candidate-ranking.js";
 import { analyzeEdits } from "./analyzers/edit.js";
+import { summarizeGrep } from "./analyzers/grep.js";
 import { summarizeSearchEffectiveness } from "./analyzers/search-effectiveness.js";
 import { compare, frequency, numericSummary, rateSummary } from "./shared.js";
 import type { TelemetryReport, TelemetryReportQuery, ToolStatistics } from "./types.js";
@@ -40,6 +41,7 @@ export function aggregateTelemetry(records: readonly TelemetryRecord[], options:
 		runs,
 		tools: toolNames.map((tool) => summarizeTool(tool, calls.filter((call) => call.tool === tool))),
 		edit: analyzeEdits(calls, cwdByRun),
+		grep: summarizeGrep(calls, candidateObservations),
 		search_effectiveness: summarizeSearchEffectiveness(calls, candidateObservations),
 		candidate_ranking: summarizeCandidateRanking(candidateObservations),
 	};

@@ -28,10 +28,9 @@
 		"find_max_depth": 12,
 		"grep_max_depth": 12,
 		"grep_ast_max_file_bytes": 262144,
-		"grep_output_token_budget": 4000,
 		"grep_result_limit": 24,
-		"grep_regional_display_limit": 3,
-		"grep_relation_action_limit": 2
+		"grep_related_result_limit": 8,
+		"grep_regional_display_limit": 3
 	},
 
 	"ignore": {
