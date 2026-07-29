@@ -21,6 +21,7 @@ const TRUNCATION_ORDER: readonly TruncationReason[] = [
 	"traversal_limit",
 	"result_limit",
 ];
+const RELATED_MARKER = " [not match, related]";
 
 export interface GrepPackInput {
 	query: string;
@@ -76,6 +77,10 @@ function publicRegion(candidate: RankedRegion, displayLimit: number): GrepRegion
 	const displayLines = candidate.queryMatch === "verified"
 		? representativeLines(candidate.displayLines, displayLimit)
 		: candidate.displayLines.slice(0, displayLimit);
+	const roles = [
+		candidate.symbolRole === "enclosing" ? "occurrence" : candidate.symbolRole,
+		candidate.authority,
+	].filter((value): value is string => value !== undefined);
 	return {
 		path: candidate.path,
 		start_line: candidate.startLine,
@@ -84,7 +89,7 @@ function publicRegion(candidate: RankedRegion, displayLimit: number): GrepRegion
 		...(candidate.symbol === undefined ? {} : { symbol: candidate.symbol }),
 		...(candidate.declaration === undefined ? {} : { declaration: boundedDeclaration(candidate.declaration) }),
 		query_match: candidate.queryMatch === "verified" ? "verified" : "semantic",
-		roles: unique(candidate.roles),
+		...(roles.length === 0 ? {} : { roles: unique(roles) }),
 		matched_by: [...candidate.matchedBy],
 		sources: unique(candidate.evidence.map((item) => item.source).filter(isRetrievalSource)),
 		...(candidate.matchLines.length === 0 ? {} : { match_lines: [...candidate.matchLines] }),
@@ -228,7 +233,7 @@ function sameTextDisplayGroup(left: GrepRegion, right: GrepRegion): boolean {
 }
 
 function renderTextRegionGroup(first: GrepRegion, regions: readonly GrepRegion[]): string {
-	const related = first.query_match === "semantic" ? " [related]" : "";
+	const related = first.query_match === "semantic" ? RELATED_MARKER : "";
 	const lines = [`${first.path}${related}:`];
 	for (const region of regions) {
 		const display = region.display_lines?.[0];
@@ -244,16 +249,16 @@ function renderRegion(region: GrepRegion): string {
 	if (region.kind === "text") {
 		const display = displayLines[0];
 		if (display === undefined) {
-			const related = region.query_match === "semantic" ? " [related]" : "";
+			const related = region.query_match === "semantic" ? RELATED_MARKER : "";
 			return `${region.path}:${region.start_line}${related}:`;
 		}
 		return display.type === "match"
 			? `${region.path}:${display.line}: ${display.text}`
-			: `${region.path}:${display.line} [related]: ${display.text}`;
+			: `${region.path}:${display.line}${RELATED_MARKER}: ${display.text}`;
 	}
 	const range = `${region.path}:${region.start_line}${region.end_line === region.start_line ? "" : `-${region.end_line}`}`;
 	const symbol = region.symbol === undefined ? "" : ` ${metadataValue(region.symbol)}`;
-	const related = region.query_match === "semantic" ? " [related]" : "";
+	const related = region.query_match === "semantic" ? RELATED_MARKER : "";
 	const lines = [`${range}${symbol}${related}`];
 	if (region.declaration !== undefined) lines.push(`  ${region.declaration}`);
 	if (region.query_match === "verified") appendMatchingLines(lines, displayLines, region.match_lines?.length ?? 0);
@@ -284,8 +289,7 @@ function unique<T>(values: readonly T[]): T[] {
 
 function isRetrievalSource(source: string): boolean {
 	return source === "text-regex"
-		|| source === "text-lexical"
-		|| source === "lsp-symbol";
+		|| source === "text-lexical";
 }
 
 function tokenCount(text: string): number {

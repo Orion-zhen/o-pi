@@ -28,13 +28,13 @@ agent/configs/lsp.jsonc
 | `enabled` | `true` | 总开关。设为 `false` 后不启动任何 language server，文件工具保持普通行为。 |
 | `exclude_paths` | 见默认文件 | 精确匹配这些 workspace root 时不启动 LSP。支持 `~` 表示用户家目录。 |
 | `startup_timeout_ms` | `8000` | server `initialize` 请求超时，范围 `100`-`60000`。超时后该 server 视为 unavailable。 |
-| `request_timeout_ms` | `5000` | 单次 LSP 请求超时，范围 `100`-`60000`。用于 `documentSymbol`、`workspace/symbol` 等请求。 |
+| `request_timeout_ms` | `5000` | 单次 LSP 请求超时，范围 `100`-`60000`。用于 `documentSymbol`、`workspace/symbol`、references 和 call hierarchy 等请求。 |
 | `idle_timeout_ms` | `300000` | server 空闲关闭时间，范围 `1000`-`3600000`。关闭后下次文件工具调用会按需重启。 |
 | `max_restarts` | `2` | server 崩溃后的最多重启次数，范围 `0`-`10`。binary 缺失属于 unavailable，不做崩溃重启。 |
 | `max_open_documents` | 见默认文件 | 每个 server session 最多保留的文档状态数，范围 `1`-`1024`。LRU 淘汰会先发送所需的 `didClose`，并清理全文和 symbol cache。 |
 | `diagnostics` | 见下表 | 控制 `write` / `edit` 成功后的诊断等待和返回内容。 |
 | `read` | 见下表 | 控制 `read` 的长文件导航回退和 enclosing symbol 增强。 |
-| `grep` | 见下表 | 控制 `grep` 的 workspace symbol 增强。 |
+| `grep` | 见下表 | 控制 `grep` 的按需 symbol 分析入口与候选上限。 |
 | `servers` | 见默认文件 | 以 server ID 为 key 的 language server 对象，最多 50 个。 |
 
 `diagnostics`：
@@ -59,7 +59,7 @@ agent/configs/lsp.jsonc
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `workspace_symbols` | `true` | 是否允许 `grep` 在本地精确符号歧义或整次零正文命中时调用 `workspace/symbol` 获取位置提示。 |
+| `workspace_symbols` | `true` | 是否允许 `grep` 在结构化 query 多命中或整次零正文命中时调用 `workspace/symbol` 选择待分析 symbol。 |
 | `max_symbols` | `20` | scope/URI 校验和去重后最多接收的有效 workspace symbol 数，范围 `0`-`200`。scope 外及 resolve 失败项不消耗预算。 |
 | `max_exact_leaf_symbols` | `2` | exact leaf symbol 的同名定义最多接收数，范围 `0`-`200`；只限制同名 exact leaf，不限制 exact qualified symbol。 |
 
@@ -224,7 +224,7 @@ binary 不存在、TCP endpoint 不可达或 initialize 失败时 server 标记�
 ## 行为
 
 - `read`：部分行范围读取且最小包围 symbol 的声明行不可见时可返回 `lsp.enclosing_symbol`；整文件读取被截断且可见片段不足以覆盖大部分顶层声明时，才可返回非递归的 `remaining_symbols` 长文件导航 fallback。outline 关闭或上限为 `0` 且不需要 enclosing symbol 时不会启动 LSP。只为 `documentSymbol` 打开的文档会在请求后关闭，但保留有界的本地内容版本和 symbol cache；相同内容的暖态读取直接复用 cache，不重新打开文档或发送 symbol 请求。
-- `grep`：多个本地 exact definition 需要消歧，或整次扫描零正文命中需要 related symbol 时，请求 workspace symbol。请求范围来自完整 `ScopeInventory` 的 scope+glob allowed paths；多个 server 并行查询但按配置顺序稳定合并。LSP 只提供 path/range hint，grep 必须将其映射到本次读取的 live AST unit；公开 path、range、kind、symbol 和 declaration 来自该 unit。grep 不请求 LSP references。调用方取消和统一 operation deadline 贯穿 workspace symbol 请求并触发协议级取消；所有 LSP 失败继续按正文/AST 链降级。
+- `grep`：query 含正则操作符或只有一个直接正文命中时不启动 LSP。结构化 query 有多个命中，或整次扫描零正文命中时，请求 workspace symbol；候选范围来自完整 `ScopeInventory` 的 scope+glob allowed paths。对有界候选调用 document symbol、references，并在 capability 可用时调用 incoming call hierarchy，直接生成规范代码单元和 `called` / `referenced` / `defined` authority。文件正文只由 grep 的 snapshot-bound loader 提供。选中 symbol 前不可用、失败或超时则整次退回 Tree-sitter；选中后采用 LSP 的完整或部分结果，不逐 symbol 混用 AST。调用方取消和统一 operation deadline 贯穿整条请求链并触发协议级取消。
 - `write`：写盘成功后先向已启动且 watcher 匹配的 server 发送 create/change 事件；配置文件不需要属于源码路由，也不会因此启动新 server。同一并行 mutation 批次按 client 合并 watcher 通知，随后先同步该 client 的全部文档。server 声明 `diagnosticProvider` 时以有界并发 pull diagnostics；未声明 pull 但公开 `typescript.tsserverRequest` 命令时走 TSLS 同步诊断 fast path；其余 server 并行等待 publish。诊断错误不改变 `status: "written"`。
 - `edit`：preview 不调用 LSP；成功写盘后发送 watched-file change，并只用同一 workspace/server source 的编辑前 baseline 计算 diagnostics diff。baseline 已知时只返回新增 error，以及修改范围内的新增 warning；baseline 未知时只返回修改范围或所属 symbol 内的 error，并标记 `causality uncertain`。原有、已解决、clean、total 和文件级统计不进入 edit 模型输出；不同 source 的 baseline 标记为 unknown，诊断错误不改变 `status: "applied"`。
 - `ls` / `find`：不接入 LSP。
@@ -233,7 +233,7 @@ binary 不存在、TCP endpoint 不可达或 initialize 失败时 server 标记�
 
 ### 协议 session
 
-initialize 返回的 capabilities 会保存在 session 中；不支持的 document symbols、workspace symbols、workspace symbol resolve 或 references 不会发送请求。URI-only `WorkspaceSymbol` 仅在 `workspaceSymbolProvider.resolveProvider: true` 时通过 `workspaceSymbol/resolve` 补全 range。session 提供带超时和协议级取消的 typed request/notification 入口，并统一接收 diagnostics、日志和 progress。
+initialize 返回的 capabilities 会保存在 session 中；不支持的 document symbols、workspace symbols、workspace symbol resolve、references 或 call hierarchy 不会发送请求。URI-only `WorkspaceSymbol` 仅在 `workspaceSymbolProvider.resolveProvider: true` 时通过 `workspaceSymbol/resolve` 补全 range。grep analyzer 要求 workspace symbol、document symbol 和 references 都可用；call hierarchy 可选。session 提供带超时和协议级取消的 typed request/notification 入口，并统一接收 diagnostics、日志和 progress。
 
 文档同步严格遵循 server 的 `textDocumentSync`：Full 发送全文 change，Incremental 发送基于 UTF-16 position 的最小 replacement，None 不发送 change；仅在 `openClose` 启用时发送平衡的 didOpen/didClose，仅在 `save` 启用时发送 didSave，且只有 `includeText: true` 时携带全文。同一 URI 的同步、保存、关闭和 documentSymbol 请求按顺序执行。只读 symbol 请求使用临时 open/close，关闭后仍按内容版本保留本地 cache；mutation 会重新打开并持续同步目标文档。
 

@@ -1,6 +1,6 @@
 import { GrepTool } from "../../src/file-tools/grep/command.js";
 import type { GrepParams, GrepSuccess } from "../../src/file-tools/grep/types.js";
-import { createLspGrepHintSource } from "../../src/file-tools/pi/adapters/grep.js";
+import { analyzeCodeWithLsp } from "../../src/file-tools/pi/adapters/grep.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { LspFileOperations } from "../../src/lsp/file-hooks.js";
@@ -20,12 +20,13 @@ export async function grepWorkspaceFiles(
 ): Promise<ToolOutcome<GrepSuccess>> {
 	const opened = await host.open({ cwd, sessionId: "grep-test", ...(signal === undefined ? {} : { signal }) });
 	if (isFailed(opened)) return opened;
+	const lsp = runtime.lsp;
 	try {
 		return await tool.execute(params, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
 			limits: opened.limits,
-			...(runtime.lsp === undefined ? {} : { lspHints: createLspGrepHintSource(runtime.lsp, opened) }),
+			...(lsp === undefined ? {} : { analyzeCode: (input) => analyzeCodeWithLsp(lsp, opened, input) }),
 		});
 	} finally { opened.dispose(); }
 }

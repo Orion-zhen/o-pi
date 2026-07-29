@@ -174,16 +174,16 @@ describe("file-tools lsp hooks", () => {
 		beforeDiagnostics.mockRestore();
 	});
 
-	it("grep 本地零结果请求 LSP workspace symbol", async () => {
+	it("grep 本地零结果请求 LSP code analysis", async () => {
 		await mkdir(path.join(workspace, "src"));
 		await writeFile(path.join(workspace, "src", "target.ts"), "export const unrelated = 1;\n");
-		const symbols = vi.fn(async () => []);
+		const codeAnalysis = vi.fn(async () => undefined);
 		const hooks: LspFileOperations = {
-			symbols,
+			codeAnalysis,
 		};
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: ["src"], query: "RemoteSymbol" }, undefined, { lsp: hooks }));
 		expect(result.regions).toEqual([]);
-		expect(symbols).toHaveBeenCalledOnce();
+		expect(codeAnalysis).toHaveBeenCalledOnce();
 	});
 
 	it("grep 为零命中 related 查询向 LSP 传递过滤后的实际路径", async () => {
@@ -193,10 +193,10 @@ describe("file-tools lsp hooks", () => {
 		const seenPaths: string[][] = [];
 		const seenSignals: Array<AbortSignal | undefined> = [];
 		const hooks: LspFileOperations = {
-			async symbols(input) {
+			async codeAnalysis(input) {
 				seenPaths.push([...input.allowedPaths].sort());
 				seenSignals.push(input.signal);
-				return [];
+				return undefined;
 			},
 		};
 		const controller = new AbortController();
@@ -277,7 +277,7 @@ function throwingHooks(): LspFileOperations {
 		async beforeEdit() {
 			throw new Error("lsp unavailable");
 		},
-		async symbols() {
+		async codeAnalysis() {
 			throw new Error("lsp unavailable");
 		},
 	};

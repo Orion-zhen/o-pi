@@ -197,7 +197,7 @@ function isDocumentSymbol(value: DocumentSymbol | SymbolInformation): value is D
 	return "range" in value && "selectionRange" in value;
 }
 
-function symbolKindName(kind: number): string {
+export function symbolKindName(kind: number): string {
 	return kindNames.get(kind) ?? `kind_${kind}`;
 }
 

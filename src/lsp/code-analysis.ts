@@ -1,0 +1,194 @@
+import type { DocumentSymbol, Position, Range, SymbolInformation } from "vscode-languageserver-protocol";
+
+import { createFileIdentity, createSymbolId } from "../code-index/identity.js";
+import { languageFromPath, tokenizeText } from "../code-index/parser.js";
+import { SourceIndex, type AnalyzedFileIndex, type CodeDocument, type IndexedCodeUnit } from "../code-index/types.js";
+import { symbolKindName, type WorkspaceSymbolSeed } from "./symbols.js";
+import type { LspDocumentSymbols } from "./types.js";
+
+const DECLARATION_CODE_POINT_LIMIT = 240;
+
+interface FlatDocumentSymbol {
+	readonly name: string;
+	readonly qualifiedName?: string;
+	readonly kind: number;
+	readonly range: Range;
+	readonly selectionRange: Range;
+}
+
+/** 将 LSP documentSymbol 规范化为 grep/code-index 共用的代码单元。 */
+export function analyzeLspDocument(
+	document: CodeDocument,
+	symbols: LspDocumentSymbols,
+	seeds: readonly WorkspaceSymbolSeed[],
+): AnalyzedFileIndex {
+	const sourceIndex = new SourceIndex(document.text);
+	const file = createFileIdentity(document.path);
+	const flat = flattenSymbols(symbols);
+	const units = new Map<string, IndexedCodeUnit>();
+	for (const seed of seeds) {
+		const symbol = matchingSymbol(seed, flat);
+		if (symbol === undefined) continue;
+		const unit = indexedUnit(document, sourceIndex, symbol);
+		if (unit === undefined) continue;
+		units.set(unit.id, unit);
+	}
+	const values = [...units.values()].sort((left, right) =>
+		left.startByte - right.startByte || left.endByte - right.endByte || compareString(left.id, right.id));
+	return {
+		index: {
+			id: file.id,
+			path: document.path,
+			language: languageFromPath(document.path),
+			units: values,
+			symbols: values.flatMap((unit) => [unit.name, unit.qualifiedName].filter((value): value is string => value !== undefined)),
+		},
+		status: "parsed",
+		imports: [],
+	};
+}
+
+function indexedUnit(
+	document: CodeDocument,
+	sourceIndex: SourceIndex,
+	symbol: FlatDocumentSymbol,
+): IndexedCodeUnit | undefined {
+	const startChar = charOffset(document.text, sourceIndex, symbol.range.start);
+	const endChar = charOffset(document.text, sourceIndex, symbol.range.end);
+	if (startChar === undefined || endChar === undefined || endChar < startChar) return undefined;
+	const range = sourceIndex.range(startChar, endChar);
+	const declaration = declarationAt(document.text, sourceIndex, symbol.range.start.line);
+	const content = document.text.slice(startChar, endChar);
+	const nameText = [document.path, symbol.name, symbol.qualifiedName, declaration?.text, content].join("\n");
+	const file = createFileIdentity(document.path);
+	return {
+		id: createSymbolId({
+			fileId: file.id,
+			kind: symbolKindName(symbol.kind),
+			name: symbol.name,
+			...(symbol.qualifiedName === undefined ? {} : { qualifiedName: symbol.qualifiedName }),
+			startByte: range.startByte,
+		}),
+		path: document.path,
+		language: languageFromPath(document.path),
+		kind: symbolKindName(symbol.kind),
+		name: symbol.name,
+		...(symbol.qualifiedName === undefined ? {} : { qualifiedName: symbol.qualifiedName }),
+		...(declaration === undefined ? {} : { signature: declaration.text, declarationEndByte: declaration.endByte }),
+		authority: "defined",
+		exported: false,
+		...range,
+		tokens: tokenizeText(nameText),
+		definitions: [symbol.name],
+		references: [],
+		calls: [],
+	};
+}
+
+function flattenSymbols(symbols: LspDocumentSymbols, parent?: string): FlatDocumentSymbol[] {
+	const result: FlatDocumentSymbol[] = [];
+	for (const symbol of symbols) {
+		if (isDocumentSymbol(symbol)) {
+			const qualifiedName = parent === undefined ? symbol.name : `${parent}.${symbol.name}`;
+			result.push({
+				name: symbol.name,
+				...(parent === undefined ? {} : { qualifiedName }),
+				kind: symbol.kind,
+				range: symbol.range,
+				selectionRange: symbol.selectionRange,
+			});
+			if (symbol.children !== undefined) result.push(...flattenSymbols(symbol.children, qualifiedName));
+			continue;
+		}
+		const qualifiedName = symbol.containerName === undefined || symbol.containerName.trim().length === 0
+			? undefined
+			: `${symbol.containerName}.${symbol.name}`;
+		result.push({
+			name: symbol.name,
+			...(qualifiedName === undefined ? {} : { qualifiedName }),
+			kind: symbol.kind,
+			range: symbol.location.range,
+			selectionRange: symbol.location.range,
+		});
+	}
+	return result;
+}
+
+function matchingSymbol(seed: WorkspaceSymbolSeed, symbols: readonly FlatDocumentSymbol[]): FlatDocumentSymbol | undefined {
+	const position = { line: seed.line, character: seed.character };
+	return [...symbols]
+		.filter((symbol) => symbol.name === seed.symbol || symbol.qualifiedName === seed.qualified_symbol)
+		.sort((left, right) =>
+			Number(!contains(left.selectionRange, position)) - Number(!contains(right.selectionRange, position))
+			|| Number(!contains(left.range, position)) - Number(!contains(right.range, position))
+			|| distance(left.selectionRange.start, position) - distance(right.selectionRange.start, position)
+			|| rangeSize(left.range) - rangeSize(right.range)
+			|| compareString(left.qualifiedName ?? left.name, right.qualifiedName ?? right.name))[0];
+}
+
+function declarationAt(
+	text: string,
+	sourceIndex: SourceIndex,
+	line: number,
+): { readonly text: string; readonly endByte: number } | undefined {
+	const start = sourceIndex.lineStartChars[line];
+	if (start === undefined) return undefined;
+	const next = sourceIndex.lineStartChars[line + 1] ?? text.length;
+	const end = trimLineTerminator(text, start, next);
+	const compact = text.slice(start, end).replace(/\s+/gu, " ").trim();
+	if (compact.length === 0) return undefined;
+	const points = [...compact];
+	return {
+		text: points.length <= DECLARATION_CODE_POINT_LIMIT
+			? compact
+			: `${points.slice(0, DECLARATION_CODE_POINT_LIMIT - 3).join("")}...`,
+		endByte: sourceIndex.byteForChar(end),
+	};
+}
+
+function charOffset(text: string, sourceIndex: SourceIndex, position: Position): number | undefined {
+	const lineStart = sourceIndex.lineStartChars[position.line];
+	if (lineStart === undefined) return undefined;
+	const nextLine = sourceIndex.lineStartChars[position.line + 1] ?? text.length;
+	const lineEnd = trimLineTerminator(text, lineStart, nextLine);
+	const offset = lineStart + position.character;
+	return offset <= lineEnd && !splitsSurrogatePair(text, offset) ? offset : undefined;
+}
+
+function trimLineTerminator(text: string, start: number, end: number): number {
+	let value = end;
+	if (value > start && text.charCodeAt(value - 1) === 0x0a) value -= 1;
+	if (value > start && text.charCodeAt(value - 1) === 0x0d) value -= 1;
+	return value;
+}
+
+function splitsSurrogatePair(text: string, offset: number): boolean {
+	if (offset <= 0 || offset >= text.length) return false;
+	const left = text.charCodeAt(offset - 1);
+	const right = text.charCodeAt(offset);
+	return left >= 0xd800 && left <= 0xdbff && right >= 0xdc00 && right <= 0xdfff;
+}
+
+function contains(range: Range, position: Position): boolean {
+	return comparePosition(range.start, position) <= 0 && comparePosition(position, range.end) <= 0;
+}
+
+function distance(left: Position, right: Position): number {
+	return Math.abs(left.line - right.line) * 1_000_000 + Math.abs(left.character - right.character);
+}
+
+function rangeSize(range: Range): number {
+	return (range.end.line - range.start.line) * 1_000_000 + range.end.character - range.start.character;
+}
+
+function comparePosition(left: Position, right: Position): number {
+	return left.line - right.line || left.character - right.character;
+}
+
+function isDocumentSymbol(symbol: DocumentSymbol | SymbolInformation): symbol is DocumentSymbol {
+	return "range" in symbol && "selectionRange" in symbol;
+}
+
+function compareString(left: string, right: string): number {
+	return left < right ? -1 : left > right ? 1 : 0;
+}

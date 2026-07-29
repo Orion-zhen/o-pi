@@ -1,8 +1,18 @@
 import path from "node:path";
 import pLimit from "p-limit";
-import type { FileChangeType, WorkspaceSymbol } from "vscode-languageserver-protocol";
+import type { FileChangeType, Range, WorkspaceSymbol } from "vscode-languageserver-protocol";
 
+import type {
+	AnalyzedFileIndex,
+	CodeAnalysis,
+	CodeAnalysisInput,
+	CodeAuthority,
+	CodeDocument,
+	IndexedCodeUnit,
+} from "../code-index/types.js";
 import { LspClient } from "./client.js";
+import { analyzeLspDocument } from "./code-analysis.js";
+import { featureAvailable, lspFeatureDefinitions } from "./features/index.js";
 import { LspServerRegistry } from "./registry.js";
 import { loadLspConfig, normalizeExcludePath, resolveLspConfigPath } from "./config.js";
 import { diagnosticSourceKey, DiagnosticsLedger, emptySummary, summarizeDiagnostics, type DiagnosticSelection } from "./diagnostics.js";
@@ -30,6 +40,8 @@ import type {
 } from "./types.js";
 
 const RESOLVE_CONCURRENCY = 4;
+const CODE_ANALYSIS_CONCURRENCY = 2;
+const CODE_ANALYSIS_SYMBOL_LIMIT = 3;
 
 interface ClientEntry {
 	client: LspClient;
@@ -40,6 +52,11 @@ interface ClientEntry {
 type SymbolCandidate =
 	| { kind: "complete"; client: LspClient; seed: WorkspaceSymbolSeed }
 	| { kind: "resolve"; client: LspClient; symbol: WorkspaceSymbol };
+
+interface ResolvedWorkspaceSymbol {
+	readonly client: LspClient;
+	readonly seed: WorkspaceSymbolSeed;
+}
 
 interface OperationDeadline {
 	signal: AbortSignal;
@@ -52,6 +69,11 @@ export interface WorkspaceSymbolsInput {
 	query: string;
 	allowedPaths: ReadonlySet<string>;
 	signal?: AbortSignal;
+}
+
+export interface LspCodeAnalysisInput extends Omit<CodeAnalysisInput, "load"> {
+	readonly root: string;
+	load(path: string): Promise<(CodeDocument & { readonly filePath: string }) | undefined>;
 }
 
 export interface ReadEnhancement {
@@ -165,85 +187,187 @@ export class LspManager {
 		const allowedPaths = new Set(input.allowedPaths);
 		const operation = createOperationDeadline(input.signal, config.config.request_timeout_ms);
 		try {
-			const serverResults = await Promise.all(servers.map(async (server) => {
-				if (operation.signal.aborted) return undefined;
-				const client = await waitUnlessAborted(this.clientForServer(input.root, server), operation.signal);
-				if (client === undefined || operation.signal.aborted) return undefined;
-				const symbols = await client.workspaceSymbols(input.query, operation.requestOptions());
-				return symbols === undefined ? undefined : { client, symbols };
-			}));
-
-			if (operation.signal.aborted) return [];
-			const candidates: SymbolCandidate[] = [];
-			const seenRaw = new Set<string>();
-			for (const result of serverResults) {
-				if (result === undefined) continue;
-				for (const symbol of result.symbols) {
-					if (operation.signal.aborted) return [];
-					const location = workspaceSymbolLocation(symbol);
-					if (location !== undefined) {
-						const seed = workspaceSymbolSeed(input.root, input.query, symbol);
-						if (seed === undefined || !allowedPaths.has(seed.path) || !this.serverOwnsPath(input.root, result.client.server, seed.path)) continue;
-						const key = symbolHitKey(seed);
-						if (seenRaw.has(key)) continue;
-						seenRaw.add(key);
-						candidates.push({ kind: "complete", client: result.client, seed });
-						continue;
-					}
-					if (!hasUriOnlyWorkspaceSymbolLocation(symbol) || typeof symbol.name !== "string" || typeof symbol.kind !== "number") continue;
-					const relative = relativePathForUri(input.root, symbol.location.uri);
-					if (relative === undefined || !allowedPaths.has(relative) || !this.serverOwnsPath(input.root, result.client.server, relative)) continue;
-					const key = unresolvedSymbolKey(symbol);
-					if (seenRaw.has(key)) continue;
-					seenRaw.add(key);
-					candidates.push({ kind: "resolve", client: result.client, symbol });
-				}
-			}
-
-			candidates.sort((left, right) => symbolCandidatePriority(input.query, left) - symbolCandidatePriority(input.query, right));
-			const accepted: WorkspaceSymbolSeed[] = [];
-			const seenHits = new Set<string>();
-			const resolveLimit = pLimit(RESOLVE_CONCURRENCY);
-			let exactLeafCount = 0;
-			let candidateIndex = 0;
-			while (
-				accepted.length < config.config.grep.max_symbols
-				&& candidateIndex < candidates.length
-				&& !operation.signal.aborted
-			) {
-				const remaining = config.config.grep.max_symbols - accepted.length;
-				const batchSize = Math.min(RESOLVE_CONCURRENCY, remaining, candidates.length - candidateIndex);
-				const batch = candidates.slice(candidateIndex, candidateIndex + batchSize);
-				candidateIndex += batchSize;
-				const resolved = await Promise.all(batch.map((candidate) => {
-					if (candidate.kind === "complete") return Promise.resolve({ client: candidate.client, seed: candidate.seed });
-					return resolveLimit(async () => {
-						if (operation.signal.aborted) return undefined;
-						const symbol = await candidate.client.resolveWorkspaceSymbol(candidate.symbol, operation.requestOptions());
-						if (symbol === undefined || operation.signal.aborted) return undefined;
-						const seed = workspaceSymbolSeed(input.root, input.query, symbol);
-						return seed === undefined || !allowedPaths.has(seed.path) || !this.serverOwnsPath(input.root, candidate.client.server, seed.path)
-							? undefined
-							: { client: candidate.client, seed };
-					});
-				}));
-				for (const result of resolved) {
-					if (result === undefined) continue;
-					const exactLeaf = isExactLeafQuery(input.query, result.seed);
-					if (exactLeaf && exactLeafCount >= config.config.grep.max_exact_leaf_symbols) continue;
-					const key = symbolHitKey(result.seed);
-					if (seenHits.has(key)) continue;
-					seenHits.add(key);
-					accepted.push(result.seed);
-					if (exactLeaf) exactLeafCount += 1;
-					if (accepted.length >= config.config.grep.max_symbols) break;
-				}
-			}
-
-			return accepted.map(publicSymbolHit);
+			const accepted = await this.workspaceSymbolSeeds(input, config, operation, servers, allowedPaths);
+			return accepted.map(({ seed }) => publicSymbolHit(seed));
 		} finally {
 			operation.dispose();
 		}
+	}
+
+	async codeAnalysis(input: LspCodeAnalysisInput): Promise<CodeAnalysis | undefined> {
+		return this.withClientOperation(() => this.codeAnalysisOperation(input));
+	}
+
+	private async codeAnalysisOperation(input: LspCodeAnalysisInput): Promise<CodeAnalysis | undefined> {
+		const config = await this.enabledConfig(input.root);
+		const allowedPaths = new Set(input.allowedPaths);
+		if (
+			config === undefined
+			|| isExcludedRoot(input.root, config.config.exclude_paths)
+			|| !config.config.grep.workspace_symbols
+			|| config.config.grep.max_symbols <= 0
+			|| allowedPaths.size === 0
+		) return undefined;
+		const servers = this.serversForPaths(input.root, allowedPaths);
+		if (servers.length === 0) return undefined;
+		const operation = createOperationDeadline(input.signal, config.config.request_timeout_ms);
+		try {
+			const candidates = await this.workspaceSymbolSeeds(
+				{ root: input.root, query: input.query, allowedPaths, ...(input.signal === undefined ? {} : { signal: input.signal }) },
+				config,
+				operation,
+				servers,
+				allowedPaths,
+			);
+			const capable = candidates.filter(({ client }) =>
+				featureAvailable(client, lspFeatureDefinitions.documentSymbols)
+				&& featureAvailable(client, lspFeatureDefinitions.references));
+			const exact = capable.filter(({ seed }) => seed.exact);
+			const selected = (exact.length > 0 ? exact : input.allowRelated ? capable : [])
+				.slice(0, Math.min(CODE_ANALYSIS_SYMBOL_LIMIT, input.limit));
+			if (selected.length === 0) return undefined;
+			const byPath = new Map<string, ResolvedWorkspaceSymbol[]>();
+			for (const item of selected) {
+				const grouped = byPath.get(item.seed.path);
+				if (grouped === undefined) byPath.set(item.seed.path, [item]);
+				else grouped.push(item);
+			}
+			const limit = pLimit(CODE_ANALYSIS_CONCURRENCY);
+			const files = await Promise.all([...byPath.entries()].map(([relativePath, grouped]) => limit(async () => {
+				try {
+					const document = await input.load(relativePath);
+					if (document === undefined || operation.signal.aborted) return undefined;
+					const client = grouped[0]?.client;
+					if (client === undefined || grouped.some((item) => item.client !== client)) return undefined;
+					const symbols = await client.documentSymbols(
+						document.filePath,
+						document.text,
+						operation.requestOptions(),
+					);
+					if (symbols === undefined) return undefined;
+					const analysis = analyzeLspDocument(document, symbols, grouped.map(({ seed }) => seed));
+					const authorities = await Promise.all(grouped.map(async ({ seed }) => {
+						const unit = unitForSeed(analysis, seed);
+						return unit === undefined
+							? undefined
+							: { id: unit.id, authority: await this.symbolAuthority(client, document.filePath, seed, unit, operation) };
+					}));
+					return {
+						document,
+						analysis: withAuthorities(analysis, authorities),
+					};
+				} catch {
+					return undefined;
+				}
+			})));
+			return {
+				mode: "symbol",
+				files: files.filter((file): file is NonNullable<typeof file> => file !== undefined),
+			};
+		} finally {
+			operation.dispose();
+		}
+	}
+
+	private async symbolAuthority(
+		client: LspClient,
+		filePath: string,
+		seed: WorkspaceSymbolSeed,
+		unit: IndexedCodeUnit,
+		operation: OperationDeadline,
+	): Promise<CodeAuthority> {
+		const position = { line: seed.line, character: seed.character };
+		const [calls, references] = await Promise.all([
+			client.incomingCalls(filePath, position, operation.requestOptions()),
+			client.references(filePath, position, operation.requestOptions()),
+		]);
+		if (calls?.some((call) => outsideUnit(call.from.uri, call.from.range, seed, unit))) return "called";
+		if (references?.some((reference) => outsideUnit(reference.uri, reference.range, seed, unit))) return "referenced";
+		return "defined";
+	}
+
+	private async workspaceSymbolSeeds(
+		input: WorkspaceSymbolsInput,
+		config: LoadedLspConfig,
+		operation: OperationDeadline,
+		servers: readonly LspServerConfig[],
+		allowedPaths: ReadonlySet<string>,
+	): Promise<ResolvedWorkspaceSymbol[]> {
+		const serverResults = await Promise.all(servers.map(async (server) => {
+			if (operation.signal.aborted) return undefined;
+			const client = await waitUnlessAborted(this.clientForServer(input.root, server), operation.signal);
+			if (client === undefined || operation.signal.aborted) return undefined;
+			const symbols = await client.workspaceSymbols(input.query, operation.requestOptions());
+			return symbols === undefined ? undefined : { client, symbols };
+		}));
+
+		if (operation.signal.aborted) return [];
+		const candidates: SymbolCandidate[] = [];
+		const seenRaw = new Set<string>();
+		for (const result of serverResults) {
+			if (result === undefined) continue;
+			for (const symbol of result.symbols) {
+				if (operation.signal.aborted) return [];
+				const location = workspaceSymbolLocation(symbol);
+				if (location !== undefined) {
+					const seed = workspaceSymbolSeed(input.root, input.query, symbol);
+					if (seed === undefined || !allowedPaths.has(seed.path) || !this.serverOwnsPath(input.root, result.client.server, seed.path)) continue;
+					const key = symbolHitKey(seed);
+					if (seenRaw.has(key)) continue;
+					seenRaw.add(key);
+					candidates.push({ kind: "complete", client: result.client, seed });
+					continue;
+				}
+				if (!hasUriOnlyWorkspaceSymbolLocation(symbol) || typeof symbol.name !== "string" || typeof symbol.kind !== "number") continue;
+				const relative = relativePathForUri(input.root, symbol.location.uri);
+				if (relative === undefined || !allowedPaths.has(relative) || !this.serverOwnsPath(input.root, result.client.server, relative)) continue;
+				const key = unresolvedSymbolKey(symbol);
+				if (seenRaw.has(key)) continue;
+				seenRaw.add(key);
+				candidates.push({ kind: "resolve", client: result.client, symbol });
+			}
+		}
+
+		candidates.sort((left, right) => symbolCandidatePriority(input.query, left) - symbolCandidatePriority(input.query, right));
+		const accepted: ResolvedWorkspaceSymbol[] = [];
+		const seenHits = new Set<string>();
+		const resolveLimit = pLimit(RESOLVE_CONCURRENCY);
+		let exactLeafCount = 0;
+		let candidateIndex = 0;
+		while (
+			accepted.length < config.config.grep.max_symbols
+			&& candidateIndex < candidates.length
+			&& !operation.signal.aborted
+		) {
+			const remaining = config.config.grep.max_symbols - accepted.length;
+			const batchSize = Math.min(RESOLVE_CONCURRENCY, remaining, candidates.length - candidateIndex);
+			const batch = candidates.slice(candidateIndex, candidateIndex + batchSize);
+			candidateIndex += batchSize;
+			const resolved = await Promise.all(batch.map((candidate) => {
+				if (candidate.kind === "complete") return Promise.resolve({ client: candidate.client, seed: candidate.seed });
+				return resolveLimit(async () => {
+					if (operation.signal.aborted) return undefined;
+					const symbol = await candidate.client.resolveWorkspaceSymbol(candidate.symbol, operation.requestOptions());
+					if (symbol === undefined || operation.signal.aborted) return undefined;
+					const seed = workspaceSymbolSeed(input.root, input.query, symbol);
+					return seed === undefined || !allowedPaths.has(seed.path) || !this.serverOwnsPath(input.root, candidate.client.server, seed.path)
+						? undefined
+						: { client: candidate.client, seed };
+				});
+			}));
+			for (const result of resolved) {
+				if (result === undefined) continue;
+				const exactLeaf = isExactLeafQuery(input.query, result.seed);
+				if (exactLeaf && exactLeafCount >= config.config.grep.max_exact_leaf_symbols) continue;
+				const key = symbolHitKey(result.seed);
+				if (seenHits.has(key)) continue;
+				seenHits.add(key);
+				accepted.push(result);
+				if (exactLeaf) exactLeafCount += 1;
+				if (accepted.length >= config.config.grep.max_symbols) break;
+			}
+		}
+		return accepted;
 	}
 
 	async beforeDiagnostics(root: string, filePath: string): Promise<LspDiagnosticSnapshot | undefined> {
@@ -623,6 +747,67 @@ function symbolLeaf(value: string): string {
 
 function normalizeSymbolText(value: string): string {
 	return value.replace(/::|#/gu, ".").toLocaleLowerCase();
+}
+
+function unitForSeed(analysis: AnalyzedFileIndex, seed: WorkspaceSymbolSeed): IndexedCodeUnit | undefined {
+	const name = normalizeSymbolText(seed.symbol);
+	const qualified = seed.qualified_symbol === undefined ? undefined : normalizeSymbolText(seed.qualified_symbol);
+	const line = seed.line + 1;
+	return [...analysis.index.units]
+		.filter((unit) => {
+			const unitName = normalizeSymbolText(unit.name ?? "");
+			const unitQualified = unit.qualifiedName === undefined ? undefined : normalizeSymbolText(unit.qualifiedName);
+			return unitName === name || (qualified !== undefined && unitQualified === qualified);
+		})
+		.sort((left, right) =>
+			Number(!(left.startLine <= line && line <= left.endLine))
+				- Number(!(right.startLine <= line && line <= right.endLine))
+			|| Math.abs(left.startLine - line) - Math.abs(right.startLine - line)
+			|| (left.endByte - left.startByte) - (right.endByte - right.startByte)
+			|| compareString(left.id, right.id))[0];
+}
+
+function withAuthorities(
+	analysis: AnalyzedFileIndex,
+	values: readonly ({ readonly id: string; readonly authority: CodeAuthority } | undefined)[],
+): AnalyzedFileIndex {
+	const authorities = new Map<string, CodeAuthority>();
+	for (const value of values) {
+		if (value === undefined) continue;
+		const current = authorities.get(value.id);
+		authorities.set(value.id, current === undefined ? value.authority : strongerAuthority(current, value.authority));
+	}
+	return {
+		...analysis,
+		index: {
+			...analysis.index,
+			units: analysis.index.units.map((unit) => ({
+				...unit,
+				authority: authorities.get(unit.id) ?? unit.authority,
+			})),
+		},
+	};
+}
+
+function outsideUnit(
+	uri: string,
+	range: Range,
+	seed: WorkspaceSymbolSeed,
+	unit: IndexedCodeUnit,
+): boolean {
+	if (uri !== seed.uri) return true;
+	const startLine = range.start.line + 1;
+	const endLine = range.end.line + 1;
+	return endLine < unit.startLine || startLine > unit.endLine;
+}
+
+function strongerAuthority(left: CodeAuthority, right: CodeAuthority): CodeAuthority {
+	const priority = { called: 0, referenced: 1, defined: 2 } as const;
+	return priority[left] <= priority[right] ? left : right;
+}
+
+function compareString(left: string, right: string): number {
+	return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function unresolvedSymbolKey(symbol: WorkspaceSymbol): string {

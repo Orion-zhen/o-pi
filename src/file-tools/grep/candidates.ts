@@ -1,18 +1,12 @@
 import { compactDisplayLine } from "./display.js";
+import type { CodeAuthority } from "../../code-index/parser.js";
 import type { GrepDisplayLine, GrepMatchedBy } from "./types.js";
 
-export type CandidateRole =
-	| "definition"
-	| "occurrence"
-	| "public_api"
-	| "config"
-	| "test"
-	| "text";
+export type SymbolRole = "definition" | "enclosing";
 
 export type RetrievalSource =
 	| "text-regex"
-	| "text-lexical"
-	| "lsp-symbol";
+	| "text-lexical";
 
 export type CandidateSignal =
 	| "exact_qualified_definition"
@@ -27,6 +21,7 @@ export type CandidateSignal =
 	| "structured_symbol_match"
 	| "structured_path_match"
 	| "lexical_high_coverage"
+	| "related_symbol"
 	| "lexical";
 
 export interface TextHit {
@@ -79,7 +74,8 @@ export interface CodeRegionBase {
 	readonly declaration?: string;
 	/** Internal UTF-8 boundary used only to suppress declaration-duplicate hits. */
 	readonly declarationEndByte?: number;
-	readonly roles: readonly CandidateRole[];
+	readonly symbolRole?: SymbolRole;
+	readonly authority?: CodeAuthority;
 	readonly signals: readonly CandidateSignal[];
 	readonly evidence: readonly RegionEvidence[];
 	readonly matchedBy: readonly GrepMatchedBy[];
@@ -103,7 +99,6 @@ export type CodeRegion = VerifiedCodeRegion | SemanticMainRegion;
 export interface RankingEvidenceSummary {
 	readonly factual: number;
 	readonly lexical: number;
-	readonly semantic: number;
 	readonly fusionScore: number;
 }
 
@@ -112,7 +107,6 @@ export type RankedRegion = CodeRegion & {
 	readonly fieldScore: number;
 	readonly ranking: RankingEvidenceSummary;
 	readonly verifiedCoverage: number;
-	readonly rolePriority: number;
 };
 
 type DerivedDisplayFields = "matchedBy" | "displayLines";
@@ -179,11 +173,9 @@ export function normalizeMatchedBy(
 	if (signalSet.has("exact_qualified_definition")) methods.add("exact-qualified-symbol");
 	if (signalSet.has("exact_symbol_definition") || signalSet.has("exact_member_definition")) methods.add("exact-symbol");
 	if (signalSet.has("symbol_prefix")) methods.add("symbol-prefix");
+	if (signalSet.has("related_symbol")) methods.add("related");
 	if (sources.has("text-regex")) methods.add("regex");
 	if (sources.has("text-lexical")) methods.add("lexical");
-	if (sources.has("lsp-symbol") && !signalSet.has("exact_qualified_definition")
-		&& !signalSet.has("exact_symbol_definition") && !signalSet.has("exact_member_definition")
-		&& !signalSet.has("symbol_prefix")) methods.add("related");
 	const order: readonly GrepMatchedBy[] = ["exact-qualified-symbol", "exact-symbol", "symbol-prefix", "regex", "lexical", "related"];
 	return order.filter((method) => methods.has(method));
 }

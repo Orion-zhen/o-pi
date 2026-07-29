@@ -1,8 +1,14 @@
 import type { RequestType } from "vscode-jsonrpc/node";
 import {
+	CallHierarchyIncomingCallsRequest,
+	CallHierarchyPrepareRequest,
 	DocumentSymbolRequest,
+	ReferencesRequest,
 	WorkspaceSymbolRequest,
 	WorkspaceSymbolResolveRequest,
+	type CallHierarchyIncomingCall,
+	type Location,
+	type Position,
 	type SymbolInformation,
 	type WorkspaceSymbol,
 } from "vscode-languageserver-protocol";
@@ -21,7 +27,13 @@ export interface LspFeatureSession {
 }
 
 export interface LspFeatureDefinition {
-	readonly id: "documentSymbols" | "workspaceSymbols" | "workspaceSymbolResolve" | "typescriptDiagnostics";
+	readonly id:
+		| "documentSymbols"
+		| "workspaceSymbols"
+		| "workspaceSymbolResolve"
+		| "references"
+		| "incomingCalls"
+		| "typescriptDiagnostics";
 	readonly capability: (capabilities: LspServerCapabilities | undefined) => boolean;
 }
 
@@ -42,6 +54,14 @@ export const lspFeatureDefinitions = {
 			const provider = capabilities?.workspaceSymbolProvider;
 			return typeof provider === "object" && provider !== null && provider.resolveProvider === true;
 		},
+	},
+	references: {
+		id: "references",
+		capability: (capabilities) => providerEnabled(capabilities?.referencesProvider),
+	},
+	incomingCalls: {
+		id: "incomingCalls",
+		capability: (capabilities) => providerEnabled(capabilities?.callHierarchyProvider),
 	},
 	typescriptDiagnostics: {
 		id: "typescriptDiagnostics",
@@ -70,11 +90,47 @@ export async function resolveWorkspaceSymbol(session: LspFeatureSession, symbol:
 	return session.request(WorkspaceSymbolResolveRequest.type, symbol, options);
 }
 
+export async function requestReferences(
+	session: LspFeatureSession,
+	uri: string,
+	position: Position,
+	options?: LspRequestOptions,
+): Promise<Location[] | undefined> {
+	if (!featureAvailable(session, lspFeatureDefinitions.references)) return undefined;
+	const result = await session.request(ReferencesRequest.type, {
+		textDocument: { uri },
+		position,
+		context: { includeDeclaration: false },
+	}, options);
+	return result === null ? [] : result;
+}
+
+export async function requestIncomingCalls(
+	session: LspFeatureSession,
+	uri: string,
+	position: Position,
+	options?: LspRequestOptions,
+): Promise<CallHierarchyIncomingCall[] | undefined> {
+	if (!featureAvailable(session, lspFeatureDefinitions.incomingCalls)) return undefined;
+	const prepared = await session.request(CallHierarchyPrepareRequest.type, {
+		textDocument: { uri },
+		position,
+	}, options);
+	if (prepared === undefined) return undefined;
+	if (prepared === null || prepared.length === 0) return [];
+	const item = prepared[0];
+	if (item === undefined) return [];
+	const calls = await session.request(CallHierarchyIncomingCallsRequest.type, { item }, options);
+	return calls === null ? [] : calls;
+}
+
 /** 后续 feature 只需在此边界注册 adapter，不改 transport、registry 或 manager 生命周期。 */
 export const lspFeatureAdapters = {
 	documentSymbols: requestDocumentSymbols,
 	workspaceSymbols: requestWorkspaceSymbols,
 	workspaceSymbolResolve: resolveWorkspaceSymbol,
+	references: requestReferences,
+	incomingCalls: requestIncomingCalls,
 	typescriptDiagnostics: requestTypeScriptDiagnostics,
 };
 

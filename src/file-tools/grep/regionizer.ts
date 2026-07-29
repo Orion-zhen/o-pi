@@ -3,7 +3,14 @@ import type { TextContent } from "../../filesystem/contracts/content.js";
 import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
-import { createVerifiedCodeRegion, type RegionEvidence, type TextHit, type VerifiedCodeRegion } from "./candidates.js";
+import {
+	createSemanticCodeRegion,
+	createVerifiedCodeRegion,
+	type CodeRegion,
+	type RegionEvidence,
+	type TextHit,
+	type VerifiedCodeRegion,
+} from "./candidates.js";
 import type { ScopeInventory, ScopedFile } from "./inventory.js";
 import { AbortGrepParse, GrepParser } from "./parser-pool.js";
 import type { GrepScopeError, GrepSkippedFiles } from "./types.js";
@@ -34,7 +41,7 @@ export interface RegionizedFile {
 }
 
 export interface RegionizationResult {
-	readonly regions: readonly VerifiedCodeRegion[];
+	readonly regions: readonly CodeRegion[];
 	readonly files: readonly RegionizedFile[];
 	readonly parsedFiles: number;
 	readonly astSkippedOversizedFiles: number;
@@ -67,8 +74,7 @@ export class GrepRegionizer {
 		}
 		const inventoryByPath = new Map(inventory.files.map((file) => [file.path, file]));
 		const hitsByPath = groupHits(hits);
-		const fallback = new Map<string, readonly [TextHit, ...TextHit[]]>();
-		for (const [path, grouped] of hitsByPath) fallback.set(path, asNonEmpty(grouped));
+		const excludedHitPaths = new Set<string>();
 		const prepared: PreparedFile[] = [];
 		const scopeErrors: GrepScopeError[] = [];
 		const skipped: Required<GrepSkippedFiles> = {
@@ -90,7 +96,7 @@ export class GrepRegionizer {
 			const loaded = await this.prepare(candidate, context);
 			if (!loaded.ok) {
 				if (loaded.error.code === "aborted") return aborted(file.path);
-				fallback.delete(file.path);
+				excludedHitPaths.add(file.path);
 				if (file.explicitFile) scopeErrors.push({
 					path: file.scopeInput,
 					error: mapFsError(loaded.error, { notFound: "file", path: file.path }).error,
@@ -99,7 +105,7 @@ export class GrepRegionizer {
 				continue;
 			}
 			if (loaded.value === undefined) {
-				fallback.delete(file.path);
+				excludedHitPaths.add(file.path);
 				if (file.explicitFile) scopeErrors.push({
 					path: file.scopeInput,
 					error: fail("STALE_READ", "File changed after text scanning.", { path: file.path }).error,
@@ -113,25 +119,18 @@ export class GrepRegionizer {
 		const analyses = await this.analyzePrepared(prepared, context.operation.signal);
 		if (analyses.status === "failed") return analyses;
 		const files: RegionizedFile[] = [];
-		const regions: VerifiedCodeRegion[] = [];
 		let parsedFiles = 0;
 		for (const [index, file] of prepared.entries()) {
 			const analysis = analyses.values[index];
 			if (analysis === undefined || analysis.status !== "parsed") continue;
 			parsedFiles += 1;
 			files.push({ file: file.file, content: file.content, analysis });
-			if (file.hits.length === 0) continue;
-			const parsed = parsedRegions({ ...file, hits: asNonEmpty(file.hits) }, analysis.index.units);
-			regions.push(...parsed);
-			const mappedHits = new Set(parsed.flatMap((region) => region.verifiedHits));
-			const outside = file.hits.filter((hit) => !mappedHits.has(hit));
-			if (outside.length === 0) fallback.delete(file.file.path);
-			else fallback.set(file.file.path, asNonEmpty(outside));
 		}
-		for (const fileHits of fallback.values()) {
-			regions.push(...textRegions(fileHits));
-		}
-		regions.sort(compareRegion);
+		const regions = regionizeAnalyzedFiles(
+			hits.filter((hit) => !excludedHitPaths.has(hit.path)),
+			files,
+			false,
+		);
 		return {
 			regions,
 			files,
@@ -230,6 +229,55 @@ export class GrepRegionizer {
 	}
 }
 
+/** 将一个已选定 analyzer 的规范 code units 映射为 grep regions。 */
+export function regionizeAnalyzedFiles(
+	hits: readonly TextHit[],
+	files: readonly RegionizedFile[],
+	includeUnmatchedUnits: boolean,
+): CodeRegion[] {
+	const fallback = new Map<string, readonly [TextHit, ...TextHit[]]>();
+	for (const [path, grouped] of groupHits(hits)) fallback.set(path, asNonEmpty(grouped));
+	const regions: CodeRegion[] = [];
+	for (const file of files) {
+		const fileHits = fallback.get(file.file.path) ?? [];
+		const parsed = fileHits.length === 0
+			? []
+			: parsedRegions({
+					file: file.file,
+					hits: asNonEmpty(fileHits),
+				}, file.analysis.index.units);
+		regions.push(...parsed);
+		const mappedHits = new Set(parsed.flatMap((region) => region.verifiedHits));
+		const outside = fileHits.filter((hit) => !mappedHits.has(hit));
+		if (outside.length === 0) fallback.delete(file.file.path);
+		else fallback.set(file.file.path, asNonEmpty(outside));
+		if (!includeUnmatchedUnits) continue;
+		const mappedUnits = new Set(parsed.map((region) => region.id));
+		for (const unit of file.analysis.index.units) {
+			if (mappedUnits.has(unit.id)) continue;
+			regions.push(createSemanticCodeRegion({
+				id: unit.id,
+				path: unit.path,
+				startLine: unit.startLine,
+				endLine: unit.endLine,
+				startByte: unit.startByte,
+				endByte: unit.endByte,
+				kind: unit.kind,
+				...(unit.name === undefined ? {} : { symbol: unit.qualifiedName ?? unit.name }),
+				...(unit.qualifiedName === undefined ? {} : { qualifiedSymbol: unit.qualifiedName }),
+				...(unit.signature === undefined ? {} : { declaration: unit.signature }),
+				...(unit.declarationEndByte === undefined ? {} : { declarationEndByte: unit.declarationEndByte }),
+				symbolRole: "definition",
+				authority: unit.authority,
+				signals: ["related_symbol"],
+				evidence: [],
+			}));
+		}
+	}
+	for (const fileHits of fallback.values()) regions.push(...textRegions(fileHits));
+	return regions.sort(compareRegion);
+}
+
 function groupHits(hits: readonly TextHit[]): Map<string, TextHit[]> {
 	const hitsByPath = new Map<string, TextHit[]>();
 	for (const hit of hits) {
@@ -241,7 +289,7 @@ function groupHits(hits: readonly TextHit[]): Map<string, TextHit[]> {
 }
 
 function parsedRegions(
-	file: PreparedFile,
+	file: RegionizeFile,
 	units: readonly IndexedCodeUnit[],
 ): VerifiedCodeRegion[] {
 	const grouped = new Map<string, { readonly unit: IndexedCodeUnit; readonly hits: TextHit[] }>();
@@ -271,12 +319,8 @@ function parsedRegions(
 			...(unit.qualifiedName === undefined ? {} : { qualifiedSymbol: unit.qualifiedName }),
 			...(unit.signature === undefined ? {} : { declaration: unit.signature }),
 			...(unit.declarationEndByte === undefined ? {} : { declarationEndByte: unit.declarationEndByte }),
-			roles: [
-				"occurrence",
-				...(unit.exported ? ["public_api" as const] : []),
-				...(isTestPath(unit.path) ? ["test" as const] : []),
-				...(isConfigPath(unit.path) ? ["config" as const] : []),
-			],
+			symbolRole: "enclosing",
+			authority: unit.authority,
 			signals: ["verified_enclosing_region"],
 			evidence: [textEvidence()],
 		}, asNonEmpty(sortedHits));
@@ -294,7 +338,6 @@ function textRegions(
 		startByte: hit.byteStart,
 		endByte: hit.byteEnd,
 		kind: "text",
-		roles: ["text"],
 		signals: ["verified_text_line"],
 		evidence: [textEvidence()],
 	}, [hit]));
@@ -375,7 +418,7 @@ function asNonEmpty<T>(values: readonly T[]): readonly [T, ...T[]] {
 	return [first, ...values.slice(1)];
 }
 
-function compareRegion(left: VerifiedCodeRegion, right: VerifiedCodeRegion): number {
+function compareRegion(left: CodeRegion, right: CodeRegion): number {
 	return compareStableString(left.path, right.path)
 		|| left.startLine - right.startLine
 		|| left.endLine - right.endLine
@@ -384,14 +427,6 @@ function compareRegion(left: VerifiedCodeRegion, right: VerifiedCodeRegion): num
 
 function compareStableString(left: string, right: string): number {
 	return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function isTestPath(path: string): boolean {
-	return /(?:^|\/)(?:test|tests|spec|specs)(?:\/|$)|(?:\.test|\.spec)\.[^/]+$/iu.test(path);
-}
-
-function isConfigPath(path: string): boolean {
-	return /(?:^|\/)(?:config|configs)(?:\/|$)|(?:^|\/)[^/]*config[^/]*\.[^/]+$/iu.test(path);
 }
 
 function isAborted(signal: AbortSignal | undefined): boolean {

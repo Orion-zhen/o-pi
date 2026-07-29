@@ -51,7 +51,7 @@ Node platform backend
 5. command 只组合 filesystem capability、自身算法和自己的可选 port；
 6. adapter 格式化 Pi content/details，最后释放 invocation lease。
 
-opaque `FileRef`、`DirectoryRef` 和 `TargetRef` 保存逻辑身份；command 不能取回 native path。native bridge 只用于 LSP adapter 映射；返回的 hint 仍必须由 command 通过 filesystem 或本次 live AST 重新验证。
+opaque `FileRef`、`DirectoryRef` 和 `TargetRef` 保存逻辑身份；command 不能取回 native path。native bridge 只用于 LSP adapter 映射；LSP 只能通过 command 提供的 snapshot-bound loader 读取 allowed inventory 中的正文。
 
 ## Tool-local ports
 
@@ -59,9 +59,9 @@ port 由消费者工具声明，而不是由外部子系统或 filesystem 声明
 
 - read：缺失路径、structure/graph context、inline image；skill locator 在 adapter 边界预处理；
 - write/edit：diagnostics、mutation observer、共享 text diff contract；
-- grep：LSP position hints；LSP 不反向导入 grep 实现，也不能直接构造公开 region。
+- grep：workspace-bound `CodeAnalyzer`；LSP 不反向导入 grep 实现，统一返回规范代码单元和 `called` / `referenced` / `defined` authority。
 
-port 输入输出使用工具自己的 DTO 和 opaque ref。所有调用都有 safe wrapper；未配置、失败、超时或取消时保留基础行为。find 会重新检查 graph candidate 的 scope、visibility、kind、symlink 和 hash；grep hint 必须映射到本次已经读取、解析且仍在 scope/glob 内的 live AST unit。外部结果不能绕过 filesystem 数据平面。
+port 输入输出使用消费者需要的 DTO 和 opaque ref。所有调用都有 safe wrapper；未配置、在 symbol 选择前失败或超时时保留基础行为。find 会重新检查 graph candidate 的 scope、visibility、kind、symlink 和 hash；grep analyzer 只能读取本次 scope/glob inventory 中的稳定 snapshot。一旦 analyzer 选中 symbol，本次调用采用其完整或部分结果，不再混入逐 symbol 的 Tree-sitter fallback。外部结果不能绕过 filesystem 数据平面。
 
 ## Lazy loading
 

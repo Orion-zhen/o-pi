@@ -1,6 +1,6 @@
 # 本地遥测
 
-遥测是本地、append-only 的工具调用事实，用来回答模型是否需要多文件 edit，以及模型实际看到的搜索候选是否被后续工具调用采用。它提供观测信号，不替代 benchmark，也不作因果结论。grep 不投影原始 LSP position hint；当 hint 成为模型可见 region 的检索证据时，该候选会记录 `lsp-symbol` 来源。
+遥测是本地、append-only 的工具调用事实，用来回答模型是否需要多文件 edit，以及模型实际看到的搜索候选是否被后续工具调用采用。它提供观测信号，不替代 benchmark，也不作因果结论。grep 不把 LSP 调用或引用关系伪装成检索来源；它们只影响候选的结构 tier。
 
 采集失败、投影失败或写盘失败不得改变工具和 Pi 生命周期。系统不保存 prompt、工具输出正文、edit 内容、diff、搜索 query 或 shell command 原文。
 
@@ -68,7 +68,7 @@ grep 排序事实分为两层：
 - 调用级：`ranking_algorithm`、cap 前后候选数、选择数、tier 数、top-tier 候选数、relevance head、MMR 选择/替换数，以及纯 relevance 前缀和最终选择的文件数。
 - 候选级：模型可见 rank、选择前 relevance rank、tier、主/辅助连续分数及 `head` / `mmr` 选择阶段。
 
-当前 `tier-bm25f-rrf-mmr-v1` 的主分数是 BM25F 字段分数，辅助分数是 family-aware RRF 分数。连续分数只在同算法、同查询的候选内有意义；跨算法比较以 Hit@K、MRR、nDCG 和下游采用为主。算法更换时必须使用新的 `ranking_algorithm`，不复用旧标识。
+当前 `semantic-tier-bm25f-rrf-mmr-v2` 先组合 query tier 与 `called` / `referenced` / `defined` authority；主分数是 BM25F 字段分数，辅助分数是 family-aware RRF 分数。连续分数只在同算法、同查询的候选内有意义；跨算法比较以 Hit@K、MRR、nDCG 和下游采用为主。算法更换时必须使用新的 `ranking_algorithm`，不复用旧标识。
 
 ## 报告
 

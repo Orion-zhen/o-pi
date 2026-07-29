@@ -1,8 +1,9 @@
 import { FileChangeType } from "vscode-languageserver-protocol";
 
+import type { CodeAnalysis } from "../code-index/types.js";
 import { emptySummary } from "./diagnostics.js";
-import type { LspManager, ReadEnhancement } from "./manager.js";
-import type { LspDiagnosticSnapshot, LspDiagnosticsSummary, LspLineRange, LspSymbolHit } from "./types.js";
+import type { LspCodeAnalysisInput, LspManager, ReadEnhancement } from "./manager.js";
+import type { LspDiagnosticSnapshot, LspDiagnosticsSummary, LspLineRange } from "./types.js";
 
 export interface LspReadInput {
 	readonly workspaceRoot: string;
@@ -12,13 +13,6 @@ export interface LspReadInput {
 	readonly endLine: number;
 	readonly truncated: boolean;
 	readonly partial: boolean;
-}
-
-export interface LspSymbolInput {
-	readonly workspaceRoot: string;
-	readonly query: string;
-	readonly allowedPaths: ReadonlySet<string>;
-	readonly signal?: AbortSignal;
 }
 
 export interface LspMutationInput {
@@ -33,7 +27,7 @@ export interface LspMutationInput {
 /** LSP-owned, best-effort operations exposed to composition adapters. */
 export interface LspFileOperations {
 	read?(input: LspReadInput): Promise<ReadEnhancement | undefined>;
-	symbols?(input: LspSymbolInput): Promise<readonly LspSymbolHit[]>;
+	codeAnalysis?(input: LspCodeAnalysisInput): Promise<CodeAnalysis | undefined>;
 	beforeEdit?(input: Pick<LspMutationInput, "workspaceRoot" | "filePath">): Promise<LspDiagnosticSnapshot | undefined>;
 	afterWrite?(input: LspMutationInput): Promise<LspDiagnosticsSummary | undefined>;
 	afterWriteBatch?(inputs: readonly LspMutationInput[]): Promise<readonly (LspDiagnosticsSummary | undefined)[]>;
@@ -54,16 +48,11 @@ export function createLspFileOperations(manager: LspManager): LspFileOperations 
 				return undefined;
 			}
 		},
-		async symbols(input) {
+		async codeAnalysis(input) {
 			try {
-				return await manager.workspaceSymbols({
-					root: input.workspaceRoot,
-					query: input.query,
-					allowedPaths: input.allowedPaths,
-					...(input.signal === undefined ? {} : { signal: input.signal }),
-				});
+				return await manager.codeAnalysis(input);
 			} catch {
-				return [];
+				return undefined;
 			}
 		},
 		async beforeEdit(input) {

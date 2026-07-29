@@ -6,7 +6,7 @@ import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspa
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
 import { buildScopeInventory, type ScopeInventory } from "../../src/file-tools/grep/inventory.js";
 import { GrepTool } from "../../src/file-tools/grep/command.js";
-import type { GrepHintSource } from "../../src/file-tools/grep/ports.js";
+import type { AnalyzeCode } from "../../src/code-index/types.js";
 import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
@@ -72,15 +72,15 @@ export function expectInventorySuccess(result: ToolOutcome<ScopeInventory>): Sco
 	return result;
 }
 
-export async function grepWithHints(
+export async function grepWithAnalyzer(
 	workspace: string,
 	params: Parameters<GrepTool["execute"]>[0],
-	sources: { readonly lsp?: GrepHintSource },
+	sources: { readonly analyzeCode?: AnalyzeCode },
 	mapFilesystem: (filesystem: WorkspaceFileSystem) => WorkspaceFileSystem = (filesystem) => filesystem,
 ): Promise<ToolOutcome<GrepSuccess>> {
 	const host = new FileToolsHost();
 	const tool = new GrepTool();
-	const opened = await host.open({ cwd: workspace, sessionId: "grep-hints" });
+	const opened = await host.open({ cwd: workspace, sessionId: "grep-analyzer" });
 	if (isFailed(opened)) {
 		tool.dispose();
 		host.dispose();
@@ -91,7 +91,7 @@ export async function grepWithHints(
 			filesystem: mapFilesystem(opened.filesystem),
 			operation: opened.context,
 			limits: opened.limits,
-			...(sources.lsp === undefined ? {} : { lspHints: sources.lsp }),
+			...(sources.analyzeCode === undefined ? {} : { analyzeCode: sources.analyzeCode }),
 		});
 	} finally {
 		tool.dispose();

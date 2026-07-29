@@ -34,25 +34,28 @@ describe("grep ranking", () => {
 		expect(classifySymbolMatch(qualified, "grep", "FileTools.grep")).toBe("exact_qualified_definition");
 	});
 
-	it("不识别 tests/src 负向上下文，测试中的强证据可以压过生产代码", () => {
+	it("不读取路径语义，优先返回具有 incoming call authority 的定义", () => {
 		const testDefinition = semanticRegion({
 			id: "test",
 			path: "tests/grep.test.ts",
 			symbol: "grep",
-			roles: ["definition", "test"],
 			signals: ["lexical"],
-			evidence: [rankingEvidence("lsp-symbol")],
+			authority: "defined",
+			evidence: [rankingEvidence("text-lexical")],
 		});
-		const productionBody = verifiedRegion({
+		const productionDefinition = semanticRegion({
 			id: "production",
-			signals: ["verified_enclosing_region"],
-			evidence: [rankingEvidence("text-regex")],
+			path: "src/grep.ts",
+			symbol: "grep",
+			signals: ["lexical"],
+			authority: "called",
+			evidence: [rankingEvidence("text-lexical")],
 		});
-		expect(rankCodeRegions(queryPlan("grep"), [productionBody, testDefinition]).map((item) => item.id))
-			.toEqual(["test", "production"]);
+		expect(rankCodeRegions(queryPlan("grep"), [testDefinition, productionDefinition]).map((item) => item.id))
+			.toEqual(["production", "test"]);
 	});
 
-	it("同证据只使用候选自身字段形成稳定顺序", () => {
+	it("同 authority 只使用候选自身字段形成稳定顺序", () => {
 		const left = semanticRegion({
 			id: "left",
 			path: "z-production.ts",
@@ -62,7 +65,6 @@ describe("grep ranking", () => {
 		const test = semanticRegion({
 			id: "test",
 			path: "a-tests/feature.test.ts",
-			roles: ["definition", "test"],
 			signals: ["lexical"],
 			evidence: [rankingEvidence("text-lexical")],
 		});

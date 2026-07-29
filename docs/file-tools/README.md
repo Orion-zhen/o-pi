@@ -104,7 +104,7 @@ blocked path  → 不可列出、搜索、读取或写入
 
 ### `grep`
 
-`grep` 对 `query` 执行区分大小写的逐行正则搜索。Tree-sitter 将真实正文命中折叠到最小代码单元；多个精确 symbol 可用 LSP hint 消歧。整次零正文命中时，固定词项覆盖和 LSP workspace symbol 可以形成明确标记的 related region；其数量由 `grep_related_result_limit` 静默限制。剩余结果按 tier、BM25F 字段相关性和独立来源融合排序，再以 relevance head + 同 tier MMR 受 `grep_result_limit` 限制，不按输出 token 数删改。
+`grep` 对 `query` 执行区分大小写的逐行正则搜索。简单查询使用 Tree-sitter 将真实正文命中折叠到最小代码单元；结构化查询有多个命中或零正文命中时，可选 LSP analyzer 接管 symbol 解析，并根据跨代码单元 incoming call/reference 标记 `called`、`referenced` 或 `defined`。排序不识别 `src`、`tests`、fixture 等路径含义，而是在每个 query tier 内优先实际参与调用链的定义。related 数量由 `grep_related_result_limit` 静默限制；剩余结果按结构 tier、BM25F 和来源融合排序，再以 relevance head + 同 tier MMR 受 `grep_result_limit` 限制。
 
 ### `read`
 
@@ -143,7 +143,7 @@ blocked path  → 不可列出、搜索、读取或写入
 
 ## 可选增强
 
-- LSP 为 `grep` 按需提供位置消歧，为 `read` 提供结构边界与长文件剩余 symbol 导航，并为 `write`/`edit` 提供 diagnostics。
+- LSP 为 `grep` 按需提供 symbol 代码单元、references 和 incoming calls，为 `read` 提供结构边界与长文件剩余 symbol 导航，并为 `write`/`edit` 提供 diagnostics。
 - 增强失败时仍保留基础文件操作和文本搜索能力。
 
 详见 [LSP 内部增强](../lsp.md)。

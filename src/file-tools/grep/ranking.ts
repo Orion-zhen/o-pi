@@ -11,23 +11,21 @@ import {
 } from "./candidates.js";
 import type { QueryPlan } from "./query-plan.js";
 
-export type RankingEvidenceFamily = "factual" | "lexical" | "semantic";
+export type RankingEvidenceFamily = "factual" | "lexical";
 
 export const GREP_RRF_K = 60;
 export const GREP_RELEVANCE_HEAD_SIZE = 4;
 export const GREP_MMR_LAMBDA = 0.85;
-export const GREP_RANKING_ALGORITHM = "tier-bm25f-rrf-mmr-v1";
+export const GREP_RANKING_ALGORITHM = "semantic-tier-bm25f-rrf-mmr-v2";
 
 export const GREP_SOURCE_FAMILY: Readonly<Record<RetrievalSource, RankingEvidenceFamily>> = {
 	"text-regex": "factual",
 	"text-lexical": "lexical",
-	"lsp-symbol": "semantic",
 };
 
 const SOURCE_WEIGHT: Readonly<Record<RetrievalSource, number>> = {
 	"text-regex": 1,
 	"text-lexical": 0.75,
-	"lsp-symbol": 0.9,
 };
 
 const TIER_POLICY: Readonly<Partial<Record<CandidateSignal, number>>> = {
@@ -43,6 +41,7 @@ const TIER_POLICY: Readonly<Partial<Record<CandidateSignal, number>>> = {
 	verified_enclosing_region: 3,
 	verified_text_line: 4,
 	lexical_high_coverage: 5,
+	related_symbol: 6,
 	lexical: 6,
 };
 
@@ -58,7 +57,6 @@ const CANONICAL_SYMBOL_MATCH_SIGNALS = new Set<CandidateSignal>([
 const EMPTY_RANKING: RankingEvidenceSummary = {
 	factual: 0,
 	lexical: 0,
-	semantic: 0,
 	fusionScore: 0,
 };
 
@@ -128,18 +126,17 @@ export function rankCodeRegions(plan: QueryPlan, regions: readonly CodeRegion[])
 	for (const region of regions) {
 		const evidence = canonicalEvidence(region.evidence);
 		const signals = effectiveSignals(plan, region);
-		const tier = bestTier(signals);
-		if (tier === undefined) continue;
+		const queryTier = bestTier(signals);
+		if (queryTier === undefined) continue;
 		ranked.push({
 			...region,
 			signals,
 			evidence,
 			matchedBy: normalizeMatchedBy(signals, evidence),
-			tier,
+			tier: structuralTier(queryTier, region),
 			fieldScore: fieldScores.get(region) ?? 0,
 			ranking: summarizeEvidence(evidence),
 			verifiedCoverage: verifiedCoverage(region),
-			rolePriority: rolePriority(region),
 		});
 	}
 	return ranked.sort(compareRankedRegions);
@@ -150,7 +147,6 @@ export function compareRankedRegions(left: RankedRegion, right: RankedRegion): n
 		|| right.fieldScore - left.fieldScore
 		|| right.ranking.fusionScore - left.ranking.fusionScore
 		|| right.verifiedCoverage - left.verifiedCoverage
-		|| right.rolePriority - left.rolePriority
 		|| regionSize(left) - regionSize(right)
 		|| compareString(left.path, right.path)
 		|| left.startLine - right.startLine
@@ -177,7 +173,7 @@ export function selectRankedRegions(
 
 export function summarizeEvidence(evidence: readonly RegionEvidence[]): RankingEvidenceSummary {
 	if (evidence.length === 0) return EMPTY_RANKING;
-	const strongest: Record<RankingEvidenceFamily, number> = { factual: 0, lexical: 0, semantic: 0 };
+	const strongest: Record<RankingEvidenceFamily, number> = { factual: 0, lexical: 0 };
 	for (const item of evidence) {
 		const family = GREP_SOURCE_FAMILY[item.source];
 		const contribution = sourceContribution(item);
@@ -199,7 +195,7 @@ function effectiveSignals(plan: QueryPlan, region: CodeRegion): CandidateSignal[
 	const claimed = region.signals.filter((signal) => !CANONICAL_SYMBOL_MATCH_SIGNALS.has(signal));
 	const derived: CandidateSignal[] = [];
 	const symbolMatch = classifySymbolMatch(plan, region.symbol, region.qualifiedSymbol);
-	if (region.roles.includes("definition") && symbolMatch !== undefined) derived.push(symbolMatch);
+	if (region.symbolRole === "definition" && symbolMatch !== undefined) derived.push(symbolMatch);
 	const structuredTerms = structuredQueryTerms(plan);
 	if (structuredTerms.length > 0) {
 		const profile = fieldProfile(region);
@@ -342,10 +338,15 @@ function verifiedCoverage(region: CodeRegion): number {
 	return region.matchLines.length / Math.max(1, region.endLine - region.startLine + 1);
 }
 
-function rolePriority(region: CodeRegion): number {
-	if (region.roles.includes("public_api")) return 2;
-	if (region.roles.includes("definition")) return 1;
-	return 0;
+function structuralTier(queryTier: number, region: CodeRegion): number {
+	const authorityTier = region.authority === "called"
+		? 0
+		: region.authority === "referenced"
+			? 1
+			: region.authority === "defined"
+				? 2
+				: 3;
+	return (queryTier - 1) * 4 + authorityTier + 1;
 }
 
 function regionSimilarity(left: RankedRegion, right: RankedRegion): number {

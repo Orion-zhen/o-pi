@@ -34,12 +34,15 @@ import {
 	TextDocumentSyncKind,
 	WorkDoneProgressCreateRequest,
 	WorkspaceFoldersRequest,
+	type CallHierarchyIncomingCall,
 	type Diagnostic,
 	type DocumentDiagnosticReport,
 	type FileChangeType,
 	type FullDocumentDiagnosticReport,
 	type InitializeResult,
+	type Location,
 	type LogMessageParams,
+	type Position,
 	type ServerCapabilities,
 	type SymbolInformation,
 	type TextDocumentSyncOptions,
@@ -53,6 +56,8 @@ import {
 	featureAvailable,
 	lspFeatureDefinitions,
 	requestDocumentSymbols,
+	requestIncomingCalls,
+	requestReferences,
 	requestTypeScriptDiagnostics,
 	requestWorkspaceSymbols,
 	resolveWorkspaceSymbol,
@@ -380,7 +385,7 @@ export class LspClient implements LspFeatureSession {
 		});
 	}
 
-	async documentSymbols(filePath: string, text: string): Promise<LspDocumentSymbols | undefined> {
+	async documentSymbols(filePath: string, text: string, options?: LspRequestOptions): Promise<LspDocumentSymbols | undefined> {
 		return this.withOperation(async () => {
 			const connection = await this.readyConnection();
 			if (connection === undefined) return undefined;
@@ -394,7 +399,7 @@ export class LspClient implements LspFeatureSession {
 				if (!await this.synchronizeDocument(connection, document, false)) return undefined;
 				const state = this.documents.state(document.uri);
 				if (state === undefined) return undefined;
-				const requested = await requestDocumentSymbols(this, document.uri);
+				const requested = await requestDocumentSymbols(this, document.uri, options);
 				if (requested !== undefined) this.documents.cacheSymbols(document.uri, state.version, requested);
 				return requested;
 			});
@@ -410,6 +415,14 @@ export class LspClient implements LspFeatureSession {
 
 	async resolveWorkspaceSymbol(symbol: WorkspaceSymbol, options?: LspRequestOptions): Promise<WorkspaceSymbol | undefined> {
 		return resolveWorkspaceSymbol(this, symbol, options);
+	}
+
+	async references(filePath: string, position: Position, options?: LspRequestOptions): Promise<Location[] | undefined> {
+		return requestReferences(this, pathToFileUri(filePath), position, options);
+	}
+
+	async incomingCalls(filePath: string, position: Position, options?: LspRequestOptions): Promise<CallHierarchyIncomingCall[] | undefined> {
+		return requestIncomingCalls(this, pathToFileUri(filePath), position, options);
 	}
 
 	private documentContext(filePath: string, text: string): LspClientDocumentContext {
@@ -731,6 +744,7 @@ export class LspClient implements LspFeatureSession {
 							synchronization: { didSave: true },
 							documentSymbol: { hierarchicalDocumentSymbolSupport: true },
 							references: { dynamicRegistration: false },
+							callHierarchy: { dynamicRegistration: false },
 							diagnostic: { dynamicRegistration: false, relatedDocumentSupport: true },
 							publishDiagnostics: { relatedInformation: true },
 						},

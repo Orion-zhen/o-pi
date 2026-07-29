@@ -180,7 +180,7 @@ describe("grep integration", () => {
 		expect(firstRegion(auto)).toMatchObject({ path: "notes.conf", kind: "text", matched_by: ["regex"] });
 		const warmLexical = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "fatal error" }));
 		expect(firstRegion(warmLexical)).toMatchObject({ path: "notes.conf", kind: "text", matched_by: ["lexical"] });
-		expect(formatCompactGrepResult(warmLexical)).toContain("notes.conf:2 [related]: fatal authentication error");
+		expect(formatCompactGrepResult(warmLexical)).toContain("notes.conf:2 [not match, related]: fatal authentication error");
 	});
 
 	it("binary、invalid UTF-8、无正文大小上限、blocked path 和 symlink 行为保持", async () => {

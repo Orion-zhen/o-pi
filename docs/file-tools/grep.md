@@ -6,14 +6,13 @@
 QueryPlan
 -> ScopeInventory
 -> line regex scan
--> AST regionization
--> zero-hit related fallback
--> optional LSP symbol hints
+-> optional LSP symbol analysis
+   or Tree-sitter regionization
 -> deterministic ranking
 -> relevance-head/MMR packing
 ```
 
-每个 verified 结果都来自当前正文中的真实正则命中。Tree-sitter 只把命中折叠到最小代码单元并补充 range、kind、symbol、declaration 和 roles。整次扫描零正文命中时，grep 才允许正文词项和 LSP workspace symbol 形成明确标记的 related 结果。
+每个 verified 结果都来自当前正文中的真实正则命中。简单查询只有一个直接命中，或 query 含正则操作符时，不启动 LSP。结构化查询有多个命中或整次扫描零命中时，可选 LSP analyzer 一次完成 symbol 选择、代码单元解析和关系判断；不可用时才由 Tree-sitter 折叠最小代码单元。零正文命中时允许机械词项形成明确标记的 related 结果。
 
 ## 参数
 
@@ -39,29 +38,30 @@ grep 没有 match mode，也不分类 identifier、long text、natural language 
 
 所有文件通过一次稳定 line scan 执行 query 正则。命中受支持代码时，Tree-sitter 将同一最小 code unit 中的命中聚合为一个 verified region；无法解析或没有语法归属的命中保持为文本行。
 
-### 零命中 related 回退
+### Symbol 分析与零命中回退
 
-只有 `totalHits === 0` 时才启动 related 回退：
+结构化 query 有多个正文命中，或 `totalHits === 0` 时，grep 可调用一次 LSP analyzer：
 
-1. 扫描阶段机械分解 query 词项并保存有界 line anchor。
-2. Tree-sitter 解析 scope 内符合单文件字节限制的代码文件。
-3. 名称、signature、结构 token 和 line anchor 达到固定覆盖率时形成 lexical related region。
-4. 可选 LSP workspace symbol 提示必须映射到本次已读取并解析的 live AST unit，随后形成或增强 related region。
+1. workspace symbol 在本次 inventory 的 allowed paths 内选择有界候选；
+2. document symbol 直接生成规范代码单元；
+3. incoming calls 和 references 判断该定义是否被其他代码单元调用或引用；
+4. analyzer 只通过 grep 提供的 snapshot-bound loader 读取文件。
 
-回退不理解 caller、callee、reference、test、import、registration 或 entrypoint 等自然语言意图。没有词项或 LSP symbol 证据时结果仍可为空，不填充任意代码。
+一旦 LSP 选中 symbol，本次 symbol 解析就完全采用它的结果；某个 document symbol、reference 或 call hierarchy 请求缺失不会再混入逐 symbol 的 Tree-sitter 猜测。LSP 在选择前不可用、失败或超时时，整次安全退回 Tree-sitter。
+
+零命中且没有可用 LSP 结果时，Tree-sitter 使用扫描阶段保存的有界 line anchor；名称、signature、结构 token 和 anchor 达到固定覆盖率后形成 lexical related region。回退不解释 caller、callee、test、fixture、mock、registration 或 entrypoint 等词义；没有合格证据时结果仍可为空。
 
 ## 排序
 
-排序只使用候选自身证据，不检查或推断 `src`、`tests`、`spec`、fixture、mock 等路径上下文。测试代码可以按证据自然排在生产代码之前。
+排序只使用候选自身证据和代码关系，不检查或推断 `src`、`tests`、`spec`、fixture、mock 等路径上下文。LSP 可用时，存在外部调用的定义优先于只有外部引用的定义，后者优先于仅被定义的代码单元；因此真正参与功能调用链的代码通常排在只声明、只验证或未被调用的同名代码之前。
 
 稳定比较顺序为：
 
 ```text
-tier
+query tier + authority
 -> BM25F field score
 -> evidence fusion score
 -> verified coverage
--> role priority
 -> smaller region
 -> path
 -> start line
@@ -69,7 +69,7 @@ tier
 -> region id
 ```
 
-tier 从强到弱依次覆盖：
+query tier 从强到弱依次覆盖：
 
 1. exact qualified/symbol definition；
 2. exact member、symbol prefix、结构化 symbol/path 词项覆盖；
@@ -78,7 +78,9 @@ tier 从强到弱依次覆盖：
 5. high-coverage lexical related；
 6. 其他合格 lexical related。
 
-同 tier 的 BM25F 字段依次覆盖叶子 symbol、qualified symbol/owner、path、declaration/signature 和命中正文。正则命中只提供事实准入，不使用文件遍历位置作为相关性 rank。排序不推断 `src` / `tests` 语义，也不按 token 成本重排。
+每个 query tier 内再按 `called -> referenced -> defined -> unknown` 分成 authority band。Tree-sitter 只能确认 `defined`；LSP 可通过跨代码单元 incoming call/reference 提升 authority。外部引用必须来自候选自身范围之外，同一声明内部的自引用不计入提升。
+
+同一结构 tier 的 BM25F 字段依次覆盖叶子 symbol、qualified symbol/owner、path、declaration/signature 和命中正文。正则命中只提供事实准入，不使用文件遍历位置作为相关性 rank。排序不推断 `src` / `tests` 语义，也不按 token 成本重排。
 
 ## 输出
 
@@ -90,7 +92,7 @@ src/auth/service.ts:41-88 AuthService.login
   async login(credentials: Credentials): Promise<Session>
   42: async login(credentials: Credentials): Promise<Session> {
 
-src/session/cache.ts:12-46 SessionCache.restore [related]
+src/session/cache.ts:12-46 SessionCache.restore [not match, related]
   restore(key: SessionKey): Promise<Session | undefined>
   29: const cachedSession = await this.storage.load(key);
 </grep>
@@ -98,7 +100,7 @@ src/session/cache.ts:12-46 SessionCache.restore [related]
 
 verified region 保留完整唯一 `match_lines`；`grep_regional_display_limit` 只限制每个 region 展示的代表行数。declaration 和代表行最多 240 个 Unicode code point。完整源码由 `read(path,start_line,end_line)` 返回。
 
-代码 region 的模型正文只展示 path/range、可选 symbol、无标签 declaration 和代表行；related region 追加 `[related]`。`kind`、`roles`、`matched_by` 和字段名仅保留在 `details` 与内部排序数据中，不重复进入模型文本。未展示的 verified 匹配以 `+N match lines` 标记。
+代码 region 的模型正文只展示 path/range、可选 symbol、无标签 declaration 和代表行；related region 追加 `[not match, related]`。`kind`、`roles`、`matched_by` 和字段名仅保留在 `details` 与内部排序数据中，不重复进入模型文本。未展示的 verified 匹配以 `+N match lines` 标记。
 
 连续的同文件 `kind=text` region 在模型文本和 grep tool widget 展开视图中共享一次文件路径，随后逐行展示。该压缩只发生在 renderer：每行仍是独立候选和独立 region，分别参与排序与选择，不受 `grep_regional_display_limit` 额外限制；`details` 不合并。
 
@@ -123,7 +125,9 @@ grep 不按模型输出 token 数删除、替换或重排结果。`approx_tokens
 
 ## 文件与解析语义
 
-C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 Tree-sitter。其他语言或解析失败安全退化为文本行。
+LSP analyzer 要求目标 server 同时支持 workspace symbol、document symbol 和 references；call hierarchy 是可选增强。候选数量和并发有硬上限，并复用现有 LSP deadline。
+
+LSP 未进入 symbol 模式时，C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 Tree-sitter。其他语言或解析失败安全退化为文本行。
 
 每次 invocation 使用 host 已绑定的 visibility snapshot。inventory 应用 scope、glob、blocked path、soft ignore、深度和 canonical identity 去重。递归不跟随 child symlink。
 

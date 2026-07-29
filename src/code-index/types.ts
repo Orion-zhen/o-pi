@@ -147,6 +147,36 @@ export interface SymbolIdentityInput {
 	startByte: number;
 }
 
+/** 定义作为依赖目标的最强语义证据。 */
+export type CodeAuthority = "called" | "referenced" | "defined";
+
+export interface CodeDocument {
+	/** 当前工具 scope 内的规范相对路径。 */
+	readonly path: string;
+	readonly text: string;
+	readonly hash: string;
+}
+
+export interface CodeAnalysisInput {
+	readonly query: string;
+	readonly allowedPaths: readonly string[];
+	readonly allowRelated: boolean;
+	readonly limit: number;
+	readonly signal?: AbortSignal;
+	load(path: string): Promise<CodeDocument | undefined>;
+}
+
+/** 一次请求只在确认存在可解析 symbol 时返回；调用方据此原子选择 LSP 模式。 */
+export interface CodeAnalysis {
+	readonly mode: "symbol";
+	readonly files: readonly {
+		readonly document: CodeDocument;
+		readonly analysis: AnalyzedFileIndex;
+	}[];
+}
+
+export type AnalyzeCode = (input: CodeAnalysisInput) => Promise<CodeAnalysis | undefined>;
+
 export interface IndexedCodeUnit extends SourceRange {
 	id: string;
 	path: string;
@@ -157,6 +187,7 @@ export interface IndexedCodeUnit extends SourceRange {
 	signature?: string;
 	/** UTF-8 半开边界；用于判断事实命中是否已由 signature 展示。 */
 	declarationEndByte?: number;
+	authority: CodeAuthority;
 	exported: boolean;
 	tokens: Map<string, number>;
 	definitions: string[];

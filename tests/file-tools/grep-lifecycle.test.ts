@@ -5,10 +5,10 @@ import { describe, expect, it } from "vitest";
 import { javascriptAdapter } from "../../src/code-index/adapters/javascript.js";
 import { loadTreeSitterParser } from "../../src/code-index/tree-sitter-loader.js";
 import { parseDocumentForAdapter } from "../../src/code-index/syntax-tree.js";
+import type { AnalyzeCode } from "../../src/code-index/types.js";
 import type { ContentOperations } from "../../src/filesystem/contracts/content.js";
 import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspace.js";
 import { AbortGrepParse, GrepParser } from "../../src/file-tools/grep/parser-pool.js";
-import type { GrepHintSource } from "../../src/file-tools/grep/ports.js";
 import { GrepTool } from "../../src/file-tools/grep/command.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
@@ -70,7 +70,7 @@ describe("grep lifecycle", () => {
 		}
 	});
 
-	it("grep owner dispose 取消本地搜索后的 active LSP hint", async () => {
+	it("grep owner dispose 取消 active code analyzer", async () => {
 		await writeFile(path.join(testContext.workspace, "a.ts"), "export function Target() { return true; }\n");
 		await writeFile(path.join(testContext.workspace, "b.ts"), "export function Target() { return false; }\n");
 		const host = new FileToolsHost();
@@ -78,32 +78,30 @@ describe("grep lifecycle", () => {
 		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-owner-active" });
 		if (isFailed(opened)) throw new Error(opened.error.message);
 		const started = deferredVoid();
-		let hintAborted = false;
-		const lspHints: GrepHintSource = {
-			async query(input) {
-				started.resolve();
-				await new Promise<void>((_resolve, reject) => {
-					const onAbort = () => {
-						hintAborted = true;
-						reject(new Error("aborted"));
-					};
-					if (input.signal?.aborted === true) onAbort();
-					else input.signal?.addEventListener("abort", onAbort, { once: true });
-				});
-				return [];
-			},
+		let analyzerAborted = false;
+		const analyzeCode: AnalyzeCode = async (input) => {
+			started.resolve();
+			await new Promise<void>((_resolve, reject) => {
+				const onAbort = () => {
+					analyzerAborted = true;
+					reject(new Error("aborted"));
+				};
+				if (input.signal?.aborted === true) onAbort();
+				else input.signal?.addEventListener("abort", onAbort, { once: true });
+			});
+			return undefined;
 		};
 		try {
 			const active = tool.execute({ query: "Target" }, {
 				filesystem: opened.filesystem,
 				operation: {},
 				limits: opened.limits,
-				lspHints,
+				analyzeCode,
 			});
 			await started.promise;
 			tool.dispose();
 			await expect(active).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
-				expect(hintAborted).toBe(true);
+				expect(analyzerAborted).toBe(true);
 		} finally {
 			tool.dispose();
 			opened.dispose();

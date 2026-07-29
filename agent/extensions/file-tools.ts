@@ -35,7 +35,7 @@ const findParameters = Type.Object(
 );
 const grepParameters = Type.Object(
 	{
-		query: Type.String({ minLength: 1, description: "Case-sensitive regular expression matched independently on each line; zero direct hits fall back to related code units." }),
+		query: Type.String({ minLength: 1, description: "Case-sensitive pattern; supports regex." }),
 		path: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: "File or directory scopes; OR/union scope; default workspace." })),
 		glob: Type.Optional(Type.String({ minLength: 1, description: "Relative to each scope; without / matches basenames recursively; use a path pattern such as src/**/*.ts for scoped paths." })),
 	},
@@ -195,7 +195,7 @@ function registerFileTools(
 		tool: {
 		name: "grep",
 		label: "grep",
-		description: "Search text with a line regex, aggregate hits into code regions, and return related code units only when no text matches.",
+		description: "Search texts in the codebase.",
 		promptSnippet: "locate relevant code",
 		parameters: grepParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {

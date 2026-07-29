@@ -1,4 +1,5 @@
 import { createSemanticCodeRegion, createVerifiedCodeRegion, type CandidateSignal, type CodeRegion, type RankedRegion, type RegionEvidence, type TextHit } from "../../src/file-tools/grep/candidates.js";
+import type { CodeAuthority } from "../../src/code-index/parser.js";
 import { packGrepResults, type GrepPackInput } from "../../src/file-tools/grep/packer.js";
 import { createQueryPlan, type QueryPlan } from "../../src/file-tools/grep/query-plan.js";
 import { rankCodeRegions } from "../../src/file-tools/grep/ranking.js";
@@ -19,7 +20,8 @@ export function semanticRegion(input: {
 	id: string;
 	signals: readonly CandidateSignal[];
 	evidence: readonly RegionEvidence[];
-	roles?: CodeRegion["roles"];
+	symbolRole?: CodeRegion["symbolRole"];
+	authority?: CodeAuthority;
 	path?: string;
 	startLine?: number;
 	endLine?: number;
@@ -36,7 +38,8 @@ export function semanticRegion(input: {
 		kind: "function",
 		...(input.symbol === undefined ? {} : { symbol: input.symbol }),
 		...(input.qualifiedSymbol === undefined ? {} : { qualifiedSymbol: input.qualifiedSymbol }),
-		roles: input.roles ?? ["definition"],
+		symbolRole: input.symbolRole ?? "definition",
+		authority: input.authority ?? "defined",
 		signals: input.signals,
 		evidence: input.evidence,
 	});
@@ -61,7 +64,8 @@ export function verifiedRegion(input: { id: string; signals: readonly CandidateS
 		startByte: 0,
 		endByte: 30,
 		kind: "function",
-		roles: ["occurrence"],
+		symbolRole: "enclosing",
+		authority: "defined",
 		signals: input.signals,
 		evidence: input.evidence,
 	}, [hit]);
@@ -100,7 +104,8 @@ export function packCandidate(input: {
 		kind: "function",
 		...(input.symbol === undefined ? {} : { symbol: input.symbol }),
 		...(input.declaration === undefined ? {} : { declaration: input.declaration }),
-		roles: ["definition"],
+		symbolRole: "definition",
+		authority: "defined",
 		signals: ["verified_enclosing_region"],
 		evidence: input.evidence ?? [rankingEvidence("text-regex")],
 	}, [hit]);

@@ -55,7 +55,7 @@ describe("grep text search", () => {
 		await writeFile(path.join(testContext.workspace, "semantic.conf"), "authentication request rejected\n");
 		const semantic = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { path: ["semantic.conf"], query: "authentication rejected" }));
 		expect(firstRegion(semantic)).toMatchObject({ kind: "text", query_match: "semantic", matched_by: ["lexical"] });
-		expect(formatCompactGrepResult(semantic)).toContain("semantic.conf:1 [related]: authentication request rejected");
+		expect(formatCompactGrepResult(semantic)).toContain("semantic.conf:1 [not match, related]: authentication request rejected");
 	});
 
 	it("同文件 text region 只在模型文本中分组，候选和结果限制仍逐行计算", async () => {
@@ -316,7 +316,7 @@ describe("grep text search", () => {
 					symbol: "firstHandler",
 					declaration: "function firstHandler(input: AuthInput): Session",
 					query_match: "semantic",
-					roles: ["definition", "public_api"],
+					roles: ["definition", "defined"],
 					matched_by: ["exact-symbol"],
 					sources: ["text-lexical"],
 					display_lines: [{ line: 2, text: "return createSession(input);", type: "evidence" }],
@@ -335,11 +335,11 @@ describe("grep text search", () => {
 		});
 
 		expect(output).toContain([
-			"src/features/authentication/first-handler.ts:1-3 firstHandler [related]",
+			"src/features/authentication/first-handler.ts:1-3 firstHandler [not match, related]",
 			"  function firstHandler(input: AuthInput): Session",
 			"  2: return createSession(input);",
 		].join("\n"));
-		expect(output).toContain("src/features/authentication/second-handler.ts:5-7 secondHandler [related]");
+		expect(output).toContain("src/features/authentication/second-handler.ts:5-7 secondHandler [not match, related]");
 		for (const metadata of ["kind=", "symbol=", "roles=", "matched-by=", "declaration:"]) {
 			expect(output).not.toContain(metadata);
 		}
@@ -433,7 +433,7 @@ describe("grep text search", () => {
 		]);
 		expect(result.regions.slice(4).some((region) => region.path !== "src/shared.ts")).toBe(true);
 		expect(result.ranking).toMatchObject({
-			algorithm: "tier-bm25f-rrf-mmr-v1",
+			algorithm: "semantic-tier-bm25f-rrf-mmr-v2",
 			candidate_count: 40,
 			eligible_candidate_count: 40,
 			selected_candidate_count: 6,

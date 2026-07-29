@@ -3,7 +3,6 @@ import { compactDisplayLine, firstTermFocus } from "./display.js";
 import {
 	createSemanticCodeRegion,
 	normalizeMatchedBy,
-	type CandidateRole,
 	type CandidateSignal,
 	type CodeRegion,
 	type LexicalTextAnchor,
@@ -77,7 +76,9 @@ export function buildLocalResults(
 	displayLimit: number,
 ): LocalResult {
 	const byId = new Map<string, VerifiedCodeRegion | SemanticMainRegion>();
-	for (const region of regionized.regions) byId.set(region.id, enrichVerifiedRegion(region));
+	for (const region of regionized.regions) {
+		byId.set(region.id, region.queryMatch === "verified" ? enrichVerifiedRegion(region) : region);
+	}
 	if (scan.totalHits > 0) return rankedResult(plan, byId);
 
 	const unitFiles = collectUnitFiles(regionized.files);
@@ -99,10 +100,7 @@ function enrichVerifiedRegion(region: VerifiedCodeRegion): VerifiedCodeRegion {
 	const declarationEndByte = region.declarationEndByte;
 	const definitionHit = declarationEndByte !== undefined
 		&& region.verifiedHits.some((hit) => hit.byteStart < declarationEndByte);
-	const roles = definitionHit
-		? unique([...region.roles, "definition" as const, ...structuralRoles(region.path, undefined)])
-		: region.roles;
-	return { ...region, roles };
+	return definitionHit ? { ...region, symbolRole: "definition" } : region;
 }
 
 function anchoredUnitCandidates(
@@ -141,7 +139,6 @@ function anchoredUnitCandidates(
 			"text-lexical",
 			"lexical anchor",
 			quality,
-			unitRoles(item),
 			[highCoverage ? "lexical_high_coverage" : "lexical"],
 			displayLines,
 		));
@@ -205,13 +202,12 @@ function lexicalAnchorCandidates(
 			region: createSemanticCodeRegion({
 				id,
 				path: anchor.path,
-				startLine: anchor.line,
-				endLine: anchor.line,
-				startByte: anchor.byteStart,
-				endByte: anchor.byteEnd,
-				kind: "text",
-				roles: ["text"],
-				signals: [highCoverage ? "lexical_high_coverage" : "lexical"],
+					startLine: anchor.line,
+					endLine: anchor.line,
+					startByte: anchor.byteStart,
+					endByte: anchor.byteEnd,
+					kind: "text",
+					signals: [highCoverage ? "lexical_high_coverage" : "lexical"],
 				evidence: [],
 				displayLines: [anchorDisplayLine(anchor)],
 			}),
@@ -225,7 +221,6 @@ function localEntry(
 	source: RetrievalSource,
 	reason: string,
 	quality: number,
-	roles: readonly CandidateRole[],
 	signals: readonly CandidateSignal[],
 	displayLines: readonly GrepDisplayLine[] = [],
 ): LocalEntry {
@@ -248,7 +243,8 @@ function localEntry(
 			...(item.unit.qualifiedName === undefined ? {} : { qualifiedSymbol: item.unit.qualifiedName }),
 			...(item.unit.signature === undefined ? {} : { declaration: item.unit.signature }),
 			...(item.unit.declarationEndByte === undefined ? {} : { declarationEndByte: item.unit.declarationEndByte }),
-			roles,
+			symbolRole: "definition",
+			authority: item.unit.authority,
 			signals,
 			evidence: [],
 			displayLines,
@@ -287,14 +283,23 @@ function addRegion(
 		regions.set(incoming.id, incoming);
 		return;
 	}
-	const roles = unique([...existing.roles, ...incoming.roles]);
 	const signals = unique([...existing.signals, ...incoming.signals]);
 	const evidence = mergeEvidence(existing.evidence, incoming.evidence);
 	const displayLines = existing.queryMatch === "verified"
 		? existing.displayLines
 		: mergeDisplayLines(existing.displayLines, incoming.displayLines);
 	const matchedBy = normalizeMatchedBy(signals, evidence);
-	regions.set(existing.id, { ...existing, roles, signals, evidence, displayLines, matchedBy });
+	const symbolRole = existing.symbolRole ?? incoming.symbolRole;
+	const authority = strongerAuthority(existing.authority, incoming.authority);
+	regions.set(existing.id, {
+		...existing,
+		...(symbolRole === undefined ? {} : { symbolRole }),
+		...(authority === undefined ? {} : { authority }),
+		signals,
+		evidence,
+		displayLines,
+		matchedBy,
+	});
 }
 
 function withEvidence(entry: LocalEntry, rank: number): SemanticMainRegion {
@@ -324,18 +329,6 @@ function passesCoverage(matched: number, total: number): boolean {
 	return matched >= Math.max(2, Math.ceil(total * 0.6));
 }
 
-function unitRoles(item: UnitFile): CandidateRole[] {
-	return ["definition", ...structuralRoles(item.unit.path, item.unit.exported)];
-}
-
-function structuralRoles(path: string, exported: boolean | undefined): CandidateRole[] {
-	const roles: CandidateRole[] = [];
-	if (exported === true) roles.push("public_api");
-	if (isTestPath(path)) roles.push("test");
-	if (isConfigPath(path)) roles.push("config");
-	return roles;
-}
-
 function anchorDisplayLine(anchor: LexicalTextAnchor): GrepDisplayLine {
 	const focus = firstTermFocus(anchor.lineText, anchor.matchedTerms);
 	return { line: anchor.line, text: compactDisplayLine(anchor.lineText, focus.start, focus.end), type: "evidence" };
@@ -353,14 +346,6 @@ function compareLocalEntriesStable(left: LocalEntry, right: LocalEntry): number 
 		|| compareString(left.id, right.id);
 }
 
-function isTestPath(path: string): boolean {
-	return /(?:^|\/)(?:test|tests|spec|specs)(?:\/|$)|(?:\.test|\.spec)\.[^/]+$/iu.test(path);
-}
-
-function isConfigPath(path: string): boolean {
-	return /(?:^|\/)(?:config|configs)(?:\/|$)|(?:^|\/)[^/]*config[^/]*\.[^/]+$/iu.test(path);
-}
-
 function uniqueTerms(values: readonly string[]): string[] {
 	return [...new Set(values.flatMap((value) => [...tokenizeText(value).keys()]))];
 }
@@ -371,6 +356,16 @@ function normalizeTerm(value: string): string {
 
 function unique<T>(values: readonly T[]): T[] {
 	return [...new Set(values)];
+}
+
+function strongerAuthority(
+	left: CodeRegion["authority"],
+	right: CodeRegion["authority"],
+): CodeRegion["authority"] {
+	const priority = { called: 0, referenced: 1, defined: 2 } as const;
+	if (left === undefined) return right;
+	if (right === undefined) return left;
+	return priority[left] <= priority[right] ? left : right;
 }
 
 function compareString(left: string, right: string): number {

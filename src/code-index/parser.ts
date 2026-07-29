@@ -8,7 +8,7 @@ import type { AnalysisControl, AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit,
 
 export { languageFromPath } from "./language-registry.js";
 export { parseDocument, parseDocumentForAdapter, parseDocumentResult, sourceRangeForNode } from "./syntax-tree.js";
-export type { AnalyzedFileIndex, CodeLanguage, ImportKind, IndexedCodeUnit, IndexedImport, LineIndex, ParseFailure, ParsedDocument, ParsedFileIndex, SourceRange } from "./types.js";
+export type { AnalyzedFileIndex, CodeAuthority, CodeLanguage, ImportKind, IndexedCodeUnit, IndexedImport, LineIndex, ParseFailure, ParsedDocument, ParsedFileIndex, SourceRange } from "./types.js";
 export type { ParseDocumentResult } from "./syntax-tree.js";
 export { SourceIndex } from "./types.js";
 
@@ -187,6 +187,7 @@ function buildIndexedUnit(
 		...(unit.name !== undefined ? { name: unit.name } : {}),
 		...(unit.qualifiedName !== undefined ? { qualifiedName: unit.qualifiedName } : {}),
 		...(declaration === undefined ? {} : { signature: declaration.text, declarationEndByte: declaration.endByte }),
+		authority: "defined",
 		exported: unit.exported,
 		startLine: range.startLine,
 		endLine: range.endLine,

@@ -1,3 +1,5 @@
+import type { AnalyzeCode } from "../../code-index/types.js";
+import type { TextContent } from "../../filesystem/contracts/content.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { bindOperationContext } from "../../filesystem/operation-context.js";
@@ -5,13 +7,16 @@ import type { FileToolLimits } from "../../file-tool-limits.js";
 import { fail, isFailed, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import { buildScopeInventory, type ScopeInventory } from "./inventory.js";
 import { buildLocalResults, semanticParsePriority } from "./local.js";
-import { applyGrepHints, grepHintDemand, queryGrepHints } from "./hints.js";
 import { packGrepResults, renderGrepSuccess } from "./packer.js";
 import { GrepParser } from "./parser-pool.js";
-import type { GrepHintSource } from "./ports.js";
 import { createQueryPlan, type QueryPlan } from "./query-plan.js";
-import { GrepRegionizer } from "./regionizer.js";
-import { scanInventoryText } from "./text-scanner.js";
+import {
+	GrepRegionizer,
+	regionizeAnalyzedFiles,
+	type RegionizationResult,
+	type RegionizedFile,
+} from "./regionizer.js";
+import { scanInventoryText, type TextScanResult } from "./text-scanner.js";
 import type { GrepParams, GrepScopeError, GrepStats, GrepSuccess } from "./types.js";
 
 type GrepSkippedStats = NonNullable<GrepSuccess["stats"]["skipped_files"]>;
@@ -21,7 +26,7 @@ export interface GrepCommandContext {
 	readonly operation: FsOperationContext;
 	readonly limits: Pick<FileToolLimits,
 		"grep_max_depth" | "grep_ast_max_file_bytes" | "grep_result_limit" | "grep_related_result_limit" | "grep_regional_display_limit">;
-	readonly lspHints?: GrepHintSource;
+	readonly analyzeCode?: AnalyzeCode;
 }
 
 /** Stateful grep command; parser、派生 AST cache 与 active invocation 共享 owner。 */
@@ -63,7 +68,9 @@ export class GrepTool {
 			operation: context.operation,
 		});
 		if (isFailed(scanned)) return scanned;
-		const regionized = await this.regionizer.regionize(
+		const analyzed = await analyzeSymbols(plan, inventory, scanned, context);
+		if (isFailed(analyzed)) return analyzed;
+		const regionized = analyzed ?? await this.regionizer.regionize(
 			inventory,
 			scanned.hits,
 			semanticParsePriority(inventory, scanned),
@@ -77,23 +84,12 @@ export class GrepTool {
 		const scope = successfulScopeState(plan, inventory, scanned.scopeErrors, regionized.scopeErrors);
 		if (scope.failure !== undefined) return scope.failure;
 		const local = buildLocalResults(plan, scanned, regionized, context.limits.grep_regional_display_limit);
-		const demand = grepHintDemand(plan, local);
-		const hints = await queryGrepHints(
-			inventory,
-			plan,
-			context.lspHints,
-			demand,
-			context.operation.signal,
-			context.limits.grep_result_limit,
-		);
-		if (isFailed(hints)) return hints;
-		const hinted = applyGrepHints(plan, local, regionized.files, hints);
 		return packGrepResults({
 			query: plan.query,
 			path: scope.paths[0] ?? ".",
 			paths: scope.paths,
 			...(scope.errors.length === 0 ? {} : { scopeErrors: scope.errors }),
-			regions: hinted.ranked,
+			regions: local.ranked,
 			stats: grepStats(
 				inventory,
 				scanned.stats,
@@ -119,6 +115,62 @@ export class GrepTool {
 			maxDepth: context.limits.grep_max_depth,
 		});
 	}
+}
+
+async function analyzeSymbols(
+	plan: QueryPlan,
+	inventory: ScopeInventory,
+	scan: TextScanResult,
+	context: GrepCommandContext,
+): Promise<RegionizationResult | undefined | FailedResult> {
+	if (
+		context.analyzeCode === undefined
+		|| (scan.totalHits > 0 && (plan.structuredQuery === undefined || scan.totalHits === 1))
+	) return undefined;
+	const byPath = new Map(inventory.files.map((file) => [file.path, file]));
+	const loaded = new Map<string, TextContent>();
+	let analysis;
+	try {
+		analysis = await context.analyzeCode({
+			query: plan.targetQuery.length === 0 ? plan.query : plan.targetQuery,
+			allowedPaths: inventory.files.map((file) => file.path),
+			allowRelated: scan.totalHits === 0,
+			limit: context.limits.grep_result_limit,
+			async load(path) {
+				const file = byPath.get(path);
+				if (file === undefined || file.snapshot.sizeBytes > context.limits.grep_ast_max_file_bytes) return undefined;
+				const content = await context.filesystem.content.readText(file.ref, {
+					maxBytes: context.limits.grep_ast_max_file_bytes,
+					expectedSnapshot: file.snapshot,
+					stable: true,
+					rejectBinary: true,
+				}, context.operation);
+				if (!content.ok) return undefined;
+				loaded.set(path, content.value);
+				return { path, text: content.value.text, hash: content.value.hash };
+			},
+			...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+		});
+	} catch {
+		return context.operation.signal?.aborted === true ? aborted() : undefined;
+	}
+	if (context.operation.signal?.aborted === true) return aborted();
+	if (analysis === undefined) return undefined;
+	const files: RegionizedFile[] = analysis.files.flatMap(({ document, analysis: fileAnalysis }) => {
+		const file = byPath.get(document.path);
+		const content = loaded.get(document.path);
+		return file === undefined || content === undefined || fileAnalysis.status !== "parsed"
+			? []
+			: [{ file, content, analysis: fileAnalysis }];
+	});
+	return {
+		regions: regionizeAnalyzedFiles(scan.hits, files, true),
+		files,
+		parsedFiles: files.length,
+		astSkippedOversizedFiles: 0,
+		skipped: {},
+		scopeErrors: [],
+	};
 }
 
 function successfulScopeState(

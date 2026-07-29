@@ -1,5 +1,7 @@
+import path from "node:path";
+
+import type { CodeAnalysis, CodeAnalysisInput } from "../../../code-index/types.js";
 import { GrepTool, formatCompactGrepResult } from "../../grep/command.js";
-import type { GrepHintSource, GrepPositionHint } from "../../grep/ports.js";
 import type { GrepParams } from "../../grep/types.js";
 import type { FileToolsHost, FileToolsInvocation } from "../../runtime/host.js";
 import { isFailed } from "../../shared/result.js";
@@ -29,7 +31,7 @@ export function createGrepAdapter() {
 					filesystem: opened.filesystem,
 					operation: opened.context,
 					limits: opened.limits,
-					lspHints: createLspGrepHintSource(options.lsp, opened),
+					analyzeCode: (input) => analyzeCodeWithLsp(options.lsp, opened, input),
 				});
 				if (isFailed(result)) return failedResult(result);
 				return { content: [{ type: "text" as const, text: formatCompactGrepResult(result) }], details: result };
@@ -43,28 +45,36 @@ export function createGrepAdapter() {
 	};
 }
 
-export function createLspGrepHintSource(lsp: LspFileOperations, invocation: FileToolsInvocation): GrepHintSource {
-	return {
-		async query(input) {
-			if (input.signal?.aborted === true || lsp.symbols === undefined) return [];
-			const workspace = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
-			if (workspace === undefined) return [];
-			const candidates = await lsp.symbols({
-				workspaceRoot: workspace.nativePath,
-				query: input.query,
-				allowedPaths: new Set(input.allowedPaths),
-				...(input.signal === undefined ? {} : { signal: input.signal }),
-			});
-			return candidates
-				.map((candidate): GrepPositionHint => ({
-				path: candidate.path,
-				range: { startLine: candidate.start_line, endLine: candidate.end_line },
-				origin: "lsp-symbol",
-				confidence: candidate.exact ? 1 : 0.8,
-				reasons: [candidate.exact ? "lsp exact symbol" : "lsp symbol"],
-				}));
+export async function analyzeCodeWithLsp(
+	lsp: LspFileOperations,
+	invocation: FileToolsInvocation,
+	input: CodeAnalysisInput,
+): Promise<CodeAnalysis | undefined> {
+	if (input.signal?.aborted === true || lsp.codeAnalysis === undefined) return undefined;
+	const workspace = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
+	if (workspace === undefined) return undefined;
+	return await lsp.codeAnalysis({
+		root: workspace.nativePath,
+		query: input.query,
+		allowedPaths: input.allowedPaths,
+		allowRelated: input.allowRelated,
+		limit: input.limit,
+		async load(relativePath) {
+			const document = await input.load(relativePath);
+			if (document === undefined) return undefined;
+			const filePath = nativeWorkspacePath(workspace.nativePath, relativePath);
+			return filePath === undefined ? undefined : { ...document, filePath };
 		},
-	};
+		...(input.signal === undefined ? {} : { signal: input.signal }),
+	});
+}
+
+function nativeWorkspacePath(root: string, relativePath: string): string | undefined {
+	const resolved = path.resolve(root, relativePath);
+	const relative = path.relative(root, resolved);
+	return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+		? resolved
+		: undefined;
 }
 
 function failedResult(result: Parameters<typeof formatErrorModelResult>[0]) {

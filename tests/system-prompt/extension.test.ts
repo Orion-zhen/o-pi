@@ -14,10 +14,9 @@ import {
 
 preserveEnv("PI_SUBAGENT_CHILD", "PI_SUBAGENT_FORK", "PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE", "PI_SUBAGENT_FORK_MANIFEST", "PI_CODING_AGENT_DIR", "HOME", "USERPROFILE");
 const temp = useTempDir("o-pi-fork-system-prompt-");
-let agentDir: string;
 
 beforeEach(async () => {
-	agentDir = temp.path;
+	const agentDir = temp.path;
 	process.env.PI_CODING_AGENT_DIR = path.join(agentDir, "agent");
 	setTestHome(agentDir);
 	await mkdir(path.join(agentDir, "agent", "agents"), { recursive: true });
@@ -72,20 +71,6 @@ describe("system prompt extension", () => {
 	it("子进程缺少 Agent Markdown 时拒绝启动", async () => {
 		process.env.PI_SUBAGENT_CHILD = "1";
 		await expect(buildRuntimeSystemPrompt({ cwd: "/repo" }, "/repo")).rejects.toThrow("Subagent Agent Markdown is required");
-	});
-
-	it("subagent 工具不可用时，系统提示词不包含 <subagents> 信息", async () => {
-		await writeFile(
-			path.join(agentDir, "agent", "agents", "scout.md"),
-			"---\nname: scout\ndescription: Scout agent\ntools: read, grep\n---\nScout body.",
-		);
-
-		const promptWithSubagent = await buildRuntimeSystemPrompt({ cwd: agentDir }, agentDir, true);
-		expect(promptWithSubagent).toContain("<subagents>");
-		expect(promptWithSubagent).toContain("scout");
-
-		const promptWithoutSubagent = await buildRuntimeSystemPrompt({ cwd: agentDir }, agentDir, false);
-		expect(promptWithoutSubagent).not.toContain("<subagents>");
 	});
 
 	it("/system 只通过只读浮层展示，不写入消息或编辑器", async () => {

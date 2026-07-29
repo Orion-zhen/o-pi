@@ -8,6 +8,8 @@ export {
 	lspFeatureAdapters,
 	lspFeatureDefinitions,
 	requestDocumentSymbols,
+	requestIncomingCalls,
+	requestReferences,
 	requestWorkspaceSymbols,
 } from "./features/index.js";
 export { LspConfigError, defaultLspConfig, loadLspConfig, resolveLspConfigPath } from "./config.js";
