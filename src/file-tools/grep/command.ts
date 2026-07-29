@@ -149,7 +149,7 @@ export class GrepTool {
 			operation: context.operation,
 		});
 		if (isFailed(external)) return external;
-		const augmented = augmentStrictWithExternal(regionized.regions, external);
+		const augmented = augmentStrictWithExternal(plan, regionized.regions, external);
 		const allRanked = rankCodeRegions(plan, augmented.regions);
 		const ranked = selectRankedRegions(allRanked, allRanked.length).filter(isVerifiedRankedRegion);
 		return packGrepResults({

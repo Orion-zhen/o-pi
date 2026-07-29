@@ -62,7 +62,8 @@ agent/configs/lsp.jsonc
 | `workspace_symbols` | `true` | `grep` 在 `match=auto` 且 query 像 symbol 时是否调用 `workspace/symbol`。 |
 | `references` | `false` | 是否在 workspace symbol 命中后继续调用 `textDocument/references`，把引用位置作为额外 `grep` 候选。默认关闭，避免慢 server 放大请求量。 |
 | `max_symbols` | `20` | scope/URI 校验和去重后最多接收的有效 workspace symbol 数，范围 `0`-`200`。scope 外及 resolve 失败项不消耗预算。 |
-| `max_references` | `20` | scope 校验和全局去重后最多接收的有效引用数，范围 `0`-`200`。引用只针对最终接收的 symbol，并使用 `lsp reference` reason。 |
+| `max_exact_leaf_symbols` | `2` | exact leaf symbol 的同名定义最多接收数，范围 `0`-`200`；只限制同名 exact leaf，不限制 exact qualified symbol。 |
+| `max_references` | `2` | 显式关系查询最多接收的有效引用数，范围 `0`-`200`。普通符号查询不启动 references；引用只针对最终接收的 symbol。 |
 
 `servers` 的 key 就是稳定 server ID，必须以字母开头且只能包含字母、数字、`_`、`-`。每个 server 支持：
 

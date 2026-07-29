@@ -90,13 +90,18 @@ export function workspaceSymbolSeed(root: string, query: string, symbol: SymbolI
 	if (filePath === undefined) return undefined;
 	const relative = workspaceRelativePath(root, filePath);
 	if (relative === undefined) return undefined;
+	const qualifiedSymbol = qualifiedSymbolName(symbol);
+	const normalizedQuery = normalizeSymbolText(query);
+	const exact = normalizeSymbolText(symbol.name) === normalizedQuery
+		|| (qualifiedSymbol !== undefined && normalizeSymbolText(qualifiedSymbol) === normalizedQuery);
 	return {
 		path: relative,
 		start_line: location.range.start.line + 1,
 		end_line: location.range.end.line + 1,
 		kind: symbolKindName(symbol.kind),
 		symbol: symbol.name,
-		exact: symbol.name.toLocaleLowerCase() === query.toLocaleLowerCase(),
+		...(qualifiedSymbol === undefined ? {} : { qualified_symbol: qualifiedSymbol }),
+		exact,
 		origin: "workspace-symbol",
 		uri: location.uri,
 		line: location.range.start.line,
@@ -215,6 +220,16 @@ function isDocumentSymbol(value: DocumentSymbol | SymbolInformation): value is D
 
 function symbolKindName(kind: number): string {
 	return kindNames.get(kind) ?? `kind_${kind}`;
+}
+
+function qualifiedSymbolName(symbol: SymbolInformation | WorkspaceSymbol): string | undefined {
+	if (/[.:#]/u.test(symbol.name)) return symbol.name;
+	if (typeof symbol.containerName !== "string" || symbol.containerName.trim().length === 0) return undefined;
+	return `${symbol.containerName}.${symbol.name}`;
+}
+
+function normalizeSymbolText(value: string): string {
+	return value.replace(/::|#/gu, ".").toLocaleLowerCase();
 }
 
 export function extensionForPath(filePath: string): string {

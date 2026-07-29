@@ -31,6 +31,7 @@ export interface GrepExternalQueryInput {
 	readonly query: string;
 	readonly allowedPaths: readonly string[];
 	readonly limit: number;
+	readonly relationQuery?: boolean;
 	readonly signal?: AbortSignal;
 }
 

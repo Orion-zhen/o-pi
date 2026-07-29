@@ -57,6 +57,8 @@ export interface WorkspaceSymbolsInput {
 	root: string;
 	query: string;
 	allowedPaths: ReadonlySet<string>;
+	/** 仅显式关系查询允许继续请求 references。 */
+	relationQuery?: boolean;
 	signal?: AbortSignal;
 }
 
@@ -203,9 +205,11 @@ export class LspManager {
 				}
 			}
 
+			candidates.sort((left, right) => symbolCandidatePriority(input.query, left) - symbolCandidatePriority(input.query, right));
 			const accepted: AcceptedSymbol[] = [];
 			const seenHits = new Set<string>();
 			const resolveLimit = pLimit(RESOLVE_CONCURRENCY);
+			let exactLeafCount = 0;
 			let candidateIndex = 0;
 			while (
 				accepted.length < config.config.grep.max_symbols
@@ -230,16 +234,19 @@ export class LspManager {
 				}));
 				for (const result of resolved) {
 					if (result === undefined) continue;
+					const exactLeaf = isExactLeafQuery(input.query, result.seed);
+					if (exactLeaf && exactLeafCount >= config.config.grep.max_exact_leaf_symbols) continue;
 					const key = symbolHitKey(result.seed);
 					if (seenHits.has(key)) continue;
 					seenHits.add(key);
 					accepted.push(result);
+					if (exactLeaf) exactLeafCount += 1;
 					if (accepted.length >= config.config.grep.max_symbols) break;
 				}
 			}
 
 			const symbolHits = accepted.map(({ seed }) => publicSymbolHit(seed));
-			if (!config.config.grep.references || config.config.grep.max_references <= 0 || operation.signal.aborted) return symbolHits;
+			if (!input.relationQuery || !config.config.grep.references || config.config.grep.max_references <= 0 || operation.signal.aborted) return symbolHits;
 			const references = await this.referenceHits(
 				input.root,
 				accepted,
@@ -625,6 +632,36 @@ function waitUnlessAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise
 function relativePathForUri(root: string, uri: string): string | undefined {
 	const filePath = fileUriToPath(uri);
 	return filePath === undefined ? undefined : workspaceRelativePath(root, filePath);
+}
+
+function symbolCandidatePriority(query: string, candidate: SymbolCandidate): number {
+	const name = candidate.kind === "complete" ? symbolLeaf(candidate.seed.symbol) : symbolLeaf(candidate.symbol.name);
+	const qualified = candidate.kind === "complete"
+		? candidate.seed.qualified_symbol === undefined
+			? /[.:#]/u.test(candidate.seed.symbol) ? normalizeSymbolText(candidate.seed.symbol) : undefined
+			: normalizeSymbolText(candidate.seed.qualified_symbol)
+		: "containerName" in candidate.symbol && typeof candidate.symbol.containerName === "string" && candidate.symbol.containerName.length > 0
+			? /[.:#]/u.test(candidate.symbol.name)
+				? normalizeSymbolText(candidate.symbol.name)
+				: normalizeSymbolText(`${candidate.symbol.containerName}.${candidate.symbol.name}`)
+			: /[.:#]/u.test(candidate.symbol.name) ? normalizeSymbolText(candidate.symbol.name) : undefined;
+	const target = normalizeSymbolText(query);
+	if (qualified === target) return 0;
+	if (name === target) return 1;
+	if (name.startsWith(target)) return 2;
+	return 3;
+}
+
+function isExactLeafQuery(query: string, seed: WorkspaceSymbolSeed): boolean {
+	return !/[.:#]/u.test(query) && symbolLeaf(seed.symbol) === normalizeSymbolText(query);
+}
+
+function symbolLeaf(value: string): string {
+	return normalizeSymbolText(value).split(".").at(-1) ?? normalizeSymbolText(value);
+}
+
+function normalizeSymbolText(value: string): string {
+	return value.replace(/::|#/gu, ".").toLocaleLowerCase();
 }
 
 function unresolvedSymbolKey(symbol: WorkspaceSymbol): string {

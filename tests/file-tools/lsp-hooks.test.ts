@@ -161,8 +161,8 @@ describe("file-tools lsp hooks", () => {
 			async symbols(input) {
 				seenPaths = [...input.allowedPaths];
 				return [
-					{ path: "src/target.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "RemoteSymbol", exact: true, origin: "workspace-symbol" },
-					{ path: "outside.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "RemoteSymbol", exact: true, origin: "workspace-symbol" },
+					{ path: "src/target.ts", start_line: 1, end_line: 1, kind: "function", symbol: "RemoteSymbol", exact: true, origin: "workspace-symbol" },
+					{ path: "outside.ts", start_line: 1, end_line: 1, kind: "function", symbol: "RemoteSymbol", exact: true, origin: "workspace-symbol" },
 				];
 			},
 		};
@@ -224,14 +224,14 @@ describe("file-tools lsp hooks", () => {
 		expect(maxActive).toBe(2);
 	});
 
-	it("LSP 语义排序不依赖服务器顺序，非显式 reference 进入 related", async () => {
+	it("LSP 语义排序不依赖服务器顺序，普通查询不显示 reference", async () => {
 		for (const name of ["exact", "prefix", "reference"]) {
 			await writeFile(path.join(workspace, `${name}.ts`), `export const ${name} = 1;\n`);
 		}
 		const candidates = [
 			{ path: "reference.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "Target", exact: true, origin: "reference" as const },
-			{ path: "prefix.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "TargetHelper", exact: false, origin: "workspace-symbol" as const },
-			{ path: "exact.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "Target", exact: true, origin: "workspace-symbol" as const },
+			{ path: "prefix.ts", start_line: 1, end_line: 1, kind: "function", symbol: "TargetHelper", exact: false, origin: "workspace-symbol" as const },
+			{ path: "exact.ts", start_line: 1, end_line: 1, kind: "function", symbol: "Target", exact: true, origin: "workspace-symbol" as const },
 		];
 		const first = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "Target" }, undefined, {
 			lsp: { async symbols() { return candidates; } },
@@ -242,14 +242,9 @@ describe("file-tools lsp hooks", () => {
 		}));
 		const order = (result: GrepSuccess) => result.regions.map((region) => `${region.path}:${region.matched_by[0]}`);
 		expect(order(first)).toEqual(order(second));
-		expect(order(first)).toEqual([
-			"exact.ts:exact-symbol",
-			"prefix.ts:symbol-prefix",
-		]);
+		expect(order(first)).toEqual(["exact.ts:exact-symbol"]);
+		expect(first.related).toBeUndefined();
 		expect(first.regions.find((region) => region.path === "exact.ts")?.sources).toContain("lsp-symbol");
-		expect(first.related).toEqual(expect.arrayContaining([
-			expect.objectContaining({ path: "reference.ts", sources: ["lsp-reference"], relations: ["reference"] }),
-		]));
 	});
 });
 

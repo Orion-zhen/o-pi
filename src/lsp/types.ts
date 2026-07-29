@@ -95,6 +95,9 @@ export interface LspConfig {
 		workspace_symbols: boolean;
 		references: boolean;
 		max_symbols: number;
+		/** 普通 exact leaf symbol 最多接收多少个同名定义。 */
+		max_exact_leaf_symbols: number;
+		/** 显式关系查询最多接收多少个 reference。 */
 		max_references: number;
 	};
 	servers: LspServerConfig[];
@@ -170,6 +173,7 @@ export interface LspSymbolHit {
 	end_line: number;
 	kind: string;
 	symbol: string;
+	qualified_symbol?: string;
 	signature?: string;
 	exact: boolean;
 	origin: LspSymbolOrigin;

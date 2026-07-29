@@ -17,7 +17,7 @@ import type { InventoryScope, ScopeInventory, ScopedFile } from "./inventory.js"
 import type { GrepExternalCandidate, GrepExternalRange, GrepGraphSource, GrepSymbolSource } from "./ports.js";
 import type { LocalAutoResult } from "./local.js";
 import type { QueryPlan } from "./query-plan.js";
-import { assignSourceLocalRanks, rankCodeRegions, selectRankedRegions } from "./ranking.js";
+import { assignSourceLocalRanks, classifySymbolMatch, rankCodeRegions, selectRankedRegions } from "./ranking.js";
 import type { GrepRelatedResult } from "./types.js";
 
 export interface RetrievedExternalCandidate {
@@ -66,6 +66,7 @@ export async function queryExternalChannels(
 			query,
 			allowedPaths,
 			limit: Math.max(24, context.resultLimit * 6),
+			...(plan.relationIntents.length === 0 ? {} : { relationQuery: true }),
 			...(context.signal === undefined ? {} : { signal: context.signal }),
 		};
 		return [
@@ -126,15 +127,17 @@ export async function validateExternalCandidates(
 
 /** strict 外部候选只能给事实主区域增加证据，不能创建 main。 */
 export function augmentStrictWithExternal(
+	plan: QueryPlan,
 	regions: readonly VerifiedCodeRegion[],
 	candidates: readonly ValidatedExternalCandidate[],
 ): StrictExternalAugmentation {
 	const main = new Map(regions.map((region) => [region.id, region]));
 	const related: GrepRelatedResult[] = [];
 	for (const candidate of candidates) {
+		if (suppressedLspReference(plan, candidate)) continue;
 		const matching = findMatchingRegion(main.values(), candidate);
 		if (matching === undefined) {
-			related.push(toRelated(candidate));
+			if (!isLspCandidate(candidate)) related.push(toRelated(candidate));
 			continue;
 		}
 		main.set(matching.id, mergeEvidence(matching, candidateEvidence(candidate), candidateRole(candidate), []));
@@ -152,15 +155,20 @@ export function augmentAutoWithExternal(
 	for (const region of local.regions) if (region.lane === "main") main.set(region.id, region);
 	const related = [...local.related];
 	for (const candidate of candidates) {
+		if (suppressedLspReference(plan, candidate)) continue;
 		const role = candidateRole(candidate);
-		if (!eligibleForAutoMain(plan, candidate, role) || candidate.range === undefined) {
-			related.push(toRelated(candidate));
+		if (candidate.range === undefined) {
+			if (!isLspCandidate(candidate)) related.push(toRelated(candidate));
 			continue;
 		}
 		const existing = findMatchingRegion(main.values(), candidate);
 		const signals = candidateSignals(plan, candidate, role);
-		if (existing !== undefined) {
+		if (existing !== undefined && canAugmentExisting(plan, candidate, role)) {
 			main.set(existing.id, mergeEvidence(existing, candidateEvidence(candidate), role, signals));
+			continue;
+		}
+		if (!eligibleForAutoMain(plan, candidate, role)) {
+			if (!isLspCandidate(candidate)) related.push(toRelated(candidate));
 			continue;
 		}
 		const raw = candidate.candidate;
@@ -197,6 +205,9 @@ export function augmentAutoWithExternal(
 }
 
 const RELATION_ROLES = new Set<CandidateRole>(["caller", "callee", "reference", "test", "import", "registration"]);
+const STABLE_LSP_KINDS = new Set([
+	"class", "interface", "enum", "struct", "function", "method", "constructor", "namespace", "module", "package",
+]);
 const DIRECT_REPO_REASONS = new Set([
 	"exact qualified symbol", "exact symbol", "short symbol", "signature", "alias", "definition", "export",
 	"public api", "entrypoint", "registration", "package", "component",
@@ -210,10 +221,44 @@ function eligibleForAutoMain(
 	if (candidate.range === undefined) return false;
 	const relationRole = roles.find((role) => RELATION_ROLES.has(role));
 	if (relationRole !== undefined) return plan.relationIntents.includes(relationRole as typeof plan.relationIntents[number]);
-	if (candidate.candidate.origin === "lsp-symbol") return true;
+	if (candidate.candidate.origin === "lsp-symbol") {
+		if (!stableLspKind(candidate.candidate.kind)) return false;
+		return exactLspMainMatch(plan, candidate);
+	}
 	return candidate.candidate.origin === "repo-map"
 		&& (candidate.candidate.hop ?? 0) === 0
 		&& candidate.candidate.reasons.some((reason) => DIRECT_REPO_REASONS.has(reason));
+}
+
+function isLspCandidate(candidate: ValidatedExternalCandidate): boolean {
+	return candidate.candidate.origin === "lsp-symbol" || candidate.candidate.origin === "lsp-reference";
+}
+
+function suppressedLspReference(plan: QueryPlan, candidate: ValidatedExternalCandidate): boolean {
+	return candidate.candidate.origin === "lsp-reference" && plan.relationIntents.length === 0;
+}
+
+function canAugmentExisting(
+	plan: QueryPlan,
+	candidate: ValidatedExternalCandidate,
+	roles: readonly CandidateRole[],
+): boolean {
+	if (eligibleForAutoMain(plan, candidate, roles)) return true;
+	return candidate.candidate.origin === "lsp-symbol" && !roles.some((role) => RELATION_ROLES.has(role));
+}
+
+function exactLspMainMatch(plan: QueryPlan, candidate: ValidatedExternalCandidate): boolean {
+	const match = classifySymbolMatch(
+		plan,
+		candidate.candidate.symbol,
+		candidate.candidate.qualifiedSymbol,
+	);
+	if (plan.shape === "qualified_symbol") return match === "exact_qualified_definition";
+	return match === "exact_symbol_definition";
+}
+
+function stableLspKind(kind: string | undefined): boolean {
+	return kind !== undefined && STABLE_LSP_KINDS.has(kind.toLocaleLowerCase());
 }
 
 function candidateRole(candidate: ValidatedExternalCandidate): CandidateRole[] {

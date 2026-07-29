@@ -120,7 +120,7 @@ describe("grep external", () => {
 				return [{
 					path: "z.ts",
 					range: { startLine: 1, endLine: 1 },
-					kind: "variable",
+					kind: "function",
 					symbol: "RemoteTarget",
 					origin: "lsp-symbol",
 					confidence: 1,
@@ -143,7 +143,7 @@ describe("grep external", () => {
 		const candidate: GrepExternalCandidate = {
 			path: "src/target.ts",
 			range: { startLine: 1, endLine: 1 },
-			kind: "variable",
+			kind: "function",
 			symbol: "RemoteTarget",
 			origin: "lsp-symbol",
 			confidence: 1,
@@ -386,6 +386,51 @@ describe("grep external", () => {
 		]);
 	});
 
+	it("LSP 只让稳定 exact symbol 创建 main，其余不创建结果", async () => {
+		for (const name of ["stable.ts", "variable.ts", "prefix.ts", "natural.ts"]) {
+			await writeFile(path.join(testContext.workspace, name), "export const unrelated = true;\n");
+		}
+		const symbols: GrepSymbolSource = {
+			async query(input) {
+				if (input.query === "Target") return [
+					{ path: "stable.ts", range: { startLine: 1, endLine: 1 }, kind: "function", symbol: "Target", origin: "lsp-symbol", confidence: 1, relation: "definition", reasons: ["lsp exact symbol"] },
+					{ path: "variable.ts", range: { startLine: 1, endLine: 1 }, kind: "variable", symbol: "Target", origin: "lsp-symbol", confidence: 1, relation: "definition", reasons: ["lsp exact symbol"] },
+					{ path: "prefix.ts", range: { startLine: 1, endLine: 1 }, kind: "function", symbol: "TargetHelper", origin: "lsp-symbol", confidence: 1, relation: "definition", reasons: ["lsp symbol"] },
+				];
+				return [{ path: "natural.ts", range: { startLine: 1, endLine: 1 }, kind: "function", symbol: "Target", origin: "lsp-symbol", confidence: 1, relation: "definition", reasons: ["lsp exact symbol"] }];
+			},
+		};
+
+		const ordinary = expectGrepSuccess(await grepWithSources(testContext.workspace, { query: "Target" }, { symbols }));
+		expect(ordinary.regions.map((region) => region.path)).toEqual(["stable.ts"]);
+		expect(ordinary.related).toBeUndefined();
+
+		const natural = expectGrepSuccess(await grepWithSources(testContext.workspace, { query: "where requests are validated" }, { symbols }));
+		expect(natural.regions).toEqual([]);
+		expect(natural.related).toBeUndefined();
+	});
+
+	it("LSP exact qualified symbol 可以创建 main", async () => {
+		await writeFile(path.join(testContext.workspace, "parser.ts"), "export const unrelated = true;\n");
+		const symbols: GrepSymbolSource = {
+			async query() {
+				return [{
+					path: "parser.ts",
+					range: { startLine: 1, endLine: 1 },
+					kind: "method",
+					symbol: "parse",
+					qualifiedSymbol: "Parser.parse",
+					origin: "lsp-symbol",
+					confidence: 1,
+					relation: "definition",
+					reasons: ["lsp exact qualified symbol"],
+				}];
+			},
+		};
+		const result = expectGrepSuccess(await grepWithSources(testContext.workspace, { query: "Parser.parse" }, { symbols }));
+		expect(result.regions).toEqual([expect.objectContaining({ path: "parser.ts", symbol: "Parser.parse", query_match: "semantic" })]);
+	});
+
 	it("LSP reference 仅在显式 relation intent 下进入 main", async () => {
 		await writeFile(path.join(testContext.workspace, "caller.ts"), "export function caller() { return login(); }\n");
 		const symbols: GrepSymbolSource = {
@@ -404,7 +449,7 @@ describe("grep external", () => {
 		};
 		const ordinary = expectGrepSuccess(await grepWithSources(testContext.workspace, { query: "MissingLogin" }, { symbols }));
 		expect(ordinary.regions.some((region) => region.sources.includes("lsp-reference"))).toBe(false);
-		expect(ordinary.related).toEqual([expect.objectContaining({ path: "caller.ts", relations: ["reference"] })]);
+		expect(ordinary.related).toBeUndefined();
 		const explicit = expectGrepSuccess(await grepWithSources(testContext.workspace, { query: "references to login" }, { symbols }));
 		expect(explicit.regions).toEqual(expect.arrayContaining([
 			expect.objectContaining({ path: "caller.ts", sources: ["lsp-reference"], query_match: "semantic" }),

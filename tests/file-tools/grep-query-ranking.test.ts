@@ -68,7 +68,7 @@ describe("grep QueryPlan 与纯排序", () => {
 
 	it.each([
 		["login", ["exact", "verified", "lsp", "lexical"]],
-		["AuthService.login", ["exact-qualified", "member", "reference", "lexical"]],
+		["AuthService.login", ["exact-qualified", "member", "lexical"]],
 		["Error: connection reset by peer", ["phrase", "enclosing", "lexical"]],
 		["where retry delays are calculated", ["phrase", "lexical", "summary"]],
 	] as const)("按查询形态建立硬 tier：%s", (query, expected) => {
@@ -79,7 +79,6 @@ describe("grep QueryPlan 与纯排序", () => {
 			semanticRegion({ id: "lsp", signals: ["direct_symbol"], evidence: [rankingEvidence("lsp-symbol")] }),
 		] : query === "AuthService.login" ? [
 			semanticRegion({ id: "lexical", signals: ["lexical"], evidence: [rankingEvidence("ast-lexical")] }),
-			semanticRegion({ id: "reference", signals: ["direct_reference"], evidence: [rankingEvidence("lsp-reference")], roles: ["reference"] }),
 			semanticRegion({ id: "member", symbol: "login", qualifiedSymbol: "OtherService.login", signals: ["exact_member_definition"], evidence: [rankingEvidence("ast-symbol")] }),
 			semanticRegion({ id: "exact-qualified", symbol: "login", qualifiedSymbol: "AuthService.login", signals: ["exact_qualified_definition"], evidence: [rankingEvidence("ast-symbol")] }),
 		] : query.startsWith("Error") ? [

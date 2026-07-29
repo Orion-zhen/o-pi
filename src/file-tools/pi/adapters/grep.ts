@@ -57,6 +57,7 @@ export function createGrepSymbolSource(lsp: LspFileOperations, invocation: FileT
 				workspaceRoot: workspace.nativePath,
 				query: input.query,
 				allowedPaths: new Set(input.allowedPaths),
+				...(input.relationQuery === undefined ? {} : { relationQuery: input.relationQuery }),
 				...(input.signal === undefined ? {} : { signal: input.signal }),
 			});
 			return candidates.map((candidate): GrepExternalCandidate => ({
@@ -64,11 +65,16 @@ export function createGrepSymbolSource(lsp: LspFileOperations, invocation: FileT
 				range: { startLine: candidate.start_line, endLine: candidate.end_line },
 				kind: candidate.kind,
 				symbol: candidate.symbol,
+				...(candidate.qualified_symbol === undefined ? {} : { qualifiedSymbol: candidate.qualified_symbol }),
 				...(candidate.signature === undefined ? {} : { signature: candidate.signature }),
 				origin: candidate.origin === "reference" ? "lsp-reference" : "lsp-symbol",
 				confidence: candidate.exact ? 1 : candidate.origin === "reference" ? 0.9 : 0.8,
 				relation: candidate.origin === "reference" ? "reference" : "definition",
-				reasons: [candidate.origin === "reference" ? "lsp reference" : candidate.exact ? "lsp exact symbol" : "lsp symbol"],
+				reasons: [candidate.origin === "reference"
+					? "lsp reference"
+					: candidate.exact && candidate.qualified_symbol !== undefined && normalizeSymbolText(candidate.qualified_symbol) === normalizeSymbolText(input.query)
+						? "lsp exact qualified symbol"
+						: candidate.exact ? "lsp exact symbol" : "lsp symbol"],
 			}));
 		},
 	};
@@ -129,6 +135,10 @@ function relationFromReasons(reasons: readonly string[]): string | undefined {
 	return reasons.find((reason) => reason === "caller" || reason === "callee" || reason === "reference"
 		|| reason === "test" || reason === "import" || reason === "registration")
 		?? (reasons.some((reason) => reason === "definition" || reason === "export" || reason === "public api") ? "definition" : undefined);
+}
+
+function normalizeSymbolText(value: string): string {
+	return value.replace(/::|#/gu, ".").toLocaleLowerCase();
 }
 
 function isAborted(signal: AbortSignal | undefined): boolean {

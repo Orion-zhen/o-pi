@@ -42,7 +42,8 @@
 				"workspace_symbols": { "type": "boolean", "default": true },
 				"references": { "type": "boolean", "default": false },
 				"max_symbols": { "type": "integer", "minimum": 0, "maximum": 200, "default": 20 },
-				"max_references": { "type": "integer", "minimum": 0, "maximum": 200, "default": 20 }
+				"max_exact_leaf_symbols": { "type": "integer", "minimum": 0, "maximum": 200, "default": 2 },
+				"max_references": { "type": "integer", "minimum": 0, "maximum": 200, "default": 2 }
 			}
 		},
 		"servers": {

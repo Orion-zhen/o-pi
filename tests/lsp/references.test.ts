@@ -146,6 +146,7 @@ describe("lsp references", () => {
 			workspaceRoot: workspace,
 			query: "target",
 			allowedPaths: new Set(["src/def.ts", "src/use.ts"]),
+			relationQuery: true,
 		});
 		await manager.reload();
 
@@ -153,6 +154,94 @@ describe("lsp references", () => {
 			expect.objectContaining({ path: "src/def.ts", exact: true, origin: "workspace-symbol" }),
 			expect.objectContaining({ path: "src/use.ts", origin: "reference" }),
 		]);
+	});
+
+	it("普通符号查询不启动 references，并按配置限制同名 exact leaf", async () => {
+		const config = path.join(configDir, "lsp.jsonc");
+		await writeFile(config, JSON.stringify({
+			enabled: true,
+			grep: { workspace_symbols: true, references: true, max_symbols: 10, max_exact_leaf_symbols: 2, max_references: 10 },
+			servers: { fake: testServer("unused-lsp", ["ts"]) },
+		}));
+		process.env.PI_LSP_CONFIG = config;
+		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
+		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([
+			0, 1, 2, 3,
+		].map((index) => ({
+			name: "Target",
+			kind: 12,
+			location: { uri: pathToUri(path.join(workspace, "src", `target${index}.ts`)), range: range(index) },
+		})));
+		const references = vi.spyOn(LspClient.prototype, "references").mockResolvedValue([]);
+
+		const manager = new LspManager();
+		const hits = await manager.workspaceSymbols({
+			root: workspace,
+			query: "Target",
+			allowedPaths: new Set(["src/target0.ts", "src/target1.ts", "src/target2.ts", "src/target3.ts"]),
+		});
+		await manager.reload();
+
+		expect(hits).toHaveLength(2);
+		expect(hits.every((hit) => hit.origin === "workspace-symbol")).toBe(true);
+		expect(references).not.toHaveBeenCalled();
+	});
+
+	it("显式关系查询使用可配置的 reference 上限", async () => {
+		const config = path.join(configDir, "lsp.jsonc");
+		await writeFile(config, JSON.stringify({
+			enabled: true,
+			grep: { workspace_symbols: true, references: true, max_symbols: 1, max_references: 3 },
+			servers: { fake: testServer("unused-lsp", ["ts"]) },
+		}));
+		process.env.PI_LSP_CONFIG = config;
+		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
+		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([{
+			name: "Target",
+			kind: 12,
+			location: { uri: pathToUri(path.join(workspace, "src", "target.ts")), range: range(0) },
+		}]);
+		const references = vi.spyOn(LspClient.prototype, "references").mockResolvedValue([
+			{ uri: pathToUri(path.join(workspace, "src", "use-a.ts")), range: range(1) },
+			{ uri: pathToUri(path.join(workspace, "src", "use-b.ts")), range: range(2) },
+			{ uri: pathToUri(path.join(workspace, "src", "use-c.ts")), range: range(3) },
+			{ uri: pathToFileURL(path.join(workspace, "src", "use-d.ts")).toString(), range: range(4) },
+		]);
+
+		const manager = new LspManager();
+		const hits = await manager.workspaceSymbols({
+			root: workspace,
+			query: "Target",
+			allowedPaths: new Set(["src/target.ts", "src/use-a.ts", "src/use-b.ts", "src/use-c.ts", "src/use-d.ts"]),
+			relationQuery: true,
+		});
+		await manager.reload();
+
+		expect(references).toHaveBeenCalledOnce();
+		expect(hits.filter((hit) => hit.origin === "reference")).toHaveLength(3);
+	});
+
+	it("workspace symbol 保留 exact qualified symbol", async () => {
+		const config = path.join(configDir, "lsp.jsonc");
+		await writeFile(config, JSON.stringify({ servers: { fake: testServer("unused-lsp", ["ts"]) } }));
+		process.env.PI_LSP_CONFIG = config;
+		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
+		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([{
+			name: "parse",
+			containerName: "Parser",
+			kind: 6,
+			location: { uri: pathToFileURL(path.join(workspace, "src", "parser.ts")).toString(), range: range(0) },
+		}]);
+
+		const manager = new LspManager();
+		const hits = await manager.workspaceSymbols({
+			root: workspace,
+			query: "Parser.parse",
+			allowedPaths: new Set(["src/parser.ts"]),
+		});
+		await manager.reload();
+
+		expect(hits).toEqual([expect.objectContaining({ symbol: "parse", qualified_symbol: "Parser.parse", exact: true })]);
 	});
 
 	it("专用 server 覆盖 fallback，workspace symbol 只接收归属路径", async () => {
@@ -322,6 +411,7 @@ describe("lsp references", () => {
 			root: workspace,
 			query: "target",
 			allowedPaths: new Set(["src/def.ts", "src/use.ts"]),
+			relationQuery: true,
 		});
 		await manager.reload();
 		expect(hits.map((hit) => `${hit.origin}:${hit.path}`)).toEqual([
@@ -373,6 +463,7 @@ describe("lsp references", () => {
 			allowedPaths: new Set(Array.from({ length: 6 }, (_, index) => `src/def${index}.ts`).concat(
 				Array.from({ length: 6 }, (_, index) => `src/use${index}.ts`),
 			)),
+			relationQuery: true,
 		});
 		await firstBatch;
 		expect(maxActive).toBe(4);
