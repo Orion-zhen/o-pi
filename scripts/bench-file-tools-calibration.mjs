@@ -11,18 +11,18 @@ process.env.PI_REPO_MAP_CACHE_DIR = path.join(temporaryRoot, "cache");
 const { initializeRepoMap, readActivatedRepoMap } = await loadTypeScript("src/repo-map/runtime/service.ts");
 const { RepoMapQueryIndex } = await loadTypeScript("src/repo-map/query/query.ts");
 const { FileToolsHost } = await loadTypeScript("src/file-tools/runtime/host.ts");
-const { createGrepGraphSource } = await loadTypeScript("src/file-tools/pi/adapters/grep.ts");
+const { createRepoMapGrepHintSource } = await loadTypeScript("src/file-tools/pi/adapters/grep.ts");
 const { GrepTool } = await loadTypeScript("src/file-tools/grep/command.ts");
 
 const cases = [
 	{ kind: "identifier", query: "rankCodeRegions", path: "src", match: "auto", relevant: ["src/file-tools/grep/ranking.ts"] },
 	{ kind: "qualified", query: "GrepTool.execute", path: "src", match: "auto", relevant: ["src/file-tools/grep/command.ts"] },
 	{ kind: "error", query: "AST file byte limit must be a non-negative safe integer.", path: "src", match: "auto", relevant: ["src/file-tools/grep/regionizer.ts"] },
-	{ kind: "natural", query: "source local ranks are assigned", path: "src/file-tools/grep", match: "auto", relevant: ["src/file-tools/grep/ranking.ts", "src/file-tools/grep/local.ts", "src/file-tools/grep/external.ts", "src/file-tools/grep/regionizer.ts"] },
-	{ kind: "caller", query: "callers of rankCodeRegions", path: "src/file-tools/grep", match: "auto", relevant: ["src/file-tools/grep/local.ts", "src/file-tools/grep/external.ts", "src/file-tools/grep/command.ts"] },
+	{ kind: "natural", query: "source local ranks are assigned", path: "src/file-tools/grep", match: "auto", relevant: ["src/file-tools/grep/ranking.ts", "src/file-tools/grep/local.ts", "src/file-tools/grep/hints.ts", "src/file-tools/grep/regionizer.ts"] },
+	{ kind: "caller", query: "callers of rankCodeRegions", path: "src/file-tools/grep", match: "auto", relevant: ["src/file-tools/grep/local.ts", "src/file-tools/grep/hints.ts", "src/file-tools/grep/command.ts"] },
 	{ kind: "test", query: "tests for rankCodeRegions", path: "tests/file-tools", match: "auto", relevant: ["tests/file-tools/grep-query-ranking.test.ts"] },
-	{ kind: "import", query: "where ranking is imported", path: "src/file-tools/grep", match: "auto", relevant: ["src/file-tools/grep/local.ts", "src/file-tools/grep/external.ts", "src/file-tools/grep/command.ts", "src/file-tools/grep/regionizer.ts"] },
-	{ kind: "literal", query: "not_guaranteed", path: "src/file-tools/grep", match: "literal", relevant: ["src/file-tools/grep/candidates.ts", "src/file-tools/grep/types.ts", "src/file-tools/grep/local.ts", "src/file-tools/grep/external.ts"] },
+	{ kind: "import", query: "where ranking is imported", path: "src/file-tools/grep", match: "auto", relevant: ["src/file-tools/grep/local.ts", "src/file-tools/grep/hints.ts", "src/file-tools/grep/command.ts", "src/file-tools/grep/regionizer.ts"] },
+	{ kind: "literal", query: "not_guaranteed", path: "src/file-tools/grep", match: "literal", relevant: ["src/file-tools/grep/types.ts", "src/file-tools/grep/local.ts"] },
 	{ kind: "regex", query: "GREP_(?:RRF_K|SOURCE_WEIGHTS)", path: "src/file-tools/grep", match: "regex", relevant: ["src/file-tools/grep/ranking.ts"] },
 ];
 
@@ -57,7 +57,7 @@ try {
 				filesystem: opened.filesystem,
 				operation: opened.context,
 				limits: opened.limits,
-				graph: createGrepGraphSource({ query: repoMap }, opened),
+				repoMapHints: createRepoMapGrepHintSource({ query: repoMap }, opened),
 			});
 		} finally {
 			opened.dispose();

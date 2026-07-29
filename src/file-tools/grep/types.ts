@@ -1,7 +1,6 @@
 import type { FileToolError } from "../shared/result.js";
 
 export type GrepMatchMode = "auto" | "literal" | "regex";
-export type QueryMatch = "verified" | "semantic" | "not_guaranteed";
 export type GrepMatchedBy =
 	| "exact-qualified-symbol"
 	| "exact-symbol"
@@ -73,17 +72,6 @@ export interface GrepNearbyResult {
 	query_match: "not_guaranteed";
 }
 
-export interface GrepRelatedResult {
-	path: string;
-	kind: string;
-	start_line?: number;
-	end_line?: number;
-	symbol?: string;
-	sources: string[];
-	relations: string[];
-	query_match: "not_guaranteed";
-}
-
 export interface GrepScopeError {
 	path: string;
 	error: FileToolError;
@@ -104,5 +92,4 @@ export interface GrepSuccess {
 	truncated_by: TruncationReason[];
 	regions: GrepRegion[];
 	nearby?: GrepNearbyResult[];
-	related?: GrepRelatedResult[];
 }

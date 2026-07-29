@@ -70,7 +70,7 @@ describe("grep QueryPlan 与纯排序", () => {
 		["login", ["exact", "verified", "lsp", "lexical"]],
 		["AuthService.login", ["exact-qualified", "member", "lexical"]],
 		["Error: connection reset by peer", ["phrase", "enclosing", "lexical"]],
-		["where retry delays are calculated", ["phrase", "lexical", "summary"]],
+			["where retry delays are calculated", ["phrase", "lexical", "symbol"]],
 	] as const)("按查询形态建立硬 tier：%s", (query, expected) => {
 		const candidates: CodeRegion[] = query === "login" ? [
 			semanticRegion({ id: "lexical", signals: ["lexical"], evidence: [rankingEvidence("ast-lexical")] }),
@@ -86,7 +86,7 @@ describe("grep QueryPlan 与纯排序", () => {
 			verifiedRegion({ id: "phrase", signals: ["verified_phrase"], evidence: [rankingEvidence("text-literal")] }),
 			verifiedRegion({ id: "enclosing", signals: ["verified_enclosing_region"], evidence: [rankingEvidence("text-literal", 2)] }),
 		] : [
-			semanticRegion({ id: "summary", signals: ["repo_summary"], evidence: [rankingEvidence("repo-map-direct")] }),
+				semanticRegion({ id: "symbol", signals: ["direct_symbol"], evidence: [rankingEvidence("repo-map-direct")] }),
 			semanticRegion({ id: "lexical", signals: ["lexical_high_coverage"], evidence: [rankingEvidence("ast-lexical")] }),
 			verifiedRegion({ id: "phrase", signals: ["verified_phrase"], evidence: [rankingEvidence("text-literal")] }),
 		];

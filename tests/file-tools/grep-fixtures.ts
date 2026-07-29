@@ -1,19 +1,15 @@
-import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, expect } from "vitest";
 
-import type { IndexedCodeUnit } from "../../src/code-index/parser.js";
 import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspace.js";
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
 import { buildScopeInventory, type ScopeInventory } from "../../src/file-tools/grep/inventory.js";
 import { GrepTool } from "../../src/file-tools/grep/command.js";
-import type { GrepGraphSource, GrepSymbolSource } from "../../src/file-tools/grep/ports.js";
+import type { GrepHintSource } from "../../src/file-tools/grep/ports.js";
 import type { GrepMatchMode, GrepSuccess } from "../../src/file-tools/grep/types.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
-import type { RepoMapFileToolQuery } from "../../src/repo-map/query/file-tool-query.js";
-import type { RepoMapQueryCandidate } from "../../src/repo-map/query/query.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 export interface GrepTestContext {
@@ -76,15 +72,15 @@ export function expectInventorySuccess(result: ToolOutcome<ScopeInventory>): Sco
 	return result;
 }
 
-export async function grepWithSources(
+export async function grepWithHints(
 	workspace: string,
 	params: Parameters<GrepTool["execute"]>[0],
-	sources: { readonly symbols?: GrepSymbolSource; readonly graph?: GrepGraphSource },
+	sources: { readonly lsp?: GrepHintSource; readonly repoMap?: GrepHintSource },
 	mapFilesystem: (filesystem: WorkspaceFileSystem) => WorkspaceFileSystem = (filesystem) => filesystem,
 ): Promise<ToolOutcome<GrepSuccess>> {
 	const host = new FileToolsHost();
 	const tool = new GrepTool();
-	const opened = await host.open({ cwd: workspace, sessionId: "grep-external" });
+	const opened = await host.open({ cwd: workspace, sessionId: "grep-hints" });
 	if (isFailed(opened)) {
 		tool.dispose();
 		host.dispose();
@@ -95,8 +91,8 @@ export async function grepWithSources(
 			filesystem: mapFilesystem(opened.filesystem),
 			operation: opened.context,
 			limits: opened.limits,
-			...(sources.symbols === undefined ? {} : { symbols: sources.symbols }),
-			...(sources.graph === undefined ? {} : { graph: sources.graph }),
+				...(sources.lsp === undefined ? {} : { lspHints: sources.lsp }),
+				...(sources.repoMap === undefined ? {} : { repoMapHints: sources.repoMap }),
 		});
 	} finally {
 		tool.dispose();
@@ -151,51 +147,4 @@ export function deferredVoid(): { readonly promise: Promise<void>; resolve(): vo
 	let resolver: (() => void) | undefined;
 	const promise = new Promise<void>((resolve) => { resolver = resolve; });
 	return { promise, resolve() { resolver?.(); } };
-}
-
-export function repoMapCandidate(
-	filePath: string,
-	content: string,
-	unit: IndexedCodeUnit,
-	reasons: RepoMapQueryCandidate["reasons"],
-	contentHash = createHash("sha256").update(content).digest("hex"),
-): RepoMapQueryCandidate {
-	return {
-		path: filePath,
-		fileId: `file:${filePath}`,
-		contentHash,
-		symbol: {
-			id: unit.id,
-			kind: unit.kind,
-			...(unit.name !== undefined ? { name: unit.name } : {}),
-			...(unit.qualifiedName !== undefined ? { qualifiedName: unit.qualifiedName } : {}),
-			...(unit.signature !== undefined ? { signature: unit.signature } : {}),
-			range: {
-				startLine: unit.startLine,
-				endLine: unit.endLine,
-				startByte: unit.startByte,
-				endByte: unit.endByte,
-			},
-		},
-		range: {
-			startLine: unit.startLine,
-			endLine: unit.endLine,
-			startByte: unit.startByte,
-			endByte: unit.endByte,
-		},
-		score: 900,
-		confidence: 1,
-		hop: 0,
-		reasons,
-		matchedAliases: [],
-		relatedEdges: [],
-	};
-}
-
-export function repoMapQuery(query: RepoMapFileToolQuery["query"]): RepoMapFileToolQuery {
-	return {
-		query,
-		async readContext() { return undefined; },
-		async syncMutation() { return undefined; },
-	};
 }

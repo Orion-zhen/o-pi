@@ -30,17 +30,16 @@ export const GREP_SOURCE_FAMILY: Readonly<Record<RetrievalSource, RankingEvidenc
 	"lsp-reference": "semantic",
 	"repo-map-direct": "semantic",
 	"repo-map-hop-1": "graph",
-	path: "lexical",
 };
 
 /** 查询形态的相对权重只在此表中校准。 */
 export const GREP_SOURCE_WEIGHTS: Readonly<Record<RankingPolicyKey, Readonly<Record<RetrievalSource, number>>>> = {
-	strict: weights({ "text-literal": 1.5, "text-regex": 1.5, "ast-symbol": 0.45, "lsp-symbol": 0.3, "repo-map-direct": 0.25 }),
-	identifier: weights({ "text-literal": 1.05, "text-lexical": 0.5, "ast-symbol": 1.35, "ast-lexical": 0.55, "ast-relation": 0.25, "lsp-symbol": 1.15, "repo-map-direct": 0.9, "repo-map-hop-1": 0.25, path: 0.15 }),
-	qualified_symbol: weights({ "text-literal": 1.1, "text-lexical": 0.45, "ast-symbol": 1.5, "ast-lexical": 0.45, "ast-relation": 0.35, "lsp-symbol": 1.25, "repo-map-direct": 1, "repo-map-hop-1": 0.3, path: 0.1 }),
-	long_text: weights({ "text-literal": 1.6, "text-lexical": 0.8, "ast-symbol": 0.35, "ast-lexical": 0.8, "lsp-symbol": 0.3, "repo-map-direct": 0.45, "repo-map-hop-1": 0.15, path: 0.08 }),
-	natural_language: weights({ "text-literal": 0.8, "text-lexical": 1.2, "ast-symbol": 0.65, "ast-lexical": 1.25, "ast-relation": 0.35, "lsp-symbol": 0.75, "repo-map-direct": 1.1, "repo-map-hop-1": 0.4, path: 0.2 }),
-	relation: weights({ "text-literal": 0.75, "text-lexical": 0.4, "ast-symbol": 0.8, "ast-lexical": 0.4, "ast-relation": 1.3, "lsp-symbol": 0.8, "lsp-reference": 1.35, "repo-map-direct": 0.9, "repo-map-hop-1": 1.15, path: 0.05 }),
+	strict: weights({ "text-literal": 1.5, "text-regex": 1.5, "ast-symbol": 0.45 }),
+	identifier: weights({ "text-literal": 1.05, "text-lexical": 0.5, "ast-symbol": 1.35, "ast-lexical": 0.55, "ast-relation": 0.25, "lsp-symbol": 1.15, "repo-map-direct": 0.9 }),
+	qualified_symbol: weights({ "text-literal": 1.1, "text-lexical": 0.45, "ast-symbol": 1.5, "ast-lexical": 0.45, "ast-relation": 0.35, "lsp-symbol": 1.25, "repo-map-direct": 1 }),
+	long_text: weights({ "text-literal": 1.6, "text-lexical": 0.8, "ast-symbol": 0.35, "ast-lexical": 0.8 }),
+	natural_language: weights({ "text-literal": 0.8, "text-lexical": 1.2, "ast-symbol": 0.65, "ast-lexical": 1.25, "ast-relation": 0.35, "repo-map-direct": 1.1 }),
+	relation: weights({ "text-literal": 0.75, "text-lexical": 0.4, "ast-symbol": 0.8, "ast-lexical": 0.4, "ast-relation": 1.3, "lsp-symbol": 0.8, "lsp-reference": 1.35, "repo-map-direct": 0.9, "repo-map-hop-1": 1.15 }),
 };
 
 const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<CandidateSignal, number>>>>> = {
@@ -72,7 +71,6 @@ const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<Can
 		verified_qualified_occurrence: 3,
 		verified_phrase: 3,
 		verified_text: 3,
-		direct_reference: 4,
 		direct_symbol: 4,
 		partial_symbol: 5,
 		symbol_prefix: 5,
@@ -93,7 +91,6 @@ const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<Can
 		verified_text: 1,
 		lexical_high_coverage: 2,
 		multiview_consensus: 3,
-		repo_summary: 4,
 		direct_symbol: 4,
 		lexical: 5,
 	},
@@ -104,8 +101,6 @@ const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<Can
 		exact_symbol_definition: 2,
 		target_occurrence: 3,
 		verified_text: 3,
-		direct_reference: 3,
-		indirect_relation: 4,
 		lexical_high_coverage: 5,
 		lexical: 6,
 	},
@@ -303,7 +298,6 @@ function weights(overrides: Partial<Record<RetrievalSource, number>>): Readonly<
 		"lsp-reference": 0,
 		"repo-map-direct": 0,
 		"repo-map-hop-1": 0,
-		path: 0,
 		...overrides,
 	};
 }
@@ -349,7 +343,6 @@ export function classifySymbolMatch(
 
 function signalSupported(plan: QueryPlan, region: CodeRegion, signal: CandidateSignal): boolean {
 	const sources = new Set(region.evidence.map((item) => item.source));
-	if (signal === "path") return false;
 	if (FACTUAL_SIGNALS.has(signal)) return region.queryMatch === "verified" && hasFamily(region, "factual");
 	if (SYMBOL_SIGNALS.has(signal)) {
 		if (!region.roles.includes("definition")) return false;
@@ -357,16 +350,13 @@ function signalSupported(plan: QueryPlan, region: CodeRegion, signal: CandidateS
 			|| (region.queryMatch === "verified" && hasFamily(region, "factual") && region.symbol !== undefined);
 	}
 	if (LEXICAL_SIGNALS.has(signal)) return hasAnySource(sources, ["text-lexical", "ast-lexical"]);
-	if (signal === "repo_summary") return sources.has("repo-map-direct");
 	if (signal === "multiview_consensus") return summarizeFamilies(region.evidence) >= 2;
-	if (signal === "direct_reference") return region.roles.includes("reference") && hasAnySource(sources, ["lsp-reference", "repo-map-direct"]);
 	if (signal === "requested_relation") {
 		const requested = new Set(plan.relationIntents.map((intent) => ROLE_BY_INTENT[intent]));
 		return region.roles.some((role) => requested.has(role))
 			&& hasAnySource(sources, ["ast-relation", "lsp-reference", "repo-map-direct", "repo-map-hop-1"]);
 	}
 	if (signal === "target_occurrence") return region.queryMatch === "verified" || region.roles.includes("occurrence") || region.roles.includes("reference");
-	if (signal === "indirect_relation") return hasAnySource(sources, ["ast-relation", "repo-map-hop-1"]);
 	return true;
 }
 
@@ -380,8 +370,7 @@ function bestTier(policy: RankingPolicyKey, signals: readonly CandidateSignal[])
 }
 
 function isMainEligible(plan: QueryPlan, region: CodeRegion): boolean {
-	if (region.lane !== "main") return false;
-	if (region.signals.length === 0 || region.signals.every((signal) => signal === "path")) return false;
+	if (region.signals.length === 0) return false;
 	if (plan.match !== "auto") return region.queryMatch === "verified";
 	if (plan.relationIntents.length > 0) return true;
 	const relationOnly = region.roles.length > 0 && region.roles.every((role) => RELATION_ROLES.has(role));
@@ -496,7 +485,7 @@ function primaryRole(roles: readonly CandidateRole[]): CandidateRole | "other" {
 }
 
 function summarizeFamilies(evidence: readonly RegionEvidence[]): number {
-	return new Set(evidence.filter((item) => item.source !== "path").map((item) => GREP_SOURCE_FAMILY[item.source])).size;
+	return new Set(evidence.map((item) => GREP_SOURCE_FAMILY[item.source])).size;
 }
 
 function hasFamily(region: CodeRegion, family: RankingEvidenceFamily): boolean {

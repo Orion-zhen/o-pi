@@ -335,11 +335,10 @@ describe("grep text search", () => {
 			truncationReasons: [],
 			tokenBudget: 100,
 			resultLimit: 1,
-			regionalDisplayLimit: 3,
-			relationActionLimit: 2,
-			nearby: [],
-			related: [],
-		});
+				regionalDisplayLimit: 3,
+				relationActionLimit: 2,
+				nearby: [],
+			});
 
 		expect(result.regions).toEqual([]);
 		expect(result.truncated_by).toContain("token_budget");
@@ -431,63 +430,37 @@ describe("grep text search", () => {
 		expect(result.approx_tokens).toBeLessThanOrEqual(180);
 	});
 
-	it("nearby 只在 main 为空时占用预算，辅助候选超限后继续尝试", () => {
+	it("nearby 只在 main 为空时占用预算，超限后继续尝试", () => {
 		const hugePath = `a/${Array.from({ length: 400 }, (_, index) => `segment-${index}`).join("/")}.ts`;
 		const nearby = [
 			{ path: hugePath, start_line: 1, end_line: 1, kind: "function", reason: "symbol similarity" as const, query_match: "not_guaranteed" as const },
 			{ path: "b.ts", start_line: 1, end_line: 1, kind: "function", symbol: "near", reason: "symbol similarity" as const, query_match: "not_guaranteed" as const },
 		];
-		const related = [
-			{ path: hugePath, kind: "function", sources: ["repo-map-direct"], relations: ["test"], query_match: "not_guaranteed" as const },
-			{ path: "d.ts", kind: "function", symbol: "related", sources: ["repo-map-direct"], relations: ["test"], query_match: "not_guaranteed" as const },
-		];
-		const empty = packRegions([], { nearby, related, tokenBudget: 140 });
+		const empty = packRegions([], { nearby, tokenBudget: 140 });
 		expect(empty.nearby?.map((item) => item.path)).toEqual(["b.ts"]);
-		expect(empty.related?.map((item) => item.path)).toEqual(["d.ts"]);
 		expect(empty.truncated_by).toEqual(["token_budget"]);
 		expect(empty.approx_tokens).toBeLessThanOrEqual(140);
 
 		const main = packCandidate({ id: "main", path: "main.ts", startLine: 1, endLine: 1, endByte: 1, matchLine: 1 });
-		const cheapRelated = related[1];
-		if (cheapRelated === undefined) throw new Error("missing related fixture");
-		const withMain = packRegions([main], { nearby, related: [cheapRelated], tokenBudget: 140, resultLimit: 1 });
+		const withMain = packRegions([main], { nearby, tokenBudget: 140, resultLimit: 1 });
 		expect(withMain.nearby).toBeUndefined();
-		expect(withMain.related).toBeUndefined();
-		expect(withMain.truncated_by).toContain("result_limit");
+		expect(withMain.truncated_by).toEqual([]);
 	});
 
-	it("关系行动预算可配置为一条", () => {
-		const related = Array.from({ length: 3 }, (_, index) => ({
-			path: `related-${index}.ts`,
-			kind: "function",
-			sources: ["repo-map-hop-1"],
-			relations: ["caller"],
-			query_match: "not_guaranteed" as const,
+	it("关系主区域共享可配置的行动预算", () => {
+		const relations = Array.from({ length: 3 }, (_, index) => ({
+			...packCandidate({
+				id: `relation-${index}`,
+				path: `relation-${index}.ts`,
+				startLine: 1,
+				endLine: 1,
+				endByte: 1,
+				matchLine: 1,
+			}),
+			roles: ["caller"] as const,
 		}));
-		const result = packRegions([], { related, relationActionLimit: 1, resultLimit: 10, tokenBudget: 2_000 });
-		expect(result.related).toHaveLength(1);
-		expect(result.truncated_by).toContain("result_limit");
-	});
-
-	it.each([0, 1, 2] as const)("%i 个 main 仍只共享两个全局关系行动", (mainCount) => {
-		const main = Array.from({ length: mainCount }, (_, index) => packCandidate({
-			id: `main-${index}`,
-			path: `main-${index}.ts`,
-			startLine: 1,
-			endLine: 1,
-			endByte: 1,
-			matchLine: 1,
-		}));
-		const related = Array.from({ length: 6 }, (_, index) => ({
-			path: `related-${index}.ts`,
-			kind: "function",
-			sources: ["repo-map-direct"],
-			relations: ["test"],
-			query_match: "not_guaranteed" as const,
-		}));
-		const result = packRegions(main, { related, resultLimit: 10, tokenBudget: 2_000 });
-		expect(result.regions).toHaveLength(mainCount);
-		expect(result.related ?? []).toHaveLength(2);
+		const result = packRegions(relations, { relationActionLimit: 1, resultLimit: 10, tokenBudget: 2_000 });
+		expect(result.regions).toHaveLength(1);
 		expect(result.truncated_by).toContain("result_limit");
 	});
 });

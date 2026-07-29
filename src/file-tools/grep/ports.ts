@@ -1,32 +1,30 @@
 import type { ExistingRef } from "../../filesystem/contracts/path.js";
 
-export type GrepExternalOrigin = "lsp-symbol" | "lsp-reference" | "repo-map";
+export type GrepHintOrigin = "lsp-symbol" | "lsp-reference" | "repo-map";
 
-export interface GrepExternalRange {
+export interface GrepHintRange {
 	readonly startLine: number;
 	readonly endLine: number;
 	readonly startByte?: number;
 	readonly endByte?: number;
 }
 
-/** 增强来源返回的最小边界 DTO；grep 内部 lane、tier 和排名对象不得跨过此端口。 */
-export interface GrepExternalCandidate {
+/**
+ * 外部系统只提供定位提示。grep 必须把提示映射到本次读取的 live AST unit，
+ * 不能直接把这里的元数据变成公开结果。
+ */
+export interface GrepPositionHint {
 	readonly path: string;
-	readonly range?: GrepExternalRange;
-	readonly kind?: string;
-	readonly symbol?: string;
-	readonly qualifiedSymbol?: string;
-	readonly signature?: string;
-	readonly origin: GrepExternalOrigin;
+	readonly range: GrepHintRange;
+	readonly origin: GrepHintOrigin;
 	readonly confidence: number;
 	readonly contentHash?: string;
-	readonly contentVersion?: string;
 	readonly relation?: string;
 	readonly hop?: 0 | 1;
 	readonly reasons: readonly string[];
 }
 
-export interface GrepExternalQueryInput {
+export interface GrepHintQueryInput {
 	readonly root: ExistingRef;
 	readonly query: string;
 	readonly allowedPaths: readonly string[];
@@ -35,10 +33,6 @@ export interface GrepExternalQueryInput {
 	readonly signal?: AbortSignal;
 }
 
-export interface GrepSymbolSource {
-	query(input: GrepExternalQueryInput): Promise<readonly GrepExternalCandidate[]>;
-}
-
-export interface GrepGraphSource {
-	query(input: GrepExternalQueryInput): Promise<readonly GrepExternalCandidate[]>;
+export interface GrepHintSource {
+	query(input: GrepHintQueryInput): Promise<readonly GrepPositionHint[]>;
 }

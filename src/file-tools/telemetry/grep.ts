@@ -37,11 +37,10 @@ function grepResultFields(details: Record<string, unknown>): Fields {
 		approx_token_count: number(details["approx_tokens"]),
 		traversed_entry_count: number(stats["traversed_entries"]),
 		searched_file_count: number(stats["searched_files"]),
-		searched_byte_count: number(stats["searched_bytes"]),
-		parsed_file_count: number(stats["parsed_files"]),
-		skipped_file_count: skippedCount(stats["skipped_files"]),
-		repo_map_used: hasRepoMapSource(details["regions"]) || hasRepoMapSource(details["related"]) ? true : undefined,
-		scope_count: paths === undefined ? (typeof details["path"] === "string" ? 1 + (scopeErrors ?? 0) : undefined) : paths.length + (scopeErrors ?? 0),
+			searched_byte_count: number(stats["searched_bytes"]),
+			parsed_file_count: number(stats["parsed_files"]),
+			skipped_file_count: skippedCount(stats["skipped_files"]),
+			scope_count: paths === undefined ? (typeof details["path"] === "string" ? 1 + (scopeErrors ?? 0) : undefined) : paths.length + (scopeErrors ?? 0),
 		scope_error_count: scopeErrors,
 	});
 }
@@ -50,13 +49,7 @@ function grepCandidates(details: Record<string, unknown>): Candidate[] {
 	const result: Candidate[] = [];
 	appendRegionCandidates(result, details["regions"], "primary", (item) => sourceLabels(item["sources"], "lexical"));
 	appendRegionCandidates(result, details["nearby"], "nearby", () => ["fuzzy"]);
-	appendRegionCandidates(result, details["related"], "related", (item) => sourceLabels(item["sources"], "structural"));
 	return result;
-}
-
-function hasRepoMapSource(value: unknown): boolean {
-	return Array.isArray(value) && value.some((item) =>
-		stringList(record(item)["sources"])?.some((source) => source.startsWith("repo-map-")) === true);
 }
 
 function arrayLength(value: unknown): number | undefined {

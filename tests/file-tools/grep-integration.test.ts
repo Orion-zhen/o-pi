@@ -154,7 +154,7 @@ describe("grep integration", () => {
 		}
 	});
 
-	it("显式本地关系进入 main，普通 symbol 不生成结构 related", async () => {
+	it("显式本地关系进入结果，普通 symbol 只返回定义", async () => {
 		await writeFile(path.join(testContext.workspace, "service.ts"), "export function login() { return true; }\n");
 		await writeFile(path.join(testContext.workspace, "route.ts"), "export function handleRequest() { return login(); }\n");
 
@@ -164,7 +164,6 @@ describe("grep integration", () => {
 		]));
 		const ordinary = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "login" }));
 		expect(ordinary.regions.some((region) => region.matched_by.includes("relationship"))).toBe(false);
-		expect(ordinary.related).toBeUndefined();
 	});
 
 	it("自然语言 lexical 要求多词覆盖，path-only 不产生 main", async () => {

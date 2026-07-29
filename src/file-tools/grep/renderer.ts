@@ -34,11 +34,10 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 		status: "success",
 		target: `${JSON.stringify(details.query)} in ${scope}`,
 		summary: joinParts([
-			`${details.returned_regions} regions`,
-			`${details.returned_files} files`,
-			details.nearby === undefined ? undefined : `${details.nearby.length} nearby`,
-			details.related === undefined ? undefined : `${details.related.length} related`,
-			`${details.stats.searched_files}/${details.stats.traversed_entries} searched/traversed`,
+				`${details.returned_regions} regions`,
+				`${details.returned_files} files`,
+				details.nearby === undefined ? undefined : `${details.nearby.length} nearby`,
+				`${details.stats.searched_files}/${details.stats.traversed_entries} searched/traversed`,
 			details.truncated_by.length > 0 ? `limit:${formatLimitReasons(details.truncated_by)}` : undefined,
 			details.scope_errors === undefined || details.scope_errors.length === 0 ? undefined : `${details.scope_errors.length} scope ${details.scope_errors.length === 1 ? "error" : "errors"}`,
 		]),
@@ -51,15 +50,6 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 		for (const result of details.nearby) {
 			const range = `${result.path}:${result.start_line}${result.end_line === result.start_line ? "" : `-${result.end_line}`}`;
 			lines.push(`${theme.fg("accent", range)} ${result.symbol ?? result.kind} [${result.reason}]`);
-		}
-	}
-	if (details.related !== undefined && details.related.length > 0) {
-		lines.push(theme.fg("muted", "Related (query match not guaranteed):"));
-		for (const result of details.related) {
-			const range = result.start_line === undefined
-				? result.path
-				: `${result.path}:${result.start_line}${result.end_line === undefined || result.end_line === result.start_line ? "" : `-${result.end_line}`}`;
-			lines.push(`${theme.fg("accent", range)} ${result.symbol ?? result.kind} [${result.relations.join(", ")}]`);
 		}
 	}
 	if (details.truncated_by.length > 0) lines.push(theme.fg("muted", `limit: ${formatLimitReasons(details.truncated_by, ", ")}`));

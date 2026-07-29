@@ -6,7 +6,6 @@ import type {
 	GrepMatchMode,
 	GrepNearbyResult,
 	GrepRegion,
-	GrepRelatedResult,
 	GrepScopeError,
 	GrepSkippedFiles,
 	GrepStats,
@@ -39,7 +38,6 @@ export interface GrepPackInput {
 	regionalDisplayLimit: number;
 	relationActionLimit: number;
 	nearby: readonly GrepNearbyResult[];
-	related: readonly GrepRelatedResult[];
 }
 
 interface CandidateChoice {
@@ -72,38 +70,28 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 		|| choices.some((choice) => choice.rank < lastSelectedRank && !selectedRanks.has(choice.rank));
 	const regions = selected.map((item) => item.region);
 	const nearby: GrepNearbyResult[] = [];
-	const related: GrepRelatedResult[] = [];
 	let usedCount = regions.length;
 
 	if (regions.length === 0) {
 		for (const candidate of input.nearby) {
 			if (usedCount >= input.resultLimit) break;
-			if (fits(input, regions, [...nearby, candidate], related, assumedReasons)) {
+			if (fits(input, regions, [...nearby, candidate], assumedReasons)) {
 				nearby.push(candidate);
 				usedCount += 1;
 			} else tokenLimited = true;
 		}
 	}
-	const relationActionsUsed = regions.filter(isRelationAction).length;
-	const relatedLimit = Math.max(0, input.relationActionLimit - relationActionsUsed);
-	for (const candidate of input.related) {
-		if (usedCount >= input.resultLimit || related.length >= relatedLimit) break;
-		if (fits(input, regions, nearby, [...related, candidate], assumedReasons)) {
-			related.push(candidate);
-			usedCount += 1;
-		} else tokenLimited = true;
-	}
 
-	const relationLimited = eligibleRegions.length < input.regions.length || input.related.length > relatedLimit;
+	const relationLimited = eligibleRegions.length < input.regions.length;
 	const eligibleCount = regions.length > 0
-		? eligibleRegions.length + Math.min(input.related.length, relatedLimit)
-		: input.nearby.length + Math.min(input.related.length, relatedLimit);
+		? eligibleRegions.length
+		: input.nearby.length;
 	const baseReasons = orderedReasons([
 		...knownReasons,
 		...(eligibleCount > input.resultLimit || relationLimited ? ["result_limit" as const] : []),
 	]);
 	const reasons = tokenLimited ? orderedReasons([...baseReasons, "token_budget"]) : baseReasons;
-	const result = createSuccess(input, regions, nearby, related, reasons);
+	const result = createSuccess(input, regions, nearby, reasons);
 	return { ...result, approx_tokens: tokenCount(renderGrepSuccess(result)) };
 }
 
@@ -151,7 +139,7 @@ function selectMainChoices(
 	reasons: readonly TruncationReason[],
 ): CandidateChoice[] {
 	if (input.resultLimit <= 0 || choices.length === 0) return [];
-	const empty = createSuccess(input, [], [], [], reasons);
+	const empty = createSuccess(input, [], [], reasons);
 	const availableBudget = Math.max(0, input.tokenBudget - tokenCount(renderGrepSuccess(empty)));
 	const first = choices[0];
 	const mandatory = first !== undefined && first.cost <= availableBudget ? first : undefined;
@@ -196,14 +184,14 @@ function selectMainChoices(
 		})
 		.sort((left, right) => left.rank - right.rank);
 
-	while (selected.length > 0 && !fits(input, selected.map((item) => item.region), [], [], reasons)) {
+	while (selected.length > 0 && !fits(input, selected.map((item) => item.region), [], reasons)) {
 		let removable = selected.length - 1;
 		while (removable >= 0 && selected[removable] === mandatory) removable -= 1;
 		if (removable >= 0) selected.splice(removable, 1);
 		else selected.pop();
 	}
 	if (selected.length === 0) {
-		for (const choice of choices) if (fits(input, [choice.region], [], [], reasons)) return [choice];
+		for (const choice of choices) if (fits(input, [choice.region], [], reasons)) return [choice];
 	}
 	return selected;
 }
@@ -222,7 +210,7 @@ function publicRegion(candidate: RankedRegion, displayLimit: number): GrepRegion
 		query_match: candidate.queryMatch === "verified" ? "verified" : "semantic",
 		roles: unique(candidate.roles),
 		matched_by: [...candidate.matchedBy],
-		sources: unique(candidate.evidence.map((item) => item.source)),
+		sources: unique(candidate.evidence.map((item) => item.source).filter(isLocalSource)),
 		...(candidate.matchLines.length === 0 ? {} : { match_lines: [...candidate.matchLines] }),
 		...(displayLines.length === 0 ? {} : { display_lines: displayLines.map((line) => ({ ...line })) }),
 	};
@@ -261,17 +249,15 @@ function fits(
 	input: GrepPackInput,
 	regions: readonly GrepRegion[],
 	nearby: readonly GrepNearbyResult[],
-	related: readonly GrepRelatedResult[],
 	reasons: readonly TruncationReason[],
 ): boolean {
-	return tokenCount(renderGrepSuccess(createSuccess(input, regions, nearby, related, reasons))) <= input.tokenBudget;
+	return tokenCount(renderGrepSuccess(createSuccess(input, regions, nearby, reasons))) <= input.tokenBudget;
 }
 
 function createSuccess(
 	input: GrepPackInput,
 	regions: readonly GrepRegion[],
 	nearby: readonly GrepNearbyResult[],
-	related: readonly GrepRelatedResult[],
 	reasons: readonly TruncationReason[],
 ): GrepSuccess {
 	return {
@@ -289,7 +275,6 @@ function createSuccess(
 		truncated_by: [...reasons],
 		regions: [...regions],
 		...(nearby.length === 0 ? {} : { nearby: [...nearby] }),
-		...(related.length === 0 ? {} : { related: [...related] }),
 	};
 }
 
@@ -309,8 +294,7 @@ export function renderGrepSuccess(result: GrepSuccess): string {
 	const omitted = Math.max(0, result.total_candidates - result.returned_regions);
 	if (omitted > 0) lines.push(`+${omitted} lower-ranked omitted`);
 	if (result.stats.skipped_files !== undefined) lines.push(`skipped: ${formatSkipped(result.stats.skipped_files)}`);
-	if (result.related !== undefined && result.related.length > 0) lines.push(renderRelated(result.related));
-	if (result.regions.length === 0 && result.nearby === undefined && result.related === undefined) {
+	if (result.regions.length === 0 && result.nearby === undefined) {
 		lines.push(`searched=${result.stats.searched_files}; skipped=${skippedCount(result.stats.skipped_files)}`);
 		if (result.truncated_by.length > 0) lines.push(`next: resolve ${result.truncated_by.join(",")}; narrow path/glob`);
 		else lines.push(result.match === "auto" ? "next: broaden query/path/glob" : "next: use match=auto or broaden path/glob");
@@ -366,23 +350,6 @@ function appendEvidenceLines(output: string[], displayLines: readonly GrepDispla
 	for (const line of evidence) output.push(`    ${line.line}: ${line.text}`);
 }
 
-function renderRelated(related: readonly GrepRelatedResult[]): string {
-	const lines = ["<related query-match=\"not-guaranteed\">"];
-	for (const result of related) {
-		const range = result.start_line === undefined
-			? result.path
-			: `${result.path}:${result.start_line}${result.end_line === undefined || result.end_line === result.start_line ? "" : `-${result.end_line}`}`;
-		const metadata = [
-			`kind=${metadataValue(result.kind)}`,
-			...(result.symbol === undefined ? [] : [`symbol=${metadataValue(result.symbol)}`]),
-			`relation=${result.relations.map(metadataValue).join(",")}`,
-		];
-		lines.push(`${range} [${metadata.join("; ")}]`);
-	}
-	lines.push("</related>");
-	return lines.join("\n");
-}
-
 function renderNearby(nearby: readonly GrepNearbyResult[]): string {
 	const lines = ["<nearby query-match=\"not-guaranteed\">"];
 	for (const result of nearby) {
@@ -405,6 +372,16 @@ function orderedReasons(reasons: readonly TruncationReason[]): TruncationReason[
 
 function unique<T>(values: readonly T[]): T[] {
 	return [...new Set(values)];
+}
+
+function isLocalSource(source: string): boolean {
+	return source === "text-literal"
+		|| source === "text-regex"
+		|| source === "text-lexical"
+		|| source === "ast-symbol"
+		|| source === "ast-lexical"
+		|| source === "ast-relation"
+		|| source === "path";
 }
 
 function tokenCount(text: string): number {

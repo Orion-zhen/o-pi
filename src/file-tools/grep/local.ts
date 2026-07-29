@@ -208,11 +208,10 @@ function localEntry(
 			...(item.unit.signature === undefined ? {} : { declaration: item.unit.signature }),
 			...(item.unit.declarationEndByte === undefined ? {} : { declarationEndByte: item.unit.declarationEndByte }),
 			roles,
-			signals,
-			evidence: [],
-			displayLines,
-			lane: "main",
-		}),
+				signals,
+				evidence: [],
+				displayLines,
+			}),
 	};
 }
 
@@ -276,11 +275,10 @@ function lexicalAnchorCandidates(
 				endByte: anchor.byteEnd,
 				kind: "text",
 				roles: ["text"],
-				signals: [highCoverage ? "lexical_high_coverage" : "lexical"],
-				evidence: [],
-				displayLines: [{ line: anchor.line, text: compactDisplayLine(anchor.lineText, focus.start, focus.end), type: "evidence" }],
-				lane: "main",
-			}),
+					signals: [highCoverage ? "lexical_high_coverage" : "lexical"],
+					evidence: [],
+					displayLines: [{ line: anchor.line, text: compactDisplayLine(anchor.lineText, focus.start, focus.end), type: "evidence" }],
+				}),
 		});
 	}
 	return result;
@@ -338,11 +336,10 @@ function relationCandidates(
 						startByte: imported.startByte,
 						endByte: imported.endByte,
 						kind: "import",
-						roles: ["import"],
-						signals: ["requested_relation"],
-						evidence: [],
-						lane: "main",
-					}),
+							roles: ["import"],
+							signals: ["requested_relation"],
+							evidence: [],
+						}),
 				});
 			}
 		}

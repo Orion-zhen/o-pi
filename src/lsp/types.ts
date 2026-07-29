@@ -176,7 +176,6 @@ export interface LspSymbolHit {
 	kind: string;
 	symbol: string;
 	qualified_symbol?: string;
-	signature?: string;
 	exact: boolean;
 	origin: LspSymbolOrigin;
 }

@@ -19,12 +19,12 @@ describe("grep renderer", () => {
 		};
 		const summary = formatGrepResult(details, false, theme).split("\n")[1];
 		expect(summary?.length).toBeLessThanOrEqual(98);
-		for (const value of ["1 regions", "1 files", "1 related", "depth", "bytes", "sem", "result", "token"]) {
+			for (const value of ["1 regions", "1 files", "depth", "bytes", "sem", "result", "token"]) {
 			expect(summary).toContain(value);
 		}
 	});
 
-	it("展开状态保留 scope 错误、区域和关联文件，但不重复源码正文", () => {
+	it("展开状态保留 scope 错误和区域，但不重复源码正文", () => {
 		const output = formatGrepResult({
 			...success(),
 			paths: ["src", "tests"],
@@ -38,8 +38,7 @@ describe("grep renderer", () => {
 			"roles=definition,public-api",
 			"matched-by=literal",
 			"matches=2",
-			"tests/auth.test.ts",
-			"missing",
+				"missing",
 			"PATH_NOT_FOUND",
 		]) expect(output).toContain(value);
 		for (const sourceLine of ["async login", "return secretSession"]) expect(output).not.toContain(sourceLine);
@@ -101,16 +100,6 @@ function success(): GrepSuccess {
 				{ line: 5, text: "const secretSession = authenticate();", type: "match" },
 				{ line: 8, text: "return secretSession;", type: "match" },
 			],
-		}],
-		related: [{
-			path: "tests/auth.test.ts",
-			start_line: 2,
-			end_line: 6,
-			kind: "test",
-			symbol: "auth flow",
-			sources: ["repo-map"],
-			relations: ["test"],
-			query_match: "not_guaranteed",
-		}],
-	};
+			}],
+		};
 }

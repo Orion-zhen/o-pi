@@ -78,10 +78,9 @@ describe("tool telemetry projections", () => {
 			stats: { traversed_entries: 20, searched_files: 10, searched_bytes: 2000, parsed_files: 4 },
 			truncated_by: ["result_limit"],
 			regions: [
-				{ path: "src/c.ts", start_line: 2, end_line: 4, sources: ["repo-map-direct"] },
-				{ path: "src/d.ts", start_line: 6, end_line: 8, sources: ["lsp-workspace-symbol", "lsp-reference"] },
+				{ path: "src/c.ts", start_line: 2, end_line: 4, sources: ["ast-symbol"] },
+				{ path: "src/d.ts", start_line: 6, end_line: 8, sources: ["ast-relation"] },
 			],
-			related: [{ path: "tests/c.test.ts", sources: ["repo-map-hop-1"] }],
 		}));
 		expect(grepOutput.fields).toMatchObject({
 			truncated: true,
@@ -97,9 +96,8 @@ describe("tool telemetry projections", () => {
 		});
 		expect(grepOutput.fields).not.toHaveProperty("strategy");
 		expect(grepOutput.candidates).toEqual([
-			{ kind: "region", value: "src/c.ts", rank: 1, group: "primary", start_line: 2, end_line: 4, sources: ["repo-map-direct"] },
-			{ kind: "region", value: "src/d.ts", rank: 2, group: "primary", start_line: 6, end_line: 8, sources: ["lsp-reference", "lsp-workspace-symbol"] },
-			{ kind: "region", value: "tests/c.test.ts", rank: 3, group: "related", sources: ["repo-map-hop-1"] },
+			{ kind: "region", value: "src/c.ts", rank: 1, group: "primary", start_line: 2, end_line: 4, sources: ["ast-symbol"] },
+			{ kind: "region", value: "src/d.ts", rank: 2, group: "primary", start_line: 6, end_line: 8, sources: ["ast-relation"] },
 		]);
 	});
 

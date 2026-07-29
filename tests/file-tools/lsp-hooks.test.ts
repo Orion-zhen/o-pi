@@ -6,7 +6,6 @@ import { FileChangeType } from "vscode-languageserver-protocol";
 
 import { editFile } from "../../src/file-tools/edit/command.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
-import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
 import { createEditPorts } from "../../src/file-tools/pi/ports/edit.js";
@@ -175,29 +174,19 @@ describe("file-tools lsp hooks", () => {
 		beforeDiagnostics.mockRestore();
 	});
 
-	it("grep 合入 LSP symbol 候选且不绕过 path scope", async () => {
+	it("grep 本地零结果的普通 symbol 查询不启动 LSP", async () => {
 		await mkdir(path.join(workspace, "src"));
 		await writeFile(path.join(workspace, "src", "target.ts"), "export const unrelated = 1;\n");
-		await writeFile(path.join(workspace, "outside.ts"), "export const other = 1;\n");
-		let seenPaths: string[] = [];
+		const symbols = vi.fn(async () => []);
 		const hooks: LspFileOperations = {
-			async symbols(input) {
-				seenPaths = [...input.allowedPaths];
-				return [
-					{ path: "src/target.ts", start_line: 1, end_line: 1, kind: "function", symbol: "RemoteSymbol", exact: true, origin: "workspace-symbol" },
-					{ path: "outside.ts", start_line: 1, end_line: 1, kind: "function", symbol: "RemoteSymbol", exact: true, origin: "workspace-symbol" },
-				];
-			},
+			symbols,
 		};
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: ["src"], query: "RemoteSymbol" }, undefined, { lsp: hooks }));
-		expect(result.regions).toHaveLength(1);
-		expect(result.regions[0]).toMatchObject({ path: "src/target.ts", symbol: "RemoteSymbol", matched_by: ["exact-symbol"] });
-		expect(seenPaths).toEqual(["src/target.ts"]);
-
-		await expect(grepWorkspaceFiles(workspace, { path: ["src"], query: "RemoteSymbol" }, undefined, { lsp: throwingHooks() })).resolves.toMatchObject({ status: "success" });
+		expect(result.regions).toEqual([]);
+		expect(symbols).not.toHaveBeenCalled();
 	});
 
-	it("grep 为混合和空 scope 传递 ignore/glob 过滤后的实际路径", async () => {
+	it("grep 只为本地不足的关系查询向 LSP 传递过滤后的实际路径", async () => {
 		await mkdir(path.join(workspace, "mixed"));
 		await writeFile(path.join(workspace, "mixed", "a.ts"), "export const target = 1;\n");
 		await writeFile(path.join(workspace, "mixed", "b.py"), "target = 1\n");
@@ -211,10 +200,10 @@ describe("file-tools lsp hooks", () => {
 			},
 		};
 		const controller = new AbortController();
-		await grepWorkspaceFiles(workspace, { path: ["mixed"], query: "Target" }, controller.signal, { lsp: hooks });
-		await grepWorkspaceFiles(workspace, { path: ["mixed"], query: "Target", glob: "*.ts" }, undefined, { lsp: hooks });
+		await grepWorkspaceFiles(workspace, { path: ["mixed"], query: "references to MissingTarget" }, controller.signal, { lsp: hooks });
+		await grepWorkspaceFiles(workspace, { path: ["mixed"], query: "references to MissingTarget", glob: "*.ts" }, undefined, { lsp: hooks });
 		await mkdir(path.join(workspace, "empty"));
-		await grepWorkspaceFiles(workspace, { path: ["empty"], query: "Target" }, undefined, { lsp: hooks });
+		await grepWorkspaceFiles(workspace, { path: ["empty"], query: "references to MissingTarget" }, undefined, { lsp: hooks });
 		expect(seenPaths).toEqual([
 			["mixed/a.ts", "mixed/b.py"],
 			["mixed/a.ts"],
@@ -224,51 +213,6 @@ describe("file-tools lsp hooks", () => {
 		expect(seenSignals.every((signal) => signal instanceof AbortSignal)).toBe(true);
 	});
 
-	it("grep 并行请求 LSP 与 Repo Map", async () => {
-		await writeFile(path.join(workspace, "target.ts"), "export const target = 1;\n");
-		let active = 0;
-		let maxActive = 0;
-		const pause = async (): Promise<void> => {
-			active += 1;
-			maxActive = Math.max(maxActive, active);
-			await new Promise<void>((resolve) => setImmediate(resolve));
-			active -= 1;
-		};
-
-		await grepWorkspaceFiles(workspace, { query: "RemoteSymbol" }, undefined, {
-			lsp: { async symbols() { await pause(); return []; } },
-			repoMap: {
-				async query() { await pause(); return undefined; },
-				async readContext() { return undefined; },
-				async syncMutation() { return undefined; },
-			},
-		});
-
-		expect(maxActive).toBe(2);
-	});
-
-	it("LSP 语义排序不依赖服务器顺序，普通查询不显示 reference", async () => {
-		for (const name of ["exact", "prefix", "reference"]) {
-			await writeFile(path.join(workspace, `${name}.ts`), `export const ${name} = 1;\n`);
-		}
-		const candidates = [
-			{ path: "reference.ts", start_line: 1, end_line: 1, kind: "variable", symbol: "Target", exact: true, origin: "reference" as const },
-			{ path: "prefix.ts", start_line: 1, end_line: 1, kind: "function", symbol: "TargetHelper", exact: false, origin: "workspace-symbol" as const },
-			{ path: "exact.ts", start_line: 1, end_line: 1, kind: "function", symbol: "Target", exact: true, origin: "workspace-symbol" as const },
-		];
-		const first = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "Target" }, undefined, {
-			lsp: { async symbols() { return candidates; } },
-		}));
-		clearGrepIndex();
-		const second = expectGrepSuccess(await grepWorkspaceFiles(workspace, { query: "Target" }, undefined, {
-			lsp: { async symbols() { return [...candidates].reverse(); } },
-		}));
-		const order = (result: GrepSuccess) => result.regions.map((region) => `${region.path}:${region.matched_by[0]}`);
-		expect(order(first)).toEqual(order(second));
-		expect(order(first)).toEqual(["exact.ts:exact-symbol"]);
-		expect(first.related).toBeUndefined();
-		expect(first.regions.find((region) => region.path === "exact.ts")?.sources).toContain("lsp-symbol");
-	});
 });
 
 async function writeWithHooks(params: { path: string; content: string }, hooks: LspFileOperations) {

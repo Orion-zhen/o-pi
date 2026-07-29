@@ -62,7 +62,6 @@ function buildCandidates(size) {
 			roles: role === "definition" ? ["definition"] : ["definition", role],
 			signals: [signal],
 			evidence: [{ source, rank: index + 1, confidence: 1, reason: source }],
-			lane: "main",
 		};
 		if (source !== "text-literal") return { ...base, queryMatch: "semantic", matchLines: [] };
 		const hit = { path: base.path, line: base.startLine, byteStart: base.startByte, byteEnd: base.endByte, mode: "literal", lineText: "login", before: [], after: [] };
@@ -90,9 +89,9 @@ function validateFixedScenarios() {
 	}
 
 	const highRankSingle = summarizeEvidence("natural_language", [evidence("ast-lexical", 1)]);
-	const highRankConsensus = summarizeEvidence("natural_language", [evidence("ast-lexical", 2), evidence("lsp-symbol", 2)]);
-	const lowRankConsensus = summarizeEvidence("natural_language", [evidence("ast-lexical", 200), evidence("lsp-symbol", 200)]);
-	const duplicateFamily = summarizeEvidence("natural_language", [evidence("ast-lexical", 3), evidence("path", 1)]);
+	const highRankConsensus = summarizeEvidence("natural_language", [evidence("ast-lexical", 2), evidence("ast-symbol", 2)]);
+	const lowRankConsensus = summarizeEvidence("natural_language", [evidence("ast-lexical", 200), evidence("ast-symbol", 200)]);
+	const duplicateFamily = summarizeEvidence("natural_language", [evidence("ast-lexical", 3), evidence("text-lexical", 1)]);
 	if (highRankConsensus.fusionScore <= highRankSingle.fusionScore || lowRankConsensus.fusionScore >= highRankSingle.fusionScore) {
 		throw new Error("family-max weighted RRF consensus boundary changed");
 	}
@@ -189,7 +188,6 @@ function region(id, signal, source, rank, roles = ["definition"], path = `${id}.
 		roles,
 		signals: [signal],
 		evidence: [evidence(source, rank)],
-		lane: "main",
 		queryMatch: "semantic",
 		matchLines: [],
 	};
@@ -209,7 +207,6 @@ function verifiedRegion(id, signal, rank) {
 		roles: ["occurrence"],
 		signals: [signal],
 		evidence: [evidence("text-literal", rank)],
-		lane: "main",
 		queryMatch: "verified",
 		verifiedHits: [hit],
 		matchLines: [rank],

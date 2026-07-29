@@ -143,12 +143,10 @@ describe("Repo Map architecture graph", () => {
 		const active = createRepoMapFileToolQuery(() => [activationEntry(generation.metadata)], { readActivated });
 		const found = await findWorkspaceFiles(temp.path, { query: "serve" }, undefined, { repoMap: active });
 		expect("status" in found ? [] : found.details.matches).toContainEqual({ path: "agent/extensions/sample.ts", kind: "file" });
-		const grep = await grepWorkspaceFiles(temp.path, { query: "registrations for serve" }, undefined, { repoMap: active });
-		if (grep.status === "failed") throw new Error(grep.error.message);
-		expect(grep.regions.some((region) => region.sources.includes("repo-map-direct"))).toBe(false);
-		expect(grep.related).toEqual(expect.arrayContaining([
-			expect.objectContaining({ path: "agent/extensions/sample.ts", sources: expect.arrayContaining(["repo-map-direct"]), relations: ["registration"] }),
-		]));
+			const grep = await grepWorkspaceFiles(temp.path, { query: "registrations for serve" }, undefined, { repoMap: active });
+			if (grep.status === "failed") throw new Error(grep.error.message);
+			expect(grep).not.toHaveProperty("related");
+			expect(grep.regions.every((region) => region.sources.every((source) => !source.startsWith("repo-map-")))).toBe(true);
 		const read = await readWorkspaceFile(temp.path, { path: "packages/a/src/impl.ts", start_line: 1, end_line: 1 }, { repoMap: active });
 		if (!("content" in read) || "media_type" in read) throw new Error("partial read failed");
 		expect(read).not.toHaveProperty("repo_map");

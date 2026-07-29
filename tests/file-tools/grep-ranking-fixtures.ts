@@ -39,7 +39,6 @@ export function semanticRegion(input: {
 		roles: input.roles ?? ["definition"],
 		signals: input.signals,
 		evidence: input.evidence,
-		lane: "main",
 	});
 }
 
@@ -123,10 +122,9 @@ export function packRegions(regions: readonly RankedRegion[], overrides: Partial
 		truncationReasons: [],
 		tokenBudget: 400,
 		resultLimit: 8,
-		regionalDisplayLimit: 3,
-		relationActionLimit: 2,
-		nearby: [],
-		related: [],
-		...overrides,
+			regionalDisplayLimit: 3,
+			relationActionLimit: 2,
+			nearby: [],
+			...overrides,
 	});
 }

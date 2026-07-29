@@ -1,6 +1,6 @@
 import type { RepoMapQueryCandidate } from "../../../repo-map/query/query.js";
 import { GrepTool, formatCompactGrepResult } from "../../grep/command.js";
-import type { GrepExternalCandidate, GrepGraphSource, GrepSymbolSource } from "../../grep/ports.js";
+import type { GrepHintSource, GrepPositionHint } from "../../grep/ports.js";
 import type { GrepParams } from "../../grep/types.js";
 import type { FileToolsHost, FileToolsInvocation } from "../../runtime/host.js";
 import { isFailed } from "../../shared/result.js";
@@ -32,8 +32,8 @@ export function createGrepAdapter() {
 					filesystem: opened.filesystem,
 					operation: opened.context,
 					limits: opened.limits,
-					symbols: createGrepSymbolSource(options.lsp, opened),
-					graph: createGrepGraphSource(options.repoMap, opened),
+					lspHints: createLspGrepHintSource(options.lsp, opened),
+					repoMapHints: createRepoMapGrepHintSource(options.repoMap, opened),
 				});
 				if (isFailed(result)) return failedResult(result);
 				return { content: [{ type: "text" as const, text: formatCompactGrepResult(result) }], details: result };
@@ -47,7 +47,7 @@ export function createGrepAdapter() {
 	};
 }
 
-export function createGrepSymbolSource(lsp: LspFileOperations, invocation: FileToolsInvocation): GrepSymbolSource {
+export function createLspGrepHintSource(lsp: LspFileOperations, invocation: FileToolsInvocation): GrepHintSource {
 	return {
 		async query(input) {
 			if (input.signal?.aborted === true || lsp.symbols === undefined) return [];
@@ -60,27 +60,21 @@ export function createGrepSymbolSource(lsp: LspFileOperations, invocation: FileT
 				...(input.relationQuery === undefined ? {} : { relationQuery: input.relationQuery }),
 				...(input.signal === undefined ? {} : { signal: input.signal }),
 			});
-			return candidates.map((candidate): GrepExternalCandidate => ({
+			return candidates.map((candidate): GrepPositionHint => ({
 				path: candidate.path,
 				range: { startLine: candidate.start_line, endLine: candidate.end_line },
-				kind: candidate.kind,
-				symbol: candidate.symbol,
-				...(candidate.qualified_symbol === undefined ? {} : { qualifiedSymbol: candidate.qualified_symbol }),
-				...(candidate.signature === undefined ? {} : { signature: candidate.signature }),
 				origin: candidate.origin === "reference" ? "lsp-reference" : "lsp-symbol",
 				confidence: candidate.exact ? 1 : candidate.origin === "reference" ? 0.9 : 0.8,
 				relation: candidate.origin === "reference" ? "reference" : "definition",
 				reasons: [candidate.origin === "reference"
 					? "lsp reference"
-					: candidate.exact && candidate.qualified_symbol !== undefined && normalizeSymbolText(candidate.qualified_symbol) === normalizeSymbolText(input.query)
-						? "lsp exact qualified symbol"
-						: candidate.exact ? "lsp exact symbol" : "lsp symbol"],
+					: candidate.exact ? "lsp exact symbol" : "lsp symbol"],
 			}));
 		},
 	};
 }
 
-export function createGrepGraphSource(repoMap: RepoMapToolPorts, invocation: FileToolsInvocation): GrepGraphSource {
+export function createRepoMapGrepHintSource(repoMap: RepoMapToolPorts, invocation: FileToolsInvocation): GrepHintSource {
 	return {
 		async query(input) {
 			if (input.signal?.aborted === true) return [];
@@ -93,25 +87,22 @@ export function createGrepGraphSource(repoMap: RepoMapToolPorts, invocation: Fil
 				...(input.signal === undefined ? {} : { signal: input.signal }),
 			});
 			if (result === undefined || isAborted(input.signal)) return [];
-			return result.candidates.flatMap(toGraphCandidates);
+			return result.candidates.flatMap(toGraphHint);
 		},
 	};
 }
 
-function toGraphCandidates(candidate: RepoMapQueryCandidate): GrepExternalCandidate[] {
+function toGraphHint(candidate: RepoMapQueryCandidate): GrepPositionHint[] {
 	const symbol = candidate.symbol;
 	const range = symbol?.range ?? candidate.range;
+	if (candidate.hop === 2 || range === undefined) return [];
 	const aliasReasons = candidate.matchedAliases
 		.filter(({ term, canonical }) => term.toLocaleLowerCase() !== canonical.toLocaleLowerCase())
 		.map(({ term, canonical }) => `alias ${term}->${canonical}`);
 	const relation = relationFromReasons(candidate.reasons);
-	const primary: GrepExternalCandidate[] = candidate.hop === 2 ? [] : [{
+	return [{
 		path: candidate.path,
-		...(range === undefined ? {} : { range: { ...range } }),
-		...(symbol?.kind === undefined ? {} : { kind: symbol.kind }),
-		...(symbol?.name === undefined ? {} : { symbol: symbol.name }),
-		...(symbol?.qualifiedName === undefined ? {} : { qualifiedSymbol: symbol.qualifiedName }),
-		...(symbol?.signature === undefined ? {} : { signature: symbol.signature }),
+		range: { ...range },
 		origin: "repo-map",
 		confidence: candidate.confidence,
 		...(candidate.contentHash === undefined ? {} : { contentHash: candidate.contentHash }),
@@ -119,28 +110,12 @@ function toGraphCandidates(candidate: RepoMapQueryCandidate): GrepExternalCandid
 		hop: candidate.hop,
 		reasons: [...candidate.reasons, ...aliasReasons],
 	}];
-	const related = candidate.relatedEdges
-		.filter((edge) => edge.hop === 1)
-		.flatMap((edge) => edge.relatedFiles.map((file): GrepExternalCandidate => ({
-			path: file.path,
-			origin: "repo-map",
-			confidence: Math.min(candidate.confidence, edge.confidence),
-			...(file.contentHash === undefined ? {} : { contentHash: file.contentHash }),
-			relation: edge.kind,
-			hop: 1,
-			reasons: [edge.kind],
-		})));
-	return [...primary, ...related];
 }
 
 function relationFromReasons(reasons: readonly string[]): string | undefined {
 	return reasons.find((reason) => reason === "caller" || reason === "callee" || reason === "reference"
 		|| reason === "test" || reason === "import" || reason === "registration" || reason === "entrypoint")
 		?? (reasons.some((reason) => reason === "definition" || reason === "export" || reason === "public api") ? "definition" : undefined);
-}
-
-function normalizeSymbolText(value: string): string {
-	return value.replace(/::|#/gu, ".").toLocaleLowerCase();
 }
 
 function isAborted(signal: AbortSignal | undefined): boolean {

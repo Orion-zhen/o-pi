@@ -6,16 +6,11 @@ import { fail, isFailed, type FailedResult, type ToolOutcome } from "../shared/r
 import type { RankedRegion, VerifiedCodeRegion } from "./candidates.js";
 import { buildScopeInventory, type ScopeInventory } from "./inventory.js";
 import { buildLocalAutoResults, semanticParsePriority } from "./local.js";
-import {
-	augmentAutoWithExternal,
-	augmentStrictWithExternal,
-	queryExternalChannels,
-	validateExternalCandidates,
-} from "./external.js";
+import { applyGrepHints, grepHintDemand, queryGrepHints } from "./hints.js";
 import { packGrepResults, renderGrepSuccess } from "./packer.js";
 import { GrepParser } from "./parser-pool.js";
 import { rankCodeRegions } from "./ranking.js";
-import type { GrepGraphSource, GrepSymbolSource } from "./ports.js";
+import type { GrepHintSource } from "./ports.js";
 import { createQueryPlan, type QueryPlan } from "./query-plan.js";
 import { GrepRegionizer } from "./regionizer.js";
 import { scanInventoryText } from "./text-scanner.js";
@@ -28,8 +23,8 @@ export interface GrepCommandContext {
 	readonly operation: FsOperationContext;
 	readonly limits: Pick<FileToolLimits,
 		"grep_max_depth" | "grep_ast_max_file_bytes" | "grep_output_token_budget" | "grep_result_limit" | "grep_regional_display_limit" | "grep_relation_action_limit">;
-	readonly symbols?: GrepSymbolSource;
-	readonly graph?: GrepGraphSource;
+	readonly lspHints?: GrepHintSource;
+	readonly repoMapHints?: GrepHintSource;
 }
 
 /** Stateful grep command; parser、派生 AST cache 与 active invocation 共享 owner。 */
@@ -67,12 +62,6 @@ export class GrepTool {
 		if (plan.match !== "auto") return fail("INVALID_OPERATION", "Auto grep requires auto mode.");
 		const inventory = await this.inventory(plan, context);
 		if (isFailed(inventory)) return inventory;
-		const externalPending = queryExternalChannels(inventory, plan, {
-			...(context.symbols === undefined ? {} : { symbols: context.symbols }),
-			...(context.graph === undefined ? {} : { graph: context.graph }),
-			...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
-			resultLimit: context.limits.grep_result_limit,
-		});
 		const scanned = await scanInventoryText(inventory, plan, {
 			filesystem: context.filesystem,
 			operation: context.operation,
@@ -92,12 +81,13 @@ export class GrepTool {
 		const scope = successfulScopeState(plan, inventory, scanned.scopeErrors, regionized.scopeErrors);
 		if (scope.failure !== undefined) return scope.failure;
 		const local = buildLocalAutoResults(plan, scanned, regionized, context.limits.grep_regional_display_limit);
-		const external = await validateExternalCandidates(inventory, await externalPending, {
-			filesystem: context.filesystem,
-			operation: context.operation,
-		});
-		if (isFailed(external)) return external;
-		const augmented = augmentAutoWithExternal(plan, local, external);
+		const demand = grepHintDemand(plan, local);
+		const hints = await queryGrepHints(inventory, plan, {
+			...(context.lspHints === undefined ? {} : { lsp: context.lspHints }),
+			...(context.repoMapHints === undefined ? {} : { repoMap: context.repoMapHints }),
+		}, demand, context.operation.signal, context.limits.grep_result_limit);
+		if (isFailed(hints)) return hints;
+		const augmented = applyGrepHints(plan, local, regionized.files, hints);
 		return packGrepResults({
 			query: plan.query,
 			path: scope.paths[0] ?? ".",
@@ -117,7 +107,6 @@ export class GrepTool {
 			regionalDisplayLimit: context.limits.grep_regional_display_limit,
 			relationActionLimit: context.limits.grep_relation_action_limit,
 			nearby: augmented.nearby,
-			related: augmented.related,
 		});
 	}
 
@@ -126,12 +115,6 @@ export class GrepTool {
 		const strictMatch = plan.match;
 		const inventory = await this.inventory(plan, context);
 		if (isFailed(inventory)) return inventory;
-		const externalPending = queryExternalChannels(inventory, plan, {
-			...(context.symbols === undefined ? {} : { symbols: context.symbols }),
-			...(context.graph === undefined ? {} : { graph: context.graph }),
-			...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
-			resultLimit: context.limits.grep_result_limit,
-		});
 		const scanned = await scanInventoryText(inventory, plan, {
 			filesystem: context.filesystem,
 			operation: context.operation,
@@ -145,13 +128,7 @@ export class GrepTool {
 		if (isFailed(regionized)) return regionized;
 		const scope = successfulScopeState(plan, inventory, scanned.scopeErrors, regionized.scopeErrors);
 		if (scope.failure !== undefined) return scope.failure;
-		const external = await validateExternalCandidates(inventory, await externalPending, {
-			filesystem: context.filesystem,
-			operation: context.operation,
-		});
-		if (isFailed(external)) return external;
-		const augmented = augmentStrictWithExternal(plan, regionized.regions, external);
-		const allRanked = rankCodeRegions(plan, augmented);
+		const allRanked = rankCodeRegions(plan, regionized.regions);
 		const ranked = allRanked.filter(isVerifiedRankedRegion);
 		return packGrepResults({
 			query: plan.query,
@@ -162,7 +139,6 @@ export class GrepTool {
 			totalCandidates: allRanked.length,
 			regions: ranked,
 			nearby: [],
-			related: [],
 			stats: grepStats(inventory, scanned.stats, regionized.parsedFiles, regionized.skipped),
 			truncationReasons: uniqueTruncationReasons([
 				...inventory.truncationReasons,

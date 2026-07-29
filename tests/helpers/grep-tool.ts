@@ -1,6 +1,6 @@
 import { GrepTool } from "../../src/file-tools/grep/command.js";
 import type { GrepParams, GrepSuccess } from "../../src/file-tools/grep/types.js";
-import { createGrepGraphSource, createGrepSymbolSource } from "../../src/file-tools/pi/adapters/grep.js";
+import { createLspGrepHintSource, createRepoMapGrepHintSource } from "../../src/file-tools/pi/adapters/grep.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { LspFileOperations } from "../../src/lsp/file-hooks.js";
@@ -27,9 +27,9 @@ export async function grepWorkspaceFiles(
 			filesystem: opened.filesystem,
 			operation: opened.context,
 			limits: opened.limits,
-			...(runtime.lsp === undefined ? {} : { symbols: createGrepSymbolSource(runtime.lsp, opened) }),
-			...(runtime.repoMap === undefined ? {} : {
-				graph: createGrepGraphSource({
+				...(runtime.lsp === undefined ? {} : { lspHints: createLspGrepHintSource(runtime.lsp, opened) }),
+				...(runtime.repoMap === undefined ? {} : {
+					repoMapHints: createRepoMapGrepHintSource({
 					query: runtime.repoMap,
 					async formatReadContext() { return undefined; },
 					async formatImpact() { return undefined; },

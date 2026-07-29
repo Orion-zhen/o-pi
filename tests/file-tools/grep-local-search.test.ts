@@ -92,13 +92,12 @@ describe("grep local search", () => {
 		expect(firstRegion(result)).toMatchObject({ path: path.join(testContext.outside, "external.ts").replaceAll("\\", "/"), symbol: "externalNeedle" });
 	});
 
-	it("无显式关系意图时只显示定义，不生成 caller/callee related", async () => {
+	it("无显式关系意图时只显示定义", async () => {
 		await writeFile(path.join(testContext.workspace, "service.ts"), "export function login() {\n  return issueToken();\n}\nfunction issueToken() { return 't'; }\n");
 		await writeFile(path.join(testContext.workspace, "route.ts"), "import { login } from './service';\nexport function handle() {\n  return login();\n}\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "login" }));
 		expect(firstRegion(result)).toMatchObject({ path: "service.ts", symbol: "login" });
 		expect(result.regions.some((region) => region.matched_by.includes("relationship"))).toBe(false);
-		expect(result.related).toBeUndefined();
 		expect(formatCompactGrepResult(result)).not.toContain("calls: issueToken");
 	});
 

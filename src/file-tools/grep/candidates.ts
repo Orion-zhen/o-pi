@@ -1,7 +1,6 @@
 import { compactDisplayLine } from "./display.js";
-import type { GrepDisplayLine, GrepMatchedBy, GrepMatchMode, QueryMatch } from "./types.js";
+import type { GrepDisplayLine, GrepMatchedBy, GrepMatchMode } from "./types.js";
 
-export type ResultLane = "main" | "nearby" | "related";
 export type CandidateRole =
 	| "definition"
 	| "occurrence"
@@ -26,8 +25,7 @@ export type RetrievalSource =
 	| "lsp-symbol"
 	| "lsp-reference"
 	| "repo-map-direct"
-	| "repo-map-hop-1"
-	| "path";
+	| "repo-map-hop-1";
 
 export type CandidateSignal =
 	| "exact_qualified_definition"
@@ -39,18 +37,14 @@ export type CandidateSignal =
 	| "verified_enclosing_region"
 	| "verified_text_line"
 	| "direct_symbol"
-	| "direct_reference"
 	| "symbol_prefix"
 	| "partial_symbol"
 	| "lexical_high_coverage"
 	| "lexical"
-	| "repo_summary"
 	| "multiview_consensus"
 	| "requested_relation"
 	| "target_definition"
-	| "target_occurrence"
-	| "indirect_relation"
-	| "path";
+	| "target_occurrence";
 
 export interface TextHit {
 	readonly path: string;
@@ -93,23 +87,6 @@ export interface SourceLocalRank {
 	readonly hop?: 0 | 1;
 }
 
-interface RetrievalCandidateBase {
-	readonly id: string;
-	readonly path: string;
-	readonly startLine?: number;
-	readonly endLine?: number;
-	readonly sourceRank: SourceLocalRank;
-	readonly role: CandidateRole;
-	readonly signals: readonly CandidateSignal[];
-	readonly symbol?: string;
-	readonly declaration?: string;
-}
-
-export type RetrievalCandidate = RetrievalCandidateBase & (
-	| { readonly lane: "main"; readonly queryMatch: Exclude<QueryMatch, "not_guaranteed"> }
-	| { readonly lane: "nearby" | "related"; readonly queryMatch: "not_guaranteed" }
-);
-
 export interface RegionEvidence extends SourceLocalRank {
 	readonly reason: string;
 }
@@ -132,7 +109,6 @@ export interface CodeRegionBase {
 	readonly evidence: readonly RegionEvidence[];
 	readonly matchedBy: readonly GrepMatchedBy[];
 	readonly displayLines: readonly GrepDisplayLine[];
-	readonly lane: ResultLane;
 }
 
 export interface VerifiedCodeRegion extends CodeRegionBase {
@@ -142,21 +118,12 @@ export interface VerifiedCodeRegion extends CodeRegionBase {
 }
 
 export interface SemanticMainRegion extends CodeRegionBase {
-	readonly lane: "main";
 	readonly queryMatch: "semantic";
 	readonly verifiedHits?: never;
 	readonly matchLines: readonly number[];
 }
 
-export interface AuxiliaryCodeRegion extends CodeRegionBase {
-	readonly lane: "nearby" | "related";
-	readonly queryMatch: "not_guaranteed";
-	readonly verifiedHits?: never;
-	readonly matchLines: readonly number[];
-}
-
-export type SemanticCodeRegion = SemanticMainRegion | AuxiliaryCodeRegion;
-export type CodeRegion = VerifiedCodeRegion | SemanticCodeRegion;
+export type CodeRegion = VerifiedCodeRegion | SemanticMainRegion;
 
 export interface RankingEvidenceSummary {
 	readonly factual: number;
@@ -177,13 +144,12 @@ export type RankedRegion = CodeRegion & {
 	readonly rolePriority: number;
 };
 
-type DerivedDisplayFields = "lane" | "matchedBy" | "displayLines";
-export type VerifiedRegionInput = Omit<CodeRegionBase, DerivedDisplayFields> & { readonly lane?: "main" };
-type SemanticRegionBaseInput = Omit<CodeRegionBase, "matchedBy" | "displayLines" | "lane"> & {
+type DerivedDisplayFields = "matchedBy" | "displayLines";
+export type VerifiedRegionInput = Omit<CodeRegionBase, DerivedDisplayFields>;
+type SemanticMainInput = Omit<CodeRegionBase, "matchedBy" | "displayLines"> & {
 	readonly displayLines?: readonly GrepDisplayLine[];
+	readonly queryMatch?: "semantic";
 };
-type SemanticMainInput = SemanticRegionBaseInput & { readonly lane: "main"; readonly queryMatch?: "semantic" };
-type SemanticAuxiliaryInput = SemanticRegionBaseInput & { readonly lane: "nearby" | "related"; readonly queryMatch?: "not_guaranteed" };
 
 /** strict/事实主区域只能通过真实 TextHit 构造。 */
 export function createVerifiedCodeRegion(
@@ -213,7 +179,6 @@ export function createVerifiedCodeRegion(
 	}
 	return {
 		...input,
-		lane: "main",
 		queryMatch: "verified",
 		verifiedHits: [firstHit, ...sortedHits.slice(1)],
 		matchLines: [firstLine, ...matchLines.slice(1)],
@@ -222,22 +187,11 @@ export function createVerifiedCodeRegion(
 	};
 }
 
-export function createSemanticCodeRegion(input: SemanticMainInput): SemanticMainRegion;
-export function createSemanticCodeRegion(input: SemanticAuxiliaryInput): AuxiliaryCodeRegion;
-export function createSemanticCodeRegion(input: SemanticMainInput | SemanticAuxiliaryInput): SemanticCodeRegion {
+export function createSemanticCodeRegion(input: SemanticMainInput): SemanticMainRegion {
 	const { queryMatch: _queryMatch, ...base } = input;
-	if (input.lane === "main") return {
-		...base,
-		lane: "main",
-		queryMatch: "semantic",
-		matchedBy: normalizeMatchedBy(input.signals, input.evidence),
-		displayLines: input.displayLines ?? [],
-		matchLines: [],
-	};
 	return {
 		...base,
-		lane: input.lane,
-		queryMatch: "not_guaranteed",
+		queryMatch: "semantic",
 		matchedBy: normalizeMatchedBy(input.signals, input.evidence),
 		displayLines: input.displayLines ?? [],
 		matchLines: [],
@@ -258,7 +212,7 @@ export function normalizeMatchedBy(
 	if (sources.has("text-regex")) methods.add("regex");
 	if (sources.has("ast-lexical") || sources.has("text-lexical")) methods.add("lexical");
 	if (sources.has("ast-relation") || sources.has("lsp-reference") || sources.has("repo-map-hop-1")
-		|| signalSet.has("requested_relation") || signalSet.has("indirect_relation")) methods.add("relationship");
+		|| signalSet.has("requested_relation")) methods.add("relationship");
 	const order: readonly GrepMatchedBy[] = ["exact-qualified-symbol", "exact-symbol", "symbol-prefix", "literal", "regex", "lexical", "relationship"];
 	return order.filter((method) => methods.has(method));
 }

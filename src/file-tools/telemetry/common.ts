@@ -57,11 +57,7 @@ export function fileResultFields(details: Record<string, unknown>): Fields {
 		size_bytes: firstNumber(details, ["size_bytes", "bytes"]),
 		before_size_bytes: firstNumber(details, ["before_size_bytes", "old_size_bytes"]),
 		after_size_bytes: firstNumber(details, ["after_size_bytes", "new_size_bytes"]),
-		repo_map_used: isRecord(details["repo_map"])
-			? true
-			: Array.isArray(details["related"])
-				? details["related"].length > 0
-				: undefined,
+		repo_map_used: isRecord(details["repo_map"]) ? true : undefined,
 		repo_map_status: string(repoMap["status"]),
 		scope_count: scope.count,
 		scope_error_count: scope.errors,

@@ -80,10 +80,10 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		if (write === undefined || grepTool === undefined) throw new Error("file tools not registered");
 		const written = await write.execute("write-1", { path: "feature.ts", content: "export function ExtensionAdded() { return Base; }\n" }, undefined, undefined, ctx);
 		expect(written.details).toMatchObject({ status: "written", repo_map: { status: "updated" } });
-		const grep = await grepTool.execute("grep-1", { query: "ExtensionAdded" }, undefined, undefined, ctx);
-		expect(grep.details).toMatchObject({ regions: expect.arrayContaining([
-			expect.objectContaining({ symbol: "ExtensionAdded", sources: expect.arrayContaining(["repo-map-direct"]) }),
-		]) });
+			const grep = await grepTool.execute("grep-1", { query: "ExtensionAdded" }, undefined, undefined, ctx);
+			expect(grep.details).toMatchObject({ regions: expect.arrayContaining([
+				expect.objectContaining({ symbol: "ExtensionAdded", sources: expect.not.arrayContaining(["repo-map-direct"]) }),
+			]) });
 	});
 
 	it("keeps find glob deterministic while strict grep main remains verified text", async () => {
@@ -351,7 +351,7 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		clearGrepIndex();
 		const grep = await grepWorkspaceFiles(root, { query: "Added" }, undefined, { repoMap: query });
 		if (grep.status === "failed") throw new Error(grep.error.message);
-		expect(grep.regions.some((region) => region.sources.includes("repo-map-direct"))).toBe(true);
+			expect(grep.regions.some((region) => region.sources.includes("repo-map-direct"))).toBe(false);
 		expect(grep.regions.some((region) => region.symbol === "Added")).toBe(true);
 
 		await readWorkspaceFile(root, { path: "feature.ts" }, { host: fileToolsHost, sessionId: "repo-mutation" });
@@ -368,7 +368,7 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		expect(generation.symbols.map((symbol) => symbol.name)).not.toContain("Added");
 		const replacement = await query.query({ requestedPath: root, query: "Replacement", limit: 5 });
 		expect(replacement?.candidates.some((candidate) => candidate.symbol?.name === "Replacement")).toBe(true);
-		expect(createQueryIndex).toHaveBeenCalledTimes(2);
+			expect(createQueryIndex).toHaveBeenCalledOnce();
 		const nodeIds = new Set([
 			`repository:${generation.metadata.mapId}`,
 			...generation.files.map((file) => file.id),

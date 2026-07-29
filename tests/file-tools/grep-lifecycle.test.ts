@@ -8,7 +8,7 @@ import { parseDocumentForAdapter } from "../../src/code-index/syntax-tree.js";
 import type { ContentOperations } from "../../src/filesystem/contracts/content.js";
 import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspace.js";
 import { AbortGrepParse, GrepParser } from "../../src/file-tools/grep/parser-pool.js";
-import type { GrepGraphSource } from "../../src/file-tools/grep/ports.js";
+import type { GrepHintSource } from "../../src/file-tools/grep/ports.js";
 import { GrepTool } from "../../src/file-tools/grep/command.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
@@ -70,20 +70,20 @@ describe("grep lifecycle", () => {
 		}
 	});
 
-	it("grep owner dispose 取消 index 后 graph 阶段的 active execute", async () => {
+	it("grep owner dispose 取消本地搜索后的 active Repo Map hint", async () => {
 		await writeFile(path.join(testContext.workspace, "active.ts"), "export const active = true;\n");
 		const host = new FileToolsHost();
 		const tool = new GrepTool();
 		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-owner-active" });
 		if (isFailed(opened)) throw new Error(opened.error.message);
 		const started = deferredVoid();
-		let graphAborted = false;
-		const graph: GrepGraphSource = {
+		let hintAborted = false;
+		const repoMapHints: GrepHintSource = {
 			async query(input) {
 				started.resolve();
 				await new Promise<void>((_resolve, reject) => {
 					const onAbort = () => {
-						graphAborted = true;
+						hintAborted = true;
 						reject(new Error("aborted"));
 					};
 					if (input.signal?.aborted === true) onAbort();
@@ -97,12 +97,12 @@ describe("grep lifecycle", () => {
 				filesystem: opened.filesystem,
 				operation: {},
 				limits: opened.limits,
-				graph,
+					repoMapHints,
 			});
 			await started.promise;
 			tool.dispose();
 			await expect(active).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
-			expect(graphAborted).toBe(true);
+				expect(hintAborted).toBe(true);
 		} finally {
 			tool.dispose();
 			opened.dispose();

@@ -95,7 +95,7 @@ describe("Repo Map query and file-tool integration", () => {
 		expect("status" in outside ? [] : outside.details.matches).toEqual([]);
 	});
 
-	it("grep merges definition/caller/callee/import candidates, uses live text, and rejects stale hashes", async () => {
+	it("grep 的本地定义和关系充足时不读取已激活 Repo Map", async () => {
 		const sources = new Map([
 			["a.ts", "import { target } from './b';\nexport function caller() { return target(); }\n"],
 			["b.ts", "export function target() { return 1; }\n"],
@@ -108,11 +108,11 @@ describe("Repo Map query and file-tool integration", () => {
 		expect(await grepWorkspaceFiles(workspaceTemp.path, { query: "target" }, undefined, { repoMap: inactiveQuery })).toEqual(baseline);
 		expect(readActivated).not.toHaveBeenCalled();
 		const query = createRepoMapFileToolQuery(() => [activationEntry(generation.metadata)], { readActivated });
-		const result = await grepWorkspaceFiles(workspaceTemp.path, { query: "target" }, undefined, { repoMap: query });
-		if (result.status === "failed") throw new Error(result.error.message);
-		expect(result.regions.some((region) => region.sources.includes("repo-map-direct"))).toBe(true);
-		expect(result.regions.some((region) => region.matched_by.includes("literal"))).toBe(true);
-		expect(result.related).toBeUndefined();
+			const result = await grepWorkspaceFiles(workspaceTemp.path, { query: "target" }, undefined, { repoMap: query });
+			if (result.status === "failed") throw new Error(result.error.message);
+			expect(result).toEqual(baseline);
+			expect(readActivated).not.toHaveBeenCalled();
+			expect(result.regions.some((region) => region.matched_by.includes("literal"))).toBe(true);
 		expect(result.regions.find((region) => region.path === "b.ts")?.declaration).toContain("function target");
 
 		const callers = await grepWorkspaceFiles(workspaceTemp.path, { query: "callers of target" }, undefined, { repoMap: query });
@@ -120,7 +120,8 @@ describe("Repo Map query and file-tool integration", () => {
 		expect(callers.regions).toEqual(expect.arrayContaining([
 			expect.objectContaining({ path: "a.ts", roles: expect.arrayContaining(["caller"]) }),
 		]));
-		expect(callers.regions.filter((region) => region.roles?.includes("caller") === true).length).toBeLessThanOrEqual(2);
+			expect(callers.regions.filter((region) => region.roles?.includes("caller") === true).length).toBeLessThanOrEqual(2);
+			expect(readActivated).not.toHaveBeenCalled();
 
 		await writeFile(path.join(workspaceTemp.path, "b.ts"), "export function replacement() { return 2; }\n");
 		clearGrepIndex();
