@@ -19,12 +19,14 @@ Repo Map 查询只读取已经提交的 generation。它不在一次模型工具
 
 ## Read context
 
-`read` 可以请求与当前文件、范围或 symbol 相关的结构上下文。输出应优先包含：
+仅 partial 或 truncated `read` 才请求 Repo Map。当前文件实时 hash 必须与 generation 一致；普通私有函数、完整短文件或只有弱结构关系时不输出 Repo Map block。
 
-- 当前 symbol 或范围。
-- 关系类型和目标。
-- 可验证的文件路径与 source range。
-- 简短的调用或测试摘要。
+模型只看到两类下一步行动：
+
+- `sugessted read`：高置信 direct caller、reference 或 registration，数量由 `read_suggestion_limit` 控制。
+- `sugessted test`：最相关的高置信 direct test，数量由 `read_test_limit` 控制。
+
+package、component、callee、ordinary import、多值关系摘要、公开状态以及 source、hop、score、confidence、evidence、hash 等内部信息不会进入模型文本。索引、排序和实时 hash 校验仍保留在内部。
 
 ## Mutation impact
 
@@ -39,15 +41,15 @@ mutation impact 用于提示一个修改可能影响的：
 
 ## Budget 和截断
 
-默认输出预算由 `read_context_token_budget` 和 `mutation_impact_token_budget` 控制。候选收集还有独立上限，避免为了渲染少量文本而遍历无限关系。
+read 使用行动数量上限，mutation 使用 `mutation_impact_token_budget`。候选收集还有独立上限，避免为了渲染少量文本而遍历无限关系。
 
-预算不足时优先保留：
+mutation 预算不足时优先保留：
 
 1. 当前目标和直接关系。
 2. 带 evidence 的候选。
 3. 稳定、可解释的摘要。
 
-截断应在结构化结果中明确标记，不把不完整列表渲染成完整结果。
+read 的候选先按关系与 confidence 排序、实时校验，再按配置数量投影；无可执行行动时完全省略 Repo Map block。
 
 ## 失败边界
 

@@ -36,15 +36,13 @@ export interface ReadGraphContext {
 		startLine: number;
 		endLine: number;
 	};
-	callers: string[];
-	callees: string[];
-	references: string[];
-	imports: string[];
-	package?: string;
-	component?: string;
-	entrypoints?: string[];
-	publicApi?: boolean;
-	relatedTests?: string[];
+	suggestedReads: Array<{
+		path: string;
+		line?: number;
+		symbol?: string;
+		relation: "caller" | "reference" | "registration";
+	}>;
+	suggestedTests: string[];
 }
 
 export interface ReadSuccess {

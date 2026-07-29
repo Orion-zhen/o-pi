@@ -178,13 +178,14 @@ describe("file-tools extension lifecycle", () => {
 	it("同一 session 复用 Repo Map runtime，shutdown 后释放", async () => {
 		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
 		const handlers = new Map<string, LifecycleHandler>();
-		const outputConfig = { read_context_token_budget: 640, mutation_impact_token_budget: 480 };
+		const outputConfig = { read_suggestion_limit: 6, read_test_limit: 3, mutation_impact_token_budget: 480 };
 		const loadRepoMapOutputConfig = vi.fn(async () => outputConfig);
 		const formatRepoMapImpact = vi.fn((_impact: unknown, config: typeof outputConfig = outputConfig) =>
 			`<repo_impact>\nbudget="${config.mutation_impact_token_budget}"\n</repo_impact>`);
+		const readContext = vi.fn(async () => undefined);
 		const createRepoMapFileToolQuery = vi.fn(() => ({
 			async query() { return undefined; },
-			async readContext() { return undefined; },
+			readContext,
 			async syncMutation() {
 				return {
 					status: "updated" as const,
@@ -232,9 +233,14 @@ describe("file-tools extension lifecycle", () => {
 		try {
 			const first = await executeTool(registered, "write", { path: "one.ts", content: "one\n" }, ctx);
 			await executeTool(registered, "write", { path: "two.ts", content: "two\n" }, ctx);
+			await executeTool(registered, "read", { path: "one.ts", start_line: 1 }, ctx);
 			expect(first.content[0]?.text).toContain('budget="480"');
 			expect(createRepoMapFileToolQuery).toHaveBeenCalledTimes(1);
 			expect(loadRepoMapOutputConfig).toHaveBeenCalledTimes(1);
+			expect(readContext).toHaveBeenCalledWith(expect.objectContaining({
+				suggestedReadLimit: 6,
+				suggestedTestLimit: 3,
+			}));
 			expect(formatRepoMapImpact).toHaveBeenCalledWith(expect.anything(), outputConfig);
 			await expect(Promise.resolve(handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();
 			const afterShutdown = await executeTool(registered, "write", { path: "three.ts", content: "three\n" }, ctx);
@@ -277,7 +283,7 @@ describe("file-tools extension lifecycle", () => {
 						},
 					}),
 					async loadRepoMapOutputConfig() {
-						return { read_context_token_budget: 640, mutation_impact_token_budget: 480 };
+						return { read_suggestion_limit: 6, read_test_limit: 3, mutation_impact_token_budget: 480 };
 					},
 					formatRepoMapImpact: () => undefined,
 					formatRepoMapReadContext: () => undefined,
@@ -386,7 +392,7 @@ describe("file-tools extension lifecycle", () => {
 						syncMutations: batchRepoMap,
 					}),
 					async loadRepoMapOutputConfig() {
-						return { read_context_token_budget: 640, mutation_impact_token_budget: 480 };
+						return { read_suggestion_limit: 6, read_test_limit: 3, mutation_impact_token_budget: 480 };
 					},
 					formatRepoMapImpact: (impact: RepoMapImpactResult | undefined) => impact === undefined ? undefined : `<repo_impact path="${impact.changedPath}"/>`,
 					formatRepoMapReadContext: () => undefined,

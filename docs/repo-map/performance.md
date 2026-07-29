@@ -44,6 +44,12 @@ grep 和 Repo Map 共用严格类型的 worker task lifecycle：queue、request 
 
 Impact 为 before/after generation 各建立一次局部只读 lookup，并在一次 edge traversal 中收集 seed 邻接、test、component 和 entrypoint 关系。changed symbols 按 file ID 查找，后续候选规则使用分组结果，不再为每种关系重复线性扫描全部 edges。候选 key、优先级、排序、evidence、预算和最终实时 content hash gate 不变；lookup 只存活于单次分析，不形成历史 generation cache。
 
+## Read action lookup
+
+`RepoMapQueryIndex` 在 generation 加载后复用按文件分组的 symbol、incoming edge、registration name 和 test file lookup。partial/truncated read 只扫描当前文件的 symbols 与目标节点的 direct 入边，不再为 symbol、package/component、caller/callee/reference/import、entrypoint 和 test 分别遍历完整 generation。
+
+read 候选在进入实时校验前按小型行动预算提前截止；同一路径与 hash 只读取一次，并行校验后再投影配置数量。行动 renderer 直接生成固定行，不再调用 tokenizer 或为追加字段重复计数。
+
 ## Cache
 
 每个 map 保留有限数量 generation。新 generation 成功提交后，旧 generation 按稳定规则清理；current pointer 始终指向完整提交的 generation。
@@ -58,7 +64,8 @@ Impact 为 before/after generation 各建立一次局部只读 lookup，并在�
 - `scan.max_file_bytes`
 - `scan.concurrency`
 - `cache.max_generations`
-- 输出 token budgets
+- read 行动数量上限
+- mutation 输出 token budget
 
 不要通过提高 limits 来掩盖 ignore 配置过宽、生成了不必要的大量候选或 parser diagnostics。小仓库不应为了并行启动 worker。
 

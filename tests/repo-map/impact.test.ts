@@ -37,11 +37,13 @@ describe("Repo Map change impact", () => {
 			],
 		};
 		const defaultTag = formatRepoMapImpact(impact, {
-			read_context_token_budget: 160,
+			read_suggestion_limit: 2,
+			read_test_limit: 1,
 			mutation_impact_token_budget: 120,
 		});
 		const expandedTag = formatRepoMapImpact(impact, {
-			read_context_token_budget: 160,
+			read_suggestion_limit: 2,
+			read_test_limit: 1,
 			mutation_impact_token_budget: 640,
 		});
 		expect(defaultTag).not.toContain("dependent-6.ts");
@@ -50,7 +52,8 @@ describe("Repo Map change impact", () => {
 		expect(countTextTokensSync(expandedTag ?? "").tokens).toBeLessThanOrEqual(640);
 		expect(countTextTokensSync(expandedTag ?? "").tokens).toBeGreaterThan(countTextTokensSync(defaultTag ?? "").tokens);
 		expect(formatRepoMapImpact(impact, {
-			read_context_token_budget: 160,
+			read_suggestion_limit: 2,
+			read_test_limit: 1,
 			mutation_impact_token_budget: 0,
 		})).toBeUndefined();
 	});

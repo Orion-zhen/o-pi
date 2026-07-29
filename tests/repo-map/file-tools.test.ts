@@ -28,8 +28,7 @@ import {
 	type RefreshActivatedRepoMapInput,
 } from "../../src/repo-map/runtime/service.js";
 import type { RepoMapGeneration } from "../../src/repo-map/storage/storage.js";
-import { formatRepoMapReadContext, READ_REPO_MAP_TOKEN_BUDGET } from "../../src/repo-map/runtime/tool-output.js";
-import { countTextTokensSync } from "../../src/token-counter.js";
+import { formatRepoMapReadContext } from "../../src/repo-map/runtime/tool-output.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { createFileToolsExtension } from "../../agent/extensions/file-tools.js";
 import { activationEntry, configureFileTools, serviceDependencies as sharedServiceDependencies } from "./fixtures.js";
@@ -116,12 +115,20 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		}
 	});
 
-	it("adds compact, budgeted context to partial/truncated reads but leaves a short full read unchanged", async () => {
+	it("projects bounded read/test actions for partial reads and suppresses private or complete reads", async () => {
 		const root = path.join(temp.path, "repo");
 		await mkdir(path.join(root, ".git"), { recursive: true });
+		await mkdir(path.join(root, "tests"), { recursive: true });
 		const longBody = Array.from({ length: 16 }, (_, index) => `  const value${index} = ${index};`).join("\n");
 		await writeFile(path.join(root, "a.ts"), `export function Target() {\n${longBody}\n  return value0;\n}\n`);
 		await writeFile(path.join(root, "b.ts"), "import { Target } from './a';\nexport function Caller() { return Target(); }\n");
+		await writeFile(path.join(root, "c.ts"), "import { Target } from './a';\nexport function SecondCaller() { return Target(); }\n");
+		await writeFile(path.join(root, "d.ts"), "import { Target } from './a';\nexport function ThirdCaller() { return Target(); }\n");
+		await writeFile(path.join(root, "reference.ts"), "import { Target } from './a';\nexport const TargetReference = Target;\n");
+		await writeFile(path.join(root, "register.ts"), "export function extension(pi: any) { pi.registerCommand('Target', {}); }\n");
+		await writeFile(path.join(root, "private.ts"), "function privateTarget() { return true; }\nexport function usePrivate() { return privateTarget(); }\n");
+		await writeFile(path.join(root, "tests", "a.test.ts"), "import { Target } from '../a';\ntest('Target', () => expect(Target()).toBeDefined());\n");
+		await writeFile(path.join(root, "tests", "z.integration.test.ts"), "import { Target } from '../a';\ntest('Target integration', () => expect(Target()).toBeDefined());\n");
 		const deps = serviceDependencies(root);
 		const initialized = await initializeRepoMap({ cwd: root }, deps);
 		const branch = [activationEntry(initialized.metadata)];
@@ -141,22 +148,73 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		if (!("content" in partial) || "media_type" in partial) throw new Error("partial read failed");
 		expect(partial.repo_map).toMatchObject({
 			symbol: { name: "Target", qualifiedName: "Target" },
-			callers: ["b.ts:Caller"],
-			publicApi: true,
+			suggestedReads: [
+				{ path: "b.ts", line: 2, symbol: "Caller", relation: "caller" },
+				{ path: "c.ts", line: 2, symbol: "SecondCaller", relation: "caller" },
+			],
+			suggestedTests: ["tests/a.test.ts"],
 		});
-		expect(formatReadModelResult(partial)).toContain('<repo_map>\nsymbol="function Target 1-19"');
+		expect(formatReadModelResult(partial)).toContain([
+			"<repo_map>",
+			"sugessted read: b.ts:2 (caller Caller)",
+			"sugessted read: c.ts:2 (caller SecondCaller)",
+			"sugessted test: tests/a.test.ts",
+			"</repo_map>",
+		].join("\n"));
+		expect(formatReadModelResult(partial)).not.toMatch(/package|component|callee|public_api|confidence|hash/u);
 
 		const truncated = await readWorkspaceFile(root, { path: "a.ts" }, runtime);
 		if (!("content" in truncated) || "media_type" in truncated) throw new Error("truncated read failed");
-		expect(truncated.repo_map?.symbol.name).toBe("Target");
-		expect(truncated).toMatchObject({ truncated: true, end_line: 7, continuation: { start_line: 8 } });
+		expect(truncated.repo_map?.suggestedReads).toHaveLength(2);
+		expect(truncated.repo_map?.suggestedTests).toEqual(["tests/a.test.ts"]);
+		expect(truncated.truncated).toBe(true);
+		expect(truncated.continuation?.start_line).toBe(truncated.end_line + 1);
+
+		const targetHash = initialized.generation.files.find((file) => file.path === "a.ts")?.contentHash;
+		if (targetHash === undefined) throw new Error("missing Target hash");
+		const configured = await query.readContext({
+			requestedPath: path.join(root, "a.ts"),
+			contentHash: targetHash,
+			startLine: 1,
+			endLine: 4,
+			partial: true,
+			truncated: false,
+			suggestedReadLimit: 1,
+			suggestedTestLimit: 2,
+		});
+		expect(configured?.suggestedReads).toHaveLength(1);
+		expect(configured?.suggestedTests).toEqual(["tests/a.test.ts", "tests/z.integration.test.ts"]);
+		const withRegistration = await query.readContext({
+			requestedPath: path.join(root, "a.ts"),
+			contentHash: targetHash,
+			startLine: 1,
+			endLine: 4,
+			partial: true,
+			truncated: false,
+			suggestedReadLimit: 5,
+			suggestedTestLimit: 0,
+		});
+		expect(withRegistration?.suggestedReads).toContainEqual({
+			path: "reference.ts",
+			line: 2,
+			symbol: "TargetReference",
+			relation: "reference",
+		});
+		expect(withRegistration?.suggestedReads).toContainEqual({
+			path: "register.ts",
+			line: 1,
+			symbol: "Target",
+			relation: "registration",
+		});
 
 		const full = await readWorkspaceFile(root, { path: "b.ts" }, runtime);
 		expect(full).not.toHaveProperty("repo_map");
+		const privateRead = await readWorkspaceFile(root, { path: "private.ts", start_line: 1, end_line: 1 }, runtime);
+		expect(privateRead).not.toHaveProperty("repo_map");
 		expect(createQueryIndex).toHaveBeenCalledTimes(1);
 	});
 
-	it("budgets the rendered read tag exactly and keeps disabled or failed enhancement byte-identical", async () => {
+	it("enforces configurable action limits, reserves output bytes, and keeps failed enhancement byte-identical", async () => {
 		await configureFileTools(temp.path, { read_lines: 200, read_bytes: 1024 });
 		const root = path.join(temp.path, "read-budget");
 		await mkdir(root);
@@ -173,12 +231,12 @@ describe("Repo Map file-tool read and mutation integration", () => {
 				async readContext() {
 					return {
 						symbol: { id: "symbol:Target", kind: "function", name: "Target", startLine: 1, endLine: 150 },
-						callers: ["src/caller.ts:Caller"],
-						callees: ["src/dependency.ts:load"],
-						references: [],
-						imports: [],
-						publicApi: true,
-						relatedTests: ["tests/target.test.ts"],
+						suggestedReads: [
+							{ path: "src/caller.ts", line: 4, symbol: "Caller", relation: "caller" as const },
+							{ path: "src/reference.ts", line: 8, symbol: "reference", relation: "reference" as const },
+							{ path: "src/registration.ts", line: 12, symbol: "Target", relation: "registration" as const },
+						],
+						suggestedTests: ["tests/target.test.ts", "tests/target.integration.test.ts"],
 					};
 				},
 			},
@@ -190,40 +248,21 @@ describe("Repo Map file-tool read and mutation integration", () => {
 		const usedBytes = Buffer.byteLength(enabled.content, "utf8") + Buffer.byteLength(`${tag}\n`, "utf8");
 		expect(usedBytes).toBeLessThanOrEqual(1024);
 		expect(usedBytes + 10).toBeGreaterThan(1024);
-		expect(countTextTokensSync(tag).tokens).toBeLessThanOrEqual(READ_REPO_MAP_TOKEN_BUDGET);
-		const saturatedTag = formatRepoMapReadContext({
-			...enabled.repo_map,
-			package: "package-".repeat(40),
-			component: "component-".repeat(40),
-			callers: Array.from({ length: 8 }, (_, index) => `src/${"caller".repeat(20)}-${index}.ts:Caller`),
-			callees: Array.from({ length: 8 }, (_, index) => `src/${"callee".repeat(20)}-${index}.ts:callee`),
-			references: Array.from({ length: 8 }, (_, index) => `src/${"reference".repeat(20)}-${index}.ts:reference`),
-			imports: Array.from({ length: 8 }, (_, index) => `src/${"import".repeat(20)}-${index}.ts`),
-		});
-		expect(saturatedTag).toContain('symbol="function Target 1-150"');
-		expect(countTextTokensSync(saturatedTag ?? "").tokens).toBeLessThanOrEqual(READ_REPO_MAP_TOKEN_BUDGET);
-		const expandableContext = {
-			...enabled.repo_map,
-			callers: Array.from({ length: 12 }, (_, index) => `src/caller-${index}.ts:Caller${index}`),
-			callees: Array.from({ length: 12 }, (_, index) => `src/callee-${index}.ts:callee${index}`),
-			references: [],
-			imports: [],
-		};
-		const defaultTag = formatRepoMapReadContext(expandableContext, {
-			read_context_token_budget: 160,
+		expect(tag).toContain("sugessted read: src/caller.ts:4 (caller Caller)");
+		expect(tag).toContain("sugessted read: src/reference.ts:8 (reference reference)");
+		expect(tag).not.toContain("registration.ts");
+		expect(tag.match(/sugessted test:/gu)).toHaveLength(1);
+
+		const configuredTag = formatRepoMapReadContext(enabled.repo_map, {
+			read_suggestion_limit: 1,
+			read_test_limit: 2,
 			mutation_impact_token_budget: 120,
 		});
-		const expandedTag = formatRepoMapReadContext(expandableContext, {
-			read_context_token_budget: 640,
-			mutation_impact_token_budget: 120,
-		});
-		expect(defaultTag).not.toContain("callee-11");
-		expect(expandedTag).toContain("caller-11");
-		expect(expandedTag).toContain("callee-11");
-		expect(countTextTokensSync(expandedTag ?? "").tokens).toBeLessThanOrEqual(640);
-		expect(countTextTokensSync(expandedTag ?? "").tokens).toBeGreaterThan(countTextTokensSync(defaultTag ?? "").tokens);
-		expect(formatRepoMapReadContext(expandableContext, {
-			read_context_token_budget: 0,
+		expect(configuredTag?.match(/sugessted read:/gu)).toHaveLength(1);
+		expect(configuredTag?.match(/sugessted test:/gu)).toHaveLength(2);
+		expect(formatRepoMapReadContext(enabled.repo_map, {
+			read_suggestion_limit: 0,
+			read_test_limit: 0,
 			mutation_impact_token_budget: 120,
 		})).toBeUndefined();
 

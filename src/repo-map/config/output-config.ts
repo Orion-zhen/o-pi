@@ -1,7 +1,9 @@
 export interface RepoMapOutputConfig {
-	read_context_token_budget: number;
+	read_suggestion_limit: number;
+	read_test_limit: number;
 	mutation_impact_token_budget: number;
 }
 
-/** Token-budget rendering is authoritative; this only bounds candidate collection work. */
-export const REPO_MAP_OUTPUT_CANDIDATE_LIMIT = 32;
+export const DEFAULT_REPO_MAP_READ_SUGGESTION_LIMIT = 2;
+export const DEFAULT_REPO_MAP_READ_TEST_LIMIT = 1;
+export const REPO_MAP_READ_CANDIDATE_LIMIT = 32;

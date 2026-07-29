@@ -68,7 +68,15 @@ export function createLazyRepoMap(options: LazyRepoMapOptions): LazyRepoMap {
 			return (await getActiveQuery())?.query(input);
 		},
 		async readContext(input) {
-			return (await getActiveQuery())?.readContext(input);
+			if (!input.partial && !input.truncated) return undefined;
+			const active = await getActiveQuery();
+			if (active === undefined) return undefined;
+			const { config } = await getOutputRuntime();
+			return active.readContext({
+				...input,
+				suggestedReadLimit: input.suggestedReadLimit ?? config.read_suggestion_limit,
+				suggestedTestLimit: input.suggestedTestLimit ?? config.read_test_limit,
+			});
 		},
 		async syncMutation(input) {
 			return (await getActiveQuery())?.syncMutation(input);

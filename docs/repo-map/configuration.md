@@ -28,8 +28,9 @@ Repo Map 同时加载 File Tools 配置；后者提供 ignore 和 grep scan limi
     "max_generations": 2
   },
   "output": {
-    "read_context_token_budget": 160,
-    "mutation_impact_token_budget": 120
+    "read_suggestion_limit": 2,
+    "read_test_limit": 1,
+    "mutation_impact_token_budget": 240
   }
 }
 ```
@@ -46,10 +47,11 @@ Repo Map 同时加载 File Tools 配置；后者提供 ignore 和 grep scan limi
 
 ### `output`
 
-- `read_context_token_budget`：读取上下文的输出预算。
+- `read_suggestion_limit`：partial/truncated read 最多输出的 `sugessted read` 数，范围为 0–10。
+- `read_test_limit`：partial/truncated read 最多输出的 `sugessted test` 数，范围为 0–10。
 - `mutation_impact_token_budget`：mutation impact 的输出预算。
 
-两个 output budget 只影响渲染，不参与 generation fingerprint。
+output 限制只影响候选投影与渲染，不参与 generation fingerprint。
 
 ## 默认值和有效限制
 

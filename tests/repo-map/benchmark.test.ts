@@ -32,7 +32,7 @@ describe("Repo Map performance benchmark", () => {
 		expect(first).toMatchObject({
 			fixture: "modules",
 			size: 4,
-			oracleDigest: "8e6aac63032d442d69f853df44cbb072be35091cf2fe44c5be16f3a101a303b8",
+			oracleDigest: "87710f1127cea72cefea002e283521cd936de052f2bd5863a91e81e5f5c26fa8",
 			counts: { files: 5, symbols: 6, tests: 0, edges: 54, aliases: 30 },
 		});
 	}, 0);

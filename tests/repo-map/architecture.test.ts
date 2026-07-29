@@ -151,7 +151,7 @@ describe("Repo Map architecture graph", () => {
 		]));
 		const read = await readWorkspaceFile(temp.path, { path: "packages/a/src/impl.ts", start_line: 1, end_line: 1 }, { repoMap: active });
 		if (!("content" in read) || "media_type" in read) throw new Error("partial read failed");
-		expect(read.repo_map).toMatchObject({ package: "pkg-a", component: "src", publicApi: true });
+		expect(read).not.toHaveProperty("repo_map");
 	});
 
 	it("recomputes manifest and registration facts atomically and leaves no dangling edge after deletion", async () => {

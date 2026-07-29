@@ -5,7 +5,6 @@ import { defaultRepoMapConfig } from "../config/config.js";
 import type { RepoMapOutputConfig } from "../config/output-config.js";
 
 const defaultOutputConfig = defaultRepoMapConfig().output;
-export const READ_REPO_MAP_TOKEN_BUDGET = defaultOutputConfig.read_context_token_budget;
 export const REPO_IMPACT_TOKEN_BUDGET = defaultOutputConfig.mutation_impact_token_budget;
 
 interface OutputAttribute {
@@ -19,30 +18,19 @@ interface OutputAttributeGroup {
 	compactLimit: number;
 }
 
-/** Render only model-actionable read context under a hard token budget. */
+/** Render only model-actionable read suggestions. */
 export function formatRepoMapReadContext(
 	context: RepoMapReadContext | undefined,
 	config: RepoMapOutputConfig = defaultOutputConfig,
 ): string | undefined {
 	if (context === undefined) return undefined;
-	const symbolName = context.symbol.qualifiedName ?? context.symbol.name ?? "anonymous";
-	const attrs: OutputAttribute[] = [];
-	const budget = config.read_context_token_budget;
-	if (!appendAttributeValue(attrs, "repo_map", "symbol", compact(`${context.symbol.kind} ${symbolName} ${context.symbol.startLine}-${context.symbol.endLine}`, 120), budget)) {
-		return undefined;
-	}
-	if (context.publicApi) appendAttributeValue(attrs, "repo_map", "public_api", "true", budget);
-	if (context.package !== undefined) appendAttributeValue(attrs, "repo_map", "package", compact(context.package, 64), budget);
-	if (context.component !== undefined) appendAttributeValue(attrs, "repo_map", "component", compact(context.component, 64), budget);
-	appendAttributeGroups(attrs, "repo_map", [
-		{ name: "tests", values: context.relatedTests ?? [], compactLimit: 80 },
-		{ name: "callers", values: context.callers, compactLimit: 96 },
-		{ name: "callees", values: context.callees, compactLimit: 96 },
-		{ name: "references", values: context.references, compactLimit: 96 },
-		{ name: "imports", values: context.imports, compactLimit: 96 },
-		{ name: "entrypoints", values: context.entrypoints ?? [], compactLimit: 80 },
-	], budget);
-	return renderBlock("repo_map", attrs);
+	const lines = [
+		...context.suggestedReads.slice(0, config.read_suggestion_limit)
+			.map((suggestion) => `sugessted read: ${escapeXmlText(formatReadSuggestion(suggestion))}`),
+		...context.suggestedTests.slice(0, config.read_test_limit)
+			.map((filePath) => `sugessted test: ${escapeXmlText(compact(filePath, 120))}`),
+	];
+	return lines.length === 0 ? undefined : `<repo_map>\n${lines.join("\n")}\n</repo_map>`;
 }
 
 /** Render mutation impact without repeating facts already present on the outer write/edit result. */
@@ -83,6 +71,12 @@ function uniquePaths<T extends { path: string }>(values: readonly T[]): T[] {
 
 function compact(value: string, limit: number): string {
 	return value.length <= limit ? value : `${value.slice(0, Math.max(0, limit - 3))}...`;
+}
+
+function formatReadSuggestion(suggestion: RepoMapReadContext["suggestedReads"][number]): string {
+	const location = `${compact(suggestion.path, 120)}${suggestion.line === undefined ? "" : `:${suggestion.line}`}`;
+	const target = suggestion.symbol === undefined ? suggestion.relation : `${suggestion.relation} ${compact(suggestion.symbol, 80)}`;
+	return `${location} (${target})`;
 }
 
 function appendAttributeGroups(
@@ -135,9 +129,12 @@ function renderBlock(name: string, attrs: readonly OutputAttribute[]): string {
 }
 
 function escapeXmlAttribute(value: string): string {
+	return escapeXmlText(value).replace(/"/g, "&quot;");
+}
+
+function escapeXmlText(value: string): string {
 	return value
 		.replace(/&/g, "&amp;")
 		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;");
+		.replace(/>/g, "&gt;");
 }

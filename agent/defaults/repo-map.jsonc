@@ -9,7 +9,8 @@
 		"max_generations": 2
 	},
 	"output": {
-		"read_context_token_budget": 320,
+		"read_suggestion_limit": 2,
+		"read_test_limit": 1,
 		"mutation_impact_token_budget": 240
 	}
 }

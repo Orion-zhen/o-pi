@@ -1,12 +1,15 @@
 import path from "node:path";
 
 import type { SourceRange } from "../../code-index/types.js";
+import { REPO_MAP_READ_CANDIDATE_LIMIT } from "../config/output-config.js";
 import { compareRepoMapEdge, compareText, groupBy, uniqueBy } from "../core/graph.js";
+import { isRepoMapSymbolPublic } from "../core/visibility.js";
 import { canonicalLexicalTerm, lexicalTerms } from "../indexing/lexical-indexer.js";
 import type { RepoMapGeneration } from "../storage/storage.js";
 import type {
 	RepoMapArchitectureNode,
 	RepoMapEdge,
+	RepoMapEntrypointNode,
 	RepoMapEvidence,
 	RepoMapFileRecord,
 	RepoMapLexicalAlias,
@@ -92,6 +95,29 @@ export interface RepoMapQueryResult {
 	candidates: RepoMapQueryCandidate[];
 }
 
+export interface RepoMapReadActionCandidate {
+	path: string;
+	fileId: string;
+	contentHash?: string;
+	line?: number;
+	symbol?: string;
+	relation: "caller" | "reference" | "registration";
+	confidence: number;
+}
+
+export interface RepoMapReadTestCandidate {
+	path: string;
+	fileId: string;
+	contentHash?: string;
+	confidence: number;
+}
+
+export interface RepoMapReadActionCandidates {
+	symbol: RepoMapSymbolNode;
+	suggestedReads: RepoMapReadActionCandidate[];
+	suggestedTests: RepoMapReadTestCandidate[];
+}
+
 interface SeedMatch {
 	symbol: RepoMapSymbolNode;
 	score: number;
@@ -142,9 +168,13 @@ const HUB_DEGREE = 12;
 export class RepoMapQueryIndex {
 	readonly #generation: RepoMapGeneration;
 	readonly #filesById: ReadonlyMap<string, RepoMapFileRecord>;
+	readonly #filesByPath: ReadonlyMap<string, RepoMapFileRecord>;
 	readonly #symbolsById: ReadonlyMap<string, RepoMapSymbolNode>;
+	readonly #symbolsByFile: ReadonlyMap<string, RepoMapSymbolNode[]>;
 	readonly #architectureById: ReadonlyMap<string, RepoMapArchitectureNode>;
+	readonly #registrationsByName: ReadonlyMap<string, RepoMapEntrypointNode[]>;
 	readonly #testsById: ReadonlyMap<string, RepoMapTestNode>;
+	readonly #testFileIds: ReadonlySet<string>;
 	readonly #outgoing: ReadonlyMap<string, RepoMapEdge[]>;
 	readonly #incoming: ReadonlyMap<string, RepoMapEdge[]>;
 	readonly #aliasesByTerm: ReadonlyMap<string, RepoMapLexicalAlias[]>;
@@ -153,13 +183,26 @@ export class RepoMapQueryIndex {
 	constructor(generation: RepoMapGeneration) {
 		this.#generation = generation;
 		this.#filesById = new Map(generation.files.map((file) => [file.id, file]));
+		this.#filesByPath = new Map(generation.files.map((file) => [file.path, file]));
 		this.#symbolsById = new Map(generation.symbols.map((symbol) => [symbol.id, symbol]));
+		this.#symbolsByFile = groupBy(generation.symbols, (symbol) => symbol.fileId);
 		this.#architectureById = new Map(generation.architecture.map((node) => [node.id, node]));
+		this.#registrationsByName = groupBy(
+			generation.architecture.filter((node): node is RepoMapEntrypointNode =>
+				node.kind === "entrypoint"
+				&& (node.entrypointType === "command" || node.entrypointType === "tool" || node.entrypointType === "plugin")),
+			(node) => normalize(node.name),
+		);
 		this.#testsById = new Map(generation.tests.map((node) => [node.id, node]));
+		this.#testFileIds = new Set(generation.tests.map((node) => node.fileId));
 		this.#outgoing = groupBy(generation.edges, (edge) => edge.from);
 		this.#incoming = groupBy(generation.edges, (edge) => edge.to);
 		this.#aliasesByTerm = groupBy(generation.aliases, (alias) => alias.term);
 		this.#aliasesByCanonical = groupBy(generation.aliases, (alias) => alias.canonical);
+	}
+
+	file(filePath: string): RepoMapFileRecord | undefined {
+		return this.#filesByPath.get(filePath);
 	}
 
 	findFiles(query: string): RepoMapQueryCandidate[] {
@@ -229,17 +272,85 @@ export class RepoMapQueryIndex {
 		return coalesceCandidates(result);
 	}
 
-	/** Direct test candidates for changed or inspected file/symbol nodes. */
-	relatedTests(nodeIds: readonly string[], limit = 8): RepoMapQueryCandidate[] {
-		const targets = new Set(nodeIds);
-		const result: RepoMapQueryCandidate[] = [];
-		for (const edge of this.#generation.edges) {
-			if (edge.kind !== "tests" || !targets.has(edge.to)) continue;
-			const test = this.#testsById.get(edge.from);
-			const file = test === undefined ? undefined : this.#filesById.get(test.fileId);
-			if (test !== undefined && file !== undefined) result.push(fileCandidate(file, 760, edge.confidence, ["test"], [this.#edgeDetails(edge, 1)], [], 1));
+	/** Project only direct, high-confidence next actions for a partial read. */
+	readActions(input: {
+		fileId: string;
+		startLine: number;
+		endLine: number;
+		readLimit: number;
+		testLimit: number;
+	}): RepoMapReadActionCandidates | undefined {
+		const symbol = selectReadSymbol(this.#symbolsByFile.get(input.fileId) ?? [], input.startLine, input.endLine);
+		if (symbol === undefined) return undefined;
+		const readBudget = verificationBudget(input.readLimit);
+		const testBudget = verificationBudget(input.testLimit);
+		const registrations: RepoMapReadActionCandidate[] = [];
+		if (readBudget > 0 && symbol.name !== undefined) {
+			for (const registration of this.#registrationsByName.get(normalize(symbol.name)) ?? []) {
+				if (registration.fileId === undefined || registration.fileId === input.fileId || registration.confidence < 0.9) continue;
+				const file = this.#filesById.get(registration.fileId);
+				if (file?.contentHash === undefined) continue;
+				const edge = (this.#incoming.get(registration.id) ?? [])
+					.find((candidate) => candidate.kind.startsWith("registers-") && candidate.from === file.id);
+				if (edge === undefined || edge.confidence < 0.9) continue;
+				registrations.push({
+					path: file.path,
+					fileId: file.id,
+					contentHash: file.contentHash,
+					...(edge.evidence[0] === undefined ? {} : { line: edge.evidence[0].startLine }),
+					symbol: registration.name,
+					relation: "registration",
+					confidence: Math.min(registration.confidence, edge.confidence),
+				});
+			}
 		}
-		return coalesceCandidates(result).slice(0, Math.max(0, limit));
+		if (!isRepoMapSymbolPublic(symbol) && symbol.visibility !== "public" && registrations.length === 0) return undefined;
+
+		const reads = [...registrations];
+		if (readBudget > 0) {
+			for (const edge of this.#incoming.get(symbol.id) ?? []) {
+				if ((edge.kind !== "calls" && edge.kind !== "references") || edge.confidence < 0.7) continue;
+				const source = this.#symbolsById.get(edge.from);
+				if (source === undefined || source.fileId === input.fileId) continue;
+				const file = this.#filesById.get(source.fileId);
+				if (file?.contentHash === undefined || this.#testFileIds.has(file.id)) continue;
+				reads.push({
+					path: file.path,
+					fileId: file.id,
+					contentHash: file.contentHash,
+					line: source.startLine,
+					...(source.qualifiedName === undefined && source.name === undefined
+						? {}
+						: { symbol: source.qualifiedName ?? source.name }),
+					relation: edge.kind === "calls" ? "caller" : "reference",
+					confidence: edge.confidence,
+				});
+			}
+		}
+
+		const tests: RepoMapReadTestCandidate[] = [];
+		if (testBudget > 0) {
+			for (const target of [symbol.id, input.fileId]) {
+				for (const edge of this.#incoming.get(target) ?? []) {
+					if (edge.kind !== "tests" || edge.confidence < 0.8) continue;
+					const test = this.#testsById.get(edge.from);
+					const file = test === undefined ? undefined : this.#filesById.get(test.fileId);
+					if (file?.contentHash === undefined || file.id === input.fileId) continue;
+					tests.push({
+						path: file.path,
+						fileId: file.id,
+						contentHash: file.contentHash,
+						confidence: edge.confidence,
+					});
+				}
+			}
+		}
+
+		const suggestedReads = coalesceReadActions(reads).slice(0, readBudget);
+		const suggestedTests = coalesceReadTests(tests).slice(0, testBudget);
+		return suggestedReads.length === 0 && suggestedTests.length === 0
+			? undefined
+			: { symbol, suggestedReads, suggestedTests };
 	}
 
 	/** exact/alias seeds -> at most two graph hops -> diversity-aware budget packing. */
@@ -547,6 +658,69 @@ export class RepoMapQueryIndex {
 	#componentForFile(fileId: string): string | undefined {
 		return (this.#outgoing.get(fileId) ?? []).find((edge) => edge.kind === "belongs-to" && this.#architectureById.get(edge.to)?.kind === "component")?.to;
 	}
+}
+
+function selectReadSymbol(
+	symbols: readonly RepoMapSymbolNode[],
+	startLine: number,
+	endLine: number,
+): RepoMapSymbolNode | undefined {
+	let selected: RepoMapSymbolNode | undefined;
+	for (const symbol of symbols) {
+		if (symbol.startLine > endLine || symbol.endLine < startLine) continue;
+		if (selected === undefined || compareReadSymbols(symbol, selected, startLine, endLine) < 0) selected = symbol;
+	}
+	return selected;
+}
+
+function compareReadSymbols(
+	left: RepoMapSymbolNode,
+	right: RepoMapSymbolNode,
+	startLine: number,
+	endLine: number,
+): number {
+	const leftEncloses = left.startLine <= startLine && left.endLine >= endLine ? 0 : 1;
+	const rightEncloses = right.startLine <= startLine && right.endLine >= endLine ? 0 : 1;
+	return leftEncloses - rightEncloses
+		|| (left.endLine - left.startLine) - (right.endLine - right.startLine)
+		|| left.startLine - right.startLine
+		|| compareText(left.id, right.id);
+}
+
+function verificationBudget(limit: number): number {
+	if (limit <= 0) return 0;
+	return Math.min(REPO_MAP_READ_CANDIDATE_LIMIT, Math.max(limit + 2, limit * 4));
+}
+
+function coalesceReadActions(candidates: readonly RepoMapReadActionCandidate[]): RepoMapReadActionCandidate[] {
+	const byPath = new Map<string, RepoMapReadActionCandidate>();
+	for (const candidate of candidates) {
+		const current = byPath.get(candidate.path);
+		if (current === undefined || compareReadActions(candidate, current) < 0) byPath.set(candidate.path, candidate);
+	}
+	return [...byPath.values()].sort(compareReadActions);
+}
+
+function compareReadActions(left: RepoMapReadActionCandidate, right: RepoMapReadActionCandidate): number {
+	return readRelationRank(left.relation) - readRelationRank(right.relation)
+		|| right.confidence - left.confidence
+		|| compareText(left.path, right.path)
+		|| (left.line ?? 0) - (right.line ?? 0);
+}
+
+function readRelationRank(relation: RepoMapReadActionCandidate["relation"]): number {
+	if (relation === "caller") return 0;
+	if (relation === "reference") return 1;
+	return 2;
+}
+
+function coalesceReadTests(candidates: readonly RepoMapReadTestCandidate[]): RepoMapReadTestCandidate[] {
+	const byPath = new Map<string, RepoMapReadTestCandidate>();
+	for (const candidate of candidates) {
+		const current = byPath.get(candidate.path);
+		if (current === undefined || candidate.confidence > current.confidence) byPath.set(candidate.path, candidate);
+	}
+	return [...byPath.values()].sort((left, right) => right.confidence - left.confidence || compareText(left.path, right.path));
 }
 
 function fileCandidate(

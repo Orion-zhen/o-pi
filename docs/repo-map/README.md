@@ -97,10 +97,9 @@ ignore 规则的完整定义见 [File Tools ignore engine](../file-tools/ignore.
 
 Repo Map 查询会根据用途返回有限上下文：
 
-- `read` 上下文包含相关 symbol、关系和 evidence。
+- partial/truncated `read` 最多输出少量 `sugessted read` 和 `sugessted test` 行动。
 - mutation impact 只返回预算内的影响摘要。
 - 候选收集和最终输出都有上限。
-- token budget 截断不等于查询失败。
 - 完整 metadata、diagnostics 和统计信息保留在结构化结果中。
 
 当 Repo Map 没有可用结果时，`find`、`grep` 和 `read` 仍然可以执行基础路径扫描、实时文本搜索和文件读取。
@@ -120,8 +119,9 @@ Repo Map 配置文件为 `repo-map.jsonc`，默认配置包括：
     "max_generations": 2
   },
   "output": {
-    "read_context_token_budget": 160,
-    "mutation_impact_token_budget": 120
+    "read_suggestion_limit": 2,
+    "read_test_limit": 1,
+    "mutation_impact_token_budget": 240
   }
 }
 ```
@@ -134,7 +134,7 @@ Repo Map 是 File Tools 的内部增强，不会增加额外的模型可见工�
 
 - `find` 默认只使用 Repo Map 排序已有路径结果；零路径结果时可回退少量高置信 exact symbol、registration 或 entrypoint 文件。
 - `grep` 可以使用 symbol、结构和关系候选。
-- `read` 可以请求 symbol 或关系上下文。
+- partial/truncated `read` 可以获得少量下一步读取与测试行动。
 - mutation 后可以触发影响分析和 refresh。
 - LSP 是独立的可选增强，不是 Repo Map 的必要依赖。
 

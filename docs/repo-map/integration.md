@@ -16,7 +16,7 @@ Repo Map 候选必须经过路径、ignore、新鲜度、实时 hash 和结果�
 
 ## `read`
 
-`read` 可以请求 Repo Map context，例如 enclosing symbol、相关调用者或测试。文件正文仍由 `read` 自己读取，因此 Repo Map 过期不会使读取到旧内容。
+只有显式局部或 truncated read 才请求 Repo Map。模型只会收到预算内的 `sugessted read`（direct caller/reference/registration）和 `sugessted test`；普通私有函数、弱关系或没有明确行动时不追加 Repo Map block。文件正文仍由 `read` 自己读取，行动候选也必须通过实时 content hash 校验。
 
 ## Mutation
 

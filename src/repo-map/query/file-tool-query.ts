@@ -10,13 +10,21 @@ import {
 	type RepoMapActivation,
 	type RepoMapActivationEntry,
 } from "../runtime/activation.js";
-import { RepoMapQueryIndex, type RepoMapQueryCandidate, type RepoMapQueryResult } from "./query.js";
+import {
+	RepoMapQueryIndex,
+	type RepoMapQueryCandidate,
+	type RepoMapQueryResult,
+	type RepoMapReadActionCandidate,
+	type RepoMapReadTestCandidate,
+} from "./query.js";
 import { analyzeRepoMapImpact, type AnalyzeRepoMapImpactInput, type RepoMapImpactResult } from "./impact.js";
-import { REPO_MAP_OUTPUT_CANDIDATE_LIMIT } from "../config/output-config.js";
+import {
+	DEFAULT_REPO_MAP_READ_SUGGESTION_LIMIT,
+	DEFAULT_REPO_MAP_READ_TEST_LIMIT,
+} from "../config/output-config.js";
 import type { InitializeRepoMapResult, RefreshActivatedRepoMapInput } from "../runtime/service.js";
 import type { RepoMapGeneration } from "../storage/storage.js";
 import { isRepoMapPathInScope, relativeRepoPath } from "../config/scope.js";
-import type { RepoMapEdge, RepoMapEntrypointNode, RepoMapSymbolNode } from "../core/types.js";
 
 export interface RepoMapReadContext {
 	symbol: {
@@ -27,15 +35,13 @@ export interface RepoMapReadContext {
 		startLine: number;
 		endLine: number;
 	};
-	callers: string[];
-	callees: string[];
-	references: string[];
-	imports: string[];
-	package?: string;
-	component?: string;
-	entrypoints?: string[];
-	publicApi?: boolean;
-	relatedTests?: string[];
+	suggestedReads: Array<{
+		path: string;
+		line?: number;
+		symbol?: string;
+		relation: "caller" | "reference" | "registration";
+	}>;
+	suggestedTests: string[];
 }
 
 export interface RepoMapMutationResult {
@@ -60,6 +66,8 @@ export interface RepoMapFileToolQuery {
 		endLine: number;
 		partial: boolean;
 		truncated: boolean;
+		suggestedReadLimit?: number;
+		suggestedTestLimit?: number;
 		signal?: AbortSignal;
 	}): Promise<RepoMapReadContext | undefined>;
 	syncMutation(input: RepoMapMutationInput): Promise<RepoMapMutationResult | undefined>;
@@ -307,22 +315,54 @@ export function createRepoMapFileToolQuery(
 				if (loaded === undefined) return undefined;
 				const relativePath = relativeRepoPath(loaded.activation.root, input.requestedPath);
 				if (relativePath === undefined) return undefined;
-				const file = loaded.generation.files.find((candidate) => candidate.path === relativePath);
+				const queryIndex = queryIndexFor(loaded.generation);
+				const file = queryIndex.file(relativePath);
 				if (file?.status !== "indexed" || file.contentHash === undefined) return undefined;
 				if (file.contentHash !== input.contentHash) {
 					appendPartial(loaded.activation, "Repo Map file hash differs from the live read.");
 					return undefined;
 				}
-				const context = contextForRange(loaded.generation, file.id, input.startLine, input.endLine);
-				if (context === undefined) return undefined;
-				const queryIndex = queryIndexFor(loaded.generation);
-				const directTests = await verifiedCandidates(loaded.generation, queryIndex.relatedTests(
-					[file.id, context.symbol.id],
-					REPO_MAP_OUTPUT_CANDIDATE_LIMIT,
-				), input.signal);
-				return directTests.length === 0
-					? context
-					: { ...context, relatedTests: [...new Set(directTests.map((candidate) => candidate.path))].slice(0, REPO_MAP_OUTPUT_CANDIDATE_LIMIT) };
+				const readLimit = Math.max(0, input.suggestedReadLimit ?? DEFAULT_REPO_MAP_READ_SUGGESTION_LIMIT);
+				const testLimit = Math.max(0, input.suggestedTestLimit ?? DEFAULT_REPO_MAP_READ_TEST_LIMIT);
+				const actions = queryIndex.readActions({
+					fileId: file.id,
+					startLine: input.startLine,
+					endLine: input.endLine,
+					readLimit,
+					testLimit,
+				});
+				if (actions === undefined) return undefined;
+				const verified = await verifiedReadActions(
+					loaded.generation,
+					actions.suggestedReads,
+					actions.suggestedTests,
+					input.signal,
+				);
+				if (verified.suggestedReads.length !== actions.suggestedReads.length
+					|| verified.suggestedTests.length !== actions.suggestedTests.length) {
+					appendPartial(loaded.activation, "Repo Map read action hash differs from the live file.");
+				}
+				const suggestedReads = verified.suggestedReads.slice(0, readLimit).map((candidate) => ({
+					path: candidate.path,
+					...(candidate.line === undefined ? {} : { line: candidate.line }),
+					...(candidate.symbol === undefined ? {} : { symbol: candidate.symbol }),
+					relation: candidate.relation,
+				}));
+				const suggestedTests = verified.suggestedTests.slice(0, testLimit).map((candidate) => candidate.path);
+				if (suggestedReads.length === 0 && suggestedTests.length === 0) return undefined;
+				const symbol = actions.symbol;
+				return {
+					symbol: {
+						id: symbol.id,
+						kind: symbol.symbolKind,
+						...(symbol.name === undefined ? {} : { name: symbol.name }),
+						...(symbol.qualifiedName === undefined ? {} : { qualifiedName: symbol.qualifiedName }),
+						startLine: symbol.startLine,
+						endLine: symbol.endLine,
+					},
+					suggestedReads,
+					suggestedTests,
+				};
 			} catch {
 				return undefined;
 			}
@@ -377,50 +417,31 @@ async function hashFile(filePath: string, signal?: AbortSignal): Promise<string 
 	}
 }
 
-function contextForRange(generation: RepoMapGeneration, fileId: string, startLine: number, endLine: number): RepoMapReadContext | undefined {
-	const symbols = generation.symbols
-		.filter((symbol) => symbol.fileId === fileId && symbol.startLine <= endLine && symbol.endLine >= startLine)
-		.sort((left, right) => enclosingRank(left, startLine, endLine) - enclosingRank(right, startLine, endLine)
-			|| (left.endLine - left.startLine) - (right.endLine - right.startLine)
-			|| left.startLine - right.startLine);
-	const symbol = symbols[0];
-	if (symbol === undefined) return undefined;
-	const symbolsById = new Map(generation.symbols.map((candidate) => [candidate.id, candidate]));
-	const filesById = new Map(generation.files.map((file) => [file.id, file.path]));
-	const architectureById = new Map(generation.architecture.map((node) => [node.id, node]));
-	const label = (id: string): string | undefined => {
-		const related = symbolsById.get(id);
-		if (related === undefined) return filesById.get(id);
-		const filePath = filesById.get(related.fileId);
-		const name = related.qualifiedName ?? related.name;
-		return compactLabel(name === undefined ? filePath : filePath === undefined ? name : `${filePath}:${name}`);
+async function verifiedReadActions(
+	generation: RepoMapGeneration,
+	reads: readonly RepoMapReadActionCandidate[],
+	tests: readonly RepoMapReadTestCandidate[],
+	signal?: AbortSignal,
+): Promise<{ suggestedReads: RepoMapReadActionCandidate[]; suggestedTests: RepoMapReadTestCandidate[] }> {
+	const verifications = new Map<string, Promise<boolean>>();
+	const verify = (candidate: { path: string; contentHash?: string }): Promise<boolean> => {
+		throwIfQueryAborted(signal);
+		if (candidate.contentHash === undefined) return Promise.resolve(false);
+		const key = `${candidate.path}\0${candidate.contentHash}`;
+		const cached = verifications.get(key);
+		if (cached !== undefined) return cached;
+		const pending = hashFile(path.join(generation.metadata.repositoryRoot, candidate.path), signal)
+			.then((hash) => hash === candidate.contentHash);
+		verifications.set(key, pending);
+		return pending;
 	};
-	const ownership = generation.edges.filter((edge) => edge.kind === "belongs-to" && (edge.from === fileId || edge.from === symbol.id));
-	const packageNode = ownership.flatMap((edge) => architectureById.get(edge.to) ?? []).find((node) => node.kind === "package");
-	const componentNode = ownership.flatMap((edge) => architectureById.get(edge.to) ?? []).find((node) => node.kind === "component");
-	const entrypoints = [...architectureById.values()]
-		.filter((node): node is RepoMapEntrypointNode => node.kind === "entrypoint" && node.fileId === fileId)
-		.map((node) => `${node.entrypointType}:${node.name}`)
-		.sort()
-		.slice(0, REPO_MAP_OUTPUT_CANDIDATE_LIMIT);
-	const exported = symbol.visibility === "public" || generation.edges.some((edge) => (edge.kind === "exports" || edge.kind === "exports-publicly") && edge.to === symbol.id);
+	const [readValidity, testValidity] = await Promise.all([
+		Promise.all(reads.map(verify)),
+		Promise.all(tests.map(verify)),
+	]);
 	return {
-		symbol: {
-			id: symbol.id,
-			kind: symbol.symbolKind,
-			...(symbol.name !== undefined ? { name: symbol.name } : {}),
-			...(symbol.qualifiedName !== undefined ? { qualifiedName: symbol.qualifiedName } : {}),
-			startLine: symbol.startLine,
-			endLine: symbol.endLine,
-		},
-		callers: relationLabels(generation.edges, (edge) => edge.kind === "calls" && edge.to === symbol.id, (edge) => edge.from, label),
-		callees: relationLabels(generation.edges, (edge) => edge.kind === "calls" && edge.from === symbol.id, (edge) => edge.to, label),
-		references: relationLabels(generation.edges, (edge) => edge.kind === "references" && edge.to === symbol.id, (edge) => edge.from, label),
-		imports: relationLabels(generation.edges, (edge) => edge.kind === "imports" && edge.from === fileId, (edge) => edge.to, label),
-		...(packageNode?.kind === "package" ? { package: packageNode.name } : {}),
-		...(componentNode?.kind === "component" ? { component: componentNode.name } : {}),
-		...(entrypoints.length > 0 ? { entrypoints } : {}),
-		...(exported ? { publicApi: true } : {}),
+		suggestedReads: reads.filter((_candidate, index) => readValidity[index]),
+		suggestedTests: tests.filter((_candidate, index) => testValidity[index]),
 	};
 }
 
@@ -431,26 +452,6 @@ async function verifiedImpact(generation: RepoMapGeneration, impact: RepoMapImpa
 		candidates.push(candidate);
 	}
 	return { ...impact, candidates };
-}
-
-function relationLabels(
-	edges: readonly RepoMapEdge[],
-	include: (edge: RepoMapEdge) => boolean,
-	target: (edge: RepoMapEdge) => string,
-	label: (id: string) => string | undefined,
-): string[] {
-	return Array.from(new Set(edges.filter(include).flatMap((edge) => label(target(edge)) ?? [])))
-		.sort()
-		.slice(0, REPO_MAP_OUTPUT_CANDIDATE_LIMIT);
-}
-
-function compactLabel(value: string | undefined): string | undefined {
-	if (value === undefined) return undefined;
-	return value.length <= 96 ? value : `${value.slice(0, 93)}...`;
-}
-
-function enclosingRank(symbol: RepoMapSymbolNode, startLine: number, endLine: number): number {
-	return symbol.startLine <= startLine && symbol.endLine >= endLine ? 0 : 1;
 }
 
 class RepoMapQueryAbortedError extends Error {}

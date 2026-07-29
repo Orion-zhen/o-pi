@@ -69,12 +69,14 @@ Repo Map、文本/Tree-sitter、本地语义和可选 LSP 候选先独立生成�
 
 `read` 只在显式行范围或因预算截断时请求结构上下文。完整读取短文件、图片和不支持的二进制文件不追加 Repo Map context。
 
-增强前比较实时 SHA-256 与 file node content hash，再选择覆盖读取范围且最贴近的 symbol。上下文可以包含：
+增强前比较实时 SHA-256 与 file node content hash，再从按文件建立的 symbol lookup 中选择覆盖读取范围且最贴近的 symbol。普通私有函数或只有弱关系时停止；其余候选只从缓存的 direct 入边、registration 名称索引和 test 入边收集。
 
-- symbol kind、qualified name 和范围。
-- direct caller、callee、reference 和 import。
-- package、component、entrypoint 和 public API。
-- 经 hash 验证的 related tests。
+模型投影只包含：
+
+- 配置上限内的高置信 direct caller/reference/registration，显示为 `sugessted read`。
+- 配置上限内最相关的高置信 direct test，显示为 `sugessted test`。
+
+候选文件并发完成去重后的实时 hash 校验。package、component、callee、ordinary import、public API 状态和内部图属性不进入模型输出。
 
 Repo Map 不切片正文，也不从 generation 读取历史正文。
 
