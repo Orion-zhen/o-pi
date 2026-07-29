@@ -143,7 +143,7 @@ inventory entry 携带 object identity、version 和 size snapshot。line scan �
 <grep>
 none
 searched=12; skipped=0
-next: broaden query/path/glob
+next: refine query/path/glob
 </grep>
 ```
 

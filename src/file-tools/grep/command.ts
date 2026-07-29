@@ -155,7 +155,7 @@ async function analyzeSymbols(
 		return context.operation.signal?.aborted === true ? aborted() : undefined;
 	}
 	if (context.operation.signal?.aborted === true) return aborted();
-	if (analysis === undefined) return undefined;
+	if (analysis === undefined || analysis.files.length === 0) return undefined;
 	const files: RegionizedFile[] = analysis.files.flatMap(({ document, analysis: fileAnalysis }) => {
 		const file = byPath.get(document.path);
 		const content = loaded.get(document.path);

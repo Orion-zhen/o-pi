@@ -196,7 +196,7 @@ export function renderGrepSuccess(result: GrepSuccess): string {
 	if (result.regions.length === 0) {
 		lines.push(`searched=${result.stats.searched_files}; skipped=${skippedCount(result.stats.skipped_files)}`);
 		if (result.truncated_by.length > 0) lines.push(`next: resolve ${result.truncated_by.join(",")}; narrow path/glob`);
-		else lines.push("next: broaden query/path/glob");
+		else lines.push("next: refine query/path/glob");
 	}
 	lines.push("</grep>");
 	return lines.join("\n");

@@ -81,23 +81,29 @@ function nestedBodyStart(root: SyntaxNode, excludedNodeId?: number): number | un
 	return earliest;
 }
 
-export interface RawUnitRelations {
-	references: string[];
-	calls: string[];
+interface UnitRelations {
+	readonly definitions: string[];
+	readonly references: string[];
+	readonly calls: string[];
 }
 
-/** Extract lexical facts from syntax nodes owned by this unit, excluding separately indexed child units. */
+/** 提取当前代码单元拥有的词法关系，并跳过单独建索引的子单元。 */
 export function extractUnitRelations(
 	unit: RawUnit,
 	unitNodeIds: ReadonlySet<number>,
 	control: AnalysisControl,
-): RawUnitRelations {
+): UnitRelations {
+	const localDefinitions = unit.kind === "function" || unit.kind === "method"
+		? new Set<string>()
+		: undefined;
 	const references = new Set<string>();
 	const calls = new Set<string>();
-	walkRelations(unit.sourceNode, unit.sourceNode.id, unitNodeIds, references, calls, control);
-	if (unit.name !== undefined) references.delete(unit.name);
+	walkRelations(unit.sourceNode, unit.sourceNode.id, unitNodeIds, localDefinitions, references, calls, control);
+	const definitions = localDefinitions ?? new Set<string>();
+	if (unit.name !== undefined) definitions.add(unit.name);
+	for (const definition of definitions) references.delete(definition);
 	if (unit.qualifiedName !== undefined) references.delete(unit.qualifiedName);
-	return { references: [...references], calls: [...calls] };
+	return { definitions: [...definitions], references: [...references], calls: [...calls] };
 }
 
 export function rawImport(node: SyntaxNode, specifierNode: SyntaxNode = node, importKind?: ImportKind): RawImport {
@@ -200,20 +206,56 @@ export function indexRawImports(index: LineIndex, rawImports: readonly RawImport
 
 const CALL_NODE_TYPES = new Set(["call", "call_expression", "new_expression"]);
 const STATIC_CALLEE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/u;
+const IMPORT_NODE_TYPES = new Set([
+	"import_declaration",
+	"import_from_statement",
+	"import_statement",
+	"preproc_include",
+	"use_declaration",
+]);
+const DEFINITION_FIELDS = new Map<string, readonly string[]>([
+	["assignment", ["left"]],
+	["catch_clause", ["parameter"]],
+	["class_declaration", ["name"]],
+	["class_definition", ["name"]],
+	["const_item", ["name"]],
+	["for_in_clause", ["left"]],
+	["function_declaration", ["name"]],
+	["function_definition", ["name"]],
+	["let_declaration", ["pattern"]],
+	["method_definition", ["name"]],
+	["optional_parameter", ["pattern", "name"]],
+	["parameter_declaration", ["declarator", "name"]],
+	["required_parameter", ["pattern", "name"]],
+	["short_var_declaration", ["left"]],
+	["static_item", ["name"]],
+	["variable_declarator", ["name"]],
+]);
+const PARAMETER_LIST_NODE_TYPES = new Set([
+	"closure_parameters",
+	"formal_parameters",
+	"parameters",
+]);
+const EMPTY_NODE_IDS: ReadonlySet<number> = new Set();
 
 function walkRelations(
 	root: SyntaxNode,
 	rootNodeId: number,
 	unitNodeIds: ReadonlySet<number>,
+	definitions: Set<string> | undefined,
 	references: Set<string>,
 	calls: Set<string>,
 	control: AnalysisControl,
 ): void {
 	const stack = [root];
+	const definitionNodes = definitions === undefined ? undefined : new Set<number>();
 	while (stack.length > 0) {
 		control.check();
 		const node = stack.pop();
-		if (node === undefined || (node.id !== rootNodeId && unitNodeIds.has(node.id))) continue;
+		if (node === undefined) break;
+		if (node.id !== rootNodeId && unitNodeIds.has(node.id)) continue;
+		if (node.id !== rootNodeId && IMPORT_NODE_TYPES.has(node.type)) continue;
+		const definition = definitionNodes?.delete(node.id) ?? false;
 		const callable = callableNode(node);
 		const children = node.namedChildren;
 		if (callable !== undefined) {
@@ -221,15 +263,26 @@ function walkRelations(
 			if (target !== undefined) calls.add(target);
 			for (let index = children.length - 1; index >= 0; index -= 1) {
 				const child = children[index];
-				if (child !== undefined && child.id !== callable.id) stack.push(child);
+				if (child === undefined || child.id === callable.id) continue;
+				if (definition) definitionNodes?.add(child.id);
+				stack.push(child);
 			}
-			if (target === undefined) stack.push(callable);
+			if (target === undefined) {
+				if (definition) definitionNodes?.add(callable.id);
+				stack.push(callable);
+			}
 			continue;
 		}
-		if (isIdentifierLeaf(node)) references.add(node.text);
+		if (isIdentifierLeaf(node)) {
+			if (definition) definitions?.add(node.text);
+			else references.add(node.text);
+		}
+		const definitionChildren = definitions === undefined ? EMPTY_NODE_IDS : definitionChildIds(node);
 		for (let index = children.length - 1; index >= 0; index -= 1) {
 			const child = children[index];
-			if (child !== undefined) stack.push(child);
+			if (child === undefined) continue;
+			if (definition || definitionChildren.has(child.id)) definitionNodes?.add(child.id);
+			stack.push(child);
 		}
 	}
 }
@@ -269,6 +322,21 @@ function staticCallee(node: SyntaxNode): string | undefined {
 
 function isIdentifierLeaf(node: SyntaxNode): boolean {
 	return node.namedChildren.length === 0 && (node.type === "identifier" || node.type.endsWith("_identifier"));
+}
+
+function definitionChildIds(node: SyntaxNode): ReadonlySet<number> {
+	const fields = DEFINITION_FIELDS.get(node.type);
+	if (!PARAMETER_LIST_NODE_TYPES.has(node.type) && fields === undefined) return EMPTY_NODE_IDS;
+	const result = new Set<number>();
+	if (PARAMETER_LIST_NODE_TYPES.has(node.type)) {
+		for (const child of node.namedChildren) {
+			if (isIdentifierLeaf(child) || child.type.endsWith("_pattern")) result.add(child.id);
+		}
+	}
+	for (const field of fields ?? []) {
+		for (const child of node.childrenForFieldName(field)) result.add(child.id);
+	}
+	return result;
 }
 
 function compareRawUnits(left: RawUnit, right: RawUnit): number {

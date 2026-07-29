@@ -172,7 +172,7 @@ function buildIndexedUnit(
 	const declaration = compactDeclaration(text, sourceIndex, unit);
 	const nameText = [file.path, unit.name, unit.qualifiedName, declaration?.text, content].join("\n");
 	const tokens = tokenizeText(nameText);
-	const { references, calls } = extractUnitRelations(unit, unitNodeIds, control);
+	const { definitions, references, calls } = extractUnitRelations(unit, unitNodeIds, control);
 	return {
 		id: createSymbolId({
 			fileId: file.id,
@@ -194,7 +194,7 @@ function buildIndexedUnit(
 		startByte,
 		endByte,
 		tokens,
-		definitions: unit.name === undefined ? [] : [unit.name],
+		definitions,
 		references,
 		calls,
 	};

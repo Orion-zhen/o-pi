@@ -315,6 +315,15 @@ describe("shared code parser", () => {
 		expect(go.imports.map((item) => item.specifier)).toEqual(["example/one", "example/two"]);
 	});
 
+	it("识别代码单元内的局部定义", async () => {
+		const analyzed = await analyzeCodeFile(
+			"relations.ts",
+			"export function caller() { const Local = () => true; return Local(); }\n",
+		);
+		const caller = analyzed.index.units.find((unit) => unit.name === "caller");
+		expect(caller?.definitions).toEqual(expect.arrayContaining(["caller", "Local"]));
+	});
+
 	it.each([
 		["foo('./not-import')", []],
 		["describe('suite')", []],

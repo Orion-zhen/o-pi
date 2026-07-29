@@ -1,4 +1,5 @@
 import { languageFromPath, type AnalyzedFileIndex, type IndexedCodeUnit } from "../../code-index/parser.js";
+import { inferCodeAuthorities } from "../../code-index/authority.js";
 import type { TextContent } from "../../filesystem/contracts/content.js";
 import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
@@ -126,14 +127,21 @@ export class GrepRegionizer {
 			parsedFiles += 1;
 			files.push({ file: file.file, content: file.content, analysis });
 		}
+		const inferred = hits.length === 1
+			? files.map((file) => file.analysis)
+			: inferCodeAuthorities(files.map((file) => file.analysis));
+		const authorityFiles = files.map((file, index) => ({
+			...file,
+			analysis: inferred[index] ?? file.analysis,
+		}));
 		const regions = regionizeAnalyzedFiles(
 			hits.filter((hit) => !excludedHitPaths.has(hit.path)),
-			files,
+			authorityFiles,
 			false,
 		);
 		return {
 			regions,
-			files,
+			files: authorityFiles,
 			parsedFiles,
 			astSkippedOversizedFiles,
 			skipped: compactSkipped(skipped),

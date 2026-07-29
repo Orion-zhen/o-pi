@@ -219,13 +219,16 @@ export class LspManager {
 				servers,
 				allowedPaths,
 			);
-			const capable = candidates.filter(({ client }) =>
-				featureAvailable(client, lspFeatureDefinitions.documentSymbols)
-				&& featureAvailable(client, lspFeatureDefinitions.references));
-			const exact = capable.filter(({ seed }) => seed.exact);
-			const selected = (exact.length > 0 ? exact : input.allowRelated ? capable : [])
+			const exact = candidates.filter(({ seed }) => seed.exact);
+			const selected = (exact.length > 0 ? exact : input.allowRelated ? candidates : [])
 				.slice(0, Math.min(CODE_ANALYSIS_SYMBOL_LIMIT, input.limit));
-			if (selected.length === 0) return undefined;
+			if (
+				selected.length === 0
+				|| selected.some(({ client }) =>
+					!featureAvailable(client, lspFeatureDefinitions.documentSymbols)
+					|| !featureAvailable(client, lspFeatureDefinitions.references)
+					|| !featureAvailable(client, lspFeatureDefinitions.incomingCalls))
+			) return undefined;
 			const byPath = new Map<string, ResolvedWorkspaceSymbol[]>();
 			for (const item of selected) {
 				const grouped = byPath.get(item.seed.path);
@@ -248,10 +251,11 @@ export class LspManager {
 					const analysis = analyzeLspDocument(document, symbols, grouped.map(({ seed }) => seed));
 					const authorities = await Promise.all(grouped.map(async ({ seed }) => {
 						const unit = unitForSeed(analysis, seed);
-						return unit === undefined
-							? undefined
-							: { id: unit.id, authority: await this.symbolAuthority(client, document.filePath, seed, unit, operation) };
+						if (unit === undefined) return undefined;
+						const authority = await this.symbolAuthority(client, document.filePath, seed, unit, operation);
+						return authority === undefined ? undefined : { id: unit.id, authority };
 					}));
+					if (authorities.some((authority) => authority === undefined)) return undefined;
 					return {
 						document,
 						analysis: withAuthorities(analysis, authorities),
@@ -260,9 +264,11 @@ export class LspManager {
 					return undefined;
 				}
 			})));
+			const complete = files.filter((file): file is NonNullable<typeof file> => file !== undefined);
+			if (complete.length !== byPath.size) return undefined;
 			return {
 				mode: "symbol",
-				files: files.filter((file): file is NonNullable<typeof file> => file !== undefined),
+				files: complete,
 			};
 		} finally {
 			operation.dispose();
@@ -275,14 +281,15 @@ export class LspManager {
 		seed: WorkspaceSymbolSeed,
 		unit: IndexedCodeUnit,
 		operation: OperationDeadline,
-	): Promise<CodeAuthority> {
+	): Promise<CodeAuthority | undefined> {
 		const position = { line: seed.line, character: seed.character };
 		const [calls, references] = await Promise.all([
 			client.incomingCalls(filePath, position, operation.requestOptions()),
 			client.references(filePath, position, operation.requestOptions()),
 		]);
-		if (calls?.some((call) => outsideUnit(call.from.uri, call.from.range, seed, unit))) return "called";
-		if (references?.some((reference) => outsideUnit(reference.uri, reference.range, seed, unit))) return "referenced";
+		if (calls === undefined || references === undefined) return undefined;
+		if (calls.some((call) => outsideUnit(call.from.uri, call.from.range, seed, unit))) return "called";
+		if (references.some((reference) => outsideUnit(reference.uri, reference.range, seed, unit))) return "referenced";
 		return "defined";
 	}
 

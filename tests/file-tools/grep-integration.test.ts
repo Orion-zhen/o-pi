@@ -168,7 +168,7 @@ describe("grep integration", () => {
 		await writeFile(path.join(testContext.workspace, "session", "common.ts"), "export const data = true;\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "data retry policy" }));
 		expect(result.regions).toEqual([]);
-		expect(formatCompactGrepResult(result)).toContain("next: broaden query/path/glob");
+		expect(formatCompactGrepResult(result)).toContain("next: refine query/path/glob");
 	});
 
 	it("unsupported language 安全退化到文本行", async () => {
@@ -261,7 +261,7 @@ describe("grep integration", () => {
 
 		expect(result.regions).toEqual([]);
 		expect(result.stats.parsed_files).toBe(1);
-		expect(formatCompactGrepResult(result)).toContain("next: broaden query/path/glob");
+		expect(formatCompactGrepResult(result)).toContain("next: refine query/path/glob");
 	});
 
 	it.each(["MissingNeedle", "Missing\\d+"])("query=%s 零命中返回扫描范围和可执行下一步", async (query) => {
@@ -275,7 +275,7 @@ describe("grep integration", () => {
 			"<grep>",
 			"none",
 			"searched=1; skipped=0",
-			"next: broaden query/path/glob",
+			"next: refine query/path/glob",
 			"</grep>",
 		].join("\n"));
 	});

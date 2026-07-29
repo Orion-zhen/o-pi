@@ -101,13 +101,14 @@ describe("lsp code analysis", () => {
 		expect(references).toHaveBeenCalledTimes(2);
 	});
 
-	it("选中 symbol 后即使 documentSymbol 不完整也不返回 unavailable", async () => {
+	it("选中 symbol 后 documentSymbol 请求失败时原子返回 unavailable", async () => {
 		const sourcePath = path.join(workspace, "src.ts");
 		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
 		vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue({
 			workspaceSymbolProvider: true,
 			documentSymbolProvider: true,
 			referencesProvider: true,
+			callHierarchyProvider: true,
 		});
 		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([workspaceSymbol("Target", sourcePath)]);
 		vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue(undefined);
@@ -127,7 +128,7 @@ describe("lsp code analysis", () => {
 		});
 		await manager.reload();
 
-		expect(analysis).toEqual({ mode: "symbol", files: [] });
+		expect(analysis).toBeUndefined();
 	});
 
 	it("同文件但位于目标代码单元之外的 caller 仍形成 called authority", async () => {
@@ -184,6 +185,7 @@ describe("lsp code analysis", () => {
 		vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue({
 			workspaceSymbolProvider: true,
 			documentSymbolProvider: true,
+			referencesProvider: true,
 		});
 		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([workspaceSymbol("Target", sourcePath)]);
 		const load = vi.fn(async () => ({ ...document("src.ts", "export function Target() {}\n"), filePath: sourcePath }));
