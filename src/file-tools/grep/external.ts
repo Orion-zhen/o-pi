@@ -17,7 +17,7 @@ import type { InventoryScope, ScopeInventory, ScopedFile } from "./inventory.js"
 import type { GrepExternalCandidate, GrepExternalRange, GrepGraphSource, GrepSymbolSource } from "./ports.js";
 import type { LocalAutoResult } from "./local.js";
 import type { QueryPlan } from "./query-plan.js";
-import { assignSourceLocalRanks, classifySymbolMatch, rankCodeRegions, selectRankedRegions } from "./ranking.js";
+import { assignSourceLocalRanks, classifySymbolMatch, rankCodeRegions } from "./ranking.js";
 import type { GrepRelatedResult } from "./types.js";
 
 export interface RetrievedExternalCandidate {
@@ -189,14 +189,13 @@ export function augmentAutoWithExternal(
 	}
 	const regions = [...main.values()];
 	const allRanked = rankCodeRegions(plan, regions);
-	const ranked = selectRankedRegions(allRanked, allRanked.length);
 	return {
 		...local,
 		regions,
-		ranked,
+		ranked: allRanked,
 		totalCandidates: allRanked.length,
-		nearby: ranked.length === 0 ? local.nearby : [],
-		related: plan.relationIntents.length > 0 || ranked.length === 0
+		nearby: allRanked.length === 0 ? local.nearby : [],
+		related: plan.relationIntents.length > 0 || allRanked.length === 0
 			? dedupeRelated(fallback.map(toRelated))
 			: [],
 	};

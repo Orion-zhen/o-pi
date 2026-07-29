@@ -1,5 +1,6 @@
 import { countTextTokensSync } from "../../token-counter.js";
 import type { RankedRegion } from "./candidates.js";
+import { selectRankedRegionsInOrder } from "./ranking.js";
 import type {
 	GrepDisplayLine,
 	GrepMatchMode,
@@ -61,7 +62,8 @@ interface SelectionState {
 export function packGrepResults(input: GrepPackInput): GrepSuccess {
 	const knownReasons = orderedReasons(input.truncationReasons);
 	const assumedReasons = orderedReasons([...knownReasons, "result_limit", "token_budget"]);
-	const eligibleRegions = limitRelationActions(input.regions, input.relationActionLimit);
+	const diversified = diversifyCandidateOrder(input.regions, candidatePoolSpan(input.resultLimit));
+	const eligibleRegions = limitRelationActions(diversified, input.relationActionLimit);
 	const choices = candidatePool(input, eligibleRegions);
 	const selected = selectMainChoices(input, choices, assumedReasons);
 	const selectedRanks = new Set(selected.map((item) => item.rank));
@@ -110,12 +112,24 @@ function candidatePool(input: GrepPackInput, candidates: readonly RankedRegion[]
 		const region = publicRegion(candidate, input.regionalDisplayLimit);
 		return { rank, region, cost: regionCost(region) };
 	});
-	const span = Math.max(CANDIDATE_POOL_MIN, input.resultLimit * 4);
+	const span = candidatePoolSpan(input.resultLimit);
 	const selectedRanks = new Set(choices.slice(0, span).map((item) => item.rank));
 	for (const item of choices.slice(span)
 		.sort((left, right) => left.cost - right.cost || left.rank - right.rank)
 		.slice(0, span)) selectedRanks.add(item.rank);
 	return choices.filter((item) => selectedRanks.has(item.rank)).sort((left, right) => left.rank - right.rank);
+}
+
+/** MMR 只重排 packer 会优先考虑的有界头部；尾部保留完整相关性顺序供低成本候选回退。 */
+function diversifyCandidateOrder(candidates: readonly RankedRegion[], limit: number): RankedRegion[] {
+	const selected = selectRankedRegionsInOrder(candidates, Math.min(limit, candidates.length));
+	if (selected.length === candidates.length) return selected;
+	const selectedIds = new Set(selected.map((candidate) => candidate.id));
+	return [...selected, ...candidates.filter((candidate) => !selectedIds.has(candidate.id))];
+}
+
+function candidatePoolSpan(resultLimit: number): number {
+	return Math.max(CANDIDATE_POOL_MIN, resultLimit * 4);
 }
 
 function limitRelationActions(candidates: readonly RankedRegion[], limit: number): RankedRegion[] {

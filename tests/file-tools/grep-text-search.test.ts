@@ -14,7 +14,7 @@ import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
 import { createGrepTestContext, expectGrepSuccess, expectInventorySuccess, firstRegion, assertStrictMatches, writeConfig } from "./grep-fixtures.js";
-import { packCandidate, packRegions, queryPlan } from "./grep-ranking-fixtures.js";
+import { packCandidate, packRegions, queryPlan, rankingEvidence } from "./grep-ranking-fixtures.js";
 
 const testContext = createGrepTestContext();
 
@@ -378,6 +378,27 @@ describe("grep text search", () => {
 		expect(formatCompactGrepResult(result)).not.toContain("lines omitted");
 		expect(formatCompactGrepResult(result)).not.toContain("padding0");
 		expect(result.approx_tokens).toBeLessThanOrEqual(180);
+	});
+
+	it("packer 只对有界候选头部执行一次 MMR 多样化", () => {
+		const candidates = Array.from({ length: 40 }, (_, index) => packCandidate({
+			id: `candidate-${index}`,
+			path: index < 4 ? "src/shared.ts" : `src/candidate-${index}.ts`,
+			startLine: index + 1,
+			endLine: index + 1,
+			endByte: index + 1,
+			matchLine: index + 1,
+			symbol: `candidate${index}`,
+			evidence: [rankingEvidence("text-literal", index + 1)],
+		}));
+		const result = packRegions(candidates, { resultLimit: 4, tokenBudget: 2_000 });
+
+		expect(result.regions.slice(0, 3).map((region) => region.path)).toEqual([
+			"src/shared.ts",
+			"src/shared.ts",
+			"src/shared.ts",
+		]);
+		expect(result.regions[3]?.path).not.toBe("src/shared.ts");
 	});
 
 	it("超长 declaration 被固定截取并稳定合并截断原因", () => {

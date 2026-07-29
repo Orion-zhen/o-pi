@@ -67,12 +67,17 @@ async function runSearchBenchmark() {
 		grep({ query: "createRetryableLoader", match: "literal" }),
 		grep({ query: "createLazyRepoMap", match: "literal" }),
 	]));
+	const broadAutoGrepMs = await measure(() => grep({
+		query: "Repo Map",
+		path: ["src", "tests", "docs", "agent"],
+		match: "auto",
+	}));
 
 	findTool.dispose();
 	host.dispose();
 	grepTool.dispose();
 	grepHost.dispose();
-	console.log(JSON.stringify({ coldFindMs, warmFindMs, coldGrepMs, warmGrepMs, concurrentGrepMs }));
+	console.log(JSON.stringify({ coldFindMs, warmFindMs, coldGrepMs, warmGrepMs, concurrentGrepMs, broadAutoGrepMs }));
 }
 
 async function measure(operation) {

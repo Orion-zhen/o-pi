@@ -217,6 +217,26 @@ export function selectRankedRegions(
 ): RankedRegion[] {
 	if (limit <= 0 || candidates.length === 0) return [];
 	const ranked = deduplicateRanked(candidates);
+	return selectRankedInOrder(ranked, limit, headSize, similarityWindow);
+}
+
+/** 上游已完成稳定排名时保留其顺序，只在当前顺序内执行有界 MMR。 */
+export function selectRankedRegionsInOrder(
+	candidates: readonly RankedRegion[],
+	limit: number,
+	headSize = GREP_RELEVANCE_HEAD_SIZE,
+	similarityWindow = GREP_SIMILARITY_WINDOW,
+): RankedRegion[] {
+	if (limit <= 0 || candidates.length === 0) return [];
+	return selectRankedInOrder(deduplicateRankedInOrder(candidates), limit, headSize, similarityWindow);
+}
+
+function selectRankedInOrder(
+	ranked: readonly RankedRegion[],
+	limit: number,
+	headSize: number,
+	similarityWindow: number,
+): RankedRegion[] {
 	const target = Math.min(limit, ranked.length);
 	const headCount = Math.min(Math.max(0, headSize), target);
 	const selected = ranked.slice(0, headCount);
@@ -394,6 +414,15 @@ function deduplicateRanked(candidates: readonly RankedRegion[]): RankedRegion[] 
 		if (prior === undefined || compareRankedRegions(candidate, prior) < 0) best.set(candidate.id, candidate);
 	}
 	return [...best.values()].sort(compareRankedRegions);
+}
+
+function deduplicateRankedInOrder(candidates: readonly RankedRegion[]): RankedRegion[] {
+	const seen = new Set<string>();
+	return candidates.filter((candidate) => {
+		if (seen.has(candidate.id)) return false;
+		seen.add(candidate.id);
+		return true;
+	});
 }
 
 function verifiedCoverage(region: CodeRegion): number {

@@ -14,7 +14,7 @@ import {
 } from "./external.js";
 import { packGrepResults, renderGrepSuccess } from "./packer.js";
 import { GrepParser } from "./parser-pool.js";
-import { rankCodeRegions, selectRankedRegions } from "./ranking.js";
+import { rankCodeRegions } from "./ranking.js";
 import type { GrepGraphSource, GrepSymbolSource } from "./ports.js";
 import { createQueryPlan, type QueryPlan } from "./query-plan.js";
 import { GrepRegionizer } from "./regionizer.js";
@@ -152,7 +152,7 @@ export class GrepTool {
 		if (isFailed(external)) return external;
 		const augmented = augmentStrictWithExternal(plan, regionized.regions, external);
 		const allRanked = rankCodeRegions(plan, augmented);
-		const ranked = selectRankedRegions(allRanked, allRanked.length).filter(isVerifiedRankedRegion);
+		const ranked = allRanked.filter(isVerifiedRankedRegion);
 		return packGrepResults({
 			query: plan.query,
 			path: scope.paths[0] ?? ".",

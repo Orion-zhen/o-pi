@@ -6,7 +6,7 @@ import type { GrepDisplayLine } from "./types.js";
 import type { ScopeInventory } from "./inventory.js";
 import type { QueryPlan, RelationIntent } from "./query-plan.js";
 import { scoreLexicalRegions, type LexicalRegionScore } from "./lexical-scorer.js";
-import { assignSourceLocalRanks, classifySymbolMatch, rankCodeRegions, selectRankedRegions } from "./ranking.js";
+import { assignSourceLocalRanks, classifySymbolMatch, rankCodeRegions } from "./ranking.js";
 import type { AutoRegionizationResult, AutoRegionizedFile } from "./regionizer.js";
 import type { TextScanResult } from "./text-scanner.js";
 import type { GrepNearbyResult } from "./types.js";
@@ -98,11 +98,10 @@ export function buildLocalAutoResults(
 	for (const entry of entries) addRegion(byId, withEvidence(entry, sourceRanks.get(entry) ?? Number.MAX_SAFE_INTEGER));
 	const regions = [...byId.values()];
 	const allRanked = rankCodeRegions(plan, regions);
-	const ranked = selectRankedRegions(allRanked, allRanked.length);
 	const nearby = allRanked.length === 0 ? nearbyResults(plan, unitFiles) : [];
 	return {
 		regions,
-		ranked,
+		ranked: allRanked,
 		totalCandidates: allRanked.length,
 		nearby,
 	};

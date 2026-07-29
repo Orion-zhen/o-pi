@@ -51,7 +51,7 @@ scope / ignore / glob / freshness 校验
 
 ## 最终选择
 
-融合候选先按完整 relevance 排序。前三条 relevance head 原样保留；剩余名额使用确定性 MMR，在不提升较差 tier 的前提下减少相似结果。选择结束后 tail 恢复完整 relevance 顺序。
+融合候选先按完整 relevance 排序。前三条 relevance head 原样保留；剩余名额使用确定性 MMR，在不提升较差 tier 的前提下减少相似结果。`grep` 只在最终 packer 的有界候选头部执行一次 MMR；选择结束后 tail 恢复完整 relevance 顺序。
 
 `find` renderer 不再按顶层目录二次选择；宽输出的 `top:` 直接使用已完成 relevance/MMR 选择的前缀，公共目录前缀只做无损文本压缩。
 

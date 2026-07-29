@@ -19,7 +19,7 @@ utility = 0.85 * normalizedRelevance
 
 每一步只在当前最优 tier 内选择，因此多样性不能提升较差 tier。`find` 相似度使用 identity、basename、顶层 component 和 kind；`grep` 使用 identity、symbol、path、candidate role 和 component。相似度只是软惩罚。
 
-MMR 返回确定性的选择顺序，relevance head 保持在最前；不使用按分数比例删除合格候选的 cutoff。
+MMR 返回确定性的选择顺序，relevance head 保持在最前；不使用按分数比例删除合格候选的 cutoff。`grep` 只在本地与外部候选完成融合后执行一次 MMR，范围是 packer 会优先考虑的 `max(32, grep_result_limit * 4)` 个候选；其余候选保持完整 relevance 顺序，继续参与低成本候选回退。
 
 ## Main、nearby 与 related
 
@@ -41,7 +41,7 @@ MMR 返回确定性的选择顺序，relevance head 保持在最前；不使用�
 
 `find` renderer 不再按顶层目录二次选择。宽输出的 `top:` 直接取已完成 relevance/MMR 选择的输入前缀；公共目录前缀只做无损文本压缩，路径树只折叠其余结果。
 
-融合扫描为 `O(N)`，identity 合并通常为常数时间；排序为 `O(N log N)`。MMR 缓存每个剩余候选对已选集合的最大相似度，每次选中一条后线性更新，因此 Top-K 阶段为 `O(NK)`，额外空间为 `O(N)`，没有额外 I/O。
+融合扫描为 `O(N)`，identity 合并通常为常数时间；排序为 `O(N log N)`。`find` 的 MMR 缓存每个剩余候选对已选集合的最大相似度，Top-K 阶段为 `O(NK)`。`grep` 的完整候选数只影响线性融合与排序；MMR 只处理有界 packer 头部 `P`，成本为 `O(WP²)`，其中 similarity window `W <= 256`、`P <= 200`，没有额外 I/O。
 
 稳定顺序使用 path、range、symbol、文本等明确键，不使用文件系统顺序、并发完成顺序或语言服务器返回顺序。
 
@@ -54,5 +54,7 @@ MMR 返回确定性的选择顺序，relevance head 保持在最前；不使用�
 - hop 竞争；
 - exact/reference/test/registration 混合；
 - renderer 顺序一致性。
+
+`scripts/bench-file-tools-search.mjs` 另行覆盖跨 `src`、`tests`、`docs` 和 `agent` 的宽范围 `grep(auto)`，防止完整候选数重新进入 MMR limit。
 
 `npm run bench:file-tools:calibration` 会在临时缓存中重建当前工作树的 Repo Map，并执行 path、symbol、literal、regex、caller 和 test intent 查询，报告逐查询 Top-3、MRR、Recall@3 和冷查询耗时。当前门槛为 MRR/Recall@3 `0.95`。
