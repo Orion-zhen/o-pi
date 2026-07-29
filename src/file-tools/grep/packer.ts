@@ -14,6 +14,7 @@ import type {
 	GrepSkippedFiles,
 	GrepStats,
 	GrepSuccess,
+	GrepQueryMode,
 	TruncationReason,
 } from "./types.js";
 
@@ -25,6 +26,7 @@ const RELATED_MARKER = " [not match, related]";
 
 export interface GrepPackInput {
 	query: string;
+	queryMode: GrepQueryMode;
 	path: string;
 	paths?: string[];
 	scopeErrors?: GrepScopeError[];
@@ -119,6 +121,7 @@ function createSuccess(
 	return {
 		status: "success",
 		query: input.query,
+		query_mode: input.queryMode,
 		path: input.path,
 		...(input.paths === undefined ? {} : { paths: input.paths }),
 		...(input.scopeErrors === undefined || input.scopeErrors.length === 0 ? {} : { scope_errors: input.scopeErrors }),
@@ -184,6 +187,9 @@ export function renderGrepSuccess(result: GrepSuccess): string {
 		const shown = result.scope_errors.slice(0, 2).map(({ path, error }) => `${compactPath(path)}:${error.code}`).join(",");
 		const omitted = result.scope_errors.length - 2;
 		lines.push(`partial; scope_errors=${shown}${omitted > 0 ? `,+${omitted}` : ""}`);
+	}
+	if (result.query_mode === "literal_fallback") {
+		lines.push("warning: invalid regex; exact literal fallback used");
 	}
 	if (result.regions.length === 0) {
 		lines.push("none");
@@ -288,7 +294,8 @@ function unique<T>(values: readonly T[]): T[] {
 }
 
 function isRetrievalSource(source: string): boolean {
-	return source === "text-regex"
+	return source === "text-literal"
+		|| source === "text-regex"
 		|| source === "text-lexical";
 }
 

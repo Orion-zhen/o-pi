@@ -54,6 +54,7 @@ export function verifiedRegion(input: { id: string; signals: readonly CandidateS
 		byteEnd: 16,
 		matchStart: 0,
 		matchEnd: 6,
+		matchMode: "regex",
 		lineText: "needle",
 	};
 	return createVerifiedCodeRegion({
@@ -92,6 +93,7 @@ export function packCandidate(input: {
 		byteEnd: 1,
 		matchStart: Math.max(0, matchStart),
 		matchEnd: Math.max(0, matchStart) + 6,
+		matchMode: "regex",
 		lineText,
 	};
 	const region = createVerifiedCodeRegion({
@@ -117,6 +119,7 @@ export function packCandidate(input: {
 export function packRegions(regions: readonly RankedRegion[], overrides: Partial<GrepPackInput> = {}): GrepSuccess {
 	return packGrepResults({
 		query: "needle",
+		queryMode: "regex",
 		path: ".",
 		regions,
 		stats: {

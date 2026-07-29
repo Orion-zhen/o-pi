@@ -35,7 +35,7 @@ const findParameters = Type.Object(
 );
 const grepParameters = Type.Object(
 	{
-		query: Type.String({ minLength: 1, description: "Case-sensitive pattern; supports regex." }),
+		query: Type.String({ minLength: 1, description: "Case-sensitive line query; valid ECMAScript regex, or exact literal fallback only when it matches." }),
 		path: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: "File or directory scopes; OR/union scope; default workspace." })),
 		glob: Type.Optional(Type.String({ minLength: 1, description: "Relative to each scope; without / matches basenames recursively; use a path pattern such as src/**/*.ts for scoped paths." })),
 	},

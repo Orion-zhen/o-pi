@@ -69,6 +69,7 @@ describe("tool telemetry projections", () => {
 		expect(grepInput.targets).toEqual([{ kind: "path", value: "src" }, { kind: "path", value: "tests" }]);
 		const grepOutput = resultFacts(grepTelemetry, grepParams, fixture<ToolOutcome<GrepSuccess>>({
 			status: "success",
+			query_mode: "regex",
 			path: "src",
 			paths: ["src", "tests"],
 			total_candidates: 3,
@@ -110,6 +111,7 @@ describe("tool telemetry projections", () => {
 			},
 		}));
 		expect(grepOutput.fields).toMatchObject({
+			query_mode: "regex",
 			truncated: true,
 			truncation_reasons: ["result_limit"],
 			total_candidate_count: 3,

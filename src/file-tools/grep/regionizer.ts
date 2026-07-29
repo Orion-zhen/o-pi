@@ -330,7 +330,7 @@ function parsedRegions(
 			symbolRole: "enclosing",
 			authority: unit.authority,
 			signals: ["verified_enclosing_region"],
-			evidence: [textEvidence()],
+			evidence: [textEvidence(first.matchMode)],
 		}, asNonEmpty(sortedHits));
 	});
 }
@@ -347,16 +347,16 @@ function textRegions(
 		endByte: hit.byteEnd,
 		kind: "text",
 		signals: ["verified_text_line"],
-		evidence: [textEvidence()],
+		evidence: [textEvidence(hit.matchMode)],
 	}, [hit]));
 }
 
-function textEvidence(): RegionEvidence {
+function textEvidence(matchMode: TextHit["matchMode"]): RegionEvidence {
 	return {
-		source: "text-regex",
+		source: matchMode === "literal" ? "text-literal" : "text-regex",
 		rank: 1,
 		confidence: 1,
-		reason: "regex",
+		reason: matchMode,
 	};
 }
 

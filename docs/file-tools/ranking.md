@@ -34,7 +34,7 @@ grep 检索证据分为两个独立 family：
 
 | family | 来源 |
 | --- | --- |
-| factual | 当前正文的 regex occurrence |
+| factual | 当前正文的 regex occurrence 或 evidence-gated exact literal occurrence |
 | lexical | 正文 lexical anchor |
 
 同一 family 中重复确认只取最大贡献；不同 family 的高排名证据可以形成共识，但多个低排名来源不能自动压过单来源第一名。LSP authority 是离散结构证据，不参与来源融合。

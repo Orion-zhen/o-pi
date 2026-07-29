@@ -1,6 +1,6 @@
 import { rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ContentOperations } from "../../src/filesystem/contracts/content.js";
 import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspace.js";
@@ -13,7 +13,7 @@ import { compactDisplayLine } from "../../src/file-tools/grep/display.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
-import { createGrepTestContext, expectGrepSuccess, expectInventorySuccess, firstRegion, assertStrictMatches, writeConfig } from "./grep-fixtures.js";
+import { createGrepTestContext, expectGrepSuccess, expectInventorySuccess, firstRegion, assertStrictMatches, grepWithAnalyzer, writeConfig } from "./grep-fixtures.js";
 import { packCandidate, packRegions, queryPlan, rankingEvidence } from "./grep-ranking-fixtures.js";
 
 const testContext = createGrepTestContext();
@@ -42,6 +42,36 @@ describe("grep text search", () => {
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "Needle42" }));
 		expect(firstRegion(result)).toMatchObject({ match_lines: [2], query_match: "verified" });
 		expect(firstRegion(result).display_lines?.[0]?.text).toContain("Needle42");
+	});
+
+	it("非法正则仅在 exact literal 有正文命中时返回带警告的 fallback", async () => {
+		await writeFile(path.join(testContext.workspace, "literal.ts"), "const value = read(input);\n");
+		const analyzeCode = vi.fn(async () => undefined);
+		const literal = expectGrepSuccess(await grepWithAnalyzer(testContext.workspace, {
+			path: ["literal.ts"],
+			query: "read(input",
+		}, { analyzeCode }));
+		expect(literal.query_mode).toBe("literal_fallback");
+		expect(firstRegion(literal)).toMatchObject({
+			query_match: "verified",
+			matched_by: ["literal"],
+			sources: ["text-literal"],
+		});
+		expect(formatCompactGrepResult(literal)).toContain("warning: invalid regex; exact literal fallback used");
+		await assertStrictMatches(testContext.workspace, literal, "read(input");
+
+		const malformedAlternation = await grepWithAnalyzer(testContext.workspace, {
+			path: ["literal.ts"],
+			query: "read(input|read:|ReadEnhancement|remainingSymbols|remaining_symbols",
+		}, { analyzeCode });
+		expect(malformedAlternation).toMatchObject({
+			status: "failed",
+			error: {
+				code: "INVALID_REGEX",
+				next: expect.stringContaining("opening parenthesis"),
+			},
+		});
+		expect(analyzeCode).not.toHaveBeenCalled();
 	});
 
 	it("AST 外文本使用单行协议，并对同一行的多个 occurrence 去重", async () => {
@@ -290,6 +320,7 @@ describe("grep text search", () => {
 		const output = renderGrepSuccess({
 			status: "success",
 			query: "handler",
+			query_mode: "regex",
 			path: ".",
 			total_candidates: 2,
 			returned_regions: 2,
@@ -361,6 +392,7 @@ describe("grep text search", () => {
 		});
 		const result = packGrepResults({
 			query: "needle",
+			queryMode: "regex",
 			path: ".",
 			regions: [candidate],
 			stats: {

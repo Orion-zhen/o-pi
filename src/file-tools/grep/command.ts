@@ -68,6 +68,7 @@ export class GrepTool {
 			operation: context.operation,
 		});
 		if (isFailed(scanned)) return scanned;
+		if (plan.queryMode === "literal_fallback" && scanned.totalHits === 0) return plan.invalidRegex;
 		const analyzed = await analyzeSymbols(plan, inventory, scanned, context);
 		if (isFailed(analyzed)) return analyzed;
 		const regionized = analyzed ?? await this.regionizer.regionize(
@@ -86,6 +87,7 @@ export class GrepTool {
 		const local = buildLocalResults(plan, scanned, regionized, context.limits.grep_regional_display_limit);
 		return packGrepResults({
 			query: plan.query,
+			queryMode: plan.queryMode,
 			path: scope.paths[0] ?? ".",
 			paths: scope.paths,
 			...(scope.errors.length === 0 ? {} : { scopeErrors: scope.errors }),

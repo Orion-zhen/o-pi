@@ -2,7 +2,7 @@ import type { GrepRegion, GrepSuccess, TruncationReason } from "../grep/types.js
 import type { FailedResult } from "../shared/result.js";
 
 const GREP_MATCHED_BY = new Set([
-	"exact-qualified-symbol", "exact-symbol", "symbol-prefix", "regex", "lexical", "related",
+	"exact-qualified-symbol", "exact-symbol", "symbol-prefix", "literal", "regex", "lexical", "related",
 ]);
 const TRUNCATION_REASONS = new Set<TruncationReason>([
 	"traversal_limit",
@@ -19,6 +19,7 @@ export function isGrepSuccessDetails(value: unknown): value is GrepSuccess {
 	return isPlainRecord(value)
 		&& value["status"] === "success"
 		&& typeof value["query"] === "string"
+		&& (value["query_mode"] === "regex" || value["query_mode"] === "literal_fallback")
 		&& typeof value["path"] === "string"
 		&& (value["paths"] === undefined || isStrings(value["paths"]))
 		&& (value["scope_errors"] === undefined || isGrepScopeErrors(value["scope_errors"]))

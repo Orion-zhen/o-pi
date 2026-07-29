@@ -8,6 +8,7 @@ import { queryPlan, rankingEvidence, semanticRegion, verifiedRegion } from "./gr
 describe("grep query plan", () => {
 	it("建立统一逐行正则、机械词项和无操作符结构查询", () => {
 		const plan = queryPlan("Auth(Service|Client)");
+		expect(plan.queryMode).toBe("regex");
 		expect(plan.regex.test("const x = new AuthService()")).toBe(true);
 		expect(plan.targetTerms).toEqual(["Auth", "Service", "Client"]);
 		expect(plan.targetQuery).toBe("Auth Service Client");
@@ -18,10 +19,50 @@ describe("grep query plan", () => {
 	it.each([
 		[{ query: "" }, "INVALID_OPERATION"],
 		[{ query: "a\nb" }, "INVALID_OPERATION"],
-		[{ query: "[" }, "INVALID_REGEX"],
 	] as const)("拒绝非法 query：%j", (params, code) => {
 		const result = createQueryPlan(params);
 		expect(isFailed(result) ? result.error.code : undefined).toBe(code);
+	});
+
+	it("非法正则建立 exact literal probe，并保留原始失败", () => {
+		const plan = queryPlan("read(input");
+		expect(plan).toMatchObject({
+			queryMode: "literal_fallback",
+			invalidRegex: {
+				status: "failed",
+				error: {
+					code: "INVALID_REGEX",
+					next: expect.stringContaining("opening parenthesis"),
+				},
+			},
+		});
+		expect(plan.regex.test("read(input)")).toBe(true);
+		expect(plan.regex.test("readinput")).toBe(false);
+	});
+
+	it("按 regex 失败类型生成不同恢复动作", () => {
+		const cases = [
+			["(", "opening parenthesis"],
+			["foo)", "closing parenthesis"],
+			["[", "character class"],
+			["\\", "trailing backslash"],
+			["[z-a]", "range endpoints"],
+			["*foo", "quantifier"],
+			["a{2,1}", "minimum"],
+			["(?", "group form"],
+			["(?<a>x)(?<a>y)", "unique name"],
+			["(?<1>x)", "valid identifier"],
+			["\\k<missing>", "backreference name"],
+			["\\u{}", "Unicode escape"],
+			["\\p{Nope}", "Unicode property"],
+		] as const;
+		const hints = cases.map(([query, expected]) => {
+			const plan = queryPlan(query);
+			if (plan.queryMode !== "literal_fallback") throw new Error(`expected invalid regex: ${query}`);
+			expect(plan.invalidRegex.error.next).toContain(expected);
+			return plan.invalidRegex.error.next;
+		});
+		expect(new Set(hints)).toHaveLength(cases.length);
 	});
 });
 

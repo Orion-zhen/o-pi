@@ -21,7 +21,7 @@ filesystem 失败使用模型无关的 `FsResult` 与稳定 `FsError` code；too
 - 相对路径按当前 `cwd` 解析；空路径、空数组和空元素非法。
 - `find` 和 `grep` 的旧单路径或分隔字符串由 `tool-repair` 迁移；无法可靠解析时交给 schema 校验失败，不猜测真实路径。
 
-`find` 的 `query` 可以是路径、名称、路径片段、概念或 glob；`grep` 的 `query` 是区分大小写、逐行执行的 ECMAScript 正则。grep glob 由 filesystem discovery 相对每个 scope 解释，只限制候选范围，不改变公共路径安全规则。
+`find` 的 `query` 可以是路径、名称、路径片段、概念或 glob；`grep` 的 `query` 区分大小写并逐行执行。合法 query 使用 ECMAScript 正则；非法正则只在 exact literal 有直接正文命中时返回显式 `literal_fallback`，否则保持 `INVALID_REGEX`。grep glob 由 filesystem discovery 相对每个 scope 解释，只限制候选范围，不改变公共路径安全规则。
 
 ## 模型可见结果
 
@@ -60,7 +60,7 @@ File does not exist.
 </error>
 ```
 
-错误不会伪装成成功的零结果。无效正则、路径错误、权限错误、取消和索引基础设施错误都返回相应结构化错误；只有合法搜索但没有命中时才返回 success/none。
+错误不会伪装成成功的零结果。无效正则仅在 exact literal 有直接命中时返回带警告的成功结果；没有 literal 证据时与路径错误、权限错误、取消和索引基础设施错误一样返回相应结构化错误。只有合法搜索但没有命中时才返回 success/none。
 
 带有恢复方式的错误会增加 `next:` 提示。`READ_REQUIRED` 和 `STALE_READ` 要求重新读取文件；`OLD_TEXT_NOT_UNIQUE` 提供有限数量的可直接使用的唯一 `old/new` hints；`OLD_TEXT_NOT_FOUND` 优先说明前序 replacement 依赖或提供格式等价、稳定 anchor 候选，没有可靠候选时才要求重新读取。诊断不会放宽 edit 的严格匹配语义。
 

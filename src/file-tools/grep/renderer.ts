@@ -33,12 +33,14 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 			`${details.returned_regions} regions`,
 			`${details.returned_files} files`,
 			`${details.stats.searched_files}/${details.stats.traversed_entries} searched/traversed`,
+			details.query_mode === "literal_fallback" ? "literal fallback" : undefined,
 			details.truncated_by.length > 0 ? `limit:${formatLimitReasons(details.truncated_by)}` : undefined,
 			details.scope_errors === undefined || details.scope_errors.length === 0 ? undefined : `${details.scope_errors.length} scope ${details.scope_errors.length === 1 ? "error" : "errors"}`,
 		]),
 	}, theme);
 	if (!expanded) return header;
 	const lines = [header];
+	if (details.query_mode === "literal_fallback") lines.push(theme.fg("warning", "invalid regex; exact literal fallback used"));
 	appendRegions(lines, details.regions, theme);
 	if (details.truncated_by.length > 0) lines.push(theme.fg("muted", `limit: ${formatLimitReasons(details.truncated_by, ", ")}`));
 	if (details.scope_errors !== undefined && details.scope_errors.length > 0) lines.push(theme.fg("muted", `Scope errors: ${details.scope_errors.map((item) => `${item.path}:${item.error.code}`).join(", ")}.`));

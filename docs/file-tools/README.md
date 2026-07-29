@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | 查看目录 | `ls` | 只列直属成员，不递归、不读文件内容 |
 | 按路径、名称或 glob 找文件 | `find` | 不搜索文件正文或 symbol |
-| 用行正则搜索正文或相关代码区域 | `grep` | 不负责按路径找文件 |
+| 用逐行 query 搜索正文或相关代码区域 | `grep` | 不负责按路径找文件 |
 | 读取明确文件 | `read` | 不会把目录自动转换成目录列表 |
 | 创建或完整覆盖文件 | `write` | 不做局部合并 |
 | 修改已有文件的局部内容 | `edit` | 必须先 `read`，或紧接当前 session 的成功 `write/edit`；不创建、不完整覆盖 |
@@ -88,7 +88,7 @@ blocked path  → 不可列出、搜索、读取或写入
 - `STALE_READ`：文件在读取后发生变化，重新 `read` 后再编辑。
 - `OLD_TEXT_NOT_UNIQUE`：优先使用错误中返回的唯一 `old/new` pair 重试；文件变化时再重新 `read`。
 - `OLD_TEXT_NOT_FOUND`：按错误提示消除前序 replacement 依赖，或使用格式等价/anchor 候选重写 `old`；没有可靠候选时重新 `read`。
-- 无效正则、路径错误和权限错误不会伪装成零结果。
+- 无效正则只有在 exact literal 存在直接命中时才显式降级；否则与路径、权限错误一样不会伪装成零结果。
 
 公共输出和错误协议见 [工具契约](contracts.md)。
 
@@ -104,7 +104,7 @@ blocked path  → 不可列出、搜索、读取或写入
 
 ### `grep`
 
-`grep` 对 `query` 执行区分大小写的逐行正则搜索。简单查询使用 Tree-sitter 将真实正文命中折叠到最小代码单元；结构化查询有多个命中或零正文命中时，可选 LSP analyzer 接管 symbol 解析，并根据跨代码单元 incoming call/reference 标记 `called`、`referenced` 或 `defined`。排序不识别 `src`、`tests`、fixture 等路径含义，而是在每个 query tier 内优先实际参与调用链的定义。related 数量由 `grep_related_result_limit` 静默限制；剩余结果按结构 tier、BM25F 和来源融合排序，再以 relevance head + 同 tier MMR 受 `grep_result_limit` 限制。
+`grep` 对 `query` 执行区分大小写的逐行搜索。合法 query 使用 ECMAScript 正则；非法正则只有在 exact literal 存在直接正文命中时才返回显式 `literal_fallback`，否则保持 `INVALID_REGEX`。简单查询使用 Tree-sitter 将真实正文命中折叠到最小代码单元；结构化查询有多个命中或零正文命中时，可选 LSP analyzer 接管 symbol 解析，并根据跨代码单元 incoming call/reference 标记 `called`、`referenced` 或 `defined`。排序不识别 `src`、`tests`、fixture 等路径含义，而是在每个 query tier 内优先实际参与调用链的定义。related 数量由 `grep_related_result_limit` 静默限制；剩余结果按结构 tier、BM25F 和来源融合排序，再以 relevance head + 同 tier MMR 受 `grep_result_limit` 限制。
 
 ### `read`
 

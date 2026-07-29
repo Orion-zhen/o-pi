@@ -4,9 +4,11 @@ export type GrepMatchedBy =
 	| "exact-qualified-symbol"
 	| "exact-symbol"
 	| "symbol-prefix"
+	| "literal"
 	| "regex"
 	| "lexical"
 	| "related";
+export type GrepQueryMode = "regex" | "literal_fallback";
 export type TruncationReason =
 	| "traversal_limit"
 	| "result_limit";
@@ -96,6 +98,7 @@ export interface GrepRankingDiagnostics {
 export interface GrepSuccess {
 	status: "success";
 	query: string;
+	query_mode: GrepQueryMode;
 	path: string;
 	paths?: string[];
 	scope_errors?: GrepScopeError[];

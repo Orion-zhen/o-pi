@@ -6,6 +6,7 @@
 
 | family | 来源 | 用途 |
 | --- | --- | --- |
+| factual | `text-literal` | 非法正则经 evidence gate 接受后的 exact literal 正文命中 |
 | factual | `text-regex` | 当前正文的逐行正则命中 |
 | lexical | `text-lexical` | 整次零正文命中时的词项 related 回退 |
 
@@ -21,7 +22,7 @@ fusionScore = sum(familyContribution)
 
 来源 rank 和稳定顺序严格分离：
 
-- 所有正则命中都只是同等的事实准入，`text-regex` rank 固定为 1；
+- 所有 literal/正则命中都只是同等的事实准入，`text-literal` / `text-regex` rank 固定为 1；
 - lexical 质量形成自身的相关性 rank；
 - 等相关候选共享 rank，path/range/id 只负责确定性破平。
 

@@ -61,7 +61,7 @@ registerObservedTool(pi, { tool, repair, telemetry: searchTelemetry });
 
 投影边界限制字段、数组、资源数量和字符串长度。显式文本摘要只计算字符数和行数；越界字符串额外保留 SHA-256。异常与限幅分别写入 `telemetry_<scope>_error`、`telemetry_<scope>_limited`。projector 只收到按访问惰性创建的只读视图，不会深拷贝未访问的大 payload，错误也不会逃逸到工具执行路径。
 
-grep 候选使用 `verified` / `related` group。专项字段记录 `text_hit_count`、返回的两类候选数、搜索/AST 工作量，以及正文 hit、related anchor、related 静默限额和 AST 大文件跳过的内部容量计数；这些字段不进入模型可见 grep 正文，也不保存 query。
+grep 候选使用 `verified` / `related` group。`query_mode` 区分 `regex` 与 evidence-gated `literal_fallback`，候选 source 进一步区分 `text-regex`、`text-literal` 和 `text-lexical`。专项字段记录 `text_hit_count`、返回的两类候选数、搜索/AST 工作量，以及正文 hit、related anchor、related 静默限额和 AST 大文件跳过的内部容量计数；这些字段不保存 query。
 
 grep 排序事实分为两层：
 

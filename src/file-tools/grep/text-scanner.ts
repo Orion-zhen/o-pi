@@ -59,10 +59,10 @@ interface FileScanSuccess {
 	readonly droppedRelatedAnchors: number;
 }
 
-/** 通过 filesystem line scan 产生正则事实命中，并同步收集零命中回退所需的有界词法证据。 */
+/** 通过 filesystem line scan 产生 regex/literal 事实命中，并同步收集零命中回退所需的有界词法证据。 */
 export async function scanInventoryText(
 	inventory: ScopeInventory,
-	plan: Pick<QueryPlan, "regex" | "targetTerms" | "targetQuery">,
+	plan: Pick<QueryPlan, "queryMode" | "regex" | "targetTerms" | "targetQuery">,
 	context: TextScannerContext,
 ): Promise<ToolOutcome<TextScanResult>> {
 	const maxStoredHits = context.maxStoredHits ?? MAX_STORED_TEXT_HITS;
@@ -131,7 +131,7 @@ export async function scanInventoryText(
 
 async function scanFile(
 	file: ScopedFile,
-	plan: Pick<QueryPlan, "targetTerms" | "targetQuery">,
+	plan: Pick<QueryPlan, "queryMode" | "targetTerms" | "targetQuery">,
 	matcher: (line: string) => LineMatch | undefined,
 	context: TextScannerContext,
 	remainingHitCapacity: number,
@@ -163,7 +163,7 @@ async function scanFile(
 			if (match !== undefined) {
 				totalHits += 1;
 				if (fileHits.length < remainingHitCapacity) {
-					const hit = createTextHit(file.path, line, match);
+					const hit = createTextHit(file.path, line, match, plan.queryMode);
 					if (hit !== undefined) fileHits.push(hit);
 				} else droppedTextHits += 1;
 			}
@@ -215,6 +215,7 @@ function createTextHit(
 	path: string,
 	line: ScannedLine,
 	match: LineMatch,
+	queryMode: QueryPlan["queryMode"],
 ): TextHit | undefined {
 	const startByte = utf8ByteOffset(line.text, match.start);
 	const endByte = utf8ByteOffset(line.text, match.end);
@@ -226,6 +227,7 @@ function createTextHit(
 		byteEnd: line.byteStart + endByte,
 		matchStart: match.start,
 		matchEnd: match.end,
+		matchMode: queryMode === "literal_fallback" ? "literal" : "regex",
 		lineText: line.text,
 	};
 }

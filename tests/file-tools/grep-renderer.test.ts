@@ -67,12 +67,31 @@ describe("grep renderer", () => {
 		expect(output).not.toContain("kind=text");
 		expect(output).toContain("agent/defaults/lsp.jsonc:24: \"workspace_symbol_limit\": 24");
 	});
+
+	it("literal fallback 在折叠摘要和展开警告中显式展示", () => {
+		const base = success();
+		const first = base.regions[0];
+		if (first === undefined) throw new Error("missing fixture region");
+		const details: GrepSuccess = {
+			...base,
+			query: "read(input",
+			query_mode: "literal_fallback",
+			regions: [{
+				...first,
+				matched_by: ["literal"],
+				sources: ["text-literal"],
+			}],
+		};
+		expect(formatGrepResult(details, false, theme)).toContain("literal fallback");
+		expect(formatGrepResult(details, true, theme)).toContain("invalid regex; exact literal fallback used");
+	});
 });
 
 function success(): GrepSuccess {
 	return {
 		status: "success",
 		query: "authentication flow",
+		query_mode: "regex",
 		path: ".",
 		total_candidates: 3,
 		returned_regions: 1,

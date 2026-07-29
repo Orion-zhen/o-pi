@@ -5,6 +5,7 @@ import type { GrepDisplayLine, GrepMatchedBy } from "./types.js";
 export type SymbolRole = "definition" | "enclosing";
 
 export type RetrievalSource =
+	| "text-literal"
 	| "text-regex"
 	| "text-lexical";
 
@@ -32,6 +33,7 @@ export interface TextHit {
 	/** 0-based UTF-16 offsets within lineText. */
 	readonly matchStart: number;
 	readonly matchEnd: number;
+	readonly matchMode: "literal" | "regex";
 	readonly lineText: string;
 }
 
@@ -174,9 +176,10 @@ export function normalizeMatchedBy(
 	if (signalSet.has("exact_symbol_definition") || signalSet.has("exact_member_definition")) methods.add("exact-symbol");
 	if (signalSet.has("symbol_prefix")) methods.add("symbol-prefix");
 	if (signalSet.has("related_symbol")) methods.add("related");
+	if (sources.has("text-literal")) methods.add("literal");
 	if (sources.has("text-regex")) methods.add("regex");
 	if (sources.has("text-lexical")) methods.add("lexical");
-	const order: readonly GrepMatchedBy[] = ["exact-qualified-symbol", "exact-symbol", "symbol-prefix", "regex", "lexical", "related"];
+	const order: readonly GrepMatchedBy[] = ["exact-qualified-symbol", "exact-symbol", "symbol-prefix", "literal", "regex", "lexical", "related"];
 	return order.filter((method) => methods.has(method));
 }
 

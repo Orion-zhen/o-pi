@@ -19,11 +19,13 @@ export const GREP_MMR_LAMBDA = 0.85;
 export const GREP_RANKING_ALGORITHM = "semantic-tier-bm25f-rrf-mmr-v2";
 
 export const GREP_SOURCE_FAMILY: Readonly<Record<RetrievalSource, RankingEvidenceFamily>> = {
+	"text-literal": "factual",
 	"text-regex": "factual",
 	"text-lexical": "lexical",
 };
 
 const SOURCE_WEIGHT: Readonly<Record<RetrievalSource, number>> = {
+	"text-literal": 1,
 	"text-regex": 1,
 	"text-lexical": 0.75,
 };

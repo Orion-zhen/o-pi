@@ -5,14 +5,14 @@
 ```text
 QueryPlan
 -> ScopeInventory
--> line regex scan
+-> line matcher scan
 -> optional LSP symbol analysis
    or Tree-sitter regionization
 -> deterministic ranking
 -> relevance-head/MMR packing
 ```
 
-每个 verified 结果都来自当前正文中的真实正则命中。简单查询只有一个直接命中，或 query 含正则操作符时，不启动 LSP。结构化查询有多个命中或整次扫描零命中时，可选 LSP analyzer 一次完成 symbol 选择、代码单元解析和关系判断；不可用时才由 Tree-sitter 折叠最小代码单元。零正文命中时允许机械词项形成明确标记的 related 结果。
+每个 verified 结果都来自当前正文中的真实逐行命中。合法 query 按 ECMAScript 正则执行；非法正则只探测完全相同的 literal，存在直接命中时返回明确标记的 `literal_fallback`，否则仍返回 `INVALID_REGEX`，不伪装成零结果或启动 related 回退。简单查询只有一个直接命中，或 query 含正则操作符时，不启动 LSP。结构化查询有多个命中或整次扫描零命中时，可选 LSP analyzer 一次完成 symbol 选择、代码单元解析和关系判断；不可用时才由 Tree-sitter 折叠最小代码单元。零正文命中时允许机械词项形成明确标记的 related 结果。
 
 ## 参数
 
@@ -24,11 +24,11 @@ QueryPlan
 }
 ```
 
-- `query`：区分大小写、逐 logical line 执行的正则表达式，不支持跨行。
+- `query`：区分大小写、逐 logical line 执行；合法 ECMAScript 正则按正则匹配，不支持跨行。非法正则仅在 exact literal 有直接正文命中时降级。
 - `path`：非空目录或普通文件 scope 数组，默认 `["."]`；多个 scope 是 OR/union。
 - `glob`：相对每个 path 的候选文件 glob，只缩小范围；不含 `/` 时递归匹配 basename，含 `/` 时匹配 scope-relative path。
 - 相对路径按 `cwd` 解析；目录递归检索，文件只检索该文件。
-- `path: []`、空 path、CR/LF query 和无效正则非法。
+- `path: []`、空 path 和 CR/LF query 非法；无效正则且无 exact literal 命中时非法。
 
 grep 没有 match mode，也不分类 identifier、long text、natural language 或 relation intent。
 
@@ -36,7 +36,18 @@ grep 没有 match mode，也不分类 identifier、long text、natural language 
 
 ### 正文命中
 
-所有文件通过一次稳定 line scan 执行 query 正则。命中受支持代码时，Tree-sitter 将同一最小 code unit 中的命中聚合为一个 verified region；无法解析或没有语法归属的命中保持为文本行。
+所有文件通过一次稳定 line scan 执行已解析的 query matcher。合法正则直接执行；非法正则使用完全转义后的 exact literal matcher 探测，但只有整次扫描至少一个直接命中时才接受。命中受支持代码时，Tree-sitter 将同一最小 code unit 中的命中聚合为一个 verified region；无法解析或没有语法归属的命中保持为文本行。
+
+literal fallback 的成功正文在结果开始处显示：
+
+```text
+<grep>
+warning: invalid regex; exact literal fallback used
+src/parser.ts:42: const value = read(input);
+</grep>
+```
+
+`details.query_mode` 为 `regex` 或 `literal_fallback`；fallback region 的 `matched_by` 为 `literal`、source 为 `text-literal`。
 
 ### Symbol 分析与零命中回退
 
@@ -80,7 +91,7 @@ query tier 从强到弱依次覆盖：
 
 每个 query tier 内再按 `called -> referenced -> defined -> unknown` 分成 authority band。Tree-sitter 只能确认 `defined`；LSP 可通过跨代码单元 incoming call/reference 提升 authority。外部引用必须来自候选自身范围之外，同一声明内部的自引用不计入提升。
 
-同一结构 tier 的 BM25F 字段依次覆盖叶子 symbol、qualified symbol/owner、path、declaration/signature 和命中正文。正则命中只提供事实准入，不使用文件遍历位置作为相关性 rank。排序不推断 `src` / `tests` 语义，也不按 token 成本重排。
+同一结构 tier 的 BM25F 字段依次覆盖叶子 symbol、qualified symbol/owner、path、declaration/signature 和命中正文。regex/literal 命中只提供事实准入，不使用文件遍历位置作为相关性 rank。排序不推断 `src` / `tests` 语义，也不按 token 成本重排。
 
 ## 输出
 
@@ -154,7 +165,7 @@ next: refine query/path/glob
 | code | 条件 |
 | --- | --- |
 | `INVALID_OPERATION` | query 为空、包含 NUL 或 CR/LF |
-| `INVALID_REGEX` | query 不是合法正则 |
+| `INVALID_REGEX` | query 不是合法正则，且 exact literal 探测无直接命中 |
 | `INVALID_PATH` | path/glob 非法 |
 | `PATH_NOT_FOUND` | scope 不存在 |
 | `PROTECTED_PATH` | path 被配置阻止 |

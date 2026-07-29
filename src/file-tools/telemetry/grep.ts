@@ -29,6 +29,7 @@ function grepResultFields(details: Record<string, unknown>): Fields {
 	return fields({
 		status: string(details["status"]),
 		error_code: string(record(details["error"])["code"]),
+		query_mode: string(details["query_mode"]),
 		truncated: truncationReasons !== undefined && truncationReasons.length > 0 ? true : undefined,
 		truncation_reasons: truncationReasons,
 		total_candidate_count: number(details["total_candidates"]),
