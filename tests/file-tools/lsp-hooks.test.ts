@@ -112,6 +112,7 @@ describe("file-tools lsp hooks", () => {
 				afterCalled = true;
 				expect(input.created).toBe(false);
 				expect(input.baseline?.known).toBe(true);
+				expect(input.changed_ranges).toEqual([{ start_line: 1, end_line: 1 }]);
 				return diagnostics("warnings");
 			},
 		};

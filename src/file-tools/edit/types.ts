@@ -6,6 +6,11 @@ export interface EditReplacement {
 	replace_all?: boolean;
 }
 
+export interface EditLineRange {
+	startLine: number;
+	endLine: number;
+}
+
 export interface EditMatchHint {
 	line: number;
 	old: string;

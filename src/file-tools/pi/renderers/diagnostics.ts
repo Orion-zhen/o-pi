@@ -29,6 +29,23 @@ export function formatMutationPostProcessSummary(progress: MutationPostProcessPr
 	return `${lsp} · ${formatRepoMapProgress(progress.repo_map)}`;
 }
 
+export function formatEditDiagnostics(
+	diagnostics: DiagnosticsSummary | undefined,
+	theme: Pick<Theme, "fg">,
+): string | undefined {
+	if (diagnostics === undefined || diagnostics.items.length === 0) return undefined;
+	const uncertain = diagnostics.baseline === "unknown";
+	const lines = diagnostics.items
+		.filter((item) => item.severity === "error" || item.severity === "warning")
+		.map((item) => {
+			const prefix = uncertain ? item.severity : `new ${item.severity}`;
+			const certainty = uncertain ? " (causality uncertain)" : "";
+			const code = item.code === undefined ? "" : ` (${item.code})`;
+			return theme.fg("toolOutput", `${prefix} at line ${item.line}${certainty}: ${item.message}${code}`);
+		});
+	return lines.length === 0 ? undefined : lines.join("\n");
+}
+
 export function formatLspDiagnostics(
 	diagnostics: DiagnosticsSummary | undefined,
 	theme: Pick<Theme, "fg">,

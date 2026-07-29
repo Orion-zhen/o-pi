@@ -7,7 +7,7 @@ import type { EditPreviewSuccess } from "../../edit/types.js";
 import type { FailedResult } from "../../shared/result.js";
 import { isPlainRecord } from "../guards.js";
 import { isMutationProgress, type MutationPostProcessProgressDetails } from "../progress.js";
-import { formatDiffStats, formatLspDiagnostics, formatLspSummary, formatMutationPostProcessSummary } from "./diagnostics.js";
+import { formatDiffStats, formatEditDiagnostics, formatMutationPostProcessSummary } from "./diagnostics.js";
 import { formatFailureCard } from "./shared.js";
 
 type EditPreview = EditPreviewSuccess | FailedResult;
@@ -155,11 +155,11 @@ function formatEditResult(details: unknown, theme: Theme, args: unknown, expande
 		tool: "edit",
 		status: "success",
 		target: details.path,
-		summary: joinParts(["done", formatDiffStats(details.diff), `${details.replacements} replacements`, formatLspSummary(details.lsp?.diagnostics)]),
+		summary: joinParts(["done", formatDiffStats(details.diff), `${details.replacements} replacements`]),
 	}, theme);
 	const diff = details.diff === "" ? undefined : renderDiff(details.diff);
 	if (!expanded) return header;
-	const diagnostics = formatLspDiagnostics(details.lsp?.diagnostics, theme);
+	const diagnostics = formatEditDiagnostics(details.lsp?.diagnostics, theme);
 	return [header, diff, diagnostics].filter((part): part is string => part !== undefined).join("\n\n");
 }
 

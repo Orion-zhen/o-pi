@@ -8,7 +8,7 @@ import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from 
 import type { TextDiff, TextDiffGenerator } from "../shared/text-diff.js";
 import { buildEditMatchHints, buildEditNotFoundRecovery } from "./hints.js";
 import type { EditDiagnosticsSource, EditMutationObserver } from "./ports.js";
-import type { EditParams, EditPreviewSuccess, EditReplacement, EditSuccess } from "./types.js";
+import type { EditLineRange, EditParams, EditPreviewSuccess, EditReplacement, EditSuccess } from "./types.js";
 
 const encoder = new TextEncoder();
 const UTF8_BOM = new Uint8Array([0xef, 0xbb, 0xbf]);
@@ -47,6 +47,7 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 	let before: TextContent | undefined;
 	let updatedText: string | undefined;
 	let replacementCount: number | undefined;
+	let changedRanges: readonly EditLineRange[] | undefined;
 	let renderedDiff: TextDiff | undefined;
 	let baseline: DiagnosticSnapshot | undefined;
 	const mutated = await context.filesystem.mutations.run<FailedResult>(
@@ -62,6 +63,7 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 			before = prepared.file;
 			updatedText = prepared.updatedText;
 			replacementCount = prepared.replacementCount;
+			changedRanges = prepared.changedRanges;
 			const output = buildTextBytes(updatedText, before.hasBom, target.displayPath, context.maxFileBytes);
 			if (isFailed(output)) return { type: "reject", reason: output };
 			renderedDiff = await context.diff.generate(normalizeLineEndings(before.text), normalizeLineEndings(updatedText));
@@ -79,7 +81,7 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 	);
 	if (!mutated.ok) return mapMutationError(mutated.error);
 	if (!mutated.value.committed) return mutated.value.reason;
-	if (before === undefined || updatedText === undefined || replacementCount === undefined || renderedDiff === undefined) {
+	if (before === undefined || updatedText === undefined || replacementCount === undefined || changedRanges === undefined || renderedDiff === undefined) {
 		return fail("ACCESS_DENIED", "File could not be written.", { path: target.displayPath });
 	}
 
@@ -96,7 +98,7 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 		...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
 	};
 	const [diagnostics, graph] = await Promise.all([
-		safeAfterEdit(context.diagnostics, receipt.target, updatedText, baseline, context.operation.signal),
+		safeAfterEdit(context.diagnostics, receipt.target, updatedText, changedRanges, baseline, context.operation.signal),
 		safeMutationObserver(context.mutationObserver, receipt.target, renderedDiff.firstChangedLine, context.operation.signal),
 	]);
 	if (diagnostics !== undefined) result.lsp = { diagnostics };
@@ -166,7 +168,7 @@ function prepareSnapshot(
 	target: TargetRef,
 	edits: readonly EditReplacement[],
 	context: EditCommandContext,
-): ToolOutcome<{ file: TextContent; updatedText: string; replacementCount: number }> {
+): ToolOutcome<{ file: TextContent; updatedText: string; replacementCount: number; changedRanges: readonly EditLineRange[] }> {
 	if (!snapshot.exists) return fail("FILE_NOT_FOUND", "File does not exist.", { path: target.displayPath });
 	const file = context.filesystem.content.decodeText(
 		{ bytes: snapshot.bytes, hash: snapshot.hash, sizeBytes: snapshot.sizeBytes },
@@ -189,7 +191,12 @@ function prepareSnapshot(
 		});
 	}
 	const updated = applyReplacements(file.value.text, edits, target.displayPath, context.matchHintLimit);
-	return isFailed(updated) ? updated : { file: file.value, updatedText: updated.text, replacementCount: updated.replacements };
+	return isFailed(updated) ? updated : {
+		file: file.value,
+		updatedText: updated.text,
+		replacementCount: updated.replacements,
+		changedRanges: updated.changedRanges,
+	};
 }
 
 function validateEditInput(params: unknown): ToolOutcome<EditParams> {
@@ -231,7 +238,7 @@ function applyReplacements(
 	replacements: readonly EditReplacement[],
 	path: string,
 	hintLimit: number,
-): ToolOutcome<{ text: string; replacements: number }> {
+): ToolOutcome<{ text: string; replacements: number; changedRanges: readonly EditLineRange[] }> {
 	const matches: Array<{ index: number; start: number; end: number; replacement: EditReplacement }> = [];
 	for (let index = 0; index < replacements.length; index += 1) {
 		const replacement = replacements[index];
@@ -264,11 +271,20 @@ function applyReplacements(
 	}
 	let output = "";
 	let cursor = 0;
+	const outputSpans: Array<{ start: number; end: number }> = [];
 	for (const match of matches) {
-		output += text.slice(cursor, match.start) + match.replacement.new;
+		output += text.slice(cursor, match.start);
+		const start = output.length;
+		output += match.replacement.new;
+		outputSpans.push({ start, end: output.length });
 		cursor = match.end;
 	}
-	return { text: output + text.slice(cursor), replacements: matches.length };
+	const updatedText = output + text.slice(cursor);
+	return {
+		text: updatedText,
+		replacements: matches.length,
+		changedRanges: mergeLineRanges(outputSpans.map((span) => lineRangeAt(updatedText, span.start, span.end))),
+	};
 }
 
 function notFoundFailure(
@@ -350,6 +366,34 @@ function validateTextSize(text: string, hasBom: boolean, path: string, maxBytes:
 	});
 }
 
+function lineRangeAt(text: string, startOffset: number, endOffset: number): EditLineRange {
+	return {
+		startLine: lineAtOffset(text, startOffset),
+		endLine: lineAtOffset(text, Math.max(startOffset, endOffset)),
+	};
+}
+
+function lineAtOffset(text: string, offset: number): number {
+	let line = 1;
+	for (let index = 0; index < offset; index += 1) {
+		if (text[index] === "\n") line += 1;
+	}
+	return line;
+}
+
+function mergeLineRanges(ranges: readonly EditLineRange[]): readonly EditLineRange[] {
+	const merged: EditLineRange[] = [];
+	for (const range of ranges) {
+		const previous = merged.at(-1);
+		if (previous === undefined || range.startLine > previous.endLine + 1) {
+			merged.push({ ...range });
+			continue;
+		}
+		previous.endLine = Math.max(previous.endLine, range.endLine);
+	}
+	return merged;
+}
+
 function normalizeLineEndings(text: string): string {
 	return text.replace(/\r\n/gu, "\n").replace(/\r/gu, "\n");
 }
@@ -379,9 +423,16 @@ async function safeBeforeEdit(source: EditDiagnosticsSource | undefined, target:
 		return undefined;
 	}
 }
-async function safeAfterEdit(source: EditDiagnosticsSource | undefined, target: TargetRef, content: string, baseline: DiagnosticSnapshot | undefined, signal: AbortSignal | undefined) {
+async function safeAfterEdit(
+	source: EditDiagnosticsSource | undefined,
+	target: TargetRef,
+	content: string,
+	changedRanges: readonly EditLineRange[],
+	baseline: DiagnosticSnapshot | undefined,
+	signal: AbortSignal | undefined,
+) {
 	try {
-		return await source?.afterEdit({ target, content, ...(baseline === undefined ? {} : { baseline }), ...(signal === undefined ? {} : { signal }) });
+		return await source?.afterEdit({ target, content, changedRanges, ...(baseline === undefined ? {} : { baseline }), ...(signal === undefined ? {} : { signal }) });
 	} catch {
 		return undefined;
 	}

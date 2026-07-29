@@ -44,7 +44,7 @@ agent/configs/lsp.jsonc
 | `enabled` | `true` | 是否在 `write` / `edit` 写盘成功后查询当前文件 diagnostics。关闭后不返回 `lsp.diagnostics`。 |
 | `max_wait_ms` | `3000` | pull diagnostics 请求或 fallback publish 等待的最长时间，范围 `0`-`60000`。没有本次结果时即使存在旧快照也返回 `status: "timeout"`。 |
 | `settle_ms` | `150` | fallback 收到 publish 后事件驱动等待稳定的时间，范围 `0`-`5000`；每次新 publish 重置 debounce。pull report 不需要 settle。 |
-| `max_items` | `8` | 返回给模型和 expanded TUI 的诊断条数，范围 `0`-`100`。统计字段仍按过滤后的全部诊断计算。 |
+| `max_items` | `8` | `write` 返回给模型和 expanded TUI 的诊断条数；`edit` 对可归因问题使用同一上限，范围 `0`-`100`。统计字段仍按文件全部诊断计算。 |
 | `max_related_locations` | `2` | 每条诊断最多附加的 related locations 数，范围 `0`-`10`；位置写入现有 message，不增加工具协议字段。 |
 | `min_severity` | `"warning"` | 最低返回级别。可选 `"error"`、`"warning"`、`"information"`、`"hint"`；级别越低返回越多。 |
 
@@ -228,7 +228,7 @@ binary 不存在、TCP endpoint 不可达或 initialize 失败时 server 标记�
 - `read`：部分行范围读取且最小包围 symbol 的声明行不可见时可返回 `lsp.enclosing_symbol`；整文件读取被截断且可见片段不足以覆盖大部分顶层声明时，才可返回非递归的 `remaining_symbols` 长文件导航 fallback。outline 关闭或上限为 `0` 且不需要 enclosing symbol 时不会启动 LSP。只为 `documentSymbol` 打开的文档会在请求后关闭，但保留有界的本地内容版本和 symbol cache；相同内容的暖态读取直接复用 cache，不重新打开文档或发送 symbol 请求。
 - `grep`：仅在 `match=auto` 且 query 像 symbol 时调用 workspace/symbol；请求范围来自完整 `ScopeInventory` 的 scope+glob allowed paths，不受本地解析或词法 Top-K 门控。多个 server 并行查询但按配置顺序稳定合并；symbol、resolve 和 reference 的结果由 grep 统一检查 scope、visibility、glob、live version/hash 和 range。`grep.references` 开启后只查询有效接收的 symbol，并以有界并发、全局去重和最终预算合并引用。调用方取消和统一操作 deadline 会贯穿 query、resolve、references 并触发协议级取消；所有 LSP 失败继续按独立文本链降级。
 - `write`：写盘成功后先向已启动且 watcher 匹配的 server 发送 create/change 事件；配置文件不需要属于源码路由，也不会因此启动新 server。同一并行 mutation 批次按 client 合并 watcher 通知，随后先同步该 client 的全部文档。server 声明 `diagnosticProvider` 时以有界并发 pull diagnostics；未声明 pull 但公开 `typescript.tsserverRequest` 命令时走 TSLS 同步诊断 fast path；其余 server 并行等待 publish。诊断错误不改变 `status: "written"`。
-- `edit`：preview 不调用 LSP；成功写盘后发送 watched-file change，并只用同一 workspace/server source 的编辑前 baseline 计算 diagnostics diff；不同 source 的 baseline 标记为 unknown，诊断错误不改变 `status: "applied"`。
+- `edit`：preview 不调用 LSP；成功写盘后发送 watched-file change，并只用同一 workspace/server source 的编辑前 baseline 计算 diagnostics diff。baseline 已知时只返回新增 error，以及修改范围内的新增 warning；baseline 未知时只返回修改范围或所属 symbol 内的 error，并标记 `causality uncertain`。原有、已解决、clean、total 和文件级统计不进入 edit 模型输出；不同 source 的 baseline 标记为 unknown，诊断错误不改变 `status: "applied"`。
 - `ls` / `find`：不接入 LSP。
 
 不会自动 apply code actions、organize imports、跨文件 rename。

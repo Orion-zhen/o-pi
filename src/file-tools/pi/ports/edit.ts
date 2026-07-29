@@ -38,6 +38,7 @@ export function createEditPorts(
 					filePath: target.canonicalPath,
 					content: input.content,
 					created: false,
+					changed_ranges: input.changedRanges.map((range) => ({ start_line: range.startLine, end_line: range.endLine })),
 					...(input.baseline === undefined ? {} : { baseline: input.baseline }),
 				};
 				if (batch !== undefined) return await batch.lsp(lspInput, lsp, progress);

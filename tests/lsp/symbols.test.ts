@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { SymbolKind, type DocumentSymbol, type SymbolInformation } from "vscode-languageserver-protocol";
 
-import { findEnclosingSymbol, remainingSymbols } from "../../src/lsp/symbols.js";
+import { findEnclosingSymbol, modifiedSymbolRanges, remainingSymbols } from "../../src/lsp/symbols.js";
 
 const workspace = path.resolve("workspace");
 
@@ -34,6 +34,17 @@ describe("lsp symbols", () => {
 	] as const)("enclosing symbol only reports a hidden declaration for a partial range: %s", (_label, startLine, endLine, name) => {
 		const symbols = [symbol("demo", 0, undefined, 2)];
 		expect(findEnclosingSymbol(symbols, startLine, endLine)?.name).toBe(name);
+	});
+
+	it("找到每个修改范围所属的最小 symbol", () => {
+		const symbols = [symbol("outer", 0, [symbol("inner", 1, undefined, 4)], 6)];
+		expect(modifiedSymbolRanges(symbols, [
+			{ startLine: 3, endLine: 3 },
+			{ startLine: 6, endLine: 6 },
+		])).toMatchObject([
+			{ name: "inner", line: 2, end_line: 5 },
+			{ name: "outer", line: 1, end_line: 7 },
+		]);
 	});
 
 	it("nested symbol with a visible declaration does not fall back to an outer symbol", () => {

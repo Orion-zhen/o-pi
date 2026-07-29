@@ -14,6 +14,16 @@ const severityOrder: Record<LspSeverityName, number> = {
 
 type DiagnosticsListener = (snapshot: LspDiagnosticSnapshot) => void;
 
+export interface DiagnosticLineRange {
+	startLine: number;
+	endLine: number;
+}
+
+export interface DiagnosticSelection {
+	changedRanges: readonly DiagnosticLineRange[];
+	symbolRanges?: readonly DiagnosticLineRange[];
+}
+
 /** 保存按 client source+URI 分区的诊断快照，并提供事件驱动等待和 compact diff。 */
 export class DiagnosticsLedger {
 	private readonly entries = new Map<string, LspDiagnosticSnapshot>();
@@ -133,6 +143,7 @@ export function summarizeDiagnostics(
 	baseline: LspDiagnosticSnapshot | undefined,
 	maxItems: number,
 	overrideStatus?: "unavailable" | "timeout",
+	selection?: DiagnosticSelection,
 ): LspDiagnosticsSummary {
 	const baselineKnown = baseline?.known === true && baseline.source === after.source && baseline.uri === after.uri;
 	if (overrideStatus !== undefined) return emptySummary(overrideStatus, baselineKnown ? "known" : "unknown");
@@ -142,6 +153,9 @@ export function summarizeDiagnostics(
 	const diff = diffCounts(beforeKeys, afterKeys);
 	const fileErrors = after.items.filter((item) => item.severity === "error").length;
 	const fileWarnings = after.items.filter((item) => item.severity === "warning").length;
+	const selected = selection === undefined
+		? after.items.slice(0, maxItems)
+		: selectEditItems(after.items, baselineKnown ? baseline?.items : undefined, baselineKnown, maxItems, selection);
 	return {
 		status: fileErrors > 0 ? "errors" : fileWarnings > 0 ? "warnings" : "clean",
 		file_errors: fileErrors,
@@ -151,9 +165,40 @@ export function summarizeDiagnostics(
 		resolved_errors: diff.resolved_errors,
 		resolved_warnings: diff.resolved_warnings,
 		baseline: baselineKnown ? "known" : "unknown",
-		total_items: after.items.length,
-		items: after.items.slice(0, maxItems).map((item) => ({ ...item })),
+		total_items: selection === undefined ? after.items.length : selected.length,
+		items: selected.map((item) => ({ ...item })),
 	};
+}
+
+function selectEditItems(
+	afterItems: readonly LspDiagnosticItem[],
+	beforeItems: readonly LspDiagnosticItem[] | undefined,
+	baselineKnown: boolean,
+	maxItems: number,
+	selection: DiagnosticSelection,
+): LspDiagnosticItem[] {
+	if (maxItems <= 0) return [];
+	if (!baselineKnown) {
+		return afterItems
+			.filter((item) => item.severity === "error" && inRanges(item.line, selection.changedRanges, selection.symbolRanges))
+			.slice(0, maxItems);
+	}
+	const remaining = countKeys(beforeItems ?? []);
+	const newItems: LspDiagnosticItem[] = [];
+	for (const item of afterItems) {
+		const key = diffKey(item);
+		const count = remaining.get(key) ?? 0;
+		if (count > 0) remaining.set(key, count - 1);
+		else newItems.push(item);
+	}
+	return [
+		...newItems.filter((item) => item.severity === "error"),
+		...newItems.filter((item) => item.severity === "warning" && inRanges(item.line, selection.changedRanges)),
+	].slice(0, maxItems);
+}
+
+function inRanges(line: number, ...groups: Array<readonly DiagnosticLineRange[] | undefined>): boolean {
+	return groups.some((ranges) => ranges?.some((range) => line >= range.startLine && line <= range.endLine) === true);
 }
 
 export function emptySummary(status: "unavailable" | "timeout", baseline: "known" | "unknown" = "unknown"): LspDiagnosticsSummary {

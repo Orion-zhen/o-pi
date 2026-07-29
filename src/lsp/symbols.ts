@@ -79,6 +79,23 @@ export function findEnclosingSymbol(symbols: LspDocumentSymbols | undefined, sta
 	return found;
 }
 
+export function modifiedSymbolRanges(
+	symbols: LspDocumentSymbols | undefined,
+	changedRanges: readonly { startLine: number; endLine: number }[],
+): LspEnclosingSymbol[] {
+	if (symbols === undefined || changedRanges.length === 0) return [];
+	const all = flattenDocumentSymbols(symbols);
+	const selected = new Map<string, LspEnclosingSymbol>();
+	for (const changed of changedRanges) {
+		const candidates = all
+			.filter((symbol) => symbol.line <= changed.endLine && symbol.end_line >= changed.startLine)
+			.sort((left, right) => (left.end_line - left.line) - (right.end_line - right.line));
+		const found = candidates[0];
+		if (found !== undefined) selected.set(`${found.line}:${found.end_line}:${found.name}`, found);
+	}
+	return Array.from(selected.values());
+}
+
 export function workspaceSymbolSeed(root: string, query: string, symbol: SymbolInformation | WorkspaceSymbol): WorkspaceSymbolSeed | undefined {
 	if (typeof symbol.name !== "string" || typeof symbol.kind !== "number") return undefined;
 	const location = workspaceSymbolLocation(symbol);

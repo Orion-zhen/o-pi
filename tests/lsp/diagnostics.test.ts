@@ -74,6 +74,51 @@ describe("lsp diagnostics", () => {
 		});
 	});
 
+	it("edit 只选择可归因的新诊断，并按严重级别优先截断", () => {
+		const ledger = new DiagnosticsLedger();
+		ledger.update(source, uri, [
+			diag(DiagnosticSeverity.Error, 2, 1, "old error"),
+			diag(DiagnosticSeverity.Warning, 3, 1, "old warning"),
+		], "warning");
+		const before = ledger.snapshot(source, uri);
+		ledger.update(source, uri, [
+			diag(DiagnosticSeverity.Error, 2, 1, "old error"),
+			diag(DiagnosticSeverity.Warning, 3, 1, "old warning"),
+			diag(DiagnosticSeverity.Error, 20, 1, "new error"),
+			diag(DiagnosticSeverity.Warning, 5, 1, "new warning in change"),
+			diag(DiagnosticSeverity.Warning, 30, 1, "new warning outside change"),
+		], "warning");
+
+		expect(summarizeDiagnostics(ledger.snapshot(source, uri), before, 2, undefined, {
+			changedRanges: [{ startLine: 5, endLine: 5 }],
+		})).toMatchObject({
+			baseline: "known",
+			items: [
+				{ severity: "error", line: 20, message: "new error" },
+				{ severity: "warning", line: 5, message: "new warning in change" },
+			],
+			total_items: 2,
+		});
+	});
+
+	it("baseline 未知时只选择修改范围或所属符号内的 error", () => {
+		const ledger = new DiagnosticsLedger();
+		ledger.update(source, uri, [
+			diag(DiagnosticSeverity.Error, 4, 1, "inside symbol"),
+			diag(DiagnosticSeverity.Error, 20, 1, "outside symbol"),
+			diag(DiagnosticSeverity.Warning, 5, 1, "warning"),
+		], "warning");
+
+		expect(summarizeDiagnostics(ledger.snapshot(source, uri), undefined, 8, undefined, {
+			changedRanges: [{ startLine: 5, endLine: 5 }],
+			symbolRanges: [{ startLine: 1, endLine: 10 }],
+		})).toMatchObject({
+			baseline: "unknown",
+			items: [{ severity: "error", line: 4, message: "inside symbol" }],
+			total_items: 1,
+		});
+	});
+
 	it("按配置限制 related locations 并保留 workspace 相对位置", () => {
 		const ledger = new DiagnosticsLedger();
 		const relatedDiagnostic = diag(DiagnosticSeverity.Error, 1, 1, "conflict");

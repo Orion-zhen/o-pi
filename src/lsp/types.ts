@@ -119,6 +119,11 @@ export interface LspDiagnosticItem {
 	source?: string;
 }
 
+export interface LspLineRange {
+	readonly start_line: number;
+	readonly end_line: number;
+}
+
 /** 写入/编辑后返回的诊断摘要。 */
 export interface LspDiagnosticsSummary {
 	status: "clean" | "warnings" | "errors" | "unavailable" | "timeout";

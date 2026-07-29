@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import fileTools from "../../agent/extensions/file-tools.js";
 import { formatErrorModelResult } from "../../src/file-tools/pi/model-output.js";
+import { formatEditModelResult } from "../../src/file-tools/edit/presenter.js";
 import { isGrepSuccessDetails } from "../../src/file-tools/pi/guards.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import { lspFileOperations as lspFileHooks } from "../../src/lsp/index.js";
@@ -169,22 +170,25 @@ describe("file-tools extension model output", () => {
 			const clean = await executeTool(registered, "write", { path: "clean.ts", content: "export const ok = true;\n" }, ctx);
 			expect(textResult(clean)).toBe('<write path="clean.ts"/>');
 
-			lspFileHooks.afterWrite = vi.fn(async () => ({
+			lspFileHooks.afterWrite = vi.fn(async (input) => ({
 				status: "errors" as const,
 				file_errors: 2,
 				file_warnings: 4,
-				new_errors: 1,
+				new_errors: input.changed_ranges === undefined ? 1 : 2,
 				new_warnings: 0,
 				resolved_errors: 0,
 				resolved_warnings: 0,
 				baseline: "known" as const,
-				total_items: 8,
-				items: [
+				total_items: input.changed_ranges === undefined ? 8 : 2,
+				items: input.changed_ranges === undefined ? [
 					{ severity: "error" as const, line: 12, column: 5, message: "Cannot find name 'foo'.", code: "TS2304" },
 					{ severity: "warning" as const, line: 30, column: 7, message: "unused 1" },
 					{ severity: "warning" as const, line: 31, column: 7, message: "unused 2" },
 					{ severity: "warning" as const, line: 32, column: 7, message: "unused 3" },
 					{ severity: "warning" as const, line: 33, column: 7, message: "unused 4" },
+					{ severity: "error" as const, line: 40, column: 1, message: "hidden" },
+				] : [
+					{ severity: "error" as const, line: 12, column: 5, message: "Cannot find name 'foo'.", code: "TS2304" },
 					{ severity: "error" as const, line: 40, column: 1, message: "hidden" },
 				],
 			}));
@@ -193,23 +197,53 @@ describe("file-tools extension model output", () => {
 			await executeTool(registered, "read", { path: "bad-edit.ts" }, ctx);
 			const edited = await executeTool(registered, "edit", { path: "bad-edit.ts", edits: [{ old: "foo", new: "bar" }] }, ctx);
 
-			for (const [result, tag, filePath, status] of [
-				[written, "write", "bad-write.ts", "written"],
-				[edited, "edit", "bad-edit.ts", "applied"],
-			] as const) {
-				const text = textResult(result);
-				expect(text).toContain(`<${tag} path="${filePath}"`);
-				expect(text).toContain('lsp="errors"');
-				expect(text).toContain("errors=2 warnings=4 new_errors=1 new_warnings=0");
-				expect(text).toContain("diag error 12:5 Cannot find name 'foo'. (TS2304)");
-				expect(text).toContain("... 2 more diagnostics");
-				expect(result.details).toMatchObject({ status, path: filePath, lsp: { diagnostics: { status: "errors" } } });
-			}
+			const writeText = textResult(written);
+			expect(writeText).toContain('<write path="bad-write.ts"');
+			expect(writeText).toContain('lsp="errors"');
+			expect(writeText).toContain("errors=2 warnings=4 new_errors=1 new_warnings=0");
+			expect(writeText).toContain("diag error 12:5 Cannot find name 'foo'. (TS2304)");
+			expect(writeText).toContain("... 2 more diagnostics");
+		expect(written.details).toMatchObject({ status: "written", path: "bad-write.ts", lsp: { diagnostics: { status: "errors" } } });
+
+			const editText = textResult(edited);
+			expect(editText).toBe('<edit path="bad-edit.ts" replacements="1" first_changed_line="1">\nnew error at line 12: Cannot find name \'foo\'. (TS2304)\nnew error at line 40: hidden\n</edit>');
+			expect(editText).not.toContain("lsp=");
+			expect(editText).not.toContain("warning");
+			expect(edited.details).toMatchObject({ status: "applied", path: "bad-edit.ts", lsp: { diagnostics: { status: "errors" } } });
 		} finally {
 			if (originalAfterWrite === undefined) delete lspFileHooks.afterWrite;
 			else lspFileHooks.afterWrite = originalAfterWrite;
 			await rm(cwd, { recursive: true, force: true });
 		}
+	});
+
+	it("edit baseline 未知时标记诊断因果关系不确定", () => {
+		const text = formatEditModelResult({
+			status: "applied",
+			path: "src/parser.py",
+			replacements: 1,
+			old_version: "old",
+			new_version: "new",
+			old_size_bytes: 1,
+			new_size_bytes: 1,
+			diff: "",
+			lsp: {
+				diagnostics: {
+					status: "errors",
+					file_errors: 1,
+					file_warnings: 0,
+					new_errors: 0,
+					new_warnings: 0,
+					resolved_errors: 0,
+					resolved_warnings: 0,
+					baseline: "unknown",
+					total_items: 1,
+					items: [{ severity: "error", line: 104, column: 1, message: "bad <type>" }],
+				},
+			},
+		});
+		expect(text).toBe('<edit path="src/parser.py" replacements="1">\nerror at line 104 (causality uncertain): bad &lt;type&gt;\n</edit>');
+		expect(text).not.toContain("total");
 	});
 
 	it("文件工具失败结果给模型返回紧凑 error tag", async () => {

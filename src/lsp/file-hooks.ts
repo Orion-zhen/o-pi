@@ -2,7 +2,7 @@ import { FileChangeType } from "vscode-languageserver-protocol";
 
 import { emptySummary } from "./diagnostics.js";
 import type { LspManager, ReadEnhancement } from "./manager.js";
-import type { LspDiagnosticSnapshot, LspDiagnosticsSummary, LspSymbolHit } from "./types.js";
+import type { LspDiagnosticSnapshot, LspDiagnosticsSummary, LspLineRange, LspSymbolHit } from "./types.js";
 
 export interface LspReadInput {
 	readonly workspaceRoot: string;
@@ -28,6 +28,7 @@ export interface LspMutationInput {
 	readonly filePath: string;
 	readonly content: string;
 	readonly created: boolean;
+	readonly changed_ranges?: readonly LspLineRange[];
 	readonly baseline?: LspDiagnosticSnapshot;
 }
 
@@ -86,7 +87,9 @@ export function createLspFileOperations(manager: LspManager): LspFileOperations 
 				// 文件变更通知仅为尽力而为，不影响诊断或已提交写入。
 			}
 			try {
-				return await manager.didWrite(input.workspaceRoot, input.filePath, input.content, input.baseline);
+				return input.changed_ranges === undefined
+					? await manager.didWrite(input.workspaceRoot, input.filePath, input.content, input.baseline)
+					: await manager.didWrite(input.workspaceRoot, input.filePath, input.content, input.baseline, input.changed_ranges);
 			} catch {
 				return emptySummary("unavailable");
 			}
@@ -115,6 +118,7 @@ async function afterWriteBatch(
 			root: input.workspaceRoot,
 			filePath: input.filePath,
 			text: input.content,
+			...(input.changed_ranges === undefined ? {} : { changed_ranges: input.changed_ranges }),
 			...(input.baseline === undefined ? {} : { baseline: input.baseline }),
 		})));
 	} catch {

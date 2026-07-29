@@ -5,9 +5,10 @@ import type { FileChangeType, WorkspaceSymbol } from "vscode-languageserver-prot
 import { LspClient } from "./client.js";
 import { LspServerRegistry } from "./registry.js";
 import { loadLspConfig, normalizeExcludePath, resolveLspConfigPath } from "./config.js";
-import { diagnosticSourceKey, DiagnosticsLedger, emptySummary, summarizeDiagnostics } from "./diagnostics.js";
+import { diagnosticSourceKey, DiagnosticsLedger, emptySummary, summarizeDiagnostics, type DiagnosticSelection } from "./diagnostics.js";
 import {
 	findEnclosingSymbol,
+	modifiedSymbolRanges,
 	remainingSymbols,
 	hasUriOnlyWorkspaceSymbolLocation,
 	referenceHits,
@@ -21,6 +22,7 @@ import type {
 	LoadedLspConfig,
 	LspDiagnosticSnapshot,
 	LspDiagnosticsSummary,
+	LspLineRange,
 	LspEnclosingSymbol,
 	LspFileRoute,
 	LspRemainingSymbol,
@@ -335,12 +337,24 @@ export class LspManager {
 		});
 	}
 
-	async didWrite(root: string, filePath: string, text: string, baseline?: LspDiagnosticSnapshot): Promise<LspDiagnosticsSummary | undefined> {
-		return (await this.didWriteBatch([{ root, filePath, text, ...(baseline === undefined ? {} : { baseline }) }]))[0];
+	async didWrite(
+		root: string,
+		filePath: string,
+		text: string,
+		baseline?: LspDiagnosticSnapshot,
+		changed_ranges?: readonly LspLineRange[],
+	): Promise<LspDiagnosticsSummary | undefined> {
+		return (await this.didWriteBatch([{
+			root,
+			filePath,
+			text,
+			...(changed_ranges === undefined ? {} : { changed_ranges }),
+			...(baseline === undefined ? {} : { baseline }),
+		}]))[0];
 	}
 
 	async didWriteBatch(
-		writes: readonly { root: string; filePath: string; text: string; baseline?: LspDiagnosticSnapshot }[],
+		writes: readonly { root: string; filePath: string; text: string; changed_ranges?: readonly LspLineRange[]; baseline?: LspDiagnosticSnapshot }[],
 	): Promise<readonly (LspDiagnosticsSummary | undefined)[]> {
 		return this.withClientOperation(async () => {
 			const results: Array<LspDiagnosticsSummary | undefined> = writes.map(() => undefined);
@@ -377,6 +391,7 @@ export class LspManager {
 			await Promise.all(Array.from(byClient, async ([client, grouped]) => {
 				const diagnosticsConfig = grouped[0]?.config.config.diagnostics;
 				if (diagnosticsConfig === undefined) return;
+				const selections = await Promise.all(grouped.map((item) => createEditSelection(item.client, item.write, item.source, item.uri)));
 				const collected = await client.saveAndCollectDiagnosticsBatch(
 					grouped.map(({ write }) => ({ filePath: write.filePath, text: write.text })),
 					{ timeoutMs: Math.max(1, diagnosticsConfig.max_wait_ms) },
@@ -391,8 +406,8 @@ export class LspManager {
 						const current = this.diagnostics.snapshot(item.source, item.uri);
 						const snapshot = value.snapshot ?? (current.revision > item.capturedRevision ? current : undefined);
 						results[item.index] = snapshot === undefined
-							? summarizeDiagnostics(current, item.write.baseline, diagnosticsConfig.max_items, "timeout")
-							: summarizeDiagnostics(snapshot, item.write.baseline, diagnosticsConfig.max_items);
+							? summarizeDiagnostics(current, item.write.baseline, diagnosticsConfig.max_items, "timeout", selections[groupIndex])
+							: summarizeDiagnostics(snapshot, item.write.baseline, diagnosticsConfig.max_items, undefined, selections[groupIndex]);
 						return;
 					}
 					const snapshot = await this.diagnostics.waitForNewer(
@@ -403,8 +418,8 @@ export class LspManager {
 						diagnosticsConfig.settle_ms,
 					);
 					results[item.index] = snapshot === undefined
-						? summarizeDiagnostics(this.diagnostics.snapshot(item.source, item.uri), item.write.baseline, diagnosticsConfig.max_items, "timeout")
-						: summarizeDiagnostics(snapshot, item.write.baseline, diagnosticsConfig.max_items);
+						? summarizeDiagnostics(this.diagnostics.snapshot(item.source, item.uri), item.write.baseline, diagnosticsConfig.max_items, "timeout", selections[groupIndex])
+						: summarizeDiagnostics(snapshot, item.write.baseline, diagnosticsConfig.max_items, undefined, selections[groupIndex]);
 				}));
 			}));
 			return results;
@@ -701,6 +716,29 @@ function publicSymbolHit(seed: WorkspaceSymbolSeed): LspSymbolHit {
 function publicReferenceHit(candidate: ReferenceHit): LspSymbolHit {
 	const { uri: _uri, line: _line, character: _character, ...hit } = candidate;
 	return hit;
+}
+
+async function createEditSelection(
+	client: LspClient,
+	write: { readonly changed_ranges?: readonly LspLineRange[]; readonly text: string; readonly filePath: string; readonly baseline?: LspDiagnosticSnapshot },
+	source: string,
+	uri: string,
+): Promise<DiagnosticSelection | undefined> {
+	if (write.changed_ranges === undefined) return undefined;
+	const changedRanges = write.changed_ranges.map((range: LspLineRange) => ({
+		startLine: range.start_line,
+		endLine: range.end_line,
+	}));
+	if (baselineState(write.baseline, source, uri) === "known") return { changedRanges };
+	try {
+		const symbols = await client.documentSymbols(write.filePath, write.text);
+		return {
+			changedRanges,
+			symbolRanges: modifiedSymbolRanges(symbols, changedRanges).map((range) => ({ startLine: range.line, endLine: range.end_line })),
+		};
+	} catch {
+		return { changedRanges };
+	}
 }
 
 function baselineState(baseline: LspDiagnosticSnapshot | undefined, source: string | undefined, uri: string): "known" | "unknown" {
