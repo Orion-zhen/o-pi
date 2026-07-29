@@ -6,9 +6,7 @@ import { bindOperationContext } from "../../filesystem/operation-context.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import { compareRankingEvidence, createSourceRankingEvidence, rankingEvidenceSources } from "../shared/ranking/evidence.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
-import { fuseRankedFindSources, selectRankedFindEntries } from "./fusion.js";
-import { AbortFindGraph, findGraphCandidates } from "./graph-candidates.js";
-import type { FindGraphSource } from "./graph-source.js";
+import { mergeRankedFindEntries, selectRankedFindEntries } from "./fusion.js";
 import { createFindEntry, rankGlobEntries, type RankedFindEntry } from "./ranker.js";
 import { renderFindResults } from "./renderer.js";
 import { AbortFindSuggestionRanking, FindSuggestionRanker } from "./suggestion-ranker.js";
@@ -33,7 +31,6 @@ interface ScopeFindSuccess {
 	readonly ignoredCount: number;
 	readonly skippedCount: number;
 	readonly depthLimited: boolean;
-	readonly fallback?: RankedFindEntry[];
 	readonly nearby?: FindNearbyResult[];
 	readonly missingPrefix?: string;
 	readonly nearbyDirectory?: string;
@@ -58,8 +55,7 @@ interface GlobPrefixDiagnostic {
 export interface FindCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
-	readonly limits: Pick<FileToolLimits, "find_output_token_budget" | "find_result_limit" | "find_max_depth" | "find_repo_map_fallback_limit">;
-	readonly graph?: FindGraphSource;
+	readonly limits: Pick<FileToolLimits, "find_output_token_budget" | "find_result_limit" | "find_max_depth">;
 }
 
 const NEARBY_LIMIT = 3;
@@ -139,7 +135,7 @@ export class FindTool {
 			if (glob !== undefined) return await this.runGlobSearch(root, query, glob, context);
 			return await this.runRankedSearch(root, query, context);
 		} catch (error) {
-			if (error instanceof AbortFind || error instanceof AbortFindGraph || error instanceof AbortFindSuggestionRanking) return aborted(root.displayPath);
+			if (error instanceof AbortFind || error instanceof AbortFindSuggestionRanking) return aborted(root.displayPath);
 			return fail("PATH_NOT_FOUND", "Directory does not exist.", { path: root.displayPath });
 		}
 	}
@@ -188,32 +184,19 @@ export class FindTool {
 		query: string,
 		context: FindCommandContext,
 	): Promise<ToolOutcome<ScopeFindSuccess>> {
-		const [walked, graph] = await Promise.all([
-			discoverFindEntries(searchRoot, context),
-			findGraphCandidates(searchRoot, query, {
-				filesystem: context.filesystem,
-				operation: context.operation,
-				resultLimit: context.limits.find_result_limit,
-				maxDepth: context.limits.find_max_depth,
-				...(context.graph === undefined ? {} : { graph: context.graph }),
-			}),
-		]);
+		const walked = await discoverFindEntries(searchRoot, context);
 		if (isFailed(walked)) return walked;
 		const ranked = await this.suggestions.rank(walked.entries, query, searchRoot.displayPath, context.operation.signal);
-		const pathMatches = new Set(ranked.matches.map((candidate) => candidate.entry.path));
-		const rankingSignals = graph.ranking.filter((candidate) => pathMatches.has(candidate.entry.path));
-		const merged = fuseRankedFindSources(ranked.matches, rankingSignals);
-		const nearby = merged.length === 0 ? findNearbyResults(ranked.suggestions) : [];
+		const nearby = ranked.matches.length === 0 ? findNearbyResults(ranked.suggestions) : [];
 		return {
 			path: searchRoot.displayPath,
 			query,
 			strategy: "fuzzy",
-			ranked: merged,
-			totalMatches: merged.length,
+			ranked: ranked.matches,
+			totalMatches: ranked.matches.length,
 			ignoredCount: walked.ignoredCount,
 			skippedCount: walked.skippedCount,
 			depthLimited: walked.depthLimited,
-			...(graph.fallback.length > 0 ? { fallback: graph.fallback } : {}),
 			...(nearby.length > 0 ? { nearby } : {}),
 		};
 	}
@@ -406,28 +389,13 @@ function mergeScopeResults(
 			const scoped = { ...candidate, scopeOrder: scope.order };
 			const existing = candidates.get(candidate.entry.path);
 			if (existing === undefined) candidates.set(candidate.entry.path, scoped);
-			else {
-				const merged = fuseRankedFindSources([existing], [scoped])[0];
-				if (merged !== undefined) candidates.set(candidate.entry.path, { ...merged, scopeOrder: Math.min(existing.scopeOrder ?? scope.order, scope.order) });
-			}
+			else candidates.set(candidate.entry.path, {
+				...mergeRankedFindEntries(existing, scoped),
+				scopeOrder: Math.min(existing.scopeOrder ?? scope.order, scope.order),
+			});
 		}
 	}
-	let ranked = [...candidates.values()].sort(compareFindCandidates);
-	if (ranked.length === 0 && limits.find_repo_map_fallback_limit > 0) {
-		const fallback = new Map<string, RankedFindEntry>();
-		for (const { scope, result } of successes) {
-			for (const candidate of result.fallback ?? []) {
-				const scoped = { ...candidate, scopeOrder: scope.order };
-				const existing = fallback.get(candidate.entry.path);
-				if (existing === undefined) fallback.set(candidate.entry.path, scoped);
-				else {
-					const merged = fuseRankedFindSources([existing], [scoped])[0];
-					if (merged !== undefined) fallback.set(candidate.entry.path, { ...merged, scopeOrder: Math.min(existing.scopeOrder ?? scope.order, scope.order) });
-				}
-			}
-		}
-		ranked = [...fallback.values()].sort(compareFindCandidates).slice(0, limits.find_repo_map_fallback_limit);
-	}
+	const ranked = [...candidates.values()].sort(compareFindCandidates);
 	const nearby = ranked.length === 0 ? mergeNearby(successes.flatMap(({ result }) => result.nearby ?? [])) : [];
 	const strategy = successes.some(({ result }) => result.strategy === "fuzzy") ? "fuzzy"
 		: successes.some(({ result }) => result.strategy === "glob") ? "glob" : "exact";

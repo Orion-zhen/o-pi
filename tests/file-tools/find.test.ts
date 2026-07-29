@@ -1,17 +1,13 @@
-import { createHash } from "node:crypto";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FindTool } from "../../src/file-tools/find/command.js";
-import type { FindGraphSource } from "../../src/file-tools/find/graph-source.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
 import { findWorkspaceFiles } from "../helpers/find-tool.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { FindMatch, FindSuccess } from "../../src/file-tools/find/types.js";
-import type { RepoMapFileToolQuery } from "../../src/repo-map/query/file-tool-query.js";
-import type { RepoMapQueryCandidate, RepoMapQueryResult } from "../../src/repo-map/query/query.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
@@ -47,86 +43,13 @@ function paths(matches: FindMatch[]): string[] {
 	return matches.map((match) => match.path);
 }
 
-function deferredVoid(): { readonly promise: Promise<void>; resolve(): void } {
-	let resolver: (() => void) | undefined;
-	const promise = new Promise<void>((resolve) => { resolver = resolve; });
-	return { promise, resolve() { resolver?.(); } };
-}
-
 async function writeFixture(filePath: string): Promise<void> {
 	const absolutePath = path.join(workspace, ...filePath.split("/"));
 	await mkdir(path.dirname(absolutePath), { recursive: true });
 	await writeFile(absolutePath, "");
 }
 
-function repoMapCandidate(
-	filePath: string,
-	content: string,
-	reasons: RepoMapQueryCandidate["reasons"],
-	overrides: Partial<Pick<RepoMapQueryCandidate, "score" | "confidence" | "hop">> = {},
-): RepoMapQueryCandidate {
-	return {
-		path: filePath,
-		fileId: `file:${filePath}`,
-		contentHash: createHash("sha256").update(content).digest("hex"),
-		score: overrides.score ?? 900,
-		confidence: overrides.confidence ?? 1,
-		hop: overrides.hop ?? 0,
-		reasons,
-		matchedAliases: [],
-		relatedEdges: [],
-	};
-}
-
-function repoMapQuery(query: RepoMapFileToolQuery["query"]): RepoMapFileToolQuery {
-	return {
-		query,
-		async readContext() { return undefined; },
-		async syncMutation() { return undefined; },
-	};
-}
-
 describe("find", () => {
-	it("find owner dispose 取消 graph 阶段的 active execute", async () => {
-		await writeFixture("src/example.ts");
-		const host = new FileToolsHost();
-		const tool = new FindTool();
-		const opened = await host.open({ cwd: workspace, sessionId: "find-owner-active" });
-		if (isFailed(opened)) throw new Error(opened.error.message);
-		const started = deferredVoid();
-		let graphAborted = false;
-		const graph: FindGraphSource = {
-			async query(input) {
-				started.resolve();
-				await new Promise<void>((_resolve, reject) => {
-					const onAbort = () => {
-						graphAborted = true;
-						reject(new Error("aborted"));
-					};
-					if (input.signal?.aborted === true) onAbort();
-					else input.signal?.addEventListener("abort", onAbort, { once: true });
-				});
-				return undefined;
-			},
-		};
-		try {
-			const active = tool.execute({ query: "missing-symbol" }, {
-				filesystem: opened.filesystem,
-				operation: {},
-				limits: opened.limits,
-				graph,
-			});
-			await started.promise;
-			tool.dispose();
-			await expect(active).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
-			expect(graphAborted).toBe(true);
-		} finally {
-			tool.dispose();
-			opened.dispose();
-			host.dispose();
-		}
-	});
-
 	it("路径发现统一委托 filesystem discovery，成功 glob 不重复预检静态前缀", async () => {
 		await writeFixture("src/example.ts");
 		const host = new FileToolsHost();
@@ -297,210 +220,6 @@ describe("find", () => {
 		]);
 	});
 
-	it("graph 候选必须通过实时 scope、visibility、kind、hash 和关联证据校验", async () => {
-		const live = "export const LiveGraphTarget = true;\n";
-		const stale = "export const StaleGraphTarget = true;\n";
-		await writeFile(path.join(workspace, ".piignore"), "src/ignored.ts\n");
-		await writeFixture("src/live.ts");
-		await writeFixture("src/stale.ts");
-		await writeFixture("src/ignored.ts");
-		await writeFixture("tests/outside.ts");
-		await writeFixture("src/dependency.ts");
-		await writeFile(path.join(workspace, "src", "live.ts"), live);
-		await writeFile(path.join(workspace, "src", "stale.ts"), stale);
-		const dependent = {
-			...repoMapCandidate("src/live.ts", live, ["exact symbol", "definition"]),
-			path: "src/dependent.ts",
-			fileId: "file:src/dependent.ts",
-			contentHash: createHash("sha256").update("").digest("hex"),
-			relatedEdges: [{
-				kind: "references" as const,
-				from: "symbol:a",
-				to: "symbol:b",
-				confidence: 1,
-				resolution: "semantic" as const,
-				source: "tree-sitter" as const,
-				hop: 1 as const,
-				evidence: [],
-				relatedFiles: [{ path: "src/dependency.ts", contentHash: "stale-hash" }],
-			}],
-		};
-		await writeFixture("src/dependent.ts");
-		const candidates = [
-			repoMapCandidate("src/live.ts", live, ["exact symbol", "definition"]),
-			repoMapCandidate("src/stale.ts", "not-current", ["exact symbol", "definition"]),
-			repoMapCandidate("src/ignored.ts", "", ["exact symbol", "definition"]),
-			repoMapCandidate("tests/outside.ts", "", ["exact symbol", "definition"]),
-			dependent,
-		];
-		const query = repoMapQuery(async (input): Promise<RepoMapQueryResult> => ({
-			root: workspace,
-			explanation: { queryTerms: [input.query], expandedTerms: [input.query], seedCount: candidates.length, maxHop: 2 },
-			candidates,
-		}));
-
-		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { path: ["src"], query: "GraphTarget" }, undefined, { repoMap: query }));
-		expect(paths(result.details.matches)).toEqual(["src/live.ts"]);
-	});
-
-	it("Repo Map 重复候选和关联文件在单次调用内只解析一次路径", async () => {
-		const live = "export const CachedGraphTarget = true;\n";
-		const dependency = "export const Dependency = true;\n";
-		await writeFixture("src/live.ts");
-		await writeFixture("src/dependency.ts");
-		await writeFile(path.join(workspace, "src", "live.ts"), live);
-		await writeFile(path.join(workspace, "src", "dependency.ts"), dependency);
-		const candidate = {
-			path: "src/live.ts",
-			contentHash: createHash("sha256").update(live).digest("hex"),
-			confidence: 1,
-			hop: 0 as const,
-			reasons: ["exact symbol", "definition"],
-			matchedAliases: [],
-			relatedEdges: [{
-				hop: 1 as const,
-				confidence: 1,
-				resolution: "semantic" as const,
-				relatedFiles: [{
-					path: "src/dependency.ts",
-					contentHash: createHash("sha256").update(dependency).digest("hex"),
-				}],
-			}],
-		};
-		const host = new FileToolsHost();
-		const tool = new FindTool();
-		const opened = await host.open({ cwd: workspace, sessionId: "find-graph-resolve-cache" });
-		if (isFailed(opened)) throw new Error(opened.error.message);
-		const resolveExisting = vi.spyOn(opened.filesystem.paths, "resolveExisting");
-		const graph: FindGraphSource = {
-			async query(input) { return { root: input.root, candidates: [candidate, candidate] }; },
-		};
-		try {
-			expectFindSuccess(await tool.execute({ query: "CachedGraphTarget" }, {
-				filesystem: opened.filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-				graph,
-			}));
-			const resolvedPaths = resolveExisting.mock.calls.map(([input]) => input);
-			expect(resolvedPaths.filter((input) => input === "src/live.ts")).toHaveLength(1);
-			expect(resolvedPaths.filter((input) => input === "src/dependency.ts")).toHaveLength(1);
-		} finally {
-			tool.dispose();
-			opened.dispose();
-			host.dispose();
-		}
-	});
-
-	it("深度限制同时约束 filesystem discovery 和 Repo Map 候选，但不阻止显式 exact path", async () => {
-		const configPath = path.join(outside, "find-depth.jsonc");
-		await writeFile(configPath, JSON.stringify({
-			limits: { find_max_depth: 1 },
-			ignore: { builtin_profile: "none", gitignore: false },
-		}));
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
-		const content = "export const DeepGraphTarget = true;\n";
-		await writeFixture("src/deep/target.ts");
-		await writeFile(path.join(workspace, "src", "deep", "target.ts"), content);
-		const query = repoMapQuery(async (input): Promise<RepoMapQueryResult> => ({
-			root: workspace,
-			explanation: { queryTerms: [input.query], expandedTerms: [input.query], seedCount: 1, maxHop: 2 },
-			candidates: [repoMapCandidate("src/deep/target.ts", content, ["exact symbol", "definition"])],
-		}));
-
-		const limited = expectFindSuccess(await findWorkspaceFiles(
-			workspace,
-			{ path: ["src"], query: "DeepGraphTarget" },
-			undefined,
-			{ repoMap: query },
-		));
-		expect(limited.details.matches).toEqual([]);
-		expect(limited.details.depthLimited).toBe(true);
-
-		const exact = expectFindSuccess(await findWorkspaceFiles(workspace, { path: ["src"], query: "deep/target.ts" }));
-		expect(paths(exact.details.matches)).toEqual(["src/deep/target.ts"]);
-		expect(exact.details.depthLimited).toBe(false);
-	});
-
-	it("glob 查询不进入 Repo Map，普通 query 仍执行语义召回", async () => {
-		const content = "export const PreferredService = true;\n";
-		await writeFixture("src/a-service.ts");
-		await writeFile(path.join(workspace, "src", "preferred.ts"), content);
-		const query = vi.fn(async (input): Promise<RepoMapQueryResult> => ({
-			root: workspace,
-			explanation: { queryTerms: [input.query], expandedTerms: [input.query], seedCount: 1, maxHop: 2 },
-			candidates: [repoMapCandidate("src/preferred.ts", content, ["exact symbol", "definition"])],
-		}));
-		const runtime = { repoMap: repoMapQuery(query) };
-
-		const glob = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "*-service.ts" }, undefined, runtime));
-		expect(paths(glob.details.matches)).toEqual(["src/a-service.ts"]);
-		expect(glob.details.strategy).toBe("glob");
-		expect(query).not.toHaveBeenCalled();
-
-		const semantic = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "PreferredService" }, undefined, runtime));
-		expect(paths(semantic.details.matches)).toContain("src/preferred.ts");
-		expect(semantic.details.strategy).toBe("fuzzy");
-		expect(query).toHaveBeenCalledWith(expect.objectContaining({ query: "PreferredService" }));
-	});
-
-	it("Repo Map 默认只调整已有路径结果排序，不追加普通关联文件", async () => {
-		const preferred = "export const Target = true;\n";
-		await writeFixture("src/lexical-target.ts");
-		await writeFixture("src/preferred-target.ts");
-		await writeFixture("src/package-only.ts");
-		await writeFile(path.join(workspace, "src", "preferred-target.ts"), preferred);
-		const query = repoMapQuery(async (input): Promise<RepoMapQueryResult> => ({
-			root: workspace,
-			explanation: { queryTerms: [input.query], expandedTerms: [input.query], seedCount: 2, maxHop: 2 },
-			candidates: [
-				repoMapCandidate("src/preferred-target.ts", preferred, ["exact symbol", "definition"]),
-				repoMapCandidate("src/package-only.ts", "", ["package"]),
-			],
-		}));
-
-		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "target" }, undefined, { repoMap: query }));
-		expect(paths(result.details.matches).slice(0, 2)).toEqual(["src/preferred-target.ts", "src/lexical-target.ts"]);
-		expect(paths(result.details.matches)).not.toContain("src/package-only.ts");
-		expect(result.details.candidateSources?.["src/preferred-target.ts"]).toContain("repo-map-direct");
-	});
-
-	it("基础路径搜索为空时只按配置回退高置信 exact symbol、registration 或 entrypoint", async () => {
-		const configPath = path.join(outside, "find-fallback.jsonc");
-		await writeFile(configPath, JSON.stringify({
-			limits: { find_repo_map_fallback_limit: 2 },
-			ignore: { builtin_profile: "none", gitignore: false },
-		}));
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
-		const fixtures = [
-			["src/exact.ts", "export const Exact = true;\n", ["exact symbol", "definition"]],
-			["src/registration.ts", "export const Registration = true;\n", ["registration"]],
-			["src/entrypoint.ts", "export const Entrypoint = true;\n", ["entrypoint"]],
-			["src/alias.ts", "export const Alias = true;\n", ["alias"]],
-			["src/component.ts", "export const Component = true;\n", ["component"]],
-			["src/low-confidence.ts", "export const Weak = true;\n", ["exact symbol"]],
-		] as const;
-		for (const [filePath, content] of fixtures) {
-			await writeFixture(filePath);
-			await writeFile(path.join(workspace, filePath), content);
-		}
-		const query = repoMapQuery(async (input): Promise<RepoMapQueryResult> => ({
-			root: workspace,
-			explanation: { queryTerms: [input.query], expandedTerms: [input.query], seedCount: fixtures.length, maxHop: 2 },
-			candidates: fixtures.map(([filePath, content, reasons]) => repoMapCandidate(
-				filePath,
-				content,
-				[...reasons],
-				filePath === "src/low-confidence.ts" ? { confidence: 0.79 } : {},
-			)),
-		}));
-
-		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "NoPathMatch" }, undefined, { repoMap: query }));
-		expect(paths(result.details.matches)).toEqual(["src/exact.ts", "src/registration.ts"]);
-		expect(result.details.matches).toHaveLength(2);
-		expect(JSON.stringify(result)).not.toMatch(/alias\.ts|component\.ts|low-confidence\.ts/u);
-	});
-
 	it("按 basename、stem、segment、path fragment 和多词 token 定位路径", async () => {
 		await writeFixture("src/file-tools/find-tool.ts");
 		await writeFixture("src/file-tools/config.ts");
@@ -570,18 +289,7 @@ describe("find", () => {
 	it("未声明测试意图时实现文件排在同名测试文件前", async () => {
 		await writeFixture("src/file-tools/shared/ranking/evidence.ts");
 		await writeFixture("tests/file-tools/ranking-evidence.test.ts");
-		const query = vi.fn(async (input): Promise<RepoMapQueryResult> => ({
-			root: workspace,
-			explanation: { queryTerms: [input.query], expandedTerms: [input.query], seedCount: 1, maxHop: 2 },
-			candidates: [repoMapCandidate("tests/file-tools/ranking-evidence.test.ts", "", ["definition"])],
-		}));
-
-		const result = expectFindSuccess(await findWorkspaceFiles(
-			workspace,
-			{ query: "ranking evidence" },
-			undefined,
-			{ repoMap: repoMapQuery(query) },
-		));
+		const result = expectFindSuccess(await findWorkspaceFiles(workspace, { query: "ranking evidence" }));
 		expect(paths(result.details.matches).slice(0, 2)).toEqual([
 			"src/file-tools/shared/ranking/evidence.ts",
 			"tests/file-tools/ranking-evidence.test.ts",

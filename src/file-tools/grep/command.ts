@@ -24,7 +24,6 @@ export interface GrepCommandContext {
 	readonly limits: Pick<FileToolLimits,
 		"grep_max_depth" | "grep_ast_max_file_bytes" | "grep_output_token_budget" | "grep_result_limit" | "grep_regional_display_limit" | "grep_relation_action_limit">;
 	readonly lspHints?: GrepHintSource;
-	readonly repoMapHints?: GrepHintSource;
 }
 
 /** Stateful grep command; parser、派生 AST cache 与 active invocation 共享 owner。 */
@@ -82,10 +81,14 @@ export class GrepTool {
 		if (scope.failure !== undefined) return scope.failure;
 		const local = buildLocalAutoResults(plan, scanned, regionized, context.limits.grep_regional_display_limit);
 		const demand = grepHintDemand(plan, local);
-		const hints = await queryGrepHints(inventory, plan, {
-			...(context.lspHints === undefined ? {} : { lsp: context.lspHints }),
-			...(context.repoMapHints === undefined ? {} : { repoMap: context.repoMapHints }),
-		}, demand, context.operation.signal, context.limits.grep_result_limit);
+			const hints = await queryGrepHints(
+				inventory,
+				plan,
+				context.lspHints,
+				demand,
+				context.operation.signal,
+				context.limits.grep_result_limit,
+			);
 		if (isFailed(hints)) return hints;
 		const augmented = applyGrepHints(plan, local, regionized.files, hints);
 		return packGrepResults({

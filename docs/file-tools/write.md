@@ -48,7 +48,7 @@ diag warning 30:7 'bar' is declared but never used.
 </write>
 ```
 
-LSP diagnostics 和 Repo Map mutation observer 都是 write-local best-effort port。提交前取消不会写入；一旦提交，port 失败或取消不能回滚文件，也不能把结果改成失败。已有文件 snapshot 和新内容均受 `write_max_file_bytes` 限制；超限返回 `OUTPUT_LIMIT_EXCEEDED`，不会修改目标。
+LSP diagnostics 是 write-local best-effort port。提交前取消不会写入；一旦提交，port 失败或取消不能回滚文件，也不能把结果改成失败。已有文件 snapshot 和新内容均受 `write_max_file_bytes` 限制；超限返回 `OUTPUT_LIMIT_EXCEEDED`，不会修改目标。
 
 ## 失败结果与模型输出
 

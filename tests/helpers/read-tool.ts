@@ -1,25 +1,14 @@
 import { readFile } from "../../src/file-tools/read/command.js";
-import type {
-	InlineImageProcessor,
-	MissingPathSource,
-	ReadGraphContextSource,
-	ReadStructureSource,
-} from "../../src/file-tools/read/ports.js";
+import type { InlineImageProcessor, ReadStructureSource } from "../../src/file-tools/read/ports.js";
 import type { ReadFileSuccess, ReadOutputFormat, ReadParams } from "../../src/file-tools/read/types.js";
-import { FileToolsHost, type FileToolsInvocation } from "../../src/file-tools/runtime/host.js";
+import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
 import { createInlineImageProcessor } from "../../src/file-tools/pi/ports/read-image.js";
-import type { RepoMapFileToolQuery, RepoMapReadContext } from "../../src/repo-map/query/file-tool-query.js";
-import { formatRepoMapReadContext } from "../../src/repo-map/runtime/tool-output.js";
 
 export interface ReadWorkspaceTestOptions {
 	readonly host?: FileToolsHost;
 	readonly sessionId?: string;
-	readonly missingPaths?: MissingPathSource;
 	readonly structure?: ReadStructureSource;
-	readonly graph?: ReadGraphContextSource;
-	readonly repoMap?: Pick<RepoMapFileToolQuery, "readContext">;
-	formatRepoMapContext?(context: RepoMapReadContext): Promise<string | undefined>;
 	readonly image?: InlineImageProcessor;
 	readonly supportedOutputFormats?: readonly ReadOutputFormat[];
 	readonly signal?: AbortSignal;
@@ -37,7 +26,6 @@ export async function readWorkspaceFile(
 		const opened = await host.open({ cwd, sessionId: options.sessionId ?? "test-read", ...(options.signal === undefined ? {} : { signal: options.signal }) });
 		if ("status" in opened) return opened;
 		try {
-			const graph = graphSource(options, opened);
 			return await readFile(params, {
 				filesystem: opened.filesystem,
 				operation: opened.context,
@@ -50,9 +38,7 @@ export async function readWorkspaceFile(
 				},
 				image: options.image ?? createInlineImageProcessor(),
 				...(options.supportedOutputFormats === undefined ? {} : { supportedOutputFormats: options.supportedOutputFormats }),
-				...(options.missingPaths === undefined ? {} : { missingPaths: options.missingPaths }),
 				...(options.structure === undefined ? {} : { structure: options.structure }),
-				...(graph === undefined ? {} : { graph }),
 				...(options.recordObservation === undefined ? {} : { recordObservation: options.recordObservation }),
 			});
 		} finally {
@@ -61,28 +47,4 @@ export async function readWorkspaceFile(
 	} finally {
 		if (ownsHost) host.dispose();
 	}
-}
-
-function graphSource(options: ReadWorkspaceTestOptions, opened: FileToolsInvocation): ReadGraphContextSource | undefined {
-	if (options.graph !== undefined) return options.graph;
-	if (options.repoMap === undefined) return undefined;
-	return {
-		async context(input) {
-			const identity = opened.nativeBridge.getNativeIdentity(input.file);
-			if (identity === undefined) return undefined;
-			const context = await options.repoMap?.readContext({
-				requestedPath: identity.canonicalPath,
-				contentHash: input.version.hash.replace(/^sha256:/u, ""),
-				startLine: input.startLine,
-				endLine: input.endLine,
-				partial: input.partial,
-				truncated: input.truncated,
-			});
-			if (context === undefined) return undefined;
-			const rendered = options.formatRepoMapContext === undefined
-				? formatRepoMapReadContext(context)
-				: await options.formatRepoMapContext(context);
-			return rendered === undefined ? undefined : { context, rendered };
-		},
-	};
 }

@@ -14,10 +14,7 @@ import {
 	type SkillResourceError,
 } from "../../../skill-context/resources.js";
 import { formatErrorModelResult, scrubVersions } from "../model-output.js";
-import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 import {
-	createMissingPathSource,
-	createReadGraphContextSource,
 	createReadObservationStore,
 	createReadStructureSource,
 } from "../ports/read.js";
@@ -29,7 +26,6 @@ export interface ExecuteReadOptions {
 	readonly model: { api?: string; input?: readonly string[] } | undefined;
 	readonly host: FileToolsHost;
 	readonly lsp: LspFileOperations;
-	readonly repoMap: RepoMapToolPorts;
 	readonly branch: SessionEntry[];
 	readonly skillIndex: SkillReadIndex;
 }
@@ -64,15 +60,13 @@ export async function executeRead(params: ReadParams, options: ExecuteReadOption
 				supportedOutputFormats,
 				...(skill === undefined
 					? {
-							missingPaths: createMissingPathSource(opened, options.repoMap),
 							structure: createReadStructureSource(opened, options.lsp),
-							graph: createReadGraphContextSource(opened, options.repoMap),
 						}
 					: { recordObservation: false }),
 			},
 		);
 		if (skill !== undefined) applySkillResolution(result, skill);
-		return presentResult(result, options.model, options.repoMap);
+		return presentResult(result, options.model);
 	} finally {
 		opened.dispose();
 	}
@@ -92,14 +86,12 @@ const lazyInlineImageProcessor: InlineImageProcessor = {
 async function presentResult(
 	result: ReadFileSuccess | FailedResult,
 	model: { input?: readonly string[] } | undefined,
-	repoMap: RepoMapToolPorts,
 ) {
 	if (isReadImageSuccess(result)) {
 		return { content: formatReadImageModelContent(result, model), details: result };
 	}
 	if (isReadSuccess(result)) {
-		const graph = result.repo_map === undefined ? undefined : await repoMap.formatReadContext(result.repo_map);
-		return { content: [{ type: "text" as const, text: formatReadModelResult(result, graph) }], details: result };
+		return { content: [{ type: "text" as const, text: formatReadModelResult(result) }], details: result };
 	}
 	if (isFailed(result)) return failedResult(result);
 	return { content: [{ type: "text" as const, text: JSON.stringify(scrubVersions(result)) }], details: result };

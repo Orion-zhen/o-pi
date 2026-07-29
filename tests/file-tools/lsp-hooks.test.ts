@@ -219,7 +219,7 @@ async function writeWithHooks(params: { path: string; content: string }, hooks: 
 	const opened = await host.open({ cwd: workspace, sessionId: "lsp-hooks" });
 	if ("status" in opened) return opened;
 	try {
-		const ports = createWritePorts(opened, hooks, inactiveRepoMap);
+		const ports = createWritePorts(opened, hooks);
 		return await writeFileCommand(params, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
@@ -236,7 +236,7 @@ async function editWithHooks(params: { path: string; edits: Array<{ old: string;
 	const opened = await host.open({ cwd: workspace, sessionId: "lsp-hooks" });
 	if ("status" in opened) return opened;
 	try {
-		const ports = createEditPorts(opened, hooks, inactiveRepoMap);
+		const ports = createEditPorts(opened, hooks);
 		return await editFile(params, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
@@ -250,17 +250,6 @@ async function editWithHooks(params: { path: string; edits: Array<{ old: string;
 		opened.dispose();
 	}
 }
-
-const inactiveRepoMap = {
-	query: {
-		async query() { return undefined; },
-		async readContext() { return undefined; },
-		async syncMutation() { return undefined; },
-	},
-	async formatReadContext() { return undefined; },
-	async formatImpact() { return undefined; },
-	async syncMutation() {},
-};
 
 function diagnostics(status: "errors" | "warnings") {
 	return {

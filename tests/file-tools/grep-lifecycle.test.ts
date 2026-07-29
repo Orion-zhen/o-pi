@@ -70,15 +70,16 @@ describe("grep lifecycle", () => {
 		}
 	});
 
-	it("grep owner dispose 取消本地搜索后的 active Repo Map hint", async () => {
-		await writeFile(path.join(testContext.workspace, "active.ts"), "export const active = true;\n");
+	it("grep owner dispose 取消本地搜索后的 active LSP hint", async () => {
+		await writeFile(path.join(testContext.workspace, "a.ts"), "export function Target() { return true; }\n");
+		await writeFile(path.join(testContext.workspace, "b.ts"), "export function Target() { return false; }\n");
 		const host = new FileToolsHost();
 		const tool = new GrepTool();
 		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-owner-active" });
 		if (isFailed(opened)) throw new Error(opened.error.message);
 		const started = deferredVoid();
 		let hintAborted = false;
-		const repoMapHints: GrepHintSource = {
+		const lspHints: GrepHintSource = {
 			async query(input) {
 				started.resolve();
 				await new Promise<void>((_resolve, reject) => {
@@ -93,11 +94,11 @@ describe("grep lifecycle", () => {
 			},
 		};
 		try {
-			const active = tool.execute({ query: "missingSymbol" }, {
+			const active = tool.execute({ query: "Target" }, {
 				filesystem: opened.filesystem,
 				operation: {},
 				limits: opened.limits,
-					repoMapHints,
+				lspHints,
 			});
 			await started.promise;
 			tool.dispose();

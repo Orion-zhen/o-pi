@@ -1,16 +1,5 @@
-import type { ContentVersion } from "../../filesystem/contracts/content.js";
-import type { DirectoryRef, FileRef, TargetRef } from "../../filesystem/contracts/path.js";
-import type { ReadGraphContext, ReadStructureContext } from "./types.js";
-
-export interface MissingPathSource {
-	suggest(input: {
-		readonly root: DirectoryRef;
-		readonly target: TargetRef;
-		readonly query: string;
-		readonly limit: number;
-		readonly signal?: AbortSignal;
-	}): Promise<readonly string[]>;
-}
+import type { FileRef } from "../../filesystem/contracts/path.js";
+import type { ReadStructureContext } from "./types.js";
 
 export interface ReadStructureSource {
 	context(input: {
@@ -22,18 +11,6 @@ export interface ReadStructureSource {
 		readonly truncated: boolean;
 		readonly signal?: AbortSignal;
 	}): Promise<ReadStructureContext | undefined>;
-}
-
-export interface ReadGraphContextSource {
-	context(input: {
-		readonly file: FileRef;
-		readonly version: ContentVersion;
-		readonly startLine: number;
-		readonly endLine: number;
-		readonly partial: boolean;
-		readonly truncated: boolean;
-		readonly signal?: AbortSignal;
-	}): Promise<{ readonly context: ReadGraphContext; readonly rendered: string } | undefined>;
 }
 
 export interface ProcessedInlineImage {

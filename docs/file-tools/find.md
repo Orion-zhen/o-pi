@@ -28,7 +28,7 @@
 
 ### Glob
 
-glob query 进入严格路径匹配，不查询 Repo Map：
+glob query 进入严格路径匹配：
 
 - 无 `/` 的模式递归匹配每层 basename，因此 `*.py` 可以命中任意深度；
 - 带 `/` 的模式匹配相对搜索路径；
@@ -37,9 +37,7 @@ glob query 进入严格路径匹配，不查询 Repo Map：
 
 ### 普通查询
 
-非 glob query 先执行路径召回。Repo Map 默认只给已召回文件补充排序证据，不会让 package、component、alias、same-component 或普通关联文件独立进入结果。只有基础路径召回为空时，高置信 exact symbol、registration 或 entrypoint 文件才能回退，数量由 `find_repo_map_fallback_limit` 限制。
-
-graph port 只返回不可信的 find-owned candidate DTO；find 通过 filesystem 重新验证 live kind、scope、visibility、symlink 和 hash，过期或越界候选会被丢弃。内部来源和候选贡献保留在 details/telemetry，不生成 Repo Map `related` 输出。tokenization、smart case、tier、证据融合和多样性选择见 [排序总览](ranking.md)。
+非 glob query 执行路径召回和排序。tokenization、smart case、tier、证据融合和多样性选择见 [排序总览](ranking.md)。
 
 ## 输出
 
@@ -91,11 +89,11 @@ src/auth/service.ts [name similarity]
 </nearby>
 ```
 
-若无可信邻近项或合格 Repo Map 回退，则返回 `ignored`、`skipped` 摘要和 `next` 提示。glob 缺少静态前缀时优先提示 `missing prefix` 和 `near dir`。相关通道的边界见 [排序选择](ranking-selection.md)。
+若无可信邻近项，则返回 `ignored`、`skipped` 摘要和 `next` 提示。glob 缺少静态前缀时优先提示 `missing prefix` 和 `near dir`。相关通道的边界见 [排序选择](ranking-selection.md)。
 
 ## 限制
 
-输出预算、结果数、Repo Map 零结果回退数和相对 scope 的最大路径深度由 file-tools 配置控制，不暴露为工具参数。达到深度边界时标记 `depthLimited`；达到具体结果上限时标记 `resultLimited`。discovery 和 suggestion worker 响应 invocation/tool-owner 取消；`FindTool.dispose()` 只释放自己的 pending suggestion/worker 状态，不清理 grep 或 filesystem cache。
+输出预算、结果数和相对 scope 的最大路径深度由 file-tools 配置控制，不暴露为工具参数。达到深度边界时标记 `depthLimited`；达到具体结果上限时标记 `resultLimited`。discovery 和 suggestion worker 响应 invocation/tool-owner 取消；`FindTool.dispose()` 只释放自己的 pending suggestion/worker 状态，不清理 grep 或 filesystem cache。
 
 ## 失败结果与模型输出
 

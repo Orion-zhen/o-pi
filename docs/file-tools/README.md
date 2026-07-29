@@ -31,7 +31,7 @@
 Pi extension
     ↓ schema、lazy adapter、renderer、telemetry
 独立 ls/read/write/edit/find/grep commands
-    ↓ tool-local ports                 ↑ LSP / Repo Map / skill / image / diff adapters
+    ↓ tool-local ports                 ↑ LSP / skill / image / diff adapters
 WorkspaceFileSystem capability facade
     ↓
 namespace/access kernel + visibility/content/traversal/catalog/mutation services
@@ -39,9 +39,9 @@ namespace/access kernel + visibility/content/traversal/catalog/mutation services
 Node platform backend
 ```
 
-Pi 扩展入口位于 `agent/extensions/file-tools.ts`。六个工具分别位于 `src/file-tools/{ls,read,write,edit,find,grep}/`，互不导入；共享内容只限错误、diagnostics、diff 和纯 ranking primitives。`src/filesystem/` 是 workspace I/O 的唯一数据平面，不知道 Pi、模型输出、LSP、Repo Map、Tree-sitter 或具体工具结果。
+Pi 扩展入口位于 `agent/extensions/file-tools.ts`。六个工具分别位于 `src/file-tools/{ls,read,write,edit,find,grep}/`，互不导入；共享内容只限错误、diagnostics、diff 和纯 ranking primitives。`src/filesystem/` 是 workspace I/O 的唯一数据平面，不知道 Pi、模型输出、LSP、Tree-sitter 或具体工具结果。
 
-每次调用由 `FileToolsHost.open({ cwd, sessionId, signal })` 先按 invocation `cwd` 加载配置，再提供绑定不可变 policy/visibility snapshot 的 `WorkspaceFileSystem`、工具预算和 session observation。工具在首次使用时按执行路径懒加载；不使用文件工具的 session 不加载 filesystem runtime，`ls` 也不会加载 find/grep、mutation service、Tree-sitter、LSP 或 Repo Map runtime。
+每次调用由 `FileToolsHost.open({ cwd, sessionId, signal })` 先按 invocation `cwd` 加载配置，再提供绑定不可变 policy/visibility snapshot 的 `WorkspaceFileSystem`、工具预算和 session observation。工具在首次使用时按执行路径懒加载；不使用文件工具的 session 不加载 filesystem runtime，`ls` 也不会加载 find/grep、mutation service、Tree-sitter 或 LSP。
 
 工具职责保持分离：
 
@@ -52,7 +52,7 @@ Pi 扩展入口位于 `agent/extensions/file-tools.ts`。六个工具分别位�
 - `write` 只创建或完整覆盖。
 - `edit` 只对已有文件做 exact replacement。
 
-LSP 和 Repo Map 都是内部增强，不是额外的模型可见工具。它们未配置、超时、失败或 binary 不存在时，文件工具退化为基础行为；`ls` 和 `find` 不接入 LSP。
+LSP 是内部增强，不是额外的模型可见工具。它未配置、超时、失败或 binary 不存在时，文件工具退化为基础行为；`ls` 和 `find` 不接入 LSP。
 
 ## 常见操作规则
 
@@ -100,11 +100,11 @@ blocked path  → 不可列出、搜索、读取或写入
 
 ### `find`
 
-`find` 支持精确路径、文件名、路径片段和 glob，也支持多个搜索根。多个 `path` 是 OR/union scope，不是 AND。glob 进入严格路径匹配；普通查询以路径召回为主，Repo Map 默认只参与排序；路径召回为空时仅回退少量高置信 exact symbol、registration 或 entrypoint 文件。它不会读取正文或解析 AST。
+`find` 支持精确路径、文件名、路径片段和 glob，也支持多个搜索根。多个 `path` 是 OR/union scope，不是 AND。glob 进入严格路径匹配；普通查询按路径召回和排序。它不会读取正文或解析 AST。
 
 ### `grep`
 
-`grep` 支持 `auto`、`literal` 和 `regex`。`auto` 可以结合文本、symbol、Tree-sitter、可选 LSP 和 Repo Map；`literal` 和 `regex` 必须以实时正文命中为主结果。结果按函数、方法、类、声明或紧凑文本区域聚合，而不是简单返回每一行。
+`grep` 支持 `auto`、`literal` 和 `regex`。`auto` 先使用实时正文和 Tree-sitter；只有精确符号有歧义或关系结果不足时，才用可选 LSP 提示选择 live AST 位置。`literal` 和 `regex` 不调用 LSP。结果按函数、方法、类、声明或紧凑文本区域聚合，而不是简单返回每一行。
 
 ### `read`
 
@@ -143,12 +143,10 @@ blocked path  → 不可列出、搜索、读取或写入
 
 ## 可选增强
 
-- LSP 为 `grep`、`read`、`write`、`edit` 提供 symbol、read 结构边界、长文件剩余 symbol 导航和 diagnostics 等附加信息。
-- Repo Map 为 `find` 提供可验证的排序与受限回退、为 `grep` 提供跨文件结构召回，并为读取和 mutation 提供上下文。
-- Repo Map 只有在当前 session 执行 `/init` 后才激活。
+- LSP 为 `grep` 按需提供位置消歧，为 `read` 提供结构边界与长文件剩余 symbol 导航，并为 `write`/`edit` 提供 diagnostics。
 - 增强失败时仍保留基础文件操作和文本搜索能力。
 
-详见 [LSP 内部增强](../lsp.md) 和 [Repo Map](../repo-map/README.md)。
+详见 [LSP 内部增强](../lsp.md)。
 
 ## 深入阅读
 
@@ -168,5 +166,5 @@ blocked path  → 不可列出、搜索、读取或写入
 | `edit` 完整行为 | [edit.md](edit.md) |
 | 搜索排序总览 | [ranking.md](ranking.md) |
 | 证据融合和来源排序 | [ranking-evidence.md](ranking-evidence.md) |
-| Top-K、MMR、nearby 和 related | [ranking-selection.md](ranking-selection.md) |
+| Top-K、MMR 和 nearby | [ranking-selection.md](ranking-selection.md) |
 | lazy loading、缓存和 benchmark | [performance.md](performance.md) |

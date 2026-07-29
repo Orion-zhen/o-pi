@@ -1,6 +1,6 @@
 # 本地遥测
 
-遥测是本地、append-only 的工具调用事实，用来回答两个主要问题：模型是否需要多文件 edit，以及 find/grep 中 repo-map 与 LSP 等候选来源的排序是否被后续工具调用采用。它提供观测信号，不替代 benchmark，也不作因果结论。
+遥测是本地、append-only 的工具调用事实，用来回答模型是否需要多文件 edit，以及模型实际看到的搜索候选是否被后续工具调用采用。它提供观测信号，不替代 benchmark，也不作因果结论。grep 的 LSP position hint 不属于模型可见候选，不投影其来源。
 
 采集失败、投影失败或写盘失败不得改变工具和 Pi 生命周期。系统不保存 prompt、工具输出正文、edit 内容、diff、搜索 query 或 shell command 原文。
 
@@ -23,7 +23,7 @@ writer 与 Git provenance 在首个完成调用后于后台并行初始化，不
 
 collector 同时保留当前 `session_start` 以来的 record 内存视图，供 `/telemetry` 即时分析；切换 session 时清空。它不扫描或恢复旧 run，不改变 JSONL 作为持久化事实源的地位。
 
-`message_end` 只用于识别同一 assistant message 中的并行 batch。`turn_start` 只给后续 call 附加模型、thinking 和当前 repo-map 状态，不单独落盘。
+`message_end` 只用于识别同一 assistant message 中的并行 batch。`turn_start` 只给后续 call 附加模型和 thinking，不单独落盘。
 
 系统没有 telemetry schema version、behavior version、report version 或 manifest。格式发生破坏性变化时直接丢弃旧的本地观测数据，不提供迁移或兼容层。Git 和 definition hash 都是自动观测值，不需要人工维护。
 
@@ -69,7 +69,7 @@ registerObservedTool(pi, { tool, repair, telemetry: searchTelemetry });
 /telemetry
 ```
 
-命令对 collector 快照复用离线报告的同一套 analyzer，并在只读浮层显示工具统计、edit 多文件需求，以及 repo-map/LSP 候选排序。只统计已完成调用；正在执行的调用只显示数量。视图不写入会话历史，也不进入模型上下文。
+命令对 collector 快照复用离线报告的同一套 analyzer，并在只读浮层显示工具统计、edit 多文件需求和模型可见候选采用情况。只统计已完成调用；正在执行的调用只显示数量。视图不写入会话历史，也不进入模型上下文。
 
 离线报告：
 
@@ -85,7 +85,7 @@ npm run telemetry:report -- [--input DIR] [--output DIR]
 - find/grep 的输入路径数量、scope 数量、部分失败 scope 数量和多 scope 调用数；正常数组调用与 repair 的 `split_path_list` / fanout 摘要可区分统计。
 - edit batch 的多文件比例、部分失败、每批文件/调用数，以及多文件接口可能减少的调用数。
 - find/grep/websearch 的调用量、扫描文件投影总数及其覆盖调用数、有候选调用、至少一个候选被采用的有效搜索、候选采用率，以及进入 read/webfetch、edit/write 或其他工具的候选数；HTML 按搜索工具和 candidate group 展示漏斗。
-- find/grep/websearch 候选的 conversion@K、MRR 和下游消费工具；每个细分来源使用同一组指标，并将 `repo-map-*`、`lsp-*` 分别聚合为 `repo-map`、`lsp` 来源族。
+- find/grep/websearch 候选的 conversion@K、MRR 和下游消费工具；每个模型可见细分来源使用同一组指标。grep 只投影正文/AST 等公开事实来源，不投影内部 LSP hint。
 - websearch 记录 primary provider、查询类型、首调用接受率所需事实、正式 provider 调用数、fallback 原因、secondary 新增结果、cache/corpus 复用、provider 延迟/错误类型、corpus fetch/cite 计数和近似 query reformulation；不记录 API key、完整 query 或响应正文。URL 后续进入 webfetch/引用的采用率继续由候选转化链计算。
 
 候选转化采用小而明确的启发式：同 run 后续 10 个调用、5 分钟内首次命中候选资源的 target；同一并行 batch 不算消费。多来源候选会分别归因到每个来源，来源数据不能直接相加。它用于发现真实 workload 和提出排序假设。排序是否改善由固定 workload benchmark 验证。

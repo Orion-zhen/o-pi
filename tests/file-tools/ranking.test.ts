@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import type { FindGraphCandidate } from "../../src/file-tools/find/graph-source.js";
-import { graphRankingEvidence, isGraphFallbackCandidate } from "../../src/file-tools/find/graph-ranking.js";
 import {
 	compareRankingEvidence,
 	createSourceRankingEvidence,
@@ -36,38 +34,11 @@ describe("shared ranking", () => {
 		});
 
 		it("confidence 线性缩放贡献且合并顺序无关", () => {
-			const full = createSourceRankingEvidence("repo-map-direct", 1, 1);
-			const low = createSourceRankingEvidence("repo-map-direct", 1, 0.4);
+			const full = createSourceRankingEvidence("lsp-workspace-symbol", 1, 1);
+			const low = createSourceRankingEvidence("lsp-workspace-symbol", 1, 0.4);
 			const semantic = createSourceRankingEvidence("lsp-workspace-symbol", 4);
 			expect(low.fusionScore).toBeCloseTo(full.fusionScore * 0.4);
 			expect(mergeRankingEvidence(low, semantic)).toEqual(mergeRankingEvidence(semantic, low));
-		});
-
-		it("Repo Map 按 confidence、hop 和 edge resolution 校准强度", () => {
-			const direct = graphCandidate({ confidence: 1, hop: 0 });
-			const lowConfidence = graphCandidate({ confidence: 0.4, hop: 0 });
-			const hop1 = graphCandidate({
-				confidence: 0.8,
-				hop: 1,
-				reasons: ["caller"],
-				relatedEdges: [{ hop: 1, confidence: 0.5, resolution: "lexical", relatedFiles: [] }],
-			});
-			expect(graphRankingEvidence(direct, 1).structural).toBeGreaterThan(0);
-			expect(graphRankingEvidence(lowConfidence, 1).fusionScore).toBe(0);
-			const graph = graphRankingEvidence(hop1, 1);
-			expect(graph.graph).toBeGreaterThan(0);
-			expect(graph.structural).toBe(0);
-			expect(graph.fusionScore).toBeLessThan(graphRankingEvidence(direct, 1).fusionScore);
-		});
-
-		it("find fallback 只接受高置信 exact symbol、registration 或 entrypoint", () => {
-			expect(isGraphFallbackCandidate(graphCandidate({ reasons: ["exact symbol"] }))).toBe(true);
-			expect(isGraphFallbackCandidate(graphCandidate({ hop: 1, reasons: ["exact symbol", "caller"] }))).toBe(false);
-			expect(isGraphFallbackCandidate(graphCandidate({ hop: 1, reasons: ["registration"] }))).toBe(true);
-			expect(isGraphFallbackCandidate(graphCandidate({ reasons: ["entrypoint"], confidence: 0.79 }))).toBe(false);
-			for (const reason of ["alias", "package", "component", "short symbol", "export"]) {
-				expect(isGraphFallbackCandidate(graphCandidate({ reasons: [reason] }))).toBe(false);
-			}
 		});
 	});
 
@@ -126,16 +97,4 @@ const selectionOptions = {
 
 function candidate(id: string, rank: number, group = id, tier = 1, score = 1): Candidate {
 	return { id, rank, group, tier, score };
-}
-
-function graphCandidate(overrides: Partial<FindGraphCandidate>): FindGraphCandidate {
-	return {
-		path: "target.ts",
-		contentHash: "hash",
-		confidence: 1,
-		hop: 0,
-		reasons: ["definition"],
-		relatedEdges: [],
-		...overrides,
-	};
 }

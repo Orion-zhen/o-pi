@@ -79,7 +79,6 @@ export interface CallRecord extends TelemetryBaseRecord, TelemetryFacts {
 	definition_hash?: string;
 	model?: { provider: string; id: string };
 	thinking?: string;
-	repo_map?: { enabled: boolean; freshness?: string; map_id?: string };
 	started_at: string;
 	ended_at: string;
 	duration_ms: number;

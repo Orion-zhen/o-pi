@@ -75,7 +75,7 @@ export function expectInventorySuccess(result: ToolOutcome<ScopeInventory>): Sco
 export async function grepWithHints(
 	workspace: string,
 	params: Parameters<GrepTool["execute"]>[0],
-	sources: { readonly lsp?: GrepHintSource; readonly repoMap?: GrepHintSource },
+	sources: { readonly lsp?: GrepHintSource },
 	mapFilesystem: (filesystem: WorkspaceFileSystem) => WorkspaceFileSystem = (filesystem) => filesystem,
 ): Promise<ToolOutcome<GrepSuccess>> {
 	const host = new FileToolsHost();
@@ -91,8 +91,7 @@ export async function grepWithHints(
 			filesystem: mapFilesystem(opened.filesystem),
 			operation: opened.context,
 			limits: opened.limits,
-				...(sources.lsp === undefined ? {} : { lspHints: sources.lsp }),
-				...(sources.repoMap === undefined ? {} : { repoMapHints: sources.repoMap }),
+			...(sources.lsp === undefined ? {} : { lspHints: sources.lsp }),
 		});
 	} finally {
 		tool.dispose();

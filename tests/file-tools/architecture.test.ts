@@ -76,7 +76,6 @@ function isFilesystemUpwardImport(edge: ImportEdge): boolean {
 	return edge.target !== undefined && [
 		"src/file-tools/",
 		"src/lsp/",
-		"src/repo-map/",
 		"src/skill-context/",
 		"src/code-index/",
 	].some((prefix) => edge.target?.startsWith(prefix));
@@ -126,12 +125,11 @@ function bypassesFilesystemPlane(edge: ImportEdge): boolean {
 	if (edge.target === undefined) return false;
 	return edge.target.startsWith("src/file-tools/ignore/")
 		|| edge.target.startsWith("src/lsp/")
-		|| edge.target.startsWith("src/repo-map/")
 		|| edge.target.startsWith("src/skill-context/");
 }
 
 function isExternalSubsystem(filePath: string): boolean {
-	return ["src/lsp/", "src/repo-map/", "src/skill-context/", "src/approval/", "src/code-index/"]
+	return ["src/lsp/", "src/skill-context/", "src/approval/", "src/code-index/"]
 		.some((prefix) => filePath.startsWith(prefix));
 }
 

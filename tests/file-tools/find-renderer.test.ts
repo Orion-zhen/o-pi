@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeRankedFindSources } from "../../src/file-tools/find/fusion.js";
+import { mergeRankedFindEntries } from "../../src/file-tools/find/fusion.js";
 import { createFindEntry } from "../../src/file-tools/find/ranker.js";
 import { renderFindResults } from "../../src/file-tools/find/renderer.js";
 import { createRankingEvidence } from "../../src/file-tools/shared/ranking/evidence.js";
@@ -58,16 +58,15 @@ describe("find renderer and fusion", () => {
 		expect(countTextTokensSync(result.content).tokens).toBeLessThanOrEqual(32);
 	});
 
-	it("路径与结构通道融合时不修改输入候选", () => {
+	it("重复路径融合时不修改输入候选", () => {
 		const entry = createFindEntry("src/target.ts", "file");
 		const lexical = { entry, tier: 3, evidence: createRankingEvidence("lexical", 0.8) };
 		const structural = { entry, tier: 2, evidence: createRankingEvidence("structural", 0.6) };
 
-		const merged = mergeRankedFindSources([lexical], [structural]);
+		const merged = mergeRankedFindEntries(lexical, structural);
 
-		expect(merged).toHaveLength(1);
-		expect(merged[0]?.tier).toBe(2);
-		expect(merged[0]?.evidence.familyCount).toBe(2);
+		expect(merged.tier).toBe(2);
+		expect(merged.evidence.familyCount).toBe(2);
 		expect(lexical.tier).toBe(3);
 		expect(lexical.evidence.familyCount).toBe(1);
 	});

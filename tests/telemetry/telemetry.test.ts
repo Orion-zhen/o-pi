@@ -92,7 +92,6 @@ describe("telemetry service", () => {
 			turn_index: 2,
 			tool: "test",
 			model: { provider: "test-provider", id: "test-model" },
-			repo_map: { enabled: false },
 			duration_ms: 25,
 			status: "success",
 			truncated: true,

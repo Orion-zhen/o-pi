@@ -7,10 +7,7 @@ export type RankingEvidenceSource =
 	| "ast-symbol"
 	| "ast-graph"
 	| "lsp-workspace-symbol"
-	| "lsp-reference"
-	| "repo-map-direct"
-	| "repo-map-hop-1"
-	| "repo-map-hop-2";
+	| "lsp-reference";
 
 /** RRF 参数集中在这里，benchmark 可以直接导入并校准。rank 从 1 开始。 */
 export const RRF_K = 60;
@@ -22,9 +19,6 @@ export const RANKING_SOURCE_POLICY: Readonly<Record<RankingEvidenceSource, { fam
 	"ast-graph": { family: "graph", weight: 0.35 },
 	"lsp-workspace-symbol": { family: "semantic", weight: 0.95 },
 	"lsp-reference": { family: "semantic", weight: 0.5 },
-	"repo-map-direct": { family: "structural", weight: 0.85 },
-	"repo-map-hop-1": { family: "graph", weight: 0.35 },
-	"repo-map-hop-2": { family: "graph", weight: 0.18 },
 };
 
 /** 排序热路径使用的固定宽度证据摘要；同 family 只保存最强来源贡献。 */
@@ -55,9 +49,6 @@ const SOURCE_ORDER: readonly RankingEvidenceSource[] = [
 	"ast-graph",
 	"lsp-workspace-symbol",
 	"lsp-reference",
-	"repo-map-direct",
-	"repo-map-hop-1",
-	"repo-map-hop-2",
 ];
 
 export function rrfContribution(rank: number, weight = 1, confidence = 1): number {

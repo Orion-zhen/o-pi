@@ -60,7 +60,7 @@ describe("read", () => {
 				{ line: 240, end_line: 418, kind: "class", name: "RequestParser" },
 				{ line: 412, end_line: 487, kind: "function", name: "validate_config" },
 			],
-		}, undefined)).toBe(
+		})).toBe(
 			"<remaining_symbols>\nline 240-418: class RequestParser\nline 412-487: function validate_config\n</remaining_symbols>",
 		);
 	});
@@ -268,28 +268,5 @@ describe("read", () => {
 		expect(afterReadBytes.toString("utf8")).toBe("one\n");
 		expect(afterReadStat.mtimeMs).toBeLessThan(oldDate.getTime() + 1000);
 		if ("version" in first && "version" in second) expect(first.version).not.toBe(second.version);
-	});
-});
-
-describe("read missing-path source", () => {
-	it("优先使用外部可信建议并去重", async () => {
-		const result = await testContext.read({ path: "missing.ts" }, {
-			missingPaths: { async suggest() { return ["src/main.ts", "src/main.ts", "src/utils.ts"]; } },
-		});
-		expect(result).toMatchObject({
-			status: "failed",
-			error: { next: "Related paths: src/main.ts, src/utils.ts" },
-		});
-	});
-
-	it("外部建议失败时降级到 filesystem catalog", async () => {
-		await writeFile(path.join(workspace, "recovery.ts"), "");
-		const result = await testContext.read({ path: "recover.ts" }, {
-			missingPaths: { async suggest() { throw new Error("unavailable"); } },
-		});
-		expect(result).toMatchObject({
-			status: "failed",
-			error: { next: expect.stringContaining("recovery.ts") },
-		});
 	});
 });

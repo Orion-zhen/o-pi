@@ -48,7 +48,7 @@ TUI 在参数完整后可以执行只读预览，call 区只在展开态显示 d
 <edit path="src/main.ts" replacements="2" first_changed_line="81"/>
 ```
 
-成功正文不包含版本字段或完整 diff。diff、before/after LSP diagnostics 和 Repo Map mutation observer 通过 edit-local ports 组合；提交后的 port 失败或取消安全降级，不能回滚或覆盖成功结果。preview 只读取 queue 外的当前 snapshot，不写 observation，也不承诺保留到真正 execute。
+成功正文不包含版本字段或完整 diff。diff 和 before/after LSP diagnostics 通过 edit-local ports 组合；提交后的 port 失败或取消安全降级，不能回滚或覆盖成功结果。preview 只读取 queue 外的当前 snapshot，不写 observation，也不承诺保留到真正 execute。
 
 重复匹配时，模型可见错误保持紧凑：
 

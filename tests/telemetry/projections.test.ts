@@ -24,7 +24,7 @@ describe("tool telemetry projections", () => {
 		const projected = safeProject(() => ({
 			fields: { body: "x".repeat(1_000), invalid: { nested: true } },
 			targets: Array.from({ length: 70 }, (_, index) => ({ kind: "file", value: `src/${index}.ts` })),
-			candidates: [{ kind: "file", value: "src/a.ts", rank: 1, sources: ["repo-map"] }],
+			candidates: [{ kind: "file", value: "src/a.ts", rank: 1, sources: ["lsp"] }],
 		}));
 		expect(projected.error).toBe("invalid_projection");
 		expect(projected.limited).toBe(true);
@@ -53,14 +53,14 @@ describe("tool telemetry projections", () => {
 			scope_errors: [{ path: "missing", error: { code: "PATH_NOT_FOUND", message: "missing" } }],
 			displayedMatches: [{ path: "src/a.ts" }],
 			depthLimited: true,
-			candidateSources: { "src/a.ts": ["lexical", "repo-map"] },
+			candidateSources: { "src/a.ts": ["lexical"] },
 		}));
 		expect(findInput.fields).toMatchObject({ input_query_chars: 14, input_path_count: 2 });
 		expect(findInput.targets).toEqual([{ kind: "directory", value: "src" }, { kind: "directory", value: "tests" }]);
 		expect(JSON.stringify(findInput)).not.toContain("private symbol");
 		expect(findOutput.fields).toMatchObject({ scope_count: 2, scope_error_count: 1, truncated: true });
 		expect(findOutput.candidates).toEqual([
-			{ kind: "path", value: "src/a.ts", rank: 1, group: "primary", sources: ["lexical", "repo-map"] },
+			{ kind: "path", value: "src/a.ts", rank: 1, group: "primary", sources: ["lexical"] },
 		]);
 
 		const grepParams = fixture<GrepParams>({ path: ["src", "tests"], query: "needle" });

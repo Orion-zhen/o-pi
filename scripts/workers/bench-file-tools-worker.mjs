@@ -65,10 +65,10 @@ async function runSearchBenchmark() {
 	grepHost = new FileToolsHost();
 	const concurrentGrepMs = await measure(() => Promise.all([
 		grep({ query: "createRetryableLoader", match: "literal" }),
-		grep({ query: "createLazyRepoMap", match: "literal" }),
+		grep({ query: "createFileToolsExtension", match: "literal" }),
 	]));
 	const broadAutoGrepMs = await measure(() => grep({
-		query: "Repo Map",
+		query: "File Tools",
 		path: ["src", "tests", "docs", "agent"],
 		match: "auto",
 	}));

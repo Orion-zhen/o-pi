@@ -2,36 +2,6 @@
 
 本页只记录 `agent/extensions/` 中通过 `pi.registerCommand()` 注册的命令。命令名注册时不带 `/`，在 Pi 输入框中以 `/命令名` 调用。
 
-## `/init`
-
-来源：`agent/extensions/repo-map.ts`
-
-用途：显式构建并激活当前 session branch 的持久化 Repo Map 文件、symbol 和关系图索引。
-
-用法：
-
-```text
-/init
-/init status
-/init refresh
-/init rebuild
-/init off
-```
-
-行为：
-
-- `/init` 识别当前 Git worktree，按 file-tools 安全和 ignore 规则增量扫描，解析受支持的代码文件，并在完整 generation 原子提交成功后激活。
-- 无变化时复用 generation；相同 activation 不重复写入 session。
-- `/init refresh` 复用当前 generation 增量扫描变化文件；无变化时复用 generation。
-- `/init rebuild` 不复用旧快照，完整扫描并重解析有效文件。
-- refresh/rebuild 只在 generation 原子提交成功后切换 `CURRENT` 和 activation；失败或取消保留旧状态。
-- `/init status` 未激活时不运行 Git 或读取缓存；已激活时检查 generation、`CURRENT`、HEAD、配置、ignore 和 parser fingerprint，并显示 freshness。
-- `/init off` 只关闭当前 branch activation，不运行 Git、不扫描、不删除缓存。
-- UI footer 第一行左侧的 git 后常驻显示 Repo Map active/inactive；初始化、refresh、rebuild 期间随扫描阶段和计数更新，active `/init status` 读取期间显示检查状态，命令结束后恢复 activation 状态。
-- 状态和摘要只通过 UI 显示，不进入模型上下文。
-- 不接受路径参数；非法参数提示 `usage: /init | /init status | /init refresh | /init rebuild | /init off`。
-- 完整边界见 [Repo Map](repo-map/README.md)。
-
 ## `/tools`
 
 来源：`agent/extensions/cmd-slash-tools.ts`
@@ -209,7 +179,7 @@
 行为：
 
 - 对当前 collector 内存快照复用离线报告的同一套 analyzer，不维护第二套统计逻辑。
-- 展示工具调用量、成功率、错误、耗时和 repair，edit 多文件 batch，以及候选 conversion@K、MRR、repo-map/LSP 来源族和细分来源。
+- 展示工具调用量、成功率、错误、耗时和 repair，edit 多文件 batch，以及候选 conversion@K、MRR、LSP 来源族和细分来源。
 - 只分析已经完成并成功写入遥测的调用；正在执行的调用只显示数量。
 - 不扫描旧 run；切换 session 后从新 session 的观测重新开始。
 - TUI 中通过只读浮层展示；非 TUI 模式使用 UI notification 输出。

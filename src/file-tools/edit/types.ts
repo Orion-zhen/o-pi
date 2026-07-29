@@ -38,13 +38,6 @@ export interface EditParams {
 	edits: EditReplacement[];
 }
 
-export interface EditMutationDetails {
-	status: "updated" | "partially_stale";
-	generation: string;
-	diagnostic?: string;
-	impact?: unknown;
-}
-
 export interface EditSuccess {
 	status: "applied";
 	path: string;
@@ -56,7 +49,6 @@ export interface EditSuccess {
 	diff: string;
 	firstChangedLine?: number;
 	lsp?: { diagnostics?: DiagnosticsSummary };
-	repo_map?: EditMutationDetails;
 }
 
 export interface EditPreviewSuccess {

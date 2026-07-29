@@ -9,7 +9,6 @@ import { createFooterComponent, GitSegmentCache } from "./footer.js";
 import type { TuiConfig, TuiFooterSkillsSnapshot, TuiFooterSnapshot, TuiFooterToolsSnapshot } from "./types.js";
 
 const STATUS_KEY = "o-pi:tui";
-const REPO_MAP_STATUS_KEY = "repo-map";
 const MATH_IDLE_DELAY_MS = 750;
 
 export interface MathMarkdownModule {
@@ -226,7 +225,7 @@ export function createTuiRuntime(
 		snapshot = makeSnapshot(ctx, pi, status, gitCache?.get(ctx.cwd));
 		refreshTitle();
 		ctx.ui.setStatus(STATUS_KEY, formatStatus(status, ctx.ui.theme));
-		ctx.ui.setFooter(config?.chrome.footer ? createFooterComponent(config.footer, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot), STATUS_KEY, REPO_MAP_STATUS_KEY) : undefined);
+		ctx.ui.setFooter(config?.chrome.footer ? createFooterComponent(config.footer, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot), STATUS_KEY) : undefined);
 		ctx.ui.setHeader(getHeader());
 	}
 
@@ -266,7 +265,7 @@ function applyChrome(ctx: ExtensionContext, config: TuiConfig, getSnapshot: () =
 	if (config.chrome.title) ctx.ui.setTitle(formatTitle(getSnapshot()));
 	ctx.ui.setWorkingIndicator(workingIndicatorOptions(config, ctx.ui.theme));
 	ctx.ui.setStatus(STATUS_KEY, formatStatus("ready", ctx.ui.theme));
-	ctx.ui.setFooter(config.chrome.footer ? createFooterComponent(config.footer, getSnapshot, STATUS_KEY, REPO_MAP_STATUS_KEY) : undefined);
+	ctx.ui.setFooter(config.chrome.footer ? createFooterComponent(config.footer, getSnapshot, STATUS_KEY) : undefined);
 	ctx.ui.setHeader(config.chrome.header ? createHeaderComponent(getSnapshot) : undefined);
 }
 

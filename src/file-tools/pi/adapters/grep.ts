@@ -1,4 +1,3 @@
-import type { RepoMapQueryCandidate } from "../../../repo-map/query/query.js";
 import { GrepTool, formatCompactGrepResult } from "../../grep/command.js";
 import type { GrepHintSource, GrepPositionHint } from "../../grep/ports.js";
 import type { GrepParams } from "../../grep/types.js";
@@ -6,7 +5,6 @@ import type { FileToolsHost, FileToolsInvocation } from "../../runtime/host.js";
 import { isFailed } from "../../shared/result.js";
 import type { LspFileOperations } from "../../../lsp/file-hooks.js";
 import { formatErrorModelResult } from "../model-output.js";
-import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 
 export interface ExecuteGrepOptions {
 	readonly cwd: string;
@@ -14,7 +12,6 @@ export interface ExecuteGrepOptions {
 	readonly signal?: AbortSignal;
 	readonly host: FileToolsHost;
 	readonly lsp: LspFileOperations;
-	readonly repoMap: RepoMapToolPorts;
 }
 
 export function createGrepAdapter() {
@@ -33,7 +30,6 @@ export function createGrepAdapter() {
 					operation: opened.context,
 					limits: opened.limits,
 					lspHints: createLspGrepHintSource(options.lsp, opened),
-					repoMapHints: createRepoMapGrepHintSource(options.repoMap, opened),
 				});
 				if (isFailed(result)) return failedResult(result);
 				return { content: [{ type: "text" as const, text: formatCompactGrepResult(result) }], details: result };
@@ -72,54 +68,6 @@ export function createLspGrepHintSource(lsp: LspFileOperations, invocation: File
 			}));
 		},
 	};
-}
-
-export function createRepoMapGrepHintSource(repoMap: RepoMapToolPorts, invocation: FileToolsInvocation): GrepHintSource {
-	return {
-		async query(input) {
-			if (input.signal?.aborted === true) return [];
-			const identity = invocation.nativeBridge.getNativeIdentity(input.root);
-			if (identity === undefined) return [];
-			const result = await repoMap.query.query({
-				requestedPath: identity.nativePath,
-				query: input.query,
-				limit: input.limit,
-				...(input.signal === undefined ? {} : { signal: input.signal }),
-			});
-			if (result === undefined || isAborted(input.signal)) return [];
-			return result.candidates.flatMap(toGraphHint);
-		},
-	};
-}
-
-function toGraphHint(candidate: RepoMapQueryCandidate): GrepPositionHint[] {
-	const symbol = candidate.symbol;
-	const range = symbol?.range ?? candidate.range;
-	if (candidate.hop === 2 || range === undefined) return [];
-	const aliasReasons = candidate.matchedAliases
-		.filter(({ term, canonical }) => term.toLocaleLowerCase() !== canonical.toLocaleLowerCase())
-		.map(({ term, canonical }) => `alias ${term}->${canonical}`);
-	const relation = relationFromReasons(candidate.reasons);
-	return [{
-		path: candidate.path,
-		range: { ...range },
-		origin: "repo-map",
-		confidence: candidate.confidence,
-		...(candidate.contentHash === undefined ? {} : { contentHash: candidate.contentHash }),
-		...(relation === undefined ? {} : { relation }),
-		hop: candidate.hop,
-		reasons: [...candidate.reasons, ...aliasReasons],
-	}];
-}
-
-function relationFromReasons(reasons: readonly string[]): string | undefined {
-	return reasons.find((reason) => reason === "caller" || reason === "callee" || reason === "reference"
-		|| reason === "test" || reason === "import" || reason === "registration" || reason === "entrypoint")
-		?? (reasons.some((reason) => reason === "definition" || reason === "export" || reason === "public api") ? "definition" : undefined);
-}
-
-function isAborted(signal: AbortSignal | undefined): boolean {
-	return signal?.aborted === true;
 }
 
 function failedResult(result: Parameters<typeof formatErrorModelResult>[0]) {

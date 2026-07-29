@@ -23,7 +23,7 @@ const cleanDiagnostics: DiagnosticsSummary = {
 };
 
 describe("file-tools extension mutation progress", () => {
-	it("edit/write 在提交前报告实时 diff，并分别报告 LSP 与 Repo Map 后处理状态", async () => {
+	it("edit/write 在提交前报告实时 diff，并报告 LSP 后处理状态", async () => {
 		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
 		const handlers = new Map<string, LifecycleHandler>();
 		fileTools({
@@ -55,16 +55,14 @@ describe("file-tools extension mutation progress", () => {
 			await vi.waitFor(() => {
 				expect(writeUpdates).toEqual(expect.arrayContaining([
 					expect.objectContaining({ details: expect.objectContaining({ status: "writing", diff: expect.stringContaining("+1 const value = 1;") }) }),
-					expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "running", errors: 0, warnings: 0 }, repo_map: "pending" }) }),
-					expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "running", errors: 0, warnings: 0 }, repo_map: "running" }) }),
-					expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "running", errors: 0, warnings: 0 }, repo_map: "inactive" }) }),
+					expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "running", errors: 0, warnings: 0 } }) }),
 				]));
 				expect(writeAtDiagnostics).toBe("const value = 1;\n");
 			});
 			releaseWrite?.();
 			await expect(pendingWrite).resolves.toMatchObject({ details: { status: "written", lsp: { diagnostics: { status: "clean" } } } });
 			expect(writeUpdates).toEqual(expect.arrayContaining([
-				expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "clean", errors: 0, warnings: 0 }, repo_map: "inactive" }) }),
+				expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "clean", errors: 0, warnings: 0 } }) }),
 			]));
 
 			await executeTool(registered, "read", { path: "a.ts" }, ctx);
@@ -88,16 +86,14 @@ describe("file-tools extension mutation progress", () => {
 			await vi.waitFor(() => {
 				expect(editUpdates).toEqual(expect.arrayContaining([
 					expect.objectContaining({ details: expect.objectContaining({ status: "editing", replacements: 1, diff: expect.stringContaining("+1 const value = 2;") }) }),
-					expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", replacements: 1, lsp: { status: "running", errors: 0, warnings: 0 }, repo_map: "pending" }) }),
-					expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", replacements: 1, lsp: { status: "running", errors: 0, warnings: 0 }, repo_map: "running" }) }),
-					expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", replacements: 1, lsp: { status: "running", errors: 0, warnings: 0 }, repo_map: "inactive" }) }),
+					expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", replacements: 1, lsp: { status: "running", errors: 0, warnings: 0 } }) }),
 				]));
 				expect(editAtDiagnostics).toBe("const value = 2;\n");
 			});
 			releaseEdit?.();
 			await expect(pendingEdit).resolves.toMatchObject({ details: { status: "applied", lsp: { diagnostics: { status: "clean" } } } });
 			expect(editUpdates).toEqual(expect.arrayContaining([
-				expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "clean", errors: 0, warnings: 0 }, repo_map: "inactive" }) }),
+				expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "clean", errors: 0, warnings: 0 } }) }),
 			]));
 
 			const failedUpdates: ExecuteResult[] = [];

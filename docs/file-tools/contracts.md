@@ -8,7 +8,7 @@
 
 filesystem discovery 组合 namespace、visibility、metadata 与 traversal，统一解释 scope-relative glob、静态前缀剪枝、原始 scope 深度、显式 ignored root/静态前缀和 child symlink。每个文件 entry 携带必填 object identity、version 与 size snapshot；`content` 的 `expectedSnapshot` 约束打开的文件必须等于调用方捕获版本，`stable` 则检测读取期间的变化，两者职责独立。
 
-filesystem 失败使用模型无关的 `FsResult` 与稳定 `FsError` code；tool command 在边界映射为既有 `FileToolError`，Pi presenter 再生成模型文本。snapshot 不匹配和读取期间变化统一为 `changed-during-read`。filesystem error 不含工具名、`next`、模型文案、LSP 或 Repo Map 数据。合法零搜索结果仍是成功，不能与 I/O、配置、取消或索引失败混淆。
+filesystem 失败使用模型无关的 `FsResult` 与稳定 `FsError` code；tool command 在边界映射为既有 `FileToolError`，Pi presenter 再生成模型文本。snapshot 不匹配和读取期间变化统一为 `changed-during-read`。filesystem error 不含工具名、`next`、模型文案或 LSP 数据。合法零搜索结果仍是成功，不能与 I/O、配置、取消或索引失败混淆。
 
 配置先于 workspace I/O 加载。项目配置始终按 Pi invocation 的 `ctx.cwd` 选择，不隐式读取 `process.cwd()`；配置错误直接返回 `CONFIG_ERROR`。
 
@@ -33,7 +33,7 @@ filesystem 失败使用模型无关的 `FsResult` 与稳定 `FsError` code；too
 - `truncated` 或 continuation；
 - 搜索深度或结果限制；
 - LSP diagnostics 摘要；
-- `nearby` / `related` 非命中结果。
+- `nearby` 非命中结果。
 
 TUI 展示不受模型可见 ASCII 协议限制，可以使用图标和其他显示字符。
 
@@ -48,7 +48,7 @@ TUI 展示不受模型可见 ASCII 协议限制，可以使用图标和其他显
 
 预算不足时，输出必须保留状态首行，不能让尾部截断掩盖结果不完整。`read` 返回 continuation 行号；`find` 区分 `depthLimited`、`resultLimited` 和 `outputTruncated`；`grep` 在 `truncated_by` 中区分 `traversal_limit`、`text_byte_limit`、`semantic_candidate_limit`、`result_limit` 和 `token_budget`。
 
-候选使用各工具定义的固定表示，预算只决定保留哪些完整候选，不随机截断或扩展同一候选。grep 的语法锚点、declaration 和代表行不随 token budget 改变。filesystem 文本 API 统一使用剥离 UTF-8 BOM 后正文的 UTF-8 byte 坐标；logical line、AST 和 external range 不使用原始文件 BOM offset。详细 token 估算见 [Token Counter](../token-counter.md)。
+候选使用各工具定义的固定表示，预算只决定保留哪些完整候选，不随机截断或扩展同一候选。grep 的语法锚点、declaration 和代表行不随 token budget 改变。filesystem 文本 API 统一使用剥离 UTF-8 BOM 后正文的 UTF-8 byte 坐标；logical line、AST 和 position-hint range 不使用原始文件 BOM offset。详细 token 估算见 [Token Counter](../token-counter.md)。
 
 ## 统一错误
 
@@ -68,7 +68,7 @@ File does not exist.
 
 `read` 可以在当前 session 记录原始字节版本。成功的 `write` 和 `edit` 由 filesystem commit callback 记录写入后的版本，因此 `write → edit` 可以直接执行；observation 以 canonical filesystem identity 为 key，明确 symlink 与目标共享版本身份。`edit` 在 per-target queue 内读取当前 snapshot 后校验 observation，避免覆盖排队期间或外部发生的修改。
 
-`AbortSignal` 贯穿 host、filesystem operation、遍历/stream、worker 和 mutation queue。提交前取消不得写盘；mutation 一旦提交，后置 LSP/Repo Map 失败或取消只会安全降级，不能把已提交结果改成失败。系统只承诺同进程 canonical target 串行与 content-hash 乐观校验，不承诺跨进程锁、事务、回滚或自动 merge。
+`AbortSignal` 贯穿 host、filesystem operation、遍历/stream、worker 和 mutation queue。提交前取消不得写盘；mutation 一旦提交，后置 LSP 失败或取消只会安全降级，不能把已提交结果改成失败。系统只承诺同进程 canonical target 串行与 content-hash 乐观校验，不承诺跨进程锁、事务、回滚或自动 merge。
 
 TUI 可以在展开态展示 `write` 或 `edit` 的精简 diff，但模型可见成功正文只确认写入事实，不包含完整 diff、版本字段或内部 fingerprint。
 

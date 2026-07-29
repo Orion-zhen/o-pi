@@ -98,7 +98,6 @@ describe("file-tools extension renderers", () => {
 					status: "post-processing",
 					diff: "-1 old\n+1 new",
 					lsp: { status: "clean", errors: 0, warnings: 0 },
-					repo_map: "running",
 				},
 			},
 			{ expanded: false, isPartial: true },
@@ -106,7 +105,7 @@ describe("file-tools extension renderers", () => {
 			{ args, cwd: "/repo", lastComponent: undefined, state },
 		);
 		expect(progress?.render(80)).toEqual([]);
-		expect(state.callComponent?.postProcess).toMatchObject({ lsp: { status: "clean" }, repo_map: "running" });
+		expect(state.callComponent?.postProcess).toMatchObject({ lsp: { status: "clean" } });
 
 		const result = {
 			status: "written",
@@ -152,7 +151,6 @@ describe("file-tools extension renderers", () => {
 					diff: "-1 old\n+1 new",
 					replacements: 1,
 					lsp: { status: "errors", errors: 2, warnings: 1 },
-					repo_map: "inactive",
 				},
 			},
 			{ expanded: false, isPartial: true },
@@ -160,7 +158,7 @@ describe("file-tools extension renderers", () => {
 			{ args, cwd, expanded: false, lastComponent: undefined, state },
 		);
 		expect(progress?.render(80)).toEqual([]);
-		expect(state.callComponent?.postProcess).toMatchObject({ lsp: { status: "errors", errors: 2 }, repo_map: "inactive" });
+		expect(state.callComponent?.postProcess).toMatchObject({ lsp: { status: "errors", errors: 2 } });
 	});
 });
 

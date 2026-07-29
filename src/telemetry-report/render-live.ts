@@ -42,7 +42,7 @@ export function renderLiveTelemetry(value: LiveTelemetryReport, width: number): 
 			["Productive", `${report.candidate_ranking.file_level.productive.adopted_lists}/${report.candidate_ranking.file_level.productive.lists}`],
 		]),
 		"Candidate Source Families",
-		...(["repo-map", "lsp"] as const).flatMap((source) => {
+		...(["lsp"] as const).flatMap((source) => {
 			const statistics = report.candidate_ranking.by_source_family[source];
 			return statistics === undefined ? [`  ${source}  no candidates`] : sourceContributionBlock(source, statistics);
 		}),

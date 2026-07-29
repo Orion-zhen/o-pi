@@ -11,8 +11,8 @@
 | factual | 当前正文的 literal/regex occurrence |
 | symbol | Tree-sitter definition/symbol |
 | lexical | path、BM25 与 text fallback |
-| semantic | LSP symbol/reference 与已验证的 Repo Map direct evidence |
-| graph | grep 的 Repo Map hop 1、本地一跳关系，以及 find 内部使用的图传播 |
+| semantic | 映射到 live AST unit 的 LSP hint evidence |
+| graph | 本地一跳关系 |
 
 每个有效来源按自身已验证顺序取得一基 rank：
 
@@ -25,19 +25,6 @@ fusionScore = sum(familyContribution)
 权重集中在 `src/file-tools/grep/ranking.ts`，并按 strict、identifier、qualified symbol、long text、natural language 和 relation 查询策略分别校准。`RankingEvidenceSummary` 只保存五个 family 的最大贡献、family count、总分和最大贡献。
 
 单 identifier 已获得 exact symbol 时，同一正文派生的 lexical 证据仍可展示，但不再作为独立 family 累加；它不是相对于 symbol/literal 的独立共识。
-
-## Repo Map 校准
-
-Repo Map 候选必须通过当前文件 content hash；自动模式还保留 related-file hash gate。没有实时 freshness 证明的候选不进入主结果，也不提供 RRF 贡献。
-
-- grep 的 hop 0 direct 默认只给已有区域增加排序证据；只有规范化名称真正匹配 exact qualified/exact symbol 时可独立建 main。
-- short symbol、alias、package、component 和普通 export 只保留为内部排序信号。
-- grep hop 1 只进入 graph family，并且仅在显式关系查询或主结果为空时可见。
-- grep adapter 丢弃 hop 2；二跳不进入其候选类型、权重表或模型输出。
-
-每个独立来源先在完整 scope+glob inventory 内查询，再在实时验证后重新编号。main 与 related 分开编号，因此增加 related 候选不会稀释 main 的 RRF rank；外部候选不受本地 parse/semantic Top-K 门控。
-
-grep 只接受候选明确提供的有效 range，不把文件候选投影到 `units[0]`。无 range 的 direct、package、component、alias 等候选保持内部信息；只有符合可见门控的关系回退可转为 related。
 
 ## 来源内部顺序
 
@@ -62,20 +49,12 @@ exact/prefix 不信任检索来源的自报标签，由 ranker 根据规范化�
 
 ### LSP
 
-LSP 不依赖语言服务器返回顺序，通过 scope 和正文读取后显式排序：
+LSP 不是常驻召回通道。只有多个本地 exact definition 需要位置消歧，或显式关系查询缺少本地 AST relation 时才请求；普通唯一 symbol、已有本地关系及 strict 查询不启动 LSP。
 
-```text
-exact qualified symbol
-    → exact symbol
-    → prefix/token match
-    → fuzzy workspace symbol
-    → reference
-```
-
-grep-local `GrepSymbolCandidate.origin` 区分 `workspace-symbol` 和 `reference`；port 未提供 origin 时按 workspace symbol 处理。reference 使用更差 tier 和更低 source weight。最终以 symbol、path 和 range 稳定打破平局。
+workspace symbol/reference 经过 scope allowed paths 和 LSP 自身稳定合并后，只作为 path/range hint 进入 grep。LSP symbol hint 必须映射到名称精确匹配查询的 live AST unit；reference hint 必须映射到用户请求的关系角色。hint 的来源内 rank、confidence 和 origin 只提供内部 semantic/graph contribution。
 
 ## Region identity
 
-有 symbol 的 `grep` 候选按 path、normalized qualified symbol、kind、signature 和 range 聚类合并。Tree-sitter、LSP、Repo Map 的范围重叠或起始行相差不超过两行时可视为同一 region；如果双方 signature 明确且不同，则保持为不同 overload。
+有 symbol 的 `grep` region 以本次 AST unit ID 为身份。LSP range 只选择包含该范围的最小 live unit，随后按该 unit ID 与已有正文/AST region 合并；外部 symbol、kind 或 signature 不参与公开 identity。
 
-无 symbol 的文本 region 继续使用严格 ID/range。所有来源的合并、去重和最终比较都不依赖并发完成顺序或来源输入顺序。
+无 symbol 的文本 region 继续使用严格 ID/range。hint 按 origin、path、range 和 relation 去重；最终比较不依赖并发完成顺序。

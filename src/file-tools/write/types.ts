@@ -12,13 +12,6 @@ export interface WritePreviewSuccess {
 	firstChangedLine?: number;
 }
 
-export interface WriteMutationDetails {
-	status: "updated" | "partially_stale";
-	generation: string;
-	diagnostic?: string;
-	impact?: unknown;
-}
-
 export interface WriteSuccess {
 	status: "written";
 	path: string;
@@ -31,5 +24,4 @@ export interface WriteSuccess {
 	diff: string;
 	firstChangedLine?: number;
 	lsp?: { diagnostics?: DiagnosticsSummary };
-	repo_map?: WriteMutationDetails;
 }

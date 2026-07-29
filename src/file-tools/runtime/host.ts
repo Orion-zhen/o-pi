@@ -24,7 +24,7 @@ export interface FileToolsInvocation {
 	readonly limits: Readonly<FileToolLimits>;
 	readonly observation: ObservationStore;
 	readonly context: FsOperationContext;
-	/** Composition-only bridge for LSP and Repo Map adapters. */
+	/** 供 LSP adapter 使用的组合边界。 */
 	readonly nativeBridge: WorkspaceNativeBridge;
 	readonly disposed: boolean;
 	dispose(): void;

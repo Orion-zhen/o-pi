@@ -259,7 +259,6 @@ function exactSources(candidate: Candidate): readonly string[] {
 
 function sourceFamilies(candidate: Candidate): readonly string[] {
 	return [...new Set(exactSources(candidate).map((source) => {
-		if (source === "repo-map" || source.startsWith("repo-map-")) return "repo-map";
 		if (source === "lsp" || source.startsWith("lsp-")) return "lsp";
 		return source;
 	}))];

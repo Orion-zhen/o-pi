@@ -1,6 +1,6 @@
 # 排序选择与结果通道
 
-本文说明融合后的候选如何进行 Top-K 选择，以及 `main`、`nearby`、`related` 的区别。证据来源见 [排序证据](ranking-evidence.md)。
+本文说明融合后的候选如何进行 Top-K 选择，以及主结果与 `nearby` 的区别。证据来源见 [排序证据](ranking-evidence.md)。
 
 ## Relevance head 与 MMR
 
@@ -19,23 +19,21 @@ utility = 0.85 * normalizedRelevance
 
 每一步只在当前最优 tier 内选择，因此多样性不能提升较差 tier。`find` 相似度使用 identity、basename、顶层 component 和 kind；`grep` 使用 identity、symbol、path、candidate role 和 component。相似度只是软惩罚。
 
-MMR 返回确定性的选择顺序，relevance head 保持在最前；不使用按分数比例删除合格候选的 cutoff。`grep` 只在本地与外部候选完成融合后执行一次 MMR，范围是 packer 会优先考虑的 `max(32, grep_result_limit * 4)` 个候选；其余候选保持完整 relevance 顺序，继续参与低成本候选回退。
+MMR 返回确定性的选择顺序，relevance head 保持在最前；不使用按分数比例删除合格候选的 cutoff。`grep` 只在本地 region 与已物化 hint evidence 完成融合后执行一次 MMR，范围是 packer 会优先考虑的 `max(32, grep_result_limit * 4)` 个候选；其余候选保持完整 relevance 顺序，继续参与低成本候选回退。
 
-## Main、nearby 与 related
+## 主结果与 nearby
 
-`grep` 的 main 需要正文/本地语义证据、exact qualified symbol、exact symbol，或者查询明确要求的关系角色。Repo Map direct 默认只调整已有候选排序；short symbol、alias、package、component 和普通 export 不能独立进入可见结果。literal/regex 的外部候选只能增强真实文本命中。
+`grep` 的主结果必须来自实时正文或本次 live AST unit。正文命中可以形成 verified region；本地 AST 或映射到 AST 的 position hint 可以形成 exact symbol、natural-language fallback，或者查询明确要求的关系 region。`literal`/`regex` 只允许 verified region。
 
-`find` 的 Repo Map direct 也默认只调整已有路径候选排序。基础路径召回为空时，仅高置信 exact symbol、registration 或 entrypoint 文件可按 `find_repo_map_fallback_limit` 回退；不提供 `related` 通道。
-
-显式 caller/callee/reference/test/import/registration/entrypoint 查询允许 direct 或 hop-1 关系进入 main。普通查询只有在主结果为空时才允许可信 hop-1 进入 related；hop-2 永不进入 grep 可见候选。
+显式 caller/callee/reference/test/import/registration/entrypoint 查询允许已映射的 LSP 关系进入主结果。
 
 ### nearby
 
 只有主结果为空时，`grep` 才可从当前代码单元生成最多 3 条 symbol edit-distance、部分 query terms 或路径重合建议。`nearby` 明示 `query_match: not_guaranteed`，不参与主结果排序或返回计数。
 
-### related 与全局行动预算
+### 显式关系预算
 
-`related` 只承担主结果为空时的 Repo Map hop-1 回退导航。显式关系 main 与 related 共用 `grep_relation_action_limit`，默认全局最多 2 条；预算不随 main 数量增长，并继续受 `grep_result_limit` 和 token budget 约束。来源、hop、confidence、reason、hash 等只保留在 details/telemetry。
+关系主结果受 `grep_relation_action_limit` 限制，默认全局最多 2 条，并继续受 `grep_result_limit` 和 token budget 约束。grep 没有 `related` 通道；hint 的 origin、hop、confidence、reason 和 hash 不进入公开结果。
 
 ## Renderer 与稳定性
 
@@ -51,10 +49,7 @@ MMR 返回确定性的选择顺序，relevance head 保持在最前；不使用�
 
 - 高相关同文件与低相关跨文件；
 - 多来源高/低排名共识；
-- hop 竞争；
 - exact/reference/test/registration 混合；
 - renderer 顺序一致性。
 
 `scripts/bench-file-tools-search.mjs` 另行覆盖跨 `src`、`tests`、`docs` 和 `agent` 的宽范围 `grep(auto)`，防止完整候选数重新进入 MMR limit。
-
-`npm run bench:file-tools:calibration` 会在临时缓存中重建当前工作树的 Repo Map，并执行 path、symbol、literal、regex、caller 和 test intent 查询，报告逐查询 Top-3、MRR、Recall@3 和冷查询耗时。当前门槛为 MRR/Recall@3 `0.95`。

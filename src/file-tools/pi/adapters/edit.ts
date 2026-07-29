@@ -5,7 +5,6 @@ import { isFailed } from "../../shared/result.js";
 import type { LspFileOperations } from "../../../lsp/file-hooks.js";
 import { formatEditModelResult } from "../../edit/presenter.js";
 import { formatErrorModelResult, scrubVersions } from "../model-output.js";
-import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 import { createEditPorts } from "../ports/edit.js";
 import { piTextDiffGenerator } from "../ports/text-diff.js";
 import type { MutationBatchInvocation } from "../mutation-batch.js";
@@ -19,7 +18,6 @@ export async function executeEdit(
 		signal?: AbortSignal;
 		host: FileToolsHost;
 		lsp: LspFileOperations;
-		repoMap: RepoMapToolPorts;
 		onUpdate?: MutationProgressCallback;
 		batch?: MutationBatchInvocation;
 	},
@@ -36,7 +34,7 @@ export async function executeEdit(
 			replacements: latestPreview?.replacements ?? params.edits.length,
 			...(latestPreview === undefined ? {} : { diff: latestPreview.diff }),
 		}));
-		const ports = createEditPorts(opened, runtime.lsp, runtime.repoMap, progress, runtime.batch);
+		const ports = createEditPorts(opened, runtime.lsp, progress, runtime.batch);
 		const result = await editFile(params, commandContext(opened, ports, (preview) => {
 			latestPreview = preview;
 			runtime.onUpdate?.(mutationProgress({ status: "editing", diff: preview.diff, replacements: preview.replacements }));
@@ -44,7 +42,7 @@ export async function executeEdit(
 		const text = isFailed(result)
 			? formatErrorModelResult(result)
 			: result.status === "applied"
-				? formatEditModelResult(result, ports.impact())
+				? formatEditModelResult(result)
 				: JSON.stringify(scrubVersions(result));
 		return { content: [{ type: "text" as const, text }], details: result };
 	} finally {
@@ -87,7 +85,6 @@ function commandContext(
 		matchHintLimit: opened.limits.edit_match_hint_limit,
 		diff: piTextDiffGenerator,
 		diagnostics: ports.diagnostics,
-		mutationObserver: ports.observer,
 		onPrepared,
 	};
 }

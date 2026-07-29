@@ -11,20 +11,13 @@ interface FindSimilarityProfile {
 
 const FIND_SIMILARITY_PROFILES = new WeakMap<RankedFindEntry, FindSimilarityProfile>();
 
-/** 路径与 Repo Map 候选按 path 合并；只有发生碰撞时才复制输入候选。 */
-export function mergeRankedFindSources(primary: RankedFindEntry[], repoMap: RankedFindEntry[]): RankedFindEntry[] {
-	const fused = fuseRankedFindSources(primary, repoMap);
-	if (fused === primary) return primary;
-	return fused.sort(compareRankedFindEntries);
-}
-
-export function fuseRankedFindSources(primary: RankedFindEntry[], repoMap: RankedFindEntry[]): RankedFindEntry[] {
-	if (repoMap.length === 0) return primary;
-	const byPath = new Map<string, RankedFindEntry>();
-	const owned = new Set<string>();
-	for (const candidate of primary) mergeCandidate(byPath, owned, candidate);
-	for (const candidate of repoMap) mergeCandidate(byPath, owned, candidate);
-	return [...byPath.values()];
+/** 合并同一路径在多个显式 scope 中产生的排序证据。 */
+export function mergeRankedFindEntries(left: RankedFindEntry, right: RankedFindEntry): RankedFindEntry {
+	return {
+		...left,
+		tier: Math.min(left.tier, right.tier),
+		evidence: mergeRankingEvidence(left.evidence, right.evidence),
+	};
 }
 
 export function selectRankedFindEntries(candidates: readonly RankedFindEntry[], limit: number): RankedFindEntry[] {
@@ -44,23 +37,6 @@ export function compareRankedFindEntries(left: RankedFindEntry, right: RankedFin
 		|| left.entry.path.length - right.entry.path.length
 		|| left.entry.depth - right.entry.depth
 		|| compareStableString(left.entry.path, right.entry.path);
-}
-
-function mergeCandidate(byPath: Map<string, RankedFindEntry>, owned: Set<string>, candidate: RankedFindEntry): void {
-	const key = candidate.entry.path;
-	const existing = byPath.get(key);
-	if (existing === undefined) {
-		byPath.set(key, candidate);
-		return;
-	}
-	const alreadyOwned = owned.has(key);
-	const target = alreadyOwned ? existing : { ...existing };
-	if (!alreadyOwned) {
-		byPath.set(key, target);
-		owned.add(key);
-	}
-	target.tier = Math.min(target.tier, candidate.tier);
-	target.evidence = mergeRankingEvidence(target.evidence, candidate.evidence);
 }
 
 function compareStableString(left: string, right: string): number {

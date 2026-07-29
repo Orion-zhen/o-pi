@@ -1,6 +1,6 @@
 import type { TargetRef } from "../../filesystem/contracts/path.js";
 import type { DiagnosticSnapshot, DiagnosticsSummary } from "../shared/diagnostics.js";
-import type { EditLineRange, EditMutationDetails } from "./types.js";
+import type { EditLineRange } from "./types.js";
 
 export interface EditDiagnosticsSource {
 	beforeEdit(input: {
@@ -14,12 +14,4 @@ export interface EditDiagnosticsSource {
 		readonly baseline?: DiagnosticSnapshot;
 		readonly signal?: AbortSignal;
 	}): Promise<DiagnosticsSummary | undefined>;
-}
-
-export interface EditMutationObserver {
-	observe(input: {
-		readonly target: TargetRef;
-		readonly firstChangedLine?: number;
-		readonly signal?: AbortSignal;
-	}): Promise<EditMutationDetails | undefined>;
 }

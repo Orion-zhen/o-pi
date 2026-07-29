@@ -94,12 +94,6 @@
 					"maximum": 256,
 					"default": 12
 				},
-				"find_repo_map_fallback_limit": {
-					"type": "integer",
-					"minimum": 0,
-					"maximum": 20,
-					"default": 3
-				},
 				"grep_max_depth": {
 					"type": "integer",
 					"minimum": 0,

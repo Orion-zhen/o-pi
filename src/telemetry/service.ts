@@ -2,7 +2,6 @@ import type {
 	AgentToolResult,
 	ExtensionAPI,
 	ExtensionContext,
-	SessionEntry,
 	SessionShutdownEvent,
 	SessionStartEvent,
 	ToolDefinition,
@@ -13,7 +12,6 @@ import type {
 import { randomUUID } from "node:crypto";
 import type { TSchema } from "typebox";
 
-import { advanceRepoMapActivation, computeRepoMapActivation, type RepoMapActivation } from "../repo-map/runtime/activation.js";
 import type { RepairObservation, ToolArgumentStatus } from "../tool-repair/types.js";
 import { mergeFacts, safeProject, stableHash } from "./projection.js";
 import type {
@@ -73,7 +71,6 @@ interface TurnContext {
 	index: number;
 	model?: { provider: string; id: string };
 	thinking?: string;
-	repoMap: { enabled: boolean; freshness?: string; map_id?: string };
 }
 
 interface PendingCall {
@@ -157,7 +154,6 @@ export class TelemetryService {
 	#pendingByParams = new WeakMap<object, PendingCall>();
 	#run: RunState | undefined;
 	#turn: TurnContext | undefined;
-	#repoMapCursor: { leafId: string | null; activation?: RepoMapActivation } | undefined;
 	#nextCallIndex = 0;
 	#attached = false;
 
@@ -244,18 +240,10 @@ export class TelemetryService {
 
 	onTurnStart(event: TurnStartEvent, ctx: ExtensionContext): void {
 		this.guard(() => {
-			const activation = this.repoMapActivation(ctx);
 			this.#turn = {
 				index: event.turnIndex,
 				...(ctx.model === undefined ? {} : { model: { provider: ctx.model.provider, id: ctx.model.id } }),
 				...optionalThinking(this.pi),
-				repoMap: activation === undefined
-					? { enabled: false }
-					: {
-						enabled: true,
-						...(activation.freshness === undefined ? {} : { freshness: activation.freshness }),
-						map_id: activation.mapId,
-					},
 			};
 		});
 	}
@@ -363,7 +351,6 @@ export class TelemetryService {
 					turn_index: call.turn.index,
 					...(call.turn.model === undefined ? {} : { model: call.turn.model }),
 					...(call.turn.thinking === undefined ? {} : { thinking: call.turn.thinking }),
-					repo_map: call.turn.repoMap,
 				}),
 				tool: call.tool,
 				...(call.definitionHash === undefined ? {} : { definition_hash: call.definitionHash }),
@@ -395,36 +382,6 @@ export class TelemetryService {
 		if (call.telemetry?.input === undefined) return;
 		const projected = safeProject(() => call.telemetry?.input?.(readonlyView(params)) ?? {});
 		call.inputFacts = mergeFacts(projected.facts, projectionAnnotations("input", projected));
-	}
-
-	private repoMapActivation(ctx: ExtensionContext): RepoMapActivation | undefined {
-		const manager = ctx.sessionManager;
-		try {
-			const leafId = manager.getLeafId();
-			const cursor = this.#repoMapCursor;
-			if (cursor?.leafId === leafId) return cursor.activation;
-			const entries: SessionEntry[] = [];
-			let entryId = leafId;
-			let extendsCursor = cursor?.leafId === null;
-			while (entryId !== null) {
-				if (cursor !== undefined && entryId === cursor.leafId) {
-					extendsCursor = true;
-					break;
-				}
-				const entry = manager.getEntry(entryId);
-				if (entry === undefined || entry.parentId === entry.id) throw new Error("Invalid session branch");
-				entries.push(entry);
-				entryId = entry.parentId;
-			}
-			entries.reverse();
-			const activation = advanceRepoMapActivation(extendsCursor ? cursor?.activation : undefined, entries);
-			this.#repoMapCursor = { leafId, ...(activation === undefined ? {} : { activation }) };
-			return activation;
-		} catch {
-			const activation = computeRepoMapActivation(safeBranch(ctx));
-			this.#repoMapCursor = undefined;
-			return activation;
-		}
 	}
 
 	private toolState(name: string): Partial<ToolState> {
@@ -538,7 +495,6 @@ export class TelemetryService {
 		this.#declaredBatches.clear();
 		this.#records.length = 0;
 		this.#turn = undefined;
-		this.#repoMapCursor = undefined;
 		this.#nextCallIndex = 0;
 	}
 
@@ -647,10 +603,6 @@ function safeAllTools(pi: Pick<TelemetryPi, "getAllTools">): ReturnType<Telemetr
 
 function optionalThinking(pi: Pick<TelemetryPi, "getThinkingLevel">): { thinking?: string } {
 	try { return { thinking: pi.getThinkingLevel() }; } catch { return {}; }
-}
-
-function safeBranch(ctx: ExtensionContext): ReturnType<ExtensionContext["sessionManager"]["getBranch"]> {
-	try { return ctx.sessionManager.getBranch(); } catch { return []; }
 }
 
 function safeSessionId(ctx: ExtensionContext): string {

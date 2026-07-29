@@ -19,20 +19,13 @@ import type { QueryPlan, RelationIntent } from "./query-plan.js";
 import { assignSourceLocalRanks, classifySymbolMatch, rankCodeRegions } from "./ranking.js";
 import type { AutoRegionizedFile } from "./regionizer.js";
 
-export interface GrepHintSources {
-	readonly lsp?: GrepHintSource;
-	readonly repoMap?: GrepHintSource;
-}
-
 interface HintDemand {
 	readonly lsp: boolean;
-	readonly repoMap: boolean;
 }
 
 interface RetrievedHint {
 	readonly hint: GrepPositionHint;
 	readonly scopeOrder: number;
-	readonly channelOrder: number;
 	readonly candidateOrder: number;
 }
 
@@ -57,13 +50,13 @@ const RELATION_ROLE: Readonly<Partial<Record<string, Extract<CandidateRole,
 
 /** 只在本地候选不足或精确符号存在歧义时请求位置提示。 */
 export function grepHintDemand(plan: QueryPlan, local: LocalAutoResult): HintDemand {
-	if (plan.match !== "auto") return { lsp: false, repoMap: false };
+	if (plan.match !== "auto") return { lsp: false };
 	if (plan.relationIntents.length > 0) {
 		const requested = new Set(plan.relationIntents);
 		const hasLocalRelation = local.regions.some((region) =>
 			region.evidence.some((item) => item.source === "ast-relation")
 			&& region.roles.some((role) => requested.has(role as RelationIntent)));
-		return hasLocalRelation ? { lsp: false, repoMap: false } : { lsp: true, repoMap: true };
+		return { lsp: !hasLocalRelation };
 	}
 	if (plan.shape === "identifier" || plan.shape === "qualified_symbol") {
 		const exactDefinitions = local.regions.filter((region) =>
@@ -72,21 +65,16 @@ export function grepHintDemand(plan: QueryPlan, local: LocalAutoResult): HintDem
 				signal === "exact_symbol_definition"
 				|| signal === "exact_qualified_definition"
 				|| signal === "exact_member_definition"));
-		if (exactDefinitions.length > 1) return { lsp: true, repoMap: false };
-		if (local.ranked.length === 0) return { lsp: false, repoMap: true };
-		return { lsp: false, repoMap: false };
+		return { lsp: exactDefinitions.length > 1 };
 	}
-	return {
-		lsp: false,
-		repoMap: plan.shape === "natural_language" && local.ranked.length === 0,
-	};
+	return { lsp: false };
 }
 
 /** 根据 demand 查询提示；提示失败不影响本地 grep，取消仍沿调用链传播。 */
 export async function queryGrepHints(
 	inventory: ScopeInventory,
 	plan: QueryPlan,
-	sources: GrepHintSources,
+	source: GrepHintSource | undefined,
 	demand: HintDemand,
 	signal: AbortSignal | undefined,
 	resultLimit: number,
@@ -105,27 +93,19 @@ export async function queryGrepHints(
 			...(plan.relationIntents.length === 0 ? {} : { relationQuery: true }),
 			...(signal === undefined ? {} : { signal }),
 		};
-		return [
-			...(demand.lsp && sources.lsp !== undefined
-				? [settleHintSource(() => sources.lsp?.query(input), signal)
-					.then((hints) => ({ scopeOrder: scope.order, channelOrder: 0, hints }))]
-				: []),
-			...(demand.repoMap && sources.repoMap !== undefined
-				? [settleHintSource(() => sources.repoMap?.query(input), signal)
-					.then((hints) => ({ scopeOrder: scope.order, channelOrder: 1, hints }))]
-				: []),
-		];
+		return demand.lsp && source !== undefined
+			? [settleHintSource(() => source.query(input), signal)
+				.then((hints) => ({ scopeOrder: scope.order, hints }))]
+			: [];
 	});
 	const batches = await Promise.all(requests);
 	if (isAborted(signal)) return aborted();
 	const retrieved: RetrievedHint[] = [];
-	for (const batch of batches.sort((left, right) =>
-		left.scopeOrder - right.scopeOrder || left.channelOrder - right.channelOrder)) {
+	for (const batch of batches.sort((left, right) => left.scopeOrder - right.scopeOrder)) {
 		for (const [candidateOrder, hint] of batch.hints.entries()) {
 			retrieved.push({
 				hint,
 				scopeOrder: batch.scopeOrder,
-				channelOrder: batch.channelOrder,
 				candidateOrder,
 			});
 		}
@@ -171,7 +151,6 @@ function materializeHint(
 	retrieved: RetrievedHint,
 ): MaterializedHint | undefined {
 	if (file === undefined || !validHint(retrieved.hint)) return undefined;
-	if (retrieved.hint.hop === 1 && plan.relationIntents.length === 0) return undefined;
 	if (retrieved.hint.contentHash !== undefined
 		&& normalizeHash(retrieved.hint.contentHash) !== normalizeHash(file.content.hash)) return undefined;
 	const range = resolveTextRange(file.content.text, retrieved.hint.range);
@@ -195,11 +174,9 @@ function materializeHint(
 		};
 	}
 	const symbolMatch = classifySymbolMatch(plan, unit.name, unit.qualifiedName);
-	if (retrieved.hint.origin !== "repo-map") {
-		if (symbolMatch !== "exact_symbol_definition"
-			&& symbolMatch !== "exact_qualified_definition"
-			&& symbolMatch !== "exact_member_definition") return undefined;
-	}
+	if (symbolMatch !== "exact_symbol_definition"
+		&& symbolMatch !== "exact_qualified_definition"
+		&& symbolMatch !== "exact_member_definition") return undefined;
 	const roles = unitRoles(unit);
 	const signals: CandidateSignal[] = symbolMatch === undefined
 		? ["direct_symbol"]
@@ -222,7 +199,6 @@ function regionFromHint(item: MaterializedHint, rank: number): SemanticMainRegio
 			source: item.source,
 			rank,
 			confidence: item.hint.confidence,
-			...(item.hint.hop === undefined ? {} : { hop: item.hint.hop }),
 			reason: item.hint.reasons[0] ?? "position hint",
 		},
 	];
@@ -286,8 +262,7 @@ function normalizedRelation(hint: GrepPositionHint): string | undefined {
 
 function sourceFor(hint: GrepPositionHint): RetrievalSource {
 	if (hint.origin === "lsp-symbol") return "lsp-symbol";
-	if (hint.origin === "lsp-reference") return "lsp-reference";
-	return hint.hop === 1 ? "repo-map-hop-1" : "repo-map-direct";
+	return "lsp-reference";
 }
 
 function validHint(hint: GrepPositionHint): boolean {
@@ -295,13 +270,11 @@ function validHint(hint: GrepPositionHint): boolean {
 		&& !hint.path.includes("\0")
 		&& Number.isFinite(hint.confidence)
 		&& hint.confidence >= 0
-		&& hint.confidence <= 1
-		&& (hint.hop === undefined || hint.hop === 0 || hint.hop === 1);
+		&& hint.confidence <= 1;
 }
 
 function compareMaterializedHints(left: MaterializedHint, right: MaterializedHint): number {
 	return left.scopeOrder - right.scopeOrder
-		|| left.channelOrder - right.channelOrder
 		|| left.candidateOrder - right.candidateOrder
 		|| compareString(left.unit.path, right.unit.path)
 		|| left.unit.startLine - right.unit.startLine
@@ -320,7 +293,6 @@ function dedupeHints(values: readonly RetrievedHint[]): RetrievedHint[] {
 			hint.range.startByte ?? "",
 			hint.range.endByte ?? "",
 			hint.relation ?? "",
-			hint.hop ?? 0,
 			hint.contentHash ?? "",
 		].join("\0");
 		if (!result.has(key)) result.set(key, value);

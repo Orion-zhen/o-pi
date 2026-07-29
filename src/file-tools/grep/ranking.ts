@@ -28,18 +28,16 @@ export const GREP_SOURCE_FAMILY: Readonly<Record<RetrievalSource, RankingEvidenc
 	"ast-relation": "graph",
 	"lsp-symbol": "semantic",
 	"lsp-reference": "semantic",
-	"repo-map-direct": "semantic",
-	"repo-map-hop-1": "graph",
 };
 
 /** 查询形态的相对权重只在此表中校准。 */
 export const GREP_SOURCE_WEIGHTS: Readonly<Record<RankingPolicyKey, Readonly<Record<RetrievalSource, number>>>> = {
 	strict: weights({ "text-literal": 1.5, "text-regex": 1.5, "ast-symbol": 0.45 }),
-	identifier: weights({ "text-literal": 1.05, "text-lexical": 0.5, "ast-symbol": 1.35, "ast-lexical": 0.55, "ast-relation": 0.25, "lsp-symbol": 1.15, "repo-map-direct": 0.9 }),
-	qualified_symbol: weights({ "text-literal": 1.1, "text-lexical": 0.45, "ast-symbol": 1.5, "ast-lexical": 0.45, "ast-relation": 0.35, "lsp-symbol": 1.25, "repo-map-direct": 1 }),
+	identifier: weights({ "text-literal": 1.05, "text-lexical": 0.5, "ast-symbol": 1.35, "ast-lexical": 0.55, "ast-relation": 0.25, "lsp-symbol": 1.15 }),
+	qualified_symbol: weights({ "text-literal": 1.1, "text-lexical": 0.45, "ast-symbol": 1.5, "ast-lexical": 0.45, "ast-relation": 0.35, "lsp-symbol": 1.25 }),
 	long_text: weights({ "text-literal": 1.6, "text-lexical": 0.8, "ast-symbol": 0.35, "ast-lexical": 0.8 }),
-	natural_language: weights({ "text-literal": 0.8, "text-lexical": 1.2, "ast-symbol": 0.65, "ast-lexical": 1.25, "ast-relation": 0.35, "repo-map-direct": 1.1 }),
-	relation: weights({ "text-literal": 0.75, "text-lexical": 0.4, "ast-symbol": 0.8, "ast-lexical": 0.4, "ast-relation": 1.3, "lsp-symbol": 0.8, "lsp-reference": 1.35, "repo-map-direct": 0.9, "repo-map-hop-1": 1.15 }),
+	natural_language: weights({ "text-literal": 0.8, "text-lexical": 1.2, "ast-symbol": 0.65, "ast-lexical": 1.25, "ast-relation": 0.35 }),
+	relation: weights({ "text-literal": 0.75, "text-lexical": 0.4, "ast-symbol": 0.8, "ast-lexical": 0.4, "ast-relation": 1.3, "lsp-symbol": 0.8, "lsp-reference": 1.35 }),
 };
 
 const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<CandidateSignal, number>>>>> = {
@@ -282,8 +280,7 @@ export function summarizeEvidence(policy: RankingPolicyKey, evidence: readonly R
 export function sourceContribution(policy: RankingPolicyKey, evidence: RegionEvidence): number {
 	const rank = Math.max(1, Math.floor(evidence.rank));
 	const confidence = clamp(evidence.confidence, 0, 1);
-	const hopFactor = evidence.hop === 1 ? 0.7 : 1;
-	return GREP_SOURCE_WEIGHTS[policy][evidence.source] * confidence * hopFactor / (GREP_RRF_K + rank);
+	return GREP_SOURCE_WEIGHTS[policy][evidence.source] * confidence / (GREP_RRF_K + rank);
 }
 
 function weights(overrides: Partial<Record<RetrievalSource, number>>): Readonly<Record<RetrievalSource, number>> {
@@ -296,8 +293,6 @@ function weights(overrides: Partial<Record<RetrievalSource, number>>): Readonly<
 		"ast-relation": 0,
 		"lsp-symbol": 0,
 		"lsp-reference": 0,
-		"repo-map-direct": 0,
-		"repo-map-hop-1": 0,
 		...overrides,
 	};
 }
@@ -346,7 +341,7 @@ function signalSupported(plan: QueryPlan, region: CodeRegion, signal: CandidateS
 	if (FACTUAL_SIGNALS.has(signal)) return region.queryMatch === "verified" && hasFamily(region, "factual");
 	if (SYMBOL_SIGNALS.has(signal)) {
 		if (!region.roles.includes("definition")) return false;
-		return hasAnySource(sources, ["ast-symbol", "lsp-symbol", "repo-map-direct"])
+		return hasAnySource(sources, ["ast-symbol", "lsp-symbol"])
 			|| (region.queryMatch === "verified" && hasFamily(region, "factual") && region.symbol !== undefined);
 	}
 	if (LEXICAL_SIGNALS.has(signal)) return hasAnySource(sources, ["text-lexical", "ast-lexical"]);
@@ -354,7 +349,7 @@ function signalSupported(plan: QueryPlan, region: CodeRegion, signal: CandidateS
 	if (signal === "requested_relation") {
 		const requested = new Set(plan.relationIntents.map((intent) => ROLE_BY_INTENT[intent]));
 		return region.roles.some((role) => requested.has(role))
-			&& hasAnySource(sources, ["ast-relation", "lsp-reference", "repo-map-direct", "repo-map-hop-1"]);
+			&& hasAnySource(sources, ["ast-relation", "lsp-reference"]);
 	}
 	if (signal === "target_occurrence") return region.queryMatch === "verified" || region.roles.includes("occurrence") || region.roles.includes("reference");
 	return true;
@@ -392,7 +387,6 @@ function compareEvidence(left: RegionEvidence, right: RegionEvidence): number {
 	return compareString(left.source, right.source)
 		|| left.rank - right.rank
 		|| right.confidence - left.confidence
-		|| (left.hop ?? 0) - (right.hop ?? 0)
 		|| compareString(left.reason, right.reason);
 }
 

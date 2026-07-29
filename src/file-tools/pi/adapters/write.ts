@@ -4,7 +4,6 @@ import type { FileToolsHost } from "../../runtime/host.js";
 import { isFailed } from "../../shared/result.js";
 import { formatWriteModelResult } from "../../write/presenter.js";
 import { formatErrorModelResult } from "../model-output.js";
-import type { RepoMapToolPorts } from "../lazy-repo-map.js";
 import { createWritePorts } from "../ports/write.js";
 import { piTextDiffGenerator } from "../ports/text-diff.js";
 import type { LspFileOperations } from "../../../lsp/file-hooks.js";
@@ -19,7 +18,6 @@ export async function executeWrite(
 		signal?: AbortSignal;
 		host: FileToolsHost;
 		lsp: LspFileOperations;
-		repoMap: RepoMapToolPorts;
 		onUpdate?: MutationProgressCallback;
 		batch?: MutationBatchInvocation;
 	},
@@ -35,14 +33,13 @@ export async function executeWrite(
 		const progress = createMutationPostProcessObserver(runtime.onUpdate, () => (
 			latestPreview === undefined ? {} : { diff: latestPreview.diff }
 		));
-		const ports = createWritePorts(opened, runtime.lsp, runtime.repoMap, progress, runtime.batch);
+		const ports = createWritePorts(opened, runtime.lsp, progress, runtime.batch);
 		const result = await writeFile(params, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
 			maxFileBytes: opened.limits.write_max_file_bytes,
 			diff: piTextDiffGenerator,
 			diagnostics: ports.diagnostics,
-			mutationObserver: ports.observer,
 			onPrepared(preview) {
 				latestPreview = preview;
 				runtime.onUpdate?.(mutationProgress({ status: "writing", diff: preview.diff }));
@@ -50,7 +47,7 @@ export async function executeWrite(
 		});
 		if (isFailed(result)) return failedResult(result);
 		return {
-			content: [{ type: "text" as const, text: formatWriteModelResult(result, ports.impact()) }],
+			content: [{ type: "text" as const, text: formatWriteModelResult(result) }],
 			details: result,
 		};
 	} finally {

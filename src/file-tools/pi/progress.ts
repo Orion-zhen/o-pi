@@ -1,7 +1,6 @@
 import type { DiagnosticsSummary, DiagnosticStatus } from "../shared/diagnostics.js";
 
 export type MutationLspProgressStatus = "pending" | "running" | DiagnosticStatus;
-export type MutationRepoMapProgressStatus = "pending" | "running" | "updated" | "partially_stale" | "inactive" | "unavailable";
 
 export interface MutationLspProgress {
 	status: MutationLspProgressStatus;
@@ -20,7 +19,6 @@ export interface MutationPostProcessProgressDetails {
 	diff?: string;
 	replacements?: number;
 	lsp: MutationLspProgress;
-	repo_map: MutationRepoMapProgressStatus;
 }
 
 export type MutationProgressDetails = MutationContentProgressDetails | MutationPostProcessProgressDetails;
@@ -36,9 +34,6 @@ export interface MutationPostProcessObserver {
 	lspStarted(): void;
 	lspCompleted(diagnostics: DiagnosticsSummary | undefined): void;
 	lspUnavailable(): void;
-	repoMapStarted(): void;
-	repoMapCompleted(status: "updated" | "partially_stale" | undefined): void;
-	repoMapUnavailable(): void;
 }
 
 interface MutationProgressContext {
@@ -55,7 +50,6 @@ export function createMutationPostProcessObserver(
 	context: () => MutationProgressContext,
 ): MutationPostProcessObserver {
 	let lsp: MutationLspProgress = { status: "pending", errors: 0, warnings: 0 };
-	let repoMap: MutationRepoMapProgressStatus = "pending";
 	const emit = (): void => {
 		if (onUpdate === undefined) return;
 		try {
@@ -63,7 +57,6 @@ export function createMutationPostProcessObserver(
 				status: "post-processing",
 				...context(),
 				lsp: { ...lsp },
-				repo_map: repoMap,
 			}));
 		} catch {}
 	};
@@ -82,18 +75,6 @@ export function createMutationPostProcessObserver(
 			lsp = { status: "unavailable", errors: 0, warnings: 0 };
 			emit();
 		},
-		repoMapStarted() {
-			repoMap = "running";
-			emit();
-		},
-		repoMapCompleted(status) {
-			repoMap = status ?? "inactive";
-			emit();
-		},
-		repoMapUnavailable() {
-			repoMap = "unavailable";
-			emit();
-		},
 	};
 }
 
@@ -104,8 +85,7 @@ export function isMutationProgress(value: unknown): value is MutationProgressDet
 	const lsp = value["lsp"];
 	return isLspStatus(lsp["status"])
 		&& typeof lsp["errors"] === "number"
-		&& typeof lsp["warnings"] === "number"
-		&& isRepoMapStatus(value["repo_map"]);
+		&& typeof lsp["warnings"] === "number";
 }
 
 function hasCommonProgress(value: Record<string, unknown>): boolean {
@@ -116,11 +96,6 @@ function hasCommonProgress(value: Record<string, unknown>): boolean {
 function isLspStatus(value: unknown): value is MutationLspProgressStatus {
 	return value === "pending" || value === "running" || value === "clean" || value === "warnings"
 		|| value === "errors" || value === "unavailable" || value === "timeout";
-}
-
-function isRepoMapStatus(value: unknown): value is MutationRepoMapProgressStatus {
-	return value === "pending" || value === "running" || value === "updated" || value === "partially_stale"
-		|| value === "inactive" || value === "unavailable";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

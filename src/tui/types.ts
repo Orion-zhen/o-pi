@@ -105,7 +105,6 @@ export interface TuiFooterSnapshot {
 	costUsd?: number;
 	usingSubscription?: boolean;
 	status?: string;
-	extensionStatus?: string;
 	tools?: TuiFooterToolsSnapshot;
 	skills?: TuiFooterSkillsSnapshot;
 }

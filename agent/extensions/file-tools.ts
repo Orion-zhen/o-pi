@@ -1,9 +1,8 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { isFailedDetails, isFileToolName } from "../../src/file-tools/pi/guards.js";
 import { createLazyLspFileOperations } from "../../src/file-tools/pi/lazy-lsp.js";
-import { appendRepoMapEntry, createLazyRepoMap, type LazyRepoMap } from "../../src/file-tools/pi/lazy-repo-map.js";
 import type { LsParams } from "../../src/file-tools/ls/types.js";
 import type { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import type { ReadParams } from "../../src/file-tools/read/types.js";
@@ -84,7 +83,6 @@ export interface FileToolsModuleImports {
 	edit(): Promise<typeof import("../../src/file-tools/pi/adapters/edit.js")>;
 	renderers?: () => Promise<typeof import("../../src/file-tools/pi/renderers.js")>;
 	lsp(): Promise<typeof import("../../src/lsp/index.js")>;
-	repoMap(): Promise<typeof import("../../src/file-tools/pi/repo-map-runtime.js")>;
 }
 
 type FindAdapter = ReturnType<(typeof import("../../src/file-tools/pi/adapters/find.js"))["createFindAdapter"]>;
@@ -103,7 +101,6 @@ const defaultModuleImports: FileToolsModuleImports = {
 	write: () => import("../../src/file-tools/pi/adapters/write.js"),
 	edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
 	lsp: () => import("../../src/lsp/index.js"),
-	repoMap: () => import("../../src/file-tools/pi/repo-map-runtime.js"),
 };
 
 export function createFileToolsExtension(imports: FileToolsModuleImports = defaultModuleImports): (pi: ExtensionAPI) => void {
@@ -126,7 +123,6 @@ export function createFileToolsExtension(imports: FileToolsModuleImports = defau
 			write: createRetryableLoader(imports.write),
 			edit: createRetryableLoader(imports.edit),
 			lsp: createRetryableLoader(imports.lsp),
-			repoMap: createRetryableLoader(imports.repoMap),
 		};
 		const loadRenderers = createRetryableLoader(imports.renderers ?? (() => import("../../src/file-tools/pi/renderers.js")));
 		registerFileTools(pi, loaders, loadedToolInstances, loaders.host, loadRenderers);
@@ -141,7 +137,6 @@ function registerFileTools(
 	loadHost: () => Promise<typeof import("../../src/file-tools/runtime/host.js")>,
 	loadRenderers: () => Promise<typeof import("../../src/file-tools/pi/renderers.js")>,
 ): void {
-	const repoMaps = new Map<string, LazyRepoMap>();
 	let host: FileToolsHost | undefined;
 	let shuttingDown = false;
 	const hostForInvocation = async (): Promise<FileToolsHost> => {
@@ -155,18 +150,6 @@ function registerFileTools(
 	const skillReadIndex = createRetryableLoader(async () => buildSkillReadIndex(
 		collectSkillCandidates(undefined, typeof pi.getCommands === "function" ? pi.getCommands() : []),
 	));
-	const repoMapFor = (ctx: ExtensionContext): LazyRepoMap => {
-		const sessionId = ctx.sessionManager.getSessionId();
-		const existing = repoMaps.get(sessionId);
-		if (existing !== undefined) return existing;
-		const created = createLazyRepoMap({
-			getBranch: () => typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [],
-			appendEntry: (entry) => appendRepoMapEntry(pi, entry),
-			load: loaders.repoMap,
-		});
-		repoMaps.set(sessionId, created);
-		return created;
-	};
 
 	const lsTool = registerObservedTool(pi, {
 		tool: {
@@ -203,7 +186,6 @@ function registerFileTools(
 				sessionId: ctx.sessionManager.getSessionId(),
 				...(signal !== undefined ? { signal } : {}),
 				host: invocationHost,
-				repoMap: repoMapFor(ctx),
 			});
 		},
 		},
@@ -226,7 +208,6 @@ function registerFileTools(
 				...(signal !== undefined ? { signal } : {}),
 				host: invocationHost,
 				lsp,
-				repoMap: repoMapFor(ctx),
 			});
 		},
 		},
@@ -250,7 +231,6 @@ function registerFileTools(
 				model: ctx.model,
 				host: invocationHost,
 				lsp,
-				repoMap: repoMapFor(ctx),
 				branch: typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [],
 				skillIndex: index,
 			});
@@ -283,7 +263,6 @@ function registerFileTools(
 					...(signal !== undefined ? { signal } : {}),
 					host: invocationHost,
 					lsp,
-					repoMap: repoMapFor(ctx),
 					...(onUpdate === undefined ? {} : { onUpdate }),
 					...(batch === undefined ? {} : { batch }),
 				});
@@ -319,7 +298,6 @@ function registerFileTools(
 					...(signal !== undefined ? { signal } : {}),
 					host: invocationHost,
 					lsp,
-					repoMap: repoMapFor(ctx),
 					...(onUpdate === undefined ? {} : { onUpdate }),
 					...(batch === undefined ? {} : { batch }),
 				});
@@ -379,8 +357,6 @@ function registerFileTools(
 		mutationBatches.dispose();
 		host?.stop();
 		for (const instance of loadedToolInstances) instance.dispose();
-		for (const repoMap of repoMaps.values()) repoMap.dispose();
-		repoMaps.clear();
 		await lsp.shutdown();
 		host?.dispose();
 	});

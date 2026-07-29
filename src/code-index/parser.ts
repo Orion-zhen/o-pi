@@ -27,7 +27,7 @@ export async function parseCodeUnits(filePath: string, text: string): Promise<Pa
 	return (await analyzeCodeFile(filePath, text)).index;
 }
 
-/** Repo Map 使用的详细结果；保留 parser 失败状态与文件级 import 事实。 */
+/** 代码索引使用的详细结果；保留 parser 失败状态与文件级 import 事实。 */
 export async function analyzeCodeFile(
 	filePath: string,
 	text: string,

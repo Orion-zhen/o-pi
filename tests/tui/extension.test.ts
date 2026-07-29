@@ -126,12 +126,10 @@ describe("tui extension", () => {
 			ctx.ui.theme,
 			createFooterData(new Map([
 				["o-pi:tui", "✓ ready"],
-				["repo-map", "Repo Map: preparing"],
 				["other", "Other: busy"],
 			])),
 		);
 		const busyOutput = busyFooter?.render(120).join("\n") ?? "";
-		expect(busyOutput).toContain("Repo Map: preparing");
 		expect(busyOutput).toContain("ready");
 		expect(busyOutput).not.toContain("Other: busy");
 	});

@@ -1,7 +1,5 @@
 import type { LspFileOperations, LspMutationInput } from "../../lsp/file-hooks.js";
 import type { LspDiagnosticsSummary } from "../../lsp/types.js";
-import type { RepoMapMutationInput, RepoMapMutationResult } from "../../repo-map/query/file-tool-query.js";
-import type { RepoMapToolPorts } from "./lazy-repo-map.js";
 import type { MutationPostProcessObserver } from "./progress.js";
 
 interface Deferred<T> {
@@ -17,18 +15,9 @@ interface LspSubmission {
 	deferred: Deferred<LspDiagnosticsSummary | undefined>;
 }
 
-interface RepoMapSubmission {
-	order: number;
-	input: RepoMapMutationInput | undefined;
-	repoMap: RepoMapToolPorts;
-	progress?: MutationPostProcessObserver;
-	deferred: Deferred<RepoMapMutationResult | undefined>;
-}
-
 interface MutationCallState {
 	settled: boolean;
 	lsp?: LspSubmission;
-	repoMap?: RepoMapSubmission;
 }
 
 interface MutationBatch {
@@ -46,11 +35,6 @@ export interface MutationBatchInvocation {
 		operations: LspFileOperations,
 		progress?: MutationPostProcessObserver,
 	): Promise<LspDiagnosticsSummary | undefined>;
-	repoMap(
-		input: RepoMapMutationInput | undefined,
-		repoMap: RepoMapToolPorts,
-		progress?: MutationPostProcessObserver,
-	): Promise<RepoMapMutationResult | undefined>;
 	settle(): void;
 }
 
@@ -95,7 +79,6 @@ export class MutationBatchCoordinator {
 		if (batch.mode === "disabled") return undefined;
 		return {
 			lsp: (input, operations, progress) => this.submitLsp(batch, toolCallId, input, operations, progress),
-			repoMap: (input, repoMap, progress) => this.submitRepoMap(batch, toolCallId, input, repoMap, progress),
 			settle: () => this.settle(batch, toolCallId),
 		};
 	}
@@ -106,7 +89,6 @@ export class MutationBatchCoordinator {
 		for (const batch of new Set(this.batchesByCall.values())) {
 			for (const call of batch.calls.values()) {
 				call.lsp?.deferred.resolve(undefined);
-				call.repoMap?.deferred.resolve(undefined);
 			}
 		}
 		this.batchesByCall.clear();
@@ -129,23 +111,6 @@ export class MutationBatchCoordinator {
 		return deferred.promise;
 	}
 
-	private submitRepoMap(
-		batch: MutationBatch,
-		toolCallId: string,
-		input: RepoMapMutationInput | undefined,
-		repoMap: RepoMapToolPorts,
-		progress: MutationPostProcessObserver | undefined,
-	): Promise<RepoMapMutationResult | undefined> {
-		const call = batch.calls.get(toolCallId);
-		if (call === undefined || this.disposed) return Promise.resolve(undefined);
-		if (call.repoMap !== undefined) return call.repoMap.deferred.promise;
-		const deferred = createDeferred<RepoMapMutationResult | undefined>();
-		this.nextSubmissionOrder += 1;
-		call.repoMap = { order: this.nextSubmissionOrder, input, repoMap, ...(progress === undefined ? {} : { progress }), deferred };
-		this.maybeFinalize(batch);
-		return deferred.promise;
-	}
-
 	private settle(batch: MutationBatch, toolCallId: string): void {
 		const call = batch.calls.get(toolCallId);
 		if (call === undefined) return;
@@ -157,7 +122,7 @@ export class MutationBatchCoordinator {
 		if (this.disposed || batch.mode !== "active" || batch.finalizing !== undefined) return;
 		const ready = batch.ids.every((id) => {
 			const call = batch.calls.get(id);
-			return call !== undefined && (call.settled || (call.lsp !== undefined && call.repoMap !== undefined));
+			return call !== undefined && (call.settled || call.lsp !== undefined);
 		});
 		if (!ready) return;
 		batch.finalizing = this.finalize(batch);
@@ -168,11 +133,7 @@ export class MutationBatchCoordinator {
 			const submission = batch.calls.get(id)?.lsp;
 			return submission === undefined ? [] : [submission];
 		}).sort((left, right) => left.order - right.order);
-		const repoMap = batch.ids.flatMap((id) => {
-			const submission = batch.calls.get(id)?.repoMap;
-			return submission === undefined ? [] : [submission];
-		}).sort((left, right) => left.order - right.order);
-		await Promise.all([processLspSubmissions(lsp), processRepoMapSubmissions(repoMap)]);
+		await processLspSubmissions(lsp);
 	}
 
 	private remove(batch: MutationBatch): void {
@@ -202,28 +163,6 @@ async function processLspSubmissions(submissions: readonly LspSubmission[]): Pro
 		for (let index = 0; index < buckets.unique.length; index += 1) {
 			const result = results[index];
 			for (const submission of buckets.unique[index]?.all ?? []) completeLsp(submission, result);
-		}
-	}));
-}
-
-async function processRepoMapSubmissions(submissions: readonly RepoMapSubmission[]): Promise<void> {
-	for (const submission of submissions) safeNotify(() => submission.progress?.repoMapStarted());
-	const groups = groupByIdentity(submissions, (submission) => submission.repoMap);
-	await Promise.all(Array.from(groups, async ([repoMap, grouped]) => {
-		const buckets = deduplicate(grouped, (submission) => submission.input?.requestedPath);
-		for (const submission of buckets.skipped) completeRepoMap(submission, undefined);
-		const inputs = buckets.unique.map((bucket) => bucket.latest.input).filter((input): input is RepoMapMutationInput => input !== undefined);
-		let results: readonly (RepoMapMutationResult | undefined)[];
-		try {
-			results = repoMap.query.syncMutations !== undefined
-				? await repoMap.query.syncMutations(inputs)
-				: await Promise.all(inputs.map((input) => repoMap.query.syncMutation(input)));
-		} catch {
-			results = inputs.map(() => undefined);
-		}
-		for (let index = 0; index < buckets.unique.length; index += 1) {
-			const result = results[index];
-			for (const submission of buckets.unique[index]?.all ?? []) completeRepoMap(submission, result);
 		}
 	}));
 }
@@ -263,11 +202,6 @@ function deduplicate<T>(
 
 function completeLsp(submission: LspSubmission, result: LspDiagnosticsSummary | undefined): void {
 	safeNotify(() => submission.progress?.lspCompleted(result));
-	submission.deferred.resolve(result);
-}
-
-function completeRepoMap(submission: RepoMapSubmission, result: RepoMapMutationResult | undefined): void {
-	safeNotify(() => submission.progress?.repoMapCompleted(result?.status));
 	submission.deferred.resolve(result);
 }
 

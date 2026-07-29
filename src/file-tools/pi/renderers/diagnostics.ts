@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { DiagnosticsSummary, DiagnosticStatus } from "../../shared/diagnostics.js";
-import type { MutationPostProcessProgressDetails, MutationRepoMapProgressStatus } from "../progress.js";
+import type { MutationPostProcessProgressDetails } from "../progress.js";
 
 export function formatDiffStats(diff: string): string {
 	let added = 0;
@@ -21,12 +21,11 @@ export function formatLspSummary(diagnostics: DiagnosticsSummary | undefined): s
 }
 
 export function formatMutationPostProcessSummary(progress: MutationPostProcessProgressDetails): string {
-	const lsp = progress.lsp.status === "pending"
+	return progress.lsp.status === "pending"
 		? "LSP pending"
 		: progress.lsp.status === "running"
 			? "LSP checking"
 			: formatLspStatus(progress.lsp.status, progress.lsp.errors, progress.lsp.warnings);
-	return `${lsp} · ${formatRepoMapProgress(progress.repo_map)}`;
 }
 
 export function formatEditDiagnostics(
@@ -61,13 +60,6 @@ function formatLspStatus(status: DiagnosticStatus, errors: number, warnings: num
 	if (status === "errors") return `LSP ${errors} errors`;
 	if (status === "warnings") return `LSP ${warnings} warnings`;
 	return `LSP ${status}`;
-}
-
-function formatRepoMapProgress(status: MutationRepoMapProgressStatus): string {
-	if (status === "pending") return "Repo Map pending";
-	if (status === "running") return "Repo Map updating";
-	if (status === "partially_stale") return "Repo Map partially stale";
-	return `Repo Map ${status}`;
 }
 
 function hasVisibleLspDiagnostics(

@@ -7,10 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFileToolsExtension, type FileToolsModuleImports } from "../../agent/extensions/file-tools.js";
 import { lspManager } from "../../src/lsp/index.js";
 import type { LspMutationInput } from "../../src/lsp/file-hooks.js";
-import type { RepoMapImpactResult } from "../../src/repo-map/query/impact.js";
-import type { RepoMapMutationInput } from "../../src/repo-map/query/file-tool-query.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
-import { activateFileTools, executeTool, type ExecuteResult, type ExecuteTool, type LifecycleHandler } from "./extension-fixture.js";
+import { activateFileTools, executeTool, type ExecuteTool, type LifecycleHandler } from "./extension-fixture.js";
 
 describe("file-tools extension lifecycle", () => {
 	afterEach(() => {
@@ -33,7 +31,6 @@ describe("file-tools extension lifecycle", () => {
 			write: () => import("../../src/file-tools/pi/adapters/write.js"),
 			edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
 			lsp: () => import("../../src/lsp/index.js"),
-			repoMap: () => import("../../src/file-tools/pi/repo-map-runtime.js"),
 			renderers: loadRenderers,
 		});
 		extension({
@@ -70,7 +67,6 @@ describe("file-tools extension lifecycle", () => {
 			write: vi.fn(() => import("../../src/file-tools/pi/adapters/write.js")),
 			edit: vi.fn(() => import("../../src/file-tools/pi/adapters/edit.js")),
 			lsp: vi.fn(() => import("../../src/lsp/index.js")),
-			repoMap: vi.fn(() => import("../../src/file-tools/pi/repo-map-runtime.js")),
 		} satisfies FileToolsModuleImports;
 		const extension = createFileToolsExtension(imports);
 		const pi = {
@@ -94,7 +90,6 @@ describe("file-tools extension lifecycle", () => {
 		expect(imports.write).not.toHaveBeenCalled();
 		expect(imports.edit).not.toHaveBeenCalled();
 		expect(imports.lsp).not.toHaveBeenCalled();
-		expect(imports.repoMap).not.toHaveBeenCalled();
 
 		const ctx = {
 			cwd: process.cwd(),
@@ -116,10 +111,8 @@ describe("file-tools extension lifecycle", () => {
 			details: { query: "package.json" },
 		});
 		expect(imports.find).toHaveBeenCalledTimes(2);
-		expect(imports.repoMap).not.toHaveBeenCalled();
 		await expect(Promise.resolve(handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();
 		expect(imports.lsp).not.toHaveBeenCalled();
-		expect(imports.repoMap).not.toHaveBeenCalled();
 		expect(imports.grep).not.toHaveBeenCalled();
 		expect(imports.read).not.toHaveBeenCalled();
 		expect(imports.write).not.toHaveBeenCalled();
@@ -137,7 +130,6 @@ describe("file-tools extension lifecycle", () => {
 			write: vi.fn(() => import("../../src/file-tools/pi/adapters/write.js")),
 			edit: vi.fn(() => import("../../src/file-tools/pi/adapters/edit.js")),
 			lsp: vi.fn(() => import("../../src/lsp/index.js")),
-			repoMap: vi.fn(() => import("../../src/file-tools/pi/repo-map-runtime.js")),
 		} satisfies FileToolsModuleImports;
 		const extension = createFileToolsExtension(imports);
 		const createSession = () => {
@@ -175,176 +167,7 @@ describe("file-tools extension lifecycle", () => {
 		}
 	});
 
-	it("同一 session 复用 Repo Map runtime，shutdown 后释放", async () => {
-		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
-		const handlers = new Map<string, LifecycleHandler>();
-		const outputConfig = { read_suggestion_limit: 6, read_test_limit: 3, mutation_impact_token_budget: 480 };
-		const loadRepoMapOutputConfig = vi.fn(async () => outputConfig);
-		const formatRepoMapImpact = vi.fn((_impact: unknown, config: typeof outputConfig = outputConfig) =>
-			`<repo_impact>\nbudget="${config.mutation_impact_token_budget}"\n</repo_impact>`);
-		const readContext = vi.fn(async () => undefined);
-		const createRepoMapFileToolQuery = vi.fn(() => ({
-			async query() { return undefined; },
-			readContext,
-			async syncMutation() {
-				return {
-					status: "updated" as const,
-					generation: "2".repeat(64),
-					impact: { candidate: true as const, changedPath: "one.ts", changedSymbols: [], publicApiChanges: [], candidates: [] },
-				};
-			},
-		}));
-		const imports = {
-			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
-			host: () => import("../../src/file-tools/runtime/host.js"),
-			find: () => import("../../src/file-tools/pi/adapters/find.js"),
-			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
-			read: () => import("../../src/file-tools/pi/adapters/read.js"),
-			write: () => import("../../src/file-tools/pi/adapters/write.js"),
-			edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
-			lsp: () => import("../../src/lsp/index.js"),
-			async repoMap() {
-				return {
-					createRepoMapFileToolQuery,
-					loadRepoMapOutputConfig,
-					formatRepoMapImpact,
-					formatRepoMapReadContext: () => undefined,
-				};
-			},
-		} satisfies FileToolsModuleImports;
-		createFileToolsExtension(imports)({
-			registerTool(tool: { name: string; execute?: ExecuteTool }) { registered.push(tool); },
-			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
-			appendEntry() {},
-		} as unknown as ExtensionAPI);
-		const cwd = await mkdtemp(join(tmpdir(), "o-pi-repo-map-session-"));
-		const branch = [{
-			type: "custom",
-			customType: "o-pi:repo-map",
-			data: {
-				kind: "activation",
-				root: cwd,
-				mapId: "0".repeat(64),
-				generation: "1".repeat(64),
-				activatedAt: "2026-07-18T00:00:00.000Z",
-			},
-		}];
-		const ctx = { cwd, sessionManager: { getSessionId: () => "repo-map-session", getBranch: () => branch } };
-		try {
-			const first = await executeTool(registered, "write", { path: "one.ts", content: "one\n" }, ctx);
-			await executeTool(registered, "write", { path: "two.ts", content: "two\n" }, ctx);
-			await executeTool(registered, "read", { path: "one.ts", start_line: 1 }, ctx);
-			expect(first.content[0]?.text).toContain('budget="480"');
-			expect(createRepoMapFileToolQuery).toHaveBeenCalledTimes(1);
-			expect(loadRepoMapOutputConfig).toHaveBeenCalledTimes(1);
-			expect(readContext).toHaveBeenCalledWith(expect.objectContaining({
-				suggestedReadLimit: 6,
-				suggestedTestLimit: 3,
-			}));
-			expect(formatRepoMapImpact).toHaveBeenCalledWith(expect.anything(), outputConfig);
-			await expect(Promise.resolve(handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();
-			const afterShutdown = await executeTool(registered, "write", { path: "three.ts", content: "three\n" }, ctx);
-			expect(afterShutdown.details).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
-			expect(createRepoMapFileToolQuery).toHaveBeenCalledTimes(1);
-			expect(loadRepoMapOutputConfig).toHaveBeenCalledTimes(1);
-		} finally {
-			await rm(cwd, { recursive: true, force: true });
-		}
-	});
-
-	it("mutation 提交后 LSP 与 Repo Map 增强失败或取消仍返回成功", async () => {
-		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
-		const handlers = new Map<string, LifecycleHandler>();
-		const controller = new AbortController();
-		const imports = {
-			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
-			host: () => import("../../src/file-tools/runtime/host.js"),
-			find: () => import("../../src/file-tools/pi/adapters/find.js"),
-			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
-			read: () => import("../../src/file-tools/pi/adapters/read.js"),
-			write: () => import("../../src/file-tools/pi/adapters/write.js"),
-			edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
-			async lsp() {
-				return {
-					...(await import("../../src/lsp/index.js")),
-					lspFileOperations: {
-						async afterWrite() { throw new Error("lsp unavailable"); },
-					},
-				};
-			},
-			async repoMap() {
-				return {
-					createRepoMapFileToolQuery: () => ({
-						async query() { return undefined; },
-						async readContext() { return undefined; },
-						async syncMutation() {
-							controller.abort();
-							throw new Error("repo map cancelled");
-						},
-					}),
-					async loadRepoMapOutputConfig() {
-						return { read_suggestion_limit: 6, read_test_limit: 3, mutation_impact_token_budget: 480 };
-					},
-					formatRepoMapImpact: () => undefined,
-					formatRepoMapReadContext: () => undefined,
-				};
-			},
-		} satisfies FileToolsModuleImports;
-		createFileToolsExtension(imports)({
-			registerTool(tool: { name: string; execute?: ExecuteTool }) { registered.push(tool); },
-			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
-			appendEntry() {},
-		} as unknown as ExtensionAPI);
-
-		const cwd = await mkdtemp(join(tmpdir(), "o-pi-post-mutation-enhancement-"));
-		const branch = [{
-			type: "custom",
-			customType: "o-pi:repo-map",
-			data: {
-				kind: "activation",
-				root: cwd,
-				mapId: "0".repeat(64),
-				generation: "1".repeat(64),
-				activatedAt: "2026-07-18T00:00:00.000Z",
-			},
-		}];
-		const ctx = { cwd, sessionManager: { getSessionId: () => "post-mutation", getBranch: () => branch } };
-		try {
-			const updates: ExecuteResult[] = [];
-			const result = await executeTool(
-				registered,
-				"write",
-				{ path: "committed.ts", content: "committed\n" },
-				ctx,
-				controller.signal,
-				(update) => updates.push(update),
-			);
-			expect(result.details).toMatchObject({ status: "written", path: "committed.ts" });
-			expect(updates).toEqual(expect.arrayContaining([
-				expect.objectContaining({
-					details: expect.objectContaining({
-						status: "post-processing",
-						lsp: { status: "unavailable", errors: 0, warnings: 0 },
-						repo_map: "unavailable",
-					}),
-				}),
-			]));
-			expect(await readFile(join(cwd, "committed.ts"), "utf8")).toBe("committed\n");
-			expect(controller.signal.aborted).toBe(true);
-
-			const edit = await executeTool(registered, "edit", {
-				path: "committed.ts",
-				edits: [{ old: "committed", new: "changed" }],
-			}, ctx, controller.signal);
-			expect(edit.details).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
-			expect(await readFile(join(cwd, "committed.ts"), "utf8")).toBe("committed\n");
-		} finally {
-			await Promise.resolve(handlers.get("session_shutdown")?.({}, {}));
-			await rm(cwd, { recursive: true, force: true });
-		}
-	});
-
-	it("并发 write 批次先完成全部提交，再统一刷新 Repo Map 并按文件回填 LSP diagnostics", async () => {
+	it("并发 write 批次先完成全部提交，再统一执行 LSP diagnostics", async () => {
 		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
 		const handlers = new Map<string, LifecycleHandler>();
 		const directLsp = vi.fn(async () => undefined);
@@ -352,22 +175,6 @@ describe("file-tools extension lifecycle", () => {
 			expect(await readFile(join(cwd, "a.ts"), "utf8")).toBe("export const a = 1;\n");
 			expect(await readFile(join(cwd, "b.ts"), "utf8")).toBe("export const b = 2;\n");
 			return inputs.map((input) => input.filePath.endsWith("a.ts") ? diagnostics("errors", "a failed") : diagnostics("warnings", "b warned"));
-		});
-		const directRepoMap = vi.fn(async () => undefined);
-		const batchRepoMap = vi.fn(async (inputs: readonly RepoMapMutationInput[]) => {
-			expect(await readFile(join(cwd, "a.ts"), "utf8")).toBe("export const a = 1;\n");
-			expect(await readFile(join(cwd, "b.ts"), "utf8")).toBe("export const b = 2;\n");
-			return inputs.map((input) => ({
-				status: "updated" as const,
-				generation: "2".repeat(64),
-				impact: {
-					candidate: true as const,
-					changedPath: input.requestedPath,
-					changedSymbols: [],
-					publicApiChanges: [],
-					candidates: [],
-				},
-			}));
 		});
 		const imports = {
 			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
@@ -383,21 +190,6 @@ describe("file-tools extension lifecycle", () => {
 					lspFileOperations: { afterWrite: directLsp, afterWriteBatch: batchLsp },
 				};
 			},
-			async repoMap() {
-				return {
-					createRepoMapFileToolQuery: () => ({
-						async query() { return undefined; },
-						async readContext() { return undefined; },
-						syncMutation: directRepoMap,
-						syncMutations: batchRepoMap,
-					}),
-					async loadRepoMapOutputConfig() {
-						return { read_suggestion_limit: 6, read_test_limit: 3, mutation_impact_token_budget: 480 };
-					},
-					formatRepoMapImpact: (impact: RepoMapImpactResult | undefined) => impact === undefined ? undefined : `<repo_impact path="${impact.changedPath}"/>`,
-					formatRepoMapReadContext: () => undefined,
-				};
-			},
 		} satisfies FileToolsModuleImports;
 		createFileToolsExtension(imports)({
 			registerTool(tool: { name: string; execute?: ExecuteTool }) { registered.push(tool); },
@@ -406,18 +198,7 @@ describe("file-tools extension lifecycle", () => {
 		} as unknown as ExtensionAPI);
 
 		const cwd = await mkdtemp(join(tmpdir(), "o-pi-mutation-batch-"));
-		const branch = [{
-			type: "custom",
-			customType: "o-pi:repo-map",
-			data: {
-				kind: "activation",
-				root: cwd,
-				mapId: "0".repeat(64),
-				generation: "1".repeat(64),
-				activatedAt: "2026-07-27T00:00:00.000Z",
-			},
-		}];
-		const ctx = { cwd, sessionManager: { getSessionId: () => "mutation-batch", getBranch: () => branch } };
+		const ctx = { cwd, sessionManager: { getSessionId: () => "mutation-batch", getBranch: () => [] } };
 		const write = registered.find((tool) => tool.name === "write")?.execute;
 		const edit = registered.find((tool) => tool.name === "edit")?.execute;
 		const read = registered.find((tool) => tool.name === "read")?.execute;
@@ -434,9 +215,7 @@ describe("file-tools extension lifecycle", () => {
 				edit("edit-b", { path: "b.ts", edits: [{ old: "b = 1", new: "b = 2" }] }, undefined, undefined, ctx),
 			]);
 			expect(batchLsp).toHaveBeenCalledTimes(1);
-			expect(batchRepoMap).toHaveBeenCalledTimes(1);
 			expect(directLsp).not.toHaveBeenCalled();
-			expect(directRepoMap).not.toHaveBeenCalled();
 			expect(a.details).toMatchObject({ status: "written", path: "a.ts", lsp: { diagnostics: { status: "errors", items: [{ message: "a failed" }] } } });
 			expect(b.details).toMatchObject({ status: "applied", path: "b.ts", lsp: { diagnostics: { status: "warnings", items: [{ message: "b warned" }] } } });
 			expect(a.content[0]?.text).toContain("a failed");
@@ -458,9 +237,7 @@ describe("file-tools extension lifecycle", () => {
 			expect(invalid.details).toMatchObject({ status: "failed" });
 			expect(valid.details).toMatchObject({ status: "written", path: "valid.ts" });
 			expect(batchLsp).toHaveBeenCalledTimes(2);
-			expect(batchRepoMap).toHaveBeenCalledTimes(2);
 			expect(batchLsp.mock.calls[1]?.[0]).toHaveLength(1);
-			expect(batchRepoMap.mock.calls[1]?.[0]).toHaveLength(1);
 		} finally {
 			await Promise.resolve(handlers.get("session_shutdown")?.({}, {}));
 			await rm(cwd, { recursive: true, force: true });
@@ -483,7 +260,6 @@ describe("file-tools extension lifecycle", () => {
 			async lsp() {
 				return { ...(await import("../../src/lsp/index.js")), lspFileOperations: { afterWrite: directLsp, afterWriteBatch: batchLsp } };
 			},
-			repoMap: () => import("../../src/file-tools/pi/repo-map-runtime.js"),
 		} satisfies FileToolsModuleImports;
 		createFileToolsExtension(imports)({
 			registerTool(tool: { name: string; execute?: ExecuteTool }) { registered.push(tool); },
@@ -526,7 +302,6 @@ describe("file-tools extension lifecycle", () => {
 			write: () => import("../../src/file-tools/pi/adapters/write.js"),
 			edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
 			lsp: vi.fn(async () => ({ ...(await import("../../src/lsp/index.js")), lspFileOperations: { read: enhanceRead } })),
-			repoMap: vi.fn(() => import("../../src/file-tools/pi/repo-map-runtime.js")),
 		} satisfies FileToolsModuleImports;
 		const getCommands = vi.fn(() => []);
 		createFileToolsExtension(imports)({
@@ -554,7 +329,6 @@ describe("file-tools extension lifecycle", () => {
 			expect(imports.lsp).toHaveBeenCalledTimes(1);
 			expect(enhanceRead).toHaveBeenCalledTimes(1);
 			expect(partial.details).toMatchObject({ lsp: { enclosing_symbol: { name: "value" } } });
-			expect(imports.repoMap).not.toHaveBeenCalled();
 
 			await expect(Promise.resolve(handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();
 			expect(reload).toHaveBeenCalledTimes(1);

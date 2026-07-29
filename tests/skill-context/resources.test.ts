@@ -43,9 +43,8 @@ describe("技能资源定位符", () => {
 		expect("filePath" in result ? result.filePath : "").toBe(path.join(root, "references", "testing.md"));
 	});
 
-	it("read 输出只展示逻辑 URI，并跳过 LSP、Repo Map 和可编辑版本缓存", async () => {
+	it("read 输出只展示逻辑 URI，并跳过 LSP 和可编辑版本缓存", async () => {
 		const enhanceRead = vi.fn();
-		const readContext = vi.fn();
 		const host = new FileToolsHost();
 		const result = await executeRead({ path: "skill://demo/references/testing.md" }, {
 			cwd: temp.path,
@@ -53,15 +52,6 @@ describe("技能资源定位符", () => {
 			model: undefined,
 			host,
 			lsp: { read: enhanceRead },
-			repoMap: {
-				query: {
-					query: async () => undefined,
-					readContext,
-					syncMutation: async () => undefined,
-				},
-				formatReadContext: async () => undefined,
-				formatImpact: async () => undefined,
-			},
 			branch,
 			skillIndex,
 		});
@@ -79,7 +69,6 @@ describe("技能资源定位符", () => {
 			skill_resource: { skill: "demo", path: "references/testing.md" },
 		});
 		expect(enhanceRead).not.toHaveBeenCalled();
-		expect(readContext).not.toHaveBeenCalled();
 	});
 
 	it("拒绝未加载技能和对受管理根目录的绝对路径访问", async () => {

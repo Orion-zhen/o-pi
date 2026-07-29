@@ -36,7 +36,7 @@ const AGENT_LOOP_TOOL_CALLS = [
 	{ name: "grep", arguments: { query: "runAgentLoopSuite", path: "scripts", match: "literal", glob: "*.mjs" } },
 	{ name: "grep", arguments: { query: "runAgentLoopSuite", path: "scripts", match: "literal", glob: "*.mjs" } },
 ];
-const DEFAULT_SUITES = ["startup", "agent-loop", "lazy", "file-tools", "file-search", "code-index", "repo-map", "web-tools"];
+const DEFAULT_SUITES = ["startup", "agent-loop", "lazy", "file-tools", "file-search", "code-index", "web-tools"];
 const options = readOptions(process.argv.slice(2));
 
 if (options.help) {
@@ -50,7 +50,6 @@ const registry = createSuiteRegistry([
 	{ id: "lazy", execute: () => runLazyComponentsSuite(), resultKey: "lazy" },
 	{ id: "file-tools", execute: () => runExternalSuite("file-tools", "bench-file-tools.mjs", [`--runs=${options.runs}`]) },
 	{ id: "file-search", execute: () => runExternalSuite("file-tools search", "bench-file-tools-search.mjs", [`--runs=${options.runs}`]) },
-	{ id: "repo-map", execute: () => runExternalSuite("repo-map", "bench-repo-map.mjs", [`--runs=${options.runs}`, `--sizes=${options.repoSizes.join(",")}`]) },
 	{ id: "code-index", execute: () => runExternalSuite("code-index", "bench-code-index.mjs", [`--runs=${options.runs}`, "--sizes=4000,8000,16000"]) },
 	{ id: "web-tools", execute: () => runExternalSuite("web-tools", "bench-web-tools.mjs", [`--runs=${options.runs}`]) },
 ]);
@@ -211,7 +210,7 @@ function runLazyComponentsSuite() {
 }
 
 function runExternalSuite(label, scriptName, args) {
-	if (options.runs < 3 && scriptName !== "bench-repo-map.mjs") {
+	if (options.runs < 3) {
 		throw new Error(`${label} requires --runs >= 3`);
 	}
 	printHeading(`${label} specialized benchmark`);
@@ -557,10 +556,6 @@ function readOptions(args) {
 	if (runs < 3 && suiteNames.some((suite) => minimumThreeSuites.has(suite))) {
 		throw new Error("file-tools, file-search and web-tools suites require --runs >= 3");
 	}
-	const repoSizes = (readStringFlag(args, "--repo-sizes") ?? "100").split(",").map(Number);
-	if (repoSizes.some((size) => !Number.isInteger(size) || size < 2 || size > 100_000)) {
-		throw new Error("--repo-sizes must contain comma-separated integers between 2 and 100000");
-	}
 	const jsonPath = readStringFlag(args, "--json");
 	if (jsonPath === "") throw new Error("--json requires a non-empty path");
 	const pluginPaths = args.filter((arg) => arg.startsWith("--plugin=")).map((arg) => arg.slice("--plugin=".length));
@@ -568,10 +563,10 @@ function readOptions(args) {
 	const known = ["--help", "-h", "--quick"];
 	for (const arg of args) {
 		if (known.includes(arg)) continue;
-		if (["--runs=", "--warmups=", "--suites=", "--repo-sizes=", "--json=", "--plugin="].some((prefix) => arg.startsWith(prefix))) continue;
+		if (["--runs=", "--warmups=", "--suites=", "--json=", "--plugin="].some((prefix) => arg.startsWith(prefix))) continue;
 		throw new Error(`unknown benchmark option: ${arg}`);
 	}
-	return { help, quick, runs, warmups, suites: new Set(suiteNames), repoSizes: [...new Set(repoSizes)], jsonPath, pluginPaths };
+	return { help, quick, runs, warmups, suites: new Set(suiteNames), jsonPath, pluginPaths };
 }
 
 function readIntegerFlag(args, name, fallback, minimum) {
@@ -597,8 +592,7 @@ Options:
   --runs=N                Measured process-cold runs (default: 7).
   --warmups=N             Warmup runs for unified suites (default: min(2, runs)).
   --suites=LIST           Comma-separated suites or all.
-                          startup,agent-loop,lazy,file-tools,file-search,repo-map,web-tools
-  --repo-sizes=LIST       Repo Map fixture sizes (default: 100).
+                          startup,agent-loop,lazy,file-tools,file-search,code-index,web-tools
   --json=PATH             Write structured unified-suite results to PATH.
   --plugin=PATH            Load an external suite module (repeatable).
   --help                  Show this help.
@@ -607,6 +601,5 @@ Examples:
   npm run bench
   npm run bench -- --quick
   npm run bench -- --runs=9 --suites=startup,agent-loop,lazy --json=bench.json
-  npm run bench -- --runs=3 --suites=repo-map --repo-sizes=100,1000
 `);
 }

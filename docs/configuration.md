@@ -22,7 +22,7 @@
 - `lsp`
 - `subagent`
 
-`approval-gate`、`bash-tool`、`repo-map`、`tui` 和 `web-tools` 只读取默认层和用户全局层；项目中的同名文件不会被读取。
+`approval-gate`、`bash-tool`、`tui` 和 `web-tools` 只读取默认层和用户全局层；项目中的同名文件不会被读取。
 
 环境变量 `PI_*_CONFIG` 只重定向用户层，不替换默认层。支持项目配置的模块继续使用各自的 `PI_*_PROJECT_CONFIG` 和 `PI_*_PROJECT_ROOT`。默认层固定来自当前 o-pi 安装目录。
 

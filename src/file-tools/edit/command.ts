@@ -7,7 +7,7 @@ import type { DiagnosticSnapshot } from "../shared/diagnostics.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import type { TextDiff, TextDiffGenerator } from "../shared/text-diff.js";
 import { buildEditMatchHints, buildEditNotFoundRecovery } from "./hints.js";
-import type { EditDiagnosticsSource, EditMutationObserver } from "./ports.js";
+import type { EditDiagnosticsSource } from "./ports.js";
 import type { EditLineRange, EditParams, EditPreviewSuccess, EditReplacement, EditSuccess } from "./types.js";
 
 const encoder = new TextEncoder();
@@ -25,7 +25,6 @@ export interface EditCommandContext {
 	readonly matchHintLimit: number;
 	readonly diff: TextDiffGenerator;
 	readonly diagnostics?: EditDiagnosticsSource;
-	readonly mutationObserver?: EditMutationObserver;
 	readonly onPrepared?: (preview: EditPreviewSuccess) => void;
 }
 
@@ -97,12 +96,15 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 		diff: renderedDiff.diff,
 		...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
 	};
-	const [diagnostics, graph] = await Promise.all([
-		safeAfterEdit(context.diagnostics, receipt.target, updatedText, changedRanges, baseline, context.operation.signal),
-		safeMutationObserver(context.mutationObserver, receipt.target, renderedDiff.firstChangedLine, context.operation.signal),
-	]);
+	const diagnostics = await safeAfterEdit(
+		context.diagnostics,
+		receipt.target,
+		updatedText,
+		changedRanges,
+		baseline,
+		context.operation.signal,
+	);
 	if (diagnostics !== undefined) result.lsp = { diagnostics };
-	if (graph !== undefined) result.repo_map = graph;
 	return result;
 }
 
@@ -433,13 +435,6 @@ async function safeAfterEdit(
 ) {
 	try {
 		return await source?.afterEdit({ target, content, changedRanges, ...(baseline === undefined ? {} : { baseline }), ...(signal === undefined ? {} : { signal }) });
-	} catch {
-		return undefined;
-	}
-}
-async function safeMutationObserver(observer: EditMutationObserver | undefined, target: TargetRef, firstChangedLine: number | undefined, signal: AbortSignal | undefined) {
-	try {
-		return await observer?.observe({ target, ...(firstChangedLine === undefined ? {} : { firstChangedLine }), ...(signal === undefined ? {} : { signal }) });
 	} catch {
 		return undefined;
 	}

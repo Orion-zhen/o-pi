@@ -2,19 +2,17 @@ import { escapeXmlAttribute } from "../shared/mutation-presenter.js";
 import type { DiagnosticsSummary } from "../shared/diagnostics.js";
 import type { EditSuccess } from "./types.js";
 
-export function formatEditModelResult(result: EditSuccess, impact?: string): string {
+export function formatEditModelResult(result: EditSuccess): string {
 	const diagnostics = editDiagnostics(result.lsp?.diagnostics);
 	const attrs = [
 		`path="${escapeXmlAttribute(result.path)}"`,
 		`replacements="${result.replacements}"`,
 	];
 	if (result.firstChangedLine !== undefined) attrs.push(`first_changed_line="${result.firstChangedLine}"`);
-	if (result.repo_map?.status === "partially_stale") attrs.push('repo_map="partially_stale"');
-	if (diagnostics.length === 0 && impact === undefined) return `<edit ${attrs.join(" ")}/>`;
+	if (diagnostics.length === 0) return `<edit ${attrs.join(" ")}/>`;
 	return [
 		`<edit ${attrs.join(" ")}>`,
 		...diagnostics,
-		...(impact === undefined ? [] : [impact]),
 		"</edit>",
 	].join("\n");
 }

@@ -84,7 +84,7 @@ skill://code-writing/assets/example.txt
 - 对 skill root 与目标执行 `realpath`，目标必须仍位于 root 内，符号链接不能逃逸。
 - 模型输出和遥测中的读取路径保持逻辑 URI，不泄漏真实目录。
 - 对已发现 skill root 的普通绝对路径读取会被拒绝，不能绕过 `skill://` 权限。
-- skill 资源读取不运行 LSP 或 Repo Map 增强，也不会写入供 `edit` 使用的 read-version 缓存。
+- skill 资源读取不运行 LSP 增强，也不会写入供 `edit` 使用的 read-version 缓存。
 
 file-tools 扩展实例会复用 Pi 命令生成的 skill 候选和根目录索引。普通路径先执行无 I/O 的词法边界检查；只有检测外部符号链接时才按需解析并缓存 canonical roots。`skill://` 使用加载时已规范化的 root，只对目标执行 `realpath`。执行 `/reload` 后新扩展实例会重建这些缓存。
 

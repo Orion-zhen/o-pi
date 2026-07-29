@@ -97,7 +97,7 @@ describe("telemetry report", () => {
 				fields: { scanned_file_count: 100 },
 				candidates: [
 					{ kind: "file", value: "src/a.ts", rank: 1, group: "primary", sources: ["lexical"] },
-					{ kind: "file", value: "src/b.ts", rank: 2, group: "related", sources: ["repo-map"] },
+					{ kind: "file", value: "src/b.ts", rank: 2, group: "related", sources: ["lexical"] },
 				],
 			}),
 			call("read", 1, "read", { targets: [file("src/a.ts")] }),
@@ -176,7 +176,7 @@ describe("telemetry report", () => {
 			call("grep", 0, "grep", { candidates: [
 				candidate("src/a.ts", 3, ["lexical"], 10, 20),
 				candidate("src/a.ts", 1, ["lsp-reference"], 10, 20),
-				candidate("src/a.ts", 2, ["repo-map-direct"], 30, 40),
+				candidate("src/a.ts", 2, ["lsp-workspace-symbol"], 30, 40),
 			] }),
 			call("read", 1, "read", { targets: [region("src/a.ts", 15, 16)] }),
 		];
@@ -210,7 +210,7 @@ describe("telemetry report", () => {
 	it("attributes one consumer to only the most recent producer", () => {
 		const records = [
 			call("first", 0, "find", { candidates: [candidate("src/a.ts", 1, ["lexical"])] }),
-			call("second", 1, "grep", { candidates: [candidate("src/a.ts", 3, ["repo-map-direct"])] }),
+			call("second", 1, "grep", { candidates: [candidate("src/a.ts", 3, ["lsp-workspace-symbol"])] }),
 			call("read", 2, "read", { targets: [file("src/a.ts")] }),
 		];
 		const observed = collectCandidateObservations(records, cwd());
@@ -269,22 +269,22 @@ describe("telemetry report", () => {
 	it("reports source contribution bounds and read-to-edit productivity", () => {
 		const report = analyzeCandidateRanking([
 			call("grep", 0, "grep", { outputChars: 1000, candidates: [
-				candidate("src/a.ts", 1, ["repo-map-direct", "lsp-reference"]),
-				candidate("src/b.ts", 2, ["repo-map-hop-1"]),
+				candidate("src/a.ts", 1, ["lexical", "lsp-workspace-symbol"]),
+				candidate("src/b.ts", 2, ["lsp-reference"]),
 			] }),
 			call("read-a", 1, "read", { targets: [file("src/a.ts")] }),
 			call("edit-a", 2, "edit", { targets: [file("src/a.ts")] }),
 			call("edit-b", 3, "write", { targets: [file("src/b.ts")] }),
 		], cwd());
 		expect(report.file_level.actions).toEqual({ inspection: 1, mutation: 2, productive: 2, inspection_only: 0 });
-		expect(report.by_source["repo-map-direct"]).toMatchObject({
+		expect(report.by_source["lsp-workspace-symbol"]).toMatchObject({
 			participation_exposures: 1,
 			exclusive_exposures: 0,
 			participation_productive: 1,
 			exclusive_productive: 0,
 			redundancy_rate: 1,
 		});
-		expect(report.by_source_family["repo-map"]).toMatchObject({
+		expect(report.by_source_family["lsp"]).toMatchObject({
 			participation_exposures: 2,
 			exclusive_exposures: 1,
 			participation_productive: 2,

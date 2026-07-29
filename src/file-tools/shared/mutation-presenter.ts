@@ -4,16 +4,14 @@ export function formatMutationResult(
 	tool: "edit" | "write",
 	attrs: readonly string[],
 	diagnostics: DiagnosticsSummary | undefined,
-	impact: string | undefined,
 ): string {
 	if (diagnostics === undefined) {
-		return impact === undefined ? `<${tool} ${attrs.join(" ")}/>` : `<${tool} ${attrs.join(" ")}>\n${impact}\n</${tool}>`;
+		return `<${tool} ${attrs.join(" ")}/>`;
 	}
 	return [
 		`<${tool} ${attrs.join(" ")}>`,
 		`errors=${diagnostics.file_errors} warnings=${diagnostics.file_warnings} new_errors=${diagnostics.new_errors} new_warnings=${diagnostics.new_warnings}`,
 		...formatDiagnosticItems(diagnostics.items, diagnostics.total_items),
-		...(impact === undefined ? [] : [impact]),
 		`</${tool}>`,
 	].join("\n");
 }

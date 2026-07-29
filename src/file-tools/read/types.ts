@@ -27,24 +27,6 @@ export interface ReadStructureContext {
 	enclosing_symbol?: ReadEnclosingSymbol;
 }
 
-export interface ReadGraphContext {
-	symbol: {
-		id: string;
-		kind: string;
-		name?: string;
-		qualifiedName?: string;
-		startLine: number;
-		endLine: number;
-	};
-	suggestedReads: Array<{
-		path: string;
-		line?: number;
-		symbol?: string;
-		relation: "caller" | "reference" | "registration";
-	}>;
-	suggestedTests: string[];
-}
-
 export interface ReadSuccess {
 	path: string;
 	content: string;
@@ -61,7 +43,6 @@ export interface ReadSuccess {
 	ignored?: boolean;
 	ignore_source?: string;
 	lsp?: ReadStructureContext;
-	repo_map?: ReadGraphContext;
 	skill_resource?: { skill: string; path: string };
 }
 

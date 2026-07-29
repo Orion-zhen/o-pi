@@ -23,9 +23,7 @@ export type RetrievalSource =
 	| "ast-lexical"
 	| "ast-relation"
 	| "lsp-symbol"
-	| "lsp-reference"
-	| "repo-map-direct"
-	| "repo-map-hop-1";
+	| "lsp-reference";
 
 export type CandidateSignal =
 	| "exact_qualified_definition"
@@ -84,7 +82,6 @@ export interface SourceLocalRank {
 	readonly source: RetrievalSource;
 	readonly rank: number;
 	readonly confidence: number;
-	readonly hop?: 0 | 1;
 }
 
 export interface RegionEvidence extends SourceLocalRank {
@@ -211,8 +208,7 @@ export function normalizeMatchedBy(
 	if (sources.has("text-literal")) methods.add("literal");
 	if (sources.has("text-regex")) methods.add("regex");
 	if (sources.has("ast-lexical") || sources.has("text-lexical")) methods.add("lexical");
-	if (sources.has("ast-relation") || sources.has("lsp-reference") || sources.has("repo-map-hop-1")
-		|| signalSet.has("requested_relation")) methods.add("relationship");
+	if (sources.has("ast-relation") || sources.has("lsp-reference") || signalSet.has("requested_relation")) methods.add("relationship");
 	const order: readonly GrepMatchedBy[] = ["exact-qualified-symbol", "exact-symbol", "symbol-prefix", "literal", "regex", "lexical", "relationship"];
 	return order.filter((method) => methods.has(method));
 }

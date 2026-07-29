@@ -6,7 +6,7 @@
 npm run bench
 ```
 
-默认执行 2 次预热和 7 次正式采样，覆盖 Pi 启动、扩展分项、模型工具回路、延迟组件，以及 file-tools、file-search、repo-map、web-tools 的专项 benchmark。所有启动与模型发现均使用 offline 模式；模型工具回路和 Web benchmark 使用本地假服务，不访问真实模型或公网。
+默认执行 2 次预热和 7 次正式采样，覆盖 Pi 启动、扩展分项、模型工具回路、延迟组件，以及 file-tools、file-search、code-index、web-tools 的专项 benchmark。所有启动与模型发现均使用 offline 模式；模型工具回路和 Web benchmark 使用本地假服务，不访问真实模型或公网。
 
 快速冒烟：
 
@@ -23,7 +23,6 @@ npm run bench -- --quick
 | `lazy` | 分别测量 tokenizer 模块导入、首次/后续 o200k/cl100k 计数，以及数学 Markdown parser、MathJax/Resvg 导入、字体预热、首次/缓存渲染。 |
 | `file-tools` | 裸 Pi/扩展启动、TUI ready、扩展注册和首次 `ls`。 |
 | `file-search` | cold/warm `find`、cold/warm `grep` 和并发 `grep`。 |
-| `repo-map` | 扩展注册、激活状态查询，以及合成仓库的构建、刷新、读取、query、mutation 和内存占用。 |
 | `web-tools` | 裸 Pi/扩展启动、fake websearch/webfetch cold/warm、DDG parser cold/warm。 |
 
 选择 suite：
@@ -48,16 +47,11 @@ npm run bench -- --plugin=./scripts/my-benchmark.mjs --suites=my-benchmark
 --runs=N                正式采样次数，默认 7
 --warmups=N             统一 suite 的预热次数，默认 min(2, runs)
 --suites=LIST           逗号分隔的 suite，或 all
---repo-sizes=LIST       Repo Map 合成模块数，默认 100
 --json=PATH             保存统一 suite 的结构化结果
 --help                  显示帮助
 ```
 
-`file-tools`、`file-search` 和 `web-tools` 的统计至少需要 3 次正式采样。Repo Map 大规模测试示例：
-
-```bash
-npm run bench -- --runs=3 --suites=repo-map --repo-sizes=100,1000,10000
-```
+`file-tools`、`file-search` 和 `web-tools` 的统计至少需要 3 次正式采样。
 
 多通道排序的独立 CPU 基准不进入统一 suite，可直接运行：
 
@@ -65,7 +59,7 @@ npm run bench -- --runs=3 --suites=repo-map --repo-sizes=100,1000,10000
 npm run bench:file-tools:ranking -- --runs=15
 ```
 
-该基准对比 `find`/`grep` 的完整融合排序与精确多样性 Top-K，使用固定合成候选和 50% identity 重叠，不访问文件系统、LSP 或 Repo Map 后端。
+该基准对比 `find`/`grep` 的完整融合排序与精确多样性 Top-K，使用固定合成候选和 50% identity 重叠，不访问文件系统或 LSP 后端。
 
 ## 启动场景
 
@@ -103,4 +97,4 @@ npm run bench -- --runs=9 --suites=startup,agent-loop,lazy --json=bench-before.j
 # 修改后再次运行，输出到 bench-after.json
 ```
 
-不要把不同模型、真实网络请求或不同 Repo Map fixture 的数据直接比较。少于 7 次的 P95 只能用于冒烟，不适合作为回归结论。专项入口保留各自的采样策略：file-tools/web 默认 2 次预热，file-search/repo-map 默认 1 次预热，ranking 固定 3 次预热。CPU 调频、杀毒/索引任务、首次磁盘读取和 Node/Pi 依赖升级也会显著影响结果。
+不要把不同模型或真实网络请求的数据直接比较。少于 7 次的 P95 只能用于冒烟，不适合作为回归结论。专项入口保留各自的采样策略：file-tools/web 默认 2 次预热，file-search 默认 1 次预热，ranking 固定 3 次预热。CPU 调频、杀毒/索引任务、首次磁盘读取和 Node/Pi 依赖升级也会显著影响结果。

@@ -98,10 +98,6 @@ function validateFixedScenarios() {
 	if (Math.abs(duplicateFamily.fusionScore - sourceContribution("natural_language", evidence("ast-lexical", 3))) > 1e-12) {
 		throw new Error("same-family evidence was counted more than once");
 	}
-	if (sourceContribution("relation", { ...evidence("repo-map-hop-1", 1), hop: 1 }) >= sourceContribution("relation", evidence("repo-map-hop-1", 1))) {
-		throw new Error("graph hop penalty changed");
-	}
-
 	const sourceValues = [
 		{ id: "low", source: "ast-symbol", quality: 1 },
 		{ id: "text", source: "text-literal", quality: 1 },

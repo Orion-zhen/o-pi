@@ -3,7 +3,7 @@ import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.js";
 import type { TextDiff, TextDiffGenerator } from "../shared/text-diff.js";
-import type { WriteDiagnosticsSource, WriteMutationObserver } from "./ports.js";
+import type { WriteDiagnosticsSource } from "./ports.js";
 import type { WriteParams, WritePreviewSuccess, WriteSuccess } from "./types.js";
 
 const encoder = new TextEncoder();
@@ -15,7 +15,6 @@ export interface WriteCommandContext {
 	readonly maxFileBytes: number;
 	readonly diff: TextDiffGenerator;
 	readonly diagnostics?: WriteDiagnosticsSource;
-	readonly mutationObserver?: WriteMutationObserver;
 	readonly onPrepared?: (preview: WritePreviewSuccess) => void;
 }
 
@@ -79,12 +78,14 @@ export async function writeFile(params: unknown, context: WriteCommandContext): 
 		...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
 	};
 
-	const [diagnostics, graph] = await Promise.all([
-		safeDiagnostics(context.diagnostics, receipt.target, input.content, receipt.created, context.operation.signal),
-		safeMutationObserver(context.mutationObserver, receipt.target, renderedDiff.firstChangedLine, context.operation.signal),
-	]);
+	const diagnostics = await safeDiagnostics(
+		context.diagnostics,
+		receipt.target,
+		input.content,
+		receipt.created,
+		context.operation.signal,
+	);
 	if (diagnostics !== undefined) result.lsp = { diagnostics };
-	if (graph !== undefined) result.repo_map = graph;
 	return result;
 }
 
@@ -130,23 +131,6 @@ async function safeDiagnostics(
 ) {
 	try {
 		return await source?.afterWrite({ target, content, created, ...(signal === undefined ? {} : { signal }) });
-	} catch {
-		return undefined;
-	}
-}
-
-async function safeMutationObserver(
-	observer: WriteMutationObserver | undefined,
-	target: Parameters<WriteMutationObserver["observe"]>[0]["target"],
-	firstChangedLine: number | undefined,
-	signal: AbortSignal | undefined,
-) {
-	try {
-		return await observer?.observe({
-			target,
-			...(firstChangedLine === undefined ? {} : { firstChangedLine }),
-			...(signal === undefined ? {} : { signal }),
-		});
 	} catch {
 		return undefined;
 	}

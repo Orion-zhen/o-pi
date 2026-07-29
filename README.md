@@ -38,7 +38,6 @@ cd ~/.pi && npm install
 * [提示词设计](docs/prompt-design.md)
 * [Pi 工具提示词字段](docs/tool-prompt-fields.md)
 * [Token counter](docs/token-counter.md)
-* [Repo Map](docs/repo-map/README.md)
 
 ## 致谢
 

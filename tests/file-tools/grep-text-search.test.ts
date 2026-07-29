@@ -121,7 +121,7 @@ describe("grep text search", () => {
 	});
 
 	it("中文注释 literal 只返回携带可复核 match_lines 的真实文本行", async () => {
-		const query = "Repo Map 使用的详细结果；保留 parser 失败状态与文件级 import 事实。";
+		const query = "代码索引使用的详细结果；保留 parser 失败状态与文件级 import 事实。";
 		await writeFile(path.join(testContext.workspace, "design.ts"), `export const unrelated = true;\n// ${query}\nexport function lexicalOnly() { return unrelated; }\n`);
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query, match: "literal" }));
 		expect(result.regions).toHaveLength(1);

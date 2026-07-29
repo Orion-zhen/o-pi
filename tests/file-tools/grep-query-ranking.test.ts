@@ -86,7 +86,7 @@ describe("grep QueryPlan 与纯排序", () => {
 			verifiedRegion({ id: "phrase", signals: ["verified_phrase"], evidence: [rankingEvidence("text-literal")] }),
 			verifiedRegion({ id: "enclosing", signals: ["verified_enclosing_region"], evidence: [rankingEvidence("text-literal", 2)] }),
 		] : [
-				semanticRegion({ id: "symbol", signals: ["direct_symbol"], evidence: [rankingEvidence("repo-map-direct")] }),
+				semanticRegion({ id: "symbol", signals: ["direct_symbol"], evidence: [rankingEvidence("lsp-symbol")] }),
 			semanticRegion({ id: "lexical", signals: ["lexical_high_coverage"], evidence: [rankingEvidence("ast-lexical")] }),
 			verifiedRegion({ id: "phrase", signals: ["verified_phrase"], evidence: [rankingEvidence("text-literal")] }),
 		];
@@ -188,8 +188,8 @@ describe("grep QueryPlan 与纯排序", () => {
 	});
 
 	it("弱来源不能借用不满足事实条件的信号降低 tier", () => {
-		const forged = semanticRegion({ id: "forged", signals: ["verified_phrase"], evidence: [rankingEvidence("repo-map-direct")] });
-		const direct = semanticRegion({ id: "direct", signals: ["direct_symbol"], evidence: [rankingEvidence("repo-map-direct")] });
+		const forged = semanticRegion({ id: "forged", signals: ["verified_phrase"], evidence: [rankingEvidence("lsp-symbol")] });
+		const direct = semanticRegion({ id: "direct", signals: ["direct_symbol"], evidence: [rankingEvidence("lsp-symbol")] });
 		expect(rankCodeRegions(queryPlan("where retry delays are calculated"), [forged, direct]).map((item) => item.id)).toEqual(["direct"]);
 	});
 
@@ -246,7 +246,7 @@ describe("grep QueryPlan 与纯排序", () => {
 	it("融合分数和多样性不能跨越 tier，稳定键不依赖输入顺序", () => {
 		const bestA = semanticRegion({ id: "best-a", path: "b.ts", symbol: "login", signals: ["exact_symbol_definition"], evidence: [rankingEvidence("ast-symbol")] });
 		const bestB = semanticRegion({ id: "best-b", path: "a.ts", symbol: "login", signals: ["exact_symbol_definition"], evidence: [rankingEvidence("ast-symbol")], roles: ["definition"] });
-		const weakTier = semanticRegion({ id: "weak-tier", signals: ["lexical"], evidence: [rankingEvidence("ast-lexical", 1), rankingEvidence("lsp-symbol", 1), rankingEvidence("repo-map-direct", 1)] });
+		const weakTier = semanticRegion({ id: "weak-tier", signals: ["lexical"], evidence: [rankingEvidence("ast-lexical", 1), rankingEvidence("lsp-symbol", 1)] });
 		const forward = rankCodeRegions(queryPlan("login"), [weakTier, bestA, bestB]);
 		const reverse = rankCodeRegions(queryPlan("login"), [bestB, bestA, weakTier]);
 		expect(forward.map((item) => item.id)).toEqual(["best-b", "best-a", "weak-tier"]);

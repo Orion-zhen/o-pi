@@ -4,14 +4,9 @@ import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
 import { detectFileType } from "./media.js";
-import type {
-	InlineImageProcessor,
-	MissingPathSource,
-	ReadGraphContextSource,
-	ReadStructureSource,
-} from "./ports.js";
+import type { InlineImageProcessor, ReadStructureSource } from "./ports.js";
 import { formatReadStructureContext } from "./presenter.js";
-import type { ReadFileSuccess, ReadGraphContext, ReadOutputFormat, ReadParams, ReadStructureContext } from "./types.js";
+import type { ReadFileSuccess, ReadOutputFormat, ReadParams, ReadStructureContext } from "./types.js";
 
 const PATH_CATALOG_ENTRY_LIMIT = 10_000;
 
@@ -29,9 +24,7 @@ export interface ReadCommandContext {
 		readonly lines: number;
 		readonly suggestions: number;
 	};
-	readonly missingPaths?: MissingPathSource;
 	readonly structure?: ReadStructureSource;
-	readonly graph?: ReadGraphContextSource;
 	readonly image?: InlineImageProcessor;
 	readonly supportedOutputFormats?: readonly ReadOutputFormat[];
 	readonly recordObservation?: boolean;
@@ -133,17 +126,12 @@ export async function readFile(
 	let sliced = initialSlice.value;
 	const partial = params.start_line !== undefined || params.end_line !== undefined;
 	const needsContext = partial || sliced.truncated || sliced.continuation !== undefined;
-	let graph: { context: ReadGraphContext; rendered: string } | undefined;
 	let structure: ReadStructureContext | undefined;
 	if (needsContext) {
-		[graph, structure] = await Promise.all([
-			safeGraphContext(context.graph, file, decoded.value, sliced, partial, context.operation),
-			safeStructureContext(context.structure, file, decoded.value.text, sliced, partial, context.operation),
-		]);
+		structure = await safeStructureContext(context.structure, file, decoded.value.text, sliced, partial, context.operation);
 		if (isAborted(context.operation)) return aborted(file.displayPath);
-		const budgeted = reserveContextBudget(params, context, decoded.value, sliced, graph, structure);
+		const budgeted = reserveContextBudget(params, context, decoded.value, sliced, structure);
 		sliced = budgeted.slice;
-		graph = budgeted.graph;
 		structure = budgeted.structure;
 	}
 
@@ -161,7 +149,6 @@ export async function readFile(
 		...(sliced.continuation === undefined ? {} : { continuation: { start_line: sliced.continuation.startLine } }),
 		bom: decoded.value.hasBom,
 		...(structure === undefined ? {} : { lsp: structure }),
-		...(graph === undefined ? {} : { repo_map: graph.context }),
 	};
 	applyIgnore(result, ignoreSource);
 	return result;
@@ -170,21 +157,6 @@ export async function readFile(
 async function missingPathSuggestions(input: string, context: ReadCommandContext): Promise<string[]> {
 	const target = await context.filesystem.paths.resolveTarget(input, { followExistingSymlink: true }, context.operation);
 	if (!target.ok || target.value.workspacePath === undefined || isAborted(context.operation)) return [];
-	if (context.missingPaths !== undefined) {
-		try {
-			const paths = await context.missingPaths.suggest({
-				root: context.filesystem.root,
-				target: target.value,
-				query: target.value.workspacePath,
-				limit: context.limits.suggestions,
-				...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
-			});
-			const unique = uniquePaths(paths, context.limits.suggestions);
-			if (unique.length > 0) return unique;
-		} catch {
-			// External suggestions are best effort; the filesystem catalog is authoritative.
-		}
-	}
 	const catalog = await context.filesystem.catalog.suggest(
 		context.filesystem.root,
 		target.value.workspacePath,
@@ -200,20 +172,13 @@ function reserveContextBudget(
 	context: ReadCommandContext,
 	content: TextContent,
 	initialSlice: TextSlice,
-	graph: { context: ReadGraphContext; rendered: string } | undefined,
 	structure: ReadStructureContext | undefined,
-): { slice: TextSlice; graph?: { context: ReadGraphContext; rendered: string }; structure?: ReadStructureContext } {
+): { slice: TextSlice; structure?: ReadStructureContext } {
 	let bytes = context.limits.bytes;
 	let lines = context.limits.lines;
-	let selectedGraph: typeof graph;
 	let selectedStructure: typeof structure;
 
-	if (graph !== undefined && reserveFits(graph.rendered, bytes, lines)) {
-		bytes -= renderedBytes(graph.rendered);
-		lines -= renderedLines(graph.rendered);
-		selectedGraph = graph;
-	}
-	const structureText = formatReadStructureContext(structure, selectedGraph?.context);
+	const structureText = formatReadStructureContext(structure);
 	if (structure !== undefined && structureText !== undefined && reserveFits(structureText, bytes, lines)) {
 		bytes -= renderedBytes(structureText);
 		lines -= renderedLines(structureText);
@@ -227,7 +192,6 @@ function reserveContextBudget(
 	if (!sliced.ok) return { slice: initialSlice };
 	return {
 		slice: sliced.value,
-		...(selectedGraph === undefined ? {} : { graph: selectedGraph }),
 		...(selectedStructure === undefined ? {} : { structure: selectedStructure }),
 	};
 }
@@ -240,29 +204,6 @@ function sliceOptions(params: ReadParams, context: ReadCommandContext) {
 		maxLines: context.limits.lines,
 		path: params.path,
 	};
-}
-
-async function safeGraphContext(
-	source: ReadGraphContextSource | undefined,
-	file: FileRef,
-	version: ContentVersion,
-	slice: TextSlice,
-	partial: boolean,
-	operation: FsOperationContext,
-) {
-	try {
-		return await source?.context({
-			file,
-			version,
-			startLine: slice.startLine,
-			endLine: slice.endLine,
-			partial,
-			truncated: slice.truncated || slice.continuation !== undefined,
-			...(operation.signal === undefined ? {} : { signal: operation.signal }),
-		});
-	} catch {
-		return undefined;
-	}
 }
 
 async function safeStructureContext(
