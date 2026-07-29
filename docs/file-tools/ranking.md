@@ -9,32 +9,32 @@
 ```text
 scope / ignore / glob / freshness 校验
     ├─ find: path 召回与排序
-    └─ grep: 正文扫描与 live AST 本地召回
-             → 按需位置 hint 与 AST 物化
+    └─ grep: 正文候选
+             → live AST 折叠、结构补充与区域合并
+             → 按需位置 hint / 显式关系 AST 回退
     → 离散 relevance tier
     → family-aware evidence fusion
     → identity 去重与 region 合并
-    → 主结果 / nearby 分流
+    → 主结果
     → 稳定 Top-K 和模型输出
 ```
 
-排序器不调用模型、不使用 embedding，也不跨来源比较 Fuse、BM25 或 LSP 原始分数。scope、ignore、glob 和 live AST range/unit 校验都在计算 hint 来源 rank 之前完成。
+排序器不调用模型、不使用 embedding，也不跨来源比较 Fuse 或 LSP 原始分数。scope、ignore、glob 和 live AST range/unit 校验都在计算 hint 来源 rank 之前完成。
 
 ## Tier 优先
 
-`tier` 是离散语义边界。连续证据只能重排同一 tier，不能让 fuzzy、BM25、reference 或 hop 1/2 越过 exact path、exact filename、exact qualified symbol 等直接命中。
+`tier` 是离散语义边界。连续证据只能重排同一 tier，不能让 lexical anchor 或 reference 越过 exact path、exact filename、exact qualified symbol 等直接命中。
 
-`literal` 和 `regex` 的主候选必须在当前正文中命中，并且不调用 LSP。`auto` 先完成本地排序，再按 exact 歧义或关系缺失请求位置 hint；hint 必须映射到本次 live AST unit，不能直接成为候选。
+`literal` 和 `regex` 的主候选必须在当前正文中命中，并且不调用 LSP。`auto` 普通查询也只接受正文 hit/anchor 产生的候选；Tree-sitter 只能改变区域表示和补充结构。精确 symbol 歧义时的 hint 必须映射并合并到本次 live AST unit。显式关系查询先请求 LSP，没有有效结果时才启用 AST relation fallback。
 
 ## 证据来源
 
-grep 证据分为五个独立 family：
+grep 证据分为四个独立 family：
 
 | family | 来源 |
 | --- | --- |
 | factual | 当前正文的 literal/regex occurrence |
-| symbol | Tree-sitter definition/symbol |
-| lexical | BM25 与 text fallback |
+| lexical | 正文 lexical anchor |
 | semantic | 映射到 live AST 的 LSP hint |
 | graph | 本地一跳关系 |
 
@@ -44,12 +44,9 @@ grep 证据分为五个独立 family：
 
 ## 结果通道
 
-主结果需要直接 path、symbol 或正文证据，或者查询明确要求关系角色。`caller`、`callee`、`reference`、`test`、`mock`、`fixture`、`registration` 和 `entrypoint` 等 intent 会影响允许进入主结果的关系角色。
+主结果需要正文证据，或者查询明确要求关系角色。symbol tier 来自正文候选与 AST 补充名称的共同确认，不是独立 AST 候选。`caller`、`callee`、`reference`、`test`、`registration` 和 `entrypoint` 等 intent 会影响允许进入主结果的关系角色。
 
-- 主结果：真正满足查询语义的 verified/semantic region。
-- `nearby`：本地相似但没有主命中的候选，必须明确标记 `nonmatch`。
-
-`nearby` 不参与主结果的 RRF rank 或返回计数。grep 不提供结构关系的非命中通道；无显式关系意图的 caller/test/import/hop-1 候选不能进入结果。
+grep 只返回真正满足查询语义的 verified/semantic region，不提供 AST nearby、fuzzy 或结构关系非命中通道；无显式关系意图的 caller/test/import 候选不能进入结果。
 
 ## 最终选择
 

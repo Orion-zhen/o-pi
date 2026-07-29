@@ -44,32 +44,6 @@ describe("grep renderer", () => {
 		for (const sourceLine of ["async login", "return secretSession"]) expect(output).not.toContain(sourceLine);
 	});
 
-	it("零命中时保留 nearby 候选", () => {
-		const output = formatGrepResult({
-			status: "success",
-			query: "authentcateUser",
-			path: ".",
-			match: "auto",
-			total_candidates: 0,
-			returned_regions: 0,
-			returned_files: 0,
-			approx_tokens: 30,
-			stats: { traversed_entries: 1, searched_files: 1, searched_bytes: 20, parsed_files: 1 },
-			truncated_by: [],
-			regions: [],
-			nearby: [{
-				path: "src/auth.ts",
-				start_line: 1,
-				end_line: 3,
-				kind: "function",
-				symbol: "authenticateUser",
-				reason: "symbol similarity",
-				query_match: "not_guaranteed",
-			}],
-		}, true, theme);
-		expect(output).toContain("src/auth.ts");
-		expect(output).toContain("authenticateUser");
-	});
 });
 
 function success(): GrepSuccess {

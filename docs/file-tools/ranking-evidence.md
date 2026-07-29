@@ -4,27 +4,26 @@
 
 ## Family-aware weighted RRF
 
-证据分为五个独立 family：
+证据分为四个独立 family：
 
 | family | 来源 |
 | --- | --- |
 | factual | 当前正文的 literal/regex occurrence |
-| symbol | Tree-sitter definition/symbol |
-| lexical | path、BM25 与 text fallback |
+| lexical | 正文 lexical anchor |
 | semantic | 映射到 live AST unit 的 LSP hint evidence |
 | graph | 本地一跳关系 |
 
 每个有效来源按自身已验证顺序取得一基 rank：
 
 ```text
-sourceContribution = sourceWeight * confidence * hopFactor / (60 + sourceRank)
+sourceContribution = sourceWeight * confidence / (60 + sourceRank)
 familyContribution = max(sourceContribution in family)
 fusionScore = sum(familyContribution)
 ```
 
-权重集中在 `src/file-tools/grep/ranking.ts`，并按 strict、identifier、qualified symbol、long text、natural language 和 relation 查询策略分别校准。`RankingEvidenceSummary` 只保存五个 family 的最大贡献、family count、总分和最大贡献。
+权重集中在 `src/file-tools/grep/ranking.ts`，并按 strict、identifier、qualified symbol、long text、natural language 和 relation 查询策略分别校准。`RankingEvidenceSummary` 只保存四个 family 的最大贡献和总分。
 
-单 identifier 已获得 exact symbol 时，同一正文派生的 lexical 证据仍可展示，但不再作为独立 family 累加；它不是相对于 symbol/literal 的独立共识。
+单 identifier 已由正文 hit 与 AST 名称共同确认 exact symbol 时，同一正文派生的 lexical 证据仍可展示，但不再重复计入融合分数。
 
 ## 来源内部顺序
 
@@ -34,7 +33,7 @@ fusionScore = sum(familyContribution)
 
 ### Tree-sitter / text
 
-Tree-sitter/text 按 tier、来源内 BM25、真实命中行数、路径 token、region 大小及稳定范围排序。definition/symbol 提供 symbol family；实时 occurrence 提供 factual family。同一 region 可以同时获得多个 family，但每个 family 仍只保留最大贡献。
+正文 hit/anchor 先产生候选。Tree-sitter 只将其折叠到最小 code unit，补充 range、kind、symbol、qualified symbol、declaration 和 roles，并按 unit identity 合并；它不产生 symbol 或 lexical evidence。exact symbol tier 由候选文本和补充后的名称共同确认。显式关系查询没有有效 LSP 结果时，`ast-relation` 才提供 graph evidence。
 
 ### Symbol 语义与测试上下文
 
@@ -49,12 +48,12 @@ exact/prefix 不信任检索来源的自报标签，由 ranker 根据规范化�
 
 ### LSP
 
-LSP 不是常驻召回通道。只有多个本地 exact definition 需要位置消歧，或显式关系查询缺少本地 AST relation 时才请求；普通唯一 symbol、已有本地关系及 strict 查询不启动 LSP。
+LSP 不是常驻召回通道。只有多个本地 exact definition 需要位置消歧，或查询明确要求关系时才请求；普通唯一 symbol 和 strict 查询不启动 LSP。
 
-workspace symbol/reference 经过 scope allowed paths 和 LSP 自身稳定合并后，只作为 path/range hint 进入 grep。LSP symbol hint 必须映射到名称精确匹配查询的 live AST unit；reference hint 必须映射到用户请求的关系角色。hint 的来源内 rank、confidence 和 origin 只提供内部 semantic/graph contribution。
+workspace symbol/reference 经过 scope allowed paths 和 LSP 自身稳定合并后，只作为 path/range hint 进入 grep。LSP symbol hint 必须映射并合并到名称精确匹配查询的 live AST unit；reference hint 必须映射到用户请求的关系角色。hint 的来源内 rank、confidence 和 origin 只提供内部 semantic contribution。
 
 ## Region identity
 
-有 symbol 的 `grep` region 以本次 AST unit ID 为身份。LSP range 只选择包含该范围的最小 live unit，随后按该 unit ID 与已有正文/AST region 合并；外部 symbol、kind 或 signature 不参与公开 identity。
+有 symbol 的 `grep` region 以本次 AST unit ID 为身份。LSP range 只选择包含该范围的最小 live unit，随后按该 unit ID 与已有正文 region 合并；外部 symbol、kind 或 signature 不参与公开 identity。
 
 无 symbol 的文本 region 继续使用严格 ID/range。hint 按 origin、path、range 和 relation 去重；最终比较不依赖并发完成顺序。

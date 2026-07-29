@@ -48,23 +48,14 @@ const RELATION_ROLE: Readonly<Partial<Record<string, Extract<CandidateRole,
 	entrypoint: "entrypoint",
 };
 
-/** 只在本地候选不足或精确符号存在歧义时请求位置提示。 */
+/** 精确符号歧义时请求消歧；显式关系始终先尝试 LSP，再由 AST 回退。 */
 export function grepHintDemand(plan: QueryPlan, local: LocalAutoResult): HintDemand {
 	if (plan.match !== "auto") return { lsp: false };
-	if (plan.relationIntents.length > 0) {
-		const requested = new Set(plan.relationIntents);
-		const hasLocalRelation = local.regions.some((region) =>
-			region.evidence.some((item) => item.source === "ast-relation")
-			&& region.roles.some((role) => requested.has(role as RelationIntent)));
-		return { lsp: !hasLocalRelation };
-	}
+	if (plan.relationIntents.length > 0) return { lsp: true };
 	if (plan.shape === "identifier" || plan.shape === "qualified_symbol") {
 		const exactDefinitions = local.regions.filter((region) =>
 			region.roles.includes("definition")
-			&& region.signals.some((signal) =>
-				signal === "exact_symbol_definition"
-				|| signal === "exact_qualified_definition"
-				|| signal === "exact_member_definition"));
+			&& isExactSymbolMatch(classifySymbolMatch(plan, region.symbol, region.qualifiedSymbol)));
 		return { lsp: exactDefinitions.length > 1 };
 	}
 	return { lsp: false };
@@ -133,6 +124,7 @@ export function applyGrepHints(
 	for (const item of materialized) {
 		const incoming = regionFromHint(item, ranks.get(item) ?? Number.MAX_SAFE_INTEGER);
 		const existing = regions.get(incoming.id);
+		if (existing === undefined && item.source === "lsp-symbol") continue;
 		regions.set(incoming.id, existing === undefined ? incoming : mergeRegion(existing, incoming));
 	}
 	const values = [...regions.values()];
@@ -141,7 +133,6 @@ export function applyGrepHints(
 		regions: values,
 		ranked,
 		totalCandidates: ranked.length,
-		nearby: ranked.length === 0 ? local.nearby : [],
 	};
 }
 
@@ -178,23 +169,19 @@ function materializeHint(
 		&& symbolMatch !== "exact_qualified_definition"
 		&& symbolMatch !== "exact_member_definition") return undefined;
 	const roles = unitRoles(unit);
-	const signals: CandidateSignal[] = symbolMatch === undefined
-		? ["direct_symbol"]
-		: [symbolMatch];
 	return {
 		...retrieved,
 		file,
 		unit,
 		source: sourceFor(retrieved.hint),
 		roles,
-		signals,
+		signals: [symbolMatch],
 	};
 }
 
 function regionFromHint(item: MaterializedHint, rank: number): SemanticMainRegion {
 	const unit = item.unit;
 	const evidence: RegionEvidence[] = [
-		{ source: "ast-symbol", rank: 1, confidence: 1, reason: "live AST unit" },
 		{
 			source: item.source,
 			rank,
@@ -334,6 +321,12 @@ function unique<T>(values: readonly T[]): T[] {
 
 function compareString(left: string, right: string): number {
 	return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function isExactSymbolMatch(value: CandidateSignal | undefined): boolean {
+	return value === "exact_symbol_definition"
+		|| value === "exact_qualified_definition"
+		|| value === "exact_member_definition";
 }
 
 function isAborted(signal: AbortSignal | undefined): boolean {

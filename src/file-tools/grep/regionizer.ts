@@ -385,7 +385,12 @@ function parsedRegions(
 			...(unit.qualifiedName === undefined ? {} : { qualifiedSymbol: unit.qualifiedName }),
 			...(unit.signature === undefined ? {} : { declaration: unit.signature }),
 			...(unit.declarationEndByte === undefined ? {} : { declarationEndByte: unit.declarationEndByte }),
-			roles: ["occurrence"],
+			roles: [
+				"occurrence",
+				...(unit.exported ? ["public_api" as const] : []),
+				...(isTestPath(unit.path) ? ["test" as const] : []),
+				...(isConfigPath(unit.path) ? ["config" as const] : []),
+			],
 			signals: ["verified_enclosing_region"],
 			evidence: [textEvidence(first, rankByHit)],
 		}, asNonEmpty(sortedHits));
@@ -505,6 +510,14 @@ function compareRegion(left: VerifiedCodeRegion, right: VerifiedCodeRegion): num
 
 function compareStableString(left: string, right: string): number {
 	return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function isTestPath(path: string): boolean {
+	return /(?:^|\/)(?:test|tests|spec|specs)(?:\/|$)|(?:\.test|\.spec)\.[^/]+$/iu.test(path);
+}
+
+function isConfigPath(path: string): boolean {
+	return /(?:^|\/)(?:config|configs)(?:\/|$)|(?:^|\/)[^/]*config[^/]*\.[^/]+$/iu.test(path);
 }
 
 function isAborted(signal: AbortSignal | undefined): boolean {

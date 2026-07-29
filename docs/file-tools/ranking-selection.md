@@ -1,6 +1,6 @@
 # 排序选择与结果通道
 
-本文说明融合后的候选如何进行 Top-K 选择，以及主结果与 `nearby` 的区别。证据来源见 [排序证据](ranking-evidence.md)。
+本文说明融合后的候选如何进行 Top-K 选择。证据来源见 [排序证据](ranking-evidence.md)。
 
 ## Relevance head 与 MMR
 
@@ -21,15 +21,12 @@ utility = 0.85 * normalizedRelevance
 
 MMR 返回确定性的选择顺序，relevance head 保持在最前；不使用按分数比例删除合格候选的 cutoff。`grep` 只在本地 region 与已物化 hint evidence 完成融合后执行一次 MMR，范围是 packer 会优先考虑的 `max(32, grep_result_limit * 4)` 个候选；其余候选保持完整 relevance 顺序，继续参与低成本候选回退。
 
-## 主结果与 nearby
+## 主结果
 
-`grep` 的主结果必须来自实时正文或本次 live AST unit。正文命中可以形成 verified region；本地 AST 或映射到 AST 的 position hint 可以形成 exact symbol、natural-language fallback，或者查询明确要求的关系 region。`literal`/`regex` 只允许 verified region。
+普通 `grep` 主结果必须从实时正文 hit/anchor 开始。正文命中可以形成 verified region，lexical anchor 可以形成 semantic region；Tree-sitter 只折叠、补充结构并合并这些候选。映射到 AST 的 position hint 只消除 exact symbol 歧义。查询明确要求关系时，LSP relation 或其后的 AST relation fallback 可以形成关系 region。`literal`/`regex` 只允许 verified region。
 
 显式 caller/callee/reference/test/import/registration/entrypoint 查询允许已映射的 LSP 关系进入主结果。
-
-### nearby
-
-只有主结果为空时，`grep` 才可从当前代码单元生成最多 3 条 symbol edit-distance、部分 query terms 或路径重合建议。`nearby` 明示 `query_match: not_guaranteed`，不参与主结果排序或返回计数。
+grep 不生成 AST nearby、fuzzy 或 `related` 候选。
 
 ### 显式关系预算
 

@@ -4,7 +4,6 @@ import { selectRankedRegionsInOrder } from "./ranking.js";
 import type {
 	GrepDisplayLine,
 	GrepMatchMode,
-	GrepNearbyResult,
 	GrepRegion,
 	GrepScopeError,
 	GrepSkippedFiles,
@@ -37,7 +36,6 @@ export interface GrepPackInput {
 	resultLimit: number;
 	regionalDisplayLimit: number;
 	relationActionLimit: number;
-	nearby: readonly GrepNearbyResult[];
 }
 
 interface CandidateChoice {
@@ -69,29 +67,14 @@ export function packGrepResults(input: GrepPackInput): GrepSuccess {
 	let tokenLimited = selected.length < Math.min(eligibleRegions.length, input.resultLimit)
 		|| choices.some((choice) => choice.rank < lastSelectedRank && !selectedRanks.has(choice.rank));
 	const regions = selected.map((item) => item.region);
-	const nearby: GrepNearbyResult[] = [];
-	let usedCount = regions.length;
-
-	if (regions.length === 0) {
-		for (const candidate of input.nearby) {
-			if (usedCount >= input.resultLimit) break;
-			if (fits(input, regions, [...nearby, candidate], assumedReasons)) {
-				nearby.push(candidate);
-				usedCount += 1;
-			} else tokenLimited = true;
-		}
-	}
 
 	const relationLimited = eligibleRegions.length < input.regions.length;
-	const eligibleCount = regions.length > 0
-		? eligibleRegions.length
-		: input.nearby.length;
 	const baseReasons = orderedReasons([
 		...knownReasons,
-		...(eligibleCount > input.resultLimit || relationLimited ? ["result_limit" as const] : []),
+		...(eligibleRegions.length > input.resultLimit || relationLimited ? ["result_limit" as const] : []),
 	]);
 	const reasons = tokenLimited ? orderedReasons([...baseReasons, "token_budget"]) : baseReasons;
-	const result = createSuccess(input, regions, nearby, reasons);
+	const result = createSuccess(input, regions, reasons);
 	return { ...result, approx_tokens: tokenCount(renderGrepSuccess(result)) };
 }
 
@@ -139,7 +122,7 @@ function selectMainChoices(
 	reasons: readonly TruncationReason[],
 ): CandidateChoice[] {
 	if (input.resultLimit <= 0 || choices.length === 0) return [];
-	const empty = createSuccess(input, [], [], reasons);
+	const empty = createSuccess(input, [], reasons);
 	const availableBudget = Math.max(0, input.tokenBudget - tokenCount(renderGrepSuccess(empty)));
 	const first = choices[0];
 	const mandatory = first !== undefined && first.cost <= availableBudget ? first : undefined;
@@ -184,14 +167,14 @@ function selectMainChoices(
 		})
 		.sort((left, right) => left.rank - right.rank);
 
-	while (selected.length > 0 && !fits(input, selected.map((item) => item.region), [], reasons)) {
+	while (selected.length > 0 && !fits(input, selected.map((item) => item.region), reasons)) {
 		let removable = selected.length - 1;
 		while (removable >= 0 && selected[removable] === mandatory) removable -= 1;
 		if (removable >= 0) selected.splice(removable, 1);
 		else selected.pop();
 	}
 	if (selected.length === 0) {
-		for (const choice of choices) if (fits(input, [choice.region], [], reasons)) return [choice];
+		for (const choice of choices) if (fits(input, [choice.region], reasons)) return [choice];
 	}
 	return selected;
 }
@@ -248,16 +231,14 @@ function regionCost(region: GrepRegion): number {
 function fits(
 	input: GrepPackInput,
 	regions: readonly GrepRegion[],
-	nearby: readonly GrepNearbyResult[],
 	reasons: readonly TruncationReason[],
 ): boolean {
-	return tokenCount(renderGrepSuccess(createSuccess(input, regions, nearby, reasons))) <= input.tokenBudget;
+	return tokenCount(renderGrepSuccess(createSuccess(input, regions, reasons))) <= input.tokenBudget;
 }
 
 function createSuccess(
 	input: GrepPackInput,
 	regions: readonly GrepRegion[],
-	nearby: readonly GrepNearbyResult[],
 	reasons: readonly TruncationReason[],
 ): GrepSuccess {
 	return {
@@ -274,7 +255,6 @@ function createSuccess(
 		stats: input.stats,
 		truncated_by: [...reasons],
 		regions: [...regions],
-		...(nearby.length === 0 ? {} : { nearby: [...nearby] }),
 	};
 }
 
@@ -287,14 +267,13 @@ export function renderGrepSuccess(result: GrepSuccess): string {
 	}
 	if (result.regions.length === 0) {
 		lines.push("none");
-		if (result.nearby !== undefined && result.nearby.length > 0) lines.push(renderNearby(result.nearby));
 	} else {
 		for (const region of result.regions) lines.push(renderRegion(region));
 	}
 	const omitted = Math.max(0, result.total_candidates - result.returned_regions);
 	if (omitted > 0) lines.push(`+${omitted} lower-ranked omitted`);
 	if (result.stats.skipped_files !== undefined) lines.push(`skipped: ${formatSkipped(result.stats.skipped_files)}`);
-	if (result.regions.length === 0 && result.nearby === undefined) {
+	if (result.regions.length === 0) {
 		lines.push(`searched=${result.stats.searched_files}; skipped=${skippedCount(result.stats.skipped_files)}`);
 		if (result.truncated_by.length > 0) lines.push(`next: resolve ${result.truncated_by.join(",")}; narrow path/glob`);
 		else lines.push(result.match === "auto" ? "next: broaden query/path/glob" : "next: use match=auto or broaden path/glob");
@@ -350,21 +329,6 @@ function appendEvidenceLines(output: string[], displayLines: readonly GrepDispla
 	for (const line of evidence) output.push(`    ${line.line}: ${line.text}`);
 }
 
-function renderNearby(nearby: readonly GrepNearbyResult[]): string {
-	const lines = ["<nearby query-match=\"not-guaranteed\">"];
-	for (const result of nearby) {
-		const range = `${result.path}:${result.start_line}${result.end_line === result.start_line ? "" : `-${result.end_line}`}`;
-		const metadata = [
-			`kind=${metadataValue(result.kind)}`,
-			...(result.symbol === undefined ? [] : [`symbol=${metadataValue(result.symbol)}`]),
-			`reason=${metadataValue(kebabCase(result.reason))}`,
-		];
-		lines.push(`${range} [${metadata.join("; ")}]`);
-	}
-	lines.push("</nearby>");
-	return lines.join("\n");
-}
-
 function orderedReasons(reasons: readonly TruncationReason[]): TruncationReason[] {
 	const present = new Set(reasons);
 	return TRUNCATION_ORDER.filter((reason) => present.has(reason));
@@ -378,10 +342,7 @@ function isLocalSource(source: string): boolean {
 	return source === "text-literal"
 		|| source === "text-regex"
 		|| source === "text-lexical"
-		|| source === "ast-symbol"
-		|| source === "ast-lexical"
-		|| source === "ast-relation"
-		|| source === "path";
+		|| source === "ast-relation";
 }
 
 function tokenCount(text: string): number {

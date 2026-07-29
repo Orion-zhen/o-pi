@@ -55,7 +55,7 @@
 - `grep_max_depth`：`grep` 相对每个显式 scope 的最大路径深度；scope 根为 0，直属子项为 1。
 - `grep_ast_max_file_bytes`：单文件进入 Tree-sitter 的最大字节数；不限制流式正文搜索。
 - `grep_output_token_budget`：`grep` 模型可见输出预算。
-- `grep_result_limit`：`grep` 最多返回的 region 数；主结果为空时，剩余额度可用于 nearby。
+- `grep_result_limit`：`grep` 最多返回的 region 数。
 - `grep_regional_display_limit`：每个语法区域最多展示的 matching/evidence 源码行数，默认 3，范围为 1-20；不裁剪完整的 `match_lines` 事实。
 - `grep_relation_action_limit`：显式关系查询最多返回的关系 region 数，默认 2，范围为 0-20。
 

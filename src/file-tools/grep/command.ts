@@ -5,7 +5,7 @@ import type { FileToolLimits } from "../../file-tool-limits.js";
 import { fail, isFailed, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import type { RankedRegion, VerifiedCodeRegion } from "./candidates.js";
 import { buildScopeInventory, type ScopeInventory } from "./inventory.js";
-import { buildLocalAutoResults, semanticParsePriority } from "./local.js";
+import { applyAstRelationFallback, buildLocalAutoResults, semanticParsePriority } from "./local.js";
 import { applyGrepHints, grepHintDemand, queryGrepHints } from "./hints.js";
 import { packGrepResults, renderGrepSuccess } from "./packer.js";
 import { GrepParser } from "./parser-pool.js";
@@ -81,16 +81,17 @@ export class GrepTool {
 		if (scope.failure !== undefined) return scope.failure;
 		const local = buildLocalAutoResults(plan, scanned, regionized, context.limits.grep_regional_display_limit);
 		const demand = grepHintDemand(plan, local);
-			const hints = await queryGrepHints(
-				inventory,
-				plan,
-				context.lspHints,
-				demand,
-				context.operation.signal,
-				context.limits.grep_result_limit,
-			);
+		const hints = await queryGrepHints(
+			inventory,
+			plan,
+			context.lspHints,
+			demand,
+			context.operation.signal,
+			context.limits.grep_result_limit,
+		);
 		if (isFailed(hints)) return hints;
-		const augmented = applyGrepHints(plan, local, regionized.files, hints);
+		const hinted = applyGrepHints(plan, local, regionized.files, hints);
+		const augmented = applyAstRelationFallback(plan, hinted, regionized.files);
 		return packGrepResults({
 			query: plan.query,
 			path: scope.paths[0] ?? ".",
@@ -109,7 +110,6 @@ export class GrepTool {
 			resultLimit: context.limits.grep_result_limit,
 			regionalDisplayLimit: context.limits.grep_regional_display_limit,
 			relationActionLimit: context.limits.grep_relation_action_limit,
-			nearby: augmented.nearby,
 		});
 	}
 
@@ -141,7 +141,6 @@ export class GrepTool {
 			match: strictMatch,
 			totalCandidates: allRanked.length,
 			regions: ranked,
-			nearby: [],
 			stats: grepStats(inventory, scanned.stats, regionized.parsedFiles, regionized.skipped),
 			truncationReasons: uniqueTruncationReasons([
 				...inventory.truncationReasons,

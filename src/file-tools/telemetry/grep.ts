@@ -48,7 +48,6 @@ function grepResultFields(details: Record<string, unknown>): Fields {
 function grepCandidates(details: Record<string, unknown>): Candidate[] {
 	const result: Candidate[] = [];
 	appendRegionCandidates(result, details["regions"], "primary", (item) => sourceLabels(item["sources"], "lexical"));
-	appendRegionCandidates(result, details["nearby"], "nearby", () => ["fuzzy"]);
 	return result;
 }
 

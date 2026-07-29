@@ -166,12 +166,12 @@ describe("grep integration", () => {
 		expect(ordinary.regions.some((region) => region.matched_by.includes("relationship"))).toBe(false);
 	});
 
-	it("自然语言 lexical 要求多词覆盖，path-only 不产生 main", async () => {
+	it("自然语言 lexical 要求多词覆盖，部分词项不产生候选", async () => {
 		await mkdir(path.join(testContext.workspace, "session"));
 		await writeFile(path.join(testContext.workspace, "session", "common.ts"), "export const data = true;\n");
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "data retry policy" }));
 		expect(result.regions).toEqual([]);
-		expect(result.nearby).toEqual(expect.arrayContaining([expect.objectContaining({ reason: "partial terms" })]));
+		expect(formatCompactGrepResult(result)).toContain("next: broaden query/path/glob");
 	});
 
 	it("unsupported language 安全退化到文本行", async () => {
@@ -245,7 +245,7 @@ describe("grep integration", () => {
 		}
 	});
 
-	it("AbortSignal、稳定排序、零结果和相近 symbol", async () => {
+	it("AbortSignal、稳定排序和零结果", async () => {
 		await writeFile(path.join(testContext.workspace, "b.ts"), "export function betaSearch() {}\n");
 		await writeFile(path.join(testContext.workspace, "a.ts"), "export function alphaSearch() {}\n");
 		const first = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "Search" }));
@@ -253,32 +253,19 @@ describe("grep integration", () => {
 		expect(first.regions.map((region) => region.path)).toEqual(second.regions.map((region) => region.path));
 		const zero = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "alpha missing" }));
 		expect(zero.regions).toHaveLength(0);
-		expect(zero.nearby).toEqual(expect.arrayContaining([
-			expect.objectContaining({ symbol: "alphaSearch", reason: "partial terms" }),
-		]));
 		const controller = new AbortController();
 		controller.abort();
 		expect(await grepWorkspaceFiles(testContext.workspace, { query: "Search" }, controller.signal)).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
 	});
 
-	it("auto 的 symbol typo 只进入带范围和原因的 nearby 非命中通道", async () => {
+	it("auto 的 symbol typo 不启动 AST fuzzy 候选", async () => {
 		await writeFile(path.join(testContext.workspace, "auth.ts"), "export function authenticate() { return true; }\n");
 
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "authentcate" }));
 
 		expect(result.regions).toEqual([]);
-		expect(result.nearby).toEqual([
-			expect.objectContaining({
-				path: "auth.ts",
-				symbol: "authenticate",
-				reason: "symbol similarity",
-				start_line: 1,
-			}),
-		]);
-		const compact = formatCompactGrepResult(result);
-		expect(compact).toContain('<nearby query-match="not-guaranteed">');
-		expect(compact).toContain("auth.ts:1 [kind=function; symbol=authenticate; reason=symbol-similarity]");
-		expect(compact).toContain("</nearby>");
+		expect(result.stats.parsed_files).toBe(0);
+		expect(formatCompactGrepResult(result)).toContain("next: broaden query/path/glob");
 	});
 
 	it.each([
@@ -290,7 +277,6 @@ describe("grep integration", () => {
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query, match }));
 
 		expect(result.regions).toEqual([]);
-		expect(result.nearby).toBeUndefined();
 		expect(result.stats.searched_files).toBe(1);
 		expect(formatCompactGrepResult(result)).toBe([
 			"<grep>",

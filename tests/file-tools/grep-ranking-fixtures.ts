@@ -122,9 +122,8 @@ export function packRegions(regions: readonly RankedRegion[], overrides: Partial
 		truncationReasons: [],
 		tokenBudget: 400,
 		resultLimit: 8,
-			regionalDisplayLimit: 3,
-			relationActionLimit: 2,
-			nearby: [],
-			...overrides,
+		regionalDisplayLimit: 3,
+		relationActionLimit: 2,
+		...overrides,
 	});
 }

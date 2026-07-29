@@ -104,7 +104,7 @@ blocked path  → 不可列出、搜索、读取或写入
 
 ### `grep`
 
-`grep` 支持 `auto`、`literal` 和 `regex`。`auto` 先使用实时正文和 Tree-sitter；只有精确符号有歧义或关系结果不足时，才用可选 LSP 提示选择 live AST 位置。`literal` 和 `regex` 不调用 LSP。结果按函数、方法、类、声明或紧凑文本区域聚合，而不是简单返回每一行。
+`grep` 支持 `auto`、`literal` 和 `regex`。普通查询只由实时正文产生候选，Tree-sitter 将候选折叠到最小代码单元并补充结构。精确符号有歧义时用可选 LSP hint 消歧；明确关系查询先用 LSP，没有结果时才用 AST relation 回退。`literal` 和 `regex` 不调用 LSP。结果按函数、方法、类、声明或紧凑文本区域聚合，而不是简单返回每一行。
 
 ### `read`
 
@@ -166,5 +166,5 @@ blocked path  → 不可列出、搜索、读取或写入
 | `edit` 完整行为 | [edit.md](edit.md) |
 | 搜索排序总览 | [ranking.md](ranking.md) |
 | 证据融合和来源排序 | [ranking-evidence.md](ranking-evidence.md) |
-| Top-K、MMR 和 nearby | [ranking-selection.md](ranking-selection.md) |
+| Top-K 和 MMR | [ranking-selection.md](ranking-selection.md) |
 | lazy loading、缓存和 benchmark | [performance.md](performance.md) |

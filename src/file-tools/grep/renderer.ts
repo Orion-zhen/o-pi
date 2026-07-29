@@ -34,10 +34,9 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 		status: "success",
 		target: `${JSON.stringify(details.query)} in ${scope}`,
 		summary: joinParts([
-				`${details.returned_regions} regions`,
-				`${details.returned_files} files`,
-				details.nearby === undefined ? undefined : `${details.nearby.length} nearby`,
-				`${details.stats.searched_files}/${details.stats.traversed_entries} searched/traversed`,
+			`${details.returned_regions} regions`,
+			`${details.returned_files} files`,
+			`${details.stats.searched_files}/${details.stats.traversed_entries} searched/traversed`,
 			details.truncated_by.length > 0 ? `limit:${formatLimitReasons(details.truncated_by)}` : undefined,
 			details.scope_errors === undefined || details.scope_errors.length === 0 ? undefined : `${details.scope_errors.length} scope ${details.scope_errors.length === 1 ? "error" : "errors"}`,
 		]),
@@ -45,13 +44,6 @@ export function formatGrepResult(details: unknown, expanded: boolean, theme: Pic
 	if (!expanded) return header;
 	const lines = [header];
 	for (const region of details.regions) lines.push(formatRegion(region, theme));
-	if (details.nearby !== undefined && details.nearby.length > 0) {
-		lines.push(theme.fg("muted", "Nearby (query match not guaranteed):"));
-		for (const result of details.nearby) {
-			const range = `${result.path}:${result.start_line}${result.end_line === result.start_line ? "" : `-${result.end_line}`}`;
-			lines.push(`${theme.fg("accent", range)} ${result.symbol ?? result.kind} [${result.reason}]`);
-		}
-	}
 	if (details.truncated_by.length > 0) lines.push(theme.fg("muted", `limit: ${formatLimitReasons(details.truncated_by, ", ")}`));
 	if (details.scope_errors !== undefined && details.scope_errors.length > 0) lines.push(theme.fg("muted", `Scope errors: ${details.scope_errors.map((item) => `${item.path}:${item.error.code}`).join(", ")}.`));
 	if (details.stats.skipped_files !== undefined) lines.push(theme.fg("muted", `skipped ${Object.entries(details.stats.skipped_files).map(([key, value]) => `${key}:${value}`).join(" ")}`));

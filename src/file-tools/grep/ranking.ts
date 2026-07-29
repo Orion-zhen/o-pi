@@ -10,7 +10,7 @@ import {
 } from "./candidates.js";
 import type { QueryPlan, RelationIntent } from "./query-plan.js";
 
-export type RankingEvidenceFamily = "factual" | "symbol" | "lexical" | "semantic" | "graph";
+export type RankingEvidenceFamily = "factual" | "lexical" | "semantic" | "graph";
 export type RankingPolicyKey = "strict" | "identifier" | "qualified_symbol" | "long_text" | "natural_language" | "relation";
 
 export const GREP_RRF_K = 60;
@@ -23,8 +23,6 @@ export const GREP_SOURCE_FAMILY: Readonly<Record<RetrievalSource, RankingEvidenc
 	"text-literal": "factual",
 	"text-regex": "factual",
 	"text-lexical": "lexical",
-	"ast-symbol": "symbol",
-	"ast-lexical": "lexical",
 	"ast-relation": "graph",
 	"lsp-symbol": "semantic",
 	"lsp-reference": "semantic",
@@ -32,12 +30,12 @@ export const GREP_SOURCE_FAMILY: Readonly<Record<RetrievalSource, RankingEvidenc
 
 /** 查询形态的相对权重只在此表中校准。 */
 export const GREP_SOURCE_WEIGHTS: Readonly<Record<RankingPolicyKey, Readonly<Record<RetrievalSource, number>>>> = {
-	strict: weights({ "text-literal": 1.5, "text-regex": 1.5, "ast-symbol": 0.45 }),
-	identifier: weights({ "text-literal": 1.05, "text-lexical": 0.5, "ast-symbol": 1.35, "ast-lexical": 0.55, "ast-relation": 0.25, "lsp-symbol": 1.15 }),
-	qualified_symbol: weights({ "text-literal": 1.1, "text-lexical": 0.45, "ast-symbol": 1.5, "ast-lexical": 0.45, "ast-relation": 0.35, "lsp-symbol": 1.25 }),
-	long_text: weights({ "text-literal": 1.6, "text-lexical": 0.8, "ast-symbol": 0.35, "ast-lexical": 0.8 }),
-	natural_language: weights({ "text-literal": 0.8, "text-lexical": 1.2, "ast-symbol": 0.65, "ast-lexical": 1.25, "ast-relation": 0.35 }),
-	relation: weights({ "text-literal": 0.75, "text-lexical": 0.4, "ast-symbol": 0.8, "ast-lexical": 0.4, "ast-relation": 1.3, "lsp-symbol": 0.8, "lsp-reference": 1.35 }),
+	strict: weights({ "text-literal": 1.5, "text-regex": 1.5 }),
+	identifier: weights({ "text-literal": 1.05, "text-lexical": 0.55, "lsp-symbol": 1.15 }),
+	qualified_symbol: weights({ "text-literal": 1.1, "text-lexical": 0.55, "lsp-symbol": 1.25 }),
+	long_text: weights({ "text-literal": 1.6, "text-lexical": 0.8 }),
+	natural_language: weights({ "text-literal": 0.8, "text-lexical": 1.25 }),
+	relation: weights({ "text-literal": 0.75, "text-lexical": 0.4, "ast-relation": 1.3, "lsp-symbol": 0.8, "lsp-reference": 1.35 }),
 };
 
 const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<CandidateSignal, number>>>>> = {
@@ -56,9 +54,7 @@ const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<Can
 		verified_phrase: 2,
 		verified_text: 2,
 		verified_enclosing_region: 2,
-		direct_symbol: 3,
 		symbol_prefix: 4,
-		partial_symbol: 4,
 		lexical_high_coverage: 5,
 		lexical: 6,
 	},
@@ -69,8 +65,6 @@ const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<Can
 		verified_qualified_occurrence: 3,
 		verified_phrase: 3,
 		verified_text: 3,
-		direct_symbol: 4,
-		partial_symbol: 5,
 		symbol_prefix: 5,
 		lexical_high_coverage: 6,
 		lexical: 7,
@@ -81,15 +75,12 @@ const TIER_POLICY: Readonly<Record<RankingPolicyKey, Readonly<Partial<Record<Can
 		verified_enclosing_region: 2,
 		verified_text_line: 2,
 		lexical_high_coverage: 3,
-		multiview_consensus: 3,
 		lexical: 4,
 	},
 	natural_language: {
 		verified_phrase: 1,
 		verified_text: 1,
 		lexical_high_coverage: 2,
-		multiview_consensus: 3,
-		direct_symbol: 4,
 		lexical: 5,
 	},
 	relation: {
@@ -108,7 +99,7 @@ const FACTUAL_SIGNALS = new Set<CandidateSignal>([
 	"verified_phrase", "verified_text", "verified_qualified_occurrence", "verified_enclosing_region", "verified_text_line",
 ]);
 const SYMBOL_SIGNALS = new Set<CandidateSignal>([
-	"exact_qualified_definition", "exact_symbol_definition", "exact_member_definition", "direct_symbol", "symbol_prefix", "partial_symbol", "target_definition",
+	"exact_qualified_definition", "exact_symbol_definition", "exact_member_definition", "symbol_prefix", "target_definition",
 ]);
 const CANONICAL_SYMBOL_MATCH_SIGNALS = new Set<CandidateSignal>([
 	"exact_qualified_definition", "exact_symbol_definition", "exact_member_definition", "symbol_prefix",
@@ -126,13 +117,10 @@ const ROLE_BY_INTENT: Readonly<Record<RelationIntent, CandidateRole>> = {
 };
 const EMPTY_RANKING: RankingEvidenceSummary = {
 	factual: 0,
-	symbol: 0,
 	lexical: 0,
 	semantic: 0,
 	graph: 0,
-	familyCount: 0,
 	fusionScore: 0,
-	bestContribution: 0,
 };
 
 /** 为每个独立来源生成从 1 开始的稳定局部名次。 */
@@ -262,7 +250,7 @@ function selectRankedInOrder(
 
 export function summarizeEvidence(policy: RankingPolicyKey, evidence: readonly RegionEvidence[]): RankingEvidenceSummary {
 	if (evidence.length === 0) return EMPTY_RANKING;
-	const strongest: Record<RankingEvidenceFamily, number> = { factual: 0, symbol: 0, lexical: 0, semantic: 0, graph: 0 };
+	const strongest: Record<RankingEvidenceFamily, number> = { factual: 0, lexical: 0, semantic: 0, graph: 0 };
 	for (const item of evidence) {
 		const family = GREP_SOURCE_FAMILY[item.source];
 		const contribution = sourceContribution(policy, item);
@@ -271,9 +259,7 @@ export function summarizeEvidence(policy: RankingPolicyKey, evidence: readonly R
 	const values = Object.values(strongest);
 	return {
 		...strongest,
-		familyCount: values.filter((value) => value > 0).length,
 		fusionScore: values.reduce((sum, value) => sum + value, 0),
-		bestContribution: Math.max(...values),
 	};
 }
 
@@ -288,8 +274,6 @@ function weights(overrides: Partial<Record<RetrievalSource, number>>): Readonly<
 		"text-literal": 0,
 		"text-regex": 0,
 		"text-lexical": 0,
-		"ast-symbol": 0,
-		"ast-lexical": 0,
 		"ast-relation": 0,
 		"lsp-symbol": 0,
 		"lsp-reference": 0,
@@ -311,7 +295,6 @@ function derivedSignals(plan: QueryPlan, region: CodeRegion): CandidateSignal[] 
 		result.push("target_definition");
 	}
 	if (plan.relationIntents.length > 0 && region.queryMatch === "verified") result.push("target_occurrence");
-	if (summarizeFamilies(region.evidence) >= 2) result.push("multiview_consensus");
 	return result;
 }
 
@@ -341,11 +324,10 @@ function signalSupported(plan: QueryPlan, region: CodeRegion, signal: CandidateS
 	if (FACTUAL_SIGNALS.has(signal)) return region.queryMatch === "verified" && hasFamily(region, "factual");
 	if (SYMBOL_SIGNALS.has(signal)) {
 		if (!region.roles.includes("definition")) return false;
-		return hasAnySource(sources, ["ast-symbol", "lsp-symbol"])
+		return hasAnySource(sources, ["text-lexical", "lsp-symbol"])
 			|| (region.queryMatch === "verified" && hasFamily(region, "factual") && region.symbol !== undefined);
 	}
-	if (LEXICAL_SIGNALS.has(signal)) return hasAnySource(sources, ["text-lexical", "ast-lexical"]);
-	if (signal === "multiview_consensus") return summarizeFamilies(region.evidence) >= 2;
+	if (LEXICAL_SIGNALS.has(signal)) return sources.has("text-lexical");
 	if (signal === "requested_relation") {
 		const requested = new Set(plan.relationIntents.map((intent) => ROLE_BY_INTENT[intent]));
 		return region.roles.some((role) => requested.has(role))
@@ -369,8 +351,7 @@ function isMainEligible(plan: QueryPlan, region: CodeRegion): boolean {
 	if (plan.match !== "auto") return region.queryMatch === "verified";
 	if (plan.relationIntents.length > 0) return true;
 	const relationOnly = region.roles.length > 0 && region.roles.every((role) => RELATION_ROLES.has(role));
-	if (!relationOnly) return true;
-	return plan.shape === "qualified_symbol" && region.roles.every((role) => role === "reference");
+	return !relationOnly;
 }
 
 function canonicalEvidence(evidence: readonly RegionEvidence[]): RegionEvidence[] {
@@ -448,7 +429,7 @@ function independentRankingEvidence(
 	evidence: readonly RegionEvidence[],
 ): readonly RegionEvidence[] {
 	if (plan.match !== "auto" || plan.targetTerms.length !== 1 || !signals.some(isExactSymbolMatch)) return evidence;
-	return evidence.filter((item) => item.source !== "ast-lexical" && item.source !== "text-lexical");
+	return evidence.filter((item) => item.source !== "text-lexical");
 }
 
 function isExactSymbolMatch(signal: CandidateSignal | undefined): boolean {
@@ -476,10 +457,6 @@ function primaryRole(roles: readonly CandidateRole[]): CandidateRole | "other" {
 		if (roles.includes(role)) return role;
 	}
 	return "other";
-}
-
-function summarizeFamilies(evidence: readonly RegionEvidence[]): number {
-	return new Set(evidence.map((item) => GREP_SOURCE_FAMILY[item.source])).size;
 }
 
 function hasFamily(region: CodeRegion, family: RankingEvidenceFamily): boolean {

@@ -1,6 +1,6 @@
 # `grep`
 
-`grep` 按内容、symbol、正则或代码意图检索代码，不查找路径、不修改文件。执行链固定为 `QueryPlan -> ScopeInventory -> text scan -> live AST/local ranking -> hint demand -> optional position hints -> live AST materialization -> ranking -> packing`。正文扫描和本次解析的 AST 是结果事实来源；LSP 通过独立 port 提供按需位置提示。结果按函数、方法、类、声明聚合；没有语法归属的正文命中保持为独立文本行。
+`grep` 按内容、symbol、正则或代码意图检索代码，不查找路径、不修改文件。执行链固定为 `QueryPlan -> ScopeInventory -> text candidates -> AST regionization -> local ranking -> optional position hints -> explicit relation fallback -> packing`。普通查询的候选只来自当前正文；Tree-sitter 把已有文本候选折叠到最小代码单元、补充最少结构字段并合并同一区域，不独立召回 symbol、完整 code unit 或相似候选。结果按函数、方法、类、声明聚合；没有语法归属的正文候选保持为独立文本行。
 
 ## 参数
 
@@ -26,7 +26,7 @@
 
 ### `auto`
 
-先组合当前正文和本次解析的 AST 建立本地候选。只有精确符号有歧义或显式关系查询缺少本地关系时，才请求 LSP 位置提示；提示必须映射回本次已读取的 live AST unit，不能直接成为结果。exact qualified symbol、exact symbol，以及用户明确请求的 caller/reference/test/import/registration/entrypoint 等关系可以作为 semantic region 进入结果。
+正文扫描同时产生精确 hit 和有界 lexical line anchor。Tree-sitter 只处理包含这些文本候选的文件，并将候选映射到最小 live AST unit；qualified symbol 由文本 anchor 与该 unit 的 qualified name 共同确认。精确符号存在歧义时请求 LSP 位置提示，提示只能与本次 live unit 合并。显式 caller/callee/reference/test/import/registration/entrypoint 查询先请求 LSP；没有有效关系结果时，才允许 Tree-sitter 在 scope 内生成关系回退。
 
 `auto` 不会猜测正则。
 
@@ -64,13 +64,13 @@ notes.conf:27 [evidence=lexical]: authentication request rejected
 
 代码结果始终保留完整最小语法区域范围，并只携带 body-free declaration 与有界 matching/evidence 行。1 个 verified 展示行使用 `matching line N:`；多个命中或展示受限时使用 `matching lines (K of N shown):`。semantic 证据使用 `evidence line N:`，不与 verified 命中混写。declaration 和证据行各自最多 240 个 Unicode code point；超长行围绕相关位置使用 ASCII `...` 截取。完整源码由 `read(path,start_line,end_line)` 返回。
 
-`details.regions` 保留相同的 range、kind、symbol、roles、matched_by，以及完整 `match_lines` 和有界 `display_lines`；`sources` 只记录正文/AST 等本地事实来源。LSP hint 的 origin、confidence 和 reason 不进入模型正文、details、TUI 或 grep telemetry candidate projection。TUI 展开视图只显示区域元数据和匹配总数，不显示 declaration 或 evidence 源码。
+`details.regions` 保留相同的 range、kind、symbol、roles、matched_by，以及完整 `match_lines` 和有界 `display_lines`；`sources` 记录正文候选来源，显式关系回退另记 `ast-relation`。结构折叠本身不是候选证据。LSP hint 的 origin、confidence 和 reason 不进入模型正文、details、TUI 或 grep telemetry candidate projection。TUI 展开视图只显示区域元数据和匹配总数，不显示 declaration 或 evidence 源码。
 
-每个候选只有一个固定表示。`grep_regional_display_limit` 控制每个语法区域展示的源码行数，但不裁剪 `details.match_lines`；`grep_output_token_budget` 只决定保留哪些候选，不升级 body、上下文或更多行。`grep_result_limit` 限制 regions；主结果为空时，剩余额度可用于 nearby。`grep_relation_action_limit` 另外限制整次调用中的显式关系结果数，默认 2。输出状态和公共协议见 [工具契约](contracts.md)。
+每个候选只有一个固定表示。`grep_regional_display_limit` 控制每个语法区域展示的源码行数，但不裁剪 `details.match_lines`；`grep_output_token_budget` 只决定保留哪些候选，不升级 body、上下文或更多行。`grep_result_limit` 限制 regions；`grep_relation_action_limit` 另外限制整次调用中的显式关系结果数，默认 2。输出状态和公共协议见 [工具契约](contracts.md)。
 
 ## 语言与解析
 
-C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 Tree-sitter 官方 grammar 提取：
+C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 Tree-sitter grammar 提取最小代码单元、declaration 和显式关系回退需要的局部事实：
 
 - 函数、方法、类；
 - 接口、trait、类型和枚举；
@@ -93,16 +93,15 @@ LF、CRLF、CR 和 UTF-8 BOM 由 filesystem logical line 语义统一处理。`S
 
 本地排序完成后才计算 hint demand：
 
-- 精确 identifier/qualified symbol 有多个本地定义时，只请求 LSP 消歧。
 - identifier/qualified symbol 出现多个本地精确定义时，请求 LSP 消歧。
-- 显式关系查询没有对应本地 AST relation 时，请求 LSP。
+- 显式关系查询总是先请求可选 LSP。
 - 其他情况不启动 hint source。
 
-hint port 只返回 grep-owned path/range DTO 和最小 freshness/关系/排序信息。path 必须属于本次 inventory，range 必须落入本次已经读取和解析的 live AST unit；range 无效、LSP 指向的 unit 不精确匹配查询，或关系角色不是用户请求的角色时直接丢弃。公开 path、range、kind、symbol 和 declaration 全部重新取自该 AST unit。Tree-sitter/text 与 LSP 的职责和融合规则见 [排序证据](ranking-evidence.md)。
+hint port 只返回 grep-owned path/range DTO 和最小 freshness/关系/排序信息。path 必须属于本次 inventory，range 必须落入本次已经读取和解析的 live AST unit；range 无效、LSP 指向的 unit 不精确匹配查询，或关系角色不是用户请求的角色时直接丢弃。公开 path、range、kind、symbol 和 declaration 全部重新取自该 AST unit。显式关系没有有效 LSP 结果时才执行本地 AST relation fallback。Tree-sitter/text 与 LSP 的职责和融合规则见 [排序证据](ranking-evidence.md)。
 
 ## Scope、跳过和截断
 
-多个 scope 合并为一个全局结果，先按文件 canonical identity、再按稳定 region key 去重。每个 scope 分别应用深度边界；regions 与零结果时的 nearby 共享结果数量与模型 token 预算。
+多个 scope 合并为一个全局结果，先按文件 canonical identity、再按稳定 region key 去重。每个 scope 分别应用深度边界；regions 共享结果数量与模型 token 预算。
 
 至少一个 scope 成功时保留有效区域，并在 `details.scope_errors` 及模型输出中标注失败 scope；所有 scope 失败时返回结构化错误。
 
@@ -118,19 +117,11 @@ hint port 只返回 grep-owned path/range DTO 和最小 freshness/关系/排序�
 
 打包器为每个候选建立唯一固定胶囊，在预算内优先保留最高价值候选，再尽量增加独立区域数。token 预算不会改变区域锚点、declaration 或代表行；只有整个候选未返回时才标记 `token_budget`。限制由 [配置](configuration.md) 控制，不作为工具参数暴露。line stream、traversal、parser 和 worker 都响应取消并释放 handle。
 
-## 零结果与 nearby
+## 零结果
 
-合法搜索但没有主命中时，`regions` 保持为空，仍可能返回最多 3 个本地 `nearby`：
+合法搜索但没有合格文本候选或显式关系结果时，`regions` 保持为空。grep 不生成 AST nearby、fuzzy 或 `related` 候选；输出 `searched=<searched_files>; skipped=<count>` 和下一步建议。
 
-- `symbol similarity`：symbol typo；
-- `partial terms`：只有部分 query terms 重合；
-- `path similarity`：只有路径相关。
-
-`nearby` 只在最终主结果为空时出现，不参与主候选排序或 `returned_regions`，模型文本使用 `<nearby query-match="not-guaranteed">` 明示非命中；它与其他通道共享全局 `grep_result_limit`。
-
-显式关系查询的有效 live AST region 直接进入主结果并受 `grep_relation_action_limit` 限制。grep 不提供 `related` 通道。没有可信 nearby 时，输出 `searched=<searched_files>; skipped=<count>` 和下一步建议。
-
-主结果与 nearby 的完整边界见 [排序选择](ranking-selection.md)。
+显式关系查询的有效 LSP 或 AST fallback region 进入主结果，并受 `grep_relation_action_limit` 限制。结果选择边界见 [排序选择](ranking-selection.md)。
 
 ## 失败结果与模型输出
 

@@ -116,29 +116,6 @@ describe("grep local search", () => {
 		expect(firstRegion(result).matched_by).toContain("lexical");
 	});
 
-	it("scope IDF 让稀有词项胜过同覆盖率的高频通用词", async () => {
-		await writeFile(path.join(testContext.workspace, "common.ts"), [
-			"export function commonTarget() {",
-			"  const get = source();",
-			"  return config(get);",
-			"}",
-			"export function commonOne() {",
-			"  return get(config);",
-			"}",
-			"export function commonTwo() {",
-			"  return get(config);",
-			"}",
-			"export function commonThree() {",
-			"  return get(config);",
-			"}",
-		].join("\n"));
-		await writeFile(path.join(testContext.workspace, "rare.ts"), "export function rareTarget() {\n  const get = source();\n  return quasar(get);\n}\n");
-
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "get config quasar" }));
-
-		expect(firstRegion(result)).toMatchObject({ path: "rare.ts", symbol: "rareTarget", query_match: "semantic" });
-	});
-
 	it("有序且集中的同行命中优于反序散布命中", async () => {
 		const padding = Array.from({ length: 16 }, (_, index) => `  const gap${index} = ${index};`);
 		await writeFile(path.join(testContext.workspace, "proximity.ts"), [
@@ -159,7 +136,7 @@ describe("grep local search", () => {
 		expect(firstRegion(result)).toMatchObject({ symbol: "orderedTarget", query_match: "semantic" });
 	});
 
-	it("将 AST 内 phrase anchor 聚合给 enclosing region，并以对数长度惩罚保留大函数", async () => {
+	it("将 phrase 文本候选折叠到最小 enclosing region", async () => {
 		const padding = Array.from({ length: 90 }, (_, index) => `  const padding${index} = ${index};`).join("\n");
 		await writeFile(path.join(testContext.workspace, "large.ts"), `export function focusedConcept() {\n  // authentication flow token\n${padding}\n  return true;\n}\n`);
 		await writeFile(path.join(testContext.workspace, "small.ts"), [
@@ -174,39 +151,6 @@ describe("grep local search", () => {
 
 		expect(firstRegion(result)).toMatchObject({ path: "large.ts", symbol: "focusedConcept", kind: "function", query_match: "semantic" });
 		expect(firstRegion(result).matched_by).toContain("lexical");
-	});
-
-	it.each([
-		{
-			name: "普通概念默认降低字符串字段权重",
-			query: "Cache Eviction Policy",
-			preferred: "cacheEvictionPolicy",
-			content: [
-				"export function stringConcept() {",
-				"  return 'cache eviction policy';",
-				"}",
-				"export function cacheEvictionPolicy() {",
-				"  return cache(eviction(policy));",
-				"}",
-			].join("\n"),
-		},
-		{
-			name: "错误消息查询提高字符串字段权重",
-			query: "Error Connection Reset",
-			preferred: "stringError",
-			content: [
-				"export function codeError() {",
-				"  return error(connection(reset));",
-				"}",
-				"export function stringError() {",
-				"  throw new Error('error connection reset');",
-				"}",
-			].join("\n"),
-		},
-	] as const)("$name", async ({ query, preferred, content }) => {
-		await writeFile(path.join(testContext.workspace, "fields.ts"), `${content}\n`);
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query }));
-		expect(firstRegion(result)).toMatchObject({ symbol: preferred, query_match: "semantic" });
 	});
 
 	it("literal 区分大小写并将同一代码单元的多个真实命中聚合", async () => {

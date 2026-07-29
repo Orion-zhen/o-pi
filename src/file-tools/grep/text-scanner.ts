@@ -1,4 +1,4 @@
-import { tokenizeText } from "../../code-index/parser.js";
+import { splitTokens, tokenizeText } from "../../code-index/parser.js";
 import type { ScannedLine } from "../../filesystem/contracts/content.js";
 import { utf8ByteOffset } from "../../filesystem/services/text.js";
 import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.js";
@@ -49,8 +49,6 @@ interface MutableLexicalAnchor {
 	readonly matchedTerms: readonly string[];
 	readonly phrase: boolean;
 	readonly identifier: boolean;
-	readonly commentLike: boolean;
-	readonly stringLike: boolean;
 }
 
 interface FileScanSuccess {
@@ -145,9 +143,7 @@ async function scanFile(
 	const fileHits: TextHit[] = [];
 	const anchors: MutableLexicalAnchor[] = [];
 	const matchedTerms = new Set<string>();
-	const phraseLines: number[] = [];
-	const identifierLines: number[] = [];
-	const queryTerms = uniqueLowerTerms(plan.targetTerms);
+	const queryTerms = uniqueLowerTerms(plan.targetTerms.flatMap(splitTokens));
 	const phrase = plan.targetQuery.trim().toLocaleLowerCase();
 	const identifier = plan.shape === "identifier" || plan.shape === "qualified_symbol" ? phrase : "";
 	let totalHits = 0;
@@ -176,10 +172,6 @@ async function scanFile(
 				const lineLower = line.text.toLocaleLowerCase();
 				const hasPhrase = phrase.length > 0 && lineLower.includes(phrase);
 				const hasIdentifier = identifier.length > 0 && lineLower.includes(identifier);
-				if (hasPhrase && phraseLines.length < MAX_ANCHORS_PER_FILE) phraseLines.push(line.line);
-				else if (hasPhrase) anchorLimitReached = true;
-				if (hasIdentifier && identifierLines.length < MAX_ANCHORS_PER_FILE) identifierLines.push(line.line);
-				else if (hasIdentifier) anchorLimitReached = true;
 				if (lineTerms.length > 0 || hasPhrase || hasIdentifier) {
 					if (anchors.length < MAX_ANCHORS_PER_FILE && anchors.length < remainingAnchorCapacity) {
 						anchors.push(createLexicalAnchor(file.path, line, lineTerms, hasPhrase, hasIdentifier));
@@ -191,7 +183,6 @@ async function scanFile(
 		await opened.value.close();
 	}
 	if (failure !== undefined) return { ok: false, error: failure };
-	const pathTokenMap = tokenizeText(file.path);
 	return {
 		ok: true,
 		value: {
@@ -202,9 +193,6 @@ async function scanFile(
 			evidence: {
 				path: file.path,
 				matchedTerms: queryTerms.filter((term) => matchedTerms.has(term)),
-				pathTerms: queryTerms.filter((term) => pathTokenMap.has(term)),
-				phraseLines,
-				identifierLines,
 				anchors,
 			},
 		},
@@ -258,7 +246,6 @@ function createLexicalAnchor(
 	phrase: boolean,
 	identifier: boolean,
 ): MutableLexicalAnchor {
-	const trimmed = line.text.trimStart();
 	return {
 		path,
 		line: line.line,
@@ -268,8 +255,6 @@ function createLexicalAnchor(
 		matchedTerms: [...matchedTerms],
 		phrase,
 		identifier,
-		commentLike: /^(?:\/\/|\/\*|\*|#|--)/u.test(trimmed),
-		stringLike: /["'`]/u.test(line.text),
 	};
 }
 

@@ -62,16 +62,6 @@ export interface GrepRegion {
 	display_lines?: GrepDisplayLine[];
 }
 
-export interface GrepNearbyResult {
-	path: string;
-	start_line: number;
-	end_line: number;
-	kind: string;
-	symbol?: string;
-	reason: "symbol similarity" | "partial terms" | "path similarity";
-	query_match: "not_guaranteed";
-}
-
 export interface GrepScopeError {
 	path: string;
 	error: FileToolError;
@@ -91,5 +81,4 @@ export interface GrepSuccess {
 	stats: GrepStats;
 	truncated_by: TruncationReason[];
 	regions: GrepRegion[];
-	nearby?: GrepNearbyResult[];
 }

@@ -121,12 +121,12 @@ describe("grep position hints", () => {
 				path: "caller.ts",
 				symbol: "caller",
 				roles: ["reference"],
-					sources: ["ast-symbol"],
+				sources: [],
 			}),
 		]);
 	});
 
-	it("本地关系已经足够时不会请求 hint", async () => {
+	it("LSP 无有效关系时回退到本地 AST", async () => {
 		await writeFile(path.join(testContext.workspace, "caller.ts"), "export function caller() { return login(); }\n");
 		const lsp = hintSource([]);
 
@@ -137,7 +137,7 @@ describe("grep position hints", () => {
 		));
 
 		expect(result.regions.some((region) => region.roles?.includes("caller") === true)).toBe(true);
-		expect(lsp.query).not.toHaveBeenCalled();
+		expect(lsp.query).toHaveBeenCalledOnce();
 	});
 });
 

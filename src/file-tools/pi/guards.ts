@@ -1,4 +1,4 @@
-import type { GrepNearbyResult, GrepRegion, GrepSuccess, TruncationReason } from "../grep/types.js";
+import type { GrepRegion, GrepSuccess, TruncationReason } from "../grep/types.js";
 import type { FailedResult } from "../shared/result.js";
 
 const GREP_MATCHED_BY = new Set([
@@ -32,8 +32,7 @@ export function isGrepSuccessDetails(value: unknown): value is GrepSuccess {
 		&& isNumber(value["approx_tokens"])
 		&& isGrepStats(value["stats"])
 			&& isTruncationReasons(value["truncated_by"])
-			&& isGrepRegions(value["regions"])
-			&& (value["nearby"] === undefined || isGrepNearbyResults(value["nearby"]));
+			&& isGrepRegions(value["regions"]);
 }
 
 export function isFileToolName(value: string): boolean {
@@ -70,17 +69,6 @@ function isDisplayLines(value: unknown): boolean {
 
 function isMatchedBy(value: unknown): boolean {
 	return Array.isArray(value) && value.every((item) => typeof item === "string" && GREP_MATCHED_BY.has(item));
-}
-
-function isGrepNearbyResults(value: unknown): value is GrepNearbyResult[] {
-	return Array.isArray(value) && value.every((item) =>
-		isPlainRecord(item)
-		&& typeof item["path"] === "string"
-		&& isNumber(item["start_line"])
-		&& isNumber(item["end_line"])
-		&& typeof item["kind"] === "string"
-		&& item["query_match"] === "not_guaranteed"
-		&& (item["reason"] === "symbol similarity" || item["reason"] === "partial terms" || item["reason"] === "path similarity"));
 }
 
 function isGrepStats(value: unknown): boolean {

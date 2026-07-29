@@ -78,7 +78,7 @@ describe("tool telemetry projections", () => {
 			stats: { traversed_entries: 20, searched_files: 10, searched_bytes: 2000, parsed_files: 4 },
 			truncated_by: ["result_limit"],
 			regions: [
-				{ path: "src/c.ts", start_line: 2, end_line: 4, sources: ["ast-symbol"] },
+				{ path: "src/c.ts", start_line: 2, end_line: 4, sources: ["text-lexical"] },
 				{ path: "src/d.ts", start_line: 6, end_line: 8, sources: ["ast-relation"] },
 			],
 		}));
@@ -96,7 +96,7 @@ describe("tool telemetry projections", () => {
 		});
 		expect(grepOutput.fields).not.toHaveProperty("strategy");
 		expect(grepOutput.candidates).toEqual([
-			{ kind: "region", value: "src/c.ts", rank: 1, group: "primary", start_line: 2, end_line: 4, sources: ["ast-symbol"] },
+			{ kind: "region", value: "src/c.ts", rank: 1, group: "primary", start_line: 2, end_line: 4, sources: ["text-lexical"] },
 			{ kind: "region", value: "src/d.ts", rank: 2, group: "primary", start_line: 6, end_line: 8, sources: ["ast-relation"] },
 		]);
 	});

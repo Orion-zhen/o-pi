@@ -47,8 +47,8 @@ console.table(rows);
 function buildCandidates(size) {
 	return Array.from({ length: size }, (_, index) => {
 		const profile = index % 5;
-		const source = profile === 0 ? "ast-symbol" : profile === 1 ? "lsp-symbol" : profile === 2 ? "text-literal" : profile === 3 ? "ast-lexical" : "text-lexical";
-		const signal = profile === 0 ? "exact_symbol_definition" : profile === 1 ? "direct_symbol" : profile === 2 ? "verified_text" : profile === 3 ? "lexical_high_coverage" : "lexical";
+		const source = profile === 0 || profile === 1 ? "lsp-symbol" : profile === 2 ? "text-literal" : "text-lexical";
+		const signal = profile === 0 ? "exact_symbol_definition" : profile === 1 ? "symbol_prefix" : profile === 2 ? "verified_text" : profile === 3 ? "lexical_high_coverage" : "lexical";
 		const role = index % 17 === 0 ? "test" : index % 19 === 0 ? "public_api" : index % 23 === 0 ? "config" : "definition";
 		const base = {
 			id: `candidate-${index}`,
@@ -58,7 +58,7 @@ function buildCandidates(size) {
 			startByte: index * 100,
 			endByte: index * 100 + 80,
 			kind: "function",
-			symbol: signal === "exact_symbol_definition" ? "login" : `symbol${index % 512}`,
+			symbol: signal === "exact_symbol_definition" ? "login" : signal === "symbol_prefix" ? "loginHandler" : `symbol${index % 512}`,
 			roles: role === "definition" ? ["definition"] : ["definition", role],
 			signals: [signal],
 			evidence: [{ source, rank: index + 1, confidence: 1, reason: source }],
@@ -78,30 +78,24 @@ function validateFixedScenarios() {
 		["callers of login", "caller"],
 	]) {
 		const candidates = query.startsWith("callers")
-			? [region("target", "target_definition", "ast-symbol", 1, ["definition"]), region("caller", "requested_relation", "ast-relation", 1, ["caller"])]
+			? [region("target", "target_definition", "lsp-symbol", 1, ["definition"]), region("caller", "requested_relation", "ast-relation", 1, ["caller"])]
 			: query.includes("AuthService")
-				? [region("lexical", "lexical", "ast-lexical", 1), region("qualified", "exact_qualified_definition", "ast-symbol", 2)]
+				? [region("lexical", "lexical", "text-lexical", 1), region("qualified", "exact_qualified_definition", "lsp-symbol", 2)]
 				: query === "login"
-					? [region("lexical", "lexical", "ast-lexical", 1), region("exact", "exact_symbol_definition", "ast-symbol", 2)]
-					: [region("lexical", "lexical_high_coverage", "ast-lexical", 1), verifiedRegion("phrase", "verified_phrase", 2)];
+					? [region("lexical", "lexical", "text-lexical", 1), region("exact", "exact_symbol_definition", "lsp-symbol", 2)]
+					: [region("lexical", "lexical_high_coverage", "text-lexical", 1), verifiedRegion("phrase", "verified_phrase", 2)];
 		const first = rankCodeRegions(queryPlan(query), candidates)[0]?.id;
 		if (first !== expectedFirst) throw new Error(`${query} tier boundary changed: expected ${expectedFirst}, got ${first}`);
 	}
 
-	const highRankSingle = summarizeEvidence("natural_language", [evidence("ast-lexical", 1)]);
-	const highRankConsensus = summarizeEvidence("natural_language", [evidence("ast-lexical", 2), evidence("ast-symbol", 2)]);
-	const lowRankConsensus = summarizeEvidence("natural_language", [evidence("ast-lexical", 200), evidence("ast-symbol", 200)]);
-	const duplicateFamily = summarizeEvidence("natural_language", [evidence("ast-lexical", 3), evidence("text-lexical", 1)]);
-	if (highRankConsensus.fusionScore <= highRankSingle.fusionScore || lowRankConsensus.fusionScore >= highRankSingle.fusionScore) {
-		throw new Error("family-max weighted RRF consensus boundary changed");
-	}
-	if (Math.abs(duplicateFamily.fusionScore - sourceContribution("natural_language", evidence("ast-lexical", 3))) > 1e-12) {
+	const duplicateFamily = summarizeEvidence("natural_language", [evidence("text-lexical", 3), evidence("text-lexical", 1)]);
+	if (Math.abs(duplicateFamily.fusionScore - sourceContribution("natural_language", evidence("text-lexical", 1))) > 1e-12) {
 		throw new Error("same-family evidence was counted more than once");
 	}
 	const sourceValues = [
-		{ id: "low", source: "ast-symbol", quality: 1 },
+		{ id: "low", source: "text-lexical", quality: 1 },
 		{ id: "text", source: "text-literal", quality: 1 },
-		{ id: "high", source: "ast-symbol", quality: 2 },
+		{ id: "high", source: "text-lexical", quality: 2 },
 	];
 	const ranks = assignSourceLocalRanks(sourceValues, (value) => value.source, (left, right) => right.quality - left.quality || left.id.localeCompare(right.id));
 	if (ranks.get(sourceValues[2]) !== 1 || ranks.get(sourceValues[0]) !== 2 || ranks.get(sourceValues[1]) !== 1) {
@@ -111,7 +105,7 @@ function validateFixedScenarios() {
 	const diverse = Array.from({ length: 20 }, (_, index) => region(
 		`role-${index}`,
 		"exact_symbol_definition",
-		"ast-symbol",
+		"lsp-symbol",
 		index + 1,
 		index === 4 ? ["definition", "test"] : index === 5 ? ["definition", "public_api"] : index === 6 ? ["definition", "config"] : ["definition"],
 		index < 4 ? "src/login.ts" : `src/file-${index}.ts`,

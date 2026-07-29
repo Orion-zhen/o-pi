@@ -33,7 +33,7 @@ filesystem 失败使用模型无关的 `FsResult` 与稳定 `FsError` code；too
 - `truncated` 或 continuation；
 - 搜索深度或结果限制；
 - LSP diagnostics 摘要；
-- `nearby` 非命中结果。
+- `find` 的 `nearby` 非命中结果。
 
 TUI 展示不受模型可见 ASCII 协议限制，可以使用图标和其他显示字符。
 

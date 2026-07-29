@@ -292,7 +292,7 @@ describe("grep text search", () => {
 					declaration: "function firstHandler(input: AuthInput): Session",
 					query_match: "semantic",
 					matched_by: ["exact-symbol"],
-					sources: ["ast-symbol"],
+					sources: ["text-lexical"],
 				},
 				{
 					path: "src/features/authentication/second-handler.ts",
@@ -337,7 +337,6 @@ describe("grep text search", () => {
 			resultLimit: 1,
 				regionalDisplayLimit: 3,
 				relationActionLimit: 2,
-				nearby: [],
 			});
 
 		expect(result.regions).toEqual([]);
@@ -428,23 +427,6 @@ describe("grep text search", () => {
 		]);
 		expect(result.approx_tokens).toBe(countTextTokensSync(formatCompactGrepResult(result)).tokens);
 		expect(result.approx_tokens).toBeLessThanOrEqual(180);
-	});
-
-	it("nearby 只在 main 为空时占用预算，超限后继续尝试", () => {
-		const hugePath = `a/${Array.from({ length: 400 }, (_, index) => `segment-${index}`).join("/")}.ts`;
-		const nearby = [
-			{ path: hugePath, start_line: 1, end_line: 1, kind: "function", reason: "symbol similarity" as const, query_match: "not_guaranteed" as const },
-			{ path: "b.ts", start_line: 1, end_line: 1, kind: "function", symbol: "near", reason: "symbol similarity" as const, query_match: "not_guaranteed" as const },
-		];
-		const empty = packRegions([], { nearby, tokenBudget: 140 });
-		expect(empty.nearby?.map((item) => item.path)).toEqual(["b.ts"]);
-		expect(empty.truncated_by).toEqual(["token_budget"]);
-		expect(empty.approx_tokens).toBeLessThanOrEqual(140);
-
-		const main = packCandidate({ id: "main", path: "main.ts", startLine: 1, endLine: 1, endByte: 1, matchLine: 1 });
-		const withMain = packRegions([main], { nearby, tokenBudget: 140, resultLimit: 1 });
-		expect(withMain.nearby).toBeUndefined();
-		expect(withMain.truncated_by).toEqual([]);
 	});
 
 	it("关系主区域共享可配置的行动预算", () => {

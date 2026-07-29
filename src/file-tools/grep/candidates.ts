@@ -19,8 +19,6 @@ export type RetrievalSource =
 	| "text-literal"
 	| "text-regex"
 	| "text-lexical"
-	| "ast-symbol"
-	| "ast-lexical"
 	| "ast-relation"
 	| "lsp-symbol"
 	| "lsp-reference";
@@ -34,12 +32,9 @@ export type CandidateSignal =
 	| "verified_qualified_occurrence"
 	| "verified_enclosing_region"
 	| "verified_text_line"
-	| "direct_symbol"
 	| "symbol_prefix"
-	| "partial_symbol"
 	| "lexical_high_coverage"
 	| "lexical"
-	| "multiview_consensus"
 	| "requested_relation"
 	| "target_definition"
 	| "target_occurrence";
@@ -65,16 +60,11 @@ export interface LexicalTextAnchor {
 	readonly matchedTerms: readonly string[];
 	readonly phrase: boolean;
 	readonly identifier: boolean;
-	readonly commentLike: boolean;
-	readonly stringLike: boolean;
 }
 
 export interface TextFileEvidence {
 	readonly path: string;
 	readonly matchedTerms: readonly string[];
-	readonly pathTerms: readonly string[];
-	readonly phraseLines: readonly number[];
-	readonly identifierLines: readonly number[];
 	readonly anchors: readonly LexicalTextAnchor[];
 }
 
@@ -124,13 +114,10 @@ export type CodeRegion = VerifiedCodeRegion | SemanticMainRegion;
 
 export interface RankingEvidenceSummary {
 	readonly factual: number;
-	readonly symbol: number;
 	readonly lexical: number;
 	readonly semantic: number;
 	readonly graph: number;
-	readonly familyCount: number;
 	readonly fusionScore: number;
-	readonly bestContribution: number;
 }
 
 export type RankedRegion = CodeRegion & {
@@ -204,10 +191,10 @@ export function normalizeMatchedBy(
 	const sources = new Set(evidence.map((item) => item.source));
 	if (signalSet.has("exact_qualified_definition")) methods.add("exact-qualified-symbol");
 	if (signalSet.has("exact_symbol_definition") || signalSet.has("exact_member_definition")) methods.add("exact-symbol");
-	if (signalSet.has("symbol_prefix") || signalSet.has("partial_symbol")) methods.add("symbol-prefix");
+	if (signalSet.has("symbol_prefix")) methods.add("symbol-prefix");
 	if (sources.has("text-literal")) methods.add("literal");
 	if (sources.has("text-regex")) methods.add("regex");
-	if (sources.has("ast-lexical") || sources.has("text-lexical")) methods.add("lexical");
+	if (sources.has("text-lexical")) methods.add("lexical");
 	if (sources.has("ast-relation") || sources.has("lsp-reference") || signalSet.has("requested_relation")) methods.add("relationship");
 	const order: readonly GrepMatchedBy[] = ["exact-qualified-symbol", "exact-symbol", "symbol-prefix", "literal", "regex", "lexical", "relationship"];
 	return order.filter((method) => methods.has(method));
