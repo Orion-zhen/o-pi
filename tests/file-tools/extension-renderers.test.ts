@@ -59,18 +59,18 @@ describe("file-tools extension renderers", () => {
 	it("find 展开结果保留匹配和部分 scope 错误", async () => {
 		const { registered } = await registerRenderers();
 		const output = renderToolResult(registered, "find", {
+			status: "success",
 			query: "main",
 			path: ".",
-			strategy: "fuzzy",
-			totalMatches: 1,
-			returnedMatches: 1,
+			paths: ["."],
+			total_candidates: 1,
+			total_matches: 1,
+			returned_matches: 1,
 			matches: [{ path: "src/main.ts", kind: "file" }],
-			collapsedGroups: [],
-			ignoredCount: 0,
-			skippedCount: 0,
-			depthLimited: false,
-			resultLimited: false,
-			outputTruncated: false,
+			displayed_matches: [{ path: "src/main.ts", kind: "file" }],
+			stats: { traversed_entries: 1, ignored_entries: 0, skipped_entries: 0 },
+			truncated_by: [],
+			ranking: { algorithm: "fzf-v2-path-v1" },
 			scope_errors: [{ path: "missing", error: { code: "PATH_NOT_FOUND", message: "missing" } }],
 		}, true);
 

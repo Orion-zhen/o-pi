@@ -7,7 +7,7 @@
 | 需求 | 工具 | 关键边界 |
 | --- | --- | --- |
 | 查看目录 | `ls` | 只列直属成员，不递归、不读文件内容 |
-| 按路径、名称或 glob 找文件 | `find` | 不搜索文件正文或 symbol |
+| 按路径名称 fuzzy 搜索文件，或用 glob 筛候选 | `find` | 不搜索文件正文或 symbol |
 | 用逐行 query 搜索正文或相关代码区域 | `grep` | 不负责按路径找文件 |
 | 读取明确文件 | `read` | 不会把目录自动转换成目录列表 |
 | 创建或完整覆盖文件 | `write` | 不做局部合并 |
@@ -100,7 +100,7 @@ blocked path  → 不可列出、搜索、读取或写入
 
 ### `find`
 
-`find` 支持精确路径、文件名、路径片段和 glob，也支持多个搜索根。多个 `path` 是 OR/union scope，不是 AND。glob 进入严格路径匹配；普通查询按路径召回和排序。它不会读取正文或解析 AST。
+`find` 对文件和目录路径执行 fzf extended search，也支持多个搜索根。多个 `path` 是 OR/union scope，不是 AND；独立 `glob` 只筛候选，不从 query 推断。普通 term 使用 fuzzy subsequence，多 term 为 AND，并支持 exact、boundary、prefix、suffix、inverse 和 OR operator。runtime 固定使用 smart case 与 path scheme，不读取正文或解析 AST。
 
 ### `grep`
 

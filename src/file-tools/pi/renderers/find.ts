@@ -6,7 +6,14 @@ import { isFindDetails } from "../../find/guards.js";
 import type { FindDetails } from "../../find/types.js";
 import { isPlainRecord } from "../guards.js";
 import type { PartialTextRenderContext, TextRenderContext, ToolTextResult } from "./contracts.js";
-import { displayToolPath, fallbackTextResult, formatFailureCard, pathArgs, stringArg, textComponent } from "./shared.js";
+import {
+	displayToolPath,
+	fallbackTextResult,
+	formatFailureCard,
+	pathArgs,
+	stringArg,
+	textComponent,
+} from "./shared.js";
 
 export function renderFindCall(
 	args: unknown,
@@ -30,14 +37,11 @@ export function renderFindResult(
 }
 
 function formatFindCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, cwd: string): string {
-	const record = isPlainRecord(args) ? args : {};
-	const query = stringArg(record["query"]);
-	const rawPaths = pathArgs(record["path"]);
 	return formatToolCard({
 		tool: "find",
 		status: "running",
-		target: `${query === null ? "?" : `"${query}"`} in ${rawPaths.map((value) => displayToolPath(value, cwd)).join(", ")}`,
-		summary: "locating files/directories",
+		target: findTarget(args, cwd),
+		summary: "fuzzy matching paths",
 	}, theme);
 }
 
@@ -49,54 +53,59 @@ function formatFindResult(
 	args: unknown,
 	cwd: string,
 ): string {
-	if (isPartial) return formatToolCard({ tool: "find", status: "running", target: findTarget(args, cwd), summary: "locating files/directories" }, theme);
+	if (isPartial) {
+		return formatToolCard({
+			tool: "find",
+			status: "running",
+			target: findTarget(args, cwd),
+			summary: "fuzzy matching paths",
+		}, theme);
+	}
 	const failure = formatFailureCard("find", findTarget(args, cwd), result.details, args, expanded, theme);
 	if (failure !== undefined) return failure;
 	if (isFindDetails(result.details)) return formatFindDetails(result.details, expanded, theme);
 	return fallbackTextResult(result, expanded, theme, 20);
 }
 
-function formatFindDetails(details: FindDetails, expanded: boolean, theme: Pick<Theme, "fg" | "bold">): string {
+function formatFindDetails(
+	details: FindDetails,
+	expanded: boolean,
+	theme: Pick<Theme, "fg" | "bold">,
+): string {
 	const files = details.matches.filter((match) => match.kind === "file").length;
-	const directories = details.matches.filter((match) => match.kind === "directory").length;
+	const directories = details.matches.length - files;
 	const summary = joinParts([
-		`${details.totalMatches} ${details.totalMatches === 1 ? "match" : "matches"}`,
+		`${details.total_matches} ${details.total_matches === 1 ? "match" : "matches"}`,
 		`${files} ${files === 1 ? "file" : "files"}`,
 		`${directories} ${directories === 1 ? "directory" : "directories"}`,
-		details.strategy,
-		details.nearby === undefined ? undefined : `${details.nearby.length} nearby`,
-		details.depthLimited ? "depth limited" : undefined,
-		details.resultLimited ? "results limited" : undefined,
-		details.outputTruncated ? "output truncated" : undefined,
-		details.scope_errors === undefined || details.scope_errors.length === 0 ? undefined : `${details.scope_errors.length} scope ${details.scope_errors.length === 1 ? "error" : "errors"}`,
+		details.truncated_by.length === 0 ? undefined : `truncated: ${details.truncated_by.join(", ")}`,
+		details.scope_errors === undefined || details.scope_errors.length === 0
+			? undefined
+			: `${details.scope_errors.length} scope ${details.scope_errors.length === 1 ? "error" : "errors"}`,
 	]);
-	const scope = (details.paths ?? [details.path]).join(", ");
-	const header = formatToolCard({ tool: "find", status: "success", target: `"${details.query}" in ${scope}`, summary }, theme);
+	const scope = details.paths.join(", ");
+	const target = joinParts([
+		`"${details.query}" in ${scope}`,
+		details.glob === undefined ? undefined : `glob ${details.glob}`,
+	]);
+	const header = formatToolCard({ tool: "find", status: "success", target, summary }, theme);
 	if (!expanded) return header;
 
 	const lines = [header, ""];
 	if (details.matches.length > 0) {
 		lines.push("Matches:");
-		for (const match of details.matches) lines.push(`${match.kind === "directory" ? `${match.path}/` : match.path} (${match.kind})`);
-	}
-	if (details.collapsedGroups.length > 0) {
-		lines.push("", "Collapsed:");
-		for (const group of details.collapsedGroups) {
-			const counts = [];
-			if (group.files > 0) counts.push(`${group.files} ${group.files === 1 ? "file" : "files"}`);
-			if (group.directories > 0) counts.push(`${group.directories} ${group.directories === 1 ? "directory" : "directories"}`);
-			lines.push(`${group.path}/** (${counts.join(", ")})`);
+		for (const match of details.matches) {
+			lines.push(`${match.kind === "directory" ? `${match.path}/` : match.path} (${match.kind})`);
 		}
 	}
-	if (details.nearby !== undefined && details.nearby.length > 0) {
-		lines.push("", "Nearby (query match not guaranteed):");
-		for (const result of details.nearby) lines.push(`${result.kind === "directory" ? `${result.path}/` : result.path} [${result.reason}]`);
+	lines.push(
+		"",
+		`Traversed ${details.stats.traversed_entries}; ignored ${details.stats.ignored_entries}; skipped ${details.stats.skipped_entries}.`,
+	);
+	if (details.truncated_by.length > 0) lines.push(`Truncated: ${details.truncated_by.join(", ")}.`);
+	if (details.scope_errors !== undefined && details.scope_errors.length > 0) {
+		lines.push(`Scope errors: ${details.scope_errors.map((item) => `${item.path}:${item.error.code}`).join(", ")}.`);
 	}
-	lines.push("", `Skipped ${details.skippedCount}; ignored ${details.ignoredCount}.`);
-	if (details.depthLimited) lines.push("Depth limited.");
-	if (details.resultLimited) lines.push("Results limited.");
-	if (details.outputTruncated) lines.push("Model output truncated.");
-	if (details.scope_errors !== undefined && details.scope_errors.length > 0) lines.push(`Scope errors: ${details.scope_errors.map((item) => `${item.path}:${item.error.code}`).join(", ")}.`);
 	return lines.map((line) => line === header ? line : theme.fg("toolOutput", line)).join("\n");
 }
 

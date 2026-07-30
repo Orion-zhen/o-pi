@@ -1,6 +1,6 @@
 # 排序证据与来源
 
-本文说明 `find` / `grep` 如何生成和融合候选证据。grep 使用固定策略，不根据 query 类型切换权重。
+本文说明 `grep` 如何生成和融合候选证据。`find` 使用独立的 fzf path score，不进入 evidence fusion。
 
 ## grep 来源
 

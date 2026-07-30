@@ -46,9 +46,8 @@ export function fileResultFields(details: Record<string, unknown>): Fields {
 		status: string(details["status"]),
 		error_code: errorCode(details),
 		truncated: truncated(details),
-		strategy: stringList(details["strategy"]) ?? string(details["strategy"]),
-		total_candidate_count: firstNumber(details, ["total_candidates", "totalMatches"]),
-		returned_match_count: firstNumber(details, ["returnedMatches", "returned_regions"]),
+		total_candidate_count: number(details["total_candidates"]),
+		returned_match_count: firstNumber(details, ["returned_matches", "returned_regions"]),
 		returned_file_count: number(details["returned_files"]),
 		returned_entry_count: number(details["returned_entries"]),
 		scanned_file_count: number(details["scanned_files"]) ?? number(stats["searched_files"]),
@@ -157,7 +156,7 @@ function errorCode(details: Record<string, unknown>): string | undefined {
 
 function truncated(details: Record<string, unknown>): boolean | undefined {
 	if (Array.isArray(details["truncated_by"]) && details["truncated_by"].length > 0) return true;
-	if (["truncated", "outputTruncated", "resultLimited", "depthLimited"].some((key) => details[key] === true)) return true;
+	if (details["truncated"] === true) return true;
 	return undefined;
 }
 

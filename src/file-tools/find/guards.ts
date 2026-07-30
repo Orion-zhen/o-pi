@@ -1,27 +1,22 @@
-import type { FindDetails, FindNearbyResult } from "./types.js";
+import type { FindDetails } from "./types.js";
 
 export function isFindDetails(value: unknown): value is FindDetails {
 	return isPlainRecord(value)
+		&& value["status"] === "success"
 		&& typeof value["query"] === "string"
 		&& typeof value["path"] === "string"
-		&& (value["paths"] === undefined || (Array.isArray(value["paths"]) && value["paths"].every((path) => typeof path === "string")))
+		&& Array.isArray(value["paths"])
+		&& value["paths"].every((path) => typeof path === "string")
+		&& (value["glob"] === undefined || typeof value["glob"] === "string")
 		&& (value["scope_errors"] === undefined || Array.isArray(value["scope_errors"]))
-		&& (value["strategy"] === "exact" || value["strategy"] === "glob" || value["strategy"] === "fuzzy")
-		&& typeof value["totalMatches"] === "number"
+		&& typeof value["total_candidates"] === "number"
+		&& typeof value["total_matches"] === "number"
+		&& typeof value["returned_matches"] === "number"
 		&& Array.isArray(value["matches"])
-		&& Array.isArray(value["collapsedGroups"])
-		&& typeof value["depthLimited"] === "boolean"
-		&& typeof value["resultLimited"] === "boolean"
-		&& typeof value["outputTruncated"] === "boolean"
-		&& (value["nearby"] === undefined || isFindNearbyResults(value["nearby"]));
-}
-
-function isFindNearbyResults(value: unknown): value is FindNearbyResult[] {
-	return Array.isArray(value) && value.every((item) =>
-		isPlainRecord(item)
-		&& typeof item["path"] === "string"
-		&& (item["kind"] === "file" || item["kind"] === "directory")
-		&& item["reason"] === "name similarity");
+		&& Array.isArray(value["displayed_matches"])
+		&& isPlainRecord(value["stats"])
+		&& Array.isArray(value["truncated_by"])
+		&& isPlainRecord(value["ranking"]);
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

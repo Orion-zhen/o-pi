@@ -1,126 +1,110 @@
 # `find`
 
-`find` 是单入口路径定位器，不把正文读取作为主搜索路径、不解析 AST、不修改文件。command 只组合 filesystem discovery/path/hash、本地路径算法和 find-owned graph port；它同时返回普通文件和目录，目录结果以 `/` 结尾展示。
+`find` 是非交互式路径 fuzzy finder。它只搜索文件名和路径，不读取正文、不解析 AST、不修改文件。公开参数保持为 query、可选 scope 和可选候选 glob；case、字段、kind、排序和结果限制均由 runtime 固定。
 
 ## 参数
 
 ```json
 {
-  "path": ["src", "tests"],
-  "query": "*.{ts,tsx}"
+  "query": "auth !test .ts$",
+  "path": ["src", "packages"],
+  "glob": "**/*.{ts,tsx}"
 }
 ```
 
-- `path` 是可选的非空搜索根目录数组，默认 `["."]`。
-- 多个 path 是 OR/union scope；所有 scope 共享同一个 query，不是 AND，也不是笛卡尔积。
-- `query` 可以是文件名、目录名、路径片段、概念或 glob。
-- 相对路径按 `cwd` 解析；workspace 内绝对路径折叠为 workspace-relative path；workspace 外绝对路径保持规范化形式。
-- `path: []`、空元素和空 query 非法。
-- glob 字符不会逃出搜索根。
+- `query`：必填的 fzf extended-search query，最长 512 个字符。
+- `path`：可选的非空目录 scope 数组，默认 `["."]`；多个 scope 是 OR/union。
+- `glob`：可选的候选路径 glob，相对每个 scope 解释；不含 `/` 时递归匹配 basename。
+- `glob` 只限制候选，永远不从 `query` 推断。
+- 相对 scope 按 `cwd` 解析；workspace 外显式目录仍可作为 scope。
 
-旧的单路径或逗号/空白/换行分隔字符串由 `tool-repair` 迁移为数组；无法可靠解析或超过最大路径数时不猜测，交给 schema 校验失败。
+旧的单路径或分隔字符串由 tool repair 迁移为数组；无法可靠迁移时交给 schema 校验失败。
 
-## 查询模式
+## Query 语法
 
-### 精确路径
+普通 term 使用 fuzzy subsequence；多个 term 为 AND。独立的 `|` 将相邻 term 组成 OR：
 
-工具先检查 `path/query` 是否是存在的文件或目录。命中 exact path 时直接返回，不扫描完整目录树；soft ignore 不阻止明确的 exact 命中。
+| query | 行为 |
+| --- | --- |
+| `auth service` | 同一路径同时 fuzzy 匹配 `auth` 和 `service` |
+| `auth \| session` | `auth` 或 `session` |
+| `'auth-service` | exact substring |
+| `'auth'` | exact word/path-segment boundary |
+| `^src` | exact prefix |
+| `.ts$` | exact suffix |
+| `^src/auth.ts$` | 整条 scope-relative path 相等 |
+| `!test` | 排除 exact substring `test` |
+| `!'tst` | 排除 fuzzy subsequence `tst` |
 
-### Glob
+`\` 转义下一个字符，因此 `auth\ service` 是一个包含空格的 fuzzy term。每个 term 独立使用 smart case：没有大写字母时忽略大小写，出现大写字母时区分大小写。
 
-glob query 进入严格路径匹配：
+`query` 不解释 glob。按扩展名筛候选时使用 `glob: "**/*.ts"`；用 suffix 搜索并参与 fzf 排名时使用 `.ts$`。
 
-- 无 `/` 的模式递归匹配每层 basename，因此 `*.py` 可以命中任意深度；
-- 带 `/` 的模式匹配相对搜索路径；
-- filesystem discovery 用静态前缀缩小遍历范围；只有零结果且未达到深度边界时，command 才按需诊断缺失前缀；
-- `path=src, query=*.ts` 与 `query=src/**/*.ts` 等价。
+## 候选和评分
 
-### 普通查询
+filesystem discovery 先应用 scope、glob、blocked path、soft ignore、深度和 symlink 规则。每个成功 scope 的 entry 使用相对该 scope 的路径评分，输出仍使用规范 display path；重复和嵌套 scope 不产生重复候选。
 
-非 glob query 执行路径召回和排序。tokenization、smart case、tier、证据融合和多样性选择见 [排序总览](ranking.md)。
+排名固定为 `fzf-v2-path-v1`：
+
+1. 字符按顺序匹配；
+2. 连续字符、路径段边界、单词边界和 camelCase/数字边界获得奖励；
+3. gap 起始和延续受到惩罚；
+4. 多 term 分数相加，OR 采用最佳分支；
+5. 同分时依次优先 basename 命中数、较短 match span、较短 scope-relative path、scope 顺序和路径字典序。
+
+runtime 不接受 case、exact、kind、field、scheme、sort 或 tiebreak 参数。文件和目录统一搜索，path scheme 和 smart case 始终启用。
 
 ## 输出
 
-窄结果只返回路径：
+模型正文直接返回 relevance 顺序的具体路径；目录带 `/`。不折叠目录、不混入 nearby 非命中，也不显示 score：
 
 ```text
-src/auth/
 src/auth/service.ts
-src/auth/auth-service.ts
-packages/api/src/auth-service.ts
-tests/auth/service.test.ts
+src/AuthService.ts
+packages/api/src/auth-handler.ts
 ```
 
-宽结果保留 ranking 顺序，并按目录折叠剩余路径：
+达到边界时首行保留状态：
 
 ```text
-top:
-a/file-00.ts
-b/file-00.ts
-c/file-00.ts
-other:
-a/** (29 files)
-b/** (29 files)
-c/** (29 files)
+matched=90 selected=50; truncated=depth_limit,result_limit,output_limit
 ```
 
-`depthLimited`、`resultLimited` 和 `outputTruncated` 分别表示搜索范围达到路径深度边界、具体结果受数量限制和模型文本受 token budget 限制。状态会放在首行，不能被尾部裁剪：
+`details.truncated_by` 只包含：
 
-```text
-found=90 selected=50; truncated=result
-```
+- `depth_limit`：至少一个 scope 达到 `find_max_depth`；
+- `result_limit`：命中超过 `find_result_limit`；
+- `output_limit`：完整路径行超过 `find_output_token_budget`。
 
-## Scope、ignore 和 symlink
+`details.matches` 保存 result limit 后的完整选择；`displayed_matches` 只保存实际进入模型正文的路径。`stats` 记录遍历、ignored 和 skipped entry 数；ranking score 不进入模型正文。
 
-多个 scope 统一排序并按规范化相对路径去重；重复或嵌套 scope 不会重复条目。每个 scope 使用相同的路径深度限制；所有 scope 共享结果数量和模型 token 预算。
-
-至少一个 scope 成功时保留有效条目，并在 `details.scope_errors` 及模型输出中标注失败 scope；所有 scope 失败时返回结构化错误。
-
-默认可 prune 的 ignored 目录不进入。因反向 include 不能 prune 的目录可以进入但自身不返回；显式 `path` 或 glob 静态前缀命中 ignored 目录时允许在其中查找。文件和目录 symlink 均不返回，目录 symlink 不进入。blocked path 会拒绝或跳过。
-
-## 零结果
-
-零结果仍以 `none` 开头。名称 typo 或 fuzzy query 有可信候选时，最多追加 3 条独立的 `<nearby nonmatch>`；这些条目不计入主结果，也不放宽主结果语义：
+零结果：
 
 ```text
 none
-<nearby nonmatch>
-src/auth/service.ts [name similarity]
-</nearby>
+searched=42; ignored=3; skipped=0
+next: refine query/path/glob
 ```
 
-若无可信邻近项，则返回 `ignored`、`skipped` 摘要和 `next` 提示。glob 缺少静态前缀时优先提示 `missing prefix` 和 `near dir`。相关通道的边界见 [排序选择](ranking-selection.md)。
+## Scope、ignore、symlink 和取消
 
-## 限制
+默认自动发现不进入 soft ignored 目录；把 ignored 目录明确放进 `path` 后可以搜索其内容。blocked path 始终拒绝。文件和目录 symlink 均不作为候选，目录 symlink 不进入。
 
-输出预算、结果数和相对 scope 的最大路径深度由 file-tools 配置控制，不暴露为工具参数。达到深度边界时标记 `depthLimited`；达到具体结果上限时标记 `resultLimited`。discovery 和 suggestion worker 响应 invocation/tool-owner 取消；`FindTool.dispose()` 只释放自己的 pending suggestion/worker 状态，不清理 grep 或 filesystem cache。
+至少一个 scope 成功时保留结果，并通过 `scope_errors` 和正文中的 `partial` 警告报告失败 scope；全部 scope 失败时返回结构化错误。
 
-## 失败结果与模型输出
+invocation signal、host shutdown 和 `FindTool.dispose()` 组合进同一 operation context。discovery 会关闭 iterator；排名分批让出事件循环并在候选边界检查取消。`FindTool` 不持有 worker、索引或跨 invocation 排名缓存。
 
-参数或所有 scope 失败时返回紧凑 XML；scope 路径、完整子错误和配置字段保留在 `details`：
+## 失败
 
-```xml
-<error>
-Directory does not exist.
-</error>
-```
-
-常见失败及正文：
-
-| code | 模型正文 |
+| code | 条件 |
 | --- | --- |
-| `INVALID_PATH` | `query must not be empty.`、`path must contain at least one scope.`、`query must not escape path.`、`query glob is not valid.` 或路径/NUL校验消息 |
-| `PATH_NOT_FOUND` | `Directory does not exist.` 或 `No searchable scope was provided.` |
-| `NOT_A_DIRECTORY` | `Path is not a directory.` |
-| `PROTECTED_PATH` | `Path is blocked by file-tools config.` |
-| `ACCESS_DENIED` | `Directory cannot be searched.` 或 `Path cannot be accessed.` |
-| `OPERATION_ABORTED` | `find was aborted.` |
-| `CONFIG_ERROR` | 配置错误消息 |
+| `INVALID_OPERATION` | query 为空、过长、含 NUL/CR/LF，或 fzf OR/operator 结构非法 |
+| `INVALID_PATH` | path/glob 为空、含 NUL/换行或结构非法 |
+| `PATH_NOT_FOUND` | scope 不存在 |
+| `NOT_A_DIRECTORY` | scope 不是目录 |
+| `PROTECTED_PATH` | scope 被 blocked policy 阻止 |
+| `ACCESS_DENIED` | scope 无法访问 |
+| `OPERATION_ABORTED` | 调用或 tool owner 被取消 |
+| `CONFIG_ERROR` | file-tools 配置无效 |
 
-只有部分 scope 失败时不是 error，而是成功正文中的警告：
-
-```text
-partial; scope_errors=missing:PATH_NOT_FOUND
-```
-
-路径安全、配置错误和恢复方式见 [路径与安全](path-security.md) 和 [配置](configuration.md)。
+公共路径、安全、输出和错误协议见 [路径与安全](path-security.md) 与 [工具契约](contracts.md)。

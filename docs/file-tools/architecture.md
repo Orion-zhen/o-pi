@@ -36,7 +36,7 @@ Node platform backend
 - `src/filesystem/kernel/`：namespace、lexical/canonical identity 与 access policy。
 - `src/filesystem/services/`：metadata、visibility、content、traversal、catalog 和 mutation。
 - `src/filesystem/platform/node/`：Node I/O primitive 与进程内 mutation queue。
-- `src/worker-runtime/`：find、grep 可复用的 worker 生命周期基础设施。
+- `src/worker-runtime/`：grep 等 CPU/进程任务可复用的 worker 生命周期基础设施。
 
 六个工具互不导入，也不直接导入 `node:fs`、`node:path`、配置 loader、ignore 实现、path guard 或 LSP。所有 workspace metadata、枚举、读取、遍历和 mutation 都经 `WorkspaceFileSystem`；architecture test 对这条边界进行无 legacy allowlist 的静态检查。filesystem 层不导入 file-tools、Pi、LSP、skill 或 code-index。
 
@@ -61,7 +61,7 @@ port 由消费者工具声明，而不是由外部子系统或 filesystem 声明
 - write/edit：diagnostics、mutation observer、共享 text diff contract；
 - grep：workspace-bound `CodeAnalyzer`；LSP 不反向导入 grep 实现，统一返回规范代码单元和 `called` / `referenced` / `defined` authority。
 
-port 输入输出使用消费者需要的 DTO 和 opaque ref。所有调用都有 safe wrapper；未配置、在 symbol 选择前失败或超时时保留基础行为。find 会重新检查 graph candidate 的 scope、visibility、kind、symlink 和 hash；grep analyzer 只能读取本次 scope/glob inventory 中的稳定 snapshot。一旦 analyzer 选中 symbol，本次调用采用其完整或部分结果，不再混入逐 symbol 的 Tree-sitter fallback。外部结果不能绕过 filesystem 数据平面。
+port 输入输出使用消费者需要的 DTO 和 opaque ref。所有调用都有 safe wrapper；未配置、在 symbol 选择前失败或超时时保留基础行为。find 没有外部增强 port，只对 filesystem discovery 返回的 scope-relative path 执行本地 fzf 排名；grep analyzer 只能读取本次 scope/glob inventory 中的稳定 snapshot。一旦 analyzer 选中 symbol，本次调用采用其完整或部分结果，不再混入逐 symbol 的 Tree-sitter fallback。外部结果不能绕过 filesystem 数据平面。
 
 ## Lazy loading
 
@@ -83,7 +83,7 @@ port 输入输出使用消费者需要的 DTO 和 opaque ref。所有调用都�
 | `FileSystemRuntime` | Node backend、visibility cache、lazy mutation queue、workspace leases | abort leases、释放 queue、invalidate visibility |
 | invocation lease | policy/snapshot-bound filesystem 与组合 bridge attachment | abort 本 invocation 并 detach observation bridge |
 | `ObservationStore` | canonical identity 到 content version 的 session map | session/host 结束时 clear |
-| `FindTool` | suggestion worker/pool | abort pending work 并 dispose worker |
+| `FindTool` | tool owner signal | abort pending discovery/ranking |
 | `GrepTool` | 派生 AST cache、parser/worker 与 active invocation | abort pending work 并 dispose parser/worker/cache owner |
 | lazy LSP port | 本会话的模块加载 Promise | 随 extension 释放，不拥有进程级 manager |
 

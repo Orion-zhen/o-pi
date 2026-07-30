@@ -4,6 +4,8 @@ import { measureOperation } from "./benchmark/runtime.mjs";
 import { row as summaryRow } from "./benchmark/stats.mjs";
 
 const loadTypeScript = createTypeScriptLoader({ moduleCache: true });
+const { createFindQueryPlan } = await loadTypeScript("src/file-tools/find/query.ts");
+const { rankFindEntries } = await loadTypeScript("src/file-tools/find/ranker.ts");
 const {
 	assignSourceLocalRanks,
 	rankCodeRegions,
@@ -17,6 +19,17 @@ const sizes = [1_000, 5_000, 20_000];
 const rows = [];
 
 validateFixedScenarios();
+
+const findPlan = createFindQueryPlan("parser runtime");
+if (findPlan.status === "failed") throw new Error(findPlan.error.message);
+for (const size of sizes) {
+	const candidates = buildFindCandidates(size);
+	const ranked = rankFindEntries(candidates, findPlan);
+	const permutedRanked = rankFindEntries(permute(candidates), findPlan);
+	if (ranked.length !== candidates.length) throw new Error(`find ranking fixture dropped candidates for N=${size}`);
+	if (!samePaths(ranked, permutedRanked)) throw new Error(`find ranking depends on insertion order for N=${size}`);
+	rows.push(row(`find fzf rank N=${size}`, sample(() => rankFindEntries(candidates, findPlan))));
+}
 
 const plan = queryPlan("login");
 for (const size of sizes) {
@@ -32,8 +45,20 @@ for (const size of sizes) {
 		selectRankedRegions(rankCodeRegions(plan, permuted), 32))));
 }
 
-console.log(`grep fixed ranking benchmark (${runs} measured runs, 3 warmups)`);
+console.log(`file-tools fixed ranking benchmark (${runs} measured runs, 3 warmups)`);
 console.table(rows);
+
+function buildFindCandidates(size) {
+	return Array.from({ length: size }, (_value, index) => {
+		const searchPath = `packages/component-${index % 128}/parser-runtime-${index}.ts`;
+		return {
+			path: searchPath,
+			searchPath,
+			kind: "file",
+			scopeOrder: 0,
+		};
+	});
+}
 
 function buildCandidates(size) {
 	return Array.from({ length: size }, (_, index) => {
@@ -184,6 +209,11 @@ function permute(values) {
 
 function sameIds(left, right) {
 	return left.length === right.length && left.every((value, index) => value.id === right[index]?.id);
+}
+
+function samePaths(left, right) {
+	return left.length === right.length
+		&& left.every((value, index) => value.entry.path === right[index]?.entry.path);
 }
 
 function sample(operation) {

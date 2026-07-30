@@ -31,8 +31,8 @@ const AGENT_LOOP_TOOL_METRICS = [
 const AGENT_LOOP_TOOL_CALLS = [
 	{ name: "ls", arguments: { path: "scripts" } },
 	{ name: "ls", arguments: { path: "scripts" } },
-	{ name: "find", arguments: { query: "bench*.mjs", path: "scripts" } },
-	{ name: "find", arguments: { query: "bench*.mjs", path: "scripts" } },
+	{ name: "find", arguments: { query: "bench", path: "scripts", glob: "*.mjs" } },
+	{ name: "find", arguments: { query: "bench", path: "scripts", glob: "*.mjs" } },
 	{ name: "grep", arguments: { query: "runAgentLoopSuite", path: ["scripts"], glob: "*.mjs" } },
 	{ name: "grep", arguments: { query: "runAgentLoopSuite", path: ["scripts"], glob: "*.mjs" } },
 ];
@@ -349,7 +349,7 @@ function assertReplacementToolSchemas(tools) {
 	const schemas = new Map((Array.isArray(tools) ? tools : []).map((tool) => [tool.function?.name, tool.function?.parameters]));
 	const findProperties = schemas.get("find")?.properties;
 	const grepProperties = schemas.get("grep")?.properties;
-	if (findProperties?.query === undefined || findProperties.pattern !== undefined || grepProperties?.query === undefined
+	if (findProperties?.query === undefined || findProperties.glob === undefined || findProperties.pattern !== undefined || grepProperties?.query === undefined
 		|| grepProperties.match !== undefined || grepProperties.pattern !== undefined) {
 		throw new Error("agent-loop requires this repository's replacement find/grep schemas; Pi built-in tools were registered instead");
 	}

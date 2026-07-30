@@ -27,9 +27,11 @@ const findParameters = Type.Object(
 	{
 		query: Type.String({
 			minLength: 1,
-			description: "Name, path fragment, concept, or glob.",
+			maxLength: 512,
+			description: "fzf query: spaces AND; | OR; ' exact; ^ prefix; $ suffix; ! inverse.",
 		}),
 		path: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { minItems: 1, description: "Search roots; OR/union scope; default workspace." })),
+		glob: Type.Optional(Type.String({ minLength: 1, description: "Candidate path glob relative to each scope." })),
 	},
 	{ additionalProperties: false },
 );
@@ -174,8 +176,8 @@ function registerFileTools(
 		tool: {
 		name: "find",
 		label: "find",
-		description: "Locate files or directories by name, path, or concept. Does not search contents.",
-		promptSnippet: "locate files or directories",
+		description: "Fuzzy-search file and directory paths.",
+		promptSnippet: "fuzzy-search paths",
 		parameters: findParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const [adapter, invocationHost] = await Promise.all([loaders.find(), hostForInvocation()]);

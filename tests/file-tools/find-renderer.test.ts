@@ -1,73 +1,106 @@
 import { describe, expect, it } from "vitest";
 
-import { mergeRankedFindEntries } from "../../src/file-tools/find/fusion.js";
-import { createFindEntry } from "../../src/file-tools/find/ranker.js";
 import { renderFindResults } from "../../src/file-tools/find/renderer.js";
-import { createRankingEvidence } from "../../src/file-tools/shared/ranking/evidence.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 
-describe("find renderer and fusion", () => {
-	it("紧凑输出省略可推导元数据、共享路径前缀并把截断状态放在首行", () => {
-		const base = {
+const stats = {
+	traversed_entries: 2,
+	ignored_entries: 0,
+	skipped_entries: 0,
+};
+
+describe("find renderer", () => {
+	it("按 relevance 顺序直接输出具体路径，不折叠或增加排名元数据", () => {
+		const result = renderFindResults({
 			query: "handler",
 			path: ".",
-			strategy: "fuzzy" as const,
+			paths: ["."],
+			totalCandidates: 2,
 			totalMatches: 2,
 			matches: [
-				{ path: "src/features/authentication/first-handler.ts", kind: "file" as const },
-				{ path: "src/features/authentication/second-handler.ts", kind: "file" as const },
+				{ path: "src/features/authentication/first-handler.ts", kind: "file" },
+				{ path: "src/features/authentication/second-handler.ts", kind: "file" },
 			],
-			ignoredCount: 0,
-			skippedCount: 0,
+			stats,
 			depthLimited: false,
 			resultLimited: false,
 			outputTokenBudget: 1_000,
-		};
-		const compact = renderFindResults(base);
-		expect(compact.content).toBe([
-			"in src/features/authentication/",
-			"  first-handler.ts",
-			"  second-handler.ts",
-		].join("\n"));
-
-		const constrained = renderFindResults({ ...base, depthLimited: true, outputTokenBudget: 14 });
-		expect(constrained.content.split("\n")[0]).toBe("found>=2; truncated=depth,output");
-		expect(constrained.details).toMatchObject({ depthLimited: true, resultLimited: false, outputTruncated: true });
-		expect(countTextTokensSync(constrained.content).tokens).toBeLessThanOrEqual(14);
-	});
-
-	it("nearby 候选超预算时不输出残缺标签，并退回扫描摘要", () => {
-		const result = renderFindResults({
-			query: "missing",
-			path: ".",
-			strategy: "fuzzy",
-			totalMatches: 0,
-			matches: [],
-			ignoredCount: 1,
-			skippedCount: 2,
-			depthLimited: false,
-			resultLimited: false,
-			outputTokenBudget: 32,
-			nearby: [{ path: `src/${"very-long-segment-".repeat(20)}.ts`, kind: "file", reason: "name similarity" }],
 		});
 
-		expect(result.content).not.toContain("<nearby");
-		expect(result.content).toContain("ignored=1; skipped=2");
-		expect(result.details.nearby).toBeUndefined();
-		expect(result.details.outputTruncated).toBe(false);
-		expect(countTextTokensSync(result.content).tokens).toBeLessThanOrEqual(32);
+		expect(result.content).toBe([
+			"src/features/authentication/first-handler.ts",
+			"src/features/authentication/second-handler.ts",
+		].join("\n"));
+		expect(result.details).toMatchObject({
+			status: "success",
+			total_candidates: 2,
+			total_matches: 2,
+			returned_matches: 2,
+			truncated_by: [],
+			ranking: { algorithm: "fzf-v2-path-v1" },
+		});
+		expect(result.content).not.toContain("score");
 	});
 
-	it("重复路径融合时不修改输入候选", () => {
-		const entry = createFindEntry("src/target.ts", "file");
-		const lexical = { entry, tier: 3, evidence: createRankingEvidence("lexical", 0.8) };
-		const structural = { entry, tier: 2, evidence: createRankingEvidence("structural", 0.6) };
+	it("预算不足时保留完整路径行并把截断状态放在首行", () => {
+		const matches = Array.from({ length: 20 }, (_value, index) => ({
+			path: `src/features/very-long-directory/handler-${String(index).padStart(2, "0")}.ts`,
+			kind: "file" as const,
+		}));
+		const result = renderFindResults({
+			query: "handler",
+			path: ".",
+			paths: ["."],
+			totalCandidates: 40,
+			totalMatches: 40,
+			matches,
+			stats: { ...stats, traversed_entries: 40 },
+			depthLimited: true,
+			resultLimited: true,
+			outputTokenBudget: 48,
+		});
 
-		const merged = mergeRankedFindEntries(lexical, structural);
+		expect(result.content.split("\n")[0]).toBe(
+			"matched=40 selected=20; truncated=depth_limit,result_limit,output_limit",
+		);
+		expect(result.details.truncated_by).toEqual(["depth_limit", "result_limit", "output_limit"]);
+		expect(result.details.displayed_matches.length).toBeLessThan(matches.length);
+		expect(countTextTokensSync(result.content).tokens).toBeLessThanOrEqual(48);
+		for (const line of result.content.split("\n").slice(1)) {
+			expect(matches.some((match) => match.path === line)).toBe(true);
+		}
+	});
 
-		expect(merged.tier).toBe(2);
-		expect(merged.evidence.familyCount).toBe(2);
-		expect(lexical.tier).toBe(3);
-		expect(lexical.evidence.familyCount).toBe(1);
+	it("零结果保留扫描摘要、glob 和部分 scope 错误", () => {
+		const result = renderFindResults({
+			query: "missing",
+			path: "src",
+			paths: ["src"],
+			glob: "**/*.ts",
+			scopeErrors: [{ path: "missing", error: { code: "PATH_NOT_FOUND", message: "missing" } }],
+			totalCandidates: 8,
+			totalMatches: 0,
+			matches: [],
+			stats: {
+				traversed_entries: 8,
+				ignored_entries: 2,
+				skipped_entries: 1,
+			},
+			depthLimited: false,
+			resultLimited: false,
+			outputTokenBudget: 1_000,
+		});
+
+		expect(result.content).toBe([
+			"partial; scope_errors=missing:PATH_NOT_FOUND",
+			"none",
+			"searched=8; ignored=2; skipped=1",
+			"next: refine query/path/glob",
+		].join("\n"));
+		expect(result.details).toMatchObject({
+			glob: "**/*.ts",
+			displayed_matches: [],
+			truncated_by: [],
+		});
 	});
 });

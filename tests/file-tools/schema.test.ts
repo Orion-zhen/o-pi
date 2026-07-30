@@ -31,8 +31,18 @@ const schemaCases = [
 	},
 	{
 		tool: "find",
-		valid: [{ query: "auth service" }, { query: "**/*.ts", path: ["src", "tests"] }],
-		invalid: [{ query: "" }, { query: "x", path: [] }, { query: "x", path: "src" }, { query: "x", extra: true }],
+		valid: [
+			{ query: "auth service" },
+			{ query: "auth", path: ["src", "tests"], glob: "**/*.ts" },
+		],
+		invalid: [
+			{ query: "" },
+			{ query: "x".repeat(513) },
+			{ query: "x", path: [] },
+			{ query: "x", path: "src" },
+			{ query: "x", glob: "" },
+			{ query: "x", extra: true },
+		],
 	},
 	{
 		tool: "grep",
@@ -79,6 +89,11 @@ describe("file tool schemas", () => {
 		["grep", { query: "x", path: "src,tests" }, { query: "x", path: ["src", "tests"] }],
 	] as const)("%s 规范化多路径参数", (toolName, input, expected) => {
 		expect(tools.get(toolName)?.prepareArguments?.(input)).toEqual(expected);
+	});
+
+	it("find 只向模型暴露 query、path 和 glob", () => {
+		const find = tools.get("find")?.parameters as { properties?: Record<string, unknown> } | undefined;
+		expect(Object.keys(find?.properties ?? {})).toEqual(["query", "path", "glob"]);
 	});
 
 	it("edit replace_all 默认关闭", () => {

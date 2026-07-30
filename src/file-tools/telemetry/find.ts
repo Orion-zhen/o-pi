@@ -2,16 +2,10 @@ import { defineToolTelemetry } from "../../telemetry/tool.js";
 import type { Candidate } from "../../telemetry/types.js";
 import type { FailedResult } from "../shared/result.js";
 import type { FindDetails, FindParams } from "../find/types.js";
-import {
-	appendPathCandidates,
-	fileResultFields,
-	projectFileInput,
-	record,
-	sourceLabels,
-} from "./common.js";
+import { appendPathCandidates, fileResultFields, projectFileInput, record } from "./common.js";
 
 export const findTelemetry = defineToolTelemetry<FindParams, FindDetails | FailedResult>({
-	input: projectFileInput(["query", "path"], "directory", { pathList: true }),
+	input: projectFileInput(["query", "path", "glob"], "directory", { pathList: true }),
 	result(_params, result) {
 		const details = record(result.details);
 		return { fields: fileResultFields(details), candidates: findCandidates(details) };
@@ -20,13 +14,11 @@ export const findTelemetry = defineToolTelemetry<FindParams, FindDetails | Faile
 
 function findCandidates(details: Record<string, unknown>): Candidate[] {
 	const result: Candidate[] = [];
-	const sourceMap = record(details["candidateSources"]);
-	const strategy = details["strategy"] === "fuzzy" ? "fuzzy" : details["strategy"] === "glob" ? "glob" : "lexical";
-	appendPathCandidates(result, details["displayedMatches"] ?? details["matches"], "primary", (path) => {
-		const labels = sourceLabels(sourceMap[path], strategy);
-		return strategy === "fuzzy" ? [...new Set([...labels, "fuzzy"])].sort() : labels;
-	});
-	appendPathCandidates(result, details["displayedCollapsedGroups"] ?? details["collapsedGroups"], "collapsed", () => ["collapsed"], "group");
-	appendPathCandidates(result, details["nearby"], "nearby", () => ["fuzzy"]);
+	appendPathCandidates(
+		result,
+		details["displayed_matches"] ?? details["matches"],
+		"primary",
+		() => ["fuzzy"],
+	);
 	return result;
 }
