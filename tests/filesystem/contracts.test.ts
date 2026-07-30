@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { FsErrorCode } from "../../src/filesystem/contracts/result.js";
+import { bindOperationContext } from "../../src/filesystem/operation-context.js";
 import { mapFsError, type FileToolErrorCode } from "../../src/file-tools/shared/result.js";
 
 const ERROR_MAPPINGS: ReadonlyArray<readonly [FsErrorCode, FileToolErrorCode]> = [
@@ -47,5 +48,23 @@ describe("filesystem contracts", () => {
 				details: { source: "namespace", shared: "tool" },
 			},
 		});
+	});
+
+	it("reuses an existing owner binding and preserves owner/caller cancellation", () => {
+		const owner = new AbortController();
+		const caller = new AbortController();
+		const first = bindOperationContext(owner.signal, { signal: caller.signal });
+		expect(bindOperationContext(owner.signal, first)).toBe(first);
+		caller.abort("caller stopped");
+		expect(first.signal?.aborted).toBe(true);
+
+		const otherOwner = new AbortController();
+		const otherCaller = new AbortController();
+		const other = bindOperationContext(otherOwner.signal, { signal: otherCaller.signal });
+		const nestedOwner = new AbortController();
+		const nested = bindOperationContext(nestedOwner.signal, other);
+		expect(bindOperationContext(otherOwner.signal, nested)).toBe(nested);
+		otherOwner.abort("owner stopped");
+		expect(nested.signal?.aborted).toBe(true);
 	});
 });

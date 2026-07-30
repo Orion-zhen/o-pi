@@ -18,9 +18,9 @@ scope / ignore / glob
 
 `find` 只对 scope-relative path 排名。普通 query term 是 fuzzy subsequence，多 term 为 AND，`|` 为 OR，并支持 exact、boundary、prefix、suffix 和 inverse operator。每个 term 独立 smart case。
 
-`fzf-v2-path-v1` 使用动态规划选择最高分字符对齐。连续字符、path/word/camelCase 边界获得奖励，gap 受到惩罚；同分时优先 basename 命中、短 span、短路径、scope 顺序和稳定 path。它不执行 query 意图分类，不读取正文，不使用 embedding、LSP、Tree-sitter、evidence fusion 或 MMR。
+`fzf-v2-path-v1` 使用动态规划选择最高分字符对齐。连续字符、path/word/camelCase 边界获得奖励，gap 受到惩罚；同分时优先 basename 命中、短 span、短路径、scope 顺序和稳定 path。query term 的 Unicode/case 形式在扫描候选前预编译。它不执行 query 意图分类，不读取正文，不使用 embedding、LSP、Tree-sitter、evidence fusion 或 MMR。
 
-result limit 只保留 relevance 前缀，不做目录多样化。renderer 直接输出具体路径，不折叠候选或二次选择。
+result limit 在扫描时维护有界 relevance 前缀，同时继续统计完整命中数；不做全量排序或目录多样化。renderer 直接输出具体路径，不折叠候选或二次选择。
 
 ## `grep`
 

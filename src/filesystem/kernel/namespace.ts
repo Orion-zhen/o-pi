@@ -4,6 +4,7 @@ import type {
 	DirectoryRef,
 	ExistingPathKind,
 	ExistingRef,
+	FileRef,
 	PathId,
 	PathOperations,
 	ResolveExistingOptions,
@@ -60,6 +61,8 @@ export interface WorkspaceNamespaceBridge {
 		context: FsOperationContext,
 	): Promise<FsResult<ResolvedExistingPath & { readonly identity: NativePathIdentity }>>;
 	resolveChild(parent: DirectoryRef, name: string, context: FsOperationContext): Promise<FsResult<ResolvedExistingPath>>;
+	/** Projects one regular-file dirent snapshot without additional metadata I/O. */
+	projectListedFile(parent: DirectoryRef, name: string, context: FsOperationContext): FsResult<FileRef>;
 }
 
 export interface WorkspaceNamespaceKernel {
@@ -276,6 +279,46 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 			{ expected: "any", followFinalSymlink: false },
 			context,
 		);
+	}
+
+	projectListedFile(parent: DirectoryRef, name: string, context: FsOperationContext): FsResult<FileRef> {
+		context = bindOperationContext(this.options.ownerSignal, context);
+		const parentIdentity = this.refs.get(parent.id);
+		if (context.signal?.aborted === true) {
+			return fsFailure({ code: "aborted", message: "Operation aborted.", path: parent.displayPath });
+		}
+		if (parentIdentity === undefined || name.length === 0 || name === "." || name === ".." || path.basename(name) !== name) {
+			return fsFailure({ code: "invalid-path", message: "Directory entry is invalid.", path: parent.displayPath });
+		}
+		const input = path.join(parentIdentity.lexicalPath, name);
+		const workspacePath = parent.workspacePath === undefined
+			? undefined
+			: normalizeLogicalPath(path.join(parent.workspacePath, name));
+		const displayPath = workspacePath
+			?? normalizeLogicalPath(input);
+		const lexical: PathIdentity & { readonly absolutePath: string } = {
+			displayPath,
+			absolutePath: input,
+			...(workspacePath === undefined ? {} : { workspacePath }),
+		};
+		const lexicalBlock = this.policy.match(input, lexical, "lexical");
+		if (lexicalBlock !== undefined) return blockedFailure(displayPath, lexicalBlock);
+		const canonicalPath = path.join(parentIdentity.canonicalPath, name);
+		const canonicalBlock = this.policy.match(input, {
+			displayPath,
+			absolutePath: canonicalPath,
+			...(workspacePath === undefined ? {} : { workspacePath }),
+		}, "canonical");
+		if (canonicalBlock !== undefined) return blockedFailure(displayPath, canonicalBlock);
+		const ref: FileRef = {
+			...this.createRefBase(lexical, {
+				nativePath: path.join(parentIdentity.nativePath, name),
+				canonicalPath,
+				lexicalPath: input,
+			}),
+			kind: "file",
+		};
+		return fsSuccess(ref);
 	}
 
 	getNativeIdentity(ref: ExistingRef | TargetRef): NativePathIdentity | undefined {

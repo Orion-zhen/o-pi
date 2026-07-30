@@ -24,6 +24,21 @@ interface SearchText {
 	readonly bonuses: readonly number[];
 }
 
+interface CompiledFindQueryTerm extends FindQueryTerm {
+	readonly pattern: readonly string[];
+}
+
+interface CompiledFindQueryPlan {
+	/** 外层为 AND，内层为 OR。 */
+	readonly groups: readonly (readonly CompiledFindQueryTerm[])[];
+	readonly needsFoldedText: boolean;
+}
+
+export interface LimitedFindRanking {
+	readonly ranked: RankedFindEntry[];
+	readonly totalMatches: number;
+}
+
 const SCORE_MATCH = 16;
 const SCORE_GAP_START = -3;
 const SCORE_GAP_EXTENSION = -1;
@@ -37,9 +52,10 @@ const RANKING_YIELD_INTERVAL = 256;
 
 /** 固定使用 path scheme 的 fzf-v2 风格排名，不接受模型侧 ranking flags。 */
 export function rankFindEntries(entries: readonly FindEntry[], plan: FindQueryPlan): RankedFindEntry[] {
+	const compiled = compileFindQueryPlan(plan);
 	const ranked: RankedFindEntry[] = [];
 	for (const entry of entries) {
-		const candidate = rankEntry(entry, plan);
+		const candidate = rankEntry(entry, compiled);
 		if (candidate !== undefined) ranked.push(candidate);
 	}
 	return ranked.sort(compareRankedEntries);
@@ -51,6 +67,7 @@ export async function rankFindEntriesAsync(
 	plan: FindQueryPlan,
 	signal?: AbortSignal,
 ): Promise<RankedFindEntry[] | undefined> {
+	const compiled = compileFindQueryPlan(plan);
 	const ranked: RankedFindEntry[] = [];
 	for (const [index, entry] of entries.entries()) {
 		if (isAborted(signal)) return undefined;
@@ -58,19 +75,45 @@ export async function rankFindEntriesAsync(
 			await yieldToEventLoop();
 			if (isAborted(signal)) return undefined;
 		}
-		const candidate = rankEntry(entry, plan);
+		const candidate = rankEntry(entry, compiled);
 		if (candidate !== undefined) ranked.push(candidate);
 	}
 	if (isAborted(signal)) return undefined;
 	return ranked.sort(compareRankedEntries);
 }
 
+/** 统计全部命中，但只保留 relevance 前缀，避免为 result limit 之外的命中执行全量排序。 */
+export async function rankFindEntriesLimitedAsync(
+	entries: readonly FindEntry[],
+	plan: FindQueryPlan,
+	limit: number,
+	signal?: AbortSignal,
+): Promise<LimitedFindRanking | undefined> {
+	if (!Number.isSafeInteger(limit) || limit < 0) throw new RangeError("find ranking limit must be a non-negative integer.");
+	const compiled = compileFindQueryPlan(plan);
+	const ranked: RankedFindEntry[] = [];
+	let totalMatches = 0;
+	for (const [index, entry] of entries.entries()) {
+		if (isAborted(signal)) return undefined;
+		if (index > 0 && index % RANKING_YIELD_INTERVAL === 0) {
+			await yieldToEventLoop();
+			if (isAborted(signal)) return undefined;
+		}
+		const candidate = rankEntry(entry, compiled);
+		if (candidate === undefined) continue;
+		totalMatches += 1;
+		insertRankedPrefix(ranked, candidate, limit);
+	}
+	if (isAborted(signal)) return undefined;
+	return { ranked, totalMatches };
+}
+
 function isAborted(signal: AbortSignal | undefined): boolean {
 	return signal?.aborted === true;
 }
 
-function rankEntry(entry: FindEntry, plan: FindQueryPlan): RankedFindEntry | undefined {
-	const search = prepareSearchText(entry.searchPath);
+function rankEntry(entry: FindEntry, plan: CompiledFindQueryPlan): RankedFindEntry | undefined {
+	const search = prepareSearchText(entry.searchPath, plan.needsFoldedText);
 	let score = 0;
 	const positions = new Set<number>();
 	for (const alternatives of plan.groups) {
@@ -95,12 +138,11 @@ function rankEntry(entry: FindEntry, plan: FindQueryPlan): RankedFindEntry | und
 	};
 }
 
-function matchTerm(search: SearchText, term: FindQueryTerm): TermMatch {
+function matchTerm(search: SearchText, term: CompiledFindQueryTerm): TermMatch {
 	const text = term.caseSensitive ? search.sensitive : search.folded;
-	const pattern = normalizeChars(term.text, term.caseSensitive);
 	const positive = term.type === "fuzzy"
-		? fuzzyMatch(search, text, pattern)
-		: exactMatch(search, text, pattern, term.type);
+		? fuzzyMatch(search, text, term.pattern)
+		: exactMatch(search, text, term.pattern, term.type);
 	if (!term.inverse) return positive;
 	return positive.matched
 		? { matched: false, score: 0, positions: [] }
@@ -249,23 +291,34 @@ function contiguousScore(bonuses: readonly number[], positions: readonly number[
 	return score;
 }
 
-function prepareSearchText(value: string): SearchText {
+function compileFindQueryPlan(plan: FindQueryPlan): CompiledFindQueryPlan {
+	return {
+		groups: plan.groups.map((alternatives) => alternatives.map((term) => ({
+			...term,
+			pattern: normalizeChars(term.text, term.caseSensitive),
+		}))),
+		needsFoldedText: plan.groups.some((alternatives) => alternatives.some((term) => !term.caseSensitive)),
+	};
+}
+
+function prepareSearchText(value: string, needsFoldedText: boolean): SearchText {
 	const original = Array.from(value);
+	const sensitive = original.map(normalizeSensitiveChar);
 	return {
 		original,
-		folded: original.map((char) => normalizeChar(char, false)),
-		sensitive: original.map((char) => normalizeChar(char, true)),
+		folded: needsFoldedText ? sensitive.map((char) => char.toLocaleLowerCase()) : sensitive,
+		sensitive,
 		bonuses: original.map((char, index) => bonusFor(original[index - 1], char, index)),
 	};
 }
 
 function normalizeChars(value: string, caseSensitive: boolean): string[] {
-	return Array.from(value).map((char) => normalizeChar(char, caseSensitive));
+	const normalized = Array.from(value).map(normalizeSensitiveChar);
+	return caseSensitive ? normalized : normalized.map((char) => char.toLocaleLowerCase());
 }
 
-function normalizeChar(value: string, caseSensitive: boolean): string {
-	const normalized = value.normalize("NFD").replace(/\p{M}/gu, "");
-	return caseSensitive ? normalized : normalized.toLocaleLowerCase();
+function normalizeSensitiveChar(value: string): string {
+	return value.normalize("NFD").replace(/\p{M}/gu, "");
 }
 
 function bonusFor(previous: string | undefined, current: string, index: number): number {
@@ -327,6 +380,25 @@ function compareRankedEntries(left: RankedFindEntry, right: RankedFindEntry): nu
 		|| left.entry.searchPath.length - right.entry.searchPath.length
 		|| left.entry.scopeOrder - right.entry.scopeOrder
 		|| compareStableString(left.entry.path, right.entry.path);
+}
+
+function insertRankedPrefix(
+	ranked: RankedFindEntry[],
+	candidate: RankedFindEntry,
+	limit: number,
+): void {
+	if (limit === 0) return;
+	let low = 0;
+	let high = ranked.length;
+	while (low < high) {
+		const middle = Math.floor((low + high) / 2);
+		const current = ranked[middle];
+		if (current !== undefined && compareRankedEntries(candidate, current) < 0) high = middle;
+		else low = middle + 1;
+	}
+	if (low >= limit) return;
+	ranked.splice(low, 0, candidate);
+	if (ranked.length > limit) ranked.pop();
 }
 
 function basenameOffset(chars: readonly string[]): number {

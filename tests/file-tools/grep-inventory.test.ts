@@ -30,6 +30,7 @@ describe("grep ScopeInventory", () => {
 						calls.push({ root: root.displayPath, options });
 						return await filesystem.discovery.discover(root, options, context);
 					},
+					discoverPaths: (...args) => filesystem.discovery.discoverPaths(...args),
 				},
 				content: {
 					readBytes: async (...args) => { contentReads += 1; return await filesystem.content.readBytes(...args); },
@@ -134,6 +135,7 @@ describe("grep ScopeInventory", () => {
 					};
 					return fsSuccess(stream);
 				},
+				discoverPaths: (...args) => filesystem.discovery.discoverPaths(...args),
 			},
 		})));
 

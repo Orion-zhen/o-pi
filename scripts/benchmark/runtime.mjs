@@ -59,6 +59,16 @@ export function measureOperation(operation, { warmups, runs }) {
 	return samples;
 }
 
+export async function measureAsyncOperation(operation, { warmups, runs }) {
+	const samples = [];
+	for (let index = 0; index < warmups + runs; index += 1) {
+		const started = performance.now();
+		await operation();
+		if (index >= warmups) samples.push(performance.now() - started);
+	}
+	return samples;
+}
+
 export async function measureInteractiveReady(command, args, { warmups, runs, readyMarker, env = process.env, timeoutMs = 20_000 }) {
 	const samples = [];
 	for (let index = 0; index < warmups + runs; index += 1) {

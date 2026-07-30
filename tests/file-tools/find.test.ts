@@ -4,11 +4,18 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { FindTool } from "../../src/file-tools/find/command.js";
 import { createFindQueryPlan } from "../../src/file-tools/find/query.js";
-import { rankFindEntriesAsync } from "../../src/file-tools/find/ranker.js";
+import {
+	rankFindEntries,
+	rankFindEntriesAsync,
+	rankFindEntriesLimitedAsync,
+} from "../../src/file-tools/find/ranker.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import type { FindMatch, FindSuccess } from "../../src/file-tools/find/types.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
+import { FileSystemRuntime } from "../../src/filesystem/runtime.js";
+import { NodeNativeFileSystem } from "../../src/filesystem/platform/node/native-filesystem.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
+import { overrideNativeFileSystem } from "../filesystem/fixtures.js";
 import { findWorkspaceFiles } from "../helpers/find-tool.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
@@ -133,6 +140,7 @@ describe("find", () => {
 	it("escaped space 作为一个 fuzzy term，smart case 按 term 生效", async () => {
 		await writeFixture("src/auth service.ts");
 		await writeFixture("src/auth-service.ts");
+		await writeFixture("src/café.ts");
 		await writeFixture("src/upper/AuthService.ts");
 		await writeFixture("src/lower/authservice.ts");
 
@@ -141,6 +149,7 @@ describe("find", () => {
 
 		const smart = success(await findWorkspaceFiles(workspace, { query: "AuthService" }));
 		expect(paths(smart.details.matches)).toEqual(["src/upper/AuthService.ts"]);
+		expect(paths(success(await findWorkspaceFiles(workspace, { query: "cafe" })).details.matches)).toEqual(["src/café.ts"]);
 	});
 
 	it("path scheme 在同等相关性下优先 basename 命中", async () => {
@@ -163,6 +172,10 @@ describe("find", () => {
 		}));
 		expect(filtered.details.glob).toBe("**/*.ts");
 		expect(paths(filtered.details.matches)).toEqual(["src/auth.ts"]);
+		expect(paths(success(await findWorkspaceFiles(workspace, {
+			query: "auth",
+			glob: "src/**/*.ts",
+		})).details.matches)).toEqual(["src/auth.ts"]);
 
 		const notInferred = success(await findWorkspaceFiles(workspace, { query: "*.ts" }));
 		expect(notInferred.details.total_matches).toBe(0);
@@ -267,15 +280,21 @@ describe("find", () => {
 	it("允许 workspace 外显式 scope，输出规范化绝对路径", async () => {
 		await mkdir(path.join(outside, "external"), { recursive: true });
 		await writeFile(path.join(outside, "external", "auth.ts"), "");
+		const expectedPath = path.join(outside, "external", "auth.ts").replace(/\\/gu, "/");
 
 		const result = success(await findWorkspaceFiles(workspace, {
 			query: "auth",
 			path: [path.join(outside, "external")],
 		}));
 		expect(result.details.matches).toEqual([{
-			path: path.join(outside, "external", "auth.ts").replace(/\\/gu, "/"),
+			path: expectedPath,
 			kind: "file",
 		}]);
+		const relative = success(await findWorkspaceFiles(workspace, {
+			query: "auth",
+			path: [path.relative(workspace, path.join(outside, "external"))],
+		}));
+		expect(relative.details.matches).toEqual([{ path: expectedPath, kind: "file" }]);
 	});
 
 	it("结果、深度和输出限制来自配置，截断原因准确且顺序稳定", async () => {
@@ -302,6 +321,52 @@ describe("find", () => {
 		expect(first.details.truncated_by).toEqual(["depth_limit", "result_limit", "output_limit"]);
 		expect(paths(first.details.matches)).not.toContain("many/deep/auth-hidden.ts");
 		expect(countTextTokensSync(first.content).tokens).toBeLessThanOrEqual(40);
+	});
+
+	it("路径发现不为每个普通文件读取 metadata 或解析 realpath", async () => {
+		const fileCount = 64;
+		const directoryCount = 4;
+		for (let index = 0; index < fileCount; index += 1) {
+			await writeFixture(`bucket-${index % directoryCount}/target-${String(index).padStart(2, "0")}.ts`);
+		}
+		const base = new NodeNativeFileSystem();
+		const calls = { lstat: 0, realpath: 0 };
+		const native = overrideNativeFileSystem({
+			async lstat(file, options) {
+				calls.lstat += 1;
+				return await base.lstat(file, options);
+			},
+			async realpath(file, options) {
+				calls.realpath += 1;
+				return await base.realpath(file, options);
+			},
+		}, base);
+		const host = new FileToolsHost({ filesystem: new FileSystemRuntime({ native }) });
+		const tool = new FindTool();
+		try {
+			const opened = await host.open({ cwd: workspace, sessionId: "find-path-discovery" });
+			if (isFailed(opened)) throw new Error(opened.error.message);
+			try {
+				calls.lstat = 0;
+				calls.realpath = 0;
+				const result = success(await tool.execute({ query: "target" }, {
+					filesystem: opened.filesystem,
+					operation: opened.context,
+					limits: opened.limits,
+				}));
+				expect(result.details).toMatchObject({
+					total_candidates: fileCount + directoryCount,
+					total_matches: fileCount,
+				});
+				expect(calls.lstat).toBeLessThan(fileCount / 4);
+				expect(calls.realpath).toBeLessThan(fileCount / 4);
+			} finally {
+				opened.dispose();
+			}
+		} finally {
+			tool.dispose();
+			host.dispose();
+		}
 	});
 
 	it("AbortSignal 和 tool dispose 都终止调用", async () => {
@@ -349,5 +414,25 @@ describe("find", () => {
 		const pending = rankFindEntriesAsync(entries, plan, controller.signal);
 		queueMicrotask(() => controller.abort());
 		expect(await pending).toBeUndefined();
+	});
+
+	it("有界排名保留全量命中数并返回与完整排序相同的 relevance 前缀", async () => {
+		const plan = createFindQueryPlan("parser runtime");
+		if ("status" in plan) throw new Error(plan.error.message);
+		const entries = Array.from({ length: 200 }, (_value, index) => {
+			const searchPath = `packages/component-${index % 17}/parser-runtime-${String(199 - index).padStart(3, "0")}.ts`;
+			return {
+				path: searchPath,
+				searchPath,
+				kind: "file" as const,
+				scopeOrder: 0,
+			};
+		});
+		const complete = rankFindEntries(entries, plan);
+		const limited = await rankFindEntriesLimitedAsync(entries, plan, 7);
+		expect(limited).toEqual({
+			ranked: complete.slice(0, 7),
+			totalMatches: complete.length,
+		});
 	});
 });

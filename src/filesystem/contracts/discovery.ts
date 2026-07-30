@@ -18,6 +18,16 @@ export interface DiscoveryEntryEvent {
 	readonly visibility: VisibilityAnnotation;
 }
 
+export interface PathDiscoveryEntryEvent {
+	readonly type: "entry";
+	readonly ref: ExistingRef;
+	/** 相对原始 discovery root、以 `/` 规范化的路径。 */
+	readonly relativePath: string;
+	/** 相对原始 root 的深度。 */
+	readonly depth: number;
+	readonly visibility: VisibilityAnnotation;
+}
+
 export interface DiscoverySkipEvent {
 	readonly type: "skip";
 	readonly path: string;
@@ -33,6 +43,7 @@ export interface DiscoveryErrorEvent {
 }
 
 export type DiscoveryEvent = DiscoveryEntryEvent | DiscoverySkipEvent | DiscoveryErrorEvent;
+export type PathDiscoveryEvent = PathDiscoveryEntryEvent | DiscoverySkipEvent | DiscoveryErrorEvent;
 
 export interface DiscoveryOptions {
 	readonly intent: VisibilityIntent;
@@ -50,6 +61,11 @@ export interface Discovery extends AsyncIterable<DiscoveryEvent> {
 	close(): Promise<void>;
 }
 
+export interface PathDiscovery extends AsyncIterable<PathDiscoveryEvent> {
+	close(): Promise<void>;
+}
+
 export interface DiscoveryOperations {
 	discover(root: DiscoveryRoot, options: DiscoveryOptions, context: FsOperationContext): Promise<FsResult<Discovery>>;
+	discoverPaths(root: DirectoryRef, options: DiscoveryOptions, context: FsOperationContext): Promise<FsResult<PathDiscovery>>;
 }

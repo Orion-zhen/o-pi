@@ -5,7 +5,7 @@ import { bindOperationContext } from "../../filesystem/operation-context.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import { createFindQueryPlan } from "./query.js";
-import { rankFindEntriesAsync } from "./ranker.js";
+import { rankFindEntriesLimitedAsync } from "./ranker.js";
 import { renderFindResults } from "./renderer.js";
 import type { FindEntry, FindParams, FindScopeError, FindStats, FindSuccess } from "./types.js";
 
@@ -73,9 +73,14 @@ export class FindTool {
 		}
 
 		const entries = mergeEntries(discoveries);
-		const ranked = await rankFindEntriesAsync(entries, plan, context.operation.signal);
-		if (ranked === undefined || isOperationAborted(context.operation)) return aborted();
-		const selected = ranked.slice(0, context.limits.find_result_limit);
+		const ranking = await rankFindEntriesLimitedAsync(
+			entries,
+			plan,
+			context.limits.find_result_limit,
+			context.operation.signal,
+		);
+		if (ranking === undefined || isOperationAborted(context.operation)) return aborted();
+		const selected = ranking.ranked;
 		const matches = selected.map(({ entry }) => ({ path: entry.path, kind: entry.kind }));
 		const paths = discoveries.map(({ scope }) => scope.root.displayPath);
 		return renderFindResults({
@@ -85,11 +90,11 @@ export class FindTool {
 			...(normalized.glob === undefined ? {} : { glob: normalized.glob }),
 			...(scopeErrors.length === 0 ? {} : { scopeErrors }),
 			totalCandidates: entries.length,
-			totalMatches: ranked.length,
+			totalMatches: ranking.totalMatches,
 			matches,
 			stats: sumStats(discoveries),
 			depthLimited: discoveries.some(({ result }) => result.depthLimited),
-			resultLimited: selected.length < ranked.length,
+			resultLimited: selected.length < ranking.totalMatches,
 			outputTokenBudget: context.limits.find_output_token_budget,
 		});
 	}
@@ -171,7 +176,7 @@ async function discoverScope(
 	glob: string | undefined,
 	context: FindCommandContext,
 ): Promise<ToolOutcome<ScopeDiscovery>> {
-	const opened = await context.filesystem.discovery.discover(scope.root, {
+	const opened = await context.filesystem.discovery.discoverPaths(scope.root, {
 		intent: "search",
 		explicitRoot: true,
 		maxDepth: context.limits.find_max_depth,

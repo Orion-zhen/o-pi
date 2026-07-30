@@ -42,7 +42,9 @@
 
 ## 候选和评分
 
-filesystem discovery 先应用 scope、glob、blocked path、soft ignore、深度和 symlink 规则。每个成功 scope 的 entry 使用相对该 scope 的路径评分，输出仍使用规范 display path；重复和嵌套 scope 不产生重复候选。
+filesystem path discovery 先应用 scope、glob、blocked path、soft ignore、深度和 symlink 规则。普通文件使用 `readdir` 目录项快照和已验证父目录 identity 投影，不为每个文件读取 metadata 或执行 `realpath`；目录、symlink 和未知类型仍在递归边界经过 namespace 解析。后续明确读取会重新解析并验证路径。
+
+每个成功 scope 的 entry 使用 traversal 直接携带的 scope-relative path 评分，输出仍使用规范 display path；重复和嵌套 scope 不产生重复候选。
 
 排名固定为 `fzf-v2-path-v1`：
 
@@ -51,6 +53,8 @@ filesystem discovery 先应用 scope、glob、blocked path、soft ignore、深�
 3. gap 起始和延续受到惩罚；
 4. 多 term 分数相加，OR 采用最佳分支；
 5. 同分时依次优先 basename 命中数、较短 match span、较短 scope-relative path、scope 顺序和路径字典序。
+
+query term 的 Unicode/case 形式每次调用只编译一次。runtime 统计全部命中，但只维护 `find_result_limit` 大小的 relevance 前缀，不对 limit 之外的命中执行全量排序。
 
 runtime 不接受 case、exact、kind、field、scheme、sort 或 tiebreak 参数。文件和目录统一搜索，path scheme 和 smart case 始终启用。
 

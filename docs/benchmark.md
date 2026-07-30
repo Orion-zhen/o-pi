@@ -59,7 +59,7 @@ npm run bench -- --plugin=./scripts/my-benchmark.mjs --suites=my-benchmark
 npm run bench:file-tools:ranking -- --runs=15
 ```
 
-该基准覆盖 `find` 在 1k/5k/20k 候选上的 fzf path 排名与稳定顺序，以及 `grep` 的字段排序、证据融合与多样性 Top-K；使用合成候选，不访问文件系统或 LSP 后端。
+该基准覆盖 `find` 在 1k/5k/20k 候选上的完整 fzf path 排名、稳定顺序和有界 Top-50 前缀，以及 `grep` 的字段排序、证据融合与多样性 Top-K；使用合成候选，不访问文件系统或 LSP 后端。
 
 ## 启动场景
 

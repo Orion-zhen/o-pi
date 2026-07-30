@@ -5,15 +5,26 @@ import type {
 	Discovery,
 	DiscoveryEntryKind,
 	DiscoveryEntryEvent,
+	DiscoveryErrorEvent,
 	DiscoveryEvent,
 	DiscoveryOperations,
 	DiscoveryOptions,
 	DiscoveryRoot,
+	DiscoverySkipEvent,
+	PathDiscovery,
+	PathDiscoveryEntryEvent,
+	PathDiscoveryEvent,
 } from "../contracts/discovery.js";
 import { toFileSnapshot, type MetadataOperations } from "../contracts/metadata.js";
 import type { DirectoryRef } from "../contracts/path.js";
 import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.js";
-import type { Traversal, TraversalEvent, TraversalOperations } from "../contracts/traversal.js";
+import type {
+	PathTraversal,
+	PathTraversalEvent,
+	Traversal,
+	TraversalEvent,
+	TraversalOperations,
+} from "../contracts/traversal.js";
 import type { VisibilityOperations } from "../contracts/visibility.js";
 import type { WorkspaceNamespaceKernel } from "../kernel/namespace.js";
 import { bindOperationContext } from "../operation-context.js";
@@ -26,6 +37,7 @@ interface GlobSelector {
 interface TraversalStart {
 	readonly root: DirectoryRef;
 	readonly depthOffset: number;
+	readonly relativePrefix: string;
 }
 
 interface PrefixSkip {
@@ -58,6 +70,24 @@ export class WorkspaceDiscoveryService implements DiscoveryOperations {
 		return root.kind === "file"
 			? await this.discoverFile(root, options, selector, context)
 			: await this.discoverDirectory(root, options, selector, context);
+	}
+
+	async discoverPaths(
+		root: DirectoryRef,
+		options: DiscoveryOptions,
+		context: FsOperationContext,
+	): Promise<FsResult<PathDiscovery>> {
+		context = bindOperationContext(this.ownerSignal, context);
+		const invalid = validateOptions(root, options);
+		if (invalid !== undefined) return invalid;
+		if (context.signal?.aborted === true) return aborted(root.displayPath);
+		let selector: GlobSelector | undefined;
+		if (options.glob !== undefined) {
+			const compiled = this.compileGlob(options.glob, root.displayPath);
+			if (!compiled.ok) return compiled;
+			selector = compiled.value;
+		}
+		return await this.discoverPathDirectory(root, options, selector, context);
 	}
 
 	private compileGlob(input: string, rootPath: string): FsResult<GlobSelector> {
@@ -137,12 +167,53 @@ export class WorkspaceDiscoveryService implements DiscoveryOperations {
 		return fsSuccess(this.mapTraversal(root, start.value.depthOffset, selector, options, opened.value));
 	}
 
+	private async discoverPathDirectory(
+		root: DirectoryRef,
+		options: DiscoveryOptions,
+		selector: GlobSelector | undefined,
+		context: FsOperationContext,
+	): Promise<FsResult<PathDiscovery>> {
+		if (selector?.staticDirectoryPrefix !== undefined) {
+			const visibility = await this.visibility.evaluate(root, options.intent, context);
+			if (!visibility.ok) return visibility;
+			if (visibility.value.ignored && options.explicitRoot !== true) {
+				return fsSuccess(pathEventStream([{ type: "skip", path: root.displayPath, reason: "ignored", kind: "directory" }]));
+			}
+		}
+		const start = await this.resolveTraversalStart(root, selector?.staticDirectoryPrefix, context);
+		if (!start.ok) return start;
+		if (start.value === undefined) return fsSuccess(pathEventStream([]));
+		if ("event" in start.value) return fsSuccess(pathEventStream([start.value.event]));
+		if (options.maxDepth !== undefined && start.value.depthOffset > options.maxDepth) {
+			return fsSuccess(pathEventStream([{
+				type: "skip",
+				path: start.value.root.displayPath,
+				reason: "depth-limit",
+				kind: "directory",
+			}]));
+		}
+		const opened = await this.traversal.walkPaths(start.value.root, {
+			intent: options.intent,
+			...(options.explicitRoot === true ? { explicitRoot: true } : {}),
+			...(options.maxEntries === undefined ? {} : { maxEntries: options.maxEntries }),
+			...(options.maxDepth === undefined ? {} : { maxDepth: options.maxDepth - start.value.depthOffset }),
+		}, context);
+		if (!opened.ok) return opened;
+		return fsSuccess(this.mapPathTraversal(
+			start.value.relativePrefix,
+			start.value.depthOffset,
+			selector,
+			options,
+			opened.value,
+		));
+	}
+
 	private async resolveTraversalStart(
 		root: DirectoryRef,
 		prefix: string | undefined,
 		context: FsOperationContext,
 	): Promise<FsResult<TraversalStart | PrefixSkip | undefined>> {
-		if (prefix === undefined) return fsSuccess({ root, depthOffset: 0 });
+		if (prefix === undefined) return fsSuccess({ root, depthOffset: 0, relativePrefix: "" });
 		const segments = prefix.split("/");
 		let current = root;
 		for (const segment of segments) {
@@ -164,7 +235,7 @@ export class WorkspaceDiscoveryService implements DiscoveryOperations {
 			if (child.value.ref.kind !== "directory") return fsSuccess(undefined);
 			current = child.value.ref;
 		}
-		return fsSuccess({ root: current, depthOffset: segments.length });
+		return fsSuccess({ root: current, depthOffset: segments.length, relativePrefix: segments.join("/") });
 	}
 
 	private mapTraversal(
@@ -199,19 +270,50 @@ export class WorkspaceDiscoveryService implements DiscoveryOperations {
 			}
 		}, async () => await traversal.close());
 	}
+
+	private mapPathTraversal(
+		relativePrefix: string,
+		depthOffset: number,
+		selector: GlobSelector | undefined,
+		options: DiscoveryOptions,
+		traversal: PathTraversal,
+	): PathDiscovery {
+		return new NativeDiscovery<PathDiscoveryEntryEvent>(async function* (stopped): AsyncGenerator<PathDiscoveryEvent> {
+			for await (const event of traversal) {
+				if (stopped()) return;
+				if (event.type !== "entry") {
+					yield event;
+					continue;
+				}
+				if ((event.ref.kind !== "file" && event.ref.kind !== "directory")
+					|| (options.kind !== undefined && event.ref.kind !== options.kind)) continue;
+				const relativePath = relativePrefix.length === 0
+					? event.relativePath
+					: `${relativePrefix}/${event.relativePath}`;
+				if (selector !== undefined && !selector.matches(relativePath, event.ref.kind)) continue;
+				yield pathDiscoveryEntry(event, relativePath, depthOffset);
+			}
+		}, async () => await traversal.close());
+	}
 }
 
-class NativeDiscovery implements Discovery {
+type DiscoveryStreamEvent<TEntry extends PathDiscoveryEntryEvent> =
+	| TEntry
+	| DiscoverySkipEvent
+	| DiscoveryErrorEvent;
+
+class NativeDiscovery<TEntry extends PathDiscoveryEntryEvent>
+implements AsyncIterable<DiscoveryStreamEvent<TEntry>> {
 	private consumed = false;
 	private stopped = false;
 	private closing?: Promise<void>;
 
 	constructor(
-		private readonly events: (stopped: () => boolean) => AsyncIterable<DiscoveryEvent>,
+		private readonly events: (stopped: () => boolean) => AsyncIterable<DiscoveryStreamEvent<TEntry>>,
 		private readonly closeSource: () => Promise<void>,
 	) {}
 
-	[Symbol.asyncIterator](): AsyncIterator<DiscoveryEvent> {
+	[Symbol.asyncIterator](): AsyncIterator<DiscoveryStreamEvent<TEntry>> {
 		return this.iterate();
 	}
 
@@ -221,7 +323,7 @@ class NativeDiscovery implements Discovery {
 		return this.closing;
 	}
 
-	private async *iterate(): AsyncGenerator<DiscoveryEvent> {
+	private async *iterate(): AsyncGenerator<DiscoveryStreamEvent<TEntry>> {
 		if (this.consumed) {
 			yield {
 				type: "error",
@@ -244,7 +346,16 @@ class NativeDiscovery implements Discovery {
 }
 
 function eventStream(events: readonly DiscoveryEvent[]): Discovery {
-	return new NativeDiscovery(async function* (stopped) {
+	return new NativeDiscovery<DiscoveryEntryEvent>(async function* (stopped) {
+		for (const event of events) {
+			if (stopped()) return;
+			yield event;
+		}
+	}, async () => {});
+}
+
+function pathEventStream(events: readonly PathDiscoveryEvent[]): PathDiscovery {
+	return new NativeDiscovery<PathDiscoveryEntryEvent>(async function* (stopped) {
 		for (const event of events) {
 			if (stopped()) return;
 			yield event;
@@ -259,6 +370,20 @@ function discoveryEntry(event: Extract<TraversalEvent, { readonly type: "entry" 
 		relativePath,
 		depth: event.depth + depthOffset,
 		snapshot: toFileSnapshot(event.metadata),
+		visibility: event.visibility,
+	};
+}
+
+function pathDiscoveryEntry(
+	event: Extract<PathTraversalEvent, { readonly type: "entry" }>,
+	relativePath: string,
+	depthOffset: number,
+): PathDiscoveryEntryEvent {
+	return {
+		type: "entry",
+		ref: event.ref,
+		relativePath,
+		depth: event.depth + depthOffset,
 		visibility: event.visibility,
 	};
 }

@@ -61,7 +61,7 @@ port 由消费者工具声明，而不是由外部子系统或 filesystem 声明
 - write/edit：diagnostics、mutation observer、共享 text diff contract；
 - grep：workspace-bound `CodeAnalyzer`；LSP 不反向导入 grep 实现，统一返回规范代码单元和 `called` / `referenced` / `defined` authority。
 
-port 输入输出使用消费者需要的 DTO 和 opaque ref。所有调用都有 safe wrapper；未配置、在 symbol 选择前失败或超时时保留基础行为。find 没有外部增强 port，只对 filesystem discovery 返回的 scope-relative path 执行本地 fzf 排名；grep analyzer 只能读取本次 scope/glob inventory 中的稳定 snapshot。一旦 analyzer 选中 symbol，本次调用采用其完整或部分结果，不再混入逐 symbol 的 Tree-sitter fallback。外部结果不能绕过 filesystem 数据平面。
+port 输入输出使用消费者需要的 DTO 和 opaque ref。所有调用都有 safe wrapper；未配置、在 symbol 选择前失败或超时时保留基础行为。find 没有外部增强 port，只对 filesystem path discovery 返回的 scope-relative path 执行本地 fzf 排名；普通文件由已验证父目录的 identity 和目录项快照投影，目录、symlink 和未知类型仍经 namespace 解析。grep 使用带 metadata snapshot 的完整 discovery，analyzer 只能读取本次 scope/glob inventory 中的稳定 snapshot。一旦 analyzer 选中 symbol，本次调用采用其完整或部分结果，不再混入逐 symbol 的 Tree-sitter fallback。外部结果不能绕过 filesystem 数据平面。
 
 ## Lazy loading
 
@@ -96,4 +96,4 @@ host 将 extension signal、runtime shutdown signal、lease signal 和 tool owne
 
 mutation 按 canonical target 在同进程串行。安全策略和 symlink/parent identity 在 queue 内重新检查，edit 同时校验当前 snapshot hash。提交是不可回滚边界：成功写盘后 observation 已由 filesystem commit callback 更新，后置 diff 之外的 LSP 失败或取消不能把成功 mutation 改成失败。
 
-性能测量与缓存细节见 [性能与 benchmark](performance.md)。
+性能测量与缓存细节见 [性能与 benchmark](../benchmark.md)。

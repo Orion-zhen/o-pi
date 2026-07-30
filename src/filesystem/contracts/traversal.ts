@@ -14,6 +14,15 @@ export interface TraversalEntryEvent {
 	readonly visibility: VisibilityAnnotation;
 }
 
+export interface PathTraversalEntryEvent {
+	readonly type: "entry";
+	readonly ref: ExistingRef;
+	/** 相对 traversal root、以 `/` 规范化的路径。 */
+	readonly relativePath: string;
+	readonly depth: number;
+	readonly visibility: VisibilityAnnotation;
+}
+
 export interface TraversalSkipEvent {
 	readonly type: "skip";
 	readonly path: string;
@@ -29,6 +38,7 @@ export interface TraversalErrorEvent {
 }
 
 export type TraversalEvent = TraversalEntryEvent | TraversalSkipEvent | TraversalErrorEvent;
+export type PathTraversalEvent = PathTraversalEntryEvent | TraversalSkipEvent | TraversalErrorEvent;
 
 export interface TraversalOptions {
 	readonly intent: VisibilityIntent;
@@ -43,6 +53,15 @@ export interface Traversal extends AsyncIterable<TraversalEvent> {
 	close(): Promise<void>;
 }
 
+export interface PathTraversal extends AsyncIterable<PathTraversalEvent> {
+	close(): Promise<void>;
+}
+
 export interface TraversalOperations {
 	walk(root: DirectoryRef, options: TraversalOptions, context: FsOperationContext): Promise<FsResult<Traversal>>;
+	walkPaths(
+		root: DirectoryRef,
+		options: Omit<TraversalOptions, "includeRoot">,
+		context: FsOperationContext,
+	): Promise<FsResult<PathTraversal>>;
 }
