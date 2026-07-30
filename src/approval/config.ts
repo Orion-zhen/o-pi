@@ -90,7 +90,6 @@ function cloneRules(rules: ApprovalRule[]): ApprovalRule[] {
 		tools: [...rule.tools],
 		...(rule.path_globs !== undefined ? { path_globs: [...rule.path_globs] } : {}),
 		...(rule.command_regex !== undefined ? { command_regex: rule.command_regex } : {}),
-		...(rule.effects !== undefined ? { effects: [...rule.effects] } : {}),
 		reason: rule.reason,
 	}));
 }

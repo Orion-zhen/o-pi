@@ -41,12 +41,10 @@ export function ruleMatchesUnit(rule: ApprovalRule, tool: string, unit: Approval
 
 	const hasPathMatcher = rule.path_globs !== undefined && rule.path_globs.length > 0;
 	const hasCommandMatcher = rule.command_regex !== undefined && rule.command_regex.length > 0;
-	const hasEffectMatcher = rule.effects !== undefined && rule.effects.length > 0;
 
-	if (!hasPathMatcher && !hasCommandMatcher && !hasEffectMatcher) return true;
+	if (!hasPathMatcher && !hasCommandMatcher) return true;
 	if (hasPathMatcher && !pathRuleMatches(rule.path_globs ?? [], unit)) return false;
 	if (hasCommandMatcher && !commandRuleMatches(rule.command_regex ?? "", unit)) return false;
-	if (hasEffectMatcher && !(rule.effects ?? []).some((effect) => unit.effects.includes(effect))) return false;
 	return true;
 }
 
@@ -58,7 +56,10 @@ function pathRuleMatches(globs: string[], unit: ApprovalUnit): boolean {
 
 function commandRuleMatches(rule: string, unit: ApprovalUnit): boolean {
 	if (unit.target.kind !== "command") return false;
-	return new RegExp(rule, "u").test(unit.target.match_value ?? unit.target.value);
+	const matcher = new RegExp(rule, "u");
+	const direct = unit.target.match_value ?? unit.target.value;
+	return matcher.test(direct)
+		|| (unit.target.similar_value !== undefined && unit.target.similar_value !== direct && matcher.test(unit.target.similar_value));
 }
 
 function normalizePath(value: string): string {

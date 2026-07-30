@@ -17,7 +17,6 @@ export function formatApprovalPrompt(request: ApprovalRequest, decision: Extract
 			`${index + 1}. ${item.unit.target.value}`,
 			`   Action: ${item.unit.action}`,
 			`   Reason: ${item.reason}`,
-			`   Effects: ${item.unit.effects.join(", ")}`,
 		]),
 	].join("\n");
 }

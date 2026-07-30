@@ -1,8 +1,8 @@
 import { getTreeSitterLanguage } from "../syntax-tree/grammars.js";
 import { parseSyntaxTree } from "../syntax-tree/parser.js";
 import type { SyntaxNode } from "../syntax-tree/types.js";
-import type { ApprovalEffect, ApprovalUnit } from "./types.js";
-import { normalizeTargetPath, pathEffects } from "./path-effects.js";
+import { normalizeTargetPath } from "./path.js";
+import type { ApprovalUnit } from "./types.js";
 
 const MAX_BASH_UNITS = 256;
 const MAX_NESTED_SHELL_DEPTH = 8;
@@ -17,14 +17,6 @@ const DYNAMIC_NODE_TYPES = new Set([
 	"simple_expansion",
 ]);
 const SHELL_PROGRAMS = new Set(["bash", "dash", "ksh", "sh", "zsh"]);
-const PACKAGE_ACTIONS = new Set([
-	"add", "ci", "dist-upgrade", "full-upgrade", "i", "install", "remove", "rm", "uninstall", "update", "upgrade",
-]);
-const PACKAGE_MANAGERS = new Set(["apt", "apt-get", "brew", "cargo", "dnf", "gem", "npm", "pacman", "pip", "pip3", "pnpm", "yarn", "yum"]);
-const GH_RELEASE_ACTIONS = new Set(["create", "delete", "edit", "upload"]);
-const DOCKER_OPTIONS_WITH_VALUE = new Set(["-H", "--config", "--context", "--host", "--log-level"]);
-const GH_OPTIONS_WITH_VALUE = new Set(["-R", "--hostname", "--repo"]);
-const KUBECTL_OPTIONS_WITH_VALUE = new Set(["-n", "--cluster", "--context", "--kubeconfig", "--namespace", "--user"]);
 const NO_OPTIONS_WITH_VALUE = new Set<string>();
 const SUDO_OPTIONS_WITH_VALUE = new Set([
 	"-C", "-D", "-g", "-h", "-p", "-R", "-T", "-u",
@@ -58,8 +50,7 @@ export async function parseBashApprovalUnits(command: string, cwd: string): Prom
 function opaqueCommandUnit(command: string): ApprovalUnit {
 	return {
 		action: "execute",
-		target: { kind: "command", value: normalizeSource(command), match_value: command },
-		effects: ["execute", "unknown_side_effect"],
+		target: { kind: "command", value: normalizeSource(command), match_value: `<opaque> ${command}` },
 		remember: { session: true, persistent: false },
 	};
 }
@@ -68,7 +59,6 @@ function plainCommandUnit(command: string): ApprovalUnit {
 	return {
 		action: "execute",
 		target: { kind: "command", value: normalizeSource(command), match_value: command },
-		effects: ["execute"],
 		remember: { session: true, persistent: true },
 	};
 }
@@ -122,7 +112,6 @@ function commandUnit(node: SyntaxNode): { unit: ApprovalUnit; nestedScript?: str
 	const rawFacts = { program: commandBasename(program), args };
 	const facts = unwrapCommand(rawFacts);
 	const nestedScript = shellScript(effectiveCommand(facts));
-	const effects = classifyCommand(facts, nestedScript !== undefined);
 	const exactValue = normalizeCommandNode(node);
 	const matchValue = commandView(rawFacts);
 	const similarValue = commandView(facts);
@@ -135,10 +124,9 @@ function commandUnit(node: SyntaxNode): { unit: ApprovalUnit; nestedScript?: str
 				match_value: matchValue,
 				...(similarValue === matchValue ? {} : { similar_value: similarValue }),
 			},
-			effects,
 			remember: {
 				session: true,
-				persistent: facts.program !== undefined && !effects.includes("unknown_side_effect"),
+				persistent: isRememberableCommand(facts, nestedScript !== undefined),
 			},
 		},
 		...(nestedScript === undefined ? {} : { nestedScript }),
@@ -158,16 +146,15 @@ function redirectUnit(node: SyntaxNode, cwd: string): ApprovalUnit | undefined {
 	return {
 		action: "write_redirect",
 		target: { kind: "path", value: targetPath },
-		effects: pathEffects(targetPath),
 		remember: { session: true, persistent: true },
 	};
 }
 
 function dynamicRedirectUnit(node: SyntaxNode): ApprovalUnit {
+	const value = normalizeSource(node.text);
 	return {
 		action: "write_redirect",
-		target: { kind: "other", value: normalizeSource(node.text) },
-		effects: ["write", "unknown_side_effect"],
+		target: { kind: "command", value, match_value: `<dynamic> ${value}` },
 		remember: { session: false, persistent: false },
 	};
 }
@@ -178,41 +165,16 @@ function writesFile(operator: string, node: SyntaxNode): boolean {
 	return false;
 }
 
-function classifyCommand(facts: CommandFacts, parsedLiteralShell: boolean, depth = 0): ApprovalEffect[] {
-	const effects: ApprovalEffect[] = ["execute"];
+function isRememberableCommand(facts: CommandFacts, parsedLiteralShell: boolean, depth = 0): boolean {
 	const program = facts.program;
-	if (program === undefined) {
-		addEffect(effects, "unknown_side_effect");
-		return effects;
-	}
-	const args = facts.args;
-
-	if (program === "sudo" || program === "systemctl" || program === "service" || program === "launchctl") {
-		addEffect(effects, "system_change");
-	}
+	if (program === undefined) return false;
 	if (program === "sudo") {
-		const nested = unwrapCommand(commandAfterOptions(args, SUDO_OPTIONS_WITH_VALUE, true));
-		if (depth >= 8) {
-			addEffect(effects, "unknown_side_effect");
-		} else {
-			for (const effect of classifyCommand(nested, parsedLiteralShell, depth + 1)) addEffect(effects, effect);
-		}
+		if (depth >= 8) return false;
+		const nested = unwrapCommand(commandAfterOptions(facts.args, SUDO_OPTIONS_WITH_VALUE, true));
+		return isRememberableCommand(nested, parsedLiteralShell, depth + 1);
 	}
-	if (program === "eval" || (SHELL_PROGRAMS.has(program) && shellCommandIndex(args) !== undefined && !parsedLiteralShell)) {
-		addEffect(effects, "unknown_side_effect");
-	}
-	if (isPackageManagement(program, args)) {
-		addEffect(effects, "install");
-		addEffect(effects, "network");
-	}
-	if (isPublishing(program, args)) {
-		addEffect(effects, "publish");
-		addEffect(effects, "network");
-		addEffect(effects, "external_side_effect");
-	}
-	if (isDestructive(program, args)) addEffect(effects, "destructive");
-	if (isExternalSideEffect(program, args)) addEffect(effects, "external_side_effect");
-	return effects;
+	if (program === "eval") return false;
+	return !SHELL_PROGRAMS.has(program) || shellCommandIndex(facts.args) === undefined || parsedLiteralShell;
 }
 
 function unwrapCommand(input: CommandFacts): CommandFacts {
@@ -292,74 +254,6 @@ function commandAfterOptions(
 		index += optionsWithValue.has(option) && !value.includes("=") ? 2 : 1;
 	}
 	return { program: commandBasename(args[index]), args: args.slice(index + 1) };
-}
-
-function isPackageManagement(program: string, args: Array<string | undefined>): boolean {
-	if (program === "pacman") {
-		return args.some((argument) => argument !== undefined && /^-[^-]*[SRU]/u.test(argument));
-	}
-	if (program === "uv") return args.some((argument) => argument !== undefined && PACKAGE_ACTIONS.has(argument));
-	if (program === "go") return args[0] === "install";
-	if (!PACKAGE_MANAGERS.has(program)) return false;
-	return args.some((argument) => argument !== undefined && PACKAGE_ACTIONS.has(argument));
-}
-
-function isPublishing(program: string, args: Array<string | undefined>): boolean {
-	if (program === "git") return gitSubcommand(args) === "push";
-	if (program === "gh") {
-		const command = commandAfterOptions(args, GH_OPTIONS_WITH_VALUE);
-		return command.program === "release" && GH_RELEASE_ACTIONS.has(command.args[0] ?? "");
-	}
-	if (program === "twine") return args[0] === "upload";
-	if (program === "docker") return commandAfterOptions(args, DOCKER_OPTIONS_WITH_VALUE).program === "push";
-	return (program === "npm" || program === "pnpm" || program === "yarn" || program === "cargo") && args[0] === "publish";
-}
-
-function isDestructive(program: string, args: Array<string | undefined>): boolean {
-	if (program === "rmdir") return true;
-	if (program === "rm") {
-		const flags = args.filter((argument): argument is string => argument?.startsWith("-") === true).join("");
-		return flags.includes("r") && flags.includes("f");
-	}
-	if (program === "git") {
-		const subcommand = gitSubcommand(args);
-		return (subcommand === "clean" && args.some((argument) => argument?.startsWith("-") === true && argument.includes("f")))
-			|| (subcommand === "reset" && args.includes("--hard"));
-	}
-	if (program !== "docker") return false;
-	const command = commandAfterOptions(args, DOCKER_OPTIONS_WITH_VALUE);
-	return command.program === "system" && command.args[0] === "prune";
-}
-
-function gitSubcommand(args: Array<string | undefined>): string | undefined {
-	for (let index = 0; index < args.length; index += 1) {
-		const value = args[index];
-		if (value === undefined) return undefined;
-		if (value === "-C" || value === "-c" || value === "--git-dir" || value === "--work-tree" || value === "--namespace") {
-			index += 1;
-			continue;
-		}
-		if (value.startsWith("-")) continue;
-		return value;
-	}
-	return undefined;
-}
-
-function isExternalSideEffect(program: string, args: Array<string | undefined>): boolean {
-	if (program === "kubectl") {
-		const command = commandAfterOptions(args, KUBECTL_OPTIONS_WITH_VALUE).program;
-		return command === "apply" || command === "delete";
-	}
-	if (program === "terraform") {
-		const command = commandAfterOptions(args, NO_OPTIONS_WITH_VALUE).program;
-		return command === "apply" || command === "destroy";
-	}
-	if (program !== "docker") return false;
-	const command = commandAfterOptions(args, DOCKER_OPTIONS_WITH_VALUE);
-	return command.program === "rm"
-		|| command.program === "prune"
-		|| (command.program === "system" && command.args[0] === "prune")
-		|| (command.program === "container" && command.args[0] === "rm");
 }
 
 function shellScript(facts: CommandFacts): string | undefined {
@@ -500,10 +394,6 @@ function commandBasename(value: string | undefined): string | undefined {
 	if (value === undefined || value.length === 0) return undefined;
 	const normalized = value.replace(/\\/g, "/");
 	return normalized.slice(normalized.lastIndexOf("/") + 1);
-}
-
-function addEffect(effects: ApprovalEffect[], effect: ApprovalEffect): void {
-	if (!effects.includes(effect)) effects.push(effect);
 }
 
 function pushUnit(units: ApprovalUnit[], unit: ApprovalUnit): void {

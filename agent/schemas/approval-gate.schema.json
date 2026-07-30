@@ -64,25 +64,6 @@
 					"items": { "type": "string", "minLength": 1 }
 				},
 				"command_regex": { "type": "string", "minLength": 1 },
-				"effects": {
-					"type": "array",
-					"items": {
-						"enum": [
-							"read",
-							"write",
-							"delete",
-							"execute",
-							"network",
-							"install",
-							"publish",
-							"system_change",
-							"external_side_effect",
-							"destructive",
-							"unknown_side_effect"
-						]
-					},
-					"uniqueItems": true
-				},
 				"reason": { "type": "string", "minLength": 1 }
 			}
 		}

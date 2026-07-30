@@ -1,68 +1,93 @@
 {
 	"$schema": "../schemas/approval-gate.schema.json",
 	"enabled": true,
-
 	"ui": {
 		"timeout_ms": 0,
 		"non_interactive": "block"
 	},
-
 	"remember": {
 		"allow_session": true,
 		"allow_persistent": true,
 		"persistent_store": "~/.pi/agent/state/approval-gate.rules.jsonc"
 	},
-
 	"defaults": {
 		"bash": "allow",
 		"write": "allow",
 		"edit": "allow"
 	},
-
 	"ask_rules": [
 		{
 			"name": "system-path-write",
-			"tools": ["bash", "write", "edit"],
-			"path_globs": ["/etc/**", "/usr/**", "/bin/**", "/sbin/**", "/System/**", "/Library/**", "/var/**"],
+			"tools": [
+				"bash",
+				"write",
+				"edit"
+			],
+			"path_globs": [
+				"/etc/**",
+				"/usr/**",
+				"/bin/**",
+				"/sbin/**",
+				"/System/**",
+				"/Library/**",
+				"/var/**"
+			],
 			"reason": "system path modification"
 		},
 		{
 			"name": "destructive-bash",
-			"tools": ["bash"],
-			"effects": ["destructive"],
+			"tools": [
+				"bash"
+			],
+			// 命中示例：rm -rf build、git reset --hard HEAD、git clean -fd、docker system prune。
+			"command_regex": "^(?:rmdir\\b|rm\\b(?=.*\\s-[^\\s]*[rR])(?=.*\\s-[^\\s]*f)|git\\b.*(?:\\bclean\\b.*\\s-[^\\s]*f|\\breset\\b.*\\s--hard(?:\\s|$))|docker\\b.*\\bsystem\\s+prune(?:\\s|$))",
 			"reason": "destructive command"
 		},
 		{
 			"name": "package-management",
-			"tools": ["bash"],
-			"effects": ["install"],
+			"tools": [
+				"bash"
+			],
+			// 命中示例：npm install lodash、uv tool install ruff、go install example.com/tool@latest、pacman -Syu。
+			"command_regex": "^(?:(?:apt|apt-get|brew|cargo|dnf|gem|npm|pip|pip3|pnpm|uv|yarn|yum)\\b.*\\s(?:add|ci|dist-upgrade|full-upgrade|i|install|remove|rm|uninstall|update|upgrade)(?:\\s|$)|go\\s+install(?:\\s|$)|pacman\\b.*\\s-[^-\\s]*[SRU][^\\s]*)",
 			"reason": "package management"
 		},
 		{
 			"name": "external-publish",
-			"tools": ["bash"],
-			"effects": ["publish"],
+			"tools": [
+				"bash"
+			],
+			// 命中示例：git push origin main、gh release create v1.0.0、docker push example/app:latest、npm publish。
+			"command_regex": "^(?:git\\b(?:(?:\\s+(?:-C|-c|--git-dir|--work-tree|--namespace)\\s+\\S+)|(?:\\s+-\\S+))*\\s+push(?:\\s|$)|gh\\b(?:(?:\\s+(?:-R|--hostname|--repo)\\s+\\S+)|(?:\\s+-\\S+))*\\s+release\\s+(?:create|delete|edit|upload)(?:\\s|$)|twine\\s+upload(?:\\s|$)|docker\\b(?:(?:\\s+(?:-H|--config|--context|--host|--log-level)\\s+\\S+)|(?:\\s+-\\S+))*\\s+push(?:\\s|$)|(?:npm|pnpm|yarn|cargo)\\s+publish(?:\\s|$))",
 			"reason": "external publishing"
 		},
 		{
 			"name": "service-management",
-			"tools": ["bash"],
-			"effects": ["system_change"],
+			"tools": [
+				"bash"
+			],
+			// 命中示例：sudo npm install lodash、systemctl restart nginx、service nginx restart、launchctl unload service.plist。
+			"command_regex": "^(?:sudo|systemctl|service|launchctl)(?:\\s|$)",
 			"reason": "system-level command"
 		},
 		{
 			"name": "infra-side-effect",
-			"tools": ["bash"],
-			"effects": ["external_side_effect"],
+			"tools": [
+				"bash"
+			],
+			// 命中示例：kubectl apply -f deploy.yaml、terraform destroy、docker rm container-id、docker container rm container-id。
+			"command_regex": "^(?:kubectl\\b(?:(?:\\s+(?:-n|--cluster|--context|--kubeconfig|--namespace|--user)\\s+\\S+)|(?:\\s+-\\S+))*\\s+(?:apply|delete)(?:\\s|$)|terraform\\b(?:\\s+-\\S+)*\\s+(?:apply|destroy)(?:\\s|$)|docker\\b(?:(?:\\s+(?:-H|--config|--context|--host|--log-level)\\s+\\S+)|(?:\\s+-\\S+))*\\s+(?:rm|prune|system\\s+prune|container\\s+rm)(?:\\s|$))",
 			"reason": "infrastructure side effect"
 		},
 		{
-			"name": "opaque-shell-effect",
-			"tools": ["bash"],
-			"effects": ["unknown_side_effect"],
-			"reason": "dynamic or unparsable shell side effect"
+			"name": "opaque-shell-input",
+			"tools": [
+				"bash"
+			],
+			// 命中示例：eval "$SCRIPT"、"$COMMAND" arg、bash -c "$SCRIPT"、echo "unterminated。
+			"command_regex": "^(?:<opaque>|<dynamic>(?:\\s|$)|eval(?:\\s|$)|(?:bash|dash|ksh|sh|zsh)\\b.*\\s-[^\\s]*c[^\\s]*\\s+<dynamic>(?:\\s|$))",
+			"reason": "dynamic or unparsable shell input"
 		}
 	],
-
 	"deny_rules": []
 }

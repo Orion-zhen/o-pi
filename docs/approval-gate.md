@@ -41,7 +41,7 @@ Gate 不再把整段 shell 文本当成一个批准目标，而是提取：
 
 策略逐单元执行，但一次工具调用只显示一个聚合审批框。显式 `deny_rules` 先于 remembered allow；任何单元被 deny 都会阻止整次原始命令。未被记忆规则覆盖且需要确认的单元会一起显示，批准后仍执行原始完整命令。
 
-语法错误、grammar/runtime 不可用、分析超时、嵌套过深或单元过多时，Gate 把整段输入降级为 `unknown_side_effect` 的 opaque 单元并要求确认。动态命令名和无法静态解析的 `shell -c` 也使用 `unknown_side_effect`。动态写重定向无法生成安全规则时只提供一次性批准。
+语法错误、grammar/runtime 不可用、分析超时、嵌套过深或单元过多时，Gate 把整段输入降级为不可持久化的 opaque 单元；其策略匹配视图以 `<opaque>` 开头。动态命令名使用 `<dynamic>` 占位，无法静态解析的 `shell -c` 也不可持久化。动态写重定向无法生成安全规则时只提供一次性批准。
 
 ## 默认会询问
 
@@ -83,13 +83,27 @@ Gate 不再把整段 shell 文本当成一个批准目标，而是提取：
 {
 	"name": "external-publish",
 	"tools": ["bash"],
-	"command_regex": "\\b(git\\s+push|npm\\s+publish)\\b",
-	"effects": ["publish"],
+	"command_regex": "^(?:git\\b.*\\spush|npm\\s+publish)\\b",
 	"reason": "external publishing"
 }
 ```
 
-`tools` 必须匹配；`path_globs`、`command_regex`、`effects` 写了就必须匹配。没有写这些 matcher 时，只按工具名匹配。对 Bash，matcher 应用于单个 AST 审批单元，而不是整段复合命令；`command_regex` 使用移除嵌套 substitution 影响后的命令视图，默认规则优先匹配结构化 `effects`。
+路径规则示例：
+
+```jsonc
+{
+	"name": "system-path-write",
+	"tools": ["bash", "write", "edit"],
+	"path_globs": ["/etc/**", "/usr/**", "/System/**"],
+	"reason": "system path modification"
+}
+```
+
+`path_globs` 只匹配路径审批单元，包括 `write`、`edit` 和 Bash 中可静态解析的文件写重定向。目标在匹配前会转换为使用 `/` 的绝对路径，因此 pattern 也应覆盖绝对路径；若不限定根目录，可使用 `**/name/**`。数组中任意一个 glob 命中即视为匹配。glob 由 `picomatch` 解释：`*` 匹配单个路径段内的字符，`**` 可以跨路径段，隐藏路径也参与匹配，开头的 `!` 按普通字符处理而不是排除规则。
+
+`path_globs` 不解析普通命令参数；例如 `rm /etc/file` 是命令单元，应使用 `command_regex`。不要在同一条规则中同时配置 `path_globs` 和 `command_regex`：matcher 之间是 AND 关系，而单个审批单元只会是路径或命令中的一种，因此这样的规则无法命中。
+
+`tools` 必须匹配；`path_globs`、`command_regex` 写了就必须匹配。没有写 matcher 时，只按工具名匹配。对 Bash，`command_regex` 应用于单个 AST 审批单元，而不是整段复合命令；它会依次检查直接命令视图和移除 `env`、`command` 等透明 wrapper 后的视图。默认敏感命令只在 `command_regex` 中维护，不存在独立的命令语义分类表。
 
 ## 用户选择
 

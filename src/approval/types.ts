@@ -20,19 +20,6 @@ export interface ApprovalTelemetry {
 
 export type ApprovalTelemetryObserver = (toolCallId: string, toolName: string, approval: ApprovalTelemetry) => void;
 
-export type ApprovalEffect =
-	| "read"
-	| "write"
-	| "delete"
-	| "execute"
-	| "network"
-	| "install"
-	| "publish"
-	| "system_change"
-	| "external_side_effect"
-	| "destructive"
-	| "unknown_side_effect";
-
 export interface ApprovalTarget {
 	kind: "path" | "command" | "url" | "package" | "service" | "other";
 	/** 用于展示和精确批准匹配的规范值。 */
@@ -46,7 +33,6 @@ export interface ApprovalTarget {
 export interface ApprovalUnit {
 	action: string;
 	target: ApprovalTarget;
-	effects: ApprovalEffect[];
 	remember: {
 		session: boolean;
 		persistent: boolean;
@@ -78,7 +64,6 @@ export interface ApprovalRule {
 	tools: string[];
 	path_globs?: string[];
 	command_regex?: string;
-	effects?: ApprovalEffect[];
 	reason: string;
 }
 

@@ -38,7 +38,7 @@ describe("approval policy", () => {
 
 	it("deny_rules 命中时 deny", async () => {
 		const config = configWith({
-			deny_rules: [{ name: "no-push", tools: ["bash"], effects: ["publish"], reason: "no pushing" }],
+			deny_rules: [{ name: "no-push", tools: ["bash"], command_regex: "^git\\s+push\\b", reason: "no pushing" }],
 		});
 		expect(evaluateApproval(await bashRequest("git push origin main"), config, store())).toEqual({
 			kind: "deny",
@@ -68,7 +68,7 @@ describe("approval policy", () => {
 			cwd: request.cwd,
 		}]);
 		const config = configWith({
-			deny_rules: [{ name: "no-push", tools: ["bash"], effects: ["publish"], reason: "no pushing" }],
+			deny_rules: [{ name: "no-push", tools: ["bash"], command_regex: "^git\\s+push\\b", reason: "no pushing" }],
 		});
 		expect(evaluateApproval(request, config, approvalStore)).toMatchObject({ kind: "deny", rule_name: "no-push" });
 	});
@@ -105,9 +105,68 @@ describe("approval policy", () => {
 		expect(evaluateApproval(request, defaultApprovalGateConfig(), reloaded)).toEqual({ kind: "allow" });
 	});
 
-	it("默认未命中时 allow", async () => {
-		expect(evaluateApproval(await bashRequest("echo hello"), defaultApprovalGateConfig(), store())).toEqual({ kind: "allow" });
-		expect(evaluateApproval(await bashRequest(`echo "git push origin main"`), defaultApprovalGateConfig(), store())).toEqual({ kind: "allow" });
+	it.each([
+		"echo hello",
+		`echo "git push origin main"`,
+		"gh release view v1.0.0",
+		"npm test",
+		"rm -r build",
+		"git clean -d",
+		"docker ps",
+		"kubectl get pods",
+		"terraform plan",
+		`bash -c "echo ready"`,
+	])("默认 command_regex 不匹配 %s", async (command) => {
+		expect(evaluateApproval(await bashRequest(command), defaultApprovalGateConfig(), store())).toEqual({ kind: "allow" });
+	});
+
+	it.each([
+		["git push origin main", "external publishing"],
+		["git -C repo push origin main", "external publishing"],
+		["gh -R owner/repo release create v1.0.0", "external publishing"],
+		["twine upload dist/*", "external publishing"],
+		["docker --context remote push example/app:latest", "external publishing"],
+		["npm publish", "external publishing"],
+		["pnpm publish", "external publishing"],
+		["yarn publish", "external publishing"],
+		["cargo publish", "external publishing"],
+		["sudo systemctl restart nginx", "system-level command"],
+		["sudo -u root npm install lodash", "system-level command"],
+		["systemctl restart nginx", "system-level command"],
+		["service nginx restart", "system-level command"],
+		["launchctl unload service.plist", "system-level command"],
+		["env -u NODE_ENV npm install lodash", "package management"],
+		["command pnpm add lodash", "package management"],
+		["npm install lodash", "package management"],
+		["pip uninstall package", "package management"],
+		["uv tool install ruff", "package management"],
+		["cargo install ripgrep", "package management"],
+		["brew upgrade package", "package management"],
+		["apt-get remove package", "package management"],
+		["dnf update package", "package management"],
+		["yum install package", "package management"],
+		["go install example.com/tool@latest", "package management"],
+		["pacman -Syu", "package management"],
+		["rm -r -f build", "destructive command"],
+		["rmdir empty-dir", "destructive command"],
+		["git reset --hard HEAD", "destructive command"],
+		["git clean -fd", "destructive command"],
+		["docker system prune", "destructive command"],
+		["kubectl apply -f deploy.yaml", "infrastructure side effect"],
+		["kubectl -n production apply -f deploy.yaml", "infrastructure side effect"],
+		["terraform destroy -auto-approve", "infrastructure side effect"],
+		["docker --context remote rm container-id", "infrastructure side effect"],
+		["docker container rm container-id", "infrastructure side effect"],
+		["docker prune", "infrastructure side effect"],
+		["eval $SCRIPT", "dynamic or unparsable shell input"],
+		[`"$COMMAND" arg`, "dynamic or unparsable shell input"],
+		[`bash -c "$SCRIPT"`, "dynamic or unparsable shell input"],
+		[`echo "unterminated`, "dynamic or unparsable shell input"],
+	] as const)("默认 command_regex 匹配 %s", async (command, reason) => {
+		expect(evaluateApproval(await bashRequest(command), defaultApprovalGateConfig(), store())).toMatchObject({
+			kind: "ask",
+			reason,
+		});
 	});
 
 	it("非法 regex 在配置加载阶段报错", async () => {
@@ -115,6 +174,13 @@ describe("approval policy", () => {
 		process.env.PI_APPROVAL_GATE_CONFIG = configPath;
 		await writeFile(configPath, '{ "ask_rules": [{ "name": "bad", "tools": ["bash"], "command_regex": "(", "reason": "bad" }] }');
 		await expect(loadApprovalGateConfig()).rejects.toThrow("invalid regular expression");
+	});
+
+	it("effects 不再是合法规则字段", async () => {
+		const configPath = path.join(dir, "approval.jsonc");
+		process.env.PI_APPROVAL_GATE_CONFIG = configPath;
+		await writeFile(configPath, '{ "ask_rules": [{ "name": "legacy", "tools": ["bash"], "effects": ["publish"], "reason": "legacy" }] }');
+		await expect(loadApprovalGateConfig()).rejects.toThrow("config does not match schema");
 	});
 });
 
