@@ -1,9 +1,10 @@
 import type { SyntaxNode } from "./adapters/types.js";
 import type { AnalysisControl, ParseFailure, ParseFailureCode } from "../syntax-tree/types.js";
+import type { TreeSitterLanguage } from "../syntax-tree/grammars.js";
 
 export type { AnalysisControl, ParseFailure, ParseFailureCode };
 
-export type SupportedCodeLanguage = "javascript" | "jsx" | "typescript" | "tsx" | "python" | "go" | "rust" | "c" | "cpp";
+export type SupportedCodeLanguage = TreeSitterLanguage;
 export type CodeLanguage = SupportedCodeLanguage | "text";
 export type ImportKind = "relative" | "external";
 

@@ -2,13 +2,14 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import picomatch from "picomatch";
+
 import { expandHomePath, isNotFound } from "../config-loader.js";
-import type { ApprovalAllowRule, ApprovalRequest, PersistentApprovalRulesFile } from "./types.js";
+import type { ApprovalAllowRule, ApprovalRequest, ApprovalUnit, PersistentApprovalRulesFile } from "./types.js";
 
 export interface ApprovalStore {
-	matchesAllowRule(request: ApprovalRequest): boolean;
-	addSessionAllowRule(rule: ApprovalAllowRule): void;
-	addPersistentAllowRule(rule: ApprovalAllowRule): Promise<void>;
+	matchesAllowRule(request: ApprovalRequest, unit: ApprovalUnit): boolean;
+	addSessionAllowRules(rules: readonly ApprovalAllowRule[]): void;
+	addPersistentAllowRules(rules: readonly ApprovalAllowRule[]): Promise<void>;
 	loadPersistentRules(): Promise<void>;
 }
 
@@ -22,20 +23,29 @@ export class ApprovalStoreError extends Error {
 export class FileApprovalStore implements ApprovalStore {
 	private readonly sessionRules: ApprovalAllowRule[] = [];
 	private persistentRules: ApprovalAllowRule[] = [];
+	private persistentMutation: Promise<void> = Promise.resolve();
 
 	constructor(private readonly persistentStorePath: string) {}
 
-	matchesAllowRule(request: ApprovalRequest): boolean {
-		return [...this.sessionRules, ...this.persistentRules].some((rule) => allowRuleMatches(rule, request));
+	matchesAllowRule(request: ApprovalRequest, unit: ApprovalUnit): boolean {
+		return this.sessionRules.some((rule) => allowRuleMatches(rule, request, unit))
+			|| this.persistentRules.some((rule) => allowRuleMatches(rule, request, unit));
 	}
 
-	addSessionAllowRule(rule: ApprovalAllowRule): void {
-		this.sessionRules.push(rule);
+	addSessionAllowRules(rules: readonly ApprovalAllowRule[]): void {
+		this.sessionRules.push(...rules);
+		dedupeRulesInPlace(this.sessionRules);
 	}
 
-	async addPersistentAllowRule(rule: ApprovalAllowRule): Promise<void> {
-		this.persistentRules.push(rule);
-		await this.writePersistentRules();
+	async addPersistentAllowRules(rules: readonly ApprovalAllowRule[]): Promise<void> {
+		if (rules.length === 0) return;
+		const mutation = this.persistentMutation.then(async () => {
+			const next = dedupeRules([...this.persistentRules, ...rules]);
+			await this.writePersistentRules(next);
+			this.persistentRules = next;
+		});
+		this.persistentMutation = mutation.catch(() => {});
+		await mutation;
 	}
 
 	async loadPersistentRules(): Promise<void> {
@@ -64,79 +74,93 @@ export class FileApprovalStore implements ApprovalStore {
 		this.persistentRules = parsePersistentRules(parsed, filePath);
 	}
 
-	private async writePersistentRules(): Promise<void> {
+	private async writePersistentRules(rules: ApprovalAllowRule[]): Promise<void> {
 		const filePath = expandHomePath(this.persistentStorePath);
 		await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
-		const file: PersistentApprovalRulesFile = {
-			version: 1,
-			rules: dedupeRules(this.persistentRules),
-		};
-		this.persistentRules = file.rules;
+		const file: PersistentApprovalRulesFile = { version: 1, rules };
 		await writeFile(filePath, `${JSON.stringify(file, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
 	}
 }
 
-export function createExactAllowRule(request: ApprovalRequest): ApprovalAllowRule | undefined {
-	const created_at = new Date().toISOString();
-	if (request.tool === "bash") {
-		const command = request.targets.find((target) => target.kind === "command")?.value;
-		return command === undefined ? undefined : { created_at, tool: "bash", kind: "exact_command", value: command };
-	}
-	if (request.tool === "write" || request.tool === "edit") {
-		const targetPath = request.targets.find((target) => target.kind === "path")?.value;
-		return targetPath === undefined ? undefined : { created_at, tool: request.tool, kind: "exact_path", value: normalizePath(targetPath) };
-	}
-	return undefined;
+export function createExactAllowRules(request: ApprovalRequest, units: readonly ApprovalUnit[]): ApprovalAllowRule[] {
+	const createdAt = new Date().toISOString();
+	return dedupeRules(units.flatMap((unit) => {
+		if (!unit.remember.session) return [];
+		return allowRuleForTarget(request, unit, createdAt, "exact");
+	}));
 }
 
-export function createSimilarAllowRule(request: ApprovalRequest): ApprovalAllowRule | undefined {
-	const created_at = new Date().toISOString();
-	if (request.tool === "bash") {
-		const command = request.targets.find((target) => target.kind === "command")?.value;
-		if (command === undefined) return undefined;
-		const prefix = commandPrefix(command);
-		return prefix === undefined ? { created_at, tool: "bash", kind: "exact_command", value: command } : { created_at, tool: "bash", kind: "command_prefix", value: prefix };
-	}
-	if (request.tool === "write" || request.tool === "edit") {
-		const targetPath = request.targets.find((target) => target.kind === "path")?.value;
-		if (targetPath === undefined) return undefined;
-		const glob = conservativePathGlob(targetPath);
-		return glob === undefined
-			? { created_at, tool: request.tool, kind: "exact_path", value: normalizePath(targetPath) }
-			: { created_at, tool: request.tool, kind: "path_glob", value: glob };
-	}
-	return undefined;
+export function createSimilarAllowRules(request: ApprovalRequest, units: readonly ApprovalUnit[]): ApprovalAllowRule[] {
+	const createdAt = new Date().toISOString();
+	return dedupeRules(units.flatMap((unit) => {
+		if (!unit.remember.persistent) return [];
+		return allowRuleForTarget(request, unit, createdAt, "similar");
+	}));
 }
 
-export function describeAllowRule(rule: ApprovalAllowRule): string {
-	if (rule.kind === "command_prefix") return `${rule.tool} commands starting with: ${rule.value}`;
-	if (rule.kind === "exact_command") return `${rule.tool} command: ${rule.value}`;
+export function describeAllowRules(rules: readonly ApprovalAllowRule[]): string {
+	return rules.map(describeAllowRule).join("; ");
+}
+
+function describeAllowRule(rule: ApprovalAllowRule): string {
+	const scope = rule.cwd === undefined ? "" : ` in ${rule.cwd}`;
+	if (rule.kind === "command_prefix") return `${rule.tool} commands starting with: ${rule.value}${scope}`;
+	if (rule.kind === "exact_command") return `${rule.tool} command: ${rule.value}${scope}`;
 	if (rule.kind === "path_glob") return `${rule.tool} paths matching: ${rule.value}`;
 	return `${rule.tool} path: ${rule.value}`;
 }
 
-export function allowRuleMatches(rule: ApprovalAllowRule, request: ApprovalRequest): boolean {
+export function allowRuleMatches(rule: ApprovalAllowRule, request: ApprovalRequest, unit: ApprovalUnit): boolean {
 	if (rule.tool !== request.tool) return false;
+	if (rule.cwd !== undefined && normalizePath(rule.cwd) !== normalizePath(request.cwd)) return false;
 	if (rule.kind === "exact_command") {
-		const command = request.targets.find((target) => target.kind === "command")?.value;
-		return command === rule.value;
+		return unit.target.kind === "command" && unit.target.value === rule.value;
 	}
 	if (rule.kind === "command_prefix") {
-		const command = request.targets.find((target) => target.kind === "command")?.value;
-		return command !== undefined && (command === rule.value || command.startsWith(`${rule.value} `));
+		if (unit.target.kind !== "command") return false;
+		const command = unit.target.similar_value ?? unit.target.match_value ?? unit.target.value;
+		return command === rule.value || command.startsWith(`${rule.value} `);
 	}
-	const targetPath = request.targets.find((target) => target.kind === "path")?.value;
-	if (targetPath === undefined) return false;
-	const normalizedTarget = normalizePath(targetPath);
+	if (unit.target.kind !== "path") return false;
+	const normalizedTarget = normalizePath(unit.target.value);
 	if (rule.kind === "exact_path") return normalizedTarget === normalizePath(rule.value);
 	return picomatch(normalizePath(rule.value), { dot: true, nonegate: true })(normalizedTarget);
+}
+
+function allowRuleForTarget(
+	request: ApprovalRequest,
+	unit: ApprovalUnit,
+	createdAt: string,
+	mode: "exact" | "similar",
+): ApprovalAllowRule[] {
+	if (unit.target.kind === "command") {
+		const prefix = mode === "similar"
+			? commandPrefix(unit.target.similar_value ?? unit.target.match_value ?? unit.target.value)
+			: undefined;
+		return [{
+			created_at: createdAt,
+			tool: request.tool,
+			kind: prefix === undefined ? "exact_command" : "command_prefix",
+			value: prefix ?? unit.target.value,
+			cwd: request.cwd,
+		}];
+	}
+	if (unit.target.kind !== "path") return [];
+	const normalized = normalizePath(unit.target.value);
+	const glob = mode === "similar" ? conservativePathGlob(normalized) : undefined;
+	return [{
+		created_at: createdAt,
+		tool: request.tool,
+		kind: glob === undefined ? "exact_path" : "path_glob",
+		value: glob ?? normalized,
+	}];
 }
 
 function parsePersistentRules(value: unknown, filePath: string): ApprovalAllowRule[] {
 	if (typeof value !== "object" || value === null || !("version" in value) || value.version !== 1 || !("rules" in value) || !Array.isArray(value.rules)) {
 		throw new ApprovalStoreError("approval persistent rules have invalid shape.", { path: filePath });
 	}
-	return value.rules.filter(isApprovalAllowRule);
+	return dedupeRules(value.rules.filter(isApprovalAllowRule));
 }
 
 function isApprovalAllowRule(value: unknown): value is ApprovalAllowRule {
@@ -146,15 +170,21 @@ function isApprovalAllowRule(value: unknown): value is ApprovalAllowRule {
 		typeof candidate.created_at === "string" &&
 		typeof candidate.tool === "string" &&
 		typeof candidate.value === "string" &&
+		(candidate.cwd === undefined || typeof candidate.cwd === "string") &&
 		(candidate.kind === "exact_command" || candidate.kind === "command_prefix" || candidate.kind === "exact_path" || candidate.kind === "path_glob")
 	);
 }
 
-function dedupeRules(rules: ApprovalAllowRule[]): ApprovalAllowRule[] {
+function dedupeRulesInPlace(rules: ApprovalAllowRule[]): void {
+	const deduped = dedupeRules(rules);
+	rules.splice(0, rules.length, ...deduped);
+}
+
+function dedupeRules(rules: readonly ApprovalAllowRule[]): ApprovalAllowRule[] {
 	const seen = new Set<string>();
 	const result: ApprovalAllowRule[] = [];
 	for (const rule of rules) {
-		const key = `${rule.tool}\0${rule.kind}\0${rule.value}`;
+		const key = `${rule.tool}\0${rule.kind}\0${rule.value}\0${rule.cwd ?? ""}`;
 		if (seen.has(key)) continue;
 		seen.add(key);
 		result.push(rule);
@@ -163,7 +193,19 @@ function dedupeRules(rules: ApprovalAllowRule[]): ApprovalAllowRule[] {
 }
 
 function commandPrefix(command: string): string | undefined {
-	for (const prefix of ["npm install", "pnpm install", "pip install", "uv pip install", "brew install", "git commit", "git push"]) {
+	for (const prefix of [
+		"npm install",
+		"npm i",
+		"pnpm install",
+		"pnpm add",
+		"yarn add",
+		"pip install",
+		"pip3 install",
+		"uv pip install",
+		"brew install",
+		"cargo install",
+		"go install",
+	]) {
 		if (command === prefix || command.startsWith(`${prefix} `)) return prefix;
 	}
 	return undefined;

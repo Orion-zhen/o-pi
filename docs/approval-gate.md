@@ -7,6 +7,7 @@
 ```text
 tool_call hook
 optional safety precheck
+Tree-sitter Bash parsing
 approval policy
 approval UI
 execute or block
@@ -27,13 +28,30 @@ Safety guardrail 负责硬性拒绝明显危险操作，例如 bash deny pattern
 
 这些 precheck 只用于避免询问必然会被工具拒绝的请求；最终安全边界仍在原工具内部。
 
+## Bash 解析与审批单元
+
+`bash` 输入通过共享语法解析层中的 `tree-sitter-bash` WASM grammar 解析。C、C++、Go、JavaScript/JSX、TypeScript/TSX、Python、Rust 和 Bash 共用同一套 `web-tree-sitter` runtime、语言 catalog 与 parser cache；同一 Bash 注册项也让 code-index 自动识别并解析 `.sh` 文件。
+
+Gate 不再把整段 shell 文本当成一个批准目标，而是提取：
+
+- pipeline、`&&`、`||`、`;` 等结构中的简单命令。
+- command substitution、process substitution 中的嵌套命令。
+- 字面量 `bash` / `sh` / `zsh` 等 `-c` 参数中的子脚本。
+- `>`、`>>`、`>|`、`&>`、`&>>` 等文件写重定向；`2>&1` 这类 fd duplication 不算文件写入。
+
+策略逐单元执行，但一次工具调用只显示一个聚合审批框。显式 `deny_rules` 先于 remembered allow；任何单元被 deny 都会阻止整次原始命令。未被记忆规则覆盖且需要确认的单元会一起显示，批准后仍执行原始完整命令。
+
+语法错误、grammar/runtime 不可用、分析超时、嵌套过深或单元过多时，Gate 把整段输入降级为 `unknown_side_effect` 的 opaque 单元并要求确认。动态命令名和无法静态解析的 `shell -c` 也使用 `unknown_side_effect`。动态写重定向无法生成安全规则时只提供一次性批准。
+
 ## 默认会询问
 
-- `git push`、`npm publish`、`gh release`、`twine upload`。
+- `git push`、`npm publish`、会修改 release 的 `gh release` 子命令、`twine upload`。
 - `npm/pnpm/pip/uv/cargo/brew/apt/dnf/yum/pacman install/remove/update/upgrade`。
 - `sudo`、`systemctl`、`service`、`launchctl`。
 - `rm -rf`、`git reset --hard`、`git clean -fd`、`docker system prune`。
 - `kubectl apply/delete`、`terraform apply/destroy`、部分 `docker rm/prune`。
+- 动态命令、动态 `shell -c` 和无法可靠解析的 shell 输入。
+- Bash 写重定向到明显系统路径。
 - `write` / `edit` 明显系统路径：`/etc/**`、`/usr/**`、`/bin/**`、`/sbin/**`、`/System/**`、`/Library/**`、`/var/**`。
 
 ## 默认不会询问
@@ -71,13 +89,13 @@ Safety guardrail 负责硬性拒绝明显危险操作，例如 bash deny pattern
 }
 ```
 
-`tools` 必须匹配；`path_globs`、`command_regex`、`effects` 写了就必须匹配。没有写这些 matcher 时，只按工具名匹配。
+`tools` 必须匹配；`path_globs`、`command_regex`、`effects` 写了就必须匹配。没有写这些 matcher 时，只按工具名匹配。对 Bash，matcher 应用于单个 AST 审批单元，而不是整段复合命令；`command_regex` 使用移除嵌套 substitution 影响后的命令视图，默认规则优先匹配结构化 `effects`。
 
 ## 用户选择
 
 - `Allow once`：只放行当前工具调用。
-- `Allow for session`：本会话记住当前精确命令或精确路径。
-- `Always allow similar`：写入持久规则。bash 默认优先生成保守前缀规则，例如 `git push`、`npm install`；其他命令用完整命令。文件路径只对明确目录生成窄 `path_glob`，否则用精确路径。
+- `Allow for session`：只记住本次实际触发确认的敏感子命令或路径，不记住普通 sibling。Bash 命令规则同时绑定当前 `cwd`。
+- `Always allow similar`：为每个敏感单元写入持久规则。只有明确的包安装命令生成保守前缀，例如 `npm install`；`git push` 等使用完整子命令，不生成宽前缀。文件路径只对明确目录生成窄 `path_glob`，否则使用精确路径。Bash 命令规则绑定创建时的 `cwd`。
 - `Deny`：拒绝当前工具调用，返回 `User denied this tool call.`。
 - `Deny with instruction`：拒绝并通过 reason 把用户指令返回给 agent：
 
@@ -87,6 +105,8 @@ User denied this tool call.
 Instruction from user:
 ...
 ```
+
+当某个敏感单元无法生成覆盖范围明确的规则时，相应 remembered 选项不会显示。持久规则文件仍为 version 1；新 Bash 命令规则带可选 `cwd` 字段，旧规则没有该字段时继续按全局规则读取。
 
 ## 非交互模式
 

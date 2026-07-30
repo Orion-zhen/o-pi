@@ -72,7 +72,8 @@ port 输入输出使用消费者需要的 DTO 和 opaque ref。所有调用都�
 - TUI renderer 只在 `session_start` 且 mode 为 `tui` 时加载，RPC 不加载；
 - LSP manager 只在实际 port 路径需要时加载；
 - mutation service/queue 在第一次 write/edit 时加载，readonly 调用不预热它；
-- Tree-sitter grammar 和 worker 只在 grep 索引路径实际需要时加载。
+- Tree-sitter 语言、扩展名和 WASM grammar 由共享 catalog 统一注册；code-index 自动为每个注册项建立 adapter，Bash `.sh` 与其他代码语言走同一发现和懒加载路径。
+- 代码 Tree-sitter grammar 和 grep worker 只在 grep 索引路径实际需要时加载；共享 runtime 也可由 Approval Gate 等扩展按自身 grammar 懒加载。
 
 ## Owner 与释放顺序
 

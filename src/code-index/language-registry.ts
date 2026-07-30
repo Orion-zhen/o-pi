@@ -6,19 +6,30 @@ import { pythonAdapter } from "./adapters/python.js";
 import { rustAdapter } from "./adapters/rust.js";
 import { tsxAdapter, typescriptAdapter } from "./adapters/typescript.js";
 import type { LanguageAdapter } from "./adapters/types.js";
+import { TREE_SITTER_LANGUAGES } from "../syntax-tree/grammars.js";
 import type { CodeLanguage, SupportedCodeLanguage } from "./types.js";
 
-export const LANGUAGE_ADAPTERS: readonly LanguageAdapter[] = [
-	javascriptAdapter,
-	jsxAdapter,
-	typescriptAdapter,
-	tsxAdapter,
-	pythonAdapter,
-	goAdapter,
-	rustAdapter,
-	cAdapter,
-	cppAdapter,
-];
+const specializedAdapters = new Map<SupportedCodeLanguage, LanguageAdapter>([
+	["c", cAdapter],
+	["cpp", cppAdapter],
+	["go", goAdapter],
+	["javascript", javascriptAdapter],
+	["jsx", jsxAdapter],
+	["python", pythonAdapter],
+	["rust", rustAdapter],
+	["tsx", tsxAdapter],
+	["typescript", typescriptAdapter],
+]);
+let bashAdapterPromise: Promise<LanguageAdapter> | undefined;
+
+/** 每个共享 catalog 注册项自动获得 code-index adapter；语义 adapter 按语言增强结果。 */
+export const LANGUAGE_ADAPTERS: readonly LanguageAdapter[] = TREE_SITTER_LANGUAGES.map(
+	(spec) => specializedAdapters.get(spec.language) ?? {
+		...spec,
+		extractUnits: (root, control) => specializedAdapters.get(spec.language)?.extractUnits(root, control) ?? [],
+		extractImports: (root, control) => specializedAdapters.get(spec.language)?.extractImports(root, control) ?? [],
+	},
+);
 
 export interface LanguageRegistry {
 	getLanguageAdapter(language: CodeLanguage): LanguageAdapter | undefined;
@@ -67,6 +78,22 @@ const registry = createLanguageRegistry(LANGUAGE_ADAPTERS);
 
 export function getLanguageAdapter(language: CodeLanguage): LanguageAdapter | undefined {
 	return registry.getLanguageAdapter(language);
+}
+
+/** 只在实际分析 Bash 文件时加载其语义提取器；其他语言不承担该模块的冷启动成本。 */
+export async function loadLanguageAdapter(language: CodeLanguage): Promise<LanguageAdapter | undefined> {
+	const adapter = getLanguageAdapter(language);
+	if (language !== "bash") return adapter;
+	bashAdapterPromise ??= import("./adapters/bash.js").then((module) => {
+		specializedAdapters.set("bash", module.bashAdapter);
+		return module.bashAdapter;
+	});
+	try {
+		return await bashAdapterPromise;
+	} catch {
+		bashAdapterPromise = undefined;
+		return adapter;
+	}
 }
 
 export function adapterFromPath(filePath: string): LanguageAdapter | undefined {

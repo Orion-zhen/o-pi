@@ -14,6 +14,7 @@ import {
 	loadTreeSitterParser,
 	loadTreeSitterRuntime,
 } from "../../src/syntax-tree/loader.js";
+import { TREE_SITTER_LANGUAGES } from "../../src/syntax-tree/grammars.js";
 import { parseDocument, parseDocumentForAdapter } from "../../src/code-index/syntax-tree.js";
 import type { LanguageAdapter } from "../../src/code-index/adapters/types.js";
 import { treeSitterModulePaths } from "../helpers/tree-sitter-dependencies.js";
@@ -25,13 +26,21 @@ afterAll(() => disposeTreeSitterParserCache());
 
 describe("code language registry", () => {
 	it("registers every supported language without loading grammar JavaScript modules", () => {
-		expect(registeredLanguageAdapters().map((adapter) => adapter.language)).toEqual([
-			"javascript", "jsx", "typescript", "tsx", "python", "go", "rust", "c", "cpp",
+		const languages = registeredLanguageAdapters().map((adapter) => adapter.language);
+		expect(languages).toEqual(TREE_SITTER_LANGUAGES.map((spec) => spec.language));
+		expect(languages).toEqual([
+			"javascript", "jsx", "typescript", "tsx", "python", "go", "rust", "c", "cpp", "bash",
 		]);
+		for (const [index, adapter] of registeredLanguageAdapters().entries()) {
+			const spec = TREE_SITTER_LANGUAGES[index];
+			expect(adapter.extensions).toBe(spec?.extensions);
+			expect(adapter.grammar).toBe(spec?.grammar);
+		}
 		for (const modulePath of grammarModules) expect(require.cache[modulePath]).toBeUndefined();
 	});
 
 	it.each([
+		["scripts/deploy.SH", "bash", ".sh"],
 		["src/feature.TS", "typescript", ".ts"],
 		["src/component.JSX", "jsx", ".jsx"],
 		["src/main.MJS", "javascript", ".mjs"],

@@ -1,6 +1,6 @@
 import { collectUnits, firstNamedChildText, nameField, rawImport, rawUnit, walkNamed, type UnitRules } from "./shared.js";
 import type { AnalysisControl } from "../types.js";
-import { TREE_SITTER_GRAMMARS } from "../../syntax-tree/grammars.js";
+import { getTreeSitterLanguage } from "../../syntax-tree/grammars.js";
 import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
 
 const GO_UNIT_KINDS = new Set(["function_declaration", "method_declaration", "type_spec", "var_spec", "const_spec"]);
@@ -82,9 +82,7 @@ function importSpec(node: SyntaxNode): RawImport | undefined {
 }
 
 export const goAdapter: LanguageAdapter = {
-	language: "go",
-	extensions: [".go"],
-	grammar: TREE_SITTER_GRAMMARS.go,
+	...getTreeSitterLanguage("go"),
 	extractUnits: (root, control) => collectUnits(root, goRules, control),
 	extractImports: extractGoImports,
 };

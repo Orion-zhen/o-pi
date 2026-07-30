@@ -1,6 +1,6 @@
 import { collectUnits, firstNamedChildText, nameField, rawImport, rawUnit, walkNamed, type UnitRules } from "./shared.js";
 import type { AnalysisControl } from "../types.js";
-import { TREE_SITTER_GRAMMARS } from "../../syntax-tree/grammars.js";
+import { getTreeSitterLanguage } from "../../syntax-tree/grammars.js";
 import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
 
 const TS_UNIT_KINDS = new Set([
@@ -95,17 +95,13 @@ function stringImport(node: SyntaxNode): RawImport | undefined {
 }
 
 export const javascriptAdapter: LanguageAdapter = {
-	language: "javascript",
-	extensions: [".js", ".mjs", ".cjs"],
-	grammar: TREE_SITTER_GRAMMARS.javascript,
+	...getTreeSitterLanguage("javascript"),
 	extractUnits: extractJavaScriptUnits,
 	extractImports: extractJavaScriptImports,
 };
 
 export const jsxAdapter: LanguageAdapter = {
-	language: "jsx",
-	extensions: [".jsx"],
-	grammar: TREE_SITTER_GRAMMARS.javascript,
+	...getTreeSitterLanguage("jsx"),
 	extractUnits: extractJavaScriptUnits,
 	extractImports: extractJavaScriptImports,
 };

@@ -8,7 +8,14 @@ import { loadApprovalGateConfig } from "./config.js";
 import { formatApprovalPrompt, formatDenyReason } from "./format.js";
 import { evaluateApproval } from "./policy.js";
 import { buildApprovalRequest } from "./request-builder.js";
-import { FileApprovalStore, createExactAllowRule, createSimilarAllowRule, describeAllowRule, type ApprovalStore } from "./store.js";
+import {
+	FileApprovalStore,
+	allowRuleMatches,
+	createExactAllowRules,
+	createSimilarAllowRules,
+	describeAllowRules,
+	type ApprovalStore,
+} from "./store.js";
 import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest, ApprovalTelemetryObserver } from "./types.js";
 
 const ALLOW_ONCE = "Allow once";
@@ -46,16 +53,16 @@ export function createApprovalGate(options: ApprovalGateOptions = {}): ApprovalG
 				return undefined;
 			}
 
-			const request = buildApprovalRequest(event, ctx.cwd);
-			if (request === undefined) {
-				observe({ decision: "allow", outcome: "not_required", wait_ms: 0 });
-				return undefined;
-			}
-
 			const safetyBlock = await precheckSafety(event, ctx.cwd);
 			if (safetyBlock !== undefined) {
 				observe({ decision: "deny", outcome: "safety_block", wait_ms: 0 });
 				return safetyBlock;
+			}
+
+			const request = await buildApprovalRequest(event, ctx.cwd);
+			if (request === undefined) {
+				observe({ decision: "allow", outcome: "not_required", wait_ms: 0 });
+				return undefined;
 			}
 
 			if (store === undefined || (options.store === undefined && loadedStorePath !== config.remember.persistent_store)) {
@@ -118,35 +125,39 @@ async function handleAskDecision(
 	telemetry: ApprovalTelemetryObserver | undefined,
 	notifyUser: WaitingNotifier,
 ): Promise<ToolCallEventResult | void> {
-	const options = approvalOptions(config);
+	const askedUnits = decision.items.map((item) => item.unit);
+	const exactRules = createExactAllowRules(request, askedUnits);
+	const similarRules = createSimilarAllowRules(request, askedUnits);
+	const options = approvalOptions(
+		config,
+		askedUnits.every((unit) => exactRules.some((rule) => allowRuleMatches(rule, request, unit))),
+		askedUnits.every((unit) => similarRules.some((rule) => allowRuleMatches(rule, request, unit))),
+	);
 	await notifyUserSafely(notifyUser);
 	const startedAt = Date.now();
 	const choice = await ctx.ui.select(formatApprovalPrompt(request, decision), options, dialogOptions(config));
+	const acceptedChoice = choice !== undefined && options.includes(choice) ? choice : undefined;
 	const selectionWaitMs = Math.max(0, Date.now() - startedAt);
-	if (choice === ALLOW_ONCE) {
+	if (acceptedChoice === ALLOW_ONCE) {
 		recordAsk(telemetry, toolCallId, toolName, "allow_once", selectionWaitMs, decision.rule_name);
 		return undefined;
 	}
-	if (choice === ALLOW_SESSION) {
-		const rule = createExactAllowRule(request);
-		if (rule !== undefined) store.addSessionAllowRule(rule);
+	if (acceptedChoice === ALLOW_SESSION) {
+		store.addSessionAllowRules(exactRules);
 		recordAsk(telemetry, toolCallId, toolName, "allow_session", selectionWaitMs, decision.rule_name);
 		return undefined;
 	}
-	if (choice === ALLOW_PERSISTENT) {
-		const rule = createSimilarAllowRule(request);
-		if (rule !== undefined) {
-			try {
-				await store.addPersistentAllowRule(rule);
-				ctx.ui.notify(`Approval rule saved: ${describeAllowRule(rule)}`, "info");
-			} catch (error) {
-				ctx.ui.notify(`Approval rule was not saved: ${error instanceof Error ? error.message : String(error)}`, "warning");
-			}
+	if (acceptedChoice === ALLOW_PERSISTENT) {
+		try {
+			await store.addPersistentAllowRules(similarRules);
+			ctx.ui.notify(`Approval rules saved: ${describeAllowRules(similarRules)}`, "info");
+		} catch (error) {
+			ctx.ui.notify(`Approval rules were not saved: ${error instanceof Error ? error.message : String(error)}`, "warning");
 		}
 		recordAsk(telemetry, toolCallId, toolName, "allow_persistent", selectionWaitMs, decision.rule_name);
 		return undefined;
 	}
-	if (choice === DENY_WITH_INSTRUCTION) {
+	if (acceptedChoice === DENY_WITH_INSTRUCTION) {
 		const instruction = await ctx.ui.input(
 			"Instruction for agent",
 			"Explain why this tool call was denied or what the agent should do instead.",
@@ -155,7 +166,7 @@ async function handleAskDecision(
 		recordAsk(telemetry, toolCallId, toolName, "deny_with_instruction", Math.max(0, Date.now() - startedAt), decision.rule_name);
 		return { block: true, reason: formatDenyReason(instruction) };
 	}
-	recordAsk(telemetry, toolCallId, toolName, choice === DENY ? "deny" : "dismissed", selectionWaitMs, decision.rule_name);
+	recordAsk(telemetry, toolCallId, toolName, acceptedChoice === DENY ? "deny" : "dismissed", selectionWaitMs, decision.rule_name);
 	return { block: true, reason: formatDenyReason(undefined) };
 }
 
@@ -196,10 +207,10 @@ function recordApproval(
 	}
 }
 
-function approvalOptions(config: ApprovalGateConfig): string[] {
+function approvalOptions(config: ApprovalGateConfig, canRememberSession: boolean, canRememberPersistent: boolean): string[] {
 	const options = [ALLOW_ONCE];
-	if (config.remember.allow_session) options.push(ALLOW_SESSION);
-	if (config.remember.allow_persistent) options.push(ALLOW_PERSISTENT);
+	if (config.remember.allow_session && canRememberSession) options.push(ALLOW_SESSION);
+	if (config.remember.allow_persistent && canRememberPersistent) options.push(ALLOW_PERSISTENT);
 	options.push(DENY, DENY_WITH_INSTRUCTION);
 	return options;
 }

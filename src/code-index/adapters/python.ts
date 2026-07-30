@@ -1,6 +1,6 @@
 import { collectUnits, nameField, rawImport, rawUnit, walkNamed, type UnitRules } from "./shared.js";
 import type { AnalysisControl } from "../types.js";
-import { TREE_SITTER_GRAMMARS } from "../../syntax-tree/grammars.js";
+import { getTreeSitterLanguage } from "../../syntax-tree/grammars.js";
 import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
 
 const PYTHON_UNIT_KINDS = new Set(["function_definition", "class_definition"]);
@@ -51,9 +51,7 @@ function extractPythonImports(root: SyntaxNode, control: AnalysisControl): RawIm
 }
 
 export const pythonAdapter: LanguageAdapter = {
-	language: "python",
-	extensions: [".py"],
-	grammar: TREE_SITTER_GRAMMARS.python,
+	...getTreeSitterLanguage("python"),
 	extractUnits: (root, control) => collectUnits(root, pythonRules, control),
 	extractImports: extractPythonImports,
 };

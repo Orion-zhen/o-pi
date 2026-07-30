@@ -204,7 +204,7 @@ export function indexRawImports(index: LineIndex, rawImports: readonly RawImport
 	return imports.sort((left, right) => left.startByte - right.startByte || left.endByte - right.endByte || (left.specifier < right.specifier ? -1 : left.specifier > right.specifier ? 1 : 0));
 }
 
-const CALL_NODE_TYPES = new Set(["call", "call_expression", "new_expression"]);
+const CALL_NODE_TYPES = new Set(["call", "call_expression", "command", "new_expression"]);
 const STATIC_CALLEE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/u;
 const IMPORT_NODE_TYPES = new Set([
 	"import_declaration",
@@ -307,10 +307,12 @@ function callableNode(node: SyntaxNode): SyntaxNode | undefined {
 	return node.childForFieldName("function")
 		?? node.childForFieldName("constructor")
 		?? node.childForFieldName("type")
+		?? node.childForFieldName("name")
 		?? undefined;
 }
 
 function staticCallee(node: SyntaxNode): string | undefined {
+	if (node.type === "command_name" && /^[A-Za-z_][A-Za-z0-9_-]*$/u.test(node.text)) return node.text;
 	if (isIdentifierLeaf(node)) return node.text;
 	const normalized = node.text
 		.replace(/\s+/gu, "")

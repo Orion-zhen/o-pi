@@ -8,6 +8,13 @@ export interface GrammarSpec {
 	readonly wasmFile: string;
 }
 
+/** grammar、语言标识和文件扩展名的统一注册项。 */
+export interface TreeSitterLanguageSpec<Language extends string = string> {
+	readonly language: Language;
+	readonly extensions: readonly string[];
+	readonly grammar: GrammarSpec;
+}
+
 export type ParseFailureCode =
 	| "RUNTIME_UNAVAILABLE"
 	| "GRAMMAR_UNAVAILABLE"

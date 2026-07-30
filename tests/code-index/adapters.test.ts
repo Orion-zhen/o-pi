@@ -7,6 +7,12 @@ import { parseDocument } from "../../src/code-index/syntax-tree.js";
 describe("tree-sitter adapters", () => {
 describe.each([
 	{
+		filePath: "adapter.sh",
+		text: "source ./lib/common.sh\n. scripts/env.sh\nfunction deploy() {\n  npm run build\n}\ncleanup () { rm -rf build; }\n",
+		units: ["function:deploy", "function:cleanup"],
+		imports: ["./lib/common.sh", "scripts/env.sh"],
+	},
+	{
 		filePath: "adapter.js",
 		text: "class Service { run() {} }\nfunction top() {}\n",
 		units: ["class:Service", "method:Service.run", "function:top"],
@@ -88,6 +94,11 @@ describe.each([
 });
 
 it.each([
+	{
+		filePath: "imports.sh",
+		text: "# source comment-only.sh\ntext='source string-only.sh'\nsource ./real.sh\nsource \"$DYNAMIC_PATH\"\n",
+		expected: ["./real.sh"],
+	},
 	{
 		filePath: "imports.ts",
 		text: "// import fake from 'comment-only';\nconst fake = \"require('string-only')\";\nimport { real } from './real';\n",

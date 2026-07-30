@@ -11,6 +11,7 @@ import { dependencyPath } from "../helpers/tree-sitter-dependencies.js";
 const require = createRequire(import.meta.url);
 const execFileAsync = promisify(execFile);
 const treeSitterModules = {
+	bash: dependencyPath("tree-sitter-bash"),
 	javascript: dependencyPath("tree-sitter-javascript"),
 	typescript: dependencyPath("tree-sitter-typescript"),
 	python: dependencyPath("tree-sitter-python"),
@@ -86,6 +87,7 @@ describe("shared code parser", () => {
 		for (const modulePath of Object.values(treeSitterModules)) expect(require.cache[modulePath]).toBeUndefined();
 
 		await parseCodeUnits("first.ts", "export function first() {}\n");
+		expect(require.cache[treeSitterModules.bash]).toBeUndefined();
 		expect(require.cache[treeSitterModules.typescript]).toBeUndefined();
 		expect(require.cache[treeSitterModules.javascript]).toBeUndefined();
 		expect(require.cache[treeSitterModules.python]).toBeUndefined();
@@ -94,6 +96,7 @@ describe("shared code parser", () => {
 		expect(require.cache[treeSitterModules.c]).toBeUndefined();
 		expect(require.cache[treeSitterModules.cpp]).toBeUndefined();
 		await expect(Promise.resolve(handlers.get("session_shutdown")?.())).resolves.toBeUndefined();
+		expect(require.cache[treeSitterModules.bash]).toBeUndefined();
 		expect(require.cache[treeSitterModules.javascript]).toBeUndefined();
 		expect(require.cache[treeSitterModules.python]).toBeUndefined();
 		expect(require.cache[treeSitterModules.go]).toBeUndefined();
@@ -155,6 +158,22 @@ describe("shared code parser", () => {
 			["function", "start", "Server.start"],
 			["function", "stop", "stop"],
 		]);
+	});
+
+	it("从共享 grammar catalog 自动解析并索引 Bash 文件", async () => {
+		const analyzed = await analyzeCodeFile(
+			"scripts/release.sh",
+			"source ./common.sh\nfunction release() {\n  build_artifact\n}\n",
+		);
+		expect(analyzed).toMatchObject({
+			status: "parsed",
+			index: { language: "bash" },
+		});
+		expect(analyzed.index.units.map((unit) => [unit.kind, unit.qualifiedName])).toEqual([
+			["function", "release"],
+		]);
+		expect(analyzed.index.units[0]?.calls).toEqual(["build_artifact"]);
+		expect(analyzed.imports.map((item) => item.specifier)).toEqual(["./common.sh"]);
 	});
 
 	it.each([

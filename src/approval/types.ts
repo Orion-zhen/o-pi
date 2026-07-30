@@ -35,31 +35,41 @@ export type ApprovalEffect =
 
 export interface ApprovalTarget {
 	kind: "path" | "command" | "url" | "package" | "service" | "other";
+	/** 用于展示和精确批准匹配的规范值。 */
 	value: string;
+	/** 仅供策略 matcher 使用；例如移除外层命令中的嵌套 substitution。 */
+	match_value?: string;
+	/** 仅供保守 similar matcher 使用；例如跳过 env wrapper。 */
+	similar_value?: string;
+}
+
+export interface ApprovalUnit {
+	action: string;
+	target: ApprovalTarget;
+	effects: ApprovalEffect[];
+	remember: {
+		session: boolean;
+		persistent: boolean;
+	};
 }
 
 export interface ApprovalRequest {
-	id: string;
 	tool: string;
-	action: string;
+	cwd: string;
 	summary: string;
-	subject: string;
-	targets: ApprovalTarget[];
-	effects: ApprovalEffect[];
-	raw_input: unknown;
+	units: ApprovalUnit[];
+}
+
+export interface ApprovalAskItem {
+	unit: ApprovalUnit;
+	reason: string;
+	rule_name?: string;
 }
 
 export type ApprovalDecision =
 	| { kind: "allow" }
-	| { kind: "ask"; reason: string; rule_name?: string }
+	| { kind: "ask"; reason: string; items: ApprovalAskItem[]; rule_name?: string }
 	| { kind: "deny"; reason: string; rule_name?: string };
-
-export type UserApprovalChoice =
-	| { kind: "allow_once" }
-	| { kind: "allow_session" }
-	| { kind: "allow_persistent" }
-	| { kind: "deny" }
-	| { kind: "deny_with_instruction"; instruction: string };
 
 export type ApprovalDefaultAction = "allow" | "ask" | "deny";
 
@@ -95,6 +105,8 @@ export interface ApprovalAllowRule {
 	tool: string;
 	kind: ApprovalAllowRuleKind;
 	value: string;
+	/** 新规则按工作目录隔离；缺失表示兼容已有全局规则。 */
+	cwd?: string;
 }
 
 export interface PersistentApprovalRulesFile {

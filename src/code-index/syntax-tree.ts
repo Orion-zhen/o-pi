@@ -1,5 +1,5 @@
 import type { LanguageAdapter, SyntaxNode } from "./adapters/types.js";
-import { getLanguageAdapter } from "./language-registry.js";
+import { getLanguageAdapter, loadLanguageAdapter } from "./language-registry.js";
 import {
 	isSyntaxAnalysisControlError,
 	parseSyntaxTree,
@@ -30,7 +30,7 @@ export async function parseDocumentResult(
 	text: string,
 	options: ParseDocumentOptions = {},
 ): Promise<ParseDocumentResult> {
-	const adapter = getLanguageAdapter(language);
+	const adapter = language === "bash" ? await loadLanguageAdapter(language) : getLanguageAdapter(language);
 	return adapter === undefined
 		? { failure: { code: "RUNTIME_UNAVAILABLE", message: "No Tree-sitter adapter is registered for this language." } }
 		: await parseDocumentForAdapter(adapter, text, options.timeoutMicros, options.signal);

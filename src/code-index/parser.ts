@@ -1,8 +1,14 @@
-import type { RawImport, RawUnit } from "./adapters/types.js";
+import type { LanguageAdapter, RawImport, RawUnit } from "./adapters/types.js";
 import { extractUnitRelations, indexRawImports } from "./adapters/shared.js";
 import { createFileIdentity, createSymbolId } from "./identity.js";
-import { getLanguageAdapter, languageFromPath } from "./language-registry.js";
-import { CodeAnalysisTimeoutError, isCodeAnalysisControlError, parseDocumentResult, type ParseDocumentResult } from "./syntax-tree.js";
+import { getLanguageAdapter, languageFromPath, loadLanguageAdapter } from "./language-registry.js";
+import {
+	CodeAnalysisTimeoutError,
+	isCodeAnalysisControlError,
+	parseDocumentForAdapter,
+	parseDocumentResult,
+	type ParseDocumentResult,
+} from "./syntax-tree.js";
 import { SourceIndex } from "./types.js";
 import type { AnalysisControl, AnalyzedFileIndex, CodeLanguage, IndexedCodeUnit, ParsedDocument, ParsedFileIndex } from "./types.js";
 
@@ -34,16 +40,19 @@ export async function analyzeCodeFile(
 	options: AnalyzeCodeFileOptions = {},
 ): Promise<AnalyzedFileIndex> {
 	const language = languageFromPath(filePath);
-	const parsed: ParseDocumentResult = await parseDocumentResult(language, text, {
-		...(options.timeoutMicros !== undefined ? { timeoutMicros: options.timeoutMicros } : {}),
-		...(options.signal !== undefined ? { signal: options.signal } : {}),
-	});
+	const adapter = language === "bash" ? await loadLanguageAdapter(language) : getLanguageAdapter(language);
+	const parsed: ParseDocumentResult = adapter === undefined
+		? await parseDocumentResult(language, text, {
+				...(options.timeoutMicros !== undefined ? { timeoutMicros: options.timeoutMicros } : {}),
+				...(options.signal !== undefined ? { signal: options.signal } : {}),
+			})
+		: await parseDocumentForAdapter(adapter, text, options.timeoutMicros, options.signal);
 	const document = parsed.document;
 	let retained = false;
 	try {
 		let analyzed: AnalyzedFileIndex;
 		try {
-			analyzed = analyzeDocument(filePath, document);
+			analyzed = analyzeDocumentWithAdapter(filePath, document, adapter);
 		} catch (error) {
 			if (!(error instanceof CodeAnalysisTimeoutError)) throw error;
 			analyzed = {
@@ -64,9 +73,18 @@ export async function analyzeCodeFile(
 
 /** 在已解析的 ParsedDocument 上建立 code index；文档只在本次调用链中存活。 */
 export function analyzeDocument(filePath: string, document: ParsedDocument | undefined): AnalyzedFileIndex {
-	const file = createFileIdentity(filePath);
 	const language = document?.language ?? languageFromPath(filePath);
 	const adapter = getLanguageAdapter(language);
+	return analyzeDocumentWithAdapter(filePath, document, adapter);
+}
+
+function analyzeDocumentWithAdapter(
+	filePath: string,
+	document: ParsedDocument | undefined,
+	adapter: LanguageAdapter | undefined,
+): AnalyzedFileIndex {
+	const file = createFileIdentity(filePath);
+	const language = document?.language ?? languageFromPath(filePath);
 	if (adapter === undefined) return emptyAnalyzedFile(file, language, "unsupported");
 	if (document === undefined) return emptyAnalyzedFile(file, language, "error");
 

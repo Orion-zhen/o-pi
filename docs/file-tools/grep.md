@@ -139,7 +139,7 @@ grep 不按模型输出 token 数删除、替换或重排结果。`approx_tokens
 
 有正文命中时，LSP analyzer 要求所有目标 server 同时支持 document symbol、references 和 call hierarchy；零正文命中时还要求 workspace symbol。能力必须在执行前全部满足，候选数量和并发有硬上限，并复用现有 LSP deadline。
 
-LSP 无法完整提交时，C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 整体回退 Tree-sitter。其他语言或解析失败安全退化为文本行。
+LSP 无法完整提交时，C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust、Bash 整体回退 Tree-sitter。语言、扩展名、grammar 来自共享 catalog；新增 catalog 注册项会自动获得 code-index AST adapter，专用语义 adapter 再补充 symbol、import 和 call 提取。未注册语言或解析失败安全退化为文本行。
 
 每次 invocation 使用 host 已绑定的 visibility snapshot。inventory 应用 scope、glob、blocked path、soft ignore、深度和 canonical identity 去重。递归不跟随 child symlink。
 

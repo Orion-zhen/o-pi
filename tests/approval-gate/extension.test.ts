@@ -102,6 +102,54 @@ describe("approval gate", () => {
 		expect(ui.selectCalls).toBe(1);
 	});
 
+	it("复合命令只弹一个聚合审批框", async () => {
+		const ui = fakeUi(["Allow once"]);
+		expect(await handle(bash("git push origin main && npm install lodash"), ctx(ui))).toBeUndefined();
+		expect(ui.selectCalls).toBe(1);
+		expect(ui.selectTitles[0]).toContain("1. git push origin main");
+		expect(ui.selectTitles[0]).toContain("2. npm install lodash");
+	});
+
+	it("session allow 记住敏感子命令，不受普通 sibling 变化影响", async () => {
+		const ui = fakeUi(["Allow for session"]);
+		const gate = createApprovalGate({
+			loadConfig: async () => configWith({}),
+			store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
+			notifyUser: async () => {},
+		});
+		expect(await gate.handleToolCall(bash("echo first && git push origin main"), ctx(ui))).toBeUndefined();
+		expect(await gate.handleToolCall(bash("echo changed && git push origin main"), ctx(ui))).toBeUndefined();
+		expect(ui.selectCalls).toBe(1);
+	});
+
+	it("always similar 只覆盖对应子命令，不吞掉 compound suffix", async () => {
+		const ui = fakeUi(["Always allow similar", "Allow once"]);
+		const gate = createApprovalGate({
+			loadConfig: async () => configWith({}),
+			store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
+			notifyUser: async () => {},
+		});
+		expect(await gate.handleToolCall(bash("npm install lodash"), ctx(ui))).toBeUndefined();
+		expect(await gate.handleToolCall(bash("npm install react && git push origin main"), ctx(ui))).toBeUndefined();
+		expect(ui.selectCalls).toBe(2);
+		expect(ui.selectTitles[1]).toContain("1. git push origin main");
+		expect(ui.selectTitles[1]).not.toContain("2. npm install react");
+	});
+
+	it("动态写重定向无法安全记忆时只显示一次性批准", async () => {
+		const ui = fakeUi(["Allow once"]);
+		expect(await handle(bash(`echo value > "$OUTPUT"`), ctx(ui))).toBeUndefined();
+		expect(ui.selectOptions[0]).toEqual(["Allow once", "Deny", "Deny with instruction"]);
+	});
+
+	it("UI 返回未提供的 remembered 选项时 fail closed", async () => {
+		const ui = fakeUi(["Allow for session"]);
+		expect(await handle(bash(`echo value > "$OUTPUT"`), ctx(ui))).toEqual({
+			block: true,
+			reason: "User denied this tool call.",
+		});
+	});
+
 	it("没有 UI 时，ask 请求默认 block", async () => {
 		const result = await handle(bash("git push origin main"), ctx(fakeUi([]), false));
 		expect(result).toMatchObject({ block: true, reason: expect.stringContaining("no interactive UI") });
@@ -173,6 +221,8 @@ function configWith(patch: Partial<ApprovalGateConfig>): ApprovalGateConfig {
 
 interface FakeUi {
 	selectCalls: number;
+	selectTitles: string[];
+	selectOptions: string[][];
 	select(title: string, options: string[]): Promise<string | undefined>;
 	input(): Promise<string | undefined>;
 	notify(): void;
@@ -181,8 +231,12 @@ interface FakeUi {
 function fakeUi(choices: string[], instruction?: string, onSelect?: () => void): FakeUi {
 	return {
 		selectCalls: 0,
-		async select(_title: string, _options: string[]) {
+		selectTitles: [],
+		selectOptions: [],
+		async select(title: string, options: string[]) {
 			this.selectCalls += 1;
+			this.selectTitles.push(title);
+			this.selectOptions.push([...options]);
 			onSelect?.();
 			return choices.shift();
 		},

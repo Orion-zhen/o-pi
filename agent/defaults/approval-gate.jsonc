@@ -22,39 +22,45 @@
 	"ask_rules": [
 		{
 			"name": "system-path-write",
-			"tools": ["write", "edit"],
+			"tools": ["bash", "write", "edit"],
 			"path_globs": ["/etc/**", "/usr/**", "/bin/**", "/sbin/**", "/System/**", "/Library/**", "/var/**"],
 			"reason": "system path modification"
 		},
 		{
 			"name": "destructive-bash",
 			"tools": ["bash"],
-			"command_regex": "\\b(rm\\s+-rf|git\\s+reset\\s+--hard|git\\s+clean\\s+-fd|docker\\s+system\\s+prune)\\b",
+			"effects": ["destructive"],
 			"reason": "destructive command"
 		},
 		{
 			"name": "package-management",
 			"tools": ["bash"],
-			"command_regex": "\\b(apt|dnf|yum|pacman|brew|npm|pnpm|pip|uv|cargo)\\b[\\s\\S]*\\b(install|remove|uninstall|upgrade|update)\\b",
+			"effects": ["install"],
 			"reason": "package management"
 		},
 		{
 			"name": "external-publish",
 			"tools": ["bash"],
-			"command_regex": "\\b(git\\s+push|npm\\s+publish|gh\\s+release|twine\\s+upload)\\b",
+			"effects": ["publish"],
 			"reason": "external publishing"
 		},
 		{
 			"name": "service-management",
 			"tools": ["bash"],
-			"command_regex": "\\b(sudo|systemctl|service|launchctl)\\b",
+			"effects": ["system_change"],
 			"reason": "system-level command"
 		},
 		{
 			"name": "infra-side-effect",
 			"tools": ["bash"],
-			"command_regex": "\\b(kubectl\\s+(apply|delete)|terraform\\s+(apply|destroy)|docker\\s+(rm|prune|system\\s+prune))\\b",
+			"effects": ["external_side_effect"],
 			"reason": "infrastructure side effect"
+		},
+		{
+			"name": "opaque-shell-effect",
+			"tools": ["bash"],
+			"effects": ["unknown_side_effect"],
+			"reason": "dynamic or unparsable shell side effect"
 		}
 	],
 
