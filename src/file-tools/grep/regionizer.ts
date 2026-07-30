@@ -54,6 +54,7 @@ export interface RegionizerContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
 	readonly astMaxFileBytes: number;
+	readonly preloaded?: ReadonlyMap<string, TextContent>;
 }
 
 /** 将流式事实命中映射到当前正文的最小代码区域；缓存只保存派生 AST。 */
@@ -105,15 +106,6 @@ export class GrepRegionizer {
 				else countSkipped(skipped, loaded.error);
 				continue;
 			}
-			if (loaded.value === undefined) {
-				excludedHitPaths.add(file.path);
-				if (file.explicitFile) scopeErrors.push({
-					path: file.scopeInput,
-					error: fail("STALE_READ", "File changed after text scanning.", { path: file.path }).error,
-				});
-				else skipped.changed += 1;
-				continue;
-			}
 			if (hasBareCr(loaded.value.content.text)) continue;
 			prepared.push(loaded.value);
 		}
@@ -158,22 +150,25 @@ export class GrepRegionizer {
 	private async prepare(
 		candidate: RegionizeFile,
 		context: RegionizerContext,
-	): Promise<{ readonly ok: true; readonly value: PreparedFile | undefined } | { readonly ok: false; readonly error: FsError }> {
-		const loaded = await context.filesystem.content.readText(candidate.file.ref, {
-			maxBytes: context.astMaxFileBytes,
-			expectedSnapshot: candidate.file.snapshot,
-			stable: true,
-			rejectBinary: true,
-		}, context.operation);
-		if (!loaded.ok) return loaded;
-		if (!allHitsCurrent(candidate.hits, loaded.value, context.filesystem)) return { ok: true, value: undefined };
-		const cacheKey = astCacheKey(candidate.file, loaded.value.hash, context.filesystem);
+	): Promise<{ readonly ok: true; readonly value: PreparedFile } | { readonly ok: false; readonly error: FsError }> {
+		let content = context.preloaded?.get(candidate.file.path);
+		if (content === undefined) {
+			const loaded = await context.filesystem.content.readText(candidate.file.ref, {
+				maxBytes: context.astMaxFileBytes,
+				expectedSnapshot: candidate.file.snapshot,
+				stable: true,
+				rejectBinary: true,
+			}, context.operation);
+			if (!loaded.ok) return loaded;
+			content = loaded.value;
+		}
+		const cacheKey = astCacheKey(candidate.file, content.hash, context.filesystem);
 		const cached = this.cacheGet(cacheKey);
 		return {
 			ok: true,
 			value: {
 				file: candidate.file,
-				content: loaded.value,
+				content,
 				hits: candidate.hits,
 				cacheKey,
 				...(cached === undefined ? {} : { cached }),
@@ -360,24 +355,6 @@ function textEvidence(matchMode: TextHit["matchMode"]): RegionEvidence {
 	};
 }
 
-function allHitsCurrent(
-	hits: readonly TextHit[],
-	content: TextContent,
-	filesystem: WorkspaceFileSystem,
-): boolean {
-	for (const hit of hits) {
-		const sliced = filesystem.content.sliceText(content, {
-			startLine: hit.line,
-			endLine: hit.line,
-			maxBytes: Math.max(1, content.sizeBytes),
-			maxLines: 1,
-			path: hit.path,
-		});
-		if (!sliced.ok || stripLineTerminator(sliced.value.content) !== hit.lineText) return false;
-	}
-	return true;
-}
-
 function astCacheKey(file: ScopedFile, hash: string, filesystem: WorkspaceFileSystem): string {
 	return [
 		filesystem.identity,
@@ -387,10 +364,6 @@ function astCacheKey(file: ScopedFile, hash: string, filesystem: WorkspaceFileSy
 		file.snapshot.version,
 		hash,
 	].join("\0");
-}
-
-function stripLineTerminator(value: string): string {
-	return value.replace(/(?:\r\n|[\r\n])$/u, "");
 }
 
 function hasBareCr(text: string): boolean {

@@ -157,18 +157,35 @@ export interface CodeDocument {
 	readonly hash: string;
 }
 
+export interface CodeAnalysisTarget {
+	/** 本次 analyzer 必须原子覆盖的规范相对路径。 */
+	readonly path: string;
+	/** 需要结构归属的 UTF-8 半开正文范围；空数组表示 related 全局分析。 */
+	readonly ranges: readonly {
+		readonly startByte: number;
+		readonly endByte: number;
+	}[];
+}
+
 export interface CodeAnalysisInput {
 	readonly query: string;
-	readonly allowedPaths: readonly string[];
+	readonly targets: readonly CodeAnalysisTarget[];
 	readonly allowRelated: boolean;
 	readonly limit: number;
 	readonly signal?: AbortSignal;
 	load(path: string): Promise<CodeDocument | undefined>;
 }
 
-/** 一次请求只在确认存在可解析 symbol 时返回；调用方据此原子选择 LSP 模式。 */
+export interface CodeAnalysisPreparationInput {
+	readonly paths: readonly string[];
+	readonly signal?: AbortSignal;
+}
+
+/** 只返回完整事务；不可用、能力不足或任一阶段失败时返回 undefined。 */
 export interface CodeAnalysis {
 	readonly mode: "symbol";
+	/** 必须与请求 targets 完全一致；files 可以只是其中实际产生 symbol 结果的子集。 */
+	readonly coveredPaths: readonly string[];
 	readonly files: readonly {
 		readonly document: CodeDocument;
 		readonly analysis: AnalyzedFileIndex;
@@ -176,6 +193,7 @@ export interface CodeAnalysis {
 }
 
 export type AnalyzeCode = (input: CodeAnalysisInput) => Promise<CodeAnalysis | undefined>;
+export type PrepareCodeAnalysis = (input: CodeAnalysisPreparationInput) => Promise<void>;
 
 export interface IndexedCodeUnit extends SourceRange {
 	id: string;

@@ -79,8 +79,8 @@ describe("lsp code analysis", () => {
 		const analysis = await manager.codeAnalysis({
 			root: workspace,
 			query: "Target",
-			allowedPaths: ["src.ts", "tests.ts", "ignored.ts"],
-			allowRelated: false,
+			targets: ["src.ts", "tests.ts", "ignored.ts"].map((targetPath) => ({ path: targetPath, ranges: [] })),
+			allowRelated: true,
 			limit: 8,
 			async load(relativePath) {
 				const value = documents.get(relativePath);
@@ -96,6 +96,7 @@ describe("lsp code analysis", () => {
 			{ path: "src.ts", authority: "called" },
 			{ path: "tests.ts", authority: "referenced" },
 		]);
+		expect(analysis?.coveredPaths).toEqual(["src.ts", "tests.ts", "ignored.ts"]);
 		expect(documentSymbols).toHaveBeenCalledTimes(2);
 		expect(incomingCalls).toHaveBeenCalledTimes(2);
 		expect(references).toHaveBeenCalledTimes(2);
@@ -119,7 +120,7 @@ describe("lsp code analysis", () => {
 		const analysis = await manager.codeAnalysis({
 			root: workspace,
 			query: "Target",
-			allowedPaths: ["src.ts"],
+			targets: [{ path: "src.ts", ranges: [{ startByte: 16, endByte: 22 }] }],
 			allowRelated: false,
 			limit: 8,
 			async load(relativePath) {
@@ -164,7 +165,7 @@ describe("lsp code analysis", () => {
 		const analysis = await manager.codeAnalysis({
 			root: workspace,
 			query: "Target",
-			allowedPaths: ["src.ts"],
+			targets: [{ path: "src.ts", ranges: [{ startByte: 16, endByte: 22 }] }],
 			allowRelated: false,
 			limit: 8,
 			async load(relativePath) {
@@ -194,7 +195,7 @@ describe("lsp code analysis", () => {
 		const analysis = await manager.codeAnalysis({
 			root: workspace,
 			query: "Target",
-			allowedPaths: ["src.ts"],
+			targets: [{ path: "src.ts", ranges: [{ startByte: 16, endByte: 22 }] }],
 			allowRelated: false,
 			limit: 8,
 			load,
@@ -202,6 +203,95 @@ describe("lsp code analysis", () => {
 		await manager.reload();
 
 		expect(analysis).toBeUndefined();
+		expect(load).not.toHaveBeenCalled();
+	});
+
+	it("任一目标文档失败时丢弃其他文档的成功结果", async () => {
+		const sourcePath = path.join(workspace, "src.ts");
+		const testsPath = path.join(workspace, "tests.ts");
+		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
+		vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue({
+			documentSymbolProvider: true,
+			referencesProvider: true,
+			callHierarchyProvider: true,
+		});
+		const documentSymbols = vi.spyOn(LspClient.prototype, "documentSymbols").mockImplementation(async (filePath) =>
+			filePath === sourcePath
+				? [{
+						name: "Target",
+						kind: SymbolKind.Function,
+						range: { start: { line: 0, character: 0 }, end: { line: 0, character: 35 } },
+						selectionRange: { start: { line: 0, character: 16 }, end: { line: 0, character: 22 } },
+					}]
+				: undefined);
+		vi.spyOn(LspClient.prototype, "incomingCalls").mockResolvedValue([]);
+		vi.spyOn(LspClient.prototype, "references").mockResolvedValue([]);
+
+		const manager = new LspManager();
+		const analysis = await manager.codeAnalysis({
+			root: workspace,
+			query: "Target",
+			targets: [
+				{ path: "src.ts", ranges: [{ startByte: 16, endByte: 22 }] },
+				{ path: "tests.ts", ranges: [{ startByte: 16, endByte: 22 }] },
+			],
+			allowRelated: false,
+			limit: 8,
+			async load(relativePath) {
+				return {
+					...document(relativePath, "export function Target() { return true; }\n"),
+					filePath: relativePath === "src.ts" ? sourcePath : testsPath,
+				};
+			},
+		});
+		await manager.reload();
+
+		expect(analysis).toBeUndefined();
+		expect(documentSymbols).toHaveBeenCalledTimes(2);
+	});
+
+	it("任一 server 的 workspace symbol 请求失败时整次 unavailable", async () => {
+		const config = path.join(configDir, "multi-lsp.jsonc");
+		await writeFile(config, JSON.stringify({
+			grep: { workspace_symbols: true, max_symbols: 8, max_exact_leaf_symbols: 2 },
+			servers: {
+				typescript: { command: ["unused-ts-lsp"], languages: { typescript: "*.ts" } },
+				python: { command: ["unused-py-lsp"], languages: { python: "*.py" } },
+			},
+		}));
+		process.env.PI_LSP_CONFIG = config;
+		const sourcePath = path.join(workspace, "src.ts");
+		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
+		vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue({
+			workspaceSymbolProvider: true,
+			documentSymbolProvider: true,
+			referencesProvider: true,
+			callHierarchyProvider: true,
+		});
+		const workspaceSymbols = vi.spyOn(LspClient.prototype, "workspaceSymbols")
+			.mockImplementation(async function(this: LspClient) {
+				return this.server.id === "typescript"
+					? [workspaceSymbol("Target", sourcePath)]
+					: undefined;
+			});
+		const load = vi.fn(async () => undefined);
+
+		const manager = new LspManager();
+		const analysis = await manager.codeAnalysis({
+			root: workspace,
+			query: "Target",
+			targets: [
+				{ path: "src.ts", ranges: [] },
+				{ path: "src.py", ranges: [] },
+			],
+			allowRelated: true,
+			limit: 8,
+			load,
+		});
+		await manager.reload();
+
+		expect(analysis).toBeUndefined();
+		expect(workspaceSymbols).toHaveBeenCalledTimes(2);
 		expect(load).not.toHaveBeenCalled();
 	});
 });

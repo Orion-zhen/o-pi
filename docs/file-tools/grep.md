@@ -5,14 +5,14 @@
 ```text
 QueryPlan
 -> ScopeInventory
--> line matcher scan
--> optional LSP symbol analysis
-   or Tree-sitter regionization
+-> stable text scan + parallel LSP warmup
+-> complete LSP analysis transaction
+   or full Tree-sitter fallback
 -> deterministic ranking
 -> relevance-head/MMR packing
 ```
 
-每个 verified 结果都来自当前正文中的真实逐行命中。合法 query 按 ECMAScript 正则执行；非法正则只探测完全相同的 literal，存在直接命中时返回明确标记的 `literal_fallback`，否则仍返回 `INVALID_REGEX`，不伪装成零结果或启动 related 回退。简单查询只有一个直接命中，或 query 含正则操作符时，不启动 LSP。结构化查询有多个命中或整次扫描零命中时，可选 LSP analyzer 一次完成 symbol 选择、代码单元解析和关系判断；不可用时才由 Tree-sitter 折叠最小代码单元。零正文命中时允许机械词项形成明确标记的 related 结果。
+每个 verified 结果都来自当前正文中的真实逐行命中。合法 query 按 ECMAScript 正则执行；非法正则只探测完全相同的 literal，存在直接命中时返回明确标记的 `literal_fallback`，否则仍返回 `INVALID_REGEX`，不伪装成零结果或启动 related 回退。只要 LSP 对本次全部结构目标可用并具备完整能力，正则、literal fallback、唯一命中、多命中和零命中都优先采用 LSP；任何部分失效都会丢弃整次 LSP 事务并由 Tree-sitter 完整重跑。零正文命中时允许机械词项形成明确标记的 related 结果。
 
 ## 参数
 
@@ -36,7 +36,7 @@ grep 没有 match mode，也不分类 identifier、long text、natural language 
 
 ### 正文命中
 
-所有文件通过一次稳定 line scan 执行已解析的 query matcher。合法正则直接执行；非法正则使用完全转义后的 exact literal matcher 探测，但只有整次扫描至少一个直接命中时才接受。命中受支持代码时，Tree-sitter 将同一最小 code unit 中的命中聚合为一个 verified region；无法解析或没有语法归属的命中保持为文本行。
+所有文件通过一次稳定正文访问执行已解析的 query matcher。合法正则直接执行；非法正则使用完全转义后的 exact literal matcher 探测，但只有整次扫描至少一个直接命中时才接受。受结构分析大小限制保护的代码文件一次读取并解码后保留当前 snapshot 正文，后续 LSP 或 Tree-sitter 直接复用；普通文本和大文件继续流式逐行扫描。命中受支持代码时，选定的结构 analyzer 将同一最小 code unit 中的命中聚合为一个 verified region；无法解析或没有语法归属的命中保持为文本行。
 
 literal fallback 的成功正文在结果开始处显示：
 
@@ -51,14 +51,15 @@ src/parser.ts:42: const value = read(input);
 
 ### Symbol 分析与零命中回退
 
-结构化 query 有多个正文命中，或 `totalHits === 0` 时，grep 可调用一次 LSP analyzer：
+正文扫描期间 grep 并行预热 inventory 涉及的 LSP server；扫描完成后调用一次 LSP analyzer：
 
-1. workspace symbol 在本次 inventory 的 allowed paths 内选择有界候选；
-2. document symbol 直接生成规范代码单元；
-3. incoming calls 和 references 判断该定义是否被其他代码单元调用或引用；
-4. analyzer 只通过 grep 提供的 snapshot-bound loader 读取文件。
+1. 有正文命中时，document symbol 将所有命中映射到最小规范代码单元；
+2. 零正文命中时，workspace symbol 在本次已成功扫描的代码路径内选择有界候选，再由 document symbol 建立代码单元；
+3. incoming calls 和 references 判断每个选中定义是否被其他代码单元调用或引用；
+4. analyzer 只通过 grep 提供的 snapshot-bound loader 读取文件；
+5. 返回的 `coveredPaths`、文档 hash、分析状态、文件路径和 byte range 必须通过整体校验。
 
-一旦 LSP 选中 symbol，本次 symbol 解析就完全采用它的结果；某个 document symbol、reference 或 call hierarchy 请求缺失不会再混入逐 symbol 的 Tree-sitter 猜测。LSP 在选择前不可用、失败或超时时，整次安全退回 Tree-sitter。
+LSP 结果先保存在临时事务中，只有所有目标路径、server、能力和请求全部成功后才一次性提交。任一 server 不可用，任一 document symbol、reference、call hierarchy 或 workspace symbol 请求失败、超时、结果失效，或返回结果未覆盖全部目标路径时，所有 LSP 中间结果都会被丢弃；Tree-sitter 随后复用已经稳定读取的正文完整重跑，不与 LSP 部分结果拼接。协议定义的空 symbol/reference/call 结果是完整结果，不会仅因结果为空而回退。用户取消直接终止，不启动回退。
 
 零命中且没有可用 LSP 结果时，Tree-sitter 使用扫描阶段保存的有界 line anchor；名称、signature、结构 token 和 anchor 达到固定覆盖率后形成 lexical related region。回退不解释 caller、callee、test、fixture、mock、registration 或 entrypoint 等词义；没有合格证据时结果仍可为空。
 
@@ -136,15 +137,15 @@ grep 不按模型输出 token 数删除、替换或重排结果。`approx_tokens
 
 ## 文件与解析语义
 
-LSP analyzer 要求目标 server 同时支持 workspace symbol、document symbol 和 references；call hierarchy 是可选增强。候选数量和并发有硬上限，并复用现有 LSP deadline。
+有正文命中时，LSP analyzer 要求所有目标 server 同时支持 document symbol、references 和 call hierarchy；零正文命中时还要求 workspace symbol。能力必须在执行前全部满足，候选数量和并发有硬上限，并复用现有 LSP deadline。
 
-LSP 未进入 symbol 模式时，C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 使用 Tree-sitter。其他语言或解析失败安全退化为文本行。
+LSP 无法完整提交时，C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust 整体回退 Tree-sitter。其他语言或解析失败安全退化为文本行。
 
 每次 invocation 使用 host 已绑定的 visibility snapshot。inventory 应用 scope、glob、blocked path、soft ignore、深度和 canonical identity 去重。递归不跟随 child symlink。
 
 inventory entry 携带 object identity、version 和 size snapshot。line scan 和 AST read 都要求 snapshot 稳定；文件变化时不保留部分命中。LF、CRLF、CR 和 UTF-8 BOM 使用统一 logical-line 语义，range 使用剥离 BOM 后正文的 UTF-8 byte 坐标。
 
-正文事实扫描不按文件数量、累计字节或单文件字节提前停止。`grep_ast_max_file_bytes` 只限制 Tree-sitter 增强；超限文件仍保留 verified 文本结果。
+正文事实扫描不按文件数量、累计字节或单文件字节提前停止。`grep_ast_max_file_bytes` 限制 LSP/Tree-sitter 结构增强和可复用全文缓存；超限文件仍通过流式扫描保留 verified 文本结果。
 
 ## 零结果
 

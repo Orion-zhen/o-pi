@@ -76,13 +76,13 @@ export function featureAvailable(session: LspFeatureSession, feature: LspFeature
 export async function requestDocumentSymbols(session: LspFeatureSession, uri: string, options?: LspRequestOptions): Promise<LspDocumentSymbols | undefined> {
 	if (!featureAvailable(session, lspFeatureDefinitions.documentSymbols)) return undefined;
 	const result = await session.request(DocumentSymbolRequest.type, { textDocument: { uri } }, options);
-	return result === null ? undefined : result as LspDocumentSymbols | undefined;
+	return result === null ? [] : result as LspDocumentSymbols | undefined;
 }
 
 export async function requestWorkspaceSymbols(session: LspFeatureSession, query: string, options?: LspRequestOptions): Promise<Array<SymbolInformation | WorkspaceSymbol> | undefined> {
 	if (!featureAvailable(session, lspFeatureDefinitions.workspaceSymbols)) return undefined;
 	const result = await session.request(WorkspaceSymbolRequest.type, { query }, options);
-	return result === null ? undefined : result as Array<SymbolInformation | WorkspaceSymbol> | undefined;
+	return result === null ? [] : result as Array<SymbolInformation | WorkspaceSymbol> | undefined;
 }
 
 export async function resolveWorkspaceSymbol(session: LspFeatureSession, symbol: WorkspaceSymbol, options?: LspRequestOptions): Promise<WorkspaceSymbol | undefined> {

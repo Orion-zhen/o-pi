@@ -2,7 +2,12 @@ import { FileChangeType } from "vscode-languageserver-protocol";
 
 import type { CodeAnalysis } from "../code-index/types.js";
 import { emptySummary } from "./diagnostics.js";
-import type { LspCodeAnalysisInput, LspManager, ReadEnhancement } from "./manager.js";
+import type {
+	LspCodeAnalysisInput,
+	LspCodeAnalysisPreparationInput,
+	LspManager,
+	ReadEnhancement,
+} from "./manager.js";
 import type { LspDiagnosticSnapshot, LspDiagnosticsSummary, LspLineRange } from "./types.js";
 
 export interface LspReadInput {
@@ -27,6 +32,7 @@ export interface LspMutationInput {
 /** LSP-owned, best-effort operations exposed to composition adapters. */
 export interface LspFileOperations {
 	read?(input: LspReadInput): Promise<ReadEnhancement | undefined>;
+	prepareCodeAnalysis?(input: LspCodeAnalysisPreparationInput): Promise<void>;
 	codeAnalysis?(input: LspCodeAnalysisInput): Promise<CodeAnalysis | undefined>;
 	beforeEdit?(input: Pick<LspMutationInput, "workspaceRoot" | "filePath">): Promise<LspDiagnosticSnapshot | undefined>;
 	afterWrite?(input: LspMutationInput): Promise<LspDiagnosticsSummary | undefined>;
@@ -35,6 +41,13 @@ export interface LspFileOperations {
 
 export function createLspFileOperations(manager: LspManager): LspFileOperations {
 	return {
+		async prepareCodeAnalysis(input) {
+			try {
+				await manager.prepareCodeAnalysis(input);
+			} catch {
+				// 预热仅隐藏冷启动延迟；正式分析仍会重新确认可用性。
+			}
+		},
 		async read(input) {
 			try {
 				return await manager.readEnhancement(

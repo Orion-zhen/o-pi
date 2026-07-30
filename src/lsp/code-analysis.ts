@@ -3,7 +3,7 @@ import type { DocumentSymbol, Position, Range, SymbolInformation } from "vscode-
 import { createFileIdentity, createSymbolId } from "../code-index/identity.js";
 import { languageFromPath, tokenizeText } from "../code-index/parser.js";
 import { SourceIndex, type AnalyzedFileIndex, type CodeDocument, type IndexedCodeUnit } from "../code-index/types.js";
-import { symbolKindName, type WorkspaceSymbolSeed } from "./symbols.js";
+import { symbolKindName } from "./symbols.js";
 import type { LspDocumentSymbols } from "./types.js";
 
 const DECLARATION_CODE_POINT_LIMIT = 240;
@@ -16,35 +16,42 @@ interface FlatDocumentSymbol {
 	readonly selectionRange: Range;
 }
 
+export interface AnalyzedLspDocument {
+	readonly analysis: AnalyzedFileIndex;
+	readonly positions: ReadonlyMap<string, Position>;
+}
+
 /** 将 LSP documentSymbol 规范化为 grep/code-index 共用的代码单元。 */
 export function analyzeLspDocument(
 	document: CodeDocument,
 	symbols: LspDocumentSymbols,
-	seeds: readonly WorkspaceSymbolSeed[],
-): AnalyzedFileIndex {
+): AnalyzedLspDocument | undefined {
 	const sourceIndex = new SourceIndex(document.text);
 	const file = createFileIdentity(document.path);
 	const flat = flattenSymbols(symbols);
 	const units = new Map<string, IndexedCodeUnit>();
-	for (const seed of seeds) {
-		const symbol = matchingSymbol(seed, flat);
-		if (symbol === undefined) continue;
+	const positions = new Map<string, Position>();
+	for (const symbol of flat) {
 		const unit = indexedUnit(document, sourceIndex, symbol);
-		if (unit === undefined) continue;
+		if (unit === undefined) return undefined;
 		units.set(unit.id, unit);
+		positions.set(unit.id, symbol.selectionRange.start);
 	}
 	const values = [...units.values()].sort((left, right) =>
 		left.startByte - right.startByte || left.endByte - right.endByte || compareString(left.id, right.id));
 	return {
-		index: {
-			id: file.id,
-			path: document.path,
-			language: languageFromPath(document.path),
-			units: values,
-			symbols: values.flatMap((unit) => [unit.name, unit.qualifiedName].filter((value): value is string => value !== undefined)),
+		analysis: {
+			index: {
+				id: file.id,
+				path: document.path,
+				language: languageFromPath(document.path),
+				units: values,
+				symbols: values.flatMap((unit) => [unit.name, unit.qualifiedName].filter((value): value is string => value !== undefined)),
+			},
+			status: "parsed",
+			imports: [],
 		},
-		status: "parsed",
-		imports: [],
+		positions,
 	};
 }
 
@@ -114,18 +121,6 @@ function flattenSymbols(symbols: LspDocumentSymbols, parent?: string): FlatDocum
 	return result;
 }
 
-function matchingSymbol(seed: WorkspaceSymbolSeed, symbols: readonly FlatDocumentSymbol[]): FlatDocumentSymbol | undefined {
-	const position = { line: seed.line, character: seed.character };
-	return [...symbols]
-		.filter((symbol) => symbol.name === seed.symbol || symbol.qualifiedName === seed.qualified_symbol)
-		.sort((left, right) =>
-			Number(!contains(left.selectionRange, position)) - Number(!contains(right.selectionRange, position))
-			|| Number(!contains(left.range, position)) - Number(!contains(right.range, position))
-			|| distance(left.selectionRange.start, position) - distance(right.selectionRange.start, position)
-			|| rangeSize(left.range) - rangeSize(right.range)
-			|| compareString(left.qualifiedName ?? left.name, right.qualifiedName ?? right.name))[0];
-}
-
 function declarationAt(
 	text: string,
 	sourceIndex: SourceIndex,
@@ -167,22 +162,6 @@ function splitsSurrogatePair(text: string, offset: number): boolean {
 	const left = text.charCodeAt(offset - 1);
 	const right = text.charCodeAt(offset);
 	return left >= 0xd800 && left <= 0xdbff && right >= 0xdc00 && right <= 0xdfff;
-}
-
-function contains(range: Range, position: Position): boolean {
-	return comparePosition(range.start, position) <= 0 && comparePosition(position, range.end) <= 0;
-}
-
-function distance(left: Position, right: Position): number {
-	return Math.abs(left.line - right.line) * 1_000_000 + Math.abs(left.character - right.character);
-}
-
-function rangeSize(range: Range): number {
-	return (range.end.line - range.start.line) * 1_000_000 + range.end.character - range.start.character;
-}
-
-function comparePosition(left: Position, right: Position): number {
-	return left.line - right.line || left.character - right.character;
 }
 
 function isDocumentSymbol(symbol: DocumentSymbol | SymbolInformation): symbol is DocumentSymbol {

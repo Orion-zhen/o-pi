@@ -6,7 +6,7 @@ import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspa
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
 import { buildScopeInventory, type ScopeInventory } from "../../src/file-tools/grep/inventory.js";
 import { GrepTool } from "../../src/file-tools/grep/command.js";
-import type { AnalyzeCode } from "../../src/code-index/types.js";
+import type { AnalyzeCode, PrepareCodeAnalysis } from "../../src/code-index/types.js";
 import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
@@ -75,7 +75,7 @@ export function expectInventorySuccess(result: ToolOutcome<ScopeInventory>): Sco
 export async function grepWithAnalyzer(
 	workspace: string,
 	params: Parameters<GrepTool["execute"]>[0],
-	sources: { readonly analyzeCode?: AnalyzeCode },
+	sources: { readonly prepareCodeAnalysis?: PrepareCodeAnalysis; readonly analyzeCode?: AnalyzeCode },
 	mapFilesystem: (filesystem: WorkspaceFileSystem) => WorkspaceFileSystem = (filesystem) => filesystem,
 ): Promise<ToolOutcome<GrepSuccess>> {
 	const host = new FileToolsHost();
@@ -89,9 +89,10 @@ export async function grepWithAnalyzer(
 	try {
 		return await tool.execute(params, {
 			filesystem: mapFilesystem(opened.filesystem),
-			operation: opened.context,
-			limits: opened.limits,
-			...(sources.analyzeCode === undefined ? {} : { analyzeCode: sources.analyzeCode }),
+				operation: opened.context,
+				limits: opened.limits,
+				...(sources.prepareCodeAnalysis === undefined ? {} : { prepareCodeAnalysis: sources.prepareCodeAnalysis }),
+				...(sources.analyzeCode === undefined ? {} : { analyzeCode: sources.analyzeCode }),
 		});
 	} finally {
 		tool.dispose();

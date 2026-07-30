@@ -31,6 +31,7 @@ export function createGrepAdapter() {
 					filesystem: opened.filesystem,
 					operation: opened.context,
 					limits: opened.limits,
+					prepareCodeAnalysis: (input) => prepareCodeAnalysisWithLsp(options.lsp, opened, input),
 					analyzeCode: (input) => analyzeCodeWithLsp(options.lsp, opened, input),
 				});
 				if (isFailed(result)) return failedResult(result);
@@ -45,6 +46,21 @@ export function createGrepAdapter() {
 	};
 }
 
+export async function prepareCodeAnalysisWithLsp(
+	lsp: LspFileOperations,
+	invocation: FileToolsInvocation,
+	input: { readonly paths: readonly string[]; readonly signal?: AbortSignal },
+): Promise<void> {
+	if (input.signal?.aborted === true || lsp.prepareCodeAnalysis === undefined) return;
+	const workspace = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
+	if (workspace === undefined) return;
+	await lsp.prepareCodeAnalysis({
+		root: workspace.nativePath,
+		paths: input.paths,
+		...(input.signal === undefined ? {} : { signal: input.signal }),
+	});
+}
+
 export async function analyzeCodeWithLsp(
 	lsp: LspFileOperations,
 	invocation: FileToolsInvocation,
@@ -56,7 +72,7 @@ export async function analyzeCodeWithLsp(
 	return await lsp.codeAnalysis({
 		root: workspace.nativePath,
 		query: input.query,
-		allowedPaths: input.allowedPaths,
+		targets: input.targets,
 		allowRelated: input.allowRelated,
 		limit: input.limit,
 		async load(relativePath) {

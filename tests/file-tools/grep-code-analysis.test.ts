@@ -4,13 +4,19 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AnalyzeCode, CodeAnalysis } from "../../src/code-index/types.js";
 import { analyzeCodeFile, type CodeAuthority } from "../../src/code-index/parser.js";
+import type { ContentOperations } from "../../src/filesystem/contracts/content.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
-import { createGrepTestContext, expectGrepSuccess, grepWithAnalyzer } from "./grep-fixtures.js";
+import {
+	createGrepTestContext,
+	deferredVoid,
+	expectGrepSuccess,
+	grepWithAnalyzer,
+} from "./grep-fixtures.js";
 
 const testContext = createGrepTestContext();
 
 describe("grep code analysis", () => {
-	it("正则正文查询不启动 symbol analyzer", async () => {
+	it("正则正文查询优先使用完整 symbol analyzer", async () => {
 		await writeFile(path.join(testContext.workspace, "target.ts"), "export const value = 'Needle42';\n");
 		const analyzeCode = codeAnalyzer([]);
 
@@ -21,10 +27,11 @@ describe("grep code analysis", () => {
 		));
 
 		expect(result.regions).toHaveLength(1);
-		expect(analyzeCode).not.toHaveBeenCalled();
+		expect(result.regions[0]?.kind).toBe("text");
+		expect(analyzeCode).toHaveBeenCalledOnce();
 	});
 
-	it("唯一正文命中没有排序歧义时不启动 symbol analyzer", async () => {
+	it("唯一正文命中也优先使用完整 symbol analyzer", async () => {
 		await writeFile(path.join(testContext.workspace, "target.ts"), "export function Target() { return true; }\n");
 		const analyzeCode = codeAnalyzer([]);
 
@@ -35,7 +42,25 @@ describe("grep code analysis", () => {
 		));
 
 		expect(result.regions).toHaveLength(1);
-		expect(analyzeCode).not.toHaveBeenCalled();
+		expect(result.regions[0]?.kind).toBe("text");
+		expect(analyzeCode).toHaveBeenCalledOnce();
+	});
+
+	it("bare CR 正文不进入 LSP，直接回退为安全文本结果", async () => {
+		await writeFile(path.join(testContext.workspace, "target.ts"), "export function Target() {\r  return true;\r}\r");
+		const analyzeCode = vi.fn<AnalyzeCode>(async (input) => {
+			await expect(input.load("target.ts")).resolves.toBeUndefined();
+			return undefined;
+		});
+
+		const result = expectGrepSuccess(await grepWithAnalyzer(
+			testContext.workspace,
+			{ query: "Target" },
+			{ analyzeCode },
+		));
+
+		expect(result.regions[0]?.kind).toBe("text");
+		expect(analyzeCode).toHaveBeenCalledOnce();
 	});
 
 	it("LSP authority 在不读取路径语义时将被调用定义排在测试定义之前", async () => {
@@ -58,6 +83,99 @@ describe("grep code analysis", () => {
 			["definition", "defined"],
 		]);
 		expect(analyzeCode).toHaveBeenCalledOnce();
+	});
+
+	it("analyzer 未覆盖全部目标路径时丢弃结果并完整回退 Tree-sitter", async () => {
+		await writeFile(path.join(testContext.workspace, "a.ts"), "export function Target() { return true; }\n");
+		await writeFile(path.join(testContext.workspace, "b.ts"), "export function Target() { return false; }\n");
+		const analyzeCode = vi.fn<AnalyzeCode>(async (input) => ({
+			mode: "symbol",
+			coveredPaths: input.targets.slice(0, 1).map((target) => target.path),
+			files: [],
+		}));
+
+		const result = expectGrepSuccess(await grepWithAnalyzer(
+			testContext.workspace,
+			{ query: "Target" },
+			{ analyzeCode },
+		));
+
+		expect(result.regions).toHaveLength(2);
+		expect(result.regions.every((region) => region.kind === "function")).toBe(true);
+		expect(analyzeCode).toHaveBeenCalledOnce();
+	});
+
+	it("LSP 失败后的 Tree-sitter 回退复用已加载正文", async () => {
+		await writeFile(path.join(testContext.workspace, "a.ts"), "export function Target() { return true; }\n");
+		await writeFile(path.join(testContext.workspace, "b.ts"), "export function Target() { return false; }\n");
+		const analyzeCode = vi.fn<AnalyzeCode>(async (input) => {
+			await Promise.all(input.targets.map((target) => input.load(target.path)));
+			return undefined;
+		});
+		let fullReads = 0;
+
+		const result = expectGrepSuccess(await grepWithAnalyzer(
+			testContext.workspace,
+			{ query: "Target" },
+			{ analyzeCode },
+			(filesystem) => {
+				const original = filesystem.content;
+				const content: ContentOperations = {
+					readBytes: original.readBytes.bind(original),
+					async readText(file, options, context) {
+						fullReads += 1;
+						return original.readText(file, options, context);
+					},
+					decodeText: original.decodeText.bind(original),
+					sliceText: original.sliceText.bind(original),
+					scanLines: original.scanLines.bind(original),
+				};
+				return { ...filesystem, content };
+			},
+		));
+
+		expect(result.regions.every((region) => region.kind === "function")).toBe(true);
+		expect(fullReads).toBe(2);
+	});
+
+	it("LSP 冷启动与正文扫描重叠执行", async () => {
+		await writeFile(path.join(testContext.workspace, "target.ts"), "export function Target() { return true; }\n");
+		const releasePreparation = deferredVoid();
+		let preparationStarted = false;
+		let scanObservedPreparation = false;
+		const prepareCodeAnalysis = vi.fn(async () => {
+			preparationStarted = true;
+			await releasePreparation.promise;
+		});
+		const analyzeCode = codeAnalyzer([]);
+
+		const result = expectGrepSuccess(await grepWithAnalyzer(
+			testContext.workspace,
+			{ query: "Target" },
+			{ prepareCodeAnalysis, analyzeCode },
+			(filesystem) => {
+				const original = filesystem.content;
+				const content: ContentOperations = {
+					readBytes: original.readBytes.bind(original),
+					async readText(file, options, context) {
+						scanObservedPreparation = preparationStarted;
+						releasePreparation.resolve();
+						return original.readText(file, options, context);
+					},
+					decodeText: original.decodeText.bind(original),
+					sliceText: original.sliceText.bind(original),
+					scanLines: original.scanLines.bind(original),
+				};
+				return { ...filesystem, content };
+			},
+		));
+
+		expect(result.regions[0]?.kind).toBe("text");
+		expect(scanObservedPreparation).toBe(true);
+		expect(prepareCodeAnalysis).toHaveBeenCalledWith({
+			paths: ["target.ts"],
+			signal: expect.any(AbortSignal),
+		});
 	});
 
 	it.each([
@@ -229,6 +347,6 @@ function codeAnalyzer(
 				},
 			};
 		}));
-		return { mode: "symbol", files: analyzed };
+		return { mode: "symbol", coveredPaths: input.targets.map((target) => target.path), files: analyzed };
 	});
 }

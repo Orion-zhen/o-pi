@@ -1,6 +1,6 @@
-import { splitTokens, tokenizeText } from "../../code-index/parser.js";
-import type { ScannedLine } from "../../filesystem/contracts/content.js";
-import { utf8ByteOffset } from "../../filesystem/services/text.js";
+import { languageFromPath, splitTokens, tokenizeText } from "../../code-index/parser.js";
+import type { ScannedLine, TextContent } from "../../filesystem/contracts/content.js";
+import { scannedTextLines, utf8ByteOffset } from "../../filesystem/services/text.js";
 import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
@@ -25,6 +25,8 @@ export interface TextScanResult {
 	readonly hits: readonly TextHit[];
 	readonly totalHits: number;
 	readonly fileEvidence: readonly TextFileEvidence[];
+	/** 小型代码文件的稳定正文，供后续 LSP 或 Tree-sitter 直接复用。 */
+	readonly contents: ReadonlyMap<string, TextContent>;
 	readonly stats: TextScanStats;
 	readonly scopeErrors: readonly GrepScopeError[];
 }
@@ -34,6 +36,7 @@ export interface TextScannerContext {
 	readonly operation: FsOperationContext;
 	readonly maxStoredHits?: number;
 	readonly maxStoredAnchors?: number;
+	readonly retainTextMaxBytes?: number;
 }
 
 interface LineMatch {
@@ -57,6 +60,7 @@ interface FileScanSuccess {
 	readonly droppedTextHits: number;
 	readonly evidence: TextFileEvidence;
 	readonly droppedRelatedAnchors: number;
+	readonly content?: TextContent;
 }
 
 /** 通过 filesystem line scan 产生 regex/literal 事实命中，并同步收集零命中回退所需的有界词法证据。 */
@@ -73,6 +77,7 @@ export async function scanInventoryText(
 	const matcher = createLineMatcher(plan);
 	const hits: TextHit[] = [];
 	const fileEvidence: TextFileEvidence[] = [];
+	const contents = new Map<string, TextContent>();
 	const scopeErrors: GrepScopeError[] = [];
 	const skipped: Required<GrepSkippedFiles> = {
 		binary: 0,
@@ -109,15 +114,26 @@ export async function scanInventoryText(
 		totalHits += scanned.value.totalHits;
 		hits.push(...scanned.value.hits);
 		fileEvidence.push(scanned.value.evidence);
+		if (scanned.value.content !== undefined) contents.set(file.path, scanned.value.content);
 		storedAnchors += scanned.value.evidence.anchors.length;
 		droppedTextHits += scanned.value.droppedTextHits;
 		droppedRelatedAnchors += scanned.value.droppedRelatedAnchors;
+	}
+	if (totalHits > 0) {
+		const retainedPaths = new Set(hits.map((hit) => hit.path));
+		for (const evidence of fileEvidence) {
+			if (evidence.anchors.length > 0) retainedPaths.add(evidence.path);
+		}
+		for (const path of contents.keys()) {
+			if (!retainedPaths.has(path)) contents.delete(path);
+		}
 	}
 
 	return {
 		hits,
 		totalHits,
 		fileEvidence,
+		contents,
 		stats: {
 			searchedFiles,
 			searchedBytes,
@@ -137,12 +153,38 @@ async function scanFile(
 	remainingHitCapacity: number,
 	remainingAnchorCapacity: number,
 ): Promise<{ readonly ok: true; readonly value: FileScanSuccess } | { readonly ok: false; readonly error: FsError }> {
-	const opened = await context.filesystem.content.scanLines(
-		file.ref,
-		{ expectedSnapshot: file.snapshot, stable: true, rejectBinary: true },
-		context.operation,
-	);
-	if (!opened.ok) return opened;
+	let retained: TextContent | undefined;
+	let lines: AsyncIterable<{ readonly ok: true; readonly value: ScannedLine } | { readonly ok: false; readonly error: FsError }>;
+	let close: () => Promise<void>;
+	if (
+		context.retainTextMaxBytes !== undefined
+		&& file.snapshot.sizeBytes <= context.retainTextMaxBytes
+		&& languageFromPath(file.path) !== "text"
+	) {
+		const loaded = await context.filesystem.content.readText(
+			file.ref,
+			{
+				maxBytes: context.retainTextMaxBytes,
+				expectedSnapshot: file.snapshot,
+				stable: true,
+				rejectBinary: true,
+			},
+			context.operation,
+		);
+		if (!loaded.ok) return loaded;
+		retained = loaded.value;
+		lines = successfulLines(scannedTextLines(retained.text));
+		close = async () => undefined;
+	} else {
+		const opened = await context.filesystem.content.scanLines(
+			file.ref,
+			{ expectedSnapshot: file.snapshot, stable: true, rejectBinary: true },
+			context.operation,
+		);
+		if (!opened.ok) return opened;
+		lines = opened.value;
+		close = () => opened.value.close();
+	}
 	const fileHits: TextHit[] = [];
 	const anchors: MutableLexicalAnchor[] = [];
 	const matchedTerms = new Set<string>();
@@ -153,7 +195,7 @@ async function scanFile(
 	let droppedRelatedAnchors = 0;
 	let failure: FsError | undefined;
 	try {
-		for await (const result of opened.value) {
+		for await (const result of lines) {
 			if (!result.ok) {
 				failure = result.error;
 				break;
@@ -179,7 +221,7 @@ async function scanFile(
 			}
 		}
 	} finally {
-		await opened.value.close();
+		await close();
 	}
 	if (failure !== undefined) return { ok: false, error: failure };
 	return {
@@ -194,8 +236,15 @@ async function scanFile(
 				matchedTerms: queryTerms.filter((term) => matchedTerms.has(term)),
 				anchors,
 			},
+			...(retained === undefined ? {} : { content: retained }),
 		},
 	};
+}
+
+async function* successfulLines(
+	lines: readonly ScannedLine[],
+): AsyncGenerator<{ readonly ok: true; readonly value: ScannedLine }> {
+	for (const line of lines) yield { ok: true, value: line };
 }
 
 function createLineMatcher(

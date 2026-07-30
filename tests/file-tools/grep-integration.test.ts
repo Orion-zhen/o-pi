@@ -116,7 +116,7 @@ describe("grep integration", () => {
 		expect(auto.stats.ast_skipped_oversized_files).toBe(0);
 	});
 
-	it("单次 line scan 同时服务 exact 与 lexical，不重复扫描正文", async () => {
+	it("代码正文单次稳定读取同时服务 exact、lexical 与结构分析", async () => {
 		await writeFile(path.join(testContext.workspace, "first.ts"), "export function retryPolicy() { return 'session delay'; }\n");
 		await writeFile(path.join(testContext.workspace, "second.conf"), "session retry delay\n");
 		const host = new FileToolsHost();
@@ -124,12 +124,16 @@ describe("grep integration", () => {
 		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-auto-single-scan" });
 		if (isFailed(opened)) throw new Error(opened.error.message);
 		let lineScans = 0;
+		let fullReads = 0;
 		const original = opened.filesystem.content;
 		const filesystem: WorkspaceFileSystem = {
 			...opened.filesystem,
 			content: {
 				readBytes: original.readBytes.bind(original),
-				readText: original.readText.bind(original),
+				async readText(file, options, context) {
+					fullReads += 1;
+					return original.readText(file, options, context);
+				},
 				decodeText: original.decodeText.bind(original),
 				sliceText: original.sliceText.bind(original),
 				async scanLines(file, options, context) {
@@ -145,7 +149,7 @@ describe("grep integration", () => {
 				limits: opened.limits,
 			}));
 			expect(result.regions.length).toBeGreaterThan(0);
-			expect(lineScans).toBe(2);
+			expect({ lineScans, fullReads }).toEqual({ lineScans: 1, fullReads: 1 });
 		} finally {
 			tool.dispose();
 			opened.dispose();

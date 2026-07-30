@@ -491,7 +491,7 @@ describe("grep local search", () => {
 		expect(firstRegion(result)).toMatchObject({ kind, match_lines: [2], query_match: "verified" });
 	});
 
-	it("regex 冷暖 cache 都重新执行 inventory line scan", async () => {
+	it("regex 冷暖 cache 都从当前 snapshot 单次读取代码正文", async () => {
 		await writeFile(path.join(testContext.workspace, "warm.ts"), "export function warm() { return 'WarmNeedle'; }\n");
 		const host = new FileToolsHost();
 		const tool = new GrepTool();
@@ -525,7 +525,7 @@ describe("grep local search", () => {
 					limits: opened.limits,
 				})));
 			}
-			expect({ scans, fullReads }).toEqual({ scans: 2, fullReads: 2 });
+			expect({ scans, fullReads }).toEqual({ scans: 0, fullReads: 2 });
 			expect(results[1]?.regions).toEqual(results[0]?.regions);
 		} finally {
 			tool.dispose();

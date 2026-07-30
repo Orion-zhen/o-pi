@@ -194,7 +194,7 @@ describe("file-tools lsp hooks", () => {
 		const seenSignals: Array<AbortSignal | undefined> = [];
 		const hooks: LspFileOperations = {
 			async codeAnalysis(input) {
-				seenPaths.push([...input.allowedPaths].sort());
+				seenPaths.push(input.targets.map((target) => target.path).sort());
 				seenSignals.push(input.signal);
 				return undefined;
 			},

@@ -3,8 +3,10 @@ import { SymbolKind, type ServerCapabilities } from "vscode-languageserver-proto
 import { describe, expect, it } from "vitest";
 
 import {
+	requestDocumentSymbols,
 	requestIncomingCalls,
 	requestReferences,
+	requestWorkspaceSymbols,
 	type LspFeatureSession,
 } from "../../src/lsp/features/index.js";
 
@@ -53,6 +55,19 @@ describe("lsp semantic feature adapters", () => {
 		await expect(requestIncomingCalls(session, "file:///workspace/target.ts", { line: 0, character: 0 }))
 			.resolves.toBeUndefined();
 		expect(session.methods).toEqual([]);
+	});
+
+	it("protocol null symbol 结果归一化为完整空结果", async () => {
+		const session = new FeatureSessionFixture(
+			{ documentSymbolProvider: true, workspaceSymbolProvider: true },
+			new Map<string, unknown>([
+				["textDocument/documentSymbol", null],
+				["workspace/symbol", null],
+			]),
+		);
+
+		await expect(requestDocumentSymbols(session, "file:///workspace/target.ts")).resolves.toEqual([]);
+		await expect(requestWorkspaceSymbols(session, "Target")).resolves.toEqual([]);
 	});
 });
 

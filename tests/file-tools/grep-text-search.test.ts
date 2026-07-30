@@ -71,7 +71,7 @@ describe("grep text search", () => {
 				next: expect.stringContaining("opening parenthesis"),
 			},
 		});
-		expect(analyzeCode).not.toHaveBeenCalled();
+		expect(analyzeCode).toHaveBeenCalledOnce();
 	});
 
 	it("AST 外文本使用单行协议，并对同一行的多个 occurrence 去重", async () => {

@@ -1,11 +1,12 @@
 import path from "node:path";
 import pLimit from "p-limit";
-import type { FileChangeType, Range, WorkspaceSymbol } from "vscode-languageserver-protocol";
+import type { FileChangeType, Position, Range, WorkspaceSymbol } from "vscode-languageserver-protocol";
 
 import type {
 	AnalyzedFileIndex,
 	CodeAnalysis,
 	CodeAnalysisInput,
+	CodeAnalysisTarget,
 	CodeAuthority,
 	CodeDocument,
 	IndexedCodeUnit,
@@ -74,6 +75,12 @@ export interface WorkspaceSymbolsInput {
 export interface LspCodeAnalysisInput extends Omit<CodeAnalysisInput, "load"> {
 	readonly root: string;
 	load(path: string): Promise<(CodeDocument & { readonly filePath: string }) | undefined>;
+}
+
+export interface LspCodeAnalysisPreparationInput {
+	readonly root: string;
+	readonly paths: readonly string[];
+	readonly signal?: AbortSignal;
 }
 
 export interface ReadEnhancement {
@@ -188,7 +195,7 @@ export class LspManager {
 		const operation = createOperationDeadline(input.signal, config.config.request_timeout_ms);
 		try {
 			const accepted = await this.workspaceSymbolSeeds(input, config, operation, servers, allowedPaths);
-			return accepted.map(({ seed }) => publicSymbolHit(seed));
+			return (accepted ?? []).map(({ seed }) => publicSymbolHit(seed));
 		} finally {
 			operation.dispose();
 		}
@@ -198,37 +205,97 @@ export class LspManager {
 		return this.withClientOperation(() => this.codeAnalysisOperation(input));
 	}
 
+	async prepareCodeAnalysis(input: LspCodeAnalysisPreparationInput): Promise<void> {
+		return this.withClientOperation(async () => {
+			const config = await this.enabledConfig(input.root);
+			if (
+				config === undefined
+				|| isExcludedRoot(input.root, config.config.exclude_paths)
+				|| input.signal?.aborted === true
+			) return;
+			const servers = this.serversForPaths(input.root, input.paths);
+			await Promise.all(servers.map(async (server) => {
+				if (input.signal === undefined) {
+					await this.clientForServer(input.root, server);
+					return;
+				}
+				await waitUnlessAborted(this.clientForServer(input.root, server), input.signal);
+			}));
+		});
+	}
+
 	private async codeAnalysisOperation(input: LspCodeAnalysisInput): Promise<CodeAnalysis | undefined> {
 		const config = await this.enabledConfig(input.root);
-		const allowedPaths = new Set(input.allowedPaths);
+		const targetPaths = input.targets.map((target) => target.path);
 		if (
 			config === undefined
 			|| isExcludedRoot(input.root, config.config.exclude_paths)
-			|| !config.config.grep.workspace_symbols
-			|| config.config.grep.max_symbols <= 0
-			|| allowedPaths.size === 0
+			|| new Set(targetPaths).size !== targetPaths.length
+			|| input.targets.some((target) => !validAnalysisTarget(target))
 		) return undefined;
-		const servers = this.serversForPaths(input.root, allowedPaths);
+		if (targetPaths.length === 0) return { mode: "symbol", coveredPaths: [], files: [] };
+		const routes = input.targets.map((target) => ({
+			target,
+			route: this.routeForRelativePath(input.root, target.path),
+		}));
+		if (routes.some(({ route }) => route === undefined)) return undefined;
+		const servers = this.serversForPaths(input.root, targetPaths);
 		if (servers.length === 0) return undefined;
 		const operation = createOperationDeadline(input.signal, config.config.request_timeout_ms);
 		try {
+			const clients = new Map<string, LspClient>();
+			const started = await Promise.all(servers.map(async (server) => ({
+				server,
+				client: await waitUnlessAborted(this.clientForServer(input.root, server), operation.signal),
+			})));
+			if (operation.signal.aborted || started.some(({ client }) => client === undefined)) return undefined;
+			for (const item of started) {
+				if (item.client !== undefined) clients.set(item.server.id, item.client);
+			}
+			if (started.some(({ client }) =>
+				client === undefined
+				|| !featureAvailable(client, lspFeatureDefinitions.documentSymbols)
+				|| !featureAvailable(client, lspFeatureDefinitions.references)
+				|| !featureAvailable(client, lspFeatureDefinitions.incomingCalls)
+				|| (input.allowRelated && !featureAvailable(client, lspFeatureDefinitions.workspaceSymbols)))
+			) return undefined;
+
+			if (!input.allowRelated) {
+				const limit = pLimit(CODE_ANALYSIS_CONCURRENCY);
+				const files = await Promise.all(routes.map(({ target, route }) => limit(async () => {
+					if (route === undefined) return undefined;
+					const client = clients.get(route.server.id);
+					return client === undefined
+						? undefined
+						: this.analyzeTargetDocument(input, target, client, operation);
+				})));
+				if (files.some((file) => file === undefined)) return undefined;
+				return {
+					mode: "symbol",
+					coveredPaths: targetPaths,
+					files: files.filter((file): file is NonNullable<typeof file> => file !== undefined),
+				};
+			}
+			if (
+				!config.config.grep.workspace_symbols
+				|| config.config.grep.max_symbols <= 0
+			) return undefined;
+			const allowedPaths = new Set(targetPaths);
 			const candidates = await this.workspaceSymbolSeeds(
 				{ root: input.root, query: input.query, allowedPaths, ...(input.signal === undefined ? {} : { signal: input.signal }) },
 				config,
 				operation,
 				servers,
 				allowedPaths,
+				true,
 			);
+			if (candidates === undefined) return undefined;
 			const exact = candidates.filter(({ seed }) => seed.exact);
 			const selected = (exact.length > 0 ? exact : input.allowRelated ? candidates : [])
 				.slice(0, Math.min(CODE_ANALYSIS_SYMBOL_LIMIT, input.limit));
-			if (
-				selected.length === 0
-				|| selected.some(({ client }) =>
-					!featureAvailable(client, lspFeatureDefinitions.documentSymbols)
-					|| !featureAvailable(client, lspFeatureDefinitions.references)
-					|| !featureAvailable(client, lspFeatureDefinitions.incomingCalls))
-			) return undefined;
+			if (selected.length === 0) {
+				return { mode: "symbol", coveredPaths: targetPaths, files: [] };
+			}
 			const byPath = new Map<string, ResolvedWorkspaceSymbol[]>();
 			for (const item of selected) {
 				const grouped = byPath.get(item.seed.path);
@@ -237,37 +304,15 @@ export class LspManager {
 			}
 			const limit = pLimit(CODE_ANALYSIS_CONCURRENCY);
 			const files = await Promise.all([...byPath.entries()].map(([relativePath, grouped]) => limit(async () => {
-				try {
-					const document = await input.load(relativePath);
-					if (document === undefined || operation.signal.aborted) return undefined;
-					const client = grouped[0]?.client;
-					if (client === undefined || grouped.some((item) => item.client !== client)) return undefined;
-					const symbols = await client.documentSymbols(
-						document.filePath,
-						document.text,
-						operation.requestOptions(),
-					);
-					if (symbols === undefined) return undefined;
-					const analysis = analyzeLspDocument(document, symbols, grouped.map(({ seed }) => seed));
-					const authorities = await Promise.all(grouped.map(async ({ seed }) => {
-						const unit = unitForSeed(analysis, seed);
-						if (unit === undefined) return undefined;
-						const authority = await this.symbolAuthority(client, document.filePath, seed, unit, operation);
-						return authority === undefined ? undefined : { id: unit.id, authority };
-					}));
-					if (authorities.some((authority) => authority === undefined)) return undefined;
-					return {
-						document,
-						analysis: withAuthorities(analysis, authorities),
-					};
-				} catch {
-					return undefined;
-				}
+				const client = grouped[0]?.client;
+				if (client === undefined || grouped.some((item) => item.client !== client)) return undefined;
+				return this.analyzeSeedDocument(input, relativePath, grouped, client, operation);
 			})));
 			const complete = files.filter((file): file is NonNullable<typeof file> => file !== undefined);
 			if (complete.length !== byPath.size) return undefined;
 			return {
 				mode: "symbol",
+				coveredPaths: targetPaths,
 				files: complete,
 			};
 		} finally {
@@ -275,21 +320,105 @@ export class LspManager {
 		}
 	}
 
+	private async analyzeTargetDocument(
+		input: LspCodeAnalysisInput,
+		target: CodeAnalysisTarget,
+		client: LspClient,
+		operation: OperationDeadline,
+	): Promise<CodeAnalysis["files"][number] | undefined> {
+		return this.analyzeDocumentSelection(
+			input,
+			target.path,
+			client,
+			operation,
+			(analysis) => unitsForRanges(analysis, target.ranges),
+		);
+	}
+
+	private async analyzeSeedDocument(
+		input: LspCodeAnalysisInput,
+		relativePath: string,
+		grouped: readonly ResolvedWorkspaceSymbol[],
+		client: LspClient,
+		operation: OperationDeadline,
+	): Promise<CodeAnalysis["files"][number] | undefined> {
+		return this.analyzeDocumentSelection(
+			input,
+			relativePath,
+			client,
+			operation,
+			(analysis) => {
+				const selected = new Map<string, IndexedCodeUnit>();
+				for (const { seed } of grouped) {
+					const unit = unitForSeed(analysis, seed);
+					if (unit === undefined) return undefined;
+					selected.set(unit.id, unit);
+				}
+				return [...selected.values()];
+			},
+		);
+	}
+
+	private async analyzeDocumentSelection(
+		input: LspCodeAnalysisInput,
+		relativePath: string,
+		client: LspClient,
+		operation: OperationDeadline,
+		select: (analysis: AnalyzedFileIndex) => readonly IndexedCodeUnit[] | undefined,
+	): Promise<CodeAnalysis["files"][number] | undefined> {
+		try {
+			const document = await input.load(relativePath);
+			if (document === undefined || operation.signal.aborted) return undefined;
+			const symbols = await client.documentSymbols(
+				document.filePath,
+				document.text,
+				operation.requestOptions(),
+			);
+			if (symbols === undefined || operation.signal.aborted) return undefined;
+			const analyzed = analyzeLspDocument(document, symbols);
+			if (analyzed === undefined) return undefined;
+			const selected = select(analyzed.analysis);
+			if (selected === undefined) return undefined;
+			const selectedAnalysis = withUnits(analyzed.analysis, selected);
+			const authorityLimit = pLimit(CODE_ANALYSIS_CONCURRENCY);
+			const authorities = await Promise.all(selected.map((unit) => authorityLimit(async () => {
+				const position = analyzed.positions.get(unit.id);
+				if (position === undefined) return undefined;
+				const authority = await this.symbolAuthority(
+					client,
+					document.filePath,
+					position,
+					pathToFileUri(document.filePath),
+					unit,
+					operation,
+				);
+				return authority === undefined ? undefined : { id: unit.id, authority };
+			})));
+			if (authorities.some((authority) => authority === undefined)) return undefined;
+			return {
+				document,
+				analysis: withAuthorities(selectedAnalysis, authorities),
+			};
+		} catch {
+			return undefined;
+		}
+	}
+
 	private async symbolAuthority(
 		client: LspClient,
 		filePath: string,
-		seed: WorkspaceSymbolSeed,
+		position: Position,
+		documentUri: string,
 		unit: IndexedCodeUnit,
 		operation: OperationDeadline,
 	): Promise<CodeAuthority | undefined> {
-		const position = { line: seed.line, character: seed.character };
 		const [calls, references] = await Promise.all([
 			client.incomingCalls(filePath, position, operation.requestOptions()),
 			client.references(filePath, position, operation.requestOptions()),
 		]);
 		if (calls === undefined || references === undefined) return undefined;
-		if (calls.some((call) => outsideUnit(call.from.uri, call.from.range, seed, unit))) return "called";
-		if (references.some((reference) => outsideUnit(reference.uri, reference.range, seed, unit))) return "referenced";
+		if (calls.some((call) => outsideUnit(call.from.uri, call.from.range, documentUri, unit))) return "called";
+		if (references.some((reference) => outsideUnit(reference.uri, reference.range, documentUri, unit))) return "referenced";
 		return "defined";
 	}
 
@@ -299,7 +428,8 @@ export class LspManager {
 		operation: OperationDeadline,
 		servers: readonly LspServerConfig[],
 		allowedPaths: ReadonlySet<string>,
-	): Promise<ResolvedWorkspaceSymbol[]> {
+		requireComplete = false,
+	): Promise<ResolvedWorkspaceSymbol[] | undefined> {
 		const serverResults = await Promise.all(servers.map(async (server) => {
 			if (operation.signal.aborted) return undefined;
 			const client = await waitUnlessAborted(this.clientForServer(input.root, server), operation.signal);
@@ -308,13 +438,15 @@ export class LspManager {
 			return symbols === undefined ? undefined : { client, symbols };
 		}));
 
-		if (operation.signal.aborted) return [];
+		if (operation.signal.aborted || (requireComplete && serverResults.some((result) => result === undefined))) {
+			return requireComplete ? undefined : [];
+		}
 		const candidates: SymbolCandidate[] = [];
 		const seenRaw = new Set<string>();
 		for (const result of serverResults) {
 			if (result === undefined) continue;
 			for (const symbol of result.symbols) {
-				if (operation.signal.aborted) return [];
+				if (operation.signal.aborted) return requireComplete ? undefined : [];
 				const location = workspaceSymbolLocation(symbol);
 				if (location !== undefined) {
 					const seed = workspaceSymbolSeed(input.root, input.query, symbol);
@@ -362,6 +494,7 @@ export class LspManager {
 						: { client: candidate.client, seed };
 				});
 			}));
+			if (requireComplete && resolved.some((result) => result === undefined)) return undefined;
 			for (const result of resolved) {
 				if (result === undefined) continue;
 				const exactLeaf = isExactLeafQuery(input.query, result.seed);
@@ -374,7 +507,7 @@ export class LspManager {
 				if (accepted.length >= config.config.grep.max_symbols) break;
 			}
 		}
-		return accepted;
+		return operation.signal.aborted && requireComplete ? undefined : accepted;
 	}
 
 	async beforeDiagnostics(root: string, filePath: string): Promise<LspDiagnosticSnapshot | undefined> {
@@ -774,6 +907,38 @@ function unitForSeed(analysis: AnalyzedFileIndex, seed: WorkspaceSymbolSeed): In
 			|| compareString(left.id, right.id))[0];
 }
 
+function unitsForRanges(
+	analysis: AnalyzedFileIndex,
+	ranges: CodeAnalysisTarget["ranges"],
+): IndexedCodeUnit[] {
+	const selected = new Map<string, IndexedCodeUnit>();
+	for (const range of ranges) {
+		const unit = analysis.index.units
+			.filter((candidate) => candidate.startByte <= range.startByte && range.endByte <= candidate.endByte)
+			.sort((left, right) =>
+				(left.endByte - left.startByte) - (right.endByte - right.startByte)
+				|| left.startByte - right.startByte
+				|| compareString(left.id, right.id))[0];
+		if (unit !== undefined) selected.set(unit.id, unit);
+	}
+	return [...selected.values()];
+}
+
+function withUnits(
+	analysis: AnalyzedFileIndex,
+	units: readonly IndexedCodeUnit[],
+): AnalyzedFileIndex {
+	return {
+		...analysis,
+		index: {
+			...analysis.index,
+			units: [...units],
+			symbols: units.flatMap((unit) =>
+				[unit.name, unit.qualifiedName].filter((value): value is string => value !== undefined)),
+		},
+	};
+}
+
 function withAuthorities(
 	analysis: AnalyzedFileIndex,
 	values: readonly ({ readonly id: string; readonly authority: CodeAuthority } | undefined)[],
@@ -799,13 +964,22 @@ function withAuthorities(
 function outsideUnit(
 	uri: string,
 	range: Range,
-	seed: WorkspaceSymbolSeed,
+	documentUri: string,
 	unit: IndexedCodeUnit,
 ): boolean {
-	if (uri !== seed.uri) return true;
+	if (uri !== documentUri) return true;
 	const startLine = range.start.line + 1;
 	const endLine = range.end.line + 1;
 	return endLine < unit.startLine || startLine > unit.endLine;
+}
+
+function validAnalysisTarget(target: CodeAnalysisTarget): boolean {
+	return target.path.length > 0
+		&& target.ranges.every((range) =>
+			Number.isSafeInteger(range.startByte)
+				&& Number.isSafeInteger(range.endByte)
+				&& range.startByte >= 0
+				&& range.endByte >= range.startByte);
 }
 
 function strongerAuthority(left: CodeAuthority, right: CodeAuthority): CodeAuthority {

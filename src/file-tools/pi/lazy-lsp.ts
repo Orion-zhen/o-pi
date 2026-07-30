@@ -19,6 +19,9 @@ export function createLazyLspFileOperations(load: () => Promise<LspModule>): Laz
 		return created;
 	};
 	return {
+		async prepareCodeAnalysis(input) {
+			return (await getModule()).lspFileOperations.prepareCodeAnalysis?.(input);
+		},
 		async read(input) {
 			return (await getModule()).lspFileOperations.read?.(input);
 		},
