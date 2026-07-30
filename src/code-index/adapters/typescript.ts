@@ -1,10 +1,11 @@
 import { javascriptAdapter } from "./javascript.js";
+import { TREE_SITTER_GRAMMARS } from "../../syntax-tree/grammars.js";
 import type { LanguageAdapter } from "./types.js";
 
 export const typescriptAdapter: LanguageAdapter = {
 	language: "typescript",
 	extensions: [".ts"],
-	grammar: { packageName: "tree-sitter-typescript", wasmFile: "tree-sitter-typescript.wasm" },
+	grammar: TREE_SITTER_GRAMMARS.typescript,
 	extractUnits: javascriptAdapter.extractUnits,
 	extractImports: javascriptAdapter.extractImports,
 };
@@ -12,7 +13,7 @@ export const typescriptAdapter: LanguageAdapter = {
 export const tsxAdapter: LanguageAdapter = {
 	language: "tsx",
 	extensions: [".tsx"],
-	grammar: { packageName: "tree-sitter-typescript", wasmFile: "tree-sitter-tsx.wasm" },
+	grammar: TREE_SITTER_GRAMMARS.tsx,
 	extractUnits: javascriptAdapter.extractUnits,
 	extractImports: javascriptAdapter.extractImports,
 };

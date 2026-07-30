@@ -22,7 +22,7 @@ const treeSitterModules = {
 
 afterEach(() => {
 	vi.useRealTimers();
-	vi.doUnmock("../../src/code-index/tree-sitter-loader.js");
+	vi.doUnmock("../../src/syntax-tree/loader.js");
 });
 
 async function symbols(filePath: string, text: string): Promise<Array<[string, string | undefined, string | undefined]>> {
@@ -243,7 +243,7 @@ describe("shared code parser", () => {
 		const controller = new AbortController();
 		controller.abort();
 		await expect(analyzeCodeFile("aborted.ts", "export function value() {}\n", { signal: controller.signal }))
-			.rejects.toMatchObject({ name: "CodeAnalysisAbortedError" });
+			.rejects.toMatchObject({ name: "SyntaxAnalysisAbortedError" });
 	});
 
 	it("函数内部局部声明不拆分为独立 region", async () => {
@@ -390,7 +390,7 @@ describe("shared code parser", () => {
 
 	it("runtime 或 grammar 失败时安全降级为空代码单元", async () => {
 		vi.resetModules();
-		vi.doMock("../../src/code-index/tree-sitter-loader.js", () => ({
+		vi.doMock("../../src/syntax-tree/loader.js", () => ({
 			DEFAULT_PARSE_TIMEOUT_MICROS: 250_000,
 			loadTreeSitterParser: async () => ({ failure: { code: "RUNTIME_UNAVAILABLE", message: "simulated grammar failure" } }),
 		}));

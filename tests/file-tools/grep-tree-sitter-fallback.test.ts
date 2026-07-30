@@ -9,7 +9,7 @@ const treeSitterFailure = vi.hoisted(() => ({
 	message: "simulated runtime failure",
 }));
 
-vi.mock("../../src/code-index/tree-sitter-loader.js", () => ({
+vi.mock("../../src/syntax-tree/loader.js", () => ({
 	DEFAULT_PARSE_TIMEOUT_MICROS: 250_000,
 	loadTreeSitterParser: async () => ({ failure: { ...treeSitterFailure } }),
 }));

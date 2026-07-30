@@ -1,5 +1,6 @@
 import { collectUnits, firstNamedChildText, nameField, rawUnit, walkNamed, type UnitRules } from "./shared.js";
 import type { AnalysisControl } from "../types.js";
+import { TREE_SITTER_GRAMMARS } from "../../syntax-tree/grammars.js";
 import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
 
 const RUST_UNIT_KINDS = new Set([
@@ -110,7 +111,7 @@ function qualify(prefix: string, value: string): string {
 export const rustAdapter: LanguageAdapter = {
 	language: "rust",
 	extensions: [".rs"],
-	grammar: { packageName: "tree-sitter-rust", wasmFile: "tree-sitter-rust.wasm" },
+	grammar: TREE_SITTER_GRAMMARS.rust,
 	extractUnits: (root, control) => collectUnits(root, rustRules, control),
 	extractImports: extractRustImports,
 };

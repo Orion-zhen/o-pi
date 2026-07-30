@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { javascriptAdapter } from "../../src/code-index/adapters/javascript.js";
-import { loadTreeSitterParser } from "../../src/code-index/tree-sitter-loader.js";
+import { loadTreeSitterParser } from "../../src/syntax-tree/loader.js";
 import { parseDocumentForAdapter } from "../../src/code-index/syntax-tree.js";
 import type { AnalyzeCode } from "../../src/code-index/types.js";
 import type { ContentOperations } from "../../src/filesystem/contracts/content.js";
@@ -26,11 +26,11 @@ describe("grep lifecycle", () => {
 			undefined,
 		);
 		expect(worker).toHaveLength(33);
-		const shared = await loadTreeSitterParser(javascriptAdapter);
+		const shared = await loadTreeSitterParser(javascriptAdapter.grammar);
 		if (!("parser" in shared)) throw new Error("javascript parser unavailable");
 		parser.dispose();
 		parser.dispose();
-		const retained = await loadTreeSitterParser(javascriptAdapter);
+		const retained = await loadTreeSitterParser(javascriptAdapter.grammar);
 		if (!("parser" in retained)) throw new Error("javascript parser unavailable after grep disposal");
 		expect(retained.parser).toBe(shared.parser);
 		const document = await parseDocumentForAdapter(javascriptAdapter, "export const retained = true;\n");

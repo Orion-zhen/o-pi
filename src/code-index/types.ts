@@ -1,21 +1,11 @@
 import type { SyntaxNode } from "./adapters/types.js";
+import type { AnalysisControl, ParseFailure, ParseFailureCode } from "../syntax-tree/types.js";
+
+export type { AnalysisControl, ParseFailure, ParseFailureCode };
 
 export type SupportedCodeLanguage = "javascript" | "jsx" | "typescript" | "tsx" | "python" | "go" | "rust" | "c" | "cpp";
 export type CodeLanguage = SupportedCodeLanguage | "text";
 export type ImportKind = "relative" | "external";
-
-export type ParseFailureCode =
-	| "RUNTIME_UNAVAILABLE"
-	| "GRAMMAR_UNAVAILABLE"
-	| "GRAMMAR_INCOMPATIBLE"
-	| "PARSER_INITIALIZATION_FAILED"
-	| "PARSER_EXCEPTION"
-	| "PARSER_TIMEOUT";
-
-export interface ParseFailure {
-	readonly code: ParseFailureCode;
-	readonly message: string;
-}
 
 /** 行范围为 1-based inclusive，字节范围为 UTF-8 [startByte, endByte)。 */
 export interface SourceRange {
@@ -117,11 +107,6 @@ export class SourceIndex implements LineIndex {
 			endByte,
 		};
 	}
-}
-
-export interface AnalysisControl {
-	/** Throw when parsing or AST analysis should stop. */
-	check(): void;
 }
 
 export interface ParsedDocument {

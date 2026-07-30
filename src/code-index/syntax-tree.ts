@@ -1,9 +1,12 @@
-import type { Tree } from "web-tree-sitter";
-
-import { getLanguageAdapter } from "./language-registry.js";
-import { DEFAULT_PARSE_TIMEOUT_MICROS, invalidateTreeSitterParser, loadTreeSitterParser } from "./tree-sitter-loader.js";
 import type { LanguageAdapter, SyntaxNode } from "./adapters/types.js";
-import type { AnalysisControl, CodeLanguage, ParseFailure, ParsedDocument, SourceIndex, SourceRange } from "./types.js";
+import { getLanguageAdapter } from "./language-registry.js";
+import {
+	isSyntaxAnalysisControlError,
+	parseSyntaxTree,
+	SyntaxAnalysisAbortedError,
+	SyntaxAnalysisTimeoutError,
+} from "../syntax-tree/parser.js";
+import type { CodeLanguage, ParseFailure, ParsedDocument, SourceIndex, SourceRange } from "./types.js";
 import { SourceIndex as SourceIndexClass } from "./types.js";
 
 export interface ParseDocumentResult {
@@ -16,21 +19,12 @@ export interface ParseDocumentOptions {
 	signal?: AbortSignal;
 }
 
-export class CodeAnalysisAbortedError extends Error {
-	constructor() {
-		super("Tree-sitter analysis was aborted.");
-		this.name = "CodeAnalysisAbortedError";
-	}
-}
+export {
+	SyntaxAnalysisAbortedError as CodeAnalysisAbortedError,
+	SyntaxAnalysisTimeoutError as CodeAnalysisTimeoutError,
+};
 
-export class CodeAnalysisTimeoutError extends Error {
-	constructor() {
-		super("Tree-sitter parsing exceeded the configured timeout.");
-		this.name = "CodeAnalysisTimeoutError";
-	}
-}
-
-/** Parse through the built-in registry; grammar loading remains lazy per language. */
+/** 通过代码语言 registry 解析；runtime、grammar 和 parser 由共享语法层统一缓存。 */
 export async function parseDocumentResult(
 	language: CodeLanguage,
 	text: string,
@@ -42,65 +36,47 @@ export async function parseDocumentResult(
 		: await parseDocumentForAdapter(adapter, text, options.timeoutMicros, options.signal);
 }
 
-/** Direct registry path for isolated adapters; does not perform plugin discovery. */
+/** 直接解析一个代码 adapter，不执行插件发现。 */
 export async function parseDocumentForAdapter(
 	adapter: LanguageAdapter,
 	text: string,
-	timeoutMicros = DEFAULT_PARSE_TIMEOUT_MICROS,
+	timeoutMicros?: number,
 	signal?: AbortSignal,
 ): Promise<ParseDocumentResult> {
-	if (isAborted(signal)) throw new CodeAnalysisAbortedError();
-	const parserResult = await loadTreeSitterParser(adapter);
-	if ("failure" in parserResult) return parserResult;
-	const parser = parserResult.parser;
-	let tree: Tree | null = null;
+	const parsed = await parseSyntaxTree(adapter.grammar, text, {
+		...(timeoutMicros === undefined ? {} : { timeoutMicros }),
+		...(signal === undefined ? {} : { signal }),
+	});
+	const syntaxDocument = parsed.document;
+	if (syntaxDocument === undefined) {
+		return parsed.failure === undefined
+			? { failure: { code: "PARSER_EXCEPTION", message: "Tree-sitter returned no document or failure." } }
+			: { failure: parsed.failure };
+	}
+
 	try {
-		parser.reset();
-		const deadline = performance.now() + normalizeTimeoutMicros(timeoutMicros) / 1_000;
-		const control = createAnalysisControl(deadline, signal);
-		tree = parser.parse(text, null, {
-			progressCallback: () => isAborted(signal) || performance.now() >= deadline,
-		});
-		if (tree === null) {
-			safeReset(parser);
-			if (isAborted(signal)) throw new CodeAnalysisAbortedError();
-			return parserTimeout();
-		}
-		const sourceIndex = new SourceIndexClass(text, control);
-		const root = tree.rootNode;
-		let disposed = false;
+		const sourceIndex = new SourceIndexClass(text, syntaxDocument.control);
 		return {
 			document: {
 				language: adapter.language,
 				text,
-				root,
+				root: syntaxDocument.root,
 				sourceIndex,
-				control,
-				dispose() {
-					if (disposed) return;
-					disposed = true;
-					safeDeleteTree(tree);
-					tree = null;
-				},
+				control: syntaxDocument.control,
+				dispose: syntaxDocument.dispose,
 			},
 		};
 	} catch (error) {
-		safeDeleteTree(tree);
-		tree = null;
-		if (error instanceof CodeAnalysisAbortedError) {
-			safeReset(parser);
-			throw error;
+		syntaxDocument.dispose();
+		if (error instanceof SyntaxAnalysisAbortedError) throw error;
+		if (error instanceof SyntaxAnalysisTimeoutError) {
+			return { failure: { code: "PARSER_TIMEOUT", message: error.message } };
 		}
-		if (error instanceof CodeAnalysisTimeoutError) {
-			safeReset(parser);
-			return parserTimeout();
-		}
-		invalidateTreeSitterParser(adapter, parser);
-		return { failure: { code: "PARSER_EXCEPTION", message: "Tree-sitter raised an exception while parsing the file." } };
+		return { failure: { code: "PARSER_EXCEPTION", message: "Tree-sitter raised an exception while preparing the parsed source." } };
 	}
 }
 
-/** Parse one document. The caller must dispose a returned document. */
+/** 解析一份代码文档；调用方必须释放返回值。 */
 export async function parseDocument(
 	language: CodeLanguage,
 	text: string,
@@ -114,43 +90,4 @@ export function sourceRangeForNode(index: SourceIndex, node: SyntaxNode): Source
 	return index.range(node.startIndex, node.endIndex);
 }
 
-export function isCodeAnalysisControlError(error: unknown): error is CodeAnalysisAbortedError | CodeAnalysisTimeoutError {
-	return error instanceof CodeAnalysisAbortedError || error instanceof CodeAnalysisTimeoutError;
-}
-
-function createAnalysisControl(deadline: number, signal: AbortSignal | undefined): AnalysisControl {
-	return {
-		check() {
-			if (isAborted(signal)) throw new CodeAnalysisAbortedError();
-			if (performance.now() >= deadline) throw new CodeAnalysisTimeoutError();
-		},
-	};
-}
-
-function isAborted(signal: AbortSignal | undefined): boolean {
-	return signal?.aborted === true;
-}
-
-function normalizeTimeoutMicros(timeoutMicros: number): number {
-	return Number.isFinite(timeoutMicros) ? Math.max(0, timeoutMicros) : DEFAULT_PARSE_TIMEOUT_MICROS;
-}
-
-function parserTimeout(): ParseDocumentResult {
-	return { failure: { code: "PARSER_TIMEOUT", message: "Tree-sitter parsing exceeded the configured timeout." } };
-}
-
-function safeDeleteTree(tree: Tree | null): void {
-	try {
-		tree?.delete();
-	} catch {
-		// The document no longer exposes the failed tree after this boundary.
-	}
-}
-
-function safeReset(parser: { reset(): void }): void {
-	try {
-		parser.reset();
-	} catch {
-		// The next parse will return a structured failure if the parser is unusable.
-	}
-}
+export const isCodeAnalysisControlError = isSyntaxAnalysisControlError;

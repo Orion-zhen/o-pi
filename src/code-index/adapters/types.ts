@@ -1,15 +1,7 @@
-import type { Language, Node } from "web-tree-sitter";
-
 import type { AnalysisControl, ImportKind, SupportedCodeLanguage } from "../types.js";
+import type { GrammarSpec, SyntaxNode } from "../../syntax-tree/types.js";
 
-export type TreeSitterLanguage = Language;
-export type SyntaxNode = Node;
-
-/** 描述 grammar package 中的 WebAssembly 语言文件。 */
-export interface GrammarSpec {
-	readonly packageName: string;
-	readonly wasmFile: string;
-}
+export type { GrammarSpec, SyntaxNode };
 
 export interface RawUnit {
 	readonly kind: string;

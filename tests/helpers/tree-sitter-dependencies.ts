@@ -4,6 +4,7 @@ const require = createRequire(import.meta.url);
 
 const TREE_SITTER_PACKAGES = [
 	"web-tree-sitter",
+	"tree-sitter-bash",
 	"tree-sitter-c",
 	"tree-sitter-cpp",
 	"tree-sitter-go",

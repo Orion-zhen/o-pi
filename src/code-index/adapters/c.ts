@@ -11,6 +11,7 @@ import {
 	type UnitRules,
 } from "./shared.js";
 import type { AnalysisControl } from "../types.js";
+import { TREE_SITTER_GRAMMARS } from "../../syntax-tree/grammars.js";
 import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
 
 const cRules: UnitRules = {
@@ -71,7 +72,7 @@ function extractCImports(root: SyntaxNode, control: AnalysisControl): RawImport[
 export const cAdapter: LanguageAdapter = {
 	language: "c",
 	extensions: [".c"],
-	grammar: { packageName: "tree-sitter-c", wasmFile: "tree-sitter-c.wasm" },
+	grammar: TREE_SITTER_GRAMMARS.c,
 	extractUnits: (root, control) => collectUnits(root, cRules, control),
 	extractImports: extractCImports,
 };

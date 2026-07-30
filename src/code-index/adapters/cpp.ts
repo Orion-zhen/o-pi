@@ -12,6 +12,7 @@ import {
 	type UnitRules,
 } from "./shared.js";
 import type { AnalysisControl } from "../types.js";
+import { TREE_SITTER_GRAMMARS } from "../../syntax-tree/grammars.js";
 import type { LanguageAdapter, RawImport, SyntaxNode } from "./types.js";
 
 const cppRules: UnitRules = {
@@ -102,7 +103,7 @@ function extractCppImports(root: SyntaxNode, control: AnalysisControl): RawImpor
 export const cppAdapter: LanguageAdapter = {
 	language: "cpp",
 	extensions: [".h", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx"],
-	grammar: { packageName: "tree-sitter-cpp", wasmFile: "tree-sitter-cpp.wasm" },
+	grammar: TREE_SITTER_GRAMMARS.cpp,
 	extractUnits: (root, control) => collectUnits(root, cppRules, control),
 	extractImports: extractCppImports,
 };

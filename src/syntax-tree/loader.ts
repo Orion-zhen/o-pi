@@ -1,8 +1,7 @@
 import { createRequire } from "node:module";
 import type { Language as WebTreeSitterLanguage, Parser as WebTreeSitterParser } from "web-tree-sitter";
 
-import type { GrammarSpec, LanguageAdapter } from "./adapters/types.js";
-import type { ParseFailure } from "./types.js";
+import type { GrammarSpec, ParseFailure } from "./types.js";
 
 type WebTreeSitterModule = typeof import("web-tree-sitter");
 type ParserConstructor = WebTreeSitterModule["Parser"];
@@ -41,35 +40,27 @@ const grammars = new Map<string, CachedResult<GrammarResult>>();
 const parsers = new Map<string, CachedResult<TreeSitterParserResult>>();
 const modules = new Map<string, CachedResult<ModuleResult>>();
 
-/** Load a grammar/runtime descriptor without consulting the language registry. */
-export function loadTreeSitterRuntimeForAdapter(adapter: Pick<LanguageAdapter, "grammar">): Promise<TreeSitterRuntimeResult> {
-	return loadTreeSitterRuntimeForGrammar(adapter.grammar);
-}
-
-/** Runtime and grammar results are deduplicated; failures are retried after a short backoff. */
-export function loadTreeSitterRuntimeForGrammar(spec: GrammarSpec): Promise<TreeSitterRuntimeResult> {
+/** Runtime 和 grammar 按描述符共享；失败经过短暂退避后可重试。 */
+export function loadTreeSitterRuntime(spec: GrammarSpec): Promise<TreeSitterRuntimeResult> {
 	const key = descriptorKey(spec);
 	return cachedResult(runtimes, key, () => createRuntime(spec));
 }
 
-/** Cache one parser per grammar descriptor. Parse deadlines are supplied per call. */
-export function loadTreeSitterParser(adapter: Pick<LanguageAdapter, "grammar">): Promise<TreeSitterParserResult> {
-	const key = descriptorKey(adapter.grammar);
-	return cachedResult(parsers, key, () => createParser(adapter));
+/** 每种 grammar 缓存一个 parser；单次调用负责提供 deadline。 */
+export function loadTreeSitterParser(spec: GrammarSpec): Promise<TreeSitterParserResult> {
+	const key = descriptorKey(spec);
+	return cachedResult(parsers, key, () => createParser(spec));
 }
 
-/** Remove and release one parser after an unexpected parser-level exception. */
-export function invalidateTreeSitterParser(
-	adapter: Pick<LanguageAdapter, "grammar">,
-	parser: TreeSitterParser,
-): void {
-	const key = descriptorKey(adapter.grammar);
+/** parser 异常后删除缓存和底层句柄。 */
+export function invalidateTreeSitterParser(spec: GrammarSpec, parser: TreeSitterParser): void {
+	const key = descriptorKey(spec);
 	const cached = parsers.get(key);
 	if (cached?.value !== undefined && "parser" in cached.value && cached.value.parser === parser) parsers.delete(key);
 	safeDeleteParser(parser);
 }
 
-/** Process/test shutdown only: release the shared parser cache. Runtime and languages remain reusable. */
+/** 仅用于进程或测试关闭；runtime 和 language 仍可复用。 */
 export function disposeTreeSitterParserCache(): void {
 	for (const entry of parsers.values()) {
 		void entry.promise.then(
@@ -85,13 +76,13 @@ export function disposeTreeSitterParserCache(): void {
 async function createRuntime(spec: GrammarSpec): Promise<TreeSitterRuntimeResult> {
 	const loadedModule = await loadParserModule();
 	if ("failure" in loadedModule) return loadedModule;
-	const grammar = await loadGrammarResult(spec, loadedModule.module);
-	if ("failure" in grammar) return grammar;
-	return { runtime: { Parser: loadedModule.module.Parser, language: grammar.language, grammar: spec } };
+	const grammarResult = await loadGrammarResult(spec, loadedModule.module);
+	if ("failure" in grammarResult) return grammarResult;
+	return { runtime: { Parser: loadedModule.module.Parser, language: grammarResult.language, grammar: spec } };
 }
 
-async function createParser(adapter: Pick<LanguageAdapter, "grammar">): Promise<TreeSitterParserResult> {
-	const runtimeResult = await loadTreeSitterRuntimeForAdapter(adapter);
+async function createParser(spec: GrammarSpec): Promise<TreeSitterParserResult> {
+	const runtimeResult = await loadTreeSitterRuntime(spec);
 	if ("failure" in runtimeResult) return runtimeResult;
 	let parser: TreeSitterParser;
 	try {
@@ -123,18 +114,12 @@ async function initializeParserModule(): Promise<ModuleResult> {
 	}
 }
 
-function loadGrammarResult(
-	spec: GrammarSpec,
-	module: WebTreeSitterModule,
-): Promise<{ language: WebTreeSitterLanguage } | { failure: ParseFailure }> {
+function loadGrammarResult(spec: GrammarSpec, module: WebTreeSitterModule): Promise<GrammarResult> {
 	const key = descriptorKey(spec);
 	return cachedResult(grammars, key, () => loadGrammar(spec, module));
 }
 
-async function loadGrammar(
-	spec: GrammarSpec,
-	module: WebTreeSitterModule,
-): Promise<{ language: WebTreeSitterLanguage } | { failure: ParseFailure }> {
+async function loadGrammar(spec: GrammarSpec, module: WebTreeSitterModule): Promise<GrammarResult> {
 	let wasmPath: string;
 	try {
 		wasmPath = require.resolve(`${spec.packageName}/${spec.wasmFile}`);
@@ -175,7 +160,7 @@ function safeDeleteParser(parser: TreeSitterParser): void {
 	try {
 		parser.delete();
 	} catch {
-		// The cache entry has already been removed; no invalid handle remains reusable.
+		// 缓存已移除，不再暴露失效句柄。
 	}
 }
 

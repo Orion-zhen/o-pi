@@ -51,6 +51,7 @@
 		"remark-parse": "latest",
 		"tldts": "latest",
 		"tough-cookie": "latest",
+		"tree-sitter-bash": "latest",
 		"tree-sitter-c": "latest",
 		"tree-sitter-cpp": "latest",
 		"tree-sitter-go": "latest",
