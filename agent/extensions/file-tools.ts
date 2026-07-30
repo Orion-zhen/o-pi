@@ -350,12 +350,11 @@ function registerFileTools(
 		if (isFileToolName(event.toolName) && isFailedDetails(event.details)) return { isError: true };
 		return undefined;
 	});
-	pi.on("session_shutdown", async () => {
+	pi.on("session_shutdown", () => {
 		shuttingDown = true;
 		mutationBatches.dispose();
 		host?.stop();
 		for (const instance of loadedToolInstances) instance.dispose();
-		await lsp.shutdown();
 		host?.dispose();
 	});
 }

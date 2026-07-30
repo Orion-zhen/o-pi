@@ -463,7 +463,6 @@ describe("lsp transport", () => {
 			"textDocument/didClose",
 			"textDocument/didOpen",
 			"textDocument/didSave",
-			"textDocument/didClose",
 		]);
 		expect(fake.messages.find((message) => message.method === "textDocument/didChange")).toMatchObject({
 			params: {
@@ -1229,6 +1228,32 @@ describe("lsp transport", () => {
 		await log;
 		await expect(client.notification(new NotificationType<string>("test/backpressure"), "x".repeat(16 * 1024 * 1024))).resolves.toBe(false);
 		expect(client.status()).toMatchObject({ status: "crashed", open_documents: 0 });
+	});
+
+	it("shutdown 在 writer backpressure 下不会泄漏未处理的 stream rejection", async () => {
+		const client = stdioClient("notification-timeout");
+		let markLog: () => void = () => undefined;
+		const log = new Promise<void>((resolve) => { markLog = resolve; });
+		client.onLogMessage(() => markLog());
+		const unhandled: unknown[] = [];
+		const onUnhandled = (error: unknown): void => {
+			unhandled.push(error);
+		};
+		process.on("unhandledRejection", onUnhandled);
+		try {
+			expect(await client.ensureReady()).toBe(true);
+			await log;
+			const blocked = client.notification(
+				new NotificationType<string>("test/backpressure"),
+				"x".repeat(16 * 1024 * 1024),
+			);
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			await Promise.allSettled([blocked, client.shutdown()]);
+			await new Promise<void>((resolve) => setImmediate(resolve));
+			expect(unhandled).toEqual([]);
+		} finally {
+			process.off("unhandledRejection", onUnhandled);
+		}
 	});
 
 	it("stdio 顽固 child 在 shutdown 后被强制终止", async () => {

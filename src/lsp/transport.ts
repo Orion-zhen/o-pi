@@ -11,8 +11,12 @@ export interface LspTransportConnection {
 	readonly writer: NodeJS.WritableStream;
 	/** 连接异常时 reject；主动 close 不会触发该 promise。 */
 	readonly failure: Promise<never>;
+	/** stdio child 退出或 TCP socket 关闭时 resolve。 */
+	readonly closed: Promise<void>;
 	/** stdio server 最近的有界 stderr；TCP transport 返回 undefined。 */
 	stderrTail(): string | undefined;
+	/** 协议退出开始后，底层 close/error 不再报告为意外故障。 */
+	beginClose(): void;
 	close(): Promise<void>;
 }
 
@@ -31,6 +35,10 @@ async function connectStdio(command: string, args: readonly string[], cwd: strin
 	let rejectFailure: (error: Error) => void = () => undefined;
 	const failure = new Promise<never>((_resolve, reject) => {
 		rejectFailure = reject;
+	});
+	let resolveClosed: () => void = () => undefined;
+	const closed = new Promise<void>((resolve) => {
+		resolveClosed = resolve;
 	});
 	void failure.catch(() => undefined);
 	const stderrText = (): string | undefined => {
@@ -53,6 +61,7 @@ async function connectStdio(command: string, args: readonly string[], cwd: strin
 	child.stdout.on("error", fail);
 	child.stderr.on("error", fail);
 	child.once("exit", (code, signal) => {
+		resolveClosed();
 		fail(`server exited${code === null ? "" : ` ${code}`}${signal === null ? "" : ` ${signal}`}`);
 	});
 	if (child.pid === undefined) {
@@ -65,7 +74,11 @@ async function connectStdio(command: string, args: readonly string[], cwd: strin
 		reader: child.stdout,
 		writer: child.stdin,
 		failure,
+		closed,
 		stderrTail: stderrText,
+		beginClose: () => {
+			closing = true;
+		},
 		close: async () => {
 			closing = true;
 			await terminateChild(child);
@@ -88,6 +101,10 @@ async function connectTcp(host: string, port: number, timeoutMs: number): Promis
 	const failure = new Promise<never>((_resolve, reject) => {
 		rejectFailure = reject;
 	});
+	let resolveClosed: () => void = () => undefined;
+	const closed = new Promise<void>((resolve) => {
+		resolveClosed = resolve;
+	});
 	void failure.catch(() => undefined);
 	const fail = (error: unknown): void => {
 		if (closing || failed) return;
@@ -95,13 +112,20 @@ async function connectTcp(host: string, port: number, timeoutMs: number): Promis
 		rejectFailure(toError(error));
 	};
 	socket.on("error", fail);
-	socket.on("close", () => fail("connection closed"));
+	socket.on("close", () => {
+		resolveClosed();
+		fail("connection closed");
+	});
 
 	return {
 		reader: socket,
 		writer: socket,
 		failure,
+		closed,
 		stderrTail: () => undefined,
+		beginClose: () => {
+			closing = true;
+		},
 		close: () => closeSocket(socket, () => { closing = true; }),
 	};
 }

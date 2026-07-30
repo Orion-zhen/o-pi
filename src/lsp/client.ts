@@ -2,16 +2,11 @@ import path from "node:path";
 import pLimit from "p-limit";
 import {
 	CancellationTokenSource,
-	createMessageConnection,
 	ErrorCodes,
 	ResponseError,
-	StreamMessageReader,
-	StreamMessageWriter,
 	type CancellationToken,
 	type Disposable,
-	type Message,
 	type MessageConnection,
-	type MessageWriter,
 	type NotificationType,
 	type RequestType,
 } from "vscode-jsonrpc/node";
@@ -24,13 +19,11 @@ import {
 	DidOpenTextDocumentNotification,
 	DidSaveTextDocumentNotification,
 	DocumentDiagnosticRequest,
-	ExitNotification,
 	InitializedNotification,
 	InitializeRequest,
 	LogMessageNotification,
 	PublishDiagnosticsNotification,
 	RegistrationRequest,
-	ShutdownRequest,
 	TextDocumentSyncKind,
 	WorkDoneProgressCreateRequest,
 	WorkspaceFoldersRequest,
@@ -52,6 +45,7 @@ import {
 
 import { diagnosticSourceKey, type DiagnosticsLedger } from "./diagnostics.js";
 import { incrementalContentChange, LspDocuments } from "./documents.js";
+import { LspClientConnection } from "./client-connection.js";
 import {
 	featureAvailable,
 	lspFeatureDefinitions,
@@ -65,7 +59,7 @@ import {
 } from "./features/index.js";
 import { LspProtocolInfrastructure, LspProtocolValidationError } from "./protocol-infrastructure.js";
 import { languageIdForServerPath } from "./routing.js";
-import { connectLspTransport, type LspTransportConnection } from "./transport.js";
+import { connectLspTransport } from "./transport.js";
 import type {
 	LspClientDocumentContext,
 	LspConfig,
@@ -95,8 +89,7 @@ type LspSaveDiagnosticsResult =
 
 /** 单个 language server client，封装 transport、initialize、文档同步、symbol 和诊断通知。 */
 export class LspClient implements LspFeatureSession {
-	private transport: LspTransportConnection | undefined;
-	private connection: MessageConnection | undefined;
+	private activeConnection: LspClientConnection | undefined;
 	private serverCapabilities: ServerCapabilities | undefined;
 	private state: LspServerStatus["status"] = "idle";
 	private lastError: string | undefined;
@@ -156,7 +149,7 @@ export class LspClient implements LspFeatureSession {
 		if (PROTOCOL_SERVER_REQUEST_METHODS.has(method)) throw new Error(`Cannot replace built-in server request handler: ${method}`);
 		this.serverRequestDisposables.get(method)?.dispose();
 		this.serverRequestHandlers.set(method, handler);
-		if (this.connection !== undefined) this.installServerRequestHandler(method, handler);
+		if (this.activeConnection !== undefined) this.installServerRequestHandler(method, handler);
 		return () => {
 			if (this.serverRequestHandlers.get(method) !== handler) return;
 			this.serverRequestDisposables.get(method)?.dispose();
@@ -350,7 +343,7 @@ export class LspClient implements LspFeatureSession {
 		});
 		if (events.length === 0) return false;
 		return this.withOperation(async () => {
-			const connection = this.connection;
+			const connection = this.activeConnection?.rpc;
 			if (connection === undefined || this.state !== "ready") return false;
 			return this.sendNotification(connection, (active) => active.sendNotification(
 				DidChangeWatchedFilesNotification.type,
@@ -617,7 +610,7 @@ export class LspClient implements LspFeatureSession {
 	private async readyConnection(): Promise<MessageConnection | undefined> {
 		const ready = await this.ensureReady();
 		if (!ready) return undefined;
-		return this.connection;
+		return this.activeConnection?.rpc;
 	}
 
 	private async performShutdown(): Promise<void> {
@@ -627,38 +620,13 @@ export class LspClient implements LspFeatureSession {
 		await this.startPromise;
 		await this.cleanupPromise;
 
-		const connection = this.connection;
-		const transport = this.transport;
-		const openUris = this.documents.openUris();
-		this.connection = undefined;
-		this.transport = undefined;
+		const activeConnection = this.activeConnection;
+		this.activeConnection = undefined;
 		this.serverCapabilities = undefined;
 		this.disposeServerRequestDisposables();
 
-		if (connection !== undefined) {
-			const stepTimeout = Math.min(1000, this.config.request_timeout_ms);
-			try {
-				await withTimeout(Promise.all(openUris.map((uri) => connection.sendNotification(
-					DidCloseTextDocumentNotification.type,
-					{ textDocument: { uri } },
-				))), stepTimeout);
-			} catch {
-				// didClose 失败或超时后仍继续强制释放 session。
-			}
-			try {
-				await withTimeout(connection.sendRequest(ShutdownRequest.type, undefined), stepTimeout);
-			} catch {
-				// shutdown 是有界清理步骤；server 不响应时继续 exit。
-			}
-			try {
-				await withTimeout(connection.sendNotification(ExitNotification.type), stepTimeout);
-			} catch {
-				// exit 失败不阻止底层 transport 强制关闭。
-			}
-			connection.dispose();
-		}
 		try {
-			if (transport !== undefined) await transport.close();
+			if (activeConnection !== undefined) await activeConnection.close(this.config.request_timeout_ms);
 		} finally {
 			this.documents.clear();
 			this.diagnosticResultIds.clear();
@@ -670,7 +638,7 @@ export class LspClient implements LspFeatureSession {
 		this.state = "starting";
 		this.lastError = undefined;
 		this.serverCapabilities = undefined;
-		let transport: LspTransportConnection;
+		let transport: Awaited<ReturnType<typeof connectLspTransport>>;
 		try {
 			transport = await connectLspTransport(this.server.transport, this.root, this.config.startup_timeout_ms);
 		} catch (error) {
@@ -681,17 +649,15 @@ export class LspClient implements LspFeatureSession {
 			await transport.close();
 			return false;
 		}
-		this.transport = transport;
-
-		let connection: MessageConnection | undefined;
-		const writer = new SafeMessageWriter(new StreamMessageWriter(transport.writer), (error) => {
-			if (connection === undefined || this.connection !== connection) return;
+		let activeConnection: LspClientConnection | undefined;
+		activeConnection = new LspClientConnection(transport, (error) => {
+			if (activeConnection === undefined || this.activeConnection !== activeConnection) return;
 			void this.markTransportFailure(errorMessage(error));
 		});
-		connection = createMessageConnection(new StreamMessageReader(transport.reader), writer);
-		this.connection = connection;
-		void transport.failure.catch((error) => {
-			if (this.transport !== transport) return;
+		const connection = activeConnection.rpc;
+		this.activeConnection = activeConnection;
+		void activeConnection.failure.catch((error) => {
+			if (this.activeConnection !== activeConnection) return;
 			void this.markTransportFailure(errorMessage(error));
 		});
 		connection.onNotification(PublishDiagnosticsNotification.type, (params) => {
@@ -724,11 +690,11 @@ export class LspClient implements LspFeatureSession {
 		this.installProtocolServerRequestHandlers(connection);
 		for (const [method, handler] of this.serverRequestHandlers) this.installServerRequestHandler(method, handler);
 		connection.onError(([error]) => {
-			if (this.connection !== connection) return;
+			if (this.activeConnection !== activeConnection) return;
 			void this.markTransportFailure(error.message);
 		});
 		connection.onClose(() => {
-			if (this.connection !== connection) return;
+			if (this.activeConnection !== activeConnection) return;
 			void this.markTransportFailure("connection closed");
 		});
 		connection.listen();
@@ -761,7 +727,7 @@ export class LspClient implements LspFeatureSession {
 				})),
 				this.config.startup_timeout_ms,
 			) as InitializeResult;
-			if (this.connection !== connection || this.state !== "starting") return false;
+			if (this.activeConnection !== activeConnection || this.state !== "starting") return false;
 			this.serverCapabilities = initializeResult.capabilities;
 			const initialized = await this.sendNotification(connection, (active) => active.sendNotification(InitializedNotification.type, {}));
 			if (!initialized) throw new Error("failed to send initialized notification");
@@ -783,10 +749,10 @@ export class LspClient implements LspFeatureSession {
 	}
 
 	private async sendNotification(connection: MessageConnection, factory: (connection: MessageConnection) => Promise<void>): Promise<boolean> {
-		if (this.connection !== connection || !this.canUseConnection()) return false;
+		if (this.activeConnection?.rpc !== connection || !this.canUseConnection()) return false;
 		try {
 			await withTimeout(this.withTransportFailure(() => factory(connection)), this.config.request_timeout_ms);
-			return this.connection === connection && this.canUseConnection();
+			return this.activeConnection?.rpc === connection && this.canUseConnection();
 		} catch (error) {
 			await this.markTransportFailure(errorMessage(error));
 			return false;
@@ -799,7 +765,7 @@ export class LspClient implements LspFeatureSession {
 			rejectTransport = reject;
 			this.transportFailureRejectors.add(reject);
 		});
-		const transportFailure = this.transport?.failure;
+		const transportFailure = this.activeConnection?.failure;
 		try {
 			const operation = Promise.resolve().then(factory);
 			return transportFailure === undefined
@@ -829,7 +795,7 @@ export class LspClient implements LspFeatureSession {
 
 	private installServerRequestHandler(method: string, handler: LspServerRequestHandler): void {
 		this.serverRequestDisposables.get(method)?.dispose();
-		const connection = this.connection;
+		const connection = this.activeConnection?.rpc;
 		if (connection === undefined) return;
 		this.serverRequestDisposables.set(method, connection.onRequest(method, (params, token: CancellationToken) => handler(params, token)));
 	}
@@ -865,23 +831,20 @@ export class LspClient implements LspFeatureSession {
 		this.clearIdleTimer();
 		this.rejectTransportWaiters(failure);
 		if (crashed) this.onCrash(this, failure);
-		await this.cleanupCurrentSession();
+		await this.cleanupCurrentConnection();
 	}
 
-	private async cleanupCurrentSession(): Promise<void> {
+	private async cleanupCurrentConnection(): Promise<void> {
 		if (this.cleanupPromise !== undefined) return this.cleanupPromise;
-		const connection = this.connection;
-		const transport = this.transport;
-		this.connection = undefined;
-		this.transport = undefined;
+		const activeConnection = this.activeConnection;
+		this.activeConnection = undefined;
 		this.serverCapabilities = undefined;
 		this.documents.clear();
 		this.diagnosticResultIds.clear();
 		this.protocol.reset();
 		this.disposeServerRequestDisposables();
-		connection?.dispose();
 		const pending = (async () => {
-			if (transport !== undefined) await transport.close();
+			if (activeConnection !== undefined) await activeConnection.abort();
 		})();
 		this.cleanupPromise = pending;
 		try {
@@ -892,7 +855,7 @@ export class LspClient implements LspFeatureSession {
 	}
 
 	private transportFailureMessage(message: string): string {
-		const stderr = this.transport?.stderrTail();
+		const stderr = this.activeConnection?.stderrTail();
 		return stderr === undefined || message.includes(stderr) ? message : `${message}; stderr: ${stderr}`;
 	}
 
@@ -956,38 +919,6 @@ function textDocumentSyncPolicy(capabilities: ServerCapabilities | undefined): T
 		save: sync.save === true || saveOptions !== undefined,
 		includeText: saveOptions?.includeText === true,
 	};
-}
-
-class SafeMessageWriter implements MessageWriter {
-	constructor(
-		private readonly inner: MessageWriter,
-		private readonly onWriteError: (error: unknown) => void,
-	) {}
-
-	get onError(): MessageWriter["onError"] {
-		return this.inner.onError;
-	}
-
-	get onClose(): MessageWriter["onClose"] {
-		return this.inner.onClose;
-	}
-
-	async write(msg: Message): Promise<void> {
-		try {
-			await this.inner.write(msg);
-		} catch (error) {
-			this.onWriteError(error);
-			throw error;
-		}
-	}
-
-	end(): void {
-		this.inner.end();
-	}
-
-	dispose(): void {
-		this.inner.dispose();
-	}
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

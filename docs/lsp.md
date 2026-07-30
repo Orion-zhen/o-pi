@@ -231,15 +231,17 @@ binary 不存在、TCP endpoint 不可达或 initialize 失败时 server 标记�
 
 不会自动 apply code actions、organize imports、跨文件 rename。
 
-### 协议 session
+### 协议连接
 
-initialize 返回的 capabilities 会保存在 session 中；不支持的 document symbols、workspace symbols、workspace symbol resolve、references 或 call hierarchy 不会发送请求。URI-only `WorkspaceSymbol` 仅在 `workspaceSymbolProvider.resolveProvider: true` 时通过 `workspaceSymbol/resolve` 补全 range。grep analyzer 要求 workspace symbol、document symbol 和 references 都可用；call hierarchy 可选。session 提供带超时和协议级取消的 typed request/notification 入口，并统一接收 diagnostics、日志和 progress。
+initialize 返回的 capabilities 会保存在 client 中；不支持的 document symbols、workspace symbols、workspace symbol resolve、references 或 call hierarchy 不会发送请求。URI-only `WorkspaceSymbol` 仅在 `workspaceSymbolProvider.resolveProvider: true` 时通过 `workspaceSymbol/resolve` 补全 range。grep analyzer 要求 workspace symbol、document symbol 和 references 都可用；call hierarchy 可选。client 提供带超时和协议级取消的 typed request/notification 入口，并统一接收 diagnostics、日志和 progress。
 
-文档同步严格遵循 server 的 `textDocumentSync`：Full 发送全文 change，Incremental 发送基于 UTF-16 position 的最小 replacement，None 不发送 change；仅在 `openClose` 启用时发送平衡的 didOpen/didClose，仅在 `save` 启用时发送 didSave，且只有 `includeText: true` 时携带全文。同一 URI 的同步、保存、关闭和 documentSymbol 请求按顺序执行。只读 symbol 请求使用临时 open/close，关闭后仍按内容版本保留本地 cache；mutation 会重新打开并持续同步目标文档。
+文档同步严格遵循 server 的 `textDocumentSync`：Full 发送全文 change，Incremental 发送基于 UTF-16 position 的最小 replacement，None 不发送 change；仅在 `openClose` 启用时按正常文档生命周期发送 didOpen/didClose，仅在 `save` 启用时发送 didSave，且只有 `includeText: true` 时携带全文。同一 URI 的同步、保存、关闭和 documentSymbol 请求按顺序执行。只读 symbol 请求使用临时 open/close，关闭后仍按内容版本保留本地 cache；mutation 会重新打开并持续同步目标文档。整个协议连接退出时直接执行 shutdown/exit，不批量发送冗余 didClose。
 
 Diagnostics 按 workspace/server source+URI 分区。pull full report 会更新当前及 related documents，并缓存 `resultId` 供后续增量请求；unchanged report 复用 ledger 快照。同一 client 的批量 mutation 在全部文档同步后才开始诊断请求，请求并发受限且共享本批次 deadline。TSLS fast path 按 capability 而不是 server ID 检测，依次请求 syntactic、semantic 和 suggestion diagnostics；成功的空数组是明确 clean，响应无效或请求失败时用剩余 deadline 回退等待 publish。无 pull capability 时，每次有效 publish 生成单调 revision，并保留可选文档 version；低于 client 当前文档版本的 publish 会被丢弃。diff 使用 severity/source/code/message 的位置无关身份和重复计数，已有问题随编辑移动时不会误报为新增和已解决。
 
-并发启动共享同一个 initialize；取消或 deadline 只停止当前调用等待，不中断其他调用共享的启动。idle 只在没有活动请求或通知时计时。`reload` 先阻止新增强操作，等待旧 client 的完整操作链结束后再关闭。请求、通知、shutdown 和 transport 清理都有界；崩溃会立即清除 connection、文档状态和底层 socket/child，后续在 `max_restarts` 内创建全新 client，并发恢复共享同一次重启。stdio 持续消费 stderr 并只保留有界尾部用于 `last_error`；stdio initialize 使用当前 Pi PID，TCP initialize 使用 `processId: null`。
+`LspManager` 属于 Pi 进程，client 按 workspace/server 持有；Pi 对话的 `/new`、fork 和 resume 只重建会话级扩展状态，不关闭进程级 LSP。扩展 reload、`/lsp reload` 和进程 quit 才重置 manager，其中 reload 后仍可重新使用。
+
+每次 initialize 到 shutdown 是独立的连接代，独占 JSON-RPC writer、connection 和 transport。并发启动共享同一个 initialize；取消或 deadline 只停止当前调用等待，不中断其他调用共享的启动。idle 只在没有活动请求或通知时计时。`reload` 先阻止新增强操作，等待旧 client 的完整操作链结束后再关闭。优雅退出停止接收新操作，在一个绝对期限内依次发送 shutdown、exit，排空 writer、结束写端并等待 server 自行退出，超时后再关闭 socket 或 TERM/KILL child。stream 写错误由所属连接代统一吸收并转成一次 transport failure，旧连接的迟到回调不能影响新连接。崩溃则跳过协议握手，立即清除 connection、文档状态和底层 socket/child；后续在 `max_restarts` 内创建全新 client，并发恢复共享同一次重启。stdio 持续消费 stderr 并只保留有界尾部用于 `last_error`；stdio initialize 使用当前 Pi PID，TCP initialize 使用 `processId: null`。
 
 server 主动 request 仅内置处理无副作用的 `workspace/configuration`、`workspace/workspaceFolders`、`window/workDoneProgress/create` 和 `client/registerCapability`。动态注册白名单只有 `workspace/didChangeWatchedFiles` 与 `workspace/didChangeConfiguration`，watcher glob、workspace 边界和数量均受限；其他 request（包括 `workspace/applyEdit`）仍返回 `MethodNotFound`。
 

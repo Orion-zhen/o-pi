@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, SessionShutdownEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
 import lspExtension from "../../agent/extensions/lsp.js";
@@ -11,10 +11,10 @@ const repositoryRoot = path.resolve("repo");
 const configPath = path.join(repositoryRoot, "config", "lsp.jsonc");
 
 describe("lsp extension", () => {
-	it("只注册 /lsp 命令，并在 session shutdown 释放 manager", async () => {
+	it("只注册 /lsp 命令，并仅在 reload 或 quit 时重置进程级 manager", async () => {
 		const commands: string[] = [];
 		const tools: string[] = [];
-		let shutdown: (() => Promise<void>) | undefined;
+		let shutdown: ((event: SessionShutdownEvent) => Promise<void>) | undefined;
 		const reload = vi.spyOn(lspManager, "reload").mockResolvedValue();
 		lspExtension({
 			registerCommand(name) {
@@ -24,14 +24,20 @@ describe("lsp extension", () => {
 				tools.push(tool.name);
 			},
 			on(name, handler) {
-				if (name === "session_shutdown") shutdown = handler as () => Promise<void>;
+				if (name === "session_shutdown") shutdown = handler as (event: SessionShutdownEvent) => Promise<void>;
 			},
 		} as Pick<ExtensionAPI, "registerCommand" | "registerTool" | "on"> as ExtensionAPI);
 
 		expect(commands).toEqual(["lsp"]);
 		expect(tools).toEqual([]);
-		await expect(shutdown?.()).resolves.toBeUndefined();
-		expect(reload).toHaveBeenCalledTimes(1);
+		for (const reason of ["new", "fork", "resume"] as const) {
+			await expect(shutdown?.({ type: "session_shutdown", reason })).resolves.toBeUndefined();
+		}
+		expect(reload).not.toHaveBeenCalled();
+		for (const reason of ["reload", "quit"] as const) {
+			await expect(shutdown?.({ type: "session_shutdown", reason })).resolves.toBeUndefined();
+		}
+		expect(reload).toHaveBeenCalledTimes(2);
 		reload.mockRestore();
 	});
 

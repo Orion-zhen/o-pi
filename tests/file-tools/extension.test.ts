@@ -5,7 +5,6 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFileToolsExtension, type FileToolsModuleImports } from "../../agent/extensions/file-tools.js";
-import { lspManager } from "../../src/lsp/index.js";
 import type { LspMutationInput } from "../../src/lsp/file-hooks.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { activateFileTools, executeTool, type ExecuteTool, type LifecycleHandler } from "./extension-fixture.js";
@@ -288,7 +287,6 @@ describe("file-tools extension lifecycle", () => {
 	it("完整 read 不加载 LSP，局部 read 首次请求增强时才加载并复用", async () => {
 		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
 		const handlers = new Map<string, LifecycleHandler>();
-		const reload = vi.spyOn(lspManager, "reload").mockResolvedValue();
 		const enhanceRead = vi.fn(async () => ({
 			enclosing_symbol: { name: "value", kind: "declaration", line: 1, end_line: 3 },
 		}));
@@ -330,9 +328,8 @@ describe("file-tools extension lifecycle", () => {
 			expect(partial.details).toMatchObject({ lsp: { enclosing_symbol: { name: "value" } } });
 
 			await expect(Promise.resolve(handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();
-			expect(reload).toHaveBeenCalledTimes(1);
 			await expect(Promise.resolve(handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();
-			expect(reload).toHaveBeenCalledTimes(1);
+			expect(imports.lsp).toHaveBeenCalledTimes(1);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });
 		}

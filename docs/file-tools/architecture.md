@@ -85,9 +85,9 @@ port 输入输出使用消费者需要的 DTO 和 opaque ref。所有调用都�
 | `ObservationStore` | canonical identity 到 content version 的 session map | session/host 结束时 clear |
 | `FindTool` | suggestion worker/pool | abort pending work 并 dispose worker |
 | `GrepTool` | 派生 AST cache、parser/worker 与 active invocation | abort pending work 并 dispose parser/worker/cache owner |
-| lazy LSP | manager state | extension shutdown 时仅释放已激活实例 |
+| lazy LSP port | 本会话的模块加载 Promise | 随 extension 释放，不拥有进程级 manager |
 
-shutdown 顺序是：拒绝新 invocation，dispose 已加载 tool instances，shutdown LSP，最后 dispose host/filesystem。所有 `dispose` 幂等。
+file-tools shutdown 顺序是：拒绝新 invocation，dispose 已加载 tool instances，最后 dispose host/filesystem。进程级 LSP 生命周期只由 LSP extension 管理；`/new`、fork 和 resume 保留 manager，reload 和 quit 才关闭连接。所有 `dispose` 幂等。
 
 ## 取消与 mutation 边界
 

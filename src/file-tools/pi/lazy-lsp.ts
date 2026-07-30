@@ -2,12 +2,9 @@ import type { LspFileOperations } from "../../lsp/file-hooks.js";
 
 export interface LspModule {
 	lspFileOperations: LspFileOperations;
-	lspManager: { reload(): Promise<void> };
 }
 
-export interface LazyLspFileOperations extends LspFileOperations {
-	shutdown(): Promise<void>;
-}
+export type LazyLspFileOperations = LspFileOperations;
 
 /** Loads LSP only when a tool-local composition port requests an enhancement. */
 export function createLazyLspFileOperations(load: () => Promise<LspModule>): LazyLspFileOperations {
@@ -38,13 +35,6 @@ export function createLazyLspFileOperations(load: () => Promise<LspModule>): Laz
 			const operations = (await getModule()).lspFileOperations;
 			if (operations.afterWriteBatch !== undefined) return await operations.afterWriteBatch(inputs);
 			return await Promise.all(inputs.map((input) => operations.afterWrite?.(input)));
-		},
-		async shutdown() {
-			const active = pending;
-			pending = undefined;
-			if (active === undefined) return;
-			const loaded = await active.catch(() => undefined);
-			await loaded?.lspManager.reload();
 		},
 	};
 }
