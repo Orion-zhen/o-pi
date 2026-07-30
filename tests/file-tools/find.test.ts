@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { FindTool } from "../../src/file-tools/find/command.js";
 import { createFindQueryPlan } from "../../src/file-tools/find/query.js";
 import {
+	createLimitedFindRanker,
 	rankFindEntries,
 	rankFindEntriesAsync,
 	rankFindEntriesLimitedAsync,
@@ -252,6 +253,42 @@ describe("find", () => {
 		expect(paths(explicit.details.matches)).toEqual(["ignored/auth.ts"]);
 	});
 
+	it("增量加载嵌套 ignore，并保留跨来源重新包含语义", async () => {
+		const configPath = path.join(outside, "nested-ignore.jsonc");
+		await writeFile(configPath, JSON.stringify({
+			blocked_path: [".git/"],
+			ignored_path: [],
+			ignore: {
+				builtin_profile: "none",
+				piignore: true,
+				gitignore: true,
+				git_tracked_files_bypass: false,
+			},
+		}));
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await mkdir(path.join(workspace, "pkg", "cache"), { recursive: true });
+		await writeFile(path.join(workspace, ".gitignore"), "pkg/cache/\n*.tmp\n");
+		await writeFile(path.join(workspace, "pkg", ".gitignore"), "!keep.tmp\nlocal.log\n");
+		await writeFile(path.join(workspace, "pkg", "cache", ".piignore"), "!revived.ts\n");
+		await writeFile(path.join(workspace, "pkg", "drop.tmp"), "");
+		await writeFile(path.join(workspace, "pkg", "keep.tmp"), "");
+		await writeFile(path.join(workspace, "pkg", "local.log"), "");
+		await writeFile(path.join(workspace, "pkg", "visible.ts"), "");
+		await writeFile(path.join(workspace, "pkg", "cache", "revived.ts"), "");
+		await writeFile(path.join(workspace, "pkg", "cache", "hidden.ts"), "");
+
+		const result = success(await findWorkspaceFiles(workspace, { query: "pkg" }));
+		expect(paths(result.details.matches)).toEqual(expect.arrayContaining([
+			"pkg",
+			"pkg/keep.tmp",
+			"pkg/visible.ts",
+			"pkg/cache/revived.ts",
+		]));
+		for (const ignored of ["pkg/drop.tmp", "pkg/local.log", "pkg/cache/hidden.ts"]) {
+			expect(paths(result.details.matches)).not.toContain(ignored);
+		}
+	});
+
 	it("blocked path 和 symlink 不进入候选，普通 dotfile 正常搜索", async () => {
 		await mkdir(path.join(workspace, ".git"), { recursive: true });
 		await mkdir(path.join(workspace, "real"), { recursive: true });
@@ -323,14 +360,14 @@ describe("find", () => {
 		expect(countTextTokensSync(first.content).tokens).toBeLessThanOrEqual(40);
 	});
 
-	it("路径发现不为每个普通文件读取 metadata 或解析 realpath", async () => {
+	it("路径发现不为 readdir 已分类的普通文件和目录读取 metadata 或解析 realpath", async () => {
 		const fileCount = 64;
 		const directoryCount = 4;
 		for (let index = 0; index < fileCount; index += 1) {
 			await writeFixture(`bucket-${index % directoryCount}/target-${String(index).padStart(2, "0")}.ts`);
 		}
 		const base = new NodeNativeFileSystem();
-		const calls = { lstat: 0, realpath: 0 };
+		const calls = { lstat: 0, realpath: 0, readdir: 0 };
 		const native = overrideNativeFileSystem({
 			async lstat(file, options) {
 				calls.lstat += 1;
@@ -340,6 +377,10 @@ describe("find", () => {
 				calls.realpath += 1;
 				return await base.realpath(file, options);
 			},
+			async readdir(directory, options) {
+				calls.readdir += 1;
+				return await base.readdir(directory, options);
+			},
 		}, base);
 		const host = new FileToolsHost({ filesystem: new FileSystemRuntime({ native }) });
 		const tool = new FindTool();
@@ -347,8 +388,11 @@ describe("find", () => {
 			const opened = await host.open({ cwd: workspace, sessionId: "find-path-discovery" });
 			if (isFailed(opened)) throw new Error(opened.error.message);
 			try {
+				expect(calls.readdir).toBe(0);
+				expect(calls.lstat).toBeLessThan(10);
 				calls.lstat = 0;
 				calls.realpath = 0;
+				calls.readdir = 0;
 				const result = success(await tool.execute({ query: "target" }, {
 					filesystem: opened.filesystem,
 					operation: opened.context,
@@ -358,8 +402,9 @@ describe("find", () => {
 					total_candidates: fileCount + directoryCount,
 					total_matches: fileCount,
 				});
-				expect(calls.lstat).toBeLessThan(fileCount / 4);
-				expect(calls.realpath).toBeLessThan(fileCount / 4);
+				expect(calls.lstat).toBe(0);
+				expect(calls.realpath).toBe(0);
+				expect(calls.readdir).toBe(directoryCount + 1);
 			} finally {
 				opened.dispose();
 			}
@@ -430,9 +475,12 @@ describe("find", () => {
 		});
 		const complete = rankFindEntries(entries, plan);
 		const limited = await rankFindEntriesLimitedAsync(entries, plan, 7);
+		const streaming = createLimitedFindRanker(plan, 7);
+		for (const entry of entries) streaming.add(entry);
 		expect(limited).toEqual({
 			ranked: complete.slice(0, 7),
 			totalMatches: complete.length,
 		});
+		expect(streaming.result()).toEqual(limited);
 	});
 });

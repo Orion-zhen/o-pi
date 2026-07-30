@@ -23,14 +23,25 @@ export interface ReadonlyFileSystemServices {
 }
 
 /** Composes the readonly data plane bound to one namespace and visibility snapshot. */
-export function createReadonlyFileSystemServices(options: {
+type ReadonlyFileSystemOptions = {
 	readonly native: NativeFileSystem;
 	readonly namespace: WorkspaceNamespaceKernel;
-	readonly visibilitySnapshot: VisibilitySnapshot;
 	readonly ownerSignal?: AbortSignal;
-}): ReadonlyFileSystemServices {
-	const visibility = new SnapshotVisibilityOperations(options.visibilitySnapshot, options.namespace.bridge, options.ownerSignal);
-	const metadata = new WorkspaceMetadataService(options.native, options.namespace.bridge, options.ownerSignal);
+} & (
+	| { readonly visibility: VisibilityOperations }
+	| { readonly visibilitySnapshot: VisibilitySnapshot }
+);
+
+export function createReadonlyFileSystemServices(options: ReadonlyFileSystemOptions): ReadonlyFileSystemServices {
+	const visibility = "visibility" in options
+		? options.visibility
+		: new SnapshotVisibilityOperations(options.visibilitySnapshot, options.namespace.bridge, options.ownerSignal);
+	const metadata = new WorkspaceMetadataService(
+		options.native,
+		options.namespace.bridge,
+		visibility,
+		options.ownerSignal,
+	);
 	const traversal = new WorkspaceTraversalService(options.native, options.namespace.bridge, visibility, options.ownerSignal);
 	return {
 		metadata,

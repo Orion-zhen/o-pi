@@ -61,8 +61,9 @@ export interface WorkspaceNamespaceBridge {
 		context: FsOperationContext,
 	): Promise<FsResult<ResolvedExistingPath & { readonly identity: NativePathIdentity }>>;
 	resolveChild(parent: DirectoryRef, name: string, context: FsOperationContext): Promise<FsResult<ResolvedExistingPath>>;
-	/** Projects one regular-file dirent snapshot without additional metadata I/O. */
-	projectListedFile(parent: DirectoryRef, name: string, context: FsOperationContext): FsResult<FileRef>;
+	/** Projects one trusted regular dirent snapshot without additional metadata I/O. */
+	projectListedChild(parent: DirectoryRef, name: string, kind: "file", context: FsOperationContext): FsResult<FileRef>;
+	projectListedChild(parent: DirectoryRef, name: string, kind: "directory", context: FsOperationContext): FsResult<DirectoryRef>;
 }
 
 export interface WorkspaceNamespaceKernel {
@@ -281,7 +282,14 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		);
 	}
 
-	projectListedFile(parent: DirectoryRef, name: string, context: FsOperationContext): FsResult<FileRef> {
+	projectListedChild(parent: DirectoryRef, name: string, kind: "file", context: FsOperationContext): FsResult<FileRef>;
+	projectListedChild(parent: DirectoryRef, name: string, kind: "directory", context: FsOperationContext): FsResult<DirectoryRef>;
+	projectListedChild(
+		parent: DirectoryRef,
+		name: string,
+		kind: "file" | "directory",
+		context: FsOperationContext,
+	): FsResult<FileRef | DirectoryRef> {
 		context = bindOperationContext(this.options.ownerSignal, context);
 		const parentIdentity = this.refs.get(parent.id);
 		if (context.signal?.aborted === true) {
@@ -310,15 +318,14 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 			...(workspacePath === undefined ? {} : { workspacePath }),
 		}, "canonical");
 		if (canonicalBlock !== undefined) return blockedFailure(displayPath, canonicalBlock);
-		const ref: FileRef = {
-			...this.createRefBase(lexical, {
+		const nativeIdentity = {
 				nativePath: path.join(parentIdentity.nativePath, name),
 				canonicalPath,
 				lexicalPath: input,
-			}),
-			kind: "file",
 		};
-		return fsSuccess(ref);
+		return kind === "file"
+			? fsSuccess({ ...this.createRefBase(lexical, nativeIdentity), kind: "file" })
+			: fsSuccess({ ...this.createRefBase(lexical, nativeIdentity), kind: "directory" });
 	}
 
 	getNativeIdentity(ref: ExistingRef | TargetRef): NativePathIdentity | undefined {

@@ -39,6 +39,11 @@ export interface LimitedFindRanking {
 	readonly totalMatches: number;
 }
 
+export interface LimitedFindRanker {
+	add(entry: FindEntry): void;
+	result(): LimitedFindRanking;
+}
+
 const SCORE_MATCH = 16;
 const SCORE_GAP_START = -3;
 const SCORE_GAP_EXTENSION = -1;
@@ -89,23 +94,36 @@ export async function rankFindEntriesLimitedAsync(
 	limit: number,
 	signal?: AbortSignal,
 ): Promise<LimitedFindRanking | undefined> {
-	if (!Number.isSafeInteger(limit) || limit < 0) throw new RangeError("find ranking limit must be a non-negative integer.");
-	const compiled = compileFindQueryPlan(plan);
-	const ranked: RankedFindEntry[] = [];
-	let totalMatches = 0;
+	const ranker = createLimitedFindRanker(plan, limit);
 	for (const [index, entry] of entries.entries()) {
 		if (isAborted(signal)) return undefined;
 		if (index > 0 && index % RANKING_YIELD_INTERVAL === 0) {
 			await yieldToEventLoop();
 			if (isAborted(signal)) return undefined;
 		}
-		const candidate = rankEntry(entry, compiled);
-		if (candidate === undefined) continue;
-		totalMatches += 1;
-		insertRankedPrefix(ranked, candidate, limit);
+		ranker.add(entry);
 	}
 	if (isAborted(signal)) return undefined;
-	return { ranked, totalMatches };
+	return ranker.result();
+}
+
+/** 接收流式候选并保留与完整排序相同的 relevance 前缀。 */
+export function createLimitedFindRanker(plan: FindQueryPlan, limit: number): LimitedFindRanker {
+	if (!Number.isSafeInteger(limit) || limit < 0) throw new RangeError("find ranking limit must be a non-negative integer.");
+	const compiled = compileFindQueryPlan(plan);
+	const ranked: RankedFindEntry[] = [];
+	let totalMatches = 0;
+	return {
+		add(entry) {
+			const candidate = rankEntry(entry, compiled);
+			if (candidate === undefined) return;
+			totalMatches += 1;
+			insertRankedPrefix(ranked, candidate, limit);
+		},
+		result() {
+			return { ranked: [...ranked], totalMatches };
+		},
+	};
 }
 
 function isAborted(signal: AbortSignal | undefined): boolean {

@@ -20,7 +20,7 @@ scope / ignore / glob
 
 `fzf-v2-path-v1` 使用动态规划选择最高分字符对齐。连续字符、path/word/camelCase 边界获得奖励，gap 受到惩罚；同分时优先 basename 命中、短 span、短路径、scope 顺序和稳定 path。query term 的 Unicode/case 形式在扫描候选前预编译。它不执行 query 意图分类，不读取正文，不使用 embedding、LSP、Tree-sitter、evidence fusion 或 MMR。
 
-result limit 在扫描时维护有界 relevance 前缀，同时继续统计完整命中数；不做全量排序或目录多样化。renderer 直接输出具体路径，不折叠候选或二次选择。
+每个唯一候选在 discovery 产出时立即进入有界 ranker；result limit 只限制保留的 relevance 前缀，扫描仍继续统计完整命中数。runtime 不物化完整候选数组，不做全量排序或目录多样化。renderer 直接输出具体路径，不折叠候选或二次选择。
 
 ## `grep`
 

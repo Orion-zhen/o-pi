@@ -17,6 +17,7 @@ import { mapNativeError } from "./kernel/native-error.js";
 import {
 	createWorkspaceNamespace,
 	type NativePathIdentity,
+	type WorkspaceNamespaceKernel,
 } from "./kernel/namespace.js";
 import { NodeNativeFileSystem, type NativeFileSystem } from "./platform/node/native-filesystem.js";
 import { createReadonlyFileSystemServices } from "./services/readonly.js";
@@ -79,19 +80,39 @@ export class FileSystemRuntime {
 		if (rootIdentity === undefined) {
 			return fsFailure({ code: "invalid-path", message: "Workspace root identity is unavailable.", path: options.cwd });
 		}
-		let snapshot;
+		let readonly;
 		try {
-			snapshot = await this.visibility.createSnapshot(rootIdentity.canonicalPath, options.policy.visibility, context);
+			if (supportsIncrementalVisibility(this.visibility)) {
+				const visibility = await this.visibility.createOperations(
+					rootIdentity.canonicalPath,
+					options.policy.visibility,
+					namespace.value,
+					context,
+					ownerSignal,
+				);
+				readonly = createReadonlyFileSystemServices({
+					native: this.native,
+					namespace: namespace.value,
+					visibility,
+					ownerSignal,
+				});
+			} else {
+				const snapshot = await this.visibility.createSnapshot(
+					rootIdentity.canonicalPath,
+					options.policy.visibility,
+					context,
+				);
+				readonly = createReadonlyFileSystemServices({
+					native: this.native,
+					namespace: namespace.value,
+					visibilitySnapshot: snapshot,
+					ownerSignal,
+				});
+			}
 		} catch (error) {
 			return fsFailure(mapNativeError(error, namespace.value.root.displayPath));
 		}
 		if (this.disposed || context.signal?.aborted === true) return runtimeClosed(options.cwd);
-		const readonly = createReadonlyFileSystemServices({
-			native: this.native,
-			namespace: namespace.value,
-			visibilitySnapshot: snapshot,
-			ownerSignal,
-		});
 		const mutations = lazyMutationOperations(async () => {
 			if (this.disposed || ownerSignal.aborted) return undefined;
 			const module = await this.loadMutationModule();
@@ -204,4 +225,18 @@ function lazyMutationOperations(load: () => Promise<MutationOperations | undefin
 
 function runtimeClosed(path: string): FsResult<never> {
 	return fsFailure({ code: "aborted", message: "Filesystem runtime is shut down.", path });
+}
+
+interface IncrementalVisibilityService extends VisibilityService {
+	createOperations(
+		root: string,
+		policy: FilesystemPolicy["visibility"],
+		namespace: WorkspaceNamespaceKernel,
+		context: FsOperationContext,
+		ownerSignal: AbortSignal,
+	): Promise<WorkspaceFileSystem["visibility"]>;
+}
+
+function supportsIncrementalVisibility(service: VisibilityService): service is IncrementalVisibilityService {
+	return "createOperations" in service && typeof service.createOperations === "function";
 }

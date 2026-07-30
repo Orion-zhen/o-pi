@@ -53,4 +53,8 @@ export class SnapshotVisibilityOperations implements VisibilityOperations {
 			}),
 		});
 	}
+
+	async prepareDirectory(): Promise<FsResult<void>> {
+		return fsSuccess(undefined);
+	}
 }

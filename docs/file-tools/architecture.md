@@ -46,7 +46,7 @@ Node platform backend
 
 1. adapter 使用 `ctx.cwd`、session id 和 `AbortSignal` 调用 `FileToolsHost.open`；
 2. host 在任何 workspace I/O 前加载并校验该 cwd 的用户/项目配置；
-3. `FileSystemRuntime` 创建 namespace，并绑定不可变 filesystem policy 与 visibility snapshot；
+3. `FileSystemRuntime` 创建 namespace，并绑定不可变 filesystem policy、Git 状态与 invocation-local visibility evaluator；
 4. host 返回 `WorkspaceFileSystem`、只读 limits、session observation、operation context 和仅供 composition adapter 使用的 native bridge；
 5. command 只组合 filesystem capability、自身算法和自己的可选 port；
 6. adapter 格式化 Pi content/details，最后释放 invocation lease。
@@ -61,7 +61,7 @@ port 由消费者工具声明，而不是由外部子系统或 filesystem 声明
 - write/edit：diagnostics、mutation observer、共享 text diff contract；
 - grep：workspace-bound `CodeAnalyzer`；LSP 不反向导入 grep 实现，统一返回规范代码单元和 `called` / `referenced` / `defined` authority。
 
-port 输入输出使用消费者需要的 DTO 和 opaque ref。所有调用都有 safe wrapper；未配置、在 symbol 选择前失败或超时时保留基础行为。find 没有外部增强 port，只对 filesystem path discovery 返回的 scope-relative path 执行本地 fzf 排名；普通文件由已验证父目录的 identity 和目录项快照投影，目录、symlink 和未知类型仍经 namespace 解析。grep 使用带 metadata snapshot 的完整 discovery，analyzer 只能读取本次 scope/glob inventory 中的稳定 snapshot。一旦 analyzer 选中 symbol，本次调用采用其完整或部分结果，不再混入逐 symbol 的 Tree-sitter fallback。外部结果不能绕过 filesystem 数据平面。
+port 输入输出使用消费者需要的 DTO 和 opaque ref。所有调用都有 safe wrapper；未配置、在 symbol 选择前失败或超时时保留基础行为。find 没有外部增强 port，只对 filesystem path discovery 返回的 scope-relative path 执行本地 fzf 排名；`readdir` 已分类的普通文件和目录由已验证父目录 identity 投影，symlink 和未知类型仍经 namespace 解析。visibility 复用目录快照增量加载层级 ignore，不在 invocation open 阶段预扫描仓库。grep 使用带 metadata snapshot 的完整 discovery，analyzer 只能读取本次 scope/glob inventory 中的稳定 snapshot。一旦 analyzer 选中 symbol，本次调用采用其完整或部分结果，不再混入逐 symbol 的 Tree-sitter fallback。外部结果不能绕过 filesystem 数据平面。
 
 ## Lazy loading
 
@@ -82,7 +82,7 @@ port 输入输出使用消费者需要的 DTO 和 opaque ref。所有调用都�
 | extension | 已加载 find/grep adapter、lazy LSP、host | shutdown 先停止新调用，再只释放已加载对象 |
 | `FileToolsHost` | config provider、filesystem runtime、session observations、invocation leases | 幂等停止/释放；不会触发未加载工具或增强 |
 | `FileSystemRuntime` | Node backend、visibility cache、lazy mutation queue、workspace leases | abort leases、释放 queue、invalidate visibility |
-| invocation lease | policy/snapshot-bound filesystem 与组合 bridge attachment | abort 本 invocation 并 detach observation bridge |
+| invocation lease | policy/visibility-bound filesystem 与组合 bridge attachment | abort 本 invocation 并 detach observation bridge |
 | `ObservationStore` | canonical identity 到 content version 的 session map | session/host 结束时 clear |
 | `FindTool` | tool owner signal | abort pending discovery/ranking |
 | `GrepTool` | 派生 AST cache、parser/worker 与 active invocation | abort pending work 并 dispose parser/worker/cache owner |

@@ -1,3 +1,5 @@
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
+
 import type { DirectoryRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
@@ -5,7 +7,7 @@ import { bindOperationContext } from "../../filesystem/operation-context.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import { createFindQueryPlan } from "./query.js";
-import { rankFindEntriesLimitedAsync } from "./ranker.js";
+import { createLimitedFindRanker } from "./ranker.js";
 import { renderFindResults } from "./renderer.js";
 import type { FindEntry, FindParams, FindScopeError, FindStats, FindSuccess } from "./types.js";
 
@@ -21,7 +23,6 @@ interface NormalizedFindScope {
 }
 
 interface ScopeDiscovery {
-	readonly entries: FindEntry[];
 	readonly stats: FindStats;
 	readonly depthLimited: boolean;
 }
@@ -58,10 +59,18 @@ export class FindTool {
 		}
 
 		const scopes = resolveEffectiveScopes(resolved, context.filesystem);
+		const ranker = createLimitedFindRanker(plan, context.limits.find_result_limit);
+		const seenPaths = new Set<string>();
+		let totalCandidates = 0;
 		const discoveries: Array<{ scope: NormalizedFindScope; result: ScopeDiscovery }> = [];
 		for (const scope of scopes) {
 			if (isOperationAborted(context.operation)) return aborted();
-			const result = await discoverScope(scope, normalized.glob, context);
+			const result = await discoverScope(scope, normalized.glob, context, (entry) => {
+				if (seenPaths.has(entry.path)) return;
+				seenPaths.add(entry.path);
+				totalCandidates += 1;
+				ranker.add(entry);
+			});
 			if (isFailed(result)) scopeErrors.push({ path: scope.root.displayPath, error: result.error });
 			else discoveries.push({ scope, result });
 		}
@@ -72,14 +81,8 @@ export class FindTool {
 			return withScopeErrors({ status: "failed", error: first.error }, normalized.paths, scopeErrors);
 		}
 
-		const entries = mergeEntries(discoveries);
-		const ranking = await rankFindEntriesLimitedAsync(
-			entries,
-			plan,
-			context.limits.find_result_limit,
-			context.operation.signal,
-		);
-		if (ranking === undefined || isOperationAborted(context.operation)) return aborted();
+		if (isOperationAborted(context.operation)) return aborted();
+		const ranking = ranker.result();
 		const selected = ranking.ranked;
 		const matches = selected.map(({ entry }) => ({ path: entry.path, kind: entry.kind }));
 		const paths = discoveries.map(({ scope }) => scope.root.displayPath);
@@ -89,7 +92,7 @@ export class FindTool {
 			paths,
 			...(normalized.glob === undefined ? {} : { glob: normalized.glob }),
 			...(scopeErrors.length === 0 ? {} : { scopeErrors }),
-			totalCandidates: entries.length,
+			totalCandidates,
 			totalMatches: ranking.totalMatches,
 			matches,
 			stats: sumStats(discoveries),
@@ -143,6 +146,7 @@ function validateFindParams(params: FindParams): ToolOutcome<NormalizedFindParam
 }
 
 async function resolveSearchRoot(input: string, context: FindCommandContext): Promise<ToolOutcome<DirectoryRef>> {
+	if (input === ".") return context.filesystem.root;
 	const resolved = await context.filesystem.paths.resolveExisting(
 		input,
 		{ expected: "directory", followFinalSymlink: true },
@@ -175,6 +179,7 @@ async function discoverScope(
 	scope: NormalizedFindScope,
 	glob: string | undefined,
 	context: FindCommandContext,
+	onEntry: (entry: FindEntry) => void,
 ): Promise<ToolOutcome<ScopeDiscovery>> {
 	const opened = await context.filesystem.discovery.discoverPaths(scope.root, {
 		intent: "search",
@@ -183,15 +188,22 @@ async function discoverScope(
 		...(glob === undefined ? {} : { glob }),
 	}, context.operation);
 	if (!opened.ok) return mapFsError(opened.error, { message: "Directory cannot be searched." });
-	const entries: FindEntry[] = [];
+	let traversedEntries = 0;
 	let ignoredEntries = 0;
 	let skippedEntries = 0;
 	let depthLimited = false;
+	let processedEvents = 0;
 	try {
 		for await (const event of opened.value) {
+			processedEvents += 1;
+			if (processedEvents % 256 === 0) {
+				await yieldToEventLoop();
+				if (isOperationAborted(context.operation)) return aborted(scope.root.displayPath);
+			}
 			if (event.type === "entry") {
 				if (event.ref.kind === "file" || event.ref.kind === "directory") {
-					entries.push({
+					traversedEntries += 1;
+					onEntry({
 						path: event.ref.displayPath,
 						searchPath: event.relativePath,
 						kind: event.ref.kind,
@@ -212,25 +224,13 @@ async function discoverScope(
 		await opened.value.close();
 	}
 	return {
-		entries,
 		stats: {
-			traversed_entries: entries.length,
+			traversed_entries: traversedEntries,
 			ignored_entries: ignoredEntries,
 			skipped_entries: skippedEntries,
 		},
 		depthLimited,
 	};
-}
-
-function mergeEntries(discoveries: readonly { result: ScopeDiscovery }[]): FindEntry[] {
-	const entries = new Map<string, FindEntry>();
-	for (const { result } of discoveries) {
-		for (const entry of result.entries) {
-			const current = entries.get(entry.path);
-			if (current === undefined || entry.scopeOrder < current.scopeOrder) entries.set(entry.path, entry);
-		}
-	}
-	return [...entries.values()];
 }
 
 function sumStats(discoveries: readonly { result: ScopeDiscovery }[]): FindStats {

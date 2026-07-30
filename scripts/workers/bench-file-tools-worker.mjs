@@ -33,13 +33,27 @@ async function runSearchBenchmark() {
 	const { FindTool } = await loadTypeScript("src/file-tools/find/command.ts");
 	const { GrepTool } = await loadTypeScript("src/file-tools/grep/command.ts");
 	const { FileToolsHost } = await loadTypeScript("src/file-tools/runtime/host.ts");
+	const { FileSystemRuntime } = await loadTypeScript("src/filesystem/runtime.ts");
+	const { NodeNativeFileSystem } = await loadTypeScript("src/filesystem/platform/node/native-filesystem.ts");
 
 	const host = new FileToolsHost();
 	const findTool = new FindTool();
+	const latencyHost = new FileToolsHost({
+		filesystem: new FileSystemRuntime({ native: withOperationDelay(new NodeNativeFileSystem(), 2) }),
+	});
 	let grepHost = new FileToolsHost();
 	let grepTool = new GrepTool();
 	const find = async (params) => {
 		const opened = await host.open({ cwd: fromRoot(""), sessionId: "benchmark-find" });
+		if (opened.status === "failed") return opened;
+		try {
+			return await findTool.execute(params, { filesystem: opened.filesystem, operation: opened.context, limits: opened.limits });
+		} finally {
+			opened.dispose();
+		}
+	};
+	const latencyFind = async (params) => {
+		const opened = await latencyHost.open({ cwd: fromRoot(""), sessionId: "benchmark-latency-find" });
 		if (opened.status === "failed") return opened;
 		try {
 			return await findTool.execute(params, { filesystem: opened.filesystem, operation: opened.context, limits: opened.limits });
@@ -56,6 +70,7 @@ async function runSearchBenchmark() {
 	};
 	const coldFindMs = await measure(() => find({ query: "file tools config" }));
 	const warmFindMs = await measure(() => find({ query: "file tools config" }));
+	const latencyFindMs = await measure(() => latencyFind({ query: "file tools config" }));
 	const coldGrepMs = await measure(() => grep({ query: "createRetryableLoader" }));
 	const warmGrepMs = await measure(() => grep({ query: "createRetryableLoader" }));
 
@@ -74,9 +89,10 @@ async function runSearchBenchmark() {
 
 	findTool.dispose();
 	host.dispose();
+	latencyHost.dispose();
 	grepTool.dispose();
 	grepHost.dispose();
-	console.log(JSON.stringify({ coldFindMs, warmFindMs, coldGrepMs, warmGrepMs, concurrentGrepMs, broadGrepMs }));
+	console.log(JSON.stringify({ coldFindMs, warmFindMs, latencyFindMs, coldGrepMs, warmGrepMs, concurrentGrepMs, broadGrepMs }));
 }
 
 async function measure(operation) {
@@ -85,4 +101,17 @@ async function measure(operation) {
 	const values = Array.isArray(result) ? result : [result];
 	if (values.some((value) => value?.status === "failed")) throw new Error("search benchmark operation failed");
 	return performance.now() - started;
+}
+
+function withOperationDelay(base, milliseconds) {
+	return new Proxy(base, {
+		get(target, property) {
+			const value = Reflect.get(target, property, target);
+			if (typeof value !== "function") return value;
+			return async (...args) => {
+				await new Promise((resolve) => setTimeout(resolve, milliseconds));
+				return await value.apply(target, args);
+			};
+		},
+	});
 }

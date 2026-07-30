@@ -140,7 +140,18 @@ export interface VisibilitySnapshotInfo {
 	readonly diagnostics: readonly IgnoreDiagnostic[];
 }
 
+export interface VisibilityDirectoryEntry {
+	readonly name: string;
+	readonly kind: ExistingPathKind;
+}
+
 export interface VisibilityOperations {
 	readonly snapshot: VisibilitySnapshotInfo;
 	evaluate(ref: ExistingRef, intent: VisibilityIntent, context: FsOperationContext): Promise<FsResult<VisibilityAnnotation>>;
+	/** 复用调用方已有的目录快照，加载只影响该目录后代的 ignore 规则。 */
+	prepareDirectory(
+		directory: ExistingRef & { readonly kind: "directory" },
+		entries: readonly VisibilityDirectoryEntry[],
+		context: FsOperationContext,
+	): Promise<FsResult<void>>;
 }

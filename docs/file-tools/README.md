@@ -41,12 +41,12 @@ Node platform backend
 
 Pi 扩展入口位于 `agent/extensions/file-tools.ts`。六个工具分别位于 `src/file-tools/{ls,read,write,edit,find,grep}/`，互不导入；共享内容只限错误、diagnostics、diff 和纯 ranking primitives。`src/filesystem/` 是 workspace I/O 的唯一数据平面，不知道 Pi、模型输出、LSP、Tree-sitter 或具体工具结果。
 
-每次调用由 `FileToolsHost.open({ cwd, sessionId, signal })` 先按 invocation `cwd` 加载配置，再提供绑定不可变 policy/visibility snapshot 的 `WorkspaceFileSystem`、工具预算和 session observation。工具在首次使用时按执行路径懒加载；不使用文件工具的 session 不加载 filesystem runtime，`ls` 也不会加载 find/grep、mutation service、Tree-sitter 或 LSP。
+每次调用由 `FileToolsHost.open({ cwd, sessionId, signal })` 先按 invocation `cwd` 加载配置，再提供绑定不可变 policy 和 invocation-local visibility evaluator 的 `WorkspaceFileSystem`、工具预算及 session observation。visibility 复用实际目录枚举增量加载 ignore 规则，不在 open 阶段扫描整棵仓库。工具在首次使用时按执行路径懒加载；不使用文件工具的 session 不加载 filesystem runtime，`ls` 也不会加载 find/grep、mutation service、Tree-sitter 或 LSP。
 
 工具职责保持分离：
 
 - `ls` 只浏览目录直属成员。
-- `find` 只定位路径，不读取正文或文件 metadata；普通文件使用受 policy 约束的目录项快照，目录和 symlink 仍在递归边界重验证。
+- `find` 只定位路径，不读取正文或文件 metadata；`readdir` 已分类的普通文件和目录使用受 policy 约束的目录项快照，symlink 和未知类型仍在递归边界重验证。
 - `grep` 只搜索内容和代码区域，不负责列目录。
 - `read` 只读取明确文件或支持的图片。
 - `write` 只创建或完整覆盖。

@@ -39,9 +39,59 @@ export async function compileVisibilityRules(
 	discoveryDiagnostics: readonly IgnoreDiagnostic[],
 	context: FsOperationContext,
 ): Promise<CompiledVisibilityRules> {
-	const diagnostics = [...discoveryDiagnostics];
-	const ruleSets: CompiledVisibilityRuleSet[] = [];
+	const base = compileBaseVisibilityRules(config, caseInsensitive, discoveryDiagnostics);
+	const files = await compileVisibilityRuleFiles(native, ruleFiles, caseInsensitive, base.diagnostics, context);
+	return {
+		ruleSets: [...base.ruleSets, ...files.ruleSets].sort(compareRuleSets),
+		diagnostics: files.diagnostics,
+	};
+}
 
+export function compileBaseVisibilityRules(
+	config: IgnoreConfig,
+	caseInsensitive: boolean,
+	inputDiagnostics: readonly IgnoreDiagnostic[] = [],
+): CompiledVisibilityRules {
+	const diagnostics = [...inputDiagnostics];
+	const ruleSets: CompiledVisibilityRuleSet[] = [];
+	addBaseRuleSets(config, caseInsensitive, diagnostics, ruleSets);
+	return { ruleSets, diagnostics };
+}
+
+export async function compileVisibilityRuleFiles(
+	native: NativeFileSystem,
+	ruleFiles: readonly VisibilityRuleFile[],
+	caseInsensitive: boolean,
+	inputDiagnostics: readonly IgnoreDiagnostic[],
+	context: FsOperationContext,
+): Promise<CompiledVisibilityRules> {
+	const diagnostics = [...inputDiagnostics];
+	const ruleSets: CompiledVisibilityRuleSet[] = [];
+	for (const file of ruleFiles) {
+		const text = await readIgnoreFile(native, file, diagnostics, context);
+		if (text === undefined) continue;
+		const ruleSet = compileRuleLines({
+			lines: text.split(/\n/),
+			sourceType: file.sourceType,
+			sourcePath: file.sourcePath,
+			baseDirectory: file.baseDirectory,
+			caseInsensitive,
+			diagnostics,
+		});
+		if (ruleSet !== undefined) ruleSets.push(ruleSet);
+	}
+	return {
+		ruleSets: ruleSets.sort(compareRuleSets),
+		diagnostics,
+	};
+}
+
+function addBaseRuleSets(
+	config: IgnoreConfig,
+	caseInsensitive: boolean,
+	diagnostics: IgnoreDiagnostic[],
+	ruleSets: CompiledVisibilityRuleSet[],
+): void {
 	const builtinRules = BUILTIN_RULES[config.builtinProfile];
 	if (builtinRules.length > 0) {
 		const ruleSet = compileRuleLines({
@@ -64,26 +114,6 @@ export async function compileVisibilityRules(
 		});
 		if (ruleSet !== undefined) ruleSets.push(ruleSet);
 	}
-
-	for (const file of ruleFiles) {
-		const text = await readIgnoreFile(native, file, diagnostics, context);
-		if (text === undefined) continue;
-		const ruleSet = compileRuleLines({
-			lines: text.split(/\n/),
-			sourceType: file.sourceType,
-			sourcePath: file.sourcePath,
-			baseDirectory: file.baseDirectory,
-			caseInsensitive,
-			diagnostics,
-		});
-		if (ruleSet !== undefined) ruleSets.push(ruleSet);
-	}
-
-	return {
-		ruleSets: ruleSets.sort((left, right) =>
-			left.priority - right.priority || pathDepth(left.baseDirectory) - pathDepth(right.baseDirectory)),
-		diagnostics,
-	};
 }
 
 export function resolveCaseInsensitive(config: IgnoreConfig, gitIgnoreCase: boolean | undefined): boolean {
@@ -214,4 +244,10 @@ function stripCarriageReturn(text: string): string {
 
 function isDecodeError(error: unknown): boolean {
 	return error instanceof TypeError;
+}
+
+function compareRuleSets(left: CompiledVisibilityRuleSet, right: CompiledVisibilityRuleSet): number {
+	return left.priority - right.priority
+		|| pathDepth(left.baseDirectory) - pathDepth(right.baseDirectory)
+		|| (left.sourcePath ?? "").localeCompare(right.sourcePath ?? "");
 }

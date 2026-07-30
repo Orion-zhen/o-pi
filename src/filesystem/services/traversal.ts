@@ -155,6 +155,10 @@ export class WorkspaceTraversalService implements TraversalOperations {
 		} catch (error) {
 			return fsFailure(mapNativeError(error, root.displayPath));
 		}
+		if (!bypassVisibility) {
+			const preparedVisibility = await this.visibility.prepareDirectory(root, entries, context);
+			if (!preparedVisibility.ok) return preparedVisibility;
+		}
 		return fsSuccess({
 			context,
 			entries,
@@ -171,7 +175,11 @@ export class WorkspaceTraversalService implements TraversalOperations {
 		context: FsOperationContext,
 	): Promise<FsResult<PathTraversalChild>> {
 		if (entry.kind === "file") {
-			const projected = this.bridge.projectListedFile(directory, entry.name, context);
+			const projected = this.bridge.projectListedChild(directory, entry.name, "file", context);
+			return projected.ok ? fsSuccess({ ref: projected.value }) : projected;
+		}
+		if (entry.kind === "directory") {
+			const projected = this.bridge.projectListedChild(directory, entry.name, "directory", context);
 			return projected.ok ? fsSuccess({ ref: projected.value }) : projected;
 		}
 		const resolved = await this.bridge.resolveChild(directory, entry.name, context);
@@ -259,7 +267,7 @@ implements AsyncIterable<TraversalStreamEvent<TEntry>> {
 			const prepared = await Promise.all(sorted.slice(start, start + batchSize)
 				.map(async (nativeEntry) => await this.prepareChild(directory, nativeEntry)));
 			start += batchSize;
-			for (const { nativeEntry, child, annotation } of prepared) {
+			for (const { nativeEntry, child, annotation, children } of prepared) {
 				if (isContextAborted(this.context)) {
 					this.stopped = true;
 					yield abortedEvent(directory.displayPath);
@@ -303,23 +311,14 @@ implements AsyncIterable<TraversalStreamEvent<TEntry>> {
 				}
 				if (ref.kind !== "directory") continue;
 				const relativePath = this.childRelativePath(relativeDirectory, nativeEntry.name);
-
-				const identity = nativeIdentity(this.bridge, ref);
-				if (!identity.ok) {
-					yield { type: "error", path: ref.displayPath, error: identity.error };
-					continue;
-				}
-				let children: readonly NativeDirectoryEntry[];
-				try {
-					children = await this.native.readdir(identity.value.nativePath, this.context);
-				} catch (error) {
-					const mapped = mapNativeError(error, ref.displayPath);
-					if (mapped.code === "aborted") this.stopped = true;
-					yield { type: "error", path: ref.displayPath, error: mapped };
+				if (children === undefined) continue;
+				if (!children.ok) {
+					if (children.error.code === "aborted") this.stopped = true;
+					yield { type: "error", path: ref.displayPath, error: children.error };
 					if (this.stopped) return;
 					continue;
 				}
-				yield* this.walkDirectory(ref, children, depth + 1, relativePath);
+				yield* this.walkDirectory(ref, children.value, depth + 1, relativePath);
 			}
 		}
 	}
@@ -338,13 +337,37 @@ implements AsyncIterable<TraversalStreamEvent<TEntry>> {
 		readonly nativeEntry: NativeDirectoryEntry;
 		readonly child: FsResult<TChild>;
 		readonly annotation?: FsResult<VisibilityAnnotation>;
+		readonly children?: FsResult<readonly NativeDirectoryEntry[]>;
 	}> {
 		const child = await this.resolveChild(directory, nativeEntry, this.context);
 		if (!child.ok || child.value.ref.kind === "symlink") return { nativeEntry, child };
 		const annotation = this.bypassVisibility
 			? fsSuccess(VISIBLE)
 			: await this.visibility.evaluate(child.value.ref, this.options.intent, this.context);
-		return { nativeEntry, child, annotation };
+		if (
+			!annotation.ok
+			|| child.value.ref.kind !== "directory"
+			|| (annotation.value.ignored && annotation.value.prune)
+		) return { nativeEntry, child, annotation };
+		return {
+			nativeEntry,
+			child,
+			annotation,
+			children: await this.readDirectory(child.value.ref),
+		};
+	}
+
+	private async readDirectory(directory: DirectoryRef): Promise<FsResult<readonly NativeDirectoryEntry[]>> {
+		const identity = nativeIdentity(this.bridge, directory);
+		if (!identity.ok) return identity;
+		try {
+			const entries = await this.native.readdir(identity.value.nativePath, this.context);
+			if (this.bypassVisibility) return fsSuccess(entries);
+			const prepared = await this.visibility.prepareDirectory(directory, entries, this.context);
+			return prepared.ok ? fsSuccess(entries) : prepared;
+		} catch (error) {
+			return fsFailure(mapNativeError(error, directory.displayPath));
+		}
 	}
 }
 

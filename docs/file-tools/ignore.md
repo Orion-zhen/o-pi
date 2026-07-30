@@ -49,19 +49,20 @@ type IgnoreDecision = {
 
 `ignored` 与 `prune` 分开：路径可以被忽略，但如果后代可能被 `!pattern` 重新包含，遍历器不能安全剪枝。`prune` 只影响未来遍历、搜索和索引；`ls` 仍然只列直属成员。
 
-## Snapshot
+## Invocation state 与 snapshot
 
-每次 filesystem invocation 获得一个不可变 visibility snapshot。snapshot 绑定：
+每次 filesystem invocation 获得绑定以下状态的 visibility evaluator：
 
 - 有效配置；
-- 规则文件版本；
 - Git tracked set；
 - builtin rules；
 - session override。
 
-`evaluate` 和 `explain` 不读取磁盘。`FileSystemRuntime` 按 canonical workspace、policy 和 fingerprint 缓存 snapshot；稳定命中只并发核对已发现目录、规则文件和 Git index/config 的 metadata，不重新遍历规则目录或启动 Git 子进程。snapshot evaluation 本身不读取磁盘。
+`FileSystemRuntime` 启动 invocation 时只准备固定规则和 Git 状态，不递归发现 ignore 文件。目录枚举把同一份 `readdir` 快照交给 visibility：当前目录中的 `.gitignore` / `.piignore` 在处理子项前按需读取和编译，规则顺序仍按来源优先级和目录深度稳定排序。显式 `read`、`ls` 或非根 scope 只准备目标祖先链，不扫描无关目录。
 
-同 workspace、同配置的并发调用共享一次 snapshot 构建。目录、规则文件、tracked set 或配置变化会生成新 snapshot；失效中的旧构建不能重新写回缓存。`edit` 修改 `.piignore` 或 `.gitignore` 后，后续 invocation 通过新 snapshot 看到新规则。runtime dispose 会 invalidate cache 和进行中的 owner 状态。
+一个 invocation 内已经加载的规则保持不变；后续 invocation 会从实际目录快照重新读取遇到的规则文件，因此 `edit` 修改 `.piignore` 或 `.gitignore` 后下一次工具调用立即看到新规则。Git index/config 仍按 fingerprint 缓存和失效。独立的完整 `VisibilitySnapshot` API 保留不可变、纯同步 `evaluate` / `explain` 语义，供规则解释和非 runtime 调用使用。
+
+增量加载不能破坏 `!pattern` 语义：若 ignored 目录可能被尚未加载的嵌套同级或更高优先级规则重新包含，runtime 会先检查该子树的规则文件，再决定 `prune`。`.git`、`node_modules` 和不可覆盖的 config/session ignore 仍直接剪枝。
 
 ## Git tracked files
 

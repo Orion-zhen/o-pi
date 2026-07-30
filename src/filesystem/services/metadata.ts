@@ -9,6 +9,7 @@ import { mapNativeError } from "../kernel/native-error.js";
 import { bindOperationContext } from "../operation-context.js";
 import type { WorkspaceNamespaceBridge } from "../kernel/namespace.js";
 import type { NativeFileSystem } from "../platform/node/native-filesystem.js";
+import type { VisibilityOperations } from "../contracts/visibility.js";
 import { DIRECTORY_ENTRY_CONCURRENCY } from "./concurrency.js";
 import { compareLogicalPath } from "./path-order.js";
 import { nativeIdentity } from "./ref.js";
@@ -18,6 +19,7 @@ export class WorkspaceMetadataService implements MetadataOperations {
 	constructor(
 		private readonly native: NativeFileSystem,
 		private readonly bridge: WorkspaceNamespaceBridge,
+		private readonly visibility: VisibilityOperations,
 		private readonly ownerSignal?: AbortSignal,
 	) {}
 
@@ -45,6 +47,8 @@ export class WorkspaceMetadataService implements MetadataOperations {
 		} catch (error) {
 			return fsFailure(mapNativeError(error, directory.displayPath));
 		}
+		const preparedVisibility = await this.visibility.prepareDirectory(directory, nativeEntries, context);
+		if (!preparedVisibility.ok) return preparedVisibility;
 
 		const entries: DirectoryEntry[] = [];
 		const sorted = [...nativeEntries].sort((left, right) => compareLogicalPath(left.name, right.name));

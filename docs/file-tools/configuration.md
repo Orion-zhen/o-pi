@@ -91,4 +91,4 @@ grep 只接受以上列出的 `grep_` limit。正文事实扫描不会读取或�
 
 有效配置按用户/项目路径和文件 metadata 缓存在进程内；同 cwd 并发调用共享读取和 schema 校验，不同 cwd 不共享错误或项目配置。配置文件创建、替换或修改后 fingerprint 变化，下一次调用自动重载。
 
-每次调用获得独立冻结/克隆后的配置值，调用方不能污染缓存。配置和 visibility snapshot 的关系见 [Ignore engine](ignore.md)。
+每次调用获得独立冻结/克隆后的配置值，调用方不能污染缓存。配置和 invocation-local visibility state 的关系见 [Ignore engine](ignore.md)。

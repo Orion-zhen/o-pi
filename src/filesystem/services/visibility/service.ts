@@ -6,17 +6,26 @@ import type {
 	VisibilityService,
 	VisibilitySnapshot,
 } from "../../contracts/visibility.js";
+import type { WorkspaceNamespaceKernel } from "../../kernel/namespace.js";
 import { NativeFileSystemError, NodeNativeFileSystem, type NativeFileSystem } from "../../platform/node/native-filesystem.js";
 import { GitTrackedFilesLoader } from "./git-tracked-files.js";
-import type { VisibilitySnapshotCacheEntry } from "./model.js";
+import {
+	SOURCE_PRIORITY,
+	rethrowVisibilityAbort,
+	type VisibilityRuleFile,
+	type VisibilitySnapshotCacheEntry,
+} from "./model.js";
 import {
 	buildVisibilityFingerprint,
+	compileBaseVisibilityRules,
+	compileVisibilityRuleFiles,
 	compileVisibilityRules,
 	resolveCaseInsensitive,
 } from "./rule-compiler.js";
 import { discoverVisibilityRules, visibilityStampsUnchanged } from "./rule-discovery.js";
 import { SharedBuild } from "./shared-build.js";
 import { CompiledVisibilitySnapshot } from "./snapshot.js";
+import { IncrementalVisibilityOperations } from "./incremental-operations.js";
 
 interface VisibilityCacheEpoch {
 	readonly generation: number;
@@ -25,7 +34,7 @@ interface VisibilityCacheEpoch {
 
 let nextGeneration = 1;
 
-/** Owns immutable visibility snapshots, shared builds, invalidation, and control-plane state. */
+/** Owns incremental runtime evaluators plus immutable diagnostic snapshots and shared Git state. */
 export class WorkspaceVisibilityService implements VisibilityService {
 	private readonly cache = new Map<string, VisibilitySnapshotCacheEntry>();
 	private readonly pending = new Map<string, SharedBuild<VisibilitySnapshot>>();
@@ -65,6 +74,40 @@ export class WorkspaceVisibilityService implements VisibilityService {
 			pending = created;
 		}
 		return await pending.consume(context.signal);
+	}
+
+	async createOperations(
+		root: string,
+		policy: VisibilityPolicy,
+		namespace: WorkspaceNamespaceKernel,
+		context: FsOperationContext = {},
+		ownerSignal?: AbortSignal,
+	): Promise<IncrementalVisibilityOperations> {
+		const tracked = await this.git.load(root, context.signal);
+		const caseInsensitive = resolveCaseInsensitive(policy.ignore, tracked.ignoreCase);
+		const initialRuleFiles = await this.directRuleFiles(root, policy, context);
+		const initialRules = await compileVisibilityRuleFiles(
+			this.native,
+			initialRuleFiles,
+			caseInsensitive,
+			[],
+			context,
+		);
+		const base = compileBaseVisibilityRules(policy.ignore, caseInsensitive, initialRules.diagnostics);
+		const generation = nextGeneration;
+		nextGeneration += 1;
+		return new IncrementalVisibilityOperations({
+			generation,
+			root,
+			policy,
+			native: this.native,
+			namespace,
+			tracked,
+			caseInsensitive,
+			base: { ruleSets: [...base.ruleSets, ...initialRules.ruleSets], diagnostics: initialRules.diagnostics },
+			initialRuleFiles,
+			...(ownerSignal === undefined ? {} : { ownerSignal }),
+		});
 	}
 
 	invalidate(root?: string): void {
@@ -160,6 +203,31 @@ export class WorkspaceVisibilityService implements VisibilityService {
 
 	private isCurrent(root: string, epoch: VisibilityCacheEpoch): boolean {
 		return this.generation === epoch.generation && (this.epochs.get(root) ?? 0) === epoch.workspace;
+	}
+
+	private async directRuleFiles(
+		root: string,
+		policy: VisibilityPolicy,
+		context: FsOperationContext,
+	): Promise<VisibilityRuleFile[]> {
+		if (!policy.ignore.gitInfoExclude) return [];
+		const sourcePath = ".git/info/exclude";
+		const absolutePath = path.join(root, ".git", "info", "exclude");
+		try {
+			const metadata = await this.native.lstat(absolutePath, context);
+			if (metadata.kind !== "file") return [];
+			return [{
+				sourceType: "git-info-exclude",
+				sourcePath,
+				absolutePath,
+				baseDirectory: ".",
+				priority: SOURCE_PRIORITY["git-info-exclude"],
+				stamp: metadata.version,
+			}];
+		} catch (error) {
+			rethrowVisibilityAbort(error);
+			return [];
+		}
 	}
 }
 

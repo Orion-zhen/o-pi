@@ -141,7 +141,7 @@ grep 不按模型输出 token 数删除、替换或重排结果。`approx_tokens
 
 LSP 无法完整提交时，C/C++、TypeScript、TSX、JavaScript、JSX、Python、Go、Rust、Bash 整体回退 Tree-sitter。语言、扩展名、grammar 来自共享 catalog；新增 catalog 注册项会自动获得 code-index AST adapter，专用语义 adapter 再补充 symbol、import 和 call 提取。未注册语言或解析失败安全退化为文本行。
 
-每次 invocation 使用 host 已绑定的 visibility snapshot。inventory 应用 scope、glob、blocked path、soft ignore、深度和 canonical identity 去重。递归不跟随 child symlink。
+每次 invocation 使用 host 已绑定的 visibility state；嵌套规则随 inventory 的目录枚举增量加载。inventory 应用 scope、glob、blocked path、soft ignore、深度和 canonical identity 去重。递归不跟随 child symlink。
 
 inventory entry 携带 object identity、version 和 size snapshot。line scan 和 AST read 都要求 snapshot 稳定；文件变化时不保留部分命中。LF、CRLF、CR 和 UTF-8 BOM 使用统一 logical-line 语义，range 使用剥离 BOM 后正文的 UTF-8 byte 坐标。
 

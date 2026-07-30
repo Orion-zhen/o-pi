@@ -4,7 +4,7 @@
 
 ## Filesystem capability 边界
 
-工具只依赖 `WorkspaceFileSystem` 的分组 capability：`paths`、`metadata`、`content`、`visibility`、`traversal`、`discovery`、`mutations` 和 `catalog`。路径解析返回 opaque ref，后续操作不重新接受裸 native path。每个 invocation 绑定 workspace identity、不可变 policy/visibility snapshot 和 operation context。
+工具只依赖 `WorkspaceFileSystem` 的分组 capability：`paths`、`metadata`、`content`、`visibility`、`traversal`、`discovery`、`mutations` 和 `catalog`。路径解析返回 opaque ref，后续操作不重新接受裸 native path。每个 invocation 绑定 workspace identity、不可变 policy、invocation-local visibility state 和 operation context。
 
 filesystem discovery 组合 namespace、visibility、metadata 与 traversal，统一解释 scope-relative glob、静态前缀剪枝、原始 scope 深度、显式 ignored root/静态前缀和 child symlink。每个文件 entry 携带必填 object identity、version 与 size snapshot；`content` 的 `expectedSnapshot` 约束打开的文件必须等于调用方捕获版本，`stable` 则检测读取期间的变化，两者职责独立。
 
