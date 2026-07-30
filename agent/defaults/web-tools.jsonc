@@ -1,6 +1,5 @@
 {
 	"$schema": "../schemas/web-tools.schema.json",
-
 	"network": {
 		// Clash/mihomo TUN fake-ip 可填 ["198.18.0.0/15"] 或更窄范围。
 		// 仅放行域名 DNS 解析得到的 fake-ip；URL 直接写 IP 仍会拒绝。
@@ -8,7 +7,6 @@
 			"198.18.0.0/15"
 		]
 	},
-
 	"websearch": {
 		// 模型未传 limit 时使用。
 		"default_results": 8,
@@ -22,7 +20,6 @@
 			"gitcode.com",
 			"csdn.com"
 		],
-
 		"brave_api": {
 			"enabled": true,
 			"endpoint": "https://api.search.brave.com/res/v1/web/search",
@@ -32,7 +29,6 @@
 			"response_bytes": 2097152,
 			"extra_snippets": false
 		},
-
 		"exa_api": {
 			"enabled": true,
 			"endpoint": "https://api.exa.ai/search",
@@ -41,7 +37,6 @@
 			"response_bytes": 2097152,
 			"highlight_chars": 600
 		},
-
 		"tavily": {
 			"enabled": true,
 			"endpoint": "https://api.tavily.com/search",
@@ -49,7 +44,6 @@
 			"timeout_seconds": 10,
 			"response_bytes": 2097152
 		},
-
 		"duckduckgo_html": {
 			"enabled": true,
 			// 包括请求和响应读取。
@@ -64,50 +58,39 @@
 			"blocked_cooldown_seconds": 600
 		}
 	},
-
 	"webfetch": {
 		// 单次请求总时间，包括重定向和正文读取。
 		"timeout_seconds": 30,
-
 		// 每个重定向目标都会重新执行 URL、DNS 和 Cookie 检查。
 		"max_redirects": 5,
-
 		// 可在需要复用浏览器登录态的站点按需手动调整。
 		"user_agent": "pi-webfetch/1.0",
-
 		"readability": {
 			// Readability 接受正文结果所需的最少字符数。
 			"char_threshold": 500
 		},
-
 		"media": {
 			// auto: 向支持图像的模型附带统一排序后的单张主图；off: 只返回文本。
 			"mode": "off",
 			// 主图解压后响应上限。
 			"response_bytes": 5242880
 		},
-
 		"limits": {
 			// 解压后允许读取的最大响应正文。
 			"response_bytes": 10485760,
-
 			// 未传 limit 时返回给模型的字符数。
 			"default_output_chars": 20000,
-
 			// 模型单次调用可请求的最大字符数。
 			"max_output_chars": 100000
 		},
-
 		"cookies": {
 			"enabled": true,
-
 			// example.com 只匹配自身；*.example.com 只匹配子域名。
 			"domains": [
 				"*.reddit.com",
 				"*.youtube.com",
 				"*.bilibili.com"
 			],
-
 			// always: 每次询问；session: 每个 origin 每会话首次询问；never: 命中后直接发送。
 			"confirmation": "never"
 		}

@@ -1,19 +1,16 @@
 {
 	"$schema": "../schemas/file-tools.schema.json",
-
 	// 硬阻止：不能直接访问，也不会出现在 ls 结果中。
 	"blocked_path": [
 		".git/",
 		"~/.ssh/id_ed25519"
 	],
-
 	// 软忽略：ls/read 标记 ignored；不阻止显式 read/edit。
 	"ignored_path": [
 		".venv/",
 		"venv/",
 		"node_modules/"
 	],
-
 	"limits": {
 		"ls_entries": 200,
 		"read_lines": 3000,
@@ -32,7 +29,6 @@
 		"grep_related_result_limit": 8,
 		"grep_regional_display_limit": 3
 	},
-
 	"ignore": {
 		"piignore": true,
 		"gitignore": true,

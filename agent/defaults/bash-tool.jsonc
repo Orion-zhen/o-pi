@@ -1,15 +1,12 @@
 {
 	"$schema": "../schemas/bash-tool.schema.json",
-
 	"default_timeout_seconds": 300,
-
 	"limits": {
 		"success_output_bytes": 24576,
 		"failure_output_bytes": 49152,
 		"live_output_bytes": 8192,
 		"max_capture_bytes": 268435456
 	},
-
 	"safety": {
 		"deny_patterns": [
 			"rm -rf /",
