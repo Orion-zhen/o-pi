@@ -12,10 +12,10 @@ import { bindOperationContext } from "../../filesystem/operation-context.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
 import { fail, isFailed, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import { buildScopeInventory, type ScopeInventory } from "./inventory.js";
-import { buildLocalResults, semanticParsePriority } from "./local.js";
+import { buildRankedRegions, semanticParsePriority } from "./local.js";
 import { packGrepResults, renderGrepSuccess } from "./packer.js";
-import { GrepParser } from "./parser-pool.js";
 import { createQueryPlan, type QueryPlan } from "./query-plan.js";
+import { mergeGrepSkippedFiles } from "./skipped.js";
 import {
 	GrepRegionizer,
 	regionizeAnalyzedFiles,
@@ -43,8 +43,7 @@ export interface GrepCommandContext {
 
 /** Stateful grep command; parser、派生 AST cache 与 active invocation 共享 owner。 */
 export class GrepTool {
-	private readonly parser = new GrepParser();
-	private readonly regionizer = new GrepRegionizer(this.parser);
+	private readonly regionizer = new GrepRegionizer();
 	private readonly owner = new AbortController();
 	private disposed = false;
 
@@ -69,11 +68,17 @@ export class GrepTool {
 		this.disposed = true;
 		this.owner.abort(new Error("grep is shut down."));
 		this.regionizer.dispose();
-		this.parser.dispose();
 	}
 
 	private async grep(plan: QueryPlan, context: GrepCommandContext): Promise<ToolOutcome<GrepSuccess>> {
-		const inventory = await this.inventory(plan, context);
+		const inventory = await buildScopeInventory({
+			paths: plan.paths,
+			...(plan.glob === undefined ? {} : { glob: plan.glob }),
+		}, {
+			filesystem: context.filesystem,
+			operation: context.operation,
+			maxDepth: context.limits.grep_max_depth,
+		});
 		if (isFailed(inventory)) return inventory;
 		const preparation = prepareCodeAnalysis(inventory, context);
 		const scanned = await scanInventoryText(inventory, plan, {
@@ -84,12 +89,13 @@ export class GrepTool {
 		if (isFailed(scanned)) return scanned;
 		await preparation;
 		if (plan.queryMode === "literal_fallback" && scanned.totalHits === 0) return plan.invalidRegex;
-		const analyzed = await analyzeSymbols(plan, inventory, scanned, context);
+		const analysisPaths = semanticParsePriority(inventory, scanned);
+		const analyzed = await analyzeSymbols(plan, inventory, scanned, analysisPaths, context);
 		if (isFailed(analyzed)) return analyzed;
 		const regionized = analyzed.result ?? await this.regionizer.regionize(
 			inventory,
 			scanned.hits,
-			semanticParsePriority(inventory, scanned),
+			analysisPaths,
 			{
 				filesystem: context.filesystem,
 				operation: context.operation,
@@ -100,19 +106,19 @@ export class GrepTool {
 		if (isFailed(regionized)) return regionized;
 		const scope = successfulScopeState(plan, inventory, scanned.scopeErrors, regionized.scopeErrors);
 		if (scope.failure !== undefined) return scope.failure;
-		const local = buildLocalResults(plan, scanned, regionized, context.limits.grep_regional_display_limit);
+		const regions = buildRankedRegions(plan, scanned, regionized, context.limits.grep_regional_display_limit);
 		return packGrepResults({
 			query: plan.query,
 			queryMode: plan.queryMode,
 			path: scope.paths[0] ?? ".",
 			paths: scope.paths,
 			...(scope.errors.length === 0 ? {} : { scopeErrors: scope.errors }),
-			regions: local.ranked,
+			regions,
 			stats: grepStats(
 				inventory,
 				scanned.stats,
 				scanned.totalHits,
-				regionized.parsedFiles,
+				regionized.files.length,
 				regionized.astSkippedOversizedFiles,
 				regionized.skipped,
 			),
@@ -120,17 +126,6 @@ export class GrepTool {
 			resultLimit: context.limits.grep_result_limit,
 			relatedResultLimit: context.limits.grep_related_result_limit,
 			regionalDisplayLimit: context.limits.grep_regional_display_limit,
-		});
-	}
-
-	private async inventory(plan: QueryPlan, context: GrepCommandContext): Promise<ToolOutcome<ScopeInventory>> {
-		return await buildScopeInventory({
-			paths: plan.paths,
-			...(plan.glob === undefined ? {} : { glob: plan.glob }),
-		}, {
-			filesystem: context.filesystem,
-			operation: context.operation,
-			maxDepth: context.limits.grep_max_depth,
 		});
 	}
 }
@@ -153,12 +148,13 @@ async function analyzeSymbols(
 	plan: QueryPlan,
 	inventory: ScopeInventory,
 	scan: TextScanResult,
+	analysisPaths: readonly string[],
 	context: GrepCommandContext,
 ): Promise<SymbolAnalysisAttempt | FailedResult> {
 	const loaded = new Map<string, TextContent>(scan.contents);
 	if (context.analyzeCode === undefined) return { loaded };
 	const byPath = new Map(inventory.files.map((file) => [file.path, file]));
-	const targets = codeAnalysisTargets(inventory, scan, context.limits.grep_ast_max_file_bytes);
+	const targets = codeAnalysisTargets(scan, analysisPaths, byPath, context.limits.grep_ast_max_file_bytes);
 	let analysis;
 	try {
 		analysis = await context.analyzeCode({
@@ -203,10 +199,9 @@ async function analyzeSymbols(
 		result: {
 			regions: regionizeAnalyzedFiles(scan.hits, files, scan.totalHits === 0),
 			files,
-			parsedFiles: files.length,
 			astSkippedOversizedFiles: structuralOversizedCount(
-				inventory,
-				scan,
+				analysisPaths,
+				byPath,
 				context.limits.grep_ast_max_file_bytes,
 			),
 			skipped: {},
@@ -216,12 +211,11 @@ async function analyzeSymbols(
 }
 
 function structuralOversizedCount(
-	inventory: ScopeInventory,
-	scan: TextScanResult,
+	analysisPaths: readonly string[],
+	files: ReadonlyMap<string, ScopeInventory["files"][number]>,
 	astMaxFileBytes: number,
 ): number {
-	const files = new Map(inventory.files.map((file) => [file.path, file]));
-	return semanticParsePriority(inventory, scan).filter((path) => {
+	return analysisPaths.filter((path) => {
 		const file = files.get(path);
 		return file !== undefined
 			&& languageFromPath(file.path) !== "text"
@@ -230,11 +224,11 @@ function structuralOversizedCount(
 }
 
 function codeAnalysisTargets(
-	inventory: ScopeInventory,
 	scan: TextScanResult,
+	analysisPaths: readonly string[],
+	files: ReadonlyMap<string, ScopeInventory["files"][number]>,
 	astMaxFileBytes: number,
 ): CodeAnalysisTarget[] {
-	const files = new Map(inventory.files.map((file) => [file.path, file]));
 	const ranges = new Map<string, Array<{ startByte: number; endByte: number }>>();
 	for (const hit of scan.hits) {
 		const grouped = ranges.get(hit.path);
@@ -243,7 +237,7 @@ function codeAnalysisTargets(
 		else grouped.push(range);
 	}
 	const paths = scan.totalHits === 0
-		? semanticParsePriority(inventory, scan)
+		? analysisPaths
 		: [...ranges.keys()];
 	return paths.flatMap((path) => {
 		const file = files.get(path);
@@ -326,7 +320,7 @@ function grepStats(
 	astSkippedOversizedFiles: number,
 	regionSkipped: GrepSkippedStats,
 ): Omit<GrepStats, "dropped_related_results"> {
-	const skipped = mergeGrepSkipped([inventory.skipped, scan.skipped, regionSkipped]);
+	const skipped = mergeGrepSkippedFiles([inventory.skipped, scan.skipped, regionSkipped]);
 	return {
 		traversed_entries: inventory.traversedEntries,
 		searched_files: scan.searchedFiles,
@@ -338,16 +332,6 @@ function grepStats(
 		ast_skipped_oversized_files: astSkippedOversizedFiles,
 		...(Object.keys(skipped).length === 0 ? {} : { skipped_files: skipped }),
 	};
-}
-
-function mergeGrepSkipped(values: readonly GrepSkippedStats[]): GrepSkippedStats {
-	const merged: GrepSkippedStats = {};
-	for (const value of values) for (const [key, count] of Object.entries(value)) {
-		if (count === undefined) continue;
-		const typedKey = key as keyof GrepSkippedStats;
-		merged[typedKey] = (merged[typedKey] ?? 0) + count;
-	}
-	return merged;
 }
 
 function withGrepScopeErrors(result: FailedResult, paths: string[], scopeErrors: GrepScopeError[]): FailedResult {

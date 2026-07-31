@@ -1,4 +1,4 @@
-import { languageFromPath, type AnalyzedFileIndex, type IndexedCodeUnit } from "../../code-index/parser.js";
+import { compareCodeUnitNesting, languageFromPath, type AnalyzedFileIndex, type IndexedCodeUnit } from "../../code-index/parser.js";
 import { inferCodeAuthorities } from "../../code-index/authority.js";
 import type { TextContent } from "../../filesystem/contracts/content.js";
 import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.js";
@@ -14,6 +14,7 @@ import {
 } from "./candidates.js";
 import type { ScopeInventory, ScopedFile } from "./inventory.js";
 import { AbortGrepParse, GrepParser } from "./parser-pool.js";
+import { compactGrepSkippedFiles, createGrepSkippedFiles, recordSkippedFile } from "./skipped.js";
 import type { GrepScopeError, GrepSkippedFiles } from "./types.js";
 
 const AST_CACHE_MAX_ENTRIES = 2_048;
@@ -25,14 +26,8 @@ interface CachedAst {
 interface PreparedFile {
 	readonly file: ScopedFile;
 	readonly content: TextContent;
-	readonly hits: readonly TextHit[];
 	readonly cacheKey: string;
 	readonly cached?: CachedAst;
-}
-
-interface RegionizeFile {
-	readonly file: ScopedFile;
-	readonly hits: readonly TextHit[];
 }
 
 export interface RegionizedFile {
@@ -44,7 +39,6 @@ export interface RegionizedFile {
 export interface RegionizationResult {
 	readonly regions: readonly CodeRegion[];
 	readonly files: readonly RegionizedFile[];
-	readonly parsedFiles: number;
 	readonly astSkippedOversizedFiles: number;
 	readonly skipped: GrepSkippedFiles;
 	readonly scopeErrors: readonly GrepScopeError[];
@@ -59,10 +53,9 @@ export interface RegionizerContext {
 
 /** 将流式事实命中映射到当前正文的最小代码区域；缓存只保存派生 AST。 */
 export class GrepRegionizer {
+	private readonly parser = new GrepParser();
 	private readonly cache = new Map<string, CachedAst>();
 	private disposed = false;
-
-	constructor(private readonly parser: GrepParser) {}
 
 	async regionize(
 		inventory: ScopeInventory,
@@ -75,17 +68,10 @@ export class GrepRegionizer {
 			return fail("INVALID_OPERATION", "AST file byte limit must be a non-negative safe integer.");
 		}
 		const inventoryByPath = new Map(inventory.files.map((file) => [file.path, file]));
-		const hitsByPath = groupHits(hits);
 		const excludedHitPaths = new Set<string>();
 		const prepared: PreparedFile[] = [];
 		const scopeErrors: GrepScopeError[] = [];
-		const skipped: Required<GrepSkippedFiles> = {
-			binary: 0,
-			invalid_utf8: 0,
-			access_denied: 0,
-			too_large: 0,
-			changed: 0,
-		};
+		const skipped = createGrepSkippedFiles();
 		let astSkippedOversizedFiles = 0;
 		for (const path of priorityPaths) {
 			const file = inventoryByPath.get(path);
@@ -94,8 +80,7 @@ export class GrepRegionizer {
 				astSkippedOversizedFiles += 1;
 				continue;
 			}
-			const candidate: RegionizeFile = { file, hits: hitsByPath.get(path) ?? [] };
-			const loaded = await this.prepare(candidate, context);
+			const loaded = await this.prepare(file, context);
 			if (!loaded.ok) {
 				if (loaded.error.code === "aborted") return aborted(file.path);
 				excludedHitPaths.add(file.path);
@@ -103,7 +88,7 @@ export class GrepRegionizer {
 					path: file.scopeInput,
 					error: mapFsError(loaded.error, { notFound: "file", path: file.path }).error,
 				});
-				else countSkipped(skipped, loaded.error);
+				else recordSkippedFile(skipped, loaded.error);
 				continue;
 			}
 			if (hasBareCr(loaded.value.content.text)) continue;
@@ -112,11 +97,9 @@ export class GrepRegionizer {
 		const analyses = await this.analyzePrepared(prepared, context.operation.signal);
 		if (analyses.status === "failed") return analyses;
 		const files: RegionizedFile[] = [];
-		let parsedFiles = 0;
 		for (const [index, file] of prepared.entries()) {
 			const analysis = analyses.values[index];
 			if (analysis === undefined || analysis.status !== "parsed") continue;
-			parsedFiles += 1;
 			files.push({ file: file.file, content: file.content, analysis });
 		}
 		const inferred = hits.length === 1
@@ -134,9 +117,8 @@ export class GrepRegionizer {
 		return {
 			regions,
 			files: authorityFiles,
-			parsedFiles,
 			astSkippedOversizedFiles,
-			skipped: compactSkipped(skipped),
+			skipped: compactGrepSkippedFiles(skipped),
 			scopeErrors,
 		};
 	}
@@ -145,31 +127,31 @@ export class GrepRegionizer {
 		if (this.disposed) return;
 		this.disposed = true;
 		this.cache.clear();
+		this.parser.dispose();
 	}
 
 	private async prepare(
-		candidate: RegionizeFile,
+		file: ScopedFile,
 		context: RegionizerContext,
 	): Promise<{ readonly ok: true; readonly value: PreparedFile } | { readonly ok: false; readonly error: FsError }> {
-		let content = context.preloaded?.get(candidate.file.path);
+		let content = context.preloaded?.get(file.path);
 		if (content === undefined) {
-			const loaded = await context.filesystem.content.readText(candidate.file.ref, {
+			const loaded = await context.filesystem.content.readText(file.ref, {
 				maxBytes: context.astMaxFileBytes,
-				expectedSnapshot: candidate.file.snapshot,
+				expectedSnapshot: file.snapshot,
 				stable: true,
 				rejectBinary: true,
 			}, context.operation);
 			if (!loaded.ok) return loaded;
 			content = loaded.value;
 		}
-		const cacheKey = astCacheKey(candidate.file, content.hash, context.filesystem);
+		const cacheKey = astCacheKey(file, content.hash, context.filesystem);
 		const cached = this.cacheGet(cacheKey);
 		return {
 			ok: true,
 			value: {
-				file: candidate.file,
+				file,
 				content,
-				hits: candidate.hits,
 				cacheKey,
 				...(cached === undefined ? {} : { cached }),
 			},
@@ -203,7 +185,7 @@ export class GrepRegionizer {
 			}
 			if (analysis === undefined) {
 				analysis = {
-					index: { id: file.file.snapshot.identity, path: file.file.path, language: languageFromPath(file.file.path), units: [], symbols: [] },
+					index: { id: file.file.snapshot.identity, path: file.file.path, language: languageFromPath(file.file.path), units: [] },
 					status: "error",
 					imports: [],
 				};
@@ -245,10 +227,7 @@ export function regionizeAnalyzedFiles(
 		const fileHits = fallback.get(file.file.path) ?? [];
 		const parsed = fileHits.length === 0
 			? []
-			: parsedRegions({
-					file: file.file,
-					hits: asNonEmpty(fileHits),
-				}, file.analysis.index.units);
+			: parsedRegions(file.file, asNonEmpty(fileHits), file.analysis.index.units);
 		regions.push(...parsed);
 		const mappedHits = new Set(parsed.flatMap((region) => region.verifiedHits));
 		const outside = fileHits.filter((hit) => !mappedHits.has(hit));
@@ -273,7 +252,6 @@ export function regionizeAnalyzedFiles(
 				symbolRole: "definition",
 				authority: unit.authority,
 				signals: ["related_symbol"],
-				evidence: [],
 			}));
 		}
 	}
@@ -292,15 +270,14 @@ function groupHits(hits: readonly TextHit[]): Map<string, TextHit[]> {
 }
 
 function parsedRegions(
-	file: RegionizeFile,
+	file: ScopedFile,
+	hits: readonly [TextHit, ...TextHit[]],
 	units: readonly IndexedCodeUnit[],
 ): VerifiedCodeRegion[] {
+	const sortedUnits = [...units].sort(compareCodeUnitNesting);
 	const grouped = new Map<string, { readonly unit: IndexedCodeUnit; readonly hits: TextHit[] }>();
-	for (const hit of file.hits) {
-		const unit = units
-			.filter((candidate) => candidate.startByte <= hit.byteStart && hit.byteEnd <= candidate.endByte)
-			.sort((left, right) => (left.endByte - left.startByte) - (right.endByte - right.startByte)
-				|| left.startByte - right.startByte || compareStableString(left.id, right.id))[0];
+	for (const hit of hits) {
+		const unit = sortedUnits.find((candidate) => candidate.startByte <= hit.byteStart && hit.byteEnd <= candidate.endByte);
 		if (unit === undefined) continue;
 		const existing = grouped.get(unit.id);
 		if (existing === undefined) grouped.set(unit.id, { unit, hits: [hit] });
@@ -312,7 +289,7 @@ function parsedRegions(
 		if (first === undefined) throw new RangeError("parsed region requires a hit");
 		return createVerifiedCodeRegion({
 			id: unit.id,
-			path: file.file.path,
+			path: file.path,
 			startLine: unit.startLine,
 			endLine: unit.endLine,
 			startByte: unit.startByte,
@@ -325,7 +302,7 @@ function parsedRegions(
 			symbolRole: "enclosing",
 			authority: unit.authority,
 			signals: ["verified_enclosing_region"],
-			evidence: [textEvidence(first.matchMode)],
+			evidence: textEvidence(first.matchMode),
 		}, asNonEmpty(sortedHits));
 	});
 }
@@ -342,7 +319,7 @@ function textRegions(
 		endByte: hit.byteEnd,
 		kind: "text",
 		signals: ["verified_text_line"],
-		evidence: [textEvidence(hit.matchMode)],
+		evidence: textEvidence(hit.matchMode),
 	}, [hit]));
 }
 
@@ -350,8 +327,6 @@ function textEvidence(matchMode: TextHit["matchMode"]): RegionEvidence {
 	return {
 		source: matchMode === "literal" ? "text-literal" : "text-regex",
 		rank: 1,
-		confidence: 1,
-		reason: matchMode,
 	};
 }
 
@@ -368,29 +343,6 @@ function astCacheKey(file: ScopedFile, hash: string, filesystem: WorkspaceFileSy
 
 function hasBareCr(text: string): boolean {
 	return /\r(?!\n)/u.test(text);
-}
-
-function countSkipped(skipped: Required<GrepSkippedFiles>, error: FsError): void {
-	switch (error.code) {
-		case "binary": skipped.binary += 1; break;
-		case "invalid-utf8": skipped.invalid_utf8 += 1; break;
-		case "access-denied": skipped.access_denied += 1; break;
-		case "too-large": skipped.too_large += 1; break;
-		case "changed-during-read":
-		case "not-found":
-		case "not-file": skipped.changed += 1; break;
-		default: break;
-	}
-}
-
-function compactSkipped(skipped: Required<GrepSkippedFiles>): GrepSkippedFiles {
-	const result: GrepSkippedFiles = {};
-	if (skipped.binary > 0) result.binary = skipped.binary;
-	if (skipped.invalid_utf8 > 0) result.invalid_utf8 = skipped.invalid_utf8;
-	if (skipped.access_denied > 0) result.access_denied = skipped.access_denied;
-	if (skipped.too_large > 0) result.too_large = skipped.too_large;
-	if (skipped.changed > 0) result.changed = skipped.changed;
-	return result;
 }
 
 function asNonEmpty<T>(values: readonly T[]): readonly [T, ...T[]] {

@@ -1,4 +1,4 @@
-import { languageFromPath, splitTokens, tokenizeText } from "../../code-index/parser.js";
+import { createTextTokenMatcher, languageFromPath, splitTokens } from "../../code-index/parser.js";
 import type { ScannedLine, TextContent } from "../../filesystem/contracts/content.js";
 import { scannedTextLines, utf8ByteOffset } from "../../filesystem/services/text.js";
 import type { FsError, FsOperationContext } from "../../filesystem/contracts/result.js";
@@ -7,6 +7,7 @@ import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
 import type { TextFileEvidence, TextHit } from "./candidates.js";
 import type { ScopeInventory, ScopedFile } from "./inventory.js";
 import type { QueryPlan } from "./query-plan.js";
+import { compactGrepSkippedFiles, createGrepSkippedFiles, recordSkippedFile } from "./skipped.js";
 import type { GrepScopeError, GrepSkippedFiles } from "./types.js";
 
 const MAX_ANCHORS_PER_FILE = 64;
@@ -44,6 +45,14 @@ interface LineMatch {
 	readonly end: number;
 }
 
+interface PreparedTextQuery {
+	readonly queryMode: QueryPlan["queryMode"];
+	readonly matcher: (line: string) => LineMatch | undefined;
+	readonly queryTerms: readonly string[];
+	readonly matchTerms: (line: string) => readonly string[];
+	readonly phrase: string;
+}
+
 interface MutableLexicalAnchor {
 	readonly path: string;
 	readonly line: number;
@@ -74,18 +83,12 @@ export async function scanInventoryText(
 	if (!validLimit(maxStoredHits) || !validLimit(maxStoredAnchors)) {
 		return fail("INVALID_OPERATION", "Text candidate limits must be non-negative safe integers.");
 	}
-	const matcher = createLineMatcher(plan);
+	const query = prepareTextQuery(plan);
 	const hits: TextHit[] = [];
 	const fileEvidence: TextFileEvidence[] = [];
 	const contents = new Map<string, TextContent>();
 	const scopeErrors: GrepScopeError[] = [];
-	const skipped: Required<GrepSkippedFiles> = {
-		binary: 0,
-		invalid_utf8: 0,
-		access_denied: 0,
-		too_large: 0,
-		changed: 0,
-	};
+	const skipped = createGrepSkippedFiles();
 	let searchedFiles = 0;
 	let searchedBytes = 0;
 	let totalHits = 0;
@@ -97,8 +100,7 @@ export async function scanInventoryText(
 		if (context.operation.signal?.aborted === true) return aborted(file.path);
 		const scanned = await scanFile(
 			file,
-			plan,
-			matcher,
+			query,
 			context,
 			Math.max(0, maxStoredHits - hits.length),
 			Math.max(0, maxStoredAnchors - storedAnchors),
@@ -106,7 +108,7 @@ export async function scanInventoryText(
 		if (!scanned.ok) {
 			if (scanned.error.code === "aborted") return aborted(file.path);
 			if (file.explicitFile) scopeErrors.push(scopeError(file, mapFsError(scanned.error, { notFound: "file", path: file.path })));
-			else if (!countSkippedFile(skipped, scanned.error)) return mapFsError(scanned.error, { path: file.path });
+			else if (!recordSkippedFile(skipped, scanned.error)) return mapFsError(scanned.error, { path: file.path });
 			continue;
 		}
 		searchedFiles += 1;
@@ -139,7 +141,7 @@ export async function scanInventoryText(
 			searchedBytes,
 			droppedTextHits,
 			droppedRelatedAnchors,
-			skipped: compactSkipped(skipped),
+			skipped: compactGrepSkippedFiles(skipped),
 		},
 		scopeErrors,
 	};
@@ -147,15 +149,12 @@ export async function scanInventoryText(
 
 async function scanFile(
 	file: ScopedFile,
-	plan: Pick<QueryPlan, "queryMode" | "targetTerms" | "targetQuery">,
-	matcher: (line: string) => LineMatch | undefined,
+	query: PreparedTextQuery,
 	context: TextScannerContext,
 	remainingHitCapacity: number,
 	remainingAnchorCapacity: number,
 ): Promise<{ readonly ok: true; readonly value: FileScanSuccess } | { readonly ok: false; readonly error: FsError }> {
 	let retained: TextContent | undefined;
-	let lines: AsyncIterable<{ readonly ok: true; readonly value: ScannedLine } | { readonly ok: false; readonly error: FsError }>;
-	let close: () => Promise<void>;
 	if (
 		context.retainTextMaxBytes !== undefined
 		&& file.snapshot.sizeBytes <= context.retainTextMaxBytes
@@ -173,8 +172,34 @@ async function scanFile(
 		);
 		if (!loaded.ok) return loaded;
 		retained = loaded.value;
-		lines = successfulLines(scannedTextLines(retained.text));
-		close = async () => undefined;
+	}
+	const fileHits: TextHit[] = [];
+	const anchors: MutableLexicalAnchor[] = [];
+	const matchedTerms = new Set<string>();
+	let totalHits = 0;
+	let droppedTextHits = 0;
+	let droppedRelatedAnchors = 0;
+	const consumeLine = (line: ScannedLine): void => {
+		const match = query.matcher(line.text);
+		if (match !== undefined) {
+			totalHits += 1;
+			if (fileHits.length < remainingHitCapacity) {
+				const hit = createTextHit(file.path, line, match, query.queryMode);
+				if (hit !== undefined) fileHits.push(hit);
+			} else droppedTextHits += 1;
+		}
+		const lineTerms = query.matchTerms(line.text);
+		for (const term of lineTerms) matchedTerms.add(term);
+		const hasPhrase = query.phrase.length > 0
+			&& line.text.toLocaleLowerCase().includes(query.phrase);
+		if (lineTerms.length > 0 || hasPhrase) {
+			if (anchors.length < MAX_ANCHORS_PER_FILE && anchors.length < remainingAnchorCapacity) {
+				anchors.push(createLexicalAnchor(file.path, line, lineTerms, hasPhrase));
+			} else droppedRelatedAnchors += 1;
+		}
+	};
+	if (retained !== undefined) {
+		for (const line of scannedTextLines(retained.text)) consumeLine(line);
 	} else {
 		const opened = await context.filesystem.content.scanLines(
 			file.ref,
@@ -182,48 +207,20 @@ async function scanFile(
 			context.operation,
 		);
 		if (!opened.ok) return opened;
-		lines = opened.value;
-		close = () => opened.value.close();
-	}
-	const fileHits: TextHit[] = [];
-	const anchors: MutableLexicalAnchor[] = [];
-	const matchedTerms = new Set<string>();
-	const queryTerms = uniqueLowerTerms(plan.targetTerms.flatMap(splitTokens));
-	const phrase = plan.targetQuery.trim().toLocaleLowerCase();
-	let totalHits = 0;
-	let droppedTextHits = 0;
-	let droppedRelatedAnchors = 0;
-	let failure: FsError | undefined;
-	try {
-		for await (const result of lines) {
-			if (!result.ok) {
-				failure = result.error;
-				break;
+		let failure: FsError | undefined;
+		try {
+			for await (const result of opened.value) {
+				if (!result.ok) {
+					failure = result.error;
+					break;
+				}
+				consumeLine(result.value);
 			}
-			const line = result.value;
-			const match = matcher(line.text);
-			if (match !== undefined) {
-				totalHits += 1;
-				if (fileHits.length < remainingHitCapacity) {
-					const hit = createTextHit(file.path, line, match, plan.queryMode);
-					if (hit !== undefined) fileHits.push(hit);
-				} else droppedTextHits += 1;
-			}
-			const lineTokens = tokenizeText(line.text);
-			const lineTerms = queryTerms.filter((term) => lineTokens.has(term));
-			for (const term of lineTerms) matchedTerms.add(term);
-			const lineLower = line.text.toLocaleLowerCase();
-			const hasPhrase = phrase.length > 0 && lineLower.includes(phrase);
-			if (lineTerms.length > 0 || hasPhrase) {
-				if (anchors.length < MAX_ANCHORS_PER_FILE && anchors.length < remainingAnchorCapacity) {
-					anchors.push(createLexicalAnchor(file.path, line, lineTerms, hasPhrase));
-				} else droppedRelatedAnchors += 1;
-			}
+		} finally {
+			await opened.value.close();
 		}
-	} finally {
-		await close();
+		if (failure !== undefined) return { ok: false, error: failure };
 	}
-	if (failure !== undefined) return { ok: false, error: failure };
 	return {
 		ok: true,
 		value: {
@@ -233,7 +230,7 @@ async function scanFile(
 			droppedRelatedAnchors,
 			evidence: {
 				path: file.path,
-				matchedTerms: queryTerms.filter((term) => matchedTerms.has(term)),
+				matchedTerms: query.queryTerms.filter((term) => matchedTerms.has(term)),
 				anchors,
 			},
 			...(retained === undefined ? {} : { content: retained }),
@@ -241,17 +238,24 @@ async function scanFile(
 	};
 }
 
-async function* successfulLines(
-	lines: readonly ScannedLine[],
-): AsyncGenerator<{ readonly ok: true; readonly value: ScannedLine }> {
-	for (const line of lines) yield { ok: true, value: line };
+function prepareTextQuery(
+	plan: Pick<QueryPlan, "queryMode" | "regex" | "targetTerms" | "targetQuery">,
+): PreparedTextQuery {
+	const queryTerms = uniqueLowerTerms(plan.targetTerms.flatMap(splitTokens));
+	return {
+		queryMode: plan.queryMode,
+		matcher: createLineMatcher(plan.regex),
+		queryTerms,
+		matchTerms: createTextTokenMatcher(queryTerms),
+		phrase: plan.targetQuery.trim().toLocaleLowerCase(),
+	};
 }
 
 function createLineMatcher(
-	plan: Pick<QueryPlan, "regex">,
+	regex: RegExp,
 ): (line: string) => LineMatch | undefined {
-	const source = plan.regex.source;
-	const flags = plan.regex.flags.replaceAll("g", "").replaceAll("y", "");
+	const source = regex.source;
+	const flags = regex.flags.replaceAll("g", "").replaceAll("y", "");
 	const expression = new RegExp(source, flags);
 	return (line) => {
 		const match = expression.exec(line);
@@ -300,29 +304,6 @@ function createLexicalAnchor(
 
 function uniqueLowerTerms(terms: readonly string[]): string[] {
 	return [...new Set(terms.map((term) => term.toLocaleLowerCase()).filter((term) => term.length > 0))];
-}
-
-function countSkippedFile(skipped: Required<GrepSkippedFiles>, error: FsError): boolean {
-	switch (error.code) {
-		case "binary": skipped.binary += 1; return true;
-		case "invalid-utf8": skipped.invalid_utf8 += 1; return true;
-		case "access-denied": skipped.access_denied += 1; return true;
-		case "too-large": skipped.too_large += 1; return true;
-		case "changed-during-read":
-		case "not-found":
-		case "not-file": skipped.changed += 1; return true;
-		default: return false;
-	}
-}
-
-function compactSkipped(skipped: Required<GrepSkippedFiles>): GrepSkippedFiles {
-	const result: GrepSkippedFiles = {};
-	if (skipped.binary > 0) result.binary = skipped.binary;
-	if (skipped.invalid_utf8 > 0) result.invalid_utf8 = skipped.invalid_utf8;
-	if (skipped.access_denied > 0) result.access_denied = skipped.access_denied;
-	if (skipped.too_large > 0) result.too_large = skipped.too_large;
-	if (skipped.changed > 0) result.changed = skipped.changed;
-	return result;
 }
 
 function scopeError(file: ScopedFile, failure: ReturnType<typeof fail>): GrepScopeError {

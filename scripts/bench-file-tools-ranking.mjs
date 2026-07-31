@@ -7,11 +7,8 @@ const loadTypeScript = createTypeScriptLoader({ moduleCache: true });
 const { createFindQueryPlan } = await loadTypeScript("src/file-tools/find/query.ts");
 const { rankFindEntries, rankFindEntriesLimitedAsync } = await loadTypeScript("src/file-tools/find/ranker.ts");
 const {
-	assignSourceLocalRanks,
 	rankCodeRegions,
 	selectRankedRegions,
-	sourceContribution,
-	summarizeEvidence,
 } = await loadTypeScript("src/file-tools/grep/ranking.ts");
 const { createQueryPlan } = await loadTypeScript("src/file-tools/grep/query-plan.ts");
 const runs = readRuns(process.argv.slice(2), { defaultRuns: 15 });
@@ -68,13 +65,13 @@ function buildFindCandidates(size) {
 function buildCandidates(size) {
 	return Array.from({ length: size }, (_, index) => {
 		const profile = index % 5;
-		const source = profile === 0 || profile === 1 ? "lsp-symbol" : profile === 2 ? "text-regex" : "text-lexical";
+		const source = profile === 2 ? "text-regex" : profile >= 3 ? "text-lexical" : undefined;
 		const signal = profile === 0
 			? "exact_symbol_definition"
 			: profile === 1
 				? "symbol_prefix"
 				: profile === 2
-					? "verified_text"
+					? "verified_enclosing_region"
 					: profile === 3 ? "lexical_high_coverage" : "lexical";
 		const role = index % 17 === 0 ? "test" : index % 19 === 0 ? "public_api" : index % 23 === 0 ? "config" : "definition";
 		const base = {
@@ -88,7 +85,7 @@ function buildCandidates(size) {
 			symbol: signal === "exact_symbol_definition" ? "login" : signal === "symbol_prefix" ? "loginHandler" : `symbol${index % 512}`,
 			roles: role === "definition" ? ["definition"] : ["definition", role],
 			signals: [signal],
-			evidence: [evidence(source, index + 1)],
+			...(source === undefined ? {} : { evidence: evidence(source, index + 1) }),
 			displayLines: [],
 		};
 		if (source !== "text-regex") return { ...base, queryMatch: "semantic", matchLines: [] };
@@ -112,34 +109,15 @@ function validateFixedScenarios() {
 		["Error: connection reset by peer", "phrase"],
 	]) {
 		const candidates = query.includes("AuthService")
-			? [region("lexical", "lexical", "text-lexical", 1), region("qualified", "exact_qualified_definition", "lsp-symbol", 2)]
+			? [region("lexical", "lexical", "text-lexical", 1), region("qualified", "exact_qualified_definition", undefined, 2)]
 			: query === "login"
-				? [region("lexical", "lexical", "text-lexical", 1), region("exact", "exact_symbol_definition", "lsp-symbol", 2)]
-				: [region("lexical", "lexical_high_coverage", "text-lexical", 1), verifiedRegion("phrase", "verified_phrase", 2)];
+				? [region("lexical", "lexical", "text-lexical", 1), region("exact", "exact_symbol_definition", undefined, 2)]
+				: [region("lexical", "lexical_high_coverage", "text-lexical", 1), verifiedRegion("phrase", "verified_enclosing_region", 2)];
 		const first = rankCodeRegions(queryPlan(query), candidates)[0]?.id;
 		if (first !== expectedFirst) throw new Error(`${query} tier boundary changed: expected ${expectedFirst}, got ${first}`);
 	}
 
-	const duplicateFamily = summarizeEvidence([evidence("text-lexical", 3), evidence("text-lexical", 1)]);
-	if (Math.abs(duplicateFamily.fusionScore - sourceContribution(evidence("text-lexical", 1))) > 1e-12) {
-		throw new Error("same-family evidence was counted more than once");
-	}
-	const sourceValues = [
-		{ id: "low", source: "text-lexical", quality: 1 },
-		{ id: "text", source: "text-regex", quality: 1 },
-		{ id: "high", source: "text-lexical", quality: 2 },
-	];
-	const ranks = assignSourceLocalRanks(
-		sourceValues,
-		(value) => value.source,
-		(left, right) => right.quality - left.quality,
-		(left, right) => left.id.localeCompare(right.id),
-	);
-	if (ranks.get(sourceValues[2]) !== 1 || ranks.get(sourceValues[0]) !== 2 || ranks.get(sourceValues[1]) !== 1) {
-		throw new Error("source-local rank generation changed");
-	}
-
-	const test = region("test", "exact_symbol_definition", "lsp-symbol", 1, ["definition", "test"], "tests/login.test.ts");
+	const test = region("test", "exact_symbol_definition", undefined, 1, ["definition", "test"], "tests/login.test.ts");
 	const production = verifiedRegion("production", "verified_enclosing_region", 1);
 	if (rankCodeRegions(queryPlan("login"), [production, test])[0]?.id !== "test") {
 		throw new Error("path context unexpectedly changed ranking");
@@ -161,7 +139,7 @@ function region(id, signal, source, rank, roles = ["definition"], path = `${id}.
 		kind: "function",
 		roles,
 		signals: [signal],
-		evidence: [evidence(source, rank)],
+		...(source === undefined ? {} : { evidence: evidence(source, rank) }),
 		queryMatch: "semantic",
 		matchLines: [],
 		displayLines: [],
@@ -189,7 +167,7 @@ function verifiedRegion(id, signal, rank) {
 		kind: "function",
 		roles: ["occurrence"],
 		signals: [signal],
-		evidence: [evidence("text-regex", rank)],
+		evidence: evidence("text-regex", rank),
 		queryMatch: "verified",
 		verifiedHits: [hit],
 		matchLines: [rank],
@@ -197,7 +175,7 @@ function verifiedRegion(id, signal, rank) {
 }
 
 function evidence(source, rank) {
-	return { source, rank, confidence: 1, reason: source };
+	return { source, rank };
 }
 
 function queryPlan(query) {

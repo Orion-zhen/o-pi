@@ -11,6 +11,7 @@ import type {
 	CodeDocument,
 	IndexedCodeUnit,
 } from "../code-index/types.js";
+import { compareCodeUnitNesting } from "../code-index/parser.js";
 import { LspClient } from "./client.js";
 import { analyzeLspDocument } from "./code-analysis.js";
 import { featureAvailable, lspFeatureDefinitions } from "./features/index.js";
@@ -911,14 +912,11 @@ function unitsForRanges(
 	analysis: AnalyzedFileIndex,
 	ranges: CodeAnalysisTarget["ranges"],
 ): IndexedCodeUnit[] {
+	const units = [...analysis.index.units].sort(compareCodeUnitNesting);
 	const selected = new Map<string, IndexedCodeUnit>();
 	for (const range of ranges) {
-		const unit = analysis.index.units
-			.filter((candidate) => candidate.startByte <= range.startByte && range.endByte <= candidate.endByte)
-			.sort((left, right) =>
-				(left.endByte - left.startByte) - (right.endByte - right.startByte)
-				|| left.startByte - right.startByte
-				|| compareString(left.id, right.id))[0];
+		const unit = units.find((candidate) =>
+			candidate.startByte <= range.startByte && range.endByte <= candidate.endByte);
 		if (unit !== undefined) selected.set(unit.id, unit);
 	}
 	return [...selected.values()];
@@ -933,8 +931,6 @@ function withUnits(
 		index: {
 			...analysis.index,
 			units: [...units],
-			symbols: units.flatMap((unit) =>
-				[unit.name, unit.qualifiedName].filter((value): value is string => value !== undefined)),
 		},
 	};
 }

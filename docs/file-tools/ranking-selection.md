@@ -5,7 +5,7 @@ grep 候选先按以下固定键完成 relevance 排序：
 ```text
 query tier + authority
 -> BM25F field score
--> fusion score
+-> source rank score
 -> verified coverage
 -> region size
 -> path
@@ -16,7 +16,7 @@ query tier + authority
 
 排序不执行 query 意图分类或 `tests` / `src` 上下文加权。每个 query tier 内按 `called`、`referenced`、`defined`、unknown 划分 authority band；`path` 只在最后破平，不进入来源 rank。
 
-结构化多命中和零命中查询优先由 LSP 原子生成 symbol 与 authority。只有 server 同时支持 workspace symbol、document symbol、references 和 incoming call hierarchy，且本次所选 symbol 全部完成映射时才采用 LSP 结果；能力缺失、超时或响应不完整时整次回到 Tree-sitter。
+任意合法查询都优先尝试由 LSP 原子生成 symbol 与 authority。有正文命中时 server 必须同时支持 document symbol、references 和 incoming call hierarchy；零命中时还必须支持 workspace symbol。只有本次全部目标完成映射时才采用 LSP 结果；能力缺失、超时或响应不完整时整次回到 Tree-sitter。
 
 Tree-sitter 路径复用命名代码单元中已经提取的定义、引用、调用和文件级 import，构造一次性的保守依赖图。同文件唯一目标、显式 import 唯一目标或当前解析集唯一 exported 目标才形成边；匿名顶层代码、局部定义遮蔽、同名歧义和动态调用不猜测。该图只更新 `called` / `referenced` / `defined`，不读取目录名、文件名或测试框架字符。
 

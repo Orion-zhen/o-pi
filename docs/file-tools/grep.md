@@ -72,7 +72,7 @@ LSP 结果先保存在临时事务中，只有所有目标路径、server、能�
 ```text
 query tier + authority
 -> BM25F field score
--> evidence fusion score
+-> source rank score
 -> verified coverage
 -> smaller region
 -> path

@@ -104,7 +104,7 @@ blocked path  → 不可列出、搜索、读取或写入
 
 ### `grep`
 
-`grep` 对 `query` 执行区分大小写的逐行搜索。合法 query 使用 ECMAScript 正则；非法正则只有在 exact literal 存在直接正文命中时才返回显式 `literal_fallback`，否则保持 `INVALID_REGEX`。简单查询使用 Tree-sitter 将真实正文命中折叠到最小代码单元；结构化查询有多个命中或零正文命中时，可选 LSP analyzer 接管 symbol 解析，并根据跨代码单元 incoming call/reference 标记 `called`、`referenced` 或 `defined`。排序不识别 `src`、`tests`、fixture 等路径含义，而是在每个 query tier 内优先实际参与调用链的定义。related 数量由 `grep_related_result_limit` 静默限制；剩余结果按结构 tier、BM25F 和来源融合排序，再以 relevance head + 同 tier MMR 受 `grep_result_limit` 限制。
+`grep` 对 `query` 执行区分大小写的逐行搜索。合法 query 使用 ECMAScript 正则；非法正则只有在 exact literal 存在直接正文命中时才返回显式 `literal_fallback`，否则保持 `INVALID_REGEX`。任意合法查询都会优先尝试完整 LSP analyzer；事务不可用时 Tree-sitter 将真实正文命中折叠到最小代码单元，并根据跨代码单元关系标记 `called`、`referenced` 或 `defined`。排序不识别 `src`、`tests`、fixture 等路径含义，而是在每个 query tier 内优先实际参与调用链的定义。related 数量由 `grep_related_result_limit` 静默限制；剩余结果按结构 tier、BM25F 和来源局部 rank 排序，再以 relevance head + 同 tier MMR 受 `grep_result_limit` 限制。
 
 ### `read`
 
@@ -165,6 +165,6 @@ blocked path  → 不可列出、搜索、读取或写入
 | `write` 完整行为 | [write.md](write.md) |
 | `edit` 完整行为 | [edit.md](edit.md) |
 | 搜索排序总览 | [ranking.md](ranking.md) |
-| 证据融合和来源排序 | [ranking-evidence.md](ranking-evidence.md) |
+| 候选证据和来源排序 | [ranking-evidence.md](ranking-evidence.md) |
 | Top-K 选择 | [ranking-selection.md](ranking-selection.md) |
 | lazy loading、缓存和 benchmark | [performance.md](performance.md) |

@@ -12,14 +12,14 @@ export function queryPlan(query: string): QueryPlan {
 	return result;
 }
 
-export function rankingEvidence(source: RegionEvidence["source"], rank = 1, confidence = 1, hop?: 0 | 1): RegionEvidence {
-	return { source, rank, confidence, reason: source, ...(hop === undefined ? {} : { hop }) };
+export function rankingEvidence(source: RegionEvidence["source"], rank = 1): RegionEvidence {
+	return { source, rank };
 }
 
 export function semanticRegion(input: {
 	id: string;
 	signals: readonly CandidateSignal[];
-	evidence: readonly RegionEvidence[];
+	evidence?: RegionEvidence;
 	symbolRole?: CodeRegion["symbolRole"];
 	authority?: CodeAuthority;
 	path?: string;
@@ -41,11 +41,11 @@ export function semanticRegion(input: {
 		symbolRole: input.symbolRole ?? "definition",
 		authority: input.authority ?? "defined",
 		signals: input.signals,
-		evidence: input.evidence,
+		...(input.evidence === undefined ? {} : { evidence: input.evidence }),
 	});
 }
 
-export function verifiedRegion(input: { id: string; signals: readonly CandidateSignal[]; evidence: readonly RegionEvidence[] }): CodeRegion {
+export function verifiedRegion(input: { id: string; signals: readonly CandidateSignal[]; evidence: RegionEvidence }): CodeRegion {
 	const path = `${input.id}.ts`;
 	const hit: TextHit = {
 		path,
@@ -82,7 +82,7 @@ export function packCandidate(input: {
 	lineText?: string;
 	symbol?: string;
 	declaration?: string;
-	evidence?: readonly RegionEvidence[];
+	evidence?: RegionEvidence;
 }): RankedRegion {
 	const lineText = input.lineText ?? "needle";
 	const matchStart = lineText.indexOf("needle");
@@ -109,7 +109,7 @@ export function packCandidate(input: {
 		symbolRole: "definition",
 		authority: "defined",
 		signals: ["verified_enclosing_region"],
-		evidence: input.evidence ?? [rankingEvidence("text-regex")],
+		evidence: input.evidence ?? rankingEvidence("text-regex"),
 	}, [hit]);
 	const ranked = rankCodeRegions(queryPlan("needle"), [region])[0];
 	if (ranked === undefined) throw new Error("pack candidate was not ranked");

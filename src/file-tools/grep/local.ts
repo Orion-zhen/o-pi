@@ -1,4 +1,4 @@
-import { languageFromPath, tokenizeText, type IndexedCodeUnit } from "../../code-index/parser.js";
+import { compareCodeUnitNesting, createTextTokenMatcher, languageFromPath, tokenizeText, type IndexedCodeUnit } from "../../code-index/parser.js";
 import { compactDisplayLine, firstTermFocus } from "./display.js";
 import {
 	createSemanticCodeRegion,
@@ -8,13 +8,12 @@ import {
 	type LexicalTextAnchor,
 	type RankedRegion,
 	type RegionEvidence,
-	type RetrievalSource,
 	type SemanticMainRegion,
 	type VerifiedCodeRegion,
 } from "./candidates.js";
 import type { ScopeInventory } from "./inventory.js";
 import type { QueryPlan } from "./query-plan.js";
-import { assignSourceLocalRanks, rankCodeRegions } from "./ranking.js";
+import { rankCodeRegions } from "./ranking.js";
 import type { RegionizationResult, RegionizedFile } from "./regionizer.js";
 import type { TextScanResult } from "./text-scanner.js";
 import type { GrepDisplayLine } from "./types.js";
@@ -24,18 +23,11 @@ interface LocalEntry {
 	readonly path: string;
 	readonly startLine: number;
 	readonly quality: number;
-	readonly source: RetrievalSource;
-	readonly reason: string;
 	readonly region: SemanticMainRegion;
 }
 
 interface UnitFile {
 	readonly unit: IndexedCodeUnit;
-}
-
-export interface LocalResult {
-	readonly regions: readonly CodeRegion[];
-	readonly ranked: readonly RankedRegion[];
 }
 
 /** 有正文命中时只解析命中文件；零命中时解析代码 scope，为 related 回退提供 live AST。 */
@@ -69,17 +61,17 @@ export function semanticParsePriority(
 }
 
 /** 正文命中优先；仅在整次零命中时将词法 anchor 转成明确标记的 related 候选。 */
-export function buildLocalResults(
+export function buildRankedRegions(
 	plan: QueryPlan,
 	scan: TextScanResult,
 	regionized: RegionizationResult,
 	displayLimit: number,
-): LocalResult {
+): RankedRegion[] {
 	const byId = new Map<string, VerifiedCodeRegion | SemanticMainRegion>();
 	for (const region of regionized.regions) {
 		byId.set(region.id, region.queryMatch === "verified" ? enrichVerifiedRegion(region) : region);
 	}
-	if (scan.totalHits > 0) return rankedResult(plan, byId);
+	if (scan.totalHits > 0) return rankRegions(plan, byId);
 
 	const unitFiles = collectUnitFiles(regionized.files);
 	const queryTerms = uniqueTerms(plan.targetTerms.length > 0 ? plan.targetTerms : [plan.query]);
@@ -89,7 +81,7 @@ export function buildLocalResults(
 		...lexicalAnchorCandidates(groupedAnchors.outside, scan.hits, queryTerms),
 	];
 	mergeEntries(byId, entries);
-	return rankedResult(plan, byId);
+	return rankRegions(plan, byId);
 }
 
 function collectUnitFiles(files: readonly RegionizedFile[]): UnitFile[] {
@@ -110,22 +102,23 @@ function anchoredUnitCandidates(
 	displayLimit: number,
 ): LocalEntry[] {
 	const result: LocalEntry[] = [];
+	const matchTerms = createTextTokenMatcher(queryTerms);
 	for (const item of units) {
 		const anchors = anchorsByUnit.get(item.unit.id);
 		if (anchors === undefined || anchors.length === 0) continue;
 		const anchorTerms = new Set(anchors.flatMap((anchor) => anchor.matchedTerms.map(normalizeTerm)));
-		const structureTerms = tokenizeText([
+		const declarationTerms = new Set(matchTerms(item.unit.signature ?? ""));
+		const structureTerms = new Set([
+			...declarationTerms,
+			...matchTerms([
 			item.unit.name,
 			item.unit.qualifiedName,
-			item.unit.signature,
-		].filter((value): value is string => value !== undefined).join(" "));
+		].filter((value): value is string => value !== undefined).join(" ")),
+		]);
 		const matchedTerms = queryTerms.filter((term) => anchorTerms.has(term) || structureTerms.has(term));
 		if (!passesCoverage(matchedTerms.length, queryTerms.length)) continue;
 		const highCoverage = anchors.some((anchor) => anchor.phrase)
 			|| (queryTerms.length > 1 && matchedTerms.length / queryTerms.length >= 0.6);
-		const declarationTerms = item.unit.signature === undefined
-			? new Set<string>()
-			: new Set([...tokenizeText(item.unit.signature).keys()]);
 		const displayLines = anchors
 			.filter((anchor) => !anchor.matchedTerms.every((term) => declarationTerms.has(normalizeTerm(term))))
 			.sort(compareAnchors)
@@ -136,8 +129,6 @@ function anchoredUnitCandidates(
 			- Math.max(0, item.unit.endLine - item.unit.startLine);
 		result.push(localEntry(
 			item,
-			"text-lexical",
-			"lexical anchor",
 			quality,
 			[highCoverage ? "lexical_high_coverage" : "lexical"],
 			displayLines,
@@ -155,6 +146,9 @@ function groupLexicalAnchors(
 		const grouped = unitsByPath.get(item.unit.path);
 		if (grouped === undefined) unitsByPath.set(item.unit.path, [item]);
 		else grouped.push(item);
+	}
+	for (const grouped of unitsByPath.values()) {
+		grouped.sort((left, right) => compareCodeUnitNesting(left.unit, right.unit));
 	}
 	const byUnit = new Map<string, LexicalTextAnchor[]>();
 	const outside: LexicalTextAnchor[] = [];
@@ -174,10 +168,7 @@ function groupLexicalAnchors(
 }
 
 function smallestEnclosingUnit(units: readonly UnitFile[], anchor: LexicalTextAnchor): UnitFile | undefined {
-	return units
-		.filter((item) => item.unit.startLine <= anchor.line && anchor.line <= item.unit.endLine)
-		.sort((left, right) => (left.unit.endByte - left.unit.startByte) - (right.unit.endByte - right.unit.startByte)
-			|| left.unit.startByte - right.unit.startByte || compareString(left.unit.id, right.unit.id))[0];
+	return units.find((item) => item.unit.startLine <= anchor.line && anchor.line <= item.unit.endLine);
 }
 
 function lexicalAnchorCandidates(
@@ -197,8 +188,6 @@ function lexicalAnchorCandidates(
 			path: anchor.path,
 			startLine: anchor.line,
 			quality: anchor.matchedTerms.length * 100 + (anchor.phrase ? 100 : 0),
-			source: "text-lexical",
-			reason: "lexical anchor",
 			region: createSemanticCodeRegion({
 				id,
 				path: anchor.path,
@@ -208,7 +197,6 @@ function lexicalAnchorCandidates(
 					endByte: anchor.byteEnd,
 					kind: "text",
 					signals: [highCoverage ? "lexical_high_coverage" : "lexical"],
-				evidence: [],
 				displayLines: [anchorDisplayLine(anchor)],
 			}),
 		});
@@ -218,8 +206,6 @@ function lexicalAnchorCandidates(
 
 function localEntry(
 	item: UnitFile,
-	source: RetrievalSource,
-	reason: string,
 	quality: number,
 	signals: readonly CandidateSignal[],
 	displayLines: readonly GrepDisplayLine[] = [],
@@ -229,8 +215,6 @@ function localEntry(
 		path: item.unit.path,
 		startLine: item.unit.startLine,
 		quality,
-		source,
-		reason,
 		region: createSemanticCodeRegion({
 			id: item.unit.id,
 			path: item.unit.path,
@@ -246,7 +230,6 @@ function localEntry(
 			symbolRole: "definition",
 			authority: item.unit.authority,
 			signals,
-			evidence: [],
 			displayLines,
 		}),
 	};
@@ -256,22 +239,24 @@ function mergeEntries(
 	regions: Map<string, VerifiedCodeRegion | SemanticMainRegion>,
 	entries: readonly LocalEntry[],
 ): void {
-	const ranks = assignSourceLocalRanks(
-		entries,
-		(entry) => entry.source,
-		(left, right) => right.quality - left.quality,
-		compareLocalEntriesStable,
-	);
+	const sorted = [...entries].sort((left, right) =>
+		right.quality - left.quality || compareLocalEntriesStable(left, right));
+	const ranks = new Map<LocalEntry, number>();
+	let rank = 0;
+	let previousQuality: number | undefined;
+	for (const entry of sorted) {
+		if (previousQuality === undefined || entry.quality !== previousQuality) rank += 1;
+		ranks.set(entry, rank);
+		previousQuality = entry.quality;
+	}
 	for (const entry of entries) addRegion(regions, withEvidence(entry, ranks.get(entry) ?? Number.MAX_SAFE_INTEGER));
 }
 
-function rankedResult(
+function rankRegions(
 	plan: QueryPlan,
 	regions: ReadonlyMap<string, VerifiedCodeRegion | SemanticMainRegion>,
-): LocalResult {
-	const values = [...regions.values()];
-	const ranked = rankCodeRegions(plan, values);
-	return { regions: values, ranked };
+): RankedRegion[] {
+	return rankCodeRegions(plan, [...regions.values()]);
 }
 
 function addRegion(
@@ -296,25 +281,21 @@ function addRegion(
 		...(symbolRole === undefined ? {} : { symbolRole }),
 		...(authority === undefined ? {} : { authority }),
 		signals,
-		evidence,
+		...(evidence === undefined ? {} : { evidence }),
 		displayLines,
 		matchedBy,
 	});
 }
 
 function withEvidence(entry: LocalEntry, rank: number): SemanticMainRegion {
-	const evidence = [{ source: entry.source, rank, confidence: 1, reason: entry.reason }] as const;
+	const evidence = { source: "text-lexical", rank } as const;
 	return { ...entry.region, evidence, matchedBy: normalizeMatchedBy(entry.region.signals, evidence) };
 }
 
-function mergeEvidence(left: readonly RegionEvidence[], right: readonly RegionEvidence[]): RegionEvidence[] {
-	const result = new Map<string, RegionEvidence>();
-	for (const item of [...left, ...right]) {
-		const key = `${item.source}\0${item.reason}`;
-		const current = result.get(key);
-		if (current === undefined || item.rank < current.rank) result.set(key, item);
-	}
-	return [...result.values()];
+function mergeEvidence(left: RegionEvidence | undefined, right: RegionEvidence | undefined): RegionEvidence | undefined {
+	if (left === undefined) return right;
+	if (right === undefined) return left;
+	return left.rank <= right.rank ? left : right;
 }
 
 function mergeDisplayLines(left: readonly GrepDisplayLine[], right: readonly GrepDisplayLine[]): GrepDisplayLine[] {

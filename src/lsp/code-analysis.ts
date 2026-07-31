@@ -1,7 +1,7 @@
 import type { DocumentSymbol, Position, Range, SymbolInformation } from "vscode-languageserver-protocol";
 
 import { createFileIdentity, createSymbolId } from "../code-index/identity.js";
-import { languageFromPath, tokenizeText } from "../code-index/parser.js";
+import { languageFromPath } from "../code-index/parser.js";
 import { SourceIndex, type AnalyzedFileIndex, type CodeDocument, type IndexedCodeUnit } from "../code-index/types.js";
 import { symbolKindName } from "./symbols.js";
 import type { LspDocumentSymbols } from "./types.js";
@@ -46,7 +46,6 @@ export function analyzeLspDocument(
 				path: document.path,
 				language: languageFromPath(document.path),
 				units: values,
-				symbols: values.flatMap((unit) => [unit.name, unit.qualifiedName].filter((value): value is string => value !== undefined)),
 			},
 			status: "parsed",
 			imports: [],
@@ -65,8 +64,6 @@ function indexedUnit(
 	if (startChar === undefined || endChar === undefined || endChar < startChar) return undefined;
 	const range = sourceIndex.range(startChar, endChar);
 	const declaration = declarationAt(document.text, sourceIndex, symbol.range.start.line);
-	const content = document.text.slice(startChar, endChar);
-	const nameText = [document.path, symbol.name, symbol.qualifiedName, declaration?.text, content].join("\n");
 	const file = createFileIdentity(document.path);
 	return {
 		id: createSymbolId({
@@ -85,7 +82,6 @@ function indexedUnit(
 		authority: "defined",
 		exported: false,
 		...range,
-		tokens: tokenizeText(nameText),
 		definitions: [symbol.name],
 		references: [],
 		calls: [],

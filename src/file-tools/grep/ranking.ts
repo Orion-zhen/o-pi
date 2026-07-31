@@ -5,24 +5,15 @@ import {
 	type CandidateSignal,
 	type CodeRegion,
 	type RankedRegion,
-	type RankingEvidenceSummary,
 	type RegionEvidence,
 	type RetrievalSource,
 } from "./candidates.js";
 import type { QueryPlan } from "./query-plan.js";
 
-export type RankingEvidenceFamily = "factual" | "lexical";
-
 export const GREP_RRF_K = 60;
 export const GREP_RELEVANCE_HEAD_SIZE = 4;
 export const GREP_MMR_LAMBDA = 0.85;
 export const GREP_RANKING_ALGORITHM = "semantic-tier-bm25f-rrf-mmr-v2";
-
-export const GREP_SOURCE_FAMILY: Readonly<Record<RetrievalSource, RankingEvidenceFamily>> = {
-	"text-literal": "factual",
-	"text-regex": "factual",
-	"text-lexical": "lexical",
-};
 
 const SOURCE_WEIGHT: Readonly<Record<RetrievalSource, number>> = {
 	"text-literal": 1,
@@ -37,9 +28,6 @@ const TIER_POLICY: Readonly<Partial<Record<CandidateSignal, number>>> = {
 	symbol_prefix: 2,
 	structured_symbol_match: 2,
 	structured_path_match: 2,
-	verified_phrase: 3,
-	verified_text: 3,
-	verified_qualified_occurrence: 3,
 	verified_enclosing_region: 3,
 	verified_text_line: 4,
 	lexical_high_coverage: 5,
@@ -55,12 +43,6 @@ const CANONICAL_SYMBOL_MATCH_SIGNALS = new Set<CandidateSignal>([
 	"structured_symbol_match",
 	"structured_path_match",
 ]);
-
-const EMPTY_RANKING: RankingEvidenceSummary = {
-	factual: 0,
-	lexical: 0,
-	fusionScore: 0,
-};
 
 type FieldName = "symbol" | "qualified" | "path" | "declaration" | "body";
 
@@ -89,55 +71,22 @@ const FIELD_LENGTH_NORMALIZATION: Readonly<Record<FieldName, number>> = {
 const BM25_K1 = 1.2;
 const FIELD_PROFILE_CACHE = new WeakMap<CodeRegion, RegionFieldProfile>();
 
-/**
- * 为每个独立来源生成从 1 开始的稠密相关性名次。
- * 稳定比较只负责破平，不能把等相关候选伪装成不同来源名次。
- */
-export function assignSourceLocalRanks<T>(
-	candidates: readonly T[],
-	sourceOf: (candidate: T) => RetrievalSource,
-	compareRelevance: (left: T, right: T) => number,
-	compareStable: (left: T, right: T) => number,
-): ReadonlyMap<T, number> {
-	const grouped = new Map<RetrievalSource, T[]>();
-	for (const candidate of candidates) {
-		const source = sourceOf(candidate);
-		const values = grouped.get(source);
-		if (values === undefined) grouped.set(source, [candidate]);
-		else values.push(candidate);
-	}
-	const result = new Map<T, number>();
-	for (const source of [...grouped.keys()].sort(compareString)) {
-		const values = grouped.get(source) ?? [];
-		values.sort((left, right) => compareRelevance(left, right) || compareStable(left, right));
-		let rank = 0;
-		let previous: T | undefined;
-		for (const candidate of values) {
-			if (previous === undefined || compareRelevance(previous, candidate) !== 0) rank += 1;
-			result.set(candidate, rank);
-			previous = candidate;
-		}
-	}
-	return result;
-}
-
-/** 先按结构 tier 和 BM25F 相关性排序，来源融合只合并独立检索排名。 */
+/** 先按结构 tier 和 BM25F 相关性排序，来源分数只表达来源内局部 rank。 */
 export function rankCodeRegions(plan: QueryPlan, regions: readonly CodeRegion[]): RankedRegion[] {
 	const fieldScores = scoreFields(plan, regions);
+	const structuredTerms = structuredQueryTerms(plan);
 	const ranked: RankedRegion[] = [];
 	for (const region of regions) {
-		const evidence = canonicalEvidence(region.evidence);
-		const signals = effectiveSignals(plan, region);
+		const signals = effectiveSignals(plan, region, structuredTerms);
 		const queryTier = bestTier(signals);
 		if (queryTier === undefined) continue;
 		ranked.push({
 			...region,
 			signals,
-			evidence,
-			matchedBy: normalizeMatchedBy(signals, evidence),
+			matchedBy: normalizeMatchedBy(signals, region.evidence),
 			tier: structuralTier(queryTier, region),
 			fieldScore: fieldScores.get(region) ?? 0,
-			ranking: summarizeEvidence(evidence),
+			evidenceScore: scoreEvidence(region.evidence),
 			verifiedCoverage: verifiedCoverage(region),
 		});
 	}
@@ -147,7 +96,7 @@ export function rankCodeRegions(plan: QueryPlan, regions: readonly CodeRegion[])
 export function compareRankedRegions(left: RankedRegion, right: RankedRegion): number {
 	return left.tier - right.tier
 		|| right.fieldScore - left.fieldScore
-		|| right.ranking.fusionScore - left.ranking.fusionScore
+		|| right.evidenceScore - left.evidenceScore
 		|| right.verifiedCoverage - left.verifiedCoverage
 		|| regionSize(left) - regionSize(right)
 		|| compareString(left.path, right.path)
@@ -164,7 +113,7 @@ export function selectRankedRegions(
 	return selectRelevanceHeadMmr(candidates, limit, {
 		compare: compareRankedRegions,
 		tier: (candidate) => candidate.tier,
-		score: (candidate) => candidate.fieldScore + candidate.ranking.fusionScore,
+		score: (candidate) => candidate.fieldScore + candidate.evidenceScore,
 		identity: (candidate) => candidate.id,
 		similarity: regionSimilarity,
 		headSize: GREP_RELEVANCE_HEAD_SIZE,
@@ -173,32 +122,24 @@ export function selectRankedRegions(
 	});
 }
 
-export function summarizeEvidence(evidence: readonly RegionEvidence[]): RankingEvidenceSummary {
-	if (evidence.length === 0) return EMPTY_RANKING;
-	const strongest: Record<RankingEvidenceFamily, number> = { factual: 0, lexical: 0 };
-	for (const item of evidence) {
-		const family = GREP_SOURCE_FAMILY[item.source];
-		const contribution = sourceContribution(item);
-		if (contribution > strongest[family]) strongest[family] = contribution;
-	}
-	return {
-		...strongest,
-		fusionScore: Object.values(strongest).reduce((sum, value) => sum + value, 0),
-	};
+function scoreEvidence(evidence: RegionEvidence | undefined): number {
+	return evidence === undefined ? 0 : sourceContribution(evidence);
 }
 
-export function sourceContribution(evidence: RegionEvidence): number {
+function sourceContribution(evidence: RegionEvidence): number {
 	const rank = Math.max(1, Math.floor(evidence.rank));
-	const confidence = clamp(evidence.confidence, 0, 1);
-	return SOURCE_WEIGHT[evidence.source] * confidence / (GREP_RRF_K + rank);
+	return SOURCE_WEIGHT[evidence.source] / (GREP_RRF_K + rank);
 }
 
-function effectiveSignals(plan: QueryPlan, region: CodeRegion): CandidateSignal[] {
+function effectiveSignals(
+	plan: QueryPlan,
+	region: CodeRegion,
+	structuredTerms: readonly string[],
+): CandidateSignal[] {
 	const claimed = region.signals.filter((signal) => !CANONICAL_SYMBOL_MATCH_SIGNALS.has(signal));
 	const derived: CandidateSignal[] = [];
 	const symbolMatch = classifySymbolMatch(plan, region.symbol, region.qualifiedSymbol);
 	if (region.symbolRole === "definition" && symbolMatch !== undefined) derived.push(symbolMatch);
-	const structuredTerms = structuredQueryTerms(plan);
 	if (structuredTerms.length > 0) {
 		const profile = fieldProfile(region);
 		if (fieldsContainAll(profile, ["symbol", "qualified"], structuredTerms)) derived.push("structured_symbol_match");
@@ -318,23 +259,6 @@ function bestTier(signals: readonly CandidateSignal[]): number | undefined {
 	return best;
 }
 
-function canonicalEvidence(evidence: readonly RegionEvidence[]): RegionEvidence[] {
-	const strongest = new Map<string, RegionEvidence>();
-	for (const item of evidence) {
-		const key = `${item.source}\0${item.reason}`;
-		const current = strongest.get(key);
-		if (current === undefined || compareEvidence(item, current) < 0) strongest.set(key, item);
-	}
-	return [...strongest.values()].sort(compareEvidence);
-}
-
-function compareEvidence(left: RegionEvidence, right: RegionEvidence): number {
-	return compareString(left.source, right.source)
-		|| left.rank - right.rank
-		|| right.confidence - left.confidence
-		|| compareString(left.reason, right.reason);
-}
-
 function verifiedCoverage(region: CodeRegion): number {
 	if (region.queryMatch !== "verified") return 0;
 	return region.matchLines.length / Math.max(1, region.endLine - region.startLine + 1);
@@ -385,8 +309,4 @@ function lastSymbolSegment(value: string): string {
 
 function compareString(left: string, right: string): number {
 	return left < right ? -1 : left > right ? 1 : 0;
-}
-
-function clamp(value: number, minimum: number, maximum: number): number {
-	return Math.min(maximum, Math.max(minimum, value));
 }

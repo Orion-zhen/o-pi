@@ -13,9 +13,6 @@ export type CandidateSignal =
 	| "exact_qualified_definition"
 	| "exact_symbol_definition"
 	| "exact_member_definition"
-	| "verified_phrase"
-	| "verified_text"
-	| "verified_qualified_occurrence"
 	| "verified_enclosing_region"
 	| "verified_text_line"
 	| "symbol_prefix"
@@ -53,14 +50,9 @@ export interface TextFileEvidence {
 	readonly anchors: readonly LexicalTextAnchor[];
 }
 
-export interface SourceLocalRank {
+export interface RegionEvidence {
 	readonly source: RetrievalSource;
 	readonly rank: number;
-	readonly confidence: number;
-}
-
-export interface RegionEvidence extends SourceLocalRank {
-	readonly reason: string;
 }
 
 export interface CodeRegionBase {
@@ -79,7 +71,7 @@ export interface CodeRegionBase {
 	readonly symbolRole?: SymbolRole;
 	readonly authority?: CodeAuthority;
 	readonly signals: readonly CandidateSignal[];
-	readonly evidence: readonly RegionEvidence[];
+	readonly evidence?: RegionEvidence;
 	readonly matchedBy: readonly GrepMatchedBy[];
 	readonly displayLines: readonly GrepDisplayLine[];
 }
@@ -98,16 +90,10 @@ export interface SemanticMainRegion extends CodeRegionBase {
 
 export type CodeRegion = VerifiedCodeRegion | SemanticMainRegion;
 
-export interface RankingEvidenceSummary {
-	readonly factual: number;
-	readonly lexical: number;
-	readonly fusionScore: number;
-}
-
 export type RankedRegion = CodeRegion & {
 	readonly tier: number;
 	readonly fieldScore: number;
-	readonly ranking: RankingEvidenceSummary;
+	readonly evidenceScore: number;
 	readonly verifiedCoverage: number;
 };
 
@@ -167,18 +153,17 @@ export function createSemanticCodeRegion(input: SemanticMainInput): SemanticMain
 
 export function normalizeMatchedBy(
 	signals: readonly CandidateSignal[],
-	evidence: readonly RegionEvidence[],
+	evidence: RegionEvidence | undefined,
 ): GrepMatchedBy[] {
 	const methods = new Set<GrepMatchedBy>();
 	const signalSet = new Set(signals);
-	const sources = new Set(evidence.map((item) => item.source));
 	if (signalSet.has("exact_qualified_definition")) methods.add("exact-qualified-symbol");
 	if (signalSet.has("exact_symbol_definition") || signalSet.has("exact_member_definition")) methods.add("exact-symbol");
 	if (signalSet.has("symbol_prefix")) methods.add("symbol-prefix");
 	if (signalSet.has("related_symbol")) methods.add("related");
-	if (sources.has("text-literal")) methods.add("literal");
-	if (sources.has("text-regex")) methods.add("regex");
-	if (sources.has("text-lexical")) methods.add("lexical");
+	if (evidence?.source === "text-literal") methods.add("literal");
+	if (evidence?.source === "text-regex") methods.add("regex");
+	if (evidence?.source === "text-lexical") methods.add("lexical");
 	const order: readonly GrepMatchedBy[] = ["exact-qualified-symbol", "exact-symbol", "symbol-prefix", "literal", "regex", "lexical", "related"];
 	return order.filter((method) => methods.has(method));
 }

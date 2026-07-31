@@ -52,9 +52,8 @@ export function logicalLines(text: string): { readonly lines: readonly string[];
 }
 
 /** 在已稳定读取的正文上复用 streaming scan 的 logical-line 与 UTF-8 坐标语义。 */
-export function scannedTextLines(text: string): ScannedLine[] {
-	if (text.length === 0) return [];
-	const lines: ScannedLine[] = [];
+export function* scannedTextLines(text: string): Generator<ScannedLine> {
+	if (text.length === 0) return;
 	let line = 1;
 	let startChar = 0;
 	let startByte = 0;
@@ -64,12 +63,12 @@ export function scannedTextLines(text: string): ScannedLine[] {
 		const terminatorChars = char === "\r" && text[index + 1] === "\n" ? 2 : 1;
 		const lineText = text.slice(startChar, index);
 		const byteLength = encoder.encode(lineText).byteLength;
-		lines.push({
+		yield {
 			line,
 			text: lineText,
 			byteStart: startByte,
 			byteEnd: startByte + byteLength,
-		});
+		};
 		line += 1;
 		startChar = index + terminatorChars;
 		startByte += byteLength + terminatorChars;
@@ -77,14 +76,13 @@ export function scannedTextLines(text: string): ScannedLine[] {
 	}
 	if (startChar < text.length) {
 		const lineText = text.slice(startChar);
-		lines.push({
+		yield {
 			line,
 			text: lineText,
 			byteStart: startByte,
 			byteEnd: startByte + encoder.encode(lineText).byteLength,
-		});
+		};
 	}
-	return lines;
 }
 
 export function buildTextBytes(text: string, hasBom: boolean): Uint8Array {

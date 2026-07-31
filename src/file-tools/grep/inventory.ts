@@ -4,6 +4,7 @@ import type { DirectoryRef, FileRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
+import { compactGrepSkippedFiles, createGrepSkippedFiles, type MutableGrepSkippedFiles } from "./skipped.js";
 import type { GrepScopeError, GrepSkippedFiles, TruncationReason } from "./types.js";
 
 export interface InventoryScope {
@@ -56,7 +57,7 @@ interface MutableInventoryState {
 	readonly files: ScopedFile[];
 	readonly scopeErrors: GrepScopeError[];
 	readonly seenFiles: Map<string, number>;
-	readonly skipped: Required<GrepSkippedFiles>;
+	readonly skipped: MutableGrepSkippedFiles;
 	traversedEntries: number;
 	traversalLimited: boolean;
 }
@@ -77,7 +78,7 @@ export async function buildScopeInventory(
 		files: [],
 		scopeErrors: [],
 		seenFiles: new Map(),
-		skipped: { binary: 0, invalid_utf8: 0, access_denied: 0, too_large: 0, changed: 0 },
+		skipped: createGrepSkippedFiles(),
 		traversedEntries: 0,
 		traversalLimited: false,
 	};
@@ -123,7 +124,7 @@ export async function buildScopeInventory(
 		scopes: state.scopes,
 		files: state.files,
 		scopeErrors: state.scopeErrors,
-		skipped: compactSkipped(state.skipped),
+		skipped: compactGrepSkippedFiles(state.skipped),
 		traversedEntries: state.traversedEntries,
 		truncationReasons: state.traversalLimited ? ["traversal_limit"] : [],
 	};
@@ -238,16 +239,6 @@ function isAborted(signal: AbortSignal | undefined): boolean {
 
 function aborted(path?: string): FailedResult {
 	return fail("OPERATION_ABORTED", "Operation aborted.", path === undefined ? {} : { path });
-}
-
-function compactSkipped(skipped: Required<GrepSkippedFiles>): GrepSkippedFiles {
-	const result: GrepSkippedFiles = {};
-	if (skipped.binary > 0) result.binary = skipped.binary;
-	if (skipped.invalid_utf8 > 0) result.invalid_utf8 = skipped.invalid_utf8;
-	if (skipped.access_denied > 0) result.access_denied = skipped.access_denied;
-	if (skipped.too_large > 0) result.too_large = skipped.too_large;
-	if (skipped.changed > 0) result.changed = skipped.changed;
-	return result;
 }
 
 function withScopeErrors(result: FailedResult, paths: readonly string[], scopeErrors: readonly GrepScopeError[]): FailedResult {

@@ -435,7 +435,7 @@ describe("grep text search", () => {
 			endByte: index + 1,
 			matchLine: index + 1,
 			symbol: `candidate${index}`,
-			evidence: [rankingEvidence("text-regex", index + 1)],
+			evidence: rankingEvidence("text-regex", index + 1),
 		}));
 		const result = packRegions(candidates, { resultLimit: 6 });
 
@@ -465,6 +465,7 @@ describe("grep text search", () => {
 			],
 		});
 		expect(result.ranking?.mmr_replacement_count).toBeGreaterThan(0);
+		expect(result.ranking?.regions[0]?.auxiliary_score).toBeCloseTo(1 / 61);
 		expect(result.truncated_by).toContain("result_limit");
 		expect(formatCompactGrepResult(result)).toContain('<grep truncated="result_limit">');
 	});

@@ -20,6 +20,7 @@ export { SourceIndex } from "./types.js";
 
 const IDENTIFIER = /[A-Za-z_$][\w$]*|[A-Za-z_][A-Za-z0-9_]*[-_][A-Za-z0-9_-]+|\d+/g;
 const DECLARATION_CODE_POINT_LIMIT = 240;
+const EMPTY_TEXT_TOKENS: readonly string[] = [];
 
 export interface AnalyzeCodeFileOptions {
 	/** Keep the parsed document for immediate additional extraction. The caller must dispose it. */
@@ -105,7 +106,6 @@ function analyzeDocumentWithAdapter(
 			...file,
 			language,
 			units,
-			symbols: units.flatMap((unit) => [unit.name, unit.qualifiedName].filter((value): value is string => value !== undefined)),
 		},
 		status: "parsed",
 		imports: indexRawImports(sourceIndex, rawImports),
@@ -116,7 +116,7 @@ function analyzeDocumentWithAdapter(
 export function analyzeTextFile(filePath: string): AnalyzedFileIndex {
 	const file = createFileIdentity(filePath);
 	return {
-		index: { ...file, language: languageFromPath(filePath), units: [], symbols: [] },
+		index: { ...file, language: languageFromPath(filePath), units: [] },
 		status: "unsupported",
 		imports: [],
 	};
@@ -148,16 +148,24 @@ export function splitTokens(value: string): string[] {
 	return [...tokens];
 }
 
+/** 为已归一化查询词项建立轻量匹配器，不为正文中的无关词项分配计数 Map。 */
+export function createTextTokenMatcher(queryTokens: readonly string[]): (value: string) => readonly string[] {
+	const ordered = [...new Set(queryTokens)];
+	const expected = new Set(ordered);
+	return (value) => {
+		if (expected.size === 0) return EMPTY_TEXT_TOKENS;
+		const matched = matchingTextTokens(value, expected);
+		if (matched === undefined) return EMPTY_TEXT_TOKENS;
+		return ordered.filter((token) => matched.has(token));
+	};
+}
+
 /** Count normalized query tokens present in text without materializing its complete token map. */
 export function countTextTokenMatches(value: string, queryTokens: readonly string[]): number {
 	if (queryTokens.length === 0) return 0;
 	const expected = new Set(queryTokens);
-	const matched = new Set<string>();
-	visitTokenOccurrences(value, (raw) => {
-		const normalized = raw.toLocaleLowerCase();
-		if (expected.has(normalized)) matched.add(normalized);
-		return matched.size < expected.size;
-	});
+	const matched = matchingTextTokens(value, expected);
+	if (matched === undefined) return 0;
 	let count = 0;
 	for (const token of queryTokens) if (matched.has(token)) count += 1;
 	return count;
@@ -167,9 +175,16 @@ export function lineForByte(text: string, byteOffset: number): number {
 	return buildLineIndex(text).lineForByte(byteOffset);
 }
 
+/** 最小代码单元优先；相同范围使用稳定坐标与 identity 破平。 */
+export function compareCodeUnitNesting(left: IndexedCodeUnit, right: IndexedCodeUnit): number {
+	return (left.endByte - left.startByte) - (right.endByte - right.startByte)
+		|| left.startByte - right.startByte
+		|| (left.id < right.id ? -1 : left.id > right.id ? 1 : 0);
+}
+
 function emptyAnalyzedFile(file: { id: string; path: string }, language: CodeLanguage, status: AnalyzedFileIndex["status"]): AnalyzedFileIndex {
 	return {
-		index: { ...file, language, units: [], symbols: [] },
+		index: { ...file, language, units: [] },
 		status,
 		imports: [],
 	};
@@ -186,10 +201,7 @@ function buildIndexedUnit(
 ): IndexedCodeUnit {
 	const range = sourceIndex.range(unit.startChar, unit.endChar);
 	const { startByte, endByte } = range;
-	const content = text.slice(unit.startChar, unit.endChar).replace(/\s+$/u, "");
 	const declaration = compactDeclaration(text, sourceIndex, unit);
-	const nameText = [file.path, unit.name, unit.qualifiedName, declaration?.text, content].join("\n");
-	const tokens = tokenizeText(nameText);
 	const { definitions, references, calls } = extractUnitRelations(unit, unitNodeIds, control);
 	return {
 		id: createSymbolId({
@@ -211,7 +223,6 @@ function buildIndexedUnit(
 		endLine: range.endLine,
 		startByte,
 		endByte,
-		tokens,
 		definitions,
 		references,
 		calls,
@@ -249,6 +260,16 @@ function visitTokenOccurrences(value: string, visit: (token: string) => boolean 
 		if (/^[a-z0-9]+$/u.test(raw)) continue;
 		for (const part of splitIdentifier(raw)) if (visit(part) === false) return;
 	}
+}
+
+function matchingTextTokens(value: string, expected: ReadonlySet<string>): ReadonlySet<string> | undefined {
+	let matched: Set<string> | undefined;
+	visitTokenOccurrences(value, (raw) => {
+		const normalized = raw.toLocaleLowerCase();
+		if (expected.has(normalized)) (matched ??= new Set()).add(normalized);
+		return (matched?.size ?? 0) < expected.size;
+	});
+	return matched;
 }
 
 function splitIdentifier(value: string): string[] {

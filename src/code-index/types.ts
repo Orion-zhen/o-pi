@@ -193,7 +193,6 @@ export interface IndexedCodeUnit extends SourceRange {
 	declarationEndByte?: number;
 	authority: CodeAuthority;
 	exported: boolean;
-	tokens: Map<string, number>;
 	definitions: string[];
 	references: string[];
 	calls: string[];
@@ -202,7 +201,6 @@ export interface IndexedCodeUnit extends SourceRange {
 export interface ParsedFileIndex extends FileIdentity {
 	language: CodeLanguage;
 	units: IndexedCodeUnit[];
-	symbols: string[];
 }
 
 export interface IndexedImport extends SourceRange {

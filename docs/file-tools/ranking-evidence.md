@@ -1,24 +1,22 @@
 # 排序证据与来源
 
-本文说明 `grep` 如何生成和融合候选证据。`find` 使用独立的 fzf path score，不进入 evidence fusion。
+本文说明 `grep` 如何生成候选证据和来源局部 rank。`find` 使用独立的 fzf path score，不进入该链路。
 
 ## grep 来源
 
-| family | 来源 | 用途 |
-| --- | --- | --- |
-| factual | `text-literal` | 非法正则经 evidence gate 接受后的 exact literal 正文命中 |
-| factual | `text-regex` | 当前正文的逐行正则命中 |
-| lexical | `text-lexical` | 整次零正文命中时的词项 related 回退 |
+| 来源 | 用途 |
+| --- | --- |
+| `text-literal` | 非法正则经 evidence gate 接受后的 exact literal 正文命中 |
+| `text-regex` | 当前正文的逐行正则命中 |
+| `text-lexical` | 整次零正文命中时的词项 related 回退 |
 
-每个来源按自身相关性取得一基稠密 rank：
+正文命中与 lexical related 不会在同一次调用中混合；一个候选因此最多携带一个来源。来源按自身相关性取得一基 rank：
 
 ```text
-sourceContribution = sourceWeight * confidence / (60 + sourceRank)
-familyContribution = max(sourceContribution in family)
-fusionScore = sum(familyContribution)
+sourceScore = sourceWeight / (60 + sourceRank)
 ```
 
-固定权重集中在 `src/file-tools/grep/ranking.ts`。重复的同 family 证据只取最强贡献。
+固定权重集中在 `src/file-tools/grep/ranking.ts`。
 
 来源 rank 和稳定顺序严格分离：
 
@@ -26,7 +24,7 @@ fusionScore = sum(familyContribution)
 - lexical 质量形成自身的相关性 rank；
 - 等相关候选共享 rank，path/range/id 只负责确定性破平。
 
-因此 RRF 只融合真实检索排序，不会把按路径遍历的位置误当成相关性。
+因此辅助分数只反映真实来源内的检索排序，不会把按路径遍历的位置误当成相关性。
 
 ## 字段相关性
 
@@ -40,7 +38,7 @@ fusionScore = sum(familyContribution)
 | declaration / signature | 3 | 0.5 |
 | 命中行或 related evidence line | 1 | 0.75 |
 
-IDF 只在本次合格候选集合内计算。字段分数表达 query 与候选结构的相关性；RRF 随后只用于合并 factual 和 lexical 独立来源。LSP 关系是结构 authority，不伪装成第三个检索来源。
+IDF 只在本次合格候选集合内计算。字段分数表达 query 与候选结构的相关性；来源分数只负责同一来源内的局部 rank。LSP 关系是结构 authority，不伪装成检索来源。
 
 ## Tree-sitter / text
 
@@ -61,7 +59,7 @@ exact/prefix 由 ranker 根据 query 和 analyzer 生成的规范 symbol 名称�
 
 ## LSP authority
 
-结构化 query 有多个直接命中或整次零正文命中时，LSP 可接管 symbol 分析：
+只要本次全部结构目标和所需能力可用，LSP 可接管任意合法 query 的 symbol 分析：
 
 - workspace symbol 选择本次 inventory 内的有界候选；
 - document symbol 直接生成 range、kind、symbol、qualified symbol 和 declaration；
@@ -69,7 +67,7 @@ exact/prefix 由 ranker 根据 query 和 analyzer 生成的规范 symbol 名称�
 - 没有外部 call 但存在候选范围外的 reference 时设为 `referenced`；
 - 否则保持 `defined`。
 
-LSP 只通过调用方提供的 snapshot-bound loader 获得正文。它的 authority 进入离散结构 tier，不进入 RRF。call hierarchy 不可用时仍可由 references 区分 `referenced` 和 `defined`。
+LSP 只通过调用方提供的 snapshot-bound loader 获得正文。它的 authority 进入离散结构 tier，不进入来源分数。任一所需能力不可用时，整次事务回退 Tree-sitter。
 
 ## 路径上下文
 

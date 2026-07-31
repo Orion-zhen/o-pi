@@ -93,7 +93,7 @@ function publicRegion(candidate: RankedRegion, displayLimit: number): GrepRegion
 		query_match: candidate.queryMatch === "verified" ? "verified" : "semantic",
 		...(roles.length === 0 ? {} : { roles: unique(roles) }),
 		matched_by: [...candidate.matchedBy],
-		sources: unique(candidate.evidence.map((item) => item.source).filter(isRetrievalSource)),
+		sources: candidate.evidence === undefined ? [] : [candidate.evidence.source],
 		...(candidate.matchLines.length === 0 ? {} : { match_lines: [...candidate.matchLines] }),
 		...(displayLines.length === 0 ? {} : { display_lines: displayLines.map((line) => ({ ...line })) }),
 	};
@@ -153,7 +153,7 @@ function rankingDiagnostics(
 			relevance_rank: rank,
 			tier: candidate.tier,
 			primary_score: candidate.fieldScore,
-			auxiliary_score: candidate.ranking.fusionScore,
+			auxiliary_score: candidate.evidenceScore,
 			selection: rank <= headCount ? "head" : "mmr",
 		};
 	});
@@ -291,12 +291,6 @@ function orderedReasons(reasons: readonly TruncationReason[]): TruncationReason[
 
 function unique<T>(values: readonly T[]): T[] {
 	return [...new Set(values)];
-}
-
-function isRetrievalSource(source: string): boolean {
-	return source === "text-literal"
-		|| source === "text-regex"
-		|| source === "text-lexical";
 }
 
 function tokenCount(text: string): number {
