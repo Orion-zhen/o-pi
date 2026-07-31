@@ -1,41 +1,28 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFileToolsExtension, type FileToolsModuleImports } from "../../agent/extensions/file-tools.js";
 import type { LspMutationInput } from "../../src/lsp/file-hooks.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
-import { activateFileTools, executeTool, type ExecuteTool, type LifecycleHandler } from "./extension-fixture.js";
+import { useTempDir } from "../helpers/lifecycle.js";
+import { activateFileTools, executeTool, registerExtension, type ExecuteTool, type LifecycleHandler } from "./extension-fixture.js";
 
 describe("file-tools extension lifecycle", () => {
+	const workspace = useTempDir("o-pi-extension-");
+
 	afterEach(() => {
 		vi.useRealTimers();
 		vi.restoreAllMocks();
 	});
 
 	it("RPC 保留文件工具但不加载 native renderer", async () => {
-		const registered: Array<{ name: string; renderCall?: unknown; renderResult?: unknown }> = [];
-		const handlers = new Map<string, LifecycleHandler>();
 		const loadRenderers = vi.fn(async () => {
 			throw new Error("renderer must not load");
 		});
-		const extension = createFileToolsExtension({
-			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
-			host: () => import("../../src/file-tools/runtime/host.js"),
-			find: () => import("../../src/file-tools/pi/adapters/find.js"),
-			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
-			read: () => import("../../src/file-tools/pi/adapters/read.js"),
-			write: () => import("../../src/file-tools/pi/adapters/write.js"),
-			edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
-			lsp: () => import("../../src/lsp/index.js"),
+		const { registered, handlers } = registerExtension(createFileToolsExtension({
 			renderers: loadRenderers,
-		});
-		extension({
-			registerTool(tool: { name: string; renderCall?: unknown; renderResult?: unknown }) { registered.push(tool); },
-			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
-		} as unknown as ExtensionAPI);
+		}));
 		await activateFileTools(handlers.get("session_start"), "rpc");
 
 		expect(loadRenderers).not.toHaveBeenCalled();
@@ -44,8 +31,6 @@ describe("file-tools extension lifecycle", () => {
 	});
 
 	it("注册阶段零预热，首次执行按工具加载，并发复用且失败可重试", async () => {
-		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
-		const handlers = new Map<string, LifecycleHandler>();
 		const disposeHost = vi.spyOn(FileToolsHost.prototype, "dispose");
 		let resolveLs: ((module: typeof import("../../src/file-tools/pi/adapters/ls.js")) => void) | undefined;
 		const pendingLs = new Promise<typeof import("../../src/file-tools/pi/adapters/ls.js")>((resolve) => {
@@ -67,16 +52,7 @@ describe("file-tools extension lifecycle", () => {
 			edit: vi.fn(() => import("../../src/file-tools/pi/adapters/edit.js")),
 			lsp: vi.fn(() => import("../../src/lsp/index.js")),
 		} satisfies FileToolsModuleImports;
-		const extension = createFileToolsExtension(imports);
-		const pi = {
-			registerTool(tool: { name: string; execute?: ExecuteTool }) {
-				registered.push(tool);
-			},
-			on(name: string, handler: LifecycleHandler) {
-				handlers.set(name, handler);
-			},
-		};
-		extension(pi as unknown as ExtensionAPI);
+		const { registered, handlers } = registerExtension(createFileToolsExtension(imports));
 
 		expect(handlers.has("session_start")).toBe(true);
 		expect(handlers.has("session_shutdown")).toBe(true);
@@ -121,25 +97,11 @@ describe("file-tools extension lifecycle", () => {
 
 	it("同一 factory 创建新 session 时重建已释放的 find 和 grep adapter", async () => {
 		const imports = {
-			ls: vi.fn(() => import("../../src/file-tools/pi/adapters/ls.js")),
-			host: vi.fn(() => import("../../src/file-tools/runtime/host.js")),
 			find: vi.fn(() => import("../../src/file-tools/pi/adapters/find.js")),
 			grep: vi.fn(() => import("../../src/file-tools/pi/adapters/grep.js")),
-			read: vi.fn(() => import("../../src/file-tools/pi/adapters/read.js")),
-			write: vi.fn(() => import("../../src/file-tools/pi/adapters/write.js")),
-			edit: vi.fn(() => import("../../src/file-tools/pi/adapters/edit.js")),
-			lsp: vi.fn(() => import("../../src/lsp/index.js")),
-		} satisfies FileToolsModuleImports;
-		const extension = createFileToolsExtension(imports);
-		const createSession = () => {
-			const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
-			const handlers = new Map<string, LifecycleHandler>();
-			extension({
-				registerTool(tool: { name: string; execute?: ExecuteTool }) { registered.push(tool); },
-				on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
-			} as unknown as ExtensionAPI);
-			return { registered, handlers };
 		};
+		const extension = createFileToolsExtension(imports);
+		const createSession = () => registerExtension(extension);
 		const executeSearchTools = async (registered: Array<{ name: string; execute?: ExecuteTool }>, sessionId: string) => {
 			const ctx = { cwd: process.cwd(), sessionManager: { getSessionId: () => sessionId } };
 			await expect(executeTool(registered, "find", { query: "package.json", path: ["."] }, ctx)).resolves.toMatchObject({
@@ -166,36 +128,24 @@ describe("file-tools extension lifecycle", () => {
 	});
 
 	it("并发 write 批次先完成全部提交，再统一执行 LSP diagnostics", async () => {
-		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
-		const handlers = new Map<string, LifecycleHandler>();
+		const cwd = workspace.path;
 		const directLsp = vi.fn(async () => undefined);
 		const batchLsp = vi.fn(async (inputs: readonly LspMutationInput[]) => {
 			expect(await readFile(join(cwd, "a.ts"), "utf8")).toBe("export const a = 1;\n");
 			expect(await readFile(join(cwd, "b.ts"), "utf8")).toBe("export const b = 2;\n");
 			return inputs.map((input) => input.filePath.endsWith("a.ts") ? diagnostics("errors", "a failed") : diagnostics("warnings", "b warned"));
 		});
-		const imports = {
-			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
-			host: () => import("../../src/file-tools/runtime/host.js"),
-			find: () => import("../../src/file-tools/pi/adapters/find.js"),
-			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
-			read: () => import("../../src/file-tools/pi/adapters/read.js"),
-			write: () => import("../../src/file-tools/pi/adapters/write.js"),
-			edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
+		const { registered, handlers } = registerExtension(createFileToolsExtension({
 			async lsp() {
 				return {
 					...(await import("../../src/lsp/index.js")),
 					lspFileOperations: { afterWrite: directLsp, afterWriteBatch: batchLsp },
 				};
 			},
-		} satisfies FileToolsModuleImports;
-		createFileToolsExtension(imports)({
-			registerTool(tool: { name: string; execute?: ExecuteTool }) { registered.push(tool); },
-			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
+		}), {
 			appendEntry() {},
-		} as unknown as ExtensionAPI);
+		});
 
-		const cwd = await mkdtemp(join(tmpdir(), "o-pi-mutation-batch-"));
 		const ctx = { cwd, sessionManager: { getSessionId: () => "mutation-batch", getBranch: () => [] } };
 		const write = registered.find((tool) => tool.name === "write")?.execute;
 		const edit = registered.find((tool) => tool.name === "edit")?.execute;
@@ -238,32 +188,18 @@ describe("file-tools extension lifecycle", () => {
 			expect(batchLsp.mock.calls[1]?.[0]).toHaveLength(1);
 		} finally {
 			await Promise.resolve(handlers.get("session_shutdown")?.({}, {}));
-			await rm(cwd, { recursive: true, force: true });
 		}
 	});
 
 	it("顺序执行的 mutation 调用保持逐项后处理且不会等待尚未启动的调用", async () => {
-		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
-		const handlers = new Map<string, LifecycleHandler>();
 		const directLsp = vi.fn(async () => diagnostics("clean", ""));
 		const batchLsp = vi.fn(async () => []);
-		const imports = {
-			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
-			host: () => import("../../src/file-tools/runtime/host.js"),
-			find: () => import("../../src/file-tools/pi/adapters/find.js"),
-			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
-			read: () => import("../../src/file-tools/pi/adapters/read.js"),
-			write: () => import("../../src/file-tools/pi/adapters/write.js"),
-			edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
+		const { registered, handlers } = registerExtension(createFileToolsExtension({
 			async lsp() {
 				return { ...(await import("../../src/lsp/index.js")), lspFileOperations: { afterWrite: directLsp, afterWriteBatch: batchLsp } };
 			},
-		} satisfies FileToolsModuleImports;
-		createFileToolsExtension(imports)({
-			registerTool(tool: { name: string; execute?: ExecuteTool }) { registered.push(tool); },
-			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
-		} as unknown as ExtensionAPI);
-		const cwd = await mkdtemp(join(tmpdir(), "o-pi-sequential-mutation-"));
+		}));
+		const cwd = workspace.path;
 		const ctx = { cwd, sessionManager: { getSessionId: () => "sequential-mutation", getBranch: () => [] } };
 		const write = registered.find((tool) => tool.name === "write")?.execute;
 		if (write === undefined) throw new Error("write tool not registered");
@@ -280,59 +216,40 @@ describe("file-tools extension lifecycle", () => {
 			expect(batchLsp).not.toHaveBeenCalled();
 		} finally {
 			await Promise.resolve(handlers.get("session_shutdown")?.({}, {}));
-			await rm(cwd, { recursive: true, force: true });
 		}
 	});
 
 	it("完整 read 不加载 LSP，局部 read 首次请求增强时才加载并复用", async () => {
-		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
-		const handlers = new Map<string, LifecycleHandler>();
 		const enhanceRead = vi.fn(async () => ({
 			enclosing_symbol: { name: "value", kind: "declaration", line: 1, end_line: 3 },
 		}));
 		const imports = {
-			ls: () => import("../../src/file-tools/pi/adapters/ls.js"),
-			host: () => import("../../src/file-tools/runtime/host.js"),
-			find: () => import("../../src/file-tools/pi/adapters/find.js"),
-			grep: () => import("../../src/file-tools/pi/adapters/grep.js"),
 			read: vi.fn(() => import("../../src/file-tools/pi/adapters/read.js")),
-			write: () => import("../../src/file-tools/pi/adapters/write.js"),
-			edit: () => import("../../src/file-tools/pi/adapters/edit.js"),
 			lsp: vi.fn(async () => ({ ...(await import("../../src/lsp/index.js")), lspFileOperations: { read: enhanceRead } })),
-		} satisfies FileToolsModuleImports;
+		};
 		const getCommands = vi.fn(() => []);
-		createFileToolsExtension(imports)({
-			registerTool(tool: { name: string; execute?: ExecuteTool }) {
-				registered.push(tool);
-			},
-			on(name: string, handler: LifecycleHandler) {
-				handlers.set(name, handler);
-			},
+		const { registered, handlers } = registerExtension(createFileToolsExtension(imports), {
 			getCommands,
-		} as unknown as ExtensionAPI);
+		});
 
-		const cwd = await mkdtemp(join(tmpdir(), "o-pi-lazy-read-"));
-		try {
-			await writeFile(join(cwd, "a.ts"), "export const value = 1;\nexport const next = 2;\nexport const last = 3;\n");
-			const ctx = { cwd, sessionManager: { getSessionId: () => "lazy-read", getBranch: () => [] } };
-			await executeTool(registered, "read", { path: "a.ts" }, ctx);
-			expect(imports.read).toHaveBeenCalledTimes(1);
-			expect(getCommands).toHaveBeenCalledTimes(1);
-			expect(imports.lsp).not.toHaveBeenCalled();
+		const cwd = workspace.path;
+		await writeFile(join(cwd, "a.ts"), "export const value = 1;\nexport const next = 2;\nexport const last = 3;\n");
+		const ctx = { cwd, sessionManager: { getSessionId: () => "lazy-read", getBranch: () => [] } };
+		await executeTool(registered, "read", { path: "a.ts" }, ctx);
+		expect(imports.read).toHaveBeenCalledTimes(1);
+		expect(getCommands).toHaveBeenCalledTimes(1);
+		expect(imports.lsp).not.toHaveBeenCalled();
 
-			const partial = await executeTool(registered, "read", { path: "a.ts", start_line: 1, end_line: 1 }, ctx);
-			expect(imports.read).toHaveBeenCalledTimes(1);
-			expect(getCommands).toHaveBeenCalledTimes(1);
-			expect(imports.lsp).toHaveBeenCalledTimes(1);
-			expect(enhanceRead).toHaveBeenCalledTimes(1);
-			expect(partial.details).toMatchObject({ lsp: { enclosing_symbol: { name: "value" } } });
+		const partial = await executeTool(registered, "read", { path: "a.ts", start_line: 1, end_line: 1 }, ctx);
+		expect(imports.read).toHaveBeenCalledTimes(1);
+		expect(getCommands).toHaveBeenCalledTimes(1);
+		expect(imports.lsp).toHaveBeenCalledTimes(1);
+		expect(enhanceRead).toHaveBeenCalledTimes(1);
+		expect(partial.details).toMatchObject({ lsp: { enclosing_symbol: { name: "value" } } });
 
-			await expect(Promise.resolve(handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();
-			await expect(Promise.resolve(handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();
-			expect(imports.lsp).toHaveBeenCalledTimes(1);
-		} finally {
-			await rm(cwd, { recursive: true, force: true });
-		}
+		await expect(Promise.resolve(handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();
+		await expect(Promise.resolve(handlers.get("session_shutdown")?.({}, {}))).resolves.toBeUndefined();
+		expect(imports.lsp).toHaveBeenCalledTimes(1);
 	});
 });
 

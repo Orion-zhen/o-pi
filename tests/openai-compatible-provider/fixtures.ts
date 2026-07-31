@@ -40,6 +40,54 @@ export async function normalizeFromText(dir: string, text: string) {
 	return normalizeModelsJsoncConfig(config, path.join(dir, "models.jsonc"));
 }
 
+export function providerConfig(
+	overrides: Record<string, unknown> = {},
+	providerId = "gateway",
+): Record<string, unknown> {
+	return {
+		baseUrl: `https://${providerId}.example.test/v1`,
+		apiKey: "EMPTY",
+		models: ["m"],
+		...overrides,
+	};
+}
+
+export function providerConfigText(
+	overrides: Record<string, unknown> = {},
+	providerId = "gateway",
+): string {
+	return JSON.stringify({ providers: { [providerId]: providerConfig(overrides, providerId) } });
+}
+
+export function normalizeProviders(
+	dir: string,
+	providers: Record<string, Record<string, unknown>>,
+) {
+	return normalizeFromText(dir, JSON.stringify({ providers }));
+}
+
+export async function normalizeProvider(
+	dir: string,
+	overrides: Record<string, unknown> = {},
+	providerId = "gateway",
+) {
+	const [provider] = await normalizeFromText(dir, providerConfigText(overrides, providerId));
+	if (!provider) throw new Error(`provider ${providerId} was not normalized`);
+	return provider;
+}
+
+export async function normalizeRuntime(
+	dir: string,
+	overrides: Record<string, unknown> = {},
+	providerId = "gateway",
+	modelId = "m",
+) {
+	const provider = await normalizeProvider(dir, overrides, providerId);
+	const runtime = provider.runtimeModels.get(modelId);
+	if (!runtime) throw new Error(`runtime ${providerId}/${modelId} missing`);
+	return { provider, runtime };
+}
+
 export async function loadConfigFromText(dir: string, text: string): Promise<ModelsJsoncConfig> {
 	const file = path.join(dir, "models.jsonc");
 	await writeFile(file, text);

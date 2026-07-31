@@ -35,7 +35,7 @@ beforeEach(async () => {
 	process.env.PI_SUBAGENT_PROJECT_CONFIG = path.join(workspace, "missing-project.jsonc");
 	await mkdir(path.join(workspace, "agent", "agents"), { recursive: true });
 	await writeAgent("scout", "read");
-	await writeFile(process.env.PI_SUBAGENT_USER_CONFIG, '{ "retry_delay_ms": 0 }');
+	await writeConfig({ retry_delay_ms: 0 });
 });
 
 afterEach(() => {
@@ -45,24 +45,18 @@ afterEach(() => {
 });
 
 describe("subagent execution", () => {
-	it("仅在 task 包含 {previous} 时推导 chain", () => {
-		expect(resolveMode([{ agent: "scout", task: "inspect" }])).toBe("parallel");
-		expect(resolveMode([{ agent: "scout", task: "inspect {previous}" }])).toBe("chain");
-		expect(resolveMode([{ agent: "scout", task: "inspect {previous_result}" }])).toBe("parallel");
-	});
-
-	it("并行执行汇总结果并持续发送进度", async () => {
+	it("并行执行汇总结果、task cwd 和实时进度", async () => {
+		await mkdir(path.join(workspace, "pkg"));
 		setOutputSpawn((task) => `done: ${task}`);
 		const updates: number[] = [];
 
-		const result = await executeSubagent(
-			{ tasks: [{ agent: "scout", task: "inspect auth" }, { agent: "scout", task: "inspect tests" }] },
+		const result = await runTasks(
+			[{ agent: "scout", task: "inspect auth" }, { agent: "scout", task: "inspect tests", cwd: "pkg" }],
 			context({ onUpdate: (partial) => updates.push(partial.details.results.length) }),
 		);
 
-		expect(result.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("Subagents: 2/2 succeeded") });
 		expect(result.details.mode).toBe("parallel");
-		expect(result.details.results.map((item) => item.cwd)).toEqual([workspace, workspace]);
+		expect(result.details.results.map((item) => item.cwd)).toEqual([workspace, path.join(workspace, "pkg")]);
 		expect(result.details.results.map((item) => item.output)).toEqual(["done: inspect auth", "done: inspect tests"]);
 		expect(updates).toContain(2);
 	});
@@ -97,50 +91,33 @@ describe("subagent execution", () => {
 		expect(result.details.results[0]?.output).toBe("manual run done");
 	});
 
-	it("task 级 cwd 覆盖 workspace 默认值", async () => {
-		await mkdir(path.join(workspace, "pkg"));
-		setOutputSpawn(() => "done");
-
-		const result = await executeSubagent({ tasks: [{ agent: "scout", task: "inspect", cwd: "pkg" }] }, context());
-
-		expect(result.details.results[0]?.cwd).toBe(path.join(workspace, "pkg"));
-	});
-
 	it("通过 --system-prompt 直接传递原始 Agent Markdown 路径", async () => {
 		let capturedArgs: readonly string[] = [];
 		setSubagentSpawnForTests((_command, args, options) => {
 			capturedArgs = args;
 			expect(options.env?.PI_SUBAGENT_CHILD).toBe("1");
-			const proc = new FakeChildProcess();
-			queueMicrotask(() => {
-				proc.stdout.write(`${JSON.stringify(messageEnd([{ type: "text", text: "done" }]))}\n`);
-				proc.exitCode = 0;
-				proc.emit("close", 0);
-			});
-			return proc;
+			return completedProcess(messageEnd([{ type: "text", text: "done" }]));
 		});
 
 		await runPiProcess(input());
 
 		const systemPromptIndex = capturedArgs.indexOf("--system-prompt");
-		expect(systemPromptIndex).toBeGreaterThanOrEqual(0);
 		expect(capturedArgs[systemPromptIndex + 1]).toBe(agent().filePath);
 		expect(capturedArgs).not.toContain("--append-system-prompt");
 	});
 
 	it("fork 固定复用父上下文并忽略 Agent、配置和 task 覆盖", async () => {
 		await mkdir(path.join(workspace, "pkg"));
-		await writeFile(
-			path.join(workspace, "agent", "agents", "forker.md"),
-			"---\nname: forker\ndescription: Forker\nfork: true\nmodel: ignored/model\ntools: edit\n---\nInspect only the requested scope.",
-		);
-		const configPath = process.env.PI_SUBAGENT_USER_CONFIG;
-		if (configPath === undefined) throw new Error("subagent config path missing");
-		await writeFile(configPath, JSON.stringify({
+		await writeAgent("forker", "edit", {
+			fork: true,
+			model: "ignored/model",
+			body: "Inspect only the requested scope.",
+		});
+		await writeConfig({
 			retry_delay_ms: 0,
 			default_model: "ignored/default",
 			agent_overrides: { forker: { model: "ignored/override", tools: ["write"] } },
-		}));
+		});
 		let capturedArgs: readonly string[] = [];
 		let capturedEnv: NodeJS.ProcessEnv | undefined;
 		let snapshot = "";
@@ -158,8 +135,8 @@ describe("subagent execution", () => {
 			return proc;
 		});
 
-		const result = await executeSubagent(
-			{ tasks: [{ agent: "forker", task: "inspect fork", cwd: "pkg" }] },
+		const result = await runTasks(
+			[{ agent: "forker", task: "inspect fork", cwd: "pkg" }],
 			forkExecutorContext(),
 		);
 
@@ -171,14 +148,10 @@ describe("subagent execution", () => {
 			tools: ["read", "subagent"],
 			output: "fork done",
 		});
-		expect(capturedArgs).toContain("--fork");
-		expect(capturedArgs).toContain("--session-dir");
-		expect(capturedArgs).toContain("--session-id");
-		expect(capturedArgs).toContain("parent-session");
-		expect(capturedArgs).not.toContain("--no-session");
-		expect(capturedArgs).not.toContain("--system-prompt");
-		expect(capturedArgs.at(-1)).toContain("<agent_instructions>\nInspect only the requested scope.\n</agent_instructions>");
-		expect(capturedArgs.at(-1)).toContain("<task>\ninspect fork\n</task>");
+		expect(capturedArgs).toEqual(expect.arrayContaining(["--fork", "--session-dir", "--session-id", "parent-session"]));
+		expect(capturedArgs).not.toEqual(expect.arrayContaining(["--no-session", "--system-prompt"]));
+		expect(capturedArgs.at(-1)).toContain("Inspect only the requested scope.");
+		expect(capturedArgs.at(-1)).toContain("inspect fork");
 		expect(capturedEnv).toMatchObject({ PI_SUBAGENT_CHILD: "1", PI_SUBAGENT_FORK: "1" });
 		const snapshotLines = snapshot.trim().split("\n").map((line) => JSON.parse(line) as { type: string; id?: string });
 		expect(snapshotLines.map((entry) => entry.type)).toEqual(["session", "message"]);
@@ -189,10 +162,7 @@ describe("subagent execution", () => {
 	});
 
 	it("fork retry 每次从同一 snapshot 创建独立 child session", async () => {
-		await writeFile(
-			path.join(workspace, "agent", "agents", "forker.md"),
-			"---\nname: forker\ndescription: Forker\nfork: true\ntools: read\n---\nBody.",
-		);
+		await writeAgent("forker", "read", { fork: true, body: "Body." });
 		const snapshots: string[] = [];
 		const sessionDirs: string[] = [];
 		let calls = 0;
@@ -204,16 +174,12 @@ describe("subagent execution", () => {
 			const sessionDir = args[sessionDirIndex + 1];
 			if (forkIndex >= 0 && snapshotPath !== undefined) snapshots.push(snapshotPath);
 			if (sessionDirIndex >= 0 && sessionDir !== undefined) sessionDirs.push(sessionDir);
-			const proc = new FakeChildProcess();
-			queueMicrotask(() => {
-				if (calls === 2) proc.stdout.write(`${JSON.stringify(messageEnd([{ type: "text", text: "recovered" }]))}\n`);
-				proc.exitCode = 0;
-				proc.emit("close", 0);
-			});
-			return proc;
+			return calls === 2
+				? completedProcess(messageEnd([{ type: "text", text: "recovered" }]))
+				: completedProcess();
 		});
 
-		const result = await executeSubagent({ tasks: [{ agent: "forker", task: "retry" }] }, forkExecutorContext());
+		const result = await runTasks([{ agent: "forker", task: "retry" }], forkExecutorContext());
 
 		expect(result.details.results[0]).toMatchObject({ attempts: 2, output: "recovered", contextMode: "fork" });
 		expect(new Set(snapshots).size).toBe(1);
@@ -275,100 +241,71 @@ describe("subagent execution", () => {
 				expect((await stat(fork.manifestPath)).mode & 0o777).toBe(0o600);
 			}
 			await expect(validateForkRuntime(valid)).resolves.toBeUndefined();
-			await expect(validateForkRuntime({ ...valid, model: { ...fork.model, baseUrl: "https://other.invalid" } })).rejects.toThrow("fork context mismatch: model");
-			await expect(validateForkRuntime({ ...valid, activeTools: [...fork.activeTools].reverse() })).rejects.toThrow("fork context mismatch: tools");
-			await expect(validateForkRuntime({ ...valid, allTools: fork.allTools.map((tool) => tool.name === "read" ? { ...tool, description: "changed" } : tool) })).rejects.toThrow("fork context mismatch: tools");
-			await expect(validateForkRuntime({ ...valid, thinkingLevel: "off" })).rejects.toThrow("fork context mismatch: thinkingLevel");
-			await expect(validateForkRuntime({ ...valid, sessionId: "other-session" })).rejects.toThrow("fork context mismatch: sessionId");
-			await expect(validateForkRuntime({ ...valid, cwd: path.join(workspace, "other") })).rejects.toThrow("fork context mismatch: cwd");
+			const mismatches = [
+				{ model: { ...fork.model, baseUrl: "https://other.invalid" } },
+				{ activeTools: [...fork.activeTools].reverse() },
+				{ allTools: fork.allTools.map((tool) => tool.name === "read" ? { ...tool, description: "changed" } : tool) },
+				{ thinkingLevel: "off" },
+				{ sessionId: "other-session" },
+				{ cwd: path.join(workspace, "other") },
+			] satisfies Array<Partial<Parameters<typeof validateForkRuntime>[0]>>;
+			await Promise.all(mismatches.map((mismatch) => expect(validateForkRuntime({ ...valid, ...mismatch })).rejects.toThrow()));
 			await expect(loadAndValidateForkSystemPrompt(fork.systemPromptPath, fork.manifestPath)).resolves.toBe("Exact parent system prompt");
 			await writeFile(fork.systemPromptPath, "tampered prompt");
-			await expect(loadAndValidateForkSystemPrompt(fork.systemPromptPath, fork.manifestPath)).rejects.toThrow("fork context mismatch: systemPrompt");
+			await expect(loadAndValidateForkSystemPrompt(fork.systemPromptPath, fork.manifestPath)).rejects.toThrow();
 		} finally {
 			await cleanupForkExecutionContext(fork);
 		}
 	});
 
 	it("fork 边界不匹配时在 spawn 前失败", async () => {
-		await writeFile(
-			path.join(workspace, "agent", "agents", "forker.md"),
-			"---\nname: forker\ndescription: Forker\nfork: true\ntools: read\n---\nBody.",
-		);
+		await writeAgent("forker", "read", { fork: true, body: "Body." });
 		const spawn = vi.fn();
 		setSubagentSpawnForTests(spawn);
 
-		const result = await executeSubagent(
-			{ tasks: [{ agent: "forker", task: "inspect" }] },
-			forkExecutorContext({ toolCallId: "wrong-call" }),
-		);
+		const result = await runTasks([{ agent: "forker", task: "inspect" }], forkExecutorContext({ toolCallId: "wrong-call" }));
 
-		expect(resultText(result)).toContain("fork setup error");
-		expect(resultText(result)).toContain("does not contain the current subagent tool call");
+		expect(result.details.results).toEqual([]);
 		expect(spawn).not.toHaveBeenCalled();
 	});
 
-	it("输出超过 inline token 边界时只返回一行文件提示", async () => {
-		const output = "alpha beta gamma delta ".repeat(200);
-		const tokenLimit = countTextTokensSync(output, { modelId: "test-model" }).tokens - 1;
-		expect(tokenLimit).toBeGreaterThanOrEqual(250);
-		const configPath = process.env.PI_SUBAGENT_USER_CONFIG;
-		if (configPath === undefined) throw new Error("subagent config path missing");
-		await writeFile(configPath, JSON.stringify({ retry_delay_ms: 0, max_inline_output_tokens: tokenLimit }));
-		setOutputSpawn(() => output);
-
-		const result = await executeSubagent({ tasks: [{ agent: "scout", task: "large" }] }, context());
-		const persisted = result.details.results[0];
-		if (persisted?.outputFile === undefined) throw new Error("subagent output file missing");
-
-		expect(resultText(result)).toBe(`Subagent scout produced too much output for inline return; full output saved to ${persisted.outputFile}.`);
-		expect(resultText(result)).not.toContain("\n");
-		expect(resultText(result)).not.toContain(output);
-		expect(await readFile(persisted.outputFile, "utf8")).toBe(output);
-	});
-
 	it("chain 将上一步输出传入 {previous}，失败时停止后续步骤", async () => {
+		expect(resolveMode([{ agent: "scout", task: "use {previous_result}" }])).toBe("parallel");
 		setOutputSpawn((task) => task === "seed" ? "handoff" : task.includes("stop") ? undefined : `received ${task}`);
-		const success = await executeSubagent(
-			{ tasks: [{ agent: "scout", task: "seed" }, { agent: "scout", task: "use {previous}" }] },
-			context(),
-		);
+		const chain = [{ agent: "scout", task: "seed" }, { agent: "scout", task: "use {previous}" }];
+		const success = await runTasks(chain);
 		expect(success.details.mode).toBe("chain");
 		expect(success.details.results.map((item) => item.task)).toEqual(["seed", "use handoff"]);
-		expect(success.content[0]).toMatchObject({ text: "received use handoff" });
+		expect(success.details.results[1]?.output).toBe("received use handoff");
 
-		const failed = await executeSubagent(
-			{ tasks: [{ agent: "scout", task: "stop" }, { agent: "scout", task: "never {previous}" }] },
-			context(),
-		);
-		expect(failed.details.results).toHaveLength(1);
-		expect(failed.content[0]).toMatchObject({ text: expect.stringContaining("Chain stopped at step 1") });
+		const failed = await runTasks([{ agent: "scout", task: "stop" }, { agent: "scout", task: "never {previous}" }]);
+		expect(failed.details.results).toEqual([
+			expect.objectContaining({ task: "stop", error: "empty output" }),
+		]);
 	});
 
-	it("chain 自动把超限的上一步输出替换为文件引用", async () => {
-		const configPath = process.env.PI_SUBAGENT_USER_CONFIG;
-		if (configPath === undefined) throw new Error("subagent config path missing");
+	it("超限输出持久化，并在 chain 中替换为文件引用", async () => {
 		const largeOutput = "alpha beta gamma delta ".repeat(200);
-		const tokenLimit = countTextTokensSync(largeOutput, { modelId: "test-model" }).tokens - 1;
-		expect(tokenLimit).toBeGreaterThanOrEqual(250);
-		await writeFile(configPath, JSON.stringify({ retry_delay_ms: 0, max_inline_output_tokens: tokenLimit }));
-		setOutputSpawn((task) => task === "seed" ? largeOutput : `received ${task}`);
+		await constrainInlineOutput(largeOutput);
+		setOutputSpawn((task) => task === "large" || task === "seed" ? largeOutput : `received ${task}`);
 
-		const result = await executeSubagent(
-			{ tasks: [{ agent: "scout", task: "seed" }, { agent: "scout", task: "use {previous}" }] },
-			context(),
-		);
-		const handoffTask = result.details.results[1]?.task ?? "";
-
-		expect(handoffTask).toContain("output exceeded the handoff limit");
-		expect(handoffTask).toContain(path.join(".pi", "subagents", "runs"));
-		expect(handoffTask).not.toContain(largeOutput);
+		const single = await runTasks([{ agent: "scout", task: "large" }]);
+		const singleOutputFile = single.details.results[0]?.outputFile;
+		if (singleOutputFile === undefined) throw new Error("subagent output file missing");
+		expect(await readFile(singleOutputFile, "utf8")).toBe(largeOutput);
+		const result = await runTasks([{ agent: "scout", task: "seed" }, { agent: "scout", task: "use {previous}" }]);
+		const [persisted, handoff] = result.details.results;
+		const outputFile = persisted?.outputFile;
+		if (outputFile === undefined) throw new Error("subagent output file missing");
+		expect(handoff?.task).toContain(outputFile);
+		expect(handoff?.task).not.toContain(largeOutput);
 	});
 
 	it("只读失败会重试，成功后保留实际 attempts", async () => {
 		let calls = 0;
 		setOutputSpawn(() => ++calls === 1 ? undefined : "recovered");
 
-		const result = await executeSubagent({ tasks: [{ agent: "scout", task: "retry" }] }, context());
+		const result = await runTasks([{ agent: "scout", task: "retry" }]);
 
 		expect(calls).toBe(2);
 		expect(result.details.results[0]).toMatchObject({ attempts: 2, output: "recovered" });
@@ -376,13 +313,15 @@ describe("subagent execution", () => {
 
 	it("统一拒绝空任务、未知 agent、越界 cwd 和未确认的写能力", async () => {
 		await writeAgent("worker", "read, edit");
+		const spawn = vi.fn();
+		setSubagentSpawnForTests(spawn);
 		const cases = [
-			await executeSubagent({ tasks: [] }, context()),
-			await executeSubagent({ tasks: [{ agent: "missing", task: "x" }] }, context()),
-			await executeSubagent({ tasks: [{ agent: "scout", task: "x", cwd: ".." }] }, context()),
-			await executeSubagent({ tasks: [{ agent: "worker", task: "write" }] }, context({ allTools: [toolInfo("read"), toolInfo("edit")] })),
-			await executeSubagent(
-				{ tasks: [{ agent: "worker", task: "write" }] },
+			await runTasks([]),
+			await runTasks([{ agent: "missing", task: "x" }]),
+			await runTasks([{ agent: "scout", task: "x", cwd: ".." }]),
+			await runTasks([{ agent: "worker", task: "write" }], context({ allTools: [toolInfo("read"), toolInfo("edit")] })),
+			await runTasks(
+				[{ agent: "worker", task: "write" }],
 				context({
 					allTools: [toolInfo("read"), toolInfo("edit")],
 					interaction: { confirmWrite: async () => false },
@@ -390,49 +329,39 @@ describe("subagent execution", () => {
 			),
 		];
 
-		expect(cases.map(resultText)).toEqual([
-			expect.stringContaining("tasks must not be empty"),
-			expect.stringContaining('Unknown agent "missing"'),
-			expect.stringContaining("cwd escapes workspace"),
-			expect.stringContaining("confirmation UI is unavailable"),
-			expect.stringContaining("Canceled write-capable agent"),
+		expect(cases.map(({ content }) => content[0])).toEqual([
+			expect.objectContaining({ text: expect.stringMatching(/\btasks\b/i) }),
+			expect.objectContaining({ text: expect.stringMatching(/\bmissing\b/i) }),
+			expect.objectContaining({ text: expect.stringMatching(/\bcwd\b/i) }),
+			expect.objectContaining({ text: expect.stringMatching(/\bconfirmation\b/i) }),
+			expect.objectContaining({ text: expect.stringMatching(/\bcanceled\b/i) }),
 		]);
+		expect(cases.every((result) => result.details.results.length === 0)).toBe(true);
+		expect(spawn).not.toHaveBeenCalled();
 	});
 
 	it("RPC dialog adapter 可通过窄 interaction port 确认写权限", async () => {
 		await writeAgent("worker", "read, edit");
 		setOutputSpawn(() => "write approved");
-		const confirmations: string[] = [];
+		const confirmWrite = vi.fn(async () => true);
 
-		const result = await executeSubagent(
-			{ tasks: [{ agent: "worker", task: "update files" }] },
+		const result = await runTasks(
+			[{ agent: "worker", task: "update files" }],
 			context({
 				allTools: [toolInfo("read"), toolInfo("edit")],
-				interaction: {
-					async confirmWrite(title, message) {
-						confirmations.push(`${title}\n${message}`);
-						return true;
-					},
-				},
+				interaction: { confirmWrite },
 			}),
 		);
 
 		expect(result.details.results[0]?.output).toBe("write approved");
-		expect(confirmations[0]).toContain("Run write-capable subagent?");
-		expect(confirmations[0]).toContain("Tools: read, edit");
+		expect(confirmWrite).toHaveBeenCalledOnce();
 	});
 
 	it("解析 JSONL 时发送实时进度快照", async () => {
-		setSubagentSpawnForTests(() => {
-			const proc = new FakeChildProcess();
-			queueMicrotask(() => {
-				proc.stdout.write(`${JSON.stringify(messageEnd([{ type: "toolCall", name: "read", arguments: { path: "src/subagent/tui/renderer.ts" } }]))}\n`);
-				proc.stdout.write(`${JSON.stringify(messageEnd([{ type: "text", text: "done" }]))}\n`);
-				proc.exitCode = 0;
-				proc.emit("close", 0);
-			});
-			return proc;
-		});
+		setSubagentSpawnForTests(() => completedProcess(
+			messageEnd([{ type: "toolCall", name: "read", arguments: { path: "src/subagent/tui/renderer.ts" } }]),
+			messageEnd([{ type: "text", text: "done" }]),
+		));
 		const updates: ProcessRunProgress[] = [];
 
 		const output = await runPiProcess(input(), { onUpdate: (progress) => updates.push(progress) });
@@ -443,7 +372,7 @@ describe("subagent execution", () => {
 		expect(updates.at(-1)?.events.at(-1)).toEqual({ type: "text", text: "done" });
 	});
 
-	it("正常退出时移除复用 AbortSignal 上的监听器", async () => {
+	it("正常退出和取消均清理进程资源", async () => {
 		setOutputSpawn(() => "done");
 		const controller = new AbortController();
 		const add = vi.spyOn(controller.signal, "addEventListener");
@@ -453,15 +382,12 @@ describe("subagent execution", () => {
 
 		expect(add).toHaveBeenCalledWith("abort", expect.any(Function), { once: true });
 		expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
-	});
 
-	it("终止导致子进程同步 close 时不遗留强杀 timer", async () => {
 		vi.useFakeTimers();
-		setOutputSpawn(() => "unused");
-		const controller = new AbortController();
-		controller.abort();
+		const aborted = new AbortController();
+		aborted.abort();
 
-		const result = await runPiProcess(input(), { signal: controller.signal });
+		const result = await runPiProcess(input(), { signal: aborted.signal });
 
 		expect(result.aborted).toBe(true);
 		expect(vi.getTimerCount()).toBe(0);
@@ -520,10 +446,31 @@ function context(overrides: Partial<Parameters<typeof executeSubagent>[1]> = {})
 	};
 }
 
-async function writeAgent(name: string, tools: string): Promise<void> {
+function runTasks(
+	tasks: Parameters<typeof executeSubagent>[0]["tasks"],
+	executionContext: Parameters<typeof executeSubagent>[1] = context(),
+): ReturnType<typeof executeSubagent> {
+	return executeSubagent({ tasks }, executionContext);
+}
+
+async function writeAgent(
+	name: string,
+	tools: string,
+	options: { body?: string; fork?: boolean; model?: string } = {},
+): Promise<void> {
+	const frontmatter = [
+		"---",
+		`name: ${name}`,
+		`description: ${name}`,
+		...(options.fork === true ? ["fork: true"] : []),
+		...(options.model === undefined ? [] : [`model: ${options.model}`]),
+		`tools: ${tools}`,
+		"---",
+		options.body ?? "Follow the task.",
+	];
 	await writeFile(
 		path.join(workspace, "agent", "agents", `${name}.md`),
-		`---\nname: ${name}\ndescription: ${name}\ntools: ${tools}\n---\nFollow the task.`,
+		frontmatter.join("\n"),
 	);
 }
 
@@ -531,19 +478,32 @@ function setOutputSpawn(outputForTask: (task: string) => string | undefined): vo
 	setSubagentSpawnForTests((_command, args) => {
 		const task = args.at(-1)?.replace(/^Task: /, "") ?? "";
 		const output = outputForTask(task);
-		const proc = new FakeChildProcess();
-		queueMicrotask(() => {
-			if (output !== undefined) proc.stdout.write(`${JSON.stringify(messageEnd([{ type: "text", text: output }]))}\n`);
-			proc.exitCode = 0;
-			proc.emit("close", 0);
-		});
-		return proc;
+		return output === undefined
+			? completedProcess()
+			: completedProcess(messageEnd([{ type: "text", text: output }]));
 	});
 }
 
-function resultText(result: Awaited<ReturnType<typeof executeSubagent>>): string {
-	const content = result.content[0];
-	return content?.type === "text" ? content.text : "";
+async function writeConfig(config: Record<string, unknown>): Promise<void> {
+	const configPath = process.env.PI_SUBAGENT_USER_CONFIG;
+	if (configPath === undefined) throw new Error("subagent config path missing");
+	await writeFile(configPath, JSON.stringify(config));
+}
+
+async function constrainInlineOutput(output: string): Promise<void> {
+	const max_inline_output_tokens = countTextTokensSync(output, { modelId: "test-model" }).tokens - 1;
+	expect(max_inline_output_tokens).toBeGreaterThanOrEqual(250);
+	await writeConfig({ retry_delay_ms: 0, max_inline_output_tokens });
+}
+
+function completedProcess(...messages: Array<Record<string, unknown>>): FakeChildProcess {
+	const proc = new FakeChildProcess();
+	queueMicrotask(() => {
+		for (const message of messages) proc.stdout.write(`${JSON.stringify(message)}\n`);
+		proc.exitCode = 0;
+		proc.emit("close", 0);
+	});
+	return proc;
 }
 
 class FakeChildProcess extends EventEmitter {

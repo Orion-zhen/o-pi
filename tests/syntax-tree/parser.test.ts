@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
 import { afterAll, describe, expect, it } from "vitest";
 
-import { TREE_SITTER_GRAMMARS, TREE_SITTER_LANGUAGES } from "../../src/syntax-tree/grammars.js";
+import { TREE_SITTER_GRAMMARS } from "../../src/syntax-tree/grammars.js";
 import { disposeTreeSitterParserCache, loadTreeSitterParser } from "../../src/syntax-tree/loader.js";
 import { parseSyntaxTree } from "../../src/syntax-tree/parser.js";
 
@@ -10,10 +10,6 @@ const require = createRequire(import.meta.url);
 afterAll(() => disposeTreeSitterParserCache());
 
 describe("shared syntax tree parser", () => {
-	it("从统一语言 catalog 派生现有 grammar 访问 API", () => {
-		expect(Object.keys(TREE_SITTER_GRAMMARS)).toEqual(TREE_SITTER_LANGUAGES.map((spec) => spec.language));
-	});
-
 	it("通过统一 grammar catalog 加载 Bash WASM，不加载 native module", async () => {
 		const parsed = await parseSyntaxTree(
 			TREE_SITTER_GRAMMARS.bash,

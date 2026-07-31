@@ -9,12 +9,11 @@ import { performance } from "node:perf_hooks";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createSuiteRegistry, loadSuitePlugin } from "./benchmark/registry.mjs";
 import { aggregateObjectSamples, numericMetricRows, round, samplesToObject, summarize } from "./benchmark/stats.mjs";
-import { benchmarkEnv, run } from "./benchmark/runtime.mjs";
+import { benchmarkEnv, run, SCRIPT_BIN, spawnInteractive } from "./benchmark/runtime.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const lazyWorker = fileURLToPath(new URL("./workers/bench-lazy-components-worker.mjs", import.meta.url));
 const pi = process.env.PI_BIN ?? "pi";
-const SCRIPT_BIN = "/usr/bin/script";
 const MAIN_TIMING_HEADER = "--- Startup Timings: main ---";
 const MAIN_TIMING_FOOTER = "-----------------------------";
 const EXTENSION_TIMING_HEADER = "--- Startup Timings: extensions ---";
@@ -231,9 +230,9 @@ function measureProcessStartup(flags) {
 }
 
 async function measureTuiStartup(flags, expectExtensionTimings) {
-	const command = [pi, "--offline", "--no-session", ...flags, "--thinking", "off"].map(shellQuote).join(" ");
+	const args = ["--offline", "--no-session", ...flags, "--thinking", "off"];
 	const started = performance.now();
-	const child = spawn(SCRIPT_BIN, ["-qfec", command, "/dev/null"], {
+	const child = spawnInteractive(pi, args, {
 		cwd: root,
 		detached: true,
 		env: { ...benchmarkEnv(), PI_TIMING: "1" },
@@ -535,10 +534,6 @@ function printEnvironment(environment, benchmarkOptions) {
 
 function printHeading(text) {
 	console.log(`\n=== ${text} ===`);
-}
-
-function shellQuote(value) {
-	return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function stringifyError(error) {

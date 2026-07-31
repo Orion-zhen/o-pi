@@ -23,6 +23,11 @@ interface JsonRpcMessage {
 
 type MessageHandler = (message: JsonRpcMessage, socket: Socket) => void;
 
+interface Deferred<T> {
+	readonly promise: Promise<T>;
+	resolve(value: T): void;
+}
+
 interface FakeServer {
 	port: number;
 	connections: number;
@@ -32,6 +37,14 @@ interface FakeServer {
 	cancelled: Promise<void>;
 	closed: Promise<void>;
 	close(): Promise<void>;
+}
+
+function deferred<T>(): Deferred<T> {
+	let settle = (_value: T): void => undefined;
+	const promise = new Promise<T>((resolve) => {
+		settle = resolve;
+	});
+	return { promise, resolve: settle };
 }
 
 let workspace: string;
@@ -74,10 +87,6 @@ describe("lsp transport", () => {
 						},
 					}],
 				});
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
@@ -117,14 +126,8 @@ describe("lsp transport", () => {
 
 	it("安全响应基础 server requests，并按白名单 watcher 发送文件变更", async () => {
 		const responseIds = new Set<number>();
-		let resolveResponses: () => void = () => undefined;
-		const responsesReceived = new Promise<void>((resolve) => {
-			resolveResponses = resolve;
-		});
-		let resolveWatchedNotification: () => void = () => undefined;
-		const watchedNotificationReceived = new Promise<void>((resolve) => {
-			resolveWatchedNotification = resolve;
-		});
+		const responsesReceived = deferred<void>();
+		const watchedNotificationReceived = deferred<void>();
 		const fake = await createFakeServer((message, socket) => {
 			if (message.method === "initialize") {
 				send(socket, { id: message.id, result: { capabilities: {} } });
@@ -158,14 +161,10 @@ describe("lsp transport", () => {
 					}] },
 				}] } });
 			} else if (message.method === "workspace/didChangeWatchedFiles") {
-				resolveWatchedNotification();
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
+				watchedNotificationReceived.resolve();
 			} else if (message.method === undefined && message.id !== undefined && message.id >= 81 && message.id <= 86) {
 				responseIds.add(message.id);
-				if (responseIds.size === 6) resolveResponses();
+				if (responseIds.size === 6) responsesReceived.resolve();
 			}
 		});
 		const config = defaultLspConfig();
@@ -182,7 +181,7 @@ describe("lsp transport", () => {
 		directClients.push(client);
 
 		expect(await client.ensureReady()).toBe(true);
-		await responsesReceived;
+		await responsesReceived.promise;
 		const response = (id: number) => fake.messages.find((message) => message.method === undefined && message.id === id);
 		expect(response(81)).toMatchObject({ result: [{ quoteStyle: "single" }, null, null] });
 		expect(response(82)).toMatchObject({ result: [{ uri: pathToFileUri(workspace), name: path.basename(workspace) }] });
@@ -200,7 +199,7 @@ describe("lsp transport", () => {
 			{ filePath: path.join(workspace, "pyproject.toml"), type: FileChangeType.Changed },
 			{ filePath: path.join(configDir, "tsconfig.json"), type: FileChangeType.Changed },
 		])).toBe(true);
-		await watchedNotificationReceived;
+		await watchedNotificationReceived.promise;
 		expect(fake.messages.filter((message) => message.method === "workspace/didChangeWatchedFiles")).toMatchObject([
 			{ params: { changes: [
 				{ uri: pathToFileUri(path.join(workspace, "nested", "tsconfig.json")), type: FileChangeType.Changed },
@@ -210,14 +209,8 @@ describe("lsp transport", () => {
 	});
 
 	it("manager 对未路由配置文件只通知已启动且已注册 watcher 的 server", async () => {
-		let resolveRegistration: () => void = () => undefined;
-		const registered = new Promise<void>((resolve) => {
-			resolveRegistration = resolve;
-		});
-		let resolveWatched: () => void = () => undefined;
-		const watched = new Promise<void>((resolve) => {
-			resolveWatched = resolve;
-		});
+		const registered = deferred<void>();
+		const watched = deferred<void>();
 		const fake = await createFakeServer((message, socket) => {
 			if (message.method === "initialize") {
 				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
@@ -230,13 +223,9 @@ describe("lsp transport", () => {
 			} else if (message.method === "workspace/symbol") {
 				send(socket, { id: message.id, result: [] });
 			} else if (message.method === "workspace/didChangeWatchedFiles") {
-				resolveWatched();
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
+				watched.resolve();
 			} else if (message.method === undefined && message.id === 90) {
-				resolveRegistration();
+				registered.resolve();
 			}
 		});
 		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
@@ -247,12 +236,12 @@ describe("lsp transport", () => {
 		await manager.didChangeWatchedFile(workspace, configFile, FileChangeType.Changed);
 		expect(fake.connections).toBe(0);
 		await queryManagerSymbols(manager, workspace, "start");
-		await registered;
+		await registered.promise;
 		await manager.didChangeWatchedFiles([
 			{ root: workspace, filePath: configFile, type: FileChangeType.Changed },
 			{ root: workspace, filePath: secondConfigFile, type: FileChangeType.Changed },
 		]);
-		await watched;
+		await watched.promise;
 
 		expect(fake.messages.filter((message) => message.method === "workspace/didChangeWatchedFiles")).toMatchObject([{
 			params: { changes: [
@@ -280,10 +269,6 @@ describe("lsp transport", () => {
 						data,
 					},
 				});
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
@@ -319,10 +304,6 @@ describe("lsp transport", () => {
 					kind: 12,
 					location: { uri, range: { start: { line: -1, character: 0 }, end: { line: 0, character: 1 } } },
 				} });
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		await writeConfig(
@@ -359,10 +340,6 @@ describe("lsp transport", () => {
 				send(socket, { method: "$/progress", params: { token: "work", value: { kind: "begin" } } });
 				send(socket, { method: "textDocument/publishDiagnostics", params: { uri: pathToFileUri(path.join(workspace, "a.ts")), diagnostics: [] } });
 				send(socket, { id: 77, method: "workspace/applyEdit", params: { edit: {} } });
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		const config = defaultLspConfig();
@@ -406,14 +383,8 @@ describe("lsp transport", () => {
 
 	it("同文档并发同步保序、内容未变复用 documentSymbol cache", async () => {
 		let documentSymbolRequests = 0;
-		let markFirstRequest: () => void = () => undefined;
-		const firstRequest = new Promise<void>((resolve) => {
-			markFirstRequest = resolve;
-		});
-		let releaseFirstRequest: () => void = () => undefined;
-		const firstRequestGate = new Promise<void>((resolve) => {
-			releaseFirstRequest = resolve;
-		});
+		const firstRequest = deferred<void>();
+		const firstRequestGate = deferred<void>();
 		const fake = await createFakeServer((message, socket) => {
 			if (message.method === "initialize") {
 				send(socket, { id: message.id, result: { capabilities: {
@@ -424,15 +395,11 @@ describe("lsp transport", () => {
 				documentSymbolRequests += 1;
 				const response = () => send(socket, { id: message.id, result: [documentSymbol("target", documentSymbolRequests)] });
 				if (documentSymbolRequests === 1) {
-					markFirstRequest();
-					void firstRequestGate.then(response);
+					firstRequest.resolve();
+					void firstRequestGate.promise.then(response);
 				} else {
 					response();
 				}
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		const client = directClient(fake);
@@ -440,9 +407,9 @@ describe("lsp transport", () => {
 		const file = path.join(workspace, "a.ts");
 		const first = client.documentSymbols(file, "const target = 1;\n");
 		const second = client.documentSymbols(file, "const target = 2;\n");
-		await firstRequest;
+		await firstRequest.promise;
 		expect(fake.methods).not.toContain("textDocument/didChange");
-		releaseFirstRequest();
+		firstRequestGate.resolve();
 		const [firstSymbols, secondSymbols] = await Promise.all([first, second]);
 		expect(firstSymbols?.[0]?.name).toBe("target");
 		expect(secondSymbols?.[0]?.name).toBe("target");
@@ -480,10 +447,6 @@ describe("lsp transport", () => {
 				send(socket, { id: message.id, result: { capabilities: {
 					textDocumentSync: { openClose: true, change: 2, save: { includeText: true } },
 				} } });
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		const client = directClient(fake);
@@ -519,10 +482,6 @@ describe("lsp transport", () => {
 				send(socket, { id: message.id, result: { capabilities: {
 					textDocumentSync: { openClose: false, change: 0, save: false },
 				} } });
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		const client = directClient(fake);
@@ -545,10 +504,6 @@ describe("lsp transport", () => {
 				} } });
 			} else if (message.method === "textDocument/documentSymbol") {
 				send(socket, { id: message.id, result: [documentSymbol("target", 0)] });
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		const client = directClient(fake, 1);
@@ -599,10 +554,6 @@ describe("lsp transport", () => {
 					uri,
 					diagnostics: [diagnostic("unversioned", 0)],
 				} });
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		const client = directClient(fake);
@@ -646,10 +597,6 @@ describe("lsp transport", () => {
 				} else {
 					send(socket, { id: message.id, result: { kind: "unchanged", resultId: "current-r1" } });
 				}
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		await writeConfig(
@@ -693,10 +640,6 @@ describe("lsp transport", () => {
 				const command = args[0];
 				if (typeof command === "string") commands.push(command);
 				send(socket, { id: message.id, result: { type: "response", success: true, body: [] } });
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		await writeConfig(
@@ -753,10 +696,6 @@ describe("lsp transport", () => {
 						? [{ start: { line: 3, offset: 1 }, end: { line: 3, offset: 4 }, text: "plugin warning", category: "warning", code: 9001, source: "plugin" }]
 						: [{ start: { line: 4, offset: 1 }, end: { line: 4, offset: 2 }, text: "suggestion", category: "suggestion", code: 6133 }];
 				send(socket, { id: message.id, result: { type: "response", success: true, body } });
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		await writeConfig(
@@ -798,10 +737,6 @@ describe("lsp transport", () => {
 						diagnostics: [diagnostic("publish fallback", 1)],
 					} });
 				}
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		await writeConfig(
@@ -820,14 +755,8 @@ describe("lsp transport", () => {
 	it("didWriteBatch 先同步同一 server 的全部文档，并限制并发 pull diagnostics", async () => {
 		let opened = 0;
 		let pulls = 0;
-		let markFirstPullBatch: () => void = () => undefined;
-		const firstPullBatch = new Promise<void>((resolve) => {
-			markFirstPullBatch = resolve;
-		});
-		let releaseFirstPullBatch: () => void = () => undefined;
-		const firstPullGate = new Promise<void>((resolve) => {
-			releaseFirstPullBatch = resolve;
-		});
+		const firstPullBatch = deferred<void>();
+		const firstPullGate = deferred<void>();
 		const fake = await createFakeServer((message, socket) => {
 			if (message.method === "initialize") {
 				send(socket, { id: message.id, result: { capabilities: {
@@ -840,15 +769,11 @@ describe("lsp transport", () => {
 				pulls += 1;
 				const respond = () => send(socket, { id: message.id, result: { kind: "full", resultId: `r${pulls}`, items: [] } });
 				if (pulls <= 4) {
-					if (pulls === 4) markFirstPullBatch();
-					void firstPullGate.then(respond);
+					if (pulls === 4) firstPullBatch.resolve();
+					void firstPullGate.promise.then(respond);
 				} else {
 					respond();
 				}
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		await writeConfig(
@@ -862,10 +787,10 @@ describe("lsp transport", () => {
 			text: `export const value${index} = ${index};\n`,
 		})));
 
-		await firstPullBatch;
+		await firstPullBatch.promise;
 		expect(opened).toBe(5);
 		expect(pulls).toBe(4);
-		releaseFirstPullBatch();
+		firstPullGate.resolve();
 		await expect(pending).resolves.toEqual(Array.from({ length: 5 }, () => expect.objectContaining({ status: "clean" })));
 		expect(pulls).toBe(5);
 	});
@@ -883,10 +808,6 @@ describe("lsp transport", () => {
 					version: 1,
 					diagnostics: [diagnostic("new error", 1)],
 				} });
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		await writeConfig(
@@ -920,52 +841,28 @@ describe("lsp transport", () => {
 		expect(fake.methods).not.toContain("workspace/symbol");
 	});
 
-	it("grep 取消贯穿 workspace request 并发送 $/cancelRequest", async () => {
-		let markRequested: () => void = () => undefined;
-		const requested = new Promise<void>((resolve) => {
-			markRequested = resolve;
-		});
-		const fake = await createFakeServer((message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
-			} else if (message.method === "workspace/symbol") {
-				markRequested();
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
-			}
-		});
-		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port }, { request_timeout_ms: 1000 });
-		manager = new LspManager();
-		const controller = new AbortController();
-		const pending = manager.workspaceSymbols({
-			root: workspace,
-			query: "target",
-			allowedPaths: new Set(["src/target.ts"]),
-			signal: controller.signal,
-		});
-		await requested;
-		controller.abort();
-		await expect(pending).resolves.toEqual([]);
-		await fake.cancelled;
-	});
-
-	it("grep 取消正在进行的 workspaceSymbol/resolve", async () => {
+	it.each([
+		["workspace request", false],
+		["workspaceSymbol/resolve", true],
+	] as const)("grep 取消正在进行的 %s 并发送 $/cancelRequest", async (_name, resolveSymbol) => {
 		const uri = pathToFileUri(path.join(workspace, "src", "target.ts"));
-		let markResolve: () => void = () => undefined;
-		const resolveStarted = new Promise<void>((resolve) => { markResolve = resolve; });
+		const requestStarted = deferred<void>();
 		const fake = await createFakeServer((message, socket) => {
 			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: { resolveProvider: true } } } });
+				send(socket, {
+					id: message.id,
+					result: { capabilities: {
+						workspaceSymbolProvider: resolveSymbol ? { resolveProvider: true } : true,
+					} },
+				});
 			} else if (message.method === "workspace/symbol") {
-				send(socket, { id: message.id, result: [{ name: "target", kind: 12, location: { uri }, data: { id: 1 } }] });
+				if (resolveSymbol) {
+					send(socket, { id: message.id, result: [{ name: "target", kind: 12, location: { uri }, data: { id: 1 } }] });
+				} else {
+					requestStarted.resolve();
+				}
 			} else if (message.method === "workspaceSymbol/resolve") {
-				markResolve();
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
+				requestStarted.resolve();
 			}
 		});
 		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port }, { request_timeout_ms: 1000 });
@@ -977,29 +874,22 @@ describe("lsp transport", () => {
 			allowedPaths: new Set(["src/target.ts"]),
 			signal: controller.signal,
 		});
-		await resolveStarted;
+		await requestStarted.promise;
 		controller.abort();
 		await expect(pending).resolves.toEqual([]);
 		await fake.cancelled;
 	});
 
 	it("调用方取消后不等待共享 initialize 完成", async () => {
-		let markInitialize: () => void = () => undefined;
-		const initializeSeen = new Promise<void>((resolve) => {
-			markInitialize = resolve;
-		});
+		const initializeSeen = deferred<void>();
 		let releaseInitialize: () => void = () => undefined;
 		const fake = await createFakeServer((message, socket) => {
 			if (message.method === "initialize") {
-				markInitialize();
+				initializeSeen.resolve();
 				releaseInitialize = () => send(socket, {
 					id: message.id,
 					result: { capabilities: { workspaceSymbolProvider: true } },
 				});
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		await writeConfig(
@@ -1014,7 +904,7 @@ describe("lsp transport", () => {
 			allowedPaths: new Set(["src/target.ts"]),
 			signal: controller.signal,
 		});
-		await initializeSeen;
+		await initializeSeen.promise;
 
 		let settled = false;
 		void pending.then(() => {
@@ -1031,21 +921,16 @@ describe("lsp transport", () => {
 
 	it("并发 ensureReady 共享一次启动，TCP initialize 使用 null processId", async () => {
 		let releaseInitialize: () => void = () => undefined;
-		let markInitialize: () => void = () => undefined;
-		const initializeSeen = new Promise<void>((resolve) => { markInitialize = resolve; });
+		const initializeSeen = deferred<void>();
 		const fake = await createFakeServer((message, socket) => {
 			if (message.method === "initialize") {
-				markInitialize();
+				initializeSeen.resolve();
 				releaseInitialize = () => send(socket, { id: message.id, result: { capabilities: {} } });
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		const client = directClient(fake);
 		const starts = Array.from({ length: 8 }, () => client.ensureReady());
-		await initializeSeen;
+		await initializeSeen.promise;
 		expect(fake.connections).toBe(1);
 		expect(fake.methods.filter((method) => method === "initialize")).toHaveLength(1);
 		releaseInitialize();
@@ -1057,18 +942,13 @@ describe("lsp transport", () => {
 
 	it("idle timer 不会中断活动请求", async () => {
 		let releaseRequest: () => void = () => undefined;
-		let markRequest: () => void = () => undefined;
-		const requestSeen = new Promise<void>((resolve) => { markRequest = resolve; });
+		const requestSeen = deferred<void>();
 		const fake = await createFakeServer((message, socket) => {
 			if (message.method === "initialize") {
 				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
 			} else if (message.method === "workspace/symbol") {
-				markRequest();
+				requestSeen.resolve();
 				releaseRequest = () => send(socket, { id: message.id, result: [] });
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		const client = directClient(fake, 64, 10);
@@ -1078,7 +958,7 @@ describe("lsp transport", () => {
 			expect(await client.ensureReady()).toBe(true);
 			const pending = client.workspaceSymbols("target");
 			await vi.advanceTimersByTimeAsync(0);
-			await requestSeen;
+			await requestSeen.promise;
 			await vi.advanceTimersByTimeAsync(20);
 			expect(client.status().status).toBe("ready");
 			expect(fake.methods).not.toContain("shutdown");
@@ -1093,29 +973,24 @@ describe("lsp transport", () => {
 	it("reload 等待活动请求，并阻止新操作进入旧 client", async () => {
 		let symbolRequests = 0;
 		let releaseFirst: () => void = () => undefined;
-		let markFirst: () => void = () => undefined;
-		const firstSeen = new Promise<void>((resolve) => { markFirst = resolve; });
+		const firstSeen = deferred<void>();
 		const fake = await createFakeServer((message, socket) => {
 			if (message.method === "initialize") {
 				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
 			} else if (message.method === "workspace/symbol") {
 				symbolRequests += 1;
 				if (symbolRequests === 1) {
-					markFirst();
+					firstSeen.resolve();
 					releaseFirst = () => send(socket, { id: message.id, result: [] });
 				} else {
 					send(socket, { id: message.id, result: [] });
 				}
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
 		manager = new LspManager();
 		const first = queryManagerSymbols(manager, workspace, "first");
-		await firstSeen;
+		await firstSeen.promise;
 		const reloading = manager.reload();
 		const second = queryManagerSymbols(manager, workspace, "second");
 		expect(fake.methods).not.toContain("shutdown");
@@ -1140,10 +1015,6 @@ describe("lsp transport", () => {
 					uri,
 					range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } },
 				} }] });
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port }, { max_restarts: 1 });
@@ -1173,10 +1044,6 @@ describe("lsp transport", () => {
 				symbolRequests += 1;
 				if (symbolRequests === 1) socket.destroy();
 				else send(socket, { id: message.id, result: [] });
-			} else if (message.method === "shutdown") {
-				send(socket, { id: message.id, result: null });
-			} else if (message.method === "exit") {
-				socket.end();
 			}
 		});
 		await writeConfig(
@@ -1202,11 +1069,10 @@ describe("lsp transport", () => {
 
 	it("stdio drain 大量 stderr、保留有界尾部并使用 Pi PID", async () => {
 		const client = stdioClient("stderr-crash");
-		let resolveLog: (message: string) => void = () => undefined;
-		const log = new Promise<string>((resolve) => { resolveLog = resolve; });
-		client.onLogMessage((params) => resolveLog(params.message));
+		const log = deferred<string>();
+		client.onLogMessage((params) => log.resolve(params.message));
 		expect(await client.ensureReady()).toBe(true);
-		await expect(log).resolves.toContain(`parent:${process.pid}`);
+		await expect(log.promise).resolves.toContain(`parent:${process.pid}`);
 		await expect(client.workspaceSymbols("crash")).resolves.toBeUndefined();
 		await client.waitForCleanup();
 		const status = client.status();
@@ -1221,20 +1087,18 @@ describe("lsp transport", () => {
 
 	it("notification backpressure 超时后进入 crash cleanup", async () => {
 		const client = stdioClient("notification-timeout");
-		let markLog: () => void = () => undefined;
-		const log = new Promise<void>((resolve) => { markLog = resolve; });
-		client.onLogMessage(() => markLog());
+		const log = deferred<void>();
+		client.onLogMessage(() => log.resolve());
 		expect(await client.ensureReady()).toBe(true);
-		await log;
+		await log.promise;
 		await expect(client.notification(new NotificationType<string>("test/backpressure"), "x".repeat(16 * 1024 * 1024))).resolves.toBe(false);
 		expect(client.status()).toMatchObject({ status: "crashed", open_documents: 0 });
 	});
 
 	it("shutdown 在 writer backpressure 下不会泄漏未处理的 stream rejection", async () => {
 		const client = stdioClient("notification-timeout");
-		let markLog: () => void = () => undefined;
-		const log = new Promise<void>((resolve) => { markLog = resolve; });
-		client.onLogMessage(() => markLog());
+		const log = deferred<void>();
+		client.onLogMessage(() => log.resolve());
 		const unhandled: unknown[] = [];
 		const onUnhandled = (error: unknown): void => {
 			unhandled.push(error);
@@ -1242,7 +1106,7 @@ describe("lsp transport", () => {
 		process.on("unhandledRejection", onUnhandled);
 		try {
 			expect(await client.ensureReady()).toBe(true);
-			await log;
+			await log.promise;
 			const blocked = client.notification(
 				new NotificationType<string>("test/backpressure"),
 				"x".repeat(16 * 1024 * 1024),
@@ -1258,11 +1122,10 @@ describe("lsp transport", () => {
 
 	it("stdio 顽固 child 在 shutdown 后被强制终止", async () => {
 		const client = stdioClient("stubborn");
-		let resolveLog: (message: string) => void = () => undefined;
-		const log = new Promise<string>((resolve) => { resolveLog = resolve; });
-		client.onLogMessage((params) => resolveLog(params.message));
+		const log = deferred<string>();
+		client.onLogMessage((params) => log.resolve(params.message));
 		expect(await client.ensureReady()).toBe(true);
-		const message = await log;
+		const message = await log.promise;
 		const match = /pid:(\d+)/.exec(message);
 		expect(match).not.toBeNull();
 		const pid = Number(match?.[1]);
@@ -1357,18 +1220,9 @@ async function createFakeServer(handler: MessageHandler): Promise<FakeServer> {
 	const methods: string[] = [];
 	const messages: JsonRpcMessage[] = [];
 	const sockets = new Set<Socket>();
-	let resolveResponse: (message: JsonRpcMessage) => void = () => undefined;
-	const response = new Promise<JsonRpcMessage>((resolve) => {
-		resolveResponse = resolve;
-	});
-	let resolveCancelled: () => void = () => undefined;
-	const cancelled = new Promise<void>((resolve) => {
-		resolveCancelled = resolve;
-	});
-	let resolveClosed: () => void = () => undefined;
-	const closed = new Promise<void>((resolve) => {
-		resolveClosed = resolve;
-	});
+	const response = deferred<JsonRpcMessage>();
+	const cancelled = deferred<void>();
+	const closed = deferred<void>();
 	let serverClosed = false;
 	let connections = 0;
 	const server = net.createServer((socket) => {
@@ -1391,16 +1245,22 @@ async function createFakeServer(handler: MessageHandler): Promise<FakeServer> {
 				messages.push(message);
 				if (message.method !== undefined) {
 					methods.push(message.method);
-					if (message.method === "$/cancelRequest") resolveCancelled();
+					if (message.method === "$/cancelRequest") cancelled.resolve();
 				} else if (message.id !== undefined) {
-					resolveResponse(message);
+					response.resolve(message);
 				}
-				handler(message, socket);
+				if (message.method === "shutdown") {
+					send(socket, { id: message.id, result: null });
+				} else if (message.method === "exit") {
+					socket.end();
+				} else {
+					handler(message, socket);
+				}
 			}
 		});
 		socket.once("close", () => {
 			sockets.delete(socket);
-			if (sockets.size === 0) resolveClosed();
+			if (sockets.size === 0) closed.resolve();
 		});
 	});
 	await new Promise<void>((resolve, reject) => {
@@ -1416,9 +1276,9 @@ async function createFakeServer(handler: MessageHandler): Promise<FakeServer> {
 		},
 		methods,
 		messages,
-		response,
-		cancelled,
-		closed,
+		response: response.promise,
+		cancelled: cancelled.promise,
+		closed: closed.promise,
 		close: async () => {
 			if (serverClosed) return;
 			serverClosed = true;

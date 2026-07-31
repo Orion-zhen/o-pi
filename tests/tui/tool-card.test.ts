@@ -8,13 +8,13 @@ const theme = {
 
 describe("tui tool card", () => {
 	it("截断 target、summary 并清理控制字符", () => {
-		const output = formatToolCard(
-			{ tool: "webfetch", status: "success", target: "https://example.com/" + "a".repeat(80), summary: "ok\u001b[31m " + "b".repeat(80) },
-			theme,
-			{ maxTargetChars: 24, maxSummaryChars: 20 },
-		);
-		expect(output).not.toContain("\u001b");
-		expect(output).toContain("…");
-		expect(output.split("\n")).toHaveLength(2);
+		const output = formatToolCard({
+			tool: "webfetch",
+			status: "success",
+			target: "https://example.com/" + "a".repeat(40) + "TARGET_SECRET" + "a".repeat(40) + "/end",
+			summary: `ok\u001b[31m ${"b".repeat(80)}SUMMARY_END`,
+		}, theme, { maxTargetChars: 24, maxSummaryChars: 20 });
+		for (const value of ["https://exam", "/end", "ok"]) expect(output).toContain(value);
+		for (const value of ["\u001b", "TARGET_SECRET", "SUMMARY_END"]) expect(output).not.toContain(value);
 	});
 });

@@ -41,172 +41,74 @@ afterEach(() => {
 });
 
 describe("math markdown renderer", () => {
-	it("替换行内公式但不处理 code span 中的美元符号", () => {
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown("LLM 输出一个 $\\text{行内公式}$，不是 `$x$`。", 0, 0, theme).render(120).join("\n");
-
-		expect(output).toContain("LLM 输出一个 行内公式");
-		expect(output).toContain("$x$");
+	it.each([
+		["美元公式与 code span", "LLM 输出一个 $\\text{行内公式}$，不是 `$x$`。", ["LLM 输出一个 行内公式", "$x$"]],
+		["括号公式与 code span", "LLM 输出一个 \\(\\text{行内公式}\\)，不是 `\\(x\\)`。", ["LLM 输出一个 行内公式", "\\(x\\)"]],
+		["价格", "This costs $5 and $10 tomorrow.", ["This costs $5 and $10 tomorrow."]],
+		["环境变量", "Use $PATH and $HOME.", ["Use $PATH and $HOME."]],
+		["普通括号", "Paren text \\(not latex\\) should stay text.", ["Paren text (not latex) should stay text."]],
+		["数学特征", "Inline $x+1$ and \\(\\alpha + \\beta\\).", ["Inline x+1 and α + β."]],
+	] as const)("正确区分行内公式与 %s", (_name, source, expected) => {
+		const output = render(source);
+		for (const text of expected) expect(output).toContain(text);
 	});
 
-	it("替换反斜杠括号行内公式但不处理 code span", () => {
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown("LLM 输出一个 \\(\\text{行内公式}\\)，不是 `\\(x\\)`。", 0, 0, theme).render(120).join("\n");
-
-		expect(output).toContain("LLM 输出一个 行内公式");
-		expect(output).toContain("\\(x\\)");
-	});
-
-	it("不把价格里的美元符号误判为行内公式", () => {
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown("This costs $5 and $10 tomorrow.", 0, 0, theme).render(120).join("\n");
-
-		expect(output).toContain("This costs $5 and $10 tomorrow.");
-	});
-
-	it("不把 shell 环境变量误判为行内公式", () => {
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown("Use $PATH and $HOME.", 0, 0, theme).render(120).join("\n");
-
-		expect(output).toContain("Use $PATH and $HOME.");
-	});
-
-	it("不把普通转义括号误判为反斜杠括号行内公式", () => {
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown("Paren text \\(not latex\\) should stay text.", 0, 0, theme).render(120).join("\n");
-
-		expect(output).toContain("Paren text (not latex) should stay text.");
-	});
-
-	it("继续识别有明确数学特征的行内公式", () => {
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown("Inline $x+1$ and \\(\\alpha + \\beta\\).", 0, 0, theme).render(120).join("\n");
-
-		expect(output).toContain("Inline x+1 and α + β.");
-	});
-
-	it("终端不支持图片时块级公式回退为源码", () => {
-		setCapabilities({ images: null, trueColor: true, hyperlinks: false });
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown("before\n\n$$\nx_i^2\n$$\n\nafter", 0, 0, theme).render(120).join("\n");
-
+	it.each([
+		["美元", "before\n\n$$\nx_i^2\n$$\n\nafter"],
+		["方括号", "before\n\n\\[\nx_i^2\n\\]\n\nafter"],
+	])("终端不支持图片时%s块级公式回退为源码", (_name, source) => {
+		const output = render(source, null);
 		expect(supportsDisplayMathImages()).toBe(false);
-		expect(output).toContain("before");
-		expect(output).toContain("$$");
-		expect(output).toContain("x_i^2");
-		expect(output).toContain("after");
+		for (const text of ["before", "$$", "x_i^2", "after"]) expect(output).toContain(text);
 	});
 
-	it("识别反斜杠方括号块级公式", () => {
-		setCapabilities({ images: null, trueColor: true, hyperlinks: false });
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown("before\n\n\\[\nx_i^2\n\\]\n\nafter", 0, 0, theme).render(120).join("\n");
-
-		expect(output).toContain("before");
-		expect(output).toContain("$$");
-		expect(output).toContain("x_i^2");
-		expect(output).toContain("after");
-	});
-
-	it("识别紧跟普通段落的反斜杠方括号公式", () => {
-		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown("**效果：**\n\\[\n\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}\n\\]", 0, 0, theme).render(120).join("\n");
-
-		expect(output).toContain("效果");
+	it.each([
+		["段落后的方括号", "**效果：**\n\\[\n\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}\n\\]", "\\begin{aligned}"],
+		["行首裸环境", "**效果：**\n\\begin{align}\n\\dot{x} &= \\sigma (y - x) \\\\\n\\dot{y} &= x (\\rho - z) - y\n\\end{align}", "\\begin{align}"],
+		["美元", "$$\nx_i^2\n$$", "x_i^2"],
+		["方括号", "\\[\nx_i^2\n\\]", "x_i^2"],
+	])("终端支持图片时渲染%s块级公式", (_name, source, hiddenSource) => {
+		const output = render(source);
 		expect(output).toContain("\u001b_G");
-		expect(output).not.toContain("\\begin{aligned}");
+		expect(output).not.toContain(hiddenSource);
 	});
 
-	it("识别行首裸 align 环境", () => {
-		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown(
-			"**效果：**\n\\begin{align}\n\\dot{x} &= \\sigma (y - x), \\label{eq:lorenz1} \\\\\n\\dot{y} &= x (\\rho - z) - y, \\label{eq:lorenz2}\n\\end{align}",
-			0,
-			0,
-			theme,
-		)
-			.render(120)
-			.join("\n");
-
-		expect(output).toContain("效果");
-		expect(output).toContain("\u001b_G");
-		expect(output).not.toContain("\\begin{align}");
-	});
-
-	it("不渲染代码块里的反斜杠方括号和裸环境", () => {
-		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown("```latex\n\\[\nx_i^2\n\\]\n\\begin{align}\na&=b\n\\end{align}\n```", 0, 0, theme).render(120).join("\n");
-
+	it.each([
+		["代码块", "```latex\n\\[\nx_i^2\n\\]\n\\begin{align}\na&=b\n\\end{align}\n```", "\\begin{align}"],
+		["普通方括号文本", "普通文字里提到 \\[x_i^2\\] 不应该变成块级图片。", "[x_i^2]"],
+		["普通环境文本", "普通文字提到 \\begin{align}\na&=b\n\\end{align} 这个环境。", "\\begin{align}"],
+	])("不渲染%s", (_name, source, expected) => {
+		const output = render(source);
 		expect(output).not.toContain("\u001b_G");
-		expect(output).toContain("\\begin{align}");
-		expect(output).toContain("x_i^2");
+		expect(output).toContain(expected);
 	});
 
-	it("不渲染普通文本中的转义方括号", () => {
-		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown("普通文字里提到 \\[x_i^2\\] 不应该变成块级图片。", 0, 0, theme).render(120).join("\n");
-
-		expect(output).not.toContain("\u001b_G");
-		expect(output).toContain("[x_i^2]");
-	});
-
-	it("不渲染普通文本中的裸 LaTeX 环境片段", () => {
-		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown("普通文字提到 \\begin{align}\na&=b\n\\end{align} 这个环境。", 0, 0, theme).render(120).join("\n");
-
-		expect(output).not.toContain("\u001b_G");
-		expect(output).toContain("\\begin{align}");
-	});
-
-	it("终端支持图片时块级公式渲染为 Kitty 图片序列", () => {
-		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
-		setCellDimensions({ widthPx: 9, heightPx: 18 });
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown("$$\nx_i^2\n$$", 0, 0, theme).render(120).join("\n");
-
+	it.each([
+		["kitty", "\u001b_G", "\u001b]1337;File="],
+		["iterm2", "\u001b]1337;File=", "\u001b_G"],
+	] as const)("%s 图片协议保留公式且不泄露源码", (images, sequence, excluded) => {
+		const output = render("$$\nx_i^2\n$$", images);
 		expect(supportsDisplayMathImages()).toBe(true);
-		expect(output).toContain("\u001b_G");
-		expect(output).not.toContain("x_i^2");
-	});
-
-	it("终端支持 iTerm2 图片协议时块级公式渲染为 iTerm2 图片序列", () => {
-		setCapabilities({ images: "iterm2", trueColor: true, hyperlinks: false });
-		setCellDimensions({ widthPx: 9, heightPx: 18 });
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown("$$\nx_i^2\n$$", 0, 0, theme).render(120).join("\n");
-
-		expect(supportsDisplayMathImages()).toBe(true);
-		expect(output).toContain("\u001b]1337;File=");
-		expect(output).not.toContain("\u001b_G");
+		expect(output).toContain(sequence);
+		expect(output).not.toContain(excluded);
 		expect(output).not.toContain("x_i^2");
 	});
 
 	it("块级公式按自然尺寸显示，不放大到全局上限", () => {
-		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
-		setCellDimensions({ widthPx: 9, heightPx: 18 });
-		installMathMarkdownRenderer(mathConfig);
-		const lines = new Markdown("$$\na^2 + b^2 = c^2\n$$", 0, 0, theme).render(120);
+		const lines = renderLines("$$\na^2 + b^2 = c^2\n$$");
 
 		expect(lines.length).toBeLessThan(8);
 		expect(lines.join("\n")).toContain("\u001b_G");
 	});
 
 	it("长公式使用可用宽度，复杂分式保留多行占位", () => {
-		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
-		setCellDimensions({ widthPx: 9, heightPx: 18 });
-		installMathMarkdownRenderer({ ...mathConfig, max_width_cells: 120 });
-		const fourier = new Markdown(
+		const config = { ...mathConfig, max_width_cells: 120 };
+		const fourier = renderLines(
 			"$$\nf(x) = a_0 + \\sum_{n=1}^{\\infty} \\left( a_n \\cos\\frac{n\\pi x}{L} + b_n \\sin\\frac{n\\pi x}{L} \\right) + \\sum_{n=1}^{\\infty} \\left( c_n \\cos\\frac{2n\\pi x}{L} + d_n \\sin\\frac{2n\\pi x}{L} \\right)\n$$",
-			0,
-			0,
-			theme,
-		).render(120);
-		const bayes = new Markdown("$$\nP(A \\mid B) = \\frac{P(B \\mid A) \\, P(A)}{P(B)}\n$$", 0, 0, theme).render(120);
+			"kitty",
+			config,
+		);
+		const bayes = renderLines("$$\nP(A \\mid B) = \\frac{P(B \\mid A) \\, P(A)}{P(B)}\n$$", "kitty", config);
 		const fourierSize = parseKittySize(fourier.join("\n"));
 		const bayesSize = parseKittySize(bayes.join("\n"));
 
@@ -214,16 +116,22 @@ describe("math markdown renderer", () => {
 		expect(fourierSize?.columns).toBeLessThanOrEqual(120);
 		expect(bayesSize?.rows).toBeGreaterThanOrEqual(4);
 	});
-
-	it("终端支持图片时反斜杠方括号公式渲染为 Kitty 图片序列", () => {
-		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
-		installMathMarkdownRenderer(mathConfig);
-		const output = new Markdown("\\[\nx_i^2\n\\]", 0, 0, theme).render(120).join("\n");
-
-		expect(output).toContain("\u001b_G");
-		expect(output).not.toContain("x_i^2");
-	});
 });
+
+function render(source: string, images: "kitty" | "iterm2" | null = "kitty", config = mathConfig): string {
+	return renderLines(source, images, config).join("\n");
+}
+
+function renderLines(
+	source: string,
+	images: "kitty" | "iterm2" | null = "kitty",
+	config = mathConfig,
+): string[] {
+	setCapabilities({ images, trueColor: true, hyperlinks: false });
+	setCellDimensions({ widthPx: 9, heightPx: 18 });
+	installMathMarkdownRenderer(config);
+	return new Markdown(source, 0, 0, theme).render(120);
+}
 
 function parseKittySize(output: string): { columns: number; rows: number } | undefined {
 	const params = output.match(/\u001b_G([^;]+);/)?.[1];

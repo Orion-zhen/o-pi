@@ -2,13 +2,14 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, expect } from "vitest";
 
+import type { ContentOperations } from "../../src/filesystem/contracts/content.js";
 import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspace.js";
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
 import { buildScopeInventory, type ScopeInventory } from "../../src/file-tools/grep/inventory.js";
 import { GrepTool } from "../../src/file-tools/grep/command.js";
 import type { AnalyzeCode, PrepareCodeAnalysis } from "../../src/code-index/types.js";
 import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
-import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
+import { FileToolsHost, type FileToolsInvocation } from "../../src/file-tools/runtime/host.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
@@ -63,13 +64,68 @@ export async function writeConfig(configPath: string, limits: Record<string, num
 }
 
 export function expectGrepSuccess(result: ToolOutcome<GrepSuccess>): GrepSuccess {
-	if (result.status === "failed") throw new Error(`grep failed: ${result.error.code}: ${result.error.message}`);
-	return result;
+	return expectSuccess(result);
 }
 
 export function expectInventorySuccess(result: ToolOutcome<ScopeInventory>): ScopeInventory {
-	if (isFailed(result)) throw new Error(`inventory failed: ${result.error.code}: ${result.error.message}`);
+	return expectSuccess(result);
+}
+
+export function expectSuccess<T>(result: ToolOutcome<T>): T {
+	if (isFailed(result)) throw new Error(`${result.error.code}: ${result.error.message}`);
 	return result;
+}
+
+export async function withFileToolsInvocation<T>(
+	workspace: string,
+	sessionId: string,
+	run: (opened: FileToolsInvocation) => Promise<T>,
+): Promise<T> {
+	const host = new FileToolsHost();
+	let opened: FileToolsInvocation | undefined;
+	try {
+		opened = expectSuccess(await host.open({ cwd: workspace, sessionId }));
+		return await run(opened);
+	} finally {
+		opened?.dispose();
+		host.dispose();
+	}
+}
+
+export async function withGrepRuntime<T>(
+	workspace: string,
+	sessionId: string,
+	run: (runtime: { readonly tool: GrepTool; readonly opened: FileToolsInvocation }) => Promise<T>,
+): Promise<T> {
+	const host = new FileToolsHost();
+	const tool = new GrepTool();
+	let opened: FileToolsInvocation | undefined;
+	try {
+		opened = expectSuccess(await host.open({ cwd: workspace, sessionId }));
+		return await run({ tool, opened });
+	} finally {
+		tool.dispose();
+		opened?.dispose();
+		host.dispose();
+	}
+}
+
+export function overrideContent(
+	filesystem: WorkspaceFileSystem,
+	build: (content: ContentOperations) => Partial<ContentOperations>,
+): WorkspaceFileSystem {
+	const content = filesystem.content;
+	return {
+		...filesystem,
+		content: {
+			readBytes: content.readBytes.bind(content),
+			readText: content.readText.bind(content),
+			decodeText: content.decodeText.bind(content),
+			sliceText: content.sliceText.bind(content),
+			scanLines: content.scanLines.bind(content),
+			...build(content),
+		},
+	};
 }
 
 export async function grepWithAnalyzer(

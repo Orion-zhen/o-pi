@@ -1,5 +1,5 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { Key, visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { BorderedScrollViewer } from "../../src/tui/bordered-scroll-viewer.js";
 
@@ -24,16 +24,20 @@ describe("bordered scroll viewer", () => {
 
 		expect(lines.some((line) => visibleWidth(line) > 30)).toBe(false);
 		expect(lines.join("\n")).toContain("ZZZZ_END");
-		expect(lines.at(0)).toMatch(/\x1b\[/u);
 	});
 
-	it("Esc、q、Enter 可关闭", () => {
+	it.each([
+		["escape", "\x1b"],
+		["q", "q"],
+		["enter", "\r"],
+	])("%s 可关闭", (_name, key) => {
 		let closed = 0;
 		const viewer = new OverflowLineViewer("x", () => 10, () => {
 			closed += 1;
 		});
-		viewer.handleInput(Key.up);
-		viewer.handleInput("q");
+		viewer.handleInput("x");
+		expect(closed).toBe(0);
+		viewer.handleInput(key);
 		expect(closed).toBe(1);
 	});
 });

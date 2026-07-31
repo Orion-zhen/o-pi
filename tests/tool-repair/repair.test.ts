@@ -22,6 +22,16 @@ const pathListSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+const defaultingTool = repairableTool(defineNoopTool(Type.Object({
+	query: Type.String(),
+	mode: Type.Optional(Type.String({ default: "auto" })),
+	timeout: Type.Optional(Type.Integer({ minimum: 1, default: 30 })),
+	tags: Type.Optional(Type.Array(Type.String(), { minItems: 1, default: ["all"] })),
+	filter: Type.Optional(Type.Object({ include: Type.String() }, { additionalProperties: false, default: { include: "*" } })),
+	count: Type.Optional(Type.Integer({ default: 10 })),
+	enable: Type.Optional(Type.Boolean({ default: true })),
+	label: Type.Optional(Type.String({ default: "default" })),
+}, { additionalProperties: false })), { emptyValueToDefault: true });
 
 describe("tool-input repair", () => {
 	it("在原 prepareArguments 后修复别名、数字字符串、optional null、路径前缀和 unknown fields", () => {
@@ -215,103 +225,32 @@ describe("tool-input repair", () => {
 		});
 	});
 
-	it("将空值回退到 schema 中的默认值：null、undefined、空字符串、空数组和空对象", () => {
-		const schema = Type.Object({
-			query: Type.String(),
-			mode: Type.Optional(Type.String({ default: "auto" })),
-			timeout: Type.Optional(Type.Integer({ minimum: 1, default: 30 })),
-			tags: Type.Optional(Type.Array(Type.String(), { minItems: 1, default: ["all"] })),
-			filter: Type.Optional(Type.Object({ include: Type.String() }, { additionalProperties: false, default: { include: "*" } })),
-		}, { additionalProperties: false });
-
-		const tool = repairableTool(defineNoopTool(schema), {
-			emptyValueToDefault: true,
-		});
-
-		expect(tool.prepareArguments?.({ query: "test", mode: null })).toEqual({
-			query: "test",
-			mode: "auto",
-		});
-		// explicitly passing undefined is treated as empty and replaced with default
-		expect(tool.prepareArguments?.({ query: "test", timeout: undefined })).toEqual({
-			query: "test",
-			timeout: 30,
-		});
-		expect(tool.prepareArguments?.({ query: "test", mode: "" })).toEqual({
-			query: "test",
-			mode: "auto",
-		});
-		expect(tool.prepareArguments?.({ query: "test", mode: "  " })).toEqual({
-			query: "test",
-			mode: "auto",
-		});
-		expect(tool.prepareArguments?.({ query: "test", tags: [] })).toEqual({
-			query: "test",
-			tags: ["all"],
-		});
-		expect(tool.prepareArguments?.({ query: "test", filter: {} })).toEqual({
-			query: "test",
-			filter: { include: "*" },
-		});
+	it.each([
+		[{ mode: null }, { mode: "auto" }],
+		[{ timeout: undefined }, { timeout: 30 }],
+		[{ mode: "" }, { mode: "auto" }],
+		[{ mode: "  " }, { mode: "auto" }],
+		[{ tags: [] }, { tags: ["all"] }],
+		[{ filter: {} }, { filter: { include: "*" } }],
+		[{ count: 0 }, { count: 0 }],
+		[{ enable: false }, { enable: false }],
+		[{ label: "a" }, { label: "a" }],
+	] as const)("只把空值回退到 schema 默认值: %#", (input, expected) => {
+		expect(defaultingTool.prepareArguments?.({ query: "test", ...input })).toEqual({ query: "test", ...expected });
 	});
 
-	it("不会把 0、false 和空字符串之外的有效值当作空值处理", () => {
-		const schema = Type.Object({
-			query: Type.String(),
-			count: Type.Optional(Type.Integer({ default: 10 })),
-			enable: Type.Optional(Type.Boolean({ default: true })),
-			label: Type.Optional(Type.String({ default: "default" })),
-		}, { additionalProperties: false });
-
-		const tool = repairableTool(defineNoopTool(schema), {
-			emptyValueToDefault: true,
-		});
-
-		expect(tool.prepareArguments?.({ query: "test", count: 0 })).toEqual({
-			query: "test",
-			count: 0,
-		});
-		expect(tool.prepareArguments?.({ query: "test", enable: false })).toEqual({
-			query: "test",
-			enable: false,
-		});
-		expect(tool.prepareArguments?.({ query: "test", label: "a" })).toEqual({
-			query: "test",
-			label: "a",
-		});
-	});
-
-	it("对没有默认值的空值不做替换，保留原参数让 schema 校验失败", () => {
-		const schema = Type.Object({
+	it("无默认值或未启用回退时保留原有空值语义", () => {
+		const withoutDefault = repairableTool(defineNoopTool(Type.Object({
 			query: Type.String(),
 			mode: Type.Optional(Type.String()),
-		}, { additionalProperties: false });
-
-		const tool = repairableTool(defineNoopTool(schema), {
-			emptyValueToDefault: true,
-		});
-
-		expect(tool.prepareArguments?.({ query: "test", mode: "" })).toEqual({
-			query: "test",
-			mode: "",
-		});
-	});
-
-	it("不支持 emptyValueToDefault 时不触发默认值替换", () => {
-		const schema = Type.Object({
+		}, { additionalProperties: false })), { emptyValueToDefault: true });
+		const disabled = repairableTool(defineNoopTool(Type.Object({
 			query: Type.String(),
 			mode: Type.Optional(Type.String({ default: "auto" })),
-		}, { additionalProperties: false });
-
-		const tool = repairableTool(defineNoopTool(schema));
-
-		expect(tool.prepareArguments?.({ query: "test", mode: null })).toEqual({
-			query: "test",
-		});
-		expect(tool.prepareArguments?.({ query: "test", mode: "" })).toEqual({
-			query: "test",
-			mode: "",
-		});
+		}, { additionalProperties: false })));
+		expect(withoutDefault.prepareArguments?.({ query: "test", mode: "" })).toEqual({ query: "test", mode: "" });
+		expect(disabled.prepareArguments?.({ query: "test", mode: null })).toEqual({ query: "test" });
+		expect(disabled.prepareArguments?.({ query: "test", mode: "" })).toEqual({ query: "test", mode: "" });
 	});
 
 	it("支持嵌套字段的空值默认值回退", () => {
@@ -323,18 +262,11 @@ describe("tool-input repair", () => {
 			}, { additionalProperties: false, default: { limit: 20, strategy: "fast" } })),
 		}, { additionalProperties: false });
 
-		const tool = repairableTool(defineNoopTool(nestedSchema), {
-			emptyValueToDefault: true,
-		});
-
-		expect(tool.prepareArguments?.({ query: "test", options: null })).toEqual({
-			query: "test",
-			options: { limit: 20, strategy: "fast" },
-		});
-		expect(tool.prepareArguments?.({ query: "test", options: { limit: null } })).toEqual({
-			query: "test",
-			options: { limit: 20 },
-		});
+		const tool = repairableTool(defineNoopTool(nestedSchema), { emptyValueToDefault: true });
+		expect(tool.prepareArguments?.({ query: "test", options: null }))
+			.toEqual({ query: "test", options: { limit: 20, strategy: "fast" } });
+		expect(tool.prepareArguments?.({ query: "test", options: { limit: null } }))
+			.toEqual({ query: "test", options: { limit: 20 } });
 	});
 });
 

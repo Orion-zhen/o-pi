@@ -2,8 +2,6 @@ import { rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ContentOperations } from "../../src/filesystem/contracts/content.js";
-import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspace.js";
 import { buildScopeInventory } from "../../src/file-tools/grep/inventory.js";
 import { packGrepResults, renderGrepSuccess } from "../../src/file-tools/grep/packer.js";
 import { scanInventoryText } from "../../src/file-tools/grep/text-scanner.js";
@@ -11,9 +9,18 @@ import { countTextTokensSync } from "../../src/token-counter.js";
 import { formatCompactGrepResult } from "../../src/file-tools/grep/command.js";
 import { compactDisplayLine } from "../../src/file-tools/grep/display.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
-import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
-import { isFailed } from "../../src/file-tools/shared/result.js";
-import { createGrepTestContext, expectGrepSuccess, expectInventorySuccess, firstRegion, assertStrictMatches, grepWithAnalyzer, writeConfig } from "./grep-fixtures.js";
+import {
+	assertStrictMatches,
+	createGrepTestContext,
+	expectGrepSuccess,
+	expectInventorySuccess,
+	expectSuccess,
+	firstRegion,
+	grepWithAnalyzer,
+	overrideContent,
+	withFileToolsInvocation,
+	writeConfig,
+} from "./grep-fixtures.js";
 import { packCandidate, packRegions, queryPlan, rankingEvidence } from "./grep-ranking-fixtures.js";
 
 const testContext = createGrepTestContext();
@@ -203,22 +210,18 @@ describe("grep text search", () => {
 	it("TextScanner 以正文 UTF-8 坐标存储 BOM 后的多字节命中并观测未保存命中数", async () => {
 		const lines = "你😀hit\n你😀hit\n你😀hit\n你😀hit\n你😀hit\n";
 		await writeFile(path.join(testContext.workspace, "hits.txt"), Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(lines)]));
-		const host = new FileToolsHost();
-		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-hit-limit" });
-		if (isFailed(opened)) throw new Error(opened.error.message);
-		try {
+		await withFileToolsInvocation(testContext.workspace, "grep-hit-limit", async (opened) => {
 			const inventory = expectInventorySuccess(await buildScopeInventory({ paths: ["hits.txt"] }, {
 				filesystem: opened.filesystem,
 				operation: opened.context,
 				maxDepth: 12,
 			}));
-			const scanned = await scanInventoryText(inventory, queryPlan("hit"), {
+			const scanned = expectSuccess(await scanInventoryText(inventory, queryPlan("hit"), {
 				filesystem: opened.filesystem,
 				operation: opened.context,
 				maxStoredHits: 2,
 				maxStoredAnchors: 2,
-			});
-			if (isFailed(scanned)) throw new Error(scanned.error.message);
+			}));
 			expect(scanned.hits).toHaveLength(2);
 			expect(scanned.hits[0]).toMatchObject({
 				line: 1,
@@ -232,19 +235,13 @@ describe("grep text search", () => {
 				droppedTextHits: 3,
 				droppedRelatedAnchors: 3,
 			});
-		} finally {
-			opened.dispose();
-			host.dispose();
-		}
+		});
 	});
 
 	it("inventory 后 identity 替换时 TextScanner 丢弃旧快照并区分递归跳过与显式错误", async () => {
 		const filePath = path.join(testContext.workspace, "snapshot-race.txt");
 		const replacementPath = path.join(testContext.outside, "snapshot-replacement.txt");
-		const host = new FileToolsHost();
-		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-snapshot-race" });
-		if (isFailed(opened)) throw new Error(opened.error.message);
-		try {
+		await withFileToolsInvocation(testContext.workspace, "grep-snapshot-race", async (opened) => {
 			for (const [paths, explicit] of [[["."], false], [["snapshot-race.txt"], true]] as const) {
 				await writeFile(filePath, "needle\n");
 				await writeFile(replacementPath, "current");
@@ -255,45 +252,33 @@ describe("grep text search", () => {
 				}));
 				await rm(filePath);
 				await rename(replacementPath, filePath);
-				const scanned = await scanInventoryText(inventory, queryPlan("needle"), {
+				const scanned = expectSuccess(await scanInventoryText(inventory, queryPlan("needle"), {
 					filesystem: opened.filesystem,
 					operation: opened.context,
-				});
-				if (isFailed(scanned)) throw new Error(scanned.error.message);
+				}));
 				expect(scanned.hits).toEqual([]);
 				expect(scanned.stats.searchedFiles).toBe(0);
 				if (explicit) expect(scanned.scopeErrors).toMatchObject([{ error: { code: "STALE_READ" } }]);
 				else expect(scanned.stats.skipped).toMatchObject({ changed: 1 });
 			}
-		} finally {
-			opened.dispose();
-			host.dispose();
-		}
+		});
 	});
 
 	it("TextScanner 丢弃 changed-during-read 的部分命中并区分递归跳过与显式错误", async () => {
 		await writeFile(path.join(testContext.workspace, "race.txt"), "needle\n");
-		const host = new FileToolsHost();
-		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-changed-scan" });
-		if (isFailed(opened)) throw new Error(opened.error.message);
-		let closes = 0;
-		const content: ContentOperations = {
-			readBytes: opened.filesystem.content.readBytes.bind(opened.filesystem.content),
-			readText: opened.filesystem.content.readText.bind(opened.filesystem.content),
-			decodeText: opened.filesystem.content.decodeText.bind(opened.filesystem.content),
-			sliceText: opened.filesystem.content.sliceText.bind(opened.filesystem.content),
-			async scanLines() {
-				return { ok: true, value: {
-					async *[Symbol.asyncIterator]() {
-						yield { ok: true as const, value: { line: 1, text: "needle", byteStart: 0, byteEnd: 6 } };
-						yield { ok: false as const, error: { code: "changed-during-read" as const, message: "changed", path: "race.txt" } };
-					},
-					async close() { closes += 1; },
-				} };
-			},
-		};
-		const filesystem: WorkspaceFileSystem = { ...opened.filesystem, content };
-		try {
+		await withFileToolsInvocation(testContext.workspace, "grep-changed-scan", async (opened) => {
+			let closes = 0;
+			const filesystem = overrideContent(opened.filesystem, () => ({
+				async scanLines() {
+					return { ok: true, value: {
+						async *[Symbol.asyncIterator]() {
+							yield { ok: true as const, value: { line: 1, text: "needle", byteStart: 0, byteEnd: 6 } };
+							yield { ok: false as const, error: { code: "changed-during-read" as const, message: "changed", path: "race.txt" } };
+						},
+						async close() { closes += 1; },
+					} };
+				},
+			}));
 			for (const [paths, explicit] of [[["."], false], [["race.txt"], true]] as const) {
 				const inventory = expectInventorySuccess(await buildScopeInventory({ paths }, {
 					filesystem,
@@ -304,16 +289,13 @@ describe("grep text search", () => {
 					filesystem,
 					operation: opened.context,
 				});
-				if (isFailed(scanned)) throw new Error(scanned.error.message);
-				expect(scanned.hits).toEqual([]);
-				if (explicit) expect(scanned.scopeErrors).toMatchObject([{ error: { code: "STALE_READ" } }]);
-				else expect(scanned.stats.skipped).toMatchObject({ changed: 1 });
+				const success = expectSuccess(scanned);
+				expect(success.hits).toEqual([]);
+				if (explicit) expect(success.scopeErrors).toMatchObject([{ error: { code: "STALE_READ" } }]);
+				else expect(success.stats.skipped).toMatchObject({ changed: 1 });
 			}
 			expect(closes).toBe(2);
-		} finally {
-			opened.dispose();
-			host.dispose();
-		}
+		});
 	});
 
 	it("紧凑输出只保留位置、symbol、related 标记、声明和证据行", () => {

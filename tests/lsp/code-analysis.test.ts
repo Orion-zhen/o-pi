@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SymbolKind, type SymbolInformation } from "vscode-languageserver-protocol";
+import { SymbolKind, type ServerCapabilities, type SymbolInformation } from "vscode-languageserver-protocol";
 
 import type { CodeDocument } from "../../src/code-index/types.js";
 import { LspClient } from "../../src/lsp/client.js";
@@ -35,13 +35,7 @@ describe("lsp code analysis", () => {
 		const sourcePath = path.join(workspace, "src.ts");
 		const testPath = path.join(workspace, "tests.ts");
 		const callerUri = uri(path.join(workspace, "caller.ts"));
-		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
-		vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue({
-			workspaceSymbolProvider: true,
-			documentSymbolProvider: true,
-			referencesProvider: true,
-			callHierarchyProvider: true,
-		});
+		mockCapabilities();
 		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([
 			workspaceSymbol("Target", sourcePath),
 			workspaceSymbol("Target", testPath),
@@ -75,8 +69,7 @@ describe("lsp code analysis", () => {
 			["tests.ts", document("tests.ts", "export function Target() {\n  return false;\n}\n")],
 		]);
 
-		const manager = new LspManager();
-		const analysis = await manager.codeAnalysis({
+		const analysis = await analyze({
 			root: workspace,
 			query: "Target",
 			targets: ["src.ts", "tests.ts", "ignored.ts"].map((targetPath) => ({ path: targetPath, ranges: [] })),
@@ -87,8 +80,6 @@ describe("lsp code analysis", () => {
 				return value === undefined ? undefined : { ...value, filePath: path.join(workspace, relativePath) };
 			},
 		});
-		await manager.reload();
-
 		expect(analysis?.files.map(({ document: value, analysis: file }) => ({
 			path: value.path,
 			authority: file.index.units[0]?.authority,
@@ -104,20 +95,13 @@ describe("lsp code analysis", () => {
 
 	it("选中 symbol 后 documentSymbol 请求失败时原子返回 unavailable", async () => {
 		const sourcePath = path.join(workspace, "src.ts");
-		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
-		vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue({
-			workspaceSymbolProvider: true,
-			documentSymbolProvider: true,
-			referencesProvider: true,
-			callHierarchyProvider: true,
-		});
+		mockCapabilities();
 		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([workspaceSymbol("Target", sourcePath)]);
 		vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue(undefined);
 		vi.spyOn(LspClient.prototype, "incomingCalls").mockResolvedValue(undefined);
 		vi.spyOn(LspClient.prototype, "references").mockResolvedValue(undefined);
 
-		const manager = new LspManager();
-		const analysis = await manager.codeAnalysis({
+		const analysis = await analyze({
 			root: workspace,
 			query: "Target",
 			targets: [{ path: "src.ts", ranges: [{ startByte: 16, endByte: 22 }] }],
@@ -127,21 +111,13 @@ describe("lsp code analysis", () => {
 				return { ...document(relativePath, "export function Target() {}\n"), filePath: sourcePath };
 			},
 		});
-		await manager.reload();
-
 		expect(analysis).toBeUndefined();
 	});
 
 	it("同文件但位于目标代码单元之外的 caller 仍形成 called authority", async () => {
 		const sourcePath = path.join(workspace, "src.ts");
 		const sourceUri = uri(sourcePath);
-		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
-		vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue({
-			workspaceSymbolProvider: true,
-			documentSymbolProvider: true,
-			referencesProvider: true,
-			callHierarchyProvider: true,
-		});
+		mockCapabilities();
 		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([workspaceSymbol("Target", sourcePath)]);
 		vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue([{
 			name: "Target",
@@ -161,8 +137,7 @@ describe("lsp code analysis", () => {
 		}]);
 		vi.spyOn(LspClient.prototype, "references").mockResolvedValue([]);
 
-		const manager = new LspManager();
-		const analysis = await manager.codeAnalysis({
+		const analysis = await analyze({
 			root: workspace,
 			query: "Target",
 			targets: [{ path: "src.ts", ranges: [{ startByte: 16, endByte: 22 }] }],
@@ -175,24 +150,16 @@ describe("lsp code analysis", () => {
 				};
 			},
 		});
-		await manager.reload();
-
 		expect(analysis?.files[0]?.analysis.index.units[0]?.authority).toBe("called");
 	});
 
 	it("缺少完整 symbol analysis capability 时保持 unavailable", async () => {
 		const sourcePath = path.join(workspace, "src.ts");
-		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
-		vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue({
-			workspaceSymbolProvider: true,
-			documentSymbolProvider: true,
-			referencesProvider: true,
-		});
+		mockCapabilities(["callHierarchyProvider"]);
 		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([workspaceSymbol("Target", sourcePath)]);
 		const load = vi.fn(async () => ({ ...document("src.ts", "export function Target() {}\n"), filePath: sourcePath }));
 
-		const manager = new LspManager();
-		const analysis = await manager.codeAnalysis({
+		const analysis = await analyze({
 			root: workspace,
 			query: "Target",
 			targets: [{ path: "src.ts", ranges: [{ startByte: 16, endByte: 22 }] }],
@@ -200,8 +167,6 @@ describe("lsp code analysis", () => {
 			limit: 8,
 			load,
 		});
-		await manager.reload();
-
 		expect(analysis).toBeUndefined();
 		expect(load).not.toHaveBeenCalled();
 	});
@@ -209,12 +174,7 @@ describe("lsp code analysis", () => {
 	it("任一目标文档失败时丢弃其他文档的成功结果", async () => {
 		const sourcePath = path.join(workspace, "src.ts");
 		const testsPath = path.join(workspace, "tests.ts");
-		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
-		vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue({
-			documentSymbolProvider: true,
-			referencesProvider: true,
-			callHierarchyProvider: true,
-		});
+		mockCapabilities(["workspaceSymbolProvider"]);
 		const documentSymbols = vi.spyOn(LspClient.prototype, "documentSymbols").mockImplementation(async (filePath) =>
 			filePath === sourcePath
 				? [{
@@ -227,8 +187,7 @@ describe("lsp code analysis", () => {
 		vi.spyOn(LspClient.prototype, "incomingCalls").mockResolvedValue([]);
 		vi.spyOn(LspClient.prototype, "references").mockResolvedValue([]);
 
-		const manager = new LspManager();
-		const analysis = await manager.codeAnalysis({
+		const analysis = await analyze({
 			root: workspace,
 			query: "Target",
 			targets: [
@@ -244,8 +203,6 @@ describe("lsp code analysis", () => {
 				};
 			},
 		});
-		await manager.reload();
-
 		expect(analysis).toBeUndefined();
 		expect(documentSymbols).toHaveBeenCalledTimes(2);
 	});
@@ -261,13 +218,7 @@ describe("lsp code analysis", () => {
 		}));
 		process.env.PI_LSP_CONFIG = config;
 		const sourcePath = path.join(workspace, "src.ts");
-		vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
-		vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue({
-			workspaceSymbolProvider: true,
-			documentSymbolProvider: true,
-			referencesProvider: true,
-			callHierarchyProvider: true,
-		});
+		mockCapabilities();
 		const workspaceSymbols = vi.spyOn(LspClient.prototype, "workspaceSymbols")
 			.mockImplementation(async function(this: LspClient) {
 				return this.server.id === "typescript"
@@ -276,8 +227,7 @@ describe("lsp code analysis", () => {
 			});
 		const load = vi.fn(async () => undefined);
 
-		const manager = new LspManager();
-		const analysis = await manager.codeAnalysis({
+		const analysis = await analyze({
 			root: workspace,
 			query: "Target",
 			targets: [
@@ -288,13 +238,34 @@ describe("lsp code analysis", () => {
 			limit: 8,
 			load,
 		});
-		await manager.reload();
-
 		expect(analysis).toBeUndefined();
 		expect(workspaceSymbols).toHaveBeenCalledTimes(2);
 		expect(load).not.toHaveBeenCalled();
 	});
 });
+
+const fullCapabilities: ServerCapabilities = {
+	workspaceSymbolProvider: true,
+	documentSymbolProvider: true,
+	referencesProvider: true,
+	callHierarchyProvider: true,
+};
+
+function mockCapabilities(omitted: readonly (keyof ServerCapabilities)[] = []): void {
+	const capabilities = { ...fullCapabilities };
+	for (const key of omitted) delete capabilities[key];
+	vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
+	vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue(capabilities);
+}
+
+async function analyze(input: Parameters<LspManager["codeAnalysis"]>[0]) {
+	const manager = new LspManager();
+	try {
+		return await manager.codeAnalysis(input);
+	} finally {
+		await manager.reload();
+	}
+}
 
 function workspaceSymbol(name: string, filePath: string): SymbolInformation {
 	return {

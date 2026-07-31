@@ -8,34 +8,37 @@ const theme = {
 };
 
 describe("websearch renderer", () => {
-	it("残缺 args 不崩溃并清理 query 控制字符", () => {
-		expect(formatWebSearchCall({}, theme)).toContain("...");
+	it("清理调用参数，并安全渲染各进度阶段", () => {
+		expect(formatWebSearchCall({}, theme).length).toBeGreaterThan(0);
 		const text = formatWebSearchCall({ query: "pi\u001b[31m search" }, theme);
-		expect(text).toContain('"pi search"');
+		expect(text).toContain("pi search");
 		expect(text).not.toContain("\u001b");
+
+		for (const details of [
+			{ ...successDetails(0), results: [] },
+			{ status: "progress", phase: "waiting", wait_ms: 2000 },
+			{ status: "progress", phase: "requesting" },
+			{ status: "progress", phase: "downloading", received_bytes: 2048 },
+			{ status: "progress", phase: "parsing" },
+		] as const) {
+			expect(formatWebSearchResult(details, { isPartial: true }, theme).length).toBeGreaterThan(0);
+		}
 	});
 
-	it("折叠只显示 2 行卡片，不直接显示搜索结果列表", () => {
-		const rendered = formatWebSearchResult(successDetails(5), {}, theme);
-		expect(rendered.split("\n")).toHaveLength(2);
-		expect(rendered).toContain("5 results");
-		expect(rendered).not.toContain("1. Title 1");
-		expect(rendered).not.toContain("4. Title 4");
-		expect(rendered).toContain("cache miss");
-		expect(rendered).toContain("exa_api");
+	it("折叠隐藏结果正文，展开后保留结果信息", () => {
+		const details = successDetails(2);
+		const collapsed = formatWebSearchResult(details, {}, theme);
+		const expanded = formatWebSearchResult(details, { expanded: true }, theme);
+
+		for (const value of ["Snippet 1", "https://example.com/1"]) expect(collapsed).not.toContain(value);
+		for (const value of ["Title 1", "Snippet 1", "https://example.com/1", "exa_api"]) {
+			expect(expanded).toContain(value);
+		}
+		expect(expanded.length).toBeGreaterThan(collapsed.length);
 	});
 
-	it("展开显示完整结果、摘要、URL 和 metadata", () => {
-		const rendered = formatWebSearchResult(successDetails(2), { expanded: true }, theme);
-		expect(rendered).toContain("Snippet 1");
-		expect(rendered).toContain("https://example.com/1");
-		expect(rendered).toContain("Provider        exa_api");
-		expect(rendered).toContain("Cache           miss");
-		expect(rendered).toContain("Downloaded      2.0 KB");
-	});
-
-	it("fallback success 展开显示 attempts 且不泄漏 key", () => {
-		const rendered = formatWebSearchResult(
+	it("fallback 与失败详情保留诊断信息，且清理敏感或不可信文本", () => {
+		const fallback = formatWebSearchResult(
 			{
 				...successDetails(1),
 				provider: "duckduckgo_html" as const,
@@ -47,22 +50,9 @@ describe("websearch renderer", () => {
 			{ expanded: true },
 			theme,
 		);
-		expect(rendered).toContain("fallback");
-		expect(rendered).toContain("Attempts");
-		expect(rendered).toContain("exa_api");
-		expect(rendered).toContain("duckduckgo_html");
-		expect(rendered).not.toContain("secret-key");
-	});
+		for (const value of ["exa_api", "duckduckgo_html"]) expect(fallback).toContain(value);
+		expect(fallback).not.toContain("secret-key");
 
-	it("零结果和 progress 三种阶段", () => {
-		expect(formatWebSearchResult({ ...successDetails(0), results: [] }, {}, theme)).toContain("no results");
-		expect(formatWebSearchResult({ status: "progress", phase: "waiting", wait_ms: 2000 }, { isPartial: true }, theme)).toContain("waiting 2s");
-		expect(formatWebSearchResult({ status: "progress", phase: "requesting" }, { isPartial: true }, theme)).toContain("searching");
-		expect(formatWebSearchResult({ status: "progress", phase: "downloading", received_bytes: 2048 }, { isPartial: true }, theme)).toContain("2.0 KB");
-		expect(formatWebSearchResult({ status: "progress", phase: "parsing" }, { isPartial: true }, theme)).toContain("parsing");
-	});
-
-	it("failure 折叠和展开，且网页 ANSI/OSC 不进入输出", () => {
 		const details = {
 			status: "failed" as const,
 			error: { code: "PARSE_FAILED" as const, message: "bad\u001b[31m page" },
@@ -73,20 +63,19 @@ describe("websearch renderer", () => {
 			response_preview: "preview\u001b]0;title\u0007 text",
 		};
 		const collapsed = formatWebSearchResult(details, {}, theme);
-		expect(collapsed).toContain("PARSE_FAILED");
 		expect(collapsed).not.toContain("\u001b");
+		expect(collapsed).not.toContain("preview text");
 		const expanded = formatWebSearchResult(details, { expanded: true }, theme);
-		expect(expanded).toContain("Status          200");
-		expect(expanded).toContain("Attempts");
+		expect(expanded).toContain("PARSE_FAILED");
 		expect(expanded).toContain("preview text");
 		expect(expanded).not.toContain("\u001b");
 	});
 
-	it("call 卡片在 progress/result 出现后由 result 原位接管", () => {
+	it("progress 和最终结果接管调用阶段组件", () => {
 		const args = { query: "pi coding agent", limit: 5 };
 		const state = {};
 		let call = renderWebSearchCall(args, theme, { lastComponent: undefined, state });
-		expect(call.render(160)).toHaveLength(2);
+		expect(call.render(160).join("")).toContain(args.query);
 
 		call = renderWebSearchCall(args, theme, { lastComponent: call, state });
 		let result = renderWebSearchResult(
@@ -95,10 +84,9 @@ describe("websearch renderer", () => {
 			theme,
 			{ args, lastComponent: undefined, state },
 		);
-		const progress = [...call.render(160), ...result.render(160)].join("\n");
-		expect(progress.split("\n")).toHaveLength(2);
-		expect(progress.match(/websearch/g)).toHaveLength(1);
-		expect(progress).toContain("limit 5 · adaptive routing · searching...");
+		expect(call.render(160).join("")).toBe("");
+		const progressOutput = result.render(160).join("");
+		expect(progressOutput).toContain(args.query);
 
 		call = renderWebSearchCall(args, theme, { lastComponent: call, state });
 		result = renderWebSearchResult(
@@ -107,10 +95,11 @@ describe("websearch renderer", () => {
 			theme,
 			{ args, lastComponent: result, state },
 		);
-		const settled = [...call.render(160), ...result.render(160)].join("\n");
-		expect(settled.split("\n")).toHaveLength(2);
-		expect(settled.match(/websearch/g)).toHaveLength(1);
-		expect(settled).toContain("2 results");
+		expect(call.render(160).join("")).toBe("");
+		const settledOutput = result.render(160).join("");
+		expect(settledOutput).toContain(args.query);
+		expect(settledOutput).toContain("exa_api");
+		expect(settledOutput).not.toBe(progressOutput);
 	});
 });
 

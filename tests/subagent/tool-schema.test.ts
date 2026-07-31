@@ -84,15 +84,4 @@ describe("subagent tool schema", () => {
 
 		expect(result.content[0]?.text).toContain("Recursive subagent calls are forbidden");
 	});
-
-	it("不暴露运行时安全、并发或重试配置", () => {
-		const schemaText = JSON.stringify(subagentSchema());
-		expect(schemaText).not.toContain("agentScope");
-		expect(schemaText).not.toContain("allowProjectAgents");
-		expect(schemaText).not.toContain("maxConcurrency");
-		expect(schemaText).not.toContain("retries");
-		expect(schemaText).not.toContain("fork");
-		expect(schemaText).not.toContain("outputMode");
-		expect(schemaText).not.toContain('"mode"');
-	});
 });

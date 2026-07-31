@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { readRuns } from "./benchmark/cli.mjs";
-import { measureInteractiveReady, measureJsonWorker, measureProcess } from "./benchmark/runtime.mjs";
+import { measureInteractiveReady, measureJsonWorker, measureProcess, SCRIPT_BIN } from "./benchmark/runtime.mjs";
 import { row } from "./benchmark/stats.mjs";
 
 const worker = fileURLToPath(new URL("./workers/bench-web-tools-worker.mjs", import.meta.url));
@@ -29,7 +29,7 @@ const html = Object.fromEntries(htmlScenarios.map((scenario) => [
 	scenario,
 	measureJsonWorker(worker, ["html", scenario], { warmups: htmlWarmups, runs }),
 ]));
-const readyRows = existsSync("/usr/bin/script") ? await measureReadyRows() : [];
+const readyRows = existsSync(SCRIPT_BIN) ? await measureReadyRows() : [];
 
 console.log(`web-tools benchmark (${runs} measured runs, ${warmups} startup warmups/${htmlWarmups} HTML warmup; process-cold/filesystem-warm; fake network)`);
 console.table([

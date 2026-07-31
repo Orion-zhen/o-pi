@@ -1,7 +1,5 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import fileTools from "../../agent/extensions/file-tools.js";
@@ -10,9 +8,12 @@ import { formatEditModelResult } from "../../src/file-tools/edit/presenter.js";
 import { isGrepSuccessDetails } from "../../src/file-tools/pi/guards.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import { lspFileOperations as lspFileHooks } from "../../src/lsp/index.js";
-import { executeTool, textResult, type ExecuteTool } from "./extension-fixture.js";
+import { useTempDir } from "../helpers/lifecycle.js";
+import { executeTool, registerExtension, textResult } from "./extension-fixture.js";
 
 describe("file-tools extension model output", () => {
+	const workspace = useTempDir("o-pi-file-output-");
+
 	afterEach(() => {
 		vi.useRealTimers();
 		vi.restoreAllMocks();
@@ -77,15 +78,8 @@ describe("file-tools extension model output", () => {
 	});
 
 	it("read/edit 成功结果给模型返回紧凑文本，完整结构留在 details", async () => {
-		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
-		fileTools({
-			registerTool(tool: { name: string; execute?: ExecuteTool }) {
-				registered.push(tool);
-			},
-			on() {},
-		} as unknown as ExtensionAPI);
-
-		const cwd = await mkdtemp(join(tmpdir(), "o-pi-compact-file-output-"));
+		const { registered } = registerExtension(fileTools);
+		const cwd = workspace.path;
 		const originalAfterEdit = lspFileHooks.afterWrite;
 		try {
 			delete lspFileHooks.afterWrite;
@@ -117,52 +111,36 @@ describe("file-tools extension model output", () => {
 		} finally {
 			if (originalAfterEdit === undefined) delete lspFileHooks.afterWrite;
 			else lspFileHooks.afterWrite = originalAfterEdit;
-			await rm(cwd, { recursive: true, force: true });
 		}
 	});
 
 	it("OpenAI completions API 只允许 read 返回文本", async () => {
-		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
-		fileTools({
-			registerTool(tool: { name: string; execute?: ExecuteTool }) {
-				registered.push(tool);
-			},
-			on() {},
-		} as unknown as ExtensionAPI);
+		const { registered } = registerExtension(fileTools);
+		const cwd = workspace.path;
+		await writeFile(join(cwd, "a.txt"), "text\n", "utf8");
+		const imageBytes = Buffer.from("R0lGODlhAQABAIABAP///wAAACwAAAAAAQABAAACAkQBADs=", "base64");
+		await writeFile(join(cwd, "pixel.gif"), imageBytes);
+		const ctx = {
+			cwd,
+			sessionManager: { getSessionId: () => "session-completions" },
+			model: { api: "openai-completions", input: ["text", "image"] },
+		};
 
-		const cwd = await mkdtemp(join(tmpdir(), "o-pi-read-completions-output-"));
-		try {
-			await writeFile(join(cwd, "a.txt"), "text\n", "utf8");
-			const imageBytes = Buffer.from("R0lGODlhAQABAIABAP///wAAACwAAAAAAQABAAACAkQBADs=", "base64");
-			await writeFile(join(cwd, "pixel.gif"), imageBytes);
-			const ctx = {
-				cwd,
-				sessionManager: { getSessionId: () => "session-completions" },
-				model: { api: "openai-completions", input: ["text", "image"] },
-			};
+		const textRead = await executeTool(registered, "read", { path: "a.txt" }, ctx);
+		expect(textResult(textRead)).toBe('<read path="a.txt" lines="1-1/1">\ntext\n</read>');
 
-			const textRead = await executeTool(registered, "read", { path: "a.txt" }, ctx);
-			expect(textResult(textRead)).toBe('<read path="a.txt" lines="1-1/1">\ntext\n</read>');
-
-			const imageRead = await executeTool(registered, "read", { path: "pixel.gif" }, ctx);
-			expect(textResult(imageRead)).toBe("<error>\nAPI does not support image format.\n</error>");
-			expect(imageRead.content).toHaveLength(1);
-			expect(imageRead.details).toMatchObject({
-				status: "failed",
-				error: { code: "API_NOT_SUPPORTED", message: "API does not support image format.", path: "pixel.gif" },
-			});
-		} finally {
-			await rm(cwd, { recursive: true, force: true });
-		}
+		const imageRead = await executeTool(registered, "read", { path: "pixel.gif" }, ctx);
+		expect(textResult(imageRead)).toBe("<error>\nAPI does not support image format.\n</error>");
+		expect(imageRead.content).toHaveLength(1);
+		expect(imageRead.details).toMatchObject({
+			status: "failed",
+			error: { code: "API_NOT_SUPPORTED", message: "API does not support image format.", path: "pixel.gif" },
+		});
 	});
 
 	it("write/edit 返回紧凑结果并限制 LSP 诊断", async () => {
-		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
-		fileTools({
-			registerTool(tool: { name: string; execute?: ExecuteTool }) { registered.push(tool); },
-			on() {},
-		} as unknown as ExtensionAPI);
-		const cwd = await mkdtemp(join(tmpdir(), "o-pi-compact-mutation-output-"));
+		const { registered } = registerExtension(fileTools);
+		const cwd = workspace.path;
 		const originalAfterWrite = lspFileHooks.afterWrite;
 		try {
 			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1" } };
@@ -203,7 +181,7 @@ describe("file-tools extension model output", () => {
 			expect(writeText).toContain("errors=2 warnings=4 new_errors=1 new_warnings=0");
 			expect(writeText).toContain("diag error 12:5 Cannot find name 'foo'. (TS2304)");
 			expect(writeText).toContain("... 2 more diagnostics");
-		expect(written.details).toMatchObject({ status: "written", path: "bad-write.ts", lsp: { diagnostics: { status: "errors" } } });
+			expect(written.details).toMatchObject({ status: "written", path: "bad-write.ts", lsp: { diagnostics: { status: "errors" } } });
 
 			const editText = textResult(edited);
 			expect(editText).toBe('<edit path="bad-edit.ts" replacements="1" first_changed_line="1">\nnew error at line 12: Cannot find name \'foo\'. (TS2304)\nnew error at line 40: hidden\n</edit>');
@@ -213,7 +191,6 @@ describe("file-tools extension model output", () => {
 		} finally {
 			if (originalAfterWrite === undefined) delete lspFileHooks.afterWrite;
 			else lspFileHooks.afterWrite = originalAfterWrite;
-			await rm(cwd, { recursive: true, force: true });
 		}
 	});
 
@@ -247,58 +224,47 @@ describe("file-tools extension model output", () => {
 	});
 
 	it("文件工具失败结果给模型返回紧凑 error tag", async () => {
-		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
-		fileTools({
-			registerTool(tool: { name: string; execute?: ExecuteTool }) {
-				registered.push(tool);
-			},
-			on() {},
-		} as unknown as ExtensionAPI);
-
-		const cwd = await mkdtemp(join(tmpdir(), "o-pi-compact-error-output-"));
-		try {
-			await writeFile(join(cwd, "a.ts"), "const one = 1;\n", "utf8");
-			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1" } };
-			for (const [tool, params] of [
-				["ls", { path: "missing" }],
-				["find", { query: "" }],
-				["grep", { query: "[" }],
-				["read", { path: "missing.ts" }],
-				["write", { path: ".git/config", content: "x" }],
-				["edit", { path: "a.ts", edits: [{ old: "one", new: "two" }] }],
-			] as const) {
-				const result = await executeTool(registered, tool, params, ctx);
-				const text = textResult(result);
-				expect(text).toMatch(/^<error>\n[^]+\n<\/error>$/);
-				expect(text).not.toContain("\n  ");
-				expect(result.details).toMatchObject({ status: "failed" });
-				if (tool === "edit") expect(text).toContain("next: Read the file, then create a new edit operation.");
-			}
-
-			const grep = await executeTool(registered, "grep", { query: "one" }, ctx);
-			const grepText = textResult(grep);
-			expect(grepText).toContain("a.ts");
-			expect(grepText).not.toContain("<error");
-			expect(grepText).not.toContain('"status"');
-			expect(grepText).toContain("a.ts:1 one");
-			for (const metadata of ["kind=", "symbol=", "roles=", "matched-by=", "declaration:"]) {
-				expect(grepText).not.toContain(metadata);
-			}
-			for (const legacy of ["lines omitted", "sig|"]) expect(grepText).not.toContain(legacy);
-			expect(isGrepSuccessDetails(grep.details)).toBe(true);
-			if (!isGrepSuccessDetails(grep.details)) throw new Error("missing grep success details");
-			expect(grep.details.approx_tokens).toBe(countTextTokensSync(grepText).tokens);
-			expect(grep.details).toMatchObject({ truncated_by: [], stats: { searched_files: 1 }, regions: [expect.objectContaining({ roles: expect.any(Array) })] });
-
-			const partialFind = await executeTool(registered, "find", { query: "a.ts", path: [".", "missing"] }, ctx);
-			expect(textResult(partialFind)).toContain("partial; scope_errors=missing:PATH_NOT_FOUND");
-			expect(partialFind.details).toMatchObject({ paths: ["."], scope_errors: [{ path: "missing" }] });
-
-			const partialGrep = await executeTool(registered, "grep", { query: "one", path: [".", "missing"] }, ctx);
-			expect(textResult(partialGrep)).toContain("partial; scope_errors=missing:PATH_NOT_FOUND");
-			expect(partialGrep.details).toMatchObject({ paths: ["."], scope_errors: [{ path: "missing" }] });
-		} finally {
-			await rm(cwd, { recursive: true, force: true });
+		const { registered } = registerExtension(fileTools);
+		const cwd = workspace.path;
+		await writeFile(join(cwd, "a.ts"), "const one = 1;\n", "utf8");
+		const ctx = { cwd, sessionManager: { getSessionId: () => "session-1" } };
+		for (const [tool, params] of [
+			["ls", { path: "missing" }],
+			["find", { query: "" }],
+			["grep", { query: "[" }],
+			["read", { path: "missing.ts" }],
+			["write", { path: ".git/config", content: "x" }],
+			["edit", { path: "a.ts", edits: [{ old: "one", new: "two" }] }],
+		] as const) {
+			const result = await executeTool(registered, tool, params, ctx);
+			const text = textResult(result);
+			expect(text).toMatch(/^<error>\n[^]+\n<\/error>$/);
+			expect(text).not.toContain("\n  ");
+			expect(result.details).toMatchObject({ status: "failed" });
+			if (tool === "edit") expect(text).toContain("next: Read the file, then create a new edit operation.");
 		}
+
+		const grep = await executeTool(registered, "grep", { query: "one" }, ctx);
+		const grepText = textResult(grep);
+		expect(grepText).toContain("a.ts");
+		expect(grepText).not.toContain("<error");
+		expect(grepText).not.toContain('"status"');
+		expect(grepText).toContain("a.ts:1 one");
+		for (const metadata of ["kind=", "symbol=", "roles=", "matched-by=", "declaration:"]) {
+			expect(grepText).not.toContain(metadata);
+		}
+		for (const legacy of ["lines omitted", "sig|"]) expect(grepText).not.toContain(legacy);
+		expect(isGrepSuccessDetails(grep.details)).toBe(true);
+		if (!isGrepSuccessDetails(grep.details)) throw new Error("missing grep success details");
+		expect(grep.details.approx_tokens).toBe(countTextTokensSync(grepText).tokens);
+		expect(grep.details).toMatchObject({ truncated_by: [], stats: { searched_files: 1 }, regions: [expect.objectContaining({ roles: expect.any(Array) })] });
+
+		const partialFind = await executeTool(registered, "find", { query: "a.ts", path: [".", "missing"] }, ctx);
+		expect(textResult(partialFind)).toContain("partial; scope_errors=missing:PATH_NOT_FOUND");
+		expect(partialFind.details).toMatchObject({ paths: ["."], scope_errors: [{ path: "missing" }] });
+
+		const partialGrep = await executeTool(registered, "grep", { query: "one", path: [".", "missing"] }, ctx);
+		expect(textResult(partialGrep)).toContain("partial; scope_errors=missing:PATH_NOT_FOUND");
+		expect(partialGrep.details).toMatchObject({ paths: ["."], scope_errors: [{ path: "missing" }] });
 	});
 });

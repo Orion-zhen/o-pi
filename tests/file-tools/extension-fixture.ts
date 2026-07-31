@@ -1,3 +1,5 @@
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
 export interface ThemeStub {
 	fg(name: string, text: string): string;
 	bg(name: string, text: string): string;
@@ -38,25 +40,58 @@ export type ExecuteTool = (
 	ctx: ExecuteToolContext,
 ) => Promise<ExecuteResult>;
 
+export interface RegisteredTool {
+	name: string;
+	execute?: ExecuteTool;
+	renderCall?: RenderCall;
+	renderResult?: RenderResult;
+}
+
+export function registerExtension(
+	extension: (pi: ExtensionAPI) => void,
+	api: Record<string, unknown> = {},
+): { registered: RegisteredTool[]; handlers: Map<string, LifecycleHandler> } {
+	const registered: RegisteredTool[] = [];
+	const handlers = new Map<string, LifecycleHandler>();
+	extension({
+		...api,
+		registerTool(tool: RegisteredTool) {
+			registered.push(tool);
+		},
+		on(name: string, handler: LifecycleHandler) {
+			handlers.set(name, handler);
+		},
+	} as unknown as ExtensionAPI);
+	return { registered, handlers };
+}
+
 export async function activateFileTools(handler: LifecycleHandler | undefined, mode: "tui" | "rpc" = "tui"): Promise<void> {
 	await handler?.({}, { mode, ui: { notify() {} } });
+}
+
+export interface RenderOptions {
+	readonly expanded?: boolean;
+	readonly isPartial?: boolean;
+	readonly args?: unknown;
+	readonly content?: ExecuteResult["content"];
+	readonly context?: unknown;
+	readonly width?: number;
 }
 
 export function renderToolResult(
 	registered: Array<{ name: string; renderResult?: RenderResult }>,
 	toolName: string,
 	details: unknown,
-	expanded = false,
-	args?: unknown,
+	options: RenderOptions = {},
 ): string {
 	const tool = registered.slice().reverse().find((item) => item.name === toolName);
 	const component = tool?.renderResult?.(
-		{ content: [{ type: "text", text: JSON.stringify(details, null, 2) }], details },
-		{ expanded, isPartial: false },
+		{ content: options.content ?? [{ type: "text", text: JSON.stringify(details, null, 2) }], details },
+		{ expanded: options.expanded ?? false, isPartial: options.isPartial ?? false },
 		theme,
-		{ args, cwd: "C:/Users/orion/.pi" },
+		options.context ?? { args: options.args, cwd: "C:/Users/orion/.pi" },
 	);
-	return component?.render(120).join("\n") ?? "";
+	return component?.render(options.width ?? 120).join("\n") ?? "";
 }
 
 export function renderWriteResult(
@@ -64,18 +99,14 @@ export function renderWriteResult(
 	details: unknown,
 	expanded = false,
 ): string {
-	const tool = registered.slice().reverse().find((item) => item.name === "write");
-	const component = tool?.renderResult?.(
-		{ content: [{ type: "text", text: JSON.stringify(details, null, 2) }], details },
-		{ expanded, isPartial: false },
-		theme,
-		{
+	return renderToolResult(registered, "write", details, {
+		expanded,
+		context: {
 			args: { path: "src/app.ts", content: "new" },
 			cwd: "/repo",
 			lastComponent: undefined,
 		},
-	);
-	return component?.render(120).join("\n") ?? "";
+	});
 }
 
 export async function executeTool(

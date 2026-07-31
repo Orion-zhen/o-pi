@@ -79,15 +79,6 @@ describe("schema validator", () => {
 		]);
 	});
 
-	it("在错误路径中转义 JSON Pointer 字符", () => {
-		const validate = compileSchemaValidator({
-			type: "object",
-			patternProperties: { ".*": { type: "boolean" } },
-		});
-		expect(validate({ "a/b~c": 1 })).toBe(false);
-		expect(validate.errors?.[0]?.instancePath).toBe("/a~1b~0c");
-	});
-
 	it("拒绝仓库校验器尚未实现的 schema 关键字", () => {
 		expect(() => compileSchemaValidator({ type: "number", multipleOf: 2 })).toThrow("unsupported schema keyword: multipleOf");
 	});

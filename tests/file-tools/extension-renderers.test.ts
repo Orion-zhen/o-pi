@@ -1,25 +1,11 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { initTheme, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import fileTools from "../../agent/extensions/file-tools.js";
 import { useTempDir } from "../helpers/lifecycle.js";
-import {
-	activateFileTools,
-	renderToolResult,
-	renderWriteResult,
-	theme,
-	type LifecycleHandler,
-	type RenderCall,
-	type RenderResult,
-} from "./extension-fixture.js";
-
-interface RegisteredRenderer {
-	name: string;
-	renderCall?: RenderCall;
-	renderResult?: RenderResult;
-}
+import { activateFileTools, registerExtension, renderToolResult, renderWriteResult, theme } from "./extension-fixture.js";
 
 const editCardTemp = useTempDir("o-pi-edit-card-");
 
@@ -40,18 +26,16 @@ describe("file-tools extension renderers", () => {
 		expect(handlers.get("tool_result")?.({ toolName: "find", details: failure })).toEqual({ isError: true });
 		expect(handlers.get("tool_result")?.({ toolName: "find", details: { status: "success" } })).toBeUndefined();
 		for (const toolName of ["ls", "find", "grep", "read"]) {
-			const output = renderToolResult(registered, toolName, failure, true);
-			expect(output).toContain("INVALID_PATH");
-			expect(output).toContain("src/missing");
+			const output = renderToolResult(registered, toolName, failure, { expanded: true });
+			for (const value of ["INVALID_PATH", "src/missing"]) expect(output).toContain(value);
 		}
 
-		const grep = registered.slice().reverse().find((tool) => tool.name === "grep");
-		const partial = grep?.renderResult?.(
-			{ content: [{ type: "text", text: "" }], details: undefined },
-			{ expanded: false, isPartial: true },
-			theme,
-			{ args: { query: "auth", path: ["src"] }, cwd: "/repo", lastComponent: undefined },
-		)?.render(80).join("\n") ?? "";
+		const partial = renderToolResult(registered, "grep", undefined, {
+			isPartial: true,
+			content: [{ type: "text", text: "" }],
+			width: 80,
+			context: { args: { query: "auth", path: ["src"] }, cwd: "/repo", lastComponent: undefined },
+		});
 		expect(partial.length).toBeGreaterThan(0);
 		expect(partial).not.toContain("error");
 	});
@@ -72,11 +56,9 @@ describe("file-tools extension renderers", () => {
 			truncated_by: [],
 			ranking: { algorithm: "fzf-v2-path-v1" },
 			scope_errors: [{ path: "missing", error: { code: "PATH_NOT_FOUND", message: "missing" } }],
-		}, true);
+		}, { expanded: true });
 
-		for (const value of ["src/main.ts", "missing", "PATH_NOT_FOUND"]) {
-			expect(output).toContain(value);
-		}
+		for (const value of ["src/main.ts", "missing", "PATH_NOT_FOUND"]) expect(output).toContain(value);
 	});
 
 	it("write 折叠时隐藏正文和 diff，展开时恢复，并接收后处理进度", async () => {
@@ -91,20 +73,17 @@ describe("file-tools extension renderers", () => {
 		expect(collapsedOutput).not.toContain("first");
 		expect(expanded?.render(80).join("\n")).toContain("first");
 
-		const progress = write?.renderResult?.(
-			{
-				content: [],
-				details: {
-					status: "post-processing",
-					diff: "-1 old\n+1 new",
-					lsp: { status: "clean", errors: 0, warnings: 0 },
-				},
-			},
-			{ expanded: false, isPartial: true },
-			theme,
-			{ args, cwd: "/repo", lastComponent: undefined, state },
-		);
-		expect(progress?.render(80)).toEqual([]);
+		const progress = renderToolResult(registered, "write", {
+			status: "post-processing",
+			diff: "-1 old\n+1 new",
+			lsp: { status: "clean", errors: 0, warnings: 0 },
+		}, {
+			isPartial: true,
+			content: [],
+			width: 80,
+			context: { args, cwd: "/repo", lastComponent: undefined, state },
+		});
+		expect(progress).toBe("");
 		expect(state.callComponent?.postProcess).toMatchObject({ lsp: { status: "clean" } });
 
 		const result = {
@@ -143,35 +122,24 @@ describe("file-tools extension renderers", () => {
 		expect(collapsedOutput).not.toContain("-1 old");
 		expect(expanded?.render(80).join("\n")).toContain("-1 old");
 
-		const progress = edit?.renderResult?.(
-			{
-				content: [],
-				details: {
-					status: "post-processing",
-					diff: "-1 old\n+1 new",
-					replacements: 1,
-					lsp: { status: "errors", errors: 2, warnings: 1 },
-				},
-			},
-			{ expanded: false, isPartial: true },
-			theme,
-			{ args, cwd, expanded: false, lastComponent: undefined, state },
-		);
-		expect(progress?.render(80)).toEqual([]);
+		const progress = renderToolResult(registered, "edit", {
+			status: "post-processing",
+			diff: "-1 old\n+1 new",
+			replacements: 1,
+			lsp: { status: "errors", errors: 2, warnings: 1 },
+		}, {
+			isPartial: true,
+			content: [],
+			width: 80,
+			context: { args, cwd, expanded: false, lastComponent: undefined, state },
+		});
+		expect(progress).toBe("");
 		expect(state.callComponent?.postProcess).toMatchObject({ lsp: { status: "errors", errors: 2 } });
 	});
 });
 
-async function registerRenderers(): Promise<{
-	registered: RegisteredRenderer[];
-	handlers: Map<string, LifecycleHandler>;
-}> {
-	const registered: RegisteredRenderer[] = [];
-	const handlers = new Map<string, LifecycleHandler>();
-	fileTools({
-		registerTool(tool: RegisteredRenderer) { registered.push(tool); },
-		on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
-	} as unknown as ExtensionAPI);
-	await activateFileTools(handlers.get("session_start"));
-	return { registered, handlers };
+async function registerRenderers() {
+	const extension = registerExtension(fileTools);
+	await activateFileTools(extension.handlers.get("session_start"));
+	return extension;
 }

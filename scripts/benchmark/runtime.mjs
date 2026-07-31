@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 export const root = fileURLToPath(new URL("../..", import.meta.url));
 export const agentRoot = `${root}/agent`;
+export const SCRIPT_BIN = "/usr/bin/script";
 
 export function benchmarkEnv(extra = {}) {
 	return { ...process.env, PI_CODING_AGENT_DIR: agentRoot, PI_OFFLINE: "1", ...extra };
@@ -78,10 +79,18 @@ export async function measureInteractiveReady(command, args, { warmups, runs, re
 	return samples;
 }
 
+export function scriptArgs(command, args, platform = process.platform) {
+	if (platform !== "linux") return ["-q", "/dev/null", command, ...args];
+	return ["-qfec", [command, ...args].map(shellQuote).join(" "), "/dev/null"];
+}
+
+export function spawnInteractive(command, args, options) {
+	return spawn(SCRIPT_BIN, scriptArgs(command, args), options);
+}
+
 async function runUntilReady(command, args, { readyMarker, env, timeoutMs }) {
-	const shellCommand = [command, ...args].map(shellQuote).join(" ");
 	const started = performance.now();
-	const child = spawn("/usr/bin/script", ["-qfec", shellCommand, "/dev/null"], {
+	const child = spawnInteractive(command, args, {
 		cwd: root,
 		detached: true,
 		env,

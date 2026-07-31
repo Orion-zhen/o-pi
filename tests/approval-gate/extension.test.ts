@@ -8,6 +8,7 @@ import { defaultApprovalGateConfig } from "../../src/approval/config.js";
 import {
 	createApprovalGate,
 	type ApprovalContext,
+	type ApprovalGateOptions,
 	type ApprovalInteractionPort,
 } from "../../src/approval/gate.js";
 import { FileApprovalStore } from "../../src/approval/store.js";
@@ -25,26 +26,37 @@ beforeEach(() => {
 });
 
 describe("approval gate", () => {
-	it("普通 bash echo hello 不弹窗，return undefined", async () => {
-		const ui = fakeUi([]);
-		const result = await handle(bash("echo hello"), ctx(ui));
-		expect(result).toBeUndefined();
-		expect(ui.selectCalls).toBe(0);
+	it.each([
+		["普通 bash", () => bash("echo hello"), [], 0],
+		["普通 edit", () => edit("src/index.ts"), [], 0],
+		["需审批 write", () => write(systemPath("etc", "hosts")), ["Allow once"], 1],
+	] as const)("%s 放行并产生预期交互", async (_name, event, choices, selectCalls) => {
+		const ui = fakeUi([...choices]);
+		expect(await handle(event(), ctx(ui))).toBeUndefined();
+		expect(ui.selectCalls).toBe(selectCalls);
 	});
 
-	it("git push 命中 ask，用户 Allow once 后 return undefined", async () => {
+	it.each([
+		["用户拒绝", ["Deny"], true, undefined],
+		["用户附带指令拒绝", ["Deny with instruction"], true, "open a PR instead"],
+		["无 UI", [], false, undefined],
+	] as const)("%s 时 fail closed", async (_name, choices, interactive, instruction) => {
+		const ui = fakeUi([...choices], instruction);
+		const result = await handle(bash("git push origin main"), ctx(ui, interactive));
+		expect(result?.block).toBe(true);
+		expect(ui.selectCalls).toBe(interactive ? 1 : 0);
+		if (instruction) expect(result?.reason).toContain(instruction);
+	});
+
+	it("ask allow once 记录结构化 telemetry", async () => {
 		const ui = fakeUi(["Allow once"]);
-		const event = bash("git push origin main");
 		const observations: ApprovalTelemetry[] = [];
-		const gate = createApprovalGate({
-			loadConfig: async () => configWith({}),
-			store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
-			notifyUser: async () => {},
+		const gate = testGate({
 			telemetry(_toolCallId, _toolName, approval) {
 				observations.push(approval);
 			},
 		});
-		expect(await gate.handleToolCall(event, ctx(ui))).toBeUndefined();
+		expect(await gate.handleToolCall(bash("git push origin main"), ctx(ui))).toBeUndefined();
 		expect(ui.selectCalls).toBe(1);
 		expect(observations).toContainEqual(expect.objectContaining({
 			decision: "ask",
@@ -53,94 +65,50 @@ describe("approval gate", () => {
 		}));
 	});
 
-	it("RPC dialog adapter 可通过窄 interaction port 完成审批", async () => {
-		const choices = ["Allow once"];
+	it("窄 interaction port 可完成审批", async () => {
 		const interaction: ApprovalInteractionPort = {
-			select: async () => choices.shift(),
+			select: async () => "Allow once",
 			input: async () => undefined,
 			notify() {},
 		};
-		const gate = createApprovalGate({
-			loadConfig: async () => configWith({}),
-			store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
-			notifyUser: async () => {},
-		});
-
-		expect(await gate.handleToolCall(bash("git push origin main"), {
+		expect(await testGate().handleToolCall(bash("git push origin main"), {
 			cwd: dir,
 			interaction,
 		})).toBeUndefined();
 	});
 
-	it("ask 会在打开审批选择前通知用户", async () => {
+	it("ask 在选择前通知用户", async () => {
 		const order: string[] = [];
 		const ui = fakeUi(["Allow once"], undefined, () => order.push("select"));
-		const gate = createApprovalGate({
-			loadConfig: async () => configWith({}),
-			store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
+		const gate = testGate({
 			notifyUser: async () => {
 				order.push("notify");
 			},
 		});
-
 		expect(await gate.handleToolCall(bash("git push origin main"), ctx(ui))).toBeUndefined();
 		expect(order).toEqual(["notify", "select"]);
 	});
 
 	it("通知失败不阻塞审批", async () => {
 		const ui = fakeUi(["Allow once"]);
-		const gate = createApprovalGate({
-			loadConfig: async () => configWith({}),
-			store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
+		const gate = testGate({
 			notifyUser: async () => {
 				throw new Error("notification unavailable");
 			},
 		});
-
 		expect(await gate.handleToolCall(bash("git push origin main"), ctx(ui))).toBeUndefined();
 		expect(ui.selectCalls).toBe(1);
 	});
 
-	it("git push 命中 ask，用户 Deny 后返回 block", async () => {
-		const result = await handle(bash("git push origin main"), ctx(fakeUi(["Deny"])));
-		expect(result).toEqual({ block: true, reason: "User denied this tool call." });
-	});
-
-	it("git push 命中 ask，用户 Deny with instruction 后返回 block 且包含 instruction", async () => {
-		const result = await handle(bash("git push origin main"), ctx(fakeUi(["Deny with instruction"], "open a PR instead")));
-		expect(result?.block).toBe(true);
-		expect(result?.reason).toContain("Instruction from user:");
-		expect(result?.reason).toContain("open a PR instead");
-	});
-
-	it("用户 Allow for session 后，第二次相同请求不弹窗", async () => {
-		const ui = fakeUi(["Allow for session"]);
-		const config = configWith({ remember: { ...defaultApprovalGateConfig().remember, allow_persistent: false } });
-		const gate = createApprovalGate({
-			loadConfig: async () => config,
-			store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
-			notifyUser: async () => {},
-		});
-		expect(await gate.handleToolCall(bash("git push origin main"), ctx(ui))).toBeUndefined();
-		expect(await gate.handleToolCall(bash("git push origin main"), ctx(ui))).toBeUndefined();
-		expect(ui.selectCalls).toBe(1);
-	});
-
-	it("复合命令只弹一个聚合审批框", async () => {
+	it("复合命令只触发一次聚合审批", async () => {
 		const ui = fakeUi(["Allow once"]);
 		expect(await handle(bash("git push origin main && npm install lodash"), ctx(ui))).toBeUndefined();
 		expect(ui.selectCalls).toBe(1);
-		expect(ui.selectTitles[0]).toContain("1. git push origin main");
-		expect(ui.selectTitles[0]).toContain("2. npm install lodash");
 	});
 
 	it("session allow 记住敏感子命令，不受普通 sibling 变化影响", async () => {
 		const ui = fakeUi(["Allow for session"]);
-		const gate = createApprovalGate({
-			loadConfig: async () => configWith({}),
-			store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
-			notifyUser: async () => {},
-		});
+		const gate = testGate();
 		expect(await gate.handleToolCall(bash("echo first && git push origin main"), ctx(ui))).toBeUndefined();
 		expect(await gate.handleToolCall(bash("echo changed && git push origin main"), ctx(ui))).toBeUndefined();
 		expect(ui.selectCalls).toBe(1);
@@ -148,27 +116,21 @@ describe("approval gate", () => {
 
 	it("always similar 只覆盖对应子命令，不吞掉 compound suffix", async () => {
 		const ui = fakeUi(["Always allow similar", "Allow once"]);
-		const gate = createApprovalGate({
-			loadConfig: async () => configWith({}),
-			store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
-			notifyUser: async () => {},
-		});
+		const gate = testGate();
 		expect(await gate.handleToolCall(bash("npm install lodash"), ctx(ui))).toBeUndefined();
 		expect(await gate.handleToolCall(bash("npm install react && git push origin main"), ctx(ui))).toBeUndefined();
 		expect(ui.selectCalls).toBe(2);
-		expect(ui.selectTitles[1]).toContain("1. git push origin main");
-		expect(ui.selectTitles[1]).not.toContain("2. npm install react");
 	});
 
-	it("动态写重定向无法安全记忆时只显示一次性批准", async () => {
+	it("无法安全记忆的动态写重定向只提供一次性审批", async () => {
 		const ui = fakeUi(["Allow once"]);
 		expect(await handle(bash(`echo value > "$OUTPUT"`), ctx(ui))).toBeUndefined();
-		expect(ui.selectOptions[0]).toEqual(["Allow once", "Deny", "Deny with instruction"]);
+		expect(ui.selectOptions[0]).toHaveLength(3);
+		expect(ui.selectOptions[0]).toEqual(expect.arrayContaining(["Allow once", "Deny", "Deny with instruction"]));
 	});
 
-	it("mktemp 临时目录内的写入和递归清理不弹审批框", async () => {
-		const ui = fakeUi([]);
-		const command = `
+	it.each([
+		["mktemp 临时目录中的写入与清理", `
 set -eu
 root="$PWD"
 tmpdir=$(mktemp -d)
@@ -181,49 +143,26 @@ for engine in xelatex lualatex; do
 	(cd "$tmpdir" && TOOL_INPUT="$root//:" "$engine" input.txt > result.txt)
 done
 rm -f "$tmpdir/result.txt"
-`;
-		expect(await handle(bash(command), ctx(ui))).toBeUndefined();
-		expect(ui.selectCalls).toBe(0);
-	});
-
-	it("系统临时目录后代中的递归清理不弹审批框", async () => {
+`],
+		["系统临时目录后代的递归清理", `rm -rf "${path.join(os.tmpdir(), "pi-approval", "work")}"`],
+	] as const)("%s 不触发审批", async (_name, command) => {
 		const ui = fakeUi([]);
-		const target = path.join(os.tmpdir(), "pi-approval", "work");
-		expect(await handle(bash(`rm -rf "${target}"`), ctx(ui))).toBeUndefined();
+		expect(await handle(bash(command), ctx(ui))).toBeUndefined();
 		expect(ui.selectCalls).toBe(0);
 	});
 
 	it("UI 返回未提供的 remembered 选项时 fail closed", async () => {
 		const ui = fakeUi(["Allow for session"]);
-		expect(await handle(bash(`echo value > "$OUTPUT"`), ctx(ui))).toEqual({
-			block: true,
-			reason: "User denied this tool call.",
-		});
+		expect(await handle(bash(`echo value > "$OUTPUT"`), ctx(ui))).toMatchObject({ block: true });
+		expect(ui.selectCalls).toBe(1);
 	});
 
-	it("没有 UI 时，ask 请求默认 block", async () => {
-		const result = await handle(bash("git push origin main"), ctx(fakeUi([]), false));
-		expect(result).toMatchObject({ block: true, reason: expect.stringContaining("no interactive UI") });
-	});
-
-	it("config disabled 时所有请求通过 extension handler 放行", async () => {
+	it("config disabled 时 extension handler 放行", async () => {
 		const configPath = path.join(dir, "approval.jsonc");
 		await writeFile(configPath, '{ "enabled": false }');
 		process.env.PI_APPROVAL_GATE_CONFIG = configPath;
 		const handler = captureExtensionHandler();
-		expect(await handler(bash("git push origin main"), extensionCtx(fakeUi(["Deny"])))).toBeUndefined();
-	});
-
-	it("write /etc/hosts 命中 ask", async () => {
-		const ui = fakeUi(["Allow once"]);
-		expect(await handle(write(systemPath("etc", "hosts")), ctx(ui))).toBeUndefined();
-		expect(ui.selectCalls).toBe(1);
-	});
-
-	it("edit 普通文件默认放行", async () => {
-		const ui = fakeUi([]);
-		expect(await handle(edit("src/index.ts"), ctx(ui))).toBeUndefined();
-		expect(ui.selectCalls).toBe(0);
+		expect(await handler(bash("git push origin main"), extensionCtx(fakeUi([])))).toBeUndefined();
 	});
 
 	it("write preflight 使用 filesystem access policy 拒绝 blocked path", async () => {
@@ -242,14 +181,25 @@ function systemPath(...segments: string[]): string {
 	return path.join(path.parse(dir).root, ...segments);
 }
 
-async function handle(event: ToolCallEvent, context: ApprovalContext): Promise<ToolCallEventResult | void> {
-	const config = configWith({});
-	const gate = createApprovalGate({
-		loadConfig: async () => config,
+function testGate(options: ApprovalGateOptions = {}) {
+	return createApprovalGate({
+		loadConfig: async () => testConfig(),
 		store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
 		notifyUser: async () => {},
+		...options,
 	});
-	return gate.handleToolCall(event, context);
+}
+
+function testConfig(): ApprovalGateConfig {
+	const config = defaultApprovalGateConfig();
+	return {
+		...config,
+		remember: { ...config.remember, persistent_store: path.join(dir, "approval.rules.jsonc") },
+	};
+}
+
+function handle(event: ToolCallEvent, context: ApprovalContext): Promise<ToolCallEventResult | void> {
+	return testGate().handleToolCall(event, context);
 }
 
 function captureExtensionHandler(): (event: ToolCallEvent, ctx: ExtensionContext) => Promise<ToolCallEventResult | void> {
@@ -262,17 +212,8 @@ function captureExtensionHandler(): (event: ToolCallEvent, ctx: ExtensionContext
 	return async (event, context) => captured?.(event, context);
 }
 
-function configWith(patch: Partial<ApprovalGateConfig>): ApprovalGateConfig {
-	return {
-		...defaultApprovalGateConfig(),
-		remember: { ...defaultApprovalGateConfig().remember, persistent_store: path.join(dir, "approval.rules.jsonc") },
-		...patch,
-	};
-}
-
 interface FakeUi {
 	selectCalls: number;
-	selectTitles: string[];
 	selectOptions: string[][];
 	select(title: string, options: string[]): Promise<string | undefined>;
 	input(): Promise<string | undefined>;
@@ -282,11 +223,9 @@ interface FakeUi {
 function fakeUi(choices: string[], instruction?: string, onSelect?: () => void): FakeUi {
 	return {
 		selectCalls: 0,
-		selectTitles: [],
 		selectOptions: [],
-		async select(title: string, options: string[]) {
+		async select(_title: string, options: string[]) {
 			this.selectCalls += 1;
-			this.selectTitles.push(title);
 			this.selectOptions.push([...options]);
 			onSelect?.();
 			return choices.shift();

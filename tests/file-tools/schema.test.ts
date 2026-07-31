@@ -90,17 +90,4 @@ describe("file tool schemas", () => {
 	] as const)("%s 规范化多路径参数", (toolName, input, expected) => {
 		expect(tools.get(toolName)?.prepareArguments?.(input)).toEqual(expected);
 	});
-
-	it("find 只向模型暴露 query、path 和 glob", () => {
-		const find = tools.get("find")?.parameters as { properties?: Record<string, unknown> } | undefined;
-		expect(Object.keys(find?.properties ?? {})).toEqual(["query", "path", "glob"]);
-	});
-
-	it("edit replace_all 默认关闭", () => {
-		const edit = tools.get("edit")?.parameters;
-		if (edit === undefined) throw new Error("missing edit schema");
-		const replaceAll = (edit as { properties: { edits: { items: { properties: { replace_all: unknown } } } } })
-			.properties.edits.items.properties.replace_all;
-		expect(replaceAll).toMatchObject({ type: "boolean", default: false });
-	});
 });

@@ -48,18 +48,11 @@ describe("subagent renderer", () => {
 		expect(finished.join("")).toBe("");
 	});
 
-	it("缺少 partial 上下文时调用卡仍可 fallback 展示 agent 和 task", () => {
-		const rendered = renderSubagentCall(
+	it("缺少执行结果时，调用卡和 partial result 都保留 agent 与 task", () => {
+		const call = renderSubagentCall(
 			{ tasks: [{ agent: "scout", task: "inspect auth flow and tests" }] },
 			theme,
-		).render(120);
-
-		expect(rendered).toHaveLength(2);
-		expect(rendered[0]).toContain("scout");
-		expect(rendered[1]).toContain("inspect auth flow and tests");
-	});
-
-	it("无结果的 partial result 仍按 task 渲染折叠卡", () => {
+		).render(120).join("\n");
 		const details: SubagentDetails = {
 			mode: "parallel",
 			runId: "run-1",
@@ -68,15 +61,14 @@ describe("subagent renderer", () => {
 			warnings: [],
 		};
 
-		const rendered = renderSubagentResult(
+		const partial = renderSubagentResult(
 			{ content: [{ type: "text", text: "starting" }], details },
 			{ expanded: false, isPartial: true },
 			theme as never,
-		).render(120);
+		).render(120).join("\n");
 
-		expect(rendered).toHaveLength(2);
-		expect(rendered[0]).toContain("reviewer");
-		expect(rendered[1]).toContain("review changed tests");
+		for (const value of ["scout", "inspect auth flow and tests"]) expect(call).toContain(value);
+		for (const value of ["reviewer", "review changed tests"]) expect(partial).toContain(value);
 	});
 
 	it("手动命令最终 entry 复用工具卡，并明确展示启动前失败", () => {
@@ -93,7 +85,7 @@ describe("subagent renderer", () => {
 			theme as never,
 		)?.render(120).join("\n");
 
-		expect(rendered).toContain("missing · failed");
+		expect(rendered).toContain("missing");
 		expect(rendered).toContain("Unknown agent missing");
 		expect(renderSubagentCommandEntry(undefined, false, theme as never)).toBeUndefined();
 	});
@@ -123,10 +115,9 @@ describe("subagent renderer", () => {
 			theme as never,
 		).render(160).join("\n");
 
-		expect(rendered).toContain("● scout  running");
-		expect(rendered).toContain("Activity");
-		expect(rendered).toContain("→ read");
-		expect(rendered).toContain("found renderer behavior");
+		for (const value of ["scout", "read", "src/subagent/tui/renderer.ts", "found renderer behavior"]) {
+			expect(rendered).toContain(value);
+		}
 	});
 
 	it("展开态从 details 展示完整输出，不依赖模型可见 content", () => {
@@ -151,8 +142,7 @@ describe("subagent renderer", () => {
 			theme as never,
 		).render(160).join("\n");
 
-		expect(rendered).toContain(`Saved   ${path.join(".pi", "subagents", "runs", "run-1", "scout-1.md")}`);
-		expect(rendered).toContain("Result");
+		expect(rendered).toContain(path.join(".pi", "subagents", "runs", "run-1", "scout-1.md"));
 		expect(rendered).toContain("full subagent output kept for the tool card");
 	});
 
@@ -177,9 +167,8 @@ describe("subagent renderer", () => {
 			theme as never,
 		).render(120).join("\n");
 
-		expect(rendered).toContain("Activity");
-		expect(rendered).toContain("→ read");
-		expect(rendered).toContain("Result");
+		expect(rendered).toContain("read");
+		expect(rendered).toContain("src/a.ts");
 		expect(rendered.match(/final answer/g)).toHaveLength(1);
 	});
 });

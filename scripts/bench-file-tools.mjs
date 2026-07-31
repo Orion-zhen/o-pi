@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { readRuns } from "./benchmark/cli.mjs";
-import { measureInteractiveReady, measureJsonWorker, measureProcess } from "./benchmark/runtime.mjs";
+import { measureInteractiveReady, measureJsonWorker, measureProcess, SCRIPT_BIN } from "./benchmark/runtime.mjs";
 import { row } from "./benchmark/stats.mjs";
 
 const worker = fileURLToPath(new URL("./workers/bench-file-tools-worker.mjs", import.meta.url));
@@ -18,7 +18,7 @@ const extension = measureProcess(pi, [
 	...piArgs.slice(0, -2), "--extension", "agent/extensions/file-tools.ts", ...piArgs.slice(-2),
 ], { warmups, runs });
 const toolSamples = measureJsonWorker(worker, [], { warmups, runs });
-const readyRows = existsSync("/usr/bin/script") ? await measureReadyRows() : [];
+const readyRows = existsSync(SCRIPT_BIN) ? await measureReadyRows() : [];
 
 const rows = [
 	...readyRows,

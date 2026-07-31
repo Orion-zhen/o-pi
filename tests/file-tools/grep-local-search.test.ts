@@ -2,13 +2,18 @@ import { mkdir, rename, rm, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspace.js";
-import { formatCompactGrepResult, GrepTool } from "../../src/file-tools/grep/command.js";
+import { formatCompactGrepResult } from "../../src/file-tools/grep/command.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
-import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
-import { isFailed } from "../../src/file-tools/shared/result.js";
 import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
-import { createGrepTestContext, expectGrepSuccess, firstRegion, assertStrictMatches, writeConfig } from "./grep-fixtures.js";
+import {
+	assertStrictMatches,
+	createGrepTestContext,
+	expectGrepSuccess,
+	firstRegion,
+	overrideContent,
+	withGrepRuntime,
+	writeConfig,
+} from "./grep-fixtures.js";
 
 const testContext = createGrepTestContext();
 
@@ -401,40 +406,33 @@ describe("grep local search", () => {
 		const replacementText = `${replacementFirstLine}\n${hitLine}\n}\n`;
 		expect(Buffer.byteLength(replacementText)).toBe(Buffer.byteLength(originalText));
 		await writeFile(filePath, originalText);
-		const host = new FileToolsHost();
-		const tool = new GrepTool();
-		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-region-race" });
-		if (isFailed(opened)) throw new Error(opened.error.message);
-		const originalContent = opened.filesystem.content;
-		const originalMetadata = opened.filesystem.metadata;
-		let changed = false;
-		let metadataReads = 0;
-		const filesystem: WorkspaceFileSystem = {
-			...opened.filesystem,
-			metadata: {
-				...originalMetadata,
-				async stat(ref, context) {
-					metadataReads += 1;
-					return await originalMetadata.stat(ref, context);
+		await withGrepRuntime(testContext.workspace, "grep-region-race", async ({ tool, opened }) => {
+			const metadata = opened.filesystem.metadata;
+			let changed = false;
+			let metadataReads = 0;
+			const filesystem = overrideContent(
+				{
+					...opened.filesystem,
+					metadata: {
+						...metadata,
+						async stat(ref, context) {
+							metadataReads += 1;
+							return await metadata.stat(ref, context);
+						},
+					},
 				},
-			},
-			content: {
-				readBytes: originalContent.readBytes.bind(originalContent),
-				async readText(file, options, context) {
-					expect(options.expectedSnapshot).toBeDefined();
-					if (!changed) {
-						changed = true;
-						await writeFile(filePath, replacementText);
-						await utimes(filePath, new Date(946_684_800_000), new Date(946_684_800_000));
-					}
-					return await originalContent.readText(file, options, context);
-				},
-				decodeText: originalContent.decodeText.bind(originalContent),
-				sliceText: originalContent.sliceText.bind(originalContent),
-				scanLines: originalContent.scanLines.bind(originalContent),
-			},
-		};
-		try {
+				(content) => ({
+					async readText(file, options, context) {
+						expect(options.expectedSnapshot).toBeDefined();
+						if (!changed) {
+							changed = true;
+							await writeFile(filePath, replacementText);
+							await utimes(filePath, new Date(946_684_800_000), new Date(946_684_800_000));
+						}
+						return await content.readText(file, options, context);
+					},
+				}),
+			);
 			const result = expectGrepSuccess(await tool.execute({ query: "RaceNeedle" }, {
 				filesystem,
 				operation: opened.context,
@@ -443,11 +441,7 @@ describe("grep local search", () => {
 			expect(result.regions).toEqual([]);
 			expect(result.stats.skipped_files).toMatchObject({ changed: 1 });
 			expect(metadataReads).toBe(0);
-		} finally {
-			tool.dispose();
-			opened.dispose();
-			host.dispose();
-		}
+		});
 	});
 
 	it("visibility fingerprint 变化后 cache 不会补回被 ignore 的文件", async () => {
@@ -493,30 +487,19 @@ describe("grep local search", () => {
 
 	it("regex 冷暖 cache 都从当前 snapshot 单次读取代码正文", async () => {
 		await writeFile(path.join(testContext.workspace, "warm.ts"), "export function warm() { return 'WarmNeedle'; }\n");
-		const host = new FileToolsHost();
-		const tool = new GrepTool();
-		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-strict-warm" });
-		if (isFailed(opened)) throw new Error(opened.error.message);
-		let scans = 0;
-		let fullReads = 0;
-		const original = opened.filesystem.content;
-		const filesystem: WorkspaceFileSystem = {
-			...opened.filesystem,
-			content: {
-				readBytes: original.readBytes.bind(original),
+		await withGrepRuntime(testContext.workspace, "grep-strict-warm", async ({ tool, opened }) => {
+			let scans = 0;
+			let fullReads = 0;
+			const filesystem = overrideContent(opened.filesystem, (content) => ({
 				async readText(file, options, context) {
 					fullReads += 1;
-					return await original.readText(file, options, context);
+					return await content.readText(file, options, context);
 				},
-				decodeText: original.decodeText.bind(original),
-				sliceText: original.sliceText.bind(original),
 				async scanLines(file, options, context) {
 					scans += 1;
-					return await original.scanLines(file, options, context);
+					return await content.scanLines(file, options, context);
 				},
-			},
-		};
-		try {
+			}));
 			const results: GrepSuccess[] = [];
 			for (let index = 0; index < 2; index += 1) {
 				results.push(expectGrepSuccess(await tool.execute({ query: "WarmNeedle" }, {
@@ -527,10 +510,6 @@ describe("grep local search", () => {
 			}
 			expect({ scans, fullReads }).toEqual({ scans: 0, fullReads: 2 });
 			expect(results[1]?.regions).toEqual(results[0]?.regions);
-		} finally {
-			tool.dispose();
-			opened.dispose();
-			host.dispose();
-		}
+		});
 	});
 });

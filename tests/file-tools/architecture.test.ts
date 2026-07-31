@@ -1,64 +1,17 @@
-import { readdir, readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { createScanner, LanguageVariant, SyntaxKind } from "typescript/unstable/ast";
 import { describe, expect, it } from "vitest";
+import { repositoryImportEdges, type ImportEdge } from "../helpers/import-graph.js";
 
-const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const TOOL_NAMES = new Set(["ls", "read", "write", "edit", "find", "grep"]);
 
 type Rule = "filesystem-upward" | "tool-sibling" | "tool-data-plane" | "external-tool-internal";
 
-interface ImportEdge {
-	importer: string;
-	specifier: string;
-	target?: string;
-}
-
 describe("file-tools import architecture", () => {
 	it("matches the final dependency matrix without legacy exceptions", async () => {
-		const files = await collectTypeScriptFiles(path.join(REPO_ROOT, "src"));
-		const edges = (await Promise.all(files.map(readImportEdges))).flat();
+		const edges = await repositoryImportEdges("src");
 		const violations = [...edges.flatMap(classifyViolations), ...findTransitiveToolSiblingViolations(edges)].sort();
 		expect(violations).toEqual([]);
 	});
 });
-
-async function collectTypeScriptFiles(directory: string): Promise<string[]> {
-	const entries = await readdir(directory, { withFileTypes: true });
-	const nested = await Promise.all(entries.map(async (entry) => {
-		const entryPath = path.join(directory, entry.name);
-		if (entry.isDirectory()) return collectTypeScriptFiles(entryPath);
-		return entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts") ? [entryPath] : [];
-	}));
-	return nested.flat().sort();
-}
-
-async function readImportEdges(filePath: string): Promise<ImportEdge[]> {
-	const sourceText = await readFile(filePath, "utf8");
-	const importer = relativePath(filePath);
-	const scanner = createScanner(true, LanguageVariant.Standard, sourceText);
-	const edges: ImportEdge[] = [];
-	let previous = SyntaxKind.Unknown;
-	let beforePrevious = SyntaxKind.Unknown;
-	let previousEnd = -1;
-	for (let token = scanner.scan(); token !== SyntaxKind.EndOfFile; token = scanner.scan()) {
-		if (token === SyntaxKind.StringLiteral && (
-			previous === SyntaxKind.FromKeyword
-			|| previous === SyntaxKind.ImportKeyword
-			|| (previous === SyntaxKind.OpenParenToken && beforePrevious === SyntaxKind.ImportKeyword)
-		)) {
-			const specifier = scanner.getTokenValue();
-			edges.push({ importer, specifier, ...(specifier.startsWith(".") ? { target: resolveTarget(filePath, specifier) } : {}) });
-		}
-		beforePrevious = previous;
-		previous = token;
-		const tokenEnd = scanner.getTokenEnd();
-		if (tokenEnd <= previousEnd) scanner.resetTokenState(Math.min(sourceText.length, tokenEnd + 1));
-		previousEnd = tokenEnd;
-	}
-	return edges;
-}
 
 function classifyViolations(edge: ImportEdge): string[] {
 	const rules: Rule[] = [];
@@ -137,14 +90,4 @@ function finalToolName(filePath: string): string | undefined {
 	const match = /^src\/file-tools\/([^/]+)\//u.exec(filePath);
 	const name = match?.[1];
 	return name !== undefined && TOOL_NAMES.has(name) ? name : undefined;
-}
-
-function resolveTarget(importer: string, specifier: string): string {
-	const resolved = path.resolve(path.dirname(importer), specifier);
-	const withTypeScriptExtension = resolved.endsWith(".js") ? `${resolved.slice(0, -3)}.ts` : resolved;
-	return relativePath(withTypeScriptExtension);
-}
-
-function relativePath(filePath: string): string {
-	return path.relative(REPO_ROOT, filePath).replaceAll(path.sep, "/");
 }

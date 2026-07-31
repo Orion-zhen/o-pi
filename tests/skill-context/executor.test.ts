@@ -16,7 +16,7 @@ beforeEach(() => {
 });
 
 describe("技能加载执行器", () => {
-	it("模型只能加载允许模型加载的技能，并获得极简披露", async () => {
+		it("模型只能加载允许模型加载的技能，且不泄露元数据", async () => {
 		const allowed = await candidate("allowed", false, "Use this method.");
 		const hidden = await candidate("hidden", true, "Manual only.");
 		const entries: SkillLoadEntry[] = [];
@@ -24,7 +24,7 @@ describe("技能加载执行器", () => {
 			name: "allowed", loadedBy: "agent", candidates: [allowed, hidden], branch: [], toolCallId: "skill-1", visibleToolCallIds: new Set(),
 		});
 
-		expect(result.content).toBe('<invoked_skill root="skill://allowed"/>\n\nUse this method.');
+			expect(result.content).toContain("Use this method.");
 		expect(result.content).not.toContain("description:");
 		expect(result.content).not.toContain(tempDir);
 		expect(entries).toHaveLength(1);
@@ -73,10 +73,10 @@ describe("技能加载执行器", () => {
 			toolCallId: "skill-1",
 			visibleToolCallIds: new Set(["skill-1"]),
 		};
-		await executeSkillLoad(pi, input);
-		const duplicate = await executeSkillLoad(pi, input);
-		expect(duplicate.details.deduplicated).toBe(true);
-		expect(duplicate.content).toBe('<invoked_skill root="skill://demo"/>');
+			await executeSkillLoad(pi, input);
+			const duplicate = await executeSkillLoad(pi, input);
+			expect(duplicate.details.deduplicated).toBe(true);
+			expect(duplicate.content).not.toContain("v1");
 		expect(appended).toHaveLength(1);
 
 		const manualDuplicate = await executeSkillLoad(pi, {

@@ -2,14 +2,18 @@ import { chmod, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import type { WorkspaceFileSystem } from "../../src/filesystem/contracts/workspace.js";
-import { formatCompactGrepResult, GrepTool } from "../../src/file-tools/grep/command.js";
+import { formatCompactGrepResult } from "../../src/file-tools/grep/command.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
-import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
-import { isFailed } from "../../src/file-tools/shared/result.js";
 import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
-import { createGrepTestContext, expectGrepSuccess, firstRegion, writeConfig } from "./grep-fixtures.js";
+import {
+	createGrepTestContext,
+	expectGrepSuccess,
+	firstRegion,
+	overrideContent,
+	withGrepRuntime,
+	writeConfig,
+} from "./grep-fixtures.js";
 
 const testContext = createGrepTestContext();
 
@@ -51,27 +55,19 @@ describe("grep integration", () => {
 		const newSource = "export const newName = 1;\n";
 		expect(Buffer.byteLength(oldSource)).toBe(Buffer.byteLength(newSource));
 		await writeFile(path.join(testContext.workspace, "cached.ts"), oldSource);
-		const host = new FileToolsHost();
-		const tool = new GrepTool();
-		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-cache-prune" });
-		if (isFailed(opened)) throw new Error(opened.error.message);
-		const execute = async (query: string): Promise<GrepSuccess> => expectGrepSuccess(await tool.execute({ query }, {
-			filesystem: opened.filesystem,
-			operation: opened.context,
-			limits: opened.limits,
-		}));
-		try {
+		await withGrepRuntime(testContext.workspace, "grep-cache-prune", async ({ tool, opened }) => {
+			const execute = async (query: string): Promise<GrepSuccess> => expectGrepSuccess(await tool.execute({ query }, {
+				filesystem: opened.filesystem,
+				operation: opened.context,
+				limits: opened.limits,
+			}));
 			expect(firstRegion(await execute("oldName"))).toMatchObject({ path: "cached.ts", symbol: "oldName" });
 			await rm(path.join(testContext.workspace, "cached.ts"));
 			expect((await execute("cleanupMiss")).regions).toEqual([]);
 			await writeFile(path.join(testContext.workspace, "cached.ts"), newSource);
 			expect((await execute("oldName")).regions.every((region) => region.symbol !== "oldName")).toBe(true);
 			expect(firstRegion(await execute("newName"))).toMatchObject({ path: "cached.ts", symbol: "newName" });
-		} finally {
-			tool.dispose();
-			opened.dispose();
-			host.dispose();
-		}
+		});
 	});
 
 	it("缓存只保存派生索引，重复事实查询仍返回实时证据行", async () => {
@@ -119,30 +115,19 @@ describe("grep integration", () => {
 	it("代码正文单次稳定读取同时服务 exact、lexical 与结构分析", async () => {
 		await writeFile(path.join(testContext.workspace, "first.ts"), "export function retryPolicy() { return 'session delay'; }\n");
 		await writeFile(path.join(testContext.workspace, "second.conf"), "session retry delay\n");
-		const host = new FileToolsHost();
-		const tool = new GrepTool();
-		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-auto-single-scan" });
-		if (isFailed(opened)) throw new Error(opened.error.message);
-		let lineScans = 0;
-		let fullReads = 0;
-		const original = opened.filesystem.content;
-		const filesystem: WorkspaceFileSystem = {
-			...opened.filesystem,
-			content: {
-				readBytes: original.readBytes.bind(original),
+		await withGrepRuntime(testContext.workspace, "grep-auto-single-scan", async ({ tool, opened }) => {
+			let lineScans = 0;
+			let fullReads = 0;
+			const filesystem = overrideContent(opened.filesystem, (content) => ({
 				async readText(file, options, context) {
 					fullReads += 1;
-					return original.readText(file, options, context);
+					return content.readText(file, options, context);
 				},
-				decodeText: original.decodeText.bind(original),
-				sliceText: original.sliceText.bind(original),
 				async scanLines(file, options, context) {
 					lineScans += 1;
-					return await original.scanLines(file, options, context);
+					return await content.scanLines(file, options, context);
 				},
-			},
-		};
-		try {
+			}));
 			const result = expectGrepSuccess(await tool.execute({ query: "session retry delay" }, {
 				filesystem,
 				operation: opened.context,
@@ -150,11 +135,7 @@ describe("grep integration", () => {
 			}));
 			expect(result.regions.length).toBeGreaterThan(0);
 			expect({ lineScans, fullReads }).toEqual({ lineScans: 1, fullReads: 1 });
-		} finally {
-			tool.dispose();
-			opened.dispose();
-			host.dispose();
-		}
+		});
 	});
 
 	it("不解释关系语言，只按正文或 related 证据返回", async () => {
@@ -316,29 +297,19 @@ describe("grep integration", () => {
 
 	it("query miss 每次都重新执行当前 snapshot 的 line scan", async () => {
 		await writeFile(path.join(testContext.workspace, "miss.txt"), "unrelated\n");
-		const host = new FileToolsHost();
-		const tool = new GrepTool();
-		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-query-miss" });
-		if (isFailed(opened)) throw new Error(opened.error.message);
-		let fullReads = 0;
-		let lineScans = 0;
-		const filesystem: WorkspaceFileSystem = {
-			...opened.filesystem,
-			content: {
-				readBytes: opened.filesystem.content.readBytes.bind(opened.filesystem.content),
+		await withGrepRuntime(testContext.workspace, "grep-query-miss", async ({ tool, opened }) => {
+			let fullReads = 0;
+			let lineScans = 0;
+			const filesystem = overrideContent(opened.filesystem, (content) => ({
 				async readText(file, options, context) {
 					fullReads += 1;
-					return await opened.filesystem.content.readText(file, options, context);
+					return await content.readText(file, options, context);
 				},
-				decodeText: opened.filesystem.content.decodeText.bind(opened.filesystem.content),
-				sliceText: opened.filesystem.content.sliceText.bind(opened.filesystem.content),
 				async scanLines(file, options, context) {
 					lineScans += 1;
-					return await opened.filesystem.content.scanLines(file, options, context);
+					return await content.scanLines(file, options, context);
 				},
-			},
-		};
-		try {
+			}));
 			for (const query of ["first-miss", "second-miss", "first-miss"]) {
 				const result = expectGrepSuccess(await tool.execute({ query }, {
 					filesystem,
@@ -348,11 +319,7 @@ describe("grep integration", () => {
 				expect(result.regions).toEqual([]);
 			}
 			expect({ fullReads, lineScans }).toEqual({ fullReads: 0, lineScans: 3 });
-		} finally {
-			tool.dispose();
-			opened.dispose();
-			host.dispose();
-		}
+		});
 	});
 
 	it("超大 scope 的 regex 不受文件数量限制", async () => {

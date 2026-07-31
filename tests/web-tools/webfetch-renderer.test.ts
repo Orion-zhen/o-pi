@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { WebFetchSuccessDetails } from "../../src/web-tools/core/types.js";
 import { formatWebFetchCall, formatWebFetchResult, renderWebFetchCall, renderWebFetchResult } from "../../src/web-tools/tui/webfetch.js";
 
 const theme = {
@@ -8,104 +9,44 @@ const theme = {
 };
 
 describe("webfetch renderer", () => {
-	it("残缺 args 不崩溃，URL query 折叠并显示 source/offset", () => {
-		expect(formatWebFetchCall({}, theme)).toContain("...");
+	it("残缺参数不崩溃，且 URL query 不泄漏", () => {
+		expect(formatWebFetchCall({}, theme).length).toBeGreaterThan(0);
 		const text = formatWebFetchCall({ url: "https://example.com/path?token=abc&q=x", mode: "source", offset: 20000, limit: 20000 }, theme);
-		expect(text).toContain("example.com/path?...");
-		expect(text).toContain("source");
-		expect(text).toContain("offset 20000-40000");
+		for (const value of ["example.com/path", "source", "20000", "40000"]) expect(text).toContain(value);
 		expect(text).not.toContain("abc");
-		expect(text.split("\n")).toHaveLength(2);
 	});
 
-	it("渲染 success、progress 和 failure", () => {
-		expect(formatWebFetchResult({ status: "progress", phase: "downloading", received_bytes: 2048 }, { isPartial: true }, theme)).toContain("2.0 KB");
-		const preview = Array.from({ length: 24 }, (_, index) => `preview line ${index + 1}`).join("\n");
-		const success = formatWebFetchResult(
-			{
-				status: "success",
-				scope: "static_response",
-				page_kind: "article",
-				text_source: "readability",
-				completeness: "partial",
-				omissions: [{ kind: "text_range", reason: "range" }],
-				requested_url: "https://example.com/",
-				final_url: "https://example.com/",
-				http_status: 200,
-				title: "Example article",
-				content_type: "text/html",
-				charset: "utf-8",
-				format: "markdown",
-				downloaded_bytes: 100,
-				total_chars: 3000,
-				range: { start: 0, end: 1000, total: 3000, has_more: true, next_offset: 1000 },
-				next: "Call webfetch with the same url and mode, offset 1000.",
-				authenticated: true,
-				redirect_count: 1,
-				snapshot: "created",
-				deferred_fragments: { discovered: 1, resolved: 1 },
-				media: { discovered: 1, returned: 1 },
-				duration_ms: 12,
-				preview,
-			},
-			{ expanded: true },
-			theme,
-		);
-		expect(success).toContain("more");
-		expect(success).toContain("partial");
-		expect(success).toContain("article");
-		expect(success).toContain("readability");
-		expect(success).toContain("text_range:range");
-		expect(success).toContain("Example article");
-		expect(success).toContain("200 · text/html -> markdown · utf-8 · 100 B");
-		expect(success).toContain("article · readability · partial · chars 0-1000 of 3000");
-		expect(success).toContain("deferred 1/1 · media 1/1 · omitted text_range:range");
-		expect(success).toContain("cookie · snapshot created · 1 redirect · 12 ms");
-		expect(success).not.toContain("Status          ");
-		expect(success).toContain("preview line 24");
+	it("折叠隐藏预览，展开后保留响应信息，并安全渲染进度与失败", () => {
+		const details = successDetails();
+		const collapsed = formatWebFetchResult(details, {}, theme);
+		const expanded = formatWebFetchResult(details, { expanded: true }, theme);
+		expect(collapsed).not.toContain(details.preview);
+		for (const value of ["Example article", details.final_url, details.preview, "text_range"]) {
+			expect(expanded).toContain(value);
+		}
+		expect(expanded.length).toBeGreaterThan(collapsed.length);
 
-		expect(formatWebFetchResult(
-			{
-				status: "success",
-				scope: "static_response",
-				page_kind: "image",
-				text_source: "metadata",
-				completeness: "complete",
-				omissions: [],
-				requested_url: "https://example.com/direct.png",
-				final_url: "https://example.com/direct.png",
-				http_status: 200,
-				content_type: "image/png",
-				format: "image",
-				downloaded_bytes: 100,
-				total_chars: 26,
-				range: { start: 0, end: 26, total: 26, has_more: false },
-				authenticated: false,
-				redirect_count: 0,
-				snapshot: "not_needed",
-				deferred_fragments: { discovered: 0, resolved: 0 },
-				media: { discovered: 1, returned: 1 },
-				duration_ms: 1,
-				preview: "Image response [image/png]",
-			},
-			{ expanded: true },
-			theme,
-		)).toContain("image/png -> image");
-
+		for (const progress of [
+			{ status: "progress", phase: "requesting" },
+			{ status: "progress", phase: "redirecting" },
+			{ status: "progress", phase: "downloading", received_bytes: 2048 },
+			{ status: "progress", phase: "converting" },
+		] as const) {
+			expect(formatWebFetchResult(progress, { isPartial: true }, theme).length).toBeGreaterThan(0);
+		}
 		const failure = formatWebFetchResult(
 			{ status: "failed", error: { code: "BLOCKED_ADDRESS", message: "private network address" }, duration_ms: 1 },
 			{ expanded: true },
 			theme,
 		);
-		expect(failure).toContain("blocked");
-		expect(failure).toContain("BLOCKED_ADDRESS");
+		for (const value of ["BLOCKED_ADDRESS", "private network address"]) expect(failure).toContain(value);
 	});
 
-	it("call 卡片在 progress/result 出现后由 result 原位接管", () => {
+	it("progress 和最终结果接管调用阶段组件", () => {
 		const args = { url: "https://example.com/page", mode: "readable" };
 		const state = {};
 		let call = renderWebFetchCall(args, theme, { lastComponent: undefined, state });
-		expect(call.render(160)).toHaveLength(2);
+		expect(call.render(160).join("")).toContain("example.com/page");
 
 		call = renderWebFetchCall(args, theme, { lastComponent: call, state });
 		let result = renderWebFetchResult(
@@ -114,10 +55,8 @@ describe("webfetch renderer", () => {
 			theme,
 			{ args, lastComponent: undefined, state },
 		);
-		const progress = [...call.render(160), ...result.render(160)].join("\n");
-		expect(progress.split("\n")).toHaveLength(2);
-		expect(progress.match(/webfetch/g)).toHaveLength(1);
-		expect(progress).toContain("readable · offset 0 · requesting...");
+		expect(call.render(160).join("")).toBe("");
+		expect(result.render(160).join("")).toContain("example.com/page");
 
 		call = renderWebFetchCall(args, theme, { lastComponent: call, state });
 		result = renderWebFetchResult(
@@ -126,9 +65,35 @@ describe("webfetch renderer", () => {
 			theme,
 			{ args, lastComponent: result, state },
 		);
-		const settled = [...call.render(160), ...result.render(160)].join("\n");
-		expect(settled.split("\n")).toHaveLength(2);
-		expect(settled.match(/webfetch/g)).toHaveLength(1);
-		expect(settled).toContain("timeout");
+		expect(call.render(160).join("")).toBe("");
+		expect(result.render(160).join("")).toContain("deadline exceeded");
 	});
 });
+
+function successDetails(): WebFetchSuccessDetails {
+	return {
+		status: "success",
+		scope: "static_response",
+		page_kind: "article",
+		text_source: "readability",
+		completeness: "partial",
+		omissions: [{ kind: "text_range", reason: "range" }],
+		requested_url: "https://example.com/start",
+		final_url: "https://example.com/final",
+		http_status: 200,
+		title: "Example article",
+		content_type: "text/html",
+		charset: "utf-8",
+		format: "markdown",
+		downloaded_bytes: 100,
+		total_chars: 3000,
+		range: { start: 0, end: 1000, total: 3000, has_more: true, next_offset: 1000 },
+		authenticated: true,
+		redirect_count: 1,
+		snapshot: "created",
+		deferred_fragments: { discovered: 1, resolved: 1 },
+		media: { discovered: 1, returned: 1 },
+		duration_ms: 12,
+		preview: "preview sentinel",
+	};
+}

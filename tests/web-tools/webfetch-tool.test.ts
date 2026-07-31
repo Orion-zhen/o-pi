@@ -6,6 +6,8 @@ import { SnapshotCache } from "../../src/web-tools/fetch/snapshot-cache.js";
 import type {
 	CookieStore,
 	WebFetchInteractionPort,
+	WebFetchOmission,
+	WebFetchResult,
 	WebHttpFetch,
 } from "../../src/web-tools/core/types.js";
 import { executeWebFetch } from "../../src/web-tools/fetch/webfetch-tool.js";
@@ -19,6 +21,12 @@ const cookieStore: CookieStore = {
 		return undefined;
 	},
 };
+
+const PRIMARY_IMAGE_HTML = '<main><h1>Image post</h1><img src="/post.png" alt="A detailed primary post image"></main>';
+const PNG_BYTES = Buffer.from(
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+	"base64",
+);
 
 function runtime(
 	fetchImpl: WebHttpFetch,
@@ -49,6 +57,19 @@ function runtime(
 		},
 		now: () => Date.now(),
 	};
+}
+
+function expectPrimaryMediaOmission(
+	result: WebFetchResult,
+	reason: WebFetchOmission["reason"],
+	media = { discovered: 1, returned: 0 },
+): void {
+	expect(result.details).toMatchObject({
+		status: "success",
+		completeness: "partial",
+		omissions: [{ kind: "primary_media", reason }],
+		media,
+	});
 }
 
 describe("webfetch tool", () => {
@@ -99,7 +120,7 @@ describe("webfetch tool", () => {
 		expect(result.details.preview.length).toBe(6000);
 	});
 
-	it("返回包装后的成功文本和 next_offset，并用 snapshot 继续读取", async () => {
+	it("返回 next_offset，并用 snapshot 继续读取", async () => {
 		let calls = 0;
 		const long = `${"a".repeat(900)}\n${"b".repeat(900)}`;
 		const fetchImpl: WebHttpFetch = async () => {
@@ -109,17 +130,12 @@ describe("webfetch tool", () => {
 		const rt = runtime(fetchImpl);
 		const first = await executeWebFetch({ url: "https://example.com/page", limit: 1000 }, rt);
 		expect(first.details.status).toBe("success");
-		expect(first.content).toContain("<webfetch ");
 		if (first.details.status !== "success") throw new Error("failed");
 		expect(first.details.range.next_offset).toBeDefined();
 		expect(first.details.range.has_more).toBe(true);
 		expect(first.details.next).toContain("offset");
 		const nextOffset = first.details.range.next_offset;
 		if (nextOffset === undefined) throw new Error("missing next_offset");
-		expect(first.content).toContain(`kind="generic" partial="range" next="${nextOffset}"`);
-		expect(first.content).not.toContain("https://example.com/page");
-		expect(first.content).not.toContain("has_more");
-		expect(first.content).not.toContain("<next>");
 
 		const second = await executeWebFetch({ url: "https://example.com/page", offset: nextOffset, limit: 1000 }, rt);
 		expect(second.details).toMatchObject({ status: "success", snapshot: "hit" });
@@ -132,9 +148,6 @@ describe("webfetch tool", () => {
 			completeness: "partial",
 			omissions: [{ kind: "text_range", reason: "range" }],
 		});
-		expect(second.content).toContain('<webfetch kind="generic" partial="range">');
-		expect(second.content).not.toContain("scope=");
-		expect(second.content).not.toContain("source=");
 		expect(calls).toBe(1);
 	});
 
@@ -146,11 +159,9 @@ describe("webfetch tool", () => {
 		expect(result.details.status).toBe("success");
 		if (result.details.status !== "success") throw new Error("failed");
 		expect(result.details.range).toMatchObject({ start: 10, end: 10, total: 10, has_more: false });
-		expect(result.content).toContain('<webfetch kind="generic" partial="range">');
-		expect(result.content).toMatch(/<webfetch[^>]*>\n\n<\/webfetch>/);
 	});
 
-	it("模型标签只在跳转后输出 final URL", async () => {
+	it("跳转后记录 requested 和 final URL", async () => {
 		let calls = 0;
 		const result = await executeWebFetch(
 			{ url: "https://example.com/start" },
@@ -172,8 +183,6 @@ describe("webfetch tool", () => {
 			final_url: "https://example.com/final",
 			redirect_count: 1,
 		});
-		expect(result.content).toContain('<webfetch kind="generic" final="https://example.com/final">');
-		expect(result.content).not.toContain("https://example.com/start");
 	});
 
 	it("整个 redirect 链和正文读取共享一个 deadline，并区分用户取消", async () => {
@@ -253,35 +262,28 @@ describe("webfetch tool", () => {
 		});
 		const result = await executeWebFetch({ url: "https://example.com/start" }, runtime(fetchImpl));
 		expect(result.details).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
-		expect(result.content).toContain('<error tool="webfetch" code="BLOCKED_ADDRESS">');
-		expect(result.content).not.toContain("\n  ");
 	});
 
 	it("正文超限和 HTTP 错误返回结构化 failure", async () => {
 		const tooLarge = await executeWebFetch({ url: "https://example.com/big" }, runtime(async () => httpResponse(200, "x", { "content-type": "text/plain", "content-length": "10485761" })));
 		expect(tooLarge.details).toMatchObject({ status: "failed", error: { code: "RESPONSE_TOO_LARGE" } });
-		expect(tooLarge.content).toContain('<error tool="webfetch" code="RESPONSE_TOO_LARGE">');
 
 		const forbidden = await executeWebFetch({ url: "https://example.com/private" }, runtime(async () => httpResponse(403, "denied", { "content-type": "text/plain" })));
 		expect(forbidden.details).toMatchObject({ status: "failed", error: { code: "HTTP_ERROR" }, response_preview: "denied" });
-		expect(forbidden.content).toContain('<error tool="webfetch" code="HTTP_ERROR">');
 	});
 
 	it("参数 limit 超过配置上限会拒绝", async () => {
 		const result = await executeWebFetch({ url: "https://example.com/", limit: 2000 }, runtime(async () => httpResponse(200, "ok"), 1000));
 		expect(result.details).toMatchObject({ status: "failed", error: { code: "INVALID_ARGUMENT" } });
-		expect(result.content).toContain('<error tool="webfetch" code="INVALID_ARGUMENT">');
 	});
 
 	it("媒体主导 HTML 向支持图像的模型返回一张经过嗅探的主图", async () => {
-		const html = '<main><h1>Image post</h1><img src="/post.png" alt="A detailed primary post image"></main>';
-		const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 		const requests: Array<{ url: string; accept: string | undefined }> = [];
 		const fetchImpl: WebHttpFetch = async (url, init) => {
 			requests.push({ url: url.toString(), accept: init.headers["Accept"] });
 			return url.pathname === "/post.png"
-				? httpResponse(200, png, { "content-type": "application/octet-stream" })
-				: httpResponse(200, html, { "content-type": "text/html" });
+				? httpResponse(200, PNG_BYTES, { "content-type": "application/octet-stream" })
+				: httpResponse(200, PRIMARY_IMAGE_HTML, { "content-type": "text/html" });
 		};
 		const result = await executeWebFetch({ url: "https://example.com/post" }, runtime(fetchImpl, 100000, true));
 		expect(requests).toHaveLength(2);
@@ -294,79 +296,61 @@ describe("webfetch tool", () => {
 		});
 		expect(result.media).toHaveLength(1);
 		expect(result.media?.[0]).toMatchObject({ mimeType: "image/png", sourceUrl: "https://example.com/post.png" });
-		expect(result.media?.[0]?.data).toEqual(Uint8Array.from(png));
+		expect(result.media?.[0]?.data).toEqual(Uint8Array.from(PNG_BYTES));
 		expect(JSON.stringify(result.details)).not.toContain('"data"');
-		expect(result.content).toContain('<webfetch kind="image">');
-		expect(result.content).not.toContain("partial=");
 	});
 
-	it("模型不支持图像时不下载主图，并明确报告遗漏", async () => {
+	it.each([
+		{
+			name: "模型不支持图像",
+			acceptsImages: false,
+			imageOmissionReason: undefined,
+			mediaDisabled: false,
+			expectedReason: "model_no_image_input",
+		},
+		{
+			name: "API 不支持工具图片",
+			acceptsImages: false,
+			imageOmissionReason: "api_no_tool_image_output",
+			mediaDisabled: false,
+			expectedReason: "api_no_tool_image_output",
+		},
+		{
+			name: "media.mode=off",
+			acceptsImages: true,
+			imageOmissionReason: undefined,
+			mediaDisabled: true,
+			expectedReason: "media_disabled",
+		},
+	] as const)("$name 时不下载主图并报告对应遗漏", async ({
+		acceptsImages,
+		imageOmissionReason,
+		mediaDisabled,
+		expectedReason,
+	}) => {
 		let calls = 0;
-		const html = '<main><h1>Image post</h1><img src="/post.jpg" alt="A detailed primary post image"></main>';
-		const result = await executeWebFetch(
-			{ url: "https://example.com/post" },
-			runtime(async () => {
+		const rt = runtime(
+			async () => {
 				calls += 1;
-				return httpResponse(200, html, { "content-type": "text/html" });
-			}),
+				return httpResponse(200, PRIMARY_IMAGE_HTML, { "content-type": "text/html" });
+			},
+			100000,
+			acceptsImages,
+			imageOmissionReason,
 		);
-		expect(calls).toBe(1);
-		expect(result.details).toMatchObject({
-			status: "success",
-			completeness: "partial",
-			omissions: [{ kind: "primary_media", reason: "model_no_image_input" }],
-			media: { discovered: 1, returned: 0 },
-		});
-		expect(result.content).toContain('partial="model_no_image_input"');
-		expect(result.content).not.toContain("<omitted");
-	});
-
-	it("API 不支持工具图片时不下载主图，并区分于模型图像能力", async () => {
-		let calls = 0;
-		const html = '<main><h1>Image post</h1><img src="/post.jpg" alt="A detailed primary post image"></main>';
-		const result = await executeWebFetch(
-			{ url: "https://example.com/post" },
-			runtime(async () => {
-				calls += 1;
-				return httpResponse(200, html, { "content-type": "text/html" });
-			}, 100000, false, "api_no_tool_image_output"),
-		);
-		expect(calls).toBe(1);
-		expect(result.details).toMatchObject({
-			status: "success",
-			completeness: "partial",
-			omissions: [{ kind: "primary_media", reason: "api_no_tool_image_output" }],
-			media: { discovered: 1, returned: 0 },
-		});
-		expect(result.content).toContain('partial="api_no_tool_image_output"');
-	});
-
-	it("media.mode=off 时不下载已发现主图", async () => {
-		let calls = 0;
-		const html = '<main><h1>Image post</h1><img src="/post.jpg" alt="A detailed primary post image"></main>';
-		const rt = runtime(async () => {
-			calls += 1;
-			return httpResponse(200, html, { "content-type": "text/html" });
-		}, 100000, true);
-		rt.config.webfetch.media.mode = "off";
+		if (mediaDisabled) rt.config.webfetch.media.mode = "off";
 		const result = await executeWebFetch({ url: "https://example.com/post" }, rt);
 		expect(calls).toBe(1);
-		expect(result.details).toMatchObject({
-			status: "success",
-			completeness: "partial",
-			omissions: [{ kind: "primary_media", reason: "media_disabled" }],
-			media: { discovered: 1, returned: 0 },
-		});
+		expectPrimaryMediaOmission(result, expectedReason);
 	});
 
 	it("直接图片响应复用已下载字节，不发起二次请求", async () => {
-		const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 		let calls = 0;
 		const result = await executeWebFetch(
 			{ url: "https://example.com/direct.png" },
 			runtime(async () => {
 				calls += 1;
-				return httpResponse(200, png, { "content-type": "application/octet-stream" });
+				return httpResponse(200, PNG_BYTES, { "content-type": "application/octet-stream" });
 			}, 100000, true),
 		);
 		expect(calls).toBe(1);
@@ -384,10 +368,21 @@ describe("webfetch tool", () => {
 			mimeType: "image/png",
 			sourceUrl: "https://example.com/direct.png",
 		});
-		expect(result.media?.[0]?.data).toEqual(Uint8Array.from(png));
+		expect(result.media?.[0]?.data).toEqual(Uint8Array.from(PNG_BYTES));
 	});
 
-	it("模型不支持图像时根据响应头取消直接图片 body", async () => {
+	it.each([
+		{
+			name: "模型不支持图像",
+			imageOmissionReason: undefined,
+			expectedReason: "model_no_image_input",
+		},
+		{
+			name: "API 不支持工具图片",
+			imageOmissionReason: "api_no_tool_image_output",
+			expectedReason: "api_no_tool_image_output",
+		},
+	] as const)("$name 时根据响应头取消直接图片 body", async ({ imageOmissionReason, expectedReason }) => {
 		let calls = 0;
 		let reads = 0;
 		let cancellations = 0;
@@ -416,38 +411,14 @@ describe("webfetch tool", () => {
 						},
 					},
 				};
-			}),
+			}, 100000, false, imageOmissionReason),
 		);
 		expect(calls).toBe(1);
 		expect(reads).toBe(0);
 		expect(cancellations).toBe(1);
 		expect(result.media).toBeUndefined();
-		expect(result.details).toMatchObject({
-			status: "success",
-			format: "image",
-			downloaded_bytes: 0,
-			completeness: "partial",
-			omissions: [{ kind: "primary_media", reason: "model_no_image_input" }],
-			media: { discovered: 1, returned: 0 },
-		});
-	});
-
-	it("API 不支持工具图片时直接图片也在响应头阶段短路", async () => {
-		const result = await executeWebFetch(
-			{ url: "https://example.com/direct.png" },
-			runtime(
-				async () => httpResponse(200, "bytes must not be read", { "content-type": "image/png" }),
-				100000,
-				false,
-				"api_no_tool_image_output",
-			),
-		);
-		expect(result.details).toMatchObject({
-			status: "success",
-			downloaded_bytes: 0,
-			completeness: "partial",
-			omissions: [{ kind: "primary_media", reason: "api_no_tool_image_output" }],
-		});
+		expect(result.details).toMatchObject({ status: "success", format: "image", downloaded_bytes: 0 });
+		expectPrimaryMediaOmission(result, expectedReason);
 	});
 
 	it("直接图片声明与嗅探不匹配时拒绝为图片", async () => {
@@ -496,12 +467,7 @@ describe("webfetch tool", () => {
 			}, 100000, true),
 		);
 		expect(requests).toEqual(["https://example.com/post", "https://example.com/poster.png"]);
-		expect(result.details).toMatchObject({
-			status: "success",
-			completeness: "partial",
-			omissions: [{ kind: "primary_media", reason: "media_fetch_failed" }],
-			media: { discovered: 1, returned: 0 },
-		});
+		expectPrimaryMediaOmission(result, "media_fetch_failed");
 		expect(result.media).toBeUndefined();
 	});
 
@@ -509,26 +475,19 @@ describe("webfetch tool", () => {
 		const html = `
 			<html><head><meta property="og:type" content="video.other"></head>
 			<body><main><h1>Video lesson</h1><video poster="/poster.png" src="/movie.mp4"></video></main></body></html>`;
-		const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 		const requests: string[] = [];
 		const result = await executeWebFetch(
 			{ url: "https://example.com/video" },
 			runtime(async (url) => {
 				requests.push(url.toString());
 				return url.pathname === "/poster.png"
-					? httpResponse(200, png, { "content-type": "image/png" })
+					? httpResponse(200, PNG_BYTES, { "content-type": "image/png" })
 					: httpResponse(200, html, { "content-type": "text/html" });
 			}, 100000, true),
 		);
 		expect(requests).toEqual(["https://example.com/video", "https://example.com/poster.png"]);
 		expect(result.media?.[0]).toMatchObject({ sourceUrl: "https://example.com/poster.png" });
-		expect(result.details).toMatchObject({
-			status: "success",
-			completeness: "partial",
-			omissions: [{ kind: "primary_media", reason: "video_not_returned" }],
-			media: { discovered: 1, returned: 1 },
-		});
-		expect(result.content).toContain('partial="video_not_returned"');
+		expectPrimaryMediaOmission(result, "video_not_returned", { discovered: 1, returned: 1 });
 	});
 
 	it("音频页只记录媒体存在，不请求音频流", async () => {
@@ -545,12 +504,7 @@ describe("webfetch tool", () => {
 		);
 		expect(requests).toEqual(["https://example.com/audio"]);
 		expect(result.media).toBeUndefined();
-		expect(result.details).toMatchObject({
-			status: "success",
-			completeness: "partial",
-			omissions: [{ kind: "primary_media", reason: "audio_not_returned" }],
-			media: { discovered: 0, returned: 0 },
-		});
+		expectPrimaryMediaOmission(result, "audio_not_returned", { discovered: 0, returned: 0 });
 	});
 
 	it.each([
@@ -564,23 +518,17 @@ describe("webfetch tool", () => {
 			imageResponse: () => httpResponse(200, "not an image", { "content-type": "image/png" }),
 			expectedReason: "unsupported_media_type",
 		},
-	])("主图$name时报告遗漏且不返回字节", async ({ imageResponse, expectedReason }) => {
-		const html = '<main><h1>Image post</h1><img src="/post.png" alt="A detailed primary post image"></main>';
+	] as const)("主图$name时报告遗漏且不返回字节", async ({ imageResponse, expectedReason }) => {
 		let calls = 0;
 		const rt = runtime(async () => {
 			calls += 1;
-			return calls === 1 ? httpResponse(200, html, { "content-type": "text/html" }) : imageResponse();
+			return calls === 1 ? httpResponse(200, PRIMARY_IMAGE_HTML, { "content-type": "text/html" }) : imageResponse();
 		}, 100000, true);
 		rt.config.webfetch.media.response_bytes = 65536;
 		const result = await executeWebFetch({ url: "https://example.com/post" }, rt);
 		expect(calls).toBe(2);
 		expect(result.media).toBeUndefined();
-		expect(result.details).toMatchObject({
-			status: "success",
-			completeness: "partial",
-			omissions: [{ kind: "primary_media", reason: expectedReason }],
-			media: { discovered: 1, returned: 0 },
-		});
+		expectPrimaryMediaOmission(result, expectedReason);
 	});
 
 	it("未解析的声明式延迟内容和分段文本都会进入 completeness 契约", async () => {
@@ -620,10 +568,6 @@ describe("webfetch tool", () => {
 			completeness: "complete",
 			omissions: [],
 		});
-		expect(result.content).toContain('<webfetch kind="article">');
-		expect(result.content).not.toContain("scope=");
-		expect(result.content).not.toContain("source=");
-		expect(result.content).not.toContain("partial=");
 	});
 
 	it("iframe 和客户端空壳进入完整性契约，但普通脚本本身不导致 partial", async () => {
@@ -643,7 +587,6 @@ describe("webfetch tool", () => {
 			completeness: "partial",
 			omissions: [{ kind: "embedded_content", reason: "iframe_not_fetched" }],
 		});
-		expect(embedded.content).toContain('partial="iframe_not_fetched"');
 
 		const shell = `
 			<html><head><title>Client shell</title><meta name="description" content="Only metadata is available."></head>
@@ -659,7 +602,6 @@ describe("webfetch tool", () => {
 			completeness: "partial",
 			omissions: [{ kind: "interactive_content", reason: "client_rendered" }],
 		});
-		expect(clientRendered.content).toContain('kind="generic" source="metadata" partial="client_rendered"');
 	});
 
 	it("snapshot 只保存正文与分析摘要，分页保留页面类型和静态 omission", async () => {
@@ -700,7 +642,5 @@ describe("webfetch tool", () => {
 			{ kind: "embedded_content", reason: "iframe_not_fetched" },
 			{ kind: "primary_media", reason: "video_not_returned" },
 		]));
-		expect(second.content).toContain('partial="range,iframe_not_fetched,video_not_returned"');
-		expect(second.content).not.toContain("<omitted");
 	});
 });

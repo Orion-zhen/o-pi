@@ -36,34 +36,9 @@ afterEach(async () => {
 });
 
 describe("web-tools extension", () => {
-	it("按顺序注册 websearch、webfetch 工具、schema 和错误标记事件", async () => {
-		const registered: unknown[] = [];
-		const handlers = new Map<string, Function>();
-		const pi = {
-			registerTool(tool: unknown) {
-				registered.push(tool);
-			},
-			on(name: string, handler: Function) {
-				handlers.set(name, handler);
-			},
-		};
-		webTools(pi as unknown as ExtensionAPI);
-		const searchTool = registered[0] as {
-			name: string;
-			parameters: { properties: Record<string, unknown> };
-		};
-		const fetchTool = registered[1] as {
-			name: string;
-			parameters: { properties: Record<string, unknown> };
-		};
-		expect(searchTool.name).toBe("websearch");
-		expect(fetchTool.name).toBe("webfetch");
-		expect(Object.keys(searchTool.parameters.properties)).toEqual(["query", "limit"]);
-		expect(Object.keys(fetchTool.parameters.properties)).toEqual(["url", "mode", "offset", "limit"]);
-		expect(fetchTool.parameters.properties["mode"]).toMatchObject({
-			type: "string",
-			enum: ["readable", "source"],
-		});
+	it("按顺序注册工具并标记结构化错误", async () => {
+		const { registered, handlers } = registerWebTools(webTools);
+		expect(registered.map((tool) => tool.name)).toEqual(["websearch", "webfetch"]);
 
 		const eventResult = handlers.get("tool_result")?.({
 			toolName: "webfetch",
@@ -78,8 +53,6 @@ describe("web-tools extension", () => {
 	});
 
 	it("注册和 session_start 不加载 runtime，并让并发首次执行和 shutdown 复用同一结果", async () => {
-		const registered: Array<{ name: string; execute: Function }> = [];
-		const handlers = new Map<string, Function>();
 		let resolveRuntime: ((runtime: WebToolsRuntime) => void) | undefined;
 		const pendingRuntime = new Promise<WebToolsRuntime>((resolve) => {
 			resolveRuntime = resolve;
@@ -87,19 +60,7 @@ describe("web-tools extension", () => {
 		const close = vi.fn(async () => undefined);
 		const runtime: WebToolsRuntime = {
 			async search() {
-				return {
-					content: "search",
-					details: {
-						status: "success",
-						query: "pi",
-						provider: "exa_api",
-						results: [],
-						cached: false,
-						downloaded_bytes: 0,
-						duration_ms: 0,
-						attempts: [],
-					},
-				};
+				return successfulSearch("pi", "search");
 			},
 			async fetch() {
 				return {
@@ -114,22 +75,14 @@ describe("web-tools extension", () => {
 			throw new Error("renderer must not load");
 		});
 		const extension = createWebToolsExtension(loadRuntime, loadRenderers);
-		const pi = {
-			registerTool(tool: unknown) {
-				registered.push(tool as { name: string; execute: Function });
-			},
-			on(name: string, handler: Function) {
-				handlers.set(name, handler);
-			},
-		};
-		extension(pi as ExtensionAPI);
+		const { registered, handlers } = registerWebTools(extension);
 
 		expect(handlers.has("session_start")).toBe(true);
 		expect(handlers.has("session_shutdown")).toBe(true);
 		await handlers.get("session_start")?.({}, { mode: "rpc", ui: { notify() {} } });
 		expect(loadRuntime).not.toHaveBeenCalled();
 		expect(loadRenderers).not.toHaveBeenCalled();
-		expect(registered.every((tool) => (tool as { renderCall?: unknown }).renderCall === undefined)).toBe(true);
+		expect(registered.every((tool) => tool.renderCall === undefined)).toBe(true);
 		const search = registered.find((tool) => tool.name === "websearch");
 		const fetch = registered.find((tool) => tool.name === "webfetch");
 		if (search === undefined) throw new Error("missing websearch");
@@ -146,7 +99,6 @@ describe("web-tools extension", () => {
 	});
 
 	it("只在模型和 API 都支持工具图片时返回 Pi ImageContent", async () => {
-		const registered: Array<{ name: string; execute: Function }> = [];
 		const fetch = vi.fn(async (_params: WebFetchParams, _context: WebFetchExecutionContext) => ({
 			content: "page",
 			details: {
@@ -176,28 +128,11 @@ describe("web-tools extension", () => {
 		const runtime: WebToolsRuntime = {
 			fetch,
 			async search() {
-				return {
-					content: "search",
-					details: {
-						status: "success",
-						query: "q",
-						provider: "exa_api",
-						results: [],
-						cached: false,
-						downloaded_bytes: 0,
-						duration_ms: 0,
-						attempts: [],
-					},
-				};
+				return successfulSearch("q", "search");
 			},
 			async close() {},
 		};
-		createWebToolsExtension(async () => runtime)({
-			registerTool(tool: unknown) {
-				registered.push(tool as { name: string; execute: Function });
-			},
-			on() {},
-		} as unknown as ExtensionAPI);
+		const { registered } = registerWebTools(createWebToolsExtension(async () => runtime));
 		const tool = registered.find((item) => item.name === "webfetch");
 		if (tool === undefined) throw new Error("missing webfetch");
 		const responsesResult = await tool.execute(
@@ -383,19 +318,7 @@ describe("web-tools runtime", () => {
 		const loaders: WebToolsCapabilityLoaders = {
 			search: vi.fn(async () => ({
 				async search(params: WebSearchParams) {
-					return {
-						content: params.query,
-						details: {
-							status: "success" as const,
-							query: params.query,
-							provider: "exa_api" as const,
-							results: [],
-							cached: false,
-							downloaded_bytes: 0,
-							duration_ms: 0,
-							attempts: [],
-						},
-					};
+					return successfulSearch(params.query);
 				},
 				close: closeSearch,
 			})),
@@ -467,19 +390,7 @@ describe("web-tools runtime", () => {
 				if (attempts === 1) throw new Error("simulated search import failure");
 				return {
 					async search() {
-						return {
-							content: "ok",
-							details: {
-								status: "success" as const,
-								query: "pi",
-								provider: "exa_api" as const,
-								results: [],
-								cached: false,
-								downloaded_bytes: 0,
-								duration_ms: 0,
-								attempts: [],
-							},
-						};
+						return successfulSearch("pi", "ok");
 					},
 					async close() {},
 				};
@@ -571,6 +482,52 @@ describe("web-tools runtime", () => {
 		await closeRuntime(runtime);
 	});
 });
+
+type WebToolsHandler = (...args: unknown[]) => unknown;
+interface RegisteredWebTool {
+	name: string;
+	renderCall?: unknown;
+	execute(
+		toolCallId: string,
+		params: unknown,
+		signal: AbortSignal | undefined,
+		onUpdate: unknown,
+		context: unknown,
+	): Promise<{ content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; details?: unknown }>;
+}
+
+function registerWebTools(extension: (pi: ExtensionAPI) => void): {
+	registered: RegisteredWebTool[];
+	handlers: Map<string, WebToolsHandler>;
+} {
+	const registered: RegisteredWebTool[] = [];
+	const handlers = new Map<string, WebToolsHandler>();
+	extension({
+		registerTool(tool: RegisteredWebTool) {
+			registered.push(tool);
+		},
+		on(name: string, handler: WebToolsHandler) {
+			handlers.set(name, handler);
+		},
+	} as unknown as ExtensionAPI);
+	return { registered, handlers };
+}
+
+function successfulSearch(query: string, content = query) {
+	return {
+		content,
+		details: {
+			status: "success" as const,
+			query,
+			provider: "exa_api" as const,
+			results: [],
+			cached: false,
+			downloaded_bytes: 0,
+			duration_ms: 0,
+			attempts: [],
+		},
+	};
+}
 
 async function runJitiExtension(body: string, configPath: string): Promise<string> {
 	const extensionPath = path.join(process.cwd(), "agent", "extensions", "web-tools.ts");

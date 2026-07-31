@@ -1,13 +1,12 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
 import fileTools from "../../agent/extensions/file-tools.js";
 import { lspFileOperations as lspFileHooks } from "../../src/lsp/index.js";
 import type { DiagnosticsSummary } from "../../src/file-tools/shared/diagnostics.js";
-import { executeTool, type ExecuteResult, type ExecuteTool, type LifecycleHandler } from "./extension-fixture.js";
+import { useTempDir } from "../helpers/lifecycle.js";
+import { executeTool, registerExtension, type ExecuteResult } from "./extension-fixture.js";
 
 const cleanDiagnostics: DiagnosticsSummary = {
 	status: "clean",
@@ -23,94 +22,73 @@ const cleanDiagnostics: DiagnosticsSummary = {
 };
 
 describe("file-tools extension mutation progress", () => {
-	it("edit/write 在提交前报告实时 diff，并报告 LSP 后处理状态", async () => {
-		const registered: Array<{ name: string; execute?: ExecuteTool }> = [];
-		const handlers = new Map<string, LifecycleHandler>();
-		fileTools({
-			registerTool(tool: { name: string; execute?: ExecuteTool }) { registered.push(tool); },
-			on(name: string, handler: LifecycleHandler) { handlers.set(name, handler); },
-		} as unknown as ExtensionAPI);
+	const workspace = useTempDir("o-pi-mutation-progress-");
 
-		const cwd = await mkdtemp(join(tmpdir(), "o-pi-mutation-progress-"));
+	it("edit/write 在提交前报告实时 diff，并报告 LSP 后处理状态", async () => {
+		const { registered, handlers } = registerExtension(fileTools);
+		const cwd = workspace.path;
 		const ctx = { cwd, sessionManager: { getSessionId: () => "mutation-progress" } };
 		const originalAfterWrite = lspFileHooks.afterWrite;
 		try {
-			let releaseWrite: (() => void) | undefined;
-			const writeGate = new Promise<void>((resolve) => { releaseWrite = resolve; });
-			let writeAtDiagnostics: string | undefined;
-			lspFileHooks.afterWrite = async () => {
-				writeAtDiagnostics = await readFile(join(cwd, "a.ts"), "utf8");
-				await writeGate;
-				return cleanDiagnostics;
-			};
-			const writeUpdates: ExecuteResult[] = [];
-			const pendingWrite = executeTool(
-				registered,
-				"write",
-				{ path: "a.ts", content: "const value = 1;\n" },
-				ctx,
-				undefined,
-				(update) => writeUpdates.push(update),
-			);
-			await vi.waitFor(() => {
-				expect(writeUpdates).toEqual(expect.arrayContaining([
-					expect.objectContaining({ details: expect.objectContaining({ status: "writing", diff: expect.stringContaining("+1 const value = 1;") }) }),
-					expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "running", errors: 0, warnings: 0 } }) }),
+			for (const operation of [
+				{
+					tool: "write",
+					params: { path: "a.ts", content: "const value = 1;\n" },
+					progress: "writing", complete: "written", content: "const value = 1;\n",
+				},
+				{
+					tool: "edit",
+					params: { path: "a.ts", edits: [{ old: "value = 1", new: "value = 2" }] },
+					progress: "editing", complete: "applied", content: "const value = 2;\n", replacements: 1,
+				},
+			] as const) {
+				if (operation.tool === "edit") await executeTool(registered, "read", { path: "a.ts" }, ctx);
+				const mutation = "replacements" in operation ? { replacements: operation.replacements } : {};
+				let release: (() => void) | undefined;
+				const gate = new Promise<void>((resolve) => { release = resolve; });
+				let contentAtDiagnostics: string | undefined;
+				lspFileHooks.afterWrite = async () => {
+					contentAtDiagnostics = await readFile(join(cwd, "a.ts"), "utf8");
+					await gate;
+					return cleanDiagnostics;
+				};
+				const updates: ExecuteResult[] = [];
+				const pending = executeTool(registered, operation.tool, operation.params, ctx, undefined, (update) => updates.push(update));
+				await vi.waitFor(() => {
+					expect(updates).toEqual(expect.arrayContaining([
+						expect.objectContaining({ details: expect.objectContaining({
+							status: operation.progress,
+							...mutation,
+							diff: expect.stringContaining(`+1 ${operation.content.trim()}`),
+						}) }),
+						expect.objectContaining({ details: expect.objectContaining({
+							status: "post-processing",
+							...mutation,
+							lsp: { status: "running", errors: 0, warnings: 0 },
+						}) }),
+					]));
+					expect(contentAtDiagnostics).toBe(operation.content);
+				});
+				release?.();
+				await expect(pending).resolves.toMatchObject({
+					details: { status: operation.complete, lsp: { diagnostics: { status: "clean" } } },
+				});
+				expect(updates).toEqual(expect.arrayContaining([
+					expect.objectContaining({ details: expect.objectContaining({
+						status: "post-processing",
+						lsp: { status: "clean", errors: 0, warnings: 0 },
+					}) }),
 				]));
-				expect(writeAtDiagnostics).toBe("const value = 1;\n");
-			});
-			releaseWrite?.();
-			await expect(pendingWrite).resolves.toMatchObject({ details: { status: "written", lsp: { diagnostics: { status: "clean" } } } });
-			expect(writeUpdates).toEqual(expect.arrayContaining([
-				expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "clean", errors: 0, warnings: 0 } }) }),
-			]));
-
-			await executeTool(registered, "read", { path: "a.ts" }, ctx);
-			let releaseEdit: (() => void) | undefined;
-			const editGate = new Promise<void>((resolve) => { releaseEdit = resolve; });
-			let editAtDiagnostics: string | undefined;
-			lspFileHooks.afterWrite = async () => {
-				editAtDiagnostics = await readFile(join(cwd, "a.ts"), "utf8");
-				await editGate;
-				return cleanDiagnostics;
-			};
-			const editUpdates: ExecuteResult[] = [];
-			const pendingEdit = executeTool(
-				registered,
-				"edit",
-				{ path: "a.ts", edits: [{ old: "value = 1", new: "value = 2" }] },
-				ctx,
-				undefined,
-				(update) => editUpdates.push(update),
-			);
-			await vi.waitFor(() => {
-				expect(editUpdates).toEqual(expect.arrayContaining([
-					expect.objectContaining({ details: expect.objectContaining({ status: "editing", replacements: 1, diff: expect.stringContaining("+1 const value = 2;") }) }),
-					expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", replacements: 1, lsp: { status: "running", errors: 0, warnings: 0 } }) }),
-				]));
-				expect(editAtDiagnostics).toBe("const value = 2;\n");
-			});
-			releaseEdit?.();
-			await expect(pendingEdit).resolves.toMatchObject({ details: { status: "applied", lsp: { diagnostics: { status: "clean" } } } });
-			expect(editUpdates).toEqual(expect.arrayContaining([
-				expect.objectContaining({ details: expect.objectContaining({ status: "post-processing", lsp: { status: "clean", errors: 0, warnings: 0 } }) }),
-			]));
+			}
 
 			const failedUpdates: ExecuteResult[] = [];
-			await expect(executeTool(
-				registered,
-				"write",
-				{ path: ".", content: "invalid" },
-				ctx,
-				undefined,
-				(update) => failedUpdates.push(update),
-			)).resolves.toMatchObject({ details: { status: "failed" } });
+			await expect(executeTool(registered, "write", { path: ".", content: "invalid" }, ctx, undefined, (update) => failedUpdates.push(update)))
+				.resolves.toMatchObject({ details: { status: "failed" } });
 			expect(failedUpdates).toEqual([]);
 		} finally {
 			if (originalAfterWrite === undefined) delete lspFileHooks.afterWrite;
 			else lspFileHooks.afterWrite = originalAfterWrite;
 			await Promise.resolve(handlers.get("session_shutdown")?.({}, {}));
-			await rm(cwd, { recursive: true, force: true });
 		}
 	});
 });

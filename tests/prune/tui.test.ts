@@ -107,21 +107,20 @@ describe("prune TUI state", () => {
 		});
 	});
 
-	it("动态摘要只让当前 branch 的最新 checkpoint 输出一行", () => {
+	it("动态摘要只展示当前 branch 的最新 checkpoint，且窄宽不越界", () => {
 		const firstComponent = new PruneSummaryComponent("prune-1", theme);
 		const secondComponent = new PruneSummaryComponent("prune-2", theme);
 		const restoreComponent = new PruneSummaryComponent("restore-2", theme);
 
 		syncPruneTuiState([first, second]);
 		expect(firstComponent.render(80)).toEqual([]);
-		expect(secondComponent.render(80)).toHaveLength(1);
+		expect(secondComponent.render(80).join("")).not.toBe("");
 		const narrowSummary = secondComponent.render(8);
-		expect(narrowSummary).toHaveLength(1);
-		expect(visibleWidth(narrowSummary[0] ?? "")).toBeLessThanOrEqual(8);
+		expect(narrowSummary.every((line) => visibleWidth(line) <= 8)).toBe(true);
 
 		syncPruneTuiState([first, second, restoreSecond]);
 		expect(secondComponent.render(80)).toEqual([]);
-		expect(restoreComponent.render(80)).toHaveLength(1);
+		expect(restoreComponent.render(80).join("")).not.toBe("");
 	});
 
 	it("session start、tree 导航和 shutdown 同步或清理当前 branch", async () => {
