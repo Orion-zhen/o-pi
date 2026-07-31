@@ -14,6 +14,7 @@ type HeaderFactory = (tui: { requestRender(): void }, theme: ThemeStub) => Compo
 
 interface ThemeStub {
 	fg(_name: string, text: string): string;
+	bg(_name: string, text: string): string;
 }
 
 interface FooterDataStub {
@@ -40,7 +41,7 @@ interface ExtensionContextStub {
 	hasPendingMessages(): boolean;
 	model: ModelStub | undefined;
 	modelRegistry: { isUsingOAuth(model: ModelStub): boolean };
-	sessionManager: { getEntries(): unknown[] };
+	sessionManager: { getEntries(): unknown[]; buildContextEntries(): never[] };
 }
 
 interface ModelStub {
@@ -90,7 +91,7 @@ describe("tui extension", () => {
 			cwd: process.cwd(),
 			mode: "tui",
 			ui: {
-				theme: { fg: (_name, text) => text },
+				theme: { fg: (_name, text) => text, bg: (_name, text) => text },
 				notify() {},
 				setTitle() {},
 				setStatus() {},
@@ -107,7 +108,7 @@ describe("tui extension", () => {
 			hasPendingMessages: () => false,
 			model: undefined,
 			modelRegistry: { isUsingOAuth: () => false },
-			sessionManager: { getEntries: () => [] },
+			sessionManager: { getEntries: () => [], buildContextEntries: () => [] },
 		};
 
 		tuiExtension(pi as unknown as ExtensionAPI);
@@ -410,7 +411,7 @@ function createContext(
 		cwd: process.cwd(),
 		mode: options.mode ?? "tui",
 		ui: {
-			theme: { fg: (_name, text) => text },
+			theme: { fg: (_name, text) => text, bg: (_name, text) => text },
 			notify(message, type) {
 				calls.notifications.push({ message, type });
 			},
@@ -437,7 +438,7 @@ function createContext(
 		hasPendingMessages: options.hasPendingMessages ?? (() => false),
 		model: undefined,
 		modelRegistry: { isUsingOAuth: () => false },
-		sessionManager: { getEntries: () => [] },
+		sessionManager: { getEntries: () => [], buildContextEntries: () => [] },
 	};
 }
 

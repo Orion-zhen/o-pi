@@ -1,11 +1,23 @@
 import path from "node:path";
-import { loadSkillsFromDir, type ExtensionAPI, type ExtensionContext, type Skill } from "@earendil-works/pi-coding-agent";
+import type { UserMessage } from "@earendil-works/pi-ai";
+import {
+	loadSkillsFromDir,
+	sessionEntryToContextMessages,
+	type ExtensionAPI,
+	type ExtensionContext,
+	type Skill,
+} from "@earendil-works/pi-coding-agent";
 import { notifyWaiting, type WaitingNotifier } from "../notification/native.js";
 import { collectSkillCandidates } from "../skill-context/loader.js";
 import { createStartupBannerComponent } from "./banner.js";
 import { createHeaderComponent, formatTitle, workingIndicatorOptions } from "./chrome.js";
 import { loadTuiConfig } from "./config.js";
 import { createFooterComponent, GitSegmentCache } from "./footer.js";
+import {
+	configureMessageTimestampRenderer,
+	recordUserMessageTimestamp,
+	resetUserMessageTimestamps,
+} from "./message-timestamp.js";
 import type { TuiConfig, TuiFooterSkillsSnapshot, TuiFooterSnapshot, TuiFooterToolsSnapshot } from "./types.js";
 
 const STATUS_KEY = "o-pi:tui";
@@ -54,6 +66,12 @@ export function createTuiRuntime(
 		await resetSession(ctx);
 		const nextConfig = await loadTuiConfig();
 		config = nextConfig;
+		configureMessageTimestampRenderer(nextConfig.enabled ? {
+			dim: (text) => ctx.ui.theme.fg("dim", text),
+			userBackground: (text) => ctx.ui.theme.bg("userMessageBg", text),
+			customBackground: (text) => ctx.ui.theme.bg("customMessageBg", text),
+		} : undefined);
+		syncUserMessageTimestamps(ctx);
 		skillsSnapshot = nextConfig.banner.enabled ? collectSkills(pi) : undefined;
 		const mathEnabled = nextConfig.enabled && nextConfig.math.enabled;
 		mathMarkdownModule?.installMathMarkdownRenderer({ ...nextConfig.math, enabled: mathEnabled });
@@ -136,6 +154,19 @@ export function createTuiRuntime(
 			} catch {
 				// 通知失败不得影响 Agent 的结束状态。
 			}
+		});
+
+		pi.on("message_start", (event) => {
+			if (!config?.enabled || event.message.role !== "user") return;
+			recordUserMessageTimestamp(event.message);
+		});
+
+		pi.on("session_compact", (_event, ctx) => {
+			if (config?.enabled) syncUserMessageTimestamps(ctx);
+		});
+
+		pi.on("session_tree", (_event, ctx) => {
+			if (config?.enabled) syncUserMessageTimestamps(ctx);
 		});
 
 		pi.on("model_select", async (_event, ctx) => {
@@ -236,12 +267,21 @@ export function createTuiRuntime(
 	}
 
 	function cleanup(ctx: ExtensionContext): void {
+		configureMessageTimestampRenderer(undefined);
+		resetUserMessageTimestamps([]);
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 		ctx.ui.setFooter(undefined);
 		ctx.ui.setHeader(undefined);
 		ctx.ui.setWorkingIndicator();
 		if (ctx.cwd) ctx.ui.setTitle(formatTitle({ cwd: ctx.cwd, status: "ready" }));
 	}
+}
+
+function syncUserMessageTimestamps(ctx: ExtensionContext): void {
+	const messages = ctx.sessionManager.buildContextEntries()
+		.flatMap(sessionEntryToContextMessages)
+		.filter((message): message is UserMessage => message.role === "user");
+	resetUserMessageTimestamps(messages);
 }
 
 function mathInitializationComplete(
