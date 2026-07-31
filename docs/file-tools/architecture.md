@@ -85,7 +85,7 @@ port 输入输出使用消费者需要的 DTO 和 opaque ref。所有调用都�
 | invocation lease | policy/visibility-bound filesystem 与组合 bridge attachment | abort 本 invocation 并 detach observation bridge |
 | `ObservationStore` | canonical identity 到 content version 的 session map | session/host 结束时 clear |
 | `FindTool` | tool owner signal | abort pending discovery/ranking |
-| `GrepTool` | 派生 AST cache、parser/worker 与 active invocation | abort pending work 并 dispose parser/worker/cache owner |
+| `GrepTool` | 有界正文/派生 AST cache、parser/worker 与 active invocation | abort pending work 并 dispose parser/worker/cache owner |
 | lazy LSP port | 本会话的模块加载 Promise | 随 extension 释放，不拥有进程级 manager |
 
 file-tools shutdown 顺序是：拒绝新 invocation，dispose 已加载 tool instances，最后 dispose host/filesystem。进程级 LSP 生命周期只由 LSP extension 管理；`/new`、fork 和 resume 保留 manager，reload 和 quit 才关闭连接。所有 `dispose` 幂等。

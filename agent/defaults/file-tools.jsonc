@@ -25,6 +25,8 @@
 		"find_max_depth": 12,
 		"grep_max_depth": 12,
 		"grep_ast_max_file_bytes": 262144,
+		"grep_content_cache_bytes": 16777216,
+		"grep_content_cache_entries": 2048,
 		"grep_result_limit": 24,
 		"grep_related_result_limit": 8,
 		"grep_regional_display_limit": 3

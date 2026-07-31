@@ -51,7 +51,7 @@ npm run bench -- --plugin=./scripts/my-benchmark.mjs --suites=my-benchmark
 --help                  显示帮助
 ```
 
-`file-tools`、`file-search` 和 `web-tools` 的统计至少需要 3 次正式采样。
+`file-tools`、`file-search` 和 `web-tools` 的统计至少需要 3 次正式采样。`file-search` 的相邻 grep 调用复用进程内正文缓存；其总字节和文件数分别由 `grep_content_cache_bytes`、`grep_content_cache_entries` 配置，任一设为 `0` 可测量无缓存基线。
 
 多通道排序的独立 CPU 基准不进入统一 suite，可直接运行：
 

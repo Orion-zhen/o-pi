@@ -1,4 +1,4 @@
-import { mkdir, rename, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, rename, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -8,6 +8,7 @@ import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
 import {
 	assertStrictMatches,
 	createGrepTestContext,
+	deferredVoid,
 	expectGrepSuccess,
 	firstRegion,
 	overrideContent,
@@ -485,7 +486,7 @@ describe("grep local search", () => {
 		expect(firstRegion(result)).toMatchObject({ kind, match_lines: [2], query_match: "verified" });
 	});
 
-	it("regex 冷暖 cache 都从当前 snapshot 单次读取代码正文", async () => {
+	it("regex 暖调用复用已按当前 snapshot 校验的代码正文", async () => {
 		await writeFile(path.join(testContext.workspace, "warm.ts"), "export function warm() { return 'WarmNeedle'; }\n");
 		await withGrepRuntime(testContext.workspace, "grep-strict-warm", async ({ tool, opened }) => {
 			let scans = 0;
@@ -508,8 +509,248 @@ describe("grep local search", () => {
 					limits: opened.limits,
 				})));
 			}
-			expect({ scans, fullReads }).toEqual({ scans: 0, fullReads: 2 });
+			expect({ scans, fullReads }).toEqual({ scans: 0, fullReads: 1 });
 			expect(results[1]?.regions).toEqual(results[0]?.regions);
+		});
+	});
+
+	it.each([
+		["字节", "grep_content_cache_bytes"],
+		["文件数", "grep_content_cache_entries"],
+	] as const)("正文缓存%s上限为 0 时每次调用都稳定读取", async (_name, field) => {
+		const configPath = path.join(testContext.outside, `content-cache-disabled-${field}.jsonc`);
+		await writeConfig(configPath, { [field]: 0 });
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await writeFile(path.join(testContext.workspace, "disabled.ts"), "export function disabled() { return 'DisabledCacheNeedle'; }\n");
+		await withGrepRuntime(testContext.workspace, "grep-cache-disabled", async ({ tool, opened }) => {
+			let fullReads = 0;
+			const filesystem = overrideContent(opened.filesystem, (content) => ({
+				async readText(file, options, context) {
+					fullReads += 1;
+					return await content.readText(file, options, context);
+				},
+			}));
+			for (let index = 0; index < 2; index += 1) {
+				expectGrepSuccess(await tool.execute({ query: "DisabledCacheNeedle" }, {
+					filesystem,
+					operation: opened.context,
+					limits: opened.limits,
+				}));
+			}
+			expect(fullReads).toBe(2);
+		});
+	});
+
+	it("并发 invocation 结束后保留最后加载的正文缓存限制", async () => {
+		await writeFile(path.join(testContext.workspace, "concurrent-cache.ts"), "export const concurrent = 'ConcurrentCacheNeedle';\n");
+		await withGrepRuntime(testContext.workspace, "grep-cache-concurrent-limits", async ({ tool, opened }) => {
+			const readStarted = deferredVoid();
+			const continueRead = deferredVoid();
+			let blockFirstRead = true;
+			let observedReads = 0;
+			const filesystem = overrideContent(opened.filesystem, (service) => ({
+				async readText(file, options, context) {
+					observedReads += 1;
+					if (blockFirstRead) {
+						blockFirstRead = false;
+						readStarted.resolve();
+						await continueRead.promise;
+					}
+					return await service.readText(file, options, context);
+				},
+			}));
+			const warm = tool.execute({ query: "ConcurrentCacheNeedle" }, {
+				filesystem,
+				operation: opened.context,
+				limits: opened.limits,
+			});
+			await readStarted.promise;
+			expectGrepSuccess(await tool.execute({ query: "ConcurrentCacheNeedle" }, {
+				filesystem: opened.filesystem,
+				operation: opened.context,
+				limits: { ...opened.limits, grep_content_cache_entries: 0 },
+			}));
+			continueRead.resolve();
+			expectGrepSuccess(await warm);
+			expectGrepSuccess(await tool.execute({ query: "ConcurrentCacheNeedle" }, {
+				filesystem,
+				operation: opened.context,
+				limits: opened.limits,
+			}));
+			expect(observedReads).toBe(2);
+		});
+	});
+
+	it("cache snapshot 复验被取消时不淘汰共享正文", async () => {
+		await writeFile(path.join(testContext.workspace, "cancel-cache.ts"), "export const cached = 'CancelCacheNeedle';\n");
+		await withGrepRuntime(testContext.workspace, "grep-cache-cancel", async ({ tool, opened }) => {
+			let fullReads = 0;
+			const filesystem = overrideContent(opened.filesystem, (service) => ({
+				async readText(file, options, context) {
+					fullReads += 1;
+					return await service.readText(file, options, context);
+				},
+			}));
+			expectGrepSuccess(await tool.execute({ query: "CancelCacheNeedle" }, {
+				filesystem,
+				operation: opened.context,
+				limits: opened.limits,
+			}));
+
+			const controller = new AbortController();
+			const metadata = filesystem.metadata;
+			const abortingFilesystem = {
+				...filesystem,
+				metadata: {
+					...metadata,
+					async stat(ref: Parameters<typeof metadata.stat>[0], context: Parameters<typeof metadata.stat>[1]) {
+						controller.abort();
+						return await metadata.stat(ref, context);
+					},
+				},
+			};
+			await expect(tool.execute({ query: "CancelCacheNeedle" }, {
+				filesystem: abortingFilesystem,
+				operation: { signal: controller.signal },
+				limits: opened.limits,
+			})).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
+
+			expectGrepSuccess(await tool.execute({ query: "CancelCacheNeedle" }, {
+				filesystem,
+				operation: opened.context,
+				limits: opened.limits,
+			}));
+			expect(fullReads).toBe(2);
+		});
+	});
+
+	it.each(["总字节", "文件数"] as const)("正文缓存按%s上限执行 LRU 淘汰并在命中时更新顺序", async (limit) => {
+		const content = (name: string) => `export const ${name} = 'LruCacheNeedle';\n`;
+		for (const name of ["a", "b", "c"]) {
+			await writeFile(path.join(testContext.workspace, `${name}.ts`), content(name));
+		}
+		const entryBytes = Buffer.byteLength(content("a"));
+		await withGrepRuntime(testContext.workspace, "grep-cache-lru", async ({ tool, opened }) => {
+			const fullReads: string[] = [];
+			const filesystem = overrideContent(opened.filesystem, (service) => ({
+				async readText(file, options, context) {
+					fullReads.push(file.displayPath);
+					return await service.readText(file, options, context);
+				},
+			}));
+			const limits = {
+				...opened.limits,
+				...(limit === "总字节"
+					? { grep_content_cache_bytes: entryBytes * 2 }
+					: { grep_content_cache_entries: 2 }),
+			};
+			for (const name of ["a", "b", "a", "c", "a", "b"]) {
+				expectGrepSuccess(await tool.execute({ path: [`${name}.ts`], query: "LruCacheNeedle" }, {
+					filesystem,
+					operation: opened.context,
+					limits,
+				}));
+			}
+			expect(fullReads).toEqual(["a.ts", "b.ts", "c.ts", "b.ts"]);
+		});
+	});
+
+	it("超过正文缓存总容量的单个文件不会驱逐已有条目", async () => {
+		const cached = "export const cached = 'OversizeCacheNeedle';\n";
+		const oversized = `export const oversized = 'OversizeCacheNeedle ${"x".repeat(128)}';\n`;
+		await writeFile(path.join(testContext.workspace, "cached.ts"), cached);
+		await writeFile(path.join(testContext.workspace, "oversized.ts"), oversized);
+		await withGrepRuntime(testContext.workspace, "grep-cache-oversized", async ({ tool, opened }) => {
+			const fullReads: string[] = [];
+			const filesystem = overrideContent(opened.filesystem, (service) => ({
+				async readText(file, options, context) {
+					fullReads.push(file.displayPath);
+					return await service.readText(file, options, context);
+				},
+			}));
+			const limits = { ...opened.limits, grep_content_cache_bytes: Buffer.byteLength(cached) };
+			for (const file of ["cached.ts", "oversized.ts", "cached.ts"]) {
+				expectGrepSuccess(await tool.execute({ path: [file], query: "OversizeCacheNeedle" }, {
+					filesystem,
+					operation: opened.context,
+					limits,
+				}));
+			}
+			expect(fullReads).toEqual(["cached.ts", "oversized.ts"]);
+		});
+	});
+
+	it("正文 cache hit 在 inventory 后发生替换时拒绝 stale 内容", async () => {
+		const filePath = path.join(testContext.workspace, "warm-race.ts");
+		await writeFile(filePath, "export function before() { return 'WarmRaceNeedle'; }\n");
+		await withGrepRuntime(testContext.workspace, "grep-cache-race", async ({ tool, opened }) => {
+			expect(firstRegion(expectGrepSuccess(await tool.execute({ query: "WarmRaceNeedle" }, {
+				filesystem: opened.filesystem,
+				operation: opened.context,
+				limits: opened.limits,
+			})))).toMatchObject({ symbol: "before" });
+
+			const paths = opened.filesystem.paths;
+			let changed = false;
+			const filesystem = {
+				...opened.filesystem,
+				paths: {
+					...paths,
+					resolveExisting: async (...args: Parameters<typeof paths.resolveExisting>) => {
+						if (!changed && args[1].expected === "file") {
+							changed = true;
+							await writeFile(filePath, "export const after = true; // replacement\n");
+						}
+						return await paths.resolveExisting(...args);
+					},
+				},
+			};
+			const raced = expectGrepSuccess(await tool.execute({ query: "WarmRaceNeedle" }, {
+				filesystem,
+				operation: opened.context,
+				limits: opened.limits,
+			}));
+			expect(changed).toBe(true);
+			expect(raced.regions).toEqual([]);
+			expect(raced.stats.skipped_files).toMatchObject({ changed: 1 });
+		});
+	});
+
+	it.skipIf(process.platform === "win32")("正文 cache hit 不接受 inventory 后出现的最终 symlink", async () => {
+		const filePath = path.join(testContext.workspace, "warm-link.ts");
+		const targetPath = path.join(testContext.workspace, "warm-target.ts");
+		await writeFile(filePath, "export const linked = 'WarmLinkCacheNeedle';\n");
+		await withGrepRuntime(testContext.workspace, "grep-cache-link-race", async ({ tool, opened }) => {
+			expectGrepSuccess(await tool.execute({ query: "WarmLinkCacheNeedle" }, {
+				filesystem: opened.filesystem,
+				operation: opened.context,
+				limits: opened.limits,
+			}));
+
+			const paths = opened.filesystem.paths;
+			let changed = false;
+			const filesystem = {
+				...opened.filesystem,
+				paths: {
+					...paths,
+					resolveExisting: async (...args: Parameters<typeof paths.resolveExisting>) => {
+						if (!changed && args[1].expected === "file") {
+							changed = true;
+							await rename(filePath, targetPath);
+							await symlink("warm-target.ts", filePath);
+						}
+						return await paths.resolveExisting(...args);
+					},
+				},
+			};
+			const raced = expectGrepSuccess(await tool.execute({ query: "WarmLinkCacheNeedle" }, {
+				filesystem,
+				operation: opened.context,
+				limits: opened.limits,
+			}));
+			expect(changed).toBe(true);
+			expect(raced.regions).toEqual([]);
+			expect(raced.stats.skipped_files).toMatchObject({ changed: 1 });
 		});
 	});
 });

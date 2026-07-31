@@ -11,6 +11,7 @@ import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.j
 import { bindOperationContext } from "../../filesystem/operation-context.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
 import { fail, isFailed, type FailedResult, type ToolOutcome } from "../shared/result.js";
+import { GrepContentCache, type GrepContentCacheLease } from "./content-cache.js";
 import { buildScopeInventory, type ScopeInventory } from "./inventory.js";
 import { buildRankedRegions, semanticParsePriority } from "./local.js";
 import { packGrepResults, renderGrepSuccess } from "./packer.js";
@@ -36,20 +37,28 @@ export interface GrepCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
 	readonly limits: Pick<FileToolLimits,
-		"grep_max_depth" | "grep_ast_max_file_bytes" | "grep_result_limit" | "grep_related_result_limit" | "grep_regional_display_limit">;
+		"grep_max_depth" | "grep_ast_max_file_bytes" | "grep_content_cache_bytes" | "grep_content_cache_entries" | "grep_result_limit" | "grep_related_result_limit" | "grep_regional_display_limit">;
 	readonly prepareCodeAnalysis?: PrepareCodeAnalysis;
 	readonly analyzeCode?: AnalyzeCode;
 }
 
-/** Stateful grep command; parser、派生 AST cache 与 active invocation 共享 owner。 */
+/** Stateful grep command；正文/AST cache、parser 与 active invocation 共享 owner。 */
 export class GrepTool {
+	private readonly contentCache = new GrepContentCache();
 	private readonly regionizer = new GrepRegionizer();
 	private readonly owner = new AbortController();
 	private disposed = false;
 
 	async execute(params: GrepParams, context: GrepCommandContext): Promise<ToolOutcome<GrepSuccess>> {
 		if (this.disposed || isAborted(context.operation.signal)) return aborted();
+		if (!isCacheLimit(context.limits.grep_content_cache_bytes) || !isCacheLimit(context.limits.grep_content_cache_entries)) {
+			return fail("INVALID_OPERATION", "grep content cache limits must be non-negative safe integers.");
+		}
 		const invocation = new AbortController();
+		const contentCache = this.contentCache.acquire(
+			context.limits.grep_content_cache_bytes,
+			context.limits.grep_content_cache_entries,
+		);
 		context = {
 			...context,
 			operation: bindOperationContext(invocation.signal, bindOperationContext(this.owner.signal, context.operation)),
@@ -57,8 +66,9 @@ export class GrepTool {
 		try {
 			const plan = createQueryPlan(params);
 			if (isFailed(plan)) return plan;
-			return await this.grep(plan, context);
+			return await this.grep(plan, context, contentCache);
 		} finally {
+			contentCache.dispose();
 			invocation.abort(new Error("grep invocation completed."));
 		}
 	}
@@ -67,10 +77,15 @@ export class GrepTool {
 		if (this.disposed) return;
 		this.disposed = true;
 		this.owner.abort(new Error("grep is shut down."));
+		this.contentCache.dispose();
 		this.regionizer.dispose();
 	}
 
-	private async grep(plan: QueryPlan, context: GrepCommandContext): Promise<ToolOutcome<GrepSuccess>> {
+	private async grep(
+		plan: QueryPlan,
+		context: GrepCommandContext,
+		contentCache: GrepContentCacheLease,
+	): Promise<ToolOutcome<GrepSuccess>> {
 		const inventory = await buildScopeInventory({
 			paths: plan.paths,
 			...(plan.glob === undefined ? {} : { glob: plan.glob }),
@@ -85,6 +100,7 @@ export class GrepTool {
 			filesystem: context.filesystem,
 			operation: context.operation,
 			retainTextMaxBytes: context.limits.grep_ast_max_file_bytes,
+			contentCache,
 		});
 		if (isFailed(scanned)) return scanned;
 		await preparation;
@@ -354,6 +370,10 @@ export function formatCompactGrepResult(result: GrepSuccess): string {
 
 function isAborted(signal: AbortSignal | undefined): boolean {
 	return signal?.aborted === true;
+}
+
+function isCacheLimit(value: number): boolean {
+	return Number.isSafeInteger(value) && value >= 0;
 }
 
 function aborted(path?: string): ReturnType<typeof fail> {

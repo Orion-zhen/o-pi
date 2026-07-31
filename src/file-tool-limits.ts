@@ -12,6 +12,8 @@ export interface FileToolLimits {
 	find_max_depth: number;
 	grep_max_depth: number;
 	grep_ast_max_file_bytes: number;
+	grep_content_cache_bytes: number;
+	grep_content_cache_entries: number;
 	grep_result_limit: number;
 	grep_related_result_limit: number;
 	grep_regional_display_limit: number;

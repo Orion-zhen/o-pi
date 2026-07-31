@@ -145,7 +145,7 @@ LSP 无法完整提交时，C/C++、TypeScript、TSX、JavaScript、JSX、Python
 
 inventory entry 携带 object identity、version 和 size snapshot。line scan 和 AST read 都要求 snapshot 稳定；文件变化时不保留部分命中。LF、CRLF、CR 和 UTF-8 BOM 使用统一 logical-line 语义，range 使用剥离 BOM 后正文的 UTF-8 byte 坐标。
 
-正文事实扫描不按文件数量、累计字节或单文件字节提前停止。`grep_ast_max_file_bytes` 限制 LSP/Tree-sitter 结构增强和可复用全文缓存；超限文件仍通过流式扫描保留 verified 文本结果。
+正文事实扫描不按文件数量、累计字节或单文件字节提前停止。`grep_ast_max_file_bytes` 限制 LSP/Tree-sitter 结构增强和单文件缓存资格，`grep_content_cache_bytes` 与 `grep_content_cache_entries` 分别限制跨调用复用正文的 LRU 总字节和文件数；这些限制都不会裁剪搜索，超限文件仍通过流式扫描保留 verified 文本结果。任一缓存限制设为 `0` 时禁用正文缓存。
 
 ## 零结果
 

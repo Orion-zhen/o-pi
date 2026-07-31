@@ -106,6 +106,18 @@
 					"maximum": 104857600,
 					"default": 262144
 				},
+				"grep_content_cache_bytes": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 104857600,
+					"default": 16777216
+				},
+				"grep_content_cache_entries": {
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 100000,
+					"default": 2048
+				},
 				"grep_result_limit": {
 					"type": "integer",
 					"minimum": 1,

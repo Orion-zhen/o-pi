@@ -5,6 +5,7 @@ import type { FsError, FsOperationContext } from "../../filesystem/contracts/res
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
 import type { TextFileEvidence, TextHit } from "./candidates.js";
+import type { GrepContentCacheLease } from "./content-cache.js";
 import type { ScopeInventory, ScopedFile } from "./inventory.js";
 import type { QueryPlan } from "./query-plan.js";
 import { compactGrepSkippedFiles, createGrepSkippedFiles, recordSkippedFile } from "./skipped.js";
@@ -38,6 +39,7 @@ export interface TextScannerContext {
 	readonly maxStoredHits?: number;
 	readonly maxStoredAnchors?: number;
 	readonly retainTextMaxBytes?: number;
+	readonly contentCache?: GrepContentCacheLease;
 }
 
 interface LineMatch {
@@ -155,11 +157,14 @@ async function scanFile(
 	remainingAnchorCapacity: number,
 ): Promise<{ readonly ok: true; readonly value: FileScanSuccess } | { readonly ok: false; readonly error: FsError }> {
 	let retained: TextContent | undefined;
-	if (
+	const retainText =
 		context.retainTextMaxBytes !== undefined
 		&& file.snapshot.sizeBytes <= context.retainTextMaxBytes
-		&& languageFromPath(file.path) !== "text"
-	) {
+		&& languageFromPath(file.path) !== "text";
+	if (retainText) {
+		retained = await context.contentCache?.get(file, context.filesystem, context.operation);
+	}
+	if (retainText && retained === undefined) {
 		const loaded = await context.filesystem.content.readText(
 			file.ref,
 			{
@@ -172,6 +177,7 @@ async function scanFile(
 		);
 		if (!loaded.ok) return loaded;
 		retained = loaded.value;
+		context.contentCache?.set(file, context.filesystem, retained);
 	}
 	const fileHits: TextHit[] = [];
 	const anchors: MutableLexicalAnchor[] = [];
