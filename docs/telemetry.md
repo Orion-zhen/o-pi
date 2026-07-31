@@ -23,6 +23,8 @@ writer 与 Git provenance 在首个完成调用后于后台并行初始化，不
 
 collector 同时保留当前 `session_start` 以来的 record 内存视图，供 `/telemetry` 即时分析；切换 session 时清空。它不扫描或恢复旧 run，不改变 JSONL 作为持久化事实源的地位。
 
+collector 查询和 live report 构建不依赖 UI。报告 DTO 可直接 `structuredClone` 和 JSON stringify/parse；未启用 telemetry、空 session 和失败投影都使用结构化降级状态。TUI viewer 与非 TUI summary formatter 消费同一 DTO，extension 只选择 presentation。
+
 `message_end` 只用于识别同一 assistant message 中的并行 batch。`turn_start` 只给后续 call 附加模型和 thinking，不单独落盘。
 
 系统没有 telemetry schema version、behavior version、report version 或 manifest。格式发生破坏性变化时直接丢弃旧的本地观测数据，不提供迁移或兼容层。Git 和 definition hash 都是自动观测值，不需要人工维护。

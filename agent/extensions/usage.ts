@@ -28,7 +28,7 @@ export default function usageExtension(pi: Pick<ExtensionAPI, "registerCommand">
 			}
 
 			if (ctx.mode === "tui") {
-				const { UsageViewer } = await import("../../src/usage/viewer.js");
+				const { UsageViewer } = await import("../../src/usage/tui/viewer.js");
 				await ctx.ui.custom<void>((tui, theme, _keybindings, done) => new UsageViewer(result, theme, () => tui.terminal.rows, done), {
 					overlay: true,
 					overlayOptions: { anchor: "center", width: "90%", minWidth: 110, margin: 1 },
@@ -36,7 +36,7 @@ export default function usageExtension(pi: Pick<ExtensionAPI, "registerCommand">
 				return;
 			}
 
-			const { renderUsage, renderUsageError } = await import("../../src/usage/render.js");
+			const { renderUsage, renderUsageError } = await import("../../src/usage/presentation/render.js");
 			const lines = result instanceof Error ? renderUsageError(result, 96) : renderUsage(result, 96);
 			ctx.ui.notify(lines.join("\n"), result instanceof Error ? "error" : "info");
 		},

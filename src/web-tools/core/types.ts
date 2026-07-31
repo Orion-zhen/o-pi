@@ -336,10 +336,13 @@ export interface WebFetchExecutionContext {
 	toolCallId: string;
 	signal?: AbortSignal;
 	onUpdate?: (partial: { content: string; details: WebFetchProgressDetails }) => void;
-	hasUI: boolean;
 	acceptsImages?: boolean;
 	imageOmissionReason?: "model_no_image_input" | "api_no_tool_image_output";
-	confirm?: (title: string, message: string) => Promise<boolean>;
+	interaction?: WebFetchInteractionPort;
+}
+
+export interface WebFetchInteractionPort {
+	confirmAuthentication(title: string, message: string): Promise<boolean>;
 }
 
 /** 搜索执行上下文；扩展层负责把 Pi progress callback 适配成该结构。 */

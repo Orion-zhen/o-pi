@@ -321,8 +321,11 @@ async function confirmAuth(url: URL, options: HttpClientOptions): Promise<boolea
 	const mode = options.config.webfetch.cookies.confirmation;
 	const key = originKey(url);
 	if (mode === "never" || (mode === "session" && options.approvedAuthOrigins.has(key))) return true;
-	if (!options.context.hasUI || options.context.confirm === undefined) return false;
-	const ok = await options.context.confirm("WebFetch authentication", `Send configured cookies to ${url.origin}?`);
+	if (options.context.interaction === undefined) return false;
+	const ok = await options.context.interaction.confirmAuthentication(
+		"WebFetch authentication",
+		`Send configured cookies to ${url.origin}?`,
+	);
 	if (ok && mode === "session") options.approvedAuthOrigins.add(key);
 	return ok;
 }

@@ -1,5 +1,5 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
-import { SKILL_CONTEXT_ENTRY, type SkillLoadEntry } from "./types.js";
+import { SKILL_CONTEXT_ENTRY, type SkillLoadEntry, type SkillStatusSnapshot } from "./types.js";
 
 export function extractSkillLoads(branchEntries: SessionEntry[]): SkillLoadEntry[] {
 	const loads: SkillLoadEntry[] = [];
@@ -15,6 +15,17 @@ export function loadedSkillsByName(branchEntries: SessionEntry[]): Map<string, S
 	const loaded = new Map<string, SkillLoadEntry>();
 	for (const entry of extractSkillLoads(branchEntries)) loaded.set(entry.name, entry);
 	return loaded;
+}
+
+/** 返回 adapter-facing 的当前分支技能披露快照。 */
+export function querySkillStatus(branchEntries: SessionEntry[]): SkillStatusSnapshot {
+	return {
+		skills: [...loadedSkillsByName(branchEntries).values()].map((load) => ({
+			name: load.name,
+			scope: load.scope,
+			loadedBy: load.loadedBy,
+		})),
+	};
 }
 
 export function hasCurrentDisclosure(

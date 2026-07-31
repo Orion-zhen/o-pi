@@ -5,7 +5,7 @@ import type { BashOperations, ExtensionAPI } from "@earendil-works/pi-coding-age
 
 import bashToolExtension from "../../agent/extensions/bash-tool.js";
 import { createBashEnvironment, createDefaultBashOperations, executeBashCommand, normalizeWindowsPath } from "../../src/bash-tool/bash-tool.js";
-import { renderBashCall } from "../../src/bash-tool/renderer.js";
+import { renderBashCall } from "../../src/bash-tool/tui/renderer.js";
 import type { BashSessionMetadata, ExecuteBashRuntime } from "../../src/bash-tool/types.js";
 import { defaultBashToolConfig, loadBashToolConfig } from "../../src/bash-tool/config.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -51,20 +51,20 @@ function waitForAbort(signal: AbortSignal | undefined): Promise<void> {
 }
 
 describe("bash tool execution", () => {
-	it("扩展只注册覆盖版 bash，并统一标记失败结果", () => {
+	it("扩展先注册无 renderer 的覆盖版 bash，TUI session 再加载 renderer，并统一标记失败结果", async () => {
 		const tools: Array<{
 			name: string;
 			executionMode?: string;
 			parameters: { properties?: Record<string, unknown> };
 			renderCall?: unknown;
 		}> = [];
-		const handlers = new Map<string, (event: unknown) => unknown>();
+		const handlers = new Map<string, (...args: unknown[]) => unknown>();
 		bashToolExtension({
 			registerTool(tool: Parameters<ExtensionAPI["registerTool"]>[0]) {
 				tools.push(tool);
 			},
 			on(name: string, handler: unknown) {
-				handlers.set(name, handler as (event: unknown) => unknown);
+				handlers.set(name, handler as (...args: unknown[]) => unknown);
 			},
 		} as unknown as ExtensionAPI);
 
@@ -72,7 +72,11 @@ describe("bash tool execution", () => {
 		const tool = tools[0];
 		const parameters = tool?.parameters;
 		expect(Object.keys(parameters?.properties ?? {})).toEqual(["command", "timeout"]);
-		expect(tool?.renderCall).toBeTypeOf("function");
+		expect(tool?.renderCall).toBeUndefined();
+		await handlers.get("session_start")?.({}, { mode: "rpc", ui: { notify() {} } });
+		expect(tools).toHaveLength(1);
+		await handlers.get("session_start")?.({}, { mode: "tui", ui: { notify() {} } });
+		expect(tools.at(-1)?.renderCall).toBeTypeOf("function");
 		const base = { duration_ms: 1, output_state: "complete", capture_complete: true };
 		expect(handlers.get("tool_result")?.({ toolName: "bash", details: { ...base, status: "timed_out" } })).toEqual({ isError: true });
 		expect(handlers.get("tool_result")?.({ toolName: "bash", details: { ...base, status: "exited", exit_code: 0 } })).toBeUndefined();

@@ -34,6 +34,7 @@ cd ~/.pi && npm install
 * [Slash commands](docs/slash-cmds.md)
 * [Skill Context](docs/skill-context.md)
 * [Subagent](docs/subagent.md)
+* [RPC 支持矩阵](docs/rpc.md)
 * [Prompt Templates](docs/prompt-templates.md)
 * [提示词设计](docs/prompt-design.md)
 * [Pi 工具提示词字段](docs/tool-prompt-fields.md)

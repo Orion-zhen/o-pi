@@ -10,10 +10,10 @@ import {
 	type UsageHttpRequest,
 	type UsageHttpResponse,
 } from "../../src/usage/client.js";
-import { renderUsage, renderUsageError } from "../../src/usage/render.js";
-import { UsageService } from "../../src/usage/service.js";
+import { renderUsage, renderUsageError } from "../../src/usage/presentation/render.js";
+import { serializeUsageSnapshot, UsageService } from "../../src/usage/service.js";
 import { UsageRequestError, type UsageSnapshot } from "../../src/usage/types.js";
-import { UsageViewer } from "../../src/usage/viewer.js";
+import { UsageViewer } from "../../src/usage/tui/viewer.js";
 import { httpResponse } from "../helpers/http.js";
 
 const NOW = new Date("2026-07-27T00:00:00Z");
@@ -144,7 +144,7 @@ describe("usage client", () => {
 			return fixtureResponse(url, request);
 		};
 		const snapshot = await collectUsageSnapshot(oauthContext(token), { fetchImpl, now: NOW });
-		const output = renderUsage(snapshot, 96).join("\n");
+		const output = renderUsage(serializeUsageSnapshot(snapshot), 96).join("\n");
 
 		expect(provider(snapshot, "anthropic")).toMatchObject({ status: "error", error: { code: "http", httpStatus: 503 } });
 		expect(provider(snapshot, "openai-codex")).toMatchObject({ status: "ok" });
@@ -260,7 +260,7 @@ describe("usage service", () => {
 
 describe("usage renderer", () => {
 	it.each([100, 42])("宽度 %i 下不越界并保留用量信息", async (width) => {
-		const snapshot = await collectUsageSnapshot(oauthContext(), { fetchImpl: fixtureFetch(), now: NOW });
+		const snapshot = serializeUsageSnapshot(await collectUsageSnapshot(oauthContext(), { fetchImpl: fixtureFetch(), now: NOW }));
 		const lines = renderUsage(snapshot, width);
 		expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
 		expect(lines.join("\n")).toContain("% remaining");
@@ -271,7 +271,7 @@ describe("usage renderer", () => {
 	});
 
 	it("隐藏未登录 provider", async () => {
-		const snapshot = await collectUsageSnapshot({ modelRegistry: { getProviderAuth: async () => undefined } }, { now: NOW });
+		const snapshot = serializeUsageSnapshot(await collectUsageSnapshot({ modelRegistry: { getProviderAuth: async () => undefined } }, { now: NOW }));
 		const output = renderUsage(snapshot, 80).join("\n");
 		expect(output).toContain("No logged-in supported plan providers.");
 		expect(output).not.toContain("OAuth not logged in");
@@ -281,14 +281,14 @@ describe("usage renderer", () => {
 
 	it("缺少百分比时只显示一次可用性提示", () => {
 		const snapshot: UsageSnapshot = {
-			generatedAt: NOW,
+			generatedAt: NOW.toISOString(),
 			timeZone: "UTC",
 			providers: [{
 				id: "anthropic",
 				name: "Claude",
 				status: "ok",
 				plan: "Pro",
-				windows: [{ label: "Session (5h)", usedPercent: undefined, windowDurationMins: 300, resetsAt: new Date("2026-07-27T05:00:00Z") }],
+				windows: [{ label: "Session (5h)", usedPercent: undefined, windowDurationMins: 300, resetsAt: "2026-07-27T05:00:00.000Z" }],
 				details: [],
 				resetCredits: undefined,
 			}],
@@ -300,7 +300,7 @@ describe("usage renderer", () => {
 
 	it("再次清理 plan 中的终端控制字符，错误渲染不泄露底层消息", () => {
 		const snapshot: UsageSnapshot = {
-			generatedAt: NOW,
+			generatedAt: NOW.toISOString(),
 			timeZone: "UTC",
 			providers: [{
 				id: "xai",
@@ -321,7 +321,7 @@ describe("usage renderer", () => {
 	});
 
 	it("viewer 可渲染成功和错误结果并响应关闭键", async () => {
-		const snapshot = await collectUsageSnapshot(oauthContext(), { fetchImpl: fixtureFetch(), now: NOW });
+		const snapshot = serializeUsageSnapshot(await collectUsageSnapshot(oauthContext(), { fetchImpl: fixtureFetch(), now: NOW }));
 		let closed = 0;
 		let boldCalls = 0;
 		const theme: Pick<Theme, "fg" | "bold"> = {
@@ -504,7 +504,7 @@ function jsonResponse(value: unknown): UsageHttpResponse {
 	return httpResponse(200, JSON.stringify(value), { "content-type": "application/json" });
 }
 
-function provider(snapshot: UsageSnapshot, id: string) {
+function provider<T extends { providers: Array<{ id: string }> }>(snapshot: T, id: string): T["providers"][number] {
 	const value = snapshot.providers.find((item) => item.id === id);
 	if (value === undefined) throw new Error(`Missing provider ${id}`);
 	return value;

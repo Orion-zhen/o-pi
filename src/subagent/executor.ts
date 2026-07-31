@@ -249,8 +249,8 @@ async function confirmIfNeeded(
 	if (agent.source === "user" && agent.autoConfirm === true) return;
 	const needsConfirm = config.confirmWriteAgents && hasWriteCapability(tools);
 	if (!needsConfirm) return;
-	if (!context.hasUI || context.confirm === undefined) throw new SubagentExecutionError(`Agent "${agent.name}" needs write-capable tools but confirmation UI is unavailable.`);
-	const approved = await context.confirm(
+	if (context.interaction === undefined) throw new SubagentExecutionError(`Agent "${agent.name}" needs write-capable tools but confirmation UI is unavailable.`);
+	const approved = await context.interaction.confirmWrite(
 		"Run write-capable subagent?",
 		[`Agent: ${agent.name}`, `Source: ${agent.source} (${agent.filePath})`, `cwd: ${cwd}`, `Tools: ${tools.join(", ")}`, "", task].join("\n"),
 	);

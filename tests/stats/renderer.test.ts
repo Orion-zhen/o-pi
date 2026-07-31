@@ -1,7 +1,7 @@
 import path from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { renderStats } from "../../src/stats/render-stats.js";
+import { renderStats } from "../../src/stats/tui/render-stats.js";
 import type { StatsSnapshot } from "../../src/stats/types.js";
 
 describe("stats renderer", () => {
@@ -90,6 +90,6 @@ function snapshot(): StatsSnapshot {
 				{ name: "bash", calls: 4 },
 			],
 		},
-		generatedAt: new Date("2026-07-05T00:00:00Z"),
+		generatedAt: "2026-07-05T00:00:00.000Z",
 	};
 }

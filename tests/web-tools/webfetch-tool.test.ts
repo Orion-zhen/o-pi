@@ -3,7 +3,11 @@ import { Agent } from "undici";
 
 import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
 import { SnapshotCache } from "../../src/web-tools/fetch/snapshot-cache.js";
-import type { CookieStore, WebHttpFetch } from "../../src/web-tools/core/types.js";
+import type {
+	CookieStore,
+	WebFetchInteractionPort,
+	WebHttpFetch,
+} from "../../src/web-tools/core/types.js";
 import { executeWebFetch } from "../../src/web-tools/fetch/webfetch-tool.js";
 import { httpResponse } from "../helpers/http.js";
 
@@ -22,6 +26,8 @@ function runtime(
 	acceptsImages = false,
 	imageOmissionReason?: "api_no_tool_image_output",
 	signal?: AbortSignal,
+	interaction?: WebFetchInteractionPort,
+	selectedCookieStore: CookieStore = cookieStore,
 ) {
 	const config = defaultWebToolsConfig();
 	config.webfetch.limits.default_output_chars = 1000;
@@ -30,22 +36,57 @@ function runtime(
 	return {
 		dispatcher: new Agent(),
 		fetchImpl,
-		cookieStore,
+		cookieStore: selectedCookieStore,
 		snapshots: new SnapshotCache(),
 		approvedAuthOrigins: new Set<string>(),
 		config,
 		context: {
 			toolCallId: "t1",
-			hasUI: false,
 			acceptsImages,
 			...(imageOmissionReason !== undefined ? { imageOmissionReason } : {}),
 			...(signal !== undefined ? { signal } : {}),
+			...(interaction !== undefined ? { interaction } : {}),
 		},
 		now: () => Date.now(),
 	};
 }
 
 describe("webfetch tool", () => {
+	it("RPC dialog adapter 可通过窄 interaction port 确认认证请求", async () => {
+		const confirmations: string[] = [];
+		const authenticatedStore: CookieStore = {
+			async getCookieAccess() {
+				return { authenticated: true, fingerprint: "auth", header: "sid=secret" };
+			},
+			async storeFromResponse() {},
+		};
+		const interaction: WebFetchInteractionPort = {
+			async confirmAuthentication(title, message) {
+				confirmations.push(`${title}\n${message}`);
+				return true;
+			},
+		};
+		const rt = runtime(
+			async () => httpResponse(200, "authenticated", { "content-type": "text/plain" }),
+			100_000,
+			false,
+			undefined,
+			undefined,
+			interaction,
+			authenticatedStore,
+		);
+		rt.config.webfetch.cookies.enabled = true;
+		rt.config.webfetch.cookies.domains = ["example.com"];
+		rt.config.webfetch.cookies.confirmation = "always";
+
+		const result = await executeWebFetch({ url: "https://example.com/private" }, rt);
+
+		expect(result.details).toMatchObject({ status: "success", authenticated: true });
+		expect(confirmations).toEqual([
+			"WebFetch authentication\nSend configured cookies to https://example.com?",
+		]);
+	});
+
 	it("为展开 Widget 保留最多 40 行、6000 字符的正文预览", async () => {
 		const body = Array.from({ length: 50 }, (_, index) => `line-${index.toString().padStart(2, "0")} ${"x".repeat(200)}`).join("\n");
 		const result = await executeWebFetch(

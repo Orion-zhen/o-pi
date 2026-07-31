@@ -12,7 +12,7 @@ import { analyzeGrep } from "../../src/telemetry-report/analyzers/grep.js";
 import { analyzeSearchEffectiveness } from "../../src/telemetry-report/analyzers/search-effectiveness.js";
 import { generateTelemetryReport } from "../../src/telemetry-report/command.js";
 import { formatTelemetrySummary, renderTelemetryHtml } from "../../src/telemetry-report/html.js";
-import { renderLiveTelemetry } from "../../src/telemetry-report/render-live.js";
+import { renderLiveTelemetry } from "../../src/telemetry-report/tui/render-live.js";
 import { readTelemetryDirectory } from "../../src/telemetry-report/read.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 

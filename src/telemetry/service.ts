@@ -1,7 +1,6 @@
 import type {
 	AgentToolResult,
 	ExtensionAPI,
-	ExtensionContext,
 	SessionShutdownEvent,
 	SessionStartEvent,
 	ToolDefinition,
@@ -26,8 +25,19 @@ import type {
 	ToolTelemetry,
 } from "./types.js";
 import type { TelemetryWriter } from "./writer.js";
+import { attachTelemetryService } from "./pi-adapter.js";
 
-type TelemetryPi = Pick<ExtensionAPI, "events" | "getAllTools" | "getThinkingLevel" | "on">;
+export type TelemetryPi = Pick<ExtensionAPI, "events" | "getAllTools" | "getThinkingLevel" | "on">;
+
+export interface TelemetrySessionContext {
+	cwd: string;
+	sessionId: string;
+	notify?: (message: string) => void;
+}
+
+export interface TelemetryTurnContext {
+	model?: { provider: string; id: string };
+}
 
 interface ErasedTelemetry {
 	input?: (params: unknown) => TelemetryFacts;
@@ -137,7 +147,7 @@ export function telemetryServiceFor(pi: TelemetryPi): TelemetryService {
 
 export function registerTelemetry(pi: TelemetryPi): TelemetryService {
 	const service = telemetryServiceFor(pi);
-	service.attach(pi);
+	attachTelemetryService(pi, service);
 	return service;
 }
 
@@ -155,7 +165,6 @@ export class TelemetryService {
 	#run: RunState | undefined;
 	#turn: TurnContext | undefined;
 	#nextCallIndex = 0;
-	#attached = false;
 
 	constructor(private readonly pi: Pick<TelemetryPi, "getAllTools" | "getThinkingLevel">, options: TelemetryServiceOptions = {}) {
 		this.#now = options.now ?? (() => new Date());
@@ -163,18 +172,6 @@ export class TelemetryService {
 		this.#runId = options.runId ?? randomUUID;
 		this.#captureRevision = options.revision ?? (async (cwd) => (await import("./revision.js")).captureGitRevision(cwd));
 		this.#writerFactory = options.writerFactory ?? (async (runId, onError) => (await import("./writer.js")).JsonlTelemetryWriter.open(runId, { onError }));
-	}
-
-	attach(pi: Pick<TelemetryPi, "on">): void {
-		if (this.#attached) return;
-		this.#attached = true;
-		try { pi.on("session_start", (event, ctx) => { void this.onSessionStart(event, ctx); }); } catch {}
-		try { pi.on("turn_start", (event, ctx) => this.onTurnStart(event, ctx)); } catch {}
-		try { pi.on("message_end", (event) => this.onMessageEnd(event)); } catch {}
-		try { pi.on("tool_execution_start", (event) => this.onToolExecutionStart(event)); } catch {}
-		try { pi.on("tool_result", (event) => this.onToolResult(event)); } catch {}
-		try { pi.on("tool_execution_end", (event) => this.onToolExecutionEnd(event)); } catch {}
-		try { pi.on("session_shutdown", (event) => this.onSessionShutdown(event)); } catch {}
 	}
 
 	registerTool<TParams extends TSchema, TDetails, TState>(
@@ -200,19 +197,19 @@ export class TelemetryService {
 		};
 	}
 
-	onSessionStart(event: SessionStartEvent, ctx: ExtensionContext): Promise<void> {
+	onSessionStart(event: SessionStartEvent, context: TelemetrySessionContext): Promise<void> {
 		try {
 			const previous = this.#run;
 			this.resetRunState();
 			const runId = this.#runId();
-			const sessionId = safeSessionId(ctx);
+			const sessionId = context.sessionId;
 			const header = {
 				type: "run",
 				run_id: runId,
 				at: this.#now().toISOString(),
 				session_id: sessionId,
 				reason: event.reason,
-				cwd: ctx.cwd,
+				cwd: context.cwd,
 			} satisfies RunRecord;
 			const run: RunState = {
 				id: runId,
@@ -223,7 +220,7 @@ export class TelemetryService {
 				closing: false,
 				queued: [],
 				notify: (message) => {
-					try { ctx.ui.notify(message, "warning"); } catch {}
+					try { context.notify?.(message); } catch {}
 				},
 			};
 			this.#run = run;
@@ -238,11 +235,13 @@ export class TelemetryService {
 		}
 	}
 
-	onTurnStart(event: TurnStartEvent, ctx: ExtensionContext): void {
+	onTurnStart(event: TurnStartEvent, context: TelemetryTurnContext): void {
 		this.guard(() => {
 			this.#turn = {
 				index: event.turnIndex,
-				...(ctx.model === undefined ? {} : { model: { provider: ctx.model.provider, id: ctx.model.id } }),
+				...(context.model === undefined
+					? {}
+					: { model: { provider: context.model.provider, id: context.model.id } }),
 				...optionalThinking(this.pi),
 			};
 		});
@@ -578,7 +577,7 @@ function sharedService(runtime: object): TelemetryService | undefined {
 }
 
 function isTelemetryService(value: unknown): value is TelemetryService {
-	return isObject(value) && ["attach", "onToolExecutionEnd", "prepared", "registerTool"]
+	return isObject(value) && ["onToolExecutionEnd", "prepared", "registerTool", "snapshot"]
 		.every((method) => typeof Reflect.get(value, method) === "function");
 }
 
@@ -603,10 +602,6 @@ function safeAllTools(pi: Pick<TelemetryPi, "getAllTools">): ReturnType<Telemetr
 
 function optionalThinking(pi: Pick<TelemetryPi, "getThinkingLevel">): { thinking?: string } {
 	try { return { thinking: pi.getThinkingLevel() }; } catch { return {}; }
-}
-
-function safeSessionId(ctx: ExtensionContext): string {
-	try { return ctx.sessionManager.getSessionId(); } catch { return "unknown"; }
 }
 
 function clone<T>(value: T): T {

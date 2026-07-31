@@ -2,6 +2,8 @@
 
 本页只记录 `agent/extensions/` 中通过 `pi.registerCommand()` 注册的命令。命令名注册时不带 `/`，在 Pi 输入框中以 `/命令名` 调用。
 
+Slash handler 是 presentation adapter，不是 GUI API。可复用能力位于对应 feature 的 query/service/controller；新 adapter 应直接消费 JSON-safe snapshot、outcome 或 progress，不解析本页记录的通知文本。
+
 ## `/tools`
 
 来源：`agent/extensions/cmd-slash-tools.ts`
@@ -26,6 +28,7 @@
 - `match` 只把 `*` 视为通配符，且可跨越 model id 内的 `/`；规则按第一个 `*` 之前的最长静态前缀从短到长合并，精确匹配最高，相同优先级后声明者覆盖前者。
 - 模型启动、恢复或切换时重新计算配置；session 中的 `/tools` 手动选择仍优先于文件配置。
 - 用户配置先应用，项目配置整体后应用；未声明的工具默认启用。
+- 配置恢复、model-aware defaults、branch override、set/toggle/reset 和 `tools-config` 持久化由 `ToolSelectionController` 负责；空选择、未知工具、配置错误和已删除工具都有结构化 outcome，TUI `SettingsList` 只消费 snapshot。
 
 ```jsonc
 {
@@ -128,6 +131,7 @@
 
 - 仅支持 TUI 模式；非 TUI 模式提示 `/stats requires TUI mode`。
 - 使用 `ctx.getContextUsage()`、`ctx.getSystemPromptOptions()` 和公开 session entries 生成快照。
+- 数据采集通过窄 `StatsQueryPort` 生成 JSON-safe `StatsSnapshot`；`generatedAt` 是 ISO 8601 字符串，viewer 只消费该 DTO。
 - 首屏展示当前请求窗口的 context breakdown；分项 token 通过 provider-aware counter 估算，估算值使用 `~` 标记。
 - token counter 规则见 [Token Counter](token-counter.md)。
 - 成本只显示为 `est`，不代表账单。
@@ -163,6 +167,7 @@
 - session 加载或通过 `/tree` 切换分支时，摘要状态按目标分支同步；非 TUI 模式不创建视觉状态。
 - `/prune restore` 撤销最近一次尚未撤销的成功裁剪；连续执行会逐次向前恢复。恢复同样只追加状态，不改写原始消息或已有条目。
 - restore 会先检查当前 branch 的 compaction-aware context 中，本次新增的每个 tool call 及对应 result 是否仍存在；若 compaction 已移除任一事务，则不写 restore 状态，也不做部分恢复。
+- preview/apply/force/restore 由 `PruneService` 串行执行；service 等待 idle、支持取消并返回结构化 outcome。通知文本在 presentation 层生成，TUI 摘要完全由 branch entries 纯投影。
 
 ## `/telemetry`
 
@@ -179,6 +184,7 @@
 行为：
 
 - 对当前 collector 内存快照复用离线报告的同一套 analyzer，不维护第二套统计逻辑。
+- live report 是 JSON-safe DTO；TUI viewer 和非 TUI summary formatter 消费同一份报告。
 - 展示工具调用量、成功率、错误、耗时和 repair，edit 多文件 batch，以及候选 conversion@K、MRR、LSP 来源族和细分来源。
 - 只分析已经完成并成功写入遥测的调用；正在执行的调用只显示数量。
 - 不扫描旧 run；切换 session 后从新 session 的观测重新开始。
@@ -210,6 +216,7 @@
 - 结果缓存 60 秒；`--refresh` 强制刷新。
 - TUI 使用只读浮层；非 TUI 模式通过 UI notification 输出。结果、OAuth token 和响应正文不写入会话历史或模型上下文。
 - Provider 的额度接口未公开承诺稳定性；响应有超时、大小和结构边界，接口变化只会让对应 provider 降级失败。
+- `UsageService.load()` 在输出边界把所有日期转换为 ISO 8601 字符串并返回 JSON-safe snapshot；TUI 与纯文本 formatter 不接触 provider client 的内部 `Date`。
 - 关闭：`Esc`、`q` 或 `Enter`；内容较长时可滚动。
 
 ## `/thinking-level`
@@ -285,6 +292,7 @@
 - 写能力工具需要确认；无 UI 时拒绝执行。
 - 主 TUI 在编辑器上方实时展示运行进度、事件、耗时和 token；结束后卡片进入聊天记录。
 - 最终卡片不进入模型上下文，不消耗模型 token。
+- model tool 与 `/run` 都调用 `runSubagentTasks()`，共享 `starting/running/completed` 的 `SubagentProgressEvent` 和最终 `SubagentToolResult`。TUI widget 只是 progress consumer；RPC/JSON/print 不创建 component factory，并通过通知返回核心结果。
 
 ## `/subagent-config`
 

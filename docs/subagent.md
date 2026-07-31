@@ -148,6 +148,18 @@ Agent 配置工具 ∩ pi.getAllTools()
 
 `/agents` 展示 `mode: isolated|fork`。隔离 Agent 展示配置与已注册工具的交集；fork Agent 展示主会话当前实际 model、active tools 和 cwd，不展示被忽略的声明。`/run` 从当前活动 leaf 捕获 fork snapshot。
 
+## Application 与 adapter
+
+`runSubagentTasks()` 是 model tool 与 `/run` 的共同执行入口，返回相同的 `SubagentToolResult`，并可发送 `SubagentProgressEvent`：
+
+```text
+starting -> running* -> completed
+```
+
+`src/subagent/commands.ts` 只负责参数解析、查询和任务执行，不导入 Theme、Component、`ctx.ui` 或 widget。`src/subagent/tui/` 消费 progress，读取 expanded 状态，注册 native/entry renderer 并管理临时 widget。RPC、JSON 和 print 不加载该目录，也不会因缺少 terminal/theme 丢失最终结果。
+
+写权限确认使用 `SubagentInteractionPort.confirmWrite()`。Pi TUI 和 RPC Extension UI 都可注入该端口；没有端口时 write-capable Agent fail closed。每次运行由 session execution registry 跟踪，正常结束释放 lease，`session_shutdown` 主动 abort 所有未结束 child。
+
 ## 执行
 
 隔离任务启动独立 Pi 子进程：
@@ -214,7 +226,7 @@ parallel 或 chain 的多任务会在第一行合并 Agent 名称，并保留完
 * tool call：展示工具名和精简参数。
 * 运行中但还没有事件时展示等待状态。
 
-模型调用 `subagent` 工具与用户手动执行 `/run` 共用同一套卡片。`/run` 运行期间在编辑器上方实时刷新，并补齐与 Pi 工具卡相同的 padding 和 pending/success/error 背景；结束后移除临时 widget，并把最终卡片写入聊天记录。展开态使用对齐字段以及 Activity、Error、Details、Result 分区；最终回答不会在 Activity 中重复。该记录使用 custom session entry 持久化，不进入模型上下文，也不消耗模型 token。
+模型调用 `subagent` 工具与用户手动执行 `/run` 共用同一套卡片。`/run` 运行期间由 TUI adapter 在编辑器上方消费结构化 progress，并补齐与 Pi 工具卡相同的 padding 和 pending/success/error 背景；结束后移除临时 widget，并把最终卡片写入聊天记录。展开态使用对齐字段以及 Activity、Error、Details、Result 分区；最终回答不会在 Activity 中重复。该记录使用 custom session entry 持久化，不进入模型上下文，也不消耗模型 token。
 
 ## 并发
 

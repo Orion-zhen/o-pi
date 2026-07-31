@@ -14,8 +14,12 @@ import {
 	loadAndValidateForkSystemPrompt,
 	validateForkRuntime,
 } from "../../src/subagent/session-context.js";
-import { SUBAGENT_COMMAND_ENTRY } from "../../src/subagent/constants.js";
-import type { AgentDefinition, ProcessRunInput, ProcessRunProgress } from "../../src/subagent/types.js";
+import type {
+	AgentDefinition,
+	ProcessRunInput,
+	ProcessRunProgress,
+	SubagentProgressEvent,
+} from "../../src/subagent/types.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
 
@@ -63,50 +67,34 @@ describe("subagent execution", () => {
 		expect(updates).toContain(2);
 	});
 
-	it("/run 在主 TUI 实时更新 widget，完成后落为非模型上下文 entry", async () => {
+	it("/run application 以统一结构发送进度并返回最终结果", async () => {
 		setOutputSpawn(() => "manual run done");
-		const widgets: unknown[] = [];
-		const entries: Array<{ type: string; data: unknown }> = [];
-		const notify = vi.fn();
+		const updates: SubagentProgressEvent[] = [];
 
-		await runSubagentCommand(
+		const result = await runSubagentCommand(
 			{
 				getActiveTools: () => ["read"],
 				getAllTools: () => [toolInfo("read")],
 				getThinkingLevel: () => "off",
-				appendEntry(type, data) {
-					if (data !== undefined) entries.push({ type, data });
-				},
 			},
 			{
 				cwd: workspace,
-				hasUI: true,
 				model: undefined,
 				sessionManager: emptySessionManager(),
-				getSystemPrompt: () => "parent prompt",
-				signal: undefined,
-				ui: {
-					confirm: async () => true,
-					getToolsExpanded: () => true,
-					notify,
-					setWidget(_key, content) {
-						widgets.push(content);
-					},
-				},
+				systemPrompt: "parent prompt",
+				interaction: { confirmWrite: async () => true },
 			},
 			[{ agent: "scout", task: "manual inspect" }],
-			(await import("../../src/subagent/renderer.js")).renderSubagentCommandWidget,
+			(update) => updates.push(update),
 		);
 
-		expect(widgets.length).toBeGreaterThanOrEqual(3);
-		expect(widgets[0]).toEqual(expect.any(Function));
-		expect(widgets.at(-1)).toBeUndefined();
-		expect(entries).toHaveLength(1);
-		expect(entries[0]).toMatchObject({
-			type: SUBAGENT_COMMAND_ENTRY,
-			data: { details: { results: [{ output: "manual run done" }] } },
+		expect(updates[0]).toMatchObject({ phase: "starting", result: { details: { runId: "pending" } } });
+		expect(updates).toContainEqual(expect.objectContaining({ phase: "running" }));
+		expect(updates.at(-1)).toMatchObject({
+			phase: "completed",
+			result: { details: { results: [{ output: "manual run done" }] } },
 		});
-		expect(notify).not.toHaveBeenCalled();
+		expect(result.details.results[0]?.output).toBe("manual run done");
 	});
 
 	it("task 级 cwd 覆盖 workspace 默认值", async () => {
@@ -395,7 +383,10 @@ describe("subagent execution", () => {
 			await executeSubagent({ tasks: [{ agent: "worker", task: "write" }] }, context({ allTools: [toolInfo("read"), toolInfo("edit")] })),
 			await executeSubagent(
 				{ tasks: [{ agent: "worker", task: "write" }] },
-				context({ hasUI: true, allTools: [toolInfo("read"), toolInfo("edit")], confirm: async () => false }),
+				context({
+					allTools: [toolInfo("read"), toolInfo("edit")],
+					interaction: { confirmWrite: async () => false },
+				}),
 			),
 		];
 
@@ -408,11 +399,34 @@ describe("subagent execution", () => {
 		]);
 	});
 
+	it("RPC dialog adapter 可通过窄 interaction port 确认写权限", async () => {
+		await writeAgent("worker", "read, edit");
+		setOutputSpawn(() => "write approved");
+		const confirmations: string[] = [];
+
+		const result = await executeSubagent(
+			{ tasks: [{ agent: "worker", task: "update files" }] },
+			context({
+				allTools: [toolInfo("read"), toolInfo("edit")],
+				interaction: {
+					async confirmWrite(title, message) {
+						confirmations.push(`${title}\n${message}`);
+						return true;
+					},
+				},
+			}),
+		);
+
+		expect(result.details.results[0]?.output).toBe("write approved");
+		expect(confirmations[0]).toContain("Run write-capable subagent?");
+		expect(confirmations[0]).toContain("Tools: read, edit");
+	});
+
 	it("解析 JSONL 时发送实时进度快照", async () => {
 		setSubagentSpawnForTests(() => {
 			const proc = new FakeChildProcess();
 			queueMicrotask(() => {
-				proc.stdout.write(`${JSON.stringify(messageEnd([{ type: "toolCall", name: "read", arguments: { path: "src/subagent/renderer.ts" } }]))}\n`);
+				proc.stdout.write(`${JSON.stringify(messageEnd([{ type: "toolCall", name: "read", arguments: { path: "src/subagent/tui/renderer.ts" } }]))}\n`);
 				proc.stdout.write(`${JSON.stringify(messageEnd([{ type: "text", text: "done" }]))}\n`);
 				proc.exitCode = 0;
 				proc.emit("close", 0);
@@ -425,7 +439,7 @@ describe("subagent execution", () => {
 
 		expect(output.output).toBe("done");
 		expect(updates.length).toBeGreaterThanOrEqual(2);
-		expect(updates[0]?.events).toEqual([{ type: "tool", name: "read", args: { path: "src/subagent/renderer.ts" } }]);
+		expect(updates[0]?.events).toEqual([{ type: "tool", name: "read", args: { path: "src/subagent/tui/renderer.ts" } }]);
 		expect(updates.at(-1)?.events.at(-1)).toEqual({ type: "text", text: "done" });
 	});
 
@@ -500,7 +514,6 @@ function toolInfo(name: string): NonNullable<Parameters<typeof executeSubagent>[
 function context(overrides: Partial<Parameters<typeof executeSubagent>[1]> = {}): Parameters<typeof executeSubagent>[1] {
 	return {
 		cwd: workspace,
-		hasUI: false,
 		currentModel: testModel(),
 		allTools: [toolInfo("read")],
 		...overrides,

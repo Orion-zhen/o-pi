@@ -10,14 +10,14 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import pruneExtension from "../../agent/extensions/prune.js";
-import { PruneSummaryComponent } from "../../src/prune/renderer.js";
 import {
 	getPruneTuiState,
 	isToolCallHidden,
+	PruneSummaryComponent,
 	reducePruneTuiState,
 	resetPruneTuiState,
 	syncPruneTuiState,
-} from "../../src/prune/tui-state.js";
+} from "../../src/prune/tui/index.js";
 import { pruneEntry, pruneState, restoreState } from "./fixtures.js";
 
 type SessionStartHandler = (event: SessionStartEvent, ctx: ExtensionContext) => Promise<void> | void;
@@ -188,4 +188,3 @@ function lifecycleHarness(initialBranch: SessionEntry[], mode: ExtensionContext[
 		},
 	};
 }
-

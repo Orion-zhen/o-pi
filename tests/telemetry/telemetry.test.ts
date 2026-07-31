@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import path from "node:path";
 import { loadExtensions } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js";
 import { registerTelemetryCommand } from "../../agent/extensions/telemetry.js";
+import { attachTelemetryService } from "../../src/telemetry/pi-adapter.js";
 import { defineToolTelemetry, fields } from "../../src/telemetry/projection.js";
 import { registerTelemetry, TelemetryService, telemetryServiceFor } from "../../src/telemetry/service.js";
 import { registerObservedTool } from "../../src/telemetry/tool.js";
@@ -47,7 +48,11 @@ describe("telemetry service", () => {
 		expect(loaded.errors).toEqual([]);
 		for (const event of ["session_start", "turn_start", "message_end", "tool_execution_start", "tool_result", "tool_execution_end", "session_shutdown"] as const) {
 			const handlers = loaded.extensions.reduce((count, extension) => count + (extension.handlers.get(event)?.length ?? 0), 0);
-			expect(handlers, event).toBe(event === "tool_result" ? 3 : event === "session_start" ? 2 : 1);
+			expect(handlers, event).toBe(
+				event === "tool_result" || event === "session_start"
+					? 3
+					: event === "session_shutdown" ? 2 : 1,
+			);
 		}
 		const telemetry = loaded.extensions.find((extension) => extension.path.endsWith(path.join("agent", "extensions", "telemetry.ts")));
 		expect(telemetry?.commands.has("telemetry")).toBe(true);
@@ -74,9 +79,11 @@ describe("telemetry service", () => {
 			},
 			result: (_params, result) => ({ fields: fields({ status: result.details.status, error_code: result.details.error_code, truncated: result.details.truncated }) }),
 		}));
-		const ctx = extensionContext();
-		await service.onSessionStart({ type: "session_start", reason: "startup" }, ctx);
-		service.onTurnStart({ type: "turn_start", turnIndex: 2, timestamp: 1 }, ctx);
+		await service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
+		service.onTurnStart(
+			{ type: "turn_start", turnIndex: 2, timestamp: 1 },
+			{ model: { provider: "test-provider", id: "test-model" } },
+		);
 		service.onMessageEnd(fixture({ type: "message_end", message: assistantCalls(["call-1", "call-2"]) }));
 		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call-1", toolName: "test", args: { path: "raw.ts", count: "3" } });
 		service.prepared({ toolName: "test", rawArgs: fixture({ path: "raw.ts" }), preparedArgs: { path: ["src", "tests"], count: 3 }, status: "repaired", operations: ["numeric_string_to_number", "split_path_list"], fanout: { field: "path", count: 2, separator: "whitespace" } });
@@ -128,7 +135,7 @@ describe("telemetry service", () => {
 			writerFactory: async () => writerGate.promise,
 			revision: async () => revisionGate.promise,
 		});
-		await service.onSessionStart({ type: "session_start", reason: "startup" }, extensionContext());
+		await service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
 		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "early", toolName: "host", args: {} });
 		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "early", toolName: "host", result: result({ status: "ok" }), isError: false });
 		expect(writer.records).toEqual([]);
@@ -152,7 +159,7 @@ describe("telemetry service", () => {
 			writerFactory: async () => { writerCalls += 1; return new MemoryWriter(); },
 			revision: async () => { revisionCalls += 1; return undefined; },
 		});
-		service.attach(pi);
+		attachTelemetryService(pi, service);
 		if (start === undefined) throw new Error("session_start not attached");
 		expect(start({ type: "session_start", reason: "startup" }, extensionContext())).toBeUndefined();
 		await service.onSessionShutdown({ type: "session_shutdown", reason: "quit" });
@@ -211,7 +218,7 @@ describe("telemetry service", () => {
 			input() { throw new RangeError("projection failure"); },
 			result: () => ({ fields: { status: "failed", error_code: "NOT_FOUND" } }),
 		}));
-		await service.onSessionStart({ type: "session_start", reason: "startup" }, extensionContext());
+		await service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
 		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call", toolName: "test", args: { path: "a" } });
 		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "call", toolName: "test", result: result({ status: "failed", error_code: "NOT_FOUND" }), isError: false });
 		await service.onSessionShutdown({ type: "session_shutdown", reason: "new" });
@@ -227,7 +234,7 @@ describe("telemetry service", () => {
 			writerFactory: async () => { writerCalls += 1; return writer; },
 			revision: async () => { revisionCalls += 1; return undefined; },
 		});
-		await service.onSessionStart({ type: "session_start", reason: "startup" }, extensionContext());
+		await service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
 		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "pending", toolName: "host", args: {} });
 		await service.onSessionShutdown({ type: "session_shutdown", reason: "quit" });
 		expect(writer.records).toEqual([]);
@@ -238,7 +245,7 @@ describe("telemetry service", () => {
 	it("write failure disables telemetry once without changing tool behavior", async () => {
 		const notifications: string[] = [];
 		const service = new TelemetryService(fakePi().api, { runId: () => "run", writerFactory: async () => new FailingWriter(), revision: async () => undefined });
-		await service.onSessionStart({ type: "session_start", reason: "startup" }, extensionContext(notifications));
+		await service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext(notifications));
 		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call", toolName: "test", args: {} });
 		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "call", toolName: "test", result: result({ status: "ok" }), isError: false });
 		await service.onSessionShutdown({ type: "session_shutdown", reason: "new" });
@@ -334,6 +341,16 @@ function extensionContext(notifications: string[] = []): ExtensionContext {
 		ui: { notify(message: string) { notifications.push(message); } },
 		sessionManager: { getSessionId: () => "session-1", getBranch: () => [] },
 	});
+}
+
+function telemetrySessionContext(notifications: string[] = []) {
+	return {
+		cwd: "/repo",
+		sessionId: "session-1",
+		notify(message: string) {
+			notifications.push(message);
+		},
+	};
 }
 
 function clock(): () => Date {

@@ -6,7 +6,7 @@ export { analyzeSearchEffectiveness } from "./analyzers/search-effectiveness.js"
 export { generateTelemetryReport, type GenerateTelemetryReportOptions, type GenerateTelemetryReportResult } from "./command.js";
 export { formatTelemetrySummary, renderTelemetryHtml } from "./html.js";
 export { createLiveTelemetryReport, type LiveTelemetryReport } from "./live.js";
-export { formatLiveTelemetrySummary, renderLiveTelemetry } from "./render-live.js";
+export { formatLiveTelemetrySummary } from "./presentation/summary.js";
 export {
 	isTelemetryRecord,
 	readTelemetryDirectory,

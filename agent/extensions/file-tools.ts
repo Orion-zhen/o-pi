@@ -81,7 +81,7 @@ export interface FileToolsModuleImports {
 	read(): Promise<typeof import("../../src/file-tools/pi/adapters/read.js")>;
 	write(): Promise<typeof import("../../src/file-tools/pi/adapters/write.js")>;
 	edit(): Promise<typeof import("../../src/file-tools/pi/adapters/edit.js")>;
-	renderers?: () => Promise<typeof import("../../src/file-tools/pi/renderers.js")>;
+	renderers?: () => Promise<typeof import("../../src/file-tools/tui/index.js")>;
 	lsp(): Promise<typeof import("../../src/lsp/index.js")>;
 }
 
@@ -103,7 +103,8 @@ const defaultModuleImports: FileToolsModuleImports = {
 	lsp: () => import("../../src/lsp/index.js"),
 };
 
-export function createFileToolsExtension(imports: FileToolsModuleImports = defaultModuleImports): (pi: ExtensionAPI) => void {
+export function createFileToolsExtension(importOverrides: Partial<FileToolsModuleImports> = {}): (pi: ExtensionAPI) => void {
+	const imports: FileToolsModuleImports = { ...defaultModuleImports, ...importOverrides };
 	return (pi) => {
 		const loadedToolInstances = new Set<{ dispose(): void }>();
 		const loaders: FileToolsLoaders = {
@@ -124,7 +125,7 @@ export function createFileToolsExtension(imports: FileToolsModuleImports = defau
 			edit: createRetryableLoader(imports.edit),
 			lsp: createRetryableLoader(imports.lsp),
 		};
-		const loadRenderers = createRetryableLoader(imports.renderers ?? (() => import("../../src/file-tools/pi/renderers.js")));
+		const loadRenderers = createRetryableLoader(imports.renderers ?? (() => import("../../src/file-tools/tui/index.js")));
 		registerFileTools(pi, loaders, loadedToolInstances, loaders.host, loadRenderers);
 	};
 }
@@ -135,7 +136,7 @@ function registerFileTools(
 	loaders: FileToolsLoaders,
 	loadedToolInstances: ReadonlySet<{ dispose(): void }>,
 	loadHost: () => Promise<typeof import("../../src/file-tools/runtime/host.js")>,
-	loadRenderers: () => Promise<typeof import("../../src/file-tools/pi/renderers.js")>,
+	loadRenderers: () => Promise<typeof import("../../src/file-tools/tui/index.js")>,
 ): void {
 	let host: FileToolsHost | undefined;
 	let shuttingDown = false;

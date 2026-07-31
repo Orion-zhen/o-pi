@@ -5,6 +5,10 @@ export interface UsageWindow {
 	sectionLabel?: string;
 	usedPercent: number | undefined;
 	windowDurationMins: number | undefined;
+	resetsAt: string | undefined;
+}
+
+export interface CollectedUsageWindow extends Omit<UsageWindow, "resetsAt"> {
 	resetsAt: Date | undefined;
 }
 
@@ -15,6 +19,11 @@ export interface UsageDetail {
 
 export interface UsageResetCredit {
 	status: string;
+	grantedAt: string | undefined;
+	expiresAt: string | undefined;
+}
+
+export interface CollectedUsageResetCredit extends Omit<UsageResetCredit, "grantedAt" | "expiresAt"> {
 	grantedAt: Date | undefined;
 	expiresAt: Date | undefined;
 }
@@ -24,16 +33,20 @@ export interface UsageResetCredits {
 	credits: UsageResetCredit[] | undefined;
 }
 
-export type ProviderUsage = {
+export interface CollectedUsageResetCredits extends Omit<UsageResetCredits, "credits"> {
+	credits: CollectedUsageResetCredit[] | undefined;
+}
+
+type ProviderUsageBase<TWindow, TResetCredits> = {
 	id: UsageProviderId;
 	name: string;
 } & (
 	| {
 			status: "ok";
 			plan: string | undefined;
-			windows: UsageWindow[];
+			windows: TWindow[];
 			details: UsageDetail[];
-			resetCredits: UsageResetCredits | undefined;
+			resetCredits: TResetCredits | undefined;
 	  }
 	| {
 			status: "not_logged_in";
@@ -44,6 +57,9 @@ export type ProviderUsage = {
 			error: UsageProviderError;
 	  }
 );
+
+export type ProviderUsage = ProviderUsageBase<UsageWindow, UsageResetCredits>;
+export type CollectedProviderUsage = ProviderUsageBase<CollectedUsageWindow, CollectedUsageResetCredits>;
 
 export type UsageProviderErrorCode =
 	| "auth"
@@ -59,9 +75,15 @@ export interface UsageProviderError {
 }
 
 export interface UsageSnapshot {
-	generatedAt: Date;
+	generatedAt: string;
 	timeZone: string;
 	providers: ProviderUsage[];
+}
+
+export interface CollectedUsageSnapshot {
+	generatedAt: Date;
+	timeZone: string;
+	providers: CollectedProviderUsage[];
 }
 
 export type UsageRequestErrorCode = "aborted" | "timeout" | "http" | "response_too_large" | "invalid_response" | "request_failed";

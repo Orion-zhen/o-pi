@@ -12,7 +12,7 @@ import { defineToolTelemetry } from "../../src/telemetry/projection.js";
 import { registerObservedTool } from "../../src/telemetry/tool.js";
 
 type SkillRendererModule = Pick<
-	typeof import("../../src/skill-context/renderer.js"),
+	typeof import("../../src/skill-context/tui/renderer.js"),
 	"registerSkillMessageRenderer" | "renderSkillCall" | "renderSkillResult"
 >;
 
@@ -23,32 +23,40 @@ const skillParameters = Type.Object({
 type SkillToolDetails = SkillLoadDetails | SkillToolErrorDetails;
 
 /** 注册模型与手动技能披露，并维护分支内的资源权限；native renderer 只在 TUI session 激活。 */
-export default function skillContextExtension(pi: ExtensionAPI): void {
-	registerSkillCommands(pi);
-	const skillTool = registerSkillTool(pi);
+export function createSkillContextExtension(
+	loadRenderers: () => Promise<SkillRendererModule> = loadSkillRenderers,
+): (pi: ExtensionAPI) => void {
+	return function skillContextExtension(pi: ExtensionAPI): void {
+		registerSkillCommands(pi);
+		const skillTool = registerSkillTool(pi);
 
-	let nativeRendererLoad: Promise<void> | undefined;
-	pi.on("session_start", async (_event, ctx) => {
-		if (ctx.mode !== "tui") return;
-		if (nativeRendererLoad === undefined) {
-			const pending = loadSkillRenderers().then((renderers) => {
-				renderers.registerSkillMessageRenderer(pi);
-				pi.registerTool({
-					...skillTool,
-					renderCall: renderers.renderSkillCall,
-					renderResult(result, options, theme, context) {
-						return renderers.renderSkillResult(result.details, options, theme, context);
-					},
+		let nativeRendererLoad: Promise<void> | undefined;
+		pi.on("session_start", async (_event, ctx) => {
+			if (ctx.mode !== "tui") return;
+			if (nativeRendererLoad === undefined) {
+				const pending = loadRenderers().then((renderers) => {
+					renderers.registerSkillMessageRenderer(pi);
+					pi.registerTool({
+						...skillTool,
+						renderCall: renderers.renderSkillCall,
+						renderResult(result, options, theme, context) {
+							return renderers.renderSkillResult(result.details, options, theme, context);
+						},
+					});
+				}, (error: unknown) => {
+					nativeRendererLoad = undefined;
+					ctx.ui.notify(`Skill renderer initialization failed: ${error instanceof Error ? error.message : String(error)}`, "warning");
 				});
-			}, (error: unknown) => {
-				nativeRendererLoad = undefined;
-				ctx.ui.notify(`Skill renderer initialization failed: ${error instanceof Error ? error.message : String(error)}`, "warning");
-			});
-			nativeRendererLoad = pending;
-		}
-		await nativeRendererLoad;
-	});
+				nativeRendererLoad = pending;
+			}
+			await nativeRendererLoad;
+		});
+	};
 }
+
+const skillContextExtension = createSkillContextExtension();
+
+export default skillContextExtension;
 
 function registerSkillTool(pi: ExtensionAPI) {
 	let modelCandidates: SkillCandidate[] = [];
@@ -118,7 +126,7 @@ function registerSkillTool(pi: ExtensionAPI) {
 }
 
 async function loadSkillRenderers(): Promise<SkillRendererModule> {
-	return import("../../src/skill-context/renderer.js");
+	return import("../../src/skill-context/tui/renderer.js");
 }
 
 function isFailedSkillDetails(value: unknown): value is SkillToolErrorDetails {

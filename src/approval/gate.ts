@@ -1,4 +1,4 @@
-import type { ExtensionContext, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
+import type { ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { loadBashToolConfig } from "../bash-tool/config.js";
 import { loadFileToolsConfig } from "../file-tools/config.js";
 import { preflightWriteAccess } from "../filesystem/kernel/access-preflight.js";
@@ -25,7 +25,18 @@ const DENY = "Deny";
 const DENY_WITH_INSTRUCTION = "Deny with instruction";
 
 export interface ApprovalGate {
-	handleToolCall(event: ToolCallEvent, ctx: ExtensionContext): Promise<ToolCallEventResult | void>;
+	handleToolCall(event: ToolCallEvent, context: ApprovalContext): Promise<ToolCallEventResult | void>;
+}
+
+export interface ApprovalInteractionPort {
+	select(title: string, options: string[], optionsOverride?: { timeout?: number }): Promise<string | undefined>;
+	input(title: string, placeholder: string, optionsOverride?: { timeout?: number }): Promise<string | undefined>;
+	notify(message: string, type: "info" | "warning"): void;
+}
+
+export interface ApprovalContext {
+	cwd: string;
+	interaction?: ApprovalInteractionPort;
 }
 
 export interface ApprovalGateOptions {
@@ -86,7 +97,7 @@ export function createApprovalGate(options: ApprovalGateOptions = {}): ApprovalG
 				return blockForDenyRule(decision);
 			}
 
-			if (!ctx.hasUI) {
+			if (ctx.interaction === undefined) {
 				if (config.ui.non_interactive === "allow") {
 					observe({ decision: "allow", outcome: "non_interactive_allow", wait_ms: 0 });
 					return undefined;
@@ -102,16 +113,12 @@ export function createApprovalGate(options: ApprovalGateOptions = {}): ApprovalG
 				decision,
 				config,
 				store,
-				ctx,
+				ctx.interaction,
 				options.telemetry,
 				options.notifyUser ?? notifyWaiting,
 			);
 		},
 	};
-}
-
-export async function handleApprovalToolCall(event: ToolCallEvent, ctx: ExtensionContext): Promise<ToolCallEventResult | void> {
-	return createApprovalGate().handleToolCall(event, ctx);
 }
 
 async function handleAskDecision(
@@ -121,7 +128,7 @@ async function handleAskDecision(
 	decision: Extract<ApprovalDecision, { kind: "ask" }>,
 	config: ApprovalGateConfig,
 	store: ApprovalStore,
-	ctx: ExtensionContext,
+	interaction: ApprovalInteractionPort,
 	telemetry: ApprovalTelemetryObserver | undefined,
 	notifyUser: WaitingNotifier,
 ): Promise<ToolCallEventResult | void> {
@@ -135,7 +142,7 @@ async function handleAskDecision(
 	);
 	await notifyUserSafely(notifyUser);
 	const startedAt = Date.now();
-	const choice = await ctx.ui.select(formatApprovalPrompt(request, decision), options, dialogOptions(config));
+	const choice = await interaction.select(formatApprovalPrompt(request, decision), options, dialogOptions(config));
 	const acceptedChoice = choice !== undefined && options.includes(choice) ? choice : undefined;
 	const selectionWaitMs = Math.max(0, Date.now() - startedAt);
 	if (acceptedChoice === ALLOW_ONCE) {
@@ -150,15 +157,15 @@ async function handleAskDecision(
 	if (acceptedChoice === ALLOW_PERSISTENT) {
 		try {
 			await store.addPersistentAllowRules(similarRules);
-			ctx.ui.notify(`Approval rules saved: ${describeAllowRules(similarRules)}`, "info");
+			interaction.notify(`Approval rules saved: ${describeAllowRules(similarRules)}`, "info");
 		} catch (error) {
-			ctx.ui.notify(`Approval rules were not saved: ${error instanceof Error ? error.message : String(error)}`, "warning");
+			interaction.notify(`Approval rules were not saved: ${error instanceof Error ? error.message : String(error)}`, "warning");
 		}
 		recordAsk(telemetry, toolCallId, toolName, "allow_persistent", selectionWaitMs, decision.rule_name);
 		return undefined;
 	}
 	if (acceptedChoice === DENY_WITH_INSTRUCTION) {
-		const instruction = await ctx.ui.input(
+		const instruction = await interaction.input(
 			"Instruction for agent",
 			"Explain why this tool call was denied or what the agent should do instead.",
 			dialogOptions(config),

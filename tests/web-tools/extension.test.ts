@@ -415,7 +415,7 @@ describe("web-tools runtime", () => {
 		expect(loaders.fetch).not.toHaveBeenCalled();
 		await runtime.search({ query: "cached loader" }, { toolCallId: "search-2" });
 		expect(loaders.search).toHaveBeenCalledTimes(1);
-		await runtime.fetch({ url: "bad" }, { toolCallId: "fetch-1", hasUI: false });
+		await runtime.fetch({ url: "bad" }, { toolCallId: "fetch-1" });
 		expect(loaders.fetch).toHaveBeenCalledTimes(1);
 
 		await closeRuntime(runtime);
@@ -445,9 +445,9 @@ describe("web-tools runtime", () => {
 			}),
 		}));
 		try {
-			await expect(runtime.fetch({ url: "https://example.com/first" }, { toolCallId: "fetch-first", hasUI: false })).rejects.toThrow();
+			await expect(runtime.fetch({ url: "https://example.com/first" }, { toolCallId: "fetch-first" })).rejects.toThrow();
 			failImport = false;
-			await expect(runtime.fetch({ url: "https://example.com/retry" }, { toolCallId: "fetch-retry", hasUI: false })).resolves.toMatchObject({
+			await expect(runtime.fetch({ url: "https://example.com/retry" }, { toolCallId: "fetch-retry" })).resolves.toMatchObject({
 				content: "pi-webfetch/1.0",
 				details: { status: "failed", error: { code: "INVALID_URL" } },
 			});
@@ -546,8 +546,8 @@ describe("web-tools runtime", () => {
 			now: () => 100,
 		}));
 
-		const first = await runtime.fetch({ url: "https://example.com/a", limit: 5 }, { toolCallId: "fetch-1", hasUI: false });
-		const second = await runtime.fetch({ url: "https://example.com/a", offset: 5, limit: 6 }, { toolCallId: "fetch-2", hasUI: false });
+		const first = await runtime.fetch({ url: "https://example.com/a", limit: 5 }, { toolCallId: "fetch-1" });
+		const second = await runtime.fetch({ url: "https://example.com/a", offset: 5, limit: 6 }, { toolCallId: "fetch-2" });
 
 		expect(first.details).toMatchObject({ status: "success", snapshot: "created" });
 		expect(second.details).toMatchObject({ status: "success", snapshot: "hit" });
@@ -561,7 +561,7 @@ describe("web-tools runtime", () => {
 
 		const [search, fetch] = await Promise.all([
 			runtime.search({ query: "pi" }, { toolCallId: "search" }),
-			runtime.fetch({ url: "https://example.com/" }, { toolCallId: "fetch", hasUI: false }),
+			runtime.fetch({ url: "https://example.com/" }, { toolCallId: "fetch" }),
 		]);
 
 		expect(search.details).toMatchObject({ status: "failed", error: { code: "CONFIG_ERROR" } });

@@ -3,6 +3,7 @@ import { createLspFileOperations } from "./file-hooks.js";
 
 export { LspClient } from "./client.js";
 export { registerLspCommands } from "./commands.js";
+export { queryLspDiagnostics, queryLspStatus, type LspDiagnosticsSnapshot, type LspQueryPort } from "./queries.js";
 export {
 	featureAvailable,
 	lspFeatureAdapters,

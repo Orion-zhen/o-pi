@@ -8,7 +8,7 @@ import { findVisibleToolCallIds } from "../prune/prune.js";
 import { executeSkillLoad } from "./executor.js";
 import { isValidSkillName } from "./frontmatter.js";
 import { collectSkillCandidates } from "./loader.js";
-import { extractSkillLoads } from "./state.js";
+import { querySkillStatus } from "./state.js";
 import { SKILL_CONTEXT_MESSAGE, type SkillLoadDetails } from "./types.js";
 
 type CommandPi = Pick<ExtensionAPI, "appendEntry" | "getCommands" | "on" | "registerCommand" | "sendMessage">;
@@ -60,9 +60,8 @@ export async function loadSkillCommand(
 }
 
 export function showSkillStatus(ctx: Pick<ExtensionCommandContext, "sessionManager" | "ui">): void {
-	const loads = extractSkillLoads(ctx.sessionManager.getBranch());
-	const latest = new Map(loads.map((load) => [load.name, load]));
-	const lines = [...latest.values()].map((load) => `  ${load.name} · ${load.scope} · ${load.loadedBy}`);
+	const snapshot = querySkillStatus(ctx.sessionManager.getBranch());
+	const lines = snapshot.skills.map((load) => `  ${load.name} · ${load.scope} · ${load.loadedBy}`);
 	ctx.ui.notify(["Disclosed skills:", ...(lines.length > 0 ? lines : ["  none"])].join("\n"), "info");
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatWebSearchCall, formatWebSearchResult, renderWebSearchCall, renderWebSearchResult } from "../../src/web-tools/search/websearch-renderer.js";
+import { formatWebSearchCall, formatWebSearchResult, renderWebSearchCall, renderWebSearchResult } from "../../src/web-tools/tui/websearch.js";
 
 const theme = {
 	fg: (_color: string, text: string) => text,

@@ -1,4 +1,4 @@
-import type { BuildSystemPromptOptions, ExtensionCommandContext, ToolInfo } from "@earendil-works/pi-coding-agent";
+import type { BuildSystemPromptOptions, ContextUsage, SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { Message, ToolResultMessage } from "@earendil-works/pi-ai";
 import { buildContextBreakdown } from "./context-breakdown.js";
 import type { CacheStats, StatsSnapshot, ToolStats, UsageStats } from "./types.js";
@@ -9,27 +9,45 @@ export interface StatsPiApi {
 	getThinkingLevel(): string;
 }
 
+export interface StatsQueryPort {
+	cwd: string;
+	model: {
+		id: string;
+		provider: string;
+		baseUrl: string;
+		reasoning: boolean;
+	} | undefined;
+	getEntries(): SessionEntry[];
+	getBranch(): SessionEntry[];
+	isUsingSubscription(): boolean;
+	isIdle(): boolean;
+	getContextUsage(): ContextUsage | undefined;
+	getSystemPrompt(): string;
+	getSystemPromptOptions?(): BuildSystemPromptOptions;
+	now?(): Date;
+}
+
 /** 从 Pi 公开 API 读取当前会话统计，不写 session entry。 */
-export async function collectStatsSnapshot(ctx: ExtensionCommandContext, pi: StatsPiApi): Promise<StatsSnapshot> {
-	const entries = ctx.sessionManager.getEntries();
-	const branchEntries = ctx.sessionManager.getBranch();
+export async function collectStatsSnapshot(port: StatsQueryPort, pi: StatsPiApi): Promise<StatsSnapshot> {
+	const entries = port.getEntries();
+	const branchEntries = port.getBranch();
 	const messages = entries.map((entry) => (entry.type === "message" ? entry.message : undefined)).filter((message): message is Message => message !== undefined);
 	const usage = collectUsage(messages);
 	const activeTools = pi.getActiveTools();
 	const allTools = pi.getAllTools();
-	const model = ctx.model;
-	const contextUsage = ctx.getContextUsage();
-	const systemPromptOptions = getSystemPromptOptions(ctx);
+	const model = port.model;
+	const contextUsage = port.getContextUsage();
+	const systemPromptOptions = getSystemPromptOptions(port);
 
 	return {
 		session: {
-			cwd: ctx.cwd,
+			cwd: port.cwd,
 			...(model?.id !== undefined ? { modelId: model.id } : {}),
 			...(model?.provider !== undefined ? { modelProvider: model.provider } : {}),
 			...(model?.reasoning !== undefined ? { modelReasoning: model.reasoning } : {}),
 			thinkingLevel: pi.getThinkingLevel(),
-			...(model !== undefined ? { usingSubscription: ctx.modelRegistry.isUsingOAuth(model) } : {}),
-			status: ctx.isIdle() ? "ready" : "running",
+			...(model !== undefined ? { usingSubscription: port.isUsingSubscription() } : {}),
+			status: port.isIdle() ? "ready" : "running",
 			userTurns: entries.filter((entry) => entry.type === "message" && entry.message.role === "user").length,
 			assistantTurns: entries.filter((entry) => entry.type === "message" && entry.message.role === "assistant").length,
 		},
@@ -37,7 +55,7 @@ export async function collectStatsSnapshot(ctx: ExtensionCommandContext, pi: Sta
 		cache: collectCache(messages, usage),
 		context: await buildContextBreakdown({
 			usage: contextUsage,
-			systemPrompt: ctx.getSystemPrompt(),
+			systemPrompt: port.getSystemPrompt(),
 			activeTools,
 			allTools,
 			branchEntries,
@@ -49,13 +67,13 @@ export async function collectStatsSnapshot(ctx: ExtensionCommandContext, pi: Sta
 			...(systemPromptOptions !== undefined ? { systemPromptOptions } : {}),
 		}),
 		tools: collectTools(messages, activeTools.length, allTools.length),
-		generatedAt: new Date(),
+		generatedAt: (port.now?.() ?? new Date()).toISOString(),
 	};
 }
 
-function getSystemPromptOptions(ctx: ExtensionCommandContext): BuildSystemPromptOptions | undefined {
+function getSystemPromptOptions(port: StatsQueryPort): BuildSystemPromptOptions | undefined {
 	try {
-		return ctx.getSystemPromptOptions();
+		return port.getSystemPromptOptions?.();
 	} catch {
 		return undefined;
 	}

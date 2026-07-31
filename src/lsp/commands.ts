@@ -2,6 +2,7 @@ import path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
 import type { LspManager } from "./manager.js";
+import { queryLspDiagnostics, queryLspStatus } from "./queries.js";
 
 type LspCommandApi = Pick<ExtensionAPI, "registerCommand">;
 
@@ -18,7 +19,7 @@ export function registerLspCommands(pi: LspCommandApi, manager: LspManager): voi
 async function handleLspCommand(manager: LspManager, args: string, ctx: ExtensionCommandContext): Promise<void> {
 	const [command, ...rest] = args.trim().split(/\s+/).filter(Boolean);
 	if (command === undefined || command === "status") {
-		ctx.ui.notify(formatStatus(await manager.status(ctx.cwd)), "info");
+		ctx.ui.notify(formatStatus(await queryLspStatus(manager, ctx.cwd)), "info");
 		return;
 	}
 	if (command === "reload") {
@@ -28,8 +29,15 @@ async function handleLspCommand(manager: LspManager, args: string, ctx: Extensio
 	}
 	if (command === "diagnostics") {
 		const target = rest.join(" ").trim();
-		const diagnostics = await manager.knownDiagnostics(ctx.cwd, target.length > 0 ? normalizeTarget(ctx.cwd, target) : undefined);
-		ctx.ui.notify(formatDiagnostics(diagnostics), diagnostics.some((entry) => entry.items.some((item) => item.severity === "error")) ? "error" : "info");
+		const snapshot = await queryLspDiagnostics(
+			manager,
+			ctx.cwd,
+			target.length > 0 ? normalizeTarget(ctx.cwd, target) : undefined,
+		);
+		ctx.ui.notify(
+			formatDiagnostics(snapshot.entries),
+			snapshot.entries.some((entry) => entry.items.some((item) => item.severity === "error")) ? "error" : "info",
+		);
 		return;
 	}
 	ctx.ui.notify("usage: /lsp | /lsp status | /lsp reload | /lsp diagnostics [path]", "warning");

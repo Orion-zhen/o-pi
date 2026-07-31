@@ -9,6 +9,8 @@ Web 工具分为搜索和抓取：
 
 扩展启动时只同步注册工具 schema、renderer 和事件，不加载网络 runtime，也不执行后台预热。首次工具调用复用同一个 runtime 加载 Promise，并发调用不会重复创建 runtime。runtime 内部再按能力拆分：只调用 `websearch` 不加载 WebFetch/Cookie 执行链，只调用 `webfetch` 不加载搜索 router/provider；安全 dispatcher 在两条能力链之间共享并按需创建。搜索 provider 只在 router 实际执行到该分支时加载，因此 Exa 成功不会加载 DDG/HTML parser；Cookie store 只在配置启用且域名命中 allowlist 时加载；source、JSON、XML 和普通文本不会加载 DOM、Readability 或 Turndown，只有 readable HTML 会加载转换链。JSONC parser 和 AJV 也只在确实读到配置文件并需要解析、校验时加载，并发校验复用同一 Promise。成功配置按文件 identity、大小和时间戳缓存，每次返回隔离副本；文件变化会重新读取和校验，读取期间变化会重试。加载失败会清除对应 Promise，后续调用可以重试；`session_shutdown` 不会加载未使用能力，并会等待正在初始化的能力后释放已创建资源。
 
+需要向 allowlisted origin 发送 Cookie 时，runtime 只依赖 `WebFetchInteractionPort.confirmAuthentication()`，不依赖 Pi TUI。native TUI 与 RPC Extension UI 都能注入该端口；JSON/print 没有端口时返回 `AUTH_CONFIRMATION_REQUIRED`。确认 dialog 只是 adapter，抓取结果和错误结构不依赖 component 或 notification。
+
 使用 `npm run bench:web-tools` 运行 process-cold / filesystem-warm 回归基准；脚本记录 Pi TUI ready、无 TUI 扩展加载、首次及后续 fake `websearch` / source `webfetch`、不支持工具图片时的直接图片 body 短路、DDG parser，以及四类合成 HTML 的转换耗时和进程最大 RSS：3–5 MB 声明式延迟讨论页、无语义容器的视频元数据页、大型普通文章、大量无效 template/JSON-LD 的恶意页。基准不访问真实网络，也不保存真实站点页面或 Cookie。可用 `-- --runs=N` 调整采样次数。
 
 ## websearch

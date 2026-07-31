@@ -4,7 +4,11 @@ import type { ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult
 import { beforeEach, describe, expect, it } from "vitest";
 import approvalGateExtension from "../../agent/extensions/approval-gate.js";
 import { defaultApprovalGateConfig } from "../../src/approval/config.js";
-import { createApprovalGate } from "../../src/approval/gate.js";
+import {
+	createApprovalGate,
+	type ApprovalContext,
+	type ApprovalInteractionPort,
+} from "../../src/approval/gate.js";
 import { FileApprovalStore } from "../../src/approval/store.js";
 import type { ApprovalGateConfig, ApprovalTelemetry } from "../../src/approval/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
@@ -46,6 +50,25 @@ describe("approval gate", () => {
 			outcome: "allow_once",
 			wait_ms: expect.any(Number),
 		}));
+	});
+
+	it("RPC dialog adapter 可通过窄 interaction port 完成审批", async () => {
+		const choices = ["Allow once"];
+		const interaction: ApprovalInteractionPort = {
+			select: async () => choices.shift(),
+			input: async () => undefined,
+			notify() {},
+		};
+		const gate = createApprovalGate({
+			loadConfig: async () => configWith({}),
+			store: new FileApprovalStore(path.join(dir, "rules.jsonc")),
+			notifyUser: async () => {},
+		});
+
+		expect(await gate.handleToolCall(bash("git push origin main"), {
+			cwd: dir,
+			interaction,
+		})).toBeUndefined();
 	});
 
 	it("ask 会在打开审批选择前通知用户", async () => {
@@ -160,7 +183,7 @@ describe("approval gate", () => {
 		await writeFile(configPath, '{ "enabled": false }');
 		process.env.PI_APPROVAL_GATE_CONFIG = configPath;
 		const handler = captureExtensionHandler();
-		expect(await handler(bash("git push origin main"), ctx(fakeUi(["Deny"])))).toBeUndefined();
+		expect(await handler(bash("git push origin main"), extensionCtx(fakeUi(["Deny"])))).toBeUndefined();
 	});
 
 	it("write /etc/hosts 命中 ask", async () => {
@@ -191,7 +214,7 @@ function systemPath(...segments: string[]): string {
 	return path.join(path.parse(dir).root, ...segments);
 }
 
-async function handle(event: ToolCallEvent, context: ExtensionContext): Promise<ToolCallEventResult | void> {
+async function handle(event: ToolCallEvent, context: ApprovalContext): Promise<ToolCallEventResult | void> {
 	const config = configWith({});
 	const gate = createApprovalGate({
 		loadConfig: async () => config,
@@ -247,8 +270,15 @@ function fakeUi(choices: string[], instruction?: string, onSelect?: () => void):
 	};
 }
 
-function ctx(ui: FakeUi, hasUI = true): ExtensionContext {
-	return { cwd: dir, hasUI, ui } as never;
+function ctx(ui: FakeUi, interactive = true): ApprovalContext {
+	return {
+		cwd: dir,
+		...(interactive ? { interaction: ui } : {}),
+	};
+}
+
+function extensionCtx(ui: FakeUi): ExtensionContext {
+	return { cwd: dir, hasUI: true, ui } as never;
 }
 
 function bash(command: string): ToolCallEvent {

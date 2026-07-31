@@ -10,6 +10,8 @@ V1 不 fork、不 monkey patch、不替换主 TUI，不实现 sidebar、fixed ed
 
 整个 o-pi TUI runtime 只在 Pi native TUI (`ctx.mode === "tui"`) 中启用：chrome、startup banner、footer、Git 状态、Math Markdown、工具/消息 renderer 和 command viewer 都不会在 RPC、JSON 或 print 模式初始化。非 TUI 模式仍注册相同的工具 schema、执行逻辑和结构化结果；自定义 renderer 不绑定，TUI 专用命令使用原有的错误通知或纯文本降级。session reload 会复用 native runtime，session shutdown 会清理 chrome、timer 和 Git 查询状态。
 
+代码依赖方向由架构测试固定为 `data/query/service/controller -> adapter -> TUI`。只有 `src/tui/**` 和 feature 自己的 `tui/` 目录可以运行时导入 `pi-tui`；extension 只能动态加载 feature TUI。首次加载失败会保留核心注册并允许下一次 TUI session 重试，不会影响 application promise、结构化结果或非 TUI 启动。未来 GUI/RPC adapter 应消费 DTO、outcome 和 progress，不能把 slash 文本、notification 文本或 component 当作 API。
+
 ## 启用
 
 把本仓库作为 `~/.pi` 使用时，Pi 会加载：

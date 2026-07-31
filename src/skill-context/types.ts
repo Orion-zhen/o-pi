@@ -58,3 +58,11 @@ export interface SkillToolErrorDetails {
 		message: string;
 	};
 }
+
+export interface SkillStatusSnapshot {
+	skills: Array<{
+		name: string;
+		scope: SkillCandidate["scope"];
+		loadedBy: SkillLoadEntry["loadedBy"];
+	}>;
+}

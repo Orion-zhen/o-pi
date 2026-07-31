@@ -118,6 +118,17 @@ export interface SubagentDetails {
 
 export type SubagentToolResult = AgentToolResult<SubagentDetails>;
 
+export interface SubagentProgressEvent {
+	phase: "starting" | "running" | "completed";
+	result: SubagentToolResult;
+}
+
+export type SubagentProgressCallback = (event: SubagentProgressEvent) => void;
+
+export interface SubagentInteractionPort {
+	confirmWrite(title: string, message: string): Promise<boolean>;
+}
+
 export type RenderEvent =
 	| { type: "text"; text: string }
 	| { type: "tool"; name: string; args: Record<string, unknown> };
@@ -199,7 +210,6 @@ export interface ProcessRunProgress {
 
 export interface ExecutorContext {
 	cwd: string;
-	hasUI: boolean;
 	currentModel?: ParentModel | undefined;
 	activeTools?: readonly string[] | undefined;
 	allTools?: readonly ToolInfo[] | undefined;
@@ -209,7 +219,7 @@ export interface ExecutorContext {
 	invocation?: "tool" | "command" | undefined;
 	toolCallId?: string | undefined;
 	signal?: AbortSignal | undefined;
-	confirm?: ((title: string, message: string) => Promise<boolean>) | undefined;
+	interaction?: SubagentInteractionPort | undefined;
 	onUpdate?: ((partial: SubagentToolResult) => void) | undefined;
 }
 

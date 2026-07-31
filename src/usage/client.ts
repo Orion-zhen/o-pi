@@ -1,14 +1,14 @@
 import type { AuthResult } from "@earendil-works/pi-ai";
 import {
 	UsageRequestError,
-	type ProviderUsage,
+	type CollectedProviderUsage,
+	type CollectedUsageResetCredit,
+	type CollectedUsageResetCredits,
+	type CollectedUsageSnapshot,
+	type CollectedUsageWindow,
 	type UsageDetail,
 	type UsageProviderError,
 	type UsageProviderId,
-	type UsageResetCredit,
-	type UsageResetCredits,
-	type UsageSnapshot,
-	type UsageWindow,
 } from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 12_000;
@@ -64,9 +64,9 @@ interface ResolvedClientOptions {
 
 interface ProviderUsageData {
 	plan: string | undefined;
-	windows: UsageWindow[];
+	windows: CollectedUsageWindow[];
 	details: UsageDetail[];
-	resetCredits: UsageResetCredits | undefined;
+	resetCredits: CollectedUsageResetCredits | undefined;
 }
 
 interface ProviderDefinition {
@@ -90,7 +90,7 @@ const PROVIDERS: readonly ProviderDefinition[] = [
 ];
 
 /** 并发读取 Pi 官方 OAuth plan 的额度；单个 provider 失败不会遮蔽其他结果。 */
-export async function collectUsageSnapshot(context: UsageContext, options: UsageClientOptions = {}): Promise<UsageSnapshot> {
+export async function collectUsageSnapshot(context: UsageContext, options: UsageClientOptions = {}): Promise<CollectedUsageSnapshot> {
 	const resolved: ResolvedClientOptions = {
 		fetchImpl: options.fetchImpl ?? defaultFetch,
 		signal: options.signal,
@@ -110,7 +110,7 @@ async function collectProviderUsage(
 	provider: ProviderDefinition,
 	context: UsageContext,
 	options: ResolvedClientOptions,
-): Promise<ProviderUsage> {
+): Promise<CollectedProviderUsage> {
 	let token: string | undefined;
 	try {
 		token = await getOAuthToken(context, provider.id);
@@ -149,7 +149,7 @@ async function fetchAnthropicUsage(token: string, options: ResolvedClientOptions
 		getOptionalJson("https://api.anthropic.com/api/oauth/profile", token, requestOptions(options, options.optionalTimeoutMs, headers)),
 	]);
 	const usage = requireRecord(usageValue);
-	const windows: UsageWindow[] = [];
+	const windows: CollectedUsageWindow[] = [];
 	pushWindow(windows, "Session (5h)", usage.five_hour, FIVE_HOURS_MINS);
 	pushWindow(windows, "Week (all models)", usage.seven_day, SEVEN_DAYS_MINS);
 
@@ -188,7 +188,7 @@ async function fetchCodexUsage(token: string, options: ResolvedClientOptions): P
 		),
 	]);
 	const usage = requireRecord(usageValue);
-	const windows: UsageWindow[] = [];
+	const windows: CollectedUsageWindow[] = [];
 	pushCodexRateLimitWindows(windows, recordValue(usage.rate_limit), "Plan quota", options.now);
 	for (const value of arrayValue(usage.additional_rate_limits).slice(0, MAX_PROVIDER_ITEMS)) {
 		const entry = recordValue(value);
@@ -220,7 +220,7 @@ async function fetchCodexUsage(token: string, options: ResolvedClientOptions): P
 
 async function fetchKimiUsage(token: string, options: ResolvedClientOptions): Promise<ProviderUsageData> {
 	const usage = requireRecord(await getJson("https://api.kimi.com/coding/v1/usages", token, requestOptions(options, options.timeoutMs)));
-	const windows: UsageWindow[] = [];
+	const windows: CollectedUsageWindow[] = [];
 	const minuteLimit = arrayValue(usage.limits)
 		.slice(0, MAX_PROVIDER_ITEMS)
 		.map(recordValue)
@@ -264,7 +264,7 @@ async function fetchXaiUsage(token: string, options: ResolvedClientOptions): Pro
 	const billing = recordValue(billingValue);
 	const settings = recordValue(settingsValue);
 	const config = recordValue(billing?.config);
-	const windows: UsageWindow[] = [];
+	const windows: CollectedUsageWindow[] = [];
 
 	const weeklyPeriod = recordValue(credits.currentPeriod);
 	const weeklyStart = dateValue(weeklyPeriod?.start);
@@ -350,7 +350,7 @@ function xaiProductLabel(value: string): string {
 }
 
 function pushCodexRateLimitWindows(
-	windows: UsageWindow[],
+	windows: CollectedUsageWindow[],
 	rateLimit: Record<string, unknown> | undefined,
 	sectionLabel: string,
 	now: Date,
@@ -379,9 +379,9 @@ function codexResetAt(window: Record<string, unknown>, now: Date): Date | undefi
 	return new Date(now.getTime() + afterSeconds * 1_000);
 }
 
-function parseResetCredits(value: unknown, fallbackCount: number | undefined): UsageResetCredits | undefined {
+function parseResetCredits(value: unknown, fallbackCount: number | undefined): CollectedUsageResetCredits | undefined {
 	const payload = recordValue(value);
-	let credits: UsageResetCredit[] | undefined;
+	let credits: CollectedUsageResetCredit[] | undefined;
 	if (Array.isArray(payload?.credits)) {
 		credits = [];
 		for (const rawCredit of payload.credits.slice(0, MAX_RESET_CREDITS)) {
@@ -395,7 +395,7 @@ function parseResetCredits(value: unknown, fallbackCount: number | undefined): U
 	return availableCount === undefined ? undefined : { availableCount, credits };
 }
 
-function parseResetCredit(value: unknown): UsageResetCredit | undefined {
+function parseResetCredit(value: unknown): CollectedUsageResetCredit | undefined {
 	const credit = recordValue(value);
 	if (credit === undefined) return undefined;
 	return {
@@ -430,7 +430,7 @@ function claudePlanLabel(profile: Record<string, unknown> | undefined): string |
 	return undefined;
 }
 
-function pushWindow(windows: UsageWindow[], label: string, value: unknown, durationMins: number): void {
+function pushWindow(windows: CollectedUsageWindow[], label: string, value: unknown, durationMins: number): void {
 	const record = recordValue(value);
 	if (record === undefined) return;
 	windows.push({
@@ -543,7 +543,7 @@ async function defaultFetch(url: string, request: UsageHttpRequest): Promise<Usa
 	};
 }
 
-function providerError(provider: ProviderDefinition, error: UsageProviderError): ProviderUsage {
+function providerError(provider: ProviderDefinition, error: UsageProviderError): CollectedProviderUsage {
 	return { id: provider.id, name: provider.name, status: "error", error };
 }
 

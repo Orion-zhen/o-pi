@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderSkillCall, renderSkillResult } from "../../src/skill-context/renderer.js";
+import { renderSkillCall, renderSkillResult } from "../../src/skill-context/tui/renderer.js";
 import type { SkillLoadDetails } from "../../src/skill-context/types.js";
 
 const theme = {

@@ -5,7 +5,7 @@ export interface StatsSnapshot {
 	cache: CacheStats;
 	context: ContextStats;
 	tools: ToolStats;
-	generatedAt: Date;
+	generatedAt: string;
 }
 
 /** 会话、模型和运行状态；缺失字段由 renderer 隐藏。 */

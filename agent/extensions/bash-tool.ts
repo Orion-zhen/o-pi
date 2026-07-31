@@ -5,7 +5,6 @@ import {
 	createDefaultBashOperations,
 	executeBashCommand,
 	loadBashToolConfig,
-	renderBashCall,
 	type BashExecutionResult,
 	type BashParams,
 	type BashSessionMetadata,
@@ -19,60 +18,87 @@ const bashParameters = Type.Object({
 	timeout: Type.Optional(Type.Number({ description: "Seconds; default from config." })),
 }, { additionalProperties: false });
 
+export type BashRendererLoader = () => Promise<Pick<
+	typeof import("../../src/bash-tool/tui/renderer.js"),
+	"renderBashCall"
+>>;
+
 /** 注册覆盖版 bash；执行后端用 Pi 本地 shell，输出管理由本项目控制。 */
-export default function bashTool(pi: ExtensionAPI): void {
-	const operations = createDefaultBashOperations();
+export function createBashToolExtension(
+	loadRenderer: BashRendererLoader = () => import("../../src/bash-tool/tui/renderer.js"),
+): (pi: ExtensionAPI) => void {
+	return function bashTool(pi: ExtensionAPI): void {
+		const operations = createDefaultBashOperations();
 
-	registerObservedTool(pi, {
-		tool: {
-			name: "bash",
-			label: "bash",
-			description: "Run shell commands or external programs.",
-			promptSnippet: "run shell commands",
-			promptGuidelines: ["Use bash only for operations not covered by active dedicated tools."],
-			parameters: bashParameters,
-			executionMode: "sequential",
-			renderCall: renderBashCall,
-			async execute(toolCallId, params, signal, onUpdate, ctx) {
-				const config = await loadBashToolConfig();
-				const sessionFile = ctx.sessionManager.getSessionFile();
-				const session: BashSessionMetadata = {
-					sessionId: ctx.sessionManager.getSessionId(),
-					...(sessionFile !== undefined ? { sessionFile } : {}),
-					...(ctx.model !== undefined ? { provider: ctx.model.provider, model: ctx.model.id } : {}),
-					...(ctx.thinkingLevel !== undefined ? { reasoningLevel: ctx.thinkingLevel } : {}),
-				};
-				const runtime = {
-					cwd: ctx.cwd,
-					session,
-					toolCallId,
-					operations,
-					config,
-					...(signal !== undefined ? { signal } : {}),
-					...(onUpdate
-						? {
-								onUpdate: (partial: BashExecutionResult) => {
-									onUpdate({ content: [{ type: "text", text: partial.content }], details: withNativeBashDetails(partial.details) });
-								},
-							}
-						: {}),
-				};
-				const result = await executeBashCommand(params as BashParams, runtime);
-				return { content: [{ type: "text", text: result.content }], details: withNativeBashDetails(result.details) };
+		const tool = registerObservedTool(pi, {
+			tool: {
+				name: "bash",
+				label: "bash",
+				description: "Run shell commands or external programs.",
+				promptSnippet: "run shell commands",
+				promptGuidelines: ["Use bash only for operations not covered by active dedicated tools."],
+				parameters: bashParameters,
+				executionMode: "sequential",
+				async execute(toolCallId, params, signal, onUpdate, ctx) {
+					const config = await loadBashToolConfig();
+					const sessionFile = ctx.sessionManager.getSessionFile();
+					const session: BashSessionMetadata = {
+						sessionId: ctx.sessionManager.getSessionId(),
+						...(sessionFile !== undefined ? { sessionFile } : {}),
+						...(ctx.model !== undefined ? { provider: ctx.model.provider, model: ctx.model.id } : {}),
+						...(ctx.thinkingLevel !== undefined ? { reasoningLevel: ctx.thinkingLevel } : {}),
+					};
+					const runtime = {
+						cwd: ctx.cwd,
+						session,
+						toolCallId,
+						operations,
+						config,
+						...(signal !== undefined ? { signal } : {}),
+						...(onUpdate
+							? {
+									onUpdate: (partial: BashExecutionResult) => {
+										onUpdate({ content: [{ type: "text", text: partial.content }], details: withNativeBashDetails(partial.details) });
+									},
+								}
+							: {}),
+					};
+					const result = await executeBashCommand(params as BashParams, runtime);
+					return { content: [{ type: "text", text: result.content }], details: withNativeBashDetails(result.details) };
+				},
 			},
-		},
-		repair: { singleStringField: "command" },
-		telemetry: bashTelemetry,
-	});
+			repair: { singleStringField: "command" },
+			telemetry: bashTelemetry,
+		});
 
-	pi.on("tool_result", (event) => {
-		if (event.toolName !== "bash" || !isBashDetails(event.details)) return undefined;
-		if (event.details.status !== "exited" || event.details.exit_code !== 0) {
-			return { isError: true };
-		}
-		return undefined;
-	});
+		let rendererLoad: Promise<void> | undefined;
+		pi.on("session_start", async (_event, ctx) => {
+			if (ctx.mode !== "tui") return;
+			if (rendererLoad === undefined) {
+				const pending = loadRenderer().then(({ renderBashCall }) => {
+					pi.registerTool({ ...tool, renderCall: renderBashCall });
+				}, (error: unknown) => {
+					rendererLoad = undefined;
+					ctx.ui.notify(`Bash renderer initialization failed: ${error instanceof Error ? error.message : String(error)}`, "warning");
+				});
+				rendererLoad = pending;
+			}
+			await rendererLoad;
+		});
+
+		pi.on("tool_result", (event) => {
+			if (event.toolName !== "bash" || !isBashDetails(event.details)) return undefined;
+			if (event.details.status !== "exited" || event.details.exit_code !== 0) {
+				return { isError: true };
+			}
+			return undefined;
+		});
+	};
 }
+
+const bashTool = createBashToolExtension();
+
+export default bashTool;
 
 function isBashDetails(value: ToolResultEvent["details"]): value is BashToolDetails {
 	return (

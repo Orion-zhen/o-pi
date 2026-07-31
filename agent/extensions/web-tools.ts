@@ -56,10 +56,10 @@ const webFetchParameters = Type.Object(
 
 export type WebToolsRuntimeLoader = () => Promise<WebToolsRuntime>;
 export type WebToolsRendererLoader = () => Promise<Pick<
-	typeof import("../../src/web-tools/fetch/webfetch-renderer.js"),
+	typeof import("../../src/web-tools/tui/webfetch.js"),
 	"renderWebFetchCall" | "renderWebFetchResult" | "isWebFetchDetails"
 > & Pick<
-	typeof import("../../src/web-tools/search/websearch-renderer.js"),
+	typeof import("../../src/web-tools/tui/websearch.js"),
 	"renderWebSearchCall" | "renderWebSearchResult" | "isWebSearchDetails"
 >>;
 
@@ -132,12 +132,17 @@ export function createWebToolsExtension(
 								},
 							}
 							: {}),
-						hasUI: ctx.hasUI,
 						acceptsImages,
 						...(modelAcceptsImages && !apiAcceptsToolImages
 							? { imageOmissionReason: "api_no_tool_image_output" as const }
 							: {}),
-						...(ctx.hasUI ? { confirm: (title: string, message: string) => ctx.ui.confirm(title, message) } : {}),
+						...(ctx.hasUI
+							? {
+								interaction: {
+									confirmAuthentication: (title: string, message: string) => ctx.ui.confirm(title, message),
+								},
+							}
+							: {}),
 					};
 					const runtime = await getRuntime();
 					const result = await runtime.fetch(params, executionContext);
@@ -211,8 +216,8 @@ async function loadDefaultRuntime(): Promise<WebToolsRuntime> {
 
 async function loadDefaultRenderers(): Promise<Awaited<ReturnType<WebToolsRendererLoader>>> {
 	const [fetchRenderer, searchRenderer] = await Promise.all([
-		import("../../src/web-tools/fetch/webfetch-renderer.js"),
-		import("../../src/web-tools/search/websearch-renderer.js"),
+		import("../../src/web-tools/tui/webfetch.js"),
+		import("../../src/web-tools/tui/websearch.js"),
 	]);
 	return {
 		renderWebFetchCall: fetchRenderer.renderWebFetchCall,

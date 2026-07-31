@@ -38,6 +38,7 @@
 		"content-type": "latest",
 		"exa-js": "latest",
 		"file-type": "latest",
+		"get-east-asian-width": "latest",
 		"gpt-tokenizer": "latest",
 		"htmlparser2": "latest",
 		"ignore": "latest",

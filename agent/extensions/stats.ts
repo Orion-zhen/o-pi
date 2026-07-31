@@ -13,8 +13,18 @@ export default function statsExtension(pi: Pick<ExtensionAPI, "registerCommand">
 				return;
 			}
 
-			const snapshot = await collectStatsSnapshot(ctx, pi);
-			const { StatsViewer } = await import("../../src/stats/stats-viewer.js");
+			const snapshot = await collectStatsSnapshot({
+				cwd: ctx.cwd,
+				model: ctx.model,
+				getEntries: () => ctx.sessionManager.getEntries(),
+				getBranch: () => ctx.sessionManager.getBranch(),
+				isUsingSubscription: () => ctx.model !== undefined && ctx.modelRegistry.isUsingOAuth(ctx.model),
+				isIdle: () => ctx.isIdle(),
+				getContextUsage: () => ctx.getContextUsage(),
+				getSystemPrompt: () => ctx.getSystemPrompt(),
+				getSystemPromptOptions: () => ctx.getSystemPromptOptions(),
+			}, pi);
+			const { StatsViewer } = await import("../../src/stats/tui/stats-viewer.js");
 			await ctx.ui.custom<void>((tui, theme, _keybindings, done) => new StatsViewer(snapshot, theme, () => tui.terminal.rows, done), {
 				overlay: true,
 				overlayOptions: { width: "90%", minWidth: 80 },

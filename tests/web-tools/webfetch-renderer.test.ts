@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatWebFetchCall, formatWebFetchResult, renderWebFetchCall, renderWebFetchResult } from "../../src/web-tools/fetch/webfetch-renderer.js";
+import { formatWebFetchCall, formatWebFetchResult, renderWebFetchCall, renderWebFetchResult } from "../../src/web-tools/tui/webfetch.js";
 
 const theme = {
 	fg: (_color: string, text: string) => text,

@@ -1,6 +1,8 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { renderSubagentCall, renderSubagentCommandEntry, renderSubagentResult } from "../../src/subagent/renderer.js";
+import { createSubagentCommandProgressAdapter } from "../../src/subagent/tui/adapter.js";
+import { renderSubagentCall, renderSubagentCommandEntry, renderSubagentResult } from "../../src/subagent/tui/renderer.js";
+import { pendingSubagentResult } from "../../src/subagent/progress.js";
 import type { SubagentDetails, SubagentRunResult, UsageStats } from "../../src/subagent/types.js";
 
 const workspace = path.resolve("workspace");
@@ -13,6 +15,23 @@ const theme = {
 };
 
 describe("subagent renderer", () => {
+	it("TUI progress adapter 独立创建并在 dispose 清理 widget", () => {
+		const widgets: unknown[] = [];
+		const adapter = createSubagentCommandProgressAdapter({
+			getToolsExpanded: () => true,
+			setWidget(_key, content) {
+				widgets.push(content);
+			},
+		});
+		const result = pendingSubagentResult([{ agent: "scout", task: "inspect" }]);
+
+		adapter.onProgress({ phase: "starting", result });
+		adapter.onProgress({ phase: "completed", result });
+		adapter.dispose();
+
+		expect(widgets).toEqual([expect.any(Function), undefined]);
+	});
+
 	it("运行中和完成后隐藏调用卡，避免和 result card 重复", () => {
 		const running = renderSubagentCall(
 			{ tasks: [{ agent: "scout", task: "inspect auth flow and tests" }] },
@@ -90,7 +109,7 @@ describe("subagent renderer", () => {
 					task: "inspect renderer",
 					exitCode: -1,
 					events: [
-						{ type: "tool", name: "read", args: { path: "src/subagent/renderer.ts" } },
+						{ type: "tool", name: "read", args: { path: "src/subagent/tui/renderer.ts" } },
 						{ type: "text", text: "found renderer behavior" },
 					],
 				}),
