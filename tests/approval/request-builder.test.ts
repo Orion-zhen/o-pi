@@ -1,3 +1,4 @@
+import os from "node:os";
 import path from "node:path";
 import type { ToolCallEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
@@ -6,6 +7,8 @@ import { buildApprovalRequest } from "../../src/approval/request-builder.js";
 
 const cwd = path.resolve("project");
 const systemPath = path.join(path.parse(cwd).root, "etc", "hosts");
+const runtimeTempRoot = os.tmpdir();
+const runtimeTempChild = path.join(runtimeTempRoot, "pi-approval", "work");
 
 describe("approval request builder", () => {
 	it("bash 普通命令生成一个 AST command unit", async () => {
@@ -84,6 +87,112 @@ describe("approval request builder", () => {
 			path.join(cwd, "1").replace(/\\/g, "/"),
 			"cat",
 		]);
+	});
+
+	it("解析 mktemp 临时目录变量并标记仅影响临时目录的单元", async () => {
+		const request = await buildApprovalRequest(bash(`
+tmpdir=$(mktemp -d)
+cleanup() { rm -rf "$tmpdir"; }
+trap cleanup EXIT
+cat > "$tmpdir/input.txt" <<'EOF'
+content
+EOF
+for engine in xelatex lualatex; do
+	(cd "$tmpdir" && "$engine" input.txt > result.txt)
+done
+(cd "$tmpdir" && git clean -fd && git reset --hard)
+`), cwd);
+
+		expect(request?.units).toEqual(expect.arrayContaining([
+			expect.objectContaining({
+				action: "execute",
+				target: expect.objectContaining({ value: `rm -rf "$tmpdir"` }),
+				effect_scope: "temporary",
+			}),
+			expect.objectContaining({
+				action: "write_redirect",
+				target: { kind: "path", value: "<temporary>/input.txt" },
+				effect_scope: "temporary",
+			}),
+			expect.objectContaining({
+				action: "write_redirect",
+				target: { kind: "path", value: "<temporary>/result.txt" },
+				effect_scope: "temporary",
+			}),
+			expect.objectContaining({
+				action: "execute",
+				target: expect.objectContaining({ match_value: "git clean -fd" }),
+				effect_scope: "temporary",
+			}),
+			expect.objectContaining({
+				action: "execute",
+				target: expect.objectContaining({ match_value: "git reset --hard" }),
+				effect_scope: "temporary",
+			}),
+		]));
+		expect(request?.units.map((unit) => unit.target.match_value)).toEqual(expect.arrayContaining([
+			"xelatex input.txt",
+			"lualatex input.txt",
+		]));
+	});
+
+	it("把系统临时目录后代中的 Bash 文件操作标记为 temporary", async () => {
+		const request = await buildApprovalRequest(bash(`
+rm -rf "${runtimeTempChild}"
+cat > "${path.join(runtimeTempChild, "output.txt")}"
+(cd "${runtimeTempChild}" && git clean -fd)
+`), cwd);
+		expect(request?.units).toEqual(expect.arrayContaining([
+			expect.objectContaining({
+				target: expect.objectContaining({ match_value: `rm -rf ${runtimeTempChild}` }),
+				effect_scope: "temporary",
+			}),
+			expect.objectContaining({
+				target: { kind: "path", value: path.join(runtimeTempChild, "output.txt").replace(/\\/g, "/") },
+				effect_scope: "temporary",
+			}),
+			expect.objectContaining({
+				target: expect.objectContaining({ match_value: "git clean -fd" }),
+				effect_scope: "temporary",
+			}),
+		]));
+	});
+
+	it.skipIf(process.platform === "win32")("默认识别 /tmp 和 /var/tmp 的后代", async () => {
+		for (const command of ["rm -rf /tmp/pi-work", "rm -rf /var/tmp/pi-work"]) {
+			const request = await buildApprovalRequest(bash(command), cwd);
+			expect(request?.units[0]?.effect_scope).toBe("temporary");
+		}
+		for (const command of ["rm -rf /tmp", "rm -rf /var/tmp"]) {
+			const request = await buildApprovalRequest(bash(command), cwd);
+			expect(request?.units[0]?.effect_scope).toBeUndefined();
+		}
+	});
+
+	it.each([
+		`rm -rf "${runtimeTempRoot}"`,
+		`rm -rf "${path.join(runtimeTempRoot, "..", "outside")}"`,
+	])("不把系统临时目录根或逃逸路径标成 temporary: %s", async (command) => {
+		const request = await buildApprovalRequest(bash(command), cwd);
+		expect(request?.units[0]?.effect_scope).toBeUndefined();
+	});
+
+	it.each([
+		`tmpdir=/etc\nrm -rf "$tmpdir"`,
+		`tmpdir='<temporary>'\nrm -rf "$tmpdir"`,
+		`tmpdir=$(mktemp -d)\ntmpdir=/etc\nrm -rf "$tmpdir"`,
+		`tmpdir=$(mktemp -d)\nread tmpdir\nrm -rf "$tmpdir"`,
+		`tmpdir=$(mktemp -d)\nfor tmpdir in /etc; do rm -rf "$tmpdir"; done`,
+		`tmpdir=$(mktemp -d ./cache.XXXX)\nrm -rf "$tmpdir"`,
+		`tmpdir=$(mktemp -d)\nrm -rf "$tmpdir" /etc/hosts`,
+		`tmpdir=$(mktemp -d)\nsudo rm -rf "$tmpdir"`,
+		`tmpdir=$(mktemp -d)\nrm -rf "$tmpdir/../outside"`,
+		`tmpdir=$(mktemp -d)\n(cd "$tmpdir"; rm -rf .)`,
+		`tmpdir=$(mktemp -d)\n(cd "$tmpdir" && git -C /etc clean -fd)`,
+	])("不把未证明仅影响临时目录的命令标成 temporary: %s", async (command) => {
+		const request = await buildApprovalRequest(bash(command), cwd);
+		const destructive = request?.units.find((unit) => unit.target.value.includes("rm -rf"));
+		expect(destructive?.effect_scope).toBeUndefined();
 	});
 
 	it("env wrapper 同时保留原始和解包后的命令匹配视图", async () => {

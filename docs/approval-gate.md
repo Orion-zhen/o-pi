@@ -40,8 +40,13 @@ Gate 不再把整段 shell 文本当成一个批准目标，而是提取：
 - command substitution、process substitution 中的嵌套命令。
 - 字面量 `bash` / `sh` / `zsh` 等 `-c` 参数中的子脚本。
 - `>`、`>>`、`>|`、`&>`、`&>>` 等文件写重定向；`2>&1` 这类 fd duplication 不算文件写入。
+- 有限字面量 `for` 循环中的命令变量，例如 `for engine in xelatex lualatex` 会分别分析两个具体命令。
 
 策略逐单元执行，但一次工具调用只显示一个聚合审批框。显式 `deny_rules` 先于 remembered allow；任何单元被 deny 都会阻止整次原始命令。未被记忆规则覆盖且需要确认的单元会一起显示，批准后仍执行原始完整命令。
+
+解析器会保守跟踪顶层单次变量赋值、`$PWD`、`mktemp -d` 产生的一次性目录，以及 `cd "$tmpdir" && ...` 内确定的工作目录。系统临时目录的后代也属于临时范围：POSIX 默认包括 `/tmp`、`/var/tmp`、macOS 对应的 `/private` 路径和当前 runtime 临时目录，Windows 使用当前 runtime 临时目录。已证明目标完全位于临时范围中的写重定向、`rm` / `rmdir`，以及临时工作目录内未改写仓库位置的 `git clean` / `git reset --hard` 不触发 ask；显式 `deny_rules` 仍可阻止这些单元。
+
+临时范围必须能够静态证明。系统临时目录根本身不属于可豁免目标；变量重赋值、非默认 `mktemp` 模板、逃出临时根的 `..`、混合临时与非临时目标、`sudo`、`git -C` / `--git-dir` / `--work-tree`，以及没有通过 `&&` 保护的 `cd` 都不会获得临时目录豁免。
 
 语法错误、grammar/runtime 不可用、分析超时、嵌套过深或单元过多时，Gate 把整段输入降级为不可持久化的 opaque 单元；其策略匹配视图以 `<opaque>` 开头。动态命令名使用 `<dynamic>` 占位，无法静态解析的 `shell -c` 也不可持久化。动态写重定向无法生成安全规则时只提供一次性批准。
 
@@ -59,6 +64,7 @@ Gate 不再把整段 shell 文本当成一个批准目标，而是提取：
 ## 默认不会询问
 
 - 普通 `bash` 命令，例如 `echo`、测试、构建、格式化。
+- 已证明仅影响 `mktemp -d` 一次性目录或系统临时目录后代的写入和本地清理。
 - 普通项目文件的 `write` / `edit`。
 - `read`、`ls`、`find`、`grep`。
 - `webfetch`、LSP、subagent。

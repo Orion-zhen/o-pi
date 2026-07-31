@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -163,6 +164,33 @@ describe("approval gate", () => {
 		const ui = fakeUi(["Allow once"]);
 		expect(await handle(bash(`echo value > "$OUTPUT"`), ctx(ui))).toBeUndefined();
 		expect(ui.selectOptions[0]).toEqual(["Allow once", "Deny", "Deny with instruction"]);
+	});
+
+	it("mktemp 临时目录内的写入和递归清理不弹审批框", async () => {
+		const ui = fakeUi([]);
+		const command = `
+set -eu
+root="$PWD"
+tmpdir=$(mktemp -d)
+cleanup() { rm -rf "$tmpdir"; }
+trap cleanup EXIT
+cat > "$tmpdir/input.txt" <<'EOF'
+content
+EOF
+for engine in xelatex lualatex; do
+	(cd "$tmpdir" && TOOL_INPUT="$root//:" "$engine" input.txt > result.txt)
+done
+rm -f "$tmpdir/result.txt"
+`;
+		expect(await handle(bash(command), ctx(ui))).toBeUndefined();
+		expect(ui.selectCalls).toBe(0);
+	});
+
+	it("系统临时目录后代中的递归清理不弹审批框", async () => {
+		const ui = fakeUi([]);
+		const target = path.join(os.tmpdir(), "pi-approval", "work");
+		expect(await handle(bash(`rm -rf "${target}"`), ctx(ui))).toBeUndefined();
+		expect(ui.selectCalls).toBe(0);
 	});
 
 	it("UI 返回未提供的 remembered 选项时 fail closed", async () => {

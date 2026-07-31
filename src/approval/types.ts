@@ -33,6 +33,8 @@ export interface ApprovalTarget {
 export interface ApprovalUnit {
 	action: string;
 	target: ApprovalTarget;
+	/** 已静态证明副作用不会逃逸一次性临时目录时，无需交互确认。 */
+	effect_scope?: "temporary";
 	remember: {
 		session: boolean;
 		persistent: boolean;

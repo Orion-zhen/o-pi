@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -103,6 +104,79 @@ describe("approval policy", () => {
 		const reloaded = new FileApprovalStore(storePath);
 		await reloaded.loadPersistentRules();
 		expect(evaluateApproval(request, defaultApprovalGateConfig(), reloaded)).toEqual({ kind: "allow" });
+	});
+
+	it("已证明仅影响 mktemp 临时目录的脚本默认放行", async () => {
+		const request = await bashRequest(`
+set -eu
+root="$PWD"
+tmpdir=$(mktemp -d)
+cleanup() { rm -rf "$tmpdir"; }
+trap cleanup EXIT
+cat > "$tmpdir/input.txt" <<'EOF'
+content
+EOF
+for engine in xelatex lualatex; do
+	(cd "$tmpdir" && TOOL_INPUT="$root//:" "$engine" input.txt > result.txt)
+done
+`);
+		expect(evaluateApproval(request, defaultApprovalGateConfig(), store())).toEqual({ kind: "allow" });
+	});
+
+	it("显式 deny 仍可阻止 temporary 单元", async () => {
+		const config = configWith({
+			deny_rules: [{ name: "no-rm", tools: ["bash"], command_regex: "^rm\\b", reason: "no removal" }],
+		});
+		const request = await bashRequest(`tmpdir=$(mktemp -d)\nrm -rf "$tmpdir"`);
+		expect(evaluateApproval(request, config, store())).toMatchObject({
+			kind: "deny",
+			rule_name: "no-rm",
+		});
+	});
+
+	it("系统临时目录后代中的递归删除默认放行，但目录根本身仍询问", async () => {
+		const tempRoot = os.tmpdir();
+		expect(evaluateApproval(
+			await bashRequest(`rm -rf "${path.join(tempRoot, "pi-approval", "work")}"`),
+			defaultApprovalGateConfig(),
+			store(),
+		)).toEqual({ kind: "allow" });
+		expect(evaluateApproval(
+			await bashRequest(`rm -rf "${tempRoot}"`),
+			defaultApprovalGateConfig(),
+			store(),
+		)).toMatchObject({ kind: "ask" });
+	});
+
+	it.skipIf(process.platform === "win32")("/tmp 后代中的递归删除默认放行", async () => {
+		expect(evaluateApproval(
+			await bashRequest("rm -rf /tmp/pi-approval-work"),
+			defaultApprovalGateConfig(),
+			store(),
+		)).toEqual({ kind: "allow" });
+		expect(evaluateApproval(
+			await bashRequest("rm -rf /tmp"),
+			defaultApprovalGateConfig(),
+			store(),
+		)).toMatchObject({ kind: "ask" });
+	});
+
+	it.each([
+		`tmpdir=/etc\nrm -rf "$tmpdir"`,
+		`tmpdir='<temporary>'\nrm -rf "$tmpdir"`,
+		`tmpdir=$(mktemp -d)\ntmpdir=/etc\nrm -rf "$tmpdir"`,
+		`tmpdir=$(mktemp -d)\nread tmpdir\nrm -rf "$tmpdir"`,
+		`tmpdir=$(mktemp -d)\nfor tmpdir in /etc; do rm -rf "$tmpdir"; done`,
+		`tmpdir=$(mktemp -d ./cache.XXXX)\nrm -rf "$tmpdir"`,
+		`tmpdir=$(mktemp -d)\nrm -rf "$tmpdir" /etc/hosts`,
+		`tmpdir=$(mktemp -d)\nsudo rm -rf "$tmpdir"`,
+		`tmpdir=$(mktemp -d)\nrm -rf "$tmpdir/../outside"`,
+		`tmpdir=$(mktemp -d)\n(cd "$tmpdir"; rm -rf .)`,
+		`tmpdir=$(mktemp -d)\n(cd "$tmpdir" && git -C /etc clean -fd)`,
+	])("临时范围无法静态证明时仍询问: %s", async (command) => {
+		expect(evaluateApproval(await bashRequest(command), defaultApprovalGateConfig(), store())).toMatchObject({
+			kind: "ask",
+		});
 	});
 
 	it.each([

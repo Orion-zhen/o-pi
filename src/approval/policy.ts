@@ -12,6 +12,8 @@ export function evaluateApproval(request: ApprovalRequest, config: ApprovalGateC
 
 	const items: Extract<ApprovalDecision, { kind: "ask" }>["items"] = [];
 	for (const unit of request.units) {
+		// 显式 deny 已在上方检查；临时目录内的局部副作用不需要意图确认。
+		if (unit.effect_scope === "temporary") continue;
 		if (store.matchesAllowRule(request, unit)) continue;
 
 		const ask = config.ask_rules.find((rule) => ruleMatchesUnit(rule, request.tool, unit));
