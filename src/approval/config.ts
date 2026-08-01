@@ -5,10 +5,8 @@ import {
 	createSchemaValidator,
 	defaultAgentConfigPath,
 	expandHomePath,
-	loadConfigLayers,
-	mergeConfigValues,
+	loadValidatedMergedConfig,
 	readDefaultJsoncConfigSync,
-	validateConfigValue,
 } from "../config-loader.js";
 import type { ApprovalGateConfig, ApprovalRule } from "./types.js";
 
@@ -22,20 +20,10 @@ export class ApprovalConfigError extends Error {
 }
 
 export async function loadApprovalGateConfig(): Promise<ApprovalGateConfig> {
-	const loaded = await loadConfigLayers(CONFIG_DEFINITIONS.approvalGate, process.cwd(), createError);
-	let merged: unknown = {};
-	for (const layer of loaded.layers) {
-		await validateConfigValue({
-			path: layer.path,
-			label: `approval-gate ${layer.kind}`,
-			value: layer.value,
-			layer: layer.kind,
-			loadValidator: layer.kind === "default" ? loadCompleteValidator : loadValidator,
-			createError,
-		});
-		merged = mergeConfigValues(merged, layer.value);
-	}
-	return materializeConfig(merged as CompleteApprovalGateConfig);
+	const loaded = await loadValidatedMergedConfig(
+		CONFIG_DEFINITIONS.approvalGate, process.cwd(), createError, { partial: loadValidator, complete: loadCompleteValidator },
+	);
+	return materializeConfig(loaded.merged as CompleteApprovalGateConfig);
 }
 
 export function defaultApprovalGateConfig(): ApprovalGateConfig {

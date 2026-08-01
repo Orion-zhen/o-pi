@@ -7,6 +7,7 @@ import {
 	createCompleteSchemaValidator,
 	defaultAgentConfigPath,
 	loadConfigLayers,
+	loadValidatedMergedConfig,
 	mergeConfigValues,
 	resolveConfigLayerPaths,
 	type ConfigDefinition,
@@ -90,6 +91,59 @@ describe("layered config loader", () => {
 		})();
 		expect(validate({ enabled: true, nested: {} })).toBe(false);
 		expect(validate({ enabled: true, nested: { value: 1 } })).toBe(true);
+	});
+
+	it("逐层校验后合并配置，并保留加载快照信息", async () => {
+		const user = path.join(temp.path, "approval-user.jsonc");
+		await writeFile(user, '{ "enabled": false, "ui": { "timeout_ms": 25 } }');
+		process.env.PI_APPROVAL_GATE_CONFIG = user;
+		const completeValues: unknown[] = [];
+		const partialValues: unknown[] = [];
+
+		const loaded = await loadValidatedMergedConfig(
+			CONFIG_DEFINITIONS.approvalGate,
+			temp.path,
+			(message, details) => Object.assign(new Error(message), { details }),
+			{
+				partial: async () => (value) => {
+					partialValues.push(value);
+					return true;
+				},
+				complete: async () => (value) => {
+					completeValues.push(value);
+					return true;
+				},
+			},
+		);
+
+		expect(completeValues).toHaveLength(1);
+		expect(partialValues).toEqual([{ enabled: false, ui: { timeout_ms: 25 } }]);
+		expect(loaded.merged).toMatchObject({
+			enabled: false,
+			ui: { timeout_ms: 25, non_interactive: "block" },
+		});
+		expect(loaded.fingerprint).toContain("default:");
+	});
+
+	it("在合并前报告无效覆盖层的诊断上下文", async () => {
+		const user = path.join(temp.path, "invalid-user.jsonc");
+		await writeFile(user, '{ "enabled": false }');
+		process.env.PI_APPROVAL_GATE_CONFIG = user;
+
+		await expect(loadValidatedMergedConfig(
+			CONFIG_DEFINITIONS.approvalGate,
+			temp.path,
+			(message, details) => Object.assign(new Error(message), { details }),
+			{
+				partial: async () => Object.assign(() => false, {
+					errors: [{ instancePath: "/enabled", keyword: "type", params: {} }],
+				}),
+				complete: async () => () => true,
+			},
+		)).rejects.toMatchObject({
+			message: "approval-gate user config does not match schema.",
+			details: { layer: "user", path: user },
+		});
 	});
 
 	it("递归合并对象并整体替换数组和标量", () => {

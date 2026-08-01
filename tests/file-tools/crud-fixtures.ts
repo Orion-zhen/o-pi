@@ -19,7 +19,7 @@ export interface CrudTestContext {
 	readonly outside: string;
 	read(params: Parameters<typeof readWorkspaceFile>[1], options?: ReadWorkspaceTestOptions): ReturnType<typeof readWorkspaceFile>;
 	write(params: unknown, diff?: TextDiffGenerator): Promise<ToolOutcome<WriteSuccess>>;
-	edit(params: unknown, runtime?: { signal?: AbortSignal; diagnostics?: EditDiagnosticsSource }): Promise<ToolOutcome<EditSuccess>>;
+	edit(params: unknown, runtime?: { signal?: AbortSignal; diagnostics?: EditDiagnosticsSource; diff?: TextDiffGenerator }): Promise<ToolOutcome<EditSuccess>>;
 	preview(params: unknown): ReturnType<typeof previewEdit>;
 	useConfig(config: Record<string, unknown>): Promise<void>;
 }
@@ -69,7 +69,7 @@ export function createCrudTestContext(): CrudTestContext {
 					observation: opened.observation,
 					maxFileBytes: opened.limits.edit_max_file_bytes,
 					matchHintLimit: opened.limits.edit_match_hint_limit,
-					diff: piTextDiffGenerator,
+					diff: runtime.diff ?? piTextDiffGenerator,
 					...(runtime.diagnostics === undefined ? {} : { diagnostics: runtime.diagnostics }),
 				});
 			} finally {

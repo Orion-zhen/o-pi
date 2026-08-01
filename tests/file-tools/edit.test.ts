@@ -136,6 +136,7 @@ describe("edit", () => {
 		const result = await testContext.edit(
 			{ path: "many.txt", edits: [{ old: "old", new: "new", replace_all: true }] },
 			{
+				diff: { generate: () => ({ diff: "" }) },
 				diagnostics: {
 					async beforeEdit() { return undefined; },
 					async afterEdit(input) {

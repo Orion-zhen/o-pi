@@ -4,10 +4,8 @@ import {
 	createCompleteSchemaValidator,
 	createSchemaValidator,
 	defaultAgentConfigPath,
-	loadConfigLayers,
-	mergeConfigValues,
+	loadValidatedMergedConfig,
 	readDefaultJsoncConfigSync,
-	validateConfigValue,
 } from "../config-loader.js";
 import { PatternGuardConfigError, validatePatternGuardConfig } from "./pattern-guard.js";
 import type { BashToolConfig } from "./types.js";
@@ -23,20 +21,10 @@ export class BashConfigError extends Error {
 
 /** 读取独立 bash JSONC 配置；配置错误直接失败，避免静默使用不安全预算。 */
 export async function loadBashToolConfig(): Promise<BashToolConfig> {
-	const loaded = await loadConfigLayers(CONFIG_DEFINITIONS.bashTool, process.cwd(), createError);
-	let merged: unknown = {};
-	for (const layer of loaded.layers) {
-		await validateConfigValue({
-			path: layer.path,
-			label: `bash-tool ${layer.kind}`,
-			value: layer.value,
-			layer: layer.kind,
-			loadValidator: layer.kind === "default" ? loadCompleteValidator : loadValidator,
-			createError,
-		});
-		merged = mergeConfigValues(merged, layer.value);
-	}
-	return materializeConfig(merged as CompleteBashToolConfig);
+	const loaded = await loadValidatedMergedConfig(
+		CONFIG_DEFINITIONS.bashTool, process.cwd(), createError, { partial: loadValidator, complete: loadCompleteValidator },
+	);
+	return materializeConfig(loaded.merged as CompleteBashToolConfig);
 }
 
 export function defaultBashToolConfig(): BashToolConfig {

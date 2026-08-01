@@ -59,6 +59,15 @@ export interface LoadedConfigLayers {
 	fingerprint: string;
 }
 
+export interface ConfigLayerValidators {
+	partial: () => Promise<SchemaValidateFunction>;
+	complete: () => Promise<SchemaValidateFunction>;
+}
+
+export interface LoadedValidatedMergedConfig extends LoadedConfigLayers {
+	merged: unknown;
+}
+
 /** 分层代理配置及其允许范围的中央注册中心。 */
 export const CONFIG_DEFINITIONS = {
 	approvalGate: globalConfig("approval-gate", "approval-gate.jsonc", "PI_APPROVAL_GATE_CONFIG"),
@@ -144,6 +153,28 @@ export async function loadConfigLayers<E extends Error>(
 	throw createError(`${definition.label} config changed while being read.`, {
 		paths: resolveConfigLayerPaths(definition, cwd).map((source) => source.path),
 	});
+}
+
+export async function loadValidatedMergedConfig<E extends Error>(
+	definition: ConfigDefinition,
+	cwd: string,
+	createError: ConfigErrorFactory<E>,
+	validators: ConfigLayerValidators,
+): Promise<LoadedValidatedMergedConfig> {
+	const loaded = await loadConfigLayers(definition, cwd, createError);
+	let merged: unknown = {};
+	for (const layer of loaded.layers) {
+		await validateConfigValue({
+			path: layer.path,
+			label: `${definition.label} ${layer.kind}`,
+			value: layer.value,
+			layer: layer.kind,
+			loadValidator: layer.kind === "default" ? validators.complete : validators.partial,
+			createError,
+		});
+		merged = mergeConfigValues(merged, layer.value);
+	}
+	return { ...loaded, merged };
 }
 
 export function resolveConfigLayerPaths(definition: ConfigDefinition, cwd: string): ConfigLayerPath[] {

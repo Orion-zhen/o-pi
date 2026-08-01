@@ -7,6 +7,7 @@ import type { DiagnosticSnapshot } from "../shared/diagnostics.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import type { TextDiff, TextDiffGenerator } from "../shared/text-diff.js";
 import { buildEditMatchHints, buildEditNotFoundRecovery } from "./hints.js";
+import { findAll } from "./matches.js";
 import type { EditDiagnosticsSource } from "./ports.js";
 import type { EditLineRange, EditParams, EditPreviewSuccess, EditReplacement, EditSuccess } from "./types.js";
 
@@ -334,18 +335,6 @@ function notFoundFailure(
 				next: "Refine your edit and try again.",
 			});
 	}
-}
-
-function findAll(text: string, needle: string): number[] {
-	const starts: number[] = [];
-	let cursor = 0;
-	while (cursor <= text.length - needle.length) {
-		const found = text.indexOf(needle, cursor);
-		if (found === -1) break;
-		starts.push(found);
-		cursor = found + Math.max(needle.length, 1);
-	}
-	return starts;
 }
 
 function buildTextBytes(

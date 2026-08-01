@@ -1,6 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import net, { type Socket } from "node:net";
 
+import { withTimeout } from "./timeout.js";
 import type { LspTransport } from "./types.js";
 
 const STDERR_TAIL_BYTES = 8192;
@@ -189,20 +190,6 @@ async function waitForChildExit(child: ChildProcessWithoutNullStreams, timeoutMs
 
 function hasExited(child: ChildProcessWithoutNullStreams): boolean {
 	return child.pid === undefined || child.exitCode !== null || child.signalCode !== null;
-}
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-	let timer: NodeJS.Timeout | undefined;
-	try {
-		return await Promise.race([
-			promise,
-			new Promise<never>((_resolve, reject) => {
-				timer = setTimeout(() => reject(new Error("timeout")), timeoutMs);
-			}),
-		]);
-	} finally {
-		if (timer !== undefined) clearTimeout(timer);
-	}
 }
 
 function toError(error: unknown): Error {

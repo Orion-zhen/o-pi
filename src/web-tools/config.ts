@@ -7,11 +7,9 @@ import {
 	createCompleteSchemaValidator,
 	createSchemaValidator,
 	defaultAgentConfigPath,
-	loadConfigLayers,
-	mergeConfigValues,
+	loadValidatedMergedConfig,
 	readDefaultJsoncConfigSync,
 	resolveConfigLayerPaths,
-	validateConfigValue,
 } from "../config-loader.js";
 import type { WebToolsConfig } from "./core/types.js";
 import { guardPublicHttpUrlLiteral } from "./network/url-guard.js";
@@ -64,20 +62,10 @@ export function clearWebToolsConfigCacheForTests(): void {
 }
 
 async function loadConfigFile(): Promise<ConfigCacheEntry> {
-	const loaded = await loadConfigLayers(CONFIG_DEFINITIONS.webTools, process.cwd(), createError);
-	let merged: unknown = {};
-	for (const layer of loaded.layers) {
-		await validateConfigValue({
-			path: layer.path,
-			label: `web-tools ${layer.kind}`,
-			value: layer.value,
-			layer: layer.kind,
-			loadValidator: layer.kind === "default" ? loadCompleteValidator : loadValidator,
-			createError,
-		});
-		merged = mergeConfigValues(merged, layer.value);
-	}
-	return { fingerprint: loaded.fingerprint, config: materializeConfig(merged as CompleteWebToolsConfig) };
+	const loaded = await loadValidatedMergedConfig(
+		CONFIG_DEFINITIONS.webTools, process.cwd(), createError, { partial: loadValidator, complete: loadCompleteValidator },
+	);
+	return { fingerprint: loaded.fingerprint, config: materializeConfig(loaded.merged as CompleteWebToolsConfig) };
 }
 
 export function defaultWebToolsConfig(): WebToolsConfig {

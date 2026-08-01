@@ -376,15 +376,11 @@ function commandUnit(node: SyntaxNode, context: BashAnalysisContext): { unit: Ap
 		|| args.some((argument, index) => literalArgs[index] === undefined && argument !== undefined);
 	const rawFacts = { program: commandBasename(program), args };
 	const facts = unwrapCommand(rawFacts);
-	const resolvedFacts = unwrapCommand({
-		program: commandBasename(program),
-		args,
-	});
 	const nestedScript = shellScript(effectiveCommand(facts));
 	const exactValue = normalizeCommandNode(node);
 	const matchValue = commandView(rawFacts);
 	const similarValue = commandView(facts);
-	const temporary = commandEffectsStayTemporary(resolvedFacts, context.cwd);
+	const temporary = commandEffectsStayTemporary(facts, context.cwd);
 	return {
 		unit: {
 			action: "execute",

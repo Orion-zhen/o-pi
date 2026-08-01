@@ -4,10 +4,8 @@ import {
 	createCompleteSchemaValidator,
 	createSchemaValidator,
 	defaultAgentConfigPath,
-	loadConfigLayers,
-	mergeConfigValues,
+	loadValidatedMergedConfig,
 	readDefaultJsoncConfigSync,
-	validateConfigValue,
 } from "../config-loader.js";
 import type { TuiConfig } from "./types.js";
 
@@ -22,20 +20,10 @@ export class TuiConfigError extends Error {
 
 /** 读取 o-pi TUI JSONC 配置；配置错误直接抛出，避免静默丢失 UI 行为。 */
 export async function loadTuiConfig(): Promise<TuiConfig> {
-	const loaded = await loadConfigLayers(CONFIG_DEFINITIONS.tui, process.cwd(), createError);
-	let merged: unknown = {};
-	for (const layer of loaded.layers) {
-		await validateConfigValue({
-			path: layer.path,
-			label: `tui ${layer.kind}`,
-			value: layer.value,
-			layer: layer.kind,
-			loadValidator: layer.kind === "default" ? loadCompleteValidator : loadValidator,
-			createError,
-		});
-		merged = mergeConfigValues(merged, layer.value);
-	}
-	return materializeConfig(merged as CompleteTuiConfig);
+	const loaded = await loadValidatedMergedConfig(
+		CONFIG_DEFINITIONS.tui, process.cwd(), createError, { partial: loadValidator, complete: loadCompleteValidator },
+	);
+	return materializeConfig(loaded.merged as CompleteTuiConfig);
 }
 
 export function defaultTuiConfig(): TuiConfig {

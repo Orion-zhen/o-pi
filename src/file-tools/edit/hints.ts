@@ -1,3 +1,4 @@
+import { findAll } from "./matches.js";
 import type {
 	EditAnchorCandidate,
 	EditMatchHint,
@@ -151,17 +152,6 @@ function previousCodePointIndex(text: string, index: number): number {
 function nextCodePointIndex(text: string, index: number): number {
 	const code = text.charCodeAt(index);
 	return code >= 0xd800 && code <= 0xdbff && index + 1 < text.length ? index + 2 : index + 1;
-}
-function findAll(text: string, needle: string): number[] {
-	const starts: number[] = [];
-	let cursor = 0;
-	while (cursor <= text.length - needle.length) {
-		const found = text.indexOf(needle, cursor);
-		if (found === -1) break;
-		starts.push(found);
-		cursor = found + Math.max(needle.length, 1);
-	}
-	return starts;
 }
 function lineNumber(text: string, offset: number): number {
 	let line = 1;

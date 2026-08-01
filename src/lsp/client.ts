@@ -59,6 +59,7 @@ import {
 } from "./features/index.js";
 import { LspProtocolInfrastructure, LspProtocolValidationError } from "./protocol-infrastructure.js";
 import { languageIdForServerPath } from "./routing.js";
+import { withTimeout } from "./timeout.js";
 import { connectLspTransport } from "./transport.js";
 import type {
 	LspClientDocumentContext,
@@ -919,20 +920,6 @@ function textDocumentSyncPolicy(capabilities: ServerCapabilities | undefined): T
 		save: sync.save === true || saveOptions !== undefined,
 		includeText: saveOptions?.includeText === true,
 	};
-}
-
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
-	let timer: NodeJS.Timeout | undefined;
-	try {
-		return await Promise.race([
-			promise,
-			new Promise<never>((_resolve, reject) => {
-				timer = setTimeout(() => reject(new Error("timeout")), timeoutMs);
-			}),
-		]);
-	} finally {
-		if (timer !== undefined) clearTimeout(timer);
-	}
 }
 
 function validatedProtocolResult<T>(factory: () => T): T {
