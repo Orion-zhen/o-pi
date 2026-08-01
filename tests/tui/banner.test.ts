@@ -17,8 +17,8 @@ const snapshot: TuiFooterSnapshot = {
 	context: { tokens: 0, contextWindow: 200_000, percent: 0 },
 	status: "ready",
 	tools: {
-		activeNames: ["ls", "read", "write", "edit", "find", "grep", "bash", "websearch", "webfetch", "subagent"],
-		totalCount: 10,
+		activeNames: ["ls", "read", "write", "edit", "find", "grep", "bash", "websearch", "webfetch", "subagent", "skill"],
+		totalCount: 11,
 	},
 	skills: { totalCount: 3, modelInvocableCount: 1 },
 };

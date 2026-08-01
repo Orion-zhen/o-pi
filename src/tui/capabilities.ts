@@ -20,11 +20,11 @@ export interface CapabilityGroupSummary {
 
 /** 默认能力分组只包含工具，不包含 slash command。 */
 export const DEFAULT_CAPABILITY_GROUPS: readonly CapabilityGroupDefinition[] = [
-	{ id: "files", label: "files", toolNames: ["ls", "read", "write", "edit"], showInBanner: true },
-	{ id: "search", label: "search", toolNames: ["find", "grep"], showInBanner: true },
-	{ id: "shell", label: "shell", toolNames: ["bash"], showInBanner: true },
+	{ id: "files", label: "files", toolNames: ["ls", "read", "write", "edit", "find", "grep"], showInBanner: true },
 	{ id: "web", label: "web", toolNames: ["websearch", "webfetch"], showInBanner: true },
-	{ id: "agent", label: "agent", toolNames: ["subagent"], showInBanner: true },
+	{ id: "bash", label: "bash", toolNames: ["bash"], showInBanner: true },
+	{ id: "skill", label: "skill", toolNames: ["skill"], showInBanner: true },
+	{ id: "subagent", label: "subagent", toolNames: ["subagent"], showInBanner: true },
 ];
 
 /** 按工具名汇总能力分组；allNames 缺失时只根据 activeNames 保守展示。 */
@@ -35,23 +35,14 @@ export function summarizeCapabilityGroups(
 	if (tools === undefined) return [];
 	const activeNames = uniqueNonEmpty(tools.activeNames);
 	const allNames = uniqueNonEmpty(tools.allNames === undefined ? tools.activeNames : [...tools.allNames, ...tools.activeNames]);
-	const groupedNames = new Set<string>();
 	const summaries: CapabilityGroupSummary[] = [];
 
 	for (const group of groups) {
 		const groupToolSet = new Set(group.toolNames);
-		for (const name of group.toolNames) groupedNames.add(name);
 		const totalCount = allNames.filter((name) => groupToolSet.has(name)).length;
-		if (!group.showInBanner || totalCount === 0) continue;
+		if (!group.showInBanner || (totalCount === 0 && tools.allNames === undefined)) continue;
 		const activeCount = activeNames.filter((name) => groupToolSet.has(name)).length;
 		summaries.push({ id: group.id, label: group.label, activeCount, totalCount });
-	}
-
-	const otherNames = allNames.filter((name) => !groupedNames.has(name));
-	if (otherNames.length > 0) {
-		const otherSet = new Set(otherNames);
-		const activeCount = activeNames.filter((name) => otherSet.has(name) || !allNames.includes(name)).length;
-		summaries.push({ id: "other", label: "other", activeCount, totalCount: otherNames.length });
 	}
 
 	return summaries;
@@ -66,9 +57,14 @@ export function formatCapabilitySummary(
 	const parts = summaries
 		.filter((summary) => summary.totalCount > 0)
 		.map((summary) => {
-			const count = summary.activeCount >= summary.totalCount ? `${summary.totalCount}` : `${summary.activeCount}/${summary.totalCount}`;
-			const text = `${summary.label}:${count}`;
-			return theme === undefined ? text : theme.fg(summary.activeCount >= summary.totalCount ? "success" : "warning", text);
+			const count = summary.totalCount === 1
+				? ""
+				: summary.activeCount >= summary.totalCount
+					? `:${summary.totalCount}`
+					: `:${summary.activeCount}/${summary.totalCount}`;
+			const text = `${summary.label}${count}`;
+			const color = summary.activeCount === 0 ? "dim" : summary.activeCount >= summary.totalCount ? "success" : "warning";
+			return theme === undefined ? text : theme.fg(color, text);
 		});
 	if (parts.length === 0) return undefined;
 	const line = parts.join(" ");

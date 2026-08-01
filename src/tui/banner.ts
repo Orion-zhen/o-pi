@@ -102,7 +102,7 @@ function statusRows(snapshot: TuiFooterSnapshot, config: TuiBannerConfig, width:
 	return [
 		row("pi", VERSION ? `v${VERSION}` : "o-pi", width, theme),
 		workspace ? row("workspace", workspace, width, theme) : undefined,
-		model ? row("model", color(theme, "dim", model), width, theme) : undefined,
+		model ? row("model", color(theme, "text", model), width, theme) : undefined,
 		contextStatus ? row("context", contextStatus, width, theme) : undefined,
 		tools ? row("tools", tools, width, theme) : undefined,
 		skills ? row("skills", skills, width, theme) : undefined,
@@ -156,13 +156,10 @@ function formatTinyTools(snapshot: TuiFooterSnapshot, config: TuiBannerConfig, w
 	const activeCount = new Set(tools.activeNames.filter((name) => name.length > 0)).size;
 	const totalCount = Math.max(0, tools.totalCount, activeCount);
 	const count = color(theme, activeCount >= totalCount ? "success" : "warning", `${activeCount}/${totalCount} tools`);
-	const skills = formatTinySkills(snapshot);
-	if (!config.show_capabilities) return truncateToWidth(joinParts([count, skills], color(theme, "dim", " · ")), width, "…");
-	const groups = summarizeCapabilityGroups(tools)
-		.filter((summary) => summary.totalCount > 0)
-		.map((summary) => summary.label)
-		.join("/");
-	return truncateToWidth(joinParts([count, skills, groups || undefined], color(theme, "dim", " · ")), width, "…");
+	if (!config.show_capabilities) return truncateToWidth(joinParts([count, formatTinySkills(snapshot)], color(theme, "dim", " · ")), width, "…");
+	const usedWidth = visibleWidth(count) + visibleWidth(" · ");
+	const summary = formatCapabilitySummary(summarizeCapabilityGroups(tools), Math.max(1, width - usedWidth), theme);
+	return truncateToWidth(joinParts([count, formatTinySkills(snapshot), summary], color(theme, "dim", " · ")), width, "…");
 }
 
 function formatTinySkills(snapshot: TuiFooterSnapshot): string | undefined {

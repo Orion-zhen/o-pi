@@ -69,25 +69,15 @@ footer 最多两行：
 
 banner 只展示真实可得数据：没有 model、context 或 git 时直接隐藏对应行。Pi 版本来自 `@earendil-works/pi-coding-agent` 的 typed `VERSION` 导出；不会使用本仓库 `o-pi` 的 package version 伪装 Pi 版本。
 
-工具能力使用语义分组，不从 extension 文件名推断：
+工具能力使用语义分组，不从 extension 文件名推断。banner 按固定顺序显示：
 
 ```text
-files: ls/read/write/edit
-search: find/grep
-shell: bash
-web: websearch/webfetch
-agent: subagent
+files:6 web:2 bash subagent skill
 ```
 
-全部启用时显示 `files:4 search:2 shell:1 web:2 agent:1`；部分关闭时显示 `files:3/4`。未归组工具合并为 `other`。Slash command 只作为 hints/details 出现，不计入 tools 数量。
+`files` 和 `web` 显示启用数量；`bash`、`subagent` 和 `skill` 是单项能力，因此不显示 `:1`。部分关闭时多工具分组显示为 `files:3/4`；完全未启用的能力仍保留，但使用 `dim` 颜色。Slash command 不计入 tools 数量。
 
-如果发现 skills，banner 会在 tools 下方单独显示一行：
-
-```text
-skills    3 · model:1
-```
-
-skills 总数来自 Pi 公开 `pi.getCommands()` 中 `source: "skill"` 的命令，`model:n` 使用 Pi 的 skill loader 统计其中未被 `disable-model-invocation: true` 禁用的数量。同名 skill 只计一次，project skill 始终覆盖 user skill。这不依赖 system prompt 中是否展示 skills，也不计入 tools 的 `active/total`。
+`skill` 的颜色和启用状态对应实际 `skill` 工具；未归组工具不显示为 `other`。下方 skills 行保持原样：skills 总数来自 Pi 公开 `pi.getCommands()` 中 `source: "skill"` 的命令；同名 skill 只计一次，project skill 始终覆盖 user skill。这不依赖 system prompt 中是否展示 skills，也不计入 tools 的 `active/total`。
 
 当前本地 Pi API 没有比 `ctx.ui.setHeader()` 更专门的 public startup banner 入口。本扩展只通过公开 header API 显示 banner；如果 `clear_on_first_turn` 为 true，第一轮 turn 开始后恢复普通 one-line header 或清空 header，让 Pi 内置 startup help/resources 行为保持原样。
 
