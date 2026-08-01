@@ -5,7 +5,11 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { PartialIgnoreConfig, VisibilitySnapshot } from "../../src/filesystem/contracts/visibility.js";
+import type {
+	PartialIgnoreConfig,
+	VisibilityEvaluateInput,
+	VisibilitySnapshot,
+} from "../../src/filesystem/contracts/visibility.js";
 import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
 import { createVisibilitySnapshot, defaultVisibilityService as defaultIgnoreEngine } from "../../src/filesystem/services/visibility/service.js";
 import { useTempDir } from "../helpers/lifecycle.js";
@@ -31,6 +35,55 @@ afterEach(() => {
 async function createIgnoreSnapshot(root: string, ignore: PartialIgnoreConfig = {}): Promise<VisibilitySnapshot> {
 	return await createVisibilitySnapshot(root, createVisibilityPolicy({ ignore }));
 }
+
+interface ConfiguredPathCase {
+	readonly label: string;
+	readonly rule: (workspace: string, outside: string) => string;
+	readonly input: (workspace: string, outside: string) => VisibilityEvaluateInput;
+}
+
+const configuredPathCases: readonly ConfiguredPathCase[] = [
+	{
+		label: "相对文件",
+		rule: () => "secret.txt",
+		input: (root) => ({
+			path: "nested/secret.txt",
+			absolutePath: path.join(root, "nested", "secret.txt"),
+			workspacePath: "nested/secret.txt",
+			kind: "file",
+			intent: "explicit-read",
+		}),
+	},
+	{
+		label: "相对目录",
+		rule: () => "cache/",
+		input: (root) => ({
+			path: "nested/cache/item.txt",
+			absolutePath: path.join(root, "nested", "cache", "item.txt"),
+			workspacePath: "nested/cache/item.txt",
+			kind: "file",
+			intent: "explicit-read",
+		}),
+	},
+	{
+		label: "绝对路径",
+		rule: (_root, external) => path.join(external, "secret.txt"),
+		input: (_root, external) => ({
+			path: path.join(external, "secret.txt"),
+			absolutePath: path.join(external, "secret.txt"),
+			kind: "file",
+			intent: "explicit-read",
+		}),
+	},
+	{
+		label: "home 目录",
+		rule: () => "~/.o-pi-f07/",
+		input: () => {
+			const absolutePath = path.join(os.homedir(), ".o-pi-f07", "secret.txt");
+			return { path: absolutePath, absolutePath, kind: "file", intent: "explicit-read" };
+		},
+	},
+];
 
 describe("visibility rules", () => {
 	it("支持 Gitignore grammar 的基础规则", async () => {
@@ -157,6 +210,19 @@ describe("visibility rules", () => {
 		snapshot = await createIgnoreSnapshot(workspace, { builtinProfile: "none", caseSensitivity: "sensitive" });
 		expect(snapshot.evaluate({ path: "tracked.json", kind: "file", intent: "search" }).ignored).toBe(true);
 	});
+	it.each(configuredPathCases)("预编译并匹配 $label configured path rule", async ({ rule, input }) => {
+		const configuredRule = rule(workspace, outside);
+		const snapshot = await createVisibilitySnapshot(workspace, createVisibilityPolicy({
+			ignoredPaths: [configuredRule],
+			ignore: { builtinProfile: "none", gitignore: { enabled: false }, piignore: { enabled: false } },
+		}));
+
+		expect(snapshot.evaluate(input(workspace, outside))).toMatchObject({
+			ignored: true,
+			matchedRule: { sourceType: "config", pattern: configuredRule },
+		});
+	});
+
 	it("统一 config ignored_path、来源与 intent prune 语义", async () => {
 		const snapshot = await createVisibilitySnapshot(workspace, createVisibilityPolicy({
 			ignoredPaths: ["cache/", path.join(outside, "secret.txt")],

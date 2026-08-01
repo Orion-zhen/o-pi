@@ -31,11 +31,29 @@ export function decodeUtf8(bytes: Uint8Array, options: { readonly rejectBinary: 
 }
 
 export function describeText(bytes: Uint8Array, text: string): Pick<TextContent, "totalLines" | "newline" | "hasBom"> {
-	return {
-		totalLines: logicalLines(text).lines.length,
-		newline: detectNewline(text),
-		hasBom: hasUtf8Bom(bytes),
-	};
+	let totalLines = 0;
+	let hasLf = false;
+	let hasCrlf = false;
+	let hasBareCr = false;
+	for (let index = 0; index < text.length; index += 1) {
+		if (text[index] === "\r") {
+			totalLines += 1;
+			if (text[index + 1] === "\n") {
+				hasCrlf = true;
+				index += 1;
+			} else hasBareCr = true;
+		} else if (text[index] === "\n") {
+			totalLines += 1;
+			hasLf = true;
+		}
+	}
+	if (text.length > 0 && text[text.length - 1] !== "\r" && text[text.length - 1] !== "\n") totalLines += 1;
+
+	let newline: NewlineKind = "none";
+	if (hasBareCr || (hasLf && hasCrlf)) newline = "mixed";
+	else if (hasCrlf) newline = "crlf";
+	else if (hasLf) newline = "lf";
+	return { totalLines, newline, hasBom: hasUtf8Bom(bytes) };
 }
 
 export function normalizeLineEndings(text: string): string {
@@ -149,15 +167,24 @@ export function sliceTextByLineRange(file: TextContent, options: TextSliceOption
 		});
 	}
 	const requestedEnd = Math.min(options.endLine ?? file.totalLines, file.totalLines);
-	const records = lineRecords(file.text);
-	const selected: string[] = [];
+	let recordStart = 0;
+	for (let line = 1; line < requestedStart; line += 1) {
+		recordStart = lineRecordEnd(file.text, recordStart);
+	}
+
+	const selectedStart = recordStart;
+	let selectedEnd = recordStart;
+	let selectedLines = 0;
 	let outputBytes = 0;
 	let nextLine: number | undefined;
 
 	for (let line = requestedStart; line <= requestedEnd; line += 1) {
-		const record = records[line - 1];
-		if (record === undefined) break;
-		const recordBytes = encoder.encode(record).byteLength;
+		if (selectedLines >= options.maxLines || outputBytes === options.maxBytes) {
+			nextLine = line;
+			break;
+		}
+		const recordEnd = lineRecordEnd(file.text, recordStart);
+		const recordBytes = encoder.encode(file.text.slice(recordStart, recordEnd)).byteLength;
 		if (recordBytes > options.maxBytes) {
 			return fsFailure({
 				code: "too-large",
@@ -165,17 +192,19 @@ export function sliceTextByLineRange(file: TextContent, options: TextSliceOption
 				...errorPath(options.path),
 			});
 		}
-		if (selected.length >= options.maxLines || outputBytes + recordBytes > options.maxBytes) {
+		if (outputBytes + recordBytes > options.maxBytes) {
 			nextLine = line;
 			break;
 		}
-		selected.push(record);
+		selectedEnd = recordEnd;
+		selectedLines += 1;
 		outputBytes += recordBytes;
+		recordStart = recordEnd;
 	}
 
-	const endLine = selected.length === 0 ? requestedStart - 1 : requestedStart + selected.length - 1;
+	const endLine = selectedLines === 0 ? requestedStart - 1 : requestedStart + selectedLines - 1;
 	return fsSuccess({
-		content: selected.join(""),
+		content: file.text.slice(selectedStart, selectedEnd),
 		startLine: requestedStart,
 		endLine,
 		truncated: nextLine !== undefined,
@@ -230,39 +259,12 @@ function nonNegativeInteger(value: number): boolean {
 	return Number.isSafeInteger(value) && value >= 0;
 }
 
-function detectNewline(text: string): NewlineKind {
-	let lf = 0;
-	let crlf = 0;
-	let bareCr = 0;
-	for (let index = 0; index < text.length; index += 1) {
-		if (text[index] === "\r") {
-			if (text[index + 1] === "\n") {
-				crlf += 1;
-				index += 1;
-			} else bareCr += 1;
-		} else if (text[index] === "\n") lf += 1;
+function lineRecordEnd(text: string, start: number): number {
+	for (let index = start; index < text.length; index += 1) {
+		if (text[index] === "\r") return text[index + 1] === "\n" ? index + 2 : index + 1;
+		if (text[index] === "\n") return index + 1;
 	}
-	if (lf === 0 && crlf === 0 && bareCr === 0) return "none";
-	if (bareCr > 0 || (lf > 0 && crlf > 0)) return "mixed";
-	return crlf > 0 ? "crlf" : "lf";
-}
-
-function lineRecords(text: string): readonly string[] {
-	if (text === "") return [];
-	const records: string[] = [];
-	let start = 0;
-	for (let index = 0; index < text.length; index += 1) {
-		if (text[index] === "\r" && text[index + 1] === "\n") {
-			records.push(text.slice(start, index + 2));
-			index += 1;
-			start = index + 1;
-		} else if (text[index] === "\n" || text[index] === "\r") {
-			records.push(text.slice(start, index + 1));
-			start = index + 1;
-		}
-	}
-	if (start < text.length) records.push(text.slice(start));
-	return records;
+	return text.length;
 }
 
 function validateSliceOptions(options: TextSliceOptions): { code: "invalid-path"; message: string; path?: string } | undefined {

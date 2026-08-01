@@ -8,7 +8,7 @@
 
 - 模型只在 active 专用工具未覆盖操作时使用 `bash`，不得绕过 active file/web tools；这是路由约束，不是 shell allowlist。
 - 不改写命令，不做 npm、pytest、Cargo、git 等专用输出解析。
-- 工作目录存在 `.venv`、`venv`、`env`、`.env`、`pyvenv`、`pyenv`、`.pyvenv` 或 `.pyenv`，包含 `pyvenv.cfg` 和可执行 Python 时，自动把其 `bin`（Windows 为 `Scripts`）置于 `PATH` 首位、设置 `VIRTUAL_ENV`、启用 `PIP_REQUIRE_VIRTUALENV` 并移除 `PYTHONHOME`；无路径前缀的 `python`、`pip` 及 console scripts 因而优先使用该环境，缺少 venv pip 时也不会修改全局环境。
+- 按 `python_venv_paths` 探测包含 `pyvenv.cfg` 和可执行 Python 的虚拟环境，自动把其 `bin`（Windows 为 `Scripts`）置于 `PATH` 首位、设置 `VIRTUAL_ENV`、启用 `PIP_REQUIRE_VIRTUALENV` 并移除 `PYTHONHOME`；无路径前缀的 `python`、`pip` 及 console scripts 因而优先使用该环境，缺少 venv pip 时也不会修改全局环境。
 - 执行前只做轻量 deny pattern / regex 检查，不把 bash 改成 allowlist。
 - 不用 LLM 总结输出。
 - 截断、压缩、失败、超时、取消或捕获不完整时保留日志路径。
@@ -33,6 +33,7 @@
 默认配置位于 `agent/defaults/bash-tool.jsonc`，用户覆盖位于 `agent/configs/bash-tool.jsonc`，schema 为 `agent/schemas/bash-tool.schema.json`。该配置只允许用户全局覆盖，不读取项目配置。分层规则见[配置分层](configuration.md)。
 
 - `default_timeout_seconds`：未传 `timeout` 时的秒数；默认值以 `agent/defaults/bash-tool.jsonc` 为准。
+- `python_venv_paths`：按数组顺序选择首个有效 Python 虚拟环境；相对路径基于命令工作目录解析，绝对路径直接使用，空数组关闭自动探测。
 - `limits.success_output_bytes`：成功输出视图预算。
 - `limits.failure_output_bytes`：失败、超时、取消输出视图预算。
 - `limits.live_output_bytes`：流式更新只展示最近输出的预算。

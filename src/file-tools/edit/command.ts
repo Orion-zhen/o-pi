@@ -271,21 +271,26 @@ function applyReplacements(
 			});
 		}
 	}
-	let output = "";
+	const outputChunks: string[] = [];
+	const changedRanges: EditLineRange[] = [];
 	let cursor = 0;
-	const outputSpans: Array<{ start: number; end: number }> = [];
+	let outputLine = 1;
 	for (const match of matches) {
-		output += text.slice(cursor, match.start);
-		const start = output.length;
-		output += match.replacement.new;
-		outputSpans.push({ start, end: output.length });
+		const unchanged = text.slice(cursor, match.start);
+		outputChunks.push(unchanged);
+		outputLine += countLineFeeds(unchanged);
+
+		const startLine = outputLine;
+		outputChunks.push(match.replacement.new);
+		outputLine += countLineFeeds(match.replacement.new);
+		appendChangedRange(changedRanges, startLine, outputLine);
 		cursor = match.end;
 	}
-	const updatedText = output + text.slice(cursor);
+	outputChunks.push(text.slice(cursor));
 	return {
-		text: updatedText,
+		text: outputChunks.join(""),
 		replacements: matches.length,
-		changedRanges: mergeLineRanges(outputSpans.map((span) => lineRangeAt(updatedText, span.start, span.end))),
+		changedRanges,
 	};
 }
 
@@ -368,32 +373,21 @@ function validateTextSize(text: string, hasBom: boolean, path: string, maxBytes:
 	});
 }
 
-function lineRangeAt(text: string, startOffset: number, endOffset: number): EditLineRange {
-	return {
-		startLine: lineAtOffset(text, startOffset),
-		endLine: lineAtOffset(text, Math.max(startOffset, endOffset)),
-	};
+function countLineFeeds(text: string): number {
+	let count = 0;
+	for (let index = 0; index < text.length; index += 1) {
+		if (text.charCodeAt(index) === 10) count += 1;
+	}
+	return count;
 }
 
-function lineAtOffset(text: string, offset: number): number {
-	let line = 1;
-	for (let index = 0; index < offset; index += 1) {
-		if (text[index] === "\n") line += 1;
+function appendChangedRange(ranges: EditLineRange[], startLine: number, endLine: number): void {
+	const previous = ranges.at(-1);
+	if (previous === undefined || startLine > previous.endLine + 1) {
+		ranges.push({ startLine, endLine });
+		return;
 	}
-	return line;
-}
-
-function mergeLineRanges(ranges: readonly EditLineRange[]): readonly EditLineRange[] {
-	const merged: EditLineRange[] = [];
-	for (const range of ranges) {
-		const previous = merged.at(-1);
-		if (previous === undefined || range.startLine > previous.endLine + 1) {
-			merged.push({ ...range });
-			continue;
-		}
-		previous.endLine = Math.max(previous.endLine, range.endLine);
-	}
-	return merged;
+	previous.endLine = Math.max(previous.endLine, endLine);
 }
 
 function normalizeLineEndings(text: string): string {

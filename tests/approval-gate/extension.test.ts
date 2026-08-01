@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import approvalGateExtension from "../../agent/extensions/approval-gate.js";
 import { defaultApprovalGateConfig } from "../../src/approval/config.js";
 import {
@@ -122,6 +122,67 @@ describe("approval gate", () => {
 		expect(ui.selectCalls).toBe(2);
 	});
 
+	it("同 tick 并发调用等待同一次持久规则加载", async () => {
+		const storePath = path.join(dir, "concurrent.rules.jsonc");
+		await writePersistentCommandRule(storePath, "git push origin main");
+		const originalLoad = FileApprovalStore.prototype.loadPersistentRules;
+		let releaseLoad: (() => void) | undefined;
+		const loadBlocked = new Promise<void>((resolve) => {
+			releaseLoad = resolve;
+		});
+		const load = vi.spyOn(FileApprovalStore.prototype, "loadPersistentRules").mockImplementation(async function(this: FileApprovalStore) {
+			await loadBlocked;
+			await originalLoad.call(this);
+		});
+		try {
+			const gate = fileBackedGate(async () => configWithStore(storePath));
+			const first = gate.handleToolCall(bash("git push origin main"), ctx(fakeUi([]), false));
+			const second = gate.handleToolCall(bash("git push origin main"), ctx(fakeUi([]), false));
+			await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(1));
+			if (releaseLoad === undefined) throw new Error("persistent rule load did not start");
+			releaseLoad();
+
+			expect(await Promise.all([first, second])).toEqual([undefined, undefined]);
+			expect(load).toHaveBeenCalledTimes(1);
+		} finally {
+			releaseLoad?.();
+			load.mockRestore();
+		}
+	});
+
+	it("persistent store 路径切换时使用对应规则", async () => {
+		const firstStore = path.join(dir, "first.rules.jsonc");
+		const secondStore = path.join(dir, "second.rules.jsonc");
+		await writePersistentCommandRule(firstStore, "git push origin main");
+		await writePersistentCommandRule(secondStore, "npm install lodash");
+		let storePath = firstStore;
+		const gate = fileBackedGate(async () => configWithStore(storePath));
+
+		expect(await gate.handleToolCall(bash("git push origin main"), ctx(fakeUi([]), false))).toBeUndefined();
+		storePath = secondStore;
+		expect(await gate.handleToolCall(bash("npm install lodash"), ctx(fakeUi([]), false))).toBeUndefined();
+		expect(await gate.handleToolCall(bash("git push origin main"), ctx(fakeUi([]), false))).toMatchObject({ block: true });
+		storePath = firstStore;
+		expect(await gate.handleToolCall(bash("git push origin main"), ctx(fakeUi([]), false))).toBeUndefined();
+	});
+
+	it("持久规则加载失败后清空初始化状态并允许重试", async () => {
+		const storePath = path.join(dir, "retry.rules.jsonc");
+		await writeFile(storePath, "{ invalid");
+		const load = vi.spyOn(FileApprovalStore.prototype, "loadPersistentRules");
+		try {
+			const gate = fileBackedGate(async () => configWithStore(storePath));
+			await expect(gate.handleToolCall(bash("git push origin main"), ctx(fakeUi([]), false)))
+				.rejects.toThrow("approval persistent rules are not valid JSONC");
+
+			await writePersistentCommandRule(storePath, "git push origin main");
+			expect(await gate.handleToolCall(bash("git push origin main"), ctx(fakeUi([]), false))).toBeUndefined();
+			expect(load).toHaveBeenCalledTimes(2);
+		} finally {
+			load.mockRestore();
+		}
+	});
+
 	it("无法安全记忆的动态写重定向只提供一次性审批", async () => {
 		const ui = fakeUi(["Allow once"]);
 		expect(await handle(bash(`echo value > "$OUTPUT"`), ctx(ui))).toBeUndefined();
@@ -191,11 +252,29 @@ function testGate(options: ApprovalGateOptions = {}) {
 }
 
 function testConfig(): ApprovalGateConfig {
+	return configWithStore(path.join(dir, "approval.rules.jsonc"));
+}
+
+function configWithStore(storePath: string): ApprovalGateConfig {
 	const config = defaultApprovalGateConfig();
-	return {
-		...config,
-		remember: { ...config.remember, persistent_store: path.join(dir, "approval.rules.jsonc") },
-	};
+	return { ...config, remember: { ...config.remember, persistent_store: storePath } };
+}
+
+function fileBackedGate(loadConfig: () => Promise<ApprovalGateConfig>) {
+	return createApprovalGate({ loadConfig, notifyUser: async () => {} });
+}
+
+async function writePersistentCommandRule(storePath: string, command: string): Promise<void> {
+	await writeFile(storePath, JSON.stringify({
+		version: 1,
+		rules: [{
+			created_at: "2026-01-01T00:00:00.000Z",
+			tool: "bash",
+			kind: "exact_command",
+			value: command,
+			cwd: dir,
+		}],
+	}));
 }
 
 function handle(event: ToolCallEvent, context: ApprovalContext): Promise<ToolCallEventResult | void> {

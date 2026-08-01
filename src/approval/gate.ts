@@ -46,9 +46,31 @@ export interface ApprovalGateOptions {
 	notifyUser?: WaitingNotifier;
 }
 
+interface ApprovalStoreInitialization {
+	readonly path: string;
+	readonly ready: Promise<ApprovalStore>;
+}
+
 export function createApprovalGate(options: ApprovalGateOptions = {}): ApprovalGate {
-	let store: ApprovalStore | undefined = options.store;
-	let loadedStorePath: string | undefined;
+	let storeInitialization: ApprovalStoreInitialization | undefined;
+
+	const resolveStore = async (storePath: string): Promise<ApprovalStore> => {
+		if (options.store !== undefined) return options.store;
+		const existing = storeInitialization;
+		const initialization = existing?.path === storePath ? existing : initializeStore(storePath);
+		storeInitialization = initialization;
+		try {
+			return await initialization.ready;
+		} catch (error) {
+			if (storeInitialization === initialization) storeInitialization = undefined;
+			throw error;
+		}
+	};
+
+	function initializeStore(storePath: string): ApprovalStoreInitialization {
+		const store = new FileApprovalStore(storePath);
+		return { path: storePath, ready: store.loadPersistentRules().then(() => store) };
+	}
 
 	return {
 		async handleToolCall(event, ctx) {
@@ -76,12 +98,7 @@ export function createApprovalGate(options: ApprovalGateOptions = {}): ApprovalG
 				return undefined;
 			}
 
-			if (store === undefined || (options.store === undefined && loadedStorePath !== config.remember.persistent_store)) {
-				store = new FileApprovalStore(config.remember.persistent_store);
-				loadedStorePath = config.remember.persistent_store;
-				await store.loadPersistentRules();
-			}
-
+			const store = await resolveStore(config.remember.persistent_store);
 			const decision = evaluateApproval(request, config, store);
 			if (decision.kind === "allow") {
 				observe({ decision: "allow", outcome: "policy_allow", wait_ms: 0 });

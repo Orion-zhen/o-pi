@@ -127,6 +127,30 @@ describe("edit", () => {
 		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("changed\nchanged\nsingle\n");
 	});
 
+	it("大量 replace_all 命中时线性计算并合并 changed ranges", async () => {
+		const matches = 5_000;
+		await writeFile(path.join(workspace, "many.txt"), "old\n".repeat(matches));
+		await testContext.read({ path: "many.txt" });
+		let changedRanges: readonly { startLine: number; endLine: number }[] | undefined;
+
+		const result = await testContext.edit(
+			{ path: "many.txt", edits: [{ old: "old", new: "new", replace_all: true }] },
+			{
+				diagnostics: {
+					async beforeEdit() { return undefined; },
+					async afterEdit(input) {
+						changedRanges = input.changedRanges;
+						return undefined;
+					},
+				},
+			},
+		);
+
+		expect(result).toMatchObject({ status: "applied", replacements: matches });
+		expect(changedRanges).toEqual([{ startLine: 1, endLine: matches }]);
+		expect(await readFile(path.join(workspace, "many.txt"), "utf8")).toBe("new\n".repeat(matches));
+	});
+
 	it("并发 edit 同一文件时串行读取和写入，不丢失修改", async () => {
 		await writeFile(path.join(workspace, "a.txt"), "alpha beta\n");
 		const before = await testContext.read({ path: "a.txt" });
@@ -289,6 +313,78 @@ describe("edit", () => {
 		const retry = await testContext.edit({ path: "a.txt", edits: [{ old: first["old"], new: first["new"] }] });
 		expect(retry).toMatchObject({ status: "applied", replacements: 1 });
 		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("let mode = \"dev\";\nconst mode = \"prod\";\nconst mode = \"test\";\n");
+	});
+
+	it("长公共上下文中返回最短唯一提示", async () => {
+		const radius = 4_000;
+		const old = "TARGET";
+		const left = "x".repeat(radius);
+		const right = "y".repeat(radius);
+		const source = `a${left}${old}${right}|b${left}${old}${right}`;
+		await writeFile(path.join(workspace, "a.txt"), source);
+		await testContext.read({ path: "a.txt" });
+
+		const result = await testContext.edit({ path: "a.txt", edits: [{ old, new: "NEW" }] });
+		expect(result).toMatchObject({
+			status: "failed",
+			error: {
+				code: "OLD_TEXT_NOT_UNIQUE",
+				details: {
+					hints: [
+						{ line: 1, old: `${old}${right}|`, new: `NEW${right}|` },
+						{ line: 1, old: `b${left}${old}`, new: `b${left}NEW` },
+					],
+				},
+			},
+		});
+	});
+
+	it("提示按 Unicode code point 扩展上下文", async () => {
+		const source = "😀目标x\n😁目标x\n";
+		await writeFile(path.join(workspace, "unicode.txt"), source);
+		await testContext.read({ path: "unicode.txt" });
+		const result = await testContext.edit({ path: "unicode.txt", edits: [{ old: "目标", new: "替换" }] });
+		expect(result).toMatchObject({
+			status: "failed",
+			error: {
+				code: "OLD_TEXT_NOT_UNIQUE",
+				details: {
+					hints: [
+						{ line: 1, old: "😀目标", new: "😀替换" },
+						{ line: 2, old: "😁目标", new: "😁替换" },
+					],
+				},
+			},
+		});
+	});
+
+	it("重叠候选上下文仍能重试对应的 occurrence", async () => {
+		await writeFile(path.join(workspace, "overlap.txt"), "aaaa");
+		await testContext.read({ path: "overlap.txt" });
+		const result = await testContext.edit({ path: "overlap.txt", edits: [{ old: "aa", new: "X" }] });
+		expect(result).toMatchObject({
+			status: "failed",
+			error: {
+				code: "OLD_TEXT_NOT_UNIQUE",
+				details: {
+					hints: [
+						{ line: 1, old: "aaa", new: "Xa" },
+						{ line: 1, old: "aaaa", new: "aaX" },
+					],
+				},
+			},
+		});
+		if (!("error" in result)) throw new Error("edit unexpectedly succeeded");
+		const hints = result.error.details?.["hints"];
+		const second = Array.isArray(hints) ? hints[1] : undefined;
+		if (!isPlainRecord(second) || typeof second["old"] !== "string" || typeof second["new"] !== "string") {
+			throw new Error("overlap edit hint missing");
+		}
+		expect(await testContext.edit({ path: "overlap.txt", edits: [{ old: second["old"], new: second["new"] }] })).toMatchObject({
+			status: "applied",
+			replacements: 1,
+		});
+		expect(await readFile(path.join(workspace, "overlap.txt"), "utf8")).toBe("aaX");
 	});
 
 	it("拒绝不存在、不唯一和重叠的 old", async () => {

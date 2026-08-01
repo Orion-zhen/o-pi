@@ -23,41 +23,44 @@ export interface WorkspaceAccessPolicyOptions {
 	readonly homeDirectory?: string;
 }
 
-/** Compiled mandatory path policy. Visibility rules deliberately do not enter this layer. */
-export class WorkspaceAccessPolicy {
+/** 预编译路径规则，并在所有规则之间复用规范化后的路径身份。 */
+export class CompiledPathRuleMatcher {
 	private readonly rules: readonly CompiledRule[];
 
-	constructor(options: WorkspaceAccessPolicyOptions) {
-		const homeDirectory = options.homeDirectory ?? os.homedir();
-		this.rules = options.blockedPaths.map((rule) => compileRule(rule, homeDirectory));
+	constructor(rules: readonly string[], homeDirectory = os.homedir()) {
+		this.rules = rules.map((rule) => compileRule(rule, homeDirectory));
 	}
 
-	match(inputPath: string, identity: PathIdentity, phase: AccessCheckPhase): BlockedPathMatch | undefined {
+	match(identity: PathIdentity): string | undefined {
+		if (this.rules.length === 0) return undefined;
+		const normalized = normalizeIdentity(identity);
 		for (const rule of this.rules) {
-			if (rule.path.length === 0 || !identityMatchesRule(identity, rule)) continue;
-			return {
-				code: "BLOCKED_PATH",
-				message: "Path is blocked by filesystem policy.",
-				inputPath,
-				matchedPath: identity.absolutePath,
-				matchedRule: rule.source,
-				phase,
-			};
+			if (rule.path.length > 0 && identityMatchesRule(normalized, rule)) return rule.source;
 		}
 		return undefined;
 	}
 }
 
-export function pathMatchesAnyRule(
-	identity: PathIdentity,
-	rules: readonly string[],
-	homeDirectory = os.homedir(),
-): boolean {
-	return rules.some((rule) => identityMatchesRule(identity, compileRule(rule, homeDirectory)));
-}
+/** 强制路径策略；visibility 规则不进入此层。 */
+export class WorkspaceAccessPolicy {
+	private readonly rules: CompiledPathRuleMatcher;
 
-export function pathMatchesRule(identity: PathIdentity, rule: string, homeDirectory = os.homedir()): boolean {
-	return identityMatchesRule(identity, compileRule(rule, homeDirectory));
+	constructor(options: WorkspaceAccessPolicyOptions) {
+		this.rules = new CompiledPathRuleMatcher(options.blockedPaths, options.homeDirectory);
+	}
+
+	match(inputPath: string, identity: PathIdentity, phase: AccessCheckPhase): BlockedPathMatch | undefined {
+		const matchedRule = this.rules.match(identity);
+		if (matchedRule === undefined) return undefined;
+		return {
+			code: "BLOCKED_PATH",
+			message: "Path is blocked by filesystem policy.",
+			inputPath,
+			matchedPath: identity.absolutePath,
+			matchedRule,
+			phase,
+		};
+	}
 }
 
 interface CompiledRule {
@@ -80,17 +83,25 @@ function compileRule(rule: string, homeDirectory: string): CompiledRule {
 	};
 }
 
-function identityMatchesRule(identity: PathIdentity, rule: CompiledRule): boolean {
-	const candidates = candidatePaths(identity, rule.absolute);
-	return candidates.some((candidate) => matchCandidate(candidate, rule.path, rule.directory));
+interface NormalizedPathIdentity {
+	readonly displayPath: string;
+	readonly absolutePath: string;
+	readonly workspacePath?: string;
 }
 
-function candidatePaths(identity: PathIdentity, absoluteRule: boolean): readonly string[] {
-	if (absoluteRule) return [normalizePath(identity.absolutePath)];
-	const result = [normalizePath(identity.displayPath)];
-	if (identity.workspacePath !== undefined) result.push(normalizePath(identity.workspacePath));
-	result.push(normalizePath(identity.absolutePath));
-	return [...new Set(result)];
+function normalizeIdentity(identity: PathIdentity): NormalizedPathIdentity {
+	return {
+		displayPath: normalizePath(identity.displayPath),
+		absolutePath: normalizePath(identity.absolutePath),
+		...(identity.workspacePath === undefined ? {} : { workspacePath: normalizePath(identity.workspacePath) }),
+	};
+}
+
+function identityMatchesRule(identity: NormalizedPathIdentity, rule: CompiledRule): boolean {
+	if (rule.absolute) return matchCandidate(identity.absolutePath, rule.path, rule.directory);
+	return matchCandidate(identity.displayPath, rule.path, rule.directory)
+		|| (identity.workspacePath !== undefined && matchCandidate(identity.workspacePath, rule.path, rule.directory))
+		|| matchCandidate(identity.absolutePath, rule.path, rule.directory);
 }
 
 function matchCandidate(candidate: string, rule: string, directory: boolean): boolean {

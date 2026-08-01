@@ -99,6 +99,20 @@ describe("workspace namespace", () => {
 			{},
 		)).toMatchObject({ ok: false, error: { code: "blocked", details: { matchedRule: "secret" } } });
 	});
+	it("expands home-directory blocked rules when constructing the access policy", async () => {
+		await mkdir(path.join(outside, "protected"));
+		await writeFile(path.join(outside, "protected", "secret.txt"), "secret");
+		const namespace = await openNamespace({ blockedPaths: ["~/protected/"], homeDirectory: outside });
+
+		expect(await namespace.paths.resolveExisting(
+			path.join(outside, "protected", "secret.txt"),
+			{ expected: "file", followFinalSymlink: true },
+			{},
+		)).toMatchObject({
+			ok: false,
+			error: { code: "blocked", details: { matchedRule: "~/protected/", phase: "lexical" } },
+		});
+	});
 	it("provides a lightweight write preflight without exposing native identities", async () => {
 		const result = await preflightWriteAccess({
 			cwd: workspace,

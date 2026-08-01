@@ -35,39 +35,61 @@ function shortestUniqueContext(text: string, old: string, start: number, starts:
 	const end = start + old.length;
 	const left = boundariesBefore(text, start);
 	const right = boundariesAfter(text, end);
-	const otherStarts = starts.filter((candidate) => candidate !== start);
+	const requiredRightCounts = buildRequiredRightCounts(text, old.length, start, starts, left.length);
 	let best: { start: number; end: number; length: number; leftCount: number } | undefined;
 	for (const leftBoundary of left) {
-		const leftCount = leftBoundary.count;
-		let requiredRightCount = 0;
-		for (const otherStart of otherStarts) {
-			const otherEnd = otherStart + old.length;
-			if (leftCount <= commonSuffixCodePoints(text, start, otherStart)) {
-				requiredRightCount = Math.max(requiredRightCount, commonPrefixCodePoints(text, end, otherEnd) + 1);
-			}
-		}
-		const rightBoundary = right.find((candidate) => candidate.count >= requiredRightCount);
+		const requiredRightCount = requiredRightCounts[leftBoundary.count] ?? 0;
+		const rightBoundary = right[requiredRightCount];
 		if (rightBoundary === undefined) continue;
-		const length = leftCount + rightBoundary.count;
-		if (best === undefined || length < best.length || (length === best.length && leftCount < best.leftCount)) {
-			best = { start: leftBoundary.index, end: rightBoundary.index, length, leftCount };
+		const length = leftBoundary.count + rightBoundary.count;
+		if (best === undefined || length < best.length || (length === best.length && leftBoundary.count < best.leftCount)) {
+			best = { start: leftBoundary.index, end: rightBoundary.index, length, leftCount: leftBoundary.count };
 		}
 	}
 	if (best !== undefined) {
 		const candidate = text.slice(best.start, best.end);
-		if (findAll(text, candidate).length === 1) return { start: best.start, text: candidate };
+		if (isUniqueOccurrenceAt(text, candidate, best.start)) return { start: best.start, text: candidate };
 	}
-	for (let length = 0; length <= left.length + right.length; length += 1) {
-		for (const leftBoundary of left) {
-			const rightCount = length - leftBoundary.count;
-			if (rightCount < 0) continue;
-			const rightBoundary = right.find((candidate) => candidate.count === rightCount);
-			if (rightBoundary === undefined) continue;
+	const maxLeftCount = left.length - 1;
+	const maxRightCount = right.length - 1;
+	for (let length = 0; length <= maxLeftCount + maxRightCount; length += 1) {
+		const firstLeftCount = Math.max(0, length - maxRightCount);
+		const lastLeftCount = Math.min(length, maxLeftCount);
+		for (let leftCount = firstLeftCount; leftCount <= lastLeftCount; leftCount += 1) {
+			const leftBoundary = left[leftCount];
+			const rightBoundary = right[length - leftCount];
+			if (leftBoundary === undefined || rightBoundary === undefined) continue;
 			const candidate = text.slice(leftBoundary.index, rightBoundary.index);
-			if (findAll(text, candidate).length === 1) return { start: leftBoundary.index, text: candidate };
+			if (isUniqueOccurrenceAt(text, candidate, leftBoundary.index)) return { start: leftBoundary.index, text: candidate };
 		}
 	}
 	return { start: 0, text };
+}
+
+function buildRequiredRightCounts(
+	text: string,
+	oldLength: number,
+	start: number,
+	starts: readonly number[],
+	leftBoundaryCount: number,
+): Uint32Array {
+	const required = new Uint32Array(leftBoundaryCount);
+	const end = start + oldLength;
+	for (const otherStart of starts) {
+		if (otherStart === start) continue;
+		const commonLeft = Math.min(commonSuffixCodePoints(text, start, otherStart), leftBoundaryCount - 1);
+		const commonRight = commonPrefixCodePoints(text, end, otherStart + oldLength) + 1;
+		required[commonLeft] = Math.max(required[commonLeft] ?? 0, commonRight);
+	}
+	for (let leftCount = required.length - 2; leftCount >= 0; leftCount -= 1) {
+		required[leftCount] = Math.max(required[leftCount] ?? 0, required[leftCount + 1] ?? 0);
+	}
+	return required;
+}
+
+function isUniqueOccurrenceAt(text: string, candidate: string, expectedStart: number): boolean {
+	const first = text.indexOf(candidate);
+	return first === expectedStart && text.indexOf(candidate, first + candidate.length) === -1;
 }
 
 function boundariesBefore(text: string, index: number): Array<{ index: number; count: number }> {

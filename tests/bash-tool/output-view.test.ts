@@ -1,6 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { takeHeadBytes, takeTailBytes } from "../../src/bash-tool/output-capture.js";
 import { cleanForModel, createBashOutputView } from "../../src/bash-tool/output-view.js";
 import { defaultBashToolConfig } from "../../src/bash-tool/config.js";
 import type { BashOutputFormat, BashRunStatus } from "../../src/bash-tool/types.js";
@@ -128,6 +129,15 @@ describe("bash output view", () => {
 		expect(result.content).toMatch(/\[\.\.\. \d+ lines omitted \.\.\.\]/);
 		expect(result.details.total_lines).toBe(30);
 		expect(result.details.returned_lines).toBeGreaterThan(0);
+	});
+
+	it("UTF-8 byte 截断不拆分 astral 字符", () => {
+		expect(takeHeadBytes("a😀b", 5)).toBe("a😀");
+		expect(takeHeadBytes("a😀b", 4)).toBe("a");
+		expect(takeTailBytes("a😀b", 5)).toBe("😀b");
+		expect(takeTailBytes("a😀b", 4)).toBe("b");
+		expect(takeHeadBytes("😀", 0)).toBe("");
+		expect(takeTailBytes("😀", 0)).toBe("");
 	});
 
 	it("cleanForModel 不破坏正常 Unicode", () => {

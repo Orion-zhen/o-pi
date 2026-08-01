@@ -1,11 +1,20 @@
 import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BashOperations, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 import bashToolExtension from "../../agent/extensions/bash-tool.js";
-import { createBashEnvironment, createDefaultBashOperations, executeBashCommand, normalizeWindowsPath } from "../../src/bash-tool/bash-tool.js";
+import {
+	createBashEnvironment,
+	createDefaultBashOperations,
+	executeBashCommand,
+	normalizeWindowsPath,
+	resolvePythonVirtualEnvironment,
+	type PythonVirtualEnvironmentFileSystem,
+} from "../../src/bash-tool/bash-tool.js";
+import { OutputCapture, sanitizePathPart } from "../../src/bash-tool/output-capture.js";
 import { renderBashCall } from "../../src/bash-tool/tui/renderer.js";
 import type { BashSessionMetadata, ExecuteBashRuntime } from "../../src/bash-tool/types.js";
 import { defaultBashToolConfig, loadBashToolConfig } from "../../src/bash-tool/config.js";
@@ -272,6 +281,72 @@ describe("bash tool execution", () => {
 		},
 	);
 
+	it("并发探测虚拟环境，并保持目录配置优先级", async () => {
+		const directories = [".venv", "venv", "env", ".env", "pyvenv", "pyenv", ".pyvenv", ".pyenv"];
+		const accessStarted: string[] = [];
+		const completionOrder: string[] = [];
+		const completeAccess = new Map<string, () => void>();
+		const fileSystem: PythonVirtualEnvironmentFileSystem = {
+			async stat() {
+				return { isFile: () => true };
+			},
+			access(target) {
+				const [directory] = path.relative(workspace, target).split(path.sep);
+				if (directory === undefined) throw new Error(`无法识别探测路径: ${target}`);
+				accessStarted.push(directory);
+				return new Promise<void>((resolve) => {
+					completeAccess.set(directory, () => {
+						completionOrder.push(directory);
+						resolve();
+					});
+				});
+			},
+		};
+
+		const resolving = resolvePythonVirtualEnvironment(workspace, directories, fileSystem);
+		await vi.waitFor(() => expect(accessStarted).toHaveLength(directories.length));
+		expect(new Set(accessStarted)).toEqual(new Set(directories));
+		expect(completionOrder).toEqual([]);
+
+		const complete = (directory: string) => {
+			const completeCandidate = completeAccess.get(directory);
+			if (completeCandidate === undefined) throw new Error(`候选目录尚未开始探测: ${directory}`);
+			completeCandidate();
+		};
+		let settled = false;
+		void resolving.then(() => { settled = true; });
+		complete("venv");
+		await Promise.resolve();
+		expect(settled).toBe(false);
+		complete(".venv");
+
+		await expect(resolving).resolves.toEqual({
+			root: path.join(workspace, ".venv"),
+			bin: path.join(workspace, ".venv", process.platform === "win32" ? "Scripts" : "bin"),
+		});
+		expect(completionOrder).toEqual(["venv", ".venv"]);
+		for (const directory of directories.slice(2)) complete(directory);
+	});
+
+	it("从 bash-tool 配置读取虚拟环境路径", async () => {
+		await createFakeVirtualEnvironment(".venv");
+		const configuredVirtualEnv = await createFakeVirtualEnvironment("custom-venv");
+		const configPath = path.join(workspace, "bash-tool.jsonc");
+		await writeFile(configPath, JSON.stringify({ python_venv_paths: ["custom-venv"] }));
+		process.env.PI_BASH_TOOL_CONFIG = configPath;
+		config = await loadBashToolConfig();
+		let seenEnv: NodeJS.ProcessEnv | undefined;
+		const operations = fakeOperations(async (_command, _cwd, options) => {
+			seenEnv = options.env;
+			return { exitCode: 0 };
+		});
+
+		await executeBashCommand({ command: "python -V" }, runtime(operations));
+
+		expect(config.python_venv_paths).toEqual(["custom-venv"]);
+		expect(seenEnv?.VIRTUAL_ENV).toBe(configuredVirtualEnv.root);
+	});
+
 	it("带虚拟环境标记但没有 Python 解释器时保持原执行环境", async () => {
 		const root = path.join(workspace, ".venv");
 		await mkdir(path.join(root, process.platform === "win32" ? "Scripts" : "bin"), { recursive: true });
@@ -362,6 +437,40 @@ describe("bash tool execution", () => {
 		expect(await readFile(result.details.full_output_path, "utf8")).toBe("out\nerr\n");
 	});
 
+	it("operation 写入后异常仍关闭 capture、删除日志并保留原始错误", async () => {
+		const operationError = new Error("operation failed");
+		const closeError = new Error("capture close failed");
+		const originalFinish = OutputCapture.prototype.finish;
+		let streamClosed = false;
+		const finishSpy = vi.spyOn(OutputCapture.prototype, "finish").mockImplementation(async function (this: OutputCapture) {
+			await originalFinish.call(this);
+			streamClosed = true;
+			throw closeError;
+		});
+		const operations = fakeOperations(async (_command, _cwd, options) => {
+			options.onData(Buffer.from("partial output\n"));
+			throw operationError;
+		});
+		const runtimeValue = runtime(operations);
+		runtimeValue.session = { sessionId: path.basename(workspace) };
+		runtimeValue.toolCallId = "operation-error";
+		const logPath = path.join(
+			os.tmpdir(),
+			"o-pi",
+			"bash",
+			sanitizePathPart(runtimeValue.session.sessionId),
+			`${sanitizePathPart(runtimeValue.toolCallId)}.log`,
+		);
+
+		try {
+			await expect(executeBashCommand({ command: "fail" }, runtimeValue)).rejects.toBe(operationError);
+			expect(streamClosed).toBe(true);
+			await expect(stat(logPath)).rejects.toMatchObject({ code: "ENOENT" });
+		} finally {
+			finishSpy.mockRestore();
+		}
+	});
+
 	it("timeout 和用户取消用本地状态区分", async () => {
 		const hanging = fakeOperations(async (_command, _cwd, options) => {
 			await waitForAbort(options.signal);
@@ -398,6 +507,25 @@ describe("bash tool execution", () => {
 		const failure = await executeBashCommand({ command: "bad" }, runtime(failed));
 		if (!failure.details.full_output_path) throw new Error("missing log path");
 		expect(await readFile(failure.details.full_output_path, "utf8")).toBe("bad\n");
+	});
+
+	it("预览 head/tail 重叠时不重复正文", async () => {
+		config.limits.success_output_bytes = 2_000;
+		config.limits.live_output_bytes = 100;
+		const output = `${"a".repeat(400)}${"b".repeat(400)}`;
+		const operations = fakeOperations(async (_command, _cwd, options) => {
+			options.onData(Buffer.from(output));
+			return { exitCode: 0 };
+		});
+
+		const result = await executeBashCommand({ command: "overlap" }, runtime(operations));
+
+		expect(result.details).toMatchObject({
+			output_state: "complete",
+			total_bytes: 800,
+			returned_bytes: 800,
+		});
+		expect(result.content.endsWith(output)).toBe(true);
 	});
 
 	it("capture limit 后停止写文件但继续维护尾部预览", async () => {
@@ -456,6 +584,43 @@ describe("bash tool execution", () => {
 		});
 		const result = await executeBashCommand({ command: "utf8" }, runtime(operations));
 		expect(result.content).toContain("emoji 😀");
+	});
+
+	it("大块与连续 chunk 使用有界预览并保持 byte 统计和 UTF-8 边界", async () => {
+		const capture = await OutputCapture.create({
+			sessionId: "bounded-preview-test",
+			toolCallId: "large-chunks",
+			maxCaptureBytes: 0,
+			previewBytes: 1_024,
+		});
+		try {
+			const first = Buffer.concat([
+				Buffer.from("HEAD\n"),
+				Buffer.alloc(2 * 1024 * 1024, 0x78),
+				Buffer.from([0]),
+			]);
+			capture.append(first);
+			for (let index = 0; index < 32; index += 1) capture.append(Buffer.alloc(64 * 1024, 0x79));
+			const emoji = Buffer.from("😀");
+			capture.append(emoji.subarray(0, 2));
+			expect(capture.liveText(32)).not.toContain("�");
+			capture.append(Buffer.concat([emoji.subarray(2), Buffer.from("\nTAIL")]));
+			expect(capture.liveText(32)).toContain("😀\nTAIL");
+
+			const result = await capture.finish();
+			expect(result).toMatchObject({
+				totalBytes: first.byteLength + 32 * 64 * 1024 + emoji.byteLength + 5,
+				totalLines: 3,
+				captureComplete: false,
+				binary: true,
+			});
+			expect(Buffer.byteLength(result.previewText, "utf8")).toBeLessThanOrEqual(1_024);
+			expect(result.previewText.startsWith("HEAD\n")).toBe(true);
+			expect(result.previewText.endsWith("😀\nTAIL")).toBe(true);
+			expect(result.previewText).not.toContain("�");
+		} finally {
+			await capture.deleteLog();
+		}
 	});
 
 	it("真实本地后端冒烟：读取 PI_*、合并 stdout/stderr 并返回退出码", async () => {

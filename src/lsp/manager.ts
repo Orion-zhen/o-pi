@@ -97,7 +97,6 @@ export class LspManager {
 	private readonly registries = new Map<string, LspServerRegistry>();
 	private readonly configErrors = new Map<string, string>();
 	private reloadPromise: Promise<void> | undefined;
-	private reloadRequested = false;
 	private activeClientOperations = 0;
 	private clientDrainResolve: (() => void) | undefined;
 	private readonly clients = new Map<string, ClientEntry>();
@@ -121,16 +120,12 @@ export class LspManager {
 
 	async reload(): Promise<void> {
 		if (this.reloadPromise !== undefined) return this.reloadPromise;
-		this.reloadRequested = true;
-		const pending = this.performReload();
+		const pending = Promise.resolve().then(() => this.performReload());
 		this.reloadPromise = pending;
 		try {
 			await pending;
 		} finally {
-			if (this.reloadPromise === pending) {
-				this.reloadPromise = undefined;
-				this.reloadRequested = false;
-			}
+			if (this.reloadPromise === pending) this.reloadPromise = undefined;
 		}
 	}
 
@@ -754,8 +749,7 @@ export class LspManager {
 	}
 
 	private async withClientOperation<T>(operation: () => Promise<T>): Promise<T> {
-		await this.waitForReload();
-		this.activeClientOperations += 1;
+		await this.admitClientOperation();
 		try {
 			return await operation();
 		} finally {
@@ -767,12 +761,12 @@ export class LspManager {
 		}
 	}
 
-	private async waitForReload(): Promise<void> {
-		while (this.reloadRequested) {
+	private async admitClientOperation(): Promise<void> {
+		while (true) {
 			const pending = this.reloadPromise;
 			if (pending === undefined) {
-				await Promise.resolve();
-				continue;
+				this.activeClientOperations += 1;
+				return;
 			}
 			await pending;
 		}

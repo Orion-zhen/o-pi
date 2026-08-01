@@ -2,9 +2,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import type { TextContent } from "../../src/filesystem/contracts/content.js";
 import {
 	buildTextBytes,
 	byteRangeForLines,
+	describeText,
 	extractByteRange,
 	logicalLines,
 	normalizeLineEndings,
@@ -42,6 +44,19 @@ describe("filesystem text services", () => {
 			maxLines: 1,
 			path: "text.txt",
 		}))).toEqual({ content: "second\r\n", startLine: 2, endLine: 2, truncated: false });
+	});
+
+	it.each([
+		{ text: "", totalLines: 0, newline: "none" },
+		{ text: "plain", totalLines: 1, newline: "none" },
+		{ text: "\n", totalLines: 1, newline: "lf" },
+		{ text: "a\n\n", totalLines: 2, newline: "lf" },
+		{ text: "a\r\nb\r\n", totalLines: 2, newline: "crlf" },
+		{ text: "a\nb\r\nc", totalLines: 3, newline: "mixed" },
+		{ text: "a\rb", totalLines: 2, newline: "mixed" },
+		{ text: "\r", totalLines: 1, newline: "mixed" },
+	] as const)("describes text with $newline newlines", ({ text, totalLines, newline }) => {
+		expect(describeText(new Uint8Array(), text)).toEqual({ totalLines, newline, hasBom: false });
 	});
 
 	it("validates decoded-text line, code-unit and UTF-8 byte coordinates", () => {
@@ -122,6 +137,60 @@ describe("filesystem text services", () => {
 		});
 		expect(normalizeLineEndings("a\r\nb\rc")).toBe("a\nb\nc");
 		expect(logicalLines("a\n")).toEqual({ lines: ["a"], finalNewline: true });
+	});
+
+	it("stops slicing once line or byte budgets are exhausted", () => {
+		const text = `head\n${"x".repeat(1_024)}\n${"y\n".repeat(1_000_000)}`;
+		const file: TextContent = {
+			text,
+			totalLines: 1_000_002,
+			newline: "lf",
+			hasBom: false,
+			bytes: new Uint8Array(),
+			hash: "unused",
+			sizeBytes: 0,
+		};
+		const expected = {
+			content: "head\n",
+			startLine: 1,
+			endLine: 1,
+			truncated: true,
+			continuation: { startLine: 2 },
+		};
+
+		expect(expectFsOk(sliceTextByLineRange(file, { maxBytes: 5, maxLines: 10 }))).toEqual(expected);
+		expect(expectFsOk(sliceTextByLineRange(file, { maxBytes: 10_000, maxLines: 1 }))).toEqual(expected);
+	});
+
+	it("preserves raw terminators and UTF-8 byte budgets while slicing", () => {
+		const text = "你\r\nb\rc\nlast";
+		const file: TextContent = {
+			text,
+			totalLines: 4,
+			newline: "mixed",
+			hasBom: false,
+			bytes: new Uint8Array(),
+			hash: "unused",
+			sizeBytes: 0,
+		};
+
+		expect(expectFsOk(sliceTextByLineRange(file, {
+			startLine: 2,
+			endLine: 3,
+			maxBytes: 4,
+			maxLines: 10,
+		}))).toEqual({ content: "b\rc\n", startLine: 2, endLine: 3, truncated: false });
+		expect(expectFsOk(sliceTextByLineRange(file, {
+			startLine: 2,
+			maxBytes: 3,
+			maxLines: 10,
+		}))).toEqual({
+			content: "b\r",
+			startLine: 2,
+			endLine: 2,
+			truncated: true,
+			continuation: { startLine: 3 },
+		});
 	});
 
 	it.each([

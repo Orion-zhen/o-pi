@@ -1002,6 +1002,98 @@ describe("lsp transport", () => {
 		expect(fake.methods.filter((method) => method === "initialize")).toHaveLength(2);
 	});
 
+	it("operation 与连续 reload 同 tick 时先登记活动操作", async () => {
+		let symbolRequests = 0;
+		let releaseRaced: () => void = () => undefined;
+		const racedSeen = deferred<void>();
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
+			} else if (message.method === "workspace/symbol") {
+				symbolRequests += 1;
+				if (symbolRequests === 2) {
+					racedSeen.resolve();
+					releaseRaced = () => send(socket, { id: message.id, result: [] });
+				} else {
+					send(socket, { id: message.id, result: [] });
+				}
+			}
+		});
+		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
+		manager = new LspManager();
+		await expect(queryManagerSymbols(manager, workspace, "warmup")).resolves.toEqual([]);
+
+		const raced = queryManagerSymbols(manager, workspace, "raced");
+		const firstReload = manager.reload();
+		const secondReload = manager.reload();
+		await racedSeen.promise;
+		expect(fake.methods).not.toContain("shutdown");
+		releaseRaced();
+		await expect(raced).resolves.toEqual([]);
+		await Promise.all([firstReload, secondReload]);
+		expect(fake.methods.filter((method) => method === "shutdown")).toHaveLength(1);
+
+		await expect(queryManagerSymbols(manager, workspace, "fresh")).resolves.toEqual([]);
+		expect(fake.connections).toBe(2);
+	});
+
+	it("活动操作失败后释放 reload drain", async () => {
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
+			} else if (message.method === "workspace/symbol") {
+				send(socket, { id: message.id, result: [] });
+			}
+		});
+		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
+		manager = new LspManager();
+		await expect(queryManagerSymbols(manager, workspace, "warmup")).resolves.toEqual([]);
+		const request = vi.spyOn(LspClient.prototype, "workspaceSymbols").mockRejectedValueOnce(new Error("injected failure"));
+		try {
+			const failed = queryManagerSymbols(manager, workspace, "failed");
+			const failure = expect(failed).rejects.toThrow("injected failure");
+			const reloading = manager.reload();
+			await failure;
+			await reloading;
+			expect(fake.methods).toContain("shutdown");
+		} finally {
+			request.mockRestore();
+		}
+	});
+
+	it("活动操作取消后释放 reload drain", async () => {
+		let symbolRequests = 0;
+		const pendingSeen = deferred<void>();
+		const fake = await createFakeServer((message, socket) => {
+			if (message.method === "initialize") {
+				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
+			} else if (message.method === "workspace/symbol") {
+				symbolRequests += 1;
+				if (symbolRequests === 1) send(socket, { id: message.id, result: [] });
+				else pendingSeen.resolve();
+			}
+		});
+		await writeConfig({ type: "tcp", host: "127.0.0.1", port: fake.port });
+		manager = new LspManager();
+		await expect(queryManagerSymbols(manager, workspace, "warmup")).resolves.toEqual([]);
+		const controller = new AbortController();
+		const pending = manager.workspaceSymbols({
+			root: workspace,
+			query: "cancelled",
+			allowedPaths: new Set(["src/target.ts"]),
+			signal: controller.signal,
+		});
+		await pendingSeen.promise;
+		const reloading = manager.reload();
+		expect(fake.methods).not.toContain("shutdown");
+		controller.abort();
+
+		await expect(pending).resolves.toEqual([]);
+		await reloading;
+		expect(fake.methods).toContain("$/cancelRequest");
+		expect(fake.methods).toContain("shutdown");
+	});
+
 	it("crash cleanup 后使用全新连接重启，达到上限不保留旧资源", async () => {
 		let symbolRequests = 0;
 		const uri = pathToFileUri(path.join(workspace, "src", "target.ts"));

@@ -124,6 +124,30 @@ describe("file-tools lsp hooks", () => {
 		await expect(editWithHooks({ path: "a.ts", edits: [{ old: "missing", new: "x" }] }, hooks)).resolves.toMatchObject({ status: "failed" });
 	});
 
+	it("edit 为多行替换、删除和相邻修改传递合并后的 changed ranges", async () => {
+		const source = "top\nalpha\nmiddle-a\nmiddle-b\ndelete\nomega\nend\n";
+		await writeFile(path.join(workspace, "ranges.ts"), source);
+		await readWorkspaceFile(workspace, { path: "ranges.ts" }, { host, sessionId: "lsp-hooks" });
+		const changedRanges: Array<readonly { start_line: number; end_line: number }[]> = [];
+		const hooks: LspFileOperations = {
+			async afterWrite(input) {
+				changedRanges.push(input.changed_ranges ?? []);
+				return undefined;
+			},
+		};
+
+		await expect(editWithHooks({
+			path: "ranges.ts",
+			edits: [
+				{ old: "alpha", new: "ALPHA\nEXTRA" },
+				{ old: "delete", new: "" },
+				{ old: "omega", new: "OMEGA" },
+			],
+		}, hooks)).resolves.toMatchObject({ status: "applied", replacements: 3 });
+
+		expect(changedRanges).toEqual([[{ start_line: 2, end_line: 3 }, { start_line: 6, end_line: 7 }]]);
+	});
+
 	it("afterWrite 对无源码路由的配置文件仍转发 watched-file create/change", async () => {
 		const manager = new LspManager();
 		const watched = vi.spyOn(manager, "didChangeWatchedFile").mockResolvedValue();

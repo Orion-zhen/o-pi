@@ -8,15 +8,24 @@ import { CONFIG_DIR_NAME, createLocalBashOperations } from "@earendil-works/pi-c
 import { checkDeniedText, type PatternDenyMatch } from "./pattern-guard.js";
 import { OutputCapture } from "./output-capture.js";
 import { cleanForModel, createBashOutputView } from "./output-view.js";
-import type { BashExecutionResult, BashParams, BashSessionMetadata, ExecuteBashRuntime } from "./types.js";
+import type { BashExecutionResult, BashParams, BashSessionMetadata, CapturedOutput, ExecuteBashRuntime } from "./types.js";
 
 const UPDATE_THROTTLE_MS = 100;
-const PYTHON_VIRTUAL_ENV_DIRS = [".venv", "venv", "env", ".env", "pyvenv", "pyenv", ".pyvenv", ".pyenv"] as const;
 
-interface PythonVirtualEnvironment {
+export interface PythonVirtualEnvironment {
 	root: string;
 	bin: string;
 }
+
+export interface PythonVirtualEnvironmentFileSystem {
+	stat(target: string): Promise<{ isFile(): boolean }>;
+	access(target: string, mode: number): Promise<void>;
+}
+
+const nodePythonVirtualEnvironmentFileSystem: PythonVirtualEnvironmentFileSystem = {
+	stat: async (target) => stat(target),
+	access: async (target, mode) => access(target, mode),
+};
 
 /** 执行模型提供的 shell 命令；自动将 Windows 反斜杠路径转为正斜杠。 */
 export async function executeBashCommand(params: BashParams, runtime: ExecuteBashRuntime): Promise<BashExecutionResult> {
@@ -24,7 +33,7 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 	const denied = checkDeniedText(params.command, runtime.config.safety);
 	if (denied !== null) return blockedCommandResult(denied);
 	params = { ...params, command: normalizeWindowsPath(params.command) };
-	const pythonVirtualEnv = await resolvePythonVirtualEnvironment(runtime.cwd);
+	const pythonVirtualEnv = await resolvePythonVirtualEnvironment(runtime.cwd, runtime.config.python_venv_paths);
 	const baseEnvironment = createBashEnvironment(runtime.session);
 	const executionEnv = pythonVirtualEnv === undefined
 		? baseEnvironment
@@ -103,6 +112,10 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 	let exitCode: number | undefined;
 	let status: "exited" | "timed_out" | "aborted" = "exited";
 	let operationError: unknown;
+	let operationFailed = false;
+	let captured: CapturedOutput | undefined;
+	let captureError: unknown;
+	let captureFailed = false;
 	try {
 		const result = await runtime.operations.exec(params.command, runtime.cwd, {
 			onData(data) {
@@ -117,6 +130,7 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 		if (stopReason === "timeout") status = "timed_out";
 		else if (stopReason === "aborted") status = "aborted";
 	} catch (error) {
+		operationFailed = true;
 		operationError = error;
 		if (stopReason === "timeout") status = "timed_out";
 		else if (stopReason === "aborted" || controller.signal.aborted) status = "aborted";
@@ -125,10 +139,20 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 		clearUpdateTimer();
 		clearTimeout(timeoutTimer);
 		runtime.signal?.removeEventListener("abort", abortFromUser);
+		try {
+			captured = await capture.finish();
+		} catch (error) {
+			captureFailed = true;
+			captureError = error;
+		}
 	}
 
-	if (operationError !== undefined && status === "exited") throw operationError;
-	const captured = await capture.finish();
+	if ((operationFailed && status === "exited") || captureFailed) {
+		await capture.deleteLog().catch(() => undefined);
+	}
+	if (operationFailed && status === "exited") throw operationError;
+	if (captureFailed) throw captureError;
+	if (captured === undefined) throw new Error("Bash output capture did not finish.");
 	const durationMs = (runtime.now?.() ?? Date.now()) - startedAt;
 	const view = createBashOutputView({
 		text: captured.previewText,
@@ -172,32 +196,34 @@ export function createDefaultBashOperations() {
 	return createLocalBashOperations();
 }
 
-/** 检测工作目录中的常见 Python 虚拟环境；要求标准标记和可执行的 python 入口。 */
-async function resolvePythonVirtualEnvironment(cwd: string): Promise<PythonVirtualEnvironment | undefined> {
+/** 并行检测配置的 Python 虚拟环境，并按路径顺序选择首个有效项。 */
+export async function resolvePythonVirtualEnvironment(
+	cwd: string,
+	configuredPaths: readonly string[],
+	fileSystem: PythonVirtualEnvironmentFileSystem = nodePythonVirtualEnvironmentFileSystem,
+): Promise<PythonVirtualEnvironment | undefined> {
 	const scriptsDir = process.platform === "win32" ? "Scripts" : "bin";
 	const interpreter = process.platform === "win32" ? "python.exe" : "python";
-	for (const directory of PYTHON_VIRTUAL_ENV_DIRS) {
-		const root = path.join(cwd, directory);
-		if (!(await hasVirtualEnvironmentMarker(root))) continue;
+	const probes = configuredPaths.map(async (configuredPath): Promise<PythonVirtualEnvironment | undefined> => {
+		const root = path.resolve(cwd, configuredPath);
 		const bin = path.join(root, scriptsDir);
 		try {
-			const interpreterStat = await stat(path.join(bin, interpreter));
-			if (!interpreterStat.isFile()) continue;
-			await access(path.join(bin, interpreter), constants.X_OK);
+			const markerStat = await fileSystem.stat(path.join(root, "pyvenv.cfg"));
+			if (!markerStat.isFile()) return undefined;
+			const interpreterPath = path.join(bin, interpreter);
+			const interpreterStat = await fileSystem.stat(interpreterPath);
+			if (!interpreterStat.isFile()) return undefined;
+			await fileSystem.access(interpreterPath, constants.X_OK);
 			return { root, bin };
 		} catch {
-			// 继续检查下一个常见目录。
+			return undefined;
 		}
+	});
+	for (const probe of probes) {
+		const candidate = await probe;
+		if (candidate !== undefined) return candidate;
 	}
 	return undefined;
-}
-
-async function hasVirtualEnvironmentMarker(root: string): Promise<boolean> {
-	try {
-		return (await stat(path.join(root, "pyvenv.cfg"))).isFile();
-	} catch {
-		return false;
-	}
 }
 
 /** 构造与 Pi 本地 shell 相同的完整环境，并只暴露当前会话的 PI_* 元数据。 */

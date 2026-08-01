@@ -14,6 +14,7 @@ export interface BashLimits {
 
 export interface BashToolConfig {
 	default_timeout_seconds: number;
+	python_venv_paths: string[];
 	limits: BashLimits;
 	safety?: {
 		deny_patterns?: string[];

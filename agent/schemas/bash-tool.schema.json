@@ -14,6 +14,24 @@
 			"maximum": 86400,
 			"default": 120
 		},
+		"python_venv_paths": {
+			"type": "array",
+			"items": {
+				"type": "string",
+				"minLength": 1
+			},
+			"uniqueItems": true,
+			"default": [
+				".venv",
+				"venv",
+				"env",
+				".env",
+				"pyvenv",
+				"pyenv",
+				".pyvenv",
+				".pyenv"
+			]
+		},
 		"limits": {
 			"type": "object",
 			"additionalProperties": false,

@@ -13,7 +13,7 @@ import type {
 	VisibilitySnapshot,
 	VisibilitySourceType,
 } from "../../contracts/visibility.js";
-import { pathMatchesRule, type PathIdentity } from "../../kernel/access-policy.js";
+import { CompiledPathRuleMatcher, type PathIdentity } from "../../kernel/access-policy.js";
 import {
 	SOURCE_PRIORITY,
 	type CompiledVisibilityRuleSet,
@@ -31,6 +31,7 @@ export class CompiledVisibilitySnapshot implements VisibilitySnapshot {
 	private readonly negatedRuleSets: readonly CompiledVisibilityRuleSet[];
 	private readonly trackedLookup: ReadonlySet<string>;
 	private readonly trackedBypassEnabled: boolean;
+	private readonly configuredRules: CompiledPathRuleMatcher;
 
 	constructor(
 		readonly generation: number,
@@ -39,7 +40,7 @@ export class CompiledVisibilitySnapshot implements VisibilitySnapshot {
 		ruleSets: readonly CompiledVisibilityRuleSet[],
 		diagnostics: readonly IgnoreDiagnostic[],
 		trackedPaths: ReadonlySet<string>,
-		private readonly policy: VisibilityPolicy,
+		policy: VisibilityPolicy,
 		private readonly caseInsensitive: boolean,
 	) {
 		this.diagnostics = diagnostics;
@@ -50,6 +51,7 @@ export class CompiledVisibilitySnapshot implements VisibilitySnapshot {
 			: trackedPaths;
 		this.trackedBypassEnabled = policy.ignore.gitignore.trackedFilesBypass
 			&& this.sources.some((source) => source.sourceType === "gitignore");
+		this.configuredRules = new CompiledPathRuleMatcher(policy.ignoredPaths);
 	}
 
 	evaluate(input: VisibilityEvaluateInput): VisibilityDecision {
@@ -173,7 +175,7 @@ export class CompiledVisibilitySnapshot implements VisibilitySnapshot {
 			absolutePath,
 			...(workspacePath === undefined ? {} : { workspacePath }),
 		};
-		const pattern = this.policy.ignoredPaths.find((rule) => pathMatchesRule(identity, rule));
+		const pattern = this.configuredRules.match(identity);
 		if (pattern === undefined) return undefined;
 		return {
 			sourceType: "config",

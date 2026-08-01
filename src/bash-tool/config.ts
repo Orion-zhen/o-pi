@@ -45,6 +45,7 @@ export function defaultBashToolConfig(): BashToolConfig {
 
 interface RawBashToolConfig {
 	default_timeout_seconds?: number;
+	python_venv_paths?: string[];
 	limits?: Partial<BashToolConfig["limits"]>;
 	safety?: BashToolConfig["safety"];
 }
@@ -57,6 +58,7 @@ interface CompleteBashToolConfig extends Required<RawBashToolConfig> {
 function materializeConfig(raw: CompleteBashToolConfig): BashToolConfig {
 	const config: BashToolConfig = {
 		default_timeout_seconds: raw.default_timeout_seconds,
+		python_venv_paths: [...raw.python_venv_paths],
 		limits: { ...raw.limits },
 		safety: { deny_patterns: [...raw.safety.deny_patterns], deny_regex: [...raw.safety.deny_regex] },
 	};

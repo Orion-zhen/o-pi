@@ -15,16 +15,18 @@ interface CaptureOptions {
 
 /** 从第一字节开始落盘，同时只保留固定大小的 UTF-8 预览窗口。 */
 export class OutputCapture {
-	private readonly decoder = new StringDecoder("utf8");
 	private readonly logPath: string;
 	private readonly stream: WriteStream;
 	private readonly previewLimit: number;
+	private readonly head: Buffer;
+	private readonly tail: Buffer;
 	private totalBytes = 0;
 	private capturedBytes = 0;
 	private lineBreaks = 0;
-	private lastCharWasNewline = false;
-	private head = "";
-	private tail = "";
+	private lastByteWasNewline = false;
+	private headLength = 0;
+	private tailLength = 0;
+	private tailWriteOffset = 0;
 	private binary = false;
 	private closed = false;
 
@@ -32,6 +34,9 @@ export class OutputCapture {
 		this.logPath = logPath;
 		this.stream = stream;
 		this.previewLimit = Math.max(1024, previewBytes);
+		const headLimit = Math.floor(this.previewLimit / 2);
+		this.head = Buffer.alloc(headLimit);
+		this.tail = Buffer.alloc(this.previewLimit - headLimit);
 	}
 
 	static async create(options: CaptureOptions): Promise<OutputCapture> {
@@ -45,9 +50,14 @@ export class OutputCapture {
 	}
 
 	append(data: Buffer): void {
-		if (this.closed) return;
+		if (this.closed || data.byteLength === 0) return;
 		this.totalBytes += data.byteLength;
-		if (data.includes(0)) this.binary = true;
+		for (let index = 0; index < data.byteLength; index += 1) {
+			const byte = data[index];
+			if (byte === 0x0a) this.lineBreaks += 1;
+			else if (byte === 0x00) this.binary = true;
+		}
+		this.lastByteWasNewline = data[data.byteLength - 1] === 0x0a;
 
 		if (this.capturedBytes < this.maxCaptureBytes) {
 			const remaining = this.maxCaptureBytes - this.capturedBytes;
@@ -56,25 +66,28 @@ export class OutputCapture {
 			this.capturedBytes += chunk.byteLength;
 		}
 
-		this.appendPreview(this.decoder.write(data));
+		this.appendHead(data);
+		this.appendTail(data);
 	}
 
 	liveText(maxBytes: number): string {
-		return takeTailBytes(this.tail || this.head, maxBytes);
+		const tail = this.orderedTail();
+		const complete = this.totalBytes <= tail.byteLength;
+		const decodable = complete ? tail : trimLeadingUtf8Continuation(tail);
+		return takeTailBytes(decodeUtf8(decodable, this.closed), maxBytes);
 	}
 
 	async finish(): Promise<CapturedOutput> {
 		if (this.closed) throw new Error("OutputCapture already closed.");
 		this.closed = true;
-		this.appendPreview(this.decoder.end());
 		await new Promise<void>((resolve, reject) => {
 			this.stream.end(() => resolve());
 			this.stream.on("error", reject);
 		});
 		return {
-			previewText: this.head + (this.tail && this.head !== this.tail ? this.tail : ""),
+			previewText: this.previewText(),
 			totalBytes: this.totalBytes,
-			totalLines: this.totalBytes === 0 ? 0 : this.lineBreaks + (this.lastCharWasNewline ? 0 : 1),
+			totalLines: this.totalBytes === 0 ? 0 : this.lineBreaks + (this.lastByteWasNewline ? 0 : 1),
 			logPath: this.logPath,
 			captureComplete: this.capturedBytes === this.totalBytes,
 			binary: this.binary,
@@ -85,18 +98,52 @@ export class OutputCapture {
 		await rm(this.logPath, { force: true });
 	}
 
-	private appendPreview(text: string): void {
-		if (text.length === 0) return;
-		for (const char of text) {
-			if (char === "\n") this.lineBreaks += 1;
-			this.lastCharWasNewline = char === "\n";
+	private appendHead(data: Buffer): void {
+		const remaining = this.head.byteLength - this.headLength;
+		if (remaining <= 0) return;
+		const copied = Math.min(remaining, data.byteLength);
+		data.copy(this.head, this.headLength, 0, copied);
+		this.headLength += copied;
+	}
+
+	private appendTail(data: Buffer): void {
+		const capacity = this.tail.byteLength;
+		if (data.byteLength >= capacity) {
+			data.copy(this.tail, 0, data.byteLength - capacity);
+			this.tailLength = capacity;
+			this.tailWriteOffset = 0;
+			return;
 		}
 
-		const headLimit = Math.floor(this.previewLimit / 2);
-		if (Buffer.byteLength(this.head, "utf8") < headLimit) {
-			this.head = takeHeadBytes(this.head + text, headLimit);
+		const firstLength = Math.min(data.byteLength, capacity - this.tailWriteOffset);
+		data.copy(this.tail, this.tailWriteOffset, 0, firstLength);
+		if (firstLength < data.byteLength) data.copy(this.tail, 0, firstLength);
+		this.tailWriteOffset = (this.tailWriteOffset + data.byteLength) % capacity;
+		this.tailLength = Math.min(capacity, this.tailLength + data.byteLength);
+	}
+
+	private orderedTail(): Buffer {
+		if (this.tailLength < this.tail.byteLength) return this.tail.subarray(0, this.tailLength);
+		if (this.tailWriteOffset === 0) return this.tail;
+		return Buffer.concat([
+			this.tail.subarray(this.tailWriteOffset),
+			this.tail.subarray(0, this.tailWriteOffset),
+		], this.tailLength);
+	}
+
+	private previewText(): string {
+		const head = this.head.subarray(0, this.headLength);
+		const tail = this.orderedTail();
+		if (this.totalBytes <= head.byteLength + tail.byteLength) {
+			const tailStart = this.totalBytes - tail.byteLength;
+			const overlap = Math.max(0, head.byteLength - tailStart);
+			const bytes = overlap >= tail.byteLength ? head : Buffer.concat([head, tail.subarray(overlap)]);
+			return boundedPreview(decodeUtf8(bytes, true), this.previewLimit);
 		}
-		this.tail = takeTailBytes(this.tail + text, this.previewLimit - headLimit);
+
+		const headText = takeHeadBytes(decodeUtf8(head, false), head.byteLength);
+		const tailText = takeTailBytes(decodeUtf8(trimLeadingUtf8Continuation(tail), true), tail.byteLength);
+		return headText + tailText;
 	}
 }
 
@@ -106,32 +153,43 @@ export function sanitizePathPart(value: string): string {
 }
 
 export function takeHeadBytes(text: string, maxBytes: number): string {
-	if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
-	let result = "";
-	let used = 0;
-	for (const char of text) {
-		const size = Buffer.byteLength(char, "utf8");
-		if (used + size > maxBytes) break;
-		result += char;
-		used += size;
-	}
-	return result;
+	if (maxBytes <= 0) return "";
+	const bytes = Buffer.from(text, "utf8");
+	if (bytes.byteLength <= maxBytes) return text;
+	let end = maxBytes;
+	while (end > 0 && isUtf8Continuation(bytes[end])) end -= 1;
+	return bytes.subarray(0, end).toString("utf8");
 }
 
 export function takeTailBytes(text: string, maxBytes: number): string {
+	if (maxBytes <= 0) return "";
+	const bytes = Buffer.from(text, "utf8");
+	if (bytes.byteLength <= maxBytes) return text;
+	let start = bytes.byteLength - maxBytes;
+	while (start < bytes.byteLength && isUtf8Continuation(bytes[start])) start += 1;
+	return bytes.subarray(start).toString("utf8");
+}
+
+function boundedPreview(text: string, maxBytes: number): string {
 	if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
-	const chars = Array.from(text);
-	let result = "";
-	let used = 0;
-	for (let index = chars.length - 1; index >= 0; index -= 1) {
-		const char = chars[index];
-		if (char === undefined) break;
-		const size = Buffer.byteLength(char, "utf8");
-		if (used + size > maxBytes) break;
-		result = char + result;
-		used += size;
-	}
-	return result;
+	const headLimit = Math.floor(maxBytes / 2);
+	return takeHeadBytes(text, headLimit) + takeTailBytes(text, maxBytes - headLimit);
+}
+
+function trimLeadingUtf8Continuation(bytes: Buffer): Buffer {
+	let start = 0;
+	while (start < bytes.byteLength && isUtf8Continuation(bytes[start])) start += 1;
+	return bytes.subarray(start);
+}
+
+function isUtf8Continuation(byte: number | undefined): boolean {
+	return byte !== undefined && (byte & 0xc0) === 0x80;
+}
+
+function decodeUtf8(bytes: Buffer, final: boolean): string {
+	const decoder = new StringDecoder("utf8");
+	const text = decoder.write(bytes);
+	return final ? text + decoder.end() : text;
 }
 
 async function chmodBestEffort(target: string, mode: number): Promise<void> {
