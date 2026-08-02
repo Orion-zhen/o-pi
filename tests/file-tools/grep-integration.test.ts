@@ -168,6 +168,18 @@ describe("grep integration", () => {
 		expect(formatCompactGrepResult(warmLexical)).toContain("notes.conf:2 [not match, related]: fatal authentication error");
 	});
 
+	it("超长无换行文件通过分段扫描召回末尾匹配", async () => {
+		const query = "LongSingleLineNeedle";
+		await writeFile(path.join(testContext.workspace, "single-line.txt"), `${"x".repeat(2 * 1024 * 1024)}${query}`);
+
+		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, {
+			path: ["single-line.txt"],
+			query,
+		}));
+
+		expect(firstRegion(result)).toMatchObject({ path: "single-line.txt", start_line: 1, end_line: 1 });
+	});
+
 	it("binary、invalid UTF-8、无正文大小上限、blocked path 和 symlink 行为保持", async () => {
 		await writeFile(path.join(testContext.workspace, "ok.txt"), "needle\n");
 		await writeFile(path.join(testContext.workspace, "binary.bin"), Buffer.from([0, 1, 2]));

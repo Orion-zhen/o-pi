@@ -192,11 +192,35 @@ class NativeLineScan implements LineScan {
 		}
 		this.consumed = true;
 		let position = 0;
-		let pending: Uint8Array<ArrayBufferLike> = new Uint8Array(0);
+		const pendingSegments: Uint8Array[] = [];
+		let pendingBytes = 0;
 		let pendingStart = 0;
+		let pendingCrOffset: number | undefined;
 		let line = 1;
 		let bodyBomBytes = 0;
 		let yieldedAbort = false;
+		const appendPending = (segment: Uint8Array): void => {
+			if (segment.byteLength === 0) return;
+			pendingSegments.push(segment);
+			pendingBytes += segment.byteLength;
+		};
+		const takePending = (): Uint8Array => {
+			const bytes = materializeSegments(pendingSegments, pendingBytes);
+			pendingSegments.length = 0;
+			pendingBytes = 0;
+			return bytes;
+		};
+		const decodeLineBytes = (bytes: Uint8Array): FsResult<ScannedLine> => {
+			if (line === 1 && hasUtf8Bom(bytes)) bodyBomBytes = UTF8_BOM_BYTES;
+			return decodeScannedLine(
+				bytes,
+				pendingStart,
+				line,
+				bodyBomBytes,
+				this.options.rejectBinary ?? true,
+				displayPath,
+			);
+		};
 		try {
 			if (this.isAborted()) {
 				yieldedAbort = true;
@@ -212,56 +236,64 @@ class NativeLineScan implements LineScan {
 				const buffer = new Uint8Array(readBufferSize(position, this.options.maxBytes, this.before.sizeBytes));
 				const bytesRead = await this.handle.read(buffer, 0, buffer.byteLength, position, this.context);
 				if (bytesRead === 0) break;
+				const chunkStart = position;
+				const chunk = buffer.subarray(0, bytesRead);
 				position += bytesRead;
 				if (this.options.maxBytes !== undefined && position > this.options.maxBytes) {
 					yield tooLarge(displayPath, this.options.maxBytes, position);
 					return;
 				}
-				pending = concatBytes(pending, buffer.subarray(0, bytesRead));
-				let recordStart = 0;
-				for (let index = 0; index < pending.byteLength; index += 1) {
-					const byte = pending[index];
-					if (byte !== 0x0a && byte !== 0x0d) continue;
-					if (byte === 0x0d && index + 1 === pending.byteLength) break;
-					const terminatorBytes = byte === 0x0d && pending[index + 1] === 0x0a ? 2 : 1;
-					const lineBytes = pending.subarray(recordStart, index);
-					if (line === 1 && hasUtf8Bom(lineBytes)) bodyBomBytes = UTF8_BOM_BYTES;
-					const decoded = decodeScannedLine(
-						lineBytes,
-						pendingStart + recordStart,
-						line,
-						bodyBomBytes,
-						this.options.rejectBinary ?? true,
-						displayPath,
-					);
+
+				let index = 0;
+				if (pendingCrOffset !== undefined) {
+					const hasLf = chunk[0] === 0x0a;
+					const decoded = decodeLineBytes(takePending());
 					if (!decoded.ok) {
 						yield decoded;
 						return;
 					}
 					yield decoded;
 					line += 1;
-					recordStart = index + terminatorBytes;
-					index += terminatorBytes - 1;
+					pendingStart = pendingCrOffset + (hasLf ? 2 : 1);
+					pendingCrOffset = undefined;
+					if (hasLf) index = 1;
 				}
-				if (recordStart > 0) {
-					pending = pending.subarray(recordStart);
-					pendingStart += recordStart;
+
+				let segmentStart = index;
+				while (index < chunk.byteLength) {
+					const byte = chunk[index];
+					if (byte !== 0x0a && byte !== 0x0d) {
+						index += 1;
+						continue;
+					}
+					appendPending(chunk.subarray(segmentStart, index));
+					if (byte === 0x0d && index + 1 === chunk.byteLength) {
+						pendingCrOffset = chunkStart + index;
+						index += 1;
+						segmentStart = index;
+						break;
+					}
+
+					const terminatorBytes = byte === 0x0d && chunk[index + 1] === 0x0a ? 2 : 1;
+					const decoded = decodeLineBytes(takePending());
+					if (!decoded.ok) {
+						yield decoded;
+						return;
+					}
+					yield decoded;
+					line += 1;
+					index += terminatorBytes;
+					pendingStart = chunkStart + index;
+					segmentStart = index;
 				}
+				appendPending(chunk.subarray(segmentStart));
 			}
 
-			if (!this.stopped && pending.byteLength > 0) {
-				const trailingCr = pending[pending.byteLength - 1] === 0x0d;
-				const payload = trailingCr ? pending.subarray(0, -1) : pending;
+			if (!this.stopped && (pendingBytes > 0 || pendingCrOffset !== undefined)) {
+				const trailingCr = pendingCrOffset !== undefined;
+				const payload = takePending();
 				if (!(line === 1 && !trailingCr && payload.byteLength === UTF8_BOM_BYTES && hasUtf8Bom(payload))) {
-					if (line === 1 && hasUtf8Bom(payload)) bodyBomBytes = UTF8_BOM_BYTES;
-					const decoded = decodeScannedLine(
-						payload,
-						pendingStart,
-						line,
-						bodyBomBytes,
-						this.options.rejectBinary ?? true,
-						displayPath,
-					);
+					const decoded = decodeLineBytes(payload);
 					if (!decoded.ok) {
 						yield decoded;
 						return;
@@ -455,12 +487,10 @@ function tooLarge(displayPath: string, limit: number, size: number): FsResult<ne
 	});
 }
 
-function concatBytes(left: Uint8Array, right: Uint8Array): Uint8Array {
-	if (left.byteLength === 0) return right.slice();
-	const result = new Uint8Array(left.byteLength + right.byteLength);
-	result.set(left);
-	result.set(right, left.byteLength);
-	return result;
+function materializeSegments(segments: readonly Uint8Array[], total: number): Uint8Array {
+	const only = segments[0];
+	if (segments.length === 1 && only !== undefined) return only;
+	return concatChunks(segments, total);
 }
 
 function concatChunks(chunks: readonly Uint8Array[], total: number): Uint8Array {

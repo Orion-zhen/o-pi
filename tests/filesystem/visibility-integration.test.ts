@@ -101,6 +101,30 @@ describe("visibility tool integration", () => {
 		});
 	});
 
+	it("ignored 子树跨 BFS 批次加载嵌套规则", async () => {
+		await mkdir(path.join(workspace, "ignored"), { recursive: true });
+		await writeFile(path.join(workspace, ".piignore"), "ignored/\n");
+		for (let index = 0; index < 10; index += 1) {
+			const directory = path.join(workspace, "ignored", `dir-${index}`);
+			await mkdir(directory);
+			await writeFile(path.join(directory, ".piignore"), "keep.txt\n");
+			await writeFile(path.join(directory, "keep.txt"), "keep\n");
+		}
+
+		const root = await listWorkspaceDirectory(workspace, { path: "." });
+		if ("status" in root) throw new Error("root listing failed");
+		expect(root.entries.find((entry) => entry.name === "ignored")).toMatchObject({
+			ignored: true,
+			ignore_source: ".piignore",
+		});
+		const nested = await listWorkspaceDirectory(workspace, { path: "ignored/dir-9" });
+		if ("status" in nested) throw new Error("nested listing failed");
+		expect(nested.entries.find((entry) => entry.name === "keep.txt")).toMatchObject({
+			ignored: true,
+			ignore_source: ".piignore",
+		});
+	});
+
 	it("成功 edit 修改 .piignore 后，后续工具调用使用新规则", async () => {
 		await writeFile(path.join(workspace, ".piignore"), "old.txt\n");
 		await writeFile(path.join(workspace, "old.txt"), "old\n");

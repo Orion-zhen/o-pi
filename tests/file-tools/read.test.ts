@@ -1,7 +1,8 @@
 import { mkdir, readFile, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { WorkspaceContentService } from "../../src/filesystem/services/content.js";
 import { contentHash as sha256Version } from "../../src/filesystem/services/text.js";
 import { formatReadStructureContext } from "../../src/file-tools/read/presenter.js";
 import { createCrudTestContext } from "./crud-fixtures.js";
@@ -181,6 +182,46 @@ describe("read", () => {
 		await writeFile(path.join(workspace, "big.txt"), "one\ntwo\nthree\n");
 		const result = await testContext.read({ path: "big.txt" });
 		expect(result).toMatchObject({ truncated: true, continuation: { start_line: 3 }, end_line: 2 });
+	});
+
+	it("仅在保留 structure 时为其预算重新切片", async () => {
+		await testContext.useConfig({ limits: { read_bytes: 1024, read_lines: 2 } });
+		await writeFile(path.join(workspace, "structured.ts"), "one\ntwo\nthree\n");
+		const sliceText = vi.spyOn(WorkspaceContentService.prototype, "sliceText");
+		try {
+			const truncated = await testContext.read({ path: "structured.ts" });
+			expect(truncated).toMatchObject({ truncated: true, continuation: { start_line: 3 } });
+			expect(sliceText).toHaveBeenCalledTimes(1);
+
+			sliceText.mockClear();
+			const partial = await testContext.read({ path: "structured.ts", start_line: 2, end_line: 2 });
+			expect(partial).toMatchObject({ content: "two\n", start_line: 2, end_line: 2 });
+			expect(sliceText).toHaveBeenCalledTimes(1);
+
+			sliceText.mockClear();
+			const oversized = await testContext.read({ path: "structured.ts", start_line: 2, end_line: 2 }, {
+				structure: {
+					async context() {
+						return { enclosing_symbol: { name: "x".repeat(1024), kind: "function", line: 1, end_line: 3 } };
+					},
+				},
+			});
+			expect(oversized).not.toHaveProperty("lsp");
+			expect(sliceText).toHaveBeenCalledTimes(1);
+
+			sliceText.mockClear();
+			const fitting = await testContext.read({ path: "structured.ts", start_line: 2, end_line: 2 }, {
+				structure: {
+					async context() {
+						return { enclosing_symbol: { name: "demo", kind: "function", line: 1, end_line: 3 } };
+					},
+				},
+			});
+			expect(fitting).toMatchObject({ lsp: { enclosing_symbol: { name: "demo" } } });
+			expect(sliceText).toHaveBeenCalledTimes(2);
+		} finally {
+			sliceText.mockRestore();
+		}
 	});
 
 	it("拒绝非法范围、缺失文件、二进制和非法 UTF-8", async () => {

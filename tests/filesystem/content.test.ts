@@ -288,9 +288,26 @@ describe("filesystem content services", () => {
 			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 	});
 
+	it.each([1, 2, 4])("streams a %d MiB newline-free file as one line", async (sizeMiB) => {
+		const sizeBytes = sizeMiB * 1024 * 1024;
+		await writeFile(path.join(workspace, "single-line.txt"), Buffer.alloc(sizeBytes, 0x78));
+		const opened = await openReadonly(workspace);
+		const scan = expectFsOk(await opened.services.content.scanLines(
+			await resolveFile(opened.namespace, "single-line.txt"),
+			{ stable: true },
+			{},
+		));
+
+		const lines = (await collectAsync(scan)).map(expectFsOk);
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toMatchObject({ line: 1, byteStart: 0, byteEnd: sizeBytes });
+		expect(lines[0]?.text).toHaveLength(sizeBytes);
+	});
+
 	it("handles multi-chunk and binary-allowed scans, BOM-only files and repeated consumption", async () => {
 		await writeFile(path.join(workspace, "large-line.txt"), `${"x".repeat(70_000)}\nend`);
 		await writeFile(path.join(workspace, "chunk-crlf.txt"), `${"x".repeat(65_535)}\r\nend`);
+		await writeFile(path.join(workspace, "chunk-utf8.txt"), `${"x".repeat(65_535)}β\nend`);
 		await writeFile(path.join(workspace, "invalid-eof.txt"), new Uint8Array([0xc3, 0x28]));
 		await writeFile(path.join(workspace, "binary-lines.dat"), new Uint8Array([0x61, 0x0d, 0x62, 0x0a, 0x00]));
 		await writeFile(path.join(workspace, "bom-only.txt"), buildTextBytes("", true));
@@ -311,6 +328,16 @@ describe("filesystem content services", () => {
 		expect(boundaryLines.map((line) => ({ length: line.text.length, start: line.byteStart, end: line.byteEnd }))).toEqual([
 			{ length: 65_535, start: 0, end: 65_535 },
 			{ length: 3, start: 65_537, end: 65_540 },
+		]);
+		const utf8BoundaryScan = expectFsOk(await opened.services.content.scanLines(
+			await resolveFile(opened.namespace, "chunk-utf8.txt"),
+			{},
+			{},
+		));
+		const utf8BoundaryLines = (await collectAsync(utf8BoundaryScan)).map(expectFsOk);
+		expect(utf8BoundaryLines.map((line) => ({ length: line.text.length, start: line.byteStart, end: line.byteEnd }))).toEqual([
+			{ length: 65_536, start: 0, end: 65_537 },
+			{ length: 3, start: 65_538, end: 65_541 },
 		]);
 		const invalidEof = expectFsOk(await opened.services.content.scanLines(
 			await resolveFile(opened.namespace, "invalid-eof.txt"),

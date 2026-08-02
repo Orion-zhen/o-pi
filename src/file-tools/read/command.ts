@@ -176,24 +176,20 @@ function reserveContextBudget(
 ): { slice: TextSlice; structure?: ReadStructureContext } {
 	let bytes = context.limits.bytes;
 	let lines = context.limits.lines;
-	let selectedStructure: typeof structure;
-
 	const structureText = formatReadStructureContext(structure);
-	if (structure !== undefined && structureText !== undefined && reserveFits(structureText, bytes, lines)) {
-		bytes -= renderedBytes(structureText);
-		lines -= renderedLines(structureText);
-		selectedStructure = structure;
+	if (structure === undefined || structureText === undefined || !reserveFits(structureText, bytes, lines)) {
+		return { slice: initialSlice };
 	}
+
+	bytes -= renderedBytes(structureText);
+	lines -= renderedLines(structureText);
 	const sliced = context.filesystem.content.sliceText(content, {
 		...sliceOptions(params, context),
 		maxBytes: bytes,
 		maxLines: lines,
 	});
 	if (!sliced.ok) return { slice: initialSlice };
-	return {
-		slice: sliced.value,
-		...(selectedStructure === undefined ? {} : { structure: selectedStructure }),
-	};
+	return { slice: sliced.value, structure };
 }
 
 function sliceOptions(params: ReadParams, context: ReadCommandContext) {

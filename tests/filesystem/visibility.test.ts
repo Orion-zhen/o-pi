@@ -191,6 +191,27 @@ describe("visibility rules", () => {
 		expect(snapshot.evaluate({ path: "generated", kind: "directory", intent: "traverse" }).ignored).toBe(false);
 	});
 
+	it("宽目录树跨 BFS 批次发现嵌套规则", async () => {
+		for (let index = 0; index < 40; index += 1) {
+			const directory = path.join(workspace, `pkg-${index}`);
+			await mkdir(directory);
+			await writeFile(path.join(directory, ".gitignore"), "hidden.txt\n");
+		}
+		const snapshot = await createIgnoreSnapshot(workspace, {
+			builtinProfile: "none",
+			piignore: { enabled: false },
+			caseSensitivity: "sensitive",
+		});
+		const hiddenPath = path.join(workspace, "pkg-39", "hidden.txt");
+		expect(snapshot.evaluate({
+			path: "pkg-39/hidden.txt",
+			absolutePath: hiddenPath,
+			workspacePath: "pkg-39/hidden.txt",
+			kind: "file",
+			intent: "search",
+		}).ignored).toBe(true);
+	});
+
 	it("Git tracked 文件绕过 .gitignore，但不绕过 .piignore", async () => {
 		if (!(await hasGit())) return;
 		await execFileAsync("git", ["init"], { cwd: workspace });

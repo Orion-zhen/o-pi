@@ -67,8 +67,10 @@ async function collectNestedRuleFiles(
 	context: FsOperationContext,
 ): Promise<void> {
 	const pending = ["."];
-	while (pending.length > 0) {
-		const batch = pending.splice(0, RULE_DISCOVERY_CONCURRENCY);
+	let head = 0;
+	while (head < pending.length) {
+		const batch = pending.slice(head, head + RULE_DISCOVERY_CONCURRENCY);
+		head += batch.length;
 		const discovered = await Promise.all(batch.map(async (relativeDirectory) =>
 			await scanRuleDirectory(native, root, relativeDirectory, config, files, directories, context)));
 		for (const children of discovered) pending.push(...children);

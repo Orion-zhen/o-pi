@@ -262,8 +262,10 @@ export class IncrementalVisibilityOperations implements VisibilityOperations {
 			nativePath: nativeRoot,
 			workspacePath: workspaceRoot,
 		}];
-		while (pending.length > 0) {
-			const batch = pending.splice(0, 8);
+		let head = 0;
+		while (head < pending.length) {
+			const batch = pending.slice(head, head + 8);
+			head += batch.length;
 			const children = await Promise.all(batch.map(async (directory) => {
 				let entries: readonly VisibilityDirectoryEntry[];
 				try {

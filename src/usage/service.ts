@@ -48,7 +48,9 @@ export class UsageService {
 		this.inFlight = request;
 		try {
 			const snapshot = await request;
-			this.cached = { loadedAt: this.clock(), snapshot };
+			if (snapshot.providers.every((provider) => provider.status !== "error")) {
+				this.cached = { loadedAt: this.clock(), snapshot };
+			}
 			return snapshot;
 		} finally {
 			if (this.inFlight === request) this.inFlight = undefined;
