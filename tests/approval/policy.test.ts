@@ -12,6 +12,7 @@ import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
 const temp = useTempDir("o-pi-approval-policy-");
+const commandCwd = path.join(path.parse(process.cwd()).root, "workspace", "project");
 preserveEnv("PI_APPROVAL_GATE_CONFIG");
 
 beforeEach(() => {
@@ -261,7 +262,7 @@ function configWith(patch: Partial<ApprovalGateConfig>): ApprovalGateConfig {
 async function bashRequest(command: string): Promise<ApprovalRequest> {
 	const built = await buildApprovalRequest(
 		{ type: "tool_call", toolName: "bash", toolCallId: "1", input: { command } },
-		dir,
+		commandCwd,
 	);
 	if (built === undefined) throw new Error("approval request was not built");
 	return built;

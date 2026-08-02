@@ -98,7 +98,7 @@ export function buildExaRequest(config: WebToolsConfig["websearch"]["exa_api"], 
 		type: "auto",
 		numResults: Math.min(10, Math.max(params.limit, 6)),
 		contents: { highlights: { maxCharacters: config.highlight_chars } },
-		...(params.compiled.intent === "paper" ? { category: "research paper" } : {}),
+		...(params.compiled.intent === "paper" ? { category: "publication" } : {}),
 		...(params.includeDomains.length > 0 ? { includeDomains: params.includeDomains } : {}),
 		...(params.excludeDomains.length > 0 ? { excludeDomains: params.excludeDomains } : {}),
 	};

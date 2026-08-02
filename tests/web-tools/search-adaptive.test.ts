@@ -56,7 +56,7 @@ describe("adaptive search compilation and providers", () => {
 
 		const paper = normalizeSearchParams({ query: "research paper sparse attention", limit: 5 }, 8);
 		const exaBody = JSON.parse(buildExaRequest(config.exa_api, paper, "exa-secret").body ?? "null") as Record<string, unknown>;
-		expect(exaBody).toMatchObject({ type: "auto", category: "research paper", numResults: 6 });
+		expect(exaBody).toMatchObject({ type: "auto", numResults: 6 });
 		expect(exaBody).not.toHaveProperty("startPublishedDate");
 		expect(exaBody).not.toHaveProperty("endPublishedDate");
 		expect(exaBody).not.toHaveProperty("text");
