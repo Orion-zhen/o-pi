@@ -6,6 +6,7 @@ import {
 	UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { getAssistantPerformance, type AssistantPerformance } from "./message-performance.js";
 
 const DEFAULT_PADDING_X = 1;
 
@@ -28,6 +29,7 @@ let userTimestamps: UserTimestamp[] = [];
 let nextUserTimestamp = 0;
 
 const renderedTimestamps = new WeakMap<object, number>();
+const assistantMessages = new WeakMap<AssistantMessageComponent, AssistantMessage>();
 const assistantTimestamps = new WeakMap<AssistantMessageComponent, number>();
 
 /** 安装内置消息组件补丁；重复调用只更新当前主题样式。 */
@@ -58,6 +60,15 @@ export function formatMessageTimestamp(timestamp: number): string | undefined {
 	return `[${String(date.getFullYear()).padStart(4, "0")}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}]`;
 }
 
+/** 格式化正文 TPS 与首个用户可见模型 token 的延迟。 */
+export function formatAssistantPerformance(performance: AssistantPerformance, hideThinking: boolean): string | undefined {
+	const ttftMs = hideThinking ? performance.ttftWithoutThinkingMs : performance.ttftWithThinkingMs;
+	if (!Number.isFinite(performance.bodyTps) || performance.bodyTps <= 0 || !Number.isFinite(ttftMs) || ttftMs < 0) return undefined;
+	const tps = performance.bodyTps >= 100 ? performance.bodyTps.toFixed(0) : performance.bodyTps.toFixed(1);
+	const ttft = ttftMs < 1_000 ? `${Math.round(ttftMs)}ms` : `${(ttftMs / 1_000).toFixed(ttftMs < 10_000 ? 2 : 1)}s`;
+	return `[TPS: ${tps}, TTFT: ${ttft}]`;
+}
+
 function patchUserMessages(): void {
 	const originalRender = UserMessageComponent.prototype.render;
 	UserMessageComponent.prototype.render = function renderWithTimestamp(width: number): string[] {
@@ -83,6 +94,7 @@ function patchSkillMessages(): void {
 function patchAssistantMessages(): void {
 	const originalUpdateContent = AssistantMessageComponent.prototype.updateContent;
 	AssistantMessageComponent.prototype.updateContent = function updateContentWithTimestamp(message: AssistantMessage): void {
+		assistantMessages.set(this, message);
 		if (hasAssistantBody(message)) assistantTimestamps.set(this, message.timestamp);
 		else assistantTimestamps.delete(this);
 		originalUpdateContent.call(this, message);
@@ -92,9 +104,13 @@ function patchAssistantMessages(): void {
 	AssistantMessageComponent.prototype.render = function renderWithTimestamp(width: number): string[] {
 		const lines = originalRender.call(this, width);
 		const timestamp = assistantTimestamps.get(this);
-		return timestamp === undefined
-			? lines
-			: insertTimestamp(lines, width, timestamp, readOutputPadding(this), undefined, false);
+		if (timestamp === undefined) return lines;
+		const message = assistantMessages.get(this);
+		const performance = message === undefined ? undefined : getAssistantPerformance(message);
+		const performanceLabel = performance === undefined
+			? undefined
+			: formatAssistantPerformance(performance, readHideThinking(this));
+		return insertTimestamp(lines, width, timestamp, readOutputPadding(this), undefined, false, performanceLabel);
 	};
 }
 
@@ -122,12 +138,15 @@ function insertTimestamp(
 	paddingX: number,
 	background: ((text: string) => string) | undefined,
 	beforeBottomPadding: boolean,
+	prefix?: string,
 ): string[] {
 	const currentStyles = styles;
-	const label = formatMessageTimestamp(timestamp);
-	if (currentStyles === undefined || label === undefined || lines.length === 0) return lines;
+	const timestampLabel = formatMessageTimestamp(timestamp);
+	if (currentStyles === undefined || timestampLabel === undefined || lines.length === 0) return lines;
 
 	const safeWidth = Math.max(1, Math.floor(width));
+	const combinedLabel = prefix === undefined ? timestampLabel : `${prefix}${timestampLabel}`;
+	const label = visibleWidth(combinedLabel) <= safeWidth ? combinedLabel : timestampLabel;
 	const labelWidth = visibleWidth(label);
 	const leftWidth = Math.max(0, safeWidth - paddingX - labelWidth);
 	const rightWidth = Math.max(0, safeWidth - leftWidth - labelWidth);
@@ -153,6 +172,10 @@ function toUserTimestamp(message: UserMessage): UserTimestamp[] {
 function readOutputPadding(component: object): number {
 	const value: unknown = Reflect.get(component, "outputPad");
 	return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : DEFAULT_PADDING_X;
+}
+
+function readHideThinking(component: object): boolean {
+	return Reflect.get(component, "hideThinkingBlock") === true;
 }
 
 function pad(value: number): string {

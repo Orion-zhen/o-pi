@@ -1,10 +1,12 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import tuiExtension, { createTuiExtension } from "../../agent/extensions/tui.js";
+import { getAssistantPerformance } from "../../src/tui/message-performance.js";
 import { createTuiRuntime } from "../../src/tui/runtime.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
@@ -202,6 +204,33 @@ describe("tui extension", () => {
 		).resolves.toBeUndefined();
 	});
 
+	it("provider 和消息事件接入模型性能跟踪", async () => {
+		const handlers = new Map<string, Handler>();
+		const ctx = createContext(createUiCalls(), { mode: "tui" });
+		const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI);
+		await runtime.startSession(ctx as unknown as Parameters<typeof runtime.startSession>[0]);
+		const message = performanceMessage();
+		const now = vi.spyOn(performance, "now");
+
+		now.mockReturnValue(0);
+		await handlers.get("before_provider_headers")?.({}, ctx);
+		await handlers.get("message_start")?.({ message }, ctx);
+		now.mockReturnValue(100);
+		await handlers.get("message_update")?.({
+			message,
+			assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "Hello", partial: message },
+		}, ctx);
+		now.mockReturnValue(200);
+		await handlers.get("message_update")?.({
+			message,
+			assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: " world", partial: message },
+		}, ctx);
+		await handlers.get("message_end")?.({ message }, ctx);
+
+		expect(getAssistantPerformance(message)).toMatchObject({ bodyTps: 20, ttftWithoutThinkingMs: 100 });
+		now.mockRestore();
+	});
+
 	it("session_shutdown 清理 header/footer/status", async () => {
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
@@ -369,6 +398,26 @@ describe("tui extension", () => {
 		expect(load).not.toHaveBeenCalled();
 	});
 });
+
+function performanceMessage(): AssistantMessage {
+	return {
+		role: "assistant",
+		content: [{ type: "text", text: "Hello world" }],
+		api: "openai-responses",
+		provider: "openai",
+		model: "gpt-test",
+		usage: {
+			input: 0,
+			output: 2,
+			cacheRead: 0,
+			cacheWrite: 0,
+			totalTokens: 2,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		},
+		stopReason: "stop",
+		timestamp: 1,
+	};
+}
 
 function createFooterData(): FooterDataStub {
 	return {

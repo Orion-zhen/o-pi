@@ -25,6 +25,8 @@ agent/defaults/tui.jsonc
 
 Math Markdown 解析器和 MathJax 不在 `session_start` 热路径加载。启用数学渲染时，native TUI 会在连续空闲 750ms 后初始化；`turn_start` 会取消等待，`turn_end` 再重新安排。支持终端图片的环境会同时预热 MathJax；如果预热尚未完成就首次遇到块级公式，renderer 会先显示源码并按需启动初始化，后续重绘显示公式图片。RPC、JSON 和 print 模式不会加载整个 TUI runtime 或这套 TUI 数学能力，session 关闭也会取消尚未开始的任务。
 
+模型正文完成后，消息时间戳左侧显示 `[TPS: ..., TTFT: ...]`，两个方括号块之间不留空格。TPS 只统计正文 `text_delta`，不包含 thinking、reasoning summary、隐藏 reasoning 或工具参数；TTFT 从最后一次实际 HTTP attempt 开始，计算到首个用户可见模型 token。思考内容展开时首个 thinking token 可作为 TTFT 终点，隐藏时则使用首个正文 token。正文只有一个流式观测点、请求失败或终端宽度不足时只保留时间戳。性能数据只属于当前 TUI 进程，不写入 session 历史。
+
 ## 系统通知
 
 TUI 在 `agent_settled` 触发后通过 `node-notifier` 发送系统通知，确保自动重试、压缩和排队 continuation 均已结束；RPC、JSON 和 print 模式不发送完成通知。权限审批仅在策略返回 `ask` 且交互 UI 可用时，于打开选择框前发送通知。标题固定为 `o-pi`，正文固定为 `o-pi is waiting for you.`。

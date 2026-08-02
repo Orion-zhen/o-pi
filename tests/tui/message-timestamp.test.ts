@@ -6,9 +6,14 @@ import {
 	UserMessageComponent,
 } from "@earendil-works/pi-coding-agent";
 import { type MarkdownTheme, visibleWidth } from "@earendil-works/pi-tui";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+	createAssistantPerformanceTracker,
+	resetAssistantPerformanceMeasurements,
+} from "../../src/tui/message-performance.js";
 import {
 	configureMessageTimestampRenderer,
+	formatAssistantPerformance,
 	formatMessageTimestamp,
 	recordUserMessageTimestamp,
 	resetUserMessageTimestamps,
@@ -43,10 +48,21 @@ beforeAll(() => {
 	});
 });
 
+beforeEach(() => {
+	resetAssistantPerformanceMeasurements();
+});
+
 describe("message timestamp", () => {
 	it("按本地时区格式化日期和秒", () => {
 		expect(formatMessageTimestamp(timestamp)).toBe(label);
 		expect(formatMessageTimestamp(Number.NaN)).toBeUndefined();
+	});
+
+	it("格式化正文 TPS，并按思考可见性选择 TTFT", () => {
+		const performance = { bodyTps: 42.34, ttftWithThinkingMs: 850, ttftWithoutThinkingMs: 1_250 };
+
+		expect(formatAssistantPerformance(performance, false)).toBe("[TPS: 42.3, TTFT: 850ms]");
+		expect(formatAssistantPerformance(performance, true)).toBe("[TPS: 42.3, TTFT: 1.25s]");
 	});
 
 	it("用户消息在气泡底部右对齐，并在完整重建时复用原始时间", () => {
@@ -103,6 +119,33 @@ describe("message timestamp", () => {
 			{ type: "text", text: "answer" },
 		], timestamp));
 		assertTimestamp(component.render(40), 40);
+	});
+
+	it("统计块紧贴时间戳，并在隐藏思考时使用首个正文 token 的 TTFT", () => {
+		let now = 0;
+		const tracker = createAssistantPerformanceTracker(() => now);
+		const message = assistantMessage([
+			{ type: "thinking", thinking: "summary" },
+			{ type: "text", text: "Hello world" },
+		], timestamp);
+		tracker.startRequest();
+		tracker.startMessage(message);
+		now = 100;
+		tracker.updateMessage(message, { type: "thinking_delta", contentIndex: 0, delta: "summary", partial: message });
+		now = 500;
+		tracker.updateMessage(message, { type: "text_delta", contentIndex: 1, delta: "Hello", partial: message });
+		now = 600;
+		tracker.updateMessage(message, { type: "text_delta", contentIndex: 1, delta: " world", partial: message });
+		tracker.endMessage(message);
+
+		const shown = new AssistantMessageComponent(message, false, markdownTheme, "Thinking...", 1).render(80).join("\n");
+		const hidden = new AssistantMessageComponent(message, true, markdownTheme, "Thinking...", 1).render(80).join("\n");
+		const narrow = new AssistantMessageComponent(message, false, markdownTheme, "Thinking...", 1).render(40);
+		expect(shown).toContain(`[TPS: 20.0, TTFT: 100ms]${label}`);
+		expect(hidden).toContain(`[TPS: 20.0, TTFT: 500ms]${label}`);
+		expect(narrow.join("\n")).toContain(label);
+		expect(narrow.join("\n")).not.toContain("[TPS:");
+		expect(narrow.every((line) => visibleWidth(line) <= 40)).toBe(true);
 	});
 });
 

@@ -13,6 +13,7 @@ import { createStartupBannerComponent } from "./banner.js";
 import { createHeaderComponent, formatTitle, workingIndicatorOptions } from "./chrome.js";
 import { loadTuiConfig } from "./config.js";
 import { createFooterComponent, GitSegmentCache } from "./footer.js";
+import { createAssistantPerformanceTracker } from "./message-performance.js";
 import {
 	configureMessageTimestampRenderer,
 	recordUserMessageTimestamp,
@@ -57,6 +58,7 @@ export function createTuiRuntime(
 	let mathTimer: ReturnType<typeof setTimeout> | undefined;
 	let sessionGeneration = 0;
 	let skillsSnapshot: TuiFooterSkillsSnapshot | undefined;
+	const assistantPerformance = createAssistantPerformanceTracker();
 
 	registerHandlers();
 
@@ -108,6 +110,7 @@ export function createTuiRuntime(
 		startupBannerVisible = false;
 		snapshot = {};
 		skillsSnapshot = undefined;
+		assistantPerformance.reset();
 		await previousGitCache?.dispose();
 	}
 
@@ -156,9 +159,24 @@ export function createTuiRuntime(
 			}
 		});
 
+		pi.on("before_provider_headers", () => {
+			if (config?.enabled) assistantPerformance.startRequest();
+		});
+
 		pi.on("message_start", (event) => {
-			if (!config?.enabled || event.message.role !== "user") return;
-			recordUserMessageTimestamp(event.message);
+			if (!config?.enabled) return;
+			if (event.message.role === "user") recordUserMessageTimestamp(event.message);
+			else if (event.message.role === "assistant") assistantPerformance.startMessage(event.message);
+		});
+
+		pi.on("message_update", (event) => {
+			if (config?.enabled && event.message.role === "assistant") {
+				assistantPerformance.updateMessage(event.message, event.assistantMessageEvent);
+			}
+		});
+
+		pi.on("message_end", (event) => {
+			if (config?.enabled && event.message.role === "assistant") assistantPerformance.endMessage(event.message);
 		});
 
 		pi.on("session_compact", (_event, ctx) => {
