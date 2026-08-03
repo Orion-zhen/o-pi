@@ -138,8 +138,8 @@ describe("edit", () => {
 			{
 				diff: { generate: () => ({ diff: "" }) },
 				diagnostics: {
-					async beforeEdit() { return undefined; },
-					async afterEdit(input) {
+					async beforeMutation() { return undefined; },
+					async afterMutation(input) {
 						changedRanges = input.changedRanges;
 						return undefined;
 					},
@@ -429,11 +429,11 @@ describe("edit", () => {
 		const result = await testContext.edit({ path: "a.txt", edits: [{ old: "old", new: "new" }] }, {
 			signal: controller.signal,
 			diagnostics: {
-				async beforeEdit() {
+				async beforeMutation() {
 					controller.abort();
 					return undefined;
 				},
-				async afterEdit() { return undefined; },
+				async afterMutation() { return undefined; },
 			},
 		});
 		expect(result).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });

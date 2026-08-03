@@ -34,9 +34,9 @@ export interface LspFileOperations {
 	read?(input: LspReadInput): Promise<ReadEnhancement | undefined>;
 	prepareCodeAnalysis?(input: LspCodeAnalysisPreparationInput): Promise<void>;
 	codeAnalysis?(input: LspCodeAnalysisInput): Promise<CodeAnalysis | undefined>;
-	beforeEdit?(input: Pick<LspMutationInput, "workspaceRoot" | "filePath">): Promise<LspDiagnosticSnapshot | undefined>;
-	afterWrite?(input: LspMutationInput): Promise<LspDiagnosticsSummary | undefined>;
-	afterWriteBatch?(inputs: readonly LspMutationInput[]): Promise<readonly (LspDiagnosticsSummary | undefined)[]>;
+	beforeMutation?(input: Pick<LspMutationInput, "workspaceRoot" | "filePath">): Promise<LspDiagnosticSnapshot | undefined>;
+	afterMutation?(input: LspMutationInput): Promise<LspDiagnosticsSummary | undefined>;
+	afterMutationBatch?(inputs: readonly LspMutationInput[]): Promise<readonly (LspDiagnosticsSummary | undefined)[]>;
 }
 
 export function createLspFileOperations(manager: LspManager): LspFileOperations {
@@ -68,14 +68,14 @@ export function createLspFileOperations(manager: LspManager): LspFileOperations 
 				return undefined;
 			}
 		},
-		async beforeEdit(input) {
+		async beforeMutation(input) {
 			try {
 				return await manager.beforeDiagnostics(input.workspaceRoot, input.filePath);
 			} catch {
 				return undefined;
 			}
 		},
-		async afterWrite(input) {
+		async afterMutation(input) {
 			try {
 				await manager.didChangeWatchedFile(
 					input.workspaceRoot,
@@ -93,13 +93,13 @@ export function createLspFileOperations(manager: LspManager): LspFileOperations 
 				return emptySummary("unavailable");
 			}
 		},
-		async afterWriteBatch(inputs) {
-			return await afterWriteBatch(manager, inputs);
+		async afterMutationBatch(inputs) {
+			return await afterMutationBatch(manager, inputs);
 		},
 	};
 }
 
-async function afterWriteBatch(
+async function afterMutationBatch(
 	manager: LspManager,
 	inputs: readonly LspMutationInput[],
 ): Promise<readonly (LspDiagnosticsSummary | undefined)[]> {

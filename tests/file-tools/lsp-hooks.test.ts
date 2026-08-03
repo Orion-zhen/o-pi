@@ -8,14 +8,15 @@ import { editFile } from "../../src/file-tools/edit/command.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
-import { createEditPorts } from "../../src/file-tools/pi/ports/edit.js";
-import { createWritePorts } from "../../src/file-tools/pi/ports/write.js";
+import { createMutationDiagnosticsSource } from "../../src/file-tools/pi/ports/mutation-diagnostics.js";
 import { readWorkspaceFile } from "../helpers/read-tool.js";
 import { writeFile as writeFileCommand } from "../../src/file-tools/write/command.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
+import { summarizeDiagnostics } from "../../src/lsp/diagnostics.js";
 import { createLspFileOperations, type LspFileOperations } from "../../src/lsp/file-hooks.js";
 import { LspManager } from "../../src/lsp/manager.js";
+import type { LspDiagnosticSnapshot } from "../../src/lsp/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
@@ -81,7 +82,7 @@ describe("file-tools lsp hooks", () => {
 	it("write 返回 diagnostics 但不改变 written 状态，并区分 create/change", async () => {
 		const createdEvents: boolean[] = [];
 		const hooks: LspFileOperations = {
-			async afterWrite(input) {
+			async afterMutation(input) {
 				createdEvents.push(input.created);
 				return diagnostics("errors");
 			},
@@ -99,15 +100,61 @@ describe("file-tools lsp hooks", () => {
 		await expect(writeWithHooks({ path: "b.ts", content: "" }, throwingHooks())).resolves.toMatchObject({ status: "written" });
 	});
 
+	it("write->edit->edit 共用连续诊断基线且只返回每次新增错误", async () => {
+		const source = `${workspace}\0ts`;
+		const uri = pathToFileURL(path.join(workspace, "chain.ts")).toString();
+		let current: LspDiagnosticSnapshot = { source, uri, items: [], known: false, revision: 0 };
+		let mutation = 0;
+		const baselines: string[][] = [];
+		const hooks: LspFileOperations = {
+			async beforeMutation() {
+				return { ...current, items: current.items.map((item) => ({ ...item })) };
+			},
+			async afterMutation(input) {
+				baselines.push(input.baseline?.items.map((item) => item.message) ?? []);
+				mutation += 1;
+				const message = mutation === 1 ? "write error" : mutation === 2 ? "first edit error" : "second edit error";
+				current = {
+					source,
+					uri,
+					known: true,
+					revision: mutation,
+					items: [...current.items, { severity: "error", line: 1, column: 1, message }],
+				};
+				return summarizeDiagnostics(
+					current,
+					input.baseline,
+					8,
+					undefined,
+					input.changed_ranges === undefined ? undefined : {
+						changedRanges: input.changed_ranges.map((range) => ({
+							startLine: range.start_line,
+							endLine: range.end_line,
+						})),
+					},
+				);
+			},
+		};
+
+		const written = await writeWithHooks({ path: "chain.ts", content: "zero\n" }, hooks);
+		const first = await editWithHooks({ path: "chain.ts", edits: [{ old: "zero", new: "one" }] }, hooks);
+		const second = await editWithHooks({ path: "chain.ts", edits: [{ old: "one", new: "two" }] }, hooks);
+
+		expect(written).toMatchObject({ lsp: { diagnostics: { items: [{ message: "write error" }] } } });
+		expect(first).toMatchObject({ lsp: { diagnostics: { baseline: "known", items: [{ message: "first edit error" }] } } });
+		expect(second).toMatchObject({ lsp: { diagnostics: { baseline: "known", items: [{ message: "second edit error" }] } } });
+		expect(baselines).toEqual([[], ["write error"], ["write error", "first edit error"]]);
+	});
+
 	it("edit 只在成功写盘后调用 diagnostics hook", async () => {
 		await writeFile(path.join(workspace, "a.ts"), "const oldName = 1;\n");
 		await readWorkspaceFile(workspace, { path: "a.ts" }, { host, sessionId: "lsp-hooks" });
 		let afterCalled = false;
 		const hooks: LspFileOperations = {
-			async beforeEdit() {
+			async beforeMutation() {
 				return { source: "/repo\0ts", uri: pathToFileURL("a.ts").toString(), items: [], known: true, revision: 1 };
 			},
-			async afterWrite(input) {
+			async afterMutation(input) {
 				afterCalled = true;
 				expect(input.created).toBe(false);
 				expect(input.baseline?.known).toBe(true);
@@ -130,7 +177,7 @@ describe("file-tools lsp hooks", () => {
 		await readWorkspaceFile(workspace, { path: "ranges.ts" }, { host, sessionId: "lsp-hooks" });
 		const changedRanges: Array<readonly { start_line: number; end_line: number }[]> = [];
 		const hooks: LspFileOperations = {
-			async afterWrite(input) {
+			async afterMutation(input) {
 				changedRanges.push(input.changed_ranges ?? []);
 				return undefined;
 			},
@@ -148,22 +195,22 @@ describe("file-tools lsp hooks", () => {
 		expect(changedRanges).toEqual([[{ start_line: 2, end_line: 3 }, { start_line: 6, end_line: 7 }]]);
 	});
 
-	it("afterWrite 对无源码路由的配置文件仍转发 watched-file create/change", async () => {
+	it("afterMutation 对无源码路由的配置文件仍转发 watched-file create/change", async () => {
 		const manager = new LspManager();
 		const watched = vi.spyOn(manager, "didChangeWatchedFile").mockResolvedValue();
-		const diagnosticsAfterWrite = vi.spyOn(manager, "didWrite").mockResolvedValue(undefined);
+		const diagnosticsAfterMutation = vi.spyOn(manager, "didWrite").mockResolvedValue(undefined);
 		const hooks = createLspFileOperations(manager);
 		const configFile = path.join(workspace, "tsconfig.json");
 
-		await hooks.afterWrite?.({ workspaceRoot: workspace, filePath: configFile, content: "{}\n", created: true });
-		await hooks.afterWrite?.({ workspaceRoot: workspace, filePath: configFile, content: "{\"compilerOptions\":{}}\n", created: false });
+		await hooks.afterMutation?.({ workspaceRoot: workspace, filePath: configFile, content: "{}\n", created: true });
+		await hooks.afterMutation?.({ workspaceRoot: workspace, filePath: configFile, content: "{\"compilerOptions\":{}}\n", created: false });
 
 		expect(watched).toHaveBeenNthCalledWith(1, workspace, configFile, FileChangeType.Created);
 		expect(watched).toHaveBeenNthCalledWith(2, workspace, configFile, FileChangeType.Changed);
-		expect(diagnosticsAfterWrite).toHaveBeenCalledTimes(2);
+		expect(diagnosticsAfterMutation).toHaveBeenCalledTimes(2);
 	});
 
-	it("afterWriteBatch 统一转发文件通知与 diagnostics，并保持结果顺序", async () => {
+	it("afterMutationBatch 统一转发文件通知与 diagnostics，并保持结果顺序", async () => {
 		const manager = new LspManager();
 		const watched = vi.spyOn(manager, "didChangeWatchedFiles").mockResolvedValue();
 		const first = diagnostics("errors");
@@ -175,7 +222,7 @@ describe("file-tools lsp hooks", () => {
 			{ workspaceRoot: workspace, filePath: path.join(workspace, "b.ts"), content: "b\n", created: false },
 		];
 
-		await expect(hooks.afterWriteBatch?.(inputs)).resolves.toEqual([first, second]);
+		await expect(hooks.afterMutationBatch?.(inputs)).resolves.toEqual([first, second]);
 		expect(watched).toHaveBeenCalledTimes(1);
 		expect(watched).toHaveBeenCalledWith([
 			{ root: workspace, filePath: path.join(workspace, "a.ts"), type: FileChangeType.Created },
@@ -188,12 +235,12 @@ describe("file-tools lsp hooks", () => {
 		]);
 	});
 
-	it("beforeEdit 使用调用方已解析的 absolutePath 和 workspace source", async () => {
+	it("beforeMutation 使用调用方已解析的 absolutePath 和 workspace source", async () => {
 		const manager = new LspManager();
 		const beforeDiagnostics = vi.spyOn(manager, "beforeDiagnostics").mockResolvedValue(undefined);
 		const hooks = createLspFileOperations(manager);
 		const absolutePath = path.join(workspace, "resolved.ts");
-		await hooks.beforeEdit?.({ workspaceRoot: workspace, filePath: absolutePath });
+		await hooks.beforeMutation?.({ workspaceRoot: workspace, filePath: absolutePath });
 		expect(beforeDiagnostics).toHaveBeenCalledWith(workspace, absolutePath);
 		beforeDiagnostics.mockRestore();
 	});
@@ -243,13 +290,13 @@ async function writeWithHooks(params: { path: string; content: string }, hooks: 
 	const opened = await host.open({ cwd: workspace, sessionId: "lsp-hooks" });
 	if ("status" in opened) return opened;
 	try {
-		const ports = createWritePorts(opened, hooks);
+		const diagnostics = createMutationDiagnosticsSource(opened, hooks);
 		return await writeFileCommand(params, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
 			maxFileBytes: opened.limits.write_max_file_bytes,
 			diff: piTextDiffGenerator,
-			diagnostics: ports.diagnostics,
+			diagnostics,
 		});
 	} finally {
 		opened.dispose();
@@ -260,7 +307,7 @@ async function editWithHooks(params: { path: string; edits: Array<{ old: string;
 	const opened = await host.open({ cwd: workspace, sessionId: "lsp-hooks" });
 	if ("status" in opened) return opened;
 	try {
-		const ports = createEditPorts(opened, hooks);
+		const diagnostics = createMutationDiagnosticsSource(opened, hooks);
 		return await editFile(params, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
@@ -268,7 +315,7 @@ async function editWithHooks(params: { path: string; edits: Array<{ old: string;
 			maxFileBytes: opened.limits.edit_max_file_bytes,
 			matchHintLimit: opened.limits.edit_match_hint_limit,
 			diff: piTextDiffGenerator,
-			diagnostics: ports.diagnostics,
+			diagnostics,
 		});
 	} finally {
 		opened.dispose();
@@ -295,10 +342,10 @@ function throwingHooks(): LspFileOperations {
 		async read() {
 			throw new Error("lsp unavailable");
 		},
-		async afterWrite() {
+		async afterMutation() {
 			throw new Error("lsp timeout");
 		},
-		async beforeEdit() {
+		async beforeMutation() {
 			throw new Error("lsp unavailable");
 		},
 		async codeAnalysis() {

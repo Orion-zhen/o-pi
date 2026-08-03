@@ -139,7 +139,7 @@ describe("file-tools extension lifecycle", () => {
 			async lsp() {
 				return {
 					...(await import("../../src/lsp/index.js")),
-					lspFileOperations: { afterWrite: directLsp, afterWriteBatch: batchLsp },
+					lspFileOperations: { afterMutation: directLsp, afterMutationBatch: batchLsp },
 				};
 			},
 		}), {
@@ -196,7 +196,7 @@ describe("file-tools extension lifecycle", () => {
 		const batchLsp = vi.fn(async () => []);
 		const { registered, handlers } = registerExtension(createFileToolsExtension({
 			async lsp() {
-				return { ...(await import("../../src/lsp/index.js")), lspFileOperations: { afterWrite: directLsp, afterWriteBatch: batchLsp } };
+				return { ...(await import("../../src/lsp/index.js")), lspFileOperations: { afterMutation: directLsp, afterMutationBatch: batchLsp } };
 			},
 		}));
 		const cwd = workspace.path;

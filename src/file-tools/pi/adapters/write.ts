@@ -4,7 +4,7 @@ import type { FileToolsHost } from "../../runtime/host.js";
 import { isFailed } from "../../shared/result.js";
 import { formatWriteModelResult } from "../../write/presenter.js";
 import { formatErrorModelResult } from "../model-output.js";
-import { createWritePorts } from "../ports/write.js";
+import { createMutationDiagnosticsSource } from "../ports/mutation-diagnostics.js";
 import { piTextDiffGenerator } from "../ports/text-diff.js";
 import type { LspFileOperations } from "../../../lsp/file-hooks.js";
 import type { MutationBatchInvocation } from "../mutation-batch.js";
@@ -33,13 +33,13 @@ export async function executeWrite(
 		const progress = createMutationPostProcessObserver(runtime.onUpdate, () => (
 			latestPreview === undefined ? {} : { diff: latestPreview.diff }
 		));
-		const ports = createWritePorts(opened, runtime.lsp, progress, runtime.batch);
+		const diagnostics = createMutationDiagnosticsSource(opened, runtime.lsp, progress, runtime.batch);
 		const result = await writeFile(params, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
 			maxFileBytes: opened.limits.write_max_file_bytes,
 			diff: piTextDiffGenerator,
-			diagnostics: ports.diagnostics,
+			diagnostics,
 			onPrepared(preview) {
 				latestPreview = preview;
 				runtime.onUpdate?.(mutationProgress({ status: "writing", diff: preview.diff }));

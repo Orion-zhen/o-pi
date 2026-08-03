@@ -28,7 +28,7 @@ describe("file-tools extension mutation progress", () => {
 		const { registered, handlers } = registerExtension(fileTools);
 		const cwd = workspace.path;
 		const ctx = { cwd, sessionManager: { getSessionId: () => "mutation-progress" } };
-		const originalAfterWrite = lspFileHooks.afterWrite;
+		const originalAfterMutation = lspFileHooks.afterMutation;
 		try {
 			for (const operation of [
 				{
@@ -47,7 +47,7 @@ describe("file-tools extension mutation progress", () => {
 				let release: (() => void) | undefined;
 				const gate = new Promise<void>((resolve) => { release = resolve; });
 				let contentAtDiagnostics: string | undefined;
-				lspFileHooks.afterWrite = async () => {
+				lspFileHooks.afterMutation = async () => {
 					contentAtDiagnostics = await readFile(join(cwd, "a.ts"), "utf8");
 					await gate;
 					return cleanDiagnostics;
@@ -86,8 +86,8 @@ describe("file-tools extension mutation progress", () => {
 				.resolves.toMatchObject({ details: { status: "failed" } });
 			expect(failedUpdates).toEqual([]);
 		} finally {
-			if (originalAfterWrite === undefined) delete lspFileHooks.afterWrite;
-			else lspFileHooks.afterWrite = originalAfterWrite;
+			if (originalAfterMutation === undefined) delete lspFileHooks.afterMutation;
+			else lspFileHooks.afterMutation = originalAfterMutation;
 			await Promise.resolve(handlers.get("session_shutdown")?.({}, {}));
 		}
 	});

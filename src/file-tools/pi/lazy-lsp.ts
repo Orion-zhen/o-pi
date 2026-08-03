@@ -28,16 +28,16 @@ export function createLazyLspFileOperations(load: () => Promise<LspModule>): Laz
 		async codeAnalysis(input) {
 			return (await getModule()).lspFileOperations.codeAnalysis?.(input);
 		},
-		async beforeEdit(input) {
-			return (await getModule()).lspFileOperations.beforeEdit?.(input);
+		async beforeMutation(input) {
+			return (await getModule()).lspFileOperations.beforeMutation?.(input);
 		},
-		async afterWrite(input) {
-			return (await getModule()).lspFileOperations.afterWrite?.(input);
+		async afterMutation(input) {
+			return (await getModule()).lspFileOperations.afterMutation?.(input);
 		},
-		async afterWriteBatch(inputs) {
+		async afterMutationBatch(inputs) {
 			const operations = (await getModule()).lspFileOperations;
-			if (operations.afterWriteBatch !== undefined) return await operations.afterWriteBatch(inputs);
-			return await Promise.all(inputs.map((input) => operations.afterWrite?.(input)));
+			if (operations.afterMutationBatch !== undefined) return await operations.afterMutationBatch(inputs);
+			return await Promise.all(inputs.map((input) => operations.afterMutation?.(input)));
 		},
 	};
 }

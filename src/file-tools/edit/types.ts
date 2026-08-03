@@ -1,4 +1,5 @@
 import type { DiagnosticsSummary } from "../shared/diagnostics.js";
+import type { MutationLineRange } from "../shared/mutation-diagnostics.js";
 
 export interface EditReplacement {
 	old: string;
@@ -6,10 +7,7 @@ export interface EditReplacement {
 	replace_all?: boolean;
 }
 
-export interface EditLineRange {
-	startLine: number;
-	endLine: number;
-}
+export type EditLineRange = MutationLineRange;
 
 export interface EditMatchHint {
 	line: number;

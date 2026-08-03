@@ -5,7 +5,7 @@ import { isFailed } from "../../shared/result.js";
 import type { LspFileOperations } from "../../../lsp/file-hooks.js";
 import { formatEditModelResult } from "../../edit/presenter.js";
 import { formatErrorModelResult, scrubVersions } from "../model-output.js";
-import { createEditPorts } from "../ports/edit.js";
+import { createMutationDiagnosticsSource } from "../ports/mutation-diagnostics.js";
 import { piTextDiffGenerator } from "../ports/text-diff.js";
 import type { MutationBatchInvocation } from "../mutation-batch.js";
 import { createMutationPostProcessObserver, mutationProgress, type MutationProgressCallback } from "../progress.js";
@@ -34,8 +34,8 @@ export async function executeEdit(
 			replacements: latestPreview?.replacements ?? params.edits.length,
 			...(latestPreview === undefined ? {} : { diff: latestPreview.diff }),
 		}));
-		const ports = createEditPorts(opened, runtime.lsp, progress, runtime.batch);
-		const result = await editFile(params, commandContext(opened, ports, (preview) => {
+		const diagnostics = createMutationDiagnosticsSource(opened, runtime.lsp, progress, runtime.batch);
+		const result = await editFile(params, commandContext(opened, diagnostics, (preview) => {
 			latestPreview = preview;
 			runtime.onUpdate?.(mutationProgress({ status: "editing", diff: preview.diff, replacements: preview.replacements }));
 		}));
@@ -74,7 +74,7 @@ export async function previewEditWorkspace(cwd: string, params: unknown) {
 
 function commandContext(
 	opened: FileToolsInvocation,
-	ports: ReturnType<typeof createEditPorts>,
+	diagnostics: ReturnType<typeof createMutationDiagnosticsSource>,
 	onPrepared: (preview: EditPreviewSuccess) => void,
 ) {
 	return {
@@ -84,7 +84,7 @@ function commandContext(
 		maxFileBytes: opened.limits.edit_max_file_bytes,
 		matchHintLimit: opened.limits.edit_match_hint_limit,
 		diff: piTextDiffGenerator,
-		diagnostics: ports.diagnostics,
+		diagnostics,
 		onPrepared,
 	};
 }

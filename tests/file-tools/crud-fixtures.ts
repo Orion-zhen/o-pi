@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach } from "vitest";
 
 import { editFile, previewEdit } from "../../src/file-tools/edit/command.js";
-import type { EditDiagnosticsSource } from "../../src/file-tools/edit/ports.js";
+import type { MutationDiagnosticsSource } from "../../src/file-tools/shared/mutation-diagnostics.js";
 import type { EditSuccess } from "../../src/file-tools/edit/types.js";
 import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
 import { FileToolsHost, type FileToolsInvocation } from "../../src/file-tools/runtime/host.js";
@@ -19,7 +19,7 @@ export interface CrudTestContext {
 	readonly outside: string;
 	read(params: Parameters<typeof readWorkspaceFile>[1], options?: ReadWorkspaceTestOptions): ReturnType<typeof readWorkspaceFile>;
 	write(params: unknown, diff?: TextDiffGenerator): Promise<ToolOutcome<WriteSuccess>>;
-	edit(params: unknown, runtime?: { signal?: AbortSignal; diagnostics?: EditDiagnosticsSource; diff?: TextDiffGenerator }): Promise<ToolOutcome<EditSuccess>>;
+	edit(params: unknown, runtime?: { signal?: AbortSignal; diagnostics?: MutationDiagnosticsSource; diff?: TextDiffGenerator }): Promise<ToolOutcome<EditSuccess>>;
 	preview(params: unknown): ReturnType<typeof previewEdit>;
 	useConfig(config: Record<string, unknown>): Promise<void>;
 }

@@ -1,9 +1,14 @@
 import type { MutationSnapshot } from "../../filesystem/contracts/mutation.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
+import type { DiagnosticSnapshot } from "../shared/diagnostics.js";
+import {
+	captureMutationDiagnostics,
+	collectMutationDiagnostics,
+	type MutationDiagnosticsSource,
+} from "../shared/mutation-diagnostics.js";
 import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.js";
 import type { TextDiff, TextDiffGenerator } from "../shared/text-diff.js";
-import type { WriteDiagnosticsSource } from "./ports.js";
 import type { WriteParams, WritePreviewSuccess, WriteSuccess } from "./types.js";
 
 const encoder = new TextEncoder();
@@ -14,7 +19,7 @@ export interface WriteCommandContext {
 	readonly operation: FsOperationContext;
 	readonly maxFileBytes: number;
 	readonly diff: TextDiffGenerator;
-	readonly diagnostics?: WriteDiagnosticsSource;
+	readonly diagnostics?: MutationDiagnosticsSource;
 	readonly onPrepared?: (preview: WritePreviewSuccess) => void;
 }
 
@@ -37,6 +42,7 @@ export async function writeFile(params: unknown, context: WriteCommandContext): 
 	const bytes = encoder.encode(input.content);
 	let snapshot: MutationSnapshot | undefined;
 	let renderedDiff: TextDiff | undefined;
+	let baseline: DiagnosticSnapshot | undefined;
 	const mutated = await context.filesystem.mutations.run(
 		target.value,
 		{
@@ -53,6 +59,7 @@ export async function writeFile(params: unknown, context: WriteCommandContext): 
 				diff: renderedDiff.diff,
 				...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
 			});
+			baseline = await captureMutationDiagnostics(context.diagnostics, target.value, context.operation.signal);
 			return { type: "commit", bytes };
 		},
 		context.operation,
@@ -78,13 +85,13 @@ export async function writeFile(params: unknown, context: WriteCommandContext): 
 		...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
 	};
 
-	const diagnostics = await safeDiagnostics(
-		context.diagnostics,
-		receipt.target,
-		input.content,
-		receipt.created,
-		context.operation.signal,
-	);
+	const diagnostics = await collectMutationDiagnostics(context.diagnostics, {
+		target: receipt.target,
+		content: input.content,
+		created: receipt.created,
+		...(baseline === undefined ? {} : { baseline }),
+		...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+	});
 	if (diagnostics !== undefined) result.lsp = { diagnostics };
 	return result;
 }
@@ -120,20 +127,6 @@ function safePrepared(observer: WriteCommandContext["onPrepared"], preview: Writ
 	try {
 		observer?.(preview);
 	} catch {}
-}
-
-async function safeDiagnostics(
-	source: WriteDiagnosticsSource | undefined,
-	target: Parameters<WriteDiagnosticsSource["afterWrite"]>[0]["target"],
-	content: string,
-	created: boolean,
-	signal: AbortSignal | undefined,
-) {
-	try {
-		return await source?.afterWrite({ target, content, created, ...(signal === undefined ? {} : { signal }) });
-	} catch {
-		return undefined;
-	}
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

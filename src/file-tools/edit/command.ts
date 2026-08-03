@@ -4,11 +4,15 @@ import type { FileRef, TargetRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import type { DiagnosticSnapshot } from "../shared/diagnostics.js";
+import {
+	captureMutationDiagnostics,
+	collectMutationDiagnostics,
+	type MutationDiagnosticsSource,
+} from "../shared/mutation-diagnostics.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import type { TextDiff, TextDiffGenerator } from "../shared/text-diff.js";
 import { buildEditMatchHints, buildEditNotFoundRecovery } from "./hints.js";
 import { findAll } from "./matches.js";
-import type { EditDiagnosticsSource } from "./ports.js";
 import type { EditLineRange, EditParams, EditPreviewSuccess, EditReplacement, EditSuccess } from "./types.js";
 
 const encoder = new TextEncoder();
@@ -25,7 +29,7 @@ export interface EditCommandContext {
 	readonly maxFileBytes: number;
 	readonly matchHintLimit: number;
 	readonly diff: TextDiffGenerator;
-	readonly diagnostics?: EditDiagnosticsSource;
+	readonly diagnostics?: MutationDiagnosticsSource;
 	readonly onPrepared?: (preview: EditPreviewSuccess) => void;
 }
 
@@ -74,7 +78,7 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 				diff: renderedDiff.diff,
 				...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
 			});
-			baseline = await safeBeforeEdit(context.diagnostics, target, context.operation.signal);
+			baseline = await captureMutationDiagnostics(context.diagnostics, target, context.operation.signal);
 			return { type: "commit", bytes: output };
 		},
 		context.operation,
@@ -97,14 +101,14 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 		diff: renderedDiff.diff,
 		...(renderedDiff.firstChangedLine === undefined ? {} : { firstChangedLine: renderedDiff.firstChangedLine }),
 	};
-	const diagnostics = await safeAfterEdit(
-		context.diagnostics,
-		receipt.target,
-		updatedText,
+	const diagnostics = await collectMutationDiagnostics(context.diagnostics, {
+		target: receipt.target,
+		content: updatedText,
+		created: false,
 		changedRanges,
-		baseline,
-		context.operation.signal,
-	);
+		...(baseline === undefined ? {} : { baseline }),
+		...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+	});
 	if (diagnostics !== undefined) result.lsp = { diagnostics };
 	return result;
 }
@@ -401,27 +405,6 @@ function safePrepared(observer: EditCommandContext["onPrepared"], preview: EditP
 	} catch {}
 }
 
-async function safeBeforeEdit(source: EditDiagnosticsSource | undefined, target: TargetRef, signal: AbortSignal | undefined) {
-	try {
-		return await source?.beforeEdit({ target, ...(signal === undefined ? {} : { signal }) });
-	} catch {
-		return undefined;
-	}
-}
-async function safeAfterEdit(
-	source: EditDiagnosticsSource | undefined,
-	target: TargetRef,
-	content: string,
-	changedRanges: readonly EditLineRange[],
-	baseline: DiagnosticSnapshot | undefined,
-	signal: AbortSignal | undefined,
-) {
-	try {
-		return await source?.afterEdit({ target, content, changedRanges, ...(baseline === undefined ? {} : { baseline }), ...(signal === undefined ? {} : { signal }) });
-	} catch {
-		return undefined;
-	}
-}
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

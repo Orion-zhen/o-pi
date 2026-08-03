@@ -80,9 +80,9 @@ describe("file-tools extension model output", () => {
 	it("read/edit 成功结果给模型返回紧凑文本，完整结构留在 details", async () => {
 		const { registered } = registerExtension(fileTools);
 		const cwd = workspace.path;
-		const originalAfterEdit = lspFileHooks.afterWrite;
+		const originalAfterMutation = lspFileHooks.afterMutation;
 		try {
-			delete lspFileHooks.afterWrite;
+			delete lspFileHooks.afterMutation;
 			await writeFile(join(cwd, "a.ts"), "one\ntwo\n", "utf8");
 			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1" } };
 			const read = await executeTool(registered, "read", { path: "a.ts" }, ctx);
@@ -109,8 +109,8 @@ describe("file-tools extension model output", () => {
 			const failedRead = await executeTool(registered, "read", { path: "missing.ts" }, ctx);
 			expect(textResult(failedRead)).toContain('<error>\nFile does not exist.\n</error>');
 		} finally {
-			if (originalAfterEdit === undefined) delete lspFileHooks.afterWrite;
-			else lspFileHooks.afterWrite = originalAfterEdit;
+			if (originalAfterMutation === undefined) delete lspFileHooks.afterMutation;
+			else lspFileHooks.afterMutation = originalAfterMutation;
 		}
 	});
 
@@ -141,14 +141,14 @@ describe("file-tools extension model output", () => {
 	it("write/edit 返回紧凑结果并限制 LSP 诊断", async () => {
 		const { registered } = registerExtension(fileTools);
 		const cwd = workspace.path;
-		const originalAfterWrite = lspFileHooks.afterWrite;
+		const originalAfterMutation = lspFileHooks.afterMutation;
 		try {
 			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1" } };
-			delete lspFileHooks.afterWrite;
+			delete lspFileHooks.afterMutation;
 			const clean = await executeTool(registered, "write", { path: "clean.ts", content: "export const ok = true;\n" }, ctx);
 			expect(textResult(clean)).toBe('<write path="clean.ts"/>');
 
-			lspFileHooks.afterWrite = vi.fn(async (input) => ({
+			lspFileHooks.afterMutation = vi.fn(async (input) => ({
 				status: "errors" as const,
 				file_errors: 2,
 				file_warnings: 4,
@@ -189,8 +189,8 @@ describe("file-tools extension model output", () => {
 			expect(editText).not.toContain("warning");
 			expect(edited.details).toMatchObject({ status: "applied", path: "bad-edit.ts", lsp: { diagnostics: { status: "errors" } } });
 		} finally {
-			if (originalAfterWrite === undefined) delete lspFileHooks.afterWrite;
-			else lspFileHooks.afterWrite = originalAfterWrite;
+			if (originalAfterMutation === undefined) delete lspFileHooks.afterMutation;
+			else lspFileHooks.afterMutation = originalAfterMutation;
 		}
 	});
 
