@@ -19,14 +19,16 @@ const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
 
 function createModel(options: {
 	compat?: Model<"openai-completions">["compat"];
+	id?: string;
+	provider?: string;
 	reasoning?: boolean;
 	thinkingLevelMap?: ThinkingLevelMap;
 } = {}): Model<"openai-completions"> {
 	return {
-		id: "model",
+		id: options.id ?? "model",
 		name: "Model",
 		api: "openai-completions",
-		provider: "provider",
+		provider: options.provider ?? "provider",
 		baseUrl: "http://127.0.0.1/v1",
 		reasoning: options.reasoning ?? true,
 		...(options.thinkingLevelMap !== undefined ? { thinkingLevelMap: options.thinkingLevelMap } : {}),
@@ -42,12 +44,15 @@ function registerCommand(
 	model: Model<Api> | undefined,
 	initialLevel: ModelThinkingLevel = "medium",
 	events: EventBus = createEventBus(),
+	initialBranch: Array<{ type: "custom"; customType: string; data: unknown }> = [],
+	normalizeLevel: (level: ModelThinkingLevel) => ModelThinkingLevel = (level) => level,
 ) {
 	let commandName: string | undefined;
 	let commandOptions: CommandOptions | undefined;
 	let currentLevel = initialLevel;
 	const notifications: Notification[] = [];
 	const handlers = new Map<string, Handler>();
+	let branchEntries = [...initialBranch];
 
 	const pi = {
 		events,
@@ -55,9 +60,12 @@ function registerCommand(
 			commandName = name;
 			commandOptions = options;
 		},
+		appendEntry(customType: string, data: unknown) {
+			branchEntries.push({ type: "custom", customType, data });
+		},
 		getThinkingLevel: () => currentLevel,
 		setThinkingLevel: (level: ModelThinkingLevel) => {
-			currentLevel = level;
+			currentLevel = normalizeLevel(level);
 		},
 		on(name: string, handler: Handler) {
 			handlers.set(name, handler);
@@ -70,6 +78,9 @@ function registerCommand(
 		mode: "print",
 		hasUI: false,
 		model,
+		sessionManager: {
+			getBranch: () => branchEntries,
+		},
 		ui: {
 			notify(message: string, type: Notification["type"]) {
 				notifications.push({ message, type });
@@ -88,6 +99,15 @@ function registerCommand(
 		},
 		get currentLevel() {
 			return currentLevel;
+		},
+		get branchEntries() {
+			return branchEntries;
+		},
+		setCurrentLevel(level: ModelThinkingLevel) {
+			currentLevel = level;
+		},
+		setBranchEntries(entries: Array<{ type: "custom"; customType: string; data: unknown }>) {
+			branchEntries = [...entries];
 		},
 		notifications,
 		handlers,
@@ -153,6 +173,115 @@ describe("thinking level extension", () => {
 		command.handlers.get("model_select")?.({ type: "model_select", model: nextModel }, command.ctx);
 
 		expect(command.commandOptions?.getArgumentCompletions?.("")).toEqual([{ label: "off", value: "off" }]);
+	});
+
+	it("按模型记忆用户选择，并在 /model 或 Ctrl+P 共用的 model_select 上恢复", () => {
+		const sol = createModel({ id: "gpt-5.6-sol", provider: "openai-codex" });
+		const deepseek = createModel({
+			id: "deepseek-v4-flash",
+			provider: "opencode",
+			thinkingLevelMap: { xhigh: "xhigh" },
+		});
+		const command = registerCommand(sol, "high");
+		const contextFor = (model: Model<Api>) => ({ ...command.ctx, model }) as CommandContext;
+
+		command.handlers.get("model_select")?.({
+			type: "model_select",
+			model: deepseek,
+			previousModel: sol,
+			source: "set",
+		}, contextFor(deepseek));
+		command.setCurrentLevel("xhigh");
+		command.handlers.get("thinking_level_select")?.({
+			type: "thinking_level_select",
+			level: "xhigh",
+			previousLevel: "high",
+		}, contextFor(deepseek));
+
+		// Pi 在 model_select 前把继承的 xhigh clamp 为 high；该过渡事件不能覆盖 Sol 的旧偏好。
+		command.setCurrentLevel("high");
+		command.handlers.get("thinking_level_select")?.({
+			type: "thinking_level_select",
+			level: "high",
+			previousLevel: "xhigh",
+		}, contextFor(sol));
+		command.handlers.get("model_select")?.({
+			type: "model_select",
+			model: sol,
+			previousModel: deepseek,
+			source: "cycle",
+		}, contextFor(sol));
+		expect(command.currentLevel).toBe("high");
+
+		command.handlers.get("model_select")?.({
+			type: "model_select",
+			model: deepseek,
+			previousModel: sol,
+			source: "cycle",
+		}, contextFor(deepseek));
+		expect(command.currentLevel).toBe("xhigh");
+		expect(command.branchEntries.filter((entry) => entry.customType === "thinking-level-preference")).toEqual([
+			{
+				type: "custom",
+				customType: "thinking-level-preference",
+				data: { provider: "openai-codex", modelId: "gpt-5.6-sol", level: "high" },
+			},
+			{
+				type: "custom",
+				customType: "thinking-level-preference",
+				data: { provider: "opencode", modelId: "deepseek-v4-flash", level: "high" },
+			},
+			{
+				type: "custom",
+				customType: "thinking-level-preference",
+				data: { provider: "opencode", modelId: "deepseek-v4-flash", level: "xhigh" },
+			},
+		]);
+	});
+
+	it("不再受支持的历史偏好会保存 Pi clamp 后的实际等级", () => {
+		const sol = createModel({ id: "gpt-5.6-sol", provider: "openai-codex" });
+		const command = registerCommand(sol, "medium", createEventBus(), [{
+			type: "custom",
+			customType: "thinking-level-preference",
+			data: { provider: sol.provider, modelId: sol.id, level: "xhigh" },
+		}], (level) => level === "xhigh" ? "high" : level);
+
+		expect(command.currentLevel).toBe("high");
+		expect(command.branchEntries.at(-1)?.data).toEqual({
+			provider: "openai-codex",
+			modelId: "gpt-5.6-sol",
+			level: "high",
+		});
+	});
+
+	it("从当前 branch 恢复偏好，并在 session_tree 后按新分支重建", () => {
+		const sol = createModel({ id: "gpt-5.6-sol", provider: "openai-codex" });
+		const deepseek = createModel({
+			id: "deepseek-v4-flash",
+			provider: "opencode",
+			thinkingLevelMap: { xhigh: "xhigh" },
+		});
+		const preference = (model: Model<Api>, level: ModelThinkingLevel) => ({
+			type: "custom" as const,
+			customType: "thinking-level-preference",
+			data: { provider: model.provider, modelId: model.id, level },
+		});
+		const command = registerCommand(sol, "medium", createEventBus(), [
+			preference(sol, "high"),
+			{ type: "custom", customType: "thinking-level-preference", data: { provider: "bad" } },
+		]);
+
+		expect(command.currentLevel).toBe("high");
+		command.setBranchEntries([preference(deepseek, "xhigh")]);
+		command.setCurrentLevel("high");
+		const treeContext = { ...command.ctx, model: deepseek } as CommandContext;
+		command.handlers.get("session_tree")?.({ type: "session_tree" }, treeContext);
+
+		expect(command.currentLevel).toBe("xhigh");
+		expect(command.commandOptions?.getArgumentCompletions?.("x")).toEqual([
+			{ label: "xhigh → xhigh", value: "xhigh" },
+		]);
 	});
 
 	it("chat_template_enabled 将 off 显示为 disabled，其他支持等级显示为 enabled", () => {

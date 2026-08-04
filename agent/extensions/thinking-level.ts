@@ -1,21 +1,34 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 import { ThinkingLevelController } from "../../src/thinking-level/controller.js";
 import { formatThinkingLevelOutcome } from "../../src/thinking-level/presentation.js";
+import { ThinkingLevelPreferences } from "../../src/thinking-level/preferences.js";
 
 const COMMAND_NAME = "thinking-level";
 const COMMAND_DESCRIPTION = "Change the current thinking level.";
 
-type ThinkingLevelAPI = Pick<ExtensionAPI, "events" | "getThinkingLevel" | "on" | "registerCommand" | "setThinkingLevel">;
+type ThinkingLevelAPI = Pick<
+	ExtensionAPI,
+	"appendEntry" | "events" | "getThinkingLevel" | "on" | "registerCommand" | "setThinkingLevel"
+>;
 
 /** 注册 /thinking-level；命令层只负责参数、dialog 与 outcome 通知。 */
 export default function thinkingLevelExtension(pi: ThinkingLevelAPI): void {
 	const controller = new ThinkingLevelController(pi);
-	pi.on("session_start", (_event, ctx) => {
+	const preferences = new ThinkingLevelPreferences(pi);
+	const restore = (ctx: ExtensionContext): void => {
 		controller.updateModel(ctx.model);
+		preferences.restore(ctx.sessionManager.getBranch(), ctx.model);
+	};
+
+	pi.on("session_start", (_event, ctx) => restore(ctx));
+	pi.on("session_tree", (_event, ctx) => restore(ctx));
+	pi.on("thinking_level_select", (event, ctx) => {
+		preferences.selectLevel(event.level, ctx.model);
 	});
 	pi.on("model_select", (event) => {
 		controller.updateModel(event.model);
+		preferences.selectModel(event.model);
 	});
 
 	pi.registerCommand(COMMAND_NAME, {

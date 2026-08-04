@@ -240,6 +240,9 @@ Slash handler 是 presentation adapter，不是 GUI API。可复用能力位于�
 - 存在字符串映射时显示为 `Pi 等级 → provider 值`，例如 `xhigh → max`。
 - 带 `<level>` 时只接受当前模型支持的 Pi 等级，再调用 `pi.setThinkingLevel()`。
 - 参数补全同样跟随当前模型，并显示上述映射。
+- 每个 `provider/modelId` 分别记忆最近选择的等级；通过 `/model` 或 Ctrl+P 切回模型时自动恢复，不继承另一个模型的等级。
+- 偏好通过隐藏的会话条目按 branch 持久化；会话恢复及 tree/fork 后从当前 branch 重建，不跨独立会话共享。
+- 模型切换产生的临时等级 clamp 不会覆盖已保存偏好；历史等级不再受支持时保存实际 clamp 后的等级。
 - 无当前模型、无效等级或不受支持等级不会改写当前设置。
 
 ## `/agents`
