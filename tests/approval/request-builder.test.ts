@@ -89,6 +89,36 @@ describe("approval request builder", () => {
 		]);
 	});
 
+	it("解析无参数 mktemp 临时文件变量", async () => {
+		const request = await buildApprovalRequest(bash(`
+log=$(mktemp)
+printf content > "$log"
+rm -f "$log"
+`), cwd);
+
+		expect(request?.units).toEqual(expect.arrayContaining([
+			expect.objectContaining({
+				action: "write_redirect",
+				target: { kind: "path", value: "<temporary>" },
+				effect_scope: "temporary",
+			}),
+			expect.objectContaining({
+				target: expect.objectContaining({ match_value: "rm -f <temporary>" }),
+				effect_scope: "temporary",
+			}),
+		]));
+	});
+
+	it.each([
+		`log=$(mktemp)\nprintf content > "$log/child"`,
+		`log=$(mktemp cache.XXXX)\nprintf content > "$log"`,
+	])("不把未证明的 mktemp 文件路径标成 temporary: %s", async (command) => {
+		const request = await buildApprovalRequest(bash(command), cwd);
+		const redirect = request?.units.find((unit) => unit.action === "write_redirect");
+		expect(redirect).toMatchObject({ target: { kind: "command" } });
+		expect(redirect?.effect_scope).toBeUndefined();
+	});
+
 	it("解析 mktemp 临时目录变量并标记仅影响临时目录的单元", async () => {
 		const request = await buildApprovalRequest(bash(`
 tmpdir=$(mktemp -d)

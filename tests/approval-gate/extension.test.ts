@@ -191,6 +191,11 @@ describe("approval gate", () => {
 	});
 
 	it.each([
+		["mktemp 临时文件中的写入与清理", `
+log=$(mktemp)
+printf content > "$log"
+rm -f "$log"
+`],
 		["mktemp 临时目录中的写入与清理", `
 set -eu
 root="$PWD"

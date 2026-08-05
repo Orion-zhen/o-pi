@@ -10,7 +10,8 @@ import type { ApprovalUnit } from "./types.js";
 const MAX_BASH_UNITS = 256;
 const MAX_NESTED_SHELL_DEPTH = 8;
 // NUL 不可能出现在 shell 参数中，用作不可由输入伪造的内部路径根。
-const TEMPORARY_PATH = "\0temporary";
+const TEMPORARY_DIRECTORY_PATH = "\0temporary-directory";
+const TEMPORARY_FILE_PATH = "\0temporary-file";
 const TEMPORARY_PATH_DISPLAY = "<temporary>";
 const SYSTEM_TEMPORARY_ROOTS = systemTemporaryRoots();
 const BASH_GRAMMAR = getTreeSitterLanguage("bash").grammar;
@@ -320,15 +321,15 @@ function recordStableAssignment(
 		context.variables.delete(name);
 		return;
 	}
-	const value = temporaryDirectoryAssignment(valueNode, context) ?? resolveShellWord(valueNode, context);
+	const value = temporaryPathAssignment(valueNode, context) ?? resolveShellWord(valueNode, context);
 	if (value === undefined) context.variables.delete(name);
 	else context.variables.set(name, value);
 }
 
-function temporaryDirectoryAssignment(node: SyntaxNode, context: BashAnalysisContext): ResolvedShellValue | undefined {
+function temporaryPathAssignment(node: SyntaxNode, context: BashAnalysisContext): ResolvedShellValue | undefined {
 	if (node.type === "string" && node.namedChildren.length === 1) {
 		const child = node.namedChildren[0];
-		return child?.type === "command_substitution" ? temporaryDirectoryAssignment(child, context) : undefined;
+		return child?.type === "command_substitution" ? temporaryPathAssignment(child, context) : undefined;
 	}
 	if (node.type !== "command_substitution") return undefined;
 	const commands = [...walkNamedNodes(node, () => {})].filter((candidate) => candidate.type === "command");
@@ -340,8 +341,11 @@ function temporaryDirectoryAssignment(node: SyntaxNode, context: BashAnalysisCon
 	const args = command.childrenForFieldName("argument").map((argument) => resolveShellWord(argument, context)?.value);
 	if (args.some((argument) => argument === undefined)) return undefined;
 	const values = args as string[];
-	if (values.length !== 1 || (values[0] !== "-d" && values[0] !== "--directory")) return undefined;
-	return { value: TEMPORARY_PATH, temporary: true };
+	if (values.length === 0) return { value: TEMPORARY_FILE_PATH, temporary: true };
+	if (values.length === 1 && (values[0] === "-d" || values[0] === "--directory")) {
+		return { value: TEMPORARY_DIRECTORY_PATH, temporary: true };
+	}
+	return undefined;
 }
 
 function cloneContext(context: BashAnalysisContext): BashAnalysisContext {
@@ -439,7 +443,7 @@ function commandEffectsStayTemporary(facts: CommandFacts, cwd: ResolvedShellValu
 		const operands = commandOperands(facts.args);
 		return operands.length > 0 && operands.every((operand) => {
 			if (operand === undefined) return false;
-			const temporary = operand === TEMPORARY_PATH || operand.startsWith(`${TEMPORARY_PATH}/`);
+			const temporary = isSyntheticTemporaryPath(operand);
 			return resolvePath({ value: operand, temporary }, cwd, ".")?.temporary === true;
 		});
 	}
@@ -470,12 +474,14 @@ function resolvePath(
 	cwd: ResolvedShellValue,
 	fallbackCwd: string,
 ): ResolvedShellValue | undefined {
-	if (input.temporary && input.value.startsWith(TEMPORARY_PATH)) return normalizeTemporaryPath(input.value);
+	if (input.temporary && isSyntheticTemporaryValue(input.value)) return normalizeSyntheticTemporaryPath(input.value);
 	if (path.isAbsolute(input.value)) {
 		return resolvedConcretePath(input.value, fallbackCwd);
 	}
-	if (cwd.temporary && cwd.value.startsWith(TEMPORARY_PATH)) {
-		return normalizeTemporaryPath(`${cwd.value}/${input.value}`);
+	if (cwd.temporary && isSyntheticTemporaryValue(cwd.value)) {
+		return isSyntheticTemporaryDirectory(cwd.value)
+			? normalizeSyntheticTemporaryPath(`${cwd.value}/${input.value}`)
+			: undefined;
 	}
 	return resolvedConcretePath(input.value, cwd.value);
 }
@@ -512,9 +518,10 @@ function comparablePath(value: string): string {
 	return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
 
-function normalizeTemporaryPath(value: string): ResolvedShellValue | undefined {
-	if (value !== TEMPORARY_PATH && !value.startsWith(`${TEMPORARY_PATH}/`)) return undefined;
-	const suffix = value.slice(TEMPORARY_PATH.length);
+function normalizeSyntheticTemporaryPath(value: string): ResolvedShellValue | undefined {
+	if (value === TEMPORARY_FILE_PATH) return { value, temporary: true };
+	if (!isSyntheticTemporaryDirectory(value)) return undefined;
+	const suffix = value.slice(TEMPORARY_DIRECTORY_PATH.length);
 	const segments: string[] = [];
 	for (const segment of suffix.split("/")) {
 		if (segment.length === 0 || segment === ".") continue;
@@ -523,23 +530,36 @@ function normalizeTemporaryPath(value: string): ResolvedShellValue | undefined {
 			segments.pop();
 			continue;
 		}
-		if (segment === TEMPORARY_PATH) return undefined;
+		if (segment === TEMPORARY_DIRECTORY_PATH) return undefined;
 		segments.push(segment);
 	}
 	return {
-		value: segments.length === 0 ? TEMPORARY_PATH : `${TEMPORARY_PATH}/${segments.join("/")}`,
+		value: segments.length === 0 ? TEMPORARY_DIRECTORY_PATH : `${TEMPORARY_DIRECTORY_PATH}/${segments.join("/")}`,
 		temporary: true,
 	};
 }
 
+function isSyntheticTemporaryPath(value: string): boolean {
+	return value === TEMPORARY_FILE_PATH || isSyntheticTemporaryDirectory(value);
+}
+
+function isSyntheticTemporaryValue(value: string): boolean {
+	return value.startsWith(TEMPORARY_FILE_PATH) || value.startsWith(TEMPORARY_DIRECTORY_PATH);
+}
+
+function isSyntheticTemporaryDirectory(value: string): boolean {
+	return value === TEMPORARY_DIRECTORY_PATH || value.startsWith(`${TEMPORARY_DIRECTORY_PATH}/`);
+}
+
 function displayTemporaryPath(value: string): string {
-	return value.startsWith(TEMPORARY_PATH)
-		? `${TEMPORARY_PATH_DISPLAY}${value.slice(TEMPORARY_PATH.length)}`
+	if (value === TEMPORARY_FILE_PATH) return TEMPORARY_PATH_DISPLAY;
+	return isSyntheticTemporaryDirectory(value)
+		? `${TEMPORARY_PATH_DISPLAY}${value.slice(TEMPORARY_DIRECTORY_PATH.length)}`
 		: value;
 }
 
 function resolveShellWord(node: SyntaxNode, context: BashAnalysisContext): ResolvedShellValue | undefined {
-	if (node.type === "command_substitution") return temporaryDirectoryAssignment(node, context);
+	if (node.type === "command_substitution") return temporaryPathAssignment(node, context);
 	return resolveShellToken(node.text, context);
 }
 
@@ -596,7 +616,7 @@ function resolveShellToken(source: string, context: BashAnalysisContext): Resolv
 	}
 	if (quote !== undefined) return undefined;
 	if (!temporary) return { value: result, temporary: false };
-	return normalizeTemporaryPath(result);
+	return normalizeSyntheticTemporaryPath(result);
 }
 
 function resolveVariableExpansion(
