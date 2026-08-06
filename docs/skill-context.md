@@ -2,6 +2,12 @@
 
 `skill-context` 提供静态 `skill` 工具、手动 `/skill:<name>` 加载和只读 `skill://` 资源定位。
 
+## 发现路径
+
+默认用户级 skill 来自 `~/.pi/agent/skills` 和 `~/.agents/skills`。项目受信任时，`.pi/skills` 与 `.agents/skills` 都会从当前工作目录逐级向上发现：位于 Git 仓库内时包含当前目录到最近 Git 根目录，不在 Git 仓库内时一直到文件系统根目录。项目未受信任时不暴露这些项目路径。
+
+Pi 原生发现 `cwd/.pi/skills`；o-pi 通过 `resources_discover` 补充其祖先目录，因此不会重复注入当前目录。skill 目录内部仍使用 Pi 的递归、忽略文件和 `SKILL.md` 解析规则。
+
 ## SKILL.md frontmatter
 
 `SKILL.md` 使用 YAML frontmatter。当前允许的字段包括 Agent Skills 标准字段和 Pi 兼容字段；o-pi 不再新增权限字段：
