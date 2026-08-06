@@ -1,11 +1,13 @@
-agent/auth.json
-agent/settings.json
-agent/state
-agent/sessions
-agent/cookies.txt
-agent/models.jsonc
-agent/models-store.json
-agent/tools.jsonc
+/agent/auth.json
+/agent/settings.json
+/agent/trust.json
+/agent/state
+/agent/skills
+/agent/sessions
+/agent/cookies.txt
+/agent/models.jsonc
+/agent/models-store.json
+/agent/tools.jsonc
 /agent/configs/
 
 cache/
@@ -17,6 +19,8 @@ subagents/
 .pi/
 
 package-lock.json
+
+.DS_Store
 
 # Logs
 logs
