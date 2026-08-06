@@ -377,31 +377,49 @@ describe("thinking level extension", () => {
 		}]);
 	});
 
-	it("无参数菜单只展示支持等级，并在标签中显示显式映射", async () => {
+	it("无参数菜单只展示支持等级，并默认选中当前等级", async () => {
 		const model = createModel({
 			thinkingLevelMap: { minimal: null, low: null, medium: null, high: "max", xhigh: "ultra" },
 		});
 		const command = registerCommand(model, "high");
-		let selectTitle: string | undefined;
-		let selectOptions: string[] | undefined;
+		let renderedLines: string[] = [];
+		let renderRequests = 0;
 		const ctx: CommandContext = {
 			...command.ctx,
 			mode: "tui",
 			hasUI: true,
 			ui: {
 				...command.ctx.ui,
-				select: async (title: string, options: string[]) => {
-					selectTitle = title;
-					selectOptions = options;
-					return "xhigh → ultra";
+				custom: async (factory: (
+					tui: never,
+					theme: never,
+					keybindings: never,
+					done: (result: ModelThinkingLevel | undefined) => void,
+				) => unknown) => {
+					let selected: ModelThinkingLevel | undefined;
+					const selector = factory(
+						{ requestRender: () => renderRequests++ } as never,
+						{ fg: (_color: string, text: string) => text, bold: (text: string) => text } as never,
+						{} as never,
+						(result) => {
+							selected = result;
+						},
+					) as { render(width: number): string[]; handleInput(data: string): void };
+					renderedLines = selector.render(80);
+					selector.handleInput("\u001b[B");
+					selector.handleInput("\r");
+					return selected;
 				},
 			},
 		} as never;
 
 		await command.commandOptions?.handler("", ctx);
 
-		expect(selectTitle).toBe("Thinking level (current: high)");
-		expect(selectOptions).toEqual(["off", "high → max", "xhigh → ultra"]);
+		expect(renderedLines.some((line) => line.includes("Thinking level (current: high)"))).toBe(true);
+		expect(renderedLines.some((line) => line.includes("→ high → max"))).toBe(true);
+		expect(renderedLines.some((line) => line.includes("  off"))).toBe(true);
+		expect(renderedLines.some((line) => line.includes("  xhigh → ultra"))).toBe(true);
+		expect(renderRequests).toBe(2);
 		expect(command.currentLevel).toBe("xhigh");
 		expect(command.notifications).toEqual([{ message: "Thinking level: xhigh", type: "info" }]);
 	});

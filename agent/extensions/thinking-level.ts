@@ -55,15 +55,22 @@ export default function thinkingLevelExtension(pi: ThinkingLevelAPI): void {
 				return;
 			}
 
-			const selected = await ctx.ui.select(
-				`Thinking level (current: ${snapshot.currentLevel})`,
-				snapshot.options.map(({ label }) => label),
-			);
+			const title = `Thinking level (current: ${snapshot.currentLevel})`;
+			const selected = ctx.mode === "tui"
+				? await (await import("../../src/thinking-level/tui/selector.js")).selectThinkingLevel(
+					ctx.ui,
+					title,
+					snapshot.options,
+					snapshot.currentLevel,
+				)
+				: await ctx.ui.select(title, snapshot.options.map(({ label }) => label));
 			if (selected === undefined) {
 				controller.cancelSelection(ctx.model);
 				return;
 			}
-			const option = controller.findOptionByLabel(selected, ctx.model);
+			const option = ctx.mode === "tui"
+				? snapshot.options.find(({ level }) => level === selected)
+				: controller.findOptionByLabel(selected, ctx.model);
 			if (option === undefined) return;
 			notifyOutcome(ctx.ui, controller.setLevel(option.level, ctx.model));
 		},
