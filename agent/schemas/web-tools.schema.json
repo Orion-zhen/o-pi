@@ -8,6 +8,16 @@
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
+				"proxy": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"enabled": { "type": "boolean", "default": false },
+						"http_proxy": { "type": "string", "maxLength": 8192, "default": "" },
+						"https_proxy": { "type": "string", "maxLength": 8192, "default": "" },
+						"socks5_proxy": { "type": "string", "maxLength": 8192, "default": "" }
+					}
+				},
 				"fake_ip_ranges": {
 					"type": "array",
 					"maxItems": 8,

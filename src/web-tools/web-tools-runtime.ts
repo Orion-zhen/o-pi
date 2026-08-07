@@ -12,6 +12,7 @@ import type {
 	WebToolsRuntime,
 	WebToolsRuntimeOptions,
 } from "./core/types.js";
+import { createNetworkDispatcher, networkConfigSignature } from "./network/dispatcher.js";
 import { SearchCorpus } from "./search/search-corpus.js";
 
 const defaultCapabilityLoaders: WebToolsCapabilityLoaders = {
@@ -23,14 +24,13 @@ const defaultCapabilityLoaders: WebToolsCapabilityLoaders = {
 	},
 };
 
-/** Lightweight owner for capability-local state and the one shared secure dispatcher. */
+/** Lightweight owner for capability-local state and shared secure dispatchers. */
 export function createWebToolsRuntime(
 	options: WebToolsRuntimeOptions = {},
 	loaders: WebToolsCapabilityLoaders = defaultCapabilityLoaders,
 ): WebToolsRuntime {
-	let allowedFakeIpRanges: readonly string[] = [];
-	let dispatcher = options.dispatcher;
-	let dispatcherPromise: Promise<Dispatcher> | undefined;
+	const injectedDispatcher = options.dispatcher;
+	const dispatcherPromises = new Map<string, Promise<Dispatcher>>();
 	let configModulePromise: Promise<typeof import("./config.js")> | undefined;
 	let closed = false;
 	let closePromise: Promise<void> | undefined;
@@ -42,9 +42,6 @@ export function createWebToolsRuntime(
 		fetchImpl,
 		loadConfig,
 		now,
-		setAllowedFakeIpRanges(ranges: readonly string[]) {
-			allowedFakeIpRanges = ranges;
-		},
 		searchCorpus,
 	};
 	const searchOptions: WebSearchCapabilityOptions = {
@@ -58,15 +55,15 @@ export function createWebToolsRuntime(
 	const search = createRetryableCapability(() => loaders.search(searchOptions));
 	const fetch = createRetryableCapability(() => loaders.fetch(fetchOptions));
 
-	function getDispatcher(): Promise<Dispatcher> {
-		if (dispatcher !== undefined) return Promise.resolve(dispatcher);
-		if (dispatcherPromise !== undefined) return dispatcherPromise;
-		const pending = createDefaultDispatcher(() => allowedFakeIpRanges);
-		dispatcherPromise = pending;
-		void pending.then((created) => {
-			dispatcher = created;
-		}, () => {
-			if (dispatcherPromise === pending) dispatcherPromise = undefined;
+	function getDispatcher(network: WebToolsConfig["network"]): Promise<Dispatcher> {
+		if (injectedDispatcher !== undefined) return Promise.resolve(injectedDispatcher);
+		const key = networkConfigSignature(network);
+		const existing = dispatcherPromises.get(key);
+		if (existing !== undefined) return existing;
+		const pending = createDefaultDispatcher(structuredClone(network));
+		dispatcherPromises.set(key, pending);
+		void pending.catch(() => {
+			if (dispatcherPromises.get(key) === pending) dispatcherPromises.delete(key);
 		});
 		return pending;
 	}
@@ -118,10 +115,11 @@ export function createWebToolsRuntime(
 		search.clear();
 		fetch.clear();
 		searchCorpus.clear();
-		const activeDispatcher = dispatcher ?? await settledDispatcher(dispatcherPromise);
-		await activeDispatcher?.close();
-		dispatcher = undefined;
-		dispatcherPromise = undefined;
+		const activeDispatchers = injectedDispatcher === undefined
+			? await Promise.all([...dispatcherPromises.values()].map(settledDispatcher))
+			: [injectedDispatcher];
+		await Promise.all(activeDispatchers.filter((active): active is Dispatcher => active !== undefined).map((active) => active.close()));
+		dispatcherPromises.clear();
 		configModulePromise = undefined;
 	}
 }
@@ -159,14 +157,8 @@ async function settledDispatcher(pending: Promise<Dispatcher> | undefined): Prom
 	return pending === undefined ? undefined : pending.catch(() => undefined);
 }
 
-async function createDefaultDispatcher(getAllowedFakeIpRanges: () => readonly string[]): Promise<Dispatcher> {
-	const [{ Agent }, { createSecureLookup }] = await Promise.all([
-		loadUndici(),
-		import("./network/network-policy.js"),
-	]);
-	return new Agent({
-		connect: { lookup: createSecureLookup(getAllowedFakeIpRanges) },
-	});
+async function createDefaultDispatcher(network: WebToolsConfig["network"]): Promise<Dispatcher> {
+	return createNetworkDispatcher(network, await loadUndici());
 }
 
 async function defaultFetch(input: URL, init: WebHttpRequestInit): Promise<WebHttpResponse> {

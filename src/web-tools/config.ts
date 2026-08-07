@@ -82,7 +82,10 @@ export function defaultCookiePath(): string {
 }
 
 interface RawWebToolsConfig {
-	network?: Partial<WebToolsConfig["network"]>;
+	network?: {
+		proxy?: Partial<WebToolsConfig["network"]["proxy"]>;
+		fake_ip_ranges?: string[];
+	};
 	websearch?: {
 		default_results?: number;
 		cache_ttl_seconds?: number;
@@ -126,11 +129,50 @@ function materializeConfig(raw: CompleteWebToolsConfig): WebToolsConfig {
 	if (config.websearch.include_domains.some((domain) => config.websearch.exclude_domains.includes(domain))) {
 		throw new WebToolsConfigError("websearch include_domains and exclude_domains must not overlap.");
 	}
+	validateProxyConfig(config.network.proxy);
 	validateFakeIpRanges(config.network.fake_ip_ranges);
 	validateProviderUrl("brave_api", config.websearch.brave_api.endpoint);
 	validateProviderUrl("exa_api", config.websearch.exa_api.endpoint);
 	validateProviderUrl("tavily", config.websearch.tavily.endpoint);
 	return config;
+}
+
+function validateProxyConfig(proxy: WebToolsConfig["network"]["proxy"]): void {
+	const endpoints = [
+		["http_proxy", proxy.http_proxy, new Set(["http:", "https:"])],
+		["https_proxy", proxy.https_proxy, new Set(["http:", "https:"])],
+		["socks5_proxy", proxy.socks5_proxy, new Set(["socks5:"])],
+	] as const;
+	if (proxy.enabled && endpoints.every(([, value]) => value === "")) {
+		throw new WebToolsConfigError("network.proxy.enabled requires at least one proxy endpoint.");
+	}
+	for (const [field, value, protocols] of endpoints) validateProxyUrl(field, value, protocols);
+}
+
+function validateProxyUrl(field: string, value: string, protocols: ReadonlySet<string>): void {
+	if (value === "") return;
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new WebToolsConfigError(`network.proxy.${field} must be a valid proxy URL.`);
+	}
+	if (
+		!protocols.has(url.protocol)
+		|| url.hostname === ""
+		|| !isValidProxyPort(url.port)
+		|| (url.pathname !== "" && url.pathname !== "/")
+		|| url.search !== ""
+		|| url.hash !== ""
+	) {
+		throw new WebToolsConfigError(`network.proxy.${field} must be a valid proxy URL.`);
+	}
+}
+
+function isValidProxyPort(port: string): boolean {
+	if (port === "") return true;
+	const value = Number(port);
+	return Number.isInteger(value) && value >= 1 && value <= 65_535;
 }
 
 function validateProviderUrl(provider: string, value: string): void {

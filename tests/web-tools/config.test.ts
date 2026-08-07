@@ -20,7 +20,14 @@ beforeEach(() => {
 describe("web-tools config", () => {
 	it("缺少配置文件采用默认值", async () => {
 		process.env.PI_WEB_TOOLS_CONFIG = path.join(dir, "missing.jsonc");
-		expect(await loadWebToolsConfig()).toEqual(defaultWebToolsConfig());
+		const config = await loadWebToolsConfig();
+		expect(config).toEqual(defaultWebToolsConfig());
+		expect(config.network.proxy).toEqual({
+			enabled: false,
+			http_proxy: "",
+			https_proxy: "",
+			socks5_proxy: "",
+		});
 	});
 
 	it("支持合法 JSONC 和 trailing comma", async () => {
@@ -29,7 +36,15 @@ describe("web-tools config", () => {
 			file,
 			`{
 				"$schema": "../schemas/web-tools.schema.json",
-				"network": { "fake_ip_ranges": ["198.18.0.0/16"], },
+				"network": {
+					"proxy": {
+						"enabled": true,
+						"http_proxy": "http://127.0.0.1:7890",
+						"https_proxy": "https://proxy.example:8443",
+						"socks5_proxy": "socks5://127.0.0.1:7891",
+					},
+					"fake_ip_ranges": ["198.18.0.0/16"],
+				},
 				"websearch": {
 					"default_results": 5,
 					"total_deadline_seconds": 18,
@@ -49,7 +64,15 @@ describe("web-tools config", () => {
 		);
 		process.env.PI_WEB_TOOLS_CONFIG = file;
 		expect(await loadWebToolsConfig()).toMatchObject({
-			network: { fake_ip_ranges: ["198.18.0.0/16"] },
+			network: {
+				proxy: {
+					enabled: true,
+					http_proxy: "http://127.0.0.1:7890",
+					https_proxy: "https://proxy.example:8443",
+					socks5_proxy: "socks5://127.0.0.1:7891",
+				},
+				fake_ip_ranges: ["198.18.0.0/16"],
+			},
 			websearch: {
 				default_results: 5,
 				total_deadline_seconds: 18,
@@ -105,6 +128,42 @@ describe("web-tools config", () => {
 
 		await writeFile(file, '{ "network": { "fake_ip_ranges": ["198.18.0.0/16"] } }');
 		await expect(loadWebToolsConfig()).resolves.toMatchObject({ network: { fake_ip_ranges: ["198.18.0.0/16"] } });
+
+		await writeFile(file, '{ "network": { "proxy": { "unknown": true } } }');
+		await expect(loadWebToolsConfig()).rejects.toThrow("does not match schema");
+	});
+
+	it.each([
+		[
+			"没有端点",
+			{ network: { proxy: { enabled: true } } },
+			"network.proxy.enabled requires at least one proxy endpoint",
+		],
+		[
+			"HTTP 字段使用 SOCKS5 协议",
+			{ network: { proxy: { enabled: true, http_proxy: "socks5://127.0.0.1:1080" } } },
+			"network.proxy.http_proxy must be a valid proxy URL",
+		],
+		[
+			"SOCKS5 字段使用 HTTP 协议",
+			{ network: { proxy: { enabled: true, socks5_proxy: "http://127.0.0.1:8080" } } },
+			"network.proxy.socks5_proxy must be a valid proxy URL",
+		],
+		[
+			"代理 URL 带路径",
+			{ network: { proxy: { enabled: true, https_proxy: "http://127.0.0.1:8080/path" } } },
+			"network.proxy.https_proxy must be a valid proxy URL",
+		],
+		[
+			"代理 URL 使用零端口",
+			{ network: { proxy: { enabled: true, http_proxy: "http://127.0.0.1:0" } } },
+			"network.proxy.http_proxy must be a valid proxy URL",
+		],
+	] as const)("拒绝非法代理配置：%s", async (_label, value, message) => {
+		const file = path.join(dir, "proxy.jsonc");
+		process.env.PI_WEB_TOOLS_CONFIG = file;
+		await writeFile(file, JSON.stringify(value));
+		await expect(loadWebToolsConfig()).rejects.toThrow(message);
 	});
 
 	it("提供搜索默认值并拒绝未知字段和非法 endpoint", async () => {

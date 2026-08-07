@@ -99,14 +99,20 @@ export function isAllowedResolvedAddress(address: string, allowedFakeIpRanges: r
 	});
 }
 
-export function createSecureLookup(getAllowedFakeIpRanges: () => readonly string[] = () => []) {
+export function createSecureLookup(
+	getAllowedFakeIpRanges: () => readonly string[] = () => [],
+	lookup?: LookupOptions["lookup"],
+) {
 	return (
 		hostname: string,
 		options: dns.LookupOneOptions | dns.LookupAllOptions | number,
 		callback: (err: NodeJS.ErrnoException | null, address: string | LookupAddress[], family?: number) => void,
 	): void => {
 		const all = typeof options === "object" && "all" in options && options.all === true;
-		resolveAllowedAddresses(hostname, { allowedFakeIpRanges: getAllowedFakeIpRanges() })
+		resolveAllowedAddresses(hostname, {
+			allowedFakeIpRanges: getAllowedFakeIpRanges(),
+			...(lookup !== undefined ? { lookup } : {}),
+		})
 			.then((addresses) => {
 				if (all) {
 					callback(null, addresses);
