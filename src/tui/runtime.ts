@@ -20,6 +20,14 @@ import {
 	resetUserMessageTimestamps,
 } from "./message-timestamp.js";
 import type { TuiConfig, TuiFooterSkillsSnapshot, TuiFooterSnapshot, TuiFooterToolsSnapshot } from "./types.js";
+import { UserHistoryEditor } from "./user-history-editor.js";
+import {
+	buildInitialHistory,
+	normalizeHistoryCwd,
+	type SessionHistoryMessage,
+	type UserHistoryRecord,
+	UserHistoryStore,
+} from "./user-history.js";
 
 const STATUS_KEY = "o-pi:tui";
 const MATH_IDLE_DELAY_MS = 750;
@@ -36,10 +44,16 @@ export interface TuiRuntimeModule {
 	createTuiRuntime(pi: ExtensionAPI, loadMathMarkdown?: MathMarkdownLoader, notifyUser?: WaitingNotifier): TuiRuntime;
 }
 
+export interface TuiSessionStartOptions {
+	replaySessionMessages?: boolean;
+}
+
 export interface TuiRuntime {
-	startSession(ctx: ExtensionContext): Promise<void>;
+	startSession(ctx: ExtensionContext, options?: TuiSessionStartOptions): Promise<void>;
 	dispose(ctx: ExtensionContext): Promise<void> | void;
 }
+
+type EditorFactory = NonNullable<ReturnType<ExtensionContext["ui"]["getEditorComponent"]>>;
 
 /** 原生 Pi TUI runtime；由 extension bootstrap 仅在 native 模式激活。 */
 export function createTuiRuntime(
@@ -58,14 +72,18 @@ export function createTuiRuntime(
 	let mathTimer: ReturnType<typeof setTimeout> | undefined;
 	let sessionGeneration = 0;
 	let skillsSnapshot: TuiFooterSkillsSnapshot | undefined;
+	let historyEditorFactory: EditorFactory | undefined;
+	let previousEditorFactory: EditorFactory | undefined;
 	const assistantPerformance = createAssistantPerformanceTracker();
+	const userHistory = new UserHistoryStore();
 
 	registerHandlers();
 
 	return { startSession, dispose };
 
-	async function startSession(ctx: ExtensionContext): Promise<void> {
+	async function startSession(ctx: ExtensionContext, options: TuiSessionStartOptions = {}): Promise<void> {
 		await resetSession(ctx);
+		await installUserHistory(ctx, options.replaySessionMessages === true);
 		const nextConfig = await loadTuiConfig();
 		config = nextConfig;
 		configureMessageTimestampRenderer(nextConfig.enabled ? {
@@ -102,6 +120,8 @@ export function createTuiRuntime(
 	async function resetSession(ctx: ExtensionContext): Promise<void> {
 		sessionGeneration += 1;
 		cancelMathInitialization();
+		await userHistory.flush();
+		restoreEditor(ctx);
 		const previousGitCache = gitCache;
 		gitCache = undefined;
 		if (config !== undefined || setTitle !== undefined || startupBannerVisible) cleanup(ctx);
@@ -112,6 +132,46 @@ export function createTuiRuntime(
 		skillsSnapshot = undefined;
 		assistantPerformance.reset();
 		await previousGitCache?.dispose();
+	}
+
+	async function installUserHistory(ctx: ExtensionContext, replaySessionMessages: boolean): Promise<void> {
+		const cwd = normalizeHistoryCwd(ctx.cwd);
+		const session = ctx.sessionManager.getSessionId();
+		const sessionMessages = collectSessionHistoryMessages(ctx);
+		let records: UserHistoryRecord[] = [];
+		let warned = false;
+		try {
+			records = await userHistory.load(cwd);
+		} catch (error) {
+			warned = true;
+			ctx.ui.notify(`User history could not be loaded: ${stringifyError(error)}`, "warning");
+		}
+		const initialHistory = buildInitialHistory(records, sessionMessages, session);
+		const replayQueue = replaySessionMessages ? sessionMessages.map((message) => message.text) : [];
+		previousEditorFactory = ctx.ui.getEditorComponent();
+		historyEditorFactory = (tui, theme, keybindings) => new UserHistoryEditor(
+			tui,
+			theme,
+			keybindings,
+			initialHistory,
+			replayQueue,
+			(text) => {
+				void userHistory.append({ cwd, session, text }).catch((error: unknown) => {
+					if (warned) return;
+					warned = true;
+					ctx.ui.notify(`User history could not be saved: ${stringifyError(error)}`, "warning");
+				});
+			},
+		);
+		ctx.ui.setEditorComponent(historyEditorFactory);
+	}
+
+	function restoreEditor(ctx: ExtensionContext): void {
+		if (historyEditorFactory !== undefined && ctx.ui.getEditorComponent() === historyEditorFactory) {
+			ctx.ui.setEditorComponent(previousEditorFactory);
+		}
+		historyEditorFactory = undefined;
+		previousEditorFactory = undefined;
 	}
 
 	function registerHandlers(): void {
@@ -293,6 +353,19 @@ export function createTuiRuntime(
 		ctx.ui.setWorkingIndicator();
 		if (ctx.cwd) ctx.ui.setTitle(formatTitle({ cwd: ctx.cwd, status: "ready" }));
 	}
+}
+
+function collectSessionHistoryMessages(ctx: ExtensionContext): SessionHistoryMessage[] {
+	return ctx.sessionManager.buildContextEntries()
+		.flatMap(sessionEntryToContextMessages)
+		.filter((message): message is UserMessage => message.role === "user")
+		.map((message) => ({
+			timestamp: message.timestamp,
+			text: typeof message.content === "string"
+				? message.content
+				: message.content.flatMap((content) => content.type === "text" ? [content.text] : []).join(""),
+		}))
+		.filter((message) => message.text.length > 0);
 }
 
 function syncUserMessageTimestamps(ctx: ExtensionContext): void {

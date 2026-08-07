@@ -17,12 +17,12 @@ export function createTuiExtension(
 		let runtimeModule: TuiRuntimeModule | undefined;
 		let runtimeLoad: Promise<TuiRuntimeModule> | undefined;
 
-		pi.on("session_start", async (_event, ctx) => {
+		pi.on("session_start", async (event, ctx) => {
 			if (ctx.mode !== "tui") return;
 			try {
 				const module = await getTuiRuntime();
 				runtime ??= module.createTuiRuntime(pi, loadMathMarkdown);
-				await runtime.startSession(ctx);
+				await runtime.startSession(ctx, { replaySessionMessages: event.reason === "startup" });
 			} catch (error) {
 				await runtime?.dispose(ctx);
 				ctx.ui.notify(`TUI runtime initialization failed: ${stringifyError(error)}`, "warning");
