@@ -93,6 +93,31 @@ describe("layered config loader", () => {
 		expect(validate({ enabled: true, nested: { value: 1 } })).toBe(true);
 	});
 
+	it("完整默认层可显式允许由模块运行时补齐的字段", async () => {
+		const schemaPath = path.join(temp.path, "runtime-default.schema.json");
+		await writeFile(schemaPath, JSON.stringify({
+			type: "object",
+			additionalProperties: false,
+			properties: {
+				enabled: { type: "boolean" },
+				nested: {
+					type: "object",
+					additionalProperties: false,
+					properties: { value: { type: "integer" } },
+				},
+			},
+		}));
+		const validate = await createCompleteSchemaValidator({
+			schemaPath,
+			label: "runtime-default-test",
+			optionalCompleteProperties: ["nested"],
+			createError: (message) => new Error(message),
+		})();
+		expect(validate({ enabled: true })).toBe(true);
+		expect(validate({ enabled: true, nested: {} })).toBe(false);
+		expect(validate({ enabled: true, nested: { value: 1 } })).toBe(true);
+	});
+
 	it("逐层校验后合并配置，并保留加载快照信息", async () => {
 		const user = path.join(temp.path, "approval-user.jsonc");
 		await writeFile(user, '{ "enabled": false, "ui": { "timeout_ms": 25 } }');

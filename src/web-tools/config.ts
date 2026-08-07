@@ -17,6 +17,13 @@ import { normalizeDomains } from "./search-providers/query.js";
 
 const COOKIES_PATH_ENV = "PI_WEB_TOOLS_COOKIES";
 const SCHEMA_PATH = agentSchemaPath("web-tools.schema.json");
+const OPTIONAL_COMPLETE_PROPERTIES = ["network.proxy"] as const;
+const DEFAULT_PROXY_CONFIG: WebToolsConfig["network"]["proxy"] = {
+	enabled: false,
+	http_proxy: "",
+	https_proxy: "",
+	socks5_proxy: "",
+};
 
 export class WebToolsConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
@@ -74,6 +81,7 @@ export function defaultWebToolsConfig(): WebToolsConfig {
 		schemaPath: SCHEMA_PATH,
 		label: "web-tools",
 		createError,
+		optionalCompleteProperties: OPTIONAL_COMPLETE_PROPERTIES,
 	}) as CompleteWebToolsConfig);
 }
 
@@ -110,14 +118,20 @@ interface RawWebToolsConfig {
 }
 
 interface CompleteWebToolsConfig extends Required<RawWebToolsConfig> {
-	network: WebToolsConfig["network"];
+	network: {
+		proxy?: Partial<WebToolsConfig["network"]["proxy"]>;
+		fake_ip_ranges: string[];
+	};
 	websearch: WebToolsConfig["websearch"];
 	webfetch: WebToolsConfig["webfetch"];
 }
 
 function materializeConfig(raw: CompleteWebToolsConfig): WebToolsConfig {
 	const config: WebToolsConfig = {
-		network: structuredClone(raw.network),
+		network: {
+			proxy: { ...DEFAULT_PROXY_CONFIG, ...raw.network.proxy },
+			fake_ip_ranges: structuredClone(raw.network.fake_ip_ranges),
+		},
 		websearch: structuredClone(raw.websearch),
 		webfetch: structuredClone(raw.webfetch),
 	};
@@ -210,4 +224,9 @@ function createError(message: string, details?: Record<string, unknown>): WebToo
 }
 
 const loadValidator = createSchemaValidator({ schemaPath: SCHEMA_PATH, label: "web-tools", createError });
-const loadCompleteValidator = createCompleteSchemaValidator({ schemaPath: SCHEMA_PATH, label: "web-tools", createError });
+const loadCompleteValidator = createCompleteSchemaValidator({
+	schemaPath: SCHEMA_PATH,
+	label: "web-tools",
+	createError,
+	optionalCompleteProperties: OPTIONAL_COMPLETE_PROPERTIES,
+});
