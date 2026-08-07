@@ -1,12 +1,12 @@
 # TUI V1
 
-`agent/extensions/tui.ts` 提供 o-pi 的轻量 TUI chrome。它保留 Pi 原生单列 transcript 和输入框，只通过当前本地 Pi 依赖的公开 UI API 增加 title、可选 header、footer/status 和 working indicator。
+`agent/extensions/tui.ts` 提供 o-pi 的轻量 TUI chrome。它保留 Pi 原生单列 transcript；输入框使用 Pi 公开 `CustomEditor/setEditorComponent` 扩展路径级操作历史，其余部分只通过当前本地 Pi 依赖的公开 UI API 增加 title、可选 header、footer/status 和 working indicator。
 
 启动时会显示轻量 ASCII banner：左侧是 `O Pi` wordmark，右侧是当前可得的 workspace、model、context、tools 状态。宽终端左右排列，窄终端上下排列，极窄终端降级为 compact text；所有行都会按终端可见宽度截断。
 
 ## 边界
 
-V1 不 fork、不 monkey patch、不替换主 TUI，不实现 sidebar、fixed editor、overlay、splash、重型 syntax theme、image paste 或 dashboard。目标是统一视觉语法，而不是重写交互框架。
+V1 不 fork、不 monkey patch、不替换主 TUI，不实现 sidebar、fixed editor、overlay、splash、重型 syntax theme、image paste 或 dashboard。自定义输入框继承 Pi `CustomEditor`，未改写原生编辑、自动补全、快捷键和提交语义，只预载并记录历史。目标是统一视觉语法，而不是重写交互框架。
 
 整个 o-pi TUI runtime 只在 Pi native TUI (`ctx.mode === "tui"`) 中启用：chrome、startup banner、footer、Git 状态、Math Markdown、工具/消息 renderer 和 command viewer 都不会在 RPC、JSON 或 print 模式初始化。非 TUI 模式仍注册相同的工具 schema、执行逻辑和结构化结果；自定义 renderer 不绑定，TUI 专用命令使用原有的错误通知或纯文本降级。session reload 会复用 native runtime，session shutdown 会清理 chrome、timer 和 Git 查询状态。
 
@@ -24,6 +24,24 @@ agent/defaults/tui.jsonc
 配置缺失时使用默认值；配置错误会抛出明确错误。
 
 Math Markdown 解析器和 MathJax 不在 `session_start` 热路径加载。启用数学渲染时，native TUI 会在连续空闲 750ms 后初始化；`turn_start` 会取消等待，`turn_end` 再重新安排。支持终端图片的环境会同时预热 MathJax；如果预热尚未完成就首次遇到块级公式，renderer 会先显示源码并按需启动初始化，后续重绘显示公式图片。RPC、JSON 和 print 模式不会加载整个 TUI runtime 或这套 TUI 数学能力，session 关闭也会取消尚未开始的任务。
+
+## 路径级操作历史
+
+TUI 将键盘提交的 prompt、slash command、`!`/`!!` 和 follow-up 统一写入：
+
+```text
+~/.pi/cache/user-history/history.jsonl
+```
+
+这是唯一的持久化历史文件。每行是一条可人工查看和编辑的 JSON 记录；多行输入在 JSON 字符串中转义：
+
+```json
+{"timestamp":"2026-08-07T12:34:56.789Z","cwd":"/home/user/project","session":"...","text":"检查这个改动"}
+```
+
+历史按规范化绝对 `cwd` 隔离，而不是按 session 隔离。新会话或恢复其他会话时，只把当前路径最近 100 条载入 Pi 原生上下方向键历史；当前草稿的恢复、单行/多行光标移动规则仍沿用 Pi。首次启用时会从当前 session 补入尚未进入该文件的旧用户消息，但 session transcript 的启动回放不会再次写盘。
+
+提交热路径不等待磁盘：记录进入进程内串行写队列，再以 JSONL 追加；多个 Pi 进程通过短期目录锁协调写入。启动加载从文件尾按 64 KiB 分块反向扫描，收满当前路径 100 条即停止。文件超过 8 MiB 时在写锁内压缩到约 6 MiB，每个路径最多保留 100 条；异常退出留下的锁超过 30 秒会被回收。历史加载或保存失败只警告一次，不影响输入和 Agent 执行。
 
 模型正文完成后，消息时间戳左侧显示 `[TPS: ..., TTFT: ...]`，两个方括号块之间不留空格。TPS 只统计正文 `text_delta`，不包含 thinking、reasoning summary、隐藏 reasoning 或工具参数；TTFT 从最后一次实际 HTTP attempt 开始，计算到首个用户可见模型 token。思考内容展开时首个 thinking token 可作为 TTFT 终点，隐藏时则使用首个正文 token。正文只有一个流式观测点、请求失败或终端宽度不足时只保留时间戳。性能数据只属于当前 TUI 进程，不写入 session 历史。
 
@@ -128,6 +146,8 @@ expanded view 先保留这 2 行，再追加详情。renderer 会清理 ANSI、O
 * `ctx.ui.setFooter(factory)`
 * `ctx.ui.setHeader(factory)`
 * `ctx.ui.setWorkingIndicator(options)`
+* `ctx.ui.setEditorComponent(factory)` / `ctx.ui.getEditorComponent()`
+* `CustomEditor`
 * `ctx.ui.custom(factory, options)`
 * `ctx.getContextUsage()`
 * `ctx.getSystemPromptOptions()`

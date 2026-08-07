@@ -1,18 +1,19 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
+import type { ExtensionAPI, KeybindingsManager } from "@earendil-works/pi-coding-agent";
+import type { Component, EditorComponent, EditorTheme, TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import tuiExtension, { createTuiExtension } from "../../agent/extensions/tui.js";
 import { getAssistantPerformance } from "../../src/tui/message-performance.js";
 import { createTuiRuntime } from "../../src/tui/runtime.js";
-import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
+import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
 
 type Handler = (event: unknown, ctx: ExtensionContextStub) => Promise<void> | void;
 type FooterFactory = (tui: { requestRender(): void }, theme: ThemeStub, footerData: FooterDataStub) => Component;
 type HeaderFactory = (tui: { requestRender(): void }, theme: ThemeStub) => Component;
+type EditorFactoryStub = (tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => EditorComponent;
 
 interface ThemeStub {
 	fg(_name: string, text: string): string;
@@ -37,13 +38,15 @@ interface ExtensionContextStub {
 		setFooter(factory: FooterFactory | undefined): void;
 		setHeader(factory: HeaderFactory | undefined): void;
 		setWorkingIndicator(options?: unknown): void;
+		setEditorComponent(factory: EditorFactoryStub | undefined): void;
+		getEditorComponent(): EditorFactoryStub | undefined;
 	};
 	getContextUsage(): undefined;
 	isIdle(): boolean;
 	hasPendingMessages(): boolean;
 	model: ModelStub | undefined;
 	modelRegistry: { isUsingOAuth(model: ModelStub): boolean };
-	sessionManager: { getEntries(): unknown[]; buildContextEntries(): never[] };
+	sessionManager: { getEntries(): unknown[]; buildContextEntries(): never[]; getSessionId(): string };
 }
 
 interface ModelStub {
@@ -54,10 +57,11 @@ interface ModelStub {
 
 let dir: string;
 const temp = useTempDir("o-pi-tui-extension-");
-preserveEnv("PI_TUI_CONFIG");
+preserveEnv("PI_TUI_CONFIG", "HOME", "USERPROFILE");
 
 beforeEach(() => {
 	dir = temp.path;
+	setTestHome(dir);
 });
 
 afterEach(() => {
@@ -102,6 +106,8 @@ describe("tui extension", () => {
 				},
 				setHeader() {},
 				setWorkingIndicator() {},
+				setEditorComponent() {},
+				getEditorComponent: () => undefined,
 			},
 			getContextUsage() {
 				return undefined;
@@ -110,7 +116,7 @@ describe("tui extension", () => {
 			hasPendingMessages: () => false,
 			model: undefined,
 			modelRegistry: { isUsingOAuth: () => false },
-			sessionManager: { getEntries: () => [], buildContextEntries: () => [] },
+			sessionManager: { getEntries: () => [], buildContextEntries: () => [], getSessionId: () => "session-test" },
 		};
 
 		tuiExtension(pi as unknown as ExtensionAPI);
@@ -133,6 +139,7 @@ describe("tui extension", () => {
 		await handlers.get("session_start")?.({}, ctx);
 
 		expect(calls.footer.at(-1)).toBeTypeOf("function");
+		expect(calls.editor.at(-1)).toBeTypeOf("function");
 		expect(calls.status.at(-1)).toMatchObject({ key: "o-pi:tui", text: expect.any(String) });
 		expect(calls.working.length).toBeGreaterThan(0);
 		const startupHeader = calls.header.at(-1);
@@ -243,6 +250,7 @@ describe("tui extension", () => {
 
 		expect(calls.header.at(-1)).toBeUndefined();
 		expect(calls.footer.at(-1)).toBeUndefined();
+		expect(calls.editor.at(-1)).toBeUndefined();
 		expect(calls.status.at(-1)).toEqual({ key: "o-pi:tui", text: undefined });
 	});
 
@@ -479,6 +487,12 @@ function createContext(
 			setWorkingIndicator(options) {
 				calls.working.push(options);
 			},
+			setEditorComponent(factory) {
+				calls.editor.push(factory);
+			},
+			getEditorComponent() {
+				return calls.editor.at(-1);
+			},
 		},
 		getContextUsage() {
 			return undefined;
@@ -487,7 +501,7 @@ function createContext(
 		hasPendingMessages: options.hasPendingMessages ?? (() => false),
 		model: undefined,
 		modelRegistry: { isUsingOAuth: () => false },
-		sessionManager: { getEntries: () => [], buildContextEntries: () => [] },
+		sessionManager: { getEntries: () => [], buildContextEntries: () => [], getSessionId: () => "session-test" },
 	};
 }
 
@@ -498,6 +512,7 @@ function createUiCalls() {
 		footer: [] as Array<FooterFactory | undefined>,
 		header: [] as Array<HeaderFactory | undefined>,
 		working: [] as unknown[],
+		editor: [] as Array<EditorFactoryStub | undefined>,
 		notifications: [] as Array<{ message: string; type: string | undefined }>,
 	};
 }
