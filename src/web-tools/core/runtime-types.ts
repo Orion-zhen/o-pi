@@ -14,11 +14,10 @@ import type {
 } from "./types.js";
 
 export interface WebCapabilitySharedOptions {
-	getDispatcher(): Promise<Dispatcher>;
+	getDispatcher(network: WebToolsConfig["network"]): Promise<Dispatcher>;
 	fetchImpl: WebHttpFetch;
 	loadConfig(): Promise<WebToolsConfig>;
 	now: () => number;
-	setAllowedFakeIpRanges(ranges: readonly string[]): void;
 	searchCorpus: SearchCorpus;
 }
 

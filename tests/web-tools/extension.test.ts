@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { Agent } from "undici";
+import { Agent, type Dispatcher } from "undici";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import webTools, { createWebToolsExtension } from "../../agent/extensions/web-tools.js";
@@ -245,7 +245,6 @@ describe("web-tools runtime", () => {
 			fetchImpl: async () => { throw new Error("unused fetch"); },
 			loadConfig: async () => structuredClone(config),
 			now: () => 100,
-			setAllowedFakeIpRanges() {},
 			searchCorpus: new SearchCorpus(() => 100),
 		}, providerLoaders);
 
@@ -297,7 +296,6 @@ describe("web-tools runtime", () => {
 			},
 			loadConfig: async () => structuredClone(config),
 			now: () => 100,
-			setAllowedFakeIpRanges() {},
 			searchCorpus: new SearchCorpus(() => 100),
 		}, providerLoaders);
 
@@ -345,6 +343,38 @@ describe("web-tools runtime", () => {
 		expect(closeSearch).toHaveBeenCalledTimes(1);
 		expect(closeFetch).toHaveBeenCalledTimes(1);
 		expect(closeDispatcher).toHaveBeenCalled();
+	});
+
+	it("网络配置变化时切换 dispatcher，同一配置继续复用并在关闭时全部释放", async () => {
+		const configPath = path.join(dir, "network-reload.jsonc");
+		process.env.PI_WEB_TOOLS_CONFIG = configPath;
+		await writeFile(configPath, '{ "network": { "proxy": { "enabled": false } } }');
+		const dispatchers: Dispatcher[] = [];
+		const runtime = trackRuntime(createWebToolsRuntime({
+			fetchImpl: async (_url, init) => {
+				if (init.dispatcher !== undefined) dispatchers.push(init.dispatcher);
+				return httpResponse(200, "ok", { "content-type": "text/plain" });
+			},
+		}));
+
+		await runtime.fetch({ url: "https://example.com/one" }, { toolCallId: "network-1" });
+		await writeFile(configPath, '{ "network": { "proxy": { "enabled": true, "http_proxy": "http://127.0.0.1:7890" } } }');
+		await runtime.fetch({ url: "https://example.com/two" }, { toolCallId: "network-2" });
+		await runtime.fetch({ url: "https://example.com/three" }, { toolCallId: "network-3" });
+
+		expect(dispatchers).toHaveLength(3);
+		const first = dispatchers[0];
+		const second = dispatchers[1];
+		const third = dispatchers[2];
+		if (first === undefined || second === undefined || third === undefined) throw new Error("dispatcher was not captured");
+		expect(first).not.toBe(second);
+		expect(second).toBe(third);
+		const closeFirst = vi.spyOn(first, "close");
+		const closeSecond = vi.spyOn(second, "close");
+
+		await closeRuntime(runtime);
+		expect(closeFirst).toHaveBeenCalled();
+		expect(closeSecond).toHaveBeenCalled();
 	});
 
 	it("配置模块导入失败后下一次调用可以重试", async () => {

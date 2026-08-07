@@ -6,6 +6,7 @@ import { resolveSearchApiKey } from "../search-providers/api-key.js";
 import { SearchProviderRouter } from "../search-providers/router.js";
 import type { SearchProviderContext, WebSearchProvider } from "../search-providers/types.js";
 import type { WebToolsConfig } from "../core/types.js";
+import { networkConfigSignature } from "../network/dispatcher.js";
 import { executeWebSearch } from "./websearch-tool.js";
 
 export interface WebSearchProviderLoaders {
@@ -18,21 +19,21 @@ export interface WebSearchProviderLoaders {
 const defaultProviderLoaders: WebSearchProviderLoaders = {
 	async brave(config, options) {
 		const { createApiSearchProvider } = await import("../search-providers/api-provider.js");
-		return createApiSearchProvider({ id: "brave_api", config: config.websearch.brave_api, dispatcher: options.getDispatcher, fetchImpl: options.fetchImpl });
+		return createApiSearchProvider({ id: "brave_api", config: config.websearch.brave_api, dispatcher: () => options.getDispatcher(config.network), fetchImpl: options.fetchImpl });
 	},
 	async exa(config, options) {
 		const { createApiSearchProvider } = await import("../search-providers/api-provider.js");
-		return createApiSearchProvider({ id: "exa_api", config: config.websearch.exa_api, dispatcher: options.getDispatcher, fetchImpl: options.fetchImpl });
+		return createApiSearchProvider({ id: "exa_api", config: config.websearch.exa_api, dispatcher: () => options.getDispatcher(config.network), fetchImpl: options.fetchImpl });
 	},
 	async tavily(config, options) {
 		const { createApiSearchProvider } = await import("../search-providers/api-provider.js");
-		return createApiSearchProvider({ id: "tavily", config: config.websearch.tavily, dispatcher: options.getDispatcher, fetchImpl: options.fetchImpl });
+		return createApiSearchProvider({ id: "tavily", config: config.websearch.tavily, dispatcher: () => options.getDispatcher(config.network), fetchImpl: options.fetchImpl });
 	},
 	async duckDuckGo(config, options, requestGate) {
 		const { createDuckDuckGoHtmlProvider } = await import("../search-providers/duckduckgo-html-provider.js");
 		return createDuckDuckGoHtmlProvider({
 			config: config.websearch.duckduckgo_html,
-			dispatcher: options.getDispatcher,
+			dispatcher: () => options.getDispatcher(config.network),
 			fetchImpl: options.fetchImpl,
 			requestGate,
 		});
@@ -81,7 +82,6 @@ export function createWebSearchRuntime(
 			} catch (error) {
 				return runtimeConfigFailure("websearch", error);
 			}
-			options.setAllowedFakeIpRanges(config.network.fake_ip_ranges);
 			if (searchCacheTtlSeconds !== config.websearch.cache_ttl_seconds) {
 				searches = new SearchCache(options.now, config.websearch.cache_ttl_seconds * 1000);
 				searchCacheTtlSeconds = config.websearch.cache_ttl_seconds;
@@ -97,7 +97,7 @@ export function createWebSearchRuntime(
 				searchGateSignature = gateSignature;
 			}
 			const signature = providerSignature(config.websearch);
-			const routerSignature = `${signature}:${gateSignature}`;
+			const routerSignature = `${signature}:${gateSignature}:${networkConfigSignature(config.network)}`;
 			const router = await getSearchRouter(config, routerSignature);
 			return executeWebSearch(params, { searches, router, providerSignature: signature, config, context, now: options.now, corpus: options.searchCorpus });
 		},

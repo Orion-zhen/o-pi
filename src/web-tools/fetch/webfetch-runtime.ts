@@ -12,16 +12,13 @@ export function createWebFetchRuntime(options: WebFetchCapabilityOptions): WebFe
 
 	return {
 		async fetch(params, context) {
-			const dispatcherPromise = options.getDispatcher();
 			let config: WebToolsConfig;
 			try {
 				config = await options.loadConfig();
 			} catch (error) {
-				void dispatcherPromise.catch(() => undefined);
 				return runtimeConfigFailure("webfetch", error);
 			}
-			options.setAllowedFakeIpRanges(config.network.fake_ip_ranges);
-			const dispatcher = await dispatcherPromise;
+			const dispatcher = await options.getDispatcher(config.network);
 			return executeWebFetch(params, {
 				dispatcher,
 				fetchImpl: options.fetchImpl,

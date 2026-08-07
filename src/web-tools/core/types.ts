@@ -38,6 +38,13 @@ export interface WebSearchItem {
 
 export interface WebToolsConfig {
 	network: {
+		/** 两个 Web 工具共用的显式代理；禁用时始终直连。 */
+		proxy: {
+			enabled: boolean;
+			http_proxy: string;
+			https_proxy: string;
+			socks5_proxy: string;
+		};
 		/** 两个 Web 工具共用的安全 DNS fake-ip 放行范围。 */
 		fake_ip_ranges: string[];
 	};

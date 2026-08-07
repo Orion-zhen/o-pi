@@ -1,6 +1,13 @@
 {
 	"$schema": "../schemas/web-tools.schema.json",
 	"network": {
+		// 可复制到用户配置；启用后所有 Web 请求都会按目标协议选择代理。
+		// "proxy": {
+		//   "enabled": false,
+		//   "http_proxy": "",
+		//   "https_proxy": "",
+		//   "socks5_proxy": ""
+		// },
 		// Clash/mihomo TUN fake-ip 可填 ["198.18.0.0/15"] 或更窄范围。
 		// 仅放行域名 DNS 解析得到的 fake-ip；URL 直接写 IP 仍会拒绝。
 		"fake_ip_ranges": [

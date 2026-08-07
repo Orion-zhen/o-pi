@@ -7,7 +7,7 @@ Web 工具分为搜索和抓取：
 
 ## 加载生命周期
 
-扩展启动时只同步注册工具 schema、renderer 和事件，不加载网络 runtime，也不执行后台预热。首次工具调用复用同一个 runtime 加载 Promise，并发调用不会重复创建 runtime。runtime 内部再按能力拆分：只调用 `websearch` 不加载 WebFetch/Cookie 执行链，只调用 `webfetch` 不加载搜索 router/provider；安全 dispatcher 在两条能力链之间共享并按需创建。搜索 provider 只在 router 实际执行到该分支时加载，因此 Exa 成功不会加载 DDG/HTML parser；Cookie store 只在配置启用且域名命中 allowlist 时加载；source、JSON、XML 和普通文本不会加载 DOM、Readability 或 Turndown，只有 readable HTML 会加载转换链。JSONC parser 和 AJV 也只在确实读到配置文件并需要解析、校验时加载，并发校验复用同一 Promise。成功配置按文件 identity、大小和时间戳缓存，每次返回隔离副本；文件变化会重新读取和校验，读取期间变化会重试。加载失败会清除对应 Promise，后续调用可以重试；`session_shutdown` 不会加载未使用能力，并会等待正在初始化的能力后释放已创建资源。
+扩展启动时只同步注册工具 schema、renderer 和事件，不加载网络 runtime，也不执行后台预热。首次工具调用复用同一个 runtime 加载 Promise，并发调用不会重复创建 runtime。runtime 内部再按能力拆分：只调用 `websearch` 不加载 WebFetch/Cookie 执行链，只调用 `webfetch` 不加载搜索 router/provider；同一网络配置签名的安全 dispatcher 在两条能力链之间共享并按需创建。搜索 provider 只在 router 实际执行到该分支时加载，因此 Exa 成功不会加载 DDG/HTML parser；Cookie store 只在配置启用且域名命中 allowlist 时加载；source、JSON、XML 和普通文本不会加载 DOM、Readability 或 Turndown，只有 readable HTML 会加载转换链。JSONC parser 和 AJV 也只在确实读到配置文件并需要解析、校验时加载，并发校验复用同一 Promise。成功配置按文件 identity、大小和时间戳缓存，每次返回隔离副本；文件变化会重新读取和校验，读取期间变化会重试。加载失败会清除对应 Promise，后续调用可以重试；`session_shutdown` 不会加载未使用能力，并会等待正在初始化的能力后释放已创建资源。
 
 需要向 allowlisted origin 发送 Cookie 时，runtime 只依赖 `WebFetchInteractionPort.confirmAuthentication()`，不依赖 Pi TUI。native TUI 与 RPC Extension UI 都能注入该端口；JSON/print 没有端口时返回 `AUTH_CONFIRMATION_REQUIRED`。确认 dialog 只是 adapter，抓取结果和错误结构不依赖 component 或 notification。
 
@@ -77,7 +77,7 @@ provider request failed.
 - URL 会解包 DDG `/l/?uddg=...`，删除 fragment 和明确追踪参数，并按规范化 URL 去重。
 - 摘要和标题按不可信纯文本处理，模型输出会转义 XML 字符。
 - 数据中心或共享出口 IP 可能触发 DDG bot challenge。
-- 工具会识别 challenge，但不会绕过 CAPTCHA、换代理或重放请求。
+- 工具会识别 challenge，但不会绕过 CAPTCHA、自动切换代理或重放请求。
 - 搜索结果有会话内 LRU 完成缓存、in-flight singleflight 和短期 negative cache，不写磁盘；完成缓存 TTL 默认 300 秒。
 - 会话级 SearchCorpus 保留已发现结果及 provider rank，并只在 query 高度近似、过滤兼容且已有足够强结果时保守复用；`webfetch` 会标记已消费 URL。
 - provider 会话状态为 healthy、degraded、cooldown、exhausted 或 misconfigured；401/403、402/额度耗尽、429 Retry-After、timeout/5xx 分别更新状态。配置签名变化会重建 router 并恢复状态。
@@ -144,10 +144,34 @@ Static response content.
 
 默认配置位于 `agent/defaults/web-tools.jsonc`，用户覆盖位于 `agent/configs/web-tools.jsonc`；不读取项目配置。未知字段会被 schema 拒绝。分层规则见[配置分层](configuration.md)。
 
+### 代理
+
+```json
+{
+  "network": {
+    "proxy": {
+      "enabled": false,
+      "http_proxy": "",
+      "https_proxy": "",
+      "socks5_proxy": ""
+    }
+  }
+}
+```
+
+- `enabled=false` 时始终直连，且不读取 `HTTP_PROXY`、`HTTPS_PROXY` 等进程环境变量。
+- `enabled=true` 时至少需要一个非空端点，所有 Web 请求都会走代理，不会因某个协议字段为空而静默直连。
+- HTTP 目标依次选择 `http_proxy`、`socks5_proxy`、`https_proxy`；HTTPS 目标依次选择 `https_proxy`、`socks5_proxy`、`http_proxy`。
+- `http_proxy` / `https_proxy` 接受 `http://` 或 `https://` 代理 URL；`socks5_proxy` 接受 `socks5://`。允许在 URL userinfo 中配置代理认证。端点只允许 origin，不接受 path、query 或 fragment。
+- SOCKS5 使用 Undici 的实验性实现，首次使用时 Node.js 会输出一条 `ExperimentalWarning`。
+- 代理服务器可以位于本机或私网；目标域名仍先在本地执行安全 DNS 校验，再把已校验 IP 交给代理，同时保留原始 Host 与 TLS SNI。代理不会绕过目标 SSRF 策略。
+
+### DNS 与地址策略
+
 - `network.fake_ip_ranges`：两个 Web 工具共用的安全 DNS fake-ip CIDR；只支持 `198.18.0.0/15` 内的子网。
 - 配置的 fake-ip CIDR 只放行域名 DNS 解析结果；URL 直接写 IP 仍会拒绝。
 - 三家正式搜索 endpoint 的静态 URL 检查复用基础 URL guard；`webfetch` 仍保留自己的 DNS、redirect 和 SSRF 复检逻辑。
-- 每次连接时 DNS 解析结果必须全部是公网地址或已配置 fake-ip。
+- 直连和代理模式下，目标 DNS 解析结果都必须全部是公网地址或已配置 fake-ip。
 - `webfetch` 每个 redirect 目标都会重新执行 URL、DNS、Cookie 检查。
 - `websearch` 使用配置的公开 endpoint，3xx 作为 HTTP 错误，不跟随。
 

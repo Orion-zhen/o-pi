@@ -25,6 +25,8 @@ export interface SchemaValidatorOptions<E extends Error> {
 	schemaPath: string;
 	label: string;
 	createError: ConfigErrorFactory<E>;
+	/** 完整默认层中允许省略、由模块运行时补齐的点分属性路径。 */
+	optionalCompleteProperties?: readonly string[];
 }
 
 export interface ReadDefaultJsoncConfigOptions<E extends Error> extends SchemaValidatorOptions<E> {
@@ -236,7 +238,7 @@ export function readDefaultJsoncConfigSync<E extends Error>(options: ReadDefault
 	if (!isRecord(schema)) throw options.createError(`${options.label} schema is invalid.`, { path: options.schemaPath });
 	let validator: SchemaValidateFunction;
 	try {
-		validator = compileSchemaValidator(requireFixedProperties(schema), { allErrors: true });
+		validator = compileSchemaValidator(requireFixedProperties(schema, options.optionalCompleteProperties), { allErrors: true });
 	} catch (error) {
 		throw options.createError(`${options.label} schema is invalid.`, {
 			path: options.schemaPath,
@@ -278,7 +280,10 @@ function createSchemaValidatorInternal<E extends Error>(
 		}
 		if (!isRecord(schema)) throw options.createError(`${options.label} schema is invalid.`, { path: options.schemaPath });
 		try {
-			const validator = compileSchemaValidator(requireComplete ? requireFixedProperties(schema) : schema, { allErrors: true });
+			const validator = compileSchemaValidator(
+				requireComplete ? requireFixedProperties(schema, options.optionalCompleteProperties) : schema,
+				{ allErrors: true },
+			);
 			compiledValidator = validator;
 			return validator;
 		} catch (error) {
@@ -368,14 +373,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function requireFixedProperties(schema: Record<string, unknown>): Record<string, unknown> {
+function requireFixedProperties(
+	schema: Record<string, unknown>,
+	optionalProperties: readonly string[] = [],
+	parentPath = "",
+): Record<string, unknown> {
 	const copy: Record<string, unknown> = structuredClone(schema);
 	const properties = copy["properties"];
 	if (!isRecord(properties)) return copy;
-	const names = Object.keys(properties).filter((name) => name !== "$schema");
+	const optional = new Set(optionalProperties);
+	const propertyPath = (name: string) => parentPath === "" ? name : `${parentPath}.${name}`;
+	const names = Object.keys(properties).filter((name) => name !== "$schema" && !optional.has(propertyPath(name)));
 	if (names.length > 0) copy["required"] = names;
 	for (const [name, child] of Object.entries(properties)) {
-		if (isRecord(child) && child["type"] === "object") properties[name] = requireFixedProperties(child);
+		if (isRecord(child) && child["type"] === "object") {
+			properties[name] = requireFixedProperties(child, optionalProperties, propertyPath(name));
+		}
 	}
 	return copy;
 }
