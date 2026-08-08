@@ -345,6 +345,39 @@ describe("web-tools runtime", () => {
 		expect(closeDispatcher).toHaveBeenCalled();
 	});
 
+	it("关闭会等待已开始的调用，再释放 capability 和 dispatcher", async () => {
+		const dispatcher = new Agent();
+		const closeDispatcher = vi.spyOn(dispatcher, "close");
+		const closeFetch = vi.fn(async () => undefined);
+		const fetchStarted = deferredVoid();
+		const releaseFetch = deferredVoid();
+		const loaders: WebToolsCapabilityLoaders = {
+			search: vi.fn(async () => { throw new Error("unused search loader"); }),
+			fetch: vi.fn(async () => ({
+				async fetch() {
+					fetchStarted.resolve();
+					await releaseFetch.promise;
+					return { content: "done", details: { status: "failed" as const, error: { code: "INVALID_URL" as const, message: "done" } } };
+				},
+				close: closeFetch,
+			})),
+		};
+		const runtime = trackRuntime(createWebToolsRuntime({ dispatcher }, loaders));
+		const fetchResult = runtime.fetch({ url: "https://example.com/" }, { toolCallId: "in-flight" });
+		await fetchStarted.promise;
+
+		runtime.close();
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		expect(closeFetch).not.toHaveBeenCalled();
+		expect(closeDispatcher).not.toHaveBeenCalled();
+
+		releaseFetch.resolve();
+		await expect(fetchResult).resolves.toMatchObject({ content: "done" });
+		await closeRuntime(runtime);
+		expect(closeFetch).toHaveBeenCalledOnce();
+		expect(closeDispatcher).toHaveBeenCalled();
+	});
+
 	it("网络配置变化时切换 dispatcher，同一配置继续复用并在关闭时全部释放", async () => {
 		const configPath = path.join(dir, "network-reload.jsonc");
 		process.env.PI_WEB_TOOLS_CONFIG = configPath;
@@ -589,4 +622,17 @@ function trackRuntime(runtime: ReturnType<typeof createWebToolsRuntime>): Return
 async function closeRuntime(runtime: ReturnType<typeof createWebToolsRuntime>): Promise<void> {
 	await runtime.close();
 	runtimes = runtimes.filter((candidate) => candidate !== runtime);
+}
+
+function deferredVoid(): { promise: Promise<void>; resolve(): void } {
+	let resolvePromise: (() => void) | undefined;
+	const promise = new Promise<void>((resolve) => {
+		resolvePromise = resolve;
+	});
+	return {
+		promise,
+		resolve() {
+			resolvePromise?.();
+		},
+	};
 }

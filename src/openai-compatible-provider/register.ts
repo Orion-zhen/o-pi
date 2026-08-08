@@ -104,20 +104,24 @@ export function createNativeProvider(
 		refreshAllowsNetwork = context.allowNetwork;
 		refreshInFlight = (async () => {
 			try {
-				const stored = await context.store.read();
-				const restoredModels = restoreStoredModels(stored?.models ?? [], normalized, source);
+				const restoredModels = restoreStoredModels(context.stored?.models ?? [], normalized, source);
 				if (dynamicModels.length === 0 && restoredModels.length > 0) {
-					dynamicModels = restoredModels;
-					onModelsChanged?.();
+					const published = await context.publish({
+						update() {
+							dynamicModels = restoredModels;
+							onModelsChanged?.();
+						},
+					});
+					if (!published) return;
 				}
-				if (!context.allowNetwork || context.signal?.aborted) return;
+				if (!context.allowNetwork || context.signal.aborted) return;
 
 				const credential = context.credential?.type === "api_key" ? context.credential : undefined;
 				const discovered = await fetchProviderModelsFromEndpoint(normalized.id, providerConfig, configPath, {
 					requestAuth: resolveRefreshAuth(normalized.id, providerConfig, credential),
-					...(context.signal ? { signal: context.signal } : {}),
+					signal: context.signal,
 				});
-				if (context.signal?.aborted) return;
+				if (context.signal.aborted) return;
 				const dynamicConfig: ModelsJsoncConfig = {
 					providers: {
 						[normalized.id]: {
@@ -128,13 +132,17 @@ export function createNativeProvider(
 				};
 				const [dynamic] = normalizeModelsJsoncConfig(dynamicConfig, configPath);
 				if (!dynamic) return;
-				await context.store.write({
-					models: dynamic.models.map((model) => markStoredModel(model, source)),
-					checkedAt: Date.now(),
+				await context.publish({
+					persist: {
+						models: dynamic.models.map((model) => markStoredModel(model, source)),
+						checkedAt: Date.now(),
+					},
+					update() {
+						for (const [modelId, runtime] of dynamic.runtimeModels) runtimeModels.set(modelId, runtime);
+						dynamicModels = dynamic.models;
+						onModelsChanged?.();
+					},
 				});
-				for (const [modelId, runtime] of dynamic.runtimeModels) runtimeModels.set(modelId, runtime);
-				dynamicModels = dynamic.models;
-				onModelsChanged?.();
 			} finally {
 				refreshInFlight = undefined;
 				refreshAllowsNetwork = false;

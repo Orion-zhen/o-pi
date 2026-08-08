@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { ModelsStoreEntry } from "@earendil-works/pi-ai";
+import type { ModelsStoreEntry, RefreshModelsContext } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 
 import { registerOpenAICompatibleProviders } from "../../src/openai-compatible-provider/index.js";
@@ -26,14 +26,10 @@ describe("openai-compatible-provider model discovery", () => {
 			]
 		}`));
 		const stores = new Map<string, ModelsStoreEntry>();
-		const store = {
-			read: async () => stores.get("local"),
-			write: async (entry: ModelsStoreEntry) => { stores.set("local", entry); },
-			delete: async () => { stores.delete("local"); },
-		};
+		const publish = createMapPublisher(stores, "local");
 		const firstHarness = createExtensionHarness();
 		const [first] = registerOpenAICompatibleProviders(firstHarness.pi, config, path.join(temp.path, "models.jsonc"));
-		await first?.refreshModels?.({ credential: { type: "api_key", key: "unused" }, store, allowNetwork: true });
+		await first?.refreshModels?.(refreshContext({ publish, allowNetwork: true }));
 		expect(first?.getModels()).toMatchObject([
 			{
 				id: "manual",
@@ -50,7 +46,7 @@ describe("openai-compatible-provider model discovery", () => {
 		expect(stored.models.map((model) => model.id)).toEqual(["manual", "dynamic"]);
 		const secondHarness = createExtensionHarness();
 		const [second] = registerOpenAICompatibleProviders(secondHarness.pi, config, path.join(temp.path, "models.jsonc"));
-		await second?.refreshModels?.({ credential: { type: "api_key", key: "unused" }, store, allowNetwork: false });
+		await second?.refreshModels?.(refreshContext({ stored, publish, allowNetwork: false }));
 		expect(second?.getModels()).toMatchObject([
 			{
 				id: "manual",
@@ -65,20 +61,15 @@ describe("openai-compatible-provider model discovery", () => {
 
 		stores.delete("local");
 		fetch.mockRejectedValueOnce(new Error("offline"));
-		await expect(second?.refreshModels?.({
-			credential: { type: "api_key", key: "unused" },
-			store,
-			allowNetwork: true,
-		})).rejects.toThrow("offline");
+		await expect(second?.refreshModels?.(refreshContext({ publish, allowNetwork: true }))).rejects.toThrow("offline");
 		expect(second?.getModels().map((model) => model.id)).toEqual(["manual", "dynamic"]);
 		stores.set("local", stored);
 
 		fetch.mockResolvedValueOnce(new Response('{ "data": [{ "id": "replacement" }] }'));
-		await expect(second?.refreshModels?.({
-			credential: { type: "api_key", key: "unused" },
-			store: { ...store, write: async () => { throw new Error("store failed"); } },
+		await expect(second?.refreshModels?.(refreshContext({
 			allowNetwork: true,
-		})).rejects.toThrow("store failed");
+			publish: async () => { throw new Error("store failed"); },
+		}))).rejects.toThrow("store failed");
 		expect(second?.getModels().map((model) => model.id)).toEqual(["manual", "dynamic"]);
 
 		const changedConfig = await loadConfigFromText(temp.path, providerConfigText({
@@ -87,7 +78,7 @@ describe("openai-compatible-provider model discovery", () => {
 		}, "local"));
 		const thirdHarness = createExtensionHarness();
 		const [third] = registerOpenAICompatibleProviders(thirdHarness.pi, changedConfig, path.join(temp.path, "models.jsonc"));
-		await third?.refreshModels?.({ credential: { type: "api_key", key: "unused" }, store, allowNetwork: false });
+		await third?.refreshModels?.(refreshContext({ stored, publish, allowNetwork: false }));
 		expect(third?.getModels().map((model) => [model.id, model.name, model.contextWindow])).toEqual([
 			["manual", "Changed Manual", 128000],
 		]);
@@ -99,29 +90,43 @@ describe("openai-compatible-provider model discovery", () => {
 			baseUrl: "http://127.0.0.1:8000/v1",
 			models: undefined,
 		}, "local"));
+		const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response('{ "data": [{ "id": "dynamic" }] }'));
+		const seedHarness = createExtensionHarness();
+		const [seedProvider] = registerOpenAICompatibleProviders(seedHarness.pi, config, path.join(temp.path, "models.jsonc"));
+		let stored: ModelsStoreEntry | undefined;
+		await seedProvider?.refreshModels?.(refreshContext({
+			allowNetwork: true,
+			publish: async (publication) => {
+				if (publication.persist !== undefined && publication.persist !== null) stored = publication.persist;
+				publication.update?.();
+				return true;
+			},
+		}));
+		if (stored === undefined) throw new Error("seed models were not published");
+		fetch.mockClear();
+
 		const harness = createExtensionHarness();
 		const [provider] = registerOpenAICompatibleProviders(harness.pi, config, path.join(temp.path, "models.jsonc"));
 		if (!provider?.refreshModels) throw new Error("refreshModels missing");
-		let releaseRead: (() => void) | undefined;
-		let readCount = 0;
-		const firstRead = new Promise<void>((resolve) => { releaseRead = resolve; });
-		const store = {
-			read: async () => {
-				readCount++;
-				if (readCount === 1) await firstRead;
-				return undefined;
+		let markRestoreStarted: (() => void) | undefined;
+		let releaseRestore: (() => void) | undefined;
+		const restoreStarted = new Promise<void>((resolve) => { markRestoreStarted = resolve; });
+		const restoreGate = new Promise<void>((resolve) => { releaseRestore = resolve; });
+		const offline = provider.refreshModels(refreshContext({
+			stored,
+			allowNetwork: false,
+			publish: async (publication) => {
+				markRestoreStarted?.();
+				await restoreGate;
+				publication.update?.();
+				return true;
 			},
-			write: async () => undefined,
-			delete: async () => undefined,
-		};
-		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response('{ "data": [{ "id": "dynamic" }] }'));
-
-		const offline = provider.refreshModels({ credential: { type: "api_key", key: "unused" }, store, allowNetwork: false });
-		const online = provider.refreshModels({ credential: { type: "api_key", key: "unused" }, store, allowNetwork: true });
-		releaseRead?.();
+		}));
+		await restoreStarted;
+		const online = provider.refreshModels(refreshContext({ stored, allowNetwork: true }));
+		releaseRestore?.();
 		await Promise.all([offline, online]);
 
-		expect(readCount).toBe(2);
 		expect(fetch).toHaveBeenCalledOnce();
 		expect(provider.getModels().map((model) => model.id)).toEqual(["dynamic"]);
 	});
@@ -275,3 +280,34 @@ describe("openai-compatible-provider model discovery", () => {
 		await rejected;
 	});
 });
+
+interface RefreshContextOptions {
+	stored?: Readonly<ModelsStoreEntry>;
+	publish?: RefreshModelsContext["publish"];
+	allowNetwork: boolean;
+}
+
+function refreshContext(options: RefreshContextOptions): RefreshModelsContext {
+	return {
+		credential: { type: "api_key", key: "unused" },
+		...(options.stored !== undefined ? { stored: options.stored } : {}),
+		publish: options.publish ?? (async (publication) => {
+			publication.update?.();
+			return true;
+		}),
+		allowNetwork: options.allowNetwork,
+		signal: new AbortController().signal,
+	};
+}
+
+function createMapPublisher(
+	stores: Map<string, ModelsStoreEntry>,
+	providerId: string,
+): RefreshModelsContext["publish"] {
+	return async (publication) => {
+		if (publication.persist === null) stores.delete(providerId);
+		else if (publication.persist !== undefined) stores.set(providerId, publication.persist);
+		publication.update?.();
+		return true;
+	};
+}

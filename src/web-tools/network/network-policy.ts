@@ -52,9 +52,19 @@ export function validateRequestUrl(rawUrl: string): ValidatedUrl | WebFetchFailu
 
 /** 解析全部地址并要求每个结果都是公网地址，或显式配置的本机代理 fake-ip。 */
 export async function resolveAllowedAddresses(hostname: string, options: LookupOptions = {}): Promise<ResolvedAddress[]> {
+	const normalizedHostname = stripIpv6Brackets(hostname);
+	// 字面 IP 不走 DNS，也不能借 DNS fake-ip 白名单放行。
+	if (ipaddr.isValid(normalizedHostname)) {
+		if (!isPublicAddress(normalizedHostname)) throw blockedAddressError(normalizedHostname, false);
+		return [{
+			address: normalizedHostname,
+			family: ipaddr.parse(normalizedHostname).kind() === "ipv6" ? 6 : 4,
+		}];
+	}
+
 	let addresses: LookupAddress[];
 	try {
-		addresses = await (options.lookup ?? defaultLookup)(hostname);
+		addresses = await (options.lookup ?? defaultLookup)(normalizedHostname);
 	} catch (error) {
 		const err = new Error(error instanceof Error ? error.message : String(error));
 		err.name = "DNS_FAILED";
@@ -72,11 +82,7 @@ export async function resolveAllowedAddresses(hostname: string, options: LookupO
 		}) satisfies ResolvedAddress)
 		.sort((a, b) => a.family - b.family);
 	const blocked = resolved.find((item) => !isAllowedResolvedAddress(item.address, options.allowedFakeIpRanges ?? []));
-	if (blocked !== undefined) {
-		const err = new Error(`DNS resolved to blocked address ${blocked.address}.`);
-		err.name = "BLOCKED_ADDRESS";
-		throw err;
-	}
+	if (blocked !== undefined) throw blockedAddressError(blocked.address, true);
 	return resolved;
 }
 
@@ -151,6 +157,14 @@ function isLocalhostName(hostname: string): boolean {
 
 function stripIpv6Brackets(hostname: string): string {
 	return hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+}
+
+function blockedAddressError(address: string, dnsResult: boolean): Error {
+	const error = new Error(dnsResult
+		? `DNS resolved to blocked address ${address}.`
+		: `Target address ${address} is blocked.`);
+	error.name = "BLOCKED_ADDRESS";
+	return error;
 }
 
 function failure(code: WebFetchFailureDetails["error"]["code"], message: string): WebFetchFailureDetails {

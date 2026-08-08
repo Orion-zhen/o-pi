@@ -86,6 +86,7 @@ describe("openai-compatible-provider payload", () => {
 
 		const auth = await provider.auth.apiKey?.resolve({
 			ctx: { env: async () => undefined, fileExists: async () => false },
+			signal: new AbortController().signal,
 		});
 		if (!auth) throw new Error("provider auth missing");
 		const streamOnce = async (headers: Record<string, string | null>): Promise<void> => {

@@ -27,29 +27,31 @@ export function createProviderAuth(providerId: string, provider: ProviderConfig)
 	return {
 		name: `${provider.name ?? providerId} API key`,
 		async login(interaction): Promise<ApiKeyCredential> {
-			return {
-				type: "api_key",
-				key: await interaction.prompt({ type: "secret", message: "API key" }),
-			};
+			interaction.signal.throwIfAborted();
+			const key = await interaction.prompt({ type: "secret", message: "API key" });
+			interaction.signal.throwIfAborted();
+			return { type: "api_key", key };
 		},
-		async check({ ctx, credential }) {
-			if (!await areConfigValuesAvailable(Object.values(headerConfigs ?? {}), ctx, credential?.env)) return undefined;
+		async check({ ctx, credential, signal }) {
+			signal.throwIfAborted();
+			if (!await areConfigValuesAvailable(Object.values(headerConfigs ?? {}), ctx, credential?.env, signal)) return undefined;
 			if (credential?.key) return { type: "api_key", source: "stored API key" };
 			if (isExplicitKeyless(provider)) return { type: "api_key", source: "keyless provider" };
-			if (await isConfigValueAvailable(apiKeyConfig, ctx, credential?.env)) {
+			if (await isConfigValueAvailable(apiKeyConfig, ctx, credential?.env, signal)) {
 				return { type: "api_key", source: configValueSource(apiKeyConfig) };
 			}
 			const authHeader = findAuthHeaderConfig(headerConfigs);
-			return authHeader && await isConfigValueAvailable(authHeader, ctx, credential?.env)
+			return authHeader && await isConfigValueAvailable(authHeader, ctx, credential?.env, signal)
 				? { type: "api_key", source: "configured auth header" }
 				: undefined;
 		},
-		async resolve({ ctx, credential }): Promise<AuthResult | undefined> {
+		async resolve({ ctx, credential, signal }): Promise<AuthResult | undefined> {
+			signal.throwIfAborted();
 			const values = [
 				...(credential?.key ? [] : [apiKeyConfig]),
 				...Object.values(headerConfigs ?? {}),
 			];
-			const env = await resolveEnvironment(values, ctx, credential?.env);
+			const env = await resolveEnvironment(values, ctx, credential?.env, signal);
 			const configuredHeaders = resolveHeadersOrThrow(headerConfigs, `provider "${providerId}"`, env);
 			const credentialKey = credential?.key;
 			const keyConfigAvailable = getConfigValueEnvVarNames(apiKeyConfig).every((name) => env[name] !== undefined);
@@ -58,6 +60,7 @@ export function createProviderAuth(providerId: string, provider: ProviderConfig)
 				: undefined);
 			const keyless = resolvedKey === EMPTY_API_KEY || (credentialKey === undefined && isExplicitKeyless(provider));
 			const hasConfiguredAuthHeader = hasAuthHeader(configuredHeaders);
+			signal.throwIfAborted();
 
 			if (!keyless && resolvedKey === undefined && !hasConfiguredAuthHeader) return undefined;
 
@@ -130,12 +133,15 @@ async function resolveEnvironment(
 	values: string[],
 	ctx: AuthContext,
 	seed: Record<string, string> | undefined,
+	signal: AbortSignal,
 ): Promise<Record<string, string>> {
 	const env = { ...seed };
 	const names = new Set(values.flatMap(getConfigValueEnvVarNames));
 	for (const name of names) {
+		signal.throwIfAborted();
 		if (env[name] !== undefined) continue;
 		const value = await ctx.env(name);
+		signal.throwIfAborted();
 		if (value !== undefined) env[name] = value;
 	}
 	return env;
@@ -145,8 +151,10 @@ async function areConfigValuesAvailable(
 	values: string[],
 	ctx: AuthContext,
 	seed: Record<string, string> | undefined,
+	signal: AbortSignal,
 ): Promise<boolean> {
-	const availability = await Promise.all(values.map((value) => isConfigValueAvailable(value, ctx, seed)));
+	const availability = await Promise.all(values.map((value) => isConfigValueAvailable(value, ctx, seed, signal)));
+	signal.throwIfAborted();
 	return availability.every(Boolean);
 }
 
@@ -154,9 +162,11 @@ async function isConfigValueAvailable(
 	value: string,
 	ctx: AuthContext,
 	seed: Record<string, string> | undefined,
+	signal: AbortSignal,
 ): Promise<boolean> {
+	signal.throwIfAborted();
 	if (isCommandConfigValue(value)) return true;
-	const env = await resolveEnvironment([value], ctx, seed);
+	const env = await resolveEnvironment([value], ctx, seed, signal);
 	return getConfigValueEnvVarNames(value).every((name) => env[name] !== undefined);
 }
 

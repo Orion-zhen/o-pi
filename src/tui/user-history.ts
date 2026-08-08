@@ -53,19 +53,22 @@ export class UserHistoryStore {
 		const normalizedCwd = normalizeHistoryCwd(cwd);
 		const count = Math.max(0, Math.floor(limit));
 		if (count === 0) return [];
-		return readRecentRecords(this.filePath, normalizedCwd, count);
+		return readRecentRecords(this.filePath, normalizedCwd, count, this.compactTargetBytes);
 	}
 
 	append(entry: UserHistoryAppend): Promise<void> {
 		const text = entry.text.trim();
-		if (text.length === 0) return Promise.resolve();
+		if (text.length === 0 || Buffer.byteLength(text) >= this.compactTargetBytes) return Promise.resolve();
 		const record: UserHistoryRecord = {
 			timestamp: (entry.timestamp ?? new Date()).toISOString(),
 			cwd: normalizeHistoryCwd(entry.cwd),
 			session: entry.session,
 			text,
 		};
-		const operation = this.writeTail.then(() => this.appendRecord(record));
+		const line = `${JSON.stringify(record)}\n`;
+		// 单条记录必须能独自放入压缩目标，避免追加后仍然超限。
+		if (Buffer.byteLength(line) > this.compactTargetBytes) return Promise.resolve();
+		const operation = this.writeTail.then(() => this.appendRecord(line));
 		this.writeTail = operation.catch(() => {});
 		return operation;
 	}
@@ -74,11 +77,11 @@ export class UserHistoryStore {
 		await this.writeTail;
 	}
 
-	private async appendRecord(record: UserHistoryRecord): Promise<void> {
+	private async appendRecord(line: string): Promise<void> {
 		const directory = path.dirname(this.filePath);
 		await mkdir(directory, { recursive: true, mode: 0o700 });
 		await withHistoryLock(this.filePath, async () => {
-			await appendFile(this.filePath, `${JSON.stringify(record)}\n`, { encoding: "utf8", mode: 0o600 });
+			await appendFile(this.filePath, line, { encoding: "utf8", mode: 0o600 });
 			const metadata = await stat(this.filePath);
 			if (metadata.size > this.maxFileBytes) {
 				await compactHistoryFile(
@@ -127,7 +130,12 @@ export function normalizeHistoryCwd(cwd: string): string {
 	return path.resolve(cwd);
 }
 
-async function readRecentRecords(filePath: string, cwd: string, limit: number): Promise<UserHistoryRecord[]> {
+async function readRecentRecords(
+	filePath: string,
+	cwd: string,
+	limit: number,
+	maxSerializedBytes: number,
+): Promise<UserHistoryRecord[]> {
 	let handle;
 	try {
 		handle = await open(filePath, "r");
@@ -138,7 +146,10 @@ async function readRecentRecords(filePath: string, cwd: string, limit: number): 
 	try {
 		const metadata = await handle.stat();
 		let position = metadata.size;
-		let suffix = Buffer.alloc(0);
+		// 逆向积累跨块片段，只在完整且有界时合并，避免反复复制超长行。
+		let suffixFragments: Buffer[] = [];
+		let suffixBytes = 0;
+		let suffixOversized = false;
 		const newestFirst: UserHistoryRecord[] = [];
 		while (position > 0 && newestFirst.length < limit) {
 			const length = Math.min(READ_BLOCK_BYTES, position);
@@ -151,25 +162,78 @@ async function readRecentRecords(filePath: string, cwd: string, limit: number): 
 				bytesRead += result.bytesRead;
 			}
 			const completeChunk = bytesRead === length ? chunk : chunk.subarray(0, bytesRead);
-			const data = suffix.length === 0 ? completeChunk : Buffer.concat([completeChunk, suffix]);
-			let lineEnd = data.length;
-			for (let cursor = data.length - 1; cursor >= 0 && newestFirst.length < limit; cursor -= 1) {
-				if (data[cursor] !== 0x0a) continue;
-				readMatchingLine(data.subarray(cursor + 1, lineEnd), cwd, newestFirst);
+			let lineEnd = completeChunk.length;
+			for (let cursor = completeChunk.length - 1; cursor >= 0 && newestFirst.length < limit; cursor -= 1) {
+				if (completeChunk[cursor] !== 0x0a) continue;
+				readMatchingFragments(
+					completeChunk.subarray(cursor + 1, lineEnd),
+					suffixFragments,
+					suffixBytes,
+					suffixOversized,
+					maxSerializedBytes,
+					cwd,
+					newestFirst,
+				);
+				suffixFragments = [];
+				suffixBytes = 0;
+				suffixOversized = false;
 				lineEnd = cursor;
 			}
-			suffix = Buffer.from(data.subarray(0, lineEnd));
+			const prefix = completeChunk.subarray(0, lineEnd);
+			if (prefix.length > 0 && !suffixOversized) {
+				if (suffixBytes + prefix.length + 1 > maxSerializedBytes) {
+					suffixFragments = [];
+					suffixBytes = 0;
+					suffixOversized = true;
+				} else {
+					suffixFragments.push(Buffer.from(prefix));
+					suffixBytes += prefix.length;
+				}
+			}
 			position = start;
 		}
-		if (position === 0 && newestFirst.length < limit) readMatchingLine(suffix, cwd, newestFirst);
+		if (position === 0 && newestFirst.length < limit) {
+			readMatchingFragments(
+				Buffer.alloc(0),
+				suffixFragments,
+				suffixBytes,
+				suffixOversized,
+				maxSerializedBytes,
+				cwd,
+				newestFirst,
+			);
+		}
 		return newestFirst.reverse();
 	} finally {
 		await handle.close();
 	}
 }
 
+function readMatchingFragments(
+	head: Buffer,
+	suffixFragments: readonly Buffer[],
+	suffixBytes: number,
+	oversized: boolean,
+	maxSerializedBytes: number,
+	cwd: string,
+	records: UserHistoryRecord[],
+): void {
+	const lineBytes = head.length + suffixBytes;
+	if (oversized || lineBytes === 0 || lineBytes + 1 > maxSerializedBytes) return;
+	if (suffixFragments.length === 0) {
+		readMatchingLine(head, cwd, records);
+		return;
+	}
+	const line = Buffer.allocUnsafe(lineBytes);
+	let offset = head.copy(line);
+	for (let index = suffixFragments.length - 1; index >= 0; index -= 1) {
+		const fragment = suffixFragments[index];
+		if (fragment !== undefined) offset += fragment.copy(line, offset);
+	}
+	readMatchingLine(line, cwd, records);
+}
+
 function readMatchingLine(line: Buffer, cwd: string, records: UserHistoryRecord[]): void {
-	if (line.length === 0) return;
 	const record = parseHistoryRecord(line.toString("utf8"));
 	if (record !== undefined && normalizeHistoryCwd(record.cwd) === cwd) records.push(record);
 }
@@ -203,7 +267,7 @@ async function compactHistoryFile(filePath: string, targetBytes: number, maxEntr
 	let retainedBytes = 0;
 	for (let index = lines.length - 1; index >= 0; index -= 1) {
 		const line = lines[index];
-		if (line === undefined || line.length === 0) continue;
+		if (line === undefined || line.length === 0 || Buffer.byteLength(line) + 1 > targetBytes) continue;
 		const record = parseHistoryRecord(line);
 		if (record === undefined) continue;
 		const cwd = normalizeHistoryCwd(record.cwd);
@@ -211,7 +275,7 @@ async function compactHistoryFile(filePath: string, targetBytes: number, maxEntr
 		if (count >= maxEntriesPerPath) continue;
 		const normalizedLine = JSON.stringify({ ...record, cwd });
 		const bytes = Buffer.byteLength(normalizedLine) + 1;
-		if (retainedBytes > 0 && retainedBytes + bytes > targetBytes) continue;
+		if (retainedBytes + bytes > targetBytes) continue;
 		retainedNewestFirst.push(normalizedLine);
 		pathCounts.set(cwd, count + 1);
 		retainedBytes += bytes;

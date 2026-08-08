@@ -31,6 +31,7 @@ export function createWebToolsRuntime(
 ): WebToolsRuntime {
 	const injectedDispatcher = options.dispatcher;
 	const dispatcherPromises = new Map<string, Promise<Dispatcher>>();
+	const activeCalls = new Set<Promise<void>>();
 	let configModulePromise: Promise<typeof import("./config.js")> | undefined;
 	let closed = false;
 	let closePromise: Promise<void> | undefined;
@@ -85,15 +86,25 @@ export function createWebToolsRuntime(
 		if (closed) throw new Error("web-tools runtime is closed");
 	}
 
+	function trackCall<T>(operation: () => Promise<T>): Promise<T> {
+		const pending = operation();
+		const settled = pending.then(() => undefined, () => undefined);
+		activeCalls.add(settled);
+		void settled.then(() => {
+			activeCalls.delete(settled);
+		});
+		return pending;
+	}
+
 	return {
-		async search(params, context) {
+		search(params, context) {
 			assertOpen();
-			return (await search.get()).search(params, context);
+			return trackCall(async () => (await search.get()).search(params, context));
 		},
-		async fetch(params, context) {
+		fetch(params, context) {
 			assertOpen();
 			searchCorpus.markFetched(params.url);
-			return (await fetch.get()).fetch(params, context);
+			return trackCall(async () => (await fetch.get()).fetch(params, context));
 		},
 		observeCitations(text) {
 			for (const match of text.matchAll(/https?:\/\/[^\s<>)\]"']+/gu)) searchCorpus.markCited(match[0].replace(/[.,;:!?]+$/u, ""));
@@ -107,6 +118,7 @@ export function createWebToolsRuntime(
 	};
 
 	async function closeRuntime(): Promise<void> {
+		await Promise.all([...activeCalls]);
 		const [searchRuntime, fetchRuntime] = await Promise.all([
 			settledCapability(search.current()),
 			settledCapability(fetch.current()),

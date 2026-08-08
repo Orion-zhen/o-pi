@@ -6,6 +6,7 @@ import { createProviderAuth, redactApiKey, resolveRefreshAuth } from "../../src/
 import { useOpenAICompatibleProviderTestSetup } from "./test-support.js";
 
 const temp = useOpenAICompatibleProviderTestSetup();
+const activeSignal = new AbortController().signal;
 
 describe("openai-compatible-provider auth", () => {
 	it("原生 auth 正确解析 env/header，并让 EMPTY provider 真正无 Authorization", async () => {
@@ -18,7 +19,7 @@ describe("openai-compatible-provider auth", () => {
 			apiKey: "$KEY",
 			headers: { "X-Token": "$TOKEN" },
 		});
-		await expect(configured.resolve({ ctx })).resolves.toMatchObject({
+		await expect(configured.resolve({ ctx, signal: activeSignal })).resolves.toMatchObject({
 			auth: { apiKey: "sk-test", headers: { "X-Token": "header-token" } },
 			source: "KEY",
 		});
@@ -27,7 +28,7 @@ describe("openai-compatible-provider auth", () => {
 			baseUrl: "http://127.0.0.1:8000/v1",
 			apiKey: "EMPTY",
 		});
-		await expect(keyless.resolve({ ctx })).resolves.toMatchObject({
+		await expect(keyless.resolve({ ctx, signal: activeSignal })).resolves.toMatchObject({
 			auth: { apiKey: "unused", headers: { Authorization: null } },
 			source: "keyless provider",
 		});
@@ -49,7 +50,8 @@ describe("openai-compatible-provider auth", () => {
 			apiKey: "sk-test",
 			headers: { "X-Account": "$MISSING_ACCOUNT" },
 		});
-		await expect(incomplete.check?.({ ctx })).resolves.toBeUndefined();
+		await expect(incomplete.check?.({ ctx, signal: activeSignal })).resolves.toBeUndefined();
+		await expect(configured.resolve({ ctx, signal: AbortSignal.abort() })).rejects.toMatchObject({ name: "AbortError" });
 	});
 
 	it("auth check 不执行命令，resolve 才在请求边界执行并缓存结果", async () => {
@@ -65,10 +67,10 @@ describe("openai-compatible-provider auth", () => {
 		});
 		const ctx = { env: async () => undefined, fileExists: async () => false };
 
-		await expect(auth.check?.({ ctx })).resolves.toMatchObject({ type: "api_key" });
+		await expect(auth.check?.({ ctx, signal: activeSignal })).resolves.toMatchObject({ type: "api_key" });
 		await expect(readFile(marker, "utf8")).rejects.toThrow();
-		await expect(auth.resolve({ ctx })).resolves.toMatchObject({ auth: { apiKey: "sk-command" } });
-		await expect(auth.resolve({ ctx })).resolves.toMatchObject({ auth: { apiKey: "sk-command" } });
+		await expect(auth.resolve({ ctx, signal: activeSignal })).resolves.toMatchObject({ auth: { apiKey: "sk-command" } });
+		await expect(auth.resolve({ ctx, signal: activeSignal })).resolves.toMatchObject({ auth: { apiKey: "sk-command" } });
 		expect(await readFile(marker, "utf8")).toBe("ran");
 	});
 

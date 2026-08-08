@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { KeybindingsManager } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
-import { ProcessTerminal, TUI, type EditorTheme } from "@earendil-works/pi-tui";
+import { ProcessTerminal, TuiMainScreen, type EditorTheme } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 
 import { UserHistoryEditor } from "../../src/tui/user-history-editor.js";
@@ -65,7 +65,59 @@ describe("路径级用户历史", () => {
 		const content = await readFile(filePath, "utf8");
 		expect(records.length).toBeLessThanOrEqual(2);
 		expect(records.at(-1)?.text).toBe(`7-${"x".repeat(100)}`);
+		expect(Buffer.byteLength(content)).toBeLessThanOrEqual(400);
 		expect(content.trimEnd().split("\n").every((line) => JSON.parse(line) !== undefined)).toBe(true);
+	});
+
+	it("跨读取块还原上限内的完整记录", async () => {
+		const filePath = path.join(temp.path, "multi-block.jsonl");
+		const store = new UserHistoryStore({ filePath, maxFileBytes: 150_000, compactTargetBytes: 100_000 });
+		const cwd = path.join(temp.path, "project");
+		const text = `prefix-${"界".repeat(25_000)}-suffix`;
+
+		await store.append({ cwd, session: "session", text });
+
+		expect((await store.load(cwd)).map((record) => record.text)).toEqual([text]);
+	});
+
+	it("跳过超过压缩目标的单条输入，不让历史文件突破上限", async () => {
+		const filePath = path.join(temp.path, "oversized-append.jsonl");
+		const store = new UserHistoryStore({ filePath, maxFileBytes: 500, compactTargetBytes: 400 });
+		const cwd = path.join(temp.path, "project");
+		await store.append({ cwd, session: "session", text: "kept" });
+		await store.append({ cwd, session: "session", text: "x".repeat(1_000) });
+
+		const content = await readFile(filePath, "utf8");
+		expect((await store.load(cwd)).map((record) => record.text)).toEqual(["kept"]);
+		expect(Buffer.byteLength(content)).toBeLessThanOrEqual(400);
+	});
+
+	it("跳过旧文件中的超长记录，并在下次写入时清理", async () => {
+		const filePath = path.join(temp.path, "legacy-oversized.jsonl");
+		const cwd = path.join(temp.path, "project");
+		const older = JSON.stringify({
+			timestamp: "2026-01-01T00:00:00.000Z",
+			cwd,
+			session: "session",
+			text: "older",
+		});
+		const oversized = JSON.stringify({
+			timestamp: "2026-01-01T00:00:01.000Z",
+			cwd,
+			session: "session",
+			text: "x".repeat(200_000),
+		});
+		await writeFile(filePath, `${older}\n${oversized}\n`);
+		const store = new UserHistoryStore({ filePath, maxFileBytes: 500, compactTargetBytes: 400 });
+
+		expect((await store.load(cwd)).map((record) => record.text)).toEqual(["older"]);
+		await store.append({ cwd, session: "session", text: "recent" });
+
+		const content = await readFile(filePath, "utf8");
+		const records = await store.load(cwd);
+		expect(Buffer.byteLength(content)).toBeLessThanOrEqual(400);
+		expect(records.at(-1)?.text).toBe("recent");
+		expect(records.every((record) => record.text.length < 200_000)).toBe(true);
 	});
 
 	it("仅用当前会话消息补齐该会话开始持久化前的部分", () => {
@@ -131,7 +183,7 @@ function createEditor(
 	replayQueue: readonly string[],
 	record: (text: string) => void,
 ): UserHistoryEditor {
-	const tui = new TUI(new ProcessTerminal());
+	const tui = new TuiMainScreen(new ProcessTerminal());
 	const keybindings = KeybindingsManager.create(temp.path);
 	const identity = (text: string): string => text;
 	const theme: EditorTheme = {

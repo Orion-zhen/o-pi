@@ -49,6 +49,9 @@ describe("webfetch network policy", () => {
 
 	it("配置的 fake-ip CIDR 只放行 DNS 解析结果，不放行 URL 字面 IP", async () => {
 		expect(isAllowedResolvedAddress("198.18.2.86", ["198.18.0.0/15"])).toBe(true);
+		await expect(resolveAllowedAddresses("198.18.2.86", {
+			allowedFakeIpRanges: ["198.18.0.0/15"],
+		})).rejects.toMatchObject({ name: "BLOCKED_ADDRESS" });
 		await expect(
 			resolveAllowedAddresses("example.com", {
 				allowedFakeIpRanges: ["198.18.0.0/15"],
@@ -74,6 +77,29 @@ describe("webfetch network policy", () => {
 			const response = await undici.fetch("http://target.example/path?q=1", { dispatcher });
 			expect(await response.text()).toBe("proxied");
 			expect(requests).toEqual([{ url: "http://8.8.8.8/path?q=1", host: "target.example" }]);
+		} finally {
+			await dispatcher.close();
+		}
+	});
+
+	it("HTTP 代理直接承载公网 IPv6 字面量目标，不执行 DNS 查询", async () => {
+		let requests = 0;
+		const proxy = createHttpServer((_request, response) => {
+			requests += 1;
+			response.end("ipv6 proxied");
+		});
+		servers.push(proxy);
+		const port = await listen(proxy);
+		const lookup = vi.fn(async () => {
+			throw new Error("IPv6 literal must not use DNS");
+		});
+		const dispatcher = createNetworkDispatcher(proxyNetwork({ http_proxy: `http://127.0.0.1:${port}` }), undici, { lookup });
+
+		try {
+			const response = await undici.fetch("http://[2606:4700:4700::1111]/path", { dispatcher });
+			expect(await response.text()).toBe("ipv6 proxied");
+			expect(requests).toBe(1);
+			expect(lookup).not.toHaveBeenCalled();
 		} finally {
 			await dispatcher.close();
 		}
