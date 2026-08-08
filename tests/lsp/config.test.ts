@@ -33,6 +33,24 @@ describe("lsp config", () => {
 			],
 		});
 		expect(loaded.config.servers.find((server) => server.id === "yaml")?.fallback).toBe(true);
+		expect(loaded.config.servers.find((server) => server.id === "tombi")).toMatchObject({
+			transport: { type: "stdio", command: "tombi", args: ["lsp"] },
+			settings: {
+				tombi: {
+					schema: { enabled: true, strict: true },
+					lsp: { diagnostic: { enabled: true }, references: { enabled: true } },
+					extensions: {
+						"tombi-toml/cargo": { enabled: true },
+						"tombi-toml/pyproject": { enabled: true },
+						"tombi-toml/tombi": { enabled: true },
+					},
+				},
+			},
+			routes: [{
+				languageId: "toml",
+				selectors: ["*.toml", "Cargo.lock", "Gopkg.lock", "Pipfile", "pdm.lock", "poetry.lock", "uv.lock"],
+			}],
+		});
 	});
 
 	it("项目配置覆盖全局配置并保留未覆盖的全局字段", async () => {

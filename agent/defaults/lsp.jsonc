@@ -115,6 +115,51 @@
 				]
 			}
 		},
+		"tombi": {
+			"command": [
+				"tombi",
+				"lsp"
+			],
+			// Tombi 项目或用户配置优先；这里提供启用 SchemaStore 严格校验的默认设置。
+			"settings": {
+				"tombi": {
+					"schema": {
+						"enabled": true,
+						"strict": true
+					},
+					"lsp": {
+						"diagnostic": {
+							"enabled": true
+						},
+						"references": {
+							"enabled": true
+						}
+					},
+					"extensions": {
+						"tombi-toml/cargo": {
+							"enabled": true
+						},
+						"tombi-toml/pyproject": {
+							"enabled": true
+						},
+						"tombi-toml/tombi": {
+							"enabled": true
+						}
+					}
+				}
+			},
+			"languages": {
+				"toml": [
+					"*.toml",
+					"Cargo.lock",
+					"Gopkg.lock",
+					"Pipfile",
+					"pdm.lock",
+					"poetry.lock",
+					"uv.lock"
+				]
+			}
+		},
 		"docker": {
 			"command": [
 				"docker-language-server",
