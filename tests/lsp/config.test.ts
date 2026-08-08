@@ -33,6 +33,49 @@ describe("lsp config", () => {
 			],
 		});
 		expect(loaded.config.servers.find((server) => server.id === "yaml")?.fallback).toBe(true);
+		expect(loaded.config.servers.find((server) => server.id === "html")).toMatchObject({
+			transport: { type: "stdio", command: "vscode-html-language-server", args: ["--stdio"] },
+			initializationOptions: { embeddedLanguages: { css: true, javascript: true } },
+			settings: { html: { validate: { scripts: true, styles: true } } },
+			routes: [
+				{ languageId: "html", selectors: ["*.{html,htm,shtml,xhtml}"] },
+				{ languageId: "handlebars", selectors: ["*.{hbs,handlebars}"] },
+			],
+		});
+		expect(loaded.config.servers.find((server) => server.id === "json")).toMatchObject({
+			transport: { type: "stdio", command: "vscode-json-language-server", args: ["--stdio"] },
+			initializationOptions: { handledSchemaProtocols: ["file", "http", "https"] },
+			settings: {
+				json: {
+					validate: { enable: true },
+					schemas: [{ fileMatch: ["package.json"], url: "https://json.schemastore.org/package.json" }],
+				},
+			},
+			routes: [
+				{
+					languageId: "json",
+					selectors: ["*.{json,webmanifest,har,jsonld,geojson,ipynb}", "composer.lock", ".watchmanconfig"],
+				},
+				{
+					languageId: "jsonc",
+					selectors: ["*.jsonc", ".{babelrc,eslintrc,hintrc,jscsrc,jsfmtrc,jshintrc,swcrc}", ".ember-cli"],
+				},
+			],
+		});
+		expect(loaded.config.servers.find((server) => server.id === "css")).toMatchObject({
+			transport: { type: "stdio", command: "vscode-css-language-server", args: ["--stdio"] },
+			settings: { css: { validate: true }, scss: { validate: true }, less: { validate: true } },
+			routes: [
+				{ languageId: "css", selectors: ["*.css"] },
+				{ languageId: "scss", selectors: ["*.scss"] },
+				{ languageId: "less", selectors: ["*.less"] },
+			],
+		});
+		const registry = new LspServerRegistry(loaded.config.servers);
+		expect(registry.route("web/index.html")).toMatchObject({ server: { id: "html" }, languageId: "html" });
+		expect(registry.route("package.json")).toMatchObject({ server: { id: "json" }, languageId: "json" });
+		expect(registry.route(".eslintrc")).toMatchObject({ server: { id: "json" }, languageId: "jsonc" });
+		expect(registry.route("styles/theme.scss")).toMatchObject({ server: { id: "css" }, languageId: "scss" });
 		expect(loaded.config.servers.find((server) => server.id === "tombi")).toMatchObject({
 			transport: { type: "stdio", command: "tombi", args: ["lsp"] },
 			settings: {

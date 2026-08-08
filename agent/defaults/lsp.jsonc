@@ -41,6 +41,94 @@
 				"javascriptreact": "*.jsx"
 			}
 		},
+		"html": {
+			"command": [
+				"vscode-html-language-server",
+				"--stdio"
+			],
+			// 启用 <style> 与 <script> 中的嵌入语言，并校验其中的 CSS/JavaScript。
+			"init": {
+				"embeddedLanguages": {
+					"css": true,
+					"javascript": true
+				}
+			},
+			"settings": {
+				"html": {
+					"validate": {
+						"scripts": true,
+						"styles": true
+					}
+				}
+			},
+			"languages": {
+				"html": "*.{html,htm,shtml,xhtml}",
+				"handlebars": "*.{hbs,handlebars}"
+			}
+		},
+		"json": {
+			"command": [
+				"vscode-json-language-server",
+				"--stdio"
+			],
+			// 由 server 直接读取本地或远程 JSON Schema；package.json 默认关联 SchemaStore。
+			"init": {
+				"handledSchemaProtocols": [
+					"file",
+					"http",
+					"https"
+				]
+			},
+			"settings": {
+				"json": {
+					"validate": {
+						"enable": true
+					},
+					"schemas": [
+						{
+							"fileMatch": [
+								"package.json"
+							],
+							"url": "https://json.schemastore.org/package.json"
+						}
+					]
+				}
+			},
+			"languages": {
+				"json": [
+					"*.{json,webmanifest,har,jsonld,geojson,ipynb}",
+					"composer.lock",
+					".watchmanconfig"
+				],
+				"jsonc": [
+					"*.jsonc",
+					".{babelrc,eslintrc,hintrc,jscsrc,jsfmtrc,jshintrc,swcrc}",
+					".ember-cli"
+				]
+			}
+		},
+		"css": {
+			"command": [
+				"vscode-css-language-server",
+				"--stdio"
+			],
+			"settings": {
+				"css": {
+					"validate": true
+				},
+				"scss": {
+					"validate": true
+				},
+				"less": {
+					"validate": true
+				}
+			},
+			"languages": {
+				"css": "*.css",
+				"scss": "*.scss",
+				"less": "*.less"
+			}
+		},
 		"python": {
 			"command": [
 				"ty",

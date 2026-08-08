@@ -75,7 +75,7 @@ agent/configs/lsp.jsonc
 | `init` | 未设置 | server 自己定义的初始化 JSON，原样传给 LSP `initialize.initializationOptions`；字段名和嵌套结构不由 Pi 定义。 |
 | `settings` | 未设置 | server 自己定义的运行时配置树，供 `workspace/configuration` 按 section 返回，并在初始化后通过 `workspace/didChangeConfiguration` 整体发送；不会自动从 Go 项目配置或环境变量补充。 |
 
-配置不包含 `id`、`transport.type`、`args`、`extensions`、`language_id` 或 `language_ids` 等重复字段，也不从扩展名隐藏推断 language ID。合并后的全局与项目配置使用同一 schema；项目 server 可以只提供需要覆盖的字段。用户可以覆盖默认 server 集合；项目配置再按 server ID 合并。示例配置可包含 TypeScript、Python、Rust、Clangd（C/C++）、Tombi（TOML）、Docker 和 YAML stdio server，并在注释中提供 TCP endpoint 示例：
+配置不包含 `id`、`transport.type`、`args`、`extensions`、`language_id` 或 `language_ids` 等重复字段，也不从扩展名隐藏推断 language ID。合并后的全局与项目配置使用同一 schema；项目 server 可以只提供需要覆盖的字段。用户可以覆盖默认 server 集合；项目配置再按 server ID 合并。默认配置包含 TypeScript、HTML/Handlebars、JSON/JSONC、CSS/SCSS/LESS、Python、Rust、Clangd（C/C++）、Tombi（TOML）、Docker 和 YAML stdio server，并在注释中提供 TCP endpoint 示例：
 
 ```jsonc
 {
@@ -103,6 +103,14 @@ agent/configs/lsp.jsonc
 ```
 
 内置 TypeScript 路由直接使用 TypeScript 7 原生 language server：`tsc --lsp --stdio`。它要求 `PATH` 中的 `tsc` 为 7.x，不安装旧 language server，也不回退到 tsserver。TypeScript 7 通过标准 LSP pull diagnostics、document/workspace symbols、references 和 call hierarchy 能力接入；项目需要 embedded-language 插件时应自行配置其他 server。
+
+内置 HTML、JSON 和 CSS 路由使用 [`vscode-langservers-extracted`](https://github.com/hrsh7th/vscode-langservers-extracted) 提供的 `vscode-*-language-server --stdio` executable：
+
+- HTML server 覆盖 HTML 与 Handlebars，并启用 `<style>`、`<script>` 中的 CSS/JavaScript 嵌入语言及校验。
+- JSON server 覆盖 JSON、JSONC 和 VS Code 官方声明中的常见无扩展名配置文件；由 server 直接读取 `file`、`http`、`https` Schema，并默认把 `package.json` 关联到 SchemaStore。
+- CSS server 覆盖 CSS、SCSS 和 Less，并为三种语言启用校验。未设置的 lint 级别继续采用 Microsoft language service 的默认值，避免把风格偏好固化为全局规则。
+
+这些 server 的初始化参数与 settings 以 Microsoft 的 [HTML server 源码](https://github.com/microsoft/vscode/blob/main/extensions/html-language-features/server/src/htmlServer.ts)、[JSON server README](https://github.com/microsoft/vscode/blob/main/extensions/json-language-features/server/README.md) 和 [CSS server 源码](https://github.com/microsoft/vscode/blob/main/extensions/css-language-features/server/src/cssServer.ts) 为准。Markdown server 需要 `markdown/parse`、`markdown/fs/*` 和 watcher 等自定义客户端协议，当前不列入默认配置。
 
 内置 TOML 路由使用 `tombi lsp`，覆盖 `*.toml` 及 Tombi 官方编辑器声明的 `Cargo.lock`、`Gopkg.lock`、`Pipfile`、`pdm.lock`、`poetry.lock`、`uv.lock`。默认 `settings.tombi` 显式启用 SchemaStore、严格 schema 校验、diagnostics、references，以及 Cargo、pyproject 和 Tombi 配置扩展。Tombi 会优先采用项目级或用户级 `.tombi.toml`、`tombi.toml`、`pyproject.toml` 配置，因此仓库可以自行调整 TOML 版本、schema 和扩展特性。Pi 当前直接消费 document symbols 与 diagnostics；其他能力保持可供后续标准 LSP adapter 使用。
 
@@ -159,6 +167,7 @@ Pi 对 `workspace/configuration` 的查找规则是：
 - TypeScript 7：[官方发布说明](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/) 与 [原生实现](https://github.com/microsoft/typescript-go)
 - ty：[Editor settings](https://docs.astral.sh/ty/reference/editor-settings/)
 - rust-analyzer：[Configuration](https://rust-analyzer.github.io/book/configuration)
+- HTML/JSON/CSS Language Servers：Microsoft VS Code 中的 [HTML](https://github.com/microsoft/vscode/tree/main/extensions/html-language-features/server)、[JSON](https://github.com/microsoft/vscode/tree/main/extensions/json-language-features/server) 和 [CSS](https://github.com/microsoft/vscode/tree/main/extensions/css-language-features/server) server
 - YAML Language Server：[Language server settings](https://github.com/redhat-developer/yaml-language-server#language-server-settings)
 - Tombi：[Configuration](https://tombi-toml.github.io/tombi/docs/configuration/) 与 [Language Server](https://tombi-toml.github.io/tombi/docs/language-server/)
 - clangd：主要使用项目或用户级 [`.clangd` configuration](https://clangd.llvm.org/config)，不要假设它采用上述 namespace 形式。
