@@ -48,8 +48,6 @@
 		"node-notifier": "latest",
 		"p-limit": "latest",
 		"picomatch": "latest",
-		"remark-math": "latest",
-		"remark-parse": "latest",
 		"tldts": "latest",
 		"tough-cookie": "latest",
 		"tree-sitter-bash": "latest",
@@ -64,7 +62,6 @@
 		"turndown-plugin-gfm": "latest",
 		"typebox": "latest",
 		"undici": "latest",
-		"unified": "latest",
 		"vscode-jsonrpc": "latest",
 		"vscode-languageserver-protocol": "latest",
 		"web-tree-sitter": "latest"

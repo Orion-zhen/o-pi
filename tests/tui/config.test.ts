@@ -24,7 +24,7 @@ describe("tui config", () => {
 			"icons": "ascii",
 			"chrome": { "footer": false },
 			"banner": { "layout": "stacked", "show_hints": false },
-			"math": { "inline": "source", "svg_scale": 4 }
+			"math": { "max_height_cells": 24, "svg_scale": 4 }
 		}`);
 		process.env.PI_TUI_CONFIG = file;
 
@@ -32,7 +32,7 @@ describe("tui config", () => {
 			icons: "ascii",
 			chrome: { footer: false },
 			banner: { layout: "stacked", show_hints: false },
-			math: { inline: "source", svg_scale: 4 },
+			math: { max_height_cells: 24, svg_scale: 4 },
 			tools: defaultTuiConfig().tools,
 		});
 	});
@@ -41,7 +41,7 @@ describe("tui config", () => {
 		'{ "unknown": true }',
 		'{ "tools": { "collapsed_lines": 3 } }',
 		'{ "banner": { "layout": "wide" } }',
-		'{ "math": { "inline": "image" } }',
+		'{ "math": { "inline": "source" } }',
 	])("拒绝不符合 schema 的配置 %#", async (text) => {
 		const file = path.join(dir, "bad.jsonc");
 		await writeFile(file, text);

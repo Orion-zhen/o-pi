@@ -4,8 +4,6 @@ import type { TuiMathConfig } from "../../src/tui/types.js";
 
 const mathConfig: TuiMathConfig = {
 	enabled: true,
-	display: true,
-	inline: "text",
 	max_width_cells: 120,
 	max_height_cells: 18,
 	svg_scale: 2,

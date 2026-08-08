@@ -68,7 +68,7 @@ export function createTuiRuntime(
 	let startupBannerVisible = false;
 	let mathMarkdownModule: MathMarkdownModule | undefined;
 	let mathMarkdownLoad: Promise<MathMarkdownModule> | undefined;
-	let displayMathWarm = false;
+	let mathImagesWarm = false;
 	let mathTimer: ReturnType<typeof setTimeout> | undefined;
 	let sessionGeneration = 0;
 	let skillsSnapshot: TuiFooterSkillsSnapshot | undefined;
@@ -276,7 +276,7 @@ export function createTuiRuntime(
 			|| !current.enabled
 			|| !current.math.enabled
 			|| ctx.mode !== "tui"
-			|| mathInitializationComplete(current, mathMarkdownModule, displayMathWarm)
+			|| mathInitializationComplete(mathMarkdownModule, mathImagesWarm)
 		) return;
 		mathTimer = setTimeout(() => {
 			mathTimer = undefined;
@@ -299,9 +299,9 @@ export function createTuiRuntime(
 				return;
 			}
 			module.installMathMarkdownRenderer({ ...current.math, enabled: true });
-			if (current.math.display && module.supportsDisplayMathImages()) {
+			if (module.supportsDisplayMathImages()) {
 				await module.warmDisplayMathRenderer();
-				displayMathWarm = true;
+				mathImagesWarm = true;
 			}
 			if (generation === sessionGeneration) ctx.ui.setStatus(STATUS_KEY, formatStatus("ready", ctx.ui.theme));
 		} catch (error) {
@@ -376,12 +376,11 @@ function syncUserMessageTimestamps(ctx: ExtensionContext): void {
 }
 
 function mathInitializationComplete(
-	config: TuiConfig,
 	module: MathMarkdownModule | undefined,
-	displayMathWarm: boolean,
+	mathImagesWarm: boolean,
 ): boolean {
 	if (module === undefined) return false;
-	return !config.math.display || displayMathWarm || !module.supportsDisplayMathImages();
+	return mathImagesWarm || !module.supportsDisplayMathImages();
 }
 
 async function loadDefaultMathMarkdown(): Promise<MathMarkdownModule> {

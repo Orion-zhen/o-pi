@@ -63,11 +63,9 @@ export interface TuiBannerConfig {
 	clear_on_first_turn: boolean;
 }
 
-/** LaTeX math 渲染配置；行内公式保持文本化，块级公式可用 MathJax 渲染为终端图片。 */
+/** Pi 原生 LaTeX 之上的块级公式图片增强配置。 */
 export interface TuiMathConfig {
 	enabled: boolean;
-	display: boolean;
-	inline: "text" | "source";
 	max_width_cells: number;
 	max_height_cells: number;
 	svg_scale: number;

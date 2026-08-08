@@ -5,8 +5,6 @@ import type { TuiMathConfig } from "../../src/tui/types.js";
 
 const mathConfig: TuiMathConfig = {
 	enabled: true,
-	display: true,
-	inline: "text",
 	max_width_cells: 72,
 	max_height_cells: 18,
 	svg_scale: 2,
@@ -43,23 +41,31 @@ afterEach(() => {
 describe("math markdown renderer", () => {
 	it.each([
 		["美元公式与 code span", "LLM 输出一个 $\\text{行内公式}$，不是 `$x$`。", ["LLM 输出一个 行内公式", "$x$"]],
-		["括号公式与 code span", "LLM 输出一个 \\(\\text{行内公式}\\)，不是 `\\(x\\)`。", ["LLM 输出一个 行内公式", "\\(x\\)"]],
 		["价格", "This costs $5 and $10 tomorrow.", ["This costs $5 and $10 tomorrow."]],
 		["环境变量", "Use $PATH and $HOME.", ["Use $PATH and $HOME."]],
-		["普通括号", "Paren text \\(not latex\\) should stay text.", ["Paren text (not latex) should stay text."]],
+		["原生括号分隔符", "Inline \\(not latex\\) and \\[x_i^2\\].", ["Inline not latex and xᵢ²."]],
 		["数学特征", "Inline $x+1$ and \\(\\alpha + \\beta\\).", ["Inline x+1 and α + β."]],
-	] as const)("正确区分行内公式与 %s", (_name, source, expected) => {
+	] as const)("行内内容交给 Pi 原生处理：%s", (_name, source, expected) => {
 		const output = render(source);
 		for (const text of expected) expect(output).toContain(text);
+		expect(output).not.toContain("\u001b_G");
 	});
 
 	it.each([
-		["美元", "before\n\n$$\nx_i^2\n$$\n\nafter"],
-		["方括号", "before\n\n\\[\nx_i^2\n\\]\n\nafter"],
-	])("终端不支持图片时%s块级公式回退为源码", (_name, source) => {
+		["美元", "before\n\n$$\n\\frac{x^2}{y}\n$$\n\nafter"],
+		["方括号", "before\n\n\\[\n\\frac{x^2}{y}\n\\]\n\nafter"],
+	])("无图片协议时%s块级公式交给 Pi 原生渲染", (_name, source) => {
 		const output = render(source, null);
 		expect(supportsDisplayMathImages()).toBe(false);
-		for (const text of ["before", "$$", "x_i^2", "after"]) expect(output).toContain(text);
+		expect(output).not.toContain("\u001b_G");
+		for (const text of ["before", "x²", "─", "y", "after"]) expect(output).toContain(text);
+		expect(output).not.toContain("\\frac");
+	});
+
+	it("图片增强关闭时仍保留 Pi 原生公式渲染", () => {
+		const output = render("$$\nx_i^2\n$$", "kitty", { ...mathConfig, enabled: false });
+		expect(output).toContain("xᵢ²");
+		expect(output).not.toContain("\u001b_G");
 	});
 
 	it.each([
@@ -67,7 +73,7 @@ describe("math markdown renderer", () => {
 		["行首裸环境", "**效果：**\n\\begin{align}\n\\dot{x} &= \\sigma (y - x) \\\\\n\\dot{y} &= x (\\rho - z) - y\n\\end{align}", "\\begin{align}"],
 		["美元", "$$\nx_i^2\n$$", "x_i^2"],
 		["方括号", "\\[\nx_i^2\n\\]", "x_i^2"],
-	])("终端支持图片时渲染%s块级公式", (_name, source, hiddenSource) => {
+	])("图片终端增强顶层%s块级公式", (_name, source, hiddenSource) => {
 		const output = render(source);
 		expect(output).toContain("\u001b_G");
 		expect(output).not.toContain(hiddenSource);
@@ -75,12 +81,25 @@ describe("math markdown renderer", () => {
 
 	it.each([
 		["代码块", "```latex\n\\[\nx_i^2\n\\]\n\\begin{align}\na&=b\n\\end{align}\n```", "\\begin{align}"],
-		["普通方括号文本", "普通文字里提到 \\[x_i^2\\] 不应该变成块级图片。", "[x_i^2]"],
-		["普通环境文本", "普通文字提到 \\begin{align}\na&=b\n\\end{align} 这个环境。", "\\begin{align}"],
-	])("不渲染%s", (_name, source, expected) => {
+		["句内方括号公式", "普通文字里提到 \\[x_i^2\\]，只应由 Pi 原生文本化。", "xᵢ²"],
+		["句内裸环境", "普通文字提到 \\begin{align}\na&=b\n\\end{align} 这个环境。", "\\begin{align}"],
+		["引用中的公式", "> $$x_i^2$$", "xᵢ²"],
+	])("不把%s提升为图片", (_name, source, expected) => {
 		const output = render(source);
 		expect(output).not.toContain("\u001b_G");
 		expect(output).toContain(expected);
+	});
+
+	it("Pi 不支持的行内命令保留源码而不进入图片后端", () => {
+		const output = render("Inline $\\braket{\\psi|\\phi}$ done");
+		expect(output).toContain("$\\braket{\\psi|\\phi}$");
+		expect(output).not.toContain("\u001b_G");
+	});
+
+	it("图片渲染失败时交回 Pi 原生回退", () => {
+		const output = render("$$\n\\begin{unknown}x\\end{unknown}\n$$");
+		expect(output).toContain("\\begin{unknown}x\\end{unknown}");
+		expect(output).not.toContain("\u001b_G");
 	});
 
 	it.each([
@@ -96,7 +115,6 @@ describe("math markdown renderer", () => {
 
 	it("块级公式按自然尺寸显示，不放大到全局上限", () => {
 		const lines = renderLines("$$\na^2 + b^2 = c^2\n$$");
-
 		expect(lines.length).toBeLessThan(8);
 		expect(lines.join("\n")).toContain("\u001b_G");
 	});

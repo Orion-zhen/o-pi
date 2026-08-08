@@ -73,11 +73,10 @@
 		},
 		"math": {
 			"type": "object",
+			"description": "Optional block math image enhancement; Pi native LaTeX remains active when disabled.",
 			"additionalProperties": false,
 			"properties": {
-				"enabled": { "type": "boolean", "default": true },
-				"display": { "type": "boolean", "default": true },
-				"inline": { "enum": ["text", "source"], "default": "text" },
+				"enabled": { "type": "boolean", "description": "Render top-level display math as images when the terminal supports it.", "default": true },
 				"max_width_cells": { "type": "integer", "minimum": 16, "maximum": 240, "default": 120 },
 				"max_height_cells": { "type": "integer", "minimum": 4, "maximum": 80, "default": 18 },
 				"svg_scale": { "type": "number", "minimum": 1, "maximum": 8, "default": 2 },
