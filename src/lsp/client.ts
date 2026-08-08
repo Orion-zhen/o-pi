@@ -47,12 +47,9 @@ import { diagnosticSourceKey, type DiagnosticsLedger } from "./diagnostics.js";
 import { incrementalContentChange, LspDocuments } from "./documents.js";
 import { LspClientConnection } from "./client-connection.js";
 import {
-	featureAvailable,
-	lspFeatureDefinitions,
 	requestDocumentSymbols,
 	requestIncomingCalls,
 	requestReferences,
-	requestTypeScriptDiagnostics,
 	requestWorkspaceSymbols,
 	resolveWorkspaceSymbol,
 	type LspFeatureSession,
@@ -266,7 +263,6 @@ export class LspClient implements LspFeatureSession {
 			const diagnosticLimit = pLimit(DIAGNOSTIC_REQUEST_CONCURRENCY);
 			const provider = this.serverCapabilities?.diagnosticProvider;
 			const supportsPull = typeof provider === "object" && provider !== null;
-			const supportsTypeScriptDiagnostics = featureAvailable(this, lspFeatureDefinitions.typescriptDiagnostics);
 			const timeoutMs = options.timeoutMs ?? this.config.request_timeout_ms;
 
 			const collected = await Promise.all(unique.map(({ document }) => this.documents.enqueue(
@@ -285,27 +281,7 @@ export class LspClient implements LspFeatureSession {
 					await synchronized;
 					if (!saved) return { kind: "unavailable" };
 					const remainingMs = (): number => Math.max(0, diagnosticDeadline - Date.now());
-					if (!supportsPull) {
-						if (!supportsTypeScriptDiagnostics) return { kind: "publish", waitMs: remainingMs() };
-						return diagnosticLimit(async () => {
-							const availableMs = remainingMs();
-							if (availableMs <= 0 || options.signal?.aborted === true) return { kind: "publish", waitMs: 0 };
-							const diagnostics = await requestTypeScriptDiagnostics(this, document.uri, {
-								...options,
-								timeoutMs: availableMs,
-							});
-							if (diagnostics === undefined) return { kind: "publish", waitMs: remainingMs() };
-							const snapshot = this.diagnostics.update(
-								this.diagnosticsSource,
-								document.uri,
-								diagnostics,
-								this.config.diagnostics.min_severity,
-								this.documents.currentVersion(document.uri),
-								this.config.diagnostics.max_related_locations,
-							);
-							return { kind: "pull", snapshot };
-						});
-					}
+					if (!supportsPull) return { kind: "publish", waitMs: remainingMs() };
 					return diagnosticLimit(async () => {
 						const availableMs = remainingMs();
 						if (availableMs <= 0 || options.signal?.aborted === true) return { kind: "pull" };

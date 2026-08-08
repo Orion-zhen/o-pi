@@ -135,6 +135,20 @@ describe("file-tools extension renderers", () => {
 		});
 		expect(progress).toBe("");
 		expect(state.callComponent?.postProcess).toMatchObject({ lsp: { status: "errors", errors: 2 } });
+
+		const result = renderToolResult(registered, "edit", {
+			status: "applied",
+			path: "app.ts",
+			replacements: 1,
+			diff: "-1 old\n+1 new",
+			lsp: { diagnostics: { status: "clean", file_errors: 0, file_warnings: 0, items: [] } },
+		}, {
+			isPartial: false,
+			content: [],
+			width: 80,
+			context: { args, cwd, expanded: false, lastComponent: undefined, state },
+		});
+		expect(result).toContain("LSP clean");
 	});
 });
 

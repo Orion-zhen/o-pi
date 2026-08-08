@@ -28,31 +28,12 @@
 	},
 	"servers": {
 		"typescript": {
+			// TypeScript 7 原生 LSP；要求 PATH 中的 tsc 为 7.x。
 			"command": [
-				"typescript-language-server",
+				"tsc",
+				"--lsp",
 				"--stdio"
 			],
-			// typescript-language-server 文档中的静态初始化选项:
-			"init": {
-				"preferences": {
-					"importModuleSpecifierPreference": "relative",
-					"quotePreference": "double"
-				}
-			},
-			// 运行时 didChangeConfiguration 的值与请求配置:
-			"settings": {
-				// "formattingOptions": { "tabSize": 2, "insertSpaces": true },
-				"typescript": {
-					"format": {
-						"semicolons": "insert"
-					}
-				},
-				"javascript": {
-					"format": {
-						"semicolons": "insert"
-					}
-				}
-			},
 			"languages": {
 				"typescript": "*.ts",
 				"typescriptreact": "*.tsx",

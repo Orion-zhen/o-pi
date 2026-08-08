@@ -623,134 +623,9 @@ describe("lsp transport", () => {
 		expect(requests[0]).toMatchObject({ params: { textDocument: { uri }, identifier: "typescript" } });
 		expect(requests[0]?.params).not.toHaveProperty("previousResultId");
 		expect(requests[1]).toMatchObject({ params: { textDocument: { uri }, identifier: "typescript", previousResultId: "current-r1" } });
+		expect(fake.methods).not.toContain("workspace/executeCommand");
 	});
 
-	it("TSLS fast path 在没有 publish 时仍同步返回 clean diagnostics", async () => {
-		const commands: string[] = [];
-		const fake = await createFakeServer((message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: {
-					executeCommandProvider: { commands: ["typescript.tsserverRequest"] },
-					textDocumentSync: { openClose: true, change: 1, save: true },
-				} } });
-			} else if (message.method === "workspace/executeCommand") {
-				const args = isRecord(message.params) && Array.isArray(message.params["arguments"])
-					? message.params["arguments"]
-					: [];
-				const command = args[0];
-				if (typeof command === "string") commands.push(command);
-				send(socket, { id: message.id, result: { type: "response", success: true, body: [] } });
-			}
-		});
-		await writeConfig(
-			{ type: "tcp", host: "127.0.0.1", port: fake.port },
-			{ diagnostics: { enabled: true, max_wait_ms: 500, settle_ms: 0, max_items: 8, max_related_locations: 2, min_severity: "warning" } },
-		);
-		manager = new LspManager();
-		const file = path.join(workspace, "a.ts");
-
-		const first = await manager.didWrite(workspace, file, "export const value = 1;\n");
-		expect(commands).toEqual([
-			"syntacticDiagnosticsSync",
-			"semanticDiagnosticsSync",
-			"suggestionDiagnosticsSync",
-		]);
-		expect(first).toMatchObject({ status: "clean" });
-		await expect(manager.didWrite(workspace, file, "export const value = 2;\n")).resolves.toMatchObject({ status: "clean" });
-		expect(commands).toEqual([
-			"syntacticDiagnosticsSync",
-			"semanticDiagnosticsSync",
-			"suggestionDiagnosticsSync",
-			"syntacticDiagnosticsSync",
-			"semanticDiagnosticsSync",
-			"suggestionDiagnosticsSync",
-		]);
-		expect(fake.methods).not.toContain("textDocument/diagnostic");
-	});
-
-	it("TSLS fast path 校验并转换 tsserver diagnostics", async () => {
-		const fake = await createFakeServer((message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: {
-					executeCommandProvider: { commands: ["typescript.tsserverRequest"] },
-					textDocumentSync: { openClose: true, change: 1 },
-				} } });
-			} else if (message.method === "workspace/executeCommand") {
-				const args = isRecord(message.params) && Array.isArray(message.params["arguments"])
-					? message.params["arguments"]
-					: [];
-				const command = args[0];
-				const body = command === "syntacticDiagnosticsSync"
-					? [{
-						start: { line: 2, offset: 3 },
-						end: { line: 2, offset: 5 },
-						text: "syntax error",
-						category: "error",
-						code: 1005,
-						relatedInformation: [{
-							message: "related declaration",
-							span: { file: path.join(workspace, "related.ts"), start: { line: 6, offset: 2 }, end: { line: 6, offset: 3 } },
-						}],
-					}]
-					: command === "semanticDiagnosticsSync"
-						? [{ start: { line: 3, offset: 1 }, end: { line: 3, offset: 4 }, text: "plugin warning", category: "warning", code: 9001, source: "plugin" }]
-						: [{ start: { line: 4, offset: 1 }, end: { line: 4, offset: 2 }, text: "suggestion", category: "suggestion", code: 6133 }];
-				send(socket, { id: message.id, result: { type: "response", success: true, body } });
-			}
-		});
-		await writeConfig(
-			{ type: "tcp", host: "127.0.0.1", port: fake.port },
-			{ diagnostics: { enabled: true, max_wait_ms: 500, settle_ms: 0, max_items: 8, max_related_locations: 2, min_severity: "warning" } },
-		);
-		manager = new LspManager();
-
-		await expect(manager.didWrite(workspace, path.join(workspace, "a.ts"), "broken\n")).resolves.toMatchObject({
-			status: "errors",
-			file_errors: 1,
-			file_warnings: 1,
-			total_items: 2,
-			items: [
-				{ severity: "error", line: 2, column: 3, message: "syntax error [related: related.ts:6:2 related declaration]", code: "1005", source: "typescript" },
-				{ severity: "warning", line: 3, column: 1, message: "plugin warning", code: "9001", source: "plugin" },
-			],
-		});
-	});
-
-	it("TSLS fast path 响应无效时回退等待 publish diagnostics", async () => {
-		let executeRequests = 0;
-		const fake = await createFakeServer((message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: {
-					executeCommandProvider: { commands: ["typescript.tsserverRequest"] },
-					textDocumentSync: { openClose: true, change: 1 },
-				} } });
-			} else if (message.method === "workspace/executeCommand") {
-				executeRequests += 1;
-				const args = isRecord(message.params) && Array.isArray(message.params["arguments"])
-					? message.params["arguments"]
-					: [];
-				const request = args[1];
-				send(socket, { id: message.id, result: { type: "response", success: false } });
-				if (isRecord(request) && typeof request["file"] === "string") {
-					send(socket, { method: "textDocument/publishDiagnostics", params: {
-						uri: request["file"],
-						diagnostics: [diagnostic("publish fallback", 1)],
-					} });
-				}
-			}
-		});
-		await writeConfig(
-			{ type: "tcp", host: "127.0.0.1", port: fake.port },
-			{ diagnostics: { enabled: true, max_wait_ms: 500, settle_ms: 0, max_items: 8, max_related_locations: 2, min_severity: "warning" } },
-		);
-		manager = new LspManager();
-
-		await expect(manager.didWrite(workspace, path.join(workspace, "a.ts"), "broken\n")).resolves.toMatchObject({
-			status: "errors",
-			items: [{ message: "publish fallback" }],
-		});
-		expect(executeRequests).toBe(1);
-	});
 
 	it("didWriteBatch 先同步同一 server 的全部文档，并限制并发 pull diagnostics", async () => {
 		let opened = 0;
@@ -1268,10 +1143,6 @@ function stdioClient(mode: "notification-timeout" | "stderr-crash" | "stubborn")
 function documentSymbol(name: string, line: number): Record<string, unknown> {
 	const range = { start: { line, character: 0 }, end: { line, character: name.length } };
 	return { name, kind: 12, range, selectionRange: range };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function diagnostic(message: string, line: number): Record<string, unknown> {

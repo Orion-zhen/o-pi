@@ -24,6 +24,7 @@ describe("lsp config", () => {
 		expect(loaded.config.servers[0]).toMatchObject({
 			id: "typescript",
 			fallback: false,
+			transport: { type: "stdio", command: "tsc", args: ["--lsp", "--stdio"] },
 			routes: [
 				{ languageId: "typescript", selectors: ["*.ts"] },
 				{ languageId: "typescriptreact", selectors: ["*.tsx"] },
