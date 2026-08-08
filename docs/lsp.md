@@ -75,7 +75,7 @@ agent/configs/lsp.jsonc
 | `init` | 未设置 | server 自己定义的初始化 JSON，原样传给 LSP `initialize.initializationOptions`；字段名和嵌套结构不由 Pi 定义。 |
 | `settings` | 未设置 | server 自己定义的运行时配置树，供 `workspace/configuration` 按 section 返回，并在初始化后通过 `workspace/didChangeConfiguration` 整体发送；不会自动从 Go 项目配置或环境变量补充。 |
 
-配置不包含 `id`、`transport.type`、`args`、`extensions`、`language_id` 或 `language_ids` 等重复字段，也不从扩展名隐藏推断 language ID。合并后的全局与项目配置使用同一 schema；项目 server 可以只提供需要覆盖的字段。用户可以覆盖默认 server 集合；项目配置再按 server ID 合并。默认配置包含 TypeScript、HTML/Handlebars、JSON/JSONC、CSS/SCSS/LESS、Python、Rust、Clangd（C/C++）、Tombi（TOML）、Docker 和 YAML stdio server，并在注释中提供 TCP endpoint 示例：
+配置不包含 `id`、`transport.type`、`args`、`extensions`、`language_id` 或 `language_ids` 等重复字段，也不从扩展名隐藏推断 language ID。合并后的全局与项目配置使用同一 schema；项目 server 可以只提供需要覆盖的字段。用户可以覆盖默认 server 集合；项目配置再按 server ID 合并。默认配置包含 TypeScript、HTML/Handlebars、JSON/JSONC、CSS/SCSS/LESS、Python、Java（JDT LS）、Rust、Clangd（C/C++）、Tombi（TOML）、Docker 和 YAML stdio server，并在注释中提供 TCP endpoint 示例：
 
 ```jsonc
 {
@@ -103,6 +103,8 @@ agent/configs/lsp.jsonc
 ```
 
 内置 TypeScript 路由直接使用 TypeScript 7 原生 language server：`tsc --lsp --stdio`。它要求 `PATH` 中的 `tsc` 为 7.x，不安装旧 language server，也不回退到 tsserver。TypeScript 7 通过标准 LSP pull diagnostics、document/workspace symbols、references 和 call hierarchy 能力接入；项目需要 embedded-language 插件时应自行配置其他 server。
+
+内置 Java 路由使用 [`Eclipse JDT Language Server`](https://github.com/eclipse-jdtls/eclipse.jdt.ls) 的 `jdtls` executable，覆盖 `*.java`。JDT LS 本身要求 Java 21 或更高版本运行，但可分析 Java 8 及以上项目。默认 `settings.java` 启用 Maven/Gradle 导入、Gradle Wrapper 与注解处理、自动构建和构建配置刷新；注解类型存在时自动启用 null analysis，并让 workspace symbol 包含源码方法声明。references 覆盖 accessor、声明与反编译源码，搜索范围包含主代码和测试代码。未声明 JDT LS 私有 extended client capabilities，也不加载 debugger/test bundles，因为 Pi 当前只消费标准 LSP diagnostics、symbols、references 和 call hierarchy。
 
 内置 HTML、JSON 和 CSS 路由使用 [`vscode-langservers-extracted`](https://github.com/hrsh7th/vscode-langservers-extracted) 提供的 `vscode-*-language-server --stdio` executable：
 
@@ -165,6 +167,7 @@ Pi 对 `workspace/configuration` 的查找规则是：
 当前内置 server 的主要官方入口：
 
 - TypeScript 7：[官方发布说明](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/) 与 [原生实现](https://github.com/microsoft/typescript-go)
+- Eclipse JDT LS：[项目 README](https://github.com/eclipse-jdtls/eclipse.jdt.ls) 与 [Java settings](https://github.com/redhat-developer/vscode-java#supported-vs-code-settings)
 - ty：[Editor settings](https://docs.astral.sh/ty/reference/editor-settings/)
 - rust-analyzer：[Configuration](https://rust-analyzer.github.io/book/configuration)
 - HTML/JSON/CSS Language Servers：Microsoft VS Code 中的 [HTML](https://github.com/microsoft/vscode/tree/main/extensions/html-language-features/server)、[JSON](https://github.com/microsoft/vscode/tree/main/extensions/json-language-features/server) 和 [CSS](https://github.com/microsoft/vscode/tree/main/extensions/css-language-features/server) server

@@ -71,11 +71,38 @@ describe("lsp config", () => {
 				{ languageId: "less", selectors: ["*.less"] },
 			],
 		});
+		expect(loaded.config.servers.find((server) => server.id === "jdtls")).toMatchObject({
+			transport: { type: "stdio", command: "jdtls", args: [] },
+			settings: {
+				java: {
+					configuration: { updateBuildConfiguration: "automatic" },
+					import: {
+						maven: { enabled: true },
+						gradle: {
+							enabled: true,
+							wrapper: { enabled: true },
+							annotationProcessing: { enabled: true },
+						},
+					},
+					autobuild: { enabled: true },
+					compile: { nullAnalysis: { mode: "automatic" } },
+					symbols: { includeSourceMethodDeclarations: true },
+					references: {
+						includeAccessors: true,
+						includeDeclarations: true,
+						includeDecompiledSources: true,
+					},
+					search: { scope: "all" },
+				},
+			},
+			routes: [{ languageId: "java", selectors: ["*.java"] }],
+		});
 		const registry = new LspServerRegistry(loaded.config.servers);
 		expect(registry.route("web/index.html")).toMatchObject({ server: { id: "html" }, languageId: "html" });
 		expect(registry.route("package.json")).toMatchObject({ server: { id: "json" }, languageId: "json" });
 		expect(registry.route(".eslintrc")).toMatchObject({ server: { id: "json" }, languageId: "jsonc" });
 		expect(registry.route("styles/theme.scss")).toMatchObject({ server: { id: "css" }, languageId: "scss" });
+		expect(registry.route("src/main/java/dev/example/App.java")).toMatchObject({ server: { id: "jdtls" }, languageId: "java" });
 		expect(loaded.config.servers.find((server) => server.id === "tombi")).toMatchObject({
 			transport: { type: "stdio", command: "tombi", args: ["lsp"] },
 			settings: {

@@ -146,6 +146,55 @@
 				"python": "*.{py,pyi}"
 			}
 		},
+		"jdtls": {
+			"command": [
+				"jdtls"
+			],
+			// 自动同步 Maven/Gradle classpath，并增强 symbol、references 与注解空值分析。
+			"settings": {
+				"java": {
+					"configuration": {
+						"updateBuildConfiguration": "automatic"
+					},
+					"import": {
+						"maven": {
+							"enabled": true
+						},
+						"gradle": {
+							"enabled": true,
+							"wrapper": {
+								"enabled": true
+							},
+							"annotationProcessing": {
+								"enabled": true
+							}
+						}
+					},
+					"autobuild": {
+						"enabled": true
+					},
+					"compile": {
+						"nullAnalysis": {
+							"mode": "automatic"
+						}
+					},
+					"symbols": {
+						"includeSourceMethodDeclarations": true
+					},
+					"references": {
+						"includeAccessors": true,
+						"includeDeclarations": true,
+						"includeDecompiledSources": true
+					},
+					"search": {
+						"scope": "all"
+					}
+				}
+			},
+			"languages": {
+				"java": "*.java"
+			}
+		},
 		"rust": {
 			"command": [
 				"rust-analyzer"
