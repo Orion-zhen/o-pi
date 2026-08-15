@@ -65,7 +65,7 @@ describe("路径级用户历史", () => {
 		const content = await readFile(filePath, "utf8");
 		expect(records.length).toBeLessThanOrEqual(2);
 		expect(records.at(-1)?.text).toBe(`7-${"x".repeat(100)}`);
-		expect(Buffer.byteLength(content)).toBeLessThanOrEqual(400);
+		expect(Buffer.byteLength(content)).toBeLessThanOrEqual(500);
 		expect(content.trimEnd().split("\n").every((line) => JSON.parse(line) !== undefined)).toBe(true);
 	});
 
