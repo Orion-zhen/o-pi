@@ -36,11 +36,7 @@ export function registerOpenAICompatibleProviders(
 	const providers = normalizedProviders.map((normalized) => {
 		const providerConfig = config.providers[normalized.id];
 		if (!providerConfig) throw new Error(`Missing normalized provider config: ${normalized.id}`);
-		let provider: Provider | undefined;
-		provider = createNativeProvider(normalized, providerConfig, configPath, () => {
-			if (provider) pi.registerProvider(provider);
-		});
-		return provider;
+		return createNativeProvider(normalized, providerConfig, configPath);
 	});
 	const defaults = new Map<string, RuntimeModelConfig>();
 	for (const normalized of normalizedProviders) {
@@ -76,7 +72,6 @@ export function createNativeProvider(
 	normalized: NormalizedProvider,
 	providerConfig: ProviderConfig,
 	configPath: string,
-	onModelsChanged?: () => void,
 ): Provider {
 	const runtimeModels = new Map(normalized.runtimeModels);
 	const streams = createRuntimeStreams(normalized, runtimeModels);
@@ -90,65 +85,44 @@ export function createNativeProvider(
 	});
 	const source = modelSource(providerConfig);
 	let dynamicModels: Model<Api>[] = [];
-	let refreshInFlight: Promise<void> | undefined;
-	let refreshAllowsNetwork = false;
-	const refreshModels: NonNullable<Provider["refreshModels"]> = (context) => {
-		if (refreshInFlight) {
-			return context.allowNetwork && !refreshAllowsNetwork
-				? refreshInFlight.then(
-					() => refreshModels(context),
-					() => refreshModels(context),
-				)
-				: refreshInFlight;
+	const refreshModels: NonNullable<Provider["refreshModels"]> = async (context) => {
+		const restoredModels = restoreStoredModels(context.stored?.models ?? [], normalized, source);
+		if (dynamicModels.length === 0 && restoredModels.length > 0) {
+			const published = await context.publish({
+				update() {
+					dynamicModels = restoredModels;
+				},
+			});
+			if (!published) return;
 		}
-		refreshAllowsNetwork = context.allowNetwork;
-		refreshInFlight = (async () => {
-			try {
-				const restoredModels = restoreStoredModels(context.stored?.models ?? [], normalized, source);
-				if (dynamicModels.length === 0 && restoredModels.length > 0) {
-					const published = await context.publish({
-						update() {
-							dynamicModels = restoredModels;
-							onModelsChanged?.();
-						},
-					});
-					if (!published) return;
-				}
-				if (!context.allowNetwork || context.signal.aborted) return;
+		if (!context.allowNetwork || context.signal.aborted) return;
 
-				const credential = context.credential?.type === "api_key" ? context.credential : undefined;
-				const discovered = await fetchProviderModelsFromEndpoint(normalized.id, providerConfig, configPath, {
-					requestAuth: resolveRefreshAuth(normalized.id, providerConfig, credential),
-					signal: context.signal,
-				});
-				if (context.signal.aborted) return;
-				const dynamicConfig: ModelsJsoncConfig = {
-					providers: {
-						[normalized.id]: {
-							...providerConfig,
-							models: mergeDiscoveredModelConfigs(providerConfig.models, discovered),
-						},
-					},
-				};
-				const [dynamic] = normalizeModelsJsoncConfig(dynamicConfig, configPath);
-				if (!dynamic) return;
-				await context.publish({
-					persist: {
-						models: dynamic.models.map((model) => markStoredModel(model, source)),
-						checkedAt: Date.now(),
-					},
-					update() {
-						for (const [modelId, runtime] of dynamic.runtimeModels) runtimeModels.set(modelId, runtime);
-						dynamicModels = dynamic.models;
-						onModelsChanged?.();
-					},
-				});
-			} finally {
-				refreshInFlight = undefined;
-				refreshAllowsNetwork = false;
-			}
-		})();
-		return refreshInFlight;
+		const credential = context.credential?.type === "api_key" ? context.credential : undefined;
+		const discovered = await fetchProviderModelsFromEndpoint(normalized.id, providerConfig, configPath, {
+			requestAuth: resolveRefreshAuth(normalized.id, providerConfig, credential),
+			signal: context.signal,
+		});
+		if (context.signal.aborted) return;
+		const dynamicConfig: ModelsJsoncConfig = {
+			providers: {
+				[normalized.id]: {
+					...providerConfig,
+					models: mergeDiscoveredModelConfigs(providerConfig.models, discovered),
+				},
+			},
+		};
+		const [dynamic] = normalizeModelsJsoncConfig(dynamicConfig, configPath);
+		if (!dynamic) return;
+		await context.publish({
+			persist: {
+				models: dynamic.models.map((model) => markStoredModel(model, source)),
+				checkedAt: Date.now(),
+			},
+			update() {
+				for (const [modelId, runtime] of dynamic.runtimeModels) runtimeModels.set(modelId, runtime);
+				dynamicModels = dynamic.models;
+			},
+		});
 	};
 
 	return {

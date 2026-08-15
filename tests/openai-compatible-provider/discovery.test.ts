@@ -39,7 +39,7 @@ describe("openai-compatible-provider model discovery", () => {
 			},
 			{ id: "dynamic", name: "dynamic" },
 		]);
-		expect(firstHarness.providers).toEqual([first, first]);
+		expect(firstHarness.providers).toEqual([first]);
 
 		const stored = stores.get("local");
 		if (!stored) throw new Error("merged models were not stored");
@@ -57,7 +57,7 @@ describe("openai-compatible-provider model discovery", () => {
 			},
 			{ id: "dynamic", name: "dynamic", baseUrl: "http://127.0.0.1:8000/v1" },
 		]);
-		expect(secondHarness.providers).toEqual([second, second]);
+		expect(secondHarness.providers).toEqual([second]);
 
 		stores.delete("local");
 		fetch.mockRejectedValueOnce(new Error("offline"));
@@ -83,52 +83,6 @@ describe("openai-compatible-provider model discovery", () => {
 			["manual", "Changed Manual", 128000],
 		]);
 		expect(globalThis.fetch).toHaveBeenCalledTimes(3);
-	});
-
-	it("在线刷新会等待进行中的离线恢复并继续请求网络", async () => {
-		const config = await loadConfigFromText(temp.path, providerConfigText({
-			baseUrl: "http://127.0.0.1:8000/v1",
-			models: undefined,
-		}, "local"));
-		const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response('{ "data": [{ "id": "dynamic" }] }'));
-		const seedHarness = createExtensionHarness();
-		const [seedProvider] = registerOpenAICompatibleProviders(seedHarness.pi, config, path.join(temp.path, "models.jsonc"));
-		let stored: ModelsStoreEntry | undefined;
-		await seedProvider?.refreshModels?.(refreshContext({
-			allowNetwork: true,
-			publish: async (publication) => {
-				if (publication.persist !== undefined && publication.persist !== null) stored = publication.persist;
-				publication.update?.();
-				return true;
-			},
-		}));
-		if (stored === undefined) throw new Error("seed models were not published");
-		fetch.mockClear();
-
-		const harness = createExtensionHarness();
-		const [provider] = registerOpenAICompatibleProviders(harness.pi, config, path.join(temp.path, "models.jsonc"));
-		if (!provider?.refreshModels) throw new Error("refreshModels missing");
-		let markRestoreStarted: (() => void) | undefined;
-		let releaseRestore: (() => void) | undefined;
-		const restoreStarted = new Promise<void>((resolve) => { markRestoreStarted = resolve; });
-		const restoreGate = new Promise<void>((resolve) => { releaseRestore = resolve; });
-		const offline = provider.refreshModels(refreshContext({
-			stored,
-			allowNetwork: false,
-			publish: async (publication) => {
-				markRestoreStarted?.();
-				await restoreGate;
-				publication.update?.();
-				return true;
-			},
-		}));
-		await restoreStarted;
-		const online = provider.refreshModels(refreshContext({ stored, allowNetwork: true }));
-		releaseRestore?.();
-		await Promise.all([offline, online]);
-
-		expect(fetch).toHaveBeenCalledOnce();
-		expect(provider.getModels().map((model) => model.id)).toEqual(["dynamic"]);
 	});
 
 	it("models: auto 会调用 provider models endpoint 并注册发现到的模型", async () => {

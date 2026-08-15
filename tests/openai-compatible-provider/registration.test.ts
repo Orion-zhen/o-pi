@@ -102,6 +102,44 @@ describe("openai-compatible-provider registration", () => {
 		expect(registry.getProviderDisplayName("opencode")).toBe("Private OpenCode");
 	});
 
+	it("模型目录刷新由 ModelRuntime 更新快照且不重复注册 provider", async () => {
+		const config = await loadConfigFromText(temp.path, `{
+			"providers": {
+				"local": {
+					"baseUrl": "http://127.0.0.1:8000/v1",
+					"apiKey": "EMPTY"
+				}
+			}
+		}`);
+		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response('{ "data": [{ "id": "dynamic-model" }] }'),
+		);
+		const runtime = await ModelRuntime.create({
+			credentials: new InMemoryCredentialStore(),
+			modelsPath: null,
+			modelsStore: new InMemoryModelsStore(),
+			allowModelNetwork: false,
+		});
+		const registry = new ModelRegistry(runtime);
+		const registerProvider = vi.spyOn(registry, "registerProvider");
+
+		const [provider] = registerOpenAICompatibleProviders(
+			createRegistryPi(registry),
+			config,
+			path.join(temp.path, "models.jsonc"),
+		);
+		await registry.refresh({ allowNetwork: true, providers: ["local"] });
+
+		expect(registerProvider).toHaveBeenCalledOnce();
+		expect(registerProvider).toHaveBeenCalledWith(provider);
+		expect(fetch).toHaveBeenCalledOnce();
+		expect(registry.find("local", "dynamic-model")).toMatchObject({
+			id: "dynamic-model",
+			provider: "local",
+			baseUrl: "http://127.0.0.1:8000/v1",
+		});
+	});
+
 	it("只在用户选择模型时应用 defaultThinkingLevel，不覆盖恢复值或每轮用户选择", async () => {
 		const config = await loadConfigFromText(temp.path, `{
 			"providers": {
