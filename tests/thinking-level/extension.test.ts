@@ -128,11 +128,12 @@ function registerResponsesModel(
 				apiKey: "EMPTY",
 				api: "openai-responses",
 				...(providerThinkingPreset !== undefined ? { thinkingPreset: providerThinkingPreset } : {}),
+				...(runtimeOverrides.extraBody !== undefined ? { extraBody: runtimeOverrides.extraBody } : {}),
 				models: [{
 					id: "m",
 					defaultThinkingLevel: "high",
 					...(modelThinkingPreset !== undefined ? { thinkingPreset: modelThinkingPreset } : {}),
-					...runtimeOverrides,
+					...(runtimeOverrides.dropParams !== undefined ? { dropParams: runtimeOverrides.dropParams } : {}),
 				}],
 			},
 		},
@@ -311,7 +312,7 @@ describe("thinking level extension", () => {
 		async (providerThinkingPreset, modelThinkingPreset, expectedBoolean) => {
 			const events = createEventBus();
 			const model = registerResponsesModel(events, providerThinkingPreset, modelThinkingPreset);
-			expect(model.compat).not.toHaveProperty("thinkingFormat");
+			expect(model.compat).toHaveProperty("thinkingFormat");
 
 			const command = registerCommand(model, "high", events);
 			const completions = await command.commandOptions?.getArgumentCompletions?.("");

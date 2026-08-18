@@ -1,15 +1,12 @@
-import type { Model } from "@earendil-works/pi-ai";
+import type { OpenAICompletionsCompat } from "@earendil-works/pi-ai";
 
-import type { ThinkingPresetName } from "./schema.js";
-
-type OpenAICompat = NonNullable<Model<"openai-completions">["compat"]>;
-type CompatOverride = Model<"openai-completions">["compat"] | Model<"openai-responses">["compat"];
+import type { OpenAICompatConfig, ThinkingPresetName } from "./schema.js";
 
 const DEFAULT_COMPAT = {
 	supportsStore: false,
 	supportsDeveloperRole: false,
 	supportsReasoningEffort: false,
-} as const satisfies OpenAICompat;
+} as const satisfies OpenAICompletionsCompat;
 
 /** provider thinking preset 到 Pi 原生 OpenAI completions compat 的映射。 */
 export const THINKING_PRESETS = {
@@ -67,36 +64,47 @@ export const THINKING_PRESETS = {
 		supportsReasoningEffort: false,
 		thinkingFormat: "ant-ling",
 	},
-} as const satisfies Record<ThinkingPresetName, OpenAICompat>;
+} as const satisfies Record<ThinkingPresetName, OpenAICompletionsCompat>;
 
 /** 合并保守默认值、thinking 编码和 provider/model 原生 compat。 */
 export function resolveCompat(
 	thinkingPreset: ThinkingPresetName,
-	providerCompat: CompatOverride,
-	modelCompat: CompatOverride,
-): OpenAICompat {
-	const thinkingCompat = THINKING_PRESETS[thinkingPreset];
-	const merged: OpenAICompat = {
+	providerCompat: OpenAICompatConfig | undefined,
+	modelCompat: OpenAICompatConfig | undefined,
+): OpenAICompatConfig {
+	const sources: Record<string, unknown>[] = [
+		DEFAULT_COMPAT,
+		THINKING_PRESETS[thinkingPreset],
+		...(providerCompat ? [providerCompat] : []),
+		...(modelCompat ? [modelCompat] : []),
+	];
+	const merged: OpenAICompatConfig = {
 		...DEFAULT_COMPAT,
-		...thinkingCompat,
-		...(providerCompat ?? {}),
-		...(modelCompat ?? {}),
+		...THINKING_PRESETS[thinkingPreset],
+		...providerCompat,
+		...modelCompat,
 	};
-	for (const key of ["openRouterRouting", "vercelGatewayRouting", "chatTemplateKwargs"] as const) {
-		const nested = {
-			...nestedCompat(thinkingCompat, key),
-			...nestedCompat(providerCompat, key),
-			...nestedCompat(modelCompat, key),
-		};
-		if (Object.keys(nested).length > 0) Object.assign(merged, { [key]: nested });
+
+	// Compat 的 routing/chat-template 等对象按层级浅合并；未来新增对象字段也无需维护白名单。
+	for (const key of new Set(sources.flatMap((source) => Object.keys(source)))) {
+		let selected: unknown;
+		for (const source of sources) {
+			if (Object.hasOwn(source, key)) selected = source[key];
+		}
+		if (!isRecord(selected)) continue;
+		const nested: Record<string, unknown> = {};
+		for (const source of sources) {
+			const value = Object.hasOwn(source, key) ? source[key] : undefined;
+			if (!isRecord(value)) continue;
+			for (const [nestedKey, nestedValue] of Object.entries(value)) setOwn(nested, nestedKey, nestedValue);
+		}
+		setOwn(merged, key, nested);
 	}
 	return merged;
 }
 
-function nestedCompat(value: object | undefined, key: string): Record<string, unknown> | undefined {
-	if (!value || !(key in value)) return undefined;
-	const nested: unknown = Reflect.get(value, key);
-	return isRecord(nested) ? nested : undefined;
+function setOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+	Object.defineProperty(target, key, { value, enumerable: true, configurable: true, writable: true });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

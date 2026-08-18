@@ -28,28 +28,25 @@ function runtimeOf(
 }
 
 describe("openai-compatible-provider payload", () => {
-	it("model defaults 补缺失字段，并限制 maxTokens", async () => {
-		const { runtime } = await normalizeRuntime(temp.path, {
-			compat: { maxTokensField: "max_tokens" },
-			models: [{
-				id: "m",
-				defaults: { temperature: 0.1, topP: 0.8, topK: 40, maxTokens: 8192 },
-			}],
+	it("provider extraBody 和 dropParams 仍在原生 samplingParams 之后执行", async () => {
+		const { provider, runtime } = await normalizeRuntime(temp.path, {
+			extraBody: { custom: true },
+			dropParams: ["store"],
+			models: [{ id: "m", samplingParams: { temperature: 0.1, top_p: 0.8, top_k: 40 } }],
 		}, "vllm");
-		expect(runtime.defaults).toMatchObject({ temperature: 0.1, topK: 40 });
+		expect(provider.models[0]?.samplingParams).toEqual({ temperature: 0.1, top_p: 0.8, top_k: 40 });
 		expect(applyRuntimePayloadConfig(
-			{ model: "m", messages: [], stream: true, max_tokens: 16384 },
+			{ model: "m", messages: [], stream: true, temperature: 0.1, top_p: 0.8, top_k: 40, store: false },
 			runtime,
-		)).toMatchObject({
+		)).toEqual({
+			model: "m",
+			messages: [],
+			stream: true,
 			temperature: 0.1,
 			top_p: 0.8,
 			top_k: 40,
-			max_tokens: 8192,
+			custom: true,
 		});
-		expect(applyRuntimePayloadConfig(
-			{ model: "m", messages: [], stream: true, max_tokens: 4096 },
-			runtime,
-		)).toMatchObject({ max_tokens: 4096 });
 	});
 
 	it("原生低层 stream 保留 payload 修改，并转换 Responses 非 OpenAI thinking preset", async () => {
@@ -64,9 +61,9 @@ describe("openai-compatible-provider payload", () => {
 			models: [{
 				id: "m",
 				defaultThinkingLevel: "high",
-				maxTokens: 32768,
+				maxTokens: 8192,
 				headers: { "X-Model": "$MODEL_HEADER" },
-				defaults: { temperature: 0.2, maxTokens: 8192 },
+				samplingParams: { temperature: 0.2, top_k: 40 },
 			}],
 		}));
 		const harness = createExtensionHarness();
@@ -110,12 +107,14 @@ describe("openai-compatible-provider payload", () => {
 			...(auth.auth.headers !== undefined ? { headers: auth.auth.headers } : {}),
 			env: { ...auth.env, MODEL_HEADER: "resolved-model-header" },
 			reasoning: "high",
+			samplingParams: { temperature: 0.7 },
 		})) {
 		}
 
 		expect(requestBody).toMatchObject({
 			model: "m",
-			temperature: 0.2,
+			temperature: 0.7,
+			top_k: 40,
 			thinking: { type: "enabled" },
 			custom: true,
 			max_output_tokens: 8192,
@@ -125,15 +124,6 @@ describe("openai-compatible-provider payload", () => {
 		expect(requestBody).not.toHaveProperty("store");
 	});
 
-	it("Responses API 将 defaults.maxTokens 注入 max_output_tokens", async () => {
-		const { runtime } = await normalizeRuntime(temp.path, {
-			api: "openai-responses",
-			models: [{ id: "m", defaults: { maxTokens: 4096 } }],
-		});
-		expect(applyRuntimePayloadConfig(responsesPayload(), runtime)).toMatchObject({
-			max_output_tokens: 4096,
-		});
-	});
 
 	it.each([
 		["openrouter", "high", { reasoning: { effort: "high" } }],
@@ -273,7 +263,7 @@ describe("openai-compatible-provider payload", () => {
 		)).toMatchObject({ [field]: value });
 	});
 
-	it("provider 原生 headers 与 payload 字段可由 model 覆盖或追加", async () => {
+	it("provider 原生 headers、provider payload 扩展和 model samplingParams 各自生效", async () => {
 		const { provider, runtime } = await normalizeRuntime(temp.path, {
 			baseUrl: "https://openrouter.ai/api/v1",
 			apiKey: "$OPENROUTER_API_KEY",
@@ -283,16 +273,18 @@ describe("openai-compatible-provider payload", () => {
 			models: [{
 				id: "m",
 				dropParams: ["parallel_tool_calls"],
-				extraBody: { top_p: 0.9 },
+				samplingParams: { top_p: 0.9 },
 			}],
 		}, "openrouter");
 		expect(provider.fallbackRuntime).toBeDefined();
+		expect(provider.models[0]?.samplingParams).toEqual({ top_p: 0.9 });
 		expect(runtime.dropParams).toEqual(["store", "parallel_tool_calls"]);
 		const payload = applyRuntimePayloadConfig(
 			{ model: "m", messages: [], stream: true, store: false },
 			runtime,
 		);
-		expect(payload).toMatchObject({ provider: { only: ["openai"] }, top_p: 0.9 });
+		expect(payload).toMatchObject({ provider: { only: ["openai"] } });
+		expect(payload).not.toHaveProperty("top_p");
 		expect(payload).not.toHaveProperty("store");
 	});
 });

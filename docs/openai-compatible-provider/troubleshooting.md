@@ -23,12 +23,12 @@ providers.gateway.models[0].id is required
 
 常见原因：
 
-- 使用了 `base_url`、`api_key`、`top_p` 等旧字段；
+- 在 provider/model 顶层使用了 `base_url`、`api_key` 等旧字段；
 - model 缺少 `id`；
 - 同一 provider 中 model id 重复；
 - 使用了 `api: "chat"` 或 `api: "responses"`；
 - `reasoning: false` 同时配置 thinking level；
-- `extraBody` 包含 `model`、`messages`、`input`、`tools` 或 `stream`；
+- provider `extraBody` 包含 `model`、`messages`、`input`、`tools` 或 `stream`；
 - `thinkingLevelMap` 或 default level 不符合 Pi level。
 
 ## 认证失败
@@ -88,8 +88,9 @@ pi --list-models <provider-id> --offline
 2. `compat.maxTokensField` 是否正确；
 3. thinking preset 是否匹配服务实际格式；
 4. 不支持的字段是否加入 `dropParams`；
-5. `extraBody` 是否只包含非核心字段；
-6. model `defaults.maxTokens` 是否超过服务允许的最大值。
+5. provider `extraBody` 是否只包含非核心字段；
+6. model 顶层 `maxTokens` 是否超过服务允许的最大值；
+7. `samplingParams` 是否误放了 token 上限或核心请求字段。
 
 对于 Responses 服务，非 `openai` preset 会清理 Pi 原有 thinking 字段后重新编码。
 

@@ -42,12 +42,11 @@
           "name": "DeepSeek R1",
           "reasoning": true,
           "contextWindow": 131072,
-          "maxTokens": 32768,
+          "maxTokens": 8192,
           "defaultThinkingLevel": "high",
-          "defaults": {
+          "samplingParams": {
             "temperature": 0.2,
-            "topP": 0.95,
-            "maxTokens": 8192
+            "top_p": 0.95
           }
         }
       ],

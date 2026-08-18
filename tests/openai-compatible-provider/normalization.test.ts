@@ -10,7 +10,8 @@ const invalidConfigs = [
 	["provider defaults", { apiKey: "sk-secret", defaults: {} }, "providers.vllm.defaults is not supported", "sk-secret"],
 	["provider sampling", { apiKey: "sk-secret", temperature: 0.2 }, "providers.vllm.temperature is not supported", "sk-secret"],
 	["duplicate model", { models: ["qwen3-coder", { id: "qwen3-coder" }] }, 'provider "vllm" contains duplicate model "qwen3-coder"', undefined],
-	["model extraBody core field", { models: [{ id: "m", extraBody: { messages: [] } }] }, "models[0].extraBody.messages cannot override core request field", undefined],
+	["removed model extraBody", { models: [{ id: "m", extraBody: { custom: true } }] }, "models[0].extraBody was replaced by samplingParams or provider.extraBody", undefined],
+	["removed model defaults", { models: [{ id: "m", defaults: { topP: 0.9 } }] }, "models[0].defaults was replaced by samplingParams", undefined],
 	["legacy provider fields", {
 		baseUrl: undefined,
 		apiKey: undefined,
@@ -20,7 +21,6 @@ const invalidConfigs = [
 	["missing model id", { models: [{}] }, "providers.vllm.models[0].id is required", undefined],
 	["missing baseUrl", { baseUrl: undefined }, "providers.vllm.baseUrl is required", undefined],
 	["removed compatPreset", { compatPreset: "foo" }, "providers.vllm.compatPreset is not supported", undefined],
-	["invalid compat value", { compat: { supportsStore: "yes" } }, "providers.vllm.compat.supportsStore", undefined],
 	["legacy reasoning effort", { models: [{ id: "m", reasoning_effort: "high" }] }, "reasoning_effort is not supported", undefined],
 	["unknown provider thinking preset", { thinkingPreset: "unknown" }, 'unknown thinkingPreset "unknown"', undefined],
 	["unknown model thinking preset", { models: [{ id: "m", thinkingPreset: "unknown" }] }, 'models[0] has unknown thinkingPreset "unknown"', undefined],
@@ -72,7 +72,7 @@ describe("openai-compatible-provider normalization", () => {
 			cost: { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
 			compat: { supportsDeveloperRole: true, supportsToolSearch: true },
 		});
-		expect(model?.compat).not.toHaveProperty("supportsStore");
+		expect(model?.compat).toMatchObject({ supportsStore: true });
 		expect(provider.runtimeModels.get("m")?.compat).toMatchObject({ supportsStore: true });
 		expect(provider.runtimeModels.get("m")?.headers).toEqual({ "X-Model": "$MODEL_HEADER" });
 	});
@@ -96,7 +96,7 @@ describe("openai-compatible-provider normalization", () => {
 			openRouterRouting: { order: ["one"], allow_fallbacks: false },
 			chatTemplateKwargs: { provider: true, model: true },
 		});
-		expect(provider.models[0]?.compat).not.toHaveProperty("supportsToolSearch");
+		expect(provider.models[0]?.compat).toMatchObject({ supportsToolSearch: true });
 	});
 
 	it("保守 compat 默认值可由 provider 和 model 原生 compat 覆盖", async () => {
@@ -185,14 +185,38 @@ describe("openai-compatible-provider normalization", () => {
 		expect(provider.runtimeModels.get("off-model")?.defaultThinkingLevel).toBe("off");
 	});
 
-	it("显式非标准 sampling defaults 进入 payload", async () => {
-		const { runtime } = await normalizeRuntime(temp.path, {
-			models: [{ id: "m", defaults: { topK: 40, minP: 0.1, repetitionPenalty: 1.05 } }],
+	it("samplingParams 原样进入 Pi 原生 Model，不再经过运行时 payload 转换", async () => {
+		const { provider, runtime } = await normalizeRuntime(temp.path, {
+			models: [{ id: "m", samplingParams: { top_k: 40, min_p: 0.1, repetition_penalty: 1.05 } }],
 		});
-		expect(applyRuntimePayloadConfig({ model: "m", messages: [], stream: true }, runtime)).toMatchObject({
-			top_k: 40,
-			min_p: 0.1,
-			repetition_penalty: 1.05,
+		expect(provider.models[0]?.samplingParams).toEqual({ top_k: 40, min_p: 0.1, repetition_penalty: 1.05 });
+		expect(applyRuntimePayloadConfig({ model: "m", messages: [], stream: true }, runtime)).toEqual({
+			model: "m",
+			messages: [],
+			stream: true,
+		});
+	});
+
+	it("compat 原样透传 Pi 当前字段和未来未知字段", async () => {
+		const provider = await normalizeProvider(temp.path, {
+			compat: {
+				supportsFinishReason: false,
+				supportsThinkingTokenBudget: true,
+				futureCompatOption: { provider: true },
+			},
+			models: [{
+				id: "m",
+				compat: {
+					supportsExplicitPromptCacheMode: true,
+					futureCompatOption: { model: true },
+				},
+			}],
+		}, "future");
+		expect(provider.models[0]?.compat).toMatchObject({
+			supportsFinishReason: false,
+			supportsThinkingTokenBudget: true,
+			supportsExplicitPromptCacheMode: true,
+			futureCompatOption: { provider: true, model: true },
 		});
 	});
 

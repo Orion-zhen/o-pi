@@ -89,7 +89,7 @@ provider 保存一组模型共享的默认值：
 - API key、header；
 - compat 和 thinking preset；
 - timeout、重试次数；
-- payload 的 `dropParams` 和 `extraBody`。
+- provider 级 payload 的 `dropParams` 和 `extraBody`。
 
 model 保存自身的元数据和覆盖值：
 
@@ -97,7 +97,7 @@ model 保存自身的元数据和覆盖值：
 - reasoning、thinking level 和 level map；
 - text/image 输入能力；
 - 成本、上下文窗口和最大输出；
-- sampling defaults、header、compat 和 payload 扩展。
+- 原生 `samplingParams`、header、compat 和 model `dropParams`。
 
 通常的继承关系是：
 
@@ -107,7 +107,7 @@ Pi 默认值
 → model 值
 ```
 
-`dropParams` 是追加，`extraBody` 是浅层合并且 model 同名字段覆盖 provider 字段。
+`dropParams` 按 provider 后 model 追加；`extraBody` 只保留在 provider 层，为自动发现模型提供统一的 payload 逃生口。
 
 ## 认证
 
@@ -186,16 +186,16 @@ GET <baseUrl>/models
 
 ```text
 Pi 生成 payload
-→ 补充 model defaults
+→ 合并 model/request samplingParams
 → 转换 Responses thinking
-→ 合并 extraBody
-→ 删除 dropParams
+→ 合并 provider extraBody
+→ 删除 provider/model dropParams
 → 恢复核心字段
 ```
 
-`defaults` 只补充缺失字段；`maxTokens` 是上限，不会抬高 Pi 已生成的值。字段使用 camelCase 配置，发送时转换为 OpenAI 风格字段，例如 `topP` → `top_p`、Responses 的 `maxTokens` → `max_output_tokens`。
+模型的 `samplingParams` 直接进入 Pi 原生 `Model`，使用 `top_p`、`top_k` 等上游请求体字段名；请求期同名参数优先。最大输出使用顶层 `maxTokens`，不要把 token 上限或核心请求字段放进 `samplingParams`。
 
-`extraBody` 不能覆盖以下核心字段：
+模型级任意参数统一使用 `samplingParams`。provider `extraBody` 只用于给静态和自动发现模型统一追加字段，且不能覆盖以下核心字段：
 
 ```text
 model, messages, input, tools, stream
@@ -228,7 +228,7 @@ model, messages, input, tools, stream
 
 ### 上游拒绝请求
 
-先确认 `api` 类型，再检查 `compat`、`thinkingPreset`、`dropParams` 和 `extraBody`。不要用 payload 扩展覆盖核心字段。
+先确认 `api` 类型，再检查 `compat`、`thinkingPreset`、`samplingParams`、`dropParams` 和 provider `extraBody`。不要用 payload 扩展覆盖核心字段。
 
 ## 深入阅读
 

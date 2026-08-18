@@ -1,4 +1,10 @@
-import { StringEnum, type Model, type ModelThinkingLevel, type ThinkingLevelMap } from "@earendil-works/pi-ai";
+import {
+	StringEnum,
+	type ModelThinkingLevel,
+	type OpenAICompletionsCompat,
+	type OpenAIResponsesCompat,
+	type ThinkingLevelMap,
+} from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 
 /** OpenAI-compatible 请求中思考参数的编码预设。 */
@@ -42,120 +48,13 @@ const ModelCostSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-const SamplingDefaultsSchema = Type.Object(
-	{
-		temperature: Type.Optional(Type.Number()),
-		topP: Type.Optional(Type.Number()),
-		topK: Type.Optional(Type.Number()),
-		minP: Type.Optional(Type.Number()),
-		maxTokens: Type.Optional(Type.Number()),
-		presencePenalty: Type.Optional(Type.Number()),
-		frequencyPenalty: Type.Optional(Type.Number()),
-		repetitionPenalty: Type.Optional(Type.Number()),
-		seed: Type.Optional(Type.Number()),
-		stop: Type.Optional(Type.Array(Type.String())),
-	},
-	{ additionalProperties: false },
-);
+/** Pi 原生 OpenAI compat 的并集；字符串索引允许未来字段无需同步本仓库即可透传。 */
+export type OpenAICompatConfig = OpenAICompletionsCompat & OpenAIResponsesCompat & Record<string, unknown>;
 
-const ChatTemplateValueSchema = Type.Union([
-	Type.String(),
-	Type.Number(),
-	Type.Boolean(),
-	Type.Null(),
-	Type.Object(
-		{
-			$var: Type.Union([Type.Literal("thinking.enabled"), Type.Literal("thinking.effort")]),
-			omitWhenOff: Type.Optional(Type.Boolean()),
-		},
-		{ additionalProperties: false },
-	),
-]);
-const PercentilesSchema = Type.Object(
-	{
-		p50: Type.Optional(Type.Number()),
-		p75: Type.Optional(Type.Number()),
-		p90: Type.Optional(Type.Number()),
-		p99: Type.Optional(Type.Number()),
-	},
-	{ additionalProperties: false },
-);
-const OpenRouterRoutingSchema = Type.Object(
-	{
-		allow_fallbacks: Type.Optional(Type.Boolean()),
-		require_parameters: Type.Optional(Type.Boolean()),
-		data_collection: Type.Optional(Type.Union([Type.Literal("deny"), Type.Literal("allow")])),
-		zdr: Type.Optional(Type.Boolean()),
-		enforce_distillable_text: Type.Optional(Type.Boolean()),
-		order: Type.Optional(Type.Array(Type.String())),
-		only: Type.Optional(Type.Array(Type.String())),
-		ignore: Type.Optional(Type.Array(Type.String())),
-		quantizations: Type.Optional(Type.Array(Type.String())),
-		sort: Type.Optional(Type.Union([
-			Type.String(),
-			Type.Object(
-				{ by: Type.Optional(Type.String()), partition: Type.Optional(Type.Union([Type.String(), Type.Null()])) },
-				{ additionalProperties: false },
-			),
-		])),
-		max_price: Type.Optional(Type.Object(
-			{
-				prompt: Type.Optional(Type.Union([Type.Number(), Type.String()])),
-				completion: Type.Optional(Type.Union([Type.Number(), Type.String()])),
-				image: Type.Optional(Type.Union([Type.Number(), Type.String()])),
-				audio: Type.Optional(Type.Union([Type.Number(), Type.String()])),
-				request: Type.Optional(Type.Union([Type.Number(), Type.String()])),
-			},
-			{ additionalProperties: false },
-		)),
-		preferred_min_throughput: Type.Optional(Type.Union([Type.Number(), PercentilesSchema])),
-		preferred_max_latency: Type.Optional(Type.Union([Type.Number(), PercentilesSchema])),
-	},
-	{ additionalProperties: false },
-);
-const VercelGatewayRoutingSchema = Type.Object(
-	{
-		only: Type.Optional(Type.Array(Type.String())),
-		order: Type.Optional(Type.Array(Type.String())),
-	},
-	{ additionalProperties: false },
-);
-
-const CompatSchema = Type.Unsafe<
-	NonNullable<Model<"openai-completions">["compat"] | Model<"openai-responses">["compat"]>
->(
-	Type.Object(
-		{
-			supportsStore: Type.Optional(Type.Boolean()),
-			supportsDeveloperRole: Type.Optional(Type.Boolean()),
-			supportsReasoningEffort: Type.Optional(Type.Boolean()),
-			supportsUsageInStreaming: Type.Optional(Type.Boolean()),
-			maxTokensField: Type.Optional(Type.Union([Type.Literal("max_completion_tokens"), Type.Literal("max_tokens")])),
-			requiresToolResultName: Type.Optional(Type.Boolean()),
-			requiresAssistantAfterToolResult: Type.Optional(Type.Boolean()),
-			requiresThinkingAsText: Type.Optional(Type.Boolean()),
-			requiresReasoningContentOnAssistantMessages: Type.Optional(Type.Boolean()),
-			thinkingFormat: Type.Optional(StringEnum([
-				"openai", "openrouter", "deepseek", "together", "zai", "qwen", "chat-template",
-				"qwen-chat-template", "string-thinking", "ant-ling",
-			] as const)),
-			chatTemplateKwargs: Type.Optional(Type.Record(Type.String(), ChatTemplateValueSchema)),
-			cacheControlFormat: Type.Optional(Type.Literal("anthropic")),
-			sessionAffinityFormat: Type.Optional(Type.Union([
-				Type.Literal("openai"), Type.Literal("openai-nosession"), Type.Literal("openrouter"),
-			])),
-			sendSessionAffinityHeaders: Type.Optional(Type.Boolean()),
-			supportsStrictMode: Type.Optional(Type.Boolean()),
-			supportsLongCacheRetention: Type.Optional(Type.Boolean()),
-			deferredToolsMode: Type.Optional(Type.Literal("kimi")),
-			openRouterRouting: Type.Optional(OpenRouterRoutingSchema),
-			vercelGatewayRouting: Type.Optional(VercelGatewayRoutingSchema),
-			zaiToolStream: Type.Optional(Type.Boolean()),
-			supportsToolSearch: Type.Optional(Type.Boolean()),
-		},
-		{ additionalProperties: false },
-	),
-);
+// pi-ai 当前只导出 compat TypeScript 类型，没有导出运行时 schema。这里仅校验对象边界，
+// 具体字段由对应 Pi transport 消费；未知字段保留，以兼容后续 Pi 版本。
+const CompatSchema = Type.Unsafe<OpenAICompatConfig>(Type.Object({}, { additionalProperties: Type.Unknown() }));
+const SamplingParamsSchema = Type.Record(Type.String({ minLength: 1 }), Type.Unknown());
 
 const ModelConfigSchema = Type.Object(
 	{
@@ -174,9 +73,8 @@ const ModelConfigSchema = Type.Object(
 
 		thinkingPreset: Type.Optional(ThinkingPresetNameSchema),
 		defaultThinkingLevel: Type.Optional(ThinkingLevelSchema),
-		defaults: Type.Optional(SamplingDefaultsSchema),
+		samplingParams: Type.Optional(SamplingParamsSchema),
 		dropParams: Type.Optional(Type.Array(Type.String())),
-		extraBody: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 	},
 	{ additionalProperties: false },
 );
@@ -214,7 +112,6 @@ export const ModelsJsoncConfigSchema = Type.Object(
 	{ additionalProperties: false },
 );
 
-export type SamplingDefaults = Static<typeof SamplingDefaultsSchema>;
 export type ModelConfig = Static<typeof ModelConfigSchema>;
 export type ThinkingPresetName = Static<typeof ThinkingPresetNameSchema>;
 export type OpenAIApiName = Static<typeof OpenAIApiSchema>;

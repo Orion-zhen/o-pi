@@ -1,6 +1,6 @@
 # Pi compat
 
-`compat` 描述上游 OpenAI-compatible 服务支持哪些 Pi 请求行为。扩展不根据 provider 名称猜测能力，而是使用保守默认值，再应用用户配置。
+`compat` 描述上游 OpenAI-compatible 服务支持哪些 Pi 请求行为。扩展不根据 provider 名称猜测能力，而是使用保守默认值，再把配置原样交给 Pi transport。
 
 ## 合并顺序
 
@@ -11,7 +11,7 @@
 → model.compat
 ```
 
-provider 和 model 的嵌套字段 `openRouterRouting`、`vercelGatewayRouting`、`chatTemplateKwargs` 按子字段合并；model 只覆盖自己提供的子字段。
+顶层字段由后一个值覆盖。对象值按子字段浅合并，因此 `openRouterRouting`、`vercelGatewayRouting`、`chatTemplateKwargs`、`chatTemplateArgs` 以及未来新增的对象字段都可以在 model 层只覆盖部分配置。
 
 ## 保守默认值
 
@@ -25,7 +25,15 @@ provider 和 model 的嵌套字段 `openRouterRouting`、`vercelGatewayRouting`�
 
 不确定上游能力时，应保持默认值或显式关闭，而不是假设服务兼容 OpenAI。
 
-## 常用字段
+## 原生类型和前向兼容
+
+扩展直接使用当前 `@earendil-works/pi-ai` 导出的 `OpenAICompletionsCompat` 与 `OpenAIResponsesCompat` 类型，不维护本地 compat 字段副本。合并后的对象不再按 API 手工裁剪；Completions 和 Responses transport 只读取各自认识的字段。
+
+Pi 当前没有导出 compat 的运行时 schema，因此 JSONC 加载器只校验 `compat` 是对象，未知字段会保留并透传。这意味着升级 Pi 后可以立即使用新增字段，不必同步修改扩展，但拼错的字段名或错误的字段类型也不会在配置加载时被发现。
+
+应以当前 Pi 类型和官方文档为准。下面只列常用字段，不是封闭清单。
+
+### Completions 常用字段
 
 | 字段 | 用途 |
 | --- | --- |
@@ -33,21 +41,29 @@ provider 和 model 的嵌套字段 `openRouterRouting`、`vercelGatewayRouting`�
 | `supportsDeveloperRole` | 是否接受 developer role。 |
 | `supportsReasoningEffort` | 是否接受 `reasoning_effort`。 |
 | `supportsUsageInStreaming` | 是否接受 streaming usage 选项。 |
-| `maxTokensField` | Completions 使用 `max_tokens` 或 `max_completion_tokens`。 |
-| `requiresToolResultName` | tool result 是否必须有 name。 |
-| `requiresAssistantAfterToolResult` | tool result 后是否需要 assistant 消息。 |
-| `requiresThinkingAsText` | 是否把 thinking 转成带分隔符的文本。 |
-| `requiresReasoningContentOnAssistantMessages` | replay reasoning assistant 消息时是否补字段。 |
+| `supportsFinishReason` | 流式响应是否提供 `finish_reason`。 |
+| `maxTokensField` | 使用 `max_tokens` 或 `max_completion_tokens`。 |
+| `supportsThinkingTokenBudget` | 是否接受 vLLM `thinking_token_budget`。 |
 | `thinkingFormat` | thinking 的上游编码格式。 |
-| `chatTemplateKwargs` | chat template 请求参数。 |
-| `supportsStrictMode` | 是否接受 tool definition 的 strict。 |
+| `chatTemplateKwargs` / `chatTemplateArgs` | chat template 请求参数。 |
+| `supportsStrictMode` | 是否接受 tool definition 的 `strict`。 |
+| `supportsOpenAIGrammarTools` | 是否接受 OpenAI grammar custom tools。 |
 | `cacheControlFormat` | 例如 Anthropic prompt cache 标记。 |
 | `sessionAffinityFormat` | session affinity header 格式。 |
-| `sendSessionAffinityHeaders` | 是否发送 session affinity header。 |
+| `openRouterRouting` / `vercelGatewayRouting` | gateway 路由参数。 |
+
+### Responses 常用字段
+
+| 字段 | 用途 |
+| --- | --- |
+| `supportsDeveloperRole` | 是否接受 developer role。 |
+| `supportsStrictMode` | 是否支持 strict function tools。 |
+| `supportsOpenAIGrammarTools` | 是否支持 grammar custom tools。 |
+| `supportsAdditionalTools` | 是否支持 message-anchored `additional_tools`。 |
+| `supportsToolSearch` | 是否支持客户端 deferred tool search。 |
+| `supportsExplicitPromptCacheMode` | 是否接受 `prompt_cache_options`。 |
+| `sessionAffinityFormat` | session affinity header 格式。 |
 | `supportsLongCacheRetention` | 是否接受长 prompt cache retention。 |
-| `deferredToolsMode` | provider 延迟工具序列化模式。 |
-| `supportsToolSearch` | Responses API 是否支持客户端 tool search。 |
-| `zaiToolStream` | z.ai 是否接受顶层 `tool_stream`。 |
 
 ## 路由字段
 
@@ -80,21 +96,6 @@ Vercel AI Gateway：
 }
 ```
 
-完整 schema 和所有嵌套字段见 [`agent/models.example.jsonc`](../../agent/models.example.jsonc)。
-
-## API-specific 过滤
-
-`openai-completions` 模型保留 Completions 所需的 compat。`openai-responses` 模型的原生 Pi 元数据只携带 Responses 支持的字段，避免 Chat-only 能力泄漏到 Responses model。
-
-Responses 目前保留的主要字段包括：
-
-- `supportsDeveloperRole`；
-- `sessionAffinityFormat`；
-- `supportsLongCacheRetention`；
-- `supportsToolSearch`。
-
-运行时仍保留 thinking 转换所需的 compat。
-
 ## 示例：本地 Chat Completions
 
 ```jsonc
@@ -104,6 +105,8 @@ Responses 目前保留的主要字段包括：
     "supportsDeveloperRole": false,
     "supportsReasoningEffort": false,
     "supportsUsageInStreaming": true,
+    "supportsFinishReason": false,
+    "supportsThinkingTokenBudget": true,
     "maxTokensField": "max_tokens"
   }
 }

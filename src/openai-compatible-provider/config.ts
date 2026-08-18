@@ -90,15 +90,6 @@ const LEGACY_PROVIDER_FIELDS: Record<string, string> = {
 	thinking: "thinkingPreset",
 	advanced: "direct provider fields",
 };
-const LEGACY_DEFAULT_FIELDS: Record<string, string> = {
-	top_p: "topP",
-	top_k: "topK",
-	min_p: "minP",
-	max_tokens: "maxTokens",
-	presence_penalty: "presencePenalty",
-	frequency_penalty: "frequencyPenalty",
-	repetition_penalty: "repetitionPenalty",
-};
 const LEGACY_MODEL_FIELDS: Record<string, string> = {
 	model: "id",
 	display_name: "name",
@@ -107,6 +98,8 @@ const LEGACY_MODEL_FIELDS: Record<string, string> = {
 	thinking: "thinkingPreset",
 	thinking_level: "defaultThinkingLevel",
 	thinking_level_map: "thinkingLevelMap",
+	defaults: "samplingParams",
+	extraBody: "samplingParams or provider.extraBody",
 	advanced: "direct model fields",
 };
 
@@ -129,9 +122,6 @@ function prevalidateModelsJsonc(value: unknown, configPath: string): void {
 			for (let index = 0; index < provider.models.length; index++) {
 				const model = provider.models[index];
 				if (isRecord(model)) assertNoLegacyFields(model, `providers.${providerId}.models[${index}]`, LEGACY_MODEL_FIELDS, configPath);
-				if (isRecord(model?.defaults)) {
-					assertNoLegacyFields(model.defaults, `providers.${providerId}.models[${index}].defaults`, LEGACY_DEFAULT_FIELDS, configPath);
-				}
 				if (isRecord(model) && typeof model.id !== "string") {
 					throw invalidModelsJsonc(configPath, `providers.${providerId}.models[${index}].id is required`);
 				}

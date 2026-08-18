@@ -22,8 +22,12 @@
         "supportsReasoningEffort": false,
         // 是否接受 stream_options.include_usage。
         "supportsUsageInStreaming": true,
+        // 流式响应是否提供 finish_reason；false 时由 Pi 推断。
+        "supportsFinishReason": true,
         // 输出 token 上限字段：max_tokens 或 max_completion_tokens。
         "maxTokensField": "max_tokens",
+        // 是否接受 vLLM thinking_token_budget。
+        "supportsThinkingTokenBudget": false,
 
         // tool message 是否必须携带 name。
         "requiresToolResultName": true,
@@ -45,8 +49,9 @@
           "reasoning_effort": { "$var": "thinking.effort", "omitWhenOff": true }
         },
 
-        // 是否接受 tool definition 中的 strict 字段。
+        // 是否接受 tool definition 中的 strict 和 OpenAI grammar tool。
         "supportsStrictMode": false,
+        "supportsOpenAIGrammarTools": false,
         // Anthropic 风格 prompt cache_control 标记。
         "cacheControlFormat": "anthropic",
         // 是否发送 session affinity headers。
@@ -93,16 +98,15 @@
           "id": "gemma4-31b-it",
           "name": "Gemma4 31B it",
           "contextWindow": 131072,
-          "maxTokens": 32768,
+          "maxTokens": 8192,
           "thinkingPreset": "chat-template-enabled",
           "defaultThinkingLevel": "off",
           "input": ["text", "image"],
-          "defaults": {
+          // Pi 原生 samplingParams 使用请求体字段名，并由请求期同名参数覆盖。
+          "samplingParams": {
             "temperature": 0.2,
-            "topP": 0.95,
-            // 显式配置的非 OpenAI sampling 字段会直接发送。
-            "topK": 40,
-            "maxTokens": 8192
+            "top_p": 0.95,
+            "top_k": 40
           }
         }
       ]
@@ -114,7 +118,7 @@
       "apiKey": "EMPTY",
       "api": "openai-responses",
       "thinkingPreset": "chat-template-effort",
-      // Responses API 只消费以下四个 compat 字段。
+      // compat 会原样透传，Responses transport 只消费自己认识的字段。
       "compat": {
         // 是否接受 developer role；false 时使用 system role。
         "supportsDeveloperRole": false,
@@ -123,7 +127,11 @@
         // 是否接受 prompt_cache_retention=24h。
         "supportsLongCacheRetention": false,
         // 是否支持由客户端执行的 deferred tool search。
-        "supportsToolSearch": false
+        "supportsToolSearch": false,
+        // 是否支持 grammar tool、additional_tools 和显式 prompt cache mode。
+        "supportsOpenAIGrammarTools": false,
+        "supportsAdditionalTools": false,
+        "supportsExplicitPromptCacheMode": false
       },
 
       "models": [

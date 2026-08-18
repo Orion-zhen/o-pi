@@ -12,4 +12,4 @@ export { normalizeModelsJsoncConfig, applyRuntimePayloadConfig, type NormalizedP
 export { THINKING_PRESETS, resolveCompat } from "./thinking-presets.js";
 export { createNativeProvider, registerOpenAICompatibleProviders } from "./register.js";
 export { redactApiKey } from "./redaction.js";
-export type { ModelConfig, ModelsJsoncConfig, OpenAIApiName, ProviderConfig, SamplingDefaults, ThinkingPresetName } from "./schema.js";
+export type { ModelConfig, ModelsJsoncConfig, OpenAIApiName, OpenAICompatConfig, ProviderConfig, ThinkingPresetName } from "./schema.js";

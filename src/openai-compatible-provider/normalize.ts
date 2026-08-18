@@ -7,7 +7,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { invalidModelsJsonc } from "./errors.js";
 import { resolveCompat } from "./thinking-presets.js";
-import type { ModelsJsoncConfig, SamplingDefaults, ThinkingPresetName } from "./schema.js";
+import type { ModelsJsoncConfig, OpenAICompatConfig, ThinkingPresetName } from "./schema.js";
 
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 const DEFAULT_MAX_TOKENS = 16_384;
@@ -34,13 +34,12 @@ export interface RuntimeModelConfig {
 	reasoning: boolean;
 	defaultThinkingLevel?: ModelThinkingLevel;
 	thinkingLevelMap?: ThinkingLevelMap;
-	defaults?: SamplingDefaults;
 	dropParams: string[];
 	extraBody: Record<string, unknown>;
 	timeoutMs?: number;
 	maxRetries?: number;
 	headers?: Record<string, string>;
-	compat: NonNullable<Model<"openai-completions">["compat"]>;
+	compat: OpenAICompatConfig;
 }
 
 /** 归一化后的 provider，供原生 pi-ai Provider 构造器消费。 */
@@ -74,15 +73,8 @@ export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath
 			}
 			seenModels.add(model.id);
 
-			const modelExtraBody = model.extraBody ?? {};
-			assertNoCorePayloadFields(modelExtraBody, configPath, `providers.${providerId}.models[${index}].extraBody`);
-			const resolvedCompat = resolveCompat(thinkingPreset, provider.compat, model.compat);
-			const runtimeCompat = modelApi === "openai-responses" ? resolvedCompat : completionsCompat(resolvedCompat);
-			const compat = modelApi === "openai-responses"
-				? responsesCompat(resolvedCompat, provider.compat, model.compat)
-				: runtimeCompat;
+			const compat = resolveCompat(thinkingPreset, provider.compat, model.compat);
 			const dropParams = [...(provider.dropParams ?? []), ...(model.dropParams ?? [])];
-			const extraBody = { ...providerExtraBody, ...modelExtraBody };
 			const inferredReasoning = model.defaultThinkingLevel !== undefined || model.thinkingLevelMap !== undefined;
 			if (model.reasoning === false && inferredReasoning) {
 				throw invalidModelsJsonc(
@@ -98,13 +90,12 @@ export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath
 				reasoning,
 				...(model.defaultThinkingLevel !== undefined ? { defaultThinkingLevel: model.defaultThinkingLevel } : {}),
 				...(model.thinkingLevelMap !== undefined ? { thinkingLevelMap: model.thinkingLevelMap } : {}),
-				...(model.defaults !== undefined ? { defaults: model.defaults } : {}),
 				dropParams,
-				extraBody,
+				extraBody: { ...providerExtraBody },
 				...(provider.timeoutMs !== undefined ? { timeoutMs: provider.timeoutMs } : {}),
 				...(provider.maxRetries !== undefined ? { maxRetries: provider.maxRetries } : {}),
 				...(model.headers !== undefined ? { headers: model.headers } : {}),
-				compat: runtimeCompat,
+				compat,
 			});
 
 			return {
@@ -119,6 +110,7 @@ export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath
 				cost: model.cost ?? { ...ZERO_COST },
 				contextWindow: model.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
 				maxTokens: model.maxTokens ?? DEFAULT_MAX_TOKENS,
+				...(model.samplingParams !== undefined ? { samplingParams: model.samplingParams } : {}),
 				compat,
 			};
 		});
@@ -146,7 +138,7 @@ export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath
 	});
 }
 
-/** 将模型级 defaults 和 advanced payload 设置注入 OpenAI-compatible 请求体。 */
+/** 将 Responses thinking 和 provider 级 payload 扩展应用到 OpenAI-compatible 请求体。 */
 export function applyRuntimePayloadConfig(
 	payload: unknown,
 	runtime: RuntimeModelConfig,
@@ -154,19 +146,6 @@ export function applyRuntimePayloadConfig(
 ): unknown {
 	if (!isRecord(payload)) return payload;
 	const next = { ...payload };
-	const samplingDefaults = samplingDefaultsToPayload(runtime);
-	const configuredMaxTokensField = runtime.defaults?.maxTokens !== undefined ? maxTokensField(runtime) : undefined;
-	for (const [key, value] of Object.entries(samplingDefaults)) {
-		if (value === undefined) continue;
-		if (key === configuredMaxTokensField && typeof value === "number") {
-			const generated = next[key];
-			next[key] = typeof generated === "number" && Number.isFinite(generated)
-				? Math.min(generated, value)
-				: value;
-		} else if (next[key] === undefined) {
-			next[key] = value;
-		}
-	}
 	if (thinkingLevel !== undefined) applyResponsesThinkingPreset(next, runtime, thinkingLevel);
 	for (const [key, value] of Object.entries(runtime.extraBody)) {
 		next[key] = value;
@@ -178,25 +157,6 @@ export function applyRuntimePayloadConfig(
 		if (key in payload) next[key] = payload[key];
 	}
 	return next;
-}
-
-function samplingDefaultsToPayload(runtime: RuntimeModelConfig): Record<string, unknown> {
-	const defaults = runtime.defaults;
-	if (!defaults) return {};
-	const payload: Record<string, unknown> = {};
-	copyIfDefined(payload, "temperature", defaults.temperature);
-	copyIfDefined(payload, "top_p", defaults.topP);
-	copyIfDefined(payload, "presence_penalty", defaults.presencePenalty);
-	copyIfDefined(payload, "frequency_penalty", defaults.frequencyPenalty);
-	copyIfDefined(payload, "seed", defaults.seed);
-	copyIfDefined(payload, "stop", defaults.stop);
-	copyIfDefined(payload, "top_k", defaults.topK);
-	copyIfDefined(payload, "min_p", defaults.minP);
-	copyIfDefined(payload, "repetition_penalty", defaults.repetitionPenalty);
-	if (defaults.maxTokens !== undefined) {
-		payload[maxTokensField(runtime)] = defaults.maxTokens;
-	}
-	return payload;
 }
 
 function applyResponsesThinkingPreset(
@@ -266,54 +226,8 @@ function stripThinkingPayload(payload: Record<string, unknown>): void {
 	else delete payload.include;
 }
 
-function completionsCompat(
-	compat: NonNullable<Model<"openai-completions">["compat"]>,
-): NonNullable<Model<"openai-completions">["compat"]> {
-	const cleaned = { ...compat };
-	Reflect.deleteProperty(cleaned, "supportsToolSearch");
-	return cleaned;
-}
-
-function responsesCompat(
-	compat: NonNullable<Model<"openai-completions">["compat"]>,
-	providerCompat: Model<"openai-completions">["compat"] | Model<"openai-responses">["compat"],
-	modelCompat: Model<"openai-completions">["compat"] | Model<"openai-responses">["compat"],
-): NonNullable<Model<"openai-responses">["compat"]> {
-	const supportsToolSearch = compatBoolean(modelCompat, "supportsToolSearch")
-		?? compatBoolean(providerCompat, "supportsToolSearch");
-	return {
-		...(compat.supportsDeveloperRole !== undefined ? { supportsDeveloperRole: compat.supportsDeveloperRole } : {}),
-		...(compat.sessionAffinityFormat !== undefined ? { sessionAffinityFormat: compat.sessionAffinityFormat } : {}),
-		...(compat.supportsLongCacheRetention !== undefined ? { supportsLongCacheRetention: compat.supportsLongCacheRetention } : {}),
-		...(supportsToolSearch !== undefined ? { supportsToolSearch } : {}),
-	};
-}
-
-function compatBoolean(value: object | undefined, key: string): boolean | undefined {
-	if (!value || !(key in value)) return undefined;
-	const candidate: unknown = Reflect.get(value, key);
-	return typeof candidate === "boolean" ? candidate : undefined;
-}
-
-function supportsReasoningEffort(compat: NonNullable<Model<"openai-completions">["compat"]>): boolean {
-	return "supportsReasoningEffort" in compat && compat.supportsReasoningEffort === true;
-}
-
-function maxTokensField(runtime: RuntimeModelConfig): string {
-	if (runtime.api === "openai-responses") return "max_output_tokens";
-	const value = hasMaxTokensField(runtime.compat) ? runtime.compat.maxTokensField : undefined;
-	if (value === "max_tokens" || value === "max_completion_tokens") return value;
-	return "max_completion_tokens";
-}
-
-function hasMaxTokensField(value: NonNullable<Model<"openai-completions">["compat"]>): value is NonNullable<Model<"openai-completions">["compat"]> & {
-	maxTokensField?: "max_tokens" | "max_completion_tokens";
-} {
-	return "maxTokensField" in value;
-}
-
-function copyIfDefined(target: Record<string, unknown>, key: string, value: unknown): void {
-	if (value !== undefined) target[key] = value;
+function supportsReasoningEffort(compat: OpenAICompatConfig): boolean {
+	return compat.supportsReasoningEffort === true;
 }
 
 function assertNoCorePayloadFields(value: Record<string, unknown>, configPath: string, fieldPath: string): void {

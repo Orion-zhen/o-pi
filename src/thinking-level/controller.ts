@@ -141,8 +141,9 @@ export function getThinkingLevelOptions(
 	});
 }
 
-/** 根据模型最终生效的 compat 识别 chat_template_enabled，不耦合 provider 配置。 */
+/** Completions 直接根据原生 compat 识别；Responses 的自定义 payload 转换由 runtime resolver 声明。 */
 function usesBooleanThinking(model: Model<Api>): boolean {
+	if (model.api === "openai-responses") return false;
 	const compat = model.compat;
 	if (
 		compat === undefined

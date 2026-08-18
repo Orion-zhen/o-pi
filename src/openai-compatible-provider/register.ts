@@ -38,10 +38,10 @@ export function registerOpenAICompatibleProviders(
 		if (!providerConfig) throw new Error(`Missing normalized provider config: ${normalized.id}`);
 		return createNativeProvider(normalized, providerConfig, configPath);
 	});
-	const defaults = new Map<string, RuntimeModelConfig>();
+	const runtimeByModel = new Map<string, RuntimeModelConfig>();
 	for (const normalized of normalizedProviders) {
 		for (const [modelId, runtime] of normalized.runtimeModels) {
-			defaults.set(runtimeKey(normalized.id, modelId), runtime);
+			runtimeByModel.set(runtimeKey(normalized.id, modelId), runtime);
 		}
 	}
 	const normalizedById = new Map(normalizedProviders.map((provider) => [provider.id, provider]));
@@ -61,7 +61,7 @@ export function registerOpenAICompatibleProviders(
 	pi.on("session_shutdown", disposeThinkingDisplayResolver);
 	pi.on("model_select", (event) => {
 		if (event.source === "restore") return;
-		const runtime = defaults.get(runtimeKey(event.model.provider, event.model.id));
+		const runtime = runtimeByModel.get(runtimeKey(event.model.provider, event.model.id));
 		if (runtime?.defaultThinkingLevel !== undefined) pi.setThinkingLevel(runtime.defaultThinkingLevel);
 	});
 	return providers;

@@ -50,11 +50,12 @@ Pi 默认值
 
 适用规则：
 
-- model 的 `api`、`baseUrl`、`thinkingPreset`、`compat` 等覆盖 provider 对应值。
+- model 的 `api`、`baseUrl`、`thinkingPreset` 等覆盖 provider 对应值。
+- `compat` 顶层值由 model 覆盖，嵌套对象按子字段浅合并。
 - `dropParams` 按 provider 后 model 的顺序追加。
-- `extraBody` 先合并 provider，再由 model 覆盖同名字段。
-- provider 的 `timeoutMs` 和 `maxRetries`进入运行时模型配置。
-- 采样默认值只允许放在 model 的 `defaults`。
+- `extraBody` 仅为 provider 级动态模型扩展。
+- provider 的 `timeoutMs` 和 `maxRetries` 进入运行时模型配置。
+- 模型采样参数直接使用 Pi 原生 `samplingParams`，请求期同名参数优先。
 
 ## JSONC 校验
 
@@ -72,13 +73,14 @@ providers.gateway.models[0].id is required
 - model 缺少或重复 `id`；
 - `api` 不是 `openai-completions` 或 `openai-responses`；
 - `thinkingPreset` 不存在；
-- `extraBody` 或 compat 结构不符合 schema；
+- provider `extraBody` 结构不符合 schema；
+- `compat` 不是对象；
 - thinking level 与 `thinkingLevelMap` 不匹配；
 - 扩展字段试图覆盖核心 payload 字段。
 
 ## Legacy 字段
 
-当前配置使用 camelCase。旧 snake_case 字段不会静默转换，而会提示替代字段：
+provider/model 元数据使用 camelCase；`samplingParams` 例外，直接使用上游请求体字段名。旧的顶层 snake_case 字段不会静默转换，而会提示替代字段：
 
 | 旧字段 | 新字段 |
 | --- | --- |
@@ -89,10 +91,10 @@ providers.gateway.models[0].id is required
 | `thinking` | `thinkingPreset` |
 | `thinking_level` | `defaultThinkingLevel` |
 | `thinking_level_map` | `thinkingLevelMap` |
-| `top_p` | `topP` |
-| `max_tokens` | `maxTokens` |
+| model `defaults` | `samplingParams` |
+| model `extraBody` | `samplingParams` 或 provider `extraBody` |
 
-同样，旧的 `advanced` 容器应改为直接放 provider/model 字段。
+同样，旧的 `advanced` 容器应改为直接放 provider/model 字段。`samplingParams` 使用 `top_p`、`top_k` 等上游请求体字段名，不再转换 camelCase。
 
 ## 相关配置
 

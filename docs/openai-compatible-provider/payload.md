@@ -1,86 +1,66 @@
 # Payload 处理
 
-扩展在 Pi 已生成请求后，应用 model defaults、thinking preset 和 provider/model payload 扩展。
+静态采样参数直接使用 Pi 原生 `Model.samplingParams`；扩展只在 Pi 已生成请求后处理 Responses thinking 和必要的 provider 级 payload 扩展。
 
 ## 处理顺序
 
 ```text
 1. Pi API 生成原始 payload
-2. 用 model.defaults 补充缺失字段
-3. 转换 Responses 的非 OpenAI thinking preset
-4. 合并 provider/model extraBody
-5. 执行 provider/model dropParams
-6. 恢复核心字段
-7. 执行调用方后续 onPayload
+2. Pi 合并 model.samplingParams
+3. Pi 合并请求期 samplingParams（同名字段覆盖 model）
+4. 转换 Responses 的非 OpenAI thinking preset
+5. 合并 provider.extraBody
+6. 执行 provider/model dropParams
+7. 恢复核心字段
+8. 执行调用方后续 onPayload
 ```
 
 后续 `onPayload` 可以继续变换结果；如果返回 `undefined`，使用扩展已经生成的 payload。
 
-## Sampling defaults
+## `samplingParams`
 
-配置使用 camelCase，发送时转换为 OpenAI 风格字段：
-
-| 配置字段 | payload 字段 |
-| --- | --- |
-| `temperature` | `temperature` |
-| `topP` | `top_p` |
-| `topK` | `top_k` |
-| `minP` | `min_p` |
-| `maxTokens` | Responses `max_output_tokens`；Completions 按 compat 选择 |
-| `presencePenalty` | `presence_penalty` |
-| `frequencyPenalty` | `frequency_penalty` |
-| `repetitionPenalty` | `repetition_penalty` |
-| `seed` | `seed` |
-| `stop` | `stop` |
-
-`defaults` 只在 payload 没有对应字段时补值：
+模型采样参数使用上游请求体的原始字段名，不做 camelCase 转换：
 
 ```jsonc
 {
-  "defaults": {
+  "maxTokens": 8192,
+  "samplingParams": {
     "temperature": 0.2,
-    "topP": 0.95,
-    "maxTokens": 8192
+    "top_p": 0.95,
+    "top_k": 40,
+    "min_p": 0.05,
+    "repetition_penalty": 1.05
   }
 }
 ```
 
-`defaults.maxTokens` 是请求上限：如果 Pi 已生成更小的上限，保留更小值；不会抬高 Pi 的限制。
+`samplingParams` 会原样进入 Pi `Model`，因此 Pi 后续支持的任意 OpenAI-compatible sampling 参数无需修改扩展即可使用。请求期 `samplingParams` 按 key 覆盖模型值。
 
-Completions 的最大 token 字段由 `compat.maxTokensField` 选择：
+最大输出应使用模型顶层 `maxTokens`。不要在 `samplingParams` 中设置 `max_tokens`、`max_completion_tokens` 或 `max_output_tokens`，否则会绕过 Pi 的 context clamp、thinking budget 和 `compat.maxTokensField` 选择。
 
-```jsonc
-{ "compat": { "maxTokensField": "max_tokens" } }
-```
-
-未配置时使用保守默认值。
+同样不要用 `samplingParams` 覆盖 `model`、`messages`、`input`、`tools` 或 `stream` 等核心字段。
 
 ## `extraBody`
 
-provider 和 model 都可以增加上游专用字段：
+provider 可以给静态和自动发现模型统一增加上游专用字段：
 
 ```jsonc
 {
   "extraBody": {
-    "provider": { "only": ["openai"] },
-    "top_p": 0.9
+    "custom_gateway_option": true
   }
 }
 ```
 
-合并规则：
+模型级任意请求参数应使用 `samplingParams`，因此不再支持 `model.extraBody`。provider 级 `extraBody` 仅作为 `models: "auto"` 等动态目录无法预先设置模型参数时的逃生口。
 
-```text
-provider.extraBody → model.extraBody
-```
-
-model 同名字段覆盖 provider 字段。`extraBody` 只能扩展非核心字段，不能包含：
+`provider.extraBody` 不能包含：
 
 ```text
 model, messages, input, tools, stream
 ```
 
-配置中出现这些字段会报错，而不是静默覆盖 Pi 请求。
+配置中出现这些字段会报错，而不是覆盖 Pi 请求。
 
 ## `dropParams`
 
@@ -98,7 +78,7 @@ provider 和 model 的列表会连接：
 provider.dropParams + model.dropParams
 ```
 
-删除发生在 `extraBody` 合并之后，因此可以删除 Pi 或扩展添加的非核心字段，但不能删除核心字段。
+删除发生在 `provider.extraBody` 合并之后，因此可以删除 Pi 或扩展添加的非核心字段，但不能删除核心字段。
 
 ## Thinking payload
 

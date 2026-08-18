@@ -31,14 +31,14 @@
 | `apiKey` | `$PI_MODELS_JSONC_<PROVIDER>_API_KEY` | API key 配置值；`EMPTY` 表示默认无认证。 |
 | `api` | `openai-completions` | `openai-completions` 或 `openai-responses`。 |
 | `headers` | `{}` | provider 请求和 models endpoint header。 |
-| `compat` | 保守默认值 | Pi 原生 compat 对象。 |
+| `compat` | 保守默认值 | 原样透传给 Pi transport 的原生 compat 对象。 |
 | `models` | 自动发现 | 字符串、模型对象数组或 `"auto"`。 |
 | `thinkingPreset` | `none` | provider 默认 thinking 编码。 |
 | `modelsEndpoint` | `models` | 相对 `baseUrl` 的路径或完整 URL。 |
 | `timeoutMs` | Pi 默认 | 模型请求 stream 的 timeout。 |
 | `maxRetries` | Pi/API 默认 | 模型请求重试次数。 |
 | `dropParams` | `[]` | 从最终 payload 删除的非核心字段。 |
-| `extraBody` | `{}` | 合入最终 payload 的非核心字段。 |
+| `extraBody` | `{}` | 为 provider 全部模型合入非核心字段，主要服务自动发现模型。 |
 
 ## Model
 
@@ -71,9 +71,8 @@ model 可以是字符串：
   "compat": {},
   "thinkingPreset": "openai",
   "defaultThinkingLevel": "high",
-  "defaults": { "temperature": 0.2, "topP": 0.95 },
-  "dropParams": [],
-  "extraBody": {}
+  "samplingParams": { "temperature": 0.2, "top_p": 0.95 },
+  "dropParams": []
 }
 ```
 
@@ -93,9 +92,8 @@ model 可以是字符串：
 | `compat` | provider compat | 模型级 compat，优先级最高。 |
 | `thinkingPreset` | provider preset | 模型级 thinking 编码。 |
 | `defaultThinkingLevel` | 未设置 | 用户主动选择该模型时的默认 level。 |
-| `defaults` | `{}` | 请求采样默认值。 |
+| `samplingParams` | `{}` | Pi 原生模型采样参数，使用上游请求体字段名。 |
 | `dropParams` | `[]` | 追加到 provider 列表。 |
-| `extraBody` | `{}` | 覆盖 provider 同名扩展字段。 |
 
 ## `cost.tiers`
 
@@ -121,7 +119,7 @@ model 可以是字符串：
 
 ## 相关字段
 
-- compat 字段和 API-specific 过滤见 [compatibility.md](compatibility.md)。
+- compat 的原生类型和前向兼容策略见 [compatibility.md](compatibility.md)。
 - thinking 字段见 [thinking.md](thinking.md)。
 - sampling、`dropParams` 和 `extraBody` 见 [payload.md](payload.md)。
 - 完整可用示例见 [examples.md](examples.md)。
