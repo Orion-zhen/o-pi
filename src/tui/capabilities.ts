@@ -2,12 +2,12 @@ import type { Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { TuiFooterToolsSnapshot } from "./types.js";
 
-/** banner 中展示的用户语义能力分组，避免暴露扩展文件名。 */
+/** Home 中展示的用户语义能力分组，避免暴露扩展文件名。 */
 export interface CapabilityGroupDefinition {
 	id: string;
 	label: string;
 	toolNames: readonly string[];
-	showInBanner: boolean;
+	showInHome: boolean;
 }
 
 /** 当前工具启用状态在某个能力分组下的汇总。 */
@@ -20,11 +20,11 @@ export interface CapabilityGroupSummary {
 
 /** 默认能力分组只包含工具，不包含 slash command。 */
 export const DEFAULT_CAPABILITY_GROUPS: readonly CapabilityGroupDefinition[] = [
-	{ id: "files", label: "files", toolNames: ["ls", "read", "write", "edit", "find", "grep"], showInBanner: true },
-	{ id: "web", label: "web", toolNames: ["websearch", "webfetch"], showInBanner: true },
-	{ id: "bash", label: "bash", toolNames: ["bash"], showInBanner: true },
-	{ id: "skill", label: "skill", toolNames: ["skill"], showInBanner: true },
-	{ id: "subagent", label: "subagent", toolNames: ["subagent"], showInBanner: true },
+	{ id: "files", label: "files", toolNames: ["ls", "read", "write", "edit", "find", "grep"], showInHome: true },
+	{ id: "web", label: "web", toolNames: ["websearch", "webfetch"], showInHome: true },
+	{ id: "bash", label: "bash", toolNames: ["bash"], showInHome: true },
+	{ id: "skill", label: "skill", toolNames: ["skill"], showInHome: true },
+	{ id: "subagent", label: "subagent", toolNames: ["subagent"], showInHome: true },
 ];
 
 /** 按工具名汇总能力分组；allNames 缺失时只根据 activeNames 保守展示。 */
@@ -40,7 +40,7 @@ export function summarizeCapabilityGroups(
 	for (const group of groups) {
 		const groupToolSet = new Set(group.toolNames);
 		const totalCount = allNames.filter((name) => groupToolSet.has(name)).length;
-		if (!group.showInBanner || (totalCount === 0 && tools.allNames === undefined)) continue;
+		if (!group.showInHome || (totalCount === 0 && tools.allNames === undefined)) continue;
 		const activeCount = activeNames.filter((name) => groupToolSet.has(name)).length;
 		summaries.push({ id: group.id, label: group.label, activeCount, totalCount });
 	}

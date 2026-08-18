@@ -2,9 +2,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { KeybindingsManager } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import { ProcessTerminal, stripTerminalSequences, TuiMainScreen, visibleWidth, type EditorTheme } from "@earendil-works/pi-tui";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { UserHistoryEditor, type InputFrameOptions } from "../../src/tui/user-history-editor.js";
+import { UserHistoryEditor, type HomeEditorOptions, type InputFrameOptions } from "../../src/tui/user-history-editor.js";
+import { defaultTuiConfig } from "../../src/tui/config.js";
 import {
 	buildInitialHistory,
 	UserHistoryStore,
@@ -12,6 +13,10 @@ import {
 import { useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-user-history-");
+
+afterEach(() => {
+	vi.useRealTimers();
+});
 
 describe("路径级用户历史", () => {
 	it("以 JSONL 单文件追加，并只加载当前路径的最近记录", async () => {
@@ -185,6 +190,66 @@ describe("路径级用户历史", () => {
 		expect(lines.every((line) => visibleWidth(line) === 80)).toBe(true);
 	});
 
+	it("空会话时输入框承载 Home，隐藏后恢复普通聊天输入框", () => {
+		let visible = true;
+		const home: HomeEditorOptions = {
+			config: { ...defaultTuiConfig().home, motion: "off" },
+			getSnapshot: () => ({
+				cwd: "/repo",
+				git: "main*",
+				context: { tokens: 0, contextWindow: 200_000, percent: 0 },
+				tools: { activeNames: ["read"], totalCount: 2, allNames: ["read", "grep"] },
+				skills: { totalCount: 2, modelInvocableCount: 1 },
+			}),
+			getTheme: () => ({ fg: (_name, text) => text }),
+			isVisible: () => visible,
+			tip: "Use @ to attach files.",
+		};
+		const editor = createEditor([], [], vi.fn(), {
+			getState: () => ({
+				modelId: "gpt-5.6-sol",
+				modelProvider: "openai",
+				modelReasoning: true,
+				thinkingLevel: "xhigh",
+				availableProviderCount: 2,
+				status: "ready",
+			}),
+			styleLabel: (text) => text,
+			styleMode: (text) => text,
+			styleStatus: (text) => text,
+		}, home);
+
+		const homeOutput = editor.render(100).map(stripTerminalSequences).join("\n");
+		expect(homeOutput).toContain("NEW SESSION");
+		expect(homeOutput).toContain("openai / gpt-5.6-sol · xhigh");
+		expect(homeOutput).toContain("● ready");
+		expect(homeOutput).toContain("2 providers");
+		expect(homeOutput).toContain("CAPABILITIES");
+
+		visible = false;
+		editor.hideHome();
+		const chatLines = editor.render(100).map(stripTerminalSequences);
+		expect(chatLines).toHaveLength(3);
+		expect(chatLines.join("\n")).not.toContain("NEW SESSION");
+	});
+
+	it("隐藏 Home 时释放入场和低频轨道 timer", () => {
+		vi.useFakeTimers();
+		let visible = true;
+		const editor = createEditor([], [], vi.fn(), undefined, {
+			config: { ...defaultTuiConfig().home, motion: "playful" },
+			getSnapshot: () => ({}),
+			getTheme: () => ({ fg: (_name, text) => text }),
+			isVisible: () => visible,
+			tip: "tip",
+		});
+
+		expect(vi.getTimerCount()).toBe(2);
+		visible = false;
+		editor.hideHome();
+		expect(vi.getTimerCount()).toBe(0);
+	});
+
 	it.each([120, 80, 40, 20, 12])("输入框上下直线在宽度 %i 下不会越界", (width) => {
 		const editor = createEditor([], [], vi.fn(), {
 			getState: () => ({ sessionName: "A very long session name", modelId: "gpt-5.6-sol", modelReasoning: true, thinkingLevel: "xhigh" }),
@@ -217,6 +282,7 @@ function createEditor(
 	replayQueue: readonly string[],
 	record: (text: string) => void,
 	frame?: InputFrameOptions,
+	home?: HomeEditorOptions,
 ): UserHistoryEditor {
 	const tui = new TuiMainScreen(new ProcessTerminal());
 	const keybindings = KeybindingsManager.create(temp.path);
@@ -231,5 +297,5 @@ function createEditor(
 			noMatch: identity,
 		},
 	};
-	return new UserHistoryEditor(tui, theme, keybindings, initialHistory, replayQueue, record, frame);
+	return new UserHistoryEditor(tui, theme, keybindings, initialHistory, replayQueue, record, frame, home);
 }

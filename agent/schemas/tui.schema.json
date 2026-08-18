@@ -56,18 +56,17 @@
 				"collapsed_lines": { "const": 2, "default": 2 }
 			}
 		},
-		"banner": {
+		"home": {
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
 				"enabled": { "type": "boolean", "default": true },
-				"style": { "enum": ["ascii", "compact"], "default": "ascii" },
-				"layout": { "enum": ["auto", "side_by_side", "stacked", "tiny"], "default": "auto" },
-				"side_by_side_min_width": { "type": "integer", "minimum": 72, "maximum": 240, "default": 96 },
-				"tiny_width": { "type": "integer", "minimum": 24, "maximum": 80, "default": 44 },
+				"motion": { "enum": ["off", "subtle", "playful"], "default": "playful" },
+				"pointer_effects": { "enum": ["off", "click", "click-hold"], "default": "click-hold" },
+				"show_tagline": { "type": "boolean", "default": true },
+				"show_tips": { "type": "boolean", "default": true },
 				"show_hints": { "type": "boolean", "default": true },
-				"show_capabilities": { "type": "boolean", "default": true },
-				"clear_on_first_turn": { "type": "boolean", "default": false }
+				"show_capabilities": { "type": "boolean", "default": true }
 			}
 		},
 		"math": {

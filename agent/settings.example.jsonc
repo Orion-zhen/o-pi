@@ -2,7 +2,7 @@
   // 使用 Pi 内置暗色主题；可改为 "light" 或已安装的自定义主题名。
   "theme": "dark",
 
-  // 隐藏 Pi 原生启动标题，避免与 o-pi 的启动 Banner 重复。
+  // 隐藏 Pi 原生启动标题，由 o-pi Home 接管空会话启动界面。
   "quietStartup": true,
 
   // 更新后只显示简短版本提示；完整更新记录仍可通过 /changelog 查看。

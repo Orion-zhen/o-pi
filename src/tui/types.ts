@@ -12,11 +12,12 @@ export type TuiWorkingIndicator = "dot" | "spinner" | "off";
 /** footer 支持的字段；缺少数据时字段会自动隐藏。 */
 export type TuiFooterSegment = "cwd" | "git" | "ctx" | "tokens" | "cost";
 
-/** startup banner 布局；auto 按终端宽度在三种布局间选择。 */
-export type TuiBannerLayout = "auto" | "side_by_side" | "stacked" | "tiny";
+/** Home 动效等级；playful 增加输入反馈和 Home 存续期间的低频 Core 轨道。 */
+export type TuiHomeMotion = "off" | "subtle" | "playful";
 
-/** startup banner 风格；compact 不渲染 ASCII wordmark。 */
-export type TuiBannerStyle = "ascii" | "compact";
+/** Home 鼠标反馈；click-hold 在点击反馈外增加长按蓄力和释放爆炸。 */
+export type TuiHomePointerEffects = "off" | "click" | "click-hold";
+
 
 /** chrome 配置只控制 Pi 公开 UI API 暴露的轻量区域。 */
 export interface TuiChromeConfig {
@@ -50,16 +51,15 @@ export interface TuiToolsConfig {
 	collapsed_lines: 2;
 }
 
-/** startup banner 配置；只通过 Pi 公开 header API 渲染。 */
-export interface TuiBannerConfig {
+/** 空会话启动 Home 配置；布局按终端宽高自动降级。 */
+export interface TuiHomeConfig {
 	enabled: boolean;
-	style: TuiBannerStyle;
-	layout: TuiBannerLayout;
-	side_by_side_min_width: number;
-	tiny_width: number;
+	motion: TuiHomeMotion;
+	pointer_effects: TuiHomePointerEffects;
+	show_tagline: boolean;
+	show_tips: boolean;
 	show_hints: boolean;
 	show_capabilities: boolean;
-	clear_on_first_turn: boolean;
 }
 
 /** Pi 原生 LaTeX 之上的块级公式图片增强配置。 */
@@ -79,7 +79,7 @@ export interface TuiConfig {
 	chrome: TuiChromeConfig;
 	footer: TuiFooterConfig;
 	tools: TuiToolsConfig;
-	banner: TuiBannerConfig;
+	home: TuiHomeConfig;
 	math: TuiMathConfig;
 }
 
@@ -113,7 +113,7 @@ export interface TuiFooterToolsSnapshot {
 	allNames?: string[];
 }
 
-/** startup banner 的 skill 快照；只用于独立 skills 行，不计入工具数量。 */
+/** Home 的 skill 快照；与 tools 分开统计。 */
 export interface TuiFooterSkillsSnapshot {
 	totalCount: number;
 	modelInvocableCount: number;

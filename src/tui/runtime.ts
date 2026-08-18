@@ -9,10 +9,10 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { notifyWaiting, type WaitingNotifier } from "../notification/native.js";
 import { collectSkillCandidates } from "../skill-context/loader.js";
-import { createStartupBannerComponent } from "./banner.js";
 import { createHeaderComponent, formatTitle, workingIndicatorOptions } from "./chrome.js";
 import { loadTuiConfig } from "./config.js";
 import { createFooterComponent, GitSegmentCache } from "./footer.js";
+import { createHomeFooterComponent, createHomeHeaderComponent, selectHomeTip } from "./home.js";
 import { configureTuiIconMode, statusIcon } from "./icons.js";
 import { createAssistantPerformanceTracker } from "./message-performance.js";
 import {
@@ -66,7 +66,7 @@ export function createTuiRuntime(
 	let snapshot: TuiFooterSnapshot = {};
 	let setTitle: ((title: string) => void) | undefined;
 	let gitCache: GitSegmentCache | undefined;
-	let startupBannerVisible = false;
+	let homeVisible = false;
 	let mathMarkdownModule: MathMarkdownModule | undefined;
 	let mathMarkdownLoad: Promise<MathMarkdownModule> | undefined;
 	let mathImagesWarm = false;
@@ -74,6 +74,7 @@ export function createTuiRuntime(
 	let sessionGeneration = 0;
 	let skillsSnapshot: TuiFooterSkillsSnapshot | undefined;
 	let historyEditorFactory: EditorFactory | undefined;
+	let historyEditor: UserHistoryEditor | undefined;
 	let previousEditorFactory: EditorFactory | undefined;
 	const assistantPerformance = createAssistantPerformanceTracker();
 	const userHistory = new UserHistoryStore();
@@ -84,34 +85,33 @@ export function createTuiRuntime(
 
 	async function startSession(ctx: ExtensionContext, options: TuiSessionStartOptions = {}): Promise<void> {
 		await resetSession(ctx);
-		await installUserHistory(ctx, options.replaySessionMessages === true);
 		const nextConfig = await loadTuiConfig();
 		config = nextConfig;
-		configureTuiIconMode(nextConfig.icons);
-		configureMessageTimestampRenderer(nextConfig.enabled ? {
-			dim: (text) => ctx.ui.theme.fg("dim", text),
-			userBackground: (text) => ctx.ui.theme.bg("userMessageBg", text),
-			customBackground: (text) => ctx.ui.theme.bg("customMessageBg", text),
-		} : undefined);
-		syncUserMessageTimestamps(ctx);
-		skillsSnapshot = nextConfig.banner.enabled ? collectSkills(pi) : undefined;
+		setTitle = (title) => ctx.ui.setTitle(title);
 		const mathEnabled = nextConfig.enabled && nextConfig.math.enabled;
 		mathMarkdownModule?.installMathMarkdownRenderer({ ...nextConfig.math, enabled: mathEnabled });
-		setTitle = (title) => ctx.ui.setTitle(title);
 		if (!nextConfig.enabled) {
 			cleanup(ctx);
 			return;
 		}
+
+		configureTuiIconMode(nextConfig.icons);
+		configureMessageTimestampRenderer({
+			dim: (text) => ctx.ui.theme.fg("dim", text),
+			userBackground: (text) => ctx.ui.theme.bg("userMessageBg", text),
+			customBackground: (text) => ctx.ui.theme.bg("customMessageBg", text),
+		});
+		syncUserMessageTimestamps(ctx);
+		homeVisible = nextConfig.home.enabled && !hasConversation(ctx);
+		skillsSnapshot = nextConfig.home.enabled ? collectSkills(pi) : undefined;
 		gitCache = createGitCache(() => snapshot, (next) => {
 			snapshot = next;
 			refreshTitle();
+			ctx.ui.setStatus(STATUS_KEY, formatStatus(snapshot.status ?? "ready", ctx.ui.theme));
 		});
 		snapshot = makeSnapshot(ctx, pi, "ready", gitCache.get(ctx.cwd));
-		applyChrome(ctx, nextConfig, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot));
-		if (nextConfig.banner.enabled) {
-			startupBannerVisible = true;
-			ctx.ui.setHeader(createStartupBannerComponent(nextConfig.banner, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot)));
-		}
+		await installUserHistory(ctx, options.replaySessionMessages === true, nextConfig);
+		applyChrome(ctx, nextConfig, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot), homeVisible);
 		scheduleMathInitialization(ctx, sessionGeneration);
 	}
 
@@ -126,17 +126,17 @@ export function createTuiRuntime(
 		restoreEditor(ctx);
 		const previousGitCache = gitCache;
 		gitCache = undefined;
-		if (config !== undefined || setTitle !== undefined || startupBannerVisible) cleanup(ctx);
+		if (config !== undefined || setTitle !== undefined || homeVisible) cleanup(ctx);
 		config = undefined;
 		setTitle = undefined;
-		startupBannerVisible = false;
+		homeVisible = false;
 		snapshot = {};
 		skillsSnapshot = undefined;
 		assistantPerformance.reset();
 		await previousGitCache?.dispose();
 	}
 
-	async function installUserHistory(ctx: ExtensionContext, replaySessionMessages: boolean): Promise<void> {
+	async function installUserHistory(ctx: ExtensionContext, replaySessionMessages: boolean, currentConfig: TuiConfig): Promise<void> {
 		const cwd = normalizeHistoryCwd(ctx.cwd);
 		const session = ctx.sessionManager.getSessionId();
 		const sessionMessages = collectSessionHistoryMessages(ctx);
@@ -151,38 +151,56 @@ export function createTuiRuntime(
 		const initialHistory = buildInitialHistory(records, sessionMessages, session);
 		const replayQueue = replaySessionMessages ? sessionMessages.map((message) => message.text) : [];
 		previousEditorFactory = ctx.ui.getEditorComponent();
-		historyEditorFactory = (tui, theme, keybindings) => new UserHistoryEditor(
-			tui,
-			theme,
-			keybindings,
-			initialHistory,
-			replayQueue,
-			(text) => {
-				void userHistory.append({ cwd, session, text }).catch((error: unknown) => {
-					if (warned) return;
-					warned = true;
-					ctx.ui.notify(`User history could not be saved: ${stringifyError(error)}`, "warning");
-				});
-			},
-			{
-				getState: () => {
-					const sessionName = pi.getSessionName();
-					return {
-						...(sessionName !== undefined ? { sessionName } : {}),
-						...(snapshot.modelId !== undefined ? { modelId: snapshot.modelId } : {}),
-						...(snapshot.modelReasoning !== undefined ? { modelReasoning: snapshot.modelReasoning } : {}),
-						thinkingLevel: pi.getThinkingLevel(),
-						hasPendingMessages: ctx.hasPendingMessages(),
-					};
+		historyEditorFactory = (tui, theme, keybindings) => {
+			const editor = new UserHistoryEditor(
+				tui,
+				theme,
+				keybindings,
+				initialHistory,
+				replayQueue,
+				(text) => {
+					void userHistory.append({ cwd, session, text }).catch((error: unknown) => {
+						if (warned) return;
+						warned = true;
+						ctx.ui.notify(`User history could not be saved: ${stringifyError(error)}`, "warning");
+					});
 				},
-				styleLabel: (text) => ctx.ui.theme.fg("dim", text),
-				styleMode: (text) => ctx.ui.theme.fg("warning", text),
-			},
-		);
+				{
+					getState: () => {
+						const sessionName = pi.getSessionName();
+						const availableProviderCount = countAvailableProviders(ctx);
+						return {
+							...(sessionName !== undefined ? { sessionName } : {}),
+							...(snapshot.modelId !== undefined ? { modelId: snapshot.modelId } : {}),
+							...(snapshot.modelProvider !== undefined ? { modelProvider: snapshot.modelProvider } : {}),
+							...(snapshot.modelReasoning !== undefined ? { modelReasoning: snapshot.modelReasoning } : {}),
+							...(availableProviderCount > 0 ? { availableProviderCount } : {}),
+							...(snapshot.status !== undefined ? { status: snapshot.status } : {}),
+							thinkingLevel: pi.getThinkingLevel(),
+							hasPendingMessages: ctx.hasPendingMessages(),
+						};
+					},
+					styleLabel: (text) => ctx.ui.theme.fg("dim", text),
+					styleMode: (text) => ctx.ui.theme.fg("warning", text),
+					styleStatus: (text) => ctx.ui.theme.fg("success", text),
+				},
+				{
+					config: currentConfig.home,
+					getSnapshot: () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot),
+					getTheme: () => ctx.ui.theme,
+					isVisible: () => homeVisible,
+					tip: selectHomeTip(session),
+				},
+			);
+			historyEditor = editor;
+			return editor;
+		};
 		ctx.ui.setEditorComponent(historyEditorFactory);
 	}
 
 	function restoreEditor(ctx: ExtensionContext): void {
+		historyEditor?.dispose();
+		historyEditor = undefined;
 		if (historyEditorFactory !== undefined && ctx.ui.getEditorComponent() === historyEditorFactory) {
 			ctx.ui.setEditorComponent(previousEditorFactory);
 		}
@@ -195,8 +213,10 @@ export function createTuiRuntime(
 			cancelMathInitialization();
 			if (!config?.enabled) return;
 			snapshot = makeSnapshot(ctx, pi, "running", gitCache?.get(ctx.cwd));
-			if (startupBannerVisible && config.banner.clear_on_first_turn) {
-				startupBannerVisible = false;
+			if (homeVisible) {
+				homeVisible = false;
+				historyEditor?.hideHome();
+				ctx.ui.setFooter(config.chrome.footer ? createFooterComponent(config.footer, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot), config.icons) : undefined);
 				ctx.ui.setHeader(config.chrome.header ? createHeaderComponent(() => snapshotWithCapabilities(snapshot, pi, skillsSnapshot)) : undefined);
 			}
 			gitCache?.refresh(ctx.cwd);
@@ -350,13 +370,17 @@ export function createTuiRuntime(
 		snapshot = makeSnapshot(ctx, pi, status, gitCache?.get(ctx.cwd));
 		refreshTitle();
 		ctx.ui.setStatus(STATUS_KEY, formatStatus(status, ctx.ui.theme));
-		ctx.ui.setFooter(config?.chrome.footer ? createFooterComponent(config.footer, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot), config.icons) : undefined);
+		ctx.ui.setFooter(config?.chrome.footer
+			? homeVisible
+				? createHomeFooterComponent(config.home)
+				: createFooterComponent(config.footer, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot), config.icons)
+			: undefined);
 		ctx.ui.setHeader(getHeader());
 	}
 
 	function getHeader() {
 		if (config === undefined) return undefined;
-		if (startupBannerVisible && config.banner.enabled) return createStartupBannerComponent(config.banner, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot));
+		if (homeVisible) return createHomeHeaderComponent();
 		return config.chrome.header ? createHeaderComponent(() => snapshotWithCapabilities(snapshot, pi, skillsSnapshot)) : undefined;
 	}
 
@@ -408,12 +432,14 @@ function stringifyError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-function applyChrome(ctx: ExtensionContext, config: TuiConfig, getSnapshot: () => TuiFooterSnapshot): void {
+function applyChrome(ctx: ExtensionContext, config: TuiConfig, getSnapshot: () => TuiFooterSnapshot, homeVisible: boolean): void {
 	if (config.chrome.title) ctx.ui.setTitle(formatTitle(getSnapshot()));
 	ctx.ui.setWorkingIndicator(workingIndicatorOptions(config, ctx.ui.theme));
 	ctx.ui.setStatus(STATUS_KEY, formatStatus("ready", ctx.ui.theme));
-	ctx.ui.setFooter(config.chrome.footer ? createFooterComponent(config.footer, getSnapshot, config.icons) : undefined);
-	ctx.ui.setHeader(config.chrome.header ? createHeaderComponent(getSnapshot) : undefined);
+	ctx.ui.setFooter(config.chrome.footer
+		? homeVisible ? createHomeFooterComponent(config.home) : createFooterComponent(config.footer, getSnapshot, config.icons)
+		: undefined);
+	ctx.ui.setHeader(homeVisible ? createHomeHeaderComponent() : config.chrome.header ? createHeaderComponent(getSnapshot) : undefined);
 }
 
 function formatStatus(status: string, theme: ExtensionContext["ui"]["theme"]): string {
@@ -437,18 +463,24 @@ function makeSnapshot(ctx: ExtensionContext, pi: ExtensionAPI, status: string, g
 	const context = ctx.getContextUsage();
 	const usage = collectUsage(ctx);
 	const model = ctx.model;
+	const availableProviderCount = countAvailableProviders(ctx);
 	return {
 		cwd: ctx.cwd,
 		...(git !== undefined ? { git } : {}),
 		...(model?.id !== undefined ? { modelId: model.id } : {}),
 		...(model?.provider !== undefined ? { modelProvider: model.provider } : {}),
 		...(model?.reasoning !== undefined ? { modelReasoning: model.reasoning } : {}),
+		...(availableProviderCount > 0 ? { availableProviderCount } : {}),
 		thinkingLevel: pi.getThinkingLevel(),
 		...(model !== undefined ? { usingSubscription: ctx.modelRegistry.isUsingOAuth(model) } : {}),
 		...(context !== undefined ? { context } : {}),
 		...usage,
 		status,
 	};
+}
+
+function countAvailableProviders(ctx: ExtensionContext): number {
+	return new Set(ctx.modelRegistry.getAvailable().map((available) => available.provider)).size;
 }
 
 /** 按工具注册顺序生成启用状态，避免 /tools 切换后 footer 列表抖动。 */
@@ -497,6 +529,10 @@ function createGitCache(
 		else next.git = git;
 		setSnapshot(next);
 	});
+}
+
+function hasConversation(ctx: ExtensionContext): boolean {
+	return ctx.sessionManager.getEntries().some((entry) => entry.type === "message");
 }
 
 function collectUsage(ctx: ExtensionContext): Pick<

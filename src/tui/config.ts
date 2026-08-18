@@ -37,7 +37,7 @@ interface RawTuiConfig {
 	chrome?: Partial<TuiConfig["chrome"]>;
 	footer?: Partial<Omit<TuiConfig["footer"], "style">> & { style?: Partial<TuiConfig["footer"]["style"]> };
 	tools?: Partial<TuiConfig["tools"]>;
-	banner?: Partial<TuiConfig["banner"]>;
+	home?: Partial<TuiConfig["home"]>;
 	math?: Partial<TuiConfig["math"]>;
 }
 
@@ -45,7 +45,7 @@ interface CompleteTuiConfig extends Required<RawTuiConfig> {
 	chrome: TuiConfig["chrome"];
 	footer: TuiConfig["footer"];
 	tools: TuiConfig["tools"];
-	banner: TuiConfig["banner"];
+	home: TuiConfig["home"];
 	math: TuiConfig["math"];
 }
 
@@ -62,7 +62,7 @@ function materializeConfig(raw: CompleteTuiConfig): TuiConfig {
 			style: { ...raw.footer.style },
 		},
 		tools: { ...raw.tools },
-		banner: { ...raw.banner },
+		home: { ...raw.home },
 		math: { ...raw.math },
 	};
 	if (config.tools.collapsed_lines !== 2) throw new TuiConfigError("tools.collapsed_lines only supports 2.");

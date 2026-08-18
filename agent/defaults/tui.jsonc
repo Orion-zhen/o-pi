@@ -38,15 +38,14 @@
 		"max_summary_chars": 96,
 		"collapsed_lines": 2
 	},
-	"banner": {
+	"home": {
 		"enabled": true,
-		"style": "ascii",
-		"layout": "auto",
-		"side_by_side_min_width": 96,
-		"tiny_width": 44,
+		"motion": "playful",
+		"pointer_effects": "click-hold",
+		"show_tagline": true,
+		"show_tips": true,
 		"show_hints": true,
-		"show_capabilities": true,
-		"clear_on_first_turn": false
+		"show_capabilities": true
 	},
 	"math": {
 		"enabled": true,

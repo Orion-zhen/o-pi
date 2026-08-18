@@ -27,6 +27,11 @@ interface FooterDataStub {
 	onBranchChange(callback: () => void): () => void;
 }
 
+interface SessionEntryStub {
+	type: string;
+	message?: { role: string };
+}
+
 interface ExtensionContextStub {
 	cwd: string;
 	mode: "tui" | "rpc" | "json" | "print";
@@ -45,8 +50,8 @@ interface ExtensionContextStub {
 	isIdle(): boolean;
 	hasPendingMessages(): boolean;
 	model: ModelStub | undefined;
-	modelRegistry: { isUsingOAuth(model: ModelStub): boolean };
-	sessionManager: { getEntries(): unknown[]; buildContextEntries(): never[]; getSessionId(): string };
+	modelRegistry: { isUsingOAuth(model: ModelStub): boolean; getAvailable(): ModelStub[] };
+	sessionManager: { getEntries(): SessionEntryStub[]; buildContextEntries(): never[]; getSessionId(): string };
 }
 
 interface ModelStub {
@@ -69,7 +74,10 @@ afterEach(() => {
 });
 
 describe("tui extension", () => {
-	it("注册 footer，并在渲染时读取当前工具启用状态", async () => {
+	it("聊天 footer 在渲染时读取当前工具启用状态", async () => {
+		const file = path.join(dir, "tui.jsonc");
+		await writeFile(file, '{ "home": { "enabled": false } }');
+		process.env["PI_TUI_CONFIG"] = file;
 		const handlers = new Map<string, Handler>();
 		let footerFactory: FooterFactory | undefined;
 		let activeTools = ["read"];
@@ -115,7 +123,7 @@ describe("tui extension", () => {
 			isIdle: () => true,
 			hasPendingMessages: () => false,
 			model: undefined,
-			modelRegistry: { isUsingOAuth: () => false },
+			modelRegistry: { isUsingOAuth: () => false, getAvailable: () => [] },
 			sessionManager: { getEntries: () => [], buildContextEntries: () => [], getSessionId: () => "session-test" },
 		};
 
@@ -129,7 +137,7 @@ describe("tui extension", () => {
 		expect(component?.render(80).join("\n")).toMatch(/\b2\/3\b/u);
 	});
 
-	it("session_start 初始化 chrome，首轮默认保留 startup header", async () => {
+	it("空会话启动 Home，并在首轮开始时恢复聊天 chrome", async () => {
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
 		const pi = createPi(handlers);
@@ -142,19 +150,39 @@ describe("tui extension", () => {
 		expect(calls.editor.at(-1)).toBeTypeOf("function");
 		expect(calls.status.at(-1)).toMatchObject({ key: "o-pi:tui", text: expect.any(String) });
 		expect(calls.working.length).toBeGreaterThan(0);
-		const startupHeader = calls.header.at(-1);
-		expect(startupHeader).toBeTypeOf("function");
-		const headerCount = calls.header.length;
+		const homeHeader = calls.header.at(-1);
+		const homeFooter = calls.footer.at(-1)?.({ requestRender() {} }, ctx.ui.theme, createFooterData());
+		expect(homeHeader).toBeTypeOf("function");
+		expect(homeFooter?.render(80).join("\n")).toContain("O Pi v");
 		await handlers.get("turn_start")?.({}, ctx);
 
-		expect(calls.header).toHaveLength(headerCount);
-		expect(calls.header.at(-1)).toBe(startupHeader);
+		expect(calls.header.at(-1)).toBeUndefined();
+		expect(calls.header.at(-1)).not.toBe(homeHeader);
+		expect(calls.footer.at(-1)).toBeTypeOf("function");
 		expect(calls.status.at(-1)).toMatchObject({ key: "o-pi:tui", text: expect.any(String) });
 	});
 
-	it("turn_start 按配置替换 startup header", async () => {
+	it("恢复已有会话时直接进入聊天，不显示 Home", async () => {
+		const handlers = new Map<string, Handler>();
+		const calls = createUiCalls();
+		const pi = createPi(handlers);
+		const ctx = createContext(calls, {
+			mode: "tui",
+			entries: [{ type: "message", message: { role: "user" } }],
+		});
+
+		tuiExtension(pi as unknown as ExtensionAPI);
+		await handlers.get("session_start")?.({}, ctx);
+
+		expect(calls.header.at(-1)).toBeUndefined();
+		const footer = calls.footer.at(-1)?.({ requestRender() {} }, ctx.ui.theme, createFooterData());
+		expect(footer?.render(80).join("\n")).toContain("tools 1/3");
+		expect(footer?.render(80).join("\n")).not.toContain("O Pi v");
+	});
+
+	it("turn_start 按配置将 Home header 替换为普通 header", async () => {
 		const file = path.join(dir, "tui.jsonc");
-		await writeFile(file, '{ "chrome": { "header": true }, "banner": { "clear_on_first_turn": true } }');
+		await writeFile(file, '{ "chrome": { "header": true } }');
 		process.env["PI_TUI_CONFIG"] = file;
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
@@ -163,14 +191,14 @@ describe("tui extension", () => {
 
 		tuiExtension(pi as unknown as ExtensionAPI);
 		await handlers.get("session_start")?.({}, ctx);
-		const startupHeader = calls.header.at(-1);
+		const homeHeader = calls.header.at(-1);
 		await handlers.get("turn_start")?.({}, ctx);
 
 		expect(calls.header.at(-1)).toBeTypeOf("function");
-		expect(calls.header.at(-1)).not.toBe(startupHeader);
+		expect(calls.header.at(-1)).not.toBe(homeHeader);
 	});
 
-	it("首轮对话前 model_select 刷新输入快照、footer、title 和 startup banner", async () => {
+	it("首轮对话前 model_select 刷新输入快照、Home footer 和 title", async () => {
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
 		const pi = createPi(handlers);
@@ -183,10 +211,8 @@ describe("tui extension", () => {
 		await handlers.get("model_select")?.({ type: "model_select", model: ctx.model, previousModel: undefined, source: "set" }, ctx);
 
 		const footer = calls.footer.at(-1)?.({ requestRender() {} }, ctx.ui.theme, createFooterData());
-		const header = calls.header.at(-1)?.({ requestRender() {} }, ctx.ui.theme);
 		expect(calls.footer.length).toBeGreaterThan(footerCount);
-		expect(footer?.render(120).join("\n")).not.toContain("gpt-5.2");
-		expect(header?.render(120).join("\n")).toContain("gpt-5.2");
+		expect(footer?.render(120).join("\n")).toContain("O Pi v");
 		expect(calls.title.at(-1)).toContain("gpt-5.2");
 		expect(calls.status.at(-1)).toMatchObject({ key: "o-pi:tui", text: expect.any(String) });
 	});
@@ -464,6 +490,7 @@ function createContext(
 		mode?: ExtensionContextStub["mode"];
 		isIdle?: () => boolean;
 		hasPendingMessages?: () => boolean;
+		entries?: SessionEntryStub[];
 	} = {},
 ): ExtensionContextStub {
 	return {
@@ -502,8 +529,8 @@ function createContext(
 		isIdle: options.isIdle ?? (() => true),
 		hasPendingMessages: options.hasPendingMessages ?? (() => false),
 		model: undefined,
-		modelRegistry: { isUsingOAuth: () => false },
-		sessionManager: { getEntries: () => [], buildContextEntries: () => [], getSessionId: () => "session-test" },
+		modelRegistry: { isUsingOAuth: () => false, getAvailable: () => [] },
+		sessionManager: { getEntries: () => options.entries ?? [], buildContextEntries: () => [], getSessionId: () => "session-test" },
 	};
 }
 

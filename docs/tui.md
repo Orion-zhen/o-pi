@@ -1,14 +1,14 @@
-# TUI V1
+# TUI
 
-`agent/extensions/tui.ts` 提供 o-pi 的轻量 TUI chrome。它保留 Pi 原生单列 transcript；输入框使用 Pi 公开 `CustomEditor/setEditorComponent` 扩展路径级操作历史，其余部分只通过当前本地 Pi 依赖的公开 UI API 增加 title、可选 header、footer/status 和 working indicator。
+`agent/extensions/tui.ts` 提供 o-pi 的 TUI chrome。它保留 Pi 原生单列 transcript；输入框使用公开 `CustomEditor/setEditorComponent` 扩展路径级操作历史，并在空会话启动时切换为全屏 Home。其余区域只使用当前本地 Pi 依赖的公开 UI API 增加 title、header、footer/status 和 working indicator。
 
-启动时会显示轻量 ASCII banner：左侧是 `O Pi` wordmark，右侧是当前可得的 workspace、model、context、tools 状态。宽终端左右排列，窄终端上下排列，极窄终端降级为 compact text；所有行都会按终端可见宽度截断。
+Home 以原生输入框为中心，上方显示响应式 `O Pi` wordmark，下方展示 project、context、tools、skills 和 capability。宽终端使用分区面板，中等宽度压成三行，窄或矮终端只保留关键状态。首轮 turn 开始后编辑器立即恢复普通高度；恢复已有会话时直接进入 transcript，不显示 Home。
 
 ## 边界
 
-V1 不 fork、不 monkey patch、不替换主 TUI，不实现 sidebar、fixed editor、overlay、splash、重型 syntax theme、image paste 或 dashboard。自定义输入框继承 Pi `CustomEditor`，未改写原生编辑、自动补全、快捷键和提交语义，只预载并记录历史。目标是统一视觉语法，而不是重写交互框架。
+实现不 fork、不 monkey patch、不使用 overlay，也不维护第二套输入框。Home 由继承 Pi `CustomEditor` 的同一个编辑器渲染，因此原生编辑、硬件光标、中文 IME、自动补全、快捷键和提交语义保持不变。fullscreen 下编辑器按终端高度填充启动视口；普通 TUI 模式只渲染自然高度。
 
-整个 o-pi TUI runtime 只在 Pi native TUI (`ctx.mode === "tui"`) 中启用：chrome、startup banner、footer、Git 状态、Math Markdown、工具/消息 renderer 和 command viewer 都不会在 RPC、JSON 或 print 模式初始化。非 TUI 模式仍注册相同的工具 schema、执行逻辑和结构化结果；自定义 renderer 不绑定，TUI 专用命令使用原有的错误通知或纯文本降级。session reload 会复用 native runtime，session shutdown 会清理 chrome、timer 和 Git 查询状态。
+整个 o-pi TUI runtime 只在 Pi native TUI (`ctx.mode === "tui"`) 中启用：chrome、Home、footer、Git 状态、Math Markdown、工具/消息 renderer 和 command viewer 都不会在 RPC、JSON 或 print 模式初始化。非 TUI 模式仍注册相同的工具 schema、执行逻辑和结构化结果；自定义 renderer 不绑定，TUI 专用命令使用原有的错误通知或纯文本降级。session reload 会复用 native runtime，session shutdown 会清理 chrome、timer 和 Git 查询状态。
 
 代码依赖方向由架构测试固定为 `data/query/service/controller -> adapter -> TUI`。只有 `src/tui/**` 和 feature 自己的 `tui/` 目录可以运行时导入 `pi-tui`；extension 只能动态加载 feature TUI。首次加载失败会保留核心注册并允许下一次 TUI session 重试，不会影响 application promise、结构化结果或非 TUI 启动。未来 GUI/RPC adapter 应消费 DTO、outcome 和 progress，不能把 slash 文本、notification 文本或 component 当作 API。
 
@@ -60,36 +60,34 @@ TUI 在 `agent_settled` 触发后通过 `node-notifier` 发送系统通知，确
 * `icons`: 保留的兼容字段；当前全局配置不改变各工具 renderer 的图标选择。
 * `chrome.title/header/footer`: 控制轻量 chrome。
 * `chrome.working_indicator`: `dot`、`spinner`、`off`。
-* `banner.enabled`: 启动 banner 开关。
-* `banner.style`: `ascii` 或 `compact`。
-* `banner.layout`: `auto`、`side_by_side`、`stacked`、`tiny`。
-* `banner.side_by_side_min_width`: `auto` 下左右布局的最小宽度。
-* `banner.tiny_width`: `auto` 下 compact 降级宽度。
-* `banner.show_hints`: 是否显示 `/stats`、`/tools`、`ctrl+o` 等启动提示。
-* `banner.show_capabilities`: 是否显示能力分组摘要。
-* `banner.clear_on_first_turn`: 第一轮 turn 开始时清除 startup banner，并恢复普通 header 或内置 header。
+* `home.enabled`: 空会话启动 Home 开关。
+* `home.motion`: `off`、`subtle` 或 `playful`；`playful` 增加低频 Core 轨道，所有 timer 在首轮或 session 清理时停止。
+* `home.pointer_effects`: `off`、`click` 或 `click-hold`；控制 Home 的被动鼠标反馈。
+* `home.show_tagline`: 是否显示 wordmark 下的 tagline。
+* `home.show_tips`: 是否显示按 session 稳定选择的 Tip。
+* `home.show_hints`: 是否在 Home footer 显示命令入口。
+* `home.show_capabilities`: 是否显示 files、web、bash、skill、subagent 能力分组。
 * `footer.segments`: 宽屏字段。
 * `footer.narrow_segments`: 窄屏字段。
 * `footer.max_lines`: schema 固定为 `2`，renderer 不读取该值做动态布局。
 * `footer.style.workspace_color`: workspace 路径颜色，使用 Pi theme token。
 * `footer.style.git_color`: git 分支颜色，使用 Pi theme token。
-* `footer.style.git_icon`: git 分支前缀 UTF-8 图标。
 * `tools.*`: 保留的兼容字段；当前工具 renderer 使用各自稳定的两行布局和默认截断预算，不读取这组全局配置。
 
 footer 最多两行：
 
 ```text
-<workspace · git · extension status>           <model · ctx · status>
-<tokens · cache · cost>                        <active>/<total> tools enabled
+<workspace · git>                                      <context>
+<tokens · cache · cost>                  <active>/<total> tools
 ```
 
-窄屏第一行使用 `footer.narrow_segments`，两行都会按终端可见宽度截断。TUI 自身的 ready/running 状态位于右侧。workspace 不带 `cwd` 前缀，`$HOME` 下路径显示为 `~/coding/project`。workspace、git 和 context 百分比保留彩色；其他 footer 文本使用 `dim`，避免抢占视线。模型、context、token、cache、cost 展示规则跟随 Pi 原版 footer：`↑/↓`、cache read/write、最近和累计 cache 命中率、`percent/window`、subscription cost 标记，以及支持 reasoning 的模型 thinking level。context 使用量按百分比从绿色渐变到红色。
+窄屏第一行使用 `footer.narrow_segments`，两行都会按终端可见宽度截断。workspace 不带 `cwd` 前缀，`$HOME` 下路径显示为 `~/coding/project`。workspace、git 和 context 百分比保留彩色；其他 footer 文本使用 `dim`，避免抢占视线。context、token、cache、cost 展示规则跟随 Pi 原版 footer：`↑/↓`、cache read/write、最近和累计 cache 命中率、`percent/window`、subscription cost 标记，以及支持 reasoning 的模型 thinking level。context 使用量按百分比从绿色渐变到红色。
 
-## Startup banner
+## Home
 
-banner 只展示真实可得数据：没有 model、context 或 git 时直接隐藏对应行。Pi 版本来自 `@earendil-works/pi-coding-agent` 的 typed `VERSION` 导出；不会使用本仓库 `o-pi` 的 package version 伪装 Pi 版本。
+Home 只展示真实可得数据：没有 model、context 或 git 时直接隐藏对应字段。Pi 版本来自 `@earendil-works/pi-coding-agent` 的 typed `VERSION` 导出；不会使用本仓库 `o-pi` 的 package version 伪装 Pi 版本。模型、provider 和 thinking 位于输入框上边框，ready 状态和可用 provider 数量位于下边框；project/context 与 capabilities 位于输入框下方。
 
-工具能力使用语义分组，不从 extension 文件名推断。banner 按固定顺序显示：
+工具能力使用语义分组，不从 extension 文件名推断。Home 按固定顺序显示：
 
 ```text
 files:6 web:2 bash subagent skill
@@ -97,11 +95,13 @@ files:6 web:2 bash subagent skill
 
 `files` 和 `web` 显示启用数量；`bash`、`subagent` 和 `skill` 是单项能力，因此不显示 `:1`。部分关闭时多工具分组显示为 `files:3/4`；完全未启用的能力仍保留，但使用 `dim` 颜色。Slash command 不计入 tools 数量。
 
-`skill` 的颜色和启用状态对应实际 `skill` 工具；未归组工具不显示为 `other`。下方 skills 行保持原样：skills 总数来自 Pi 公开 `pi.getCommands()` 中 `source: "skill"` 的命令；同名 skill 只计一次，project skill 始终覆盖 user skill。这不依赖 system prompt 中是否展示 skills，也不计入 tools 的 `active/total`。
+`skill` 的颜色和启用状态对应实际 `skill` 工具；未归组工具不显示为 `other`。skills 总数来自 Pi 公开 `pi.getCommands()` 中 `source: "skill"` 的命令；同名 skill 只计一次，project skill 始终覆盖 user skill。这不依赖 system prompt 中是否展示 skills，也不计入 tools 的 `active/total`。
 
-当前本地 Pi API 没有比 `ctx.ui.setHeader()` 更专门的 public startup banner 入口。本扩展只通过公开 header API 显示 banner；如果 `clear_on_first_turn` 为 true，第一轮 turn 开始后恢复普通 one-line header 或清空 header，让 Pi 内置 startup help/resources 行为保持原样。
+Home 不通过 header 伪装页面，而由公开 `setEditorComponent()` 安装的同一个 `CustomEditor` 承载；Home 期间 header 为空，footer 切换为一行命令入口和版本。宽屏 Logo 右侧带 Pi Core，组成约 51 列的品牌块；中屏使用约 40 列的紧凑 Core，窄屏只显示文字标识。Logo 使用有限时长的逐行组装与主题色流光；`playful` 模式下 Core 以低频轨道相位活动，输入变化会触发短脉冲。入场 timer 在完成后释放，轨道 timer 在首轮开始或 session 清理时释放。
 
-首轮对话前通过 `/model` 或快捷键切换模型时，Pi 会触发 `model_select`。TUI 会重建当前快照并通过 `setStatus/setFooter/setHeader/setTitle` 公开 API 触发重绘，保证 startup banner、footer 和终端 title 同步更新。单独切换 thinking level 时同理。
+fullscreen Home 会被动观察 Pi 已启用的 SGR 1006 鼠标序列，但不消费或改写输入：单击产生波纹，双击触发 `π` 粒子，`click-hold` 下长按 450ms 后 Pi Core 蓄力并牵引 Logo，松开时从 Core 爆炸。拖动、滚轮和非左键留给 Pi 原生选择与滚动；非 TTY、regular 模式或不支持鼠标的终端静默退化。监听器和 timer 在首轮或 session 清理时释放。
+
+首轮对话前通过 `/model` 或快捷键切换模型时，Pi 会触发 `model_select`。TUI 会重建当前快照并通过公开 UI 重绘入口更新 Home 输入框、footer 和终端 title；单独切换 thinking level 时同理。
 
 ## 工具卡片
 
@@ -128,7 +128,7 @@ expanded view 先保留这 2 行，再追加详情。renderer 会清理 ANSI、O
 * `websearch`
 * `subagent`
 
-`bash` V1 保留 Pi 内置 renderer。原因是当前内置 renderer 已处理 streaming、截断、图片块、`fullOutputPath` 和 `truncation` 展示；本仓库的 bash 工具继续提供这些 details，避免为了统一外观损失可用性。
+`bash` 保留 Pi 内置 renderer。原因是当前内置 renderer 已处理 streaming、截断、图片块、`fullOutputPath` 和 `truncation` 展示；本仓库的 bash 工具继续提供这些 details，避免为了统一外观损失可用性。
 
 ## 合并的旧扩展
 
