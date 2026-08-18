@@ -7,6 +7,7 @@ import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runSubagentCommand } from "../../src/subagent/commands.js";
 import { executeSubagent, resolveMode } from "../../src/subagent/executor.js";
+import { PiJsonProgressAccumulator } from "../../src/subagent/json-progress.js";
 import { resetSubagentSpawnForTests, runPiProcess, setSubagentSpawnForTests } from "../../src/subagent/process.js";
 import {
 	cleanupForkExecutionContext,
@@ -357,19 +358,67 @@ describe("subagent execution", () => {
 		expect(confirmWrite).toHaveBeenCalledOnce();
 	});
 
-	it("解析 JSONL 时发送实时进度快照", async () => {
+	it("解析 message_update delta 并发送实时进度快照", async () => {
 		setSubagentSpawnForTests(() => completedProcess(
-			messageEnd([{ type: "toolCall", name: "read", arguments: { path: "src/subagent/tui/renderer.ts" } }]),
-			messageEnd([{ type: "text", text: "done" }]),
+			messageStart(),
+			messageUpdate({ input: 12, output: 1, totalTokens: 13 }, { type: "text_delta", contentIndex: 0, delta: "work" }),
+			messageUpdate({ input: 12, output: 2, totalTokens: 14 }, { type: "text_delta", contentIndex: 0, delta: "ing" }),
+			messageEnd([{ type: "text", text: "done" }], { input: 12, output: 3, totalTokens: 15 }),
 		));
 		const updates: ProcessRunProgress[] = [];
 
 		const output = await runPiProcess(input(), { onUpdate: (progress) => updates.push(progress) });
 
-		expect(output.output).toBe("done");
-		expect(updates.length).toBeGreaterThanOrEqual(2);
-		expect(updates[0]?.events).toEqual([{ type: "tool", name: "read", args: { path: "src/subagent/tui/renderer.ts" } }]);
-		expect(updates.at(-1)?.events.at(-1)).toEqual({ type: "text", text: "done" });
+		expect(updates.some((update) => update.output === "work" && update.usage.output === 1)).toBe(true);
+		expect(output).toMatchObject({
+			output: "done",
+			usage: { input: 12, output: 3, contextTokens: 15, turns: 1 },
+			events: [{ type: "text", text: "done" }],
+		});
+	});
+
+	it("累计流式 usage 只取当前 turn 最新快照，完成后再跨 turn 求和", () => {
+		const progress = new PiJsonProgressAccumulator();
+		progress.consume(messageStart());
+		progress.consume(messageUpdate({ input: 10, output: 1, totalTokens: 11 }, { type: "thinking_delta", contentIndex: 0, delta: "a" }));
+		progress.consume(messageUpdate({ input: 10, output: 4, totalTokens: 14 }, { type: "thinking_delta", contentIndex: 0, delta: "b" }));
+
+		expect(progress.snapshot().usage).toMatchObject({ input: 10, output: 4, contextTokens: 14, turns: 1 });
+
+		progress.consume(messageEnd([{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "a.ts" } }], { input: 10, output: 5, totalTokens: 15 }));
+		progress.consume(messageStart());
+		progress.consume(messageUpdate({ input: 20, output: 2, cacheRead: 3, totalTokens: 25 }, { type: "text_delta", contentIndex: 0, delta: "done" }));
+
+		expect(progress.snapshot().usage).toMatchObject({
+			input: 30,
+			output: 7,
+			cacheRead: 3,
+			contextTokens: 25,
+			turns: 2,
+		});
+	});
+
+	it("按官方 tool_execution 生命周期更新工具状态和写入标记", () => {
+		const progress = new PiJsonProgressAccumulator();
+		progress.consume(messageStart());
+		progress.consume(messageUpdate(
+			{ input: 1, output: 1, totalTokens: 2 },
+			{
+				type: "toolcall_end",
+				contentIndex: 0,
+				toolCall: { id: "call-1", name: "edit", arguments: { path: "a.ts", edits: [] } },
+			},
+		));
+		expect(progress.snapshot()).toMatchObject({
+			wrote: true,
+			events: [{ type: "tool", name: "edit", status: "pending" }],
+		});
+
+		progress.consume({ type: "tool_execution_start", toolCallId: "call-1", toolName: "edit", args: { path: "a.ts", edits: [] } });
+		expect(progress.snapshot().events[0]).toMatchObject({ type: "tool", name: "edit", status: "running" });
+
+		progress.consume({ type: "tool_execution_end", toolCallId: "call-1", toolName: "edit", result: {}, isError: false });
+		expect(progress.snapshot().events[0]).toMatchObject({ type: "tool", name: "edit", status: "completed" });
 	});
 
 	it("正常退出和取消均清理进程资源", async () => {
@@ -519,13 +568,31 @@ class FakeChildProcess extends EventEmitter {
 	}
 }
 
-function messageEnd(content: Array<Record<string, unknown>>): Record<string, unknown> {
+function messageStart(): Record<string, unknown> {
+	return { type: "message_start", message: { role: "assistant", content: [] } };
+}
+
+function messageUpdate(
+	usage: Record<string, unknown>,
+	assistantMessageEvent: Record<string, unknown>,
+): Record<string, unknown> {
+	return {
+		type: "message_update",
+		usage: { cacheRead: 0, cacheWrite: 0, ...usage },
+		assistantMessageEvent,
+	};
+}
+
+function messageEnd(
+	content: Array<Record<string, unknown>>,
+	usage: Record<string, unknown> = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 },
+): Record<string, unknown> {
 	return {
 		type: "message_end",
 		message: {
 			role: "assistant",
 			stopReason: "end",
-			usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 },
+			usage: { cacheRead: 0, cacheWrite: 0, ...usage },
 			content,
 		},
 	};

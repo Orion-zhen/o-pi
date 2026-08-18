@@ -100,6 +100,7 @@ describe("subagent renderer", () => {
 					agent: "scout",
 					task: "inspect renderer",
 					exitCode: -1,
+					output: "found renderer behavior",
 					events: [
 						{ type: "tool", name: "read", args: { path: "src/subagent/tui/renderer.ts" } },
 						{ type: "text", text: "found renderer behavior" },
@@ -118,6 +119,7 @@ describe("subagent renderer", () => {
 		for (const value of ["scout", "read", "src/subagent/tui/renderer.ts", "found renderer behavior"]) {
 			expect(rendered).toContain(value);
 		}
+		expect(rendered.match(/found renderer behavior/g)).toHaveLength(1);
 	});
 
 	it("展开态从 details 展示完整输出，不依赖模型可见 content", () => {

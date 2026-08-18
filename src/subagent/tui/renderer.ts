@@ -55,7 +55,7 @@ export function renderSubagentResult(result: { content: Array<{ type: string; te
 			container.addChild(new Text(formatSection("Details", theme), 0, 0));
 			container.addChild(new Text(indentBlock(item.stderr, theme, "error", 1600), 0, 0));
 		}
-		if (item.output !== undefined && item.output.trim() !== "") {
+		if (item.exitCode !== -1 && item.output !== undefined && item.output.trim() !== "") {
 			container.addChild(new Spacer(1));
 			container.addChild(new Text(formatSection("Result", theme), 0, 0));
 			container.addChild(new Text(indentBlock(item.output, theme, "text", 3000), 0, 0));
@@ -127,7 +127,14 @@ function formatEvents(events: RenderEvent[], running: boolean, theme: Pick<Theme
 	for (const event of visible) {
 		if (event.type === "tool") {
 			const args = formatArgs(event.args);
-			lines.push(`      ${theme.fg("accent", "→")} ${theme.fg("text", event.name)}${args === "" ? "" : ` ${theme.fg("muted", args)}`}`);
+			const marker = event.status === "completed"
+				? theme.fg("success", "✓")
+				: event.status === "error"
+					? theme.fg("error", "✗")
+					: event.status === "running"
+						? theme.fg("warning", "●")
+						: theme.fg("accent", "→");
+			lines.push(`      ${marker} ${theme.fg("text", event.name)}${args === "" ? "" : ` ${theme.fg("muted", args)}`}`);
 		} else {
 			lines.push(theme.fg("text", `      ${truncate(compactWhitespace(event.text), 600)}`));
 		}
@@ -136,6 +143,7 @@ function formatEvents(events: RenderEvent[], running: boolean, theme: Pick<Theme
 }
 
 function visibleEvents(result: SubagentRunResult): RenderEvent[] {
+	if (result.exitCode === -1) return result.events;
 	const output = compactWhitespace(result.output ?? "");
 	if (output === "") return result.events;
 	return result.events.filter((event) => event.type !== "text" || compactWhitespace(event.text) !== output);

@@ -2,8 +2,9 @@ import { spawn as nodeSpawn, type SpawnOptionsWithoutStdio } from "node:child_pr
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import path from "node:path";
+import { PiJsonProgressAccumulator } from "./json-progress.js";
 import { formatModelReference } from "./model.js";
-import type { ProcessRunInput, ProcessRunOutput, ProcessRunProgress, RenderEvent, UsageStats } from "./types.js";
+import type { ProcessRunInput, ProcessRunOutput, ProcessRunProgress } from "./types.js";
 
 type SpawnFunction = (
 	command: string,
@@ -34,15 +35,11 @@ export function resetSubagentSpawnForTests(): void {
 
 export async function runPiProcess(input: ProcessRunInput, options: { signal?: AbortSignal; onUpdate?: (progress: ProcessRunProgress) => void } = {}): Promise<ProcessRunOutput> {
 	const start = Date.now();
-	const usage = emptyUsage();
-	const events: RenderEvent[] = [];
+	const progress = new PiJsonProgressAccumulator();
 	let stdoutBuffer = "";
 	let stderr = "";
-	let output = "";
-	let stopReason: string | undefined;
-	let error: string | undefined;
+	let processError: string | undefined;
 	let parseErrors = 0;
-	let wrote = false;
 	let timedOut = false;
 	let aborted = false;
 	let providerError: string | undefined;
@@ -63,13 +60,59 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 		let graceTimer: NodeJS.Timeout | undefined;
 		let abortListener: (() => void) | undefined;
 		let timeout: NodeJS.Timeout | undefined;
+		let progressTimer: NodeJS.Timeout | undefined;
+		let progressDirty = false;
+		let lastProgressAt = 0;
+		const progressIntervalMs = 50;
+		const progressSnapshot = (): ProcessRunProgress => {
+			const snapshot = progress.snapshot();
+			return {
+				output: snapshot.output,
+				stderr,
+				usage: snapshot.usage,
+				events: snapshot.events,
+				durationMs: Date.now() - start,
+				...(snapshot.stopReason !== undefined ? { stopReason: snapshot.stopReason } : {}),
+				...(snapshot.error !== undefined ? { error: snapshot.error } : {}),
+				parseErrors,
+				wrote: snapshot.wrote,
+			};
+		};
+		const emitProgress = () => {
+			if (!progressDirty) return;
+			progressDirty = false;
+			lastProgressAt = Date.now();
+			options.onUpdate?.(progressSnapshot());
+		};
+		const scheduleProgress = () => {
+			progressDirty = true;
+			const remaining = progressIntervalMs - (Date.now() - lastProgressAt);
+			if (remaining <= 0) {
+				if (progressTimer !== undefined) clearTimeout(progressTimer);
+				progressTimer = undefined;
+				emitProgress();
+				return;
+			}
+			if (progressTimer === undefined) {
+				progressTimer = setTimeout(() => {
+					progressTimer = undefined;
+					if (!settled) emitProgress();
+				}, remaining);
+			}
+		};
+		const flushProgress = () => {
+			if (progressTimer !== undefined) clearTimeout(progressTimer);
+			progressTimer = undefined;
+			emitProgress();
+		};
 		const finish = (code: number) => {
 			if (settled) return;
+			if (stdoutBuffer.trim() !== "") processJsonLine(stdoutBuffer);
+			flushProgress();
 			settled = true;
 			if (timeout !== undefined) clearTimeout(timeout);
 			if (graceTimer !== undefined) clearTimeout(graceTimer);
 			if (abortListener !== undefined) options.signal?.removeEventListener("abort", abortListener);
-			if (stdoutBuffer.trim() !== "") processJsonLine(stdoutBuffer);
 			resolve(code);
 		};
 		const abort = () => {
@@ -96,60 +139,7 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 				parseErrors++;
 				return;
 			}
-			const type = stringField(parsed, "type");
-			if (type === "message_end") {
-				const message = recordField(parsed, "message");
-				if (message !== undefined) handleMessage(message);
-			} else if (type === "tool_result_end") {
-				const message = recordField(parsed, "message");
-				if (message !== undefined) handleToolMessage(message);
-			}
-		};
-		const emitProgress = () => {
-			options.onUpdate?.({
-				output,
-				stderr,
-				usage: { ...usage },
-				events: events.map((event) => ({ ...event })),
-				durationMs: Date.now() - start,
-				...(stopReason !== undefined ? { stopReason } : {}),
-				...(error !== undefined ? { error } : {}),
-				parseErrors,
-				wrote,
-			});
-		};
-		const handleMessage = (message: Record<string, unknown>) => {
-			if (stringField(message, "role") !== "assistant") return;
-			usage.turns++;
-			const reason = stringField(message, "stopReason");
-			if (reason !== undefined) stopReason = reason;
-			const errorMessage = stringField(message, "errorMessage");
-			if (errorMessage !== undefined) error = errorMessage;
-			mergeUsage(usage, recordField(message, "usage"));
-			for (const part of contentParts(message)) {
-				if (stringField(part, "type") === "text") {
-					const text = stringField(part, "text");
-					if (text !== undefined) {
-						output = text;
-						events.push({ type: "text", text });
-					}
-				} else if (stringField(part, "type") === "toolCall") {
-					const name = stringField(part, "name") ?? "tool";
-					const args = recordField(part, "arguments") ?? {};
-					if (name === "write" || name === "edit" || name === "bash") wrote = true;
-					events.push({ type: "tool", name, args });
-				}
-			}
-			emitProgress();
-		};
-		const handleToolMessage = (message: Record<string, unknown>) => {
-			for (const part of contentParts(message)) {
-				if (stringField(part, "type") === "toolResult") {
-					const name = stringField(part, "name");
-					if (name === "write" || name === "edit" || name === "bash") wrote = true;
-				}
-			}
-			emitProgress();
+			if (progress.consume(parsed)) scheduleProgress();
 		};
 
 		proc.stdout.on("data", (chunk) => {
@@ -162,7 +152,7 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 			stderr += chunk.toString();
 		});
 		proc.on("error", (spawnError) => {
-			error = spawnError.message;
+			processError = spawnError.message;
 			finish(1);
 		});
 		proc.on("close", (code) => finish(code ?? 0));
@@ -174,21 +164,23 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 			}
 		}
 	});
-	providerError = detectProviderError(stderr) ?? detectProviderError(error ?? "");
+	const finalProgress = progress.snapshot();
+	const finalError = processError ?? finalProgress.error;
+	providerError = detectProviderError(stderr) ?? detectProviderError(finalError ?? "");
 	return {
 		exitCode,
-		...(stopReason !== undefined ? { stopReason } : {}),
-		...(error !== undefined ? { error } : {}),
-		output,
+		...(finalProgress.stopReason !== undefined ? { stopReason: finalProgress.stopReason } : {}),
+		...(finalError !== undefined ? { error: finalError } : {}),
+		output: finalProgress.output,
 		stderr,
-		usage,
-		events,
+		usage: finalProgress.usage,
+		events: finalProgress.events,
 		durationMs: Date.now() - start,
 		timedOut,
 		aborted,
 		...(providerError !== undefined ? { providerError } : {}),
 		parseErrors,
-		wrote,
+		wrote: finalProgress.wrote,
 	};
 }
 
@@ -264,41 +256,4 @@ function parseJsonObject(line: string): Record<string, unknown> | undefined {
 	} catch {
 		return undefined;
 	}
-}
-
-function contentParts(message: Record<string, unknown>): Record<string, unknown>[] {
-	const content = message["content"];
-	if (!Array.isArray(content)) return [];
-	return content.filter((part): part is Record<string, unknown> => typeof part === "object" && part !== null && !Array.isArray(part));
-}
-
-function recordField(record: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
-	const value = record[key];
-	return typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
-}
-
-function stringField(record: Record<string, unknown>, key: string): string | undefined {
-	const value = record[key];
-	return typeof value === "string" ? value : undefined;
-}
-
-function mergeUsage(target: UsageStats, usage: Record<string, unknown> | undefined): void {
-	if (usage === undefined) return;
-	target.input += numberField(usage, "input");
-	target.output += numberField(usage, "output");
-	target.cacheRead += numberField(usage, "cacheRead");
-	target.cacheWrite += numberField(usage, "cacheWrite");
-	target.contextTokens = Math.max(target.contextTokens, numberField(usage, "totalTokens"));
-	const cost = recordField(usage, "cost");
-	const total = cost === undefined ? 0 : numberField(cost, "total");
-	if (total > 0) target.cost = (target.cost ?? 0) + total;
-}
-
-function numberField(record: Record<string, unknown>, key: string): number {
-	const value = record[key];
-	return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function emptyUsage(): UsageStats {
-	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, contextTokens: 0, turns: 0 };
 }

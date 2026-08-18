@@ -129,9 +129,11 @@ export interface SubagentInteractionPort {
 	confirmWrite(title: string, message: string): Promise<boolean>;
 }
 
+export type ToolProgressStatus = "pending" | "running" | "completed" | "error";
+
 export type RenderEvent =
 	| { type: "text"; text: string }
-	| { type: "tool"; name: string; args: Record<string, unknown> };
+	| { type: "tool"; name: string; args: Record<string, unknown>; status?: ToolProgressStatus };
 
 export interface ForkManifest {
 	snapshotHash: string;

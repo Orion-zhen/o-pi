@@ -200,8 +200,8 @@ Fork 行为：
 
 * `--tools` 始终显式传递。
 * `shell: false`。
-* stdout 按 JSONL 解析。
-* 每次解析到 assistant message 或 tool result 后发送 partial update。
+* stdout 按 Pi 0.84.2 JSONL 协议解析；`message_update` 的 delta 用于实时正文，累计 usage 只取当前 turn 最新快照，`message_end` 作为最终权威消息。
+* `tool_execution_start/update/end` 驱动工具 pending、running、completed 或 error 状态；高频流式更新最多每 50ms 向主进程发送一次 partial snapshot。
 * stderr 完整保存，展示时截断。
 * 超时后终止进程。
 * Ctrl+C 先 `SIGTERM`，再宽限后 `SIGKILL`。
@@ -222,8 +222,8 @@ parallel 或 chain 的多任务会在第一行合并 Agent 名称，并保留完
 
 展开态展示每个子 Agent 的 task、cwd、tools、model、文件输出、stderr、最终输出，以及实时解析到的子 Agent 行为事件：
 
-* assistant text：压缩为空格后展示。
-* tool call：展示工具名和精简参数。
+* assistant text：流式归并同一 content block，压缩为空格后展示；最终以 `message_end` 正文替换临时 delta。
+* tool call：展示工具名、精简参数和 pending/running/completed/error 状态。
 * 运行中但还没有事件时展示等待状态。
 
 模型调用 `subagent` 工具与用户手动执行 `/run` 共用同一套卡片。`/run` 运行期间由 TUI adapter 在编辑器上方消费结构化 progress，并补齐与 Pi 工具卡相同的 padding 和 pending/success/error 背景；结束后移除临时 widget，并把最终卡片写入聊天记录。展开态使用对齐字段以及 Activity、Error、Details、Result 分区；最终回答不会在 Activity 中重复。该记录使用 custom session entry 持久化，不进入模型上下文，也不消耗模型 token。
