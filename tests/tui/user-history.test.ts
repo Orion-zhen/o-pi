@@ -1,10 +1,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { KeybindingsManager } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
-import { ProcessTerminal, TuiMainScreen, type EditorTheme } from "@earendil-works/pi-tui";
+import { ProcessTerminal, stripTerminalSequences, TuiMainScreen, visibleWidth, type EditorTheme } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 
-import { UserHistoryEditor } from "../../src/tui/user-history-editor.js";
+import { UserHistoryEditor, type InputFrameOptions } from "../../src/tui/user-history-editor.js";
 import {
 	buildInitialHistory,
 	UserHistoryStore,
@@ -162,6 +162,40 @@ describe("路径级用户历史", () => {
 		expect(recorded).toHaveBeenCalledWith("/settings");
 	});
 
+	it("输入框上下直线展示会话、模型、thinking 和条件状态", () => {
+		const frame: InputFrameOptions = {
+			getState: () => ({
+				sessionName: "Refactor TUI",
+				modelId: "gpt-5.6-sol",
+				modelReasoning: true,
+				thinkingLevel: "high",
+				hasPendingMessages: true,
+			}),
+			styleLabel: (text) => text,
+			styleMode: (text) => text,
+		};
+		const editor = createEditor([], [], vi.fn(), frame);
+		editor.setText("!npm test");
+
+		const lines = editor.render(80).map(stripTerminalSequences);
+
+		expect(lines[0]).toMatch(/^── Refactor TUI .*gpt-5\.6-sol · high ─$/);
+		expect(lines.at(-1)).toMatch(/^── BASH .* queued ─$/);
+		expect(lines.slice(1, -1).every((line) => !line.startsWith("│") && !line.endsWith("│"))).toBe(true);
+		expect(lines.every((line) => visibleWidth(line) === 80)).toBe(true);
+	});
+
+	it.each([120, 80, 40, 20, 12])("输入框上下直线在宽度 %i 下不会越界", (width) => {
+		const editor = createEditor([], [], vi.fn(), {
+			getState: () => ({ sessionName: "A very long session name", modelId: "gpt-5.6-sol", modelReasoning: true, thinkingLevel: "xhigh" }),
+			styleLabel: (text) => text,
+			styleMode: (text) => text,
+		});
+		editor.setText("一段用于检查窄屏换行的输入");
+
+		expect(editor.render(width).every((line) => visibleWidth(line) <= width)).toBe(true);
+	});
+
 	it("follow-up 快捷键绕过 Enter 时仍记录输入", () => {
 		const recorded = vi.fn();
 		const editor = createEditor([], [], recorded);
@@ -182,6 +216,7 @@ function createEditor(
 	initialHistory: readonly string[],
 	replayQueue: readonly string[],
 	record: (text: string) => void,
+	frame?: InputFrameOptions,
 ): UserHistoryEditor {
 	const tui = new TuiMainScreen(new ProcessTerminal());
 	const keybindings = KeybindingsManager.create(temp.path);
@@ -196,5 +231,5 @@ function createEditor(
 			noMatch: identity,
 		},
 	};
-	return new UserHistoryEditor(tui, theme, keybindings, initialHistory, replayQueue, record);
+	return new UserHistoryEditor(tui, theme, keybindings, initialHistory, replayQueue, record, frame);
 }

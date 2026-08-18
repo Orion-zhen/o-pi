@@ -170,7 +170,7 @@ describe("tui extension", () => {
 		expect(calls.header.at(-1)).not.toBe(startupHeader);
 	});
 
-	it("首轮对话前 model_select 会刷新 footer、title 和 startup banner", async () => {
+	it("首轮对话前 model_select 刷新输入快照、footer、title 和 startup banner", async () => {
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
 		const pi = createPi(handlers);
@@ -178,12 +178,14 @@ describe("tui extension", () => {
 
 		tuiExtension(pi as unknown as ExtensionAPI);
 		await handlers.get("session_start")?.({}, ctx);
+		const footerCount = calls.footer.length;
 		ctx.model = { provider: "openai", id: "gpt-5.2", reasoning: true };
 		await handlers.get("model_select")?.({ type: "model_select", model: ctx.model, previousModel: undefined, source: "set" }, ctx);
 
 		const footer = calls.footer.at(-1)?.({ requestRender() {} }, ctx.ui.theme, createFooterData());
 		const header = calls.header.at(-1)?.({ requestRender() {} }, ctx.ui.theme);
-		expect(footer?.render(120).join("\n")).toContain("gpt-5.2");
+		expect(calls.footer.length).toBeGreaterThan(footerCount);
+		expect(footer?.render(120).join("\n")).not.toContain("gpt-5.2");
 		expect(header?.render(120).join("\n")).toContain("gpt-5.2");
 		expect(calls.title.at(-1)).toContain("gpt-5.2");
 		expect(calls.status.at(-1)).toMatchObject({ key: "o-pi:tui", text: expect.any(String) });

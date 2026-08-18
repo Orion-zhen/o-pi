@@ -13,6 +13,7 @@ import { createStartupBannerComponent } from "./banner.js";
 import { createHeaderComponent, formatTitle, workingIndicatorOptions } from "./chrome.js";
 import { loadTuiConfig } from "./config.js";
 import { createFooterComponent, GitSegmentCache } from "./footer.js";
+import { configureTuiIconMode, statusIcon } from "./icons.js";
 import { createAssistantPerformanceTracker } from "./message-performance.js";
 import {
 	configureMessageTimestampRenderer,
@@ -86,6 +87,7 @@ export function createTuiRuntime(
 		await installUserHistory(ctx, options.replaySessionMessages === true);
 		const nextConfig = await loadTuiConfig();
 		config = nextConfig;
+		configureTuiIconMode(nextConfig.icons);
 		configureMessageTimestampRenderer(nextConfig.enabled ? {
 			dim: (text) => ctx.ui.theme.fg("dim", text),
 			userBackground: (text) => ctx.ui.theme.bg("userMessageBg", text),
@@ -161,6 +163,20 @@ export function createTuiRuntime(
 					warned = true;
 					ctx.ui.notify(`User history could not be saved: ${stringifyError(error)}`, "warning");
 				});
+			},
+			{
+				getState: () => {
+					const sessionName = pi.getSessionName();
+					return {
+						...(sessionName !== undefined ? { sessionName } : {}),
+						...(snapshot.modelId !== undefined ? { modelId: snapshot.modelId } : {}),
+						...(snapshot.modelReasoning !== undefined ? { modelReasoning: snapshot.modelReasoning } : {}),
+						thinkingLevel: pi.getThinkingLevel(),
+						hasPendingMessages: ctx.hasPendingMessages(),
+					};
+				},
+				styleLabel: (text) => ctx.ui.theme.fg("dim", text),
+				styleMode: (text) => ctx.ui.theme.fg("warning", text),
 			},
 		);
 		ctx.ui.setEditorComponent(historyEditorFactory);
@@ -334,7 +350,7 @@ export function createTuiRuntime(
 		snapshot = makeSnapshot(ctx, pi, status, gitCache?.get(ctx.cwd));
 		refreshTitle();
 		ctx.ui.setStatus(STATUS_KEY, formatStatus(status, ctx.ui.theme));
-		ctx.ui.setFooter(config?.chrome.footer ? createFooterComponent(config.footer, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot), STATUS_KEY) : undefined);
+		ctx.ui.setFooter(config?.chrome.footer ? createFooterComponent(config.footer, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot), config.icons) : undefined);
 		ctx.ui.setHeader(getHeader());
 	}
 
@@ -351,6 +367,7 @@ export function createTuiRuntime(
 		ctx.ui.setFooter(undefined);
 		ctx.ui.setHeader(undefined);
 		ctx.ui.setWorkingIndicator();
+		configureTuiIconMode("unicode");
 		if (ctx.cwd) ctx.ui.setTitle(formatTitle({ cwd: ctx.cwd, status: "ready" }));
 	}
 }
@@ -395,13 +412,13 @@ function applyChrome(ctx: ExtensionContext, config: TuiConfig, getSnapshot: () =
 	if (config.chrome.title) ctx.ui.setTitle(formatTitle(getSnapshot()));
 	ctx.ui.setWorkingIndicator(workingIndicatorOptions(config, ctx.ui.theme));
 	ctx.ui.setStatus(STATUS_KEY, formatStatus("ready", ctx.ui.theme));
-	ctx.ui.setFooter(config.chrome.footer ? createFooterComponent(config.footer, getSnapshot, STATUS_KEY) : undefined);
+	ctx.ui.setFooter(config.chrome.footer ? createFooterComponent(config.footer, getSnapshot, config.icons) : undefined);
 	ctx.ui.setHeader(config.chrome.header ? createHeaderComponent(getSnapshot) : undefined);
 }
 
 function formatStatus(status: string, theme: ExtensionContext["ui"]["theme"]): string {
-	if (status === "running" || status === "working") return theme.fg("warning", "● running");
-	return theme.fg("success", "✓ ready");
+	if (status === "running" || status === "working") return theme.fg("warning", `${statusIcon("running")} running`);
+	return theme.fg("success", `${statusIcon("success")} ready`);
 }
 
 function snapshotWithCapabilities(

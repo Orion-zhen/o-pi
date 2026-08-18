@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { configureTuiIconMode } from "../../src/tui/icons.js";
 import { formatToolCard } from "../../src/tui/tool-card.js";
 
 const theme = {
@@ -16,5 +17,14 @@ describe("tui tool card", () => {
 		}, theme, { maxTargetChars: 24, maxSummaryChars: 20 });
 		for (const value of ["https://exam", "/end", "ok"]) expect(output).toContain(value);
 		for (const value of ["\u001b", "TARGET_SECRET", "SUMMARY_END"]) expect(output).not.toContain(value);
+	});
+
+	it("默认使用全局统一图标模式", () => {
+		configureTuiIconMode("ascii");
+		try {
+			expect(formatToolCard({ tool: "read", status: "success", target: "a.ts", summary: "ok" }, theme)).toMatch(/^\+ /);
+		} finally {
+			configureTuiIconMode("unicode");
+		}
 	});
 });

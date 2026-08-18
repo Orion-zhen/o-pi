@@ -1,10 +1,9 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { statusIcon, type ToolCardStatus } from "./icons.js";
+import { getTuiIconMode, statusIcon, type ToolCardStatus } from "./icons.js";
 import { compactWhitespace, truncateEnd, truncateMiddle } from "./text.js";
 import type { TuiIconMode } from "./types.js";
 
-const DEFAULT_OPTIONS: ToolCardRenderOptions = {
-	icons: "unicode",
+const DEFAULT_OPTIONS: Omit<ToolCardRenderOptions, "icons"> = {
 	maxTargetChars: 72,
 	maxSummaryChars: 96,
 };
@@ -33,7 +32,7 @@ export function formatToolCard(
 	theme: Pick<Theme, "fg" | "bold">,
 	options: Partial<ToolCardRenderOptions> = {},
 ): string {
-	const resolved = { ...DEFAULT_OPTIONS, ...options };
+	const resolved: ToolCardRenderOptions = { icons: getTuiIconMode(), ...DEFAULT_OPTIONS, ...options };
 	const status = input.status;
 	const icon = theme.fg(colorForStatus(status), statusIcon(status, resolved.icons));
 	const tool = theme.fg("toolTitle", theme.bold(compactWhitespace(input.tool).padEnd(TOOL_WIDTH)));

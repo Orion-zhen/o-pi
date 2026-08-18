@@ -10,7 +10,7 @@ export type TuiPreset = "compact" | "minimal";
 export type TuiWorkingIndicator = "dot" | "spinner" | "off";
 
 /** footer 支持的字段；缺少数据时字段会自动隐藏。 */
-export type TuiFooterSegment = "cwd" | "git" | "model" | "ctx" | "tokens" | "cost" | "status";
+export type TuiFooterSegment = "cwd" | "git" | "ctx" | "tokens" | "cost";
 
 /** startup banner 布局；auto 按终端宽度在三种布局间选择。 */
 export type TuiBannerLayout = "auto" | "side_by_side" | "stacked" | "tiny";
@@ -38,7 +38,6 @@ export interface TuiFooterConfig {
 export interface TuiFooterStyleConfig {
 	workspace_color: ThemeColor;
 	git_color: ThemeColor;
-	git_icon: string;
 }
 
 /** 工具卡片固定 2 行；collapsed_lines 只允许 2，用于 schema 明确约束。 */

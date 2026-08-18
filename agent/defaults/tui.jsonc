@@ -2,37 +2,32 @@
 	"$schema": "../schemas/tui.schema.json",
 	"enabled": true,
 	"preset": "compact",
-	"icons": "unicode",
+	"icons": "nerd",
 	"chrome": {
 		"title": true,
 		"header": false,
 		"footer": true,
-		"working_indicator": "dot"
+		"working_indicator": "spinner"
 	},
 	"footer": {
 		"max_lines": 2,
 		"segments": [
 			"cwd",
 			"git",
-			"model",
 			"ctx",
 			"tokens",
-			"cost",
-			"status"
+			"cost"
 		],
 		"narrow_segments": [
 			"cwd",
 			"git",
-			"model",
 			"ctx",
 			"tokens",
-			"cost",
-			"status"
+			"cost"
 		],
 		"style": {
 			"workspace_color": "accent",
-			"git_color": "success",
-			"git_icon": ""
+			"git_color": "success"
 		}
 	},
 	"tools": {

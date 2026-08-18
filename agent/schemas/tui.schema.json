@@ -26,21 +26,20 @@
 				"max_lines": { "const": 2 },
 				"segments": {
 					"type": "array",
-					"items": { "enum": ["cwd", "git", "model", "ctx", "tokens", "cost", "status"] },
-					"default": ["cwd", "git", "model", "ctx", "tokens", "cost", "status"]
+					"items": { "enum": ["cwd", "git", "ctx", "tokens", "cost"] },
+					"default": ["cwd", "git", "ctx", "tokens", "cost"]
 				},
 				"narrow_segments": {
 					"type": "array",
-					"items": { "enum": ["cwd", "git", "model", "ctx", "tokens", "cost", "status"] },
-					"default": ["cwd", "git", "model", "ctx", "tokens", "cost", "status"]
+					"items": { "enum": ["cwd", "git", "ctx", "tokens", "cost"] },
+					"default": ["cwd", "git", "ctx", "tokens", "cost"]
 				},
 				"style": {
 					"type": "object",
 					"additionalProperties": false,
 					"properties": {
 						"workspace_color": { "$ref": "#/$defs/themeColor" },
-						"git_color": { "$ref": "#/$defs/themeColor" },
-						"git_icon": { "type": "string", "minLength": 1, "maxLength": 8, "default": "⑂" }
+						"git_color": { "$ref": "#/$defs/themeColor" }
 					}
 				}
 			}

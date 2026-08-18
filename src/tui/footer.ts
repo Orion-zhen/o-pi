@@ -2,8 +2,9 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import type { ReadonlyFooterDataProvider, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
+import { getTuiIconMode, tuiIcon } from "./icons.js";
 import { truncateMiddle } from "./text.js";
-import type { TuiFooterConfig, TuiFooterSegment, TuiFooterSnapshot } from "./types.js";
+import type { TuiFooterConfig, TuiFooterSegment, TuiFooterSnapshot, TuiIconMode } from "./types.js";
 
 const GIT_TIMEOUT_MS = 80;
 const NARROW_WIDTH = 80;
@@ -80,11 +81,17 @@ function execGit(cwd: string, args: string[], signal?: AbortSignal): Promise<str
 	});
 }
 
-/** 生成 footer 行；第一行保留原状态，第二行展示工具启用概览。 */
-export function formatFooter(snapshot: TuiFooterSnapshot, config: TuiFooterConfig, width: number, theme?: Pick<Theme, "fg">): string[] {
+/** 生成 footer：首行展示工作区与 context，次行展示用量与工具启用数量。 */
+export function formatFooter(
+	snapshot: TuiFooterSnapshot,
+	config: TuiFooterConfig,
+	width: number,
+	theme?: Pick<Theme, "fg">,
+	iconMode: TuiIconMode = getTuiIconMode(),
+): string[] {
 	const segments = width >= NARROW_WIDTH ? config.segments : config.narrow_segments;
-	const primary = renderPrimaryLine(snapshot, segments, width, theme, config);
-	const secondary = renderSecondaryLine(snapshot, segments, width, theme, config);
+	const primary = renderPrimaryLine(snapshot, segments, width, theme, config, iconMode);
+	const secondary = renderSecondaryLine(snapshot, segments, width, theme, config, iconMode);
 	return secondary === undefined ? [primary] : [primary, secondary];
 }
 
@@ -98,7 +105,7 @@ export class TuiFooterComponent implements Component {
 		private readonly footerData: ReadonlyFooterDataProvider,
 		private readonly config: TuiFooterConfig,
 		private readonly getSnapshot: () => TuiFooterSnapshot,
-		private readonly ownStatusKey?: string,
+		private readonly iconMode: TuiIconMode,
 	) {
 		this.unsubscribe = footerData.onBranchChange(() => {
 			this.invalidate();
@@ -108,7 +115,7 @@ export class TuiFooterComponent implements Component {
 
 	render(width: number): string[] {
 		const snapshot = this.withFooterData(this.getSnapshot());
-		return formatFooter(snapshot, this.config, width, this.theme);
+		return formatFooter(snapshot, this.config, width, this.theme, this.iconMode);
 	}
 
 	invalidate(): void {}
@@ -120,13 +127,9 @@ export class TuiFooterComponent implements Component {
 
 	private withFooterData(snapshot: TuiFooterSnapshot): TuiFooterSnapshot {
 		const branch = this.footerData.getGitBranch();
-		const statuses = this.footerData.getExtensionStatuses();
-		const ownStatus = this.ownStatusKey === undefined ? undefined : statuses.get(this.ownStatusKey);
 		return {
 			...snapshot,
 			...(snapshot.git !== undefined ? {} : branch !== null ? { git: branch } : {}),
-			availableProviderCount: this.footerData.getAvailableProviderCount(),
-			...(snapshot.status === undefined && ownStatus !== undefined && ownStatus.length > 0 ? { status: ownStatus } : {}),
 		};
 	}
 }
@@ -134,19 +137,20 @@ export class TuiFooterComponent implements Component {
 export function createFooterComponent(
 	config: TuiFooterConfig,
 	getSnapshot: () => TuiFooterSnapshot,
-	ownStatusKey?: string,
+	iconMode: TuiIconMode,
 ): (tui: TUI, theme: Theme, footerData: ReadonlyFooterDataProvider) => Component & { dispose?(): void } {
-	return (tui, theme, footerData) => new TuiFooterComponent(tui, theme, footerData, config, getSnapshot, ownStatusKey);
+	return (tui, theme, footerData) => new TuiFooterComponent(tui, theme, footerData, config, getSnapshot, iconMode);
 }
 
 function renderSegments(
 	snapshot: TuiFooterSnapshot,
 	segments: TuiFooterSegment[],
 	width: number,
-	theme?: Pick<Theme, "fg">,
-	config?: TuiFooterConfig,
+	theme: Pick<Theme, "fg"> | undefined,
+	config: TuiFooterConfig,
+	iconMode: TuiIconMode,
 ): string {
-	const parts = segments.map((segment) => renderSegment(snapshot, segment, width, theme, config)).filter((part): part is string => part !== undefined && part.length > 0);
+	const parts = segments.map((segment) => renderSegment(snapshot, segment, width, theme, config, iconMode)).filter((part): part is string => part !== undefined && part.length > 0);
 	return parts.join(dim(theme, " · "));
 }
 
@@ -156,9 +160,10 @@ function renderPrimaryLine(
 	width: number,
 	theme: Pick<Theme, "fg"> | undefined,
 	config: TuiFooterConfig,
+	iconMode: TuiIconMode,
 ): string {
-	const left = renderSegments(snapshot, segments.filter(isLeftSegment), width, theme, config);
-	const right = renderSegments(snapshot, segments.filter(isPrimaryRightSegment), width, theme, config);
+	const left = renderSegments(snapshot, segments.filter(isLeftSegment), width, theme, config, iconMode);
+	const right = renderSegments(snapshot, segments.filter(isPrimaryRightSegment), width, theme, config, iconMode);
 	return alignLine(left, right, width);
 }
 
@@ -167,7 +172,7 @@ function isLeftSegment(segment: TuiFooterSegment): boolean {
 }
 
 function isPrimaryRightSegment(segment: TuiFooterSegment): boolean {
-	return segment === "model" || segment === "ctx" || segment === "status";
+	return segment === "ctx";
 }
 
 function renderSecondaryLine(
@@ -176,11 +181,12 @@ function renderSecondaryLine(
 	width: number,
 	theme: Pick<Theme, "fg"> | undefined,
 	config: TuiFooterConfig,
+	iconMode: TuiIconMode,
 ): string | undefined {
 	const right = renderToolsCount(snapshot, theme);
 	const rightWidth = right === undefined ? 0 : visibleWidth(right);
 	const leftBudget = rightWidth === 0 ? width : Math.max(1, width - rightWidth - 1);
-	const left = renderSecondarySegments(snapshot, segments.filter(isSecondaryLeftSegment), leftBudget, theme, config);
+	const left = renderSecondarySegments(snapshot, segments.filter(isSecondaryLeftSegment), leftBudget, theme, config, iconMode);
 	if (left.length === 0 && right === undefined) return undefined;
 	return alignLine(left, right ?? "", width);
 }
@@ -194,7 +200,9 @@ function renderToolsCount(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg"> 
 	if (tools === undefined) return undefined;
 	const activeCount = new Set(tools.activeNames.filter((name) => name.length > 0)).size;
 	const total = Math.max(0, tools.totalCount, activeCount);
-	return dim(theme, `${activeCount}/${total} tools enabled`);
+	const label = dim(theme, "tools ");
+	const count = theme ? theme.fg(activeCount === 0 && total > 0 ? "warning" : "text", `${activeCount}/${total}`) : `${activeCount}/${total}`;
+	return `${label}${count}`;
 }
 
 /** 第二行要先扣除 cost/tools 宽度，再让 token 段自适应，避免 cache 命中率被最终截断吞掉。 */
@@ -204,20 +212,21 @@ function renderSecondarySegments(
 	width: number,
 	theme: Pick<Theme, "fg"> | undefined,
 	config: TuiFooterConfig,
+	iconMode: TuiIconMode,
 ): string {
 	const separator = dim(theme, " · ");
 	const tokenIndex = segments.indexOf("tokens");
-	if (tokenIndex === -1) return renderSegments(snapshot, segments, width, theme, config);
+	if (tokenIndex === -1) return renderSegments(snapshot, segments, width, theme, config, iconMode);
 
 	const fixedParts = segments
 		.filter((segment) => segment !== "tokens")
-		.map((segment) => renderSegment(snapshot, segment, width, theme, config))
+		.map((segment) => renderSegment(snapshot, segment, width, theme, config, iconMode))
 		.filter((part): part is string => part !== undefined && part.length > 0);
 	const fixedWidth = fixedParts.reduce((sum, part) => sum + visibleWidth(part), 0);
 	const separatorWidth = visibleWidth(separator) * fixedParts.length;
 	const tokenBudget = Math.max(1, width - fixedWidth - separatorWidth);
 	const parts = segments
-		.map((segment) => renderSegment(snapshot, segment, segment === "tokens" ? tokenBudget : width, theme, config))
+		.map((segment) => renderSegment(snapshot, segment, segment === "tokens" ? tokenBudget : width, theme, config, iconMode))
 		.filter((part): part is string => part !== undefined && part.length > 0);
 	return parts.join(separator);
 }
@@ -245,17 +254,16 @@ function renderSegment(
 	segment: TuiFooterSegment,
 	width: number,
 	theme: Pick<Theme, "fg"> | undefined,
-	config: TuiFooterConfig | undefined,
+	config: TuiFooterConfig,
+	iconMode: TuiIconMode,
 ): string | undefined {
 	if (segment === "cwd" && snapshot.cwd) {
 		const workspace = truncateMiddle(formatWorkspace(snapshot.cwd), width > NARROW_WIDTH ? 40 : 22);
-		return color(theme, config?.style.workspace_color, workspace);
+		return color(theme, config.style.workspace_color, workspace);
 	}
 	if (segment === "git" && snapshot.git) {
-		const icon = config?.style.git_icon ?? "⑂";
-		return color(theme, config?.style.git_color, `${icon} ${snapshot.git}`);
+		return color(theme, config.style.git_color, `${tuiIcon("git", iconMode)} ${snapshot.git}`);
 	}
-	if (segment === "model") return dimOptional(theme, formatModel(snapshot));
 	if (segment === "ctx" && snapshot.context?.percent !== null && snapshot.context?.percent !== undefined) {
 		return formatContext(snapshot, theme);
 	}
@@ -265,7 +273,6 @@ function renderSegment(
 	if (segment === "cost" && (snapshot.costUsd !== undefined || snapshot.usingSubscription)) {
 		return dim(theme, `$${(snapshot.costUsd ?? 0).toFixed(3)}${snapshot.usingSubscription ? " (sub)" : ""}`);
 	}
-	if (segment === "status") return dimOptional(theme, snapshot.status);
 	return undefined;
 }
 
@@ -300,7 +307,7 @@ export function formatContext(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "f
 	const contextWindow = usage.contextWindow || 0;
 	const percentValue = usage.percent ?? 0;
 	const percent = usage.percent === null ? "?" : percentValue.toFixed(1);
-	const display = usage.percent === null ? `?/${formatTokens(contextWindow)}` : `${percent}%/${formatTokens(contextWindow)}`;
+	const display = usage.percent === null ? `ctx ?/${formatTokens(contextWindow)}` : `ctx ${percent}%/${formatTokens(contextWindow)}`;
 	if (theme === undefined) return display;
 	if (usage.percent === null) return theme.fg("muted", display);
 	return applyContextGradient(display, percentValue);

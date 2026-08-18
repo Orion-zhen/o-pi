@@ -9,9 +9,9 @@ const temp = useTempDir("o-pi-no-git-");
 const cwd = path.resolve("repo", "o-pi");
 const config: TuiFooterConfig = {
 	max_lines: 2,
-	segments: ["cwd", "git", "model", "ctx", "tokens", "cost", "status"],
-	narrow_segments: ["cwd", "git", "model", "ctx", "tokens", "cost", "status"],
-	style: { workspace_color: "accent", git_color: "success", git_icon: "⑂" },
+	segments: ["cwd", "git", "ctx", "tokens", "cost"],
+	narrow_segments: ["cwd", "git", "ctx", "tokens", "cost"],
+	style: { workspace_color: "accent", git_color: "success" },
 };
 const snapshot: TuiFooterSnapshot = {
 	cwd,
@@ -34,6 +34,23 @@ describe("tui footer", () => {
 		const lines = formatFooter(snapshot, config, width, theme);
 		expect(lines.length).toBeLessThanOrEqual(2);
 		expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+	});
+
+	it("模型和运行状态不进入 footer，工具数量固定在第二行右侧", () => {
+		const lines = formatFooter(snapshot, config, 120, theme, "unicode");
+		expect(lines).toHaveLength(2);
+		expect(lines[0]).toContain("ctx");
+		expect(lines.join("\n")).not.toContain("model-x");
+		expect(lines.join("\n")).not.toContain("ready");
+		expect(lines[1]).toMatch(/tools 3\/5$/);
+	});
+
+	it.each([
+		["ascii", "git main*"],
+		["unicode", "⑂ main*"],
+		["nerd", " main*"],
+	] as const)("%s 图标模式使用统一 Git 图标", (mode, expected) => {
+		expect(formatFooter(snapshot, config, 120, theme, mode)[0]).toContain(expected);
 	});
 
 	it("缺少数据与 git 仓库时安全退化", async () => {

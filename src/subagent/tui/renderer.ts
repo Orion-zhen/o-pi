@@ -2,6 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { Box, Container, Spacer, Text } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { statusIcon } from "../../tui/icons.js";
 import { formatToolCard } from "../../tui/tool-card.js";
 import { cleanText, compactWhitespace, formatDuration, joinParts, truncateEnd } from "../../tui/text.js";
 import { SUBAGENT_COMMAND_ENTRY } from "../constants.js";
@@ -112,7 +113,11 @@ function formatSubagentSummary(details: SubagentDetails, isPartial: boolean, the
 function formatRunHeader(result: SubagentRunResult, theme: Theme): string {
 	const failed = result.error !== undefined;
 	const running = result.exitCode === -1;
-	const icon = running ? theme.fg("warning", "●") : failed ? theme.fg("error", "✗") : theme.fg("success", "✓");
+	const icon = running
+		? theme.fg("warning", statusIcon("running"))
+		: failed
+			? theme.fg("error", statusIcon("error"))
+			: theme.fg("success", statusIcon("success"));
 	const attemptText = result.attempts > 1 ? `${result.attempts} attempts` : undefined;
 	const status = running ? "running" : failed ? "failed" : undefined;
 	const suffix = joinParts([status, attemptText, formatDuration(result.durationMs)]);
@@ -128,12 +133,12 @@ function formatEvents(events: RenderEvent[], running: boolean, theme: Pick<Theme
 		if (event.type === "tool") {
 			const args = formatArgs(event.args);
 			const marker = event.status === "completed"
-				? theme.fg("success", "✓")
+				? theme.fg("success", statusIcon("success"))
 				: event.status === "error"
-					? theme.fg("error", "✗")
+					? theme.fg("error", statusIcon("error"))
 					: event.status === "running"
-						? theme.fg("warning", "●")
-						: theme.fg("accent", "→");
+						? theme.fg("warning", statusIcon("running"))
+						: theme.fg("accent", statusIcon("neutral"));
 			lines.push(`      ${marker} ${theme.fg("text", event.name)}${args === "" ? "" : ` ${theme.fg("muted", args)}`}`);
 		} else {
 			lines.push(theme.fg("text", `      ${truncate(compactWhitespace(event.text), 600)}`));
