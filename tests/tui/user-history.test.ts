@@ -233,6 +233,28 @@ describe("路径级用户历史", () => {
 		expect(chatLines.join("\n")).not.toContain("NEW SESSION");
 	});
 
+	it("Home banner 不因键盘输入闪烁", () => {
+		let visible = true;
+		const editor = createEditor([], [], vi.fn(), undefined, {
+			config: { ...defaultTuiConfig().home, motion: "playful", pointer_effects: "off" },
+			getSnapshot: () => ({
+				context: { tokens: 0, contextWindow: 100_000, percent: 0 },
+				tools: { activeNames: ["read"], totalCount: 1 },
+			}),
+			getTheme: () => ({ fg: (name, text) => `<${name}>${text}</${name}>` }),
+			isVisible: () => visible,
+			tip: "tip",
+		});
+
+		try {
+			editor.handleInput("a");
+			expect(editor.render(100).join("\n")).not.toContain("<warning>");
+		} finally {
+			visible = false;
+			editor.dispose();
+		}
+	});
+
 	it("隐藏 Home 时释放入场和低频轨道 timer", () => {
 		vi.useFakeTimers();
 		let visible = true;

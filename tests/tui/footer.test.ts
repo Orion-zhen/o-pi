@@ -45,6 +45,17 @@ describe("tui footer", () => {
 		expect(lines[1]).toMatch(/tools 3\/5$/);
 	});
 
+	it("ctx 标签和 tools 计数器都使用 dim，context 数值保留渐变色", () => {
+		const styledTheme = { fg: (color: string, text: string) => `<${color}>${text}</${color}>` };
+		const lines = formatFooter(snapshot, config, 120, styledTheme);
+		const primary = lines[0] ?? "";
+		const secondary = lines[1] ?? "";
+
+		expect(primary).toContain("<dim>ctx </dim>");
+		expect(primary).toMatch(/<dim>ctx <\/dim>\x1b\[38;2;[0-9]+;[0-9]+;[0-9]+m32\.0%\/128k\x1b\[39m/);
+		expect(secondary).toContain("<dim>tools 3\/5</dim>");
+	});
+
 	it.each([
 		["ascii", "git main*"],
 		["unicode", "⑂ main*"],

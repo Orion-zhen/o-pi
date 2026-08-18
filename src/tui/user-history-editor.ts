@@ -15,7 +15,6 @@ const HOME_EXTERNAL_ROWS = 2;
 const INTRO_FRAME_MS = 80;
 const SUBTLE_INTRO_MS = 640;
 const PLAYFUL_INTRO_MS = 960;
-const INPUT_PULSE_MS = 240;
 const ORBIT_FRAME_MS = 650;
 
 export type UserHistoryRecorder = (text: string) => void;
@@ -59,7 +58,6 @@ export class UserHistoryEditor extends CustomEditor {
 	private capturedDuringInput: string | undefined;
 	private introStartedAt: number | undefined;
 	private animationDeadline = 0;
-	private pulseUntil = 0;
 	private animationTimer: ReturnType<typeof setInterval> | undefined;
 	private orbitTimer: ReturnType<typeof setInterval> | undefined;
 	private orbitPhase = 0;
@@ -124,10 +122,8 @@ export class UserHistoryEditor extends CustomEditor {
 	}
 
 	override handleInput(data: string): void {
-		const textBeforeInput = this.getText();
 		if (this.wrappingSubmit) {
 			super.handleInput(data);
-			this.pulseOnTextChange(textBeforeInput);
 			return;
 		}
 		this.wrappingSubmit = true;
@@ -158,7 +154,6 @@ export class UserHistoryEditor extends CustomEditor {
 		} finally {
 			this.capturedDuringInput = undefined;
 			this.wrappingSubmit = false;
-			this.pulseOnTextChange(textBeforeInput);
 		}
 	}
 
@@ -260,14 +255,6 @@ export class UserHistoryEditor extends CustomEditor {
 		this.ensureAnimationTimer();
 	}
 
-	private pulseOnTextChange(previous: string): void {
-		if (previous === this.getText() || !this.isHomeVisible() || this.home?.config.motion !== "playful") return;
-		const now = performance.now();
-		this.pulseUntil = now + INPUT_PULSE_MS;
-		this.animationDeadline = Math.max(this.animationDeadline, this.pulseUntil);
-		this.ensureAnimationTimer();
-	}
-
 	private getAnimationFrame(): HomeAnimationFrame {
 		const home = this.home;
 		const pointer = this.pointer?.getFrame();
@@ -275,7 +262,6 @@ export class UserHistoryEditor extends CustomEditor {
 			return {
 				reveal: 1,
 				wave: 1,
-				pulse: performance.now() < this.pulseUntil,
 				orbit: this.orbitPhase,
 				...(pointer !== undefined ? { pointer } : {}),
 			};
@@ -285,7 +271,6 @@ export class UserHistoryEditor extends CustomEditor {
 		return {
 			reveal: Math.min(1, elapsed / (duration * 0.55)),
 			wave: Math.min(1, Math.max(0, (elapsed - duration * 0.25) / (duration * 0.75))),
-			pulse: performance.now() < this.pulseUntil,
 			orbit: this.orbitPhase,
 			...(pointer !== undefined ? { pointer } : {}),
 		};

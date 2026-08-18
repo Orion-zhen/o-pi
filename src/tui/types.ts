@@ -12,7 +12,7 @@ export type TuiWorkingIndicator = "dot" | "spinner" | "off";
 /** footer 支持的字段；缺少数据时字段会自动隐藏。 */
 export type TuiFooterSegment = "cwd" | "git" | "ctx" | "tokens" | "cost";
 
-/** Home 动效等级；playful 增加输入反馈和 Home 存续期间的低频 Core 轨道。 */
+/** Home 动效等级；playful 增加入场动画和 Home 存续期间的低频 Core 轨道。 */
 export type TuiHomeMotion = "off" | "subtle" | "playful";
 
 /** Home 鼠标反馈；click-hold 在点击反馈外增加长按蓄力和释放爆炸。 */

@@ -97,7 +97,7 @@ files:6 web:2 bash subagent skill
 
 `skill` 的颜色和启用状态对应实际 `skill` 工具；未归组工具不显示为 `other`。skills 总数来自 Pi 公开 `pi.getCommands()` 中 `source: "skill"` 的命令；同名 skill 只计一次，project skill 始终覆盖 user skill。这不依赖 system prompt 中是否展示 skills，也不计入 tools 的 `active/total`。
 
-Home 不通过 header 伪装页面，而由公开 `setEditorComponent()` 安装的同一个 `CustomEditor` 承载；Home 期间 header 为空，footer 切换为一行命令入口和版本。宽屏 Logo 右侧带 Pi Core，组成约 51 列的品牌块；中屏使用约 40 列的紧凑 Core，窄屏只显示文字标识。Logo 使用有限时长的逐行组装与主题色流光；`playful` 模式下 Core 以低频轨道相位活动，输入变化会触发短脉冲。入场 timer 在完成后释放，轨道 timer 在首轮开始或 session 清理时释放。
+Home 不通过 header 伪装页面，而由公开 `setEditorComponent()` 安装的同一个 `CustomEditor` 承载；Home 期间 header 为空，footer 切换为一行命令入口和版本。宽屏 Logo 右侧带 Pi Core，组成约 51 列的品牌块；中屏使用约 40 列的紧凑 Core，窄屏只显示文字标识。Logo 使用有限时长的逐行组装与主题色流光；`playful` 模式下 Core 以低频轨道相位活动，不响应键盘输入。入场 timer 在完成后释放，轨道 timer 在首轮开始或 session 清理时释放。
 
 fullscreen Home 会被动观察 Pi 已启用的 SGR 1006 鼠标序列，但不消费或改写输入：单击产生波纹，双击触发 `π` 粒子，`click-hold` 下长按 450ms 后 Pi Core 蓄力并牵引 Logo，松开时从 Core 爆炸。拖动、滚轮和非左键留给 Pi 原生选择与滚动；非 TTY、regular 模式或不支持鼠标的终端静默退化。监听器和 timer 在首轮或 session 清理时释放。
 

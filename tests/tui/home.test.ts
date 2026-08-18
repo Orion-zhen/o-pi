@@ -91,7 +91,7 @@ describe("startup home", () => {
 			120,
 			editorLines,
 			plainTheme(),
-			{ height: 28, animation: { reveal: 1, wave: 1, pulse: false, orbit: 0 } },
+			{ height: 28, animation: { reveal: 1, wave: 1, orbit: 0 } },
 		).map(stripTerminalSequences);
 		const top = lines.find((line) => line.includes("╭───────╮"));
 		const middle = lines.find((line) => line.includes("┤   π   ├"));
@@ -171,7 +171,7 @@ describe("startup home", () => {
 	it("入场逐行显现仍保持稳定高度和宽度", () => {
 		const lines = formatHomePage(snapshot, defaultTuiConfig().home, 120, editorLines, plainTheme(), {
 			height: 28,
-			animation: { reveal: 0.35, wave: 0.2, pulse: false },
+			animation: { reveal: 0.35, wave: 0.2 },
 		});
 		expect(lines).toHaveLength(28);
 		expect(lines.every((line) => visibleWidth(line) <= 120)).toBe(true);
@@ -183,7 +183,6 @@ describe("startup home", () => {
 			animation: {
 				reveal: 1,
 				wave: 1,
-				pulse: false,
 				pointer: { kind: "burst", progress: 0.35, x: 60, y: 4 },
 			},
 		});

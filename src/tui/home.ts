@@ -52,7 +52,6 @@ const HOME_TIPS = [
 export interface HomeAnimationFrame {
 	reveal: number;
 	wave: number;
-	pulse: boolean;
 	orbit?: number;
 	pointer?: HomePointerFrame;
 }
@@ -77,7 +76,7 @@ export function formatHomePage(
 ): string[] {
 	const safeWidth = Math.max(1, Math.floor(width));
 	const targetHeight = options.height === undefined ? undefined : Math.max(editorLines.length, Math.floor(options.height));
-	const animation = options.animation ?? { reveal: 1, wave: 1, pulse: false };
+	const animation = options.animation ?? { reveal: 1, wave: 1 };
 	const preferred = resolveLayout(safeWidth, targetHeight);
 	const candidates = preferred === "full" ? ["full", "medium", "compact"] as const
 		: preferred === "medium" ? ["medium", "compact"] as const
@@ -292,7 +291,6 @@ function renderWordmark(
 				transformPointerLine(row.raw, index, focusedPointer, pageWidth, blockWidth),
 			);
 		}
-		if (animation.pulse) return color(theme, "warning", row.raw);
 		if (animation.wave < 1 && theme !== undefined) {
 			const sweepWidth = blockWidth + WORDMARK_LINES.length * 2;
 			const target = Math.round(animation.wave * sweepWidth) - index * 2;
@@ -362,7 +360,7 @@ function styleCore(theme: HomeTheme | undefined, core: string): string {
 function renderCompactWordmark(theme: HomeTheme | undefined, animation: HomeAnimationFrame): string {
 	const label = VERSION ? `O Pi · v${VERSION}` : "O Pi";
 	const pointer = animation.pointer;
-	if (pointer === undefined) return color(theme, animation.pulse ? "warning" : "accent", label);
+	if (pointer === undefined) return color(theme, "accent", label);
 	const decoration = pointer.kind === "burst" ? "π" : pointer.kind === "explode" ? "*" : pointer.kind === "charge" ? "◉" : "·";
 	return color(theme, pointerColor(pointer.kind), `${decoration} ${label} ${decoration}`);
 }

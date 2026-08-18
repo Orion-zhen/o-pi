@@ -200,9 +200,7 @@ function renderToolsCount(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg"> 
 	if (tools === undefined) return undefined;
 	const activeCount = new Set(tools.activeNames.filter((name) => name.length > 0)).size;
 	const total = Math.max(0, tools.totalCount, activeCount);
-	const label = dim(theme, "tools ");
-	const count = theme ? theme.fg(activeCount === 0 && total > 0 ? "warning" : "text", `${activeCount}/${total}`) : `${activeCount}/${total}`;
-	return `${label}${count}`;
+	return dim(theme, `tools ${activeCount}/${total}`);
 }
 
 /** 第二行要先扣除 cost/tools 宽度，再让 token 段自适应，避免 cache 命中率被最终截断吞掉。 */
@@ -307,10 +305,11 @@ export function formatContext(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "f
 	const contextWindow = usage.contextWindow || 0;
 	const percentValue = usage.percent ?? 0;
 	const percent = usage.percent === null ? "?" : percentValue.toFixed(1);
-	const display = usage.percent === null ? `ctx ?/${formatTokens(contextWindow)}` : `ctx ${percent}%/${formatTokens(contextWindow)}`;
-	if (theme === undefined) return display;
-	if (usage.percent === null) return theme.fg("muted", display);
-	return applyContextGradient(display, percentValue);
+	const value = usage.percent === null ? `?/${formatTokens(contextWindow)}` : `${percent}%/${formatTokens(contextWindow)}`;
+	const label = dim(theme, "ctx ");
+	if (theme === undefined) return `${label}${value}`;
+	if (usage.percent === null) return `${label}${theme.fg("muted", value)}`;
+	return `${label}${applyContextGradient(value, percentValue)}`;
 }
 
 function formatTokenStats(snapshot: TuiFooterSnapshot, width: number): string | undefined {
