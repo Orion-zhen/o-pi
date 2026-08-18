@@ -1,4 +1,5 @@
 import { Markdown, resetCapabilitiesCache, setCapabilities, setCellDimensions } from "@earendil-works/pi-tui";
+import { getKittyImageMetadata } from "@earendil-works/pi-tui/dist/terminal-image.js";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { installMathMarkdownRenderer, supportsDisplayMathImages, warmDisplayMathRenderer } from "../../src/tui/math-markdown.js";
 import type { TuiMathConfig } from "../../src/tui/types.js";
@@ -117,6 +118,18 @@ describe("math markdown renderer", () => {
 		const lines = renderLines("$$\na^2 + b^2 = c^2\n$$");
 		expect(lines.length).toBeLessThan(8);
 		expect(lines.join("\n")).toContain("\u001b_G");
+	});
+
+	it("Kitty 公式注册全屏滚动所需的图片元数据", () => {
+		const lines = renderLines("$$\n\\frac{x^2}{y}\n$$");
+		const imageLine = lines.find((line) => line.includes("\u001b_G"));
+		expect(imageLine).toBeDefined();
+		const metadata = getKittyImageMetadata(imageLine ?? "");
+		const size = parseKittySize(imageLine ?? "");
+
+		expect(metadata).toMatchObject(size ?? {});
+		expect(metadata?.widthPx).toBeGreaterThan(0);
+		expect(metadata?.heightPx).toBeGreaterThan(0);
 	});
 
 	it("长公式使用可用宽度，复杂分式保留多行占位", () => {

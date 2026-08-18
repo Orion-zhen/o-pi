@@ -2,9 +2,9 @@ import {
 	Markdown,
 	allocateImageId,
 	encodeITerm2,
-	encodeKitty,
 	getCapabilities,
 	getCellDimensions,
+	renderImage,
 } from "@earendil-works/pi-tui";
 import type { TuiMathConfig } from "./types.js";
 
@@ -234,13 +234,18 @@ function renderDisplayMathImage(
 	const imageCells = displayImageCells(image.widthPx, image.heightPx, availableWidth, config);
 	const prefix = " ".repeat(paddingX);
 	if (imageProtocol === "kitty") {
-		const sequence = encodeKitty(image.base64, {
-			columns: imageCells.columns,
-			rows: imageCells.rows,
-			imageId: allocateImageId(),
-			moveCursor: false,
-		});
-		return [prefix + sequence, ...Array.from({ length: imageCells.rows - 1 }, () => "")];
+		const rendered = renderImage(
+			image.base64,
+			{ widthPx: image.widthPx, heightPx: image.heightPx },
+			{
+				maxWidthCells: imageCells.columns,
+				maxHeightCells: imageCells.rows,
+				imageId: allocateImageId(),
+				moveCursor: false,
+			},
+		);
+		if (rendered === null) return undefined;
+		return [prefix + rendered.sequence, ...Array.from({ length: rendered.rows - 1 }, () => "")];
 	}
 	const sequence = encodeITerm2(image.base64, {
 		width: imageCells.columns,
