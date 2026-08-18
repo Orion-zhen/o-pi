@@ -18,6 +18,8 @@ git clone https://github.com/Orion-zhen/o-pi.git ~/.pi
 cd ~/.pi && npm install
 ```
 
+可复用的 Pi 体验配置见 [`agent/settings.example.jsonc`](agent/settings.example.jsonc)。按需将其中字段合并到本机 `agent/settings.json`；provider、model、thinking level 和模型轮换列表等个人设置不包含在示例中。
+
 ## 文档
 
 * [配置分层](docs/configuration.md)

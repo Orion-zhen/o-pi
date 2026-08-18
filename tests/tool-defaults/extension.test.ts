@@ -11,7 +11,6 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import toolsExtension from "../../agent/extensions/cmd-slash-tools.js";
-import blockBuiltinTools from "../../agent/extensions/block-builtin-tools.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 type SessionStartHandler = (event: SessionStartEvent, ctx: ExtensionContext) => Promise<void> | void;
@@ -123,35 +122,6 @@ describe("/tools extension defaults", () => {
 		harness.branchEntries = [];
 		await harness.selectModel("local", "qwen3-coder");
 		expect(harness.activeTools).toEqual(["read", "grep"]);
-	});
-});
-
-describe("built-in tool isolation", () => {
-	it("session start 移除内置工具，并在 tool_call 阻止其恢复执行", () => {
-		const tools = [
-			{ ...makeToolInfo("read"), sourceInfo: { ...makeToolInfo("read").sourceInfo, source: "builtin" as const } },
-			makeToolInfo("grep"),
-		];
-		let active = ["read", "grep"];
-		const handlers = new Map<string, (event: { toolName: string }) => unknown>();
-		blockBuiltinTools({
-			getAllTools: () => tools,
-			getActiveTools: () => active,
-			setActiveTools(names: string[]) {
-				active = names;
-			},
-			on(name: string, handler: unknown) {
-				handlers.set(name, handler as (event: { toolName: string }) => unknown);
-			},
-		} as unknown as ExtensionAPI);
-
-		handlers.get("session_start")?.({ toolName: "" });
-		expect(active).toEqual(["grep"]);
-		expect(handlers.get("tool_call")?.({ toolName: "read" })).toEqual({
-			block: true,
-			reason: "Pi built-in tool 'read' is disabled.",
-		});
-		expect(handlers.get("tool_call")?.({ toolName: "grep" })).toBeUndefined();
 	});
 });
 

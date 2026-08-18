@@ -1,0 +1,39 @@
+{
+  // 使用 Pi 内置暗色主题；可改为 "light" 或已安装的自定义主题名。
+  "theme": "dark",
+
+  // 隐藏 Pi 原生启动标题，避免与 o-pi 的启动 Banner 重复。
+  "quietStartup": true,
+
+  // 更新后只显示简短版本提示；完整更新记录仍可通过 /changelog 查看。
+  "collapseChangelog": true,
+
+  // /tree 默认隐藏工具调用，让分支导航优先展示用户与 Assistant 对话。
+  "treeFilterMode": "no-tools",
+
+  // 自动补全列表最多显示 10 项，减少浏览命令、Skill 和模型候选时的翻页。
+  "autocompleteMaxVisible": 10,
+
+  // 为输入框增加一列左右留白，改善全屏模式下的可读性。
+  "editorPaddingX": 1,
+
+  // 不启用 Pi 内置工具；o-pi 的 Extension 和 SDK 自定义工具仍会正常启用。
+  "defaultTools": [],
+
+  // 使用固定输入区和可独立滚动、搜索的全屏 Transcript。
+  "tuiMode": "fullscreen",
+
+  // 退出全屏模式时恢复原终端画面，只打印会话恢复提示，不回放完整 Transcript。
+  "fullscreenExitOutput": "resume-hint", // transcript 回放完整会话记录
+
+  // 连发修正指令时视作一条
+  "steeringMode": "all",
+
+  // 让终端显示真实光标
+  "showHardwareCursor": true,
+
+  "markdown": {
+    // Mermaid 图只在消息完成后渲染，避免流式生成过程中反复重绘和闪烁。
+    "mermaid": "final"
+  }
+}
