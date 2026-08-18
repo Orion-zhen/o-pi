@@ -137,7 +137,9 @@ repair 层不做语义推断：
 * `agent/extensions/subagent.ts`
   * `subagent`
 
-仓库内的模型工具通过统一注册入口组合 repair 和 telemetry。`registerObservedTool` 将 repair observer 直接连接到当前 Pi 的 `TelemetryService`；只有状态、operation 和路径列表 fanout 摘要会合并进内存中的 pending call，原始和修复后参数不会由 repair observer 落盘，工具 execute 不会被 telemetry 包裹。fanout 只记录字段、去重后的 scope 数量和分隔类型，例如 `{ field: "path", count: 2, separator: "whitespace" }`，不表示伪造了多个 Pi tool call：
+仓库内的模型工具通过统一注册入口组合 strict sampling、repair 和 telemetry。`registerObservedTool` 默认为工具设置 `constrainedSampling: { type: "json_schema", strict: "prefer" }`；支持 strict tools 的 Provider 会进行 JSON Schema 约束采样，不支持的 Provider 自动降级，repair 继续作为本地兼容边界。工具显式设置其他 constrained sampling 配置或 `false` 时保留其选择。
+
+`registerObservedTool` 将 repair observer 直接连接到当前 Pi 的 `TelemetryService`；只有状态、operation 和路径列表 fanout 摘要会合并进内存中的 pending call，原始和修复后参数不会由 repair observer 落盘，工具 execute 不会被 telemetry 包裹。fanout 只记录字段、去重后的 scope 数量和分隔类型，例如 `{ field: "path", count: 2, separator: "whitespace" }`，不表示伪造了多个 Pi tool call：
 
 ```ts
 registerObservedTool(pi, {

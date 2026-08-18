@@ -262,8 +262,18 @@ describe("observed tool registration", () => {
 		pi.registerTool = (tool) => { registered = fixture<TestTool>(tool); };
 		registerObservedTool(pi, { tool: testTool() });
 		if (registered === undefined) throw new Error("tool not registered");
+		expect(registered.constrainedSampling).toEqual({ type: "json_schema", strict: "prefer" });
 		expect(registered.prepareArguments?.({ path: "a", count: "2" })).toEqual({ path: "a", count: 2 });
 		await expect(registered.execute("call", { path: "a", count: 2 }, undefined, undefined, extensionContext())).resolves.toEqual(result({ status: "ok" }));
+	});
+
+	it("preserves an explicit constrained sampling choice", () => {
+		let registered: TestTool | undefined;
+		const pi = fakePi().api;
+		pi.registerTool = (tool) => { registered = fixture<TestTool>(tool); };
+		registerObservedTool(pi, { tool: { ...testTool(), constrainedSampling: false } });
+		if (registered === undefined) throw new Error("tool not registered");
+		expect(registered.constrainedSampling).toBe(false);
 	});
 
 	it("rethrows the original tool exception", async () => {
