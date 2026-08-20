@@ -5,7 +5,9 @@ const GREP_MATCHED_BY = new Set([
 	"exact-qualified-symbol", "exact-symbol", "symbol-prefix", "literal", "regex", "lexical", "related",
 ]);
 const TRUNCATION_REASONS = new Set<TruncationReason>([
-	"traversal_limit",
+	"depth_limit",
+	"entry_limit",
+	"byte_limit",
 	"result_limit",
 ]);
 

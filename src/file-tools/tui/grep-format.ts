@@ -5,7 +5,9 @@ import { isGrepSuccessDetails } from "../pi/guards.js";
 import type { GrepParams, GrepRegion, TruncationReason } from "../grep/types.js";
 
 const LIMIT_LABELS: Record<TruncationReason, string> = {
-	traversal_limit: "depth",
+	depth_limit: "depth",
+	entry_limit: "entries",
+	byte_limit: "bytes",
 	result_limit: "result",
 };
 

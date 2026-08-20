@@ -10,7 +10,10 @@ export interface FileToolLimits {
 	find_output_token_budget: number;
 	find_result_limit: number;
 	find_max_depth: number;
+	find_max_entries: number;
 	grep_max_depth: number;
+	grep_max_entries: number;
+	grep_max_search_bytes: number;
 	grep_ast_max_file_bytes: number;
 	grep_content_cache_bytes: number;
 	grep_content_cache_entries: number;

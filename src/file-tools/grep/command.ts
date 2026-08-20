@@ -37,7 +37,7 @@ export interface GrepCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
 	readonly limits: Pick<FileToolLimits,
-		"grep_max_depth" | "grep_ast_max_file_bytes" | "grep_content_cache_bytes" | "grep_content_cache_entries" | "grep_result_limit" | "grep_related_result_limit" | "grep_regional_display_limit">;
+		"grep_max_depth" | "grep_max_entries" | "grep_max_search_bytes" | "grep_ast_max_file_bytes" | "grep_content_cache_bytes" | "grep_content_cache_entries" | "grep_result_limit" | "grep_related_result_limit" | "grep_regional_display_limit">;
 	readonly prepareCodeAnalysis?: PrepareCodeAnalysis;
 	readonly analyzeCode?: AnalyzeCode;
 }
@@ -53,6 +53,9 @@ export class GrepTool {
 		if (this.disposed || isAborted(context.operation.signal)) return aborted();
 		if (!isCacheLimit(context.limits.grep_content_cache_bytes) || !isCacheLimit(context.limits.grep_content_cache_entries)) {
 			return fail("INVALID_OPERATION", "grep content cache limits must be non-negative safe integers.");
+		}
+		if (!isCacheLimit(context.limits.grep_max_search_bytes)) {
+			return fail("INVALID_OPERATION", "grep search byte limit must be a non-negative safe integer.");
 		}
 		const invocation = new AbortController();
 		const contentCache = this.contentCache.acquire(
@@ -93,10 +96,12 @@ export class GrepTool {
 			filesystem: context.filesystem,
 			operation: context.operation,
 			maxDepth: context.limits.grep_max_depth,
+			maxEntries: context.limits.grep_max_entries,
 		});
 		if (isFailed(inventory)) return inventory;
-		const preparation = prepareCodeAnalysis(inventory, context);
-		const scanned = await scanInventoryText(inventory, plan, {
+		const searchableInventory = limitInventoryBytes(inventory, context.limits.grep_max_search_bytes);
+		const preparation = prepareCodeAnalysis(searchableInventory, context);
+		const scanned = await scanInventoryText(searchableInventory, plan, {
 			filesystem: context.filesystem,
 			operation: context.operation,
 			retainTextMaxBytes: context.limits.grep_ast_max_file_bytes,
@@ -105,11 +110,11 @@ export class GrepTool {
 		if (isFailed(scanned)) return scanned;
 		await preparation;
 		if (plan.queryMode === "literal_fallback" && scanned.totalHits === 0) return plan.invalidRegex;
-		const analysisPaths = semanticParsePriority(inventory, scanned);
-		const analyzed = await analyzeSymbols(plan, inventory, scanned, analysisPaths, context);
+		const analysisPaths = semanticParsePriority(searchableInventory, scanned);
+		const analyzed = await analyzeSymbols(plan, searchableInventory, scanned, analysisPaths, context);
 		if (isFailed(analyzed)) return analyzed;
 		const regionized = analyzed.result ?? await this.regionizer.regionize(
-			inventory,
+			searchableInventory,
 			scanned.hits,
 			analysisPaths,
 			{
@@ -120,7 +125,7 @@ export class GrepTool {
 			},
 		);
 		if (isFailed(regionized)) return regionized;
-		const scope = successfulScopeState(plan, inventory, scanned.scopeErrors, regionized.scopeErrors);
+		const scope = successfulScopeState(plan, searchableInventory, scanned.scopeErrors, regionized.scopeErrors);
 		if (scope.failure !== undefined) return scope.failure;
 		const regions = buildRankedRegions(plan, scanned, regionized, context.limits.grep_regional_display_limit);
 		return packGrepResults({
@@ -131,19 +136,36 @@ export class GrepTool {
 			...(scope.errors.length === 0 ? {} : { scopeErrors: scope.errors }),
 			regions,
 			stats: grepStats(
-				inventory,
+				searchableInventory,
 				scanned.stats,
 				scanned.totalHits,
 				regionized.files.length,
 				regionized.astSkippedOversizedFiles,
 				regionized.skipped,
 			),
-			truncationReasons: inventory.truncationReasons,
+			truncationReasons: searchableInventory.truncationReasons,
 			resultLimit: context.limits.grep_result_limit,
 			relatedResultLimit: context.limits.grep_related_result_limit,
 			regionalDisplayLimit: context.limits.grep_regional_display_limit,
 		});
 	}
+}
+
+function limitInventoryBytes(inventory: ScopeInventory, maxBytes: number): ScopeInventory {
+	let selected = 0;
+	let reservedBytes = 0;
+	for (const file of inventory.files) {
+		if (file.snapshot.sizeBytes > maxBytes - reservedBytes) {
+			return {
+				...inventory,
+				files: inventory.files.slice(0, selected),
+				truncationReasons: [...inventory.truncationReasons, "byte_limit"],
+			};
+		}
+		reservedBytes += file.snapshot.sizeBytes;
+		selected += 1;
+	}
+	return inventory;
 }
 
 function prepareCodeAnalysis(inventory: ScopeInventory, context: GrepCommandContext): Promise<void> {

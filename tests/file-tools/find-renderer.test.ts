@@ -23,6 +23,7 @@ describe("find renderer", () => {
 			],
 			stats,
 			depthLimited: false,
+			entryLimited: false,
 			resultLimited: false,
 			outputTokenBudget: 1_000,
 		});
@@ -56,6 +57,7 @@ describe("find renderer", () => {
 			matches,
 			stats: { ...stats, traversed_entries: 40 },
 			depthLimited: true,
+			entryLimited: false,
 			resultLimited: true,
 			outputTokenBudget: 48,
 		});
@@ -87,6 +89,7 @@ describe("find renderer", () => {
 				skipped_entries: 1,
 			},
 			depthLimited: false,
+			entryLimited: false,
 			resultLimited: false,
 			outputTokenBudget: 1_000,
 		});

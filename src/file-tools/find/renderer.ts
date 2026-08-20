@@ -18,6 +18,7 @@ export interface RenderFindInput {
 	matches: FindMatch[];
 	stats: FindStats;
 	depthLimited: boolean;
+	entryLimited: boolean;
 	resultLimited: boolean;
 	outputTokenBudget: number;
 }
@@ -26,6 +27,7 @@ export interface RenderFindInput {
 export function renderFindResults(input: RenderFindInput): { content: string; details: FindDetails } {
 	const initialReasons: FindTruncationReason[] = [
 		...(input.depthLimited ? ["depth_limit" as const] : []),
+		...(input.entryLimited ? ["entry_limit" as const] : []),
 		...(input.resultLimited ? ["result_limit" as const] : []),
 	];
 	if (input.totalMatches === 0) return renderNoMatches(input, initialReasons);

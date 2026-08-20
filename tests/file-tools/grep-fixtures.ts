@@ -174,6 +174,7 @@ export async function inventoryWorkspace(
 			filesystem: mapFilesystem(opened.filesystem),
 			operation: opened.context,
 			maxDepth,
+			maxEntries: 100_000,
 		});
 	} finally {
 		opened.dispose();

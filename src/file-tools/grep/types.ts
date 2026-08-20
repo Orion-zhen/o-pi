@@ -10,7 +10,9 @@ export type GrepMatchedBy =
 	| "related";
 export type GrepQueryMode = "regex" | "literal_fallback";
 export type TruncationReason =
-	| "traversal_limit"
+	| "depth_limit"
+	| "entry_limit"
+	| "byte_limit"
 	| "result_limit";
 
 export interface GrepParams {

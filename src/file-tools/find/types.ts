@@ -26,7 +26,7 @@ export interface FindScopeError {
 	error: FileToolError;
 }
 
-export type FindTruncationReason = "depth_limit" | "result_limit" | "output_limit";
+export type FindTruncationReason = "depth_limit" | "entry_limit" | "result_limit" | "output_limit";
 
 export interface FindStats {
 	traversed_entries: number;

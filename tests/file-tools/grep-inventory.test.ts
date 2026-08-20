@@ -43,8 +43,8 @@ describe("grep ScopeInventory", () => {
 		));
 
 		expect(calls).toEqual([
-			{ root: "root.ts", options: { intent: "search", explicitRoot: true, maxDepth: 7, glob: "*.ts" } },
-			{ root: "src", options: { intent: "search", explicitRoot: true, maxDepth: 7, glob: "*.ts" } },
+			{ root: "root.ts", options: { intent: "search", explicitRoot: true, maxDepth: 7, maxEntries: 100_000, glob: "*.ts" } },
+			{ root: "src", options: { intent: "search", explicitRoot: true, maxDepth: 7, maxEntries: 100_000, glob: "*.ts" } },
 		]);
 		expect(result.files).toEqual([
 			expect.objectContaining({ path: "root.ts", scopeOrder: 0, scopeRelativePath: "root.ts", explicitFile: true }),
@@ -142,8 +142,34 @@ describe("grep ScopeInventory", () => {
 		expect(result.files.map((file) => file.path)).toEqual(["event.ts"]);
 		expect(result.traversedEntries).toBe(5);
 		expect(result.skipped).toEqual({ access_denied: 2, changed: 1 });
-		expect(result.truncationReasons).toEqual(["traversal_limit"]);
+		expect(result.truncationReasons).toEqual(["depth_limit", "entry_limit"]);
 		expect(closes).toBe(1);
+	});
+
+	it("多个 scope 共享 entry budget，达到边界后停止后续发现", async () => {
+		await mkdir(path.join(testContext.workspace, "first"), { recursive: true });
+		await mkdir(path.join(testContext.workspace, "second"), { recursive: true });
+		await writeFile(path.join(testContext.workspace, "first", "a.ts"), "a");
+		await writeFile(path.join(testContext.workspace, "second", "b.ts"), "b");
+		await writeFile(path.join(testContext.workspace, "second", "c.ts"), "c");
+
+		const host = new FileToolsHost();
+		const opened = await host.open({ cwd: testContext.workspace, sessionId: "grep-inventory-entry-limit" });
+		if (isFailed(opened)) throw new Error(opened.error.message);
+		try {
+			const result = expectInventorySuccess(await buildScopeInventory({ paths: ["first", "second"] }, {
+				filesystem: opened.filesystem,
+				operation: opened.context,
+				maxDepth: 12,
+				maxEntries: 2,
+			}));
+			expect(result.files.map((file) => file.path)).toEqual(["first/a.ts", "second/b.ts"]);
+			expect(result.traversedEntries).toBe(2);
+			expect(result.truncationReasons).toEqual(["entry_limit"]);
+		} finally {
+			opened.dispose();
+			host.dispose();
+		}
 	});
 
 	it("相同 visibility snapshot 的重复多 scope inventory 保持文件顺序、membership 和版本稳定", async () => {
@@ -155,7 +181,7 @@ describe("grep ScopeInventory", () => {
 		if (isFailed(opened)) throw new Error(opened.error.message);
 		try {
 			const input = { paths: [".", "src"], glob: "*.ts" } as const;
-			const context = { filesystem: opened.filesystem, operation: opened.context, maxDepth: 12 };
+			const context = { filesystem: opened.filesystem, operation: opened.context, maxDepth: 12, maxEntries: 100_000 };
 			const first = expectInventorySuccess(await buildScopeInventory(input, context));
 			const second = expectInventorySuccess(await buildScopeInventory(input, context));
 			const snapshot = (inventory: ScopeInventory) => inventory.files.map((file) => ({

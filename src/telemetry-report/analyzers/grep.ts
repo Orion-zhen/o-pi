@@ -45,7 +45,9 @@ export function summarizeGrep(calls: readonly CallRecord[], observed: CandidateO
 	};
 	const limits = {
 		result: truncationRate(successful, "result_limit"),
-		traversal: truncationRate(successful, "traversal_limit"),
+		depth: truncationRate(successful, "depth_limit"),
+		entries: truncationRate(successful, "entry_limit"),
+		bytes: truncationRate(successful, "byte_limit"),
 	};
 	const byResultKind = {
 		verified: channelStatistics(grepCalls, grepObserved, "verified"),

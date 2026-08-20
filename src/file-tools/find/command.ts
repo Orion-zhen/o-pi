@@ -24,13 +24,15 @@ interface NormalizedFindScope {
 
 interface ScopeDiscovery {
 	readonly stats: FindStats;
+	readonly consumedEntries: number;
 	readonly depthLimited: boolean;
+	readonly entryLimited: boolean;
 }
 
 export interface FindCommandContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
-	readonly limits: Pick<FileToolLimits, "find_output_token_budget" | "find_result_limit" | "find_max_depth">;
+	readonly limits: Pick<FileToolLimits, "find_output_token_budget" | "find_result_limit" | "find_max_depth" | "find_max_entries">;
 }
 
 /** find command 持有统一取消 owner；查询与排名本身无跨 invocation 状态。 */
@@ -63,16 +65,21 @@ export class FindTool {
 		const seenPaths = new Set<string>();
 		let totalCandidates = 0;
 		const discoveries: Array<{ scope: NormalizedFindScope; result: ScopeDiscovery }> = [];
+		let remainingEntries = context.limits.find_max_entries;
 		for (const scope of scopes) {
 			if (isOperationAborted(context.operation)) return aborted();
-			const result = await discoverScope(scope, normalized.glob, context, (entry) => {
+			const result = await discoverScope(scope, normalized.glob, remainingEntries, context, (entry) => {
 				if (seenPaths.has(entry.path)) return;
 				seenPaths.add(entry.path);
 				totalCandidates += 1;
 				ranker.add(entry);
 			});
 			if (isFailed(result)) scopeErrors.push({ path: scope.root.displayPath, error: result.error });
-			else discoveries.push({ scope, result });
+			else {
+				discoveries.push({ scope, result });
+				remainingEntries = Math.max(0, remainingEntries - result.consumedEntries);
+				if (result.entryLimited) break;
+			}
 		}
 		if (isOperationAborted(context.operation)) return aborted();
 		if (discoveries.length === 0) {
@@ -97,6 +104,7 @@ export class FindTool {
 			matches,
 			stats: sumStats(discoveries),
 			depthLimited: discoveries.some(({ result }) => result.depthLimited),
+			entryLimited: discoveries.some(({ result }) => result.entryLimited),
 			resultLimited: selected.length < ranking.totalMatches,
 			outputTokenBudget: context.limits.find_output_token_budget,
 		});
@@ -178,6 +186,7 @@ function resolveEffectiveScopes(
 async function discoverScope(
 	scope: NormalizedFindScope,
 	glob: string | undefined,
+	maxEntries: number,
 	context: FindCommandContext,
 	onEntry: (entry: FindEntry) => void,
 ): Promise<ToolOutcome<ScopeDiscovery>> {
@@ -185,13 +194,16 @@ async function discoverScope(
 		intent: "search",
 		explicitRoot: true,
 		maxDepth: context.limits.find_max_depth,
+		maxEntries,
 		...(glob === undefined ? {} : { glob }),
 	}, context.operation);
 	if (!opened.ok) return mapFsError(opened.error, { message: "Directory cannot be searched." });
 	let traversedEntries = 0;
 	let ignoredEntries = 0;
 	let skippedEntries = 0;
+	let consumedEntries = 0;
 	let depthLimited = false;
+	let entryLimited = false;
 	let processedEvents = 0;
 	try {
 		for await (const event of opened.value) {
@@ -201,6 +213,7 @@ async function discoverScope(
 				if (isOperationAborted(context.operation)) return aborted(scope.root.displayPath);
 			}
 			if (event.type === "entry") {
+				consumedEntries += 1;
 				if (event.ref.kind === "file" || event.ref.kind === "directory") {
 					traversedEntries += 1;
 					onEntry({
@@ -214,10 +227,15 @@ async function discoverScope(
 			}
 			if (event.type === "skip") {
 				if (event.reason === "depth-limit") depthLimited = true;
-				else if (event.reason === "ignored") ignoredEntries += 1;
+				else if (event.reason === "entry-limit") entryLimited = true;
+				else if (event.reason === "ignored") {
+					consumedEntries += 1;
+					ignoredEntries += 1;
+				} else if (event.reason === "symlink") consumedEntries += 1;
 				continue;
 			}
 			if (event.error.code === "aborted") return aborted(scope.root.displayPath);
+			if (event.kind !== undefined) consumedEntries += 1;
 			skippedEntries += 1;
 		}
 	} finally {
@@ -229,7 +247,9 @@ async function discoverScope(
 			ignored_entries: ignoredEntries,
 			skipped_entries: skippedEntries,
 		},
+		consumedEntries,
 		depthLimited,
+		entryLimited,
 	};
 }
 

@@ -19,7 +19,9 @@ import type {
 } from "./types.js";
 
 const TRUNCATION_ORDER: readonly TruncationReason[] = [
-	"traversal_limit",
+	"depth_limit",
+	"entry_limit",
+	"byte_limit",
 	"result_limit",
 ];
 const RELATED_MARKER = " [not match, related]";

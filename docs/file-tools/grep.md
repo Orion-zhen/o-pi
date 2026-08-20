@@ -127,9 +127,11 @@ relevance 排序后，`grep_related_result_limit` 先静默保留前 N 个 relat
 
 grep 不按模型输出 token 数删除、替换或重排结果。`approx_tokens` 仅用于观测。
 
-其他 `truncated_by` 原因只来自上游搜索边界：
+其他 `truncated_by` 原因来自上游搜索边界：
 
-- `traversal_limit`。
+- `depth_limit`：scope 达到 `grep_max_depth`；
+- `entry_limit`：所有目录 scope 共享的遍历量达到 `grep_max_entries`；
+- `byte_limit`：累计文件 snapshot 大小达到 `grep_max_search_bytes`。
 
 正文 hit、related anchor、related 静默限额和 AST 增强的内部容量不进入 `truncated_by`。`details.stats` 记录 `text_hits`、`dropped_text_hits`、`dropped_related_anchors`、`dropped_related_results` 和 `ast_skipped_oversized_files`；telemetry 投影使用对应的 `*_count` 字段。
 
@@ -145,7 +147,7 @@ LSP 无法完整提交时，C/C++、TypeScript、TSX、JavaScript、JSX、Python
 
 inventory entry 携带 object identity、version 和 size snapshot。line scan 和 AST read 都要求 snapshot 稳定；文件变化时不保留部分命中。LF、CRLF、CR 和 UTF-8 BOM 使用统一 logical-line 语义，range 使用剥离 BOM 后正文的 UTF-8 byte 坐标。
 
-正文事实扫描不按文件数量、累计字节或单文件字节提前停止。`grep_ast_max_file_bytes` 限制 LSP/Tree-sitter 结构增强和单文件缓存资格，`grep_content_cache_bytes` 与 `grep_content_cache_entries` 分别限制跨调用复用正文的 LRU 总字节和文件数；这些限制都不会裁剪搜索，超限文件仍通过流式扫描保留 verified 文本结果。任一缓存限制设为 `0` 时禁用正文缓存。
+正文事实扫描按 inventory 顺序预留文件 snapshot 大小；下一文件会超过 `grep_max_search_bytes` 时停止，并且后续 LSP/Tree-sitter 增强只处理已纳入预算的文件。`grep_ast_max_file_bytes` 限制 LSP/Tree-sitter 结构增强和单文件缓存资格，`grep_content_cache_bytes` 与 `grep_content_cache_entries` 分别限制跨调用复用正文的 LRU 总字节和文件数；缓存限制不会裁剪搜索。任一缓存限制设为 `0` 时禁用正文缓存。
 
 ## 零结果
 

@@ -52,7 +52,10 @@
 - `find_output_token_budget`：`find` 模型可见输出预算，最小为 32 token。
 - `find_result_limit`：`find` 最多保留的具体结果数。
 - `find_max_depth`：`find` 相对每个搜索 scope 的最大路径深度；scope 根为 0，直属子项为 1。
+- `find_max_entries`：一次 `find` 在所有 scope 间共享的最大遍历 entry 数，默认 20000。
 - `grep_max_depth`：`grep` 相对每个显式 scope 的最大路径深度；scope 根为 0，直属子项为 1。
+- `grep_max_entries`：一次 `grep` inventory 在所有目录 scope 间共享的最大遍历 entry 数，默认 10000。
+- `grep_max_search_bytes`：一次 `grep` 正文搜索可预留的累计文件 snapshot 字节数，默认 128 MiB；下一文件无法完整容纳时停止扫描。
 - `grep_ast_max_file_bytes`：单文件进入 Tree-sitter 的最大字节数；不限制流式正文搜索。
 - `grep_content_cache_bytes`：进程内 `grep` 正文缓存的总字节上限，默认 16 MiB，范围为 0-100 MiB；`0` 表示禁用。
 - `grep_content_cache_entries`：进程内 `grep` 正文缓存的文件数上限，默认 2048，范围为 0-100000；`0` 表示禁用。
@@ -60,7 +63,7 @@
 - `grep_related_result_limit`：稳定排序后最多保留的 related/semantic region 数，默认 8，范围为 0-50；`0` 表示禁用 related results。该限制静默生效，不进入模型截断提示。
 - `grep_regional_display_limit`：每个语法区域最多展示的 matching/evidence 源码行数，默认 3，范围为 1-20；不裁剪完整的 `match_lines` 事实。
 
-grep 只接受以上列出的 `grep_` limit。正文事实扫描不会读取或接受旧的文件数、累计扫描字节、单文件扫描字节、输出 token 或关系字段；AST 单文件字节只控制语法增强，正文缓存限制只控制跨调用复用。related cap 先静默应用，剩余候选再受 `grep_result_limit` 限制。
+grep 只接受以上列出的 `grep_` limit。`grep_max_entries` 限制 inventory，`grep_max_search_bytes` 限制正文事实扫描；AST 单文件字节只控制语法增强，正文缓存限制只控制跨调用复用。related cap 先静默应用，剩余候选再受 `grep_result_limit` 限制。
 
 ### ignore
 

@@ -146,7 +146,7 @@ describe("telemetry report", () => {
 					returned_match_count: 2,
 					returned_file_count: 2,
 					returned_verified_candidate_count: 2,
-					truncation_reasons: ["result_limit"],
+					truncation_reasons: ["depth_limit", "result_limit"],
 					parsed_file_count: 2,
 				}),
 				candidates: [
@@ -164,6 +164,7 @@ describe("telemetry report", () => {
 					dropped_related_result_count: 3,
 					dropped_related_anchor_count: 4,
 					ast_skipped_oversized_file_count: 1,
+					truncation_reasons: ["entry_limit"],
 				}),
 				candidates: [
 					{ kind: "region", value: "src/related.ts", rank: 1, group: "related", sources: ["lsp-symbol", "text-lexical"], start_line: 4, end_line: 12 },
@@ -176,6 +177,7 @@ describe("telemetry report", () => {
 					returned_match_count: 0,
 					returned_file_count: 0,
 					returned_related_candidate_count: 0,
+					truncation_reasons: ["byte_limit"],
 				}),
 			}),
 		];
@@ -193,7 +195,12 @@ describe("telemetry report", () => {
 				text_hits: { samples: 3, mean: 2 },
 				ast_augmented_calls: { numerator: 1, samples: 3 },
 			},
-			limits: { result: { numerator: 1, samples: 3 } },
+			limits: {
+				result: { numerator: 1, samples: 3 },
+				depth: { numerator: 1, samples: 3 },
+				entries: { numerator: 1, samples: 3 },
+				bytes: { numerator: 1, samples: 3 },
+			},
 			capacity: {
 				dropped_related_results: { total: 3, calls: { numerator: 1, samples: 3 } },
 				dropped_related_anchors: { total: 4, calls: { numerator: 1, samples: 3 } },

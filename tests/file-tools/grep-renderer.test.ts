@@ -16,7 +16,7 @@ describe("grep renderer", () => {
 		const base = success();
 		const limited: GrepSuccess = {
 			...base,
-			truncated_by: ["traversal_limit", "result_limit"],
+			truncated_by: ["entry_limit", "result_limit"],
 		};
 		expect(formatGrepResult(limited, false, theme)).not.toBe(formatGrepResult({ ...base, truncated_by: [] }, false, theme));
 	});

@@ -198,13 +198,16 @@ describe("grep text search", () => {
 		expect(result.stats.parsed_files).toBe(0);
 	});
 
-	it("正文扫描不按文件数量或累计字节提前停止", async () => {
+	it("累计正文预算在下一文件前停止扫描并报告 byte_limit", async () => {
+		const configPath = path.join(testContext.outside, "byte-limit.jsonc");
+		await writeConfig(configPath, { grep_max_search_bytes: 1024 });
+		process.env.PI_FILE_TOOLS_CONFIG = configPath;
 		await writeFile(path.join(testContext.workspace, "a.txt"), `Needle42\n${"a".repeat(700)}`);
 		await writeFile(path.join(testContext.workspace, "b.txt"), `Needle42\n${"b".repeat(700)}`);
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "Needle42" }));
-		expect(result.regions.map((region) => region.path)).toEqual(["a.txt", "b.txt"]);
-		expect(result.stats).toMatchObject({ searched_files: 2, searched_bytes: 1418, parsed_files: 0 });
-		expect(result.truncated_by).not.toContain("traversal_limit");
+		expect(result.regions.map((region) => region.path)).toEqual(["a.txt"]);
+		expect(result.stats).toMatchObject({ searched_files: 1, searched_bytes: 709, parsed_files: 0 });
+		expect(result.truncated_by).toContain("byte_limit");
 	});
 
 	it("TextScanner 以正文 UTF-8 坐标存储 BOM 后的多字节命中并观测未保存命中数", async () => {
@@ -215,6 +218,7 @@ describe("grep text search", () => {
 				filesystem: opened.filesystem,
 				operation: opened.context,
 				maxDepth: 12,
+				maxEntries: 100_000,
 			}));
 			const scanned = expectSuccess(await scanInventoryText(inventory, queryPlan("hit"), {
 				filesystem: opened.filesystem,
@@ -249,6 +253,7 @@ describe("grep text search", () => {
 					filesystem: opened.filesystem,
 					operation: opened.context,
 					maxDepth: 12,
+					maxEntries: 100_000,
 				}));
 				await rm(filePath);
 				await rename(replacementPath, filePath);
@@ -284,6 +289,7 @@ describe("grep text search", () => {
 					filesystem,
 					operation: opened.context,
 					maxDepth: 12,
+					maxEntries: 100_000,
 				}));
 				const scanned = await scanInventoryText(inventory, queryPlan("needle"), {
 					filesystem,
@@ -485,13 +491,13 @@ describe("grep text search", () => {
 		const third = packCandidate({ id: "third", path: "c-third.ts", startLine: 1, endLine: 1, endByte: 1, matchLine: 1 });
 		const result = packRegions([oversized, second, third], {
 			resultLimit: 2,
-			truncationReasons: ["traversal_limit"],
+			truncationReasons: ["entry_limit"],
 		});
 
 		expect(result.regions.map((region) => region.path)).toContain("a-oversized.ts");
 		expect(firstRegion(result).declaration).toHaveLength(240);
 		expect(result.truncated_by).toEqual([
-			"traversal_limit",
+			"entry_limit",
 			"result_limit",
 		]);
 		expect(result.approx_tokens).toBe(countTextTokensSync(formatCompactGrepResult(result)).tokens);

@@ -308,7 +308,9 @@ export interface GrepReport {
 	};
 	limits: {
 		result: RateSummary;
-		traversal: RateSummary;
+		depth: RateSummary;
+		entries: RateSummary;
+		bytes: RateSummary;
 	};
 	capacity: {
 		dropped_text_hits: GrepPressureStatistics;

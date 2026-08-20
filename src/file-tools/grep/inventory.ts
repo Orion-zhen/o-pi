@@ -48,6 +48,7 @@ export interface ScopeInventoryContext {
 	readonly filesystem: WorkspaceFileSystem;
 	readonly operation: FsOperationContext;
 	readonly maxDepth: number;
+	readonly maxEntries: number;
 }
 
 interface MutableInventoryState {
@@ -58,8 +59,8 @@ interface MutableInventoryState {
 	readonly scopeErrors: GrepScopeError[];
 	readonly seenFiles: Map<string, number>;
 	readonly skipped: MutableGrepSkippedFiles;
+	readonly truncationReasons: Set<TruncationReason>;
 	traversedEntries: number;
-	traversalLimited: boolean;
 }
 
 /** 只聚合每个 scope 的 discovery 事实，不读取正文或实现文件发现策略。 */
@@ -70,6 +71,9 @@ export async function buildScopeInventory(
 	if (!Number.isSafeInteger(context.maxDepth) || context.maxDepth < 0) {
 		return fail("INVALID_OPERATION", "Traversal depth limit must be a non-negative integer.");
 	}
+	if (!Number.isSafeInteger(context.maxEntries) || context.maxEntries < 0) {
+		return fail("INVALID_OPERATION", "Traversal entry limit must be a non-negative integer.");
+	}
 	if (input.paths.length === 0) return fail("INVALID_PATH", "path must contain at least one scope.");
 	const state: MutableInventoryState = {
 		context,
@@ -79,8 +83,8 @@ export async function buildScopeInventory(
 		scopeErrors: [],
 		seenFiles: new Map(),
 		skipped: createGrepSkippedFiles(),
+		truncationReasons: new Set(),
 		traversedEntries: 0,
-		traversalLimited: false,
 	};
 
 	for (const [order, scopeInput] of input.paths.entries()) {
@@ -112,7 +116,10 @@ export async function buildScopeInventory(
 		if (isFailed(discovered)) {
 			if (discovered.error.code === "OPERATION_ABORTED") return discovered;
 			state.scopeErrors.push({ path: scopeInput, error: discovered.error });
-		} else state.scopes.push(scope);
+		} else {
+			state.scopes.push(scope);
+			if (state.truncationReasons.has("entry_limit")) break;
+		}
 	}
 
 	if (state.scopes.length === 0) {
@@ -126,7 +133,8 @@ export async function buildScopeInventory(
 		scopeErrors: state.scopeErrors,
 		skipped: compactGrepSkippedFiles(state.skipped),
 		traversedEntries: state.traversedEntries,
-		truncationReasons: state.traversalLimited ? ["traversal_limit"] : [],
+		truncationReasons: (["depth_limit", "entry_limit"] as const)
+			.filter((reason) => state.truncationReasons.has(reason)),
 	};
 }
 
@@ -148,6 +156,7 @@ async function discoverScope(scope: InventoryScope, state: MutableInventoryState
 		intent: "search",
 		explicitRoot: true,
 		maxDepth: state.context.maxDepth,
+		maxEntries: Math.max(0, state.context.maxEntries - state.traversedEntries),
 		...(state.glob === undefined ? {} : { glob: state.glob }),
 	}, state.context.operation);
 	if (!opened.ok) {
@@ -169,7 +178,8 @@ async function discoverScope(scope: InventoryScope, state: MutableInventoryState
 
 function consumeDiscoveryEvent(event: DiscoveryEvent, scope: InventoryScope, state: MutableInventoryState): FailedResult | undefined {
 	if (event.type === "skip") {
-		if (event.reason === "depth-limit" || event.reason === "entry-limit") state.traversalLimited = true;
+		if (event.reason === "depth-limit") state.truncationReasons.add("depth_limit");
+		else if (event.reason === "entry-limit") state.truncationReasons.add("entry_limit");
 		else if (scope.root.kind === "directory" && event.reason !== "blocked") state.traversedEntries += 1;
 		return;
 	}

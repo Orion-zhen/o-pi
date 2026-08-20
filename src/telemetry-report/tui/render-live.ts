@@ -62,7 +62,7 @@ function grepLines(report: GrepReport): string[] {
 	return [
 		`  Calls ${report.calls}  success ${report.successful_calls}  direct ${rateValue(report.direct_match)}  related ${rateValue(report.related_fallback)}  empty ${rateValue(report.empty_result)}`,
 		`  Related recovery ${rateValue(report.related_recovery)}  pre-refinement adoption ${rateValue(report.by_result_kind.related.pre_refinement_adoption)}`,
-		`  Limits result ${report.limits.result.numerator}  traversal ${report.limits.traversal.numerator}`,
+		`  Limits result ${report.limits.result.numerator}  depth ${report.limits.depth.numerator}  entries ${report.limits.entries.numerator}  bytes ${report.limits.bytes.numerator}`,
 		`  Internal drops text ${report.capacity.dropped_text_hits.total}  anchors ${report.capacity.dropped_related_anchors.total}  related ${relatedDrops.total}  AST oversized ${report.capacity.ast_skipped_oversized_files.total}`,
 		`  Ranking facts ${report.ranking.observed_calls}/${report.successful_calls}`,
 		...Object.entries(report.ranking.by_algorithm).flatMap(([algorithm, statistics]) => {

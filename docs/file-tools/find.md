@@ -79,10 +79,11 @@ matched=90 selected=50; truncated=depth_limit,result_limit,output_limit
 `details.truncated_by` 只包含：
 
 - `depth_limit`：至少一个 scope 达到 `find_max_depth`；
+- `entry_limit`：所有 scope 共享的遍历量达到 `find_max_entries`；
 - `result_limit`：命中超过 `find_result_limit`；
 - `output_limit`：完整路径行超过 `find_output_token_budget`。
 
-`details.matches` 保存 result limit 后的完整选择；`displayed_matches` 只保存实际进入模型正文的路径。`stats` 记录遍历、ignored 和 skipped entry 数；ranking score 不进入模型正文。
+`details.matches` 保存 result limit 后的完整选择；`displayed_matches` 只保存实际进入模型正文的路径。entry budget 由 runtime 配置，模型参数不能放大。`stats` 记录遍历、ignored 和 skipped entry 数；ranking score 不进入模型正文。
 
 零结果：
 

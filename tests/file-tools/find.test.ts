@@ -293,6 +293,20 @@ describe("find", () => {
 		})).toEqual([expectedPath]);
 	});
 
+	it("多个 scope 共享 entry budget，达到边界后返回部分排名", async () => {
+		await useConfig("entry-limit", {
+			ignore: { builtin_profile: "none", gitignore: false },
+			limits: { find_max_entries: 2 },
+		});
+		await writeFixtures("first/auth-a.ts", "second/auth-b.ts", "second/auth-c.ts");
+
+		const result = await find({ query: "auth", path: ["first", "second"] });
+		expect(paths(result)).toEqual(["first/auth-a.ts", "second/auth-b.ts"]);
+		expect(result.details.total_candidates).toBe(2);
+		expect(result.details.truncated_by).toEqual(["entry_limit"]);
+		expect(result.content).toContain("truncated=entry_limit");
+	});
+
 	it("结果、深度和输出限制来自配置，截断原因准确且顺序稳定", async () => {
 		await useConfig("limits", {
 			ignore: { builtin_profile: "none", gitignore: false },

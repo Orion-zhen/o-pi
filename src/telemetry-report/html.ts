@@ -151,7 +151,9 @@ function grepWorkTable(report: GrepReport): string {
 function grepPressureTable(report: GrepReport): string {
 	const values: Array<[string, string]> = [
 		["结果条数限制", formatRate(report.limits.result)],
-		["遍历限制", formatRate(report.limits.traversal)],
+		["深度限制", formatRate(report.limits.depth)],
+		["遍历条目限制", formatRate(report.limits.entries)],
+		["正文字节限制", formatRate(report.limits.bytes)],
 		["丢弃正文命中", formatPressure(report.capacity.dropped_text_hits)],
 		["丢弃 related anchor", formatPressure(report.capacity.dropped_related_anchors)],
 		["静默过滤 related", formatPressure(report.capacity.dropped_related_results)],

@@ -94,11 +94,29 @@
 					"maximum": 256,
 					"default": 12
 				},
+				"find_max_entries": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 1000000,
+					"default": 20000
+				},
 				"grep_max_depth": {
 					"type": "integer",
 					"minimum": 0,
 					"maximum": 256,
 					"default": 12
+				},
+				"grep_max_entries": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 1000000,
+					"default": 10000
+				},
+				"grep_max_search_bytes": {
+					"type": "integer",
+					"minimum": 1024,
+					"maximum": 10737418240,
+					"default": 134217728
 				},
 				"grep_ast_max_file_bytes": {
 					"type": "integer",
