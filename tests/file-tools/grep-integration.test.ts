@@ -291,7 +291,7 @@ describe("grep integration", () => {
 		expect(firstRegion(expectGrepSuccess(await completed)).symbol).toBe("sharedTarget");
 	});
 
-	it("统一链路对深度范围内的合规小文件不设置解析数量上限", async () => {
+	it("统一链路在大量 anchor-only 文件中只解析正文命中", async () => {
 		for (let index = 0; index < 56; index += 1) {
 			await writeFile(path.join(testContext.workspace, `low-${index}.ts`), `export function low${index}() { return 'semantic loader'; }\n`);
 		}
@@ -302,7 +302,7 @@ describe("grep integration", () => {
 
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "semantic loader retry policy" }));
 
-		expect(result.stats).toMatchObject({ searched_files: 57, parsed_files: 57 });
+		expect(result.stats).toMatchObject({ searched_files: 57, parsed_files: 1 });
 		expect(result.stats.ast_skipped_oversized_files).toBe(0);
 		expect(result.regions).toEqual(expect.arrayContaining([expect.objectContaining({ path: "target.ts", symbol: "retryPolicy" })]));
 	});

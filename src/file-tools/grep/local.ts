@@ -40,11 +40,9 @@ export function semanticParsePriority(
 	for (const hit of scan.hits) hitCount.set(hit.path, (hitCount.get(hit.path) ?? 0) + 1);
 	return inventory.files
 		.filter((file) => languageFromPath(file.path) !== "text")
-			.filter((file) => {
-				const evidence = evidenceByPath.get(file.path);
-				if (scan.totalHits === 0) return evidence !== undefined;
-				return (hitCount.get(file.path) ?? 0) > 0 || (evidence?.anchors.length ?? 0) > 0;
-			})
+		.filter((file) => scan.totalHits === 0
+			? evidenceByPath.has(file.path)
+			: (hitCount.get(file.path) ?? 0) > 0)
 		.map((file) => {
 			const evidence = evidenceByPath.get(file.path);
 			const covered = evidence?.matchedTerms.length ?? 0;

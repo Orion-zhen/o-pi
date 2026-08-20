@@ -162,6 +162,7 @@ export async function inventoryWorkspace(
 	params: { readonly paths: readonly string[]; readonly glob?: string },
 	maxDepth = 12,
 	mapFilesystem: (filesystem: WorkspaceFileSystem) => WorkspaceFileSystem = (filesystem) => filesystem,
+	maxSearchBytes = Number.MAX_SAFE_INTEGER,
 ): Promise<ToolOutcome<ScopeInventory>> {
 	const host = new FileToolsHost();
 	const opened = await host.open({ cwd: workspace, sessionId: "grep-inventory" });
@@ -175,6 +176,7 @@ export async function inventoryWorkspace(
 			operation: opened.context,
 			maxDepth,
 			maxEntries: 100_000,
+			maxSearchBytes,
 		});
 	} finally {
 		opened.dispose();

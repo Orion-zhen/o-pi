@@ -162,6 +162,7 @@ describe("grep ScopeInventory", () => {
 				operation: opened.context,
 				maxDepth: 12,
 				maxEntries: 2,
+				maxSearchBytes: Number.MAX_SAFE_INTEGER,
 			}));
 			expect(result.files.map((file) => file.path)).toEqual(["first/a.ts", "second/b.ts"]);
 			expect(result.traversedEntries).toBe(2);
@@ -170,6 +171,35 @@ describe("grep ScopeInventory", () => {
 			opened.dispose();
 			host.dispose();
 		}
+	});
+
+	it("正文预算在 discovery 阶段关闭当前 stream 并停止后续 scope", async () => {
+		await mkdir(path.join(testContext.workspace, "first"), { recursive: true });
+		await mkdir(path.join(testContext.workspace, "second"), { recursive: true });
+		await writeFile(path.join(testContext.workspace, "first", "a.ts"), "aaaa");
+		await writeFile(path.join(testContext.workspace, "first", "b.ts"), "bbbb");
+		await writeFile(path.join(testContext.workspace, "second", "c.ts"), "cccc");
+		const calls: string[] = [];
+		const result = expectInventorySuccess(await inventoryWorkspace(
+			testContext.workspace,
+			{ paths: ["first", "second"] },
+			12,
+			(filesystem) => ({
+				...filesystem,
+				discovery: {
+					async discover(root, options, context) {
+						calls.push(root.displayPath);
+						return await filesystem.discovery.discover(root, options, context);
+					},
+					discoverPaths: (...args) => filesystem.discovery.discoverPaths(...args),
+				},
+			}),
+			4,
+		));
+
+		expect(calls).toEqual(["first"]);
+		expect(result.files.map((file) => file.path)).toEqual(["first/a.ts"]);
+		expect(result.truncationReasons).toEqual(["byte_limit"]);
 	});
 
 	it("相同 visibility snapshot 的重复多 scope inventory 保持文件顺序、membership 和版本稳定", async () => {
@@ -181,7 +211,13 @@ describe("grep ScopeInventory", () => {
 		if (isFailed(opened)) throw new Error(opened.error.message);
 		try {
 			const input = { paths: [".", "src"], glob: "*.ts" } as const;
-			const context = { filesystem: opened.filesystem, operation: opened.context, maxDepth: 12, maxEntries: 100_000 };
+			const context = {
+				filesystem: opened.filesystem,
+				operation: opened.context,
+				maxDepth: 12,
+				maxEntries: 100_000,
+				maxSearchBytes: Number.MAX_SAFE_INTEGER,
+			};
 			const first = expectInventorySuccess(await buildScopeInventory(input, context));
 			const second = expectInventorySuccess(await buildScopeInventory(input, context));
 			const snapshot = (inventory: ScopeInventory) => inventory.files.map((file) => ({

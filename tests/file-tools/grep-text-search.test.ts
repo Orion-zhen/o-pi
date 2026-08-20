@@ -12,6 +12,7 @@ import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import {
 	assertStrictMatches,
 	createGrepTestContext,
+	deferredVoid,
 	expectGrepSuccess,
 	expectInventorySuccess,
 	expectSuccess,
@@ -219,6 +220,7 @@ describe("grep text search", () => {
 				operation: opened.context,
 				maxDepth: 12,
 				maxEntries: 100_000,
+				maxSearchBytes: Number.MAX_SAFE_INTEGER,
 			}));
 			const scanned = expectSuccess(await scanInventoryText(inventory, queryPlan("hit"), {
 				filesystem: opened.filesystem,
@@ -242,6 +244,51 @@ describe("grep text search", () => {
 		});
 	});
 
+	it("TextScanner 有界并发读取并按 inventory 顺序提交全局容量", async () => {
+		await writeFile(path.join(testContext.workspace, "a.txt"), "hit\nhit\nhit\n");
+		await writeFile(path.join(testContext.workspace, "b.txt"), "hit\nhit\nhit\n");
+		await withFileToolsInvocation(testContext.workspace, "grep-concurrent-scan", async (opened) => {
+			const inventory = expectInventorySuccess(await buildScopeInventory({ paths: ["."] }, {
+				filesystem: opened.filesystem,
+				operation: opened.context,
+				maxDepth: 12,
+				maxEntries: 100_000,
+				maxSearchBytes: Number.MAX_SAFE_INTEGER,
+			}));
+			const started = deferredVoid();
+			const release = deferredVoid();
+			let active = 0;
+			let maxActive = 0;
+			const filesystem = overrideContent(opened.filesystem, (content) => ({
+				async scanLines(file, options, context) {
+					active += 1;
+					maxActive = Math.max(maxActive, active);
+					if (active === 2) started.resolve();
+					await release.promise;
+					active -= 1;
+					return await content.scanLines(file, options, context);
+				},
+			}));
+			const pending = scanInventoryText(inventory, queryPlan("hit"), {
+				filesystem,
+				operation: opened.context,
+				fileConcurrency: 2,
+				maxStoredHits: 2,
+				maxStoredAnchors: 2,
+			});
+			await started.promise;
+			release.resolve();
+			const scanned = expectSuccess(await pending);
+			expect(maxActive).toBe(2);
+			expect(scanned.hits.map((hit) => hit.path)).toEqual(["a.txt", "a.txt"]);
+			expect(scanned.totalHits).toBe(6);
+			expect(scanned.stats).toMatchObject({
+				droppedTextHits: 4,
+				droppedRelatedAnchors: 4,
+			});
+		});
+	});
+
 	it("inventory 后 identity 替换时 TextScanner 丢弃旧快照并区分递归跳过与显式错误", async () => {
 		const filePath = path.join(testContext.workspace, "snapshot-race.txt");
 		const replacementPath = path.join(testContext.outside, "snapshot-replacement.txt");
@@ -254,6 +301,7 @@ describe("grep text search", () => {
 					operation: opened.context,
 					maxDepth: 12,
 					maxEntries: 100_000,
+					maxSearchBytes: Number.MAX_SAFE_INTEGER,
 				}));
 				await rm(filePath);
 				await rename(replacementPath, filePath);
@@ -290,6 +338,7 @@ describe("grep text search", () => {
 					operation: opened.context,
 					maxDepth: 12,
 					maxEntries: 100_000,
+					maxSearchBytes: Number.MAX_SAFE_INTEGER,
 				}));
 				const scanned = await scanInventoryText(inventory, queryPlan("needle"), {
 					filesystem,

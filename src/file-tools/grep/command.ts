@@ -97,11 +97,11 @@ export class GrepTool {
 			operation: context.operation,
 			maxDepth: context.limits.grep_max_depth,
 			maxEntries: context.limits.grep_max_entries,
+			maxSearchBytes: context.limits.grep_max_search_bytes,
 		});
 		if (isFailed(inventory)) return inventory;
-		const searchableInventory = limitInventoryBytes(inventory, context.limits.grep_max_search_bytes);
-		const preparation = prepareCodeAnalysis(searchableInventory, context);
-		const scanned = await scanInventoryText(searchableInventory, plan, {
+		const preparation = prepareCodeAnalysis(inventory, context);
+		const scanned = await scanInventoryText(inventory, plan, {
 			filesystem: context.filesystem,
 			operation: context.operation,
 			retainTextMaxBytes: context.limits.grep_ast_max_file_bytes,
@@ -110,11 +110,11 @@ export class GrepTool {
 		if (isFailed(scanned)) return scanned;
 		await preparation;
 		if (plan.queryMode === "literal_fallback" && scanned.totalHits === 0) return plan.invalidRegex;
-		const analysisPaths = semanticParsePriority(searchableInventory, scanned);
-		const analyzed = await analyzeSymbols(plan, searchableInventory, scanned, analysisPaths, context);
+		const analysisPaths = semanticParsePriority(inventory, scanned);
+		const analyzed = await analyzeSymbols(plan, inventory, scanned, analysisPaths, context);
 		if (isFailed(analyzed)) return analyzed;
 		const regionized = analyzed.result ?? await this.regionizer.regionize(
-			searchableInventory,
+			inventory,
 			scanned.hits,
 			analysisPaths,
 			{
@@ -125,7 +125,7 @@ export class GrepTool {
 			},
 		);
 		if (isFailed(regionized)) return regionized;
-		const scope = successfulScopeState(plan, searchableInventory, scanned.scopeErrors, regionized.scopeErrors);
+		const scope = successfulScopeState(plan, inventory, scanned.scopeErrors, regionized.scopeErrors);
 		if (scope.failure !== undefined) return scope.failure;
 		const regions = buildRankedRegions(plan, scanned, regionized, context.limits.grep_regional_display_limit);
 		return packGrepResults({
@@ -136,36 +136,19 @@ export class GrepTool {
 			...(scope.errors.length === 0 ? {} : { scopeErrors: scope.errors }),
 			regions,
 			stats: grepStats(
-				searchableInventory,
+				inventory,
 				scanned.stats,
 				scanned.totalHits,
 				regionized.files.length,
 				regionized.astSkippedOversizedFiles,
 				regionized.skipped,
 			),
-			truncationReasons: searchableInventory.truncationReasons,
+			truncationReasons: inventory.truncationReasons,
 			resultLimit: context.limits.grep_result_limit,
 			relatedResultLimit: context.limits.grep_related_result_limit,
 			regionalDisplayLimit: context.limits.grep_regional_display_limit,
 		});
 	}
-}
-
-function limitInventoryBytes(inventory: ScopeInventory, maxBytes: number): ScopeInventory {
-	let selected = 0;
-	let reservedBytes = 0;
-	for (const file of inventory.files) {
-		if (file.snapshot.sizeBytes > maxBytes - reservedBytes) {
-			return {
-				...inventory,
-				files: inventory.files.slice(0, selected),
-				truncationReasons: [...inventory.truncationReasons, "byte_limit"],
-			};
-		}
-		reservedBytes += file.snapshot.sizeBytes;
-		selected += 1;
-	}
-	return inventory;
 }
 
 function prepareCodeAnalysis(inventory: ScopeInventory, context: GrepCommandContext): Promise<void> {

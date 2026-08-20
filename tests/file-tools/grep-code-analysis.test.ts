@@ -46,6 +46,30 @@ describe("grep code analysis", () => {
 		expect(analyzeCode).toHaveBeenCalledOnce();
 	});
 
+	it("存在正文命中时 analyzer 只接收真实命中文件，不解析 anchor-only 文件", async () => {
+		await writeFile(path.join(testContext.workspace, "a-hit.ts"), "export const exact = 'Authentication Flow';\n");
+		await writeFile(path.join(testContext.workspace, "b-anchor.ts"), [
+			"export function related() {",
+			"  const authentication = true;",
+			"  return flow(authentication);",
+			"}",
+		].join("\n"));
+		const targetPaths: string[][] = [];
+		const analyzeCode = vi.fn<AnalyzeCode>(async (input) => {
+			targetPaths.push(input.targets.map((target) => target.path));
+			return undefined;
+		});
+
+		const result = expectGrepSuccess(await grepWithAnalyzer(
+			testContext.workspace,
+			{ query: "Authentication Flow" },
+			{ analyzeCode },
+		));
+
+		expect(result.regions.map((region) => region.path)).toEqual(["a-hit.ts"]);
+		expect(targetPaths).toEqual([["a-hit.ts"]]);
+	});
+
 	it("bare CR 正文不进入 LSP，直接回退为安全文本结果", async () => {
 		await writeFile(path.join(testContext.workspace, "target.ts"), "export function Target() {\r  return true;\r}\r");
 		const analyzeCode = vi.fn<AnalyzeCode>(async (input) => {

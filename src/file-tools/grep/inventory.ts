@@ -49,6 +49,7 @@ export interface ScopeInventoryContext {
 	readonly operation: FsOperationContext;
 	readonly maxDepth: number;
 	readonly maxEntries: number;
+	readonly maxSearchBytes: number;
 }
 
 interface MutableInventoryState {
@@ -61,6 +62,7 @@ interface MutableInventoryState {
 	readonly skipped: MutableGrepSkippedFiles;
 	readonly truncationReasons: Set<TruncationReason>;
 	traversedEntries: number;
+	reservedSearchBytes: number;
 }
 
 /** 只聚合每个 scope 的 discovery 事实，不读取正文或实现文件发现策略。 */
@@ -74,6 +76,9 @@ export async function buildScopeInventory(
 	if (!Number.isSafeInteger(context.maxEntries) || context.maxEntries < 0) {
 		return fail("INVALID_OPERATION", "Traversal entry limit must be a non-negative integer.");
 	}
+	if (!Number.isSafeInteger(context.maxSearchBytes) || context.maxSearchBytes < 0) {
+		return fail("INVALID_OPERATION", "Search byte limit must be a non-negative integer.");
+	}
 	if (input.paths.length === 0) return fail("INVALID_PATH", "path must contain at least one scope.");
 	const state: MutableInventoryState = {
 		context,
@@ -85,6 +90,7 @@ export async function buildScopeInventory(
 		skipped: createGrepSkippedFiles(),
 		truncationReasons: new Set(),
 		traversedEntries: 0,
+		reservedSearchBytes: 0,
 	};
 
 	for (const [order, scopeInput] of input.paths.entries()) {
@@ -118,7 +124,7 @@ export async function buildScopeInventory(
 			state.scopeErrors.push({ path: scopeInput, error: discovered.error });
 		} else {
 			state.scopes.push(scope);
-			if (state.truncationReasons.has("entry_limit")) break;
+			if (state.truncationReasons.has("entry_limit") || state.truncationReasons.has("byte_limit")) break;
 		}
 	}
 
@@ -133,7 +139,7 @@ export async function buildScopeInventory(
 		scopeErrors: state.scopeErrors,
 		skipped: compactGrepSkippedFiles(state.skipped),
 		traversedEntries: state.traversedEntries,
-		truncationReasons: (["depth_limit", "entry_limit"] as const)
+		truncationReasons: (["depth_limit", "entry_limit", "byte_limit"] as const)
 			.filter((reason) => state.truncationReasons.has(reason)),
 	};
 }
@@ -168,15 +174,20 @@ async function discoverScope(scope: InventoryScope, state: MutableInventoryState
 	try {
 		for await (const event of opened.value) {
 			if (isAborted(state.context.operation.signal)) return aborted(scope.root.displayPath);
-			const failure = consumeDiscoveryEvent(event, scope, state);
-			if (failure !== undefined) return failure;
+			const consumed = consumeDiscoveryEvent(event, scope, state);
+			if (consumed === "byte-limit") break;
+			if (consumed !== undefined) return consumed;
 		}
 	} finally {
 		await opened.value.close();
 	}
 }
 
-function consumeDiscoveryEvent(event: DiscoveryEvent, scope: InventoryScope, state: MutableInventoryState): FailedResult | undefined {
+function consumeDiscoveryEvent(
+	event: DiscoveryEvent,
+	scope: InventoryScope,
+	state: MutableInventoryState,
+): FailedResult | "byte-limit" | undefined {
 	if (event.type === "skip") {
 		if (event.reason === "depth-limit") state.truncationReasons.add("depth_limit");
 		else if (event.reason === "entry-limit") state.truncationReasons.add("entry_limit");
@@ -193,7 +204,9 @@ function consumeDiscoveryEvent(event: DiscoveryEvent, scope: InventoryScope, sta
 	}
 	if (scope.root.kind === "directory") state.traversedEntries += 1;
 	if (event.ref.kind !== "file") return;
-	addFile(event.ref, event.snapshot, scope, event.relativePath, scope.root.kind === "file", state);
+	return addFile(event.ref, event.snapshot, scope, event.relativePath, scope.root.kind === "file", state)
+		? undefined
+		: "byte-limit";
 }
 
 function addFile(
@@ -203,7 +216,7 @@ function addFile(
 	relativePath: string,
 	explicitFile: boolean,
 	state: MutableInventoryState,
-): void {
+): boolean {
 	const existingIndex = state.seenFiles.get(snapshot.identity);
 	const membership: ScopedFileMembership = {
 		scopeInput: scope.input,
@@ -227,8 +240,13 @@ function addFile(
 				memberships: [...existing.memberships, membership],
 			};
 		}
-		return;
+		return true;
 	}
+	if (snapshot.sizeBytes > state.context.maxSearchBytes - state.reservedSearchBytes) {
+		state.truncationReasons.add("byte_limit");
+		return false;
+	}
+	state.reservedSearchBytes += snapshot.sizeBytes;
 	state.seenFiles.set(snapshot.identity, state.files.length);
 	state.files.push({
 		ref,
@@ -241,6 +259,7 @@ function addFile(
 		visibilityBypass: scope.visibilityBypass,
 		memberships: [membership],
 	});
+	return true;
 }
 
 function isAborted(signal: AbortSignal | undefined): boolean {
