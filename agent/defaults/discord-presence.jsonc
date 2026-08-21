@@ -1,7 +1,7 @@
 {
 	"$schema": "../schemas/discord-presence.schema.json",
 	"enabled": true,
-	"application_id": "1520833162148712580",
+	"application_id": "1540224977184358430",
 	"update_interval_ms": 5000,
 	"retry_interval_ms": 30000,
 	"profile": "standard",
@@ -54,15 +54,15 @@
 			"text": "{label}",
 			"default": "",
 			"activities": {
-				"idle": "",
-				"thinking": "",
-				"reading": "",
-				"editing": "",
-				"writing": "",
-				"searching": "",
-				"browsing": "",
-				"shell": "",
-				"other_tool": ""
+				"idle": "idle",
+				"thinking": "thinking",
+				"reading": "reading",
+				"editing": "editing",
+				"writing": "writing",
+				"searching": "searching",
+				"browsing": "browsing",
+				"shell": "shell",
+				"other_tool": "other_tool"
 			},
 			"languages": {}
 		}

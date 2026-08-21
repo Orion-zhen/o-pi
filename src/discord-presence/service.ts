@@ -10,15 +10,14 @@ import {
 	type PresenceActivityState,
 } from "./activity.js";
 import { loadDiscordPresenceConfig } from "./config.js";
-import { PresencePublisher } from "./publisher.js";
+import {
+	DiscordPresenceCoordinatorClient,
+	type DiscordPresenceCoordinator,
+} from "./coordinator-client.js";
 import { renderDiscordActivity } from "./render.js";
 import {
-	createDiscordRpcTransport,
-	type DiscordPresenceTransport,
-	type DiscordPresenceTransportFactory,
-} from "./transport.js";
-import {
 	PRESENCE_PROFILES,
+	type DiscordActivityPayload,
 	type DiscordPresenceConfig,
 	type PresenceConnectionStatus,
 	type PresenceProfileName,
@@ -40,7 +39,7 @@ export interface PresenceStatusSnapshot {
 
 export interface DiscordPresenceServiceOptions {
 	loadConfig?: (cwd: string) => Promise<DiscordPresenceConfig>;
-	createTransport?: DiscordPresenceTransportFactory;
+	coordinator?: DiscordPresenceCoordinator;
 	now?: () => number;
 }
 
@@ -49,18 +48,17 @@ export class DiscordPresenceService {
 	private config: DiscordPresenceConfig | undefined;
 	private session: PresenceSession | undefined;
 	private activity: PresenceActivityState = initialPresenceActivityState();
-	private transport: DiscordPresenceTransport | undefined;
-	private publisher: PresencePublisher | undefined;
+	private readonly coordinator: DiscordPresenceCoordinator;
+	private coordinatorActive = false;
 	private runtimeEnabled: boolean | undefined;
 	private runtimeProfile: PresenceProfileName | undefined;
 	private generation = 0;
 	private readonly loadConfig: (cwd: string) => Promise<DiscordPresenceConfig>;
-	private readonly createTransport: DiscordPresenceTransportFactory;
 	private readonly now: () => number;
 
 	constructor(options: DiscordPresenceServiceOptions = {}) {
 		this.loadConfig = options.loadConfig ?? loadDiscordPresenceConfig;
-		this.createTransport = options.createTransport ?? createDiscordRpcTransport;
+		this.coordinator = options.coordinator ?? new DiscordPresenceCoordinatorClient();
 		this.now = options.now ?? Date.now;
 	}
 
@@ -106,9 +104,9 @@ export class DiscordPresenceService {
 
 	status(): PresenceStatusSnapshot {
 		return {
-			enabled: this.publisher !== undefined,
+			enabled: this.coordinatorActive,
 			profile: this.activeProfile(),
-			connection: this.transport?.getStatus() ?? "disabled",
+			connection: this.coordinatorActive ? this.coordinator.getStatus() : "disabled",
 		};
 	}
 
@@ -154,7 +152,6 @@ export class DiscordPresenceService {
 
 	private async activate(context: PresenceStartContext): Promise<void> {
 		const generation = ++this.generation;
-		await this.disposeActive();
 		const config = await this.loadConfig(context.cwd);
 		if (generation !== this.generation) return;
 		this.config = config;
@@ -168,44 +165,50 @@ export class DiscordPresenceService {
 			session: context.sessionName || path.basename(context.cwd) || context.cwd,
 			startedAt: this.now(),
 		};
-		if (!(this.runtimeEnabled ?? config.enabled)) return;
+		if (!(this.runtimeEnabled ?? config.enabled)) {
+			await this.disposeActive();
+			return;
+		}
 		if (config.application_id.length === 0) {
 			throw new Error("application_id is required to enable Discord presence.");
 		}
-		const transport = await this.createTransport(config.application_id);
-		if (generation !== this.generation) {
-			await transport.close();
-			return;
+		const initialActivity = this.renderActivity();
+		this.coordinatorActive = true;
+		try {
+			await this.coordinator.activate({
+				applicationId: config.application_id,
+				updateIntervalMs: config.update_interval_ms,
+				retryIntervalMs: config.retry_interval_ms,
+			}, this.session.startedAt, initialActivity);
+		} catch (error) {
+			if (generation === this.generation) {
+				this.coordinatorActive = false;
+				await this.coordinator.deactivate().catch(() => undefined);
+			}
+			throw error;
 		}
-		this.transport = transport;
-		this.publisher = new PresencePublisher(
-			transport,
-			config.update_interval_ms,
-			config.retry_interval_ms,
-		);
-		this.publish();
 	}
 
-	private async disposeActive(): Promise<void> {
-		const publisher = this.publisher;
-		const transport = this.transport;
-		this.publisher = undefined;
-		this.transport = undefined;
-		publisher?.stop();
-		if (transport === undefined) return;
-		await transport.clearActivity().catch(() => undefined);
-		await transport.close().catch(() => undefined);
-	}
-
-	private publish(): void {
-		if (this.publisher === undefined || this.config === undefined || this.session === undefined) return;
-		const rendered = renderDiscordActivity(
+	private renderActivity(): DiscordActivityPayload | undefined {
+		if (this.config === undefined || this.session === undefined) return undefined;
+		return renderDiscordActivity(
 			this.config,
 			this.activeProfile(),
 			currentActivity(this.activity),
 			this.session,
 		);
-		if (rendered !== undefined) this.publisher.request(rendered);
+	}
+
+	private async disposeActive(): Promise<void> {
+		if (!this.coordinatorActive) return;
+		this.coordinatorActive = false;
+		await this.coordinator.deactivate().catch(() => undefined);
+	}
+
+	private publish(): void {
+		if (!this.coordinatorActive || this.config === undefined || this.session === undefined) return;
+		const rendered = this.renderActivity();
+		if (rendered !== undefined) this.coordinator.request(rendered);
 	}
 
 	private activeProfile(): PresenceProfileName {

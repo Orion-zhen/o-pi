@@ -399,4 +399,8 @@ Discord 旧版 Rich Presence 文档明确给出每 15 秒一次更新；当前 R
 
 默认模板不会发布完整路径、Bash 参数、搜索词、URL 或用户 prompt。默认可公开的数据仅包括项目 basename、文件 basename、简化模型名、session 名、工具名和 Bash 可执行程序名。
 
-Discord 同一用户只有一个 Rich Presence 槽位；同时运行多个 Pi 或其他 Presence 应用时，最后更新者生效。该扩展仅在 Pi 的 TUI 模式启用，不会为 print、JSON 或 RPC 模式发布 Presence。
+同一系统用户的多个 TUI Pi 由按需启动的本地协调进程合并为一个 Discord RPC 连接。最近发布状态的 Pi 获得展示权；它退出或执行 `/presence off` 后，协调器回退到剩余 Pi 中最近活跃者的最后状态。`/presence reload`、切换 profile、模型或 session 不会离开协调组。
+
+开启 `show_elapsed` 时，所有参与者使用共享起点：第一个启用 Presence 的 Pi 加入时开始，第一进程退出后继续，最后一个参与者退出或关闭 Presence 时结束；之后建立的新组重新计时。协调进程异常重启时，存活客户端会携带原起点和最后状态重新注册。
+
+协调进程使用当前系统用户私有的本地 socket，并在最后一个参与者离开后清除 Activity、关闭 Discord RPC 并退出。Pi 不会等待协调器或 Discord 建立连接；无响应的本地连接会超时重建，最近状态会在后台恢复后重新注册。不同 Pi 可以有不同 profile、资源和 Application ID；展示权切换时会同步切换配置。其他非 Pi Presence 应用仍由 Discord 自行仲裁。该扩展不会为 print、JSON 或 RPC 模式发布 Presence。

@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, writeFile } from "node:fs/promises";
+import { createConnection, createServer } from "node:net";
 import path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -61,6 +62,24 @@ vi.mock("@xhayper/discord-rpc", () => ({ Client: discordMock.MockClient }));
 
 import { createDiscordPresenceExtension } from "../../agent/extensions/discord-presence.js";
 import {
+	DiscordPresenceCoordinatorClient,
+	type DiscordPresenceCoordinator,
+} from "../../src/discord-presence/coordinator-client.js";
+import {
+	parseClientMessage,
+	parseServerMessage,
+	readCoordinatorMessages,
+	type CoordinatedPresenceConfig,
+	writeCoordinatorMessage,
+} from "../../src/discord-presence/coordinator-protocol.js";
+import {
+	createPresenceCoordinatorServer,
+	DiscordCoordinatorOutput,
+	PresenceBroker,
+	type PresenceCoordinatorOutput,
+	type SelectedPresence,
+} from "../../src/discord-presence/coordinator-server.js";
+import {
 	classifyTool,
 	currentActivity,
 	endTool,
@@ -82,6 +101,7 @@ import {
 	completedTopLevelStringProperty,
 	StreamingToolCallTracker,
 } from "../../src/discord-presence/streaming.js";
+import { SwitchingDiscordTransport } from "../../src/discord-presence/switching-transport.js";
 import { createDiscordRpcTransport, type DiscordPresenceTransport } from "../../src/discord-presence/transport.js";
 import type {
 	DiscordActivityPayload,
@@ -123,10 +143,75 @@ function enabledConfig(): DiscordPresenceConfig {
 	return config;
 }
 
+function coordinatedConfig(applicationId = "123456789012345678"): CoordinatedPresenceConfig {
+	return { applicationId, updateIntervalMs: 5_000, retryIntervalMs: 30_000 };
+}
+
 function configuredProfile(config: DiscordPresenceConfig, name: string): PresenceProfileConfig {
 	const profile = config.profiles[name];
 	if (profile === undefined) throw new Error(`Missing test profile: ${name}`);
 	return profile;
+}
+
+class FakeCoordinator implements DiscordPresenceCoordinator {
+	readonly activities: DiscordActivityPayload[] = [];
+	readonly activations: Array<{
+		config: CoordinatedPresenceConfig;
+		joinedAt: number;
+		activity?: DiscordActivityPayload;
+	}> = [];
+	deactivateCount = 0;
+	status: ReturnType<DiscordPresenceCoordinator["getStatus"]> = "disabled";
+	private readonly listeners = new Set<(status: ReturnType<DiscordPresenceCoordinator["getStatus"]>) => void>();
+
+	async activate(
+		config: CoordinatedPresenceConfig,
+		joinedAt: number,
+		activity?: DiscordActivityPayload,
+	): Promise<void> {
+		this.activations.push({ config, joinedAt, ...(activity === undefined ? {} : { activity }) });
+		if (activity !== undefined) this.activities.push(activity);
+		this.status = "connected";
+	}
+	request(activity: DiscordActivityPayload): void {
+		this.activities.push(activity);
+	}
+	async deactivate(): Promise<void> {
+		this.deactivateCount += 1;
+		this.status = "disabled";
+	}
+	getStatus() {
+		return this.status;
+	}
+	onStatus(listener: (status: ReturnType<DiscordPresenceCoordinator["getStatus"]>) => void): () => void {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	}
+}
+
+class FakeCoordinatorOutput implements PresenceCoordinatorOutput {
+	readonly selections: SelectedPresence[] = [];
+	hideCount = 0;
+	clearCount = 0;
+	status: ReturnType<PresenceCoordinatorOutput["getStatus"]> = "connected";
+	private readonly listeners = new Set<(status: ReturnType<PresenceCoordinatorOutput["getStatus"]>) => void>();
+
+	show(selection: SelectedPresence): void {
+		this.selections.push(selection);
+	}
+	async hide(): Promise<void> {
+		this.hideCount += 1;
+	}
+	async clear(): Promise<void> {
+		this.clearCount += 1;
+	}
+	getStatus() {
+		return this.status;
+	}
+	onStatus(listener: (status: ReturnType<PresenceCoordinatorOutput["getStatus"]>) => void): () => void {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	}
 }
 
 class FakeTransport implements DiscordPresenceTransport {
@@ -403,6 +488,22 @@ describe("Discord presence publisher", () => {
 		publisher.stop();
 	});
 
+	it("运行时更新全局发送间隔时重新安排等待中的最新状态", async () => {
+		const transport = new FakeTransport();
+		const publisher = new PresencePublisher(transport, 15_000, 30_000);
+		publisher.request({ details: "Initial", instance: false });
+		expect(transport.activities).toHaveLength(1);
+		await Promise.resolve();
+		await Promise.resolve();
+		publisher.request({ details: "Updated", instance: false });
+		publisher.configure(5_000, 30_000);
+		await vi.advanceTimersByTimeAsync(4_999);
+		expect(transport.activities).toHaveLength(1);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(transport.activities.at(-1)).toMatchObject({ details: "Updated" });
+		publisher.stop();
+	});
+
 	it("使用配置的失败重试间隔", async () => {
 		const transport = new FakeTransport();
 		transport.failSetCount = 1;
@@ -415,6 +516,50 @@ describe("Discord presence publisher", () => {
 		expect(transport.activities).toHaveLength(0);
 		await vi.advanceTimersByTimeAsync(1);
 		expect(transport.activities.at(-1)).toMatchObject({ details: "Idle" });
+		publisher.stop();
+	});
+
+	it("断线后即使没有新事件也会重试最后状态", async () => {
+		const transport = new FakeTransport();
+		const publisher = new PresencePublisher(transport, 15_000, 30_000);
+		publisher.request({ details: "Thinking", instance: false });
+		expect(transport.activities).toHaveLength(1);
+		await Promise.resolve();
+		await Promise.resolve();
+		transport.emitStatus("disconnected");
+		await vi.advanceTimersByTimeAsync(29_999);
+		expect(transport.activities).toHaveLength(1);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(transport.activities).toHaveLength(2);
+		publisher.stop();
+	});
+
+	it("clear 后的新状态使用更新间隔，而不是失败重试间隔", async () => {
+		let releaseFirstSend: (() => void) | undefined;
+		class BlockingTransport extends FakeTransport {
+			private first = true;
+			override async setActivity(activity: DiscordActivityPayload): Promise<void> {
+				if (this.first) {
+					this.first = false;
+					await new Promise<void>((resolve) => {
+						releaseFirstSend = resolve;
+					});
+				}
+				await super.setActivity(activity);
+			}
+		}
+		const transport = new BlockingTransport();
+		const publisher = new PresencePublisher(transport, 5_000, 30_000);
+		publisher.request({ details: "Old", instance: false });
+		publisher.clear();
+		publisher.request({ details: "New", instance: false });
+		releaseFirstSend?.();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(transport.activities).toHaveLength(1);
+		await vi.advanceTimersByTimeAsync(4_999);
+		expect(transport.activities).toHaveLength(1);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(transport.activities.at(-1)).toMatchObject({ details: "New" });
 		publisher.stop();
 	});
 
@@ -432,12 +577,310 @@ describe("Discord presence publisher", () => {
 	});
 });
 
+describe("Discord presence 多进程协调", () => {
+	it.each([
+		[{ type: "activity", activity: { instance: true }, activeAt: 1 }, "instance"],
+		[{ type: "configure", config: { applicationId: "bad", updateIntervalMs: 5_000, retryIntervalMs: 30_000 } }, "Application ID"],
+		[{ type: "register", participantId: "a", joinedAt: 1, config: coordinatedConfig(), activity: { instance: false } }, "together"],
+	])("拒绝非法 IPC payload %#", (payload, message) => {
+		expect(() => parseClientMessage(payload)).toThrow(message);
+	});
+
+	it("最近活跃者获得展示权，退出后回退且共享 elapsed 直到最后一员退出", async () => {
+		const output = new FakeCoordinatorOutput();
+		const broker = new PresenceBroker({ output });
+		const a = { details: "A", startTimestamp: 110, instance: false } as const;
+		const b = { details: "B", startTimestamp: 210, instance: false } as const;
+
+		broker.register("a", coordinatedConfig(), 100, undefined, a, 1_000);
+		expect(output.selections.at(-1)).toMatchObject({
+			participantId: "a",
+			activity: { details: "A", startTimestamp: 100 },
+			groupStartedAt: 100,
+		});
+		broker.register("b", coordinatedConfig(), 200, undefined, b, 2_000);
+		expect(output.selections.at(-1)).toMatchObject({
+			participantId: "b",
+			activity: { details: "B", startTimestamp: 100 },
+		});
+		broker.publish("a", { details: "A active", startTimestamp: 300, instance: false }, 3_000);
+		expect(output.selections.at(-1)).toMatchObject({
+			participantId: "a",
+			activity: { details: "A active", startTimestamp: 100 },
+		});
+
+		broker.remove("a");
+		expect(output.selections.at(-1)).toMatchObject({
+			participantId: "b",
+			activity: { details: "B", startTimestamp: 100 },
+		});
+		broker.remove("b");
+		expect(output.clearCount).toBe(1);
+		expect(broker.startedAt()).toBeUndefined();
+
+		broker.register("c", coordinatedConfig(), 4_000, undefined, {
+			details: "No timer", instance: false,
+		}, 4_000);
+		expect(output.selections.at(-1)).toMatchObject({
+			participantId: "c",
+			activity: { details: "No timer" },
+			groupStartedAt: 4_000,
+		});
+		expect(output.selections.at(-1)?.activity).not.toHaveProperty("startTimestamp");
+		broker.register("d", coordinatedConfig(), 5_000);
+		broker.remove("c");
+		expect(output.hideCount).toBe(1);
+		broker.remove("d");
+		expect(output.clearCount).toBe(2);
+	});
+
+	it("协调输出在全局间隔内合并状态并切换 Application", async () => {
+		const transports: FakeTransport[] = [];
+		const output = new DiscordCoordinatorOutput({
+			createTransport: async () => {
+				const transport = new FakeTransport();
+				transports.push(transport);
+				return transport;
+			},
+		});
+		output.show({
+			participantId: "a",
+			config: coordinatedConfig("123456789012345678"),
+			activity: { details: "A", startTimestamp: 100, instance: false },
+			groupStartedAt: 100,
+		});
+		await vi.waitFor(() => expect(transports[0]?.activities).toHaveLength(1));
+		output.show({
+			participantId: "b",
+			config: coordinatedConfig("223456789012345678"),
+			activity: { details: "B", startTimestamp: 100, instance: false },
+			groupStartedAt: 100,
+		});
+		await vi.advanceTimersByTimeAsync(5_000);
+		await vi.waitFor(() => expect(transports[1]?.activities.at(-1)).toMatchObject({ details: "B" }));
+		expect(transports[0]).toMatchObject({ clearCount: 1, closeCount: 1 });
+		await output.clear();
+	});
+
+	it("协调器重启后由存活参与者恢复原共享起点", () => {
+		const output = new FakeCoordinatorOutput();
+		const broker = new PresenceBroker({ output });
+		broker.register("survivor", coordinatedConfig(), 2_000, 100, {
+			details: "Recovered", startTimestamp: 2_000, instance: false,
+		}, 3_000);
+		expect(output.selections.at(-1)).toMatchObject({
+			activity: { startTimestamp: 100 },
+			groupStartedAt: 100,
+		});
+	});
+
+	it("无响应的协调器不会阻塞激活，恢复后无需新事件即可发布初始状态", async () => {
+		vi.useRealTimers();
+		const endpoint = path.join(temp.path, "silent.sock");
+		let acceptConnection: (() => void) | undefined;
+		const accepted = new Promise<void>((resolve) => {
+			acceptConnection = resolve;
+		});
+		const silentServer = createServer((socket) => {
+			socket.resume();
+			acceptConnection?.();
+		});
+		await new Promise<void>((resolve, reject) => {
+			silentServer.once("error", reject);
+			silentServer.listen(endpoint, resolve);
+		});
+		const coordinator = new DiscordPresenceCoordinatorClient({
+			endpoint,
+			participantId: "silent-client",
+			now: () => 1_000,
+			spawnDaemon: () => undefined,
+			handshakeTimeoutMs: 20,
+		});
+		let server: ReturnType<typeof createPresenceCoordinatorServer> | undefined;
+		try {
+			await coordinator.activate(coordinatedConfig(), 100, {
+				details: "Initial", startTimestamp: 100, instance: false,
+			});
+			expect(coordinator.getStatus()).not.toBe("disabled");
+			await accepted;
+			await new Promise<void>((resolve) => silentServer.close(() => resolve()));
+
+			const output = new FakeCoordinatorOutput();
+			server = createPresenceCoordinatorServer({ endpoint, output });
+			await server.listen();
+			await vi.waitFor(() => expect(output.selections.at(-1)).toMatchObject({
+				participantId: "silent-client",
+				activity: { details: "Initial", startTimestamp: 100 },
+			}), { timeout: 5_000 });
+		} finally {
+			await coordinator.deactivate();
+			if (silentServer.listening) {
+				await new Promise<void>((resolve) => silentServer.close(() => resolve()));
+			}
+			await server?.close();
+		}
+	});
+
+	it("两个真实 IPC 客户端共享协调器并按最新活动切换", async () => {
+		vi.useRealTimers();
+		const endpoint = path.join(temp.path, "coordinator.sock");
+		const output = new FakeCoordinatorOutput();
+		const server = createPresenceCoordinatorServer({ endpoint, output });
+		await server.listen();
+		const a = new DiscordPresenceCoordinatorClient({
+			endpoint, participantId: "a", now: () => 1_000, spawnDaemon: () => undefined,
+		});
+		const b = new DiscordPresenceCoordinatorClient({
+			endpoint, participantId: "b", now: () => 2_000, spawnDaemon: () => undefined,
+		});
+		try {
+			await a.activate(coordinatedConfig(), 100);
+			a.request({ details: "A", startTimestamp: 100, instance: false });
+			await vi.waitFor(() => expect(output.selections.at(-1)?.participantId).toBe("a"));
+			await b.activate(coordinatedConfig(), 200);
+			b.request({ details: "B", startTimestamp: 200, instance: false });
+			await vi.waitFor(() => expect(output.selections.at(-1)).toMatchObject({
+				participantId: "b", activity: { startTimestamp: 100 },
+			}));
+			await b.deactivate();
+			await vi.waitFor(() => expect(output.selections.at(-1)?.participantId).toBe("a"));
+			await a.deactivate();
+			await vi.waitFor(() => expect(server.participantCount()).toBe(0));
+			await a.activate(coordinatedConfig(), 300);
+			a.request({ details: "New group", startTimestamp: 300, instance: false });
+			await vi.waitFor(() => expect(output.selections.at(-1)).toMatchObject({
+				activity: { details: "New group", startTimestamp: 300 }, groupStartedAt: 300,
+			}));
+			await a.deactivate();
+		} finally {
+			await a.deactivate();
+			await b.deactivate();
+			await server.close();
+		}
+	});
+
+	it("协调器异常重启后客户端恢复共享起点和最近活动者", async () => {
+		vi.useRealTimers();
+		const endpoint = path.join(temp.path, "restart.sock");
+		const firstOutput = new FakeCoordinatorOutput();
+		const firstServer = createPresenceCoordinatorServer({ endpoint, output: firstOutput });
+		await firstServer.listen();
+		const a = new DiscordPresenceCoordinatorClient({
+			endpoint, participantId: "restart-a", now: () => 1_000, spawnDaemon: () => undefined,
+		});
+		const b = new DiscordPresenceCoordinatorClient({
+			endpoint, participantId: "restart-b", now: () => 2_000, spawnDaemon: () => undefined,
+		});
+		let secondServer: ReturnType<typeof createPresenceCoordinatorServer> | undefined;
+		try {
+			await a.activate(coordinatedConfig(), 100);
+			a.request({ details: "A", startTimestamp: 100, instance: false });
+			await b.activate(coordinatedConfig(), 200);
+			b.request({ details: "B", startTimestamp: 200, instance: false });
+			await vi.waitFor(() => expect(firstOutput.selections.at(-1)?.participantId).toBe("restart-b"));
+			await firstServer.close();
+
+			const secondOutput = new FakeCoordinatorOutput();
+			secondServer = createPresenceCoordinatorServer({ endpoint, output: secondOutput });
+			await secondServer.listen();
+			await vi.waitFor(() => expect(secondOutput.selections.at(-1)).toMatchObject({
+				participantId: "restart-b",
+				activity: { details: "B", startTimestamp: 100 },
+				groupStartedAt: 100,
+			}), { timeout: 5_000 });
+		} finally {
+			await a.deactivate();
+			await b.deactivate();
+			await firstServer.close();
+			await secondServer?.close();
+		}
+	});
+
+	it("首个客户端能按需启动守护进程，并在最后一员退出后清理 socket", async () => {
+		vi.useRealTimers();
+		const endpoint = path.join(temp.path, "daemon.sock");
+		const coordinator = new DiscordPresenceCoordinatorClient({ endpoint, participantId: "daemon-test" });
+		await coordinator.activate(coordinatedConfig(), Date.now());
+		await vi.waitFor(() => expect(access(endpoint)).resolves.toBeUndefined(), { timeout: 5_000 });
+
+		const probe = createConnection(endpoint);
+		await new Promise<void>((resolve, reject) => {
+			const onError = (error: Error): void => reject(error);
+			probe.once("error", onError);
+			probe.once("connect", () => {
+				probe.off("error", onError);
+				resolve();
+			});
+		});
+		await new Promise<void>((resolve, reject) => {
+			const removeReader = readCoordinatorMessages(probe, (value) => {
+				try {
+					if (parseServerMessage(value).type !== "status") return;
+					removeReader();
+					resolve();
+				} catch (error) {
+					reject(error);
+				}
+			}, reject);
+			writeCoordinatorMessage(probe, {
+				type: "register",
+				participantId: "daemon-probe",
+				joinedAt: Date.now(),
+				config: coordinatedConfig(),
+			});
+		});
+		await coordinator.deactivate();
+		await new Promise<void>((resolve) => {
+			probe.once("close", resolve);
+			probe.end();
+		});
+		await vi.waitFor(async () => {
+			await expect(access(endpoint)).rejects.toThrow();
+			await expect(access(`${endpoint}.lock`)).rejects.toThrow();
+		}, { timeout: 5_000 });
+	});
+});
+
 describe("Discord presence 服务与 Pi 适配", () => {
+	it("本地协调端点准备失败时回滚为关闭状态", async () => {
+		const blockedDirectory = path.join(temp.path, "blocked-endpoint");
+		await writeFile(blockedDirectory, "not a directory");
+		const coordinator = new DiscordPresenceCoordinatorClient({
+			endpoint: path.join(blockedDirectory, "coordinator.sock"),
+			spawnDaemon: () => undefined,
+		});
+		const service = new DiscordPresenceService({
+			loadConfig: async () => enabledConfig(), coordinator, now: Date.now,
+		});
+		await expect(service.startSession({
+			cwd: "/workspace/o-pi", model: undefined, sessionName: undefined, idle: true,
+		})).rejects.toThrow();
+		expect(service.status()).toMatchObject({ enabled: false, connection: "disabled" });
+	});
+
+	it("reload 保持协调成员，off 才退出共享计时组", async () => {
+		const coordinator = new FakeCoordinator();
+		const service = new DiscordPresenceService({
+			loadConfig: async () => enabledConfig(), coordinator, now: Date.now,
+		});
+		const context = {
+			cwd: "/workspace/o-pi", model: { id: "gpt", name: "GPT" }, sessionName: "Session", idle: true,
+		};
+		await service.startSession(context);
+		vi.setSystemTime(new Date("2026-08-21T11:00:00Z"));
+		await service.reload(context);
+		expect(coordinator.activations).toHaveLength(2);
+		expect(coordinator.activations[1]?.activity).toMatchObject({ details: "Waiting in o-pi" });
+		expect(coordinator.deactivateCount).toBe(0);
+		await service.disable();
+		expect(coordinator.deactivateCount).toBe(1);
+	});
+
 	it("合并快速事件、切换 profile，并在 settled 与 shutdown 时更新和清理", async () => {
-		const transport = new FakeTransport();
+		const coordinator = new FakeCoordinator();
 		const service = new DiscordPresenceService({
 			loadConfig: async () => enabledConfig(),
-			createTransport: async () => transport,
+			coordinator,
 			now: Date.now,
 		});
 		await service.startSession({
@@ -446,8 +889,8 @@ describe("Discord presence 服务与 Pi 适配", () => {
 			sessionName: "Rich Presence",
 			idle: true,
 		});
-		await vi.waitFor(() => expect(transport.activities).toHaveLength(1));
-		expect(transport.activities[0]).toMatchObject({ details: "Waiting in o-pi" });
+		expect(coordinator.activities).toHaveLength(1);
+		expect(coordinator.activities[0]).toMatchObject({ details: "Waiting in o-pi" });
 
 		service.onTurnStart();
 		service.onToolStart("read", "read", { path: "/secret/file.ts" });
@@ -455,27 +898,24 @@ describe("Discord presence 服务与 Pi 适配", () => {
 		service.onToolEnd("bash");
 		service.onModelSelect({ id: "new", name: "New Model" });
 		service.onSessionName("Renamed");
-		await vi.advanceTimersByTimeAsync(15_000);
-		expect(transport.activities.at(-1)).toMatchObject({ details: "Reading file.ts", state: "o-pi · New Model" });
+		expect(coordinator.activities.at(-1)).toMatchObject({ details: "Reading file.ts", state: "o-pi · New Model" });
 
-		const sentBeforeMinimal = transport.activities.length;
+		const sentBeforeMinimal = coordinator.activities.length;
 		service.selectProfile("minimal");
 		service.onToolStart("bash-minimal", "bash", { command: "npm test" });
 		service.onToolEnd("bash-minimal");
-		await vi.advanceTimersByTimeAsync(15_000);
-		expect(transport.activities).toHaveLength(sentBeforeMinimal);
+		expect(coordinator.activities).toHaveLength(sentBeforeMinimal);
 		service.onAgentSettled();
-		await vi.advanceTimersByTimeAsync(15_000);
-		expect(transport.activities.at(-1)).toMatchObject({ details: "Waiting for input", state: "Pi Coding Agent" });
-		expect(transport.activities.at(-1)).not.toHaveProperty("startTimestamp");
+		expect(coordinator.activities.at(-1)).toMatchObject({ details: "Waiting for input", state: "Pi Coding Agent" });
+		expect(coordinator.activities.at(-1)).not.toHaveProperty("startTimestamp");
 		expect(service.status()).toMatchObject({ enabled: true, profile: "minimal", connection: "connected" });
 
 		await service.shutdown();
-		expect(transport).toMatchObject({ clearCount: 1, closeCount: 1 });
+		expect(coordinator.deactivateCount).toBe(1);
 	});
 
 	it("扩展只在 TUI 启动，并注册可补全的运行时命令", async () => {
-		const transport = new FakeTransport();
+		const coordinator = new FakeCoordinator();
 		const handlers = new Map<string, (event: Record<string, unknown>, ctx: ContextStub) => Promise<void> | void>();
 		let command: Parameters<ExtensionAPI["registerCommand"]>[1] | undefined;
 		const notices: Array<{ message: string; type: string | undefined }> = [];
@@ -495,7 +935,7 @@ describe("Discord presence 服务与 Pi 适配", () => {
 		} as unknown as ExtensionAPI;
 		createDiscordPresenceExtension({
 			loadConfig: async () => extensionConfig,
-			createTransport: async () => transport,
+			coordinator,
 		})(pi);
 		const ctx = {
 			cwd: "/workspace/o-pi",
@@ -516,7 +956,7 @@ describe("Discord presence 服务与 Pi 适配", () => {
 			assistantMessageEvent: { type: "toolcall_start", contentIndex: 0, partial: assistantMessage },
 		}, ctx);
 		await vi.advanceTimersByTimeAsync(15_000);
-		expect(transport.activities.at(-1)).toMatchObject({ details: "Editing" });
+		expect(coordinator.activities.at(-1)).toMatchObject({ details: "Editing" });
 
 		const completedCall = { ...streamedCall, arguments: { path: "/private/a.ts" } };
 		const updatedMessage = { ...assistantMessage, content: [completedCall] };
@@ -531,13 +971,13 @@ describe("Discord presence 服务与 Pi 适配", () => {
 			},
 		}, ctx);
 		await vi.advanceTimersByTimeAsync(15_000);
-		expect(transport.activities.at(-1)).toMatchObject({ details: "Editing a.ts" });
+		expect(coordinator.activities.at(-1)).toMatchObject({ details: "Editing a.ts" });
 
 		handlers.get("tool_execution_start")?.({
 			type: "tool_execution_start", toolCallId: "edit-1", toolName: "edit", args: { path: "/other/b.ts" },
 		}, ctx);
 		await vi.advanceTimersByTimeAsync(15_000);
-		expect(transport.activities.at(-1)).toMatchObject({ details: "Editing a.ts" });
+		expect(coordinator.activities.at(-1)).toMatchObject({ details: "Editing a.ts" });
 		handlers.get("tool_execution_end")?.({ type: "tool_execution_end", toolCallId: "edit-1" }, ctx);
 		handlers.get("model_select")?.({ type: "model_select", model: { id: "new", name: "New" } }, ctx);
 		handlers.get("session_info_changed")?.({ type: "session_info_changed", name: "Renamed" }, ctx);
@@ -561,6 +1001,32 @@ describe("Discord presence 服务与 Pi 适配", () => {
 		await handlers.get("session_start")?.({ type: "session_start" }, { ...ctx, mode: "print" });
 		await command?.handler("on", { ...ctx, mode: "print" } as never);
 		expect(notices.at(-1)).toMatchObject({ type: "error" });
+	});
+});
+
+describe("Discord Application 切换 transport", () => {
+	it("切换 Application 时清除旧连接，并只向当前连接发送", async () => {
+		const transports: FakeTransport[] = [];
+		const applicationIds: string[] = [];
+		const switching = new SwitchingDiscordTransport(async (applicationId) => {
+			applicationIds.push(applicationId);
+			const transport = new FakeTransport();
+			transports.push(transport);
+			return transport;
+		});
+		switching.selectApplication("123456789012345678");
+		await switching.setActivity({ details: "A", instance: false });
+		expect(transports[0]?.activities).toEqual([{ details: "A", instance: false }]);
+
+		switching.selectApplication("223456789012345678");
+		await switching.setActivity({ details: "B", instance: false });
+		expect(applicationIds).toEqual(["123456789012345678", "223456789012345678"]);
+		expect(transports[0]).toMatchObject({ clearCount: 1, closeCount: 1 });
+		expect(transports[1]?.activities).toEqual([{ details: "B", instance: false }]);
+		await switching.clearActivity();
+		expect(transports[1]).toMatchObject({ clearCount: 1, closeCount: 1 });
+		await switching.close();
+		expect(switching.getStatus()).toBe("disabled");
 	});
 });
 
