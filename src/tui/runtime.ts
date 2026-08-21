@@ -189,6 +189,7 @@ export function createTuiRuntime(
 					getSnapshot: () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot),
 					getTheme: () => ctx.ui.theme,
 					isVisible: () => homeVisible,
+					onSubmit: () => leaveHome(ctx),
 					tip: selectHomeTip(session),
 				},
 			);
@@ -196,6 +197,18 @@ export function createTuiRuntime(
 			return editor;
 		};
 		ctx.ui.setEditorComponent(historyEditorFactory);
+	}
+
+	function leaveHome(ctx: ExtensionContext): void {
+		if (!homeVisible || config === undefined) return;
+		homeVisible = false;
+		historyEditor?.hideHome();
+		ctx.ui.setFooter(config.chrome.footer
+			? createFooterComponent(config.footer, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot), config.icons)
+			: undefined);
+		ctx.ui.setHeader(config.chrome.header
+			? createHeaderComponent(() => snapshotWithCapabilities(snapshot, pi, skillsSnapshot))
+			: undefined);
 	}
 
 	function restoreEditor(ctx: ExtensionContext): void {
@@ -213,12 +226,7 @@ export function createTuiRuntime(
 			cancelMathInitialization();
 			if (!config?.enabled) return;
 			snapshot = makeSnapshot(ctx, pi, "running", gitCache?.get(ctx.cwd));
-			if (homeVisible) {
-				homeVisible = false;
-				historyEditor?.hideHome();
-				ctx.ui.setFooter(config.chrome.footer ? createFooterComponent(config.footer, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot), config.icons) : undefined);
-				ctx.ui.setHeader(config.chrome.header ? createHeaderComponent(() => snapshotWithCapabilities(snapshot, pi, skillsSnapshot)) : undefined);
-			}
+			leaveHome(ctx);
 			gitCache?.refresh(ctx.cwd);
 			ctx.ui.setStatus(STATUS_KEY, formatStatus("running", ctx.ui.theme));
 			refreshTitle();

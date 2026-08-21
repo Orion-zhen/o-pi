@@ -203,6 +203,7 @@ describe("路径级用户历史", () => {
 			}),
 			getTheme: () => ({ fg: (_name, text) => text }),
 			isVisible: () => visible,
+			onSubmit: vi.fn(),
 			tip: "Use @ to attach files.",
 		};
 		const editor = createEditor([], [], vi.fn(), {
@@ -243,6 +244,7 @@ describe("路径级用户历史", () => {
 			}),
 			getTheme: () => ({ fg: (name, text) => `<${name}>${text}</${name}>` }),
 			isVisible: () => visible,
+			onSubmit: vi.fn(),
 			tip: "tip",
 		});
 
@@ -263,6 +265,7 @@ describe("路径级用户历史", () => {
 			getSnapshot: () => ({}),
 			getTheme: () => ({ fg: (_name, text) => text }),
 			isVisible: () => visible,
+			onSubmit: vi.fn(),
 			tip: "tip",
 		});
 

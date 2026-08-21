@@ -1,8 +1,9 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, KeybindingsManager } from "@earendil-works/pi-coding-agent";
-import type { Component, EditorComponent, EditorTheme, TUI } from "@earendil-works/pi-tui";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { KeybindingsManager } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
+import { ProcessTerminal, TuiMainScreen, type Component, type EditorComponent, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import tuiExtension, { createTuiExtension } from "../../agent/extensions/tui.js";
@@ -161,6 +162,38 @@ describe("tui extension", () => {
 		expect(calls.footer.at(-1)).toBeTypeOf("function");
 		expect(calls.status.at(-1)).toMatchObject({ key: "o-pi:tui", text: expect.any(String) });
 	});
+
+	it.each(["发送普通消息", "/skill:development 实现需求"])(
+		"首页回车提交 %s 后在 turn_start 前立即进入会话界面",
+		async (text) => {
+			const handlers = new Map<string, Handler>();
+			const calls = createUiCalls();
+			const pi = createPi(handlers);
+			const ctx = createContext(calls, { mode: "tui" });
+
+			tuiExtension(pi as unknown as ExtensionAPI);
+			await handlers.get("session_start")?.({}, ctx);
+			const editorFactory = calls.editor.at(-1);
+			if (editorFactory === undefined) throw new Error("editor factory was not installed");
+			const editor = editorFactory(
+				new TuiMainScreen(new ProcessTerminal()),
+				plainEditorTheme(),
+				KeybindingsManager.create(dir),
+			);
+			const submit = vi.fn();
+			editor.onSubmit = submit;
+			editor.setText(text);
+
+			editor.handleInput("\r");
+
+			expect(submit).toHaveBeenCalledWith(text);
+			expect(calls.header.at(-1)).toBeUndefined();
+			const footer = calls.footer.at(-1)?.({ requestRender() {} }, ctx.ui.theme, createFooterData());
+			expect(footer?.render(80).join("\n")).toContain("tools 1/3");
+			expect(footer?.render(80).join("\n")).not.toContain("O Pi v");
+			await handlers.get("session_shutdown")?.({}, ctx);
+		},
+	);
 
 	it("恢复已有会话时直接进入聊天，不显示 Home", async () => {
 		const handlers = new Map<string, Handler>();
@@ -452,6 +485,20 @@ function performanceMessage(): AssistantMessage {
 		},
 		stopReason: "stop",
 		timestamp: 1,
+	};
+}
+
+function plainEditorTheme(): EditorTheme {
+	const identity = (text: string): string => text;
+	return {
+		borderColor: identity,
+		selectList: {
+			selectedPrefix: identity,
+			selectedText: identity,
+			description: identity,
+			scrollInfo: identity,
+			noMatch: identity,
+		},
 	};
 }
 

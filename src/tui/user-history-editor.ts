@@ -42,6 +42,7 @@ export interface HomeEditorOptions {
 	getSnapshot(): TuiFooterSnapshot;
 	getTheme(): Pick<Theme, "fg">;
 	isVisible(): boolean;
+	onSubmit(): void;
 	tip: string;
 }
 
@@ -141,7 +142,9 @@ export class UserHistoryEditor extends CustomEditor {
 				handle();
 			} else {
 				const wrapper = (text: string): void => {
-					this.capture(text);
+					const normalized = normalizeText(text);
+					if (normalized.length > 0 && this.isHomeVisible()) this.home?.onSubmit();
+					this.capture(normalized);
 					submit(text);
 				};
 				this.onSubmit = wrapper;
