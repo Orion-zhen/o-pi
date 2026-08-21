@@ -37,7 +37,7 @@ describe("layered config loader", () => {
 		const projectEnabled = Object.entries(CONFIG_DEFINITIONS)
 			.filter(([, definition]) => definition.project !== undefined)
 			.map(([name]) => name);
-		expect(projectEnabled).toEqual(["fileTools", "lsp", "subagent"]);
+		expect(projectEnabled).toEqual(["discordPresence", "fileTools", "lsp", "subagent"]);
 	});
 
 	it("按默认、用户、项目顺序解析路径，环境变量只重定向对应层", () => {

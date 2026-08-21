@@ -34,6 +34,7 @@
 		"@mozilla/readability": "latest",
 		"@resvg/resvg-js": "latest",
 		"@tavily/core": "latest",
+		"@xhayper/discord-rpc": "latest",
 		"ajv": "latest",
 		"content-type": "latest",
 		"exa-js": "latest",

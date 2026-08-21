@@ -18,6 +18,7 @@
 
 允许项目配置的模块只有：
 
+- `discord-presence`
 - `file-tools`
 - `lsp`
 - `subagent`

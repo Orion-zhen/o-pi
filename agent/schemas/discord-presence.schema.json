@@ -1,0 +1,121 @@
+{
+	"$schema": "https://json-schema.org/draft-07/schema",
+	"$id": "discord-presence.schema.json",
+	"title": "o-pi Discord presence config",
+	"type": "object",
+	"additionalProperties": false,
+	"properties": {
+		"$schema": { "type": "string" },
+		"enabled": { "type": "boolean", "default": true },
+		"application_id": {
+			"type": "string",
+			"pattern": "^(|[0-9]{17,20})$",
+			"default": "1520833162148712580"
+		},
+		"update_interval_ms": {
+			"type": "integer",
+			"minimum": 5000,
+			"maximum": 60000,
+			"default": 5000
+		},
+		"retry_interval_ms": {
+			"type": "integer",
+			"minimum": 5000,
+			"maximum": 300000,
+			"default": 30000
+		},
+		"profile": { "$ref": "#/$defs/profileName" },
+		"profiles": {
+			"type": "object",
+			"patternProperties": {
+				"^[a-z][a-z0-9_-]{0,31}$": { "$ref": "#/$defs/profile" }
+			},
+			"additionalProperties": false
+		},
+		"assets": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"large": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"key": { "$ref": "#/$defs/assetKey" },
+						"text": { "$ref": "#/$defs/template" }
+					}
+				},
+				"small": {
+					"type": "object",
+					"additionalProperties": false,
+					"properties": {
+						"text": { "$ref": "#/$defs/template" },
+						"default": { "$ref": "#/$defs/assetKey" },
+						"activities": { "$ref": "#/$defs/activityAssets" },
+						"languages": {
+							"type": "object",
+							"patternProperties": {
+								"^[a-z0-9][a-z0-9_+.-]*$": { "$ref": "#/$defs/assetKey" }
+							},
+							"additionalProperties": false,
+							"default": {}
+						}
+					}
+				}
+			}
+		}
+	},
+	"$defs": {
+		"profileName": {
+			"type": "string",
+			"pattern": "^[a-z][a-z0-9_-]{0,31}$",
+			"default": "standard"
+		},
+		"template": {
+			"type": "string",
+			"maxLength": 512
+		},
+		"assetKey": {
+			"type": "string",
+			"maxLength": 256
+		},
+		"profile": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"details": { "$ref": "#/$defs/activityTemplates" },
+				"state": { "$ref": "#/$defs/template" },
+				"show_elapsed": { "type": "boolean" }
+			}
+		},
+		"activityTemplates": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"idle": { "$ref": "#/$defs/template" },
+				"thinking": { "$ref": "#/$defs/template" },
+				"reading": { "$ref": "#/$defs/template" },
+				"editing": { "$ref": "#/$defs/template" },
+				"writing": { "$ref": "#/$defs/template" },
+				"searching": { "$ref": "#/$defs/template" },
+				"browsing": { "$ref": "#/$defs/template" },
+				"shell": { "$ref": "#/$defs/template" },
+				"other_tool": { "$ref": "#/$defs/template" }
+			}
+		},
+		"activityAssets": {
+			"type": "object",
+			"additionalProperties": false,
+			"properties": {
+				"idle": { "$ref": "#/$defs/assetKey" },
+				"thinking": { "$ref": "#/$defs/assetKey" },
+				"reading": { "$ref": "#/$defs/assetKey" },
+				"editing": { "$ref": "#/$defs/assetKey" },
+				"writing": { "$ref": "#/$defs/assetKey" },
+				"searching": { "$ref": "#/$defs/assetKey" },
+				"browsing": { "$ref": "#/$defs/assetKey" },
+				"shell": { "$ref": "#/$defs/assetKey" },
+				"other_tool": { "$ref": "#/$defs/assetKey" }
+			}
+		}
+	}
+}

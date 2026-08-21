@@ -31,6 +31,7 @@ cd ~/.pi && npm install
 * [Tool Input Repair](docs/tool-repair.md)
 * [Approval Gate](docs/approval-gate.md)
 * [本地遥测](docs/telemetry.md)
+* [Discord Rich Presence](docs/discord-presence.md)
 * [OpenAI-compatible provider](docs/openai-compatible-provider/README.md)
 * [TUI V1](docs/tui.md)
 * [Slash commands](docs/slash-cmds.md)

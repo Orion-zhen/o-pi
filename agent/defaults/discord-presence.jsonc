@@ -1,0 +1,70 @@
+{
+	"$schema": "../schemas/discord-presence.schema.json",
+	"enabled": true,
+	"application_id": "1520833162148712580",
+	"update_interval_ms": 5000,
+	"retry_interval_ms": 30000,
+	"profile": "standard",
+	"profiles": {
+		"minimal": {
+			"details": {
+				"idle": "Waiting for input",
+				"thinking": "Thinking"
+			},
+			"state": "O Pi",
+			"show_elapsed": false
+		},
+		"standard": {
+			"details": {
+				"idle": "Idle",
+				"thinking": "Thinking",
+				"reading": "Reading code",
+				"editing": "Editing code",
+				"writing": "Writing code",
+				"searching": "Searching the codebase",
+				"browsing": "Browsing the web",
+				"shell": "Running {executable}",
+				"other_tool": "Using {tool}"
+			},
+			"state": "O Pi w/ {model}",
+			"show_elapsed": true
+		},
+		"detailed": {
+			"details": {
+				"idle": "Waiting in {project}",
+				"thinking": "Thinking about the next change",
+				"reading": "Reading {file}",
+				"editing": "Editing {file}",
+				"writing": "Writing {file}",
+				"searching": "Searching the codebase",
+				"browsing": "Browsing the web",
+				"shell": "Running {executable}",
+				"other_tool": "Using {tool}"
+			},
+			"state": "O Pi w/ {model}",
+			"show_elapsed": true
+		}
+	},
+	"assets": {
+		"large": {
+			"key": "",
+			"text": "O Pi"
+		},
+		"small": {
+			"text": "{label}",
+			"default": "",
+			"activities": {
+				"idle": "",
+				"thinking": "",
+				"reading": "",
+				"editing": "",
+				"writing": "",
+				"searching": "",
+				"browsing": "",
+				"shell": "",
+				"other_tool": ""
+			},
+			"languages": {}
+		}
+	}
+}
