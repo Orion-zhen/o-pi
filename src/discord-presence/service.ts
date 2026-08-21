@@ -1,4 +1,5 @@
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import {
 	currentActivity,
 	endTool,
@@ -40,10 +41,10 @@ export interface PresenceStatusSnapshot {
 export interface DiscordPresenceServiceOptions {
 	loadConfig?: (cwd: string) => Promise<DiscordPresenceConfig>;
 	coordinator?: DiscordPresenceCoordinator;
-	now?: () => number;
+	processStartedAt?: number;
 }
 
-/** 管理 session 级 Presence 状态；Pi 适配层只转发生命周期事件。 */
+/** 管理 Presence 状态；所有 session 沿用当前 Pi 进程的计时起点。 */
 export class DiscordPresenceService {
 	private config: DiscordPresenceConfig | undefined;
 	private session: PresenceSession | undefined;
@@ -54,12 +55,12 @@ export class DiscordPresenceService {
 	private runtimeProfile: PresenceProfileName | undefined;
 	private generation = 0;
 	private readonly loadConfig: (cwd: string) => Promise<DiscordPresenceConfig>;
-	private readonly now: () => number;
+	private readonly processStartedAt: number;
 
 	constructor(options: DiscordPresenceServiceOptions = {}) {
 		this.loadConfig = options.loadConfig ?? loadDiscordPresenceConfig;
 		this.coordinator = options.coordinator ?? new DiscordPresenceCoordinatorClient();
-		this.now = options.now ?? Date.now;
+		this.processStartedAt = options.processStartedAt ?? Math.floor(performance.timeOrigin);
 	}
 
 	async startSession(context: PresenceStartContext): Promise<void> {
@@ -163,7 +164,7 @@ export class DiscordPresenceService {
 			project: path.basename(context.cwd) || context.cwd,
 			model: context.model === undefined ? "No model" : modelDisplayName(context.model),
 			session: context.sessionName || path.basename(context.cwd) || context.cwd,
-			startedAt: this.now(),
+			startedAt: this.processStartedAt,
 		};
 		if (!(this.runtimeEnabled ?? config.enabled)) {
 			await this.disposeActive();

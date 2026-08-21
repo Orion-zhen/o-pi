@@ -28,7 +28,7 @@ describe("Discord presence 服务与 Pi 适配", () => {
 			spawnDaemon: () => undefined,
 		});
 		const service = new DiscordPresenceService({
-			loadConfig: async () => enabledConfig(), coordinator, now: Date.now,
+			loadConfig: async () => enabledConfig(), coordinator, processStartedAt: Date.now(),
 		});
 		await expect(service.startSession({
 			cwd: "/workspace/o-pi", model: undefined, sessionName: undefined, idle: true,
@@ -36,10 +36,11 @@ describe("Discord presence 服务与 Pi 适配", () => {
 		expect(service.status()).toMatchObject({ enabled: false, connection: "disabled" });
 	});
 
-	it("reload 保持协调成员，off 才退出共享计时组", async () => {
+	it("reload 与 off/on 始终沿用 Pi 进程计时起点", async () => {
 		const coordinator = new FakeCoordinator();
+		const processStartedAt = Date.now();
 		const service = new DiscordPresenceService({
-			loadConfig: async () => enabledConfig(), coordinator, now: Date.now,
+			loadConfig: async () => enabledConfig(), coordinator, processStartedAt,
 		});
 		const context = {
 			cwd: "/workspace/o-pi", model: { id: "gpt", name: "GPT" }, sessionName: "Session", idle: true,
@@ -48,18 +49,69 @@ describe("Discord presence 服务与 Pi 适配", () => {
 		vi.setSystemTime(new Date("2026-08-21T11:00:00Z"));
 		await service.reload(context);
 		expect(coordinator.activations).toHaveLength(2);
-		expect(coordinator.activations[1]?.activity).toMatchObject({ details: "Waiting in o-pi" });
+		expect(coordinator.activations[1]).toMatchObject({
+			joinedAt: processStartedAt,
+			activity: { details: "Waiting in o-pi", startTimestamp: processStartedAt },
+		});
 		expect(coordinator.deactivateCount).toBe(0);
+
 		await service.disable();
 		expect(coordinator.deactivateCount).toBe(1);
+		vi.setSystemTime(new Date("2026-08-21T12:00:00Z"));
+		await service.enable(context);
+		expect(coordinator.activations[2]).toMatchObject({
+			joinedAt: processStartedAt,
+			activity: { startTimestamp: processStartedAt },
+		});
 	});
+
+	it.each(["new", "resume", "fork", "reload"] as const)(
+		"扩展运行时因 %s 重建后仍沿用当前 Pi 进程的计时起点",
+		async (reason) => {
+			const coordinator = new FakeCoordinator();
+			const context = {
+				cwd: "/workspace/o-pi",
+				mode: "tui",
+				model: { id: "gpt", name: "GPT" },
+				isIdle: () => true,
+				sessionManager: { getSessionName: () => "Session" },
+				ui: { notify: () => undefined },
+			} as ContextStub;
+			const registerRuntime = () => {
+				const handlers = new Map<string, (event: Record<string, unknown>, ctx: ContextStub) => Promise<void> | void>();
+				const pi = {
+					on(name: string, handler: (event: Record<string, unknown>, ctx: ContextStub) => Promise<void> | void) {
+						handlers.set(name, handler);
+					},
+					registerCommand() {},
+				} as unknown as ExtensionAPI;
+				createDiscordPresenceExtension({ loadConfig: async () => enabledConfig(), coordinator })(pi);
+				return handlers;
+			};
+
+			const firstRuntime = registerRuntime();
+			await firstRuntime.get("session_start")?.({ type: "session_start", reason: "startup" }, context);
+			const processStartedAt = coordinator.activations[0]?.joinedAt;
+			expect(processStartedAt).toBeTypeOf("number");
+			await firstRuntime.get("session_shutdown")?.({ type: "session_shutdown", reason }, context);
+
+			vi.setSystemTime(new Date("2026-08-21T11:00:00Z"));
+			const replacementRuntime = registerRuntime();
+			await replacementRuntime.get("session_start")?.({ type: "session_start", reason }, context);
+			expect(coordinator.activations[1]).toMatchObject({
+				joinedAt: processStartedAt,
+				activity: { startTimestamp: processStartedAt },
+			});
+			await replacementRuntime.get("session_shutdown")?.({ type: "session_shutdown", reason: "quit" }, context);
+		},
+	);
 
 	it("合并快速事件、切换 profile，并在 settled 与 shutdown 时更新和清理", async () => {
 		const coordinator = new FakeCoordinator();
 		const service = new DiscordPresenceService({
 			loadConfig: async () => enabledConfig(),
 			coordinator,
-			now: Date.now,
+			processStartedAt: Date.now(),
 		});
 		await service.startSession({
 			cwd: "/workspace/o-pi",
