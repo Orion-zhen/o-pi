@@ -20,16 +20,9 @@ interface QueryToken {
 	readonly escaped: readonly boolean[];
 }
 
-const MAX_QUERY_LENGTH = 512;
-
 /** 解析 fzf extended-search query；普通 term 为 fuzzy，空格 AND，独立 | 连接 OR。 */
 export function createFindQueryPlan(input: string): ToolOutcome<FindQueryPlan> {
-	if (typeof input !== "string" || input.trim().length === 0) {
-		return fail("INVALID_OPERATION", "query must not be empty.");
-	}
-	if (Array.from(input).length > MAX_QUERY_LENGTH) {
-		return fail("INVALID_OPERATION", `query must not exceed ${MAX_QUERY_LENGTH} characters.`);
-	}
+	if (input.trim().length === 0) return fail("INVALID_OPERATION", "query must not be empty.");
 	if (input.includes("\0") || /[\r\n]/u.test(input)) {
 		return fail("INVALID_OPERATION", "query must not contain NUL, CR, or LF.");
 	}

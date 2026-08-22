@@ -76,7 +76,7 @@ export class GrepParser {
 			if (this.isDisposed() || isAborted(signal) || error instanceof AbortGrepParse || error instanceof WorkerTaskAbortedError) {
 				throw new AbortGrepParse();
 			}
-			return await analyzeLocally(files, signal);
+			throw error;
 		}
 	}
 

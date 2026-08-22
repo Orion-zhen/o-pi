@@ -122,29 +122,35 @@ export async function loadFileToolsConfig(cwd: string): Promise<FileToolsConfigR
 async function loadMergedConfig(cwd: string): Promise<ConfigCacheEntry> {
 	try {
 		const loaded = await loadConfigLayers(CONFIG_DEFINITIONS.fileTools, cwd, createError);
-		let merged: FileToolsConfig | undefined;
+		const [defaultLayer, ...overlayLayers] = loaded.layers;
+		await validateConfigValue({
+			path: defaultLayer.path,
+			label: "file-tools default",
+			value: defaultLayer.value,
+			layer: "default",
+			loadValidator: loadCompleteValidator,
+			createError,
+		});
+		let merged = materializeDefaultConfig(defaultLayer.value as CompleteFileToolsConfig);
 		let projectRaw: RawFileToolsConfig | undefined;
 		let projectPath: string | undefined;
-		for (const layer of loaded.layers) {
+		for (const layer of overlayLayers) {
 			await validateConfigValue({
 				path: layer.path,
 				label: `file-tools ${layer.kind}`,
 				value: layer.value,
 				layer: layer.kind,
-				loadValidator: layer.kind === "default" ? loadCompleteValidator : loadValidator,
+				loadValidator,
 				createError,
 			});
 			const raw = layer.value as RawFileToolsConfig;
-			if (layer.kind === "default") {
-				merged = materializeDefaultConfig(raw as CompleteFileToolsConfig);
-			} else if (layer.kind === "project") {
+			if (layer.kind === "project") {
 				projectRaw = raw;
 				projectPath = layer.path;
-			} else if (merged !== undefined) {
+			} else {
 				merged = mergeConfig(merged, raw);
 			}
 		}
-		if (merged === undefined) throw new FileToolsConfigError("file-tools default config is missing.");
 		const result = mergeProjectConfig(merged, projectRaw, projectPath);
 		return {
 			fingerprint: loaded.fingerprint,

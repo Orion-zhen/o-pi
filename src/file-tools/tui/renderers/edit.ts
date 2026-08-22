@@ -164,7 +164,15 @@ function formatEditResult(details: unknown, theme: Theme, args: unknown, expande
 }
 
 function stableArgsKey(args: unknown): string | undefined {
-	if (!isPlainRecord(args) || typeof args["path"] !== "string" || !Array.isArray(args["edits"])) return undefined;
+	if (!isPlainRecord(args) || typeof args["path"] !== "string" || !Array.isArray(args["edits"]) || args["edits"].length === 0) {
+		return undefined;
+	}
+	if (!args["edits"].every((edit) => isPlainRecord(edit)
+		&& typeof edit["old"] === "string"
+		&& edit["old"].length > 0
+		&& typeof edit["new"] === "string")) {
+		return undefined;
+	}
 	return JSON.stringify({ path: args["path"], edits: args["edits"] });
 }
 

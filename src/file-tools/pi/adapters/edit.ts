@@ -1,10 +1,11 @@
 import { editFile, previewEdit } from "../../edit/command.js";
 import type { EditParams, EditPreviewSuccess } from "../../edit/types.js";
 import { FileToolsHost, type FileToolsInvocation } from "../../runtime/host.js";
-import { isFailed } from "../../shared/result.js";
+import { fail, isFailed } from "../../shared/result.js";
+import { isPlainRecord } from "../guards.js";
 import type { LspFileOperations } from "../../../lsp/file-hooks.js";
 import { formatEditModelResult } from "../../edit/presenter.js";
-import { formatErrorModelResult, scrubVersions } from "../model-output.js";
+import { formatErrorModelResult } from "../model-output.js";
 import { createMutationDiagnosticsSource } from "../ports/mutation-diagnostics.js";
 import { piTextDiffGenerator } from "../ports/text-diff.js";
 import type { MutationBatchInvocation } from "../mutation-batch.js";
@@ -39,11 +40,7 @@ export async function executeEdit(
 			latestPreview = preview;
 			runtime.onUpdate?.(mutationProgress({ status: "editing", diff: preview.diff, replacements: preview.replacements }));
 		}));
-		const text = isFailed(result)
-			? formatErrorModelResult(result)
-			: result.status === "applied"
-				? formatEditModelResult(result)
-				: JSON.stringify(scrubVersions(result));
+		const text = isFailed(result) ? formatErrorModelResult(result) : formatEditModelResult(result);
 		return { content: [{ type: "text" as const, text }], details: result };
 	} finally {
 		opened.dispose();
@@ -52,6 +49,7 @@ export async function executeEdit(
 
 /** Renderer-only preview entry; owns and disposes its short-lived read-only host. */
 export async function previewEditWorkspace(cwd: string, params: unknown) {
+	if (!isEditPreviewParams(params)) return fail("INVALID_OPERATION", "edit preview input is incomplete.");
 	const host = new FileToolsHost();
 	try {
 		const opened = await host.open({ cwd, sessionId: "renderer-preview" });
@@ -70,6 +68,17 @@ export async function previewEditWorkspace(cwd: string, params: unknown) {
 	} finally {
 		host.dispose();
 	}
+}
+
+function isEditPreviewParams(value: unknown): value is EditParams {
+	if (!isPlainRecord(value) || typeof value["path"] !== "string" || !Array.isArray(value["edits"]) || value["edits"].length === 0) {
+		return false;
+	}
+	return value["edits"].every((edit) => isPlainRecord(edit)
+		&& typeof edit["old"] === "string"
+		&& edit["old"].length > 0
+		&& typeof edit["new"] === "string"
+		&& (edit["replace_all"] === undefined || typeof edit["replace_all"] === "boolean"));
 }
 
 function commandContext(

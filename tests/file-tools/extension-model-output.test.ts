@@ -230,7 +230,7 @@ describe("file-tools extension model output", () => {
 		const ctx = { cwd, sessionManager: { getSessionId: () => "session-1" } };
 		for (const [tool, params] of [
 			["ls", { path: "missing" }],
-			["find", { query: "" }],
+			["find", { query: " " }],
 			["grep", { query: "[" }],
 			["read", { path: "missing.ts" }],
 			["write", { path: ".git/config", content: "x" }],

@@ -17,7 +17,7 @@ describe("grep query plan", () => {
 	});
 
 	it.each([
-		[{ query: "" }, "INVALID_OPERATION"],
+		[{ query: " " }, "INVALID_OPERATION"],
 		[{ query: "a\nb" }, "INVALID_OPERATION"],
 	] as const)("拒绝非法 query：%j", (params, code) => {
 		const result = createQueryPlan(params);

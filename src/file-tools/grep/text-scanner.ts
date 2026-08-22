@@ -87,9 +87,6 @@ export async function scanInventoryText(
 	const maxStoredHits = context.maxStoredHits ?? MAX_STORED_TEXT_HITS;
 	const maxStoredAnchors = context.maxStoredAnchors ?? MAX_STORED_LEXICAL_ANCHORS;
 	const fileConcurrency = context.fileConcurrency ?? DEFAULT_FILE_SCAN_CONCURRENCY;
-	if (!validLimit(maxStoredHits) || !validLimit(maxStoredAnchors) || !validConcurrency(fileConcurrency)) {
-		return fail("INVALID_OPERATION", "Text candidate limits must be non-negative integers and file concurrency must be positive.");
-	}
 	const query = prepareTextQuery(plan);
 	const hits: TextHit[] = [];
 	const fileEvidence: TextFileEvidence[] = [];
@@ -320,13 +317,6 @@ function scopeError(file: ScopedFile, failure: ReturnType<typeof fail>): GrepSco
 	return { path: file.scopeInput, error: failure.error };
 }
 
-function validLimit(value: number): boolean {
-	return Number.isSafeInteger(value) && value >= 0;
-}
-
-function validConcurrency(value: number): boolean {
-	return Number.isSafeInteger(value) && value > 0;
-}
 
 function aborted(path: string): ReturnType<typeof fail> {
 	return fail("OPERATION_ABORTED", "Operation aborted.", { path });

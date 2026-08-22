@@ -118,33 +118,18 @@ export class FindTool {
 }
 
 function validateFindParams(params: FindParams): ToolOutcome<NormalizedFindParams> {
-	if (typeof params !== "object" || params === null || Array.isArray(params)) {
-		return fail("INVALID_OPERATION", "params must be an object.");
-	}
-	if (typeof params.query !== "string") return fail("INVALID_OPERATION", "query must be a string.");
-	const rawPaths = params.path === undefined ? ["."] : params.path;
-	if (!Array.isArray(rawPaths) || rawPaths.length === 0) {
-		return fail("INVALID_PATH", "path must contain at least one scope.");
-	}
+	const rawPaths = params.path ?? ["."];
 	const paths: string[] = [];
 	const seen = new Set<string>();
 	for (const searchPath of rawPaths) {
-		if (typeof searchPath !== "string" || searchPath.length === 0) {
-			return fail("INVALID_PATH", "path entries must be non-empty strings.");
-		}
 		if (searchPath.includes("\0")) return fail("INVALID_PATH", "path must not contain NUL bytes.", { path: searchPath });
 		if (!seen.has(searchPath)) {
 			seen.add(searchPath);
 			paths.push(searchPath);
 		}
 	}
-	if (params.glob !== undefined && (
-		typeof params.glob !== "string"
-		|| params.glob.length === 0
-		|| params.glob.includes("\0")
-		|| /[\r\n]/u.test(params.glob)
-	)) {
-		return fail("INVALID_PATH", "glob must be a non-empty single-line string without NUL bytes.");
+	if (params.glob !== undefined && (params.glob.includes("\0") || /[\r\n]/u.test(params.glob))) {
+		return fail("INVALID_PATH", "glob must be a single-line string without NUL bytes.");
 	}
 	return {
 		query: params.query,

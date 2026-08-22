@@ -16,8 +16,7 @@ beforeEach(() => {
 });
 
 describe("write", () => {
-	it("拒绝非法参数和空路径", async () => {
-		expect(await testContext.write("x")).toMatchObject({ status: "failed", error: { code: "INVALID_OPERATION" } });
+	it("拒绝空路径", async () => {
 		expect(await testContext.write({ path: "", content: "x" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
 	});
 

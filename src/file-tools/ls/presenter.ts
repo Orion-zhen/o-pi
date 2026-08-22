@@ -3,7 +3,7 @@ import type { LsEntry, LsSuccess } from "./types.js";
 /** Formats the model-visible compact shell-style result; full structure remains in details. */
 export function formatCompactLsResult(result: LsSuccess): string {
 	const header = result.truncated
-		? `${result.path} ${result.returned_entries ?? result.entries.length}/${result.total_entries ?? result.entries.length} truncated`
+		? `${result.path} ${result.returned_entries}/${result.total_entries} truncated`
 		: `${result.path} ${result.entries.length}`;
 	const lines = [header, ...result.entries.map(formatCompactEntry)];
 	if (result.truncated) lines.push("[narrow path]");

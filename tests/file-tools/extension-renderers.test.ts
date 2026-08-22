@@ -101,6 +101,22 @@ describe("file-tools extension renderers", () => {
 		const cwd = editCardTemp.path;
 		await writeFile(join(cwd, "app.ts"), "old\n", "utf8");
 		const edit = registered.slice().reverse().find((tool) => tool.name === "edit");
+		const invalidContext = {
+			argsComplete: true,
+			cwd,
+			expanded: false,
+			invalidate: vi.fn(),
+			isPartial: true,
+			lastComponent: undefined,
+			state: {},
+		};
+		edit?.renderCall?.({ path: "app.ts", edits: [] }, theme, invalidContext);
+		expect(invalidContext.invalidate).not.toHaveBeenCalled();
+		await expect((await import("../../src/file-tools/pi/adapters/edit.js")).previewEditWorkspace(cwd, {
+			path: "app.ts",
+			edits: [{ old: "", new: "new" }],
+		})).resolves.toMatchObject({ status: "failed", error: { code: "INVALID_OPERATION" } });
+
 		const args = { path: "app.ts", edits: [{ old: "old", new: "new" }] };
 		const state: { callComponent?: { postProcess?: unknown } } = {};
 		const context = {

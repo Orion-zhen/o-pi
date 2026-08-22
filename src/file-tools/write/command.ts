@@ -7,7 +7,7 @@ import {
 	collectMutationDiagnostics,
 	type MutationDiagnosticsSource,
 } from "../shared/mutation-diagnostics.js";
-import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.js";
+import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
 import type { TextDiff, TextDiffGenerator } from "../shared/text-diff.js";
 import type { WriteParams, WritePreviewSuccess, WriteSuccess } from "./types.js";
 
@@ -24,21 +24,19 @@ export interface WriteCommandContext {
 }
 
 /** Creates or fully overwrites one guarded UTF-8 file. */
-export async function writeFile(params: unknown, context: WriteCommandContext): Promise<ToolOutcome<WriteSuccess>> {
-	const input = validateWriteInput(params);
-	if (isFailed(input)) return input;
-	const inputBytes = Buffer.byteLength(input.content, "utf8");
-	if (inputBytes > context.maxFileBytes) return fileTooLarge(input.path, context.maxFileBytes, inputBytes);
+export async function writeFile(params: WriteParams, context: WriteCommandContext): Promise<ToolOutcome<WriteSuccess>> {
+	const inputBytes = Buffer.byteLength(params.content, "utf8");
+	if (inputBytes > context.maxFileBytes) return fileTooLarge(params.path, context.maxFileBytes, inputBytes);
 	const target = await context.filesystem.paths.resolveTarget(
-		input.path,
+		params.path,
 		{ followExistingSymlink: true },
 	);
 	if (!target.ok) return mapFsError(target.error);
 	if (target.value.workspacePath === ".") {
-		return fail("INVALID_PATH", "Target must be a file path, not the current directory.", { path: input.path });
+		return fail("INVALID_PATH", "Target must be a file path, not the current directory.", { path: params.path });
 	}
 
-	const bytes = encoder.encode(input.content);
+	const bytes = encoder.encode(params.content);
 	let snapshot: MutationSnapshot | undefined;
 	let renderedDiff: TextDiff | undefined;
 	let baseline: DiagnosticSnapshot | undefined;
@@ -51,7 +49,7 @@ export async function writeFile(params: unknown, context: WriteCommandContext): 
 		},
 		async (current) => {
 			snapshot = current;
-			renderedDiff = await context.diff.generate(normalizeLineEndings(snapshotText(current)), normalizeLineEndings(input.content));
+			renderedDiff = await context.diff.generate(normalizeLineEndings(snapshotText(current)), normalizeLineEndings(params.content));
 			safePrepared(context.onPrepared, {
 				status: "preview",
 				path: target.value.displayPath,
@@ -85,7 +83,7 @@ export async function writeFile(params: unknown, context: WriteCommandContext): 
 
 	const diagnostics = await collectMutationDiagnostics(context.diagnostics, {
 		target: receipt.target,
-		content: input.content,
+		content: params.content,
 		created: receipt.created,
 		...(baseline === undefined ? {} : { baseline }),
 		...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
@@ -101,18 +99,6 @@ function fileTooLarge(path: string, limit: number, size: number) {
 	});
 }
 
-function validateWriteInput(params: unknown): ToolOutcome<WriteParams> {
-	if (!isPlainRecord(params)) return fail("INVALID_OPERATION", "write input must be an object.");
-	for (const key of Object.keys(params)) {
-		if (key !== "path" && key !== "content") {
-			return fail("INVALID_OPERATION", `Unsupported write field: ${key}.`, { details: { field: key } });
-		}
-	}
-	if (typeof params["path"] !== "string") return fail("INVALID_OPERATION", "path must be a string.");
-	if (typeof params["content"] !== "string") return fail("INVALID_OPERATION", "content must be a string.");
-	return { path: params["path"], content: params["content"] };
-}
-
 function snapshotText(snapshot: MutationSnapshot): string {
 	return snapshot.exists ? decoder.decode(snapshot.bytes) : "";
 }
@@ -125,8 +111,4 @@ function safePrepared(observer: WriteCommandContext["onPrepared"], preview: Writ
 	try {
 		observer?.(preview);
 	} catch {}
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

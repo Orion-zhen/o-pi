@@ -56,7 +56,7 @@ export interface LoadedConfigLayer extends ConfigLayerPath {
 }
 
 export interface LoadedConfigLayers {
-	layers: LoadedConfigLayer[];
+	layers: [LoadedConfigLayer, ...LoadedConfigLayer[]];
 	paths: ConfigLayerPath[];
 	fingerprint: string;
 }
@@ -141,20 +141,23 @@ export async function loadConfigLayers<E extends Error>(
 	for (let attempt = 0; attempt < 3; attempt += 1) {
 		const paths = resolveConfigLayerPaths(definition, cwd);
 		const before = await configLayerFingerprint(paths);
-		const layers: LoadedConfigLayer[] = [];
-		for (const source of paths) {
+		const [defaultSource, ...optionalSources] = paths;
+		const defaultValue = await readOptionalJsoncConfig({
+			path: defaultSource.path,
+			label: `${definition.label} ${defaultSource.kind}`,
+			createError: (message, details) => createError(message, { layer: defaultSource.kind, ...details }),
+		});
+		if (defaultValue === undefined) {
+			throw createError(`${definition.label} default config is missing.`, { layer: defaultSource.kind, path: defaultSource.path });
+		}
+		const layers: [LoadedConfigLayer, ...LoadedConfigLayer[]] = [{ ...defaultSource, value: defaultValue }];
+		for (const source of optionalSources) {
 			const value = await readOptionalJsoncConfig({
 				path: source.path,
 				label: `${definition.label} ${source.kind}`,
 				createError: (message, details) => createError(message, { layer: source.kind, ...details }),
 			});
-			if (value === undefined) {
-				if (source.required) {
-					throw createError(`${definition.label} default config is missing.`, { layer: source.kind, path: source.path });
-				}
-				continue;
-			}
-			layers.push({ ...source, value });
+			if (value !== undefined) layers.push({ ...source, value });
 		}
 		const after = await configLayerFingerprint(paths);
 		if (before === after) return { layers, paths, fingerprint: after };
@@ -186,8 +189,8 @@ export async function loadValidatedMergedConfig<E extends Error>(
 	return { ...loaded, merged };
 }
 
-export function resolveConfigLayerPaths(definition: ConfigDefinition, cwd: string): ConfigLayerPath[] {
-	const paths: ConfigLayerPath[] = [
+export function resolveConfigLayerPaths(definition: ConfigDefinition, cwd: string): [ConfigLayerPath, ...ConfigLayerPath[]] {
+	const paths: [ConfigLayerPath, ...ConfigLayerPath[]] = [
 		{ kind: "default", path: defaultAgentConfigPath(definition.fileName), required: true },
 		{ kind: "user", path: userAgentConfigPath(definition.fileName, definition.userEnv), required: false },
 	];

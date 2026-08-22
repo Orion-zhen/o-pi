@@ -4,13 +4,13 @@ import { afterEach, beforeEach } from "vitest";
 
 import { editFile, previewEdit } from "../../src/file-tools/edit/command.js";
 import type { MutationDiagnosticsSource } from "../../src/file-tools/shared/mutation-diagnostics.js";
-import type { EditSuccess } from "../../src/file-tools/edit/types.js";
+import type { EditParams, EditSuccess } from "../../src/file-tools/edit/types.js";
 import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
 import { FileToolsHost, type FileToolsInvocation } from "../../src/file-tools/runtime/host.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { TextDiffGenerator } from "../../src/file-tools/shared/text-diff.js";
 import { writeFile as writeFileCommand } from "../../src/file-tools/write/command.js";
-import type { WriteSuccess } from "../../src/file-tools/write/types.js";
+import type { WriteParams, WriteSuccess } from "../../src/file-tools/write/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { readWorkspaceFile, type ReadWorkspaceTestOptions } from "../helpers/read-tool.js";
 
@@ -18,9 +18,9 @@ export interface CrudTestContext {
 	readonly workspace: string;
 	readonly outside: string;
 	read(params: Parameters<typeof readWorkspaceFile>[1], options?: ReadWorkspaceTestOptions): ReturnType<typeof readWorkspaceFile>;
-	write(params: unknown, diff?: TextDiffGenerator): Promise<ToolOutcome<WriteSuccess>>;
-	edit(params: unknown, runtime?: { signal?: AbortSignal; diagnostics?: MutationDiagnosticsSource; diff?: TextDiffGenerator }): Promise<ToolOutcome<EditSuccess>>;
-	preview(params: unknown): ReturnType<typeof previewEdit>;
+	write(params: WriteParams, diff?: TextDiffGenerator): Promise<ToolOutcome<WriteSuccess>>;
+	edit(params: EditParams, runtime?: { signal?: AbortSignal; diagnostics?: MutationDiagnosticsSource; diff?: TextDiffGenerator }): Promise<ToolOutcome<EditSuccess>>;
+	preview(params: EditParams): ReturnType<typeof previewEdit>;
 	useConfig(config: Record<string, unknown>): Promise<void>;
 }
 

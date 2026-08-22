@@ -12,17 +12,6 @@ export function formatErrorModelResult(result: FailedResult): string {
 	return `<error>\n${escapeXmlText(result.error.message)}${hints}${next}\n</error>`;
 }
 
-export function scrubVersions(value: unknown): unknown {
-	if (Array.isArray(value)) return value.map(scrubVersions);
-	if (value === null || typeof value !== "object") return value;
-	const result: Record<string, unknown> = {};
-	for (const [key, item] of Object.entries(value)) {
-		if (key === "version" || key === "old_version" || key === "new_version" || key === "expected" || key === "actual") continue;
-		result[key] = scrubVersions(item);
-	}
-	return result;
-}
-
 function formatEditMatchHints(details: Record<string, unknown> | undefined): string {
 	if (details === undefined || !Array.isArray(details["hints"])) return "";
 	const hints = details["hints"].filter(isEditMatchHint);

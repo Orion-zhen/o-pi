@@ -1,7 +1,6 @@
 import { languageFromPath } from "../../code-index/parser.js";
 import type {
 	AnalyzeCode,
-	CodeAnalysis,
 	CodeAnalysisTarget,
 	PrepareCodeAnalysis,
 } from "../../code-index/types.js";
@@ -51,12 +50,6 @@ export class GrepTool {
 
 	async execute(params: GrepParams, context: GrepCommandContext): Promise<ToolOutcome<GrepSuccess>> {
 		if (this.disposed || isAborted(context.operation.signal)) return aborted();
-		if (!isCacheLimit(context.limits.grep_content_cache_bytes) || !isCacheLimit(context.limits.grep_content_cache_entries)) {
-			return fail("INVALID_OPERATION", "grep content cache limits must be non-negative safe integers.");
-		}
-		if (!isCacheLimit(context.limits.grep_max_search_bytes)) {
-			return fail("INVALID_OPERATION", "grep search byte limit must be a non-negative safe integer.");
-		}
 		const invocation = new AbortController();
 		const contentCache = this.contentCache.acquire(
 			context.limits.grep_content_cache_bytes,
@@ -205,13 +198,12 @@ async function analyzeSymbols(
 		return context.operation.signal?.aborted === true ? aborted() : { loaded };
 	}
 	if (context.operation.signal?.aborted === true) return aborted();
-	if (analysis === undefined || !completeCodeAnalysis(analysis, targets, loaded)) return { loaded };
+	if (analysis === undefined) return { loaded };
 	const files: RegionizedFile[] = analysis.files.flatMap(({ document, analysis: fileAnalysis }) => {
+		if (fileAnalysis.status !== "parsed") return [];
 		const file = byPath.get(document.path);
 		const content = loaded.get(document.path);
-		return file === undefined || content === undefined || fileAnalysis.status !== "parsed"
-			? []
-			: [{ file, content, analysis: fileAnalysis }];
+		return file === undefined || content === undefined ? [] : [{ file, content, analysis: fileAnalysis }];
 	});
 	return {
 		loaded,
@@ -267,43 +259,6 @@ function codeAnalysisTargets(
 		) return [];
 		return [{ path, ranges: ranges.get(path) ?? [] }];
 	});
-}
-
-function completeCodeAnalysis(
-	analysis: CodeAnalysis,
-	targets: readonly CodeAnalysisTarget[],
-	loaded: ReadonlyMap<string, TextContent>,
-): boolean {
-	if (!sameUniquePaths(analysis.coveredPaths, targets.map((target) => target.path))) return false;
-	const covered = new Set(analysis.coveredPaths);
-	const seen = new Set<string>();
-	for (const file of analysis.files) {
-		const path = file.document.path;
-		const content = loaded.get(path);
-		if (
-			seen.has(path)
-			|| !covered.has(path)
-			|| content === undefined
-			|| file.document.hash !== content.hash
-			|| file.analysis.status !== "parsed"
-			|| file.analysis.index.path !== path
-			|| file.analysis.index.units.some((unit) =>
-				unit.path !== path
-				|| unit.startByte < 0
-				|| unit.endByte < unit.startByte
-				|| unit.endByte > content.sizeBytes)
-		) return false;
-		seen.add(path);
-	}
-	return true;
-}
-
-function sameUniquePaths(left: readonly string[], right: readonly string[]): boolean {
-	const leftSet = new Set(left);
-	const rightSet = new Set(right);
-	if (leftSet.size !== left.length || rightSet.size !== right.length || leftSet.size !== rightSet.size) return false;
-	for (const path of leftSet) if (!rightSet.has(path)) return false;
-	return true;
 }
 
 function hasBareCr(text: string): boolean {
@@ -375,9 +330,6 @@ function isAborted(signal: AbortSignal | undefined): boolean {
 	return signal?.aborted === true;
 }
 
-function isCacheLimit(value: number): boolean {
-	return Number.isSafeInteger(value) && value >= 0;
-}
 
 function aborted(path?: string): ReturnType<typeof fail> {
 	return fail("OPERATION_ABORTED", "grep was aborted.", path === undefined ? {} : { path });

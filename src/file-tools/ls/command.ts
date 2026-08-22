@@ -41,18 +41,20 @@ export async function listDirectory(
 	entries.sort(compareEntries);
 
 	const visibleEntries = entries.slice(0, context.entryLimit);
-	const truncated = visibleEntries.length < entries.length;
+	if (visibleEntries.length < entries.length) {
+		return {
+			path: resolved.value.displayPath,
+			entries: visibleEntries,
+			truncated: true,
+			returned_entries: visibleEntries.length,
+			total_entries: entries.length,
+			continuation_hint: "List a more specific subdirectory.",
+		};
+	}
 	return {
 		path: resolved.value.displayPath,
 		entries: visibleEntries,
-		truncated,
-		...(truncated
-			? {
-					returned_entries: visibleEntries.length,
-					total_entries: entries.length,
-					continuation_hint: "List a more specific subdirectory.",
-				}
-			: {}),
+		truncated: false,
 	};
 }
 

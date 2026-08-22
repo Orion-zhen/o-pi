@@ -109,7 +109,6 @@ export async function rankFindEntriesLimitedAsync(
 
 /** 接收流式候选并保留与完整排序相同的 relevance 前缀。 */
 export function createLimitedFindRanker(plan: FindQueryPlan, limit: number): LimitedFindRanker {
-	if (!Number.isSafeInteger(limit) || limit < 0) throw new RangeError("find ranking limit must be a non-negative integer.");
 	const compiled = compileFindQueryPlan(plan);
 	const ranked: RankedFindEntry[] = [];
 	let totalMatches = 0;

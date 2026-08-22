@@ -61,7 +61,21 @@ const schemaCases = [
 	{
 		tool: "read",
 		valid: [{ path: "a.ts", start_line: 1, end_line: 2 }],
-		invalid: [{ path: "a.ts", start_line: 1.5 }],
+		invalid: [
+			{ path: "a.ts", start_line: 0 },
+			{ path: "a.ts", start_line: 1.5 },
+			{ path: "a.ts", extra: true },
+		],
+	},
+	{
+		tool: "write",
+		valid: [{ path: "a.ts", content: "text" }],
+		invalid: [
+			"x",
+			{ path: "a.ts" },
+			{ path: "a.ts", content: 1 },
+			{ path: "a.ts", content: "text", extra: true },
+		],
 	},
 	{
 		tool: "edit",
@@ -74,6 +88,7 @@ const schemaCases = [
 			{ path: "a.ts", edits: [{ old: "", new: "y" }] },
 			{ path: "a.ts", edits: [{ old: "x", new: "y", replace_all: "true" }] },
 			{ path: "a.ts", edits: [{ old: "x", new: "y", extra: true }] },
+			{ path: "a.ts", edits: [{ old: "x", new: "y" }], extra: true },
 		],
 	},
 ] as const;
@@ -89,5 +104,13 @@ describe("file tool schemas", () => {
 		["grep", { query: "x", path: "src,tests" }, { query: "x", path: ["src", "tests"] }],
 	] as const)("%s 规范化多路径参数", (toolName, input, expected) => {
 		expect(tools.get(toolName)?.prepareArguments?.(input)).toEqual(expected);
+	});
+
+	it.each([
+		["write", { path: "a.ts", content: 1 }],
+		["edit", { path: "a.ts", edits: [{ old: "", new: "y" }] }],
+	] as const)("%s repair 后仍非法的参数由 schema 拒绝", (toolName, input) => {
+		const prepared = tools.get(toolName)?.prepareArguments?.(input) ?? input;
+		expect(validate(toolName, prepared)).toBe(false);
 	});
 });

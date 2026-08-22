@@ -2,6 +2,19 @@ import { mkdir, readFile, stat, symlink, utimes, writeFile } from "node:fs/promi
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const fileTypeDetector = vi.hoisted(() => ({ shouldThrow: false }));
+
+vi.mock("file-type", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("file-type")>();
+	return {
+		...actual,
+		async fileTypeFromBuffer(...args: Parameters<typeof actual.fileTypeFromBuffer>) {
+			if (fileTypeDetector.shouldThrow) throw new Error("simulated file type detection failure");
+			return await actual.fileTypeFromBuffer(...args);
+		},
+	};
+});
+
 import { WorkspaceContentService } from "../../src/filesystem/services/content.js";
 import { contentHash as sha256Version } from "../../src/filesystem/services/text.js";
 import { formatReadStructureContext } from "../../src/file-tools/read/presenter.js";
@@ -14,6 +27,7 @@ let outside: string;
 beforeEach(() => {
 	workspace = testContext.workspace;
 	outside = testContext.outside;
+	fileTypeDetector.shouldThrow = false;
 });
 
 describe("read", () => {
@@ -120,6 +134,46 @@ describe("read", () => {
 			status: "failed",
 			error: { code: "INVALID_OPERATION" },
 		});
+	});
+
+	it("图片转换异常返回结构化失败，取消仍优先返回 OPERATION_ABORTED", async () => {
+		const imageBytes = Buffer.from("R0lGODlhAQABAIABAP///wAAACwAAAAAAQABAAACAkQBADs=", "base64");
+		await writeFile(path.join(workspace, "pixel.gif"), imageBytes);
+
+		const conversionFailure = await testContext.read({ path: "pixel.gif" }, {
+			image: {
+				async process() {
+					throw new Error("simulated image conversion failure");
+				},
+			},
+		});
+		expect(conversionFailure).toMatchObject({
+			status: "failed",
+			error: {
+				code: "BINARY_FILE_UNSUPPORTED",
+				message: "Image cannot be converted to an inline model-supported format.",
+				details: { mime_type: "image/gif" },
+			},
+		});
+
+		const controller = new AbortController();
+		const cancelled = await testContext.read({ path: "pixel.gif" }, {
+			signal: controller.signal,
+			image: {
+				async process() {
+					controller.abort();
+					throw new Error("simulated cancellation during image conversion");
+				},
+			},
+		});
+		expect(cancelled).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
+	});
+
+	it("文件类型检测异常直接传播，不再按文本继续", async () => {
+		await writeFile(path.join(workspace, "plain.txt"), "plain text\n");
+		fileTypeDetector.shouldThrow = true;
+
+		await expect(testContext.read({ path: "plain.txt" })).rejects.toThrow("simulated file type detection failure");
 	});
 
 	it("即使只请求局部行范围也拒绝超过 read 单文件上限的文件", async () => {
@@ -239,7 +293,7 @@ describe("read", () => {
 			status: "failed",
 			error: { code: "ENCODING_UNSUPPORTED" },
 		});
-		expect(await testContext.read({ path: "bad.txt", start_line: 0 })).toMatchObject({
+		expect(await testContext.read({ path: "bad.txt", start_line: 2, end_line: 1 })).toMatchObject({
 			status: "failed",
 			error: { code: "INVALID_PATH" },
 		});

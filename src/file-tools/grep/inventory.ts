@@ -70,16 +70,6 @@ export async function buildScopeInventory(
 	input: { readonly paths: readonly string[]; readonly glob?: string },
 	context: ScopeInventoryContext,
 ): Promise<ToolOutcome<ScopeInventory>> {
-	if (!Number.isSafeInteger(context.maxDepth) || context.maxDepth < 0) {
-		return fail("INVALID_OPERATION", "Traversal depth limit must be a non-negative integer.");
-	}
-	if (!Number.isSafeInteger(context.maxEntries) || context.maxEntries < 0) {
-		return fail("INVALID_OPERATION", "Traversal entry limit must be a non-negative integer.");
-	}
-	if (!Number.isSafeInteger(context.maxSearchBytes) || context.maxSearchBytes < 0) {
-		return fail("INVALID_OPERATION", "Search byte limit must be a non-negative integer.");
-	}
-	if (input.paths.length === 0) return fail("INVALID_PATH", "path must contain at least one scope.");
 	const state: MutableInventoryState = {
 		context,
 		...(input.glob === undefined ? {} : { glob: input.glob }),
@@ -95,10 +85,6 @@ export async function buildScopeInventory(
 
 	for (const [order, scopeInput] of input.paths.entries()) {
 		if (isAborted(context.operation.signal)) return aborted(scopeInput);
-		if (typeof scopeInput !== "string" || scopeInput.length === 0 || scopeInput.includes("\0")) {
-			state.scopeErrors.push({ path: scopeInput, error: fail("INVALID_PATH", "path entries must be non-empty strings without NUL bytes.").error });
-			continue;
-		}
 		const resolved = await resolveScope(scopeInput, context);
 		if (isFailed(resolved)) {
 			if (resolved.error.code === "OPERATION_ABORTED") return resolved;

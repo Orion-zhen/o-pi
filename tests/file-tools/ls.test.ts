@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, readdir, stat, symlink, utimes, writeFile } fro
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { listDirectory } from "../../src/file-tools/ls/command.js";
+import { isLsSuccess } from "../../src/file-tools/ls/guards.js";
 import { formatCompactLsResult } from "../../src/file-tools/ls/presenter.js";
 import { executeLs } from "../../src/file-tools/pi/adapters/ls.js";
 import type { LsParams, LsSuccess } from "../../src/file-tools/ls/types.js";
@@ -92,8 +93,22 @@ describe("ls", () => {
 				truncated: true,
 				returned_entries: 4,
 				total_entries: 9,
+				continuation_hint: "List a more specific subdirectory.",
 			}),
 		).toBe(["src 4/9 truncated", "components/", "index.ts !.gitignore", "shared@ -> ../shared", "socket?", "[narrow path]"].join("\n"));
+	});
+
+	it("只接受字段完整的截断结果", () => {
+		expect(isLsSuccess({ path: ".", entries: [], truncated: false })).toBe(true);
+		expect(isLsSuccess({
+			path: ".",
+			entries: [],
+			truncated: true,
+			returned_entries: 0,
+			total_entries: 1,
+			continuation_hint: "List a more specific subdirectory.",
+		})).toBe(true);
+		expect(isLsSuccess({ path: ".", entries: [], truncated: true })).toBe(false);
 	});
 
 	it("读取 file-tools 配置控制 blocked_path、ignored_path 和 ls_entries", async () => {

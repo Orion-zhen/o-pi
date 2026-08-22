@@ -3,7 +3,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { editFile } from "../../src/file-tools/edit/command.js";
-import type { EditSuccess } from "../../src/file-tools/edit/types.js";
+import type { EditParams, EditSuccess } from "../../src/file-tools/edit/types.js";
 import { listDirectory } from "../../src/file-tools/ls/command.js";
 import type { LsParams, LsSuccess } from "../../src/file-tools/ls/types.js";
 import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
@@ -43,7 +43,7 @@ function readWorkspaceFile(cwd: string, params: Parameters<typeof readWorkspaceF
 	return readWorkspaceFileTest(cwd, params, { host, sessionId: "visibility-test" });
 }
 
-async function editWorkspace(cwd: string, params: unknown): Promise<ToolOutcome<EditSuccess>> {
+async function editWorkspace(cwd: string, params: EditParams): Promise<ToolOutcome<EditSuccess>> {
 	const opened = await host.open({ cwd, sessionId: "visibility-test" });
 	if (isFailed(opened)) return opened;
 	try {

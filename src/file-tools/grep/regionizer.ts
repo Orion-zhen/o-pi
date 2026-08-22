@@ -64,9 +64,6 @@ export class GrepRegionizer {
 		context: RegionizerContext,
 	): Promise<ToolOutcome<RegionizationResult>> {
 		if (this.disposed || isAborted(context.operation.signal)) return aborted();
-		if (!validLimit(context.astMaxFileBytes)) {
-			return fail("INVALID_OPERATION", "AST file byte limit must be a non-negative safe integer.");
-		}
 		const inventoryByPath = new Map(inventory.files.map((file) => [file.path, file]));
 		const excludedHitPaths = new Set<string>();
 		const prepared: PreparedFile[] = [];
@@ -364,9 +361,6 @@ function isAborted(signal: AbortSignal | undefined): boolean {
 	return signal?.aborted === true;
 }
 
-function validLimit(value: number): boolean {
-	return Number.isSafeInteger(value) && value >= 0;
-}
 
 function aborted(path?: string): ReturnType<typeof fail> {
 	return fail("OPERATION_ABORTED", "grep was aborted.", path === undefined ? {} : { path });

@@ -65,7 +65,7 @@ export async function readFile(
 	if (!loaded.ok) return mapFsError(loaded.error, { notFound: "file" });
 	if (isAborted(context.operation)) return aborted(file.displayPath);
 
-	const detected = await safeDetectFileType(loaded.value.bytes);
+	const detected = await detectFileType(loaded.value.bytes);
 	if (isAborted(context.operation)) return aborted(file.displayPath);
 	if (detected?.kind === "image") {
 		if (context.supportedOutputFormats?.includes("image") === false) {
@@ -219,14 +219,6 @@ async function safeStructureContext(
 	}
 }
 
-async function safeDetectFileType(bytes: Uint8Array) {
-	try {
-		return await detectFileType(bytes);
-	} catch {
-		return undefined;
-	}
-}
-
 async function safeProcessImage(
 	processor: InlineImageProcessor | undefined,
 	input: Parameters<InlineImageProcessor["process"]>[0],
@@ -259,12 +251,6 @@ function shortIgnoreSource(source: string | undefined): string | undefined {
 }
 
 function validateRangeSyntax(params: ReadParams): ToolOutcome<never> | undefined {
-	if (params.start_line !== undefined && (!Number.isInteger(params.start_line) || params.start_line < 1)) {
-		return fail("INVALID_PATH", "start_line must be a positive integer.", { path: params.path });
-	}
-	if (params.end_line !== undefined && (!Number.isInteger(params.end_line) || params.end_line < 1)) {
-		return fail("INVALID_PATH", "end_line must be a positive integer.", { path: params.path });
-	}
 	if (params.start_line !== undefined && params.end_line !== undefined && params.start_line > params.end_line) {
 		return fail("INVALID_PATH", "start_line must be less than or equal to end_line.", { path: params.path });
 	}

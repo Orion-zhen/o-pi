@@ -51,21 +51,17 @@ const REGEX_RECOVERY_HINTS: Readonly<Record<string, string>> = {
 
 /** 将公开参数归一化为不依赖 filesystem 或增强来源的确定性查询计划。 */
 export function createQueryPlan(params: GrepParams): ToolOutcome<QueryPlan> {
-	if (typeof params.query !== "string" || params.query.trim().length === 0) {
-		return fail("INVALID_OPERATION", "query must not be empty.");
-	}
+	if (params.query.trim().length === 0) return fail("INVALID_OPERATION", "query must not be empty.");
 	if (params.query.includes("\0")) return fail("INVALID_OPERATION", "query must not contain NUL bytes.");
 	const paths = params.path ?? ["."];
-	if (!Array.isArray(paths) || paths.length === 0) return fail("INVALID_PATH", "path must contain at least one scope.");
 	for (const scope of paths) {
-		if (typeof scope !== "string" || scope.length === 0) return fail("INVALID_PATH", "path entries must be non-empty strings.");
 		if (scope.includes("\0")) return fail("INVALID_PATH", "path must not contain NUL bytes.", { path: scope });
 	}
 	if (/[\r\n]/u.test(params.query)) {
 		return fail("INVALID_OPERATION", "query must not contain CR or LF.", { path: paths[0] ?? "." });
 	}
-	if (params.glob !== undefined && (typeof params.glob !== "string" || params.glob.length === 0 || params.glob.includes("\0"))) {
-		return fail("INVALID_PATH", "glob must be a non-empty string without NUL bytes.", { path: paths[0] ?? "." });
+	if (params.glob?.includes("\0") === true) {
+		return fail("INVALID_PATH", "glob must not contain NUL bytes.", { path: paths[0] ?? "." });
 	}
 	const matcher = compileLineQuery(params.query, paths[0] ?? ".");
 	const targetTerms = lexicalTerms(params.query);

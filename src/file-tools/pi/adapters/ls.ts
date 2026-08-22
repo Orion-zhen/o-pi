@@ -48,6 +48,6 @@ function withNativeLsDetails(result: LsSuccess): NativeLsDetails {
 	if (!result.truncated) return result;
 	return {
 		...result,
-		entryLimitReached: result.returned_entries ?? result.entries.length,
+		entryLimitReached: result.returned_entries,
 	};
 }

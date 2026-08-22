@@ -82,17 +82,14 @@ function track<T extends { dispose(): void }>(resource: T): T {
 }
 
 describe("find", () => {
-	it("校验 query、path 和独立 glob", async () => {
+	it("校验 query 语法、NUL、换行和 glob 领域约束", async () => {
 		for (const params of [
-			{ query: "" },
+			{ query: " " },
 			{ query: "a\0b" },
 			{ query: "a\nb" },
 			{ query: "| auth" },
 			{ query: "auth |" },
 			{ query: "auth | | session" },
-			{ query: "x", path: [] },
-			{ query: "x", path: [""] },
-			{ query: "x", glob: "" },
 			{ query: "x", glob: "a\0b" },
 		]) {
 			expect(await findWorkspaceFiles(workspace, params)).toMatchObject({

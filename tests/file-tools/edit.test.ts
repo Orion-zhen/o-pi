@@ -16,17 +16,6 @@ beforeEach(() => {
 });
 
 describe("edit", () => {
-	it("拒绝空 edits 和空 old", async () => {
-		expect(await testContext.edit({ path: "a.txt", edits: [] })).toMatchObject({
-			status: "failed",
-			error: { code: "INVALID_OPERATION" },
-		});
-		expect(await testContext.edit({ path: "a.txt", edits: [{ old: "", new: "x" }] })).toMatchObject({
-			status: "failed",
-			error: { code: "EMPTY_OLD_TEXT", edit_index: 0 },
-		});
-	});
-
 	it("要求目标文件存在且必须先 read", async () => {
 		expect(await testContext.edit({ path: "missing.txt", edits: [{ old: "old", new: "new" }] })).toMatchObject({
 			status: "failed",

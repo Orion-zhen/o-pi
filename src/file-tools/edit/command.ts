@@ -42,10 +42,8 @@ export interface EditPreviewContext {
 }
 
 /** Applies exact replacements against the queued current snapshot. */
-export async function editFile(params: unknown, context: EditCommandContext): Promise<ToolOutcome<EditSuccess>> {
-	const input = validateEditInput(params);
-	if (isFailed(input)) return input;
-	const target = await resolveEditMutationTarget(input.path, context.filesystem);
+export async function editFile(params: EditParams, context: EditCommandContext): Promise<ToolOutcome<EditSuccess>> {
+	const target = await resolveEditMutationTarget(params.path, context.filesystem);
 	if (isFailed(target)) return target;
 
 	let before: TextContent | undefined;
@@ -62,7 +60,7 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 			maxOutputBytes: context.maxFileBytes,
 		},
 		async (snapshot) => {
-			const prepared = prepareSnapshot(snapshot, target, input.edits, context);
+			const prepared = prepareSnapshot(snapshot, target, params.edits, context);
 			if (isFailed(prepared)) return { type: "reject", reason: prepared };
 			before = prepared.file;
 			updatedText = prepared.updatedText;
@@ -113,10 +111,8 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 }
 
 /** Builds a read-only preview without creating an observation. */
-export async function previewEdit(params: unknown, context: EditPreviewContext): Promise<ToolOutcome<EditPreviewSuccess>> {
-	const input = validateEditInput(params);
-	if (isFailed(input)) return input;
-	const file = await resolveEditFile(input.path, context.filesystem);
+export async function previewEdit(params: EditParams, context: EditPreviewContext): Promise<ToolOutcome<EditPreviewSuccess>> {
+	const file = await resolveEditFile(params.path, context.filesystem);
 	if (isFailed(file)) return file;
 	const loaded = await context.filesystem.content.readBytes(
 		file,
@@ -125,7 +121,7 @@ export async function previewEdit(params: unknown, context: EditPreviewContext):
 	if (!loaded.ok) return mapFsError(loaded.error, { notFound: "file" });
 	const decoded = context.filesystem.content.decodeText(loaded.value, file.displayPath);
 	if (!decoded.ok) return mapFsError(decoded.error, { notFound: "file" });
-	const updated = applyReplacements(decoded.value.text, input.edits, file.displayPath, context.matchHintLimit);
+	const updated = applyReplacements(decoded.value.text, params.edits, file.displayPath, context.matchHintLimit);
 	if (isFailed(updated)) return updated;
 	const outputError = validateTextSize(updated.text, decoded.value.hasBom, file.displayPath, context.maxFileBytes);
 	if (outputError !== undefined) return outputError;
@@ -199,40 +195,6 @@ function prepareSnapshot(
 		replacementCount: updated.replacements,
 		changedRanges: updated.changedRanges,
 	};
-}
-
-function validateEditInput(params: unknown): ToolOutcome<EditParams> {
-	if (!isPlainRecord(params)) return fail("INVALID_OPERATION", "edit input must be an object.");
-	for (const key of Object.keys(params)) {
-		if (key !== "path" && key !== "edits") {
-			return fail("INVALID_OPERATION", `Unsupported edit field: ${key}.`, { details: { field: key } });
-		}
-	}
-	if (typeof params["path"] !== "string") return fail("INVALID_OPERATION", "path must be a string.");
-	if (!Array.isArray(params["edits"]) || params["edits"].length === 0) return fail("INVALID_OPERATION", "edits must be a non-empty array.");
-	const edits: EditReplacement[] = [];
-	for (let index = 0; index < params["edits"].length; index += 1) {
-		const replacement = validateReplacement(params["edits"][index], index);
-		if (isFailed(replacement)) return replacement;
-		edits.push(replacement);
-	}
-	return { path: params["path"], edits };
-}
-
-function validateReplacement(value: unknown, index: number): ToolOutcome<EditReplacement> {
-	if (!isPlainRecord(value)) return fail("INVALID_OPERATION", "edit entry must be an object.", { edit_index: index });
-	for (const key of Object.keys(value)) {
-		if (key !== "old" && key !== "new" && key !== "replace_all") {
-			return fail("INVALID_OPERATION", `Unsupported edits[${index}] field: ${key}.`, { edit_index: index, details: { field: key } });
-		}
-	}
-	if (typeof value["old"] !== "string") return fail("INVALID_OPERATION", `edits[${index}].old must be a string.`, { edit_index: index });
-	if (value["old"].length === 0) return fail("EMPTY_OLD_TEXT", `edits[${index}].old must not be empty.`, { edit_index: index });
-	if (typeof value["new"] !== "string") return fail("INVALID_OPERATION", `edits[${index}].new must be a string.`, { edit_index: index });
-	if (value["replace_all"] !== undefined && typeof value["replace_all"] !== "boolean") {
-		return fail("INVALID_OPERATION", `edits[${index}].replace_all must be a boolean.`, { edit_index: index });
-	}
-	return { old: value["old"], new: value["new"], replace_all: value["replace_all"] ?? false };
 }
 
 function applyReplacements(
@@ -398,8 +360,4 @@ function safePrepared(observer: EditCommandContext["onPrepared"], preview: EditP
 	try {
 		observer?.(preview);
 	} catch {}
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

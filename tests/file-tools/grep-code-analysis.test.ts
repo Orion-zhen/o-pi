@@ -109,14 +109,12 @@ describe("grep code analysis", () => {
 		expect(analyzeCode).toHaveBeenCalledOnce();
 	});
 
-	it("analyzer 未覆盖全部目标路径时丢弃结果并完整回退 Tree-sitter", async () => {
+	it("analyzer 抛错时完整回退 Tree-sitter", async () => {
 		await writeFile(path.join(testContext.workspace, "a.ts"), "export function Target() { return true; }\n");
 		await writeFile(path.join(testContext.workspace, "b.ts"), "export function Target() { return false; }\n");
-		const analyzeCode = vi.fn<AnalyzeCode>(async (input) => ({
-			mode: "symbol",
-			coveredPaths: input.targets.slice(0, 1).map((target) => target.path),
-			files: [],
-		}));
+		const analyzeCode = vi.fn<AnalyzeCode>(async () => {
+			throw new Error("simulated analyzer failure");
+		});
 
 		const result = expectGrepSuccess(await grepWithAnalyzer(
 			testContext.workspace,

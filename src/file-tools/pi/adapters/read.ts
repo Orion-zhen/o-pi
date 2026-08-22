@@ -13,7 +13,7 @@ import {
 	type SkillReadIndex,
 	type SkillResourceError,
 } from "../../../skill-context/resources.js";
-import { formatErrorModelResult, scrubVersions } from "../model-output.js";
+import { formatErrorModelResult } from "../model-output.js";
 import {
 	createReadObservationStore,
 	createReadStructureSource,
@@ -83,18 +83,15 @@ const lazyInlineImageProcessor: InlineImageProcessor = {
 	},
 };
 
-async function presentResult(
+function presentResult(
 	result: ReadFileSuccess | FailedResult,
 	model: { input?: readonly string[] } | undefined,
 ) {
-	if (isReadImageSuccess(result)) {
+	if (isFailed(result)) return failedResult(result);
+	if ("media_type" in result) {
 		return { content: formatReadImageModelContent(result, model), details: result };
 	}
-	if (isReadSuccess(result)) {
-		return { content: [{ type: "text" as const, text: formatReadModelResult(result) }], details: result };
-	}
-	if (isFailed(result)) return failedResult(result);
-	return { content: [{ type: "text" as const, text: JSON.stringify(scrubVersions(result)) }], details: result };
+	return { content: [{ type: "text" as const, text: formatReadModelResult(result) }], details: result };
 }
 
 function formatReadImageModelContent(

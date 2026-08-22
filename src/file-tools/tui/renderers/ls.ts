@@ -50,7 +50,7 @@ function formatLsResult(
 	const details = result.details;
 	const dirs = details.entries.filter((entry) => entry.type === "directory").length;
 	const files = details.entries.filter((entry) => entry.type === "file").length;
-	const total = details.total_entries ?? details.returned_entries ?? details.entries.length;
+	const total = details.truncated ? details.total_entries : details.entries.length;
 	const header = formatToolCard({
 		tool: "ls",
 		status: "success",
