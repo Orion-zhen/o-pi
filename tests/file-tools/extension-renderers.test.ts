@@ -116,6 +116,16 @@ describe("file-tools extension renderers", () => {
 
 		const first = edit?.renderCall?.(args, theme, context);
 		await vi.waitFor(() => expect(context.invalidate).toHaveBeenCalled());
+		const streamState: { callComponent?: { postProcess?: unknown } } = {};
+		const partialArgs = { path: "app.ts", edits: [{ old: "old", new: "new line" }] };
+		const partial = edit?.renderCall?.(partialArgs, theme, { ...context, args: partialArgs, argsComplete: false, lastComponent: undefined, state: streamState });
+		const partialOutput = partial?.render(80).join("\n");
+		expect(partialOutput).toContain("1 replacements");
+		expect(partialOutput).toContain("2 lines");
+		expect(partialOutput).toContain("11 chars");
+		const largerArgs = { path: "app.ts", edits: [{ old: "old", new: "new line\nwith more output" }] };
+		const larger = edit?.renderCall?.(largerArgs, theme, { ...context, args: largerArgs, argsComplete: false, lastComponent: partial, state: streamState });
+		expect(larger?.render(80).join("\n")).toContain("28 chars");
 		const collapsed = edit?.renderCall?.(args, theme, { ...context, lastComponent: first });
 		const collapsedOutput = collapsed?.render(80).join("\n");
 		const expanded = edit?.renderCall?.(args, theme, { ...context, expanded: true, lastComponent: first });

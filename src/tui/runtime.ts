@@ -9,6 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { notifyWaiting, type WaitingNotifier } from "../notification/native.js";
 import { collectSkillCandidates } from "../skill-context/loader.js";
+import { createStartupBannerComponent } from "./banner.js";
 import { createHeaderComponent, formatTitle, workingIndicatorOptions } from "./chrome.js";
 import { loadTuiConfig } from "./config.js";
 import { createFooterComponent, GitSegmentCache } from "./footer.js";
@@ -378,18 +379,20 @@ export function createTuiRuntime(
 		snapshot = makeSnapshot(ctx, pi, status, gitCache?.get(ctx.cwd));
 		refreshTitle();
 		ctx.ui.setStatus(STATUS_KEY, formatStatus(status, ctx.ui.theme));
+		const getSnapshot = () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot);
 		ctx.ui.setFooter(config?.chrome.footer
 			? homeVisible
-				? createHomeFooterComponent(config.home)
-				: createFooterComponent(config.footer, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot), config.icons)
+				? createStartupFooterComponent(config, getSnapshot)
+				: createFooterComponent(config.footer, getSnapshot, config.icons)
 			: undefined);
 		ctx.ui.setHeader(getHeader());
 	}
 
 	function getHeader() {
 		if (config === undefined) return undefined;
-		if (homeVisible) return createHomeHeaderComponent();
-		return config.chrome.header ? createHeaderComponent(() => snapshotWithCapabilities(snapshot, pi, skillsSnapshot)) : undefined;
+		const getSnapshot = () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot);
+		if (homeVisible) return createStartupHeaderComponent(config, getSnapshot);
+		return config.chrome.header ? createHeaderComponent(getSnapshot) : undefined;
 	}
 
 	function cleanup(ctx: ExtensionContext): void {
@@ -445,9 +448,36 @@ function applyChrome(ctx: ExtensionContext, config: TuiConfig, getSnapshot: () =
 	ctx.ui.setWorkingIndicator(workingIndicatorOptions(config, ctx.ui.theme));
 	ctx.ui.setStatus(STATUS_KEY, formatStatus("ready", ctx.ui.theme));
 	ctx.ui.setFooter(config.chrome.footer
-		? homeVisible ? createHomeFooterComponent(config.home) : createFooterComponent(config.footer, getSnapshot, config.icons)
+		? homeVisible
+			? createStartupFooterComponent(config, getSnapshot)
+			: createFooterComponent(config.footer, getSnapshot, config.icons)
 		: undefined);
-	ctx.ui.setHeader(homeVisible ? createHomeHeaderComponent() : config.chrome.header ? createHeaderComponent(getSnapshot) : undefined);
+	ctx.ui.setHeader(homeVisible
+		? createStartupHeaderComponent(config, getSnapshot)
+		: config.chrome.header ? createHeaderComponent(getSnapshot) : undefined);
+}
+
+type HomeHeaderFactory = ReturnType<typeof createHomeHeaderComponent>;
+type HomeFooterFactory = ReturnType<typeof createHomeFooterComponent>;
+
+/** regular 恢复旧版 header banner；fullscreen 保留当前沉浸式 Home。 */
+function createStartupHeaderComponent(config: TuiConfig, getSnapshot: () => TuiFooterSnapshot): HomeHeaderFactory {
+	const regular = createStartupBannerComponent(config.home, getSnapshot);
+	const fullscreen = createHomeHeaderComponent();
+	const factory: HomeHeaderFactory = (tui, theme) => tui.mode === "regular"
+		? regular(tui, theme)
+		: fullscreen(tui, theme);
+	return factory;
+}
+
+/** regular 使用普通状态 footer，fullscreen 使用 Home 操作 footer。 */
+function createStartupFooterComponent(config: TuiConfig, getSnapshot: () => TuiFooterSnapshot): HomeFooterFactory {
+	const regular = createFooterComponent(config.footer, getSnapshot, config.icons);
+	const fullscreen = createHomeFooterComponent(config.home);
+	const factory: HomeFooterFactory = (tui, theme, footerData) => tui.mode === "regular"
+		? regular(tui, theme, footerData)
+		: fullscreen(tui, theme, footerData);
+	return factory;
 }
 
 function formatStatus(status: string, theme: ExtensionContext["ui"]["theme"]): string {

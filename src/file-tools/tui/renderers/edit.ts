@@ -1,7 +1,7 @@
 import { renderDiff, type Theme } from "@earendil-works/pi-coding-agent";
 import { Box, Spacer, Text } from "@earendil-works/pi-tui";
 import { formatToolCard } from "../../../tui/tool-card.js";
-import { joinParts } from "../../../tui/text.js";
+import { formatChars, joinParts } from "../../../tui/text.js";
 import { isEditSuccess, isFailedEdit } from "../../edit/guards.js";
 import type { EditPreviewSuccess } from "../../edit/types.js";
 import type { FailedResult } from "../../shared/result.js";
@@ -183,7 +183,7 @@ function previewException(error: unknown): FailedResult {
 }
 
 function formatEditCall(component: EditCallComponent, args: unknown, theme: Pick<Theme, "fg" | "bold">): string {
-	const replacements = isPlainRecord(args) && Array.isArray(args["edits"]) ? args["edits"].length : undefined;
+	const input = editInputStats(args);
 	const diff = component.progressDiff ?? (component.preview !== undefined && !isFailedEdit(component.preview) ? component.preview.diff : undefined);
 	return formatToolCard({
 		tool: "edit",
@@ -192,9 +192,33 @@ function formatEditCall(component: EditCallComponent, args: unknown, theme: Pick
 		summary: joinParts([
 			component.postProcess === undefined ? component.phase : formatMutationPostProcessSummary(component.postProcess),
 			diff === undefined ? undefined : formatDiffStats(diff),
-			replacements !== undefined ? `${replacements} replacements` : undefined,
+			input === undefined ? undefined : `${input.replacements} replacements`,
+			input === undefined ? undefined : `${input.lines} lines`,
+			input === undefined ? undefined : formatChars(input.chars),
 		]),
 	}, theme);
+}
+
+interface EditInputStats {
+	replacements: number;
+	lines: number;
+	chars: number;
+}
+
+function editInputStats(args: unknown): EditInputStats | undefined {
+	if (!isPlainRecord(args) || !Array.isArray(args["edits"])) return undefined;
+	let lines = 0;
+	let chars = 0;
+	for (const edit of args["edits"]) {
+		if (!isPlainRecord(edit)) continue;
+		for (const key of ["old", "new"] as const) {
+			const value = edit[key];
+			if (typeof value !== "string") continue;
+			chars += value.length;
+			lines += value === "" ? 0 : value.split(/\r\n?|\n/).length;
+		}
+	}
+	return { replacements: args["edits"].length, lines, chars };
 }
 
 function editTarget(args: unknown): string {

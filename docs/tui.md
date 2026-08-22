@@ -1,12 +1,14 @@
 # TUI
 
-`agent/extensions/tui.ts` 提供 o-pi 的 TUI 界面框架，并保留 Pi 原生的单列会话记录。输入框通过公开的 `CustomEditor/setEditorComponent` 扩展路径级操作历史。空会话启动时，输入框会切换到全屏主页。其他区域只使用当前本地 Pi 依赖公开的 UI API，增加标题、页眉、页脚、状态和工作指示器。
+`agent/extensions/tui.ts` 提供 o-pi 的 TUI 界面框架，并保留 Pi 原生的单列会话记录。输入框通过公开的 `CustomEditor` 和 `setEditorComponent()` 支持按路径保存操作历史。空会话启动时，`fullscreen` 模式显示主页，`regular` 模式显示启动横幅。其他区域只使用当前本地 Pi 依赖公开的 UI API，增加标题、页眉、页脚、状态和工作指示器。
 
-主页以原生输入框为中心，上方显示响应式 `O Pi` 字标，下方展示项目、上下文、工具、Skill 和能力。宽终端使用分区面板，中等宽度压缩为三行，窄终端或矮终端只保留关键状态。首轮交互开始后，编辑器立即恢复普通高度。恢复已有会话时直接进入会话记录，不显示主页。
+`fullscreen` 模式的主页以原生输入框为中心。主页上方显示响应式 `O Pi` 字标，下方显示项目、上下文、工具、Skill 和能力。主页根据终端宽高选择完整、中等或紧凑布局。
+
+`regular` 模式显示轻量启动横幅，输入框保持常规高度。宽终端中的横幅左右排列，窄终端中的横幅上下排列。终端宽度小于 44 列时，横幅退化为紧凑文本，避免在终端回滚记录中插入全屏主页。提交第一条非空输入时，启动界面立即隐藏。`turn_start` 事件也会确保启动界面在首轮开始时隐藏。恢复已有会话时不显示启动界面。
 
 ## 边界
 
-实现不分叉 Pi 代码，不动态修改现有实现，不使用覆盖层，也不维护第二套输入框。主页由继承 Pi `CustomEditor` 的同一个编辑器渲染，因此原生编辑、硬件光标、中文输入法、自动补全、快捷键和提交语义保持不变。全屏模式下，编辑器按终端高度填充启动视口。普通 TUI 模式只渲染自然高度。
+实现不分叉 Pi 代码，不动态修改现有实现，不使用覆盖层，也不维护第二套输入框。`fullscreen` 模式的主页由继承 Pi `CustomEditor` 的同一个编辑器渲染。`regular` 模式的启动横幅使用 Pi 公开的 `setHeader()` API，输入框保持常规高度。两种模式均保留原生编辑、硬件光标、中文输入法、自动补全、快捷键和提交语义。
 
 整个 o-pi TUI 运行时只在 Pi 原生 TUI 中启用，此时 `ctx.mode === "tui"`。界面框架、主页、页脚、Git 状态、数学 Markdown、工具或消息渲染器以及命令查看器都不会在 RPC、JSON 或打印模式中初始化。
 
@@ -64,13 +66,13 @@ TUI 在 `agent_settled` 触发后通过 `node-notifier` 发送系统通知，确
 * `icons`: 保留的兼容字段。当前全局配置不改变各工具 renderer 的图标选择。
 * `chrome.title/header/footer`: 控制轻量 chrome。
 * `chrome.working_indicator`: `dot`、`spinner`、`off`。
-* `home.enabled`: 空会话启动 Home 开关。
-* `home.motion`: `off`、`subtle` 或 `playful`。`playful` 增加低频 Core 轨道，所有 timer 在首轮或 session 清理时停止。
-* `home.pointer_effects`: `off`、`click` 或 `click-hold`。控制 Home 的被动鼠标反馈。
-* `home.show_tagline`: 是否显示 wordmark 下的 tagline。
-* `home.show_tips`: 是否显示按 session 稳定选择的 Tip。
-* `home.show_hints`: 是否在 Home footer 显示命令入口。
-* `home.show_capabilities`: 是否显示 files、web、bash、skill、subagent 能力分组。
+* `home.enabled`: 空会话启动界面的开关。
+* `home.motion`: `off`、`subtle` 或 `playful`。控制全屏主页的动画等级。`playful` 增加低频 Pi Core 轨道。相关定时器会按类型在动画完成、首轮开始或会话清理时释放。
+* `home.pointer_effects`: `off`、`click` 或 `click-hold`。控制全屏主页的鼠标反馈。
+* `home.show_tagline`: 是否在全屏主页的字标下方显示标语。
+* `home.show_tips`: 是否在全屏主页中显示按会话稳定选择的提示。
+* `home.show_hints`: 是否显示启动操作提示。全屏主页在页脚显示，启动横幅在横幅正文中显示。
+* `home.show_capabilities`: 是否在全屏主页和启动横幅中显示 `files`、`web`、`bash`、`skill`、`subagent` 能力分组。
 * `footer.segments`: 宽屏字段。
 * `footer.narrow_segments`: 窄屏字段。
 * `footer.max_lines`: schema 固定为 `2`，renderer 不读取该值做动态布局。
@@ -87,25 +89,29 @@ footer 最多两行：
 
 窄屏第一行使用 `footer.narrow_segments`，两行都会按终端可见宽度截断。workspace 不带 `cwd` 前缀，`$HOME` 下路径显示为 `~/coding/project`。workspace、git 和 context 百分比保留彩色。其他 footer 文本使用 `dim`，避免抢占视线。context、token、cache、cost 展示规则跟随 Pi 原版 footer：`↑/↓`、cache read/write、最近和累计 cache 命中率、`percent/window`、subscription cost 标记，以及支持 reasoning 的模型 thinking level。context 使用量按百分比从绿色渐变到红色。
 
-## 主页
+## 启动界面
 
-Home 只展示真实可得数据：没有 model、context 或 git 时直接隐藏对应字段。Pi 版本来自 `@earendil-works/pi-coding-agent` 的 typed `VERSION` 导出。不会使用本仓库 `o-pi` 的 package version 伪装 Pi 版本。模型、provider 和 thinking 位于输入框上边框，ready 状态和可用 provider 数量位于下边框。project/context 与 capabilities 位于输入框下方。
+全屏主页和启动横幅只显示真实可得的数据。缺少模型、上下文或 Git 状态时，对应字段会隐藏。Pi 版本来自 `@earendil-works/pi-coding-agent` 导出的 `VERSION`，不会使用本仓库 `o-pi` 的包版本代替。
 
-工具能力使用语义分组，不从 extension 文件名推断。Home 按固定顺序显示：
+全屏主页将模型、提供商和思考级别显示在输入框上边框，将就绪状态和可用提供商数量显示在下边框。项目、上下文和能力摘要位于输入框下方。启动横幅按行显示 Pi 版本、工作区、模型、上下文、工具和 Skill。
+
+工具能力使用语义分组，不从扩展文件名推断。启动界面按固定顺序显示：
 
 ```text
 files:6 web:2 bash subagent skill
 ```
 
-`files` 和 `web` 显示启用数量。`bash`、`subagent` 和 `skill` 是单项能力，因此不显示 `:1`。部分关闭时多工具分组显示为 `files:3/4`。完全未启用的能力仍保留，但使用 `dim` 颜色。Slash command 不计入 tools 数量。
+`files` 和 `web` 显示启用数量。`bash`、`subagent` 和 `skill` 是单项能力，因此不显示 `:1`。部分关闭时，多工具分组显示为 `files:3/4`。完全未启用的能力仍会显示，但使用 `dim` 颜色。斜杠命令不计入工具数量。
 
-`skill` 的颜色和启用状态对应实际 `skill` 工具。未归组工具不显示为 `other`。skills 总数来自 Pi 公开 `pi.getCommands()` 中 `source: "skill"` 的命令。同名 skill 只计一次，project skill 始终覆盖 user skill。这不依赖 system prompt 中是否展示 skills，也不计入 tools 的 `active/total`。
+`skill` 的颜色和启用状态对应实际的 `skill` 工具。未归组工具不显示为 `other`。Skill 总数来自 Pi 公开的 `pi.getCommands()`，统计其中 `source: "skill"` 的命令。同名 Skill 只计一次，项目级 Skill 始终覆盖用户级 Skill。统计结果不依赖系统提示词是否列出 Skill，也不计入工具的 `active/total`。
 
-Home 不通过 header 伪装页面，而由公开 `setEditorComponent()` 安装的同一个 `CustomEditor` 承载。Home 期间 header 为空，footer 切换为一行命令入口和版本。宽屏 Logo 右侧带 Pi Core，组成约 51 列的品牌块。中屏使用约 40 列的紧凑 Core，窄屏只显示文字标识。Logo 使用有限时长的逐行组装与主题色流光。`playful` 模式下 Core 以低频轨道相位活动，不响应键盘输入。入场 timer 在完成后释放，轨道 timer 在首轮开始或 session 清理时释放。
+全屏主页不使用页眉模拟，而由 `setEditorComponent()` 安装的同一个 `CustomEditor` 承载。主页显示期间，页眉为空，页脚显示操作入口和版本。宽屏字标右侧带有 Pi Core 图形，整个品牌区域约占 51 列。中等宽度使用约 40 列的紧凑 Pi Core，窄屏只显示文字标识。字标使用限时逐行组装和主题色流光。`playful` 模式下，Pi Core 以低频轨道相位活动，不响应键盘输入。入场定时器在动画完成后释放。轨道定时器在首轮开始或会话清理时释放。
 
-fullscreen Home 会被动观察 Pi 已启用的 SGR 1006 鼠标序列，但不消费或改写输入：单击产生波纹，双击触发 `π` 粒子，`click-hold` 下长按 450ms 后 Pi Core 蓄力并牵引 Logo，松开时从 Core 爆炸。拖动、滚轮和非左键留给 Pi 原生选择与滚动。非 TTY、regular 模式或不支持鼠标的终端静默退化。监听器和 timer 在首轮或 session 清理时释放。
+`regular` 模式使用轻量启动横幅和常规页脚。终端宽度至少为 96 列时，ASCII 字标与 `pi`、`workspace`、`model`、`context`、`tools`、`skills` 状态左右排列。终端宽度为 44 至 95 列时，各部分上下排列。终端宽度小于 44 列时，横幅退化为文本摘要。`home.show_hints` 和 `home.show_capabilities` 分别控制操作提示和能力摘要。`regular` 模式不启动主页动画或鼠标反馈。
 
-首轮对话前通过 `/model` 或快捷键切换模型时，Pi 会触发 `model_select`。TUI 会重建当前快照并通过公开 UI 重绘入口更新 Home 输入框、footer 和终端 title。单独切换 thinking level 时同理。
+全屏主页会被动观察 Pi 已启用的 SGR 1006 鼠标序列，但不消费或改写输入。单击产生波纹。双击触发 `π` 粒子。使用 `click-hold` 时，长按 450 毫秒会使 Pi Core 蓄力并牵引字标，松开时从 Pi Core 产生爆炸效果。拖动、滚轮和非左键事件仍由 Pi 处理。非 TTY 环境、`regular` 模式或不支持鼠标的终端会静默退化。监听器和定时器在首轮开始或会话清理时释放。
+
+首轮对话前通过 `/model` 或快捷键切换模型时，Pi 会触发 `model_select`。TUI 会重建当前快照，并通过公开的 UI 重绘入口更新当前启动界面、页脚和终端标题。单独切换思考级别时，TUI 会执行相同的更新。
 
 ## 工具卡片
 

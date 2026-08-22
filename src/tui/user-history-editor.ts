@@ -46,7 +46,7 @@ export interface HomeEditorOptions {
 	tip: string;
 }
 
-/** 保留 Pi 原生编辑行为和 thinking 边框色，并在空会话中承载全屏 Home。 */
+/** 保留 Pi 原生编辑行为和 thinking 边框色，并在 fullscreen 空会话中承载 Home。 */
 export class UserHistoryEditor extends CustomEditor {
 	private readonly tuiHost: TUI;
 	private readonly appKeybindings: KeybindingsManager;
@@ -83,7 +83,7 @@ export class UserHistoryEditor extends CustomEditor {
 			? undefined
 			: new HomePointerController({
 				effects: home.config.pointer_effects,
-				isActive: () => this.isHomeVisible(),
+				isActive: () => this.isFullscreenHomeVisible(),
 				requestRender: () => this.tuiHost.requestRender(),
 			});
 		this.replayQueue = replayQueue.map(normalizeText).filter((text) => text.length > 0);
@@ -105,10 +105,10 @@ export class UserHistoryEditor extends CustomEditor {
 
 	override render(width: number): string[] {
 		const safeWidth = Math.max(1, Math.floor(width));
-		const homeVisible = this.isHomeVisible();
-		const editorWidth = homeVisible ? Math.min(safeWidth, HOME_CONTENT_WIDTH) : safeWidth;
-		const framedEditor = this.renderFramedEditor(editorWidth, homeVisible);
-		if (!homeVisible || this.home === undefined) return framedEditor;
+		const fullscreenHomeVisible = this.isFullscreenHomeVisible();
+		const editorWidth = fullscreenHomeVisible ? Math.min(safeWidth, HOME_CONTENT_WIDTH) : safeWidth;
+		const framedEditor = this.renderFramedEditor(editorWidth, fullscreenHomeVisible);
+		if (!fullscreenHomeVisible || this.home === undefined) return framedEditor;
 		const height = this.tuiHost.mode === "fullscreen"
 			? Math.max(framedEditor.length, this.tuiHost.terminal.rows - HOME_EXTERNAL_ROWS)
 			: undefined;
@@ -143,7 +143,7 @@ export class UserHistoryEditor extends CustomEditor {
 			} else {
 				const wrapper = (text: string): void => {
 					const normalized = normalizeText(text);
-					if (normalized.length > 0 && this.isHomeVisible()) this.home?.onSubmit();
+					if (normalized.length > 0 && this.isHomeActive()) this.home?.onSubmit();
 					this.capture(normalized);
 					submit(text);
 				};
@@ -243,13 +243,17 @@ export class UserHistoryEditor extends CustomEditor {
 		this.record(normalized);
 	}
 
-	private isHomeVisible(): boolean {
+	private isHomeActive(): boolean {
 		return this.home?.config.enabled === true && this.home.isVisible();
+	}
+
+	private isFullscreenHomeVisible(): boolean {
+		return this.tuiHost.mode === "fullscreen" && this.isHomeActive();
 	}
 
 	private startIntro(): void {
 		const home = this.home;
-		if (!this.isHomeVisible() || home === undefined) return;
+		if (!this.isFullscreenHomeVisible() || home === undefined) return;
 		if (home.config.motion === "playful") this.ensureOrbitTimer();
 		if (home.config.motion === "off") return;
 		const now = performance.now();
@@ -282,7 +286,7 @@ export class UserHistoryEditor extends CustomEditor {
 	private ensureAnimationTimer(): void {
 		if (this.animationTimer !== undefined) return;
 		this.animationTimer = setInterval(() => {
-			if (!this.isHomeVisible() || performance.now() >= this.animationDeadline) {
+			if (!this.isFullscreenHomeVisible() || performance.now() >= this.animationDeadline) {
 				this.clearIntroTimer();
 				this.tuiHost.requestRender();
 				return;
@@ -295,7 +299,7 @@ export class UserHistoryEditor extends CustomEditor {
 	private ensureOrbitTimer(): void {
 		if (this.orbitTimer !== undefined) return;
 		this.orbitTimer = setInterval(() => {
-			if (!this.isHomeVisible()) {
+			if (!this.isFullscreenHomeVisible()) {
 				this.clearOrbitTimer();
 				return;
 			}

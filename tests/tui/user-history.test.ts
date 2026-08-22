@@ -1,7 +1,15 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { KeybindingsManager } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
-import { ProcessTerminal, stripTerminalSequences, TuiMainScreen, visibleWidth, type EditorTheme } from "@earendil-works/pi-tui";
+import {
+	ProcessTerminal,
+	stripTerminalSequences,
+	TuiAltScreen,
+	TuiMainScreen,
+	visibleWidth,
+	type EditorTheme,
+	type TuiMode,
+} from "@earendil-works/pi-tui";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { UserHistoryEditor, type HomeEditorOptions, type InputFrameOptions } from "../../src/tui/user-history-editor.js";
@@ -190,7 +198,7 @@ describe("路径级用户历史", () => {
 		expect(lines.every((line) => visibleWidth(line) === 80)).toBe(true);
 	});
 
-	it("空会话时输入框承载 Home，隐藏后恢复普通聊天输入框", () => {
+	it("fullscreen 空会话时输入框承载 Home，隐藏后恢复普通聊天输入框", () => {
 		let visible = true;
 		const home: HomeEditorOptions = {
 			config: { ...defaultTuiConfig().home, motion: "off" },
@@ -218,13 +226,14 @@ describe("路径级用户历史", () => {
 			styleLabel: (text) => text,
 			styleMode: (text) => text,
 			styleStatus: (text) => text,
-		}, home);
+		}, home, "fullscreen");
 
 		const homeOutput = editor.render(100).map(stripTerminalSequences).join("\n");
 		expect(homeOutput).toContain("NEW SESSION");
 		expect(homeOutput).toContain("openai / gpt-5.6-sol · xhigh");
 		expect(homeOutput).toContain("● ready");
 		expect(homeOutput).toContain("2 providers");
+		expect(homeOutput).toContain("1/2 tools");
 		expect(homeOutput).toContain("CAPABILITIES");
 
 		visible = false;
@@ -234,7 +243,31 @@ describe("路径级用户历史", () => {
 		expect(chatLines.join("\n")).not.toContain("NEW SESSION");
 	});
 
-	it("Home banner 不因键盘输入闪烁", () => {
+	it("regular 启动 banner 不扩展输入框，提交时仍退出启动态", () => {
+		let visible = true;
+		const onSubmitHome = vi.fn(() => {
+			visible = false;
+		});
+		const editor = createEditor([], [], vi.fn(), undefined, {
+			config: { ...defaultTuiConfig().home, motion: "playful" },
+			getSnapshot: () => ({}),
+			getTheme: () => ({ fg: (_name, text) => text }),
+			isVisible: () => visible,
+			onSubmit: onSubmitHome,
+			tip: "tip",
+		});
+		const submit = vi.fn();
+		editor.onSubmit = submit;
+
+		expect(editor.render(100)).toHaveLength(3);
+		editor.setText("hello");
+		editor.handleInput("\r");
+
+		expect(onSubmitHome).toHaveBeenCalledOnce();
+		expect(submit).toHaveBeenCalledWith("hello");
+	});
+
+	it("fullscreen Home 不因键盘输入闪烁", () => {
 		let visible = true;
 		const editor = createEditor([], [], vi.fn(), undefined, {
 			config: { ...defaultTuiConfig().home, motion: "playful", pointer_effects: "off" },
@@ -246,7 +279,7 @@ describe("路径级用户历史", () => {
 			isVisible: () => visible,
 			onSubmit: vi.fn(),
 			tip: "tip",
-		});
+		}, "fullscreen");
 
 		try {
 			editor.handleInput("a");
@@ -257,7 +290,10 @@ describe("路径级用户历史", () => {
 		}
 	});
 
-	it("隐藏 Home 时释放入场和低频轨道 timer", () => {
+	it.each([
+		{ mode: "regular", timers: 0 },
+		{ mode: "fullscreen", timers: 2 },
+	] as const)("$mode Home 只启动实际可见的动画 timer", ({ mode, timers }) => {
 		vi.useFakeTimers();
 		let visible = true;
 		const editor = createEditor([], [], vi.fn(), undefined, {
@@ -267,9 +303,9 @@ describe("路径级用户历史", () => {
 			isVisible: () => visible,
 			onSubmit: vi.fn(),
 			tip: "tip",
-		});
+		}, mode);
 
-		expect(vi.getTimerCount()).toBe(2);
+		expect(vi.getTimerCount()).toBe(timers);
 		visible = false;
 		editor.hideHome();
 		expect(vi.getTimerCount()).toBe(0);
@@ -308,8 +344,10 @@ function createEditor(
 	record: (text: string) => void,
 	frame?: InputFrameOptions,
 	home?: HomeEditorOptions,
+	mode: TuiMode = "regular",
 ): UserHistoryEditor {
-	const tui = new TuiMainScreen(new ProcessTerminal());
+	const terminal = new ProcessTerminal();
+	const tui = mode === "fullscreen" ? new TuiAltScreen(terminal) : new TuiMainScreen(terminal);
 	const keybindings = KeybindingsManager.create(temp.path);
 	const identity = (text: string): string => text;
 	const theme: EditorTheme = {

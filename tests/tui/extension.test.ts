@@ -3,7 +3,15 @@ import path from "node:path";
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
-import { ProcessTerminal, TuiMainScreen, type Component, type EditorComponent, type EditorTheme, type TUI } from "@earendil-works/pi-tui";
+import {
+	ProcessTerminal,
+	TuiMainScreen,
+	type Component,
+	type EditorComponent,
+	type EditorTheme,
+	type TUI,
+	type TuiMode,
+} from "@earendil-works/pi-tui";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import tuiExtension, { createTuiExtension } from "../../agent/extensions/tui.js";
@@ -12,8 +20,9 @@ import { createTuiRuntime } from "../../src/tui/runtime.js";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
 
 type Handler = (event: unknown, ctx: ExtensionContextStub) => Promise<void> | void;
-type FooterFactory = (tui: { requestRender(): void }, theme: ThemeStub, footerData: FooterDataStub) => Component;
-type HeaderFactory = (tui: { requestRender(): void }, theme: ThemeStub) => Component;
+type TuiStub = { mode: TuiMode; requestRender(): void };
+type FooterFactory = (tui: TuiStub, theme: ThemeStub, footerData: FooterDataStub) => Component;
+type HeaderFactory = (tui: TuiStub, theme: ThemeStub) => Component;
 type EditorFactoryStub = (tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => EditorComponent;
 
 interface ThemeStub {
@@ -131,14 +140,14 @@ describe("tui extension", () => {
 		tuiExtension(pi as unknown as ExtensionAPI);
 		await handlers.get("session_start")?.({}, ctx);
 
-		const component = footerFactory?.({ requestRender() {} }, ctx.ui.theme, createFooterData());
+		const component = footerFactory?.({ mode: "regular", requestRender() {} }, ctx.ui.theme, createFooterData());
 
 		expect(component?.render(80).join("\n")).toMatch(/\b1\/3\b/u);
 		activeTools = ["grep", "bash"];
 		expect(component?.render(80).join("\n")).toMatch(/\b2\/3\b/u);
 	});
 
-	it("空会话启动 Home，并在首轮开始时恢复聊天 chrome", async () => {
+	it("空会话按 TUI 模式选择旧版 regular banner 或 fullscreen Home", async () => {
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
 		const pi = createPi(handlers);
@@ -152,9 +161,15 @@ describe("tui extension", () => {
 		expect(calls.status.at(-1)).toMatchObject({ key: "o-pi:tui", text: expect.any(String) });
 		expect(calls.working.length).toBeGreaterThan(0);
 		const homeHeader = calls.header.at(-1);
-		const homeFooter = calls.footer.at(-1)?.({ requestRender() {} }, ctx.ui.theme, createFooterData());
+		const regularHeader = homeHeader?.({ mode: "regular", requestRender() {} }, ctx.ui.theme);
+		const fullscreenHeader = homeHeader?.({ mode: "fullscreen", requestRender() {} }, ctx.ui.theme);
+		const regularFooter = calls.footer.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme, createFooterData());
+		const fullscreenFooter = calls.footer.at(-1)?.({ mode: "fullscreen", requestRender() {} }, ctx.ui.theme, createFooterData());
 		expect(homeHeader).toBeTypeOf("function");
-		expect(homeFooter?.render(80).join("\n")).toContain("O Pi v");
+		expect(regularHeader?.render(120).join("\n")).toContain("██████╗");
+		expect(fullscreenHeader?.render(120)).toEqual([]);
+		expect(regularFooter?.render(80).join("\n")).toContain("tools 1/3");
+		expect(fullscreenFooter?.render(80).join("\n")).toContain("O Pi v");
 		await handlers.get("turn_start")?.({}, ctx);
 
 		expect(calls.header.at(-1)).toBeUndefined();
@@ -188,7 +203,7 @@ describe("tui extension", () => {
 
 			expect(submit).toHaveBeenCalledWith(text);
 			expect(calls.header.at(-1)).toBeUndefined();
-			const footer = calls.footer.at(-1)?.({ requestRender() {} }, ctx.ui.theme, createFooterData());
+			const footer = calls.footer.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme, createFooterData());
 			expect(footer?.render(80).join("\n")).toContain("tools 1/3");
 			expect(footer?.render(80).join("\n")).not.toContain("O Pi v");
 			await handlers.get("session_shutdown")?.({}, ctx);
@@ -208,7 +223,7 @@ describe("tui extension", () => {
 		await handlers.get("session_start")?.({}, ctx);
 
 		expect(calls.header.at(-1)).toBeUndefined();
-		const footer = calls.footer.at(-1)?.({ requestRender() {} }, ctx.ui.theme, createFooterData());
+		const footer = calls.footer.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme, createFooterData());
 		expect(footer?.render(80).join("\n")).toContain("tools 1/3");
 		expect(footer?.render(80).join("\n")).not.toContain("O Pi v");
 	});
@@ -231,7 +246,7 @@ describe("tui extension", () => {
 		expect(calls.header.at(-1)).not.toBe(homeHeader);
 	});
 
-	it("首轮对话前 model_select 刷新输入快照、Home footer 和 title", async () => {
+	it("首轮对话前 model_select 刷新 startup chrome 和 title", async () => {
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
 		const pi = createPi(handlers);
@@ -243,9 +258,11 @@ describe("tui extension", () => {
 		ctx.model = { provider: "openai", id: "gpt-5.2", reasoning: true };
 		await handlers.get("model_select")?.({ type: "model_select", model: ctx.model, previousModel: undefined, source: "set" }, ctx);
 
-		const footer = calls.footer.at(-1)?.({ requestRender() {} }, ctx.ui.theme, createFooterData());
+		const header = calls.header.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme);
+		const footer = calls.footer.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme, createFooterData());
 		expect(calls.footer.length).toBeGreaterThan(footerCount);
-		expect(footer?.render(120).join("\n")).toContain("O Pi v");
+		expect(header?.render(120).join("\n")).toContain("gpt-5.2");
+		expect(footer?.render(120).join("\n")).toContain("tools 1/3");
 		expect(calls.title.at(-1)).toContain("gpt-5.2");
 		expect(calls.status.at(-1)).toMatchObject({ key: "o-pi:tui", text: expect.any(String) });
 	});
