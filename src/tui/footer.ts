@@ -75,7 +75,7 @@ export async function readGitSegment(cwd: string, signal?: AbortSignal): Promise
 
 function execGit(cwd: string, args: string[], signal?: AbortSignal): Promise<string | undefined> {
 	return new Promise((resolve) => {
-		execFile("git", args, { cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS, ...(signal !== undefined ? { signal } : {}) }, (error, stdout) => {
+		execFile("git", ["--no-optional-locks", ...args], { cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS, ...(signal !== undefined ? { signal } : {}) }, (error, stdout) => {
 			resolve(error === null ? stdout : undefined);
 		});
 	});

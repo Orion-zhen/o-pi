@@ -34,7 +34,7 @@ export async function captureGitRevision(cwd: string): Promise<GitRevision | und
 }
 
 async function git(cwd: string, args: string[]): Promise<string> {
-	const result = await execFileAsync("git", ["-C", cwd, ...args], {
+	const result = await execFileAsync("git", ["--no-optional-locks", "-C", cwd, ...args], {
 		encoding: "utf8",
 		timeout: GIT_TIMEOUT_MS,
 		maxBuffer: GIT_MAX_BUFFER,

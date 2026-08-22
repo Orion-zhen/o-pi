@@ -93,7 +93,7 @@ export class GitTrackedFilesLoader {
 
 async function resolveGitStatePaths(workspaceRoot: string, signal?: AbortSignal): Promise<string[]> {
 	try {
-		const { stdout } = await execFileAsync("git", ["-C", workspaceRoot, "rev-parse", "--path-format=absolute", "--git-path", "index", "--git-path", "config"], {
+		const { stdout } = await execFileAsync("git", ["--no-optional-locks", "-C", workspaceRoot, "rev-parse", "--path-format=absolute", "--git-path", "index", "--git-path", "config"], {
 			encoding: "utf8",
 			...(signal === undefined ? {} : { signal }),
 		});
@@ -106,7 +106,7 @@ async function resolveGitStatePaths(workspaceRoot: string, signal?: AbortSignal)
 
 async function readTrackedPaths(workspaceRoot: string, signal?: AbortSignal): Promise<ReadonlySet<string>> {
 	try {
-		const { stdout } = await execFileAsync("git", ["-C", workspaceRoot, "ls-files", "-z"], {
+		const { stdout } = await execFileAsync("git", ["--no-optional-locks", "-C", workspaceRoot, "ls-files", "-z"], {
 			encoding: "buffer",
 			maxBuffer: 20 * 1024 * 1024,
 			...(signal === undefined ? {} : { signal }),
@@ -120,7 +120,7 @@ async function readTrackedPaths(workspaceRoot: string, signal?: AbortSignal): Pr
 
 async function readIgnoreCase(workspaceRoot: string, signal?: AbortSignal): Promise<boolean | undefined> {
 	try {
-		const { stdout } = await execFileAsync("git", ["-C", workspaceRoot, "config", "--get", "core.ignoreCase"], {
+		const { stdout } = await execFileAsync("git", ["--no-optional-locks", "-C", workspaceRoot, "config", "--get", "core.ignoreCase"], {
 			encoding: "utf8",
 			...(signal === undefined ? {} : { signal }),
 		});

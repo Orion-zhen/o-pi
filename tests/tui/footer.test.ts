@@ -1,8 +1,10 @@
+import { readFile, stat, utimes } from "node:fs/promises";
 import path from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { formatFooter, GitSegmentCache, readGitSegment, type GitSegmentReader } from "../../src/tui/footer.js";
 import type { TuiFooterConfig, TuiFooterSnapshot } from "../../src/tui/types.js";
+import { initializeGitRepository } from "../helpers/git.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-no-git-");
@@ -68,6 +70,20 @@ describe("tui footer", () => {
 		const lines = formatFooter({ cwd, status: "ready" }, config, 120, theme);
 		expect(lines.join("\n")).not.toMatch(/undefined|null/);
 		await expect(readGitSegment(temp.path)).resolves.toBeUndefined();
+	});
+
+	it("Git 状态探测不刷新 index 或创建 optional lock", async () => {
+		const trackedFile = await initializeGitRepository(temp.path);
+		const indexPath = path.join(temp.path, ".git", "index");
+		const lockPath = `${indexPath}.lock`;
+		const before = await readFile(indexPath);
+		const future = new Date(Date.now() + 60_000);
+		await utimes(trackedFile, future, future);
+
+		await expect(readGitSegment(temp.path)).resolves.toMatch(/^[^*]+$/u);
+
+		expect(await readFile(indexPath)).toEqual(before);
+		await expect(stat(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
 	});
 
 	it("dispose 会取消 Git 查询并阻止完成回调", () => {
