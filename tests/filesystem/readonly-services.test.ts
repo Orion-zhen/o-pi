@@ -22,22 +22,23 @@ describe("filesystem metadata, traversal and catalog services", () => {
 		await writeFile(path.join(workspace, "secret.txt"), "secret");
 		await symlink("a.txt", path.join(workspace, "link.txt"));
 		const opened = await openReadonly(workspace, { blockedPaths: ["secret.txt"] });
-		const listed = expectFsOk(await opened.services.metadata.list(opened.namespace.root, {}));
+		const listed = expectFsOk(await opened.services.metadata.list(opened.namespace.root));
 		const file = listed.find((entry) => entry.name === "a.txt")?.ref;
 		const link = listed.find((entry) => entry.name === "link.txt")?.ref;
 		if (file === undefined || link === undefined) throw new Error("Expected listed refs.");
-		expect(expectFsOk(await opened.services.metadata.stat(file, {}))).toMatchObject({ kind: "file", sizeBytes: 1 });
-		expect(expectFsOk(await opened.services.metadata.stat(link, {}))).toMatchObject({ kind: "symlink" });
+		expect(expectFsOk(await opened.services.metadata.stat(file))).toMatchObject({ kind: "file", sizeBytes: 1 });
+		expect(expectFsOk(await opened.services.metadata.stat(link))).toMatchObject({ kind: "symlink" });
 		expect(listed.map((entry) => ({ name: entry.name, kind: entry.ref.kind, target: entry.linkTarget }))).toEqual([
 			{ name: "a.txt", kind: "file", target: undefined },
 			{ name: "b.txt", kind: "file", target: undefined },
 			{ name: "link.txt", kind: "symlink", target: "a.txt" },
 		]);
 		await rm(path.join(workspace, "a.txt"));
-		expect(await opened.services.metadata.stat(file, {})).toMatchObject({ ok: false, error: { code: "not-found" } });
+		expect(await opened.services.metadata.stat(file)).toMatchObject({ ok: false, error: { code: "not-found" } });
 		const controller = new AbortController();
+		const cancelledOpened = await openReadonly(workspace, { ownerSignal: controller.signal });
 		controller.abort("stop");
-		expect(await opened.services.metadata.list(opened.namespace.root, { signal: controller.signal })).toMatchObject({
+		expect(await cancelledOpened.services.metadata.list(cancelledOpened.namespace.root)).toMatchObject({
 			ok: false,
 			error: { code: "aborted" },
 		});
@@ -59,13 +60,12 @@ describe("filesystem metadata, traversal and catalog services", () => {
 		const opened = await openReadonly(workspace, { blockedPaths: ["secret/"] });
 		const traversal = expectFsOk(await opened.services.traversal.walk(opened.namespace.root, {
 			intent: "search",
-			includeRoot: true,
 			maxEntries: 100,
-		}, {}));
+		}));
 		const events = await collectAsync(traversal);
 
 		expect(events.filter((event) => event.type === "entry").map((event) => event.ref.displayPath)).toEqual([
-			".", ".piignore", "a-dir", "a-dir/a.txt", "b.txt", "cache", "cache/keep.txt",
+			".piignore", "a-dir", "a-dir/a.txt", "b.txt", "cache", "cache/keep.txt",
 		]);
 		expect(events).toEqual(expect.arrayContaining([
 			expect.objectContaining({
@@ -88,17 +88,15 @@ describe("filesystem metadata, traversal and catalog services", () => {
 		const ignored = expectFsOk(await opened.namespace.paths.resolveExisting(
 			"ignored",
 			{ expected: "directory", followFinalSymlink: true },
-			{},
 		));
-		if (ignored.kind !== "directory") throw new Error("Expected directory ref.");
-		const skipped = expectFsOk(await opened.services.traversal.walk(ignored, { intent: "search" }, {}));
+		const skipped = expectFsOk(await opened.services.traversal.walk(ignored, { intent: "search" }));
 		const skippedEvents = await collectAsync(skipped);
 		expect(skippedEvents).toEqual([{ type: "skip", path: "ignored", reason: "ignored", kind: "directory" }]);
 
 		const traversal = expectFsOk(await opened.services.traversal.walk(ignored, {
 			intent: "search",
 			explicitRoot: true,
-		}, {}));
+		}));
 		const paths = (await collectAsync(traversal))
 			.filter((event) => event.type === "entry")
 			.map((event) => event.ref.displayPath);
@@ -127,7 +125,7 @@ describe("filesystem metadata, traversal and catalog services", () => {
 		const partial = expectFsOk(await opened.services.traversal.walk(opened.namespace.root, {
 			intent: "search",
 			maxEntries: 100,
-		}, {}));
+		}));
 		const partialEvents = await collectAsync(partial);
 		expect(partialEvents).toEqual(expect.arrayContaining([
 			expect.objectContaining({ type: "error", path: "broken.txt", error: expect.objectContaining({ code: "access-denied" }) }),
@@ -138,15 +136,16 @@ describe("filesystem metadata, traversal and catalog services", () => {
 		const limited = expectFsOk(await opened.services.traversal.walk(opened.namespace.root, {
 			intent: "search",
 			maxEntries: 1,
-		}, {}));
+		}));
 		const limitedEvents = await collectAsync(limited);
 		expect(limitedEvents.at(-1)).toMatchObject({ type: "skip", reason: "entry-limit" });
 
 		const controller = new AbortController();
-		const cancelled = expectFsOk(await opened.services.traversal.walk(opened.namespace.root, {
+		const cancelledOpened = await openReadonly(workspace, { native, ownerSignal: controller.signal });
+		const cancelled = expectFsOk(await cancelledOpened.services.traversal.walk(cancelledOpened.namespace.root, {
 			intent: "search",
 			maxEntries: 100,
-		}, { signal: controller.signal }));
+		}));
 		const cancelledEvents = [];
 		for await (const event of cancelled) {
 			cancelledEvents.push(event);
@@ -163,25 +162,17 @@ describe("filesystem metadata, traversal and catalog services", () => {
 			},
 		});
 		const opened = await openReadonly(workspace, { native });
-		expect(await opened.services.traversal.walk(opened.namespace.root, { intent: "search" }, {})).toMatchObject({
+		expect(await opened.services.traversal.walk(opened.namespace.root, { intent: "search" })).toMatchObject({
 			ok: false,
 			error: { code: "access-denied", path: "." },
 		});
 	});
 
-	it("validates traversal and catalog controls at their public boundaries", async () => {
+	it("applies traversal limits and keeps streams single-pass without misuse errors", async () => {
 		await mkdir(path.join(workspace, "src"));
 		await writeFile(path.join(workspace, "src", "a.ts"), "a");
 		const opened = await openReadonly(workspace);
-		expect(await opened.services.traversal.walk(opened.namespace.root, { intent: "search", maxEntries: -1 }, {})).toMatchObject({
-			ok: false,
-			error: { code: "invalid-path" },
-		});
-		expect(await opened.services.traversal.walk(opened.namespace.root, { intent: "search", maxDepth: -1 }, {})).toMatchObject({
-			ok: false,
-			error: { code: "invalid-path" },
-		});
-		const depthLimited = expectFsOk(await opened.services.traversal.walk(opened.namespace.root, { intent: "search", maxDepth: 1 }, {}));
+		const depthLimited = expectFsOk(await opened.services.traversal.walk(opened.namespace.root, { intent: "search", maxDepth: 1 }));
 		const depthEvents = await collectAsync(depthLimited);
 		expect(depthEvents).toEqual(expect.arrayContaining([
 			expect.objectContaining({ type: "entry", ref: expect.objectContaining({ displayPath: "src" }), depth: 1 }),
@@ -191,33 +182,22 @@ describe("filesystem metadata, traversal and catalog services", () => {
 			expect.objectContaining({ type: "entry", ref: expect.objectContaining({ displayPath: "src/a.ts" }) }),
 		]));
 		const controller = new AbortController();
+		const cancelledOpened = await openReadonly(workspace, { ownerSignal: controller.signal });
 		controller.abort("stop");
-		expect(await opened.services.traversal.walk(opened.namespace.root, { intent: "search" }, { signal: controller.signal })).toMatchObject({
+		expect(await cancelledOpened.services.traversal.walk(cancelledOpened.namespace.root, { intent: "search" })).toMatchObject({
 			ok: false,
 			error: { code: "aborted" },
 		});
-		expect(await opened.services.catalog.suggest(opened.namespace.root, "a", { limit: -1, maxEntries: 10 }, {})).toMatchObject({
-			ok: false,
-			error: { code: "invalid-path" },
-		});
-		expect(expectFsOk(await opened.services.catalog.suggest(opened.namespace.root, "a", { limit: 0, maxEntries: 10 }, {}))).toEqual([]);
-		expect(await opened.services.catalog.suggest(
-			opened.namespace.root,
+		expect(expectFsOk(await opened.services.catalog.suggest(opened.namespace.root, "a", { limit: 0, maxEntries: 10 }))).toEqual([]);
+		expect(await cancelledOpened.services.catalog.suggest(
+			cancelledOpened.namespace.root,
 			"a",
 			{ limit: 1, maxEntries: 10 },
-			{ signal: controller.signal },
 		)).toMatchObject({ ok: false, error: { code: "aborted" } });
-		const directories = expectFsOk(await opened.services.catalog.suggest(
-			opened.namespace.root,
-			"src",
-			{ limit: 2, maxEntries: 10, kinds: ["directory"] },
-			{},
-		));
-		expect(directories).toEqual([expect.objectContaining({ ref: expect.objectContaining({ displayPath: "src", kind: "directory" }) })]);
-		const reusable = expectFsOk(await opened.services.traversal.walk(opened.namespace.root, { intent: "search" }, {}));
+		const reusable = expectFsOk(await opened.services.traversal.walk(opened.namespace.root, { intent: "search" }));
 		await collectAsync(reusable);
 		const repeated = await collectAsync(reusable);
-		expect(repeated).toEqual([expect.objectContaining({ type: "error", error: expect.objectContaining({ code: "invalid-path" }) })]);
+		expect(repeated).toEqual([]);
 	});
 
 	it("ranks typo suggestions deterministically and filters invisible or unrelated paths", async () => {
@@ -231,7 +211,6 @@ describe("filesystem metadata, traversal and catalog services", () => {
 			opened.namespace.root,
 			"src/maim.ts",
 			{ limit: 3, maxEntries: 100 },
-			{},
 		));
 		expect(suggestions[0]).toMatchObject({ ref: { displayPath: "src/main.ts", kind: "file" } });
 		expect(suggestions.every((candidate) => candidate.ref.displayPath !== "src/hidden.ts")).toBe(true);
@@ -239,7 +218,6 @@ describe("filesystem metadata, traversal and catalog services", () => {
 			opened.namespace.root,
 			"zzz_totally_unrelated_abc.txt",
 			{ limit: 3, maxEntries: 100 },
-			{},
 		))).toEqual([]);
 	});
 });

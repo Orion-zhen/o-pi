@@ -1,23 +1,16 @@
 import path from "node:path";
 
-import type {
-	IgnoreDiagnostic,
-	IgnoreTraceEntry,
-	MatchedIgnoreRule,
-	VisibilityDecision,
-	VisibilityEvaluateInput,
-	VisibilityExplanation,
-	VisibilityExplainInput,
-	VisibilityMatchState,
-	VisibilityPolicy,
-	VisibilitySnapshot,
-	VisibilitySourceType,
-} from "../../contracts/visibility.js";
+import type { VisibilityPolicy } from "../../contracts/visibility.js";
 import { CompiledPathRuleMatcher, type PathIdentity } from "../../kernel/access-policy.js";
 import {
 	SOURCE_PRIORITY,
 	type CompiledVisibilityRuleSet,
+	type MatchedIgnoreRule,
+	type VisibilityDecision,
+	type VisibilityEvaluateInput,
+	type VisibilityMatchState,
 	type VisibilitySourceMatch,
+	type VisibilitySourceType,
 } from "./model.js";
 
 interface CompiledVisibilitySource {
@@ -25,8 +18,8 @@ interface CompiledVisibilitySource {
 	readonly ruleSets: readonly CompiledVisibilityRuleSet[];
 }
 
-export class CompiledVisibilitySnapshot implements VisibilitySnapshot {
-	readonly diagnostics: readonly IgnoreDiagnostic[];
+/** 只评估已加载的可见性规则，不发现或读取规则文件。 */
+export class VisibilityEvaluator {
 	private readonly sources: readonly CompiledVisibilitySource[];
 	private readonly negatedRuleSets: readonly CompiledVisibilityRuleSet[];
 	private readonly trackedLookup: ReadonlySet<string>;
@@ -34,16 +27,12 @@ export class CompiledVisibilitySnapshot implements VisibilitySnapshot {
 	private readonly configuredRules: CompiledPathRuleMatcher;
 
 	constructor(
-		readonly generation: number,
-		readonly fingerprint: string,
 		private readonly root: string,
 		ruleSets: readonly CompiledVisibilityRuleSet[],
-		diagnostics: readonly IgnoreDiagnostic[],
 		trackedPaths: ReadonlySet<string>,
 		policy: VisibilityPolicy,
 		private readonly caseInsensitive: boolean,
 	) {
-		this.diagnostics = diagnostics;
 		this.sources = groupRuleSetsBySource(ruleSets);
 		this.negatedRuleSets = ruleSets.filter((ruleSet) => ruleSet.hasNegatedRule);
 		this.trackedLookup = caseInsensitive
@@ -72,59 +61,11 @@ export class CompiledVisibilitySnapshot implements VisibilitySnapshot {
 		const ignored = state === "ignore";
 		const prune = ignored && canPrune(input.intent) && input.kind === "directory"
 			&& (configuredRule !== undefined || !this.hasNegatedRuleForDescendant(normalized));
-		const decision: VisibilityDecision = { state, ignored, prune };
-		if (winner !== undefined) decision.matchedRule = decisionRule(winner.rule);
-		if (this.diagnostics.length > 0) decision.diagnostics = this.diagnostics;
-		return decision;
-	}
-
-	explain(input: VisibilityExplainInput): VisibilityExplanation {
-		const workspacePath = visibilityWorkspacePath(input);
-		const normalized = normalizeIgnorePath(workspacePath ?? input.path);
-		const tracked = workspacePath !== undefined && this.trackedBypassEnabled && this.isTracked(normalized);
-		const trace = workspacePath === undefined ? [] : this.matchTrace(normalized, input.kind, tracked);
-		const configuredRule = this.matchConfiguredRule(input);
-		if (configuredRule !== undefined) {
-			trace.push({
-				sourceType: "config",
-				sourcePath: "file-tools.jsonc",
-				pattern: configuredRule.pattern,
-				negated: false,
-				result: "ignore",
-			});
-		}
-		const winner = trace[trace.length - 1];
-		const ignored = winner?.result === "ignore";
-		const prune = ignored && input.kind === "directory"
-			&& (configuredRule !== undefined || !this.hasNegatedRuleForDescendant(normalized));
-		const explanation: VisibilityExplanation = { path: normalized, ignored, prune, trace };
-		if (winner !== undefined) {
-			explanation.winner = {
-				sourceType: winner.sourceType,
-				sourcePath: winner.sourcePath,
-				line: winner.line,
-				pattern: winner.pattern,
-			};
-		}
-		if (this.diagnostics.length > 0) explanation.diagnostics = this.diagnostics;
-		return explanation;
-	}
-
-	private matchTrace(pathname: string, kind: VisibilityEvaluateInput["kind"], tracked: boolean): IgnoreTraceEntry[] {
-		const trace: IgnoreTraceEntry[] = [];
-		for (const source of this.sources) {
-			const sourceMatch = this.matchSource(source, pathname, kind);
-			if (sourceMatch === undefined || this.isBypassedTrackedIgnore(source.sourceType, sourceMatch, tracked)) continue;
-			trace.push({
-				sourceType: source.sourceType,
-				sourcePath: sourceMatch.rule.sourcePath,
-				line: sourceMatch.rule.line,
-				pattern: sourceMatch.rule.pattern,
-				negated: sourceMatch.rule.negated,
-				result: sourceMatch.state,
-			});
-		}
-		return trace;
+		return {
+			ignored,
+			prune,
+			...(winner === undefined ? {} : { matchedRule: winner.rule }),
+		};
 	}
 
 	private matchSource(
@@ -167,7 +108,7 @@ export class CompiledVisibilitySnapshot implements VisibilitySnapshot {
 		return this.trackedLookup.has(this.caseInsensitive ? pathname.toLowerCase() : pathname);
 	}
 
-	private matchConfiguredRule(input: VisibilityExplainInput): MatchedIgnoreRule | undefined {
+	private matchConfiguredRule(input: VisibilityEvaluateInput): MatchedIgnoreRule | undefined {
 		const workspacePath = input.workspacePath ?? (path.isAbsolute(input.path) ? undefined : normalizeIgnorePath(input.path));
 		const absolutePath = input.absolutePath ?? (workspacePath === undefined ? input.path : path.resolve(this.root, workspacePath));
 		const identity: PathIdentity = {
@@ -198,10 +139,6 @@ function groupRuleSetsBySource(ruleSets: readonly CompiledVisibilityRuleSet[]): 
 	return Array.from(grouped, ([sourceType, sourceRuleSets]) => ({ sourceType, ruleSets: sourceRuleSets }));
 }
 
-function decisionRule(rule: MatchedIgnoreRule): MatchedIgnoreRule {
-	return { ...rule, baseDirectory: ".", priority: SOURCE_PRIORITY[rule.sourceType] };
-}
-
 function pathIsInsideBase(pathname: string, baseDirectory: string): boolean {
 	return baseDirectory === "." || pathname === baseDirectory || pathname.startsWith(`${baseDirectory}/`);
 }
@@ -224,7 +161,7 @@ function ruleMatchesDirectoryAncestor(
 	return relative.includes("/");
 }
 
-function visibilityWorkspacePath(input: VisibilityExplainInput): string | undefined {
+function visibilityWorkspacePath(input: VisibilityEvaluateInput): string | undefined {
 	if (input.workspacePath !== undefined) return input.workspacePath;
 	return input.absolutePath === undefined ? input.path : undefined;
 }

@@ -4,6 +4,14 @@ import { describe, expect, it } from "vitest";
 
 import { formatCompactGrepResult } from "../../src/file-tools/grep/command.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
+import type {
+	DirectoryRef,
+	ExistingRef,
+	FileRef,
+	PathOperations,
+	ResolveExistingOptions,
+} from "../../src/filesystem/contracts/path.js";
+import type { FsResult } from "../../src/filesystem/contracts/result.js";
 import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
 import {
 	assertStrictMatches,
@@ -416,21 +424,21 @@ describe("grep local search", () => {
 					...opened.filesystem,
 					metadata: {
 						...metadata,
-						async stat(ref, context) {
+						async stat(ref) {
 							metadataReads += 1;
-							return await metadata.stat(ref, context);
+							return await metadata.stat(ref);
 						},
 					},
 				},
 				(content) => ({
-					async readText(file, options, context) {
+					async readText(file, options) {
 						expect(options.expectedSnapshot).toBeDefined();
 						if (!changed) {
 							changed = true;
 							await writeFile(filePath, replacementText);
 							await utimes(filePath, new Date(946_684_800_000), new Date(946_684_800_000));
 						}
-						return await content.readText(file, options, context);
+						return await content.readText(file, options);
 					},
 				}),
 			);
@@ -492,13 +500,13 @@ describe("grep local search", () => {
 			let scans = 0;
 			let fullReads = 0;
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
-				async readText(file, options, context) {
+				async readText(file, options) {
 					fullReads += 1;
-					return await content.readText(file, options, context);
+					return await content.readText(file, options);
 				},
-				async scanLines(file, options, context) {
+				async scanLines(file, options) {
 					scans += 1;
-					return await content.scanLines(file, options, context);
+					return await content.scanLines(file, options);
 				},
 			}));
 			const results: GrepSuccess[] = [];
@@ -525,9 +533,9 @@ describe("grep local search", () => {
 		await withGrepRuntime(testContext.workspace, "grep-cache-disabled", async ({ tool, opened }) => {
 			let fullReads = 0;
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
-				async readText(file, options, context) {
+				async readText(file, options) {
 					fullReads += 1;
-					return await content.readText(file, options, context);
+					return await content.readText(file, options);
 				},
 			}));
 			for (let index = 0; index < 2; index += 1) {
@@ -549,14 +557,14 @@ describe("grep local search", () => {
 			let blockFirstRead = true;
 			let observedReads = 0;
 			const filesystem = overrideContent(opened.filesystem, (service) => ({
-				async readText(file, options, context) {
+				async readText(file, options) {
 					observedReads += 1;
 					if (blockFirstRead) {
 						blockFirstRead = false;
 						readStarted.resolve();
 						await continueRead.promise;
 					}
-					return await service.readText(file, options, context);
+					return await service.readText(file, options);
 				},
 			}));
 			const warm = tool.execute({ query: "ConcurrentCacheNeedle" }, {
@@ -586,9 +594,9 @@ describe("grep local search", () => {
 		await withGrepRuntime(testContext.workspace, "grep-cache-cancel", async ({ tool, opened }) => {
 			let fullReads = 0;
 			const filesystem = overrideContent(opened.filesystem, (service) => ({
-				async readText(file, options, context) {
+				async readText(file, options) {
 					fullReads += 1;
-					return await service.readText(file, options, context);
+					return await service.readText(file, options);
 				},
 			}));
 			expectGrepSuccess(await tool.execute({ query: "CancelCacheNeedle" }, {
@@ -603,9 +611,9 @@ describe("grep local search", () => {
 				...filesystem,
 				metadata: {
 					...metadata,
-					async stat(ref: Parameters<typeof metadata.stat>[0], context: Parameters<typeof metadata.stat>[1]) {
+					async stat(ref: Parameters<typeof metadata.stat>[0]) {
 						controller.abort();
-						return await metadata.stat(ref, context);
+						return await metadata.stat(ref);
 					},
 				},
 			};
@@ -633,9 +641,9 @@ describe("grep local search", () => {
 		await withGrepRuntime(testContext.workspace, "grep-cache-lru", async ({ tool, opened }) => {
 			const fullReads: string[] = [];
 			const filesystem = overrideContent(opened.filesystem, (service) => ({
-				async readText(file, options, context) {
+				async readText(file, options) {
 					fullReads.push(file.displayPath);
-					return await service.readText(file, options, context);
+					return await service.readText(file, options);
 				},
 			}));
 			const limits = {
@@ -663,9 +671,9 @@ describe("grep local search", () => {
 		await withGrepRuntime(testContext.workspace, "grep-cache-oversized", async ({ tool, opened }) => {
 			const fullReads: string[] = [];
 			const filesystem = overrideContent(opened.filesystem, (service) => ({
-				async readText(file, options, context) {
+				async readText(file, options) {
 					fullReads.push(file.displayPath);
-					return await service.readText(file, options, context);
+					return await service.readText(file, options);
 				},
 			}));
 			const limits = { ...opened.limits, grep_content_cache_bytes: Buffer.byteLength(cached) };
@@ -694,16 +702,11 @@ describe("grep local search", () => {
 			let changed = false;
 			const filesystem = {
 				...opened.filesystem,
-				paths: {
-					...paths,
-					resolveExisting: async (...args: Parameters<typeof paths.resolveExisting>) => {
-						if (!changed && args[1].expected === "file") {
-							changed = true;
-							await writeFile(filePath, "export const after = true; // replacement\n");
-						}
-						return await paths.resolveExisting(...args);
-					},
-				},
+				paths: withFileResolveHook(paths, async () => {
+					if (changed) return;
+					changed = true;
+					await writeFile(filePath, "export const after = true; // replacement\n");
+				}),
 			};
 			const raced = expectGrepSuccess(await tool.execute({ query: "WarmRaceNeedle" }, {
 				filesystem,
@@ -731,17 +734,12 @@ describe("grep local search", () => {
 			let changed = false;
 			const filesystem = {
 				...opened.filesystem,
-				paths: {
-					...paths,
-					resolveExisting: async (...args: Parameters<typeof paths.resolveExisting>) => {
-						if (!changed && args[1].expected === "file") {
-							changed = true;
-							await rename(filePath, targetPath);
-							await symlink("warm-target.ts", filePath);
-						}
-						return await paths.resolveExisting(...args);
-					},
-				},
+				paths: withFileResolveHook(paths, async () => {
+					if (changed) return;
+					changed = true;
+					await rename(filePath, targetPath);
+					await symlink("warm-target.ts", filePath);
+				}),
 			};
 			const raced = expectGrepSuccess(await tool.execute({ query: "WarmLinkCacheNeedle" }, {
 				filesystem,
@@ -754,3 +752,32 @@ describe("grep local search", () => {
 		});
 	});
 });
+
+function withFileResolveHook(paths: PathOperations, hook: () => Promise<void>): PathOperations {
+	function resolveExisting(
+		input: string,
+		options: ResolveExistingOptions & { readonly expected: "file" },
+	): Promise<FsResult<FileRef>>;
+	function resolveExisting(
+		input: string,
+		options: ResolveExistingOptions & { readonly expected: "directory" },
+	): Promise<FsResult<DirectoryRef>>;
+	function resolveExisting(
+		input: string,
+		options: ResolveExistingOptions & { readonly expected: "any" },
+	): Promise<FsResult<ExistingRef>>;
+	async function resolveExisting(
+		input: string,
+		options: ResolveExistingOptions,
+	): Promise<FsResult<ExistingRef>> {
+		if (options.expected === "file") {
+			await hook();
+			return await paths.resolveExisting(input, { ...options, expected: "file" });
+		}
+		if (options.expected === "directory") {
+			return await paths.resolveExisting(input, { ...options, expected: "directory" });
+		}
+		return await paths.resolveExisting(input, { ...options, expected: "any" });
+	}
+	return { ...paths, resolveExisting };
+}

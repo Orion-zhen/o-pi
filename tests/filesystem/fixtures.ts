@@ -30,36 +30,37 @@ export async function openReadonly(
 	} = {},
 ): Promise<OpenedReadonly> {
 	const native = options.native ?? new NodeNativeFileSystem();
+	const context = options.ownerSignal === undefined ? {} : { signal: options.ownerSignal };
 	const namespace = expectFsOk(await createWorkspaceNamespace({
 		workspaceRoot: workspace,
 		blockedPaths: options.blockedPaths ?? [],
 		native,
-		...(options.ownerSignal === undefined ? {} : { context: { signal: options.ownerSignal } }),
+		context,
 	}));
-	const visibilitySnapshot = await new WorkspaceVisibilityService(native).createSnapshot(
+	const visibility = await new WorkspaceVisibilityService(native).createOperations(
 		workspace,
 		options.policy ?? createVisibilityPolicy({ ignore: { builtinProfile: "none" } }),
+		namespace,
+		context,
 	);
 	return {
 		namespace,
 		services: createReadonlyFileSystemServices({
 			native,
 			namespace,
-			visibilitySnapshot,
-			...(options.ownerSignal === undefined ? {} : { ownerSignal: options.ownerSignal }),
+			visibility,
+			context,
 		}),
 	};
 }
 
 export async function resolveFile(namespace: WorkspaceNamespaceKernel, input: string): Promise<FileRef> {
-	const ref = expectFsOk(await namespace.paths.resolveExisting(input, { expected: "file", followFinalSymlink: true }, {}));
-	if (ref.kind !== "file") throw new Error(`Expected file ref for ${input}.`);
+	const ref = expectFsOk(await namespace.paths.resolveExisting(input, { expected: "file", followFinalSymlink: true }));
 	return ref;
 }
 
 export async function resolveDirectory(namespace: WorkspaceNamespaceKernel, input: string): Promise<DirectoryRef> {
-	const ref = expectFsOk(await namespace.paths.resolveExisting(input, { expected: "directory", followFinalSymlink: true }, {}));
-	if (ref.kind !== "directory") throw new Error(`Expected directory ref for ${input}.`);
+	const ref = expectFsOk(await namespace.paths.resolveExisting(input, { expected: "directory", followFinalSymlink: true }));
 	return ref;
 }
 

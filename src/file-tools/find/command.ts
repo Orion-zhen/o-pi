@@ -3,7 +3,7 @@ import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import type { DirectoryRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import { bindOperationContext } from "../../filesystem/operation-context.js";
+import { combineOperationContext } from "../shared/operation-context.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
 import { fail, isFailed, mapFsError, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import { createFindQueryPlan } from "./query.js";
@@ -42,7 +42,7 @@ export class FindTool {
 
 	async execute(params: FindParams, context: FindCommandContext): Promise<ToolOutcome<FindSuccess>> {
 		if (this.disposed) return fail("OPERATION_ABORTED", "find is shut down.");
-		context = { ...context, operation: bindOperationContext(this.owner.signal, context.operation) };
+		context = { ...context, operation: combineOperationContext(context.operation, this.owner.signal) };
 		const normalized = validateFindParams(params);
 		if (isFailed(normalized)) return normalized;
 		const plan = createFindQueryPlan(normalized.query);
@@ -158,16 +158,12 @@ async function resolveSearchRoot(input: string, context: FindCommandContext): Pr
 	const resolved = await context.filesystem.paths.resolveExisting(
 		input,
 		{ expected: "directory", followFinalSymlink: true },
-		context.operation,
 	);
 	if (!resolved.ok) {
 		const message = resolved.error.code === "not-found" ? "Directory does not exist."
 			: resolved.error.code === "not-directory" ? "Path is not a directory."
 				: undefined;
 		return mapFsError(resolved.error, message === undefined ? {} : { message });
-	}
-	if (resolved.value.kind !== "directory") {
-		return fail("NOT_A_DIRECTORY", "Path is not a directory.", { path: resolved.value.displayPath });
 	}
 	return resolved.value;
 }
@@ -191,12 +187,10 @@ async function discoverScope(
 	onEntry: (entry: FindEntry) => void,
 ): Promise<ToolOutcome<ScopeDiscovery>> {
 	const opened = await context.filesystem.discovery.discoverPaths(scope.root, {
-		intent: "search",
-		explicitRoot: true,
 		maxDepth: context.limits.find_max_depth,
 		maxEntries,
 		...(glob === undefined ? {} : { glob }),
-	}, context.operation);
+	});
 	if (!opened.ok) return mapFsError(opened.error, { message: "Directory cannot be searched." });
 	let traversedEntries = 0;
 	let ignoredEntries = 0;

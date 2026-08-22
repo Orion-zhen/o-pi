@@ -252,10 +252,8 @@ function bindConfigFingerprint(config: FileToolsConfig, sourceFingerprint: strin
 
 function mergeIgnoreConfig(base: IgnoreConfig, raw: RawFileToolsConfig["ignore"]): IgnoreConfig {
 	return {
-		...structuredClone(base),
-		piignore: { ...base.piignore, enabled: raw?.piignore ?? base.piignore.enabled },
+		piignore: { enabled: raw?.piignore ?? base.piignore.enabled },
 		gitignore: {
-			...base.gitignore,
 			enabled: raw?.gitignore ?? base.gitignore.enabled,
 			trackedFilesBypass: raw?.git_tracked_files_bypass ?? base.gitignore.trackedFilesBypass,
 		},

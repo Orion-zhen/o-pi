@@ -1,6 +1,6 @@
 import type { ContentVersion } from "./content.js";
 import type { TargetRef } from "./path.js";
-import type { FsOperationContext, FsResult } from "./result.js";
+import type { FsResult } from "./result.js";
 
 export type MutationSnapshot =
 	| { readonly exists: false }
@@ -32,12 +32,5 @@ export interface MutationOperations {
 		target: TargetRef,
 		options: MutationOptions,
 		transform: (snapshot: MutationSnapshot) => MutationTransform<TRejected> | Promise<MutationTransform<TRejected>>,
-		context: FsOperationContext,
 	): Promise<FsResult<MutationRunResult<TRejected>>>;
-	overwrite(
-		target: TargetRef,
-		bytes: Uint8Array,
-		options: MutationOptions,
-		context: FsOperationContext,
-	): Promise<FsResult<MutationReceipt>>;
 }

@@ -179,10 +179,7 @@ async function scanFile(
 			{
 				maxBytes: context.retainTextMaxBytes,
 				expectedSnapshot: file.snapshot,
-				stable: true,
-				rejectBinary: true,
 			},
-			context.operation,
 		);
 		if (!loaded.ok) return loaded;
 		retained = loaded.value;
@@ -218,8 +215,7 @@ async function scanFile(
 	} else {
 		const opened = await context.filesystem.content.scanLines(
 			file.ref,
-			{ expectedSnapshot: file.snapshot, stable: true, rejectBinary: true },
-			context.operation,
+			{ expectedSnapshot: file.snapshot },
 		);
 		if (!opened.ok) return opened;
 		let failure: FsError | undefined;

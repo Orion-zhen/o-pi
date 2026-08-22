@@ -1,6 +1,6 @@
 import type { FileSnapshot } from "./metadata.js";
 import type { FileRef } from "./path.js";
-import type { FsOperationContext, FsResult } from "./result.js";
+import type { FsResult } from "./result.js";
 
 export type NewlineKind = "lf" | "crlf" | "mixed" | "none";
 
@@ -20,16 +20,10 @@ export interface TextContent extends ByteContent {
 	readonly hasBom: boolean;
 }
 
-export interface ByteReadOptions {
+export interface ReadOptions {
 	readonly maxBytes?: number;
 	/** Requires the opened file to equal this caller-captured snapshot before reading begins. */
 	readonly expectedSnapshot?: FileSnapshot;
-	/** Revalidates the opened file after reading to detect changes made during the operation. */
-	readonly stable?: boolean;
-}
-
-export interface TextReadOptions extends ByteReadOptions {
-	readonly rejectBinary?: boolean;
 }
 
 export interface TextByteRange {
@@ -67,7 +61,7 @@ export interface TextSliceOptions {
 	readonly endLine?: number;
 	readonly maxBytes: number;
 	readonly maxLines: number;
-	readonly path?: string;
+	readonly path: string;
 }
 
 export interface TextSlice {
@@ -83,10 +77,10 @@ export interface LineScan extends AsyncIterable<FsResult<ScannedLine>> {
 }
 
 export interface ContentOperations {
-	readBytes(file: FileRef, options: ByteReadOptions, context: FsOperationContext): Promise<FsResult<ByteContent>>;
-	readText(file: FileRef, options: TextReadOptions, context: FsOperationContext): Promise<FsResult<TextContent>>;
+	readBytes(file: FileRef, options: ReadOptions): Promise<FsResult<ByteContent>>;
+	readText(file: FileRef, options: ReadOptions): Promise<FsResult<TextContent>>;
 	/** Decodes bytes already loaded through this filesystem without a second disk read. */
-	decodeText(content: ByteContent, options: Pick<TextReadOptions, "rejectBinary"> & { readonly path?: string }): FsResult<TextContent>;
+	decodeText(content: ByteContent, path: string): FsResult<TextContent>;
 	sliceText(content: TextContent, options: TextSliceOptions): FsResult<TextSlice>;
-	scanLines(file: FileRef, options: TextReadOptions, context: FsOperationContext): Promise<FsResult<LineScan>>;
+	scanLines(file: FileRef, options: ReadOptions): Promise<FsResult<LineScan>>;
 }

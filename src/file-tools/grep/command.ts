@@ -8,7 +8,7 @@ import type {
 import type { TextContent } from "../../filesystem/contracts/content.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import { bindOperationContext } from "../../filesystem/operation-context.js";
+import { combineOperationContext } from "../shared/operation-context.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
 import { fail, isFailed, type FailedResult, type ToolOutcome } from "../shared/result.js";
 import { GrepContentCache, type GrepContentCacheLease } from "./content-cache.js";
@@ -64,7 +64,7 @@ export class GrepTool {
 		);
 		context = {
 			...context,
-			operation: bindOperationContext(invocation.signal, bindOperationContext(this.owner.signal, context.operation)),
+			operation: combineOperationContext(context.operation, this.owner.signal, invocation.signal),
 		};
 		try {
 			const plan = createQueryPlan(params);
@@ -193,9 +193,7 @@ async function analyzeSymbols(
 				const content = await context.filesystem.content.readText(file.ref, {
 					maxBytes: context.limits.grep_ast_max_file_bytes,
 					expectedSnapshot: file.snapshot,
-					stable: true,
-					rejectBinary: true,
-				}, context.operation);
+				});
 				if (!content.ok) return undefined;
 				loaded.set(path, content.value);
 				if (hasBareCr(content.value.text)) return undefined;

@@ -6,7 +6,7 @@ import { FileSystemRuntime } from "../../src/filesystem/runtime.js";
 import { NativeFileSystemError, NodeNativeFileSystem } from "../../src/filesystem/platform/node/native-filesystem.js";
 import { contentHash } from "../../src/filesystem/services/text.js";
 import { deferredVoid as deferred, expectFsOk as expectOk, overrideNativeFileSystem as nativeOverride, textBytes as bytes } from "./fixtures.js";
-import { useMutationFixture } from "./mutation-fixtures.js";
+import { commitBytes, useMutationFixture } from "./mutation-fixtures.js";
 
 const test = useMutationFixture("o-pi-mutation-races-");
 const { openRuntime, policy, resolveTarget, track } = test;
@@ -25,25 +25,15 @@ describe("filesystem mutation commit boundaries", () => {
 			entered.resolve();
 			await release.promise;
 			return { type: "commit", bytes: bytes("unsafe") };
-		}, opened.context);
+		});
 		await entered.promise;
 		await writeFile(path.join(workspace, "stale.txt"), "external");
 		release.resolve();
 		await expect(pending).resolves.toMatchObject({ ok: false, error: { code: "changed-during-read" } });
 		expect(await readFile(path.join(workspace, "stale.txt"), "utf8")).toBe("external");
 	});
-	it("validates transform bytes and rechecks live existence and read failures", async () => {
+	it("rechecks live existence and read failures", async () => {
 		const opened = await openRuntime();
-		const invalidTarget = await resolveTarget(opened, "invalid-transform.txt");
-		const invalidTransform = { type: "commit" as const, bytes: bytes("valid") };
-		Reflect.set(invalidTransform, "bytes", "invalid");
-		await expect(opened.filesystem.mutations.run(
-			invalidTarget,
-			{ createParents: false },
-			() => invalidTransform,
-			opened.context,
-		)).resolves.toMatchObject({ ok: false, error: { code: "invalid-path" } });
-
 		await writeFile(path.join(workspace, "removed.txt"), "before");
 		const removedTarget = await resolveTarget(opened, "removed.txt");
 		await expect(opened.filesystem.mutations.run(
@@ -53,7 +43,6 @@ describe("filesystem mutation commit boundaries", () => {
 				await rm(path.join(workspace, "removed.txt"));
 				return { type: "commit", bytes: bytes("unsafe") };
 			},
-			opened.context,
 		)).resolves.toMatchObject({ ok: false, error: { code: "changed-during-read" } });
 
 		await writeFile(path.join(workspace, "live-read.txt"), "before");
@@ -67,11 +56,11 @@ describe("filesystem mutation commit boundaries", () => {
 			},
 		});
 		const liveReadOpen = await openRuntime([], liveReadNative);
-		await expect(liveReadOpen.filesystem.mutations.overwrite(
+		await expect(commitBytes(
+			liveReadOpen,
 			await resolveTarget(liveReadOpen, "live-read.txt"),
 			bytes("unsafe"),
 			{ createParents: false },
-			liveReadOpen.context,
 		)).resolves.toMatchObject({ ok: false, error: { code: "access-denied" } });
 
 		await writeFile(path.join(workspace, "live-abort.txt"), "before");
@@ -85,12 +74,12 @@ describe("filesystem mutation commit boundaries", () => {
 				return handle;
 			},
 		});
-		const liveAbortOpen = await openRuntime([], liveAbortNative);
-		await expect(liveAbortOpen.filesystem.mutations.overwrite(
+		const liveAbortOpen = await openRuntime([], liveAbortNative, finalReadAbort.signal);
+		await expect(commitBytes(
+			liveAbortOpen,
 			await resolveTarget(liveAbortOpen, "live-abort.txt"),
 			bytes("unsafe"),
 			{ createParents: false },
-			{ signal: finalReadAbort.signal },
 		)).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 	});
 	it.skipIf(process.platform === "win32")("rejects a blocked destination introduced during transform", async () => {
@@ -105,7 +94,7 @@ describe("filesystem mutation commit boundaries", () => {
 			await rm(path.join(workspace, "transform-link.txt"));
 			await symlink(protectedFile, path.join(workspace, "transform-link.txt"));
 			return { type: "commit", bytes: bytes("unsafe") };
-		}, opened.context);
+		});
 		expect(result).toMatchObject({ ok: false, error: { code: "blocked" } });
 		expect(await readFile(protectedFile, "utf8")).toBe("secret");
 	});
@@ -121,7 +110,7 @@ describe("filesystem mutation commit boundaries", () => {
 			entered.resolve();
 			await release.promise;
 			return { type: "commit", bytes: bytes("unsafe") };
-		}, opened.context);
+		});
 		await entered.promise;
 		await rm(path.join(workspace, "link.txt"));
 		await symlink(path.join(workspace, "two.txt"), path.join(workspace, "link.txt"));
@@ -143,24 +132,25 @@ describe("filesystem mutation commit boundaries", () => {
 		const base = new NodeNativeFileSystem();
 		const racingNative = nativeOverride({
 			async atomicReplace(file, value, options) {
-				await base.atomicReplace(file, value, {
+				return await base.atomicReplace(file, value, {
 					...options,
 					beforeCommit: async () => {
-						await options?.beforeCommit?.();
+						const result = await options.beforeCommit();
 						await rm(racedFile);
 						await symlink(protectedFile, racedFile);
+						return result;
 					},
 				});
 			},
 		});
 		const opened = await openRuntime([`${protectedDirectory}${path.sep}`], racingNative);
-		const result = expectOk(await opened.filesystem.mutations.overwrite(
+		const result = expectOk(await commitBytes(
+			opened,
 			await resolveTarget(opened, "commit-race.txt"),
 			bytes("replacement"),
 			{ createParents: false },
-			opened.context,
 		));
-		expect(result).toMatchObject({ created: false });
+		expect(result).toMatchObject({ committed: true, receipt: { created: false } });
 		expect(await readFile(protectedFile, "utf8")).toBe("secret");
 		expect(await readFile(racedFile, "utf8")).toBe("replacement");
 	});
@@ -171,21 +161,22 @@ describe("filesystem mutation commit boundaries", () => {
 		const base = new NodeNativeFileSystem();
 		const cancellingNative = nativeOverride({
 			async atomicReplace(destination, value, options) {
-				await base.atomicReplace(destination, value, {
+				return await base.atomicReplace(destination, value, {
 					...options,
 					beforeCommit: async () => {
-						await options?.beforeCommit?.();
+						const result = await options.beforeCommit();
 						controller.abort("cancel before rename");
+						return result;
 					},
 				});
 			},
 		});
-		const opened = await openRuntime([], cancellingNative);
-		await expect(opened.filesystem.mutations.overwrite(
+		const opened = await openRuntime([], cancellingNative, controller.signal);
+		await expect(commitBytes(
+			opened,
 			await resolveTarget(opened, "cancel-temp.txt"),
 			bytes("unsafe"),
 			{ createParents: false },
-			{ signal: controller.signal },
 		)).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 		expect(await readFile(file, "utf8")).toBe("before");
 		expect((await readdir(workspace)).filter((name) => name.startsWith(".pi-") && name.endsWith(".tmp"))).toEqual([]);
@@ -195,12 +186,12 @@ describe("filesystem mutation commit boundaries", () => {
 		await writeFile(file, "before");
 		await chmod(file, 0o640);
 		const opened = await openRuntime();
-		expect(expectOk(await opened.filesystem.mutations.overwrite(
+		expect(expectOk(await commitBytes(
+			opened,
 			await resolveTarget(opened, "mode.txt"),
 			bytes("after"),
 			{ createParents: false },
-			opened.context,
-		))).toMatchObject({ created: false });
+		))).toMatchObject({ committed: true, receipt: { created: false } });
 		expect((await stat(file)).mode & 0o7777).toBe(0o640);
 	});
 	it("maps write failures and keeps committed writes successful after cancellation or observer failure", async () => {
@@ -211,12 +202,12 @@ describe("filesystem mutation commit boundaries", () => {
 			onCommitted() { throw new Error("observer unavailable"); },
 		}));
 		const observedTarget = await resolveTarget(observerOpen, "observed.txt");
-		expect(expectOk(await observerOpen.filesystem.mutations.overwrite(
+		expect(expectOk(await commitBytes(
+			observerOpen,
 			observedTarget,
 			bytes("observed"),
 			{ createParents: false },
-			observerOpen.context,
-		))).toMatchObject({ created: true });
+		))).toMatchObject({ committed: true, receipt: { created: true } });
 		expect(await readFile(path.join(workspace, "observed.txt"), "utf8")).toBe("observed");
 
 		const failingNative = nativeOverride({
@@ -224,29 +215,35 @@ describe("filesystem mutation commit boundaries", () => {
 		});
 		const failedOpen = await openRuntime([], failingNative);
 		const failedTarget = await resolveTarget(failedOpen, "failed.txt");
-		await expect(failedOpen.filesystem.mutations.overwrite(
-			failedTarget,
+		await expect(commitBytes(failedOpen, failedTarget, bytes("no"), { createParents: false }))
+			.resolves.toMatchObject({ ok: false, error: { code: "write-failed" } });
+
+		const brokenNative = nativeOverride({
+			async atomicReplace() { throw new Error("injected implementation failure"); },
+		});
+		const brokenOpen = await openRuntime([], brokenNative);
+		await expect(commitBytes(
+			brokenOpen,
+			await resolveTarget(brokenOpen, "broken.txt"),
 			bytes("no"),
 			{ createParents: false },
-			failedOpen.context,
-		)).resolves.toMatchObject({ ok: false, error: { code: "write-failed" } });
+		)).rejects.toThrow("injected implementation failure");
 
 		const controller = new AbortController();
 		const committingNative = nativeOverride({
 			async atomicReplace(file, value, options) {
-				await new NodeNativeFileSystem().atomicReplace(file, value, options);
+				const result = await new NodeNativeFileSystem().atomicReplace(file, value, options);
 				controller.abort();
+				return result;
 			},
 		});
-		const committedOpen = await openRuntime([], committingNative);
+		const committedOpen = await openRuntime([], committingNative, controller.signal);
 		const committedTarget = await resolveTarget(committedOpen, "committed.txt");
-		const committed = await committedOpen.filesystem.mutations.overwrite(
-			committedTarget,
-			bytes("yes"),
-			{ createParents: false },
-			{ signal: controller.signal },
-		);
-		expect(expectOk(committed)).toMatchObject({ hash: contentHash(bytes("yes")) });
+		const committed = await commitBytes(committedOpen, committedTarget, bytes("yes"), { createParents: false });
+		expect(expectOk(committed)).toMatchObject({
+			committed: true,
+			receipt: { hash: contentHash(bytes("yes")) },
+		});
 		expect(await readFile(path.join(workspace, "committed.txt"), "utf8")).toBe("yes");
 	});
 });

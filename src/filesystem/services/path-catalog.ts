@@ -6,7 +6,6 @@ import type {
 import type { DirectoryRef } from "../contracts/path.js";
 import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.js";
 import type { TraversalOperations } from "../contracts/traversal.js";
-import { bindOperationContext } from "../operation-context.js";
 import { compareLogicalPath } from "./path-order.js";
 
 const MINIMUM_SIMILARITY = 0.42;
@@ -15,39 +14,33 @@ const MINIMUM_SIMILARITY = 0.42;
 export class WorkspacePathCatalog implements PathCatalogOperations {
 	constructor(
 		private readonly traversal: TraversalOperations,
-		private readonly ownerSignal?: AbortSignal,
+		private readonly context: FsOperationContext,
 	) {}
 
 	async suggest(
 		root: DirectoryRef,
 		query: string,
 		options: PathCatalogOptions,
-		context: FsOperationContext,
 	): Promise<FsResult<readonly PathCatalogCandidate[]>> {
-		context = bindOperationContext(this.ownerSignal, context);
+		const context = this.context;
 		if (context.signal?.aborted === true) {
 			return fsFailure({ code: "aborted", message: "Operation aborted.", path: root.displayPath });
-		}
-		if (!Number.isSafeInteger(options.limit) || options.limit < 0
-			|| !Number.isSafeInteger(options.maxEntries) || options.maxEntries < 0) {
-			return fsFailure({ code: "invalid-path", message: "Catalog limits must be non-negative integers.", path: root.displayPath });
 		}
 		if (options.limit === 0 || normalizePath(query) === "") return fsSuccess([]);
 		const walked = await this.traversal.walk(root, {
 			intent: "search",
 			explicitRoot: true,
 			maxEntries: options.maxEntries,
-		}, context);
+		});
 		if (!walked.ok) return walked;
 
-		const kinds = new Set(options.kinds ?? ["file"]);
 		const candidates: PathCatalogCandidate[] = [];
 		for await (const event of walked.value) {
 			if (event.type === "error") {
 				if (event.error.code === "aborted") return fsFailure(event.error);
 				continue;
 			}
-			if (event.type !== "entry" || !kinds.has(event.ref.kind)) continue;
+			if (event.type !== "entry" || event.ref.kind !== "file") continue;
 			const similarity = pathNameSimilarity(query, event.ref.workspacePath ?? event.ref.displayPath);
 			if (similarity >= MINIMUM_SIMILARITY) candidates.push({ ref: event.ref, similarity });
 		}

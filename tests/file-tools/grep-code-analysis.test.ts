@@ -146,9 +146,9 @@ describe("grep code analysis", () => {
 				const original = filesystem.content;
 				const content: ContentOperations = {
 					readBytes: original.readBytes.bind(original),
-					async readText(file, options, context) {
+					async readText(file, options) {
 						fullReads += 1;
-						return original.readText(file, options, context);
+						return original.readText(file, options);
 					},
 					decodeText: original.decodeText.bind(original),
 					sliceText: original.sliceText.bind(original),
@@ -181,10 +181,10 @@ describe("grep code analysis", () => {
 				const original = filesystem.content;
 				const content: ContentOperations = {
 					readBytes: original.readBytes.bind(original),
-					async readText(file, options, context) {
+					async readText(file, options) {
 						scanObservedPreparation = preparationStarted;
 						releasePreparation.resolve();
-						return original.readText(file, options, context);
+						return original.readText(file, options);
 					},
 					decodeText: original.decodeText.bind(original),
 					sliceText: original.sliceText.bind(original),

@@ -81,12 +81,12 @@ export class GrepContentCache {
 		const resolved = await filesystem.paths.resolveExisting(file.path, {
 			expected: "file",
 			followFinalSymlink: false,
-		}, operation);
+		});
 		if (!resolved.ok) {
 			if (resolved.error.code !== "aborted") this.delete(key, cached);
 			return undefined;
 		}
-		const metadata = await filesystem.metadata.stat(resolved.value, operation);
+		const metadata = await filesystem.metadata.stat(resolved.value);
 		if (!metadata.ok) {
 			if (metadata.error.code !== "aborted") this.delete(key, cached);
 			return undefined;
@@ -153,7 +153,7 @@ export class GrepContentCache {
 function cacheKey(file: ScopedFile, filesystem: WorkspaceFileSystem): string {
 	return [
 		filesystem.identity,
-		filesystem.visibility.snapshot.fingerprint,
+		filesystem.visibility.fingerprint,
 		file.path,
 		file.snapshot.identity,
 		file.snapshot.version,

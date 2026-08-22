@@ -6,7 +6,7 @@ import { FileSystemRuntime } from "../../src/filesystem/runtime.js";
 import { MutationQueue } from "../../src/filesystem/platform/node/mutation-queue.js";
 import { contentHash } from "../../src/filesystem/services/text.js";
 import { deferredVoid as deferred, expectFsOk as expectOk, textBytes as bytes } from "./fixtures.js";
-import { useMutationFixture } from "./mutation-fixtures.js";
+import { commitBytes, useMutationFixture } from "./mutation-fixtures.js";
 
 const test = useMutationFixture("o-pi-mutation-concurrency-");
 const { openRuntime, policy, resolveTarget, track } = test;
@@ -53,19 +53,19 @@ describe("filesystem mutation concurrency", () => {
 			firstEntered.resolve();
 			await firstRelease.promise;
 			return { type: "commit", bytes: bytes("one") };
-		}, opened.context);
+		});
 		await firstEntered.promise;
 		const second = opened.filesystem.mutations.run(same, { createParents: false }, () => {
 			secondEntered = true;
 			return { type: "commit", bytes: bytes("two") };
-		}, opened.context);
+		});
 		const otherEntered = deferred();
 		const otherRelease = deferred();
 		const parallel = opened.filesystem.mutations.run(other, { createParents: false }, async () => {
 			otherEntered.resolve();
 			await otherRelease.promise;
 			return { type: "reject", reason: "parallel-done" };
-		}, opened.context);
+		});
 		await otherEntered.promise;
 		expect(secondEntered).toBe(false);
 		otherRelease.resolve();
@@ -80,15 +80,19 @@ describe("filesystem mutation concurrency", () => {
 			failureEntered.resolve();
 			await failureRelease.promise;
 			throw new Error("transform failed");
-		}, opened.context);
+		});
 		await failureEntered.promise;
-		const afterFailure = opened.filesystem.mutations.overwrite(same, bytes("recovered"), { createParents: false }, opened.context);
+		const afterFailure = commitBytes(opened, same, bytes("recovered"), { createParents: false });
 		failureRelease.resolve();
 		await expect(failure).rejects.toThrow("transform failed");
-		expect(expectOk(await afterFailure)).toMatchObject({ hash: contentHash(bytes("recovered")) });
+		expect(expectOk(await afterFailure)).toMatchObject({
+			committed: true,
+			receipt: { hash: contentHash(bytes("recovered")) },
+		});
 	});
-	it("cancels queued work without blocking later mutations", async () => {
-		const opened = await openRuntime();
+	it("cancels queued work with its lease without blocking later mutations", async () => {
+		const controller = new AbortController();
+		const opened = await openRuntime([], undefined, controller.signal);
 		const target = await resolveTarget(opened, "queued.txt");
 		const activeEntered = deferred();
 		const activeRelease = deferred();
@@ -96,17 +100,21 @@ describe("filesystem mutation concurrency", () => {
 			activeEntered.resolve();
 			await activeRelease.promise;
 			return { type: "reject", reason: "released" };
-		}, opened.context);
+		});
 		await activeEntered.promise;
 
-		const controller = new AbortController();
-		const cancelled = opened.filesystem.mutations.overwrite(target, bytes("cancelled"), { createParents: false }, { signal: controller.signal });
+		const cancelled = commitBytes(opened, target, bytes("cancelled"), { createParents: false });
 		controller.abort();
 		await expect(cancelled).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
-		const later = opened.filesystem.mutations.overwrite(target, bytes("later"), { createParents: false }, opened.context);
 		activeRelease.resolve();
 		expect(expectOk(await active)).toMatchObject({ committed: false });
-		expect(expectOk(await later)).toMatchObject({ hash: contentHash(bytes("later")) });
+		const laterOpened = await openRuntime();
+		const laterTarget = await resolveTarget(laterOpened, "queued.txt");
+		const later = commitBytes(laterOpened, laterTarget, bytes("later"), { createParents: false });
+		expect(expectOk(await later)).toMatchObject({
+			committed: true,
+			receipt: { hash: contentHash(bytes("later")) },
+		});
 	});
 	it.skipIf(process.platform === "win32")("rechecks a queued target after it becomes a blocked symlink", async () => {
 		const protectedDirectory = path.join(test.root, "protected");
@@ -122,9 +130,9 @@ describe("filesystem mutation concurrency", () => {
 			entered.resolve();
 			await release.promise;
 			return { type: "reject", reason: "no-op" };
-		}, opened.context);
+		});
 		await entered.promise;
-		const queued = opened.filesystem.mutations.overwrite(target, bytes("unsafe"), { createParents: false }, opened.context);
+		const queued = commitBytes(opened, target, bytes("unsafe"), { createParents: false });
 		await rm(path.join(workspace, "queued.txt"));
 		await symlink(protectedFile, path.join(workspace, "queued.txt"));
 		release.resolve();
@@ -160,8 +168,8 @@ describe("filesystem mutation concurrency", () => {
 			return { type: "commit" as const, bytes: bytes("updated") };
 		};
 		const results = await Promise.all([
-			opened.filesystem.mutations.run(first, { createParents: false }, transform, opened.context),
-			opened.filesystem.mutations.run(second, { createParents: false }, transform, opened.context),
+			opened.filesystem.mutations.run(first, { createParents: false }, transform),
+			opened.filesystem.mutations.run(second, { createParents: false }, transform),
 		]);
 		for (const result of results) expect(expectOk(result)).toMatchObject({ committed: true });
 		expect(maxActive).toBe(1);
@@ -183,12 +191,12 @@ describe("filesystem mutation concurrency", () => {
 			entered.resolve();
 			await release.promise;
 			return { type: "commit", bytes: bytes("first") };
-		}, opened.context);
+		});
 		await entered.promise;
 		const second = opened.filesystem.mutations.run(target, { createParents: false }, () => {
 			events.push("second-transform");
 			return { type: "commit", bytes: bytes("second") };
-		}, opened.context);
+		});
 		release.resolve();
 		expect(expectOk(await first)).toMatchObject({ committed: true });
 		expect(expectOk(await second)).toMatchObject({ committed: true });
@@ -204,9 +212,9 @@ describe("filesystem mutation concurrency", () => {
 			entered.resolve();
 			await release.promise;
 			return { type: "commit", bytes: bytes("active") };
-		}, opened.context);
+		});
 		await entered.promise;
-		const queued = opened.filesystem.mutations.overwrite(target, bytes("queued"), { createParents: false }, opened.context);
+		const queued = commitBytes(opened, target, bytes("queued"), { createParents: false });
 		runtime.dispose();
 		runtime.dispose();
 		await expect(queued).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });

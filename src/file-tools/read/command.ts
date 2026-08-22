@@ -41,7 +41,6 @@ export async function readFile(
 	const resolved = await context.filesystem.paths.resolveExisting(
 		params.path,
 		{ expected: "file", followFinalSymlink: true },
-		context.operation,
 	);
 	if (!resolved.ok) {
 		if (resolved.error.code !== "not-found") return mapFsError(resolved.error, { notFound: "file" });
@@ -53,19 +52,15 @@ export async function readFile(
 			...(suggestions.length === 0 ? {} : { next: `Related paths: ${suggestions.join(", ")}` }),
 		});
 	}
-	if (resolved.value.kind !== "file") {
-		return fail("NOT_A_FILE", "Path is not a regular file.", { path: resolved.value.displayPath });
-	}
 	const file = resolved.value;
 
-	const visibility = await context.filesystem.visibility.evaluate(file, "explicit-read", context.operation);
+	const visibility = await context.filesystem.visibility.evaluate(file, "explicit-read");
 	if (!visibility.ok) return mapFsError(visibility.error);
 	const ignoreSource = visibility.value.ignored ? shortIgnoreSource(visibility.value.source) : undefined;
 
 	const loaded = await context.filesystem.content.readBytes(
 		file,
-		{ stable: true, maxBytes: context.limits.fileBytes },
-		context.operation,
+		{ maxBytes: context.limits.fileBytes },
 	);
 	if (!loaded.ok) return mapFsError(loaded.error, { notFound: "file" });
 	if (isAborted(context.operation)) return aborted(file.displayPath);
@@ -117,7 +112,7 @@ export async function readFile(
 		});
 	}
 
-	const decoded = context.filesystem.content.decodeText(loaded.value, { rejectBinary: true, path: file.displayPath });
+	const decoded = context.filesystem.content.decodeText(loaded.value, file.displayPath);
 	if (!decoded.ok) return mapFsError(decoded.error, { notFound: "file" });
 	remember(context, file, decoded.value);
 
@@ -155,13 +150,12 @@ export async function readFile(
 }
 
 async function missingPathSuggestions(input: string, context: ReadCommandContext): Promise<string[]> {
-	const target = await context.filesystem.paths.resolveTarget(input, { followExistingSymlink: true }, context.operation);
+	const target = await context.filesystem.paths.resolveTarget(input, { followExistingSymlink: true });
 	if (!target.ok || target.value.workspacePath === undefined || isAborted(context.operation)) return [];
 	const catalog = await context.filesystem.catalog.suggest(
 		context.filesystem.root,
 		target.value.workspacePath,
 		{ limit: context.limits.suggestions, maxEntries: PATH_CATALOG_ENTRY_LIMIT },
-		context.operation,
 	);
 	if (!catalog.ok) return [];
 	return uniquePaths(catalog.value.map((candidate) => candidate.ref.workspacePath ?? candidate.ref.displayPath), context.limits.suggestions);

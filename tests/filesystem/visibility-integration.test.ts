@@ -9,7 +9,6 @@ import type { LsParams, LsSuccess } from "../../src/file-tools/ls/types.js";
 import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
-import { defaultVisibilityService as defaultIgnoreEngine } from "../../src/filesystem/services/visibility/service.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 import { readWorkspaceFile as readWorkspaceFileTest } from "../helpers/read-tool.js";
 
@@ -20,12 +19,10 @@ const workspaceTemp = useTempDir("o-pi-visibility-integration-");
 beforeEach(() => {
 	workspace = workspaceTemp.path;
 	host = new FileToolsHost();
-	defaultIgnoreEngine.invalidate();
 });
 
 afterEach(() => {
 	host.dispose();
-	defaultIgnoreEngine.invalidate();
 });
 
 async function listWorkspaceDirectory(cwd: string, params: LsParams): Promise<ToolOutcome<LsSuccess>> {
@@ -101,25 +98,21 @@ describe("visibility tool integration", () => {
 		});
 	});
 
-	it("ignored 子树跨 BFS 批次加载嵌套规则", async () => {
-		await mkdir(path.join(workspace, "ignored"), { recursive: true });
-		await writeFile(path.join(workspace, ".piignore"), "ignored/\n");
+	it("工具集成：可见目录中的嵌套规则按枚举路径增量加载", async () => {
+		await mkdir(path.join(workspace, "packages"), { recursive: true });
 		for (let index = 0; index < 10; index += 1) {
-			const directory = path.join(workspace, "ignored", `dir-${index}`);
+			const directory = path.join(workspace, "packages", `pkg-${index}`);
 			await mkdir(directory);
-			await writeFile(path.join(directory, ".piignore"), "keep.txt\n");
-			await writeFile(path.join(directory, "keep.txt"), "keep\n");
+			await writeFile(path.join(directory, ".piignore"), "generated.txt\n");
+			await writeFile(path.join(directory, "generated.txt"), "generated\n");
 		}
 
 		const root = await listWorkspaceDirectory(workspace, { path: "." });
 		if ("status" in root) throw new Error("root listing failed");
-		expect(root.entries.find((entry) => entry.name === "ignored")).toMatchObject({
-			ignored: true,
-			ignore_source: ".piignore",
-		});
-		const nested = await listWorkspaceDirectory(workspace, { path: "ignored/dir-9" });
+		expect(root.entries.find((entry) => entry.name === "packages")).not.toHaveProperty("ignored");
+		const nested = await listWorkspaceDirectory(workspace, { path: "packages/pkg-9" });
 		if ("status" in nested) throw new Error("nested listing failed");
-		expect(nested.entries.find((entry) => entry.name === "keep.txt")).toMatchObject({
+		expect(nested.entries.find((entry) => entry.name === "generated.txt")).toMatchObject({
 			ignored: true,
 			ignore_source: ".piignore",
 		});

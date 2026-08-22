@@ -105,7 +105,7 @@ export async function buildScopeInventory(
 			state.scopeErrors.push({ path: scopeInput, error: resolved.error });
 			continue;
 		}
-		const visibility = await context.filesystem.visibility.evaluate(resolved, "search", context.operation);
+		const visibility = await context.filesystem.visibility.evaluate(resolved, "search");
 		if (!visibility.ok) {
 			const failure = mapFsError(visibility.error, { path: resolved.displayPath });
 			if (failure.error.code === "OPERATION_ABORTED") return failure;
@@ -148,7 +148,6 @@ async function resolveScope(input: string, context: ScopeInventoryContext): Prom
 	const resolved = await context.filesystem.paths.resolveExisting(
 		input,
 		{ expected: "any", followFinalSymlink: true },
-		context.operation,
 	);
 	if (!resolved.ok) return mapFsError(resolved.error, resolved.error.code === "not-found" ? { message: "Path does not exist." } : {});
 	if (resolved.value.kind !== "file" && resolved.value.kind !== "directory") {
@@ -159,12 +158,10 @@ async function resolveScope(input: string, context: ScopeInventoryContext): Prom
 
 async function discoverScope(scope: InventoryScope, state: MutableInventoryState): Promise<ToolOutcome<void>> {
 	const opened = await state.context.filesystem.discovery.discover(scope.root, {
-		intent: "search",
-		explicitRoot: true,
 		maxDepth: state.context.maxDepth,
 		maxEntries: Math.max(0, state.context.maxEntries - state.traversedEntries),
 		...(state.glob === undefined ? {} : { glob: state.glob }),
-	}, state.context.operation);
+	});
 	if (!opened.ok) {
 		return mapFsError(opened.error, {
 			...(scope.root.kind === "file" ? { notFound: "file" as const } : { message: "Path cannot be searched." }),

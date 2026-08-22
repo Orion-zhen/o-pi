@@ -193,13 +193,13 @@ describe("FileToolsHost runtime", () => {
 			entered.resolve();
 			await release.promise;
 			return { type: "commit", bytes: bytes("one") };
-		}, opened.context);
+		});
 		await entered.promise;
 		let observedBySecond: string | undefined;
 		const second = opened.filesystem.mutations.run(target, { createParents: false }, () => {
 			observedBySecond = opened.observation.get(target)?.hash;
 			return { type: "commit", bytes: bytes("two") };
-		}, opened.context);
+		});
 		release.resolve();
 		expect(expectOk(await first)).toMatchObject({ committed: true });
 		expect(expectOk(await second)).toMatchObject({ committed: true });
@@ -213,7 +213,7 @@ describe("FileToolsHost runtime", () => {
 		const opened = await openHost(host, "stale");
 		const file = await resolveFile(opened, "stale.txt");
 		const target = await resolveTarget(opened, "stale.txt");
-		const read = expectOk(await opened.filesystem.content.readBytes(file, { stable: true }, opened.context));
+		const read = expectOk(await opened.filesystem.content.readBytes(file, {}));
 		opened.observation.remember(file, read);
 		await writeFile(path.join(workspace, "stale.txt"), "external");
 
@@ -221,7 +221,7 @@ describe("FileToolsHost runtime", () => {
 			const observed = opened.observation.get(target);
 			if (!snapshot.exists || observed?.hash !== snapshot.hash) return { type: "reject", reason: "stale" };
 			return { type: "commit", bytes: bytes("unsafe") };
-		}, opened.context);
+		});
 		expect(expectOk(result)).toMatchObject({ committed: false, reason: "stale" });
 	});
 
@@ -229,27 +229,28 @@ describe("FileToolsHost runtime", () => {
 		const host = track(new FileToolsHost({ config: staticConfig() }));
 		const opened = await openHost(host, "lifecycle");
 		const target = await resolveTarget(opened, "life.txt");
-		expect(expectOk(await opened.filesystem.mutations.overwrite(
+		expect(expectOk(await opened.filesystem.mutations.run(
 			target,
-			bytes("life"),
 			{ createParents: false },
-			opened.context,
-		))).toMatchObject({ created: true });
+			() => ({ type: "commit", bytes: bytes("life") }),
+		))).toMatchObject({ committed: true, receipt: { created: true } });
 		expect(opened.limits.ls_entries).toBe(defaultFileToolsConfig().limits.ls_entries);
 		const file = await resolveFile(opened, "life.txt");
 
 		opened.dispose();
 		opened.dispose();
 		expect(opened.disposed).toBe(true);
-		const freshController = new AbortController();
 		await expect(opened.filesystem.paths.resolveTarget(
 			"after-dispose.txt",
 			{ followExistingSymlink: true },
-			{},
 		)).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
-		await expect(opened.filesystem.content.readBytes(file, {}, { signal: freshController.signal }))
+		await expect(opened.filesystem.content.readBytes(file, {}))
 			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
-		await expect(opened.filesystem.mutations.overwrite(target, bytes("unsafe"), { createParents: false }, {}))
+		await expect(opened.filesystem.mutations.run(
+			target,
+			{ createParents: false },
+			() => ({ type: "commit", bytes: bytes("unsafe") }),
+		))
 			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 
 		host.dispose();
@@ -271,14 +272,12 @@ async function resolveFile(opened: FileToolsInvocation, input: string): Promise<
 	const resolved = expectOk(await opened.filesystem.paths.resolveExisting(
 		input,
 		{ expected: "file", followFinalSymlink: true },
-		opened.context,
 	));
-	if (resolved.kind !== "file") throw new Error("Expected a file ref.");
 	return resolved;
 }
 
 async function resolveTarget(opened: FileToolsInvocation, input: string): Promise<TargetRef> {
-	return expectOk(await opened.filesystem.paths.resolveTarget(input, { followExistingSymlink: true }, opened.context));
+	return expectOk(await opened.filesystem.paths.resolveTarget(input, { followExistingSymlink: true }));
 }
 
 function expectOk<T>(result: FsResult<T>): T {

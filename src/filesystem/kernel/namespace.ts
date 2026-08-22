@@ -26,7 +26,6 @@ import {
 	type NativeMetadata,
 	type NativePathKind,
 } from "../platform/node/native-filesystem.js";
-import { bindOperationContext } from "../operation-context.js";
 import { isNativeError, mapNativeError } from "./native-error.js";
 
 export interface WorkspaceNamespaceOptions {
@@ -47,27 +46,36 @@ export interface NativePathIdentity {
 type UnstoredNativePathIdentity = Omit<NativePathIdentity, "parentPath">;
 
 /** Host-only bridge. Tool commands must use opaque refs instead. */
-export interface ResolvedExistingPath {
-	readonly ref: ExistingRef;
+export interface ResolvedExistingPath<TRef extends ExistingRef = ExistingRef> {
+	readonly ref: TRef;
+	readonly identity: NativePathIdentity;
 	readonly metadata: NativeMetadata;
 }
 
+export type ResolvedTargetPath =
+	| {
+		readonly target: TargetRef & { readonly existingKind?: undefined };
+		readonly identity: NativePathIdentity;
+	}
+	| {
+		readonly target: TargetRef & { readonly existingKind: ExistingPathKind };
+		readonly identity: NativePathIdentity;
+		readonly existing: ExistingRef;
+	};
+
 export interface WorkspaceNamespaceBridge {
 	getNativeIdentity(ref: ExistingRef | TargetRef): NativePathIdentity | undefined;
-	/** Projects captured target state without I/O; consumers must revalidate before access. */
-	asExistingRef(ref: TargetRef): ExistingRef | undefined;
-	revalidateExisting(
-		ref: ExistingRef,
-		context: FsOperationContext,
-	): Promise<FsResult<ResolvedExistingPath & { readonly identity: NativePathIdentity }>>;
-	resolveChild(parent: DirectoryRef, name: string, context: FsOperationContext): Promise<FsResult<ResolvedExistingPath>>;
+	resolveTargetPath(input: string, options: ResolveTargetOptions): Promise<FsResult<ResolvedTargetPath>>;
+	revalidateExisting(ref: ExistingRef): Promise<FsResult<ResolvedExistingPath>>;
+	resolveChild(parent: DirectoryRef, name: string): Promise<FsResult<ResolvedExistingPath>>;
 	/** Projects one trusted regular dirent snapshot without additional metadata I/O. */
-	projectListedChild(parent: DirectoryRef, name: string, kind: "file", context: FsOperationContext): FsResult<FileRef>;
-	projectListedChild(parent: DirectoryRef, name: string, kind: "directory", context: FsOperationContext): FsResult<DirectoryRef>;
+	projectListedChild(parent: DirectoryRef, name: string, kind: "file"): FsResult<FileRef>;
+	projectListedChild(parent: DirectoryRef, name: string, kind: "directory"): FsResult<DirectoryRef>;
 }
 
 export interface WorkspaceNamespaceKernel {
 	readonly root: DirectoryRef;
+	readonly rootIdentity: NativePathIdentity;
 	readonly paths: PathOperations;
 	readonly bridge: WorkspaceNamespaceBridge;
 }
@@ -76,23 +84,25 @@ let nextNamespaceId = 1;
 
 export async function createWorkspaceNamespace(options: WorkspaceNamespaceOptions): Promise<FsResult<WorkspaceNamespaceKernel>> {
 	const workspaceRoot = path.resolve(options.workspaceRoot);
+	const context = options.context ?? {};
 	const operations = new NamespacePathOperations({
 		workspaceRoot,
 		...(options.homeDirectory === undefined ? {} : { homeDirectory: options.homeDirectory }),
 		blockedPaths: options.blockedPaths,
 		native: options.native ?? new NodeNativeFileSystem(),
-		...(options.context?.signal === undefined ? {} : { ownerSignal: options.context.signal }),
+		context,
 	});
-	const rootResult = await operations.resolveExisting(
+	const rootResult = await operations.resolveExistingPath(
 		".",
-		{ expected: "any", followFinalSymlink: true },
-		options.context ?? {},
+		{ expected: "directory", followFinalSymlink: true },
 	);
 	if (!rootResult.ok) return rootResult;
-	if (rootResult.value.kind !== "directory") {
-		return fsFailure({ code: "not-directory", message: "Workspace root is not a directory.", path: "." });
-	}
-	return fsSuccess({ root: rootResult.value, paths: operations, bridge: operations });
+	return fsSuccess({
+		root: rootResult.value.ref,
+		rootIdentity: rootResult.value.identity,
+		paths: operations,
+		bridge: operations,
+	});
 }
 
 class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridge {
@@ -107,7 +117,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		readonly blockedPaths: readonly string[];
 		readonly homeDirectory?: string;
 		readonly native: NativeFileSystem;
-		readonly ownerSignal?: AbortSignal;
+		readonly context: FsOperationContext;
 	}) {
 		this.homeDirectory = options.homeDirectory;
 		this.policy = new WorkspaceAccessPolicy({
@@ -116,21 +126,38 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		});
 	}
 
+	resolveExisting(input: string, options: ResolveExistingOptions & { readonly expected: "file" }): Promise<FsResult<FileRef>>;
+	resolveExisting(input: string, options: ResolveExistingOptions & { readonly expected: "directory" }): Promise<FsResult<DirectoryRef>>;
+	resolveExisting(input: string, options: ResolveExistingOptions & { readonly expected: "any" }): Promise<FsResult<ExistingRef>>;
 	async resolveExisting(
 		input: string,
 		options: ResolveExistingOptions,
-		context: FsOperationContext,
 	): Promise<FsResult<ExistingRef>> {
-		const resolved = await this.resolveExistingWithMetadata(input, options, context);
+		const resolved = await this.resolveExistingPath(input, options);
 		return resolved.ok ? fsSuccess(resolved.value.ref) : resolved;
 	}
 
-	private async resolveExistingWithMetadata(
+	resolveExistingPath(
+		input: string,
+		options: ResolveExistingOptions & { readonly expected: "file" },
+	): Promise<FsResult<ResolvedExistingPath<FileRef>>>;
+	resolveExistingPath(
+		input: string,
+		options: ResolveExistingOptions & { readonly expected: "directory" },
+	): Promise<FsResult<ResolvedExistingPath<DirectoryRef>>>;
+	resolveExistingPath(
+		input: string,
+		options: ResolveExistingOptions & { readonly expected: "any" },
+	): Promise<FsResult<ResolvedExistingPath>>;
+	resolveExistingPath(
 		input: string,
 		options: ResolveExistingOptions,
-		context: FsOperationContext,
+	): Promise<FsResult<ResolvedExistingPath>>;
+	async resolveExistingPath(
+		input: string,
+		options: ResolveExistingOptions,
 	): Promise<FsResult<ResolvedExistingPath>> {
-		context = bindOperationContext(this.options.ownerSignal, context);
+		const context = this.options.context;
 		const lexical = this.resolveLexical(input);
 		if (!lexical.ok) return lexical;
 		const lexicalBlock = this.policy.match(input, lexical.value, "lexical");
@@ -169,7 +196,11 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		const expectedError = validateExpectedKind(metadata.kind, options.expected, lexical.value.displayPath);
 		if (expectedError !== undefined) return fsFailure(expectedError);
 		return fsSuccess({
-			ref: this.createExistingRef(metadata.kind, lexical.value, { nativePath, canonicalPath, lexicalPath: lexical.value.absolutePath }),
+			...this.createExistingRef(metadata.kind, lexical.value, {
+				nativePath,
+				canonicalPath,
+				lexicalPath: lexical.value.absolutePath,
+			}),
 			metadata,
 		});
 	}
@@ -177,9 +208,16 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 	async resolveTarget(
 		input: string,
 		options: ResolveTargetOptions,
-		context: FsOperationContext,
 	): Promise<FsResult<TargetRef>> {
-		context = bindOperationContext(this.options.ownerSignal, context);
+		const resolved = await this.resolveTargetPath(input, options);
+		return resolved.ok ? fsSuccess(resolved.value.target) : resolved;
+	}
+
+	async resolveTargetPath(
+		input: string,
+		options: ResolveTargetOptions,
+	): Promise<FsResult<ResolvedTargetPath>> {
+		const context = this.options.context;
 		const lexical = this.resolveLexical(input);
 		if (!lexical.ok) return lexical;
 		const lexicalBlock = this.policy.match(input, lexical.value, "lexical");
@@ -214,7 +252,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 					return fsFailure(mapNativeError(error, lexical.value.displayPath));
 				}
 			} else if (lexicalMetadata.kind !== "symlink") nativePath = canonicalPath;
-			return fsSuccess(this.createTargetRef(lexical.value, existingKind, {
+			return fsSuccess(this.createTargetPath(lexical.value, existingKind, {
 				nativePath,
 				canonicalPath,
 				lexicalPath: lexical.value.absolutePath,
@@ -226,7 +264,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		const parentBlock = this.policy.match(input, this.canonicalIdentity(parent.value.canonicalPath), "parent");
 		if (parentBlock !== undefined) return blockedFailure(lexical.value.displayPath, parentBlock);
 		const canonicalPath = path.resolve(parent.value.canonicalPath, path.relative(parent.value.lexicalPath, lexical.value.absolutePath));
-		return fsSuccess(this.createTargetRef(lexical.value, undefined, {
+		return fsSuccess(this.createTargetPath(lexical.value, undefined, {
 			nativePath: canonicalPath,
 			canonicalPath,
 			lexicalPath: lexical.value.absolutePath,
@@ -249,48 +287,38 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 
 	async revalidateExisting(
 		ref: ExistingRef,
-		context: FsOperationContext,
-	): Promise<FsResult<ResolvedExistingPath & { readonly identity: NativePathIdentity }>> {
-		context = bindOperationContext(this.options.ownerSignal, context);
+	): Promise<FsResult<ResolvedExistingPath>> {
 		const stored = this.refs.get(ref.id);
 		if (stored === undefined) {
 			return fsFailure({ code: "invalid-path", message: "Path does not belong to this filesystem.", path: ref.displayPath });
 		}
-		const fresh = await this.resolveExistingWithMetadata(
+		const fresh = await this.resolveExistingPath(
 			stored.lexicalPath,
 			{ expected: "any", followFinalSymlink: true },
-			context,
 		);
 		if (!fresh.ok) return fresh;
-		const identity = this.refs.get(fresh.value.ref.id);
-		if (identity === undefined) {
-			return fsFailure({ code: "invalid-path", message: "Path identity is unavailable.", path: ref.displayPath });
-		}
-		return fsSuccess({ ...fresh.value, identity });
+		return fresh;
 	}
 
-	async resolveChild(parent: DirectoryRef, name: string, context: FsOperationContext): Promise<FsResult<ResolvedExistingPath>> {
-		context = bindOperationContext(this.options.ownerSignal, context);
+	async resolveChild(parent: DirectoryRef, name: string): Promise<FsResult<ResolvedExistingPath>> {
 		const parentIdentity = this.refs.get(parent.id);
 		if (parentIdentity === undefined || name.length === 0 || name === "." || name === ".." || path.basename(name) !== name) {
 			return fsFailure({ code: "invalid-path", message: "Directory entry is invalid.", path: parent.displayPath });
 		}
-		return await this.resolveExistingWithMetadata(
+		return await this.resolveExistingPath(
 			path.join(parentIdentity.lexicalPath, name),
 			{ expected: "any", followFinalSymlink: false },
-			context,
 		);
 	}
 
-	projectListedChild(parent: DirectoryRef, name: string, kind: "file", context: FsOperationContext): FsResult<FileRef>;
-	projectListedChild(parent: DirectoryRef, name: string, kind: "directory", context: FsOperationContext): FsResult<DirectoryRef>;
+	projectListedChild(parent: DirectoryRef, name: string, kind: "file"): FsResult<FileRef>;
+	projectListedChild(parent: DirectoryRef, name: string, kind: "directory"): FsResult<DirectoryRef>;
 	projectListedChild(
 		parent: DirectoryRef,
 		name: string,
 		kind: "file" | "directory",
-		context: FsOperationContext,
 	): FsResult<FileRef | DirectoryRef> {
-		context = bindOperationContext(this.options.ownerSignal, context);
+		const context = this.options.context;
 		const parentIdentity = this.refs.get(parent.id);
 		if (context.signal?.aborted === true) {
 			return fsFailure({ code: "aborted", message: "Operation aborted.", path: parent.displayPath });
@@ -324,25 +352,12 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 				lexicalPath: input,
 		};
 		return kind === "file"
-			? fsSuccess({ ...this.createRefBase(lexical, nativeIdentity), kind: "file" })
-			: fsSuccess({ ...this.createRefBase(lexical, nativeIdentity), kind: "directory" });
+			? fsSuccess(this.createExistingRef("file", lexical, nativeIdentity).ref)
+			: fsSuccess(this.createExistingRef("directory", lexical, nativeIdentity).ref);
 	}
 
 	getNativeIdentity(ref: ExistingRef | TargetRef): NativePathIdentity | undefined {
 		return this.refs.get(ref.id);
-	}
-
-	asExistingRef(ref: TargetRef): ExistingRef | undefined {
-		const identity = this.refs.get(ref.id);
-		if (identity === undefined || ref.existingKind === undefined) return undefined;
-		const existing = {
-			id: `namespace-${this.namespaceId}:ref-${this.nextRefId++}` as PathId,
-			displayPath: ref.displayPath,
-			...(ref.workspacePath === undefined ? {} : { workspacePath: ref.workspacePath }),
-			kind: ref.existingKind,
-		} satisfies ExistingRef;
-		this.refs.set(existing.id, identity);
-		return existing;
 	}
 
 	private resolveLexical(input: string): FsResult<PathIdentity & { readonly absolutePath: string }> {
@@ -377,9 +392,9 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		identity: PathIdentity & { readonly absolutePath: string },
 		options: ResolveTargetOptions,
 		context: FsOperationContext,
-	): Promise<FsResult<TargetRef>> {
+	): Promise<FsResult<ResolvedTargetPath>> {
 		if (!options.followExistingSymlink) {
-			return fsSuccess(this.createTargetRef(identity, "symlink", {
+			return fsSuccess(this.createTargetPath(identity, "symlink", {
 				nativePath: identity.absolutePath,
 				canonicalPath: identity.absolutePath,
 				lexicalPath: identity.absolutePath,
@@ -401,7 +416,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		identity: PathIdentity & { readonly absolutePath: string },
 		context: FsOperationContext,
 		visited: ReadonlySet<string>,
-	): Promise<FsResult<TargetRef>> {
+	): Promise<FsResult<ResolvedTargetPath>> {
 		if (visited.has(targetPath)) {
 			return fsFailure({ code: "invalid-path", message: "Symbolic link cycle cannot be resolved.", path: identity.displayPath });
 		}
@@ -437,7 +452,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 			}
 			const canonicalBlock = this.policy.match(input, this.canonicalIdentity(canonicalPath), "canonical");
 			if (canonicalBlock !== undefined) return blockedFailure(identity.displayPath, canonicalBlock);
-			return fsSuccess(this.createTargetRef(identity, metadata.kind, {
+			return fsSuccess(this.createTargetPath(identity, metadata.kind, {
 				nativePath: canonicalPath,
 				canonicalPath,
 				lexicalPath: identity.absolutePath,
@@ -448,7 +463,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		const parentBlock = this.policy.match(input, this.canonicalIdentity(parent.value.canonicalPath), "parent");
 		if (parentBlock !== undefined) return blockedFailure(identity.displayPath, parentBlock);
 		const canonicalPath = path.resolve(parent.value.canonicalPath, path.relative(parent.value.lexicalPath, targetPath));
-		return fsSuccess(this.createTargetRef(identity, undefined, {
+		return fsSuccess(this.createTargetPath(identity, undefined, {
 			nativePath: canonicalPath,
 			canonicalPath,
 			lexicalPath: identity.absolutePath,
@@ -484,40 +499,67 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 	}
 
 	private createExistingRef(
+		kind: "file",
+		identity: PathIdentity,
+		nativeIdentity: UnstoredNativePathIdentity,
+	): Pick<ResolvedExistingPath<FileRef>, "ref" | "identity">;
+	private createExistingRef(
+		kind: "directory",
+		identity: PathIdentity,
+		nativeIdentity: UnstoredNativePathIdentity,
+	): Pick<ResolvedExistingPath<DirectoryRef>, "ref" | "identity">;
+	private createExistingRef(
 		kind: NativePathKind,
 		identity: PathIdentity,
 		nativeIdentity: UnstoredNativePathIdentity,
-	): ExistingRef {
-		const base = this.createRefBase(identity, nativeIdentity);
-		if (kind === "file") return { ...base, kind: "file" };
-		if (kind === "directory") return { ...base, kind: "directory" };
-		if (kind === "symlink") return { ...base, kind: "symlink" };
-		return { ...base, kind: "other" };
+	): Pick<ResolvedExistingPath, "ref" | "identity">;
+	private createExistingRef(
+		kind: NativePathKind,
+		identity: PathIdentity,
+		nativeIdentity: UnstoredNativePathIdentity,
+	): Pick<ResolvedExistingPath, "ref" | "identity"> {
+		const stored = this.createRefBase(identity, nativeIdentity);
+		if (kind === "file") return { ref: { ...stored.ref, kind: "file" }, identity: stored.identity };
+		if (kind === "directory") return { ref: { ...stored.ref, kind: "directory" }, identity: stored.identity };
+		if (kind === "symlink") return { ref: { ...stored.ref, kind: "symlink" }, identity: stored.identity };
+		return { ref: { ...stored.ref, kind: "other" }, identity: stored.identity };
 	}
 
-	private createTargetRef(
+	private createTargetPath(
 		identity: PathIdentity,
 		existingKind: ExistingPathKind | undefined,
 		nativeIdentity: UnstoredNativePathIdentity,
-	): TargetRef {
+	): ResolvedTargetPath {
+		const stored = this.createRefBase(identity, nativeIdentity);
+		if (existingKind === undefined) {
+			return { target: { ...stored.ref, kind: "target" }, identity: stored.identity };
+		}
+		const existing = this.createExistingRef(existingKind, identity, nativeIdentity);
 		return {
-			...this.createRefBase(identity, nativeIdentity),
-			kind: "target",
-			...(existingKind === undefined ? {} : { existingKind }),
+			target: { ...stored.ref, kind: "target", existingKind },
+			identity: stored.identity,
+			existing: existing.ref,
 		};
 	}
 
 	private createRefBase(identity: PathIdentity, nativeIdentity: UnstoredNativePathIdentity): {
-		readonly id: PathId;
-		readonly displayPath: string;
-		readonly workspacePath?: string;
+		readonly ref: {
+			readonly id: PathId;
+			readonly displayPath: string;
+			readonly workspacePath?: string;
+		};
+		readonly identity: NativePathIdentity;
 	} {
 		const id = `namespace-${this.namespaceId}:ref-${this.nextRefId++}` as PathId;
-		this.refs.set(id, { ...nativeIdentity, parentPath: path.dirname(nativeIdentity.nativePath) });
+		const storedIdentity = { ...nativeIdentity, parentPath: path.dirname(nativeIdentity.nativePath) };
+		this.refs.set(id, storedIdentity);
 		return {
-			id,
-			displayPath: identity.displayPath,
-			...(identity.workspacePath === undefined ? {} : { workspacePath: identity.workspacePath }),
+			ref: {
+				id,
+				displayPath: identity.displayPath,
+				...(identity.workspacePath === undefined ? {} : { workspacePath: identity.workspacePath }),
+			},
+			identity: storedIdentity,
 		};
 	}
 }

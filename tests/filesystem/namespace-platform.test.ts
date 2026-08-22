@@ -31,7 +31,6 @@ describe("workspace namespace platform boundaries", () => {
 		const file = expectFsOk(await opened.paths.resolveExisting(
 			path.join(lexicalWorkspace, "a.txt"),
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		));
 		expect(opened.root.displayPath).toBe(".");
 		expect(file).toMatchObject({ displayPath: "a.txt", workspacePath: "a.txt" });
@@ -46,7 +45,6 @@ describe("workspace namespace platform boundaries", () => {
 		const result = await namespace.paths.resolveExisting(
 			"secret-link.txt",
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		);
 		expect(result).toMatchObject({
 			ok: false,
@@ -61,11 +59,11 @@ describe("workspace namespace platform boundaries", () => {
 		await symlink(protectedDir, path.join(workspace, "parent-link"), "dir");
 		const namespace = await openNamespace({ blockedPaths: [`${protectedDir}${path.sep}`] });
 
-		expect(await namespace.paths.resolveTarget("target-link.txt", { followExistingSymlink: true }, {})).toMatchObject({
+		expect(await namespace.paths.resolveTarget("target-link.txt", { followExistingSymlink: true })).toMatchObject({
 			ok: false,
 			error: { code: "blocked", details: { phase: "canonical" } },
 		});
-		expect(await namespace.paths.resolveTarget("parent-link/new/file.txt", { followExistingSymlink: true }, {})).toMatchObject({
+		expect(await namespace.paths.resolveTarget("parent-link/new/file.txt", { followExistingSymlink: true })).toMatchObject({
 			ok: false,
 			error: { code: "blocked", details: { phase: "parent", matchedPath: protectedDir } },
 		});
@@ -85,15 +83,14 @@ describe("workspace namespace platform boundaries", () => {
 		const danglingRef = expectFsOk(await namespace.paths.resolveExisting(
 			"allowed-link.txt",
 			{ expected: "any", followFinalSymlink: false },
-			{},
 		));
 		expect(danglingRef.kind).toBe("symlink");
-		const preserved = expectFsOk(await namespace.paths.resolveTarget("allowed-link.txt", { followExistingSymlink: false }, {}));
+		const preserved = expectFsOk(await namespace.paths.resolveTarget("allowed-link.txt", { followExistingSymlink: false }));
 		expect(preserved.existingKind).toBe("symlink");
-		const allowed = expectFsOk(await namespace.paths.resolveTarget("allowed-link.txt", { followExistingSymlink: true }, {}));
+		const allowed = expectFsOk(await namespace.paths.resolveTarget("allowed-link.txt", { followExistingSymlink: true }));
 		expect(allowed.existingKind).toBeUndefined();
 		expect(namespace.bridge.getNativeIdentity(allowed)?.nativePath).toBe(allowedTarget);
-		expect(await namespace.paths.resolveTarget("blocked-link.txt", { followExistingSymlink: true }, {})).toMatchObject({
+		expect(await namespace.paths.resolveTarget("blocked-link.txt", { followExistingSymlink: true })).toMatchObject({
 			ok: false,
 			error: { code: "blocked", details: { phase: "parent", matchedPath: protectedDir } },
 		});
@@ -108,22 +105,20 @@ describe("workspace namespace platform boundaries", () => {
 		const preserved = expectFsOk(await namespace.paths.resolveExisting(
 			"link.txt",
 			{ expected: "any", followFinalSymlink: false },
-			{},
 		));
 		expect(preserved.kind).toBe("symlink");
 		expect(namespace.bridge.getNativeIdentity(preserved)?.nativePath).toBe(link);
 		const followed = expectFsOk(await namespace.paths.resolveExisting(
 			"link.txt",
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		));
 		expect(followed.kind).toBe("file");
 		expect(namespace.bridge.getNativeIdentity(followed)?.nativePath).toBe(target);
 
-		const preservedTarget = expectFsOk(await namespace.paths.resolveTarget("link.txt", { followExistingSymlink: false }, {}));
+		const preservedTarget = expectFsOk(await namespace.paths.resolveTarget("link.txt", { followExistingSymlink: false }));
 		expect(preservedTarget.existingKind).toBe("symlink");
 		expect(namespace.bridge.getNativeIdentity(preservedTarget)?.nativePath).toBe(link);
-		const followedTarget = expectFsOk(await namespace.paths.resolveTarget("link.txt", { followExistingSymlink: true }, {}));
+		const followedTarget = expectFsOk(await namespace.paths.resolveTarget("link.txt", { followExistingSymlink: true }));
 		expect(followedTarget.existingKind).toBe("file");
 		expect(namespace.bridge.getNativeIdentity(followedTarget)?.nativePath).toBe(target);
 	});
@@ -134,13 +129,10 @@ describe("workspace namespace platform boundaries", () => {
 		const directory = expectFsOk(await namespace.paths.resolveExisting(
 			"casedir",
 			{ expected: "directory", followFinalSymlink: true },
-			{},
 		));
-		if (directory.kind !== "directory") throw new Error("Expected directory ref");
 		const file = expectFsOk(await namespace.paths.resolveExisting(
 			"CASEDIR\\NESTED\\FILE.TXT",
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		));
 		const relative = namespace.paths.relative(directory, file);
 		expect(relative?.toLowerCase()).toBe("nested/file.txt");
@@ -163,7 +155,7 @@ describe("workspace namespace platform boundaries", () => {
 			},
 		}, base);
 		const namespace = await openNamespace({ native });
-		const target = expectFsOk(await namespace.paths.resolveTarget("appeared-link.txt", { followExistingSymlink: true }, {}));
+		const target = expectFsOk(await namespace.paths.resolveTarget("appeared-link.txt", { followExistingSymlink: true }));
 		expect(target.existingKind).toBe("file");
 		expect(namespace.bridge.getNativeIdentity(target)?.nativePath).toBe(destination);
 	});
@@ -191,7 +183,6 @@ describe("workspace namespace platform boundaries", () => {
 		expect(await namespace.paths.resolveExisting(
 			"raced.txt",
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		)).toMatchObject({ ok: false, error: { code: "blocked", details: { phase: "canonical" } } });
 	});
 });

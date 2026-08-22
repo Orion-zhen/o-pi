@@ -67,13 +67,21 @@ export class GitTrackedFilesLoader {
 
 	private async refreshGitState(workspaceRoot: string, marker: string, signal?: AbortSignal): Promise<GitCacheEntry> {
 		const statePaths = await resolveGitStatePaths(workspaceRoot, signal);
-		const [paths, ignoreCase, stateFingerprint] = await Promise.all([
+		const [paths, ignoreCase, stateFingerprint] = await Promise.allSettled([
 			readTrackedPaths(workspaceRoot, signal),
 			readIgnoreCase(workspaceRoot, signal),
 			this.filesFingerprint(statePaths, signal),
 		]);
-		const fingerprint = `${marker}|${stateFingerprint}`;
-		return { marker, statePaths, stateFingerprint, result: { paths, ignoreCase, fingerprint } };
+		if (paths.status === "rejected") throw paths.reason;
+		if (ignoreCase.status === "rejected") throw ignoreCase.reason;
+		if (stateFingerprint.status === "rejected") throw stateFingerprint.reason;
+		const fingerprint = `${marker}|${stateFingerprint.value}`;
+		return {
+			marker,
+			statePaths,
+			stateFingerprint: stateFingerprint.value,
+			result: { paths: paths.value, ignoreCase: ignoreCase.value, fingerprint },
+		};
 	}
 
 	private async filesFingerprint(paths: readonly string[], signal?: AbortSignal): Promise<string> {
@@ -83,7 +91,7 @@ export class GitTrackedFilesLoader {
 	private async fileFingerprint(filePath: string, signal?: AbortSignal): Promise<string> {
 		try {
 			const info = await this.native.lstat(filePath, signal === undefined ? {} : { signal });
-			return `${filePath}:${info.version ?? `${info.kind}:${info.sizeBytes}:${info.modifiedAtMs}`}`;
+			return `${filePath}:${info.version}`;
 		} catch (error) {
 			if (error instanceof NativeFileSystemError && error.code === "aborted") throw error;
 			return `${filePath}:missing`;

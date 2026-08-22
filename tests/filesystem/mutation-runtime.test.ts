@@ -2,13 +2,11 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { VisibilityService } from "../../src/filesystem/contracts/visibility.js";
 import { FileSystemRuntime } from "../../src/filesystem/runtime.js";
 import { NativeFileSystemError, NodeNativeFileSystem } from "../../src/filesystem/platform/node/native-filesystem.js";
-import { WorkspaceVisibilityService } from "../../src/filesystem/services/visibility/service.js";
 import { contentHash } from "../../src/filesystem/services/text.js";
 import { expectFsOk as expectOk, overrideNativeFileSystem as nativeOverride, textBytes as bytes } from "./fixtures.js";
-import { useMutationFixture } from "./mutation-fixtures.js";
+import { commitBytes, useMutationFixture } from "./mutation-fixtures.js";
 
 const test = useMutationFixture("o-pi-mutation-runtime-");
 const { openRuntime, policy, resolveTarget, track } = test;
@@ -16,29 +14,16 @@ let workspace: string;
 beforeEach(() => { workspace = test.workspace; });
 
 describe("filesystem mutation runtime", () => {
-	it("maps visibility startup failures and aborts a workspace disposed while opening", async () => {
-		const unavailable: VisibilityService = {
-			async createSnapshot() { throw new NativeFileSystemError("access-denied", "visibility", workspace); },
-			invalidate() {},
-		};
-		const failedRuntime = track(new FileSystemRuntime({ visibility: unavailable }));
-		await expect(failedRuntime.open({ cwd: workspace, policy: policy() })).resolves.toMatchObject({
-			ok: false,
-			error: { code: "access-denied" },
-		});
-
+	it("aborts a workspace while visibility is opening", async () => {
 		const controller = new AbortController();
-		const delegate = new WorkspaceVisibilityService();
-		const aborting: VisibilityService = {
-			async createSnapshot(root, visibilityPolicy, context) {
-				const snapshot = await delegate.createSnapshot(root, visibilityPolicy, context);
-				controller.abort();
-				return snapshot;
+		const native = nativeOverride({
+			async lstat(filePath, options) {
+				if (filePath === path.join(workspace, ".git")) controller.abort();
+				return await new NodeNativeFileSystem().lstat(filePath, options);
 			},
-			invalidate(root) { delegate.invalidate(root); },
-		};
-		const abortedRuntime = track(new FileSystemRuntime({ visibility: aborting }));
-		await expect(abortedRuntime.open({
+		});
+		const runtime = track(new FileSystemRuntime({ native }));
+		await expect(runtime.open({
 			cwd: workspace,
 			policy: policy(),
 			context: { signal: controller.signal },
@@ -48,12 +33,10 @@ describe("filesystem mutation runtime", () => {
 		const opened = await openRuntime();
 		const target = await resolveTarget(opened, "nested/file.txt");
 		const firstBytes = bytes("first\n");
-		const first = expectOk(await opened.filesystem.mutations.overwrite(
-			target,
-			firstBytes,
-			{ createParents: true },
-			opened.context,
-		));
+		const firstResult = expectOk(await commitBytes(opened, target, firstBytes, { createParents: true }));
+		expect(firstResult).toMatchObject({ committed: true });
+		if (!firstResult.committed) throw new Error("Expected committed mutation.");
+		const first = firstResult.receipt;
 		expect(first).toMatchObject({
 			created: true,
 			hash: contentHash(firstBytes),
@@ -62,16 +45,14 @@ describe("filesystem mutation runtime", () => {
 		});
 
 		const secondBytes = bytes("second\n");
-		const second = expectOk(await opened.filesystem.mutations.overwrite(
-			first.target,
-			secondBytes,
-			{ createParents: true },
-			opened.context,
-		));
+		const second = expectOk(await commitBytes(opened, first.target, secondBytes, { createParents: true }));
 		expect(second).toMatchObject({
-			created: false,
-			before: { hash: first.hash, sizeBytes: first.sizeBytes },
-			hash: contentHash(secondBytes),
+			committed: true,
+			receipt: {
+				created: false,
+				before: { hash: first.hash, sizeBytes: first.sizeBytes },
+				hash: contentHash(secondBytes),
+			},
 		});
 		expect(await readFile(path.join(workspace, "nested/file.txt"), "utf8")).toBe("second\n");
 	});
@@ -80,11 +61,11 @@ describe("filesystem mutation runtime", () => {
 			async mkdir(directory) { throw new NativeFileSystemError("access-denied", "mkdir", directory); },
 		});
 		const mkdirOpen = await openRuntime([], mkdirNative);
-		await expect(mkdirOpen.filesystem.mutations.overwrite(
+		await expect(commitBytes(
+			mkdirOpen,
 			await resolveTarget(mkdirOpen, "nested/fail.txt"),
 			bytes("fail"),
 			{ createParents: true },
-			mkdirOpen.context,
 		)).resolves.toMatchObject({ ok: false, error: { code: "access-denied" } });
 
 		await writeFile(path.join(workspace, "read-fail.txt"), "before");
@@ -92,11 +73,11 @@ describe("filesystem mutation runtime", () => {
 			async open(file) { throw new NativeFileSystemError("access-denied", "open", file); },
 		});
 		const readOpen = await openRuntime([], readNative);
-		await expect(readOpen.filesystem.mutations.overwrite(
+		await expect(commitBytes(
+			readOpen,
 			await resolveTarget(readOpen, "read-fail.txt"),
 			bytes("fail"),
 			{ createParents: false },
-			readOpen.context,
 		)).resolves.toMatchObject({ ok: false, error: { code: "access-denied" } });
 
 		await writeFile(path.join(workspace, "abort-read.txt"), "before");
@@ -108,7 +89,7 @@ describe("filesystem mutation runtime", () => {
 				return handle;
 			},
 		});
-		const abortReadOpen = await openRuntime([], abortingReadNative);
+		const abortReadOpen = await openRuntime([], abortingReadNative, readAbort.signal);
 		let transformed = false;
 		await expect(abortReadOpen.filesystem.mutations.run(
 			await resolveTarget(abortReadOpen, "abort-read.txt"),
@@ -117,41 +98,32 @@ describe("filesystem mutation runtime", () => {
 				transformed = true;
 				return { type: "commit", bytes: bytes("unsafe") };
 			},
-			{ signal: readAbort.signal },
 		)).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 		expect(transformed).toBe(false);
 
 		const transformAbort = new AbortController();
-		const abortTarget = await resolveTarget(abortReadOpen, "abort-transform.txt");
-		await expect(abortReadOpen.filesystem.mutations.run(
+		const transformAbortOpen = await openRuntime([], undefined, transformAbort.signal);
+		const abortTarget = await resolveTarget(transformAbortOpen, "abort-transform.txt");
+		await expect(transformAbortOpen.filesystem.mutations.run(
 			abortTarget,
 			{ createParents: false },
 			() => {
 				transformAbort.abort();
 				return { type: "commit", bytes: bytes("unsafe") };
 			},
-			{ signal: transformAbort.signal },
 		)).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 	});
 	it("rejects foreign refs, directories, and optimistic commits after target changes", async () => {
 		const first = await openRuntime();
 		const second = await openRuntime();
 		const foreign = await resolveTarget(first, "foreign.txt");
-		await expect(second.filesystem.mutations.overwrite(
-			foreign,
-			bytes("foreign"),
-			{ createParents: false },
-			second.context,
-		)).resolves.toMatchObject({ ok: false, error: { code: "invalid-path" } });
+		await expect(commitBytes(second, foreign, bytes("foreign"), { createParents: false }))
+			.resolves.toMatchObject({ ok: false, error: { code: "invalid-path" } });
 
 		await mkdir(path.join(workspace, "directory"));
 		const directory = await resolveTarget(first, "directory");
-		await expect(first.filesystem.mutations.overwrite(
-			directory,
-			bytes("not-file"),
-			{ createParents: false },
-			first.context,
-		)).resolves.toMatchObject({ ok: false, error: { code: "not-file" } });
+		await expect(commitBytes(first, directory, bytes("not-file"), { createParents: false }))
+			.resolves.toMatchObject({ ok: false, error: { code: "not-file" } });
 	});
 	it("enforces snapshot and output byte limits despite metadata underreporting", async () => {
 		const file = path.join(workspace, "underreported.txt");
@@ -178,7 +150,6 @@ describe("filesystem mutation runtime", () => {
 				transformed = true;
 				return { type: "commit", bytes: bytes("x") };
 			},
-			opened.context,
 		)).resolves.toMatchObject({
 			ok: false,
 			error: { code: "too-large", details: { limit: 2, size: 3 } },
@@ -187,11 +158,11 @@ describe("filesystem mutation runtime", () => {
 		expect(await readFile(file, "utf8")).toBe("12345");
 
 		const outputTarget = await resolveTarget(opened, "output-limit.txt");
-		await expect(opened.filesystem.mutations.overwrite(
+		await expect(commitBytes(
+			opened,
 			outputTarget,
 			bytes("123"),
 			{ createParents: false, maxSnapshotBytes: 2, maxOutputBytes: 2 },
-			opened.context,
 		)).resolves.toMatchObject({
 			ok: false,
 			error: { code: "too-large", details: { limit: 2, size: 3 } },

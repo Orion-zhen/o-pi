@@ -95,13 +95,13 @@ describe("grep lifecycle", () => {
 			let fullReads = 0;
 			let lineScans = 0;
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
-				async readText(file, options, context) {
+				async readText(file, options) {
 					fullReads += 1;
-					return await content.readText(file, options, context);
+					return await content.readText(file, options);
 				},
-				async scanLines(file, options, context) {
+				async scanLines(file, options) {
 					lineScans += 1;
-					return await content.scanLines(file, options, context);
+					return await content.scanLines(file, options);
 				},
 			}));
 			const result = await tool.execute({ path: ["stream.txt"], query: "needle" }, {
@@ -120,9 +120,9 @@ describe("grep lifecycle", () => {
 			const controller = new AbortController();
 			const started = deferredVoid();
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
-				async scanLines(file, options, context) {
+				async scanLines(file, options) {
 					started.resolve();
-					return await content.scanLines(file, options, context);
+					return await content.scanLines(file, options);
 				},
 			}));
 			const active = tool.execute({ path: ["cancel.txt"], query: "needle" }, {

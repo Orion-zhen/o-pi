@@ -119,13 +119,13 @@ describe("grep integration", () => {
 			let lineScans = 0;
 			let fullReads = 0;
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
-				async readText(file, options, context) {
+				async readText(file, options) {
 					fullReads += 1;
-					return content.readText(file, options, context);
+					return content.readText(file, options);
 				},
-				async scanLines(file, options, context) {
+				async scanLines(file, options) {
 					lineScans += 1;
-					return await content.scanLines(file, options, context);
+					return await content.scanLines(file, options);
 				},
 			}));
 			const result = expectGrepSuccess(await tool.execute({ query: "session retry delay" }, {
@@ -313,13 +313,13 @@ describe("grep integration", () => {
 			let fullReads = 0;
 			let lineScans = 0;
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
-				async readText(file, options, context) {
+				async readText(file, options) {
 					fullReads += 1;
-					return await content.readText(file, options, context);
+					return await content.readText(file, options);
 				},
-				async scanLines(file, options, context) {
+				async scanLines(file, options) {
 					lineScans += 1;
-					return await content.scanLines(file, options, context);
+					return await content.scanLines(file, options);
 				},
 			}));
 			for (const query of ["first-miss", "second-miss", "first-miss"]) {

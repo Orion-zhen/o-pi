@@ -1,11 +1,10 @@
 import type {
 	ByteContent,
-	ByteReadOptions,
+	ReadOptions,
 	ContentOperations,
 	LineScan,
 	ScannedLine,
 	TextContent,
-	TextReadOptions,
 	TextSlice,
 	TextSliceOptions,
 } from "../contracts/content.js";
@@ -14,7 +13,6 @@ import type { FileRef } from "../contracts/path.js";
 import { fsFailure, fsSuccess, type FsOperationContext, type FsResult } from "../contracts/result.js";
 import { mapNativeError } from "../kernel/native-error.js";
 import type { NativePathIdentity, WorkspaceNamespaceBridge } from "../kernel/namespace.js";
-import { bindOperationContext } from "../operation-context.js";
 import type {
 	NativeFileSystem,
 	NativeMetadata,
@@ -31,13 +29,11 @@ export class WorkspaceContentService implements ContentOperations {
 	constructor(
 		private readonly native: NativeFileSystem,
 		private readonly bridge: WorkspaceNamespaceBridge,
-		private readonly ownerSignal?: AbortSignal,
+		private readonly context: FsOperationContext,
 	) {}
 
-	async readBytes(file: FileRef, options: ByteReadOptions, context: FsOperationContext): Promise<FsResult<ByteContent>> {
-		context = bindOperationContext(this.ownerSignal, context);
-		const invalidLimit = validateMaxBytes(options.maxBytes, file.displayPath);
-		if (invalidLimit !== undefined) return invalidLimit;
+	async readBytes(file: FileRef, options: ReadOptions): Promise<FsResult<ByteContent>> {
+		const context = this.context;
 		const identity = nativeIdentity(this.bridge, file);
 		if (!identity.ok) return identity;
 
@@ -56,19 +52,18 @@ export class WorkspaceContentService implements ContentOperations {
 			} else {
 				const loaded = await readHandleBytes(handle, options.maxBytes, before.sizeBytes, context, file.displayPath);
 				if (!loaded.ok) outcome = loaded;
-				else if (options.stable === true) {
+				else {
 					const stable = await verifyStable(
 						this.bridge,
 						file,
 						handle.metadata,
 						identity.value,
 						before,
-						context,
 					);
 					outcome = !stable.ok ? stable : stable.value
 						? fsSuccess(toByteContent(loaded.value))
 						: changedDuringRead(file.displayPath, "read");
-				} else outcome = fsSuccess(toByteContent(loaded.value));
+				}
 			}
 		} catch (error) {
 			outcome = fsFailure(mapNativeError(error, file.displayPath));
@@ -82,24 +77,14 @@ export class WorkspaceContentService implements ContentOperations {
 		return outcome;
 	}
 
-	async readText(file: FileRef, options: TextReadOptions, context: FsOperationContext): Promise<FsResult<TextContent>> {
-		context = bindOperationContext(this.ownerSignal, context);
-		const loaded = await this.readBytes(file, options, context);
+	async readText(file: FileRef, options: ReadOptions): Promise<FsResult<TextContent>> {
+		const loaded = await this.readBytes(file, options);
 		if (!loaded.ok) return loaded;
-		return this.decodeText(loaded.value, {
-			...(options.rejectBinary === undefined ? {} : { rejectBinary: options.rejectBinary }),
-			path: file.displayPath,
-		});
+		return this.decodeText(loaded.value, file.displayPath);
 	}
 
-	decodeText(
-		content: ByteContent,
-		options: Pick<TextReadOptions, "rejectBinary"> & { readonly path?: string },
-	): FsResult<TextContent> {
-		const decoded = decodeUtf8(content.bytes, {
-			rejectBinary: options.rejectBinary ?? true,
-			...(options.path === undefined ? {} : { path: options.path }),
-		});
+	decodeText(content: ByteContent, path: string): FsResult<TextContent> {
+		const decoded = decodeUtf8(content.bytes, path);
 		if (!decoded.ok) return decoded;
 		return fsSuccess({ ...content, text: decoded.value, ...describeText(content.bytes, decoded.value) });
 	}
@@ -108,10 +93,8 @@ export class WorkspaceContentService implements ContentOperations {
 		return sliceTextByLineRange(content, options);
 	}
 
-	async scanLines(file: FileRef, options: TextReadOptions, context: FsOperationContext): Promise<FsResult<LineScan>> {
-		context = bindOperationContext(this.ownerSignal, context);
-		const invalidLimit = validateMaxBytes(options.maxBytes, file.displayPath);
-		if (invalidLimit !== undefined) return invalidLimit;
+	async scanLines(file: FileRef, options: ReadOptions): Promise<FsResult<LineScan>> {
+		const context = this.context;
 		const identity = nativeIdentity(this.bridge, file);
 		if (!identity.ok) return identity;
 		const opened = await openValidatedFile(this.native, this.bridge, file, identity.value, context);
@@ -143,7 +126,6 @@ export class WorkspaceContentService implements ContentOperations {
 }
 
 class NativeLineScan implements LineScan {
-	private consumed = false;
 	private stopped = false;
 	private aborted = false;
 	private closePromise: Promise<void> | undefined;
@@ -158,7 +140,7 @@ class NativeLineScan implements LineScan {
 		private readonly handle: NativeOpenFile,
 		private readonly before: NativeMetadata,
 		private readonly identity: NativePathIdentity,
-		private readonly options: TextReadOptions,
+		private readonly options: ReadOptions,
 		private readonly context: FsOperationContext,
 	) {
 		if (context.signal?.aborted === true) this.onAbort();
@@ -186,11 +168,6 @@ class NativeLineScan implements LineScan {
 
 	private async *iterate(): AsyncGenerator<FsResult<ScannedLine>> {
 		const displayPath = this.file.displayPath;
-		if (this.consumed) {
-			yield fsFailure({ code: "invalid-path", message: "Line scan has already been consumed.", path: displayPath });
-			return;
-		}
-		this.consumed = true;
 		let position = 0;
 		const pendingSegments: Uint8Array[] = [];
 		let pendingBytes = 0;
@@ -212,14 +189,7 @@ class NativeLineScan implements LineScan {
 		};
 		const decodeLineBytes = (bytes: Uint8Array): FsResult<ScannedLine> => {
 			if (line === 1 && hasUtf8Bom(bytes)) bodyBomBytes = UTF8_BOM_BYTES;
-			return decodeScannedLine(
-				bytes,
-				pendingStart,
-				line,
-				bodyBomBytes,
-				this.options.rejectBinary ?? true,
-				displayPath,
-			);
+			return decodeScannedLine(bytes, pendingStart, line, bodyBomBytes, displayPath);
 		};
 		try {
 			if (this.isAborted()) {
@@ -301,14 +271,13 @@ class NativeLineScan implements LineScan {
 					yield decoded;
 				}
 			}
-			if (!this.stopped && this.options.stable === true) {
+			if (!this.stopped) {
 				const stable = await verifyStable(
 					this.bridge,
 					this.file,
 					this.handle.metadata,
 					this.identity,
 					this.before,
-					this.context,
 				);
 				if (!stable.ok) yield stable;
 				else if (!stable.value) yield changedDuringRead(displayPath, "scan");
@@ -352,11 +321,10 @@ function decodeScannedLine(
 	rawStart: number,
 	line: number,
 	bodyBomBytes: number,
-	rejectBinary: boolean,
 	displayPath: string,
 ): FsResult<ScannedLine> {
 	const leadingBomBytes = line === 1 && hasUtf8Bom(bytes) ? bodyBomBytes : 0;
-	const decoded = decodeUtf8(bytes.subarray(leadingBomBytes), { rejectBinary, path: displayPath });
+	const decoded = decodeUtf8(bytes.subarray(leadingBomBytes), displayPath);
 	if (!decoded.ok) return decoded;
 	return fsSuccess({
 		line,
@@ -381,14 +349,14 @@ export async function openValidatedFile(
 	try {
 		handle = await native.open(identity.nativePath, context);
 	} catch (error) {
-		const fresh = await bridge.revalidateExisting(file, context);
+		const fresh = await bridge.revalidateExisting(file);
 		if (!fresh.ok) return fresh;
 		return nativeChanged(error)
 			? changedDuringRead(file.displayPath, "read")
 			: fsFailure(mapNativeError(error, file.displayPath));
 	}
 	try {
-		const validated = await revalidateOpenedFile(bridge, file, identity, handle.metadata, context);
+		const validated = await revalidateOpenedFile(bridge, file, identity, handle.metadata);
 		if (!validated.ok) {
 			await closeQuietly(handle);
 			return validated;
@@ -405,9 +373,8 @@ async function revalidateOpenedFile(
 	file: FileRef,
 	expected: NativePathIdentity,
 	openedMetadata: NativeMetadata,
-	context: FsOperationContext,
 ): Promise<FsResult<NativeMetadata>> {
-	const fresh = await bridge.revalidateExisting(file, context);
+	const fresh = await bridge.revalidateExisting(file);
 	if (!fresh.ok) {
 		return fresh.error.code === "not-found" || fresh.error.code === "not-file"
 			? changedDuringRead(file.displayPath, "read")
@@ -433,9 +400,8 @@ export async function verifyStable(
 	openedMetadata: NativeMetadata,
 	identity: NativePathIdentity,
 	before: NativeMetadata,
-	context: FsOperationContext,
 ): Promise<FsResult<boolean>> {
-	const after = await revalidateOpenedFile(bridge, file, identity, openedMetadata, context);
+	const after = await revalidateOpenedFile(bridge, file, identity, openedMetadata);
 	if (!after.ok) return after.error.code === "changed-during-read" ? fsSuccess(false) : after;
 	return fsSuccess(sameVersion(before, after.value));
 }
@@ -463,11 +429,6 @@ function sameNativePath(left: string, right: string): boolean {
 
 function nativeChanged(error: unknown): boolean {
 	return error instanceof Error && "code" in error && error.code === "changed";
-}
-
-function validateMaxBytes(maxBytes: number | undefined, displayPath: string): FsResult<never> | undefined {
-	if (maxBytes === undefined || (Number.isSafeInteger(maxBytes) && maxBytes >= 0)) return undefined;
-	return fsFailure({ code: "invalid-path", message: "Byte limit must be a non-negative integer.", path: displayPath });
 }
 
 function changedDuringRead(displayPath: string, operation: "read" | "scan"): FsResult<never> {

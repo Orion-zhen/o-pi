@@ -18,15 +18,15 @@ export function contentHash(bytes: Uint8Array): string {
 	return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 }
 
-export function decodeUtf8(bytes: Uint8Array, options: { readonly rejectBinary: boolean; readonly path?: string }): FsResult<string> {
-	if (options.rejectBinary && bytes.includes(0)) {
-		return fsFailure({ code: "binary", message: "Binary content is not supported.", ...errorPath(options.path) });
+export function decodeUtf8(bytes: Uint8Array, path: string): FsResult<string> {
+	if (bytes.includes(0)) {
+		return fsFailure({ code: "binary", message: "Binary content is not supported.", path });
 	}
 	const payload = hasUtf8Bom(bytes) ? bytes.subarray(UTF8_BOM.byteLength) : bytes;
 	try {
 		return fsSuccess(new TextDecoder("utf-8", { fatal: true }).decode(payload));
 	} catch {
-		return fsFailure({ code: "invalid-utf8", message: "Content is not valid UTF-8.", ...errorPath(options.path) });
+		return fsFailure({ code: "invalid-utf8", message: "Content is not valid UTF-8.", path });
 	}
 }
 
@@ -154,8 +154,6 @@ export function extractByteRange(text: string, startByte: number, endByte: numbe
 
 /** Slices logical lines while preserving each selected line's original terminator. */
 export function sliceTextByLineRange(file: TextContent, options: TextSliceOptions): FsResult<TextSlice> {
-	const validation = validateSliceOptions(options);
-	if (validation !== undefined) return fsFailure(validation);
 	if (file.totalLines === 0) return fsSuccess({ content: "", startLine: 1, endLine: 0, truncated: false });
 
 	const requestedStart = options.startLine ?? 1;
@@ -163,7 +161,7 @@ export function sliceTextByLineRange(file: TextContent, options: TextSliceOption
 		return fsFailure({
 			code: "invalid-path",
 			message: "Start line is beyond the end of the file.",
-			...errorPath(options.path),
+			path: options.path,
 		});
 	}
 	const requestedEnd = Math.min(options.endLine ?? file.totalLines, file.totalLines);
@@ -189,7 +187,7 @@ export function sliceTextByLineRange(file: TextContent, options: TextSliceOption
 			return fsFailure({
 				code: "too-large",
 				message: "A single line exceeds the output limit.",
-				...errorPath(options.path),
+				path: options.path,
 			});
 		}
 		if (outputBytes + recordBytes > options.maxBytes) {
@@ -265,25 +263,4 @@ function lineRecordEnd(text: string, start: number): number {
 		if (text[index] === "\n") return index + 1;
 	}
 	return text.length;
-}
-
-function validateSliceOptions(options: TextSliceOptions): { code: "invalid-path"; message: string; path?: string } | undefined {
-	if (options.startLine !== undefined && (!Number.isInteger(options.startLine) || options.startLine < 1)) {
-		return { code: "invalid-path", message: "Start line must be a positive integer.", ...errorPath(options.path) };
-	}
-	if (options.endLine !== undefined && (!Number.isInteger(options.endLine) || options.endLine < 1)) {
-		return { code: "invalid-path", message: "End line must be a positive integer.", ...errorPath(options.path) };
-	}
-	if (options.startLine !== undefined && options.endLine !== undefined && options.startLine > options.endLine) {
-		return { code: "invalid-path", message: "Start line must not exceed end line.", ...errorPath(options.path) };
-	}
-	if (!Number.isSafeInteger(options.maxBytes) || options.maxBytes < 1
-		|| !Number.isSafeInteger(options.maxLines) || options.maxLines < 1) {
-		return { code: "invalid-path", message: "Text limits must be positive integers.", ...errorPath(options.path) };
-	}
-	return undefined;
-}
-
-function errorPath(path: string | undefined): { readonly path?: string } {
-	return path === undefined ? {} : { path };
 }

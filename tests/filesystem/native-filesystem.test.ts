@@ -19,7 +19,7 @@ describe("NodeNativeFileSystem", () => {
 		const nested = path.join(root, "nested");
 		const file = path.join(nested, "a.txt");
 		await native.mkdir(nested);
-		await native.atomicReplace(file, Buffer.from("hello"));
+		await native.atomicReplace(file, Buffer.from("hello"), { beforeCommit: async () => undefined });
 
 		expect(await native.lstat(file)).toMatchObject({ kind: "file", sizeBytes: 5 });
 		expect(await native.stat(file)).toMatchObject({ kind: "file", sizeBytes: 5 });
@@ -79,12 +79,14 @@ describe("NodeNativeFileSystem", () => {
 		const file = path.join(root, "atomic.txt");
 		await writeFile(file, "before");
 		let observedBeforeCommit = false;
-		await native.atomicReplace(file, Buffer.from("after"), {
+		const commitResult = await native.atomicReplace(file, Buffer.from("after"), {
 			async beforeCommit() {
 				observedBeforeCommit = true;
 				expect(await new NodeNativeFileSystem().read(file)).toEqual(Buffer.from("before"));
+				return "validated";
 			},
 		});
+		expect(commitResult).toBe("validated");
 		expect(observedBeforeCommit).toBe(true);
 		expect(Buffer.from(await native.read(file)).toString("utf8")).toBe("after");
 
@@ -107,7 +109,7 @@ describe("NodeNativeFileSystem", () => {
 		await writeFile(file, "before");
 		await chmod(file, 0o640);
 		const mode = (await stat(file)).mode & 0o7777;
-		await native.atomicReplace(file, Buffer.from("after"), { mode });
+		await native.atomicReplace(file, Buffer.from("after"), { mode, beforeCommit: async () => undefined });
 		expect((await stat(file)).mode & 0o7777).toBe(mode);
 	});
 

@@ -2,14 +2,7 @@ import { createHash } from "node:crypto";
 import ignoreFactory from "ignore";
 
 import type { FsOperationContext } from "../../contracts/result.js";
-import type {
-	IgnoreConfig,
-	IgnoreDiagnostic,
-	MatchedIgnoreRule,
-	SessionIgnoreRule,
-	VisibilityPolicy,
-	VisibilitySourceType,
-} from "../../contracts/visibility.js";
+import type { IgnoreConfig, VisibilityPolicy } from "../../contracts/visibility.js";
 import type { NativeFileSystem } from "../../platform/node/native-filesystem.js";
 import {
 	SOURCE_PRIORITY,
@@ -17,7 +10,9 @@ import {
 	rethrowVisibilityAbort,
 	type CompiledVisibilityRule,
 	type CompiledVisibilityRuleSet,
+	type MatchedIgnoreRule,
 	type VisibilityRuleFile,
+	type VisibilitySourceType,
 } from "./model.js";
 
 const BUILTIN_RULES: Readonly<Record<IgnoreConfig["builtinProfile"], readonly string[]>> = {
@@ -28,47 +23,33 @@ const BUILTIN_RULES: Readonly<Record<IgnoreConfig["builtinProfile"], readonly st
 
 export interface CompiledVisibilityRules {
 	readonly ruleSets: readonly CompiledVisibilityRuleSet[];
-	readonly diagnostics: readonly IgnoreDiagnostic[];
-}
-
-export async function compileVisibilityRules(
-	native: NativeFileSystem,
-	ruleFiles: readonly VisibilityRuleFile[],
-	config: IgnoreConfig,
-	caseInsensitive: boolean,
-	discoveryDiagnostics: readonly IgnoreDiagnostic[],
-	context: FsOperationContext,
-): Promise<CompiledVisibilityRules> {
-	const base = compileBaseVisibilityRules(config, caseInsensitive, discoveryDiagnostics);
-	const files = await compileVisibilityRuleFiles(native, ruleFiles, caseInsensitive, base.diagnostics, context);
-	return {
-		ruleSets: [...base.ruleSets, ...files.ruleSets].sort(compareRuleSets),
-		diagnostics: files.diagnostics,
-	};
 }
 
 export function compileBaseVisibilityRules(
 	config: IgnoreConfig,
 	caseInsensitive: boolean,
-	inputDiagnostics: readonly IgnoreDiagnostic[] = [],
 ): CompiledVisibilityRules {
-	const diagnostics = [...inputDiagnostics];
-	const ruleSets: CompiledVisibilityRuleSet[] = [];
-	addBaseRuleSets(config, caseInsensitive, diagnostics, ruleSets);
-	return { ruleSets, diagnostics };
+	const rules = BUILTIN_RULES[config.builtinProfile];
+	const ruleSet = rules.length === 0
+		? undefined
+		: compileRuleLines({
+			lines: rules,
+			sourceType: "builtin",
+			baseDirectory: ".",
+			caseInsensitive,
+		});
+	return { ruleSets: ruleSet === undefined ? [] : [ruleSet] };
 }
 
 export async function compileVisibilityRuleFiles(
 	native: NativeFileSystem,
 	ruleFiles: readonly VisibilityRuleFile[],
 	caseInsensitive: boolean,
-	inputDiagnostics: readonly IgnoreDiagnostic[],
 	context: FsOperationContext,
 ): Promise<CompiledVisibilityRules> {
-	const diagnostics = [...inputDiagnostics];
 	const ruleSets: CompiledVisibilityRuleSet[] = [];
 	for (const file of ruleFiles) {
-		const text = await readIgnoreFile(native, file, diagnostics, context);
+		const text = await readIgnoreFile(native, file, context);
 		if (text === undefined) continue;
 		const ruleSet = compileRuleLines({
 			lines: text.split(/\n/),
@@ -76,49 +57,13 @@ export async function compileVisibilityRuleFiles(
 			sourcePath: file.sourcePath,
 			baseDirectory: file.baseDirectory,
 			caseInsensitive,
-			diagnostics,
 		});
 		if (ruleSet !== undefined) ruleSets.push(ruleSet);
 	}
-	return {
-		ruleSets: ruleSets.sort(compareRuleSets),
-		diagnostics,
-	};
+	return { ruleSets: ruleSets.sort(compareRuleSets) };
 }
 
-function addBaseRuleSets(
-	config: IgnoreConfig,
-	caseInsensitive: boolean,
-	diagnostics: IgnoreDiagnostic[],
-	ruleSets: CompiledVisibilityRuleSet[],
-): void {
-	const builtinRules = BUILTIN_RULES[config.builtinProfile];
-	if (builtinRules.length > 0) {
-		const ruleSet = compileRuleLines({
-			lines: builtinRules,
-			sourceType: "builtin",
-			baseDirectory: ".",
-			caseInsensitive,
-			diagnostics,
-		});
-		if (ruleSet !== undefined) ruleSets.push(ruleSet);
-	}
-
-	if (config.sessionRules.length > 0) {
-		const ruleSet = compileRuleLines({
-			lines: config.sessionRules.map(sessionRuleToPattern),
-			sourceType: "session",
-			baseDirectory: ".",
-			caseInsensitive,
-			diagnostics,
-		});
-		if (ruleSet !== undefined) ruleSets.push(ruleSet);
-	}
-}
-
-export function resolveCaseInsensitive(config: IgnoreConfig, gitIgnoreCase: boolean | undefined): boolean {
-	if (config.caseSensitivity === "sensitive") return false;
-	if (config.caseSensitivity === "insensitive") return true;
+export function resolveCaseInsensitive(gitIgnoreCase: boolean | undefined): boolean {
 	if (gitIgnoreCase !== undefined) return gitIgnoreCase;
 	return process.platform === "win32" || process.platform === "darwin";
 }
@@ -128,16 +73,14 @@ export function buildVisibilityFingerprint(
 	caseInsensitive: boolean,
 	ruleFiles: readonly VisibilityRuleFile[],
 	trackedPaths: ReadonlySet<string>,
-	diagnostics: readonly IgnoreDiagnostic[],
 ): string {
 	const filePart = ruleFiles
 		.map((file) => `${file.sourceType}:${file.sourcePath}:${file.stamp}`)
 		.sort()
 		.join("|");
 	const trackedPart = Array.from(trackedPaths).sort().join("\0");
-	const diagnosticPart = diagnostics.map((diagnostic) => `${diagnostic.sourcePath}:${diagnostic.line}:${diagnostic.code}`).join("|");
 	return createHash("sha256")
-		.update(JSON.stringify({ policyFingerprint: policy.fingerprint, caseInsensitive, filePart, trackedPart, diagnosticPart }))
+		.update(JSON.stringify({ policyFingerprint: policy.fingerprint, caseInsensitive, filePart, trackedPart }))
 		.digest("hex");
 }
 
@@ -147,11 +90,9 @@ function compileRuleLines(input: {
 	readonly sourcePath?: string;
 	readonly baseDirectory: string;
 	readonly caseInsensitive: boolean;
-	readonly diagnostics: IgnoreDiagnostic[];
 }): CompiledVisibilityRuleSet | undefined {
 	const rules: CompiledVisibilityRule[] = [];
-	const matcher = ignoreFactory({ ignorecase: input.caseInsensitive });
-	let hasAnyRule = false;
+	const acceptedPatterns: string[] = [];
 	let hasNegatedRule = false;
 
 	for (let index = 0; index < input.lines.length; index += 1) {
@@ -161,20 +102,14 @@ function compileRuleLines(input: {
 
 		const ruleMatcher = ignoreFactory({ ignorecase: input.caseInsensitive });
 		try {
-			matcher.add(rawPattern);
+			ignoreFactory({ ignorecase: input.caseInsensitive }).add(rawPattern);
 			ruleMatcher.add(parsed.matchPattern);
-		} catch (error) {
-			input.diagnostics.push({
-				sourcePath: input.sourcePath ?? `<${input.sourceType}>`,
-				line: index + 1,
-				code: "INVALID_IGNORE_PATTERN",
-				message: error instanceof Error ? error.message : "Invalid ignore pattern.",
-			});
+		} catch {
 			continue;
 		}
 
-		hasAnyRule = true;
 		hasNegatedRule = hasNegatedRule || parsed.negated;
+		acceptedPatterns.push(rawPattern);
 		const rule: MatchedIgnoreRule = {
 			sourceType: input.sourceType,
 			sourcePath: input.sourcePath,
@@ -187,7 +122,9 @@ function compileRuleLines(input: {
 		rules.push({ rule, matcher: ruleMatcher, directoryOnly: parsed.directoryOnly });
 	}
 
-	if (!hasAnyRule) return undefined;
+	if (rules.length === 0) return undefined;
+	const matcher = ignoreFactory({ ignorecase: input.caseInsensitive });
+	matcher.add(acceptedPatterns);
 	return {
 		sourceType: input.sourceType,
 		sourcePath: input.sourcePath,
@@ -202,20 +139,13 @@ function compileRuleLines(input: {
 async function readIgnoreFile(
 	native: NativeFileSystem,
 	file: VisibilityRuleFile,
-	diagnostics: IgnoreDiagnostic[],
 	context: FsOperationContext,
 ): Promise<string | undefined> {
 	try {
 		const bytes = await native.read(file.absolutePath, context);
-		const decoder = new TextDecoder("utf-8", { fatal: true });
-		return decoder.decode(bytes).replace(/\r\n/g, "\n");
+		return new TextDecoder("utf-8", { fatal: true }).decode(bytes).replace(/\r\n/g, "\n");
 	} catch (error) {
 		rethrowVisibilityAbort(error);
-		diagnostics.push({
-			sourcePath: file.sourcePath,
-			code: isDecodeError(error) ? "UNSUPPORTED_IGNORE_ENCODING" : "IGNORE_FILE_READ_ERROR",
-			message: isDecodeError(error) ? "Ignore file must be valid UTF-8." : "Ignore file could not be read.",
-		});
 		return undefined;
 	}
 }
@@ -230,20 +160,12 @@ function parseRule(pattern: string): { negated: boolean; matchPattern: string; d
 	return { negated, matchPattern, directoryOnly: matchPattern.trimEnd().endsWith("/") };
 }
 
-function sessionRuleToPattern(rule: SessionIgnoreRule): string {
-	return rule.action === "include" ? `!${rule.pattern}` : rule.pattern;
-}
-
 function stripBom(text: string): string {
 	return text.startsWith("\uFEFF") ? text.slice(1) : text;
 }
 
 function stripCarriageReturn(text: string): string {
 	return text.endsWith("\r") ? text.slice(0, -1) : text;
-}
-
-function isDecodeError(error: unknown): boolean {
-	return error instanceof TypeError;
 }
 
 function compareRuleSets(left: CompiledVisibilityRuleSet, right: CompiledVisibilityRuleSet): number {

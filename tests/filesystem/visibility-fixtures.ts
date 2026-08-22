@@ -23,49 +23,6 @@ interface ControlledNative {
 	ownerAborts(): number;
 }
 
-export function controlledVisibilityNative(root: string): ControlledNative & {
-	readonly secondRealpath: DeferredVoid;
-	rootReads(): number;
-} {
-	const base = new NodeNativeFileSystem();
-	const started = deferredVoid();
-	const release = deferredVoid();
-	const ownerAborted = deferredVoid();
-	const secondRealpath = deferredVoid();
-	const canonicalRoot = path.resolve(root);
-	let realpaths = 0;
-	let rootReads = 0;
-	let ownerAborts = 0;
-	return {
-		started,
-		release,
-		ownerAborted,
-		secondRealpath,
-		ownerAborts: () => ownerAborts,
-		rootReads: () => rootReads,
-		native: overrideNativeFileSystem({
-			async realpath(filePath, options) {
-				const resolved = await base.realpath(filePath, options);
-				if (path.resolve(filePath) === canonicalRoot) {
-					realpaths += 1;
-					if (realpaths >= 2) secondRealpath.resolve();
-				}
-				return resolved;
-			},
-			async readdir(directory, options) {
-				if (path.resolve(directory) !== canonicalRoot) return await base.readdir(directory, options);
-				rootReads += 1;
-				started.resolve();
-				await waitForReleaseOrAbort(options?.signal, release.promise, directory, () => {
-					ownerAborts += 1;
-					ownerAborted.resolve();
-				});
-				return await base.readdir(directory, options);
-			},
-		}, base),
-	};
-}
-
 export function controlledGitNative(root: string): ControlledNative & { readonly secondMarker: DeferredVoid } {
 	const base = new NodeNativeFileSystem();
 	const started = deferredVoid();

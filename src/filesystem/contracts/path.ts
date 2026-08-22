@@ -1,4 +1,4 @@
-import type { FsOperationContext, FsResult } from "./result.js";
+import type { FsResult } from "./result.js";
 
 declare const pathIdBrand: unique symbol;
 
@@ -51,8 +51,10 @@ export interface ResolveTargetOptions {
 }
 
 export interface PathOperations {
-	resolveExisting(input: string, options: ResolveExistingOptions, context: FsOperationContext): Promise<FsResult<ExistingRef>>;
-	resolveTarget(input: string, options: ResolveTargetOptions, context: FsOperationContext): Promise<FsResult<TargetRef>>;
+	resolveExisting(input: string, options: ResolveExistingOptions & { readonly expected: "file" }): Promise<FsResult<FileRef>>;
+	resolveExisting(input: string, options: ResolveExistingOptions & { readonly expected: "directory" }): Promise<FsResult<DirectoryRef>>;
+	resolveExisting(input: string, options: ResolveExistingOptions & { readonly expected: "any" }): Promise<FsResult<ExistingRef>>;
+	resolveTarget(input: string, options: ResolveTargetOptions): Promise<FsResult<TargetRef>>;
 	/** candidate 位于 parent 的 canonical 子树内时，返回以 `/` 规范化的相对路径。 */
 	relative(parent: DirectoryRef, candidate: ExistingRef | TargetRef): string | undefined;
 	isWithin(parent: DirectoryRef, candidate: ExistingRef | TargetRef): boolean;

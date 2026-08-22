@@ -1,5 +1,5 @@
 import type { DirectoryRef, ExistingPathKind, ExistingRef } from "./path.js";
-import type { FsOperationContext, FsResult } from "./result.js";
+import type { FsResult } from "./result.js";
 
 export interface FileSnapshot {
 	/** Stable identity of one filesystem object, independent of content changes. */
@@ -30,6 +30,6 @@ export interface DirectoryEntry {
 }
 
 export interface MetadataOperations {
-	stat(ref: ExistingRef, context: FsOperationContext): Promise<FsResult<FileMetadata>>;
-	list(directory: DirectoryRef, context: FsOperationContext): Promise<FsResult<readonly DirectoryEntry[]>>;
+	stat(ref: ExistingRef): Promise<FsResult<FileMetadata>>;
+	list(directory: DirectoryRef): Promise<FsResult<readonly DirectoryEntry[]>>;
 }

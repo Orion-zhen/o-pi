@@ -1,6 +1,6 @@
 import type { FileMetadata } from "./metadata.js";
 import type { DirectoryRef, ExistingRef } from "./path.js";
-import type { FsError, FsOperationContext, FsResult } from "./result.js";
+import type { FsError, FsResult } from "./result.js";
 import type { VisibilityAnnotation, VisibilityIntent } from "./visibility.js";
 
 export type TraversalSkipReason = "blocked" | "ignored" | "symlink" | "entry-limit" | "depth-limit";
@@ -42,7 +42,6 @@ export type PathTraversalEvent = PathTraversalEntryEvent | TraversalSkipEvent | 
 
 export interface TraversalOptions {
 	readonly intent: VisibilityIntent;
-	readonly includeRoot?: boolean;
 	readonly explicitRoot?: boolean;
 	readonly maxEntries?: number;
 	/** 相对 traversal root；root 为 0，直属子项为 1。 */
@@ -58,10 +57,6 @@ export interface PathTraversal extends AsyncIterable<PathTraversalEvent> {
 }
 
 export interface TraversalOperations {
-	walk(root: DirectoryRef, options: TraversalOptions, context: FsOperationContext): Promise<FsResult<Traversal>>;
-	walkPaths(
-		root: DirectoryRef,
-		options: Omit<TraversalOptions, "includeRoot">,
-		context: FsOperationContext,
-	): Promise<FsResult<PathTraversal>>;
+	walk(root: DirectoryRef, options: TraversalOptions): Promise<FsResult<Traversal>>;
+	walkPaths(root: DirectoryRef, options: TraversalOptions): Promise<FsResult<PathTraversal>>;
 }

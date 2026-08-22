@@ -139,9 +139,7 @@ export class GrepRegionizer {
 			const loaded = await context.filesystem.content.readText(file.ref, {
 				maxBytes: context.astMaxFileBytes,
 				expectedSnapshot: file.snapshot,
-				stable: true,
-				rejectBinary: true,
-			}, context.operation);
+			});
 			if (!loaded.ok) return loaded;
 			content = loaded.value;
 		}
@@ -333,7 +331,7 @@ function textEvidence(matchMode: TextHit["matchMode"]): RegionEvidence {
 function astCacheKey(file: ScopedFile, hash: string, filesystem: WorkspaceFileSystem): string {
 	return [
 		filesystem.identity,
-		filesystem.visibility.snapshot.fingerprint,
+		filesystem.visibility.fingerprint,
 		file.snapshot.identity,
 		file.path,
 		file.snapshot.version,

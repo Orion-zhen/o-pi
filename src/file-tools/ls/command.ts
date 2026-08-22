@@ -2,7 +2,7 @@ import type { DirectoryEntry } from "../../filesystem/contracts/metadata.js";
 import type { DirectoryRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
-import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
+import { mapFsError, type ToolOutcome } from "../shared/result.js";
 import type { LsEntry, LsEntryType, LsParams, LsSuccess } from "./types.js";
 
 const TYPE_RANK: Record<LsEntryType, number> = {
@@ -27,19 +27,14 @@ export async function listDirectory(
 	const resolved = await context.filesystem.paths.resolveExisting(
 		input,
 		{ expected: "directory", followFinalSymlink: true },
-		context.operation,
 	);
 	if (!resolved.ok) return mapFsError(resolved.error);
-	if (resolved.value.kind !== "directory") {
-		return fail("NOT_A_DIRECTORY", "Path is not a directory.", { path: resolved.value.displayPath });
-	}
-
-	const listed = await context.filesystem.metadata.list(resolved.value, context.operation);
+	const listed = await context.filesystem.metadata.list(resolved.value);
 	if (!listed.ok) return mapFsError(listed.error);
 
 	const entries: LsEntry[] = [];
 	for (const entry of listed.value) {
-		const visibility = await context.filesystem.visibility.evaluate(entry.ref, "list-entry", context.operation);
+		const visibility = await context.filesystem.visibility.evaluate(entry.ref, "list-entry");
 		if (!visibility.ok) return mapFsError(visibility.error);
 		entries.push(toLsEntry(resolved.value, entry, visibility.value.ignored, visibility.value.source));
 	}

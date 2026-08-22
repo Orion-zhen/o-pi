@@ -13,11 +13,9 @@ import type {
 import type { VisibilityAnnotation, VisibilityOperations } from "../contracts/visibility.js";
 import { mapNativeError } from "../kernel/native-error.js";
 import type { ResolvedExistingPath, WorkspaceNamespaceBridge } from "../kernel/namespace.js";
-import { bindOperationContext } from "../operation-context.js";
 import type {
 	NativeDirectoryEntry,
 	NativeFileSystem,
-	NativeMetadata,
 } from "../platform/node/native-filesystem.js";
 import { DIRECTORY_ENTRY_CONCURRENCY } from "./concurrency.js";
 import { compareLogicalPath } from "./path-order.js";
@@ -28,8 +26,6 @@ const VISIBLE: VisibilityAnnotation = { ignored: false, prune: false };
 interface PreparedTraversalRoot {
 	readonly context: FsOperationContext;
 	readonly entries: readonly NativeDirectoryEntry[];
-	readonly rootVisibility: VisibilityAnnotation;
-	readonly rootMetadata?: NativeMetadata;
 	readonly bypassVisibility: boolean;
 	readonly rootSkipped: boolean;
 }
@@ -53,7 +49,6 @@ type TraversalStreamEvent<TEntry extends TraversalEntryBase> =
 type ResolveTraversalChild<TChild extends PathTraversalChild> = (
 	directory: DirectoryRef,
 	entry: NativeDirectoryEntry,
-	context: FsOperationContext,
 ) => Promise<FsResult<TChild>>;
 
 type CreateTraversalEntry<TChild extends PathTraversalChild, TEntry extends TraversalEntryBase> = (
@@ -69,15 +64,12 @@ export class WorkspaceTraversalService implements TraversalOperations {
 		private readonly native: NativeFileSystem,
 		private readonly bridge: WorkspaceNamespaceBridge,
 		private readonly visibility: VisibilityOperations,
-		private readonly ownerSignal?: AbortSignal,
+		private readonly context: FsOperationContext,
 	) {}
 
-	async walk(root: DirectoryRef, options: TraversalOptions, context: FsOperationContext): Promise<FsResult<Traversal>> {
-		const prepared = await this.prepareRoot(root, options, context, options.includeRoot === true);
+	async walk(root: DirectoryRef, options: TraversalOptions): Promise<FsResult<Traversal>> {
+		const prepared = await this.prepareRoot(root, options);
 		if (!prepared.ok) return prepared;
-		const rootEntry = options.includeRoot === true && prepared.value.rootMetadata !== undefined
-			? entryEvent({ ref: root, metadata: prepared.value.rootMetadata }, 0, prepared.value.rootVisibility)
-			: undefined;
 		return fsSuccess(new NativeTraversal<ResolvedExistingPath, TraversalEntryEvent>(
 			this.native,
 			this.bridge,
@@ -88,19 +80,17 @@ export class WorkspaceTraversalService implements TraversalOperations {
 			prepared.value.rootSkipped,
 			options,
 			prepared.value.context,
-			async (directory, entry, operation) => await this.bridge.resolveChild(directory, entry.name, operation),
+			async (directory, entry) => await this.bridge.resolveChild(directory, entry.name),
 			entryEvent,
-			rootEntry,
 			false,
 		));
 	}
 
 	async walkPaths(
 		root: DirectoryRef,
-		options: Omit<TraversalOptions, "includeRoot">,
-		context: FsOperationContext,
+		options: TraversalOptions,
 	): Promise<FsResult<PathTraversal>> {
-		const prepared = await this.prepareRoot(root, options, context, false);
+		const prepared = await this.prepareRoot(root, options);
 		if (!prepared.ok) return prepared;
 		return fsSuccess(new NativeTraversal<PathTraversalChild, PathTraversalEntryEvent>(
 			this.native,
@@ -112,9 +102,8 @@ export class WorkspaceTraversalService implements TraversalOperations {
 			prepared.value.rootSkipped,
 			options,
 			prepared.value.context,
-			async (directory, entry, operation) => await this.resolvePathChild(directory, entry, operation),
+			async (directory, entry) => await this.resolvePathChild(directory, entry),
 			pathEntryEvent,
-			undefined,
 			true,
 		));
 	}
@@ -122,48 +111,35 @@ export class WorkspaceTraversalService implements TraversalOperations {
 	private async prepareRoot(
 		root: DirectoryRef,
 		options: TraversalOptions,
-		context: FsOperationContext,
-		includeRootMetadata: boolean,
 	): Promise<FsResult<PreparedTraversalRoot>> {
-		context = bindOperationContext(this.ownerSignal, context);
-		const invalid = validateOptions(root, options);
-		if (invalid !== undefined) return invalid;
+		const context = this.context;
 		const rootIdentity = nativeIdentity(this.bridge, root);
 		if (!rootIdentity.ok) return rootIdentity;
-		const rootVisibility = await this.visibility.evaluate(root, options.intent, context);
+		const rootVisibility = await this.visibility.evaluate(root, options.intent);
 		if (!rootVisibility.ok) return rootVisibility;
 		const bypassVisibility = options.explicitRoot === true && rootVisibility.value.ignored;
 		if (rootVisibility.value.ignored && !bypassVisibility) {
 			return fsSuccess({
 				context,
 				entries: [],
-				rootVisibility: rootVisibility.value,
 				bypassVisibility: false,
 				rootSkipped: true,
 			});
 		}
 
 		let entries: readonly NativeDirectoryEntry[];
-		let rootMetadata: NativeMetadata | undefined;
 		try {
-			[entries, rootMetadata] = await Promise.all([
-				this.native.readdir(rootIdentity.value.nativePath, context),
-				includeRootMetadata
-					? this.native.stat(rootIdentity.value.nativePath, context)
-					: Promise.resolve(undefined),
-			]);
+			entries = await this.native.readdir(rootIdentity.value.nativePath, context);
 		} catch (error) {
 			return fsFailure(mapNativeError(error, root.displayPath));
 		}
 		if (!bypassVisibility) {
-			const preparedVisibility = await this.visibility.prepareDirectory(root, entries, context);
+			const preparedVisibility = await this.visibility.prepareDirectory(root, entries);
 			if (!preparedVisibility.ok) return preparedVisibility;
 		}
 		return fsSuccess({
 			context,
 			entries,
-			rootVisibility: rootVisibility.value,
-			...(rootMetadata === undefined ? {} : { rootMetadata }),
 			bypassVisibility,
 			rootSkipped: false,
 		});
@@ -172,17 +148,16 @@ export class WorkspaceTraversalService implements TraversalOperations {
 	private async resolvePathChild(
 		directory: DirectoryRef,
 		entry: NativeDirectoryEntry,
-		context: FsOperationContext,
 	): Promise<FsResult<PathTraversalChild>> {
 		if (entry.kind === "file") {
-			const projected = this.bridge.projectListedChild(directory, entry.name, "file", context);
+			const projected = this.bridge.projectListedChild(directory, entry.name, "file");
 			return projected.ok ? fsSuccess({ ref: projected.value }) : projected;
 		}
 		if (entry.kind === "directory") {
-			const projected = this.bridge.projectListedChild(directory, entry.name, "directory", context);
+			const projected = this.bridge.projectListedChild(directory, entry.name, "directory");
 			return projected.ok ? fsSuccess({ ref: projected.value }) : projected;
 		}
-		const resolved = await this.bridge.resolveChild(directory, entry.name, context);
+		const resolved = await this.bridge.resolveChild(directory, entry.name);
 		return resolved.ok ? fsSuccess({ ref: resolved.value.ref }) : resolved;
 	}
 }
@@ -190,7 +165,6 @@ export class WorkspaceTraversalService implements TraversalOperations {
 class NativeTraversal<TChild extends PathTraversalChild, TEntry extends TraversalEntryBase>
 implements AsyncIterable<TraversalStreamEvent<TEntry>> {
 	private stopped = false;
-	private consumed = false;
 	private scannedEntries = 0;
 
 	constructor(
@@ -205,7 +179,6 @@ implements AsyncIterable<TraversalStreamEvent<TEntry>> {
 		private readonly context: FsOperationContext,
 		private readonly resolveChild: ResolveTraversalChild<TChild>,
 		private readonly createEntry: CreateTraversalEntry<TChild, TEntry>,
-		private readonly rootEntry: TEntry | undefined,
 		private readonly trackRelativePaths: boolean,
 	) {}
 
@@ -218,15 +191,6 @@ implements AsyncIterable<TraversalStreamEvent<TEntry>> {
 	}
 
 	private async *iterate(): AsyncGenerator<TraversalStreamEvent<TEntry>> {
-		if (this.consumed) {
-			yield {
-				type: "error",
-				path: this.root.displayPath,
-				error: { code: "invalid-path", message: "Traversal has already been consumed.", path: this.root.displayPath },
-			};
-			return;
-		}
-		this.consumed = true;
 		try {
 			if (this.context.signal?.aborted === true) {
 				this.stopped = true;
@@ -237,7 +201,6 @@ implements AsyncIterable<TraversalStreamEvent<TEntry>> {
 				yield { type: "skip", path: this.root.displayPath, reason: "ignored", kind: "directory" };
 				return;
 			}
-			if (this.rootEntry !== undefined) yield this.rootEntry;
 			yield* this.walkDirectory(this.root, this.rootEntries, 1, "");
 		} finally {
 			await this.close();
@@ -339,11 +302,11 @@ implements AsyncIterable<TraversalStreamEvent<TEntry>> {
 		readonly annotation?: FsResult<VisibilityAnnotation>;
 		readonly children?: FsResult<readonly NativeDirectoryEntry[]>;
 	}> {
-		const child = await this.resolveChild(directory, nativeEntry, this.context);
+		const child = await this.resolveChild(directory, nativeEntry);
 		if (!child.ok || child.value.ref.kind === "symlink") return { nativeEntry, child };
 		const annotation = this.bypassVisibility
 			? fsSuccess(VISIBLE)
-			: await this.visibility.evaluate(child.value.ref, this.options.intent, this.context);
+			: await this.visibility.evaluate(child.value.ref, this.options.intent);
 		if (
 			!annotation.ok
 			|| child.value.ref.kind !== "directory"
@@ -363,22 +326,12 @@ implements AsyncIterable<TraversalStreamEvent<TEntry>> {
 		try {
 			const entries = await this.native.readdir(identity.value.nativePath, this.context);
 			if (this.bypassVisibility) return fsSuccess(entries);
-			const prepared = await this.visibility.prepareDirectory(directory, entries, this.context);
+			const prepared = await this.visibility.prepareDirectory(directory, entries);
 			return prepared.ok ? fsSuccess(entries) : prepared;
 		} catch (error) {
 			return fsFailure(mapNativeError(error, directory.displayPath));
 		}
 	}
-}
-
-function validateOptions(root: DirectoryRef, options: TraversalOptions): FsResult<never> | undefined {
-	if (options.maxEntries !== undefined && (!Number.isSafeInteger(options.maxEntries) || options.maxEntries < 0)) {
-		return fsFailure({ code: "invalid-path", message: "Traversal entry limit must be a non-negative integer.", path: root.displayPath });
-	}
-	if (options.maxDepth !== undefined && (!Number.isSafeInteger(options.maxDepth) || options.maxDepth < 0)) {
-		return fsFailure({ code: "invalid-path", message: "Traversal depth limit must be a non-negative integer.", path: root.displayPath });
-	}
-	return undefined;
 }
 
 function entryEvent(

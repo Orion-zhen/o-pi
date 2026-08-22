@@ -57,7 +57,7 @@ describe("技能资源定位符", () => {
 		});
 		const opened = await host.open({ cwd: temp.path, sessionId: "skill-read" });
 		if (isFailed(opened)) throw new Error(opened.error.message);
-		const file = await opened.filesystem.paths.resolveExisting(path.join(root, "references", "testing.md"), { expected: "file", followFinalSymlink: true }, opened.context);
+		const file = await opened.filesystem.paths.resolveExisting(path.join(root, "references", "testing.md"), { expected: "file", followFinalSymlink: true });
 		expect(file.ok && opened.observation.get(file.value)).toBeUndefined();
 		opened.dispose();
 		host.dispose();
@@ -94,7 +94,6 @@ describe("技能资源定位符", () => {
 			await expect(opened.filesystem.paths.resolveTarget(
 				"skill://demo/references/testing.md",
 				{ followExistingSymlink: true },
-				opened.context,
 			)).resolves.toMatchObject({ ok: false, error: { code: "invalid-path" } });
 		} finally {
 			opened.dispose();

@@ -38,10 +38,10 @@ export interface NativeOperationOptions {
 	readonly signal?: AbortSignal;
 }
 
-export interface NativeAtomicReplaceOptions extends NativeOperationOptions {
+export interface NativeAtomicReplaceOptions<TCommit> extends NativeOperationOptions {
 	readonly mode?: number;
 	/** Runs after the temporary file is closed and immediately before rename. */
-	readonly beforeCommit?: () => Promise<void>;
+	readonly beforeCommit: () => Promise<TCommit>;
 }
 
 export interface NativeOpenFile {
@@ -85,11 +85,10 @@ export interface NativeFileSystem {
 	/** Opens a regular final component without following a symlink at that component. */
 	open(path: string, options?: NativeOperationOptions): Promise<NativeOpenFile>;
 	/** Writes through an exclusive same-directory temp and atomically replaces the destination. */
-	atomicReplace(path: string, bytes: Uint8Array, options?: NativeAtomicReplaceOptions): Promise<void>;
+	atomicReplace<TCommit>(path: string, bytes: Uint8Array, options: NativeAtomicReplaceOptions<TCommit>): Promise<TCommit>;
 	mkdir(path: string, options?: NativeOperationOptions & { readonly recursive?: boolean }): Promise<void>;
 }
 
-const TEMP_CREATE_ATTEMPTS = 8;
 const WINDOWS_IO_ATTEMPTS = 6;
 const WINDOWS_TRANSIENT_CODES = new Set(["EACCES", "EBUSY", "EPERM"]);
 
@@ -147,11 +146,13 @@ export class NodeNativeFileSystem implements NativeFileSystem {
 		}, false);
 	}
 
-	async atomicReplace(pathname: string, bytes: Uint8Array, options: NativeAtomicReplaceOptions = {}): Promise<void> {
-		await runNative("atomic-replace", pathname, options.signal, async () => {
+	async atomicReplace<TCommit>(
+		pathname: string,
+		bytes: Uint8Array,
+		options: NativeAtomicReplaceOptions<TCommit>,
+	): Promise<TCommit> {
+		return await runNative("atomic-replace", pathname, options.signal, async () => {
 			const temporary = await createTemporaryFile(pathname, options.mode);
-			let committed = false;
-			let failure: unknown;
 			try {
 				try {
 					await temporary.handle.writeFile(bytes, { signal: options.signal });
@@ -160,21 +161,18 @@ export class NodeNativeFileSystem implements NativeFileSystem {
 					await temporary.handle.close();
 				}
 				throwIfAborted(options.signal, "atomic-replace", pathname);
-				await options.beforeCommit?.();
+				const commitResult = await options.beforeCommit();
 				throwIfAborted(options.signal, "atomic-replace", pathname);
 				await renameWithWindowsRetry(temporary.path, pathname, options.signal);
-				committed = true;
+				return commitResult;
 			} catch (error) {
-				failure = error;
-			}
-			if (!committed) {
 				try {
 					await unlinkTemporaryWithWindowsRetry(temporary.path);
-				} catch (cleanupError) {
-					failure ??= cleanupError;
+				} catch {
+					// The write, validation, cancellation, or rename failure is authoritative.
 				}
+				throw error;
 			}
-			if (failure !== undefined) throw failure;
 		}, false);
 	}
 
@@ -215,21 +213,13 @@ class NodeNativeOpenFile implements NativeOpenFile {
 }
 
 async function createTemporaryFile(destination: string, mode: number | undefined): Promise<{ readonly path: string; readonly handle: FileHandle }> {
-	const directory = path.dirname(destination);
-	for (let attempt = 0; attempt < TEMP_CREATE_ATTEMPTS; attempt += 1) {
-		const temporaryPath = path.join(directory, `.pi-${randomUUID()}.tmp`);
-		try {
-			const handle = await open(
-				temporaryPath,
-				constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
-				mode ?? 0o666,
-			);
-			return { path: temporaryPath, handle };
-		} catch (error) {
-			if (nodeErrorCode(error) !== "EEXIST" || attempt + 1 === TEMP_CREATE_ATTEMPTS) throw error;
-		}
-	}
-	throw new Error("Temporary file creation exhausted attempts.");
+	const temporaryPath = path.join(path.dirname(destination), `.pi-${randomUUID()}.tmp`);
+	const handle = await open(
+		temporaryPath,
+		constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
+		mode ?? 0o666,
+	);
+	return { path: temporaryPath, handle };
 }
 
 async function renameWithWindowsRetry(source: string, destination: string, signal: AbortSignal | undefined): Promise<void> {

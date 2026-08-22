@@ -32,7 +32,6 @@ export async function writeFile(params: unknown, context: WriteCommandContext): 
 	const target = await context.filesystem.paths.resolveTarget(
 		input.path,
 		{ followExistingSymlink: true },
-		context.operation,
 	);
 	if (!target.ok) return mapFsError(target.error);
 	if (target.value.workspacePath === ".") {
@@ -62,7 +61,6 @@ export async function writeFile(params: unknown, context: WriteCommandContext): 
 			baseline = await captureMutationDiagnostics(context.diagnostics, target.value, context.operation.signal);
 			return { type: "commit", bytes };
 		},
-		context.operation,
 	);
 	if (!mutated.ok) return mapFsError(mutated.error);
 	if (!mutated.value.committed || snapshot === undefined || renderedDiff === undefined) {

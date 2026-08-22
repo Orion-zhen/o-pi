@@ -42,7 +42,6 @@ describe("workspace namespace", () => {
 		const inside = expectFsOk(await namespace.paths.resolveExisting(
 			path.join(workspace, "inside.txt"),
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		));
 		expect(inside).toMatchObject({ kind: "file", displayPath: "inside.txt", workspacePath: "inside.txt" });
 
@@ -50,7 +49,6 @@ describe("workspace namespace", () => {
 		const parentRelative = expectFsOk(await namespace.paths.resolveExisting(
 			relativeOutside,
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		));
 		expect(parentRelative.displayPath).toBe(relativeOutside.replaceAll("\\", "/"));
 		expect(parentRelative.workspacePath).toBeUndefined();
@@ -58,20 +56,18 @@ describe("workspace namespace", () => {
 		const absoluteOutside = expectFsOk(await namespace.paths.resolveExisting(
 			path.join(outside, "outside.txt"),
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		));
 		expect(absoluteOutside.displayPath).toBe(path.join(outside, "outside.txt"));
 
 		const home = expectFsOk(await namespace.paths.resolveExisting(
 			"~/outside.txt",
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		));
 		expect(home.displayPath).toBe(path.join(outside, "outside.txt"));
 	});
 	it.each(["", "bad\0path", "skill://resource"])("rejects invalid path %j before native I/O", async (input) => {
 		const namespace = await openNamespace();
-		const result = await namespace.paths.resolveExisting(input, { expected: "any", followFinalSymlink: true }, {});
+		const result = await namespace.paths.resolveExisting(input, { expected: "any", followFinalSymlink: true });
 		expect(result).toMatchObject({ ok: false, error: { code: "invalid-path", path: input } });
 	});
 	it("enforces lexical blocked rules and preserves directory trailing-slash semantics", async () => {
@@ -81,7 +77,6 @@ describe("workspace namespace", () => {
 		expect(await directoryRule.paths.resolveExisting(
 			"secret/key.txt",
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		)).toMatchObject({
 			ok: false,
 			error: { code: "blocked", path: "secret/key.txt", details: { matchedRule: "secret/", phase: "lexical" } },
@@ -91,12 +86,10 @@ describe("workspace namespace", () => {
 		expect(await exactRule.paths.resolveExisting(
 			"secret/key.txt",
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		)).toMatchObject({ ok: true });
 		expect(await exactRule.paths.resolveExisting(
 			"secret",
 			{ expected: "directory", followFinalSymlink: true },
-			{},
 		)).toMatchObject({ ok: false, error: { code: "blocked", details: { matchedRule: "secret" } } });
 	});
 	it("expands home-directory blocked rules when constructing the access policy", async () => {
@@ -107,7 +100,6 @@ describe("workspace namespace", () => {
 		expect(await namespace.paths.resolveExisting(
 			path.join(outside, "protected", "secret.txt"),
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		)).toMatchObject({
 			ok: false,
 			error: { code: "blocked", details: { matchedRule: "~/protected/", phase: "lexical" } },
@@ -133,38 +125,30 @@ describe("workspace namespace", () => {
 		expect(await namespace.paths.resolveExisting(
 			"dir",
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		)).toMatchObject({ ok: false, error: { code: "not-file" } });
 		expect(await namespace.paths.resolveExisting(
 			"missing",
 			{ expected: "any", followFinalSymlink: true },
-			{},
 		)).toMatchObject({ ok: false, error: { code: "not-found" } });
-		expect(await namespace.paths.resolveTarget("", { followExistingSymlink: true }, {})).toMatchObject({
+		expect(await namespace.paths.resolveTarget("", { followExistingSymlink: true })).toMatchObject({
 			ok: false,
 			error: { code: "invalid-path" },
 		});
 		const directory = expectFsOk(await namespace.paths.resolveExisting(
 			"dir",
 			{ expected: "directory", followFinalSymlink: true },
-			{},
 		));
-		if (directory.kind !== "directory") throw new Error("Expected directory ref");
 		const inside = expectFsOk(await namespace.paths.resolveExisting(
 			"dir/file.txt",
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		));
 		const externalDirectory = expectFsOk(await namespace.paths.resolveExisting(
 			path.join(outside, "external-dir"),
 			{ expected: "directory", followFinalSymlink: true },
-			{},
 		));
-		if (externalDirectory.kind !== "directory") throw new Error("Expected external directory ref");
 		const external = expectFsOk(await namespace.paths.resolveExisting(
 			path.join(outside, "external-dir", "outside.txt"),
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		));
 		expect(namespace.paths.relative(directory, directory)).toBe("");
 		expect(namespace.paths.relative(directory, inside)).toBe("file.txt");
@@ -176,12 +160,11 @@ describe("workspace namespace", () => {
 		const otherExternal = expectFsOk(await otherNamespace.paths.resolveExisting(
 			path.join(outside, "external-dir", "outside.txt"),
 			{ expected: "file", followFinalSymlink: true },
-			{},
 		));
 		expect(namespace.paths.relative(directory, otherExternal)).toBeUndefined();
 		expect(namespace.paths.isWithin(directory, otherExternal)).toBe(false);
 	});
-	it("maps injected permission errors and honors cancellation", async () => {
+	it("maps native errors, rethrows unknown failures, and honors cancellation", async () => {
 		await writeFile(path.join(workspace, "denied.txt"), "x");
 		await writeFile(path.join(workspace, "invalid.txt"), "x");
 		await writeFile(path.join(workspace, "stat-denied.txt"), "x");
@@ -208,23 +191,26 @@ describe("workspace namespace", () => {
 		for (const [input, code] of [
 			["denied.txt", "access-denied"],
 			["invalid.txt", "invalid-path"],
-			["unknown-error.txt", "access-denied"],
 			["stat-denied.txt", "access-denied"],
 		] as const) {
-			expect(await namespace.paths.resolveExisting(input, { expected: "file", followFinalSymlink: true }, {}))
+			expect(await namespace.paths.resolveExisting(input, { expected: "file", followFinalSymlink: true }))
 				.toMatchObject({ ok: false, error: { code, path: input } });
 		}
+		await expect(namespace.paths.resolveExisting(
+			"unknown-error.txt",
+			{ expected: "file", followFinalSymlink: true },
+		)).rejects.toThrow("injected unknown error");
 		for (const [input, code] of [["stat-denied.txt", "access-denied"], ["invalid.txt", "invalid-path"]] as const) {
-			expect(await namespace.paths.resolveTarget(input, { followExistingSymlink: true }, {}))
+			expect(await namespace.paths.resolveTarget(input, { followExistingSymlink: true }))
 				.toMatchObject({ ok: false, error: { code, path: input } });
 		}
 
 		const controller = new AbortController();
+		const cancelledNamespace = await openNamespace({ native, signal: controller.signal });
 		controller.abort();
-		expect(await namespace.paths.resolveExisting(
+		expect(await cancelledNamespace.paths.resolveExisting(
 			".",
 			{ expected: "directory", followFinalSymlink: true },
-			{ signal: controller.signal },
 		)).toMatchObject({ ok: false, error: { code: "aborted" } });
 	});
 });
@@ -233,11 +219,13 @@ async function openNamespace(options: {
 	readonly blockedPaths?: readonly string[];
 	readonly homeDirectory?: string;
 	readonly native?: NativeFileSystem;
+	readonly signal?: AbortSignal;
 } = {}): Promise<WorkspaceNamespaceKernel> {
 	return expectFsOk(await createWorkspaceNamespace({
 		workspaceRoot: workspace,
 		blockedPaths: options.blockedPaths ?? [],
 		...(options.homeDirectory === undefined ? {} : { homeDirectory: options.homeDirectory }),
 		...(options.native === undefined ? {} : { native: options.native }),
+		...(options.signal === undefined ? {} : { context: { signal: options.signal } }),
 	}));
 }

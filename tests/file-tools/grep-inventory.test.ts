@@ -26,9 +26,9 @@ describe("grep ScopeInventory", () => {
 			(filesystem) => ({
 				...filesystem,
 				discovery: {
-					async discover(root, options, context) {
+					async discover(root, options) {
 						calls.push({ root: root.displayPath, options });
-						return await filesystem.discovery.discover(root, options, context);
+						return await filesystem.discovery.discover(root, options);
 					},
 					discoverPaths: (...args) => filesystem.discovery.discoverPaths(...args),
 				},
@@ -43,8 +43,8 @@ describe("grep ScopeInventory", () => {
 		));
 
 		expect(calls).toEqual([
-			{ root: "root.ts", options: { intent: "search", explicitRoot: true, maxDepth: 7, maxEntries: 100_000, glob: "*.ts" } },
-			{ root: "src", options: { intent: "search", explicitRoot: true, maxDepth: 7, maxEntries: 100_000, glob: "*.ts" } },
+			{ root: "root.ts", options: { maxDepth: 7, maxEntries: 100_000, glob: "*.ts" } },
+			{ root: "src", options: { maxDepth: 7, maxEntries: 100_000, glob: "*.ts" } },
 		]);
 		expect(result.files).toEqual([
 			expect.objectContaining({ path: "root.ts", scopeOrder: 0, scopeRelativePath: "root.ts", explicitFile: true }),
@@ -111,11 +111,10 @@ describe("grep ScopeInventory", () => {
 		const result = expectInventorySuccess(await inventoryWorkspace(testContext.workspace, { paths: ["."] }, 12, (filesystem) => ({
 			...filesystem,
 			discovery: {
-				async discover(root, _options, context) {
-					const resolved = await filesystem.paths.resolveExisting("event.ts", { expected: "file", followFinalSymlink: true }, context);
+				async discover(root, _options) {
+					const resolved = await filesystem.paths.resolveExisting("event.ts", { expected: "file", followFinalSymlink: true });
 					if (!resolved.ok) return resolved;
-					if (resolved.value.kind !== "file") throw new Error("expected file fixture");
-					const metadata = await filesystem.metadata.stat(resolved.value, context);
+					const metadata = await filesystem.metadata.stat(resolved.value);
 					if (!metadata.ok) return metadata;
 					const snapshot = toFileSnapshot(metadata.value);
 					const events: readonly DiscoveryEvent[] = [
@@ -187,9 +186,9 @@ describe("grep ScopeInventory", () => {
 			(filesystem) => ({
 				...filesystem,
 				discovery: {
-					async discover(root, options, context) {
+					async discover(root, options) {
 						calls.push(root.displayPath);
-						return await filesystem.discovery.discover(root, options, context);
+						return await filesystem.discovery.discover(root, options);
 					},
 					discoverPaths: (...args) => filesystem.discovery.discoverPaths(...args),
 				},

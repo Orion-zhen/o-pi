@@ -45,7 +45,7 @@ export interface EditPreviewContext {
 export async function editFile(params: unknown, context: EditCommandContext): Promise<ToolOutcome<EditSuccess>> {
 	const input = validateEditInput(params);
 	if (isFailed(input)) return input;
-	const target = await resolveEditMutationTarget(input.path, context.filesystem, context.operation);
+	const target = await resolveEditMutationTarget(input.path, context.filesystem);
 	if (isFailed(target)) return target;
 
 	let before: TextContent | undefined;
@@ -81,7 +81,6 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 			baseline = await captureMutationDiagnostics(context.diagnostics, target, context.operation.signal);
 			return { type: "commit", bytes: output };
 		},
-		context.operation,
 	);
 	if (!mutated.ok) return mapMutationError(mutated.error);
 	if (!mutated.value.committed) return mutated.value.reason;
@@ -117,15 +116,14 @@ export async function editFile(params: unknown, context: EditCommandContext): Pr
 export async function previewEdit(params: unknown, context: EditPreviewContext): Promise<ToolOutcome<EditPreviewSuccess>> {
 	const input = validateEditInput(params);
 	if (isFailed(input)) return input;
-	const file = await resolveEditFile(input.path, context.filesystem, context.operation);
+	const file = await resolveEditFile(input.path, context.filesystem);
 	if (isFailed(file)) return file;
 	const loaded = await context.filesystem.content.readBytes(
 		file,
-		{ stable: true, maxBytes: context.maxFileBytes },
-		context.operation,
+		{ maxBytes: context.maxFileBytes },
 	);
 	if (!loaded.ok) return mapFsError(loaded.error, { notFound: "file" });
-	const decoded = context.filesystem.content.decodeText(loaded.value, { rejectBinary: true, path: file.displayPath });
+	const decoded = context.filesystem.content.decodeText(loaded.value, file.displayPath);
 	if (!decoded.ok) return mapFsError(decoded.error, { notFound: "file" });
 	const updated = applyReplacements(decoded.value.text, input.edits, file.displayPath, context.matchHintLimit);
 	if (isFailed(updated)) return updated;
@@ -144,9 +142,8 @@ export async function previewEdit(params: unknown, context: EditPreviewContext):
 async function resolveEditMutationTarget(
 	path: string,
 	filesystem: WorkspaceFileSystem,
-	operation: FsOperationContext,
 ): Promise<ToolOutcome<TargetRef>> {
-	const target = await filesystem.paths.resolveTarget(path, { followExistingSymlink: true }, operation);
+	const target = await filesystem.paths.resolveTarget(path, { followExistingSymlink: true });
 	if (!target.ok) return mapFsError(target.error, { notFound: "file" });
 	if (target.value.existingKind === undefined) {
 		return fail("FILE_NOT_FOUND", "File does not exist.", { path: target.value.displayPath });
@@ -160,12 +157,10 @@ async function resolveEditMutationTarget(
 async function resolveEditFile(
 	path: string,
 	filesystem: WorkspaceFileSystem,
-	operation: FsOperationContext,
 ): Promise<ToolOutcome<FileRef>> {
-	const existing = await filesystem.paths.resolveExisting(path, { expected: "file", followFinalSymlink: true }, operation);
+	const existing = await filesystem.paths.resolveExisting(path, { expected: "file", followFinalSymlink: true });
 	if (!existing.ok) return mapFsError(existing.error, { notFound: "file" });
-	if (existing.value.kind !== "file") return fail("NOT_A_FILE", "Path is not a regular file.", { path: existing.value.displayPath });
-	const visibility = await filesystem.visibility.evaluate(existing.value, "explicit-edit", operation);
+	const visibility = await filesystem.visibility.evaluate(existing.value, "explicit-edit");
 	if (!visibility.ok) return mapFsError(visibility.error);
 	return existing.value;
 }
@@ -179,7 +174,7 @@ function prepareSnapshot(
 	if (!snapshot.exists) return fail("FILE_NOT_FOUND", "File does not exist.", { path: target.displayPath });
 	const file = context.filesystem.content.decodeText(
 		{ bytes: snapshot.bytes, hash: snapshot.hash, sizeBytes: snapshot.sizeBytes },
-		{ rejectBinary: true, path: target.displayPath },
+		target.displayPath,
 	);
 	if (!file.ok) return mapFsError(file.error, { notFound: "file" });
 	const expected = context.observation.get(target);

@@ -260,13 +260,13 @@ describe("grep text search", () => {
 			let active = 0;
 			let maxActive = 0;
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
-				async scanLines(file, options, context) {
+				async scanLines(file, options) {
 					active += 1;
 					maxActive = Math.max(maxActive, active);
 					if (active === 2) started.resolve();
 					await release.promise;
 					active -= 1;
-					return await content.scanLines(file, options, context);
+					return await content.scanLines(file, options);
 				},
 			}));
 			const pending = scanInventoryText(inventory, queryPlan("hit"), {

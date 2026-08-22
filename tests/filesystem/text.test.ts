@@ -32,11 +32,11 @@ describe("filesystem text services", () => {
 		const opened = await openReadonly(workspace);
 		const file = await resolveFile(opened.namespace, "text.txt");
 
-		const raw = expectFsOk(await opened.services.content.readBytes(file, { maxBytes: bytes.byteLength, stable: true }, {}));
+		const raw = expectFsOk(await opened.services.content.readBytes(file, { maxBytes: bytes.byteLength }));
 		expect(raw).toMatchObject({ sizeBytes: bytes.byteLength, hash: expect.stringMatching(/^sha256:[a-f0-9]{64}$/u) });
 		expect(raw.bytes).toEqual(bytes);
 
-		const text = expectFsOk(await opened.services.content.readText(file, { maxBytes: bytes.byteLength, stable: true }, {}));
+		const text = expectFsOk(await opened.services.content.readText(file, { maxBytes: bytes.byteLength }));
 		expect(text).toMatchObject({ text: "first\r\nsecond\r\n", totalLines: 2, newline: "crlf", hasBom: true });
 		expect(expectFsOk(sliceTextByLineRange(text, {
 			startLine: 2,
@@ -103,35 +103,25 @@ describe("filesystem text services", () => {
 		const empty = expectFsOk(await opened.services.content.readText(
 			await resolveFile(opened.namespace, "empty.txt"),
 			{},
-			{},
 		));
 		expect(empty).toMatchObject({ text: "", totalLines: 0, newline: "none", hasBom: false });
 		const mixed = expectFsOk(await opened.services.content.readText(
 			await resolveFile(opened.namespace, "mixed.txt"),
 			{},
-			{},
 		));
 		expect(mixed).toMatchObject({ totalLines: 3, newline: "mixed" });
-		expect(sliceTextByLineRange(mixed, { maxBytes: 2, maxLines: 10 })).toMatchObject({
+		expect(sliceTextByLineRange(mixed, { maxBytes: 2, maxLines: 10, path: "mixed.txt" })).toMatchObject({
 			ok: false,
 			error: { code: "too-large" },
 		});
-		expect(expectFsOk(sliceTextByLineRange(mixed, { maxBytes: 100, maxLines: 1 }))).toEqual({
+		expect(expectFsOk(sliceTextByLineRange(mixed, { maxBytes: 100, maxLines: 1, path: "mixed.txt" }))).toEqual({
 			content: "one\r",
 			startLine: 1,
 			endLine: 1,
 			truncated: true,
 			continuation: { startLine: 2 },
 		});
-		for (const options of [
-			{ startLine: 0, maxBytes: 10, maxLines: 1 },
-			{ endLine: 0, maxBytes: 10, maxLines: 1 },
-			{ startLine: 2, endLine: 1, maxBytes: 10, maxLines: 1 },
-			{ maxBytes: 0, maxLines: 1 },
-		]) {
-			expect(sliceTextByLineRange(mixed, options)).toMatchObject({ ok: false, error: { code: "invalid-path" } });
-		}
-		expect(sliceTextByLineRange(mixed, { startLine: 4, maxBytes: 10, maxLines: 1 })).toMatchObject({
+		expect(sliceTextByLineRange(mixed, { startLine: 4, maxBytes: 10, maxLines: 1, path: "mixed.txt" })).toMatchObject({
 			ok: false,
 			error: { code: "invalid-path" },
 		});
@@ -158,8 +148,8 @@ describe("filesystem text services", () => {
 			continuation: { startLine: 2 },
 		};
 
-		expect(expectFsOk(sliceTextByLineRange(file, { maxBytes: 5, maxLines: 10 }))).toEqual(expected);
-		expect(expectFsOk(sliceTextByLineRange(file, { maxBytes: 10_000, maxLines: 1 }))).toEqual(expected);
+		expect(expectFsOk(sliceTextByLineRange(file, { maxBytes: 5, maxLines: 10, path: "large.txt" }))).toEqual(expected);
+		expect(expectFsOk(sliceTextByLineRange(file, { maxBytes: 10_000, maxLines: 1, path: "large.txt" }))).toEqual(expected);
 	});
 
 	it("preserves raw terminators and UTF-8 byte budgets while slicing", () => {
@@ -179,11 +169,13 @@ describe("filesystem text services", () => {
 			endLine: 3,
 			maxBytes: 4,
 			maxLines: 10,
+			path: "mixed.txt",
 		}))).toEqual({ content: "b\rc\n", startLine: 2, endLine: 3, truncated: false });
 		expect(expectFsOk(sliceTextByLineRange(file, {
 			startLine: 2,
 			maxBytes: 3,
 			maxLines: 10,
+			path: "mixed.txt",
 		}))).toEqual({
 			content: "b\r",
 			startLine: 2,
@@ -199,7 +191,7 @@ describe("filesystem text services", () => {
 	])("rejects $code content", async ({ name, bytes, code }) => {
 		await writeFile(path.join(workspace, name), bytes);
 		const opened = await openReadonly(workspace);
-		const result = await opened.services.content.readText(await resolveFile(opened.namespace, name), {}, {});
+		const result = await opened.services.content.readText(await resolveFile(opened.namespace, name), {});
 		expect(result).toMatchObject({ ok: false, error: { code, path: name } });
 	});
 
@@ -209,7 +201,6 @@ describe("filesystem text services", () => {
 		expect(await opened.services.content.readBytes(
 			await resolveFile(opened.namespace, "large.txt"),
 			{ maxBytes: 4 },
-			{},
 		)).toMatchObject({ ok: false, error: { code: "too-large", details: { limit: 4, size: 5 } } });
 	});
 });

@@ -3,9 +3,7 @@ import { NativeFileSystemError } from "../platform/node/native-filesystem.js";
 
 /** Maps platform failures into stable filesystem-layer errors. */
 export function mapNativeError(error: unknown, displayPath: string): FsError {
-	if (!(error instanceof NativeFileSystemError)) {
-		return { code: "access-denied", message: "Path cannot be accessed.", path: displayPath };
-	}
+	if (!(error instanceof NativeFileSystemError)) throw error;
 	if (error.code === "aborted") return { code: "aborted", message: "Operation aborted.", path: displayPath };
 	if (error.code === "changed") return { code: "changed-during-read", message: "Path changed during access.", path: displayPath };
 	if (error.code === "not-found") return { code: "not-found", message: "Path does not exist.", path: displayPath };
