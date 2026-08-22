@@ -25,7 +25,7 @@
 ```
 
 项目 Agent 默认关闭，只有用户配置显式开启时加载。
-`.agents/agents` 与 Pi 内置 `.agents/skills` 发现范围保持一致：启用项目 Agent 后，会从当前目录向上查找祖先目录的 `.agents/agents`，遇到 Git 根目录停止。用户级同名时 `~/.pi/agent/agents` 优先；项目级同名是否覆盖用户级仍由 `project_agents_override_user` 控制。
+`.agents/agents` 与 Pi 内置 `.agents/skills` 发现范围保持一致：启用项目 Agent 后，会从当前目录向上查找祖先目录的 `.agents/agents`，遇到 Git 根目录停止。用户级同名时 `~/.pi/agent/agents` 优先。项目级同名是否覆盖用户级仍由 `project_agents_override_user` 控制。
 
 格式：
 
@@ -44,14 +44,14 @@ You are a focused codebase scout.
 
 * `name`：必填。
 * `description`：必填，会展示给主 Agent。
-* `fork`：可选严格布尔值，缺省 `false`；字符串、数字、对象等会使定义无效并产生 warning。
-* `model`：可选；只用于隔离模式。
-* `tools`：逗号分隔工具列表，缺省时使用只读默认工具；只用于隔离模式。
+* `fork`：可选严格布尔值，缺省 `false`。字符串、数字、对象等会使定义无效并产生 warning。
+* `model`：可选。只用于隔离模式。
+* `tools`：逗号分隔工具列表，缺省时使用只读默认工具。只用于隔离模式。
 * `timeout_ms`：可选。
 * `retries`：可选。
-* `auto_confirm`：可选；为 `true` 时跳过该 Agent 的写工具确认，仅应由受信任的用户级 Agent 使用。
+* `auto_confirm`：可选。为 `true` 时跳过该 Agent 的写工具确认，仅应由受信任的用户级 Agent 使用。
 
-Markdown 正文不会直接暴露给主 Agent。隔离模式把正文作为子 Agent system role；fork 模式把正文放在历史 snapshot 后的 user assignment 中，因此不具有 system 权威。
+Markdown 正文不会直接暴露给主 Agent。隔离模式把正文作为子 Agent system role。fork 模式把正文放在历史 snapshot 后的 user assignment 中，因此不具有 system 权威。
 
 ## 主 Agent 提示词
 
@@ -68,7 +68,7 @@ Markdown 正文不会直接暴露给主 Agent。隔离模式把正文作为子 A
 
 子进程设置 `PI_SUBAGENT_CHILD=1`，因此子 Agent 不会看到 `<subagents>` 段。
 
-## 子 Agent 提示词
+## Subagent 提示词
 
 ### 隔离模式
 
@@ -82,7 +82,7 @@ Return relevant files, line ranges, symbols, architecture notes, and unresolved 
 </subagent_role>
 ```
 
-`<subagent_role>` 只在内存中的最终 prompt 出现，Agent 文件仍保持标准 Markdown + YAML 格式。它直接取代主 Agent 默认的 `<role>`；显式 `--system-prompt` 使子 Agent 不加载主 Agent 的 `SYSTEM.md`，但仍保留按自身 cwd 加载的 `AGENTS.md` 和 `APPEND_SYSTEM.md`。
+`<subagent_role>` 只在内存中的最终 prompt 出现，Agent 文件仍保持标准 Markdown + YAML 格式。它直接取代主 Agent 默认的 `<role>`。显式 `--system-prompt` 使子 Agent 不加载主 Agent 的 `SYSTEM.md`，但仍保留按自身 cwd 加载的 `AGENTS.md` 和 `APPEND_SYSTEM.md`。
 
 ### Fork 模式
 
@@ -110,7 +110,7 @@ Agent 配置工具 ∩ pi.getAllTools()
 
 并且始终过滤 `subagent`。
 
-以上规则只适用于隔离模式。Fork 模式严格使用主会话 active tools 的名称、顺序、description 和 parameters schema，包括 `subagent`；Agent/config 的 tools 不生效。子进程执行 `subagent` 时由 runtime 明确拒绝递归，而不是删除 schema。
+以上规则只适用于隔离模式。Fork 模式严格使用主会话 active tools 的名称、顺序、description 和 parameters schema，包括 `subagent`。Agent/config 的 tools 不生效。子进程执行 `subagent` 时由 runtime 明确拒绝递归，而不是删除 schema。
 
 隔离模式中：
 
@@ -118,7 +118,7 @@ Agent 配置工具 ∩ pi.getAllTools()
 * 被 `/tools` 从主 Agent 停用的工具仍可传给子进程。
 * 未注册或被 Pi registry 排除的工具不会显示在 `/agents`，也不会传给子进程。
 * 交集为空时拒绝执行并返回明确错误。
-* 子 Agent 使用 `read`/`grep`/`find`/`ls` 时可显式访问 Pi 进程可访问的绝对路径，包括 `~/.agents`；项目级 `.agents/agents` 定义文件会拒绝符号链接逃逸。
+* 子 Agent 使用 `read`/`grep`/`find`/`ls` 时可显式访问 Pi 进程可访问的绝对路径，包括 `~/.agents`。项目级 `.agents/agents` 定义文件会拒绝符号链接逃逸。
 
 ## 工具 API
 
@@ -132,11 +132,11 @@ Agent 配置工具 ∩ pi.getAllTools()
 }
 ```
 
-`tasks` 是必填非空数组。隔离 task 可单独设置 workspace 内的 `cwd`，缺省时使用 workspace；fork task 忽略该字段并使用主会话 cwd。所有 task 默认并行调度；任一 `task` 包含 `{previous}` 时自动切换为 chain，后续任务会把它替换为上一步结果。输出形式也由工具按长度自动决定，模型不能指定。
+`tasks` 是必填非空数组。隔离 task 可单独设置 workspace 内的 `cwd`，缺省时使用 workspace。fork task 忽略该字段并使用主会话 cwd。所有 task 默认并行调度。任一 `task` 包含 `{previous}` 时自动切换为 chain，后续任务会把它替换为上一步结果。输出形式也由工具按长度自动决定，模型不能指定。
 
-工具参数不包含 fork、模型选择、安全策略、Agent 搜索范围、并发、重试或权限开关。`fork` 只能由 Agent frontmatter 决定。隔离模型由 Agent/config 决定；fork 模型固定为主会话当前模型。
+工具参数不包含 fork、模型选择、安全策略、Agent 搜索范围、并发、重试或权限开关。`fork` 只能由 Agent frontmatter 决定。隔离模型由 Agent/config 决定。fork 模型固定为主会话当前模型。
 
-## Slash commands
+## 斜杠命令
 
 确定性命令不经过主模型：
 
@@ -146,9 +146,9 @@ Agent 配置工具 ∩ pi.getAllTools()
 /subagent-config
 ```
 
-`/agents` 展示 `mode: isolated|fork`。隔离 Agent 展示配置与已注册工具的交集；fork Agent 展示主会话当前实际 model、active tools 和 cwd，不展示被忽略的声明。`/run` 从当前活动 leaf 捕获 fork snapshot。
+`/agents` 展示 `mode: isolated|fork`。隔离 Agent 展示配置与已注册工具的交集。fork Agent 展示主会话当前实际 model、active tools 和 cwd，不展示被忽略的声明。`/run` 从当前活动 leaf 捕获 fork snapshot。
 
-## Application 与 adapter
+## 应用层与适配器
 
 `runSubagentTasks()` 是 model tool 与 `/run` 的共同执行入口，返回相同的 `SubagentToolResult`，并可发送 `SubagentProgressEvent`：
 
@@ -158,7 +158,7 @@ starting -> running* -> completed
 
 `src/subagent/commands.ts` 只负责参数解析、查询和任务执行，不导入 Theme、Component、`ctx.ui` 或 widget。`src/subagent/tui/` 消费 progress，读取 expanded 状态，注册 native/entry renderer 并管理临时 widget。RPC、JSON 和 print 不加载该目录，也不会因缺少 terminal/theme 丢失最终结果。
 
-写权限确认使用 `SubagentInteractionPort.confirmWrite()`。Pi TUI 和 RPC Extension UI 都可注入该端口；没有端口时 write-capable Agent fail closed。每次运行由 session execution registry 跟踪，正常结束释放 lease，`session_shutdown` 主动 abort 所有未结束 child。
+写权限确认使用 `SubagentInteractionPort.confirmWrite()`。Pi TUI 和 RPC Extension UI 都可注入该端口。没有端口时 write-capable Agent fail closed。每次运行由 session execution registry 跟踪，正常结束释放 lease，`session_shutdown` 主动 abort 所有未结束 child。
 
 ## 执行
 
@@ -186,12 +186,12 @@ pi --mode json -p \
 Fork 行为：
 
 * 使用主会话当前 model、thinking、active tools、session ID 和 cwd。
-* 忽略 Agent/config 的 model、tools 以及 task cwd；差异不会触发 isolated 降级。
+* 忽略 Agent/config 的 model、tools 以及 task cwd。差异不会触发 isolated 降级。
 * fork 上下文无法建立时在 spawn 前失败。
 * 模型调用工具时，严格验证当前 leaf 包含该 `toolCallId` 的 `subagent` call，并从该 assistant entry 的 parent fork，避免悬空 tool call。
 * `/run` 从当前 leaf fork。
-* snapshot 仅保留当前有效分支中参与模型上下文的 message、custom message、compaction 和 branch summary；普通 custom、label、model/thinking entry 不写入。
-* 同次 parallel/chain 共享只读 snapshot；每次 retry 从原 snapshot 创建独立 child session，不继承失败输出。
+* snapshot 仅保留当前有效分支中参与模型上下文的 message、custom message、compaction 和 branch summary。普通 custom、label、model/thinking entry 不写入。
+* 同次 parallel/chain 共享只读 snapshot。每次 retry 从原 snapshot 创建独立 child session，不继承失败输出。
 * snapshot、system prompt、manifest 和所有 child session 在整次执行结束后清理。
 
 隔离模式的 `--system-prompt` 直接引用发现阶段已校验的原始 Agent Markdown，不生成临时 prompt 或 profile。
@@ -200,8 +200,8 @@ Fork 行为：
 
 * `--tools` 始终显式传递。
 * `shell: false`。
-* stdout 按 Pi 0.84.2 JSONL 协议解析；`message_update` 的 delta 用于实时正文，累计 usage 只取当前 turn 最新快照，`message_end` 作为最终权威消息。
-* `tool_execution_start/update/end` 驱动工具 pending、running、completed 或 error 状态；高频流式更新最多每 50ms 向主进程发送一次 partial snapshot。
+* stdout 按 Pi 0.84.2 JSONL 协议解析。`message_update` 的 delta 用于实时正文，累计 usage 只取当前 turn 最新快照，`message_end` 作为最终权威消息。
+* `tool_execution_start/update/end` 驱动工具 pending、running、completed 或 error 状态。高频流式更新最多每 50ms 向主进程发送一次 partial snapshot。
 * stderr 完整保存，展示时截断。
 * 超时后终止进程。
 * Ctrl+C 先 `SIGTERM`，再宽限后 `SIGKILL`。
@@ -209,7 +209,7 @@ Fork 行为：
 
 成功条件不是只看退出码，必须有非空最终 assistant 文本，且没有错误 stop reason 或 provider error。
 
-## UI card
+## UI 卡片
 
 subagent card 折叠态固定两行：
 
@@ -218,15 +218,15 @@ subagent  <agent names>
   <task preview>
 ```
 
-parallel 或 chain 的多任务会在第一行合并 Agent 名称，并保留完成进度、turn、token 和 cost 摘要；第二行只展示一行 task 预览。
+parallel 或 chain 的多任务会在第一行合并 Agent 名称，并保留完成进度、turn、token 和 cost 摘要。第二行只展示一行 task 预览。
 
 展开态展示每个子 Agent 的 task、cwd、tools、model、文件输出、stderr、最终输出，以及实时解析到的子 Agent 行为事件：
 
-* assistant text：流式归并同一 content block，压缩为空格后展示；最终以 `message_end` 正文替换临时 delta。
+* assistant text：流式归并同一 content block，压缩为空格后展示。最终以 `message_end` 正文替换临时 delta。
 * tool call：展示工具名、精简参数和 pending/running/completed/error 状态。
 * 运行中但还没有事件时展示等待状态。
 
-模型调用 `subagent` 工具与用户手动执行 `/run` 共用同一套卡片。`/run` 运行期间由 TUI adapter 在编辑器上方消费结构化 progress，并补齐与 Pi 工具卡相同的 padding 和 pending/success/error 背景；结束后移除临时 widget，并把最终卡片写入聊天记录。展开态使用对齐字段以及 Activity、Error、Details、Result 分区；最终回答不会在 Activity 中重复。该记录使用 custom session entry 持久化，不进入模型上下文，也不消耗模型 token。
+模型调用 `subagent` 工具与用户手动执行 `/run` 共用同一套卡片。`/run` 运行期间由 TUI adapter 在编辑器上方消费结构化 progress，并补齐与 Pi 工具卡相同的 padding 和 pending/success/error 背景。结束后移除临时 widget，并把最终卡片写入聊天记录。展开态使用对齐字段以及 Activity、Error、Details、Result 分区。最终回答不会在 Activity 中重复。该记录使用 custom session entry 持久化，不进入模型上下文，也不消耗模型 token。
 
 ## 并发
 
@@ -243,7 +243,7 @@ parallel 或 chain 的多任务会在第一行合并 Agent 名称，并保留完
 
 ## 输出
 
-完整结果始终保存到 `.pi/subagents/runs/<run-id>/`。工具使用同步本地 token counter 计算输出预算，不发起网络请求。未超过 `max_inline_output_tokens` 时，主上下文直接收到完整正文；超过边界时只收到一行简短提示，说明输出过长并给出完整结果文件路径，不包含正文预览。
+完整结果始终保存到 `.pi/subagents/runs/<run-id>/`。工具使用同步本地 token counter 计算输出预算，不发起网络请求。未超过 `max_inline_output_tokens` 时，主上下文直接收到完整正文。超过边界时只收到一行简短提示，说明输出过长并给出完整结果文件路径，不包含正文预览。
 
 chain handoff：
 
@@ -277,7 +277,7 @@ chain handoff：
 * `max_inline_output_tokens`
 * `max_handoff_tokens`
 
-项目配置不能修改 `allow_project_agents`、`project_agents_override_user`、`confirm_write_agents`、`default_tools` 或 `agent_overrides`，避免项目扩大用户级能力边界。Fork 执行还会忽略 `default_model`、`default_tools` 和对应 `agent_overrides`；timeout、retry 与受信任用户 Agent 的 `auto_confirm` 仍可生效。
+项目配置不能修改 `allow_project_agents`、`project_agents_override_user`、`confirm_write_agents`、`default_tools` 或 `agent_overrides`，避免项目扩大用户级能力边界。Fork 执行还会忽略 `default_model`、`default_tools` 和对应 `agent_overrides`。timeout、retry 与受信任用户 Agent 的 `auto_confirm` 仍可生效。
 
 完整默认配置位于：
 
@@ -293,6 +293,6 @@ agent/defaults/subagent.jsonc
 
 ## Fork 缓存与隐私边界
 
-Fork 在 Pi 层尽力复用主请求的 system prompt、工具 schema、compaction 后消息前缀、model/provider 配置、thinking 和 session affinity，使请求接近 `parent prefix + assignment`。这不是 provider payload 字节级等价或 cache hit 保证；provider 支持、token 下限、TTL、淘汰、服务端路由，以及扩展/provider 的请求重写都会影响结果。Extension API 未完整暴露的 cache retention、headers、transport 和 metadata 不会被伪装成已保证字段。
+Fork 在 Pi 层尽力复用主请求的 system prompt、工具 schema、compaction 后消息前缀、model/provider 配置、thinking 和 session affinity，使请求接近 `parent prefix + assignment`。这不是 provider payload 字节级等价或 cache hit 保证。provider 支持、token 下限、TTL、淘汰、服务端路由，以及扩展/provider 的请求重写都会影响结果。Extension API 未完整暴露的 cache retention、headers、transport 和 metadata 不会被伪装成已保证字段。
 
-Manifest 对当前可观测的 model、tools、thinking、session、cwd 和 system prompt 做一致性诊断。它不是 provider 网络屏障；实现不依赖 `before_provider_request` 抛错，因为 Pi 会吞掉该 hook 的异常。Fork Agent 会把主会话当前有效历史发送给主会话当前模型，使用前应按该模型的隐私边界评估内容。
+Manifest 对当前可观测的 model、tools、thinking、session、cwd 和 system prompt 做一致性诊断。它不是 provider 网络屏障。实现不依赖 `before_provider_request` 抛错，因为 Pi 会吞掉该 hook 的异常。Fork Agent 会把主会话当前有效历史发送给主会话当前模型，使用前应按该模型的隐私边界评估内容。

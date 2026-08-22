@@ -1,8 +1,8 @@
-# 自动发现和 ModelsStore
+# 自动发现和 `ModelsStore`
 
-## 启用方式
+## 配置方式
 
-以下配置会使用 models endpoint：
+以下配置不包含手写模型，只使用模型目录端点：
 
 ```jsonc
 {
@@ -10,29 +10,29 @@
 }
 ```
 
-省略 `models` 时也使用默认 endpoint。手写数组会先注册手写模型；刷新时仍可以请求 endpoint 补充远端 metadata。
+省略 `models` 时，行为相同。配置模型数组时，扩展先注册手写模型。联网刷新仍会请求模型目录端点，并用远端元数据补充模型目录。
 
-## Endpoint URL
+## 端点 URL
 
-默认请求：
+默认请求为：
 
 ```text
 GET <baseUrl>/models
 ```
 
-可以覆盖：
+可以通过相对路径覆盖默认值：
 
 ```jsonc
 {
-  "modelsEndpoint": "v1/models"
+  "modelsEndpoint": "models"
 }
 ```
 
-也可以提供完整 URL。相对路径按 `baseUrl` 解析。
+`modelsEndpoint` 也可以是完整 URL。相对路径以 `baseUrl` 为基准解析。
 
-自动发现使用独立的 30 秒请求 timeout。provider 的 `timeoutMs` 进入模型 stream runtime，不替换当前实现中的 models endpoint timeout。
+自动发现使用独立的 30 秒超时。提供方的 `timeoutMs` 控制模型流式请求，不会改变模型目录请求的超时时间。
 
-## 认证和请求
+## 认证和请求头
 
 请求至少包含：
 
@@ -40,13 +40,13 @@ GET <baseUrl>/models
 Accept: application/json
 ```
 
-认证使用当前有效的 Pi credential、provider `apiKey` 和 provider headers。`EMPTY` provider 不自动发送 Authorization。完整解析规则见 [authentication.md](authentication.md)。
+模型目录请求使用 Pi 当前解析出的提供方凭证和 `headers`。如果 `apiKey` 为 `EMPTY`，扩展不会自动发送 `Authorization`。完整规则见[认证和敏感配置](authentication.md)。
 
-请求支持取消；取消或 timeout 后会清理 timer 和 abort listener。
+请求支持取消。取消或超时后，扩展会清理计时器和中止事件监听器。
 
-## 支持的响应
+## 支持的响应结构
 
-接受以下 JSON 形状：
+端点可以返回以下任一 JSON 结构：
 
 ```jsonc
 [{ "id": "model-id" }]
@@ -60,25 +60,25 @@ Accept: application/json
 { "models": [{ "id": "model-id" }] }
 ```
 
-每个模型可以是字符串或对象。对象至少需要 `id` 或 `model`。扩展会读取常见 metadata：
+每个模型条目可以是非空字符串或对象。对象必须包含非空的 `id` 或 `model`。扩展读取以下常见元数据：
 
-- `id` / `model`；
-- `name` / `display_name`；
-- `context_length`、`context_window` 等上下文字段；
-- `max_output_tokens`、`max_completion_tokens`；
-- `input_modalities`、`architecture.input_modalities` 等 image 能力。
+- `id` 或 `model`
+- `display_name` 或 `name`
+- `context_window`、`context_length`、`max_context_length`、`max_model_len` 或 `max_sequence_length`
+- `max_output_tokens` 或 `max_completion_tokens`，包括 `top_provider` 中的同名字段
+- `input_modalities`、`architecture.input_modalities`、`modalities.input` 或 `modalities` 中的图片输入能力
 
-重复 id 只保留第一次出现的模型。空目录、无效 JSON、缺失 id 和不支持的响应结构都会报错。
+端点返回重复模型 ID 时，扩展只保留第一个条目。空模型目录、无效 JSON、缺失模型 ID 或不支持的响应结构都会导致刷新失败。
 
-## 手写和远端模型合并
+## 合并手写模型和远端模型
 
-手写模型优先：
+扩展按以下规则合并模型：
 
 ```text
-手写模型顺序保持不变
-→ endpoint metadata 补齐缺失字段
-→ 手写字段覆盖同名远端字段
-→ 远端独有模型追加到末尾
+保留手写模型顺序
+→ 用远端元数据补充手写模型缺少的字段
+→ 保留手写模型已有的字段值
+→ 把远端独有模型追加到末尾
 ```
 
 例如：
@@ -86,38 +86,46 @@ Accept: application/json
 ```jsonc
 {
   "models": [
-    { "id": "manual", "name": "My name" },
+    { "id": "manual", "name": "手写名称" },
     "manual-only"
   ]
 }
 ```
 
-endpoint 返回的 `manual` 可以补充 context 和 image 能力，但不会覆盖手写的 `name`。
+如果端点也返回 `manual`，远端数据可以补充上下文窗口和图片输入能力，但不会覆盖手写配置中的 `name`。
 
-## ModelsStore
+## `ModelsStore`
 
-Pi 会把刷新后的模型目录写入 ModelsStore。缓存条目包含：
+Pi 会把刷新后的模型目录写入 `ModelsStore`。缓存条目包含：
 
-- 合并后的模型 metadata；
-- `baseUrl`；
-- endpoint、API、thinking 和 compat source hash；
-- `checkedAt`。
+- 合并后的模型元数据
+- `baseUrl`
+- 根据目录端点、API 类型、思考预设、兼容选项和手写模型配置生成的来源哈希
+- `checkedAt`
 
-不会写入 API key 或认证 header。扩展只恢复 source hash 与当前 provider 配置匹配的缓存模型，避免旧 endpoint 或旧 compat 污染当前目录。
+缓存不包含 API 密钥或认证请求头。扩展只恢复来源哈希与当前提供方配置匹配的模型，避免旧端点或旧配置中的模型进入当前模型目录。
 
 ## 离线行为
 
-`--offline` 或 Pi 的离线 refresh：
+离线刷新或使用 `--offline` 时：
 
-- 先恢复有效的 ModelsStore；
-- 不请求网络；
-- 没有缓存时保留手写模型；
-- 不会因网络失败清空已有动态目录。
+- 扩展先恢复来源匹配的 `ModelsStore` 缓存。
+- 扩展不发送网络请求。
+- 没有有效缓存时，扩展保留手写模型。
+- 网络刷新失败不会清空已有目录。
 
-在线刷新会在离线恢复完成后继续发起网络请求。并发 refresh 共享进行中的 Promise；如果已有离线恢复，后续允许网络的调用会等待恢复后继续。
+联网刷新会在恢复缓存后请求模型目录端点。
 
-## 错误
+## 错误处理
 
-HTTP 非 2xx、响应 body 无法读取、JSON 无效、响应结构无效和 endpoint 返回空模型都会失败。错误包含 provider 和状态信息，并限制响应 body 长度；认证 header 不会出现在错误中。
+以下情况会导致刷新失败：
 
-手写或已恢复的旧目录不会因一次刷新失败立即丢失。需要完全重新获取时，可清除 ModelsStore 后重新打开 `/model`。
+- HTTP 状态不是 2xx
+- 响应体无法读取
+- 响应体不是有效 JSON
+- JSON 结构不受支持
+- 端点未返回任何模型
+
+所有刷新错误都会指出提供方。模型目录端点返回非 2xx 状态时，错误还会包含 HTTP 状态，并最多截取响应正文的前 500 个字符。扩展不会把请求中的认证请求头写入错误。
+
+一次刷新失败不会立即删除手写模型或已恢复的缓存模型。如需重新获取完整的模型目录，请清除 `ModelsStore`，然后再次打开 `/model`。

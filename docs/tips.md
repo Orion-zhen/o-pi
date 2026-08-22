@@ -2,7 +2,7 @@
 
 输入 `/hotkeys` 可查看当前版本的全部快捷键。以下只保留最实用的部分。
 
-> macOS 上 `Ctrl` 指 **Control**，不是 Command；`Alt` 指 **Option**。为兼容各平台，优先使用 `Ctrl` 和 `Alt`，不要依赖 `Super`（Windows 键 / Command）。
+> macOS 上 `Ctrl` 指 **Control**，不是 Command。`Alt` 指 **Option**。为兼容各平台，优先使用 `Ctrl` 和 `Alt`，不要依赖 `Super`（Windows 键 / Command）。
 
 ## 高频快捷键
 
@@ -30,15 +30,15 @@
 
 发现方向不对时，不必等 Agent 跑完，直接输入纠正要求并按 `Enter`。
 
-## 文件、图片和 Shell
+## 文件、图片和 Shell 命令
 
 - 输入 `@` 引用文件，输入路径后按 `Tab` 补全。
-- 图片可拖入终端；Pi 默认用 `Ctrl+V` 粘贴图片，Windows 上可能是 `Alt+V`。
-- macOS 的 `Command+V` 通常只负责终端文本粘贴；图片优先使用 `Control+V` 或拖入。
+- 图片可拖入终端。Pi 默认用 `Ctrl+V` 粘贴图片，Windows 上可能是 `Alt+V`。
+- macOS 的 `Command+V` 通常只负责终端文本粘贴。图片优先使用 `Control+V` 或拖入。
 - `!git status`：执行命令并将输出发给模型。
 - `!!git status`：只执行命令，不占用模型上下文。
 
-## Fullscreen
+## 全屏模式
 
 长会话可在 `/settings` 中启用 fullscreen：
 

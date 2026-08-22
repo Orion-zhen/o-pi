@@ -1,6 +1,6 @@
 # 架构与生命周期
 
-本文说明文件工具的最终依赖方向、运行时组合和资源 owner。日常行为摘要见 [文件工具设计](README.md)。
+本文说明文件工具的依赖方向、运行时组合和资源归属。日常行为摘要见[文件工具设计](README.md)。
 
 ## 分层与依赖方向
 
@@ -8,9 +8,9 @@
 agent/extensions/file-tools.ts
         |
         v
-Pi schemas / adapters / renderers / telemetry
+Pi 模式 / 适配器 / 呈现器 / 遥测
         |                    ^
-        | tool-local ports   | LSP / skill / image / diff adapters
+        | 工具专属端口   | LSP / Skill / 图片 / 差异适配器
         v                    |
 ls  read  write  edit  find  grep
         |
@@ -18,82 +18,86 @@ ls  read  write  edit  find  grep
 WorkspaceFileSystem contracts
         |
         v
-namespace/access kernel + filesystem services
+命名空间与访问内核 + 文件系统服务
         |
         v
-Node platform backend
+Node 平台后端
 ```
 
 主要目录：
 
-- `agent/extensions/file-tools.ts`：注册 schema、prompt metadata、telemetry、lazy adapter 和 TUI renderer。
-- `src/file-tools/{ls,read,write,edit,find,grep}/`：各工具自己的参数、结果、command、presenter、纯算法和 port。
-- `src/file-tools/pi/`：把 Pi、LSP、skill、图片和 diff 能力映射为消费者拥有的 port DTO。
-- `src/file-tools/runtime/`：`FileToolsHost` 与 session `ObservationStore`。
-- `src/file-tools/shared/`：无 I/O 的错误、diagnostics、diff 和 ranking 叶子 contract。
-- `src/file-tools-config/`、`src/file-tool-limits.ts`：配置 control plane 与工具预算。
-- `src/filesystem/contracts/`：opaque path ref 和 capability contract。
-- `src/filesystem/kernel/`：namespace、lexical/canonical identity 与 access policy。
-- `src/filesystem/services/`：metadata、visibility、content、traversal、catalog 和 mutation。
-- `src/filesystem/platform/node/`：Node I/O primitive 与进程内 mutation queue。
-- `src/worker-runtime/`：grep 等 CPU/进程任务可复用的 worker 生命周期基础设施。
+- `agent/extensions/file-tools.ts`：注册模式、提示词元数据、遥测、延迟加载适配器和 TUI 呈现器。
+- `src/file-tools/{ls,read,write,edit,find,grep}/`：保存各工具自己的参数、结果、命令、呈现器、纯算法和端口。
+- `src/file-tools/pi/`：把 Pi、LSP、Skill、图片和差异能力转换为各工具定义的端口数据对象。
+- `src/file-tools/runtime/`：保存 `FileToolsHost` 和会话级 `ObservationStore`。
+- `src/file-tools/shared/`：保存不执行 I/O 的错误、诊断、差异和基础排序契约。
+- `src/file-tools-config/`、`src/file-tool-limits.ts`：实现配置控制平面和工具预算。
+- `src/filesystem/contracts/`：定义不透明路径引用和能力契约。
+- `src/filesystem/kernel/`：实现命名空间、字面身份、规范身份和访问策略。
+- `src/filesystem/services/`：实现元数据、可见性、内容、遍历、目录和修改服务。
+- `src/filesystem/platform/node/`：提供 Node I/O 原语和进程内修改队列。
+- `src/worker-runtime/`：提供可供 `grep` 等 CPU 或进程任务复用的工作线程生命周期基础设施。
 
-六个工具互不导入，也不直接导入 `node:fs`、`node:path`、配置 loader、ignore 实现、path guard 或 LSP。所有 workspace metadata、枚举、读取、遍历和 mutation 都经 `WorkspaceFileSystem`；architecture test 对这条边界进行无 legacy allowlist 的静态检查。filesystem 层不导入 file-tools、Pi、LSP、skill 或 code-index。
+六个工具互不导入，也不直接导入 `node:fs`、`node:path`、配置加载器、忽略规则实现、路径防护或 LSP。所有工作区元数据、枚举、读取、遍历和修改都通过 `WorkspaceFileSystem`。架构测试对这条边界执行静态检查，不保留旧允许列表。文件系统层不导入文件工具、Pi、LSP、Skill 或代码索引。
 
-## Invocation composition
+## 调用组合
 
-每个 Pi 调用执行：
+每个 Pi 调用按以下顺序执行：
 
-1. adapter 使用 `ctx.cwd`、session id 和 `AbortSignal` 调用 `FileToolsHost.open`；
-2. host 在任何 workspace I/O 前加载并校验该 cwd 的用户/项目配置；
-3. `FileSystemRuntime` 创建 namespace，并绑定不可变 filesystem policy、Git 状态与 invocation-local visibility evaluator；
-4. host 返回 `WorkspaceFileSystem`、只读 limits、session observation、operation context 和仅供 composition adapter 使用的 native bridge；
-5. command 只组合 filesystem capability、自身算法和自己的可选 port；
-6. adapter 格式化 Pi content/details，最后释放 invocation lease。
+1. 适配器使用 `ctx.cwd`、会话 ID 和 `AbortSignal` 调用 `FileToolsHost.open`。
+2. 主机在任何工作区 I/O 前加载并校验当前 `cwd` 的用户配置和项目配置。
+3. `FileSystemRuntime` 创建命名空间。命名空间绑定不可变的文件系统策略、Git 状态和仅供本次调用使用的可见性求值器。
+4. 主机返回 `WorkspaceFileSystem`、只读限制、会话观测状态、操作上下文和原生桥接器。原生桥接器只供组合适配器使用。
+5. 命令只组合文件系统能力、自身算法和自己的可选端口。
+6. 适配器格式化 Pi 的 `content` 和 `details`，最后释放调用租约。
 
-opaque `FileRef`、`DirectoryRef` 和 `TargetRef` 保存逻辑身份；command 不能取回 native path。native bridge 只用于 LSP adapter 映射；LSP 只能通过 command 提供的 snapshot-bound loader 读取 allowed inventory 中的正文。
+不透明的 `FileRef`、`DirectoryRef` 和 `TargetRef` 保存逻辑身份，命令无法从中取回原生路径。原生桥接器只用于 LSP 适配器映射。LSP 只能通过命令提供的快照绑定加载器读取允许清单中的正文。
 
-## Tool-local ports
+## 工具专属端口
 
-port 由消费者工具声明，而不是由外部子系统或 filesystem 声明：
+需要相关能力的工具负责声明端口，外部子系统和文件系统不声明这些端口：
 
-- read：缺失路径、structure/graph context、inline image；skill locator 在 adapter 边界预处理；
-- write/edit：diagnostics、mutation observer、共享 text diff contract；
-- grep：workspace-bound `CodeAnalyzer`；LSP 不反向导入 grep 实现，统一返回规范代码单元和 `called` / `referenced` / `defined` authority。
+- `read`：声明缺失路径、结构或图上下文、内联图片端口。Skill 定位器在适配器边界预处理。
+- `write` 和 `edit`：声明诊断、修改观察器和共享文本差异契约。
+- `grep`：声明与工作区绑定的 `CodeAnalyzer`。LSP 不反向导入 `grep` 实现，而是统一返回标准化的代码单元及其 `called`、`referenced`、`defined` 权威等级。
 
-port 输入输出使用消费者需要的 DTO 和 opaque ref。所有调用都有 safe wrapper；未配置、在 symbol 选择前失败或超时时保留基础行为。find 没有外部增强 port，只对 filesystem path discovery 返回的 scope-relative path 执行本地 fzf 排名；`readdir` 已分类的普通文件和目录由已验证父目录 identity 投影，symlink 和未知类型仍经 namespace 解析。visibility 复用目录快照增量加载层级 ignore，不在 invocation open 阶段预扫描仓库。grep 使用带 metadata snapshot 的完整 discovery，analyzer 只能读取本次 scope/glob inventory 中的稳定 snapshot。一旦 analyzer 选中 symbol，本次调用采用其完整或部分结果，不再混入逐 symbol 的 Tree-sitter fallback。外部结果不能绕过 filesystem 数据平面。
+端口输入输出使用各工具需要的数据传输对象（DTO）和不透明引用。所有调用都经过安全包装。端口未配置、调用失败或调用超时时，工具仍保留基础行为。
 
-## Lazy loading
+`find` 没有外部增强端口。它只对文件系统路径发现返回的范围相对路径执行本地 fzf 排名。系统从已验证的父目录身份投影 `readdir` 已分类的普通文件和目录条目。符号链接和未知类型仍通过命名空间解析。可见性求值器复用目录快照增量加载分层忽略规则，不会在打开调用时预先扫描仓库。
 
-注册阶段只加载 schema、guards、telemetry 和 lazy controller，不加载 filesystem host、各工具 command、native renderer 或增强 runtime。同一模块的并发调用共享 retryable Promise；加载失败会清除 Promise，后续调用可重试。
+`grep` 使用包含元数据快照的完整发现结果。分析器只能读取本次范围和 glob 候选清单中的稳定快照。只有全部目标完成映射时才采用 LSP 结果。任一目标不完整时，`grep` 会丢弃全部 LSP 中间结果，并整次退回 Tree-sitter。外部结果不能绕过文件系统数据平面。
 
-- 首次调用只动态导入对应 adapter 和 host；
-- find/grep 的 stateful tool instance 只在对应 adapter 首次加载时创建；
-- TUI renderer 只在 `session_start` 且 mode 为 `tui` 时加载，RPC 不加载；
-- LSP manager 只在实际 port 路径需要时加载；
-- mutation service/queue 在第一次 write/edit 时加载，readonly 调用不预热它；
-- Tree-sitter 语言、扩展名和 WASM grammar 由共享 catalog 统一注册；code-index 自动为每个注册项建立 adapter，Bash `.sh` 与其他代码语言走同一发现和懒加载路径。
-- 代码 Tree-sitter grammar 和 grep worker 只在 grep 索引路径实际需要时加载；共享 runtime 也可由 Approval Gate 等扩展按自身 grammar 懒加载。
+## 延迟加载
 
-## Owner 与释放顺序
+注册阶段只加载模式、防护、遥测和延迟加载控制器。此阶段不会加载文件系统主机、各工具命令、原生呈现器或用于增强功能的运行时模块。同一模块的并发调用共享一个可重试的 `Promise`。加载失败会清除该 `Promise`，后续调用可以重试。
 
-| owner | 持有状态 | dispose 行为 |
+- 首次调用只动态导入对应的适配器和主机。
+- `find` 和 `grep` 的有状态工具实例只在对应适配器首次加载时创建。
+- TUI 呈现器只在 `session_start` 且模式为 `tui` 时加载。RPC 模式不加载呈现器。
+- LSP 管理器只在实际端口路径需要时加载。
+- 修改服务和队列在第一次调用 `write` 或 `edit` 时加载。只读调用不会预热它们。
+- 共享目录统一注册 Tree-sitter 语言、扩展名和 WASM 语法。代码索引自动为每个注册项建立适配器。Bash 的 `.sh` 文件与其他代码语言使用相同的发现和延迟加载路径。
+- Tree-sitter 代码语法和 `grep` 工作线程只在 `grep` 索引路径需要时加载。Approval Gate 等扩展也可以按自身语法延迟加载共享运行时。
+
+## 所有者与释放顺序
+
+| 所有者 | 持有状态 | 释放行为 |
 | --- | --- | --- |
-| extension | 已加载 find/grep adapter、lazy LSP、host | shutdown 先停止新调用，再只释放已加载对象 |
-| `FileToolsHost` | config provider、filesystem runtime、session observations、invocation leases | 幂等停止/释放；不会触发未加载工具或增强 |
-| `FileSystemRuntime` | Node backend、visibility cache、lazy mutation queue、workspace leases | abort leases、释放 queue、invalidate visibility |
-| invocation lease | policy/visibility-bound filesystem 与组合 bridge attachment | abort 本 invocation 并 detach observation bridge |
-| `ObservationStore` | canonical identity 到 content version 的 session map | session/host 结束时 clear |
-| `FindTool` | tool owner signal | abort pending discovery/ranking |
-| `GrepTool` | 有界正文/派生 AST cache、parser/worker 与 active invocation | abort pending work 并 dispose parser/worker/cache owner |
-| lazy LSP port | 本会话的模块加载 Promise | 随 extension 释放，不拥有进程级 manager |
+| 扩展 | 已加载的 `find` 和 `grep` 适配器、延迟加载的 LSP、主机 | 关闭时先停止新调用，再释放已经加载的对象 |
+| `FileToolsHost` | 配置提供方、文件系统运行时、会话观测状态、调用租约 | 幂等停止和释放。不会触发未加载工具或增强 |
+| `FileSystemRuntime` | Node 后端、可见性缓存、延迟加载的修改队列、工作区租约 | 中止租约、释放队列、使可见性缓存失效 |
+| 调用租约 | 绑定策略和可见性的文件系统、组合桥接附件 | 中止本次调用并分离观测桥接器 |
+| `ObservationStore` | 从规范身份到内容版本的会话映射 | 会话或主机结束时清除 |
+| `FindTool` | 工具所有者信号 | 中止待处理的发现和排名任务 |
+| `GrepTool` | 有界正文缓存、派生 AST 缓存、解析器、工作线程、活动调用 | 中止待处理任务，并释放解析器、工作线程和缓存所有者 |
+| 延迟加载的 LSP 端口 | 本会话的模块加载 Promise | 随扩展释放，不拥有进程级管理器 |
 
-file-tools shutdown 顺序是：拒绝新 invocation，dispose 已加载 tool instances，最后 dispose host/filesystem。进程级 LSP 生命周期只由 LSP extension 管理；`/new`、fork 和 resume 保留 manager，reload 和 quit 才关闭连接。所有 `dispose` 幂等。
+文件工具按以下顺序关闭：拒绝新调用，释放已经加载的工具实例，最后释放主机和文件系统。进程级 LSP 生命周期只由 LSP 扩展管理。`/new`、分叉和恢复会保留管理器。重新加载和退出才会关闭连接。所有 `dispose` 调用都具备幂等性。
 
-## 取消与 mutation 边界
+## 取消与修改边界
 
-host 将 extension signal、runtime shutdown signal、lease signal 和 tool owner signal组合进 operation context。取消在排队、遍历、读取、line stream、worker/parser、共享 build consumer 和提交前检查点生效；iterator、handle、worker 和 waiter 在结束时释放。
+主机把扩展信号、运行时关闭信号、租约信号和工具所有者信号组合到操作上下文中。系统会在排队、遍历、读取、逐行流式处理、工作线程或解析器执行、等待共享构建任务结果期间，以及提交前检查取消状态。迭代器、句柄、工作线程和等待器会在结束时释放。
 
-mutation 按 canonical target 在同进程串行。安全策略和 symlink/parent identity 在 queue 内重新检查，edit 同时校验当前 snapshot hash。提交是不可回滚边界：成功写盘后 observation 已由 filesystem commit callback 更新，后置 diff 之外的 LSP 失败或取消不能把成功 mutation 改成失败。
+修改按规范目标在同一进程内串行执行。队列会重新检查安全策略、符号链接身份和父目录身份。`edit` 还会校验当前快照哈希。文件替换提交后不可回滚。成功写入磁盘后，文件系统提交回调已经更新观测状态。后置差异计算之外的 LSP 失败或取消不能把成功修改改为失败。
 
-性能测量与缓存细节见 [性能与 benchmark](../benchmark.md)。
+性能测量与缓存细节见[性能基准](../benchmark.md)。

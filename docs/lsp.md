@@ -1,81 +1,83 @@
 # LSP 内部增强
 
-LSP 只作为 `grep` / `read` / `write` / `edit` 的可选内部后端，不注册模型可见 `lsp` 工具。
+LSP 仅作为 `grep`、`read`、`write` 和 `edit` 的可选内部后端。它不会注册模型可见的 `lsp` 工具。
 
 ## 配置
 
-默认配置和用户全局覆盖分别位于：
+默认配置与用户全局配置分别位于：
 
 ```text
 agent/defaults/lsp.jsonc
 agent/configs/lsp.jsonc
 ```
 
-环境变量 `PI_LSP_CONFIG` 可覆盖用户全局配置路径，但不替换默认层。若 workspace root 或其祖先存在项目配置：
+环境变量 `PI_LSP_CONFIG` 可更改用户全局配置的路径，但不会替换默认配置。若工作区根目录或其祖先中存在以下项目配置：
 
 ```text
 <project>/.pi/configs/lsp.jsonc
 ```
 
-项目配置优先于全局配置，未设置的字段从全局配置继承；对象递归合并，数组和标量由项目配置整体替换。`servers` 按 server ID 合并，项目配置可覆盖或新增 server。也可用 `PI_LSP_PROJECT_CONFIG` 指定项目配置路径，或用 `PI_LSP_PROJECT_ROOT` 指定项目根目录。
+项目配置优先于全局配置，未设置的字段继承全局配置。`diagnostics`、`read` 和 `grep` 按子字段合并。`servers` 按服务器 ID 合并，同一服务器的 `languages` 按语言 ID 合并，`init` 和 `settings` 中的对象递归合并。项目配置中的数组和标量整体替换全局值。项目配置可以覆盖现有服务器或新增服务器。
 
-项目配置会执行其中的本地 language server command，因此只应使用可信项目中的配置。
+`PI_LSP_PROJECT_CONFIG` 可指定项目配置路径，`PI_LSP_PROJECT_ROOT` 可指定项目根目录。项目配置中的 `command` 会启动本地语言服务器，因此只应加载可信项目的配置。
 
 顶层字段：
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `enabled` | `true` | 总开关。设为 `false` 后不启动任何 language server，文件工具保持普通行为。 |
-| `exclude_paths` | 见默认文件 | 精确匹配这些 workspace root 时不启动 LSP。支持 `~` 表示用户家目录。 |
-| `startup_timeout_ms` | `8000` | server `initialize` 请求超时，范围 `100`-`60000`。超时后该 server 视为 unavailable。 |
-| `request_timeout_ms` | `5000` | 单次 LSP 请求超时，范围 `100`-`60000`。用于 `documentSymbol`、`workspace/symbol`、references 和 call hierarchy 等请求。 |
-| `idle_timeout_ms` | `300000` | server 空闲关闭时间，范围 `1000`-`3600000`。关闭后下次文件工具调用会按需重启。 |
-| `max_restarts` | `2` | server 崩溃后的最多重启次数，范围 `0`-`10`。binary 缺失属于 unavailable，不做崩溃重启。 |
-| `max_open_documents` | 见默认文件 | 每个 server session 最多保留的文档状态数，范围 `1`-`1024`。LRU 淘汰会先发送所需的 `didClose`，并清理全文和 symbol cache。 |
-| `diagnostics` | 见下表 | 控制 `write` / `edit` 成功后的诊断等待和返回内容。 |
-| `read` | 见下表 | 控制 `read` 的长文件导航回退和 enclosing symbol 增强。 |
-| `grep` | 见下表 | 控制 `grep` 的按需 symbol 分析入口与候选上限。 |
-| `servers` | 见默认文件 | 以 server ID 为 key 的 language server 对象，最多 50 个。 |
+| `enabled` | `true` | 总开关。设为 `false` 后不启动任何语言服务器，文件工具保持普通行为。 |
+| `exclude_paths` | `["~"]` | 工作区根目录与列表中的路径完全匹配时不启动 LSP。路径中的 `~` 表示用户主目录。 |
+| `startup_timeout_ms` | `8000` | 服务器 `initialize` 请求的超时时间，单位为毫秒，范围为 `100`-`60000`。超时后，服务器状态变为 `unavailable`。 |
+| `request_timeout_ms` | `5000` | 单次 LSP 请求的超时时间，单位为毫秒，范围为 `100`-`60000`。适用于 `documentSymbol`、`workspace/symbol`、引用和调用层次结构等请求。 |
+| `idle_timeout_ms` | `300000` | 服务器因空闲而关闭前的等待时间，单位为毫秒，范围为 `1000`-`3600000`。关闭后，下次文件工具调用会按需重启服务器。 |
+| `max_restarts` | `2` | 服务器崩溃后的最多重启次数，范围为 `0`-`10`。缺少可执行文件时，服务器状态为 `unavailable`，不会按崩溃处理。 |
+| `max_open_documents` | `128` | 每个服务器会话最多保留的文档状态数，范围为 `1`-`1024`。按最近最少使用（LRU）策略淘汰文档时，客户端会先发送所需的 `didClose`，再清理全文和符号缓存。 |
+| `diagnostics` | 见下表 | 控制 `write` 和 `edit` 成功后的诊断等待与返回内容。 |
+| `read` | 见下表 | 控制 `read` 的长文件导航回退与包围符号增强。 |
+| `grep` | 见下表 | 控制 `grep` 按需分析符号的入口与候选上限。 |
+| `servers` | 见默认文件 | 以服务器 ID 为键的语言服务器对象，最多 50 个。 |
 
 `diagnostics`：
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `enabled` | `true` | 是否在 `write` / `edit` 写盘成功后查询当前文件 diagnostics。关闭后不返回 `lsp.diagnostics`。 |
-| `max_wait_ms` | `3000` | pull diagnostics 请求或 fallback publish 等待的最长时间，范围 `0`-`60000`。没有本次结果时即使存在旧快照也返回 `status: "timeout"`。 |
-| `settle_ms` | `150` | fallback 收到 publish 后事件驱动等待稳定的时间，范围 `0`-`5000`；每次新 publish 重置 debounce。pull report 不需要 settle。 |
-| `max_items` | `8` | `write` 返回给模型和 expanded TUI 的诊断条数；`edit` 对可归因问题使用同一上限，范围 `0`-`100`。统计字段仍按文件全部诊断计算。 |
-| `max_related_locations` | `2` | 每条诊断最多附加的 related locations 数，范围 `0`-`10`；位置写入现有 message，不增加工具协议字段。 |
-| `min_severity` | `"warning"` | 最低返回级别。可选 `"error"`、`"warning"`、`"information"`、`"hint"`；级别越低返回越多。 |
+| `enabled` | `true` | 是否在 `write` 或 `edit` 写盘成功后查询当前文件的诊断。关闭后不返回 `lsp.diagnostics`。 |
+| `max_wait_ms` | `3000` | 拉取诊断请求或等待诊断发布的最长时间，单位为毫秒，范围为 `0`-`60000`。若未收到本次结果，即使存在旧快照也返回 `status: "timeout"`。 |
+| `settle_ms` | `150` | 回退模式收到诊断发布后，等待结果稳定的时间，单位为毫秒，范围为 `0`-`5000`。每次收到新发布都会重新计时。拉取诊断报告不需要等待稳定。 |
+| `max_items` | `8` | `write` 返回给模型和展开后终端界面的诊断条数。`edit` 对可归因问题使用同一上限，范围为 `0`-`100`。统计字段仍按文件中的全部诊断计算。 |
+| `max_related_locations` | `3` | 每条诊断最多附加的相关位置数，范围为 `0`-`10`。相关位置写入现有 `message`，不会增加工具协议字段。 |
+| `min_severity` | `"warning"` | 返回诊断的最低严重程度。可选值为 `"error"`、`"warning"`、`"information"` 和 `"hint"`。门槛越低，返回的诊断越多。 |
 
 `read`：
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `outline` | `true` | 是否启用长文件导航 fallback。仅整文件读取发生截断，且可见片段中的顶层声明不超过总数一半时返回 `remaining_symbols`。 |
-| `max_symbols` | `40` | `remaining_symbols` 最多返回的顶层 symbol 数，范围 `0`-`200`；不递归 children。partial range 的 `lsp.enclosing_symbol` 不受此开关影响。 |
+| `outline` | `true` | 是否启用长文件导航回退。仅当整文件读取被截断，且可见片段中的顶层声明不超过总数的一半时，返回 `remaining_symbols`。 |
+| `max_symbols` | `40` | `remaining_symbols` 最多返回的顶层符号数，范围为 `0`-`200`。不会递归返回子符号。部分范围读取的 `lsp.enclosing_symbol` 不受此开关影响。 |
 
 `grep`：
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `workspace_symbols` | `true` | 是否允许 `grep` 在结构化 query 多命中或整次零正文命中时调用 `workspace/symbol` 选择待分析 symbol。 |
-| `max_symbols` | `20` | scope/URI 校验和去重后最多接收的有效 workspace symbol 数，范围 `0`-`200`。scope 外及 resolve 失败项不消耗预算。 |
-| `max_exact_leaf_symbols` | `2` | exact leaf symbol 的同名定义最多接收数，范围 `0`-`200`；只限制同名 exact leaf，不限制 exact qualified symbol。 |
+| `workspace_symbols` | `true` | 是否允许 `grep` 在结构化查询多次命中或没有正文命中时，调用 `workspace/symbol` 选择待分析的符号。 |
+| `max_symbols` | `20` | 范围与 URI 校验和去重后，最多接收的有效工作区符号数，范围为 `0`-`200`。范围外或解析失败的项目不占用上限。 |
+| `max_exact_leaf_symbols` | `2` | 完全匹配末级名称时，最多接收的同名定义数，范围为 `0`-`200`。该设置不限制完全匹配的限定符号。 |
 
-`servers` 的 key 就是稳定 server ID，必须以字母开头且只能包含字母、数字、`_`、`-`。每个 server 支持：
+`servers` 的键是稳定的服务器 ID。ID 必须以字母开头，且只能包含字母、数字、`_` 和 `-`。每个服务器支持以下字段：
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `enabled` | `true` | 单个 server 开关。关闭后不参与文件路由，也不启动连接。 |
-| `fallback` | `false` | 与普通 server 同时匹配时让普通 server 接管；适合 YAML 等通用后备 server。 |
-| `command` | 与 `tcp` 二选一 | stdio server 的完整 argv；第一个元素是 executable，其余元素是参数，不经过 shell。 |
-| `tcp` | 与 `command` 二选一 | `{"host":"127.0.0.1","port":2087}` 连接用户提供的 endpoint；Pi 不启动 TCP server。 |
-| `languages` | 必填 | LSP language ID 到一个 selector 字符串或多个 selector 数组的映射。 |
-| `init` | 未设置 | server 自己定义的初始化 JSON，原样传给 LSP `initialize.initializationOptions`；字段名和嵌套结构不由 Pi 定义。 |
-| `settings` | 未设置 | server 自己定义的运行时配置树，供 `workspace/configuration` 按 section 返回，并在初始化后通过 `workspace/didChangeConfiguration` 整体发送；不会自动从 Go 项目配置或环境变量补充。 |
+| `enabled` | `true` | 单个服务器的开关。关闭后，服务器不参与文件路由，也不会建立连接。 |
+| `fallback` | `false` | 与非回退服务器同时匹配时，由非回退服务器接管。适合 YAML 等通用后备服务器。 |
+| `command` | 与 `tcp` 二选一 | 标准输入输出服务器的完整参数数组。第一个元素是可执行文件，其余元素是参数。命令不经过 shell。 |
+| `tcp` | 与 `command` 二选一 | 连接用户提供的端点，例如 `{"host":"127.0.0.1","port":2087}`。Pi 不会启动 TCP 服务器。 |
+| `languages` | 必填 | LSP 语言 ID 到一个选择器字符串或选择器数组的映射。 |
+| `init` | 未设置 | 服务器定义的初始化 JSON。Pi 将其原样传给 `initialize.initializationOptions`，不定义其中的字段名和嵌套结构。 |
+| `settings` | 未设置 | 服务器定义的运行时配置树。Pi 按配置节响应 `workspace/configuration`，并在初始化后通过 `workspace/didChangeConfiguration` 发送整个配置树。Pi 不会从 Go 项目配置或环境变量中补充设置。 |
 
-配置不包含 `id`、`transport.type`、`args`、`extensions`、`language_id` 或 `language_ids` 等重复字段，也不从扩展名隐藏推断 language ID。合并后的全局与项目配置使用同一 schema；项目 server 可以只提供需要覆盖的字段。用户可以覆盖默认 server 集合；项目配置再按 server ID 合并。默认配置包含 TypeScript、HTML/Handlebars、JSON/JSONC、CSS/SCSS/LESS、Python、Java（JDT LS）、Rust、Clangd（C/C++）、Tombi（TOML）、Docker 和 YAML stdio server，并在注释中提供 TCP endpoint 示例：
+配置不包含 `id`、`transport.type`、`args`、`extensions`、`language_id` 或 `language_ids` 等重复字段，也不会根据扩展名隐式推断语言 ID。合并后的全局配置与项目配置使用同一个 JSON Schema。项目中的服务器配置可以只提供需要覆盖的字段。
+
+用户全局配置一旦包含 `servers`，就会整体替换默认服务器集合。项目配置随后按服务器 ID 与全局配置合并。默认配置包含以下标准输入输出服务器：TypeScript、HTML/Handlebars、JSON/JSONC、CSS/SCSS/Less、Python、Java（JDT LS）、Rust、Go（gopls）、Clangd（C/C++）、TexLab（LaTeX）、Tombi（TOML）、Docker 和 YAML。默认配置的注释还提供了 TCP 端点示例：
 
 ```jsonc
 {
@@ -102,34 +104,40 @@ agent/configs/lsp.jsonc
 }
 ```
 
-内置 TypeScript 路由直接使用 TypeScript 7 原生 language server：`tsc --lsp --stdio`。它要求 `PATH` 中的 `tsc` 为 7.x，不安装旧 language server，也不回退到 tsserver。TypeScript 7 通过标准 LSP pull diagnostics、document/workspace symbols、references 和 call hierarchy 能力接入；项目需要 embedded-language 插件时应自行配置其他 server。
+内置 TypeScript 路由直接使用 TypeScript 7 原生语言服务器：`tsc --lsp --stdio`。该路由要求 `PATH` 中的 `tsc` 为 7.x。Pi 不会安装旧语言服务器，也不会回退到 tsserver。TypeScript 7 通过标准 LSP 的拉取诊断、文档符号、工作区符号、引用和调用层次结构接入。需要嵌入语言插件的项目应自行配置其他服务器。
 
-内置 Java 路由使用 [`Eclipse JDT Language Server`](https://github.com/eclipse-jdtls/eclipse.jdt.ls) 的 `jdtls` executable，覆盖 `*.java`。JDT LS 本身要求 Java 21 或更高版本运行，但可分析 Java 8 及以上项目。默认 `settings.java` 启用 Maven/Gradle 导入、Gradle Wrapper 与注解处理、自动构建和构建配置刷新；注解类型存在时自动启用 null analysis，并让 workspace symbol 包含源码方法声明。references 覆盖 accessor、声明与反编译源码，搜索范围包含主代码和测试代码。未声明 JDT LS 私有 extended client capabilities，也不加载 debugger/test bundles，因为 Pi 当前只消费标准 LSP diagnostics、symbols、references 和 call hierarchy。
+内置 Java 路由使用 [`Eclipse JDT Language Server`](https://github.com/eclipse-jdtls/eclipse.jdt.ls) 的 `jdtls` 可执行文件，覆盖 `*.java`。JDT LS 要求使用 Java 21 或更高版本运行，但可以分析 Java 8 及以上项目。默认的 `settings.java` 启用 Maven 和 Gradle 导入、Gradle Wrapper、注解处理、自动构建与构建配置刷新。存在相关注解类型时，JDT LS 自动启用空值分析。工作区符号包含源码中的方法声明。引用查询包含访问器、声明和反编译源码，搜索范围包含主代码与测试代码。Pi 未声明 JDT LS 的私有扩展客户端能力，也不加载调试或测试组件，因为 Pi 当前只使用标准 LSP 诊断、符号、引用和调用层次结构。
 
-内置 HTML、JSON 和 CSS 路由使用 [`vscode-langservers-extracted`](https://github.com/hrsh7th/vscode-langservers-extracted) 提供的 `vscode-*-language-server --stdio` executable：
+内置 HTML、JSON 和 CSS 路由使用 [`vscode-langservers-extracted`](https://github.com/hrsh7th/vscode-langservers-extracted) 提供的 `vscode-*-language-server --stdio` 可执行文件：
 
-- HTML server 覆盖 HTML 与 Handlebars，并启用 `<style>`、`<script>` 中的 CSS/JavaScript 嵌入语言及校验。
-- JSON server 覆盖 JSON、JSONC 和 VS Code 官方声明中的常见无扩展名配置文件；由 server 直接读取 `file`、`http`、`https` Schema，并默认把 `package.json` 关联到 SchemaStore。
-- CSS server 覆盖 CSS、SCSS 和 Less，并为三种语言启用校验。未设置的 lint 级别继续采用 Microsoft language service 的默认值，避免把风格偏好固化为全局规则。
+- HTML 服务器覆盖 HTML 与 Handlebars，并启用和校验 `<style>`、`<script>` 中嵌入的 CSS 与 JavaScript。
+- JSON 服务器覆盖 JSON、JSONC，以及 VS Code 官方声明的常见无扩展名配置文件。服务器直接读取 `file`、`http` 和 `https` 协议的 JSON Schema，并默认将 `package.json` 关联到 SchemaStore。
+- CSS 服务器覆盖 CSS、SCSS 和 Less，并为三种语言启用校验。未设置的代码检查级别沿用 Microsoft 语言服务的默认值，不会将风格偏好固化为全局规则。
 
-这些 server 的初始化参数与 settings 以 Microsoft 的 [HTML server 源码](https://github.com/microsoft/vscode/blob/main/extensions/html-language-features/server/src/htmlServer.ts)、[JSON server README](https://github.com/microsoft/vscode/blob/main/extensions/json-language-features/server/README.md) 和 [CSS server 源码](https://github.com/microsoft/vscode/blob/main/extensions/css-language-features/server/src/cssServer.ts) 为准。Markdown server 需要 `markdown/parse`、`markdown/fs/*` 和 watcher 等自定义客户端协议，当前不列入默认配置。
+这些语言服务器的初始化参数和 `settings` 以 Microsoft 的以下资料为准：
 
-内置 TOML 路由使用 `tombi lsp`，覆盖 `*.toml` 及 Tombi 官方编辑器声明的 `Cargo.lock`、`Gopkg.lock`、`Pipfile`、`pdm.lock`、`poetry.lock`、`uv.lock`。默认 `settings.tombi` 显式启用 SchemaStore、严格 schema 校验、diagnostics、references，以及 Cargo、pyproject 和 Tombi 配置扩展。Tombi 会优先采用项目级或用户级 `.tombi.toml`、`tombi.toml`、`pyproject.toml` 配置，因此仓库可以自行调整 TOML 版本、schema 和扩展特性。Pi 当前直接消费 document symbols 与 diagnostics；其他能力保持可供后续标准 LSP adapter 使用。
+- [HTML 服务器源码](https://github.com/microsoft/vscode/blob/main/extensions/html-language-features/server/src/htmlServer.ts)
+- [JSON 服务器 README](https://github.com/microsoft/vscode/blob/main/extensions/json-language-features/server/README.md)
+- [CSS 服务器源码](https://github.com/microsoft/vscode/blob/main/extensions/css-language-features/server/src/cssServer.ts)
 
-### `settings`、section 与嵌套字段
+Markdown 服务器需要客户端实现 `markdown/parse`、`markdown/fs/*` 和文件监视器等自定义协议，因此当前未列入默认配置。
 
-`settings` 没有跨 language server 的统一 schema。它的顶层 key 通常是 server 请求的 configuration section，但 section 名由 server 实现决定，不是 Pi 的 server ID 或 `languages` 中的 language ID。三类名称即使拼写相同也要分别理解：
+内置 TOML 路由使用 `tombi lsp`，覆盖 `*.toml`，以及 Tombi 官方编辑器声明的 `Cargo.lock`、`Gopkg.lock`、`Pipfile`、`pdm.lock`、`poetry.lock` 和 `uv.lock`。默认的 `settings.tombi` 明确启用 SchemaStore、严格 JSON Schema 校验、诊断、引用，以及 Cargo、pyproject 和 Tombi 配置扩展。Tombi 优先使用项目级或用户级的 `.tombi.toml`、`tombi.toml` 与 `pyproject.toml`，因此仓库可以自行调整 TOML 版本、JSON Schema 和扩展功能。Pi 当前直接使用文档符号与诊断。其他标准 LSP 能力可供后续适配器使用。
+
+### `settings`、配置节与嵌套字段
+
+不同语言服务器的 `settings` 没有统一结构。顶层键通常对应服务器请求的配置节。配置节名称由服务器实现决定，不是 Pi 的服务器 ID，也不是 `languages` 中的语言 ID。即使三类名称的拼写相同，也应分别理解：
 
 ```jsonc
 {
   "servers": {
-    "python": {                     // Pi server ID
+    "python": {                     // Pi 服务器 ID
       "command": ["ty", "server"],
       "languages": {
-        "python": "*.py"           // textDocument/didOpen 的 language ID
+        "python": "*.py"           // textDocument/didOpen 的语言 ID
       },
       "settings": {
-        "ty": {                     // workspace/configuration section
+        "ty": {                     // workspace/configuration 配置节
           "diagnosticMode": "workspace"
         }
       }
@@ -138,18 +146,18 @@ agent/configs/lsp.jsonc
 }
 ```
 
-Pi 对 `workspace/configuration` 的查找规则是：
+Pi 按以下规则查找 `workspace/configuration`：
 
-- server 请求 `section: "ty"` 时返回 `settings.ty`；
-- 请求 `section: "ty.completions"` 时返回 `settings.ty.completions`；
-- section 缺失时返回 `null`；没有 section 时返回整个 `settings`；
-- `scopeUri` 只用于确认请求仍在当前 workspace 内，当前不提供按文件或目录覆盖的 settings。
+- 服务器请求 `section: "ty"` 时，返回 `settings.ty`。
+- 服务器请求 `section: "ty.completions"` 时，返回 `settings.ty.completions`。
+- 请求的配置节不存在时，返回 `null`。请求未指定配置节时，返回整个 `settings`。
+- `scopeUri` 只用于确认请求仍位于当前工作区内。Pi 当前不支持按文件或目录覆盖 `settings`。
 
-初始化完成后，Pi 还会把整个 `settings` 作为 `workspace/didChangeConfiguration.params.settings` 发送。因此配置必须同时符合目标 server 对该 notification 和 configuration request 的约定。
+初始化完成后，Pi 还会将整个 `settings` 作为 `workspace/didChangeConfiguration.params.settings` 发送。因此，配置必须同时符合目标服务器对该通知与配置请求的约定。
 
-嵌套对象完全由 server 定义。不要只因其他编辑器使用了同名 UI 设置就假设其可作为 `init` 或 `settings` 发送。
+嵌套对象完全由服务器定义。其他编辑器使用同名界面设置，不代表该设置可以作为 `init` 或 `settings` 发送。
 
-官方配置文档中的点号字段通常表示 JSON 路径，而不是包含点号的字面 key。例如：
+官方配置文档中的点号字段通常表示 JSON 路径，而不是包含点号的字面键。例如：
 
 | 官方字段 | `lsp.jsonc` 中的嵌套路径 |
 | --- | --- |
@@ -157,48 +165,53 @@ Pi 对 `workspace/configuration` 的查找规则是：
 | `rust-analyzer.check.command` | `settings["rust-analyzer"].check.command` |
 | `yaml.format.enable` | `settings.yaml.format.enable` |
 
-确认 section、字段名、类型和允许值时按以下顺序查找：
+按以下顺序确认配置节、字段名、类型和允许值：
 
-1. 以目标 server 当前版本的官方配置文档为准，搜索 `workspace/configuration`、`workspace/didChangeConfiguration`、`settings`、`configuration section` 和 `initializationOptions`。`init` 与 `settings` 经常是两套不同 schema。
-2. 查看官方给出的 Neovim、Emacs、Zed 等通用 LSP client 示例。复制其中 `settings = {...}` 的内部对象；不要直接复制 VS Code 扩展专用字段。
-3. 若文档只给出 VS Code 的扁平键（如 `yaml.format.enable`），按点号展开为嵌套 JSON；先确认该字段不是仅由 VS Code 扩展消费。
-4. 文档不明确时，在 server 源码中搜索 `workspace/configuration`、`DidChangeConfiguration`、`section` 或动态 registration，或开启该 server 的协议日志查看其实际请求。server 发出的 `ConfigurationItem.section` 是最终依据。
+1. 查阅目标服务器当前版本的官方配置文档。搜索 `workspace/configuration`、`workspace/didChangeConfiguration`、`settings`、`configuration section` 和 `initializationOptions`。`init` 与 `settings` 通常使用不同的结构。
+2. 查看官方提供的 Neovim、Emacs 或 Zed 等通用 LSP 客户端示例。复制 `settings = {...}` 的内部对象，不要直接复制 VS Code 扩展的专用字段。
+3. 若文档只给出 VS Code 的扁平键，例如 `yaml.format.enable`，则按点号展开为嵌套 JSON。展开前应确认该字段不是仅供 VS Code 扩展使用。
+4. 若文档没有明确说明，则在服务器源码中搜索 `workspace/configuration`、`DidChangeConfiguration`、`section` 或动态注册相关代码。也可以开启服务器的协议日志，查看实际请求。服务器发出的 `ConfigurationItem.section` 是最终依据。
 
-当前内置 server 的主要官方入口：
+默认语言服务器的主要官方资料：
 
 - TypeScript 7：[官方发布说明](https://devblogs.microsoft.com/typescript/announcing-typescript-7-0/) 与 [原生实现](https://github.com/microsoft/typescript-go)
-- Eclipse JDT LS：[项目 README](https://github.com/eclipse-jdtls/eclipse.jdt.ls) 与 [Java settings](https://github.com/redhat-developer/vscode-java#supported-vs-code-settings)
-- ty：[Editor settings](https://docs.astral.sh/ty/reference/editor-settings/)
-- rust-analyzer：[Configuration](https://rust-analyzer.github.io/book/configuration)
-- HTML/JSON/CSS Language Servers：Microsoft VS Code 中的 [HTML](https://github.com/microsoft/vscode/tree/main/extensions/html-language-features/server)、[JSON](https://github.com/microsoft/vscode/tree/main/extensions/json-language-features/server) 和 [CSS](https://github.com/microsoft/vscode/tree/main/extensions/css-language-features/server) server
-- YAML Language Server：[Language server settings](https://github.com/redhat-developer/yaml-language-server#language-server-settings)
-- Tombi：[Configuration](https://tombi-toml.github.io/tombi/docs/configuration/) 与 [Language Server](https://tombi-toml.github.io/tombi/docs/language-server/)
-- clangd：主要使用项目或用户级 [`.clangd` configuration](https://clangd.llvm.org/config)，不要假设它采用上述 namespace 形式。
+- Eclipse JDT LS：[项目 README](https://github.com/eclipse-jdtls/eclipse.jdt.ls) 与 [Java 设置](https://github.com/redhat-developer/vscode-java#supported-vs-code-settings)
+- ty：[编辑器设置](https://docs.astral.sh/ty/reference/editor-settings/)
+- rust-analyzer：[配置](https://rust-analyzer.github.io/book/configuration)
+- gopls：[设置](https://go.dev/gopls/settings)
+- clangd：[`.clangd` 配置](https://clangd.llvm.org/config)。clangd 主要使用项目级或用户级 `.clangd`，不能假设它采用前述命名空间形式。
+- TexLab：[配置](https://github.com/latex-lsp/texlab/wiki/Configuration)
+- HTML Language Server：Microsoft VS Code 的 [HTML 服务器](https://github.com/microsoft/vscode/tree/main/extensions/html-language-features/server)
+- JSON Language Server：Microsoft VS Code 的 [JSON 服务器](https://github.com/microsoft/vscode/tree/main/extensions/json-language-features/server)
+- CSS Language Server：Microsoft VS Code 的 [CSS 服务器](https://github.com/microsoft/vscode/tree/main/extensions/css-language-features/server)
+- Docker Language Server：[项目仓库](https://github.com/docker/docker-language-server)
+- YAML Language Server：[服务器设置](https://github.com/redhat-developer/yaml-language-server#language-server-settings)
+- Tombi：[配置](https://tombi-toml.github.io/tombi/docs/configuration/) 与 [语言服务器](https://tombi-toml.github.io/tombi/docs/language-server/)
 
-第三方 server 没有统一 section 注册表；应从该 server 的文档、官方 client 示例或源码确认，不能由 executable、server ID、language ID 或文件扩展名推导。
+第三方服务器没有统一的配置节注册表。应查阅服务器文档、官方客户端示例或源码，不能根据可执行文件、服务器 ID、语言 ID 或文件扩展名推导配置节。
 
-### 查找 language ID
+### 查找语言 ID
 
-language ID 是客户端在 `textDocument/didOpen.textDocument.languageId` 中发给 server 的字符串，不是 server ID、可执行文件名或扩展名；LSP 没有涵盖所有 server 的统一映射表。按以下顺序确认：
+语言 ID 是客户端通过 `textDocument/didOpen.textDocument.languageId` 发送给服务器的字符串。它不是服务器 ID、可执行文件名或扩展名。LSP 没有覆盖所有服务器的统一映射表。按以下顺序确认语言 ID：
 
-1. 查 server 的官方 README、client 配置或安装文档，搜索 `languageId`、`language ID`、`documentSelector`。
-2. 查该 server 维护的编辑器扩展源码。VS Code 扩展通常在 `package.json` 的 `contributes.languages[].id` 声明 ID，并在启动 language client 时通过 `documentSelector` 选择它。
-3. 查 server 源码中处理 `textDocument/didOpen` 的 `languageId`、`LanguageIdentifier` 常量或分支。可在源码目录运行 `rg 'languageId|LanguageIdentifier|documentSelector'`。
-4. 仍不确定时开启已支持该 server 的编辑器的 LSP trace，查看实际发出的 `textDocument/didOpen` JSON；其中 `textDocument.languageId` 是最直接的依据。
+1. 查阅服务器的官方 README、客户端配置或安装文档，搜索 `languageId`、`language ID` 或 `documentSelector`。
+2. 查看服务器维护的编辑器扩展源码。VS Code 扩展通常在 `package.json` 的 `contributes.languages[].id` 中声明 ID，并在启动语言客户端时通过 `documentSelector` 选择 ID。
+3. 查看服务器源码中处理 `textDocument/didOpen` 的 `languageId`、`LanguageIdentifier` 常量或分支。可以在源码目录运行 `rg 'languageId|LanguageIdentifier|documentSelector'`。
+4. 若仍无法确定，则开启已支持该服务器的编辑器的 LSP 跟踪日志，查看实际发送的 `textDocument/didOpen` JSON。其中的 `textDocument.languageId` 是最直接的依据。
 
-不要仅根据文件扩展名猜测。例如 TypeScript React 常用 `typescriptreact`，Docker Language Server 使用 `dockerfile` 和 `dockercompose`。某些 server 会忽略 language ID 并只看 URI，但配置仍应使用其官方 client 或源码采用的值。
+不要只根据文件扩展名猜测语言 ID。例如，TypeScript React 通常使用 `typescriptreact`，Docker Language Server 使用 `dockerfile` 和 `dockercompose`。某些服务器会忽略语言 ID，只检查 URI。配置仍应使用官方客户端或服务器源码采用的值。
 
-### Selector
+### 选择器
 
-Selector 使用受限 picomatch glob，并对规范化的 workspace-relative POSIX path 匹配：
+选择器使用受限的 picomatch glob，并匹配规范化后的工作区相对 POSIX 路径：
 
-- 不含 `/` 时匹配任意目录中的 basename；`compose.yaml` 和 `*.ts` 都可命中嵌套文件。
-- 含 `/` 时匹配完整相对路径，例如 `deploy/**/*.yaml`。
-- 支持 `*`、`?`、`[]`、`{yaml,yml}` 和 `**`；不支持 negation、extglob、绝对路径、反斜杠或 `..`。
-- 匹配跨平台保持大小写敏感；例如 `*.c` 与 `*.C` 可以分别路由。
-- 多个 selector 无法清晰合并时使用数组，例如 `["Chart.yaml", "deploy/**/*.yaml"]`。
+- 选择器不含 `/` 时，匹配任意目录中的文件名。`compose.yaml` 和 `*.ts` 都可以匹配嵌套目录中的文件。
+- 选择器包含 `/` 时，匹配完整的相对路径，例如 `deploy/**/*.yaml`。
+- 支持 `*`、`?`、`[]`、`{yaml,yml}` 和 `**`。不支持否定模式、扩展 glob、绝对路径、反斜杠或 `..`。
+- 所有平台都区分大小写。例如，`*.c` 与 `*.C` 可以分别路由。
+- 多个选择器无法清晰合并时，使用数组，例如 `["Chart.yaml", "deploy/**/*.yaml"]`。
 
-Docker Language Server 可接管 Dockerfile、Containerfile 和 Compose 文件；通用 YAML server 作为 fallback 处理其余 YAML：
+Docker Language Server 可以接管 Dockerfile、Containerfile 和 Compose 文件。通用 YAML 服务器作为回退服务器处理其他 YAML 文件：
 
 ```jsonc
 "docker": {
@@ -222,37 +235,59 @@ Docker Language Server 可接管 Dockerfile、Containerfile 和 Compose 文件�
 }
 ```
 
-每个文件最多归属一个 server：一个普通 server 匹配时优先于所有 fallback server；多个普通 server、多个 fallback server 或同一 server 的多个 language ID 同时匹配均视为歧义。配置顺序不参与选择，歧义会让本次 LSP 增强安全降级并显示在 `/lsp status`。
+每个文件最多归属一个服务器。非回退服务器与回退服务器同时匹配时，优先选择非回退服务器。多个非回退服务器、多个回退服务器，或同一服务器的多个语言 ID 同时匹配，均视为歧义。配置顺序不影响选择。发生歧义时，本次 LSP 增强会降级，并在 `/lsp status` 中显示原因。
 
-这是唯一配置格式；没有格式版本、旧格式兼容层或内置 preset。用户配置也不需要 `$schema` 字段。
+本节描述的是唯一配置格式。配置没有格式版本、旧格式兼容层或内置预设。用户配置不需要 `$schema` 字段。
 
-binary 不存在、TCP endpoint 不可达或 initialize 失败时 server 标记为 unavailable，文件工具继续成功执行。
+可执行文件不存在、TCP 端点不可达或初始化失败时，服务器状态变为 `unavailable`。文件工具本身仍可成功执行。
 
-## 行为
+## 文件工具行为
 
-- `read`：部分行范围读取且最小包围 symbol 的声明行不可见时可返回 `lsp.enclosing_symbol`；整文件读取被截断且可见片段不足以覆盖大部分顶层声明时，才可返回非递归的 `remaining_symbols` 长文件导航 fallback。outline 关闭或上限为 `0` 且不需要 enclosing symbol 时不会启动 LSP。只为 `documentSymbol` 打开的文档会在请求后关闭，但保留有界的本地内容版本和 symbol cache；相同内容的暖态读取直接复用 cache，不重新打开文档或发送 symbol 请求。
-- `grep`：query 含正则操作符或只有一个直接正文命中时不启动 LSP。结构化 query 有多个命中，或整次扫描零正文命中时，请求 workspace symbol；候选范围来自完整 `ScopeInventory` 的 scope+glob allowed paths。对有界候选调用 document symbol、references，并在 capability 可用时调用 incoming call hierarchy，直接生成规范代码单元和 `called` / `referenced` / `defined` authority。文件正文只由 grep 的 snapshot-bound loader 提供。选中 symbol 前不可用、失败或超时则整次退回 Tree-sitter；选中后采用 LSP 的完整或部分结果，不逐 symbol 混用 AST。调用方取消和统一 operation deadline 贯穿整条请求链并触发协议级取消。
-- `write`：写盘成功后先向已启动且 watcher 匹配的 server 发送 create/change 事件；配置文件不需要属于源码路由，也不会因此启动新 server。同一并行 mutation 批次按 client 合并 watcher 通知，随后先同步该 client 的全部文档。server 声明 `diagnosticProvider` 时以有界并发 pull diagnostics；其余 server 并行等待 publish。诊断错误不改变 `status: "written"`。
-- `edit`：preview 不调用 LSP；成功写盘后发送 watched-file change，并只用同一 workspace/server source 的编辑前 baseline 计算 diagnostics diff。baseline 已知时只返回新增 error，以及修改范围内的新增 warning；baseline 未知时只返回修改范围或所属 symbol 内的 error，并标记 `causality uncertain`。原有、已解决、clean、total 和文件级统计不进入 edit 模型输出；不同 source 的 baseline 标记为 unknown，诊断错误不改变 `status: "applied"`。
-- `ls` / `find`：不接入 LSP。
+- `read`：读取部分行范围时，若最小包围符号的声明行不可见，可以返回 `lsp.enclosing_symbol`。仅当整文件读取被截断，且可见片段未覆盖大部分顶层声明时，才返回非递归的 `remaining_symbols`，用于长文件导航回退。若 `outline` 已关闭或 `max_symbols` 为 `0`，且不需要包围符号，则不会启动 LSP。仅为 `documentSymbol` 打开的文档会在请求后关闭，但会保留数量受限的本地内容版本与符号缓存。相同内容的后续读取直接复用缓存，不会重新打开文档或发送符号请求。
+- `grep`：正文扫描期间预热候选文件对应的 LSP 服务器，扫描完成后调用一次分析器。有正文命中时，分析器对命中文件请求文档符号、引用和传入调用。没有正文命中时，分析器先请求工作区符号，并从 `ScopeInventory` 的范围和 glob 模式允许的路径中选择数量受限的候选，然后发出相同的文档与关系请求。文件正文仅由 `grep` 中与快照绑定的加载器提供。只有全部目标均完成映射时，才采用 LSP 结果。若必要能力不可用、请求失败、响应不完整或请求超时，则整次分析回退到 Tree-sitter，不会混用部分 LSP 结果。调用方取消与统一的操作截止时间作用于整个请求链，并会触发协议级取消。
+- `write`：写盘成功后，先向已启动且文件监视器匹配的服务器发送创建或更改事件。配置文件不需要属于源码路由，也不会因此启动新服务器。同一批并行修改按客户端合并监视器通知，然后同步该客户端的全部文档。服务器声明 `diagnosticProvider` 时，Pi 以受限并发拉取诊断。其他服务器并行等待诊断发布。诊断失败不会改变 `status: "written"`。
+- `edit`：预览不调用 LSP。成功写盘后，Pi 发送受监视文件的更改事件，并且只使用同一工作区和服务器来源的编辑前基线计算诊断差异。基线已知时，只返回新增错误和修改范围内的新增警告。基线未知时，只返回修改范围或所属符号内的错误，并标记 `causality uncertain`。`edit` 的模型输出不包含原有问题、已解决问题、`clean`、`total` 或文件级统计。来源不同的基线标记为 `unknown`。诊断失败不会改变 `status: "applied"`。
+- `ls` 和 `find`：不接入 LSP。
 
-不会自动 apply code actions、organize imports、跨文件 rename。
+LSP 增强不会自动应用代码操作、整理导入或执行跨文件重命名。
 
 ### 协议连接
 
-initialize 返回的 capabilities 会保存在 client 中；不支持的 document symbols、workspace symbols、workspace symbol resolve、references 或 call hierarchy 不会发送请求。URI-only `WorkspaceSymbol` 仅在 `workspaceSymbolProvider.resolveProvider: true` 时通过 `workspaceSymbol/resolve` 补全 range。grep analyzer 要求 workspace symbol、document symbol 和 references 都可用；call hierarchy 可选。client 提供带超时和协议级取消的 typed request/notification 入口，并统一接收 diagnostics、日志和 progress。
+客户端会保存 `initialize` 返回的能力。若服务器不支持文档符号、工作区符号、工作区符号解析、引用或调用层次结构，Pi 不会发送对应请求。仅含 URI 的 `WorkspaceSymbol` 只有在 `workspaceSymbolProvider.resolveProvider: true` 时，才通过 `workspaceSymbol/resolve` 补全范围。
 
-文档同步严格遵循 server 的 `textDocumentSync`：Full 发送全文 change，Incremental 发送基于 UTF-16 position 的最小 replacement，None 不发送 change；仅在 `openClose` 启用时按正常文档生命周期发送 didOpen/didClose，仅在 `save` 启用时发送 didSave，且只有 `includeText: true` 时携带全文。同一 URI 的同步、保存、关闭和 documentSymbol 请求按顺序执行。只读 symbol 请求使用临时 open/close，关闭后仍按内容版本保留本地 cache；mutation 会重新打开并持续同步目标文档。整个协议连接退出时直接执行 shutdown/exit，不批量发送冗余 didClose。
+`grep` 分析器要求服务器同时支持文档符号、引用和传入调用。没有正文命中时，服务器还必须支持工作区符号。客户端提供带超时与协议级取消的类型化请求和通知接口，并统一接收诊断、日志与进度消息。
 
-Diagnostics 按 workspace/server source+URI 分区。pull full report 会更新当前及 related documents，并缓存 `resultId` 供后续增量请求；unchanged report 复用 ledger 快照。同一 client 的批量 mutation 在全部文档同步后才开始诊断请求，请求并发受限且共享本批次 deadline。无 pull capability 时，每次有效 publish 生成单调 revision，并保留可选文档 version；低于 client 当前文档版本的 publish 会被丢弃。diff 使用 severity/source/code/message 的位置无关身份和重复计数，已有问题随编辑移动时不会误报为新增和已解决。
+文档同步严格遵循服务器的 `textDocumentSync`：
 
-`LspManager` 属于 Pi 进程，client 按 workspace/server 持有；Pi 对话的 `/new`、fork 和 resume 只重建会话级扩展状态，不关闭进程级 LSP。扩展 reload、`/lsp reload` 和进程 quit 才重置 manager，其中 reload 后仍可重新使用。
+- `Full` 发送全文更改。
+- `Incremental` 发送基于 UTF-16 位置的最小替换范围。
+- `None` 不发送更改。
 
-每次 initialize 到 shutdown 是独立的连接代，独占 JSON-RPC writer、connection 和 transport。并发启动共享同一个 initialize；取消或 deadline 只停止当前调用等待，不中断其他调用共享的启动。idle 只在没有活动请求或通知时计时。`reload` 先阻止新增强操作，等待旧 client 的完整操作链结束后再关闭。优雅退出停止接收新操作，在一个绝对期限内依次发送 shutdown、exit，排空 writer、结束写端并等待 server 自行退出，超时后再关闭 socket 或 TERM/KILL child。stream 写错误由所属连接代统一吸收并转成一次 transport failure，旧连接的迟到回调不能影响新连接。崩溃则跳过协议握手，立即清除 connection、文档状态和底层 socket/child；后续在 `max_restarts` 内创建全新 client，并发恢复共享同一次重启。stdio 持续消费 stderr 并只保留有界尾部用于 `last_error`；stdio initialize 使用当前 Pi PID，TCP initialize 使用 `processId: null`。
+仅在 `openClose` 启用时，客户端才按正常文档生命周期发送 `didOpen` 和 `didClose`。仅在 `save` 启用时发送 `didSave`，且只有 `includeText: true` 时携带全文。同一 URI 的同步、保存、关闭与 `documentSymbol` 请求按顺序执行。只读符号请求会临时打开文档，并在请求后关闭文档。关闭后，本地缓存仍按内容版本保留。文件修改会重新打开目标文档并持续同步。整个协议连接退出时直接执行 `shutdown` 和 `exit`，不会批量发送多余的 `didClose`。
 
-server 主动 request 仅内置处理无副作用的 `workspace/configuration`、`workspace/workspaceFolders`、`window/workDoneProgress/create` 和 `client/registerCapability`。动态注册白名单只有 `workspace/didChangeWatchedFiles` 与 `workspace/didChangeConfiguration`，watcher glob、workspace 边界和数量均受限；其他 request（包括 `workspace/applyEdit`）仍返回 `MethodNotFound`。
+诊断按工作区、服务器来源和 URI 分区。完整的拉取报告会更新当前文档与相关文档，并缓存 `resultId` 供后续增量请求使用。未更改报告复用已有诊断快照。同一客户端批量修改文件时，只有全部文档同步完成后才开始请求诊断。诊断请求使用受限并发，并共享本批次的截止时间。
 
-新增高级 feature 时，在 `src/lsp/features/index.ts` 增加 typed adapter：先用 `featureAvailable(session, definition)` 检查 capability，再通过 `session.request(RequestType, params, options)` 发送请求。将 adapter 加入 `lspFeatureAdapters` 后，manager、registry、transport 和 session 生命周期无需修改；不可用 capability 应返回 `undefined`，由 file-tools 继续普通降级。
+服务器不支持拉取诊断时，每次有效发布都会生成单调递增的修订号，并保留可选的文档版本。低于客户端当前文档版本的发布会被丢弃。诊断差异将 `severity`、`source`、`code` 和 `message` 作为不含位置的标识，并对重复项计数。已有问题随编辑移动时，不会被误报为新增问题和已解决问题。
+
+`LspManager` 属于 Pi 进程，并按工作区和服务器持有客户端。Pi 对话中的 `/new`、分叉和恢复只重建会话级扩展状态，不会关闭进程级 LSP。只有扩展重新加载、`/lsp reload` 和进程退出会重置管理器。重新加载完成后，管理器仍可按需创建新连接。
+
+每次从 `initialize` 到 `shutdown` 构成一个独立的连接代。每个连接代独占 JSON-RPC 写入器、连接和传输层。并发启动共享同一个初始化过程。取消或截止时间只停止当前调用的等待，不会中断其他调用共享的启动过程。仅当没有活动请求或通知时，才计算空闲时间。
+
+`reload` 会先阻止新的增强操作，等待旧客户端的完整操作链结束，再关闭客户端。优雅退出时，客户端停止接收新操作，并在同一个绝对期限内依次执行以下步骤：发送 `shutdown` 和 `exit`，排空写入器，结束写入端，等待服务器自行退出。超时后，客户端关闭套接字，或向子进程发送 `TERM` 和 `KILL`。
+
+流写入错误由所属连接代统一处理，并转换为一次传输失败。旧连接的延迟回调不能影响新连接。服务器崩溃时，客户端跳过协议退出流程，立即清除连接、文档状态与底层套接字或子进程。后续操作可在 `max_restarts` 限制内创建全新客户端。并发恢复共享同一次重启。
+
+标准输入输出传输会持续读取标准错误，但只为 `last_error` 保留长度受限的末尾内容。使用标准输入输出初始化时，`processId` 是当前 Pi 进程 ID。使用 TCP 初始化时，`processId` 为 `null`。
+
+对于服务器主动发起的请求，Pi 仅处理无副作用的 `workspace/configuration`、`workspace/workspaceFolders`、`window/workDoneProgress/create` 和 `client/registerCapability`。动态注册白名单只包含 `workspace/didChangeWatchedFiles` 与 `workspace/didChangeConfiguration`。文件监视器的 glob、工作区边界和数量均受限制。其他请求，包括 `workspace/applyEdit`，返回 `MethodNotFound`。
+
+新增高级功能时，在 `src/lsp/features/index.ts` 中添加类型化适配器：
+
+1. 使用 `featureAvailable(session, definition)` 检查服务器能力。
+2. 通过 `session.request(RequestType, params, options)` 发送请求。
+3. 将适配器加入 `lspFeatureAdapters`。
+
+完成以上步骤后，无需修改管理器、注册表、传输层或会话生命周期。服务器不支持所需能力时，适配器应返回 `undefined`，由文件工具按常规路径降级。
 
 ## 命令
 
@@ -263,20 +298,20 @@ server 主动 request 仅内置处理无副作用的 `workspace/configuration`�
 /lsp diagnostics [path]
 ```
 
-`/lsp` 等价 `/lsp status`。`reload` 会关闭所有 server 并清空 diagnostics ledger。`diagnostics` 显示 workspace 或指定文件的已知诊断。
+`/lsp` 等价于 `/lsp status`。`reload` 会关闭所有服务器并清空诊断记录。`diagnostics` 显示工作区或指定文件的已知诊断。
 
 ## 故障排查
 
-`/lsp status` 查看配置路径、server 状态、最后错误、打开文档数和最近 diagnostics 数。stdio stderr 只保留有界尾部，`last_error` 会折叠空白并截断为最多 1024 个字符，避免日志淹没状态输出。
+`/lsp status` 显示配置路径、服务器状态、最后错误、打开的文档数和最近的诊断数。标准输入输出服务器的标准错误只保留长度受限的末尾内容。`last_error` 会折叠空白，并截断到最多 1024 个字符，避免日志占满状态输出。
 
-常见 unavailable 原因：
+服务器状态变为 `unavailable` 的常见原因：
 
-- language server 未安装或不在 `PATH`；
-- `command` / `args` 配置错误；
-- TCP `host`/`port` 无效或 endpoint 未提供；
-- initialize 超时或协议握手失败；
-- server 启动后崩溃。
+- 语言服务器未安装或不在 `PATH` 中。
+- `command` 配置错误。
+- TCP `host` 或 `port` 无效，或端点不可用。
+- `initialize` 超时或协议握手失败。
+- 服务器启动后崩溃。
 
-先运行 `/lsp status` 查看 `config_path`、server 状态和 `last_error`。配置 ID/扩展名冲突会在加载阶段拒绝整个 server 列表，修复配置后执行 `/lsp reload`。
+先运行 `/lsp status`，查看 `config_path`、服务器状态和 `last_error`。无效的服务器 ID 或选择器会使配置在加载阶段被拒绝。修复配置后，执行 `/lsp reload`。
 
-这些情况不会让成功的文件读写搜索变成失败。
+这些错误不会使原本成功的文件读取、写入或搜索操作失败。

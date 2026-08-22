@@ -1,6 +1,6 @@
-# Tool Input Repair
+# 工具输入修复
 
-`tool-repair` 是工具注册边界的轻量参数修复层，用于提升本地和开源模型的工具调用稳定性。它只负责纯参数修复；可选 observer 会报告参数状态和 repair operation，但不负责持久化或执行计时。
+`tool-repair` 是工具注册边界的轻量参数修复层，用于提升本地和开源模型的工具调用稳定性。它只负责纯参数修复。可选 observer 会报告参数状态和 repair operation，但不负责持久化或执行计时。
 
 它不增加模型可见工具，不放宽公开 schema，也不把兼容逻辑散落到各个工具的 `execute` 中。所有修复都挂在工具定义的 `prepareArguments(args)` 上，在 Pi schema validation 和 execute 前运行。
 
@@ -40,7 +40,7 @@ src/tool-repair/
 * `types.ts`：定义 repair spec、工具侧 hints 和通用 observer 事实。
 * `index.ts`：导出公共入口。
 
-## Schema 推导
+## 模式推导
 
 repair spec 主要从工具的 TypeBox schema 推导，工具侧只补 schema 无法表达的 hints。
 
@@ -63,8 +63,8 @@ schema 不能表达的 hints：
 
 * `singleStringField`：单字符串调用对象工具时落到哪个字段，例如 `read` -> `path`，`bash` -> `command`。
 * `pathFields`：哪些路径字段允许去掉开头 `@`。
-* `pathListFields`：哪些路径字段允许把旧字符串迁移为路径数组；只应配置在搜索工具的路径字段上。
-* `maxPathCount`：路径列表 repair 的最大路径数量，默认 32；超限输入不猜测、不提交。
+* `pathListFields`：哪些路径字段允许把旧字符串迁移为路径数组。只应配置在搜索工具的路径字段上。
+* `maxPathCount`：路径列表 repair 的最大路径数量，默认 32。超限输入不猜测、不提交。
 * `aliases`：根字段别名迁移，例如 `startLine` -> `start_line`。
 * `nestedAliases`：嵌套字段别名迁移，例如 `edits.*.oldText` -> `old`。
 * `objectArrayFromFields`：从根字段组合对象数组，例如 `{ old, new }` -> `{ edits: [{ old, new }] }`。
@@ -83,11 +83,11 @@ V1 只做机械结构修复：
 * 单字符串转对象字段。
 * 路径字段去掉开头 `@`。
 * 搜索路径字段的旧单字符串迁移为单元素数组（`scalar_to_array`）。
-* 搜索路径字段的逗号、空白或换行分隔字符串迁移为路径数组（`split_path_list`）；支持单引号和双引号保护空白或逗号。
-* 字符串迁移后去重，并逐项执行路径前缀清理；空 token、无法解析和超出最大数量时保留原参数并让 schema 校验失败。
+* 搜索路径字段的逗号、空白或换行分隔字符串迁移为路径数组（`split_path_list`）。支持单引号和双引号保护空白或逗号。
+* 字符串迁移后去重，并逐项执行路径前缀清理。空 token、无法解析和超出最大数量时保留原参数并让 schema 校验失败。
 * 字段别名迁移。
 * 删除 unknown fields，但只提交最终能通过 schema validation 的结果。
-* **空值回退默认值**（`emptyValueToDefault: true`）：将具备空含义的值替换为 schema 中的 `default`。视为空的值包括 `null`、`undefined`、空字符串或纯空白字符串、空数组和空对象；不把 `0`、`false` 等语义有效值当作空值。未提供默认值的字段不做替换，保留原参数。
+* **空值回退默认值**（`emptyValueToDefault: true`）：将具备空含义的值替换为 schema 中的 `default`。视为空的值包括 `null`、`undefined`、空字符串或纯空白字符串、空数组和空对象。不把 `0`、`false` 等语义有效值当作空值。未提供默认值的字段不做替换，保留原参数。
 
 特殊支持 `edit` 常见结构错误：
 
@@ -119,7 +119,7 @@ repair 层不做语义推断：
 * 不改写 `bash.command`。
 * 不自动猜测 `file`、`path`、`query`、`content` 之间的语义。
 * 不给 URL 补 `https://`。
-* 不拆分未配置为 `pathListFields` 的普通字符串，尤其是 `query`、`content`、`old` 和 `new`；也不为 `read`、`write`、`edit` 启用批量路径执行。
+* 不拆分未配置为 `pathListFields` 的普通字符串，尤其是 `query`、`content`、`old` 和 `new`。也不为 `read`、`write`、`edit` 启用批量路径执行。
 * 不扩大 schema，不新增模型可见参数。
 
 这些约束保证 repair 只处理结构错误，不改变模型明确给出的文本、命令、补丁内容或访问目标。
@@ -137,9 +137,9 @@ repair 层不做语义推断：
 * `agent/extensions/subagent.ts`
   * `subagent`
 
-仓库内的模型工具通过统一注册入口组合 strict sampling、repair 和 telemetry。`registerObservedTool` 默认为工具设置 `constrainedSampling: { type: "json_schema", strict: "prefer" }`；支持 strict tools 的 Provider 会进行 JSON Schema 约束采样，不支持的 Provider 自动降级，repair 继续作为本地兼容边界。工具显式设置其他 constrained sampling 配置或 `false` 时保留其选择。
+仓库内的模型工具通过统一注册入口组合 strict sampling、repair 和 telemetry。`registerObservedTool` 默认为工具设置 `constrainedSampling: { type: "json_schema", strict: "prefer" }`。支持 strict tools 的 Provider 会进行 JSON Schema 约束采样，不支持的 Provider 自动降级，repair 继续作为本地兼容边界。工具显式设置其他 constrained sampling 配置或 `false` 时保留其选择。
 
-`registerObservedTool` 将 repair observer 直接连接到当前 Pi 的 `TelemetryService`；只有状态、operation 和路径列表 fanout 摘要会合并进内存中的 pending call，原始和修复后参数不会由 repair observer 落盘，工具 execute 不会被 telemetry 包裹。fanout 只记录字段、去重后的 scope 数量和分隔类型，例如 `{ field: "path", count: 2, separator: "whitespace" }`，不表示伪造了多个 Pi tool call：
+`registerObservedTool` 将 repair observer 直接连接到当前 Pi 的 `TelemetryService`。只有状态、operation 和路径列表 fanout 摘要会合并进内存中的 pending call，原始和修复后参数不会由 repair observer 落盘，工具 execute 不会被 telemetry 包裹。fanout 只记录字段、去重后的 scope 数量和分隔类型，例如 `{ field: "path", count: 2, separator: "whitespace" }`，不表示伪造了多个 Pi tool call：
 
 ```ts
 registerObservedTool(pi, {

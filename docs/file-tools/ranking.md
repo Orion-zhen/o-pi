@@ -1,29 +1,29 @@
 # 搜索排序总览
 
-`find` 和 `grep` 共用 filesystem scope、ignore、glob 和安全边界，但排序目标不同：
+`find` 和 `grep` 共用文件系统的搜索范围、忽略规则、glob 和安全边界，但排序目标不同：
 
 ```text
-scope / ignore / glob
-    ├─ find: fzf extended query
-    │        -> path-scheme dynamic-programming score
-    │        -> deterministic path tie-break
-    │        -> result/output limits
-    └─ grep: verified text candidates
-             -> LSP or Tree-sitter regions
-             -> query tier + authority + BM25F/evidence
-             -> relevance head + same-tier MMR
+范围 / 忽略规则 / glob
+    ├─ find: fzf 扩展查询
+    │        -> 路径模式动态规划分数
+    │        -> 确定性路径破平
+    │        -> 结果和输出限制
+    └─ grep: 已验证的正文候选
+             -> LSP 或 Tree-sitter 区域
+             -> 查询层级 + 权威等级 + BM25F/证据
+             -> 相关性头部 + 同层级 MMR
 ```
 
 ## `find`
 
-`find` 只对 scope-relative path 排名。普通 query term 是 fuzzy subsequence，多 term 为 AND，`|` 为 OR，并支持 exact、boundary、prefix、suffix 和 inverse operator。每个 term 独立 smart case。
+`find` 只对范围相对路径排名。普通查询词使用模糊子序列匹配，多个查询词采用 AND 关系，`|` 表示 OR 关系。查询还支持精确匹配、边界匹配、前缀匹配、后缀匹配和反向匹配。每个查询词独立使用智能大小写。
 
-`fzf-v2-path-v1` 使用动态规划选择最高分字符对齐。连续字符、path/word/camelCase 边界获得奖励，gap 受到惩罚；同分时优先 basename 命中、短 span、短路径、scope 顺序和稳定 path。query term 的 Unicode/case 形式在扫描候选前预编译。它不执行 query 意图分类，不读取正文，不使用 embedding、LSP、Tree-sitter、evidence fusion 或 MMR。
+`fzf-v2-path-v1` 使用动态规划选择分数最高的字符对齐方式。连续字符以及路径、单词和驼峰命名边界会获得奖励，字符间隔会受到惩罚。分数相同时，依次优先基础名称命中、较短的匹配跨度、较短路径、范围顺序和稳定路径顺序。系统在扫描候选前预编译查询词的 Unicode 和大小写形式。`find` 不分类查询意图，也不读取正文或调用 LSP、Tree-sitter 和 MMR。
 
-每个唯一候选在 discovery 产出时立即进入有界 ranker；result limit 只限制保留的 relevance 前缀，扫描仍继续统计完整命中数。runtime 不物化完整候选数组，不做全量排序或目录多样化。renderer 直接输出具体路径，不折叠候选或二次选择。
+路径发现产生每个唯一候选后，立即将候选交给有界排序器。结果限制只约束保留的相关性前缀，扫描仍会统计完整命中数。运行时不构造完整候选数组，不执行全量排序或目录多样化选择。呈现器直接输出路径，不折叠候选，也不执行二次选择。
 
 ## `grep`
 
-`grep` 的 verified 候选必须在当前正文中命中。每个 query tier 内按 `called`、`referenced`、`defined`、unknown 划分 authority band；整次零正文命中时才允许机械词项或 LSP symbol 形成 related 候选。
+`grep` 先从当前正文的真实命中生成已验证候选。每个查询层级内再按 `called`、`referenced`、`defined`、`unknown` 划分权威等级带。只有整次扫描没有正文命中时，按固定规则提取的查询词或 LSP 符号才能形成相关候选。
 
-grep 的 factual/lexical evidence、BM25F 字段分数和 LSP authority 见 [排序证据](ranking-evidence.md)。related cap、relevance head 和同 tier MMR 见 [排序选择](ranking-selection.md)。
+`grep` 的正文命中证据、词法证据、BM25F 字段分数和 LSP 权威等级见[排序证据](ranking-evidence.md)。相关结果上限、相关性头部和同层级 MMR 见[排序选择](ranking-selection.md)。

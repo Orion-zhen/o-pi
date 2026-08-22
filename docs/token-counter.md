@@ -2,19 +2,19 @@
 
 `src/token-counter.ts` 是本仓库统一的 token 计数入口。它用于：
 
-* `/system` 查看器的 prompt token 估算；
-* `/stats` 的 context breakdown 分项估算；
-* `find` / `grep` 模型可见输出预算；
-* `subagent` inline 与 chain handoff 输出预算；
+* `/system` 查看器的 prompt token 估算。
+* `/stats` 的 context breakdown 分项估算。
+* `find` / `grep` 模型可见输出预算。
+* `subagent` inline 与 chain handoff 输出预算。
 * 测试中验证输出是否落在 token budget 内。
 
 ## 原则
 
-* provider 已返回 usage 时，展示层优先使用 usage；counter 只估算缺失的拆分项。
+* provider 已返回 usage 时，展示层优先使用 usage。counter 只估算缺失的拆分项。
 * 不把单一 tokenizer 当作所有模型的真值。
 * 不自动请求公网 provider 的 tokenize/count endpoint，避免未知计费或限流副作用。
 * 只对本机或私网 `baseUrl` 自动尝试 tokenizer endpoint。
-* `o200k_base` 和 `cl100k_base` 不参与扩展启动；首次实际使用对应 BPE 计数时才加载，并在进程内复用。
+* `o200k_base` 和 `cl100k_base` 不参与扩展启动。首次实际使用对应 BPE 计数时才加载，并在进程内复用。
 * 所有非 usage 来源的数值都视为估算，UI 使用 `~` 标记。
 
 ## 入口
@@ -117,7 +117,7 @@ DeepSeek 字符比例：
 }
 ```
 
-当前 `exact` 预留给未来官方免费 count API 接入；现有 counter 不主动把非 usage 结果标为 exact。
+当前 `exact` 预留给未来官方免费 count API 接入。现有 counter 不主动把非 usage 结果标为 exact。
 
 ## 计费边界
 
@@ -128,8 +128,8 @@ DeepSeek 字符比例：
 
 未默认调用：
 
-* Anthropic `count_tokens`；
-* DeepSeek、DashScope、OpenAI-compatible 公网 `/tokenize`；
+* Anthropic `count_tokens`。
+* DeepSeek、DashScope、OpenAI-compatible 公网 `/tokenize`。
 * 任意公网自定义 provider 的 token endpoint。
 
 如以后需要接入公网免费 count API，必须新增显式 allowlist 和 provider-specific 请求格式，不能通过泛化 `/v1/tokenize` 自动探测。

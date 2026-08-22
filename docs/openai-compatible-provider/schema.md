@@ -1,18 +1,20 @@
-# Provider 和 Model schema
+# 提供方和模型配置模式
 
-## Provider
+## 提供方
+
+以下示例列出所有提供方字段：
 
 ```jsonc
 {
   "providers": {
     "provider-id": {
-      "name": "Display name",
+      "name": "显示名称",
       "baseUrl": "https://example.com/v1",
       "apiKey": "$API_KEY",
       "api": "openai-completions",
       "headers": {},
       "compat": {},
-      "models": [],
+      "models": "auto",
       "thinkingPreset": "none",
       "modelsEndpoint": "models",
       "timeoutMs": 600000,
@@ -26,34 +28,34 @@
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `name` | provider id | `/model` 和 `/login` 中的显示名。 |
-| `baseUrl` | 必填 | provider endpoint。 |
-| `apiKey` | `$PI_MODELS_JSONC_<PROVIDER>_API_KEY` | API key 配置值；`EMPTY` 表示默认无认证。 |
-| `api` | `openai-completions` | `openai-completions` 或 `openai-responses`。 |
-| `headers` | `{}` | provider 请求和 models endpoint header。 |
-| `compat` | 保守默认值 | 原样透传给 Pi transport 的原生 compat 对象。 |
-| `models` | 自动发现 | 字符串、模型对象数组或 `"auto"`。 |
-| `thinkingPreset` | `none` | provider 默认 thinking 编码。 |
-| `modelsEndpoint` | `models` | 相对 `baseUrl` 的路径或完整 URL。 |
-| `timeoutMs` | Pi 默认 | 模型请求 stream 的 timeout。 |
-| `maxRetries` | Pi/API 默认 | 模型请求重试次数。 |
-| `dropParams` | `[]` | 从最终 payload 删除的非核心字段。 |
-| `extraBody` | `{}` | 为 provider 全部模型合入非核心字段，主要服务自动发现模型。 |
+| `name` | 提供方 ID | `/model` 和 `/login` 中显示的名称 |
+| `baseUrl` | 必填 | 提供方的 API 端点 |
+| `apiKey` | `$PI_MODELS_JSONC_<PROVIDER_ID>_API_KEY` | API 密钥配置值。`EMPTY` 表示默认不认证 |
+| `api` | `openai-completions` | `openai-completions` 或 `openai-responses` |
+| `headers` | `{}` | 模型请求和模型目录请求使用的提供方请求头 |
+| `compat` | 保守默认值 | 传给 Pi 传输层的兼容选项 |
+| `models` | `"auto"` | `"auto"`，或由非空字符串和模型对象组成的非空数组 |
+| `thinkingPreset` | `none` | 提供方默认的思考字段编码方式 |
+| `modelsEndpoint` | `models` | 相对于 `baseUrl` 的路径或完整 URL |
+| `timeoutMs` | Pi 默认值 | 模型流式请求的超时时间，单位为毫秒 |
+| `maxRetries` | 未设置 | 模型请求的重试次数。未设置时由 Pi 处理 |
+| `dropParams` | `[]` | 从最终请求体中删除的非核心字段 |
+| `extraBody` | `{}` | 为该提供方的所有模型添加的非核心字段，主要用于自动发现的模型 |
 
-## Model
+## 模型
 
-model 可以是字符串：
+模型可以写成字符串：
 
 ```jsonc
 "models": ["model-id"]
 ```
 
-也可以是完整对象：
+也可以写成对象：
 
 ```jsonc
 {
   "id": "model-id",
-  "name": "Display name",
+  "name": "显示名称",
   "api": "openai-completions",
   "baseUrl": "https://model.example.com/v1",
   "reasoning": true,
@@ -78,26 +80,26 @@ model 可以是字符串：
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
-| `id` | 必填 | Pi model id，同时作为请求中的 API model。 |
-| `name` | `id` | 显示名。 |
-| `api` | provider `api` | 单独选择 Completions 或 Responses。 |
-| `baseUrl` | provider `baseUrl` | 模型级 endpoint。 |
-| `reasoning` | 自动推导 | 是否支持 thinking level。 |
-| `thinkingLevelMap` | 未设置 | Pi level 到上游值的映射；值为 `null` 表示隐藏该 level。 |
-| `input` | `["text"]` | 支持 `text` 和可选的 `image`。 |
-| `cost` | 全零 | 每百万 token 成本，可包含 `tiers`。 |
-| `contextWindow` | `128000` | 上下文窗口。 |
-| `maxTokens` | `16384` | 最大输出 token。 |
-| `headers` | `{}` | 模型级 header；运行时解析。 |
-| `compat` | provider compat | 模型级 compat，优先级最高。 |
-| `thinkingPreset` | provider preset | 模型级 thinking 编码。 |
-| `defaultThinkingLevel` | 未设置 | 用户主动选择该模型时的默认 level。 |
-| `samplingParams` | `{}` | Pi 原生模型采样参数，使用上游请求体字段名。 |
-| `dropParams` | `[]` | 追加到 provider 列表。 |
+| `id` | 必填 | Pi 模型 ID，也是发送给上游的模型 ID |
+| `name` | `id` | 模型显示名称 |
+| `api` | 提供方的 `api` | 为该模型选择 Completions 或 Responses |
+| `baseUrl` | 提供方的 `baseUrl` | 该模型使用的 API 端点 |
+| `reasoning` | 自动推导 | 模型是否支持推理和思考级别 |
+| `thinkingLevelMap` | 未设置 | Pi 思考级别到上游值的映射。值为 `null` 时隐藏对应级别 |
+| `input` | `["text"]` | 输入类型列表，可包含 `text` 和 `image` |
+| `cost` | 各项为 `0` | 每百万个令牌的成本。可以包含 `tiers` |
+| `contextWindow` | `128000` | 上下文窗口大小 |
+| `maxTokens` | `16384` | 最大输出令牌数 |
+| `headers` | `{}` | 发送模型请求前解析的模型请求头 |
+| `compat` | 提供方的兼容选项 | 模型的兼容选项，优先于提供方配置 |
+| `thinkingPreset` | 提供方的预设 | 模型的思考字段编码方式 |
+| `defaultThinkingLevel` | 未设置 | 模型选择事件触发时设置的默认思考级别。恢复会话时除外 |
+| `samplingParams` | `{}` | Pi 模型的采样参数，使用上游请求体字段名 |
+| `dropParams` | `[]` | 追加到提供方 `dropParams` 的字段列表 |
 
 ## `cost.tiers`
 
-`cost` 可以为不同输入 token 阶梯配置费率：
+当总输入令牌数超过指定阈值时，`cost.tiers` 可以为整次请求应用另一组费率：
 
 ```jsonc
 {
@@ -117,9 +119,11 @@ model 可以是字符串：
 }
 ```
 
-## 相关字段
+基础费率和每个阶梯必须包含 `input`、`output`、`cacheRead` 和 `cacheWrite`。如果多个阶梯匹配，Pi 使用阈值最高的阶梯。
 
-- compat 的原生类型和前向兼容策略见 [compatibility.md](compatibility.md)。
-- thinking 字段见 [thinking.md](thinking.md)。
-- sampling、`dropParams` 和 `extraBody` 见 [payload.md](payload.md)。
-- 完整可用示例见 [examples.md](examples.md)。
+## 相关文档
+
+- `compat` 的 Pi 类型和向前兼容策略见[Pi 兼容选项](compatibility.md)。
+- 思考字段见[思考预设](thinking.md)。
+- `samplingParams`、`dropParams` 和 `extraBody` 见[请求体处理](payload.md)。
+- 完整配置见[配置示例](examples.md)。

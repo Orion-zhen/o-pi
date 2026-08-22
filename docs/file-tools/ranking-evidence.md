@@ -1,74 +1,74 @@
 # 排序证据与来源
 
-本文说明 `grep` 如何生成候选证据和来源局部 rank。`find` 使用独立的 fzf path score，不进入该链路。
+本文说明 `grep` 如何生成候选证据和来源局部排名。`find` 使用独立的 fzf 路径分数，不进入此排序链路。
 
-## grep 来源
+## `grep` 来源
 
 | 来源 | 用途 |
 | --- | --- |
-| `text-literal` | 非法正则经 evidence gate 接受后的 exact literal 正文命中 |
+| `text-literal` | 非法正则通过证据检查后，完全相同的字面量产生正文命中 |
 | `text-regex` | 当前正文的逐行正则命中 |
-| `text-lexical` | 整次零正文命中时的词项 related 回退 |
+| `text-lexical` | 整次扫描没有正文命中时，查询词产生相关结果 |
 
-正文命中与 lexical related 不会在同一次调用中混合；一个候选因此最多携带一个来源。来源按自身相关性取得一基 rank：
+正文命中与词法相关结果不会出现在同一次调用中，因此一个候选最多只有一个来源。每个来源根据自身相关性生成从 1 开始的排名：
 
 ```text
 sourceScore = sourceWeight / (60 + sourceRank)
 ```
 
-固定权重集中在 `src/file-tools/grep/ranking.ts`。
+固定权重定义在 `src/file-tools/grep/ranking.ts`。
 
-来源 rank 和稳定顺序严格分离：
+来源排名和稳定顺序相互独立：
 
-- 所有 literal/正则命中都只是同等的事实准入，`text-literal` / `text-regex` rank 固定为 1；
-- lexical 质量形成自身的相关性 rank；
-- 等相关候选共享 rank，path/range/id 只负责确定性破平。
+- 所有字面量或正则命中都只用于确认候选真实命中，`text-literal` 和 `text-regex` 的排名固定为 1。
+- 词法质量决定 `text-lexical` 来源内的相关性排名。
+- 相关性相同的候选共享排名。路径、范围和标识只用于确定性破平。
 
-因此辅助分数只反映真实来源内的检索排序，不会把按路径遍历的位置误当成相关性。
+因此，辅助分数只反映来源内的实际检索排序，不会把路径遍历位置误当成相关性。
 
 ## 字段相关性
 
-同一 tier 内先按 BM25F 风格字段分数排序。查询词项固定投影到以下字段：
+同一层级内先按 BM25F 字段分数排序。BM25F 是 BM25 的多字段扩展。系统将查询词映射到以下固定字段：
 
 | 字段 | 权重 | 长度归一化 |
 | --- | ---: | ---: |
-| 叶子 symbol | 8 | 0 |
-| qualified symbol / owner | 6 | 0.2 |
-| path | 5 | 0.3 |
-| declaration / signature | 3 | 0.5 |
-| 命中行或 related evidence line | 1 | 0.75 |
+| 叶子符号 | 8 | 0 |
+| 限定符号或所有者 | 6 | 0.2 |
+| 路径 | 5 | 0.3 |
+| 声明或签名 | 3 | 0.5 |
+| 命中行或相关证据行 | 1 | 0.75 |
 
-IDF 只在本次合格候选集合内计算。字段分数表达 query 与候选结构的相关性；来源分数只负责同一来源内的局部 rank。LSP 关系是结构 authority，不伪装成检索来源。
+逆文档频率（IDF）只在本次合格候选集合内计算。字段分数表示查询与候选结构的相关性，来源分数只表示同一来源内的局部排名。LSP 关系属于结构权威等级，不作为检索来源。
 
-## Tree-sitter / text
+## Tree-sitter 与文本
 
-正文 hit 先产生 verified 候选。LSP symbol 模式未启用时，Tree-sitter 只将其折叠到最小 code unit，补充 range、kind、symbol、qualified symbol、declaration 和本地 `defined` authority，并按 unit identity 合并。
+正文命中先产生已验证候选。LSP 符号分析不可用时，Tree-sitter 将命中归入最小代码单元，并补充范围、类型、符号、限定符号和声明。随后，保守的词法依赖图可将代码单元标记为 `called`、`referenced` 或 `defined`。相同代码单元的候选按代码单元身份合并。
 
-整次零正文命中时，扫描阶段保存的机械词项 anchor 才能产生 lexical related 候选。多个词项采用固定覆盖率，不区分自然语言、长文本或 symbol query。
+只有整次扫描没有正文命中时，扫描阶段按固定规则保存的查询词锚点才能产生词法相关候选。多个查询词采用固定覆盖率，不区分自然语言、长文本或符号查询。
 
-## Symbol
+## 符号
 
-exact/prefix 由 ranker 根据 query 和 analyzer 生成的规范 symbol 名称统一推导：
+排序器根据查询和分析器生成的规范符号名称，统一推导精确匹配和前缀匹配：
 
-- 裸名称与叶子 symbol 比较；
-- qualified 名称与完整 qualified name 比较；
-- qualified query 的叶子相等可形成 exact member；
-- prefix 检查叶子名称。
+- 裸名称与叶子符号比较。
+- 限定名称与完整限定名称比较。
+- 限定查询的叶子相等可形成精确成员匹配。
+- 前缀匹配检查叶子名称。
 
-不含正则操作符的名称或路径查询还会机械产生结构词项覆盖信号。symbol 和 path 的完整词项覆盖属于 tier 证据；它不解释自然语言意图，也不对 `src`、`tests` 等目录名赋予先验偏好。
+对于不含正则操作符的名称或路径查询，系统还会按固定规则产生结构查询词覆盖信号。符号和路径的完整查询词覆盖属于层级证据。排序器不解释自然语言意图，也不对 `src` 或 `tests` 等目录名设置先验偏好。
 
-## LSP authority
+## LSP 权威等级
 
-只要本次全部结构目标和所需能力可用，LSP 可接管任意合法 query 的 symbol 分析：
+只要本次调用的全部结构目标和所需能力都可用，LSP 就可以接管任意合法查询的符号分析：
 
-- workspace symbol 选择本次 inventory 内的有界候选；
-- document symbol 直接生成 range、kind、symbol、qualified symbol 和 declaration；
-- 候选范围外的 incoming call 将 authority 设为 `called`；
-- 没有外部 call 但存在候选范围外的 reference 时设为 `referenced`；
-- 否则保持 `defined`。
+- 工作区符号请求从本次文件清单中选择有界候选。
+- 文档符号请求生成范围、类型、符号、限定符号和声明。
+- 候选范围外的传入调用将权威等级设为 `called`。
+- 没有外部调用，但存在候选范围外的引用时，权威等级设为 `referenced`。
+- 其他候选保持 `defined`。
 
-LSP 只通过调用方提供的 snapshot-bound loader 获得正文。它的 authority 进入离散结构 tier，不进入来源分数。任一所需能力不可用时，整次事务回退 Tree-sitter。
+LSP 只能通过调用方提供的快照绑定加载器读取正文。权威等级归入离散的结构层级，不计入来源分数。任一必要能力不可用时，整次事务回退到 Tree-sitter。
 
 ## 路径上下文
 
-grep 排序不读取 `src`、`tests`、`spec`、fixture 或 mock 等路径含义。输出中的 roles 只由 `definition` / `enclosing` 和 authority 派生，不包含路径分类。
+`grep` 排序不解释 `src`、`tests`、`spec`、`fixture` 或 `mock` 等路径含义。输出中的 `roles` 只根据 `definition`、`enclosing` 和权威等级生成，不包含路径分类。

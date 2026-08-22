@@ -1,25 +1,24 @@
-# Payload 处理
+# 请求体处理
 
-静态采样参数直接使用 Pi 原生 `Model.samplingParams`；扩展只在 Pi 已生成请求后处理 Responses thinking 和必要的 provider 级 payload 扩展。
+静态采样参数直接使用 Pi 的 `Model.samplingParams`。Pi 生成请求体后，扩展只处理 Responses API 的思考字段、提供方附加字段和待删除字段。
 
 ## 处理顺序
 
 ```text
-1. Pi API 生成原始 payload
-2. Pi 合并 model.samplingParams
-3. Pi 合并请求期 samplingParams（同名字段覆盖 model）
-4. 转换 Responses 的非 OpenAI thinking preset
-5. 合并 provider.extraBody
-6. 执行 provider/model dropParams
-7. 恢复核心字段
-8. 执行调用方后续 onPayload
+1. Pi 合并 `model.samplingParams` 和单次请求的 `samplingParams`
+2. Pi 传输层生成请求体并应用合并后的 `samplingParams`
+3. 扩展转换 Responses API 使用的非 `openai` 思考预设
+4. 扩展合并 `provider.extraBody`
+5. 扩展依次应用 `provider.dropParams` 和 `model.dropParams`
+6. 扩展恢复核心字段
+7. 扩展调用后续注册的 `onPayload`
 ```
 
-后续 `onPayload` 可以继续变换结果；如果返回 `undefined`，使用扩展已经生成的 payload。
+单次请求的 `samplingParams` 会覆盖模型配置中的同名字段。调用方的 `onPayload` 可以继续修改结果。如果 `onPayload` 返回 `undefined`，扩展使用第 6 步产生的请求体。核心字段保护只适用于扩展自己的 `extraBody` 和 `dropParams`，不会限制调用方后续的 `onPayload`。
 
 ## `samplingParams`
 
-模型采样参数使用上游请求体的原始字段名，不做 camelCase 转换：
+模型采样参数使用上游请求体字段名。扩展不会转换字段命名格式：
 
 ```jsonc
 {
@@ -34,15 +33,15 @@
 }
 ```
 
-`samplingParams` 会原样进入 Pi `Model`，因此 Pi 后续支持的任意 OpenAI-compatible sampling 参数无需修改扩展即可使用。请求期 `samplingParams` 按 key 覆盖模型值。
+`samplingParams` 会直接写入 Pi 的 `Model`。配置校验允许任意非空字段名，不单独限制 OpenAI 兼容采样字段。单次请求的 `samplingParams` 按字段覆盖模型配置。
 
-最大输出应使用模型顶层 `maxTokens`。不要在 `samplingParams` 中设置 `max_tokens`、`max_completion_tokens` 或 `max_output_tokens`，否则会绕过 Pi 的 context clamp、thinking budget 和 `compat.maxTokensField` 选择。
+最大输出令牌数应配置在模型顶层的 `maxTokens`。不要在 `samplingParams` 中设置 `max_tokens`、`max_completion_tokens` 或 `max_output_tokens`。这些字段会绕过 Pi 对上下文窗口、思考预算和 `compat.maxTokensField` 的处理。
 
-同样不要用 `samplingParams` 覆盖 `model`、`messages`、`input`、`tools` 或 `stream` 等核心字段。
+也不要通过 `samplingParams` 覆盖 `model`、`messages`、`input`、`tools` 或 `stream` 等核心字段。
 
 ## `extraBody`
 
-provider 可以给静态和自动发现模型统一增加上游专用字段：
+提供方可以为手写模型和自动发现的模型统一添加上游专用字段：
 
 ```jsonc
 {
@@ -52,19 +51,19 @@ provider 可以给静态和自动发现模型统一增加上游专用字段：
 }
 ```
 
-模型级任意请求参数应使用 `samplingParams`，因此不再支持 `model.extraBody`。provider 级 `extraBody` 仅作为 `models: "auto"` 等动态目录无法预先设置模型参数时的逃生口。
+只适用于单个模型的其他请求参数应放入 `samplingParams`。扩展不支持模型层的 `extraBody`。提供方的 `extraBody` 主要用于无法预先为动态模型逐个设置参数的场景，例如 `models: "auto"`。
 
-`provider.extraBody` 不能包含：
+`provider.extraBody` 不能包含以下核心字段：
 
 ```text
 model, messages, input, tools, stream
 ```
 
-配置中出现这些字段会报错，而不是覆盖 Pi 请求。
+如果配置包含这些字段，扩展会拒绝加载，而不是覆盖 Pi 生成的请求体。
 
 ## `dropParams`
 
-用于删除上游不接受的非核心字段：
+`dropParams` 用于删除上游不接受的非核心字段：
 
 ```jsonc
 {
@@ -72,22 +71,22 @@ model, messages, input, tools, stream
 }
 ```
 
-provider 和 model 的列表会连接：
+扩展按以下顺序拼接两个列表：
 
 ```text
 provider.dropParams + model.dropParams
 ```
 
-删除发生在 `provider.extraBody` 合并之后，因此可以删除 Pi 或扩展添加的非核心字段，但不能删除核心字段。
+删除发生在合并 `provider.extraBody` 之后。因此，`dropParams` 可以删除 Pi 或 `extraBody` 添加的非核心字段，但不能删除核心字段。
 
-## Thinking payload
+## 思考字段
 
-Responses 非 `openai` preset 会先清理已有 thinking 字段，再由 preset 生成新格式。详细映射见 [thinking.md](thinking.md)。
+Responses API 使用非 `openai` 预设时，扩展会先删除已有的思考字段，再按预设生成上游格式。详细映射见[思考预设](thinking.md)。
 
-## 图片 payload
+## 图片字段
 
-文件工具扩展不会把图片 base64 拼进文本。Pi 已生成的 Chat Completions `messages` 或 Responses `input` 图片结构会作为核心字段原样保留。
+Pi 会把图片输入写入 Chat Completions 的 `messages` 或 Responses API 的 `input`。这些结构属于核心字段，扩展会原样保留。
 
-## Provider/model headers
+## 请求头
 
-header 不是 payload 字段，而是在 stream 边界解析和合并。认证与调用方覆盖规则见 [authentication.md](authentication.md)。
+提供方和模型请求头不属于请求体。扩展在发送流式请求前解析并合并请求头。认证和调用方覆盖规则见[认证和敏感配置](authentication.md)。

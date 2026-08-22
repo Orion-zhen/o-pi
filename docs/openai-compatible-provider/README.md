@@ -1,16 +1,16 @@
-# OpenAI-compatible provider
+# OpenAI 兼容提供方
 
-本扩展把任意兼容 OpenAI Chat Completions 或 Responses API 的服务注册为原生 Pi provider。普通配置只需要一个 `baseUrl`、一个认证方式和一个模型。
+该扩展把兼容 OpenAI Chat Completions API 或 Responses API 的服务注册为 Pi 提供方。基本配置只需指定 `baseUrl`、认证方式和模型。
 
 ## 快速开始
 
-配置文件是：
+扩展读取以下配置文件：
 
 ```text
 ~/.pi/agent/models.jsonc
 ```
 
-扩展只读取这个私有 JSONC 文件，不修改 Pi 原生 `models.json`。配置可能包含 API key，建议限制权限：
+扩展不会读取或修改 Pi 自带的 `models.json`。`models.jsonc` 可能包含 API 密钥。建议限制文件权限：
 
 ```bash
 chmod 600 ~/.pi/agent/models.jsonc
@@ -44,13 +44,13 @@ chmod 600 ~/.pi/agent/models.jsonc
 }
 ```
 
-provider id 和 model id 组成 Pi selector：
+Pi 使用提供方 ID 和模型 ID 标识模型：
 
 ```text
 gateway/model-id
 ```
 
-可用 `/model` 选择模型，也可以验证离线目录：
+使用 `/model` 选择模型。也可以离线检查模型目录：
 
 ```bash
 pi --list-models gateway --offline
@@ -58,19 +58,19 @@ pi --list-models gateway --offline
 
 ## 选择 API 类型
 
-| 配置 | 适用服务 |
+| `api` 值 | 适用服务 |
 | --- | --- |
-| `openai-completions` | `/chat/completions` 风格服务 |
-| `openai-responses` | `/responses` 风格服务 |
+| `openai-completions` | 使用 `/chat/completions` 的服务 |
+| `openai-responses` | 使用 `/responses` 的服务 |
 
-provider 的 `api` 是默认值，单个 model 可以覆盖它：
+提供方的 `api` 适用于该提供方的所有模型。模型可以覆盖此值：
 
 ```jsonc
 {
   "providers": {
     "gateway": {
       "baseUrl": "https://example.com/v1",
-      "api": "openai-responses",
+      "api": "openai-completions",
       "models": [
         { "id": "reasoning-model", "api": "openai-responses" }
       ]
@@ -79,165 +79,173 @@ provider 的 `api` 是默认值，单个 model 可以覆盖它：
 }
 ```
 
-只使用 `openai-completions` 和 `openai-responses`。旧的 `chat`、`responses` 简写会被拒绝。
+`api` 只接受 `openai-completions` 和 `openai-responses`。扩展会拒绝旧值 `chat` 和 `responses`。
 
-## Provider 和 Model
+## 提供方配置和模型配置
 
-provider 保存一组模型共享的默认值：
+提供方配置包含一组模型共享的默认值：
 
-- endpoint 和 API 类型；
-- API key、header；
-- compat 和 thinking preset；
-- timeout、重试次数；
-- provider 级 payload 的 `dropParams` 和 `extraBody`。
+- 端点和 API 类型
+- API 密钥和请求头
+- 兼容选项和思考预设
+- 超时时间和重试次数
+- 提供方的 `dropParams` 和 `extraBody`
 
-model 保存自身的元数据和覆盖值：
+模型配置包含模型元数据和覆盖值：
 
-- `id`、显示名和 endpoint；
-- reasoning、thinking level 和 level map；
-- text/image 输入能力；
-- 成本、上下文窗口和最大输出；
-- 原生 `samplingParams`、header、compat 和 model `dropParams`。
+- `id`、显示名称和端点
+- 推理能力、思考级别和级别映射
+- `text` 和 `image` 输入能力
+- 成本、上下文窗口和最大输出令牌数
+- `samplingParams`、请求头、兼容选项和模型层的 `dropParams`
 
-通常的继承关系是：
+大多数字段按以下顺序解析：
 
 ```text
 Pi 默认值
-→ provider 值
-→ model 值
+→ 提供方配置
+→ 模型配置
 ```
 
-`dropParams` 按 provider 后 model 追加；`extraBody` 只保留在 provider 层，为自动发现模型提供统一的 payload 逃生口。
+`dropParams` 按提供方列表、模型列表的顺序拼接。`extraBody` 只能配置在提供方对象中，可以为手写模型和自动发现的模型统一添加请求体字段。
 
 ## 认证
 
-`apiKey` 和 `headers` 支持以下写法：
+`apiKey` 和 `headers` 的值支持以下写法：
 
 | 写法 | 行为 |
 | --- | --- |
-| `"sk-..."` | 字面量 |
-| `"$ENV"`、`"${ENV}"` | 环境变量插值 |
-| `"!command"` | 执行命令获取 stdout |
-| `"EMPTY"` | 默认不发送 Authorization |
-| `"$$"`、`"$!"` | 字面量 `$` 或 `!` |
+| `"sk-..."` | 使用字面量 |
+| `"$ENV"`、`"${ENV}"` | 替换为环境变量的值 |
+| `"!command"` | 执行命令并读取标准输出 |
+| `"EMPTY"` | `apiKey` 默认不发送 `Authorization` |
+| `"$$"`、`"$!"` | 分别表示字面量 `$` 和 `!` |
 
-省略 provider 的 `apiKey` 时，默认环境变量为：
+`EMPTY` 只对 `apiKey` 有特殊含义。在 `headers` 中，`EMPTY` 是普通字面量。
+
+省略提供方的 `apiKey` 或将其设为空字符串时，扩展读取以下环境变量：
 
 ```text
 PI_MODELS_JSONC_<PROVIDER_ID>_API_KEY
 ```
 
-例如 provider id 为 `lab-server` 时使用：
+例如，提供方 ID 为 `lab-server` 时，变量名为：
 
 ```text
 PI_MODELS_JSONC_LAB_SERVER_API_KEY
 ```
 
-调用方传入的认证 credential 可以覆盖配置中的 key。`EMPTY` 表示默认 keyless；显式登录 credential 仍可以提供运行时 key。
+Pi 在运行时提供的登录凭证可以覆盖配置中的密钥。`EMPTY` 表示默认不使用密钥，但 Pi 显式提供的登录凭证仍可用于当前请求。
 
-认证值和配置 header 会在请求边界解析，不会作为明文写入发现目录。完整规则见 [认证和敏感配置](authentication.md)。
+扩展在发送请求前解析认证值和配置请求头，不会把明文认证信息写入模型目录缓存。完整规则见[认证和敏感配置](authentication.md)。
 
 ## 自动发现模型
 
-`models` 有三种常用形式：
+`models` 支持以下形式：
 
 ```jsonc
 // 手写模型
-"models": ["model-a", { "id": "model-b", "name": "Model B" }]
+"models": ["model-a", { "id": "model-b", "name": "模型 B" }]
 
-// 自动发现
+// 仅使用自动发现
 "models": "auto"
 
-// 省略时也使用默认 models endpoint
+// 省略 models 也表示仅使用自动发现
 ```
 
-自动发现默认请求：
+联网刷新会请求：
 
 ```text
 GET <baseUrl>/models
 ```
 
-`modelsEndpoint` 可以改为相对路径或完整 URL。支持返回数组、`{ "data": [...] }` 或 `{ "models": [...] }`。
+即使配置了手写模型，联网刷新也会请求模型目录端点，并用远端数据补充模型目录。`modelsEndpoint` 可以指定相对路径或完整 URL。端点可以返回数组、`{ "data": [...] }` 或 `{ "models": [...] }`。
 
-手写模型优先保留，远端目录补齐缺失的名称、上下文、最大输出和 image 能力；远端独有模型追加到末尾。Pi `ModelsStore` 会保存已发现目录，`--offline` 只使用手写模型和已存目录。
+扩展保留手写模型的顺序和字段。远端元数据只补充缺失的名称、上下文窗口、最大输出和图片输入能力。远端独有的模型追加到目录末尾。
 
-完整流程见 [自动发现](discovery.md)。
+Pi 的 `ModelsStore` 会保存刷新后的模型目录。离线模式只使用手写模型和来源匹配的缓存。完整流程见[自动发现](discovery.md)。
 
-## Thinking
+## 推理能力和思考级别
 
-通过 `thinkingPreset` 告诉扩展如何把 Pi thinking level 编码给上游服务。常见 preset 包括：
+`thinkingPreset` 指定如何把 Pi 思考级别编码为上游字段。支持以下预设：
 
+- `none`
 - `openai`
 - `openrouter`
 - `deepseek`
+- `together`
+- `zai`
 - `qwen`
+- `qwen-chat-template`
 - `chat-template-enabled`
 - `chat-template-effort`
+- `string-thinking`
+- `ant-ling`
 
-`defaultThinkingLevel` 只在用户主动选择模型时设置；恢复 session 时不会覆盖已恢复的 level。`thinkingLevelMap` 可以把 Pi 的 `high`、`xhigh` 等 level 映射为上游值。
+`defaultThinkingLevel` 会在模型选择事件触发时设置，但恢复会话时除外。因此，恢复会话不会覆盖已恢复的思考级别。`thinkingLevelMap` 可以把 Pi 的 `high`、`xhigh` 等级别映射为上游值。
 
-如果配置了 `defaultThinkingLevel` 或 `thinkingLevelMap`，model 会推导为支持 reasoning；显式 `reasoning: false` 与这两项同时出现会报错。
+配置 `defaultThinkingLevel` 或 `thinkingLevelMap` 后，扩展会将模型的推理能力推导为 `true`。`reasoning: false` 不能与这两个字段同时使用。
 
-完整 preset 和 Responses API 行为见 [Thinking preset](thinking.md)。
+全部预设及 Responses API 的处理规则见[思考预设](thinking.md)。
 
-## Payload 修改
+## 修改请求体
 
-请求 payload 的处理顺序是：
+扩展按以下顺序处理请求体：
 
 ```text
-Pi 生成 payload
-→ 合并 model/request samplingParams
-→ 转换 Responses thinking
-→ 合并 provider extraBody
+合并模型和单次请求的 samplingParams
+→ Pi 生成请求体
+→ 转换 Responses API 的思考字段
+→ 合并提供方 extraBody
 → 删除 provider/model dropParams
 → 恢复核心字段
 ```
 
-模型的 `samplingParams` 直接进入 Pi 原生 `Model`，使用 `top_p`、`top_k` 等上游请求体字段名；请求期同名参数优先。最大输出使用顶层 `maxTokens`，不要把 token 上限或核心请求字段放进 `samplingParams`。
+模型的 `samplingParams` 直接写入 Pi 的 `Model`，其中应使用 `top_p`、`top_k` 等上游字段名。单次请求的同名参数优先。最大输出令牌数应使用模型顶层的 `maxTokens`。不要把令牌上限或核心请求字段放入 `samplingParams`。
 
-模型级任意参数统一使用 `samplingParams`。provider `extraBody` 只用于给静态和自动发现模型统一追加字段，且不能覆盖以下核心字段：
+只适用于单个模型的其他请求参数应放入 `samplingParams`。提供方的 `extraBody` 可以为所有模型统一添加字段，但不能覆盖以下核心字段：
 
 ```text
 model, messages, input, tools, stream
 ```
 
-`dropParams` 也不能删除这些核心字段。详细映射见 [Payload 处理](payload.md)。
+`dropParams` 也不能删除这些核心字段。详细规则见[请求体处理](payload.md)。
 
 ## 安全和持久化
 
-- API key 可以使用环境变量或 command，避免直接写入配置。
-- 配置权限过宽时会显示 warning。
-- auth check 不执行 command 配置；真正请求时才解析并缓存 command stdout。
-- 自动发现缓存包含模型元数据、endpoint/API/compat source hash，不包含 API key 或认证 header。
-- 自动发现错误会包含 provider、HTTP 状态和有限的响应片段，但不会泄露 Authorization。
+- 使用环境变量引用或命令获取 API 密钥，可以避免把密钥直接写入配置。
+- 配置文件权限过宽时，扩展会显示警告。
+- 认证检查不会执行命令。扩展在解析凭证或发送请求时执行命令，并在进程内缓存结果。
+- 模型目录缓存包含模型元数据和配置来源哈希，不包含 API 密钥或认证请求头。
+- 模型目录端点返回非 2xx 状态时，错误包含提供方和 HTTP 状态，并最多截取响应正文的前 500 个字符。扩展不会把请求中的 `Authorization` 写入错误。
 
 ## 常见问题
 
 ### 模型没有显示
 
-1. 确认 `models.jsonc` 是合法 JSONC。
-2. 确认 provider 有 `baseUrl`。
-3. 确认每个 model 有非空且不重复的 `id`。
-4. 使用 `EMPTY`、环境变量或可用的配置 header。
-5. 在线打开 `/model` 触发目录刷新。
-6. 使用 `pi --list-models <provider> --offline` 检查手写模型和缓存。
+1. 确认 `models.jsonc` 是合法的 JSONC。
+2. 确认提供方包含非空 `baseUrl`。
+3. 确认每个模型都有非空且不重复的 `id`。
+4. 确认 `apiKey`、环境变量或自定义认证请求头可用。
+5. 在联网模式下打开 `/model`，触发模型目录刷新。
+6. 运行 `pi --list-models <provider> --offline`，检查手写模型和缓存。
 
-### endpoint 发现失败
+### 模型发现失败
 
-确认 endpoint 返回数组、`data` 数组或 `models` 数组，并检查 HTTP 状态、认证和 `modelsEndpoint`。自动发现使用独立的 30 秒请求 timeout；provider 的 `timeoutMs` 主要控制模型请求 stream。
+确认模型目录端点返回数组、`data` 数组或 `models` 数组。然后检查 HTTP 状态、认证配置和 `modelsEndpoint`。自动发现使用独立的 30 秒超时。提供方的 `timeoutMs` 控制模型流式请求，不控制模型目录请求。
 
 ### 上游拒绝请求
 
-先确认 `api` 类型，再检查 `compat`、`thinkingPreset`、`samplingParams`、`dropParams` 和 provider `extraBody`。不要用 payload 扩展覆盖核心字段。
+先确认 `api` 类型。然后检查 `compat`、`thinkingPreset`、`samplingParams`、`dropParams` 和提供方的 `extraBody`。不要通过请求体扩展覆盖核心字段。
 
 ## 深入阅读
 
-- [配置加载和错误](configuration.md)
-- [Provider/Model 字段](schema.md)
-- [认证和 header](authentication.md)
-- [Pi compat](compatibility.md)
-- [Thinking preset](thinking.md)
-- [Payload 处理](payload.md)
-- [自动发现和 ModelsStore](discovery.md)
-- [可复制示例](examples.md)
+- [配置加载和校验](configuration.md)
+- [提供方和模型字段](schema.md)
+- [认证和请求头](authentication.md)
+- [Pi 兼容选项](compatibility.md)
+- [思考预设](thinking.md)
+- [请求体处理](payload.md)
+- [自动发现和 `ModelsStore`](discovery.md)
+- [配置示例](examples.md)
 - [故障排查](troubleshooting.md)

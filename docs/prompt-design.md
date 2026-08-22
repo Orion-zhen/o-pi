@@ -1,108 +1,112 @@
-# 提示词设计哲学
+# 提示词设计
 
-本仓库的提示词目标是：用最少长期上下文表达稳定、正交、可执行的行为边界。提示词只解决模型决策问题；能由 schema、运行时、工具结果或代码结构表达的内容，不写进长期提示词。
+本仓库使用尽可能少的长期上下文，表达稳定、相互独立且可执行的行为边界。提示词只解决模型决策问题。能由 JSON Schema、运行时、工具结果或代码结构表达的内容，不写入长期提示词。
 
 ## 核心原则
 
-* 最小上下文：只保留会持续影响模型选择的文字。
-* 分层清晰：每条信息只属于一个最合适的位置。
-* 工具自治：工具通过 provider-native definition 维护能力说明，通过 `promptGuidelines` 维护长期边界。
-* 语义正交：工具之间按任务意图拆分，避免多个工具描述同一职责。
-* 专用优先：多个 active tools 都能完成任务时，选择语义最精准的工具。
-* 结果驱动恢复：低频恢复步骤放进当次 tool result，不常驻 system prompt。
-* 结构优先：先用类型、schema、运行时约束和返回结构解决问题，再考虑提示词。
+- 最小上下文：只保留会持续影响模型选择的文本。
+- 单一归属：每条信息只放在最合适的一层。
+- 工具自治：工具通过提供方原生定义说明能力，通过 `promptGuidelines` 提供长期使用边界。
+- 职责独立：按任务意图划分工具，避免多个工具描述相同职责。
+- 专用优先：多个已启用工具都能完成任务时，选择与操作最匹配的工具。
+- 按需恢复：将低频恢复步骤放入当次工具结果，不让这些步骤长期占用系统提示词。
+- 结构优先：先使用类型、JSON Schema、运行时约束和返回结构，再考虑增加提示词。
 
-## 分层职责
+## 各层职责
 
-### system prompt
+### 系统提示词
 
-只放跨工具、长期有效、无法下沉到单个工具的 harness 不变量。
+系统提示词承载角色、共享策略和运行上下文。只有跨工具、长期有效且无法放入单个工具的规则，才应作为共享策略写入系统提示词。
 
-当前结构：
+主代理的系统提示词按以下顺序组成：
 
 ```text
 custom_prompt 或 role
 tool_policy
-model_invocable_skills + skill_policy（仅存在允许模型调用的 skill 时）
+skill_policy（仅存在允许模型调用的技能时）
+model_invocable_skills（仅存在允许模型调用的技能时）
 append_system_prompt
 project_context
 subagents
 context
 ```
 
-`custom_prompt` 可以替换角色、风格和通用行为，但不能移除共享工具策略。`system-prompt.ts` 合成 active tools 的长期规则、最小 skill 策略和仅含名称/描述的可加载 skill 索引。工具名、能力和参数由 provider-native tool definition 提供。
+没有内容的可选段落会被省略。
+
+`SYSTEM.md` 的内容进入 `custom_prompt`，替换默认角色、风格和通用行为。共享工具策略仍然保留。`APPEND_SYSTEM.md` 的内容进入 `append_system_prompt`。
+
+`src/system-prompt/service.ts` 负责合成已启用工具的长期规则、最小技能策略，以及只包含名称与描述的可加载技能索引。工具名、能力和参数由提供方原生工具定义提供。
 
 ### `<tool_policy>`
 
-放全局路由规则和 active tools 贡献的长期规则。
+`<tool_policy>` 包含固定的全局工具规则，以及已启用工具通过 `promptGuidelines` 提供的长期规则。
 
-来源：
+适合放入：
 
-* 固定全局规则：例如选择最窄 active tool。
-* active tools 的 `promptGuidelines`：工具边界中确实需要长期驻留的短规则。
+- 跨工具的选择、调用顺序和证据复用规则。
+- 只有相关工具启用时才需要的长期使用边界。
 
-禁止放入：
+不应放入：
 
-* 参数格式；
-* 默认值；
-* 分页、截断、重试和错误恢复流程；
-* 某个工具的完整使用手册；
-* 与 schema、description 或 tool result 重复的信息。
+- 参数格式和默认值。
+- 分页、截断、重试和错误恢复流程。
+- 单个工具的完整使用手册。
+- 与 JSON Schema、`description` 或工具结果重复的信息。
 
-### tool `description`
+### 工具 `description`
 
-进入 provider-native tool definition，用于帮助模型判断工具能力。写法是“动作 + 对象 + 核心边界”。
+`description` 进入提供方原生工具定义，帮助模型判断工具能力。使用“动作 + 对象 + 核心边界”的结构。
 
 示例：
 
 ```text
-Search literal text or regex in workspace files; return matching lines, paths, or counts.
+Search literal text or regex in workspace files. Return matching lines, paths, or counts.
 ```
 
-不要写：
+`description` 不应包含：
 
-* 参数协议；
-* 错误恢复；
-* 配置来源；
-* renderer 行为；
-* 与 parameter schema 或 system policy 重复的长说明。
+- 参数协议和默认值。
+- 错误恢复流程。
+- 配置来源。
+- 界面渲染行为。
+- 与参数模式或系统策略重复的长说明。
 
-### parameter schema
+### 参数模式
 
-描述字段含义、默认值、约束和调用模式。
+参数模式描述字段含义、默认值、约束和字段之间的组合关系。
 
 优先使用：
 
-* `Type.Integer` 表达整数；
-* `additionalProperties: false` 拒绝未知字段；
-* `minItems` 表达非空数组；
-* 判别联合表达互斥模式；
-* 字段 description 表达局部含义。
+- `Type.Integer` 表达整数。
+- `additionalProperties: false` 拒绝未知字段。
+- `minItems` 表达非空数组。
+- 判别联合表达互斥模式。
+- 字段级 `description` 表达局部含义。
 
-调用协议能进 schema 时，不写进长期提示词。
+参数模式能够表达的调用约束，不应写入长期提示词。
 
-### tool result
+### 工具结果
 
-描述当次调用的事实、失败原因和下一步。
+工具结果描述当次调用的事实、失败原因和下一步操作。
 
-适合放：
+适合放入：
 
-* `READ_REQUIRED` / `STALE_READ` 的 `next`；
-* `next_offset`、`has_more` 和继续读取方式；
-* 只有真正截断时才提示完整日志路径；
-* 当次错误的精确恢复建议。
+- `READ_REQUIRED` 或 `STALE_READ` 的 `next`。
+- `next_offset`、`has_more` 和继续读取的方法。
+- 仅在内容确实截断时提供完整日志路径。
+- 针对当次错误的准确恢复建议。
 
-工具结果应尽量机器可读，模型可见文本保持短而明确。
+工具结果应尽量采用机器可读的结构。模型可见文本应简短且明确。
 
-### runtime
+### 运行时
 
-强制执行安全、权限、路径、网络、并发、取消和参数限制。不能依赖提示词保证安全边界。
+运行时强制执行安全、权限、路径、网络、并发、取消和参数限制。安全边界不能依赖提示词保证。
 
-如果运行时已经强制执行，不在提示词中重复威慑式说明；只在该信息影响模型正确选择时保留简短边界。
+运行时已强制执行的规则不需要以警告形式重复写入提示词。只有该规则会影响模型正确选择时，才保留简短说明。
 
-## 工具提示词字段语义
+## 工具提示词字段
 
-本项目只把 `promptGuidelines` 合成到 `<tool_policy>`。`promptSnippet` 仅供未启用本扩展时的 Pi 默认 prompt 使用，不进入本项目合成的 system prompt。
+本项目只将 `promptGuidelines` 合成到 `<tool_policy>`。`promptSnippet` 仅供 Pi 默认系统提示词使用，不进入本项目合成的系统提示词。具体字段行为参见 [Pi 工具提示词字段](tool-prompt-fields.md)。
 
 示例：
 
@@ -112,45 +116,49 @@ promptGuidelines: [
 ]
 ```
 
-`system-prompt.ts` 只负责合成和去重 Pi 提供的 active tool guidelines，不根据具体工具名追加规则。
+`src/system-prompt/service.ts` 只合成并去重 Pi 提供的已启用工具规则，不根据工具名追加专用规则。
 
-## 判断一条提示词应放哪里
+## 选择信息所在层
 
-按顺序判断：
+按以下顺序判断一条信息应放在哪里：
 
-1. 能由运行时强制吗？放 runtime。
-2. 能由 schema 表达吗？放 parameter schema。
-3. 只在失败、分页或截断后需要吗？放 tool result。
-4. 是某个工具的能力或长期路由边界吗？放 description 或 promptGuidelines。
-5. 是跨工具长期不变量吗？放 `<tool_policy>`。
-6. 只是项目开发规范吗？放 `AGENTS.md`。
+1. 安全、权限或资源边界需要强制执行时，放入运行时。
+2. 信息描述参数字段、默认值或组合约束时，放入参数模式。
+3. 信息只与本次失败、分页或截断有关时，放入工具结果。
+4. 信息描述工具能力时，放入 `description`。
+5. 信息描述单个工具的长期使用边界时，放入 `promptGuidelines`。
+6. 信息是跨工具的长期规则时，放入 `<tool_policy>`。
+7. 信息定义全局角色或风格时，放入 `SYSTEM.md`。
+8. 信息需要追加到全局系统提示词时，放入 `APPEND_SYSTEM.md`。
+9. 信息只约束项目开发时，放入 `AGENTS.md`。
 
-如果一条信息可以放在多个层，选择离事实来源最近、token 成本最低的一层。
+若一条信息可以放在多个层，选择最接近事实来源且长期令牌成本最低的一层。
 
 ## 压缩规则
 
-* 删除寒暄、身份重复和解释性铺垫。
-* 用肯定式短句替代冗长禁止清单。
-* 不枚举 schema 已经约束的字段。
-* 不把低频错误流程常驻。
-* 不通过新增提示词修补代码、schema 或架构问题。
-* 修改提示词后检查重复、冲突和可合并项。
+- 删除寒暄、重复身份和解释性铺垫。
+- 使用直接的肯定句，避免冗长的禁止清单。
+- 不枚举参数模式已经约束的字段。
+- 不让低频错误恢复流程长期驻留。
+- 不通过增加提示词修补代码、参数模式或架构问题。
+- 修改提示词后，检查重复、冲突、必要性和可合并项。
 
 ## 反模式
 
-* 在 `system-prompt.ts` 按工具名硬编码路由规则。
-* 在多个工具 description 中重复同一边界。
-* 在 `promptGuidelines` 中写分页、截断、重试、错误恢复细节。
-* 用提示词声明安全限制，但运行时不强制。
-* 用长示例代替 schema。
-* 为兼容旧工具协议保留提示词适配层。
+- 在 `src/system-prompt/service.ts` 中按工具名硬编码路由规则。
+- 在多个工具的 `description` 中重复同一边界。
+- 在 `promptGuidelines` 中写入分页、截断、重试或错误恢复细节。
+- 只用提示词声明安全限制，不在运行时强制执行。
+- 使用长示例代替参数模式。
+- 为旧工具协议保留提示词兼容层。
 
 ## 提交前检查
 
-* 新增文本是否确实影响模型决策？
-* 是否已经由 schema、runtime 或 tool result 表达？
-* 是否只在相关工具 active 时出现？
-* 是否引用了未启用工具？
-* 是否与 tool definition 或 AGENTS.md 重复？
-* 是否可以用更短、更直接的句子表达？
-* system prompt 快照和相关 schema/tool result 测试是否覆盖变更？
+- 新增文本是否确实影响模型决策？
+- 信息是否已经由参数模式、运行时或工具结果表达？
+- 信息是否只在相关工具启用时出现？
+- 文本是否引用未启用的工具？
+- 文本是否与工具定义或 `AGENTS.md` 重复？
+- 句子是否还能在不损失信息的前提下缩短？
+- `/system` 显示的最终提示词是否存在重复、冲突或错误顺序？
+- 若变更涉及代码、结构化字段或运行时，相关测试是否覆盖稳定行为、安全边界和副作用？

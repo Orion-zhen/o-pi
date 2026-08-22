@@ -1,20 +1,22 @@
 # 认证和敏感配置
 
-## API key 配置值
+## 配置值语法
 
-`apiKey` 和 `headers` 的值可以是字面量、环境变量引用或命令：
+`apiKey` 和 `headers` 中的值可以是字面量、环境变量引用或命令：
 
 | 写法 | 含义 |
 | --- | --- |
-| `"sk-..."` | 字面量。 |
-| `"$ENV"` | `$ENV` 的值。 |
-| `"${ENV}"` | `${ENV}` 的值。 |
-| `"!command"` | 执行 command，使用 trimmed stdout。 |
-| `"EMPTY"` | 默认 keyless，不发送 Authorization。 |
-| `"$$"` | 字面量 `$`。 |
-| `"$!"` | 字面量 `!`。 |
+| `"sk-..."` | 字面量 |
+| `"$ENV"` | 环境变量 `ENV` 的值 |
+| `"${ENV}"` | 环境变量 `ENV` 的值 |
+| `"!command"` | 执行命令，并使用去除首尾空白后的标准输出 |
+| `"EMPTY"` | `apiKey` 默认不使用密钥，也不发送 `Authorization` |
+| `"$$"` | 字面量 `$` |
+| `"$!"` | 字面量 `!` |
 
-模板可以混合字面量和多个环境变量，例如：
+`EMPTY` 只对 `apiKey` 有特殊含义。在 `headers` 中，`EMPTY` 是普通字面量。
+
+一个值可以混合字面量和多个环境变量：
 
 ```jsonc
 {
@@ -22,24 +24,26 @@
 }
 ```
 
-环境变量缺失时，认证不可用并返回明确的变量名。command 失败或返回空 stdout 时同样不可用。
+扩展解析配置值时，只要其中一个环境变量不存在或值为空，整个配置值就不可用。相关错误会指出不可用的变量。命令失败或标准输出为空时，命令对应的配置值也不可用。
 
-## 默认 key 环境变量
+## 默认密钥环境变量
 
-省略 `apiKey` 时，扩展根据 provider id 生成：
+省略 `apiKey` 或将其设为空字符串时，扩展根据提供方 ID 生成环境变量名：
 
 ```text
 PI_MODELS_JSONC_<PROVIDER_ID>_API_KEY
 ```
 
-provider id 中的非字母数字字符会转换为 `_` 并大写。例如：
+扩展会把提供方 ID 转为大写，并将不在 `A-Z` 或 `0-9` 范围内的连续字符替换为 `_`。例如：
 
 ```text
-provider id: lab-server
-variable:    PI_MODELS_JSONC_LAB_SERVER_API_KEY
+提供方 ID：lab-server
+环境变量： PI_MODELS_JSONC_LAB_SERVER_API_KEY
 ```
 
-## `EMPTY` 和运行时 credential
+## `EMPTY` 和运行时凭证
+
+以下配置表示提供方默认不需要认证：
 
 ```jsonc
 {
@@ -47,13 +51,13 @@ variable:    PI_MODELS_JSONC_LAB_SERVER_API_KEY
 }
 ```
 
-表示默认使用无认证服务。模型目录请求只发送 `Accept: application/json`，不会自动添加 Authorization。
+模型目录请求会发送 `Accept: application/json` 和其他已配置的请求头，但不会自动添加 `Authorization`。
 
-如果 Pi 在运行时提供显式 credential，它可以覆盖配置的 keyless 状态并用于本次请求。`EMPTY` 不会把字符串 `EMPTY` 当作真正的 bearer token。
+如果 Pi 在运行时提供显式凭证，该凭证会覆盖 `EMPTY`，并用于当前请求。扩展不会把 `EMPTY` 当作 Bearer 令牌发送。
 
-## Header 合并
+## 请求头合并规则
 
-provider header 和 model header 都在请求边界解析：
+扩展在发送请求前解析提供方请求头和模型请求头：
 
 ```jsonc
 {
@@ -64,51 +68,51 @@ provider header 和 model header 都在请求边界解析：
 }
 ```
 
-基本优先级是：
+请求头的基本优先级如下：
 
 ```text
-provider 配置
-→ model 配置
-→ 调用方显式 header
+提供方请求头
+→ 模型请求头
+→ 调用方显式请求头
 ```
 
-header 名称按大小写不敏感方式比较。调用方显式设置的 header 不应被 provider/model 配置覆盖。
+扩展比较请求头名称时不区分大小写。提供方配置和模型配置都不会覆盖调用方显式设置的请求头。
 
-认证 header 可以直接放在 `headers` 中；如果已经存在 Authorization 或 `CF-AIG-Authorization`，扩展不会再自动添加 bearer Authorization。
+可以在 `headers` 中直接配置认证请求头。如果请求头中已有 `Authorization` 或 `CF-AIG-Authorization`，扩展不会再添加 Bearer `Authorization`。
 
-## 命令配置的边界
+## 命令执行边界
 
-- auth check 只检查命令配置是否可用，不执行命令。
-- 真正 resolve 或发起请求时才执行命令。
-- 每个命令结果在进程内缓存。
-- 命令执行 timeout 为 10 秒。
-- stdout 会 trim；stderr 不作为认证值。
-- 命令原文和结果不会写入 ModelsStore。
+- 认证检查将命令配置视为可用，但不会执行命令。
+- 扩展在解析凭证或发送请求时执行命令。
+- 每条命令的结果在进程内缓存。
+- 命令执行超时时间为 10 秒。
+- 扩展去除标准输出的首尾空白。标准错误不会用作认证值。
+- 命令文本和执行结果不会写入 `ModelsStore`。
 
-不要把不可信用户输入拼接进 command 配置。
+不要把不可信的用户输入拼接到命令配置中。
 
 ## 模型发现认证
 
-models endpoint 使用当前有效的 credential 和 provider header。在线刷新时，Pi 已解析的 credential 优先；没有显式 credential 时才使用 provider 配置。
+模型目录端点使用当前有效的凭证和提供方请求头。联网刷新时，Pi 已解析的凭证优先。没有运行时凭证时，扩展使用提供方配置。
 
-自动发现错误会保留 provider、HTTP 状态和最多 500 个字符的响应片段，但不会把 Authorization 或 API key 放入错误消息。
+模型目录端点返回非 2xx 状态时，错误会包含提供方和 HTTP 状态，并最多截取响应正文的前 500 个字符。扩展不会把请求中的 `Authorization` 或 API 密钥写入错误。
 
-## 持久化和脱敏
+## 持久化
 
-Pi ModelsStore 可能保存：
+Pi 的 `ModelsStore` 可以保存：
 
-- 模型元数据；
-- `baseUrl`；
-- API、compat 和 endpoint source hash。
+- 模型元数据
+- `baseUrl`
+- API 类型、兼容选项和目录配置的来源哈希
 
-不会保存 API key 或认证 header。诊断显示会将 key 脱敏为 `<literal:redacted>`、`<env:NAME>`、`<command:redacted>` 或 `<empty-placeholder>`。
+`ModelsStore` 不保存 API 密钥或认证请求头。
 
 ## 文件权限
 
-配置可能包含 API key，建议：
+配置可能包含 API 密钥，建议限制文件权限：
 
 ```bash
 chmod 600 ~/.pi/agent/models.jsonc
 ```
 
-Unix 上 group/others 可读写时扩展显示 warning。权限 warning 不会自动修改文件。
+在 Unix 系统上，如果组用户或其他用户具有配置文件的任何权限，扩展会显示警告。扩展不会自动修改文件权限。Windows 不执行此项检查。

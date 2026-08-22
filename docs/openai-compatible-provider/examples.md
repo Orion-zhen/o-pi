@@ -6,7 +6,7 @@
 {
   "providers": {
     "local": {
-      "name": "Local AI",
+      "name": "本地模型",
       "baseUrl": "http://127.0.0.1:8000/v1",
       "apiKey": "EMPTY",
       "api": "openai-completions",
@@ -56,7 +56,7 @@
 }
 ```
 
-## OpenAI Responses-compatible 服务
+## OpenAI Responses 兼容服务
 
 ```jsonc
 {
@@ -82,7 +82,7 @@
 }
 ```
 
-## 模型级 endpoint 和 header
+## 模型专用端点和请求头
 
 ```jsonc
 {
@@ -107,7 +107,7 @@
 }
 ```
 
-## 自动发现和手写覆盖
+## 自动发现与手写配置优先级
 
 ```jsonc
 {
@@ -117,16 +117,16 @@
       "apiKey": "$GATEWAY_API_KEY",
       "modelsEndpoint": "models",
       "models": [
-        { "id": "preferred", "name": "Preferred name" }
+        { "id": "preferred", "name": "首选名称" }
       ]
     }
   }
 }
 ```
 
-endpoint 可以补充 `preferred` 的上下文和 modality，并追加远端独有模型；手写 name 仍然优先。
+端点可以补充 `preferred` 缺少的上下文窗口和输入类型，并追加远端独有的模型。手写配置中的 `name` 保持不变。
 
-## Command 获取 key
+## 通过命令获取密钥
 
 ```jsonc
 {
@@ -140,6 +140,6 @@ endpoint 可以补充 `preferred` 的上下文和 modality，并追加远端独�
 }
 ```
 
-command 会在请求边界执行并在进程内缓存 stdout。不要把不可信内容拼进 command。
+扩展在解析凭证或发送请求时执行命令。扩展会去除标准输出的首尾空白，并在进程内缓存结果。不要把不可信内容拼接到命令中。
 
-完整字段说明见 [schema.md](schema.md)，认证规则见 [authentication.md](authentication.md)。
+完整字段说明见[配置模式](schema.md)。认证规则见[认证和敏感配置](authentication.md)。

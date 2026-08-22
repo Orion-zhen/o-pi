@@ -1,6 +1,6 @@
 # 配置
 
-本文说明 file-tools 配置的路径、优先级、字段和缓存。工具行为摘要见 [文件工具设计](README.md)，ignore 匹配算法见 [Ignore engine](ignore.md)。
+本文说明文件工具的配置路径、优先级、字段和缓存。工具行为摘要见[文件工具设计](README.md)，忽略规则匹配算法见[忽略规则引擎](ignore.md)。
 
 ## 配置位置与优先级
 
@@ -22,59 +22,60 @@
 .pi/configs/file-tools.jsonc
 ```
 
-配置按默认、用户、项目顺序合并。项目配置按每次 Pi invocation 的 `ctx.cwd` 定位，而不是按 agent 进程的 `process.cwd()` 隐式选择。它在用户配置之后加载，但只能：
+配置按默认、用户、项目顺序合并。项目配置按每次 Pi 调用的 `ctx.cwd` 定位，而不是按智能体进程的 `process.cwd()` 隐式选择。它在用户配置之后加载，但只能：
 
-- 追加 `blocked_path` 和 `ignored_path`；
-- 覆盖 `limits`；
+- 追加 `blocked_path` 和 `ignored_path`。
+- 覆盖 `limits`。
 - 覆盖 `ignore.builtin_profile`。
 
-项目配置不能修改 `ignore.piignore`、`ignore.gitignore` 或 `ignore.git_tracked_files_bypass`，避免项目关闭用户级 ignore 策略。
+项目配置不能修改 `ignore.piignore`、`ignore.gitignore` 或 `ignore.git_tracked_files_bypass`。此限制可防止项目关闭用户级忽略策略。
 
 ## 默认配置
 
-完整默认值以 `agent/defaults/file-tools.jsonc` 为准。默认文件必须包含 schema 中的全部固定字段；缺失或损坏会作为配置错误处理，不再回退到 TypeScript 常量。
+完整默认值以 `agent/defaults/file-tools.jsonc` 为准。默认文件必须包含模式要求的全部字段。字段缺失或文件损坏会作为配置错误处理，不再回退到 TypeScript 常量。
 
 ## 字段
 
 ### 路径策略
 
-- `blocked_path`：硬阻止路径。命中后不能列出、搜索、读取或写入。相对规则可匹配同名路径段，绝对规则按绝对路径匹配；目录规则以 `/` 结尾。输入 lexical path 和目标 realpath 都会检查。
-- `ignored_path`：soft ignore 路径。自动发现、递归搜索和索引默认跳过；明确访问仍然允许，并返回 `ignored: true` 及 `ignore_source: "file-tools.jsonc"`。
+- `blocked_path`：硬阻止路径。系统不能列出、搜索、读取或写入命中的路径。相对规则可匹配同名路径段，绝对规则按绝对路径匹配。目录规则以 `/` 结尾。系统同时检查输入的字面路径和目标的真实路径。
+- `ignored_path`：软忽略路径。自动发现、递归搜索和索引默认跳过命中的路径。明确访问仍然允许，结果会包含 `ignored: true` 和 `ignore_source: "file-tools.jsonc"`。
 
-### limits
+### `limits`
 
 - `ls_entries`：一次 `ls` 最多返回的直属成员数。
 - `read_lines` / `read_bytes`：一次 `read` 最多返回的行数和 UTF-8 字节数。
-- `read_max_file_bytes`：`read` 可完整载入的单文件上限；局部行范围也不能绕过。
-- `write_max_file_bytes`：`write` 的已有 snapshot 和提交内容上限。
-- `edit_max_file_bytes`：`edit` 的已有 snapshot 和提交内容上限。
-- `edit_match_hint_limit`：`OLD_TEXT_NOT_UNIQUE` 匹配提示或 `OLD_TEXT_NOT_FOUND` anchor 候选的最大返回数，默认 3，范围为 1-10。
-- `find_output_token_budget`：`find` 模型可见输出预算，最小为 32 token。
+- `read_max_file_bytes`：`read` 可完整载入的单文件上限。局部行范围也不能绕过。
+- `read_suggestion_limit`：文件不存在时最多返回的相关路径数。默认配置为 3，取值范围为 1 到 10。
+- `write_max_file_bytes`：`write` 的现有文件快照和提交内容上限。
+- `edit_max_file_bytes`：`edit` 的现有文件快照和提交内容上限。
+- `edit_match_hint_limit`：`OLD_TEXT_NOT_UNIQUE` 匹配提示或 `OLD_TEXT_NOT_FOUND` 锚点候选的最大返回数。默认配置为 5，取值范围为 1 到 10。
+- `find_output_token_budget`：`find` 模型可见输出的词元预算，最小值为 32。
 - `find_result_limit`：`find` 最多保留的具体结果数。
-- `find_max_depth`：`find` 相对每个搜索 scope 的最大路径深度；scope 根为 0，直属子项为 1。
-- `find_max_entries`：一次 `find` 在所有 scope 间共享的最大遍历 entry 数，默认 20000。
-- `grep_max_depth`：`grep` 相对每个显式 scope 的最大路径深度；scope 根为 0，直属子项为 1。
-- `grep_max_entries`：一次 `grep` inventory 在所有目录 scope 间共享的最大遍历 entry 数，默认 10000。
-- `grep_max_search_bytes`：一次 `grep` 正文搜索可预留的累计文件 snapshot 字节数，默认 128 MiB；下一文件无法完整容纳时停止扫描。
-- `grep_ast_max_file_bytes`：单文件进入 Tree-sitter 的最大字节数；不限制流式正文搜索。
-- `grep_content_cache_bytes`：进程内 `grep` 正文缓存的总字节上限，默认 16 MiB，范围为 0-100 MiB；`0` 表示禁用。
-- `grep_content_cache_entries`：进程内 `grep` 正文缓存的文件数上限，默认 2048，范围为 0-100000；`0` 表示禁用。
-- `grep_result_limit`：`grep` 最多返回的 region 数。
-- `grep_related_result_limit`：稳定排序后最多保留的 related/semantic region 数，默认 8，范围为 0-50；`0` 表示禁用 related results。该限制静默生效，不进入模型截断提示。
-- `grep_regional_display_limit`：每个语法区域最多展示的 matching/evidence 源码行数，默认 3，范围为 1-20；不裁剪完整的 `match_lines` 事实。
+- `find_max_depth`：`find` 相对每个搜索范围的最大路径深度。范围根目录的深度为 0，直属子项为 1。
+- `find_max_entries`：一次 `find` 在所有范围间共享的最大遍历条目数，默认 20000。
+- `grep_max_depth`：`grep` 相对每个明确范围的最大路径深度。范围根目录的深度为 0，直属子项为 1。
+- `grep_max_entries`：一次 `grep` 文件清单构建在所有目录范围间共享的最大遍历条目数，默认 10000。
+- `grep_max_search_bytes`：一次 `grep` 正文搜索可预留的累计文件快照字节数，默认配置为 128 MiB。下一文件无法完整容纳时停止扫描。
+- `grep_ast_max_file_bytes`：单文件进入 Tree-sitter 的最大字节数。不限制流式正文搜索。
+- `grep_content_cache_bytes`：进程内 `grep` 正文缓存的总字节上限，默认配置为 16 MiB，取值范围为 0 到 100 MiB。`0` 表示禁用。
+- `grep_content_cache_entries`：进程内 `grep` 正文缓存的文件数上限，默认配置为 2048，取值范围为 0 到 100000。`0` 表示禁用。
+- `grep_result_limit`：`grep` 最多返回的区域数。
+- `grep_related_result_limit`：稳定排序后最多保留的相关区域数，默认配置为 8，取值范围为 0 到 50。`0` 表示禁用相关结果。模型输出不会提示该限制，截断信息也不包含该限制。
+- `grep_regional_display_limit`：每个语法区域最多展示的匹配或证据源码行数，默认配置为 3，取值范围为 1 到 20。不裁剪完整的 `match_lines` 记录。
 
-grep 只接受以上列出的 `grep_` limit。`grep_max_entries` 限制 inventory，`grep_max_search_bytes` 限制正文事实扫描；AST 单文件字节只控制语法增强，正文缓存限制只控制跨调用复用。related cap 先静默应用，剩余候选再受 `grep_result_limit` 限制。
+配置只接受以上列出的 `grep_` 限制字段。`grep_max_entries` 限制文件清单构建，`grep_max_search_bytes` 限制正文扫描。`grep_ast_max_file_bytes` 只控制单个文件的语法增强。正文缓存限制只控制跨调用复用。系统先应用相关结果上限，但不在模型输出中提示该限制。剩余候选再受 `grep_result_limit` 限制。
 
-### ignore
+### `ignore` 字段
 
 - `piignore`：是否读取 `.piignore`。
 - `gitignore`：是否读取 `.gitignore`。
-- `git_tracked_files_bypass`：tracked 文件是否绕过 `.gitignore`；不会绕过 `.piignore`。
-- `builtin_profile`：内置 soft ignore profile，可取 `none`、`minimal` 或 `performance`。
+- `git_tracked_files_bypass`：已跟踪文件是否绕过 `.gitignore`。不会绕过 `.piignore`。
+- `builtin_profile`：内置软忽略档位，可取 `none`、`minimal` 或 `performance`。
 
 ## 运行时配置
 
-内部 ignore 配置的默认值为：
+内部忽略配置的默认值为：
 
 ```ts
 {
@@ -88,12 +89,12 @@ grep 只接受以上列出的 `grep_` limit。`grep_max_entries` 限制 inventor
 }
 ```
 
-规则来源优先级从高到低为：session override、`.piignore`、`.gitignore`、`.git/info/exclude`、Git global excludes、builtin rules。后两类默认关闭。
+规则来源优先级从高到低为：会话覆盖规则、`.piignore`、`.gitignore`、`.git/info/exclude`、Git 全局排除规则、内置规则。后两类默认关闭。
 
 ## 校验、分层与缓存
 
-配置损坏时 host 返回 `CONFIG_ERROR`，不会创建 filesystem namespace 或继续 workspace I/O。loader 将结果拆为 filesystem policy（blocked/visibility）和只读 tool limits；filesystem 不接收搜索、模型输出或增强配置，tool command 只接收自身所需 limits。
+配置损坏时，主机返回 `CONFIG_ERROR`，不会创建文件系统命名空间或继续访问工作区。加载器将结果拆分为文件系统策略和只读工具限制。文件系统策略只包含受阻路径和可见性规则。文件系统不接收搜索、模型输出或增强配置，各工具命令只接收自身需要的限制。
 
-有效配置按用户/项目路径和文件 metadata 缓存在进程内；同 cwd 并发调用共享读取和 schema 校验，不同 cwd 不共享错误或项目配置。配置文件创建、替换或修改后 fingerprint 变化，下一次调用自动重载。
+系统根据用户配置路径、项目配置路径和文件元数据，在进程内缓存有效配置。同一 `cwd` 的并发调用共享文件读取和模式校验结果。不同 `cwd` 不共享错误或项目配置。创建、替换或修改配置文件会改变指纹，下一次调用将自动重新加载配置。
 
-每次调用获得独立冻结/克隆后的配置值，调用方不能污染缓存。配置和 invocation-local visibility state 的关系见 [Ignore engine](ignore.md)。
+每次调用获得经过独立冻结或克隆的配置值，调用方不能污染缓存。配置和调用级可见性状态的关系见[忽略规则引擎](ignore.md)。

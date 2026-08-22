@@ -1,35 +1,37 @@
-# Skill Context
+# 技能上下文
 
-`skill-context` 提供静态 `skill` 工具、手动 `/skill:<name>` 加载和只读 `skill://` 资源定位。
+`skill-context` 提供三项能力：参数结构固定的 `skill` 工具、手动 `/skill:<name>` 加载，以及供 `read` 使用的只读 `skill://` 资源定位符。
 
 ## 发现路径
 
-默认用户级 skill 来自 `~/.pi/agent/skills` 和 `~/.agents/skills`。项目受信任时，`.pi/skills` 与 `.agents/skills` 都会从当前工作目录逐级向上发现：位于 Git 仓库内时包含当前目录到最近 Git 根目录，不在 Git 仓库内时一直到文件系统根目录。项目未受信任时不暴露这些项目路径。
+默认用户级技能来自 `~/.pi/agent/skills` 和 `~/.agents/skills`。项目受信任后，Pi 会从当前工作目录逐级向上发现 `.agents/skills`，o-pi 以相同范围补充发现 `.pi/skills`。如果当前目录位于 Git 仓库中，发现范围止于最近的 Git 根目录。否则，发现范围止于文件系统根目录。项目未受信任时，Pi 和 o-pi 都不会暴露这些项目级目录。
 
-Pi 原生发现 `cwd/.pi/skills`；o-pi 通过 `resources_discover` 补充其祖先目录，因此不会重复注入当前目录。skill 目录内部仍使用 Pi 的递归、忽略文件和 `SKILL.md` 解析规则。
+Pi 原生发现当前工作目录中的 `.pi/skills`。o-pi 通过 `resources_discover` 只补充祖先目录，因此不会重复注入当前目录。通过软件包、设置或 `--skill` 提供的其他技能仍由 Pi 发现，o-pi 直接使用 Pi 的发现结果。
 
-## SKILL.md frontmatter
+技能目录仍遵循 Pi 的递归发现、忽略文件和 `SKILL.md` 解析规则。
 
-`SKILL.md` 使用 YAML frontmatter。当前允许的字段包括 Agent Skills 标准字段和 Pi 兼容字段；o-pi 不再新增权限字段：
+## `SKILL.md` 前置元数据
+
+`SKILL.md` 使用 YAML 前置元数据。支持的字段包括 Agent Skills 标准字段和 Pi 兼容字段。o-pi 不定义额外的权限字段。
 
 | 字段 | 必填 | 类型与约束 | 当前行为 |
 | --- | --- | --- | --- |
-| `name` | 标准要求必填；o-pi 允许省略 | 1-64 个字符，只能包含小写字母、数字和单连字符；不能以连字符开头或结尾 | 省略时使用 `SKILL.md` 父目录名。为兼容其他客户端，应显式填写并与父目录名一致 |
-| `description` | 是 | 非空字符串，最多 1024 个字符 | 用于 skill 索引和 `/skill` 命令说明，应同时描述功能和适用场景 |
-| `license` | 否 | 简短的许可证名称，或指向 skill 内许可证文件的说明 | Agent Skills 标准字段；o-pi 接受但当前不消费，也不会随正文披露给模型 |
-| `compatibility` | 否 | 非空字符串，标准上限为 500 个字符 | Agent Skills 标准字段，用于声明产品、系统依赖或网络要求；o-pi 当前不校验、不消费，也不会随正文披露给模型 |
-| `metadata` | 否 | 字符串键到字符串值的映射 | Agent Skills 标准扩展容器；o-pi 当前不消费 |
-| `allowed-tools` | 否 | 以空格分隔的工具声明字符串 | Agent Skills 实验字段；o-pi 当前忽略，不会授予工具权限或绕过审批 |
-| `disable-model-invocation` | 否 | YAML 布尔值；Pi 默认 `false` | Pi 兼容字段；严格布尔值 `true` 时禁止模型发现和通过 `skill` 工具加载 |
+| `name` | Agent Skills 标准要求必填。o-pi 允许省略 | 1 至 64 个字符，只能包含小写字母、数字和连字符。不能以连字符开头或结尾，也不能包含连续连字符 | 省略时使用 `SKILL.md` 的父目录名。为兼容其他客户端，建议显式填写并与父目录名一致 |
+| `description` | 是 | 非空字符串，最多 1024 个字符 | 用于技能索引和 `/skill` 命令说明。内容应同时说明技能功能和适用场景 |
+| `license` | 否 | 简短的许可证名称，或对技能目录内许可证文件的引用 | Agent Skills 标准字段。o-pi 当前不使用，也不会将其加入模型上下文 |
+| `compatibility` | 否 | 非空字符串。Agent Skills 标准规定最多 500 个字符 | 用于声明产品、系统依赖或网络要求。o-pi 当前不校验、不使用，也不会将其加入模型上下文 |
+| `metadata` | 否 | 字符串键到字符串值的映射 | Agent Skills 标准的扩展容器。o-pi 当前不使用 |
+| `allowed-tools` | 否 | 以空格分隔的工具声明字符串 | Agent Skills 实验字段。o-pi 当前忽略，不会据此授予工具权限或绕过审批 |
+| `disable-model-invocation` | 否 | YAML 布尔值。Pi 默认按 `false` 处理 | Pi 兼容字段。值为严格布尔值 `true` 时，模型无法发现或通过 `skill` 工具加载该技能 |
 
 完整示例：
 
 ```yaml
 ---
 name: code-writing
-description: 编写和修改代码；当任务需要实现、重构或修复代码时使用。
+description: 编写和修改代码。当任务需要实现、重构或修复代码时使用。
 license: Apache-2.0
-compatibility: Requires git and Node.js 22+
+compatibility: 需要 Git 和 Node.js 22 或更高版本
 metadata:
   author: example-org
   version: "1.0"
@@ -38,13 +40,17 @@ disable-model-invocation: false
 ---
 ```
 
-`disable-model-invocation` 完全采用 Pi 的解析结果，本仓库不再解释或覆盖该字段。Pi 只有在值为严格布尔值 `true` 时禁用模型调用；字段缺失、`false` 和非布尔值都不会禁用。为避免 YAML 类型歧义，需要禁用时应写成不带引号的 `true`。未列出的自定义信息应放入 `metadata`；顶层未知字段可能被 YAML 解析器接受，但不属于受支持接口，也不会产生运行时行为。
+`disable-model-invocation` 完全采用 Pi 的解析结果，本仓库不再解释或覆盖该字段。Pi 只在解析结果为严格布尔值 `true` 时禁用模型调用。为避免 YAML 类型歧义，建议写成不带引号的 `true`。字段缺失、`false` 和非布尔值都不会禁用模型调用。
 
-o-pi 加载时会移除整个 frontmatter，只向模型披露 Markdown 正文。因此，影响模型执行的环境要求和权限规则仍应写入正文；`compatibility`、`metadata` 和 `allowed-tools` 目前都不是运行时控制机制。
+Pi 对多数名称和描述问题只发出警告。o-pi 实际加载技能时会重新解析文件，并严格校验 `name` 和 `description`。发现名称与文件中的 `name` 不一致时，o-pi 也会拒绝加载。
+
+未列出的自定义信息应放入 `metadata`。YAML 解析器可能接受未知的顶层字段，但这些字段不属于受支持接口，也不会产生运行时行为。
+
+o-pi 加载技能时会移除全部前置元数据，只向模型提供 Markdown 正文。因此，影响模型执行的环境要求和权限规则仍应写入正文。`compatibility`、`metadata` 和 `allowed-tools` 都不是当前的运行时控制机制。
 
 ## 声明与索引
 
-system prompt 只索引允许模型加载的 skill：
+系统提示词只索引允许模型加载的技能：
 
 ```text
 <model_invocable_skills>
@@ -52,13 +58,17 @@ system prompt 只索引允许模型加载的 skill：
 </model_invocable_skills>
 ```
 
-索引不包含正文、真实路径或资源列表。`skill` 工具使用固定 schema `skill({ name: string })`，skill 名称不会进入动态 enum。
+索引不包含技能正文、真实路径或资源列表。`skill` 工具使用固定的参数结构 `skill({ name: string })`，不会把技能名称写入动态 `enum`。
 
-索引直接使用 Pi 传入的 `BuildSystemPromptOptions.skills`，包括 Pi 已解析的名称、描述和 `disableModelInvocation`，不再读取或缓存 frontmatter。输出顺序仍与 Pi 的发现顺序一致。同名 skill 只保留一个；project skill 始终覆盖 user skill，其他同 scope 候选保留先发现者。
+索引直接使用 Pi 提供的 `BuildSystemPromptOptions.skills`，包括 Pi 已解析的名称、描述和 `disableModelInvocation`。o-pi 不会为索引重新读取或缓存前置元数据。索引顺序与 Pi 的发现顺序一致。
 
-## 加载
+每个名称只保留一个技能。项目级技能始终覆盖同名的用户级技能。同一范围内存在多个同名技能时，保留最先发现的技能。
 
-模型只能通过 `skill` 工具加载 Pi 判定为可调用的 skill；`disable-model-invocation: true` 会禁止调用，缺失或 `false` 则允许。成功结果只包含逻辑根边界和去掉 frontmatter 的完整正文：
+## 加载和分支记录
+
+模型只能通过 `skill` 工具加载 Pi 判定为可调用的技能。`disable-model-invocation: true` 会禁止模型加载。字段缺失、值为 `false` 或解析结果不是布尔值时，Pi 允许模型加载。
+
+首次提供当前版本时，工具结果包含逻辑根边界和移除前置元数据后的完整正文：
 
 ```text
 <invoked_skill root="skill://code-writing"/>
@@ -66,32 +76,42 @@ system prompt 只索引允许模型加载的 skill：
 SKILL.md body
 ```
 
-用户执行 `/skill:<name>` 时可以加载任意已发现 skill。手动加载与工具加载复用同一执行器、校验、分支记录、去重和 UI 数据，但不会启动模型推理，也不会伪造 assistant tool call。
+用户执行 `/skill:<name>` 时可以加载任意已发现的技能，包括禁止模型调用的技能。手动加载和工具加载共用执行器、校验、分支记录、去重逻辑和界面数据。手动加载不会启动模型推理，也不会伪造助手工具调用。
 
-每次成功披露会写入 Host-only session custom entry，用于当前分支的资源权限和去重；agent 披露同时记录所属的 tool call。该记录不复制正文、描述或调用策略。资源权限按当前分支保留；正文去重只在对应的 agent tool transaction 仍存在于有效模型上下文时生效，因此被 `/prune` 或 compaction 移除后会重新披露。手动披露没有 tool call，不受 agent tool transaction prune 影响，并按分支中的手动披露去重。历史 agent 记录没有 tool call 时不会用于自动去重，下一次加载会补写新格式记录。相同 content hash 不重复写入或披露正文；文件内容改变后允许追加新版本，后出现的版本生效。系统没有 unload、clear 或 active/inactive 状态。
+每次加载新的技能版本时，o-pi 都会写入仅宿主可见的自定义会话条目。该条目用于恢复当前分支的资源权限和去重状态。模型通过工具加载时，条目还会记录对应的工具调用标识。条目不复制正文、描述或调用策略。
 
-`/skill` 只显示当前分支已披露的 skill。`/skill clear` 不再存在。
+资源权限在当前分支中持续有效。正文去重规则取决于加载方式：
+
+- 模型通过工具加载时，只有对应的工具事务仍存在于有效模型上下文中，o-pi 才会省略重复正文。`/prune` 或上下文压缩移除该工具事务后，再次加载会重新提供正文。
+- 手动加载没有工具调用标识。只要当前分支中的最新记录仍对应同一版本，再次手动加载就会省略正文。
+- 旧版模型加载记录如果没有工具调用标识，则不能触发自动去重。下次加载会写入新格式记录。
+
+只有内容哈希、文件路径、逻辑根和作用域都相同时，两个记录才表示同一版本。文件内容或来源发生变化后，o-pi 会追加记录并提供新正文。每个技能名称以当前分支中最后出现的版本为准。
+
+系统不提供卸载、清理或启用状态。`/skill` 只显示当前分支中已有加载记录的技能，`/skill clear` 不再存在。
 
 ## 二级资源
 
-已加载 skill 可让模型继续使用 `read` 读取相关资源：
+加载技能后，模型可以继续使用 `read` 读取技能目录中的相关资源：
 
 ```text
 skill://code-writing/references/testing.md
 skill://code-writing/assets/example.txt
 ```
 
-`skill://` 只是 `read` 识别的只读逻辑定位符，不是技能名称或操作系统路径。它必须传给 `read`，不能传给 `skill`、`write`、`edit` 或 shell；误传给 `skill` 时，工具会返回使用 `read` 的纠正提示。
+`skill://` 是 `read` 识别的只读逻辑定位符，不是技能名称或操作系统路径。定位符只能传给 `read`，不能传给 `skill`、`write`、`edit` 或 shell。定位符误传给 `skill` 时，工具会返回改用 `read` 的提示。
 
 资源解析遵守以下边界：
 
-- 只允许当前 session branch 已加载的精确 skill 名称。
-- 拒绝 `..`、`.`、空路径段、反斜杠、NUL、query、fragment 和百分号编码。
-- 对 skill root 与目标执行 `realpath`，目标必须仍位于 root 内，符号链接不能逃逸。
-- 模型输出和遥测中的读取路径保持逻辑 URI，不泄漏真实目录。
-- 对已发现 skill root 的普通绝对路径读取会被拒绝，不能绕过 `skill://` 权限。
-- skill 资源读取不运行 LSP 增强，也不会写入供 `edit` 使用的 read-version 缓存。
+- 只允许访问当前会话分支中已加载的精确技能名称。
+- 拒绝 `..`、`.`、空路径段、反斜杠、NUL、查询字符串、片段标识符和百分号编码。
+- o-pi 会解析技能逻辑根和目标的真实路径。目标必须仍位于技能逻辑根内，符号链接不能越过该边界。
+- 模型输出和遥测使用逻辑 URI，不会泄漏真实目录。
+- 直接读取已发现技能目录中的普通绝对路径会被拒绝，不能绕过 `skill://` 权限。
+- 读取技能资源时不运行 LSP 增强，也不会写入供 `edit` 使用的读取版本缓存。
 
-file-tools 扩展实例会复用 Pi 命令生成的 skill 候选和根目录索引。普通路径先执行无 I/O 的词法边界检查；只有检测外部符号链接时才按需解析并缓存 canonical roots。`skill://` 使用加载时已规范化的 root，只对目标执行 `realpath`。执行 `/reload` 后新扩展实例会重建这些缓存。
+文件工具扩展会复用 Pi 命令提供的技能候选和根目录索引。对于普通绝对路径，扩展先执行不产生 I/O 的词法边界检查。路径位于已知词法根之外时，扩展才解析真实路径，以检测指向技能目录的符号链接别名。规范化后的根目录会在扩展实例内缓存。
 
-实现没有独立配置文件；`SKILL.md` 始终完整加载。
+解析 `skill://` 定位符时，扩展直接使用加载阶段已规范化的逻辑根，只解析目标的真实路径。执行 `/reload` 后，新扩展实例会重建候选索引和路径缓存。
+
+该功能没有独立配置文件。o-pi 始终完整加载 `SKILL.md` 正文，不截断正文，也不设置额外的长度上限。

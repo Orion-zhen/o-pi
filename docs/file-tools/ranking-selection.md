@@ -1,31 +1,31 @@
 # 排序选择
 
-grep 候选先按以下固定键完成 relevance 排序：
+`grep` 候选先按以下固定键完成相关性排序：
 
 ```text
-query tier + authority
--> BM25F field score
--> source rank score
--> verified coverage
--> region size
--> path
--> start line
--> end line
--> id
+查询层级 + 权威等级
+-> BM25F 字段分数
+-> 来源排名分数
+-> 已验证覆盖率
+-> 区域大小
+-> 路径
+-> 起始行
+-> 结束行
+-> 标识
 ```
 
-排序不执行 query 意图分类或 `tests` / `src` 上下文加权。每个 query tier 内按 `called`、`referenced`、`defined`、unknown 划分 authority band；`path` 只在最后破平，不进入来源 rank。
+排序不分类查询意图，也不对 `tests` 或 `src` 等路径上下文加权。每个查询层级内按 `called`、`referenced`、`defined`、`unknown` 划分权威等级带。路径只用于最后破平，不影响来源排名。
 
-任意合法查询都优先尝试由 LSP 原子生成 symbol 与 authority。有正文命中时 server 必须同时支持 document symbol、references 和 incoming call hierarchy；零命中时还必须支持 workspace symbol。只有本次全部目标完成映射时才采用 LSP 结果；能力缺失、超时或响应不完整时整次回到 Tree-sitter。
+对于任意合法查询，系统都会优先尝试通过 LSP 原子事务生成符号和权威等级。有正文命中时，服务器必须同时支持文档符号、引用和传入调用层次。没有正文命中时，服务器还必须支持工作区符号。只有本次调用的全部目标都完成映射时，系统才采用 LSP 结果。能力缺失、超时或响应不完整时，整次分析回退到 Tree-sitter。
 
-Tree-sitter 路径复用命名代码单元中已经提取的定义、引用、调用和文件级 import，构造一次性的保守依赖图。同文件唯一目标、显式 import 唯一目标或当前解析集唯一 exported 目标才形成边；匿名顶层代码、局部定义遮蔽、同名歧义和动态调用不猜测。该图只更新 `called` / `referenced` / `defined`，不读取目录名、文件名或测试框架字符。
+Tree-sitter 分析路径复用命名代码单元中已提取的定义、引用、调用和文件级导入，构造一次性的保守依赖图。以下三种情况才能形成依赖边：同一文件中的唯一目标、显式导入的唯一目标，或当前解析集合中的唯一导出目标。系统不会猜测匿名顶层代码、局部定义遮蔽、同名歧义和动态调用。依赖图只更新 `called`、`referenced` 和 `defined`，不读取目录名、文件名或测试框架特征。
 
-packer 先按 `grep_related_result_limit` 静默保留 relevance 排序中的前 N 个 related/semantic region；verified region 不消耗该配额。总结果选择保留前 4 条 relevance head，剩余名额只在当前最佳 tier 内按 `lambda=0.85` 的确定性 MMR 选择，降低同文件、同 symbol 和同目录重复。MMR 不跨 tier，不设 score cutoff，也不按 token 成本删改候选；选出的 tail 最终恢复 relevance 顺序。
+打包器先按 `grep_related_result_limit` 保留相关性排序中的前 N 个相关区域，但不在模型输出中提示该限制。已验证区域不消耗该配额。总结果先保留相关性最高的 4 条。剩余名额只在当前最高相关性层级内使用 `lambda=0.85` 的确定性最大边际相关性算法（MMR），减少同文件、同符号和同目录的重复结果。MMR 不跨层级，不设置分数阈值，也不按词元成本删改候选。尾部候选选定后会恢复为相关性顺序。
 
-超过总结果限制时，`truncated_by` 加入 `result_limit`，模型正文的 `<grep>` 开始标签同步显示截断状态和省略数量。
+超过总结果限制时，`truncated_by` 会加入 `result_limit`。模型正文的 `<grep>` 开始标签会显示截断状态，结尾会显示省略数量。
 
-`grep_regional_display_limit` 只限制单个 region 的代表行数，不影响 region 选择。`approx_tokens` 只用于观测。
+`grep_regional_display_limit` 只限制单个区域的代表行数，不影响区域选择。`approx_tokens` 只用于观测。
 
-普通正文命中和零命中 related 回退不混排：只要整次调用存在正文命中，就不生成 related 候选。
+普通正文命中与无正文命中时的相关结果回退不会混排。只要整次调用存在正文命中，系统就不会生成相关候选。
 
-当前策略以 `semantic-tier-bm25f-rrf-mmr-v2` 写入 telemetry。算法标识只描述排序语义，不替代 Git revision。每次调用同时记录纯 relevance 前缀与最终选择的文件数、MMR 替换数，并为可见候选记录 relevance rank、结构 tier、主/辅助分数和 `head` / `mmr` 阶段。
+当前策略以 `semantic-tier-bm25f-rrf-mmr-v2` 写入遥测。算法标识只描述排序语义，不替代 Git 修订版本。每次调用还会记录纯相关性前缀和最终选择覆盖的文件数、MMR 替换数，以及每个可见候选的相关性排名、结构层级、主分数、辅助分数和 `head` 或 `mmr` 选择阶段。

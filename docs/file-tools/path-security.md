@@ -1,60 +1,60 @@
 # 路径与安全
 
-六个文件工具共享 filesystem namespace 与 access-policy kernel；工具只持有解析后的 opaque ref，不能用 native path 绕过检查。普通使用摘要见 [文件工具设计](README.md)。
+六个文件工具共享文件系统命名空间和访问策略内核。工具只持有解析后的不透明引用，不能使用原生路径绕过检查。日常使用摘要见[文件工具设计](README.md)。
 
 ## 路径解析
 
-路径先按当前 Pi invocation 的 `ctx.cwd` 解析；该 cwd 同时是 workspace root 和项目配置选择依据。kernel 主动拒绝：
+路径先按当前 Pi 调用的 `ctx.cwd` 解析。该目录同时是工作区根目录和项目配置选择依据。内核主动拒绝以下输入：
 
-- 空路径；
-- 空字节；
-- 命中 `blocked_path`。
+- 空路径。
+- 空字节。
+- 命中 `blocked_path` 的路径。
 
-路径可以是相对路径、`..` 路径、绝对路径、包含 glob 字符的普通文件名，或指向 cwd 外的符号链接。工具不会展开 glob。
+路径可以是相对路径、包含 `..` 的路径、绝对路径、包含 glob 字符的普通文件名，或指向 `cwd` 外的符号链接。工具不会展开普通文件名中的 glob。
 
 展示规则：
 
-- workspace 内绝对路径折叠为 workspace-relative path；
-- workspace 外绝对路径保持规范化后的绝对路径；
-- workspace 外的相对路径仍由当前 `cwd` 解析；
+- 工作区内的绝对路径折叠为工作区相对路径。
+- 工作区外的绝对路径保持规范化后的绝对路径。
+- 工作区外的相对路径仍按当前 `cwd` 解析。
 - 内部逻辑路径统一使用 `/`。
 
-## lexical path 与 realpath
+## 字面路径与真实路径
 
-`blocked_path` 检查分为两层：
+`blocked_path` 分两层检查：
 
-1. **lexical path**：检查按 `cwd` 解析后的绝对路径、展示路径和 workspace-relative path。
-2. **realpath**：检查已存在目标的真实路径。
+1. **字面路径**：检查按 `cwd` 解析后的绝对路径、展示路径和工作区相对路径。
+2. **真实路径**：检查现有目标解析符号链接后的路径。
 
-`write` 还会检查最近已存在父目录的真实路径；覆盖已有文件时同时检查目标真实路径。approval gate 的轻量 preflight 可以提前拒绝，但不代替最终检查。write/edit 在 canonical target queue 内重新解析并检查 target、symlink 与最近父目录，避免排队期间的路径变化绕过策略。
+`write` 还会检查最近的现有父目录的真实路径。覆盖现有文件时，系统也会检查目标的真实路径。审批门的轻量预检查可以提前拒绝操作，但最终检查仍不可省略。`write` 和 `edit` 会在规范目标队列中重新解析并检查目标、符号链接和最近的父目录，避免排队期间的路径变化绕过策略。
 
-symlink 本身允许存在和访问，但如果它指向 blocked path 就会被拒绝。工具不要求 realpath 位于 workspace 内。明确输入 symlink 可以跟随；目录枚举保留 child symlink 身份，递归 traversal 默认不跟随 child symlink。
+符号链接本身可以存在和访问，但指向受阻路径时会被拒绝。工具不要求真实路径位于工作区内。明确输入的符号链接可以跟随。目录枚举保留子符号链接身份，递归遍历默认不跟随子符号链接。
 
-## Ignore 与 blocked path
+## 忽略规则与受阻路径
 
 两者含义不同：
 
 ```text
-soft ignore  → 自动发现时跳过，明确路径仍允许访问
-blocked path → 访问本身被拒绝或跳过
+软忽略   -> 自动发现时跳过，明确路径仍可访问
+受阻路径 -> 访问本身被拒绝或跳过
 ```
 
-`.piignore`、`.gitignore` 和 `ignored_path` 都不是访问控制机制。普通 dotfile 会正常出现；明确 read/write/edit 以及明确 find/grep scope 可以穿过 soft ignore。`.git/` 默认位于 `blocked_path`，因此不能直接被 `ls`、`find`、`grep`、`read`、`write` 或 `edit` 访问。blocked 检查不能 fail-open；ignore 规则读取失败则按 diagnostics 约定 fail-open。
+`.piignore`、`.gitignore` 和 `ignored_path` 都不是访问控制机制。普通点文件会正常出现。明确调用的 `read`、`write` 和 `edit`，以及明确指定的 `find` 或 `grep` 范围，可以穿过软忽略路径。`.git/` 默认位于 `blocked_path`，因此六个工具都不能直接访问 `.git/`。受阻路径检查始终拒绝访问。忽略规则读取失败时，系统会继续应用其他有效规则。
 
-更多匹配细节见 [Ignore engine](ignore.md)。
+更多匹配细节见[忽略规则引擎](ignore.md)。
 
-## 工具特定的 symlink 行为
+## 各工具的符号链接行为
 
-- `ls` 列出父目录中的 symlink entry，不按目标类型改写。
-- 直接 `ls` 一个 symlink 路径时先解析 realpath。
-- `ls` 不递归，因此不会遍历 symlink cycle。
-- `find` 和 `grep` 不返回文件或目录 symlink，也不进入目录 symlink。
-- `read`、`write`、`edit` 可以访问明确给出的 symlink 路径，但仍接受 lexical/realpath 检查。
-- 递归搜索不跟随文件或目录 symlink。
+- `ls` 列出父目录中的符号链接条目，不按目标类型改写。
+- 直接对符号链接路径调用 `ls` 时，系统先解析真实路径。
+- `ls` 不递归，因此不会遍历符号链接环。
+- `find` 和 `grep` 不返回文件或目录符号链接，也不进入目录符号链接。
+- `read`、`write` 和 `edit` 可以访问明确给出的符号链接路径，但仍须通过字面路径和真实路径检查。
+- 递归搜索不跟随文件或目录符号链接。
 
 ## 常见错误
 
-模型可见错误使用紧凑标签，完整结构保留在 `details`：
+模型可见错误使用紧凑标签，完整结构保留在 `details` 中：
 
 ```xml
 <error>
@@ -64,17 +64,17 @@ File does not exist.
 
 常见错误包括：
 
-- `PATH_NOT_FOUND`：`ls` 目标目录不存在。
-- `FILE_NOT_FOUND`：`read` 目标文件不存在。
-- `NOT_A_DIRECTORY`：`ls` 目标不是目录。
-- `NOT_A_FILE`：`read` 目标不是普通文件。
+- `PATH_NOT_FOUND`：目标路径不存在。
+- `FILE_NOT_FOUND`：`read` 的目标文件不存在。
+- `NOT_A_DIRECTORY`：`ls` 的目标不是目录。
+- `NOT_A_FILE`：`read` 的目标不是普通文件。
 - `PROTECTED_PATH`：命中 `blocked_path`。
-- `CONFIG_ERROR`：配置无法读取、解析或通过 schema 校验。
+- `CONFIG_ERROR`：配置无法读取、解析或通过模式校验。
 - `ACCESS_DENIED`：运行时无权访问目标。
 
 恢复方式：
 
-- `NOT_A_DIRECTORY`：使用 `read` 读取明确文件，或 `ls` 父目录。
+- `NOT_A_DIRECTORY`：使用 `read` 读取明确文件，或使用 `ls` 列出文件所在的目录。
 - `NOT_A_FILE`：使用 `ls` 浏览目录。
-- 搜索结果缺失：检查 scope、ignore snapshot 的 `winner.sourcePath` 和 `winner.line`。
-- `blocked_path`：不能通过改用 symlink 绕过，应选择允许的路径。
+- 搜索结果缺失：检查搜索范围，以及忽略规则快照中的 `winner.sourcePath` 和 `winner.line`。
+- `blocked_path`：不能通过改用符号链接绕过。应选择允许访问的路径。
