@@ -96,7 +96,7 @@
 - 不启动模型，不产生助手消息，也不触发 `read` 工具。
 - 手动加载可以加载任意已发现的技能，不受 `disable-model-invocation` 限制。
 - 与模型的 `skill` 工具共用加载、校验、分支记录和去重逻辑。
-- 不披露真实文件路径。附属资源使用 `read skill://<name>/<relative-path>`。
+- 不披露真实文件路径。附属资源可通过 `read skill://<name>/<relative-path>` 读取。完整且可静态确定的脚本定位符也可传给 `bash`。
 
 ## `/skill`
 

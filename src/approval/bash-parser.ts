@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 
+import { containsDynamicShellNode, decodeStaticShellWord } from "../syntax-tree/bash.js";
 import { getTreeSitterLanguage } from "../syntax-tree/grammars.js";
 import { parseSyntaxTree } from "../syntax-tree/parser.js";
 import type { SyntaxNode } from "../syntax-tree/types.js";
@@ -15,15 +16,6 @@ const TEMPORARY_FILE_PATH = "\0temporary-file";
 const TEMPORARY_PATH_DISPLAY = "<temporary>";
 const SYSTEM_TEMPORARY_ROOTS = systemTemporaryRoots();
 const BASH_GRAMMAR = getTreeSitterLanguage("bash").grammar;
-const DYNAMIC_NODE_TYPES = new Set([
-	"arithmetic_expansion",
-	"brace_expansion",
-	"command_substitution",
-	"expansion",
-	"extglob_pattern",
-	"process_substitution",
-	"simple_expansion",
-]);
 const SHELL_PROGRAMS = new Set(["bash", "dash", "ksh", "sh", "zsh"]);
 const NO_OPTIONS_WITH_VALUE = new Set<string>();
 const SUDO_OPTIONS_WITH_VALUE = new Set([
@@ -767,70 +759,8 @@ function normalizeCommandNode(node: SyntaxNode): string {
 }
 
 function literalNodeText(node: SyntaxNode): string | undefined {
-	if (containsDynamicNode(node)) return undefined;
-	return decodeShellToken(node.text);
-}
-
-function containsDynamicNode(root: SyntaxNode): boolean {
-	const stack = [root];
-	while (stack.length > 0) {
-		const node = stack.pop();
-		if (node === undefined) break;
-		if (DYNAMIC_NODE_TYPES.has(node.type)) return true;
-		for (const child of node.namedChildren) stack.push(child);
-	}
-	return false;
-}
-
-function decodeShellToken(source: string): string | undefined {
-	let result = "";
-	let quote: "'" | "\"" | undefined;
-	for (let index = 0; index < source.length; index += 1) {
-		const character = source[index];
-		if (character === undefined) break;
-		if (quote === "'") {
-			if (character === "'") quote = undefined;
-			else result += character;
-			continue;
-		}
-		if (quote === "\"") {
-			if (character === "\"") {
-				quote = undefined;
-				continue;
-			}
-			if (character === "\\") {
-				const next = source[index + 1];
-				if (next === undefined) return undefined;
-				if (next === "\n") {
-					index += 1;
-					continue;
-				}
-				result += next === "$" || next === "`" || next === "\"" || next === "\\"
-					? next
-					: `\\${next}`;
-				index += 1;
-				continue;
-			}
-			if (character === "$" || character === "`") return undefined;
-			result += character;
-			continue;
-		}
-		if (character === "'" || character === "\"") {
-			quote = character;
-			continue;
-		}
-		if (character === "\\") {
-			const next = source[index + 1];
-			if (next === undefined) return undefined;
-			result += next;
-			index += 1;
-			continue;
-		}
-		if (character === "$" || character === "`" || character === "*" || character === "?" || character === "[" || character === "{") return undefined;
-		if (character === "~" && index === 0) return undefined;
-		result += character;
-	}
-	return quote === undefined ? result : undefined;
+	if (containsDynamicShellNode(node)) return undefined;
+	return decodeStaticShellWord(node.text);
 }
 
 function normalizeSource(value: string): string {

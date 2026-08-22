@@ -1,4 +1,4 @@
-import type { BashOperations } from "@earendil-works/pi-coding-agent";
+import type { BashOperations, SessionEntry } from "@earendil-works/pi-coding-agent";
 
 export interface BashParams {
 	command: string;
@@ -61,6 +61,7 @@ export interface ExecuteBashRuntime {
 	signal?: AbortSignal;
 	operations: BashOperations;
 	config: BashToolConfig;
+	branch?: SessionEntry[];
 	onUpdate?: (result: BashExecutionResult) => void;
 	now?: () => number;
 }

@@ -2,7 +2,7 @@ import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BashOperations, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { BashOperations, ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 import bashToolExtension from "../../agent/extensions/bash-tool.js";
@@ -18,6 +18,7 @@ import { OutputCapture, sanitizePathPart } from "../../src/bash-tool/output-capt
 import { renderBashCall } from "../../src/bash-tool/tui/renderer.js";
 import type { BashSessionMetadata, ExecuteBashRuntime } from "../../src/bash-tool/types.js";
 import { defaultBashToolConfig, loadBashToolConfig } from "../../src/bash-tool/config.js";
+import { SKILL_CONTEXT_ENTRY } from "../../src/skill-context/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
@@ -385,6 +386,52 @@ describe("bash tool execution", () => {
 		expect(seen).toBe("echo $HOME && ls -la /tmp");
 	});
 
+	it.skipIf(process.platform === "win32")("执行已加载 skill 中未引用、单引号和带空格双引号的脚本路径", async () => {
+		const skillRoot = path.join(workspace, "skill root's");
+		const scripts = path.join(skillRoot, "scripts");
+		const directScript = path.join(scripts, "run.sh");
+		const spacedScript = path.join(scripts, "run task.sh");
+		await mkdir(scripts, { recursive: true });
+		await writeFile(directScript, "#!/bin/sh\nprintf 'skill-%s\\n' \"$1\"\n");
+		await chmod(directScript, 0o700);
+		await writeFile(spacedScript, "#!/bin/sh\nprintf 'skill-%s\\n' \"$1\"\n");
+		const runtimeValue = runtime(createDefaultBashOperations());
+		runtimeValue.branch = skillBranch("demo", skillRoot);
+
+		const result = await executeBashCommand({
+			command: "skill://demo/scripts/run.sh direct && bash 'skill://demo/scripts/run.sh' single && bash \"skill://demo/scripts/run task.sh\" double",
+		}, runtimeValue);
+
+		expect(result.details).toMatchObject({ status: "exited", exit_code: 0 });
+		for (const label of ["direct", "single", "double"]) expect(result.content).toContain(`skill-${label}`);
+		expect(result.content).not.toContain(skillRoot);
+	});
+
+	it("拒绝未加载、格式错误和动态拼接的 skill 路径且不执行命令", async () => {
+		let calls = 0;
+		const operations = fakeOperations(async () => {
+			calls += 1;
+			return { exitCode: 0 };
+		});
+		const skillRoot = path.join(workspace, "demo");
+		await mkdir(skillRoot, { recursive: true });
+		await writeFile(path.join(skillRoot, "script.sh"), "echo no\n");
+
+		const unloaded = await executeBashCommand({ command: "bash skill://demo/script.sh" }, runtime(operations));
+		const malformedRuntime = runtime(operations);
+		malformedRuntime.branch = skillBranch("demo", skillRoot);
+		const malformed = await executeBashCommand({ command: "bash skill://demo/../script.sh" }, malformedRuntime);
+		const dynamic = await executeBashCommand({ command: 'bash "skill://demo/$SCRIPT"' }, malformedRuntime);
+
+		expect(calls).toBe(0);
+		expect(unloaded.content).toContain('code="SKILL_RESOURCE_ACCESS_DENIED"');
+		expect(malformed.content).toContain('code="INVALID_SKILL_RESOURCE"');
+		expect(dynamic.content).toContain('code="INVALID_SKILL_RESOURCE"');
+		for (const result of [unloaded, malformed, dynamic]) {
+			expect(result.details).toMatchObject({ status: "exited", exit_code: 126 });
+		}
+	});
+
 	it("命中 deny_patterns 或 deny_regex 时不执行命令并返回 BLOCKED_COMMAND", async () => {
 		let called = false;
 		const operations = fakeOperations(async () => {
@@ -692,4 +739,23 @@ function runtime(operations: BashOperations): ExecuteBashRuntime {
 		operations,
 		config,
 	};
+}
+
+function skillBranch(name: string, skillRoot: string): SessionEntry[] {
+	return [{
+		type: "custom",
+		id: `skill:${name}`,
+		parentId: null,
+		timestamp: "t",
+		customType: SKILL_CONTEXT_ENTRY,
+		data: {
+			name,
+			path: path.join(skillRoot, "SKILL.md"),
+			root: skillRoot,
+			contentHash: "hash",
+			scope: "project",
+			loadedBy: "agent",
+			loadedAt: "t",
+		},
+	}];
 }

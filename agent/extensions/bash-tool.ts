@@ -14,7 +14,7 @@ import { bashTelemetry } from "../../src/bash-tool/telemetry.js";
 import { registerObservedTool } from "../../src/telemetry/tool.js";
 
 const bashParameters = Type.Object({
-	command: Type.String({ description: "Shell command; runs in workspace." }),
+	command: Type.String({ description: "Shell command; runs in workspace; resolves loaded skill:// paths." }),
 	timeout: Type.Optional(Type.Number({ description: "Seconds; default from config." })),
 }, { additionalProperties: false });
 
@@ -54,6 +54,7 @@ export function createBashToolExtension(
 						toolCallId,
 						operations,
 						config,
+						branch: typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [],
 						...(signal !== undefined ? { signal } : {}),
 						...(onUpdate
 							? {

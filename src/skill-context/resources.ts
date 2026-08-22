@@ -55,7 +55,14 @@ export async function resolveReadLocator(
 		}
 		return { kind: "ordinary" };
 	}
+	return resolveSkillResourceLocator(inputPath, branch);
+}
 
+/** 将已加载技能中的逻辑资源地址解析为受根目录约束的真实路径。 */
+export async function resolveSkillResourceLocator(
+	inputPath: string,
+	branch: SessionEntry[],
+): Promise<SkillResourceResolution | SkillResourceError> {
 	const parsed = parseSkillLocator(inputPath);
 	if (parsed.kind === "error") return parsed;
 	const loaded = loadedSkillsByName(branch).get(parsed.skillName);

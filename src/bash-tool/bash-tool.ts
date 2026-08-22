@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { CONFIG_DIR_NAME, createLocalBashOperations } from "@earendil-works/pi-coding-agent";
 
 import { checkDeniedText, type PatternDenyMatch } from "./pattern-guard.js";
+import { resolveBashSkillPaths } from "./skill-paths.js";
 import { OutputCapture } from "./output-capture.js";
 import { cleanForModel, createBashOutputView } from "./output-view.js";
 import type { BashExecutionResult, BashParams, BashSessionMetadata, CapturedOutput, ExecuteBashRuntime } from "./types.js";
@@ -33,6 +34,9 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 	const denied = checkDeniedText(params.command, runtime.config.safety);
 	if (denied !== null) return blockedCommandResult(denied);
 	params = { ...params, command: normalizeWindowsPath(params.command) };
+	const skillPaths = await resolveBashSkillPaths(params.command, runtime.branch ?? [], runtime.signal);
+	if (skillPaths.kind === "error") return skillResourceErrorResult(skillPaths);
+	params = { ...params, command: skillPaths.command };
 	const pythonVirtualEnv = await resolvePythonVirtualEnvironment(runtime.cwd, runtime.config.python_venv_paths);
 	const baseEnvironment = createBashEnvironment(runtime.session);
 	const executionEnv = pythonVirtualEnv === undefined
@@ -180,6 +184,30 @@ function blockedCommandResult(match: PatternDenyMatch): BashExecutionResult {
 		].join("\n"),
 		details: {
 			status: "exited",
+			duration_ms: 0,
+			output_state: "complete",
+			output_format: "text",
+			total_lines: 0,
+			returned_lines: 0,
+			total_bytes: 0,
+			returned_bytes: 0,
+			capture_complete: true,
+		},
+	};
+}
+
+function skillResourceErrorResult(error: { code: "invalid-locator" | "access-denied"; message: string; path: string }): BashExecutionResult {
+	const code = error.code === "invalid-locator" ? "INVALID_SKILL_RESOURCE" : "SKILL_RESOURCE_ACCESS_DENIED";
+	return {
+		content: [
+			`<error tool="bash" code="${code}">`,
+			escapeXmlText(error.message),
+			`Path: ${escapeXmlText(error.path)}`,
+			"</error>",
+		].join("\n"),
+		details: {
+			status: "exited",
+			exit_code: 126,
 			duration_ms: 0,
 			output_state: "complete",
 			output_format: "text",
