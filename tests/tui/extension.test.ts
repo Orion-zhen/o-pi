@@ -353,7 +353,7 @@ describe("tui extension", () => {
 		expect(notifyUser).toHaveBeenCalledOnce();
 	});
 
-	it("agent run 只在 agent_start 和 agent_settled 切换全局状态", async () => {
+	it("agent run 在 turn_end 刷新快照但只在 agent 生命周期边界切换全局状态", async () => {
 		vi.useFakeTimers();
 		const handlers = new Map<string, Handler>();
 		const calls = createUiCalls();
@@ -365,7 +365,7 @@ describe("tui extension", () => {
 		await handlers.get("agent_start")?.({}, ctx);
 		expect(calls.status.at(-1)?.text).toContain("running");
 		expect(handlers.has("turn_start")).toBe(false);
-		expect(handlers.has("turn_end")).toBe(false);
+		expect(handlers.has("turn_end")).toBe(true);
 		expect(handlers.has("agent_end")).toBe(false);
 
 		await handlers.get("agent_settled")?.({}, ctx);

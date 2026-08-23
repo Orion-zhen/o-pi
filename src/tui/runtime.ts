@@ -229,6 +229,14 @@ export function createTuiRuntime(
 			refreshTitle();
 		});
 
+		pi.on("turn_end", async (_event, ctx) => {
+			if (!config?.enabled) return;
+			snapshot = makeSnapshot(ctx, pi, "running");
+			ctx.ui.setStatus(STATUS_KEY, formatStatus("running", ctx.ui.theme));
+			refreshTitle();
+			refreshHeader?.();
+		});
+
 		pi.on("agent_settled", async (_event, ctx) => {
 			if (config?.enabled) {
 				snapshot = makeSnapshot(ctx, pi, "ready");
