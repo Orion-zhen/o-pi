@@ -4,9 +4,9 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { defaultApprovalGateConfig, loadApprovalGateConfig } from "../../src/approval/config.js";
-import { evaluateApproval } from "../../src/approval/policy.js";
-import { buildApprovalRequest } from "../../src/approval/request-builder.js";
-import { FileApprovalStore } from "../../src/approval/store.js";
+import { buildApprovalRequest } from "../../src/approval/request/build.js";
+import { evaluateApproval } from "../../src/approval/rules/policy.js";
+import { FileApprovalStore } from "../../src/approval/rules/store.js";
 import type { ApprovalGateConfig, ApprovalRequest } from "../../src/approval/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
@@ -21,11 +21,6 @@ beforeEach(() => {
 });
 
 describe("approval policy", () => {
-	it("enabled=false 时 allow", async () => {
-		const config = configWith({ enabled: false });
-		expect(evaluateApproval(await bashRequest("git push origin main"), config, store())).toEqual({ kind: "allow" });
-	});
-
 	it("ask_rules 只返回命中的敏感 unit", async () => {
 		const request = await bashRequest("echo ready && git push origin main && npm install lodash");
 		const decision = evaluateApproval(request, defaultApprovalGateConfig(), store());
@@ -63,7 +58,6 @@ describe("approval policy", () => {
 		const request = await bashRequest("git push origin main");
 		const approvalStore = store();
 		approvalStore.addSessionAllowRules([{
-			created_at: "t",
 			tool: "bash",
 			kind: "exact_command",
 			value: "git push origin main",
@@ -79,7 +73,6 @@ describe("approval policy", () => {
 		const request = await bashRequest("git push origin main && npm install lodash");
 		const approvalStore = store();
 		approvalStore.addSessionAllowRules([{
-			created_at: "t",
 			tool: "bash",
 			kind: "exact_command",
 			value: "git push origin main",
@@ -96,7 +89,6 @@ describe("approval policy", () => {
 		const storePath = path.join(dir, "rules.jsonc");
 		const approvalStore = new FileApprovalStore(storePath);
 		await approvalStore.addPersistentAllowRules([{
-			created_at: "t",
 			tool: "bash",
 			kind: "exact_command",
 			value: "git push origin main",

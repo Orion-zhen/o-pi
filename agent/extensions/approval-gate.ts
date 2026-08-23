@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { createApprovalGate } from "../../src/approval/gate.js";
+import { createApprovalGate } from "../../src/approval/index.js";
 
 export default function approvalGateExtension(pi: ExtensionAPI): void {
 	const gate = createApprovalGate();

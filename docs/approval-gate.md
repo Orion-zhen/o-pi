@@ -15,8 +15,6 @@
 
 `ApprovalGate` 仅通过 `ApprovalInteractionPort` 的 `select`、`input` 和 `notify` 方法访问交互界面，不依赖 Pi TUI。当前扩展在 `ctx.hasUI` 为 `true` 时通过 Pi UI 注入该端口。JSON 模式和打印模式没有该端口，因此使用 `ui.non_interactive` 策略。对话框文本和选项属于适配器的展示内容，不是未来图形界面的状态协议。
 
-`createApprovalGate` 支持可选的 `telemetry` 观察器。观察器接收审批结果、规则名和等待时间，但不接收 `reason` 文本。观察器失败不影响审批或工具执行。当前扩展没有注入观察器，因此默认运行路径不记录审批遥测。
-
 ## 与安全防护机制的区别
 
 安全防护机制强制拒绝危险操作，例如命中 Bash 拒绝规则或文件工具的受阻路径。Approval Gate 只确认用户意图，例如发布软件、安装软件包或修改系统路径。
@@ -134,7 +132,26 @@ Instruction from user:
 ...
 ```
 
-如果任一待确认单元无法生成范围明确的规则，对应的记忆选项就不会显示。持久规则文件使用 `version: 1`。新建的 Bash 命令规则包含可选的 `cwd` 字段。读取没有 `cwd` 字段的旧规则时，Approval Gate 继续将旧规则作为全局规则使用。
+如果任一待确认单元无法生成范围明确的规则，对应的记忆选项就不会显示。持久规则文件使用 `version: 1`。每条规则包含 `tool`、`kind` 和 `value`。`exact_command` 和 `command_prefix` 规则还必须包含 `cwd`，并且只匹配相同工作目录。`exact_path` 和 `path_glob` 规则不接受 `cwd`。规则不包含创建时间。任一规则的结构非法时，Approval Gate 会拒绝加载整个文件。
+
+```jsonc
+{
+	"version": 1,
+	"rules": [
+		{
+			"tool": "bash",
+			"kind": "exact_command",
+			"value": "git push origin main",
+			"cwd": "/workspace/project"
+		},
+		{
+			"tool": "edit",
+			"kind": "exact_path",
+			"value": "/etc/hosts"
+		}
+	]
+}
+```
 
 ## 非交互模式
 

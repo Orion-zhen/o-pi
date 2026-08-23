@@ -1,11 +1,9 @@
 import picomatch from "picomatch";
 
-import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest, ApprovalRule, ApprovalUnit } from "./types.js";
-import type { ApprovalStore } from "./store.js";
+import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest, ApprovalRule, ApprovalUnit } from "../types.js";
+import type { ApprovalRuleMatcher } from "./allow.js";
 
-export function evaluateApproval(request: ApprovalRequest, config: ApprovalGateConfig, store: ApprovalStore): ApprovalDecision {
-	if (!config.enabled) return { kind: "allow" };
-
+export function evaluateApproval(request: ApprovalRequest, config: ApprovalGateConfig, store: ApprovalRuleMatcher): ApprovalDecision {
 	// 显式 deny 永远优先于会话或持久 allow。
 	const deny = config.deny_rules.find((rule) => request.units.some((unit) => ruleMatchesUnit(rule, request.tool, unit)));
 	if (deny !== undefined) return { kind: "deny", reason: deny.reason, rule_name: deny.name };
@@ -18,7 +16,7 @@ export function evaluateApproval(request: ApprovalRequest, config: ApprovalGateC
 
 		const ask = config.ask_rules.find((rule) => ruleMatchesUnit(rule, request.tool, unit));
 		if (ask !== undefined) {
-			items.push({ unit, reason: ask.reason, rule_name: ask.name });
+			items.push({ unit, reason: ask.reason });
 			continue;
 		}
 
@@ -29,24 +27,16 @@ export function evaluateApproval(request: ApprovalRequest, config: ApprovalGateC
 
 	if (items.length === 0) return { kind: "allow" };
 	const reasons = [...new Set(items.map((item) => item.reason))];
-	const firstRuleName = items[0]?.rule_name;
-	return {
-		kind: "ask",
-		reason: reasons.join("; "),
-		items,
-		...(firstRuleName === undefined ? {} : { rule_name: firstRuleName }),
-	};
+	return { kind: "ask", reason: reasons.join("; "), items };
 }
 
 export function ruleMatchesUnit(rule: ApprovalRule, tool: string, unit: ApprovalUnit): boolean {
 	if (!rule.tools.includes(tool)) return false;
 
-	const hasPathMatcher = rule.path_globs !== undefined && rule.path_globs.length > 0;
-	const hasCommandMatcher = rule.command_regex !== undefined && rule.command_regex.length > 0;
-
-	if (!hasPathMatcher && !hasCommandMatcher) return true;
-	if (hasPathMatcher && !pathRuleMatches(rule.path_globs ?? [], unit)) return false;
-	if (hasCommandMatcher && !commandRuleMatches(rule.command_regex ?? "", unit)) return false;
+	const pathGlobs = rule.path_globs;
+	if (pathGlobs !== undefined && pathGlobs.length > 0 && !pathRuleMatches(pathGlobs, unit)) return false;
+	const commandRegex = rule.command_regex;
+	if (commandRegex !== undefined && commandRegex.length > 0 && !commandRuleMatches(commandRegex, unit)) return false;
 	return true;
 }
 

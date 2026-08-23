@@ -3,7 +3,7 @@ import path from "node:path";
 import type { ToolCallEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
-import { buildApprovalRequest } from "../../src/approval/request-builder.js";
+import { buildApprovalRequest } from "../../src/approval/request/build.js";
 
 const cwd = path.resolve("project");
 const systemPath = path.join(path.parse(cwd).root, "etc", "hosts");
@@ -34,16 +34,18 @@ describe("approval request builder", () => {
 		]);
 	});
 
-	it("quoted command text 保留为参数，command substitution 作为独立 unit", async () => {
-		const quoted = await buildApprovalRequest(bash(`echo "git push origin main"`), cwd);
-		expect(quoted?.units.map((unit) => unit.target.value)).toEqual([`echo "git push origin main"`]);
-		const readOnlyRelease = await buildApprovalRequest(bash("gh release view v1.0.0"), cwd);
-		expect(readOnlyRelease?.units.map((unit) => unit.target.value)).toEqual(["gh release view v1.0.0"]);
-		const spaced = await buildApprovalRequest(bash(`echo   "a  b"`), cwd);
-		expect(spaced?.units[0]?.target.value).toBe(`echo "a  b"`);
+	it.each([
+		[`echo "git push origin main"`, [`echo "git push origin main"`]],
+		["gh release view v1.0.0", ["gh release view v1.0.0"]],
+		[`echo   "a  b"`, [`echo "a  b"`]],
+	] as const)("静态命令保留预期结构: %s", async (command, expected) => {
+		const request = await buildApprovalRequest(bash(command), cwd);
+		expect(request?.units.map((unit) => unit.target.value)).toEqual(expected);
+	});
 
-		const substituted = await buildApprovalRequest(bash(`echo "$(git push origin main)"`), cwd);
-		expect(substituted?.units.map((unit) => unit.target.value)).toEqual([
+	it("command substitution 作为独立 unit", async () => {
+		const request = await buildApprovalRequest(bash(`echo "$(git push origin main)"`), cwd);
+		expect(request?.units.map((unit) => unit.target.value)).toEqual([
 			`echo "$(git push origin main)"`,
 			"git push origin main",
 		]);
@@ -69,6 +71,19 @@ describe("approval request builder", () => {
 		expect(request?.units).toEqual([
 			expect.objectContaining({
 				target: expect.objectContaining({ match_value: `<opaque> echo "unterminated` }),
+				remember: { session: true, persistent: false },
+			}),
+		]);
+	});
+
+	it.each([
+		["审批单元超过限制", Array.from({ length: 257 }, (_value, index) => `echo ${index}`).join("; ")],
+		["嵌套 Shell 超过深度限制", nestedShellCommand(9)],
+	] as const)("%s时退化为 opaque unit", async (_name, command) => {
+		const request = await buildApprovalRequest(bash(command), cwd);
+		expect(request?.units).toEqual([
+			expect.objectContaining({
+				target: expect.objectContaining({ match_value: `<opaque> ${command}` }),
 				remember: { session: true, persistent: false },
 			}),
 		]);
@@ -122,6 +137,8 @@ rm -f "$log"
 	it.each([
 		`log=$(mktemp cache.XXXX)\nprintf content > "$log"`,
 		`log=$(mktemp --tmpdir=/tmp --suffix=.ts)\nprintf content > "$log"`,
+		`log=$(mktemp --suffix .ts)\nprintf content > "$log"`,
+		`log=$(mktemp -p /tmp cache.XXXX)\nprintf content > "$log"`,
 		`tmpdir=$(mktemp -d ./cache.XXXX)\nrm -rf "$tmpdir"`,
 	])("把静态 mktemp 变体创建的新路径标成 temporary: %s", async (command) => {
 		const request = await buildApprovalRequest(bash(command), cwd);
@@ -170,7 +187,7 @@ done
 				effect_scope: "temporary",
 			}),
 		]));
-		expect(request?.units.map((unit) => unit.target.match_value)).toEqual(expect.arrayContaining([
+		expect(request?.units.flatMap((unit) => unit.target.kind === "command" ? [unit.target.match_value] : [])).toEqual(expect.arrayContaining([
 			"xelatex input.txt",
 			"lualatex input.txt",
 		]));
@@ -275,6 +292,12 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 		}
 	});
 });
+
+function nestedShellCommand(depth: number): string {
+	let command = "echo ok";
+	for (let level = 0; level < depth; level += 1) command = `bash -c ${JSON.stringify(command)}`;
+	return command;
+}
 
 function bash(command: string): ToolCallEvent {
 	return { type: "tool_call", toolName: "bash", toolCallId: "bash-1", input: { command } };

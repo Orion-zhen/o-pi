@@ -1,9 +1,9 @@
 import path from "node:path";
 import { isToolCallEventType, type ToolCallEvent } from "@earendil-works/pi-coding-agent";
 
-import { parseBashApprovalUnits } from "./bash-parser.js";
+import { parseBashApprovalUnits } from "./bash/parse.js";
 import { isSystemTemporaryDescendant, normalizeTargetPath } from "./path.js";
-import type { ApprovalRequest, ApprovalUnit } from "./types.js";
+import type { ApprovalRequest, ApprovalUnit } from "../types.js";
 
 export async function buildApprovalRequest(event: ToolCallEvent, cwd: string): Promise<ApprovalRequest | undefined> {
 	if (isToolCallEventType("bash", event)) {
@@ -52,7 +52,7 @@ function pathRequest(
 }
 
 function request(input: {
-	tool: string;
+	tool: ApprovalRequest["tool"];
 	cwd: string;
 	summary: string;
 	units: ApprovalUnit[];

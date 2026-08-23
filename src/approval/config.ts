@@ -45,16 +45,11 @@ interface CompleteApprovalGateConfig extends Required<RawApprovalGateConfig> {
 }
 
 function materializeConfig(raw: CompleteApprovalGateConfig): ApprovalGateConfig {
-	const config: ApprovalGateConfig = {
-		enabled: raw.enabled,
-		ui: { ...raw.ui },
+	validateRules([...raw.ask_rules, ...raw.deny_rules]);
+	return {
+		...raw,
 		remember: { ...raw.remember, persistent_store: expandHomePath(raw.remember.persistent_store) },
-		defaults: { ...raw.defaults },
-		ask_rules: cloneRules(raw.ask_rules),
-		deny_rules: cloneRules(raw.deny_rules),
 	};
-	validateRules([...config.ask_rules, ...config.deny_rules]);
-	return config;
 }
 
 function validateRules(rules: ApprovalRule[]): void {
@@ -70,16 +65,6 @@ function validateRules(rules: ApprovalRule[]): void {
 			});
 		}
 	}
-}
-
-function cloneRules(rules: ApprovalRule[]): ApprovalRule[] {
-	return rules.map((rule) => ({
-		name: rule.name,
-		tools: [...rule.tools],
-		...(rule.path_globs !== undefined ? { path_globs: [...rule.path_globs] } : {}),
-		...(rule.command_regex !== undefined ? { command_regex: rule.command_regex } : {}),
-		reason: rule.reason,
-	}));
 }
 
 function readDefaultConfig(): CompleteApprovalGateConfig {

@@ -10,18 +10,19 @@ import {
 	type ApprovalContext,
 	type ApprovalGateOptions,
 	type ApprovalInteractionPort,
-} from "../../src/approval/gate.js";
-import { FileApprovalStore } from "../../src/approval/store.js";
-import type { ApprovalGateConfig, ApprovalTelemetry } from "../../src/approval/types.js";
+} from "../../src/approval/index.js";
+import { FileApprovalStore } from "../../src/approval/rules/store.js";
+import type { ApprovalGateConfig } from "../../src/approval/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
 const temp = useTempDir("o-pi-approval-gate-");
-preserveEnv("PI_APPROVAL_GATE_CONFIG", "PI_FILE_TOOLS_CONFIG");
+preserveEnv("PI_APPROVAL_GATE_CONFIG", "PI_BASH_TOOL_CONFIG", "PI_FILE_TOOLS_CONFIG");
 
 beforeEach(() => {
 	dir = temp.path;
 	delete process.env.PI_APPROVAL_GATE_CONFIG;
+	delete process.env.PI_BASH_TOOL_CONFIG;
 	delete process.env.PI_FILE_TOOLS_CONFIG;
 });
 
@@ -46,23 +47,6 @@ describe("approval gate", () => {
 		expect(result?.block).toBe(true);
 		expect(ui.selectCalls).toBe(interactive ? 1 : 0);
 		if (instruction) expect(result?.reason).toContain(instruction);
-	});
-
-	it("ask allow once 记录结构化 telemetry", async () => {
-		const ui = fakeUi(["Allow once"]);
-		const observations: ApprovalTelemetry[] = [];
-		const gate = testGate({
-			telemetry(_toolCallId, _toolName, approval) {
-				observations.push(approval);
-			},
-		});
-		expect(await gate.handleToolCall(bash("git push origin main"), ctx(ui))).toBeUndefined();
-		expect(ui.selectCalls).toBe(1);
-		expect(observations).toContainEqual(expect.objectContaining({
-			decision: "ask",
-			outcome: "allow_once",
-			wait_ms: expect.any(Number),
-		}));
 	});
 
 	it("窄 interaction port 可完成审批", async () => {
@@ -183,11 +167,18 @@ describe("approval gate", () => {
 		}
 	});
 
-	it("无法安全记忆的动态写重定向只提供一次性审批", async () => {
+	it.each([
+		["静态敏感命令", "git push origin main", true, true],
+		["动态命令", `"$COMMAND" arg`, true, false],
+		["不透明命令", `echo "unterminated`, true, false],
+		["动态写重定向", `echo value > "$OUTPUT"`, false, false],
+	] as const)("%s 显示预期记忆选项", async (_name, command, canRememberSession, canRememberPersistent) => {
 		const ui = fakeUi(["Allow once"]);
-		expect(await handle(bash(`echo value > "$OUTPUT"`), ctx(ui))).toBeUndefined();
-		expect(ui.selectOptions[0]).toHaveLength(3);
-		expect(ui.selectOptions[0]).toEqual(expect.arrayContaining(["Allow once", "Deny", "Deny with instruction"]));
+		expect(await handle(bash(command), ctx(ui))).toBeUndefined();
+		const options = ui.selectOptions[0];
+		if (options === undefined) throw new Error("approval options were not shown");
+		expect(options.includes("Allow for session")).toBe(canRememberSession);
+		expect(options.includes("Always allow similar")).toBe(canRememberPersistent);
 	});
 
 	it.each([
@@ -232,8 +223,8 @@ rm -f "$tmpdir/result.txt"
 		expect(ui.selectCalls).toBe(0);
 	});
 
-	it("UI 返回未提供的 remembered 选项时 fail closed", async () => {
-		const ui = fakeUi(["Allow for session"]);
+	it.each(["Allow for session", "Always allow similar"])("UI 返回未提供的 %s 选项时 fail closed", async (choice) => {
+		const ui = fakeUi([choice]);
 		expect(await handle(bash(`echo value > "$OUTPUT"`), ctx(ui))).toMatchObject({ block: true });
 		expect(ui.selectCalls).toBe(1);
 	});
@@ -244,6 +235,16 @@ rm -f "$tmpdir/result.txt"
 		process.env.PI_APPROVAL_GATE_CONFIG = configPath;
 		const handler = captureExtensionHandler();
 		expect(await handler(bash("git push origin main"), extensionCtx(fakeUi([])))).toBeUndefined();
+	});
+
+	it("bash preflight 在审批前拒绝安全策略命中的命令", async () => {
+		const ui = fakeUi([]);
+		const result = await handle(bash("rm -rf /"), ctx(ui));
+		expect(result).toMatchObject({
+			block: true,
+			reason: expect.stringContaining("Blocked by safety policy"),
+		});
+		expect(ui.selectCalls).toBe(0);
 	});
 
 	it("write preflight 使用 filesystem access policy 拒绝 blocked path", async () => {
@@ -288,7 +289,6 @@ async function writePersistentCommandRule(storePath: string, command: string): P
 	await writeFile(storePath, JSON.stringify({
 		version: 1,
 		rules: [{
-			created_at: "2026-01-01T00:00:00.000Z",
 			tool: "bash",
 			kind: "exact_command",
 			value: command,
