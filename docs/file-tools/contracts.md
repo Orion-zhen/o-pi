@@ -42,11 +42,11 @@ TUI 展示不受模型可见 ASCII 协议限制，可以使用图标和其他显
 `ls`、`read`、`find` 和 `grep` 都有各自的输出限制：
 
 - `ls` 限制直属条目数。
-- `read` 限制行数和字节数。
+- `read` 分别限制文本行数、文本字节数和 PDF 页面数。
 - `find` 限制共享遍历条目数、范围深度、具体结果数和模型文本长度。
 - `grep` 限制共享遍历条目数、累计正文快照字节数、范围深度、AST 单文件增强字节数、相关结果数、每个区域的展示行数和总结果数。模型文本不设词元预算，正文扫描使用文件系统行流。
 
-预算不足时，输出必须保留状态首行，不能让尾部截断掩盖结果不完整。`read` 返回继续读取行号。`find.truncated_by` 区分 `depth_limit`、`entry_limit`、`result_limit` 和 `output_limit`。`grep.truncated_by` 区分 `depth_limit`、`entry_limit`、`byte_limit` 和 `result_limit`，不应用输出词元预算。正文命中、相关锚点、不在模型输出中提示的相关结果限额，以及 AST 增强的内部容量只进入名称明确的统计与遥测字段。
+预算不足时，输出必须保留状态首行，不能让尾部截断掩盖结果不完整。`read` 为文本返回继续读取行号，为 PDF 返回继续读取页码。`find.truncated_by` 区分 `depth_limit`、`entry_limit`、`result_limit` 和 `output_limit`。`grep.truncated_by` 区分 `depth_limit`、`entry_limit`、`byte_limit` 和 `result_limit`，不应用输出词元预算。正文命中、相关锚点、不在模型输出中提示的相关结果限额，以及 AST 增强的内部容量只进入名称明确的统计与遥测字段。
 
 候选使用各工具定义的固定表示。预算只决定保留哪些完整候选，不会随机截断或扩展同一候选。文件系统文本 API 统一使用剥离 UTF-8 BOM 后正文的 UTF-8 字节坐标。逻辑行、AST 和位置提示范围不使用原始文件的 BOM 偏移量。详细词元估算见[词元计数器](../token-counter.md)。
 

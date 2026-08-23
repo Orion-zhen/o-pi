@@ -1,6 +1,6 @@
 import { fileTypeFromBuffer } from "file-type";
 
-export type DetectedMediaKind = "image" | "audio" | "video" | "other";
+export type DetectedMediaKind = "image" | "pdf" | "audio" | "video" | "other";
 
 export interface DetectedFileType {
 	readonly ext: string;
@@ -19,6 +19,7 @@ export async function detectFileType(bytes: Uint8Array): Promise<DetectedFileTyp
 }
 
 function mediaKind(mimeType: string): DetectedMediaKind {
+	if (mimeType === "application/pdf") return "pdf";
 	if (mimeType.startsWith("image/")) return "image";
 	if (mimeType.startsWith("audio/")) return "audio";
 	if (mimeType.startsWith("video/")) return "video";

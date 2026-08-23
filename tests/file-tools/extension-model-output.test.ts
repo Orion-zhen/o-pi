@@ -1,10 +1,12 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import fileTools from "../../agent/extensions/file-tools.js";
 import { formatErrorModelResult } from "../../src/file-tools/pi/model-output.js";
 import { formatEditModelResult } from "../../src/file-tools/edit/presenter.js";
+import { formatReadPdfModelSummary, formatReadPdfPageMarker } from "../../src/file-tools/read/presenter.js";
+import type { ReadPdfSuccess } from "../../src/file-tools/read/types.js";
 import { isGrepSuccessDetails } from "../../src/file-tools/pi/guards.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import { lspFileOperations as lspFileHooks } from "../../src/lsp/index.js";
@@ -114,12 +116,106 @@ describe("file-tools extension model output", () => {
 		}
 	});
 
+	it("PDF 模型内容按摘要、物理页码标记和图片交替返回", async () => {
+		const { registered } = registerExtension(fileTools);
+		const cwd = workspace.path;
+		const pdfBytes = await readFile(new URL("./fixtures/read/two-page.pdf", import.meta.url));
+		await writeFile(join(cwd, "document.pdf"), pdfBytes);
+		const ctx = {
+			cwd,
+			sessionManager: { getSessionId: () => "session-pdf" },
+			model: { api: "anthropic-messages", input: ["text", "image"] },
+		};
+
+		const result = await executeTool(registered, "read", { path: "document.pdf" }, ctx);
+		expect(result.content).toHaveLength(5);
+		expect(result.content[0]).toMatchObject({ type: "text", text: expect.stringMatching(/^<pdf /u) });
+		for (const field of [
+			'path="document.pdf"',
+			'pages="1-2/2"',
+			'title="Stage 2 PDF"',
+			'author="Pi Tests"',
+		]) expect(result.content[0]?.text).toContain(field);
+		expect(result.content[1]).toMatchObject({ type: "text", text: expect.stringContaining('number="1"') });
+		expect(result.content[1]?.text).toContain('label="i"');
+		expect(result.content[2]).toMatchObject({ type: "image", mimeType: "image/png" });
+		expect(result.content[3]).toMatchObject({ type: "text", text: expect.stringContaining('number="2"') });
+		expect(result.content[3]?.text).toContain('label="A-1"');
+		expect(result.content[4]).toMatchObject({ type: "image", mimeType: "image/png" });
+		for (const block of result.content.filter((item) => item.type === "text")) {
+			expect(block.text).not.toContain(result.content[2]?.data);
+			expect(block.text).not.toContain(result.content[4]?.data);
+		}
+		expect(result.details).toMatchObject({
+			path: "document.pdf",
+			media_type: "pdf",
+			start_page: 1,
+			end_page: 2,
+			pages: [{ number: 1, label: "i" }, { number: 2, label: "A-1" }],
+		});
+
+		const nonVision = await executeTool(registered, "read", { path: "document.pdf", pages: "1" }, {
+			...ctx,
+			model: { api: "anthropic-messages", input: ["text"] },
+		});
+		expect(nonVision.content).toHaveLength(3);
+		expect(nonVision.content[0]?.text).toContain("does not support images");
+		expect(nonVision.content.slice(1).every((item) => item.text?.includes("does not support images") !== true)).toBe(true);
+	});
+
+	it("PDF 摘要和页面标签过滤控制字符、转义 XML 并按代码点限制 metadata", () => {
+		const result: ReadPdfSuccess = {
+			path: 'unsafe<&".pdf',
+			media_type: "pdf",
+			mime_type: "application/pdf",
+			size_bytes: 1,
+			version: "v",
+			start_page: 1,
+			end_page: 1,
+			total_pages: 3,
+			truncated: true,
+			continuation: { start_page: 2 },
+			metadata: { title: `<&\"\u0000${"😀".repeat(300)}` },
+			pages: [],
+		};
+		const summary = formatReadPdfModelSummary(result);
+		expect(summary).toContain('path="unsafe&lt;&amp;&quot;.pdf"');
+		expect(summary).toContain('more="2"');
+		expect(summary).toContain('title="&lt;&amp;&quot;');
+		expect(summary).not.toContain("\u0000");
+		expect(summary.match(/😀/gu)).toHaveLength(253);
+		expect(summary).not.toContain("author=");
+
+		expect(formatReadPdfPageMarker({
+			number: 1,
+			label: "1",
+			width_points: 1,
+			height_points: 1,
+			rotation: 0,
+			image: { data: "secret-base64", mime_type: "image/png" },
+		})).toBe('<pdf_page number="1"/>');
+		const marker = formatReadPdfPageMarker({
+			number: 2,
+			label: '章<&"\u0000',
+			width_points: 1,
+			height_points: 1,
+			rotation: 0,
+			image: { data: "secret-base64", mime_type: "image/png" },
+			hints: ["hint <safe>\u0000"],
+		});
+		expect(marker).toContain('label="章&lt;&amp;&quot;"');
+		expect(marker).toContain("hint &lt;safe&gt;");
+		expect(marker).not.toContain("\u0000");
+		expect(marker).not.toContain("secret-base64");
+	});
+
 	it("OpenAI completions API 只允许 read 返回文本", async () => {
 		const { registered } = registerExtension(fileTools);
 		const cwd = workspace.path;
 		await writeFile(join(cwd, "a.txt"), "text\n", "utf8");
 		const imageBytes = Buffer.from("R0lGODlhAQABAIABAP///wAAACwAAAAAAQABAAACAkQBADs=", "base64");
 		await writeFile(join(cwd, "pixel.gif"), imageBytes);
+		await writeFile(join(cwd, "document.pdf"), await readFile(new URL("./fixtures/read/two-page.pdf", import.meta.url)));
 		const ctx = {
 			cwd,
 			sessionManager: { getSessionId: () => "session-completions" },
@@ -135,6 +231,14 @@ describe("file-tools extension model output", () => {
 		expect(imageRead.details).toMatchObject({
 			status: "failed",
 			error: { code: "API_NOT_SUPPORTED", message: "API does not support image format.", path: "pixel.gif" },
+		});
+
+		const pdfRead = await executeTool(registered, "read", { path: "document.pdf" }, ctx);
+		expect(textResult(pdfRead)).toBe("<error>\nAPI does not support image format.\n</error>");
+		expect(pdfRead.content).toHaveLength(1);
+		expect(pdfRead.details).toMatchObject({
+			status: "failed",
+			error: { code: "API_NOT_SUPPORTED", path: "document.pdf" },
 		});
 	});
 

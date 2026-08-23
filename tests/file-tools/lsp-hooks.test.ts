@@ -62,7 +62,7 @@ describe("file-tools lsp hooks", () => {
 
 	it("read 附加 partial enclosing symbol，hook 失败时仍成功", async () => {
 		await writeFile(path.join(workspace, "a.ts"), "function demo() {\n  return 1;\n}\n");
-		await expect(readWorkspaceFile(workspace, { path: "a.ts", start_line: 2, end_line: 2 }, {
+		await expect(readWorkspaceFile(workspace, { path: "a.ts", lines: "2" }, {
 			structure: {
 				async context(input) {
 					expect(input.partial).toBe(true);
@@ -74,7 +74,7 @@ describe("file-tools lsp hooks", () => {
 			lsp: { enclosing_symbol: { name: "demo" } },
 		});
 
-		await expect(readWorkspaceFile(workspace, { path: "a.ts", start_line: 2 }, {
+		await expect(readWorkspaceFile(workspace, { path: "a.ts", lines: "2-" }, {
 			structure: { async context() { throw new Error("unavailable"); } },
 		})).resolves.toMatchObject({ path: "a.ts" });
 	});

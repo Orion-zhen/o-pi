@@ -1,12 +1,13 @@
-import type { ContentVersion, TextContent, TextSlice } from "../../filesystem/contracts/content.js";
+import type { ByteContent, ContentVersion, TextContent, TextSlice } from "../../filesystem/contracts/content.js";
 import type { FileRef } from "../../filesystem/contracts/path.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
 import { detectFileType } from "./media.js";
-import type { InlineImageProcessor, ReadStructureSource } from "./ports.js";
+import type { InlineImageProcessor, PdfDocumentHandle, PdfDocumentSource, ReadStructureSource } from "./ports.js";
 import { formatReadStructureContext } from "./presenter.js";
-import type { ReadFileSuccess, ReadOutputFormat, ReadParams, ReadStructureContext } from "./types.js";
+import { parseReadRange, type ReadRange } from "./range.js";
+import type { ReadFileSuccess, ReadOutputFormat, ReadParams, ReadPdfMetadata, ReadPdfPage, ReadPdfSuccess, ReadStructureContext } from "./types.js";
 
 const PATH_CATALOG_ENTRY_LIMIT = 10_000;
 
@@ -22,10 +23,12 @@ export interface ReadCommandContext {
 		readonly bytes: number;
 		readonly fileBytes: number;
 		readonly lines: number;
+		readonly pdfPages: number;
 		readonly suggestions: number;
 	};
 	readonly structure?: ReadStructureSource;
-	readonly image?: InlineImageProcessor;
+	readonly image: InlineImageProcessor;
+	readonly pdf: PdfDocumentSource;
 	readonly supportedOutputFormats?: readonly ReadOutputFormat[];
 	readonly recordObservation?: boolean;
 }
@@ -35,8 +38,8 @@ export async function readFile(
 	params: ReadParams,
 	context: ReadCommandContext,
 ): Promise<ToolOutcome<ReadFileSuccess>> {
-	const rangeError = validateRangeSyntax(params);
-	if (rangeError !== undefined) return rangeError;
+	const ranges = parseRanges(params);
+	if ("status" in ranges) return ranges;
 
 	const resolved = await context.filesystem.paths.resolveExisting(
 		params.path,
@@ -71,23 +74,23 @@ export async function readFile(
 		if (context.supportedOutputFormats?.includes("image") === false) {
 			return fail("API_NOT_SUPPORTED", "API does not support image format.", { path: file.displayPath });
 		}
-		if (params.start_line !== undefined || params.end_line !== undefined) {
-			return fail("INVALID_OPERATION", "Line ranges apply only to text files.", { path: file.displayPath });
+		if (ranges.lines !== undefined || ranges.pages !== undefined) {
+			return fail("INVALID_OPERATION", "Range parameters do not apply to image files.", { path: file.displayPath });
 		}
-		const image = await safeProcessImage(context.image, {
+		const image = await processImage(context.image, context.operation, {
 			bytes: loaded.value.bytes,
 			mimeType: detected.mime,
 			path: file.displayPath,
 			...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
 		});
-		if (isAborted(context.operation)) return aborted(file.displayPath);
-		if (image === undefined || !image.ok) {
-			const resize = image?.reason === "resize";
+		if (image === undefined || isAborted(context.operation)) return aborted(file.displayPath);
+		if (!image.ok) {
+			const resize = image.reason === "resize";
 			return fail("BINARY_FILE_UNSUPPORTED", resize
 				? "Image cannot be resized below the inline model size limit."
 				: "Image cannot be converted to an inline model-supported format.", {
 				path: file.displayPath,
-				details: { mime_type: image?.mimeType ?? detected.mime },
+				details: { mime_type: image.mimeType },
 			});
 		}
 		remember(context, file, loaded.value);
@@ -105,27 +108,49 @@ export async function readFile(
 		applyIgnore(result, ignoreSource);
 		return result;
 	}
+	if (detected?.kind === "pdf") {
+		if (context.supportedOutputFormats?.includes("image") === false) {
+			return fail("API_NOT_SUPPORTED", "API does not support image format.", { path: file.displayPath });
+		}
+		if (ranges.lines !== undefined) {
+			return fail("INVALID_OPERATION", "Line ranges apply only to text files.", { path: file.displayPath });
+		}
+		const pdf = await readPdf(file.displayPath, loaded.value, ranges.pages, context);
+		if ("status" in pdf) return pdf;
+		remember(context, file, loaded.value);
+		applyIgnore(pdf, ignoreSource);
+		return pdf;
+	}
 	if (detected !== undefined) {
+		if (ranges.lines !== undefined) {
+			return fail("INVALID_OPERATION", "Line ranges apply only to text files.", { path: file.displayPath });
+		}
+		if (ranges.pages !== undefined) {
+			return fail("INVALID_OPERATION", "Page ranges apply only to PDF files.", { path: file.displayPath });
+		}
 		return fail("BINARY_FILE_UNSUPPORTED", `${detected.kind} files are not supported by read.`, {
 			path: file.displayPath,
 			details: { mime_type: detected.mime, extension: detected.ext },
 		});
+	}
+	if (ranges.pages !== undefined) {
+		return fail("INVALID_OPERATION", "Page ranges apply only to PDF files.", { path: file.displayPath });
 	}
 
 	const decoded = context.filesystem.content.decodeText(loaded.value, file.displayPath);
 	if (!decoded.ok) return mapFsError(decoded.error, { notFound: "file" });
 	remember(context, file, decoded.value);
 
-	const initialSlice = context.filesystem.content.sliceText(decoded.value, sliceOptions(params, context));
+	const initialSlice = context.filesystem.content.sliceText(decoded.value, sliceOptions(ranges.lines, params.path, context));
 	if (!initialSlice.ok) return mapFsError(initialSlice.error, { notFound: "file" });
 	let sliced = initialSlice.value;
-	const partial = params.start_line !== undefined || params.end_line !== undefined;
+	const partial = ranges.lines !== undefined;
 	const needsContext = partial || sliced.truncated || sliced.continuation !== undefined;
 	let structure: ReadStructureContext | undefined;
 	if (needsContext) {
 		structure = await safeStructureContext(context.structure, file, decoded.value.text, sliced, partial, context.operation);
 		if (isAborted(context.operation)) return aborted(file.displayPath);
-		const budgeted = reserveContextBudget(params, context, decoded.value, sliced, structure);
+		const budgeted = reserveContextBudget(ranges.lines, params.path, context, decoded.value, sliced, structure);
 		sliced = budgeted.slice;
 		structure = budgeted.structure;
 	}
@@ -149,6 +174,150 @@ export async function readFile(
 	return result;
 }
 
+async function readPdf(
+	path: string,
+	content: ByteContent,
+	range: ReadRange | undefined,
+	context: ReadCommandContext,
+): Promise<ToolOutcome<ReadPdfSuccess>> {
+	const opened = await context.pdf.open({
+		bytes: content.bytes,
+		...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+	});
+	if (!opened.ok) {
+		if (opened.reason === "aborted" || isAborted(context.operation)) return aborted(path);
+		return fail("BINARY_FILE_UNSUPPORTED", opened.message, {
+			path,
+			details: { mime_type: "application/pdf", stage: "parse", reason: opened.reason },
+		});
+	}
+
+	const document = opened.value;
+	try {
+		if (isAborted(context.operation)) return aborted(path);
+		const selected = selectPdfPages(range, document.pageCount, context.limits.pdfPages, path);
+		if ("status" in selected) return selected;
+
+		const pages: ReadPdfPage[] = [];
+		for (let pageNumber = selected.start; pageNumber <= selected.end; pageNumber += 1) {
+			if (isAborted(context.operation)) return aborted(path);
+			const rendered = await document.renderPage({
+				pageNumber,
+				...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+			});
+			if (!rendered.ok) {
+				if (rendered.reason === "aborted" || isAborted(context.operation)) return aborted(path);
+				return fail("BINARY_FILE_UNSUPPORTED", rendered.message, {
+					path,
+					details: {
+						mime_type: "application/pdf",
+						stage: "render",
+						page: pageNumber,
+						reason: rendered.reason,
+					},
+				});
+			}
+
+			const processed = await processImage(context.image, context.operation, {
+				bytes: rendered.value.bytes,
+				mimeType: rendered.value.mimeType,
+				path: `${path}#page=${pageNumber}`,
+				...(context.operation.signal === undefined ? {} : { signal: context.operation.signal }),
+			});
+			if (processed === undefined || isAborted(context.operation)) return aborted(path);
+			if (!processed.ok) {
+				const resize = processed.reason === "resize";
+				return fail("BINARY_FILE_UNSUPPORTED", resize
+					? `PDF page ${pageNumber} cannot be resized below the inline model size limit.`
+					: `PDF page ${pageNumber} cannot be converted to an inline model-supported format.`, {
+					path,
+					details: {
+						mime_type: processed.mimeType,
+						stage: "image-process",
+						page: pageNumber,
+					},
+				});
+			}
+
+			const page = rendered.value;
+			const label = document.pageLabels?.[pageNumber - 1];
+			pages.push({
+				number: pageNumber,
+				...(label === undefined ? {} : { label }),
+				width_points: page.widthPoints,
+				height_points: page.heightPoints,
+				rotation: page.rotation,
+				image: { data: processed.value.data, mime_type: processed.value.mimeType },
+				...(processed.value.hints.length === 0 ? {} : { hints: [...processed.value.hints] }),
+			});
+		}
+
+		return {
+			path,
+			media_type: "pdf",
+			mime_type: "application/pdf",
+			size_bytes: content.sizeBytes,
+			version: content.hash,
+			start_page: selected.start,
+			end_page: selected.end,
+			total_pages: document.pageCount,
+			truncated: selected.truncated,
+			...(selected.continuation === undefined ? {} : { continuation: { start_page: selected.continuation } }),
+			metadata: readPdfMetadata(document),
+			pages,
+		};
+	} finally {
+		await safeDisposePdf(document);
+	}
+}
+
+function selectPdfPages(
+	range: ReadRange | undefined,
+	totalPages: number,
+	limit: number,
+	path: string,
+): { start: number; end: number; truncated: boolean; continuation?: number } | ToolOutcome<never> {
+	const start = range?.start ?? 1;
+	if (start > totalPages) {
+		return fail("INVALID_PATH", `PDF page ${start} is outside 1-${totalPages}.`, {
+			path,
+			details: { start_page: start, total_pages: totalPages },
+		});
+	}
+	const requestedEnd = Math.min(range?.end ?? totalPages, totalPages);
+	const end = Math.min(requestedEnd, start + limit - 1);
+	const truncated = end < requestedEnd;
+	return {
+		start,
+		end,
+		truncated,
+		...(truncated ? { continuation: end + 1 } : {}),
+	};
+}
+
+function readPdfMetadata(document: PdfDocumentHandle): ReadPdfMetadata {
+	const metadata = document.metadata;
+	return {
+		...(metadata.title === undefined ? {} : { title: metadata.title }),
+		...(metadata.author === undefined ? {} : { author: metadata.author }),
+		...(metadata.subject === undefined ? {} : { subject: metadata.subject }),
+		...(metadata.keywords === undefined ? {} : { keywords: metadata.keywords }),
+		...(metadata.creator === undefined ? {} : { creator: metadata.creator }),
+		...(metadata.producer === undefined ? {} : { producer: metadata.producer }),
+		...(metadata.creationDate === undefined ? {} : { creation_date: metadata.creationDate }),
+		...(metadata.modificationDate === undefined ? {} : { modification_date: metadata.modificationDate }),
+		...(metadata.pdfVersion === undefined ? {} : { pdf_version: metadata.pdfVersion }),
+	};
+}
+
+async function safeDisposePdf(document: PdfDocumentHandle): Promise<void> {
+	try {
+		await document.dispose();
+	} catch {
+		// 清理失败不能覆盖解析、渲染或图片处理的原始结果。
+	}
+}
+
 async function missingPathSuggestions(input: string, context: ReadCommandContext): Promise<string[]> {
 	const target = await context.filesystem.paths.resolveTarget(input, { followExistingSymlink: true });
 	if (!target.ok || target.value.workspacePath === undefined || isAborted(context.operation)) return [];
@@ -162,7 +331,8 @@ async function missingPathSuggestions(input: string, context: ReadCommandContext
 }
 
 function reserveContextBudget(
-	params: ReadParams,
+	range: ReadRange | undefined,
+	path: string,
 	context: ReadCommandContext,
 	content: TextContent,
 	initialSlice: TextSlice,
@@ -178,7 +348,7 @@ function reserveContextBudget(
 	bytes -= renderedBytes(structureText);
 	lines -= renderedLines(structureText);
 	const sliced = context.filesystem.content.sliceText(content, {
-		...sliceOptions(params, context),
+		...sliceOptions(range, path, context),
 		maxBytes: bytes,
 		maxLines: lines,
 	});
@@ -186,13 +356,13 @@ function reserveContextBudget(
 	return { slice: sliced.value, structure };
 }
 
-function sliceOptions(params: ReadParams, context: ReadCommandContext) {
+function sliceOptions(range: ReadRange | undefined, path: string, context: ReadCommandContext) {
 	return {
-		...(params.start_line === undefined ? {} : { startLine: params.start_line }),
-		...(params.end_line === undefined ? {} : { endLine: params.end_line }),
+		...(range === undefined ? {} : { startLine: range.start }),
+		...(range?.end === undefined ? {} : { endLine: range.end }),
 		maxBytes: context.limits.bytes,
 		maxLines: context.limits.lines,
-		path: params.path,
+		path,
 	};
 }
 
@@ -219,13 +389,15 @@ async function safeStructureContext(
 	}
 }
 
-async function safeProcessImage(
-	processor: InlineImageProcessor | undefined,
+async function processImage(
+	processor: InlineImageProcessor,
+	operation: FsOperationContext,
 	input: Parameters<InlineImageProcessor["process"]>[0],
 ) {
 	try {
-		return await processor?.process(input);
-	} catch {
+		return await processor.process(input);
+	} catch (error) {
+		if (!isAborted(operation)) throw error;
 		return undefined;
 	}
 }
@@ -250,11 +422,23 @@ function shortIgnoreSource(source: string | undefined): string | undefined {
 	return source;
 }
 
-function validateRangeSyntax(params: ReadParams): ToolOutcome<never> | undefined {
-	if (params.start_line !== undefined && params.end_line !== undefined && params.start_line > params.end_line) {
-		return fail("INVALID_PATH", "start_line must be less than or equal to end_line.", { path: params.path });
+function parseRanges(params: ReadParams): ParsedReadRanges | ToolOutcome<never> {
+	if (params.lines !== undefined) {
+		const parsed = parseReadRange(params.lines, "lines");
+		if (!parsed.ok) return fail("INVALID_PATH", parsed.message, { path: params.path });
+		return { lines: parsed.value };
 	}
-	return undefined;
+	if (params.pages !== undefined) {
+		const parsed = parseReadRange(params.pages, "pages");
+		if (!parsed.ok) return fail("INVALID_PATH", parsed.message, { path: params.path });
+		return { pages: parsed.value };
+	}
+	return {};
+}
+
+interface ParsedReadRanges {
+	readonly lines?: ReadRange;
+	readonly pages?: ReadRange;
 }
 
 function reserveFits(rendered: string, bytes: number, lines: number): boolean {

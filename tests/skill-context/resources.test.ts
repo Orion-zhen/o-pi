@@ -1,4 +1,4 @@
-import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -69,6 +69,36 @@ describe("技能资源定位符", () => {
 			skill_resource: { skill: "demo", path: "references/testing.md" },
 		});
 		expect(enhanceRead).not.toHaveBeenCalled();
+	});
+
+	it("read PDF 输出重写为 Skill 逻辑地址并保留逐页图片", async () => {
+		const pdfPath = path.join(root, "references", "document.pdf");
+		await writeFile(pdfPath, await readFile(new URL("../file-tools/fixtures/read/two-page.pdf", import.meta.url)));
+		const host = new FileToolsHost();
+		try {
+			const result = await executeRead({ path: "skill://demo/references/document.pdf", pages: "2" }, {
+				cwd: temp.path,
+				sessionId: "skill-pdf-read",
+				model: { input: ["text", "image"] },
+				host,
+				lsp: {},
+				branch,
+				skillIndex,
+			});
+			expect(result.content).toHaveLength(3);
+			expect(result.content[0]).toMatchObject({
+				type: "text",
+				text: expect.stringContaining('path="skill://demo/references/document.pdf"'),
+			});
+			expect(result.details).toMatchObject({
+				path: "skill://demo/references/document.pdf",
+				media_type: "pdf",
+				pages: [{ number: 2, label: "A-1" }],
+				skill_resource: { skill: "demo", path: "references/document.pdf" },
+			});
+		} finally {
+			host.dispose();
+		}
 	});
 
 	it("拒绝未加载技能和对受管理根目录的绝对路径访问", async () => {

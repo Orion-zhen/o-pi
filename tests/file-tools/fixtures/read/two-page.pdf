@@ -1,0 +1,52 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /PageLabels 8 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 7 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 7 0 R >> >> /Contents 6 0 R >>
+endobj
+5 0 obj
+<< /Length 40 >>
+stream
+BT /F1 18 Tf 40 100 Td (Page one) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Length 40 >>
+stream
+BT /F1 18 Tf 40 100 Td (Page two) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+8 0 obj
+<< /Nums [0 << /S /r >> 1 << /P (A-) /S /D >>] >>
+endobj
+9 0 obj
+<< /Title (Stage 2 PDF) /Author (Pi Tests) /Subject (PDF port fixture) /Keywords (pdf test) /Creator (fixture generator) /Producer (o-pi) /CreationDate (D:20260823000000Z) /ModDate (D:20260823000000Z) /CustomMetadata (must not escape) >>
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000082 00000 n 
+0000000145 00000 n 
+0000000271 00000 n 
+0000000397 00000 n 
+0000000486 00000 n 
+0000000575 00000 n 
+0000000645 00000 n 
+0000000710 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R /Info 9 0 R /ID [<00112233445566778899AABBCCDDEEFF> <00112233445566778899AABBCCDDEEFF>] >>
+startxref
+963
+%%EOF

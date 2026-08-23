@@ -52,6 +52,12 @@
 					"maximum": 104857600,
 					"default": 16777216
 				},
+				"read_pdf_pages": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 100,
+					"default": 20
+				},
 				"read_suggestion_limit": {
 					"type": "integer",
 					"minimum": 1,

@@ -61,6 +61,73 @@ describe("file-tools extension renderers", () => {
 		for (const value of ["src/main.ts", "missing", "PATH_NOT_FOUND"]) expect(output).toContain(value);
 	});
 
+	it("read 调用显示 lines 或 pages，PDF 结果展示页面摘要且不泄露 Base64", async () => {
+		const { registered } = await registerRenderers();
+		const read = registered.slice().reverse().find((tool) => tool.name === "read");
+		const callContext = {
+			cwd: "/repo",
+			isPartial: true,
+			lastComponent: undefined,
+		};
+		const lineCall = read?.renderCall?.({ path: "src/app.ts", lines: "5-" }, theme, callContext);
+		expect(lineCall?.render(80).join("\n")).toContain("lines 5-");
+		const pageCall = read?.renderCall?.({ path: "docs/spec.pdf", pages: "2-3" }, theme, callContext);
+		expect(pageCall?.render(80).join("\n")).toContain("pages 2-3");
+
+		const details = {
+			path: "docs/spec.pdf",
+			media_type: "pdf",
+			mime_type: "application/pdf",
+			size_bytes: 2048,
+			version: "version",
+			start_page: 2,
+			end_page: 3,
+			total_pages: 10,
+			truncated: true,
+			continuation: { start_page: 4 },
+			metadata: { title: "Private title", author: "Private author" },
+			pages: [
+				{
+					number: 2,
+					label: "ii",
+					width_points: 300,
+					height_points: 200,
+					rotation: 0,
+					image: { data: "secret-page-two-base64", mime_type: "image/png" },
+					hints: ["[Image resized to 600x400.]"],
+				},
+				{
+					number: 3,
+					label: "3",
+					width_points: 400,
+					height_points: 300,
+					rotation: 90,
+					image: { data: "secret-page-three-base64", mime_type: "image/jpeg" },
+				},
+			],
+		};
+		const collapsed = renderToolResult(registered, "read", details, {
+			args: { path: "docs/spec.pdf", pages: "2-3" },
+			width: 50,
+		});
+		for (const value of ["2-3/10", "2 attached", "2.0 KB", "more"]) expect(collapsed).toContain(value);
+		expect(collapsed).not.toContain("secret-page");
+
+		const expanded = renderToolResult(registered, "read", details, {
+			expanded: true,
+			args: { path: "docs/spec.pdf", pages: "2-3" },
+			content: [
+				{ type: "text", text: '<pdf path="docs/spec.pdf"/>' },
+				{ type: "image", data: "secret-page-two-base64", mimeType: "image/png" },
+			],
+			width: 50,
+		});
+		for (const value of ["page 2", "label ii", "image/png", "300x200 pt", "page 3", "rotation 90", "Image resized"]) {
+			expect(expanded).toContain(value);
+		}
+		expect(expanded).not.toContain("secret-page");
+	});
+
 	it("write 折叠时隐藏正文和 diff，展开时恢复，并接收后处理进度", async () => {
 		const { registered } = await registerRenderers();
 		const write = registered.slice().reverse().find((tool) => tool.name === "write");

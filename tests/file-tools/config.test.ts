@@ -33,6 +33,7 @@ describe("file-tools config", () => {
 				grep_regional_display_limit: 3,
 				read_suggestion_limit: 3,
 				read_max_file_bytes: 16 * 1024 * 1024,
+				read_pdf_pages: 20,
 				write_max_file_bytes: 16 * 1024 * 1024,
 				edit_max_file_bytes: 16 * 1024 * 1024,
 			},
@@ -45,6 +46,7 @@ describe("file-tools config", () => {
 	it("接受公开的 find、grep 和单文件限制", async () => {
 		const limits = {
 			read_max_file_bytes: 1024,
+			read_pdf_pages: 100,
 			write_max_file_bytes: 104857600,
 			edit_max_file_bytes: 2048,
 			find_output_token_budget: 800,
@@ -67,6 +69,7 @@ describe("file-tools config", () => {
 
 	it.each([
 		["read_max_file_bytes", 1023], ["read_max_file_bytes", 104857601],
+		["read_pdf_pages", 0], ["read_pdf_pages", 101],
 		["write_max_file_bytes", 1023], ["write_max_file_bytes", 104857601],
 		["edit_max_file_bytes", 1023], ["edit_max_file_bytes", 104857601],
 		["find_output_token_budget", 31], ["find_max_depth", -1], ["find_max_depth", 257],

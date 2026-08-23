@@ -240,7 +240,7 @@ describe("file-tools extension lifecycle", () => {
 		expect(getCommands).toHaveBeenCalledTimes(1);
 		expect(imports.lsp).not.toHaveBeenCalled();
 
-		const partial = await executeTool(registered, "read", { path: "a.ts", start_line: 1, end_line: 1 }, ctx);
+		const partial = await executeTool(registered, "read", { path: "a.ts", lines: "1" }, ctx);
 		expect(imports.read).toHaveBeenCalledTimes(1);
 		expect(getCommands).toHaveBeenCalledTimes(1);
 		expect(imports.lsp).toHaveBeenCalledTimes(1);

@@ -157,10 +157,35 @@ describe("tool telemetry projections", () => {
 	});
 
 	it("read and write expose targets while hashing content", () => {
-		const readParams = fixture<ReadParams>({ path: "src/a.ts", start_line: 2, end_line: 5 });
-		expect(inputFacts(readTelemetry, readParams).targets).toEqual([{ kind: "region", value: "src/a.ts", start_line: 2, end_line: 5 }]);
+		const readParams = fixture<ReadParams>({ path: "src/a.ts", lines: "2-5" });
+		const readInput = inputFacts(readTelemetry, readParams);
+		expect(readInput.fields).toMatchObject({ input_lines: "2-5" });
+		expect(readInput.targets).toEqual([{ kind: "region", value: "src/a.ts", start_line: 2, end_line: 5 }]);
 		const readResult = resultFacts(readTelemetry, readParams, fixture<ToolOutcome<ReadFileSuccess>>({ status: "ok", path: "src/a.ts", content: "private body" }));
 		expectNoBody(readResult);
+
+		const pdfParams = fixture<ReadParams>({ path: "docs/spec.pdf", pages: "4-" });
+		const pdfInput = inputFacts(readTelemetry, pdfParams);
+		expect(pdfInput.fields).toMatchObject({ input_pages: "4-" });
+		expect(pdfInput.targets).toEqual([{ kind: "file", value: "docs/spec.pdf" }]);
+		const pdfResult = resultFacts(readTelemetry, pdfParams, fixture<ToolOutcome<ReadFileSuccess>>({
+			path: "docs/spec.pdf",
+			media_type: "pdf",
+			total_pages: 30,
+			truncated: false,
+			metadata: { title: "private title", author: "private author" },
+			pages: [
+				{ number: 4, image: { data: "private-base64-1", mime_type: "image/png" } },
+				{ number: 5, image: { data: "private-base64-2", mime_type: "image/png" } },
+			],
+		}));
+		expect(pdfResult.fields).toMatchObject({
+			media_type: "pdf",
+			total_page_count: 30,
+			returned_page_count: 2,
+			truncated: false,
+		});
+		expectNoBody(pdfInput, pdfResult);
 
 		const writeParams = fixture<WriteParams>({ path: "src/new.ts", content: "private content" });
 		const writeInput = inputFacts(writeTelemetry, writeParams);
@@ -220,7 +245,10 @@ function resultFacts<TParams, TDetails>(telemetry: ToolTelemetry<TParams, TDetai
 
 function expectNoBody(...facts: readonly TelemetryFacts[]): void {
 	const serialized = JSON.stringify(facts);
-	for (const text of ["secret old", "secret new", "secret diff", "private body", "printf secret", '"output":"secret"']) {
+	for (const text of [
+		"secret old", "secret new", "secret diff", "private body", "private title", "private author",
+		"private-base64", "printf secret", '"output":"secret"',
+	]) {
 		expect(serialized).not.toContain(text);
 	}
 }

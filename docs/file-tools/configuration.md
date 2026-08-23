@@ -45,7 +45,8 @@
 
 - `ls_entries`：一次 `ls` 最多返回的直属成员数。
 - `read_lines` / `read_bytes`：一次 `read` 最多返回的行数和 UTF-8 字节数。
-- `read_max_file_bytes`：`read` 可完整载入的单文件上限。局部行范围也不能绕过。
+- `read_max_file_bytes`：`read` 可完整载入的单文件上限。局部行范围和 PDF 页面范围都不能绕过。
+- `read_pdf_pages`：一次 `read` 最多渲染并返回的 PDF 页面数。默认配置为 20，取值范围为 1 到 100。显式的 `pages` 范围不能绕过。
 - `read_suggestion_limit`：文件不存在时最多返回的相关路径数。默认配置为 3，取值范围为 1 到 10。
 - `write_max_file_bytes`：`write` 的现有文件快照和提交内容上限。
 - `edit_max_file_bytes`：`edit` 的现有文件快照和提交内容上限。

@@ -16,6 +16,7 @@
 		"read_lines": 3000,
 		"read_bytes": 51200,
 		"read_max_file_bytes": 16777216,
+		"read_pdf_pages": 20,
 		"read_suggestion_limit": 3,
 		"write_max_file_bytes": 16777216,
 		"edit_max_file_bytes": 16777216,

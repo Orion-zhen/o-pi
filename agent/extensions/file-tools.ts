@@ -4,6 +4,7 @@ import { isFailedDetails, isFileToolName } from "../../src/file-tools/pi/guards.
 import { createLazyLspFileOperations } from "../../src/file-tools/pi/lazy-lsp.js";
 import type { LsParams } from "../../src/file-tools/ls/types.js";
 import type { FileToolsHost } from "../../src/file-tools/runtime/host.js";
+import { READ_RANGE_PATTERN } from "../../src/file-tools/read/range.js";
 import type { ReadParams } from "../../src/file-tools/read/types.js";
 import type { EditParams, EditSuccess } from "../../src/file-tools/edit/types.js";
 import type { FindParams } from "../../src/file-tools/find/types.js";
@@ -45,11 +46,19 @@ const grepParameters = Type.Object(
 );
 const readParameters = Type.Object(
 	{
-		path: Type.String({ description: "Text or image path." }),
-		start_line: Type.Optional(Type.Integer({ minimum: 1, description: "1-based inclusive start line for text." })),
-		end_line: Type.Optional(Type.Integer({ minimum: 1, description: "1-based inclusive end line for text." })),
+		path: Type.String({ description: "Text, image, PDF or Skill resource path." }),
+		lines: Type.Optional(Type.String({
+			minLength: 1,
+			pattern: READ_RANGE_PATTERN,
+			description: "Text only line range: N, N-M, or N-; 1-based inclusive.",
+		})),
+		pages: Type.Optional(Type.String({
+			minLength: 1,
+			pattern: READ_RANGE_PATTERN,
+			description: "PDF only page range: N, N-M, or N-; 1-based inclusive.",
+		})),
 	},
-	{ additionalProperties: false },
+	{ additionalProperties: false, not: { required: ["lines", "pages"] } },
 );
 const writeParameters = Type.Object(
 	{
@@ -220,7 +229,7 @@ function registerFileTools(
 		tool: {
 		name: "read",
 		label: "read",
-		description: "Read one text, image or skill related file.",
+		description: "Read one text, image, PDF or Skill resource.",
 		promptSnippet: "read one file",
 		parameters: readParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
@@ -239,10 +248,6 @@ function registerFileTools(
 	}, repair: {
 		singleStringField: "path",
 		pathFields: ["path"],
-		aliases: {
-			startLine: "start_line",
-			endLine: "end_line",
-		},
 		},
 		telemetry: readTelemetry,
 	});

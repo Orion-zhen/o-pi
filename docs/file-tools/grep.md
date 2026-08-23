@@ -116,7 +116,7 @@ src/session/cache.ts:12-46 SessionCache.restore [not match, related]
 </grep>
 ```
 
-已验证区域保留完整且唯一的 `match_lines`。`grep_regional_display_limit` 只限制每个区域展示的代表行数。声明和代表行最多包含 240 个 Unicode 码点。完整源码由 `read(path,start_line,end_line)` 返回。
+已验证区域保留完整且唯一的 `match_lines`。`grep_regional_display_limit` 只限制每个区域展示的代表行数。声明和代表行最多包含 240 个 Unicode 码点。完整源码通过 `read({ path: "...", lines: "N-M" })` 返回。
 
 代码区域的模型正文只展示路径和范围、可选符号、无标签声明和代表行。相关区域追加 `[not match, related]`。`kind`、`roles`、`matched_by` 和字段名只保留在 `details` 与内部排序数据中，不重复进入模型文本。未展示的已验证匹配以 `+N match lines` 标记。
 

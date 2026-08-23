@@ -65,7 +65,7 @@ schema 不能表达的 hints：
 * `pathFields`：哪些路径字段允许去掉开头 `@`。
 * `pathListFields`：哪些路径字段允许把旧字符串迁移为路径数组。只应配置在搜索工具的路径字段上。
 * `maxPathCount`：路径列表 repair 的最大路径数量，默认 32。超限输入不猜测、不提交。
-* `aliases`：根字段别名迁移，例如 `startLine` -> `start_line`。
+* `aliases`：根字段别名迁移，例如 `text` -> `content`。
 * `nestedAliases`：嵌套字段别名迁移，例如 `edits.*.oldText` -> `old`。
 * `objectArrayFromFields`：从根字段组合对象数组，例如 `{ old, new }` -> `{ edits: [{ old, new }] }`。
 * `emptyValueToDefault`：启用空值回退默认值修复。启用后，schema 中带有 `default` 的字段若被赋值为 null、undefined、空字符串、空白字符串、空数组或空对象时，会被替换为默认值。默认为 false。
@@ -153,10 +153,6 @@ registerObservedTool(pi, {
   repair: {
     singleStringField: "path",
     pathFields: ["path"],
-    aliases: {
-      startLine: "start_line",
-      endLine: "end_line",
-    },
   },
   telemetry: readTelemetry,
 });

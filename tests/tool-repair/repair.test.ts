@@ -192,10 +192,8 @@ describe("tool-input repair", () => {
 
 	it("实际 file-tools 注册的 read/write/edit 均挂载 prepareArguments", () => {
 		const registered = registerFileTools();
-		expect(registered.get("read")?.prepareArguments?.({
-			path: "@src/a.ts",
-			startLine: "1",
-		})).toEqual({ path: "src/a.ts", start_line: 1 });
+		expect(registered.get("read")?.prepareArguments?.("@src/a.ts"))
+			.toEqual({ path: "src/a.ts" });
 		expect(registered.get("write")?.prepareArguments?.({
 			path: "@src/a.ts",
 			text: " keep whitespace ",

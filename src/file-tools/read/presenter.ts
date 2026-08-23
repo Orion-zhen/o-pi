@@ -1,9 +1,15 @@
 import type {
 	ReadEnclosingSymbol,
+	ReadPdfPage,
+	ReadPdfSuccess,
 	ReadRemainingSymbol,
 	ReadStructureContext,
 	ReadSuccess,
 } from "./types.js";
+
+const PDF_METADATA_FIELD_CODE_POINTS = 256;
+const PDF_PAGE_LABEL_CODE_POINTS = 128;
+const PDF_PAGE_HINTS_CODE_POINTS = 512;
 
 /** Compact model-visible text for a successful UTF-8 read. */
 export function formatReadModelResult(result: ReadSuccess): string {
@@ -22,6 +28,40 @@ export function formatReadModelResult(result: ReadSuccess): string {
 	if (!text.endsWith("\n")) text += "\n";
 	if (structure !== undefined) text += `${structure}\n`;
 	return `${text}</read>`;
+}
+
+/** Bounded model-visible summary for a rendered PDF. */
+export function formatReadPdfModelSummary(result: ReadPdfSuccess): string {
+	const attrs = [
+		`path="${escapeXmlAttribute(cleanXml(result.path))}"`,
+		`pages="${result.start_page}-${result.end_page}/${result.total_pages}"`,
+	];
+	if (result.continuation !== undefined) attrs.push(`more="${result.continuation.start_page}"`);
+	if (result.ignore_source !== undefined) attrs.push(`ignored="${escapeXmlAttribute(cleanXml(result.ignore_source))}"`);
+
+	for (const [key, raw] of [["title", result.metadata.title], ["author", result.metadata.author]] as const) {
+		if (raw === undefined) continue;
+		const value = truncateCodePoints(cleanXml(raw), PDF_METADATA_FIELD_CODE_POINTS);
+		if (value.length > 0) attrs.push(`${key}="${escapeXmlAttribute(value)}"`);
+	}
+
+	return `<pdf ${attrs.join(" ")}/>`;
+}
+
+/** Physical page marker emitted immediately before its image. */
+export function formatReadPdfPageMarker(page: ReadPdfPage): string {
+	const attrs = [`number="${page.number}"`];
+	const physicalLabel = String(page.number);
+	if (page.label !== undefined && page.label !== physicalLabel) {
+		const label = truncateCodePoints(cleanXml(page.label), PDF_PAGE_LABEL_CODE_POINTS);
+		if (label.length > 0) attrs.push(`label="${escapeXmlAttribute(label)}"`);
+	}
+	const hints = truncateCodePoints(
+		cleanXml(page.hints?.join("\n") ?? ""),
+		PDF_PAGE_HINTS_CODE_POINTS,
+	);
+	if (hints.length === 0) return `<pdf_page ${attrs.join(" ")}/>`;
+	return `<pdf_page ${attrs.join(" ")}>\n${escapeXmlText(hints)}\n</pdf_page>`;
 }
 
 export function formatReadStructureContext(structure: ReadStructureContext | undefined): string | undefined {
@@ -44,6 +84,15 @@ function formatRemainingSymbol(item: ReadRemainingSymbol): string {
 
 function formatSymbolRange(item: ReadEnclosingSymbol): string {
 	return `${item.kind} ${item.name} ${item.line}-${item.end_line}`;
+}
+
+function cleanXml(value: string): string {
+	return value.replace(/[^\u0009\u000A\u000D\u0020-\uD7FF\uE000-\uFFFD\u{10000}-\u{10FFFF}]/gu, "");
+}
+
+function truncateCodePoints(value: string, limit: number): string {
+	const codePoints = Array.from(value);
+	return codePoints.length <= limit ? value : codePoints.slice(0, limit).join("");
 }
 
 function escapeXmlText(value: string): string {
