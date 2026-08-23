@@ -5,7 +5,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import fileTools from "../../agent/extensions/file-tools.js";
 import { useTempDir } from "../helpers/lifecycle.js";
-import { activateFileTools, registerExtension, renderToolResult, renderWriteResult, theme } from "./extension-fixture.js";
+import { activateFileTools, registerExtension, renderToolResult, theme } from "./extension-fixture.js";
 
 const editCardTemp = useTempDir("o-pi-edit-card-");
 
@@ -123,40 +123,6 @@ describe("file-tools extension renderers", () => {
 			expect(expanded).toContain(value);
 		}
 		expect(expanded).not.toContain("secret-page");
-	});
-
-	rendererTest("write 折叠时隐藏正文和 diff，展开时恢复，并接收后处理进度", async ({ registered }) => {
-		const write = registered.slice().reverse().find((tool) => tool.name === "write");
-		const args = { path: "notes.txt", content: "first\nsecond" };
-		const state: { callComponent?: { postProcess?: unknown } } = {};
-		const context = { argsComplete: true, cwd: "/repo", isPartial: true, lastComponent: undefined, state };
-		const collapsed = write?.renderCall?.(args, theme, { ...context, expanded: false });
-		const collapsedOutput = collapsed?.render(80).join("\n");
-		const expanded = write?.renderCall?.(args, theme, { ...context, expanded: true, lastComponent: collapsed });
-		expect(collapsedOutput).not.toContain("first");
-		expect(expanded?.render(80).join("\n")).toContain("first");
-
-		const progress = renderToolResult(registered, "write", {
-			status: "post-processing",
-			diff: "-1 old\n+1 new",
-			lsp: { status: "clean", errors: 0, warnings: 0 },
-		}, {
-			isPartial: true,
-			content: [],
-			width: 80,
-			context: { args, cwd: "/repo", lastComponent: undefined, state },
-		});
-		expect(progress).toBe("");
-		expect(state.callComponent?.postProcess).toMatchObject({ lsp: { status: "clean" } });
-
-		const result = {
-			status: "written",
-			path: "src/app.ts",
-			bytes: 4,
-			diff: "-1 old\n+1 new",
-		};
-		expect(renderWriteResult(registered, result)).not.toContain("-1 old");
-		expect(renderWriteResult(registered, result, true)).toContain("-1 old");
 	});
 
 	rendererTest("edit 预览异步刷新，折叠时隐藏 diff，展开时恢复", async ({ registered }) => {

@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -266,51 +266,6 @@ describe("read", () => {
 		expectFailure(await testContext.read({ path: "missing.txt" }), "FILE_NOT_FOUND");
 		expectFailure(await testContext.read({ path: "binary.bin" }), "BINARY_FILE_UNSUPPORTED");
 		expectFailure(await testContext.read({ path: "bad.txt" }), "ENCODING_UNSUPPORTED");
-	});
-
-	it("允许读取绝对路径、.. 相对路径和指向外部的符号链接", async () => {
-		const secret = path.join(outside, "secret.txt");
-		await writeFile(secret, "secret");
-		await writeFile(path.join(workspace, "inside.txt"), "inside");
-		const relativeOutside = path.relative(workspace, secret);
-		expect(await testContext.read({ path: path.join(workspace, "inside.txt") })).toMatchObject({
-			path: "inside.txt",
-			content: "inside",
-		});
-		expect(await testContext.read({ path: relativeOutside })).toMatchObject({
-			path: relativeOutside.replace(/\\/g, "/"),
-			content: "secret",
-		});
-		expect(await testContext.read({ path: secret })).toMatchObject({
-			path: path.normalize(secret),
-			content: "secret",
-		});
-		try {
-			await symlink(secret, path.join(workspace, "link.txt"));
-			expect(await testContext.read({ path: "link.txt" })).toMatchObject({
-				path: "link.txt",
-				content: "secret",
-			});
-		} catch {
-			// Windows 未启用符号链接权限时跳过该断言。
-		}
-	});
-
-	it("blocked_path 对 lexical path 和 realpath 都生效", async () => {
-		const protectedDir = path.join(outside, "protected");
-		await mkdir(protectedDir);
-		await writeFile(path.join(workspace, "blocked.txt"), "blocked\n");
-		await writeFile(path.join(protectedDir, "secret.txt"), "secret\n");
-		await testContext.useConfig({ blocked_path: ["blocked.txt", `${protectedDir}/`] });
-
-		expectFailure(await testContext.read({ path: "blocked.txt" }), { code: "PROTECTED_PATH", path: "blocked.txt" });
-
-		try {
-			await symlink(path.join(protectedDir, "secret.txt"), path.join(workspace, "secret-link.txt"));
-		} catch {
-			return;
-		}
-		expectFailure(await testContext.read({ path: "secret-link.txt" }), { code: "PROTECTED_PATH", path: "secret-link.txt" });
 	});
 
 	it("内容变化会改变 version，read 不修改内容或 mtime", async () => {

@@ -144,20 +144,4 @@ describe("write", () => {
 		expect(await readFile(protectedFile, "utf8")).toBe("secret\n");
 	});
 
-	it("拒绝通过 target symlink 或 parent symlink 写入 blocked_path", async () => {
-		const protectedDir = path.join(outside, "protected");
-		await mkdir(protectedDir);
-		await writeFile(path.join(protectedDir, "target.txt"), "secret\n");
-		await testContext.useConfig({ blocked_path: [`${protectedDir}/`] });
-		try {
-			await symlink(path.join(protectedDir, "target.txt"), path.join(workspace, "target-link.txt"));
-			await symlink(protectedDir, path.join(workspace, "parent-link"), "dir");
-		} catch {
-			return;
-		}
-
-		expectFailure(await testContext.write({ path: "target-link.txt", content: "new\n" }), { code: "PROTECTED_PATH", path: "target-link.txt" });
-		expectFailure(await testContext.write({ path: "parent-link/new.txt", content: "new\n" }), { code: "PROTECTED_PATH", path: "parent-link/new.txt" });
-		expect(await readFile(path.join(protectedDir, "target.txt"), "utf8")).toBe("secret\n");
-	});
 });

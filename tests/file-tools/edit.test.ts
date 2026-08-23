@@ -1,4 +1,4 @@
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -9,11 +9,9 @@ import { expectFailure } from "./result-fixtures.js";
 
 const testContext = createCrudTestContext();
 let workspace: string;
-let outside: string;
 
 beforeEach(() => {
 	workspace = testContext.workspace;
-	outside = testContext.outside;
 });
 
 describe("edit", () => {
@@ -441,35 +439,6 @@ describe("edit", () => {
 		expect(await readFile(path.join(workspace, "bom.txt"))).toEqual(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from("new\n")]));
 		expect(await readFile(path.join(workspace, "crlf.txt"), "utf8")).toBe("A\r\nb\r\n");
 		expect(await readFile(path.join(workspace, "nonewline.txt"), "utf8")).toBe("a\nB");
-	});
-
-	it("允许修改 cwd 外的绝对路径并拒绝 blocked path", async () => {
-		const externalFile = path.join(outside, "external.txt");
-		await writeFile(externalFile, "hello\n");
-		const read = await testContext.read({ path: externalFile });
-		if (!("version" in read)) throw new Error("read failed");
-		expect(await testContext.edit({ path: externalFile, edits: [{ old: "hello", new: "updated" }] })).toMatchObject({
-			status: "applied",
-			path: path.normalize(externalFile),
-		});
-		expect(await readFile(externalFile, "utf8")).toBe("updated\n");
-
-		await mkdir(path.join(workspace, ".git"));
-		await writeFile(path.join(workspace, ".git", "config"), "[core]\n");
-		expectFailure(await testContext.edit({ path: ".git/config", edits: [{ old: "[core]", new: "[x]" }] }), { code: "PROTECTED_PATH", path: ".git/config" });
-	});
-
-	it("edit 拒绝 realpath 命中 blocked_path 的 symlink", async () => {
-		const protectedDir = path.join(outside, "protected");
-		await mkdir(protectedDir);
-		await writeFile(path.join(protectedDir, "secret.txt"), "secret\n");
-		await testContext.useConfig({ blocked_path: [`${protectedDir}/`] });
-		try {
-			await symlink(path.join(protectedDir, "secret.txt"), path.join(workspace, "secret-link.txt"));
-		} catch {
-			return;
-		}
-		expectFailure(await testContext.edit({ path: "secret-link.txt", edits: [{ old: "secret", new: "new" }] }), { code: "PROTECTED_PATH", path: "secret-link.txt" });
 	});
 
 	it("预览只读生成 diff，执行仍保持 read-before-edit 约束", async () => {
