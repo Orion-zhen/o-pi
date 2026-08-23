@@ -30,7 +30,7 @@ describe("bash output view", () => {
 		const result = view("one\ntwo\n");
 		expect(result.details.output_state).toBe("complete");
 		expect(result.keepLog).toBe(false);
-		expect(result.content).toContain("[exit=0");
+		expect(result.content.split("\n", 1)[0]).toBe("[exit=0 duration=0.42s output=complete]");
 		expect(result.content).toContain("one\ntwo\n");
 	});
 
@@ -40,7 +40,7 @@ describe("bash output view", () => {
 		const result = view(text, { limits });
 		expect(result.details.output_state).toBe("truncated");
 		expect(result.details.full_output_path).toBe(fullOutputPath);
-		expect(result.content).toContain(`full=${fullOutputPath}`);
+		expect(result.content.split("\n", 1)[0]).toBe(`[exit=0 duration=0.42s output=truncated full=${fullOutputPath}]`);
 		expect(result.content).toContain("line 0");
 		expect(result.content).toContain("line 79");
 		expect(result.content).toMatch(/\[\.\.\. \d+ lines omitted \.\.\.\]/);
@@ -146,7 +146,9 @@ describe("bash output view", () => {
 
 	it("状态头支持 timeout 和 aborted", () => {
 		for (const status of ["timed_out", "aborted"] as BashRunStatus[]) {
-			expect(view("partial", { status }).content).toContain(status === "timed_out" ? "[timeout" : "[aborted");
+			const firstLine = view("partial", { status }).content.split("\n", 1)[0];
+			expect(firstLine).toBe(`[${status === "timed_out" ? "timeout" : "aborted"} duration=0.42s output=complete]`);
+			expect(firstLine).not.toMatch(/\b(?:lines|bytes)=/);
 		}
 	});
 });

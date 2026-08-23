@@ -108,22 +108,14 @@ export function countLogicalLines(text: string): number {
 function formatHeader(details: BashToolDetails): string {
 	const duration = (details.duration_ms / 1000).toFixed(2);
 	const outputTruncated = details.output_state === "truncated" || details.output_state === "capture_truncated";
-	const linePart =
-		details.output_state === "complete"
-			? `lines=${details.total_lines}`
-			: `lines=${details.returned_lines}/${details.total_lines}`;
-	const bytePart =
-		details.output_state === "complete"
-			? `bytes=${details.total_bytes}`
-			: `bytes=${details.returned_bytes}/${details.total_bytes}`;
 	const fullPart = outputTruncated && details.full_output_path ? ` full=${details.full_output_path}` : "";
 	if (details.status === "timed_out") {
-		return `[timeout duration=${duration}s output=${details.output_state} ${linePart} ${bytePart}${fullPart}]`;
+		return `[timeout duration=${duration}s output=${details.output_state}${fullPart}]`;
 	}
 	if (details.status === "aborted") {
-		return `[aborted duration=${duration}s output=${details.output_state} ${linePart} ${bytePart}${fullPart}]`;
+		return `[aborted duration=${duration}s output=${details.output_state}${fullPart}]`;
 	}
-	return `[exit=${details.exit_code ?? "null"} duration=${duration}s output=${details.output_state} ${linePart} ${bytePart}${fullPart}]`;
+	return `[exit=${details.exit_code ?? "null"} duration=${duration}s output=${details.output_state}${fullPart}]`;
 }
 
 function headTailPreview(text: string, budget: number, headRatio: number): string {

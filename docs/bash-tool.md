@@ -91,9 +91,9 @@ Matched pattern: ...
 模型可见输出的第一行是稳定头部：
 
 ```text
-[exit=0 duration=0.42s output=complete lines=18 bytes=1240]
-[exit=1 duration=3.04s output=truncated lines=421/18240 bytes=49152/1840213 full=/tmp/...log]
-[timeout duration=120.02s output=truncated lines=318/9301 bytes=49152/1840213 full=/tmp/...log]
+[exit=0 duration=0.42s output=complete]
+[exit=1 duration=3.04s output=truncated full=/tmp/...log]
+[timeout duration=120.02s output=truncated full=/tmp/...log]
 ```
 
 `details` 提供以下机器可读字段：
