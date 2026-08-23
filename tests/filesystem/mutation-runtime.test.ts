@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -9,7 +9,7 @@ import { expectFsOk as expectOk, overrideNativeFileSystem as nativeOverride, tex
 import { commitBytes, useMutationFixture } from "./mutation-fixtures.js";
 
 const test = useMutationFixture("o-pi-mutation-runtime-");
-const { commitPath, openRuntime, policy, resolveTarget, track } = test;
+const { openMutation, openRuntime, policy, resolveTarget, track } = test;
 let workspace: string;
 beforeEach(() => { workspace = test.workspace; });
 
@@ -30,10 +30,9 @@ describe("filesystem mutation runtime", () => {
 		})).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 	});
 	it("creates parents, fully overwrites files, and returns before/after versions", async () => {
-		const opened = await openRuntime();
-		const target = await resolveTarget(opened, "nested/file.txt");
+		const mutation = await openMutation("nested/file.txt");
 		const firstBytes = bytes("first\n");
-		const firstResult = expectOk(await commitBytes(opened, target, firstBytes, { createParents: true }));
+		const firstResult = expectOk(await mutation.commit(firstBytes, { createParents: true }));
 		expect(firstResult).toMatchObject({ committed: true });
 		if (!firstResult.committed) throw new Error("Expected committed mutation.");
 		const first = firstResult.receipt;
@@ -45,7 +44,7 @@ describe("filesystem mutation runtime", () => {
 		});
 
 		const secondBytes = bytes("second\n");
-		const second = expectOk(await commitBytes(opened, first.target, secondBytes, { createParents: true }));
+		const second = expectOk(await commitBytes(mutation.opened, first.target, secondBytes, { createParents: true }));
 		expect(second).toMatchObject({
 			committed: true,
 			receipt: {
@@ -60,27 +59,17 @@ describe("filesystem mutation runtime", () => {
 		const mkdirNative = nativeOverride({
 			async mkdir(directory) { throw new NativeFileSystemError("access-denied", "mkdir", directory); },
 		});
-		const mkdirOpen = await openRuntime([], mkdirNative);
-		await expect(commitBytes(
-			mkdirOpen,
-			await resolveTarget(mkdirOpen, "nested/fail.txt"),
-			bytes("fail"),
-			{ createParents: true },
-		)).resolves.toMatchObject({ ok: false, error: { code: "access-denied" } });
+		const mkdirMutation = await openMutation("nested/fail.txt", { native: mkdirNative });
+		await expect(mkdirMutation.commit(bytes("fail"), { createParents: true }))
+			.resolves.toMatchObject({ ok: false, error: { code: "access-denied" } });
 
-		await writeFile(path.join(workspace, "read-fail.txt"), "before");
 		const readNative = nativeOverride({
 			async open(file) { throw new NativeFileSystemError("access-denied", "open", file); },
 		});
-		const readOpen = await openRuntime([], readNative);
-		await expect(commitBytes(
-			readOpen,
-			await resolveTarget(readOpen, "read-fail.txt"),
-			bytes("fail"),
-			{ createParents: false },
-		)).resolves.toMatchObject({ ok: false, error: { code: "access-denied" } });
+		const readMutation = await openMutation("read-fail.txt", { initial: "before", native: readNative });
+		await expect(readMutation.commit(bytes("fail"), { createParents: false }))
+			.resolves.toMatchObject({ ok: false, error: { code: "access-denied" } });
 
-		await writeFile(path.join(workspace, "abort-read.txt"), "before");
 		const readAbort = new AbortController();
 		const abortingReadNative = nativeOverride({
 			async open(file, options) {
@@ -89,10 +78,9 @@ describe("filesystem mutation runtime", () => {
 				return handle;
 			},
 		});
-		const abortReadOpen = await openRuntime([], abortingReadNative, readAbort.signal);
+		const abortRead = await openMutation("abort-read.txt", { initial: "before", native: abortingReadNative, signal: readAbort.signal });
 		let transformed = false;
-		await expect(abortReadOpen.filesystem.mutations.run(
-			await resolveTarget(abortReadOpen, "abort-read.txt"),
+		await expect(abortRead.run(
 			{ createParents: false },
 			() => {
 				transformed = true;
@@ -102,10 +90,8 @@ describe("filesystem mutation runtime", () => {
 		expect(transformed).toBe(false);
 
 		const transformAbort = new AbortController();
-		const transformAbortOpen = await openRuntime([], undefined, transformAbort.signal);
-		const abortTarget = await resolveTarget(transformAbortOpen, "abort-transform.txt");
-		await expect(transformAbortOpen.filesystem.mutations.run(
-			abortTarget,
+		const abortTransform = await openMutation("abort-transform.txt", { signal: transformAbort.signal });
+		await expect(abortTransform.run(
 			{ createParents: false },
 			() => {
 				transformAbort.abort();
@@ -127,7 +113,6 @@ describe("filesystem mutation runtime", () => {
 	});
 	it("enforces snapshot and output byte limits despite metadata underreporting", async () => {
 		const file = path.join(workspace, "underreported.txt");
-		await writeFile(file, "12345");
 		const base = new NodeNativeFileSystem();
 		let openedUnderreportedFile = false;
 		const underreportedNative = nativeOverride({
@@ -141,10 +126,9 @@ describe("filesystem mutation runtime", () => {
 				return handle;
 			},
 		});
-		const opened = await openRuntime([], underreportedNative);
+		const mutation = await openMutation("underreported.txt", { initial: "12345", native: underreportedNative });
 		let transformed = false;
-		await expect(opened.filesystem.mutations.run(
-			await resolveTarget(opened, "underreported.txt"),
+		await expect(mutation.run(
 			{ createParents: false, maxSnapshotBytes: 2, maxOutputBytes: 2 },
 			() => {
 				transformed = true;
@@ -157,12 +141,9 @@ describe("filesystem mutation runtime", () => {
 		expect(transformed).toBe(false);
 		expect(await readFile(file, "utf8")).toBe("12345");
 
-		await expect(commitPath(
-			opened,
-			"output-limit.txt",
-			bytes("123"),
-			{ createParents: false, maxSnapshotBytes: 2, maxOutputBytes: 2 },
-		)).resolves.toMatchObject({
+		const output = await openMutation("output-limit.txt", { native: underreportedNative });
+		await expect(output.commit(bytes("123"), { createParents: false, maxSnapshotBytes: 2, maxOutputBytes: 2 }))
+			.resolves.toMatchObject({
 			ok: false,
 			error: { code: "too-large", details: { limit: 2, size: 3 } },
 		});
