@@ -6,6 +6,7 @@ import { formatCompactGrepResult } from "../../src/file-tools/grep/command.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
+import { expectFailure } from "./result-fixtures.js";
 import {
 	createGrepTestContext,
 	expectGrepSuccess,
@@ -219,10 +220,7 @@ describe("grep integration", () => {
 		await writeFile(configPath, JSON.stringify(raw, null, 2));
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
 		clearGrepIndex();
-		expect(await grepWorkspaceFiles(testContext.workspace, { path: ["link.txt"], query: "needle" })).toMatchObject({
-			status: "failed",
-			error: { code: "PROTECTED_PATH" },
-		});
+		expectFailure(await grepWorkspaceFiles(testContext.workspace, { path: ["link.txt"], query: "needle" }), { code: "PROTECTED_PATH" });
 	});
 
 	it.skipIf(process.platform === "win32")("递归搜索跳过局部权限失败", async () => {

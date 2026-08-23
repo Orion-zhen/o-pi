@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { piTextDiffGenerator } from "../../src/file-tools/pi/ports/text-diff.js";
 import { contentHash as sha256Version } from "../../src/filesystem/services/text.js";
 import { createCrudTestContext } from "./crud-fixtures.js";
+import { expectFailure } from "./result-fixtures.js";
 
 const testContext = createCrudTestContext();
 let workspace: string;
@@ -17,7 +18,7 @@ beforeEach(() => {
 
 describe("write", () => {
 	it("拒绝空路径", async () => {
-		expect(await testContext.write({ path: "", content: "x" })).toMatchObject({ status: "failed", error: { code: "INVALID_PATH" } });
+		expectFailure(await testContext.write({ path: "", content: "x" }), "INVALID_PATH");
 	});
 
 	it("拒绝超过 write 单文件上限的输入和已有 snapshot，且不修改目标", async () => {
@@ -26,15 +27,13 @@ describe("write", () => {
 		const original = "x".repeat(1025);
 		await writeFile(existing, original);
 
-		expect(await testContext.write({ path: "new-large.txt", content: "y".repeat(1025) })).toMatchObject({
-			status: "failed",
-			error: { code: "OUTPUT_LIMIT_EXCEEDED", details: { limit: 1024, size: 1025 } },
+		expectFailure(await testContext.write({ path: "new-large.txt", content: "y".repeat(1025) }), {
+			code: "OUTPUT_LIMIT_EXCEEDED", details: { limit: 1024, size: 1025 },
 		});
 		await expect(readFile(path.join(workspace, "new-large.txt"))).rejects.toMatchObject({ code: "ENOENT" });
 
-		expect(await testContext.write({ path: "existing-large.txt", content: "small" })).toMatchObject({
-			status: "failed",
-			error: { code: "OUTPUT_LIMIT_EXCEEDED", details: { limit: 1024, size: 1025 } },
+		expectFailure(await testContext.write({ path: "existing-large.txt", content: "small" }), {
+			code: "OUTPUT_LIMIT_EXCEEDED", details: { limit: 1024, size: 1025 },
 		});
 		expect(await readFile(existing, "utf8")).toBe(original);
 
@@ -72,10 +71,7 @@ describe("write", () => {
 
 		await testContext.write({ path: "a.txt", content: "old\n" });
 		await writeFile(path.join(workspace, "a.txt"), "external\n");
-		expect(await testContext.edit({ path: "a.txt", edits: [{ old: "old", new: "new" }] })).toMatchObject({
-			status: "failed",
-			error: { code: "STALE_READ", path: "a.txt" },
-		});
+		expectFailure(await testContext.edit({ path: "a.txt", edits: [{ old: "old", new: "new" }] }), { code: "STALE_READ", path: "a.txt" });
 	});
 
 	it("覆盖已有文件，不要求先 read", async () => {
@@ -112,10 +108,7 @@ describe("write", () => {
 
 	it("拒绝写入 blocked path", async () => {
 		await mkdir(path.join(workspace, ".git"));
-		expect(await testContext.write({ path: ".git/config", content: "[core]\n" })).toMatchObject({
-			status: "failed",
-			error: { code: "PROTECTED_PATH", path: ".git/config" },
-		});
+		expectFailure(await testContext.write({ path: ".git/config", content: "[core]\n" }), { code: "PROTECTED_PATH", path: ".git/config" });
 	});
 
 	it.skipIf(process.platform === "win32")("提交 mutation 前重新检查排队期间变成 blocked target 的 symlink", async () => {
@@ -163,14 +156,8 @@ describe("write", () => {
 			return;
 		}
 
-		expect(await testContext.write({ path: "target-link.txt", content: "new\n" })).toMatchObject({
-			status: "failed",
-			error: { code: "PROTECTED_PATH", path: "target-link.txt" },
-		});
-		expect(await testContext.write({ path: "parent-link/new.txt", content: "new\n" })).toMatchObject({
-			status: "failed",
-			error: { code: "PROTECTED_PATH", path: "parent-link/new.txt" },
-		});
+		expectFailure(await testContext.write({ path: "target-link.txt", content: "new\n" }), { code: "PROTECTED_PATH", path: "target-link.txt" });
+		expectFailure(await testContext.write({ path: "parent-link/new.txt", content: "new\n" }), { code: "PROTECTED_PATH", path: "parent-link/new.txt" });
 		expect(await readFile(path.join(protectedDir, "target.txt"), "utf8")).toBe("secret\n");
 	});
 });

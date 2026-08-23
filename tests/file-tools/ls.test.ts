@@ -12,6 +12,7 @@ import { createVisibilityPolicy } from "../../src/filesystem/services/visibility
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { readWorkspaceFile } from "../helpers/read-tool.js";
+import { expectFailure } from "./result-fixtures.js";
 
 let workspace: string;
 let outside: string;
@@ -145,10 +146,7 @@ describe("ls", () => {
 				ignored: true,
 				ignore_source: "file-tools.jsonc",
 			});
-			expect(await readWorkspaceFile(workspace, { path: "blocked/secret.txt" })).toMatchObject({
-				status: "failed",
-				error: { code: "PROTECTED_PATH", path: "blocked/secret.txt" },
-			});
+			expectFailure(await readWorkspaceFile(workspace, { path: "blocked/secret.txt" }), { code: "PROTECTED_PATH", path: "blocked/secret.txt" });
 		} finally {
 			if (previousConfigPath === undefined) {
 				delete process.env.PI_FILE_TOOLS_CONFIG;
@@ -220,14 +218,8 @@ describe("ls", () => {
 		await mkdir(path.join(workspace, ".git"));
 		await mkdir(path.join(outside, "nested"));
 		const relativeOutside = path.relative(workspace, outside);
-		expect(await listWorkspaceDirectory(workspace, { path: "missing" })).toMatchObject({
-			status: "failed",
-			error: { code: "PATH_NOT_FOUND", path: "missing" },
-		});
-		expect(await listWorkspaceDirectory(workspace, { path: "file.txt" })).toMatchObject({
-			status: "failed",
-			error: { code: "NOT_A_DIRECTORY", path: "file.txt" },
-		});
+		expectFailure(await listWorkspaceDirectory(workspace, { path: "missing" }), { code: "PATH_NOT_FOUND", path: "missing" });
+		expectFailure(await listWorkspaceDirectory(workspace, { path: "file.txt" }), { code: "NOT_A_DIRECTORY", path: "file.txt" });
 		expect(await listWorkspaceDirectory(workspace, { path: relativeOutside })).toMatchObject({
 			path: relativeOutside.replace(/\\/g, "/"),
 			entries: [{ name: "nested", type: "directory" }],
@@ -240,10 +232,7 @@ describe("ls", () => {
 			path: "src",
 			entries: [{ name: "main.ts", path: "src/main.ts", type: "file" }],
 		});
-		expect(await listWorkspaceDirectory(workspace, { path: ".git" })).toMatchObject({
-			status: "failed",
-			error: { code: "PROTECTED_PATH", path: ".git" },
-		});
+		expectFailure(await listWorkspaceDirectory(workspace, { path: ".git" }), { code: "PROTECTED_PATH", path: ".git" });
 	});
 
 	it("保留非规则文件 soft-ignore 的来源类型", async () => {
@@ -371,10 +360,7 @@ describe("ls", () => {
 		await mkdir(locked);
 		await chmod(locked, 0o000);
 		try {
-			expect(await listWorkspaceDirectory(workspace, { path: "locked" })).toMatchObject({
-				status: "failed",
-				error: { code: "ACCESS_DENIED", path: "locked" },
-			});
+			expectFailure(await listWorkspaceDirectory(workspace, { path: "locked" }), { code: "ACCESS_DENIED", path: "locked" });
 		} finally {
 			await chmod(locked, 0o700);
 		}
