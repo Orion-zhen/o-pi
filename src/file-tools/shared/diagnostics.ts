@@ -24,12 +24,14 @@ export interface DiagnosticsSummary {
 	items: DiagnosticItem[];
 }
 
-export interface DiagnosticSnapshot {
+interface DiagnosticSnapshotBase {
 	source: string;
 	uri: string;
 	items: DiagnosticItem[];
-	known: boolean;
 	revision: number;
-	updatedAt?: number;
 	version?: number;
 }
+
+export type DiagnosticSnapshot =
+	| (DiagnosticSnapshotBase & { known: false })
+	| (DiagnosticSnapshotBase & { known: true; updatedAt: number });

@@ -13,9 +13,9 @@ import { readWorkspaceFile } from "../helpers/read-tool.js";
 import { writeFile as writeFileCommand } from "../../src/file-tools/write/command.js";
 import type { ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
-import { summarizeDiagnostics } from "../../src/lsp/diagnostics.js";
-import { createLspFileOperations, type LspFileOperations } from "../../src/lsp/file-hooks.js";
-import { LspManager } from "../../src/lsp/manager.js";
+import { summarizeDiagnostics } from "../../src/lsp/diagnostics/ledger.js";
+import { createLspFileOperations, type LspFileOperations } from "../../src/lsp/adapters/file-operations.js";
+import { LspManager } from "../../src/lsp/manager/manager.js";
 import type { LspDiagnosticSnapshot } from "../../src/lsp/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
@@ -119,6 +119,7 @@ describe("file-tools lsp hooks", () => {
 					uri,
 					known: true,
 					revision: mutation,
+					updatedAt: Date.now(),
 					items: [...current.items, { severity: "error", line: 1, column: 1, message }],
 				};
 				return summarizeDiagnostics(
@@ -152,7 +153,7 @@ describe("file-tools lsp hooks", () => {
 		let afterCalled = false;
 		const hooks: LspFileOperations = {
 			async beforeMutation() {
-				return { source: "/repo\0ts", uri: pathToFileURL("a.ts").toString(), items: [], known: true, revision: 1 };
+				return { source: "/repo\0ts", uri: pathToFileURL("a.ts").toString(), items: [], known: true, revision: 1, updatedAt: Date.now() };
 			},
 			async afterMutation(input) {
 				afterCalled = true;

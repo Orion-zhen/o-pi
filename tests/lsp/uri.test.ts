@@ -1,7 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "../../src/lsp/uri.js";
+import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "../../src/lsp/protocol/uri.js";
 
 describe("lsp uri", () => {
 	it("本地路径和 file URI 可互转", () => {

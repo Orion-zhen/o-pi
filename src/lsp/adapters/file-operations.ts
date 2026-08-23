@@ -1,14 +1,14 @@
 import { FileChangeType } from "vscode-languageserver-protocol";
 
-import type { CodeAnalysis } from "../code-index/types.js";
-import { emptySummary } from "./diagnostics.js";
+import type { CodeAnalysis } from "../../code-index/types.js";
+import { emptySummary } from "../diagnostics/ledger.js";
 import type {
 	LspCodeAnalysisInput,
 	LspCodeAnalysisPreparationInput,
 	LspManager,
 	ReadEnhancement,
-} from "./manager.js";
-import type { LspDiagnosticSnapshot, LspDiagnosticsSummary, LspLineRange } from "./types.js";
+} from "../manager/manager.js";
+import type { LspDiagnosticSnapshot, LspDiagnosticsSummary, LspLineRange } from "../types.js";
 
 export interface LspReadInput {
 	readonly workspaceRoot: string;

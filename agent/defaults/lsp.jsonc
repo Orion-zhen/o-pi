@@ -6,7 +6,6 @@
 	"startup_timeout_ms": 8000,
 	"request_timeout_ms": 5000,
 	"idle_timeout_ms": 300000,
-	"max_restarts": 2,
 	// 仓库配置覆盖内置默认值 64。
 	"max_open_documents": 128,
 	"diagnostics": {

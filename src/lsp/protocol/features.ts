@@ -117,13 +117,3 @@ export async function requestIncomingCalls(
 	const calls = await session.request(CallHierarchyIncomingCallsRequest.type, { item }, options);
 	return calls === null ? [] : calls;
 }
-
-/** 后续 feature 只需在此边界注册 adapter，不改 transport、registry 或 manager 生命周期。 */
-export const lspFeatureAdapters = {
-	documentSymbols: requestDocumentSymbols,
-	workspaceSymbols: requestWorkspaceSymbols,
-	workspaceSymbolResolve: resolveWorkspaceSymbol,
-	references: requestReferences,
-	incomingCalls: requestIncomingCalls,
-};
-export type LspFeatureRequest = typeof lspFeatureAdapters;

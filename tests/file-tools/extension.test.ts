@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFileToolsExtension, type FileToolsModuleImports } from "../../agent/extensions/file-tools.js";
-import type { LspMutationInput } from "../../src/lsp/file-hooks.js";
+import type { LspMutationInput } from "../../src/lsp/adapters/file-operations.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 import { activateFileTools, executeTool, registerExtension, type ExecuteTool, type LifecycleHandler } from "./extension-fixture.js";

@@ -1,7 +1,7 @@
 import type { Position, TextDocumentContentChangeEvent } from "vscode-languageserver-protocol";
 
-import type { LspClientDocumentContext, LspDocumentSymbols } from "./types.js";
-import { pathToFileUri } from "./uri.js";
+import type { LspClientDocumentContext, LspDocumentSymbols } from "../types.js";
+import { pathToFileUri } from "../protocol/uri.js";
 
 export interface LspDocumentState extends LspClientDocumentContext {
 	version: number;
@@ -139,10 +139,6 @@ export class LspDocuments {
 			if (state.open) count += 1;
 		}
 		return count;
-	}
-
-	openUris(): string[] {
-		return Array.from(this.states.values()).flatMap((state) => state.open ? [state.uri] : []);
 	}
 
 	clear(): void {

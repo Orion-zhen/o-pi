@@ -4,8 +4,8 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { defaultAgentConfigPath } from "../../src/config-loader.js";
-import { defaultLspConfig, loadLspConfig, normalizeExcludePath } from "../../src/lsp/config.js";
-import { LspServerRegistry } from "../../src/lsp/registry.js";
+import { defaultLspConfig, loadLspConfig, normalizeExcludePath } from "../../src/lsp/config/loader.js";
+import { LspServerRegistry } from "../../src/lsp/config/registry.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;

@@ -7,7 +7,7 @@ import { formatReadModelResult } from "../../read/presenter.js";
 import type { ReadFileSuccess, ReadOutputFormat, ReadParams } from "../../read/types.js";
 import type { FileToolsHost } from "../../runtime/host.js";
 import { fail, isFailed, type FailedResult } from "../../shared/result.js";
-import type { LspFileOperations } from "../../../lsp/file-hooks.js";
+import type { LspFileOperations } from "../../../lsp/index.js";
 import {
 	resolveReadLocator,
 	type SkillReadIndex,

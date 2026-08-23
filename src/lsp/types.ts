@@ -1,5 +1,4 @@
-import type { CancellationToken } from "vscode-jsonrpc/node";
-import type { Diagnostic, DocumentSymbol, ServerCapabilities, SymbolInformation } from "vscode-languageserver-protocol";
+import type { DocumentSymbol, ServerCapabilities, SymbolInformation } from "vscode-languageserver-protocol";
 
 /** LSP 诊断严重级别名称，按 protocol 数值从高到低映射。 */
 export type LspSeverityName = "error" | "warning" | "information" | "hint";
@@ -60,15 +59,6 @@ export interface LspRequestOptions {
 /** initialize 返回的 server capabilities。 */
 export type LspServerCapabilities = ServerCapabilities;
 
-/** server 主动 request 的安全边界处理器。 */
-export type LspServerRequestHandler = (params: unknown, token: CancellationToken) => unknown | Promise<unknown>;
-
-/** LSP progress notification 的安全原始结构。 */
-export interface LspProgressNotification {
-	token: string | number;
-	value: unknown;
-}
-
 /** LSP 配置；由全局配置和可选项目配置合并得到。 */
 export interface LspConfig {
 	enabled: boolean;
@@ -77,7 +67,6 @@ export interface LspConfig {
 	startup_timeout_ms: number;
 	request_timeout_ms: number;
 	idle_timeout_ms: number;
-	max_restarts: number;
 	max_open_documents: number;
 	diagnostics: {
 		enabled: boolean;
@@ -137,15 +126,17 @@ export interface LspDiagnosticsSummary {
 }
 
 /** diagnostics ledger 中某个 client source+URI 的快照。 */
-export interface LspDiagnosticSnapshot {
+interface LspDiagnosticSnapshotBase {
 	source: string;
 	uri: string;
 	items: LspDiagnosticItem[];
-	known: boolean;
 	revision: number;
-	updatedAt?: number;
 	version?: number;
 }
+
+export type LspDiagnosticSnapshot =
+	| (LspDiagnosticSnapshotBase & { known: false })
+	| (LspDiagnosticSnapshotBase & { known: true; updatedAt: number });
 
 /** 长文件截断 read 中尚未出现的顶层 symbol。 */
 export interface LspRemainingSymbol {
@@ -163,24 +154,12 @@ export interface LspEnclosingSymbol {
 	end_line: number;
 }
 
-export interface LspSymbolHit {
-	path: string;
-	start_line: number;
-	end_line: number;
-	kind: string;
-	symbol: string;
-	qualified_symbol?: string;
-	exact: boolean;
-	origin: "workspace-symbol";
-}
-
 /** /lsp status 展示的单个 server 状态。 */
 export interface LspServerStatus {
 	id: string;
 	root: string;
 	status: LspRuntimeStatus;
 	last_error?: string;
-	restarts: number;
 	open_documents: number;
 	diagnostics: number;
 }
@@ -203,5 +182,3 @@ export interface LspClientDocumentContext {
 
 /** documentSymbol 返回的两种 protocol 形态。 */
 export type LspDocumentSymbols = DocumentSymbol[] | SymbolInformation[];
-/** publishDiagnostics 原始诊断类型别名。 */
-export type LspRawDiagnostic = Diagnostic;

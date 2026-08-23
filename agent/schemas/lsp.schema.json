@@ -13,7 +13,6 @@
 		"startup_timeout_ms": { "type": "integer", "minimum": 100, "maximum": 60000, "default": 8000 },
 		"request_timeout_ms": { "type": "integer", "minimum": 100, "maximum": 60000, "default": 5000 },
 		"idle_timeout_ms": { "type": "integer", "minimum": 1000, "maximum": 3600000, "default": 300000 },
-		"max_restarts": { "type": "integer", "minimum": 0, "maximum": 10, "default": 2 },
 		"max_open_documents": { "type": "integer", "minimum": 1, "maximum": 1024, "default": 64 },
 		"diagnostics": {
 			"type": "object",

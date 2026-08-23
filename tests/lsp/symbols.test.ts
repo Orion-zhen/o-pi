@@ -3,7 +3,7 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { SymbolKind, type DocumentSymbol, type SymbolInformation } from "vscode-languageserver-protocol";
 
-import { findEnclosingSymbol, modifiedSymbolRanges, remainingSymbols } from "../../src/lsp/symbols.js";
+import { findEnclosingSymbol, modifiedSymbolRanges, remainingSymbols } from "../../src/lsp/analysis/symbols.js";
 
 const workspace = path.resolve("workspace");
 

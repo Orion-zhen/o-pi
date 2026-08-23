@@ -6,7 +6,7 @@ import { formatWriteModelResult } from "../../write/presenter.js";
 import { formatErrorModelResult } from "../model-output.js";
 import { createMutationDiagnosticsSource } from "../ports/mutation-diagnostics.js";
 import { piTextDiffGenerator } from "../ports/text-diff.js";
-import type { LspFileOperations } from "../../../lsp/file-hooks.js";
+import type { LspFileOperations } from "../../../lsp/index.js";
 import type { MutationBatchInvocation } from "../mutation-batch.js";
 import { createMutationPostProcessObserver, mutationProgress, type MutationProgressCallback } from "../progress.js";
 

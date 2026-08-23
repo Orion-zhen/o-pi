@@ -2,7 +2,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { incrementalContentChange, LspDocuments } from "../../src/lsp/documents.js";
+import { incrementalContentChange, LspDocuments } from "../../src/lsp/client/document-store.js";
 
 const documentUri = pathToFileURL(path.resolve("a.ts")).toString();
 

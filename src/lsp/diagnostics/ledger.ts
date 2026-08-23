@@ -2,8 +2,8 @@ import path from "node:path";
 import type { Diagnostic, DiagnosticRelatedInformation } from "vscode-languageserver-protocol";
 import { DiagnosticSeverity } from "vscode-languageserver-protocol";
 
-import type { LspDiagnosticItem, LspDiagnosticSnapshot, LspDiagnosticsSummary, LspSeverityName } from "./types.js";
-import { fileUriToPath, workspaceRelativePath } from "./uri.js";
+import type { LspDiagnosticItem, LspDiagnosticSnapshot, LspDiagnosticsSummary, LspSeverityName } from "../types.js";
+import { fileUriToPath, workspaceRelativePath } from "../protocol/uri.js";
 
 const severityOrder: Record<LspSeverityName, number> = {
 	error: 1,
@@ -104,7 +104,7 @@ export class DiagnosticsLedger {
 			const scheduleSettle = (snapshot: LspDiagnosticSnapshot): void => {
 				if (snapshot.revision <= afterRevision) return;
 				if (settleTimer !== undefined) clearTimeout(settleTimer);
-				const elapsed = snapshot.updatedAt === undefined ? 0 : Math.max(0, Date.now() - snapshot.updatedAt);
+				const elapsed = snapshot.known ? Math.max(0, Date.now() - snapshot.updatedAt) : 0;
 				const remaining = Math.max(0, settleMs - elapsed);
 				if (remaining === 0) {
 					finish(snapshot);
@@ -138,6 +138,14 @@ export function diagnosticSourceKey(root: string, serverId: string): string {
 	return `${path.resolve(root)}\0${serverId}`;
 }
 
+function knownBaseline(
+	baseline: LspDiagnosticSnapshot | undefined,
+	after: LspDiagnosticSnapshot,
+): Extract<LspDiagnosticSnapshot, { known: true }> | undefined {
+	if (baseline?.known !== true || baseline.source !== after.source || baseline.uri !== after.uri) return undefined;
+	return baseline;
+}
+
 export function summarizeDiagnostics(
 	after: LspDiagnosticSnapshot,
 	baseline: LspDiagnosticSnapshot | undefined,
@@ -145,9 +153,10 @@ export function summarizeDiagnostics(
 	overrideStatus?: "unavailable" | "timeout",
 	selection?: DiagnosticSelection,
 ): LspDiagnosticsSummary {
-	const baselineKnown = baseline?.known === true && baseline.source === after.source && baseline.uri === after.uri;
+	const matchingBaseline = knownBaseline(baseline, after);
+	const baselineKnown = matchingBaseline !== undefined;
 	if (overrideStatus !== undefined) return emptySummary(overrideStatus, baselineKnown ? "known" : "unknown");
-	const beforeItems = baselineKnown ? baseline.items : [];
+	const beforeItems = matchingBaseline === undefined ? [] : matchingBaseline.items;
 	const beforeKeys = countKeys(beforeItems);
 	const afterKeys = countKeys(after.items);
 	const diff = diffCounts(beforeKeys, afterKeys);
@@ -155,7 +164,7 @@ export function summarizeDiagnostics(
 	const fileWarnings = after.items.filter((item) => item.severity === "warning").length;
 	const selected = selection === undefined
 		? after.items.slice(0, maxItems)
-		: selectEditItems(after.items, baselineKnown ? baseline?.items : undefined, baselineKnown, maxItems, selection);
+		: selectEditItems(after.items, beforeItems, baselineKnown, maxItems, selection);
 	return {
 		status: fileErrors > 0 ? "errors" : fileWarnings > 0 ? "warnings" : "clean",
 		file_errors: fileErrors,
@@ -172,7 +181,7 @@ export function summarizeDiagnostics(
 
 function selectEditItems(
 	afterItems: readonly LspDiagnosticItem[],
-	beforeItems: readonly LspDiagnosticItem[] | undefined,
+	beforeItems: readonly LspDiagnosticItem[],
 	baselineKnown: boolean,
 	maxItems: number,
 	selection: DiagnosticSelection,
@@ -183,7 +192,7 @@ function selectEditItems(
 			.filter((item) => item.severity === "error" && inRanges(item.line, selection.changedRanges, selection.symbolRanges))
 			.slice(0, maxItems);
 	}
-	const remaining = countKeys(beforeItems ?? []);
+	const remaining = countKeys(beforeItems);
 	const newItems: LspDiagnosticItem[] = [];
 	for (const item of afterItems) {
 		const key = diffKey(item);
@@ -249,11 +258,10 @@ function toItem(source: string, diagnostic: Diagnostic, maxRelatedLocations: num
 
 function formatRelatedInformation(source: string, information: DiagnosticRelatedInformation): string {
 	const filePath = fileUriToPath(information.location.uri);
-	const separator = source.lastIndexOf("\0");
-	const root = separator < 0 ? undefined : source.slice(0, separator);
+	const root = source.slice(0, source.lastIndexOf("\0"));
 	const location = filePath === undefined
 		? information.location.uri
-		: root === undefined ? filePath : workspaceRelativePath(root, filePath) ?? filePath;
+		: workspaceRelativePath(root, filePath) ?? filePath;
 	const line = information.location.range.start.line + 1;
 	const column = information.location.range.start.character + 1;
 	return `${location}:${line}:${column} ${normalizeMessage(information.message)}`;

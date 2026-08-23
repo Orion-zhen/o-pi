@@ -1,10 +1,10 @@
 import type { DocumentSymbol, Position, Range, SymbolInformation } from "vscode-languageserver-protocol";
 
-import { createFileIdentity, createSymbolId } from "../code-index/identity.js";
-import { languageFromPath } from "../code-index/parser.js";
-import { SourceIndex, type AnalyzedFileIndex, type CodeDocument, type IndexedCodeUnit } from "../code-index/types.js";
+import { createFileIdentity, createSymbolId } from "../../code-index/identity.js";
+import { languageFromPath } from "../../code-index/parser.js";
+import { SourceIndex, type AnalyzedFileIndex, type CodeDocument, type IndexedCodeUnit } from "../../code-index/types.js";
 import { symbolKindName } from "./symbols.js";
-import type { LspDocumentSymbols } from "./types.js";
+import type { LspDocumentSymbols } from "../types.js";
 
 const DECLARATION_CODE_POINT_LIMIT = 240;
 
@@ -16,9 +16,14 @@ interface FlatDocumentSymbol {
 	readonly selectionRange: Range;
 }
 
+export interface AnalyzedLspUnit {
+	readonly unit: IndexedCodeUnit;
+	readonly position: Position;
+}
+
 export interface AnalyzedLspDocument {
 	readonly analysis: AnalyzedFileIndex;
-	readonly positions: ReadonlyMap<string, Position>;
+	readonly units: readonly AnalyzedLspUnit[];
 }
 
 /** 将 LSP documentSymbol 规范化为 grep/code-index 共用的代码单元。 */
@@ -29,28 +34,28 @@ export function analyzeLspDocument(
 	const sourceIndex = new SourceIndex(document.text);
 	const file = createFileIdentity(document.path);
 	const flat = flattenSymbols(symbols);
-	const units = new Map<string, IndexedCodeUnit>();
-	const positions = new Map<string, Position>();
+	const units = new Map<string, AnalyzedLspUnit>();
 	for (const symbol of flat) {
 		const unit = indexedUnit(document, sourceIndex, symbol);
 		if (unit === undefined) return undefined;
-		units.set(unit.id, unit);
-		positions.set(unit.id, symbol.selectionRange.start);
+		units.set(unit.id, { unit, position: symbol.selectionRange.start });
 	}
 	const values = [...units.values()].sort((left, right) =>
-		left.startByte - right.startByte || left.endByte - right.endByte || compareString(left.id, right.id));
+		left.unit.startByte - right.unit.startByte
+		|| left.unit.endByte - right.unit.endByte
+		|| compareString(left.unit.id, right.unit.id));
 	return {
 		analysis: {
 			index: {
 				id: file.id,
 				path: document.path,
 				language: languageFromPath(document.path),
-				units: values,
+				units: values.map(({ unit }) => unit),
 			},
 			status: "parsed",
 			imports: [],
 		},
-		positions,
+		units: values,
 	};
 }
 

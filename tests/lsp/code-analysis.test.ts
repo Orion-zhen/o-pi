@@ -5,8 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SymbolKind, type ServerCapabilities, type SymbolInformation } from "vscode-languageserver-protocol";
 
 import type { CodeDocument } from "../../src/code-index/types.js";
-import { LspClient } from "../../src/lsp/client.js";
-import { LspManager } from "../../src/lsp/manager.js";
+import { LspClient } from "../../src/lsp/client/client.js";
+import { LspManager } from "../../src/lsp/manager/manager.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
@@ -207,6 +207,83 @@ describe("lsp code analysis", () => {
 		expect(documentSymbols).toHaveBeenCalledTimes(2);
 	});
 
+	it("成功结果保持 server 顺序并限制在 target 路径和 symbol 范围内", async () => {
+		const config = path.join(configDir, "ordered-lsp.jsonc");
+		await writeFile(config, JSON.stringify({
+			grep: { workspace_symbols: true, max_symbols: 8, max_exact_leaf_symbols: 2 },
+			servers: {
+				typescript: { command: ["unused-ts-lsp"], languages: { typescript: "*.ts" } },
+				python: { command: ["unused-py-lsp"], languages: { python: "*.py" } },
+			},
+		}));
+		process.env.PI_LSP_CONFIG = config;
+		const sourcePath = path.join(workspace, "src.ts");
+		const testsPath = path.join(workspace, "tests.py");
+		const outsidePath = path.join(workspace, "outside.ts");
+		mockCapabilities();
+		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockImplementation(async function (this: LspClient) {
+			return this.server.id === "typescript"
+				? [workspaceSymbol("Source", sourcePath, 2), workspaceSymbol("Outside", outsidePath, 0)]
+				: [workspaceSymbol("Tests", testsPath, 2)];
+		});
+		vi.spyOn(LspClient.prototype, "documentSymbols").mockImplementation(async (filePath) => {
+			const name = filePath === sourcePath ? "Source" : "Tests";
+			return [{
+				name,
+				kind: SymbolKind.Function,
+				range: { start: { line: 2, character: 0 }, end: { line: 2, character: name.length } },
+				selectionRange: { start: { line: 2, character: 0 }, end: { line: 2, character: name.length } },
+			}];
+		});
+		vi.spyOn(LspClient.prototype, "incomingCalls").mockResolvedValue([]);
+		vi.spyOn(LspClient.prototype, "references").mockResolvedValue([]);
+
+		const analysis = await analyze({
+			root: workspace,
+			query: "target",
+			targets: [{ path: "src.ts", ranges: [] }, { path: "tests.py", ranges: [] }],
+			allowRelated: true,
+			limit: 8,
+			async load(relativePath) {
+				return { ...document(relativePath, "\n\nSource\n"), filePath: path.join(workspace, relativePath) };
+			},
+		});
+
+		expect(analysis?.coveredPaths).toEqual(["src.ts", "tests.py"]);
+		expect(analysis?.files.map(({ document: value, analysis: file }) => ({
+			path: value.path,
+			units: file.index.units.map((unit) => ({ name: unit.name, startLine: unit.startLine, endLine: unit.endLine })),
+		}))).toEqual([
+			{ path: "src.ts", units: [{ name: "Source", startLine: 3, endLine: 3 }] },
+			{ path: "tests.py", units: [{ name: "Tests", startLine: 3, endLine: 3 }] },
+		]);
+	});
+
+	it("任一 workspace symbol resolve 失败时整次 unavailable", async () => {
+		const sourcePath = path.join(workspace, "src.ts");
+		mockCapabilities();
+		vi.spyOn(LspClient.prototype, "workspaceSymbols").mockResolvedValue([{
+			name: "Target",
+			kind: SymbolKind.Function,
+			location: { uri: uri(sourcePath) },
+		}]);
+		const resolve = vi.spyOn(LspClient.prototype, "resolveWorkspaceSymbol").mockResolvedValue(undefined);
+		const load = vi.fn(async () => ({ ...document("src.ts", "export function Target() {}\n"), filePath: sourcePath }));
+
+		const analysis = await analyze({
+			root: workspace,
+			query: "Target",
+			targets: [{ path: "src.ts", ranges: [] }],
+			allowRelated: true,
+			limit: 8,
+			load,
+		});
+
+		expect(analysis).toBeUndefined();
+		expect(resolve).toHaveBeenCalledTimes(1);
+		expect(load).not.toHaveBeenCalled();
+	});
+
 	it("任一 server 的 workspace symbol 请求失败时整次 unavailable", async () => {
 		const config = path.join(configDir, "multi-lsp.jsonc");
 		await writeFile(config, JSON.stringify({
@@ -267,13 +344,13 @@ async function analyze(input: Parameters<LspManager["codeAnalysis"]>[0]) {
 	}
 }
 
-function workspaceSymbol(name: string, filePath: string): SymbolInformation {
+function workspaceSymbol(name: string, filePath: string, line = 0): SymbolInformation {
 	return {
 		name,
 		kind: SymbolKind.Function,
 		location: {
 			uri: uri(filePath),
-			range: { start: { line: 0, character: 16 }, end: { line: 0, character: 22 } },
+			range: { start: { line, character: 0 }, end: { line, character: name.length } },
 		},
 	};
 }

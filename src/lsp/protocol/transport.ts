@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import net, { type Socket } from "node:net";
 
 import { withTimeout } from "./timeout.js";
-import type { LspTransport } from "./types.js";
+import type { LspTransport } from "../types.js";
 
 const STDERR_TAIL_BYTES = 8192;
 

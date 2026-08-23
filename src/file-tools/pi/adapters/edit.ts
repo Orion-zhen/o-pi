@@ -3,7 +3,7 @@ import type { EditParams, EditPreviewSuccess } from "../../edit/types.js";
 import { FileToolsHost, type FileToolsInvocation } from "../../runtime/host.js";
 import { fail, isFailed } from "../../shared/result.js";
 import { isPlainRecord } from "../guards.js";
-import type { LspFileOperations } from "../../../lsp/file-hooks.js";
+import type { LspFileOperations } from "../../../lsp/index.js";
 import { formatEditModelResult } from "../../edit/presenter.js";
 import { formatErrorModelResult } from "../model-output.js";
 import { createMutationDiagnosticsSource } from "../ports/mutation-diagnostics.js";

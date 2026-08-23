@@ -1,4 +1,4 @@
-import type { LspFileOperations } from "../../lsp/file-hooks.js";
+import type { LspFileOperations } from "../../lsp/index.js";
 
 export interface LspModule {
 	lspFileOperations: LspFileOperations;

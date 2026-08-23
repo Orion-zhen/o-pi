@@ -2,7 +2,7 @@ import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DiagnosticSeverity, type Diagnostic } from "vscode-languageserver-protocol";
 
-import { DiagnosticsLedger, summarizeDiagnostics } from "../../src/lsp/diagnostics.js";
+import { DiagnosticsLedger, summarizeDiagnostics } from "../../src/lsp/diagnostics/ledger.js";
 
 const source = "/repo\0ts";
 const otherSource = "/other\0ts";
@@ -184,6 +184,7 @@ describe("lsp diagnostics", () => {
 		const ledger = new DiagnosticsLedger();
 		const first = ledger.update(source, uri, [], "warning");
 		const second = ledger.update(source, uri, [], "warning");
+		if (first.known !== true || second.known !== true) throw new Error("ledger update must create a known snapshot");
 		expect(first.updatedAt).toBe(1234);
 		expect(second.updatedAt).toBe(1234);
 		expect(second.revision).toBeGreaterThan(first.revision);

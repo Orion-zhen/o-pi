@@ -1,8 +1,7 @@
 import path from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 
-import type { LspManager } from "./manager.js";
-import { queryLspDiagnostics, queryLspStatus } from "./queries.js";
+import type { LspManager } from "../manager/manager.js";
 
 type LspCommandApi = Pick<ExtensionAPI, "registerCommand">;
 
@@ -19,7 +18,7 @@ export function registerLspCommands(pi: LspCommandApi, manager: LspManager): voi
 async function handleLspCommand(manager: LspManager, args: string, ctx: ExtensionCommandContext): Promise<void> {
 	const [command, ...rest] = args.trim().split(/\s+/).filter(Boolean);
 	if (command === undefined || command === "status") {
-		ctx.ui.notify(formatStatus(await queryLspStatus(manager, ctx.cwd)), "info");
+		ctx.ui.notify(formatStatus(await manager.status(ctx.cwd)), "info");
 		return;
 	}
 	if (command === "reload") {
@@ -29,14 +28,13 @@ async function handleLspCommand(manager: LspManager, args: string, ctx: Extensio
 	}
 	if (command === "diagnostics") {
 		const target = rest.join(" ").trim();
-		const snapshot = await queryLspDiagnostics(
-			manager,
+		const entries = await manager.knownDiagnostics(
 			ctx.cwd,
 			target.length > 0 ? normalizeTarget(ctx.cwd, target) : undefined,
 		);
 		ctx.ui.notify(
-			formatDiagnostics(snapshot.entries),
-			snapshot.entries.some((entry) => entry.items.some((item) => item.severity === "error")) ? "error" : "info",
+			formatDiagnostics(entries),
+			entries.some((entry) => entry.items.some((item) => item.severity === "error")) ? "error" : "info",
 		);
 		return;
 	}
@@ -55,7 +53,7 @@ function formatStatus(status: Awaited<ReturnType<LspManager["status"]>>): string
 	}
 	lines.push("servers:");
 	for (const server of status.servers) {
-		lines.push(`  ${server.id} · ${server.status} · root ${server.root} · docs ${server.open_documents} · diagnostics ${server.diagnostics} · restarts ${server.restarts}`);
+		lines.push(`  ${server.id} · ${server.status} · root ${server.root} · docs ${server.open_documents} · diagnostics ${server.diagnostics}`);
 		if (server.last_error !== undefined) lines.push(`    last error: ${server.last_error}`);
 	}
 	return lines.join("\n");

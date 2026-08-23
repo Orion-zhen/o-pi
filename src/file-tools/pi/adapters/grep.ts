@@ -5,7 +5,7 @@ import { GrepTool, formatCompactGrepResult } from "../../grep/command.js";
 import type { GrepParams } from "../../grep/types.js";
 import type { FileToolsHost, FileToolsInvocation } from "../../runtime/host.js";
 import { isFailed } from "../../shared/result.js";
-import type { LspFileOperations } from "../../../lsp/file-hooks.js";
+import type { LspFileOperations } from "../../../lsp/index.js";
 import { formatErrorModelResult } from "../model-output.js";
 
 export interface ExecuteGrepOptions {

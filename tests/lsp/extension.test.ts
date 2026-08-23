@@ -3,9 +3,9 @@ import type { ExtensionAPI, SessionShutdownEvent } from "@earendil-works/pi-codi
 import { describe, expect, it, vi } from "vitest";
 
 import lspExtension from "../../agent/extensions/lsp.js";
-import { registerLspCommands } from "../../src/lsp/commands.js";
+import { registerLspCommands } from "../../src/lsp/adapters/commands.js";
 import { lspManager } from "../../src/lsp/index.js";
-import { LspManager } from "../../src/lsp/manager.js";
+import { LspManager } from "../../src/lsp/manager/manager.js";
 
 const repositoryRoot = path.resolve("repo");
 const configPath = path.join(repositoryRoot, "config", "lsp.jsonc");
@@ -50,7 +50,7 @@ describe("lsp extension", () => {
 		vi.spyOn(manager, "status").mockResolvedValue({
 			enabled: true,
 			config_path: configPath,
-			servers: [{ id: "ts", status: "ready", root: repositoryRoot, open_documents: 1, diagnostics: 1, restarts: 0 }],
+			servers: [{ id: "ts", status: "ready", root: repositoryRoot, open_documents: 1, diagnostics: 1 }],
 		});
 		vi.spyOn(manager, "reload").mockImplementation(async () => {
 			reloads += 1;

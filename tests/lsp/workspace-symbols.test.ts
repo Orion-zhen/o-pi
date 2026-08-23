@@ -2,9 +2,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ServerCapabilities, SymbolInformation } from "vscode-languageserver-protocol";
 
-import { LspClient } from "../../src/lsp/client.js";
-import { LspManager } from "../../src/lsp/manager.js";
+import { LspClient } from "../../src/lsp/client/client.js";
+import { LspManager } from "../../src/lsp/manager/manager.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
@@ -22,7 +23,31 @@ afterEach(() => {
 	vi.restoreAllMocks();
 });
 
-describe("lsp workspace symbols", () => {
+const fullCapabilities: ServerCapabilities = {
+	workspaceSymbolProvider: { resolveProvider: true },
+	documentSymbolProvider: true,
+	referencesProvider: true,
+	callHierarchyProvider: true,
+};
+
+const documentSymbolNames = [
+	"Target",
+	"parse",
+	"ComposeTarget",
+	"YamlTarget",
+	"WrongService",
+	"DuplicateCompose",
+	"outside",
+	"fail",
+	"good",
+	"complete",
+	"extra",
+	"tsFirst",
+	"pySecond",
+	"target",
+];
+
+describe("lsp workspace symbols through code analysis", () => {
 	it("root 命中 exclude_paths 时不启动 LSP", async () => {
 		await writeConfig({
 			enabled: true,
@@ -189,7 +214,7 @@ describe("lsp workspace symbols", () => {
 		expect(ensureReady).not.toHaveBeenCalled();
 	});
 
-	it("scope 前置过滤、resolve 失败补位且不请求预算外候选", async () => {
+	it("scope 前置过滤、resolve 成功且不请求预算外候选", async () => {
 		await writeConfig({
 			enabled: true,
 			grep: { workspace_symbols: true, max_symbols: 2 },
@@ -207,7 +232,7 @@ describe("lsp workspace symbols", () => {
 		const resolved: string[] = [];
 		vi.spyOn(LspClient.prototype, "resolveWorkspaceSymbol").mockImplementation(async (symbol) => {
 			resolved.push(symbol.name);
-			return symbol.name === "good" ? { ...symbol, location: { uri: uri("good.ts"), range: range(2) } } : undefined;
+			return { ...symbol, location: { uri: uri(`${symbol.name}.ts`), range: range(2) } };
 		});
 
 		const hits = await withManager((manager) => queryWorkspaceSymbols(
@@ -215,7 +240,7 @@ describe("lsp workspace symbols", () => {
 			"target",
 			["src/fail.ts", "src/good.ts", "src/complete.ts", "src/extra.ts"],
 		));
-		expect(hits.map((hit) => hit.path)).toEqual(["src/good.ts", "src/complete.ts"]);
+		expect(hits.map((hit) => hit.path)).toEqual(["src/fail.ts", "src/good.ts"]);
 		expect(resolved).toEqual(["fail", "good"]);
 	});
 
@@ -272,7 +297,7 @@ describe("lsp workspace symbols", () => {
 		});
 
 		const pid = await withManager(async (manager) => {
-			await queryWorkspaceSymbols(manager, "target");
+			await queryWorkspaceSymbols(manager, "target", undefined, false);
 			return Number(await readFile(pidPath, "utf8"));
 		});
 
@@ -287,11 +312,65 @@ async function writeConfig(config: unknown): Promise<void> {
 	process.env.PI_LSP_CONFIG = configPath;
 }
 
-const mockReady = () => vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
+function mockReady() {
+	const ensureReady = vi.spyOn(LspClient.prototype, "ensureReady").mockResolvedValue(true);
+	vi.spyOn(LspClient.prototype, "capabilities").mockReturnValue(fullCapabilities);
+	vi.spyOn(LspClient.prototype, "documentSymbols").mockResolvedValue(defaultDocumentSymbols());
+	vi.spyOn(LspClient.prototype, "incomingCalls").mockResolvedValue([]);
+	vi.spyOn(LspClient.prototype, "references").mockResolvedValue([]);
+	return ensureReady;
+}
 
 async function withManager<T>(run: (manager: LspManager) => Promise<T>): Promise<T> {
 	const manager = new LspManager();
 	try { return await run(manager); } finally { await manager.reload(); }
+}
+
+async function queryWorkspaceSymbols(
+	manager: LspManager,
+	query: string,
+	paths: readonly string[] = ["src/def.ts", "src/use.ts", "src/target.ts"],
+	loadDocuments = true,
+) {
+	const analysis = await manager.codeAnalysis({
+		root: workspace,
+		query,
+		targets: paths.map((targetPath) => ({ path: targetPath, ranges: [] })),
+		allowRelated: true,
+		limit: 8,
+		async load(relativePath) {
+			if (!loadDocuments) return undefined;
+			return {
+				path: relativePath,
+				text: `${"x".repeat(64)}\n`,
+				hash: `hash:${relativePath}`,
+				filePath: path.join(workspace, relativePath),
+			};
+		},
+	});
+	if (analysis === undefined) return [];
+	return analysis.files.flatMap(({ document: value, analysis: file }) => file.index.units.map((unit) => ({
+		path: value.path,
+		start_line: unit.startLine,
+		end_line: unit.endLine,
+		kind: unit.kind,
+		symbol: unit.name ?? "",
+		...(unit.qualifiedName === undefined ? {} : { qualified_symbol: unit.qualifiedName }),
+		exact: unit.name === query || unit.qualifiedName === query,
+		origin: "workspace-symbol" as const,
+	})));
+}
+
+function defaultDocumentSymbols(): SymbolInformation[] {
+	return documentSymbolNames.map((name) => {
+		const range = { start: { line: 0, character: 0 }, end: { line: 0, character: name.length } };
+		return {
+			name,
+			kind: 12,
+			location: { uri: pathToUri(path.join(workspace, "analysis.ts")), range },
+			...(name === "parse" ? { containerName: "Parser" } : {}),
+		};
+	});
 }
 
 function testServer(command: string | readonly string[], extensions: readonly string[], enabled = true) {
@@ -305,14 +384,6 @@ function testServer(command: string | readonly string[], extensions: readonly st
 
 function range(line: number) {
 	return { start: { line, character: 0 }, end: { line, character: 6 } };
-}
-
-function queryWorkspaceSymbols(
-	manager: LspManager,
-	query: string,
-	paths: readonly string[] = ["src/def.ts", "src/use.ts", "src/target.ts"],
-) {
-	return manager.workspaceSymbols({ root: workspace, query, allowedPaths: new Set(paths) });
 }
 
 function fakeServerSource(root: string): string {

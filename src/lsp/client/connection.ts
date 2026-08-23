@@ -8,7 +8,7 @@ import {
 } from "vscode-jsonrpc/node";
 import { ExitNotification, ShutdownRequest } from "vscode-languageserver-protocol";
 
-import type { LspTransportConnection } from "./transport.js";
+import type { LspTransportConnection } from "../protocol/transport.js";
 
 const MIN_GRACEFUL_CLOSE_MS = 1000;
 const MAX_GRACEFUL_CLOSE_MS = 3000;

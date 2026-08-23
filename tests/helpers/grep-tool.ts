@@ -6,7 +6,7 @@ import {
 } from "../../src/file-tools/pi/adapters/grep.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
-import type { LspFileOperations } from "../../src/lsp/file-hooks.js";
+import type { LspFileOperations } from "../../src/lsp/adapters/file-operations.js";
 
 let host = new FileToolsHost();
 let tool = new GrepTool();

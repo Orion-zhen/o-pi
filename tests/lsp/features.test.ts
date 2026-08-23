@@ -8,7 +8,7 @@ import {
 	requestReferences,
 	requestWorkspaceSymbols,
 	type LspFeatureSession,
-} from "../../src/lsp/features/index.js";
+} from "../../src/lsp/protocol/features.js";
 
 describe("lsp semantic feature adapters", () => {
 	it("按 capability 请求 references 与 incoming call hierarchy", async () => {

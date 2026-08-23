@@ -1,7 +1,7 @@
 import type { ReadObservationStore } from "../../read/command.js";
 import type { ReadStructureSource } from "../../read/ports.js";
 import type { FileToolsInvocation } from "../../runtime/host.js";
-import type { LspFileOperations } from "../../../lsp/file-hooks.js";
+import type { LspFileOperations } from "../../../lsp/index.js";
 
 export function createReadObservationStore(invocation: FileToolsInvocation): ReadObservationStore {
 	return invocation.observation;

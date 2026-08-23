@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-import { queryLspDiagnostics, queryLspStatus } from "../../src/lsp/queries.js";
 import { querySkillStatus } from "../../src/skill-context/state.js";
 import { collectStatsSnapshot, type StatsQueryPort } from "../../src/stats/collector.js";
 import { createLiveTelemetryReport } from "../../src/telemetry-report/live.js";
@@ -58,24 +57,11 @@ describe("adapter-facing DTO serialization", () => {
 		expectJsonRoundTrip(createLiveTelemetryReport(snapshot, "2026-07-31T00:00:00.000Z"));
 	});
 
-	it("空 skill branch 与未启动 LSP 查询均为 JSON-safe", async () => {
+	it("空 skill branch 仍为 JSON-safe", () => {
 		const skills = querySkillStatus([]);
-		const lspPort = {
-			async status() {
-				return { enabled: false, config_path: "/missing/lsp.jsonc", servers: [] };
-			},
-			async knownDiagnostics() {
-				return [];
-			},
-		};
-		const status = await queryLspStatus(lspPort, "/repo");
-		const diagnostics = await queryLspDiagnostics(lspPort, "/repo");
 
 		expect(skills).toEqual({ skills: [] });
-		expect(diagnostics).toEqual({ entries: [] });
 		expectJsonRoundTrip(skills);
-		expectJsonRoundTrip(status);
-		expectJsonRoundTrip(diagnostics);
 	});
 });
 

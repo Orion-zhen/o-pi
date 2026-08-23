@@ -8,7 +8,7 @@ import {
 	type WorkspaceFolder,
 } from "vscode-languageserver-protocol";
 
-import type { LspJsonValue } from "./types.js";
+import type { LspJsonValue } from "../types.js";
 import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "./uri.js";
 
 const MAX_CONFIG_ITEMS = 100;

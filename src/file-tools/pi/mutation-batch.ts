@@ -1,5 +1,4 @@
-import type { LspFileOperations, LspMutationInput } from "../../lsp/file-hooks.js";
-import type { LspDiagnosticsSummary } from "../../lsp/types.js";
+import type { LspDiagnosticsSummary, LspFileOperations, LspMutationInput } from "../../lsp/index.js";
 import type { MutationPostProcessObserver } from "./progress.js";
 
 interface Deferred<T> {

@@ -1,4 +1,4 @@
-import type { LspFileOperations } from "../../../lsp/file-hooks.js";
+import type { LspFileOperations } from "../../../lsp/index.js";
 import type { MutationDiagnosticsSource } from "../../shared/mutation-diagnostics.js";
 import type { FileToolsInvocation } from "../../runtime/host.js";
 import type { MutationBatchInvocation } from "../mutation-batch.js";

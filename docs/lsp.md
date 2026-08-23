@@ -30,7 +30,6 @@ agent/configs/lsp.jsonc
 | `startup_timeout_ms` | `8000` | 服务器 `initialize` 请求的超时时间，单位为毫秒，范围为 `100`-`60000`。超时后，服务器状态变为 `unavailable`。 |
 | `request_timeout_ms` | `5000` | 单次 LSP 请求的超时时间，单位为毫秒，范围为 `100`-`60000`。适用于 `documentSymbol`、`workspace/symbol`、引用和调用层次结构等请求。 |
 | `idle_timeout_ms` | `300000` | 服务器因空闲而关闭前的等待时间，单位为毫秒，范围为 `1000`-`3600000`。关闭后，下次文件工具调用会按需重启服务器。 |
-| `max_restarts` | `2` | 服务器崩溃后的最多重启次数，范围为 `0`-`10`。缺少可执行文件时，服务器状态为 `unavailable`，不会按崩溃处理。 |
 | `max_open_documents` | `128` | 每个服务器会话最多保留的文档状态数，范围为 `1`-`1024`。按最近最少使用（LRU）策略淘汰文档时，客户端会先发送所需的 `didClose`，再清理全文和符号缓存。 |
 | `diagnostics` | 见下表 | 控制 `write` 和 `edit` 成功后的诊断等待与返回内容。 |
 | `read` | 见下表 | 控制 `read` 的长文件导航回退与包围符号增强。 |
@@ -122,7 +121,7 @@ agent/configs/lsp.jsonc
 
 Markdown 服务器需要客户端实现 `markdown/parse`、`markdown/fs/*` 和文件监视器等自定义协议，因此当前未列入默认配置。
 
-内置 TOML 路由使用 `tombi lsp`，覆盖 `*.toml`，以及 Tombi 官方编辑器声明的 `Cargo.lock`、`Gopkg.lock`、`Pipfile`、`pdm.lock`、`poetry.lock` 和 `uv.lock`。默认的 `settings.tombi` 明确启用 SchemaStore、严格 JSON Schema 校验、诊断、引用，以及 Cargo、pyproject 和 Tombi 配置扩展。Tombi 优先使用项目级或用户级的 `.tombi.toml`、`tombi.toml` 与 `pyproject.toml`，因此仓库可以自行调整 TOML 版本、JSON Schema 和扩展功能。Pi 当前直接使用文档符号与诊断。其他标准 LSP 能力可供后续适配器使用。
+内置 TOML 路由使用 `tombi lsp`，覆盖 `*.toml`，以及 Tombi 官方编辑器声明的 `Cargo.lock`、`Gopkg.lock`、`Pipfile`、`pdm.lock`、`poetry.lock` 和 `uv.lock`。默认的 `settings.tombi` 明确启用 SchemaStore、严格 JSON Schema 校验、诊断、引用，以及 Cargo、pyproject 和 Tombi 配置扩展。Tombi 优先使用项目级或用户级的 `.tombi.toml`、`tombi.toml` 与 `pyproject.toml`，因此仓库可以自行调整 TOML 版本、JSON Schema 和扩展功能。Pi 当前通过文件工具调用链使用文档符号和诊断；其他标准 LSP 能力不在当前范围内。
 
 ### `settings`、配置节与嵌套字段
 
@@ -241,6 +240,8 @@ Docker Language Server 可以接管 Dockerfile、Containerfile 和 Compose 文�
 
 可执行文件不存在、TCP 端点不可达或初始化失败时，服务器状态变为 `unavailable`。文件工具本身仍可成功执行。
 
+服务器在进入 `ready` 后崩溃时，状态保持为 `crashed`，不会自动创建替代客户端。`read`、`grep`、`write` 和 `edit` 继续沿用 LSP 不可用时的降级路径；修复服务器或配置后执行 `/lsp reload`，下一次文件工具调用会按需建立新连接。
+
 ## 文件工具行为
 
 - `read`：读取部分行范围时，若最小包围符号的声明行不可见，可以返回 `lsp.enclosing_symbol`。仅当整文件读取被截断，且可见片段未覆盖大部分顶层声明时，才返回非递归的 `remaining_symbols`，用于长文件导航回退。若 `outline` 已关闭或 `max_symbols` 为 `0`，且不需要包围符号，则不会启动 LSP。仅为 `documentSymbol` 打开的文档会在请求后关闭，但会保留数量受限的本地内容版本与符号缓存。相同内容的后续读取直接复用缓存，不会重新打开文档或发送符号请求。
@@ -255,7 +256,7 @@ LSP 增强不会自动应用代码操作、整理导入或执行跨文件重命�
 
 客户端会保存 `initialize` 返回的能力。若服务器不支持文档符号、工作区符号、工作区符号解析、引用或调用层次结构，Pi 不会发送对应请求。仅含 URI 的 `WorkspaceSymbol` 只有在 `workspaceSymbolProvider.resolveProvider: true` 时，才通过 `workspaceSymbol/resolve` 补全范围。
 
-`grep` 分析器要求服务器同时支持文档符号、引用和传入调用。没有正文命中时，服务器还必须支持工作区符号。客户端提供带超时与协议级取消的类型化请求和通知接口，并统一接收诊断、日志与进度消息。
+`grep` 分析器要求服务器同时支持文档符号、引用和传入调用。没有正文命中时，服务器还必须支持工作区符号。客户端为生产所需请求提供带超时与协议级取消的类型化接口，并接收诊断通知；不声明或消费 work-done progress，也不提供通用通知转发。
 
 文档同步严格遵循服务器的 `textDocumentSync`：
 
@@ -275,19 +276,11 @@ LSP 增强不会自动应用代码操作、整理导入或执行跨文件重命�
 
 `reload` 会先阻止新的增强操作，等待旧客户端的完整操作链结束，再关闭客户端。优雅退出时，客户端停止接收新操作，并在同一个绝对期限内依次执行以下步骤：发送 `shutdown` 和 `exit`，排空写入器，结束写入端，等待服务器自行退出。超时后，客户端关闭套接字，或向子进程发送 `TERM` 和 `KILL`。
 
-流写入错误由所属连接代统一处理，并转换为一次传输失败。旧连接的延迟回调不能影响新连接。服务器崩溃时，客户端跳过协议退出流程，立即清除连接、文档状态与底层套接字或子进程。后续操作可在 `max_restarts` 限制内创建全新客户端。并发恢复共享同一次重启。
+流写入错误由所属连接代统一处理，并转换为一次传输失败。旧连接的延迟回调不能影响新连接。服务器崩溃时，客户端跳过协议退出流程，立即清除连接、文档状态与底层套接字或子进程，并保持 `crashed` 状态。后续操作不会自动创建替代客户端；执行 `/lsp reload` 后，下一次文件工具调用才会按需建立全新连接。
 
 标准输入输出传输会持续读取标准错误，但只为 `last_error` 保留长度受限的末尾内容。使用标准输入输出初始化时，`processId` 是当前 Pi 进程 ID。使用 TCP 初始化时，`processId` 为 `null`。
 
-对于服务器主动发起的请求，Pi 仅处理无副作用的 `workspace/configuration`、`workspace/workspaceFolders`、`window/workDoneProgress/create` 和 `client/registerCapability`。动态注册白名单只包含 `workspace/didChangeWatchedFiles` 与 `workspace/didChangeConfiguration`。文件监视器的 glob、工作区边界和数量均受限制。其他请求，包括 `workspace/applyEdit`，返回 `MethodNotFound`。
-
-新增高级功能时，在 `src/lsp/features/index.ts` 中添加类型化适配器：
-
-1. 使用 `featureAvailable(session, definition)` 检查服务器能力。
-2. 通过 `session.request(RequestType, params, options)` 发送请求。
-3. 将适配器加入 `lspFeatureAdapters`。
-
-完成以上步骤后，无需修改管理器、注册表、传输层或会话生命周期。服务器不支持所需能力时，适配器应返回 `undefined`，由文件工具按常规路径降级。
+对于服务器主动发起的请求，Pi 仅处理无副作用的 `workspace/configuration`、`workspace/workspaceFolders` 和 `client/registerCapability`。动态注册白名单只包含 `workspace/didChangeWatchedFiles` 与 `workspace/didChangeConfiguration`。文件监视器的 glob、工作区边界和数量均受限制。其他请求，包括 `workspace/applyEdit`，返回 `MethodNotFound`。
 
 ## 命令
 
@@ -310,7 +303,7 @@ LSP 增强不会自动应用代码操作、整理导入或执行跨文件重命�
 - `command` 配置错误。
 - TCP `host` 或 `port` 无效，或端点不可用。
 - `initialize` 超时或协议握手失败。
-- 服务器启动后崩溃。
+- 服务器在初始化期间退出。
 
 先运行 `/lsp status`，查看 `config_path`、服务器状态和 `last_error`。无效的服务器 ID 或选择器会使配置在加载阶段被拒绝。修复配置后，执行 `/lsp reload`。
 

@@ -8,17 +8,14 @@ import {
 	defaultAgentConfigPath,
 	expandHomePath,
 	loadConfigLayers,
-	projectAgentConfigPath,
 	readDefaultJsoncConfigSync,
 	userAgentConfigPath,
 	validateConfigValue,
-} from "../config-loader.js";
-import { LspServerRegistry } from "./registry.js";
-import type { LoadedLspConfig, LspConfig, LspJsonValue, LspLanguageRoute, LspServerConfig, LspTransport } from "./types.js";
+} from "../../config-loader.js";
+import { validateServerRoutes } from "./routing.js";
+import type { LoadedLspConfig, LspConfig, LspJsonValue, LspLanguageRoute, LspServerConfig, LspTransport } from "../types.js";
 
 const CONFIG_PATH_ENV = "PI_LSP_CONFIG";
-const PROJECT_CONFIG_ENV = "PI_LSP_PROJECT_CONFIG";
-const PROJECT_ROOT_ENV = "PI_LSP_PROJECT_ROOT";
 const SCHEMA_PATH = agentSchemaPath("lsp.schema.json");
 
 type RawSelectors = string | string[];
@@ -50,7 +47,6 @@ interface RawLspConfig {
 	startup_timeout_ms?: number;
 	request_timeout_ms?: number;
 	idle_timeout_ms?: number;
-	max_restarts?: number;
 	max_open_documents?: number;
 	diagnostics?: Partial<LspConfig["diagnostics"]>;
 	read?: Partial<LspConfig["read"]>;
@@ -93,10 +89,6 @@ export function defaultLspConfig(): LspConfig {
 
 export function resolveLspConfigPath(): string {
 	return userAgentConfigPath("lsp.jsonc", CONFIG_PATH_ENV);
-}
-
-export function resolveProjectLspConfigPath(cwd: string): string | undefined {
-	return projectAgentConfigPath(cwd, "lsp.jsonc", PROJECT_CONFIG_ENV, PROJECT_ROOT_ENV);
 }
 
 async function validateRawConfig(raw: RawLspConfig, configPath: string): Promise<void> {
@@ -180,7 +172,6 @@ function materializeConfig(raw: CompleteLspConfig): LspConfig {
 		startup_timeout_ms: raw.startup_timeout_ms,
 		request_timeout_ms: raw.request_timeout_ms,
 		idle_timeout_ms: raw.idle_timeout_ms,
-		max_restarts: raw.max_restarts,
 		max_open_documents: raw.max_open_documents,
 		diagnostics: { ...raw.diagnostics },
 		read: { ...raw.read },
@@ -206,7 +197,7 @@ function normalizeServers(servers: NonNullable<RawLspConfig["servers"]>): LspSer
 		...(server.settings !== undefined ? { settings: server.settings } : {}),
 	}));
 	try {
-		new LspServerRegistry(normalized);
+		for (const server of normalized) validateServerRoutes(server);
 	} catch (error) {
 		throw new LspConfigError(error instanceof Error ? error.message : String(error));
 	}

@@ -1,8 +1,8 @@
 import path from "node:path";
 import picomatch from "picomatch";
 
-import type { LspLanguageRoute, LspServerConfig } from "./types.js";
-import { workspaceRelativePath } from "./uri.js";
+import type { LspLanguageRoute, LspServerConfig } from "../types.js";
+import { workspaceRelativePath } from "../protocol/uri.js";
 
 interface CompiledLanguageRoute {
 	languageId: string;

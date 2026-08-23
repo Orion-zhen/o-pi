@@ -1,5 +1,9 @@
 // @ts-nocheck -- standalone child-process fixture executed outside the Vitest TypeScript runtime.
+import { writeFileSync } from "node:fs";
+
 const mode = process.argv[2] ?? "normal";
+const metadataPath = process.argv[3];
+if (typeof metadataPath === "string") writeFileSync(metadataPath, `${process.pid}\n`);
 
 if (mode === "stubborn") {
 	process.on("SIGTERM", () => undefined);
@@ -29,7 +33,10 @@ process.stdin.on("data", (chunk) => {
 function handle(message) {
 	if (message.method === "initialize") {
 		initializeProcessId = message.params?.processId;
-		const respond = () => send({ id: message.id, result: { capabilities: { workspaceSymbolProvider: true } } });
+		const respond = () => send({ id: message.id, result: { capabilities: {
+			workspaceSymbolProvider: true,
+			...(mode === "notification-timeout" ? { textDocumentSync: { openClose: true, change: 1 } } : {}),
+		} } });
 		if (mode.startsWith("stderr")) {
 			process.stderr.write(`${"x".repeat(1024 * 1024)}\nSTDERR_TAIL_MARKER\n`, respond);
 		} else {
@@ -38,6 +45,7 @@ function handle(message) {
 		return;
 	}
 	if (message.method === "initialized") {
+		if (typeof metadataPath === "string") writeFileSync(metadataPath, `${process.pid}\n${String(initializeProcessId)}`);
 		send({ method: "window/logMessage", params: { type: 3, message: `pid:${process.pid};parent:${String(initializeProcessId)}` } });
 		if (mode === "notification-timeout") process.stdin.pause();
 		return;

@@ -1,4 +1,3 @@
-import path from "node:path";
 import {
 	SymbolKind,
 	type DocumentSymbol,
@@ -8,10 +7,18 @@ import {
 	type WorkspaceSymbol,
 } from "vscode-languageserver-protocol";
 
-import type { LspDocumentSymbols, LspEnclosingSymbol, LspRemainingSymbol, LspSymbolHit } from "./types.js";
-import { fileUriToPath, workspaceRelativePath } from "./uri.js";
+import type { LspDocumentSymbols, LspEnclosingSymbol, LspRemainingSymbol } from "../types.js";
+import { fileUriToPath, workspaceRelativePath } from "../protocol/uri.js";
 
-export interface WorkspaceSymbolSeed extends LspSymbolHit {
+export interface WorkspaceSymbolSeed {
+	path: string;
+	start_line: number;
+	end_line: number;
+	kind: string;
+	symbol: string;
+	qualified_symbol?: string;
+	exact: boolean;
+	origin: "workspace-symbol";
 	uri: string;
 	line: number;
 	character: number;
@@ -209,8 +216,4 @@ function qualifiedSymbolName(symbol: SymbolInformation | WorkspaceSymbol): strin
 
 function normalizeSymbolText(value: string): string {
 	return value.replace(/::|#/gu, ".").toLocaleLowerCase();
-}
-
-export function extensionForPath(filePath: string): string {
-	return path.extname(filePath).toLowerCase();
 }
