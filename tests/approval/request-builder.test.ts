@@ -274,6 +274,14 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 		expect(request?.units.map((unit) => unit.target)).toEqual([{ kind: "path", value: systemPath.replace(/\\/g, "/") }]);
 	});
 
+	it.each([
+		[write("skill://demo/SKILL.md"), "skill://demo/SKILL.md"],
+		[edit("skill://demo/references/testing.md"), "skill://demo/references/testing.md"],
+	] as const)("技能逻辑路径保持原样供审批规则匹配", async (event, expected) => {
+		const request = await buildApprovalRequest(event, cwd);
+		expect(request?.units[0]?.target).toMatchObject({ kind: "path", value: expected });
+	});
+
 	it("edit 普通项目文件生成路径审批单元", async () => {
 		const request = await buildApprovalRequest(edit("src/index.ts"), cwd);
 		expect(request).toMatchObject({ tool: "edit" });

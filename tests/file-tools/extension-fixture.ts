@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
 
 export interface ThemeStub {
 	fg(name: string, text: string): string;
@@ -28,7 +28,7 @@ export type RenderCall = (args: unknown, theme: ThemeStub, context: unknown) => 
 export type ExecuteResult = { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; details?: unknown };
 export interface ExecuteToolContext {
 	cwd: string;
-	sessionManager: { getSessionId(): string };
+	sessionManager: { getSessionId(): string; getBranch(): SessionEntry[] };
 	model?: { api: string; input: string[] };
 }
 

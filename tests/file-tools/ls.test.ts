@@ -18,6 +18,7 @@ let outside: string;
 let host: FileToolsHost;
 const workspaceTemp = useTempDir("o-pi-ls-workspace-");
 const outsideTemp = useTempDir("o-pi-ls-outside-");
+const pathAccess = { mounts: [], protectedRoots: [], managedSchemes: ["skill"] } as const;
 preserveEnv("PI_FILE_TOOLS_CONFIG");
 
 beforeEach(() => {
@@ -60,7 +61,7 @@ describe("ls", () => {
 			expect(commandResult).toMatchObject({ truncated: true, returned_entries: 1 });
 			expect(commandResult).not.toHaveProperty("entryLimitReached");
 
-			const piResult = await executeLs({}, { cwd: workspace, sessionId: "native-details", host });
+			const piResult = await executeLs({}, { cwd: workspace, sessionId: "native-details", host, pathAccess });
 			expect(piResult.details).toMatchObject({ truncated: true, entryLimitReached: 1 });
 		} finally {
 			if (previousConfigPath === undefined) delete process.env.PI_FILE_TOOLS_CONFIG;
@@ -76,6 +77,7 @@ describe("ls", () => {
 			sessionId: "aborted-ls",
 			signal: controller.signal,
 			host,
+			pathAccess,
 		});
 		expect(result.details).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
 	});

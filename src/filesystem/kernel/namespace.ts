@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import type { FilesystemMount, FilesystemPathAccess } from "../contracts/access.js";
 import type {
 	DirectoryRef,
 	ExistingPathKind,
@@ -31,6 +32,7 @@ import { isNativeError, mapNativeError } from "./native-error.js";
 export interface WorkspaceNamespaceOptions {
 	readonly workspaceRoot: string;
 	readonly blockedPaths: readonly string[];
+	readonly pathAccess?: FilesystemPathAccess;
 	readonly homeDirectory?: string;
 	readonly native?: NativeFileSystem;
 	readonly context?: FsOperationContext;
@@ -40,10 +42,20 @@ export interface NativePathIdentity {
 	readonly nativePath: string;
 	readonly canonicalPath: string;
 	readonly lexicalPath: string;
+	readonly namespacePath: string;
+	readonly mountLogicalRoot?: string;
+	readonly mountNativeRoot?: string;
 	readonly parentPath: string;
 }
 
 type UnstoredNativePathIdentity = Omit<NativePathIdentity, "parentPath">;
+
+type LexicalPathIdentity = PathIdentity & {
+	readonly absolutePath: string;
+	readonly namespacePath: string;
+	readonly mountLogicalRoot?: string;
+	readonly mountNativeRoot?: string;
+};
 
 /** Host-only bridge. Tool commands must use opaque refs instead. */
 export interface ResolvedExistingPath<TRef extends ExistingRef = ExistingRef> {
@@ -89,6 +101,7 @@ export async function createWorkspaceNamespace(options: WorkspaceNamespaceOption
 		workspaceRoot,
 		...(options.homeDirectory === undefined ? {} : { homeDirectory: options.homeDirectory }),
 		blockedPaths: options.blockedPaths,
+		...(options.pathAccess === undefined ? {} : { pathAccess: options.pathAccess }),
 		native: options.native ?? new NodeNativeFileSystem(),
 		context,
 	});
@@ -111,15 +124,22 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 	private readonly refs = new Map<PathId, NativePathIdentity>();
 	private readonly policy: WorkspaceAccessPolicy;
 	private readonly homeDirectory: string | undefined;
+	private readonly mounts: readonly FilesystemMount[];
+	private readonly protectedRoots: readonly string[];
+	private readonly managedSchemes: ReadonlySet<string>;
 
 	constructor(private readonly options: {
 		readonly workspaceRoot: string;
 		readonly blockedPaths: readonly string[];
+		readonly pathAccess?: FilesystemPathAccess;
 		readonly homeDirectory?: string;
 		readonly native: NativeFileSystem;
 		readonly context: FsOperationContext;
 	}) {
 		this.homeDirectory = options.homeDirectory;
+		this.mounts = options.pathAccess?.mounts ?? [];
+		this.protectedRoots = options.pathAccess?.protectedRoots ?? [];
+		this.managedSchemes = new Set(options.pathAccess?.managedSchemes ?? []);
 		this.policy = new WorkspaceAccessPolicy({
 			blockedPaths: options.blockedPaths,
 			...(options.homeDirectory === undefined ? {} : { homeDirectory: options.homeDirectory }),
@@ -160,6 +180,8 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		const context = this.options.context;
 		const lexical = this.resolveLexical(input);
 		if (!lexical.ok) return lexical;
+		const lexicalAccess = this.validateNamespaceAccess(lexical.value, lexical.value.absolutePath);
+		if (!lexicalAccess.ok) return lexicalAccess;
 		const lexicalBlock = this.policy.match(input, lexical.value, "lexical");
 		if (lexicalBlock !== undefined) return blockedFailure(lexical.value.displayPath, lexicalBlock);
 
@@ -180,7 +202,9 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 				return fsFailure(mapNativeError(error, lexical.value.displayPath));
 			}
 		}
-		const canonicalBlock = this.policy.match(input, this.canonicalIdentity(canonicalPath), "canonical");
+		const canonicalAccess = this.validateNamespaceAccess(lexical.value, canonicalPath);
+		if (!canonicalAccess.ok) return canonicalAccess;
+		const canonicalBlock = this.policy.match(input, this.canonicalIdentity(canonicalPath, lexical.value), "canonical");
 		if (canonicalBlock !== undefined) return blockedFailure(lexical.value.displayPath, canonicalBlock);
 
 		let metadata = lexicalMetadata;
@@ -196,11 +220,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		const expectedError = validateExpectedKind(metadata.kind, options.expected, lexical.value.displayPath);
 		if (expectedError !== undefined) return fsFailure(expectedError);
 		return fsSuccess({
-			...this.createExistingRef(metadata.kind, lexical.value, {
-				nativePath,
-				canonicalPath,
-				lexicalPath: lexical.value.absolutePath,
-			}),
+			...this.createExistingRef(metadata.kind, lexical.value, this.nativeIdentity(lexical.value, nativePath, canonicalPath)),
 			metadata,
 		});
 	}
@@ -220,6 +240,8 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		const context = this.options.context;
 		const lexical = this.resolveLexical(input);
 		if (!lexical.ok) return lexical;
+		const lexicalAccess = this.validateNamespaceAccess(lexical.value, lexical.value.absolutePath);
+		if (!lexicalAccess.ok) return lexicalAccess;
 		const lexicalBlock = this.policy.match(input, lexical.value, "lexical");
 		if (lexicalBlock !== undefined) return blockedFailure(lexical.value.displayPath, lexicalBlock);
 
@@ -240,7 +262,9 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 				}
 				return fsFailure(mapNativeError(error, lexical.value.displayPath));
 			}
-			const canonicalBlock = this.policy.match(input, this.canonicalIdentity(canonicalPath), "canonical");
+			const canonicalAccess = this.validateNamespaceAccess(lexical.value, canonicalPath);
+			if (!canonicalAccess.ok) return canonicalAccess;
+			const canonicalBlock = this.policy.match(input, this.canonicalIdentity(canonicalPath, lexical.value), "canonical");
 			if (canonicalBlock !== undefined) return blockedFailure(lexical.value.displayPath, canonicalBlock);
 			let existingKind = lexicalMetadata.kind;
 			let nativePath = lexical.value.absolutePath;
@@ -252,29 +276,34 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 					return fsFailure(mapNativeError(error, lexical.value.displayPath));
 				}
 			} else if (lexicalMetadata.kind !== "symlink") nativePath = canonicalPath;
-			return fsSuccess(this.createTargetPath(lexical.value, existingKind, {
-				nativePath,
-				canonicalPath,
-				lexicalPath: lexical.value.absolutePath,
-			}));
+			return fsSuccess(this.createTargetPath(
+				lexical.value,
+				existingKind,
+				this.nativeIdentity(lexical.value, nativePath, canonicalPath),
+			));
 		}
 
 		const parent = await this.resolveNearestExistingParent(lexical.value.absolutePath, lexical.value.displayPath, context);
 		if (!parent.ok) return parent;
-		const parentBlock = this.policy.match(input, this.canonicalIdentity(parent.value.canonicalPath), "parent");
+		const parentAccess = this.validateNamespaceAccess(lexical.value, parent.value.canonicalPath);
+		if (!parentAccess.ok) return parentAccess;
+		const parentBlock = this.policy.match(input, this.canonicalIdentity(parent.value.canonicalPath, lexical.value), "parent");
 		if (parentBlock !== undefined) return blockedFailure(lexical.value.displayPath, parentBlock);
 		const canonicalPath = path.resolve(parent.value.canonicalPath, path.relative(parent.value.lexicalPath, lexical.value.absolutePath));
-		return fsSuccess(this.createTargetPath(lexical.value, undefined, {
-			nativePath: canonicalPath,
-			canonicalPath,
-			lexicalPath: lexical.value.absolutePath,
-		}));
+		const targetAccess = this.validateNamespaceAccess(lexical.value, canonicalPath);
+		if (!targetAccess.ok) return targetAccess;
+		return fsSuccess(this.createTargetPath(
+			lexical.value,
+			undefined,
+			this.nativeIdentity(lexical.value, canonicalPath, canonicalPath),
+		));
 	}
 
 	relative(parent: DirectoryRef, candidate: ExistingRef | TargetRef): string | undefined {
 		const parentIdentity = this.refs.get(parent.id);
 		const candidateIdentity = this.refs.get(candidate.id);
-		if (parentIdentity === undefined || candidateIdentity === undefined) return undefined;
+		if (parentIdentity === undefined || candidateIdentity === undefined
+			|| parentIdentity.mountLogicalRoot !== candidateIdentity.mountLogicalRoot) return undefined;
 		const relative = path.relative(parentIdentity.canonicalPath, candidateIdentity.canonicalPath);
 		if (relative === "") return "";
 		if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return undefined;
@@ -293,7 +322,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 			return fsFailure({ code: "invalid-path", message: "Path does not belong to this filesystem.", path: ref.displayPath });
 		}
 		const fresh = await this.resolveExistingPath(
-			stored.lexicalPath,
+			stored.namespacePath,
 			{ expected: "any", followFinalSymlink: true },
 		);
 		if (!fresh.ok) return fresh;
@@ -306,7 +335,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 			return fsFailure({ code: "invalid-path", message: "Directory entry is invalid.", path: parent.displayPath });
 		}
 		return await this.resolveExistingPath(
-			path.join(parentIdentity.lexicalPath, name),
+			childNamespacePath(parentIdentity, name),
 			{ expected: "any", followFinalSymlink: false },
 		);
 	}
@@ -326,31 +355,20 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		if (parentIdentity === undefined || name.length === 0 || name === "." || name === ".." || path.basename(name) !== name) {
 			return fsFailure({ code: "invalid-path", message: "Directory entry is invalid.", path: parent.displayPath });
 		}
-		const input = path.join(parentIdentity.lexicalPath, name);
-		const workspacePath = parent.workspacePath === undefined
-			? undefined
-			: normalizeLogicalPath(path.join(parent.workspacePath, name));
-		const displayPath = workspacePath
-			?? normalizeLogicalPath(input);
-		const lexical: PathIdentity & { readonly absolutePath: string } = {
-			displayPath,
-			absolutePath: input,
-			...(workspacePath === undefined ? {} : { workspacePath }),
-		};
-		const lexicalBlock = this.policy.match(input, lexical, "lexical");
-		if (lexicalBlock !== undefined) return blockedFailure(displayPath, lexicalBlock);
+		const namespacePath = childNamespacePath(parentIdentity, name);
+		const resolved = this.resolveLexical(namespacePath);
+		if (!resolved.ok) return resolved;
+		const lexical = resolved.value;
+		const lexicalAccess = this.validateNamespaceAccess(lexical, lexical.absolutePath);
+		if (!lexicalAccess.ok) return lexicalAccess;
+		const lexicalBlock = this.policy.match(namespacePath, lexical, "lexical");
+		if (lexicalBlock !== undefined) return blockedFailure(lexical.displayPath, lexicalBlock);
 		const canonicalPath = path.join(parentIdentity.canonicalPath, name);
-		const canonicalBlock = this.policy.match(input, {
-			displayPath,
-			absolutePath: canonicalPath,
-			...(workspacePath === undefined ? {} : { workspacePath }),
-		}, "canonical");
-		if (canonicalBlock !== undefined) return blockedFailure(displayPath, canonicalBlock);
-		const nativeIdentity = {
-				nativePath: path.join(parentIdentity.nativePath, name),
-				canonicalPath,
-				lexicalPath: input,
-		};
+		const canonicalAccess = this.validateNamespaceAccess(lexical, canonicalPath);
+		if (!canonicalAccess.ok) return canonicalAccess;
+		const canonicalBlock = this.policy.match(namespacePath, this.canonicalIdentity(canonicalPath, lexical), "canonical");
+		if (canonicalBlock !== undefined) return blockedFailure(lexical.displayPath, canonicalBlock);
+		const nativeIdentity = this.nativeIdentity(lexical, path.join(parentIdentity.nativePath, name), canonicalPath);
 		return kind === "file"
 			? fsSuccess(this.createExistingRef("file", lexical, nativeIdentity).ref)
 			: fsSuccess(this.createExistingRef("directory", lexical, nativeIdentity).ref);
@@ -360,11 +378,31 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		return this.refs.get(ref.id);
 	}
 
-	private resolveLexical(input: string): FsResult<PathIdentity & { readonly absolutePath: string }> {
+	private resolveLexical(input: string): FsResult<LexicalPathIdentity> {
 		if (input.length === 0) return fsFailure({ code: "invalid-path", message: "Path must not be empty.", path: input });
 		if (input.includes("\0")) return fsFailure({ code: "invalid-path", message: "Path must not contain NUL bytes.", path: input });
-		if (input.startsWith("skill://")) {
-			return fsFailure({ code: "invalid-path", message: "Resource locators are not filesystem paths.", path: input });
+
+		const mount = this.mounts.find((candidate) => input === candidate.logicalRoot || input.startsWith(`${candidate.logicalRoot}/`));
+		if (mount !== undefined) {
+			const relativePath = input === mount.logicalRoot ? "" : input.slice(mount.logicalRoot.length + 1);
+			if (input.includes("\\") || input.includes("?") || input.includes("#") || input.includes("%")
+				|| (relativePath.length > 0 && relativePath.split("/").some((segment) => segment.length === 0 || segment === "." || segment === ".."))) {
+				return fsFailure({ code: "invalid-path", message: "Mounted path syntax is invalid.", path: input });
+			}
+			return fsSuccess({
+				displayPath: input,
+				absolutePath: relativePath.length === 0 ? mount.nativeRoot : path.join(mount.nativeRoot, ...relativePath.split("/")),
+				namespacePath: input,
+				mountLogicalRoot: mount.logicalRoot,
+				mountNativeRoot: mount.nativeRoot,
+			});
+		}
+
+		const scheme = /^([a-z][a-z0-9+.-]*):\/\//iu.exec(input)?.[1]?.toLowerCase();
+		if (scheme !== undefined) {
+			return this.managedSchemes.has(scheme)
+				? fsFailure({ code: "access-denied", message: "Mounted path is not authorized.", path: input })
+				: fsFailure({ code: "invalid-path", message: "Resource locators are not filesystem paths.", path: input });
 		}
 		const expanded = expandHomePath(input, this.homeDirectory);
 		const absolutePath = resolveNativeInputPath(this.options.workspaceRoot, input, this.homeDirectory);
@@ -374,11 +412,15 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		return fsSuccess({
 			displayPath,
 			absolutePath,
+			namespacePath: absolutePath,
 			...(workspacePath === undefined ? {} : { workspacePath }),
 		});
 	}
 
-	private canonicalIdentity(canonicalPath: string): PathIdentity {
+	private canonicalIdentity(canonicalPath: string, lexical: LexicalPathIdentity): PathIdentity {
+		if (lexical.mountLogicalRoot !== undefined) {
+			return { displayPath: lexical.displayPath, absolutePath: canonicalPath };
+		}
 		const workspacePath = workspaceRelativePath(this.options.workspaceRoot, canonicalPath);
 		return {
 			displayPath: workspacePath ?? path.normalize(canonicalPath),
@@ -387,18 +429,48 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 		};
 	}
 
+	private nativeIdentity(lexical: LexicalPathIdentity, nativePath: string, canonicalPath: string): UnstoredNativePathIdentity {
+		return {
+			nativePath,
+			canonicalPath,
+			lexicalPath: lexical.absolutePath,
+			namespacePath: lexical.namespacePath,
+			...(lexical.mountLogicalRoot === undefined ? {} : {
+				mountLogicalRoot: lexical.mountLogicalRoot,
+				mountNativeRoot: lexical.mountNativeRoot,
+			}),
+		};
+	}
+
+	private validateNamespaceAccess(lexical: LexicalPathIdentity, candidate: string): FsResult<void> {
+		if (lexical.mountNativeRoot !== undefined) {
+			if (isInsideOrEqualPath(lexical.mountNativeRoot, candidate)) return fsSuccess(undefined);
+			return fsFailure({
+				code: "access-denied",
+				message: "Mounted path escapes its authorized root.",
+				path: lexical.displayPath,
+			});
+		}
+		if (!this.protectedRoots.some((root) => isInsideOrEqualPath(root, candidate))) return fsSuccess(undefined);
+		return fsFailure({
+			code: "access-denied",
+			message: "Managed resources must be accessed through an authorized logical path.",
+			path: lexical.displayPath,
+		});
+	}
+
 	private async resolveDanglingSymlinkTarget(
 		input: string,
-		identity: PathIdentity & { readonly absolutePath: string },
+		identity: LexicalPathIdentity,
 		options: ResolveTargetOptions,
 		context: FsOperationContext,
 	): Promise<FsResult<ResolvedTargetPath>> {
 		if (!options.followExistingSymlink) {
-			return fsSuccess(this.createTargetPath(identity, "symlink", {
-				nativePath: identity.absolutePath,
-				canonicalPath: identity.absolutePath,
-				lexicalPath: identity.absolutePath,
-			}));
+			return fsSuccess(this.createTargetPath(
+				identity,
+				"symlink",
+				this.nativeIdentity(identity, identity.absolutePath, identity.absolutePath),
+			));
 		}
 		let linkTarget: string;
 		try {
@@ -413,7 +485,7 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 	private async resolveWritableDestination(
 		input: string,
 		targetPath: string,
-		identity: PathIdentity & { readonly absolutePath: string },
+		identity: LexicalPathIdentity,
 		context: FsOperationContext,
 		visited: ReadonlySet<string>,
 	): Promise<FsResult<ResolvedTargetPath>> {
@@ -450,24 +522,30 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 			} catch (error) {
 				return fsFailure(mapNativeError(error, identity.displayPath));
 			}
-			const canonicalBlock = this.policy.match(input, this.canonicalIdentity(canonicalPath), "canonical");
+			const canonicalAccess = this.validateNamespaceAccess(identity, canonicalPath);
+			if (!canonicalAccess.ok) return canonicalAccess;
+			const canonicalBlock = this.policy.match(input, this.canonicalIdentity(canonicalPath, identity), "canonical");
 			if (canonicalBlock !== undefined) return blockedFailure(identity.displayPath, canonicalBlock);
-			return fsSuccess(this.createTargetPath(identity, metadata.kind, {
-				nativePath: canonicalPath,
-				canonicalPath,
-				lexicalPath: identity.absolutePath,
-			}));
+			return fsSuccess(this.createTargetPath(
+				identity,
+				metadata.kind,
+				this.nativeIdentity(identity, canonicalPath, canonicalPath),
+			));
 		}
 		const parent = await this.resolveNearestExistingParent(targetPath, identity.displayPath, context);
 		if (!parent.ok) return parent;
-		const parentBlock = this.policy.match(input, this.canonicalIdentity(parent.value.canonicalPath), "parent");
+		const parentAccess = this.validateNamespaceAccess(identity, parent.value.canonicalPath);
+		if (!parentAccess.ok) return parentAccess;
+		const parentBlock = this.policy.match(input, this.canonicalIdentity(parent.value.canonicalPath, identity), "parent");
 		if (parentBlock !== undefined) return blockedFailure(identity.displayPath, parentBlock);
 		const canonicalPath = path.resolve(parent.value.canonicalPath, path.relative(parent.value.lexicalPath, targetPath));
-		return fsSuccess(this.createTargetPath(identity, undefined, {
-			nativePath: canonicalPath,
-			canonicalPath,
-			lexicalPath: identity.absolutePath,
-		}));
+		const targetAccess = this.validateNamespaceAccess(identity, canonicalPath);
+		if (!targetAccess.ok) return targetAccess;
+		return fsSuccess(this.createTargetPath(
+			identity,
+			undefined,
+			this.nativeIdentity(identity, canonicalPath, canonicalPath),
+		));
 	}
 
 	private async resolveNearestExistingParent(
@@ -562,6 +640,17 @@ class NamespacePathOperations implements PathOperations, WorkspaceNamespaceBridg
 			identity: storedIdentity,
 		};
 	}
+}
+
+function childNamespacePath(parent: NativePathIdentity, name: string): string {
+	return parent.mountLogicalRoot === undefined
+		? path.join(parent.namespacePath, name)
+		: `${parent.namespacePath}/${name}`;
+}
+
+function isInsideOrEqualPath(root: string, candidate: string): boolean {
+	const relative = path.relative(root, candidate);
+	return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
 }
 
 function workspaceRelativePath(workspaceRoot: string, candidate: string): string | undefined {

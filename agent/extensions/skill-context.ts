@@ -17,7 +17,7 @@ type SkillRendererModule = Pick<
 >;
 
 const skillParameters = Type.Object({
-	name: Type.String({ minLength: 1, description: "Skill name from <model_invocable_skills>; use read for skill:// resources." }),
+	name: Type.String({ minLength: 1, description: "Skill name from <model_invocable_skills>; use filesystem tools for skill:// paths." }),
 }, { additionalProperties: false });
 
 type SkillToolDetails = SkillLoadDetails | SkillToolErrorDetails;
@@ -76,8 +76,8 @@ function registerSkillTool(pi: ExtensionAPI) {
 				try {
 					if (params.name.startsWith("skill://")) {
 						throw new SkillLoadError(
-							"SKILL_RESOURCE_USE_READ",
-							`Use the read tool with path "${params.name}" instead.`,
+							"SKILL_PATH_USE_FILESYSTEM",
+							`Use a filesystem tool with path "${params.name}" instead.`,
 						);
 					}
 					const branch = ctx.sessionManager.getBranch();

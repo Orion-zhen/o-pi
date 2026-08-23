@@ -1,3 +1,4 @@
+import type { FilesystemPathAccess } from "../../filesystem/contracts/access.js";
 import type { FsOperationContext } from "../../filesystem/contracts/result.js";
 import type { WorkspaceFileSystem } from "../../filesystem/contracts/workspace.js";
 import {
@@ -17,6 +18,7 @@ export interface FileToolsHostOpenOptions {
 	readonly cwd: string;
 	readonly sessionId: string;
 	readonly signal?: AbortSignal;
+	readonly pathAccess?: FilesystemPathAccess;
 }
 
 export interface FileToolsInvocation {
@@ -68,6 +70,7 @@ export class FileToolsHost {
 		const opened = await this.filesystem.open({
 			cwd: options.cwd,
 			policy: config.value.filesystem,
+			...(options.pathAccess === undefined ? {} : { pathAccess: options.pathAccess }),
 			...(options.signal === undefined ? {} : { context: { signal: options.signal } }),
 			onCommitted: (receipt) => { observation?.remember(receipt.target, receipt); },
 		});

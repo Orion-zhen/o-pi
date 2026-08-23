@@ -95,11 +95,11 @@ Directory does not exist.
 
 | 错误码 | 模型正文 |
 | --- | --- |
-| `INVALID_PATH` | `Path must not be empty.`、`Path must not contain NUL bytes.` 或 `skill:// is a read-only locator supported only by read.` |
+| `INVALID_PATH` | 路径为空、包含 NUL，或逻辑挂载路径语法无效。 |
 | `PATH_NOT_FOUND` | `Directory does not exist.` |
 | `NOT_A_DIRECTORY` | `Path is not a directory.` |
 | `PROTECTED_PATH` | `Path is blocked by file-tools config.` |
-| `ACCESS_DENIED` | `Path cannot be accessed.` 或 `Directory cannot be listed.` |
+| `ACCESS_DENIED` | 路径不可访问、目录不可列出，或 `skill://` 技能尚未加载。 |
 | `CONFIG_ERROR` | 配置错误消息 |
 
 只有错误提供恢复建议时，正文才包含 `next:`。公共错误格式见[工具契约](contracts.md)。

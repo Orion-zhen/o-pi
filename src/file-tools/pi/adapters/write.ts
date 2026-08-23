@@ -1,3 +1,4 @@
+import type { FilesystemPathAccess } from "../../../filesystem/contracts/access.js";
 import { writeFile } from "../../write/command.js";
 import type { WriteParams, WritePreviewSuccess } from "../../write/types.js";
 import type { FileToolsHost } from "../../runtime/host.js";
@@ -20,12 +21,14 @@ export async function executeWrite(
 		lsp: LspFileOperations;
 		onUpdate?: MutationProgressCallback;
 		batch?: MutationBatchInvocation;
+		pathAccess: FilesystemPathAccess;
 	},
 ) {
 	const opened = await runtime.host.open({
 		cwd: runtime.cwd,
 		sessionId: runtime.sessionId,
 		...(runtime.signal === undefined ? {} : { signal: runtime.signal }),
+		pathAccess: runtime.pathAccess,
 	});
 	if (isFailed(opened)) return failedResult(opened);
 	try {

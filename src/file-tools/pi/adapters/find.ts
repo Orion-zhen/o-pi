@@ -1,3 +1,4 @@
+import type { FilesystemPathAccess } from "../../../filesystem/contracts/access.js";
 import { FindTool } from "../../find/command.js";
 import type { FindParams } from "../../find/types.js";
 import type { FileToolsHost } from "../../runtime/host.js";
@@ -9,6 +10,7 @@ export interface ExecuteFindOptions {
 	readonly sessionId: string;
 	readonly signal?: AbortSignal;
 	readonly host: FileToolsHost;
+	readonly pathAccess: FilesystemPathAccess;
 }
 
 export function createFindAdapter() {
@@ -19,6 +21,7 @@ export function createFindAdapter() {
 				cwd: options.cwd,
 				sessionId: options.sessionId,
 				...(options.signal === undefined ? {} : { signal: options.signal }),
+				pathAccess: options.pathAccess,
 			});
 			if (isFailed(opened)) return failedResult(opened);
 			try {

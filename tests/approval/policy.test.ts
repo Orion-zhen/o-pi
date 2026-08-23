@@ -33,6 +33,21 @@ describe("approval policy", () => {
 		});
 	});
 
+	it("默认要求审批技能文本修改", async () => {
+		const request = await buildApprovalRequest({
+			type: "tool_call",
+			toolName: "edit",
+			toolCallId: "edit-skill",
+			input: { path: "skill://demo/SKILL.md", edits: [{ old: "a", new: "b" }] },
+		}, commandCwd);
+		if (request === undefined) throw new Error("missing approval request");
+		expect(evaluateApproval(request, defaultApprovalGateConfig(), store())).toMatchObject({
+			kind: "ask",
+			reason: "skill modification",
+			items: [{ unit: { target: { value: "skill://demo/SKILL.md" } }, reason: "skill modification" }],
+		});
+	});
+
 	it("deny_rules 命中时 deny", async () => {
 		const config = configWith({
 			deny_rules: [{ name: "no-push", tools: ["bash"], command_regex: "^git\\s+push\\b", reason: "no pushing" }],

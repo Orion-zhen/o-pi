@@ -1,19 +1,28 @@
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry, SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildSkillReadIndex, resolveReadLocator, type SkillReadIndex } from "../../src/skill-context/resources.js";
+import fileTools from "../../agent/extensions/file-tools.js";
+import type { FilesystemPathAccess } from "../../src/filesystem/contracts/access.js";
+import {
+	buildSkillFilesystemAccess,
+	buildSkillPathIndex,
+	resolveSkillResourceLocator,
+	type SkillPathIndex,
+} from "../../src/skill-context/resources.js";
 import { executeRead } from "../../src/file-tools/pi/adapters/read.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { SKILL_CONTEXT_ENTRY, type SkillCandidate, type SkillLoadEntry } from "../../src/skill-context/types.js";
 import { useTempDir } from "../helpers/lifecycle.js";
+import { executeTool, registerExtension } from "../file-tools/extension-fixture.js";
 
 const temp = useTempDir("o-pi-skill-resource-");
 let root: string;
 let candidate: SkillCandidate;
 let branch: SessionEntry[];
-let skillIndex: SkillReadIndex;
+let skillIndex: SkillPathIndex;
+let pathAccess: FilesystemPathAccess;
 
 beforeEach(async () => {
 	root = path.join(temp.path, "demo");
@@ -22,7 +31,8 @@ beforeEach(async () => {
 	await writeFile(path.join(root, "references", "testing.md"), "testing");
 	candidate = { name: "demo", path: path.join(root, "SKILL.md"), scope: "project" };
 	branch = [custom(load("demo", root))];
-	skillIndex = await buildSkillReadIndex([candidate]);
+	skillIndex = buildSkillPathIndex([candidate]);
+	pathAccess = await buildSkillFilesystemAccess(branch, skillIndex);
 });
 
 describe("技能资源定位符", () => {
@@ -33,7 +43,10 @@ describe("技能资源定位符", () => {
 	});
 
 	it("解析已授权资源并保留逻辑地址", async () => {
-		const result = await resolveReadLocator("skill://demo/references/testing.md", branch, skillIndex);
+		const rootResult = await resolveSkillResourceLocator("skill://demo", branch);
+		expect(rootResult).toMatchObject({ kind: "skill", logicalPath: "skill://demo", relativePath: "" });
+
+		const result = await resolveSkillResourceLocator("skill://demo/references/testing.md", branch);
 		expect(result).toMatchObject({
 			kind: "skill",
 			logicalPath: "skill://demo/references/testing.md",
@@ -43,7 +56,7 @@ describe("技能资源定位符", () => {
 		expect("filePath" in result ? result.filePath : "").toBe(path.join(root, "references", "testing.md"));
 	});
 
-	it("read 输出只展示逻辑 URI，并跳过 LSP 和可编辑版本缓存", async () => {
+	it("read 输出只展示逻辑 URI、跳过 LSP 并记录可编辑版本", async () => {
 		const enhanceRead = vi.fn();
 		const host = new FileToolsHost();
 		const result = await executeRead({ path: "skill://demo/references/testing.md" }, {
@@ -52,13 +65,12 @@ describe("技能资源定位符", () => {
 			model: undefined,
 			host,
 			lsp: { read: enhanceRead },
-			branch,
-			skillIndex,
+			pathAccess,
 		});
 		const opened = await host.open({ cwd: temp.path, sessionId: "skill-read" });
 		if (isFailed(opened)) throw new Error(opened.error.message);
 		const file = await opened.filesystem.paths.resolveExisting(path.join(root, "references", "testing.md"), { expected: "file", followFinalSymlink: true });
-		expect(file.ok && opened.observation.get(file.value)).toBeUndefined();
+		expect(file.ok && opened.observation.get(file.value)).toMatchObject({ sizeBytes: 7 });
 		opened.dispose();
 		host.dispose();
 		const text = result.content.find((item) => item.type === "text")?.text ?? "";
@@ -69,6 +81,61 @@ describe("技能资源定位符", () => {
 			skill_resource: { skill: "demo", path: "references/testing.md" },
 		});
 		expect(enhanceRead).not.toHaveBeenCalled();
+	});
+
+	it("所有文件工具通过逻辑根访问并修改已加载技能", async () => {
+		await writeFile(path.join(root, "SKILL.md"), "before\n");
+		const command = {
+			name: "skill:demo",
+			description: "demo",
+			source: "skill",
+			sourceInfo: { path: path.join(root, "SKILL.md"), scope: "project" },
+		} as SlashCommandInfo;
+		const { registered, handlers } = registerExtension(fileTools, { getCommands: () => [command] });
+		const ctx = {
+			cwd: temp.path,
+			sessionManager: { getSessionId: () => "skill-filesystem", getBranch: () => branch },
+		};
+		try {
+			const listed = await executeTool(registered, "ls", { path: "skill://demo" }, ctx);
+			expect(listed.details).toMatchObject({
+				path: "skill://demo",
+				entries: expect.arrayContaining([
+					expect.objectContaining({ path: "skill://demo/references", type: "directory" }),
+					expect.objectContaining({ path: "skill://demo/SKILL.md", type: "file" }),
+				]),
+			});
+
+			const found = await executeTool(registered, "find", { query: "testing", path: ["skill://demo"] }, ctx);
+			expect(found.details).toMatchObject({ matches: [{ path: "skill://demo/references/testing.md", kind: "file" }] });
+
+			const grepped = await executeTool(registered, "grep", {
+				query: "testing",
+				path: ["skill://demo/references"],
+			}, ctx);
+			expect(grepped.details).toMatchObject({
+				status: "success",
+				regions: expect.arrayContaining([expect.objectContaining({ path: "skill://demo/references/testing.md" })]),
+			});
+			for (const result of [listed, found, grepped]) expect(JSON.stringify(result)).not.toContain(root);
+
+			await executeTool(registered, "read", { path: "skill://demo/SKILL.md" }, ctx);
+			const edited = await executeTool(registered, "edit", {
+				path: "skill://demo/SKILL.md",
+				edits: [{ old: "before", new: "after" }],
+			}, ctx);
+			expect(edited.details).toMatchObject({ status: "applied", path: "skill://demo/SKILL.md" });
+			expect(await readFile(path.join(root, "SKILL.md"), "utf8")).toBe("after\n");
+
+			const written = await executeTool(registered, "write", {
+				path: "skill://demo/references/new.md",
+				content: "new resource",
+			}, ctx);
+			expect(written.details).toMatchObject({ status: "written", path: "skill://demo/references/new.md" });
+			expect(await readFile(path.join(root, "references", "new.md"), "utf8")).toBe("new resource");
+		} finally {
+			await handlers.get("session_shutdown")?.({}, {});
+		}
 	});
 
 	it("read PDF 输出重写为 Skill 逻辑地址并保留逐页图片", async () => {
@@ -82,8 +149,7 @@ describe("技能资源定位符", () => {
 				model: { input: ["text", "image"] },
 				host,
 				lsp: {},
-				branch,
-				skillIndex,
+				pathAccess,
 			});
 			expect(result.content).toHaveLength(3);
 			expect(result.content[0]).toMatchObject({
@@ -101,34 +167,9 @@ describe("技能资源定位符", () => {
 		}
 	});
 
-	it("拒绝未加载技能和对受管理根目录的绝对路径访问", async () => {
-		const unloaded = await resolveReadLocator("skill://demo/references/testing.md", [], skillIndex);
+	it("拒绝未加载技能", async () => {
+		const unloaded = await resolveSkillResourceLocator("skill://demo/references/testing.md", []);
 		expect(unloaded).toMatchObject({ kind: "error", code: "access-denied" });
-
-		const absolute = await resolveReadLocator(path.join(root, "references", "testing.md"), [], skillIndex);
-		expect(absolute).toMatchObject({ kind: "error", code: "access-denied" });
-	});
-
-	it("拒绝通过受管理根目录外部的符号链接读取技能资源", async () => {
-		const alias = path.join(temp.path, "skill-alias");
-		await symlink(root, alias);
-		const result = await resolveReadLocator(path.join(alias, "references", "testing.md"), [], skillIndex);
-		expect(result).toMatchObject({ kind: "error", code: "access-denied" });
-	});
-
-	it("非 read 文件操作不会把 skill:// 当作系统路径", async () => {
-		const host = new FileToolsHost();
-		const opened = await host.open({ cwd: temp.path, sessionId: "skill-path" });
-		if (isFailed(opened)) throw new Error(opened.error.message);
-		try {
-			await expect(opened.filesystem.paths.resolveTarget(
-				"skill://demo/references/testing.md",
-				{ followExistingSymlink: true },
-			)).resolves.toMatchObject({ ok: false, error: { code: "invalid-path" } });
-		} finally {
-			opened.dispose();
-			host.dispose();
-		}
 	});
 
 	it.each([
@@ -141,7 +182,7 @@ describe("技能资源定位符", () => {
 		"skill://demo/%2e%2e/secret.md",
 		"skill://demo/",
 	])("拒绝格式错误或可能逃逸的定位符 %s", async (locator) => {
-		const result = await resolveReadLocator(locator, branch, skillIndex);
+		const result = await resolveSkillResourceLocator(locator, branch);
 		expect(result).toMatchObject({ kind: "error", code: "invalid-locator" });
 	});
 
@@ -149,9 +190,9 @@ describe("技能资源定位符", () => {
 		const outside = path.join(temp.path, "outside.md");
 		await writeFile(outside, "secret");
 		await symlink(outside, path.join(root, "references", "escape.md"));
-		expect(await resolveReadLocator("skill://demo/references/testing.md\0", branch, skillIndex))
+		expect(await resolveSkillResourceLocator("skill://demo/references/testing.md\0", branch))
 			.toMatchObject({ kind: "error", code: "invalid-locator" });
-		expect(await resolveReadLocator("skill://demo/references/escape.md", branch, skillIndex))
+		expect(await resolveSkillResourceLocator("skill://demo/references/escape.md", branch))
 			.toMatchObject({ kind: "error", code: "access-denied" });
 	});
 });

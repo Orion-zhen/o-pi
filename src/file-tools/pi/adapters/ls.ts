@@ -1,3 +1,4 @@
+import type { FilesystemPathAccess } from "../../../filesystem/contracts/access.js";
 import { listDirectory } from "../../ls/command.js";
 import { formatCompactLsResult } from "../../ls/presenter.js";
 import type { LsParams, LsSuccess } from "../../ls/types.js";
@@ -10,6 +11,7 @@ export interface ExecuteLsOptions {
 	readonly sessionId: string;
 	readonly signal?: AbortSignal;
 	readonly host: FileToolsHost;
+	readonly pathAccess: FilesystemPathAccess;
 }
 
 export async function executeLs(params: LsParams, options: ExecuteLsOptions) {
@@ -17,6 +19,7 @@ export async function executeLs(params: LsParams, options: ExecuteLsOptions) {
 		cwd: options.cwd,
 		sessionId: options.sessionId,
 		...(options.signal === undefined ? {} : { signal: options.signal }),
+		pathAccess: options.pathAccess,
 	});
 	if (isFailed(opened)) return failedResult(opened);
 	try {

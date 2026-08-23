@@ -116,8 +116,8 @@ describe("技能命令", () => {
 
 		const resourcePath = "skill://allowed/references/testing.md";
 		const resource = await tool.execute("skill-3", { name: resourcePath }, undefined, undefined, fakeCtx(branch));
-		expect(resource.details).toMatchObject({ status: "failed", error: { code: "SKILL_RESOURCE_USE_READ" } });
-		expect(resource.content[0]).toMatchObject({ type: "text", text: expect.stringContaining(`read tool with path "${resourcePath}"`) });
+		expect(resource.details).toMatchObject({ status: "failed", error: { code: "SKILL_PATH_USE_FILESYSTEM" } });
+		expect(resource.content[0]).toMatchObject({ type: "text", text: expect.stringContaining(`filesystem tool with path "${resourcePath}"`) });
 		expect(branch).toHaveLength(1);
 	});
 

@@ -1,3 +1,4 @@
+import type { FilesystemPathAccess } from "../../../filesystem/contracts/access.js";
 import { editFile, previewEdit } from "../../edit/command.js";
 import type { EditParams, EditPreviewSuccess } from "../../edit/types.js";
 import { FileToolsHost, type FileToolsInvocation } from "../../runtime/host.js";
@@ -21,12 +22,14 @@ export async function executeEdit(
 		lsp: LspFileOperations;
 		onUpdate?: MutationProgressCallback;
 		batch?: MutationBatchInvocation;
+		pathAccess: FilesystemPathAccess;
 	},
 ) {
 	const opened = await runtime.host.open({
 		cwd: runtime.cwd,
 		sessionId: runtime.sessionId,
 		...(runtime.signal === undefined ? {} : { signal: runtime.signal }),
+		pathAccess: runtime.pathAccess,
 	});
 	if (isFailed(opened)) return failedResult(opened);
 	try {

@@ -12,6 +12,7 @@ export function createMutationDiagnosticsSource(
 ): MutationDiagnosticsSource {
 	return {
 		async beforeMutation(input) {
+			if (input.target.workspacePath === undefined) return undefined;
 			const root = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
 			const target = invocation.nativeBridge.getNativeIdentity(input.target);
 			if (root === undefined || target === undefined) return undefined;
@@ -21,6 +22,10 @@ export function createMutationDiagnosticsSource(
 			});
 		},
 		async afterMutation(input) {
+			if (input.target.workspacePath === undefined) {
+				safeNotify(() => progress?.lspCompleted(undefined));
+				return undefined;
+			}
 			const root = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
 			const target = invocation.nativeBridge.getNativeIdentity(input.target);
 			const lspInput = root === undefined || target === undefined ? undefined : {

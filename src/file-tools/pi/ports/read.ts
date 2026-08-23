@@ -13,6 +13,7 @@ export function createReadStructureSource(
 ): ReadStructureSource {
 	return {
 		async context(input) {
+			if (input.file.workspacePath === undefined) return undefined;
 			const root = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
 			const file = invocation.nativeBridge.getNativeIdentity(input.file);
 			if (root === undefined || file === undefined) return undefined;

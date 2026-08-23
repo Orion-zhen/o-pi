@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import type { FilesystemPathAccess } from "./contracts/access.js";
 import type {
 	MutationOperations,
 	MutationOptions,
@@ -28,6 +29,7 @@ export interface WorkspaceNativeBridge {
 export interface OpenWorkspaceOptions {
 	readonly cwd: string;
 	readonly policy: FilesystemPolicy;
+	readonly pathAccess?: FilesystemPathAccess;
 	readonly context?: FsOperationContext;
 	readonly onCommitted?: (receipt: MutationReceipt) => void;
 }
@@ -69,6 +71,7 @@ export class FileSystemRuntime {
 		const namespace = await createWorkspaceNamespace({
 			workspaceRoot: options.cwd,
 			blockedPaths: options.policy.blockedPaths,
+			...(options.pathAccess === undefined ? {} : { pathAccess: options.pathAccess }),
 			native: this.native,
 			context,
 		});

@@ -103,7 +103,7 @@ describe("file-tools extension lifecycle", () => {
 		const extension = createFileToolsExtension(imports);
 		const createSession = () => registerExtension(extension);
 		const executeSearchTools = async (registered: Array<{ name: string; execute?: ExecuteTool }>, sessionId: string) => {
-			const ctx = { cwd: process.cwd(), sessionManager: { getSessionId: () => sessionId } };
+			const ctx = { cwd: process.cwd(), sessionManager: { getSessionId: () => sessionId, getBranch: () => [] } };
 			await expect(executeTool(registered, "find", { query: "package.json", path: ["."] }, ctx)).resolves.toMatchObject({
 				details: { query: "package.json" },
 			});

@@ -1,17 +1,13 @@
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { FilesystemPathAccess } from "../../../filesystem/contracts/access.js";
 import { readFile } from "../../read/command.js";
 import type { InlineImageProcessor, PdfDocumentSource } from "../../read/ports.js";
 import { formatReadModelResult, formatReadPdfModelSummary, formatReadPdfPageMarker } from "../../read/presenter.js";
 import type { ReadFileSuccess, ReadOutputFormat, ReadParams } from "../../read/types.js";
 import type { FileToolsHost } from "../../runtime/host.js";
-import { fail, isFailed, type FailedResult } from "../../shared/result.js";
+import { isFailed, type FailedResult } from "../../shared/result.js";
 import type { LspFileOperations } from "../../../lsp/index.js";
-import {
-	resolveReadLocator,
-	type SkillReadIndex,
-	type SkillResourceError,
-} from "../../../skill-context/resources.js";
+import { parseSkillPath, type SkillPath } from "../../../skill-context/resources.js";
 import { formatErrorModelResult } from "../model-output.js";
 import {
 	createReadObservationStore,
@@ -25,26 +21,23 @@ export interface ExecuteReadOptions {
 	readonly model: { api?: string; input?: readonly string[] } | undefined;
 	readonly host: FileToolsHost;
 	readonly lsp: LspFileOperations;
-	readonly branch: SessionEntry[];
-	readonly skillIndex: SkillReadIndex;
+	readonly pathAccess: FilesystemPathAccess;
 }
 
 export async function executeRead(params: ReadParams, options: ExecuteReadOptions) {
 	const supportedOutputFormats = readOutputFormats(options.model?.api);
-	const resolution = await resolveReadLocator(params.path, options.branch, options.skillIndex);
-	if (resolution.kind === "error") return failedResult(mapSkillError(resolution));
-	const skill = resolution.kind === "skill" ? resolution : undefined;
-
+	const skill = params.path.startsWith("skill://") ? parseSkillPath(params.path) : undefined;
 	const opened = await options.host.open({
 		cwd: options.cwd,
 		sessionId: options.sessionId,
 		...(options.signal === undefined ? {} : { signal: options.signal }),
+		pathAccess: options.pathAccess,
 	});
 	if (isFailed(opened)) return failedResult(opened);
 	try {
 		const observation = createReadObservationStore(opened);
 		const result = await readFile(
-			{ ...params, ...(skill === undefined ? {} : { path: skill.filePath }) },
+			params,
 			{
 				filesystem: opened.filesystem,
 				operation: opened.context,
@@ -59,14 +52,10 @@ export async function executeRead(params: ReadParams, options: ExecuteReadOption
 				image: lazyInlineImageProcessor,
 				pdf: lazyPdfDocumentSource,
 				supportedOutputFormats,
-				...(skill === undefined
-					? {
-							structure: createReadStructureSource(opened, options.lsp),
-						}
-					: { recordObservation: false }),
+				structure: createReadStructureSource(opened, options.lsp),
 			},
 		);
-		if (skill !== undefined) applySkillResolution(result, skill);
+		if (skill?.kind === "skill") applySkillResolution(result, skill);
 		return presentResult(result, options.model);
 	} finally {
 		opened.dispose();
@@ -140,7 +129,7 @@ function formatReadPdfModelContent(
 
 function applySkillResolution(
 	result: ReadFileSuccess | FailedResult,
-	skill: Extract<Awaited<ReturnType<typeof resolveReadLocator>>, { kind: "skill" }>,
+	skill: SkillPath,
 ): void {
 	if (isFailed(result)) {
 		if (result.error.path !== undefined) result.error.path = skill.logicalPath;
@@ -148,10 +137,6 @@ function applySkillResolution(
 	}
 	result.path = skill.logicalPath;
 	result.skill_resource = { skill: skill.skillName, path: skill.relativePath };
-}
-
-function mapSkillError(error: SkillResourceError): FailedResult {
-	return fail(error.code === "invalid-locator" ? "INVALID_PATH" : "PROTECTED_PATH", error.message, { path: error.path });
 }
 
 function failedResult(result: FailedResult) {

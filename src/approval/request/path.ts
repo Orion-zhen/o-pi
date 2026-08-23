@@ -4,6 +4,7 @@ import path from "node:path";
 const SYSTEM_TEMPORARY_ROOTS = systemTemporaryRoots();
 
 export function normalizeTargetPath(filePath: string, cwd: string): string {
+	if (filePath.startsWith("skill://")) return filePath;
 	const absolute = path.isAbsolute(filePath) ? path.resolve(filePath) : path.resolve(cwd, filePath);
 	return absolute.replace(/\\/g, "/");
 }

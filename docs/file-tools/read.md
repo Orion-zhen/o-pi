@@ -1,6 +1,6 @@
 # `read`
 
-`read` 读取明确指定的 UTF-8 文本、普通图片或 PDF。PDF 页面会逐页渲染为图片。`read` 不修改文件，不提取 PDF 文字，也不执行 OCR。读取工作区文件时，`read` 会在会话的 `ObservationStore` 中记录原始字节版本。读取 Skill 资源时不会记录工作区观测状态。
+`read` 读取明确指定的 UTF-8 文本、普通图片或 PDF。PDF 页面会逐页渲染为图片。`read` 不修改文件，不提取 PDF 文字，也不执行 OCR。读取文件时，`read` 会在会话的 `ObservationStore` 中记录原始字节版本，供后续 `edit` 验证。
 
 ## 参数
 
@@ -118,7 +118,7 @@ PDF 和普通图片使用相同的模型输出能力检查。`openai-completions
 
 只有部分文本读取或截断文本读取会调用 `read` 专属结构端口。如果可见片段未包含最小包围符号的声明行，LSP 会附加包围符号。长文件还可以附加非递归的 `remaining_symbols` 导航信息。LSP 未配置、调用失败或取消时，`read` 仍返回基础文本。PDF 不执行 LSP 结构增强。
 
-`skill://` 在 Pi 适配器边界解析。文本、普通图片和 PDF 成功结果都会恢复为逻辑路径，并附加 `skill_resource`。Skill 读取不会污染工作区观测状态。
+当前分支已加载的 `skill://` 路径由文件系统命名空间解析。文本、普通图片和 PDF 结果保留逻辑路径，并附加 `skill_resource`。技能文件不执行工作区 LSP 增强，但会记录供 `edit` 使用的内容版本。
 
 ## 限制与错误
 

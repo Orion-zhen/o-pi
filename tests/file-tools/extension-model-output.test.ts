@@ -86,7 +86,7 @@ describe("file-tools extension model output", () => {
 		try {
 			delete lspFileHooks.afterMutation;
 			await writeFile(join(cwd, "a.ts"), "one\ntwo\n", "utf8");
-			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1" } };
+			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1", getBranch: () => [] } };
 			const read = await executeTool(registered, "read", { path: "a.ts" }, ctx);
 			const readText = textResult(read);
 			expect(readText).toBe('<read path="a.ts" lines="1-2/2">\none\ntwo\n</read>');
@@ -123,7 +123,7 @@ describe("file-tools extension model output", () => {
 		await writeFile(join(cwd, "document.pdf"), pdfBytes);
 		const ctx = {
 			cwd,
-			sessionManager: { getSessionId: () => "session-pdf" },
+			sessionManager: { getSessionId: () => "session-pdf", getBranch: () => [] },
 			model: { api: "anthropic-messages", input: ["text", "image"] },
 		};
 
@@ -218,7 +218,7 @@ describe("file-tools extension model output", () => {
 		await writeFile(join(cwd, "document.pdf"), await readFile(new URL("./fixtures/read/two-page.pdf", import.meta.url)));
 		const ctx = {
 			cwd,
-			sessionManager: { getSessionId: () => "session-completions" },
+			sessionManager: { getSessionId: () => "session-completions", getBranch: () => [] },
 			model: { api: "openai-completions", input: ["text", "image"] },
 		};
 
@@ -247,7 +247,7 @@ describe("file-tools extension model output", () => {
 		const cwd = workspace.path;
 		const originalAfterMutation = lspFileHooks.afterMutation;
 		try {
-			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1" } };
+			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1", getBranch: () => [] } };
 			delete lspFileHooks.afterMutation;
 			const clean = await executeTool(registered, "write", { path: "clean.ts", content: "export const ok = true;\n" }, ctx);
 			expect(textResult(clean)).toBe('<write path="clean.ts"/>');
@@ -331,7 +331,7 @@ describe("file-tools extension model output", () => {
 		const { registered } = registerExtension(fileTools);
 		const cwd = workspace.path;
 		await writeFile(join(cwd, "a.ts"), "const one = 1;\n", "utf8");
-		const ctx = { cwd, sessionManager: { getSessionId: () => "session-1" } };
+		const ctx = { cwd, sessionManager: { getSessionId: () => "session-1", getBranch: () => [] } };
 		for (const [tool, params] of [
 			["ls", { path: "missing" }],
 			["find", { query: " " }],

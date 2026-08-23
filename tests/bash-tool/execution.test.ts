@@ -399,7 +399,7 @@ describe("bash tool execution", () => {
 		runtimeValue.branch = skillBranch("demo", skillRoot);
 
 		const result = await executeBashCommand({
-			command: "skill://demo/scripts/run.sh direct && bash 'skill://demo/scripts/run.sh' single && bash \"skill://demo/scripts/run task.sh\" double",
+			command: "test -d skill://demo && skill://demo/scripts/run.sh direct && bash 'skill://demo/scripts/run.sh' single && bash \"skill://demo/scripts/run task.sh\" double",
 		}, runtimeValue);
 
 		expect(result.details).toMatchObject({ status: "exited", exit_code: 0 });

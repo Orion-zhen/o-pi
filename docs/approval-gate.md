@@ -64,12 +64,13 @@ Approval Gate 不把整段 Shell 文本作为一个审批目标，而是提取�
 - `eval`、动态命令、动态 Shell `-c` 子脚本和无法可靠解析的 Shell 输入。
 - 写入明显系统路径的 Bash 重定向。
 - 写入明显系统路径的 `write` 或 `edit` 调用。默认路径包括 `/etc/**`、`/usr/**`、`/bin/**`、`/sbin/**`、`/System/**`、`/Library/**` 和 `/var/**`。
+- 通过 `write` 或 `edit` 修改当前分支已加载的 `skill://` 技能路径。审批目标保留逻辑路径，不暴露技能的真实目录。
 
 ## 默认无需确认
 
 - 普通 `bash` 命令，例如输出、测试、构建和格式化命令。
 - 已证明只影响 `mktemp` 创建的一次性文件或目录，或者系统临时目录后代的写入和本地清理。
-- 针对普通项目文件的 `write` 和 `edit` 调用。
+- 针对普通项目文件的 `write` 和 `edit` 调用。技能逻辑路径除外。
 - `read`、`ls`、`find` 和 `grep`。
 - `webfetch`、LSP 和 subagent。
 

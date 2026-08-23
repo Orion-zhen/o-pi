@@ -1,7 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
+import type { FilesystemPathAccess } from "../../src/filesystem/contracts/access.js";
 import { preflightWriteAccess } from "../../src/filesystem/kernel/access-preflight.js";
 import { createWorkspaceNamespace, type WorkspaceNamespaceKernel } from "../../src/filesystem/kernel/namespace.js";
 import { NativeFileSystemError, NodeNativeFileSystem, type NativeFileSystem } from "../../src/filesystem/platform/node/native-filesystem.js";
@@ -69,6 +70,80 @@ describe("workspace namespace", () => {
 		const namespace = await openNamespace();
 		const result = await namespace.paths.resolveExisting(input, { expected: "any", followFinalSymlink: true });
 		expect(result).toMatchObject({ ok: false, error: { code: "invalid-path", path: input } });
+	});
+	it("mounts authorized logical roots and blocks ordinary-path aliases", async () => {
+		const skillRoot = path.join(outside, "demo-skill");
+		await mkdir(path.join(skillRoot, "references"), { recursive: true });
+		await writeFile(path.join(skillRoot, "SKILL.md"), "skill");
+		await writeFile(path.join(skillRoot, "references", "testing.md"), "testing");
+		const alias = path.join(workspace, "skill-alias");
+		const outsideAlias = path.join(workspace, "outside-alias");
+		const removedSkillRoot = path.join(outside, "removed-skill");
+		await symlink(skillRoot, alias);
+		await symlink(outside, outsideAlias);
+		const namespace = await openNamespace({
+			pathAccess: {
+				mounts: [{ logicalRoot: "skill://demo", nativeRoot: skillRoot }],
+				protectedRoots: [skillRoot, removedSkillRoot],
+				managedSchemes: ["skill"],
+			},
+		});
+
+		const mountedRoot = expectFsOk(await namespace.paths.resolveExisting(
+			"skill://demo",
+			{ expected: "directory", followFinalSymlink: true },
+		));
+		const mountedFile = expectFsOk(await namespace.paths.resolveExisting(
+			"skill://demo/references/testing.md",
+			{ expected: "file", followFinalSymlink: true },
+		));
+		expect(mountedRoot.displayPath).toBe("skill://demo");
+		expect(mountedRoot.workspacePath).toBeUndefined();
+		expect(mountedFile.displayPath).toBe("skill://demo/references/testing.md");
+		expect(mountedFile.workspacePath).toBeUndefined();
+		expect(namespace.paths.relative(mountedRoot, mountedFile)).toBe("references/testing.md");
+		expect(namespace.paths.relative(namespace.root, mountedFile)).toBeUndefined();
+		expect(await namespace.paths.resolveTarget(
+			"skill://demo/references/new.md",
+			{ followExistingSymlink: true },
+		)).toMatchObject({ ok: true, value: { displayPath: "skill://demo/references/new.md" } });
+		expect(await namespace.paths.resolveExisting(
+			"skill://missing/SKILL.md",
+			{ expected: "file", followFinalSymlink: true },
+		)).toMatchObject({ ok: false, error: { code: "access-denied" } });
+		for (const input of [path.join(skillRoot, "SKILL.md"), path.join(alias, "SKILL.md")]) {
+			expect(await namespace.paths.resolveExisting(input, { expected: "file", followFinalSymlink: true }))
+				.toMatchObject({ ok: false, error: { code: "access-denied" } });
+		}
+		expect(await namespace.paths.resolveTarget(
+			path.join(outsideAlias, "removed-skill", "new.md"),
+			{ followExistingSymlink: true },
+		)).toMatchObject({ ok: false, error: { code: "access-denied" } });
+	});
+	it("rejects mounted path traversal and symbolic-link escapes", async () => {
+		const skillRoot = path.join(outside, "bounded-skill");
+		await mkdir(skillRoot);
+		await writeFile(path.join(outside, "secret.txt"), "secret");
+		await symlink(path.join(outside, "secret.txt"), path.join(skillRoot, "escape.txt"));
+		const namespace = await openNamespace({
+			pathAccess: {
+				mounts: [{ logicalRoot: "skill://demo", nativeRoot: skillRoot }],
+				protectedRoots: [skillRoot],
+				managedSchemes: ["skill"],
+			},
+		});
+		for (const input of ["skill://demo/../secret.txt", "skill://demo/a//b", "skill://demo/a\\b", "skill://demo/a%2fb"]) {
+			expect(await namespace.paths.resolveExisting(input, { expected: "any", followFinalSymlink: true }))
+				.toMatchObject({ ok: false, error: { code: "invalid-path" } });
+		}
+		expect(await namespace.paths.resolveExisting(
+			"skill://demo/escape.txt",
+			{ expected: "file", followFinalSymlink: true },
+		)).toMatchObject({ ok: false, error: { code: "access-denied" } });
+		expect(await namespace.paths.resolveTarget(
+			"skill://demo/escape.txt",
+			{ followExistingSymlink: true },
+		)).toMatchObject({ ok: false, error: { code: "access-denied" } });
 	});
 	it("enforces lexical blocked rules and preserves directory trailing-slash semantics", async () => {
 		await mkdir(path.join(workspace, "secret"));
@@ -220,10 +295,12 @@ async function openNamespace(options: {
 	readonly homeDirectory?: string;
 	readonly native?: NativeFileSystem;
 	readonly signal?: AbortSignal;
+	readonly pathAccess?: FilesystemPathAccess;
 } = {}): Promise<WorkspaceNamespaceKernel> {
 	return expectFsOk(await createWorkspaceNamespace({
 		workspaceRoot: workspace,
 		blockedPaths: options.blockedPaths ?? [],
+		...(options.pathAccess === undefined ? {} : { pathAccess: options.pathAccess }),
 		...(options.homeDirectory === undefined ? {} : { homeDirectory: options.homeDirectory }),
 		...(options.native === undefined ? {} : { native: options.native }),
 		...(options.signal === undefined ? {} : { context: { signal: options.signal } }),

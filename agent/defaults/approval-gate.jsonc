@@ -17,6 +17,17 @@
 	},
 	"ask_rules": [
 		{
+			"name": "skill-modification",
+			"tools": [
+				"write",
+				"edit"
+			],
+			"path_globs": [
+				"skill://**"
+			],
+			"reason": "skill modification"
+		},
+		{
 			"name": "system-path-write",
 			"tools": [
 				"bash",

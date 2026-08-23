@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import type { FilesystemPathAccess } from "../../../filesystem/contracts/access.js";
 import type { CodeAnalysis, CodeAnalysisInput } from "../../../code-index/types.js";
 import { GrepTool, formatCompactGrepResult } from "../../grep/command.js";
 import type { GrepParams } from "../../grep/types.js";
@@ -14,6 +15,7 @@ export interface ExecuteGrepOptions {
 	readonly signal?: AbortSignal;
 	readonly host: FileToolsHost;
 	readonly lsp: LspFileOperations;
+	readonly pathAccess: FilesystemPathAccess;
 }
 
 export function createGrepAdapter() {
@@ -24,6 +26,7 @@ export function createGrepAdapter() {
 				cwd: options.cwd,
 				sessionId: options.sessionId,
 				...(options.signal === undefined ? {} : { signal: options.signal }),
+				pathAccess: options.pathAccess,
 			});
 			if (isFailed(opened)) return failedResult(opened);
 			try {
@@ -54,9 +57,11 @@ export async function prepareCodeAnalysisWithLsp(
 	if (input.signal?.aborted === true || lsp.prepareCodeAnalysis === undefined) return;
 	const workspace = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
 	if (workspace === undefined) return;
+	const paths = input.paths.filter(isWorkspaceLogicalPath);
+	if (paths.length === 0) return;
 	await lsp.prepareCodeAnalysis({
 		root: workspace.nativePath,
-		paths: input.paths,
+		paths,
 		...(input.signal === undefined ? {} : { signal: input.signal }),
 	});
 }
@@ -66,7 +71,8 @@ export async function analyzeCodeWithLsp(
 	invocation: FileToolsInvocation,
 	input: CodeAnalysisInput,
 ): Promise<CodeAnalysis | undefined> {
-	if (input.signal?.aborted === true || lsp.codeAnalysis === undefined) return undefined;
+	if (input.signal?.aborted === true || lsp.codeAnalysis === undefined
+		|| input.targets.some((target) => !isWorkspaceLogicalPath(target.path))) return undefined;
 	const workspace = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
 	if (workspace === undefined) return undefined;
 	return await lsp.codeAnalysis({
@@ -83,6 +89,12 @@ export async function analyzeCodeWithLsp(
 		},
 		...(input.signal === undefined ? {} : { signal: input.signal }),
 	});
+}
+
+function isWorkspaceLogicalPath(value: string): boolean {
+	if (path.isAbsolute(value) || /^[a-z][a-z0-9+.-]*:\/\//iu.test(value)) return false;
+	const segments = value.replaceAll("\\", "/").split("/");
+	return segments.every((segment) => segment !== "..");
 }
 
 function nativeWorkspacePath(root: string, relativePath: string): string | undefined {

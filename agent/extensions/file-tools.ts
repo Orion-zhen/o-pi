@@ -21,7 +21,7 @@ import { MutationBatchCoordinator } from "../../src/file-tools/pi/mutation-batch
 import type { MutationProgressDetails } from "../../src/file-tools/pi/progress.js";
 import { registerObservedTool } from "../../src/telemetry/tool.js";
 import { collectSkillCandidates } from "../../src/skill-context/loader.js";
-import { buildSkillReadIndex } from "../../src/skill-context/resources.js";
+import { buildSkillFilesystemAccess, buildSkillPathIndex } from "../../src/skill-context/resources.js";
 
 const lsParameters = Type.Object({ path: Type.Optional(Type.String({ minLength: 1, description: "Directory; default workspace." })) }, { additionalProperties: false });
 const findParameters = Type.Object(
@@ -46,7 +46,7 @@ const grepParameters = Type.Object(
 );
 const readParameters = Type.Object(
 	{
-		path: Type.String({ description: "Text, image, PDF or Skill resource path." }),
+		path: Type.String({ description: "Text, image or PDF file path." }),
 		lines: Type.Optional(Type.String({
 			minLength: 1,
 			pattern: READ_RANGE_PATTERN,
@@ -157,7 +157,7 @@ function registerFileTools(
 	};
 	const lsp = createLazyLspFileOperations(loaders.lsp);
 	const mutationBatches = new MutationBatchCoordinator();
-	const skillReadIndex = createRetryableLoader(async () => buildSkillReadIndex(
+	const skillPathIndex = createRetryableLoader(async () => buildSkillPathIndex(
 		collectSkillCandidates(undefined, typeof pi.getCommands === "function" ? pi.getCommands() : []),
 	));
 
@@ -169,12 +169,14 @@ function registerFileTools(
 		promptSnippet: "list one directory",
 		parameters: lsParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const [module, invocationHost] = await Promise.all([loaders.ls(), hostForInvocation()]);
+			const [module, invocationHost, index] = await Promise.all([loaders.ls(), hostForInvocation(), skillPathIndex()]);
+			const pathAccess = await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index);
 			return module.executeLs(params as LsParams, {
 				cwd: ctx.cwd,
 				sessionId: ctx.sessionManager.getSessionId(),
 				...(signal === undefined ? {} : { signal }),
 				host: invocationHost,
+				pathAccess,
 			});
 		},
 		},
@@ -190,12 +192,14 @@ function registerFileTools(
 		promptSnippet: "fuzzy-search paths",
 		parameters: findParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const [adapter, invocationHost] = await Promise.all([loaders.find(), hostForInvocation()]);
+			const [adapter, invocationHost, index] = await Promise.all([loaders.find(), hostForInvocation(), skillPathIndex()]);
+			const pathAccess = await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index);
 			return adapter.execute(params as FindParams, {
 				cwd: ctx.cwd,
 				sessionId: ctx.sessionManager.getSessionId(),
 				...(signal !== undefined ? { signal } : {}),
 				host: invocationHost,
+				pathAccess,
 			});
 		},
 		},
@@ -211,13 +215,15 @@ function registerFileTools(
 		promptSnippet: "locate relevant code",
 		parameters: grepParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const [adapter, invocationHost] = await Promise.all([loaders.grep(), hostForInvocation()]);
+			const [adapter, invocationHost, index] = await Promise.all([loaders.grep(), hostForInvocation(), skillPathIndex()]);
+			const pathAccess = await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index);
 			return adapter.execute(params as GrepParams, {
 				cwd: ctx.cwd,
 				sessionId: ctx.sessionManager.getSessionId(),
 				...(signal !== undefined ? { signal } : {}),
 				host: invocationHost,
 				lsp,
+				pathAccess,
 			});
 		},
 		},
@@ -229,11 +235,12 @@ function registerFileTools(
 		tool: {
 		name: "read",
 		label: "read",
-		description: "Read one text, image, PDF or Skill resource.",
+		description: "Read one text, image or PDF file.",
 		promptSnippet: "read one file",
 		parameters: readParameters,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-			const [module, invocationHost, index] = await Promise.all([loaders.read(), hostForInvocation(), skillReadIndex()]);
+			const [module, invocationHost, index] = await Promise.all([loaders.read(), hostForInvocation(), skillPathIndex()]);
+			const pathAccess = await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index);
 			return module.executeRead(params as ReadParams, {
 				cwd: ctx.cwd,
 				sessionId: ctx.sessionManager.getSessionId(),
@@ -241,8 +248,7 @@ function registerFileTools(
 				model: ctx.model,
 				host: invocationHost,
 				lsp,
-				branch: typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [],
-				skillIndex: index,
+				pathAccess,
 			});
 		},
 	}, repair: {
@@ -262,7 +268,8 @@ function registerFileTools(
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const batch = mutationBatches.invocation(toolCallId);
 			try {
-				const [module, invocationHost] = await Promise.all([loaders.write(), hostForInvocation()]);
+				const [module, invocationHost, index] = await Promise.all([loaders.write(), hostForInvocation(), skillPathIndex()]);
+				const pathAccess = await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index);
 				return await module.executeWrite(params as WriteParams, {
 					cwd: ctx.cwd,
 					sessionId: ctx.sessionManager.getSessionId(),
@@ -271,6 +278,7 @@ function registerFileTools(
 					lsp,
 					...(onUpdate === undefined ? {} : { onUpdate }),
 					...(batch === undefined ? {} : { batch }),
+					pathAccess,
 				});
 			} finally {
 				batch?.settle();
@@ -297,7 +305,8 @@ function registerFileTools(
 		async execute(toolCallId, params, signal, onUpdate, ctx) {
 			const batch = mutationBatches.invocation(toolCallId);
 			try {
-				const [module, invocationHost] = await Promise.all([loaders.edit(), hostForInvocation()]);
+				const [module, invocationHost, index] = await Promise.all([loaders.edit(), hostForInvocation(), skillPathIndex()]);
+				const pathAccess = await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index);
 				return await module.executeEdit(params as EditParams, {
 					cwd: ctx.cwd,
 					sessionId: ctx.sessionManager.getSessionId(),
@@ -306,6 +315,7 @@ function registerFileTools(
 					lsp,
 					...(onUpdate === undefined ? {} : { onUpdate }),
 					...(batch === undefined ? {} : { batch }),
+					pathAccess,
 				});
 			} finally {
 				batch?.settle();

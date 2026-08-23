@@ -57,14 +57,14 @@ export class WorkspaceMutationService implements MutationOperations {
 
 		try {
 			for (let attempt = 0; attempt < MAX_CANONICAL_KEY_ATTEMPTS; attempt += 1) {
-				const keyed = await this.prepareTarget(initialIdentity.lexicalPath, options.createParents, context);
+				const keyed = await this.prepareTarget(initialIdentity.namespacePath, options.createParents, context);
 				if (!keyed.ok) return keyed;
 				const queueKey = keyed.value.identity.canonicalPath;
 				const queued = await this.queue.run(queueKey, context.signal, async () => {
-					const current = await this.prepareTarget(initialIdentity.lexicalPath, options.createParents, context);
+					const current = await this.prepareTarget(initialIdentity.namespacePath, options.createParents, context);
 					if (!current.ok) return current;
 					if (!sameNativePath(current.value.identity.canonicalPath, queueKey)) return REKEY;
-					return await this.runLocked(current.value, initialIdentity.lexicalPath, options, transform, context);
+					return await this.runLocked(current.value, initialIdentity.namespacePath, options, transform, context);
 				});
 				if (queued === REKEY) continue;
 				return queued;
