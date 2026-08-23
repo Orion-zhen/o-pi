@@ -1,7 +1,6 @@
 {
 	"$schema": "../schemas/tui.schema.json",
 	"enabled": true,
-	"preset": "compact",
 	"icons": "nerd",
 	"chrome": {
 		"title": true,
@@ -10,7 +9,6 @@
 		"working_indicator": "spinner"
 	},
 	"footer": {
-		"max_lines": 2,
 		"segments": [
 			"cwd",
 			"git",
@@ -29,14 +27,6 @@
 			"workspace_color": "accent",
 			"git_color": "success"
 		}
-	},
-	"tools": {
-		"expanded_default": false,
-		"show_timing": true,
-		"show_provider": false,
-		"max_target_chars": 72,
-		"max_summary_chars": 96,
-		"collapsed_lines": 2
 	},
 	"home": {
 		"enabled": true,

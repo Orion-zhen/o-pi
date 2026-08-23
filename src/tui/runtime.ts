@@ -5,6 +5,7 @@ import {
 	sessionEntryToContextMessages,
 	type ExtensionAPI,
 	type ExtensionContext,
+	type ReadonlyFooterDataProvider,
 	type Skill,
 } from "@earendil-works/pi-coding-agent";
 import { notifyWaiting, type WaitingNotifier } from "../notification/native.js";
@@ -12,7 +13,7 @@ import { collectSkillCandidates } from "../skill-context/loader.js";
 import { createStartupBannerComponent } from "./banner.js";
 import { createHeaderComponent, formatTitle, workingIndicatorOptions } from "./chrome.js";
 import { loadTuiConfig } from "./config.js";
-import { createFooterComponent, GitSegmentCache } from "./footer.js";
+import { createFooterComponent } from "./footer.js";
 import { createHomeFooterComponent, createHomeHeaderComponent, selectHomeTip } from "./home.js";
 import { configureTuiIconMode, statusIcon } from "./icons.js";
 import { createAssistantPerformanceTracker } from "./message-performance.js";
@@ -66,7 +67,8 @@ export function createTuiRuntime(
 	let config: TuiConfig | undefined;
 	let snapshot: TuiFooterSnapshot = {};
 	let setTitle: ((title: string) => void) | undefined;
-	let gitCache: GitSegmentCache | undefined;
+	let refreshHeader: (() => void) | undefined;
+	let footerDataProvider: ReadonlyFooterDataProvider | undefined;
 	let homeVisible = false;
 	let mathMarkdownModule: MathMarkdownModule | undefined;
 	let mathMarkdownLoad: Promise<MathMarkdownModule> | undefined;
@@ -89,6 +91,7 @@ export function createTuiRuntime(
 		const nextConfig = await loadTuiConfig();
 		config = nextConfig;
 		setTitle = (title) => ctx.ui.setTitle(title);
+		refreshHeader = () => ctx.ui.setHeader(getHeader());
 		const mathEnabled = nextConfig.enabled && nextConfig.math.enabled;
 		mathMarkdownModule?.installMathMarkdownRenderer({ ...nextConfig.math, enabled: mathEnabled });
 		if (!nextConfig.enabled) {
@@ -105,14 +108,9 @@ export function createTuiRuntime(
 		syncUserMessageTimestamps(ctx);
 		homeVisible = nextConfig.home.enabled && !hasConversation(ctx);
 		skillsSnapshot = nextConfig.home.enabled ? collectSkills(pi) : undefined;
-		gitCache = createGitCache(() => snapshot, (next) => {
-			snapshot = next;
-			refreshTitle();
-			ctx.ui.setStatus(STATUS_KEY, formatStatus(snapshot.status ?? "ready", ctx.ui.theme));
-		});
-		snapshot = makeSnapshot(ctx, pi, "ready", gitCache.get(ctx.cwd));
+		snapshot = makeSnapshot(ctx, pi, "ready");
 		await installUserHistory(ctx, options.replaySessionMessages === true, nextConfig);
-		applyChrome(ctx, nextConfig, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot), homeVisible);
+		applyChrome(ctx, nextConfig, currentSnapshot, homeVisible, bindFooterData);
 		scheduleMathInitialization(ctx, sessionGeneration);
 	}
 
@@ -125,16 +123,15 @@ export function createTuiRuntime(
 		cancelMathInitialization();
 		await userHistory.flush();
 		restoreEditor(ctx);
-		const previousGitCache = gitCache;
-		gitCache = undefined;
+		footerDataProvider = undefined;
 		if (config !== undefined || setTitle !== undefined || homeVisible) cleanup(ctx);
 		config = undefined;
 		setTitle = undefined;
+		refreshHeader = undefined;
 		homeVisible = false;
 		snapshot = {};
 		skillsSnapshot = undefined;
 		assistantPerformance.reset();
-		await previousGitCache?.dispose();
 	}
 
 	async function installUserHistory(ctx: ExtensionContext, replaySessionMessages: boolean, currentConfig: TuiConfig): Promise<void> {
@@ -187,7 +184,7 @@ export function createTuiRuntime(
 				},
 				{
 					config: currentConfig.home,
-					getSnapshot: () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot),
+					getSnapshot: currentSnapshot,
 					getTheme: () => ctx.ui.theme,
 					isVisible: () => homeVisible,
 					onSubmit: () => leaveHome(ctx),
@@ -205,10 +202,10 @@ export function createTuiRuntime(
 		homeVisible = false;
 		historyEditor?.hideHome();
 		ctx.ui.setFooter(config.chrome.footer
-			? createFooterComponent(config.footer, () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot), config.icons)
+			? createFooterComponent(config.footer, currentSnapshot, config.icons, bindFooterData)
 			: undefined);
 		ctx.ui.setHeader(config.chrome.header
-			? createHeaderComponent(() => snapshotWithCapabilities(snapshot, pi, skillsSnapshot))
+			? createHeaderComponent(currentSnapshot)
 			: undefined);
 	}
 
@@ -223,39 +220,23 @@ export function createTuiRuntime(
 	}
 
 	function registerHandlers(): void {
-		pi.on("turn_start", async (_event, ctx) => {
+		pi.on("agent_start", async (_event, ctx) => {
 			cancelMathInitialization();
 			if (!config?.enabled) return;
-			snapshot = makeSnapshot(ctx, pi, "running", gitCache?.get(ctx.cwd));
+			snapshot = makeSnapshot(ctx, pi, "running");
 			leaveHome(ctx);
-			gitCache?.refresh(ctx.cwd);
 			ctx.ui.setStatus(STATUS_KEY, formatStatus("running", ctx.ui.theme));
 			refreshTitle();
 		});
 
-		pi.on("turn_end", async (_event, ctx) => {
-			if (!config?.enabled) return;
-			snapshot = makeSnapshot(ctx, pi, "ready", gitCache?.get(ctx.cwd));
-			gitCache?.refresh(ctx.cwd);
-			ctx.ui.setStatus(STATUS_KEY, formatStatus("ready", ctx.ui.theme));
-			refreshTitle();
-			scheduleMathInitialization(ctx, sessionGeneration);
-		});
-
-		pi.on("agent_start", async (_event, ctx) => {
-			if (!config?.enabled) return;
-			snapshot = makeSnapshot(ctx, pi, "working", gitCache?.get(ctx.cwd));
-			refreshTitle();
-		});
-
-		pi.on("agent_end", async (_event, ctx) => {
-			if (!config?.enabled) return;
-			snapshot = makeSnapshot(ctx, pi, "ready", gitCache?.get(ctx.cwd));
-			gitCache?.refresh(ctx.cwd);
-			refreshTitle();
-		});
-
 		pi.on("agent_settled", async (_event, ctx) => {
+			if (config?.enabled) {
+				snapshot = makeSnapshot(ctx, pi, "ready");
+				ctx.ui.setStatus(STATUS_KEY, formatStatus("ready", ctx.ui.theme));
+				refreshTitle();
+				refreshHeader?.();
+				scheduleMathInitialization(ctx, sessionGeneration);
+			}
 			if (ctx.mode !== "tui") return;
 			try {
 				await notifyUser();
@@ -325,11 +306,7 @@ export function createTuiRuntime(
 		) return;
 		mathTimer = setTimeout(() => {
 			mathTimer = undefined;
-			if (generation !== sessionGeneration) return;
-			if (!ctx.isIdle() || ctx.hasPendingMessages()) {
-				scheduleMathInitialization(ctx, generation);
-				return;
-			}
+			if (generation !== sessionGeneration || !ctx.isIdle() || ctx.hasPendingMessages()) return;
 			void initializeMathMarkdown(current, ctx, generation);
 		}, MATH_IDLE_DELAY_MS);
 		mathTimer.unref();
@@ -338,11 +315,7 @@ export function createTuiRuntime(
 	async function initializeMathMarkdown(current: TuiConfig, ctx: ExtensionContext, generation: number): Promise<void> {
 		try {
 			const module = await getMathMarkdownModule();
-			if (generation !== sessionGeneration) return;
-			if (!ctx.isIdle() || ctx.hasPendingMessages()) {
-				scheduleMathInitialization(ctx, generation);
-				return;
-			}
+			if (generation !== sessionGeneration || !ctx.isIdle() || ctx.hasPendingMessages()) return;
 			module.installMathMarkdownRenderer({ ...current.math, enabled: true });
 			if (module.supportsDisplayMathImages()) {
 				await module.warmDisplayMathRenderer();
@@ -370,29 +343,37 @@ export function createTuiRuntime(
 	}
 
 	function refreshTitle(): void {
-		if (config?.chrome.title === true && setTitle !== undefined) setTitle(formatTitle(snapshot));
+		if (config?.chrome.title === true && setTitle !== undefined) setTitle(formatTitle(currentSnapshot()));
+	}
+
+	function bindFooterData(provider: ReadonlyFooterDataProvider): void {
+		footerDataProvider = provider;
+		refreshTitle();
+		refreshHeader?.();
+	}
+
+	function currentSnapshot(): TuiFooterSnapshot {
+		return snapshotWithCapabilities(snapshot, pi, skillsSnapshot, footerDataProvider);
 	}
 
 	/** 模型和 thinking 选择不会开启 turn，需要主动刷新快照并触发 Pi 公开 UI 重绘入口。 */
 	function refreshSnapshot(ctx: ExtensionContext): void {
 		const status = snapshot.status ?? "ready";
-		snapshot = makeSnapshot(ctx, pi, status, gitCache?.get(ctx.cwd));
+		snapshot = makeSnapshot(ctx, pi, status);
 		refreshTitle();
 		ctx.ui.setStatus(STATUS_KEY, formatStatus(status, ctx.ui.theme));
-		const getSnapshot = () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot);
 		ctx.ui.setFooter(config?.chrome.footer
 			? homeVisible
-				? createStartupFooterComponent(config, getSnapshot)
-				: createFooterComponent(config.footer, getSnapshot, config.icons)
+				? createStartupFooterComponent(config, currentSnapshot, bindFooterData)
+				: createFooterComponent(config.footer, currentSnapshot, config.icons, bindFooterData)
 			: undefined);
 		ctx.ui.setHeader(getHeader());
 	}
 
 	function getHeader() {
 		if (config === undefined) return undefined;
-		const getSnapshot = () => snapshotWithCapabilities(snapshot, pi, skillsSnapshot);
-		if (homeVisible) return createStartupHeaderComponent(config, getSnapshot);
-		return config.chrome.header ? createHeaderComponent(getSnapshot) : undefined;
+		if (homeVisible) return createStartupHeaderComponent(config, currentSnapshot);
+		return config.chrome.header ? createHeaderComponent(currentSnapshot) : undefined;
 	}
 
 	function cleanup(ctx: ExtensionContext): void {
@@ -443,14 +424,20 @@ function stringifyError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-function applyChrome(ctx: ExtensionContext, config: TuiConfig, getSnapshot: () => TuiFooterSnapshot, homeVisible: boolean): void {
+function applyChrome(
+	ctx: ExtensionContext,
+	config: TuiConfig,
+	getSnapshot: () => TuiFooterSnapshot,
+	homeVisible: boolean,
+	bindFooterData: (provider: ReadonlyFooterDataProvider) => void,
+): void {
 	if (config.chrome.title) ctx.ui.setTitle(formatTitle(getSnapshot()));
 	ctx.ui.setWorkingIndicator(workingIndicatorOptions(config, ctx.ui.theme));
 	ctx.ui.setStatus(STATUS_KEY, formatStatus("ready", ctx.ui.theme));
 	ctx.ui.setFooter(config.chrome.footer
 		? homeVisible
-			? createStartupFooterComponent(config, getSnapshot)
-			: createFooterComponent(config.footer, getSnapshot, config.icons)
+			? createStartupFooterComponent(config, getSnapshot, bindFooterData)
+			: createFooterComponent(config.footer, getSnapshot, config.icons, bindFooterData)
 		: undefined);
 	ctx.ui.setHeader(homeVisible
 		? createStartupHeaderComponent(config, getSnapshot)
@@ -471,9 +458,13 @@ function createStartupHeaderComponent(config: TuiConfig, getSnapshot: () => TuiF
 }
 
 /** regular 使用普通状态 footer，fullscreen 使用 Home 操作 footer。 */
-function createStartupFooterComponent(config: TuiConfig, getSnapshot: () => TuiFooterSnapshot): HomeFooterFactory {
-	const regular = createFooterComponent(config.footer, getSnapshot, config.icons);
-	const fullscreen = createHomeFooterComponent(config.home);
+function createStartupFooterComponent(
+	config: TuiConfig,
+	getSnapshot: () => TuiFooterSnapshot,
+	bindFooterData: (provider: ReadonlyFooterDataProvider) => void,
+): HomeFooterFactory {
+	const regular = createFooterComponent(config.footer, getSnapshot, config.icons, bindFooterData);
+	const fullscreen = createHomeFooterComponent(config.home, bindFooterData);
 	const factory: HomeFooterFactory = (tui, theme, footerData) => tui.mode === "regular"
 		? regular(tui, theme, footerData)
 		: fullscreen(tui, theme, footerData);
@@ -481,7 +472,7 @@ function createStartupFooterComponent(config: TuiConfig, getSnapshot: () => TuiF
 }
 
 function formatStatus(status: string, theme: ExtensionContext["ui"]["theme"]): string {
-	if (status === "running" || status === "working") return theme.fg("warning", `${statusIcon("running")} running`);
+	if (status === "running") return theme.fg("warning", `${statusIcon("running")} running`);
 	return theme.fg("success", `${statusIcon("success")} ready`);
 }
 
@@ -489,22 +480,26 @@ function snapshotWithCapabilities(
 	snapshot: TuiFooterSnapshot,
 	pi: ExtensionAPI,
 	skills: TuiFooterSkillsSnapshot | undefined,
+	footerData: ReadonlyFooterDataProvider | undefined,
 ): TuiFooterSnapshot {
-	return {
+	const next: TuiFooterSnapshot = {
 		...snapshot,
 		tools: collectTools(pi),
 		...(skills !== undefined ? { skills } : {}),
 	};
+	delete next.git;
+	const branch = footerData?.getGitBranch();
+	if (branch !== undefined && branch !== null) next.git = branch;
+	return next;
 }
 
-function makeSnapshot(ctx: ExtensionContext, pi: ExtensionAPI, status: string, git: string | undefined): TuiFooterSnapshot {
+function makeSnapshot(ctx: ExtensionContext, pi: ExtensionAPI, status: string): TuiFooterSnapshot {
 	const context = ctx.getContextUsage();
 	const usage = collectUsage(ctx);
 	const model = ctx.model;
 	const availableProviderCount = countAvailableProviders(ctx);
 	return {
 		cwd: ctx.cwd,
-		...(git !== undefined ? { git } : {}),
 		...(model?.id !== undefined ? { modelId: model.id } : {}),
 		...(model?.provider !== undefined ? { modelProvider: model.provider } : {}),
 		...(model?.reasoning !== undefined ? { modelReasoning: model.reasoning } : {}),
@@ -526,10 +521,6 @@ function collectTools(pi: ExtensionAPI): TuiFooterToolsSnapshot {
 	const allNames = pi.getAllTools().map((tool) => tool.name);
 	const activeSet = new Set(pi.getActiveTools());
 	const activeNames = allNames.filter((name) => activeSet.has(name));
-	const allNameSet = new Set(allNames);
-	for (const name of activeSet) {
-		if (!allNameSet.has(name)) activeNames.push(name);
-	}
 	return { activeNames, totalCount: allNames.length, allNames };
 }
 
@@ -553,20 +544,6 @@ function collectSkills(pi: ExtensionAPI): TuiFooterSkillsSnapshot | undefined {
 		if (parsed !== undefined && !parsed.disableModelInvocation) modelInvocableCount += 1;
 	}
 	return { totalCount, modelInvocableCount };
-}
-
-function createGitCache(
-	getSnapshot: () => TuiFooterSnapshot,
-	setSnapshot: (snapshot: TuiFooterSnapshot) => void,
-): GitSegmentCache {
-	return new GitSegmentCache((cwd, git) => {
-		const current = getSnapshot();
-		if (current.cwd !== cwd) return;
-		const next: TuiFooterSnapshot = { ...current };
-		if (git === undefined) delete next.git;
-		else next.git = git;
-		setSnapshot(next);
-	});
 }
 
 function hasConversation(ctx: ExtensionContext): boolean {

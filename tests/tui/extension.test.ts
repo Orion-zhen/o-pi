@@ -5,6 +5,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import {
 	ProcessTerminal,
+	TuiAltScreen,
 	TuiMainScreen,
 	type Component,
 	type EditorComponent,
@@ -21,7 +22,7 @@ import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
 
 type Handler = (event: unknown, ctx: ExtensionContextStub) => Promise<void> | void;
 type TuiStub = { mode: TuiMode; requestRender(): void };
-type FooterFactory = (tui: TuiStub, theme: ThemeStub, footerData: FooterDataStub) => Component;
+type FooterFactory = (tui: TuiStub, theme: ThemeStub, footerData: FooterDataStub) => Component & { dispose(): void };
 type HeaderFactory = (tui: TuiStub, theme: ThemeStub) => Component;
 type EditorFactoryStub = (tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => EditorComponent;
 
@@ -143,7 +144,7 @@ describe("tui extension", () => {
 		const component = footerFactory?.({ mode: "regular", requestRender() {} }, ctx.ui.theme, createFooterData());
 
 		expect(component?.render(80).join("\n")).toMatch(/\b1\/3\b/u);
-		activeTools = ["grep", "bash"];
+		activeTools = ["unknown", "bash", "read"];
 		expect(component?.render(80).join("\n")).toMatch(/\b2\/3\b/u);
 	});
 
@@ -170,7 +171,7 @@ describe("tui extension", () => {
 		expect(fullscreenHeader?.render(120)).toEqual([]);
 		expect(regularFooter?.render(80).join("\n")).toContain("tools 1/3");
 		expect(fullscreenFooter?.render(80).join("\n")).toContain("O Pi v");
-		await handlers.get("turn_start")?.({}, ctx);
+		await handlers.get("agent_start")?.({}, ctx);
 
 		expect(calls.header.at(-1)).toBeUndefined();
 		expect(calls.header.at(-1)).not.toBe(homeHeader);
@@ -178,8 +179,82 @@ describe("tui extension", () => {
 		expect(calls.status.at(-1)).toMatchObject({ key: "o-pi:tui", text: expect.any(String) });
 	});
 
+	it("官方 footer provider 的分支由启动界面与聊天 chrome 共享，并在组件释放时取消订阅", async () => {
+		const file = path.join(dir, "tui.jsonc");
+		await writeFile(file, '{ "chrome": { "header": true }, "home": { "motion": "off" } }');
+		process.env["PI_TUI_CONFIG"] = file;
+		const handlers = new Map<string, Handler>();
+		const calls = createUiCalls();
+		const pi = createPi(handlers);
+		const ctx = createContext(calls, { mode: "tui" });
+		const provider = createFooterDataController("main");
+		const homeRender = vi.fn();
+
+		tuiExtension(pi as unknown as ExtensionAPI);
+		await handlers.get("session_start")?.({}, ctx);
+		const startupFooterFactory = calls.footer.at(-1);
+		const startupHeaderFactory = calls.header.at(-1);
+		const editorFactory = calls.editor.at(-1);
+		if (startupFooterFactory === undefined || startupHeaderFactory === undefined || editorFactory === undefined) {
+			throw new Error("startup components were not installed");
+		}
+		const homeFooter = startupFooterFactory(
+			{ mode: "fullscreen", requestRender: homeRender },
+			ctx.ui.theme,
+			provider.data,
+		);
+		const banner = startupHeaderFactory({ mode: "regular", requestRender() {} }, ctx.ui.theme);
+		const editor = editorFactory(
+			new TuiAltScreen(new ProcessTerminal()),
+			plainEditorTheme(),
+			KeybindingsManager.create(dir),
+		);
+
+		expect(banner.render(120).join("\n")).toContain("main");
+		expect(editor.render(100).join("\n")).toContain("main");
+		expect(calls.title.at(-1)).toContain("main");
+		expect(provider.subscriberCount()).toBe(1);
+
+		provider.setBranch("feature/provider");
+		expect(homeRender).toHaveBeenCalledOnce();
+		expect(banner.render(120).join("\n")).toContain("feature/provider");
+		expect(editor.render(100).join("\n")).toContain("feature/provider");
+		expect(calls.title.at(-1)).toContain("feature/provider");
+
+		homeFooter.dispose();
+		expect(provider.subscriberCount()).toBe(0);
+		await handlers.get("agent_start")?.({}, ctx);
+		const chatRender = vi.fn();
+		const chatFooter = calls.footer.at(-1)?.(
+			{ mode: "regular", requestRender: chatRender },
+			ctx.ui.theme,
+			provider.data,
+		);
+		const chatHeader = calls.header.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme);
+		if (chatFooter === undefined || chatHeader === undefined) throw new Error("chat chrome was not installed");
+		expect(chatFooter.render(120).join("\n")).toContain("feature/provider");
+		expect(chatHeader.render(120).join("\n")).toContain("feature/provider");
+		expect(provider.subscriberCount()).toBe(1);
+
+		provider.setBranch("release");
+		expect(chatRender).toHaveBeenCalledOnce();
+		expect(chatFooter.render(120).join("\n")).toContain("release");
+		const releaseHeader = calls.header.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme);
+		expect(releaseHeader?.render(120).join("\n")).toContain("release");
+		chatFooter.dispose();
+		expect(provider.subscriberCount()).toBe(0);
+		provider.setBranch("ignored-after-dispose");
+		expect(chatRender).toHaveBeenCalledOnce();
+		await handlers.get("session_shutdown")?.({}, ctx);
+
+		await handlers.get("session_start")?.({}, ctx);
+		const restartedBanner = calls.header.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme);
+		expect(restartedBanner?.render(120).join("\n")).not.toContain("ignored-after-dispose");
+		await handlers.get("session_shutdown")?.({}, ctx);
+	});
+
 	it.each(["发送普通消息", "/skill:development 实现需求"])(
-		"首页回车提交 %s 后在 turn_start 前立即进入会话界面",
+		"首页回车提交 %s 后在 agent_start 前立即进入会话界面",
 		async (text) => {
 			const handlers = new Map<string, Handler>();
 			const calls = createUiCalls();
@@ -228,7 +303,7 @@ describe("tui extension", () => {
 		expect(footer?.render(80).join("\n")).not.toContain("O Pi v");
 	});
 
-	it("turn_start 按配置将 Home header 替换为普通 header", async () => {
+	it("agent_start 按配置将 Home header 替换为普通 header", async () => {
 		const file = path.join(dir, "tui.jsonc");
 		await writeFile(file, '{ "chrome": { "header": true } }');
 		process.env["PI_TUI_CONFIG"] = file;
@@ -240,7 +315,7 @@ describe("tui extension", () => {
 		tuiExtension(pi as unknown as ExtensionAPI);
 		await handlers.get("session_start")?.({}, ctx);
 		const homeHeader = calls.header.at(-1);
-		await handlers.get("turn_start")?.({}, ctx);
+		await handlers.get("agent_start")?.({}, ctx);
 
 		expect(calls.header.at(-1)).toBeTypeOf("function");
 		expect(calls.header.at(-1)).not.toBe(homeHeader);
@@ -278,15 +353,41 @@ describe("tui extension", () => {
 		expect(notifyUser).toHaveBeenCalledOnce();
 	});
 
-	it("agent_settled 不受通知失败影响", async () => {
+	it("agent run 只在 agent_start 和 agent_settled 切换全局状态", async () => {
+		vi.useFakeTimers();
 		const handlers = new Map<string, Handler>();
-		createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, undefined, async () => {
+		const calls = createUiCalls();
+		const ctx = createContext(calls, { mode: "tui" });
+		const notifyUser = vi.fn(async () => {});
+		const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, undefined, notifyUser);
+		await runtime.startSession(ctx as unknown as Parameters<typeof runtime.startSession>[0]);
+
+		await handlers.get("agent_start")?.({}, ctx);
+		expect(calls.status.at(-1)?.text).toContain("running");
+		expect(handlers.has("turn_start")).toBe(false);
+		expect(handlers.has("turn_end")).toBe(false);
+		expect(handlers.has("agent_end")).toBe(false);
+
+		await handlers.get("agent_settled")?.({}, ctx);
+		expect(calls.status.at(-1)?.text).toContain("ready");
+		expect(notifyUser).toHaveBeenCalledOnce();
+		expect(vi.getTimerCount()).toBe(1);
+		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
+	});
+
+	it("agent_settled 的通知失败不影响 ready 状态", async () => {
+		const handlers = new Map<string, Handler>();
+		const calls = createUiCalls();
+		const ctx = createContext(calls, { mode: "tui" });
+		const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, undefined, async () => {
 			throw new Error("notification unavailable");
 		});
+		await runtime.startSession(ctx as unknown as Parameters<typeof runtime.startSession>[0]);
+		await handlers.get("agent_start")?.({}, ctx);
 
-		await expect(
-			handlers.get("agent_settled")?.({}, createContext(createUiCalls(), { mode: "tui" })),
-		).resolves.toBeUndefined();
+		await expect(handlers.get("agent_settled")?.({}, ctx)).resolves.toBeUndefined();
+		expect(calls.status.at(-1)?.text).toContain("ready");
+		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
 	});
 
 	it("provider 和消息事件接入模型性能跟踪", async () => {
@@ -425,7 +526,7 @@ describe("tui extension", () => {
 		expect(calls.notifications[0]).toMatchObject({ message: expect.stringContaining("config unavailable"), type: "warning" });
 	});
 
-	it("数学渲染器只在 TUI 空闲期加载，并在活跃 turn 期间暂停", async () => {
+	it("数学渲染器只在 startup 和 agent_settled 后尝试一次空闲初始化", async () => {
 		vi.useFakeTimers();
 		let idle = true;
 		const install = vi.fn();
@@ -436,34 +537,110 @@ describe("tui extension", () => {
 			warmDisplayMathRenderer: warm,
 		}));
 		const handlers = new Map<string, Handler>();
-		const calls = createUiCalls();
-		const ctx = createContext(calls, {
+		const ctx = createContext(createUiCalls(), {
 			mode: "tui",
 			isIdle: () => idle,
 		});
 
-		createTuiExtension(load)(createPi(handlers) as unknown as ExtensionAPI);
-		await handlers.get("session_start")?.({}, ctx);
+		const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, load, async () => {});
+		await runtime.startSession(ctx as unknown as Parameters<typeof runtime.startSession>[0]);
 		expect(load).not.toHaveBeenCalled();
 
-		await handlers.get("turn_start")?.({}, ctx);
+		await handlers.get("agent_start")?.({}, ctx);
 		expect(vi.getTimerCount()).toBe(0);
 
 		idle = false;
-		await handlers.get("turn_end")?.({}, ctx);
+		await handlers.get("agent_settled")?.({}, ctx);
 		await vi.advanceTimersToNextTimerAsync();
 		expect(load).not.toHaveBeenCalled();
-		expect(vi.getTimerCount()).toBe(1);
+		expect(vi.getTimerCount()).toBe(0);
 
 		idle = true;
+		await handlers.get("agent_settled")?.({}, ctx);
 		await vi.advanceTimersToNextTimerAsync();
 		await Promise.resolve();
 		expect(load).toHaveBeenCalledOnce();
 		expect(install).toHaveBeenCalledOnce();
 		expect(warm).toHaveBeenCalledOnce();
 
-		await handlers.get("turn_end")?.({}, ctx);
+		await handlers.get("agent_settled")?.({}, ctx);
 		expect(vi.getTimerCount()).toBe(0);
+		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
+	});
+
+	it("动态加载完成后若 Agent 已运行则等待下一次 settled", async () => {
+		vi.useFakeTimers();
+		let idle = true;
+		const install = vi.fn();
+		const warm = vi.fn(async () => {});
+		const module = {
+			installMathMarkdownRenderer: install,
+			supportsDisplayMathImages: () => true,
+			warmDisplayMathRenderer: warm,
+		};
+		let releaseLoad: (() => void) | undefined;
+		const load = vi.fn(() => new Promise<typeof module>((resolve) => {
+			releaseLoad = () => resolve(module);
+		}));
+		const handlers = new Map<string, Handler>();
+		const ctx = createContext(createUiCalls(), {
+			mode: "tui",
+			isIdle: () => idle,
+		});
+
+		const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, load, async () => {});
+		await runtime.startSession(ctx as unknown as Parameters<typeof runtime.startSession>[0]);
+		await vi.advanceTimersToNextTimerAsync();
+		expect(load).toHaveBeenCalledOnce();
+
+		idle = false;
+		await handlers.get("agent_start")?.({}, ctx);
+		releaseLoad?.();
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(install).not.toHaveBeenCalled();
+		expect(warm).not.toHaveBeenCalled();
+
+		idle = true;
+		await handlers.get("agent_settled")?.({}, ctx);
+		await vi.advanceTimersToNextTimerAsync();
+		expect(load).toHaveBeenCalledOnce();
+		expect(install).toHaveBeenCalledOnce();
+		expect(warm).toHaveBeenCalledOnce();
+		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
+	});
+
+	it("字体加载失败由 runtime 警告且不会标记为 warmed", async () => {
+		vi.useFakeTimers();
+		const error = new Error("font unavailable");
+		const install = vi.fn();
+		const warm = vi.fn(async () => {
+			throw error;
+		});
+		const load = vi.fn(async () => ({
+			installMathMarkdownRenderer: install,
+			supportsDisplayMathImages: () => true,
+			warmDisplayMathRenderer: warm,
+		}));
+		const handlers = new Map<string, Handler>();
+		const calls = createUiCalls();
+		const ctx = createContext(calls, { mode: "tui" });
+		const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, load, async () => {});
+
+		await runtime.startSession(ctx as unknown as Parameters<typeof runtime.startSession>[0]);
+		await vi.advanceTimersToNextTimerAsync();
+		expect(warm).toHaveBeenCalledOnce();
+		expect(calls.notifications.at(-1)).toMatchObject({
+			message: expect.stringContaining("font unavailable"),
+			type: "warning",
+		});
+
+		await handlers.get("agent_settled")?.({}, ctx);
+		expect(vi.getTimerCount()).toBe(1);
+		await vi.advanceTimersToNextTimerAsync();
+		expect(warm).toHaveBeenCalledTimes(2);
+		expect(calls.notifications).toHaveLength(2);
+		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
 	});
 
 	it("session 关闭会取消尚未开始的数学渲染初始化", async () => {
@@ -520,11 +697,31 @@ function plainEditorTheme(): EditorTheme {
 }
 
 function createFooterData(): FooterDataStub {
+	return createFooterDataController(null).data;
+}
+
+function createFooterDataController(initialBranch: string | null): {
+	data: FooterDataStub;
+	setBranch(branch: string | null): void;
+	subscriberCount(): number;
+} {
+	let branch = initialBranch;
+	const callbacks = new Set<() => void>();
 	return {
-		getGitBranch: () => null,
-		getExtensionStatuses: () => new Map(),
-		getAvailableProviderCount: () => 1,
-		onBranchChange: () => () => {},
+		data: {
+			getGitBranch: () => branch,
+			getExtensionStatuses: () => new Map(),
+			getAvailableProviderCount: () => 1,
+			onBranchChange(callback) {
+				callbacks.add(callback);
+				return () => callbacks.delete(callback);
+			},
+		},
+		setBranch(nextBranch) {
+			branch = nextBranch;
+			for (const callback of callbacks) callback();
+		},
+		subscriberCount: () => callbacks.size,
 	};
 }
 
@@ -535,6 +732,9 @@ function createPi(handlers: Map<string, Handler>) {
 		},
 		getThinkingLevel() {
 			return "medium";
+		},
+		getSessionName() {
+			return undefined;
 		},
 		getAllTools() {
 			return [{ name: "read" }, { name: "grep" }, { name: "bash" }];

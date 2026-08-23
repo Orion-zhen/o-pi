@@ -6,15 +6,16 @@ import type { HomePointerFrame } from "./home-pointer.js";
 import { joinParts } from "./text.js";
 import type { TuiFooterSnapshot, TuiHomeConfig } from "./types.js";
 
-const WORDMARK = String.raw`
- ██████╗     ██████╗
-██╔═══██╗    ██╔══██╗██╗
-██║   ██║    ██████╔╝
-██║   ██║    ██╔═══╝ ██║
-╚██████╔╝    ██║     ██║
- ╚═════╝     ╚═╝     ╚═╝
-`.replace(/^\n/, "").trimEnd();
-const WORDMARK_LINES = WORDMARK.split("\n");
+type SixLines = readonly [string, string, string, string, string, string];
+
+const WORDMARK_LINES = [
+	" ██████╗     ██████╗",
+	"██╔═══██╗    ██╔══██╗██╗",
+	"██║   ██║    ██████╔╝",
+	"██║   ██║    ██╔═══╝ ██║",
+	"╚██████╔╝    ██║     ██║",
+	" ╚═════╝     ╚═╝     ╚═╝",
+] as const satisfies SixLines;
 const WORDMARK_WIDTH = Math.max(...WORDMARK_LINES.map((line) => line.length));
 const FULL_CORE_TEMPLATE = [
 	"A    ╭───────╮    B",
@@ -23,7 +24,7 @@ const FULL_CORE_TEMPLATE = [
 	"        │ │",
 	"    D───╯ ╰───B",
 	"         C",
-] as const;
+] as const satisfies SixLines;
 const MEDIUM_CORE_TEMPLATE = [
 	"A  ╭───╮  B",
 	"───┤ π ├───",
@@ -31,7 +32,7 @@ const MEDIUM_CORE_TEMPLATE = [
 	"     │",
 	"  D──┴──B",
 	"     C",
-] as const;
+] as const satisfies SixLines;
 const FULL_CONTENT_WIDTH = 88;
 const MEDIUM_MIN_WIDTH = 56;
 const FULL_MIN_WIDTH = 96;
@@ -57,9 +58,9 @@ export interface HomeAnimationFrame {
 }
 
 export interface HomePageOptions {
-	height?: number;
-	tip?: string;
-	animation?: HomeAnimationFrame;
+	height: number;
+	tip: string;
+	animation: HomeAnimationFrame;
 }
 
 type HomeLayout = "full" | "medium" | "compact";
@@ -71,24 +72,20 @@ export function formatHomePage(
 	config: TuiHomeConfig,
 	width: number,
 	editorLines: readonly string[],
-	theme?: HomeTheme,
-	options: HomePageOptions = {},
+	theme: HomeTheme,
+	options: HomePageOptions,
 ): string[] {
 	const safeWidth = Math.max(1, Math.floor(width));
-	const targetHeight = options.height === undefined ? undefined : Math.max(editorLines.length, Math.floor(options.height));
-	const animation = options.animation ?? { reveal: 1, wave: 1 };
+	const targetHeight = Math.max(editorLines.length, Math.floor(options.height));
 	const preferred = resolveLayout(safeWidth, targetHeight);
 	const candidates = preferred === "full" ? ["full", "medium", "compact"] as const
 		: preferred === "medium" ? ["medium", "compact"] as const
 			: ["compact"] as const;
-	let content = buildLayout(candidates[0], snapshot, config, safeWidth, editorLines, theme, options.tip, animation);
-	if (targetHeight !== undefined) {
-		for (const layout of candidates.slice(1)) {
-			if (content.length <= targetHeight) break;
-			content = buildLayout(layout, snapshot, config, safeWidth, editorLines, theme, options.tip, animation);
-		}
+	let content = buildLayout(candidates[0], snapshot, config, safeWidth, editorLines, theme, options.tip, options.animation);
+	for (const layout of candidates.slice(1)) {
+		if (content.length <= targetHeight) break;
+		content = buildLayout(layout, snapshot, config, safeWidth, editorLines, theme, options.tip, options.animation);
 	}
-	if (targetHeight === undefined) return ["", ...content, ""];
 	if (content.length > targetHeight) {
 		content = editorLines.map((line) => centerLine(truncateToWidth(line, Math.min(safeWidth, FULL_CONTENT_WIDTH), "…"), safeWidth));
 	}
@@ -99,10 +96,10 @@ export function formatHomePage(
 }
 
 /** Home 模式 footer 只保留操作入口和版本，避免重复中央信息面板。 */
-export function formatHomeFooter(config: TuiHomeConfig, width: number, theme?: HomeTheme): string[] {
+export function formatHomeFooter(config: TuiHomeConfig, width: number, theme: HomeTheme): string[] {
 	const safeWidth = Math.max(1, Math.floor(width));
 	const hints = !config.show_hints ? "" : color(theme, "dim", safeWidth >= 64 ? HOME_HINTS : safeWidth >= 32 ? NARROW_HOME_HINTS : "/ commands");
-	const version = color(theme, "dim", VERSION ? `O Pi v${VERSION}` : "O Pi");
+	const version = color(theme, "dim", `O Pi v${VERSION}`);
 	return [alignLine(hints, version, safeWidth)];
 }
 
@@ -112,23 +109,44 @@ export function createHomeHeaderComponent(): (_tui: TUI, _theme: Theme) => Compo
 
 export function createHomeFooterComponent(
 	config: TuiHomeConfig,
-): (_tui: TUI, theme: Theme, _footerData: ReadonlyFooterDataProvider) => Component {
-	return (_tui, theme, _footerData) => ({
-		render: (width) => formatHomeFooter(config, width, theme),
-		invalidate() {},
-	});
+	bindFooterData: (footerData: ReadonlyFooterDataProvider) => void,
+): (tui: TUI, theme: Theme, footerData: ReadonlyFooterDataProvider) => Component & { dispose(): void } {
+	return (tui, theme, footerData) => {
+		let unsubscribe = (): void => {};
+		const component: Component & { dispose(): void } = {
+			render: (width) => formatHomeFooter(config, width, theme),
+			invalidate() {},
+			dispose() {
+				unsubscribe();
+				unsubscribe = () => {};
+			},
+		};
+		bindFooterData(footerData);
+		unsubscribe = footerData.onBranchChange(() => {
+			bindFooterData(footerData);
+			component.invalidate();
+			tui.requestRender();
+		});
+		return component;
+	};
 }
 
 /** 同一 session 稳定选择一条提示，测试和重绘不会发生随机跳动。 */
 export function selectHomeTip(seed: string): string {
 	let hash = 0;
 	for (const char of seed) hash = (hash * 31 + (char.codePointAt(0) ?? 0)) >>> 0;
-	return HOME_TIPS[hash % HOME_TIPS.length] ?? HOME_TIPS[0];
+	switch (hash % HOME_TIPS.length) {
+		case 0: return HOME_TIPS[0];
+		case 1: return HOME_TIPS[1];
+		case 2: return HOME_TIPS[2];
+		case 3: return HOME_TIPS[3];
+		default: return HOME_TIPS[4];
+	}
 }
 
-function resolveLayout(width: number, height: number | undefined): HomeLayout {
-	if (width >= FULL_MIN_WIDTH && (height === undefined || height >= FULL_MIN_HEIGHT)) return "full";
-	if (width >= MEDIUM_MIN_WIDTH && (height === undefined || height >= MEDIUM_MIN_HEIGHT)) return "medium";
+function resolveLayout(width: number, height: number): HomeLayout {
+	if (width >= FULL_MIN_WIDTH && height >= FULL_MIN_HEIGHT) return "full";
+	if (width >= MEDIUM_MIN_WIDTH && height >= MEDIUM_MIN_HEIGHT) return "medium";
 	return "compact";
 }
 
@@ -138,8 +156,8 @@ function buildLayout(
 	config: TuiHomeConfig,
 	width: number,
 	editorLines: readonly string[],
-	theme: HomeTheme | undefined,
-	tip: string | undefined,
+	theme: HomeTheme,
+	tip: string,
 	animation: HomeAnimationFrame,
 ): string[] {
 	const contentWidth = Math.min(width, layout === "compact" ? width : FULL_CONTENT_WIDTH);
@@ -157,13 +175,13 @@ function buildLayout(
 		: layout === "medium"
 			? renderMediumInfo(snapshot, config, contentWidth, theme).map(block)
 			: renderCompactInfo(snapshot, contentWidth, theme).map(block);
-	const tipLine = config.show_tips && tip !== undefined && layout !== "compact"
+	const tipLine = config.show_tips && layout !== "compact"
 		? [center(joinParts([color(theme, "accent", "● Tip"), color(theme, "dim", tip)], "  "))]
 		: [];
 	return joinSections([logo, tagline, framedEditor, info, tipLine]);
 }
 
-function renderFullInfo(snapshot: TuiFooterSnapshot, config: TuiHomeConfig, width: number, theme: HomeTheme | undefined): string[] {
+function renderFullInfo(snapshot: TuiFooterSnapshot, config: TuiHomeConfig, width: number, theme: HomeTheme): string[] {
 	const panels = [
 		{ label: "PROJECT", value: formatProject(snapshot, theme) },
 		{ label: "CONTEXT", value: formatContextPanel(snapshot, theme, true) },
@@ -189,7 +207,7 @@ function renderFullInfo(snapshot: TuiFooterSnapshot, config: TuiHomeConfig, widt
 	return lines;
 }
 
-function renderMediumInfo(snapshot: TuiFooterSnapshot, config: TuiHomeConfig, width: number, theme: HomeTheme | undefined): string[] {
+function renderMediumInfo(snapshot: TuiFooterSnapshot, config: TuiHomeConfig, width: number, theme: HomeTheme): string[] {
 	const project = formatProject(snapshot, theme);
 	const context = formatContextPanel(snapshot, theme, false);
 	const counts = formatCapabilityCounts(snapshot, theme);
@@ -200,7 +218,7 @@ function renderMediumInfo(snapshot: TuiFooterSnapshot, config: TuiHomeConfig, wi
 		.filter((line): line is string => line !== undefined && line.length > 0);
 }
 
-function renderCompactInfo(snapshot: TuiFooterSnapshot, width: number, theme: HomeTheme | undefined): string[] {
+function renderCompactInfo(snapshot: TuiFooterSnapshot, width: number, theme: HomeTheme): string[] {
 	const project = formatProject(snapshot, theme);
 	const context = formatCompactContext(snapshot, theme);
 	const counts = formatCapabilityCounts(snapshot, theme);
@@ -209,17 +227,17 @@ function renderCompactInfo(snapshot: TuiFooterSnapshot, width: number, theme: Ho
 		.map((line) => truncateToWidth(line, width, "…"));
 }
 
-function formatProject(snapshot: TuiFooterSnapshot, theme: HomeTheme | undefined): string | undefined {
+function formatProject(snapshot: TuiFooterSnapshot, theme: HomeTheme): string | undefined {
 	if (!snapshot.cwd) return undefined;
 	const workspace = color(theme, "accent", formatWorkspace(snapshot.cwd));
 	if (!snapshot.git) return workspace;
 	return joinParts([
 		workspace,
-		color(theme, snapshot.git.endsWith("*") ? "warning" : "success", snapshot.git),
+		color(theme, "success", snapshot.git),
 	], color(theme, "dim", " · "));
 }
 
-function formatContextPanel(snapshot: TuiFooterSnapshot, theme: HomeTheme | undefined, showBar: boolean): string | undefined {
+function formatContextPanel(snapshot: TuiFooterSnapshot, theme: HomeTheme, showBar: boolean): string | undefined {
 	const usage = snapshot.context;
 	if (usage === undefined) return undefined;
 	const tokens = usage.tokens === null ? "?" : formatTokens(usage.tokens);
@@ -234,7 +252,7 @@ function formatContextPanel(snapshot: TuiFooterSnapshot, theme: HomeTheme | unde
 	return joinParts([contextColor(theme, value, percent), contextColor(theme, bar, percent), contextColor(theme, percentText, percent)], "  ");
 }
 
-function formatCompactContext(snapshot: TuiFooterSnapshot, theme: HomeTheme | undefined): string | undefined {
+function formatCompactContext(snapshot: TuiFooterSnapshot, theme: HomeTheme): string | undefined {
 	const usage = snapshot.context;
 	if (usage === undefined) return undefined;
 	if (usage.percent === null) return color(theme, "muted", "ctx ?%");
@@ -242,7 +260,7 @@ function formatCompactContext(snapshot: TuiFooterSnapshot, theme: HomeTheme | un
 	return contextColor(theme, `ctx ${Math.round(percent)}%`, percent);
 }
 
-function formatCapabilities(snapshot: TuiFooterSnapshot, config: TuiHomeConfig, width: number, theme: HomeTheme | undefined): string[] {
+function formatCapabilities(snapshot: TuiFooterSnapshot, config: TuiHomeConfig, width: number, theme: HomeTheme): string[] {
 	const counts = formatCapabilityCounts(snapshot, theme);
 	const summary = config.show_capabilities
 		? formatCapabilitySummary(summarizeCapabilityGroups(snapshot.tools), width, theme)
@@ -250,25 +268,23 @@ function formatCapabilities(snapshot: TuiFooterSnapshot, config: TuiHomeConfig, 
 	return [counts, summary].filter((line): line is string => line !== undefined && line.length > 0);
 }
 
-function formatCapabilityCounts(snapshot: TuiFooterSnapshot, theme: HomeTheme | undefined): string | undefined {
+function formatCapabilityCounts(snapshot: TuiFooterSnapshot, theme: HomeTheme): string | undefined {
 	const tools = snapshot.tools;
 	const skills = snapshot.skills;
 	const parts: Array<string | undefined> = [];
 	if (tools !== undefined) {
-		const active = new Set(tools.activeNames.filter((name) => name.length > 0)).size;
-		const total = Math.max(0, tools.totalCount, active);
-		parts.push(color(theme, active >= total ? "success" : "warning", `${active}/${total} tools`));
+		const active = tools.activeNames.length;
+		parts.push(color(theme, active === tools.totalCount ? "success" : "warning", `${active}/${tools.totalCount} tools`));
 	}
-	if (skills !== undefined && skills.totalCount > 0) {
+	if (skills !== undefined) {
 		parts.push(color(theme, "success", `${skills.totalCount} skills`));
-		const invocable = Math.min(skills.totalCount, Math.max(0, skills.modelInvocableCount));
-		parts.push(color(theme, "text", `${invocable} model-invocable`));
+		parts.push(color(theme, "text", `${skills.modelInvocableCount} model-invocable`));
 	}
 	return joinParts(parts, color(theme, "dim", " · ")) || undefined;
 }
 
 function renderWordmark(
-	theme: HomeTheme | undefined,
+	theme: HomeTheme,
 	animation: HomeAnimationFrame,
 	pageWidth: number,
 	layout: Exclude<HomeLayout, "compact">,
@@ -291,12 +307,12 @@ function renderWordmark(
 				transformPointerLine(row.raw, index, focusedPointer, pageWidth, blockWidth),
 			);
 		}
-		if (animation.wave < 1 && theme !== undefined) {
+		if (animation.wave < 1) {
 			const sweepWidth = blockWidth + WORDMARK_LINES.length * 2;
 			const target = Math.round(animation.wave * sweepWidth) - index * 2;
 			const highlight = nearestVisibleColumn(row.raw, target);
 			if (highlight !== undefined) {
-				return `${color(theme, "accent", row.raw.slice(0, highlight))}${color(theme, "mdLink", row.raw[highlight] ?? "")}${color(theme, "accent", row.raw.slice(highlight + 1))}`;
+				return `${color(theme, "accent", row.raw.slice(0, highlight))}${color(theme, "mdLink", row.raw.charAt(highlight))}${color(theme, "accent", row.raw.slice(highlight + 1))}`;
 			}
 		}
 		return `${color(theme, "accent", row.logo)}${" ".repeat(row.gap)}${styleCore(theme, row.core)}`.trimEnd();
@@ -322,9 +338,17 @@ function buildBrandRows(
 	const coreLines = renderCore(template, orbit);
 	const coreWidth = Math.max(...coreLines.map((line) => line.length));
 	const pull = pointer?.kind === "charge" ? Math.min(gap, 1 + Math.floor(pointer.progress * Math.max(1, gap - 1))) : 0;
-	return WORDMARK_LINES.map((line, index) => {
+	const lines: readonly (readonly [string, string])[] = [
+		[WORDMARK_LINES[0], coreLines[0]],
+		[WORDMARK_LINES[1], coreLines[1]],
+		[WORDMARK_LINES[2], coreLines[2]],
+		[WORDMARK_LINES[3], coreLines[3]],
+		[WORDMARK_LINES[4], coreLines[4]],
+		[WORDMARK_LINES[5], coreLines[5]],
+	];
+	return lines.map(([line, coreLine]) => {
 		const logo = line.padEnd(WORDMARK_WIDTH, " ");
-		const core = (coreLines[index] ?? "").padEnd(coreWidth, " ");
+		const core = coreLine.padEnd(coreWidth, " ");
 		const renderedLogo = `${" ".repeat(pull)}${logo}`;
 		const renderedGap = Math.max(0, gap - pull);
 		return {
@@ -338,18 +362,32 @@ function buildBrandRows(
 	});
 }
 
-function renderCore(template: readonly string[], orbit: number): string[] {
-	const markers = ["·", "◦", "•", "◦"] as const;
-	const phase = Math.abs(Math.floor(orbit)) % markers.length;
-	const marker = (offset: number): string => markers[(phase + offset) % markers.length] ?? "·";
-	return template.map((line) => line
+function renderCore(template: SixLines, orbit: number): SixLines {
+	const phase = Math.abs(Math.floor(orbit)) % 4;
+	const marker = (offset: number): string => {
+		switch ((phase + offset) % 4) {
+			case 0: return "·";
+			case 1: return "◦";
+			case 2: return "•";
+			default: return "◦";
+		}
+	};
+	const renderLine = (line: string): string => line
 		.replaceAll("A", marker(0))
 		.replaceAll("B", marker(1))
 		.replaceAll("C", marker(2))
-		.replaceAll("D", marker(3)));
+		.replaceAll("D", marker(3));
+	return [
+		renderLine(template[0]),
+		renderLine(template[1]),
+		renderLine(template[2]),
+		renderLine(template[3]),
+		renderLine(template[4]),
+		renderLine(template[5]),
+	];
 }
 
-function styleCore(theme: HomeTheme | undefined, core: string): string {
+function styleCore(theme: HomeTheme, core: string): string {
 	return core.split(/([π·◦•])/u).map((part) => {
 		if (part === "π") return color(theme, "mdLink", part);
 		if (part === "·" || part === "◦" || part === "•") return color(theme, "accent", part);
@@ -357,8 +395,8 @@ function styleCore(theme: HomeTheme | undefined, core: string): string {
 	}).join("");
 }
 
-function renderCompactWordmark(theme: HomeTheme | undefined, animation: HomeAnimationFrame): string {
-	const label = VERSION ? `O Pi · v${VERSION}` : "O Pi";
+function renderCompactWordmark(theme: HomeTheme, animation: HomeAnimationFrame): string {
+	const label = `O Pi · v${VERSION}`;
 	const pointer = animation.pointer;
 	if (pointer === undefined) return color(theme, "accent", label);
 	const decoration = pointer.kind === "burst" ? "π" : pointer.kind === "explode" ? "*" : pointer.kind === "charge" ? "◉" : "·";
@@ -476,10 +514,10 @@ function alignLine(left: string, right: string, width: number): string {
 	return `${fittedLeft}${" ".repeat(gap)}${fittedRight}`;
 }
 
-function contextColor(theme: HomeTheme | undefined, text: string, percent: number): string {
+function contextColor(theme: HomeTheme, text: string, percent: number): string {
 	return color(theme, percent >= 85 ? "error" : percent >= 60 ? "warning" : "success", text);
 }
 
-function color(theme: HomeTheme | undefined, name: Parameters<Theme["fg"]>[0], text: string): string {
-	return theme === undefined || text.length === 0 ? text : theme.fg(name, text);
+function color(theme: HomeTheme, name: Parameters<Theme["fg"]>[0], text: string): string {
+	return text.length === 0 ? text : theme.fg(name, text);
 }

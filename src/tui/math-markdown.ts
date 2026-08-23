@@ -42,8 +42,7 @@ const BARE_DISPLAY_ENV_PATTERN = /^ {0,3}\\begin\{(align\*?|aligned|alignedat|al
 const FENCE_OPEN_PATTERN = /^ {0,3}(`{3,}|~{3,})/;
 
 let installed = false;
-let activeConfig: TuiMathConfig | undefined;
-let originalRender: MarkdownRender | undefined;
+let activeConfig: TuiMathConfig;
 let mathRendererModule: MathRendererModule | undefined;
 let mathRendererImport: Promise<MathRendererModule> | undefined;
 
@@ -52,12 +51,10 @@ export function installMathMarkdownRenderer(config: TuiMathConfig): void {
 	activeConfig = config;
 	if (installed) return;
 	installed = true;
-	originalRender = Markdown.prototype.render;
+	const originalRender = Markdown.prototype.render;
 	Markdown.prototype.render = function patchedMarkdownRender(width: number): string[] {
-		const render = originalRender;
-		const current = activeConfig;
-		if (render === undefined || current === undefined || !current.enabled) return render?.call(this, width) ?? [];
-		return renderDisplayMathImages(this, width, current, render);
+		if (!activeConfig.enabled) return originalRender.call(this, width);
+		return renderDisplayMathImages(this, width, activeConfig, originalRender);
 	};
 }
 
@@ -77,7 +74,7 @@ function renderDisplayMathImages(markdown: Markdown, width: number, config: TuiM
 	if (imageProtocol === undefined || renderer === undefined) return render.call(markdown, width);
 
 	const internals = markdown as unknown as MarkdownInternals;
-	const source = internals.text ?? "";
+	const source = internals.text;
 	const blocks = parseDisplayMathBlocks(source);
 	if (blocks.length === 0) return render.call(markdown, width);
 

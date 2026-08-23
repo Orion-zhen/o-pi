@@ -2,13 +2,13 @@ import os from "node:os";
 import path from "node:path";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { formatHomeFooter, formatHomePage, selectHomeTip } from "../../src/tui/home.js";
+import { formatHomeFooter, formatHomePage, selectHomeTip, type HomeAnimationFrame, type HomePageOptions } from "../../src/tui/home.js";
 import { defaultTuiConfig } from "../../src/tui/config.js";
 import type { TuiFooterSnapshot } from "../../src/tui/types.js";
 
 const snapshot: TuiFooterSnapshot = {
 	cwd: path.join(os.homedir(), "pi-dev"),
-	git: "main*",
+	git: "main",
 	modelId: "deepseek-v4-flash-free",
 	modelProvider: "opencode",
 	modelReasoning: true,
@@ -33,10 +33,7 @@ describe("startup home", () => {
 		{ width: 40, height: 14 },
 		{ width: 24, height: 8 },
 	])("$width×$height 下按宽高降级且不越界", ({ width, height }) => {
-		const lines = formatHomePage(snapshot, defaultTuiConfig().home, width, editorLines, plainTheme(), {
-			height,
-			tip: selectHomeTip("session-test"),
-		});
+		const lines = formatHomePage(snapshot, defaultTuiConfig().home, width, editorLines, plainTheme(), homeOptions(height));
 
 		expect(lines).toHaveLength(height);
 		expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
@@ -44,7 +41,7 @@ describe("startup home", () => {
 	});
 
 	it("wordmark 作为整体居中，不逐行漂移", () => {
-		const lines = formatHomePage(snapshot, defaultTuiConfig().home, 120, editorLines, plainTheme(), { height: 28 });
+		const lines = formatHomePage(snapshot, defaultTuiConfig().home, 120, editorLines, plainTheme(), homeOptions(28));
 		const logoStarts = lines
 			.map((line) => stripTerminalSequences(line))
 			.filter((line) => /[╔╗║╝]/u.test(line))
@@ -59,7 +56,7 @@ describe("startup home", () => {
 			120,
 			editorLines,
 			plainTheme(),
-			{ height: 28 },
+			homeOptions(28),
 		).join("\n"));
 		const medium = stripTerminalSequences(formatHomePage(
 			snapshot,
@@ -67,7 +64,7 @@ describe("startup home", () => {
 			80,
 			editorLines,
 			plainTheme(),
-			{ height: 20 },
+			homeOptions(20),
 		).join("\n"));
 		const compact = stripTerminalSequences(formatHomePage(
 			snapshot,
@@ -75,7 +72,7 @@ describe("startup home", () => {
 			40,
 			editorLines,
 			plainTheme(),
-			{ height: 14 },
+			homeOptions(14),
 		).join("\n"));
 
 		expect(full).toContain("─────┤   π   ├─────");
@@ -91,7 +88,7 @@ describe("startup home", () => {
 			120,
 			editorLines,
 			plainTheme(),
-			{ height: 28, animation: { reveal: 1, wave: 1, orbit: 0 } },
+			homeOptions(28, { reveal: 1, wave: 1, orbit: 0 }),
 		).map(stripTerminalSequences);
 		const top = lines.find((line) => line.includes("╭───────╮"));
 		const middle = lines.find((line) => line.includes("┤   π   ├"));
@@ -132,7 +129,7 @@ describe("startup home", () => {
 			120,
 			editorLines,
 			plainTheme(),
-			{ height: 28, tip: "Use @ to attach files." },
+			homeOptions(28, { reveal: 1, wave: 1 }, "Use @ to attach files."),
 		).join("\n"));
 
 		expect(output).toContain("PROJECT");
@@ -151,7 +148,7 @@ describe("startup home", () => {
 			120,
 			editorLines,
 			plainTheme(),
-			{ height: 28 },
+			homeOptions(28),
 		).join("\n"));
 		const output = stripTerminalSequences(formatHomePage(
 			{ cwd: "/repo", status: "ready" },
@@ -159,7 +156,7 @@ describe("startup home", () => {
 			40,
 			editorLines,
 			plainTheme(),
-			{ height: 12 },
+			homeOptions(12),
 		).join("\n"));
 
 		expect(wideOutput).toContain("PROJECT");
@@ -169,23 +166,17 @@ describe("startup home", () => {
 	});
 
 	it("入场逐行显现仍保持稳定高度和宽度", () => {
-		const lines = formatHomePage(snapshot, defaultTuiConfig().home, 120, editorLines, plainTheme(), {
-			height: 28,
-			animation: { reveal: 0.35, wave: 0.2 },
-		});
+		const lines = formatHomePage(snapshot, defaultTuiConfig().home, 120, editorLines, plainTheme(), homeOptions(28, { reveal: 0.35, wave: 0.2 }));
 		expect(lines).toHaveLength(28);
 		expect(lines.every((line) => visibleWidth(line) <= 120)).toBe(true);
 	});
 
 	it("鼠标粒子反馈只改写 Logo 且不破坏页面边界", () => {
-		const lines = formatHomePage(snapshot, defaultTuiConfig().home, 120, editorLines, plainTheme(), {
-			height: 28,
-			animation: {
-				reveal: 1,
-				wave: 1,
-				pointer: { kind: "burst", progress: 0.35, x: 60, y: 4 },
-			},
-		});
+		const lines = formatHomePage(snapshot, defaultTuiConfig().home, 120, editorLines, plainTheme(), homeOptions(28, {
+			reveal: 1,
+			wave: 1,
+			pointer: { kind: "burst", progress: 0.35, x: 60, y: 4 },
+		}));
 		const output = stripTerminalSequences(lines.join("\n"));
 		expect(output).toMatch(/[π*·▓]/u);
 		expect(output).toContain("Ask anything");
@@ -209,6 +200,14 @@ describe("startup home", () => {
 		expect(selectHomeTip("session-a")).toBe(selectHomeTip("session-a"));
 	});
 });
+
+function homeOptions(
+	height: number,
+	animation: HomeAnimationFrame = { reveal: 1, wave: 1 },
+	tip = selectHomeTip("session-test"),
+): HomePageOptions {
+	return { height, tip, animation };
+}
 
 function plainTheme() {
 	return { fg: (_color: string, text: string) => text };

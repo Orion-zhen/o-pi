@@ -3,74 +3,59 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { TuiFooterToolsSnapshot } from "./types.js";
 
 /** Home 中展示的用户语义能力分组，避免暴露扩展文件名。 */
-export interface CapabilityGroupDefinition {
-	id: string;
+interface CapabilityGroupDefinition {
 	label: string;
 	toolNames: readonly string[];
-	showInHome: boolean;
 }
 
 /** 当前工具启用状态在某个能力分组下的汇总。 */
 export interface CapabilityGroupSummary {
-	id: string;
 	label: string;
 	activeCount: number;
 	totalCount: number;
 }
 
 /** 默认能力分组只包含工具，不包含 slash command。 */
-export const DEFAULT_CAPABILITY_GROUPS: readonly CapabilityGroupDefinition[] = [
-	{ id: "files", label: "files", toolNames: ["ls", "read", "write", "edit", "find", "grep"], showInHome: true },
-	{ id: "web", label: "web", toolNames: ["websearch", "webfetch"], showInHome: true },
-	{ id: "bash", label: "bash", toolNames: ["bash"], showInHome: true },
-	{ id: "skill", label: "skill", toolNames: ["skill"], showInHome: true },
-	{ id: "subagent", label: "subagent", toolNames: ["subagent"], showInHome: true },
+const CAPABILITY_GROUPS: readonly CapabilityGroupDefinition[] = [
+	{ label: "files", toolNames: ["ls", "read", "write", "edit", "find", "grep"] },
+	{ label: "web", toolNames: ["websearch", "webfetch"] },
+	{ label: "bash", toolNames: ["bash"] },
+	{ label: "skill", toolNames: ["skill"] },
+	{ label: "subagent", toolNames: ["subagent"] },
 ];
 
-/** 按工具名汇总能力分组；allNames 缺失时只根据 activeNames 保守展示。 */
-export function summarizeCapabilityGroups(
-	tools: TuiFooterToolsSnapshot | undefined,
-	groups: readonly CapabilityGroupDefinition[] = DEFAULT_CAPABILITY_GROUPS,
-): CapabilityGroupSummary[] {
+/** 按采集边界提供的工具全集和启用子集汇总能力分组。 */
+export function summarizeCapabilityGroups(tools: TuiFooterToolsSnapshot | undefined): CapabilityGroupSummary[] {
 	if (tools === undefined) return [];
-	const activeNames = uniqueNonEmpty(tools.activeNames);
-	const allNames = uniqueNonEmpty(tools.allNames === undefined ? tools.activeNames : [...tools.allNames, ...tools.activeNames]);
-	const summaries: CapabilityGroupSummary[] = [];
-
-	for (const group of groups) {
+	return CAPABILITY_GROUPS.map((group) => {
 		const groupToolSet = new Set(group.toolNames);
-		const totalCount = allNames.filter((name) => groupToolSet.has(name)).length;
-		if (!group.showInHome || (totalCount === 0 && tools.allNames === undefined)) continue;
-		const activeCount = activeNames.filter((name) => groupToolSet.has(name)).length;
-		summaries.push({ id: group.id, label: group.label, activeCount, totalCount });
-	}
-
-	return summaries;
+		return {
+			label: group.label,
+			activeCount: tools.activeNames.filter((name) => groupToolSet.has(name)).length,
+			totalCount: tools.allNames.filter((name) => groupToolSet.has(name)).length,
+		};
+	});
 }
 
 /** 将能力分组压缩成一行；宽度不足时安全截断。 */
 export function formatCapabilitySummary(
 	summaries: readonly CapabilityGroupSummary[],
 	width: number,
-	theme?: Pick<Theme, "fg">,
+	theme: Pick<Theme, "fg">,
 ): string | undefined {
 	const parts = summaries
 		.filter((summary) => summary.totalCount > 0)
 		.map((summary) => {
 			const count = summary.totalCount === 1
 				? ""
-				: summary.activeCount >= summary.totalCount
+				: summary.activeCount === summary.totalCount
 					? `:${summary.totalCount}`
 					: `:${summary.activeCount}/${summary.totalCount}`;
 			const text = `${summary.label}${count}`;
-			const color = summary.activeCount === 0 ? "dim" : summary.activeCount >= summary.totalCount ? "success" : "warning";
-			return theme === undefined ? text : theme.fg(color, text);
+			const color = summary.activeCount === 0 ? "dim" : summary.activeCount === summary.totalCount ? "success" : "warning";
+			return theme.fg(color, text);
 		});
 	if (parts.length === 0) return undefined;
 	const line = parts.join(" ");
 	return visibleWidth(line) <= width ? line : truncateToWidth(line, Math.max(1, width), "…");
-}
-
-function uniqueNonEmpty(names: readonly string[]): string[] {
-	return [...new Set(names.filter((name) => name.length > 0))];
 }

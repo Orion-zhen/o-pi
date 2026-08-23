@@ -1,23 +1,17 @@
-import { readFile, stat, utimes } from "node:fs/promises";
 import path from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import { formatFooter, GitSegmentCache, readGitSegment, type GitSegmentReader } from "../../src/tui/footer.js";
+import { formatFooter } from "../../src/tui/footer.js";
 import type { TuiFooterConfig, TuiFooterSnapshot } from "../../src/tui/types.js";
-import { initializeGitRepository } from "../helpers/git.js";
-import { useTempDir } from "../helpers/lifecycle.js";
-
-const temp = useTempDir("o-pi-no-git-");
 const cwd = path.resolve("repo", "o-pi");
 const config: TuiFooterConfig = {
-	max_lines: 2,
 	segments: ["cwd", "git", "ctx", "tokens", "cost"],
 	narrow_segments: ["cwd", "git", "ctx", "tokens", "cost"],
 	style: { workspace_color: "accent", git_color: "success" },
 };
 const snapshot: TuiFooterSnapshot = {
 	cwd,
-	git: "main*",
+	git: "main",
 	modelId: "model-x",
 	context: { tokens: 41_000, contextWindow: 128_000, percent: 32 },
 	inputTokens: 12_000,
@@ -28,7 +22,11 @@ const snapshot: TuiFooterSnapshot = {
 	totalCacheHitRate: 13.7,
 	costUsd: 0.031,
 	status: "ready",
-	tools: { activeNames: ["read", "grep", "bash"], totalCount: 5 },
+	tools: {
+		activeNames: ["read", "grep", "bash"],
+		totalCount: 5,
+		allNames: ["read", "grep", "bash", "write", "edit"],
+	},
 };
 
 describe("tui footer", () => {
@@ -59,48 +57,16 @@ describe("tui footer", () => {
 	});
 
 	it.each([
-		["ascii", "git main*"],
-		["unicode", "⑂ main*"],
-		["nerd", " main*"],
+		["ascii", "git main"],
+		["unicode", "⑂ main"],
+		["nerd", " main"],
 	] as const)("%s 图标模式使用统一 Git 图标", (mode, expected) => {
 		expect(formatFooter(snapshot, config, 120, theme, mode)[0]).toContain(expected);
 	});
 
-	it("缺少数据与 git 仓库时安全退化", async () => {
+	it("缺少数据时安全退化", () => {
 		const lines = formatFooter({ cwd, status: "ready" }, config, 120, theme);
 		expect(lines.join("\n")).not.toMatch(/undefined|null/);
-		await expect(readGitSegment(temp.path)).resolves.toBeUndefined();
-	});
-
-	it("Git 状态探测不刷新 index 或创建 optional lock", async () => {
-		const trackedFile = await initializeGitRepository(temp.path);
-		const indexPath = path.join(temp.path, ".git", "index");
-		const lockPath = `${indexPath}.lock`;
-		const before = await readFile(indexPath);
-		const future = new Date(Date.now() + 60_000);
-		await utimes(trackedFile, future, future);
-
-		await expect(readGitSegment(temp.path)).resolves.toMatch(/^[^*]+$/u);
-
-		expect(await readFile(indexPath)).toEqual(before);
-		await expect(stat(lockPath)).rejects.toMatchObject({ code: "ENOENT" });
-	});
-
-	it("dispose 会取消 Git 查询并阻止完成回调", () => {
-		let observedSignal: AbortSignal | undefined;
-		const reader: GitSegmentReader = (_cwd, signal) => {
-			observedSignal = signal;
-			return new Promise<string | undefined>(() => {});
-		};
-		const onChange = () => {
-			throw new Error("disposed cache must not update the snapshot");
-		};
-		const cache = new GitSegmentCache(onChange, reader);
-
-		cache.get(temp.path);
-		cache.dispose();
-
-		expect(observedSignal?.aborted).toBe(true);
 	});
 });
 

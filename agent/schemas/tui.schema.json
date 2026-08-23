@@ -7,8 +7,7 @@
 	"properties": {
 		"$schema": { "type": "string" },
 		"enabled": { "type": "boolean", "default": true },
-		"preset": { "enum": ["compact", "minimal"], "default": "compact" },
-		"icons": { "enum": ["unicode", "ascii", "nerd", "auto"], "default": "unicode" },
+		"icons": { "enum": ["unicode", "ascii", "nerd"], "default": "unicode" },
 		"chrome": {
 			"type": "object",
 			"additionalProperties": false,
@@ -23,7 +22,6 @@
 			"type": "object",
 			"additionalProperties": false,
 			"properties": {
-				"max_lines": { "const": 2 },
 				"segments": {
 					"type": "array",
 					"items": { "enum": ["cwd", "git", "ctx", "tokens", "cost"] },
@@ -42,18 +40,6 @@
 						"git_color": { "$ref": "#/$defs/themeColor" }
 					}
 				}
-			}
-		},
-		"tools": {
-			"type": "object",
-			"additionalProperties": false,
-			"properties": {
-				"expanded_default": { "type": "boolean", "default": false },
-				"show_timing": { "type": "boolean", "default": true },
-				"show_provider": { "type": "boolean", "default": false },
-				"max_target_chars": { "type": "integer", "minimum": 16, "maximum": 240, "default": 72 },
-				"max_summary_chars": { "type": "integer", "minimum": 16, "maximum": 240, "default": 96 },
-				"collapsed_lines": { "const": 2, "default": 2 }
 			}
 		},
 		"home": {

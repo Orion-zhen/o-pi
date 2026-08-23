@@ -1,92 +1,20 @@
 import path from "node:path";
-import { execFile } from "node:child_process";
 import type { ReadonlyFooterDataProvider, Theme } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth, type Component, type TUI } from "@earendil-works/pi-tui";
 import { getTuiIconMode, tuiIcon } from "./icons.js";
 import { truncateMiddle } from "./text.js";
 import type { TuiFooterConfig, TuiFooterSegment, TuiFooterSnapshot, TuiIconMode } from "./types.js";
 
-const GIT_TIMEOUT_MS = 80;
 const NARROW_WIDTH = 80;
 
-/** 异步 git 状态缓存；TUI 生命周期只读缓存，避免同步子进程阻塞渲染。 */
-export type GitSegmentReader = (cwd: string, signal?: AbortSignal) => Promise<string | undefined>;
-
-export class GitSegmentCache {
-	private cwd: string | undefined;
-	private segment: string | undefined;
-	private inFlight: Promise<void> | undefined;
-	private inFlightController: AbortController | undefined;
-	private disposed = false;
-
-	constructor(
-		private readonly onChange: (cwd: string, segment: string | undefined) => void,
-		private readonly readSegment: GitSegmentReader = readGitSegment,
-	) {}
-
-	get(cwd: string): string | undefined {
-		if (this.cwd !== cwd) {
-			this.cwd = cwd;
-			this.segment = undefined;
-			this.refresh(cwd);
-		}
-		return this.segment;
-	}
-
-	refresh(cwd: string): void {
-		if (this.disposed || this.inFlight !== undefined) return;
-		this.cwd = cwd;
-		const controller = new AbortController();
-		this.inFlightController = controller;
-		this.inFlight = this.readSegment(cwd, controller.signal)
-			.then((segment) => {
-				if (this.disposed || this.cwd !== cwd) return;
-				if (this.segment === segment) return;
-				this.segment = segment;
-				this.onChange(cwd, segment);
-			})
-			.finally(() => {
-				if (this.inFlightController === controller) this.inFlightController = undefined;
-				if (this.inFlight !== undefined && this.inFlightController === undefined) this.inFlight = undefined;
-			});
-	}
-
-	async dispose(): Promise<void> {
-		this.disposed = true;
-		this.inFlightController?.abort();
-		this.inFlightController = undefined;
-		const pending = this.inFlight;
-		if (pending !== undefined) await pending.catch(() => undefined);
-	}
-}
-
-/** 用安全 git 子进程异步读取分支；失败返回 undefined，footer 自动隐藏该字段。 */
-export async function readGitSegment(cwd: string, signal?: AbortSignal): Promise<string | undefined> {
-	const [branch, dirty] = await Promise.all([
-		execGit(cwd, ["branch", "--show-current"], signal),
-		execGit(cwd, ["status", "--porcelain"], signal),
-	]);
-	if (branch === undefined || dirty === undefined) return undefined;
-	const cleanBranch = branch.trim();
-	const isDirty = dirty.trim().length > 0;
-	if (cleanBranch.length === 0) return isDirty ? "detached*" : "detached";
-	return `${cleanBranch}${isDirty ? "*" : ""}`;
-}
-
-function execGit(cwd: string, args: string[], signal?: AbortSignal): Promise<string | undefined> {
-	return new Promise((resolve) => {
-		execFile("git", ["--no-optional-locks", ...args], { cwd, encoding: "utf8", timeout: GIT_TIMEOUT_MS, ...(signal !== undefined ? { signal } : {}) }, (error, stdout) => {
-			resolve(error === null ? stdout : undefined);
-		});
-	});
-}
+type FooterDataBinder = (footerData: ReadonlyFooterDataProvider) => void;
 
 /** 生成 footer：首行展示工作区与 context，次行展示用量与工具启用数量。 */
 export function formatFooter(
 	snapshot: TuiFooterSnapshot,
 	config: TuiFooterConfig,
 	width: number,
-	theme?: Pick<Theme, "fg">,
+	theme: Pick<Theme, "fg">,
 	iconMode: TuiIconMode = getTuiIconMode(),
 ): string[] {
 	const segments = width >= NARROW_WIDTH ? config.segments : config.narrow_segments;
@@ -102,20 +30,22 @@ export class TuiFooterComponent implements Component {
 	constructor(
 		private readonly tui: TUI,
 		private readonly theme: Theme,
-		private readonly footerData: ReadonlyFooterDataProvider,
+		footerData: ReadonlyFooterDataProvider,
 		private readonly config: TuiFooterConfig,
 		private readonly getSnapshot: () => TuiFooterSnapshot,
 		private readonly iconMode: TuiIconMode,
+		private readonly bindFooterData: FooterDataBinder,
 	) {
+		this.bindFooterData(footerData);
 		this.unsubscribe = footerData.onBranchChange(() => {
+			this.bindFooterData(footerData);
 			this.invalidate();
 			this.tui.requestRender();
 		});
 	}
 
 	render(width: number): string[] {
-		const snapshot = this.withFooterData(this.getSnapshot());
-		return formatFooter(snapshot, this.config, width, this.theme, this.iconMode);
+		return formatFooter(this.getSnapshot(), this.config, width, this.theme, this.iconMode);
 	}
 
 	invalidate(): void {}
@@ -124,29 +54,22 @@ export class TuiFooterComponent implements Component {
 		this.unsubscribe?.();
 		this.unsubscribe = undefined;
 	}
-
-	private withFooterData(snapshot: TuiFooterSnapshot): TuiFooterSnapshot {
-		const branch = this.footerData.getGitBranch();
-		return {
-			...snapshot,
-			...(snapshot.git !== undefined ? {} : branch !== null ? { git: branch } : {}),
-		};
-	}
 }
 
 export function createFooterComponent(
 	config: TuiFooterConfig,
 	getSnapshot: () => TuiFooterSnapshot,
 	iconMode: TuiIconMode,
-): (tui: TUI, theme: Theme, footerData: ReadonlyFooterDataProvider) => Component & { dispose?(): void } {
-	return (tui, theme, footerData) => new TuiFooterComponent(tui, theme, footerData, config, getSnapshot, iconMode);
+	bindFooterData: FooterDataBinder,
+): (tui: TUI, theme: Theme, footerData: ReadonlyFooterDataProvider) => Component & { dispose(): void } {
+	return (tui, theme, footerData) => new TuiFooterComponent(tui, theme, footerData, config, getSnapshot, iconMode, bindFooterData);
 }
 
 function renderSegments(
 	snapshot: TuiFooterSnapshot,
 	segments: TuiFooterSegment[],
 	width: number,
-	theme: Pick<Theme, "fg"> | undefined,
+	theme: Pick<Theme, "fg">,
 	config: TuiFooterConfig,
 	iconMode: TuiIconMode,
 ): string {
@@ -158,7 +81,7 @@ function renderPrimaryLine(
 	snapshot: TuiFooterSnapshot,
 	segments: TuiFooterSegment[],
 	width: number,
-	theme: Pick<Theme, "fg"> | undefined,
+	theme: Pick<Theme, "fg">,
 	config: TuiFooterConfig,
 	iconMode: TuiIconMode,
 ): string {
@@ -179,7 +102,7 @@ function renderSecondaryLine(
 	snapshot: TuiFooterSnapshot,
 	segments: TuiFooterSegment[],
 	width: number,
-	theme: Pick<Theme, "fg"> | undefined,
+	theme: Pick<Theme, "fg">,
 	config: TuiFooterConfig,
 	iconMode: TuiIconMode,
 ): string | undefined {
@@ -195,12 +118,10 @@ function isSecondaryLeftSegment(segment: TuiFooterSegment): boolean {
 	return segment === "tokens" || segment === "cost";
 }
 
-function renderToolsCount(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg"> | undefined): string | undefined {
+function renderToolsCount(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg">): string | undefined {
 	const tools = snapshot.tools;
 	if (tools === undefined) return undefined;
-	const activeCount = new Set(tools.activeNames.filter((name) => name.length > 0)).size;
-	const total = Math.max(0, tools.totalCount, activeCount);
-	return dim(theme, `tools ${activeCount}/${total}`);
+	return dim(theme, `tools ${tools.activeNames.length}/${tools.totalCount}`);
 }
 
 /** 第二行要先扣除 cost/tools 宽度，再让 token 段自适应，避免 cache 命中率被最终截断吞掉。 */
@@ -208,7 +129,7 @@ function renderSecondarySegments(
 	snapshot: TuiFooterSnapshot,
 	segments: TuiFooterSegment[],
 	width: number,
-	theme: Pick<Theme, "fg"> | undefined,
+	theme: Pick<Theme, "fg">,
 	config: TuiFooterConfig,
 	iconMode: TuiIconMode,
 ): string {
@@ -251,7 +172,7 @@ function renderSegment(
 	snapshot: TuiFooterSnapshot,
 	segment: TuiFooterSegment,
 	width: number,
-	theme: Pick<Theme, "fg"> | undefined,
+	theme: Pick<Theme, "fg">,
 	config: TuiFooterConfig,
 	iconMode: TuiIconMode,
 ): string | undefined {
@@ -299,7 +220,7 @@ export function formatModel(snapshot: TuiFooterSnapshot): string | undefined {
 }
 
 /** 按 footer 规则格式化 context 百分比和窗口大小。 */
-export function formatContext(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg"> | undefined): string | undefined {
+export function formatContext(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg">): string | undefined {
 	const usage = snapshot.context;
 	if (!usage) return undefined;
 	const contextWindow = usage.contextWindow || 0;
@@ -307,7 +228,6 @@ export function formatContext(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "f
 	const percent = usage.percent === null ? "?" : percentValue.toFixed(1);
 	const value = usage.percent === null ? `?/${formatTokens(contextWindow)}` : `${percent}%/${formatTokens(contextWindow)}`;
 	const label = dim(theme, "ctx ");
-	if (theme === undefined) return `${label}${value}`;
 	if (usage.percent === null) return `${label}${theme.fg("muted", value)}`;
 	return `${label}${applyContextGradient(value, percentValue)}`;
 }
@@ -348,15 +268,15 @@ export function formatTokens(count: number): string {
 	return `${Math.round(count / 1_000_000)}M`;
 }
 
-function color(theme: Pick<Theme, "fg"> | undefined, colorName: TuiFooterConfig["style"]["workspace_color"] | undefined, text: string): string {
-	return theme && colorName ? theme.fg(colorName, text) : text;
+function color(theme: Pick<Theme, "fg">, colorName: TuiFooterConfig["style"]["workspace_color"], text: string): string {
+	return theme.fg(colorName, text);
 }
 
-function dim(theme: Pick<Theme, "fg"> | undefined, text: string): string {
-	return theme ? theme.fg("dim", text) : text;
+function dim(theme: Pick<Theme, "fg">, text: string): string {
+	return theme.fg("dim", text);
 }
 
-function dimOptional(theme: Pick<Theme, "fg"> | undefined, text: string | undefined): string | undefined {
+function dimOptional(theme: Pick<Theme, "fg">, text: string | undefined): string | undefined {
 	return text === undefined ? undefined : dim(theme, text);
 }
 

@@ -33,17 +33,19 @@ describe("tui config", () => {
 			chrome: { footer: false },
 			home: { motion: "subtle", show_hints: false },
 			math: { max_height_cells: 24, svg_scale: 4 },
-			tools: defaultTuiConfig().tools,
 		});
 	});
 
 	it.each([
 		'{ "unknown": true }',
-		'{ "tools": { "collapsed_lines": 3 } }',
+		'{ "preset": "compact" }',
+		'{ "icons": "auto" }',
+		'{ "footer": { "max_lines": 2 } }',
+		'{ "tools": { "collapsed_lines": 2 } }',
 		'{ "home": { "motion": "matrix" } }',
 		'{ "home": { "pointer_effects": "drag" } }',
 		'{ "math": { "inline": "source" } }',
-	])("拒绝不符合 schema 的配置 %#", async (text) => {
+	])("拒绝不符合 schema 或已经删除的配置 %#", async (text) => {
 		const file = path.join(dir, "bad.jsonc");
 		await writeFile(file, text);
 		process.env.PI_TUI_CONFIG = file;

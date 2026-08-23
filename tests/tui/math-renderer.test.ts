@@ -10,6 +10,24 @@ const mathConfig: TuiMathConfig = {
 	foreground: "#d4d4d4",
 };
 
+describe("math renderer 字体初始化", () => {
+	it("字体加载失败时 reject 且图片 renderer 保持未就绪", async () => {
+		vi.resetModules();
+		const error = new Error("font unavailable");
+		const { FontData } = await import("@mathjax/src/js/output/common/FontData.js");
+		const loadFonts = vi.spyOn(FontData.prototype, "loadDynamicFiles").mockRejectedValue(error);
+		try {
+			const renderer = await import("../../src/tui/math-renderer.js");
+
+			await expect(renderer.warmMathRenderer()).rejects.toBe(error);
+			expect(renderer.renderDisplayMathImage(String.raw`x^2`, mathConfig)).toBeUndefined();
+		} finally {
+			loadFonts.mockRestore();
+			vi.resetModules();
+		}
+	});
+});
+
 describe("math renderer", () => {
 	beforeAll(warmMathRenderer);
 

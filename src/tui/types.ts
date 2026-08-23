@@ -1,10 +1,7 @@
 import type { ContextUsage, ThemeColor } from "@earendil-works/pi-coding-agent";
 
-/** TUI 状态图标来源；auto 在 V1 中等同 unicode，保留给字体探测入口。 */
-export type TuiIconMode = "unicode" | "ascii" | "nerd" | "auto";
-
-/** o-pi TUI 预设；compact 保留更多状态，minimal 只显示核心 chrome。 */
-export type TuiPreset = "compact" | "minimal";
+/** TUI 状态图标来源。 */
+export type TuiIconMode = "unicode" | "ascii" | "nerd";
 
 /** Pi 工作指示器样式；off 会隐藏内置 streaming indicator。 */
 export type TuiWorkingIndicator = "dot" | "spinner" | "off";
@@ -29,7 +26,6 @@ export interface TuiChromeConfig {
 
 /** footer 在宽屏和窄屏下使用不同字段集合；工具状态固定占第二行。 */
 export interface TuiFooterConfig {
-	max_lines: 2;
 	segments: TuiFooterSegment[];
 	narrow_segments: TuiFooterSegment[];
 	style: TuiFooterStyleConfig;
@@ -39,16 +35,6 @@ export interface TuiFooterConfig {
 export interface TuiFooterStyleConfig {
 	workspace_color: ThemeColor;
 	git_color: ThemeColor;
-}
-
-/** 工具卡片固定 2 行；collapsed_lines 只允许 2，用于 schema 明确约束。 */
-export interface TuiToolsConfig {
-	expanded_default: boolean;
-	show_timing: boolean;
-	show_provider: boolean;
-	max_target_chars: number;
-	max_summary_chars: number;
-	collapsed_lines: 2;
 }
 
 /** 空会话启动 Home 配置；布局按终端宽高自动降级。 */
@@ -74,11 +60,9 @@ export interface TuiMathConfig {
 /** TUI 配置；缺失字段由 loader 合并默认值。 */
 export interface TuiConfig {
 	enabled: boolean;
-	preset: TuiPreset;
 	icons: TuiIconMode;
 	chrome: TuiChromeConfig;
 	footer: TuiFooterConfig;
-	tools: TuiToolsConfig;
 	home: TuiHomeConfig;
 	math: TuiMathConfig;
 }
@@ -110,7 +94,7 @@ export interface TuiFooterSnapshot {
 export interface TuiFooterToolsSnapshot {
 	activeNames: string[];
 	totalCount: number;
-	allNames?: string[];
+	allNames: string[];
 }
 
 /** Home 的 skill 快照；与 tools 分开统计。 */

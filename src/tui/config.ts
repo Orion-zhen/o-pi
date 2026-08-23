@@ -32,11 +32,9 @@ export function defaultTuiConfig(): TuiConfig {
 
 interface RawTuiConfig {
 	enabled?: boolean;
-	preset?: TuiConfig["preset"];
 	icons?: TuiConfig["icons"];
 	chrome?: Partial<TuiConfig["chrome"]>;
 	footer?: Partial<Omit<TuiConfig["footer"], "style">> & { style?: Partial<TuiConfig["footer"]["style"]> };
-	tools?: Partial<TuiConfig["tools"]>;
 	home?: Partial<TuiConfig["home"]>;
 	math?: Partial<TuiConfig["math"]>;
 }
@@ -44,29 +42,23 @@ interface RawTuiConfig {
 interface CompleteTuiConfig extends Required<RawTuiConfig> {
 	chrome: TuiConfig["chrome"];
 	footer: TuiConfig["footer"];
-	tools: TuiConfig["tools"];
 	home: TuiConfig["home"];
 	math: TuiConfig["math"];
 }
 
 function materializeConfig(raw: CompleteTuiConfig): TuiConfig {
-	const config: TuiConfig = {
+	return {
 		enabled: raw.enabled,
-		preset: raw.preset,
 		icons: raw.icons,
 		chrome: { ...raw.chrome },
 		footer: {
-			max_lines: raw.footer.max_lines,
 			segments: [...raw.footer.segments],
 			narrow_segments: [...raw.footer.narrow_segments],
 			style: { ...raw.footer.style },
 		},
-		tools: { ...raw.tools },
 		home: { ...raw.home },
 		math: { ...raw.math },
 	};
-	if (config.tools.collapsed_lines !== 2) throw new TuiConfigError("tools.collapsed_lines only supports 2.");
-	return config;
 }
 
 function readDefaultConfig(): CompleteTuiConfig {

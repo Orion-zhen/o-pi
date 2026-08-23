@@ -8,7 +8,7 @@ import type { TuiFooterSnapshot } from "../../src/tui/types.js";
 
 const snapshot: TuiFooterSnapshot = {
 	cwd: path.join(os.homedir(), "pi-dev"),
-	git: "main*",
+	git: "main",
 	modelId: "deepseek-v4-flash-free",
 	modelProvider: "opencode",
 	modelReasoning: true,
@@ -19,6 +19,7 @@ const snapshot: TuiFooterSnapshot = {
 	tools: {
 		activeNames: ["ls", "read", "write", "edit", "find", "grep", "bash", "websearch", "webfetch", "subagent", "skill"],
 		totalCount: 11,
+		allNames: ["ls", "read", "write", "edit", "find", "grep", "bash", "websearch", "webfetch", "subagent", "skill"],
 	},
 	skills: { totalCount: 3, modelInvocableCount: 1 },
 };

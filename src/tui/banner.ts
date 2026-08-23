@@ -27,7 +27,7 @@ export function formatStartupBanner(
 	snapshot: TuiFooterSnapshot,
 	config: Pick<TuiHomeConfig, "show_hints" | "show_capabilities">,
 	width: number,
-	theme?: Pick<Theme, "fg">,
+	theme: Pick<Theme, "fg">,
 ): string[] {
 	const safeWidth = Math.max(1, width);
 	const layout = resolveLayout(safeWidth);
@@ -60,7 +60,7 @@ function renderSideBySide(
 	snapshot: TuiFooterSnapshot,
 	config: Pick<TuiHomeConfig, "show_hints" | "show_capabilities">,
 	width: number,
-	theme: Pick<Theme, "fg"> | undefined,
+	theme: Pick<Theme, "fg">,
 ): string[] {
 	const logo = coloredWordmark(theme);
 	const logoWidth = Math.max(...logo.map(visibleWidth));
@@ -83,7 +83,7 @@ function renderStacked(
 	snapshot: TuiFooterSnapshot,
 	config: Pick<TuiHomeConfig, "show_hints" | "show_capabilities">,
 	width: number,
-	theme: Pick<Theme, "fg"> | undefined,
+	theme: Pick<Theme, "fg">,
 ): string[] {
 	const lines = [...coloredWordmark(theme), "", ...statusRows(snapshot, config, width, theme)];
 	if (config.show_hints) lines.push(row("keys", color(theme, "dim", FULL_HINTS), width, theme));
@@ -94,7 +94,7 @@ function renderTiny(
 	snapshot: TuiFooterSnapshot,
 	config: Pick<TuiHomeConfig, "show_hints" | "show_capabilities">,
 	width: number,
-	theme: Pick<Theme, "fg"> | undefined,
+	theme: Pick<Theme, "fg">,
 ): string[] {
 	const workspace = formatWorkspaceWithGit(snapshot, theme);
 	const title = color(theme, "accent", "O Pi");
@@ -109,7 +109,7 @@ function statusRows(
 	snapshot: TuiFooterSnapshot,
 	config: Pick<TuiHomeConfig, "show_capabilities">,
 	width: number,
-	theme: Pick<Theme, "fg"> | undefined,
+	theme: Pick<Theme, "fg">,
 ): string[] {
 	const workspace = formatWorkspaceWithGit(snapshot, theme);
 	const model = formatModel(snapshot);
@@ -117,7 +117,7 @@ function statusRows(
 	const tools = formatTools(snapshot, config, width, theme);
 	const skills = formatSkills(snapshot, theme);
 	return [
-		row("pi", VERSION ? `v${VERSION}` : "o-pi", width, theme),
+		row("pi", `v${VERSION}`, width, theme),
 		workspace ? row("workspace", workspace, width, theme) : undefined,
 		model ? row("model", color(theme, "text", model), width, theme) : undefined,
 		contextStatus ? row("context", contextStatus, width, theme) : undefined,
@@ -126,21 +126,20 @@ function statusRows(
 	].filter((line): line is string => line !== undefined);
 }
 
-function row(label: string, value: string, width: number, theme: Pick<Theme, "fg"> | undefined): string {
+function row(label: string, value: string, width: number, theme: Pick<Theme, "fg">): string {
 	const labelText = color(theme, "dim", label.padEnd(STATUS_LABEL_WIDTH, " "));
 	const valueWidth = Math.max(1, width - visibleWidth(labelText));
 	return truncateToWidth(`${labelText}${truncateToWidth(value, valueWidth, "…")}`, width, "…");
 }
 
-function formatWorkspaceWithGit(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg"> | undefined): string | undefined {
+function formatWorkspaceWithGit(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg">): string | undefined {
 	if (!snapshot.cwd) return undefined;
 	const workspace = color(theme, "accent", formatWorkspace(snapshot.cwd));
 	if (!snapshot.git) return workspace;
-	const gitColor = snapshot.git.endsWith("*") ? "warning" : "success";
-	return joinParts([workspace, color(theme, gitColor, snapshot.git)], color(theme, "dim", " · "));
+	return joinParts([workspace, color(theme, "success", snapshot.git)], color(theme, "dim", " · "));
 }
 
-function formatContextStatus(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg"> | undefined): string | undefined {
+function formatContextStatus(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg">): string | undefined {
 	const context = snapshot.context === undefined ? undefined : formatContext(snapshot, theme);
 	if (context === undefined) return undefined;
 	const status = snapshot.status === undefined
@@ -153,13 +152,13 @@ function formatTools(
 	snapshot: TuiFooterSnapshot,
 	config: Pick<TuiHomeConfig, "show_capabilities">,
 	width: number,
-	theme: Pick<Theme, "fg"> | undefined,
+	theme: Pick<Theme, "fg">,
 ): string | undefined {
 	const tools = snapshot.tools;
 	if (tools === undefined) return undefined;
-	const activeCount = new Set(tools.activeNames.filter((name) => name.length > 0)).size;
-	const totalCount = Math.max(0, tools.totalCount, activeCount);
-	const count = color(theme, activeCount >= totalCount ? "success" : "warning", `${activeCount}/${totalCount}`);
+	const activeCount = tools.activeNames.length;
+	const totalCount = tools.totalCount;
+	const count = color(theme, activeCount === totalCount ? "success" : "warning", `${activeCount}/${totalCount}`);
 	if (!config.show_capabilities) return count;
 	const usedWidth = visibleWidth(count) + visibleWidth(" · ");
 	const summary = formatCapabilitySummary(
@@ -170,12 +169,11 @@ function formatTools(
 	return joinParts([count, summary], color(theme, "dim", " · "));
 }
 
-function formatSkills(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg"> | undefined): string | undefined {
+function formatSkills(snapshot: TuiFooterSnapshot, theme: Pick<Theme, "fg">): string | undefined {
 	const skills = snapshot.skills;
-	if (skills === undefined || skills.totalCount <= 0) return undefined;
-	const modelInvocableCount = Math.min(skills.totalCount, Math.max(0, skills.modelInvocableCount));
+	if (skills === undefined) return undefined;
 	return joinParts(
-		[color(theme, "success", `${skills.totalCount}`), `model:${modelInvocableCount}`],
+		[color(theme, "success", `${skills.totalCount}`), `model:${skills.modelInvocableCount}`],
 		color(theme, "dim", " · "),
 	);
 }
@@ -184,13 +182,13 @@ function formatTinyTools(
 	snapshot: TuiFooterSnapshot,
 	config: Pick<TuiHomeConfig, "show_capabilities">,
 	width: number,
-	theme: Pick<Theme, "fg"> | undefined,
+	theme: Pick<Theme, "fg">,
 ): string | undefined {
 	const tools = snapshot.tools;
 	if (tools === undefined) return undefined;
-	const activeCount = new Set(tools.activeNames.filter((name) => name.length > 0)).size;
-	const totalCount = Math.max(0, tools.totalCount, activeCount);
-	const count = color(theme, activeCount >= totalCount ? "success" : "warning", `${activeCount}/${totalCount} tools`);
+	const activeCount = tools.activeNames.length;
+	const totalCount = tools.totalCount;
+	const count = color(theme, activeCount === totalCount ? "success" : "warning", `${activeCount}/${totalCount} tools`);
 	if (!config.show_capabilities) {
 		return truncateToWidth(joinParts([count, formatTinySkills(snapshot)], color(theme, "dim", " · ")), width, "…");
 	}
@@ -205,12 +203,11 @@ function formatTinyTools(
 
 function formatTinySkills(snapshot: TuiFooterSnapshot): string | undefined {
 	const skills = snapshot.skills;
-	if (skills === undefined || skills.totalCount <= 0) return undefined;
-	const modelInvocableCount = Math.min(skills.totalCount, Math.max(0, skills.modelInvocableCount));
-	return `skills:${skills.totalCount} model:${modelInvocableCount}`;
+	if (skills === undefined) return undefined;
+	return `skills:${skills.totalCount} model:${skills.modelInvocableCount}`;
 }
 
-function coloredWordmark(theme: Pick<Theme, "fg"> | undefined): string[] {
+function coloredWordmark(theme: Pick<Theme, "fg">): string[] {
 	return WORDMARK_LINES.map((line) => color(theme, "accent", line));
 }
 
@@ -218,6 +215,6 @@ function padRight(text: string, width: number): string {
 	return `${text}${" ".repeat(Math.max(0, width - visibleWidth(text)))}`;
 }
 
-function color(theme: Pick<Theme, "fg"> | undefined, colorName: Parameters<Theme["fg"]>[0], text: string): string {
-	return theme ? theme.fg(colorName, text) : text;
+function color(theme: Pick<Theme, "fg">, colorName: Parameters<Theme["fg"]>[0], text: string): string {
+	return theme.fg(colorName, text);
 }

@@ -204,7 +204,7 @@ describe("路径级用户历史", () => {
 			config: { ...defaultTuiConfig().home, motion: "off" },
 			getSnapshot: () => ({
 				cwd: "/repo",
-				git: "main*",
+				git: "main",
 				context: { tokens: 0, contextWindow: 200_000, percent: 0 },
 				tools: { activeNames: ["read"], totalCount: 2, allNames: ["read", "grep"] },
 				skills: { totalCount: 2, modelInvocableCount: 1 },
@@ -273,7 +273,7 @@ describe("路径级用户历史", () => {
 			config: { ...defaultTuiConfig().home, motion: "playful", pointer_effects: "off" },
 			getSnapshot: () => ({
 				context: { tokens: 0, contextWindow: 100_000, percent: 0 },
-				tools: { activeNames: ["read"], totalCount: 1 },
+				tools: { activeNames: ["read"], totalCount: 1, allNames: ["read"] },
 			}),
 			getTheme: () => ({ fg: (name, text) => `<${name}>${text}</${name}>` }),
 			isVisible: () => visible,

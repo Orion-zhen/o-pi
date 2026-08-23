@@ -1,6 +1,6 @@
 import { Markdown, resetCapabilitiesCache, setCapabilities, setCellDimensions } from "@earendil-works/pi-tui";
 import { getKittyImageMetadata } from "@earendil-works/pi-tui/dist/terminal-image.js";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { installMathMarkdownRenderer, supportsDisplayMathImages, warmDisplayMathRenderer } from "../../src/tui/math-markdown.js";
 import type { TuiMathConfig } from "../../src/tui/types.js";
 
@@ -29,17 +29,42 @@ const theme = {
 	underline: (text: string) => text,
 };
 
-beforeAll(async () => {
-	setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
-	await warmDisplayMathRenderer();
-});
-
 afterEach(() => {
 	resetCapabilitiesCache();
 	setCellDimensions({ widthPx: 9, heightPx: 18 });
 });
 
+describe("math markdown 字体初始化", () => {
+	it("字体加载失败时继续使用 Pi 原生 LaTeX", async () => {
+		vi.resetModules();
+		const error = new Error("font unavailable");
+		const { FontData } = await import("@mathjax/src/js/output/common/FontData.js");
+		const loadFonts = vi.spyOn(FontData.prototype, "loadDynamicFiles").mockRejectedValue(error);
+		const tui = await import("@earendil-works/pi-tui");
+		try {
+			const math = await import("../../src/tui/math-markdown.js");
+			tui.setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+			tui.setCellDimensions({ widthPx: 9, heightPx: 18 });
+			math.installMathMarkdownRenderer(mathConfig);
+
+			await expect(math.warmDisplayMathRenderer()).rejects.toBe(error);
+			const output = new tui.Markdown("$$\nx_i^2\n$$", 0, 0, theme).render(120).join("\n");
+			expect(output).toContain("xᵢ²");
+			expect(output).not.toContain("\u001b_G");
+		} finally {
+			tui.resetCapabilitiesCache();
+			loadFonts.mockRestore();
+			vi.resetModules();
+		}
+	});
+});
+
 describe("math markdown renderer", () => {
+	beforeAll(async () => {
+		setCapabilities({ images: "kitty", trueColor: true, hyperlinks: false });
+		await warmDisplayMathRenderer();
+	});
+
 	it.each([
 		["美元公式与 code span", "LLM 输出一个 $\\text{行内公式}$，不是 `$x$`。", ["LLM 输出一个 行内公式", "$x$"]],
 		["价格", "This costs $5 and $10 tomorrow.", ["This costs $5 and $10 tomorrow."]],

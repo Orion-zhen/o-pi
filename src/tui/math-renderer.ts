@@ -58,7 +58,6 @@ const mathDocument = mathjax.document("", { InputJax: texInput, OutputJax: svgOu
 const cache = new Map<string, RenderedMathImage>();
 let fontWarmup: Promise<void> | undefined;
 let fontsReady = false;
-let fontsFailed = false;
 
 export function warmMathRenderer(): Promise<void> {
 	if (fontWarmup !== undefined) return fontWarmup;
@@ -66,15 +65,12 @@ export function warmMathRenderer(): Promise<void> {
 		.loadDynamicFiles()
 		.then(() => {
 			fontsReady = true;
-		})
-		.catch(() => {
-			fontsFailed = true;
 		});
 	return fontWarmup;
 }
 
 export function renderDisplayMathImage(tex: string, config: TuiMathConfig): RenderedMathImage | undefined {
-	if (!fontsReady || fontsFailed) return undefined;
+	if (!fontsReady) return undefined;
 	const renderTex = stripUnsupportedCommands(tex);
 	const key = `${config.svg_scale}\0${config.foreground}\0${renderTex}`;
 	const cached = cache.get(key);

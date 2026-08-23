@@ -55,8 +55,6 @@ export class UserHistoryEditor extends CustomEditor {
 	private readonly home: HomeEditorOptions | undefined;
 	private readonly pointer: HomePointerController | undefined;
 	private replayQueue: string[];
-	private wrappingSubmit = false;
-	private capturedDuringInput: string | undefined;
 	private introStartedAt: number | undefined;
 	private animationDeadline = 0;
 	private animationTimer: ReturnType<typeof setInterval> | undefined;
@@ -79,10 +77,11 @@ export class UserHistoryEditor extends CustomEditor {
 		this.record = record;
 		this.frame = frame;
 		this.home = home;
-		this.pointer = home === undefined || !home.config.enabled || !home.isVisible() || tui.mode !== "fullscreen"
+		const fullscreenHome = this.getFullscreenHome();
+		this.pointer = fullscreenHome === undefined
 			? undefined
 			: new HomePointerController({
-				effects: home.config.pointer_effects,
+				effects: fullscreenHome.config.pointer_effects,
 				isActive: () => this.isFullscreenHomeVisible(),
 				requestRender: () => this.tuiHost.requestRender(),
 			});
@@ -105,62 +104,47 @@ export class UserHistoryEditor extends CustomEditor {
 
 	override render(width: number): string[] {
 		const safeWidth = Math.max(1, Math.floor(width));
-		const fullscreenHomeVisible = this.isFullscreenHomeVisible();
-		const editorWidth = fullscreenHomeVisible ? Math.min(safeWidth, HOME_CONTENT_WIDTH) : safeWidth;
-		const framedEditor = this.renderFramedEditor(editorWidth, fullscreenHomeVisible);
-		if (!fullscreenHomeVisible || this.home === undefined) return framedEditor;
-		const height = this.tuiHost.mode === "fullscreen"
-			? Math.max(framedEditor.length, this.tuiHost.terminal.rows - HOME_EXTERNAL_ROWS)
-			: undefined;
+		const fullscreenHome = this.getFullscreenHome();
+		const editorWidth = fullscreenHome === undefined ? safeWidth : Math.min(safeWidth, HOME_CONTENT_WIDTH);
+		const framedEditor = this.renderFramedEditor(editorWidth, fullscreenHome !== undefined);
+		if (fullscreenHome === undefined) return framedEditor;
+		const height = Math.max(framedEditor.length, this.tuiHost.terminal.rows - HOME_EXTERNAL_ROWS);
 		return formatHomePage(
-			this.home.getSnapshot(),
-			this.home.config,
+			fullscreenHome.getSnapshot(),
+			fullscreenHome.config,
 			safeWidth,
 			framedEditor,
-			this.home.getTheme(),
-			{ ...(height !== undefined ? { height } : {}), tip: this.home.tip, animation: this.getAnimationFrame() },
+			fullscreenHome.getTheme(),
+			{ height, tip: fullscreenHome.tip, animation: this.getAnimationFrame() },
 		);
 	}
 
 	override handleInput(data: string): void {
-		if (this.wrappingSubmit) {
+		if (
+			this.actionHandlers.has("app.message.followUp")
+				&& this.appKeybindings.matches(data, "app.message.followUp")
+		) this.capture(this.getExpandedText());
+
+		const submit = this.onSubmit;
+		if (submit === undefined) {
 			super.handleInput(data);
 			return;
 		}
-		this.wrappingSubmit = true;
-		this.capturedDuringInput = undefined;
-		const submit = this.onSubmit;
-		const handle = (): void => {
-			if (
-				this.actionHandlers.has("app.message.followUp")
-					&& this.appKeybindings.matches(data, "app.message.followUp")
-			) this.capture(this.getExpandedText());
-			super.handleInput(data);
+		const wrapper = (text: string): void => {
+			const normalized = normalizeText(text);
+			if (normalized.length > 0 && this.isHomeActive()) this.home?.onSubmit();
+			this.capture(normalized);
+			submit(text);
 		};
+		this.onSubmit = wrapper;
 		try {
-			if (submit === undefined) {
-				handle();
-			} else {
-				const wrapper = (text: string): void => {
-					const normalized = normalizeText(text);
-					if (normalized.length > 0 && this.isHomeActive()) this.home?.onSubmit();
-					this.capture(normalized);
-					submit(text);
-				};
-				this.onSubmit = wrapper;
-				try {
-					handle();
-				} finally {
-					if (this.onSubmit === wrapper) this.onSubmit = submit;
-				}
-			}
+			super.handleInput(data);
 		} finally {
-			this.capturedDuringInput = undefined;
-			this.wrappingSubmit = false;
+			if (this.onSubmit === wrapper) this.onSubmit = submit;
 		}
 	}
 
-	/** 首轮开始后释放 Home 动画并立即恢复普通编辑器高度。 */
+	/** 离开 Home 后释放动画并立即恢复普通编辑器高度。 */
 	hideHome(): void {
 		this.clearAnimation();
 		this.pointer?.dispose();
@@ -237,8 +221,7 @@ export class UserHistoryEditor extends CustomEditor {
 
 	private capture(text: string): void {
 		const normalized = normalizeText(text);
-		if (normalized.length === 0 || this.capturedDuringInput === normalized) return;
-		this.capturedDuringInput = normalized;
+		if (normalized.length === 0) return;
 		super.addToHistory(normalized);
 		this.record(normalized);
 	}
@@ -247,13 +230,18 @@ export class UserHistoryEditor extends CustomEditor {
 		return this.home?.config.enabled === true && this.home.isVisible();
 	}
 
+	private getFullscreenHome(): HomeEditorOptions | undefined {
+		if (this.tuiHost.mode !== "fullscreen" || !this.isHomeActive()) return undefined;
+		return this.home;
+	}
+
 	private isFullscreenHomeVisible(): boolean {
-		return this.tuiHost.mode === "fullscreen" && this.isHomeActive();
+		return this.getFullscreenHome() !== undefined;
 	}
 
 	private startIntro(): void {
-		const home = this.home;
-		if (!this.isFullscreenHomeVisible() || home === undefined) return;
+		const home = this.getFullscreenHome();
+		if (home === undefined) return;
 		if (home.config.motion === "playful") this.ensureOrbitTimer();
 		if (home.config.motion === "off") return;
 		const now = performance.now();
