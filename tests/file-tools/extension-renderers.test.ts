@@ -16,8 +16,7 @@ describe("file-tools extension renderers", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("失败和部分结果保持正确状态且不丢失错误信息", async () => {
-		const { registered, handlers } = await registerRenderers();
+	rendererTest("失败和部分结果保持正确状态且不丢失错误信息", async ({ registered, handlers }) => {
 		const failure = {
 			status: "failed" as const,
 			error: { code: "INVALID_PATH", message: "path must be workspace-relative.", path: "src/missing" },
@@ -40,8 +39,7 @@ describe("file-tools extension renderers", () => {
 		expect(partial).not.toContain("error");
 	});
 
-	it("find 展开结果保留匹配和部分 scope 错误", async () => {
-		const { registered } = await registerRenderers();
+	rendererTest("find 展开结果保留匹配和部分 scope 错误", async ({ registered }) => {
 		const output = renderToolResult(registered, "find", {
 			status: "success",
 			query: "main",
@@ -61,8 +59,7 @@ describe("file-tools extension renderers", () => {
 		for (const value of ["src/main.ts", "missing", "PATH_NOT_FOUND"]) expect(output).toContain(value);
 	});
 
-	it("read 调用显示 lines 或 pages，PDF 结果展示页面摘要且不泄露 Base64", async () => {
-		const { registered } = await registerRenderers();
+	rendererTest("read 调用显示 lines 或 pages，PDF 结果展示页面摘要且不泄露 Base64", async ({ registered }) => {
 		const read = registered.slice().reverse().find((tool) => tool.name === "read");
 		const callContext = {
 			cwd: "/repo",
@@ -128,8 +125,7 @@ describe("file-tools extension renderers", () => {
 		expect(expanded).not.toContain("secret-page");
 	});
 
-	it("write 折叠时隐藏正文和 diff，展开时恢复，并接收后处理进度", async () => {
-		const { registered } = await registerRenderers();
+	rendererTest("write 折叠时隐藏正文和 diff，展开时恢复，并接收后处理进度", async ({ registered }) => {
 		const write = registered.slice().reverse().find((tool) => tool.name === "write");
 		const args = { path: "notes.txt", content: "first\nsecond" };
 		const state: { callComponent?: { postProcess?: unknown } } = {};
@@ -163,8 +159,7 @@ describe("file-tools extension renderers", () => {
 		expect(renderWriteResult(registered, result, true)).toContain("-1 old");
 	});
 
-	it("edit 预览异步刷新，折叠时隐藏 diff，展开时恢复", async () => {
-		const { registered } = await registerRenderers();
+	rendererTest("edit 预览异步刷新，折叠时隐藏 diff，展开时恢复", async ({ registered }) => {
 		const cwd = editCardTemp.path;
 		await writeFile(join(cwd, "app.ts"), "old\n", "utf8");
 		const edit = registered.slice().reverse().find((tool) => tool.name === "edit");
@@ -244,6 +239,13 @@ describe("file-tools extension renderers", () => {
 		expect(result).toContain("LSP clean");
 	});
 });
+
+function rendererTest(
+	name: string,
+	test: (fixture: Awaited<ReturnType<typeof registerRenderers>>) => Promise<void> | void,
+): void {
+	it(name, async () => test(await registerRenderers()));
+}
 
 async function registerRenderers() {
 	const extension = registerExtension(fileTools);

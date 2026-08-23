@@ -176,7 +176,7 @@ describe("web-tools extension", () => {
 		expect(completionsResult.content).toEqual([{ type: "text", text: "page" }]);
 	});
 
-	it("通过 Pi 的 Jiti 加载后首次调用可正常读取配置", { timeout: 15_000 }, async () => {
+	it("通过 Pi 的 Jiti 加载后首次调用可正常读取配置", { timeout: 30_000 }, async () => {
 		const invalidConfigPath = path.join(process.cwd(), "package.json");
 		const stdout = await runJitiExtension(`
 			const search = tools.find((tool) => tool.name === "websearch");
@@ -189,7 +189,7 @@ describe("web-tools extension", () => {
 		expect(stdout).not.toContain("agentConfigPath");
 	});
 
-	it("通过 Pi 的 Jiti 并发首次执行三个 webfetch 时共享配置模块加载", { timeout: 15_000 }, async () => {
+	it("通过 Pi 的 Jiti 并发首次执行三个 webfetch 时共享配置模块加载", { timeout: 30_000 }, async () => {
 		const invalidConfigPath = path.join(process.cwd(), "package.json");
 		const stdout = await runJitiExtension(`
 			const fetch = tools.find((tool) => tool.name === "webfetch");

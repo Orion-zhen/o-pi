@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { formatWebSearchCall, formatWebSearchResult, renderWebSearchCall, renderWebSearchResult } from "../../src/web-tools/tui/websearch.js";
+import { expectRendererLifecycle, theme } from "./renderer-fixture.js";
 
-const theme = {
-	fg: (_color: string, text: string) => text,
-	bold: (text: string) => text,
-};
 
 describe("websearch renderer", () => {
 	it("清理调用参数，并安全渲染各进度阶段", () => {
@@ -73,33 +70,25 @@ describe("websearch renderer", () => {
 
 	it("progress 和最终结果接管调用阶段组件", () => {
 		const args = { query: "pi coding agent", limit: 5 };
-		const state = {};
-		let call = renderWebSearchCall(args, theme, { lastComponent: undefined, state });
-		expect(call.render(160).join("")).toContain(args.query);
-
-		call = renderWebSearchCall(args, theme, { lastComponent: call, state });
-		let result = renderWebSearchResult(
-			{ details: { status: "progress", phase: "requesting" } },
-			{ isPartial: true },
-			theme,
-			{ args, lastComponent: undefined, state },
-		);
-		expect(call.render(160).join("")).toBe("");
-		const progressOutput = result.render(160).join("");
-		expect(progressOutput).toContain(args.query);
-
-		call = renderWebSearchCall(args, theme, { lastComponent: call, state });
-		result = renderWebSearchResult(
-			{ details: { ...successDetails(2), query: args.query } },
-			{ isPartial: false },
-			theme,
-			{ args, lastComponent: result, state },
-		);
-		expect(call.render(160).join("")).toBe("");
-		const settledOutput = result.render(160).join("");
-		expect(settledOutput).toContain(args.query);
-		expect(settledOutput).toContain("exa_api");
-		expect(settledOutput).not.toBe(progressOutput);
+		expectRendererLifecycle({
+			createState: () => ({}),
+			renderCall: (lastComponent, state) => renderWebSearchCall(args, theme, { lastComponent, state }),
+			renderProgress: (lastComponent, state) => renderWebSearchResult(
+				{ details: { status: "progress", phase: "requesting" } },
+				{ isPartial: true },
+				theme,
+				{ args, lastComponent, state },
+			),
+			renderSettled: (lastComponent, state) => renderWebSearchResult(
+				{ details: { ...successDetails(2), query: args.query } },
+				{ isPartial: false },
+				theme,
+				{ args, lastComponent, state },
+			),
+			initialContains: [args.query],
+			progressContains: [args.query],
+			settledContains: [args.query, "exa_api"],
+		});
 	});
 });
 
