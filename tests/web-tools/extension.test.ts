@@ -18,7 +18,7 @@ import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 const execFileAsync = promisify(execFile);
 let dir: string;
-let runtimes: Array<ReturnType<typeof createWebToolsRuntime>> = [];
+let runtimes: Array<{ close(): Promise<void> }> = [];
 const temp = useTempDir("o-pi-web-runtime-");
 preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_WEB_TOOLS_COOKIES", "BRAVE_SEARCH_API_KEY", "EXA_API_KEY", "TAVILY_API_KEY");
 
@@ -246,12 +246,7 @@ describe("web-tools runtime", () => {
 				},
 			})),
 		};
-		const runtime = createWebSearchRuntime({
-			getDispatcher: async () => new Agent(),
-			fetchImpl: async () => { throw new Error("unused fetch"); },
-			loadConfig: async () => structuredClone(config),
-			now: () => 100,
-		}, providerLoaders);
+		const runtime = searchRuntime(config, providerLoaders);
 
 		await expect(runtime.search({ query: "empty key fallback" }, { toolCallId: "search-empty" })).resolves.toMatchObject({ details: { provider: "duckduckgo_html" } });
 		expect(providerLoaders.brave).not.toHaveBeenCalled();
@@ -261,7 +256,6 @@ describe("web-tools runtime", () => {
 		await expect(runtime.search({ query: "official brave docs" }, { toolCallId: "search-restored" })).resolves.toMatchObject({ details: { provider: "brave_api" } });
 		expect(providerLoaders.brave).toHaveBeenCalledTimes(1);
 		expect(providerLoaders.duckDuckGo).toHaveBeenCalledTimes(1);
-		await runtime.close();
 	});
 
 	it.each(["brave_api", "exa_api", "tavily"] as const)("只配置 %s 时仍使用该正式 provider", async (selected) => {
@@ -291,12 +285,7 @@ describe("web-tools runtime", () => {
 			tavily: vi.fn(async () => createProvider("tavily")),
 			duckDuckGo: vi.fn(async () => { throw new Error("DDG should not load"); }),
 		};
-		const runtime = createWebSearchRuntime({
-			getDispatcher: async () => new Agent(),
-			fetchImpl: async () => { throw new Error("unused fetch"); },
-			loadConfig: async () => structuredClone(config),
-			now: () => 100,
-		}, providerLoaders);
+		const runtime = searchRuntime(config, providerLoaders);
 
 		await expect(runtime.search({ query: "pi" }, { toolCallId: `search-${selected}` })).resolves.toMatchObject({ details: { status: "success", provider: selected } });
 		for (const id of formal) {
@@ -305,7 +294,6 @@ describe("web-tools runtime", () => {
 			else expect(loader).not.toHaveBeenCalled();
 		}
 		expect(providerLoaders.duckDuckGo).not.toHaveBeenCalled();
-		await runtime.close();
 	});
 
 	it("默认搜索 provider 只在实际命中时加载，加载失败在会话内复用", async () => {
@@ -321,20 +309,12 @@ describe("web-tools runtime", () => {
 				throw new Error("unused DuckDuckGo provider");
 			}),
 		};
-		const runtime = createWebSearchRuntime({
-			getDispatcher: async () => new Agent(),
-			fetchImpl: async () => {
-				throw new Error("unused fetch");
-			},
-			loadConfig: async () => structuredClone(config),
-			now: () => 100,
-		}, providerLoaders);
+		const runtime = searchRuntime(config, providerLoaders);
 
 		await expect(runtime.search({ query: "research paper first" }, { toolCallId: "search-1" })).rejects.toThrow("simulated provider import failure");
 		await expect(runtime.search({ query: "research paper second" }, { toolCallId: "search-2" })).rejects.toThrow("simulated provider import failure");
 		expect(providerLoaders.exa).toHaveBeenCalledTimes(1);
 		expect(providerLoaders.duckDuckGo).not.toHaveBeenCalled();
-		await runtime.close();
 	});
 
 	it("按调用能力分别加载 search/fetch，并让共享资源只关闭一次", async () => {
@@ -622,7 +602,19 @@ async function runJitiExtension(body: string, configPath: string): Promise<strin
 	return stdout;
 }
 
-function trackRuntime(runtime: ReturnType<typeof createWebToolsRuntime>): ReturnType<typeof createWebToolsRuntime> {
+function searchRuntime(
+	config: ReturnType<typeof defaultWebToolsConfig>,
+	providerLoaders: WebSearchProviderLoaders,
+) {
+	return trackRuntime(createWebSearchRuntime({
+		getDispatcher: async () => new Agent(),
+		fetchImpl: async () => { throw new Error("unused fetch"); },
+		loadConfig: async () => structuredClone(config),
+		now: () => 100,
+	}, providerLoaders));
+}
+
+function trackRuntime<T extends { close(): Promise<void> }>(runtime: T): T {
 	runtimes.push(runtime);
 	return runtime;
 }
