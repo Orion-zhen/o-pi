@@ -19,6 +19,10 @@ class FakeBody {
 	async cancel(): Promise<void> {}
 }
 
+export function redirectResponse(location: string, body: WebHttpResponse["body"] = httpResponse(200, "").body): WebHttpResponse {
+	return { status: 302, statusText: "Found", headers: new Headers({ location }), body };
+}
+
 export function httpResponse(
 	status: number,
 	body: string | Uint8Array,
