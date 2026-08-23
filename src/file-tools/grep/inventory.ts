@@ -192,6 +192,10 @@ function consumeDiscoveryEvent(
 		: "byte-limit";
 }
 
+function normalizeOutputPath(value: string): string {
+	return value.replaceAll("\\", "/");
+}
+
 function addFile(
 	ref: FileRef,
 	snapshot: FileSnapshot,
@@ -233,7 +237,7 @@ function addFile(
 	state.seenFiles.set(snapshot.identity, state.files.length);
 	state.files.push({
 		ref,
-		path: ref.displayPath,
+		path: normalizeOutputPath(ref.displayPath),
 		snapshot,
 		scopeInput: scope.input,
 		scopeOrder: scope.order,

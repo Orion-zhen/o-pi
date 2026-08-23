@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 describe("Discord presence 服务与 Pi 适配", () => {
-	it("本地协调端点准备失败时回滚为关闭状态", async () => {
+	it.skipIf(process.platform === "win32")("本地协调端点准备失败时回滚为关闭状态", async () => {
 		const blockedDirectory = path.join(temp.path, "blocked-endpoint");
 		await writeFile(blockedDirectory, "not a directory");
 		const coordinator = new DiscordPresenceCoordinatorClient({

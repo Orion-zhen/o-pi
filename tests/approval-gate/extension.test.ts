@@ -33,7 +33,7 @@ describe("approval gate", () => {
 	it.each([
 		["普通 bash", () => bash("echo hello"), [], 0],
 		["普通 edit", () => edit("src/index.ts"), [], 0],
-		["需审批 write", () => write(systemPath("etc", "hosts")), ["Allow once"], 1],
+		["需审批 write", () => write("skill://demo/SKILL.md"), ["Allow once"], 1],
 	] as const)("%s 放行并产生预期交互", async (_name, event, choices, selectCalls) => {
 		const ui = fakeUi([...choices]);
 		expect(await handle(event(), ctx(ui))).toBeUndefined();

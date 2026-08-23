@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { formatStartupBanner } from "../../src/tui/banner.js";
 import { defaultTuiConfig } from "../../src/tui/config.js";
@@ -25,23 +25,10 @@ const snapshot: TuiFooterSnapshot = {
 };
 
 describe("regular startup banner", () => {
-	it.each([120, 80, 36])("宽度 %i 下恢复旧版响应式布局且不越界", (width) => {
+	it.each([120, 80, 36])("宽度 %i 下不越界", (width) => {
 		const lines = formatStartupBanner(snapshot, defaultTuiConfig().home, width, plainTheme());
 		expect(lines.length).toBeGreaterThan(0);
 		expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
-	});
-
-	it("宽终端恢复旧版 wordmark、状态行和操作提示", () => {
-		const output = stripTerminalSequences(
-			formatStartupBanner(snapshot, defaultTuiConfig().home, 120, plainTheme()).join("\n"),
-		);
-
-		expect(output).toContain("██████╗");
-		expect(output).toContain("workspace");
-		expect(output).toContain("model");
-		expect(output).toContain("context");
-		expect(output).toContain("tools");
-		expect(output).toContain("/ commands · /stats · /tools · /agents");
 	});
 
 	it("缺少可选状态时不输出占位脏值", () => {

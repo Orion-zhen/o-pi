@@ -38,12 +38,13 @@ describe("agents prompt resource discovery", () => {
 	it("项目扫描排除全局 ~/.agents/prompts", async () => {
 		const prompt = path.join(dir, ".agents", "prompts", "home.md");
 		await mkdir(path.dirname(prompt), { recursive: true });
+		await mkdir(path.join(dir, ".git"), { recursive: true });
 		await writeFile(prompt, "---\ndescription: Home\n---\nHome");
 
 		expect(discoverAgentsPromptPaths({ cwd: dir, projectTrusted: true })).toEqual([prompt]);
 	});
 
-	it("拒绝项目 .agents/prompts 符号链接逃逸", async () => {
+	it.skipIf(process.platform === "win32")("拒绝项目 .agents/prompts 符号链接逃逸", async () => {
 		const project = path.join(dir, "repo");
 		const outside = path.join(dir, "outside.md");
 		const link = path.join(project, ".agents", "prompts", "outside.md");

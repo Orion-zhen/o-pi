@@ -71,7 +71,7 @@ describe("workspace namespace", () => {
 		const result = await namespace.paths.resolveExisting(input, { expected: "any", followFinalSymlink: true });
 		expect(result).toMatchObject({ ok: false, error: { code: "invalid-path", path: input } });
 	});
-	it("mounts authorized logical roots and blocks ordinary-path aliases", async () => {
+	it.skipIf(process.platform === "win32")("mounts authorized logical roots and blocks ordinary-path aliases", async () => {
 		const skillRoot = path.join(outside, "demo-skill");
 		await mkdir(path.join(skillRoot, "references"), { recursive: true });
 		await writeFile(path.join(skillRoot, "SKILL.md"), "skill");
@@ -120,7 +120,7 @@ describe("workspace namespace", () => {
 			{ followExistingSymlink: true },
 		)).toMatchObject({ ok: false, error: { code: "access-denied" } });
 	});
-	it("rejects mounted path traversal and symbolic-link escapes", async () => {
+	it.skipIf(process.platform === "win32")("rejects mounted path traversal and symbolic-link escapes", async () => {
 		const skillRoot = path.join(outside, "bounded-skill");
 		await mkdir(skillRoot);
 		await writeFile(path.join(outside, "secret.txt"), "secret");

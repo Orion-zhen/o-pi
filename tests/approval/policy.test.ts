@@ -13,6 +13,7 @@ import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 let dir: string;
 const temp = useTempDir("o-pi-approval-policy-");
 const commandCwd = path.join(path.parse(process.cwd()).root, "workspace", "project");
+const shellTempRoot = os.tmpdir().replaceAll("\\", "/");
 preserveEnv("PI_APPROVAL_GATE_CONFIG");
 
 beforeEach(() => {
@@ -133,16 +134,16 @@ done
 
 	it.each([
 		["mktemp 静态模板", `tmp=$(mktemp /tmp/pi-XXXX.ts)\ncat > "$tmp"\nrm -f "$tmp"`],
-		["安全重赋值", `tmp=/tmp/a\ntmp=/tmp/b\nrm -rf "$tmp"`],
+		["安全重赋值", `tmp="${shellTempRoot}/a"\ntmp="${shellTempRoot}/b"\nrm -rf "$tmp"`],
 		["声明式赋值", `readonly tmp=$(mktemp -d)\nrm -rf "$tmp"`],
-		["分支合并", `if test -n x; then tmp=/tmp/a; else tmp=/tmp/b; fi\nrm -rf "$tmp"`],
+		["分支合并", `if test -n x; then tmp="${shellTempRoot}/a"; else tmp="${shellTempRoot}/b"; fi\nrm -rf "$tmp"`],
 		["EXIT trap", `cleanup() { rm -rf "$tmp"; }\ntrap cleanup EXIT\ntmp=$(mktemp -d)`],
 		["Git 临时工作区", `tmp=$(mktemp -d)\ngit -C "$tmp" clean -fd`],
 		["包装 cd", `tmp=$(mktemp -d)\n(command cd "$tmp" && rm -rf .)`],
 		["嵌套 Shell cwd", `tmp=$(mktemp -d)\n(cd "$tmp" && bash -c "rm -rf .")`],
-		["嵌套 Shell 参数", `bash -c 'rm -rf "$1"' _ /tmp/pi-approval-work`],
+		["嵌套 Shell 参数", `bash -c 'rm -rf "$1"' _ "${shellTempRoot}/pi-approval-work"`],
 		["受限参数展开", `tmp=$(mktemp -d)\nrm -rf "\${tmp:?}/child"`],
-		["临时路径 glob", "rm -rf /tmp/pi-approval-*"],
+		["临时路径 glob", `rm -rf ${shellTempRoot}/pi-approval-*`],
 		["未调用函数", "publish() { git push origin main; }\necho ok"],
 		["已清除 EXIT trap", "trap 'git push origin main' EXIT\ntrap - EXIT\necho ok"],
 	] as const)("可证明局部副作用时默认放行: %s", async (_name, command) => {

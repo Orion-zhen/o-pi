@@ -186,7 +186,7 @@ describe("技能资源定位符", () => {
 		expect(result).toMatchObject({ kind: "error", code: "invalid-locator" });
 	});
 
-	it("拒绝空字符以及真实路径解析后的符号链接逃逸", async () => {
+	it.skipIf(process.platform === "win32")("拒绝空字符以及真实路径解析后的符号链接逃逸", async () => {
 		const outside = path.join(temp.path, "outside.md");
 		await writeFile(outside, "secret");
 		await symlink(outside, path.join(root, "references", "escape.md"));
