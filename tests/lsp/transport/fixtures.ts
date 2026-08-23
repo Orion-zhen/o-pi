@@ -168,6 +168,17 @@ export async function queryManagerSymbols(manager: LspManager, root: string, que
 	}))) ?? [];
 }
 
+export async function createManager(
+	fixture: TransportFixture,
+	fake: FakeServer,
+	overrides: Record<string, unknown> = {},
+): Promise<LspManager> {
+	await writeConfig(fixture, { type: "tcp", host: "127.0.0.1", port: fake.port }, overrides);
+	const manager = new LspManager();
+	fixture.manager = manager;
+	return manager;
+}
+
 export async function writeConfig(
 	fixture: TransportFixture,
 	transport: { type: "tcp"; host: string; port: number },
@@ -187,6 +198,24 @@ export async function writeConfig(
 		},
 	}));
 	process.env.PI_LSP_CONFIG = file;
+}
+
+export function createWorkspaceSymbolServer(
+	fixture: TransportFixture,
+	handler: MessageHandler,
+): Promise<FakeServer> {
+	return createFakeServer(fixture, (message, socket) => {
+		if (message.method === "initialize") {
+			send(socket, { id: message.id, result: { capabilities: {
+				workspaceSymbolProvider: true,
+				documentSymbolProvider: true,
+				referencesProvider: true,
+				callHierarchyProvider: true,
+			} } });
+		} else if (message.method === "workspace/symbol") {
+			handler(message, socket);
+		}
+	});
 }
 
 export async function createFakeServer(fixture: TransportFixture, handler: MessageHandler): Promise<FakeServer> {

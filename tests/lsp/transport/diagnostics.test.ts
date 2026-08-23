@@ -1,9 +1,8 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { DiagnosticsLedger } from "../../../src/lsp/diagnostics/ledger.js";
-import { LspManager } from "../../../src/lsp/manager/manager.js";
 import { pathToFileUri } from "../../../src/lsp/protocol/uri.js";
-import { createFakeServer, deferred, diagnostic, directClient, send, useTransportFixture, writeConfig } from "./fixtures.js";
+import { createFakeServer, createManager, deferred, diagnostic, directClient, send, useTransportFixture } from "./fixtures.js";
 
 const transport = useTransportFixture();
 
@@ -83,11 +82,7 @@ describe("lsp transport diagnostics", () => {
 				}
 			}
 		});
-		await writeConfig(transport, 
-			{ type: "tcp", host: "127.0.0.1", port: fake.port },
-			{ diagnostics: { enabled: true, max_wait_ms: 100, settle_ms: 0, max_items: 8, max_related_locations: 2, min_severity: "warning" } },
-		);
-		const manager = transport.manager = new LspManager();
+		const manager = await createManager(transport, fake, { diagnostics: { enabled: true, max_wait_ms: 100, settle_ms: 0, max_items: 8, max_related_locations: 2, min_severity: "warning" } });
 		const file = path.join(workspace, "a.ts");
 		await expect(manager.didWrite(workspace, file, "const a = 1;\n")).resolves.toMatchObject({
 			status: "errors",
@@ -134,11 +129,7 @@ describe("lsp transport diagnostics", () => {
 				}
 			}
 		});
-		await writeConfig(transport, 
-			{ type: "tcp", host: "127.0.0.1", port: fake.port },
-			{ diagnostics: { enabled: true, max_wait_ms: 1000, settle_ms: 0, max_items: 8, max_related_locations: 2, min_severity: "warning" } },
-		);
-		const manager = transport.manager = new LspManager();
+		const manager = await createManager(transport, fake, { diagnostics: { enabled: true, max_wait_ms: 1000, settle_ms: 0, max_items: 8, max_related_locations: 2, min_severity: "warning" } });
 		const pending = manager.didWriteBatch(Array.from({ length: 5 }, (_, index) => ({
 			root: workspace,
 			filePath: path.join(workspace, `${index}.ts`),
@@ -168,11 +159,7 @@ describe("lsp transport diagnostics", () => {
 				} });
 			}
 		});
-		await writeConfig(transport, 
-			{ type: "tcp", host: "127.0.0.1", port: fake.port },
-			{ diagnostics: { enabled: true, max_wait_ms: 100, settle_ms: 0, max_items: 8, min_severity: "warning" } },
-		);
-		const manager = transport.manager = new LspManager();
+		const manager = await createManager(transport, fake, { diagnostics: { enabled: true, max_wait_ms: 100, settle_ms: 0, max_items: 8, min_severity: "warning" } });
 		const file = path.join(workspace, "a.ts");
 		await expect(manager.didWrite(workspace, file, "const a = 1;\n")).resolves.toMatchObject({
 			status: "errors",
