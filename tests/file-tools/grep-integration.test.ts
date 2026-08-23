@@ -56,18 +56,14 @@ describe("grep integration", () => {
 		const newSource = "export const newName = 1;\n";
 		expect(Buffer.byteLength(oldSource)).toBe(Buffer.byteLength(newSource));
 		await writeFile(path.join(testContext.workspace, "cached.ts"), oldSource);
-		await withGrepRuntime(testContext.workspace, "grep-cache-prune", async ({ tool, opened }) => {
-			const execute = async (query: string): Promise<GrepSuccess> => expectGrepSuccess(await tool.execute({ query }, {
-				filesystem: opened.filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			}));
-			expect(firstRegion(await execute("oldName"))).toMatchObject({ path: "cached.ts", symbol: "oldName" });
+		await withGrepRuntime(testContext.workspace, "grep-cache-prune", async ({ execute }) => {
+			const search = async (query: string): Promise<GrepSuccess> => expectGrepSuccess(await execute({ query }));
+			expect(firstRegion(await search("oldName"))).toMatchObject({ path: "cached.ts", symbol: "oldName" });
 			await rm(path.join(testContext.workspace, "cached.ts"));
-			expect((await execute("cleanupMiss")).regions).toEqual([]);
+			expect((await search("cleanupMiss")).regions).toEqual([]);
 			await writeFile(path.join(testContext.workspace, "cached.ts"), newSource);
-			expect((await execute("oldName")).regions.every((region) => region.symbol !== "oldName")).toBe(true);
-			expect(firstRegion(await execute("newName"))).toMatchObject({ path: "cached.ts", symbol: "newName" });
+			expect((await search("oldName")).regions.every((region) => region.symbol !== "oldName")).toBe(true);
+			expect(firstRegion(await search("newName"))).toMatchObject({ path: "cached.ts", symbol: "newName" });
 		});
 	});
 
@@ -116,7 +112,7 @@ describe("grep integration", () => {
 	it("代码正文单次稳定读取同时服务 exact、lexical 与结构分析", async () => {
 		await writeFile(path.join(testContext.workspace, "first.ts"), "export function retryPolicy() { return 'session delay'; }\n");
 		await writeFile(path.join(testContext.workspace, "second.conf"), "session retry delay\n");
-		await withGrepRuntime(testContext.workspace, "grep-auto-single-scan", async ({ tool, opened }) => {
+		await withGrepRuntime(testContext.workspace, "grep-auto-single-scan", async ({ execute, opened }) => {
 			let lineScans = 0;
 			let fullReads = 0;
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
@@ -129,11 +125,7 @@ describe("grep integration", () => {
 					return await content.scanLines(file, options);
 				},
 			}));
-			const result = expectGrepSuccess(await tool.execute({ query: "session retry delay" }, {
-				filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			}));
+			const result = expectGrepSuccess(await execute({ query: "session retry delay" }, { filesystem }));
 			expect(result.regions.length).toBeGreaterThan(0);
 			expect({ lineScans, fullReads }).toEqual({ lineScans: 1, fullReads: 1 });
 		});
@@ -307,7 +299,7 @@ describe("grep integration", () => {
 
 	it("query miss 每次都重新执行当前 snapshot 的 line scan", async () => {
 		await writeFile(path.join(testContext.workspace, "miss.txt"), "unrelated\n");
-		await withGrepRuntime(testContext.workspace, "grep-query-miss", async ({ tool, opened }) => {
+		await withGrepRuntime(testContext.workspace, "grep-query-miss", async ({ execute, opened }) => {
 			let fullReads = 0;
 			let lineScans = 0;
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
@@ -321,11 +313,7 @@ describe("grep integration", () => {
 				},
 			}));
 			for (const query of ["first-miss", "second-miss", "first-miss"]) {
-				const result = expectGrepSuccess(await tool.execute({ query }, {
-					filesystem,
-					operation: opened.context,
-					limits: opened.limits,
-				}));
+				const result = expectGrepSuccess(await execute({ query }, { filesystem }));
 				expect(result.regions).toEqual([]);
 			}
 			expect({ fullReads, lineScans }).toEqual({ fullReads: 0, lineScans: 3 });

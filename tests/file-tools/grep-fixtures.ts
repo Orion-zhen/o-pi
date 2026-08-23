@@ -98,17 +98,37 @@ export async function withFileToolsInvocation<T>(
 	}
 }
 
+type GrepExecutionContext = Parameters<GrepTool["execute"]>[1];
+
+export interface GrepRuntimeFixture {
+	readonly tool: GrepTool;
+	readonly opened: FileToolsInvocation;
+	execute(
+		params: Parameters<GrepTool["execute"]>[0],
+		overrides?: Partial<GrepExecutionContext>,
+	): ReturnType<GrepTool["execute"]>;
+}
+
 export async function withGrepRuntime<T>(
 	workspace: string,
 	sessionId: string,
-	run: (runtime: { readonly tool: GrepTool; readonly opened: FileToolsInvocation }) => Promise<T>,
+	run: (runtime: GrepRuntimeFixture) => Promise<T>,
 ): Promise<T> {
 	const host = new FileToolsHost();
 	const tool = new GrepTool();
 	let opened: FileToolsInvocation | undefined;
 	try {
 		opened = expectSuccess(await host.open({ cwd: workspace, sessionId }));
-		return await run({ tool, opened });
+		const context: GrepExecutionContext = {
+			filesystem: opened.filesystem,
+			operation: opened.context,
+			limits: opened.limits,
+		};
+		return await run({
+			tool,
+			opened,
+			execute: (params, overrides = {}) => tool.execute(params, { ...context, ...overrides }),
+		});
 	} finally {
 		tool.dispose();
 		opened?.dispose();
