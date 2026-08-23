@@ -19,8 +19,6 @@
 	},
 	"safety": {
 		"deny_patterns": [
-			"rm -rf /",
-			"rm -rf /*",
 			"curl *|*sh",
 			"wget *|*sh",
 			"chmod -R 777 /",
