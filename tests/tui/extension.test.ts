@@ -89,14 +89,8 @@ describe("tui extension", () => {
 		const file = path.join(dir, "tui.jsonc");
 		await writeFile(file, '{ "home": { "enabled": false } }');
 		process.env["PI_TUI_CONFIG"] = file;
-		const handlers = new Map<string, Handler>();
-		const calls = createUiCalls();
 		let activeTools = ["read"];
-		const pi = createPi(handlers, { getActiveTools: () => activeTools });
-		const ctx = createContext(calls);
-
-		tuiExtension(pi as unknown as ExtensionAPI);
-		await handlers.get("session_start")?.({}, ctx);
+		const { calls, ctx } = await startTui({}, { getActiveTools: () => activeTools });
 		const component = calls.footer.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme, createFooterData());
 
 		expect(component?.render(80).join("\n")).toMatch(/\b1\/3\b/u);
@@ -105,13 +99,7 @@ describe("tui extension", () => {
 	});
 
 	it("空会话按 TUI 模式选择旧版 regular banner 或 fullscreen Home", async () => {
-		const handlers = new Map<string, Handler>();
-		const calls = createUiCalls();
-		const pi = createPi(handlers);
-		const ctx = createContext(calls, { mode: "tui" });
-
-		tuiExtension(pi as unknown as ExtensionAPI);
-		await handlers.get("session_start")?.({}, ctx);
+		const { handlers, calls, ctx } = await startTui({ mode: "tui" });
 
 		expect(calls.footer.at(-1)).toBeTypeOf("function");
 		expect(calls.editor.at(-1)).toBeTypeOf("function");
@@ -139,15 +127,9 @@ describe("tui extension", () => {
 		const file = path.join(dir, "tui.jsonc");
 		await writeFile(file, '{ "chrome": { "header": true }, "home": { "motion": "off" } }');
 		process.env["PI_TUI_CONFIG"] = file;
-		const handlers = new Map<string, Handler>();
-		const calls = createUiCalls();
-		const pi = createPi(handlers);
-		const ctx = createContext(calls, { mode: "tui" });
+		const { handlers, calls, ctx } = await startTui({ mode: "tui" });
 		const provider = createFooterDataController("main");
 		const homeRender = vi.fn();
-
-		tuiExtension(pi as unknown as ExtensionAPI);
-		await handlers.get("session_start")?.({}, ctx);
 		const startupFooterFactory = calls.footer.at(-1);
 		const startupHeaderFactory = calls.header.at(-1);
 		const editorFactory = calls.editor.at(-1);
@@ -212,13 +194,7 @@ describe("tui extension", () => {
 	it.each(["发送普通消息", "/skill:development 实现需求"])(
 		"首页回车提交 %s 后在 agent_start 前立即进入会话界面",
 		async (text) => {
-			const handlers = new Map<string, Handler>();
-			const calls = createUiCalls();
-			const pi = createPi(handlers);
-			const ctx = createContext(calls, { mode: "tui" });
-
-			tuiExtension(pi as unknown as ExtensionAPI);
-			await handlers.get("session_start")?.({}, ctx);
+			const { handlers, calls, ctx } = await startTui({ mode: "tui" });
 			const editorFactory = calls.editor.at(-1);
 			if (editorFactory === undefined) throw new Error("editor factory was not installed");
 			const editor = editorFactory(
@@ -242,16 +218,10 @@ describe("tui extension", () => {
 	);
 
 	it("恢复已有会话时直接进入聊天，不显示 Home", async () => {
-		const handlers = new Map<string, Handler>();
-		const calls = createUiCalls();
-		const pi = createPi(handlers);
-		const ctx = createContext(calls, {
+		const { calls, ctx } = await startTui({
 			mode: "tui",
 			entries: [{ type: "message", message: { role: "user" } }],
 		});
-
-		tuiExtension(pi as unknown as ExtensionAPI);
-		await handlers.get("session_start")?.({}, ctx);
 
 		expect(calls.header.at(-1)).toBeUndefined();
 		const footer = calls.footer.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme, createFooterData());
@@ -263,13 +233,7 @@ describe("tui extension", () => {
 		const file = path.join(dir, "tui.jsonc");
 		await writeFile(file, '{ "chrome": { "header": true } }');
 		process.env["PI_TUI_CONFIG"] = file;
-		const handlers = new Map<string, Handler>();
-		const calls = createUiCalls();
-		const pi = createPi(handlers);
-		const ctx = createContext(calls, { mode: "tui" });
-
-		tuiExtension(pi as unknown as ExtensionAPI);
-		await handlers.get("session_start")?.({}, ctx);
+		const { handlers, calls, ctx } = await startTui({ mode: "tui" });
 		const homeHeader = calls.header.at(-1);
 		await handlers.get("agent_start")?.({}, ctx);
 
@@ -278,13 +242,7 @@ describe("tui extension", () => {
 	});
 
 	it("首轮对话前 model_select 刷新 startup chrome 和 title", async () => {
-		const handlers = new Map<string, Handler>();
-		const calls = createUiCalls();
-		const pi = createPi(handlers);
-		const ctx = createContext(calls, { mode: "tui" });
-
-		tuiExtension(pi as unknown as ExtensionAPI);
-		await handlers.get("session_start")?.({}, ctx);
+		const { handlers, calls, ctx } = await startTui({ mode: "tui" });
 		const footerCount = calls.footer.length;
 		ctx.model = { provider: "openai", id: "gpt-5.2", reasoning: true };
 		await handlers.get("model_select")?.({ type: "model_select", model: ctx.model, previousModel: undefined, source: "set" }, ctx);
@@ -374,13 +332,7 @@ describe("tui extension", () => {
 	});
 
 	it("session_shutdown 清理 header/footer/status", async () => {
-		const handlers = new Map<string, Handler>();
-		const calls = createUiCalls();
-		const pi = createPi(handlers);
-		const ctx = createContext(calls, { mode: "tui" });
-
-		tuiExtension(pi as unknown as ExtensionAPI);
-		await handlers.get("session_start")?.({}, ctx);
+		const { handlers, calls, ctx } = await startTui({ mode: "tui" });
 		await handlers.get("session_shutdown")?.({}, ctx);
 
 		expect(calls.header.at(-1)).toBeUndefined();
@@ -679,6 +631,18 @@ function createFooterDataController(initialBranch: string | null): {
 		},
 		subscriberCount: () => callbacks.size,
 	};
+}
+
+async function startTui(
+	options: Parameters<typeof createContext>[1] = {},
+	piOptions: Parameters<typeof createPi>[1] = {},
+): Promise<{ handlers: Map<string, Handler>; calls: ReturnType<typeof createUiCalls>; ctx: ExtensionContextStub }> {
+	const handlers = new Map<string, Handler>();
+	const calls = createUiCalls();
+	const ctx = createContext(calls, options);
+	tuiExtension(createPi(handlers, piOptions) as unknown as ExtensionAPI);
+	await handlers.get("session_start")?.({}, ctx);
+	return { handlers, calls, ctx };
 }
 
 function createPi(
