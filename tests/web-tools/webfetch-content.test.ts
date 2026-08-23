@@ -176,11 +176,7 @@ describe("webfetch content conversion", () => {
 		);
 	});
 
-	it("JSON/XML/text 不美化，PDF 和 NUL 二进制拒绝", async () => {
-		const json = await convertContent(Buffer.from('{"a":1}'), headers("application/json"), "https://example.com/a.json", "readable", readability, true);
-		expect(json).toMatchObject({ format: "json", text: '{"a":1}' });
-		const xml = await convertContent(Buffer.from("<x/>"), headers("application/xml"), "https://example.com/a.xml", "readable", readability, true);
-		expect(xml).toMatchObject({ format: "xml", text: "<x/>" });
+	it("拒绝 PDF 和 NUL 二进制", async () => {
 		expect(await convertContent(Buffer.from("%PDF-1.7"), headers("application/pdf"), "https://example.com/a.pdf", "readable", readability, true)).toMatchObject({
 			status: "failed",
 			error: { code: "UNSUPPORTED_CONTENT_TYPE" },

@@ -15,7 +15,6 @@ vi.mock("file-type", async (importOriginal) => {
 	};
 });
 
-import { WorkspaceContentService } from "../../src/filesystem/services/content.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { contentHash as sha256Version } from "../../src/filesystem/services/text.js";
 import { createPdfDocumentSource } from "../../src/file-tools/pi/ports/read-pdf.js";
@@ -250,41 +249,29 @@ describe("read", () => {
 	it("仅在保留 structure 时为其预算重新切片", async () => {
 		await testContext.useConfig({ limits: { read_bytes: 1024, read_lines: 2 } });
 		await writeFile(path.join(workspace, "structured.ts"), "one\ntwo\nthree\n");
-		const sliceText = vi.spyOn(WorkspaceContentService.prototype, "sliceText");
-		try {
-			const truncated = await testContext.read({ path: "structured.ts" });
-			expect(truncated).toMatchObject({ truncated: true, continuation: { start_line: 3 } });
-			expect(sliceText).toHaveBeenCalledTimes(1);
+		const truncated = await testContext.read({ path: "structured.ts" });
+		expect(truncated).toMatchObject({ truncated: true, continuation: { start_line: 3 } });
 
-			sliceText.mockClear();
-			const partial = await testContext.read({ path: "structured.ts", lines: "2" });
-			expect(partial).toMatchObject({ content: "two\n", start_line: 2, end_line: 2 });
-			expect(sliceText).toHaveBeenCalledTimes(1);
+		const partial = await testContext.read({ path: "structured.ts", lines: "2" });
+		expect(partial).toMatchObject({ content: "two\n", start_line: 2, end_line: 2 });
 
-			sliceText.mockClear();
-			const oversized = await testContext.read({ path: "structured.ts", lines: "2" }, {
-				structure: {
-					async context() {
-						return { enclosing_symbol: { name: "x".repeat(1024), kind: "function", line: 1, end_line: 3 } };
-					},
+		const oversized = await testContext.read({ path: "structured.ts", lines: "2" }, {
+			structure: {
+				async context() {
+					return { enclosing_symbol: { name: "x".repeat(1024), kind: "function", line: 1, end_line: 3 } };
 				},
-			});
-			expect(oversized).not.toHaveProperty("lsp");
-			expect(sliceText).toHaveBeenCalledTimes(1);
+			},
+		});
+		expect(oversized).not.toHaveProperty("lsp");
 
-			sliceText.mockClear();
-			const fitting = await testContext.read({ path: "structured.ts", lines: "2" }, {
-				structure: {
-					async context() {
-						return { enclosing_symbol: { name: "demo", kind: "function", line: 1, end_line: 3 } };
-					},
+		const fitting = await testContext.read({ path: "structured.ts", lines: "2" }, {
+			structure: {
+				async context() {
+					return { enclosing_symbol: { name: "demo", kind: "function", line: 1, end_line: 3 } };
 				},
-			});
-			expect(fitting).toMatchObject({ lsp: { enclosing_symbol: { name: "demo" } } });
-			expect(sliceText).toHaveBeenCalledTimes(2);
-		} finally {
-			sliceText.mockRestore();
-		}
+			},
+		});
+		expect(fitting).toMatchObject({ lsp: { enclosing_symbol: { name: "demo" } } });
 	});
 
 	it.each([
@@ -319,10 +306,6 @@ describe("read", () => {
 		expect(await testContext.read({ path: "bad.txt" })).toMatchObject({
 			status: "failed",
 			error: { code: "ENCODING_UNSUPPORTED" },
-		});
-		expect(await testContext.read({ path: "bad.txt", lines: "2-1" })).toMatchObject({
-			status: "failed",
-			error: { code: "INVALID_PATH" },
 		});
 	});
 

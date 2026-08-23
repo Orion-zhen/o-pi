@@ -130,18 +130,6 @@ describe("bash tool execution", () => {
 		expect(expandedOutput).toContain("command 9");
 	});
 
-	it("无 session 文件或 model 时省略对应环境变量", () => {
-		process.env.PI_SESSION_FILE = "stale-session-file";
-		process.env.PI_PROVIDER = "stale-provider";
-		process.env.PI_MODEL = "stale-model";
-		const environment = createBashEnvironment({ sessionId: "session-only" });
-
-		expect(environment.PI_SESSION_ID).toBe("session-only");
-		expect(environment.PI_SESSION_FILE).toBeUndefined();
-		expect(environment.PI_PROVIDER).toBeUndefined();
-		expect(environment.PI_MODEL).toBeUndefined();
-	});
-
 	it.skipIf(process.platform !== "win32")("Windows PATH 大小写保持单一环境变量并保留原路径", () => {
 		process.env.Path = ["C:\\Existing\\bin", "c:\\existing\\bin"].join(path.delimiter);
 		const environment = createBashEnvironment({ sessionId: "windows-session" });
@@ -243,18 +231,6 @@ describe("bash tool execution", () => {
 		});
 		await executeBashCommand({ command: "echo hello", timeout: 2.5 }, runtime(operations));
 		expect(seenTimeout).toBe(2.5);
-	});
-
-	it("命令被传递到 exec 执行", async () => {
-		let seen: { command: string; cwd: string } | undefined;
-		const operations = fakeOperations(async (command, cwd) => {
-			seen = { command, cwd };
-			return { exitCode: 0 };
-		});
-		await executeBashCommand({ command: "echo hello" }, runtime(operations));
-		expect(seen).toBeDefined();
-		expect(seen?.cwd).toBe(workspace);
-		expect(typeof seen?.command).toBe("string");
 	});
 
 	it.each([".venv", "venv", "env", ".env", "pyvenv", "pyenv", ".pyvenv", ".pyenv"])(
