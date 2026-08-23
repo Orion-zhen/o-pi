@@ -7,7 +7,7 @@ import { loadTreeSitterParser } from "../../src/syntax-tree/loader.js";
 import { parseSyntaxTree } from "../../src/syntax-tree/parser.js";
 import type { AnalyzeCode } from "../../src/code-index/types.js";
 import { AbortGrepParse, GrepParser } from "../../src/file-tools/grep/parser-pool.js";
-import { createGrepTestContext, deferredVoid, overrideContent, withGrepRuntime } from "./grep-fixtures.js";
+import { countContentReads, createGrepTestContext, deferredVoid, overrideContent, withGrepRuntime } from "./grep-fixtures.js";
 
 const testContext = createGrepTestContext();
 
@@ -83,21 +83,10 @@ describe("grep lifecycle", () => {
 	it("regex 只执行一次稳定 line scan，不完整读取正文", async () => {
 		await writeFile(path.join(testContext.workspace, "stream.txt"), `needle\n${"tail\n".repeat(200)}`);
 		await withGrepRuntime(testContext.workspace, "grep-stream", async ({ execute, opened }) => {
-			let fullReads = 0;
-			let lineScans = 0;
-			const filesystem = overrideContent(opened.filesystem, (content) => ({
-				async readText(file, options) {
-					fullReads += 1;
-					return await content.readText(file, options);
-				},
-				async scanLines(file, options) {
-					lineScans += 1;
-					return await content.scanLines(file, options);
-				},
-			}));
+			const { counts, filesystem } = countContentReads(opened.filesystem);
 			const result = await execute({ path: ["stream.txt"], query: "needle" }, { filesystem });
 			expect(result).toMatchObject({ status: "success", regions: [expect.objectContaining({ path: "stream.txt" })] });
-			expect({ fullReads, lineScans }).toEqual({ fullReads: 0, lineScans: 1 });
+			expect(counts).toEqual({ fullReads: 0, lineScans: 1 });
 		});
 	});
 

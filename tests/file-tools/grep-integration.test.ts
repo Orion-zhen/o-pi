@@ -8,6 +8,7 @@ import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
 import { expectFailure } from "./result-fixtures.js";
 import {
+	countContentReads,
 	createGrepTestContext,
 	expectGrepSuccess,
 	firstRegion,
@@ -300,23 +301,12 @@ describe("grep integration", () => {
 	it("query miss 每次都重新执行当前 snapshot 的 line scan", async () => {
 		await writeFile(path.join(testContext.workspace, "miss.txt"), "unrelated\n");
 		await withGrepRuntime(testContext.workspace, "grep-query-miss", async ({ execute, opened }) => {
-			let fullReads = 0;
-			let lineScans = 0;
-			const filesystem = overrideContent(opened.filesystem, (content) => ({
-				async readText(file, options) {
-					fullReads += 1;
-					return await content.readText(file, options);
-				},
-				async scanLines(file, options) {
-					lineScans += 1;
-					return await content.scanLines(file, options);
-				},
-			}));
+			const { counts, filesystem } = countContentReads(opened.filesystem);
 			for (const query of ["first-miss", "second-miss", "first-miss"]) {
 				const result = expectGrepSuccess(await execute({ query }, { filesystem }));
 				expect(result.regions).toEqual([]);
 			}
-			expect({ fullReads, lineScans }).toEqual({ fullReads: 0, lineScans: 3 });
+			expect(counts).toEqual({ fullReads: 0, lineScans: 3 });
 		});
 	});
 

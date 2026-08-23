@@ -154,6 +154,23 @@ export function overrideContent(
 	};
 }
 
+export function countContentReads(filesystem: WorkspaceFileSystem) {
+	const counts = { fullReads: 0, lineScans: 0 };
+	return {
+		counts,
+		filesystem: overrideContent(filesystem, (content) => ({
+			async readText(file, options) {
+				counts.fullReads += 1;
+				return await content.readText(file, options);
+			},
+			async scanLines(file, options) {
+				counts.lineScans += 1;
+				return await content.scanLines(file, options);
+			},
+		})),
+	};
+}
+
 export async function grepWithAnalyzer(
 	workspace: string,
 	params: Parameters<GrepTool["execute"]>[0],
