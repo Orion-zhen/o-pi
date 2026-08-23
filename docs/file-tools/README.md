@@ -87,7 +87,7 @@ LSP 只提供内部增强，不是额外的模型可见工具。LSP 未配置、
 - `find` 或 `grep` 被截断：缩小 `path`、增加 `glob` 约束或拆分查询。先根据 `truncated_by` 判断具体限制。
 - `read` 被截断：文本根据 `continuation.start_line` 继续，PDF 根据 `continuation.start_page` 继续。
 - `READ_REQUIRED`：先重新 `read`，再生成 `edit`。
-- `STALE_READ`：文件在读取后发生变化，重新 `read` 后再编辑。
+- `STALE_READ`：文件发生未被当前会话采纳的变化，重新 `read` 后再编辑。当前会话的 `bash` 命令期间产生的已观察文件变更会自动采纳。
 - `OLD_TEXT_NOT_UNIQUE`：优先使用错误中返回的唯一 `old/new` 文本对重试。文件变化时再重新 `read`。
 - `OLD_TEXT_NOT_FOUND`：按错误提示消除对前序替换的依赖，或使用格式等价候选或锚点候选重写 `old`。没有可靠候选时重新 `read`。
 - 无效正则只有在精确字面量存在直接命中时才显式降级。否则，它与路径错误或权限错误一样，不会伪装成零结果。

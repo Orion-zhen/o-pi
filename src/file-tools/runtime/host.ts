@@ -10,9 +10,13 @@ import {
 	FileToolsConfigProvider,
 	type FileToolsConfigLoader,
 } from "../config.js";
-import { fail, mapFsError, type ToolOutcome } from "../shared/result.js";
+import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
 import { ObservationStore } from "./observation-store.js";
+import {
+	createSessionMutationScope,
+	type SessionMutationScope,
+} from "./session-mutation.js";
 
 export interface FileToolsHostOpenOptions {
 	readonly cwd: string;
@@ -49,6 +53,28 @@ export class FileToolsHost {
 	constructor(options: FileToolsHostOptions = {}) {
 		this.config = options.config ?? new FileToolsConfigProvider();
 		this.filesystem = options.filesystem ?? new FileSystemRuntime();
+	}
+
+	async beginSessionMutation(options: FileToolsHostOpenOptions): Promise<SessionMutationScope | undefined> {
+		const observation = this.sessions.get(options.sessionId);
+		if (observation === undefined || observation.size === 0) return undefined;
+		const opened = await this.open(options);
+		if (isFailed(opened)) return undefined;
+		try {
+			return await createSessionMutationScope({
+				filesystem: opened.filesystem,
+				observation: opened.observation,
+				maxFileBytes: Math.max(
+					opened.limits.read_max_file_bytes,
+					opened.limits.write_max_file_bytes,
+					opened.limits.edit_max_file_bytes,
+				),
+				dispose: () => opened.dispose(),
+			});
+		} catch (error) {
+			opened.dispose();
+			throw error;
+		}
 	}
 
 	async open(options: FileToolsHostOpenOptions): Promise<ToolOutcome<FileToolsInvocation>> {

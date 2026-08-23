@@ -6,7 +6,14 @@ import { createFileToolsExtension, type FileToolsModuleImports } from "../../age
 import type { LspMutationInput } from "../../src/lsp/adapters/file-operations.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { useTempDir } from "../helpers/lifecycle.js";
-import { activateFileTools, executeTool, registerExtension, type ExecuteTool, type LifecycleHandler } from "./extension-fixture.js";
+import {
+	activateFileTools,
+	executeTool,
+	registerExtension,
+	type ExecuteTool,
+	type ExecuteToolContext,
+	type LifecycleHandler,
+} from "./extension-fixture.js";
 
 describe("file-tools extension lifecycle", () => {
 	const workspace = useTempDir("o-pi-extension-");
@@ -93,6 +100,92 @@ describe("file-tools extension lifecycle", () => {
 		expect(imports.write).not.toHaveBeenCalled();
 		expect(imports.edit).not.toHaveBeenCalled();
 		expect(disposeHost).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([
+		{ name: "成功命令期间", phase: "during", isError: false, expectedCode: undefined },
+		{ name: "非零退出命令期间", phase: "during", isError: true, expectedCode: undefined },
+		{ name: "命令开始前", phase: "before", isError: false, expectedCode: "STALE_READ" },
+		{ name: "命令结束后", phase: "after", isError: false, expectedCode: "STALE_READ" },
+	] as const)("仅采纳当前 session 在 $name 产生的已观察文件变更", async ({ phase, isError, expectedCode }) => {
+		const cwd = workspace.path;
+		const sessionId = `bash-scope-${phase}-${isError}`;
+		const filename = `${sessionId}.ts`;
+		const source = "export const value=1;\n";
+		const formatted = "export const value = 1;\n";
+		const external = "export const value=1; // external\n";
+		const externalFormatted = "export const value = 1; // external\n";
+		await writeFile(join(cwd, filename), source);
+		const { registered, handlers } = registerExtension(createFileToolsExtension());
+		const ctx = { cwd, sessionManager: { getSessionId: () => sessionId, getBranch: () => [] } };
+
+		try {
+			await executeTool(registered, "read", { path: filename }, ctx);
+			if (phase === "before") await writeFile(join(cwd, filename), external);
+			await announceBash(handlers, "formatter", ctx);
+			if (phase === "during") await writeFile(join(cwd, filename), formatted);
+			if (phase === "before") await writeFile(join(cwd, filename), externalFormatted);
+			await endBash(handlers, "formatter", ctx, isError);
+			if (phase === "after") await writeFile(join(cwd, filename), formatted);
+
+			const result = await executeTool(registered, "edit", {
+				path: filename,
+				edits: [{ old: "value = 1", new: "value = 2" }],
+			}, ctx);
+			if (expectedCode === undefined) {
+				expect(result.details).toMatchObject({ status: "applied", path: filename });
+				expect(await readFile(join(cwd, filename), "utf8")).toBe("export const value = 2;\n");
+			} else {
+				expect(result.details).toMatchObject({ status: "failed", error: { code: expectedCode, path: filename } });
+			}
+		} finally {
+			await Promise.resolve(handlers.get("session_shutdown")?.({}, {}));
+		}
+	});
+
+	it("bash 不会把命令创建但从未观察的文件标记为可 edit", async () => {
+		const cwd = workspace.path;
+		const sessionId = "bash-scope-unobserved";
+		const observed = `${sessionId}-observed.ts`;
+		const created = `${sessionId}-created.ts`;
+		await writeFile(join(cwd, observed), "observed\n");
+		const { registered, handlers } = registerExtension(createFileToolsExtension());
+		const ctx = { cwd, sessionManager: { getSessionId: () => sessionId, getBranch: () => [] } };
+
+		try {
+			await executeTool(registered, "read", { path: observed }, ctx);
+			await announceBash(handlers, "generator", ctx);
+			await writeFile(join(cwd, created), "generated\n");
+			await endBash(handlers, "generator", ctx, false);
+			await expect(executeTool(registered, "edit", {
+				path: created,
+				edits: [{ old: "generated", new: "changed" }],
+			}, ctx)).resolves.toMatchObject({ details: { status: "failed", error: { code: "READ_REQUIRED" } } });
+		} finally {
+			await Promise.resolve(handlers.get("session_shutdown")?.({}, {}));
+		}
+	});
+
+	it("其他 session 发起的 bash 变更不会更新当前 session 的 observation", async () => {
+		const cwd = workspace.path;
+		const filename = "bash-scope-other-session.ts";
+		await writeFile(join(cwd, filename), "export const value=1;\n");
+		const { registered, handlers } = registerExtension(createFileToolsExtension());
+		const owner = { cwd, sessionManager: { getSessionId: () => "owner-session", getBranch: () => [] } };
+		const other = { cwd, sessionManager: { getSessionId: () => "other-session", getBranch: () => [] } };
+
+		try {
+			await executeTool(registered, "read", { path: filename }, owner);
+			await announceBash(handlers, "other-formatter", other);
+			await writeFile(join(cwd, filename), "export const value = 1;\n");
+			await endBash(handlers, "other-formatter", other, false);
+			await expect(executeTool(registered, "edit", {
+				path: filename,
+				edits: [{ old: "value = 1", new: "value = 2" }],
+			}, owner)).resolves.toMatchObject({ details: { status: "failed", error: { code: "STALE_READ" } } });
+		} finally {
+			await Promise.resolve(handlers.get("session_shutdown")?.({}, {}));
+		}
 	});
 
 	it("同一 factory 创建新 session 时重建已释放的 find 和 grep adapter", async () => {
@@ -252,6 +345,32 @@ describe("file-tools extension lifecycle", () => {
 		expect(imports.lsp).toHaveBeenCalledTimes(1);
 	});
 });
+
+async function announceBash(
+	handlers: Map<string, LifecycleHandler>,
+	toolCallId: string,
+	ctx: ExecuteToolContext,
+): Promise<void> {
+	await Promise.resolve(handlers.get("tool_execution_start")?.({
+		toolCallId,
+		toolName: "bash",
+		args: { command: "custom-formatter" },
+	}, ctx));
+}
+
+async function endBash(
+	handlers: Map<string, LifecycleHandler>,
+	toolCallId: string,
+	ctx: ExecuteToolContext,
+	isError: boolean,
+): Promise<void> {
+	await Promise.resolve(handlers.get("tool_execution_end")?.({
+		toolCallId,
+		toolName: "bash",
+		result: {},
+		isError,
+	}, ctx));
+}
 
 function diagnostics(status: "clean" | "warnings" | "errors", message: string) {
 	const severity = status === "errors" ? "error" as const : "warning" as const;

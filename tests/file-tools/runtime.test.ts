@@ -170,6 +170,13 @@ describe("FileToolsHost runtime", () => {
 		expect(first.observation.remember(real, version)).toBe(true);
 		expect(second.observation).toBe(first.observation);
 		expect(second.observation.get(alias)).toEqual(version);
+		expect(first.observation.entries()).toEqual([{
+			canonicalPath: path.join(workspace, "real.txt"),
+			version,
+		}]);
+		const nextVersion = { hash: contentHash(bytes("next")), sizeBytes: 4 };
+		expect(second.observation.remember(alias, nextVersion)).toBe(true);
+		expect(first.observation.get(real)).toEqual(nextVersion);
 		expect(isolated.observation.get(isolatedRef)).toBeUndefined();
 		expect(first.observation.remember(isolatedRef, version)).toBe(false);
 		expect(first.observation.forget(isolatedRef)).toBe(false);

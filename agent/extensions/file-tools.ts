@@ -4,6 +4,7 @@ import { isFailedDetails, isFileToolName } from "../../src/file-tools/pi/guards.
 import { createLazyLspFileOperations } from "../../src/file-tools/pi/lazy-lsp.js";
 import type { LsParams } from "../../src/file-tools/ls/types.js";
 import type { FileToolsHost } from "../../src/file-tools/runtime/host.js";
+import type { SessionMutationScope } from "../../src/file-tools/runtime/session-mutation.js";
 import { READ_RANGE_PATTERN } from "../../src/file-tools/read/range.js";
 import type { ReadParams } from "../../src/file-tools/read/types.js";
 import type { EditParams, EditSuccess } from "../../src/file-tools/edit/types.js";
@@ -157,6 +158,7 @@ function registerFileTools(
 	};
 	const lsp = createLazyLspFileOperations(loaders.lsp);
 	const mutationBatches = new MutationBatchCoordinator();
+	let sessionMutation: SessionMutationScope | undefined;
 	const skillPathIndex = createRetryableLoader(async () => buildSkillPathIndex(
 		collectSkillCandidates(undefined, typeof pi.getCommands === "function" ? pi.getCommands() : []),
 	));
@@ -362,8 +364,24 @@ function registerFileTools(
 			? [{ id: item.id, name: item.name }]
 			: []));
 	});
-	pi.on("tool_execution_start", (event) => mutationBatches.started(event.toolCallId));
-	pi.on("tool_execution_end", (event) => mutationBatches.ended(event.toolCallId));
+	pi.on("tool_execution_start", async (event, ctx) => {
+		mutationBatches.started(event.toolCallId);
+		if (event.toolName !== "bash" || host === undefined) return;
+		const index = await skillPathIndex();
+		const pathAccess = await buildSkillFilesystemAccess(ctx.sessionManager.getBranch(), index);
+		sessionMutation = await host.beginSessionMutation({
+			cwd: ctx.cwd,
+			sessionId: ctx.sessionManager.getSessionId(),
+			pathAccess,
+		});
+	});
+	pi.on("tool_execution_end", async (event) => {
+		mutationBatches.ended(event.toolCallId);
+		if (event.toolName !== "bash") return;
+		const scope = sessionMutation;
+		sessionMutation = undefined;
+		await scope?.finish();
+	});
 	pi.on("tool_result", (event) => {
 		if (isFileToolName(event.toolName) && isFailedDetails(event.details)) return { isError: true };
 		return undefined;
@@ -371,6 +389,8 @@ function registerFileTools(
 	pi.on("session_shutdown", () => {
 		shuttingDown = true;
 		mutationBatches.dispose();
+		sessionMutation?.dispose();
+		sessionMutation = undefined;
 		host?.stop();
 		for (const instance of loadedToolInstances) instance.dispose();
 		host?.dispose();
