@@ -20,6 +20,14 @@ export interface JsonRpcMessage {
 
 export type MessageHandler = (message: JsonRpcMessage, socket: Socket) => void;
 
+interface ProtocolServerOptions {
+	readonly capabilities?: Record<string, unknown>;
+	readonly routes?: Readonly<Record<string, MessageHandler>>;
+	readonly afterInitialize?: MessageHandler;
+	readonly onInitialized?: MessageHandler;
+	readonly onMessage?: MessageHandler;
+}
+
 interface Deferred<T> {
 	readonly promise: Promise<T>;
 	resolve(value: T): void;
@@ -200,21 +208,34 @@ export async function writeConfig(
 	process.env.PI_LSP_CONFIG = file;
 }
 
+export function createProtocolServer(
+	fixture: TransportFixture,
+	options: ProtocolServerOptions,
+): Promise<FakeServer> {
+	return createFakeServer(fixture, (message, socket) => {
+		if (message.method === "initialize") {
+			send(socket, { id: message.id, result: { capabilities: options.capabilities ?? {} } });
+			options.afterInitialize?.(message, socket);
+			return;
+		}
+		if (message.method === "initialized") options.onInitialized?.(message, socket);
+		if (message.method !== undefined) options.routes?.[message.method]?.(message, socket);
+		options.onMessage?.(message, socket);
+	});
+}
+
 export function createWorkspaceSymbolServer(
 	fixture: TransportFixture,
 	handler: MessageHandler,
 ): Promise<FakeServer> {
-	return createFakeServer(fixture, (message, socket) => {
-		if (message.method === "initialize") {
-			send(socket, { id: message.id, result: { capabilities: {
-				workspaceSymbolProvider: true,
-				documentSymbolProvider: true,
-				referencesProvider: true,
-				callHierarchyProvider: true,
-			} } });
-		} else if (message.method === "workspace/symbol") {
-			handler(message, socket);
-		}
+	return createProtocolServer(fixture, {
+		capabilities: {
+			workspaceSymbolProvider: true,
+			documentSymbolProvider: true,
+			referencesProvider: true,
+			callHierarchyProvider: true,
+		},
+		routes: { "workspace/symbol": handler },
 	});
 }
 

@@ -15,6 +15,7 @@ import type { FormalWebSearchProviderId, WebFetchExecutionContext, WebFetchParam
 import { createWebSearchRuntime, type WebSearchProviderLoaders } from "../../src/web-tools/search/websearch-runtime.js";
 import { httpResponse } from "../helpers/http.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
+import { webFetchDetails } from "./renderer-fixture.js";
 
 const execFileAsync = promisify(execFile);
 let dir: string;
@@ -109,28 +110,10 @@ describe("web-tools extension", () => {
 	it("只在模型和 API 都支持工具图片时返回 Pi ImageContent", async () => {
 		const fetch = vi.fn(async (_params: WebFetchParams, _context: WebFetchExecutionContext) => ({
 			content: "page",
-			details: {
-				status: "success" as const,
-				scope: "static_response" as const,
-				page_kind: "image" as const,
-				text_source: "metadata" as const,
-				completeness: "complete" as const,
-				omissions: [],
-				requested_url: "https://example.com/",
-				final_url: "https://example.com/",
-				http_status: 200,
-				format: "markdown" as const,
-				downloaded_bytes: 10,
-				total_chars: 4,
-				range: { start: 0, end: 4, total: 4, has_more: false },
-				authenticated: false,
-				redirect_count: 0,
-				snapshot: "not_needed" as const,
-				deferred_fragments: { discovered: 0, resolved: 0, limited: false },
+			details: webFetchDetails({
+				page_kind: "image", text_source: "metadata", completeness: "complete", omissions: [],
 				media: { discovered: 1, returned: 1 },
-				duration_ms: 1,
-				preview: "page",
-			},
+			}),
 			media: [{ data: Uint8Array.from([1, 2, 3]), mimeType: "image/png" }],
 		}));
 		const runtime: WebToolsRuntime = {

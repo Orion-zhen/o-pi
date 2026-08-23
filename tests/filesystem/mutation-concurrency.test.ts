@@ -9,7 +9,7 @@ import { deferredVoid as deferred, expectFsOk as expectOk, textBytes as bytes } 
 import { commitBytes, useMutationFixture } from "./mutation-fixtures.js";
 
 const test = useMutationFixture("o-pi-mutation-concurrency-");
-const { openRuntime, policy, resolveTarget, track } = test;
+const { openMutation, openRuntime, policy, resolveTarget, track } = test;
 let workspace: string;
 beforeEach(() => { workspace = test.workspace; });
 
@@ -92,25 +92,23 @@ describe("filesystem mutation concurrency", () => {
 	});
 	it("cancels queued work with its lease without blocking later mutations", async () => {
 		const controller = new AbortController();
-		const opened = await openRuntime([], undefined, controller.signal);
-		const target = await resolveTarget(opened, "queued.txt");
+		const mutation = await openMutation("queued.txt", { signal: controller.signal });
 		const activeEntered = deferred();
 		const activeRelease = deferred();
-		const active = opened.filesystem.mutations.run(target, { createParents: false }, async () => {
+		const active = mutation.run({ createParents: false }, async () => {
 			activeEntered.resolve();
 			await activeRelease.promise;
 			return { type: "reject", reason: "released" };
 		});
 		await activeEntered.promise;
 
-		const cancelled = commitBytes(opened, target, bytes("cancelled"), { createParents: false });
+		const cancelled = mutation.commit(bytes("cancelled"), { createParents: false });
 		controller.abort();
 		await expect(cancelled).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 		activeRelease.resolve();
 		expect(expectOk(await active)).toMatchObject({ committed: false });
-		const laterOpened = await openRuntime();
-		const laterTarget = await resolveTarget(laterOpened, "queued.txt");
-		const later = commitBytes(laterOpened, laterTarget, bytes("later"), { createParents: false });
+		const laterMutation = await openMutation("queued.txt");
+		const later = laterMutation.commit(bytes("later"), { createParents: false });
 		expect(expectOk(await later)).toMatchObject({
 			committed: true,
 			receipt: { hash: contentHash(bytes("later")) },
@@ -121,18 +119,16 @@ describe("filesystem mutation concurrency", () => {
 		const protectedFile = path.join(protectedDirectory, "secret.txt");
 		await mkdir(protectedDirectory);
 		await writeFile(protectedFile, "secret");
-		await writeFile(path.join(workspace, "queued.txt"), "safe");
-		const opened = await openRuntime([`${protectedDirectory}/`]);
-		const target = await resolveTarget(opened, "queued.txt");
+		const mutation = await openMutation("queued.txt", { initial: "safe", blockedPaths: [`${protectedDirectory}/`] });
 		const entered = deferred();
 		const release = deferred();
-		const active = opened.filesystem.mutations.run(target, { createParents: false }, async () => {
+		const active = mutation.run({ createParents: false }, async () => {
 			entered.resolve();
 			await release.promise;
 			return { type: "reject", reason: "no-op" };
 		});
 		await entered.promise;
-		const queued = commitBytes(opened, target, bytes("unsafe"), { createParents: false });
+		const queued = mutation.commit(bytes("unsafe"), { createParents: false });
 		await rm(path.join(workspace, "queued.txt"));
 		await symlink(protectedFile, path.join(workspace, "queued.txt"));
 		release.resolve();

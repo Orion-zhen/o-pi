@@ -15,6 +15,7 @@ import type { FsResult } from "../../src/filesystem/contracts/result.js";
 import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
 import {
 	assertStrictMatches,
+	countContentReads,
 	createGrepTestContext,
 	deferredVoid,
 	expectGrepSuccess,
@@ -461,23 +462,12 @@ describe("grep local search", () => {
 	it("regex 暖调用复用已按当前 snapshot 校验的代码正文", async () => {
 		await writeFile(path.join(testContext.workspace, "warm.ts"), "export function warm() { return 'WarmNeedle'; }\n");
 		await withGrepRuntime(testContext.workspace, "grep-strict-warm", async ({ execute, opened }) => {
-			let scans = 0;
-			let fullReads = 0;
-			const filesystem = overrideContent(opened.filesystem, (content) => ({
-				async readText(file, options) {
-					fullReads += 1;
-					return await content.readText(file, options);
-				},
-				async scanLines(file, options) {
-					scans += 1;
-					return await content.scanLines(file, options);
-				},
-			}));
+			const { counts, filesystem } = countContentReads(opened.filesystem);
 			const results: GrepSuccess[] = [];
 			for (let index = 0; index < 2; index += 1) {
 				results.push(expectGrepSuccess(await execute({ query: "WarmNeedle" }, { filesystem })));
 			}
-			expect({ scans, fullReads }).toEqual({ scans: 0, fullReads: 1 });
+			expect(counts).toEqual({ fullReads: 1, lineScans: 0 });
 			expect(results[1]?.regions).toEqual(results[0]?.regions);
 		});
 	});
@@ -489,17 +479,11 @@ describe("grep local search", () => {
 		await testContext.useConfig({ [field]: 0 }, `content-cache-disabled-${field}`);
 		await writeFile(path.join(testContext.workspace, "disabled.ts"), "export function disabled() { return 'DisabledCacheNeedle'; }\n");
 		await withGrepRuntime(testContext.workspace, "grep-cache-disabled", async ({ execute, opened }) => {
-			let fullReads = 0;
-			const filesystem = overrideContent(opened.filesystem, (content) => ({
-				async readText(file, options) {
-					fullReads += 1;
-					return await content.readText(file, options);
-				},
-			}));
+			const { counts, filesystem } = countContentReads(opened.filesystem);
 			for (let index = 0; index < 2; index += 1) {
 				expectGrepSuccess(await execute({ query: "DisabledCacheNeedle" }, { filesystem }));
 			}
-			expect(fullReads).toBe(2);
+			expect(counts.fullReads).toBe(2);
 		});
 	});
 
