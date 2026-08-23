@@ -1,28 +1,10 @@
-import os from "node:os";
-import path from "node:path";
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { formatHomeFooter, formatHomePage, selectHomeTip, type HomeAnimationFrame, type HomePageOptions } from "../../src/tui/home.js";
 import { defaultTuiConfig } from "../../src/tui/config.js";
-import type { TuiFooterSnapshot } from "../../src/tui/types.js";
+import { footerSnapshot, plainTheme } from "./fixtures.js";
 
-const snapshot: TuiFooterSnapshot = {
-	cwd: path.join(os.homedir(), "pi-dev"),
-	git: "main",
-	modelId: "deepseek-v4-flash-free",
-	modelProvider: "opencode",
-	modelReasoning: true,
-	thinkingLevel: "high",
-	availableProviderCount: 2,
-	context: { tokens: 74_000, contextWindow: 200_000, percent: 37 },
-	status: "ready",
-	tools: {
-		activeNames: ["ls", "read", "write", "edit", "find", "grep", "bash", "websearch", "webfetch", "subagent", "skill"],
-		totalCount: 11,
-		allNames: ["ls", "read", "write", "edit", "find", "grep", "bash", "websearch", "webfetch", "subagent", "skill"],
-	},
-	skills: { totalCount: 3, modelInvocableCount: 1 },
-};
+const snapshot = footerSnapshot();
 
 const editorLines = ["─ NEW SESSION ─", "Ask anything...", "─ ● ready ─"];
 
@@ -110,8 +92,4 @@ function homeOptions(
 	tip = selectHomeTip("session-test"),
 ): HomePageOptions {
 	return { height, tip, animation };
-}
-
-function plainTheme() {
-	return { fg: (_color: string, text: string) => text };
 }

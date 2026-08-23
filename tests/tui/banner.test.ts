@@ -1,28 +1,10 @@
-import os from "node:os";
-import path from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { formatStartupBanner } from "../../src/tui/banner.js";
 import { defaultTuiConfig } from "../../src/tui/config.js";
-import type { TuiFooterSnapshot } from "../../src/tui/types.js";
+import { footerSnapshot, plainTheme } from "./fixtures.js";
 
-const snapshot: TuiFooterSnapshot = {
-	cwd: path.join(os.homedir(), "pi-dev"),
-	git: "main",
-	modelId: "deepseek-v4-flash-free",
-	modelProvider: "opencode",
-	modelReasoning: true,
-	thinkingLevel: "high",
-	availableProviderCount: 2,
-	context: { tokens: 0, contextWindow: 200_000, percent: 0 },
-	status: "ready",
-	tools: {
-		activeNames: ["ls", "read", "write", "edit", "find", "grep", "bash", "websearch", "webfetch", "subagent", "skill"],
-		totalCount: 11,
-		allNames: ["ls", "read", "write", "edit", "find", "grep", "bash", "websearch", "webfetch", "subagent", "skill"],
-	},
-	skills: { totalCount: 3, modelInvocableCount: 1 },
-};
+const snapshot = footerSnapshot({ tokens: 0, contextWindow: 200_000, percent: 0 });
 
 describe("regular startup banner", () => {
 	it.each([120, 80, 36])("宽度 %i 下不越界", (width) => {
@@ -41,7 +23,3 @@ describe("regular startup banner", () => {
 		expect(output).not.toMatch(/undefined|null/);
 	});
 });
-
-function plainTheme() {
-	return { fg: (_color: string, text: string) => text };
-}
