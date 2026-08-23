@@ -94,31 +94,28 @@ export function createProviderAuth(providerId: string, provider: ProviderConfig)
 /** refreshModels 已收到 Pi 解析后的 credential；据此构造模型目录请求认证。 */
 export function resolveRefreshAuth(
 	providerId: string,
-	provider: ProviderConfig,
-	credential: ApiKeyCredential | undefined,
+	credential: ApiKeyCredential,
 ): { apiKey?: string; headers?: Record<string, string>; keyless: boolean } {
-	const env = credential?.env;
-	const headers = resolveHeadersOrThrow(provider.headers, `provider "${providerId}"`, env);
-	const keyless = credential?.env?.[KEYLESS_AUTH_ENV] === "1"
-		|| credential?.key === EMPTY_API_KEY
-		|| (credential?.key === undefined && isExplicitKeyless(provider));
+	const keyless = credential.env?.[KEYLESS_AUTH_ENV] === "1";
+	const headers = resolvedProviderHeaders(providerId, credential.env);
 	return {
-		...(keyless ? {} : credential?.key ? { apiKey: credential.key } : {}),
+		...(!keyless && credential.key !== undefined ? { apiKey: credential.key } : {}),
 		...(headers ? { headers } : {}),
 		keyless,
 	};
 }
 
-export function resolvedProviderHeaders(env: Record<string, string> | undefined): Record<string, string> | undefined {
+export function resolvedProviderHeaders(
+	providerId: string,
+	env: Record<string, string> | undefined,
+): Record<string, string> | undefined {
 	const serialized = env?.[PROVIDER_HEADERS_ENV];
 	if (!serialized) return undefined;
-	try {
-		const parsed: unknown = JSON.parse(serialized);
-		if (!isStringRecord(parsed)) return undefined;
-		return parsed;
-	} catch {
-		return undefined;
+	const parsed: unknown = JSON.parse(serialized);
+	if (!isStringRecord(parsed)) {
+		throw new TypeError(`Resolved provider headers for provider "${providerId}" are invalid`);
 	}
+	return parsed;
 }
 
 function configuredApiKey(providerId: string, provider: ProviderConfig): string {

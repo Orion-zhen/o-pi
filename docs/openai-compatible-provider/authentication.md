@@ -93,19 +93,19 @@ PI_MODELS_JSONC_<PROVIDER_ID>_API_KEY
 
 ## 模型发现认证
 
-模型目录端点使用当前有效的凭证和提供方请求头。联网刷新时，Pi 已解析的凭证优先。没有运行时凭证时，扩展使用提供方配置。
+模型目录端点使用 Pi 联网刷新阶段已经解析的 API key credential，其中包含 keyless 标记和已解析的提供方请求头。扩展不会在模型目录请求边界重新读取或回退解析提供方配置。
 
 模型目录端点返回非 2xx 状态时，错误会包含提供方和 HTTP 状态，并最多截取响应正文的前 500 个字符。扩展不会把请求中的 `Authorization` 或 API 密钥写入错误。
 
 ## 持久化
 
-Pi 的 `ModelsStore` 可以保存：
+Pi 的 `ModelsStore` 会按提供方 ID 保存：
 
-- 模型元数据
-- `baseUrl`
-- API 类型、兼容选项和目录配置的来源哈希
+- 刷新后的模型元数据
+- `baseUrl` 和 API 类型
+- `checkedAt` 等 Pi 原生刷新状态
 
-`ModelsStore` 不保存 API 密钥或认证请求头。
+`ModelsStore` 不保存 API 密钥、认证请求头或扩展内部标记。
 
 ## 文件权限
 

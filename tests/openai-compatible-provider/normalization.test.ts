@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyRuntimePayloadConfig } from "../../src/openai-compatible-provider/index.js";
+import { applyRuntimePayloadConfig } from "../../src/openai-compatible-provider/normalize.js";
 import { normalizeProvider, normalizeRuntime } from "./fixtures.js";
 import { useOpenAICompatibleProviderTestSetup } from "./test-support.js";
 
@@ -9,21 +9,21 @@ const temp = useOpenAICompatibleProviderTestSetup();
 const invalidConfigs = [
 	["provider defaults", { apiKey: "sk-secret", defaults: {} }, "providers.vllm.defaults is not supported", "sk-secret"],
 	["provider sampling", { apiKey: "sk-secret", temperature: 0.2 }, "providers.vllm.temperature is not supported", "sk-secret"],
+	["provider core dropParams", { dropParams: ["model"] }, "providers.vllm.dropParams cannot remove core request field \"model\"", undefined],
+	["model core dropParams", { models: [{ id: "m", dropParams: ["messages"] }] }, "providers.vllm.models[0].dropParams cannot remove core request field \"messages\"", undefined],
 	["duplicate model", { models: ["qwen3-coder", { id: "qwen3-coder" }] }, 'provider "vllm" contains duplicate model "qwen3-coder"', undefined],
-	["removed model extraBody", { models: [{ id: "m", extraBody: { custom: true } }] }, "models[0].extraBody was replaced by samplingParams or provider.extraBody", undefined],
-	["removed model defaults", { models: [{ id: "m", defaults: { topP: 0.9 } }] }, "models[0].defaults was replaced by samplingParams", undefined],
+	["removed model extraBody", { models: [{ id: "m", extraBody: { custom: true } }] }, undefined, undefined],
+	["removed model defaults", { models: [{ id: "m", defaults: { topP: 0.9 } }] }, undefined, undefined],
 	["legacy provider fields", {
-		baseUrl: undefined,
-		apiKey: undefined,
 		base_url: "http://127.0.0.1:8000/v1",
 		api_key: "EMPTY",
-	}, "providers.vllm.base_url was replaced by baseUrl", undefined],
-	["missing model id", { models: [{}] }, "providers.vllm.models[0].id is required", undefined],
+	}, undefined, undefined],
+	["missing model id", { models: [{}] }, undefined, undefined],
 	["missing baseUrl", { baseUrl: undefined }, "providers.vllm.baseUrl is required", undefined],
 	["removed compatPreset", { compatPreset: "foo" }, "providers.vllm.compatPreset is not supported", undefined],
-	["legacy reasoning effort", { models: [{ id: "m", reasoning_effort: "high" }] }, "reasoning_effort is not supported", undefined],
-	["unknown provider thinking preset", { thinkingPreset: "unknown" }, 'unknown thinkingPreset "unknown"', undefined],
-	["unknown model thinking preset", { models: [{ id: "m", thinkingPreset: "unknown" }] }, 'models[0] has unknown thinkingPreset "unknown"', undefined],
+	["legacy reasoning effort", { models: [{ id: "m", reasoning_effort: "high" }] }, undefined, undefined],
+	["unknown provider thinking preset", { thinkingPreset: "unknown" }, "providers.vllm.thinkingPreset must be equal to one of the allowed values", undefined],
+	["unknown model thinking preset", { models: [{ id: "m", thinkingPreset: "unknown" }] }, undefined, undefined],
 	["unsupported default thinking level", { models: [{ id: "m", defaultThinkingLevel: "max" }] }, 'defaultThinkingLevel "max" is not supported', undefined],
 	["unknown thinking map key", { models: [{ id: "m", thinkingLevelMap: { turbo: "turbo" } }] }, 'thinkingLevelMap contains unknown Pi thinking level "turbo"', undefined],
 	["default excluded by thinking map", {
@@ -77,8 +77,9 @@ describe("openai-compatible-provider normalization", () => {
 		expect(provider.runtimeModels.get("m")?.headers).toEqual({ "X-Model": "$MODEL_HEADER" });
 	});
 
-	it("nested compat 按 Pi 原生语义合并", async () => {
+	it("provider/model compat 按顶层覆盖且对象字段整体替换", async () => {
 		const provider = await normalizeProvider(temp.path, {
+			thinkingPreset: "chat-template-enabled",
 			compat: {
 				supportsToolSearch: true,
 				openRouterRouting: { order: ["one"] },
@@ -92,11 +93,10 @@ describe("openai-compatible-provider normalization", () => {
 				},
 			}],
 		}, "router");
-		expect(provider.models[0]?.compat).toMatchObject({
-			openRouterRouting: { order: ["one"], allow_fallbacks: false },
-			chatTemplateKwargs: { provider: true, model: true },
-		});
-		expect(provider.models[0]?.compat).toMatchObject({ supportsToolSearch: true });
+		const compat = provider.runtimeModels.get("m")?.compat;
+		expect(compat?.openRouterRouting).toEqual({ allow_fallbacks: false });
+		expect(compat?.chatTemplateKwargs).toEqual({ model: true });
+		expect(compat).toMatchObject({ supportsToolSearch: true });
 	});
 
 	it("保守 compat 默认值可由 provider 和 model 原生 compat 覆盖", async () => {
@@ -216,7 +216,7 @@ describe("openai-compatible-provider normalization", () => {
 			supportsFinishReason: false,
 			supportsThinkingTokenBudget: true,
 			supportsExplicitPromptCacheMode: true,
-			futureCompatOption: { provider: true, model: true },
+			futureCompatOption: { model: true },
 		});
 	});
 
@@ -236,7 +236,7 @@ describe("openai-compatible-provider normalization", () => {
 
 	it.each(invalidConfigs)("拒绝 %s", async (_name, overrides, expected, redacted) => {
 		const message = await rejectionMessage(normalizeProvider(temp.path, overrides, "vllm"));
-		expect(message).toContain(expected);
+		if (expected) expect(message).toContain(expected);
 		if (redacted) expect(message).not.toContain(redacted);
 	});
 });

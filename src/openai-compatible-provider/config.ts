@@ -1,5 +1,4 @@
-import { constants } from "node:fs";
-import { access, readFile, stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
@@ -7,7 +6,7 @@ import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 import { isNotFound } from "../config-loader.js";
 import { compileSchemaValidator, type SchemaValidationError } from "../schema-validator.js";
 import { invalidModelsJsonc } from "./errors.js";
-import { ModelsJsoncConfigSchema, THINKING_PRESET_NAMES, type ModelsJsoncConfig } from "./schema.js";
+import { ModelsJsoncConfigSchema, type ModelsJsoncConfig } from "./schema.js";
 
 const validateModelsJsonc = compileSchemaValidator(ModelsJsoncConfigSchema);
 
@@ -18,14 +17,13 @@ export function defaultModelsJsoncPath(): string {
 
 /** 读取并校验 models.jsonc；文件不存在时返回 undefined，表示不注册任何 provider。 */
 export async function loadModelsJsoncConfig(configPath = defaultModelsJsoncPath()): Promise<ModelsJsoncConfig | undefined> {
+	let text: string;
 	try {
-		await access(configPath, constants.F_OK);
+		text = await readFile(configPath, "utf8");
 	} catch (error) {
 		if (isNotFound(error)) return undefined;
-		throw invalidModelsJsonc(configPath, "file cannot be accessed");
+		throw invalidModelsJsonc(configPath, "file cannot be read");
 	}
-
-	const text = await readFile(configPath, "utf8");
 	const parseErrors: ParseError[] = [];
 	const parsed = parse(text, parseErrors, { allowTrailingComma: true });
 	if (parseErrors.length > 0) {
@@ -33,8 +31,6 @@ export async function loadModelsJsoncConfig(configPath = defaultModelsJsoncPath(
 		const code = first ? printParseErrorCode(first.error) : "Unknown";
 		throw invalidModelsJsonc(configPath, `JSONC parse error: ${code}`);
 	}
-	prevalidateModelsJsonc(parsed, configPath);
-
 	if (!validateModelsJsonc(parsed)) {
 		throw invalidModelsJsonc(configPath, formatSchemaError(validateModelsJsonc.errors?.[0]));
 	}
@@ -79,80 +75,4 @@ function formatInstancePath(instancePath: string): string {
 		.join("")
 		.replace(/^\./, "")
 		.replace(/\.\[/g, "[");
-}
-
-const THINKING_PRESET_NAME_SET = new Set<string>(THINKING_PRESET_NAMES);
-const LEGACY_PROVIDER_FIELDS: Record<string, string> = {
-	display_name: "name",
-	base_url: "baseUrl",
-	api_key: "apiKey",
-	models_endpoint: "modelsEndpoint",
-	thinking: "thinkingPreset",
-	advanced: "direct provider fields",
-};
-const LEGACY_MODEL_FIELDS: Record<string, string> = {
-	model: "id",
-	display_name: "name",
-	context_window: "contextWindow",
-	max_tokens: "maxTokens",
-	thinking: "thinkingPreset",
-	thinking_level: "defaultThinkingLevel",
-	thinking_level_map: "thinkingLevelMap",
-	defaults: "samplingParams",
-	extraBody: "samplingParams or provider.extraBody",
-	advanced: "direct model fields",
-};
-
-function prevalidateModelsJsonc(value: unknown, configPath: string): void {
-	if (!isRecord(value) || !isRecord(value.providers)) return;
-	const expectedThinking = THINKING_PRESET_NAMES.join(", ");
-	for (const [providerId, provider] of Object.entries(value.providers)) {
-		if (!isRecord(provider)) continue;
-		assertNoLegacyFields(provider, `providers.${providerId}`, LEGACY_PROVIDER_FIELDS, configPath);
-		if (provider.api === "chat" || provider.api === "responses") {
-			throw invalidModelsJsonc(configPath, `providers.${providerId}.api must use openai-completions or openai-responses`);
-		}
-		if (typeof provider.thinkingPreset === "string" && !THINKING_PRESET_NAME_SET.has(provider.thinkingPreset)) {
-			throw invalidModelsJsonc(configPath, `provider "${providerId}" has unknown thinkingPreset "${provider.thinkingPreset}"; expected one of ${expectedThinking}`);
-		}
-		if (typeof provider.compat === "string") {
-			throw invalidModelsJsonc(configPath, `provider "${providerId}" compat must be a Pi compat object`);
-		}
-		if (Array.isArray(provider.models)) {
-			for (let index = 0; index < provider.models.length; index++) {
-				const model = provider.models[index];
-				if (isRecord(model)) assertNoLegacyFields(model, `providers.${providerId}.models[${index}]`, LEGACY_MODEL_FIELDS, configPath);
-				if (isRecord(model) && typeof model.id !== "string") {
-					throw invalidModelsJsonc(configPath, `providers.${providerId}.models[${index}].id is required`);
-				}
-				if (isRecord(model) && "reasoning_effort" in model) {
-					throw invalidModelsJsonc(
-						configPath,
-						`providers.${providerId}.models[${index}].reasoning_effort is not supported; use reasoning/defaultThinkingLevel`,
-					);
-				}
-				if (isRecord(model) && typeof model.thinkingPreset === "string" && !THINKING_PRESET_NAME_SET.has(model.thinkingPreset)) {
-					throw invalidModelsJsonc(
-						configPath,
-						`providers.${providerId}.models[${index}] has unknown thinkingPreset "${model.thinkingPreset}"; expected one of ${expectedThinking}`,
-					);
-				}
-			}
-		}
-	}
-}
-
-function assertNoLegacyFields(
-	value: Record<string, unknown>,
-	path: string,
-	renames: Record<string, string>,
-	configPath: string,
-): void {
-	for (const [legacy, replacement] of Object.entries(renames)) {
-		if (legacy in value) throw invalidModelsJsonc(configPath, `${path}.${legacy} was replaced by ${replacement}`);
-	}
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

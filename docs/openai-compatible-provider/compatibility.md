@@ -11,7 +11,7 @@
 → model.compat
 ```
 
-后面的配置覆盖前面的同名顶层字段。对于值为对象的字段，扩展会浅合并其中的子字段。因此，模型可以只覆盖 `openRouterRouting`、`vercelGatewayRouting`、`chatTemplateKwargs` 或 `chatTemplateArgs` 的部分内容。该规则也适用于 Pi 后续新增且值为对象的字段。
+后面的配置覆盖前面的同名顶层字段。对象字段也整体覆盖，不合并子字段。例如，模型配置 `openRouterRouting` 时，必须包含该模型需要的完整路由对象。
 
 ## 保守默认值
 
@@ -112,4 +112,4 @@ Vercel AI Gateway 配置示例：
 }
 ```
 
-不要使用已废弃的 `advanced` 容器，也不要对配置字段使用蛇形命名。配置加载器会拒绝旧字段，并指出替代字段。
+不要使用已废弃的 `advanced` 容器，也不要对配置字段使用蛇形命名。未知字段由 schema 校验拒绝，不提供定制迁移提示。

@@ -4,11 +4,8 @@ import { createEventBus, type EventBus, type ExtensionAPI } from "@earendil-work
 import { describe, expect, it } from "vitest";
 
 import thinkingLevelExtension from "../../agent/extensions/thinking-level.js";
-import {
-	registerOpenAICompatibleProviders,
-	type ModelsJsoncConfig,
-	type ThinkingPresetName,
-} from "../../src/openai-compatible-provider/index.js";
+import { registerOpenAICompatibleProviders } from "../../src/openai-compatible-provider/register.js";
+import type { ModelsJsoncConfig, ThinkingPresetName } from "../../src/openai-compatible-provider/schema.js";
 
 type CommandOptions = Parameters<ExtensionAPI["registerCommand"]>[1];
 type CommandContext = Parameters<CommandOptions["handler"]>[1];

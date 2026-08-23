@@ -7,7 +7,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { invalidModelsJsonc } from "./errors.js";
 import { resolveCompat } from "./thinking-presets.js";
-import type { ModelsJsoncConfig, OpenAICompatConfig, ThinkingPresetName } from "./schema.js";
+import type { ModelsJsoncConfig, OpenAICompatConfig, ProviderConfig, ThinkingPresetName } from "./schema.js";
 
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 const DEFAULT_MAX_TOKENS = 16_384;
@@ -46,6 +46,7 @@ export interface RuntimeModelConfig {
 export interface NormalizedProvider {
 	id: string;
 	name: string;
+	providerConfig: ProviderConfig;
 	baseUrl: string;
 	api: "openai-completions" | "openai-responses";
 	models: Model<Api>[];
@@ -60,6 +61,7 @@ export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath
 		const providerThinkingPreset = provider.thinkingPreset ?? "none";
 		const providerExtraBody = provider.extraBody ?? {};
 		assertNoCorePayloadFields(providerExtraBody, configPath, `providers.${providerId}.extraBody`);
+		assertNoCoreDropParams(provider.dropParams, configPath, `providers.${providerId}.dropParams`);
 
 		const seenModels = new Set<string>();
 		const runtimeModels = new Map<string, RuntimeModelConfig>();
@@ -74,6 +76,7 @@ export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath
 			seenModels.add(model.id);
 
 			const compat = resolveCompat(thinkingPreset, provider.compat, model.compat);
+			assertNoCoreDropParams(model.dropParams, configPath, `providers.${providerId}.models[${index}].dropParams`);
 			const dropParams = [...(provider.dropParams ?? []), ...(model.dropParams ?? [])];
 			const inferredReasoning = model.defaultThinkingLevel !== undefined || model.thinkingLevelMap !== undefined;
 			if (model.reasoning === false && inferredReasoning) {
@@ -129,6 +132,7 @@ export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath
 		return {
 			id: providerId,
 			name: provider.name ?? providerId,
+			providerConfig: provider,
 			baseUrl: provider.baseUrl,
 			api,
 			models,
@@ -142,19 +146,17 @@ export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath
 export function applyRuntimePayloadConfig(
 	payload: unknown,
 	runtime: RuntimeModelConfig,
-	thinkingLevel: ModelThinkingLevel | undefined = "off",
-): unknown {
-	if (!isRecord(payload)) return payload;
+	thinkingLevel: ModelThinkingLevel = "off",
+): Record<string, unknown> {
+	if (!isRecord(payload)) throw new TypeError("OpenAI-compatible payload must be an object");
+	if (!isModelThinkingLevel(thinkingLevel)) throw new TypeError("OpenAI-compatible thinking level is invalid");
 	const next = { ...payload };
-	if (thinkingLevel !== undefined) applyResponsesThinkingPreset(next, runtime, thinkingLevel);
+	applyResponsesThinkingPreset(next, runtime, thinkingLevel);
 	for (const [key, value] of Object.entries(runtime.extraBody)) {
 		next[key] = value;
 	}
 	for (const key of runtime.dropParams) {
 		delete next[key];
-	}
-	for (const key of CORE_PAYLOAD_FIELDS) {
-		if (key in payload) next[key] = payload[key];
 	}
 	return next;
 }
@@ -238,6 +240,14 @@ function assertNoCorePayloadFields(value: Record<string, unknown>, configPath: s
 	}
 }
 
+function assertNoCoreDropParams(values: readonly string[] | undefined, configPath: string, fieldPath: string): void {
+	for (const key of values ?? []) {
+		if (CORE_PAYLOAD_FIELDS.has(key)) {
+			throw invalidModelsJsonc(configPath, `${fieldPath} cannot remove core request field "${key}"`);
+		}
+	}
+}
+
 function assertValidThinkingConfig(
 	defaultLevel: ModelThinkingLevel | undefined,
 	levelMap: ThinkingLevelMap | undefined,
@@ -261,6 +271,12 @@ function assertValidThinkingConfig(
 	if (!supportedLevels.some((supported) => supported === defaultLevel)) {
 		throw invalidModelsJsonc(configPath, `${fieldPath}.defaultThinkingLevel "${defaultLevel}" is not supported by its Pi thinkingLevelMap`);
 	}
+}
+
+const MODEL_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+export function isModelThinkingLevel(value: unknown): value is ModelThinkingLevel {
+	return typeof value === "string" && MODEL_THINKING_LEVELS.has(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

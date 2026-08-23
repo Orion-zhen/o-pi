@@ -1,8 +1,9 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { ApiKeyCredential, AuthResult } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 
-import { createProviderAuth, redactApiKey, resolveRefreshAuth } from "../../src/openai-compatible-provider/index.js";
+import { createProviderAuth, resolveRefreshAuth, resolvedProviderHeaders } from "../../src/openai-compatible-provider/auth.js";
 import { useOpenAICompatibleProviderTestSetup } from "./test-support.js";
 
 const temp = useOpenAICompatibleProviderTestSetup();
@@ -19,31 +20,38 @@ describe("openai-compatible-provider auth", () => {
 			apiKey: "$KEY",
 			headers: { "X-Token": "$TOKEN" },
 		});
-		await expect(configured.resolve({ ctx, signal: activeSignal })).resolves.toMatchObject({
+		const configuredResult = await configured.resolve({ ctx, signal: activeSignal });
+		if (!configuredResult) throw new Error("configured auth unexpectedly missing");
+		expect(configuredResult).toMatchObject({
 			auth: { apiKey: "sk-test", headers: { "X-Token": "header-token" } },
 			source: "KEY",
+		});
+		expect(resolveRefreshAuth("gateway", credentialFromAuth(configuredResult))).toMatchObject({
+			apiKey: "sk-test",
+			headers: { "X-Token": "header-token" },
+			keyless: false,
 		});
 
 		const keyless = createProviderAuth("local", {
 			baseUrl: "http://127.0.0.1:8000/v1",
 			apiKey: "EMPTY",
 		});
-		await expect(keyless.resolve({ ctx, signal: activeSignal })).resolves.toMatchObject({
+		const keylessResult = await keyless.resolve({ ctx, signal: activeSignal });
+		if (!keylessResult) throw new Error("keyless auth unexpectedly missing");
+		expect(keylessResult).toMatchObject({
 			auth: { apiKey: "unused", headers: { Authorization: null } },
 			source: "keyless provider",
 		});
-		const keylessConfig = {
-			baseUrl: "http://127.0.0.1:8000/v1",
+		expect(resolveRefreshAuth("local", credentialFromAuth(keylessResult))).toMatchObject({ keyless: true });
+		expect(resolveRefreshAuth("local", credentialFromAuth(keylessResult))).not.toHaveProperty("apiKey");
+		expect(resolveRefreshAuth("local", { type: "api_key", key: "EMPTY" })).toMatchObject({
 			apiKey: "EMPTY",
-		} as const;
-		expect(resolveRefreshAuth("local", keylessConfig, { type: "api_key", key: "sk-runtime" })).toMatchObject({
-			apiKey: "sk-runtime",
 			keyless: false,
 		});
-		expect(resolveRefreshAuth("local", keylessConfig, { type: "api_key", key: "unused" })).toMatchObject({
-			apiKey: "unused",
-			keyless: false,
-		});
+
+		const providerHeadersEnv = Object.keys(configuredResult.env ?? {}).find((name) => name.includes("provider-headers"));
+		if (!providerHeadersEnv) throw new Error("provider headers marker missing");
+		expect(() => resolvedProviderHeaders("gateway", { [providerHeadersEnv]: "not-json" })).toThrow();
 
 		const incomplete = createProviderAuth("incomplete", {
 			baseUrl: "https://gateway.test/v1",
@@ -73,13 +81,12 @@ describe("openai-compatible-provider auth", () => {
 		await expect(auth.resolve({ ctx, signal: activeSignal })).resolves.toMatchObject({ auth: { apiKey: "sk-command" } });
 		expect(await readFile(marker, "utf8")).toBe("ran");
 	});
-
-	it("apiKey 脱敏规则覆盖 literal、env、command、EMPTY 和 missing", () => {
-		expect(redactApiKey("sk-secret")).toBe("<literal:redacted>");
-		expect(redactApiKey("$OPENROUTER_API_KEY")).toBe("<env:OPENROUTER_API_KEY>");
-		expect(redactApiKey("${DEEPSEEK_API_KEY}")).toBe("<env:DEEPSEEK_API_KEY>");
-		expect(redactApiKey("!op read op://vault/item/key")).toBe("<command:redacted>");
-		expect(redactApiKey("EMPTY")).toBe("<empty-placeholder>");
-		expect(redactApiKey(undefined)).toBe("<missing>");
-	});
 });
+
+function credentialFromAuth(result: AuthResult): ApiKeyCredential {
+	return {
+		type: "api_key",
+		...(result.auth.apiKey !== undefined ? { key: result.auth.apiKey } : {}),
+		...(result.env !== undefined ? { env: result.env } : {}),
+	};
+}

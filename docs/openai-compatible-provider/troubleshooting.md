@@ -23,7 +23,7 @@ providers.gateway.models[0].id is required
 
 常见原因包括：
 
-- 在提供方或模型对象中使用 `base_url`、`api_key` 等旧字段
+- 在提供方或模型对象中使用 schema 未声明的字段
 - 模型缺少 `id`
 - 同一提供方内的模型 ID 重复
 - 使用 `api: "chat"` 或 `api: "responses"`
@@ -63,18 +63,19 @@ pi --list-models <provider-id> --offline
 - 手写模型是否包含非空的 `id`
 - 模型 ID 是否重复
 - 使用的提供方 ID 是否正确
-- `ModelsStore` 中是否有来源与当前目录端点、API 类型、思考配置、兼容选项和手写模型配置匹配的缓存
+- `ModelsStore` 中是否有该提供方 ID 的缓存目录
 - 在联网模式下打开 `/model` 时是否出现刷新错误
 
-`--offline` 不会发送网络请求，只显示手写模型和来源匹配的缓存。
+`--offline` 不会发送网络请求，只显示手写模型和该提供方缓存的 overlay。
 
 ## 自动发现失败
 
 确认以下条件：
 
 - `<baseUrl>/models` 或 `modelsEndpoint` 可以访问。
-- 端点返回数组、`data` 数组或 `models` 数组。
-- 每个条目是非空字符串，或包含 `id` 或 `model` 的对象。
+- 端点返回包含 `data` 数组的对象。
+- 每个 `data` 条目都是包含非空 `id` 的对象。
+- 同一响应中的模型 ID 不重复。
 - 端点接受当前密钥和请求头。
 - 端点返回至少一个模型。
 

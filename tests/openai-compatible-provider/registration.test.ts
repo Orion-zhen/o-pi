@@ -5,7 +5,8 @@ import { createEventBus, ModelRegistry, ModelRuntime, type ExtensionAPI } from "
 import { describe, expect, it, vi } from "vitest";
 
 import openAICompatibleProvider from "../../agent/extensions/openai-compatible-provider.js";
-import { loadModelsJsoncConfig, registerOpenAICompatibleProviders } from "../../src/openai-compatible-provider/index.js";
+import { loadModelsJsoncConfig } from "../../src/openai-compatible-provider/config.js";
+import { registerOpenAICompatibleProviders } from "../../src/openai-compatible-provider/register.js";
 import { createExtensionHarness, createRegistryPi, loadConfigFromText } from "./fixtures.js";
 import { useOpenAICompatibleProviderTestSetup } from "./test-support.js";
 
@@ -39,6 +40,10 @@ describe("openai-compatible-provider registration", () => {
 
 	it("不存在 models.jsonc 时不产生 provider 注册输入", async () => {
 		expect(await loadModelsJsoncConfig(path.join(temp.path, "missing.jsonc"))).toBeUndefined();
+	});
+
+	it("配置文件读取失败时转换为配置错误", async () => {
+		await expect(loadModelsJsoncConfig(temp.path)).rejects.toThrow(`Invalid ${temp.path}:\nfile cannot be read`);
 	});
 
 	it("最小配置注册为完整原生 provider，并把字符串模型归一化为同名 model id", async () => {

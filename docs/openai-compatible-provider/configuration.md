@@ -51,7 +51,7 @@ Pi 默认值
 具体规则如下：
 
 - 模型的 `api`、`baseUrl` 和 `thinkingPreset` 等字段覆盖提供方的同名字段。
-- 模型配置会覆盖 `compat` 中的同名顶层字段。对于值为对象的字段，扩展会浅合并其中的子字段。
+- 模型配置会覆盖 `compat` 中的同名顶层字段。对象字段整体覆盖，不合并子字段。
 - `dropParams` 按提供方列表、模型列表的顺序拼接。
 - `extraBody` 只能配置在提供方对象中。
 - 提供方的 `timeoutMs` 和 `maxRetries` 用于模型请求。
@@ -77,32 +77,15 @@ providers.gateway.models[0].id is required
 - `compat` 不是对象
 - 思考级别或 `thinkingLevelMap` 无效
 - `reasoning: false` 与 `defaultThinkingLevel` 或 `thinkingLevelMap` 同时出现
-- 提供方的 `extraBody` 试图覆盖核心请求字段
+- 提供方的 `extraBody` 试图覆盖核心请求字段，或提供方/模型的 `dropParams` 试图删除核心请求字段
 
 `compat` 对象内的未知字段会保留并传给 Pi。加载器不会校验这些字段的名称和类型。
 
-## 不再支持的字段
+## 字段命名和未知字段
 
-提供方字段和模型元数据使用驼峰命名。`samplingParams` 是例外，其中直接使用上游请求体字段名。扩展不会自动转换旧字段，而会提示替代写法：
+提供方字段和模型元数据使用驼峰命名。`samplingParams` 是例外，其中直接使用上游请求体字段名。扩展不会自动迁移旧字段。旧字段和其他未知字段由 schema 校验拒绝，错误不会提供定制迁移提示。
 
-| 位置 | 旧字段 | 替代字段 |
-| --- | --- | --- |
-| 提供方 | `display_name` | `name` |
-| 提供方 | `base_url` | `baseUrl` |
-| 提供方 | `api_key` | `apiKey` |
-| 提供方 | `models_endpoint` | `modelsEndpoint` |
-| 提供方或模型 | `thinking` | `thinkingPreset` |
-| 模型 | `model` | `id` |
-| 模型 | `display_name` | `name` |
-| 模型 | `context_window` | `contextWindow` |
-| 模型 | `max_tokens` | `maxTokens` |
-| 模型 | `thinking_level` | `defaultThinkingLevel` |
-| 模型 | `thinking_level_map` | `thinkingLevelMap` |
-| 模型 | `defaults` | `samplingParams` |
-| 模型 | `reasoning_effort` | `reasoning` 或 `defaultThinkingLevel` |
-| 模型 | `extraBody` | 模型的 `samplingParams` 或提供方的 `extraBody` |
-
-扩展也不再支持提供方或模型中的 `advanced` 容器。请把其中的字段直接放入提供方对象或模型对象。`samplingParams` 应使用 `top_p`、`top_k` 等上游字段名。扩展不会将这些字段名转换为驼峰命名。
+`samplingParams` 应使用 `top_p`、`top_k` 等上游字段名。扩展不会将这些字段名转换为驼峰命名。
 
 ## 相关文档
 

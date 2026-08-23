@@ -11,8 +11,9 @@
         "User-Agent": "pi-openai-compatible/1.0"
       },
 
-      // compat 是 Pi 原生字段。以下先给出常用本地 Chat Completions 配置，
-      // 其余字段以注释形式展示；仅取消确实符合上游行为的项目。
+      // compat 是 Pi 原生字段。模型 compat 会按顶层字段覆盖，且对象字段整体替换。
+      // 以下先给出常用本地 Chat Completions 配置，其余字段以注释形式展示。
+      // 仅取消确实符合上游行为的项目。
       "compat": {
         // 是否接受 store 字段；不支持时 Pi 不发送 store。
         "supportsStore": false,

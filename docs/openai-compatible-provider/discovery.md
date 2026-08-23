@@ -46,29 +46,29 @@ Accept: application/json
 
 ## 支持的响应结构
 
-端点可以返回以下任一 JSON 结构：
+端点必须返回包含 `data` 数组的对象：
 
 ```jsonc
-[{ "id": "model-id" }]
+{
+  "data": [
+    {
+      "id": "model-id",
+      "context_length": 131072,
+      "architecture": {
+        "input_modalities": ["text", "image"]
+      }
+    }
+  ]
+}
 ```
 
-```jsonc
-{ "data": [{ "id": "model-id" }] }
-```
+`data` 中的每个条目必须是对象，并包含非空的 `id`。扩展只读取以下字段：
 
-```jsonc
-{ "models": [{ "id": "model-id" }] }
-```
+- `id`
+- `context_length`
+- `architecture.input_modalities` 中的 `image` 输入能力
 
-每个模型条目可以是非空字符串或对象。对象必须包含非空的 `id` 或 `model`。扩展读取以下常见元数据：
-
-- `id` 或 `model`
-- `display_name` 或 `name`
-- `context_window`、`context_length`、`max_context_length`、`max_model_len` 或 `max_sequence_length`
-- `max_output_tokens` 或 `max_completion_tokens`，包括 `top_provider` 中的同名字段
-- `input_modalities`、`architecture.input_modalities`、`modalities.input` 或 `modalities` 中的图片输入能力
-
-端点返回重复模型 ID 时，扩展只保留第一个条目。空模型目录、无效 JSON、缺失模型 ID 或不支持的响应结构都会导致刷新失败。
+未声明的元数据不会进入模型目录。根数组、`models` 数组、字符串条目、字段别名、空目录、重复 ID 和缺失 ID 都会导致刷新失败。
 
 ## 合并手写模型和远端模型
 
@@ -92,29 +92,28 @@ Accept: application/json
 }
 ```
 
-如果端点也返回 `manual`，远端数据可以补充上下文窗口和图片输入能力，但不会覆盖手写配置中的 `name`。
+如果端点也返回 `manual`，远端数据可以补充上下文窗口和图片输入能力，但不会覆盖手写配置中的字段。远端独有模型的显示名称默认为 `id`，最大输出令牌数使用扩展默认值。
 
 ## `ModelsStore`
 
-Pi 会把刷新后的模型目录写入 `ModelsStore`。缓存条目包含：
+模型目录由 Pi 原生 `createProvider` 生命周期管理。Pi 按提供方 ID 保存刷新后的模型 overlay，缓存条目包含：
 
 - 合并后的模型元数据
-- `baseUrl`
-- 根据目录端点、API 类型、思考预设、兼容选项和手写模型配置生成的来源哈希
-- `checkedAt`
+- `baseUrl` 和 API 类型
+- `checkedAt` 等 Pi 原生刷新状态
 
-缓存不包含 API 密钥或认证请求头。扩展只恢复来源哈希与当前提供方配置匹配的模型，避免旧端点或旧配置中的模型进入当前模型目录。
+缓存不包含 API 密钥、认证请求头或扩展内部标记。缓存恢复不比较当前配置；因此配置改变后，联网刷新前可能暂时显示旧的缓存 overlay。
 
 ## 离线行为
 
 离线刷新或使用 `--offline` 时：
 
-- 扩展先恢复来源匹配的 `ModelsStore` 缓存。
+- Pi 先恢复该提供方的 `ModelsStore` 缓存 overlay。
 - 扩展不发送网络请求。
-- 没有有效缓存时，扩展保留手写模型。
+- 没有缓存时，保留手写 baseline 模型。
 - 网络刷新失败不会清空已有目录。
 
-联网刷新会在恢复缓存后请求模型目录端点。
+联网刷新会在缓存恢复后请求模型目录端点。请求成功并发布后，Pi 原生生命周期替换旧 overlay；发布失败或请求失败则保留旧目录。
 
 ## 错误处理
 
@@ -123,9 +122,10 @@ Pi 会把刷新后的模型目录写入 `ModelsStore`。缓存条目包含：
 - HTTP 状态不是 2xx
 - 响应体无法读取
 - 响应体不是有效 JSON
-- JSON 结构不受支持
+- 根对象不包含 `data` 数组
+- `data` 条目不是对象、缺少非空 `id` 或包含重复 ID
 - 端点未返回任何模型
 
 所有刷新错误都会指出提供方。模型目录端点返回非 2xx 状态时，错误还会包含 HTTP 状态，并最多截取响应正文的前 500 个字符。扩展不会把请求中的认证请求头写入错误。
 
-一次刷新失败不会立即删除手写模型或已恢复的缓存模型。如需重新获取完整的模型目录，请清除 `ModelsStore`，然后再次打开 `/model`。
+一次刷新失败不会立即删除手写模型或已恢复的缓存模型。需要清除目录时，按 Pi 的 `ModelsStore` 管理方式删除对应提供方缓存，然后再次刷新。

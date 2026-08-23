@@ -72,41 +72,10 @@ export function resolveCompat(
 	providerCompat: OpenAICompatConfig | undefined,
 	modelCompat: OpenAICompatConfig | undefined,
 ): OpenAICompatConfig {
-	const sources: Record<string, unknown>[] = [
-		DEFAULT_COMPAT,
-		THINKING_PRESETS[thinkingPreset],
-		...(providerCompat ? [providerCompat] : []),
-		...(modelCompat ? [modelCompat] : []),
-	];
-	const merged: OpenAICompatConfig = {
+	return {
 		...DEFAULT_COMPAT,
 		...THINKING_PRESETS[thinkingPreset],
 		...providerCompat,
 		...modelCompat,
 	};
-
-	// Compat 的 routing/chat-template 等对象按层级浅合并；未来新增对象字段也无需维护白名单。
-	for (const key of new Set(sources.flatMap((source) => Object.keys(source)))) {
-		let selected: unknown;
-		for (const source of sources) {
-			if (Object.hasOwn(source, key)) selected = source[key];
-		}
-		if (!isRecord(selected)) continue;
-		const nested: Record<string, unknown> = {};
-		for (const source of sources) {
-			const value = Object.hasOwn(source, key) ? source[key] : undefined;
-			if (!isRecord(value)) continue;
-			for (const [nestedKey, nestedValue] of Object.entries(value)) setOwn(nested, nestedKey, nestedValue);
-		}
-		setOwn(merged, key, nested);
-	}
-	return merged;
-}
-
-function setOwn(target: Record<string, unknown>, key: string, value: unknown): void {
-	Object.defineProperty(target, key, { value, enumerable: true, configurable: true, writable: true });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

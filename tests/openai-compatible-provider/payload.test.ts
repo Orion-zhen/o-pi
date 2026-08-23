@@ -1,7 +1,9 @@
 import path from "node:path";
+import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 
-import { applyRuntimePayloadConfig, registerOpenAICompatibleProviders } from "../../src/openai-compatible-provider/index.js";
+import { applyRuntimePayloadConfig } from "../../src/openai-compatible-provider/normalize.js";
+import { registerOpenAICompatibleProviders } from "../../src/openai-compatible-provider/register.js";
 import {
 	createExtensionHarness,
 	loadConfigFromText,
@@ -47,6 +49,13 @@ describe("openai-compatible-provider payload", () => {
 			top_k: 40,
 			custom: true,
 		});
+	});
+
+	it("拒绝非对象 payload 和非法 thinking level", async () => {
+		const { runtime } = await normalizeRuntime(temp.path);
+		const invalidLevel: unknown = "invalid";
+		expect(() => applyRuntimePayloadConfig(null, runtime)).toThrow("payload must be an object");
+		expect(() => applyRuntimePayloadConfig({}, runtime, invalidLevel as ModelThinkingLevel)).toThrow("thinking level is invalid");
 	});
 
 	it("原生低层 stream 保留 payload 修改，并转换 Responses 非 OpenAI thinking preset", async () => {

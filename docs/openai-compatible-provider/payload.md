@@ -10,11 +10,10 @@
 3. 扩展转换 Responses API 使用的非 `openai` 思考预设
 4. 扩展合并 `provider.extraBody`
 5. 扩展依次应用 `provider.dropParams` 和 `model.dropParams`
-6. 扩展恢复核心字段
-7. 扩展调用后续注册的 `onPayload`
+6. 扩展调用后续注册的 `onPayload`
 ```
 
-单次请求的 `samplingParams` 会覆盖模型配置中的同名字段。调用方的 `onPayload` 可以继续修改结果。如果 `onPayload` 返回 `undefined`，扩展使用第 6 步产生的请求体。核心字段保护只适用于扩展自己的 `extraBody` 和 `dropParams`，不会限制调用方后续的 `onPayload`。
+单次请求的 `samplingParams` 会覆盖模型配置中的同名字段。调用方的 `onPayload` 可以继续修改结果。如果 `onPayload` 返回 `undefined`，扩展使用第 5 步产生的请求体。核心字段保护只适用于扩展自己的 `extraBody` 和 `dropParams`，不会限制调用方后续的 `onPayload`。
 
 ## `samplingParams`
 
@@ -53,7 +52,7 @@
 
 只适用于单个模型的其他请求参数应放入 `samplingParams`。扩展不支持模型层的 `extraBody`。提供方的 `extraBody` 主要用于无法预先为动态模型逐个设置参数的场景，例如 `models: "auto"`。
 
-`provider.extraBody` 不能包含以下核心字段：
+`provider.extraBody` 不能包含以下核心字段。提供方或模型的 `dropParams` 也不能列出这些字段。违反任一规则时，扩展会在加载配置时失败。
 
 ```text
 model, messages, input, tools, stream
@@ -77,7 +76,7 @@ model, messages, input, tools, stream
 provider.dropParams + model.dropParams
 ```
 
-删除发生在合并 `provider.extraBody` 之后。因此，`dropParams` 可以删除 Pi 或 `extraBody` 添加的非核心字段，但不能删除核心字段。
+删除发生在合并 `provider.extraBody` 之后。因此，`dropParams` 可以删除 Pi 或 `extraBody` 添加的非核心字段。扩展不会在请求期恢复被删除的核心字段。
 
 ## 思考字段
 
