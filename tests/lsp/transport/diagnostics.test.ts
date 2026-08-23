@@ -2,7 +2,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { DiagnosticsLedger } from "../../../src/lsp/diagnostics/ledger.js";
 import { pathToFileUri } from "../../../src/lsp/protocol/uri.js";
-import { createFakeServer, createManager, deferred, diagnostic, directClient, send, useTransportFixture } from "./fixtures.js";
+import { createManager, createProtocolServer, deferred, diagnostic, directClient, send, useTransportFixture } from "./fixtures.js";
 
 const transport = useTransportFixture();
 
@@ -10,30 +10,18 @@ describe("lsp transport diagnostics", () => {
 	it("publishDiagnostics 丢弃旧文档版本，未打开或无 version 时仍接受", async () => {
 		const workspace = transport.workspace;
 		const uri = pathToFileUri(path.join(workspace, "a.ts"));
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: { textDocumentSync: { openClose: true, change: 1 } } } });
-				send(socket, { method: "textDocument/publishDiagnostics", params: {
-					uri,
-					version: 5,
-					diagnostics: [diagnostic("workspace", 0)],
-				} });
-			} else if (message.method === "textDocument/didOpen") {
-				send(socket, { method: "textDocument/publishDiagnostics", params: {
-					uri,
-					version: 0,
-					diagnostics: [diagnostic("stale", 0)],
-				} });
-				send(socket, { method: "textDocument/publishDiagnostics", params: {
-					uri,
-					version: 1,
-					diagnostics: [diagnostic("current", 0)],
-				} });
-				send(socket, { method: "textDocument/publishDiagnostics", params: {
-					uri,
-					diagnostics: [diagnostic("unversioned", 0)],
-				} });
-			}
+		const publish = (socket: Parameters<typeof send>[0], version: number | undefined, message: string) => send(socket, {
+			method: "textDocument/publishDiagnostics",
+			params: { uri, ...(version === undefined ? {} : { version }), diagnostics: [diagnostic(message, 0)] },
+		});
+		const fake = await createProtocolServer(transport, {
+			capabilities: { textDocumentSync: { openClose: true, change: 1 } },
+			afterInitialize: (_message, socket) => publish(socket, 5, "workspace"),
+			routes: { "textDocument/didOpen": (_message, socket) => {
+				publish(socket, 0, "stale");
+				publish(socket, 1, "current");
+				publish(socket, undefined, "unversioned");
+			} },
 		});
 		const diagnostics = new DiagnosticsLedger();
 		const client = directClient(transport, fake, 64, undefined, diagnostics);
@@ -52,17 +40,12 @@ describe("lsp transport diagnostics", () => {
 		const uri = pathToFileUri(path.join(workspace, "a.ts"));
 		const relatedUri = pathToFileUri(path.join(workspace, "related.ts"));
 		let pulls = 0;
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: {
-					diagnosticProvider: {
-						identifier: "typescript",
-						interFileDependencies: true,
-						workspaceDiagnostics: false,
-					},
-					textDocumentSync: { openClose: true, change: 1, save: true },
-				} } });
-			} else if (message.method === "textDocument/diagnostic") {
+		const fake = await createProtocolServer(transport, {
+			capabilities: {
+				diagnosticProvider: { identifier: "typescript", interFileDependencies: true, workspaceDiagnostics: false },
+				textDocumentSync: { openClose: true, change: 1, save: true },
+			},
+			routes: { "textDocument/diagnostic": (message, socket) => {
 				pulls += 1;
 				if (pulls === 1) {
 					send(socket, { id: message.id, result: {
@@ -77,10 +60,8 @@ describe("lsp transport diagnostics", () => {
 							},
 						},
 					} });
-				} else {
-					send(socket, { id: message.id, result: { kind: "unchanged", resultId: "current-r1" } });
-				}
-			}
+				} else send(socket, { id: message.id, result: { kind: "unchanged", resultId: "current-r1" } });
+			} },
 		});
 		const manager = await createManager(transport, fake, { diagnostics: { enabled: true, max_wait_ms: 100, settle_ms: 0, max_items: 8, max_related_locations: 2, min_severity: "warning" } });
 		const file = path.join(workspace, "a.ts");
@@ -110,24 +91,22 @@ describe("lsp transport diagnostics", () => {
 		let pulls = 0;
 		const firstPullBatch = deferred<void>();
 		const firstPullGate = deferred<void>();
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: {
-					diagnosticProvider: { interFileDependencies: true, workspaceDiagnostics: false },
-					textDocumentSync: { openClose: true, change: 1, save: true },
-				} } });
-			} else if (message.method === "textDocument/didOpen") {
-				opened += 1;
-			} else if (message.method === "textDocument/diagnostic") {
+		const fake = await createProtocolServer(transport, {
+			capabilities: {
+				diagnosticProvider: { interFileDependencies: true, workspaceDiagnostics: false },
+				textDocumentSync: { openClose: true, change: 1, save: true },
+			},
+			routes: {
+				"textDocument/didOpen": () => { opened += 1; },
+				"textDocument/diagnostic": (message, socket) => {
 				pulls += 1;
 				const respond = () => send(socket, { id: message.id, result: { kind: "full", resultId: `r${pulls}`, items: [] } });
 				if (pulls <= 4) {
 					if (pulls === 4) firstPullBatch.resolve();
 					void firstPullGate.promise.then(respond);
-				} else {
-					respond();
-				}
-			}
+				} else respond();
+				},
+			},
 		});
 		const manager = await createManager(transport, fake, { diagnostics: { enabled: true, max_wait_ms: 1000, settle_ms: 0, max_items: 8, max_related_locations: 2, min_severity: "warning" } });
 		const pending = manager.didWriteBatch(Array.from({ length: 5 }, (_, index) => ({
@@ -146,18 +125,13 @@ describe("lsp transport diagnostics", () => {
 	it("didWrite 只接受 captured revision 之后的 diagnostics，旧快照不能伪装成功", async () => {
 		const workspace = transport.workspace;
 		const uri = pathToFileUri(path.join(workspace, "a.ts"));
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: {
-					textDocumentSync: { openClose: true, change: 1, save: true },
-				} } });
-			} else if (message.method === "textDocument/didOpen") {
+		const fake = await createProtocolServer(transport, {
+			capabilities: { textDocumentSync: { openClose: true, change: 1, save: true } },
+			routes: { "textDocument/didOpen": (_message, socket) => {
 				send(socket, { method: "textDocument/publishDiagnostics", params: {
-					uri,
-					version: 1,
-					diagnostics: [diagnostic("new error", 1)],
+					uri, version: 1, diagnostics: [diagnostic("new error", 1)],
 				} });
-			}
+			} },
 		});
 		const manager = await createManager(transport, fake, { diagnostics: { enabled: true, max_wait_ms: 100, settle_ms: 0, max_items: 8, min_severity: "warning" } });
 		const file = path.join(workspace, "a.ts");

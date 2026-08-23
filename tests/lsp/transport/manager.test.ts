@@ -6,7 +6,7 @@ import { LspClient } from "../../../src/lsp/client/client.js";
 import { defaultLspConfig } from "../../../src/lsp/config/loader.js";
 import { DiagnosticsLedger } from "../../../src/lsp/diagnostics/ledger.js";
 import { pathToFileUri } from "../../../src/lsp/protocol/uri.js";
-import { createManager, createFakeServer, createWorkspaceSymbolServer, deferred, queryManagerSymbols, send, useTransportFixture } from "./fixtures.js";
+import { createManager, createFakeServer, createProtocolServer, createWorkspaceSymbolServer, deferred, queryManagerSymbols, send, useTransportFixture } from "./fixtures.js";
 
 const transport = useTransportFixture();
 
@@ -148,22 +148,18 @@ describe("lsp transport manager and protocol", () => {
 		const workspace = transport.workspace;
 		const registered = deferred<void>();
 		const watched = deferred<void>();
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true, documentSymbolProvider: true, referencesProvider: true, callHierarchyProvider: true } } });
-			} else if (message.method === "initialized") {
-				send(socket, { id: 90, method: "client/registerCapability", params: { registrations: [{
-					id: "project-config",
-					method: "workspace/didChangeWatchedFiles",
-					registerOptions: { watchers: [{ globPattern: "**/tsconfig.json", kind: 2 }] },
-				}] } });
-			} else if (message.method === "workspace/symbol") {
-				send(socket, { id: message.id, result: [] });
-			} else if (message.method === "workspace/didChangeWatchedFiles") {
-				watched.resolve();
-			} else if (message.method === undefined && message.id === 90) {
-				registered.resolve();
-			}
+		const fake = await createProtocolServer(transport, {
+			capabilities: { workspaceSymbolProvider: true, documentSymbolProvider: true, referencesProvider: true, callHierarchyProvider: true },
+			onInitialized: (_message, socket) => send(socket, { id: 90, method: "client/registerCapability", params: { registrations: [{
+				id: "project-config",
+				method: "workspace/didChangeWatchedFiles",
+				registerOptions: { watchers: [{ globPattern: "**/tsconfig.json", kind: 2 }] },
+			}] } }),
+			routes: {
+				"workspace/symbol": (message, socket) => send(socket, { id: message.id, result: [] }),
+				"workspace/didChangeWatchedFiles": () => watched.resolve(),
+			},
+			onMessage: (message) => { if (message.method === undefined && message.id === 90) registered.resolve(); },
 		});
 		const manager = await createManager(transport, fake);
 		const configFile = path.join(workspace, "nested", "tsconfig.json");
@@ -190,22 +186,16 @@ describe("lsp transport manager and protocol", () => {
 		const workspace = transport.workspace;
 		const uri = pathToFileUri(path.join(workspace, "src", "target.ts"));
 		const data = { serverKey: "target-1", nested: { revision: 3 } };
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: { resolveProvider: true }, documentSymbolProvider: true, referencesProvider: true, callHierarchyProvider: true } } });
-			} else if (message.method === "workspace/symbol") {
-				send(socket, { id: message.id, result: [{ name: "target", kind: 12, location: { uri }, data }] });
-			} else if (message.method === "workspaceSymbol/resolve") {
-				send(socket, {
-					id: message.id,
-					result: {
-						name: "target",
-						kind: 12,
-						location: { uri, range: { start: { line: 2, character: 4 }, end: { line: 2, character: 10 } } },
-						data,
-					},
-				});
-			}
+		const fake = await createProtocolServer(transport, {
+			capabilities: { workspaceSymbolProvider: { resolveProvider: true }, documentSymbolProvider: true, referencesProvider: true, callHierarchyProvider: true },
+			routes: {
+				"workspace/symbol": (message, socket) => send(socket, { id: message.id, result: [{ name: "target", kind: 12, location: { uri }, data }] }),
+				"workspaceSymbol/resolve": (message, socket) => send(socket, { id: message.id, result: {
+					name: "target", kind: 12,
+					location: { uri, range: { start: { line: 2, character: 4 }, end: { line: 2, character: 10 } } },
+					data,
+				} }),
+			},
 		});
 		const manager = await createManager(transport, fake);
 		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([
@@ -224,26 +214,22 @@ describe("lsp transport manager and protocol", () => {
 	] as const)("%s 时安全跳过 URI-only symbol", async (_name, mode, expectsResolve) => {
 		const workspace = transport.workspace;
 		const uri = pathToFileUri(path.join(workspace, "src", "target.ts"));
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				const workspaceSymbolProvider = mode === "unsupported" ? true : { resolveProvider: true };
-				send(socket, { id: message.id, result: { capabilities: {
-					workspaceSymbolProvider,
-					documentSymbolProvider: true,
-					referencesProvider: true,
-					callHierarchyProvider: true,
-				} } });
-			} else if (message.method === "workspace/symbol") {
-				send(socket, { id: message.id, result: [{ name: "target", kind: 12, location: { uri }, data: { key: 1 } }] });
-			} else if (message.method === "workspaceSymbol/resolve") {
+		const fake = await createProtocolServer(transport, {
+			capabilities: {
+				workspaceSymbolProvider: mode === "unsupported" ? true : { resolveProvider: true },
+				documentSymbolProvider: true, referencesProvider: true, callHierarchyProvider: true,
+			},
+			routes: {
+				"workspace/symbol": (message, socket) => send(socket, { id: message.id, result: [{ name: "target", kind: 12, location: { uri }, data: { key: 1 } }] }),
+				"workspaceSymbol/resolve": (message, socket) => {
 				if (mode === "error") send(socket, { id: message.id, error: { code: -32001, message: "resolve failed" } });
 				if (mode === "unresolved") send(socket, { id: message.id, result: { name: "target", kind: 12, location: { uri } } });
 				if (mode === "invalid") send(socket, { id: message.id, result: {
-					name: "target",
-					kind: 12,
+					name: "target", kind: 12,
 					location: { uri, range: { start: { line: -1, character: 0 }, end: { line: 0, character: 1 } } },
 				} });
-			}
+				},
+			},
 		});
 		const manager = await createManager(transport, fake, { request_timeout_ms: 100 });
 		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([]);
@@ -265,12 +251,12 @@ describe("lsp transport manager and protocol", () => {
 	});
 	it("TCP session 保存 capabilities、取消请求并安全处理 server request", async () => {
 		const workspace = transport.workspace;
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true, textDocumentSync: { openClose: true, change: 1 } } } });
+		const fake = await createProtocolServer(transport, {
+			capabilities: { workspaceSymbolProvider: true, textDocumentSync: { openClose: true, change: 1 } },
+			afterInitialize: (_message, socket) => {
 				send(socket, { method: "textDocument/publishDiagnostics", params: { uri: pathToFileUri(path.join(workspace, "a.ts")), diagnostics: [] } });
 				send(socket, { id: 77, method: "workspace/applyEdit", params: { edit: {} } });
-			}
+			},
 		});
 		const config = defaultLspConfig();
 		config.startup_timeout_ms = 500;
@@ -304,11 +290,7 @@ describe("lsp transport manager and protocol", () => {
 	});
 	it("capability 不支持时不发送不适用的 feature request", async () => {
 		const workspace = transport.workspace;
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: {} } });
-			}
-		});
+		const fake = await createProtocolServer(transport, {});
 		const manager = await createManager(transport, fake);
 		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([]);
 		expect(fake.methods).not.toContain("workspace/symbol");

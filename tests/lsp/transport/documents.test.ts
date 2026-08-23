@@ -1,7 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { createFakeServer, deferred, directClient, documentSymbol, send, useTransportFixture } from "./fixtures.js";
+import { createProtocolServer, deferred, directClient, documentSymbol, send, useTransportFixture } from "./fixtures.js";
 
 const transport = useTransportFixture();
 
@@ -11,22 +11,16 @@ describe("lsp transport documents", () => {
 		let documentSymbolRequests = 0;
 		const firstRequest = deferred<void>();
 		const firstRequestGate = deferred<void>();
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: {
-					documentSymbolProvider: true,
-					textDocumentSync: { openClose: true, change: 1, save: true },
-				} } });
-			} else if (message.method === "textDocument/documentSymbol") {
+		const fake = await createProtocolServer(transport, {
+			capabilities: { documentSymbolProvider: true, textDocumentSync: { openClose: true, change: 1, save: true } },
+			routes: { "textDocument/documentSymbol": (message, socket) => {
 				documentSymbolRequests += 1;
 				const response = () => send(socket, { id: message.id, result: [documentSymbol("target", documentSymbolRequests)] });
 				if (documentSymbolRequests === 1) {
 					firstRequest.resolve();
 					void firstRequestGate.promise.then(response);
-				} else {
-					response();
-				}
-			}
+				} else response();
+			} },
 		});
 		const client = directClient(transport, fake);
 		expect(await client.ensureReady()).toBe(true);
@@ -68,12 +62,8 @@ describe("lsp transport documents", () => {
 	});
 	it("incremental sync 使用 UTF-16 range，language route 与 save includeText 生效", async () => {
 		const workspace = transport.workspace;
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: {
-					textDocumentSync: { openClose: true, change: 2, save: { includeText: true } },
-				} } });
-			}
+		const fake = await createProtocolServer(transport, {
+			capabilities: { textDocumentSync: { openClose: true, change: 2, save: { includeText: true } } },
 		});
 		const client = directClient(transport, fake);
 		expect(await client.ensureReady()).toBe(true);
@@ -102,12 +92,8 @@ describe("lsp transport documents", () => {
 	});
 	it("textDocumentSync None 不发送 open/change/save/close", async () => {
 		const workspace = transport.workspace;
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: {
-					textDocumentSync: { openClose: false, change: 0, save: false },
-				} } });
-			}
+		const fake = await createProtocolServer(transport, {
+			capabilities: { textDocumentSync: { openClose: false, change: 0, save: false } },
 		});
 		const client = directClient(transport, fake);
 		expect(await client.ensureReady()).toBe(true);
@@ -119,15 +105,11 @@ describe("lsp transport documents", () => {
 	});
 	it("documentSymbol 临时关闭文档，并按 LRU 清除旧 symbol cache", async () => {
 		const workspace = transport.workspace;
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: {
-					documentSymbolProvider: true,
-					textDocumentSync: { openClose: true, change: 1 },
-				} } });
-			} else if (message.method === "textDocument/documentSymbol") {
+		const fake = await createProtocolServer(transport, {
+			capabilities: { documentSymbolProvider: true, textDocumentSync: { openClose: true, change: 1 } },
+			routes: { "textDocument/documentSymbol": (message, socket) => {
 				send(socket, { id: message.id, result: [documentSymbol("target", 0)] });
-			}
+			} },
 		});
 		const client = directClient(transport, fake, 1);
 		expect(await client.ensureReady()).toBe(true);
