@@ -28,9 +28,7 @@ const testContext = createGrepTestContext();
 
 describe("grep local search", () => {
 	it("结构化路径命中不会被靠前文件中的重复正文命中挤出结果窗口", async () => {
-		const configPath = path.join(testContext.outside, "structured-path-ranking.jsonc");
-		await writeConfig(configPath, { grep_result_limit: 6 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_result_limit: 6 }, "structured-path-ranking");
 		await mkdir(path.join(testContext.workspace, "aaa"), { recursive: true });
 		await mkdir(path.join(testContext.workspace, "src", "file-tools", "find"), { recursive: true });
 		await writeFile(path.join(testContext.workspace, "aaa", "noise.ts"), Array.from(
@@ -65,9 +63,7 @@ describe("grep local search", () => {
 	});
 
 	it("区域展示限制均匀选择代表行且不裁剪完整 match_lines", async () => {
-		const configPath = path.join(testContext.outside, "regional-display.jsonc");
-		await writeConfig(configPath, { grep_regional_display_limit: 2 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_regional_display_limit: 2 }, "regional-display");
 		await writeFile(path.join(testContext.workspace, "multi.ts"), [
 			"export function collect() {",
 			"  consume(needle);",
@@ -94,9 +90,7 @@ describe("grep local search", () => {
 		{ limit: 1, shown: [2], omitted: 3 },
 		{ limit: 4, shown: [2, 3, 4, 5], omitted: 0 },
 	])("区域展示限制 $limit 生成固定代表行", async ({ limit, shown, omitted }) => {
-		const configPath = path.join(testContext.outside, `regional-display-${limit}.jsonc`);
-		await writeConfig(configPath, { grep_regional_display_limit: limit });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_regional_display_limit: limit }, `regional-display-${limit}`);
 		await writeFile(path.join(testContext.workspace, `multi-${limit}.ts`), [
 			"export function collect() {",
 			"  consume(needle);",
@@ -160,9 +154,7 @@ describe("grep local search", () => {
 	});
 
 	it("related result 配置在排序后静默限制 semantic region", async () => {
-		const configPath = path.join(testContext.outside, "related-result-limit.jsonc");
-		await writeConfig(configPath, { grep_related_result_limit: 2 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_related_result_limit: 2 }, "related-result-limit");
 		for (const name of ["alpha", "beta", "gamma"]) {
 			await writeFile(path.join(testContext.workspace, `${name}.ts`), [
 				`export function ${name}Candidate() {`,
@@ -189,9 +181,7 @@ describe("grep local search", () => {
 	});
 
 	it("related result limit 为 0 时只禁用 semantic region", async () => {
-		const configPath = path.join(testContext.outside, "related-result-disabled.jsonc");
-		await writeConfig(configPath, { grep_related_result_limit: 0 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_related_result_limit: 0 }, "related-result-disabled");
 		await writeFile(path.join(testContext.workspace, "candidates.ts"), [
 			"export function semanticCandidate() {",
 			"  const authentication = true;",
@@ -362,9 +352,7 @@ describe("grep local search", () => {
 	});
 
 	it("parse 单文件字节上限保留 verified 文本行并记录内部观测", async () => {
-		const configPath = path.join(testContext.outside, "strict-parse-bytes.jsonc");
-		await writeConfig(configPath, { grep_ast_max_file_bytes: 1024 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_ast_max_file_bytes: 1024 }, "strict-parse-bytes");
 		await writeFile(path.join(testContext.workspace, "large-region.ts"), `export function largeRegion() {\n  return '${"padding".repeat(180)} ParseBytesNeedle';\n}\n`);
 
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "ParseBytesNeedle" }));
@@ -526,9 +514,7 @@ describe("grep local search", () => {
 		["字节", "grep_content_cache_bytes"],
 		["文件数", "grep_content_cache_entries"],
 	] as const)("正文缓存%s上限为 0 时每次调用都稳定读取", async (_name, field) => {
-		const configPath = path.join(testContext.outside, `content-cache-disabled-${field}.jsonc`);
-		await writeConfig(configPath, { [field]: 0 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ [field]: 0 }, `content-cache-disabled-${field}`);
 		await writeFile(path.join(testContext.workspace, "disabled.ts"), "export function disabled() { return 'DisabledCacheNeedle'; }\n");
 		await withGrepRuntime(testContext.workspace, "grep-cache-disabled", async ({ tool, opened }) => {
 			let fullReads = 0;

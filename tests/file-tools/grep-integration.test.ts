@@ -347,9 +347,7 @@ describe("grep integration", () => {
 	});
 
 	it("大代码文件跳过 Tree-sitter 但保留完整文本召回并记录内部观测", async () => {
-		const configPath = path.join(testContext.outside, "semantic-parse-bytes.jsonc");
-		await writeConfig(configPath, { grep_ast_max_file_bytes: 1024 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_ast_max_file_bytes: 1024 }, "semantic-parse-bytes");
 		for (let index = 0; index < 48; index += 1) {
 			await writeFile(path.join(testContext.workspace, `small-${index}.ts`), `export const small${index} = ${index};\n`);
 		}
@@ -417,9 +415,7 @@ describe("grep integration", () => {
 	});
 
 	it("多个 scope 共享 grep 结果限制", async () => {
-		const configPath = path.join(testContext.outside, "multi-scope-limit.jsonc");
-		await writeConfig(configPath, { grep_result_limit: 2 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_result_limit: 2 }, "multi-scope-limit");
 		await mkdir(path.join(testContext.workspace, "src"), { recursive: true });
 		await mkdir(path.join(testContext.workspace, "tests"), { recursive: true });
 		for (const [directory, name] of [["src", "a.ts"], ["src", "b.ts"], ["tests", "c.ts"], ["tests", "d.ts"]] as const) {
@@ -437,9 +433,7 @@ describe("grep integration", () => {
 	});
 
 	it("输出超过旧 token budget 时仍只按结果条数限制", async () => {
-		const configPath = path.join(testContext.outside, "result-limit.jsonc");
-		await writeConfig(configPath, { grep_result_limit: 10 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_result_limit: 10 }, "result-limit");
 		for (let index = 0; index < 10; index += 1) {
 			await writeFile(
 				path.join(testContext.workspace, `module-${index}.ts`),

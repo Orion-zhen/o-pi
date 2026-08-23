@@ -16,6 +16,7 @@ import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 export interface GrepTestContext {
 	readonly workspace: string;
 	readonly outside: string;
+	useConfig(limits: Record<string, number>, name?: string): Promise<void>;
 }
 
 export function createGrepTestContext(): GrepTestContext {
@@ -37,6 +38,11 @@ export function createGrepTestContext(): GrepTestContext {
 	return {
 		get workspace() { return workspaceTemp.path; },
 		get outside() { return outsideTemp.path; },
+		async useConfig(limits, name = "file-tools") {
+			const configPath = path.join(outsideTemp.path, `${name}.jsonc`);
+			await writeConfig(configPath, limits);
+			process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		},
 	};
 }
 

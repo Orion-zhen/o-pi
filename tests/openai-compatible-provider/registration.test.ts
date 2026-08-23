@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import openAICompatibleProvider from "../../agent/extensions/openai-compatible-provider.js";
 import { loadModelsJsoncConfig } from "../../src/openai-compatible-provider/config.js";
 import { registerOpenAICompatibleProviders } from "../../src/openai-compatible-provider/register.js";
-import { createExtensionHarness, createRegistryPi, loadConfigFromText } from "./fixtures.js";
+import { createExtensionHarness, createRegistryPi, loadConfigFromText, providerConfig } from "./fixtures.js";
 import { useOpenAICompatibleProviderTestSetup } from "./test-support.js";
 
 const temp = useOpenAICompatibleProviderTestSetup();
@@ -47,17 +47,14 @@ describe("openai-compatible-provider registration", () => {
 	});
 
 	it("最小配置注册为完整原生 provider，并把字符串模型归一化为同名 model id", async () => {
-		const config = await loadConfigFromText(temp.path, `{
-			"providers": {
-				"vllm": {
-					"name": "Local vLLM",
-					"baseUrl": "http://127.0.0.1:8000/v1",
-					"apiKey": "EMPTY",
-					"api": "openai-completions",
-					"models": ["Qwen/Qwen3-Coder-480B-A35B-Instruct",],
-				},
-			},
-		}`);
+		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
+			vllm: providerConfig({
+				name: "Local vLLM",
+				baseUrl: "http://127.0.0.1:8000/v1",
+				api: "openai-completions",
+				models: ["Qwen/Qwen3-Coder-480B-A35B-Instruct"],
+			}, "vllm"),
+		} }));
 		const harness = createExtensionHarness();
 		const [provider] = registerOpenAICompatibleProviders(harness.pi, config, path.join(temp.path, "models.jsonc"));
 
@@ -74,16 +71,13 @@ describe("openai-compatible-provider registration", () => {
 	});
 
 	it("同名 provider 注册到 Pi 时完全替换内置 provider 模型", async () => {
-		const config = await loadConfigFromText(temp.path, `{
-			"providers": {
-				"opencode": {
-					"name": "Private OpenCode",
-					"baseUrl": "https://private-opencode.example.com/v1",
-					"apiKey": "EMPTY",
-					"models": ["private-opencode-model"]
-				}
-			}
-		}`);
+		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
+			opencode: providerConfig({
+				name: "Private OpenCode",
+				baseUrl: "https://private-opencode.example.com/v1",
+				models: ["private-opencode-model"],
+			}, "opencode"),
+		} }));
 		const runtime = await ModelRuntime.create({
 			credentials: new InMemoryCredentialStore(),
 			modelsPath: null,
@@ -108,14 +102,9 @@ describe("openai-compatible-provider registration", () => {
 	});
 
 	it("模型目录刷新由 ModelRuntime 更新快照且不重复注册 provider", async () => {
-		const config = await loadConfigFromText(temp.path, `{
-			"providers": {
-				"local": {
-					"baseUrl": "http://127.0.0.1:8000/v1",
-					"apiKey": "EMPTY"
-				}
-			}
-		}`);
+		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
+			local: providerConfig({ baseUrl: "http://127.0.0.1:8000/v1", models: undefined }, "local"),
+		} }));
 		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			new Response('{ "data": [{ "id": "dynamic-model" }] }'),
 		);
@@ -146,16 +135,12 @@ describe("openai-compatible-provider registration", () => {
 	});
 
 	it("只在用户选择模型时应用 defaultThinkingLevel，不覆盖恢复值或每轮用户选择", async () => {
-		const config = await loadConfigFromText(temp.path, `{
-			"providers": {
-				"gateway": {
-					"baseUrl": "https://example.test/v1",
-					"apiKey": "EMPTY",
-					"thinkingPreset": "openai",
-					"models": [{ "id": "m", "defaultThinkingLevel": "minimal" }]
-				}
-			}
-		}`);
+		const config = await loadConfigFromText(temp.path, JSON.stringify({ providers: {
+			gateway: providerConfig({
+				thinkingPreset: "openai",
+				models: [{ id: "m", defaultThinkingLevel: "minimal" }],
+			}),
+		} }));
 		const handlers = new Map<string, (event: unknown, ctx?: unknown) => void>();
 		const thinkingLevels: string[] = [];
 		const pi = {

@@ -15,6 +15,11 @@ function occurrences(value: string, needle: string): number {
 	return value.split(needle).length - 1;
 }
 
+function expectText(value: string, expected: { includes?: readonly string[]; excludes?: readonly string[] }): void {
+	for (const item of expected.includes ?? []) expect(value).toContain(item);
+	for (const item of expected.excludes ?? []) expect(value).not.toContain(item);
+}
+
 async function fixture(name: string): Promise<string> {
 	return readFile(new URL(`./fixtures/webfetch/${name}`, import.meta.url), "utf8");
 }
@@ -39,10 +44,7 @@ describe("webfetch content conversion", () => {
 			await convertContent(Buffer.from(html), headers("text/html; charset=utf-8"), "https://example.com/docs/page", "readable", readability, true),
 		);
 		expect(result).toMatchObject({ format: "markdown", title: "Title", charset: "utf-8" });
-		expect(result.text).toContain("# Title");
-		expect(result.text).toContain("https://example.com/guide");
-		expect(result.text).not.toContain("bad()");
-		expect(result.text).not.toContain("nav");
+		expectText(result.text, { includes: ["# Title", "https://example.com/guide"], excludes: ["bad()", "nav"] });
 	});
 
 	it("用作者结构过滤头像链接，不依赖图片 URL 或 alt 关键词", async () => {
@@ -66,11 +68,10 @@ describe("webfetch content conversion", () => {
 				<a href="/guides/avatar-parsing">Avatar parsing guide</a>
 			</article></body></html>`;
 		const result = await convertHtml(html, "https://example.com/thread");
-		expect(result.text).not.toContain("opaque-a.png");
-		expect(result.text).not.toContain("opaque-b.png");
-		expect(result.text).not.toContain("opaque-c.png");
-		expect(result.text).toContain("[Alice](https://example.com/user/alice)");
-		expect(result.text).toContain("[Bob](https://example.com/people/bob)");
+		expectText(result.text, {
+			includes: ["[Alice](https://example.com/user/alice)", "[Bob](https://example.com/people/bob)"],
+			excludes: ["opaque-a.png", "opaque-b.png", "opaque-c.png"],
+		});
 		expect(occurrences(result.text, "https://example.com/user/alice")).toBe(1);
 		expect(occurrences(result.text, "https://example.com/people/bob")).toBe(1);
 		expect(result.text).toContain("https://example.com/images/avatar-parsing.png");
@@ -89,10 +90,11 @@ describe("webfetch content conversion", () => {
 				</template>
 			</body></html>`;
 		const result = await convertHtml(html, "https://example.com/thread");
-		expect(result.text).toContain("Deferred comment body remains visible.");
-		expect(result.text).toContain("[Carol](https://example.com/u/carol)");
+		expectText(result.text, {
+			includes: ["Deferred comment body remains visible.", "[Carol](https://example.com/u/carol)"],
+			excludes: ["carol-photo.png"],
+		});
 		expect(occurrences(result.text, "https://example.com/u/carol")).toBe(1);
-		expect(result.text).not.toContain("carol-photo.png");
 	});
 
 	it("source 模式返回原始解码文本", async () => {
@@ -134,16 +136,13 @@ describe("webfetch content conversion", () => {
 			await convertContent(Buffer.from(html), headers("text/plain"), "https://example.com/docs/page.html", "readable", readability, true),
 		);
 		expect(textResult).toMatchObject({ format: "markdown", contentType: "text/plain", title: "Title" });
-		expect(textResult.text).toContain("# Title");
-		expect(textResult.text).not.toContain("<article>");
-		expect(textResult.text).not.toContain("nav");
+		expectText(textResult.text, { includes: ["# Title"], excludes: ["<article>", "nav"] });
 
 		const binaryResult = expectConversionSuccess(
 			await convertContent(Buffer.from(html), headers("application/octet-stream"), "https://example.com/docs/page.html", "readable", readability, true),
 		);
 		expect(binaryResult).toMatchObject({ format: "markdown", contentType: "application/octet-stream" });
-		expect(binaryResult.text).toContain("Body");
-		expect(binaryResult.text).not.toContain("<html>");
+		expectText(binaryResult.text, { includes: ["Body"], excludes: ["<html>"] });
 	});
 
 	it("把配置的 charThreshold 传给 HTML 转换器", async () => {

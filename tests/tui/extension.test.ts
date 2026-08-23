@@ -90,58 +90,14 @@ describe("tui extension", () => {
 		await writeFile(file, '{ "home": { "enabled": false } }');
 		process.env["PI_TUI_CONFIG"] = file;
 		const handlers = new Map<string, Handler>();
-		let footerFactory: FooterFactory | undefined;
+		const calls = createUiCalls();
 		let activeTools = ["read"];
-		const allTools = [{ name: "read" }, { name: "grep" }, { name: "bash" }];
-
-		const pi = {
-			on(name: string, handler: Handler) {
-				handlers.set(name, handler);
-			},
-			getThinkingLevel() {
-				return "medium";
-			},
-			getAllTools() {
-				return allTools;
-			},
-			getActiveTools() {
-				return activeTools;
-			},
-			getCommands() {
-				return [];
-			},
-		};
-
-		const ctx: ExtensionContextStub = {
-			cwd: process.cwd(),
-			mode: "tui",
-			ui: {
-				theme: { fg: (_name, text) => text, bg: (_name, text) => text },
-				notify() {},
-				setTitle() {},
-				setStatus() {},
-				setFooter(factory) {
-					footerFactory = factory;
-				},
-				setHeader() {},
-				setWorkingIndicator() {},
-				setEditorComponent() {},
-				getEditorComponent: () => undefined,
-			},
-			getContextUsage() {
-				return undefined;
-			},
-			isIdle: () => true,
-			hasPendingMessages: () => false,
-			model: undefined,
-			modelRegistry: { isUsingOAuth: () => false, getAvailable: () => [] },
-			sessionManager: { getEntries: () => [], buildContextEntries: () => [], getSessionId: () => "session-test" },
-		};
+		const pi = createPi(handlers, { getActiveTools: () => activeTools });
+		const ctx = createContext(calls);
 
 		tuiExtension(pi as unknown as ExtensionAPI);
 		await handlers.get("session_start")?.({}, ctx);
-
-		const component = footerFactory?.({ mode: "regular", requestRender() {} }, ctx.ui.theme, createFooterData());
+		const component = calls.footer.at(-1)?.({ mode: "regular", requestRender() {} }, ctx.ui.theme, createFooterData());
 
 		expect(component?.render(80).join("\n")).toMatch(/\b1\/3\b/u);
 		activeTools = ["unknown", "bash", "read"];
@@ -725,7 +681,10 @@ function createFooterDataController(initialBranch: string | null): {
 	};
 }
 
-function createPi(handlers: Map<string, Handler>) {
+function createPi(
+	handlers: Map<string, Handler>,
+	options: { getActiveTools?: () => string[] } = {},
+) {
 	return {
 		on(name: string, handler: Handler) {
 			handlers.set(name, handler);
@@ -739,9 +698,7 @@ function createPi(handlers: Map<string, Handler>) {
 		getAllTools() {
 			return [{ name: "read" }, { name: "grep" }, { name: "bash" }];
 		},
-		getActiveTools() {
-			return ["read"];
-		},
+		getActiveTools: options.getActiveTools ?? (() => ["read"]),
 		getCommands() {
 			return [];
 		},

@@ -196,28 +196,13 @@ describe("read", () => {
 		});
 	});
 
-	it("按行范围读取且不把行号写进 content", async () => {
+	it.each([
+		["2", { content: "two\n", start_line: 2, end_line: 2, total_lines: 3 }],
+		["2-", { content: "two\nthree\n", start_line: 2, end_line: 3, total_lines: 3 }],
+		["2-99", { content: "two\nthree\n", start_line: 2, end_line: 3, total_lines: 3, truncated: false }],
+	] as const)("按行范围 %s 读取", async (lines, expected) => {
 		await writeFile(path.join(workspace, "a.txt"), "one\ntwo\nthree\n", "utf8");
-		const result = await testContext.read({ path: "a.txt", lines: "2" });
-		expect(result).toMatchObject({ content: "two\n", start_line: 2, end_line: 2, total_lines: 3 });
-	});
-
-	it("开放行范围读取到文件末尾", async () => {
-		await writeFile(path.join(workspace, "a.txt"), "one\ntwo\nthree\n", "utf8");
-		const result = await testContext.read({ path: "a.txt", lines: "2-" });
-		expect(result).toMatchObject({ content: "two\nthree\n", start_line: 2, end_line: 3, total_lines: 3 });
-	});
-
-	it("end_line 超过文件末尾时读取到文件末尾", async () => {
-		await writeFile(path.join(workspace, "a.txt"), "one\ntwo\nthree\n", "utf8");
-		const result = await testContext.read({ path: "a.txt", lines: "2-99" });
-		expect(result).toMatchObject({
-			content: "two\nthree\n",
-			start_line: 2,
-			end_line: 3,
-			total_lines: 3,
-			truncated: false,
-		});
+		expect(await testContext.read({ path: "a.txt", lines })).toMatchObject(expected);
 	});
 
 	it("处理空文件、无尾部换行、CRLF 和 UTF-8 BOM", async () => {

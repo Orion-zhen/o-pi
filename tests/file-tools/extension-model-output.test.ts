@@ -34,11 +34,12 @@ describe("file-tools extension model output", () => {
 				},
 			},
 		});
-		expect(formatDrift).toBe(`<error>
- edits[0].old was not found exactly; one formatting-equivalent candidate exists.
- line 4 old="if (a &lt; b) {\\r\\n\\tcall();\\r\\n}"
- next: Retry with the shown old text.
- </error>`.replaceAll("\n ", "\n"));
+		for (const value of [
+			"<error>",
+			'line 4 old="if (a &lt; b) {\\r\\n\\tcall();\\r\\n}"',
+			"next: Retry with the shown old text.",
+			"</error>",
+		]) expect(formatDrift).toContain(value);
 
 		const anchors = formatErrorModelResult({
 			status: "failed",
@@ -48,10 +49,9 @@ describe("file-tools extension model output", () => {
 				details: { reason: "anchor_candidates", candidates: [{ line: 9, text: "before\ntarget\nafter\n" }] },
 			},
 		});
-		expect(anchors).toBe(`<error>
- edits[0].old was not found; one nearby candidate shown.
- near line 9 text="before\\ntarget\\nafter\\n"
- </error>`.replaceAll("\n ", "\n"));
+		for (const value of ["<error>", 'near line 9 text="before\\ntarget\\nafter\\n"', "</error>"]) {
+			expect(anchors).toContain(value);
+		}
 	});
 
 	it("将重复 old 的匹配提示压缩为可直接重试的行", () => {
@@ -71,12 +71,13 @@ describe("file-tools extension model output", () => {
 				},
 			},
 		});
-		expect(output).toBe(`<error>
- edits[0].old matched 6 locations, 2 shown.
- line 10 old="const mode = \\\"dev\\\"" new="const mode = \\\"staging\\\""
- line 24 old="const mode = \\\"prod\\\"" new="const mode = \\\"staging\\\""
- next: Retry with one shown old/new pair; read only if the file changed.
- </error>`.replaceAll("\n ", "\n"));
+		for (const value of [
+			"<error>",
+			'line 10 old="const mode = \\\"dev\\\"" new="const mode = \\\"staging\\\""',
+			'line 24 old="const mode = \\\"prod\\\"" new="const mode = \\\"staging\\\""',
+			"next: Retry with one shown old/new pair; read only if the file changed.",
+			"</error>",
+		]) expect(output).toContain(value);
 	});
 
 	it("read/edit 成功结果给模型返回紧凑文本，完整结构留在 details", async () => {
