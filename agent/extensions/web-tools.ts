@@ -30,6 +30,8 @@ const webSearchParameters = Type.Object(
 const webFetchParameters = Type.Object(
 	{
 		url: Type.String({
+			minLength: 1,
+			maxLength: 8192,
 			description: "HTTP(S) URL.",
 		}),
 		mode: Type.Optional(
@@ -188,12 +190,6 @@ export function createWebToolsExtension(
 				return { isError: true };
 			}
 			return undefined;
-		});
-
-		pi.on("message_end", (event) => {
-			if (runtimePromise === undefined || event.message.role !== "assistant") return;
-			const text = event.message.content.flatMap((item) => item.type === "text" ? [item.text] : []).join("\n");
-			if (text.length > 0) void runtimePromise.then((runtime) => runtime.observeCitations?.(text));
 		});
 
 		pi.on("session_shutdown", async () => {

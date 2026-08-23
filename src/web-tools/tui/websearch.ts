@@ -86,7 +86,7 @@ function formatSuccess(details: WebSearchSuccessDetails, expanded: boolean, them
 		tool: "websearch",
 		status: count === 0 ? "warning" : "success",
 		target: `"${clean(details.query)}"`,
-		summary: joinParts([countText, details.provider, fallbackLabel(details), details.cached ? "cache hit" : "cache miss", formatDuration(details.duration_ms)]),
+		summary: joinParts([countText, details.provider, fallbackLabel(details), formatDuration(details.duration_ms)]),
 	}, theme);
 	if (!expanded) return header;
 
@@ -99,7 +99,6 @@ function formatSuccess(details: WebSearchSuccessDetails, expanded: boolean, them
 		rows.length > 0 ? `\n${rows.join("\n\n")}` : undefined,
 		"",
 		`  Provider        ${clean(details.provider)}`,
-		`  Cache           ${details.cached ? "hit" : "miss"}`,
 		`  Downloaded      ${formatBytes(details.downloaded_bytes)}`,
 		`  Duration        ${formatDuration(details.duration_ms)}`,
 		formatAttempts(details.attempts),
@@ -161,7 +160,7 @@ function formatAttempts(attempts: readonly WebSearchProviderAttempt[] | undefine
 	const rows = attempts.map((attempt) => {
 		const status = clean(attempt.status).padEnd(8);
 		const code = clean(attempt.error?.code ?? "").padEnd(14);
-		const duration = attempt.duration_ms !== undefined ? formatDuration(attempt.duration_ms) : attempt.cached ? "cached" : "";
+		const duration = attempt.duration_ms !== undefined ? formatDuration(attempt.duration_ms) : "";
 		return `  ${clean(attempt.provider).padEnd(16)}${status}${code}${duration}`;
 	});
 	return ["", "  Attempts", ...rows].join("\n");

@@ -26,7 +26,7 @@ describe("webfetch cookies", () => {
 	it("只在 allowlist 命中且需要 Cookie 时加载 store，并复用并发加载", async () => {
 		const store: CookieStore = {
 			async getCookieAccess() {
-				return { fingerprint: "loaded", authenticated: false };
+				return {};
 			},
 			async storeFromResponse() {
 				return undefined;
@@ -35,12 +35,11 @@ describe("webfetch cookies", () => {
 		const load = vi.fn(async () => store);
 		const lazy = createLazyCookieStore(load);
 
-		await lazy.getCookieAccess(new URL("https://example.com/"), false);
-		await lazy.storeFromResponse(new URL("https://example.com/"), [], true);
+		await lazy.storeFromResponse(new URL("https://example.com/"), []);
 		expect(load).not.toHaveBeenCalled();
 		await Promise.all([
-			lazy.getCookieAccess(new URL("https://example.com/"), true),
-			lazy.getCookieAccess(new URL("https://example.com/"), true),
+			lazy.getCookieAccess(new URL("https://example.com/")),
+			lazy.getCookieAccess(new URL("https://example.com/")),
 		]);
 		expect(load).toHaveBeenCalledTimes(1);
 	});
@@ -58,15 +57,14 @@ describe("webfetch cookies", () => {
 		if (process.platform !== "win32") await chmod(file, 0o600);
 		const store = new NetscapeCookieStore(file);
 
-		const docs = await store.getCookieAccess(new URL("https://a.example.com/docs/page"), true);
-		expect(docs).toMatchObject({ authenticated: true });
+		const docs = await store.getCookieAccess(new URL("https://a.example.com/docs/page"));
 		expect("header" in docs ? docs.header : "").toContain("sid=secret");
 
-		const hostOnly = await store.getCookieAccess(new URL("http://example.com/"), true);
+		const hostOnly = await store.getCookieAccess(new URL("http://example.com/"));
 		expect("header" in hostOnly ? hostOnly.header : "").toContain("host=value");
 
-		const crossDomain = await store.getCookieAccess(new URL("https://other.com/docs"), true);
-		expect(crossDomain).toMatchObject({ authenticated: false });
+		const crossDomain = await store.getCookieAccess(new URL("https://other.com/docs"));
+		expect(crossDomain).toEqual({});
 	});
 
 	it("Set-Cookie 只更新内存，文件变更后按磁盘重新加载", async () => {
@@ -74,14 +72,13 @@ describe("webfetch cookies", () => {
 		await writeFile(file, ".example.com\tTRUE\t/\tFALSE\t0\ta\t1\n");
 		if (process.platform !== "win32") await chmod(file, 0o600);
 		const store = new NetscapeCookieStore(file);
-		await store.storeFromResponse(new URL("http://example.com/"), ["b=2; Path=/"], true);
-		expect((await store.getCookieAccess(new URL("http://example.com/"), true)).authenticated).toBe(true);
-		expect("header" in await store.getCookieAccess(new URL("http://example.com/"), true)).toBe(true);
+		await store.storeFromResponse(new URL("http://example.com/"), ["b=2; Path=/"]);
+		expect("header" in await store.getCookieAccess(new URL("http://example.com/"))).toBe(true);
 
 		const later = new Date(Date.now() + 2000);
 		await writeFile(file, ".example.com\tTRUE\t/\tFALSE\t0\ta\t3\n");
 		await utimes(file, later, later);
-		const reloaded = await store.getCookieAccess(new URL("http://example.com/"), true);
+		const reloaded = await store.getCookieAccess(new URL("http://example.com/"));
 		expect("header" in reloaded ? reloaded.header : "").toContain("a=3");
 		expect("header" in reloaded ? reloaded.header : "").not.toContain("b=2");
 	});
@@ -91,7 +88,7 @@ describe("webfetch cookies", () => {
 		await writeFile(file, ".example.com\tTRUE\t/\tFALSE\t0\ta\t1\n");
 		await chmod(file, 0o644);
 		expect(await stat(file)).toBeTruthy();
-		expect(await new NetscapeCookieStore(file).getCookieAccess(new URL("http://example.com/"), true)).toMatchObject({
+		expect(await new NetscapeCookieStore(file).getCookieAccess(new URL("http://example.com/"))).toMatchObject({
 			status: "failed",
 			error: { code: "COOKIE_ERROR" },
 		});

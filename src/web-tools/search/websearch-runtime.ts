@@ -45,8 +45,7 @@ export function createWebSearchRuntime(
 	options: WebSearchCapabilityOptions,
 	providerLoaders: WebSearchProviderLoaders = defaultProviderLoaders,
 ): WebSearchCapability {
-	let searches = new SearchCache(options.now);
-	let searchCacheTtlSeconds: number | undefined;
+	const searches = new SearchCache();
 	let searchRequests = new SearchRequestGate(options.now);
 	let searchGateSignature = "";
 	let searchRouter: SearchProviderRouter | undefined;
@@ -56,12 +55,11 @@ export function createWebSearchRuntime(
 	const getSearchRouter = async (config: WebToolsConfig, signature: string): Promise<SearchProviderRouter> => {
 		if (pendingRouterUpdates === 0 && searchRouter !== undefined && searchRouterSignature === signature) return searchRouter;
 		pendingRouterUpdates += 1;
-		searchRouterUpdate = searchRouterUpdate.catch(() => undefined).then(async () => {
+		searchRouterUpdate = searchRouterUpdate.then(async () => {
 			if (searchRouter !== undefined && searchRouterSignature === signature) return;
 			await searchRouter?.close();
 			searchRouter = new SearchProviderRouter(
 				options.searchProviders ?? createSearchProviders(config, options, searchRequests, providerLoaders),
-				config.websearch,
 			);
 			searchRouterSignature = signature;
 		});
@@ -82,10 +80,6 @@ export function createWebSearchRuntime(
 			} catch (error) {
 				return runtimeConfigFailure("websearch", error);
 			}
-			if (searchCacheTtlSeconds !== config.websearch.cache_ttl_seconds) {
-				searches = new SearchCache(options.now, config.websearch.cache_ttl_seconds * 1000);
-				searchCacheTtlSeconds = config.websearch.cache_ttl_seconds;
-			}
 			const gateSignature = `${config.websearch.duckduckgo_html.min_interval_seconds}:${config.websearch.duckduckgo_html.blocked_cooldown_seconds}`;
 			if (gateSignature !== searchGateSignature) {
 				searchRequests.clear();
@@ -99,7 +93,7 @@ export function createWebSearchRuntime(
 			const signature = providerSignature(config.websearch);
 			const routerSignature = `${signature}:${gateSignature}:${networkConfigSignature(config.network)}`;
 			const router = await getSearchRouter(config, routerSignature);
-			return executeWebSearch(params, { searches, router, providerSignature: signature, config, context, now: options.now, corpus: options.searchCorpus });
+			return executeWebSearch(params, { searches, router, providerSignature: signature, config, context, now: options.now });
 		},
 		async close() {
 			searches.clear();
@@ -140,12 +134,8 @@ function createLazyProvider(
 	let providerPromise: Promise<WebSearchProvider> | undefined;
 	const getProvider = (): Promise<WebSearchProvider> => {
 		if (providerPromise !== undefined) return providerPromise;
-		const pending = load();
-		providerPromise = pending;
-		void pending.catch(() => {
-			if (providerPromise === pending) providerPromise = undefined;
-		});
-		return pending;
+		providerPromise ??= load();
+		return providerPromise;
 	};
 	return {
 		id,

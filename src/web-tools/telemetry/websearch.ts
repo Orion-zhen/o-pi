@@ -11,26 +11,32 @@ export const webSearchTelemetry = defineToolTelemetry<WebSearchParams, WebSearch
 	},
 	result(_params, result) {
 		const details = record(result.details);
+		const attempts = searchAttempts(details);
 		return {
 			fields: { ...webResultFields(details), ...fields({
-				primary_provider: scalar(details["primary_provider"]),
 				query_type: scalar(details["query_type"]),
-				formal_provider_calls: scalar(details["formal_provider_calls"]),
-				first_call_accepted: scalar(details["first_call_accepted"]),
-				fallback_reason: scalar(details["fallback_reason"]),
-				secondary_new_results: scalar(details["secondary_new_results"]),
-				reused: scalar(details["reused"]),
-				provider_latencies: stringArray(details["provider_latencies"]),
-				provider_errors: stringArray(details["provider_errors"]),
-				corpus_discovered: scalar(details["corpus_discovered"]),
-				corpus_fetched: scalar(details["corpus_fetched"]),
-				corpus_cited: scalar(details["corpus_cited"]),
-				approximate_reformulation: scalar(details["approximate_reformulation"]),
+				first_call_accepted: attempts === undefined || attempts.length === 0 ? undefined : attempts[0]?.quality === "accepted",
+				provider_latencies: attempts?.flatMap((attempt) => {
+					const provider = string(attempt["provider"]);
+					const duration = attempt["duration_ms"];
+					return provider !== undefined && typeof duration === "number" && Number.isFinite(duration) ? [`${provider}:${duration}`] : [];
+				}),
+				provider_errors: attempts?.flatMap((attempt) => {
+					const provider = string(attempt["provider"]);
+					const error = record(attempt["error"]);
+					const code = string(error["code"]);
+					return provider !== undefined && code !== undefined ? [`${provider}:${code}`] : [];
+				}),
 			}) },
 			candidates: webCandidates(details),
 		};
 	},
 });
+
+function searchAttempts(details: Record<string, unknown>): Record<string, unknown>[] | undefined {
+	const value = details["attempts"];
+	return Array.isArray(value) ? value.filter(isRecord) : undefined;
+}
 
 function webCandidates(details: Record<string, unknown>): Candidate[] {
 	const provider = string(details["provider"]) ?? "provider";
@@ -50,5 +56,3 @@ function webCandidates(details: Record<string, unknown>): Candidate[] {
 		}];
 	});
 }
-
-function stringArray(value: unknown): string[] | undefined { return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : undefined; }

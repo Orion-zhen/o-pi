@@ -39,7 +39,6 @@ export function validateRequestUrl(rawUrl: string): ValidatedUrl | WebFetchFailu
 		return failure("INVALID_URL", "URL userinfo is not allowed.");
 	}
 	if (url.hostname === "") return failure("INVALID_URL", "URL hostname is required.");
-	if (url.port !== "" && !isValidPort(url.port)) return failure("INVALID_URL", "URL port is invalid.");
 	const hostname = stripIpv6Brackets(url.hostname);
 	if (isLocalhostName(hostname)) return failure("BLOCKED_ADDRESS", "localhost is not allowed.");
 	if (ipaddr.isValid(hostname) && !isPublicAddress(hostname)) {
@@ -143,11 +142,6 @@ export function createSecureLookup(
 
 function defaultLookup(hostname: string): Promise<LookupAddress[]> {
 	return dnsPromises.lookup(hostname, { all: true, verbatim: false });
-}
-
-function isValidPort(port: string): boolean {
-	const value = Number(port);
-	return Number.isInteger(value) && value >= 1 && value <= 65535;
 }
 
 function isLocalhostName(hostname: string): boolean {

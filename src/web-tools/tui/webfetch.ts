@@ -120,6 +120,7 @@ function formatSuccess(details: WebFetchSuccessDetails, expanded: boolean, theme
 		details.deferred_fragments.discovered > 0
 			? `deferred ${details.deferred_fragments.resolved}/${details.deferred_fragments.discovered}`
 			: undefined,
+		details.deferred_fragments.limited ? "deferred limited" : undefined,
 		details.media.discovered > 0 ? `media ${details.media.returned}/${details.media.discovered}` : undefined,
 		details.omissions.length > 0 ? `omitted ${details.omissions.map((item) => `${item.kind}:${item.reason}`).join(", ")}` : undefined,
 	]);
@@ -220,8 +221,15 @@ function isSuccessDetails(value: unknown): value is WebFetchSuccessDetails {
 		&& Array.isArray(value["omissions"])
 		&& typeof value["http_status"] === "number"
 		&& isRecord(value["range"])
-		&& isRecord(value["deferred_fragments"])
+		&& isDeferredFragments(value["deferred_fragments"])
 		&& isRecord(value["media"]);
+}
+
+function isDeferredFragments(value: unknown): boolean {
+	return isRecord(value)
+		&& typeof value["discovered"] === "number"
+		&& typeof value["resolved"] === "number"
+		&& typeof value["limited"] === "boolean";
 }
 
 function isPageKind(value: unknown): boolean {
@@ -229,7 +237,7 @@ function isPageKind(value: unknown): boolean {
 }
 
 function isTextSource(value: unknown): boolean {
-	return value === "readability" || value === "semantic" || value === "heading" || value === "body" || value === "metadata";
+	return value === "readability" || value === "semantic" || value === "body" || value === "metadata";
 }
 
 function isFailureDetails(value: unknown): value is WebFetchFailureDetails {

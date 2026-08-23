@@ -8,7 +8,6 @@ interface LoadedCookies {
 	mtimeMs: number;
 	size: number;
 	jar: CookieJar;
-	fingerprint: string;
 }
 
 export class NetscapeCookieStore implements CookieStore {
@@ -17,20 +16,15 @@ export class NetscapeCookieStore implements CookieStore {
 	constructor(private readonly cookiePath: string) {}
 
 	/** 返回当前 URL 可发送的 Cookie header；明文名称和值只留在内存和请求头中。 */
-	async getCookieAccess(url: URL, allowlisted: boolean): Promise<CookieAccess | WebFetchFailureDetails> {
-		if (!allowlisted) return { fingerprint: "disabled", authenticated: false };
+	async getCookieAccess(url: URL): Promise<CookieAccess | WebFetchFailureDetails> {
 		const loaded = await this.load();
 		if ("status" in loaded) return loaded;
 		const header = await loaded.jar.getCookieString(url.toString(), { http: true });
-		return {
-			...(header.length > 0 ? { header } : {}),
-			fingerprint: `${loaded.fingerprint}:${header.length > 0 ? "with-cookie" : "empty"}`,
-			authenticated: header.length > 0,
-		};
+		return header.length > 0 ? { header } : {};
 	}
 
-	async storeFromResponse(url: URL, setCookieHeaders: string[], allowlisted: boolean): Promise<WebFetchFailureDetails | undefined> {
-		if (!allowlisted || setCookieHeaders.length === 0) return undefined;
+	async storeFromResponse(url: URL, setCookieHeaders: string[]): Promise<WebFetchFailureDetails | undefined> {
+		if (setCookieHeaders.length === 0) return undefined;
 		const loaded = await this.load();
 		if ("status" in loaded) return loaded;
 		for (const header of setCookieHeaders) {
@@ -57,7 +51,6 @@ export class NetscapeCookieStore implements CookieStore {
 					mtimeMs: 0,
 					size: 0,
 					jar,
-					fingerprint: "missing",
 				};
 			}
 			return cookieError("cookies.txt cannot be read.");
@@ -96,7 +89,6 @@ export class NetscapeCookieStore implements CookieStore {
 			mtimeMs: fileStat.mtimeMs,
 			size: fileStat.size,
 			jar,
-			fingerprint: `${fileStat.mtimeMs}:${fileStat.size}`,
 		};
 		return this.loaded;
 	}

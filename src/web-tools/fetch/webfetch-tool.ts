@@ -29,17 +29,15 @@ export interface ExecuteWebFetchRuntime extends Omit<HttpClientOptions, "config"
 
 export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWebFetchRuntime): Promise<WebFetchResult> {
 	const startedAt = runtime.now();
-	const validation = validateParams(params, runtime.config);
-	if (validation !== undefined) return { content: failureContent(validation), details: { ...validation, duration_ms: runtime.now() - startedAt } };
-
 	const mode = params.mode ?? "readable";
 	const offset = params.offset ?? 0;
 	const limit = params.limit ?? runtime.config.webfetch.limits.default_output_chars;
+	const mediaEnabled = runtime.config.webfetch.media.mode === "auto";
 	const canReturnImages = mode === "readable"
 		&& offset === 0
-		&& runtime.config.webfetch.media.mode === "auto"
+		&& mediaEnabled
 		&& runtime.context.acceptsImages === true;
-	const snapshotKey = snapshotKeyFor(params.url, mode);
+	const snapshotKey = snapshotKeyFor(params.url, mode, mediaEnabled);
 	let snapshotStatus: SnapshotStatus = "not_needed";
 	let conversion: ContentConversion | undefined;
 	let http: HttpFetchSuccess | undefined;
@@ -77,7 +75,7 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 			return { content: failureContent(fetched.details), details: fetched.details };
 		}
 		runtime.context.onUpdate?.({ content: "Converting...", details: { status: "progress", phase: "converting", http_status: fetched.httpStatus } });
-		const direct = await directImageConversion(fetched, mode, runtime.config.webfetch.media.response_bytes);
+		const direct = await directImageConversion(fetched, mode, runtime.config.webfetch.media.response_bytes, mediaEnabled);
 		if (direct !== undefined) void converterPromise.catch(() => undefined);
 		const converted = direct ?? await (async () => {
 			const { convertContent } = await converterPromise;
@@ -87,6 +85,7 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 				fetched.finalUrl,
 				mode,
 				{ charThreshold: runtime.config.webfetch.readability.char_threshold },
+				mediaEnabled,
 			);
 		})();
 		if ("status" in converted) {
@@ -130,10 +129,13 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 		});
 	}
 
-	const mediaResult = await resolvePrimaryMedia(conversion, offset, { ...runtime, startedAt });
+	const mediaResult = mediaEnabled
+		? await resolvePrimaryMedia(conversion, offset, { ...runtime, startedAt })
+		: {};
 	const omissions = collectOmissions(conversion, sliced.start, sliced.nextOffset, mediaResult.omission);
 	if (
 		conversion.analysis.pageKind === "image"
+		&& mediaEnabled
 		&& mediaResult.media === undefined
 		&& !omissions.some((item) => item.kind === "primary_media")
 	) {
@@ -163,7 +165,6 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 			has_more: sliced.nextOffset !== undefined,
 			...(sliced.nextOffset !== undefined ? { next_offset: sliced.nextOffset } : {}),
 		},
-		...(sliced.nextOffset !== undefined ? { next: `Call webfetch with the same url and mode, offset ${sliced.nextOffset}.` } : {}),
 		authenticated: http.authenticated,
 		redirect_count: http.redirectCount,
 		snapshot: snapshotStatus,
@@ -202,30 +203,14 @@ function collectOmissions(
 	return omissions;
 }
 
-function validateParams(params: WebFetchParams, config: WebToolsConfig): WebFetchFailureDetails | undefined {
-	if (typeof params.url !== "string" || params.url.length === 0) {
-		return { status: "failed", error: { code: "INVALID_ARGUMENT", message: "url must be a non-empty string." } };
-	}
-	if (params.mode !== undefined && params.mode !== "readable" && params.mode !== "source") {
-		return { status: "failed", error: { code: "INVALID_ARGUMENT", message: "mode must be readable or source." } };
-	}
-	if (params.offset !== undefined && (!Number.isInteger(params.offset) || params.offset < 0)) {
-		return { status: "failed", error: { code: "INVALID_ARGUMENT", message: "offset must be a non-negative integer." } };
-	}
-	if (params.limit !== undefined && (!Number.isInteger(params.limit) || params.limit < 1 || params.limit > config.webfetch.limits.max_output_chars)) {
-		return { status: "failed", error: { code: "INVALID_ARGUMENT", message: `limit must be between 1 and ${config.webfetch.limits.max_output_chars}.` } };
-	}
-	return undefined;
-}
-
-function snapshotKeyFor(rawUrl: string, mode: string): string {
+function snapshotKeyFor(rawUrl: string, mode: string, mediaEnabled: boolean): string {
 	let normalized = rawUrl;
 	try {
 		normalized = normalizeUrl(new URL(rawUrl));
 	} catch {
 		// 参数校验和 URL 校验会在后续返回结构化错误。
 	}
-	return `${mode}:${normalized}`;
+	return `${mode}:${mediaEnabled ? "media" : "no-media"}:${normalized}`;
 }
 
 function snapshotToHttp(snapshot: WebFetchSnapshot, requestedUrl: string): HttpFetchSuccess {
@@ -234,7 +219,6 @@ function snapshotToHttp(snapshot: WebFetchSnapshot, requestedUrl: string): HttpF
 		requestedUrl: safeRedact(requestedUrl),
 		finalUrl: snapshot.metadata.finalUrl,
 		httpStatus: snapshot.metadata.httpStatus,
-		statusText: "",
 		headers: new Headers(snapshot.metadata.contentType ? { "content-type": snapshot.metadata.contentType } : undefined),
 		body: new Uint8Array(),
 		authenticated: snapshot.metadata.authenticated,

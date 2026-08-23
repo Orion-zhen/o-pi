@@ -32,34 +32,30 @@ export function htmlToMarkdown(
 	finalUrl: string,
 	mime: string,
 	options: HtmlReadabilityOptions,
-	charset?: string,
+	charset: string | undefined,
+	mediaEnabled: boolean,
 ): ContentConversion | WebFetchFailureDetails {
 	try {
 		const { document } = parseHTML(html);
-		const analysis = analyzeHtmlPage(document, finalUrl, mime);
+		const analysis = analyzeHtmlPage(document, finalUrl, mime, mediaEnabled);
 		const deferred = extractDeferredContent(document);
 		analysis.deferred = deferred.evidence;
 		const deferredFragments = {
 			discovered: deferred.evidence.discovered,
 			resolved: deferred.evidence.resolved,
+			limited: deferred.evidence.limited,
 		};
-		const selected = selectDocumentBody(document, finalUrl, options, analysis);
-		const title = analysis.metadata.heading?.value ?? selected.title ?? analysis.metadata.title?.value;
+		const selected = selectDocumentBody(document, finalUrl, options, analysis, mediaEnabled);
+		const title = analysis.metadata.heading ?? selected.title ?? analysis.metadata.title;
 		const deferredSections = deferred.fragments
 			.map((fragment) => fragmentToMarkdown(fragment, document, finalUrl))
 			.filter((fragment) => fragment.length > 0);
 		const text = composeSections(title, selected, analysis, deferredSections);
-		const pageMedia = selectPageMedia(analysis.mediaCandidates, selected.mediaUrls);
-		analysis.mediaCandidates = pageMedia.candidates;
-		const primaryMediaUrl = pageMedia.primaryImage === undefined
+		const pageMedia = mediaEnabled ? selectPageMedia(analysis.mediaCandidates, selected.mediaUrls) : undefined;
+		if (pageMedia !== undefined) analysis.mediaCandidates = pageMedia.candidates;
+		const primaryMediaUrl = pageMedia?.primaryImage === undefined
 			? undefined
 			: pageMedia.primaryImage.secureUrl ?? pageMedia.primaryImage.url;
-		const mediaDominant = primaryMediaUrl !== undefined
-			&& (
-				analysis.pageKind === "video"
-				|| analysis.pageKind === "audio"
-				|| selected.textLength < 160
-			);
 		return {
 			text,
 			format: "markdown",
@@ -73,13 +69,6 @@ export function htmlToMarkdown(
 			contentType: mime,
 			...(charset ? { charset } : {}),
 			...(title ? { title } : {}),
-			extraction: {
-				analysis,
-				textSource: selected.source,
-				deferredFragments,
-				...(primaryMediaUrl !== undefined ? { primaryMedia: { url: primaryMediaUrl } } : {}),
-				mediaDominant,
-			},
 		};
 	} catch (error) {
 		return { status: "failed", error: { code: "CONVERSION_FAILED", message: error instanceof Error ? error.message : String(error) } };
@@ -89,7 +78,6 @@ export function htmlToMarkdown(
 interface SelectedBody {
 	text: string;
 	source: WebFetchTextSource;
-	textLength: number;
 	blockCount: number;
 	title?: string;
 	structured?: TextCandidate;
@@ -101,6 +89,7 @@ function selectDocumentBody(
 	finalUrl: string,
 	options: HtmlReadabilityOptions,
 	analysis: PageAnalysis,
+	mediaEnabled: boolean,
 ): SelectedBody {
 	const structured = analysis.textCandidates.find((candidate) => candidate.kind === "article_body")
 		?? analysis.textCandidates.find((candidate) => candidate.kind === "transcript");
@@ -109,13 +98,12 @@ function selectDocumentBody(
 			return {
 				text: structured.text,
 				source: "metadata",
-				textLength: structured.text.length,
 				blockCount: 1,
 				structured,
 				mediaUrls: new Set<string>(),
 			};
 		}
-		return { text: "", source: "metadata", textLength: 0, blockCount: 0, mediaUrls: new Set<string>() };
+		return { text: "", source: "metadata", blockCount: 0, mediaUrls: new Set<string>() };
 	}
 
 	removeUnsafeNodes(document);
@@ -124,16 +112,15 @@ function selectDocumentBody(
 	const selection = selectHtmlContent(
 		document,
 		options,
-		analysis.metadata.heading?.value,
-		analysis.metadata.documentTitle?.value,
+		analysis.metadata.heading,
+		analysis.metadata.documentTitle,
 	);
 	if ("preferred" in selection) {
 		return {
 			text: markdownFromHtml(selection.preferred.root),
 			source: selection.preferred.source,
-			textLength: selection.preferred.textLength,
 			blockCount: selection.preferred.blockCount,
-			mediaUrls: selectedMediaUrls(selection.preferred.root, finalUrl),
+			mediaUrls: mediaUrls(selection.preferred.root, finalUrl, mediaEnabled),
 			...(selection.preferred.title !== undefined ? { title: selection.preferred.title } : {}),
 		};
 	}
@@ -141,7 +128,6 @@ function selectDocumentBody(
 		return {
 			text: structured.text,
 			source: "metadata",
-			textLength: structured.text.length,
 			blockCount: 1,
 			structured,
 			mediaUrls: new Set<string>(),
@@ -152,13 +138,16 @@ function selectDocumentBody(
 		return {
 			text: markdownFromHtml(selection.body.root),
 			source: "body",
-			textLength: selection.body.textLength,
 			blockCount: selection.body.blockCount,
-			mediaUrls: selectedMediaUrls(selection.body.root, finalUrl),
+			mediaUrls: mediaUrls(selection.body.root, finalUrl, mediaEnabled),
 			...(selection.body.title !== undefined ? { title: selection.body.title } : {}),
 		};
 	}
-	return { text: "", source: "metadata", textLength: 0, blockCount: 0, mediaUrls: new Set<string>() };
+	return { text: "", source: "metadata", blockCount: 0, mediaUrls: new Set<string>() };
+}
+
+function mediaUrls(root: Element, baseUrl: string, mediaEnabled: boolean): Set<string> {
+	return mediaEnabled ? selectedMediaUrls(root, baseUrl) : new Set<string>();
 }
 
 interface OutputSection {
@@ -176,10 +165,10 @@ function composeSections(
 	const metadataLines: string[] = [];
 	if (title !== undefined) metadataLines.push(`# ${title}`);
 	if (analysis.metadata.authors.length > 0) {
-		metadataLines.push(`**Author:** ${analysis.metadata.authors.map((author) => author.value).join(", ")}`);
+		metadataLines.push(`**Author:** ${analysis.metadata.authors.join(", ")}`);
 	}
-	if (analysis.metadata.publishedAt !== undefined) metadataLines.push(`**Published:** ${analysis.metadata.publishedAt.value}`);
-	if (analysis.metadata.modifiedAt !== undefined) metadataLines.push(`**Modified:** ${analysis.metadata.modifiedAt.value}`);
+	if (analysis.metadata.publishedAt !== undefined) metadataLines.push(`**Published:** ${analysis.metadata.publishedAt}`);
+	if (analysis.metadata.modifiedAt !== undefined) metadataLines.push(`**Modified:** ${analysis.metadata.modifiedAt}`);
 	appendSection(sections, metadataLines.join("\n\n"));
 
 	const main = removeMatchingTitleHeading(selected.text, title);
@@ -187,7 +176,7 @@ function composeSections(
 
 	const hasSubstantiveMain = selected.structured?.kind === "article_body"
 		|| selected.structured === undefined && (selected.blockCount > 0 || comparableText(main).length >= 40);
-	const description = analysis.metadata.description?.value;
+	const description = analysis.metadata.description;
 	if (!hasSubstantiveMain && description !== undefined) appendSection(sections, description);
 
 	for (const candidate of analysis.textCandidates) {

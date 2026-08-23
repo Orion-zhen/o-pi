@@ -1,6 +1,4 @@
 import type { Dispatcher } from "undici";
-import type { RegularSearchOptions } from "exa-js";
-import type { TavilySearchOptions } from "@tavily/core";
 
 import { classifyNetworkError } from "../network/http-client.js";
 import { readLimitedResponseBody } from "../network/response-body.js";
@@ -11,6 +9,26 @@ import { filteredLexicalQuery } from "./query.js";
 import type { NormalizedSearchParams, SearchProviderResult, WebSearchProvider } from "./types.js";
 
 type ApiProviderConfig = WebToolsConfig["websearch"][FormalWebSearchProviderId];
+
+interface ExaSearchOptions {
+	type: "auto";
+	numResults: number;
+	contents: { highlights: { maxCharacters: number } };
+	category?: "publication";
+	includeDomains?: string[];
+	excludeDomains?: string[];
+}
+
+interface TavilySearchOptions {
+	maxResults: number;
+	searchDepth: "advanced" | "basic";
+	autoParameters: boolean;
+	includeAnswer: boolean;
+	includeRawContent: boolean;
+	includeImages: boolean;
+	includeDomains?: string[];
+	excludeDomains?: string[];
+}
 
 export interface ApiProviderOptions {
 	id: FormalWebSearchProviderId;
@@ -27,13 +45,12 @@ export interface ProviderRequest {
 }
 
 export function createApiSearchProvider(options: ApiProviderOptions): WebSearchProvider {
+	if (!options.config.enabled) throw new Error(`${options.id} provider is disabled.`);
+	const key = resolveSearchApiKey(options.config.api_key);
+	if (key === undefined) throw new Error(`${options.id} provider API key is unavailable.`);
 	return {
 		id: options.id,
-		configured: () => options.config.enabled && resolveSearchApiKey(options.config.api_key) !== undefined,
 		async search(params, context) {
-			if (!options.config.enabled) return { status: "skipped", provider: options.id, reason: "provider disabled" };
-			const key = resolveSearchApiKey(options.config.api_key);
-			if (key === undefined) return { status: "skipped", provider: options.id, reason: "API key is not configured" };
 			const remaining = (context.deadlineAt ?? Number.POSITIVE_INFINITY) - context.now();
 			if (remaining <= 0) return failed(options.id, "TIMEOUT", "websearch deadline exceeded.", params.query);
 			const timeout = AbortSignal.timeout(Math.min(options.config.timeout_seconds * 1000, remaining));
@@ -94,7 +111,7 @@ export function buildBraveRequest(config: WebToolsConfig["websearch"]["brave_api
 }
 
 export function buildExaRequest(config: WebToolsConfig["websearch"]["exa_api"], params: NormalizedSearchParams, key: string): ProviderRequest {
-	const options: RegularSearchOptions = {
+	const options: ExaSearchOptions = {
 		type: "auto",
 		numResults: Math.min(10, Math.max(params.limit, 6)),
 		contents: { highlights: { maxCharacters: config.highlight_chars } },
@@ -135,7 +152,7 @@ export function normalizeProviderResponse(id: FormalWebSearchProviderId, raw: un
 		results.push(normalized);
 		if (results.length >= limit) break;
 	}
-	return { status: "success", provider: id, results, downloadedBytes, ...(typeof raw["requestId"] === "string" ? { requestId: raw["requestId"] } : {}) };
+	return { status: "success", provider: id, results, downloadedBytes };
 }
 
 function normalizedItem(id: FormalWebSearchProviderId, row: Record<string, unknown>, rank: number): WebSearchItem | undefined {
@@ -146,8 +163,7 @@ function normalizedItem(id: FormalWebSearchProviderId, row: Record<string, unkno
 	const highlights = array(row["highlights"]).filter((value): value is string => typeof value === "string").join(" ");
 	const extra = array(row["extra_snippets"]).filter((value): value is string => typeof value === "string").join(" ");
 	const snippet = normalizeSearchText((string(row[id === "tavily" ? "content" : "description"]) ?? highlights) || extra).slice(0, SEARCH_RESULT_MAX_SNIPPET_CHARS);
-	const score = number(row["score"]) ?? array(row["highlightScores"]).find((value): value is number => typeof value === "number");
-	return { rank, title, url, ...(snippet ? { snippet } : {}), ...(score !== undefined ? { score } : {}) };
+	return { rank, title, url, ...(snippet ? { snippet } : {}) };
 }
 
 function classifyHttpStatus(status: number, body: string): { code: WebSearchErrorCode; message: string } {
@@ -173,7 +189,6 @@ function record(value: unknown): value is Record<string, unknown> { return typeo
 function array(value: unknown): unknown[] { return Array.isArray(value) ? value : []; }
 function nestedRows(value: Record<string, unknown>, key: string): unknown[] { const nested = value[key]; return record(nested) ? array(nested["results"]) : []; }
 function string(value: unknown): string | undefined { return typeof value === "string" && value.trim() ? value : undefined; }
-function number(value: unknown): number | undefined { return typeof value === "number" && Number.isFinite(value) ? value : undefined; }
 
 function retryAfterMs(value: string | null, now: number): number | undefined {
 	if (value === null) return undefined;

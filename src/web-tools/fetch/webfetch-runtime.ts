@@ -46,21 +46,16 @@ export function createLazyCookieStore(load: () => Promise<CookieStore>): LazyCoo
 	let storePromise: Promise<CookieStore> | undefined;
 	const getStore = (): Promise<CookieStore> => {
 		if (storePromise !== undefined) return storePromise;
-		const pending = load();
-		storePromise = pending;
-		void pending.catch(() => {
-			if (storePromise === pending) storePromise = undefined;
-		});
-		return pending;
+		storePromise ??= load();
+		return storePromise;
 	};
 	return {
-		async getCookieAccess(url, allowlisted) {
-			if (!allowlisted) return { fingerprint: "disabled", authenticated: false };
-			return (await getStore()).getCookieAccess(url, true);
+		async getCookieAccess(url) {
+			return (await getStore()).getCookieAccess(url);
 		},
-		async storeFromResponse(url, headers, allowlisted) {
-			if (!allowlisted || headers.length === 0) return undefined;
-			return (await getStore()).storeFromResponse(url, headers, true);
+		async storeFromResponse(url, headers) {
+			if (headers.length === 0) return undefined;
+			return (await getStore()).storeFromResponse(url, headers);
 		},
 		clear() {
 			storePromise = undefined;

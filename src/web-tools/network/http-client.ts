@@ -51,35 +51,34 @@ async function fetchHttpUrlWithinDeadline(rawUrl: string, options: HttpClientOpt
 	let lastStatus: number | undefined;
 
 	while (true) {
-		const checked = validateRequestUrl(currentUrl.toString());
-		if ("status" in checked) {
-			return {
-				status: "failed",
-				details: {
-					...checked,
-					requested_url: requested.displayUrl,
-					final_url: safeRedact(currentUrl.toString()),
-					...(lastStatus !== undefined ? { http_status: lastStatus } : {}),
-					authenticated,
-					redirect_count: redirectCount,
-					duration_ms: elapsed(options),
-				},
-			};
+		if (redirectCount > 0) {
+			const checked = validateRequestUrl(currentUrl.toString());
+			if ("status" in checked) {
+				return {
+					status: "failed",
+					details: {
+						...checked,
+						requested_url: requested.displayUrl,
+						final_url: safeRedact(currentUrl.toString()),
+						...(lastStatus !== undefined ? { http_status: lastStatus } : {}),
+						authenticated,
+						redirect_count: redirectCount,
+						duration_ms: elapsed(options),
+					},
+				};
+			}
+			currentUrl = checked.url;
 		}
-		currentUrl = checked.url;
 		options.context.onUpdate?.({
 			content: redirectCount > 0 ? "Redirecting..." : "Requesting...",
 			details: { status: "progress", phase: redirectCount > 0 ? "redirecting" : "requesting", redirect_count: redirectCount },
 		});
 
 		const allowlisted = options.config.webfetch.cookies.enabled && isCookieAllowed(currentUrl.hostname, options.config.webfetch.cookies.domains);
-		let cookieAccess: Awaited<ReturnType<CookieStore["getCookieAccess"]>> = {
-			fingerprint: "disabled",
-			authenticated: false,
-		};
+		let cookieAccess: Awaited<ReturnType<CookieStore["getCookieAccess"]>> = {};
 		if (allowlisted) {
 			try {
-				cookieAccess = await waitForAbort(options.cookieStore.getCookieAccess(currentUrl, true), requestSignal);
+				cookieAccess = await waitForAbort(options.cookieStore.getCookieAccess(currentUrl), requestSignal);
 			} catch (error) {
 				if (!requestSignal.aborted) throw error;
 				return { status: "failed", details: fetchErrorDetails(error, requested.displayUrl, currentUrl, authenticated, redirectCount, options, requestSignal) };
@@ -141,7 +140,9 @@ async function fetchHttpUrlWithinDeadline(rawUrl: string, options: HttpClientOpt
 			cancelBody(response.body);
 			let setCookieError: Awaited<ReturnType<CookieStore["storeFromResponse"]>>;
 			try {
-				setCookieError = await waitForAbort(options.cookieStore.storeFromResponse(currentUrl, setCookieHeaders(response.headers), allowlisted), requestSignal);
+				setCookieError = allowlisted
+					? await waitForAbort(options.cookieStore.storeFromResponse(currentUrl, setCookieHeaders(response.headers)), requestSignal)
+					: undefined;
 			} catch (error) {
 				if (!requestSignal.aborted) throw error;
 				return { status: "failed", details: fetchErrorDetails(error, requested.displayUrl, currentUrl, authenticated, redirectCount, options, requestSignal) };
@@ -193,7 +194,9 @@ async function fetchHttpUrlWithinDeadline(rawUrl: string, options: HttpClientOpt
 			cancelBody(response.body);
 			let setCookieError: Awaited<ReturnType<CookieStore["storeFromResponse"]>>;
 			try {
-				setCookieError = await waitForAbort(options.cookieStore.storeFromResponse(currentUrl, setCookieHeaders(response.headers), allowlisted), requestSignal);
+				setCookieError = allowlisted
+					? await waitForAbort(options.cookieStore.storeFromResponse(currentUrl, setCookieHeaders(response.headers)), requestSignal)
+					: undefined;
 			} catch (error) {
 				if (!requestSignal.aborted) throw error;
 				return { status: "failed", details: fetchErrorDetails(error, requested.displayUrl, currentUrl, authenticated, redirectCount, options, requestSignal) };
@@ -206,7 +209,6 @@ async function fetchHttpUrlWithinDeadline(rawUrl: string, options: HttpClientOpt
 				requestedUrl: requested.displayUrl,
 				finalUrl: redactUrl(currentUrl),
 				httpStatus: response.status,
-				statusText: response.statusText,
 				headers: response.headers,
 				body: new Uint8Array(),
 				bodyOmitted: "skipped_image_body",
@@ -269,7 +271,9 @@ async function fetchHttpUrlWithinDeadline(rawUrl: string, options: HttpClientOpt
 		}
 		let setCookieError: Awaited<ReturnType<CookieStore["storeFromResponse"]>>;
 		try {
-			setCookieError = await waitForAbort(options.cookieStore.storeFromResponse(currentUrl, setCookieHeaders(response.headers), allowlisted), requestSignal);
+			setCookieError = allowlisted
+				? await waitForAbort(options.cookieStore.storeFromResponse(currentUrl, setCookieHeaders(response.headers)), requestSignal)
+				: undefined;
 		} catch (error) {
 			if (!requestSignal.aborted) throw error;
 			return { status: "failed", details: fetchErrorDetails(error, requested.displayUrl, currentUrl, authenticated, redirectCount, options, requestSignal) };
@@ -303,7 +307,6 @@ async function fetchHttpUrlWithinDeadline(rawUrl: string, options: HttpClientOpt
 			requestedUrl: requested.displayUrl,
 			finalUrl: redactUrl(currentUrl),
 			httpStatus: response.status,
-			statusText: response.statusText,
 			headers: response.headers,
 			body: body.bytes,
 			authenticated,
@@ -442,10 +445,7 @@ function elapsed(options: HttpClientOptions): number {
 }
 
 function setCookieHeaders(headers: WebHttpHeaders): string[] {
-	const values = headers.getSetCookie?.();
-	if (values !== undefined) return values;
-	const single = headers.get("set-cookie");
-	return single === null ? [] : [single];
+	return headers.getSetCookie();
 }
 
 function previewText(bytes: Uint8Array): string {

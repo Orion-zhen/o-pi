@@ -1,9 +1,4 @@
-import type {
-	DeferredEvidence,
-	DeferredFragmentKind,
-	DeferredFragmentReason,
-	DeferredFragmentStatus,
-} from "./html-page-analyzer.js";
+import type { DeferredEvidence, DeferredFragmentKind } from "./html-page-analyzer.js";
 
 const MAX_DEFERRED_FRAGMENTS = 64;
 const MAX_DEFERRED_DEPTH = 8;
@@ -22,16 +17,12 @@ interface DeferredContext {
 	removedBaseNodes: Set<Element>;
 	discovered: number;
 	resolved: number;
-	skipped: number;
 	processed: number;
 	limited: boolean;
-	limitRecorded: boolean;
-	results: DeferredEvidence["fragments"];
 }
 
 /**
- * Extract declarative content, then remove declarations and replaced targets from
- * the same parsed document so deferred fragments cannot replace the base body.
+ * 展开声明式内容，并从基础文档移除声明和被替换目标；只保留分页和完整性所需计数。
  */
 export function extractDeferredContent(document: Document): ExtractedDeferredContent {
 	const scanned = [...document.querySelectorAll(TOP_LEVEL_SCAN_SELECTOR)];
@@ -42,34 +33,25 @@ export function extractDeferredContent(document: Document): ExtractedDeferredCon
 		removedBaseNodes: new Set<Element>(),
 		discovered: 0,
 		resolved: 0,
-		skipped: 0,
 		processed: 0,
 		limited: false,
-		limitRecorded: false,
-		results: [],
 	};
 	const fragments: DocumentFragment[] = [];
 	const declarations = documentDeclarations(document, scanned);
 	for (const declaration of declarations) context.removedBaseNodes.add(declaration);
 	for (const declaration of declarations) {
 		const kind = declarationKind(declaration);
-		if (!beginDeclaration(context, kind)) continue;
-		if (kind === undefined) {
-			recordSkipped(context, "template_for", "invalid_declaration");
-			continue;
-		}
+		if (!beginDeclaration(context)) continue;
+		if (kind === undefined) continue;
 		const fragment = extractTopLevelDeclaration(declaration, kind, context);
-		if (fragment === undefined) continue;
-		fragments.push(fragment);
+		if (fragment !== undefined) fragments.push(fragment);
 	}
 	for (const removed of context.removedBaseNodes) removed.remove();
 	return {
 		evidence: {
 			discovered: context.discovered,
 			resolved: context.resolved,
-			skipped: context.skipped,
 			limited: context.limited,
-			fragments: context.results,
 		},
 		fragments,
 	};
@@ -82,23 +64,10 @@ function extractTopLevelDeclaration(
 ): DocumentFragment | undefined {
 	if (kind === "template_for") {
 		const targetId = declaration.getAttribute("for")?.trim();
-		if (targetId === undefined || targetId.length === 0) {
-			recordSkipped(context, kind, "invalid_declaration");
-			return undefined;
-		}
-		if (context.claimedTargets.has(targetId)) {
-			recordSkipped(context, kind, "duplicate_target");
-			return undefined;
-		}
+		if (targetId === undefined || targetId.length === 0) return undefined;
+		if (context.claimedTargets.has(targetId)) return undefined;
 		const targets = context.topLevelTargets.get(targetId) ?? [];
-		if (targets.length === 0) {
-			recordSkipped(context, kind, "missing_target");
-			return undefined;
-		}
-		if (targets.length !== 1) {
-			recordSkipped(context, kind, "ambiguous_target");
-			return undefined;
-		}
+		if (targets.length === 0 || targets.length !== 1) return undefined;
 		const target = targets[0];
 		if (
 			target === undefined
@@ -107,30 +76,24 @@ function extractTopLevelDeclaration(
 			|| target === context.document.head
 			|| target === context.document.body
 			|| target.contains(declaration)
-		) {
-			recordSkipped(context, kind, "cyclic_target");
-			return undefined;
-		}
+		) return undefined;
 		context.claimedTargets.add(targetId);
 		context.removedBaseNodes.add(target);
 		const fragment = cloneTemplateContent(declaration);
 		expandNestedDeclarations(fragment, 1, context, new Set<string>());
-		recordResolved(context, kind, "target_replaced");
+		recordResolved(context);
 		return fragment;
 	}
 	if (kind === "shadow_root") {
-		if (!hasValidShadowMode(declaration)) {
-			recordSkipped(context, kind, "invalid_declaration");
-			return undefined;
-		}
+		if (!hasValidShadowMode(declaration)) return undefined;
 		const fragment = cloneTemplateContent(declaration);
 		expandNestedDeclarations(fragment, 1, context, new Set<string>());
-		recordResolved(context, kind, "shadow_root_expanded");
+		recordResolved(context);
 		return fragment;
 	}
 	const fragment = cloneNoscriptContent(declaration, context.document);
 	expandNestedDeclarations(fragment, 1, context, new Set<string>());
-	recordResolved(context, kind, "noscript_expanded");
+	recordResolved(context);
 	return fragment;
 }
 
@@ -142,18 +105,16 @@ function expandNestedDeclarations(
 ): void {
 	for (const declaration of topLevelDeclarations(root)) {
 		const kind = declarationKind(declaration);
-		if (!beginDeclaration(context, kind)) {
+		if (!beginDeclaration(context)) {
 			declaration.remove();
 			continue;
 		}
 		if (kind === undefined) {
-			recordSkipped(context, "template_for", "invalid_declaration");
 			declaration.remove();
 			continue;
 		}
 		if (depth >= MAX_DEFERRED_DEPTH) {
 			context.limited = true;
-			recordSkipped(context, kind, "depth_limit");
 			declaration.remove();
 			continue;
 		}
@@ -163,20 +124,19 @@ function expandNestedDeclarations(
 		}
 		if (kind === "shadow_root") {
 			if (!hasValidShadowMode(declaration)) {
-				recordSkipped(context, kind, "invalid_declaration");
 				declaration.remove();
 				continue;
 			}
 			const fragment = cloneTemplateContent(declaration);
 			expandNestedDeclarations(fragment, depth + 1, context, new Set<string>());
 			declaration.replaceWith(fragment);
-			recordResolved(context, kind, "shadow_root_expanded");
+			recordResolved(context);
 			continue;
 		}
 		const fragment = cloneNoscriptContent(declaration, context.document);
 		expandNestedDeclarations(fragment, depth + 1, context, claimedTargets);
 		declaration.replaceWith(fragment);
-		recordResolved(context, kind, "noscript_expanded");
+		recordResolved(context);
 	}
 }
 
@@ -189,29 +149,20 @@ function expandNestedLinkedTemplate(
 ): void {
 	const targetId = declaration.getAttribute("for")?.trim();
 	if (targetId === undefined || targetId.length === 0) {
-		recordSkipped(context, "template_for", "invalid_declaration");
 		declaration.remove();
 		return;
 	}
 	if (claimedTargets.has(targetId)) {
-		recordSkipped(context, "template_for", "duplicate_target");
 		declaration.remove();
 		return;
 	}
 	const targets = exactIdMatches(root, targetId);
-	if (targets.length === 0) {
-		recordSkipped(context, "template_for", "missing_target");
-		declaration.remove();
-		return;
-	}
-	if (targets.length !== 1) {
-		recordSkipped(context, "template_for", "ambiguous_target");
+	if (targets.length === 0 || targets.length !== 1) {
 		declaration.remove();
 		return;
 	}
 	const target = targets[0];
 	if (target === undefined || target.parentNode === null || target.contains(declaration)) {
-		recordSkipped(context, "template_for", "cyclic_target");
 		declaration.remove();
 		return;
 	}
@@ -220,53 +171,21 @@ function expandNestedLinkedTemplate(
 	expandNestedDeclarations(fragment, depth + 1, context, new Set<string>());
 	target.replaceWith(fragment);
 	declaration.remove();
-	recordResolved(context, "template_for", "target_replaced");
+	recordResolved(context);
 }
 
-function beginDeclaration(context: DeferredContext, kind: DeferredFragmentKind | undefined): boolean {
+function beginDeclaration(context: DeferredContext): boolean {
 	context.discovered += 1;
 	if (context.processed < MAX_DEFERRED_FRAGMENTS) {
 		context.processed += 1;
 		return true;
 	}
-	context.skipped += 1;
 	context.limited = true;
-	if (!context.limitRecorded) {
-		context.limitRecorded = true;
-		context.results.push({
-			kind: kind ?? "template_for",
-			status: "skipped",
-			reason: "fragment_limit",
-		});
-	}
 	return false;
 }
 
-function recordResolved(
-	context: DeferredContext,
-	kind: DeferredFragmentKind,
-	reason: DeferredFragmentReason,
-): void {
+function recordResolved(context: DeferredContext): void {
 	context.resolved += 1;
-	recordResult(context, kind, "resolved", reason);
-}
-
-function recordSkipped(
-	context: DeferredContext,
-	kind: DeferredFragmentKind,
-	reason: DeferredFragmentReason,
-): void {
-	context.skipped += 1;
-	recordResult(context, kind, "skipped", reason);
-}
-
-function recordResult(
-	context: DeferredContext,
-	kind: DeferredFragmentKind,
-	status: DeferredFragmentStatus,
-	reason: DeferredFragmentReason,
-): void {
-	context.results.push({ kind, status, reason });
 }
 
 function declarationKind(declaration: Element): DeferredFragmentKind | undefined {

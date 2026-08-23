@@ -91,7 +91,7 @@ function successDetails(): WebFetchSuccessDetails {
 		authenticated: true,
 		redirect_count: 1,
 		snapshot: "created",
-		deferred_fragments: { discovered: 1, resolved: 1 },
+		deferred_fragments: { discovered: 1, resolved: 1, limited: false },
 		media: { discovered: 1, returned: 1 },
 		duration_ms: 12,
 		preview: "preview sentinel",

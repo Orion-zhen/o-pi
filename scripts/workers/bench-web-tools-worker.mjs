@@ -79,7 +79,7 @@ async function runHtmlBenchmark(scenario) {
 	const started = performance.now();
 	const module = await loadTypeScript("src/web-tools/content/html-content-converter.ts");
 	const imported = performance.now();
-	const result = module.htmlToMarkdown(html, "https://example.com/page", "text/html", { charThreshold: 500 }, "utf-8");
+	const result = module.htmlToMarkdown(html, "https://example.com/page", "text/html", { charThreshold: 500 }, "utf-8", true);
 	const completed = performance.now();
 	if ("status" in result || result.text.length === 0) throw new Error(`HTML benchmark ${scenario} did not produce content`);
 	console.log(JSON.stringify({

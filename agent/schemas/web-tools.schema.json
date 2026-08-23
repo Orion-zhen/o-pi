@@ -35,8 +35,6 @@
 			"additionalProperties": false,
 			"properties": {
 				"default_results": { "type": "integer", "minimum": 1, "maximum": 20, "default": 8 },
-				"cache_ttl_seconds": { "type": "integer", "minimum": 0, "maximum": 86400, "default": 300 },
-				"negative_cache_ttl_seconds": { "type": "integer", "minimum": 0, "maximum": 3600, "default": 30 },
 				"total_deadline_seconds": { "type": "integer", "minimum": 1, "maximum": 120, "default": 20 },
 				"include_domains": {
 					"type": "array",
@@ -139,8 +137,7 @@
 					"additionalProperties": false,
 					"properties": {
 						"response_bytes": { "type": "integer", "minimum": 65536, "maximum": 52428800, "default": 10485760 },
-						"default_output_chars": { "type": "integer", "minimum": 1000, "maximum": 100000, "default": 20000 },
-						"max_output_chars": { "type": "integer", "minimum": 1000, "maximum": 100000, "default": 100000 }
+						"default_output_chars": { "type": "integer", "minimum": 1000, "maximum": 100000, "default": 20000 }
 					}
 				},
 				"cookies": {

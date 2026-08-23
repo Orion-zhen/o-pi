@@ -8,7 +8,6 @@ export function webResultFields(details: Record<string, unknown>): Fields {
 		status: string(details["status"]),
 		error_code: string(record(details["error"])["code"]) ?? string(details["error_code"]),
 		provider: string(details["provider"]),
-		cached: boolean(details["cached"]),
 		http_status: number(details["http_status"]),
 		attempt_count: attempts?.length,
 		fallback: attempts === undefined ? undefined : attempts.length > 1,

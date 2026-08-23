@@ -1,7 +1,6 @@
 import type { Dispatcher } from "undici";
 
 import type { WebSearchProvider } from "../search-providers/types.js";
-import type { SearchCorpus } from "../search/search-corpus.js";
 import type {
 	WebFetchExecutionContext,
 	WebFetchParams,
@@ -18,7 +17,6 @@ export interface WebCapabilitySharedOptions {
 	fetchImpl: WebHttpFetch;
 	loadConfig(): Promise<WebToolsConfig>;
 	now: () => number;
-	searchCorpus: SearchCorpus;
 }
 
 export interface WebSearchCapabilityOptions extends WebCapabilitySharedOptions {

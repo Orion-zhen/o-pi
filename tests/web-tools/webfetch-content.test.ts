@@ -26,7 +26,7 @@ function expectConversionSuccess(result: ContentConversion | WebFetchFailureDeta
 
 async function convertHtml(html: string, url: string): Promise<ContentConversion> {
 	return expectConversionSuccess(
-		await convertContent(Buffer.from(html), headers("text/html"), url, "readable", readability),
+		await convertContent(Buffer.from(html), headers("text/html"), url, "readable", readability, true),
 	);
 }
 
@@ -36,7 +36,7 @@ describe("webfetch content conversion", () => {
 			<html><head><title>Doc</title><script>bad()</script></head>
 			<body><nav>nav</nav><article><h1>Title</h1><p>See <a href="/guide">guide</a>.</p>${"x".repeat(220)}</article></body></html>`;
 		const result = expectConversionSuccess(
-			await convertContent(Buffer.from(html), headers("text/html; charset=utf-8"), "https://example.com/docs/page", "readable", readability),
+			await convertContent(Buffer.from(html), headers("text/html; charset=utf-8"), "https://example.com/docs/page", "readable", readability, true),
 		);
 		expect(result).toMatchObject({ format: "markdown", title: "Title", charset: "utf-8" });
 		expect(result.text).toContain("# Title");
@@ -74,11 +74,6 @@ describe("webfetch content conversion", () => {
 		expect(occurrences(result.text, "https://example.com/user/alice")).toBe(1);
 		expect(occurrences(result.text, "https://example.com/people/bob")).toBe(1);
 		expect(result.text).toContain("https://example.com/images/avatar-parsing.png");
-		const candidates = result.extraction?.analysis.mediaCandidates ?? [];
-		expect(candidates.find((candidate) => candidate.url.endsWith("/opaque-a.png"))?.likelyAvatar).toBe(true);
-		expect(candidates.find((candidate) => candidate.url.endsWith("/opaque-b.png"))?.likelyAvatar).toBe(true);
-		expect(candidates.find((candidate) => candidate.url.endsWith("/opaque-c.png"))?.likelyAvatar).toBe(true);
-		expect(candidates.find((candidate) => candidate.url.endsWith("/avatar-parsing.png"))?.likelyAvatar).not.toBe(true);
 	});
 
 	it("对延迟正文应用同一头像过滤链", async () => {
@@ -105,7 +100,7 @@ describe("webfetch content conversion", () => {
 			throw new Error("HTML converter must remain unloaded");
 		});
 		const result = expectConversionSuccess(
-			await convertContent(Buffer.from("<h1>A</h1>"), headers('text/html; charset="utf-8"'), "https://example.com/", "source", readability, loadHtml),
+			await convertContent(Buffer.from("<h1>A</h1>"), headers('text/html; charset="utf-8"'), "https://example.com/", "source", readability, true, loadHtml),
 		);
 		expect(result).toMatchObject({ format: "source" });
 		expect(loadHtml).not.toHaveBeenCalled();
@@ -126,6 +121,7 @@ describe("webfetch content conversion", () => {
 			"https://example.com/content",
 			"readable",
 			readability,
+			true,
 			loadHtml,
 		);
 		expect(result).toMatchObject({ format, text: body });
@@ -135,7 +131,7 @@ describe("webfetch content conversion", () => {
 	it(".html URL 在 readable 模式下即使响应头误报也抽取正文", async () => {
 		const html = "<html><head><title>Doc</title></head><body><nav>nav</nav><article><h1>Title</h1><p>Body</p></article></body></html>";
 		const textResult = expectConversionSuccess(
-			await convertContent(Buffer.from(html), headers("text/plain"), "https://example.com/docs/page.html", "readable", readability),
+			await convertContent(Buffer.from(html), headers("text/plain"), "https://example.com/docs/page.html", "readable", readability, true),
 		);
 		expect(textResult).toMatchObject({ format: "markdown", contentType: "text/plain", title: "Title" });
 		expect(textResult.text).toContain("# Title");
@@ -143,7 +139,7 @@ describe("webfetch content conversion", () => {
 		expect(textResult.text).not.toContain("nav");
 
 		const binaryResult = expectConversionSuccess(
-			await convertContent(Buffer.from(html), headers("application/octet-stream"), "https://example.com/docs/page.html", "readable", readability),
+			await convertContent(Buffer.from(html), headers("application/octet-stream"), "https://example.com/docs/page.html", "readable", readability, true),
 		);
 		expect(binaryResult).toMatchObject({ format: "markdown", contentType: "application/octet-stream" });
 		expect(binaryResult.text).toContain("Body");
@@ -158,7 +154,7 @@ describe("webfetch content conversion", () => {
 				pageKind: "generic" as const,
 				textSource: "body" as const,
 				omissions: [],
-				deferredFragments: { discovered: 0, resolved: 0 },
+				deferredFragments: { discovered: 0, resolved: 0, limited: false },
 			},
 		}));
 		await convertContent(
@@ -167,6 +163,7 @@ describe("webfetch content conversion", () => {
 			"https://example.com/page",
 			"readable",
 			{ charThreshold: 800 },
+			true,
 			async () => ({ htmlToMarkdown }),
 		);
 		expect(htmlToMarkdown).toHaveBeenCalledWith(
@@ -175,26 +172,27 @@ describe("webfetch content conversion", () => {
 			"text/html",
 			{ charThreshold: 800 },
 			"utf-8",
+			true,
 		);
 	});
 
 	it("JSON/XML/text 不美化，PDF 和 NUL 二进制拒绝", async () => {
-		const json = await convertContent(Buffer.from('{"a":1}'), headers("application/json"), "https://example.com/a.json", "readable", readability);
+		const json = await convertContent(Buffer.from('{"a":1}'), headers("application/json"), "https://example.com/a.json", "readable", readability, true);
 		expect(json).toMatchObject({ format: "json", text: '{"a":1}' });
-		const xml = await convertContent(Buffer.from("<x/>"), headers("application/xml"), "https://example.com/a.xml", "readable", readability);
+		const xml = await convertContent(Buffer.from("<x/>"), headers("application/xml"), "https://example.com/a.xml", "readable", readability, true);
 		expect(xml).toMatchObject({ format: "xml", text: "<x/>" });
-		expect(await convertContent(Buffer.from("%PDF-1.7"), headers("application/pdf"), "https://example.com/a.pdf", "readable", readability)).toMatchObject({
+		expect(await convertContent(Buffer.from("%PDF-1.7"), headers("application/pdf"), "https://example.com/a.pdf", "readable", readability, true)).toMatchObject({
 			status: "failed",
 			error: { code: "UNSUPPORTED_CONTENT_TYPE" },
 		});
-		expect(await convertContent(Buffer.from([65, 0, 66]), headers("text/plain"), "https://example.com/a.txt", "readable", readability)).toMatchObject({
+		expect(await convertContent(Buffer.from([65, 0, 66]), headers("text/plain"), "https://example.com/a.txt", "readable", readability, true)).toMatchObject({
 			status: "failed",
 			error: { code: "UNSUPPORTED_CONTENT_TYPE" },
 		});
 	});
 
 	it("拒绝非法 Content-Type header", async () => {
-		expect(await convertContent(Buffer.from("x"), headers("bad header"), "https://example.com/a.txt", "readable", readability)).toMatchObject({
+		expect(await convertContent(Buffer.from("x"), headers("bad header"), "https://example.com/a.txt", "readable", readability, true)).toMatchObject({
 			status: "failed",
 			error: { code: "UNSUPPORTED_CONTENT_TYPE" },
 		});
@@ -211,11 +209,6 @@ describe("webfetch content conversion", () => {
 		expect(result.text).toContain("# Primary media post");
 		expect(result.text).toContain("https://example.com/media.jpg");
 		expect(result.text).not.toContain("Long sidebar rule");
-		expect(result.extraction).toMatchObject({
-			deferredFragments: { discovered: 0, resolved: 0 },
-			primaryMedia: { url: "https://example.com/media.jpg" },
-			mediaDominant: true,
-		});
 	});
 
 	it("Readability 选中与唯一主标题无关的区域时回退到 main", async () => {
@@ -262,15 +255,6 @@ describe("webfetch content conversion", () => {
 		expect(result.text).not.toContain("Newest");
 		expect(result.text).not.toContain("Unmatched ordinary template content.");
 		expect(result.text).not.toContain("Unsafe composer");
-		expect(result.extraction?.analysis.deferred).toEqual({
-			discovered: 1,
-			resolved: 1,
-			skipped: 0,
-			limited: false,
-			fragments: [
-				{ kind: "template_for", status: "resolved", reason: "target_replaced" },
-			],
-		});
 	});
 
 	it("展开声明式 Shadow DOM，包括受深度限制的嵌套内容", async () => {
@@ -279,16 +263,6 @@ describe("webfetch content conversion", () => {
 		expect(result.text).toContain("## Deferred content");
 		expect(result.text).toContain("Visible declarative shadow content.");
 		expect(result.text).toContain("Nested declarative shadow detail.");
-		expect(result.extraction?.analysis.deferred).toMatchObject({
-			discovered: 2,
-			resolved: 2,
-			skipped: 0,
-			limited: false,
-			fragments: [
-				{ kind: "shadow_root", status: "resolved", reason: "shadow_root_expanded" },
-				{ kind: "shadow_root", status: "resolved", reason: "shadow_root_expanded" },
-			],
-		});
 	});
 
 	it("提取 body noscript fallback，并过滤危险节点与跟踪像素", async () => {
@@ -300,9 +274,6 @@ describe("webfetch content conversion", () => {
 		expect(result.text).not.toContain("bad()");
 		expect(result.text).not.toContain("Unsafe form");
 		expect(result.text).not.toContain("frame.example");
-		expect(result.extraction?.analysis.deferred.fragments).toEqual([
-			{ kind: "noscript", status: "resolved", reason: "noscript_expanded" },
-		]);
 	});
 
 	it("为缺失、重复和循环 template 目标记录稳定跳过原因", async () => {
@@ -319,18 +290,6 @@ describe("webfetch content conversion", () => {
 		expect(result.text).not.toContain("Duplicate");
 		expect(result.text).not.toContain("Missing");
 		expect(result.text).not.toContain("Cycle");
-		expect(result.extraction?.analysis.deferred).toMatchObject({
-			discovered: 4,
-			resolved: 1,
-			skipped: 3,
-			limited: false,
-			fragments: [
-				{ kind: "template_for", status: "resolved", reason: "target_replaced" },
-				{ kind: "template_for", status: "skipped", reason: "duplicate_target" },
-				{ kind: "template_for", status: "skipped", reason: "missing_target" },
-				{ kind: "template_for", status: "skipped", reason: "cyclic_target" },
-			],
-		});
 	});
 
 	it("拒绝歧义或无效声明，并在延迟根内展开 linked template 与 noscript", async () => {
@@ -361,17 +320,9 @@ describe("webfetch content conversion", () => {
 		expect(result.text).not.toContain("Ambiguous target");
 		expect(result.text).not.toContain("Conflicting declaration");
 		expect(result.text).not.toContain("Invalid shadow mode");
-		expect(result.extraction?.analysis.deferred.fragments).toEqual(expect.arrayContaining([
-			{ kind: "template_for", status: "skipped", reason: "invalid_declaration" },
-			{ kind: "template_for", status: "skipped", reason: "ambiguous_target" },
-			{ kind: "shadow_root", status: "skipped", reason: "invalid_declaration" },
-			{ kind: "template_for", status: "resolved", reason: "target_replaced" },
-			{ kind: "noscript", status: "resolved", reason: "noscript_expanded" },
-			{ kind: "shadow_root", status: "resolved", reason: "shadow_root_expanded" },
-		]));
 	});
 
-	it("限制声明片段数量与嵌套深度，且不会重复或崩溃", async () => {
+	it("限制声明片段数量且不会重复或崩溃", async () => {
 		const manyShadows = Array.from(
 			{ length: 70 },
 			(_, index) => `<x-fragment><template shadowrootmode="open"><p>Fragment ${index}</p></template></x-fragment>`,
@@ -380,40 +331,20 @@ describe("webfetch content conversion", () => {
 		const result = await convertHtml(html, "https://example.com/limits");
 		expect(result.text).toContain("Fragment 0");
 		expect(result.text).not.toContain("Fragment 69");
-		expect(result.extraction?.analysis.deferred).toMatchObject({
-			discovered: 70,
-			resolved: 64,
-			skipped: 6,
-			limited: true,
-		});
-		expect(result.extraction?.analysis.deferred.fragments).toContainEqual({
-			kind: "shadow_root",
-			status: "skipped",
-			reason: "fragment_limit",
-		});
+		expect(result.analysis.deferredFragments.limited).toBe(true);
 	});
 
-	it("超过声明式嵌套深度时删除更深内容并记录原因", async () => {
+	it("超过声明式嵌套深度时删除更深内容并标记上限", async () => {
 		const nested = `${'<x-depth><template shadowrootmode="open">'.repeat(10)}
 			<p>Too deeply nested</p>
 			${"</template></x-depth>".repeat(10)}`;
 		const html = `<html><body><main><h1>Depth limit</h1></main>${nested}</body></html>`;
 		const result = await convertHtml(html, "https://example.com/depth");
 		expect(result.text).not.toContain("Too deeply nested");
-		expect(result.extraction?.analysis.deferred).toMatchObject({
-			discovered: 9,
-			resolved: 8,
-			skipped: 1,
-			limited: true,
-		});
-		expect(result.extraction?.analysis.deferred.fragments).toContainEqual({
-			kind: "shadow_root",
-			status: "skipped",
-			reason: "depth_limit",
-		});
+		expect(result.analysis.deferredFragments.limited).toBe(true);
 	});
 
-	it("收集 Open Graph、Twitter、canonical、base 和 DOM 媒体信号", async () => {
+	it("使用 Open Graph、Twitter、base 和 DOM 媒体信号", async () => {
 		const html = `
 			<html><head>
 				<base href="https://cdn.example.com/assets/">
@@ -422,7 +353,6 @@ describe("webfetch content conversion", () => {
 				<meta property="og:title" content="Open Graph title">
 				<meta property="og:description" content="Open Graph description">
 				<meta property="og:type" content="video.other">
-				<meta property="og:url" content="/fallback">
 				<meta property="og:image" content="cover.jpg">
 				<meta property="og:image:secure_url" content="https://secure.example.com/cover.jpg">
 				<meta property="og:image:type" content="image/jpeg">
@@ -435,7 +365,6 @@ describe("webfetch content conversion", () => {
 				<meta name="twitter:title" content="Twitter title">
 				<meta name="twitter:description" content="Twitter description">
 				<meta name="twitter:image" content="twitter.jpg">
-				<link rel="canonical" href="../watch/42">
 			</head><body>
 				<h1>Visible heading</h1>
 				<video src="clip.mp4" poster="poster.jpg"><source src="clip-hd.mp4" type="video/mp4"></video>
@@ -444,45 +373,6 @@ describe("webfetch content conversion", () => {
 			</body></html>`;
 		const result = await convertHtml(html, "https://example.com/pages/index");
 		expect(result.title).toBe("Visible heading");
-		expect(result.extraction?.analysis).toMatchObject({
-			pageKind: "video",
-			metadata: {
-				documentTitle: { value: "Document title", source: "dom" },
-				heading: { value: "Visible heading", source: "dom" },
-				description: { value: "Open Graph description", source: "open_graph" },
-				canonicalUrl: { value: "https://cdn.example.com/watch/42", source: "dom" },
-				openGraph: {
-					title: { value: "Open Graph title", source: "open_graph" },
-					type: { value: "video.other", source: "open_graph" },
-					url: { value: "https://cdn.example.com/fallback", source: "open_graph" },
-				},
-				twitter: {
-					card: { value: "summary_large_image", source: "twitter" },
-					title: { value: "Twitter title", source: "twitter" },
-					description: { value: "Twitter description", source: "twitter" },
-				},
-			},
-		});
-		expect(result.extraction?.analysis.mediaCandidates).toEqual(expect.arrayContaining([
-			expect.objectContaining({
-				kind: "image",
-				role: "primary",
-				source: "open_graph",
-				url: "https://cdn.example.com/assets/cover.jpg",
-				secureUrl: "https://secure.example.com/cover.jpg",
-				mimeType: "image/jpeg",
-				width: 1280,
-				height: 720,
-				alt: "Video cover",
-			}),
-			expect.objectContaining({ kind: "video", source: "open_graph", url: "https://cdn.example.com/assets/movie.mp4" }),
-			expect.objectContaining({ kind: "audio", source: "open_graph", url: "https://cdn.example.com/assets/sound.mp3" }),
-			expect.objectContaining({ kind: "image", role: "primary", source: "twitter", url: "https://cdn.example.com/assets/twitter.jpg" }),
-			expect.objectContaining({ kind: "image", role: "poster", source: "dom", url: "https://cdn.example.com/assets/poster.jpg" }),
-			expect.objectContaining({ kind: "video", source: "dom", url: "https://cdn.example.com/assets/clip-hd.mp4" }),
-			expect.objectContaining({ kind: "audio", source: "dom", url: "https://cdn.example.com/assets/audio.ogg" }),
-			expect.objectContaining({ kind: "image", role: "source", source: "dom", url: "https://cdn.example.com/assets/wide.webp" }),
-		]));
 	});
 
 	it("统一正文、srcset 和标准元数据候选，去重后选择正文主图而非 logo 或头像", async () => {
@@ -505,18 +395,7 @@ describe("webfetch content conversion", () => {
 				</article>
 			</body></html>`;
 		const result = await convertHtml(html, "https://example.com/report");
-		expect(result.extraction?.primaryMedia).toEqual({ url: "https://example.com/hero-1280.webp" });
-		const candidates = result.extraction?.analysis.mediaCandidates ?? [];
-		expect(candidates.filter((candidate) =>
-			candidate.url === "https://example.com/hero-1280.webp"
-			&& candidate.width === 1280
-			&& candidate.height === 720
-		)).toHaveLength(1);
-		expect(candidates).toEqual(expect.arrayContaining([
-			expect.objectContaining({ url: "https://example.com/hero-640.webp", width: 640 }),
-			expect.objectContaining({ url: "https://example.com/hero-large.jpg", width: 1600 }),
-		]));
-		expect(result.extraction?.mediaDominant).toBe(false);
+		expect(result.analysis.primaryMedia).toEqual({ url: "https://example.com/hero-1280.webp" });
 	});
 
 	it("普通页面只有 logo 或头像时不选择主图", async () => {
@@ -528,8 +407,21 @@ describe("webfetch content conversion", () => {
 				<img class="profile-avatar" src="/avatar.jpg" width="192" height="192" alt="User avatar">
 			</main></body></html>`;
 		const result = await convertHtml(html, "https://example.com/about");
-		expect(result.extraction?.primaryMedia).toBeUndefined();
-		expect(result.extraction?.mediaDominant).toBe(false);
+		expect(result.analysis.primaryMedia).toBeUndefined();
+	});
+
+	it("media.mode=off 时跳过 HTML 图片候选且不产生媒体遗漏", async () => {
+		const html = `<main><h1>Image page</h1><p>Stable page body.</p><img src="/cover.jpg" width="1200" height="800"></main>`;
+		const result = expectConversionSuccess(
+			await convertContent(Buffer.from(html), headers("text/html"), "https://example.com/image", "readable", readability, false),
+		);
+		expect(result.analysis).toMatchObject({
+			pageKind: "image",
+			textSource: "semantic",
+			omissions: [],
+			deferredFragments: { discovered: 0, resolved: 0, limited: false },
+		});
+		expect(result.analysis.primaryMedia).toBeUndefined();
 	});
 
 	it("解析 JSON-LD 对象、数组和 @graph，只提取已知字段", async () => {
@@ -559,37 +451,9 @@ describe("webfetch content conversion", () => {
 		expect(result.title).toBe("Structured video");
 		expect(result.text).toContain("# Structured video");
 		expect(result.text).toContain("Structured description");
-		expect(result.extraction?.analysis).toMatchObject({
-			pageKind: "video",
-			metadata: {
-				title: { value: "Structured video", source: "json_ld" },
-				description: { value: "Structured description", source: "json_ld" },
-				authors: [
-					{ value: "Alice", source: "json_ld" },
-					{ value: "Studio", source: "json_ld" },
-				],
-				publishedAt: { value: "2026-07-20", source: "json_ld" },
-			},
-			textCandidates: [
-				{ kind: "transcript", text: "Structured transcript", source: "json_ld" },
-			],
-		});
-		expect(result.extraction?.analysis.mediaCandidates).toEqual(expect.arrayContaining([
-			expect.objectContaining({ kind: "image", role: "thumbnail", source: "json_ld", url: "https://example.com/thumb.jpg" }),
-			expect.objectContaining({
-				kind: "image",
-				role: "thumbnail",
-				source: "json_ld",
-				url: "https://example.com/thumb-2.jpg",
-				width: 640,
-				height: 360,
-			}),
-			expect.objectContaining({ kind: "video", role: "content", source: "json_ld", url: "https://example.com/video.mp4" }),
-			expect.objectContaining({ kind: "video", role: "embed", source: "json_ld", url: "https://player.example.com/embed/42" }),
-		]));
 	});
 
-	it("无效或超限 JSON-LD 只记录诊断，SPA 空壳回退到标准元数据", async () => {
+	it("无效或超限 JSON-LD 产生通用遗漏，SPA 空壳回退到标准元数据", async () => {
 		const oversized = JSON.stringify({ "@type": "Article", articleBody: "x".repeat(300_000) });
 		const html = `
 			<html><head>
@@ -603,13 +467,10 @@ describe("webfetch content conversion", () => {
 		expect(result).toMatchObject({ title: "Shell Open Graph title", format: "markdown" });
 		expect(result.text).toContain("# Shell Open Graph title");
 		expect(result.text).toContain("Shell description");
-		expect(result.extraction?.analysis.omissions).toEqual(expect.arrayContaining([
-			{ kind: "structured_data", reason: "invalid_or_limited" },
-			{ kind: "interactive_content", reason: "client_rendered" },
-		]));
+		expect(result.analysis.omissions).toContainEqual({ kind: "structured_data", reason: "invalid_or_limited" });
 	});
 
-	it("JSON-LD 对象数和递归深度超限时停止分析但保留页面正文", async () => {
+	it("JSON-LD 对象数和递归深度超限时停止分析并保留页面正文", async () => {
 		const manyObjects = JSON.stringify(Array.from({ length: 520 }, (_, index) => ({ name: `node-${index}` })));
 		let deeplyNested = '{"child":'.repeat(24);
 		deeplyNested += '{"@type":"Article","articleBody":"must not be extracted"}';
@@ -622,10 +483,6 @@ describe("webfetch content conversion", () => {
 		const result = await convertHtml(html, "https://example.com/page");
 		expect(result.text).toContain("Stable body");
 		expect(result.text).not.toContain("must not be extracted");
-		expect(result.extraction?.analysis.omissions).toContainEqual({
-			kind: "structured_data",
-			reason: "invalid_or_limited",
-		});
 	});
 
 	it("JSON-LD 脚本数和遍历节点数受硬上限约束", async () => {
@@ -638,10 +495,6 @@ describe("webfetch content conversion", () => {
 			<body><main><h1>Bounded metadata</h1><p>Visible bounded body.</p></main></body></html>`;
 		const result = await convertHtml(html, "https://example.com/bounded-json-ld");
 		expect(result.text).toContain("Visible bounded body.");
-		expect(result.extraction?.analysis.omissions).toContainEqual({
-			kind: "structured_data",
-			reason: "invalid_or_limited",
-		});
 	});
 
 	it("标题优先级为正文标题、标准元数据标题、document title", async () => {
@@ -664,11 +517,7 @@ describe("webfetch content conversion", () => {
 				</article></body>
 			`, "https://example.com/article");
 		expect(withHeading).toMatchObject({ title: "Article heading" });
-		expect(withHeading.extraction).toMatchObject({
-			analysis: { pageKind: "article" },
-			textSource: "readability",
-			mediaDominant: false,
-		});
+		expect(withHeading.analysis).toMatchObject({ pageKind: "article", textSource: "readability" });
 
 		const metadataOnly = await convertHtml(`
 				<head>
@@ -680,7 +529,6 @@ describe("webfetch content conversion", () => {
 		expect(metadataOnly).toMatchObject({
 			title: "Open Graph",
 			analysis: { textSource: "metadata" },
-			extraction: { textSource: "metadata" },
 		});
 	});
 
@@ -691,9 +539,9 @@ describe("webfetch content conversion", () => {
 			expected: "semantic",
 		},
 		{
-			name: "heading",
+			name: "body fallback after unique h1 signal",
 			html: '<div><h1>Heading source</h1><img src="/cover.jpg" alt="Detailed cover"></div>',
-			expected: "heading",
+			expected: "body",
 		},
 		{
 			name: "body",
@@ -703,7 +551,6 @@ describe("webfetch content conversion", () => {
 	] as const)("记录 $name 正文来源", async ({ html, expected }) => {
 		const result = await convertHtml(html, "https://example.com/source");
 		expect(result.analysis.textSource).toBe(expected);
-		expect(result.extraction?.textSource).toBe(expected);
 	});
 
 	it("媒体页拒绝导航推荐正文，返回标题、描述和作者元数据", async () => {
@@ -733,11 +580,7 @@ describe("webfetch content conversion", () => {
 		expect(result.text).toContain("**Author:** Alice");
 		expect(result.text).toContain("**Published:** 2026-07-22");
 		expect(result.text).not.toContain("Recommended video");
-		expect(result.extraction).toMatchObject({
-			analysis: { pageKind: "video" },
-			primaryMedia: { url: "https://example.com/cover.jpg" },
-			mediaDominant: true,
-		});
+		expect(result.analysis).toMatchObject({ pageKind: "video", primaryMedia: { url: "https://example.com/cover.jpg" } });
 	});
 
 	it("按语义候选质量选择 itemprop articleBody，不混入链接列表", async () => {

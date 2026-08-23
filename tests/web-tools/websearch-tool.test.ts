@@ -12,8 +12,8 @@ function runtime(providers: WebSearchProvider[], now = () => Date.now()) {
 	config.websearch.default_results = 2;
 	return {
 		config,
-		searches: new SearchCache(now),
-		router: new SearchProviderRouter(providers, config.websearch),
+		searches: new SearchCache(),
+		router: new SearchProviderRouter(providers),
 		context: { toolCallId: "s1" },
 		now,
 	};
@@ -57,18 +57,15 @@ function failedProvider(id: WebSearchProviderId): WebSearchProvider {
 }
 
 describe("websearch tool", () => {
-	it("校验 query 和 limit", async () => {
+	it("保留 schema 无法表达的域名冲突校验", async () => {
 		const rt = runtime([]);
-		await expect(executeWebSearch({ query: "" }, rt)).resolves.toMatchObject({ details: { status: "failed", error: { code: "INVALID_ARGUMENT" } } });
-		await expect(executeWebSearch({ query: "x".repeat(513) }, rt)).resolves.toMatchObject({ details: { status: "failed", error: { code: "INVALID_ARGUMENT" } } });
-		await expect(executeWebSearch({ query: "x", limit: 21 }, rt)).resolves.toMatchObject({ details: { status: "failed", error: { code: "INVALID_ARGUMENT" } } });
 		await expect(executeWebSearch({ query: "site:example.com -site:example.com x" }, rt)).resolves.toMatchObject({ details: { status: "failed", error: { code: "INVALID_ARGUMENT" } } });
 	});
 
 	it("成功模型输出只在顶层包含 provider，并转义 XML", async () => {
 		const calls = { count: 0 };
 		const result = await executeWebSearch({ query: "Title <pi>&" }, runtime([successProvider("exa_api", calls)]));
-		expect(result.details).toMatchObject({ status: "success", provider: "exa_api", cached: false });
+		expect(result.details).toMatchObject({ status: "success", provider: "exa_api" });
 		expect(result.content).toContain('query="Title &lt;pi&gt;&amp;"');
 		expect(result.content).toContain('provider="exa_api"');
 		expect(result.content).toContain("[1] &lt;Title&gt;&amp;");
@@ -96,19 +93,11 @@ describe("websearch tool", () => {
 		});
 	});
 
-	it("缓存命中不调用 provider，并保留原成功 provider", async () => {
+	it("完成结果不缓存", async () => {
 		const calls = { count: 0 };
 		const rt = runtime([successProvider("duckduckgo_html", calls)]);
 		await executeWebSearch({ query: "pi", limit: 1 }, rt);
-		const cached = await executeWebSearch({ query: "pi", limit: 1 }, rt);
-		expect(calls.count).toBe(1);
-		expect(cached.details).toMatchObject({
-			status: "success",
-			provider: "duckduckgo_html",
-			cached: true,
-			attempts: [{ provider: "duckduckgo_html", status: "success", cached: true }],
-		});
-		await executeWebSearch({ query: "pi", limit: 2 }, rt);
+		await executeWebSearch({ query: "pi", limit: 1 }, rt);
 		expect(calls.count).toBe(2);
 	});
 

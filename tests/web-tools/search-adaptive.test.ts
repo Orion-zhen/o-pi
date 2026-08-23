@@ -7,7 +7,6 @@ import { buildBraveRequest, buildExaRequest, buildTavilyRequest, createApiSearch
 import { mergeSearchResults } from "../../src/web-tools/search-providers/merge.js";
 import { assessSearchQuality } from "../../src/web-tools/search-providers/quality.js";
 import { compileSearchQuery, normalizeSearchParams } from "../../src/web-tools/search-providers/query.js";
-import { SearchCorpus } from "../../src/web-tools/search/search-corpus.js";
 import { preserveEnv } from "../helpers/lifecycle.js";
 import { httpResponse } from "../helpers/http.js";
 
@@ -78,10 +77,10 @@ describe("adaptive search compilation and providers", () => {
 		expect(advanced.search_depth).toBe("advanced");
 	});
 
-	it("规范化三家响应并保留原生相关度", () => {
+	it("规范化三家响应并忽略 provider 原生相关度字段", () => {
 		expect(normalizeProviderResponse("brave_api", { web: { results: [{ title: "A", url: "https://a.test/", description: "Alpha" }] } }, 3)).toMatchObject({ status: "success", results: [{ snippet: "Alpha" }] });
-		expect(normalizeProviderResponse("exa_api", { results: [{ title: "B", url: "https://b.test/", highlights: ["Beta"], highlightScores: [0.8] }] }, 3)).toMatchObject({ status: "success", results: [{ snippet: "Beta", score: 0.8 }] });
-		expect(normalizeProviderResponse("tavily", { results: [{ title: "C", url: "https://c.test/", content: "Gamma", score: 0.7 }] }, 3)).toMatchObject({ status: "success", results: [{ snippet: "Gamma", score: 0.7 }] });
+		expect(normalizeProviderResponse("exa_api", { results: [{ title: "B", url: "https://b.test/", highlights: ["Beta"], highlightScores: [0.8] }] }, 3)).toMatchObject({ status: "success", results: [{ snippet: "Beta" }] });
+		expect(normalizeProviderResponse("tavily", { results: [{ title: "C", url: "https://c.test/", content: "Gamma", score: 0.7 }] }, 3)).toMatchObject({ status: "success", results: [{ snippet: "Gamma" }] });
 	});
 
 	it("总 deadline 在发请求前生效", async () => {
@@ -105,7 +104,7 @@ describe("adaptive search compilation and providers", () => {
 	});
 });
 
-describe("adaptive search quality, merge and corpus", () => {
+describe("adaptive search quality and merge", () => {
 	it("区分 accepted、partial 和 soft miss，导航查询不要求域名多样性", () => {
 		const query = compileSearchQuery({ query: "pi agent" });
 		const strong = Array.from({ length: 3 }, (_, index) => ({ rank: index + 1, title: `Pi agent ${index}`, url: `https://d${index}.test/pi`, snippet: "Pi agent documentation snippet." }));
@@ -124,21 +123,5 @@ describe("adaptive search quality, merge and corpus", () => {
 		], 5);
 		expect(merged[0]).toMatchObject({ url: "https://example.com/docs", provenance: [{ provider: "brave_api" }, { provider: "tavily" }] });
 		expect(merged.filter((item) => new URL(item.url).hostname === "example.com")).toHaveLength(2);
-	});
-
-	it("corpus 只保守复用近似且过滤兼容的强结果，并跟踪 fetch/cite", () => {
-		let now = 0;
-		const corpus = new SearchCorpus(() => now);
-		const first = normalizeSearchParams({ query: "site:example.com pi coding agent docs", limit: 2 }, 8);
-		const results = [{ rank: 1, title: "Pi docs", url: "https://example.com/pi", snippet: "Pi coding agent docs." }, { rank: 2, title: "Pi guide", url: "https://example.com/guide", snippet: "Pi coding agent guide." }];
-		corpus.add(first, results, ["brave_api"]);
-		expect(corpus.find(normalizeSearchParams({ query: "site:example.com pi coding agent docs guide", limit: 2 }, 8))).toBeDefined();
-		expect(corpus.find(normalizeSearchParams({ query: "site:other.test pi coding agent docs guide", limit: 2 }, 8))).toBeUndefined();
-		corpus.markFetched(results[0]?.url ?? "");
-		corpus.markCited(results[1]?.url ?? "");
-		expect(corpus.usage()).toEqual({ discovered: 2, fetched: 1, cited: 1 });
-		now = 10;
-		expect(corpus.recordQuery(first)).toBe(false);
-		expect(corpus.recordQuery(normalizeSearchParams({ query: "site:example.com pi coding agent guide" }, 8))).toBe(true);
 	});
 });

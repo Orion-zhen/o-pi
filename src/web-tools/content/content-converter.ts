@@ -12,7 +12,8 @@ export interface HtmlContentConverter {
 		finalUrl: string,
 		mime: string,
 		options: HtmlReadabilityOptions,
-		charset?: string,
+		charset: string | undefined,
+		mediaEnabled: boolean,
 	): ContentConversion | WebFetchFailureDetails;
 }
 
@@ -27,6 +28,7 @@ export async function convertContent(
 	finalUrl: string,
 	mode: WebFetchMode,
 	readability: HtmlReadabilityOptions,
+	mediaEnabled: boolean,
 	loadHtml: HtmlContentConverterLoader = loadHtmlContentConverter,
 ): Promise<ContentConversion | WebFetchFailureDetails> {
 	const contentTypeHeader = headers.get("content-type") ?? "text/plain";
@@ -51,7 +53,7 @@ export async function convertContent(
 	}
 	if (kind === "html") {
 		try {
-			return (await loadHtml()).htmlToMarkdown(normalized, finalUrl, mime, readability, decoded.charset);
+			return (await loadHtml()).htmlToMarkdown(normalized, finalUrl, mime, readability, decoded.charset, mediaEnabled);
 		} catch (error) {
 			return failure("CONVERSION_FAILED", error instanceof Error ? error.message : String(error));
 		}
@@ -70,7 +72,7 @@ function genericAnalysis(): ContentConversion["analysis"] {
 		pageKind: "generic",
 		textSource: "body",
 		omissions: [],
-		deferredFragments: { discovered: 0, resolved: 0 },
+		deferredFragments: { discovered: 0, resolved: 0, limited: false },
 	};
 }
 
@@ -115,11 +117,7 @@ function decodeBytes(body: Uint8Array, charset?: string): { text: string; charse
 		if (label === "utf-8" && body[0] === 0xef && body[1] === 0xbb && body[2] === 0xbf) bytes = body.slice(3);
 		return { text: new TextDecoder(label, { fatal: false }).decode(bytes), charset: label };
 	} catch {
-		try {
-			return { text: new TextDecoder("utf-8", { fatal: false }).decode(body), charset: "utf-8" };
-		} catch {
-			return failure("DECODE_FAILED", "response text cannot be decoded.");
-		}
+		return { text: new TextDecoder("utf-8", { fatal: false }).decode(body), charset: "utf-8" };
 	}
 }
 

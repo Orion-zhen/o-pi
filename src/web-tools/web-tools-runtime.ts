@@ -13,7 +13,6 @@ import type {
 	WebToolsRuntimeOptions,
 } from "./core/types.js";
 import { createNetworkDispatcher, networkConfigSignature } from "./network/dispatcher.js";
-import { SearchCorpus } from "./search/search-corpus.js";
 
 const defaultCapabilityLoaders: WebToolsCapabilityLoaders = {
 	async search(options) {
@@ -37,13 +36,11 @@ export function createWebToolsRuntime(
 	let closePromise: Promise<void> | undefined;
 	const now = options.now ?? (() => Date.now());
 	const fetchImpl = options.fetchImpl ?? defaultFetch;
-	const searchCorpus = new SearchCorpus(now);
 	const sharedOptions = {
 		getDispatcher,
 		fetchImpl,
 		loadConfig,
 		now,
-		searchCorpus,
 	};
 	const searchOptions: WebSearchCapabilityOptions = {
 		...sharedOptions,
@@ -53,8 +50,8 @@ export function createWebToolsRuntime(
 		...sharedOptions,
 		...(options.cookiePath !== undefined ? { cookiePath: options.cookiePath } : {}),
 	};
-	const search = createRetryableCapability(() => loaders.search(searchOptions));
-	const fetch = createRetryableCapability(() => loaders.fetch(fetchOptions));
+	const search = createMemoizedCapability(() => loaders.search(searchOptions));
+	const fetch = createMemoizedCapability(() => loaders.fetch(fetchOptions));
 
 	function getDispatcher(network: WebToolsConfig["network"]): Promise<Dispatcher> {
 		if (injectedDispatcher !== undefined) return Promise.resolve(injectedDispatcher);
@@ -63,23 +60,12 @@ export function createWebToolsRuntime(
 		if (existing !== undefined) return existing;
 		const pending = createDefaultDispatcher(structuredClone(network));
 		dispatcherPromises.set(key, pending);
-		void pending.catch(() => {
-			if (dispatcherPromises.get(key) === pending) dispatcherPromises.delete(key);
-		});
 		return pending;
 	}
 
 	async function loadConfig(): Promise<WebToolsConfig> {
-		let modulePromise = configModulePromise;
-		if (modulePromise === undefined) {
-			const pending = import("./config.js");
-			configModulePromise = pending;
-			void pending.catch(() => {
-				if (configModulePromise === pending) configModulePromise = undefined;
-			});
-			modulePromise = pending;
-		}
-		return (await modulePromise).loadWebToolsConfig();
+		configModulePromise ??= import("./config.js");
+		return (await configModulePromise).loadWebToolsConfig();
 	}
 
 	function assertOpen(): void {
@@ -103,11 +89,7 @@ export function createWebToolsRuntime(
 		},
 		fetch(params, context) {
 			assertOpen();
-			searchCorpus.markFetched(params.url);
 			return trackCall(async () => (await fetch.get()).fetch(params, context));
-		},
-		observeCitations(text) {
-			for (const match of text.matchAll(/https?:\/\/[^\s<>)\]"']+/gu)) searchCorpus.markCited(match[0].replace(/[.,;:!?]+$/u, ""));
 		},
 		close() {
 			if (closePromise !== undefined) return closePromise;
@@ -126,33 +108,27 @@ export function createWebToolsRuntime(
 		await Promise.all([searchRuntime?.close(), fetchRuntime?.close()]);
 		search.clear();
 		fetch.clear();
-		searchCorpus.clear();
 		const activeDispatchers = injectedDispatcher === undefined
 			? await Promise.all([...dispatcherPromises.values()].map(settledDispatcher))
 			: [injectedDispatcher];
 		await Promise.all(activeDispatchers.filter((active): active is Dispatcher => active !== undefined).map((active) => active.close()));
 		dispatcherPromises.clear();
-		configModulePromise = undefined;
 	}
 }
 
-interface RetryableCapability<T> {
+interface MemoizedCapability<T> {
 	get(): Promise<T>;
 	current(): Promise<T> | undefined;
 	clear(): void;
 }
 
-function createRetryableCapability<T>(load: () => Promise<T>): RetryableCapability<T> {
+function createMemoizedCapability<T>(load: () => Promise<T>): MemoizedCapability<T> {
 	let pending: Promise<T> | undefined;
 	return {
 		get() {
 			if (pending !== undefined) return pending;
-			const created = load();
-			pending = created;
-			void created.catch(() => {
-				if (pending === created) pending = undefined;
-			});
-			return created;
+			pending = load();
+			return pending;
 		},
 		current: () => pending,
 		clear() {

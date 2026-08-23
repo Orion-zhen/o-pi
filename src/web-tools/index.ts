@@ -1,7 +1,5 @@
 export { createWebToolsRuntime } from "./web-tools-runtime.js";
 export type { WebToolsRuntime } from "./core/types.js";
-export { executeWebFetch } from "./fetch/webfetch-tool.js";
-export { executeWebSearch } from "./search/websearch-tool.js";
 export { loadWebToolsConfig, defaultWebToolsConfig } from "./config.js";
 export type {
 	WebFetchParams,

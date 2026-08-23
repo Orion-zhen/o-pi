@@ -114,7 +114,6 @@ function successDetails(count: number) {
 			url: `https://example.com/${index + 1}`,
 			snippet: `Snippet ${index + 1}`,
 		})),
-		cached: false,
 		downloaded_bytes: 2048,
 		duration_ms: 42,
 		attempts: [{ provider: "exa_api" as const, status: "success" as const, duration_ms: 42 }],

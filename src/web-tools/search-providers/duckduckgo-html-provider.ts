@@ -14,13 +14,11 @@ export interface DuckDuckGoHtmlProviderOptions {
 
 /** 将既有 DDG HTML 后端包装成 provider；限流和 blocked 熔断只在此处生效。 */
 export function createDuckDuckGoHtmlProvider(options: DuckDuckGoHtmlProviderOptions): WebSearchProvider {
-	const backendPromise = options.config.enabled ? import("../search/duckduckgo-html.js") : undefined;
-	void backendPromise?.catch(() => undefined);
+	const backendPromise = import("../search/duckduckgo-html.js");
+	void backendPromise.catch(() => undefined);
 	return {
 		id: "duckduckgo_html",
-		configured: () => options.config.enabled,
 		async search(params: NormalizedSearchParams, context: SearchProviderContext): Promise<SearchProviderResult> {
-			if (!options.config.enabled) return { status: "skipped", provider: "duckduckgo_html", reason: "provider disabled" };
 			const gate = await options.requestGate.beforeRequest(context.signal, (waitMs) => {
 				context.onUpdate?.({
 					content: `Waiting ${formatSeconds(waitMs)} before searching...`,
@@ -39,7 +37,7 @@ export function createDuckDuckGoHtmlProvider(options: DuckDuckGoHtmlProviderOpti
 			const timeoutSignal = AbortSignal.timeout(Math.min(options.config.timeout_seconds * 1000, remaining));
 			const signal = AbortSignal.any([context.signal ?? new AbortController().signal, timeoutSignal]);
 			const [{ searchDuckDuckGoHtml }, dispatcher] = await Promise.all([
-				backendPromise ?? import("../search/duckduckgo-html.js"),
+				backendPromise,
 				resolveDispatcher(options.dispatcher),
 			]);
 			const effectiveUserSignal = context.userSignal ?? (context.deadlineAt === undefined ? context.signal : undefined);

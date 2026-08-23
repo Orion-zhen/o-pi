@@ -96,8 +96,6 @@ interface RawWebToolsConfig {
 	};
 	websearch?: {
 		default_results?: number;
-		cache_ttl_seconds?: number;
-		negative_cache_ttl_seconds?: number;
 		total_deadline_seconds?: number;
 		include_domains?: string[];
 		exclude_domains?: string[];
@@ -137,9 +135,6 @@ function materializeConfig(raw: CompleteWebToolsConfig): WebToolsConfig {
 	};
 	config.websearch.include_domains = normalizeDomains(config.websearch.include_domains);
 	config.websearch.exclude_domains = normalizeDomains(config.websearch.exclude_domains);
-	if (config.webfetch.limits.default_output_chars > config.webfetch.limits.max_output_chars) {
-		throw new WebToolsConfigError("default_output_chars must not exceed max_output_chars.");
-	}
 	if (config.websearch.include_domains.some((domain) => config.websearch.exclude_domains.includes(domain))) {
 		throw new WebToolsConfigError("websearch include_domains and exclude_domains must not overlap.");
 	}

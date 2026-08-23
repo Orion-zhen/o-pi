@@ -15,7 +15,7 @@ import { httpResponse } from "../helpers/http.js";
 
 const cookieStore: CookieStore = {
 	async getCookieAccess() {
-		return { authenticated: false, fingerprint: "none" };
+		return {};
 	},
 	async storeFromResponse() {
 		return undefined;
@@ -30,7 +30,6 @@ const PNG_BYTES = Buffer.from(
 
 function runtime(
 	fetchImpl: WebHttpFetch,
-	maxChars = 100000,
 	acceptsImages = false,
 	imageOmissionReason?: "api_no_tool_image_output",
 	signal?: AbortSignal,
@@ -39,7 +38,6 @@ function runtime(
 ) {
 	const config = defaultWebToolsConfig();
 	config.webfetch.limits.default_output_chars = 1000;
-	config.webfetch.limits.max_output_chars = maxChars;
 	config.webfetch.media.mode = "auto";
 	return {
 		dispatcher: new Agent(),
@@ -77,7 +75,7 @@ describe("webfetch tool", () => {
 		const confirmations: string[] = [];
 		const authenticatedStore: CookieStore = {
 			async getCookieAccess() {
-				return { authenticated: true, fingerprint: "auth", header: "sid=secret" };
+				return { header: "sid=secret" };
 			},
 			async storeFromResponse() {},
 		};
@@ -89,7 +87,6 @@ describe("webfetch tool", () => {
 		};
 		const rt = runtime(
 			async () => httpResponse(200, "authenticated", { "content-type": "text/plain" }),
-			100_000,
 			false,
 			undefined,
 			undefined,
@@ -133,7 +130,6 @@ describe("webfetch tool", () => {
 		if (first.details.status !== "success") throw new Error("failed");
 		expect(first.details.range.next_offset).toBeDefined();
 		expect(first.details.range.has_more).toBe(true);
-		expect(first.details.next).toContain("offset");
 		const nextOffset = first.details.range.next_offset;
 		if (nextOffset === undefined) throw new Error("missing next_offset");
 
@@ -216,7 +212,7 @@ describe("webfetch tool", () => {
 		const cancelledPromise = executeWebFetch({ url: "https://example.com/start" }, runtime(async (_url, init) => {
 			if (init.signal.aborted) throw new Error("aborted");
 			return { status: 200, statusText: "OK", headers: new Headers(), body: hanging };
-		}, 100000, false, undefined, userAbort.signal));
+		}, false, undefined, userAbort.signal));
 		userAbort.abort();
 		const cancelled = await cancelledPromise;
 		if (cancelled.details.status !== "failed") throw new Error("expected cancellation");
@@ -272,9 +268,9 @@ describe("webfetch tool", () => {
 		expect(forbidden.details).toMatchObject({ status: "failed", error: { code: "HTTP_ERROR" }, response_preview: "denied" });
 	});
 
-	it("参数 limit 超过配置上限会拒绝", async () => {
-		const result = await executeWebFetch({ url: "https://example.com/", limit: 2000 }, runtime(async () => httpResponse(200, "ok"), 1000));
-		expect(result.details).toMatchObject({ status: "failed", error: { code: "INVALID_ARGUMENT" } });
+	it("参数 limit 由工具 schema 固定在 100000 以内", async () => {
+		const result = await executeWebFetch({ url: "https://example.com/", limit: 2000 }, runtime(async () => httpResponse(200, "ok")));
+		expect(result.details).toMatchObject({ status: "success", range: { total: 2 } });
 	});
 
 	it("媒体主导 HTML 向支持图像的模型返回一张经过嗅探的主图", async () => {
@@ -285,7 +281,7 @@ describe("webfetch tool", () => {
 				? httpResponse(200, PNG_BYTES, { "content-type": "application/octet-stream" })
 				: httpResponse(200, PRIMARY_IMAGE_HTML, { "content-type": "text/html" });
 		};
-		const result = await executeWebFetch({ url: "https://example.com/post" }, runtime(fetchImpl, 100000, true));
+		const result = await executeWebFetch({ url: "https://example.com/post" }, runtime(fetchImpl, true));
 		expect(requests).toHaveLength(2);
 		expect(requests[1]?.accept).toContain("image/png");
 		expect(result.details).toMatchObject({
@@ -295,7 +291,7 @@ describe("webfetch tool", () => {
 			media: { discovered: 1, returned: 1 },
 		});
 		expect(result.media).toHaveLength(1);
-		expect(result.media?.[0]).toMatchObject({ mimeType: "image/png", sourceUrl: "https://example.com/post.png" });
+		expect(result.media?.[0]).toMatchObject({ mimeType: "image/png" });
 		expect(result.media?.[0]?.data).toEqual(Uint8Array.from(PNG_BYTES));
 		expect(JSON.stringify(result.details)).not.toContain('"data"');
 	});
@@ -305,28 +301,32 @@ describe("webfetch tool", () => {
 			name: "模型不支持图像",
 			acceptsImages: false,
 			imageOmissionReason: undefined,
-			mediaDisabled: false,
+			mediaEnabled: true,
 			expectedReason: "model_no_image_input",
+			expectedMedia: { discovered: 1, returned: 0 },
 		},
 		{
 			name: "API 不支持工具图片",
 			acceptsImages: false,
 			imageOmissionReason: "api_no_tool_image_output",
-			mediaDisabled: false,
+			mediaEnabled: true,
 			expectedReason: "api_no_tool_image_output",
+			expectedMedia: { discovered: 1, returned: 0 },
 		},
 		{
 			name: "media.mode=off",
 			acceptsImages: true,
 			imageOmissionReason: undefined,
-			mediaDisabled: true,
-			expectedReason: "media_disabled",
+			mediaEnabled: false,
+			expectedReason: undefined,
+			expectedMedia: { discovered: 0, returned: 0 },
 		},
-	] as const)("$name 时不下载主图并报告对应遗漏", async ({
+	] as const)("$name 时不下载主图", async ({
 		acceptsImages,
 		imageOmissionReason,
-		mediaDisabled,
+		mediaEnabled,
 		expectedReason,
+		expectedMedia,
 	}) => {
 		let calls = 0;
 		const rt = runtime(
@@ -334,14 +334,17 @@ describe("webfetch tool", () => {
 				calls += 1;
 				return httpResponse(200, PRIMARY_IMAGE_HTML, { "content-type": "text/html" });
 			},
-			100000,
 			acceptsImages,
 			imageOmissionReason,
 		);
-		if (mediaDisabled) rt.config.webfetch.media.mode = "off";
+		if (!mediaEnabled) rt.config.webfetch.media.mode = "off";
 		const result = await executeWebFetch({ url: "https://example.com/post" }, rt);
 		expect(calls).toBe(1);
-		expectPrimaryMediaOmission(result, expectedReason);
+		if (expectedReason === undefined) {
+			expect(result.details).toMatchObject({ status: "success", completeness: "complete", omissions: [], media: expectedMedia });
+		} else {
+			expectPrimaryMediaOmission(result, expectedReason, expectedMedia);
+		}
 	});
 
 	it("直接图片响应复用已下载字节，不发起二次请求", async () => {
@@ -351,7 +354,7 @@ describe("webfetch tool", () => {
 			runtime(async () => {
 				calls += 1;
 				return httpResponse(200, PNG_BYTES, { "content-type": "application/octet-stream" });
-			}, 100000, true),
+			}, true),
 		);
 		expect(calls).toBe(1);
 		expect(result.details).toMatchObject({
@@ -364,10 +367,7 @@ describe("webfetch tool", () => {
 			omissions: [],
 			media: { discovered: 1, returned: 1 },
 		});
-		expect(result.media?.[0]).toMatchObject({
-			mimeType: "image/png",
-			sourceUrl: "https://example.com/direct.png",
-		});
+		expect(result.media?.[0]).toMatchObject({ mimeType: "image/png" });
 		expect(result.media?.[0]?.data).toEqual(Uint8Array.from(PNG_BYTES));
 	});
 
@@ -411,7 +411,7 @@ describe("webfetch tool", () => {
 						},
 					},
 				};
-			}, 100000, false, imageOmissionReason),
+			}, false, imageOmissionReason),
 		);
 		expect(calls).toBe(1);
 		expect(reads).toBe(0);
@@ -424,7 +424,7 @@ describe("webfetch tool", () => {
 	it("直接图片声明与嗅探不匹配时拒绝为图片", async () => {
 		const result = await executeWebFetch(
 			{ url: "https://example.com/not-image.png" },
-			runtime(async () => httpResponse(200, "not an image", { "content-type": "image/png" }), 100000, true),
+			runtime(async () => httpResponse(200, "not an image", { "content-type": "image/png" }), true),
 		);
 		expect(result.details).toMatchObject({
 			status: "failed",
@@ -436,7 +436,6 @@ describe("webfetch tool", () => {
 	it("直接图片响应使用独立大小上限", async () => {
 		const rt = runtime(
 			async () => httpResponse(200, "short", { "content-type": "image/png", "content-length": "65537" }),
-			100000,
 			true,
 		);
 		rt.config.webfetch.media.response_bytes = 65536;
@@ -464,7 +463,7 @@ describe("webfetch tool", () => {
 					};
 				}
 				return httpResponse(200, html, { "content-type": "text/html" });
-			}, 100000, true),
+			}, true),
 		);
 		expect(requests).toEqual(["https://example.com/post", "https://example.com/poster.png"]);
 		expectPrimaryMediaOmission(result, "media_fetch_failed");
@@ -483,10 +482,10 @@ describe("webfetch tool", () => {
 				return url.pathname === "/poster.png"
 					? httpResponse(200, PNG_BYTES, { "content-type": "image/png" })
 					: httpResponse(200, html, { "content-type": "text/html" });
-			}, 100000, true),
+			}, true),
 		);
 		expect(requests).toEqual(["https://example.com/video", "https://example.com/poster.png"]);
-		expect(result.media?.[0]).toMatchObject({ sourceUrl: "https://example.com/poster.png" });
+		expect(result.media?.[0]).toMatchObject({ mimeType: "image/png" });
 		expectPrimaryMediaOmission(result, "video_not_returned", { discovered: 1, returned: 1 });
 	});
 
@@ -500,7 +499,7 @@ describe("webfetch tool", () => {
 			runtime(async (url) => {
 				requests.push(url.toString());
 				return httpResponse(200, html, { "content-type": "text/html" });
-			}, 100000, true),
+			}, true),
 		);
 		expect(requests).toEqual(["https://example.com/audio"]);
 		expect(result.media).toBeUndefined();
@@ -523,7 +522,7 @@ describe("webfetch tool", () => {
 		const rt = runtime(async () => {
 			calls += 1;
 			return calls === 1 ? httpResponse(200, PRIMARY_IMAGE_HTML, { "content-type": "text/html" }) : imageResponse();
-		}, 100000, true);
+		}, true);
 		rt.config.webfetch.media.response_bytes = 65536;
 		const result = await executeWebFetch({ url: "https://example.com/post" }, rt);
 		expect(calls).toBe(2);
@@ -540,7 +539,7 @@ describe("webfetch tool", () => {
 		expect(result.details).toMatchObject({
 			status: "success",
 			completeness: "partial",
-			deferred_fragments: { discovered: 1, resolved: 0 },
+			deferred_fragments: { discovered: 1, resolved: 0, limited: false },
 		});
 		if (result.details.status !== "success") throw new Error("failed");
 		expect(result.details.omissions).toEqual(expect.arrayContaining([
@@ -620,7 +619,6 @@ describe("webfetch tool", () => {
 		expect(setSnapshot).toHaveBeenCalledTimes(1);
 		const snapshot = setSnapshot.mock.calls[0]?.[0];
 		expect(snapshot?.metadata).toHaveProperty("analysis");
-		expect(snapshot?.metadata).not.toHaveProperty("extraction");
 		expect(JSON.stringify(snapshot)).not.toContain("mediaCandidates");
 		expect(JSON.stringify(snapshot)).not.toContain('"data"');
 

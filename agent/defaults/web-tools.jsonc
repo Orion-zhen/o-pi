@@ -17,8 +17,6 @@
 	"websearch": {
 		// 模型未传 limit 时使用。
 		"default_results": 8,
-		"cache_ttl_seconds": 300,
-		"negative_cache_ttl_seconds": 30,
 		// 包括 provider timeout、fallback 和 DDG 等待。
 		"total_deadline_seconds": 20,
 		// 每次搜索都至少应用；query 中的 site: / -site: 会继续合并。
@@ -87,8 +85,7 @@
 			"response_bytes": 10485760,
 			// 未传 limit 时返回给模型的字符数。
 			"default_output_chars": 20000,
-			// 模型单次调用可请求的最大字符数。
-			"max_output_chars": 100000
+			// 模型单次调用可请求的最大字符数由工具 schema 固定为 100000。
 		},
 		"cookies": {
 			"enabled": true,

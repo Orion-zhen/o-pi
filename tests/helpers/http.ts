@@ -1,3 +1,5 @@
+import { Headers } from "undici";
+
 import type { WebHttpResponse } from "../../src/web-tools/core/types.js";
 
 class FakeBody {

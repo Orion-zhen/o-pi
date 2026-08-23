@@ -12,45 +12,24 @@ export type PageEvidenceSource =
 	| "template"
 	| "noscript";
 
-export interface EvidenceValue<T> {
-	value: T;
-	source: PageEvidenceSource;
+export interface PageMetadata {
+	title?: string;
+	description?: string;
+	documentTitle?: string;
+	heading?: string;
+	authors: string[];
+	publishedAt?: string;
+	modifiedAt?: string;
 }
 
-export interface PageMetadata {
-	title?: EvidenceValue<string>;
-	description?: EvidenceValue<string>;
-	documentTitle?: EvidenceValue<string>;
-	heading?: EvidenceValue<string>;
-	domDescription?: EvidenceValue<string>;
-	canonicalUrl: EvidenceValue<string>;
-	authors: Array<EvidenceValue<string>>;
-	publishedAt?: EvidenceValue<string>;
-	modifiedAt?: EvidenceValue<string>;
-	openGraph?: {
-		title?: EvidenceValue<string>;
-		description?: EvidenceValue<string>;
-		type?: EvidenceValue<string>;
-		url?: EvidenceValue<string>;
-	};
-	twitter?: {
-		card?: EvidenceValue<string>;
-		title?: EvidenceValue<string>;
-		description?: EvidenceValue<string>;
-	};
-	jsonLd?: {
-		title?: EvidenceValue<string>;
-		description?: EvidenceValue<string>;
-		authors: Array<EvidenceValue<string>>;
-		publishedAt?: EvidenceValue<string>;
-		modifiedAt?: EvidenceValue<string>;
-	};
+interface EvidenceValue<T> {
+	value: T;
+	source: PageEvidenceSource;
 }
 
 export interface TextCandidate {
 	kind: "article_body" | "transcript";
 	text: string;
-	source: PageEvidenceSource;
 }
 
 export interface MediaCandidate {
@@ -72,32 +51,10 @@ export interface MediaCandidate {
 
 export type DeferredFragmentKind = "template_for" | "shadow_root" | "noscript";
 
-export type DeferredFragmentStatus = "resolved" | "skipped";
-
-export type DeferredFragmentReason =
-	| "target_replaced"
-	| "shadow_root_expanded"
-	| "noscript_expanded"
-	| "missing_target"
-	| "ambiguous_target"
-	| "duplicate_target"
-	| "cyclic_target"
-	| "invalid_declaration"
-	| "fragment_limit"
-	| "depth_limit";
-
-export interface DeferredFragmentEvidence {
-	kind: DeferredFragmentKind;
-	status: DeferredFragmentStatus;
-	reason: DeferredFragmentReason;
-}
-
 export interface DeferredEvidence {
 	discovered: number;
 	resolved: number;
-	skipped: number;
 	limited: boolean;
-	fragments: DeferredFragmentEvidence[];
 }
 
 export interface KnownOmission {
@@ -138,7 +95,6 @@ interface OpenGraphFacts {
 	title?: EvidenceValue<string>;
 	description?: EvidenceValue<string>;
 	type?: EvidenceValue<string>;
-	url?: EvidenceValue<string>;
 	mediaCandidates: MediaCandidate[];
 }
 
@@ -152,16 +108,15 @@ interface DomPresence {
 }
 
 interface TwitterFacts {
-	card?: EvidenceValue<string>;
 	title?: EvidenceValue<string>;
 	description?: EvidenceValue<string>;
 	mediaCandidates: MediaCandidate[];
 }
 
 /** Analyze one already-parsed HTML response without retaining DOM nodes or raw scripts. */
-export function analyzeHtmlPage(document: Document, finalUrl: string, mime: string): PageAnalysis {
+export function analyzeHtmlPage(document: Document, finalUrl: string, mime: string, mediaEnabled = true): PageAnalysis {
 	const standardElements = [...document.querySelectorAll(
-		'base[href], link[href], meta, title, script[type="application/ld+json"]',
+		'base[href], meta, title, script[type="application/ld+json"]',
 	)];
 	const metaElements = standardElements.filter((element) => element.localName === "meta");
 	const jsonLdElements = standardElements.filter((element) => element.localName === "script");
@@ -176,13 +131,12 @@ export function analyzeHtmlPage(document: Document, finalUrl: string, mime: stri
 	const visibleBody = visibleBodyFacts(document.body);
 	const domPresence = collectDomPresence(document);
 	const domAuthors = metaContents(metaElements, "name", "author").map((value) => ({ value, source: "dom" as const }));
-	const openGraph = collectOpenGraph(metaElements, baseUrl);
-	const twitter = collectTwitter(metaElements, baseUrl);
-	const jsonLd = collectJsonLd(jsonLdElements, baseUrl);
-	const domMedia = collectDomMedia(document, baseUrl, headingElements.length === 1 ? headingElements[0] : undefined);
-	const canonical = linkHref(standardElements, "canonical", baseUrl)
-		?? openGraph.url
-		?? { value: normalizeFinalUrl(finalUrl), source: "dom" as const };
+	const openGraph = collectOpenGraph(metaElements, baseUrl, mediaEnabled);
+	const twitter = collectTwitter(metaElements, baseUrl, mediaEnabled);
+	const jsonLd = collectJsonLd(jsonLdElements, baseUrl, mediaEnabled);
+	const domMedia = mediaEnabled
+		? collectDomMedia(document, baseUrl, headingElements.length === 1 ? headingElements[0] : undefined)
+		: [];
 	const title = openGraph.title ?? jsonLd.title ?? twitter.title ?? documentTitle;
 	const description = openGraph.description ?? jsonLd.description ?? twitter.description ?? domDescription;
 	const authors = uniqueEvidence([...jsonLd.authors, ...domAuthors]);
@@ -197,55 +151,29 @@ export function analyzeHtmlPage(document: Document, finalUrl: string, mime: stri
 	}
 	return {
 		metadata: {
-			...(title !== undefined ? { title } : {}),
-			...(description !== undefined ? { description } : {}),
-			...(documentTitle !== undefined ? { documentTitle } : {}),
-			...(heading !== undefined ? { heading } : {}),
-			...(domDescription !== undefined ? { domDescription } : {}),
-			canonicalUrl: canonical,
-			authors,
-			...(jsonLd.publishedAt !== undefined ? { publishedAt: jsonLd.publishedAt } : {}),
-			...(jsonLd.modifiedAt !== undefined ? { modifiedAt: jsonLd.modifiedAt } : {}),
-			...(hasOpenGraphFacts(openGraph) ? {
-				openGraph: {
-					...(openGraph.title !== undefined ? { title: openGraph.title } : {}),
-					...(openGraph.description !== undefined ? { description: openGraph.description } : {}),
-					...(openGraph.type !== undefined ? { type: openGraph.type } : {}),
-					...(openGraph.url !== undefined ? { url: openGraph.url } : {}),
-				},
-			} : {}),
-			...(hasTwitterFacts(twitter) ? {
-				twitter: {
-					...(twitter.card !== undefined ? { card: twitter.card } : {}),
-					...(twitter.title !== undefined ? { title: twitter.title } : {}),
-					...(twitter.description !== undefined ? { description: twitter.description } : {}),
-				},
-			} : {}),
-			...(hasJsonLdFacts(jsonLd) ? {
-				jsonLd: {
-					...(jsonLd.title !== undefined ? { title: jsonLd.title } : {}),
-					...(jsonLd.description !== undefined ? { description: jsonLd.description } : {}),
-					authors: jsonLd.authors,
-					...(jsonLd.publishedAt !== undefined ? { publishedAt: jsonLd.publishedAt } : {}),
-					...(jsonLd.modifiedAt !== undefined ? { modifiedAt: jsonLd.modifiedAt } : {}),
-				},
-			} : {}),
+			...(title !== undefined ? { title: title.value } : {}),
+			...(description !== undefined ? { description: description.value } : {}),
+			...(documentTitle !== undefined ? { documentTitle: documentTitle.value } : {}),
+			...(heading !== undefined ? { heading: heading.value } : {}),
+			authors: authors.map((author) => author.value),
+			...(jsonLd.publishedAt !== undefined ? { publishedAt: jsonLd.publishedAt.value } : {}),
+			...(jsonLd.modifiedAt !== undefined ? { modifiedAt: jsonLd.modifiedAt.value } : {}),
 		},
 		pageKind,
 		textCandidates: jsonLd.textCandidates,
-		mediaCandidates: [...openGraph.mediaCandidates, ...twitter.mediaCandidates, ...jsonLd.mediaCandidates, ...domMedia],
+		mediaCandidates: mediaEnabled
+			? [...openGraph.mediaCandidates, ...twitter.mediaCandidates, ...jsonLd.mediaCandidates, ...domMedia]
+			: [],
 		deferred: {
 			discovered: 0,
 			resolved: 0,
-			skipped: 0,
 			limited: false,
-			fragments: [],
 		},
 		omissions,
 	};
 }
 
-function collectOpenGraph(metaElements: readonly Element[], baseUrl: string): OpenGraphFacts {
+function collectOpenGraph(metaElements: readonly Element[], baseUrl: string, mediaEnabled: boolean): OpenGraphFacts {
 	const facts: OpenGraphFacts = { mediaCandidates: [] };
 	let currentImage: MediaCandidate | undefined;
 	let currentVideo: MediaCandidate | undefined;
@@ -257,50 +185,45 @@ function collectOpenGraph(metaElements: readonly Element[], baseUrl: string): Op
 		if (property === "og:title" && facts.title === undefined) facts.title = { value: content, source: "open_graph" };
 		else if (property === "og:description" && facts.description === undefined) facts.description = { value: content, source: "open_graph" };
 		else if (property === "og:type" && facts.type === undefined) facts.type = { value: content, source: "open_graph" };
-		else if (property === "og:url" && facts.url === undefined) {
-			const url = evidenceUrl(content, baseUrl, "open_graph");
-			if (url !== undefined) facts.url = url;
-		}
-		else if (property === "og:image" || property === "og:image:url") {
+		else if (mediaEnabled && (property === "og:image" || property === "og:image:url")) {
 			currentImage = mediaCandidate("image", "primary", "open_graph", content, baseUrl);
 			if (currentImage !== undefined) facts.mediaCandidates.push(currentImage);
-		} else if (property === "og:image:secure_url") {
+		} else if (mediaEnabled && property === "og:image:secure_url") {
 			const secureUrl = resolveHttpUrl(content, baseUrl);
 			if (currentImage !== undefined && secureUrl !== undefined) currentImage.secureUrl = secureUrl;
-		} else if (property === "og:image:type" && currentImage !== undefined) currentImage.mimeType = content.toLowerCase();
-		else if (property === "og:image:width" && currentImage !== undefined) assignWidth(currentImage, content);
-		else if (property === "og:image:height" && currentImage !== undefined) assignHeight(currentImage, content);
-		else if (property === "og:image:alt" && currentImage !== undefined) currentImage.alt = content;
-		else if (property === "og:video" || property === "og:video:url") {
+		} else if (mediaEnabled && property === "og:image:type" && currentImage !== undefined) currentImage.mimeType = content.toLowerCase();
+		else if (mediaEnabled && property === "og:image:width" && currentImage !== undefined) assignWidth(currentImage, content);
+		else if (mediaEnabled && property === "og:image:height" && currentImage !== undefined) assignHeight(currentImage, content);
+		else if (mediaEnabled && property === "og:image:alt" && currentImage !== undefined) currentImage.alt = content;
+		else if (mediaEnabled && (property === "og:video" || property === "og:video:url")) {
 			currentVideo = mediaCandidate("video", "content", "open_graph", content, baseUrl);
 			if (currentVideo !== undefined) facts.mediaCandidates.push(currentVideo);
-		} else if (property === "og:video:secure_url") {
+		} else if (mediaEnabled && property === "og:video:secure_url") {
 			const secureUrl = resolveHttpUrl(content, baseUrl);
 			if (currentVideo !== undefined && secureUrl !== undefined) currentVideo.secureUrl = secureUrl;
-		} else if (property === "og:video:type" && currentVideo !== undefined) currentVideo.mimeType = content.toLowerCase();
-		else if (property === "og:video:width" && currentVideo !== undefined) assignWidth(currentVideo, content);
-		else if (property === "og:video:height" && currentVideo !== undefined) assignHeight(currentVideo, content);
-		else if (property === "og:audio" || property === "og:audio:url") {
+		} else if (mediaEnabled && property === "og:video:type" && currentVideo !== undefined) currentVideo.mimeType = content.toLowerCase();
+		else if (mediaEnabled && property === "og:video:width" && currentVideo !== undefined) assignWidth(currentVideo, content);
+		else if (mediaEnabled && property === "og:video:height" && currentVideo !== undefined) assignHeight(currentVideo, content);
+		else if (mediaEnabled && (property === "og:audio" || property === "og:audio:url")) {
 			currentAudio = mediaCandidate("audio", "content", "open_graph", content, baseUrl);
 			if (currentAudio !== undefined) facts.mediaCandidates.push(currentAudio);
-		} else if (property === "og:audio:secure_url") {
+		} else if (mediaEnabled && property === "og:audio:secure_url") {
 			const secureUrl = resolveHttpUrl(content, baseUrl);
 			if (currentAudio !== undefined && secureUrl !== undefined) currentAudio.secureUrl = secureUrl;
-		} else if (property === "og:audio:type" && currentAudio !== undefined) currentAudio.mimeType = content.toLowerCase();
+		} else if (mediaEnabled && property === "og:audio:type" && currentAudio !== undefined) currentAudio.mimeType = content.toLowerCase();
 	}
 	return facts;
 }
 
-function collectTwitter(metaElements: readonly Element[], baseUrl: string): TwitterFacts {
+function collectTwitter(metaElements: readonly Element[], baseUrl: string, mediaEnabled: boolean): TwitterFacts {
 	const facts: TwitterFacts = { mediaCandidates: [] };
 	for (const meta of metaElements) {
 		const name = (meta.getAttribute("name") ?? meta.getAttribute("property"))?.trim().toLowerCase();
 		const content = normalizeText(meta.getAttribute("content"));
 		if (name === undefined || content === undefined) continue;
-		if (name === "twitter:card" && facts.card === undefined) facts.card = { value: content, source: "twitter" };
-		else if (name === "twitter:title" && facts.title === undefined) facts.title = { value: content, source: "twitter" };
+		if (name === "twitter:title" && facts.title === undefined) facts.title = { value: content, source: "twitter" };
 		else if (name === "twitter:description" && facts.description === undefined) facts.description = { value: content, source: "twitter" };
-		else if (name === "twitter:image" || name === "twitter:image:src") {
+		else if (mediaEnabled && (name === "twitter:image" || name === "twitter:image:src")) {
 			const candidate = mediaCandidate("image", "primary", "twitter", content, baseUrl);
 			if (candidate !== undefined) facts.mediaCandidates.push(candidate);
 		}
@@ -308,7 +231,7 @@ function collectTwitter(metaElements: readonly Element[], baseUrl: string): Twit
 	return facts;
 }
 
-function collectJsonLd(jsonLdElements: readonly Element[], baseUrl: string): JsonLdFacts {
+function collectJsonLd(jsonLdElements: readonly Element[], baseUrl: string, mediaEnabled: boolean): JsonLdFacts {
 	const facts: JsonLdFacts = {
 		titleRank: -1,
 		descriptionRank: -1,
@@ -372,7 +295,7 @@ function collectJsonLd(jsonLdElements: readonly Element[], baseUrl: string): Jso
 				pending.length = 0;
 				break;
 			}
-			extractJsonLdRecord(item.value, baseUrl, facts, item.pageEntity);
+			extractJsonLdRecord(item.value, baseUrl, facts, item.pageEntity, mediaEnabled);
 			for (const [key, child] of Object.entries(item.value)) {
 				if (key === "@context") continue;
 				if (Array.isArray(child) || isRecord(child)) {
@@ -399,6 +322,7 @@ function extractJsonLdRecord(
 	baseUrl: string,
 	facts: JsonLdFacts,
 	pageEntity: boolean,
+	mediaEnabled: boolean,
 ): void {
 	const types = stringValues(record["@type"]).map(normalizeSchemaType);
 	const kind = pageKindFromJsonLdTypes(types);
@@ -421,10 +345,11 @@ function extractJsonLdRecord(
 		const modifiedAt = firstString(record.dateModified);
 		if (facts.modifiedAt === undefined && modifiedAt !== undefined) facts.modifiedAt = { value: modifiedAt, source: "json_ld" };
 		const articleBody = firstString(record.articleBody);
-		if (articleBody !== undefined) facts.textCandidates.push({ kind: "article_body", text: articleBody, source: "json_ld" });
+		if (articleBody !== undefined) facts.textCandidates.push({ kind: "article_body", text: articleBody });
 		const transcript = firstString(record.transcript);
-		if (transcript !== undefined) facts.textCandidates.push({ kind: "transcript", text: transcript, source: "json_ld" });
+		if (transcript !== undefined) facts.textCandidates.push({ kind: "transcript", text: transcript });
 	}
+	if (!mediaEnabled) return;
 	collectJsonLdImages(record.image, "primary", baseUrl, facts.mediaCandidates);
 	collectJsonLdImages(record.thumbnailUrl, "thumbnail", baseUrl, facts.mediaCandidates);
 	if (types.includes("imageobject")) {
@@ -638,23 +563,7 @@ function isPageEntity(types: string[]): boolean {
 
 function resolveDocumentBase(standardElements: readonly Element[], finalUrl: string): string {
 	const declared = standardElements.find((element) => element.localName === "base")?.getAttribute("href");
-	return resolveHttpUrl(declared, finalUrl) ?? normalizeFinalUrl(finalUrl);
-}
-
-function linkHref(standardElements: readonly Element[], relation: string, baseUrl: string): EvidenceValue<string> | undefined {
-	for (const link of standardElements) {
-		if (link.localName !== "link") continue;
-		const relations = link.getAttribute("rel")?.toLowerCase().split(/\s+/u) ?? [];
-		if (!relations.includes(relation)) continue;
-		const resolved = resolveHttpUrl(link.getAttribute("href"), baseUrl);
-		if (resolved !== undefined) return { value: resolved, source: "dom" };
-	}
-	return undefined;
-}
-
-function evidenceUrl(value: string, baseUrl: string, source: PageEvidenceSource): EvidenceValue<string> | undefined {
-	const resolved = resolveHttpUrl(value, baseUrl);
-	return resolved === undefined ? undefined : { value: resolved, source };
+	return resolveHttpUrl(declared, finalUrl) ?? finalUrl;
 }
 
 function mediaCandidate(
@@ -760,10 +669,6 @@ function resolveHttpUrl(value: string | null | undefined, baseUrl: string): stri
 	} catch {
 		return undefined;
 	}
-}
-
-function normalizeFinalUrl(value: string): string {
-	return resolveHttpUrl(value, value) ?? value;
 }
 
 function metaContent(metaElements: readonly Element[], attribute: "name" | "property", key: string): string | undefined {
@@ -913,23 +818,4 @@ function isClientRenderedShell(
 	if (title === undefined && description === undefined) return false;
 	if (!domPresence.externalScript) return false;
 	return visibleBody.textLength === 0 && !visibleBody.hasMedia;
-}
-
-function hasOpenGraphFacts(facts: OpenGraphFacts): boolean {
-	return facts.title !== undefined
-		|| facts.description !== undefined
-		|| facts.type !== undefined
-		|| facts.url !== undefined;
-}
-
-function hasTwitterFacts(facts: TwitterFacts): boolean {
-	return facts.card !== undefined || facts.title !== undefined || facts.description !== undefined;
-}
-
-function hasJsonLdFacts(facts: JsonLdFacts): boolean {
-	return facts.title !== undefined
-		|| facts.description !== undefined
-		|| facts.authors.length > 0
-		|| facts.publishedAt !== undefined
-		|| facts.modifiedAt !== undefined;
 }

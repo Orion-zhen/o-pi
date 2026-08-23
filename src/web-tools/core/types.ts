@@ -1,11 +1,9 @@
 import type { Dispatcher } from "undici";
 
-import type { PageAnalysis } from "../content/html-page-analyzer.js";
-
 export type WebFetchMode = "readable" | "source";
 export type WebFetchOutputFormat = "markdown" | "text" | "json" | "xml" | "image" | "source";
 export type WebFetchPageKind = "article" | "image" | "video" | "audio" | "generic";
-export type WebFetchTextSource = "readability" | "semantic" | "heading" | "body" | "metadata";
+export type WebFetchTextSource = "readability" | "semantic" | "body" | "metadata";
 export type SnapshotStatus = "created" | "hit" | "refetched" | "not_needed";
 /** 搜索运行时 provider 标识；不暴露为模型工具参数。 */
 export type FormalWebSearchProviderId = "brave_api" | "exa_api" | "tavily";
@@ -30,8 +28,6 @@ export interface WebSearchItem {
 	title: string;
 	url: string;
 	snippet?: string;
-	/** Provider-native relevance; details/telemetry only. */
-	score?: number;
 	/** Merged provenance; never rendered into model content. */
 	provenance?: Array<{ provider: FormalWebSearchProviderId; rank: number }>;
 }
@@ -50,8 +46,6 @@ export interface WebToolsConfig {
 	};
 	websearch: {
 		default_results: number;
-		cache_ttl_seconds: number;
-		negative_cache_ttl_seconds: number;
 		total_deadline_seconds: number;
 		include_domains: string[];
 		exclude_domains: string[];
@@ -102,7 +96,6 @@ export interface WebToolsConfig {
 		limits: {
 			response_bytes: number;
 			default_output_chars: number;
-			max_output_chars: number;
 		};
 		cookies: {
 			enabled: boolean;
@@ -113,7 +106,6 @@ export interface WebToolsConfig {
 }
 
 export type WebFetchErrorCode =
-	| "INVALID_ARGUMENT"
 	| "CONFIG_ERROR"
 	| "INVALID_URL"
 	| "BLOCKED_ADDRESS"
@@ -128,7 +120,6 @@ export type WebFetchErrorCode =
 	| "HTTP_ERROR"
 	| "RESPONSE_TOO_LARGE"
 	| "UNSUPPORTED_CONTENT_TYPE"
-	| "DECODE_FAILED"
 	| "CONVERSION_FAILED";
 
 /** 搜索工具对模型和 renderer 暴露的稳定错误码。 */
@@ -187,13 +178,13 @@ export interface WebFetchSuccessDetails {
 		has_more: boolean;
 		next_offset?: number;
 	};
-	next?: string;
 	authenticated: boolean;
 	redirect_count: number;
 	snapshot: SnapshotStatus;
 	deferred_fragments: {
 		discovered: number;
 		resolved: number;
+		limited: boolean;
 	};
 	media: {
 		discovered: number;
@@ -217,7 +208,6 @@ export interface WebFetchOmission {
 		| "unresolved_declaration"
 		| "model_no_image_input"
 		| "api_no_tool_image_output"
-		| "media_disabled"
 		| "offset_range"
 		| "media_fetch_failed"
 		| "media_too_large"
@@ -250,7 +240,6 @@ export interface WebFetchResult {
 export interface WebFetchMedia {
 	data: Uint8Array;
 	mimeType: string;
-	sourceUrl: string;
 }
 
 /** 搜索工具 renderer 使用的阶段进度，不进入最终模型内容。 */
@@ -265,42 +254,27 @@ export interface WebSearchProgressDetails {
 /** 单个搜索 provider 的执行诊断，只供 renderer/details 使用。 */
 export interface WebSearchProviderAttempt {
 	provider: WebSearchProviderId;
-	status: "success" | "failed" | "skipped";
+	status: "success" | "failed";
 	duration_ms?: number;
 	error?: {
 		code: WebSearchErrorCode;
 		message: string;
 	};
 	http_status?: number;
-	cached?: boolean;
 	quality?: "accepted" | "partial" | "soft_miss" | "hard_failure";
-	fallback_reason?: string;
 	result_count?: number;
 }
 
-/** 搜索成功 details；缓存、耗时和字节数只供 UI/诊断使用。 */
+/** 搜索成功 details；provider 执行诊断统一保存在 attempts。 */
 export interface WebSearchSuccessDetails {
 	status: "success";
 	query: string;
 	provider: WebSearchProviderId;
 	results: WebSearchItem[];
-	cached: boolean;
 	downloaded_bytes: number;
 	duration_ms: number;
 	attempts: WebSearchProviderAttempt[];
-	primary_provider?: FormalWebSearchProviderId;
 	query_type?: string;
-	formal_provider_calls?: number;
-	secondary_new_results?: number;
-	reused?: "cache" | "corpus";
-	first_call_accepted?: boolean;
-	fallback_reason?: string;
-	provider_latencies?: string[];
-	provider_errors?: string[];
-	corpus_discovered?: number;
-	corpus_fetched?: number;
-	corpus_cited?: number;
-	approximate_reformulation?: boolean;
 }
 
 /** 搜索失败 details；response_preview 只给展开 renderer 诊断。 */
@@ -321,14 +295,7 @@ export interface WebSearchFailureDetails {
 	 * 写入前必须去除标签和终端控制字符。
 	 */
 	response_preview?: string;
-	primary_provider?: FormalWebSearchProviderId;
 	query_type?: string;
-	formal_provider_calls?: number;
-	first_call_accepted?: boolean;
-	fallback_reason?: string;
-	provider_latencies?: string[];
-	provider_errors?: string[];
-	approximate_reformulation?: boolean;
 }
 
 export type WebSearchDetails = WebSearchProgressDetails | WebSearchSuccessDetails | WebSearchFailureDetails;
@@ -369,7 +336,6 @@ export interface HttpFetchSuccess {
 	requestedUrl: string;
 	finalUrl: string;
 	httpStatus: number;
-	statusText: string;
 	headers: WebHttpHeaders;
 	body: Uint8Array;
 	/** 明确图片 MIME 且调用链已确定不会返回图片时，响应头后取消 body。 */
@@ -388,7 +354,6 @@ export interface ContentConversion {
 	contentType?: string;
 	charset?: string;
 	title?: string;
-	extraction?: WebFetchExtraction;
 	directMedia?: WebFetchMedia;
 }
 
@@ -400,6 +365,7 @@ export interface WebFetchAnalysisSummary {
 	deferredFragments: {
 		discovered: number;
 		resolved: number;
+		limited: boolean;
 	};
 	primaryMedia?: {
 		url: string;
@@ -410,23 +376,10 @@ export interface HtmlReadabilityOptions {
 	charThreshold: number;
 }
 
-export interface WebFetchExtraction {
-	analysis: PageAnalysis;
-	textSource: WebFetchTextSource;
-	deferredFragments: {
-		discovered: number;
-		resolved: number;
-	};
-	primaryMedia?: {
-		url: string;
-	};
-	mediaDominant: boolean;
-}
-
-/** 兼容 undici Headers 的最小响应头接口。 */
+/** 共享 HTTP 响应头接口。 */
 export interface WebHttpHeaders {
 	get(name: string): string | null;
-	getSetCookie?: () => string[];
+	getSetCookie(): string[];
 }
 
 /** 两个 Web 工具共用的最小 HTTP 响应形态。 */
@@ -486,19 +439,16 @@ export interface WebFetchSnapshot {
 
 export interface CookieAccess {
 	header?: string;
-	fingerprint: string;
-	authenticated: boolean;
 }
 
 export interface CookieStore {
-	getCookieAccess(url: URL, allowlisted: boolean): Promise<CookieAccess | WebFetchFailureDetails>;
-	storeFromResponse(url: URL, setCookieHeaders: string[], allowlisted: boolean): Promise<WebFetchFailureDetails | undefined>;
+	getCookieAccess(url: URL): Promise<CookieAccess | WebFetchFailureDetails>;
+	storeFromResponse(url: URL, setCookieHeaders: string[]): Promise<WebFetchFailureDetails | undefined>;
 }
 
 export interface WebToolsRuntime {
 	fetch(params: WebFetchParams, context: WebFetchExecutionContext): Promise<WebFetchResult>;
 	search(params: WebSearchParams, context: WebSearchExecutionContext): Promise<WebSearchResult>;
-	observeCitations?(text: string): void;
 	close(): Promise<void>;
 }
 

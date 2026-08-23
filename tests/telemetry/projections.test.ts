@@ -174,12 +174,22 @@ describe("tool telemetry projections", () => {
 		const searchParams = fixture<WebSearchParams>({ query: "private query", limit: 5 });
 		const input = inputFacts(webSearchTelemetry, searchParams);
 		const output = resultFacts(webSearchTelemetry, searchParams, fixture<WebSearchDetails>({
-			status: "ok", provider: "brave_api", primary_provider: "brave_api", query_type: "general", formal_provider_calls: 2, first_call_accepted: false, fallback_reason: "too_few_results", secondary_new_results: 2,
+			status: "success", provider: "brave_api", query_type: "general",
+			attempts: [
+				{ provider: "brave_api", status: "success", duration_ms: 12, quality: "partial" },
+				{ provider: "tavily", status: "failed", duration_ms: 8, error: { code: "TIMEOUT", message: "timeout" } },
+			],
 			results: [{ title: "A", url: "https://example.com/a", rank: 3, provenance: [{ provider: "brave_api", rank: 1 }, { provider: "tavily", rank: 2 }] }],
 		}));
 		expect(input.fields).toMatchObject({ input_query_chars: 13, input_limit: 5 });
 		expect(JSON.stringify(input)).not.toContain("private query");
-		expect(output.fields).toMatchObject({ primary_provider: "brave_api", query_type: "general", formal_provider_calls: 2, first_call_accepted: false, fallback_reason: "too_few_results", secondary_new_results: 2 });
+		expect(output.fields).toMatchObject({
+			query_type: "general",
+			fallback: true,
+			first_call_accepted: false,
+			provider_latencies: ["brave_api:12", "tavily:8"],
+			provider_errors: ["tavily:TIMEOUT"],
+		});
 		expect(output.candidates).toEqual([{ kind: "url", value: "https://example.com/a", rank: 1, group: "primary", sources: ["brave_api", "tavily"] }]);
 
 		const fetchParams = fixture<WebFetchParams>({ url: "https://example.com/a" });

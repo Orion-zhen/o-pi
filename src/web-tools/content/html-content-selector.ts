@@ -2,7 +2,7 @@ import { isProbablyReaderable, Readability } from "@mozilla/readability";
 
 import type { HtmlReadabilityOptions } from "../core/types.js";
 
-export type HtmlTextSource = "readability" | "semantic" | "heading" | "body";
+export type HtmlTextSource = "readability" | "semantic" | "body";
 
 export interface SelectedHtmlContent {
 	source: HtmlTextSource;
@@ -43,7 +43,6 @@ type QualityFor = (root: Element) => ContentQuality;
 
 interface CandidateRoots {
 	semantic: Element[];
-	headings: Element[];
 }
 
 const SEMANTIC_SELECTOR = 'main, [role="main"], article, [itemprop="articleBody"]';
@@ -90,7 +89,7 @@ const QUALITY_STRUCTURE_SELECTOR = [
 	"img", "picture", "video", "audio", "form", "input", "select", "textarea", "button",
 ].join(", ");
 
-/** Generate ordered HTML candidates and select Readability/semantic/heading before exposing body fallback. */
+/** Generate ordered HTML candidates and select Readability/semantic before exposing body fallback. */
 export function selectHtmlContent(
 	document: Document,
 	options: HtmlReadabilityOptions,
@@ -99,8 +98,6 @@ export function selectHtmlContent(
 ): HtmlContentSelection {
 	const roots: CandidateRoots = {
 		semantic: [...document.querySelectorAll(SEMANTIC_SELECTOR)],
-		headings: [...document.querySelectorAll("h1")]
-			.filter((node) => normalizeText(node.textContent) !== undefined),
 	};
 	const qualityCache = new WeakMap<Element, ContentQuality>();
 	const qualityFor: QualityFor = (root) => {
@@ -120,11 +117,6 @@ export function selectHtmlContent(
 		return { preferred: serializeCandidate(semantic) };
 	}
 
-	const heading = headingCandidate(document, roots.headings, qualityFor);
-	if (heading !== undefined) {
-		return { preferred: serializeCandidate(heading) };
-	}
-
 	const quality = qualityFor(document.body);
 	return {
 		body: serializeCandidate(candidateFromElement("body", document.body, quality)),
@@ -142,19 +134,6 @@ function readabilityInputRoot(document: Document, roots: CandidateRoots, quality
 	}
 	if (best !== undefined) return best.root;
 
-	if (roots.headings.length === 1) {
-		let headingBest: { root: Element; score: number } | undefined;
-		let root = roots.headings[0]?.parentElement ?? null;
-		while (root !== null && root !== document.body) {
-			const quality = qualityFor(root);
-			const score = qualityScore(quality);
-			if (quality.hasPrimaryTitle && (headingBest === undefined || score > headingBest.score)) {
-				headingBest = { root, score };
-			}
-			root = root.parentElement;
-		}
-		if (headingBest !== undefined) return headingBest.root;
-	}
 	return document.body;
 }
 
@@ -237,17 +216,6 @@ function bestSemanticCandidate(semanticRoots: readonly Element[], qualityFor: Qu
 		if (best === undefined || score > best.score) best = { candidate, score };
 	}
 	return best?.candidate;
-}
-
-function headingCandidate(document: Document, headings: readonly Element[], qualityFor: QualityFor): Candidate | undefined {
-	if (headings.length !== 1) return undefined;
-	let root = headings[0]?.parentElement ?? null;
-	while (root !== null && root !== document.body) {
-		const quality = qualityFor(root);
-		if (passesQuality(quality, "heading")) return candidateFromElement("heading", root, quality);
-		root = root.parentElement;
-	}
-	return undefined;
 }
 
 function candidateFromElement(source: HtmlTextSource, root: Element, quality: ContentQuality): Candidate {
@@ -348,7 +316,6 @@ function passesQuality(quality: ContentQuality, source: HtmlTextSource): boolean
 	if (quality.linkDensity > 0.55 && quality.paragraphCount < 3) return false;
 	if (quality.shortLinkListRatio > 0.6 && quality.paragraphCount < 3) return false;
 	if (source === "readability") return quality.textLength >= 120 || structured >= 2;
-	if (source === "heading") return titleOrMedia;
 	if (source === "semantic") return quality.textLength >= 40 || structured > 0 || titleOrMedia;
 	return quality.textLength >= 80 || structured > 0 || titleOrMedia;
 }

@@ -64,6 +64,7 @@ export async function directImageConversion(
 	http: HttpFetchSuccess,
 	mode: WebFetchMode,
 	maxBytes: number,
+	mediaEnabled: boolean,
 ): Promise<ContentConversion | WebFetchFailureDetails | undefined> {
 	if (mode !== "readable" || !isDirectImageCandidate(http.headers.get("content-type"))) return undefined;
 	if (http.bodyOmitted === "skipped_image_body") {
@@ -75,8 +76,8 @@ export async function directImageConversion(
 				pageKind: "image",
 				textSource: "metadata",
 				omissions: [],
-				deferredFragments: { discovered: 0, resolved: 0 },
-				primaryMedia: { url: http.finalUrl },
+				deferredFragments: { discovered: 0, resolved: 0, limited: false },
+				...(mediaEnabled ? { primaryMedia: { url: http.finalUrl } } : {}),
 			},
 			contentType: mimeType,
 		};
@@ -98,14 +99,10 @@ export async function directImageConversion(
 			pageKind: "image",
 			textSource: "metadata",
 			omissions: [],
-			deferredFragments: { discovered: 0, resolved: 0 },
+			deferredFragments: { discovered: 0, resolved: 0, limited: false },
 		},
 		contentType: mimeType,
-		directMedia: {
-			data: http.body,
-			mimeType,
-			sourceUrl: http.finalUrl,
-		},
+		...(mediaEnabled ? { directMedia: { data: http.body, mimeType } } : {}),
 	};
 }
 
@@ -120,9 +117,6 @@ export async function resolvePrimaryMedia(
 			? undefined
 			: { url: conversion.analysis.primaryMedia.url });
 	if (primary === undefined) return {};
-	if (options.config.webfetch.media.mode === "off") {
-		return { omission: { kind: "primary_media", reason: "media_disabled" } };
-	}
 	if (offset > 0) return { omission: { kind: "primary_media", reason: "offset_range" } };
 	if (options.context.acceptsImages !== true) {
 		return {
@@ -154,7 +148,6 @@ export async function resolvePrimaryMedia(
 		media: {
 			data: fetched.body,
 			mimeType,
-			sourceUrl: fetched.finalUrl,
 		},
 	};
 }
