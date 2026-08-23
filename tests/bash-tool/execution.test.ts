@@ -47,6 +47,18 @@ beforeEach(() => {
 	config.limits.failure_output_bytes = 300;
 });
 
+function registerBashExtension() {
+	const tools: Array<Parameters<ExtensionAPI["registerTool"]>[0]> = [];
+	const handlers = new Map<string, (...args: unknown[]) => unknown>();
+	bashToolExtension({
+		registerTool(tool: Parameters<ExtensionAPI["registerTool"]>[0]) { tools.push(tool); },
+		on(name: string, handler: unknown) {
+			handlers.set(name, handler as (...args: unknown[]) => unknown);
+		},
+	} as unknown as ExtensionAPI);
+	return { tools, handlers };
+}
+
 function fakeOperations(handler: BashOperations["exec"]): BashOperations {
 	return { exec: handler };
 }
@@ -63,20 +75,7 @@ function waitForAbort(signal: AbortSignal | undefined): Promise<void> {
 
 describe("bash tool execution", () => {
 	it("扩展先注册无 renderer 的覆盖版 bash，TUI session 再加载 renderer，并统一标记失败结果", async () => {
-		const tools: Array<{
-			name: string;
-			executionMode?: string;
-			renderCall?: unknown;
-		}> = [];
-		const handlers = new Map<string, (...args: unknown[]) => unknown>();
-		bashToolExtension({
-			registerTool(tool: Parameters<ExtensionAPI["registerTool"]>[0]) {
-				tools.push(tool);
-			},
-			on(name: string, handler: unknown) {
-				handlers.set(name, handler as (...args: unknown[]) => unknown);
-			},
-		} as unknown as ExtensionAPI);
+		const { tools, handlers } = registerBashExtension();
 
 		expect(tools).toMatchObject([{ name: "bash", executionMode: "sequential" }]);
 		const tool = tools[0];
@@ -146,13 +145,7 @@ describe("bash tool execution", () => {
 		process.env.PI_PROVIDER = "stale-provider";
 		process.env.PI_MODEL = "stale-model";
 		process.env.PI_REASONING_LEVEL = "stale-level";
-		const tools: Array<Parameters<ExtensionAPI["registerTool"]>[0]> = [];
-		bashToolExtension({
-			registerTool(tool: Parameters<ExtensionAPI["registerTool"]>[0]) {
-				tools.push(tool);
-			},
-			on() {},
-		} as unknown as ExtensionAPI);
+		const { tools } = registerBashExtension();
 		const tool = tools[0];
 		if (tool === undefined) throw new Error("bash tool was not registered");
 		let state: {
