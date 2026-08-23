@@ -6,6 +6,7 @@ import { createEventBus, ModelRegistry, type ExtensionAPI } from "@earendil-work
 
 import { loadModelsJsoncConfig } from "../../src/openai-compatible-provider/config.js";
 import { normalizeModelsJsoncConfig } from "../../src/openai-compatible-provider/normalize.js";
+import { registerOpenAICompatibleProviders } from "../../src/openai-compatible-provider/register.js";
 import type { ModelsJsoncConfig } from "../../src/openai-compatible-provider/schema.js";
 
 export async function normalizeFromText(dir: string, text: string) {
@@ -72,6 +73,16 @@ export async function loadConfigFromText(dir: string, text: string): Promise<Mod
 export interface ExtensionHarness {
 	pi: ExtensionAPI;
 	providers: Provider[];
+}
+
+export function registerProvider(
+	config: ModelsJsoncConfig,
+	dir: string,
+	harness = createExtensionHarness(),
+): { provider: Provider; harness: ExtensionHarness } {
+	const [provider] = registerOpenAICompatibleProviders(harness.pi, config, path.join(dir, "models.jsonc"));
+	if (!provider) throw new Error("provider was not registered");
+	return { provider, harness };
 }
 
 export function createExtensionHarness(): ExtensionHarness {
