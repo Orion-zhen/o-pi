@@ -40,30 +40,18 @@ describe("workspace namespace", () => {
 		await writeFile(path.join(outside, "outside.txt"), "outside");
 		const namespace = await openNamespace({ homeDirectory: outside });
 
-		const inside = expectFsOk(await namespace.paths.resolveExisting(
-			path.join(workspace, "inside.txt"),
-			{ expected: "file", followFinalSymlink: true },
-		));
+		const inside = await resolveFile(namespace, path.join(workspace, "inside.txt"));
 		expect(inside).toMatchObject({ kind: "file", displayPath: "inside.txt", workspacePath: "inside.txt" });
 
 		const relativeOutside = path.relative(workspace, path.join(outside, "outside.txt"));
-		const parentRelative = expectFsOk(await namespace.paths.resolveExisting(
-			relativeOutside,
-			{ expected: "file", followFinalSymlink: true },
-		));
+		const parentRelative = await resolveFile(namespace, relativeOutside);
 		expect(parentRelative.displayPath).toBe(relativeOutside.replaceAll("\\", "/"));
 		expect(parentRelative.workspacePath).toBeUndefined();
 
-		const absoluteOutside = expectFsOk(await namespace.paths.resolveExisting(
-			path.join(outside, "outside.txt"),
-			{ expected: "file", followFinalSymlink: true },
-		));
+		const absoluteOutside = await resolveFile(namespace, path.join(outside, "outside.txt"));
 		expect(absoluteOutside.displayPath).toBe(path.join(outside, "outside.txt"));
 
-		const home = expectFsOk(await namespace.paths.resolveExisting(
-			"~/outside.txt",
-			{ expected: "file", followFinalSymlink: true },
-		));
+		const home = await resolveFile(namespace, "~/outside.txt");
 		expect(home.displayPath).toBe(path.join(outside, "outside.txt"));
 	});
 	it.each(["", "bad\0path", "skill://resource"])("rejects invalid path %j before native I/O", async (input) => {
@@ -89,14 +77,8 @@ describe("workspace namespace", () => {
 			},
 		});
 
-		const mountedRoot = expectFsOk(await namespace.paths.resolveExisting(
-			"skill://demo",
-			{ expected: "directory", followFinalSymlink: true },
-		));
-		const mountedFile = expectFsOk(await namespace.paths.resolveExisting(
-			"skill://demo/references/testing.md",
-			{ expected: "file", followFinalSymlink: true },
-		));
+		const mountedRoot = await resolveDirectory(namespace, "skill://demo");
+		const mountedFile = await resolveFile(namespace, "skill://demo/references/testing.md");
 		expect(mountedRoot.displayPath).toBe("skill://demo");
 		expect(mountedRoot.workspacePath).toBeUndefined();
 		expect(mountedFile.displayPath).toBe("skill://demo/references/testing.md");
@@ -209,22 +191,10 @@ describe("workspace namespace", () => {
 			ok: false,
 			error: { code: "invalid-path" },
 		});
-		const directory = expectFsOk(await namespace.paths.resolveExisting(
-			"dir",
-			{ expected: "directory", followFinalSymlink: true },
-		));
-		const inside = expectFsOk(await namespace.paths.resolveExisting(
-			"dir/file.txt",
-			{ expected: "file", followFinalSymlink: true },
-		));
-		const externalDirectory = expectFsOk(await namespace.paths.resolveExisting(
-			path.join(outside, "external-dir"),
-			{ expected: "directory", followFinalSymlink: true },
-		));
-		const external = expectFsOk(await namespace.paths.resolveExisting(
-			path.join(outside, "external-dir", "outside.txt"),
-			{ expected: "file", followFinalSymlink: true },
-		));
+		const directory = await resolveDirectory(namespace, "dir");
+		const inside = await resolveFile(namespace, "dir/file.txt");
+		const externalDirectory = await resolveDirectory(namespace, path.join(outside, "external-dir"));
+		const external = await resolveFile(namespace, path.join(outside, "external-dir", "outside.txt"));
 		expect(namespace.paths.relative(directory, directory)).toBe("");
 		expect(namespace.paths.relative(directory, inside)).toBe("file.txt");
 		expect(namespace.paths.relative(externalDirectory, external)).toBe("outside.txt");
@@ -232,10 +202,7 @@ describe("workspace namespace", () => {
 		expect(namespace.paths.isWithin(directory, inside)).toBe(true);
 		expect(namespace.paths.isWithin(directory, external)).toBe(false);
 		const otherNamespace = await openNamespace();
-		const otherExternal = expectFsOk(await otherNamespace.paths.resolveExisting(
-			path.join(outside, "external-dir", "outside.txt"),
-			{ expected: "file", followFinalSymlink: true },
-		));
+		const otherExternal = await resolveFile(otherNamespace, path.join(outside, "external-dir", "outside.txt"));
 		expect(namespace.paths.relative(directory, otherExternal)).toBeUndefined();
 		expect(namespace.paths.isWithin(directory, otherExternal)).toBe(false);
 	});
@@ -289,6 +256,14 @@ describe("workspace namespace", () => {
 		)).toMatchObject({ ok: false, error: { code: "aborted" } });
 	});
 });
+
+async function resolveFile(namespace: WorkspaceNamespaceKernel, input: string) {
+	return expectFsOk(await namespace.paths.resolveExisting(input, { expected: "file", followFinalSymlink: true }));
+}
+
+async function resolveDirectory(namespace: WorkspaceNamespaceKernel, input: string) {
+	return expectFsOk(await namespace.paths.resolveExisting(input, { expected: "directory", followFinalSymlink: true }));
+}
 
 async function openNamespace(options: {
 	readonly blockedPaths?: readonly string[];
