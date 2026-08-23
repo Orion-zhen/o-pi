@@ -4,6 +4,23 @@ import { Key, matchesKey, truncateToWidth, type Component, wrapTextWithAnsi } fr
 const BORDER_ROWS = 2;
 const HORIZONTAL_FRAME_WIDTH = 4;
 
+export function borderedPanelContentWidth(width: number): number {
+	return Math.max(0, width - HORIZONTAL_FRAME_WIDTH);
+}
+
+/** 使用 TUI 通用圆角边框渲染面板。 */
+export function renderBorderedPanel(
+	lines: readonly string[],
+	width: number,
+	theme: Pick<Theme, "fg">,
+): string[] {
+	const innerWidth = width - 2;
+	const contentWidth = borderedPanelContentWidth(width);
+	const border = (text: string) => theme.fg("border", text);
+	const row = (line: string) => `${border("│")} ${truncateToWidth(line, contentWidth, "", true)} ${border("│")}`;
+	return [border(`╭${"─".repeat(innerWidth)}╮`), ...lines.map(row), border(`╰${"─".repeat(innerWidth)}╯`)];
+}
+
 /** 只读行查看器共用的键盘、滚动和边框行为。 */
 export abstract class BorderedScrollViewer implements Component {
 	private scrollTop = 0;
@@ -34,7 +51,7 @@ export abstract class BorderedScrollViewer implements Component {
 	render(width: number): string[] {
 		if (width < 1) return [];
 		if (width < HORIZONTAL_FRAME_WIDTH) return this.renderBody(width);
-		return this.renderBorder(this.renderBody(width - HORIZONTAL_FRAME_WIDTH), width);
+		return renderBorderedPanel(this.renderBody(borderedPanelContentWidth(width)), width, this.theme);
 	}
 
 	invalidate(): void {}
@@ -62,13 +79,5 @@ export abstract class BorderedScrollViewer implements Component {
 
 	private getBodyHeight(): number {
 		return Math.max(1, Math.floor(this.getRows() * this.bodyRowsRatio) - BORDER_ROWS);
-	}
-
-	private renderBorder(lines: string[], width: number): string[] {
-		const innerWidth = width - 2;
-		const contentWidth = Math.max(0, width - HORIZONTAL_FRAME_WIDTH);
-		const border = (text: string) => this.theme.fg("border", text);
-		const row = (line: string) => `${border("│")} ${truncateToWidth(line, contentWidth, "", true)} ${border("│")}`;
-		return [border(`╭${"─".repeat(innerWidth)}╮`), ...lines.map(row), border(`╰${"─".repeat(innerWidth)}╯`)];
 	}
 }

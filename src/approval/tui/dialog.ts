@@ -7,6 +7,7 @@ import {
 	wrapTextWithAnsi,
 	type Component,
 } from "@earendil-works/pi-tui";
+import { borderedPanelContentWidth, renderBorderedPanel } from "../../tui/bordered-scroll-viewer.js";
 
 import {
 	ALLOW_ONCE,
@@ -20,7 +21,6 @@ import {
 import type { ApprovalDecision, ApprovalRequest } from "../types.js";
 
 const HEIGHT_RATIO = 0.9;
-const FRAME_WIDTH = 4;
 const FIXED_INNER_ROWS = 4;
 
 type AskDecision = Extract<ApprovalDecision, { kind: "ask" }>;
@@ -51,7 +51,7 @@ export async function openApprovalDialog(
 		),
 		{
 			overlay: true,
-			overlayOptions: { width: "90%", maxHeight: "90%", margin: 1 },
+			overlayOptions: { anchor: "center", width: "90%", minWidth: 80, maxHeight: "90%", margin: 1 },
 		},
 	);
 }
@@ -107,15 +107,16 @@ export class ApprovalDialog implements Component {
 	render(width: number): string[] {
 		if (width < 1) return [];
 		const rowBudget = Math.max(1, Math.floor(this.getRows() * HEIGHT_RATIO));
-		if (width <= FRAME_WIDTH || rowBudget < 8) return this.renderCompact(width, rowBudget);
+		const contentWidth = borderedPanelContentWidth(width);
+		if (contentWidth < 1 || rowBudget < 8) return this.renderCompact(width, rowBudget);
 
-		const contentWidth = width - FRAME_WIDTH;
 		const body = wrapDisplayLines(buildBody(this.request, this.decision), contentWidth, this.theme);
 		this.renderedBodyLines = body.length;
 
 		const availableRows = rowBudget - 2 - FIXED_INNER_ROWS;
 		const optionRows = Math.min(this.options.length, Math.max(1, availableRows - 1));
-		this.bodyHeight = Math.max(1, availableRows - optionRows);
+		const maxBodyHeight = Math.max(1, availableRows - optionRows);
+		this.bodyHeight = Math.max(1, Math.min(body.length, maxBodyHeight));
 		this.clampScroll();
 
 		const visibleBody = body.slice(this.scrollTop, this.scrollTop + this.bodyHeight);
@@ -130,11 +131,11 @@ export class ApprovalDialog implements Component {
 			this.theme.fg("warning", this.theme.bold(`Approval required | ${this.request.tool}`)),
 			sectionTitle,
 			...visibleBody,
-			this.theme.fg("borderMuted", "-".repeat(contentWidth)),
+			this.theme.fg("text", "─".repeat(contentWidth)),
 			...this.renderOptions(contentWidth, optionRows),
 			this.theme.fg("dim", this.footer()),
 		];
-		return this.frame(innerLines, width);
+		return renderBorderedPanel(innerLines, width, this.theme);
 	}
 
 	invalidate(): void {}
@@ -196,14 +197,6 @@ export class ApprovalDialog implements Component {
 	private clampScroll(): void {
 		this.scrollTop = Math.min(this.scrollTop, Math.max(0, this.renderedBodyLines - this.bodyHeight));
 	}
-
-	private frame(lines: string[], width: number): string[] {
-		const innerWidth = width - 2;
-		const contentWidth = width - FRAME_WIDTH;
-		const border = (text: string) => this.theme.fg("border", text);
-		const row = (line: string) => `${border("|")} ${truncateToWidth(line, contentWidth, "", true)} ${border("|")}`;
-		return [border(`+${"-".repeat(innerWidth)}+`), ...lines.map(row), border(`+${"-".repeat(innerWidth)}+`)];
-	}
 }
 
 function buildBody(request: ApprovalRequest, decision: AskDecision): DisplayLine[] {
@@ -222,8 +215,8 @@ function buildBody(request: ApprovalRequest, decision: AskDecision): DisplayLine
 			line(""),
 			line("Sensitive units:", "dim"),
 			...decision.items.flatMap((item, index) => [
-				line(`${index + 1}. ${item.unit.target.value}`),
-				line(`   ${item.unit.action} | ${item.reason}`, "warning"),
+				line(`${index + 1}. ${item.unit.target.value}`, "warning"),
+				line(`   ${item.unit.action} | ${item.reason}`, "dim"),
 			]),
 		];
 	}
