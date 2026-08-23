@@ -2,15 +2,16 @@ import type { SessionEntry, ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { Message } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { buildContextBreakdown, estimateTokens } from "../../src/stats/context-breakdown.js";
+import { assistantToolCall, toolResult, userMessage } from "./message-fixtures.js";
 import { SKILL_CONTEXT_MESSAGE } from "../../src/skill-context/types.js";
 
 describe("stats context breakdown", () => {
 	it("把 system、tools、project、history、tool output 和 delta 拆成估算项", async () => {
 		const branchEntries: SessionEntry[] = [
-			entry("1", user("older user message")),
-			entry("2", assistantWithTool("read", { path: "src/a.ts" })),
+			entry("1", userMessage("older user message")),
+			entry("2", assistantToolCall("read", { path: "src/a.ts" }, "assistant text")),
 			entry("3", toolResult("read", "tool output text", false)),
-			entry("4", user("latest user input")),
+			entry("4", userMessage("latest user input")),
 		];
 
 		const stats = await buildContextBreakdown({
@@ -73,7 +74,7 @@ describe("stats context breakdown", () => {
 			usage: undefined,
 			systemPrompt: "system prompt text",
 			activeTools: [],
-			branchEntries: [entry("1", user("hello world"))],
+			branchEntries: [entry("1", userMessage("hello world"))],
 		});
 
 		expect(stats.confidence).toBe("estimated");
@@ -86,7 +87,7 @@ describe("stats context breakdown", () => {
 			usage: undefined,
 			systemPrompt: "system",
 			activeTools: [],
-			branchEntries: [skillMessage("1", "<invoked_skill root=\"skill://demo\"/>\n\ndemo body"), entry("2", user("first"))],
+			branchEntries: [skillMessage("1", "<invoked_skill root=\"skill://demo\"/>\n\ndemo body"), entry("2", userMessage("first"))],
 		});
 		const skill = stats.items.find((item) => item.id === "skills");
 		expect(skill?.tokens).toBeGreaterThan(0);
@@ -98,7 +99,7 @@ describe("stats context breakdown", () => {
 			usage: undefined,
 			systemPrompt: "system",
 			activeTools: [],
-			branchEntries: [skillMessage("1", "skill body"), entry("2", user("hello"))],
+			branchEntries: [skillMessage("1", "skill body"), entry("2", userMessage("hello"))],
 		});
 		const history = stats.items.find((item) => item.id === "conversation_history");
 		expect(history).toBeUndefined();
@@ -109,41 +110,6 @@ describe("stats context breakdown", () => {
 
 function entry(id: string, message: Message): SessionEntry {
 	return { type: "message", id, parentId: null, timestamp: "2026-07-05T00:00:00.000Z", message };
-}
-
-function user(text: string): Message {
-	return { role: "user", content: text, timestamp: 1 };
-}
-
-function assistantWithTool(name: string, args: Record<string, unknown>): Message {
-	return {
-		role: "assistant",
-		content: [{ type: "text", text: "assistant text" }, { type: "toolCall", id: `${name}-1`, name, arguments: args }],
-		api: "openai-responses",
-		provider: "openai",
-		model: "gpt-test",
-		usage: {
-			input: 1,
-			output: 1,
-			cacheRead: 0,
-			cacheWrite: 0,
-			totalTokens: 2,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-		},
-		stopReason: "toolUse",
-		timestamp: 2,
-	};
-}
-
-function toolResult(toolName: string, text: string, isError: boolean): Message {
-	return {
-		role: "toolResult",
-		toolCallId: `${toolName}-1`,
-		toolName,
-		content: [{ type: "text", text }],
-		isError,
-		timestamp: 3,
-	};
 }
 
 function skillMessage(id: string, content: string): SessionEntry {
