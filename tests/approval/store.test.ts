@@ -79,7 +79,7 @@ describe("approval store", () => {
 		const store = new FileApprovalStore(storePath);
 		await store.addPersistentAllowRules(createSimilarAllowRules(request, request.units));
 		const text = await readFile(storePath, "utf8");
-		expect(text).toContain('"version": 1');
+		expect(text).not.toContain('"version"');
 		expect(text).toContain('"cwd"');
 		expect(text).not.toContain('"created_at"');
 
@@ -103,6 +103,38 @@ describe("approval store", () => {
 		expect(reloaded.matchesAllowRule(second, unit(second, "npm install lodash"))).toBe(true);
 	});
 
+	it("按字段读取旧持久文件并丢弃无 cwd 的旧命令规则", async () => {
+		const storePath = path.join(dir, "legacy.rules.jsonc");
+		await writeFile(storePath, JSON.stringify({
+			version: 1,
+			rules: [
+				{ created_at: "2026-01-01T00:00:00.000Z", tool: "bash", kind: "exact_command", value: "git push origin main" },
+				{ created_at: "2026-01-01T00:00:00.000Z", tool: "bash", kind: "exact_command", value: "npm publish", cwd: dir },
+				{ created_at: "2026-01-01T00:00:00.000Z", tool: "edit", kind: "exact_path", value: "/etc/hosts" },
+			],
+		}));
+		const store = new FileApprovalStore(storePath);
+		await store.loadPersistentRules();
+
+		const globalCommand = await commandRequest("git push origin main");
+		expect(store.matchesAllowRule(globalCommand, firstUnit(globalCommand))).toBe(false);
+		const scopedCommand = await commandRequest("npm publish");
+		expect(store.matchesAllowRule(scopedCommand, firstUnit(scopedCommand))).toBe(true);
+		const hosts = await pathRequest("edit", systemPath("etc", "hosts"));
+		expect(store.matchesAllowRule(hosts, firstUnit(hosts))).toBe(true);
+	});
+
+	it("读取不含版本号的持久文件", async () => {
+		const storePath = path.join(dir, "versionless.rules.jsonc");
+		await writeFile(storePath, JSON.stringify({
+			rules: [{ tool: "edit", kind: "exact_path", value: "/etc/hosts" }],
+		}));
+		const store = new FileApprovalStore(storePath);
+		await store.loadPersistentRules();
+		const request = await pathRequest("edit", systemPath("etc", "hosts"));
+		expect(store.matchesAllowRule(request, firstUnit(request))).toBe(true);
+	});
+
 	it.each([
 		["command 规则缺少 cwd", { tool: "bash", kind: "exact_command", value: "git push origin main" }],
 		["path 规则包含 cwd", { tool: "edit", kind: "exact_path", value: "/etc/hosts", cwd: "/workspace" }],
@@ -111,7 +143,6 @@ describe("approval store", () => {
 	] as const)("持久文件混入非法规则时整体失败: %s", async (_name, invalidRule) => {
 		const storePath = path.join(dir, "invalid.rules.jsonc");
 		await writeFile(storePath, JSON.stringify({
-			version: 1,
 			rules: [
 				{ tool: "edit", kind: "exact_path", value: "/etc/hosts" },
 				invalidRule,

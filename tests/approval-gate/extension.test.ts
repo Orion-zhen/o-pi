@@ -287,7 +287,6 @@ function fileBackedGate(loadConfig: () => Promise<ApprovalGateConfig>) {
 
 async function writePersistentCommandRule(storePath: string, command: string): Promise<void> {
 	await writeFile(storePath, JSON.stringify({
-		version: 1,
 		rules: [{
 			tool: "bash",
 			kind: "exact_command",

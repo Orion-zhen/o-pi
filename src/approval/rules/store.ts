@@ -3,7 +3,7 @@ import path from "node:path";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 
 import { expandHomePath, isNotFound } from "../../config-loader.js";
-import type { ApprovalAllowRule, ApprovalRequest, ApprovalUnit, PersistentApprovalRulesFile } from "../types.js";
+import type { ApprovalAllowRule, ApprovalRequest, ApprovalUnit } from "../types.js";
 import { allowRuleMatches, dedupeRules, type ApprovalRuleMatcher } from "./allow.js";
 
 export interface ApprovalStore extends ApprovalRuleMatcher {
@@ -76,22 +76,25 @@ export class FileApprovalStore implements ApprovalStore {
 	private async writePersistentRules(rules: ApprovalAllowRule[]): Promise<void> {
 		const filePath = expandHomePath(this.persistentStorePath);
 		await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
-		const file: PersistentApprovalRulesFile = { version: 1, rules };
-		await writeFile(filePath, `${JSON.stringify(file, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+		await writeFile(filePath, `${JSON.stringify({ rules }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
 	}
 }
 
 function parsePersistentRules(value: unknown, filePath: string): ApprovalAllowRule[] {
-	if (typeof value !== "object" || value === null || !("version" in value) || value.version !== 1 || !("rules" in value) || !Array.isArray(value.rules)) {
-		throw new ApprovalStoreError("approval persistent rules have invalid shape.", { path: filePath });
+	if (typeof value !== "object" || value === null || !("rules" in value) || !Array.isArray(value.rules)) {
+		throw invalidRulesError(filePath);
 	}
-	if (!value.rules.every(isApprovalAllowRule)) {
-		throw new ApprovalStoreError("approval persistent rules have invalid shape.", { path: filePath });
+	const rules: ApprovalAllowRule[] = [];
+	for (const candidate of value.rules) {
+		const parsed = parseApprovalAllowRule(candidate);
+		if (parsed === "legacy-global-command") continue;
+		if (parsed === undefined) throw invalidRulesError(filePath);
+		rules.push(parsed);
 	}
-	return dedupeRules(value.rules);
+	return dedupeRules(rules);
 }
 
-function isApprovalAllowRule(value: unknown): value is ApprovalAllowRule {
+function parseApprovalAllowRule(value: unknown): ApprovalAllowRule | "legacy-global-command" | undefined {
 	if (
 		typeof value !== "object"
 		|| value === null
@@ -100,12 +103,24 @@ function isApprovalAllowRule(value: unknown): value is ApprovalAllowRule {
 		|| !("kind" in value)
 		|| !("value" in value)
 		|| typeof value.value !== "string"
-	) return false;
+	) return undefined;
 	if (value.kind === "exact_command" || value.kind === "command_prefix") {
-		return "cwd" in value && typeof value.cwd === "string";
+		if ("cwd" in value && typeof value.cwd === "string") {
+			return { tool: value.tool, kind: value.kind, value: value.value, cwd: value.cwd };
+		}
+		if (!("cwd" in value) && "created_at" in value && typeof value.created_at === "string") {
+			return "legacy-global-command";
+		}
+		return undefined;
 	}
-	if (value.kind === "exact_path" || value.kind === "path_glob") return !("cwd" in value);
-	return false;
+	if ((value.kind === "exact_path" || value.kind === "path_glob") && !("cwd" in value)) {
+		return { tool: value.tool, kind: value.kind, value: value.value };
+	}
+	return undefined;
+}
+
+function invalidRulesError(filePath: string): ApprovalStoreError {
+	return new ApprovalStoreError("approval persistent rules have invalid shape.", { path: filePath });
 }
 
 function dedupeRulesInPlace(rules: ApprovalAllowRule[]): void {

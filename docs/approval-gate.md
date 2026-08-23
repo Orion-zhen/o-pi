@@ -133,11 +133,10 @@ Instruction from user:
 ...
 ```
 
-如果任一待确认单元无法生成范围明确的规则，对应的记忆选项就不会显示。持久规则文件使用 `version: 1`。每条规则包含 `tool`、`kind` 和 `value`。`exact_command` 和 `command_prefix` 规则还必须包含 `cwd`，并且只匹配相同工作目录。`exact_path` 和 `path_glob` 规则不接受 `cwd`。规则不包含创建时间。任一规则的结构非法时，Approval Gate 会拒绝加载整个文件。
+如果任一待确认单元无法生成范围明确的规则，对应的记忆选项就不会显示。持久规则文件不使用版本号，Approval Gate 根据规则字段解析文件。每条规则包含 `tool`、`kind` 和 `value`。`exact_command` 和 `command_prefix` 规则还必须包含 `cwd`，并且只匹配相同工作目录。`exact_path` 和 `path_glob` 规则不接受 `cwd`。加载旧文件时，Approval Gate 忽略 `version` 和 `created_at`。缺少 `cwd` 的旧命令规则会被丢弃，避免保留跨工作目录的放行权限。其他非法规则会导致整个文件加载失败。
 
 ```jsonc
 {
-	"version": 1,
 	"rules": [
 		{
 			"tool": "bash",

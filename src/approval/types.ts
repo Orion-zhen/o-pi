@@ -80,8 +80,3 @@ export type ApprovalAllowRule =
 		kind: "exact_path" | "path_glob";
 		value: string;
 	};
-
-export interface PersistentApprovalRulesFile {
-	version: 1;
-	rules: ApprovalAllowRule[];
-}
