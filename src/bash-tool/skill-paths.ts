@@ -27,8 +27,7 @@ export async function resolveBashSkillPaths(
 	signal?: AbortSignal,
 ): Promise<ResolvedBashSkillPaths | SkillResourceError> {
 	if (!command.includes("skill://")) return { kind: "resolved", command };
-	const parsed = await parseSyntaxTree(BASH_GRAMMAR, command, signal === undefined ? {} : { signal });
-	const document = parsed.document;
+	const document = await parseSyntaxTree(BASH_GRAMMAR, command, signal === undefined ? {} : { signal });
 	if (document === undefined || document.root.hasError) {
 		document?.dispose();
 		return invalid(command, "Bash command containing a skill resource must have valid shell syntax.");

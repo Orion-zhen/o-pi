@@ -12,7 +12,8 @@ const pythonRules: UnitRules = {
 		return name === undefined ? undefined : rawUnit(node, node.type === "class_definition" ? "class" : "function", name, scope, isPublicName(name));
 	},
 	childScope(_node, unit, current) {
-		return unit?.kind === "class" ? unit.qualifiedName ?? unit.name ?? current : current;
+		if (unit?.kind !== "class") return current;
+		return unit.qualifiedName;
 	},
 	shouldDescend(_node, unit) {
 		return unit.kind === "class";

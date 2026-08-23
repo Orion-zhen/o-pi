@@ -181,7 +181,8 @@ function importKeys(sourcePath: string, language: CodeLanguage, imported: Indexe
 	if (specifier.length === 0) return [];
 	const directory = path.posix.dirname(normalizePath(sourcePath));
 	if (language === "python" && specifier.startsWith(".")) {
-		const dots = specifier.match(/^\.+/u)?.[0].length ?? 0;
+		let dots = 0;
+		while (specifier[dots] === ".") dots += 1;
 		let base = directory;
 		for (let index = 1; index < dots; index += 1) base = path.posix.dirname(base);
 		return lookupKeys(path.posix.join(base, specifier.slice(dots).replaceAll(".", "/")));
@@ -227,7 +228,8 @@ function normalizeSymbol(value: string): string {
 }
 
 function symbolLeaf(value: string): string {
-	return normalizeSymbol(value).split(".").at(-1) ?? "";
+	const normalized = normalizeSymbol(value);
+	return normalized.slice(normalized.lastIndexOf(".") + 1);
 }
 
 function normalizePath(value: string): string {

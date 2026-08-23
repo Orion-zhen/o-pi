@@ -67,7 +67,7 @@ const cppRules: UnitRules = {
 	},
 	childScope(node, unit, current) {
 		if (node.type !== "namespace_definition" && node.type !== "class_specifier" && node.type !== "struct_specifier") return current;
-		return unit?.qualifiedName ?? unit?.name ?? current;
+		return unit === undefined ? current : unit.qualifiedName;
 	},
 	shouldDescend(node) {
 		return node.type === "namespace_definition" || node.type === "class_specifier" || node.type === "struct_specifier" || node.type === "declaration" || node.type === "type_definition";

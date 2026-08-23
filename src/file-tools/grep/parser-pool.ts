@@ -150,5 +150,5 @@ function chunk<T>(values: readonly T[], size: number): T[][] {
 }
 
 async function analyzeRequestedFile(file: GrepParseFile, signal?: AbortSignal): Promise<AnalyzedFileIndex> {
-	return file.syntax ? await analyzeCodeFile(file.path, file.text, { ...(signal === undefined ? {} : { signal }) }) : analyzeTextFile(file.path);
+	return file.syntax ? await analyzeCodeFile(file.path, file.text, signal) : analyzeTextFile(file.path);
 }

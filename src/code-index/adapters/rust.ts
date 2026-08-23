@@ -29,9 +29,8 @@ const rustRules: UnitRules = {
 		return rawUnit(node, normalizeRustKind(node.type), name, unitScope, hasVisibility(node));
 	},
 	childScope(node, unit, current) {
-		return node.type === "impl_item" || node.type === "trait_item" || node.type === "mod_item"
-			? unit?.qualifiedName ?? unit?.name ?? current
-			: current;
+		if (unit === undefined || (node.type !== "impl_item" && node.type !== "trait_item" && node.type !== "mod_item")) return current;
+		return unit.qualifiedName;
 	},
 	shouldDescend(node) {
 		return node.type === "impl_item" || node.type === "trait_item" || node.type === "mod_item";

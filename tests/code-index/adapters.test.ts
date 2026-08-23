@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { adapterFromPath } from "../../src/code-index/language-registry.js";
 import { analyzeCodeFile } from "../../src/code-index/parser.js";
-import { parseDocument } from "../../src/code-index/syntax-tree.js";
+import { parseSyntaxTree } from "../../src/syntax-tree/parser.js";
 
 describe("tree-sitter adapters", () => {
 describe.each([
@@ -82,7 +82,7 @@ describe.each([
 	it("extracts units and imports through the adapter contract", async () => {
 		const adapter = adapterFromPath(filePath);
 		if (adapter === undefined) throw new Error(`missing adapter for ${filePath}`);
-		const document = await parseDocument(adapter.language, text);
+		const document = await parseSyntaxTree(adapter.grammar, text);
 		if (document === undefined) throw new Error(`missing syntax tree for ${adapter.language}`);
 		try {
 			expect(adapter.extractUnits(document.root, document.control).map((unit) => `${unit.kind}:${unit.qualifiedName}`)).toEqual(units);

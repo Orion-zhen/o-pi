@@ -5,7 +5,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFileIdentity, createSymbolId } from "../../src/code-index/identity.js";
-import { analyzeCodeFile, buildLineIndex, countTextTokenMatches, createTextTokenMatcher, parseCodeUnits, splitTokens, tokenizeText, tokenizeTextSequence } from "../../src/code-index/parser.js";
+import { analyzeCodeFile, createTextTokenMatcher, SourceIndex, tokenizeText } from "../../src/code-index/parser.js";
 import { dependencyPath } from "../helpers/tree-sitter-dependencies.js";
 
 const require = createRequire(import.meta.url);
@@ -27,7 +27,7 @@ afterEach(() => {
 });
 
 async function symbols(filePath: string, text: string): Promise<Array<[string, string | undefined, string | undefined]>> {
-	return (await parseCodeUnits(filePath, text)).units.map((unit) => [unit.kind, unit.name, unit.qualifiedName]);
+	return (await analyzeCodeFile(filePath, text)).index.units.map((unit) => [unit.kind, unit.name, unit.qualifiedName]);
 }
 
 describe("shared code parser", () => {
@@ -38,7 +38,7 @@ describe("shared code parser", () => {
 		{ text: "你😀", offsets: [0, 1, 2, 3], bytes: [0, 3, 7, 7] },
 		{ text: "a\n你😀\nb", offsets: [0, 1, 2, 3, 4, 5, 6, 7], bytes: [0, 1, 2, 5, 9, 9, 10, 11] },
 	])("SourceIndex 将 UTF-16 边界转换为 UTF-8 byte: $text", ({ text, offsets, bytes }) => {
-		const index = buildLineIndex(text);
+		const index = new SourceIndex(text);
 		expect(index.byteLength).toBe(Buffer.byteLength(text, "utf8"));
 		for (const [position, expected] of offsets.map((offset, index) => [offset, bytes[index]] as const)) {
 			expect(index.byteForChar(position)).toBe(expected);
@@ -48,7 +48,7 @@ describe("shared code parser", () => {
 
 	it("SourceIndex 保留多行、EOF 和半开范围边界", () => {
 		const text = "first\n你😀\n";
-		const index = buildLineIndex(text);
+		const index = new SourceIndex(text);
 		expect(index.lineStarts).toEqual([0, 6, 14]);
 		expect(index.lineStartChars).toEqual([0, 6, 10]);
 		expect(index.range(6, 10)).toEqual({ startLine: 2, endLine: 2, startByte: 6, endByte: 14 });
@@ -62,7 +62,7 @@ describe("shared code parser", () => {
 			'const { Parser } = await import("web-tree-sitter");',
 			"let initializedBeforeParse = true;",
 			"try { const parser = new Parser(); parser.delete(); } catch { initializedBeforeParse = false; }",
-			'await parserApi.parseCodeUnits("probe.ts", "export function probe() {}\\n");',
+			'await parserApi.analyzeCodeFile("probe.ts", "export function probe() {}\\n");',
 			"let initializedAfterParse = true;",
 			"try { const parser = new Parser(); parser.delete(); } catch { initializedAfterParse = false; }",
 			"process.stdout.write(JSON.stringify({ initializedBeforeParse, initializedAfterParse }));",
@@ -83,10 +83,10 @@ describe("shared code parser", () => {
 		} as unknown as ExtensionAPI);
 		expect(handlers.has("before_agent_start")).toBe(false);
 
-		await parseCodeUnits("notes.txt", "plain text");
+		await analyzeCodeFile("notes.txt", "plain text");
 		for (const modulePath of Object.values(treeSitterModules)) expect(require.cache[modulePath]).toBeUndefined();
 
-		await parseCodeUnits("first.ts", "export function first() {}\n");
+		await analyzeCodeFile("first.ts", "export function first() {}\n");
 		expect(require.cache[treeSitterModules.bash]).toBeUndefined();
 		expect(require.cache[treeSitterModules.typescript]).toBeUndefined();
 		expect(require.cache[treeSitterModules.javascript]).toBeUndefined();
@@ -107,7 +107,7 @@ describe("shared code parser", () => {
 
 	it("dense ASCII units use exact source slices", async () => {
 		const text = Array.from({ length: 64 }, (_, index) => `function item${index}() { return ${index}; }`).join("\n");
-		const units = (await parseCodeUnits("dense.ts", text)).units;
+		const units = (await analyzeCodeFile("dense.ts", text)).index.units;
 		expect(units).toHaveLength(64);
 		for (const [index, unit] of units.entries()) {
 			expect(unit.name).toBe(`item${index}`);
@@ -213,17 +213,17 @@ describe("shared code parser", () => {
 			expected: ["class Service", "int run( int value )", "int oneLine()"],
 		},
 	])("为 $filePath 生成紧凑且不含 body 的 declaration", async ({ filePath, text, expected }) => {
-		const declarations = (await parseCodeUnits(filePath, text)).units.map((unit) => unit.signature);
+		const declarations = (await analyzeCodeFile(filePath, text)).index.units.map((unit) => unit.signature);
 		expect(declarations).toEqual(expected);
 		expect(declarations.every((value) => value !== undefined && !value.includes("BODY_SENTINEL") && [...value].length <= 240)).toBe(true);
 	});
 
-	it("声明中嵌套 callable body 时安全省略 declaration", async () => {
-		const unit = (await parseCodeUnits(
+	it("声明保留默认 lambda 的签名并省略外层 body", async () => {
+		const unit = (await analyzeCodeFile(
 			"nested-default.ts",
 			"export function run(callback = () => BODY_SENTINEL) { return callback(); }\n",
-		)).units[0];
-		expect(unit?.signature).toBeUndefined();
+		)).index.units[0];
+		expect(unit?.signature).toBe("export function run(callback = () => BODY_SENTINEL)");
 	});
 
 	it.each([
@@ -237,7 +237,7 @@ describe("shared code parser", () => {
 		["caller.c", "int caller(void) { target(); obj.run(); const char *text = \"fake()\"; return Value; /* ignored() */ }\n", "obj.run"],
 		["caller.cpp", "int caller() { target(); obj.run(); const char *text = \"fake()\"; return Value; /* ignored() */ }\n", "obj.run"],
 	])("从 %s AST 提取调用和引用，忽略字符串与注释", async (filePath, text, memberCall) => {
-		const unit = (await parseCodeUnits(filePath, text)).units.find((candidate) => candidate.name === "caller");
+		const unit = (await analyzeCodeFile(filePath, text)).index.units.find((candidate) => candidate.name === "caller");
 		if (unit === undefined) throw new Error(`missing caller unit for ${filePath}`);
 		expect(unit.calls).toEqual(["target", memberCall]);
 		expect(unit.references).toContain("Value");
@@ -245,7 +245,7 @@ describe("shared code parser", () => {
 	});
 
 	it("动态外层调用仍保留可静态识别的内层调用", async () => {
-		const unit = (await parseCodeUnits("nested-call.ts", "function caller() { return factory()(); }\n")).units[0];
+		const unit = (await analyzeCodeFile("nested-call.ts", "function caller() { return factory()(); }\n")).index.units[0];
 		expect(unit?.calls).toEqual(["factory"]);
 	});
 
@@ -261,13 +261,13 @@ describe("shared code parser", () => {
 	it("在进入本地 Tree-sitter 分析前响应已取消的 signal", async () => {
 		const controller = new AbortController();
 		controller.abort();
-		await expect(analyzeCodeFile("aborted.ts", "export function value() {}\n", { signal: controller.signal }))
+		await expect(analyzeCodeFile("aborted.ts", "export function value() {}\n", controller.signal))
 			.rejects.toMatchObject({ name: "SyntaxAnalysisAbortedError" });
 	});
 
 	it("函数内部局部声明不拆分为独立 region", async () => {
-		const parsed = await parseCodeUnits("a.ts", "export function demo() {\n  const Token = 'Token';\n  return Token;\n}\n");
-		expect(parsed.units.map((unit) => unit.qualifiedName)).toEqual(["demo"]);
+		const parsed = await analyzeCodeFile("a.ts", "export function demo() {\n  const Token = 'Token';\n  return Token;\n}\n");
+		expect(parsed.index.units.map((unit) => unit.qualifiedName)).toEqual(["demo"]);
 	});
 
 	it.each([
@@ -298,7 +298,7 @@ describe("shared code parser", () => {
 			expected: ["type:Server", "method:Server.Stop"],
 		},
 	])("preserves complete declaration scope in $filePath", async ({ filePath, text, expected, functionsOnly }) => {
-		const units = (await parseCodeUnits(filePath, text)).units;
+		const units = (await analyzeCodeFile(filePath, text)).index.units;
 		const actual = functionsOnly === true
 			? units.filter((unit) => unit.kind === "function").map((unit) => unit.qualifiedName)
 			: units.map((unit) => `${unit.kind}:${unit.qualifiedName}`);
@@ -306,11 +306,15 @@ describe("shared code parser", () => {
 	});
 
 	it("unsupported language 返回 text 空索引，且 file identity 使用规范化内部路径", async () => {
-		expect(await parseCodeUnits("./docs\\notes.conf", "section=true\n")).toEqual({
-			id: "file:docs/notes.conf",
-			path: "docs/notes.conf",
-			language: "text",
-			units: [],
+		expect(await analyzeCodeFile("./docs\\notes.conf", "section=true\n")).toEqual({
+			index: {
+				id: "file:docs/notes.conf",
+				path: "docs/notes.conf",
+				language: "text",
+				units: [],
+			},
+			status: "unsupported",
+			imports: [],
 		});
 		expect(createFileIdentity("./src/feature/../auth.ts")).toEqual({ id: "file:src/auth.ts", path: "src/auth.ts" });
 	});
@@ -354,19 +358,10 @@ describe("shared code parser", () => {
 
 	it("SourceRange 使用 UTF-8 byte offset、1-based inclusive line 和半开字节区间", async () => {
 		const text = "// 你😀\nexport function demo() {\n  return '好';\n}\n";
-		const unit = (await parseCodeUnits("utf8.ts", text)).units[0];
+		const unit = (await analyzeCodeFile("utf8.ts", text)).index.units[0];
 		if (unit === undefined) throw new Error("missing parsed unit");
 		expect(unit).toMatchObject({ startLine: 2, endLine: 4, startByte: Buffer.byteLength("// 你😀\n", "utf8") });
 		expect(Buffer.from(text, "utf8").subarray(unit.startByte, unit.endByte).toString("utf8")).toBe("export function demo() {\n  return '好';\n}");
-	});
-
-	it.each([
-		["createRetryableLoader retries module_load", ["create", "retryable", "loader", "module", "load"]],
-		["HTTPServer handles retry-count 2", ["http", "server", "retry-count", "retry", "count", "2"]],
-	])("目标 token 计数与完整 token map 等价: %s", (text, queryTokens) => {
-		const normalized = splitTokens(queryTokens.join(" ")).map((token) => token.toLocaleLowerCase());
-		const complete = tokenizeText(text);
-		expect(countTextTokenMatches(text, normalized)).toBe(normalized.filter((token) => complete.has(token)).length);
 	});
 
 	it.each([
@@ -389,12 +384,6 @@ describe("shared code parser", () => {
 		expect(tokenizeText(text)).toEqual(expected);
 	});
 
-	it("tokenizeTextSequence 保留原始及拆分 token 的 occurrence 顺序", () => {
-		expect(tokenizeTextSequence("createRetryLoader retry_count")).toEqual([
-			"createretryloader", "create", "retry", "loader", "retry_count", "retry", "count",
-		]);
-	});
-
 	it("query token matcher 只返回正文中存在的查询词项并保持查询顺序", () => {
 		const match = createTextTokenMatcher(["retry", "missing", "create", "retry"]);
 		expect(match("createRetryLoader retry_count ignored")).toEqual(["retry", "create"]);
@@ -407,21 +396,24 @@ describe("shared code parser", () => {
 		expect(createSymbolId(input)).toBe(createSymbolId({ ...input }));
 		expect(createSymbolId({ ...input, startByte: 48 })).not.toBe(createSymbolId(input));
 
-		const short = (await parseCodeUnits("a.ts", "export function demo() {}\n")).units[0];
-		const long = (await parseCodeUnits("a.ts", "export function demo() { return 1; }\n")).units[0];
+		const short = (await analyzeCodeFile("a.ts", "export function demo() {}\n")).index.units[0];
+		const long = (await analyzeCodeFile("a.ts", "export function demo() { return 1; }\n")).index.units[0];
 		expect(short?.id).toBe(long?.id);
 	});
 
 	it("runtime 或 grammar 失败时安全降级为空代码单元", async () => {
 		vi.resetModules();
 		vi.doMock("../../src/syntax-tree/loader.js", () => ({
-			DEFAULT_PARSE_TIMEOUT_MICROS: 250_000,
-			loadTreeSitterParser: async () => ({ failure: { code: "RUNTIME_UNAVAILABLE", message: "simulated grammar failure" } }),
+			loadTreeSitterParser: async () => undefined,
 		}));
-		const { analyzeCodeFile: analyzeWithFailure, parseCodeUnits: parseWithFailure } = await import("../../src/code-index/parser.js");
-		expect(await parseWithFailure("broken.ts", "export function demo() {}\n")).toMatchObject({ language: "typescript", units: [] });
-		expect((await analyzeWithFailure("broken.ts", "export function demo() {}\n")).status).toBe("error");
-		expect(await parseWithFailure("broken.c", "int demo(void) {}\n")).toMatchObject({ language: "c", units: [] });
-		expect((await analyzeWithFailure("broken.c", "int demo(void) {}\n")).status).toBe("error");
+		const { analyzeCodeFile: analyzeWithFailure } = await import("../../src/code-index/parser.js");
+		expect(await analyzeWithFailure("broken.ts", "export function demo() {}\n")).toMatchObject({
+			status: "error",
+			index: { language: "typescript", units: [] },
+		});
+		expect(await analyzeWithFailure("broken.c", "int demo(void) {}\n")).toMatchObject({
+			status: "error",
+			index: { language: "c", units: [] },
+		});
 	});
 });

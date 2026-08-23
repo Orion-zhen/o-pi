@@ -15,7 +15,7 @@ export function createFileIdentity(filePath: string): FileIdentity {
 }
 
 export function createSymbolId(input: SymbolIdentityInput): string {
-	const symbolName = input.qualifiedName ?? input.name ?? "";
+	const symbolName = input.qualifiedName !== undefined ? input.qualifiedName : input.name;
 	return ["symbol", input.fileId, input.kind, symbolName, String(input.startByte)]
 		.map((part) => encodeURIComponent(part))
 		.join(":");

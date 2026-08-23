@@ -51,22 +51,17 @@ const DECLARATION_BODY_NODE_TYPES = new Set([
 	"interface_body",
 ]);
 
-function declarationBoundary(root: SyntaxNode): number | null | undefined {
+function declarationBoundary(root: SyntaxNode): number | undefined {
 	const directBody = root.childForFieldName("body");
-	if (directBody !== null) {
-		// 默认参数中的 lambda/closure 也有 body，无法用单一范围安全移除时省略 declaration。
-		return nestedBodyStart(root, directBody.id) === undefined ? directBody.startIndex : null;
-	}
-	return nestedBodyStart(root);
+	return directBody === null ? nestedBodyStart(root) : directBody.startIndex;
 }
 
-function nestedBodyStart(root: SyntaxNode, excludedNodeId?: number): number | undefined {
+function nestedBodyStart(root: SyntaxNode): number | undefined {
 	let earliest: number | undefined;
 	const stack = [...root.namedChildren];
 	while (stack.length > 0) {
 		const node = stack.pop();
 		if (node === undefined) break;
-		if (node.id === excludedNodeId) continue;
 		const body = node.childForFieldName("body");
 		if (body !== null) earliest = Math.min(earliest ?? Number.POSITIVE_INFINITY, body.startIndex);
 		if (DECLARATION_BODY_NODE_TYPES.has(node.type)) {
@@ -93,16 +88,14 @@ export function extractUnitRelations(
 	unitNodeIds: ReadonlySet<number>,
 	control: AnalysisControl,
 ): UnitRelations {
-	const localDefinitions = unit.kind === "function" || unit.kind === "method"
-		? new Set<string>()
-		: undefined;
+	const definitions = new Set<string>();
+	const localDefinitions = unit.kind === "function" || unit.kind === "method" ? definitions : undefined;
 	const references = new Set<string>();
 	const calls = new Set<string>();
 	walkRelations(unit.sourceNode, unit.sourceNode.id, unitNodeIds, localDefinitions, references, calls, control);
-	const definitions = localDefinitions ?? new Set<string>();
-	if (unit.name !== undefined) definitions.add(unit.name);
+	definitions.add(unit.name);
 	for (const definition of definitions) references.delete(definition);
-	if (unit.qualifiedName !== undefined) references.delete(unit.qualifiedName);
+	references.delete(unit.qualifiedName);
 	return { definitions: [...definitions], references: [...references], calls: [...calls] };
 }
 

@@ -4,14 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
-const treeSitterFailure = vi.hoisted(() => ({
-	code: "RUNTIME_UNAVAILABLE",
-	message: "simulated runtime failure",
-}));
-
 vi.mock("../../src/syntax-tree/loader.js", () => ({
-	DEFAULT_PARSE_TIMEOUT_MICROS: 250_000,
-	loadTreeSitterParser: async () => ({ failure: { ...treeSitterFailure } }),
+	loadTreeSitterParser: async () => undefined,
 }));
 
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
@@ -23,8 +17,6 @@ preserveEnv("PI_FILE_TOOLS_CONFIG");
 
 beforeEach(async () => {
 	clearGrepIndex();
-	treeSitterFailure.code = "RUNTIME_UNAVAILABLE";
-	treeSitterFailure.message = "simulated runtime failure";
 	const configPath = path.join(configTemp.path, "file-tools.jsonc");
 	process.env["PI_FILE_TOOLS_CONFIG"] = configPath;
 	await writeFile(configPath, [
@@ -64,26 +56,4 @@ describe("grep without tree-sitter", () => {
 		});
 	});
 
-	it.each([
-		["GRAMMAR_UNAVAILABLE", "grammar"],
-		["PARSER_TIMEOUT", "timeout"],
-	] as const)("%s 时 regex 保留 verified 文本行", async (code, name) => {
-		treeSitterFailure.code = code;
-		treeSitterFailure.message = `simulated ${name} failure`;
-		const query = `${name}Needle`;
-		await writeFile(path.join(workspaceTemp.path, `${name}.ts`), `export function ${name}() { return '${query}'; }\n`);
-
-		const result = await grepWorkspaceFiles(workspaceTemp.path, { query });
-
-		expect(result).toMatchObject({
-			status: "success",
-			stats: { parsed_files: 0 },
-			regions: [expect.objectContaining({
-				path: `${name}.ts`,
-				kind: "text",
-				query_match: "verified",
-				match_lines: [1],
-			})],
-		});
-	});
 });

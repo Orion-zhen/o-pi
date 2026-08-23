@@ -1,8 +1,7 @@
-import type { SyntaxNode } from "./adapters/types.js";
-import type { AnalysisControl, ParseFailure, ParseFailureCode } from "../syntax-tree/types.js";
+import type { AnalysisControl } from "../syntax-tree/types.js";
 import type { TreeSitterLanguage } from "../syntax-tree/grammars.js";
 
-export type { AnalysisControl, ParseFailure, ParseFailureCode };
+export type { AnalysisControl };
 
 export type SupportedCodeLanguage = TreeSitterLanguage;
 export type CodeLanguage = SupportedCodeLanguage | "text";
@@ -110,28 +109,20 @@ export class SourceIndex implements LineIndex {
 	}
 }
 
-export interface ParsedDocument {
-	readonly language: CodeLanguage;
-	readonly text: string;
-	readonly root: SyntaxNode;
-	readonly sourceIndex: SourceIndex;
-	readonly control: AnalysisControl;
-	/** Release the underlying WebAssembly syntax tree. Idempotent. */
-	dispose(): void;
-}
-
 export interface FileIdentity {
 	id: string;
 	path: string;
 }
 
-export interface SymbolIdentityInput {
+export type SymbolIdentityInput = {
 	fileId: string;
 	kind: string;
-	name?: string;
-	qualifiedName?: string;
 	startByte: number;
-}
+} & (
+	| { name: string; qualifiedName?: never }
+	| { name: string; qualifiedName: string }
+	| { name?: never; qualifiedName: string }
+);
 
 /** 定义作为依赖目标的最强语义证据。 */
 export type CodeAuthority = "called" | "referenced" | "defined";
@@ -212,9 +203,6 @@ export interface AnalyzedFileIndex {
 	index: ParsedFileIndex;
 	status: "parsed" | "unsupported" | "error";
 	imports: IndexedImport[];
-	failure?: ParseFailure;
-	/** Transient AST ownership for consumers that extract additional facts in one parse. */
-	document?: ParsedDocument;
 }
 
 function buildCharToByte(text: string, control?: AnalysisControl): Uint32Array {

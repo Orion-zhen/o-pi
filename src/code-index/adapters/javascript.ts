@@ -23,7 +23,8 @@ function unitRules(exportedNames: ReadonlySet<string>): UnitRules {
 			return name === undefined ? undefined : rawUnit(node, normalizeTsKind(node.type), name, scope, isExportedDeclaration(node, name, exportedNames));
 		},
 		childScope(_node, unit, current) {
-			return unit?.kind === "class" || unit?.kind === "interface" ? unit.qualifiedName ?? unit.name ?? current : current;
+			if (unit === undefined || (unit.kind !== "class" && unit.kind !== "interface")) return current;
+			return unit.qualifiedName;
 		},
 		shouldDescend(_node, unit) {
 			return unit.kind === "class" || unit.kind === "interface";

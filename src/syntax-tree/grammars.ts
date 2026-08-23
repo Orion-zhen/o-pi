@@ -11,7 +11,7 @@ const rust = language("rust", [".rs"], grammar("tree-sitter-rust", "tree-sitter-
 const tsx = language("tsx", [".tsx"], grammar("tree-sitter-typescript", "tree-sitter-tsx.wasm"));
 const typescript = language("typescript", [".ts"], grammar("tree-sitter-typescript", "tree-sitter-typescript.wasm"));
 
-/** 语言发现的唯一来源；code-index 会自动为每个注册项建立 adapter。 */
+/** 语言发现的唯一来源；code-index 会为每个注册项建立完整 adapter。 */
 export const TREE_SITTER_LANGUAGES = [
 	javascript,
 	jsx,
@@ -28,31 +28,25 @@ export const TREE_SITTER_LANGUAGES = [
 export type TreeSitterLanguage = (typeof TREE_SITTER_LANGUAGES)[number]["language"];
 export type RegisteredTreeSitterLanguageSpec = (typeof TREE_SITTER_LANGUAGES)[number];
 
-/** 保留按 grammar 名访问的现有 API，并从语言 catalog 自动派生。 */
-export const TREE_SITTER_GRAMMARS = grammarCatalog(TREE_SITTER_LANGUAGES);
-
-const languagesByName = new Map<TreeSitterLanguage, RegisteredTreeSitterLanguageSpec>(
-	TREE_SITTER_LANGUAGES.map((spec) => [spec.language, spec]),
-);
+const languagesByName: { readonly [Language in TreeSitterLanguage]: RegisteredTreeSitterLanguageSpec } = {
+	javascript,
+	jsx,
+	typescript,
+	tsx,
+	python,
+	go,
+	rust,
+	c,
+	cpp,
+	bash,
+};
 
 export function getTreeSitterLanguage(languageName: TreeSitterLanguage): RegisteredTreeSitterLanguageSpec {
-	const spec = languagesByName.get(languageName);
-	if (spec === undefined) throw new Error(`Tree-sitter language is not registered: ${languageName}`);
-	return spec;
+	return languagesByName[languageName];
 }
 
 function grammar(packageName: string, wasmFile: string): GrammarSpec {
 	return { packageName, wasmFile };
-}
-
-type GrammarCatalog<Specs extends readonly TreeSitterLanguageSpec[]> = {
-	readonly [Spec in Specs[number] as Spec["language"]]: Spec["grammar"];
-};
-
-function grammarCatalog<const Specs extends readonly TreeSitterLanguageSpec[]>(
-	specs: Specs,
-): GrammarCatalog<Specs> {
-	return Object.fromEntries(specs.map((spec) => [spec.language, spec.grammar])) as GrammarCatalog<Specs>;
 }
 
 function language<const Language extends string>(

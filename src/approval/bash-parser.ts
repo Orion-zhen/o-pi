@@ -82,8 +82,7 @@ function plainCommandUnit(command: string): ApprovalUnit {
 
 async function parseScript(script: string, cwd: string, depth: number, units: ApprovalUnit[]): Promise<boolean> {
 	if (depth > MAX_NESTED_SHELL_DEPTH) throw new BashUnitLimitError();
-	const parsed = await parseSyntaxTree(BASH_GRAMMAR, script);
-	const document = parsed.document;
+	const document = await parseSyntaxTree(BASH_GRAMMAR, script);
 	if (document === undefined) return false;
 	try {
 		if (document.root.hasError) return false;

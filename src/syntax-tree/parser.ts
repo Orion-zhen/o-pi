@@ -1,19 +1,11 @@
 import type { Tree } from "web-tree-sitter";
 
-import {
-	DEFAULT_PARSE_TIMEOUT_MICROS,
-	invalidateTreeSitterParser,
-	loadTreeSitterParser,
-} from "./loader.js";
-import type { AnalysisControl, GrammarSpec, ParseFailure, SyntaxTreeDocument } from "./types.js";
+import { invalidateTreeSitterParser, loadTreeSitterParser } from "./loader.js";
+import type { AnalysisControl, GrammarSpec, SyntaxTreeDocument } from "./types.js";
 
-export interface ParseSyntaxTreeResult {
-	document?: SyntaxTreeDocument;
-	failure?: ParseFailure;
-}
+const PARSE_DEADLINE_MS = 250;
 
 export interface ParseSyntaxTreeOptions {
-	timeoutMicros?: number;
 	signal?: AbortSignal;
 }
 
@@ -26,25 +18,26 @@ export class SyntaxAnalysisAbortedError extends Error {
 
 export class SyntaxAnalysisTimeoutError extends Error {
 	constructor() {
-		super("Tree-sitter parsing exceeded the configured timeout.");
+		super("Tree-sitter parsing exceeded its deadline.");
 		this.name = "SyntaxAnalysisTimeoutError";
 	}
 }
 
-/** 使用共享 runtime 和 grammar cache 解析任意已注册语法。 */
+/** 使用共享 runtime、language 和 parser cache 解析任意已注册语法。 */
 export async function parseSyntaxTree(
 	grammar: GrammarSpec,
 	text: string,
 	options: ParseSyntaxTreeOptions = {},
-): Promise<ParseSyntaxTreeResult> {
+): Promise<SyntaxTreeDocument | undefined> {
 	if (isAborted(options.signal)) throw new SyntaxAnalysisAbortedError();
-	const parserResult = await loadTreeSitterParser(grammar);
-	if ("failure" in parserResult) return parserResult;
-	const parser = parserResult.parser;
+	const parser = await loadTreeSitterParser(grammar);
+	if (isAborted(options.signal)) throw new SyntaxAnalysisAbortedError();
+	if (parser === undefined) return undefined;
+
 	let tree: Tree | null = null;
 	try {
 		parser.reset();
-		const deadline = performance.now() + normalizeTimeoutMicros(options.timeoutMicros) / 1_000;
+		const deadline = performance.now() + PARSE_DEADLINE_MS;
 		const control = createAnalysisControl(deadline, options.signal);
 		tree = parser.parse(text, null, {
 			progressCallback: () => isAborted(options.signal) || performance.now() >= deadline,
@@ -52,21 +45,19 @@ export async function parseSyntaxTree(
 		if (tree === null) {
 			safeReset(parser);
 			if (isAborted(options.signal)) throw new SyntaxAnalysisAbortedError();
-			return parserTimeout();
+			return undefined;
 		}
 		const root = tree.rootNode;
 		let disposed = false;
 		return {
-			document: {
-				text,
-				root,
-				control,
-				dispose() {
-					if (disposed) return;
-					disposed = true;
-					safeDeleteTree(tree);
-					tree = null;
-				},
+			text,
+			root,
+			control,
+			dispose() {
+				if (disposed) return;
+				disposed = true;
+				safeDeleteTree(tree);
+				tree = null;
 			},
 		};
 	} catch (error) {
@@ -76,17 +67,9 @@ export async function parseSyntaxTree(
 			safeReset(parser);
 			throw error;
 		}
-		if (error instanceof SyntaxAnalysisTimeoutError) {
-			safeReset(parser);
-			return parserTimeout();
-		}
 		invalidateTreeSitterParser(grammar, parser);
-		return { failure: { code: "PARSER_EXCEPTION", message: "Tree-sitter raised an exception while parsing the source." } };
+		return undefined;
 	}
-}
-
-export function isSyntaxAnalysisControlError(error: unknown): error is SyntaxAnalysisAbortedError | SyntaxAnalysisTimeoutError {
-	return error instanceof SyntaxAnalysisAbortedError || error instanceof SyntaxAnalysisTimeoutError;
 }
 
 function createAnalysisControl(deadline: number, signal: AbortSignal | undefined): AnalysisControl {
@@ -102,21 +85,11 @@ function isAborted(signal: AbortSignal | undefined): boolean {
 	return signal?.aborted === true;
 }
 
-function normalizeTimeoutMicros(timeoutMicros: number | undefined): number {
-	return timeoutMicros === undefined || !Number.isFinite(timeoutMicros)
-		? DEFAULT_PARSE_TIMEOUT_MICROS
-		: Math.max(0, timeoutMicros);
-}
-
-function parserTimeout(): ParseSyntaxTreeResult {
-	return { failure: { code: "PARSER_TIMEOUT", message: "Tree-sitter parsing exceeded the configured timeout." } };
-}
-
 function safeDeleteTree(tree: Tree | null): void {
 	try {
 		tree?.delete();
 	} catch {
-		// 文档边界之外不再暴露失败 tree。
+		// Tree 已离开文档所有权边界。
 	}
 }
 
@@ -124,6 +97,6 @@ function safeReset(parser: { reset(): void }): void {
 	try {
 		parser.reset();
 	} catch {
-		// 下一次解析会把不可复用 parser 转成结构化失败。
+		// 无法确认 parser 可复用时，交由后续解析处理。
 	}
 }
