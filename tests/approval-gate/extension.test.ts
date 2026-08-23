@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, Theme, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import approvalGateExtension from "../../agent/extensions/approval-gate.js";
 import { defaultApprovalGateConfig } from "../../src/approval/config.js";
@@ -11,8 +11,11 @@ import {
 	type ApprovalGateOptions,
 	type ApprovalInteractionPort,
 } from "../../src/approval/index.js";
+import { buildApprovalRequest } from "../../src/approval/request/build.js";
 import { FileApprovalStore } from "../../src/approval/rules/store.js";
-import type { ApprovalGateConfig } from "../../src/approval/types.js";
+import type { ApprovalOptions } from "../../src/approval/runtime/interaction.js";
+import { ApprovalDialog } from "../../src/approval/tui/dialog.js";
+import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest } from "../../src/approval/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
@@ -51,7 +54,7 @@ describe("approval gate", () => {
 
 	it("窄 interaction port 可完成审批", async () => {
 		const interaction: ApprovalInteractionPort = {
-			select: async () => "Allow once",
+			approve: async () => "Allow once",
 			input: async () => undefined,
 			notify() {},
 		};
@@ -257,7 +260,108 @@ rm -f "$tmpdir/result.txt"
 			reason: expect.stringContaining("Matched path rule: private/"),
 		});
 	});
+
+	it("超长命令使用受限内容视口且审批操作始终可用", async () => {
+		const command = [...Array.from({ length: 80 }, (_, index) => `echo line-${index}`), "echo TAIL_PAYLOAD"].join("\n");
+		const choices: Array<string | undefined> = [];
+		const dialog = await createDialog(bash(command), 18, (choice) => choices.push(choice));
+
+		const initial = dialog.render(72);
+		expect(initial.length).toBeLessThanOrEqual(Math.floor(18 * 0.9));
+		expect(initial.join("\n")).not.toContain("TAIL_PAYLOAD");
+
+		dialog.handleInput("\u001b[F");
+		const scrolled = dialog.render(72);
+		expect(scrolled.join("\n")).toContain("TAIL_PAYLOAD");
+		expect(scrolled).toHaveLength(initial.length);
+
+		for (let index = 0; index < APPROVAL_OPTIONS.length - 1; index += 1) dialog.handleInput("\u001b[B");
+		dialog.handleInput("\r");
+		expect(choices).toEqual(["Deny with instruction"]);
+		dialog.dispose();
+	});
+
+	it("write 和 edit 审批请求保留实际修改内容", async () => {
+		const writeRequest = await requiredRequest({
+			type: "tool_call",
+			toolName: "write",
+			toolCallId: "write-preview",
+			input: { path: systemPath("etc", "service.conf"), content: "enabled=true\nport=8443" },
+		});
+		expect(writeRequest.detail).toMatchObject({ kind: "write", content: "enabled=true\nport=8443" });
+
+		const editRequest = await requiredRequest({
+			type: "tool_call",
+			toolName: "edit",
+			toolCallId: "edit-preview",
+			input: { path: systemPath("etc", "service.conf"), edits: [{ old: "port=80", new: "port=8443", replace_all: true }] },
+		});
+		expect(editRequest.detail).toMatchObject({
+			kind: "edit",
+			edits: [{ old: "port=80", new: "port=8443", replace_all: true }],
+		});
+
+		const dialog = dialogForRequest(editRequest, 30, () => {});
+		const rendered = dialog.render(72).join("\n");
+		expect(rendered).toContain("port=80");
+		expect(rendered).toContain("port=8443");
+		dialog.dispose();
+	});
+
+	it("审批面板超时后关闭并清理计时器", async () => {
+		vi.useFakeTimers();
+		try {
+			const choices: Array<string | undefined> = [];
+			const request = await requiredRequest(bash("git push origin main"));
+			const dialog = dialogForRequest(request, 24, (choice) => choices.push(choice), 1000);
+			vi.advanceTimersByTime(1000);
+			expect(choices).toEqual([undefined]);
+			dialog.dispose();
+			expect(vi.getTimerCount()).toBe(0);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });
+
+const APPROVAL_OPTIONS = ["Allow once", "Allow for session", "Always allow similar", "Deny", "Deny with instruction"] as const satisfies ApprovalOptions;
+
+const plainTheme = {
+	fg: (_color, text) => text,
+	bg: (_color, text) => text,
+	bold: (text) => text,
+} satisfies Pick<Theme, "fg" | "bg" | "bold">;
+
+async function createDialog(
+	event: ToolCallEvent,
+	rows: number,
+	done: (choice: string | undefined) => void,
+	timeout?: number,
+): Promise<ApprovalDialog> {
+	return dialogForRequest(await requiredRequest(event), rows, done, timeout);
+}
+
+function dialogForRequest(
+	request: ApprovalRequest,
+	rows: number,
+	done: (choice: string | undefined) => void,
+	timeout?: number,
+): ApprovalDialog {
+	const unit = request.units[0];
+	if (unit === undefined) throw new Error("approval request has no units");
+	const decision: Extract<ApprovalDecision, { kind: "ask" }> = {
+		kind: "ask",
+		reason: "test approval",
+		items: [{ unit, reason: "test approval" }],
+	};
+	return new ApprovalDialog(request, decision, APPROVAL_OPTIONS, plainTheme, () => rows, () => {}, done, timeout);
+}
+
+async function requiredRequest(event: ToolCallEvent): Promise<ApprovalRequest> {
+	const request = await buildApprovalRequest(event, dir);
+	if (request === undefined) throw new Error("approval request was not built");
+	return request;
+}
 
 function systemPath(...segments: string[]): string {
 	return path.join(path.parse(dir).root, ...segments);
@@ -313,6 +417,7 @@ function captureExtensionHandler(): (event: ToolCallEvent, ctx: ExtensionContext
 interface FakeUi {
 	selectCalls: number;
 	selectOptions: string[][];
+	approve(_request: unknown, _decision: unknown, options: readonly string[]): Promise<string | undefined>;
 	select(title: string, options: string[]): Promise<string | undefined>;
 	input(): Promise<string | undefined>;
 	notify(): void;
@@ -322,6 +427,12 @@ function fakeUi(choices: string[], instruction?: string, onSelect?: () => void):
 	return {
 		selectCalls: 0,
 		selectOptions: [],
+		async approve(_request: unknown, _decision: unknown, options: readonly string[]) {
+			this.selectCalls += 1;
+			this.selectOptions.push([...options]);
+			onSelect?.();
+			return choices.shift();
+		},
 		async select(_title: string, options: string[]) {
 			this.selectCalls += 1;
 			this.selectOptions.push([...options]);

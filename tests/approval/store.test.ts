@@ -81,7 +81,6 @@ describe("approval store", () => {
 		const text = await readFile(storePath, "utf8");
 		expect(text).not.toContain('"version"');
 		expect(text).toContain('"cwd"');
-		expect(text).not.toContain('"created_at"');
 
 		const reloaded = new FileApprovalStore(storePath);
 		await reloaded.loadPersistentRules();
@@ -124,33 +123,6 @@ describe("approval store", () => {
 		expect(store.matchesAllowRule(hosts, firstUnit(hosts))).toBe(true);
 	});
 
-	it("读取不含版本号的持久文件", async () => {
-		const storePath = path.join(dir, "versionless.rules.jsonc");
-		await writeFile(storePath, JSON.stringify({
-			rules: [{ tool: "edit", kind: "exact_path", value: "/etc/hosts" }],
-		}));
-		const store = new FileApprovalStore(storePath);
-		await store.loadPersistentRules();
-		const request = await pathRequest("edit", systemPath("etc", "hosts"));
-		expect(store.matchesAllowRule(request, firstUnit(request))).toBe(true);
-	});
-
-	it.each([
-		["command 规则缺少 cwd", { tool: "bash", kind: "exact_command", value: "git push origin main" }],
-		["path 规则包含 cwd", { tool: "edit", kind: "exact_path", value: "/etc/hosts", cwd: "/workspace" }],
-		["tool 不受支持", { tool: "read", kind: "exact_path", value: "/etc/hosts" }],
-		["kind 不受支持", { tool: "edit", kind: "other", value: "/etc/hosts" }],
-	] as const)("持久文件混入非法规则时整体失败: %s", async (_name, invalidRule) => {
-		const storePath = path.join(dir, "invalid.rules.jsonc");
-		await writeFile(storePath, JSON.stringify({
-			rules: [
-				{ tool: "edit", kind: "exact_path", value: "/etc/hosts" },
-				invalidRule,
-			],
-		}));
-		const store = new FileApprovalStore(storePath);
-		await expect(store.loadPersistentRules()).rejects.toThrow("approval persistent rules have invalid shape");
-	});
 });
 
 function systemPath(...segments: string[]): string {

@@ -13,7 +13,25 @@
 
 审批策略判定为 `ask` 且存在交互式界面时，Approval Gate 会先尝试发送系统通知，再显示审批选择框。通知失败不影响审批。用户拒绝后，Approval Gate 返回 `{ block: true, reason }`，但不调用 `ctx.abort()`。
 
-`ApprovalGate` 仅通过 `ApprovalInteractionPort` 的 `select`、`input` 和 `notify` 方法访问交互界面，不依赖 Pi TUI。当前扩展在 `ctx.hasUI` 为 `true` 时通过 Pi UI 注入该端口。JSON 模式和打印模式没有该端口，因此使用 `ui.non_interactive` 策略。对话框文本和选项属于适配器的展示内容，不是未来图形界面的状态协议。
+`ApprovalGate` 仅通过 `ApprovalInteractionPort` 的 `approve`、`input` 和 `notify` 方法访问交互界面，不依赖 Pi TUI。当前扩展在 `ctx.hasUI` 为 `true` 时通过 Pi UI 注入该端口。JSON 模式和打印模式没有该端口，因此使用 `ui.non_interactive` 策略。
+
+## 审批界面
+
+TUI 模式使用高度受限的覆盖面板。面板把请求内容和审批操作分开布局：
+
+- 顶部显示工具名称。
+- 中部显示工作目录、触发原因和请求内容。超出可用高度时，只滚动这个区域。
+- 底部显示审批操作和按键提示。请求内容不会把操作区域推出屏幕。
+
+`Up` 和 `Down` 选择操作，`PageUp`、`PageDown`、`Home` 和 `End` 浏览请求内容，`Enter` 确认，`Esc` 或 `Ctrl+C` 拒绝。终端高度不足以同时显示所有操作时，操作列表会跟随当前选择滚动。
+
+请求内容按工具展示：
+
+- `bash` 显示完整 Shell 输入和触发确认的敏感单元。
+- `write` 显示目标路径和完整拟写入内容。每一行使用新增标记展示。
+- `edit` 按替换项显示原文本、新文本和 `replace_all` 状态。
+
+TUI 面板会移除请求内容中的终端控制序列，避免内容改变终端显示状态。RPC 模式继续使用 Pi 的基础选择框，并在标题中包含相同的请求信息。
 
 ## 与安全防护机制的区别
 
@@ -81,7 +99,7 @@ Approval Gate 不把整段 Shell 文本作为一个审批目标，而是提取�
 关键字段：
 
 - `enabled`：总开关。
-- `ui.timeout_ms`：交互超时时间，单位为毫秒。`0` 表示不超时。大于 `0` 时，该值会传给 Pi UI 的 `select` 和 `input` 调用。
+- `ui.timeout_ms`：交互超时时间，单位为毫秒。`0` 表示不超时。TUI 审批面板显示剩余时间并在到期后拒绝调用。RPC 选择框和拒绝指令输入框使用 Pi UI 的超时机制。
 - `ui.non_interactive`：没有交互式界面时使用 `block` 或 `allow`，默认为 `block`。
 - `defaults`：未命中规则时，按工具使用默认的 `allow`、`ask` 或 `deny` 策略。
 - `ask_rules`：命中后要求用户确认。
@@ -133,7 +151,7 @@ Instruction from user:
 ...
 ```
 
-如果任一待确认单元无法生成范围明确的规则，对应的记忆选项就不会显示。持久规则文件不使用版本号，Approval Gate 根据规则字段解析文件。每条规则包含 `tool`、`kind` 和 `value`。`exact_command` 和 `command_prefix` 规则还必须包含 `cwd`，并且只匹配相同工作目录。`exact_path` 和 `path_glob` 规则不接受 `cwd`。加载旧文件时，Approval Gate 忽略 `version` 和 `created_at`。缺少 `cwd` 的旧命令规则会被丢弃，避免保留跨工作目录的放行权限。其他非法规则会导致整个文件加载失败。
+如果任一待确认单元无法生成范围明确的规则，对应的记忆选项就不会显示。持久规则文件不使用版本号，Approval Gate 根据规则字段解析文件。每条规则包含 `tool`、`kind` 和 `value`。`exact_command` 和 `command_prefix` 规则还必须包含 `cwd`，并且只匹配相同工作目录。`exact_path` 和 `path_glob` 规则不接受 `cwd`。额外字段不影响解析，无法识别的规则不会加载。
 
 ```jsonc
 {

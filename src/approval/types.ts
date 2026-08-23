@@ -25,10 +25,22 @@ export interface ApprovalUnit {
 	};
 }
 
+export interface ApprovalEditReplacement {
+	old: string;
+	new: string;
+	replace_all?: boolean;
+}
+
+export type ApprovalRequestDetail =
+	| { kind: "bash"; command: string }
+	| { kind: "write"; path: string; content: string }
+	| { kind: "edit"; path: string; edits: ApprovalEditReplacement[] };
+
 export interface ApprovalRequest {
 	tool: "bash" | "write" | "edit";
 	cwd: string;
 	summary: string;
+	detail: ApprovalRequestDetail;
 	units: ApprovalUnit[];
 }
 
