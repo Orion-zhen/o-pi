@@ -6,6 +6,7 @@ import { formatCompactGrepResult } from "../../src/file-tools/grep/command.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import type { GrepSuccess } from "../../src/file-tools/grep/types.js";
 import { clearGrepTestRuntime as clearGrepIndex } from "../helpers/grep-tool.js";
+import { expectFailure } from "./result-fixtures.js";
 import {
 	createGrepTestContext,
 	expectGrepSuccess,
@@ -55,18 +56,14 @@ describe("grep integration", () => {
 		const newSource = "export const newName = 1;\n";
 		expect(Buffer.byteLength(oldSource)).toBe(Buffer.byteLength(newSource));
 		await writeFile(path.join(testContext.workspace, "cached.ts"), oldSource);
-		await withGrepRuntime(testContext.workspace, "grep-cache-prune", async ({ tool, opened }) => {
-			const execute = async (query: string): Promise<GrepSuccess> => expectGrepSuccess(await tool.execute({ query }, {
-				filesystem: opened.filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			}));
-			expect(firstRegion(await execute("oldName"))).toMatchObject({ path: "cached.ts", symbol: "oldName" });
+		await withGrepRuntime(testContext.workspace, "grep-cache-prune", async ({ execute }) => {
+			const search = async (query: string): Promise<GrepSuccess> => expectGrepSuccess(await execute({ query }));
+			expect(firstRegion(await search("oldName"))).toMatchObject({ path: "cached.ts", symbol: "oldName" });
 			await rm(path.join(testContext.workspace, "cached.ts"));
-			expect((await execute("cleanupMiss")).regions).toEqual([]);
+			expect((await search("cleanupMiss")).regions).toEqual([]);
 			await writeFile(path.join(testContext.workspace, "cached.ts"), newSource);
-			expect((await execute("oldName")).regions.every((region) => region.symbol !== "oldName")).toBe(true);
-			expect(firstRegion(await execute("newName"))).toMatchObject({ path: "cached.ts", symbol: "newName" });
+			expect((await search("oldName")).regions.every((region) => region.symbol !== "oldName")).toBe(true);
+			expect(firstRegion(await search("newName"))).toMatchObject({ path: "cached.ts", symbol: "newName" });
 		});
 	});
 
@@ -115,7 +112,7 @@ describe("grep integration", () => {
 	it("代码正文单次稳定读取同时服务 exact、lexical 与结构分析", async () => {
 		await writeFile(path.join(testContext.workspace, "first.ts"), "export function retryPolicy() { return 'session delay'; }\n");
 		await writeFile(path.join(testContext.workspace, "second.conf"), "session retry delay\n");
-		await withGrepRuntime(testContext.workspace, "grep-auto-single-scan", async ({ tool, opened }) => {
+		await withGrepRuntime(testContext.workspace, "grep-auto-single-scan", async ({ execute, opened }) => {
 			let lineScans = 0;
 			let fullReads = 0;
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
@@ -128,11 +125,7 @@ describe("grep integration", () => {
 					return await content.scanLines(file, options);
 				},
 			}));
-			const result = expectGrepSuccess(await tool.execute({ query: "session retry delay" }, {
-				filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			}));
+			const result = expectGrepSuccess(await execute({ query: "session retry delay" }, { filesystem }));
 			expect(result.regions.length).toBeGreaterThan(0);
 			expect({ lineScans, fullReads }).toEqual({ lineScans: 1, fullReads: 1 });
 		});
@@ -219,10 +212,7 @@ describe("grep integration", () => {
 		await writeFile(configPath, JSON.stringify(raw, null, 2));
 		process.env.PI_FILE_TOOLS_CONFIG = configPath;
 		clearGrepIndex();
-		expect(await grepWorkspaceFiles(testContext.workspace, { path: ["link.txt"], query: "needle" })).toMatchObject({
-			status: "failed",
-			error: { code: "PROTECTED_PATH" },
-		});
+		expectFailure(await grepWorkspaceFiles(testContext.workspace, { path: ["link.txt"], query: "needle" }), { code: "PROTECTED_PATH" });
 	});
 
 	it.skipIf(process.platform === "win32")("递归搜索跳过局部权限失败", async () => {
@@ -309,7 +299,7 @@ describe("grep integration", () => {
 
 	it("query miss 每次都重新执行当前 snapshot 的 line scan", async () => {
 		await writeFile(path.join(testContext.workspace, "miss.txt"), "unrelated\n");
-		await withGrepRuntime(testContext.workspace, "grep-query-miss", async ({ tool, opened }) => {
+		await withGrepRuntime(testContext.workspace, "grep-query-miss", async ({ execute, opened }) => {
 			let fullReads = 0;
 			let lineScans = 0;
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
@@ -323,11 +313,7 @@ describe("grep integration", () => {
 				},
 			}));
 			for (const query of ["first-miss", "second-miss", "first-miss"]) {
-				const result = expectGrepSuccess(await tool.execute({ query }, {
-					filesystem,
-					operation: opened.context,
-					limits: opened.limits,
-				}));
+				const result = expectGrepSuccess(await execute({ query }, { filesystem }));
 				expect(result.regions).toEqual([]);
 			}
 			expect({ fullReads, lineScans }).toEqual({ fullReads: 0, lineScans: 3 });
@@ -347,9 +333,7 @@ describe("grep integration", () => {
 	});
 
 	it("大代码文件跳过 Tree-sitter 但保留完整文本召回并记录内部观测", async () => {
-		const configPath = path.join(testContext.outside, "semantic-parse-bytes.jsonc");
-		await writeConfig(configPath, { grep_ast_max_file_bytes: 1024 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_ast_max_file_bytes: 1024 }, "semantic-parse-bytes");
 		for (let index = 0; index < 48; index += 1) {
 			await writeFile(path.join(testContext.workspace, `small-${index}.ts`), `export const small${index} = ${index};\n`);
 		}
@@ -417,9 +401,7 @@ describe("grep integration", () => {
 	});
 
 	it("多个 scope 共享 grep 结果限制", async () => {
-		const configPath = path.join(testContext.outside, "multi-scope-limit.jsonc");
-		await writeConfig(configPath, { grep_result_limit: 2 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_result_limit: 2 }, "multi-scope-limit");
 		await mkdir(path.join(testContext.workspace, "src"), { recursive: true });
 		await mkdir(path.join(testContext.workspace, "tests"), { recursive: true });
 		for (const [directory, name] of [["src", "a.ts"], ["src", "b.ts"], ["tests", "c.ts"], ["tests", "d.ts"]] as const) {
@@ -437,9 +419,7 @@ describe("grep integration", () => {
 	});
 
 	it("输出超过旧 token budget 时仍只按结果条数限制", async () => {
-		const configPath = path.join(testContext.outside, "result-limit.jsonc");
-		await writeConfig(configPath, { grep_result_limit: 10 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_result_limit: 10 }, "result-limit");
 		for (let index = 0; index < 10; index += 1) {
 			await writeFile(
 				path.join(testContext.workspace, `module-${index}.ts`),

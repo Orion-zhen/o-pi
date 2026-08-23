@@ -28,9 +28,7 @@ const testContext = createGrepTestContext();
 
 describe("grep local search", () => {
 	it("结构化路径命中不会被靠前文件中的重复正文命中挤出结果窗口", async () => {
-		const configPath = path.join(testContext.outside, "structured-path-ranking.jsonc");
-		await writeConfig(configPath, { grep_result_limit: 6 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_result_limit: 6 }, "structured-path-ranking");
 		await mkdir(path.join(testContext.workspace, "aaa"), { recursive: true });
 		await mkdir(path.join(testContext.workspace, "src", "file-tools", "find"), { recursive: true });
 		await writeFile(path.join(testContext.workspace, "aaa", "noise.ts"), Array.from(
@@ -64,52 +62,28 @@ describe("grep local search", () => {
 		expect(text).not.toContain("tokens");
 	});
 
-	it("区域展示限制均匀选择代表行且不裁剪完整 match_lines", async () => {
-		const configPath = path.join(testContext.outside, "regional-display.jsonc");
-		await writeConfig(configPath, { grep_regional_display_limit: 2 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
-		await writeFile(path.join(testContext.workspace, "multi.ts"), [
-			"export function collect() {",
-			"  consume(needle);",
-			"  transform(needle);",
-			"  validate(needle);",
-			"  return needle;",
-			"}",
-		].join("\n"));
-
-		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle" }));
-		expect(firstRegion(result)).toMatchObject({
-			start_line: 1,
-			end_line: 6,
-			match_lines: [2, 3, 4, 5],
-			display_lines: [expect.objectContaining({ line: 2 }), expect.objectContaining({ line: 5 })],
-		});
-		const output = formatCompactGrepResult(result);
-		expect(output).toContain("  2:   consume(needle);");
-		expect(output).toContain("  5:   return needle;");
-		expect(output).toContain("  +2 match lines");
-	});
-
 	it.each([
 		{ limit: 1, shown: [2], omitted: 3 },
+		{ limit: 2, shown: [2, 5], omitted: 2 },
 		{ limit: 4, shown: [2, 3, 4, 5], omitted: 0 },
-	])("区域展示限制 $limit 生成固定代表行", async ({ limit, shown, omitted }) => {
-		const configPath = path.join(testContext.outside, `regional-display-${limit}.jsonc`);
-		await writeConfig(configPath, { grep_regional_display_limit: limit });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
-		await writeFile(path.join(testContext.workspace, `multi-${limit}.ts`), [
+	])("区域展示限制 $limit 均匀选择代表行且保留完整命中", async ({ limit, shown, omitted }) => {
+		await testContext.useConfig({ grep_regional_display_limit: limit }, `regional-display-${limit}`);
+		const lines = [
 			"export function collect() {",
 			"  consume(needle);",
 			"  transform(needle);",
 			"  validate(needle);",
 			"  return needle;",
 			"}",
-		].join("\n"));
+		];
+		await writeFile(path.join(testContext.workspace, `multi-${limit}.ts`), lines.join("\n"));
 
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "needle" }));
-		expect(firstRegion(result).match_lines).toEqual([2, 3, 4, 5]);
-		expect(firstRegion(result).display_lines?.map((line) => line.line)).toEqual(shown);
+		const region = firstRegion(result);
+		expect(region).toMatchObject({ start_line: 1, end_line: 6, match_lines: [2, 3, 4, 5] });
+		expect(region.display_lines?.map((line) => line.line)).toEqual(shown);
 		const output = formatCompactGrepResult(result);
+		for (const line of shown) expect(output).toContain(`  ${line}: ${lines[line - 1]}`);
 		if (omitted > 0) expect(output).toContain(`  +${omitted} match lines`);
 		else expect(output).not.toContain("match lines");
 	});
@@ -160,9 +134,7 @@ describe("grep local search", () => {
 	});
 
 	it("related result 配置在排序后静默限制 semantic region", async () => {
-		const configPath = path.join(testContext.outside, "related-result-limit.jsonc");
-		await writeConfig(configPath, { grep_related_result_limit: 2 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_related_result_limit: 2 }, "related-result-limit");
 		for (const name of ["alpha", "beta", "gamma"]) {
 			await writeFile(path.join(testContext.workspace, `${name}.ts`), [
 				`export function ${name}Candidate() {`,
@@ -189,9 +161,7 @@ describe("grep local search", () => {
 	});
 
 	it("related result limit 为 0 时只禁用 semantic region", async () => {
-		const configPath = path.join(testContext.outside, "related-result-disabled.jsonc");
-		await writeConfig(configPath, { grep_related_result_limit: 0 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_related_result_limit: 0 }, "related-result-disabled");
 		await writeFile(path.join(testContext.workspace, "candidates.ts"), [
 			"export function semanticCandidate() {",
 			"  const authentication = true;",
@@ -362,9 +332,7 @@ describe("grep local search", () => {
 	});
 
 	it("parse 单文件字节上限保留 verified 文本行并记录内部观测", async () => {
-		const configPath = path.join(testContext.outside, "strict-parse-bytes.jsonc");
-		await writeConfig(configPath, { grep_ast_max_file_bytes: 1024 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_ast_max_file_bytes: 1024 }, "strict-parse-bytes");
 		await writeFile(path.join(testContext.workspace, "large-region.ts"), `export function largeRegion() {\n  return '${"padding".repeat(180)} ParseBytesNeedle';\n}\n`);
 
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "ParseBytesNeedle" }));
@@ -415,7 +383,7 @@ describe("grep local search", () => {
 		const replacementText = `${replacementFirstLine}\n${hitLine}\n}\n`;
 		expect(Buffer.byteLength(replacementText)).toBe(Buffer.byteLength(originalText));
 		await writeFile(filePath, originalText);
-		await withGrepRuntime(testContext.workspace, "grep-region-race", async ({ tool, opened }) => {
+		await withGrepRuntime(testContext.workspace, "grep-region-race", async ({ execute, opened }) => {
 			const metadata = opened.filesystem.metadata;
 			let changed = false;
 			let metadataReads = 0;
@@ -442,11 +410,7 @@ describe("grep local search", () => {
 					},
 				}),
 			);
-			const result = expectGrepSuccess(await tool.execute({ query: "RaceNeedle" }, {
-				filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			}));
+			const result = expectGrepSuccess(await execute({ query: "RaceNeedle" }, { filesystem }));
 			expect(result.regions).toEqual([]);
 			expect(result.stats.skipped_files).toMatchObject({ changed: 1 });
 			expect(metadataReads).toBe(0);
@@ -496,7 +460,7 @@ describe("grep local search", () => {
 
 	it("regex 暖调用复用已按当前 snapshot 校验的代码正文", async () => {
 		await writeFile(path.join(testContext.workspace, "warm.ts"), "export function warm() { return 'WarmNeedle'; }\n");
-		await withGrepRuntime(testContext.workspace, "grep-strict-warm", async ({ tool, opened }) => {
+		await withGrepRuntime(testContext.workspace, "grep-strict-warm", async ({ execute, opened }) => {
 			let scans = 0;
 			let fullReads = 0;
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
@@ -511,11 +475,7 @@ describe("grep local search", () => {
 			}));
 			const results: GrepSuccess[] = [];
 			for (let index = 0; index < 2; index += 1) {
-				results.push(expectGrepSuccess(await tool.execute({ query: "WarmNeedle" }, {
-					filesystem,
-					operation: opened.context,
-					limits: opened.limits,
-				})));
+				results.push(expectGrepSuccess(await execute({ query: "WarmNeedle" }, { filesystem })));
 			}
 			expect({ scans, fullReads }).toEqual({ scans: 0, fullReads: 1 });
 			expect(results[1]?.regions).toEqual(results[0]?.regions);
@@ -526,11 +486,9 @@ describe("grep local search", () => {
 		["字节", "grep_content_cache_bytes"],
 		["文件数", "grep_content_cache_entries"],
 	] as const)("正文缓存%s上限为 0 时每次调用都稳定读取", async (_name, field) => {
-		const configPath = path.join(testContext.outside, `content-cache-disabled-${field}.jsonc`);
-		await writeConfig(configPath, { [field]: 0 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ [field]: 0 }, `content-cache-disabled-${field}`);
 		await writeFile(path.join(testContext.workspace, "disabled.ts"), "export function disabled() { return 'DisabledCacheNeedle'; }\n");
-		await withGrepRuntime(testContext.workspace, "grep-cache-disabled", async ({ tool, opened }) => {
+		await withGrepRuntime(testContext.workspace, "grep-cache-disabled", async ({ execute, opened }) => {
 			let fullReads = 0;
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
 				async readText(file, options) {
@@ -539,11 +497,7 @@ describe("grep local search", () => {
 				},
 			}));
 			for (let index = 0; index < 2; index += 1) {
-				expectGrepSuccess(await tool.execute({ query: "DisabledCacheNeedle" }, {
-					filesystem,
-					operation: opened.context,
-					limits: opened.limits,
-				}));
+				expectGrepSuccess(await execute({ query: "DisabledCacheNeedle" }, { filesystem }));
 			}
 			expect(fullReads).toBe(2);
 		});
@@ -551,7 +505,7 @@ describe("grep local search", () => {
 
 	it("并发 invocation 结束后保留最后加载的正文缓存限制", async () => {
 		await writeFile(path.join(testContext.workspace, "concurrent-cache.ts"), "export const concurrent = 'ConcurrentCacheNeedle';\n");
-		await withGrepRuntime(testContext.workspace, "grep-cache-concurrent-limits", async ({ tool, opened }) => {
+		await withGrepRuntime(testContext.workspace, "grep-cache-concurrent-limits", async ({ execute, opened }) => {
 			const readStarted = deferredVoid();
 			const continueRead = deferredVoid();
 			let blockFirstRead = true;
@@ -567,31 +521,19 @@ describe("grep local search", () => {
 					return await service.readText(file, options);
 				},
 			}));
-			const warm = tool.execute({ query: "ConcurrentCacheNeedle" }, {
-				filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			});
+			const warm = execute({ query: "ConcurrentCacheNeedle" }, { filesystem });
 			await readStarted.promise;
-			expectGrepSuccess(await tool.execute({ query: "ConcurrentCacheNeedle" }, {
-				filesystem: opened.filesystem,
-				operation: opened.context,
-				limits: { ...opened.limits, grep_content_cache_entries: 0 },
-			}));
+			expectGrepSuccess(await execute({ query: "ConcurrentCacheNeedle" }, { limits: { ...opened.limits, grep_content_cache_entries: 0 } }));
 			continueRead.resolve();
 			expectGrepSuccess(await warm);
-			expectGrepSuccess(await tool.execute({ query: "ConcurrentCacheNeedle" }, {
-				filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			}));
+			expectGrepSuccess(await execute({ query: "ConcurrentCacheNeedle" }, { filesystem }));
 			expect(observedReads).toBe(2);
 		});
 	});
 
 	it("cache snapshot 复验被取消时不淘汰共享正文", async () => {
 		await writeFile(path.join(testContext.workspace, "cancel-cache.ts"), "export const cached = 'CancelCacheNeedle';\n");
-		await withGrepRuntime(testContext.workspace, "grep-cache-cancel", async ({ tool, opened }) => {
+		await withGrepRuntime(testContext.workspace, "grep-cache-cancel", async ({ execute, opened }) => {
 			let fullReads = 0;
 			const filesystem = overrideContent(opened.filesystem, (service) => ({
 				async readText(file, options) {
@@ -599,11 +541,7 @@ describe("grep local search", () => {
 					return await service.readText(file, options);
 				},
 			}));
-			expectGrepSuccess(await tool.execute({ query: "CancelCacheNeedle" }, {
-				filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			}));
+			expectGrepSuccess(await execute({ query: "CancelCacheNeedle" }, { filesystem }));
 
 			const controller = new AbortController();
 			const metadata = filesystem.metadata;
@@ -617,17 +555,12 @@ describe("grep local search", () => {
 					},
 				},
 			};
-			await expect(tool.execute({ query: "CancelCacheNeedle" }, {
+			await expect(execute({ query: "CancelCacheNeedle" }, {
 				filesystem: abortingFilesystem,
 				operation: { signal: controller.signal },
-				limits: opened.limits,
 			})).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
 
-			expectGrepSuccess(await tool.execute({ query: "CancelCacheNeedle" }, {
-				filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			}));
+			expectGrepSuccess(await execute({ query: "CancelCacheNeedle" }, { filesystem }));
 			expect(fullReads).toBe(2);
 		});
 	});
@@ -638,7 +571,7 @@ describe("grep local search", () => {
 			await writeFile(path.join(testContext.workspace, `${name}.ts`), content(name));
 		}
 		const entryBytes = Buffer.byteLength(content("a"));
-		await withGrepRuntime(testContext.workspace, "grep-cache-lru", async ({ tool, opened }) => {
+		await withGrepRuntime(testContext.workspace, "grep-cache-lru", async ({ execute, opened }) => {
 			const fullReads: string[] = [];
 			const filesystem = overrideContent(opened.filesystem, (service) => ({
 				async readText(file, options) {
@@ -653,11 +586,7 @@ describe("grep local search", () => {
 					: { grep_content_cache_entries: 2 }),
 			};
 			for (const name of ["a", "b", "a", "c", "a", "b"]) {
-				expectGrepSuccess(await tool.execute({ path: [`${name}.ts`], query: "LruCacheNeedle" }, {
-					filesystem,
-					operation: opened.context,
-					limits,
-				}));
+				expectGrepSuccess(await execute({ path: [`${name}.ts`], query: "LruCacheNeedle" }, { filesystem, limits }));
 			}
 			expect(fullReads).toEqual(["a.ts", "b.ts", "c.ts", "b.ts"]);
 		});
@@ -668,7 +597,7 @@ describe("grep local search", () => {
 		const oversized = `export const oversized = 'OversizeCacheNeedle ${"x".repeat(128)}';\n`;
 		await writeFile(path.join(testContext.workspace, "cached.ts"), cached);
 		await writeFile(path.join(testContext.workspace, "oversized.ts"), oversized);
-		await withGrepRuntime(testContext.workspace, "grep-cache-oversized", async ({ tool, opened }) => {
+		await withGrepRuntime(testContext.workspace, "grep-cache-oversized", async ({ execute, opened }) => {
 			const fullReads: string[] = [];
 			const filesystem = overrideContent(opened.filesystem, (service) => ({
 				async readText(file, options) {
@@ -678,11 +607,7 @@ describe("grep local search", () => {
 			}));
 			const limits = { ...opened.limits, grep_content_cache_bytes: Buffer.byteLength(cached) };
 			for (const file of ["cached.ts", "oversized.ts", "cached.ts"]) {
-				expectGrepSuccess(await tool.execute({ path: [file], query: "OversizeCacheNeedle" }, {
-					filesystem,
-					operation: opened.context,
-					limits,
-				}));
+				expectGrepSuccess(await execute({ path: [file], query: "OversizeCacheNeedle" }, { filesystem, limits }));
 			}
 			expect(fullReads).toEqual(["cached.ts", "oversized.ts"]);
 		});
@@ -691,12 +616,8 @@ describe("grep local search", () => {
 	it("正文 cache hit 在 inventory 后发生替换时拒绝 stale 内容", async () => {
 		const filePath = path.join(testContext.workspace, "warm-race.ts");
 		await writeFile(filePath, "export function before() { return 'WarmRaceNeedle'; }\n");
-		await withGrepRuntime(testContext.workspace, "grep-cache-race", async ({ tool, opened }) => {
-			expect(firstRegion(expectGrepSuccess(await tool.execute({ query: "WarmRaceNeedle" }, {
-				filesystem: opened.filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			})))).toMatchObject({ symbol: "before" });
+		await withGrepRuntime(testContext.workspace, "grep-cache-race", async ({ execute, opened }) => {
+			expect(firstRegion(expectGrepSuccess(await execute({ query: "WarmRaceNeedle" })))).toMatchObject({ symbol: "before" });
 
 			const paths = opened.filesystem.paths;
 			let changed = false;
@@ -708,11 +629,7 @@ describe("grep local search", () => {
 					await writeFile(filePath, "export const after = true; // replacement\n");
 				}),
 			};
-			const raced = expectGrepSuccess(await tool.execute({ query: "WarmRaceNeedle" }, {
-				filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			}));
+			const raced = expectGrepSuccess(await execute({ query: "WarmRaceNeedle" }, { filesystem }));
 			expect(changed).toBe(true);
 			expect(raced.regions).toEqual([]);
 			expect(raced.stats.skipped_files).toMatchObject({ changed: 1 });
@@ -723,12 +640,8 @@ describe("grep local search", () => {
 		const filePath = path.join(testContext.workspace, "warm-link.ts");
 		const targetPath = path.join(testContext.workspace, "warm-target.ts");
 		await writeFile(filePath, "export const linked = 'WarmLinkCacheNeedle';\n");
-		await withGrepRuntime(testContext.workspace, "grep-cache-link-race", async ({ tool, opened }) => {
-			expectGrepSuccess(await tool.execute({ query: "WarmLinkCacheNeedle" }, {
-				filesystem: opened.filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			}));
+		await withGrepRuntime(testContext.workspace, "grep-cache-link-race", async ({ execute, opened }) => {
+			expectGrepSuccess(await execute({ query: "WarmLinkCacheNeedle" }));
 
 			const paths = opened.filesystem.paths;
 			let changed = false;
@@ -741,11 +654,7 @@ describe("grep local search", () => {
 					await symlink("warm-target.ts", filePath);
 				}),
 			};
-			const raced = expectGrepSuccess(await tool.execute({ query: "WarmLinkCacheNeedle" }, {
-				filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			}));
+			const raced = expectGrepSuccess(await execute({ query: "WarmLinkCacheNeedle" }, { filesystem }));
 			expect(changed).toBe(true);
 			expect(raced.regions).toEqual([]);
 			expect(raced.stats.skipped_files).toMatchObject({ changed: 1 });

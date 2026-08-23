@@ -100,15 +100,9 @@ describe("filesystem text services", () => {
 		await writeFile(path.join(workspace, "empty.txt"), "");
 		await writeFile(path.join(workspace, "mixed.txt"), "one\rtwo\nthree");
 		const opened = await openReadonly(workspace);
-		const empty = expectFsOk(await opened.services.content.readText(
-			await resolveFile(opened.namespace, "empty.txt"),
-			{},
-		));
+		const empty = expectFsOk(await opened.readText("empty.txt"));
 		expect(empty).toMatchObject({ text: "", totalLines: 0, newline: "none", hasBom: false });
-		const mixed = expectFsOk(await opened.services.content.readText(
-			await resolveFile(opened.namespace, "mixed.txt"),
-			{},
-		));
+		const mixed = expectFsOk(await opened.readText("mixed.txt"));
 		expect(mixed).toMatchObject({ totalLines: 3, newline: "mixed" });
 		expect(sliceTextByLineRange(mixed, { maxBytes: 2, maxLines: 10, path: "mixed.txt" })).toMatchObject({
 			ok: false,
@@ -191,16 +185,13 @@ describe("filesystem text services", () => {
 	])("rejects $code content", async ({ name, bytes, code }) => {
 		await writeFile(path.join(workspace, name), bytes);
 		const opened = await openReadonly(workspace);
-		const result = await opened.services.content.readText(await resolveFile(opened.namespace, name), {});
+		const result = await opened.readText(name);
 		expect(result).toMatchObject({ ok: false, error: { code, path: name } });
 	});
 
 	it("rejects files over the read limit without returning partial bytes", async () => {
 		await writeFile(path.join(workspace, "large.txt"), "12345");
 		const opened = await openReadonly(workspace);
-		expect(await opened.services.content.readBytes(
-			await resolveFile(opened.namespace, "large.txt"),
-			{ maxBytes: 4 },
-		)).toMatchObject({ ok: false, error: { code: "too-large", details: { limit: 4, size: 5 } } });
+		expect(await opened.readBytes("large.txt", { maxBytes: 4 })).toMatchObject({ ok: false, error: { code: "too-large", details: { limit: 4, size: 5 } } });
 	});
 });

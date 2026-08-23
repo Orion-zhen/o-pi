@@ -20,86 +20,40 @@ interface LoaderCase {
 }
 
 const cases: LoaderCase[] = [
-	{
-		name: "bash",
-		create: (failFirst) => {
-			let calls = 0;
-			const load = async () => {
-				calls += 1;
-				if (failFirst && calls === 1) throw new Error("expected failure");
-				return import("../../src/bash-tool/tui/renderer.js");
-			};
-			return { extension: createBashToolExtension(load), loadCount: () => calls };
-		},
-	},
-	{
-		name: "prune",
-		create: (failFirst) => {
-			let calls = 0;
-			const load = async () => {
-				calls += 1;
-				if (failFirst && calls === 1) throw new Error("expected failure");
-				return import("../../src/prune/tui/index.js");
-			};
-			return { extension: createPruneExtension(load), loadCount: () => calls };
-		},
-	},
-	{
-		name: "file",
-		create: (failFirst) => {
-			let calls = 0;
-			const load = async () => {
-				calls += 1;
-				if (failFirst && calls === 1) throw new Error("expected failure");
-				return import("../../src/file-tools/tui/index.js");
-			};
-			return { extension: createFileToolsExtension({ renderers: load }), loadCount: () => calls };
-		},
-	},
-	{
-		name: "web",
-		create: (failFirst) => {
-			let calls = 0;
-			const load = async () => {
-				calls += 1;
-				if (failFirst && calls === 1) throw new Error("expected failure");
-				const [webfetch, websearch] = await Promise.all([
-					import("../../src/web-tools/tui/webfetch.js"),
-					import("../../src/web-tools/tui/websearch.js"),
-				]);
-				return { ...webfetch, ...websearch };
-			};
-			const unreachableRuntime = async () => {
-				throw new Error("runtime must not load during session start");
-			};
-			return { extension: createWebToolsExtension(unreachableRuntime, load), loadCount: () => calls };
-		},
-	},
-	{
-		name: "skill",
-		create: (failFirst) => {
-			let calls = 0;
-			const load = async () => {
-				calls += 1;
-				if (failFirst && calls === 1) throw new Error("expected failure");
-				return import("../../src/skill-context/tui/renderer.js");
-			};
-			return { extension: createSkillContextExtension(load), loadCount: () => calls };
-		},
-	},
-	{
-		name: "subagent",
-		create: (failFirst) => {
-			let calls = 0;
-			const load = async () => {
-				calls += 1;
-				if (failFirst && calls === 1) throw new Error("expected failure");
-				return import("../../src/subagent/tui/adapter.js");
-			};
-			return { extension: createSubagentExtension(load), loadCount: () => calls };
-		},
-	},
+	loaderCase("bash", () => import("../../src/bash-tool/tui/renderer.js"), createBashToolExtension),
+	loaderCase("prune", () => import("../../src/prune/tui/index.js"), createPruneExtension),
+	loaderCase("file", () => import("../../src/file-tools/tui/index.js"), (load) => createFileToolsExtension({ renderers: load })),
+	loaderCase("web", async () => {
+		const [webfetch, websearch] = await Promise.all([
+			import("../../src/web-tools/tui/webfetch.js"),
+			import("../../src/web-tools/tui/websearch.js"),
+		]);
+		return { ...webfetch, ...websearch };
+	}, (load) => createWebToolsExtension(async () => {
+		throw new Error("runtime must not load during session start");
+	}, load)),
+	loaderCase("skill", () => import("../../src/skill-context/tui/renderer.js"), createSkillContextExtension),
+	loaderCase("subagent", () => import("../../src/subagent/tui/adapter.js"), createSubagentExtension),
 ];
+
+function loaderCase<Renderer>(
+	name: string,
+	loadRenderer: () => Promise<Renderer>,
+	createExtension: (load: () => Promise<Renderer>) => ExtensionRegistration,
+): LoaderCase {
+	return {
+		name,
+		create(failFirst) {
+			let calls = 0;
+			const load = async () => {
+				calls += 1;
+				if (failFirst && calls === 1) throw new Error("expected failure");
+				return loadRenderer();
+			};
+			return { extension: createExtension(load), loadCount: () => calls };
+		},
+	};
+}
 
 describe.each(cases)("$name TUI loader", ({ create }) => {
 	it("rpc/json/print 不加载，重复 TUI start 只加载一次", async () => {

@@ -20,7 +20,6 @@ import {
 	grepWithAnalyzer,
 	overrideContent,
 	withFileToolsInvocation,
-	writeConfig,
 } from "./grep-fixtures.js";
 import { packCandidate, packRegions, queryPlan, rankingEvidence } from "./grep-ranking-fixtures.js";
 
@@ -97,9 +96,7 @@ describe("grep text search", () => {
 	});
 
 	it("同文件 text region 只在模型文本中分组，候选和结果限制仍逐行计算", async () => {
-		const configPath = path.join(testContext.outside, "text-render-group.jsonc");
-		await writeConfig(configPath, { grep_result_limit: 2, grep_regional_display_limit: 1 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_result_limit: 2, grep_regional_display_limit: 1 }, "text-render-group");
 		await writeFile(path.join(testContext.workspace, "grouped.conf"), [
 			"needle first",
 			"needle second",
@@ -189,9 +186,7 @@ describe("grep text search", () => {
 	});
 
 	it.each(["LargeNeedle", "LargeNeed\\w+"])("query=%s 可流式搜索超过旧 1 MiB 和 parse 上限的文件", async (query) => {
-		const configPath = path.join(testContext.outside, "large.jsonc");
-		await writeConfig(configPath, { grep_ast_max_file_bytes: 1024 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_ast_max_file_bytes: 1024 }, "large");
 		await writeFile(path.join(testContext.workspace, "large.txt"), `${"padding\n".repeat(140_000)}LargeNeedle\n`);
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query }));
 		expect(firstRegion(result)).toMatchObject({ path: "large.txt", query_match: "verified" });
@@ -200,9 +195,7 @@ describe("grep text search", () => {
 	});
 
 	it("累计正文预算在下一文件前停止扫描并报告 byte_limit", async () => {
-		const configPath = path.join(testContext.outside, "byte-limit.jsonc");
-		await writeConfig(configPath, { grep_max_search_bytes: 1024 });
-		process.env.PI_FILE_TOOLS_CONFIG = configPath;
+		await testContext.useConfig({ grep_max_search_bytes: 1024 }, "byte-limit");
 		await writeFile(path.join(testContext.workspace, "a.txt"), `Needle42\n${"a".repeat(700)}`);
 		await writeFile(path.join(testContext.workspace, "b.txt"), `Needle42\n${"b".repeat(700)}`);
 		const result = expectGrepSuccess(await grepWorkspaceFiles(testContext.workspace, { query: "Needle42" }));

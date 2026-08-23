@@ -1,9 +1,7 @@
-import path from "node:path";
 import type { ApiKeyCredential, AuthResult, ModelsStoreEntry, Provider, RefreshModelsContext } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 
-import { registerOpenAICompatibleProviders } from "../../src/openai-compatible-provider/register.js";
-import { createExtensionHarness, loadConfigFromText, providerConfigText } from "./fixtures.js";
+import { loadConfigFromText, providerConfigText, registerProvider } from "./fixtures.js";
 import { useOpenAICompatibleProviderTestSetup } from "./test-support.js";
 
 const temp = useOpenAICompatibleProviderTestSetup();
@@ -30,9 +28,7 @@ describe("openai-compatible-provider model discovery", () => {
 			.mockResolvedValueOnce(jsonResponse({ data: [{ id: "replacement" }] }));
 		const stores = new Map<string, ModelsStoreEntry>();
 		const publish = createMapPublisher(stores, "local");
-		const firstHarness = createExtensionHarness();
-		const [first] = registerOpenAICompatibleProviders(firstHarness.pi, config, path.join(temp.path, "models.jsonc"));
-		if (!first) throw new Error("first provider was not registered");
+		const { provider: first, harness: firstHarness } = registerProvider(config, temp.path);
 		await refreshProvider(first, { publish, allowNetwork: true });
 		expect(first.getModels()).toMatchObject([
 			{
@@ -51,9 +47,7 @@ describe("openai-compatible-provider model discovery", () => {
 		expect(stored.models.every((model) => !Object.hasOwn(model.headers ?? {}, "x-o-pi-model-source"))).toBe(true);
 		expect(stored.models.map((model) => model.id)).toEqual(["manual", "dynamic"]);
 
-		const secondHarness = createExtensionHarness();
-		const [second] = registerOpenAICompatibleProviders(secondHarness.pi, config, path.join(temp.path, "models.jsonc"));
-		if (!second) throw new Error("second provider was not registered");
+		const { provider: second, harness: secondHarness } = registerProvider(config, temp.path);
 		await refreshProvider(second, { stored, publish, allowNetwork: false });
 		expect(second.getModels()).toMatchObject([
 			{
@@ -84,9 +78,7 @@ describe("openai-compatible-provider model discovery", () => {
 			apiKey: "sk-test",
 			models: [{ id: "manual", name: "Changed Manual" }],
 		}, "local"));
-		const thirdHarness = createExtensionHarness();
-		const [third] = registerOpenAICompatibleProviders(thirdHarness.pi, changedConfig, path.join(temp.path, "models.jsonc"));
-		if (!third) throw new Error("third provider was not registered");
+		const { provider: third } = registerProvider(changedConfig, temp.path);
 		await refreshProvider(third, { stored, publish, allowNetwork: false });
 		expect(third.getModels().map((model) => [model.id, model.name, model.contextWindow])).toEqual([
 			["manual", "Manual", 200000],
@@ -107,12 +99,7 @@ describe("openai-compatible-provider model discovery", () => {
 			calls.push({ url: String(input), headers: Object.fromEntries(new Headers(init?.headers)) });
 			return jsonResponse(CURRENT_MODELS_RESPONSE);
 		});
-		const [provider] = registerOpenAICompatibleProviders(
-			createExtensionHarness().pi,
-			config,
-			path.join(temp.path, "models.jsonc"),
-		);
-		if (!provider) throw new Error("provider was not registered");
+		const { provider: provider } = registerProvider(config, temp.path);
 		await refreshProvider(provider, { allowNetwork: true });
 
 		expect(calls).toEqual([
@@ -163,12 +150,7 @@ describe("openai-compatible-provider model discovery", () => {
 				],
 			});
 		});
-		const [provider] = registerOpenAICompatibleProviders(
-			createExtensionHarness().pi,
-			config,
-			path.join(temp.path, "models.jsonc"),
-		);
-		if (!provider) throw new Error("provider was not registered");
+		const { provider: provider } = registerProvider(config, temp.path);
 		await refreshProvider(provider, { allowNetwork: true });
 		const models = provider.getModels();
 
@@ -203,12 +185,7 @@ describe("openai-compatible-provider model discovery", () => {
 	] as const)("拒绝不支持的模型目录响应 %#", async (payload, expected) => {
 		const config = await loadConfigFromText(temp.path, providerConfigText({ models: "auto" }));
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(payload));
-		const [provider] = registerOpenAICompatibleProviders(
-			createExtensionHarness().pi,
-			config,
-			path.join(temp.path, "models.jsonc"),
-		);
-		if (!provider) throw new Error("provider was not registered");
+		const { provider: provider } = registerProvider(config, temp.path);
 
 		await expect(refreshProvider(provider, { allowNetwork: true })).rejects.toThrow(expected);
 	});
@@ -218,12 +195,7 @@ describe("openai-compatible-provider model discovery", () => {
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({
 			data: [{ id: "duplicate", context_length: 1000 }, { id: "duplicate", context_length: 2000 }],
 		}));
-		const [provider] = registerOpenAICompatibleProviders(
-			createExtensionHarness().pi,
-			config,
-			path.join(temp.path, "models.jsonc"),
-		);
-		if (!provider) throw new Error("provider was not registered");
+		const { provider: provider } = registerProvider(config, temp.path);
 
 		await expect(refreshProvider(provider, { allowNetwork: true })).rejects.toThrow(
 			'provider "gateway" contains duplicate model "duplicate"',
@@ -243,12 +215,7 @@ describe("openai-compatible-provider model discovery", () => {
 				architecture: { input_modalities: ["text", "vision"] },
 			}],
 		}));
-		const [provider] = registerOpenAICompatibleProviders(
-			createExtensionHarness().pi,
-			config,
-			path.join(temp.path, "models.jsonc"),
-		);
-		if (!provider) throw new Error("provider was not registered");
+		const { provider: provider } = registerProvider(config, temp.path);
 		await refreshProvider(provider, { allowNetwork: true });
 
 		expect(provider.getModels()[0]).toMatchObject({
@@ -271,12 +238,7 @@ describe("openai-compatible-provider model discovery", () => {
 			headers = Object.fromEntries(new Headers(init?.headers));
 			return jsonResponse({ data: [{ id: "local-model" }] });
 		});
-		const [provider] = registerOpenAICompatibleProviders(
-			createExtensionHarness().pi,
-			config,
-			path.join(temp.path, "models.jsonc"),
-		);
-		if (!provider) throw new Error("provider was not registered");
+		const { provider: provider } = registerProvider(config, temp.path);
 		const auth = provider.auth.apiKey;
 		if (!auth?.resolve) throw new Error("provider API-key auth is missing");
 		const result = await auth.resolve({
@@ -301,12 +263,7 @@ describe("openai-compatible-provider model discovery", () => {
 		vi.spyOn(globalThis, "fetch")
 			.mockResolvedValueOnce(jsonResponse({ data: [{ id: "manual" }, { id: "dynamic" }] }))
 			.mockImplementation(async () => new Response('{"error":"stop"}', { status: 400 }));
-		const [provider] = registerOpenAICompatibleProviders(
-			createExtensionHarness().pi,
-			config,
-			path.join(temp.path, "models.jsonc"),
-		);
-		if (!provider) throw new Error("provider was not registered");
+		const { provider: provider } = registerProvider(config, temp.path);
 		await refreshProvider(provider, { allowNetwork: true });
 
 		for (const id of ["manual", "dynamic"]) {
@@ -331,12 +288,7 @@ describe("openai-compatible-provider model discovery", () => {
 
 	it("模型目录刷新收到非 API key credential 时明确失败", async () => {
 		const config = await loadConfigFromText(temp.path, providerConfigText({ models: "auto" }));
-		const [provider] = registerOpenAICompatibleProviders(
-			createExtensionHarness().pi,
-			config,
-			path.join(temp.path, "models.jsonc"),
-		);
-		if (!provider) throw new Error("provider was not registered");
+		const { provider: provider } = registerProvider(config, temp.path);
 
 		await expect(refreshProvider(provider, {
 			allowNetwork: true,
@@ -353,12 +305,7 @@ describe("openai-compatible-provider model discovery", () => {
 		vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			jsonResponse({ error: "unauthorized" }, { status: 401, statusText: "Unauthorized" }),
 		);
-		const [provider] = registerOpenAICompatibleProviders(
-			createExtensionHarness().pi,
-			config,
-			path.join(temp.path, "models.jsonc"),
-		);
-		if (!provider) throw new Error("provider was not registered");
+		const { provider: provider } = registerProvider(config, temp.path);
 
 		await expect(refreshProvider(provider, { allowNetwork: true })).rejects.toThrow(
 			'provider "gateway" models endpoint returned HTTP 401 Unauthorized',
@@ -372,12 +319,7 @@ describe("openai-compatible-provider model discovery", () => {
 			apiKey: "sk-test",
 			models: "auto",
 		}));
-		const [provider] = registerOpenAICompatibleProviders(
-			createExtensionHarness().pi,
-			config,
-			path.join(temp.path, "models.jsonc"),
-		);
-		if (!provider) throw new Error("provider was not registered");
+		const { provider: provider } = registerProvider(config, temp.path);
 
 		const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not json"));
 		await expect(refreshProvider(provider, { allowNetwork: true })).rejects.toThrow("did not return valid JSON");

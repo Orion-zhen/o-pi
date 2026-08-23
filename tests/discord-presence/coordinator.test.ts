@@ -32,6 +32,25 @@ afterEach(() => {
 	vi.useRealTimers();
 });
 
+function coordinatorEndpoint(name: string): string {
+	if (process.platform === "win32") {
+		return `\\\\.\\pipe\\o-pi-discord-presence-test-${process.pid}-${path.basename(temp.path)}-${name}`;
+	}
+	return path.join(temp.path, `${name}.sock`);
+}
+
+function endpointAcceptsConnections(endpoint: string): Promise<boolean> {
+	return new Promise((resolve) => {
+		const socket = createConnection(endpoint);
+		const finish = (connected: boolean): void => {
+			socket.destroy();
+			resolve(connected);
+		};
+		socket.once("connect", () => finish(true));
+		socket.once("error", () => finish(false));
+	});
+}
+
 describe("Discord presence 多进程协调", () => {
 	it.each([
 		[{ type: "activity", activity: { instance: true }, activeAt: 1 }, "instance"],
@@ -131,7 +150,7 @@ describe("Discord presence 多进程协调", () => {
 
 	it("无响应的协调器不会阻塞激活，恢复后无需新事件即可发布初始状态", async () => {
 		vi.useRealTimers();
-		const endpoint = path.join(temp.path, "silent.sock");
+		const endpoint = coordinatorEndpoint("silent");
 		let acceptConnection: (() => void) | undefined;
 		const accepted = new Promise<void>((resolve) => {
 			acceptConnection = resolve;
@@ -178,7 +197,7 @@ describe("Discord presence 多进程协调", () => {
 
 	it("两个真实 IPC 客户端共享协调器并按最新活动切换", async () => {
 		vi.useRealTimers();
-		const endpoint = path.join(temp.path, "coordinator.sock");
+		const endpoint = coordinatorEndpoint("coordinator");
 		const output = new FakeCoordinatorOutput();
 		const server = createPresenceCoordinatorServer({ endpoint, output });
 		await server.listen();
@@ -216,7 +235,7 @@ describe("Discord presence 多进程协调", () => {
 
 	it("协调器异常重启后客户端恢复共享起点和最近活动者", async () => {
 		vi.useRealTimers();
-		const endpoint = path.join(temp.path, "restart.sock");
+		const endpoint = coordinatorEndpoint("restart");
 		const firstOutput = new FakeCoordinatorOutput();
 		const firstServer = createPresenceCoordinatorServer({ endpoint, output: firstOutput });
 		await firstServer.listen();
@@ -253,10 +272,10 @@ describe("Discord presence 多进程协调", () => {
 
 	it("首个客户端能按需启动守护进程，并在最后一员退出后清理 socket", async () => {
 		vi.useRealTimers();
-		const endpoint = path.join(temp.path, "daemon.sock");
+		const endpoint = coordinatorEndpoint("daemon");
 		const coordinator = new DiscordPresenceCoordinatorClient({ endpoint, participantId: "daemon-test" });
 		await coordinator.activate(coordinatedConfig(), Date.now());
-		await vi.waitFor(() => expect(access(endpoint)).resolves.toBeUndefined(), { timeout: 5_000 });
+		await vi.waitFor(() => expect(endpointAcceptsConnections(endpoint)).resolves.toBe(true), { timeout: 5_000 });
 
 		const probe = createConnection(endpoint);
 		await new Promise<void>((resolve, reject) => {
@@ -290,8 +309,8 @@ describe("Discord presence 多进程协调", () => {
 			probe.end();
 		});
 		await vi.waitFor(async () => {
-			await expect(access(endpoint)).rejects.toThrow();
-			await expect(access(`${endpoint}.lock`)).rejects.toThrow();
+			await expect(endpointAcceptsConnections(endpoint)).resolves.toBe(false);
+			if (process.platform !== "win32") await expect(access(`${endpoint}.lock`)).rejects.toThrow();
 		}, { timeout: 5_000 });
 	});
 });

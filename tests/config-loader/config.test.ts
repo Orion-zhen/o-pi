@@ -70,52 +70,26 @@ describe("layered config loader", () => {
 			.rejects.toMatchObject({ message: "missing-test default config is missing.", details: { layer: "default" } });
 	});
 
-	it("完整默认层校验要求所有固定字段，overlay schema 仍可保持稀疏", async () => {
-		const schemaPath = path.join(temp.path, "complete.schema.json");
-		await writeFile(schemaPath, JSON.stringify({
-			type: "object",
-			additionalProperties: false,
-			properties: {
-				enabled: { type: "boolean" },
-				nested: {
-					type: "object",
-					additionalProperties: false,
-					properties: { value: { type: "integer" } },
-				},
-			},
-		}));
+	it.each([
+		{
+			name: "要求所有固定字段",
+			optional: [],
+			cases: [[{ enabled: true, nested: {} }, false], [{ enabled: true, nested: { value: 1 } }, true]],
+		},
+		{
+			name: "允许模块运行时补齐字段",
+			optional: ["nested"],
+			cases: [[{ enabled: true }, true], [{ enabled: true, nested: {} }, false], [{ enabled: true, nested: { value: 1 } }, true]],
+		},
+	] as const)("完整默认层校验$name", async ({ optional, cases }) => {
+		const schemaPath = await writeCompleteSchema("complete.schema.json");
 		const validate = await createCompleteSchemaValidator({
 			schemaPath,
 			label: "complete-test",
+			optionalCompleteProperties: optional,
 			createError: (message) => new Error(message),
 		})();
-		expect(validate({ enabled: true, nested: {} })).toBe(false);
-		expect(validate({ enabled: true, nested: { value: 1 } })).toBe(true);
-	});
-
-	it("完整默认层可显式允许由模块运行时补齐的字段", async () => {
-		const schemaPath = path.join(temp.path, "runtime-default.schema.json");
-		await writeFile(schemaPath, JSON.stringify({
-			type: "object",
-			additionalProperties: false,
-			properties: {
-				enabled: { type: "boolean" },
-				nested: {
-					type: "object",
-					additionalProperties: false,
-					properties: { value: { type: "integer" } },
-				},
-			},
-		}));
-		const validate = await createCompleteSchemaValidator({
-			schemaPath,
-			label: "runtime-default-test",
-			optionalCompleteProperties: ["nested"],
-			createError: (message) => new Error(message),
-		})();
-		expect(validate({ enabled: true })).toBe(true);
-		expect(validate({ enabled: true, nested: {} })).toBe(false);
-		expect(validate({ enabled: true, nested: { value: 1 } })).toBe(true);
+		for (const [value, expected] of cases) expect(validate(value)).toBe(expected);
 	});
 
 	it("逐层校验后合并配置，并保留加载快照信息", async () => {
@@ -178,3 +152,20 @@ describe("layered config loader", () => {
 		)).toEqual({ nested: { inherited: true, value: 2 }, list: [3], scalar: "overlay" });
 	});
 });
+
+async function writeCompleteSchema(name: string): Promise<string> {
+	const schemaPath = path.join(temp.path, name);
+	await writeFile(schemaPath, JSON.stringify({
+		type: "object",
+		additionalProperties: false,
+		properties: {
+			enabled: { type: "boolean" },
+			nested: {
+				type: "object",
+				additionalProperties: false,
+				properties: { value: { type: "integer" } },
+			},
+		},
+	}));
+	return schemaPath;
+}

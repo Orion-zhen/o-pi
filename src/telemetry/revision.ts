@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import path from "node:path";
 import { promisify } from "node:util";
 
 import type { GitRevision } from "./types.js";
@@ -17,7 +18,7 @@ export async function captureGitRevision(cwd: string): Promise<GitRevision | und
 		]);
 		const separator = identity.lastIndexOf("\n", identity.length - 2);
 		if (separator < 0) return undefined;
-		const root = identity.slice(0, separator).trim();
+		const root = path.resolve(identity.slice(0, separator).trim());
 		const commit = identity.slice(separator + 1).trim();
 		const dirty = status.length > 0;
 		if (!dirty) return { root, commit, dirty: false };

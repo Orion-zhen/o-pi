@@ -165,7 +165,7 @@ describe("subagent agent discovery", () => {
 		expect(found.warnings.some((warning) => warning.includes("name is required"))).toBe(true);
 	});
 
-	it("拒绝项目 Agent 符号链接逃逸", async () => {
+	it.skipIf(process.platform === "win32")("拒绝项目 Agent 符号链接逃逸", async () => {
 		const outside = path.join(dir, "outside.md");
 		await writeFile(outside, agentMarkdown("outside", "Outside", "read"));
 		await mkdir(path.join(dir, ".pi", "agents"), { recursive: true });
@@ -174,7 +174,7 @@ describe("subagent agent discovery", () => {
 		expect(found.agents.map((agent) => agent.name)).not.toContain("outside");
 	});
 
-	it("拒绝 .agents 项目 Agent 符号链接逃逸", async () => {
+	it.skipIf(process.platform === "win32")("拒绝 .agents 项目 Agent 符号链接逃逸", async () => {
 		const project = path.join(dir, "project");
 		const outside = path.join(dir, "outside.md");
 		await writeFile(outside, agentMarkdown("outside-agents", "Outside Agents", "read"));

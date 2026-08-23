@@ -2,11 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { WebFetchSuccessDetails } from "../../src/web-tools/core/types.js";
 import { formatWebFetchCall, formatWebFetchResult, renderWebFetchCall, renderWebFetchResult } from "../../src/web-tools/tui/webfetch.js";
+import { expectRendererLifecycle, theme } from "./renderer-fixture.js";
 
-const theme = {
-	fg: (_color: string, text: string) => text,
-	bold: (text: string) => text,
-};
 
 describe("webfetch renderer", () => {
 	it("残缺参数不崩溃，且 URL query 不泄漏", () => {
@@ -44,29 +41,25 @@ describe("webfetch renderer", () => {
 
 	it("progress 和最终结果接管调用阶段组件", () => {
 		const args = { url: "https://example.com/page", mode: "readable" };
-		const state = {};
-		let call = renderWebFetchCall(args, theme, { lastComponent: undefined, state });
-		expect(call.render(160).join("")).toContain("example.com/page");
-
-		call = renderWebFetchCall(args, theme, { lastComponent: call, state });
-		let result = renderWebFetchResult(
-			{ details: { status: "progress", phase: "requesting" } },
-			{ isPartial: true },
-			theme,
-			{ args, lastComponent: undefined, state },
-		);
-		expect(call.render(160).join("")).toBe("");
-		expect(result.render(160).join("")).toContain("example.com/page");
-
-		call = renderWebFetchCall(args, theme, { lastComponent: call, state });
-		result = renderWebFetchResult(
-			{ details: { status: "failed", requested_url: args.url, error: { code: "TIMEOUT", message: "deadline exceeded" } } },
-			{ isPartial: false },
-			theme,
-			{ args, lastComponent: result, state },
-		);
-		expect(call.render(160).join("")).toBe("");
-		expect(result.render(160).join("")).toContain("deadline exceeded");
+		expectRendererLifecycle({
+			createState: () => ({}),
+			renderCall: (lastComponent, state) => renderWebFetchCall(args, theme, { lastComponent, state }),
+			renderProgress: (lastComponent, state) => renderWebFetchResult(
+				{ details: { status: "progress", phase: "requesting" } },
+				{ isPartial: true },
+				theme,
+				{ args, lastComponent, state },
+			),
+			renderSettled: (lastComponent, state) => renderWebFetchResult(
+				{ details: { status: "failed", requested_url: args.url, error: { code: "TIMEOUT", message: "deadline exceeded" } } },
+				{ isPartial: false },
+				theme,
+				{ args, lastComponent, state },
+			),
+			initialContains: ["example.com/page"],
+			progressContains: ["example.com/page"],
+			settledContains: ["deadline exceeded"],
+		});
 	});
 });
 

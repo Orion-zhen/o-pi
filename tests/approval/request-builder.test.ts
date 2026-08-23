@@ -23,7 +23,7 @@ describe("approval request builder", () => {
 
 	it("复合命令按 pipeline、&& 和重定向拆分", async () => {
 		const request = await buildApprovalRequest(
-			bash(`echo ready && git push origin main | tee result.log 2>${systemPath}`),
+			bash(`echo ready && git push origin main | tee result.log 2>${systemPath.replace(/\\/g, "/")}`),
 			cwd,
 		);
 		expect(request?.units.map((unit) => unit.target.value)).toEqual([

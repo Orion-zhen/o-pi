@@ -65,5 +65,9 @@ export function useMutationFixture(prefix: string) {
 		async resolveTarget(opened: WorkspaceFileSystemLease, input: string): Promise<TargetRef> {
 			return expectFsOk(await opened.filesystem.paths.resolveTarget(input, { followExistingSymlink: true }));
 		},
+		async commitPath(opened: WorkspaceFileSystemLease, input: string, bytes: Uint8Array, options: MutationOptions) {
+			const target = expectFsOk(await opened.filesystem.paths.resolveTarget(input, { followExistingSymlink: true }));
+			return await commitBytes(opened, target, bytes, options);
+		},
 	};
 }

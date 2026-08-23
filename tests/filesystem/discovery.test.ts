@@ -16,8 +16,6 @@ import {
 	expectFsOk,
 	openReadonly,
 	overrideNativeFileSystem,
-	resolveDirectory,
-	resolveFile,
 	type OpenedReadonly,
 } from "./fixtures.js";
 
@@ -105,7 +103,7 @@ describe("filesystem discovery", () => {
 		await mkdir(path.join(workspace, "src"));
 		await writeFile(path.join(workspace, "src", "a.ts"), "a");
 		const opened = await openReadonly(workspace);
-		const file = await resolveFile(opened.namespace, "src/a.ts");
+		const file = await opened.resolveFile("src/a.ts");
 		expect(entryPaths(await discover(opened, file, { glob: "*.ts" }))).toEqual(["a.ts"]);
 		expect(await discover(opened, file, { glob: "src/*.ts" })).toEqual([]);
 	});
@@ -114,7 +112,7 @@ describe("filesystem discovery", () => {
 		await writeFile(path.join(workspace, "real.ts"), "real");
 		await symlink("real.ts", path.join(workspace, "alias.ts"));
 		const opened = await openReadonly(workspace);
-		const alias = await resolveFile(opened.namespace, "alias.ts");
+		const alias = await opened.resolveFile("alias.ts");
 		expect(entryPaths(await discover(opened, alias, {}))).toEqual(["alias.ts"]);
 
 		const events = await discover(opened, opened.namespace.root, {});
@@ -129,7 +127,7 @@ describe("filesystem discovery", () => {
 		await writeFile(path.join(workspace, "ignored", "deep", "explicit.ts"), "ignored");
 		await writeFile(path.join(workspace, ".piignore"), "ignored/\n");
 		const opened = await openReadonly(workspace);
-		const ignored = await resolveDirectory(opened.namespace, "ignored");
+		const ignored = await opened.resolveDirectory("ignored");
 
 		const explicit = await discover(opened, ignored, { glob: "deep/*.ts" });
 		expect(entryPaths(explicit)).toEqual(["deep/explicit.ts"]);
@@ -222,7 +220,7 @@ describe("filesystem discovery", () => {
 	it("让显式文件的 entry limit 零开销结束", async () => {
 		await writeFile(path.join(workspace, "a.txt"), "a");
 		const opened = await openReadonly(workspace);
-		const file = await resolveFile(opened.namespace, "a.txt");
+		const file = await opened.resolveFile("a.txt");
 		expect(await discover(opened, file, { maxEntries: 0 })).toEqual([
 			expect.objectContaining({ type: "skip", reason: "entry-limit" }),
 		]);

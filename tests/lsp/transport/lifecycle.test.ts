@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { LspClient } from "../../../src/lsp/client/client.js";
 import { LspManager } from "../../../src/lsp/manager/manager.js";
 import { pathToFileUri } from "../../../src/lsp/protocol/uri.js";
-import { createFakeServer, deferred, directClient, queryManagerSymbols, send, useTransportFixture, writeConfig } from "./fixtures.js";
+import { createManager, createFakeServer, createWorkspaceSymbolServer, deferred, directClient, queryManagerSymbols, send, useTransportFixture, writeConfig } from "./fixtures.js";
 
 const transport = useTransportFixture();
 
@@ -59,11 +59,7 @@ describe("lsp transport lifecycle", () => {
 				});
 			}
 		});
-		await writeConfig(transport, 
-			{ type: "tcp", host: "127.0.0.1", port: fake.port },
-			{ startup_timeout_ms: 1000, request_timeout_ms: 1000 },
-		);
-		const manager = transport.manager = new LspManager();
+		const manager = await createManager(transport, fake, { startup_timeout_ms: 1000, request_timeout_ms: 1000 });
 		const controller = new AbortController();
 		const pending = queryManagerSymbols(manager, workspace, "target", controller.signal);
 		await initializeSeen.promise;
@@ -103,13 +99,9 @@ describe("lsp transport lifecycle", () => {
 	it("idle timer 不会中断活动请求", async () => {
 		let releaseRequest: () => void = () => undefined;
 		const requestSeen = deferred<void>();
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true, documentSymbolProvider: true, referencesProvider: true, callHierarchyProvider: true } } });
-			} else if (message.method === "workspace/symbol") {
+		const fake = await createWorkspaceSymbolServer(transport, (message, socket) => {
 				requestSeen.resolve();
 				releaseRequest = () => send(socket, { id: message.id, result: [] });
-			}
 		});
 		const client = directClient(transport, fake, 64, 10);
 		expect(await client.ensureReady()).toBe(true);
@@ -134,10 +126,7 @@ describe("lsp transport lifecycle", () => {
 		let symbolRequests = 0;
 		let releaseFirst: () => void = () => undefined;
 		const firstSeen = deferred<void>();
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true, documentSymbolProvider: true, referencesProvider: true, callHierarchyProvider: true } } });
-			} else if (message.method === "workspace/symbol") {
+		const fake = await createWorkspaceSymbolServer(transport, (message, socket) => {
 				symbolRequests += 1;
 				if (symbolRequests === 1) {
 					firstSeen.resolve();
@@ -145,10 +134,8 @@ describe("lsp transport lifecycle", () => {
 				} else {
 					send(socket, { id: message.id, result: [] });
 				}
-			}
 		});
-		await writeConfig(transport, { type: "tcp", host: "127.0.0.1", port: fake.port });
-		const manager = transport.manager = new LspManager();
+		const manager = await createManager(transport, fake);
 		const first = queryManagerSymbols(manager, workspace, "first");
 		await firstSeen.promise;
 		const reloading = manager.reload();
@@ -166,10 +153,7 @@ describe("lsp transport lifecycle", () => {
 		let symbolRequests = 0;
 		let releaseRaced: () => void = () => undefined;
 		const racedSeen = deferred<void>();
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true, documentSymbolProvider: true, referencesProvider: true, callHierarchyProvider: true } } });
-			} else if (message.method === "workspace/symbol") {
+		const fake = await createWorkspaceSymbolServer(transport, (message, socket) => {
 				symbolRequests += 1;
 				if (symbolRequests === 2) {
 					racedSeen.resolve();
@@ -177,10 +161,8 @@ describe("lsp transport lifecycle", () => {
 				} else {
 					send(socket, { id: message.id, result: [] });
 				}
-			}
 		});
-		await writeConfig(transport, { type: "tcp", host: "127.0.0.1", port: fake.port });
-		const manager = transport.manager = new LspManager();
+		const manager = await createManager(transport, fake);
 		await expect(queryManagerSymbols(manager, workspace, "warmup")).resolves.toEqual([]);
 
 		const raced = queryManagerSymbols(manager, workspace, "raced");
@@ -198,15 +180,10 @@ describe("lsp transport lifecycle", () => {
 	});
 	it("活动操作失败后释放 reload drain", async () => {
 		const workspace = transport.workspace;
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true, documentSymbolProvider: true, referencesProvider: true, callHierarchyProvider: true } } });
-			} else if (message.method === "workspace/symbol") {
+		const fake = await createWorkspaceSymbolServer(transport, (message, socket) => {
 				send(socket, { id: message.id, result: [] });
-			}
 		});
-		await writeConfig(transport, { type: "tcp", host: "127.0.0.1", port: fake.port });
-		const manager = transport.manager = new LspManager();
+		const manager = await createManager(transport, fake);
 		await expect(queryManagerSymbols(manager, workspace, "warmup")).resolves.toEqual([]);
 		const request = vi.spyOn(LspClient.prototype, "workspaceSymbols").mockRejectedValueOnce(new Error("injected failure"));
 		try {
@@ -224,17 +201,12 @@ describe("lsp transport lifecycle", () => {
 		const workspace = transport.workspace;
 		let symbolRequests = 0;
 		const pendingSeen = deferred<void>();
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true, documentSymbolProvider: true, referencesProvider: true, callHierarchyProvider: true } } });
-			} else if (message.method === "workspace/symbol") {
+		const fake = await createWorkspaceSymbolServer(transport, (message, socket) => {
 				symbolRequests += 1;
 				if (symbolRequests === 1) send(socket, { id: message.id, result: [] });
 				else pendingSeen.resolve();
-			}
 		});
-		await writeConfig(transport, { type: "tcp", host: "127.0.0.1", port: fake.port });
-		const manager = transport.manager = new LspManager();
+		const manager = await createManager(transport, fake);
 		await expect(queryManagerSymbols(manager, workspace, "warmup")).resolves.toEqual([]);
 		const controller = new AbortController();
 		const pending = queryManagerSymbols(manager, workspace, "cancelled", controller.signal);
@@ -252,20 +224,15 @@ describe("lsp transport lifecycle", () => {
 		const workspace = transport.workspace;
 		let symbolRequests = 0;
 		const uri = pathToFileUri(path.join(workspace, "src", "target.ts"));
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true, documentSymbolProvider: true, referencesProvider: true, callHierarchyProvider: true } } });
-			} else if (message.method === "workspace/symbol") {
+		const fake = await createWorkspaceSymbolServer(transport, (message, socket) => {
 				symbolRequests += 1;
 				if (symbolRequests === 1) socket.destroy();
 				else send(socket, { id: message.id, result: [{ name: "target", kind: 12, location: {
 					uri,
 					range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } },
 				} }] });
-			}
 		});
-		await writeConfig(transport, { type: "tcp", host: "127.0.0.1", port: fake.port });
-		const manager = transport.manager = new LspManager();
+		const manager = await createManager(transport, fake);
 
 		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([]);
 		await expect(manager.status(workspace)).resolves.toMatchObject({

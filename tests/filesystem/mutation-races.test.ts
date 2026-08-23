@@ -9,7 +9,7 @@ import { deferredVoid as deferred, expectFsOk as expectOk, overrideNativeFileSys
 import { commitBytes, useMutationFixture } from "./mutation-fixtures.js";
 
 const test = useMutationFixture("o-pi-mutation-races-");
-const { openRuntime, policy, resolveTarget, track } = test;
+const { commitPath, openRuntime, policy, resolveTarget, track } = test;
 let workspace: string;
 beforeEach(() => { workspace = test.workspace; });
 
@@ -144,12 +144,7 @@ describe("filesystem mutation commit boundaries", () => {
 			},
 		});
 		const opened = await openRuntime([`${protectedDirectory}${path.sep}`], racingNative);
-		const result = expectOk(await commitBytes(
-			opened,
-			await resolveTarget(opened, "commit-race.txt"),
-			bytes("replacement"),
-			{ createParents: false },
-		));
+		const result = expectOk(await commitPath(opened, "commit-race.txt", bytes("replacement"), { createParents: false }));
 		expect(result).toMatchObject({ committed: true, receipt: { created: false } });
 		expect(await readFile(protectedFile, "utf8")).toBe("secret");
 		expect(await readFile(racedFile, "utf8")).toBe("replacement");
@@ -172,12 +167,8 @@ describe("filesystem mutation commit boundaries", () => {
 			},
 		});
 		const opened = await openRuntime([], cancellingNative, controller.signal);
-		await expect(commitBytes(
-			opened,
-			await resolveTarget(opened, "cancel-temp.txt"),
-			bytes("unsafe"),
-			{ createParents: false },
-		)).resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
+		await expect(commitPath(opened, "cancel-temp.txt", bytes("unsafe"), { createParents: false }))
+			.resolves.toMatchObject({ ok: false, error: { code: "aborted" } });
 		expect(await readFile(file, "utf8")).toBe("before");
 		expect((await readdir(workspace)).filter((name) => name.startsWith(".pi-") && name.endsWith(".tmp"))).toEqual([]);
 	});
@@ -186,12 +177,8 @@ describe("filesystem mutation commit boundaries", () => {
 		await writeFile(file, "before");
 		await chmod(file, 0o640);
 		const opened = await openRuntime();
-		expect(expectOk(await commitBytes(
-			opened,
-			await resolveTarget(opened, "mode.txt"),
-			bytes("after"),
-			{ createParents: false },
-		))).toMatchObject({ committed: true, receipt: { created: false } });
+		expect(expectOk(await commitPath(opened, "mode.txt", bytes("after"), { createParents: false })))
+			.toMatchObject({ committed: true, receipt: { created: false } });
 		expect((await stat(file)).mode & 0o7777).toBe(0o640);
 	});
 	it("maps write failures and keeps committed writes successful after cancellation or observer failure", async () => {
@@ -222,12 +209,8 @@ describe("filesystem mutation commit boundaries", () => {
 			async atomicReplace() { throw new Error("injected implementation failure"); },
 		});
 		const brokenOpen = await openRuntime([], brokenNative);
-		await expect(commitBytes(
-			brokenOpen,
-			await resolveTarget(brokenOpen, "broken.txt"),
-			bytes("no"),
-			{ createParents: false },
-		)).rejects.toThrow("injected implementation failure");
+		await expect(commitPath(brokenOpen, "broken.txt", bytes("no"), { createParents: false }))
+			.rejects.toThrow("injected implementation failure");
 
 		const controller = new AbortController();
 		const committingNative = nativeOverride({
@@ -238,8 +221,7 @@ describe("filesystem mutation commit boundaries", () => {
 			},
 		});
 		const committedOpen = await openRuntime([], committingNative, controller.signal);
-		const committedTarget = await resolveTarget(committedOpen, "committed.txt");
-		const committed = await commitBytes(committedOpen, committedTarget, bytes("yes"), { createParents: false });
+		const committed = await commitPath(committedOpen, "committed.txt", bytes("yes"), { createParents: false });
 		expect(expectOk(committed)).toMatchObject({
 			committed: true,
 			receipt: { hash: contentHash(bytes("yes")) },

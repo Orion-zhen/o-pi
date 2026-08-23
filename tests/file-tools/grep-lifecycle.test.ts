@@ -47,21 +47,17 @@ describe("grep lifecycle", () => {
 	});
 
 	it("grep owner dispose 幂等且停止后拒绝新调用", async () => {
-		await withGrepRuntime(testContext.workspace, "grep-owner", async ({ tool, opened }) => {
+		await withGrepRuntime(testContext.workspace, "grep-owner", async ({ tool, execute }) => {
 			tool.dispose();
 			tool.dispose();
-			await expect(tool.execute({ query: "needle" }, {
-				filesystem: opened.filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			})).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
+			await expect(execute({ query: "needle" })).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
 		});
 	});
 
 	it("grep owner dispose 取消 active code analyzer", async () => {
 		await writeFile(path.join(testContext.workspace, "a.ts"), "export function Target() { return true; }\n");
 		await writeFile(path.join(testContext.workspace, "b.ts"), "export function Target() { return false; }\n");
-		await withGrepRuntime(testContext.workspace, "grep-owner-active", async ({ tool, opened }) => {
+		await withGrepRuntime(testContext.workspace, "grep-owner-active", async ({ tool, execute }) => {
 			const started = deferredVoid();
 			let analyzerAborted = false;
 			const analyzeCode: AnalyzeCode = async (input) => {
@@ -76,12 +72,7 @@ describe("grep lifecycle", () => {
 				});
 				return undefined;
 			};
-			const active = tool.execute({ query: "Target" }, {
-				filesystem: opened.filesystem,
-				operation: {},
-				limits: opened.limits,
-				analyzeCode,
-			});
+			const active = execute({ query: "Target" }, { operation: {}, analyzeCode });
 			await started.promise;
 			tool.dispose();
 			await expect(active).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
@@ -91,7 +82,7 @@ describe("grep lifecycle", () => {
 
 	it("regex 只执行一次稳定 line scan，不完整读取正文", async () => {
 		await writeFile(path.join(testContext.workspace, "stream.txt"), `needle\n${"tail\n".repeat(200)}`);
-		await withGrepRuntime(testContext.workspace, "grep-stream", async ({ tool, opened }) => {
+		await withGrepRuntime(testContext.workspace, "grep-stream", async ({ execute, opened }) => {
 			let fullReads = 0;
 			let lineScans = 0;
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
@@ -104,11 +95,7 @@ describe("grep lifecycle", () => {
 					return await content.scanLines(file, options);
 				},
 			}));
-			const result = await tool.execute({ path: ["stream.txt"], query: "needle" }, {
-				filesystem,
-				operation: opened.context,
-				limits: opened.limits,
-			});
+			const result = await execute({ path: ["stream.txt"], query: "needle" }, { filesystem });
 			expect(result).toMatchObject({ status: "success", regions: [expect.objectContaining({ path: "stream.txt" })] });
 			expect({ fullReads, lineScans }).toEqual({ fullReads: 0, lineScans: 1 });
 		});
@@ -116,7 +103,7 @@ describe("grep lifecycle", () => {
 
 	it("active regex line scan 响应取消且不继续返回部分命中", async () => {
 		await writeFile(path.join(testContext.workspace, "cancel.txt"), `${"line\n".repeat(20_000)}needle\n`);
-		await withGrepRuntime(testContext.workspace, "grep-strict-cancel", async ({ tool, opened }) => {
+		await withGrepRuntime(testContext.workspace, "grep-strict-cancel", async ({ execute, opened }) => {
 			const controller = new AbortController();
 			const started = deferredVoid();
 			const filesystem = overrideContent(opened.filesystem, (content) => ({
@@ -125,11 +112,10 @@ describe("grep lifecycle", () => {
 					return await content.scanLines(file, options);
 				},
 			}));
-			const active = tool.execute({ path: ["cancel.txt"], query: "needle" }, {
-				filesystem,
-				operation: { signal: controller.signal },
-				limits: opened.limits,
-			});
+			const active = execute(
+				{ path: ["cancel.txt"], query: "needle" },
+				{ filesystem, operation: { signal: controller.signal } },
+			);
 			await started.promise;
 			controller.abort();
 			await expect(active).resolves.toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });

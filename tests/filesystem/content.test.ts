@@ -141,10 +141,7 @@ describe("filesystem content services", () => {
 		await writeFile(path.join(workspace, "lines.txt"), bytes);
 		const tracker = { opened: 0, closed: 0 };
 		const opened = await openReadonly(workspace, { native: wrapNative(new NodeNativeFileSystem(), { tracker }) });
-		const scan = expectFsOk(await opened.services.content.scanLines(
-			await resolveFile(opened.namespace, "lines.txt"),
-			{},
-		));
+		const scan = expectFsOk(await opened.scanLines("lines.txt"));
 		const lines = (await collectAsync(scan)).map(expectFsOk);
 		expect(lines).toEqual([
 			{ line: 1, text: "alpha", byteStart: 0, byteEnd: 5 },
@@ -165,38 +162,26 @@ describe("filesystem content services", () => {
 				return raceOpened && pathname === racePath ? { ...metadata, sizeBytes: 0 } : metadata;
 			},
 		}) });
-		expect(await underreported.services.content.readBytes(
-			await resolveFile(underreported.namespace, "race.txt"),
-			{ maxBytes: 2 },
-		)).toMatchObject({ ok: false, error: { code: "too-large" } });
-		const boundedScan = expectFsOk(await underreported.services.content.scanLines(
-			await resolveFile(underreported.namespace, "race.txt"),
-			{ maxBytes: 2 },
-		));
+		expect(await underreported.readBytes("race.txt", { maxBytes: 2 })).toMatchObject({ ok: false, error: { code: "too-large" } });
+		const boundedScan = expectFsOk(await underreported.scanLines("race.txt", { maxBytes: 2 }));
 		const boundedResults = await collectAsync(boundedScan);
 		expect(boundedResults).toEqual([expect.objectContaining({ ok: false, error: expect.objectContaining({ code: "too-large" }) })]);
 
 		const closeFailure = await openReadonly(workspace, { native: wrapNative(new NodeNativeFileSystem(), { closeError: true }) });
-		expect(await closeFailure.services.content.readBytes(
-			await resolveFile(closeFailure.namespace, "race.txt"),
-			{},
-		)).toMatchObject({ ok: false, error: { code: "access-denied" } });
+		expect(await closeFailure.readBytes("race.txt")).toMatchObject({ ok: false, error: { code: "access-denied" } });
 
 		const readFailure = await openReadonly(workspace, { native: wrapNative(new NodeNativeFileSystem(), { readError: true }) });
-		expect(await readFailure.services.content.readBytes(
-			await resolveFile(readFailure.namespace, "race.txt"),
-			{},
-		)).toMatchObject({ ok: false, error: { code: "access-denied" } });
+		expect(await readFailure.readBytes("race.txt")).toMatchObject({ ok: false, error: { code: "access-denied" } });
 
 		const wrongKind = await openReadonly(workspace, { native: wrapNative(new NodeNativeFileSystem(), {
 			stat(metadata) { return { ...metadata, kind: "directory" }; },
 			closeError: true,
 		}) });
-		expect(await wrongKind.services.content.readBytes(await resolveFile(wrongKind.namespace, "race.txt"), {})).toMatchObject({
+		expect(await wrongKind.readBytes("race.txt")).toMatchObject({
 			ok: false,
 			error: { code: "not-file" },
 		});
-		expect(await wrongKind.services.content.scanLines(await resolveFile(wrongKind.namespace, "race.txt"), {})).toMatchObject({
+		expect(await wrongKind.scanLines("race.txt")).toMatchObject({
 			ok: false,
 			error: { code: "not-file" },
 		});
@@ -210,19 +195,10 @@ describe("filesystem content services", () => {
 				return metadata;
 			},
 		}) });
-		expect(await revalidationFailure.services.content.scanLines(
-			await resolveFile(revalidationFailure.namespace, "race.txt"),
-			{},
-		)).toMatchObject({ ok: false, error: { code: "access-denied" } });
+		expect(await revalidationFailure.scanLines("race.txt")).toMatchObject({ ok: false, error: { code: "access-denied" } });
 		const initialLimit = await openReadonly(workspace);
-		expect(await initialLimit.services.content.scanLines(
-			await resolveFile(initialLimit.namespace, "race.txt"),
-			{ maxBytes: 4 },
-		)).toMatchObject({ ok: false, error: { code: "too-large" } });
-		expect(await initialLimit.services.content.readText(
-			await resolveFile(initialLimit.namespace, "race.txt"),
-			{ maxBytes: 4 },
-		)).toMatchObject({ ok: false, error: { code: "too-large" } });
+		expect(await initialLimit.scanLines("race.txt", { maxBytes: 4 })).toMatchObject({ ok: false, error: { code: "too-large" } });
+		expect(await initialLimit.readText("race.txt", { maxBytes: 4 })).toMatchObject({ ok: false, error: { code: "too-large" } });
 
 		const removed = await resolveFile(baseOpened.namespace, "race.txt");
 		await rm(path.join(workspace, "race.txt"));
@@ -273,10 +249,7 @@ describe("filesystem content services", () => {
 		const sizeBytes = sizeMiB * 1024 * 1024;
 		await writeFile(path.join(workspace, "single-line.txt"), Buffer.alloc(sizeBytes, 0x78));
 		const opened = await openReadonly(workspace);
-		const scan = expectFsOk(await opened.services.content.scanLines(
-			await resolveFile(opened.namespace, "single-line.txt"),
-			{},
-		));
+		const scan = expectFsOk(await opened.scanLines("single-line.txt"));
 
 		const lines = (await collectAsync(scan)).map(expectFsOk);
 		expect(lines).toHaveLength(1);
@@ -293,40 +266,25 @@ describe("filesystem content services", () => {
 		await writeFile(path.join(workspace, "bom-only.txt"), buildTextBytes("", true));
 		await writeFile(path.join(workspace, "bom-cr.txt"), buildTextBytes("\r", true));
 		const opened = await openReadonly(workspace);
-		const large = expectFsOk(await opened.services.content.readBytes(
-			await resolveFile(opened.namespace, "large-line.txt"),
-			{},
-		));
+		const large = expectFsOk(await opened.readBytes("large-line.txt"));
 		expect(large.sizeBytes).toBe(70_004);
-		const boundaryScan = expectFsOk(await opened.services.content.scanLines(
-			await resolveFile(opened.namespace, "chunk-crlf.txt"),
-			{},
-		));
+		const boundaryScan = expectFsOk(await opened.scanLines("chunk-crlf.txt"));
 		const boundaryLines = (await collectAsync(boundaryScan)).map(expectFsOk);
 		expect(boundaryLines.map((line) => ({ length: line.text.length, start: line.byteStart, end: line.byteEnd }))).toEqual([
 			{ length: 65_535, start: 0, end: 65_535 },
 			{ length: 3, start: 65_537, end: 65_540 },
 		]);
-		const utf8BoundaryScan = expectFsOk(await opened.services.content.scanLines(
-			await resolveFile(opened.namespace, "chunk-utf8.txt"),
-			{},
-		));
+		const utf8BoundaryScan = expectFsOk(await opened.scanLines("chunk-utf8.txt"));
 		const utf8BoundaryLines = (await collectAsync(utf8BoundaryScan)).map(expectFsOk);
 		expect(utf8BoundaryLines.map((line) => ({ length: line.text.length, start: line.byteStart, end: line.byteEnd }))).toEqual([
 			{ length: 65_536, start: 0, end: 65_537 },
 			{ length: 3, start: 65_538, end: 65_541 },
 		]);
-		const invalidEof = expectFsOk(await opened.services.content.scanLines(
-			await resolveFile(opened.namespace, "invalid-eof.txt"),
-			{},
-		));
+		const invalidEof = expectFsOk(await opened.scanLines("invalid-eof.txt"));
 		const invalidEofResults = await collectAsync(invalidEof);
 		expect(invalidEofResults).toEqual([expect.objectContaining({ ok: false, error: expect.objectContaining({ code: "invalid-utf8" }) })]);
 
-		const binary = expectFsOk(await opened.services.content.scanLines(
-			await resolveFile(opened.namespace, "binary-lines.dat"),
-			{},
-		));
+		const binary = expectFsOk(await opened.scanLines("binary-lines.dat"));
 		expect(await collectAsync(binary)).toEqual([
 			expect.objectContaining({ ok: true }),
 			expect.objectContaining({ ok: true }),
@@ -335,17 +293,11 @@ describe("filesystem content services", () => {
 		expect(await collectAsync(binary)).toEqual([]);
 		await binary.close();
 
-		const bomOnly = expectFsOk(await opened.services.content.scanLines(
-			await resolveFile(opened.namespace, "bom-only.txt"),
-			{},
-		));
+		const bomOnly = expectFsOk(await opened.scanLines("bom-only.txt"));
 		const bomLines = await collectAsync(bomOnly);
 		expect(bomLines).toEqual([]);
 
-		const bomCr = expectFsOk(await opened.services.content.scanLines(
-			await resolveFile(opened.namespace, "bom-cr.txt"),
-			{},
-		));
+		const bomCr = expectFsOk(await opened.scanLines("bom-cr.txt"));
 		const bomCrLines = (await collectAsync(bomCr)).map(expectFsOk);
 		expect(bomCrLines).toEqual([{ line: 1, text: "", byteStart: 0, byteEnd: 0 }]);
 	});
@@ -375,10 +327,7 @@ describe("filesystem content services", () => {
 		const results = await collectAsync(scan);
 		expect(results.at(-1)).toMatchObject({ ok: false, error: { code: "changed-during-read" } });
 		expect(tracker).toEqual({ opened: 1, closed: 1 });
-		expect(await opened.services.content.readText(
-			await resolveFile(opened.namespace, "nul.txt"),
-			{},
-		)).toMatchObject({ ok: false, error: { code: "binary" } });
+		expect(await opened.readText("nul.txt")).toMatchObject({ ok: false, error: { code: "binary" } });
 	});
 
 	it("closes line scans after early return, abort and decoding errors", async () => {
@@ -407,7 +356,7 @@ describe("filesystem content services", () => {
 		const abortResults = await collectAsync(aborted);
 		expect(abortResults).toEqual([expect.objectContaining({ ok: false, error: expect.objectContaining({ code: "aborted" }) })]);
 
-		const invalid = expectFsOk(await opened.services.content.scanLines(await resolveFile(opened.namespace, "invalid.txt"), {}));
+		const invalid = expectFsOk(await opened.scanLines("invalid.txt"));
 		const invalidResults = await collectAsync(invalid);
 		expect(invalidResults).toEqual([expect.objectContaining({ ok: false, error: expect.objectContaining({ code: "invalid-utf8" }) })]);
 		expect(tracker).toEqual({ opened: 3, closed: 3 });

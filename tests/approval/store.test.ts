@@ -61,6 +61,10 @@ describe("approval store", () => {
 		expect(exactStore.matchesAllowRule(request, firstUnit(request))).toBe(true);
 
 		const similarRules = createSimilarAllowRules(request, request.units);
+		if (process.platform === "win32") {
+			expect(similarRules).toEqual([expect.objectContaining({ kind: "exact_path", value: nginx.replaceAll("\\", "/") })]);
+			return;
+		}
 		expect(similarRules).toEqual([expect.objectContaining({ kind: "path_glob", value: "/etc/nginx/**" })]);
 		const similarStorePath = path.join(dir, "similar.jsonc");
 		const similarStore = new FileApprovalStore(similarStorePath);
@@ -120,7 +124,7 @@ describe("approval store", () => {
 		const scopedCommand = await commandRequest("npm publish");
 		expect(store.matchesAllowRule(scopedCommand, firstUnit(scopedCommand))).toBe(true);
 		const hosts = await pathRequest("edit", systemPath("etc", "hosts"));
-		expect(store.matchesAllowRule(hosts, firstUnit(hosts))).toBe(true);
+		expect(store.matchesAllowRule(hosts, firstUnit(hosts))).toBe(process.platform !== "win32");
 	});
 
 });

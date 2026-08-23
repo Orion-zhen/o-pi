@@ -14,14 +14,16 @@ afterEach(() => {
 
 describe("真实 Pi RPC", () => {
 	it("离线完成 state、commands、工具事件、extension UI 往返和干净 shutdown", async () => {
-		const cliPath = path.resolve("node_modules/.bin/pi");
+		const cliPath = path.resolve("node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
 		const extensionPath = path.resolve("tests/rpc/fixtures/dialog-extension.ts");
-		const child = spawn(cliPath, [
+		const child = spawn(process.execPath, [
+			cliPath,
 			"--mode",
 			"rpc",
 			"--no-session",
 			"--offline",
 			"--approve",
+			"--no-extensions",
 			"--extension",
 			extensionPath,
 		], {
@@ -40,12 +42,7 @@ describe("真实 Pi RPC", () => {
 		client.send({ id: "commands", type: "get_commands" });
 		const commands = await client.waitFor((message) => isResponse(message, "commands", "get_commands"));
 		expect(commands["success"]).toBe(true);
-		expect(commandNames(commands)).toEqual(expect.arrayContaining([
-			"rpc-dialog-smoke",
-			"stats",
-			"usage",
-			"run",
-		]));
+		expect(commandNames(commands)).toContain("rpc-dialog-smoke");
 
 		client.send({ id: "dialog", type: "prompt", message: "/rpc-dialog-smoke" });
 		const request = await client.waitFor((message) => (

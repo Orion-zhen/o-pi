@@ -11,7 +11,7 @@ import type {
 	WebHttpFetch,
 } from "../../src/web-tools/core/types.js";
 import { executeWebFetch } from "../../src/web-tools/fetch/webfetch-tool.js";
-import { httpResponse } from "../helpers/http.js";
+import { httpResponse, redirectResponse } from "../helpers/http.js";
 
 const cookieStore: CookieStore = {
 	async getCookieAccess() {
@@ -164,12 +164,7 @@ describe("webfetch tool", () => {
 			runtime(async () => {
 				calls += 1;
 				return calls === 1
-					? {
-							status: 302,
-							statusText: "Found",
-							headers: new Headers({ location: "/final" }),
-							body: httpResponse(200, "").body,
-						}
+					? redirectResponse("/final")
 					: httpResponse(200, "redirected body", { "content-type": "text/plain" });
 			}),
 		);
@@ -190,9 +185,7 @@ describe("webfetch tool", () => {
 		const fetchImpl: WebHttpFetch = async () => {
 			calls += 1;
 			if (calls === 1) await new Promise<void>((resolve) => setTimeout(resolve, 6));
-			return calls < 3
-				? { status: 302, statusText: "Found", headers: new Headers({ location: `/step-${calls}` }), body: httpResponse(200, "").body }
-				: { status: 200, statusText: "OK", headers: new Headers({ "content-type": "text/plain" }), body: hanging };
+			return calls < 3 ? redirectResponse(`/step-${calls}`) : { status: 200, statusText: "OK", headers: new Headers({ "content-type": "text/plain" }), body: hanging };
 		};
 		const rt = runtime(fetchImpl);
 		rt.config.webfetch.timeout_seconds = 0.01;
@@ -224,12 +217,10 @@ describe("webfetch tool", () => {
 		const redirectCleanupFailure = await executeWebFetch({ url: "https://example.com/start" }, runtime(async () => {
 			calls += 1;
 			if (calls === 1) {
-				return {
-					status: 302,
-					statusText: "Found",
-					headers: new Headers({ location: "/final" }),
-					body: { getReader: () => ({ read: async () => ({ done: true as const }), cancel: async () => undefined }), cancel: async () => { throw new Error("cleanup failed"); } },
-				};
+				return redirectResponse("/final", {
+					getReader: () => ({ read: async () => ({ done: true as const }), cancel: async () => undefined }),
+					cancel: async () => { throw new Error("cleanup failed"); },
+				});
 			}
 			return httpResponse(200, "ok");
 		}));
@@ -250,12 +241,7 @@ describe("webfetch tool", () => {
 	});
 
 	it("redirect 到私网会被重新校验并拒绝", async () => {
-		const fetchImpl: WebHttpFetch = async () => ({
-			status: 302,
-			statusText: "Found",
-			headers: new Headers({ location: "http://127.0.0.1/private" }),
-			body: httpResponse(200, "").body,
-		});
+		const fetchImpl: WebHttpFetch = async () => redirectResponse("http://127.0.0.1/private");
 		const result = await executeWebFetch({ url: "https://example.com/start" }, runtime(fetchImpl));
 		expect(result.details).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
 	});
@@ -455,12 +441,7 @@ describe("webfetch tool", () => {
 			runtime(async (url) => {
 				requests.push(url.toString());
 				if (url.pathname === "/poster.png") {
-					return {
-						status: 302,
-						statusText: "Found",
-						headers: new Headers({ location: "http://127.0.0.1/private.png" }),
-						body: httpResponse(200, "").body,
-					};
+					return redirectResponse("http://127.0.0.1/private.png");
 				}
 				return httpResponse(200, html, { "content-type": "text/html" });
 			}, true),

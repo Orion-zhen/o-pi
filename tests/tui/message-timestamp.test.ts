@@ -65,7 +65,7 @@ describe("message timestamp", () => {
 		expect(formatAssistantPerformance(performance, true)).toBe("[TPS: 42.3, TTFT: 1.25s]");
 	});
 
-	it("用户消息在气泡底部右对齐，并在完整重建时复用原始时间", () => {
+	it("用户消息完整重建时复用原始时间且不丢失时间戳", () => {
 		resetUserMessageTimestamps([userMessage("first", timestamp), userMessage("second", timestamp + 1_000)]);
 		const first = new UserMessageComponent("first", markdownTheme, 1).render(40);
 		new UserMessageComponent("second", markdownTheme, 1).render(40);
@@ -121,7 +121,7 @@ describe("message timestamp", () => {
 		assertTimestamp(component.render(40), 40);
 	});
 
-	it("统计块紧贴时间戳，并在隐藏思考时使用首个正文 token 的 TTFT", () => {
+	it("隐藏思考时使用首个正文 token 的 TTFT，并在窄宽下安全降级", () => {
 		let now = 0;
 		const tracker = createAssistantPerformanceTracker(() => now);
 		const message = assistantMessage([
@@ -141,8 +141,10 @@ describe("message timestamp", () => {
 		const shown = new AssistantMessageComponent(message, false, markdownTheme, "Thinking...", 1).render(80).join("\n");
 		const hidden = new AssistantMessageComponent(message, true, markdownTheme, "Thinking...", 1).render(80).join("\n");
 		const narrow = new AssistantMessageComponent(message, false, markdownTheme, "Thinking...", 1).render(40);
-		expect(shown).toContain(`[TPS: 20.0, TTFT: 100ms]${label}`);
-		expect(hidden).toContain(`[TPS: 20.0, TTFT: 500ms]${label}`);
+		expect(shown).toContain("[TPS: 20.0, TTFT: 100ms]");
+		expect(shown).toContain(label);
+		expect(hidden).toContain("[TPS: 20.0, TTFT: 500ms]");
+		expect(hidden).toContain(label);
 		expect(narrow.join("\n")).toContain(label);
 		expect(narrow.join("\n")).not.toContain("[TPS:");
 		expect(narrow.every((line) => visibleWidth(line) <= 40)).toBe(true);

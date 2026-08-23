@@ -19,6 +19,7 @@ import { countTextTokensSync } from "../../src/token-counter.js";
 import { overrideNativeFileSystem } from "../filesystem/fixtures.js";
 import { findWorkspaceFiles } from "../helpers/find-tool.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
+import { expectFailure } from "./result-fixtures.js";
 
 let workspace: string;
 let outside: string;
@@ -92,10 +93,7 @@ describe("find", () => {
 			{ query: "auth | | session" },
 			{ query: "x", glob: "a\0b" },
 		]) {
-			expect(await findWorkspaceFiles(workspace, params)).toMatchObject({
-				status: "failed",
-				error: { code: expect.stringMatching(/^INVALID_/) },
-			});
+			expectFailure(await findWorkspaceFiles(workspace, params), { code: expect.stringMatching(/^INVALID_/) });
 		}
 	});
 
@@ -206,13 +204,10 @@ describe("find", () => {
 			{ path: "missing", error: { code: "PATH_NOT_FOUND" } },
 		]);
 
-		expect(await findWorkspaceFiles(workspace, {
+		expectFailure(await findWorkspaceFiles(workspace, {
 			query: "available",
 			path: ["missing", "also-missing"],
-		})).toMatchObject({
-			status: "failed",
-			error: { code: "PATH_NOT_FOUND", details: { scope_errors: expect.any(Array) } },
-		});
+		}), { code: "PATH_NOT_FOUND", details: { scope_errors: expect.any(Array) } });
 	});
 
 	it("自动发现遵守 ignore，显式 scope 可进入 soft ignored 目录", async () => {
@@ -272,10 +267,7 @@ describe("find", () => {
 		expect(matches).not.toContain(".git/auth");
 		expect(matches).not.toContain("auth-link.ts");
 		expect(matches).not.toContain("real-link/auth.ts");
-		expect(await findWorkspaceFiles(workspace, { query: "auth", path: [".git"] })).toMatchObject({
-			status: "failed",
-			error: { code: "PROTECTED_PATH" },
-		});
+		expectFailure(await findWorkspaceFiles(workspace, { query: "auth", path: [".git"] }), { code: "PROTECTED_PATH" });
 	});
 
 	it("允许 workspace 外显式 scope，输出规范化绝对路径", async () => {
@@ -377,24 +369,18 @@ describe("find", () => {
 	it("AbortSignal 和 tool dispose 都终止调用", async () => {
 		const controller = new AbortController();
 		controller.abort();
-		expect(await findWorkspaceFiles(workspace, { query: "auth" }, controller.signal)).toMatchObject({
-			status: "failed",
-			error: { code: "OPERATION_ABORTED" },
-		});
+		expectFailure(await findWorkspaceFiles(workspace, { query: "auth" }, controller.signal), { code: "OPERATION_ABORTED" });
 
 		const host = track(new FileToolsHost());
 		const tool = track(new FindTool());
 		const opened = track(expectSuccess(await host.open({ cwd: workspace, sessionId: "disposed-find" })));
 		tool.dispose();
 		tool.dispose();
-		expect(await tool.execute({ query: "auth" }, {
+		expectFailure(await tool.execute({ query: "auth" }, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
 			limits: opened.limits,
-		})).toMatchObject({
-			status: "failed",
-			error: { code: "OPERATION_ABORTED" },
-		});
+		}), { code: "OPERATION_ABORTED" });
 	});
 
 	it("大型候选集排名会让出事件循环并响应取消", async () => {

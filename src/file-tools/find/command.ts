@@ -196,7 +196,7 @@ async function discoverScope(
 				if (event.ref.kind === "file" || event.ref.kind === "directory") {
 					traversedEntries += 1;
 					onEntry({
-						path: event.ref.displayPath,
+						path: normalizeOutputPath(event.ref.displayPath),
 						searchPath: event.relativePath,
 						kind: event.ref.kind,
 						scopeOrder: scope.order,
@@ -230,6 +230,10 @@ async function discoverScope(
 		depthLimited,
 		entryLimited,
 	};
+}
+
+function normalizeOutputPath(value: string): string {
+	return value.replaceAll("\\", "/");
 }
 
 function sumStats(discoveries: readonly { result: ScopeDiscovery }[]): FindStats {

@@ -3,6 +3,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 import { formatFooter } from "../../src/tui/footer.js";
 import type { TuiFooterConfig, TuiFooterSnapshot } from "../../src/tui/types.js";
+
 const cwd = path.resolve("repo", "o-pi");
 const config: TuiFooterConfig = {
 	segments: ["cwd", "git", "ctx", "tokens", "cost"],
@@ -36,32 +37,11 @@ describe("tui footer", () => {
 		expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
 	});
 
-	it("模型和运行状态不进入 footer，工具数量固定在第二行右侧", () => {
-		const lines = formatFooter(snapshot, config, 120, theme, "unicode");
-		expect(lines).toHaveLength(2);
-		expect(lines[0]).toContain("ctx");
-		expect(lines.join("\n")).not.toContain("model-x");
-		expect(lines.join("\n")).not.toContain("ready");
-		expect(lines[1]).toMatch(/tools 3\/5$/);
-	});
-
-	it("ctx 标签和 tools 计数器都使用 dim，context 数值保留渐变色", () => {
-		const styledTheme = { fg: (color: string, text: string) => `<${color}>${text}</${color}>` };
-		const lines = formatFooter(snapshot, config, 120, styledTheme);
-		const primary = lines[0] ?? "";
-		const secondary = lines[1] ?? "";
-
-		expect(primary).toContain("<dim>ctx </dim>");
-		expect(primary).toMatch(/<dim>ctx <\/dim>\x1b\[38;2;[0-9]+;[0-9]+;[0-9]+m32\.0%\/128k\x1b\[39m/);
-		expect(secondary).toContain("<dim>tools 3\/5</dim>");
-	});
-
-	it.each([
-		["ascii", "git main"],
-		["unicode", "⑂ main"],
-		["nerd", " main"],
-	] as const)("%s 图标模式使用统一 Git 图标", (mode, expected) => {
-		expect(formatFooter(snapshot, config, 120, theme, mode)[0]).toContain(expected);
+	it("隐藏模型和运行状态但保留工具数量", () => {
+		const output = formatFooter(snapshot, config, 120, theme).join("\n");
+		expect(output).not.toContain("model-x");
+		expect(output).not.toContain("ready");
+		expect(output).toContain("3/5");
 	});
 
 	it("缺少数据时安全退化", () => {

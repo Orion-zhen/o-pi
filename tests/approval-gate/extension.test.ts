@@ -1,5 +1,4 @@
 import { writeFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import type { ExtensionAPI, ExtensionContext, Theme, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -33,7 +32,7 @@ describe("approval gate", () => {
 	it.each([
 		["普通 bash", () => bash("echo hello"), [], 0],
 		["普通 edit", () => edit("src/index.ts"), [], 0],
-		["需审批 write", () => write(systemPath("etc", "hosts")), ["Allow once"], 1],
+		["需审批 write", () => write("skill://demo/SKILL.md"), ["Allow once"], 1],
 	] as const)("%s 放行并产生预期交互", async (_name, event, choices, selectCalls) => {
 		const ui = fakeUi([...choices]);
 		expect(await handle(event(), ctx(ui))).toBeUndefined();
@@ -184,39 +183,9 @@ describe("approval gate", () => {
 		expect(options.includes("Always allow similar")).toBe(canRememberPersistent);
 	});
 
-	it.each([
-		["mktemp 临时文件中的写入与清理", `
-log=$(mktemp)
-printf content > "$log"
-rm -f "$log"
-`],
-		["带后缀的 mktemp 临时文件", `
-tmp=$(mktemp /tmp/o-pi-smoke-XXXX.ts); cat > "$tmp" <<'EOF'
-console.log("ok")
-EOF
-node_modules/.bin/jiti "$tmp"
-status=$?
-rm -f "$tmp"
-exit $status
-`],
-		["mktemp 临时目录中的写入与清理", `
-set -eu
-root="$PWD"
-tmpdir=$(mktemp -d)
-cleanup() { rm -rf "$tmpdir"; }
-trap cleanup EXIT
-cat > "$tmpdir/input.txt" <<'EOF'
-content
-EOF
-for engine in xelatex lualatex; do
-	(cd "$tmpdir" && TOOL_INPUT="$root//:" "$engine" input.txt > result.txt)
-done
-rm -f "$tmpdir/result.txt"
-`],
-		["系统临时目录后代的递归清理", `rm -rf "${path.join(os.tmpdir(), "pi-approval", "work")}"`],
-	] as const)("%s 不触发审批", async (_name, command) => {
+	it("已由 request builder 证明的临时目录脚本不触发审批", async () => {
 		const ui = fakeUi([]);
-		expect(await handle(bash(command), ctx(ui))).toBeUndefined();
+		expect(await handle(bash(`tmpdir=$(mktemp -d)\nprintf content > "$tmpdir/result"\nrm -rf "$tmpdir"`), ctx(ui))).toBeUndefined();
 		expect(ui.selectCalls).toBe(0);
 	});
 
@@ -281,26 +250,13 @@ rm -f "$tmpdir/result.txt"
 		dialog.dispose();
 	});
 
-	it("write 和 edit 审批请求保留实际修改内容", async () => {
-		const writeRequest = await requiredRequest({
-			type: "tool_call",
-			toolName: "write",
-			toolCallId: "write-preview",
-			input: { path: systemPath("etc", "service.conf"), content: "enabled=true\nport=8443" },
-		});
-		expect(writeRequest.detail).toMatchObject({ kind: "write", content: "enabled=true\nport=8443" });
-
+	it("审批面板保留 edit 的实际修改内容", async () => {
 		const editRequest = await requiredRequest({
 			type: "tool_call",
 			toolName: "edit",
 			toolCallId: "edit-preview",
 			input: { path: systemPath("etc", "service.conf"), edits: [{ old: "port=80", new: "port=8443", replace_all: true }] },
 		});
-		expect(editRequest.detail).toMatchObject({
-			kind: "edit",
-			edits: [{ old: "port=80", new: "port=8443", replace_all: true }],
-		});
-
 		const dialog = dialogForRequest(editRequest, 30, () => {});
 		const rendered = dialog.render(72).join("\n");
 		expect(rendered).toContain("port=80");

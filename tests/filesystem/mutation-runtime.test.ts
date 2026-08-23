@@ -9,7 +9,7 @@ import { expectFsOk as expectOk, overrideNativeFileSystem as nativeOverride, tex
 import { commitBytes, useMutationFixture } from "./mutation-fixtures.js";
 
 const test = useMutationFixture("o-pi-mutation-runtime-");
-const { openRuntime, policy, resolveTarget, track } = test;
+const { commitPath, openRuntime, policy, resolveTarget, track } = test;
 let workspace: string;
 beforeEach(() => { workspace = test.workspace; });
 
@@ -157,10 +157,9 @@ describe("filesystem mutation runtime", () => {
 		expect(transformed).toBe(false);
 		expect(await readFile(file, "utf8")).toBe("12345");
 
-		const outputTarget = await resolveTarget(opened, "output-limit.txt");
-		await expect(commitBytes(
+		await expect(commitPath(
 			opened,
-			outputTarget,
+			"output-limit.txt",
 			bytes("123"),
 			{ createParents: false, maxSnapshotBytes: 2, maxOutputBytes: 2 },
 		)).resolves.toMatchObject({

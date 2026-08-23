@@ -4,7 +4,6 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import type { ExistingRef } from "../../src/filesystem/contracts/path.js";
 import type {
 	PartialIgnoreConfig,
 	VisibilityAnnotation,
@@ -44,19 +43,12 @@ async function openVisibility(
 	});
 }
 
-async function resolve(opened: OpenedReadonly, input: string): Promise<ExistingRef> {
-	return expectFsOk(await opened.namespace.paths.resolveExisting(
-		input,
-		{ expected: "any", followFinalSymlink: true },
-	));
-}
-
 async function evaluate(
 	opened: OpenedReadonly,
 	input: string,
 	intent: VisibilityIntent = "search",
 ): Promise<VisibilityAnnotation> {
-	return expectFsOk(await opened.services.visibility.evaluate(await resolve(opened, input), intent));
+	return expectFsOk(await opened.services.visibility.evaluate(await opened.resolveExisting(input), intent));
 }
 
 async function write(relativePath: string, content = "\n"): Promise<void> {
@@ -280,7 +272,7 @@ describe("visibility rules", () => {
 			}, base),
 			policy: createVisibilityPolicy({ ignore: { builtinProfile: "none", gitignore: { enabled: false } } }),
 		});
-		expect(await canceled.services.visibility.evaluate(await resolve(canceled, "hidden.txt"), "search"))
+		expect(await canceled.services.visibility.evaluate(await canceled.resolveExisting("hidden.txt"), "search"))
 			.toMatchObject({ ok: false, error: { code: "aborted" } });
 	});
 

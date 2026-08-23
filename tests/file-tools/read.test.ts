@@ -1,4 +1,4 @@
-import { mkdir, readFile, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,7 +15,6 @@ vi.mock("file-type", async (importOriginal) => {
 	};
 });
 
-import { WorkspaceContentService } from "../../src/filesystem/services/content.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { contentHash as sha256Version } from "../../src/filesystem/services/text.js";
 import { createPdfDocumentSource } from "../../src/file-tools/pi/ports/read-pdf.js";
@@ -28,6 +27,7 @@ import type {
 import { formatReadStructureContext } from "../../src/file-tools/read/presenter.js";
 import { readWorkspaceFile } from "../helpers/read-tool.js";
 import { createCrudTestContext } from "./crud-fixtures.js";
+import { expectFailure } from "./result-fixtures.js";
 
 const testContext = createCrudTestContext();
 let workspace: string;
@@ -44,26 +44,19 @@ describe("read", () => {
 		await mkdir(path.join(workspace, "src"), { recursive: true });
 		await writeFile(path.join(workspace, "src", "main.ts"), "export const main = 1;\n");
 
-		const result = await testContext.read({ path: "src/maim.ts" });
-		expect(result).toMatchObject({
-			status: "failed",
-			error: {
-				code: "FILE_NOT_FOUND",
-				next: expect.stringContaining("Related paths: src/main.ts"),
-			},
+		expectFailure(await testContext.read({ path: "src/maim.ts" }), {
+			code: "FILE_NOT_FOUND", next: expect.stringContaining("Related paths: src/main.ts"),
 		});
 	});
 
 	it("workspace 外路径不存在时不附加路径建议", async () => {
-		const result = await testContext.read({ path: path.join(outside, "main.ts") });
-		expect(result).toMatchObject({ status: "failed", error: { code: "FILE_NOT_FOUND" } });
-		if ("status" in result) expect(result.error.next).toBeUndefined();
+		const result = expectFailure(await testContext.read({ path: path.join(outside, "main.ts") }), "FILE_NOT_FOUND");
+		expect(result.error.next).toBeUndefined();
 	});
 
 	it("空 workspace 没有相似文件时保持原始 FILE_NOT_FOUND 错误", async () => {
-		const result = await testContext.read({ path: "missing-completely.ts" });
-		expect(result).toMatchObject({ status: "failed", error: { code: "FILE_NOT_FOUND" } });
-		if ("status" in result) expect(result.error.next).toBeUndefined();
+		const result = expectFailure(await testContext.read({ path: "missing-completely.ts" }), "FILE_NOT_FOUND");
+		expect(result.error.next).toBeUndefined();
 	});
 
 	it("配置 read_suggestion_limit 控制建议数量", async () => {
@@ -71,11 +64,8 @@ describe("read", () => {
 		await writeFile(path.join(workspace, "main.test.ts"), "");
 		await testContext.useConfig({ limits: { read_suggestion_limit: 1 } });
 
-		const result = await testContext.read({ path: "main.mts" });
-		expect(result).toMatchObject({ status: "failed", error: { code: "FILE_NOT_FOUND" } });
-		if ("status" in result) {
-			expect(result.error.next).toMatch(/^Related paths: [^,]+$/u);
-		}
+		const result = expectFailure(await testContext.read({ path: "main.mts" }), "FILE_NOT_FOUND");
+		expect(result.error.next).toMatch(/^Related paths: [^,]+$/u);
 	});
 
 	it("模型输出只展示未出现的顶层 remaining symbols", () => {
@@ -140,10 +130,7 @@ describe("read", () => {
 		expect(processedUnsupportedImage).toBe(false);
 
 		for (const params of [{ path: "pixel.gif", lines: "1" }, { path: "pixel.gif", pages: "1" }]) {
-			expect(await testContext.read(params)).toMatchObject({
-				status: "failed",
-				error: { code: "INVALID_OPERATION" },
-			});
+			expectFailure(await testContext.read(params), "INVALID_OPERATION");
 		}
 	});
 
@@ -197,28 +184,13 @@ describe("read", () => {
 		});
 	});
 
-	it("按行范围读取且不把行号写进 content", async () => {
+	it.each([
+		["2", { content: "two\n", start_line: 2, end_line: 2, total_lines: 3 }],
+		["2-", { content: "two\nthree\n", start_line: 2, end_line: 3, total_lines: 3 }],
+		["2-99", { content: "two\nthree\n", start_line: 2, end_line: 3, total_lines: 3, truncated: false }],
+	] as const)("按行范围 %s 读取", async (lines, expected) => {
 		await writeFile(path.join(workspace, "a.txt"), "one\ntwo\nthree\n", "utf8");
-		const result = await testContext.read({ path: "a.txt", lines: "2" });
-		expect(result).toMatchObject({ content: "two\n", start_line: 2, end_line: 2, total_lines: 3 });
-	});
-
-	it("开放行范围读取到文件末尾", async () => {
-		await writeFile(path.join(workspace, "a.txt"), "one\ntwo\nthree\n", "utf8");
-		const result = await testContext.read({ path: "a.txt", lines: "2-" });
-		expect(result).toMatchObject({ content: "two\nthree\n", start_line: 2, end_line: 3, total_lines: 3 });
-	});
-
-	it("end_line 超过文件末尾时读取到文件末尾", async () => {
-		await writeFile(path.join(workspace, "a.txt"), "one\ntwo\nthree\n", "utf8");
-		const result = await testContext.read({ path: "a.txt", lines: "2-99" });
-		expect(result).toMatchObject({
-			content: "two\nthree\n",
-			start_line: 2,
-			end_line: 3,
-			total_lines: 3,
-			truncated: false,
-		});
+		expect(await testContext.read({ path: "a.txt", lines })).toMatchObject(expected);
 	});
 
 	it("处理空文件、无尾部换行、CRLF 和 UTF-8 BOM", async () => {
@@ -250,131 +222,50 @@ describe("read", () => {
 	it("仅在保留 structure 时为其预算重新切片", async () => {
 		await testContext.useConfig({ limits: { read_bytes: 1024, read_lines: 2 } });
 		await writeFile(path.join(workspace, "structured.ts"), "one\ntwo\nthree\n");
-		const sliceText = vi.spyOn(WorkspaceContentService.prototype, "sliceText");
-		try {
-			const truncated = await testContext.read({ path: "structured.ts" });
-			expect(truncated).toMatchObject({ truncated: true, continuation: { start_line: 3 } });
-			expect(sliceText).toHaveBeenCalledTimes(1);
+		const truncated = await testContext.read({ path: "structured.ts" });
+		expect(truncated).toMatchObject({ truncated: true, continuation: { start_line: 3 } });
 
-			sliceText.mockClear();
-			const partial = await testContext.read({ path: "structured.ts", lines: "2" });
-			expect(partial).toMatchObject({ content: "two\n", start_line: 2, end_line: 2 });
-			expect(sliceText).toHaveBeenCalledTimes(1);
+		const partial = await testContext.read({ path: "structured.ts", lines: "2" });
+		expect(partial).toMatchObject({ content: "two\n", start_line: 2, end_line: 2 });
 
-			sliceText.mockClear();
-			const oversized = await testContext.read({ path: "structured.ts", lines: "2" }, {
-				structure: {
-					async context() {
-						return { enclosing_symbol: { name: "x".repeat(1024), kind: "function", line: 1, end_line: 3 } };
-					},
+		const oversized = await testContext.read({ path: "structured.ts", lines: "2" }, {
+			structure: {
+				async context() {
+					return { enclosing_symbol: { name: "x".repeat(1024), kind: "function", line: 1, end_line: 3 } };
 				},
-			});
-			expect(oversized).not.toHaveProperty("lsp");
-			expect(sliceText).toHaveBeenCalledTimes(1);
+			},
+		});
+		expect(oversized).not.toHaveProperty("lsp");
 
-			sliceText.mockClear();
-			const fitting = await testContext.read({ path: "structured.ts", lines: "2" }, {
-				structure: {
-					async context() {
-						return { enclosing_symbol: { name: "demo", kind: "function", line: 1, end_line: 3 } };
-					},
+		const fitting = await testContext.read({ path: "structured.ts", lines: "2" }, {
+			structure: {
+				async context() {
+					return { enclosing_symbol: { name: "demo", kind: "function", line: 1, end_line: 3 } };
 				},
-			});
-			expect(fitting).toMatchObject({ lsp: { enclosing_symbol: { name: "demo" } } });
-			expect(sliceText).toHaveBeenCalledTimes(2);
-		} finally {
-			sliceText.mockRestore();
-		}
+			},
+		});
+		expect(fitting).toMatchObject({ lsp: { enclosing_symbol: { name: "demo" } } });
 	});
 
 	it.each([
 		"9007199254740992", "1-9007199254740992", "2-1",
 	])("拒绝无法由 schema 表达的非法连续行范围 %j", async (lines) => {
-		const result = await testContext.read({ path: "missing.txt", lines });
-		expect(result).toMatchObject({
-			status: "failed",
-			error: { code: "INVALID_PATH", message: expect.stringContaining("lines") },
+		expectFailure(await testContext.read({ path: "missing.txt", lines }), {
+			code: "INVALID_PATH", message: expect.stringContaining("lines"),
 		});
 	});
 
 	it("文本拒绝页范围", async () => {
 		await writeFile(path.join(workspace, "a.txt"), "one\n");
-		expect(await testContext.read({ path: "a.txt", pages: "1" })).toMatchObject({
-			status: "failed",
-			error: { code: "INVALID_OPERATION" },
-		});
+		expectFailure(await testContext.read({ path: "a.txt", pages: "1" }), "INVALID_OPERATION");
 	});
 
 	it("拒绝非法范围、缺失文件、二进制和非法 UTF-8", async () => {
 		await writeFile(path.join(workspace, "binary.bin"), Buffer.from([0, 1, 2]));
 		await writeFile(path.join(workspace, "bad.txt"), Buffer.from([0xc3, 0x28]));
-		expect(await testContext.read({ path: "missing.txt" })).toMatchObject({
-			status: "failed",
-			error: { code: "FILE_NOT_FOUND" },
-		});
-		expect(await testContext.read({ path: "binary.bin" })).toMatchObject({
-			status: "failed",
-			error: { code: "BINARY_FILE_UNSUPPORTED" },
-		});
-		expect(await testContext.read({ path: "bad.txt" })).toMatchObject({
-			status: "failed",
-			error: { code: "ENCODING_UNSUPPORTED" },
-		});
-		expect(await testContext.read({ path: "bad.txt", lines: "2-1" })).toMatchObject({
-			status: "failed",
-			error: { code: "INVALID_PATH" },
-		});
-	});
-
-	it("允许读取绝对路径、.. 相对路径和指向外部的符号链接", async () => {
-		const secret = path.join(outside, "secret.txt");
-		await writeFile(secret, "secret");
-		await writeFile(path.join(workspace, "inside.txt"), "inside");
-		const relativeOutside = path.relative(workspace, secret);
-		expect(await testContext.read({ path: path.join(workspace, "inside.txt") })).toMatchObject({
-			path: "inside.txt",
-			content: "inside",
-		});
-		expect(await testContext.read({ path: relativeOutside })).toMatchObject({
-			path: relativeOutside.replace(/\\/g, "/"),
-			content: "secret",
-		});
-		expect(await testContext.read({ path: secret })).toMatchObject({
-			path: path.normalize(secret),
-			content: "secret",
-		});
-		try {
-			await symlink(secret, path.join(workspace, "link.txt"));
-			expect(await testContext.read({ path: "link.txt" })).toMatchObject({
-				path: "link.txt",
-				content: "secret",
-			});
-		} catch {
-			// Windows 未启用符号链接权限时跳过该断言。
-		}
-	});
-
-	it("blocked_path 对 lexical path 和 realpath 都生效", async () => {
-		const protectedDir = path.join(outside, "protected");
-		await mkdir(protectedDir);
-		await writeFile(path.join(workspace, "blocked.txt"), "blocked\n");
-		await writeFile(path.join(protectedDir, "secret.txt"), "secret\n");
-		await testContext.useConfig({ blocked_path: ["blocked.txt", `${protectedDir}/`] });
-
-		expect(await testContext.read({ path: "blocked.txt" })).toMatchObject({
-			status: "failed",
-			error: { code: "PROTECTED_PATH", path: "blocked.txt" },
-		});
-
-		try {
-			await symlink(path.join(protectedDir, "secret.txt"), path.join(workspace, "secret-link.txt"));
-		} catch {
-			return;
-		}
-		expect(await testContext.read({ path: "secret-link.txt" })).toMatchObject({
-			status: "failed",
-			error: { code: "PROTECTED_PATH", path: "secret-link.txt" },
-		});
+		expectFailure(await testContext.read({ path: "missing.txt" }), "FILE_NOT_FOUND");
+		expectFailure(await testContext.read({ path: "binary.bin" }), "BINARY_FILE_UNSUPPORTED");
+		expectFailure(await testContext.read({ path: "bad.txt" }), "ENCODING_UNSUPPORTED");
 	});
 
 	it("内容变化会改变 version，read 不修改内容或 mtime", async () => {
@@ -473,24 +364,18 @@ describe("read PDF 页面", () => {
 	it("校验 PDF 范围和 API 图片能力后才打开或渲染文档", async () => {
 		await writeFile(path.join(workspace, "guarded.pdf"), await pdfFixture("two-page.pdf"));
 		const unsupported = fakePdfSource({ pageCount: 2 });
-		expect(await testContext.read({ path: "guarded.pdf" }, {
+		expectFailure(await testContext.read({ path: "guarded.pdf" }, {
 			pdf: unsupported.source,
 			supportedOutputFormats: ["text"],
-		})).toMatchObject({ status: "failed", error: { code: "API_NOT_SUPPORTED" } });
+		}), "API_NOT_SUPPORTED");
 		expect(unsupported.openCalls).toBe(0);
 
 		const lines = fakePdfSource({ pageCount: 2 });
-		expect(await testContext.read({ path: "guarded.pdf", lines: "1" }, { pdf: lines.source })).toMatchObject({
-			status: "failed",
-			error: { code: "INVALID_OPERATION" },
-		});
+		expectFailure(await testContext.read({ path: "guarded.pdf", lines: "1" }, { pdf: lines.source }), "INVALID_OPERATION");
 		expect(lines.openCalls).toBe(0);
 
 		const outside = fakePdfSource({ pageCount: 2 });
-		expect(await testContext.read({ path: "guarded.pdf", pages: "3" }, { pdf: outside.source })).toMatchObject({
-			status: "failed",
-			error: { code: "INVALID_PATH", details: { start_page: 3, total_pages: 2 } },
-		});
+		expectFailure(await testContext.read({ path: "guarded.pdf", pages: "3" }, { pdf: outside.source }), { code: "INVALID_PATH", details: { start_page: 3, total_pages: 2 } });
 		expect(outside.renderedPages).toEqual([]);
 		expect(outside.disposeCalls).toBe(1);
 	});

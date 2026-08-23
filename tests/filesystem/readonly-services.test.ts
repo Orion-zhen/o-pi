@@ -85,10 +85,7 @@ describe("filesystem metadata, traversal and catalog services", () => {
 		await writeFile(path.join(workspace, "ignored", "visible-by-scope.txt"), "x");
 		await writeFile(path.join(workspace, ".piignore"), "ignored/\n");
 		const opened = await openReadonly(workspace);
-		const ignored = expectFsOk(await opened.namespace.paths.resolveExisting(
-			"ignored",
-			{ expected: "directory", followFinalSymlink: true },
-		));
+		const ignored = await opened.resolveDirectory("ignored");
 		const skipped = expectFsOk(await opened.services.traversal.walk(ignored, { intent: "search" }));
 		const skippedEvents = await collectAsync(skipped);
 		expect(skippedEvents).toEqual([{ type: "skip", path: "ignored", reason: "ignored", kind: "directory" }]);

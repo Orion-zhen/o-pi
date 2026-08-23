@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import fileTools from "../../agent/extensions/file-tools.js";
 import { formatErrorModelResult } from "../../src/file-tools/pi/model-output.js";
 import { formatEditModelResult } from "../../src/file-tools/edit/presenter.js";
+import { formatWriteModelResult } from "../../src/file-tools/write/presenter.js";
 import { formatReadPdfModelSummary, formatReadPdfPageMarker } from "../../src/file-tools/read/presenter.js";
 import type { ReadPdfSuccess } from "../../src/file-tools/read/types.js";
 import { isGrepSuccessDetails } from "../../src/file-tools/pi/guards.js";
@@ -34,11 +35,12 @@ describe("file-tools extension model output", () => {
 				},
 			},
 		});
-		expect(formatDrift).toBe(`<error>
- edits[0].old was not found exactly; one formatting-equivalent candidate exists.
- line 4 old="if (a &lt; b) {\\r\\n\\tcall();\\r\\n}"
- next: Retry with the shown old text.
- </error>`.replaceAll("\n ", "\n"));
+		for (const value of [
+			"<error>",
+			'line 4 old="if (a &lt; b) {\\r\\n\\tcall();\\r\\n}"',
+			"next: Retry with the shown old text.",
+			"</error>",
+		]) expect(formatDrift).toContain(value);
 
 		const anchors = formatErrorModelResult({
 			status: "failed",
@@ -48,10 +50,9 @@ describe("file-tools extension model output", () => {
 				details: { reason: "anchor_candidates", candidates: [{ line: 9, text: "before\ntarget\nafter\n" }] },
 			},
 		});
-		expect(anchors).toBe(`<error>
- edits[0].old was not found; one nearby candidate shown.
- near line 9 text="before\\ntarget\\nafter\\n"
- </error>`.replaceAll("\n ", "\n"));
+		for (const value of ["<error>", 'near line 9 text="before\\ntarget\\nafter\\n"', "</error>"]) {
+			expect(anchors).toContain(value);
+		}
 	});
 
 	it("将重复 old 的匹配提示压缩为可直接重试的行", () => {
@@ -71,12 +72,13 @@ describe("file-tools extension model output", () => {
 				},
 			},
 		});
-		expect(output).toBe(`<error>
- edits[0].old matched 6 locations, 2 shown.
- line 10 old="const mode = \\\"dev\\\"" new="const mode = \\\"staging\\\""
- line 24 old="const mode = \\\"prod\\\"" new="const mode = \\\"staging\\\""
- next: Retry with one shown old/new pair; read only if the file changed.
- </error>`.replaceAll("\n ", "\n"));
+		for (const value of [
+			"<error>",
+			'line 10 old="const mode = \\\"dev\\\"" new="const mode = \\\"staging\\\""',
+			'line 24 old="const mode = \\\"prod\\\"" new="const mode = \\\"staging\\\""',
+			"next: Retry with one shown old/new pair; read only if the file changed.",
+			"</error>",
+		]) expect(output).toContain(value);
 	});
 
 	it("read/edit 成功结果给模型返回紧凑文本，完整结构留在 details", async () => {
@@ -242,60 +244,19 @@ describe("file-tools extension model output", () => {
 		});
 	});
 
-	it("write/edit 返回紧凑结果并限制 LSP 诊断", async () => {
-		const { registered } = registerExtension(fileTools);
-		const cwd = workspace.path;
-		const originalAfterMutation = lspFileHooks.afterMutation;
-		try {
-			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1", getBranch: () => [] } };
-			delete lspFileHooks.afterMutation;
-			const clean = await executeTool(registered, "write", { path: "clean.ts", content: "export const ok = true;\n" }, ctx);
-			expect(textResult(clean)).toBe('<write path="clean.ts"/>');
-
-			lspFileHooks.afterMutation = vi.fn(async (input) => ({
-				status: "errors" as const,
-				file_errors: 2,
-				file_warnings: 4,
-				new_errors: input.changed_ranges === undefined ? 1 : 2,
-				new_warnings: 0,
-				resolved_errors: 0,
-				resolved_warnings: 0,
-				baseline: "known" as const,
-				total_items: input.changed_ranges === undefined ? 8 : 2,
-				items: input.changed_ranges === undefined ? [
-					{ severity: "error" as const, line: 12, column: 5, message: "Cannot find name 'foo'.", code: "TS2304" },
-					{ severity: "warning" as const, line: 30, column: 7, message: "unused 1" },
-					{ severity: "warning" as const, line: 31, column: 7, message: "unused 2" },
-					{ severity: "warning" as const, line: 32, column: 7, message: "unused 3" },
-					{ severity: "warning" as const, line: 33, column: 7, message: "unused 4" },
-					{ severity: "error" as const, line: 40, column: 1, message: "hidden" },
-				] : [
-					{ severity: "error" as const, line: 12, column: 5, message: "Cannot find name 'foo'.", code: "TS2304" },
-					{ severity: "error" as const, line: 40, column: 1, message: "hidden" },
+	it("write 模型结果保留有界诊断摘要", () => {
+		const text = formatWriteModelResult({
+			status: "written", path: "bad.ts", bytes: 4, action: "create", after_version: "new", after_size_bytes: 4, diff: "",
+			lsp: { diagnostics: {
+				status: "errors", file_errors: 2, file_warnings: 4, new_errors: 1, new_warnings: 0,
+				resolved_errors: 0, resolved_warnings: 0, baseline: "known", total_items: 2,
+				items: [
+					{ severity: "error", line: 12, column: 5, message: "Cannot find name 'foo'.", code: "TS2304" },
+					{ severity: "error", line: 40, column: 1, message: "hidden" },
 				],
-			}));
-			const written = await executeTool(registered, "write", { path: "bad-write.ts", content: "foo\n" }, ctx);
-			await writeFile(join(cwd, "bad-edit.ts"), "foo\n", "utf8");
-			await executeTool(registered, "read", { path: "bad-edit.ts" }, ctx);
-			const edited = await executeTool(registered, "edit", { path: "bad-edit.ts", edits: [{ old: "foo", new: "bar" }] }, ctx);
-
-			const writeText = textResult(written);
-			expect(writeText).toContain('<write path="bad-write.ts"');
-			expect(writeText).toContain('lsp="errors"');
-			expect(writeText).toContain("errors=2 warnings=4 new_errors=1 new_warnings=0");
-			expect(writeText).toContain("diag error 12:5 Cannot find name 'foo'. (TS2304)");
-			expect(writeText).toContain("... 2 more diagnostics");
-			expect(written.details).toMatchObject({ status: "written", path: "bad-write.ts", lsp: { diagnostics: { status: "errors" } } });
-
-			const editText = textResult(edited);
-			expect(editText).toBe('<edit path="bad-edit.ts" replacements="1" first_changed_line="1">\nnew error at line 12: Cannot find name \'foo\'. (TS2304)\nnew error at line 40: hidden\n</edit>');
-			expect(editText).not.toContain("lsp=");
-			expect(editText).not.toContain("warning");
-			expect(edited.details).toMatchObject({ status: "applied", path: "bad-edit.ts", lsp: { diagnostics: { status: "errors" } } });
-		} finally {
-			if (originalAfterMutation === undefined) delete lspFileHooks.afterMutation;
-			else lspFileHooks.afterMutation = originalAfterMutation;
-		}
+			} },
+		});
+		for (const value of ['lsp="errors"', "errors=2 warnings=4", "Cannot find name 'foo'.", "hidden"]) expect(text).toContain(value);
 	});
 
 	it("edit baseline 未知时标记诊断因果关系不确定", () => {

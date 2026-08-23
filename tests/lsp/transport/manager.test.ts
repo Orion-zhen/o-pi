@@ -5,19 +5,15 @@ import { FileChangeType } from "vscode-languageserver-protocol";
 import { LspClient } from "../../../src/lsp/client/client.js";
 import { defaultLspConfig } from "../../../src/lsp/config/loader.js";
 import { DiagnosticsLedger } from "../../../src/lsp/diagnostics/ledger.js";
-import { LspManager } from "../../../src/lsp/manager/manager.js";
 import { pathToFileUri } from "../../../src/lsp/protocol/uri.js";
-import { createFakeServer, deferred, queryManagerSymbols, send, useTransportFixture, writeConfig } from "./fixtures.js";
+import { createManager, createFakeServer, createWorkspaceSymbolServer, deferred, queryManagerSymbols, send, useTransportFixture } from "./fixtures.js";
 
 const transport = useTransportFixture();
 
 describe("lsp transport manager and protocol", () => {
 	it("TCP server 支持 initialize、workspace symbol 和 reload 清理连接", async () => {
 		const workspace = transport.workspace;
-		const fake = await createFakeServer(transport, (message, socket) => {
-			if (message.method === "initialize") {
-				send(socket, { id: message.id, result: { capabilities: { workspaceSymbolProvider: true, documentSymbolProvider: true, referencesProvider: true, callHierarchyProvider: true } } });
-			} else if (message.method === "workspace/symbol") {
+		const fake = await createWorkspaceSymbolServer(transport, (message, socket) => {
 				send(socket, {
 					id: message.id,
 					result: [{
@@ -29,11 +25,8 @@ describe("lsp transport manager and protocol", () => {
 						},
 					}],
 				});
-			}
 		});
-		await writeConfig(transport, { type: "tcp", host: "127.0.0.1", port: fake.port });
-
-		const manager = transport.manager = new LspManager();
+		const manager = await createManager(transport, fake);
 		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([
 			expect.objectContaining({ path: "src/target.ts", origin: "workspace-symbol" }),
 		]);
@@ -172,8 +165,7 @@ describe("lsp transport manager and protocol", () => {
 				registered.resolve();
 			}
 		});
-		await writeConfig(transport, { type: "tcp", host: "127.0.0.1", port: fake.port });
-		const manager = transport.manager = new LspManager();
+		const manager = await createManager(transport, fake);
 		const configFile = path.join(workspace, "nested", "tsconfig.json");
 		const secondConfigFile = path.join(workspace, "other", "tsconfig.json");
 
@@ -215,9 +207,7 @@ describe("lsp transport manager and protocol", () => {
 				});
 			}
 		});
-		await writeConfig(transport, { type: "tcp", host: "127.0.0.1", port: fake.port });
-
-		const manager = transport.manager = new LspManager();
+		const manager = await createManager(transport, fake);
 		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([
 			expect.objectContaining({ path: "src/target.ts", start_line: 3, end_line: 3, origin: "workspace-symbol" }),
 		]);
@@ -255,12 +245,7 @@ describe("lsp transport manager and protocol", () => {
 				} });
 			}
 		});
-		await writeConfig(transport, 
-			{ type: "tcp", host: "127.0.0.1", port: fake.port },
-			{ request_timeout_ms: 100 },
-		);
-
-		const manager = transport.manager = new LspManager();
+		const manager = await createManager(transport, fake, { request_timeout_ms: 100 });
 		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([]);
 		if (expectsResolve) expect(fake.methods).toContain("workspaceSymbol/resolve");
 		else expect(fake.methods).not.toContain("workspaceSymbol/resolve");
@@ -272,9 +257,7 @@ describe("lsp transport manager and protocol", () => {
 				send(socket, { id: message.id, error: { code: -32000, message: "initialize failed" } });
 			}
 		});
-		await writeConfig(transport, { type: "tcp", host: "127.0.0.1", port: fake.port });
-
-		const manager = transport.manager = new LspManager();
+		const manager = await createManager(transport, fake);
 		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([]);
 		await expect(manager.status(workspace)).resolves.toMatchObject({
 			servers: [{ id: "tcp", status: "unavailable", last_error: expect.stringContaining("initialize failed") }],
@@ -326,9 +309,7 @@ describe("lsp transport manager and protocol", () => {
 				send(socket, { id: message.id, result: { capabilities: {} } });
 			}
 		});
-		await writeConfig(transport, { type: "tcp", host: "127.0.0.1", port: fake.port });
-
-		const manager = transport.manager = new LspManager();
+		const manager = await createManager(transport, fake);
 		await expect(queryManagerSymbols(manager, workspace, "target")).resolves.toEqual([]);
 		expect(fake.methods).not.toContain("workspace/symbol");
 	});

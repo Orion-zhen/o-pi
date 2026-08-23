@@ -5,7 +5,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import fileTools from "../../agent/extensions/file-tools.js";
 import { useTempDir } from "../helpers/lifecycle.js";
-import { activateFileTools, registerExtension, renderToolResult, renderWriteResult, theme } from "./extension-fixture.js";
+import { activateFileTools, registerExtension, renderToolResult, theme } from "./extension-fixture.js";
 
 const editCardTemp = useTempDir("o-pi-edit-card-");
 
@@ -16,8 +16,7 @@ describe("file-tools extension renderers", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("失败和部分结果保持正确状态且不丢失错误信息", async () => {
-		const { registered, handlers } = await registerRenderers();
+	rendererTest("失败和部分结果保持正确状态且不丢失错误信息", async ({ registered, handlers }) => {
 		const failure = {
 			status: "failed" as const,
 			error: { code: "INVALID_PATH", message: "path must be workspace-relative.", path: "src/missing" },
@@ -40,8 +39,7 @@ describe("file-tools extension renderers", () => {
 		expect(partial).not.toContain("error");
 	});
 
-	it("find 展开结果保留匹配和部分 scope 错误", async () => {
-		const { registered } = await registerRenderers();
+	rendererTest("find 展开结果保留匹配和部分 scope 错误", async ({ registered }) => {
 		const output = renderToolResult(registered, "find", {
 			status: "success",
 			query: "main",
@@ -61,8 +59,7 @@ describe("file-tools extension renderers", () => {
 		for (const value of ["src/main.ts", "missing", "PATH_NOT_FOUND"]) expect(output).toContain(value);
 	});
 
-	it("read 调用显示 lines 或 pages，PDF 结果展示页面摘要且不泄露 Base64", async () => {
-		const { registered } = await registerRenderers();
+	rendererTest("read 调用显示 lines 或 pages，PDF 结果展示页面摘要且不泄露 Base64", async ({ registered }) => {
 		const read = registered.slice().reverse().find((tool) => tool.name === "read");
 		const callContext = {
 			cwd: "/repo",
@@ -128,43 +125,7 @@ describe("file-tools extension renderers", () => {
 		expect(expanded).not.toContain("secret-page");
 	});
 
-	it("write 折叠时隐藏正文和 diff，展开时恢复，并接收后处理进度", async () => {
-		const { registered } = await registerRenderers();
-		const write = registered.slice().reverse().find((tool) => tool.name === "write");
-		const args = { path: "notes.txt", content: "first\nsecond" };
-		const state: { callComponent?: { postProcess?: unknown } } = {};
-		const context = { argsComplete: true, cwd: "/repo", isPartial: true, lastComponent: undefined, state };
-		const collapsed = write?.renderCall?.(args, theme, { ...context, expanded: false });
-		const collapsedOutput = collapsed?.render(80).join("\n");
-		const expanded = write?.renderCall?.(args, theme, { ...context, expanded: true, lastComponent: collapsed });
-		expect(collapsedOutput).not.toContain("first");
-		expect(expanded?.render(80).join("\n")).toContain("first");
-
-		const progress = renderToolResult(registered, "write", {
-			status: "post-processing",
-			diff: "-1 old\n+1 new",
-			lsp: { status: "clean", errors: 0, warnings: 0 },
-		}, {
-			isPartial: true,
-			content: [],
-			width: 80,
-			context: { args, cwd: "/repo", lastComponent: undefined, state },
-		});
-		expect(progress).toBe("");
-		expect(state.callComponent?.postProcess).toMatchObject({ lsp: { status: "clean" } });
-
-		const result = {
-			status: "written",
-			path: "src/app.ts",
-			bytes: 4,
-			diff: "-1 old\n+1 new",
-		};
-		expect(renderWriteResult(registered, result)).not.toContain("-1 old");
-		expect(renderWriteResult(registered, result, true)).toContain("-1 old");
-	});
-
-	it("edit 预览异步刷新，折叠时隐藏 diff，展开时恢复", async () => {
-		const { registered } = await registerRenderers();
+	rendererTest("edit 预览异步刷新，折叠时隐藏 diff，展开时恢复", async ({ registered }) => {
 		const cwd = editCardTemp.path;
 		await writeFile(join(cwd, "app.ts"), "old\n", "utf8");
 		const edit = registered.slice().reverse().find((tool) => tool.name === "edit");
@@ -244,6 +205,13 @@ describe("file-tools extension renderers", () => {
 		expect(result).toContain("LSP clean");
 	});
 });
+
+function rendererTest(
+	name: string,
+	test: (fixture: Awaited<ReturnType<typeof registerRenderers>>) => Promise<void> | void,
+): void {
+	it(name, async () => test(await registerRenderers()));
+}
 
 async function registerRenderers() {
 	const extension = registerExtension(fileTools);

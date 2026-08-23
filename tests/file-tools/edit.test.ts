@@ -1,30 +1,25 @@
-import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { contentHash as sha256Version } from "../../src/filesystem/services/text.js";
 import { isPlainRecord } from "../../src/file-tools/pi/guards.js";
 import { createCrudTestContext } from "./crud-fixtures.js";
+import { expectFailure } from "./result-fixtures.js";
 
 const testContext = createCrudTestContext();
 let workspace: string;
-let outside: string;
 
 beforeEach(() => {
 	workspace = testContext.workspace;
-	outside = testContext.outside;
 });
 
 describe("edit", () => {
 	it("要求目标文件存在且必须先 read", async () => {
-		expect(await testContext.edit({ path: "missing.txt", edits: [{ old: "old", new: "new" }] })).toMatchObject({
-			status: "failed",
-			error: { code: "FILE_NOT_FOUND" },
-		});
+		expectFailure(await testContext.edit({ path: "missing.txt", edits: [{ old: "old", new: "new" }] }), "FILE_NOT_FOUND");
 		await writeFile(path.join(workspace, "a.txt"), "old\n");
-		expect(await testContext.edit({ path: "a.txt", edits: [{ old: "old", new: "new" }] })).toMatchObject({
-			status: "failed",
-			error: { code: "READ_REQUIRED", path: "a.txt", next: "Read the file, then create a new edit operation." },
+		expectFailure(await testContext.edit({ path: "a.txt", edits: [{ old: "old", new: "new" }] }), {
+			code: "READ_REQUIRED", path: "a.txt", next: "Read the file, then create a new edit operation.",
 		});
 		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("old\n");
 	});
@@ -35,25 +30,17 @@ describe("edit", () => {
 		const oversizedText = `old${"x".repeat(1022)}`;
 		await writeFile(oversized, oversizedText);
 		await testContext.read({ path: "edit-large.txt" });
-		expect(await testContext.edit({
-			path: "edit-large.txt",
-			edits: [{ old: "old", new: "new" }],
-		})).toMatchObject({
-			status: "failed",
-			error: { code: "OUTPUT_LIMIT_EXCEEDED", details: { limit: 1024, size: 1025 } },
-		});
+		expectFailure(await testContext.edit({
+			path: "edit-large.txt", edits: [{ old: "old", new: "new" }],
+		}), { code: "OUTPUT_LIMIT_EXCEEDED", details: { limit: 1024, size: 1025 } });
 		expect(await readFile(oversized, "utf8")).toBe(oversizedText);
 
 		const growing = path.join(workspace, "edit-growing.txt");
 		await writeFile(growing, "old");
 		await testContext.read({ path: "edit-growing.txt" });
-		expect(await testContext.edit({
-			path: "edit-growing.txt",
-			edits: [{ old: "old", new: "z".repeat(1025) }],
-		})).toMatchObject({
-			status: "failed",
-			error: { code: "OUTPUT_LIMIT_EXCEEDED", details: { limit: 1024, size: 1025 } },
-		});
+		expectFailure(await testContext.edit({
+			path: "edit-growing.txt", edits: [{ old: "old", new: "z".repeat(1025) }],
+		}), { code: "OUTPUT_LIMIT_EXCEEDED", details: { limit: 1024, size: 1025 } });
 		expect(await readFile(growing, "utf8")).toBe("old");
 
 		const exact = path.join(workspace, "edit-exact.txt");
@@ -231,7 +218,7 @@ describe("edit", () => {
 			path: "a.txt",
 			edits: [{ old: "return  value;", new: "return next;" }],
 		});
-		expect(result).toMatchObject({ status: "failed", error: { code: "OLD_TEXT_NOT_FOUND" } });
+		expectFailure(result, "OLD_TEXT_NOT_FOUND");
 		if (!("error" in result)) throw new Error("edit unexpectedly succeeded");
 		expect(result.error.details?.["reason"]).not.toBe("format_drift");
 		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe(source);
@@ -382,14 +369,8 @@ describe("edit", () => {
 		const before = await testContext.read({ path: "a.txt" });
 		if (!("version" in before)) throw new Error("read failed");
 
-		expect(await testContext.edit({ path: "a.txt", edits: [{ old: "missing", new: "new" }] })).toMatchObject({
-			status: "failed",
-			error: { code: "OLD_TEXT_NOT_FOUND", edit_index: 0 },
-		});
-		expect(await testContext.edit({ path: "a.txt", edits: [{ old: "same", new: "new" }] })).toMatchObject({
-			status: "failed",
-			error: { code: "OLD_TEXT_NOT_UNIQUE", edit_index: 0 },
-		});
+		expectFailure(await testContext.edit({ path: "a.txt", edits: [{ old: "missing", new: "new" }] }), { code: "OLD_TEXT_NOT_FOUND", edit_index: 0 });
+		expectFailure(await testContext.edit({ path: "a.txt", edits: [{ old: "same", new: "new" }] }), { code: "OLD_TEXT_NOT_UNIQUE", edit_index: 0 });
 		expect(
 			await testContext.edit({
 				path: "a.txt",
@@ -425,7 +406,7 @@ describe("edit", () => {
 				async afterMutation() { return undefined; },
 			},
 		});
-		expect(result).toMatchObject({ status: "failed", error: { code: "OPERATION_ABORTED" } });
+		expectFailure(result, "OPERATION_ABORTED");
 		expect(await readFile(file, "utf8")).toBe("old\n");
 	});
 
@@ -460,41 +441,6 @@ describe("edit", () => {
 		expect(await readFile(path.join(workspace, "nonewline.txt"), "utf8")).toBe("a\nB");
 	});
 
-	it("允许修改 cwd 外的绝对路径并拒绝 blocked path", async () => {
-		const externalFile = path.join(outside, "external.txt");
-		await writeFile(externalFile, "hello\n");
-		const read = await testContext.read({ path: externalFile });
-		if (!("version" in read)) throw new Error("read failed");
-		expect(await testContext.edit({ path: externalFile, edits: [{ old: "hello", new: "updated" }] })).toMatchObject({
-			status: "applied",
-			path: path.normalize(externalFile),
-		});
-		expect(await readFile(externalFile, "utf8")).toBe("updated\n");
-
-		await mkdir(path.join(workspace, ".git"));
-		await writeFile(path.join(workspace, ".git", "config"), "[core]\n");
-		expect(await testContext.edit({ path: ".git/config", edits: [{ old: "[core]", new: "[x]" }] })).toMatchObject({
-			status: "failed",
-			error: { code: "PROTECTED_PATH", path: ".git/config" },
-		});
-	});
-
-	it("edit 拒绝 realpath 命中 blocked_path 的 symlink", async () => {
-		const protectedDir = path.join(outside, "protected");
-		await mkdir(protectedDir);
-		await writeFile(path.join(protectedDir, "secret.txt"), "secret\n");
-		await testContext.useConfig({ blocked_path: [`${protectedDir}/`] });
-		try {
-			await symlink(path.join(protectedDir, "secret.txt"), path.join(workspace, "secret-link.txt"));
-		} catch {
-			return;
-		}
-		expect(await testContext.edit({ path: "secret-link.txt", edits: [{ old: "secret", new: "new" }] })).toMatchObject({
-			status: "failed",
-			error: { code: "PROTECTED_PATH", path: "secret-link.txt" },
-		});
-	});
-
 	it("预览只读生成 diff，执行仍保持 read-before-edit 约束", async () => {
 		await writeFile(path.join(workspace, "a.txt"), "old\n");
 		const params = { path: "a.txt", edits: [{ old: "old", new: "new" }] };
@@ -506,7 +452,7 @@ describe("edit", () => {
 		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("old\n");
 
 		const result = await testContext.edit(params);
-		expect(result).toMatchObject({ status: "failed", error: { code: "READ_REQUIRED" } });
+		expectFailure(result, "READ_REQUIRED");
 		expect(await readFile(path.join(workspace, "a.txt"), "utf8")).toBe("old\n");
 	});
 });

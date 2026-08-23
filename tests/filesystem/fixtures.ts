@@ -1,6 +1,7 @@
 import { expect } from "vitest";
 
-import type { DirectoryRef, FileRef } from "../../src/filesystem/contracts/path.js";
+import type { ByteContent, LineScan, ReadOptions, TextContent } from "../../src/filesystem/contracts/content.js";
+import type { DirectoryRef, ExistingRef, FileRef } from "../../src/filesystem/contracts/path.js";
 import type { FsResult } from "../../src/filesystem/contracts/result.js";
 import type { VisibilityPolicy } from "../../src/filesystem/contracts/visibility.js";
 import { createWorkspaceNamespace, type WorkspaceNamespaceKernel } from "../../src/filesystem/kernel/namespace.js";
@@ -18,6 +19,12 @@ import { WorkspaceVisibilityService } from "../../src/filesystem/services/visibi
 export interface OpenedReadonly {
 	readonly namespace: WorkspaceNamespaceKernel;
 	readonly services: ReadonlyFileSystemServices;
+	resolveExisting(input: string): Promise<ExistingRef>;
+	resolveFile(input: string): Promise<FileRef>;
+	resolveDirectory(input: string): Promise<DirectoryRef>;
+	readBytes(input: string, options?: ReadOptions): Promise<FsResult<ByteContent>>;
+	readText(input: string, options?: ReadOptions): Promise<FsResult<TextContent>>;
+	scanLines(input: string, options?: ReadOptions): Promise<FsResult<LineScan>>;
 }
 
 export async function openReadonly(
@@ -43,14 +50,22 @@ export async function openReadonly(
 		namespace,
 		context,
 	);
+	const services = createReadonlyFileSystemServices({ native, namespace, visibility, context });
 	return {
 		namespace,
-		services: createReadonlyFileSystemServices({
-			native,
-			namespace,
-			visibility,
-			context,
-		}),
+		services,
+		resolveExisting: async (input) => expectFsOk(await namespace.paths.resolveExisting(input, { expected: "any", followFinalSymlink: true })),
+		resolveFile: (input) => resolveFile(namespace, input),
+		resolveDirectory: (input) => resolveDirectory(namespace, input),
+		async readBytes(input, readOptions = {}) {
+			return await services.content.readBytes(await resolveFile(namespace, input), readOptions);
+		},
+		async readText(input, readOptions = {}) {
+			return await services.content.readText(await resolveFile(namespace, input), readOptions);
+		},
+		async scanLines(input, readOptions = {}) {
+			return await services.content.scanLines(await resolveFile(namespace, input), readOptions);
+		},
 	};
 }
 
