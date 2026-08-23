@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { WebFetchSuccessDetails } from "../../src/web-tools/core/types.js";
 import { formatWebFetchCall, formatWebFetchResult, renderWebFetchCall, renderWebFetchResult } from "../../src/web-tools/tui/webfetch.js";
-import { expectRendererLifecycle, theme } from "./renderer-fixture.js";
+import { expectRendererLifecycle, theme, webFetchDetails } from "./renderer-fixture.js";
 
 
 describe("webfetch renderer", () => {
@@ -14,7 +13,7 @@ describe("webfetch renderer", () => {
 	});
 
 	it("折叠隐藏预览，展开后保留响应信息，并安全渲染进度与失败", () => {
-		const details = successDetails();
+		const details = webFetchDetails();
 		const collapsed = formatWebFetchResult(details, {}, theme);
 		const expanded = formatWebFetchResult(details, { expanded: true }, theme);
 		expect(collapsed).not.toContain(details.preview);
@@ -62,31 +61,3 @@ describe("webfetch renderer", () => {
 		});
 	});
 });
-
-function successDetails(): WebFetchSuccessDetails {
-	return {
-		status: "success",
-		scope: "static_response",
-		page_kind: "article",
-		text_source: "readability",
-		completeness: "partial",
-		omissions: [{ kind: "text_range", reason: "range" }],
-		requested_url: "https://example.com/start",
-		final_url: "https://example.com/final",
-		http_status: 200,
-		title: "Example article",
-		content_type: "text/html",
-		charset: "utf-8",
-		format: "markdown",
-		downloaded_bytes: 100,
-		total_chars: 3000,
-		range: { start: 0, end: 1000, total: 3000, has_more: true, next_offset: 1000 },
-		authenticated: true,
-		redirect_count: 1,
-		snapshot: "created",
-		deferred_fragments: { discovered: 1, resolved: 1, limited: false },
-		media: { discovered: 1, returned: 1 },
-		duration_ms: 12,
-		preview: "preview sentinel",
-	};
-}
