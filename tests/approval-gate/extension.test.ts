@@ -196,6 +196,15 @@ log=$(mktemp)
 printf content > "$log"
 rm -f "$log"
 `],
+		["带后缀的 mktemp 临时文件", `
+tmp=$(mktemp /tmp/o-pi-smoke-XXXX.ts); cat > "$tmp" <<'EOF'
+console.log("ok")
+EOF
+node_modules/.bin/jiti "$tmp"
+status=$?
+rm -f "$tmp"
+exit $status
+`],
 		["mktemp 临时目录中的写入与清理", `
 set -eu
 root="$PWD"
@@ -214,6 +223,12 @@ rm -f "$tmpdir/result.txt"
 	] as const)("%s 不触发审批", async (_name, command) => {
 		const ui = fakeUi([]);
 		expect(await handle(bash(command), ctx(ui))).toBeUndefined();
+		expect(ui.selectCalls).toBe(0);
+	});
+
+	it.skipIf(process.platform === "win32")("write 写入 /var/tmp 后代不触发审批", async () => {
+		const ui = fakeUi([]);
+		expect(await handle(write(path.join("/var/tmp", "pi-approval", "file")), ctx(ui))).toBeUndefined();
 		expect(ui.selectCalls).toBe(0);
 	});
 

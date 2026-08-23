@@ -124,6 +124,24 @@ done
 		expect(evaluateApproval(request, defaultApprovalGateConfig(), store())).toEqual({ kind: "allow" });
 	});
 
+	it.each([
+		["mktemp 静态模板", `tmp=$(mktemp /tmp/pi-XXXX.ts)\ncat > "$tmp"\nrm -f "$tmp"`],
+		["安全重赋值", `tmp=/tmp/a\ntmp=/tmp/b\nrm -rf "$tmp"`],
+		["声明式赋值", `readonly tmp=$(mktemp -d)\nrm -rf "$tmp"`],
+		["分支合并", `if test -n x; then tmp=/tmp/a; else tmp=/tmp/b; fi\nrm -rf "$tmp"`],
+		["EXIT trap", `cleanup() { rm -rf "$tmp"; }\ntrap cleanup EXIT\ntmp=$(mktemp -d)`],
+		["Git 临时工作区", `tmp=$(mktemp -d)\ngit -C "$tmp" clean -fd`],
+		["包装 cd", `tmp=$(mktemp -d)\n(command cd "$tmp" && rm -rf .)`],
+		["嵌套 Shell cwd", `tmp=$(mktemp -d)\n(cd "$tmp" && bash -c "rm -rf .")`],
+		["嵌套 Shell 参数", `bash -c 'rm -rf "$1"' _ /tmp/pi-approval-work`],
+		["受限参数展开", `tmp=$(mktemp -d)\nrm -rf "\${tmp:?}/child"`],
+		["临时路径 glob", "rm -rf /tmp/pi-approval-*"],
+		["未调用函数", "publish() { git push origin main; }\necho ok"],
+		["已清除 EXIT trap", "trap 'git push origin main' EXIT\ntrap - EXIT\necho ok"],
+	] as const)("可证明局部副作用时默认放行: %s", async (_name, command) => {
+		expect(evaluateApproval(await bashRequest(command), defaultApprovalGateConfig(), store())).toEqual({ kind: "allow" });
+	});
+
 	it("显式 deny 仍可阻止 temporary 单元", async () => {
 		const config = configWith({
 			deny_rules: [{ name: "no-rm", tools: ["bash"], command_regex: "^rm\\b", reason: "no removal" }],
@@ -166,6 +184,12 @@ done
 		`tmpdir=/etc\nrm -rf "$tmpdir"`,
 		`tmpdir=$(mktemp -d)\nread tmpdir\nrm -rf "$tmpdir"`,
 		`tmpdir=$(mktemp -d)\nsudo rm -rf "$tmpdir"`,
+		`tmp='/tmp/a /etc'\nrm -rf $tmp`,
+		"rmdir -p /tmp/pi-approval/child",
+		`if test -n "$X"; then cd /tmp/a && true; else cd /etc && true; fi\nrm -rf .`,
+		`tmp=$(mktemp -d)\n(cd "$tmp" && bash -c 'cd /etc; rm -rf .')`,
+		`tmp=/etc\ntest -n "$X" && tmp=/tmp/a\nrm -rf "$tmp"`,
+		`tmp="/etc/$(mktemp)"\nrm -rf "$tmp"`,
 	])("临时范围无法静态证明时仍询问: %s", async (command) => {
 		expect(evaluateApproval(await bashRequest(command), defaultApprovalGateConfig(), store())).toMatchObject({
 			kind: "ask",
@@ -183,6 +207,12 @@ done
 		"kubectl get pods",
 		"terraform plan",
 		`bash -c "echo ready"`,
+		"systemctl status nginx",
+		"systemctl --user list-units",
+		"systemctl -H host status nginx",
+		"service --status-all",
+		"service nginx status",
+		"launchctl list",
 	])("默认 command_regex 不匹配 %s", async (command) => {
 		expect(evaluateApproval(await bashRequest(command), defaultApprovalGateConfig(), store())).toEqual({ kind: "allow" });
 	});
@@ -200,8 +230,16 @@ done
 		["sudo systemctl restart nginx", "system-level command"],
 		["sudo -u root npm install lodash", "system-level command"],
 		["systemctl restart nginx", "system-level command"],
+		["systemctl -H host restart nginx", "system-level command"],
+		["systemctl future-mutating-command", "system-level command"],
 		["service nginx restart", "system-level command"],
+		["service --full-restart-all", "system-level command"],
 		["launchctl unload service.plist", "system-level command"],
+		["launchctl future-mutating-command", "system-level command"],
+		["publish() { git push origin main; }; publish", "external publishing"],
+		["publish() { git push origin old; }; publish; publish() { echo ok; }", "external publishing"],
+		[`if test -n "$X"; then trap 'git push origin main' EXIT; else trap - EXIT; fi`, "external publishing"],
+		["cleanup() { git push origin main; }; trap 'cleanup arg' EXIT", "external publishing"],
 		["env -u NODE_ENV npm install lodash", "package management"],
 		["command pnpm add lodash", "package management"],
 		["npm install lodash", "package management"],
@@ -227,6 +265,7 @@ done
 		["docker prune", "infrastructure side effect"],
 		["eval $SCRIPT", "dynamic or unparsable shell input"],
 		[`"$COMMAND" arg`, "dynamic or unparsable shell input"],
+		["* arg", "dynamic or unparsable shell input"],
 		[`bash -c "$SCRIPT"`, "dynamic or unparsable shell input"],
 		[`echo "unterminated`, "dynamic or unparsable shell input"],
 	] as const)("默认 command_regex 匹配 %s", async (command, reason) => {

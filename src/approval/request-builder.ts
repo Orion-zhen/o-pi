@@ -2,7 +2,7 @@ import path from "node:path";
 import { isToolCallEventType, type ToolCallEvent } from "@earendil-works/pi-coding-agent";
 
 import { parseBashApprovalUnits } from "./bash-parser.js";
-import { normalizeTargetPath } from "./path.js";
+import { isSystemTemporaryDescendant, normalizeTargetPath } from "./path.js";
 import type { ApprovalRequest, ApprovalUnit } from "./types.js";
 
 export async function buildApprovalRequest(event: ToolCallEvent, cwd: string): Promise<ApprovalRequest | undefined> {
@@ -45,6 +45,7 @@ function pathRequest(
 	const unit: ApprovalUnit = {
 		action,
 		target: { kind: "path", value: targetPath },
+		...(isSystemTemporaryDescendant(targetPath) ? { effect_scope: "temporary" as const } : {}),
 		remember: { session: true, persistent: true },
 	};
 	return request({ tool, cwd, summary, units: [unit] });

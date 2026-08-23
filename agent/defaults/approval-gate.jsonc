@@ -66,8 +66,8 @@
 			"tools": [
 				"bash"
 			],
-			// 命中示例：sudo npm install lodash、systemctl restart nginx、service nginx restart、launchctl unload service.plist。
-			"command_regex": "^(?:sudo|systemctl|service|launchctl)(?:\\s|$)",
+			// 命中示例：sudo npm install lodash、systemctl restart nginx、service nginx restart、launchctl unload service.plist。只读查询不触发审批。
+			"command_regex": "^(?:sudo(?:\\s|$)|systemctl\\b(?:(?:\\s+(?:-H|-M|--host|--image|--machine|--root)\\s+\\S+)|(?:\\s+(?!(?:-H|-M|--host|--image|--machine|--root)(?:\\s|$))-\\S+))*\\s+(?!(?:-\\S+|cat|get-default|get-property|help|is-active|is-enabled|is-failed|list-dependencies|list-jobs|list-machines|list-sockets|list-timers|list-unit-files|list-units|show|show-environment|status)(?:\\s|$))\\S+|service(?:\\s+--full-restart-all(?:\\s|$)|\\s+\\S+\\s+(?!status(?:\\s|$))\\S+)|launchctl\\b(?:\\s+-\\S+)*\\s+(?!(?:-\\S+|blame|error|getenv|help|hostinfo|list|managername|managerpid|manageruid|print|print-cache|procinfo)(?:\\s|$))\\S+)",
 			"reason": "system-level command"
 		},
 		{

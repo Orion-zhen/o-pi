@@ -111,12 +111,22 @@ rm -f "$log"
 
 	it.each([
 		`log=$(mktemp)\nprintf content > "$log/child"`,
-		`log=$(mktemp cache.XXXX)\nprintf content > "$log"`,
-	])("不把未证明的 mktemp 文件路径标成 temporary: %s", async (command) => {
+		`log=$(mktemp -u)\nprintf content > "$log"`,
+	])("不把未证明由 mktemp 独占的新路径标成 temporary: %s", async (command) => {
 		const request = await buildApprovalRequest(bash(command), cwd);
 		const redirect = request?.units.find((unit) => unit.action === "write_redirect");
 		expect(redirect).toMatchObject({ target: { kind: "command" } });
 		expect(redirect?.effect_scope).toBeUndefined();
+	});
+
+	it.each([
+		`log=$(mktemp cache.XXXX)\nprintf content > "$log"`,
+		`log=$(mktemp --tmpdir=/tmp --suffix=.ts)\nprintf content > "$log"`,
+		`tmpdir=$(mktemp -d ./cache.XXXX)\nrm -rf "$tmpdir"`,
+	])("把静态 mktemp 变体创建的新路径标成 temporary: %s", async (command) => {
+		const request = await buildApprovalRequest(bash(command), cwd);
+		const effect = request?.units.find((unit) => unit.action === "write_redirect" || unit.target.value.includes("rm -rf"));
+		expect(effect?.effect_scope).toBe("temporary");
 	});
 
 	it("解析 mktemp 临时目录变量并标记仅影响临时目录的单元", async () => {
@@ -213,7 +223,6 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 		`tmpdir=$(mktemp -d)\ntmpdir=/etc\nrm -rf "$tmpdir"`,
 		`tmpdir=$(mktemp -d)\nread tmpdir\nrm -rf "$tmpdir"`,
 		`tmpdir=$(mktemp -d)\nfor tmpdir in /etc; do rm -rf "$tmpdir"; done`,
-		`tmpdir=$(mktemp -d ./cache.XXXX)\nrm -rf "$tmpdir"`,
 		`tmpdir=$(mktemp -d)\nrm -rf "$tmpdir" /etc/hosts`,
 		`tmpdir=$(mktemp -d)\nsudo rm -rf "$tmpdir"`,
 		`tmpdir=$(mktemp -d)\nrm -rf "$tmpdir/../outside"`,
@@ -231,6 +240,14 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 			match_value: "env -u NODE_ENV npm install lodash",
 			similar_value: "npm install lodash",
 		});
+	});
+
+	it.each([
+		["write", write(path.join(runtimeTempRoot, "pi-approval", "file"))],
+		["edit", edit(path.join(runtimeTempRoot, "pi-approval", "file"))],
+	] as const)("%s 工具把系统临时目录后代标成 temporary", async (_tool, event) => {
+		const request = await buildApprovalRequest(event, cwd);
+		expect(request?.units[0]?.effect_scope).toBe("temporary");
 	});
 
 	it("write /etc/hosts 生成路径审批单元", async () => {
