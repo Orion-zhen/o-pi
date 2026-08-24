@@ -62,7 +62,7 @@ skill://demo/scripts/run.sh --flag
 
 关键字段：
 
-- `default_timeout_seconds`：工具调用未传入 `timeout` 时使用的超时时间，单位为秒。当前默认值为 `300`。
+- `default_timeout_seconds`：工具调用未传入 `timeout` 时使用的超时时间，单位为秒。当前默认值为 `300`。单次调用的 `timeout` 必须大于 `0` 且不超过 `86400`。
 - `python_venv_paths`：Python 虚拟环境候选路径。相对路径基于命令工作目录解析，绝对路径直接使用。空数组关闭自动探测。
 - `limits.success_output_bytes`：成功输出的模型可见字节预算。
 - `limits.failure_output_bytes`：非零退出、超时或取消输出的模型可见字节预算。
@@ -120,7 +120,7 @@ Matched pattern: ...
 <tmp>/o-pi/bash/<session-id>/<tool-call-id>.log
 ```
 
-工具会尽力把目录权限设置为 `0700`，把文件权限设置为 `0600`。文件名不包含命令、参数或输出内容。
+工具创建目录时请求 `0700`，创建文件时请求 `0600`。POSIX 平台无法设置这些权限时执行失败；Windows 不提供完整的 POSIX mode 语义。文件名不包含命令、参数或输出内容。
 
 命令成功且输出状态为 `complete` 时，工具删除日志。出现 `compacted`、`truncated` 或 `capture_truncated` 状态，以及非零退出、超时或取消时，工具保留日志。如果 Shell 后端在正常执行状态下抛出异常，或输出捕获本身失败，工具会删除不完整日志并向上抛出错误。
 

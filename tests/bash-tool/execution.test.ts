@@ -2,13 +2,13 @@ import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BashOperations, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { createLocalBashOperations, type BashOperations, type SessionEntry } from "@earendil-works/pi-coding-agent";
+import { Ajv, type AnySchema } from "ajv";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 import bashToolExtension from "../../agent/extensions/bash-tool.js";
 import {
 	createBashEnvironment,
-	createDefaultBashOperations,
 	executeBashCommand,
 	normalizeWindowsPath,
 	resolvePythonVirtualEnvironment,
@@ -17,13 +17,14 @@ import {
 import { OutputCapture, sanitizePathPart } from "../../src/bash-tool/output-capture.js";
 import { renderBashCall } from "../../src/bash-tool/tui/renderer.js";
 import type { BashSessionMetadata, ExecuteBashRuntime } from "../../src/bash-tool/types.js";
-import { defaultBashToolConfig, loadBashToolConfig } from "../../src/bash-tool/config.js";
+import { loadBashToolConfig } from "../../src/bash-tool/config.js";
 import { SKILL_CONTEXT_ENTRY } from "../../src/skill-context/types.js";
 import { registerExtension } from "../helpers/extension.js";
+import { bashToolConfig } from "./fixture.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
-let config = defaultBashToolConfig();
+let config = bashToolConfig();
 const temp = useTempDir("o-pi-bash-test-");
 const sessionFileOne = path.join("sessions", "1.jsonl");
 const sessionFile = path.join("sessions", "session-1.jsonl");
@@ -43,7 +44,7 @@ preserveEnv(
 
 beforeEach(() => {
 	workspace = temp.path;
-	config = defaultBashToolConfig();
+	config = bashToolConfig();
 	config.limits.success_output_bytes = 200;
 	config.limits.failure_output_bytes = 300;
 });
@@ -77,6 +78,16 @@ describe("bash tool execution", () => {
 		expect(handlers.get("tool_result")?.({ toolName: "bash", details: { ...base, status: "timed_out" } })).toEqual({ isError: true });
 		expect(handlers.get("tool_result")?.({ toolName: "bash", details: { ...base, status: "exited", exit_code: 0 } })).toBeUndefined();
 		expect(handlers.get("tool_result")?.({ toolName: "read", details: base })).toBeUndefined();
+	});
+
+	it("参数 schema 在执行前拒绝越界 timeout", () => {
+		const { registered: tools } = registerExtension(bashToolExtension);
+		const schema = tools[0]?.parameters;
+		if (schema === undefined) throw new Error("bash tool schema was not registered");
+		const validate = new Ajv({ strict: false }).compile(schema as AnySchema);
+
+		for (const timeout of [0.01, 86_400]) expect(validate({ command: "echo ok", timeout })).toBe(true);
+		for (const timeout of [0, -1, 86_400.01]) expect(validate({ command: "echo no", timeout })).toBe(false);
 	});
 
 	it("折叠与展开切换时复用组件，并保留可见命令", () => {
@@ -153,6 +164,7 @@ describe("bash tool execution", () => {
 			sessionManager: {
 				getSessionId: () => state.id,
 				getSessionFile: () => state.file,
+				getBranch: () => [],
 			},
 			get model() { return state.model; },
 			get thinkingLevel() { return state.thinking; },
@@ -203,16 +215,6 @@ describe("bash tool execution", () => {
 		expect(seenEnvironments[1]?.PI_SESSION_FILE).toBeUndefined();
 		expect(seenEnvironments[1]?.PI_PROVIDER).toBeUndefined();
 		expect(seenEnvironments[1]?.PI_MODEL).toBeUndefined();
-	});
-
-	it("将解析后的 timeout 传递给原生 BashOperations", async () => {
-		let seenTimeout: number | undefined;
-		const operations = fakeOperations(async (_command, _cwd, options) => {
-			seenTimeout = options.timeout;
-			return { exitCode: 0 };
-		});
-		await executeBashCommand({ command: "echo hello", timeout: 2.5 }, runtime(operations));
-		expect(seenTimeout).toBe(2.5);
 	});
 
 	it.each([".venv", "venv", "env", ".env", "pyvenv", "pyenv", ".pyvenv", ".pyenv"])(
@@ -329,7 +331,7 @@ describe("bash tool execution", () => {
 			await chmod(file, 0o700);
 		}
 
-		const result = await executeBashCommand({ command: "python && python3 && pip && pip3" }, runtime(createDefaultBashOperations()));
+		const result = await executeBashCommand({ command: "python && python3 && pip && pip3" }, runtime(createLocalBashOperations()));
 		expect(result.details.exit_code).toBe(0);
 		for (const executable of ["python", "python3", "pip", "pip3"]) expect(result.content).toContain(`venv-${executable}`);
 	});
@@ -353,7 +355,7 @@ describe("bash tool execution", () => {
 		await writeFile(directScript, "#!/bin/sh\nprintf 'skill-%s\\n' \"$1\"\n");
 		await chmod(directScript, 0o700);
 		await writeFile(spacedScript, "#!/bin/sh\nprintf 'skill-%s\\n' \"$1\"\n");
-		const runtimeValue = runtime(createDefaultBashOperations());
+		const runtimeValue = runtime(createLocalBashOperations());
 		runtimeValue.branch = skillBranch("demo", skillRoot);
 
 		const result = await executeBashCommand({
@@ -409,17 +411,6 @@ describe("bash tool execution", () => {
 		expect(regex.content).toContain('code="BLOCKED_COMMAND"');
 		expect(regex.content).toContain("\\bmkfs");
 		expect(called).toBe(false);
-	});
-
-	it("未配置 safety 时保持兼容", async () => {
-		let seen: string | undefined;
-		const operations = fakeOperations(async (command) => {
-			seen = command;
-			return { exitCode: 0 };
-		});
-		delete config.safety;
-		await executeBashCommand({ command: "mkfs.ext4 --help" }, runtime(operations));
-		expect(seen).toBe("mkfs.ext4 --help");
 	});
 
 	it("非法 deny_regex 在配置加载时给出清晰错误", async () => {
@@ -629,7 +620,7 @@ describe("bash tool execution", () => {
 	});
 
 	it("真实本地后端冒烟：读取 PI_*、合并 stdout/stderr 并返回退出码", async () => {
-		const runtimeValue = runtime(createDefaultBashOperations());
+		const runtimeValue = runtime(createLocalBashOperations());
 		runtimeValue.session = {
 			sessionId: "smoke-session",
 			provider: "smoke-provider",
@@ -696,6 +687,7 @@ function runtime(operations: BashOperations): ExecuteBashRuntime {
 		toolCallId: "tool:1",
 		operations,
 		config,
+		branch: [],
 	};
 }
 

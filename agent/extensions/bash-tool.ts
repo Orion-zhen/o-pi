@@ -1,22 +1,15 @@
-import type { ExtensionAPI, ToolResultEvent, TruncationResult } from "@earendil-works/pi-coding-agent";
-import { Type } from "typebox";
+import { createLocalBashOperations, type ExtensionAPI, type ToolResultEvent, type TruncationResult } from "@earendil-works/pi-coding-agent";
 
+import { executeBashCommand } from "../../src/bash-tool/bash-tool.js";
+import { loadBashToolConfig } from "../../src/bash-tool/config.js";
 import {
-	createDefaultBashOperations,
-	executeBashCommand,
-	loadBashToolConfig,
+	bashParameters,
 	type BashExecutionResult,
-	type BashParams,
 	type BashSessionMetadata,
 	type BashToolDetails,
-} from "../../src/bash-tool/index.js";
+} from "../../src/bash-tool/types.js";
 import { bashTelemetry } from "../../src/bash-tool/telemetry.js";
 import { registerObservedTool } from "../../src/telemetry/tool.js";
-
-const bashParameters = Type.Object({
-	command: Type.String({ description: "Shell command; runs in workspace; resolves loaded skill:// paths." }),
-	timeout: Type.Optional(Type.Number({ description: "Seconds; default from config." })),
-}, { additionalProperties: false });
 
 export type BashRendererLoader = () => Promise<Pick<
 	typeof import("../../src/bash-tool/tui/renderer.js"),
@@ -28,7 +21,7 @@ export function createBashToolExtension(
 	loadRenderer: BashRendererLoader = () => import("../../src/bash-tool/tui/renderer.js"),
 ): (pi: ExtensionAPI) => void {
 	return function bashTool(pi: ExtensionAPI): void {
-		const operations = createDefaultBashOperations();
+		const operations = createLocalBashOperations();
 
 		const tool = registerObservedTool(pi, {
 			tool: {
@@ -54,7 +47,7 @@ export function createBashToolExtension(
 						toolCallId,
 						operations,
 						config,
-						branch: typeof ctx.sessionManager.getBranch === "function" ? ctx.sessionManager.getBranch() : [],
+						branch: ctx.sessionManager.getBranch(),
 						...(signal !== undefined ? { signal } : {}),
 						...(onUpdate
 							? {
@@ -64,7 +57,7 @@ export function createBashToolExtension(
 								}
 							: {}),
 					};
-					const result = await executeBashCommand(params as BashParams, runtime);
+					const result = await executeBashCommand(params, runtime);
 					return { content: [{ type: "text", text: result.content }], details: withNativeBashDetails(result.details) };
 				},
 			},
@@ -75,15 +68,9 @@ export function createBashToolExtension(
 		let rendererLoad: Promise<void> | undefined;
 		pi.on("session_start", async (_event, ctx) => {
 			if (ctx.mode !== "tui") return;
-			if (rendererLoad === undefined) {
-				const pending = loadRenderer().then(({ renderBashCall }) => {
-					pi.registerTool({ ...tool, renderCall: renderBashCall });
-				}, (error: unknown) => {
-					rendererLoad = undefined;
-					ctx.ui.notify(`Bash renderer initialization failed: ${error instanceof Error ? error.message : String(error)}`, "warning");
-				});
-				rendererLoad = pending;
-			}
+			rendererLoad ??= loadRenderer().then(({ renderBashCall }) => {
+				pi.registerTool({ ...tool, renderCall: renderBashCall });
+			});
 			await rendererLoad;
 		});
 

@@ -3,11 +3,8 @@ import {
 	agentSchemaPath,
 	createCompleteSchemaValidator,
 	createSchemaValidator,
-	defaultAgentConfigPath,
 	loadValidatedMergedConfig,
-	readDefaultJsoncConfigSync,
 } from "../config-loader.js";
-import { PatternGuardConfigError, validatePatternGuardConfig } from "./pattern-guard.js";
 import type { BashToolConfig } from "./types.js";
 
 const SCHEMA_PATH = agentSchemaPath("bash-tool.schema.json");
@@ -24,48 +21,26 @@ export async function loadBashToolConfig(): Promise<BashToolConfig> {
 	const loaded = await loadValidatedMergedConfig(
 		CONFIG_DEFINITIONS.bashTool, process.cwd(), createError, { partial: loadValidator, complete: loadCompleteValidator },
 	);
-	return materializeConfig(loaded.merged as CompleteBashToolConfig);
+	return materializeConfig(loaded.merged as BashToolConfig);
 }
 
-export function defaultBashToolConfig(): BashToolConfig {
-	return materializeConfig(readDefaultConfig());
-}
-
-interface RawBashToolConfig {
-	default_timeout_seconds?: number;
-	python_venv_paths?: string[];
-	limits?: Partial<BashToolConfig["limits"]>;
-	safety?: BashToolConfig["safety"];
-}
-
-interface CompleteBashToolConfig extends Required<RawBashToolConfig> {
-	limits: BashToolConfig["limits"];
-	safety: Required<NonNullable<BashToolConfig["safety"]>>;
-}
-
-function materializeConfig(raw: CompleteBashToolConfig): BashToolConfig {
-	const config: BashToolConfig = {
-		default_timeout_seconds: raw.default_timeout_seconds,
-		python_venv_paths: [...raw.python_venv_paths],
-		limits: { ...raw.limits },
-		safety: { deny_patterns: [...raw.safety.deny_patterns], deny_regex: [...raw.safety.deny_regex] },
-	};
-	try {
-		validatePatternGuardConfig(config.safety);
-	} catch (error) {
-		if (error instanceof PatternGuardConfigError) throw new BashConfigError(error.message, error.details);
-		throw error;
+function materializeConfig(raw: BashToolConfig): BashToolConfig {
+	for (const rule of raw.safety.deny_regex) {
+		try {
+			new RegExp(rule);
+		} catch (error) {
+			throw new BashConfigError("deny_regex contains an invalid regular expression.", {
+				rule,
+				error: error instanceof Error ? error.message : String(error),
+			});
+		}
 	}
-	return config;
-}
-
-function readDefaultConfig(): CompleteBashToolConfig {
-	return readDefaultJsoncConfigSync({
-		configPath: defaultAgentConfigPath("bash-tool.jsonc"),
-		schemaPath: SCHEMA_PATH,
-		label: "bash-tool",
-		createError,
-	}) as CompleteBashToolConfig;
+	return {
+		default_timeout_seconds: raw.default_timeout_seconds,
+		python_venv_paths: raw.python_venv_paths,
+		limits: raw.limits,
+		safety: raw.safety,
+	};
 }
 
 function createError(message: string, details?: Record<string, unknown>): BashConfigError {

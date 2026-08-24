@@ -77,7 +77,7 @@ describe.each(cases)("$name TUI loader", ({ name, create }) => {
 		const harness = register(value.extension);
 		const coreRegistrations = harness.registrationCount;
 		const firstContext = context("tui");
-		if (name === "subagent") {
+		if (name === "bash" || name === "subagent") {
 			await expect(harness.sessionStart({}, firstContext.ctx)).rejects.toThrow("expected failure");
 			await expect(harness.sessionStart({}, context("tui").ctx)).rejects.toThrow("expected failure");
 			expect(value.loadCount()).toBe(1);

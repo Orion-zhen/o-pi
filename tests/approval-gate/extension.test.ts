@@ -219,6 +219,17 @@ describe("approval gate", () => {
 		expect(ui.selectCalls).toBe(0);
 	});
 
+	it("bash preflight 不吞掉无效安全配置", async () => {
+		const configPath = path.join(dir, "bash-tool.jsonc");
+		await writeFile(configPath, JSON.stringify({ safety: { deny_regex: ["("] } }));
+		process.env.PI_BASH_TOOL_CONFIG = configPath;
+		const ui = fakeUi([]);
+
+		await expect(handle(bash("git push origin main"), ctx(ui)))
+			.rejects.toThrow("deny_regex contains an invalid regular expression");
+		expect(ui.selectCalls).toBe(0);
+	});
+
 	it("write preflight 使用 filesystem access policy 拒绝 blocked path", async () => {
 		const configPath = path.join(dir, "file-tools.jsonc");
 		await writeFile(configPath, JSON.stringify({ blocked_path: ["private/"] }));

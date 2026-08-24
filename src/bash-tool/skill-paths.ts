@@ -28,8 +28,11 @@ export async function resolveBashSkillPaths(
 ): Promise<ResolvedBashSkillPaths | SkillResourceError> {
 	if (!command.includes("skill://")) return { kind: "resolved", command };
 	const document = await parseSyntaxTree(BASH_GRAMMAR, command, signal === undefined ? {} : { signal });
-	if (document === undefined || document.root.hasError) {
-		document?.dispose();
+	if (document === undefined) {
+		return invalid(command, "Bash command containing a skill resource must have valid shell syntax.");
+	}
+	if (document.root.hasError) {
+		document.dispose();
 		return invalid(command, "Bash command containing a skill resource must have valid shell syntax.");
 	}
 
@@ -68,10 +71,7 @@ function collectCandidates(root: SyntaxNode, check: () => void): SyntaxNode[] {
 			candidates.push(node);
 			continue;
 		}
-		for (let index = node.namedChildren.length - 1; index >= 0; index -= 1) {
-			const child = node.namedChildren[index];
-			if (child !== undefined) stack.push(child);
-		}
+		for (const child of [...node.namedChildren].reverse()) stack.push(child);
 	}
 	return candidates;
 }

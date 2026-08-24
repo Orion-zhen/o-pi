@@ -1,5 +1,5 @@
-import { createWriteStream, type WriteStream } from "node:fs";
-import { chmod, mkdir, rm } from "node:fs/promises";
+import type { WriteStream } from "node:fs";
+import { chmod, mkdir, open, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -33,7 +33,7 @@ export class OutputCapture {
 	private constructor(logPath: string, stream: WriteStream, private readonly maxCaptureBytes: number, previewBytes: number) {
 		this.logPath = logPath;
 		this.stream = stream;
-		this.previewLimit = Math.max(1024, previewBytes);
+		this.previewLimit = previewBytes;
 		const headLimit = Math.floor(this.previewLimit / 2);
 		this.head = Buffer.alloc(headLimit);
 		this.tail = Buffer.alloc(this.previewLimit - headLimit);
@@ -44,9 +44,15 @@ export class OutputCapture {
 		await mkdir(dir, { recursive: true, mode: 0o700 });
 		await chmodBestEffort(dir, 0o700);
 		const logPath = path.join(dir, `${sanitizePathPart(options.toolCallId)}.log`);
-		const stream = createWriteStream(logPath, { flags: "w", mode: 0o600 });
-		await chmodBestEffort(logPath, 0o600);
-		return new OutputCapture(logPath, stream, options.maxCaptureBytes, options.previewBytes);
+		const file = await open(logPath, "w", 0o600);
+		try {
+			await chmodBestEffort(logPath, 0o600);
+			return new OutputCapture(logPath, file.createWriteStream(), options.maxCaptureBytes, options.previewBytes);
+		} catch (error) {
+			await file.close().catch(() => undefined);
+			await rm(logPath, { force: true }).catch(() => undefined);
+			throw error;
+		}
 	}
 
 	append(data: Buffer): void {
@@ -193,9 +199,13 @@ function decodeUtf8(bytes: Buffer, final: boolean): string {
 }
 
 async function chmodBestEffort(target: string, mode: number): Promise<void> {
+	if (process.platform !== "win32") {
+		await chmod(target, mode);
+		return;
+	}
 	try {
 		await chmod(target, mode);
 	} catch {
-		// Windows 文件权限不完全兼容 POSIX mode；尽力设置即可。
+		// Windows 不提供完整 POSIX mode 语义，创建时的 mode 仍作为权限提示。
 	}
 }

@@ -1,8 +1,20 @@
 import type { BashOperations, SessionEntry } from "@earendil-works/pi-coding-agent";
+import { type Static, Type } from "typebox";
 
-export interface BashParams {
-	command: string;
-	timeout?: number;
+export const bashParameters = Type.Object({
+	command: Type.String({ description: "Shell command; runs in workspace; resolves loaded skill:// paths." }),
+	timeout: Type.Optional(Type.Number({
+		description: "Seconds; default from config.",
+		exclusiveMinimum: 0,
+		maximum: 86_400,
+	})),
+}, { additionalProperties: false });
+
+export type BashParams = Static<typeof bashParameters>;
+
+export interface BashSafetyConfig {
+	deny_patterns: string[];
+	deny_regex: string[];
 }
 
 export interface BashLimits {
@@ -16,10 +28,7 @@ export interface BashToolConfig {
 	default_timeout_seconds: number;
 	python_venv_paths: string[];
 	limits: BashLimits;
-	safety?: {
-		deny_patterns?: string[];
-		deny_regex?: string[];
-	};
+	safety: BashSafetyConfig;
 }
 
 export type BashRunStatus = "exited" | "timed_out" | "aborted";
@@ -61,9 +70,8 @@ export interface ExecuteBashRuntime {
 	signal?: AbortSignal;
 	operations: BashOperations;
 	config: BashToolConfig;
-	branch?: SessionEntry[];
+	branch: SessionEntry[];
 	onUpdate?: (result: BashExecutionResult) => void;
-	now?: () => number;
 }
 
 export interface CapturedOutput {
