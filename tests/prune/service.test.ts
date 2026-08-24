@@ -8,6 +8,7 @@ import {
 	PruneService,
 	type PruneServicePort,
 } from "../../src/prune/service.js";
+import { deferred } from "../helpers/async.js";
 import {
 	assistant,
 	customEntry,
@@ -217,12 +218,4 @@ function createHarness(entries: SessionEntry[], waitForIdle: () => Promise<void>
 
 function messagesFromEntries(entries: readonly SessionEntry[]): AgentMessage[] {
 	return entries.flatMap((entry) => entry.type === "message" ? [entry.message] : []);
-}
-
-function deferred<T>() {
-	let resolvePromise: (value: T | PromiseLike<T>) => void = () => {};
-	const promise = new Promise<T>((resolve) => {
-		resolvePromise = resolve;
-	});
-	return { promise, resolve: resolvePromise };
 }

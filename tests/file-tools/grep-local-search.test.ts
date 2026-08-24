@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { formatCompactGrepResult } from "../../src/file-tools/grep/command.js";
+import { deferredVoid } from "../helpers/async.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import type {
 	DirectoryRef,
@@ -17,7 +18,6 @@ import {
 	assertStrictMatches,
 	countContentReads,
 	createGrepTestContext,
-	deferredVoid,
 	expectGrepSuccess,
 	firstRegion,
 	overrideContent,

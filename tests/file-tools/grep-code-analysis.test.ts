@@ -5,10 +5,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { AnalyzeCode, CodeAnalysis } from "../../src/code-index/types.js";
 import { analyzeCodeFile, type CodeAuthority } from "../../src/code-index/parser.js";
 import type { ContentOperations } from "../../src/filesystem/contracts/content.js";
+import { deferredVoid } from "../helpers/async.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import {
 	createGrepTestContext,
-	deferredVoid,
 	expectGrepSuccess,
 	grepWithAnalyzer,
 } from "./grep-fixtures.js";

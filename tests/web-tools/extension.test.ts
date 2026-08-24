@@ -13,6 +13,7 @@ import { createWebToolsRuntime } from "../../src/web-tools/web-tools-runtime.js"
 import type { WebSearchProvider } from "../../src/web-tools/search-providers/types.js";
 import type { FormalWebSearchProviderId, WebFetchExecutionContext, WebFetchParams, WebSearchParams, WebToolsRuntime } from "../../src/web-tools/core/types.js";
 import { createWebSearchRuntime, type WebSearchProviderLoaders } from "../../src/web-tools/search/websearch-runtime.js";
+import { deferredVoid } from "../helpers/async.js";
 import { httpResponse } from "../helpers/http.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { webFetchDetails } from "./renderer-fixture.js";
@@ -605,17 +606,4 @@ function trackRuntime<T extends { close(): Promise<void> }>(runtime: T): T {
 async function closeRuntime(runtime: ReturnType<typeof createWebToolsRuntime>): Promise<void> {
 	await runtime.close();
 	runtimes = runtimes.filter((candidate) => candidate !== runtime);
-}
-
-function deferredVoid(): { promise: Promise<void>; resolve(): void } {
-	let resolvePromise: (() => void) | undefined;
-	const promise = new Promise<void>((resolve) => {
-		resolvePromise = resolve;
-	});
-	return {
-		promise,
-		resolve() {
-			resolvePromise?.();
-		},
-	};
 }

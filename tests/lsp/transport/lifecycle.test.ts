@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { LspClient } from "../../../src/lsp/client/client.js";
 import { LspManager } from "../../../src/lsp/manager/manager.js";
 import { pathToFileUri } from "../../../src/lsp/protocol/uri.js";
-import { createManager, createFakeServer, createWorkspaceSymbolServer, deferred, directClient, queryManagerSymbols, send, useTransportFixture, writeConfig } from "./fixtures.js";
+import { deferred } from "../../helpers/async.js";
+import { createManager, createFakeServer, createWorkspaceSymbolServer, directClient, queryManagerSymbols, send, useTransportFixture, writeConfig } from "./fixtures.js";
 
 const transport = useTransportFixture();
 

@@ -7,7 +7,8 @@ import { loadTreeSitterParser } from "../../src/syntax-tree/loader.js";
 import { parseSyntaxTree } from "../../src/syntax-tree/parser.js";
 import type { AnalyzeCode } from "../../src/code-index/types.js";
 import { AbortGrepParse, GrepParser } from "../../src/file-tools/grep/parser-pool.js";
-import { countContentReads, createGrepTestContext, deferredVoid, overrideContent, withGrepRuntime } from "./grep-fixtures.js";
+import { deferredVoid } from "../helpers/async.js";
+import { countContentReads, createGrepTestContext, overrideContent, withGrepRuntime } from "./grep-fixtures.js";
 
 const testContext = createGrepTestContext();
 

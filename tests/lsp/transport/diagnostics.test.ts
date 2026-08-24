@@ -2,7 +2,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { DiagnosticsLedger } from "../../../src/lsp/diagnostics/ledger.js";
 import { pathToFileUri } from "../../../src/lsp/protocol/uri.js";
-import { createManager, createProtocolServer, deferred, diagnostic, directClient, send, useTransportFixture } from "./fixtures.js";
+import { deferred } from "../../helpers/async.js";
+import { createManager, createProtocolServer, diagnostic, directClient, send, useTransportFixture } from "./fixtures.js";
 
 const transport = useTransportFixture();
 

@@ -18,6 +18,7 @@ import {
 } from "../../src/file-tools/config.js";
 import { FileToolsHost, type FileToolsInvocation } from "../../src/file-tools/runtime/host.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
+import { deferred, deferredVoid } from "../helpers/async.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-file-tools-host-");
@@ -106,7 +107,7 @@ describe("FileToolsHost runtime", () => {
 
 	it("does not start workspace I/O when shutdown wins an in-flight config load", async () => {
 		const counted = countingNative();
-		const release = deferredValue<FileToolsConfigResult>();
+		const release = deferred<FileToolsConfigResult>();
 		let disposed = 0;
 		const config = {
 			load: () => release.promise,
@@ -312,18 +313,6 @@ function policy(): FilesystemPolicy {
 
 function bytes(value: string): Uint8Array {
 	return new TextEncoder().encode(value);
-}
-
-function deferredValue<T>() {
-	let resolver: ((value: T | PromiseLike<T>) => void) | undefined;
-	const promise = new Promise<T>((resolve) => { resolver = resolve; });
-	return { promise, resolve(value: T) { resolver?.(value); } };
-}
-
-function deferredVoid() {
-	let resolver: (() => void) | undefined;
-	const promise = new Promise<void>((resolve) => { resolver = resolve; });
-	return { promise, resolve() { resolver?.(); } };
 }
 
 function track(host: FileToolsHost): FileToolsHost {

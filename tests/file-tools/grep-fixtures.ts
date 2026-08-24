@@ -244,9 +244,3 @@ export async function assertStrictMatches(workspace: string, result: GrepSuccess
 		}
 	}
 }
-
-export function deferredVoid(): { readonly promise: Promise<void>; resolve(): void } {
-	let resolver: (() => void) | undefined;
-	const promise = new Promise<void>((resolve) => { resolver = resolve; });
-	return { promise, resolve() { resolver?.(); } };
-}

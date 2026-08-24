@@ -7,11 +7,8 @@ import {
 	NodeNativeFileSystem,
 	type NativeFileSystem,
 } from "../../src/filesystem/platform/node/native-filesystem.js";
-import {
-	deferredVoid,
-	overrideNativeFileSystem,
-	type DeferredVoid,
-} from "./fixtures.js";
+import { deferredVoid, type DeferredVoid } from "../helpers/async.js";
+import { overrideNativeFileSystem } from "./fixtures.js";
 
 const execFileAsync = promisify(execFile);
 
