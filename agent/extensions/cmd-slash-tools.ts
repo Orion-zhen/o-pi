@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 
 import {
 	ToolSelectionController,
-	type ToolSelectionRestoreOutcome,
+	type ToolSelectionRestoreNotice,
 } from "../../src/tool-defaults/controller.js";
 
 type ToolSelectorModule = typeof import("../../src/tool-defaults/tui/tool-selector.js");
@@ -20,13 +20,13 @@ export function createToolsExtension(
 			model = ctx.model,
 			refreshConfig = false,
 		): Promise<void> => {
-			const outcome = await controller.restore({
+			const notice = await controller.restore({
 				cwd: ctx.cwd,
 				branchEntries: ctx.sessionManager.getBranch(),
 				model,
 				refreshConfig,
 			});
-			notifyRestoreIssue(ctx, outcome);
+			notifyRestoreIssue(ctx, notice);
 		};
 
 		pi.registerCommand("tools", {
@@ -39,7 +39,7 @@ export function createToolsExtension(
 
 				const { openToolSelector } = await loadTui();
 				await openToolSelector(ctx.ui, {
-					tools: controller.refreshSnapshot().tools,
+					tools: controller.listTools(),
 					onChange(toolName, enabled) {
 						controller.set(toolName, enabled);
 					},
@@ -53,13 +53,14 @@ export function createToolsExtension(
 	};
 }
 
-function notifyRestoreIssue(ctx: ExtensionContext, outcome: ToolSelectionRestoreOutcome): void {
-	if (outcome.status === "degraded") {
-		ctx.ui.notify(`tools config ignored: ${outcome.message}`, "warning");
+function notifyRestoreIssue(ctx: ExtensionContext, notice: ToolSelectionRestoreNotice | undefined): void {
+	if (notice?.type === "config-error") {
+		ctx.ui.notify(`tools config ignored: ${notice.message}`, "warning");
 		return;
 	}
-	if (outcome.status !== "restored" || outcome.removedTools.length === 0) return;
-	ctx.ui.notify(`Removed unavailable tools from branch selection: ${outcome.removedTools.join(", ")}`, "warning");
+	if (notice?.type === "removed-tools") {
+		ctx.ui.notify(`Removed unavailable tools from branch selection: ${notice.toolNames.join(", ")}`, "warning");
+	}
 }
 
 export default createToolsExtension();

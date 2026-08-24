@@ -200,8 +200,8 @@ Fork 行为：
 
 * `--tools` 始终显式传递。
 * `shell: false`。
-* stdout 按 Pi 0.84.2 JSONL 协议解析。`message_update` 的 delta 用于实时正文，累计 usage 只取当前 turn 最新快照，`message_end` 作为最终权威消息。
-* `tool_execution_start/update/end` 驱动工具 pending、running、completed 或 error 状态。高频流式更新最多每 50ms 向主进程发送一次 partial snapshot。
+* stdout 按 Pi 0.84.3 JSONL 协议解析。`message_update` 的 delta 用于实时正文，累计 usage 只取当前 turn 最新快照，`message_end` 作为最终权威消息。
+* `toolcall_start` 提供工具 ID 和名称后立即建立 pending 工具。`toolcall_end` 补齐参数，`tool_execution_start/update/end` 再驱动 running、completed 或 error 状态。高频流式更新最多每 50ms 向主进程发送一次 partial snapshot。
 * stderr 完整保存，展示时截断。
 * 超时后终止进程。
 * Ctrl+C 先 `SIGTERM`，再宽限后 `SIGKILL`。

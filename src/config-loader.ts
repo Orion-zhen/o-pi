@@ -98,7 +98,7 @@ export async function readOptionalJsoncConfig<E extends Error>(options: ReadJson
 	}
 
 	const errors: ParseError[] = [];
-	const value = parse(text, errors, { allowTrailingComma: true });
+	const value = parse(stripUtf8Bom(text), errors, { allowTrailingComma: true });
 	if (errors.length > 0) {
 		const first = errors[0];
 		throw options.createError(`${options.label} config is not valid JSONC.`, {
@@ -204,6 +204,11 @@ export async function configLayerFingerprint(paths: readonly ConfigLayerPath[]):
 	return (await Promise.all(paths.map(async (source) => `${source.kind}:${await fileFingerprint(source.path)}`))).join("|");
 }
 
+/** 移除解码文本开头的 UTF-8 BOM 标记。 */
+export function stripUtf8Bom(text: string): string {
+	return text.startsWith("\uFEFF") ? text.slice(1) : text;
+}
+
 /** 深度合并 JSON 对象；数组和标量值将被高层级的值覆盖。 */
 export function mergeConfigValues(base: unknown, overlay: unknown): unknown {
 	if (!isRecord(base) || !isRecord(overlay)) return structuredClone(overlay);
@@ -230,7 +235,7 @@ export function readDefaultJsoncConfigSync<E extends Error>(options: ReadDefault
 		throw options.createError(`${options.label} default config cannot be read.`, { path: options.configPath });
 	}
 	const errors: ParseError[] = [];
-	const value = parse(text, errors, { allowTrailingComma: true });
+	const value = parse(stripUtf8Bom(text), errors, { allowTrailingComma: true });
 	if (errors.length > 0) {
 		const first = errors[0];
 		throw options.createError(`${options.label} default config is not valid JSONC.`, {

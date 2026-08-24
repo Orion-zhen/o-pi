@@ -68,6 +68,15 @@ export class PiJsonProgressAccumulator {
 		if (assistantEvent === undefined) return usage !== undefined;
 		const contentIndex = integerField(assistantEvent, "contentIndex");
 		switch (stringField(assistantEvent, "type")) {
+			case "toolcall_start": {
+				const id = stringField(assistantEvent, "id");
+				const name = stringField(assistantEvent, "toolName");
+				if (id !== undefined && name !== undefined) {
+					this.markWrite(name);
+					this.upsertTool(id, name, {}, "pending");
+				}
+				break;
+			}
 			case "text_start":
 				if (contentIndex !== undefined) this.startTextBlock(contentIndex);
 				break;

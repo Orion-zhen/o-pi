@@ -15,7 +15,6 @@ import { openAICompletionsApi, openAIResponsesApi } from "@earendil-works/pi-ai/
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { createProviderAuth, resolvedProviderHeaders } from "./auth.js";
-import { registerThinkingDisplayResolver } from "../thinking-level/display-capability.js";
 import { resolveHeadersOrThrow } from "./config-values.js";
 import { fetchProviderModelsFromEndpoint, mergeDiscoveredModelConfigs } from "./models-endpoint.js";
 import {
@@ -41,21 +40,7 @@ export function registerOpenAICompatibleProviders(
 			runtimeByModel.set(runtimeKey(normalized.id, modelId), runtime);
 		}
 	}
-	const normalizedById = new Map(normalizedProviders.map((provider) => [provider.id, provider]));
-	const disposeThinkingDisplayResolver = registerThinkingDisplayResolver(pi.events, (model) => {
-		const provider = normalizedById.get(model.provider);
-		if (!provider) return undefined;
-		const runtime = provider.runtimeModels.get(model.id) ?? provider.fallbackRuntime;
-		return runtime.api === "openai-responses"
-			&& runtime.reasoning
-			&& runtime.thinkingPreset === "chat-template-enabled"
-			&& !runtime.dropParams.includes("chat_template_kwargs")
-			&& !Object.hasOwn(runtime.extraBody, "chat_template_kwargs")
-			? "boolean"
-			: undefined;
-	});
 	for (const provider of providers) pi.registerProvider(provider);
-	pi.on("session_shutdown", disposeThinkingDisplayResolver);
 	pi.on("model_select", (event) => {
 		if (event.source === "restore") return;
 		const runtime = runtimeByModel.get(runtimeKey(event.model.provider, event.model.id));

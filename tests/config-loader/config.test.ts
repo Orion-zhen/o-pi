@@ -9,6 +9,7 @@ import {
 	loadConfigLayers,
 	loadValidatedMergedConfig,
 	mergeConfigValues,
+	readOptionalJsoncConfig,
 	resolveConfigLayerPaths,
 	type ConfigDefinition,
 } from "../../src/config-loader.js";
@@ -122,6 +123,17 @@ describe("layered config loader", () => {
 			ui: { timeout_ms: 25, non_interactive: "block" },
 		});
 		expect(loaded.fingerprint).toContain("default:");
+	});
+
+	it("接受带 UTF-8 BOM 的用户 JSONC 配置", async () => {
+		const configPath = path.join(temp.path, "bom.jsonc");
+		await writeFile(configPath, "\uFEFF{ // comment\n \"enabled\": true,\n}");
+
+		await expect(readOptionalJsoncConfig({
+			path: configPath,
+			label: "bom-test",
+			createError: (message) => new Error(message),
+		})).resolves.toEqual({ enabled: true });
 	});
 
 	it("在合并前报告无效覆盖层的诊断上下文", async () => {

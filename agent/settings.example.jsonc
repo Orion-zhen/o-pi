@@ -8,6 +8,9 @@
   // 更新后只显示简短版本提示；完整更新记录仍可通过 /changelog 查看。
   "collapseChangelog": true,
 
+  // 需要排查提示缓存或摘要成本时设为 true，在会话记录中显示缓存未命中、上下文压缩和分支摘要用量。
+  "showCacheMissNotices": false,
+
   // /tree 默认隐藏工具调用，让分支导航优先展示用户与 Assistant 对话。
   "treeFilterMode": "no-tools",
 

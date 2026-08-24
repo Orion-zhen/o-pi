@@ -42,6 +42,15 @@ describe("openai-compatible-provider registration", () => {
 		expect(await loadModelsJsoncConfig(path.join(temp.path, "missing.jsonc"))).toBeUndefined();
 	});
 
+	it("接受带 UTF-8 BOM 的 models.jsonc", async () => {
+		const configPath = path.join(temp.path, "bom-models.jsonc");
+		await writeFile(configPath, '\uFEFF{ "providers": { "local": { "baseUrl": "http://127.0.0.1:8000/v1", "models": ["model"] } } }');
+
+		await expect(loadModelsJsoncConfig(configPath)).resolves.toMatchObject({
+			providers: { local: { models: ["model"] } },
+		});
+	});
+
 	it("配置文件读取失败时转换为配置错误", async () => {
 		await expect(loadModelsJsoncConfig(temp.path)).rejects.toThrow(`Invalid ${temp.path}:\nfile cannot be read`);
 	});
