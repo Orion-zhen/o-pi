@@ -1,11 +1,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { UsageService } from "../../src/usage/service.js";
-import type { UsageSnapshot } from "../../src/usage/types.js";
+import { UsageRequestError, type UsageSnapshot } from "../../src/usage/types.js";
 
 const COMMAND_DESCRIPTION = "Show OAuth plan usage.";
 const COMMAND_USAGE = "Usage: /usage [--refresh]";
 
-/** 注册 /usage：查询 Pi OAuth plan 的当前消耗，并以只读浮层展示。 */
+/** 注册 /usage。查询 Pi OAuth plan 的当前消耗，并以只读浮层展示。 */
 export default function usageExtension(pi: Pick<ExtensionAPI, "registerCommand">): void {
 	const service = new UsageService();
 	pi.registerCommand("usage", {
@@ -17,14 +17,15 @@ export default function usageExtension(pi: Pick<ExtensionAPI, "registerCommand">
 				return;
 			}
 
-			let result: UsageSnapshot | Error;
+			let result: UsageSnapshot | "aborted";
 			try {
 				result = await service.load(ctx, {
 					refresh: argument === "--refresh",
-					...(ctx.signal === undefined ? {} : { signal: ctx.signal }),
+					signal: ctx.signal,
 				});
 			} catch (error) {
-				result = error instanceof Error ? error : new Error("Unknown usage error.");
+				if (!(error instanceof UsageRequestError) || error.code !== "aborted") throw error;
+				result = "aborted";
 			}
 
 			if (ctx.mode === "tui") {
@@ -36,9 +37,9 @@ export default function usageExtension(pi: Pick<ExtensionAPI, "registerCommand">
 				return;
 			}
 
-			const { renderUsage, renderUsageError } = await import("../../src/usage/presentation/render.js");
-			const lines = result instanceof Error ? renderUsageError(result, 96) : renderUsage(result, 96);
-			ctx.ui.notify(lines.join("\n"), result instanceof Error ? "error" : "info");
+			const { renderUsage, renderUsageCancelled } = await import("../../src/usage/presentation/render.js");
+			const lines = result === "aborted" ? renderUsageCancelled(96) : renderUsage(result, 96);
+			ctx.ui.notify(lines.join("\n"), result === "aborted" ? "error" : "info");
 		},
 	});
 }
