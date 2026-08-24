@@ -5,14 +5,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFileToolsExtension, type FileToolsModuleImports } from "../../agent/extensions/file-tools.js";
 import type { LspMutationInput } from "../../src/lsp/adapters/file-operations.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
+import { registerExtension, type ExtensionHandler } from "../helpers/extension.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 import {
 	activateFileTools,
 	executeTool,
-	registerExtension,
 	type ExecuteTool,
 	type ExecuteToolContext,
-	type LifecycleHandler,
 } from "./extension-fixture.js";
 
 describe("file-tools extension lifecycle", () => {
@@ -347,7 +346,7 @@ describe("file-tools extension lifecycle", () => {
 });
 
 async function announceBash(
-	handlers: Map<string, LifecycleHandler>,
+	handlers: Map<string, ExtensionHandler>,
 	toolCallId: string,
 	ctx: ExecuteToolContext,
 ): Promise<void> {
@@ -359,7 +358,7 @@ async function announceBash(
 }
 
 async function endBash(
-	handlers: Map<string, LifecycleHandler>,
+	handlers: Map<string, ExtensionHandler>,
 	toolCallId: string,
 	ctx: ExecuteToolContext,
 	isError: boolean,
@@ -396,7 +395,7 @@ function assistantToolMessage(calls: readonly { id: string; name: string }[]) {
 }
 
 async function announceMutationBatch(
-	handlers: ReadonlyMap<string, LifecycleHandler>,
+	handlers: ReadonlyMap<string, ExtensionHandler>,
 	calls: readonly { id: string; name: string }[],
 ): Promise<void> {
 	await Promise.resolve(handlers.get("message_end")?.({ message: assistantToolMessage(calls) }));
@@ -405,7 +404,7 @@ async function announceMutationBatch(
 	}
 }
 
-async function endMutationBatch(handlers: ReadonlyMap<string, LifecycleHandler>, ids: readonly string[]): Promise<void> {
+async function endMutationBatch(handlers: ReadonlyMap<string, ExtensionHandler>, ids: readonly string[]): Promise<void> {
 	for (const id of ids) {
 		await Promise.resolve(handlers.get("tool_execution_end")?.({ toolCallId: id, toolName: "write", result: {}, isError: false }));
 	}

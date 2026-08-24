@@ -5,8 +5,9 @@ import { describe, expect, it, vi } from "vitest";
 import fileTools from "../../agent/extensions/file-tools.js";
 import { lspFileOperations as lspFileHooks } from "../../src/lsp/index.js";
 import type { DiagnosticsSummary } from "../../src/file-tools/shared/diagnostics.js";
+import { registerExtension } from "../helpers/extension.js";
 import { useTempDir } from "../helpers/lifecycle.js";
-import { executeTool, registerExtension, type ExecuteResult } from "./extension-fixture.js";
+import { executeTool, type ExecuteResult } from "./extension-fixture.js";
 
 const cleanDiagnostics: DiagnosticsSummary = {
 	status: "clean",

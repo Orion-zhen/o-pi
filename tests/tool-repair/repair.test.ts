@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import fileTools from "../../agent/extensions/file-tools.js";
 import subagentExtension from "../../agent/extensions/subagent.js";
 import { repairableTool, type RepairObservation } from "../../src/tool-repair/index.js";
+import { registerExtension } from "../helpers/extension.js";
 
 const simpleSchema = Type.Object(
 	{
@@ -191,7 +192,7 @@ describe("tool-input repair", () => {
 	});
 
 	it("实际 file-tools 注册的 read/write/edit 均挂载 prepareArguments", () => {
-		const registered = registerFileTools();
+		const registered = new Map(registerExtension<ToolDefinition>(fileTools).registered.map((tool) => [tool.name, tool]));
 		expect(registered.get("read")?.prepareArguments?.("@src/a.ts"))
 			.toEqual({ path: "src/a.ts" });
 		expect(registered.get("write")?.prepareArguments?.({
@@ -282,15 +283,4 @@ function defineNoopTool<TParams extends TSchema>(
 		},
 		...extras,
 	};
-}
-
-function registerFileTools(): Map<string, ToolDefinition> {
-	const registered = new Map<string, ToolDefinition>();
-	fileTools({
-		registerTool(tool: ToolDefinition) {
-			registered.set(tool.name, tool);
-		},
-		on() {},
-	} as unknown as ExtensionAPI);
-	return registered;
 }

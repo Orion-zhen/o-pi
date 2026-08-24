@@ -11,8 +11,9 @@ import type { ReadPdfSuccess } from "../../src/file-tools/read/types.js";
 import { isGrepSuccessDetails } from "../../src/file-tools/pi/guards.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import { lspFileOperations as lspFileHooks } from "../../src/lsp/index.js";
+import { registerExtension } from "../helpers/extension.js";
 import { useTempDir } from "../helpers/lifecycle.js";
-import { executeTool, registerExtension, textResult } from "./extension-fixture.js";
+import { executeTool, textResult } from "./extension-fixture.js";
 
 describe("file-tools extension model output", () => {
 	const workspace = useTempDir("o-pi-file-output-");

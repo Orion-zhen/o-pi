@@ -4,8 +4,9 @@ import { initTheme } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import fileTools from "../../agent/extensions/file-tools.js";
+import { registerExtension } from "../helpers/extension.js";
 import { useTempDir } from "../helpers/lifecycle.js";
-import { activateFileTools, registerExtension, renderToolResult, theme } from "./extension-fixture.js";
+import { activateFileTools, renderToolResult, theme } from "./extension-fixture.js";
 
 const editCardTemp = useTempDir("o-pi-edit-card-");
 

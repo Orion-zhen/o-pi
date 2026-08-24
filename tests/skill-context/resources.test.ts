@@ -14,8 +14,9 @@ import { executeRead } from "../../src/file-tools/pi/adapters/read.js";
 import { isFailed } from "../../src/file-tools/shared/result.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { SKILL_CONTEXT_ENTRY, type SkillCandidate, type SkillLoadEntry } from "../../src/skill-context/types.js";
+import { executeTool } from "../file-tools/extension-fixture.js";
+import { registerExtension } from "../helpers/extension.js";
 import { useTempDir } from "../helpers/lifecycle.js";
-import { executeTool, registerExtension } from "../file-tools/extension-fixture.js";
 
 const temp = useTempDir("o-pi-skill-resource-");
 let root: string;
