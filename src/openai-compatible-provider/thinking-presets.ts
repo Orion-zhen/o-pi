@@ -14,6 +14,10 @@ export const THINKING_PRESETS = {
 		supportsReasoningEffort: false,
 		thinkingFormat: "openai",
 	},
+	"model-suffix": {
+		supportsReasoningEffort: false,
+		thinkingFormat: "openai",
+	},
 	openai: {
 		supportsReasoningEffort: true,
 		thinkingFormat: "openai",

@@ -7,7 +7,13 @@ import {
 } from "@earendil-works/pi-ai";
 import { invalidModelsJsonc } from "./errors.js";
 import { resolveCompat } from "./thinking-presets.js";
-import type { ModelsJsoncConfig, OpenAICompatConfig, ProviderConfig, ThinkingPresetName } from "./schema.js";
+import type {
+	ModelConfig,
+	ModelsJsoncConfig,
+	OpenAICompatConfig,
+	ProviderConfig,
+	ThinkingPresetName,
+} from "./schema.js";
 
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 const DEFAULT_MAX_TOKENS = 16_384;
@@ -63,17 +69,16 @@ export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath
 		assertNoCorePayloadFields(providerExtraBody, configPath, `providers.${providerId}.extraBody`);
 		assertNoCoreDropParams(provider.dropParams, configPath, `providers.${providerId}.dropParams`);
 
-		const seenModels = new Set<string>();
 		const runtimeModels = new Map<string, RuntimeModelConfig>();
-		const configuredModels = Array.isArray(provider.models) ? provider.models : [];
-		const models: Model<Api>[] = configuredModels.map((entry, index) => {
-			const model = typeof entry === "string" ? { id: entry } : entry;
+		const configuredModels = prepareConfiguredModels(
+			Array.isArray(provider.models) ? provider.models : [],
+			providerThinkingPreset,
+			providerId,
+			configPath,
+		);
+		const models: Model<Api>[] = configuredModels.map(({ model, index }) => {
 			const modelApi = model.api ?? api;
 			const thinkingPreset = model.thinkingPreset ?? providerThinkingPreset;
-			if (seenModels.has(model.id)) {
-				throw invalidModelsJsonc(configPath, `provider "${providerId}" contains duplicate model "${model.id}"`);
-			}
-			seenModels.add(model.id);
 
 			const compat = resolveCompat(thinkingPreset, provider.compat, model.compat);
 			assertNoCoreDropParams(model.dropParams, configPath, `providers.${providerId}.models[${index}].dropParams`);
@@ -142,7 +147,78 @@ export function normalizeModelsJsoncConfig(config: ModelsJsoncConfig, configPath
 	});
 }
 
-/** 将 Responses thinking 和 provider 级 payload 扩展应用到 OpenAI-compatible 请求体。 */
+interface PreparedModelConfig {
+	model: ModelConfig;
+	index: number;
+}
+
+/** 校验原始目录，并在 model-suffix 预设下把已知等级变体折叠到基础模型。 */
+function prepareConfiguredModels(
+	entries: readonly (string | ModelConfig)[],
+	providerThinkingPreset: ThinkingPresetName,
+	providerId: string,
+	configPath: string,
+): PreparedModelConfig[] {
+	const prepared = entries.map((entry, index) => ({
+		model: typeof entry === "string" ? { id: entry } : entry,
+		index,
+	}));
+	const byId = new Map<string, PreparedModelConfig>();
+	for (const entry of prepared) {
+		if (byId.has(entry.model.id)) {
+			throw invalidModelsJsonc(configPath, `provider "${providerId}" contains duplicate model "${entry.model.id}"`);
+		}
+		byId.set(entry.model.id, entry);
+	}
+
+	const variantsByBase = new Map<string, Set<ModelThinkingLevel>>();
+	const hiddenVariants = new Set<string>();
+	for (const entry of prepared) {
+		const variant = parseModelSuffixVariant(entry.model.id);
+		if (!variant) continue;
+		const base = byId.get(variant.baseId);
+		if (!base || effectiveThinkingPreset(base.model, providerThinkingPreset) !== "model-suffix") continue;
+		let variants = variantsByBase.get(variant.baseId);
+		if (!variants) {
+			variants = new Set();
+			variantsByBase.set(variant.baseId, variants);
+		}
+		variants.add(variant.level);
+		hiddenVariants.add(entry.model.id);
+	}
+
+	return prepared.flatMap((entry) => {
+		if (hiddenVariants.has(entry.model.id)) return [];
+		const variants = variantsByBase.get(entry.model.id);
+		if (!variants) return [entry];
+		const inferredMap: ThinkingLevelMap = {};
+		for (const level of MODEL_THINKING_LEVEL_VALUES) {
+			if (variants.has(level)) inferredMap[level] = level;
+			else if (level !== "off") inferredMap[level] = null;
+		}
+		return [{
+			...entry,
+			model: {
+				...entry.model,
+				thinkingLevelMap: { ...inferredMap, ...entry.model.thinkingLevelMap },
+			},
+		}];
+	});
+}
+
+function effectiveThinkingPreset(model: ModelConfig, providerPreset: ThinkingPresetName): ThinkingPresetName {
+	return model.thinkingPreset ?? providerPreset;
+}
+
+function parseModelSuffixVariant(id: string): { baseId: string; level: ModelThinkingLevel } | undefined {
+	const separator = id.lastIndexOf(":");
+	if (separator <= 0) return undefined;
+	const level = id.slice(separator + 1);
+	if (!isModelThinkingLevel(level)) return undefined;
+	return { baseId: id.slice(0, separator), level };
+}
+
+/** 将 thinking 和 provider 级 payload 扩展应用到 OpenAI-compatible 请求体。 */
 export function applyRuntimePayloadConfig(
 	payload: unknown,
 	runtime: RuntimeModelConfig,
@@ -166,7 +242,8 @@ function applyResponsesThinkingPreset(
 	runtime: RuntimeModelConfig,
 	thinkingLevel: ModelThinkingLevel,
 ): void {
-	if (runtime.api !== "openai-responses" || !runtime.reasoning || runtime.thinkingPreset === "openai") return;
+	if (runtime.api !== "openai-responses" || runtime.thinkingPreset === "openai" || runtime.thinkingPreset === "model-suffix") return;
+	if (!runtime.reasoning) return;
 	stripThinkingPayload(payload);
 	if (runtime.thinkingPreset === "none") return;
 
@@ -211,6 +288,17 @@ function applyResponsesThinkingPreset(
 			return;
 		}
 	}
+}
+
+export function applyModelSuffixPayload(
+	payload: Record<string, unknown>,
+	model: Model<Api>,
+	thinkingLevel: ModelThinkingLevel,
+): void {
+	stripThinkingPayload(payload);
+	const mapped = model.thinkingLevelMap?.[thinkingLevel];
+	const useSuffix = mapped !== null && (thinkingLevel !== "off" || mapped !== undefined);
+	payload.model = useSuffix ? `${model.id}:${thinkingLevel}` : model.id;
 }
 
 function mappedThinkingEffort(map: ThinkingLevelMap | undefined, level: ModelThinkingLevel): string | undefined {
@@ -273,7 +361,8 @@ function assertValidThinkingConfig(
 	}
 }
 
-const MODEL_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+const MODEL_THINKING_LEVEL_VALUES = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const MODEL_THINKING_LEVELS: ReadonlySet<string> = new Set(MODEL_THINKING_LEVEL_VALUES);
 
 export function isModelThinkingLevel(value: unknown): value is ModelThinkingLevel {
 	return typeof value === "string" && MODEL_THINKING_LEVELS.has(value);

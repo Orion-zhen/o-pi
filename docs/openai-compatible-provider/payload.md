@@ -1,6 +1,6 @@
 # 请求体处理
 
-静态采样参数直接使用 Pi 的 `Model.samplingParams`。Pi 生成请求体后，扩展只处理 Responses API 的思考字段、提供方附加字段和待删除字段。
+静态采样参数直接使用 Pi 的 `Model.samplingParams`。Pi 生成请求体后，扩展处理思考字段、`model-suffix` 模型路由、提供方附加字段和待删除字段。
 
 ## 处理顺序
 
@@ -8,12 +8,13 @@
 1. Pi 合并 `model.samplingParams` 和单次请求的 `samplingParams`
 2. Pi 传输层生成请求体并应用合并后的 `samplingParams`
 3. 扩展转换 Responses API 使用的非 `openai` 思考预设
-4. 扩展合并 `provider.extraBody`
-5. 扩展依次应用 `provider.dropParams` 和 `model.dropParams`
-6. 扩展调用后续注册的 `onPayload`
+4. 扩展根据 `model-suffix` 改写模型 ID
+5. 扩展合并 `provider.extraBody`
+6. 扩展依次应用 `provider.dropParams` 和 `model.dropParams`
+7. 扩展调用后续注册的 `onPayload`
 ```
 
-单次请求的 `samplingParams` 会覆盖模型配置中的同名字段。调用方的 `onPayload` 可以继续修改结果。如果 `onPayload` 返回 `undefined`，扩展使用第 5 步产生的请求体。核心字段保护只适用于扩展自己的 `extraBody` 和 `dropParams`，不会限制调用方后续的 `onPayload`。
+单次请求的 `samplingParams` 会覆盖模型配置中的同名字段。调用方的 `onPayload` 可以继续修改结果。如果 `onPayload` 返回 `undefined`，扩展使用第 6 步产生的请求体。核心字段保护只适用于扩展自己的 `extraBody` 和 `dropParams`，不会限制扩展内部的 `model-suffix` 路由或调用方后续的 `onPayload`。
 
 ## `samplingParams`
 
@@ -78,9 +79,9 @@ provider.dropParams + model.dropParams
 
 删除发生在合并 `provider.extraBody` 之后。因此，`dropParams` 可以删除 Pi 或 `extraBody` 添加的非核心字段。扩展不会在请求期恢复被删除的核心字段。
 
-## 思考字段
+## 思考字段和模型后缀
 
-Responses API 使用非 `openai` 预设时，扩展会先删除已有的思考字段，再按预设生成上游格式。详细映射见[思考预设](thinking.md)。
+Responses API 使用非 `openai` 预设时，扩展会先删除已有的思考字段，再按预设生成上游格式。`model-suffix` 会改写核心 `model` 字段，并删除传输层已经生成的思考字段。详细映射见[思考预设](thinking.md)。
 
 ## 图片字段
 

@@ -23,6 +23,25 @@
 }
 ```
 
+## llama-swap 模型后缀
+
+```jsonc
+{
+  "providers": {
+    "llama-swap": {
+      "name": "本地 llama-swap",
+      "baseUrl": "http://127.0.0.1:8080/v1",
+      "apiKey": "EMPTY",
+      "api": "openai-completions",
+      "thinkingPreset": "model-suffix",
+      "models": "auto"
+    }
+  }
+}
+```
+
+如果目录包含 `model`、`model:off`、`model:high` 和 `model:max`，Pi 只显示 `model`。切换 Pi 思考级别后，扩展会把请求路由到对应的后缀变体。
+
 ## OpenRouter
 
 ```jsonc

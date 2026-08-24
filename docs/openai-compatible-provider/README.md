@@ -167,9 +167,10 @@ Pi 的 `ModelsStore` 会按提供方 ID 保存刷新后的模型目录。离线�
 
 ## 推理能力和思考级别
 
-`thinkingPreset` 指定如何把 Pi 思考级别编码为上游字段。支持以下预设：
+`thinkingPreset` 指定如何把 Pi 思考级别编码给上游服务。支持以下预设：
 
 - `none`
+- `model-suffix`
 - `openai`
 - `openrouter`
 - `deepseek`
@@ -182,7 +183,7 @@ Pi 的 `ModelsStore` 会按提供方 ID 保存刷新后的模型目录。离线�
 - `string-thinking`
 - `ant-ling`
 
-`defaultThinkingLevel` 会在模型选择事件触发时设置，但恢复会话时除外。因此，恢复会话不会覆盖已恢复的思考级别。`thinkingLevelMap` 可以把 Pi 的 `high`、`xhigh` 等级别映射为上游值。
+`defaultThinkingLevel` 会在模型选择事件触发时设置，但恢复会话时除外。因此，恢复会话不会覆盖已恢复的思考级别。`thinkingLevelMap` 可以把 Pi 的 `high`、`xhigh` 等级别映射为上游值。`model-suffix` 预设会折叠自动发现的 `model:off`、`model:high` 等变体，并根据当前思考级别改写请求中的模型 ID。
 
 配置 `defaultThinkingLevel` 或 `thinkingLevelMap` 后，扩展会将模型的推理能力推导为 `true`。`reasoning: false` 不能与这两个字段同时使用。
 
@@ -195,7 +196,7 @@ Pi 的 `ModelsStore` 会按提供方 ID 保存刷新后的模型目录。离线�
 ```text
 合并模型和单次请求的 samplingParams
 → Pi 生成请求体
-→ 转换 Responses API 的思考字段
+→ 转换思考字段或模型后缀
 → 合并提供方 extraBody
 → 删除 provider/model dropParams
 ```

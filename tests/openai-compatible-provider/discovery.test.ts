@@ -126,6 +126,63 @@ describe("openai-compatible-provider model discovery", () => {
 		expect(fetch).toHaveBeenCalledOnce();
 	});
 
+	it("model-suffix 折叠自动发现的变体，并在缓存恢复后按 thinking level 路由请求", async () => {
+		const config = await loadConfigFromText(temp.path, providerConfigText({
+			baseUrl: "http://127.0.0.1:8000/v1",
+			apiKey: "sk-test",
+			models: "auto",
+			thinkingPreset: "model-suffix",
+		}, "llama-swap"));
+		let requestBody: unknown;
+		const fetch = vi.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(jsonResponse({
+				data: [
+					{ id: "deepseek-v4-flash", context_length: 200000 },
+					{ id: "deepseek-v4-flash:off" },
+					{ id: "deepseek-v4-flash:high" },
+					{ id: "deepseek-v4-flash:max" },
+				],
+			}))
+			.mockImplementation(async (_input, init) => {
+				requestBody = JSON.parse(String(init?.body));
+				return new Response('{"error":"stop"}', { status: 400 });
+			});
+		const stores = new Map<string, ModelsStoreEntry>();
+		const publish = createMapPublisher(stores, "llama-swap");
+		const { provider: first } = registerProvider(config, temp.path);
+		await refreshProvider(first, { publish, allowNetwork: true });
+
+		expect(first.getModels()).toMatchObject([{
+			id: "deepseek-v4-flash",
+			reasoning: true,
+			contextWindow: 200000,
+			thinkingLevelMap: {
+				off: "off",
+				high: "high",
+				max: "max",
+			},
+		}]);
+		const stored = stores.get("llama-swap");
+		if (!stored) throw new Error("model-suffix catalog was not stored");
+		expect(stored.models.map((model) => model.id)).toEqual(["deepseek-v4-flash"]);
+
+		const { provider: restored } = registerProvider(config, temp.path);
+		await refreshProvider(restored, { stored, allowNetwork: false });
+		const model = restored.getModels()[0];
+		if (!model) throw new Error("restored model-suffix model missing");
+		for await (const _event of restored.stream(model, {
+			messages: [{ role: "user", content: "test", timestamp: Date.now() }],
+		}, {
+			apiKey: "sk-test",
+			reasoningEffort: "max",
+		})) {
+		}
+
+		expect(requestBody).toMatchObject({ model: "deepseek-v4-flash:max" });
+		expect(requestBody).not.toHaveProperty("reasoning_effort");
+		expect(fetch).toHaveBeenCalledTimes(2);
+	});
+
 	it("手写 models 覆盖显式字段并由 models endpoint 补齐缺失元数据", async () => {
 		const config = await loadConfigFromText(temp.path, providerConfigText({
 			baseUrl: "https://gateway.example.com/v1",

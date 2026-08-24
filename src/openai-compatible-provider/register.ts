@@ -18,6 +18,7 @@ import { createProviderAuth, resolvedProviderHeaders } from "./auth.js";
 import { resolveHeadersOrThrow } from "./config-values.js";
 import { fetchProviderModelsFromEndpoint, mergeDiscoveredModelConfigs } from "./models-endpoint.js";
 import {
+	applyModelSuffixPayload,
 	applyRuntimePayloadConfig,
 	isModelThinkingLevel,
 	normalizeModelsJsoncConfig,
@@ -182,6 +183,7 @@ function composePayloadTransform(
 ): NonNullable<StreamOptions["onPayload"]> {
 	return async (payload, model) => {
 		const patched = applyRuntimePayloadConfig(payload, runtime, thinkingLevel);
+		if (runtime.thinkingPreset === "model-suffix") applyModelSuffixPayload(patched, model, thinkingLevel);
 		if (!next) return patched;
 		const transformed = await next(patched, model);
 		return transformed === undefined ? patched : transformed;

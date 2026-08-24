@@ -2,7 +2,7 @@ import path from "node:path";
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { describe, expect, it, vi } from "vitest";
 
-import { applyRuntimePayloadConfig } from "../../src/openai-compatible-provider/normalize.js";
+import { applyModelSuffixPayload, applyRuntimePayloadConfig } from "../../src/openai-compatible-provider/normalize.js";
 import { registerOpenAICompatibleProviders } from "../../src/openai-compatible-provider/register.js";
 import {
 	createExtensionHarness,
@@ -133,6 +133,41 @@ describe("openai-compatible-provider payload", () => {
 		expect(requestBody).not.toHaveProperty("store");
 	});
 
+
+	it("model-suffix 使用当前 Model 路由后缀并移除 Responses 自动生成的 thinking 字段", async () => {
+		const { provider, runtime } = await normalizeRuntime(temp.path, {
+			api: "openai-responses",
+			thinkingPreset: "model-suffix",
+			models: [{ id: "m", thinkingLevelMap: { max: "legacy-max" } }, "m:off", "m:high", "m:max"],
+		});
+		const model = provider.models[0];
+		if (!model) throw new Error("model-suffix model missing");
+		const payload = applyRuntimePayloadConfig({
+			model: "m",
+			input: [],
+			stream: true,
+			reasoning: { effort: "max" },
+			include: ["reasoning.encrypted_content"],
+		}, runtime, "max");
+
+		applyModelSuffixPayload(payload, model, "max");
+
+		expect(payload).toMatchObject({ model: "m:max" });
+		expect(payload).not.toHaveProperty("reasoning");
+		expect(payload).not.toHaveProperty("include");
+	});
+
+	it("model-suffix 在没有 off 变体时把裸模型用于 off", async () => {
+		const { provider, runtime } = await normalizeRuntime(temp.path, {
+			thinkingPreset: "model-suffix",
+			models: ["m", "m:high"],
+		});
+		const model = provider.models[0];
+		if (!model) throw new Error("model-suffix model missing");
+		const payload = applyRuntimePayloadConfig({ model: "m", messages: [], stream: true }, runtime, "off");
+		applyModelSuffixPayload(payload, model, "off");
+		expect(payload).toMatchObject({ model: "m" });
+	});
 
 	it.each([
 		["openrouter", "high", { reasoning: { effort: "high" } }],

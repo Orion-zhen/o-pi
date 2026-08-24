@@ -7,9 +7,10 @@ import {
 } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 
-/** OpenAI-compatible 请求中思考参数的编码预设。 */
+/** OpenAI-compatible 请求中思考等级的编码预设。 */
 export const THINKING_PRESET_NAMES = [
 	"none",
+	"model-suffix",
 	"openai",
 	"openrouter",
 	"deepseek",

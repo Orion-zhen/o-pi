@@ -35,7 +35,7 @@
 | `headers` | `{}` | 模型请求和模型目录请求使用的提供方请求头 |
 | `compat` | 保守默认值 | 传给 Pi 传输层的兼容选项 |
 | `models` | `"auto"` | `"auto"`，或由非空字符串和模型对象组成的非空数组 |
-| `thinkingPreset` | `none` | 提供方默认的思考字段编码方式 |
+| `thinkingPreset` | `none` | 提供方默认的思考编码方式。`model-suffix` 使用模型 ID 后缀 |
 | `modelsEndpoint` | `models` | 相对于 `baseUrl` 的路径或完整 URL |
 | `timeoutMs` | Pi 默认值 | 模型流式请求的超时时间，单位为毫秒 |
 | `maxRetries` | 未设置 | 模型请求的重试次数。未设置时由 Pi 处理 |
@@ -87,14 +87,14 @@
 | `api` | 提供方的 `api` | 为该模型选择 Completions 或 Responses |
 | `baseUrl` | 提供方的 `baseUrl` | 该模型使用的 API 端点 |
 | `reasoning` | 自动推导 | 模型是否支持推理和思考级别 |
-| `thinkingLevelMap` | 未设置 | Pi 思考级别到上游值的映射。值为 `null` 时隐藏对应级别 |
+| `thinkingLevelMap` | 未设置 | Pi 思考级别到上游值的映射。值为 `null` 时隐藏对应级别。`model-suffix` 用它声明等级可用性，但始终使用 Pi 等级名作为模型后缀 |
 | `input` | `["text"]` | 输入类型列表，可包含 `text` 和 `image` |
 | `cost` | 各项为 `0` | 每百万个令牌的成本。可以包含 `tiers` |
 | `contextWindow` | `128000` | 上下文窗口大小 |
 | `maxTokens` | `16384` | 最大输出令牌数 |
 | `headers` | `{}` | 发送模型请求前解析的模型请求头 |
 | `compat` | 提供方的兼容选项 | 模型的兼容选项，按顶层字段覆盖提供方配置。对象字段整体覆盖 |
-| `thinkingPreset` | 提供方的预设 | 模型的思考字段编码方式 |
+| `thinkingPreset` | 提供方的预设 | 模型的思考编码方式 |
 | `defaultThinkingLevel` | 未设置 | 模型选择事件触发时设置的默认思考级别。恢复会话时除外 |
 | `samplingParams` | `{}` | Pi 模型的采样参数，使用上游请求体字段名 |
 | `dropParams` | `[]` | 追加到提供方 `dropParams` 的字段列表 |

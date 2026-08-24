@@ -112,6 +112,66 @@ describe("openai-compatible-provider normalization", () => {
 		});
 	});
 
+	it("model-suffix 折叠同一基础模型的已知 thinking 变体", async () => {
+		const provider = await normalizeProvider(temp.path, {
+			thinkingPreset: "model-suffix",
+			models: [
+				{ id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" },
+				"deepseek-v4-flash:off",
+				"deepseek-v4-flash:high",
+				"deepseek-v4-flash:max",
+				"literal:extended",
+				"standalone:high",
+			],
+		}, "llama-swap");
+
+		expect(provider.models.map((model) => model.id)).toEqual([
+			"deepseek-v4-flash",
+			"literal:extended",
+			"standalone:high",
+		]);
+		expect(provider.models[0]).toMatchObject({
+			name: "DeepSeek V4 Flash",
+			reasoning: true,
+			thinkingLevelMap: {
+				off: "off",
+				minimal: null,
+				low: null,
+				medium: null,
+				high: "high",
+				xhigh: null,
+				max: "max",
+			},
+		});
+		expect(provider.runtimeModels.get("deepseek-v4-flash")).toMatchObject({
+			thinkingPreset: "model-suffix",
+			reasoning: true,
+		});
+	});
+
+	it("model-suffix 保留手写模型声明的等级可用性", async () => {
+		const provider = await normalizeProvider(temp.path, {
+			thinkingPreset: "model-suffix",
+			models: [{
+				id: "reasoning-model",
+				defaultThinkingLevel: "max",
+				thinkingLevelMap: { off: "disabled", high: "legacy-high", max: "legacy-max" },
+			}],
+		});
+		expect(provider.models[0]).toMatchObject({
+			reasoning: true,
+			thinkingLevelMap: { off: "disabled", high: "legacy-high", max: "legacy-max" },
+		});
+		expect(provider.runtimeModels.get("reasoning-model")?.defaultThinkingLevel).toBe("max");
+	});
+
+	it("未启用 model-suffix 时保留完整的冒号模型 ID", async () => {
+		const provider = await normalizeProvider(temp.path, {
+			models: ["model", "model:off", "model:high"],
+		});
+		expect(provider.models.map((model) => model.id)).toEqual(["model", "model:off", "model:high"]);
+	});
+
 	it("chat-template-enabled 将非 off 等级映射为 Pi 布尔变量", async () => {
 		const provider = await normalizeProvider(temp.path, {
 			api: "openai-completions",

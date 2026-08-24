@@ -111,6 +111,17 @@
       ]
     },
 
+    "llama-swap": {
+      "name": "Local llama-swap",
+      "baseUrl": "http://127.0.0.1:8080/v1",
+      "apiKey": "EMPTY",
+      "api": "openai-completions",
+      // 把 model、model:off、model:high、model:max 等目录项折叠成一个 Pi 模型。
+      // Pi 切换思考级别时，扩展把请求中的 model 改写为对应的 llama-swap 模型名。
+      "thinkingPreset": "model-suffix",
+      "models": "auto"
+    },
+
     "responses-demo": {
       "name": "Responses Demo",
       "baseUrl": "http://127.0.0.1:11451/v1",
