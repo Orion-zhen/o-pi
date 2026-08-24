@@ -52,7 +52,7 @@ export class StreamingToolCallTracker {
 		delta: string,
 	): StreamingToolUpdate | undefined {
 		const streamKey = callStreamKey(messageKey, contentIndex);
-		const state = this.calls.get(streamKey) ?? this.createState(messageKey, streamKey, call);
+		const state = this.requireState(streamKey);
 		const previousToolCallId = state.activityId;
 		let changed = false;
 
@@ -87,7 +87,7 @@ export class StreamingToolCallTracker {
 
 	end(messageKey: string, contentIndex: number, call: StreamingToolCall): StreamingToolUpdate {
 		const streamKey = callStreamKey(messageKey, contentIndex);
-		const state = this.calls.get(streamKey) ?? this.createState(messageKey, streamKey, call);
+		const state = this.requireState(streamKey);
 		const previousToolCallId = state.activityId;
 		if (call.id.length > 0) state.activityId = call.id;
 		if (call.name.length > 0) state.name = call.name;
@@ -122,18 +122,9 @@ export class StreamingToolCallTracker {
 		this.calls.clear();
 	}
 
-	private createState(messageKey: string, streamKey: string, call: StreamingToolCall): StreamingToolState {
-		const state: StreamingToolState = {
-			messageKey,
-			activityId: call.id || streamKey,
-			name: call.name || "tool",
-			argumentJson: "",
-			pathLocked: false,
-			path: undefined,
-			commandLocked: false,
-			command: undefined,
-		};
-		this.calls.set(streamKey, state);
+	private requireState(streamKey: string): StreamingToolState {
+		const state = this.calls.get(streamKey);
+		if (state === undefined) throw new Error(`Discord presence tool stream did not start: ${streamKey}`);
 		return state;
 	}
 }

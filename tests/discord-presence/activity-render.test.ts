@@ -14,7 +14,7 @@ import {
 	completedTopLevelStringProperty,
 	StreamingToolCallTracker,
 } from "../../src/discord-presence/streaming.js";
-import { enabledConfig } from "./fixtures.js";
+import { configuredProfile, enabledConfig } from "./fixtures.js";
 
 describe("Discord presence 活动与渲染", () => {
 	it.each([
@@ -95,7 +95,7 @@ describe("Discord presence 活动与渲染", () => {
 		config.assets.small.languages.typescript = "ts";
 		const payload = renderDiscordActivity(
 			config,
-			"detailed",
+			configuredProfile(config, "detailed"),
 			classifyTool("edit", { path: "/private/repo/example.ts" }),
 			{ project: "o-pi", model: "GPT", session: "Presence", startedAt: 123 },
 		);
@@ -112,7 +112,7 @@ describe("Discord presence 活动与渲染", () => {
 		});
 		expect(renderDiscordActivity(
 			config,
-			"minimal",
+			configuredProfile(config, "minimal"),
 			classifyTool("edit", { path: "ignored.ts" }),
 			{ project: "o-pi", model: "GPT", session: "Presence", startedAt: 123 },
 		)).toBeUndefined();

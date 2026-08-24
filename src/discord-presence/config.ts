@@ -9,7 +9,6 @@ import {
 	readDefaultJsoncConfigSync,
 } from "../config-loader.js";
 import {
-	PRESENCE_ACTIVITY_KINDS,
 	type DiscordPresenceConfig,
 	type PresenceActivityKind,
 	type PresenceAssetsConfig,
@@ -101,22 +100,17 @@ function materializeConfig(raw: CompleteDiscordPresenceConfig): DiscordPresenceC
 function cloneProfiles(
 	profiles: Record<PresenceProfileName, PresenceProfileConfig>,
 ): Record<PresenceProfileName, PresenceProfileConfig> {
-	if (!isRecord(profiles)) throw new DiscordPresenceConfigError("profiles must be an object.");
 	const cloned: Record<string, PresenceProfileConfig> = {};
 	for (const [name, value] of Object.entries(profiles)) {
 		if (!isRecord(value) || !isRecord(value["details"]) || typeof value["state"] !== "string"
 			|| typeof value["show_elapsed"] !== "boolean") {
 			throw new DiscordPresenceConfigError("Discord presence profile is incomplete.", { profile: name });
 		}
-		const details: Partial<Record<PresenceActivityKind, string>> = {};
-		for (const kind of PRESENCE_ACTIVITY_KINDS) {
-			const template = value["details"][kind];
-			if (typeof template === "string") details[kind] = template;
-		}
-		cloned[name] = { details, state: value["state"], show_elapsed: value["show_elapsed"] };
-	}
-	if (Object.keys(cloned).length === 0) {
-		throw new DiscordPresenceConfigError("At least one Discord presence profile is required.");
+		cloned[name] = {
+			details: { ...value["details"] } as Partial<Record<PresenceActivityKind, string>>,
+			state: value["state"],
+			show_elapsed: value["show_elapsed"],
+		};
 	}
 	return cloned;
 }
@@ -134,8 +128,8 @@ function validateTemplates(config: DiscordPresenceConfig): void {
 	}
 	for (const template of templates) {
 		for (const match of template.value.matchAll(TEMPLATE_PATTERN)) {
-			const placeholder = match[1];
-			if (placeholder !== undefined && !TEMPLATE_VALUES.has(placeholder)) {
+			const placeholder = match[0].slice(1, -1);
+			if (!TEMPLATE_VALUES.has(placeholder)) {
 				throw new DiscordPresenceConfigError("Discord presence template contains an unknown placeholder.", {
 					path: template.path,
 					placeholder,
@@ -148,13 +142,15 @@ function validateTemplates(config: DiscordPresenceConfig): void {
 /** details 是 profile 的活动订阅集合，因此每个配置层都按整对象替换。 */
 function mergeDiscordPresenceValues(base: unknown, overlay: unknown): unknown {
 	const merged = mergeConfigValues(base, overlay);
-	if (!isRecord(merged) || !isRecord(overlay) || !isRecord(overlay["profiles"])) return merged;
-	const mergedProfiles = merged["profiles"];
-	if (!isRecord(mergedProfiles)) return merged;
-	for (const [name, profile] of Object.entries(overlay["profiles"])) {
-		if (!isRecord(profile) || !("details" in profile)) continue;
+	const overlayRecord = overlay as Record<string, unknown>;
+	if (overlayRecord["profiles"] === undefined) return merged;
+	const overlayProfiles = overlayRecord["profiles"] as Record<string, Record<string, unknown>>;
+	const mergedProfiles = (merged as Record<string, unknown>)["profiles"] as Record<string, Record<string, unknown>>;
+	for (const [name, profile] of Object.entries(overlayProfiles)) {
+		if (profile["details"] === undefined) continue;
 		const mergedProfile = mergedProfiles[name];
-		if (isRecord(mergedProfile)) mergedProfile["details"] = structuredClone(profile["details"]);
+		if (mergedProfile === undefined) throw new Error(`Validated Discord presence profile is missing after merge: ${name}`);
+		mergedProfile["details"] = structuredClone(profile["details"]);
 	}
 	return merged;
 }

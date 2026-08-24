@@ -5,6 +5,7 @@ import {
 	CoordinatorProtocolError,
 	parseClientMessage,
 	readCoordinatorMessages,
+	type CoordinatedActivity,
 	type CoordinatedPresenceConfig,
 	writeCoordinatorMessage,
 } from "./coordinator-protocol.js";
@@ -15,9 +16,7 @@ import type { DiscordActivityPayload, PresenceConnectionStatus } from "./types.j
 
 interface Participant {
 	config: CoordinatedPresenceConfig;
-	joinedAt: number;
-	activity?: DiscordActivityPayload;
-	activeAt?: number;
+	presence?: CoordinatedActivity;
 	order: number;
 }
 
@@ -56,8 +55,7 @@ export class PresenceBroker {
 		config: CoordinatedPresenceConfig,
 		joinedAt: number,
 		continuityStartedAt?: number,
-		activity?: DiscordActivityPayload,
-		activeAt?: number,
+		presence?: CoordinatedActivity,
 	): void {
 		const candidateStart = Math.min(joinedAt, continuityStartedAt ?? joinedAt);
 		const previousStart = this.groupStartedAt;
@@ -65,12 +63,11 @@ export class PresenceBroker {
 		const previous = this.participants.get(participantId);
 		this.participants.set(participantId, {
 			config,
-			joinedAt,
-			...(activity === undefined || activeAt === undefined ? {} : { activity, activeAt }),
+			...(presence === undefined ? {} : { presence }),
 			order: previous?.order ?? ++this.order,
 		});
-		if (activity !== undefined) this.selectLatest();
-		else if (previousStart !== this.groupStartedAt) this.showSelected();
+		if (presence !== undefined) this.selectLatest();
+		else if (previousStart !== this.groupStartedAt && this.selectedParticipantId !== undefined) this.showSelected();
 		this.options.onChange?.();
 	}
 
@@ -84,8 +81,7 @@ export class PresenceBroker {
 	publish(participantId: string, activity: DiscordActivityPayload, activeAt: number): void {
 		const participant = this.participants.get(participantId);
 		if (participant === undefined) throw new CoordinatorProtocolError("Coordinator participant is not registered.");
-		participant.activity = activity;
-		participant.activeAt = activeAt;
+		participant.presence = { activity, activeAt };
 		participant.order = ++this.order;
 		this.selectLatest();
 	}
@@ -114,16 +110,17 @@ export class PresenceBroker {
 
 	private selectLatest(): void {
 		let selectedId: string | undefined;
-		let selected: Participant | undefined;
+		let selected: { presence: CoordinatedActivity; order: number } | undefined;
 		for (const [participantId, participant] of this.participants) {
-			if (participant.activity === undefined || participant.activeAt === undefined) continue;
+			const presence = participant.presence;
+			if (presence === undefined) continue;
 			if (
 				selected === undefined
-				|| participant.activeAt > (selected.activeAt ?? Number.NEGATIVE_INFINITY)
-				|| (participant.activeAt === selected.activeAt && participant.order > selected.order)
+				|| presence.activeAt > selected.presence.activeAt
+				|| (presence.activeAt === selected.presence.activeAt && participant.order > selected.order)
 			) {
 				selectedId = participantId;
-				selected = participant;
+				selected = { presence, order: participant.order };
 			}
 		}
 		this.selectedParticipantId = selectedId;
@@ -134,12 +131,14 @@ export class PresenceBroker {
 	private showSelected(): void {
 		const participantId = this.selectedParticipantId;
 		const startedAt = this.groupStartedAt;
-		if (participantId === undefined || startedAt === undefined) return;
+		if (participantId === undefined || startedAt === undefined) {
+			throw new Error("Discord presence selection is incomplete.");
+		}
 		const participant = this.participants.get(participantId);
-		if (participant?.activity === undefined) return;
-		const activity = participant.activity.startTimestamp === undefined
-			? participant.activity
-			: { ...participant.activity, startTimestamp: startedAt };
+		if (participant?.presence === undefined) throw new Error("Discord presence participant is unavailable.");
+		const activity = participant.presence.activity.startTimestamp === undefined
+			? participant.presence.activity
+			: { ...participant.presence.activity, startTimestamp: startedAt };
 		this.options.output.show({ participantId, config: participant.config, activity, groupStartedAt: startedAt });
 	}
 }
@@ -246,8 +245,9 @@ export function createPresenceCoordinatorServer(options: PresenceCoordinatorServ
 								message.config,
 								message.joinedAt,
 								message.continuityStartedAt,
-								message.activity,
-								message.activeAt,
+								message.activity === undefined
+									? undefined
+									: { activity: message.activity, activeAt: message.activeAt },
 							);
 							broadcastStatus();
 							return;

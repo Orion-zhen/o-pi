@@ -1,4 +1,3 @@
-export const PRESENCE_PROFILES = ["minimal", "standard", "detailed"] as const;
 export type PresenceProfileName = string;
 
 export const PRESENCE_ACTIVITY_KINDS = [

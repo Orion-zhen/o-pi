@@ -20,6 +20,38 @@ afterEach(() => {
 });
 
 describe("Discord presence 服务与 Pi 适配", () => {
+	it("配置尚未加载时不虚构 profile", () => {
+		const service = new DiscordPresenceService({ coordinator: new FakeCoordinator() });
+
+		expect(service.status()).toEqual({ enabled: false, profile: undefined, connection: "disabled" });
+		expect(service.profileNames()).toEqual([]);
+	});
+
+	it("初始化错误交给 Pi 扩展边界处理", async () => {
+		const handlers = new Map<string, (event: Record<string, unknown>, ctx: ContextStub) => Promise<void> | void>();
+		const pi = {
+			on(name: string, handler: (event: Record<string, unknown>, ctx: ContextStub) => Promise<void> | void) {
+				handlers.set(name, handler);
+			},
+			registerCommand() {},
+		} as unknown as ExtensionAPI;
+		createDiscordPresenceExtension({
+			loadConfig: async () => { throw new Error("invalid presence config"); },
+			coordinator: new FakeCoordinator(),
+		})(pi);
+		const start = handlers.get("session_start");
+		if (start === undefined) throw new Error("session_start handler missing");
+
+		await expect(start({ type: "session_start" }, {
+			cwd: "/workspace/o-pi",
+			mode: "tui",
+			model: undefined,
+			isIdle: () => true,
+			sessionManager: { getSessionName: () => undefined },
+			ui: { notify: () => undefined },
+		})).rejects.toThrow("invalid presence config");
+	});
+
 	it.skipIf(process.platform === "win32")("本地协调端点准备失败时回滚为关闭状态", async () => {
 		const blockedDirectory = path.join(temp.path, "blocked-endpoint");
 		await writeFile(blockedDirectory, "not a directory");
@@ -215,9 +247,7 @@ describe("Discord presence 服务与 Pi 适配", () => {
 		expect(command?.getArgumentCompletions?.("profile d")).toEqual([{ label: "profile detailed", value: "profile detailed" }]);
 		expect(command?.getArgumentCompletions?.("profile f")).toEqual([{ label: "profile focus", value: "profile focus" }]);
 		expect(command?.getArgumentCompletions?.("unknown")).toBeNull();
-		await command?.handler("profile missing", ctx as never);
-		expect(notices.at(-1)).toMatchObject({ type: "error" });
-		expect(notices.at(-1)?.message).toContain("Unknown Discord presence profile");
+		await expect(command?.handler("profile missing", ctx as never)).rejects.toThrow("Unknown Discord presence profile");
 		await command?.handler("profile focus", ctx as never);
 		await command?.handler("status", ctx as never);
 		await command?.handler("off", ctx as never);

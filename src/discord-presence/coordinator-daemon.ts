@@ -29,7 +29,7 @@ const close = (): Promise<void> => {
 	return closing;
 };
 
-if (process.platform !== "win32") await unlink(endpoint).catch(() => undefined);
+if (process.platform !== "win32") await unlinkIfExists(endpoint);
 server = createPresenceCoordinatorServer({
 	endpoint,
 	onEmpty: () => {
@@ -68,15 +68,21 @@ async function acquireLock(lockPath: string, socketPath: string): Promise<FileHa
 			if (await socketAcceptsConnections(socketPath)) return undefined;
 			const owner = await lockOwner(lockPath);
 			if (owner !== undefined && processIsAlive(owner)) return undefined;
-			await unlink(lockPath).catch(() => undefined);
-			if (process.platform !== "win32") await unlink(socketPath).catch(() => undefined);
+			await unlinkIfExists(lockPath);
+			if (process.platform !== "win32") await unlinkIfExists(socketPath);
 		}
 	}
 	return undefined;
 }
 
 async function lockOwner(lockPath: string): Promise<number | undefined> {
-	const raw = await readFile(lockPath, "utf8").catch(() => "");
+	let raw: string;
+	try {
+		raw = await readFile(lockPath, "utf8");
+	} catch (error) {
+		if (hasCode(error, "ENOENT")) return undefined;
+		throw error;
+	}
 	const pid = Number(raw);
 	return Number.isInteger(pid) && pid > 0 ? pid : undefined;
 }
@@ -86,7 +92,9 @@ function processIsAlive(pid: number): boolean {
 		process.kill(pid, 0);
 		return true;
 	} catch (error) {
-		return hasCode(error, "EPERM");
+		if (hasCode(error, "EPERM")) return true;
+		if (hasCode(error, "ESRCH")) return false;
+		throw error;
 	}
 }
 
@@ -100,6 +108,14 @@ function socketAcceptsConnections(socketPath: string): Promise<boolean> {
 		socket.once("connect", () => finish(true));
 		socket.once("error", () => finish(false));
 	});
+}
+
+async function unlinkIfExists(file: string): Promise<void> {
+	try {
+		await unlink(file);
+	} catch (error) {
+		if (!hasCode(error, "ENOENT")) throw error;
+	}
 }
 
 function hasCode(error: unknown, code: string): boolean {

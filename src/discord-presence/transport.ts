@@ -3,6 +3,8 @@ import type { DiscordActivityPayload, PresenceConnectionStatus } from "./types.j
 
 const SHUTDOWN_TIMEOUT_MS = 2_000;
 
+type ConnectedClient = Client & { readonly user: NonNullable<Client["user"]> };
+
 export interface DiscordPresenceTransport {
 	setActivity(activity: DiscordActivityPayload): Promise<void>;
 	clearActivity(): Promise<void>;
@@ -16,7 +18,7 @@ export type DiscordPresenceTransportFactory = (applicationId: string) => Promise
 export async function createDiscordRpcTransport(applicationId: string): Promise<DiscordPresenceTransport> {
 	const { Client: DiscordClient } = await import("@xhayper/discord-rpc");
 	let client: Client | undefined;
-	let connecting: Promise<Client> | undefined;
+	let connecting: Promise<ConnectedClient> | undefined;
 	let status: PresenceConnectionStatus = "disconnected";
 	let closed = false;
 	const listeners = new Set<(nextStatus: PresenceConnectionStatus) => void>();
@@ -32,9 +34,9 @@ export async function createDiscordRpcTransport(applicationId: string): Promise<
 		await withTimeout(candidate.destroy(), SHUTDOWN_TIMEOUT_MS).catch(() => undefined);
 	};
 
-	const connect = (): Promise<Client> => {
+	const connect = (): Promise<ConnectedClient> => {
 		if (closed) return Promise.reject(new Error("Discord presence transport is closed."));
-		if (client?.isConnected === true && client.user !== undefined) return Promise.resolve(client);
+		if (client?.isConnected === true && client.user !== undefined) return Promise.resolve(client as ConnectedClient);
 		if (connecting !== undefined) return connecting;
 		setStatus("connecting");
 		const candidate = new DiscordClient({ clientId: applicationId, transport: { type: "ipc" } });
@@ -49,7 +51,7 @@ export async function createDiscordRpcTransport(applicationId: string): Promise<
 			if (closed) throw new Error("Discord presence transport closed while connecting.");
 			client = candidate;
 			setStatus("connected");
-			return candidate;
+			return candidate as ConnectedClient;
 		}).catch(async (error: unknown) => {
 			await discard(candidate);
 			setStatus(closed ? "disabled" : "disconnected");
@@ -64,10 +66,8 @@ export async function createDiscordRpcTransport(applicationId: string): Promise<
 	return {
 		async setActivity(activity) {
 			const connected = await connect();
-			const user = connected.user;
-			if (user === undefined) throw new Error("Discord RPC user is unavailable.");
 			try {
-				await user.setActivity(activity);
+				await connected.user.setActivity(activity);
 			} catch (error) {
 				await discard(connected);
 				setStatus("disconnected");

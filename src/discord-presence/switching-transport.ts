@@ -19,7 +19,8 @@ export class SwitchingDiscordTransport implements DiscordPresenceTransport {
 	constructor(private readonly createTransport: DiscordPresenceTransportFactory) {}
 
 	selectApplication(applicationId: string): void {
-		if (this.closed || this.applicationId === applicationId) return;
+		if (this.closed) throw new Error("Discord transport is closed.");
+		if (this.applicationId === applicationId) return;
 		this.applicationId = applicationId;
 		this.setStatus("connecting");
 	}

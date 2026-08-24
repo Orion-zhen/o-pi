@@ -23,11 +23,7 @@ export function createDiscordPresenceExtension(
 				await service.shutdown();
 				return;
 			}
-			try {
-				await service.startSession(startContext(ctx));
-			} catch (error) {
-				ctx.ui.notify(`Discord presence initialization failed: ${errorMessage(error)}`, "warning");
-			}
+			await service.startSession(startContext(ctx));
 		});
 		pi.on("turn_start", () => service.onTurnStart());
 		pi.on("message_update", (event) => {
@@ -40,7 +36,7 @@ export function createDiscordPresenceExtension(
 			const call = streamEvent.type === "toolcall_end"
 				? streamEvent.toolCall
 				: streamEvent.partial.content[streamEvent.contentIndex];
-			if (call?.type !== "toolCall") return;
+			if (call?.type !== "toolCall") throw new Error("Discord presence received an invalid tool stream event.");
 			const messageKey = String(event.message.timestamp);
 			const update = streamEvent.type === "toolcall_start"
 				? streamingTools.start(messageKey, streamEvent.contentIndex, call)
@@ -100,36 +96,32 @@ export function createDiscordPresenceExtension(
 					return;
 				}
 				const command = args.trim().toLowerCase();
-				try {
-					if (command.length === 0 || command === "status") {
-						notifyStatus(ctx, service);
-						return;
-					}
-					if (command === "on") {
-						await service.enable(startContext(ctx));
-						notifyStatus(ctx, service);
-						return;
-					}
-					if (command === "off") {
-						await service.disable();
-						notifyStatus(ctx, service);
-						return;
-					}
-					if (command === "reload") {
-						await service.reload(startContext(ctx));
-						notifyStatus(ctx, service);
-						return;
-					}
-					const profile = parseProfile(command);
-					if (profile !== undefined) {
-						service.selectProfile(profile);
-						notifyStatus(ctx, service);
-						return;
-					}
-					ctx.ui.notify("usage: /presence on|off|status|reload|profile <name>", "error");
-				} catch (error) {
-					ctx.ui.notify(`Discord presence failed: ${errorMessage(error)}`, "error");
+				if (command.length === 0 || command === "status") {
+					notifyStatus(ctx, service);
+					return;
 				}
+				if (command === "on") {
+					await service.enable(startContext(ctx));
+					notifyStatus(ctx, service);
+					return;
+				}
+				if (command === "off") {
+					await service.disable();
+					notifyStatus(ctx, service);
+					return;
+				}
+				if (command === "reload") {
+					await service.reload(startContext(ctx));
+					notifyStatus(ctx, service);
+					return;
+				}
+				const profile = parseProfile(command);
+				if (profile !== undefined) {
+					service.selectProfile(profile);
+					notifyStatus(ctx, service);
+					return;
+				}
+				ctx.ui.notify("usage: /presence on|off|status|reload|profile <name>", "error");
 			},
 		});
 	};
@@ -154,13 +146,9 @@ function notifyStatus(
 ): void {
 	const status = service.status();
 	ctx.ui.notify(
-		`Discord presence: ${status.enabled ? "on" : "off"}; profile=${status.profile}; connection=${status.connection}`,
+		`Discord presence: ${status.enabled ? "on" : "off"}; profile=${status.profile ?? "unavailable"}; connection=${status.connection}`,
 		"info",
 	);
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 export default createDiscordPresenceExtension();

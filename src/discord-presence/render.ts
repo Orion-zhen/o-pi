@@ -2,12 +2,13 @@ import type {
 	DiscordActivityPayload,
 	DiscordPresenceConfig,
 	PresenceActivity,
-	PresenceProfileName,
+	PresenceProfileConfig,
 	PresenceSession,
 	PresenceTemplateValues,
 } from "./types.js";
 
 const MAX_TEXT_LENGTH = 128;
+const TEMPLATE_PATTERN = /\{(project|model|session|file|language|executable|tool|label)\}/gu;
 const ACTIVITY_LABELS: Record<PresenceActivity["kind"], string> = {
 	idle: "Idle",
 	thinking: "Thinking",
@@ -22,13 +23,12 @@ const ACTIVITY_LABELS: Record<PresenceActivity["kind"], string> = {
 
 export function renderDiscordActivity(
 	config: DiscordPresenceConfig,
-	profileName: PresenceProfileName,
+	profile: PresenceProfileConfig,
 	activity: PresenceActivity,
 	session: PresenceSession,
 ): DiscordActivityPayload | undefined {
-	const profile = config.profiles[profileName];
-	const detailsTemplate = profile?.details[activity.kind];
-	if (profile === undefined || detailsTemplate === undefined) return undefined;
+	const detailsTemplate = profile.details[activity.kind];
+	if (detailsTemplate === undefined) return undefined;
 	const values = templateValues(activity, session);
 	const details = renderOptionalText(detailsTemplate, values);
 	const state = renderOptionalText(profile.state, values);
@@ -56,7 +56,7 @@ export function renderDiscordActivity(
 }
 
 export function renderTemplate(template: string, values: PresenceTemplateValues): string {
-	const rendered = template.replace(/\{([a-z_]+)\}/gu, (_match, key: string) => templateValue(key, values));
+	const rendered = template.replace(TEMPLATE_PATTERN, (_match, key: string) => values[key as keyof PresenceTemplateValues]);
 	return truncate(Array.from(rendered.replace(/[\r\n\t]+/gu, " ").replace(/\s{2,}/gu, " ").trim()), MAX_TEXT_LENGTH);
 }
 
@@ -71,20 +71,6 @@ function templateValues(activity: PresenceActivity, session: PresenceSession): P
 		tool: activity.tool,
 		label: activity.language ?? ACTIVITY_LABELS[activity.kind],
 	};
-}
-
-function templateValue(key: string, values: PresenceTemplateValues): string {
-	switch (key) {
-		case "project": return values.project;
-		case "model": return values.model;
-		case "session": return values.session;
-		case "file": return values.file;
-		case "language": return values.language;
-		case "executable": return values.executable;
-		case "tool": return values.tool;
-		case "label": return values.label;
-		default: return "";
-	}
 }
 
 function renderOptionalText(template: string, values: PresenceTemplateValues): string | undefined {

@@ -10,15 +10,23 @@ export interface CoordinatedPresenceConfig {
 	retryIntervalMs: number;
 }
 
-export interface RegisterMessage {
+export interface CoordinatedActivity {
+	activity: DiscordActivityPayload;
+	activeAt: number;
+}
+
+interface RegisterMessageBase {
 	type: "register";
 	participantId: string;
 	joinedAt: number;
 	continuityStartedAt?: number;
 	config: CoordinatedPresenceConfig;
-	activity?: DiscordActivityPayload;
-	activeAt?: number;
 }
+
+export type RegisterMessage = RegisterMessageBase & (
+	| { activity?: never; activeAt?: never }
+	| CoordinatedActivity
+);
 
 export interface ConfigureMessage {
 	type: "configure";
@@ -94,10 +102,7 @@ export function parseClientMessage(value: unknown): CoordinatorClientMessage {
 	if (type === "register") {
 		const activity = record["activity"] === undefined ? undefined : parseActivity(record["activity"]);
 		const activeAt = record["activeAt"] === undefined ? undefined : timestamp(record["activeAt"], "activeAt");
-		if ((activity === undefined) !== (activeAt === undefined)) {
-			throw new CoordinatorProtocolError("register activity and activeAt must be provided together.");
-		}
-		const base: Omit<RegisterMessage, "activity" | "activeAt"> = {
+		const base: RegisterMessageBase = {
 			type: "register",
 			participantId: nonEmptyString(record["participantId"], "participantId", 128),
 			joinedAt: timestamp(record["joinedAt"], "joinedAt"),
@@ -106,7 +111,12 @@ export function parseClientMessage(value: unknown): CoordinatorClientMessage {
 				: { continuityStartedAt: timestamp(record["continuityStartedAt"], "continuityStartedAt") }),
 			config: parseConfig(record["config"]),
 		};
-		return activity === undefined || activeAt === undefined ? base : { ...base, activity, activeAt };
+		if (activity === undefined) {
+			if (activeAt !== undefined) throw new CoordinatorProtocolError("register activity and activeAt must be provided together.");
+			return base;
+		}
+		if (activeAt === undefined) throw new CoordinatorProtocolError("register activity and activeAt must be provided together.");
+		return { ...base, activity, activeAt };
 	}
 	if (type === "configure") return { type, config: parseConfig(record["config"]) };
 	if (type === "activity") {
