@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createEventBus, type ExtensionAPI, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
@@ -215,6 +215,7 @@ describe("tool-input repair", () => {
 			registerCommand() {},
 			registerEntryRenderer() {},
 			on() {},
+			events: createEventBus(),
 		} as unknown as ExtensionAPI);
 
 		expect(registered?.prepareArguments?.({

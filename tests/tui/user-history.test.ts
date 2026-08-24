@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { KeybindingsManager } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
+import { KeybindingsManager, useWindowsKeybindings } from "../../node_modules/@earendil-works/pi-coding-agent/dist/core/keybindings.js";
 import {
 	ProcessTerminal,
 	stripTerminalSequences,
@@ -331,7 +331,7 @@ describe("路径级用户历史", () => {
 		});
 		editor.setText("queued follow-up");
 
-		editor.handleInput("\x1b\r");
+		editor.handleInput(useWindowsKeybindings() ? "\x11" : "\x1b\r");
 
 		expect(recorded).toHaveBeenCalledOnce();
 		expect(recorded).toHaveBeenCalledWith("queued follow-up");

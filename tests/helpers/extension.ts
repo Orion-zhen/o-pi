@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createEventBus, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export type ExtensionHandler = (...args: unknown[]) => unknown;
 
@@ -28,6 +28,7 @@ export function registerExtension<TTool = CapturedExtensionTool>(
 	const registered: TTool[] = [];
 	const handlers = new Map<string, ExtensionHandler>();
 	const host: Partial<ExtensionAPI> = {
+		events: createEventBus(),
 		...api,
 		registerTool(tool) {
 			registered.push(tool as TTool);

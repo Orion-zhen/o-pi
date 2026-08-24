@@ -2,7 +2,7 @@ import { realpath } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { TokenCounterScope } from "../token-counter.js";
-import { discoverAgents, formatAvailableAgents, hasWriteCapability, resolveSubagentTools } from "./agents.js";
+import { discoverAgents, hasWriteCapability, resolveSubagentTools } from "./agents.js";
 import { loadSubagentConfig } from "./config.js";
 import { formatModelReference } from "./model.js";
 import { exceedsTokenLimit, formatFileHandoff, formatResultForContext, persistResult } from "./output.js";
@@ -13,99 +13,85 @@ import type {
 	ContextMode,
 	ExecutorContext,
 	ForkExecutionContext,
-	ExecutorOptions,
+	NonEmptyArray,
 	ProcessRunOutput,
 	ProcessRunProgress,
+	SubagentCompletedResult,
 	SubagentConfig,
 	SubagentDetails,
 	SubagentMode,
 	SubagentRunResult,
+	SubagentRunningResult,
 	SubagentTask,
 	SubagentToolParams,
 	SubagentToolResult,
+	UnpersistedSubagentRunResult,
 	UsageStats,
 } from "./types.js";
 
 export class SubagentExecutionError extends Error {
-	constructor(message: string, readonly details?: Record<string, unknown>) {
+	constructor(message: string) {
 		super(message);
 		this.name = "SubagentExecutionError";
 	}
 }
 
+interface PreparedTask {
+	task: SubagentTask;
+	agent: AgentDefinition;
+	contextMode: ContextMode;
+	cwd: string;
+	tools: string[];
+	model?: string;
+	fork?: ForkExecutionContext;
+}
+
 /** 工具与 slash command 共用的执行入口。 */
-export async function executeSubagent(params: SubagentToolParams, context: ExecutorContext, options: ExecutorOptions = {}): Promise<SubagentToolResult> {
+export async function executeSubagent(params: SubagentToolParams, context: ExecutorContext): Promise<SubagentToolResult> {
 	const config = await loadSubagentConfig(context.cwd);
 	const discovery = discoverAgents(context.cwd, config);
-	const mode = resolveMode(Array.isArray(params.tasks) ? params.tasks : []);
+	const mode = resolveMode(params.tasks);
+	if (mode === "parallel" && params.tasks.length > config.maxParallelTasks) {
+		throw new SubagentExecutionError(`Too many parallel tasks (${params.tasks.length}). Max is ${config.maxParallelTasks}.`);
+	}
 	const tokenScope: TokenCounterScope = context.currentModel === undefined ? {} : {
 		provider: context.currentModel.provider,
 		modelId: context.currentModel.id,
 		baseUrl: context.currentModel.baseUrl,
 	};
 	const runId = createRunId();
-	let activeTasks: SubagentTask[] = Array.isArray(params.tasks) ? params.tasks : [];
+	const tasks = cloneTasks(params.tasks);
+	const details = (results: SubagentRunResult[]): SubagentDetails => ({ mode, runId, tasks, results, warnings: discovery.warnings });
+	const selections = params.tasks.map((task) => ({ task, agent: requireAgent(task.agent, discovery.agents) })) as NonEmptyArray<{
+		task: SubagentTask;
+		agent: AgentDefinition;
+	}>;
 	let forkContext: ForkExecutionContext | undefined;
-	const detailsBase = (results: SubagentRunResult[]): SubagentDetails => ({ mode, runId, tasks: cloneTasks(activeTasks), results, warnings: discovery.warnings });
 
 	try {
-		const tasks = requireTasks(params.tasks);
-		activeTasks = tasks;
-		if (mode === "parallel" && tasks.length > config.maxParallelTasks) {
-			throw new SubagentExecutionError(`Too many parallel tasks (${tasks.length}). Max is ${config.maxParallelTasks}.`);
-		}
-		const selectedAgents = tasks.map((task) => requireAgent(task.agent, discovery.agents));
-		if (selectedAgents.some((agent) => agent.fork)) forkContext = await requireForkContext(context);
+		if (selections.some(({ agent }) => agent.fork)) forkContext = await requireForkContext(context);
+		const preparedTasks = await prepareTasks(selections, context, config, forkContext);
 		if (mode === "parallel") {
-			const liveResults: Array<SubagentRunResult | undefined> = new Array(tasks.length);
-			emitUpdate(context, detailsBase, compactResults(liveResults));
-			const results = await mapWithConcurrency(tasks, config.maxConcurrency, async (task, index) => {
-				const result = await executeOne(task, mode, runId, context, config, discovery.agents, forkContext, (partial) => {
+			const liveResults: Array<SubagentRunResult | undefined> = new Array(preparedTasks.length);
+			emitUpdate(context, details, compactResults(liveResults));
+			const results = await mapWithConcurrency(preparedTasks, config.maxConcurrency, async (prepared, index) => {
+				const result = await executeOne(prepared, prepared.task.task, mode, runId, config, context, (partial) => {
 					liveResults[index] = partial;
-					emitUpdate(context, detailsBase, compactResults(liveResults));
+					emitUpdate(context, details, compactResults(liveResults));
 				});
 				const persisted = await persistResult(result, { cwd: result.cwd, runId, index });
 				liveResults[index] = persisted;
-				emitUpdate(context, detailsBase, compactResults(liveResults));
-				if (options.failFast === true && persisted.error !== undefined) throw new SubagentExecutionError(persisted.error);
+				emitUpdate(context, details, compactResults(liveResults));
 				return persisted;
 			});
 			const success = results.filter((result) => result.error === undefined).length;
-			const onlyResult = results[0];
-			const text = results.length === 1 && onlyResult !== undefined
-				? resultToContent(onlyResult, config, tokenScope)
+			const [first, ...remaining] = results;
+			const text = remaining.length === 0
+				? resultToContent(first, config, tokenScope)
 				: [`Subagents: ${success}/${results.length} succeeded`, "", ...results.map((result) => `### ${result.agent}\n\n${resultToContent(result, config, tokenScope)}`)].join("\n");
-			return { content: [{ type: "text", text }], details: detailsBase(results) };
+			return { content: [{ type: "text", text }], details: details(results) };
 		}
-		const results: SubagentRunResult[] = [];
-		let previous = "";
-		for (let i = 0; i < tasks.length; i++) {
-			const step = tasks[i];
-			if (step === undefined) continue;
-			const taskText = step.task.replace(/\{previous\}/g, previous);
-			const result = await executeOne({ ...step, task: taskText }, mode, runId, context, config, discovery.agents, forkContext, (partial) => {
-				emitUpdate(context, detailsBase, [...results, partial]);
-			});
-			const persisted = await persistResult(result, { cwd: result.cwd, runId, index: i });
-			results.push(persisted);
-			emitUpdate(context, detailsBase, results);
-			if (persisted.error !== undefined) {
-				return {
-					content: [{ type: "text", text: `Chain stopped at step ${i + 1} (${persisted.agent}): ${persisted.error}` }],
-					details: detailsBase(results),
-				};
-			}
-			const output = persisted.output ?? "";
-			previous = exceedsTokenLimit(output, Math.min(config.maxInlineOutputTokens, config.maxHandoffTokens), tokenScope)
-				? formatFileHandoff(persisted)
-				: output;
-		}
-		const last = results.at(-1);
-		return { content: [{ type: "text", text: last === undefined ? "(no output)" : resultToContent(last, config, tokenScope) }], details: detailsBase(results) };
-	} catch (error) {
-		const available = formatAvailableAgents(discovery.agents);
-		const text = `${errorMessage(error)}\nAvailable agents: ${available}`;
-		return { content: [{ type: "text", text }], details: detailsBase([]) };
+		return executeChain(preparedTasks, runId, config, context, details, tokenScope);
 	} finally {
 		if (forkContext !== undefined) await cleanupForkExecutionContext(forkContext);
 	}
@@ -115,103 +101,148 @@ export function resolveMode(tasks: readonly SubagentTask[]): SubagentMode {
 	return tasks.some((task) => task.task.includes("{previous}")) ? "chain" : "parallel";
 }
 
-function requireTasks(tasks: SubagentTask[] | undefined): SubagentTask[] {
-	if (tasks === undefined || tasks.length === 0) throw new SubagentExecutionError("tasks must not be empty.");
-	return tasks;
+async function prepareTasks(
+	selections: NonEmptyArray<{ task: SubagentTask; agent: AgentDefinition }>,
+	context: ExecutorContext,
+	config: SubagentConfig,
+	forkContext: ForkExecutionContext | undefined,
+): Promise<NonEmptyArray<PreparedTask>> {
+	const prepared: PreparedTask[] = [];
+	const registeredTools = context.allTools.map((tool) => tool.name);
+	for (const { task, agent } of selections) {
+		const fork = agent.fork ? requirePreparedFork(forkContext) : undefined;
+		const cwd = fork === undefined ? await resolveCwd(task.cwd ?? context.cwd, context.cwd) : fork.cwd;
+		const tools = fork === undefined ? resolveTools(agent, config, registeredTools) : [...fork.activeTools];
+		const model = fork === undefined ? resolveModel(agent, config, context) : formatModelReference(fork.model);
+		await confirmIfNeeded(agent, task.task, cwd, tools, config, context);
+		prepared.push({
+			task,
+			agent,
+			contextMode: fork === undefined ? "isolated" : "fork",
+			cwd,
+			tools,
+			...(model === undefined ? {} : { model }),
+			...(fork === undefined ? {} : { fork }),
+		});
+	}
+	return prepared as NonEmptyArray<PreparedTask>;
 }
 
 async function executeOne(
-	task: SubagentTask,
+	prepared: PreparedTask,
+	taskText: string,
 	mode: SubagentMode,
 	runId: string,
-	context: ExecutorContext,
 	config: SubagentConfig,
-	agents: AgentDefinition[],
-	forkContext: ForkExecutionContext | undefined,
-	onProgress?: (result: SubagentRunResult) => void,
-): Promise<SubagentRunResult> {
-	const agent = requireAgent(task.agent, agents);
-	let fork: ForkExecutionContext | undefined;
-	if (agent.fork) {
-		if (forkContext === undefined) throw new SubagentExecutionError("fork setup error: execution context is unavailable");
-		fork = forkContext;
-	}
-	const contextMode = fork === undefined ? "isolated" : "fork";
-	const cwd = fork === undefined ? await resolveCwd(task.cwd ?? context.cwd, context.cwd) : fork.cwd;
-	const registeredTools = context.allTools?.map((tool) => tool.name);
-	const tools = fork === undefined ? resolveTools(agent, config, registeredTools) : [...fork.activeTools];
-	const model = fork === undefined ? resolveModel(agent, config, context) : formatModelReference(fork.model);
-	await confirmIfNeeded(agent, task.task, cwd, tools, config, context);
-	const maxAttempts = Math.max(1, (agent.retries ?? config.retries) + 1);
-	let attempts = 0;
-	let last: ProcessRunOutput | undefined;
-	onProgress?.(runningResult({ runId, mode, contextMode, agent, task: task.task, cwd, ...(model !== undefined ? { model } : {}), tools, attempts: 0 }));
-	for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-		attempts = attempt;
-		last = await runPiProcess(
-			fork !== undefined
-				? {
-					contextMode: "fork",
-					runId,
-					mode,
-					agent,
-					task: task.task,
-					forkContext: fork,
-					assignment: formatForkAssignment(agent.body, task.task),
-					timeoutMs: agent.timeoutMs ?? config.timeoutMs,
-					attempt,
-					maxAttempts,
-				}
-				: {
-					contextMode: "isolated",
-					runId,
-					mode,
-					agent,
-					task: task.task,
-					cwd,
-					...(model !== undefined ? { model } : {}),
-					tools,
-					timeoutMs: agent.timeoutMs ?? config.timeoutMs,
-					attempt,
-					maxAttempts,
-				},
-			{
-				...(context.signal !== undefined ? { signal: context.signal } : {}),
-				onUpdate: (progress) => {
-					onProgress?.(runningResult({ runId, mode, contextMode, agent, task: task.task, cwd, ...(model !== undefined ? { model } : {}), tools, attempts, progress }));
-				},
-			},
-		);
-		const failure = validateProcessOutput(last);
-		if (failure === undefined) break;
-		if (!shouldRetry(failure, last, attempt, maxAttempts, tools, config)) break;
-		await delay(config.retryDelayMs, context.signal);
-	}
-	const output = last ?? emptyProcessOutput();
-	const failure = validateProcessOutput(output);
-	return {
+	context: ExecutorContext,
+	onProgress: (result: SubagentRunningResult) => void,
+): Promise<UnpersistedSubagentRunResult> {
+	const base = {
 		runId,
 		mode,
-		contextMode,
-		agent: agent.name,
-		source: agent.source,
-		task: task.task,
-		cwd,
-		...(model !== undefined ? { model } : {}),
-		tools,
+		contextMode: prepared.contextMode,
+		agent: prepared.agent,
+		task: taskText,
+		cwd: prepared.cwd,
+		...(prepared.model === undefined ? {} : { model: prepared.model }),
+		tools: prepared.tools,
+	};
+	const processInput = prepared.fork === undefined
+		? {
+			contextMode: "isolated" as const,
+			runId,
+			mode,
+			agent: prepared.agent,
+			task: taskText,
+			cwd: prepared.cwd,
+			...(prepared.model === undefined ? {} : { model: prepared.model }),
+			tools: prepared.tools,
+			timeoutMs: prepared.agent.timeoutMs ?? config.timeoutMs,
+		}
+		: {
+			contextMode: "fork" as const,
+			runId,
+			mode,
+			agent: prepared.agent,
+			task: taskText,
+			forkContext: prepared.fork,
+			assignment: formatForkAssignment(prepared.agent.body, taskText),
+			timeoutMs: prepared.agent.timeoutMs ?? config.timeoutMs,
+		};
+	const maxAttempts = (prepared.agent.retries ?? config.retries) + 1;
+	let attempts = 1;
+	onProgress(runningResult(base, 0));
+	let output = await runPiProcess(processInput, {
+		...(context.signal === undefined ? {} : { signal: context.signal }),
+		onUpdate: (progress) => onProgress(runningResult(base, attempts, progress)),
+	});
+	let failure = validateProcessOutput(output);
+	while (failure !== undefined && shouldRetry(failure, output, attempts, maxAttempts, prepared.tools, config)) {
+		await retryDelay(config.retryDelayMs, context.signal);
+		attempts += 1;
+		onProgress(runningResult(base, attempts));
+		output = await runPiProcess(processInput, {
+			...(context.signal === undefined ? {} : { signal: context.signal }),
+			onUpdate: (progress) => onProgress(runningResult(base, attempts, progress)),
+		});
+		failure = validateProcessOutput(output);
+	}
+	return {
+		status: "completed",
+		runId,
+		mode,
+		contextMode: prepared.contextMode,
+		agent: prepared.agent.name,
+		source: prepared.agent.source,
+		task: taskText,
+		cwd: prepared.cwd,
+		...(prepared.model === undefined ? {} : { model: prepared.model }),
+		tools: prepared.tools,
 		attempts,
 		exitCode: output.exitCode,
 		...(output.stopReason !== undefined ? { stopReason: output.stopReason } : {}),
 		...(failure !== undefined ? { error: failure } : {}),
 		output: output.output,
-		...(output.stderr !== "" ? { stderr: output.stderr } : {}),
+		...(output.stderr === "" ? {} : { stderr: output.stderr }),
 		durationMs: output.durationMs,
 		usage: output.usage,
 		events: output.events,
 	};
 }
 
-function resolveTools(agent: AgentDefinition, config: SubagentConfig, registeredTools: string[] | undefined): string[] {
+async function executeChain(
+	preparedTasks: NonEmptyArray<PreparedTask>,
+	runId: string,
+	config: SubagentConfig,
+	context: ExecutorContext,
+	details: (results: SubagentRunResult[]) => SubagentDetails,
+	tokenScope: TokenCounterScope,
+): Promise<SubagentToolResult> {
+	const results: SubagentCompletedResult[] = [];
+	let previous = "";
+	for (const [index, prepared] of preparedTasks.entries()) {
+		const taskText = prepared.task.task.replace(/\{previous\}/g, previous);
+		const result = await executeOne(prepared, taskText, "chain", runId, config, context, (partial) => {
+			emitUpdate(context, details, [...results, partial]);
+		});
+		const persisted = await persistResult(result, { cwd: result.cwd, runId, index });
+		results.push(persisted);
+		emitUpdate(context, details, results);
+		if (persisted.error !== undefined) {
+			return {
+				content: [{ type: "text", text: `Chain stopped at step ${index + 1} (${persisted.agent}): ${persisted.error}` }],
+				details: details(results),
+			};
+		}
+		previous = exceedsTokenLimit(persisted.output, Math.min(config.maxInlineOutputTokens, config.maxHandoffTokens), tokenScope)
+			? formatFileHandoff(persisted)
+			: persisted.output;
+	}
+	const last = results[results.length - 1] as SubagentCompletedResult;
+	return { content: [{ type: "text", text: resultToContent(last, config, tokenScope) }], details: details(results) };
+}
+
+function resolveTools(agent: AgentDefinition, config: SubagentConfig, registeredTools: string[]): string[] {
 	const tools = resolveSubagentTools(agent, config, registeredTools);
 	if (tools.length === 0) {
 		throw new SubagentExecutionError(`Agent "${agent.name}" has no usable tools after intersecting configured tools with registered tools.`);
@@ -227,15 +258,20 @@ async function requireForkContext(context: ExecutorContext): Promise<ForkExecuti
 	try {
 		return await createForkExecutionContext(context);
 	} catch (error) {
-		const message = errorMessage(error);
-		throw new SubagentExecutionError(message.startsWith("fork setup error: ") ? message : `fork setup error: ${message}`);
+		throw new SubagentExecutionError(`fork setup error: ${errorMessage(error)}`);
 	}
+}
+
+function requirePreparedFork(context: ForkExecutionContext | undefined): ForkExecutionContext {
+	if (context === undefined) throw new Error("fork context was not prepared");
+	return context;
 }
 
 function requireAgent(name: string, agents: AgentDefinition[]): AgentDefinition {
 	const agent = agents.find((candidate) => candidate.name === name);
-	if (agent === undefined) throw new SubagentExecutionError(`Unknown agent "${name}".`);
-	return agent;
+	if (agent !== undefined) return agent;
+	const available = agents.length === 0 ? "none" : agents.map((candidate) => `${candidate.name} (${candidate.source})`).join(", ");
+	throw new SubagentExecutionError(`Unknown agent "${name}". Available agents: ${available}.`);
 }
 
 async function confirmIfNeeded(
@@ -247,8 +283,7 @@ async function confirmIfNeeded(
 	context: ExecutorContext,
 ): Promise<void> {
 	if (agent.source === "user" && agent.autoConfirm === true) return;
-	const needsConfirm = config.confirmWriteAgents && hasWriteCapability(tools);
-	if (!needsConfirm) return;
+	if (!config.confirmWriteAgents || !hasWriteCapability(tools)) return;
 	if (context.interaction === undefined) throw new SubagentExecutionError(`Agent "${agent.name}" needs write-capable tools but confirmation UI is unavailable.`);
 	const approved = await context.interaction.confirmWrite(
 		"Run write-capable subagent?",
@@ -262,19 +297,21 @@ async function resolveCwd(input: string, workspace: string): Promise<string> {
 	const raw = path.isAbsolute(input) ? input : path.join(workspaceReal, input);
 	const target = await realpath(raw);
 	const relative = path.relative(workspaceReal, target);
-	if (relative.startsWith("..") || path.isAbsolute(relative)) throw new SubagentExecutionError(`cwd escapes workspace: ${input}`);
+	if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+		throw new SubagentExecutionError(`cwd escapes workspace: ${input}`);
+	}
 	return target;
 }
 
 function validateProcessOutput(output: ProcessRunOutput): string | undefined {
 	if (output.timedOut) return "subagent timed out";
 	if (output.aborted) return "subagent aborted";
-	if (output.exitCode !== 0) return `subagent exited with code ${output.exitCode}`;
-	if (output.stopReason === "error" || output.stopReason === "aborted") return `subagent stopReason: ${output.stopReason}`;
+	if (output.parseErrors > 0) return `Pi JSON protocol error: ${output.parseErrors} malformed event${output.parseErrors === 1 ? "" : "s"}`;
 	if (output.providerError !== undefined) return `provider error: ${truncateError(output.providerError)}`;
 	if (output.error !== undefined) return output.error;
+	if (output.exitCode !== 0) return `subagent exited with code ${output.exitCode}`;
+	if (output.stopReason === "error" || output.stopReason === "aborted") return `subagent stopReason: ${output.stopReason}`;
 	if (output.output.trim() === "") return "empty output";
-	if (output.parseErrors > 0 && output.output.trim() === "") return "JSON output could not be parsed";
 	return undefined;
 }
 
@@ -286,14 +323,26 @@ function shouldRetry(
 	tools: string[],
 	config: SubagentConfig,
 ): boolean {
-	if (attempt >= maxAttempts) return false;
+	if (attempt >= maxAttempts || output.aborted) return false;
 	if (output.wrote || hasWriteCapability(tools)) return false;
 	if (failure === "subagent timed out") return config.retryOnTimeout;
 	if (failure === "empty output") return config.retryOnEmptyOutput;
 	return output.exitCode !== 0 || output.stopReason === "error" || output.providerError !== undefined;
 }
 
-function resultToContent(result: SubagentRunResult, config: SubagentConfig, tokenScope: TokenCounterScope): string {
+async function retryDelay(ms: number, signal: AbortSignal | undefined): Promise<void> {
+	if (signal?.aborted) throw new SubagentExecutionError("subagent aborted");
+	if (ms === 0) return;
+	try {
+		if (signal === undefined) await sleep(ms);
+		else await sleep(ms, undefined, { signal });
+	} catch (error) {
+		if (signal?.aborted) throw new SubagentExecutionError("subagent aborted");
+		throw error;
+	}
+}
+
+function resultToContent(result: SubagentCompletedResult, config: SubagentConfig, tokenScope: TokenCounterScope): string {
 	if (result.error !== undefined) return `${result.error}\n${truncateError(result.stderr ?? "")}`.trim();
 	return formatResultForContext(result, config.maxInlineOutputTokens, tokenScope);
 }
@@ -311,11 +360,9 @@ function runningResult(input: {
 	cwd: string;
 	model?: string;
 	tools: string[];
-	attempts: number;
-	progress?: ProcessRunProgress;
-}): SubagentRunResult {
-	const progress = input.progress;
+}, attempts: number, progress: ProcessRunProgress = emptyProgress()): SubagentRunningResult {
 	return {
+		status: "running",
 		runId: input.runId,
 		mode: input.mode,
 		contextMode: input.contextMode,
@@ -323,17 +370,16 @@ function runningResult(input: {
 		source: input.agent.source,
 		task: input.task,
 		cwd: input.cwd,
-		...(input.model !== undefined ? { model: input.model } : {}),
+		...(input.model === undefined ? {} : { model: input.model }),
 		tools: input.tools,
-		attempts: input.attempts,
-		exitCode: -1,
-		...(progress?.stopReason !== undefined ? { stopReason: progress.stopReason } : {}),
-		...(progress?.error !== undefined ? { error: progress.error } : {}),
-		...(progress !== undefined ? { output: progress.output } : {}),
-		...(progress !== undefined && progress.stderr !== "" ? { stderr: progress.stderr } : {}),
-		durationMs: progress?.durationMs ?? 0,
-		usage: progress?.usage ?? emptyUsage(),
-		events: progress?.events ?? [],
+		attempts,
+		...(progress.stopReason === undefined ? {} : { stopReason: progress.stopReason }),
+		...(progress.error === undefined ? {} : { error: progress.error }),
+		output: progress.output,
+		...(progress.stderr === "" ? {} : { stderr: progress.stderr }),
+		durationMs: progress.durationMs,
+		usage: progress.usage,
+		events: progress.events,
 	};
 }
 
@@ -341,27 +387,38 @@ function compactResults(results: Array<SubagentRunResult | undefined>): Subagent
 	return results.filter((result): result is SubagentRunResult => result !== undefined);
 }
 
-function cloneTasks(tasks: SubagentTask[]): SubagentTask[] {
+function cloneTasks(tasks: NonEmptyArray<SubagentTask>): NonEmptyArray<SubagentTask> {
 	return tasks.map((task) => ({
 		agent: task.agent,
 		task: task.task,
-		...(task.cwd !== undefined ? { cwd: task.cwd } : {}),
-	}));
+		...(task.cwd === undefined ? {} : { cwd: task.cwd }),
+	})) as NonEmptyArray<SubagentTask>;
 }
 
-async function mapWithConcurrency<T, R>(items: T[], concurrency: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
+async function mapWithConcurrency<T, R>(
+	items: NonEmptyArray<T>,
+	concurrency: number,
+	fn: (item: T, index: number) => Promise<R>,
+): Promise<NonEmptyArray<R>> {
 	const results: R[] = new Array(items.length);
 	let next = 0;
-	const workers = Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, async () => {
-		while (true) {
+	let failed = false;
+	let failure: unknown;
+	const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+		while (!failed) {
 			const index = next++;
 			if (index >= items.length) return;
-			const item = items[index];
-			if (item !== undefined) results[index] = await fn(item, index);
+			try {
+				results[index] = await fn(items[index] as T, index);
+			} catch (error) {
+				failed = true;
+				failure = error;
+			}
 		}
 	});
 	await Promise.all(workers);
-	return results;
+	if (failed) throw failure;
+	return results as NonEmptyArray<R>;
 }
 
 function createRunId(): string {
@@ -370,20 +427,16 @@ function createRunId(): string {
 	return `${stamp}-${suffix}`;
 }
 
-async function delay(ms: number, signal: AbortSignal | undefined): Promise<void> {
-	if (ms <= 0) return;
-	try {
-		if (signal === undefined) await sleep(ms);
-		else await sleep(ms, undefined, { signal });
-	} catch (error) {
-		if (signal?.aborted) throw new SubagentExecutionError("subagent aborted");
-		throw error;
-	}
-}
-
-function emptyProcessOutput(): ProcessRunOutput {
-	const usage: UsageStats = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, contextTokens: 0, turns: 0 };
-	return { exitCode: 1, output: "", stderr: "", usage, events: [], durationMs: 0, timedOut: false, aborted: false, parseErrors: 0, wrote: false };
+function emptyProgress(): ProcessRunProgress {
+	return {
+		output: "",
+		stderr: "",
+		usage: emptyUsage(),
+		events: [],
+		durationMs: 0,
+		parseErrors: 0,
+		wrote: false,
+	};
 }
 
 function emptyUsage(): UsageStats {

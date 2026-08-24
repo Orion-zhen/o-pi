@@ -167,7 +167,7 @@ function align(left: string, right: string, width: number): string {
 
 function pad(value: string | number, width: number, start = false): string {
 	const text = truncateToWidth(String(value), width, "");
-	const padding = " ".repeat(Math.max(0, width - visibleWidth(text)));
+	const padding = " ".repeat(width - visibleWidth(text));
 	return start ? `${padding}${text}` : `${text}${padding}`;
 }
 

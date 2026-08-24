@@ -176,7 +176,7 @@ export function stableExecutableFromCommand(command: string, inputComplete: bool
 
 		if (!terminated && (!inputComplete || quote !== undefined || escaped)) return undefined;
 		if (value.length > 0 && !/^[A-Za-z_][A-Za-z0-9_]*=/u.test(value)) {
-			return path.basename(value) || value;
+			return path.basename(value) || undefined;
 		}
 	}
 	return undefined;

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createRequire } from "node:module";
 import { promisify } from "node:util";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { createEventBus, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createFileIdentity, createSymbolId } from "../../src/code-index/identity.js";
@@ -76,6 +76,7 @@ describe("shared code parser", () => {
 		const { default: fileTools } = await import("../../agent/extensions/file-tools.js");
 		const handlers = new Map<string, (...args: unknown[]) => unknown>();
 		fileTools({
+			events: createEventBus(),
 			registerTool() {},
 			on(name: string, handler: (...args: unknown[]) => unknown) {
 				handlers.set(name, handler);

@@ -21,7 +21,7 @@ import type { WebFetchDetails, WebFetchParams, WebSearchDetails, WebSearchParams
 
 describe("tool telemetry projections", () => {
 	it("bounds invalid and oversized facts without throwing", () => {
-		const projected = safeProject(() => ({
+		const projected = safeProject(() => fixture<TelemetryFacts>({
 			fields: { body: "x".repeat(1_000), invalid: { nested: true } },
 			targets: Array.from({ length: 70 }, (_, index) => ({ kind: "file", value: `src/${index}.ts` })),
 			candidates: [{ kind: "file", value: "src/a.ts", rank: 1, sources: ["lsp"] }],
@@ -240,7 +240,7 @@ function inputFacts<TParams, TDetails>(telemetry: ToolTelemetry<TParams, TDetail
 }
 
 function resultFacts<TParams, TDetails>(telemetry: ToolTelemetry<TParams, TDetails>, params: TParams, details: TDetails): TelemetryFacts {
-	return telemetry.result?.(params, { details }) ?? {};
+	return telemetry.result?.(params, details) ?? {};
 }
 
 function expectNoBody(...facts: readonly TelemetryFacts[]): void {

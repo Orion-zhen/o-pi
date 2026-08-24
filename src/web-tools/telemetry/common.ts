@@ -1,34 +1,21 @@
-import { fields, isRecord } from "../../telemetry/projection.js";
+import { fields } from "../../telemetry/projection.js";
 import type { Fields } from "../../telemetry/types.js";
+import type { WebFetchDetails, WebSearchDetails } from "../core/types.js";
 
-export function webResultFields(details: Record<string, unknown>): Fields {
-	const attempts = Array.isArray(details["attempts"]) ? details["attempts"] : undefined;
-	const range = record(details["range"]);
+type WebResultDetails = WebFetchDetails | WebSearchDetails;
+
+export function webResultFields(details: WebResultDetails): Fields {
+	const attempts = "attempts" in details ? details.attempts : undefined;
+	const errorCode = details.status === "failed" ? details.error.code : undefined;
 	return fields({
-		status: string(details["status"]),
-		error_code: string(record(details["error"])["code"]) ?? string(details["error_code"]),
-		provider: string(details["provider"]),
-		http_status: number(details["http_status"]),
+		status: details.status,
+		error_code: errorCode,
+		provider: "provider" in details ? details.provider : undefined,
+		http_status: "http_status" in details ? details.http_status : undefined,
 		attempt_count: attempts?.length,
 		fallback: attempts === undefined ? undefined : attempts.length > 1,
-		truncated: boolean(range["has_more"]),
-		format: string(details["format"]),
-		total_chars: number(details["total_chars"]),
+		truncated: details.status === "success" && "range" in details ? details.range.has_more : undefined,
+		format: details.status === "success" && "format" in details ? details.format : undefined,
+		total_chars: details.status === "success" && "total_chars" in details ? details.total_chars : undefined,
 	});
-}
-
-export function record(value: unknown): Record<string, unknown> {
-	return isRecord(value) ? value : {};
-}
-
-export function string(value: unknown): string | undefined {
-	return typeof value === "string" ? value : undefined;
-}
-
-export function number(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function boolean(value: unknown): boolean | undefined {
-	return typeof value === "boolean" ? value : undefined;
 }

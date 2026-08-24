@@ -66,13 +66,13 @@ describe("Discord presence 多进程协调", () => {
 		const a = { details: "A", startTimestamp: 110, instance: false } as const;
 		const b = { details: "B", startTimestamp: 210, instance: false } as const;
 
-		broker.register("a", coordinatedConfig(), 100, undefined, a, 1_000);
+		broker.register("a", coordinatedConfig(), 100, undefined, { activity: a, activeAt: 1_000 });
 		expect(output.selections.at(-1)).toMatchObject({
 			participantId: "a",
 			activity: { details: "A", startTimestamp: 100 },
 			groupStartedAt: 100,
 		});
-		broker.register("b", coordinatedConfig(), 200, undefined, b, 2_000);
+		broker.register("b", coordinatedConfig(), 200, undefined, { activity: b, activeAt: 2_000 });
 		expect(output.selections.at(-1)).toMatchObject({
 			participantId: "b",
 			activity: { details: "B", startTimestamp: 100 },
@@ -93,8 +93,9 @@ describe("Discord presence 多进程协调", () => {
 		expect(broker.startedAt()).toBeUndefined();
 
 		broker.register("c", coordinatedConfig(), 4_000, undefined, {
-			details: "No timer", instance: false,
-		}, 4_000);
+			activity: { details: "No timer", instance: false },
+			activeAt: 4_000,
+		});
 		expect(output.selections.at(-1)).toMatchObject({
 			participantId: "c",
 			activity: { details: "No timer" },
@@ -140,8 +141,9 @@ describe("Discord presence 多进程协调", () => {
 		const output = new FakeCoordinatorOutput();
 		const broker = new PresenceBroker({ output });
 		broker.register("survivor", coordinatedConfig(), 2_000, 100, {
-			details: "Recovered", startTimestamp: 2_000, instance: false,
-		}, 3_000);
+			activity: { details: "Recovered", startTimestamp: 2_000, instance: false },
+			activeAt: 3_000,
+		});
 		expect(output.selections.at(-1)).toMatchObject({
 			activity: { startTimestamp: 100 },
 			groupStartedAt: 100,

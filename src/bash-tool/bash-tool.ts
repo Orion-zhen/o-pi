@@ -1,9 +1,7 @@
 import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { CONFIG_DIR_NAME, createLocalBashOperations } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 import { checkDeniedText, type PatternDenyMatch } from "./pattern-guard.js";
 import { resolveBashSkillPaths } from "./skill-paths.js";
@@ -28,13 +26,11 @@ const nodePythonVirtualEnvironmentFileSystem: PythonVirtualEnvironmentFileSystem
 	access: async (target, mode) => access(target, mode),
 };
 
-/** 执行模型提供的 shell 命令；自动将 Windows 反斜杠路径转为正斜杠。 */
+/** 执行模型提供的 shell 命令。 */
 export async function executeBashCommand(params: BashParams, runtime: ExecuteBashRuntime): Promise<BashExecutionResult> {
-	validateParams(params, runtime.config.default_timeout_seconds);
 	const denied = checkDeniedText(params.command, runtime.config.safety);
 	if (denied !== null) return blockedCommandResult(denied);
-	params = { ...params, command: normalizeWindowsPath(params.command) };
-	const skillPaths = await resolveBashSkillPaths(params.command, runtime.branch ?? [], runtime.signal);
+	const skillPaths = await resolveBashSkillPaths(params.command, runtime.branch, runtime.signal);
 	if (skillPaths.kind === "error") return skillResourceErrorResult(skillPaths);
 	params = { ...params, command: skillPaths.command };
 	const pythonVirtualEnv = await resolvePythonVirtualEnvironment(runtime.cwd, runtime.config.python_venv_paths);
@@ -43,7 +39,7 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 		? baseEnvironment
 		: virtualEnvironmentVariables(baseEnvironment, pythonVirtualEnv);
 	const timeoutSeconds = params.timeout ?? runtime.config.default_timeout_seconds;
-	const startedAt = runtime.now?.() ?? Date.now();
+	const startedAt = Date.now();
 	const capture = await OutputCapture.create({
 		sessionId: runtime.session.sessionId,
 		toolCallId: runtime.toolCallId,
@@ -58,22 +54,21 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 	let lastUpdateAt = 0;
 	let acceptingUpdates = true;
 
-	const abortFromUser = () => {
-		stopReason = "aborted";
+	const stop = (reason: "timeout" | "aborted") => {
+		if (controller.signal.aborted) return;
+		stopReason = reason;
 		controller.abort();
 	};
+	const abortFromUser = () => stop("aborted");
 	if (runtime.signal?.aborted) abortFromUser();
 	runtime.signal?.addEventListener("abort", abortFromUser, { once: true });
 
-	const timeoutTimer = setTimeout(() => {
-		stopReason = "timeout";
-		controller.abort();
-	}, timeoutSeconds * 1000);
+	const timeoutTimer = setTimeout(() => stop("timeout"), timeoutSeconds * 1000);
 
 	const emitUpdate = () => {
 		if (!runtime.onUpdate || !updateDirty || !acceptingUpdates) return;
 		updateDirty = false;
-		lastUpdateAt = runtime.now?.() ?? Date.now();
+		lastUpdateAt = Date.now();
 		const elapsed = lastUpdateAt - startedAt;
 		const live = cleanForModel(capture.liveText(runtime.config.limits.live_output_bytes), "text").text;
 		runtime.onUpdate({
@@ -100,7 +95,7 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 	const scheduleUpdate = () => {
 		if (!runtime.onUpdate || !acceptingUpdates) return;
 		updateDirty = true;
-		const now = runtime.now?.() ?? Date.now();
+		const now = Date.now();
 		const delay = UPDATE_THROTTLE_MS - (now - lastUpdateAt);
 		if (delay <= 0) {
 			clearUpdateTimer();
@@ -114,12 +109,7 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 	};
 
 	let exitCode: number | undefined;
-	let status: "exited" | "timed_out" | "aborted" = "exited";
-	let operationError: unknown;
-	let operationFailed = false;
-	let captured: CapturedOutput | undefined;
-	let captureError: unknown;
-	let captureFailed = false;
+	let operationFailure: { error: unknown } | undefined;
 	try {
 		const result = await runtime.operations.exec(params.command, runtime.cwd, {
 			onData(data) {
@@ -127,37 +117,32 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 				scheduleUpdate();
 			},
 			signal: controller.signal,
-			timeout: timeoutSeconds,
 			env: executionEnv,
 		});
 		exitCode = result.exitCode ?? undefined;
-		if (stopReason === "timeout") status = "timed_out";
-		else if (stopReason === "aborted") status = "aborted";
 	} catch (error) {
-		operationFailed = true;
-		operationError = error;
-		if (stopReason === "timeout") status = "timed_out";
-		else if (stopReason === "aborted" || controller.signal.aborted) status = "aborted";
+		operationFailure = { error };
 	} finally {
 		acceptingUpdates = false;
 		clearUpdateTimer();
 		clearTimeout(timeoutTimer);
 		runtime.signal?.removeEventListener("abort", abortFromUser);
-		try {
-			captured = await capture.finish();
-		} catch (error) {
-			captureFailed = true;
-			captureError = error;
-		}
 	}
+	const status = stopReason === "timeout" ? "timed_out" : stopReason === "aborted" ? "aborted" : "exited";
 
-	if ((operationFailed && status === "exited") || captureFailed) {
+	let captured: CapturedOutput;
+	try {
+		captured = await capture.finish();
+	} catch (captureError) {
 		await capture.deleteLog().catch(() => undefined);
+		if (operationFailure !== undefined && status === "exited") throw operationFailure.error;
+		throw captureError;
 	}
-	if (operationFailed && status === "exited") throw operationError;
-	if (captureFailed) throw captureError;
-	if (captured === undefined) throw new Error("Bash output capture did not finish.");
-	const durationMs = (runtime.now?.() ?? Date.now()) - startedAt;
+	if (operationFailure !== undefined && status === "exited") {
+		await capture.deleteLog().catch(() => undefined);
+		throw operationFailure.error;
+	}
+	const durationMs = Date.now() - startedAt;
 	const view = createBashOutputView({
 		text: captured.previewText,
 		status,
@@ -218,10 +203,6 @@ function skillResourceErrorResult(error: { code: "invalid-locator" | "access-den
 			capture_complete: true,
 		},
 	};
-}
-
-export function createDefaultBashOperations() {
-	return createLocalBashOperations();
 }
 
 /** 并行检测配置的 Python 虚拟环境，并按路径顺序选择首个有效项。 */
@@ -293,16 +274,7 @@ function virtualEnvironmentVariables(baseEnvironment: NodeJS.ProcessEnv, virtual
 }
 
 function resolvePiManagedBin(): string {
-	const configured = process.env.PI_CODING_AGENT_DIR;
-	if (!configured) return path.join(os.homedir(), CONFIG_DIR_NAME, "agent", "bin");
-	let agentDir = configured;
-	if (agentDir === "~") agentDir = os.homedir();
-	else if (agentDir.startsWith("~/") || (process.platform === "win32" && agentDir.startsWith("~\\"))) {
-		agentDir = path.join(os.homedir(), agentDir.slice(2));
-	} else if (/^file:\/\//.test(agentDir)) {
-		agentDir = fileURLToPath(agentDir);
-	}
-	return path.join(agentDir, "bin");
+	return path.join(getAgentDir(), "bin");
 }
 
 function environmentKey(env: NodeJS.ProcessEnv, name: string): string {
@@ -321,28 +293,13 @@ function deleteEnvironmentVariable(env: NodeJS.ProcessEnv, name: string): void {
 }
 
 function setEnvironmentVariable(env: NodeJS.ProcessEnv, name: string, value: string | undefined): void {
-	if (value === undefined || value === "") return;
+	if (value === undefined) return;
 	const key = environmentKey(env, name);
 	env[key] = value;
 }
 
 function samePath(left: string, right: string): boolean {
 	return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
-}
-
-/** 轻量 Windows 路径兼容：仅在 Windows 上将反斜杠替换为正斜杠，保留常见转义序列。 */
-export function normalizeWindowsPath(cmd: string, platform?: string): string {
-	if ((platform ?? process.platform) !== "win32") return cmd;
-	// 保留常见转义序列：\n \t \r \\ \" \' \$ \` \b \f \v
-	return cmd.replace(/\\(?![ntr\\"'$`bfv])/g, "/");
-}
-
-function validateParams(params: BashParams, defaultTimeout: number): void {
-	if (typeof params.command !== "string") throw new Error("bash command must be a string.");
-	const timeout = params.timeout ?? defaultTimeout;
-	if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 86_400) {
-		throw new Error("bash timeout must be a finite number of seconds between 1 and 86400.");
-	}
 }
 
 function escapeXmlText(value: string): string {

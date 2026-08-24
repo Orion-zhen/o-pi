@@ -6,9 +6,9 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-	CoordinatorProtocolError,
 	parseServerMessage,
 	readCoordinatorMessages,
+	type CoordinatedActivity,
 	type CoordinatedPresenceConfig,
 	writeCoordinatorMessage,
 } from "./coordinator-protocol.js";
@@ -27,7 +27,6 @@ export interface DiscordPresenceCoordinator {
 	request(activity: DiscordActivityPayload): void;
 	deactivate(): Promise<void>;
 	getStatus(): PresenceConnectionStatus;
-	onStatus(listener: (status: PresenceConnectionStatus) => void): () => void;
 }
 
 export interface DiscordPresenceCoordinatorOptions {
@@ -45,12 +44,10 @@ export class DiscordPresenceCoordinatorClient implements DiscordPresenceCoordina
 	private readonly now: () => number;
 	private readonly spawnDaemon: (endpoint: string) => void;
 	private readonly handshakeTimeoutMs: number;
-	private readonly listeners = new Set<(status: PresenceConnectionStatus) => void>();
 	private config: CoordinatedPresenceConfig | undefined;
 	private joinedAt: number | undefined;
 	private continuityStartedAt: number | undefined;
-	private activity: DiscordActivityPayload | undefined;
-	private activeAt: number | undefined;
+	private presence: CoordinatedActivity | undefined;
 	private socket: Socket | undefined;
 	private connecting: Promise<void> | undefined;
 	private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
@@ -80,15 +77,11 @@ export class DiscordPresenceCoordinatorClient implements DiscordPresenceCoordina
 			this.continuityStartedAt = undefined;
 			this.setStatus("disconnected");
 		}
-		if (activity !== undefined) {
-			this.activity = activity;
-			this.activeAt = this.now();
-		}
+		const nextPresence = activity === undefined ? undefined : { activity, activeAt: this.now() };
+		if (nextPresence !== undefined) this.presence = nextPresence;
 		if (this.socket !== undefined && !this.socket.destroyed) {
 			writeCoordinatorMessage(this.socket, { type: "configure", config });
-			if (activity !== undefined && this.activeAt !== undefined) {
-				writeCoordinatorMessage(this.socket, { type: "activity", activity, activeAt: this.activeAt });
-			}
+			if (nextPresence !== undefined) writeCoordinatorMessage(this.socket, { type: "activity", ...nextPresence });
 			return;
 		}
 		try {
@@ -102,12 +95,12 @@ export class DiscordPresenceCoordinatorClient implements DiscordPresenceCoordina
 	}
 
 	request(activity: DiscordActivityPayload): void {
-		if (!this.active) return;
-		this.activity = activity;
-		this.activeAt = this.now();
+		if (!this.active) throw new Error("Discord presence coordinator is not active.");
+		const presence = { activity, activeAt: this.now() };
+		this.presence = presence;
 		const socket = this.socket;
 		if (socket !== undefined && !socket.destroyed) {
-			writeCoordinatorMessage(socket, { type: "activity", activity, activeAt: this.activeAt });
+			writeCoordinatorMessage(socket, { type: "activity", ...presence });
 		}
 	}
 
@@ -118,8 +111,7 @@ export class DiscordPresenceCoordinatorClient implements DiscordPresenceCoordina
 		this.config = undefined;
 		this.joinedAt = undefined;
 		this.continuityStartedAt = undefined;
-		this.activity = undefined;
-		this.activeAt = undefined;
+		this.presence = undefined;
 		if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer);
 		this.reconnectTimer = undefined;
 		const socket = this.socket;
@@ -130,11 +122,6 @@ export class DiscordPresenceCoordinatorClient implements DiscordPresenceCoordina
 
 	getStatus(): PresenceConnectionStatus {
 		return this.status;
-	}
-
-	onStatus(listener: (status: PresenceConnectionStatus) => void): () => void {
-		this.listeners.add(listener);
-		return () => this.listeners.delete(listener);
 	}
 
 	private ensureConnected(): Promise<void> {
@@ -151,23 +138,28 @@ export class DiscordPresenceCoordinatorClient implements DiscordPresenceCoordina
 
 	private async connectLoop(generation: number): Promise<void> {
 		await prepareCoordinatorEndpoint(this.endpoint);
-		let lastError: unknown;
-		for (let attempt = 0; attempt < CONNECT_ATTEMPTS; attempt += 1) {
-			if (!this.active || generation !== this.generation) return;
+		let attempts = 0;
+		let daemonStarted = false;
+		while (this.active && generation === this.generation) {
 			this.setStatus("connecting");
 			try {
 				await this.connectOnce(generation);
 				return;
 			} catch (error) {
-				lastError = error;
 				if (!this.active || generation !== this.generation) return;
 				this.setStatus("disconnected");
-				if (attempt % 10 === 0) this.spawnDaemon(this.endpoint);
+				attempts += 1;
+				if (!daemonStarted) {
+					this.spawnDaemon(this.endpoint);
+					daemonStarted = true;
+				}
+				if (attempts === CONNECT_ATTEMPTS) {
+					this.scheduleReconnect();
+					throw error;
+				}
 				await delay(CONNECT_RETRY_MS);
 			}
 		}
-		this.scheduleReconnect();
-		throw lastError instanceof Error ? lastError : new Error("Discord presence coordinator is unavailable.");
 	}
 
 	private async connectOnce(generation: number): Promise<void> {
@@ -212,7 +204,8 @@ export class DiscordPresenceCoordinatorClient implements DiscordPresenceCoordina
 					this.setStatus(message.status);
 					finish();
 				} catch (error) {
-					finish(error instanceof Error ? error : new CoordinatorProtocolError(String(error)));
+					if (!(error instanceof Error)) throw error;
+					finish(error);
 					socket.destroy();
 				}
 			}, (error) => {
@@ -237,9 +230,7 @@ export class DiscordPresenceCoordinatorClient implements DiscordPresenceCoordina
 				joinedAt,
 				...(this.continuityStartedAt === undefined ? {} : { continuityStartedAt: this.continuityStartedAt }),
 				config,
-				...(this.activity === undefined || this.activeAt === undefined
-					? {}
-					: { activity: this.activity, activeAt: this.activeAt }),
+				...(this.presence ?? {}),
 			});
 		});
 	}
@@ -256,7 +247,6 @@ export class DiscordPresenceCoordinatorClient implements DiscordPresenceCoordina
 	private setStatus(status: PresenceConnectionStatus): void {
 		if (this.status === status) return;
 		this.status = status;
-		for (const listener of this.listeners) listener(status);
 	}
 }
 

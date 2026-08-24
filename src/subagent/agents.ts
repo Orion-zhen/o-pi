@@ -1,8 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { collectAncestorDirs, isPathInside, safeRealpath, uniqueResolvedPaths } from "../resource-paths.js";
+import { isPathInside, safeRealpath } from "../resource-paths.js";
 import type { AgentDefinition, AgentDiscovery, SubagentConfig, SubagentSource } from "./types.js";
 
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "subagent"]);
@@ -11,13 +10,11 @@ const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "subagent"]);
 export function discoverAgents(cwd: string, config: SubagentConfig): AgentDiscovery {
 	const warnings: string[] = [];
 	const userAgentsDir = path.join(getAgentDir(), "agents");
-	const userAgentsHomeDir = path.join(os.homedir(), ".agents", "agents");
-	const userAgentsDirs = uniqueResolvedPaths([userAgentsDir, userAgentsHomeDir]);
-	const projectAgentsDirs = config.allowProjectAgents
-		? uniqueResolvedPaths([...findProjectPiAgentsDirs(cwd), ...collectAncestorDirs(cwd, ".agents", "agents")]).filter((dir) => path.resolve(dir) !== path.resolve(userAgentsHomeDir))
-		: [];
-	const userAgents = userAgentsDirs.flatMap((dir) => loadAgentsFromDir(dir, "user", config, warnings, undefined));
-	const projectAgents = projectAgentsDirs.flatMap((dir) => loadAgentsFromDir(dir, "project", config, warnings, dir));
+	const projectAgentsDir = config.allowProjectAgents ? findNearestProjectAgentsDir(cwd) : undefined;
+	const userAgents = loadAgentsFromDir(userAgentsDir, "user", config, warnings, undefined);
+	const projectAgents = projectAgentsDir === undefined
+		? []
+		: loadAgentsFromDir(projectAgentsDir, "project", config, warnings, projectAgentsDir);
 
 	const byName = new Map<string, AgentDefinition>();
 	for (const agent of userAgents) {
@@ -42,14 +39,7 @@ export function discoverAgents(cwd: string, config: SubagentConfig): AgentDiscov
 	return {
 		agents: [...byName.values()].sort((a, b) => a.name.localeCompare(b.name)),
 		warnings,
-		userAgentsDir,
-		...(projectAgentsDirs[0] !== undefined ? { projectAgentsDir: projectAgentsDirs[0] } : {}),
 	};
-}
-
-export function formatAvailableAgents(agents: AgentDefinition[]): string {
-	if (agents.length === 0) return "none";
-	return agents.map((agent) => `${agent.name} (${agent.source})`).join(", ");
 }
 
 export function hasWriteCapability(tools: string[]): boolean {
@@ -60,18 +50,11 @@ export function hasWriteCapability(tools: string[]): boolean {
 export function resolveSubagentTools(
 	agent: AgentDefinition,
 	config: SubagentConfig,
-	registeredTools: string[] | undefined,
+	registeredTools: string[],
 ): string[] {
-	const override = config.agentOverrides[agent.name];
-	const configured = override?.tools ?? agent.tools ?? config.defaultTools;
-	const registeredSet = registeredTools === undefined ? undefined : new Set(registeredTools);
-	const result: string[] = [];
-	for (const tool of configured) {
-		if (tool === "subagent") continue;
-		if (registeredSet !== undefined && !registeredSet.has(tool)) continue;
-		if (!result.includes(tool)) result.push(tool);
-	}
-	return result;
+	const configured = config.agentOverrides[agent.name]?.tools ?? agent.tools;
+	const registeredSet = new Set(registeredTools);
+	return configured.filter((tool) => tool !== "subagent" && registeredSet.has(tool));
 }
 
 function loadAgentsFromDir(
@@ -119,7 +102,9 @@ function loadAgentsFromDir(
 
 function parseAgentFile(filePath: string, source: SubagentSource, config: SubagentConfig, warnings: string[]): AgentDefinition {
 	const content = readFileSync(filePath, "utf8");
-	const { frontmatter, body } = parseFrontmatter<Record<string, unknown>>(content);
+	const parsed = parseFrontmatter<Record<string, unknown>>(content);
+	const frontmatter: unknown = parsed.frontmatter;
+	if (!isRecord(frontmatter)) throw new Error("frontmatter must be an object.");
 	const known = new Set(["name", "description", "fork", "model", "tools", "timeout_ms", "retries", "auto_confirm"]);
 	for (const key of Object.keys(frontmatter)) {
 		if (!known.has(key)) warnings.push(`${filePath}: ignored unknown frontmatter field "${key}"`);
@@ -127,13 +112,13 @@ function parseAgentFile(filePath: string, source: SubagentSource, config: Subage
 	const tools = parseTools(frontmatter["tools"], config.defaultTools, filePath);
 	const fork = parseFork(frontmatter["fork"]);
 	const model = optionalString(frontmatter["model"], "model");
-	const timeoutMs = optionalInteger(frontmatter["timeout_ms"], "timeout_ms");
-	const retries = optionalInteger(frontmatter["retries"], "retries");
+	const timeoutMs = optionalTimeout(frontmatter["timeout_ms"]);
+	const retries = optionalRetries(frontmatter["retries"]);
 	const autoConfirm = optionalBoolean(frontmatter["auto_confirm"], "auto_confirm");
 	return {
 		name: requireString(frontmatter["name"], "name"),
 		description: requireString(frontmatter["description"], "description"),
-		body,
+		body: parsed.body,
 		fork,
 		...(model !== undefined ? { model } : {}),
 		tools,
@@ -142,20 +127,17 @@ function parseAgentFile(filePath: string, source: SubagentSource, config: Subage
 		...(autoConfirm !== undefined ? { autoConfirm } : {}),
 		source,
 		filePath,
-		hasWriteCapability: hasWriteCapability(tools),
 	};
 }
 
 function parseTools(value: unknown, defaults: string[], filePath: string): string[] {
-	if (value === undefined || value === null) return [...defaults];
+	if (value === undefined) return [...defaults];
 	if (typeof value !== "string") throw new Error("tools must be a comma-separated string.");
-	const tools = value
-		.split(",")
-		.map((item) => item.trim())
-		.filter(Boolean);
-	if (tools.length === 0) throw new Error("tools must not be empty.");
+	const tools = value.split(",").map((item) => item.trim());
+	if (tools.length === 0 || tools.some((tool) => tool === "")) throw new Error("tools must not be empty.");
 	if (tools.includes("subagent")) throw new Error("tools must not include subagent.");
-	if (tools.some((tool) => tool.includes(" "))) throw new Error(`tools contains an invalid name in ${filePath}.`);
+	if (tools.some((tool) => /\s/.test(tool))) throw new Error(`tools contains an invalid name in ${filePath}.`);
+	if (new Set(tools).size !== tools.length) throw new Error("tools must not contain duplicates.");
 	return tools;
 }
 
@@ -170,11 +152,6 @@ function findNearestProjectAgentsDir(cwd: string): string | undefined {
 	}
 }
 
-function findProjectPiAgentsDirs(cwd: string): string[] {
-	const nearest = findNearestProjectAgentsDir(cwd);
-	return nearest === undefined ? [] : [nearest];
-}
-
 function isDirectory(filePath: string): boolean {
 	try {
 		return statSync(filePath).isDirectory();
@@ -184,9 +161,9 @@ function isDirectory(filePath: string): boolean {
 }
 
 function optionalString(value: unknown, field: string): string | undefined {
-	if (value === undefined || value === null || value === "") return undefined;
-	if (typeof value === "string") return value;
-	throw new Error(`${field} must be a string.`);
+	if (value === undefined) return undefined;
+	if (typeof value === "string" && value.trim() !== "") return value.trim();
+	throw new Error(`${field} must be a non-empty string.`);
 }
 
 function requireString(value: unknown, field: string): string {
@@ -195,7 +172,7 @@ function requireString(value: unknown, field: string): string {
 }
 
 function optionalBoolean(value: unknown, field: string): boolean | undefined {
-	if (value === undefined || value === null || value === "") return undefined;
+	if (value === undefined) return undefined;
 	if (typeof value === "boolean") return value;
 	throw new Error(`${field} must be a boolean.`);
 }
@@ -206,10 +183,20 @@ function parseFork(value: unknown): boolean {
 	throw new Error("fork must be a boolean.");
 }
 
-function optionalInteger(value: unknown, field: string): number | undefined {
-	if (value === undefined || value === null || value === "") return undefined;
-	if (typeof value === "number" && Number.isInteger(value)) return value;
-	throw new Error(`${field} must be an integer.`);
+function optionalTimeout(value: unknown): number | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value === "number" && Number.isInteger(value) && value >= 1_000 && value <= 3_600_000) return value;
+	throw new Error("timeout_ms must be an integer between 1000 and 3600000.");
+}
+
+function optionalRetries(value: unknown): number | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 5) return value;
+	throw new Error("retries must be an integer between 0 and 5.");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function errorMessage(error: unknown): string {

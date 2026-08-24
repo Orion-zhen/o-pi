@@ -3,18 +3,10 @@ import type { ExtensionAPI, Theme } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
 import usageExtension from "../../agent/extensions/usage.js";
-import {
-	collectUsageSnapshot,
-	type UsageContext,
-	type UsageFetch,
-	type UsageHttpRequest,
-	type UsageHttpResponse,
-} from "../../src/usage/client.js";
-import { renderUsage, renderUsageError } from "../../src/usage/presentation/render.js";
-import { serializeUsageSnapshot, UsageService } from "../../src/usage/service.js";
-import { UsageRequestError, type UsageSnapshot } from "../../src/usage/types.js";
+import { collectUsageSnapshot, type UsageContext } from "../../src/usage/client.js";
+import { renderUsage, renderUsageCancelled } from "../../src/usage/presentation/render.js";
+import { UsageService } from "../../src/usage/service.js";
 import { UsageViewer } from "../../src/usage/tui/viewer.js";
-import { httpResponse } from "../helpers/http.js";
 
 const NOW = new Date("2026-07-27T00:00:00Z");
 const CODEX_ACCOUNT_ID = "account_123";
@@ -22,19 +14,20 @@ const CODEX_TOKEN = jwt({ "https://api.openai.com/auth": { chatgpt_account_id: C
 
 interface CapturedRequest {
 	url: string;
-	request: UsageHttpRequest;
+	request: RequestInit;
 }
 
 describe("usage client", () => {
-	it("通过 Pi OAuth 并发解析四种官方 plan", async () => {
+	it("通过 Pi OAuth 解析四种当前官方 plan 响应", async () => {
 		const requests: CapturedRequest[] = [];
-		const snapshot = await collectUsageSnapshot(oauthContext(), { fetchImpl: fixtureFetch(requests), now: NOW });
+		const snapshot = await collectUsageSnapshot(oauthContext(), clientOptions(fixtureFetch(requests)));
 
 		expect(snapshot.providers).toHaveLength(4);
 		expect(provider(snapshot, "anthropic")).toMatchObject({
 			status: "ok",
-			plan: "Pro",
-			windows: expect.arrayContaining([expect.objectContaining({ usedPercent: 60 })]),
+			plan: undefined,
+			windows: expect.arrayContaining([expect.objectContaining({ label: "Week (Sonnet)", usedPercent: 60 })]),
+			details: [{ label: "Extra usage", value: "USD 12.34 / 50" }],
 		});
 		expect(provider(snapshot, "openai-codex")).toMatchObject({
 			status: "ok",
@@ -44,57 +37,45 @@ describe("usage client", () => {
 		});
 		expect(provider(snapshot, "kimi-coding")).toMatchObject({
 			status: "ok",
-			plan: "ultra",
-			windows: expect.arrayContaining([expect.objectContaining({ usedPercent: 50 })]),
+			plan: undefined,
+			windows: expect.arrayContaining([expect.objectContaining({ usedPercent: 25 })]),
 		});
 		expect(provider(snapshot, "xai")).toMatchObject({
 			status: "ok",
 			plan: "SuperGrok",
-			windows: expect.arrayContaining([expect.objectContaining({ usedPercent: 56 })]),
+			windows: expect.arrayContaining([
+				expect.objectContaining({ label: "Week (included allowance)", usedPercent: 56 }),
+				expect.objectContaining({ label: "Month (included allowance)", usedPercent: 25 }),
+			]),
 		});
 
-		expect(requests.every(({ request }) => request.headers.Authorization?.startsWith("Bearer "))).toBe(true);
+		const urls = requests.map(({ url }) => url);
+		expect(urls).toEqual(expect.arrayContaining([
+			"https://api.anthropic.com/api/oauth/usage",
+			"https://chatgpt.com/backend-api/wham/usage",
+			"https://chatgpt.com/backend-api/wham/rate-limit-reset-credits",
+			"https://api.kimi.com/coding/v1/usages",
+			"https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+			"https://cli-chat-proxy.grok.com/v1/settings",
+		]));
+		expect(urls).not.toContain("https://api.anthropic.com/api/oauth/profile");
+		expect(urls).not.toContain("https://cli-chat-proxy.grok.com/v1/billing");
+		expect(requests.every(({ request }) => new Headers(request.headers).get("Authorization")?.startsWith("Bearer "))).toBe(true);
 		const codexRequest = requests.find(({ url }) => url.endsWith("/wham/usage"));
-		expect(codexRequest?.request.headers["ChatGPT-Account-Id"]).toBe(CODEX_ACCOUNT_ID);
-		const resetRequest = requests.find(({ url }) => url.endsWith("/wham/rate-limit-reset-credits"));
-		expect(resetRequest?.request.headers).toMatchObject({
-			"ChatGPT-Account-Id": CODEX_ACCOUNT_ID,
-			"OpenAI-Beta": "codex-1",
-			originator: "Codex Desktop",
-		});
+		expect(new Headers(codexRequest?.request.headers).get("ChatGPT-Account-Id")).toBe(CODEX_ACCOUNT_ID);
 		const grokRequest = requests.find(({ url }) => url.endsWith("/v1/billing?format=credits"));
-		expect(grokRequest?.request.headers["X-XAI-Token-Auth"]).toBe("xai-grok-cli");
-	});
-
-	it("Grok 周总量缺失时使用产品占比合计", async () => {
-		const snapshot = await collectUsageSnapshot(oauthContext(), {
-			fetchImpl: async (url, request) => url.endsWith("/v1/billing?format=credits")
-				? jsonResponse({ config: {
-					currentPeriod: { type: "USAGE_PERIOD_TYPE_WEEKLY", end: "2026-08-03T00:00:00Z" },
-					productUsage: [
-						{ product: "Api", usagePercent: 12 },
-						{ product: "GrokBuild", usagePercent: 8 },
-					],
-				} })
-				: fixtureResponse(url, request),
-			now: NOW,
-		});
-
-		expect(provider(snapshot, "xai")).toMatchObject({
-			status: "ok",
-			windows: expect.arrayContaining([expect.objectContaining({ label: "Week (shared pool)", usedPercent: 20 })]),
-		});
+		expect(new Headers(grokRequest?.request.headers).get("X-XAI-Token-Auth")).toBe("xai-grok-cli");
 	});
 
 	it("拒绝 API key，并且不访问订阅端点", async () => {
-		const fetchImpl = vi.fn<UsageFetch>();
+		const fetchImpl = vi.fn<typeof fetch>();
 		const context: UsageContext = {
 			modelRegistry: {
 				getProviderAuth: async (): Promise<AuthResult> => ({ source: "ANTHROPIC_API_KEY", auth: { apiKey: "secret-api-key" } }),
 			},
 		};
 
-		const snapshot = await collectUsageSnapshot(context, { fetchImpl, now: NOW });
+		const snapshot = await collectUsageSnapshot(context, clientOptions(fetchImpl));
 
 		expect(snapshot.providers.every((value) => value.status === "not_logged_in")).toBe(true);
 		expect(fetchImpl).not.toHaveBeenCalled();
@@ -103,12 +84,13 @@ describe("usage client", () => {
 	it("隔离 provider 失败，且结果和渲染不暴露响应正文或 token", async () => {
 		const secret = "remote-secret-body";
 		const token = "oauth-secret-token";
-		const fetchImpl: UsageFetch = async (url, request) => {
-			if (url.endsWith("/api/oauth/usage")) return httpResponse(503, secret);
-			return fixtureResponse(url, request);
+		const fetchImpl: typeof fetch = async (input) => {
+			const url = requestUrl(input);
+			if (url.endsWith("/api/oauth/usage")) return new Response(secret, { status: 503 });
+			return fixtureResponse(url);
 		};
-		const snapshot = await collectUsageSnapshot(oauthContext(token), { fetchImpl, now: NOW });
-		const output = renderUsage(serializeUsageSnapshot(snapshot), 96).join("\n");
+		const snapshot = await collectUsageSnapshot(oauthContext(token), clientOptions(fetchImpl));
+		const output = renderUsage(snapshot, 96).join("\n");
 
 		expect(provider(snapshot, "anthropic")).toMatchObject({ status: "error", error: { code: "http", httpStatus: 503 } });
 		expect(provider(snapshot, "openai-codex")).toMatchObject({ status: "ok" });
@@ -117,12 +99,14 @@ describe("usage client", () => {
 	});
 
 	it("重置卡详情查询失败时保留 Codex usage 和可用数量", async () => {
-		const snapshot = await collectUsageSnapshot(oauthContext(), {
-			fetchImpl: async (url, request) => url.endsWith("/wham/rate-limit-reset-credits")
-				? httpResponse(503, "untrusted error")
-				: fixtureResponse(url, request),
-			now: NOW,
-		});
+		const fetchImpl: typeof fetch = async (input) => {
+			const url = requestUrl(input);
+			return url.endsWith("/wham/rate-limit-reset-credits")
+				? new Response("untrusted error", { status: 503 })
+				: fixtureResponse(url);
+		};
+		const snapshot = await collectUsageSnapshot(oauthContext(), clientOptions(fetchImpl));
+
 		expect(provider(snapshot, "openai-codex")).toMatchObject({
 			status: "ok",
 			resetCredits: { availableCount: 2, credits: undefined },
@@ -130,43 +114,53 @@ describe("usage client", () => {
 	});
 
 	it.each([
-		["invalid_response", () => httpResponse(200, "not-json")],
-		["response_too_large", () => httpResponse(200, "{}", { "content-length": "1048577" })],
+		["invalid_response", () => new Response("not-json")],
+		["response_too_large", () => new Response(Buffer.alloc(1_048_577))],
 	] as const)("将不可信响应归一化为 %s", async (code, response) => {
-		const snapshot = await collectUsageSnapshot(oauthContext(), {
-			fetchImpl: async () => response(),
-			now: NOW,
-		});
+		const fetchImpl: typeof fetch = async () => response();
+		const snapshot = await collectUsageSnapshot(oauthContext(), clientOptions(fetchImpl));
 		expect(snapshot.providers.every((value) => value.status === "error" && value.error.code === code)).toBe(true);
 	});
 
 	it("区分 provider 超时和外部取消", async () => {
-		vi.useFakeTimers();
+		const hangingFetch: typeof fetch = async (_input, request) => new Promise<Response>((_resolve, reject) => {
+			const signal = request?.signal;
+			if (signal === undefined || signal === null) throw new Error("Missing request signal");
+			const abort = () => reject(new Error("request stopped"));
+			if (signal.aborted) abort();
+			else signal.addEventListener("abort", abort, { once: true });
+		});
+		const timeoutController = new AbortController();
+		const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(timeoutController.signal);
 		try {
-			const hangingFetch: UsageFetch = async (_url, request) => new Promise<UsageHttpResponse>((_resolve, reject) => {
-				const abort = () => reject(new Error("request stopped"));
-				if (request.signal.aborted) abort();
-				else request.signal.addEventListener("abort", abort, { once: true });
-			});
-
-			const timedOut = collectUsageSnapshot(oauthContext(), {
-				fetchImpl: hangingFetch,
-				timeoutMs: 100,
-				optionalTimeoutMs: 100,
-				now: NOW,
-			});
-			await vi.advanceTimersByTimeAsync(100);
+			const timedOut = collectUsageSnapshot(oauthContext(), clientOptions(hangingFetch));
+			timeoutController.abort();
 			const timedOutSnapshot = await timedOut;
 			expect(timedOutSnapshot.providers.every((value) => value.status === "error" && value.error.code === "timeout")).toBe(true);
-
-			const controller = new AbortController();
-			const cancelled = collectUsageSnapshot(oauthContext(), { fetchImpl: hangingFetch, signal: controller.signal, now: NOW });
-			controller.abort();
-			await expect(cancelled).rejects.toMatchObject({ code: "aborted" });
 		} finally {
-			vi.clearAllTimers();
-			vi.useRealTimers();
+			timeout.mockRestore();
 		}
+
+		const controller = new AbortController();
+		const cancelled = collectUsageSnapshot(oauthContext(), {
+			...clientOptions(hangingFetch),
+			signal: controller.signal,
+		});
+		controller.abort();
+		await expect(cancelled).rejects.toMatchObject({ code: "aborted" });
+	});
+
+	it("在网络边界清理 provider 动态文本", async () => {
+		const fetchImpl: typeof fetch = async (input) => {
+			const url = requestUrl(input);
+			return url.endsWith("/v1/settings")
+				? jsonResponse({ subscription_tier_display: "Super\u001b[31mGrok\u202e" })
+				: fixtureResponse(url);
+		};
+		const snapshot = await collectUsageSnapshot(oauthContext(), clientOptions(fetchImpl));
+		const output = renderUsage(snapshot, 80).join("\n");
+		expect(output).not.toContain("\u001b");
+		expect(output).not.toContain("\u202e");
 	});
 });
 
@@ -184,16 +178,16 @@ describe("usage service", () => {
 		};
 		const service = new UsageService({ clock: () => now });
 
-		const first = await service.load(context);
-		const cached = await service.load(context);
+		const first = await service.load(context, loadOptions());
+		const cached = await service.load(context, loadOptions());
 		expect(cached).toBe(first);
 		expect(authReads).toBe(4);
 
-		await service.load(context, { refresh: true });
+		await service.load(context, loadOptions(true));
 		expect(authReads).toBe(8);
 
 		now += 60_001;
-		await service.load(context);
+		await service.load(context, loadOptions());
 		expect(authReads).toBe(12);
 	});
 
@@ -213,8 +207,8 @@ describe("usage service", () => {
 			},
 		};
 		const service = new UsageService();
-		const first = service.load(context, { refresh: true });
-		const second = service.load(context, { refresh: true });
+		const first = service.load(context, loadOptions(true));
+		const second = service.load(context, loadOptions(true));
 		release?.();
 		const [firstSnapshot, secondSnapshot] = await Promise.all([first, second]);
 		expect(secondSnapshot).toBe(firstSnapshot);
@@ -224,45 +218,25 @@ describe("usage service", () => {
 
 describe("usage renderer", () => {
 	it.each([100, 42])("宽度 %i 下不越界并保留用量信息", async (width) => {
-		const snapshot = serializeUsageSnapshot(await collectUsageSnapshot(oauthContext(), { fetchImpl: fixtureFetch(), now: NOW }));
+		const snapshot = await collectUsageSnapshot(oauthContext(), clientOptions(fixtureFetch()));
 		const lines = renderUsage(snapshot, width);
 		expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
 		expect(lines.join("\n")).toContain("GPT-5.3-Codex-Spark quota");
 	});
 
 	it("隐藏未登录 provider", async () => {
-		const snapshot = serializeUsageSnapshot(await collectUsageSnapshot({ modelRegistry: { getProviderAuth: async () => undefined } }, { now: NOW }));
+		const snapshot = await collectUsageSnapshot(
+			{ modelRegistry: { getProviderAuth: async () => undefined } },
+			clientOptions(fixtureFetch()),
+		);
 		const output = renderUsage(snapshot, 80).join("\n");
 		expect(output.length).toBeGreaterThan(0);
 		expect(output).not.toContain("Claude");
 		expect(output).not.toContain("Codex");
 	});
 
-	it("清理终端控制字符和缺失数据，错误渲染不泄露底层消息", () => {
-		const snapshot: UsageSnapshot = {
-			generatedAt: NOW.toISOString(),
-			timeZone: "UTC",
-			providers: [{
-				id: "xai",
-				name: "Grok",
-				status: "ok",
-				plan: "Super\u001b[31mGrok\u202e",
-				windows: [{ label: "Session", usedPercent: undefined, windowDurationMins: 300, resetsAt: undefined }],
-				details: [],
-				resetCredits: undefined,
-			}],
-		};
-		const output = renderUsage(snapshot, 80).join("\n");
-		const error = renderUsageError(new Error("oauth-secret-token"), 80).join("\n");
-		expect(output).not.toContain("\u001b");
-		expect(output).not.toContain("\u202e");
-		expect(output).not.toContain("undefined");
-		expect(error).not.toContain("oauth-secret-token");
-		expect(renderUsageError(new UsageRequestError("aborted"), 80).join("\n")).toContain("cancelled");
-	});
-
-	it("viewer 可渲染成功和错误结果并响应关闭键", async () => {
-		const snapshot = serializeUsageSnapshot(await collectUsageSnapshot(oauthContext(), { fetchImpl: fixtureFetch(), now: NOW }));
+	it("viewer 可渲染成功和取消结果并响应关闭键", async () => {
+		const snapshot = await collectUsageSnapshot(oauthContext(), clientOptions(fixtureFetch()));
 		let closed = 0;
 		const theme: Pick<Theme, "fg" | "bold"> = {
 			fg: (_name, text) => text,
@@ -274,12 +248,13 @@ describe("usage renderer", () => {
 		expect(viewer.render(80).length).toBeGreaterThan(0);
 		viewer.handleInput("q");
 		expect(closed).toBe(1);
-		expect(new UsageViewer(new Error("secret"), theme, () => 20, () => {}).render(80).join("\n")).not.toContain("secret");
+		expect(new UsageViewer("aborted", theme, () => 20, () => {}).render(80).length).toBeGreaterThan(0);
+		expect(renderUsageCancelled(80).every((line) => visibleWidth(line) <= 80)).toBe(true);
 	});
 });
 
 describe("usage extension", () => {
-	it("注册 /usage、校验参数并使用只读浮层布局", async () => {
+	it("注册 /usage、校验参数并按运行模式展示", async () => {
 		type CommandOptions = Parameters<ExtensionAPI["registerCommand"]>[1];
 		let commandName: string | undefined;
 		let commandOptions: CommandOptions | undefined;
@@ -328,6 +303,14 @@ describe("usage extension", () => {
 	});
 });
 
+function clientOptions(fetchImpl: typeof fetch): Parameters<typeof collectUsageSnapshot>[1] {
+	return { fetchImpl, signal: undefined, now: NOW };
+}
+
+function loadOptions(refresh = false): Parameters<UsageService["load"]>[1] {
+	return { refresh, signal: undefined };
+}
+
 function oauthContext(defaultToken = "oauth-token"): UsageContext {
 	return {
 		modelRegistry: {
@@ -341,40 +324,51 @@ function oauthContext(defaultToken = "oauth-token"): UsageContext {
 	};
 }
 
-function fixtureFetch(requests: CapturedRequest[] = []): UsageFetch {
-	return async (url, request) => {
+function fixtureFetch(requests: CapturedRequest[] = []): typeof fetch {
+	return async (input, request) => {
+		if (request === undefined) throw new Error("Missing request options");
+		const url = requestUrl(input);
 		requests.push({ url, request });
-		return fixtureResponse(url, request);
+		return fixtureResponse(url);
 	};
 }
 
-function fixtureResponse(url: string, _request: UsageHttpRequest): UsageHttpResponse {
-	if (url.endsWith("/api/oauth/usage")) {
+function requestUrl(input: string | URL | Request): string {
+	return input instanceof Request ? input.url : String(input);
+}
+
+function fixtureResponse(url: string): Response {
+	if (url === "https://api.anthropic.com/api/oauth/usage") {
 		return jsonResponse({
-			five_hour: { remainingPercent: 75, resetsAt: "2026-07-27T05:00:00Z" },
+			five_hour: { utilization: 25, resets_at: "2026-07-27T05:00:00Z" },
 			seven_day: { utilization: 50, resets_at: "2026-08-03T00:00:00Z" },
-			limits: [{ group: "weekly", percent: 60, resets_at: "2026-08-03T00:00:00Z", scope: { model: { display_name: "Sonnet" } } }],
-			extra_usage: { credits_ever_enabled: true, is_enabled: true, used_credits: 1234, monthly_limit: 5000, decimal_places: 2, currency: "USD" },
+			limits: [{
+				kind: "weekly_scoped",
+				group: "weekly",
+				percent: 60,
+				resets_at: "2026-08-03T00:00:00Z",
+				scope: { model: { display_name: "Sonnet" } },
+			}],
+			extra_usage: { is_enabled: true, used_credits: 12.34, monthly_limit: 50, utilization: 24.68, currency: "USD" },
 		});
 	}
-	if (url.endsWith("/api/oauth/profile")) return jsonResponse({ account: { has_claude_pro: true }, organization: {} });
-	if (url.endsWith("/wham/usage")) {
+	if (url === "https://chatgpt.com/backend-api/wham/usage") {
 		return jsonResponse({
 			plan_type: "pro",
 			rate_limit: {
-				primary_window: { used_percent: 20, limit_window_seconds: 18_000, reset_at: 1_785_153_600 },
-				secondary_window: { used_percent: 70, limit_window_seconds: 604_800, reset_at: 1_785_672_000 },
+				primary_window: { used_percent: 20, limit_window_seconds: 18_000, reset_after_seconds: 18_000, reset_at: 1_785_153_600 },
+				secondary_window: { used_percent: 70, limit_window_seconds: 604_800, reset_after_seconds: 604_800, reset_at: 1_785_672_000 },
 			},
 			additional_rate_limits: [{
 				limit_name: "GPT-5.3-Codex-Spark",
 				metered_feature: "codex_bengalfox",
-				rate_limit: { primary_window: { usedPercent: 40, limitWindowSeconds: 3_600, resetAfterSeconds: 1_800 } },
+				rate_limit: { primary_window: { used_percent: 40, limit_window_seconds: 3_600, reset_after_seconds: 1_800, reset_at: 1_785_151_800 } },
 			}],
 			rate_limit_reset_credits: { available_count: 2 },
-			credits: { has_credits: true, balance: "9" },
+			credits: { has_credits: true, unlimited: false, balance: "9" },
 		});
 	}
-	if (url.endsWith("/wham/rate-limit-reset-credits")) {
+	if (url === "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits") {
 		return jsonResponse({
 			available_count: 2,
 			credits: [
@@ -384,8 +378,6 @@ function fixtureResponse(url: string, _request: UsageHttpRequest): UsageHttpResp
 					status: "available",
 					granted_at: "2026-07-12T00:00:00Z",
 					expires_at: "2026-08-12T00:00:00Z",
-					title: "One free rate limit reset",
-					description: "Free reset",
 				},
 				{
 					id: "RateLimitResetCredit_2",
@@ -393,19 +385,20 @@ function fixtureResponse(url: string, _request: UsageHttpRequest): UsageHttpResp
 					status: "available",
 					granted_at: "2026-07-13T00:00:00Z",
 					expires_at: "2026-08-13T00:00:00Z",
-					title: "Referral reset",
 				},
 			],
 		});
 	}
-	if (url.endsWith("/coding/v1/usages")) {
+	if (url === "https://api.kimi.com/coding/v1/usages") {
 		return jsonResponse({
-			user: { membership: { level: "LEVEL_ULTRA" } },
-			limits: [{ window: { timeUnit: "TIME_UNIT_MINUTE", duration: 300 }, detail: { remaining: "75", limit: "100", resetTime: "2026-07-27T05:00:00Z" } }],
-			usage: { used: 4, limit: 8, resetTime: "2026-08-03T00:00:00Z" },
+			limits: [{
+				window: { timeUnit: "TIME_UNIT_MINUTE", duration: 300 },
+				detail: { used: "25", limit: "100", resetTime: "2026-07-27T05:00:00Z" },
+			}],
+			usage: { used: "4", limit: "8", resetTime: "2026-08-03T00:00:00Z" },
 		});
 	}
-	if (url.endsWith("/v1/billing?format=credits")) {
+	if (url === "https://cli-chat-proxy.grok.com/v1/billing?format=credits") {
 		return jsonResponse({ config: {
 			creditUsagePercent: 56,
 			currentPeriod: {
@@ -413,26 +406,23 @@ function fixtureResponse(url: string, _request: UsageHttpRequest): UsageHttpResp
 				start: "2026-07-27T00:00:00Z",
 				end: "2026-08-03T00:00:00Z",
 			},
-			productUsage: [
-				{ product: "Api", usagePercent: 33 },
-				{ product: "GrokBuild", usagePercent: 23 },
-			],
-		} });
-	}
-	if (url.endsWith("/v1/billing")) {
-		return jsonResponse({ config: {
 			used: { val: 250 },
 			monthlyLimit: { val: 1000 },
 			billingPeriodStart: "2026-07-01T00:00:00Z",
 			billingPeriodEnd: "2026-08-01T00:00:00Z",
 		} });
 	}
-	if (url.endsWith("/v1/settings")) return jsonResponse({ subscription_tier_display: "SuperGrok" });
+	if (url === "https://cli-chat-proxy.grok.com/v1/settings") {
+		return jsonResponse({ subscription_tier_display: "SuperGrok" });
+	}
 	throw new Error(`Unexpected test URL: ${url}`);
 }
 
-function jsonResponse(value: unknown): UsageHttpResponse {
-	return httpResponse(200, JSON.stringify(value), { "content-type": "application/json" });
+function jsonResponse(value: unknown): Response {
+	return new Response(JSON.stringify(value), {
+		status: 200,
+		headers: { "content-type": "application/json" },
+	});
 }
 
 function provider<T extends { providers: Array<{ id: string }> }>(snapshot: T, id: string): T["providers"][number] {

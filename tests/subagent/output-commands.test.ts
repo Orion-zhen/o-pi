@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { parsePipeline, tokenize } from "../../src/subagent/commands.js";
 import { exceedsTokenLimit, formatFileHandoff, formatResultForContext, getRunDir, persistResult, sanitizeFileName } from "../../src/subagent/output.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
-import type { SubagentRunResult } from "../../src/subagent/types.js";
+import type { UnpersistedSubagentRunResult } from "../../src/subagent/types.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-subagent-output-");
@@ -72,7 +72,7 @@ describe("subagent output", () => {
 	});
 });
 
-function runResult(): SubagentRunResult {
+function runResult(): UnpersistedSubagentRunResult {
 	return {
 		runId: "run-1",
 		mode: "parallel",
@@ -83,6 +83,7 @@ function runResult(): SubagentRunResult {
 		cwd: workspace,
 		tools: ["read"],
 		attempts: 1,
+		status: "completed",
 		exitCode: 0,
 		output: "done",
 		durationMs: 10,

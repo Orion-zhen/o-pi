@@ -47,8 +47,6 @@ export class FakeCoordinator implements DiscordPresenceCoordinator {
 	}> = [];
 	deactivateCount = 0;
 	status: ReturnType<DiscordPresenceCoordinator["getStatus"]> = "disabled";
-	private readonly listeners = new Set<(status: ReturnType<DiscordPresenceCoordinator["getStatus"]>) => void>();
-
 	async activate(
 		config: CoordinatedPresenceConfig,
 		joinedAt: number,
@@ -67,10 +65,6 @@ export class FakeCoordinator implements DiscordPresenceCoordinator {
 	}
 	getStatus() {
 		return this.status;
-	}
-	onStatus(listener: (status: ReturnType<DiscordPresenceCoordinator["getStatus"]>) => void): () => void {
-		this.listeners.add(listener);
-		return () => this.listeners.delete(listener);
 	}
 }
 

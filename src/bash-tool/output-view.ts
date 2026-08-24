@@ -122,7 +122,7 @@ function headTailPreview(text: string, budget: number, headRatio: number): strin
 	const marker = "\n[... lines omitted ...]\n";
 	const markerBudget = Buffer.byteLength(marker, "utf8") + 24;
 	const headBudget = Math.max(Math.min(32, Math.floor(budget / 2)), Math.floor((budget - markerBudget) * headRatio));
-	const tailBudget = Math.max(0, budget - markerBudget - headBudget);
+	const tailBudget = budget - markerBudget - headBudget;
 	const head = takeHeadBytes(text, headBudget).replace(/\n*$/, "");
 	const tail = takeTailBytes(text, tailBudget).replace(/^\n*/, "");
 	const omittedLines = Math.max(0, countLogicalLines(text) - countLogicalLines(head) - countLogicalLines(tail));
@@ -134,6 +134,8 @@ function failurePreview(text: string, budget: number): string {
 	const windows = diagnosticWindows(lines);
 	if (windows.length === 0) return headTailPreview(text, budget, 0.15);
 
+	const firstDiagnostic = windows.reduce((first) => first);
+	const lastDiagnostic = windows.reduce((_previous, current) => current);
 	const head = byteLimitedLines(lines, 0, Math.floor(budget * 0.15));
 	const tail = byteLimitedTailLines(lines, Math.floor(budget * 0.2));
 	const ranges = mergeRanges([
@@ -143,7 +145,7 @@ function failurePreview(text: string, budget: number): string {
 	]);
 	let rendered = renderRanges(lines, ranges);
 	if (Buffer.byteLength(rendered, "utf8") > budget) {
-		const diagnostic = windows.length === 1 ? windows : [windows[0]!, windows[windows.length - 1]!];
+		const diagnostic = windows.length === 1 ? windows : [firstDiagnostic, lastDiagnostic];
 		rendered = renderRanges(lines, mergeRanges([...(head.length ? [{ start: 0, end: head.length - 1 }] : []), ...diagnostic, ...(tail.length ? [{ start: lines.length - tail.length, end: lines.length - 1 }] : [])]));
 	}
 	return ensureByteLimit(rendered, budget);
@@ -153,7 +155,7 @@ function structuredPreview(text: string, format: BashOutputFormat, budget: numbe
 	const label = format === "binary" ? "binary/text preview" : `${format} preview; this is not a complete ${format.toUpperCase()} document`;
 	const header = `[${label}]\n\n`;
 	const marker = "\n\n[... bytes omitted ...]\n\n";
-	const available = Math.max(0, budget - Buffer.byteLength(header + marker, "utf8"));
+	const available = budget - Buffer.byteLength(header + marker, "utf8");
 	const head = takeHeadBytes(text, Math.floor(available * 0.25));
 	const tail = takeTailBytes(text, Math.ceil(available * 0.75));
 	const omitted = Math.max(0, Buffer.byteLength(text, "utf8") - Buffer.byteLength(head, "utf8") - Buffer.byteLength(tail, "utf8"));
@@ -163,34 +165,43 @@ function structuredPreview(text: string, format: BashOutputFormat, budget: numbe
 function foldCarriageProgress(text: string): { text: string; compacted: boolean } {
 	let compacted = false;
 	const lines = text.split("\n").map((line) => {
-		const parts = line.split("\r");
-		if (parts.length <= 1) return line;
+		const finalSeparator = line.lastIndexOf("\r");
+		if (finalSeparator === -1) return line;
 		compacted = true;
-		const final = parts[parts.length - 1] ?? "";
-		const omitted = parts.length - 1;
-		return `${final} [${omitted} progress updates omitted]`;
+		const omitted = line.split("\r").length - 1;
+		return `${line.slice(finalSeparator + 1)} [${omitted} progress updates omitted]`;
 	});
 	return { text: lines.join("\n"), compacted };
 }
 
 function collapseRepeatedLines(text: string): { text: string; compacted: boolean } {
-	const lines = text.split("\n");
 	const result: string[] = [];
 	let compacted = false;
-	for (let index = 0; index < lines.length; ) {
-		const line = lines[index] ?? "";
-		let next = index + 1;
-		while (next < lines.length && lines[next] === line) next += 1;
-		const count = next - index;
-		result.push(line);
-		if (count >= 3 && line !== "") {
+	let current = "";
+	let count = 0;
+	const flush = () => {
+		if (count === 0) return;
+		result.push(current);
+		if (count >= 3 && current !== "") {
 			result.push(`[same line repeated ${count - 1} more times]`);
 			compacted = true;
 		} else {
-			for (let repeat = 1; repeat < count; repeat += 1) result.push(line);
+			for (let repeat = 1; repeat < count; repeat += 1) result.push(current);
 		}
-		index = next;
+	};
+	for (const line of text.split("\n")) {
+		if (count === 0) {
+			current = line;
+			count = 1;
+		} else if (line === current) {
+			count += 1;
+		} else {
+			flush();
+			current = line;
+			count = 1;
+		}
 	}
+	flush();
 	return { text: result.join("\n"), compacted };
 }
 
@@ -214,8 +225,8 @@ function collapseBlankLines(text: string): { text: string; compacted: boolean } 
 
 function diagnosticWindows(lines: string[]): Array<{ start: number; end: number }> {
 	const ranges: Array<{ start: number; end: number }> = [];
-	for (let index = 0; index < lines.length; index += 1) {
-		if (!ERROR_ANCHORS.test(lines[index] ?? "")) continue;
+	for (const [index, line] of lines.entries()) {
+		if (!ERROR_ANCHORS.test(line)) continue;
 		ranges.push({ start: Math.max(0, index - 2), end: Math.min(lines.length - 1, index + 3) });
 	}
 	return mergeRanges(ranges);
@@ -241,10 +252,7 @@ function renderRanges(lines: string[], ranges: Array<{ start: number; end: numbe
 	for (const range of ranges) {
 		const omitted = range.start - previousEnd - 1;
 		if (omitted > 0) parts.push(`[... ${omitted} lines omitted ...]`);
-		for (let index = range.start; index <= range.end; index += 1) {
-			const line = lines[index];
-			if (line !== undefined) parts.push(line);
-		}
+		parts.push(...lines.slice(range.start, range.end + 1));
 		previousEnd = range.end;
 	}
 	const tailOmitted = lines.length - previousEnd - 1;
@@ -255,9 +263,7 @@ function renderRanges(lines: string[], ranges: Array<{ start: number; end: numbe
 function byteLimitedLines(lines: string[], start: number, budget: number): string[] {
 	const result: string[] = [];
 	let used = 0;
-	for (let index = start; index < lines.length; index += 1) {
-		const line = lines[index];
-		if (line === undefined) break;
+	for (const line of lines.slice(start)) {
 		const size = Buffer.byteLength(`${line}\n`, "utf8");
 		if (used + size > budget) break;
 		result.push(line);
@@ -269,9 +275,7 @@ function byteLimitedLines(lines: string[], start: number, budget: number): strin
 function byteLimitedTailLines(lines: string[], budget: number): string[] {
 	const result: string[] = [];
 	let used = 0;
-	for (let index = lines.length - 1; index >= 0; index -= 1) {
-		const line = lines[index];
-		if (line === undefined) break;
+	for (const line of [...lines].reverse()) {
 		const size = Buffer.byteLength(`${line}\n`, "utf8");
 		if (used + size > budget) break;
 		result.unshift(line);
@@ -291,6 +295,6 @@ function visibleControl(char: string): string {
 function ensureByteLimit(text: string, budget: number): string {
 	if (Buffer.byteLength(text, "utf8") <= budget) return text;
 	const marker = "\n[... output truncated to byte budget ...]\n";
-	const remaining = Math.max(0, budget - Buffer.byteLength(marker, "utf8"));
+	const remaining = budget - Buffer.byteLength(marker, "utf8");
 	return takeHeadBytes(text, Math.floor(remaining * 0.2)) + marker + takeTailBytes(text, Math.ceil(remaining * 0.8));
 }

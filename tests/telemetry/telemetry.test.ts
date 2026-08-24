@@ -16,10 +16,10 @@ import { loadExtensions } from "../../node_modules/@earendil-works/pi-coding-age
 import { registerTelemetryCommand } from "../../agent/extensions/telemetry.js";
 import { attachTelemetryService } from "../../src/telemetry/pi-adapter.js";
 import { defineToolTelemetry, fields } from "../../src/telemetry/projection.js";
-import { registerTelemetry, TelemetryService, telemetryServiceFor } from "../../src/telemetry/service.js";
+import { registerTelemetry, TelemetryService } from "../../src/telemetry/service.js";
 import { registerObservedTool } from "../../src/telemetry/tool.js";
-import type { CallRecord, GitRevision, TelemetryRecord } from "../../src/telemetry/types.js";
-import type { TelemetryWriter, TelemetryWriterStatus } from "../../src/telemetry/writer.js";
+import type { CallRecord, GitRevision, TelemetryRecord, ToolTelemetry } from "../../src/telemetry/types.js";
+import type { TelemetryWriter } from "../../src/telemetry/writer.js";
 import { deferred } from "../helpers/async.js";
 
 const parameters = Type.Object({ path: Type.String(), count: Type.Optional(Type.Integer()) }, { additionalProperties: false });
@@ -27,17 +27,45 @@ interface TestDetails { status: string; error_code?: string; truncated?: boolean
 type TestTool = ToolDefinition<typeof parameters, TestDetails, unknown>;
 
 describe("telemetry service", () => {
-	it("shares one collector per Pi runtime and attaches only seven public hooks", () => {
+	it.each(["collector-first", "tool-first"] as const)("registers projectors across distinct Pi event wrappers: %s", async (order) => {
 		const events = createEventBus();
-		const firstPi = fakePi(events);
-		const secondPi = fakePi(events);
-		const first = registerTelemetry(firstPi.api);
-		const second = telemetryServiceFor(secondPi.api);
-		expect(second).toBe(first);
-		expect(firstPi.hooks).toEqual([
+		const collectorPi = fakePi(eventView(events));
+		const toolPi = fakePi(eventView(events));
+		const writer = new MemoryWriter();
+		let service: TelemetryService;
+		let observedTool: TestTool | undefined;
+		const registerTool = () => {
+			observedTool = registerObservedTool(toolPi.api, {
+				tool: testTool(),
+				telemetry: defineToolTelemetry<{ path: string; count?: number }, TestDetails>({
+					input: (params) => ({ fields: { input_count: params.count ?? 0 } }),
+				}),
+			});
+		};
+		if (order === "tool-first") registerTool();
+		service = registerTelemetry(collectorPi.api, {
+			runId: () => "run",
+			writerFactory: async () => writer,
+			revision: async () => undefined,
+		});
+		if (order === "collector-first") registerTool();
+		service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
+		if (observedTool === undefined) throw new Error("observed tool not registered");
+		const rawArgs = { path: "a", count: "2" };
+		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call", toolName: "test", args: rawArgs });
+		const prepared = observedTool.prepareArguments?.(rawArgs);
+		service.onToolResult(fixture<ToolResultEvent>({ type: "tool_result", toolCallId: "call", toolName: "test", input: prepared }));
+		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "call", toolName: "test", result: result({ status: "ok" }), isError: false });
+		await service.onSessionShutdown({ type: "session_shutdown", reason: "quit" });
+		expect(writer.records[1]).toMatchObject({
+			tool: "test",
+			fields: { input_count: 2 },
+			repair: { status: "repaired", operations: ["numeric_string_to_number"] },
+		});
+		expect(collectorPi.hooks).toEqual([
 			"session_start", "turn_start", "message_end", "tool_execution_start", "tool_result", "tool_execution_end", "session_shutdown",
 		]);
-		expect(secondPi.hooks).toEqual([]);
+		expect(toolPi.hooks).toEqual([]);
 	});
 
 	it("independently loaded extensions still attach one collector", async () => {
@@ -69,16 +97,16 @@ describe("telemetry service", () => {
 			runId: () => "run-1",
 			now: clock(),
 			monotonicNow: () => monotonic,
-			revision: async (): Promise<GitRevision> => ({ commit: "abc", dirty: false }),
+			revision: async (): Promise<GitRevision> => ({ root: "/repo", commit: "abc", dirty: false }),
 			writerFactory: async () => writer,
 		});
-		service.registerTool(testTool(), defineToolTelemetry({
+		registerTestTool(service, defineToolTelemetry({
 			input: (params: { path: string; count?: number }) => {
 				inputProjectionCalls += 1;
 				try { params.path = "mutated"; } catch { mutationBlocked = true; }
 				return { fields: { input_count: params.count ?? 0 }, targets: [{ kind: "file", value: params.path }] };
 			},
-			result: (_params, result) => ({ fields: fields({ status: result.details.status, error_code: result.details.error_code, truncated: result.details.truncated }) }),
+			result: (_params, details) => ({ fields: fields({ status: details.status, error_code: details.error_code, truncated: details.truncated }) }),
 		}));
 		await service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
 		service.onTurnStart(
@@ -86,9 +114,10 @@ describe("telemetry service", () => {
 			{ model: { provider: "test-provider", id: "test-model" } },
 		);
 		service.onMessageEnd(fixture({ type: "message_end", message: assistantCalls(["call-1", "call-2"]) }));
-		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call-1", toolName: "test", args: { path: "raw.ts", count: "3" } });
-		service.prepared({ toolName: "test", rawArgs: fixture({ path: "raw.ts" }), preparedArgs: { path: ["src", "tests"], count: 3 }, status: "repaired", operations: ["numeric_string_to_number", "split_path_list"], fanout: { field: "path", count: 2, separator: "whitespace" } });
-		service.onToolResult(fixture<ToolResultEvent>({ type: "tool_result", toolCallId: "call-1", toolName: "test", input: { path: "src/a.ts", count: 3 }, details: { status: "ok" }, content: [], isError: false }));
+		const rawArgs = { path: "raw.ts", count: "3" };
+		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call-1", toolName: "test", args: rawArgs });
+		service.prepared({ toolName: "test", rawArgs, preparedArgs: { path: ["src", "tests"], count: 3 }, status: "repaired", operations: ["numeric_string_to_number", "split_path_list"], fanout: { field: "path", count: 2, separator: "whitespace" } });
+		service.onToolResult(fixture<ToolResultEvent>({ type: "tool_result", toolCallId: "call-1", toolName: "test", input: { path: "src/a.ts", count: 3 }, details: { status: "ok", truncated: true }, content: [], isError: false }));
 		monotonic = 125;
 		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "call-1", toolName: "test", result: result({ status: "ok", truncated: true }), isError: false });
 		await service.onSessionShutdown({ type: "session_shutdown", reason: "new" });
@@ -207,15 +236,60 @@ describe("telemetry service", () => {
 	it("classifies projected tool failures and preserves projector diagnostics", async () => {
 		const writer = new MemoryWriter();
 		const service = new TelemetryService(fakePi().api, { runId: () => "run", writerFactory: async () => writer, revision: async () => undefined });
-		service.registerTool(testTool(), defineToolTelemetry({
+		registerTestTool(service, defineToolTelemetry({
 			input() { throw new RangeError("projection failure"); },
 			result: () => ({ fields: { status: "failed", error_code: "NOT_FOUND" } }),
 		}));
 		await service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
 		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call", toolName: "test", args: { path: "a" } });
-		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "call", toolName: "test", result: result({ status: "failed", error_code: "NOT_FOUND" }), isError: false });
+		service.onToolResult(fixture<ToolResultEvent>({
+			type: "tool_result",
+			toolCallId: "call",
+			toolName: "test",
+			input: { path: "a" },
+			details: { status: "failed", error_code: "NOT_FOUND" },
+			isError: true,
+		}));
+		service.onToolExecutionEnd({ type: "tool_execution_end", toolCallId: "call", toolName: "test", result: result({ status: "failed", error_code: "NOT_FOUND" }), isError: true });
 		await service.onSessionShutdown({ type: "session_shutdown", reason: "new" });
 		expect(writer.records[1]).toMatchObject({ status: "error", error: { code: "NOT_FOUND" }, fields: { telemetry_input_error: "RangeError" } });
+	});
+
+	it("does not invoke a typed result projector for execution errors", async () => {
+		const writer = new MemoryWriter();
+		let resultProjectionCalls = 0;
+		const service = new TelemetryService(fakePi().api, {
+			runId: () => "run",
+			writerFactory: async () => writer,
+			revision: async () => undefined,
+		});
+		registerTestTool(service, defineToolTelemetry({
+			input: (params: { path: string }) => ({ fields: { input_path: params.path } }),
+			result: () => {
+				resultProjectionCalls += 1;
+				return { fields: { status: "unexpected" } };
+			},
+		}));
+		service.onSessionStart({ type: "session_start", reason: "startup" }, telemetrySessionContext());
+		service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "call", toolName: "test", args: { path: "a" } });
+		service.onToolResult(fixture<ToolResultEvent>({
+			type: "tool_result",
+			toolCallId: "call",
+			toolName: "test",
+			input: { path: "a" },
+			details: {},
+			isError: true,
+		}));
+		service.onToolExecutionEnd({
+			type: "tool_execution_end",
+			toolCallId: "call",
+			toolName: "test",
+			result: { content: [{ type: "text", text: "business failure" }], details: {} },
+			isError: true,
+		});
+		await service.onSessionShutdown({ type: "session_shutdown", reason: "new" });
+		expect(resultProjectionCalls).toBe(0);
+		expect(writer.records[1]).toMatchObject({ status: "error", fields: { input_path: "a" } });
 	});
 
 	it("does not initialize or write a run without a completed call", async () => {
@@ -246,14 +320,6 @@ describe("telemetry service", () => {
 		expect(() => service.onToolExecutionStart({ type: "tool_execution_start", toolCallId: "later", toolName: "test", args: {} })).not.toThrow();
 	});
 
-	it.each(["reload", "quit"] as const)("%s releases the shared service", async (reason) => {
-		const events = createEventBus();
-		const firstPi = fakePi(events);
-		const first = registerTelemetry(firstPi.api);
-		await first.onSessionShutdown({ type: "session_shutdown", reason });
-		const second = registerTelemetry(fakePi(events).api);
-		expect(second).not.toBe(first);
-	});
 });
 
 describe("observed tool registration", () => {
@@ -293,16 +359,33 @@ class MemoryWriter implements TelemetryWriter {
 	closed = false;
 	append(record: TelemetryRecord): boolean { this.records.push(record); return true; }
 	async close(): Promise<void> { this.closed = true; }
-	status(): TelemetryWriterStatus { return { enabled: !this.closed, written: this.records.length }; }
 }
 
 class FailingWriter implements TelemetryWriter {
 	append(): boolean { return false; }
 	async close(): Promise<void> {}
-	status(): TelemetryWriterStatus { return { enabled: false, written: 0 }; }
 }
 
-function fakePi(events = createEventBus()): { api: ExtensionAPI; hooks: string[] } {
+function registerTestTool(service: TelemetryService, telemetry: ToolTelemetry<{ path: string; count?: number }, TestDetails>): void {
+	const input = telemetry.input;
+	const output = telemetry.result;
+	service.registerTool({
+		definition: { name: "test", description: "Test tool", parameters },
+		...(input === undefined ? {} : { input: (params: unknown) => input(fixture(params)) }),
+		...(output === undefined ? {} : {
+			result: (params: unknown, details: unknown) => output(fixture(params), fixture(details)),
+		}),
+	});
+}
+
+function eventView(events: ReturnType<typeof createEventBus>): ExtensionAPI["events"] {
+	return {
+		emit: (channel, data) => events.emit(channel, data),
+		on: (channel, handler) => events.on(channel, handler),
+	};
+}
+
+function fakePi(events: ExtensionAPI["events"] = createEventBus()): { api: ExtensionAPI; hooks: string[] } {
 	const hooks: string[] = [];
 	const api = fixture<ExtensionAPI>({
 		events,

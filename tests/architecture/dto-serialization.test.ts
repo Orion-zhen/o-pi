@@ -40,7 +40,7 @@ describe("adapter-facing DTO serialization", () => {
 					throw new Error("provider unavailable");
 				},
 			},
-		});
+		}, { refresh: false, signal: undefined });
 
 		expect(snapshot.providers.every((provider) => provider.status === "error")).toBe(true);
 		expectJsonRoundTrip(snapshot);

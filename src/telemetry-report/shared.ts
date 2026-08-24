@@ -14,20 +14,17 @@ export function frequency(values: readonly string[]): Record<string, number> {
 }
 
 export function numericSummary(values: readonly number[]): NumericSummary {
-	const sorted = values.filter(Number.isFinite).sort((left, right) => left - right);
-	if (sorted.length === 0) return { samples: 0 };
-	const min = sorted[0];
-	const max = sorted.at(-1);
-	if (min === undefined || max === undefined) return { samples: 0 };
-	const p50 = percentile(sorted, 0.5);
-	const p95 = percentile(sorted, 0.95);
+	const [min, ...remaining] = [...values].sort((left, right) => left - right);
+	if (min === undefined) return { samples: 0 };
+	let max = min;
+	for (const value of remaining) max = value;
 	return {
-		samples: sorted.length,
+		samples: values.length,
 		min,
 		max,
-		mean: sorted.reduce((sum, value) => sum + value, 0) / sorted.length,
-		...(p50 === undefined ? {} : { p50 }),
-		...(p95 === undefined ? {} : { p95 }),
+		mean: values.reduce((sum, value) => sum + value, 0) / values.length,
+		p50: percentile(min, remaining, 0.5),
+		p95: percentile(min, remaining, 0.95),
 	};
 }
 
@@ -39,8 +36,10 @@ export function ratio(numerator: number, denominator: number): number {
 	return denominator === 0 ? 0 : numerator / denominator;
 }
 
-export function callsByRun(calls: readonly CallRecord[]): Map<string, CallRecord[]> {
-	const result = new Map<string, CallRecord[]>();
+type NonEmptyArray<T> = [T, ...T[]];
+
+export function callsByRun(calls: readonly CallRecord[]): Map<string, NonEmptyArray<CallRecord>> {
+	const result = new Map<string, NonEmptyArray<CallRecord>>();
 	for (const call of calls) {
 		const values = result.get(call.run_id);
 		if (values === undefined) result.set(call.run_id, [call]);
@@ -58,20 +57,26 @@ export function withinMillis(left: CallRecord, right: CallRecord, milliseconds: 
 	return Math.abs(Date.parse(right.at) - Date.parse(left.at)) <= milliseconds;
 }
 
-export function resourceMatches(left: Resource, right: Resource, leftCwd: string, rightCwd: string): boolean {
-	if (left.kind === "url" || right.kind === "url") return left.kind === right.kind && left.value === right.value;
-	return normalizeResource(left.value, leftCwd) === normalizeResource(right.value, rightCwd);
-}
-
 export function resourceKey(resource: Resource, cwd: string): string {
 	return resource.kind === "url" ? `url:${resource.value}` : normalizeResource(resource.value, cwd);
+}
+
+export function requireRunCwd(cwdByRun: ReadonlyMap<string, string>, runId: string): string {
+	const cwd = cwdByRun.get(runId);
+	if (cwd === undefined) throw new Error(`Missing cwd for telemetry run "${runId}".`);
+	return cwd;
 }
 
 function normalizeResource(value: string, cwd: string): string {
 	return path.normalize(path.isAbsolute(value) ? value : path.resolve(cwd, value));
 }
 
-function percentile(sorted: readonly number[], quantile: number): number | undefined {
-	if (sorted.length === 0) return undefined;
-	return sorted[Math.ceil(quantile * sorted.length) - 1];
+function percentile(first: number, remaining: readonly number[], quantile: number): number {
+	const targetIndex = Math.ceil(quantile * (remaining.length + 1)) - 1;
+	let result = first;
+	for (const [index, value] of remaining.entries()) {
+		if (index + 1 > targetIndex) break;
+		result = value;
+	}
+	return result;
 }

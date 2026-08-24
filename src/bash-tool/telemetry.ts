@@ -1,19 +1,17 @@
-import { fields, isRecord, scalar, textFields } from "../telemetry/projection.js";
+import { fields, textFields } from "../telemetry/projection.js";
 import { defineToolTelemetry } from "../telemetry/tool.js";
 import type { BashParams, BashToolDetails } from "./types.js";
 
 export const bashTelemetry = defineToolTelemetry<BashParams, BashToolDetails>({
-	input(value) {
-		if (!isRecord(value)) return {};
+	input(params) {
 		return {
 			fields: fields({
-				input_timeout_seconds: scalar(value["timeout"]),
-				...textFields("input_command", value["command"]),
+				input_timeout_seconds: params.timeout,
+				...textFields("input_command", params.command),
 			}),
 		};
 	},
-	result(_params, result) {
-		const details = result.details;
+	result(_params, details) {
 		return {
 			fields: fields({
 				status: details.status,

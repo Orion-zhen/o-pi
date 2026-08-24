@@ -1,58 +1,45 @@
-import { fields, isRecord, scalar, textFields } from "../../telemetry/projection.js";
+import { fields, textFields } from "../../telemetry/projection.js";
 import { defineToolTelemetry } from "../../telemetry/tool.js";
 import type { Candidate } from "../../telemetry/types.js";
-import type { WebSearchDetails, WebSearchParams } from "../core/types.js";
-import { record, string, webResultFields } from "./common.js";
+import type { WebSearchDetails, WebSearchParams, WebSearchProviderAttempt, WebSearchSuccessDetails } from "../core/types.js";
+import { webResultFields } from "./common.js";
 
 export const webSearchTelemetry = defineToolTelemetry<WebSearchParams, WebSearchDetails>({
-	input(value) {
-		if (!isRecord(value)) return {};
-		return { fields: fields({ ...textFields("input_query", value["query"]), input_limit: scalar(value["limit"]) }) };
+	input(params) {
+		return { fields: fields({ ...textFields("input_query", params.query), input_limit: params.limit }) };
 	},
-	result(_params, result) {
-		const details = record(result.details);
-		const attempts = searchAttempts(details);
+	result(_params, details) {
+		const attempts = "attempts" in details ? details.attempts : undefined;
 		return {
 			fields: { ...webResultFields(details), ...fields({
-				query_type: scalar(details["query_type"]),
-				first_call_accepted: attempts === undefined || attempts.length === 0 ? undefined : attempts[0]?.quality === "accepted",
-				provider_latencies: attempts?.flatMap((attempt) => {
-					const provider = string(attempt["provider"]);
-					const duration = attempt["duration_ms"];
-					return provider !== undefined && typeof duration === "number" && Number.isFinite(duration) ? [`${provider}:${duration}`] : [];
-				}),
-				provider_errors: attempts?.flatMap((attempt) => {
-					const provider = string(attempt["provider"]);
-					const error = record(attempt["error"]);
-					const code = string(error["code"]);
-					return provider !== undefined && code !== undefined ? [`${provider}:${code}`] : [];
-				}),
+				query_type: "query_type" in details ? details.query_type : undefined,
+				first_call_accepted: firstCallAccepted(attempts),
+				provider_latencies: attempts?.flatMap((attempt) => attempt.duration_ms === undefined
+					? []
+					: [`${attempt.provider}:${attempt.duration_ms}`]),
+				provider_errors: attempts?.flatMap((attempt) => attempt.error === undefined
+					? []
+					: [`${attempt.provider}:${attempt.error.code}`]),
 			}) },
-			candidates: webCandidates(details),
+			candidates: details.status === "success" ? webCandidates(details) : [],
 		};
 	},
 });
 
-function searchAttempts(details: Record<string, unknown>): Record<string, unknown>[] | undefined {
-	const value = details["attempts"];
-	return Array.isArray(value) ? value.filter(isRecord) : undefined;
+function firstCallAccepted(attempts: WebSearchProviderAttempt[] | undefined): boolean | undefined {
+	const first = attempts?.[0];
+	return first === undefined ? undefined : first.quality === "accepted";
 }
 
-function webCandidates(details: Record<string, unknown>): Candidate[] {
-	const provider = string(details["provider"]) ?? "provider";
-	const results = Array.isArray(details["results"]) ? details["results"].filter(isRecord) : [];
-	return results.flatMap((item, index) => {
-		const url = string(item["url"]);
-		if (url === undefined) return [];
-		const provenance = Array.isArray(item["provenance"])
-			? item["provenance"].filter(isRecord).flatMap((entry) => string(entry["provider"]) ?? [])
-			: [];
-		return [{
+function webCandidates(details: WebSearchSuccessDetails): Candidate[] {
+	return details.results.map((item, index) => {
+		const sources = item.provenance?.map((entry) => entry.provider) ?? [details.provider];
+		return {
 			kind: "url",
-			value: url,
+			value: item.url,
 			rank: index + 1,
 			group: "primary",
-			sources: provenance.length > 0 ? provenance : [provider],
-		}];
+			sources: [...new Set(sources)].sort(),
+		};
 	});
 }

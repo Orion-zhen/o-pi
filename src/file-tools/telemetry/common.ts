@@ -1,14 +1,23 @@
 import { fields, isRecord, scalar, textFields } from "../../telemetry/projection.js";
-import type { Candidate, Fields, Resource, TelemetryFacts } from "../../telemetry/types.js";
+import type { Fields, Resource, TelemetryFacts } from "../../telemetry/types.js";
+import type { FailedResult } from "../shared/result.js";
+
+interface FileTelemetryInput {
+	path?: string | string[];
+	query?: string;
+	glob?: string;
+	match?: string;
+	lines?: string;
+	pages?: string;
+}
 
 /** Project explicit scalar inputs; query-like strings are retained only as size and hash. */
-export function projectFileInput(
-	keys: readonly string[],
+export function projectFileInput<T extends FileTelemetryInput>(
+	keys: readonly (keyof T & string)[],
 	targetKind: string,
 	options: { pathList?: boolean } = {},
-): (value: unknown) => TelemetryFacts {
+): (value: T) => TelemetryFacts {
 	return (value) => {
-		if (!isRecord(value)) return {};
 		const projected: Fields = {};
 		for (const key of keys) {
 			if (key === "path") continue;
@@ -20,87 +29,33 @@ export function projectFileInput(
 				if (item !== undefined) projected[`input_${key}`] = item;
 			}
 		}
-		const rawPath = value["path"];
-		const scalarPath = string(rawPath);
+		const rawPath = value.path;
 		const paths = Array.isArray(rawPath)
-			? rawPath.filter((item): item is string => typeof item === "string")
-			: scalarPath === undefined
+			? rawPath
+			: rawPath === undefined
 				? (options.pathList === true ? ["."] : [])
-				: [scalarPath];
+				: [rawPath];
 		if (options.pathList === true) projected.input_path_count = paths.length;
-		const startLine = number(value["start_line"]);
-		const endLine = number(value["end_line"]);
 		return {
 			...(Object.keys(projected).length === 0 ? {} : { fields: projected }),
-			...(paths.length === 0 ? {} : {
-				targets: paths.map((path) => pathTarget(path, targetKind, paths.length === 1 ? startLine : undefined, paths.length === 1 ? endLine : undefined)),
-			}),
+			...(paths.length === 0 ? {} : { targets: paths.map((path) => pathTarget(path, targetKind)) }),
 		};
 	};
 }
 
-export function fileResultFields(details: Record<string, unknown>): Fields {
-	const stats = record(details["stats"]);
-	const scope = scopeFacts(details);
+export function failureFields(result: FailedResult): Fields {
+	return { status: result.status, error_code: result.error.code };
+}
+
+export function failureScopeFields(result: FailedResult): Fields {
+	const details = result.error.details;
+	if (!isRecord(details)) return {};
+	const paths = stringList(details["paths"]);
+	const scopeErrors = Array.isArray(details["scope_errors"]) ? details["scope_errors"].length : undefined;
 	return fields({
-		status: string(details["status"]),
-		error_code: errorCode(details),
-		truncated: truncated(details),
-		total_candidate_count: number(details["total_candidates"]),
-		returned_match_count: firstNumber(details, ["returned_matches", "returned_regions"]),
-		returned_file_count: number(details["returned_files"]),
-		returned_entry_count: number(details["returned_entries"]),
-		scanned_file_count: number(details["scanned_files"]) ?? number(stats["searched_files"]),
-		replacement_count: number(details["replacements"]),
-		size_bytes: firstNumber(details, ["size_bytes", "bytes"]),
-		before_size_bytes: firstNumber(details, ["before_size_bytes", "old_size_bytes"]),
-		after_size_bytes: firstNumber(details, ["after_size_bytes", "new_size_bytes"]),
-		scope_count: scope.count,
-		scope_error_count: scope.errors,
+		scope_count: paths?.length,
+		scope_error_count: scopeErrors,
 	});
-}
-
-export function appendPathCandidates(
-	result: Candidate[],
-	value: unknown,
-	group: string,
-	sources: (path: string) => string[],
-	forcedKind?: string,
-): void {
-	if (!Array.isArray(value)) return;
-	for (const item of value.filter(isRecord)) {
-		const path = string(item["path"]);
-		if (path === undefined) continue;
-		result.push({
-			kind: forcedKind ?? (item["kind"] === "directory" ? "directory" : item["kind"] === "file" ? "file" : "path"),
-			value: path,
-			rank: result.length + 1,
-			group,
-			sources: [...new Set(sources(path))].sort(),
-			...lineRange(item),
-		});
-	}
-}
-
-export function appendRegionCandidates(
-	result: Candidate[],
-	value: unknown,
-	group: string,
-	sources: (item: Record<string, unknown>) => string[],
-): void {
-	if (!Array.isArray(value)) return;
-	for (const item of value.filter(isRecord)) {
-		const path = string(item["path"]);
-		if (path === undefined) continue;
-		result.push({
-			kind: "region",
-			value: path,
-			rank: result.length + 1,
-			group,
-			sources: [...new Set(sources(item))].sort(),
-			...lineRange(item),
-		});
-	}
 }
 
 export function pathTarget(value: string, kind = "path", startLine?: number, endLine?: number): Resource {
@@ -112,72 +67,6 @@ export function pathTarget(value: string, kind = "path", startLine?: number, end
 	};
 }
 
-export function sourceLabels(value: unknown, fallback: string): string[] {
-	const values = Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-	return [...new Set(values.length === 0 ? [fallback] : values)].sort();
-}
-
-export function record(value: unknown): Record<string, unknown> {
-	return isRecord(value) ? value : {};
-}
-
-export function string(value: unknown): string | undefined {
-	return typeof value === "string" ? value : undefined;
-}
-
-export function number(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-}
-
-function scopeFacts(details: Record<string, unknown>): { count?: number; errors?: number } {
-	const errorDetails = record(record(details["error"])["details"]);
-	const hasScopeShape = details["paths"] !== undefined || details["scope_errors"] !== undefined
-		|| errorDetails["paths"] !== undefined || errorDetails["scope_errors"] !== undefined;
-	if (!hasScopeShape) return {};
-	const paths = stringList(details["paths"]) ?? stringList(errorDetails["paths"]);
-	const scopeErrors = Array.isArray(details["scope_errors"])
-		? details["scope_errors"].length
-		: Array.isArray(errorDetails["scope_errors"])
-			? errorDetails["scope_errors"].length
-			: undefined;
-	const path = string(details["path"]);
-	const isFailedResult = details["status"] === "failed";
-	const count = paths === undefined
-		? (path === undefined ? undefined : 1 + (isFailedResult ? 0 : (scopeErrors ?? 0)))
-		: paths.length + (isFailedResult ? 0 : (scopeErrors ?? 0));
-	return count === undefined && scopeErrors === undefined
-		? {}
-		: { ...(count === undefined ? {} : { count }), errors: scopeErrors ?? 0 };
-}
-
-function errorCode(details: Record<string, unknown>): string | undefined {
-	return string(record(details["error"])["code"]) ?? string(details["error_code"]);
-}
-
-function truncated(details: Record<string, unknown>): boolean | undefined {
-	if (Array.isArray(details["truncated_by"]) && details["truncated_by"].length > 0) return true;
-	if (details["truncated"] === true) return true;
-	return undefined;
-}
-
-function firstNumber(details: Record<string, unknown>, keys: readonly string[]): number | undefined {
-	for (const key of keys) {
-		const value = number(details[key]);
-		if (value !== undefined) return value;
-	}
-	return undefined;
-}
-
 function stringList(value: unknown): string[] | undefined {
-	if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) return undefined;
-	return value;
-}
-
-function lineRange(value: Record<string, unknown>): Pick<Resource, "start_line" | "end_line"> {
-	const startLine = number(value["start_line"]);
-	const endLine = number(value["end_line"]);
-	return {
-		...(startLine === undefined ? {} : { start_line: startLine }),
-		...(endLine === undefined ? {} : { end_line: endLine }),
-	};
+	return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : undefined;
 }

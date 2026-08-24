@@ -1,3 +1,4 @@
+import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { Ajv, type AnySchema } from "ajv";
 import { describe, expect, it } from "vitest";
 import subagentExtension from "../../agent/extensions/subagent.js";
@@ -14,6 +15,7 @@ interface RegisteredSubagentTool {
 function subagentTool(): RegisteredSubagentTool {
 	let registered: unknown;
 	subagentExtension({
+		events: createEventBus(),
 		registerTool(tool: unknown) {
 			registered = tool;
 		},
@@ -39,6 +41,7 @@ describe("subagent tool schema", () => {
 		const entryRenderers: string[] = [];
 		let sessionStart: ((event: unknown, ctx: unknown) => Promise<void>) | undefined;
 		subagentExtension({
+			events: createEventBus(),
 			registerTool() {},
 			registerCommand(name: string) {
 				commands.push(name);
@@ -80,8 +83,7 @@ describe("subagent tool schema", () => {
 	it("子进程保留 schema 但运行时阻止递归", async () => {
 		process.env.PI_SUBAGENT_CHILD = "1";
 
-		const result = await subagentTool().execute("call", { tasks: [{ agent: "scout", task: "nested" }] }, undefined, undefined, {});
-
-		expect(result.content[0]?.text).toContain("Recursive subagent calls are forbidden");
+		await expect(subagentTool().execute("call", { tasks: [{ agent: "scout", task: "nested" }] }, undefined, undefined, {}))
+			.rejects.toThrow("Recursive subagent calls are forbidden");
 	});
 });

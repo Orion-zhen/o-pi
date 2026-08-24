@@ -80,6 +80,9 @@ describe("Discord presence 配置", () => {
 		await writeFile(configPath, '{ "profile": "missing" }');
 		await expect(loadDiscordPresenceConfig(temp.path)).rejects.toThrow("profile does not exist");
 
+		await writeFile(configPath, '{ "profile": "focus", "profiles": { "focus": { "details": {} } } }');
+		await expect(loadDiscordPresenceConfig(temp.path)).rejects.toThrow("profile is incomplete");
+
 		await writeFile(configPath, '{ "profiles": { "minimal": { "state": "{secret}" } } }');
 		await expect(loadDiscordPresenceConfig(temp.path)).rejects.toMatchObject({
 			name: "DiscordPresenceConfigError",

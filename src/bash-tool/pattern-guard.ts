@@ -1,47 +1,20 @@
-export interface PatternGuardConfig {
-	deny_patterns?: string[];
-	deny_regex?: string[];
-}
+import type { BashSafetyConfig } from "./types.js";
 
 export interface PatternDenyMatch {
-	code: "BLOCKED_PATTERN";
 	kind: "pattern" | "regex";
 	rule: string;
-	message: string;
 }
 
-export class PatternGuardConfigError extends Error {
-	constructor(message: string, readonly details?: Record<string, unknown>) {
-		super(message);
-		this.name = "PatternGuardConfigError";
-	}
-}
-
-export function checkDeniedText(text: string, config: PatternGuardConfig | undefined): PatternDenyMatch | null {
-	for (const pattern of config?.deny_patterns ?? []) {
+export function checkDeniedText(text: string, config: BashSafetyConfig): PatternDenyMatch | null {
+	for (const pattern of config.deny_patterns) {
 		if (!globPatternMatches(text, pattern)) continue;
-		return {
-			code: "BLOCKED_PATTERN",
-			kind: "pattern",
-			rule: pattern,
-			message: "Text blocked by deny pattern.",
-		};
+		return { kind: "pattern", rule: pattern };
 	}
-	for (const rule of config?.deny_regex ?? []) {
-		const regex = compileRegex(rule);
-		if (!regex.test(text)) continue;
-		return {
-			code: "BLOCKED_PATTERN",
-			kind: "regex",
-			rule,
-			message: "Text blocked by deny regex.",
-		};
+	for (const rule of config.deny_regex) {
+		if (!new RegExp(rule).test(text)) continue;
+		return { kind: "regex", rule };
 	}
 	return null;
-}
-
-export function validatePatternGuardConfig(config: PatternGuardConfig | undefined): void {
-	for (const rule of config?.deny_regex ?? []) compileRegex(rule);
 }
 
 function globPatternMatches(text: string, pattern: string): boolean {
@@ -57,17 +30,6 @@ function globToRegExp(pattern: string): RegExp {
 		else source += escapeRegExp(char);
 	}
 	return new RegExp(source, "u");
-}
-
-function compileRegex(rule: string): RegExp {
-	try {
-		return new RegExp(rule);
-	} catch (error) {
-		throw new PatternGuardConfigError("deny_regex contains an invalid regular expression.", {
-			rule,
-			error: error instanceof Error ? error.message : String(error),
-		});
-	}
 }
 
 function escapeRegExp(value: string): string {

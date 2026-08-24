@@ -7,15 +7,9 @@ import { finished } from "node:stream/promises";
 
 import type { TelemetryRecord } from "./types.js";
 
-export interface TelemetryWriterStatus {
-	enabled: boolean;
-	written: number;
-}
-
 export interface TelemetryWriter {
 	append(record: TelemetryRecord): boolean;
 	close(): Promise<void>;
-	status(): TelemetryWriterStatus;
 }
 
 export interface JsonlTelemetryWriterOptions {
@@ -29,7 +23,6 @@ export class JsonlTelemetryWriter implements TelemetryWriter {
 	readonly #stream: WriteStream;
 	readonly #onError: (error: unknown) => void;
 	#enabled = true;
-	#written = 0;
 	#closed = false;
 
 	private constructor(stream: WriteStream, onError: (error: unknown) => void) {
@@ -54,7 +47,6 @@ export class JsonlTelemetryWriter implements TelemetryWriter {
 		if (!this.#enabled || this.#closed) return false;
 		try {
 			this.#stream.write(`${JSON.stringify(record)}\n`);
-			this.#written += 1;
 			return true;
 		} catch (error) {
 			this.disable(error);
@@ -67,10 +59,6 @@ export class JsonlTelemetryWriter implements TelemetryWriter {
 		this.#closed = true;
 		if (!this.#stream.destroyed) this.#stream.end();
 		await finished(this.#stream).catch((error: unknown) => this.disable(error));
-	}
-
-	status(): TelemetryWriterStatus {
-		return { enabled: this.#enabled && !this.#closed, written: this.#written };
 	}
 
 	private disable(error: unknown): void {

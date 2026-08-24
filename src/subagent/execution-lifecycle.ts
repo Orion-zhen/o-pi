@@ -10,15 +10,11 @@ export class SubagentExecutionRegistry {
 	start(externalSignal?: AbortSignal): SubagentExecutionLease {
 		const controller = new AbortController();
 		this.controllers.add(controller);
-		const signal = externalSignal === undefined
-			? controller.signal
-			: AbortSignal.any([externalSignal, controller.signal]);
-		let disposed = false;
 		return {
-			signal,
+			signal: externalSignal === undefined
+				? controller.signal
+				: AbortSignal.any([externalSignal, controller.signal]),
 			dispose: () => {
-				if (disposed) return;
-				disposed = true;
 				this.controllers.delete(controller);
 			},
 		};
@@ -27,9 +23,5 @@ export class SubagentExecutionRegistry {
 	abortAll(reason: unknown = new DOMException("Subagent session shut down.", "AbortError")): void {
 		for (const controller of this.controllers) controller.abort(reason);
 		this.controllers.clear();
-	}
-
-	get activeCount(): number {
-		return this.controllers.size;
 	}
 }

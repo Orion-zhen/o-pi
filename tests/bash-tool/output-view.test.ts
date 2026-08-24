@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 
 import { takeHeadBytes, takeTailBytes } from "../../src/bash-tool/output-capture.js";
 import { cleanForModel, createBashOutputView } from "../../src/bash-tool/output-view.js";
-import { defaultBashToolConfig } from "../../src/bash-tool/config.js";
+import { bashToolConfig } from "./fixture.js";
 import type { BashOutputFormat, BashRunStatus } from "../../src/bash-tool/types.js";
 
-const config = defaultBashToolConfig();
+const config = bashToolConfig();
 const fullOutputPath = path.join("o-pi", "bash", "s", "t.log");
 
 function view(text: string, overrides: Partial<Parameters<typeof createBashOutputView>[0]> = {}) {

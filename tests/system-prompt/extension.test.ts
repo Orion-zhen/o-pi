@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { BuildSystemPromptOptions, ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -12,7 +11,7 @@ import {
 } from "../../src/system-prompt/service.js";
 import { registerSystemCommand } from "../../agent/extensions/system-prompt.js";
 
-preserveEnv("PI_SUBAGENT_CHILD", "PI_SUBAGENT_FORK", "PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE", "PI_SUBAGENT_FORK_MANIFEST", "PI_CODING_AGENT_DIR", "HOME", "USERPROFILE");
+preserveEnv("PI_SUBAGENT_CHILD", "PI_SUBAGENT_FORK", "PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE", "PI_CODING_AGENT_DIR", "HOME", "USERPROFILE");
 const temp = useTempDir("o-pi-fork-system-prompt-");
 
 beforeEach(async () => {
@@ -49,21 +48,10 @@ describe("system prompt extension", () => {
 	it("fork 子进程逐字读取父 system prompt 且不要求 Agent Markdown", async () => {
 		const prompt = "Exact parent prompt.\n保留 Unicode 与换行。\n";
 		const promptPath = path.join(temp.path, "prompt.txt");
-		const manifestPath = path.join(temp.path, "manifest.json");
 		await writeFile(promptPath, prompt);
-		await writeFile(manifestPath, JSON.stringify({
-			snapshotHash: "snapshot",
-			systemPromptHash: createHash("sha256").update(prompt).digest("hex"),
-			modelHash: "model",
-			toolsHash: "tools",
-			thinkingLevel: "medium",
-			sessionId: "session",
-			cwd: "/repo",
-		}));
 		process.env.PI_SUBAGENT_CHILD = "1";
 		process.env.PI_SUBAGENT_FORK = "1";
 		process.env.PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE = promptPath;
-		process.env.PI_SUBAGENT_FORK_MANIFEST = manifestPath;
 
 		await expect(buildRuntimeSystemPrompt({ cwd: "/different" }, "/different")).resolves.toBe(prompt);
 	});

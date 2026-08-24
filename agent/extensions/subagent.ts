@@ -38,8 +38,6 @@ export function createSubagentExtension(
 ): (pi: ExtensionAPI) => void {
 	return function subagentExtension(pi: ExtensionAPI): void {
 		const executions = new SubagentExecutionRegistry();
-		let tuiModule: SubagentTuiModule | undefined;
-		registerCommandAdapters(pi, executions, () => tuiModule);
 		const subagentTool = registerObservedTool(pi, {
 			tool: {
 				name: "subagent",
@@ -48,12 +46,7 @@ export function createSubagentExtension(
 				promptSnippet: "delegate bounded tasks",
 				parameters: subagentParams,
 				async execute(toolCallId, params, signal, onUpdate, ctx) {
-					if (process.env.PI_SUBAGENT_CHILD === "1" || process.env.PI_SUBAGENT_FORK === "1") {
-						return {
-							content: [{ type: "text", text: "Recursive subagent calls are forbidden." }],
-							details: { mode: "parallel" as const, runId: "blocked", tasks: [], results: [], warnings: [] },
-						};
-					}
+					if (process.env.PI_SUBAGENT_CHILD === "1") throw new Error("Recursive subagent calls are forbidden.");
 					const lease = executions.start(signal);
 					try {
 						const interaction = createInteraction(ctx);
@@ -65,7 +58,7 @@ export function createSubagentExtension(
 									model: ctx.model,
 									sessionManager: ctx.sessionManager,
 									systemPrompt: ctx.getSystemPrompt(),
-								}, "tool", toolCallId),
+								}, { invocation: "tool", toolCallId }),
 								signal: lease.signal,
 								...(interaction === undefined ? {} : { interaction }),
 							},
@@ -82,27 +75,24 @@ export function createSubagentExtension(
 			telemetry: subagentTelemetry,
 		});
 
-		let nativeRendererLoad: Promise<void> | undefined;
-		pi.on("session_start", async (_event, ctx) => {
-			if (ctx.mode !== "tui") return;
-			if (nativeRendererLoad === undefined) {
-				const pending = loadTui().then((module) => {
+		let tuiLoad: Promise<SubagentTuiModule> | undefined;
+		const requireTui = (): Promise<SubagentTuiModule> => {
+			if (tuiLoad === undefined) {
+				tuiLoad = loadTui().then((module) => {
 					module.registerSubagentTui(pi, subagentTool);
-					tuiModule = module;
-				}, (error: unknown) => {
-					nativeRendererLoad = undefined;
-					ctx.ui.notify(`Subagent renderer initialization failed: ${error instanceof Error ? error.message : String(error)}`, "warning");
+					return module;
 				});
-				nativeRendererLoad = pending;
 			}
-			await nativeRendererLoad;
-		});
+			return tuiLoad;
+		};
+		registerCommandAdapters(pi, executions, requireTui);
 
+		pi.on("session_start", async (_event, ctx) => {
+			if (ctx.mode === "tui") await requireTui();
+		});
 		pi.on("tool_result", (event) => {
-			if (event.toolName !== "subagent") return undefined;
-			const details = event.details;
-			if (!isSubagentDetails(details)) return undefined;
-			return details.runId === "blocked" || details.results.some((result) => result.error !== undefined) ? { isError: true } : undefined;
+			if (event.toolName !== "subagent" || !isSubagentDetails(event.details)) return undefined;
+			return event.details.results.some((result) => result.error !== undefined) ? { isError: true } : undefined;
 		});
 		pi.on("session_shutdown", () => {
 			executions.abortAll();
@@ -113,7 +103,7 @@ export function createSubagentExtension(
 function registerCommandAdapters(
 	pi: ExtensionAPI,
 	executions: SubagentExecutionRegistry,
-	getTui: () => SubagentTuiModule | undefined,
+	requireTui: () => Promise<SubagentTuiModule>,
 ): void {
 	pi.registerCommand("agents", {
 		description: "List available subagents",
@@ -132,8 +122,9 @@ function registerCommandAdapters(
 				return;
 			}
 
-			const tui = ctx.mode === "tui" ? getTui() : undefined;
-			const progressAdapter = tui?.createSubagentCommandProgressAdapter(ctx.ui);
+			const progressAdapter = ctx.mode === "tui"
+				? (await requireTui()).createSubagentCommandProgressAdapter(ctx.ui)
+				: undefined;
 			const lease = executions.start(ctx.signal);
 			try {
 				const interaction = createInteraction(ctx);
@@ -154,10 +145,8 @@ function registerCommandAdapters(
 					pi.appendEntry(SUBAGENT_COMMAND_ENTRY, result);
 					return;
 				}
-				const text = result.content[0]?.type === "text" ? result.content[0].text : "(no output)";
-				const failed = result.details.results.some((item) => item.error !== undefined)
-					|| result.details.results.length === 0;
-				ctx.ui.notify(text, failed ? "error" : "info");
+				const failed = result.details.results.some((item) => item.error !== undefined);
+				ctx.ui.notify(result.content[0].text, failed ? "error" : "info");
 			} finally {
 				lease.dispose();
 				progressAdapter?.dispose();
@@ -181,10 +170,9 @@ function createInteraction(ctx: {
 	return { confirmWrite: (title, message) => ctx.ui.confirm(title, message) };
 }
 
-function isSubagentDetails(value: unknown): value is { runId?: string; results: Array<{ error?: string }> } {
+function isSubagentDetails(value: unknown): value is { results: Array<{ error?: string }> } {
 	if (typeof value !== "object" || value === null) return false;
-	const results: unknown = Reflect.get(value, "results");
-	return Array.isArray(results);
+	return Array.isArray(Reflect.get(value, "results"));
 }
 
 export default createSubagentExtension();

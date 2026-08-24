@@ -5,6 +5,8 @@ import { runSubagentTasks } from "./progress.js";
 import type {
 	AgentDefinition,
 	ExecutorContext,
+	ExecutorInvocation,
+	NonEmptyArray,
 	ParentModel,
 	ParentSessionManager,
 	SubagentConfig,
@@ -39,13 +41,13 @@ export interface SubagentCommandContext {
 export function runSubagentCommand(
 	port: SubagentRuntimePort,
 	context: SubagentCommandContext,
-	tasks: SubagentTask[],
+	tasks: NonEmptyArray<SubagentTask>,
 	onProgress?: SubagentProgressCallback,
 ): Promise<SubagentToolResult> {
 	return runSubagentTasks(
 		{ tasks },
 		{
-			...captureExecutorContext(port, context, "command"),
+			...captureExecutorContext(port, context, { invocation: "command" }),
 			...(context.signal === undefined ? {} : { signal: context.signal }),
 			...(context.interaction === undefined ? {} : { interaction: context.interaction }),
 		},
@@ -59,9 +61,8 @@ export async function queryAgentsSummary(
 ): Promise<string> {
 	const config = await loadSubagentConfig(input.cwd);
 	const discovery = discoverAgents(input.cwd, config);
-	const model = formatModelReference(input.model);
 	return formatAgents(discovery.agents, config, registeredToolNames(port), {
-		...(model === undefined ? {} : { model }),
+		model: formatModelReference(input.model),
 		tools: port.getActiveTools(),
 		cwd: input.cwd,
 	});
@@ -73,7 +74,6 @@ export async function querySubagentConfigSummary(cwd: string): Promise<string> {
 		`max_parallel_tasks: ${config.maxParallelTasks}`,
 		`max_concurrency: ${config.maxConcurrency}`,
 		`timeout_ms: ${config.timeoutMs}`,
-		`retries: ${config.retries}`,
 		`max_inline_output_tokens: ${config.maxInlineOutputTokens}`,
 		`max_handoff_tokens: ${config.maxHandoffTokens}`,
 		`allow_project_agents: ${config.allowProjectAgents}`,
@@ -96,7 +96,7 @@ export function tokenize(input: string): string[] {
 	let current = "";
 	let quote: "'" | '"' | undefined;
 	for (let i = 0; i < input.length; i++) {
-		const ch = input[i];
+		const ch = input.charAt(i);
 		if (quote !== undefined) {
 			if (ch === quote) quote = undefined;
 			else current += ch;
@@ -106,7 +106,7 @@ export function tokenize(input: string): string[] {
 			quote = ch;
 			continue;
 		}
-		if (/\s/.test(ch ?? "")) {
+		if (/\s/.test(ch)) {
 			if (current !== "") {
 				tokens.push(current);
 				current = "";
@@ -120,7 +120,7 @@ export function tokenize(input: string): string[] {
 	return tokens;
 }
 
-export function parsePipeline(input: string): { tasks: SubagentTask[] } | { error: string } {
+export function parsePipeline(input: string): { tasks: NonEmptyArray<SubagentTask> } | { error: string } {
 	const parts = splitPipeline(input);
 	if (parts.length === 0) return { error: "Syntax requires at least one <agent> <task> segment." };
 	const tasks: SubagentTask[] = [];
@@ -135,57 +135,61 @@ export function parsePipeline(input: string): { tasks: SubagentTask[] } | { erro
 		if (agent === undefined || rest.length === 0) return { error: `Invalid segment: ${part.trim()}` };
 		tasks.push({ agent, task: rest.join(" ") });
 	}
-	return { tasks };
+	return { tasks: tasks as NonEmptyArray<SubagentTask> };
 }
 
 export function formatAgents(
 	agents: AgentDefinition[],
 	config: SubagentConfig,
 	registeredTools: string[],
-	parent?: { model?: string; tools: readonly string[]; cwd: string },
+	parent: { model: string | undefined; tools: readonly string[]; cwd: string },
 ): string {
 	if (agents.length === 0) return "No subagents found.";
 	return agents
 		.map((agent) => {
-			const tools = agent.fork && parent !== undefined ? [...parent.tools] : resolveSubagentTools(agent, config, registeredTools);
-			const model = agent.fork && parent !== undefined ? parent.model : agent.model ?? "(current)";
+			const tools = agent.fork ? [...parent.tools] : resolveSubagentTools(agent, config, registeredTools);
+			const model = agent.fork
+				? parent.model
+				: config.agentOverrides[agent.name]?.model ?? agent.model ?? config.defaultModel ?? parent.model;
 			return [
 				`${agent.name} - ${agent.description}`,
 				`  source: ${agent.source} (${agent.filePath})`,
 				`  mode: ${agent.fork ? "fork" : "isolated"}`,
 				`  model: ${model ?? "(unavailable)"}`,
 				`  tools: ${tools.length > 0 ? tools.join(", ") : "(none)"}`,
-				`  cwd: ${agent.fork && parent !== undefined ? parent.cwd : "(task/workspace)"}`,
+				`  cwd: ${agent.fork ? parent.cwd : "(task/workspace)"}`,
 				`  write: ${hasWriteCapability(tools) ? "yes" : "no"}`,
 			].join("\n");
 		})
 		.join("\n\n");
 }
 
+type CapturedExecutorContext = Pick<
+	ExecutorContext,
+	"cwd" | "currentModel" | "activeTools" | "allTools" | "thinkingLevel" | "sessionManager" | "systemPrompt"
+>;
+
+type ExecutorContextSource = {
+	cwd: string;
+	model: ParentModel | undefined;
+	sessionManager: ParentSessionManager;
+	systemPrompt: string;
+};
+
 export function captureExecutorContext(
 	port: SubagentRuntimePort,
-	ctx: {
-		cwd: string;
-		model: ParentModel | undefined;
-		sessionManager: ParentSessionManager;
-		systemPrompt: string;
-	},
-	invocation: "tool" | "command",
-	toolCallId?: string,
-): Pick<
-	ExecutorContext,
-	"cwd" | "currentModel" | "activeTools" | "allTools" | "thinkingLevel" | "sessionManager" | "systemPrompt" | "invocation" | "toolCallId"
-> {
+	ctx: ExecutorContextSource,
+	invocation: ExecutorInvocation,
+): CapturedExecutorContext & ExecutorInvocation {
 	return {
 		cwd: ctx.cwd,
-		...(ctx.model === undefined ? {} : { currentModel: ctx.model }),
+		currentModel: ctx.model,
 		activeTools: port.getActiveTools(),
 		allTools: port.getAllTools(),
 		thinkingLevel: port.getThinkingLevel(),
 		sessionManager: ctx.sessionManager,
 		systemPrompt: ctx.systemPrompt,
-		invocation,
-		...(toolCallId === undefined ? {} : { toolCallId }),
+		...invocation,
 	};
 }
 
@@ -198,7 +202,7 @@ function splitPipeline(input: string): string[] {
 	let current = "";
 	let quote: "'" | '"' | undefined;
 	for (let i = 0; i < input.length; i++) {
-		const ch = input[i];
+		const ch = input.charAt(i);
 		if (quote !== undefined) {
 			if (ch === quote) quote = undefined;
 			current += ch;

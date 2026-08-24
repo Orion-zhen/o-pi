@@ -1,10 +1,9 @@
 export {
 	discoverAgents,
-	formatAvailableAgents,
 	hasWriteCapability,
 	resolveSubagentTools,
 } from "./agents.js";
-export { defaultSubagentConfig, loadSubagentConfig, mergeProjectConfig, mergeUserConfig, SubagentConfigError } from "./config.js";
+export { loadSubagentConfig, SubagentConfigError } from "./config.js";
 export {
 	captureExecutorContext,
 	completeAgents,
@@ -24,12 +23,7 @@ export {
 	cleanupForkExecutionContext,
 	createForkExecutionContext,
 	formatForkAssignment,
-	hashModel,
-	hashTools,
-	loadAndValidateForkSystemPrompt,
-	loadForkManifest,
-	stableSerialize,
-	validateForkRuntime,
+	loadForkSystemPrompt,
 } from "./session-context.js";
 export type {
 	AgentDefinition,
@@ -38,8 +32,9 @@ export type {
 	ContextMode,
 	ExecutorContext,
 	ForkExecutionContext,
-	ForkManifest,
+	NonEmptyArray,
 	ParentModel,
+	SubagentCompletedResult,
 	SubagentConfig,
 	ToolInfo,
 	SubagentDetails,

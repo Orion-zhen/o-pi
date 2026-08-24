@@ -16,13 +16,12 @@ import {
 	type DiscordPresenceCoordinator,
 } from "./coordinator-client.js";
 import { renderDiscordActivity } from "./render.js";
-import {
-	PRESENCE_PROFILES,
-	type DiscordActivityPayload,
-	type DiscordPresenceConfig,
-	type PresenceConnectionStatus,
-	type PresenceProfileName,
-	type PresenceSession,
+import type {
+	DiscordActivityPayload,
+	DiscordPresenceConfig,
+	PresenceConnectionStatus,
+	PresenceProfileName,
+	PresenceSession,
 } from "./types.js";
 
 export interface PresenceStartContext {
@@ -34,7 +33,7 @@ export interface PresenceStartContext {
 
 export interface PresenceStatusSnapshot {
 	enabled: boolean;
-	profile: PresenceProfileName;
+	profile: PresenceProfileName | undefined;
 	connection: PresenceConnectionStatus;
 }
 
@@ -44,10 +43,14 @@ export interface DiscordPresenceServiceOptions {
 	processStartedAt?: number;
 }
 
+interface LoadedPresenceState {
+	config: DiscordPresenceConfig;
+	session: PresenceSession;
+}
+
 /** 管理 Presence 状态；所有 session 沿用当前 Pi 进程的计时起点。 */
 export class DiscordPresenceService {
-	private config: DiscordPresenceConfig | undefined;
-	private session: PresenceSession | undefined;
+	private loaded: LoadedPresenceState | undefined;
 	private activity: PresenceActivityState = initialPresenceActivityState();
 	private readonly coordinator: DiscordPresenceCoordinator;
 	private coordinatorActive = false;
@@ -87,12 +90,12 @@ export class DiscordPresenceService {
 	async shutdown(): Promise<void> {
 		this.generation += 1;
 		await this.disposeActive();
-		this.config = undefined;
-		this.session = undefined;
+		this.loaded = undefined;
 	}
 
 	selectProfile(profile: PresenceProfileName): void {
-		if (this.config === undefined || !Object.hasOwn(this.config.profiles, profile)) {
+		const config = this.loaded?.config;
+		if (config === undefined || !Object.hasOwn(config.profiles, profile)) {
 			throw new Error(`Unknown Discord presence profile: ${profile}`);
 		}
 		this.runtimeProfile = profile;
@@ -100,13 +103,13 @@ export class DiscordPresenceService {
 	}
 
 	profileNames(): string[] {
-		return this.config === undefined ? [...PRESENCE_PROFILES] : Object.keys(this.config.profiles);
+		return this.loaded === undefined ? [] : Object.keys(this.loaded.config.profiles);
 	}
 
 	status(): PresenceStatusSnapshot {
 		return {
 			enabled: this.coordinatorActive,
-			profile: this.activeProfile(),
+			profile: this.loaded === undefined ? undefined : this.activeProfileName(this.loaded.config),
 			connection: this.coordinatorActive ? this.coordinator.getStatus() : "disabled",
 		};
 	}
@@ -142,12 +145,22 @@ export class DiscordPresenceService {
 	}
 
 	onModelSelect(model: { id: string; name: string }): void {
-		if (this.session !== undefined) this.session = { ...this.session, model: modelDisplayName(model) };
+		if (this.loaded !== undefined) {
+			this.loaded = {
+				...this.loaded,
+				session: { ...this.loaded.session, model: modelDisplayName(model) },
+			};
+		}
 		this.publish();
 	}
 
 	onSessionName(name: string | undefined): void {
-		if (this.session !== undefined) this.session = { ...this.session, session: name || this.session.project };
+		if (this.loaded !== undefined) {
+			this.loaded = {
+				...this.loaded,
+				session: { ...this.loaded.session, session: name ?? this.loaded.session.project },
+			};
+		}
 		this.publish();
 	}
 
@@ -155,17 +168,18 @@ export class DiscordPresenceService {
 		const generation = ++this.generation;
 		const config = await this.loadConfig(context.cwd);
 		if (generation !== this.generation) return;
-		this.config = config;
 		if (this.runtimeProfile !== undefined && !Object.hasOwn(config.profiles, this.runtimeProfile)) {
 			this.runtimeProfile = undefined;
 		}
 		this.activity = context.idle ? initialPresenceActivityState() : startTurn(initialPresenceActivityState());
-		this.session = {
-			project: path.basename(context.cwd) || context.cwd,
+		const project = path.basename(context.cwd) || context.cwd;
+		const session: PresenceSession = {
+			project,
 			model: context.model === undefined ? "No model" : modelDisplayName(context.model),
-			session: context.sessionName || path.basename(context.cwd) || context.cwd,
+			session: context.sessionName ?? project,
 			startedAt: this.processStartedAt,
 		};
+		this.loaded = { config, session };
 		if (!(this.runtimeEnabled ?? config.enabled)) {
 			await this.disposeActive();
 			return;
@@ -173,14 +187,14 @@ export class DiscordPresenceService {
 		if (config.application_id.length === 0) {
 			throw new Error("application_id is required to enable Discord presence.");
 		}
-		const initialActivity = this.renderActivity();
+		const initialActivity = this.renderActivity(this.loaded);
 		this.coordinatorActive = true;
 		try {
 			await this.coordinator.activate({
 				applicationId: config.application_id,
 				updateIntervalMs: config.update_interval_ms,
 				retryIntervalMs: config.retry_interval_ms,
-			}, this.session.startedAt, initialActivity);
+			}, session.startedAt, initialActivity);
 		} catch (error) {
 			if (generation === this.generation) {
 				this.coordinatorActive = false;
@@ -190,30 +204,33 @@ export class DiscordPresenceService {
 		}
 	}
 
-	private renderActivity(): DiscordActivityPayload | undefined {
-		if (this.config === undefined || this.session === undefined) return undefined;
+	private renderActivity(state: LoadedPresenceState): DiscordActivityPayload | undefined {
+		const profileName = this.activeProfileName(state.config);
+		const profile = state.config.profiles[profileName];
+		if (profile === undefined) throw new Error(`Unknown Discord presence profile: ${profileName}`);
 		return renderDiscordActivity(
-			this.config,
-			this.activeProfile(),
+			state.config,
+			profile,
 			currentActivity(this.activity),
-			this.session,
+			state.session,
 		);
 	}
 
 	private async disposeActive(): Promise<void> {
 		if (!this.coordinatorActive) return;
 		this.coordinatorActive = false;
-		await this.coordinator.deactivate().catch(() => undefined);
+		await this.coordinator.deactivate();
 	}
 
 	private publish(): void {
-		if (!this.coordinatorActive || this.config === undefined || this.session === undefined) return;
-		const rendered = this.renderActivity();
+		if (!this.coordinatorActive) return;
+		if (this.loaded === undefined) throw new Error("Discord presence is active without a loaded session.");
+		const rendered = this.renderActivity(this.loaded);
 		if (rendered !== undefined) this.coordinator.request(rendered);
 	}
 
-	private activeProfile(): PresenceProfileName {
-		return this.runtimeProfile ?? this.config?.profile ?? PRESENCE_PROFILES[2];
+	private activeProfileName(config: DiscordPresenceConfig): PresenceProfileName {
+		return this.runtimeProfile ?? config.profile;
 	}
 }
 

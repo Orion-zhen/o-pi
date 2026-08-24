@@ -1,9 +1,8 @@
 import type { CallRecord, Candidate } from "../../telemetry/types.js";
-import { frequency, ratio } from "../shared.js";
+import { ratio } from "../shared.js";
 import type {
 	AdoptionWindowStatistics,
 	CandidateLevelStatistics,
-	CandidateRankingCoreStatistics,
 	CandidateRankingReport,
 	CandidateRankingStatistics,
 	ConversionAtK,
@@ -11,7 +10,6 @@ import type {
 	SourceContributionStatistics,
 } from "../types.js";
 import {
-	collectCandidateObservations,
 	type CandidateAttribution,
 	type CandidateLevel,
 	type CandidateObservation,
@@ -22,18 +20,11 @@ import {
 
 const K_VALUES = [1, 3, 5, 10] as const;
 
-export function analyzeCandidateRanking(
-	calls: readonly CallRecord[],
-	cwdByRun: ReadonlyMap<string, string> = new Map(),
-): CandidateRankingReport {
-	return summarizeCandidateRanking(collectCandidateObservations(calls, cwdByRun));
-}
-
 export function summarizeCandidateRanking(observed: CandidateObservationSet): CandidateRankingReport {
 	const tools = [...new Set(observed.producers.map((call) => call.tool))].sort();
 	return {
 		heuristic: true,
-		method: "successful read/edit/write/webfetch consumers are uniquely attributed by range overlap, file match, producer recency, rank, and range specificity; broad retains the 10-call/5-minute window; candidate_conversion_rate is the legacy broad candidate-fact rate",
+		method: "successful read/edit/write/webfetch consumers are uniquely attributed by range overlap, file match, producer recency, rank, and range specificity; broad retains the 10-call/5-minute window",
 		participation_note: "source participation overlaps and must not be added; exclusive productive adoption is a lower bound and participation is an upper bound",
 		...statistics(observed),
 		by_tool: Object.fromEntries(tools.map((tool) => [tool, statistics(filterObserved(observed, tool))])),
@@ -43,30 +34,13 @@ export function summarizeCandidateRanking(observed: CandidateObservationSet): Ca
 function statistics(observed: CandidateObservationSet): CandidateRankingStatistics {
 	const fileLevel = levelStatistics(observed, "file");
 	return {
-		...coreStatistics(observed.producers, observed.observations),
+		producer_calls: observed.producers.length,
+		candidates: observed.observations.length,
 		file_level: fileLevel,
 		region_level: levelStatistics(observed, "region"),
 		by_source: statisticsBySource(observed, exactSources),
 		by_source_family: statisticsBySource(observed, sourceFamilies),
 		output_efficiency: outputEfficiency(observed, fileLevel),
-	};
-}
-
-function coreStatistics(
-	producers: readonly CallRecord[],
-	observations: readonly CandidateObservation[],
-): CandidateRankingCoreStatistics {
-	const converted = observations.filter((item) => item.consumer !== undefined);
-	const events = converted.map((item) => ({ producer: item.producer, candidate: item.candidate }));
-	const window = rankingWindow(producers, events, new Set());
-	return {
-		producer_calls: producers.length,
-		candidates: observations.length,
-		converted_candidates: converted.length,
-		candidate_conversion_rate: ratio(converted.length, observations.length),
-		conversion_at_k: window.hit_at_k,
-		mrr: window.mrr,
-		downstream_consumers: frequency(converted.flatMap((item) => item.consumer?.tool ?? [])),
 	};
 }
 

@@ -1,11 +1,10 @@
-import {
-	UsageRequestError,
-	type ProviderUsage,
-	type UsageProviderError,
-	type UsageResetCredit,
-	type UsageResetCredits,
-	type UsageSnapshot,
-	type UsageWindow,
+import type {
+	ProviderUsage,
+	UsageProviderError,
+	UsageResetCredit,
+	UsageResetCredits,
+	UsageSnapshot,
+	UsageWindow,
 } from "../types.js";
 import { visibleTextWidth, wrapPresentationText } from "./text-layout.js";
 
@@ -15,7 +14,8 @@ const TIME_WIDTH = 19;
 const INDEX_WIDTH = 3;
 const STATE_WIDTH = 12;
 const TABLE_GAP = "   ";
-const MAX_DISPLAY_TEXT = 240;
+
+type VisibleProvider = Exclude<ProviderUsage, { status: "not_logged_in" }>;
 
 export interface UsageRenderOptions {
 	formatProviderHeading?: (heading: string) => string;
@@ -23,55 +23,48 @@ export interface UsageRenderOptions {
 
 /** 用剩余额度进度条和响应式重置卡列表渲染所有 OAuth plan。 */
 export function renderUsage(snapshot: UsageSnapshot, width: number, options: UsageRenderOptions = {}): string[] {
-	const safeWidth = Math.max(1, width);
 	const lines = [
 		`Plan Usage · Queried ${formatDateTime(snapshot.generatedAt, snapshot.timeZone)}`,
 		`Timezone: ${snapshot.timeZone}`,
 		"",
 	];
-	const providers = snapshot.providers.filter((provider) => provider.status !== "not_logged_in");
+	const providers = snapshot.providers.filter(isVisibleProvider);
 	if (providers.length === 0) {
 		lines.push("No logged-in supported plan providers.");
 	} else {
 		for (const [index, provider] of providers.entries()) {
 			if (index > 0) lines.push("");
-			lines.push(...renderProvider(provider, snapshot, safeWidth, options.formatProviderHeading ?? identity));
+			lines.push(...renderProvider(provider, snapshot, width, options.formatProviderHeading ?? identity));
 		}
 	}
 	lines.push("", "Esc / Enter / q to close");
-	return lines.flatMap((line) => wrapLine(line, safeWidth));
+	return lines.flatMap((line) => wrapPresentationText(line, width));
 }
 
-/** 顶层失败不显示底层异常文本、响应正文或凭据。 */
-export function renderUsageError(error: unknown, width: number): string[] {
-	const safeWidth = Math.max(1, width);
-	const message = error instanceof UsageRequestError && error.code === "aborted"
-		? "The usage request was cancelled."
-		: "Plan usage could not be loaded. Please try again.";
-	return ["Plan Usage · Request failed", "", message, "", "Esc / Enter / q to close"].flatMap((line) => wrapLine(line, safeWidth));
+export function renderUsageCancelled(width: number): string[] {
+	return ["Plan Usage · Request cancelled", "", "The usage request was cancelled.", "", "Esc / Enter / q to close"]
+		.flatMap((line) => wrapPresentationText(line, width));
+}
+
+function isVisibleProvider(provider: ProviderUsage): provider is VisibleProvider {
+	return provider.status !== "not_logged_in";
 }
 
 function renderProvider(
-	provider: ProviderUsage,
+	provider: VisibleProvider,
 	snapshot: UsageSnapshot,
 	width: number,
 	formatHeading: (heading: string) => string,
 ): string[] {
-	const name = cleanDisplayText(provider.name);
-	if (provider.status === "not_logged_in") {
-		return joinBlocks([[formatHeading(`${name} · OAuth not logged in`)], [`Run /login ${provider.loginProvider} to connect this plan.`]]);
-	}
 	if (provider.status === "error") {
-		return joinBlocks([[formatHeading(`${name} · Request failed`)], [formatProviderError(provider.error)]]);
+		return joinBlocks([[formatHeading(`${provider.name} · Request failed`)], [formatProviderError(provider.error)]]);
 	}
 
-	const heading = `${name} · ${provider.plan === undefined ? "plan unknown" : cleanDisplayText(provider.plan)}`;
+	const heading = `${provider.name} · ${provider.plan ?? "plan unknown"}`;
 	const blocks: string[][] = [[formatHeading(heading)]];
 	if (provider.windows.length === 0) blocks.push(["Usage window information unavailable."]);
 	else blocks.push(...renderWindowBlocks(provider.windows, snapshot));
-	for (const detail of provider.details) {
-		blocks.push([`${cleanDisplayText(detail.label)}: ${cleanDisplayText(detail.value)}`]);
-	}
+	for (const detail of provider.details) blocks.push([`${detail.label}: ${detail.value}`]);
 	if (provider.resetCredits !== undefined) blocks.push(renderResetCredits(provider.resetCredits, snapshot, width));
 	return joinBlocks(blocks);
 }
@@ -95,7 +88,7 @@ function renderWideResetCredits(credits: UsageResetCredit[], snapshot: UsageSnap
 	for (const [index, credit] of credits.entries()) {
 		lines.push([
 			padEnd(String(index + 1), INDEX_WIDTH),
-			padEnd(cleanDisplayText(credit.status), STATE_WIDTH),
+			padEnd(credit.status, STATE_WIDTH),
 			padEnd(formatDateTime(credit.grantedAt, snapshot.timeZone), TIME_WIDTH),
 			padEnd(formatDateTime(credit.expiresAt, snapshot.timeZone), TIME_WIDTH),
 			formatResetCreditExpiry(credit, snapshot.generatedAt),
@@ -108,7 +101,7 @@ function renderCompactResetCredits(credits: UsageResetCredit[], snapshot: UsageS
 	const lines: string[] = [];
 	for (const [index, credit] of credits.entries()) {
 		if (lines.length > 0) lines.push("");
-		lines.push(`#${index + 1} ${cleanDisplayText(credit.status)} · ${formatResetCreditExpiry(credit, snapshot.generatedAt)}`);
+		lines.push(`#${index + 1} ${credit.status} · ${formatResetCreditExpiry(credit, snapshot.generatedAt)}`);
 		lines.push(`Granted ${formatDateTime(credit.grantedAt, snapshot.timeZone)}`);
 		lines.push(`Expires ${formatDateTime(credit.expiresAt, snapshot.timeZone)}`);
 	}
@@ -126,7 +119,7 @@ function renderWindowBlocks(windows: UsageWindow[], snapshot: UsageSnapshot): st
 	for (const window of windows) {
 		if (currentBlock === undefined || window.sectionLabel !== previousSection) {
 			currentBlock = [];
-			if (window.sectionLabel !== undefined) currentBlock.push(cleanDisplayText(window.sectionLabel));
+			if (window.sectionLabel !== undefined) currentBlock.push(window.sectionLabel);
 			blocks.push(currentBlock);
 			previousSection = window.sectionLabel;
 		}
@@ -144,17 +137,17 @@ function identity(value: string): string {
 }
 
 function renderWindow(window: UsageWindow, snapshot: UsageSnapshot): string {
-	const used = window.usedPercent === undefined ? undefined : clampPercent(window.usedPercent);
-	const remaining = used === undefined ? undefined : clampPercent(100 - used);
+	const used = window.usedPercent;
+	const remaining = used === undefined ? undefined : 100 - used;
 	const bar = renderProgress(remaining);
 	const duration = window.windowDurationMins === undefined ? "window unknown" : formatWindowDuration(window.windowDurationMins);
 	const reset = window.resetsAt === undefined
 		? "unknown"
 		: `${formatDateTime(window.resetsAt, snapshot.timeZone)} (${formatUntil(window.resetsAt, snapshot.generatedAt)})`;
 	if (used === undefined || remaining === undefined) {
-		return `${cleanDisplayText(window.label)} ${bar} usage unavailable · ${duration} · resets ${reset}`;
+		return `${window.label} ${bar} usage unavailable · ${duration} · resets ${reset}`;
 	}
-	return `${cleanDisplayText(window.label)} ${bar} ${formatPercent(remaining)}% remaining · ${formatPercent(used)}% used · ${duration} · resets ${reset}`;
+	return `${window.label} ${bar} ${formatPercent(remaining)}% remaining · ${formatPercent(used)}% used · ${duration} · resets ${reset}`;
 }
 
 function renderProgress(percent: number | undefined): string {
@@ -166,15 +159,14 @@ function renderProgress(percent: number | undefined): string {
 function formatProviderError(error: UsageProviderError): string {
 	if (error.code === "auth") return "Could not resolve Pi OAuth credentials. Run /login again.";
 	if (error.code === "timeout") return "The provider usage request timed out.";
-	if (error.code === "http") return error.httpStatus === undefined ? "The provider rejected the usage request." : `The provider returned HTTP ${error.httpStatus}.`;
+	if (error.code === "http") return `The provider returned HTTP ${error.httpStatus}.`;
 	if (error.code === "response_too_large") return "The provider returned an oversized usage response.";
 	if (error.code === "invalid_response") return "The provider returned an unexpected usage response.";
 	return "The provider usage request failed.";
 }
 
 function formatDateTime(timestamp: string | undefined, timeZone: string): string {
-	const date = parseTimestamp(timestamp);
-	if (date === undefined) return "unknown";
+	if (timestamp === undefined) return "unknown";
 	return new Intl.DateTimeFormat("en-CA", {
 		timeZone,
 		year: "numeric",
@@ -184,15 +176,12 @@ function formatDateTime(timestamp: string | undefined, timeZone: string): string
 		minute: "2-digit",
 		second: "2-digit",
 		hour12: false,
-	}).format(date).replace(", ", " ");
+	}).format(new Date(timestamp)).replace(", ", " ");
 }
 
 function formatExpiryDistance(timestamp: string | undefined, nowTimestamp: string): string {
-	const date = parseTimestamp(timestamp);
-	const now = parseTimestamp(nowTimestamp);
-	if (date === undefined) return "never";
-	if (now === undefined) return "unknown";
-	const delta = date.getTime() - now.getTime();
+	if (timestamp === undefined) return "never";
+	const delta = Date.parse(timestamp) - Date.parse(nowTimestamp);
 	const duration = formatDuration(Math.abs(delta));
 	return delta >= 0 ? `in ${duration}` : `${duration} ago`;
 }
@@ -209,10 +198,7 @@ function formatDuration(milliseconds: number): string {
 }
 
 function formatUntil(dateTimestamp: string, nowTimestamp: string): string {
-	const date = parseTimestamp(dateTimestamp);
-	const now = parseTimestamp(nowTimestamp);
-	if (date === undefined || now === undefined) return "unknown";
-	const minutes = Math.max(0, Math.floor((date.getTime() - now.getTime()) / 60_000));
+	const minutes = Math.max(0, Math.floor((Date.parse(dateTimestamp) - Date.parse(nowTimestamp)) / 60_000));
 	if (minutes < 1) return "now";
 	const days = Math.floor(minutes / 1440);
 	const hours = Math.floor((minutes % 1440) / 60);
@@ -222,21 +208,11 @@ function formatUntil(dateTimestamp: string, nowTimestamp: string): string {
 	return `in ${mins}m`;
 }
 
-function parseTimestamp(value: string | undefined): Date | undefined {
-	if (value === undefined) return undefined;
-	const milliseconds = Date.parse(value);
-	return Number.isFinite(milliseconds) ? new Date(milliseconds) : undefined;
-}
-
 function formatWindowDuration(minutes: number): string {
 	if (minutes < 60) return `${formatNumber(minutes)}m window`;
 	if (minutes % 1440 === 0) return `${formatNumber(minutes / 1440)}d window`;
 	if (minutes % 60 === 0) return `${formatNumber(minutes / 60)}h window`;
 	return `${formatNumber(minutes)}m window`;
-}
-
-function clampPercent(value: number): number {
-	return Math.max(0, Math.min(100, value));
 }
 
 function formatPercent(value: number): string {
@@ -245,17 +221,6 @@ function formatPercent(value: number): string {
 
 function formatNumber(value: number): string {
 	return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
-}
-
-function cleanDisplayText(value: string): string {
-	return value
-		.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/gu, "")
-		.trim()
-		.slice(0, MAX_DISPLAY_TEXT);
-}
-
-function wrapLine(text: string, width: number): string[] {
-	return wrapPresentationText(text, Math.max(1, width));
 }
 
 function padEnd(text: string, width: number): string {

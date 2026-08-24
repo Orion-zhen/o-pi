@@ -2,6 +2,7 @@ import { spawn as nodeSpawn, type SpawnOptionsWithoutStdio } from "node:child_pr
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp } from "node:fs/promises";
 import path from "node:path";
+import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { PiJsonProgressAccumulator } from "./json-progress.js";
 import { formatModelReference } from "./model.js";
 import type { ProcessRunInput, ProcessRunOutput, ProcessRunProgress } from "./types.js";
@@ -42,12 +43,10 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 	let parseErrors = 0;
 	let timedOut = false;
 	let aborted = false;
-	let providerError: string | undefined;
-	let exitCode = 1;
 
 	const launch = await buildLaunch(input);
 	const invocation = getPiInvocation(launch.args);
-	exitCode = await new Promise<number>((resolve) => {
+	const exitCode = await new Promise<number>((resolve) => {
 		const proc = spawnImpl(invocation.command, invocation.args, {
 			cwd: launch.cwd,
 			shell: false,
@@ -85,6 +84,7 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 			options.onUpdate?.(progressSnapshot());
 		};
 		const scheduleProgress = () => {
+			if (options.onUpdate === undefined) return;
 			progressDirty = true;
 			const remaining = progressIntervalMs - (Date.now() - lastProgressAt);
 			if (remaining <= 0) {
@@ -128,24 +128,24 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 				if (procToKill.exitCode === null) procToKill.kill("SIGKILL");
 			}, 2_000);
 		};
+		const processJsonLine = (line: string) => {
+			if (line.trim() === "") return;
+			try {
+				const event = parseJsonEvent(line);
+				if (progress.consume(event)) scheduleProgress();
+			} catch {
+				parseErrors++;
+			}
+		};
+
 		timeout = setTimeout(() => {
 			timedOut = true;
 			terminateProcess(proc);
 		}, input.timeoutMs);
-		const processJsonLine = (line: string) => {
-			if (line.trim() === "") return;
-			const parsed = parseJsonObject(line);
-			if (parsed === undefined) {
-				parseErrors++;
-				return;
-			}
-			if (progress.consume(parsed)) scheduleProgress();
-		};
-
 		proc.stdout.on("data", (chunk) => {
 			stdoutBuffer += chunk.toString();
 			const lines = stdoutBuffer.split(/\r?\n/);
-			stdoutBuffer = lines.pop() ?? "";
+			stdoutBuffer = lines.pop() as string;
 			for (const line of lines) processJsonLine(line);
 		});
 		proc.stderr.on("data", (chunk) => {
@@ -155,7 +155,7 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 			processError = spawnError.message;
 			finish(1);
 		});
-		proc.on("close", (code) => finish(code ?? 0));
+		proc.on("close", (code) => finish(code === null ? 1 : code));
 		if (options.signal !== undefined) {
 			if (options.signal.aborted) abort();
 			else {
@@ -166,7 +166,7 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 	});
 	const finalProgress = progress.snapshot();
 	const finalError = processError ?? finalProgress.error;
-	providerError = detectProviderError(stderr) ?? detectProviderError(finalError ?? "");
+	const providerError = detectProviderError(stderr) ?? detectProviderError(finalError ?? "");
 	return {
 		exitCode,
 		...(finalProgress.stopReason !== undefined ? { stopReason: finalProgress.stopReason } : {}),
@@ -178,7 +178,7 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 		durationMs: Date.now() - start,
 		timedOut,
 		aborted,
-		...(providerError !== undefined ? { providerError } : {}),
+		...(providerError === undefined ? {} : { providerError }),
 		parseErrors,
 		wrote: finalProgress.wrote,
 	};
@@ -195,15 +195,13 @@ async function buildLaunch(input: ProcessRunInput): Promise<{ args: string[]; cw
 	const fork = input.forkContext;
 	const childSessionsRoot = path.join(path.dirname(fork.snapshotPath), "child-sessions");
 	await mkdir(childSessionsRoot, { recursive: true, mode: 0o700 });
-	const childSessionDir = await mkdtemp(path.join(childSessionsRoot, "attempt-"));
-	const model = formatModelReference(fork.model);
-	if (model === undefined) throw new Error("fork setup error: current model is unavailable");
+	const childSessionDir = await mkdtemp(path.join(childSessionsRoot, "run-"));
 	const args = [
 		"--mode", "json", "-p",
 		"--fork", fork.snapshotPath,
 		"--session-dir", childSessionDir,
 		"--session-id", fork.sessionId,
-		"--model", model,
+		"--model", formatModelReference(fork.model),
 		"--thinking", fork.thinkingLevel,
 		"--tools", fork.activeTools.join(","),
 		input.assignment,
@@ -215,8 +213,6 @@ async function buildLaunch(input: ProcessRunInput): Promise<{ args: string[]; cw
 			PI_SUBAGENT_CHILD: "1",
 			PI_SUBAGENT_FORK: "1",
 			PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE: fork.systemPromptPath,
-			PI_SUBAGENT_FORK_MANIFEST: fork.manifestPath,
-			PI_SUBAGENT_FORK_SNAPSHOT: fork.snapshotPath,
 		},
 	};
 }
@@ -245,15 +241,22 @@ function buildChildEnv(): NodeJS.ProcessEnv {
 
 function detectProviderError(text: string): string | undefined {
 	if (text.trim() === "") return undefined;
-	const patterns = [/fork (?:setup error|context mismatch)/i, /model .*not.*found/i, /connection refused/i, /ECONNREFUSED/i, /rate.?limit/i, /provider error/i, /failed to load model/i];
+	const patterns = [
+		/fork (?:setup error|context mismatch)/i,
+		/model .*not.*found/i,
+		/connection refused/i,
+		/econnrefused/i,
+		/rate.?limit/i,
+		/provider error/i,
+		/failed to load model/i,
+	];
 	return patterns.some((pattern) => pattern.test(text)) ? text.trim() : undefined;
 }
 
-function parseJsonObject(line: string): Record<string, unknown> | undefined {
-	try {
-		const parsed = JSON.parse(line) as unknown;
-		return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : undefined;
-	} catch {
-		return undefined;
+function parseJsonEvent(line: string): JsonAgentSessionEvent {
+	const value: unknown = JSON.parse(line);
+	if (typeof value !== "object" || value === null || Array.isArray(value) || typeof Reflect.get(value, "type") !== "string") {
+		throw new Error("Pi JSON event must be an object with a type");
 	}
+	return value as JsonAgentSessionEvent;
 }

@@ -536,12 +536,14 @@ function successfulSearch(query: string, content = query) {
 async function runJitiExtension(body: string, configPath: string): Promise<string> {
 	const extensionPath = path.join(process.cwd(), "agent", "extensions", "web-tools.ts");
 	const script = `
+		import { createEventBus } from "@earendil-works/pi-coding-agent";
 		import { createJiti } from "jiti/static";
 		const jiti = createJiti(import.meta.url, { moduleCache: false });
 		const extension = await jiti.import(${JSON.stringify(extensionPath)}, { default: true });
 		const tools = [];
 		const handlers = new Map();
 		extension({
+			events: createEventBus(),
 			registerTool(tool) { tools.push(tool); },
 			on(name, handler) { handlers.set(name, handler); },
 		});

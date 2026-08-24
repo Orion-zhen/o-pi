@@ -1,16 +1,9 @@
 import type { CallRecord } from "../../telemetry/types.js";
 import { compare, ratio } from "../shared.js";
 import type { SearchCandidateUse, SearchEffectivenessReport, SearchEffectivenessStatistics } from "../types.js";
-import { collectCandidateObservations, type CandidateObservation, type CandidateObservationSet } from "./candidate-observations.js";
+import type { CandidateObservation, CandidateObservationSet } from "./candidate-observations.js";
 
 const SEARCH_TOOLS = new Set(["find", "grep", "websearch"]);
-
-export function analyzeSearchEffectiveness(
-	calls: readonly CallRecord[],
-	cwdByRun: ReadonlyMap<string, string> = new Map(),
-): SearchEffectivenessReport {
-	return summarizeSearchEffectiveness(calls, collectCandidateObservations(calls, cwdByRun));
-}
 
 export function summarizeSearchEffectiveness(
 	calls: readonly CallRecord[],
@@ -35,7 +28,7 @@ export function summarizeSearchEffectiveness(
 }
 
 function statistics(calls: readonly CallRecord[], observations: readonly CandidateObservation[]): SearchEffectivenessStatistics {
-	const converted = observations.filter((item) => item.consumer !== undefined);
+	const converted = observations.filter(hasConsumer);
 	const convertedProducers = new Set(converted.map((item) => callKey(item.producer)));
 	const scannedFileCounts = calls.flatMap((call) =>
 		scannedFileCount(call.fields?.["scanned_file_count"] ?? call.fields?.["searched_file_count"]) ?? []);
@@ -65,9 +58,9 @@ function statisticsByGroup(observations: readonly CandidateObservation[]): Recor
 }
 
 function candidateUse(observations: readonly CandidateObservation[]): SearchCandidateUse {
-	const converted = observations.filter((item) => item.consumer !== undefined);
-	const inspected = converted.filter((item) => item.consumer?.tool === "read" || item.consumer?.tool === "webfetch").length;
-	const mutated = converted.filter((item) => item.consumer?.tool === "edit" || item.consumer?.tool === "write").length;
+	const converted = observations.filter(hasConsumer);
+	const inspected = converted.filter((item) => item.consumer.tool === "read" || item.consumer.tool === "webfetch").length;
+	const mutated = converted.filter((item) => item.consumer.tool === "edit" || item.consumer.tool === "write").length;
 	return {
 		candidates: observations.length,
 		converted_candidates: converted.length,
@@ -78,10 +71,14 @@ function candidateUse(observations: readonly CandidateObservation[]): SearchCand
 	};
 }
 
+function hasConsumer(observation: CandidateObservation): observation is CandidateObservation & { consumer: CallRecord } {
+	return observation.consumer !== undefined;
+}
+
 function callKey(call: CallRecord): string {
 	return `${call.run_id}\0${call.call_id}`;
 }
 
 function scannedFileCount(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+	return typeof value === "number" && value >= 0 ? value : undefined;
 }
