@@ -62,8 +62,7 @@ PI_MODELS_JSONC_<PROVIDER_ID>_API_KEY
 ```jsonc
 {
   "headers": {
-    "X-Account": "$ACCOUNT",
-    "User-Agent": "pi-openai-compatible/1.0"
+    "X-Account": "$ACCOUNT"
   }
 }
 ```
@@ -77,6 +76,8 @@ PI_MODELS_JSONC_<PROVIDER_ID>_API_KEY
 ```
 
 扩展比较请求头名称时不区分大小写。提供方配置和模型配置都不会覆盖调用方显式设置的请求头。
+
+Pi 的 OpenAI 适配器默认发送 Pi `User-Agent`。只有服务端明确要求其他值时，才在提供方或模型的 `headers` 中配置 `User-Agent`。显式配置会覆盖默认值。
 
 可以在 `headers` 中直接配置认证请求头。如果请求头中已有 `Authorization` 或 `CF-AIG-Authorization`，扩展不会再添加 Bearer `Authorization`。
 

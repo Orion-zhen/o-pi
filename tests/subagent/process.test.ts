@@ -411,19 +411,30 @@ describe("subagent execution", () => {
 		});
 	});
 
-	it("按官方 tool_execution 生命周期更新工具状态", () => {
+	it("从 toolcall_start 立即展示工具，再按执行生命周期更新状态", () => {
 		const progress = new PiJsonProgressAccumulator();
 		progress.consume(messageStart());
 		progress.consume(messageUpdate(
 			{ input: 1, output: 1, totalTokens: 2 },
+			{ type: "toolcall_start", contentIndex: 0, id: "call-1", toolName: "edit" },
+		));
+		expect(progress.snapshot().events).toEqual([
+			{ type: "tool", name: "edit", args: {}, status: "pending" },
+		]);
+
+		progress.consume(messageUpdate(
+			{ input: 1, output: 2, totalTokens: 3 },
 			{
 				type: "toolcall_end",
 				contentIndex: 0,
 				toolCall: { type: "toolCall", id: "call-1", name: "edit", arguments: { path: "a.ts", edits: [] } },
 			},
 		));
-		expect(progress.snapshot()).toMatchObject({
-			events: [{ type: "tool", name: "edit", status: "pending" }],
+		expect(progress.snapshot().events[0]).toMatchObject({
+			type: "tool",
+			name: "edit",
+			args: { path: "a.ts", edits: [] },
+			status: "pending",
 		});
 
 		progress.consume({ type: "tool_execution_start", toolCallId: "call-1", toolName: "edit", args: { path: "a.ts", edits: [] } } as JsonAgentSessionEvent);

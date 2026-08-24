@@ -1,6 +1,6 @@
 # Slash commands
 
-本页记录 `agent/extensions/` 提供的斜杠命令。除 `/skill:<name>` 外，命令都通过 `pi.registerCommand()` 注册。注册时命令名不含 `/`，在 Pi 输入框中以 `/命令名` 调用。`/skill:<name>` 的候选项来自 Pi 的技能发现，由本扩展的输入钩子接管。
+本页记录 `agent/extensions/` 提供的斜杠命令。除 `/skill:<name>` 外，命令都通过 `pi.registerCommand()` 注册。注册时命令名不含 `/`，在 Pi 输入框中以 `/命令名` 调用。`/skill:<name>` 的候选项来自 Pi 的技能发现，由本扩展的输入钩子接管。模型和思考级别分别使用 Pi 原生的 `/model` 与 `/thinking`。`thinking-preferences` 扩展会在当前会话分支内按模型记忆原生 `/thinking` 选择。
 
 斜杠命令处理器是展示适配器，不是图形用户界面 API。可复用逻辑位于对应功能的查询、服务或控制器。其他适配器应直接消费可安全序列化为 JSON 的快照、结果或进度，不要解析本页所列的通知文本。
 
@@ -19,7 +19,7 @@
 行为：
 
 - 仅支持 TUI 模式。非 TUI 模式会提示错误。
-- 列出 `pi.getAllTools()` 返回的所有工具。
+- 从 `pi.getAllTools()` 返回的工具中列出当前平台可用的工具。
 - 切换后立即调用 `pi.setActiveTools()` 生效。
 - 选择结果写入当前会话分支的 `tools-config` 自定义条目。会话开始或切换分支时，按当前分支恢复。
 - 恢复时过滤已经不存在的工具名。
@@ -27,7 +27,8 @@
 - `defaults` 设置所有模型的工具默认值。`rules[].match` 匹配 `${model.provider}/${model.id}`，`rules[].tools` 设置匹配模型的工具值。
 - 规则先按第一个 `*` 之前的静态前缀长度从短到长应用。`*` 可以匹配 `model.id` 中的 `/`。精确匹配优先。相同优先级时，后声明的规则覆盖先声明的规则。
 - 会话开始、切换分支或切换模型时重新计算配置。当前分支的 `/tools` 手动选择仍优先于文件配置。
-- 用户配置先应用，项目配置后应用。未声明的工具默认启用。
+- 用户配置先应用，项目配置后应用。未声明的工具继承 Pi 会话启动时的启用状态，避免 Pi 新增的内置工具被自动启用。
+- 非 Windows 平台不列出仅能在 Windows 上执行的内置 `powershell` 工具。仓库的默认设置不启用该工具，Windows 用户可以在 `tools.jsonc` 中显式启用。该内置工具不使用本仓库为 `bash` 提供的审批解析、安全拒绝规则和输出管理。
 - 配置恢复、按模型解析默认值、分支覆盖、设置、切换、重置和 `tools-config` 持久化由 `ToolSelectionController` 负责。空选择、未知工具、配置错误和已删除工具会返回结构化结果。TUI 的 `SettingsList` 只消费快照。
 
 ```jsonc
@@ -244,32 +245,6 @@
 - `reload` 重新读取默认、用户和项目配置。运行时开关覆盖会保留。原展示档位仍存在时，档位覆盖也会保留。
 - `profile <name>` 临时切换到内置或用户定义的展示档位。参数补全读取当前配置。
 - 新 Pi 会话重新使用配置中的 `enabled` 和 `profile`。完整配置说明见[Discord Presence](discord-presence.md)。
-
-## `/thinking-level`
-
-来源：`agent/extensions/thinking-level.ts`
-
-用途：修改当前模型的思考级别。
-
-用法：
-
-```text
-/thinking-level
-/thinking-level <level>
-```
-
-行为：
-
-- 无参数时需要交互界面。选择器只展示 Pi 判定为当前模型支持的等级。
-- `thinkingLevelMap` 中值为 `null` 的等级不会展示。
-- 模型最终使用 `chat_template_kwargs.enable_thinking` 布尔控制时，包括 OpenAI Completions 兼容模式和 OpenAI Responses 请求阶段预设，优先显示为 `off → disabled`，其他支持等级显示为 `enabled`。
-- 存在字符串映射时显示为 Pi 等级到提供方值的映射，例如 `xhigh → max`。
-- 带 `<level>` 时只接受当前模型支持的 Pi 等级，再调用 `pi.setThinkingLevel()`。
-- 参数补全同样跟随当前模型，并显示上述映射。
-- 每个 `provider/modelId` 分别记忆最近选择的等级。通过 `/model` 或 Ctrl+P 切回模型时自动恢复，不继承另一个模型的等级。
-- 偏好通过隐藏的会话条目按分支持久化。会话恢复以及通过会话树或 fork 创建分支后，从当前分支重建。偏好不跨独立会话共享。
-- 模型切换产生的临时等级限制不会覆盖已保存偏好。历史等级不再受支持时，保存实际限制后的等级。
-- 没有当前模型、等级无效或等级不受支持时，不改写当前设置。
 
 ## `/agents`
 

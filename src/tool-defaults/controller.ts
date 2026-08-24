@@ -3,6 +3,7 @@ import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 import {
 	loadToolDefaultsConfig,
 	resolveToolDefaults,
+	ToolDefaultsConfigError,
 	type ToolDefaultsConfig,
 	type ToolDefaultsModel,
 } from "./config.js";
@@ -25,67 +26,13 @@ export interface ToolSelectionItem {
 	enabled: boolean;
 }
 
-export interface ToolSelectionSnapshot {
-	tools: ToolSelectionItem[];
-	enabledTools: string[];
-	empty: boolean;
-}
-
-export type ToolSelectionIssue = "EMPTY_SELECTION" | "REMOVED_TOOLS";
-
-export type ToolSelectionRestoreOutcome =
-	| {
-		status: "restored";
-		source: "branch" | "defaults";
-		issues: ToolSelectionIssue[];
-		removedTools: string[];
-		snapshot: ToolSelectionSnapshot;
-	}
-	| {
-		status: "degraded";
-		source: "defaults";
-		code: "CONFIG_ERROR";
-		message: string;
-		issues: ToolSelectionIssue[];
-		removedTools: [];
-		snapshot: ToolSelectionSnapshot;
-	}
-	| {
-		status: "superseded";
-		snapshot: ToolSelectionSnapshot;
-	};
-
-export type ToolSelectionOperationOutcome =
-	| {
-		status: "applied";
-		operation: "set" | "toggle" | "reset";
-		code: "UPDATED" | "UNCHANGED" | "EMPTY_SELECTION";
-		persisted: boolean;
-		snapshot: ToolSelectionSnapshot;
-	}
-	| {
-		status: "rejected";
-		operation: "set" | "toggle";
-		code: "UNKNOWN_TOOL";
-		toolName: string;
-		snapshot: ToolSelectionSnapshot;
-	}
-	| {
-		status: "degraded";
-		operation: "reset";
-		code: "CONFIG_ERROR";
-		message: string;
-		persisted: boolean;
-		snapshot: ToolSelectionSnapshot;
-	}
-	| {
-		status: "superseded";
-		operation: "reset";
-		snapshot: ToolSelectionSnapshot;
-	};
+export type ToolSelectionRestoreNotice =
+	| { type: "config-error"; message: string }
+	| { type: "removed-tools"; toolNames: string[] };
 
 export interface ToolSelectionPort {
 	getAllTools(): ToolInfo[];
+	getActiveTools(): string[];
 	setActiveTools(names: string[]): void;
 	appendEntry(customType: string, data: ToolSelectionEntryData): void;
 }
@@ -94,14 +41,7 @@ export interface ToolSelectionRestoreInput {
 	cwd: string;
 	branchEntries: readonly ToolSelectionBranchEntry[];
 	model: ToolDefaultsModel | undefined;
-	refreshConfig?: boolean;
-}
-
-export interface ToolSelectionResetInput {
-	cwd: string;
-	model: ToolDefaultsModel | undefined;
-	refreshConfig?: boolean;
-	persist?: boolean;
+	refreshConfig: boolean;
 }
 
 export interface ToolSelectionControllerOptions {
@@ -111,6 +51,7 @@ export interface ToolSelectionControllerOptions {
 export class ToolSelectionController {
 	private enabledTools = new Set<string>();
 	private allTools: ToolInfo[] = [];
+	private baselineTools: ReadonlySet<string> | undefined;
 	private configCache: { cwd: string; value: Promise<ToolDefaultsConfig> } | undefined;
 	private restoreRevision = 0;
 	private readonly loadConfig: (cwd: string) => Promise<ToolDefaultsConfig>;
@@ -122,175 +63,82 @@ export class ToolSelectionController {
 		this.loadConfig = options.loadConfig ?? loadToolDefaultsConfig;
 	}
 
-	snapshot(): ToolSelectionSnapshot {
-		const tools = this.allTools.map((tool) => ({
+	listTools(): ToolSelectionItem[] {
+		this.refreshTools();
+		return this.allTools.map((tool) => ({
 			name: tool.name,
 			description: tool.description,
 			enabled: this.enabledTools.has(tool.name),
 		}));
-		const enabledTools = tools.filter((tool) => tool.enabled).map((tool) => tool.name);
-		return { tools, enabledTools, empty: enabledTools.length === 0 };
 	}
 
-	refreshSnapshot(): ToolSelectionSnapshot {
-		this.refreshTools();
-		return this.snapshot();
-	}
-
-	async restore(input: ToolSelectionRestoreInput): Promise<ToolSelectionRestoreOutcome> {
+	async restore(input: ToolSelectionRestoreInput): Promise<ToolSelectionRestoreNotice | undefined> {
 		const revision = ++this.restoreRevision;
 		if (input.refreshConfig) this.configCache = undefined;
 		this.refreshTools();
+		const baseline = this.captureBaseline();
 		const savedTools = findSavedTools(input.branchEntries);
 		if (savedTools !== undefined) {
 			const available = new Set(this.allTools.map((tool) => tool.name));
 			const removedTools = savedTools.filter((name) => !available.has(name));
 			this.apply(savedTools.filter((name) => available.has(name)));
-			const snapshot = this.snapshot();
-			return {
-				status: "restored",
-				source: "branch",
-				issues: collectIssues(snapshot, removedTools),
-				removedTools,
-				snapshot,
-			};
+			return removedTools.length === 0
+				? undefined
+				: { type: "removed-tools", toolNames: removedTools };
 		}
 
-		const defaults = await this.resolveDefaults(input.cwd, input.model, input.refreshConfig ?? false);
-		if (revision !== this.restoreRevision) return { status: "superseded", snapshot: this.snapshot() };
-		if (defaults.status === "error") {
-			this.apply(this.allTools.map((tool) => tool.name));
-			const snapshot = this.snapshot();
-			return {
-				status: "degraded",
-				source: "defaults",
-				code: "CONFIG_ERROR",
-				message: defaults.message,
-				issues: collectIssues(snapshot, []),
-				removedTools: [],
-				snapshot,
-			};
+		const defaults = await this.resolveDefaults(input.cwd, input.model, baseline);
+		if (revision !== this.restoreRevision) return undefined;
+		if (defaults.status === "config-error") {
+			this.apply(this.namesFromSet(baseline));
+			return { type: "config-error", message: defaults.message };
 		}
 
 		this.apply(defaults.enabledTools);
-		const snapshot = this.snapshot();
-		return {
-			status: "restored",
-			source: "defaults",
-			issues: collectIssues(snapshot, []),
-			removedTools: [],
-			snapshot,
-		};
+		return undefined;
 	}
 
-	set(toolName: string, enabled: boolean, persist = true): ToolSelectionOperationOutcome {
-		this.refreshTools();
-		const tool = this.allTools.find((candidate) => candidate.name === toolName);
-		if (tool === undefined) {
-			return {
-				status: "rejected",
-				operation: "set",
-				code: "UNKNOWN_TOOL",
-				toolName,
-				snapshot: this.snapshot(),
-			};
-		}
-
-		const changed = this.enabledTools.has(toolName) !== enabled;
+	set(toolName: string, enabled: boolean): void {
 		if (enabled) this.enabledTools.add(toolName);
 		else this.enabledTools.delete(toolName);
-		this.commit(persist);
-		const snapshot = this.snapshot();
-		return {
-			status: "applied",
-			operation: "set",
-			code: snapshot.empty ? "EMPTY_SELECTION" : changed ? "UPDATED" : "UNCHANGED",
-			persisted: persist,
-			snapshot,
-		};
-	}
-
-	toggle(toolName: string, persist = true): ToolSelectionOperationOutcome {
-		this.refreshTools();
-		if (!this.allTools.some((tool) => tool.name === toolName)) {
-			return {
-				status: "rejected",
-				operation: "toggle",
-				code: "UNKNOWN_TOOL",
-				toolName,
-				snapshot: this.snapshot(),
-			};
-		}
-		const result = this.set(toolName, !this.enabledTools.has(toolName), persist);
-		if (result.status !== "applied") return result;
-		return { ...result, operation: "toggle" };
-	}
-
-	async reset(input: ToolSelectionResetInput): Promise<ToolSelectionOperationOutcome> {
-		const revision = ++this.restoreRevision;
-		this.refreshTools();
-		const defaults = await this.resolveDefaults(input.cwd, input.model, input.refreshConfig ?? false);
-		if (revision !== this.restoreRevision) {
-			return { status: "superseded", operation: "reset", snapshot: this.snapshot() };
-		}
-
-		const persist = input.persist ?? true;
-		if (defaults.status === "error") {
-			this.apply(this.allTools.map((tool) => tool.name));
-			this.persist(persist);
-			return {
-				status: "degraded",
-				operation: "reset",
-				code: "CONFIG_ERROR",
-				message: defaults.message,
-				persisted: persist,
-				snapshot: this.snapshot(),
-			};
-		}
-
-		const previous = this.snapshot().enabledTools;
-		this.apply(defaults.enabledTools);
-		this.persist(persist);
-		const snapshot = this.snapshot();
-		return {
-			status: "applied",
-			operation: "reset",
-			code: snapshot.empty
-				? "EMPTY_SELECTION"
-				: sameNames(previous, snapshot.enabledTools) ? "UNCHANGED" : "UPDATED",
-			persisted: persist,
-			snapshot,
-		};
+		const enabledTools = this.enabledToolNames();
+		this.port.setActiveTools(enabledTools);
+		this.port.appendEntry(TOOL_SELECTION_ENTRY, { enabledTools });
 	}
 
 	private refreshTools(): void {
-		this.allTools = this.port.getAllTools();
+		this.allTools = this.port.getAllTools().filter(toolAvailableOnCurrentPlatform);
 		const available = new Set(this.allTools.map((tool) => tool.name));
 		this.enabledTools = new Set([...this.enabledTools].filter((name) => available.has(name)));
 	}
 
+	private captureBaseline(): ReadonlySet<string> {
+		if (this.baselineTools !== undefined) return this.baselineTools;
+		const available = new Set(this.allTools.map((tool) => tool.name));
+		this.baselineTools = new Set(this.port.getActiveTools().filter((name) => available.has(name)));
+		return this.baselineTools;
+	}
+
+	private namesFromSet(names: ReadonlySet<string>): string[] {
+		return this.allTools.filter((tool) => names.has(tool.name)).map((tool) => tool.name);
+	}
+
+	private enabledToolNames(): string[] {
+		return this.namesFromSet(this.enabledTools);
+	}
+
 	private apply(names: readonly string[]): void {
 		this.enabledTools = new Set(names);
-		this.port.setActiveTools(this.snapshot().enabledTools);
-	}
-
-	private commit(persist: boolean): void {
-		this.port.setActiveTools(this.snapshot().enabledTools);
-		this.persist(persist);
-	}
-
-	private persist(enabled: boolean): void {
-		if (!enabled) return;
-		this.port.appendEntry(TOOL_SELECTION_ENTRY, { enabledTools: this.snapshot().enabledTools });
+		this.port.setActiveTools(this.enabledToolNames());
 	}
 
 	private async resolveDefaults(
 		cwd: string,
 		model: ToolDefaultsModel | undefined,
-		refreshConfig: boolean,
-	): Promise<{ status: "ready"; enabledTools: string[] } | { status: "error"; message: string }> {
+		baseline: ReadonlySet<string>,
+	): Promise<{ status: "ready"; enabledTools: string[] } | { status: "config-error"; message: string }> {
 		try {
-			if (refreshConfig || this.configCache?.cwd !== cwd) {
+			if (this.configCache?.cwd !== cwd) {
 				this.configCache = { cwd, value: this.loadConfig(cwd) };
 			}
 			const config = await this.configCache.value;
@@ -298,11 +146,12 @@ export class ToolSelectionController {
 			return {
 				status: "ready",
 				enabledTools: this.allTools
-					.filter((tool) => defaults[tool.name] ?? true)
+					.filter((tool) => defaults[tool.name] ?? baseline.has(tool.name))
 					.map((tool) => tool.name),
 			};
 		} catch (error) {
-			return { status: "error", message: error instanceof Error ? error.message : String(error) };
+			if (!(error instanceof ToolDefaultsConfigError)) throw error;
+			return { status: "config-error", message: error.message };
 		}
 	}
 }
@@ -319,15 +168,8 @@ function findSavedTools(branchEntries: readonly ToolSelectionBranchEntry[]): str
 	return savedTools;
 }
 
-function collectIssues(snapshot: ToolSelectionSnapshot, removedTools: readonly string[]): ToolSelectionIssue[] {
-	const issues: ToolSelectionIssue[] = [];
-	if (snapshot.empty) issues.push("EMPTY_SELECTION");
-	if (removedTools.length > 0) issues.push("REMOVED_TOOLS");
-	return issues;
-}
-
-function sameNames(left: readonly string[], right: readonly string[]): boolean {
-	return left.length === right.length && left.every((name, index) => name === right[index]);
+function toolAvailableOnCurrentPlatform(tool: ToolInfo): boolean {
+	return tool.name !== "powershell" || process.platform === "win32";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

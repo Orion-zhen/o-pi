@@ -6,10 +6,6 @@
       "apiKey": "my-lovely-key",
       "api": "openai-completions",
       "thinkingPreset": "openai",
-      "headers": {
-        // Cloudflare Tunnel 可能拒绝默认 OpenAI SDK User-Agent。
-        "User-Agent": "pi-openai-compatible/1.0"
-      },
 
       // compat 是 Pi 原生字段。模型 compat 会按顶层字段覆盖，且对象字段整体替换。
       // 以下先给出常用本地 Chat Completions 配置，其余字段以注释形式展示。
@@ -27,8 +23,10 @@
         "supportsFinishReason": true,
         // 输出 token 上限字段：max_tokens 或 max_completion_tokens。
         "maxTokensField": "max_tokens",
-        // 是否接受 vLLM thinking_token_budget。
-        "supportsThinkingTokenBudget": false,
+        // 限制思考 token 的请求字段。vLLM 使用 thinking_token_budget，
+        // Qwen、DashScope 和 SGLang 使用 thinking_budget，llama.cpp 使用 thinking_budget_tokens。
+        "thinkingTokenBudgetField": "thinking_budget_tokens",
+        // 旧字段 supportsThinkingTokenBudget: true 仅等价于 vLLM 的 thinking_token_budget。
 
         // tool message 是否必须携带 name。
         "requiresToolResultName": true,

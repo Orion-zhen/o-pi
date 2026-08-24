@@ -64,6 +64,9 @@ export class PiJsonProgressAccumulator {
 		this.liveUsage = usageStats(event.usage);
 		const assistantEvent = event.assistantMessageEvent;
 		switch (assistantEvent.type) {
+			case "toolcall_start":
+				this.upsertTool(assistantEvent.id, assistantEvent.toolName, {}, "pending");
+				break;
 			case "text_start":
 				this.startTextBlock(assistantEvent.contentIndex);
 				return false;

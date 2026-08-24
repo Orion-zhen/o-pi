@@ -38,7 +38,7 @@ beforeEach(() => {
 });
 
 describe("/tools extension defaults", () => {
-	it("没有 session 覆盖时按配置设置 active tools，缺省工具启用", async () => {
+	it("没有 session 覆盖时按配置设置 active tools，缺省工具继承宿主状态", async () => {
 		const userPath = path.join(workspace, "user.jsonc");
 		process.env.PI_TOOLS_CONFIG = userPath;
 		await writeFile(userPath, '{ "defaults": { "bash": false, "write": false } }');
@@ -47,6 +47,14 @@ describe("/tools extension defaults", () => {
 		await harness.sessionStart({ type: "session_start", reason: "startup" }, harness.ctx);
 
 		expect(harness.activeTools).toEqual(["read", "grep"]);
+	});
+
+	it("Pi 新增的未启用内置工具不会被默认恢复流程激活", async () => {
+		const harness = registerHarness(["read", "powershell"], [], undefined, ["read"]);
+
+		await harness.sessionStart({ type: "session_start", reason: "startup" }, harness.ctx);
+
+		expect(harness.activeTools).toEqual(["read"]);
 	});
 
 	it("session 中 /tools 写入的配置覆盖文件默认值", async () => {
@@ -129,12 +137,13 @@ function registerHarness(
 	toolNames: string[],
 	branchEntries: Array<{ type: "custom"; customType: string; data: unknown }>,
 	initialModel?: Model<Api>,
+	initialActiveTools: string[] = toolNames,
 ) {
 	let sessionStart: SessionStartHandler | undefined;
 	let sessionTree: SessionTreeHandler | undefined;
 	let modelSelect: ModelSelectHandler | undefined;
 	let commandOptions: CommandOptions | undefined;
-	let activeTools = [...toolNames];
+	let activeTools = [...initialActiveTools];
 	let currentBranchEntries = branchEntries;
 
 	const pi = {

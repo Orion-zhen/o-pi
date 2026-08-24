@@ -3,7 +3,7 @@ import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 
-import { isNotFound } from "../config-loader.js";
+import { isNotFound, stripUtf8Bom } from "../config-loader.js";
 import { compileSchemaValidator, type SchemaValidationError } from "../schema-validator.js";
 import { invalidModelsJsonc } from "./errors.js";
 import { ModelsJsoncConfigSchema, type ModelsJsoncConfig } from "./schema.js";
@@ -25,7 +25,7 @@ export async function loadModelsJsoncConfig(configPath = defaultModelsJsoncPath(
 		throw invalidModelsJsonc(configPath, "file cannot be read");
 	}
 	const parseErrors: ParseError[] = [];
-	const parsed = parse(text, parseErrors, { allowTrailingComma: true });
+	const parsed = parse(stripUtf8Bom(text), parseErrors, { allowTrailingComma: true });
 	if (parseErrors.length > 0) {
 		const first = parseErrors[0];
 		const code = first ? printParseErrorCode(first.error) : "Unknown";

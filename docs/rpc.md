@@ -27,7 +27,7 @@ TUI 适配器 -> 数据/查询/服务/控制器
 | 技能和 LSP 查询 | 无专用的 o-pi RPC 方法 | `querySkillStatus()`、`queryLspStatus()`、`queryLspDiagnostics()` | 斜杠命令适配器输出文本。后续适配器可以直接使用 DTO |
 | 工具选择 | 无专用的 o-pi RPC 方法 | `ToolSelectionController` 的快照和操作结果 | `/tools` 仅支持 TUI。在 RPC 模式下调用时会发送错误通知 |
 | 上下文裁剪 | 无专用的 o-pi RPC 方法 | `PruneService.execute()` 的操作结果 | 可以通过 `/prune` 调用。通知文本不是状态协议 |
-| 思考级别 | Pi 原生的思考级别 RPC 命令 | `ThinkingLevelController` 的快照和操作结果 | 可以调用带参数的 `/thinking-level`。存在当前模型时，不带参数的命令通过 Extension UI 的 `select` 请求选择级别 |
+| 思考级别 | `set_thinking_level`、`cycle_thinking_level` | 会话分支内的按模型偏好恢复 | RPC 直接使用 Pi 原生命令。`thinking-preferences` 扩展会记录变更，并在切回模型时恢复当前分支的偏好 |
 | 子代理 | 工具和命令事件 | `runSubagentTasks()`、`runSubagentCommand()`、`SubagentProgressEvent` | 模型工具与 `/run` 共用结构化进度和结果。RPC 不创建 TUI 组件 |
 | 审批 | Extension UI 的 `select` 和 `input` | `ApprovalInteractionPort` | RPC 交互始终支持单次允许和拒绝。满足配置和规则条件时，还支持会话内允许和持久允许。拒绝时可以附带指令 |
 | Web 认证确认 | Extension UI 的 `confirm` | `WebFetchInteractionPort` | RPC 交互可以确认是否向允许列表内的源站发送 Cookie |
@@ -41,7 +41,7 @@ DTO、操作结果和进度事件不得包含 `Date`、TUI 组件、`Theme`、�
 - 只有 `ctx.mode === "tui"` 时才能加载 `custom()` 查看器、原生渲染器、会话条目渲染器和 TUI 组件工厂。
 - `json` 和 `print` 模式没有对话交互端口。需要确认时，审批、Web 认证和子代理写入任务会按各自策略拒绝或降级，不会模拟终端输入。
 - `/run` 在 TUI 模式下写入仅由宿主使用的自定义会话条目。在 `rpc`、`json` 和 `print` 模式下，`/run` 通过通知返回最终文本，不把组件作为进度或结果的数据源。
-- `/prune`、工具选择和思考级别的业务行为只依赖控制器、服务和会话条目，不依赖会话记录渲染器。
+- `/prune` 和工具选择的业务行为只依赖控制器、服务和会话条目，不依赖会话记录渲染器。思考级别由 Pi 原生 RPC 命令管理。
 
 ## 真实进程冒烟测试
 

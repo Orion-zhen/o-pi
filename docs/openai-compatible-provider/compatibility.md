@@ -43,7 +43,8 @@ Pi 当前没有导出 `compat` 的运行时校验模式。因此，JSONC 加载�
 | `supportsUsageInStreaming` | 是否接受流式用量选项 |
 | `supportsFinishReason` | 流式响应是否提供 `finish_reason` |
 | `maxTokensField` | 使用 `max_tokens` 还是 `max_completion_tokens` |
-| `supportsThinkingTokenBudget` | 是否接受 vLLM 的 `thinking_token_budget` |
+| `thinkingTokenBudgetField` | 思考 token 预算使用的请求字段 |
+| `supportsThinkingTokenBudget` | `thinkingTokenBudgetField: "thinking_token_budget"` 的旧别名 |
 | `thinkingFormat` | 上游思考参数的编码格式 |
 | `chatTemplateKwargs` / `chatTemplateArgs` | 对话模板参数 |
 | `supportsStrictMode` | 工具定义是否接受 `strict` |
@@ -64,6 +65,42 @@ Pi 当前没有导出 `compat` 的运行时校验模式。因此，JSONC 加载�
 | `supportsExplicitPromptCacheMode` | 是否接受 `prompt_cache_options` |
 | `sessionAffinityFormat` | 会话亲和性请求头格式 |
 | `supportsLongCacheRetention` | 是否接受长时间提示缓存 |
+
+## 思考 token 预算
+
+OpenAI-compatible Chat Completions 服务可能让思考内容和最终答案共用 `max_tokens`。如果思考模型没有独立预算，思考内容可能耗尽整个输出额度。`compat.thinkingTokenBudgetField` 指定服务接受的预算字段：
+
+| 服务 | 字段值 |
+| --- | --- |
+| vLLM | `thinking_token_budget` |
+| Qwen、DashScope、SGLang | `thinking_budget` |
+| llama.cpp | `thinking_budget_tokens` |
+
+模型兼容配置只声明请求字段。各思考级别的 token 数由 Pi 的 `settings.json` 提供：
+
+```jsonc
+{
+  "thinkingBudgets": {
+    "minimal": 1024,
+    "low": 4096,
+    "medium": 8192,
+    "high": 16384,
+    "xhigh": 32768
+  }
+}
+```
+
+例如，llama.cpp 模型使用：
+
+```jsonc
+{
+  "compat": {
+    "thinkingTokenBudgetField": "thinking_budget_tokens"
+  }
+}
+```
+
+`supportsThinkingTokenBudget: true` 只等价于 `thinkingTokenBudgetField: "thinking_token_budget"`。新配置应直接使用 `thinkingTokenBudgetField`。
 
 ## 路由字段
 
@@ -106,7 +143,7 @@ Vercel AI Gateway 配置示例：
     "supportsReasoningEffort": false,
     "supportsUsageInStreaming": true,
     "supportsFinishReason": false,
-    "supportsThinkingTokenBudget": true,
+    "thinkingTokenBudgetField": "thinking_token_budget",
     "maxTokensField": "max_tokens"
   }
 }
