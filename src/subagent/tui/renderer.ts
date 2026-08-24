@@ -6,14 +6,12 @@ import { statusIcon } from "../../tui/icons.js";
 import { formatToolCard } from "../../tui/tool-card.js";
 import { cleanText, compactWhitespace, formatDuration, joinParts, truncateEnd } from "../../tui/text.js";
 import { SUBAGENT_COMMAND_ENTRY } from "../constants.js";
-import type { RenderEvent, SubagentDetails, SubagentRunResult, SubagentTask, SubagentToolResult, UsageStats } from "../types.js";
+import type { RenderEvent, SubagentCompletedResult, SubagentDetails, SubagentRunResult, SubagentTask, SubagentToolResult, UsageStats } from "../types.js";
 
 export { SUBAGENT_COMMAND_ENTRY };
 
-export function renderSubagentCall(args: unknown, theme: Pick<Theme, "fg" | "bold">, context?: { isPartial?: boolean }): Text {
-	if (context?.isPartial !== undefined) return new Text("", 0, 0);
-	const record = isRecord(args) ? args : {};
-	return new Text(formatSubagentCall(record, theme), 0, 0);
+export function renderSubagentCall(_args: unknown, _theme: Pick<Theme, "fg" | "bold">, _context: { isPartial: boolean }): Text {
+	return new Text("", 0, 0);
 }
 
 export function renderSubagentResult(result: { content: Array<{ type: string; text?: string }>; details?: unknown }, options: { expanded: boolean; isPartial: boolean }, theme: Theme): Container | Text {
@@ -34,17 +32,17 @@ export function renderSubagentResult(result: { content: Array<{ type: string; te
 		container.addChild(new Spacer(1));
 		container.addChild(new Text(formatRunHeader(item, theme), 0, 0));
 		container.addChild(new Text(formatField("Task", item.task, theme), 0, 0));
-		container.addChild(new Text(formatField("Mode", item.contextMode ?? "isolated", theme), 0, 0));
+		container.addChild(new Text(formatField("Mode", item.contextMode, theme), 0, 0));
 		container.addChild(new Text(formatField("Cwd", displayPath(item.cwd), theme), 0, 0));
 		if (item.model !== undefined) container.addChild(new Text(formatField("Model", item.model, theme), 0, 0));
 		container.addChild(new Text(formatField("Tools", item.tools.join(", "), theme), 0, 0));
-		if (item.outputFile !== undefined) container.addChild(new Text(formatField("Saved", displayOutputFile(item), theme, "accent"), 0, 0));
+		if (item.status === "completed") container.addChild(new Text(formatField("Saved", displayOutputFile(item), theme, "accent"), 0, 0));
 
 		const events = visibleEvents(item);
-		if (events.length > 0 || item.exitCode === -1) {
+		if (events.length > 0 || item.status === "running") {
 			container.addChild(new Spacer(1));
 			container.addChild(new Text(formatSection("Activity", theme), 0, 0));
-			for (const line of formatEvents(events, item.exitCode === -1, theme)) container.addChild(new Text(line, 0, 0));
+			for (const line of formatEvents(events, item.status === "running", theme)) container.addChild(new Text(line, 0, 0));
 		}
 		if (item.error !== undefined) {
 			container.addChild(new Spacer(1));
@@ -56,7 +54,7 @@ export function renderSubagentResult(result: { content: Array<{ type: string; te
 			container.addChild(new Text(formatSection("Details", theme), 0, 0));
 			container.addChild(new Text(indentBlock(item.stderr, theme, "error", 1600), 0, 0));
 		}
-		if (item.exitCode !== -1 && item.output !== undefined && item.output.trim() !== "") {
+		if (item.status === "completed" && item.output.trim() !== "") {
 			container.addChild(new Spacer(1));
 			container.addChild(new Text(formatSection("Result", theme), 0, 0));
 			container.addChild(new Text(indentBlock(item.output, theme, "text", 3000), 0, 0));
@@ -78,19 +76,8 @@ export function renderSubagentCommandEntry(data: unknown, expanded: boolean, the
 	return renderSubagentCommandWidget(data, { expanded, isPartial: false }, theme);
 }
 
-function formatSubagentCall(record: Record<string, unknown>, theme: Pick<Theme, "fg" | "bold">): string {
-	const tasks = Array.isArray(record["tasks"]) ? record["tasks"] : [];
-	const agents = tasks.map((task) => isRecord(task) && typeof task["agent"] === "string" ? task["agent"] : undefined).filter((agent): agent is string => agent !== undefined);
-	return formatToolCard({
-		tool: "subagent",
-		status: "running",
-		target: agents.length > 0 ? formatAgentNames(agents) : `${tasks.length} tasks`,
-		summary: formatTaskSummary(tasks.map(taskPreviewFromRecord)),
-	}, theme);
-}
-
 function formatSubagentSummary(details: SubagentDetails, isPartial: boolean, theme: Pick<Theme, "fg" | "bold">): string {
-	const done = details.results.filter((item) => item.exitCode !== -1).length;
+	const done = details.results.filter((item) => item.status === "completed").length;
 	const failed = details.results.find((item) => item.error !== undefined);
 	const usage = sumUsage(details.results);
 	const didNotRun = !isPartial && details.results.length === 0;
@@ -112,15 +99,14 @@ function formatSubagentSummary(details: SubagentDetails, isPartial: boolean, the
 
 function formatRunHeader(result: SubagentRunResult, theme: Theme): string {
 	const failed = result.error !== undefined;
-	const running = result.exitCode === -1;
+	const running = result.status === "running";
 	const icon = running
 		? theme.fg("warning", statusIcon("running"))
 		: failed
 			? theme.fg("error", statusIcon("error"))
 			: theme.fg("success", statusIcon("success"));
-	const attemptText = result.attempts > 1 ? `${result.attempts} attempts` : undefined;
 	const status = running ? "running" : failed ? "failed" : undefined;
-	const suffix = joinParts([status, attemptText, formatDuration(result.durationMs)]);
+	const suffix = joinParts([status, formatDuration(result.durationMs)]);
 	return `  ${icon} ${theme.fg("toolTitle", theme.bold(result.agent))}${suffix === "" ? "" : `  ${theme.fg("muted", suffix)}`}`;
 }
 
@@ -148,8 +134,8 @@ function formatEvents(events: RenderEvent[], running: boolean, theme: Pick<Theme
 }
 
 function visibleEvents(result: SubagentRunResult): RenderEvent[] {
-	if (result.exitCode === -1) return result.events;
-	const output = compactWhitespace(result.output ?? "");
+	if (result.status === "running") return result.events;
+	const output = compactWhitespace(result.output);
 	if (output === "") return result.events;
 	return result.events.filter((event) => event.type !== "text" || compactWhitespace(event.text) !== output);
 }
@@ -175,12 +161,10 @@ function displayPath(value: string): string {
 	return value.startsWith(`${home}${path.sep}`) ? `~${value.slice(home.length)}` : value;
 }
 
-function displayOutputFile(result: SubagentRunResult): string {
-	const outputFile = result.outputFile;
-	if (outputFile === undefined) return "";
-	const relative = path.relative(result.cwd, outputFile);
+function displayOutputFile(result: SubagentCompletedResult): string {
+	const relative = path.relative(result.cwd, result.outputFile);
 	if (relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative)) return relative;
-	return displayPath(outputFile);
+	return displayPath(result.outputFile);
 }
 
 function commandBackground(result: SubagentToolResult, isPartial: boolean, theme: Theme): (text: string) => string {
@@ -206,13 +190,6 @@ function formatTaskSummary(tasks: Array<Pick<SubagentTask, "agent" | "task">>): 
 	if (tasks.length === 0) return "preparing";
 	if (tasks.length === 1) return tasks[0]?.task ?? "preparing";
 	return tasks.map((task) => `${task.agent}: ${task.task}`).join(" | ");
-}
-
-function taskPreviewFromRecord(task: unknown): Pick<SubagentTask, "agent" | "task"> {
-	if (!isRecord(task)) return { agent: "?", task: "preparing" };
-	const agent = typeof task["agent"] === "string" ? task["agent"] : "?";
-	const text = typeof task["task"] === "string" ? task["task"] : "preparing";
-	return { agent, task: text };
 }
 
 function sumUsage(results: SubagentRunResult[]): UsageStats {

@@ -1,3 +1,5 @@
+import type { Usage } from "@earendil-works/pi-ai";
+import type { JsonAgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { RenderEvent, ToolProgressStatus, UsageStats } from "./types.js";
 
 export interface PiJsonProgressSnapshot {
@@ -6,10 +8,9 @@ export interface PiJsonProgressSnapshot {
 	events: RenderEvent[];
 	stopReason?: string;
 	error?: string;
-	wrote: boolean;
 }
 
-/** 将 Pi JSON mode 的 delta 事件归并成可安全重复读取的 subagent 进度快照。 */
+/** 将 Pi JSON mode 事件归并成可重复读取的 subagent 进度快照。 */
 export class PiJsonProgressAccumulator {
 	private readonly committedUsage = emptyUsage();
 	private liveUsage: UsageStats | undefined;
@@ -17,27 +18,32 @@ export class PiJsonProgressAccumulator {
 	private output = "";
 	private stopReason: string | undefined;
 	private error: string | undefined;
-	private wrote = false;
 	private readonly events: RenderEvent[] = [];
 	private messageEventStart: number | undefined;
 	private readonly textBlocks = new Map<number, string>();
 	private readonly textEventIndexes = new Map<number, number>();
 	private readonly toolEventIndexes = new Map<string, number>();
 
-	consume(event: Record<string, unknown>): boolean {
-		switch (stringField(event, "type")) {
+	consume(event: JsonAgentSessionEvent): boolean {
+		switch (event.type) {
 			case "message_start":
-				return this.consumeMessageStart(recordField(event, "message"));
+				if (event.message.role !== "assistant") return false;
+				this.startTurn();
+				return false;
 			case "message_update":
 				return this.consumeMessageUpdate(event);
 			case "message_end":
-				return this.consumeMessageEnd(recordField(event, "message"));
+				if (event.message.role !== "assistant") return false;
+				return this.consumeMessageEnd(event.message);
 			case "tool_execution_start":
-				return this.consumeToolStart(event);
+				this.upsertTool(event.toolCallId, event.toolName, toolArgs(event.args), "running");
+				return true;
 			case "tool_execution_update":
-				return this.consumeToolUpdate(event);
+				this.updateTool(event.toolCallId, "running");
+				return true;
 			case "tool_execution_end":
-				return this.consumeToolEnd(event);
+				this.updateTool(event.toolCallId, event.isError ? "error" : "completed");
+				return true;
 			default:
 				return false;
 		}
@@ -50,66 +56,44 @@ export class PiJsonProgressAccumulator {
 			events: this.events.map(cloneRenderEvent),
 			...(this.stopReason !== undefined ? { stopReason: this.stopReason } : {}),
 			...(this.error !== undefined ? { error: this.error } : {}),
-			wrote: this.wrote,
 		};
 	}
 
-	private consumeMessageStart(message: Record<string, unknown> | undefined): boolean {
-		if (message === undefined || stringField(message, "role") !== "assistant") return false;
-		this.startTurn();
-		return false;
-	}
-
-	private consumeMessageUpdate(event: Record<string, unknown>): boolean {
-		this.ensureTurn();
-		const usage = recordField(event, "usage");
-		if (usage !== undefined) this.liveUsage = parseUsage(usage);
-		const assistantEvent = recordField(event, "assistantMessageEvent");
-		if (assistantEvent === undefined) return usage !== undefined;
-		const contentIndex = integerField(assistantEvent, "contentIndex");
-		switch (stringField(assistantEvent, "type")) {
+	private consumeMessageUpdate(event: Extract<JsonAgentSessionEvent, { type: "message_update" }>): boolean {
+		this.requireTurn();
+		this.liveUsage = usageStats(event.usage);
+		const assistantEvent = event.assistantMessageEvent;
+		switch (assistantEvent.type) {
 			case "text_start":
-				if (contentIndex !== undefined) this.startTextBlock(contentIndex);
+				this.startTextBlock(assistantEvent.contentIndex);
+				return false;
+			case "text_delta":
+				this.appendText(assistantEvent.contentIndex, assistantEvent.delta);
 				break;
-			case "text_delta": {
-				const delta = stringField(assistantEvent, "delta");
-				if (contentIndex !== undefined && delta !== undefined) this.appendText(contentIndex, delta);
+			case "text_end":
+				this.setText(assistantEvent.contentIndex, assistantEvent.content);
 				break;
-			}
-			case "text_end": {
-				const content = stringField(assistantEvent, "content");
-				if (contentIndex !== undefined && content !== undefined) this.setText(contentIndex, content);
+			case "toolcall_end":
+				this.recordToolCall(assistantEvent.toolCall, "pending");
 				break;
-			}
-			case "toolcall_end": {
-				const toolCall = recordField(assistantEvent, "toolCall");
-				if (toolCall !== undefined) this.recordToolCall(toolCall, "pending");
-				break;
-			}
 		}
 		return true;
 	}
 
-	private consumeMessageEnd(message: Record<string, unknown> | undefined): boolean {
-		if (message === undefined || stringField(message, "role") !== "assistant") return false;
-		this.ensureTurn();
+	private consumeMessageEnd(message: Extract<Extract<JsonAgentSessionEvent, { type: "message_end" }>["message"], { role: "assistant" }>): boolean {
+		this.requireTurn();
 		this.replaceLiveMessageEvents();
-		for (const part of contentParts(message)) {
-			if (stringField(part, "type") === "text") {
-				const text = stringField(part, "text");
-				if (text !== undefined) {
-					this.output = text;
-					this.events.push({ type: "text", text });
-				}
-				continue;
+		for (const part of message.content) {
+			if (part.type === "text") {
+				this.output = part.text;
+				this.events.push({ type: "text", text: part.text });
+			} else if (part.type === "toolCall") {
+				this.recordToolCall(part, "pending");
 			}
-			if (stringField(part, "type") === "toolCall") this.recordToolCall(part, "pending");
 		}
-		const reason = stringField(message, "stopReason");
-		if (reason !== undefined) this.stopReason = reason;
-		const errorMessage = stringField(message, "errorMessage");
-		if (errorMessage !== undefined) this.error = errorMessage;
-		commitUsage(this.committedUsage, recordField(message, "usage"));
+		this.stopReason = message.stopReason;
+		this.error = message.errorMessage;
+		commitUsage(this.committedUsage, message.usage);
 		this.liveUsage = undefined;
 		this.turnOpen = false;
 		this.messageEventStart = undefined;
@@ -118,41 +102,8 @@ export class PiJsonProgressAccumulator {
 		return true;
 	}
 
-	private consumeToolStart(event: Record<string, unknown>): boolean {
-		const id = stringField(event, "toolCallId");
-		const name = stringField(event, "toolName");
-		if (id === undefined || name === undefined) return false;
-		this.markWrite(name);
-		this.upsertTool(id, name, recordField(event, "args") ?? {}, "running");
-		return true;
-	}
-
-	private consumeToolUpdate(event: Record<string, unknown>): boolean {
-		const id = stringField(event, "toolCallId");
-		const name = stringField(event, "toolName");
-		if (id === undefined || name === undefined) return false;
-		this.markWrite(name);
-		const index = this.toolEventIndexes.get(id);
-		if (index === undefined) {
-			this.upsertTool(id, name, recordField(event, "args") ?? {}, "running");
-			return true;
-		}
-		const current = this.events[index];
-		if (current?.type !== "tool" || current.status === "running") return false;
-		this.events[index] = { ...current, status: "running" };
-		return true;
-	}
-
-	private consumeToolEnd(event: Record<string, unknown>): boolean {
-		const id = stringField(event, "toolCallId");
-		const name = stringField(event, "toolName");
-		if (id === undefined || name === undefined) return false;
-		this.markWrite(name);
-		this.upsertTool(id, name, recordField(event, "args") ?? {}, booleanField(event, "isError") ? "error" : "completed");
-		return true;
-	}
-
 	private startTurn(): void {
+		if (this.turnOpen) throw new Error("nested assistant message_start");
 		this.turnOpen = true;
 		this.liveUsage = undefined;
 		this.messageEventStart = this.events.length;
@@ -160,19 +111,23 @@ export class PiJsonProgressAccumulator {
 		this.textEventIndexes.clear();
 	}
 
-	private ensureTurn(): void {
-		if (!this.turnOpen) this.startTurn();
+	private requireTurn(): void {
+		if (!this.turnOpen) throw new Error("assistant event arrived before message_start");
 	}
 
 	private startTextBlock(contentIndex: number): void {
-		if (!this.textBlocks.has(contentIndex)) this.textBlocks.set(contentIndex, "");
+		if (this.textBlocks.has(contentIndex)) throw new Error(`duplicate text_start for content ${contentIndex}`);
+		this.textBlocks.set(contentIndex, "");
 	}
 
 	private appendText(contentIndex: number, delta: string): void {
-		this.setText(contentIndex, `${this.textBlocks.get(contentIndex) ?? ""}${delta}`);
+		const current = this.textBlocks.get(contentIndex);
+		if (current === undefined) throw new Error(`text_delta arrived before text_start for content ${contentIndex}`);
+		this.setText(contentIndex, `${current}${delta}`);
 	}
 
 	private setText(contentIndex: number, text: string): void {
+		if (!this.textBlocks.has(contentIndex)) throw new Error(`text_end arrived before text_start for content ${contentIndex}`);
 		this.textBlocks.set(contentIndex, text);
 		this.output = text;
 		const eventIndex = this.textEventIndexes.get(contentIndex);
@@ -186,7 +141,7 @@ export class PiJsonProgressAccumulator {
 
 	private replaceLiveMessageEvents(): void {
 		const start = this.messageEventStart;
-		if (start === undefined) return;
+		if (start === undefined) throw new Error("assistant message has no event boundary");
 		this.events.splice(start);
 		for (const [id, index] of this.toolEventIndexes) {
 			if (index >= start) this.toolEventIndexes.delete(id);
@@ -194,16 +149,8 @@ export class PiJsonProgressAccumulator {
 		this.textEventIndexes.clear();
 	}
 
-	private recordToolCall(toolCall: Record<string, unknown>, status: ToolProgressStatus): void {
-		const name = stringField(toolCall, "name") ?? "tool";
-		const id = stringField(toolCall, "id");
-		const args = recordField(toolCall, "arguments") ?? {};
-		this.markWrite(name);
-		if (id === undefined) {
-			this.events.push({ type: "tool", name, args, status });
-			return;
-		}
-		this.upsertTool(id, name, args, status);
+	private recordToolCall(toolCall: { id: string; name: string; arguments: Record<string, unknown> }, status: ToolProgressStatus): void {
+		this.upsertTool(toolCall.id, toolCall.name, toolCall.arguments, status);
 	}
 
 	private upsertTool(id: string, name: string, args: Record<string, unknown>, status: ToolProgressStatus): void {
@@ -214,38 +161,33 @@ export class PiJsonProgressAccumulator {
 			return;
 		}
 		const current = this.events[index];
-		this.events[index] = current?.type === "tool"
-			? { type: "tool", name, args: Object.keys(args).length > 0 ? args : current.args, status }
-			: { type: "tool", name, args, status };
+		if (current?.type !== "tool") throw new Error(`tool event index is invalid: ${id}`);
+		this.events[index] = { type: "tool", name, args, status };
 	}
 
-	private markWrite(name: string): void {
-		if (name === "write" || name === "edit" || name === "bash") this.wrote = true;
+	private updateTool(id: string, status: ToolProgressStatus): void {
+		const index = this.toolEventIndexes.get(id);
+		if (index === undefined) throw new Error(`tool lifecycle started without a tool call: ${id}`);
+		const current = this.events[index];
+		if (current?.type !== "tool") throw new Error(`tool event index is invalid: ${id}`);
+		this.events[index] = { ...current, status };
 	}
 }
 
-function contentParts(message: Record<string, unknown>): Record<string, unknown>[] {
-	const content = message["content"];
-	if (!Array.isArray(content)) return [];
-	return content.filter(isRecord);
-}
-
-function parseUsage(value: Record<string, unknown>): UsageStats {
-	const cost = recordField(value, "cost");
-	const totalCost = cost === undefined ? undefined : numberField(cost, "total");
+function usageStats(value: Usage): UsageStats {
 	return {
-		input: numberField(value, "input"),
-		output: numberField(value, "output"),
-		cacheRead: numberField(value, "cacheRead"),
-		cacheWrite: numberField(value, "cacheWrite"),
-		contextTokens: numberField(value, "totalTokens"),
+		input: value.input,
+		output: value.output,
+		cacheRead: value.cacheRead,
+		cacheWrite: value.cacheWrite,
+		contextTokens: value.totalTokens,
 		turns: 0,
-		...(totalCost !== undefined && totalCost > 0 ? { cost: totalCost } : {}),
+		...(value.cost.total > 0 ? { cost: value.cost.total } : {}),
 	};
 }
 
-function commitUsage(target: UsageStats, value: Record<string, unknown> | undefined): void {
-	const usage = value === undefined ? emptyUsage() : parseUsage(value);
+function commitUsage(target: UsageStats, value: Usage): void {
+	const usage = usageStats(value);
 	target.input += usage.input;
 	target.output += usage.output;
 	target.cacheRead += usage.cacheRead;
@@ -277,30 +219,7 @@ function cloneRenderEvent(event: RenderEvent): RenderEvent {
 	return event.type === "text" ? { ...event } : { ...event, args: { ...event.args } };
 }
 
-function recordField(record: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
-	const value = record[key];
-	return isRecord(value) ? value : undefined;
-}
-
-function stringField(record: Record<string, unknown>, key: string): string | undefined {
-	const value = record[key];
-	return typeof value === "string" ? value : undefined;
-}
-
-function numberField(record: Record<string, unknown>, key: string): number {
-	const value = record[key];
-	return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function integerField(record: Record<string, unknown>, key: string): number | undefined {
-	const value = record[key];
-	return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
-}
-
-function booleanField(record: Record<string, unknown>, key: string): boolean {
-	return record[key] === true;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
+function toolArgs(value: unknown): Record<string, unknown> {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("tool arguments must be an object");
+	return value as Record<string, unknown>;
 }

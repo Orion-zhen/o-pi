@@ -8,23 +8,20 @@ export const subagentTelemetry = defineToolTelemetry<SubagentToolParams, Subagen
 	result(_params, result) {
 		const details = result.details;
 		let failed = 0;
-		let attempts = 0;
 		let durationMs = 0;
 		let inputTokens = 0;
 		let outputTokens = 0;
 		for (const item of details.results) {
-			if (item.error !== undefined || item.exitCode !== 0) failed += 1;
-			attempts += finite(item.attempts);
-			durationMs += finite(item.durationMs);
-			inputTokens += finite(item.usage.input);
-			outputTokens += finite(item.usage.output);
+			if (item.error !== undefined || (item.status === "completed" && item.exitCode !== 0)) failed += 1;
+			durationMs += item.durationMs;
+			inputTokens += item.usage.input;
+			outputTokens += item.usage.output;
 		}
 		return {
 			fields: fields({
 				mode: details.mode,
 				task_count: details.tasks.length,
 				failed_task_count: failed,
-				attempt_count: attempts,
 				duration_ms: durationMs,
 				input_tokens: inputTokens,
 				output_tokens: outputTokens,
@@ -53,8 +50,4 @@ function projectInput(value: unknown): TelemetryFacts {
 		fields: { input_task_count: tasks.length, input_agents: agents, input_task_chars: chars, input_task_lines: lines },
 		...(targets.length === 0 ? {} : { targets }),
 	};
-}
-
-function finite(value: number): number {
-	return Number.isFinite(value) ? value : 0;
 }

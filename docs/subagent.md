@@ -48,7 +48,6 @@ You are a focused codebase scout.
 * `model`：可选。只用于隔离模式。
 * `tools`：逗号分隔工具列表，缺省时使用只读默认工具。只用于隔离模式。
 * `timeout_ms`：可选。
-* `retries`：可选。
 * `auto_confirm`：可选。为 `true` 时跳过该 Agent 的写工具确认，仅应由受信任的用户级 Agent 使用。
 
 Markdown 正文不会直接暴露给主 Agent。隔离模式把正文作为子 Agent system role。fork 模式把正文放在历史 snapshot 后的 user assignment 中，因此不具有 system 权威。
@@ -64,7 +63,7 @@ Markdown 正文不会直接暴露给主 Agent。隔离模式把正文作为子 A
 </subagents>
 ```
 
-主 Agent 只知道名称和描述。工具、权限、项目 Agent 开关、确认策略、并发和重试不交给模型控制。
+主 Agent 只知道名称和描述。工具、权限、项目 Agent 开关、确认策略和并发不交给模型控制。
 
 子进程设置 `PI_SUBAGENT_CHILD=1`，因此子 Agent 不会看到 `<subagents>` 段。
 
@@ -86,7 +85,7 @@ Return relevant files, line ranges, symbols, architecture notes, and unresolved 
 
 ### Fork 模式
 
-父进程把主会话当前有效 system prompt 逐字写入权限受限的临时文件。子进程读取并校验其 SHA-256，不重新合成日期、cwd、项目规则、skills 或 subagent 索引。Agent 正文与 task 合并成 snapshot 历史后的单个 user suffix：
+父进程把主会话当前有效 system prompt 逐字写入权限受限的临时文件。子进程直接读取该文件，不重新合成日期、cwd、项目规则、skills 或 subagent 索引。Agent 正文与 task 合并成 snapshot 历史后的单个 user suffix：
 
 ```xml
 <agent_instructions>
@@ -110,7 +109,7 @@ Agent 配置工具 ∩ pi.getAllTools()
 
 并且始终过滤 `subagent`。
 
-以上规则只适用于隔离模式。Fork 模式严格使用主会话 active tools 的名称、顺序、description 和 parameters schema，包括 `subagent`。Agent/config 的 tools 不生效。子进程执行 `subagent` 时由 runtime 明确拒绝递归，而不是删除 schema。
+以上规则只适用于隔离模式。Fork 模式传递主会话 active tools 的名称和顺序，包括 `subagent`。子进程从当前 Pi runtime 加载对应工具定义。Agent/config 的 tools 不生效。子进程执行 `subagent` 时由 runtime 明确拒绝递归，而不是删除 schema。
 
 隔离模式中：
 
@@ -188,11 +187,11 @@ Fork 行为：
 * 使用主会话当前 model、thinking、active tools、session ID 和 cwd。
 * 忽略 Agent/config 的 model、tools 以及 task cwd。差异不会触发 isolated 降级。
 * fork 上下文无法建立时在 spawn 前失败。
-* 模型调用工具时，严格验证当前 leaf 包含该 `toolCallId` 的 `subagent` call，并从该 assistant entry 的 parent fork，避免悬空 tool call。
+* 模型调用工具时，从当前 assistant leaf 的 parent fork，避免把尚未完成的 tool call 放入 snapshot。
 * `/run` 从当前 leaf fork。
 * snapshot 仅保留当前有效分支中参与模型上下文的 message、custom message、compaction 和 branch summary。普通 custom、label、model/thinking entry 不写入。
-* 同次 parallel/chain 共享只读 snapshot。每次 retry 从原 snapshot 创建独立 child session，不继承失败输出。
-* snapshot、system prompt、manifest 和所有 child session 在整次执行结束后清理。
+* 同次 parallel/chain 共享只读 snapshot，每个任务使用独立 child session。
+* snapshot、system prompt 和所有 child session 在整次执行结束后清理。
 
 隔离模式的 `--system-prompt` 直接引用发现阶段已校验的原始 Agent Markdown，不生成临时 prompt 或 profile。
 
@@ -200,14 +199,14 @@ Fork 行为：
 
 * `--tools` 始终显式传递。
 * `shell: false`。
-* stdout 按 Pi 0.84.2 JSONL 协议解析。`message_update` 的 delta 用于实时正文，累计 usage 只取当前 turn 最新快照，`message_end` 作为最终权威消息。
+* stdout 按 Pi 0.84.2 JSONL 协议解析。`message_update` 的 delta 用于实时正文，累计 usage 只取当前 turn 最新快照，`message_end` 作为最终权威消息。JSONL 损坏会使任务失败。
 * `tool_execution_start/update/end` 驱动工具 pending、running、completed 或 error 状态。高频流式更新最多每 50ms 向主进程发送一次 partial snapshot。
 * stderr 完整保存，展示时截断。
 * 超时后终止进程。
 * Ctrl+C 先 `SIGTERM`，再宽限后 `SIGKILL`。
 * 子进程环境变量使用白名单继承，并额外设置 `PI_SUBAGENT_CHILD=1`。
 
-成功条件不是只看退出码，必须有非空最终 assistant 文本，且没有错误 stop reason 或 provider error。
+成功条件不是只看退出码。任务还必须产生非空最终 assistant 文本，且不能包含错误 stop reason 或 `errorMessage`。
 
 ## UI 卡片
 
@@ -270,14 +269,10 @@ chain handoff：
 * `max_parallel_tasks`
 * `max_concurrency`
 * `timeout_ms`
-* `retries`
-* `retry_delay_ms`
-* `retry_on_empty_output`
-* `retry_on_timeout`
 * `max_inline_output_tokens`
 * `max_handoff_tokens`
 
-项目配置不能修改 `allow_project_agents`、`project_agents_override_user`、`confirm_write_agents`、`default_tools` 或 `agent_overrides`，避免项目扩大用户级能力边界。Fork 执行还会忽略 `default_model`、`default_tools` 和对应 `agent_overrides`。timeout、retry 与受信任用户 Agent 的 `auto_confirm` 仍可生效。
+项目配置不能修改 `allow_project_agents`、`project_agents_override_user`、`confirm_write_agents`、`default_tools` 或 `agent_overrides`，避免项目扩大用户级能力边界。Fork 执行还会忽略 `default_model`、`default_tools` 和对应 `agent_overrides`。`timeout_ms` 与受信任用户 Agent 的 `auto_confirm` 仍可生效。
 
 完整默认配置位于：
 
@@ -295,4 +290,4 @@ agent/defaults/subagent.jsonc
 
 Fork 在 Pi 层尽力复用主请求的 system prompt、工具 schema、compaction 后消息前缀、model/provider 配置、thinking 和 session affinity，使请求接近 `parent prefix + assignment`。这不是 provider payload 字节级等价或 cache hit 保证。provider 支持、token 下限、TTL、淘汰、服务端路由，以及扩展/provider 的请求重写都会影响结果。Extension API 未完整暴露的 cache retention、headers、transport 和 metadata 不会被伪装成已保证字段。
 
-Manifest 对当前可观测的 model、tools、thinking、session、cwd 和 system prompt 做一致性诊断。它不是 provider 网络屏障。实现不依赖 `before_provider_request` 抛错，因为 Pi 会吞掉该 hook 的异常。Fork Agent 会把主会话当前有效历史发送给主会话当前模型，使用前应按该模型的隐私边界评估内容。
+临时文件权限用于限制其他用户访问，但不构成 provider 网络屏障。Fork Agent 会把主会话当前有效历史发送给主会话当前模型，使用前应按该模型的隐私边界评估内容。

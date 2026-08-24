@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createSubagentCommandProgressAdapter } from "../../src/subagent/tui/adapter.js";
 import { renderSubagentCall, renderSubagentCommandEntry, renderSubagentResult } from "../../src/subagent/tui/renderer.js";
 import { pendingSubagentResult } from "../../src/subagent/progress.js";
-import type { SubagentDetails, SubagentRunResult, UsageStats } from "../../src/subagent/types.js";
+import type { SubagentCompletedResult, SubagentDetails, SubagentRunningResult, UsageStats } from "../../src/subagent/types.js";
 
 const workspace = path.resolve("workspace");
 const outputFile = path.join(workspace, ".pi", "subagents", "runs", "run-1", "scout-1.md");
@@ -48,10 +48,11 @@ describe("subagent renderer", () => {
 		expect(finished.join("")).toBe("");
 	});
 
-	it("缺少执行结果时，调用卡和 partial result 都保留 agent 与 task", () => {
+	it("调用卡隐藏，缺少执行结果时 partial result 保留 agent 与 task", () => {
 		const call = renderSubagentCall(
 			{ tasks: [{ agent: "scout", task: "inspect auth flow and tests" }] },
 			theme,
+			{ isPartial: false },
 		).render(120).join("\n");
 		const details: SubagentDetails = {
 			mode: "parallel",
@@ -67,7 +68,7 @@ describe("subagent renderer", () => {
 			theme as never,
 		).render(120).join("\n");
 
-		for (const value of ["scout", "inspect auth flow and tests"]) expect(call).toContain(value);
+		expect(call).toBe("");
 		for (const value of ["reviewer", "review changed tests"]) expect(partial).toContain(value);
 	});
 
@@ -96,10 +97,9 @@ describe("subagent renderer", () => {
 			runId: "run-1",
 			tasks: [{ agent: "scout", task: "inspect renderer" }],
 			results: [
-				result({
+				runningResult({
 					agent: "scout",
 					task: "inspect renderer",
-					exitCode: -1,
 					output: "found renderer behavior",
 					events: [
 						{ type: "tool", name: "read", args: { path: "src/subagent/tui/renderer.ts" } },
@@ -128,7 +128,7 @@ describe("subagent renderer", () => {
 			runId: "run-1",
 			tasks: [{ agent: "scout", task: "inspect output" }],
 			results: [
-				result({
+				completedResult({
 					agent: "scout",
 					task: "inspect output",
 					output: "full subagent output kept for the tool card",
@@ -153,7 +153,7 @@ describe("subagent renderer", () => {
 			mode: "parallel",
 			runId: "run-1",
 			tasks: [{ agent: "scout", task: "inspect" }],
-			results: [result({
+			results: [completedResult({
 				output: "final answer",
 				events: [
 					{ type: "tool", name: "read", args: { path: "src/a.ts" } },
@@ -175,8 +175,9 @@ describe("subagent renderer", () => {
 	});
 });
 
-function result(overrides: Partial<SubagentRunResult>): SubagentRunResult {
+function completedResult(overrides: Partial<SubagentCompletedResult>): SubagentCompletedResult {
 	return {
+		status: "completed",
 		runId: "run-1",
 		mode: "parallel",
 		contextMode: "isolated",
@@ -185,9 +186,29 @@ function result(overrides: Partial<SubagentRunResult>): SubagentRunResult {
 		task: "inspect",
 		cwd: workspace,
 		tools: ["read"],
-		attempts: 1,
 		exitCode: 0,
+		output: "done",
+		outputFile,
 		durationMs: 10,
+		usage: usage(),
+		events: [],
+		...overrides,
+	};
+}
+
+function runningResult(overrides: Partial<SubagentRunningResult>): SubagentRunningResult {
+	return {
+		status: "running",
+		runId: "run-1",
+		mode: "parallel",
+		contextMode: "isolated",
+		agent: "scout",
+		source: "user",
+		task: "inspect",
+		cwd: workspace,
+		tools: ["read"],
+		output: "",
+		durationMs: 0,
 		usage: usage(),
 		events: [],
 		...overrides,

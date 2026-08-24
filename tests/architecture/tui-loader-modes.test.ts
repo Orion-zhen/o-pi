@@ -55,7 +55,7 @@ function loaderCase<Renderer>(
 	};
 }
 
-describe.each(cases)("$name TUI loader", ({ create }) => {
+describe.each(cases)("$name TUI loader", ({ name, create }) => {
 	it("rpc/json/print 不加载，重复 TUI start 只加载一次", async () => {
 		const value = create(false);
 		const harness = register(value.extension);
@@ -72,16 +72,23 @@ describe.each(cases)("$name TUI loader", ({ create }) => {
 		expect(harness.registrationCount).toBeGreaterThan(coreRegistrations);
 	});
 
-	it("加载失败保留核心注册并允许下一次 TUI start 重试", async () => {
+	it("加载失败按扩展声明的策略传播或重试", async () => {
 		const value = create(true);
 		const harness = register(value.extension);
 		const coreRegistrations = harness.registrationCount;
 		const firstContext = context("tui");
+		if (name === "subagent") {
+			await expect(harness.sessionStart({}, firstContext.ctx)).rejects.toThrow("expected failure");
+			await expect(harness.sessionStart({}, context("tui").ctx)).rejects.toThrow("expected failure");
+			expect(value.loadCount()).toBe(1);
+			expect(harness.registrationCount).toBe(coreRegistrations);
+			return;
+		}
+
 		await harness.sessionStart({}, firstContext.ctx);
 		expect(value.loadCount()).toBe(1);
 		expect(harness.registrationCount).toBe(coreRegistrations);
 		expect(firstContext.notify).toHaveBeenCalledWith(expect.stringContaining("expected failure"), "warning");
-
 		await harness.sessionStart({}, context("tui").ctx);
 		expect(value.loadCount()).toBe(2);
 		expect(harness.registrationCount).toBeGreaterThan(coreRegistrations);

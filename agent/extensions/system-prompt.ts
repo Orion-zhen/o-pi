@@ -12,17 +12,12 @@ const SYSTEM_COMMAND_DESCRIPTION = "Show the current synthesized system prompt."
 export default function systemPrompt(pi: ExtensionAPI): void {
 	registerSystemCommand(pi);
 	pi.on("before_agent_start", async (event, ctx) => {
-		const result = await buildAgentSystemPrompt({
+		const systemPrompt = await buildAgentSystemPrompt({
 			options: event.systemPromptOptions,
 			cwd: ctx.cwd,
-			model: ctx.model,
 			activeTools: pi.getActiveTools(),
-			allTools: pi.getAllTools(),
-			thinkingLevel: pi.getThinkingLevel(),
-			sessionId: ctx.sessionManager.getSessionId(),
 		});
-		if (result.status === "fork_setup_error") console.error(result.error);
-		return { systemPrompt: result.systemPrompt };
+		return { systemPrompt };
 	});
 }
 

@@ -1,6 +1,7 @@
 import { executeSubagent, resolveMode } from "./executor.js";
 import type {
 	ExecutorContext,
+	NonEmptyArray,
 	SubagentProgressCallback,
 	SubagentTask,
 	SubagentToolParams,
@@ -26,13 +27,13 @@ export async function runSubagentTasks(
 	return result;
 }
 
-export function pendingSubagentResult(tasks: readonly SubagentTask[]): SubagentToolResult {
+export function pendingSubagentResult(tasks: NonEmptyArray<SubagentTask>): SubagentToolResult {
 	return {
 		content: [{ type: "text", text: "Subagents starting" }],
 		details: {
-			mode: resolveMode([...tasks]),
+			mode: resolveMode(tasks),
 			runId: "pending",
-			tasks: tasks.map((task) => ({ ...task })),
+			tasks: tasks.map((task) => ({ ...task })) as NonEmptyArray<SubagentTask>,
 			results: [],
 			warnings: [],
 		},

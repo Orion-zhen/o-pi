@@ -2,7 +2,6 @@ import type { Api, Model } from "@earendil-works/pi-ai";
 import type {
 	AgentToolResult,
 	SessionEntry,
-	SessionHeader,
 	ToolInfo as PiToolInfo,
 } from "@earendil-works/pi-coding-agent";
 
@@ -11,13 +10,13 @@ export type SubagentSource = "user" | "project";
 export type ContextMode = "isolated" | "fork";
 export type ParentModel = Model<Api>;
 export type ToolInfo = PiToolInfo;
+export type NonEmptyArray<T> = [T, ...T[]];
 
 export interface ParentSessionManager {
 	getSessionId(): string;
 	getLeafId(): string | null;
 	getLeafEntry(): SessionEntry | undefined;
 	getEntries(): SessionEntry[];
-	getHeader(): SessionHeader | null;
 }
 
 export interface UsageStats {
@@ -40,13 +39,8 @@ export interface SubagentConfig {
 	maxParallelTasks: number;
 	maxConcurrency: number;
 	timeoutMs: number;
-	retries: number;
-	retryDelayMs: number;
-	retryOnEmptyOutput: boolean;
-	retryOnTimeout: boolean;
 	maxInlineOutputTokens: number;
 	maxHandoffTokens: number;
-	agentScope: "user";
 	allowProjectAgents: boolean;
 	projectAgentsOverrideUser: boolean;
 	confirmWriteAgents: boolean;
@@ -62,18 +56,14 @@ export interface AgentDefinition {
 	model?: string;
 	tools: string[];
 	timeoutMs?: number;
-	retries?: number;
 	autoConfirm?: boolean;
 	source: SubagentSource;
 	filePath: string;
-	hasWriteCapability: boolean;
 }
 
 export interface AgentDiscovery {
 	agents: AgentDefinition[];
 	warnings: string[];
-	userAgentsDir: string;
-	projectAgentsDir?: string;
 }
 
 export interface SubagentTask {
@@ -83,10 +73,10 @@ export interface SubagentTask {
 }
 
 export interface SubagentToolParams {
-	tasks: SubagentTask[];
+	tasks: NonEmptyArray<SubagentTask>;
 }
 
-export interface SubagentRunResult {
+interface SubagentRunBase {
 	runId: string;
 	mode: SubagentMode;
 	contextMode: ContextMode;
@@ -96,27 +86,39 @@ export interface SubagentRunResult {
 	cwd: string;
 	model?: string;
 	tools: string[];
-	attempts: number;
-	exitCode: number;
 	stopReason?: string;
 	error?: string;
-	output?: string;
-	outputFile?: string;
+	output: string;
 	stderr?: string;
 	durationMs: number;
 	usage: UsageStats;
 	events: RenderEvent[];
 }
 
+export interface SubagentRunningResult extends SubagentRunBase {
+	status: "running";
+}
+
+export interface SubagentCompletedResult extends SubagentRunBase {
+	status: "completed";
+	exitCode: number;
+	outputFile: string;
+}
+
+export type UnpersistedSubagentRunResult = Omit<SubagentCompletedResult, "outputFile">;
+export type SubagentRunResult = SubagentRunningResult | SubagentCompletedResult;
+
 export interface SubagentDetails {
 	mode: SubagentMode;
 	runId: string;
-	tasks: SubagentTask[];
+	tasks: NonEmptyArray<SubagentTask>;
 	results: SubagentRunResult[];
 	warnings: string[];
 }
 
-export type SubagentToolResult = AgentToolResult<SubagentDetails>;
+export interface SubagentToolResult extends AgentToolResult<SubagentDetails> {
+	content: [{ type: "text"; text: string }];
+}
 
 export interface SubagentProgressEvent {
 	phase: "starting" | "running" | "completed";
@@ -135,24 +137,11 @@ export type RenderEvent =
 	| { type: "text"; text: string }
 	| { type: "tool"; name: string; args: Record<string, unknown>; status?: ToolProgressStatus };
 
-export interface ForkManifest {
-	snapshotHash: string;
-	systemPromptHash: string;
-	modelHash: string;
-	toolsHash: string;
-	thinkingLevel: string;
-	sessionId: string;
-	cwd: string;
-}
-
 export interface ForkExecutionContext {
 	snapshotPath: string;
 	systemPromptPath: string;
-	manifestPath: string;
-	systemPromptHash: string;
 	model: ParentModel;
 	activeTools: readonly string[];
-	allTools: readonly ToolInfo[];
 	thinkingLevel: string;
 	sessionId: string;
 	cwd: string;
@@ -164,8 +153,6 @@ interface ProcessRunBase {
 	agent: AgentDefinition;
 	task: string;
 	timeoutMs: number;
-	attempt: number;
-	maxAttempts: number;
 }
 
 export type ProcessRunInput = ProcessRunBase & (
@@ -193,9 +180,7 @@ export interface ProcessRunOutput {
 	durationMs: number;
 	timedOut: boolean;
 	aborted: boolean;
-	providerError?: string;
 	parseErrors: number;
-	wrote: boolean;
 }
 
 export interface ProcessRunProgress {
@@ -207,24 +192,18 @@ export interface ProcessRunProgress {
 	stopReason?: string;
 	error?: string;
 	parseErrors: number;
-	wrote: boolean;
 }
 
 export interface ExecutorContext {
 	cwd: string;
-	currentModel?: ParentModel | undefined;
-	activeTools?: readonly string[] | undefined;
-	allTools?: readonly ToolInfo[] | undefined;
-	thinkingLevel?: string | undefined;
-	sessionManager?: ParentSessionManager | undefined;
-	systemPrompt?: string | undefined;
-	invocation?: "tool" | "command" | undefined;
-	toolCallId?: string | undefined;
-	signal?: AbortSignal | undefined;
-	interaction?: SubagentInteractionPort | undefined;
-	onUpdate?: ((partial: SubagentToolResult) => void) | undefined;
-}
-
-export interface ExecutorOptions {
-	failFast?: boolean;
+	currentModel: ParentModel | undefined;
+	activeTools: readonly string[];
+	allTools: readonly ToolInfo[];
+	thinkingLevel: string;
+	sessionManager: ParentSessionManager;
+	systemPrompt: string;
+	invocation: "tool" | "command";
+	signal?: AbortSignal;
+	interaction?: SubagentInteractionPort;
+	onUpdate?: (partial: SubagentToolResult) => void;
 }

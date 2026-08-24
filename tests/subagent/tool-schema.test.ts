@@ -80,8 +80,7 @@ describe("subagent tool schema", () => {
 	it("子进程保留 schema 但运行时阻止递归", async () => {
 		process.env.PI_SUBAGENT_CHILD = "1";
 
-		const result = await subagentTool().execute("call", { tasks: [{ agent: "scout", task: "nested" }] }, undefined, undefined, {});
-
-		expect(result.content[0]?.text).toContain("Recursive subagent calls are forbidden");
+		await expect(subagentTool().execute("call", { tasks: [{ agent: "scout", task: "nested" }] }, undefined, undefined, {}))
+			.rejects.toThrow("Recursive subagent calls are forbidden");
 	});
 });

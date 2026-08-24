@@ -2,15 +2,11 @@ import * as os from "os";
 import {
 	parseFrontmatter,
 	type BuildSystemPromptOptions,
-	type ToolInfo,
 } from "@earendil-works/pi-coding-agent";
 import { discoverAgents } from "../subagent/agents.js";
 import { loadSubagentConfig } from "../subagent/config.js";
-import {
-	loadAndValidateForkSystemPrompt,
-	validateForkRuntime,
-} from "../subagent/session-context.js";
-import type { AgentDefinition, ParentModel } from "../subagent/types.js";
+import { loadForkSystemPrompt } from "../subagent/session-context.js";
+import type { AgentDefinition } from "../subagent/types.js";
 import { collectModelInvocableSkillIndex } from "../skill-context/loader.js";
 
 type PromptSections = {
@@ -241,10 +237,7 @@ export async function buildRuntimeSystemPrompt(
 	subagentToolAvailable = true,
 ): Promise<string> {
 	if (process.env.PI_SUBAGENT_FORK === "1") {
-		return loadAndValidateForkSystemPrompt(
-			requireForkEnv("PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE"),
-			requireForkEnv("PI_SUBAGENT_FORK_MANIFEST"),
-		);
+		return loadForkSystemPrompt(requireForkEnv("PI_SUBAGENT_FORK_SYSTEM_PROMPT_FILE"));
 	}
 	if (process.env.PI_SUBAGENT_CHILD === "1") {
 		return buildSubagentSystemPrompt(options);
@@ -271,45 +264,10 @@ async function getMainAgentExtraSystemPrompt(cwd: string, subagentToolAvailable:
 export interface AgentSystemPromptInput {
 	options: BuildSystemPromptOptions;
 	cwd: string;
-	model: ParentModel | undefined;
 	activeTools: readonly string[];
-	allTools: readonly ToolInfo[];
-	thinkingLevel: string;
-	sessionId: string;
 }
 
-export type AgentSystemPromptResult =
-	| { status: "ready"; systemPrompt: string }
-	| { status: "fork_setup_error"; systemPrompt: string; error: string };
-
-/** 校验 fork runtime 并构建本轮 prompt；extension 只负责把 Pi port 投影到该输入。 */
-export async function buildAgentSystemPrompt(input: AgentSystemPromptInput): Promise<AgentSystemPromptResult> {
-	const subagentToolAvailable = input.activeTools.includes("subagent");
-	if (process.env.PI_SUBAGENT_FORK === "1") {
-		try {
-			const manifestPath = requireForkEnv("PI_SUBAGENT_FORK_MANIFEST");
-			const snapshotPath = process.env.PI_SUBAGENT_FORK_SNAPSHOT;
-			await validateForkRuntime({
-				manifestPath,
-				...(snapshotPath !== undefined ? { snapshotPath } : {}),
-				model: input.model,
-				activeTools: input.activeTools,
-				allTools: input.allTools,
-				thinkingLevel: input.thinkingLevel,
-				sessionId: input.sessionId,
-				cwd: input.cwd,
-			});
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			return {
-				status: "fork_setup_error",
-				systemPrompt: `<fork_setup_error>${message}</fork_setup_error>`,
-				error: message,
-			};
-		}
-	}
-	return {
-		status: "ready",
-		systemPrompt: await buildRuntimeSystemPrompt(input.options, input.cwd, subagentToolAvailable),
-	};
+/** 构建当前轮次 prompt；fork 子进程直接读取父进程保存的精确 prompt。 */
+export function buildAgentSystemPrompt(input: AgentSystemPromptInput): Promise<string> {
+	return buildRuntimeSystemPrompt(input.options, input.cwd, input.activeTools.includes("subagent"));
 }

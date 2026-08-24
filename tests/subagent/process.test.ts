@@ -2,7 +2,8 @@ import { EventEmitter } from "node:events";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PassThrough } from "node:stream";
-import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { AssistantMessage, Usage } from "@earendil-works/pi-ai";
+import type { JsonAgentSessionEvent, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runSubagentCommand } from "../../src/subagent/commands.js";
@@ -12,14 +13,14 @@ import { resetSubagentSpawnForTests, runPiProcess, setSubagentSpawnForTests } fr
 import {
 	cleanupForkExecutionContext,
 	createForkExecutionContext,
-	loadAndValidateForkSystemPrompt,
-	validateForkRuntime,
 } from "../../src/subagent/session-context.js";
 import type {
 	AgentDefinition,
+	NonEmptyArray,
 	ProcessRunInput,
 	ProcessRunProgress,
 	SubagentProgressEvent,
+	SubagentTask,
 } from "../../src/subagent/types.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
@@ -36,7 +37,6 @@ beforeEach(async () => {
 	process.env.PI_SUBAGENT_PROJECT_CONFIG = path.join(workspace, "missing-project.jsonc");
 	await mkdir(path.join(workspace, "agent", "agents"), { recursive: true });
 	await writeAgent("scout", "read");
-	await writeConfig({ retry_delay_ms: 0 });
 });
 
 afterEach(() => {
@@ -97,7 +97,7 @@ describe("subagent execution", () => {
 		setSubagentSpawnForTests((_command, args, options) => {
 			capturedArgs = args;
 			expect(options.env?.PI_SUBAGENT_CHILD).toBe("1");
-			return completedProcess(messageEnd([{ type: "text", text: "done" }]));
+			return completedProcess(messageStart(), messageEnd([{ type: "text", text: "done" }]));
 		});
 
 		await runPiProcess(input());
@@ -115,20 +115,21 @@ describe("subagent execution", () => {
 			body: "Inspect only the requested scope.",
 		});
 		await writeConfig({
-			retry_delay_ms: 0,
 			default_model: "ignored/default",
 			agent_overrides: { forker: { model: "ignored/override", tools: ["write"] } },
 		});
 		let capturedArgs: readonly string[] = [];
 		let capturedEnv: NodeJS.ProcessEnv | undefined;
 		let snapshot = "";
+		let snapshotPath = "";
 		setSubagentSpawnForTests((_command, args, options) => {
 			capturedArgs = args;
 			capturedEnv = options.env;
 			const proc = new FakeChildProcess();
 			queueMicrotask(async () => {
-				const snapshotPath = options.env?.PI_SUBAGENT_FORK_SNAPSHOT;
-				if (snapshotPath !== undefined) snapshot = await readFile(snapshotPath, "utf8");
+				snapshotPath = args[args.indexOf("--fork") + 1] as string;
+				snapshot = await readFile(snapshotPath, "utf8");
+				proc.stdout.write(`${JSON.stringify(messageStart())}\n`);
 				proc.stdout.write(`${JSON.stringify(messageEnd([{ type: "text", text: "fork done" }]))}\n`);
 				proc.exitCode = 0;
 				proc.emit("close", 0);
@@ -157,34 +158,8 @@ describe("subagent execution", () => {
 		const snapshotLines = snapshot.trim().split("\n").map((line) => JSON.parse(line) as { type: string; id?: string });
 		expect(snapshotLines.map((entry) => entry.type)).toEqual(["session", "message"]);
 		expect(snapshotLines[1]?.id).toBe("user-1");
-		const snapshotPath = capturedEnv?.PI_SUBAGENT_FORK_SNAPSHOT;
-		if (snapshotPath === undefined) throw new Error("fork snapshot path was not captured");
+		expect(snapshotPath).not.toBe("");
 		await expect(readFile(snapshotPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
-	});
-
-	it("fork retry 每次从同一 snapshot 创建独立 child session", async () => {
-		await writeAgent("forker", "read", { fork: true, body: "Body." });
-		const snapshots: string[] = [];
-		const sessionDirs: string[] = [];
-		let calls = 0;
-		setSubagentSpawnForTests((_command, args) => {
-			calls++;
-			const forkIndex = args.indexOf("--fork");
-			const sessionDirIndex = args.indexOf("--session-dir");
-			const snapshotPath = args[forkIndex + 1];
-			const sessionDir = args[sessionDirIndex + 1];
-			if (forkIndex >= 0 && snapshotPath !== undefined) snapshots.push(snapshotPath);
-			if (sessionDirIndex >= 0 && sessionDir !== undefined) sessionDirs.push(sessionDir);
-			return calls === 2
-				? completedProcess(messageEnd([{ type: "text", text: "recovered" }]))
-				: completedProcess();
-		});
-
-		const result = await runTasks([{ agent: "forker", task: "retry" }], forkExecutorContext());
-
-		expect(result.details.results[0]).toMatchObject({ attempts: 2, output: "recovered", contextMode: "fork" });
-		expect(new Set(snapshots).size).toBe(1);
-		expect(new Set(sessionDirs).size).toBe(2);
 	});
 
 	it("/run fork 从当前 leaf 保留最新 assistant 输出", async () => {
@@ -203,13 +178,11 @@ describe("subagent execution", () => {
 		] satisfies SessionEntry[];
 		const parent = forkExecutorContext({
 			invocation: "command",
-			toolCallId: undefined,
 			sessionManager: {
 				getSessionId: () => "parent-session",
 				getLeafId: () => "assistant",
 				getLeafEntry: () => entries[1],
 				getEntries: () => entries,
-				getHeader: () => null,
 			},
 		});
 		const fork = await createForkExecutionContext(parent);
@@ -221,59 +194,34 @@ describe("subagent execution", () => {
 		}
 	});
 
-	it("manifest 诊断检查 system、model、tools、thinking、session 和 cwd", async () => {
-		const parent = forkExecutorContext();
-		const fork = await createForkExecutionContext(parent);
-		const valid = {
-			manifestPath: fork.manifestPath,
-			snapshotPath: fork.snapshotPath,
-			model: fork.model,
-			activeTools: fork.activeTools,
-			allTools: fork.allTools,
-			thinkingLevel: fork.thinkingLevel,
-			sessionId: fork.sessionId,
-			cwd: fork.cwd,
-		};
+	it("fork 临时资源使用私有权限并逐字保存 system prompt", async () => {
+		const fork = await createForkExecutionContext(forkExecutorContext());
 		try {
 			if (process.platform !== "win32") {
 				expect((await stat(path.dirname(fork.snapshotPath))).mode & 0o777).toBe(0o700);
 				expect((await stat(fork.snapshotPath)).mode & 0o777).toBe(0o600);
 				expect((await stat(fork.systemPromptPath)).mode & 0o777).toBe(0o600);
-				expect((await stat(fork.manifestPath)).mode & 0o777).toBe(0o600);
 			}
-			await expect(validateForkRuntime(valid)).resolves.toBeUndefined();
-			const mismatches = [
-				{ model: { ...fork.model, baseUrl: "https://other.invalid" } },
-				{ activeTools: [...fork.activeTools].reverse() },
-				{ allTools: fork.allTools.map((tool) => tool.name === "read" ? { ...tool, description: "changed" } : tool) },
-				{ thinkingLevel: "off" },
-				{ sessionId: "other-session" },
-				{ cwd: path.join(workspace, "other") },
-			] satisfies Array<Partial<Parameters<typeof validateForkRuntime>[0]>>;
-			await Promise.all(mismatches.map((mismatch) => expect(validateForkRuntime({ ...valid, ...mismatch })).rejects.toThrow()));
-			await expect(loadAndValidateForkSystemPrompt(fork.systemPromptPath, fork.manifestPath)).resolves.toBe("Exact parent system prompt");
-			await writeFile(fork.systemPromptPath, "tampered prompt");
-			await expect(loadAndValidateForkSystemPrompt(fork.systemPromptPath, fork.manifestPath)).rejects.toThrow();
+			expect(await readFile(fork.systemPromptPath, "utf8")).toBe("Exact parent system prompt");
 		} finally {
 			await cleanupForkExecutionContext(fork);
 		}
 	});
 
-	it("fork 边界不匹配时在 spawn 前失败", async () => {
+	it("fork 缺少当前模型时在 spawn 前失败", async () => {
 		await writeAgent("forker", "read", { fork: true, body: "Body." });
 		const spawn = vi.fn();
 		setSubagentSpawnForTests(spawn);
 
-		const result = await runTasks([{ agent: "forker", task: "inspect" }], forkExecutorContext({ toolCallId: "wrong-call" }));
-
-		expect(result.details.results).toEqual([]);
+		await expect(runTasks([{ agent: "forker", task: "inspect" }], forkExecutorContext({ currentModel: undefined })))
+			.rejects.toThrow("fork setup error");
 		expect(spawn).not.toHaveBeenCalled();
 	});
 
 	it("chain 将上一步输出传入 {previous}，失败时停止后续步骤", async () => {
 		expect(resolveMode([{ agent: "scout", task: "use {previous_result}" }])).toBe("parallel");
 		setOutputSpawn((task) => task === "seed" ? "handoff" : task.includes("stop") ? undefined : `received ${task}`);
-		const chain = [{ agent: "scout", task: "seed" }, { agent: "scout", task: "use {previous}" }];
+		const chain: NonEmptyArray<SubagentTask> = [{ agent: "scout", task: "seed" }, { agent: "scout", task: "use {previous}" }];
 		const success = await runTasks(chain);
 		expect(success.details.mode).toBe("chain");
 		expect(success.details.results.map((item) => item.task)).toEqual(["seed", "use handoff"]);
@@ -291,53 +239,73 @@ describe("subagent execution", () => {
 		setOutputSpawn((task) => task === "large" || task === "seed" ? largeOutput : `received ${task}`);
 
 		const single = await runTasks([{ agent: "scout", task: "large" }]);
-		const singleOutputFile = single.details.results[0]?.outputFile;
-		if (singleOutputFile === undefined) throw new Error("subagent output file missing");
+		const singleRun = single.details.results[0];
+		if (singleRun?.status !== "completed") throw new Error("subagent did not complete");
+		const singleOutputFile = singleRun.outputFile;
 		expect(await readFile(singleOutputFile, "utf8")).toBe(largeOutput);
 		const result = await runTasks([{ agent: "scout", task: "seed" }, { agent: "scout", task: "use {previous}" }]);
 		const [persisted, handoff] = result.details.results;
-		const outputFile = persisted?.outputFile;
-		if (outputFile === undefined) throw new Error("subagent output file missing");
+		if (persisted?.status !== "completed") throw new Error("subagent did not complete");
+		const outputFile = persisted.outputFile;
 		expect(handoff?.task).toContain(outputFile);
 		expect(handoff?.task).not.toContain(largeOutput);
 	});
 
-	it("只读失败会重试，成功后保留实际 attempts", async () => {
+	it("空输出直接失败且不重试", async () => {
 		let calls = 0;
-		setOutputSpawn(() => ++calls === 1 ? undefined : "recovered");
+		setOutputSpawn(() => {
+			calls++;
+			return undefined;
+		});
 
-		const result = await runTasks([{ agent: "scout", task: "retry" }]);
+		const result = await runTasks([{ agent: "scout", task: "once" }]);
 
-		expect(calls).toBe(2);
-		expect(result.details.results[0]).toMatchObject({ attempts: 2, output: "recovered" });
+		expect(calls).toBe(1);
+		expect(result.details.results[0]).toMatchObject({ status: "completed", error: "empty output" });
 	});
 
-	it("统一拒绝空任务、未知 agent、越界 cwd 和未确认的写能力", async () => {
+	it("损坏的 JSONL 明确失败且不重试", async () => {
+		let calls = 0;
+		setSubagentSpawnForTests(() => {
+			calls++;
+			const proc = new FakeChildProcess();
+			queueMicrotask(() => {
+				proc.stdout.write("not-json\n");
+				proc.stdout.write(`${JSON.stringify(messageStart())}\n`);
+				proc.stdout.write(`${JSON.stringify(messageEnd([{ type: "text", text: "done" }]))}\n`);
+				proc.exitCode = 0;
+				proc.emit("close", 0);
+			});
+			return proc;
+		});
+
+		const result = await runTasks([{ agent: "scout", task: "protocol" }]);
+
+		expect(calls).toBe(1);
+		expect(result.details.results[0]).toMatchObject({ error: "Pi JSON protocol error: 1 malformed event" });
+	});
+
+	it("preflight 统一拒绝未知 agent、越界 cwd 和未确认的写能力", async () => {
 		await writeAgent("worker", "read, edit");
 		const spawn = vi.fn();
 		setSubagentSpawnForTests(spawn);
-		const cases = [
-			await runTasks([]),
-			await runTasks([{ agent: "missing", task: "x" }]),
-			await runTasks([{ agent: "scout", task: "x", cwd: ".." }]),
-			await runTasks([{ agent: "worker", task: "write" }], context({ allTools: [toolInfo("read"), toolInfo("edit")] })),
-			await runTasks(
-				[{ agent: "worker", task: "write" }],
-				context({
-					allTools: [toolInfo("read"), toolInfo("edit")],
-					interaction: { confirmWrite: async () => false },
-				}),
-			),
-		];
 
-		expect(cases.map(({ content }) => content[0])).toEqual([
-			expect.objectContaining({ text: expect.stringMatching(/\btasks\b/i) }),
-			expect.objectContaining({ text: expect.stringMatching(/\bmissing\b/i) }),
-			expect.objectContaining({ text: expect.stringMatching(/\bcwd\b/i) }),
-			expect.objectContaining({ text: expect.stringMatching(/\bconfirmation\b/i) }),
-			expect.objectContaining({ text: expect.stringMatching(/\bcanceled\b/i) }),
-		]);
-		expect(cases.every((result) => result.details.results.length === 0)).toBe(true);
+		await expect(runTasks([{ agent: "missing", task: "x" }])).rejects.toThrow("missing");
+		await expect(runTasks([
+			{ agent: "scout", task: "valid" },
+			{ agent: "scout", task: "invalid", cwd: ".." },
+		])).rejects.toThrow("cwd");
+		await expect(runTasks(
+			[{ agent: "worker", task: "write" }],
+			context({ allTools: [toolInfo("read"), toolInfo("edit")] }),
+		)).rejects.toThrow("confirmation");
+		await expect(runTasks(
+			[{ agent: "worker", task: "write" }],
+			context({
+				allTools: [toolInfo("read"), toolInfo("edit")],
+				interaction: { confirmWrite: async () => false },
+			}),
+		)).rejects.toThrow("Canceled");
 		expect(spawn).not.toHaveBeenCalled();
 	});
 
@@ -361,6 +329,7 @@ describe("subagent execution", () => {
 	it("解析 message_update delta 并发送实时进度快照", async () => {
 		setSubagentSpawnForTests(() => completedProcess(
 			messageStart(),
+			messageUpdate({ input: 12, output: 0, totalTokens: 12 }, { type: "text_start", contentIndex: 0 }),
 			messageUpdate({ input: 12, output: 1, totalTokens: 13 }, { type: "text_delta", contentIndex: 0, delta: "work" }),
 			messageUpdate({ input: 12, output: 2, totalTokens: 14 }, { type: "text_delta", contentIndex: 0, delta: "ing" }),
 			messageEnd([{ type: "text", text: "done" }], { input: 12, output: 3, totalTokens: 15 }),
@@ -387,6 +356,7 @@ describe("subagent execution", () => {
 
 		progress.consume(messageEnd([{ type: "toolCall", id: "call-1", name: "read", arguments: { path: "a.ts" } }], { input: 10, output: 5, totalTokens: 15 }));
 		progress.consume(messageStart());
+		progress.consume(messageUpdate({ input: 20, output: 0, cacheRead: 3, totalTokens: 23 }, { type: "text_start", contentIndex: 0 }));
 		progress.consume(messageUpdate({ input: 20, output: 2, cacheRead: 3, totalTokens: 25 }, { type: "text_delta", contentIndex: 0, delta: "done" }));
 
 		expect(progress.snapshot().usage).toMatchObject({
@@ -398,7 +368,7 @@ describe("subagent execution", () => {
 		});
 	});
 
-	it("按官方 tool_execution 生命周期更新工具状态和写入标记", () => {
+	it("按官方 tool_execution 生命周期更新工具状态", () => {
 		const progress = new PiJsonProgressAccumulator();
 		progress.consume(messageStart());
 		progress.consume(messageUpdate(
@@ -406,18 +376,17 @@ describe("subagent execution", () => {
 			{
 				type: "toolcall_end",
 				contentIndex: 0,
-				toolCall: { id: "call-1", name: "edit", arguments: { path: "a.ts", edits: [] } },
+				toolCall: { type: "toolCall", id: "call-1", name: "edit", arguments: { path: "a.ts", edits: [] } },
 			},
 		));
 		expect(progress.snapshot()).toMatchObject({
-			wrote: true,
 			events: [{ type: "tool", name: "edit", status: "pending" }],
 		});
 
-		progress.consume({ type: "tool_execution_start", toolCallId: "call-1", toolName: "edit", args: { path: "a.ts", edits: [] } });
+		progress.consume({ type: "tool_execution_start", toolCallId: "call-1", toolName: "edit", args: { path: "a.ts", edits: [] } } as JsonAgentSessionEvent);
 		expect(progress.snapshot().events[0]).toMatchObject({ type: "tool", name: "edit", status: "running" });
 
-		progress.consume({ type: "tool_execution_end", toolCallId: "call-1", toolName: "edit", result: {}, isError: false });
+		progress.consume({ type: "tool_execution_end", toolCallId: "call-1", toolName: "edit", result: {}, isError: false } as JsonAgentSessionEvent);
 		expect(progress.snapshot().events[0]).toMatchObject({ type: "tool", name: "edit", status: "completed" });
 	});
 
@@ -465,13 +434,11 @@ function forkExecutorContext(overrides: Partial<Parameters<typeof executeSubagen
 		thinkingLevel: "medium",
 		systemPrompt: "Exact parent system prompt",
 		invocation: "tool",
-		toolCallId: "call-1",
 		sessionManager: {
 			getSessionId: () => "parent-session",
 			getLeafId: () => "assistant-call",
 			getLeafEntry: () => entries[2],
 			getEntries: () => entries,
-			getHeader: () => null,
 		},
 		...overrides,
 	});
@@ -490,7 +457,12 @@ function context(overrides: Partial<Parameters<typeof executeSubagent>[1]> = {})
 	return {
 		cwd: workspace,
 		currentModel: testModel(),
+		activeTools: ["read"],
 		allTools: [toolInfo("read")],
+		thinkingLevel: "off",
+		sessionManager: emptySessionManager(),
+		systemPrompt: "Parent system prompt",
+		invocation: "command",
 		...overrides,
 	};
 }
@@ -529,7 +501,7 @@ function setOutputSpawn(outputForTask: (task: string) => string | undefined): vo
 		const output = outputForTask(task);
 		return output === undefined
 			? completedProcess()
-			: completedProcess(messageEnd([{ type: "text", text: output }]));
+			: completedProcess(messageStart(), messageEnd([{ type: "text", text: output }]));
 	});
 }
 
@@ -542,10 +514,10 @@ async function writeConfig(config: Record<string, unknown>): Promise<void> {
 async function constrainInlineOutput(output: string): Promise<void> {
 	const max_inline_output_tokens = countTextTokensSync(output, { modelId: "test-model" }).tokens - 1;
 	expect(max_inline_output_tokens).toBeGreaterThanOrEqual(250);
-	await writeConfig({ retry_delay_ms: 0, max_inline_output_tokens });
+	await writeConfig({ max_inline_output_tokens });
 }
 
-function completedProcess(...messages: Array<Record<string, unknown>>): FakeChildProcess {
+function completedProcess(...messages: unknown[]): FakeChildProcess {
 	const proc = new FakeChildProcess();
 	queueMicrotask(() => {
 		for (const message of messages) proc.stdout.write(`${JSON.stringify(message)}\n`);
@@ -568,33 +540,48 @@ class FakeChildProcess extends EventEmitter {
 	}
 }
 
-function messageStart(): Record<string, unknown> {
-	return { type: "message_start", message: { role: "assistant", content: [] } };
+type JsonMessageUpdate = Extract<JsonAgentSessionEvent, { type: "message_update" }>;
+
+function messageStart(): JsonAgentSessionEvent {
+	return { type: "message_start", message: assistantMessage([], "pending", wireUsage()) };
 }
 
 function messageUpdate(
-	usage: Record<string, unknown>,
-	assistantMessageEvent: Record<string, unknown>,
-): Record<string, unknown> {
-	return {
-		type: "message_update",
-		usage: { cacheRead: 0, cacheWrite: 0, ...usage },
-		assistantMessageEvent,
-	};
+	usage: Partial<Usage>,
+	assistantMessageEvent: JsonMessageUpdate["assistantMessageEvent"],
+): JsonMessageUpdate {
+	return { type: "message_update", usage: wireUsage(usage), assistantMessageEvent };
 }
 
 function messageEnd(
-	content: Array<Record<string, unknown>>,
-	usage: Record<string, unknown> = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2 },
-): Record<string, unknown> {
+	content: AssistantMessage["content"],
+	usage: Partial<Usage> = { input: 1, output: 1, totalTokens: 2 },
+): JsonAgentSessionEvent {
+	return { type: "message_end", message: assistantMessage(content, "stop", wireUsage(usage)) };
+}
+
+function assistantMessage(content: AssistantMessage["content"], stopReason: AssistantMessage["stopReason"], usage: Usage): AssistantMessage {
 	return {
-		type: "message_end",
-		message: {
-			role: "assistant",
-			stopReason: "end",
-			usage: { cacheRead: 0, cacheWrite: 0, ...usage },
-			content,
-		},
+		role: "assistant",
+		api: "openai-completions",
+		provider: "test",
+		model: "test-model",
+		content,
+		stopReason,
+		usage,
+		timestamp: 1,
+	};
+}
+
+function wireUsage(overrides: Partial<Usage> = {}): Usage {
+	return {
+		input: 0,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: 0,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+		...overrides,
 	};
 }
 
@@ -608,8 +595,6 @@ function input(): ProcessRunInput {
 		cwd: process.cwd(),
 		tools: ["read"],
 		timeoutMs: 1000,
-		attempt: 1,
-		maxAttempts: 1,
 	};
 }
 
@@ -634,7 +619,6 @@ function emptySessionManager() {
 		getLeafId: () => null,
 		getLeafEntry: () => undefined,
 		getEntries: () => [],
-		getHeader: () => null,
 	};
 }
 
@@ -647,6 +631,5 @@ function agent(): AgentDefinition {
 		tools: ["read"],
 		source: "user",
 		filePath: path.resolve("agents", "scout.md"),
-		hasWriteCapability: false,
 	};
 }

@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
-import { defaultSubagentConfig, loadSubagentConfig, mergeProjectConfig, mergeUserConfig } from "../../src/subagent/config.js";
+import { loadSubagentConfig } from "../../src/subagent/config.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
@@ -16,12 +16,23 @@ beforeEach(() => {
 
 describe("subagent config", () => {
 	it("缺少覆盖文件时加载完整默认层", async () => {
-		expect(await loadSubagentConfig(dir)).toEqual(defaultSubagentConfig());
+		expect(await loadSubagentConfig(dir)).toEqual({
+			maxParallelTasks: 4,
+			maxConcurrency: 1,
+			timeoutMs: 600_000,
+			maxInlineOutputTokens: 8_000,
+			maxHandoffTokens: 6_000,
+			allowProjectAgents: false,
+			projectAgentsOverrideUser: false,
+			confirmWriteAgents: true,
+			defaultTools: ["read", "grep", "find", "ls"],
+			agentOverrides: {},
+		});
 	});
 
 	it("支持 JSONC 注释和 trailing comma", async () => {
 		await writeFile(
-			process.env.PI_SUBAGENT_USER_CONFIG!,
+			path.join(dir, "user.jsonc"),
 			`{
 				// local GPU default
 				"max_concurrency": 2,
@@ -32,23 +43,23 @@ describe("subagent config", () => {
 		expect(await loadSubagentConfig(dir)).toMatchObject({ maxConcurrency: 2, maxInlineOutputTokens: 2500, maxHandoffTokens: 3500 });
 	});
 
-	it("非法 JSONC 和数值范围报错", async () => {
-		await writeFile(process.env.PI_SUBAGENT_USER_CONFIG!, "{");
+	it("非法 JSONC、数值范围和重复工具报错", async () => {
+		await writeFile(path.join(dir, "user.jsonc"), "{");
 		await expect(loadSubagentConfig(dir)).rejects.toThrow("not valid JSONC");
-		await writeFile(process.env.PI_SUBAGENT_USER_CONFIG!, '{ "max_concurrency": 0 }');
+		await writeFile(path.join(dir, "user.jsonc"), '{ "max_concurrency": 0 }');
+		await expect(loadSubagentConfig(dir)).rejects.toThrow("does not match schema");
+		await writeFile(path.join(dir, "user.jsonc"), '{ "default_tools": ["read", "read"] }');
 		await expect(loadSubagentConfig(dir)).rejects.toThrow("does not match schema");
 	});
 
-	it("项目配置不能扩大安全边界", () => {
-		const user = mergeUserConfig(defaultSubagentConfig(), { allow_project_agents: false, confirm_write_agents: true });
-		const merged = mergeProjectConfig(user, { allow_project_agents: true, confirm_write_agents: false, max_concurrency: 2 });
-		expect(merged.allowProjectAgents).toBe(false);
-		expect(merged.confirmWriteAgents).toBe(true);
-		expect(merged.maxConcurrency).toBe(2);
-	});
-
-	it("加载时明确拒绝项目配置中的全局专用字段", async () => {
-		await writeFile(process.env.PI_SUBAGENT_PROJECT_CONFIG!, '{ "allow_project_agents": true }');
+	it.each([
+		["user", "retries"],
+		["user", "agent_scope"],
+		["project", "retry_on_timeout"],
+		["project", "allow_project_agents"],
+	] as const)("拒绝 %s 配置中的已删除或越权字段 %s", async (layer, field) => {
+		const configPath = path.join(dir, layer === "user" ? "user.jsonc" : "project.jsonc");
+		await writeFile(configPath, JSON.stringify({ [field]: field === "retries" ? 1 : true }));
 		await expect(loadSubagentConfig(dir)).rejects.toThrow("does not match schema");
 	});
 });
