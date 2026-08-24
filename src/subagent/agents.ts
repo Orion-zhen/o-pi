@@ -105,7 +105,7 @@ function parseAgentFile(filePath: string, source: SubagentSource, config: Subage
 	const parsed = parseFrontmatter<Record<string, unknown>>(content);
 	const frontmatter: unknown = parsed.frontmatter;
 	if (!isRecord(frontmatter)) throw new Error("frontmatter must be an object.");
-	const known = new Set(["name", "description", "fork", "model", "tools", "timeout_ms", "auto_confirm"]);
+	const known = new Set(["name", "description", "fork", "model", "tools", "timeout_ms", "retries", "auto_confirm"]);
 	for (const key of Object.keys(frontmatter)) {
 		if (!known.has(key)) warnings.push(`${filePath}: ignored unknown frontmatter field "${key}"`);
 	}
@@ -113,6 +113,7 @@ function parseAgentFile(filePath: string, source: SubagentSource, config: Subage
 	const fork = parseFork(frontmatter["fork"]);
 	const model = optionalString(frontmatter["model"], "model");
 	const timeoutMs = optionalTimeout(frontmatter["timeout_ms"]);
+	const retries = optionalRetries(frontmatter["retries"]);
 	const autoConfirm = optionalBoolean(frontmatter["auto_confirm"], "auto_confirm");
 	return {
 		name: requireString(frontmatter["name"], "name"),
@@ -122,6 +123,7 @@ function parseAgentFile(filePath: string, source: SubagentSource, config: Subage
 		...(model !== undefined ? { model } : {}),
 		tools,
 		...(timeoutMs !== undefined ? { timeoutMs } : {}),
+		...(retries !== undefined ? { retries } : {}),
 		...(autoConfirm !== undefined ? { autoConfirm } : {}),
 		source,
 		filePath,
@@ -185,6 +187,12 @@ function optionalTimeout(value: unknown): number | undefined {
 	if (value === undefined) return undefined;
 	if (typeof value === "number" && Number.isInteger(value) && value >= 1_000 && value <= 3_600_000) return value;
 	throw new Error("timeout_ms must be an integer between 1000 and 3600000.");
+}
+
+function optionalRetries(value: unknown): number | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 5) return value;
+	throw new Error("retries must be an integer between 0 and 5.");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

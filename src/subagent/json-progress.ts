@@ -8,6 +8,7 @@ export interface PiJsonProgressSnapshot {
 	events: RenderEvent[];
 	stopReason?: string;
 	error?: string;
+	wrote: boolean;
 }
 
 /** 将 Pi JSON mode 事件归并成可重复读取的 subagent 进度快照。 */
@@ -18,6 +19,7 @@ export class PiJsonProgressAccumulator {
 	private output = "";
 	private stopReason: string | undefined;
 	private error: string | undefined;
+	private wrote = false;
 	private readonly events: RenderEvent[] = [];
 	private messageEventStart: number | undefined;
 	private readonly textBlocks = new Map<number, string>();
@@ -36,6 +38,7 @@ export class PiJsonProgressAccumulator {
 				if (event.message.role !== "assistant") return false;
 				return this.consumeMessageEnd(event.message);
 			case "tool_execution_start":
+				this.markWrite(event.toolName);
 				this.upsertTool(event.toolCallId, event.toolName, toolArgs(event.args), "running");
 				return true;
 			case "tool_execution_update":
@@ -56,6 +59,7 @@ export class PiJsonProgressAccumulator {
 			events: this.events.map(cloneRenderEvent),
 			...(this.stopReason !== undefined ? { stopReason: this.stopReason } : {}),
 			...(this.error !== undefined ? { error: this.error } : {}),
+			wrote: this.wrote,
 		};
 	}
 
@@ -65,6 +69,7 @@ export class PiJsonProgressAccumulator {
 		const assistantEvent = event.assistantMessageEvent;
 		switch (assistantEvent.type) {
 			case "toolcall_start":
+				this.markWrite(assistantEvent.toolName);
 				this.upsertTool(assistantEvent.id, assistantEvent.toolName, {}, "pending");
 				break;
 			case "text_start":
@@ -153,6 +158,7 @@ export class PiJsonProgressAccumulator {
 	}
 
 	private recordToolCall(toolCall: { id: string; name: string; arguments: Record<string, unknown> }, status: ToolProgressStatus): void {
+		this.markWrite(toolCall.name);
 		this.upsertTool(toolCall.id, toolCall.name, toolCall.arguments, status);
 	}
 
@@ -174,6 +180,10 @@ export class PiJsonProgressAccumulator {
 		const current = this.events[index];
 		if (current?.type !== "tool") throw new Error(`tool event index is invalid: ${id}`);
 		this.events[index] = { ...current, status };
+	}
+
+	private markWrite(name: string): void {
+		if (name === "write" || name === "edit" || name === "bash") this.wrote = true;
 	}
 }
 

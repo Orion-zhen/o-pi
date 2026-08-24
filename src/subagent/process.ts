@@ -74,6 +74,7 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 				...(snapshot.stopReason !== undefined ? { stopReason: snapshot.stopReason } : {}),
 				...(snapshot.error !== undefined ? { error: snapshot.error } : {}),
 				parseErrors,
+				wrote: snapshot.wrote,
 			};
 		};
 		const emitProgress = () => {
@@ -165,6 +166,7 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 	});
 	const finalProgress = progress.snapshot();
 	const finalError = processError ?? finalProgress.error;
+	const providerError = detectProviderError(stderr) ?? detectProviderError(finalError ?? "");
 	return {
 		exitCode,
 		...(finalProgress.stopReason !== undefined ? { stopReason: finalProgress.stopReason } : {}),
@@ -176,7 +178,9 @@ export async function runPiProcess(input: ProcessRunInput, options: { signal?: A
 		durationMs: Date.now() - start,
 		timedOut,
 		aborted,
+		...(providerError === undefined ? {} : { providerError }),
 		parseErrors,
+		wrote: finalProgress.wrote,
 	};
 }
 
@@ -233,6 +237,20 @@ function buildChildEnv(): NodeJS.ProcessEnv {
 		if (allowed.has(key) || prefixes.some((prefix) => key.startsWith(prefix))) env[key] = value;
 	}
 	return env;
+}
+
+function detectProviderError(text: string): string | undefined {
+	if (text.trim() === "") return undefined;
+	const patterns = [
+		/fork (?:setup error|context mismatch)/i,
+		/model .*not.*found/i,
+		/connection refused/i,
+		/econnrefused/i,
+		/rate.?limit/i,
+		/provider error/i,
+		/failed to load model/i,
+	];
+	return patterns.some((pattern) => pattern.test(text)) ? text.trim() : undefined;
 }
 
 function parseJsonEvent(line: string): JsonAgentSessionEvent {

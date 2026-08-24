@@ -16,6 +16,10 @@ interface RawCommonConfig {
 	max_parallel_tasks?: number;
 	max_concurrency?: number;
 	timeout_ms?: number;
+	retries?: number;
+	retry_delay_ms?: number;
+	retry_on_empty_output?: boolean;
+	retry_on_timeout?: boolean;
 	max_inline_output_tokens?: number;
 	max_handoff_tokens?: number;
 }
@@ -84,6 +88,10 @@ function assignCommon(target: SubagentConfig, raw: RawCommonConfig): void {
 	if (raw.max_parallel_tasks !== undefined) target.maxParallelTasks = raw.max_parallel_tasks;
 	if (raw.max_concurrency !== undefined) target.maxConcurrency = raw.max_concurrency;
 	if (raw.timeout_ms !== undefined) target.timeoutMs = raw.timeout_ms;
+	if (raw.retries !== undefined) target.retries = raw.retries;
+	if (raw.retry_delay_ms !== undefined) target.retryDelayMs = raw.retry_delay_ms;
+	if (raw.retry_on_empty_output !== undefined) target.retryOnEmptyOutput = raw.retry_on_empty_output;
+	if (raw.retry_on_timeout !== undefined) target.retryOnTimeout = raw.retry_on_timeout;
 	if (raw.max_inline_output_tokens !== undefined) target.maxInlineOutputTokens = raw.max_inline_output_tokens;
 	if (raw.max_handoff_tokens !== undefined) target.maxHandoffTokens = raw.max_handoff_tokens;
 }
@@ -106,6 +114,10 @@ function materializeDefaultConfig(raw: RawDefaultConfig): SubagentConfig {
 		maxParallelTasks: raw.max_parallel_tasks,
 		maxConcurrency: raw.max_concurrency,
 		timeoutMs: raw.timeout_ms,
+		retries: raw.retries,
+		retryDelayMs: raw.retry_delay_ms,
+		retryOnEmptyOutput: raw.retry_on_empty_output,
+		retryOnTimeout: raw.retry_on_timeout,
 		maxInlineOutputTokens: raw.max_inline_output_tokens,
 		maxHandoffTokens: raw.max_handoff_tokens,
 		allowProjectAgents: raw.allow_project_agents,

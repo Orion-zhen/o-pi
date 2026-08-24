@@ -1,5 +1,6 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { TokenCounterScope } from "../token-counter.js";
 import { discoverAgents, hasWriteCapability, resolveSubagentTools } from "./agents.js";
 import { loadSubagentConfig } from "./config.js";
@@ -146,36 +147,46 @@ async function executeOne(
 		...(prepared.model === undefined ? {} : { model: prepared.model }),
 		tools: prepared.tools,
 	};
-	onProgress(runningResult(base));
-	const output = await runPiProcess(
-		prepared.fork === undefined
-			? {
-				contextMode: "isolated",
-				runId,
-				mode,
-				agent: prepared.agent,
-				task: taskText,
-				cwd: prepared.cwd,
-				...(prepared.model === undefined ? {} : { model: prepared.model }),
-				tools: prepared.tools,
-				timeoutMs: prepared.agent.timeoutMs ?? config.timeoutMs,
-			}
-			: {
-				contextMode: "fork",
-				runId,
-				mode,
-				agent: prepared.agent,
-				task: taskText,
-				forkContext: prepared.fork,
-				assignment: formatForkAssignment(prepared.agent.body, taskText),
-				timeoutMs: prepared.agent.timeoutMs ?? config.timeoutMs,
-			},
-		{
+	const processInput = prepared.fork === undefined
+		? {
+			contextMode: "isolated" as const,
+			runId,
+			mode,
+			agent: prepared.agent,
+			task: taskText,
+			cwd: prepared.cwd,
+			...(prepared.model === undefined ? {} : { model: prepared.model }),
+			tools: prepared.tools,
+			timeoutMs: prepared.agent.timeoutMs ?? config.timeoutMs,
+		}
+		: {
+			contextMode: "fork" as const,
+			runId,
+			mode,
+			agent: prepared.agent,
+			task: taskText,
+			forkContext: prepared.fork,
+			assignment: formatForkAssignment(prepared.agent.body, taskText),
+			timeoutMs: prepared.agent.timeoutMs ?? config.timeoutMs,
+		};
+	const maxAttempts = (prepared.agent.retries ?? config.retries) + 1;
+	let attempts = 1;
+	onProgress(runningResult(base, 0));
+	let output = await runPiProcess(processInput, {
+		...(context.signal === undefined ? {} : { signal: context.signal }),
+		onUpdate: (progress) => onProgress(runningResult(base, attempts, progress)),
+	});
+	let failure = validateProcessOutput(output);
+	while (failure !== undefined && shouldRetry(failure, output, attempts, maxAttempts, prepared.tools, config)) {
+		await retryDelay(config.retryDelayMs, context.signal);
+		attempts += 1;
+		onProgress(runningResult(base, attempts));
+		output = await runPiProcess(processInput, {
 			...(context.signal === undefined ? {} : { signal: context.signal }),
-			onUpdate: (progress) => onProgress(runningResult(base, progress)),
-		},
-	);
-	const failure = validateProcessOutput(output);
+			onUpdate: (progress) => onProgress(runningResult(base, attempts, progress)),
+		});
+		failure = validateProcessOutput(output);
+	}
 	return {
 		status: "completed",
 		runId,
@@ -187,6 +198,7 @@ async function executeOne(
 		cwd: prepared.cwd,
 		...(prepared.model === undefined ? {} : { model: prepared.model }),
 		tools: prepared.tools,
+		attempts,
 		exitCode: output.exitCode,
 		...(output.stopReason !== undefined ? { stopReason: output.stopReason } : {}),
 		...(failure !== undefined ? { error: failure } : {}),
@@ -295,11 +307,39 @@ function validateProcessOutput(output: ProcessRunOutput): string | undefined {
 	if (output.timedOut) return "subagent timed out";
 	if (output.aborted) return "subagent aborted";
 	if (output.parseErrors > 0) return `Pi JSON protocol error: ${output.parseErrors} malformed event${output.parseErrors === 1 ? "" : "s"}`;
+	if (output.providerError !== undefined) return `provider error: ${truncateError(output.providerError)}`;
 	if (output.error !== undefined) return output.error;
 	if (output.exitCode !== 0) return `subagent exited with code ${output.exitCode}`;
 	if (output.stopReason === "error" || output.stopReason === "aborted") return `subagent stopReason: ${output.stopReason}`;
 	if (output.output.trim() === "") return "empty output";
 	return undefined;
+}
+
+function shouldRetry(
+	failure: string,
+	output: ProcessRunOutput,
+	attempt: number,
+	maxAttempts: number,
+	tools: string[],
+	config: SubagentConfig,
+): boolean {
+	if (attempt >= maxAttempts || output.aborted) return false;
+	if (output.wrote || hasWriteCapability(tools)) return false;
+	if (failure === "subagent timed out") return config.retryOnTimeout;
+	if (failure === "empty output") return config.retryOnEmptyOutput;
+	return output.exitCode !== 0 || output.stopReason === "error" || output.providerError !== undefined;
+}
+
+async function retryDelay(ms: number, signal: AbortSignal | undefined): Promise<void> {
+	if (signal?.aborted) throw new SubagentExecutionError("subagent aborted");
+	if (ms === 0) return;
+	try {
+		if (signal === undefined) await sleep(ms);
+		else await sleep(ms, undefined, { signal });
+	} catch (error) {
+		if (signal?.aborted) throw new SubagentExecutionError("subagent aborted");
+		throw error;
+	}
 }
 
 function resultToContent(result: SubagentCompletedResult, config: SubagentConfig, tokenScope: TokenCounterScope): string {
@@ -320,7 +360,7 @@ function runningResult(input: {
 	cwd: string;
 	model?: string;
 	tools: string[];
-}, progress: ProcessRunProgress = emptyProgress()): SubagentRunningResult {
+}, attempts: number, progress: ProcessRunProgress = emptyProgress()): SubagentRunningResult {
 	return {
 		status: "running",
 		runId: input.runId,
@@ -332,6 +372,7 @@ function runningResult(input: {
 		cwd: input.cwd,
 		...(input.model === undefined ? {} : { model: input.model }),
 		tools: input.tools,
+		attempts,
 		...(progress.stopReason === undefined ? {} : { stopReason: progress.stopReason }),
 		...(progress.error === undefined ? {} : { error: progress.error }),
 		output: progress.output,
@@ -394,6 +435,7 @@ function emptyProgress(): ProcessRunProgress {
 		events: [],
 		durationMs: 0,
 		parseErrors: 0,
+		wrote: false,
 	};
 }
 

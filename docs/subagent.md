@@ -45,6 +45,7 @@ You are a focused codebase scout.
 * `model`：可选。只用于隔离模式。
 * `tools`：逗号分隔工具列表，缺省时使用只读默认工具。只用于隔离模式。
 * `timeout_ms`：可选。
+* `retries`：可选，覆盖该 Agent 的重试次数。
 * `auto_confirm`：可选。为 `true` 时跳过该 Agent 的写工具确认，仅应由受信任的用户级 Agent 使用。
 
 Markdown 正文不会直接暴露给主 Agent。隔离模式把正文作为子 Agent system role。fork 模式把正文放在历史 snapshot 后的 user assignment 中，因此不具有 system 权威。
@@ -60,7 +61,7 @@ Markdown 正文不会直接暴露给主 Agent。隔离模式把正文作为子 A
 </subagents>
 ```
 
-主 Agent 只知道名称和描述。工具、权限、项目 Agent 开关、确认策略和并发不交给模型控制。
+主 Agent 只知道名称和描述。工具、权限、项目 Agent 开关、确认策略、并发和重试不交给模型控制。
 
 子进程设置 `PI_SUBAGENT_CHILD=1`，因此子 Agent 不会看到 `<subagents>` 段。
 
@@ -187,7 +188,7 @@ Fork 行为：
 * 模型调用工具时，沿当前 session 分支定位包含本次 subagent tool call 的 assistant entry，并从其 parent fork。前序 sequential 工具已生成 tool result 时仍使用该边界，避免把本轮尚未配对的 tool call 放入 snapshot。
 * `/run` 从当前 leaf fork。
 * snapshot 仅保留当前有效分支中参与模型上下文的 message、custom message、compaction 和 branch summary。普通 custom、label、model/thinking entry 不写入。
-* 同次 parallel/chain 共享只读 snapshot，每个任务使用独立 child session。
+* 同次 parallel/chain 共享只读 snapshot，每个任务和每次重试使用独立 child session。重试始终从同一 snapshot 开始，不继承失败输出。
 * snapshot、system prompt 和所有 child session 在整次执行结束后清理。
 
 隔离模式的 `--system-prompt` 直接引用发现阶段已校验的原始 Agent Markdown，不生成临时 prompt 或 profile。
@@ -200,10 +201,12 @@ Fork 行为：
 * `toolcall_start` 提供工具 ID 和名称后立即建立 pending 工具。`toolcall_end` 补齐参数，`tool_execution_start/update/end` 再驱动 running、completed 或 error 状态。高频流式更新最多每 50ms 向主进程发送一次 partial snapshot。
 * stderr 完整保存，展示时截断。
 * 超时后终止进程。
+* 只读任务默认重试一次空输出、provider/连接失败、非零退出和错误 stop reason。超时仅在 `retry_on_timeout` 开启时重试。
+* 外部取消、损坏的 JSONL、写能力任务，以及执行期间已观察到 `write`、`edit` 或 `bash` 的任务不会重试。
 * Ctrl+C 先 `SIGTERM`，再宽限后 `SIGKILL`。
 * 子进程环境变量使用白名单继承，并额外设置 `PI_SUBAGENT_CHILD=1`。
 
-成功条件不是只看退出码。任务还必须产生非空最终 assistant 文本，且不能包含错误 stop reason 或 `errorMessage`。
+成功条件不是只看退出码。任务还必须产生非空最终 assistant 文本，且不能包含错误 stop reason、`errorMessage` 或 provider error。
 
 ## UI 卡片
 
@@ -266,10 +269,14 @@ chain handoff：
 * `max_parallel_tasks`
 * `max_concurrency`
 * `timeout_ms`
+* `retries`
+* `retry_delay_ms`
+* `retry_on_empty_output`
+* `retry_on_timeout`
 * `max_inline_output_tokens`
 * `max_handoff_tokens`
 
-项目配置不能修改 `allow_project_agents`、`project_agents_override_user`、`confirm_write_agents`、`default_tools` 或 `agent_overrides`，避免项目扩大用户级能力边界。Fork 执行还会忽略 `default_model`、`default_tools` 和对应 `agent_overrides`。`timeout_ms` 与受信任用户 Agent 的 `auto_confirm` 仍可生效。
+项目配置不能修改 `allow_project_agents`、`project_agents_override_user`、`confirm_write_agents`、`default_tools` 或 `agent_overrides`，避免项目扩大用户级能力边界。Fork 执行还会忽略 `default_model`、`default_tools` 和对应 `agent_overrides`。超时、重试与受信任用户 Agent 的 `auto_confirm` 仍可生效。
 
 完整默认配置位于：
 

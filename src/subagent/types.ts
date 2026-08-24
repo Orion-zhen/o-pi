@@ -39,6 +39,10 @@ export interface SubagentConfig {
 	maxParallelTasks: number;
 	maxConcurrency: number;
 	timeoutMs: number;
+	retries: number;
+	retryDelayMs: number;
+	retryOnEmptyOutput: boolean;
+	retryOnTimeout: boolean;
 	maxInlineOutputTokens: number;
 	maxHandoffTokens: number;
 	allowProjectAgents: boolean;
@@ -56,6 +60,7 @@ export interface AgentDefinition {
 	model?: string;
 	tools: string[];
 	timeoutMs?: number;
+	retries?: number;
 	autoConfirm?: boolean;
 	source: SubagentSource;
 	filePath: string;
@@ -86,6 +91,7 @@ interface SubagentRunBase {
 	cwd: string;
 	model?: string;
 	tools: string[];
+	attempts: number;
 	stopReason?: string;
 	error?: string;
 	output: string;
@@ -180,7 +186,9 @@ export interface ProcessRunOutput {
 	durationMs: number;
 	timedOut: boolean;
 	aborted: boolean;
+	providerError?: string;
 	parseErrors: number;
+	wrote: boolean;
 }
 
 export interface ProcessRunProgress {
@@ -192,6 +200,7 @@ export interface ProcessRunProgress {
 	stopReason?: string;
 	error?: string;
 	parseErrors: number;
+	wrote: boolean;
 }
 
 interface ExecutorContextBase {

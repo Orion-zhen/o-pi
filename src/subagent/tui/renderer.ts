@@ -106,7 +106,8 @@ function formatRunHeader(result: SubagentRunResult, theme: Theme): string {
 			? theme.fg("error", statusIcon("error"))
 			: theme.fg("success", statusIcon("success"));
 	const status = running ? "running" : failed ? "failed" : undefined;
-	const suffix = joinParts([status, formatDuration(result.durationMs)]);
+	const attemptText = result.attempts > 1 ? `${result.attempts} attempts` : undefined;
+	const suffix = joinParts([status, attemptText, formatDuration(result.durationMs)]);
 	return `  ${icon} ${theme.fg("toolTitle", theme.bold(result.agent))}${suffix === "" ? "" : `  ${theme.fg("muted", suffix)}`}`;
 }
 

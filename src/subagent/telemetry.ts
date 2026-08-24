@@ -7,11 +7,13 @@ export const subagentTelemetry = defineToolTelemetry<SubagentToolParams, Subagen
 	input: projectInput,
 	result(_params, details) {
 		let failed = 0;
+		let attempts = 0;
 		let durationMs = 0;
 		let inputTokens = 0;
 		let outputTokens = 0;
 		for (const item of details.results) {
 			if (item.error !== undefined || (item.status === "completed" && item.exitCode !== 0)) failed += 1;
+			attempts += item.attempts;
 			durationMs += item.durationMs;
 			inputTokens += item.usage.input;
 			outputTokens += item.usage.output;
@@ -21,6 +23,7 @@ export const subagentTelemetry = defineToolTelemetry<SubagentToolParams, Subagen
 				mode: details.mode,
 				task_count: details.tasks.length,
 				failed_task_count: failed,
+				attempt_count: attempts,
 				duration_ms: durationMs,
 				input_tokens: inputTokens,
 				output_tokens: outputTokens,

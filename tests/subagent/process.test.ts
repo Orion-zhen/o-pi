@@ -163,6 +163,30 @@ describe("subagent execution", () => {
 		await expect(readFile(snapshotPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
 	});
 
+	it("fork 重试从同一 snapshot 创建独立 child session", async () => {
+		await writeAgent("forker", "read", { fork: true, body: "Body." });
+		await writeConfig({ retry_delay_ms: 0 });
+		const snapshots: string[] = [];
+		const sessionDirs: string[] = [];
+		let calls = 0;
+		setSubagentSpawnForTests((_command, args) => {
+			calls += 1;
+			const snapshotPath = args[args.indexOf("--fork") + 1];
+			const sessionDir = args[args.indexOf("--session-dir") + 1];
+			if (snapshotPath !== undefined) snapshots.push(snapshotPath);
+			if (sessionDir !== undefined) sessionDirs.push(sessionDir);
+			return calls === 1
+				? completedProcess()
+				: completedProcess(messageStart(), messageEnd([{ type: "text", text: "recovered" }]));
+		});
+
+		const result = await runTasks([{ agent: "forker", task: "retry" }], forkExecutorContext());
+
+		expect(result.details.results[0]).toMatchObject({ attempts: 2, output: "recovered", contextMode: "fork" });
+		expect(new Set(snapshots).size).toBe(1);
+		expect(new Set(sessionDirs).size).toBe(2);
+	});
+
 	it("/run fork 从当前 leaf 保留最新 assistant 输出", async () => {
 		const entries = [
 			{ type: "message", id: "user", parentId: null, timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user", content: "Question", timestamp: 1 } },
@@ -262,6 +286,7 @@ describe("subagent execution", () => {
 	});
 
 	it("chain 将上一步输出传入 {previous}，失败时停止后续步骤", async () => {
+		await writeConfig({ retry_delay_ms: 0 });
 		expect(resolveMode([{ agent: "scout", task: "use {previous_result}" }])).toBe("parallel");
 		setOutputSpawn((task) => task === "seed" ? "handoff" : task.includes("stop") ? undefined : `received ${task}`);
 		const chain: NonEmptyArray<SubagentTask> = [{ agent: "scout", task: "seed" }, { agent: "scout", task: "use {previous}" }];
@@ -294,17 +319,57 @@ describe("subagent execution", () => {
 		expect(handoff?.task).not.toContain(largeOutput);
 	});
 
-	it("空输出直接失败且不重试", async () => {
+	it("只读空输出按策略重试并保留实际次数", async () => {
+		await writeConfig({ retry_delay_ms: 0 });
+		let calls = 0;
+		setOutputSpawn(() => ++calls === 1 ? undefined : "recovered");
+
+		const result = await runTasks([{ agent: "scout", task: "retry" }]);
+
+		expect(calls).toBe(2);
+		expect(result.details.results[0]).toMatchObject({ attempts: 2, output: "recovered" });
+	});
+
+	it("provider 瞬时失败不依赖空输出开关也会重试", async () => {
+		await writeConfig({ retry_delay_ms: 0, retry_on_empty_output: false });
+		let calls = 0;
+		setSubagentSpawnForTests(() => {
+			calls += 1;
+			if (calls > 1) return completedProcess(messageStart(), messageEnd([{ type: "text", text: "recovered" }]));
+			const proc = new FakeChildProcess();
+			queueMicrotask(() => {
+				proc.stderr.write("provider error: rate limit");
+				proc.exitCode = 0;
+				proc.emit("close", 0);
+			});
+			return proc;
+		});
+
+		const result = await runTasks([{ agent: "scout", task: "provider" }]);
+
+		expect(calls).toBe(2);
+		expect(result.details.results[0]).toMatchObject({ attempts: 2, output: "recovered" });
+	});
+
+	it("写能力任务失败后不重试", async () => {
+		await writeAgent("worker", "read, edit");
+		await writeConfig({ retry_delay_ms: 0 });
 		let calls = 0;
 		setOutputSpawn(() => {
-			calls++;
+			calls += 1;
 			return undefined;
 		});
 
-		const result = await runTasks([{ agent: "scout", task: "once" }]);
+		const result = await runTasks(
+			[{ agent: "worker", task: "write once" }],
+			context({
+				allTools: [toolInfo("read"), toolInfo("edit")],
+				interaction: { confirmWrite: async () => true },
+			}),
+		);
 
 		expect(calls).toBe(1);
-		expect(result.details.results[0]).toMatchObject({ status: "completed", error: "empty output" });
+		expect(result.details.results[0]).toMatchObject({ attempts: 1, error: "empty output" });
 	});
 
 	it("损坏的 JSONL 明确失败且不重试", async () => {
@@ -418,9 +483,10 @@ describe("subagent execution", () => {
 			{ input: 1, output: 1, totalTokens: 2 },
 			{ type: "toolcall_start", contentIndex: 0, id: "call-1", toolName: "edit" },
 		));
-		expect(progress.snapshot().events).toEqual([
-			{ type: "tool", name: "edit", args: {}, status: "pending" },
-		]);
+		expect(progress.snapshot()).toMatchObject({
+			wrote: true,
+			events: [{ type: "tool", name: "edit", args: {}, status: "pending" }],
+		});
 
 		progress.consume(messageUpdate(
 			{ input: 1, output: 2, totalTokens: 3 },

@@ -20,6 +20,10 @@ describe("subagent config", () => {
 			maxParallelTasks: 4,
 			maxConcurrency: 1,
 			timeoutMs: 600_000,
+			retries: 1,
+			retryDelayMs: 1_000,
+			retryOnEmptyOutput: true,
+			retryOnTimeout: false,
 			maxInlineOutputTokens: 8_000,
 			maxHandoffTokens: 6_000,
 			allowProjectAgents: false,
@@ -48,18 +52,35 @@ describe("subagent config", () => {
 		await expect(loadSubagentConfig(dir)).rejects.toThrow("not valid JSONC");
 		await writeFile(path.join(dir, "user.jsonc"), '{ "max_concurrency": 0 }');
 		await expect(loadSubagentConfig(dir)).rejects.toThrow("does not match schema");
+		await writeFile(path.join(dir, "user.jsonc"), '{ "retries": 6 }');
+		await expect(loadSubagentConfig(dir)).rejects.toThrow("does not match schema");
 		await writeFile(path.join(dir, "user.jsonc"), '{ "default_tools": ["read", "read"] }');
 		await expect(loadSubagentConfig(dir)).rejects.toThrow("does not match schema");
 	});
 
+	it("用户和项目配置共同覆盖重试策略", async () => {
+		await writeFile(path.join(dir, "user.jsonc"), JSON.stringify({
+			retries: 2,
+			retry_delay_ms: 50,
+			retry_on_empty_output: false,
+			retry_on_timeout: true,
+		}));
+		await writeFile(path.join(dir, "project.jsonc"), JSON.stringify({ retries: 3, retry_on_timeout: false }));
+
+		expect(await loadSubagentConfig(dir)).toMatchObject({
+			retries: 3,
+			retryDelayMs: 50,
+			retryOnEmptyOutput: false,
+			retryOnTimeout: false,
+		});
+	});
+
 	it.each([
-		["user", "retries"],
 		["user", "agent_scope"],
-		["project", "retry_on_timeout"],
 		["project", "allow_project_agents"],
-	] as const)("拒绝 %s 配置中的已删除或越权字段 %s", async (layer, field) => {
+	] as const)("拒绝 %s 配置中的越权字段 %s", async (layer, field) => {
 		const configPath = path.join(dir, layer === "user" ? "user.jsonc" : "project.jsonc");
-		await writeFile(configPath, JSON.stringify({ [field]: field === "retries" ? 1 : true }));
+		await writeFile(configPath, JSON.stringify({ [field]: true }));
 		await expect(loadSubagentConfig(dir)).rejects.toThrow("does not match schema");
 	});
 });

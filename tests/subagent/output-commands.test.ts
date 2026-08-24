@@ -82,6 +82,7 @@ function runResult(): UnpersistedSubagentRunResult {
 		task: "inspect",
 		cwd: workspace,
 		tools: ["read"],
+		attempts: 1,
 		status: "completed",
 		exitCode: 0,
 		output: "done",
