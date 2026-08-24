@@ -8,11 +8,11 @@ import { scanInventoryText } from "../../src/file-tools/grep/text-scanner.js";
 import { countTextTokensSync } from "../../src/token-counter.js";
 import { formatCompactGrepResult } from "../../src/file-tools/grep/command.js";
 import { compactDisplayLine } from "../../src/file-tools/grep/display.js";
+import { deferredVoid } from "../helpers/async.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import {
 	assertStrictMatches,
 	createGrepTestContext,
-	deferredVoid,
 	expectGrepSuccess,
 	expectInventorySuccess,
 	expectSuccess,

@@ -11,10 +11,10 @@ import {
 	type NativeOpenFile,
 } from "../../src/filesystem/platform/node/native-filesystem.js";
 import { createVisibilityPolicy } from "../../src/filesystem/services/visibility/policy.js";
+import { deferredVoid } from "../helpers/async.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 import {
 	collectAsync,
-	deferredVoid,
 	expectFsOk,
 	overrideNativeFileSystem,
 	textBytes,

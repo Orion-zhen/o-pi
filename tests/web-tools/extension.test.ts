@@ -1,4 +1,3 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { execFile } from "node:child_process";
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -13,6 +12,8 @@ import { createWebToolsRuntime } from "../../src/web-tools/web-tools-runtime.js"
 import type { WebSearchProvider } from "../../src/web-tools/search-providers/types.js";
 import type { FormalWebSearchProviderId, WebFetchExecutionContext, WebFetchParams, WebSearchParams, WebToolsRuntime } from "../../src/web-tools/core/types.js";
 import { createWebSearchRuntime, type WebSearchProviderLoaders } from "../../src/web-tools/search/websearch-runtime.js";
+import { deferredVoid } from "../helpers/async.js";
+import { registerExtension } from "../helpers/extension.js";
 import { httpResponse } from "../helpers/http.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { webFetchDetails } from "./renderer-fixture.js";
@@ -39,14 +40,14 @@ afterEach(async () => {
 
 describe("web-tools extension", () => {
 	it("WebFetch URL schema 固定非空和 8192 字符上限", () => {
-		const { registered } = registerWebTools(webTools);
+		const { registered } = registerExtension(webTools);
 		const fetch = registered.find((tool) => tool.name === "webfetch");
 		if (fetch === undefined) throw new Error("missing webfetch");
 		expect(fetch.parameters).toMatchObject({ properties: { url: { minLength: 1, maxLength: 8192 } } });
 	});
 
 	it("按顺序注册工具并标记结构化错误", async () => {
-		const { registered, handlers } = registerWebTools(webTools);
+		const { registered, handlers } = registerExtension(webTools);
 		expect(registered.map((tool) => tool.name)).toEqual(["websearch", "webfetch"]);
 
 		const eventResult = handlers.get("tool_result")?.({
@@ -84,7 +85,7 @@ describe("web-tools extension", () => {
 			throw new Error("renderer must not load");
 		});
 		const extension = createWebToolsExtension(loadRuntime, loadRenderers);
-		const { registered, handlers } = registerWebTools(extension);
+		const { registered, handlers } = registerExtension(extension);
 
 		expect(handlers.has("session_start")).toBe(true);
 		expect(handlers.has("session_shutdown")).toBe(true);
@@ -123,7 +124,7 @@ describe("web-tools extension", () => {
 			},
 			async close() {},
 		};
-		const { registered } = registerWebTools(createWebToolsExtension(async () => runtime));
+		const { registered } = registerExtension(createWebToolsExtension(async () => runtime));
 		const tool = registered.find((item) => item.name === "webfetch");
 		if (tool === undefined) throw new Error("missing webfetch");
 		const responsesResult = await tool.execute(
@@ -517,37 +518,6 @@ describe("web-tools runtime", () => {
 	});
 });
 
-type WebToolsHandler = (...args: unknown[]) => unknown;
-interface RegisteredWebTool {
-	name: string;
-	parameters?: unknown;
-	renderCall?: unknown;
-	execute(
-		toolCallId: string,
-		params: unknown,
-		signal: AbortSignal | undefined,
-		onUpdate: unknown,
-		context: unknown,
-	): Promise<{ content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; details?: unknown }>;
-}
-
-function registerWebTools(extension: (pi: ExtensionAPI) => void): {
-	registered: RegisteredWebTool[];
-	handlers: Map<string, WebToolsHandler>;
-} {
-	const registered: RegisteredWebTool[] = [];
-	const handlers = new Map<string, WebToolsHandler>();
-	extension({
-		registerTool(tool: RegisteredWebTool) {
-			registered.push(tool);
-		},
-		on(name: string, handler: WebToolsHandler) {
-			handlers.set(name, handler);
-		},
-	} as unknown as ExtensionAPI);
-	return { registered, handlers };
-}
-
 function successfulSearch(query: string, content = query) {
 	return {
 		content,
@@ -605,17 +575,4 @@ function trackRuntime<T extends { close(): Promise<void> }>(runtime: T): T {
 async function closeRuntime(runtime: ReturnType<typeof createWebToolsRuntime>): Promise<void> {
 	await runtime.close();
 	runtimes = runtimes.filter((candidate) => candidate !== runtime);
-}
-
-function deferredVoid(): { promise: Promise<void>; resolve(): void } {
-	let resolvePromise: (() => void) | undefined;
-	const promise = new Promise<void>((resolve) => {
-		resolvePromise = resolve;
-	});
-	return {
-		promise,
-		resolve() {
-			resolvePromise?.();
-		},
-	};
 }

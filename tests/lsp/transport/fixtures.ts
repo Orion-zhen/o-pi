@@ -8,6 +8,7 @@ import { LspClient } from "../../../src/lsp/client/client.js";
 import { defaultLspConfig } from "../../../src/lsp/config/loader.js";
 import { DiagnosticsLedger } from "../../../src/lsp/diagnostics/ledger.js";
 import { LspManager } from "../../../src/lsp/manager/manager.js";
+import { deferred } from "../../helpers/async.js";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
 
 export interface JsonRpcMessage {
@@ -26,11 +27,6 @@ interface ProtocolServerOptions {
 	readonly afterInitialize?: MessageHandler;
 	readonly onInitialized?: MessageHandler;
 	readonly onMessage?: MessageHandler;
-}
-
-interface Deferred<T> {
-	readonly promise: Promise<T>;
-	resolve(value: T): void;
 }
 
 export interface FakeServer {
@@ -317,12 +313,4 @@ export async function createFakeServer(fixture: TransportFixture, handler: Messa
 export function send(socket: Socket, message: Record<string, unknown>): void {
 	const body = JSON.stringify({ jsonrpc: "2.0", ...message });
 	socket.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`);
-}
-
-export function deferred<T>(): Deferred<T> {
-	let settle = (_value: T): void => undefined;
-	const promise = new Promise<T>((resolve) => {
-		settle = resolve;
-	});
-	return { promise, resolve: settle };
 }

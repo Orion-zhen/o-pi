@@ -5,7 +5,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { FileSystemRuntime } from "../../src/filesystem/runtime.js";
 import { MutationQueue } from "../../src/filesystem/platform/node/mutation-queue.js";
 import { contentHash } from "../../src/filesystem/services/text.js";
-import { deferredVoid as deferred, expectFsOk as expectOk, textBytes as bytes } from "./fixtures.js";
+import { deferredVoid as deferred } from "../helpers/async.js";
+import { expectFsOk as expectOk, textBytes as bytes } from "./fixtures.js";
 import { commitBytes, useMutationFixture } from "./mutation-fixtures.js";
 
 const test = useMutationFixture("o-pi-mutation-concurrency-");

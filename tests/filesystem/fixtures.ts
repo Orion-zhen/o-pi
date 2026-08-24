@@ -108,16 +108,6 @@ export async function collectAsync<T>(iterable: AsyncIterable<T>): Promise<T[]> 
 	return values;
 }
 
-export interface DeferredVoid {
-	readonly promise: Promise<void>;
-	resolve(): void;
-}
-
-export function deferredVoid(): DeferredVoid {
-	let resolve = (): void => undefined;
-	const promise = new Promise<void>((complete) => { resolve = complete; });
-	return { promise, resolve };
-}
 
 export function textBytes(value: string): Uint8Array {
 	return new TextEncoder().encode(value);

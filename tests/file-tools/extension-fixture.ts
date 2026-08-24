@@ -1,4 +1,6 @@
-import type { ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+
+import type { ExtensionHandler } from "../helpers/extension.js";
 
 export interface ThemeStub {
 	fg(name: string, text: string): string;
@@ -22,7 +24,6 @@ export interface Renderable {
 	render(width: number): string[];
 }
 
-export type LifecycleHandler = (...args: unknown[]) => unknown;
 export type RenderResult = (result: unknown, options: { expanded: boolean; isPartial: boolean }, theme: ThemeStub, context: unknown) => Renderable;
 export type RenderCall = (args: unknown, theme: ThemeStub, context: unknown) => Renderable;
 export type ExecuteResult = { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; details?: unknown };
@@ -47,25 +48,7 @@ export interface RegisteredTool {
 	renderResult?: RenderResult;
 }
 
-export function registerExtension(
-	extension: (pi: ExtensionAPI) => void,
-	api: Record<string, unknown> = {},
-): { registered: RegisteredTool[]; handlers: Map<string, LifecycleHandler> } {
-	const registered: RegisteredTool[] = [];
-	const handlers = new Map<string, LifecycleHandler>();
-	extension({
-		...api,
-		registerTool(tool: RegisteredTool) {
-			registered.push(tool);
-		},
-		on(name: string, handler: LifecycleHandler) {
-			handlers.set(name, handler);
-		},
-	} as unknown as ExtensionAPI);
-	return { registered, handlers };
-}
-
-export async function activateFileTools(handler: LifecycleHandler | undefined, mode: "tui" | "rpc" = "tui"): Promise<void> {
+export async function activateFileTools(handler: ExtensionHandler | undefined, mode: "tui" | "rpc" = "tui"): Promise<void> {
 	await handler?.({}, { mode, ui: { notify() {} } });
 }
 

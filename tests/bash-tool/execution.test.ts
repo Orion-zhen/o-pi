@@ -2,7 +2,7 @@ import { chmod, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BashOperations, ExtensionAPI, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { BashOperations, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { visibleWidth } from "@earendil-works/pi-tui";
 
 import bashToolExtension from "../../agent/extensions/bash-tool.js";
@@ -19,6 +19,7 @@ import { renderBashCall } from "../../src/bash-tool/tui/renderer.js";
 import type { BashSessionMetadata, ExecuteBashRuntime } from "../../src/bash-tool/types.js";
 import { defaultBashToolConfig, loadBashToolConfig } from "../../src/bash-tool/config.js";
 import { SKILL_CONTEXT_ENTRY } from "../../src/skill-context/types.js";
+import { registerExtension } from "../helpers/extension.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
@@ -47,18 +48,6 @@ beforeEach(() => {
 	config.limits.failure_output_bytes = 300;
 });
 
-function registerBashExtension() {
-	const tools: Array<Parameters<ExtensionAPI["registerTool"]>[0]> = [];
-	const handlers = new Map<string, (...args: unknown[]) => unknown>();
-	bashToolExtension({
-		registerTool(tool: Parameters<ExtensionAPI["registerTool"]>[0]) { tools.push(tool); },
-		on(name: string, handler: unknown) {
-			handlers.set(name, handler as (...args: unknown[]) => unknown);
-		},
-	} as unknown as ExtensionAPI);
-	return { tools, handlers };
-}
-
 function fakeOperations(handler: BashOperations["exec"]): BashOperations {
 	return { exec: handler };
 }
@@ -75,7 +64,7 @@ function waitForAbort(signal: AbortSignal | undefined): Promise<void> {
 
 describe("bash tool execution", () => {
 	it("扩展先注册无 renderer 的覆盖版 bash，TUI session 再加载 renderer，并统一标记失败结果", async () => {
-		const { tools, handlers } = registerBashExtension();
+		const { registered: tools, handlers } = registerExtension(bashToolExtension);
 
 		expect(tools).toMatchObject([{ name: "bash", executionMode: "sequential" }]);
 		const tool = tools[0];
@@ -145,7 +134,7 @@ describe("bash tool execution", () => {
 		process.env.PI_PROVIDER = "stale-provider";
 		process.env.PI_MODEL = "stale-model";
 		process.env.PI_REASONING_LEVEL = "stale-level";
-		const { tools } = registerBashExtension();
+		const { registered: tools } = registerExtension(bashToolExtension);
 		const tool = tools[0];
 		if (tool === undefined) throw new Error("bash tool was not registered");
 		let state: {

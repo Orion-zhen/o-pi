@@ -20,6 +20,7 @@ import { registerTelemetry, TelemetryService, telemetryServiceFor } from "../../
 import { registerObservedTool } from "../../src/telemetry/tool.js";
 import type { CallRecord, GitRevision, TelemetryRecord } from "../../src/telemetry/types.js";
 import type { TelemetryWriter, TelemetryWriterStatus } from "../../src/telemetry/writer.js";
+import { deferred } from "../helpers/async.js";
 
 const parameters = Type.Object({ path: Type.String(), count: Type.Optional(Type.Integer()) }, { additionalProperties: false });
 interface TestDetails { status: string; error_code?: string; truncated?: boolean }
@@ -362,10 +363,4 @@ function clock(): () => Date {
 
 function fixture<T>(value: unknown): T {
 	return value as T;
-}
-
-function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
-	let resolve = (_value: T): void => undefined;
-	const promise = new Promise<T>((complete) => { resolve = complete; });
-	return { promise, resolve };
 }

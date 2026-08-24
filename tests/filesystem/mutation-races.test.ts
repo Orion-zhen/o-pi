@@ -5,7 +5,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { FileSystemRuntime } from "../../src/filesystem/runtime.js";
 import { NativeFileSystemError, NodeNativeFileSystem } from "../../src/filesystem/platform/node/native-filesystem.js";
 import { contentHash } from "../../src/filesystem/services/text.js";
-import { deferredVoid as deferred, expectFsOk as expectOk, overrideNativeFileSystem as nativeOverride, textBytes as bytes } from "./fixtures.js";
+import { deferredVoid as deferred } from "../helpers/async.js";
+import { expectFsOk as expectOk, overrideNativeFileSystem as nativeOverride, textBytes as bytes } from "./fixtures.js";
 import { commitBytes, useMutationFixture } from "./mutation-fixtures.js";
 
 const test = useMutationFixture("o-pi-mutation-races-");

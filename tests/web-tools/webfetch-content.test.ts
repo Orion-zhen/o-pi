@@ -201,9 +201,7 @@ describe("webfetch content conversion", () => {
 			</body></html>`;
 		const result = await convertHtml(html, "https://example.com/post");
 		expect(result).toMatchObject({ format: "markdown", title: "Primary media post" });
-		expect(result.text).toContain("# Primary media post");
-		expect(result.text).toContain("https://example.com/media.jpg");
-		expect(result.text).not.toContain("Long sidebar rule");
+		expectText(result.text, { includes: ["# Primary media post", "https://example.com/media.jpg"], excludes: ["Long sidebar rule"] });
 	});
 
 	it("Readability 选中与唯一主标题无关的区域时回退到 main", async () => {
@@ -214,8 +212,7 @@ describe("webfetch content conversion", () => {
 			</body></html>`;
 		const result = await convertHtml(html, "https://example.com/post");
 		expect(result).toMatchObject({ format: "markdown", title: "Primary media post" });
-		expect(result.text).toContain("# Primary media post");
-		expect(result.text).not.toContain("Competing prose");
+		expectText(result.text, { includes: ["# Primary media post"], excludes: ["Competing prose"] });
 	});
 
 	it("延迟长文被 Readability 选为正文时仍合并原始主内容", async () => {
@@ -232,43 +229,28 @@ describe("webfetch content conversion", () => {
 			</body></html>`;
 		const result = await convertHtml(html, "https://example.com/post");
 		expect(result.title).toBe("Original media post");
-		expect(result.text).toContain("# Original media post");
-		expect(result.text).toContain("Long deferred discussion");
-		expect(result.text).not.toContain("Loading replies");
+		expectText(result.text, { includes: ["# Original media post", "Long deferred discussion"], excludes: ["Loading replies"] });
 	});
 
 	it("基础帖子与 template[for] 评论分区保留，并清理通用交互控件", async () => {
 		const result = await convertHtml(await fixture("deferred-template.html"), "https://example.com/discussion");
-		expect(result.text).toContain("# Image discussion");
-		expect(result.text).toContain("Original post summary.");
-		expect(result.text).toContain("Legitimate similarly named content.");
-		expect(result.text).toContain("https://example.com/post.jpg");
-		expect(result.text).toContain("## Deferred content");
-		expect(result.text).toContain("First useful deferred comment.");
-		expect(result.text).not.toContain("Loading comments");
-		expect(result.text).not.toContain("Join the conversation");
-		expect(result.text).not.toContain("Newest");
-		expect(result.text).not.toContain("Unmatched ordinary template content.");
-		expect(result.text).not.toContain("Unsafe composer");
+		expectText(result.text, {
+			includes: ["# Image discussion", "Original post summary.", "Legitimate similarly named content.", "https://example.com/post.jpg", "## Deferred content", "First useful deferred comment."],
+			excludes: ["Loading comments", "Join the conversation", "Newest", "Unmatched ordinary template content.", "Unsafe composer"],
+		});
 	});
 
 	it("展开声明式 Shadow DOM，包括受深度限制的嵌套内容", async () => {
 		const result = await convertHtml(await fixture("declarative-shadow-dom.html"), "https://example.com/components");
-		expect(result.text).toContain("Stable light DOM introduction.");
-		expect(result.text).toContain("## Deferred content");
-		expect(result.text).toContain("Visible declarative shadow content.");
-		expect(result.text).toContain("Nested declarative shadow detail.");
+		expectText(result.text, { includes: ["Stable light DOM introduction.", "## Deferred content", "Visible declarative shadow content.", "Nested declarative shadow detail."] });
 	});
 
 	it("提取 body noscript fallback，并过滤危险节点与跟踪像素", async () => {
 		const result = await convertHtml(await fixture("noscript-fallback.html"), "https://example.com/fallback");
-		expect(result.text).toContain("# Static fallback");
-		expect(result.text).toContain("Useful fallback article body.");
-		expect(result.text).toContain("https://example.com/diagram.png");
-		expect(result.text).not.toContain("tracking.gif");
-		expect(result.text).not.toContain("bad()");
-		expect(result.text).not.toContain("Unsafe form");
-		expect(result.text).not.toContain("frame.example");
+		expectText(result.text, {
+			includes: ["# Static fallback", "Useful fallback article body.", "https://example.com/diagram.png"],
+			excludes: ["tracking.gif", "bad()", "Unsafe form", "frame.example"],
+		});
 	});
 
 	it("为缺失、重复和循环 template 目标记录稳定跳过原因", async () => {
@@ -281,10 +263,7 @@ describe("webfetch content conversion", () => {
 				<div id="cycle"><template for="cycle"><p>Cycle</p></template></div>
 			</body></html>`;
 		const result = await convertHtml(html, "https://example.com/bounded");
-		expect(result.text).toContain("Resolved once");
-		expect(result.text).not.toContain("Duplicate");
-		expect(result.text).not.toContain("Missing");
-		expect(result.text).not.toContain("Cycle");
+		expectText(result.text, { includes: ["Resolved once"], excludes: ["Duplicate", "Missing", "Cycle"] });
 	});
 
 	it("拒绝歧义或无效声明，并在延迟根内展开 linked template 与 noscript", async () => {
@@ -307,14 +286,10 @@ describe("webfetch content conversion", () => {
 				</body>
 			</html>`;
 		const result = await convertHtml(html, "https://example.com/diagnostics");
-		expect(result.text).toContain("Nested linked content.");
-		expect(result.text).toContain("Nested noscript content.");
-		expect(result.text).not.toContain("Loading nested");
-		expect(result.text).not.toContain("Head fallback must stay ignored.");
-		expect(result.text).not.toContain("Empty target");
-		expect(result.text).not.toContain("Ambiguous target");
-		expect(result.text).not.toContain("Conflicting declaration");
-		expect(result.text).not.toContain("Invalid shadow mode");
+		expectText(result.text, {
+			includes: ["Nested linked content.", "Nested noscript content."],
+			excludes: ["Loading nested", "Head fallback must stay ignored.", "Empty target", "Ambiguous target", "Conflicting declaration", "Invalid shadow mode"],
+		});
 	});
 
 	it("限制声明片段数量且不会重复或崩溃", async () => {
@@ -444,8 +419,7 @@ describe("webfetch content conversion", () => {
 			</head><body></body></html>`;
 		const result = await convertHtml(html, "https://example.com/watch/42");
 		expect(result.title).toBe("Structured video");
-		expect(result.text).toContain("# Structured video");
-		expect(result.text).toContain("Structured description");
+		expectText(result.text, { includes: ["# Structured video", "Structured description"] });
 	});
 
 	it("无效或超限 JSON-LD 产生通用遗漏，SPA 空壳回退到标准元数据", async () => {
@@ -460,8 +434,7 @@ describe("webfetch content conversion", () => {
 			</head><body><div id="app"></div><script src="/app.js"></script></body></html>`;
 		const result = await convertHtml(html, "https://example.com/app");
 		expect(result).toMatchObject({ title: "Shell Open Graph title", format: "markdown" });
-		expect(result.text).toContain("# Shell Open Graph title");
-		expect(result.text).toContain("Shell description");
+		expectText(result.text, { includes: ["# Shell Open Graph title", "Shell description"] });
 		expect(result.analysis.omissions).toContainEqual({ kind: "structured_data", reason: "invalid_or_limited" });
 	});
 
@@ -476,8 +449,7 @@ describe("webfetch content conversion", () => {
 				<script type="application/ld+json">${manyObjects}</script>
 			</head><body><main><h1>Visible page</h1><p>Stable body</p></main></body></html>`;
 		const result = await convertHtml(html, "https://example.com/page");
-		expect(result.text).toContain("Stable body");
-		expect(result.text).not.toContain("must not be extracted");
+		expectText(result.text, { includes: ["Stable body"], excludes: ["must not be extracted"] });
 	});
 
 	it("JSON-LD 脚本数和遍历节点数受硬上限约束", async () => {
@@ -570,11 +542,10 @@ describe("webfetch content conversion", () => {
 			</body></html>`;
 		const result = await convertHtml(html, "https://example.com/video/42");
 		expect(result).toMatchObject({ title: "How the renderer works" });
-		expect(result.text).toContain("# How the renderer works");
-		expect(result.text).toContain("A focused explanation of the rendering pipeline.");
-		expect(result.text).toContain("**Author:** Alice");
-		expect(result.text).toContain("**Published:** 2026-07-22");
-		expect(result.text).not.toContain("Recommended video");
+		expectText(result.text, {
+			includes: ["# How the renderer works", "A focused explanation of the rendering pipeline.", "**Author:** Alice", "**Published:** 2026-07-22"],
+			excludes: ["Recommended video"],
+		});
 		expect(result.analysis).toMatchObject({ pageKind: "video", primaryMedia: { url: "https://example.com/cover.jpg" } });
 	});
 
@@ -589,9 +560,7 @@ describe("webfetch content conversion", () => {
 				<aside><ul>${'<li><a href="/related">Related item</a></li>'.repeat(80)}</ul></aside>
 			</body></html>`;
 		const result = await convertHtml(html, "https://example.com/article");
-		expect(result.text).toContain("Substantive paragraph with evidence.");
-		expect(result.text).not.toContain("Related item");
-		expect(result.text).not.toContain("[One]");
+		expectText(result.text, { includes: ["Substantive paragraph with evidence."], excludes: ["Related item", "[One]"] });
 	});
 
 	it("无合格 DOM 候选时先使用 JSON-LD articleBody 和 transcript，再放弃 body 链接农场", async () => {
@@ -612,11 +581,10 @@ describe("webfetch content conversion", () => {
 				</script>
 			</head><body><div class="trending"><ul>${links}</ul></div></body></html>`;
 		const result = await convertHtml(html, "https://example.com/report");
-		expect(result.text).toContain("# Structured report");
-		expect(result.text).toContain("The structured article body contains the verified findings.");
-		expect(result.text).toContain("The structured transcript contains supporting remarks.");
-		expect(result.text).not.toContain("Trending item");
-		expect(result.text).not.toContain("Structured report summary.");
+		expectText(result.text, {
+			includes: ["# Structured report", "The structured article body contains the verified findings.", "The structured transcript contains supporting remarks."],
+			excludes: ["Trending item", "Structured report summary."],
+		});
 	});
 
 	it("section 仅按规范化相等和包含关系去重 description 与 transcript", async () => {
@@ -637,8 +605,7 @@ describe("webfetch content conversion", () => {
 			<html><head><meta name="description" content="Metadata summary must remain supplemental."></head>
 			<body><article><h1>Short article</h1><p>Brief but complete body.</p></article></body></html>`;
 		const result = await convertHtml(html, "https://example.com/short");
-		expect(result.text).toContain("Brief but complete body.");
-		expect(result.text).not.toContain("Metadata summary must remain supplemental.");
+		expectText(result.text, { includes: ["Brief but complete body."], excludes: ["Metadata summary must remain supplemental."] });
 	});
 
 	it("选中正文继续保留 GFM 表格、代码块和绝对链接", async () => {
@@ -651,11 +618,10 @@ describe("webfetch content conversion", () => {
 				<p>Read the <a href="/guide">complete guide</a>.</p>
 			</article><aside>${"Unrelated sidebar. ".repeat(100)}</aside></body></html>`;
 		const result = await convertHtml(html, "https://example.com/reference");
-		expect(result.text).toContain("| Name | Value |");
-		expect(result.text).toContain("```");
-		expect(result.text).toContain('const mode = "safe";');
-		expect(result.text).toContain("[complete guide](https://example.com/guide)");
-		expect(result.text).not.toContain("Unrelated sidebar");
+		expectText(result.text, {
+			includes: ["| Name | Value |", "```", 'const mode = "safe";', "[complete guide](https://example.com/guide)"],
+			excludes: ["Unrelated sidebar"],
+		});
 	});
 
 	it("没有 Readability、语义根、主标题或结构化正文时使用 body fallback", async () => {

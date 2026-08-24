@@ -6,7 +6,8 @@ import { LspClient } from "../../../src/lsp/client/client.js";
 import { defaultLspConfig } from "../../../src/lsp/config/loader.js";
 import { DiagnosticsLedger } from "../../../src/lsp/diagnostics/ledger.js";
 import { pathToFileUri } from "../../../src/lsp/protocol/uri.js";
-import { createManager, createFakeServer, createProtocolServer, createWorkspaceSymbolServer, deferred, queryManagerSymbols, send, useTransportFixture } from "./fixtures.js";
+import { deferred } from "../../helpers/async.js";
+import { createManager, createFakeServer, createProtocolServer, createWorkspaceSymbolServer, queryManagerSymbols, send, useTransportFixture } from "./fixtures.js";
 
 const transport = useTransportFixture();
 

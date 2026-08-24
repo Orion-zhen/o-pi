@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import tuiExtension, { createTuiExtension } from "../../agent/extensions/tui.js";
 import { getAssistantPerformance } from "../../src/tui/message-performance.js";
-import { createTuiRuntime } from "../../src/tui/runtime.js";
+import { createTuiRuntime, type MathMarkdownModule } from "../../src/tui/runtime.js";
 import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
 
 type Handler = (event: unknown, ctx: ExtensionContextStub) => Promise<void> | void;
@@ -269,12 +269,8 @@ describe("tui extension", () => {
 
 	it("agent run 在 turn_end 刷新快照但只在 agent 生命周期边界切换全局状态", async () => {
 		vi.useFakeTimers();
-		const handlers = new Map<string, Handler>();
-		const calls = createUiCalls();
-		const ctx = createContext(calls, { mode: "tui" });
 		const notifyUser = vi.fn(async () => {});
-		const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, undefined, notifyUser);
-		await runtime.startSession(ctx as unknown as Parameters<typeof runtime.startSession>[0]);
+		const { handlers, calls, ctx, runtime } = await startRuntime({ notifyUser });
 
 		await handlers.get("agent_start")?.({}, ctx);
 		expect(calls.status.at(-1)?.text).toContain("running");
@@ -290,13 +286,9 @@ describe("tui extension", () => {
 	});
 
 	it("agent_settled 的通知失败不影响 ready 状态", async () => {
-		const handlers = new Map<string, Handler>();
-		const calls = createUiCalls();
-		const ctx = createContext(calls, { mode: "tui" });
-		const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, undefined, async () => {
-			throw new Error("notification unavailable");
+		const { handlers, calls, ctx, runtime } = await startRuntime({
+			notifyUser: async () => { throw new Error("notification unavailable"); },
 		});
-		await runtime.startSession(ctx as unknown as Parameters<typeof runtime.startSession>[0]);
 		await handlers.get("agent_start")?.({}, ctx);
 
 		await expect(handlers.get("agent_settled")?.({}, ctx)).resolves.toBeUndefined();
@@ -305,10 +297,7 @@ describe("tui extension", () => {
 	});
 
 	it("provider 和消息事件接入模型性能跟踪", async () => {
-		const handlers = new Map<string, Handler>();
-		const ctx = createContext(createUiCalls(), { mode: "tui" });
-		const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI);
-		await runtime.startSession(ctx as unknown as Parameters<typeof runtime.startSession>[0]);
+		const { handlers, ctx } = await startRuntime();
 		const message = performanceMessage();
 		const now = vi.spyOn(performance, "now");
 
@@ -346,12 +335,7 @@ describe("tui extension", () => {
 		const loadRuntime = vi.fn(async () => {
 			throw new Error("TUI runtime must not load");
 		});
-		const calls = createUiCalls();
-		const handlers = new Map<string, Handler>();
-		const ctx = createContext(calls, { mode });
-
-		createTuiExtension(undefined, loadRuntime)(createPi(handlers) as unknown as ExtensionAPI);
-		await handlers.get("session_start")?.({}, ctx);
+		const { handlers, calls } = await startTui({ mode }, {}, createTuiExtension(undefined, loadRuntime));
 
 		expect(loadRuntime).not.toHaveBeenCalled();
 		expect([...handlers.keys()]).toEqual(["session_start"]);
@@ -387,11 +371,7 @@ describe("tui extension", () => {
 		const dispose = vi.fn();
 		const createRuntime = vi.fn(() => ({ startSession, dispose }));
 		const loadRuntime = vi.fn(async () => ({ createTuiRuntime: createRuntime }));
-		const handlers = new Map<string, Handler>();
-		const ctx = createContext(createUiCalls(), { mode: "tui" });
-
-		createTuiExtension(undefined, loadRuntime)(createPi(handlers) as unknown as ExtensionAPI);
-		await handlers.get("session_start")?.({}, ctx);
+		const { handlers, ctx } = await startTui({ mode: "tui" }, {}, createTuiExtension(undefined, loadRuntime));
 		await handlers.get("session_start")?.({}, ctx);
 
 		expect(loadRuntime).toHaveBeenCalledOnce();
@@ -403,12 +383,7 @@ describe("tui extension", () => {
 		const loadRuntime = vi.fn(async () => {
 			throw new Error("runtime unavailable");
 		});
-		const handlers = new Map<string, Handler>();
-		const calls = createUiCalls();
-		const ctx = createContext(calls, { mode: "tui" });
-
-		createTuiExtension(undefined, loadRuntime)(createPi(handlers) as unknown as ExtensionAPI);
-		await handlers.get("session_start")?.({}, ctx);
+		const { calls } = await startTui({ mode: "tui" }, {}, createTuiExtension(undefined, loadRuntime));
 
 		expect(calls.notifications).toHaveLength(1);
 		expect(calls.notifications[0]).toMatchObject({ message: expect.stringContaining("runtime unavailable"), type: "warning" });
@@ -422,12 +397,7 @@ describe("tui extension", () => {
 		});
 		const dispose = vi.fn();
 		const loadRuntime = vi.fn(async () => ({ createTuiRuntime: () => ({ startSession, dispose }) }));
-		const handlers = new Map<string, Handler>();
-		const calls = createUiCalls();
-		const ctx = createContext(calls, { mode: "tui" });
-
-		createTuiExtension(undefined, loadRuntime)(createPi(handlers) as unknown as ExtensionAPI);
-		await handlers.get("session_start")?.({}, ctx);
+		const { calls, ctx } = await startTui({ mode: "tui" }, {}, createTuiExtension(undefined, loadRuntime));
 
 		expect(dispose).toHaveBeenCalledWith(ctx);
 		expect(calls.notifications).toHaveLength(1);
@@ -437,22 +407,13 @@ describe("tui extension", () => {
 	it("数学渲染器只在 startup 和 agent_settled 后尝试一次空闲初始化", async () => {
 		vi.useFakeTimers();
 		let idle = true;
-		const install = vi.fn();
-		const warm = vi.fn(async () => {});
-		const load = vi.fn(async () => ({
-			installMathMarkdownRenderer: install,
-			supportsDisplayMathImages: () => true,
-			warmDisplayMathRenderer: warm,
-		}));
-		const handlers = new Map<string, Handler>();
-		const ctx = createContext(createUiCalls(), {
-			mode: "tui",
-			isIdle: () => idle,
+		const math = createMathFixture();
+		const { handlers, ctx, runtime } = await startRuntime({
+			context: { mode: "tui", isIdle: () => idle },
+			loadMathMarkdown: math.load,
+			notifyUser: async () => {},
 		});
-
-		const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, load, async () => {});
-		await runtime.startSession(ctx as unknown as Parameters<typeof runtime.startSession>[0]);
-		expect(load).not.toHaveBeenCalled();
+		expect(math.load).not.toHaveBeenCalled();
 
 		await handlers.get("agent_start")?.({}, ctx);
 		expect(vi.getTimerCount()).toBe(0);
@@ -460,16 +421,16 @@ describe("tui extension", () => {
 		idle = false;
 		await handlers.get("agent_settled")?.({}, ctx);
 		await vi.advanceTimersToNextTimerAsync();
-		expect(load).not.toHaveBeenCalled();
+		expect(math.load).not.toHaveBeenCalled();
 		expect(vi.getTimerCount()).toBe(0);
 
 		idle = true;
 		await handlers.get("agent_settled")?.({}, ctx);
 		await vi.advanceTimersToNextTimerAsync();
 		await Promise.resolve();
-		expect(load).toHaveBeenCalledOnce();
-		expect(install).toHaveBeenCalledOnce();
-		expect(warm).toHaveBeenCalledOnce();
+		expect(math.load).toHaveBeenCalledOnce();
+		expect(math.install).toHaveBeenCalledOnce();
+		expect(math.warm).toHaveBeenCalledOnce();
 
 		await handlers.get("agent_settled")?.({}, ctx);
 		expect(vi.getTimerCount()).toBe(0);
@@ -479,25 +440,16 @@ describe("tui extension", () => {
 	it("动态加载完成后若 Agent 已运行则等待下一次 settled", async () => {
 		vi.useFakeTimers();
 		let idle = true;
-		const install = vi.fn();
-		const warm = vi.fn(async () => {});
-		const module = {
-			installMathMarkdownRenderer: install,
-			supportsDisplayMathImages: () => true,
-			warmDisplayMathRenderer: warm,
-		};
+		const math = createMathFixture();
 		let releaseLoad: (() => void) | undefined;
-		const load = vi.fn(() => new Promise<typeof module>((resolve) => {
-			releaseLoad = () => resolve(module);
+		const load = vi.fn(() => new Promise<MathMarkdownModule>((resolve) => {
+			releaseLoad = () => resolve(math.module);
 		}));
-		const handlers = new Map<string, Handler>();
-		const ctx = createContext(createUiCalls(), {
-			mode: "tui",
-			isIdle: () => idle,
+		const { handlers, ctx, runtime } = await startRuntime({
+			context: { mode: "tui", isIdle: () => idle },
+			loadMathMarkdown: load,
+			notifyUser: async () => {},
 		});
-
-		const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, load, async () => {});
-		await runtime.startSession(ctx as unknown as Parameters<typeof runtime.startSession>[0]);
 		await vi.advanceTimersToNextTimerAsync();
 		expect(load).toHaveBeenCalledOnce();
 
@@ -506,38 +458,28 @@ describe("tui extension", () => {
 		releaseLoad?.();
 		await Promise.resolve();
 		await Promise.resolve();
-		expect(install).not.toHaveBeenCalled();
-		expect(warm).not.toHaveBeenCalled();
+		expect(math.install).not.toHaveBeenCalled();
+		expect(math.warm).not.toHaveBeenCalled();
 
 		idle = true;
 		await handlers.get("agent_settled")?.({}, ctx);
 		await vi.advanceTimersToNextTimerAsync();
 		expect(load).toHaveBeenCalledOnce();
-		expect(install).toHaveBeenCalledOnce();
-		expect(warm).toHaveBeenCalledOnce();
+		expect(math.install).toHaveBeenCalledOnce();
+		expect(math.warm).toHaveBeenCalledOnce();
 		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
 	});
 
 	it("字体加载失败由 runtime 警告且不会标记为 warmed", async () => {
 		vi.useFakeTimers();
 		const error = new Error("font unavailable");
-		const install = vi.fn();
-		const warm = vi.fn(async () => {
-			throw error;
+		const math = createMathFixture(async () => { throw error; });
+		const { handlers, calls, ctx, runtime } = await startRuntime({
+			loadMathMarkdown: math.load,
+			notifyUser: async () => {},
 		});
-		const load = vi.fn(async () => ({
-			installMathMarkdownRenderer: install,
-			supportsDisplayMathImages: () => true,
-			warmDisplayMathRenderer: warm,
-		}));
-		const handlers = new Map<string, Handler>();
-		const calls = createUiCalls();
-		const ctx = createContext(calls, { mode: "tui" });
-		const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, load, async () => {});
-
-		await runtime.startSession(ctx as unknown as Parameters<typeof runtime.startSession>[0]);
 		await vi.advanceTimersToNextTimerAsync();
-		expect(warm).toHaveBeenCalledOnce();
+		expect(math.warm).toHaveBeenCalledOnce();
 		expect(calls.notifications.at(-1)).toMatchObject({
 			message: expect.stringContaining("font unavailable"),
 			type: "warning",
@@ -546,27 +488,19 @@ describe("tui extension", () => {
 		await handlers.get("agent_settled")?.({}, ctx);
 		expect(vi.getTimerCount()).toBe(1);
 		await vi.advanceTimersToNextTimerAsync();
-		expect(warm).toHaveBeenCalledTimes(2);
+		expect(math.warm).toHaveBeenCalledTimes(2);
 		expect(calls.notifications).toHaveLength(2);
 		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
 	});
 
 	it("session 关闭会取消尚未开始的数学渲染初始化", async () => {
 		vi.useFakeTimers();
-		const load = vi.fn(async () => ({
-			installMathMarkdownRenderer() {},
-			supportsDisplayMathImages: () => true,
-			async warmDisplayMathRenderer() {},
-		}));
-		const handlers = new Map<string, Handler>();
-		const ctx = createContext(createUiCalls(), { mode: "tui" });
-
-		createTuiExtension(load)(createPi(handlers) as unknown as ExtensionAPI);
-		await handlers.get("session_start")?.({}, ctx);
+		const math = createMathFixture();
+		const { handlers, ctx } = await startTui({ mode: "tui" }, {}, createTuiExtension(math.load));
 		await handlers.get("session_shutdown")?.({}, ctx);
 		await vi.runAllTimersAsync();
 
-		expect(load).not.toHaveBeenCalled();
+		expect(math.load).not.toHaveBeenCalled();
 	});
 });
 
@@ -633,14 +567,39 @@ function createFooterDataController(initialBranch: string | null): {
 	};
 }
 
+async function startRuntime(options: {
+	context?: Parameters<typeof createContext>[1];
+	loadMathMarkdown?: Parameters<typeof createTuiRuntime>[1];
+	notifyUser?: Parameters<typeof createTuiRuntime>[2];
+} = {}) {
+	const handlers = new Map<string, Handler>();
+	const calls = createUiCalls();
+	const ctx = createContext(calls, options.context);
+	const runtime = createTuiRuntime(createPi(handlers) as unknown as ExtensionAPI, options.loadMathMarkdown, options.notifyUser);
+	await runtime.startSession(ctx as unknown as Parameters<typeof runtime.startSession>[0]);
+	return { handlers, calls, ctx, runtime };
+}
+
+function createMathFixture(warmDisplayMathRenderer: () => Promise<void> = async () => {}) {
+	const install = vi.fn();
+	const warm = vi.fn(warmDisplayMathRenderer);
+	const module: MathMarkdownModule = {
+		installMathMarkdownRenderer: install,
+		supportsDisplayMathImages: () => true,
+		warmDisplayMathRenderer: warm,
+	};
+	return { install, warm, module, load: vi.fn(async () => module) };
+}
+
 async function startTui(
 	options: Parameters<typeof createContext>[1] = {},
 	piOptions: Parameters<typeof createPi>[1] = {},
+	extension: (pi: ExtensionAPI) => void = tuiExtension,
 ): Promise<{ handlers: Map<string, Handler>; calls: ReturnType<typeof createUiCalls>; ctx: ExtensionContextStub }> {
 	const handlers = new Map<string, Handler>();
 	const calls = createUiCalls();
 	const ctx = createContext(calls, options);
-	tuiExtension(createPi(handlers, piOptions) as unknown as ExtensionAPI);
+	extension(createPi(handlers, piOptions) as unknown as ExtensionAPI);
 	await handlers.get("session_start")?.({}, ctx);
 	return { handlers, calls, ctx };
 }
