@@ -4,42 +4,25 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AnalyzeCode, CodeAnalysis } from "../../src/code-index/types.js";
 import { analyzeCodeFile, type CodeAuthority } from "../../src/code-index/parser.js";
-import type { ContentOperations } from "../../src/filesystem/contracts/content.js";
 import { deferredVoid } from "../helpers/async.js";
 import { grepWorkspaceFiles } from "../helpers/grep-tool.js";
 import {
 	createGrepTestContext,
 	expectGrepSuccess,
 	grepWithAnalyzer,
+	overrideContent,
 } from "./grep-fixtures.js";
 
 const testContext = createGrepTestContext();
 
 describe("grep code analysis", () => {
-	it("正则正文查询优先使用完整 symbol analyzer", async () => {
-		await writeFile(path.join(testContext.workspace, "target.ts"), "export const value = 'Needle42';\n");
+	it.each([
+		{ name: "正则正文查询", content: "export const value = 'Needle42';\n", query: "Needle\\d+" },
+		{ name: "唯一正文命中", content: "export function Target() { return true; }\n", query: "Target" },
+	] as const)("$name也优先使用完整 symbol analyzer", async ({ content, query }) => {
+		await writeFile(path.join(testContext.workspace, "target.ts"), content);
 		const analyzeCode = codeAnalyzer([]);
-
-		const result = expectGrepSuccess(await grepWithAnalyzer(
-			testContext.workspace,
-			{ query: "Needle\\d+" },
-			{ analyzeCode },
-		));
-
-		expect(result.regions).toHaveLength(1);
-		expect(result.regions[0]?.kind).toBe("text");
-		expect(analyzeCode).toHaveBeenCalledOnce();
-	});
-
-	it("唯一正文命中也优先使用完整 symbol analyzer", async () => {
-		await writeFile(path.join(testContext.workspace, "target.ts"), "export function Target() { return true; }\n");
-		const analyzeCode = codeAnalyzer([]);
-
-		const result = expectGrepSuccess(await grepWithAnalyzer(
-			testContext.workspace,
-			{ query: "Target" },
-			{ analyzeCode },
-		));
+		const result = await analyzeGrep(query, { analyzeCode });
 
 		expect(result.regions).toHaveLength(1);
 		expect(result.regions[0]?.kind).toBe("text");
@@ -60,11 +43,7 @@ describe("grep code analysis", () => {
 			return undefined;
 		});
 
-		const result = expectGrepSuccess(await grepWithAnalyzer(
-			testContext.workspace,
-			{ query: "Authentication Flow" },
-			{ analyzeCode },
-		));
+		const result = await analyzeGrep("Authentication Flow", { analyzeCode });
 
 		expect(result.regions.map((region) => region.path)).toEqual(["a-hit.ts"]);
 		expect(targetPaths).toEqual([["a-hit.ts"]]);
@@ -77,11 +56,7 @@ describe("grep code analysis", () => {
 			return undefined;
 		});
 
-		const result = expectGrepSuccess(await grepWithAnalyzer(
-			testContext.workspace,
-			{ query: "Target" },
-			{ analyzeCode },
-		));
+		const result = await analyzeGrep("Target", { analyzeCode });
 
 		expect(result.regions[0]?.kind).toBe("text");
 		expect(analyzeCode).toHaveBeenCalledOnce();
@@ -95,11 +70,7 @@ describe("grep code analysis", () => {
 			{ path: "tests.ts", authority: "defined" },
 		]);
 
-		const result = expectGrepSuccess(await grepWithAnalyzer(
-			testContext.workspace,
-			{ query: "Target" },
-			{ analyzeCode },
-		));
+		const result = await analyzeGrep("Target", { analyzeCode });
 
 		expect(result.regions.map((region) => region.path)).toEqual(["src.ts", "tests.ts"]);
 		expect(result.regions.map((region) => region.roles)).toEqual([
@@ -116,11 +87,7 @@ describe("grep code analysis", () => {
 			throw new Error("simulated analyzer failure");
 		});
 
-		const result = expectGrepSuccess(await grepWithAnalyzer(
-			testContext.workspace,
-			{ query: "Target" },
-			{ analyzeCode },
-		));
+		const result = await analyzeGrep("Target", { analyzeCode });
 
 		expect(result.regions).toHaveLength(2);
 		expect(result.regions.every((region) => region.kind === "function")).toBe(true);
@@ -136,25 +103,14 @@ describe("grep code analysis", () => {
 		});
 		let fullReads = 0;
 
-		const result = expectGrepSuccess(await grepWithAnalyzer(
-			testContext.workspace,
-			{ query: "Target" },
-			{ analyzeCode },
-			(filesystem) => {
-				const original = filesystem.content;
-				const content: ContentOperations = {
-					readBytes: original.readBytes.bind(original),
-					async readText(file, options) {
-						fullReads += 1;
-						return original.readText(file, options);
-					},
-					decodeText: original.decodeText.bind(original),
-					sliceText: original.sliceText.bind(original),
-					scanLines: original.scanLines.bind(original),
-				};
-				return { ...filesystem, content };
-			},
-		));
+		const result = await analyzeGrep("Target", { analyzeCode }, (filesystem) =>
+			overrideContent(filesystem, (content) => ({
+				async readText(file, options) {
+					fullReads += 1;
+					return content.readText(file, options);
+				},
+			})),
+		);
 
 		expect(result.regions.every((region) => region.kind === "function")).toBe(true);
 		expect(fullReads).toBe(2);
@@ -171,26 +127,15 @@ describe("grep code analysis", () => {
 		});
 		const analyzeCode = codeAnalyzer([]);
 
-		const result = expectGrepSuccess(await grepWithAnalyzer(
-			testContext.workspace,
-			{ query: "Target" },
-			{ prepareCodeAnalysis, analyzeCode },
-			(filesystem) => {
-				const original = filesystem.content;
-				const content: ContentOperations = {
-					readBytes: original.readBytes.bind(original),
-					async readText(file, options) {
-						scanObservedPreparation = preparationStarted;
-						releasePreparation.resolve();
-						return original.readText(file, options);
-					},
-					decodeText: original.decodeText.bind(original),
-					sliceText: original.sliceText.bind(original),
-					scanLines: original.scanLines.bind(original),
-				};
-				return { ...filesystem, content };
-			},
-		));
+		const result = await analyzeGrep("Target", { prepareCodeAnalysis, analyzeCode }, (filesystem) =>
+			overrideContent(filesystem, (content) => ({
+				async readText(file, options) {
+					scanObservedPreparation = preparationStarted;
+					releasePreparation.resolve();
+					return content.readText(file, options);
+				},
+			})),
+		);
 
 		expect(result.regions[0]?.kind).toBe("text");
 		expect(scanObservedPreparation).toBe(true);
@@ -255,11 +200,7 @@ describe("grep code analysis", () => {
 		);
 		const analyzeCode = vi.fn<AnalyzeCode>(async () => undefined);
 
-		const result = expectGrepSuccess(await grepWithAnalyzer(
-			testContext.workspace,
-			{ query },
-			{ analyzeCode },
-		));
+		const result = await analyzeGrep(query, { analyzeCode });
 
 		const engine = result.regions.find((region) => region.path === enginePath && region.roles?.includes("definition") === true);
 		const sample = result.regions.find((region) => region.path === samplePath && region.roles?.includes("definition") === true);
@@ -278,11 +219,7 @@ describe("grep code analysis", () => {
 		);
 		const analyzeCode = vi.fn<AnalyzeCode>(async () => undefined);
 
-		const result = expectGrepSuccess(await grepWithAnalyzer(
-			testContext.workspace,
-			{ query: "Target" },
-			{ analyzeCode },
-		));
+		const result = await analyzeGrep("Target", { analyzeCode });
 
 		const target = result.regions.find((region) => region.path === "target.ts");
 		expect(target?.roles).toEqual(["definition", "defined"]);
@@ -297,11 +234,7 @@ describe("grep code analysis", () => {
 		);
 		const analyzeCode = vi.fn<AnalyzeCode>(async () => undefined);
 
-		const result = expectGrepSuccess(await grepWithAnalyzer(
-			testContext.workspace,
-			{ query: "Token" },
-			{ analyzeCode },
-		));
+		const result = await analyzeGrep("Token", { analyzeCode });
 
 		const value = result.regions.find((region) => region.path === "value.ts" && region.roles?.includes("definition") === true);
 		const alternate = result.regions.find((region) => region.path === "alternate.ts");
@@ -331,11 +264,7 @@ describe("grep code analysis", () => {
 		await writeFile(path.join(testContext.workspace, "auth.ts"), "export function authenticate() { return true; }\n");
 		const analyzeCode = codeAnalyzer([{ path: "auth.ts", authority: "referenced" }]);
 
-		const result = expectGrepSuccess(await grepWithAnalyzer(
-			testContext.workspace,
-			{ query: "authentcate" },
-			{ analyzeCode },
-		));
+		const result = await analyzeGrep("authentcate", { analyzeCode });
 
 		expect(result.regions).toEqual([
 			expect.objectContaining({
@@ -349,6 +278,14 @@ describe("grep code analysis", () => {
 		expect(analyzeCode).toHaveBeenCalledOnce();
 	});
 });
+
+async function analyzeGrep(
+	query: string,
+	sources: Parameters<typeof grepWithAnalyzer>[2],
+	mapFilesystem?: Parameters<typeof grepWithAnalyzer>[3],
+) {
+	return expectGrepSuccess(await grepWithAnalyzer(testContext.workspace, { query }, sources, mapFilesystem));
+}
 
 function codeAnalyzer(
 	files: readonly { readonly path: string; readonly authority: CodeAuthority }[],
