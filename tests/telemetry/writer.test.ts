@@ -20,7 +20,6 @@ describe("JSONL telemetry writer", () => {
 		await writer.close();
 		const file = telemetryRunFile("run-1", directory);
 		expect((await readFile(file, "utf8")).trim().split("\n").map((line) => JSON.parse(line))).toEqual([first, second]);
-		expect(writer.status()).toEqual({ enabled: false, written: 2 });
 	});
 
 	it("持久化 repair fanout 摘要而不写入原始参数", async () => {

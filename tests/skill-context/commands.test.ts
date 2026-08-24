@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { BuildSystemPromptOptions, ExtensionAPI, ExtensionContext, InputEvent, InputEventResult, SessionEntry, SlashCommandInfo, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { createEventBus, type BuildSystemPromptOptions, type ExtensionAPI, type ExtensionContext, type InputEvent, type InputEventResult, type SessionEntry, type SlashCommandInfo, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import skillContextExtension from "../../agent/extensions/skill-context.js";
 import { registerSkillCommands } from "../../src/skill-context/commands.js";
@@ -34,7 +34,7 @@ describe("技能命令", () => {
 			getCommands: () => [],
 			getAllTools: () => [],
 			getThinkingLevel: () => "off",
-			events: {},
+			events: createEventBus(),
 		} as unknown as ExtensionAPI);
 		await sessionStart?.({}, { mode: "rpc", ui: { notify() {} } });
 		expect(renderers).toEqual([]);
@@ -88,7 +88,7 @@ describe("技能命令", () => {
 			getCommands: () => [skillCommand("allowed", allowedPath), skillCommand("hidden", hiddenPath)],
 			getAllTools: () => [],
 			getThinkingLevel: () => "off",
-			events: {},
+			events: createEventBus(),
 			on(name: string, handler: unknown) {
 				if (name === "tool_result" && isToolResultHandler(handler)) toolResultHandlers.push(handler);
 				if (name === "before_agent_start" && typeof handler === "function") beforeAgentStart = handler as typeof beforeAgentStart;

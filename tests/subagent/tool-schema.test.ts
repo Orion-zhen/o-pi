@@ -1,3 +1,4 @@
+import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { Ajv, type AnySchema } from "ajv";
 import { describe, expect, it } from "vitest";
 import subagentExtension from "../../agent/extensions/subagent.js";
@@ -14,6 +15,7 @@ interface RegisteredSubagentTool {
 function subagentTool(): RegisteredSubagentTool {
 	let registered: unknown;
 	subagentExtension({
+		events: createEventBus(),
 		registerTool(tool: unknown) {
 			registered = tool;
 		},
@@ -39,6 +41,7 @@ describe("subagent tool schema", () => {
 		const entryRenderers: string[] = [];
 		let sessionStart: ((event: unknown, ctx: unknown) => Promise<void>) | undefined;
 		subagentExtension({
+			events: createEventBus(),
 			registerTool() {},
 			registerCommand(name: string) {
 				commands.push(name);

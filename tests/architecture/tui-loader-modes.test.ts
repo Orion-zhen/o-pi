@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { createEventBus, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
 import { createBashToolExtension } from "../../agent/extensions/bash-tool.js";
@@ -122,7 +122,7 @@ function register(extension: ExtensionRegistration): {
 		getAllTools: () => [],
 		getCommands: () => [],
 		getThinkingLevel: () => "off" as const,
-		events: {},
+		events: createEventBus(),
 	});
 	extension(pi);
 	if (sessionStart === undefined) throw new Error("session_start handler was not registered");

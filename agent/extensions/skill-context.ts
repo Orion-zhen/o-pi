@@ -106,13 +106,13 @@ function registerSkillTool(pi: ExtensionAPI) {
 		},
 		telemetry: defineToolTelemetry<{ name: string }, SkillToolDetails>({
 			input: ({ name }) => ({ fields: { skill: name } }),
-			result: (_params, result) => result.details !== undefined && "deduplicated" in result.details
+			result: (_params, details) => "deduplicated" in details
 				? { fields: {
-					skill: result.details.name,
-					scope: result.details.scope,
-					loaded_by: result.details.loadedBy,
-					content_hash: result.details.contentHash,
-					deduplicated: result.details.deduplicated,
+					skill: details.name,
+					scope: details.scope,
+					loaded_by: details.loadedBy,
+					content_hash: details.contentHash,
+					deduplicated: details.deduplicated,
 				} }
 				: { fields: { status: "failed" } },
 		}),

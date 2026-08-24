@@ -51,21 +51,20 @@ export function stableHash(value: unknown): string {
 	return sha256(canonicalJson(value));
 }
 
-export function canonicalJson(value: unknown): string {
+function canonicalJson(value: unknown): string {
 	if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
 	if (isRecord(value)) {
 		return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
 	}
 	if (typeof value === "number" && !Number.isFinite(value)) return "null";
-	return JSON.stringify(value) ?? "null";
+	const serialized = JSON.stringify(value);
+	if (serialized === undefined) throw new Error("Unsupported canonical JSON value");
+	return serialized;
 }
 
-export function safeProject(projector: (() => unknown) | undefined): SafeFacts {
-	if (projector === undefined) return { facts: {}, limited: false };
+export function safeProject(projector: () => TelemetryFacts): SafeFacts {
 	try {
-		const value = projector();
-		if (isThenable(value)) return { facts: {}, error: "async_projection", limited: false };
-		return boundFacts(value);
+		return boundFacts(projector());
 	} catch (error) {
 		return { facts: {}, error: error instanceof Error ? error.name : "unknown", limited: false };
 	}
@@ -231,10 +230,4 @@ function lineCount(value: string): number {
 
 function sha256(value: string): string {
 	return createHash("sha256").update(value).digest("hex");
-}
-
-function isThenable(value: unknown): value is PromiseLike<unknown> {
-	return (typeof value === "object" && value !== null) || typeof value === "function"
-		? typeof Reflect.get(value, "then") === "function"
-		: false;
 }

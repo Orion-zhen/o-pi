@@ -1,44 +1,52 @@
-import { fields, isRecord, textFields } from "../../telemetry/projection.js";
+import { fields } from "../../telemetry/projection.js";
 import { defineToolTelemetry } from "../../telemetry/tool.js";
 import type { ToolOutcome } from "../shared/result.js";
+import { isFailed } from "../shared/result.js";
 import type { EditParams, EditSuccess } from "../edit/types.js";
-import { fileResultFields, pathTarget, record, string } from "./common.js";
+import { failureFields, pathTarget } from "./common.js";
 
 export const editTelemetry = defineToolTelemetry<EditParams, ToolOutcome<EditSuccess>>({
-	input(value) {
-		if (!isRecord(value)) return {};
-		const path = string(value["path"]);
-		const edits = Array.isArray(value["edits"]) ? value["edits"] : [];
+	input(params) {
 		let oldChars = 0;
 		let newChars = 0;
 		let oldLines = 0;
 		let newLines = 0;
-		for (const edit of edits) {
-			if (!isRecord(edit)) continue;
-			const old = textFields("old", edit["old"]);
-			const next = textFields("new", edit["new"]);
-			oldChars += numeric(old["old_chars"]);
-			newChars += numeric(next["new_chars"]);
-			oldLines += numeric(old["old_lines"]);
-			newLines += numeric(next["new_lines"]);
+		for (const edit of params.edits) {
+			oldChars += edit.old.length;
+			newChars += edit.new.length;
+			oldLines += lineCount(edit.old);
+			newLines += lineCount(edit.new);
 		}
 		return {
 			fields: fields({
-				input_edit_count: edits.length,
+				input_edit_count: params.edits.length,
 				input_old_chars: oldChars,
 				input_new_chars: newChars,
 				input_old_lines: oldLines,
 				input_new_lines: newLines,
 			}),
-			...(path === undefined ? {} : { targets: [pathTarget(path, "file")] }),
+			targets: [pathTarget(params.path, "file")],
 		};
 	},
-	result(_params, result) {
-		const details = record(result.details);
-		return { fields: { ...fileResultFields(details), changed: details["status"] === "applied" } };
+	result(_params, details) {
+		if (isFailed(details)) return { fields: failureFields(details) };
+		return {
+			fields: fields({
+				status: details.status,
+				replacement_count: details.replacements,
+				before_size_bytes: details.old_size_bytes,
+				after_size_bytes: details.new_size_bytes,
+				changed: true,
+			}),
+		};
 	},
 });
 
-function numeric(value: unknown): number {
-	return typeof value === "number" ? value : 0;
+function lineCount(value: string): number {
+	if (value.length === 0) return 0;
+	let lines = 1;
+	for (let index = 0; index < value.length; index += 1) {
+		if (value.charCodeAt(index) === 10) lines += 1;
+	}
+	return lines;
 }

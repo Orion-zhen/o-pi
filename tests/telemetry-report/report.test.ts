@@ -30,6 +30,7 @@ describe("telemetry report", () => {
 				candidates: [rankedCandidate("src/a.ts", 1, 3, 2, "mmr", 2.5, 0.01)],
 			})),
 			JSON.stringify({ ...call("bad", 1, "read"), status: "unfinished" }),
+			JSON.stringify({ ...run("partial-git", "commit"), git: { commit: "commit", dirty: false } }),
 			JSON.stringify({ type: "tool", run_id: "run-a", at: at(0) }),
 			"{bad-json",
 			"",
@@ -44,7 +45,7 @@ describe("telemetry report", () => {
 			ranking_aux_score: 0.01,
 			selection: "mmr",
 		});
-		expect(result.invalid_lines).toBe(3);
+		expect(result.invalid_lines).toBe(4);
 		expect(result.files).toEqual([path.join(directory, "run.jsonl")]);
 	});
 
@@ -708,7 +709,10 @@ interface CallOptions {
 }
 
 function run(id: string, commit: string, dirty = false): RunRecord {
-	return { type: "run", run_id: id, at: at(0), session_id: `session-${id}`, reason: "startup", cwd: "/repo", git: { commit, dirty } };
+	const git: RunRecord["git"] = dirty
+		? { root: "/repo", commit, dirty: true, dirty_diff_hash: `diff-${commit}` }
+		: { root: "/repo", commit, dirty: false };
+	return { type: "run", run_id: id, at: at(0), session_id: `session-${id}`, reason: "startup", cwd: "/repo", git };
 }
 
 function call(id: string, index: number, tool: string, options: CallOptions = {}): CallRecord {

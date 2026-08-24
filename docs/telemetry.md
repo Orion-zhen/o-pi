@@ -14,7 +14,7 @@
 
 只有两类 record：
 
-- `run`：session、cwd、时间和自动取得的 Git commit/dirty diff hash。
+- `run`：session、cwd、时间，以及自动取得的 Git root、commit 和 dirty diff hash。
 - `call`：完成调用的工具、时间、状态、耗时、repair、batch，以及少量专属事实。
 
 Pi 的 `tool_execution_start` 建立内存 pending call，参数准备完成后只投影最终执行输入，首个 `tool_execution_end` 才触发 writer 与 Git provenance 初始化并写入 `run + call`。仅启动后退出或只有未完成调用的 run 不创建文件。进程退出前仍未完成的调用不补写。系统不维护 declared/executing/unfinished 状态机，也不恢复 pending 数据。
@@ -31,7 +31,7 @@ collector 查询和 live report 构建不依赖 UI。报告 DTO 可直接 `struc
 
 ## 工具接入
 
-仓库内模型工具统一通过 `registerObservedTool` 注册。它组合已有的 argument repair，并登记可选的 `input`、`result` 投影。工具 execute 不会被 telemetry wrapper 包裹。
+仓库内模型工具统一通过 `registerObservedTool` 注册。它组合已有的 argument repair，并通过 Pi runtime EventBus 发布可选的 `input`、`result` 投影。collector 的 ready 握手保证工具和 telemetry extension 可以按任意顺序加载。工具 execute 不会被 telemetry wrapper 包裹。
 
 ```ts
 const searchTelemetry = defineToolTelemetry<SearchParams, SearchDetails>({
@@ -61,7 +61,7 @@ registerObservedTool(pi, { tool, repair, telemetry: searchTelemetry });
 - `targets`：调用明确访问的文件、目录、region 或 URL。
 - `candidates`：模型实际看到的候选顺序、资源和来源。
 
-投影边界限制字段、数组、资源数量和字符串长度。显式文本摘要只计算字符数和行数。越界字符串额外保留 SHA-256。异常与限幅分别写入 `telemetry_<scope>_error`、`telemetry_<scope>_limited`。projector 只收到按访问惰性创建的只读视图，不会深拷贝未访问的大 payload，错误也不会逃逸到工具执行路径。
+投影边界限制字段、数组、资源数量和字符串长度。显式文本摘要只计算字符数和行数。越界字符串额外保留 SHA-256。异常与限幅分别写入 `telemetry_<scope>_error`、`telemetry_<scope>_limited`。input projector 只消费验证后的执行参数。执行或参数校验异常不会调用 result projector。projector 只收到按访问惰性创建的只读视图，不会深拷贝未访问的大 payload，错误也不会逃逸到工具执行路径。
 
 grep 候选使用 `verified` / `related` group。`query_mode` 区分 `regex` 与 evidence-gated `literal_fallback`，候选 source 进一步区分 `text-regex`、`text-literal` 和 `text-lexical`。专项字段记录 `text_hit_count`、返回的两类候选数、搜索/AST 工作量，以及正文 hit、related anchor、related 静默限额和 AST 大文件跳过的内部容量计数。这些字段不保存 query。
 

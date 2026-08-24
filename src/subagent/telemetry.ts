@@ -1,12 +1,11 @@
-import { fields, isRecord, scalar, textFields } from "../telemetry/projection.js";
+import { fields } from "../telemetry/projection.js";
 import { defineToolTelemetry } from "../telemetry/tool.js";
 import type { Resource, TelemetryFacts } from "../telemetry/types.js";
 import type { SubagentDetails, SubagentToolParams } from "./types.js";
 
 export const subagentTelemetry = defineToolTelemetry<SubagentToolParams, SubagentDetails>({
 	input: projectInput,
-	result(_params, result) {
-		const details = result.details;
+	result(_params, details) {
 		let failed = 0;
 		let durationMs = 0;
 		let inputTokens = 0;
@@ -30,24 +29,28 @@ export const subagentTelemetry = defineToolTelemetry<SubagentToolParams, Subagen
 	},
 });
 
-function projectInput(value: unknown): TelemetryFacts {
-	if (!isRecord(value) || !Array.isArray(value["tasks"])) return {};
-	const tasks = value["tasks"].filter(isRecord);
+function projectInput(params: SubagentToolParams): TelemetryFacts {
 	let chars = 0;
 	let lines = 0;
 	const agents: string[] = [];
 	const targets: Resource[] = [];
-	for (const task of tasks) {
-		const agent = scalar(task["agent"]);
-		if (typeof agent === "string") agents.push(agent);
-		const cwd = scalar(task["cwd"]);
-		if (typeof cwd === "string") targets.push({ kind: "directory", value: cwd });
-		const summary = textFields("task", task["task"]);
-		chars += typeof summary["task_chars"] === "number" ? summary["task_chars"] : 0;
-		lines += typeof summary["task_lines"] === "number" ? summary["task_lines"] : 0;
+	for (const task of params.tasks) {
+		agents.push(task.agent);
+		if (task.cwd !== undefined) targets.push({ kind: "directory", value: task.cwd });
+		chars += task.task.length;
+		lines += lineCount(task.task);
 	}
 	return {
-		fields: { input_task_count: tasks.length, input_agents: agents, input_task_chars: chars, input_task_lines: lines },
+		fields: { input_task_count: params.tasks.length, input_agents: agents, input_task_chars: chars, input_task_lines: lines },
 		...(targets.length === 0 ? {} : { targets }),
 	};
+}
+
+function lineCount(value: string): number {
+	if (value.length === 0) return 0;
+	let lines = 1;
+	for (let index = 0; index < value.length; index += 1) {
+		if (value.charCodeAt(index) === 10) lines += 1;
+	}
+	return lines;
 }

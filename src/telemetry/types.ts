@@ -32,21 +32,14 @@ export interface TelemetryFacts {
 	candidates?: Candidate[];
 }
 
-export interface TelemetryResult<TDetails> {
-	details: TDetails;
-}
-
 export interface ToolTelemetry<TParams, TDetails> {
 	input?(params: TParams): TelemetryFacts;
-	result?(params: TParams, result: TelemetryResult<TDetails>): TelemetryFacts;
+	result?(params: TParams, details: TDetails): TelemetryFacts;
 }
 
-export interface GitRevision {
-	root?: string;
-	commit?: string;
-	dirty: boolean;
-	dirty_diff_hash?: string;
-}
+export type GitRevision =
+	| { root: string; commit: string; dirty: false }
+	| { root: string; commit: string; dirty: true; dirty_diff_hash: string };
 
 interface TelemetryBaseRecord {
 	type: "run" | "call";
@@ -76,7 +69,6 @@ export interface CallRepair {
 
 export interface CallError {
 	code?: string;
-	name?: string;
 }
 
 export interface CallRecord extends TelemetryBaseRecord, TelemetryFacts {

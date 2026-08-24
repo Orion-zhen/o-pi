@@ -1,3 +1,4 @@
+import { createEventBus } from "@earendil-works/pi-coding-agent";
 import { Ajv, type AnySchema } from "ajv";
 import { describe, expect, it } from "vitest";
 
@@ -10,6 +11,7 @@ interface RegisteredTool {
 
 const tools = new Map<string, RegisteredTool>();
 fileTools({
+	events: createEventBus(),
 	registerTool(tool: { name: string } & RegisteredTool) {
 		tools.set(tool.name, tool);
 	},

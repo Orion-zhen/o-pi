@@ -84,8 +84,8 @@ function callRecord(value: Record<string, unknown>): value is Record<string, unk
 }
 
 function gitRevision(value: unknown): boolean {
-	return isRecord(value) && optionalText(value["root"]) && optionalText(value["commit"])
-		&& typeof value["dirty"] === "boolean" && optionalText(value["dirty_diff_hash"]);
+	return isRecord(value) && text(value["root"]) && text(value["commit"])
+		&& (value["dirty"] === false || (value["dirty"] === true && text(value["dirty_diff_hash"])));
 }
 
 function telemetryFields(value: unknown): value is Fields {

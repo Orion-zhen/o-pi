@@ -1,17 +1,26 @@
 import type {
 	AgentToolResult,
 	ExtensionAPI,
+	MessageEndEvent,
 	SessionShutdownEvent,
 	SessionStartEvent,
-	ToolDefinition,
+	ToolExecutionEndEvent,
+	ToolExecutionStartEvent,
 	ToolResultEvent,
-	TurnEndEvent,
 	TurnStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
-import type { TSchema } from "typebox";
 
-import type { RepairObservation, ToolArgumentStatus } from "../tool-repair/types.js";
+import type { RepairObservation } from "../tool-repair/types.js";
+import {
+	repairObservation,
+	TELEMETRY_READY_CHANNEL,
+	TELEMETRY_REPAIR_CHANNEL,
+	TELEMETRY_TOOL_CHANNEL,
+	telemetryToolRegistration,
+	type TelemetryToolDefinition,
+	type TelemetryToolRegistration,
+} from "./events.js";
 import { mergeFacts, safeProject, stableHash } from "./projection.js";
 import type {
 	CallBatch,
@@ -21,8 +30,6 @@ import type {
 	RunRecord,
 	TelemetryFacts,
 	TelemetryRecord,
-	TelemetryResult,
-	ToolTelemetry,
 } from "./types.js";
 import type { TelemetryWriter } from "./writer.js";
 import { attachTelemetryService } from "./pi-adapter.js";
@@ -32,55 +39,23 @@ export type TelemetryPi = Pick<ExtensionAPI, "events" | "getAllTools" | "getThin
 export interface TelemetrySessionContext {
 	cwd: string;
 	sessionId: string;
-	notify?: (message: string) => void;
+	notify: (message: string) => void;
 }
 
 export interface TelemetryTurnContext {
 	model?: { provider: string; id: string };
 }
 
-interface ErasedTelemetry {
-	input?: (params: unknown) => TelemetryFacts;
-	result?: (params: unknown, result: TelemetryResult<unknown>) => TelemetryFacts;
-}
+type TelemetryExecutionEndEvent = Omit<ToolExecutionEndEvent, "result"> & { result: AgentToolResult<unknown> };
 
-interface ToolExecutionStartData {
-	type: "tool_execution_start";
-	toolCallId: string;
-	toolName: string;
-	args: unknown;
-}
-
-interface ToolExecutionEndData {
-	type: "tool_execution_end";
-	toolCallId: string;
-	toolName: string;
-	result: AgentToolResult<unknown>;
-	isError: boolean;
-}
-
-interface MessageEndData {
-	message: TurnEndEvent["message"];
-}
-
-interface ToolState {
-	definition: ToolDefinitionShape;
+interface ToolState extends TelemetryToolRegistration {
 	definitionHash?: string;
-	telemetry?: ErasedTelemetry;
-}
-
-interface ToolDefinitionShape {
-	name: string;
-	description?: unknown;
-	parameters?: unknown;
-	promptSnippet?: unknown;
-	promptGuidelines?: unknown;
 }
 
 interface TurnContext {
 	index: number;
 	model?: { provider: string; id: string };
-	thinking?: string;
+	thinking: string;
 }
 
 interface PendingCall {
@@ -91,10 +66,14 @@ interface PendingCall {
 	turn?: TurnContext;
 	startedAt: number;
 	startedMonotonic: number;
+	rawParams: unknown;
 	params: unknown;
 	inputFacts: TelemetryFacts;
 	inputProjected: boolean;
-	telemetry?: ErasedTelemetry;
+	resultFacts: TelemetryFacts;
+	resultProjected: boolean;
+	inputProjector?: TelemetryToolRegistration["input"];
+	resultProjector?: TelemetryToolRegistration["result"];
 	repair?: CallRecord["repair"];
 	batch?: CallBatch;
 }
@@ -104,11 +83,8 @@ interface RunState {
 	sessionId: string;
 	header: RunRecord;
 	enabled: boolean;
-	warned: boolean;
-	closing: boolean;
 	writer?: TelemetryWriter;
 	initializing?: Promise<void>;
-	predecessor?: Promise<void>;
 	queued: CallRecord[];
 	notify: (message: string) => void;
 }
@@ -129,25 +105,12 @@ export interface TelemetryServiceOptions {
 	writerFactory?: (runId: string, onError: (error: unknown) => void) => Promise<TelemetryWriter>;
 }
 
-const SERVICE_SLOT = Symbol.for("o-pi.telemetry.service");
-const fallbackServices = new WeakMap<object, TelemetryService>();
-const runtimeByService = new WeakMap<TelemetryService, object>();
-
-/** Return the telemetry collector shared by all extensions in one Pi runtime. */
-export function telemetryServiceFor(pi: TelemetryPi): TelemetryService {
-	const runtime = runtimeKey(pi);
-	const existing = sharedService(runtime) ?? fallbackServices.get(runtime);
-	if (existing !== undefined) return existing;
-	const service = new TelemetryService(pi);
-	runtimeByService.set(service, runtime);
-	if (installSharedService(runtime, service)) return sharedService(runtime) ?? service;
-	fallbackServices.set(runtime, service);
-	return service;
-}
-
-export function registerTelemetry(pi: TelemetryPi): TelemetryService {
-	const service = telemetryServiceFor(pi);
+export function registerTelemetry(pi: TelemetryPi, options: TelemetryServiceOptions = {}): TelemetryService {
+	const service = new TelemetryService(pi, options);
+	pi.events.on(TELEMETRY_TOOL_CHANNEL, (value) => service.registerTool(telemetryToolRegistration(value)));
+	pi.events.on(TELEMETRY_REPAIR_CHANNEL, (value) => service.prepared(repairObservation(value)));
 	attachTelemetryService(pi, service);
+	pi.events.emit(TELEMETRY_READY_CHANNEL, undefined);
 	return service;
 }
 
@@ -161,7 +124,7 @@ export class TelemetryService {
 	readonly #pending = new Map<string, PendingCall>();
 	readonly #declaredBatches = new Map<string, CallBatch>();
 	readonly #records: TelemetryRecord[] = [];
-	#pendingByParams = new WeakMap<object, PendingCall>();
+	readonly #pendingByParams = new Map<unknown, PendingCall>();
 	#run: RunState | undefined;
 	#turn: TurnContext | undefined;
 	#nextCallIndex = 0;
@@ -174,16 +137,8 @@ export class TelemetryService {
 		this.#writerFactory = options.writerFactory ?? (async (runId, onError) => (await import("./writer.js")).JsonlTelemetryWriter.open(runId, { onError }));
 	}
 
-	registerTool<TParams extends TSchema, TDetails, TState>(
-		tool: ToolDefinition<TParams, TDetails, TState>,
-		telemetry?: ToolTelemetry<Parameters<ToolDefinition<TParams, TDetails, TState>["execute"]>[1], TDetails>,
-	): void {
-		this.guard(() => {
-			this.#tools.set(tool.name, {
-				definition: tool,
-				...(telemetry === undefined ? {} : { telemetry: eraseTelemetry(telemetry) }),
-			});
-		});
+	registerTool(registration: TelemetryToolRegistration): void {
+		this.#tools.set(registration.definition.name, registration);
 	}
 
 	/** Return an isolated snapshot for the current session's live report. */
@@ -193,222 +148,201 @@ export class TelemetryService {
 			...(run === undefined ? {} : { run_id: run.id, session_id: run.sessionId }),
 			enabled: run?.enabled === true,
 			pending_calls: this.#pending.size,
-			records: clone(this.#records),
+			records: structuredClone(this.#records),
 		};
 	}
 
-	onSessionStart(event: SessionStartEvent, context: TelemetrySessionContext): Promise<void> {
-		try {
-			const previous = this.#run;
-			this.resetRunState();
-			const runId = this.#runId();
-			const sessionId = context.sessionId;
-			const header = {
-				type: "run",
-				run_id: runId,
-				at: this.#now().toISOString(),
-				session_id: sessionId,
-				reason: event.reason,
-				cwd: context.cwd,
-			} satisfies RunRecord;
-			const run: RunState = {
-				id: runId,
-				sessionId,
-				header,
-				enabled: true,
-				warned: false,
-				closing: false,
-				queued: [],
-				notify: (message) => {
-					try { context.notify?.(message); } catch {}
-				},
-			};
-			this.#run = run;
-			this.#records.push(header);
-			if (previous === undefined) return Promise.resolve();
-			const predecessor = this.closeRun(previous);
-			run.predecessor = predecessor;
-			return predecessor;
-		} catch {
-			// Telemetry cannot affect session startup.
-			return Promise.resolve();
-		}
+	onSessionStart(event: SessionStartEvent, context: TelemetrySessionContext): void {
+		const previous = this.#run;
+		this.resetRunState();
+		const runId = this.#runId();
+		const sessionId = context.sessionId;
+		const header = {
+			type: "run",
+			run_id: runId,
+			at: this.#now().toISOString(),
+			session_id: sessionId,
+			reason: event.reason,
+			cwd: context.cwd,
+		} satisfies RunRecord;
+		this.#run = {
+			id: runId,
+			sessionId,
+			header,
+			enabled: true,
+			queued: [],
+			notify: context.notify,
+		};
+		this.#records.push(header);
+		if (previous !== undefined) void this.closeRun(previous);
 	}
 
 	onTurnStart(event: TurnStartEvent, context: TelemetryTurnContext): void {
-		this.guard(() => {
-			this.#turn = {
-				index: event.turnIndex,
-				...(context.model === undefined
-					? {}
-					: { model: { provider: context.model.provider, id: context.model.id } }),
-				...optionalThinking(this.pi),
-			};
-		});
+		this.#turn = {
+			index: event.turnIndex,
+			...(context.model === undefined
+				? {}
+				: { model: { provider: context.model.provider, id: context.model.id } }),
+			thinking: this.pi.getThinkingLevel(),
+		};
 	}
 
-	onMessageEnd(event: MessageEndData): void {
-		this.guard(() => {
-			const message = event.message;
-			if (message.role !== "assistant" || !Array.isArray(message.content)) return;
-			let size = 0;
-			for (const part of message.content) {
-				if (part.type === "toolCall") size += 1;
-			}
-			if (size === 0) return;
-			const id = randomUUID();
-			let index = 0;
-			for (const part of message.content) {
-				if (part.type !== "toolCall") continue;
-				this.#declaredBatches.set(part.id, { id, size, index });
-				index += 1;
-			}
-		});
+	onMessageEnd(event: MessageEndEvent): void {
+		const message = event.message;
+		if (message.role !== "assistant") return;
+		const size = message.content.filter((part) => part.type === "toolCall").length;
+		if (size === 0) return;
+		const id = randomUUID();
+		let index = 0;
+		for (const part of message.content) {
+			if (part.type !== "toolCall") continue;
+			this.#declaredBatches.set(part.id, { id, size, index });
+			index += 1;
+		}
 	}
 
-	onToolExecutionStart(event: ToolExecutionStartData): void {
-		this.guard(() => {
-			if (!this.enabled()) return;
-			const tool = this.toolState(event.toolName);
-			const batch = this.#declaredBatches.get(event.toolCallId);
-			const pending: PendingCall = {
-				id: event.toolCallId,
-				index: this.#nextCallIndex++,
-				tool: event.toolName,
-				...(tool.definitionHash === undefined ? {} : { definitionHash: tool.definitionHash }),
-				...(this.#turn === undefined ? {} : { turn: this.#turn }),
-				startedAt: this.#now().getTime(),
-				startedMonotonic: this.#monotonicNow(),
-				params: event.args,
-				inputFacts: {},
-				inputProjected: false,
-				...(tool.telemetry === undefined ? {} : { telemetry: tool.telemetry }),
-				...(batch === undefined ? {} : { batch }),
-			};
-			this.#declaredBatches.delete(event.toolCallId);
-			this.#pending.set(event.toolCallId, pending);
-			if (isObject(event.args)) this.#pendingByParams.set(event.args, pending);
-		});
+	onToolExecutionStart(event: ToolExecutionStartEvent): void {
+		if (this.enabledRun() === undefined) return;
+		const tool = this.toolState(event.toolName);
+		const batch = this.#declaredBatches.get(event.toolCallId);
+		const pending: PendingCall = {
+			id: event.toolCallId,
+			index: this.#nextCallIndex++,
+			tool: event.toolName,
+			...(tool?.definitionHash === undefined ? {} : { definitionHash: tool.definitionHash }),
+			...(this.#turn === undefined ? {} : { turn: this.#turn }),
+			startedAt: this.#now().getTime(),
+			startedMonotonic: this.#monotonicNow(),
+			rawParams: event.args,
+			params: event.args,
+			inputFacts: {},
+			inputProjected: false,
+			resultFacts: {},
+			resultProjected: false,
+			...(tool?.input === undefined ? {} : { inputProjector: tool.input }),
+			...(tool?.result === undefined ? {} : { resultProjector: tool.result }),
+			...(batch === undefined ? {} : { batch }),
+		};
+		this.#declaredBatches.delete(event.toolCallId);
+		this.#pending.set(event.toolCallId, pending);
+		this.#pendingByParams.set(event.args, pending);
 	}
 
 	prepared(observation: RepairObservation): void {
-		this.guard(() => {
-			if (!this.enabled()) return;
-			let call = isObject(observation.rawArgs) ? this.#pendingByParams.get(observation.rawArgs) : undefined;
-			if (call?.tool !== observation.toolName || call.repair !== undefined) call = undefined;
-			if (call === undefined) {
-				for (const candidate of this.#pending.values()) {
-					if (candidate.tool !== observation.toolName || candidate.repair !== undefined) continue;
-					if (candidate.params === observation.rawArgs) {
-						call = candidate;
-						break;
-					}
-					call ??= candidate;
-				}
-			}
-			if (call === undefined) return;
-			call.repair = {
-				status: observation.status,
-				operations: [...new Set(observation.operations)],
-				...(observation.fanout === undefined ? {} : { fanout: { ...observation.fanout } }),
-			};
-			call.params = observation.preparedArgs;
-			call.inputProjected = false;
-		});
+		if (this.enabledRun() === undefined) return;
+		const call = this.#pendingByParams.get(observation.rawArgs);
+		if (call === undefined || call.tool !== observation.toolName || call.repair !== undefined) {
+			throw new Error(`Telemetry repair observation does not match pending call: ${observation.toolName}`);
+		}
+		this.#pendingByParams.delete(observation.rawArgs);
+		call.repair = {
+			status: observation.status,
+			operations: [...new Set(observation.operations)],
+			...(observation.fanout === undefined ? {} : { fanout: { ...observation.fanout } }),
+		};
+		call.params = observation.preparedArgs;
+		call.inputProjected = false;
 	}
 
 	onToolResult(event: ToolResultEvent): void {
-		this.guard(() => {
-			const call = this.#pending.get(event.toolCallId);
-			if (call === undefined || call.tool !== event.toolName) return;
-			this.projectPreparedInput(call, event.input);
-		});
+		if (this.enabledRun() === undefined) return;
+		const call = this.pendingCall(event.toolCallId, event.toolName);
+		this.projectPreparedInput(call, event.input);
+		const resultProjector = call.resultProjector;
+		if (resultProjector === undefined || !hasProjectableDetails(event)) return;
+		const projected = safeProject(() => resultProjector(readonlyView(call.params), readonlyView(event.details)));
+		call.resultFacts = mergeFacts(projected.facts, projectionAnnotations("result", projected));
+		call.resultProjected = true;
 	}
 
-	onToolExecutionEnd(event: ToolExecutionEndData): void {
-		this.guard(() => {
-			if (!this.enabled()) return;
-			const call = this.#pending.get(event.toolCallId);
-			if (call === undefined || call.tool !== event.toolName) return;
-			this.#pending.delete(event.toolCallId);
-			if (!call.inputProjected) this.projectPreparedInput(call, call.params);
-			const projected = safeProject(call.telemetry?.result === undefined
-				? undefined
-				: () => call.telemetry?.result?.(readonlyView(call.params), { details: readonlyView(event.result.details) }) ?? {});
-			const facts = mergeFacts(call.inputFacts, projected.facts, projectionAnnotations("result", projected));
-			const ended = this.#now();
-			const status = classify(event.isError, call.repair?.status, facts.fields);
-			const output = outputFacts(event.result);
-			const errorCode = typeof facts.fields?.["error_code"] === "string" ? facts.fields["error_code"] : undefined;
-			this.append({
-				type: "call",
-				run_id: this.#run?.id ?? "unknown",
-				at: ended.toISOString(),
-				call_id: call.id,
-				call_index: call.index,
-				...(call.turn === undefined ? {} : {
-					turn_index: call.turn.index,
-					...(call.turn.model === undefined ? {} : { model: call.turn.model }),
-					...(call.turn.thinking === undefined ? {} : { thinking: call.turn.thinking }),
-				}),
-				tool: call.tool,
-				...(call.definitionHash === undefined ? {} : { definition_hash: call.definitionHash }),
-				started_at: new Date(call.startedAt).toISOString(),
-				ended_at: ended.toISOString(),
-				duration_ms: Math.max(0, this.#monotonicNow() - call.startedMonotonic),
-				status,
-				...(status === "success" ? {} : { error: { ...(errorCode === undefined ? {} : { code: errorCode }) } }),
-				output_chars: output.chars,
-				output_lines: output.lines,
-				...(output.truncated || facts.fields?.["truncated"] === true ? { truncated: true } : {}),
-				...(call.repair === undefined ? {} : { repair: call.repair }),
-				...(call.batch === undefined ? {} : { batch: call.batch }),
-				...facts,
-			} satisfies CallRecord);
-		});
-	}
-
-	async onSessionShutdown(event: SessionShutdownEvent): Promise<void> {
-		try { await this.closeCurrentRun(); } catch {}
-		finally {
-			if (event.reason === "reload" || event.reason === "quit") releaseSharedService(this);
+	onToolExecutionEnd(event: TelemetryExecutionEndEvent): void {
+		const run = this.enabledRun();
+		if (run === undefined) return;
+		const call = this.pendingCall(event.toolCallId, event.toolName);
+		this.#pending.delete(event.toolCallId);
+		this.#pendingByParams.delete(call.rawParams);
+		if (call.inputProjector !== undefined && !call.inputProjected && !event.isError) {
+			throw new Error(`Telemetry input was not prepared before completion: ${call.tool}`);
 		}
+		if (call.resultProjector !== undefined && !call.resultProjected && !event.isError) {
+			throw new Error(`Telemetry result was not observed before completion: ${call.tool}`);
+		}
+		const facts = mergeFacts(call.inputFacts, call.resultFacts);
+		const ended = this.#now();
+		const status = classify(event.isError, facts.fields);
+		const output = outputFacts(event.result);
+		const errorCode = typeof facts.fields?.["error_code"] === "string" ? facts.fields["error_code"] : undefined;
+		this.append(run, {
+			type: "call",
+			run_id: run.id,
+			at: ended.toISOString(),
+			call_id: call.id,
+			call_index: call.index,
+			...(call.turn === undefined ? {} : {
+				turn_index: call.turn.index,
+				...(call.turn.model === undefined ? {} : { model: call.turn.model }),
+				thinking: call.turn.thinking,
+			}),
+			tool: call.tool,
+			...(call.definitionHash === undefined ? {} : { definition_hash: call.definitionHash }),
+			started_at: new Date(call.startedAt).toISOString(),
+			ended_at: ended.toISOString(),
+			duration_ms: this.#monotonicNow() - call.startedMonotonic,
+			status,
+			...(status === "success" ? {} : { error: { ...(errorCode === undefined ? {} : { code: errorCode }) } }),
+			output_chars: output.chars,
+			output_lines: output.lines,
+			...(output.truncated || facts.fields?.["truncated"] === true ? { truncated: true } : {}),
+			...(call.repair === undefined ? {} : { repair: call.repair }),
+			...(call.batch === undefined ? {} : { batch: call.batch }),
+			...facts,
+		} satisfies CallRecord);
+	}
+
+	async onSessionShutdown(_event: SessionShutdownEvent): Promise<void> {
+		await this.closeCurrentRun();
 	}
 
 	private projectPreparedInput(call: PendingCall, params: unknown): void {
 		call.params = params;
 		call.inputProjected = true;
-		if (call.telemetry?.input === undefined) return;
-		const projected = safeProject(() => call.telemetry?.input?.(readonlyView(params)) ?? {});
+		const inputProjector = call.inputProjector;
+		if (inputProjector === undefined) return;
+		const projected = safeProject(() => inputProjector(readonlyView(params)));
 		call.inputFacts = mergeFacts(projected.facts, projectionAnnotations("input", projected));
 	}
 
-	private toolState(name: string): Partial<ToolState> {
+	private toolState(name: string): ToolState | undefined {
 		const registered = this.#tools.get(name);
 		if (registered !== undefined) {
 			registered.definitionHash ??= definitionHash(registered.definition);
 			return registered;
 		}
-		const current = safeAllTools(this.pi).find((tool) => tool.name === name);
-		if (current === undefined) return {};
-		const discovered: ToolState = { definition: current, definitionHash: definitionHash(current) };
+		const current = this.pi.getAllTools().find((tool) => tool.name === name);
+		if (current === undefined) return undefined;
+		const definition: TelemetryToolDefinition = {
+			name: current.name,
+			description: current.description,
+			parameters: current.parameters,
+			...(current.promptGuidelines === undefined ? {} : { promptGuidelines: current.promptGuidelines }),
+		};
+		const discovered: ToolState = { definition, definitionHash: definitionHash(definition) };
 		this.#tools.set(name, discovered);
 		return discovered;
 	}
 
 	private ensureRunInitialized(run: RunState): void {
-		if (run.initializing !== undefined || run.closing || !run.enabled || run.queued.length === 0) return;
+		if (run.initializing !== undefined || !run.enabled || run.queued.length === 0) return;
 		const initialization = this.initializeRun(run);
 		run.initializing = initialization;
 	}
 
 	private async initializeRun(run: RunState): Promise<void> {
 		const resources = Promise.all([
-			this.#writerFactory(run.id, (error) => this.disableRun(run.id, error)),
-			this.#captureRevision(run.header.cwd).catch(() => undefined),
+			this.#writerFactory(run.id, () => this.disableRun(run)),
+			this.#captureRevision(run.header.cwd),
 		] as const);
 		try {
-			await run.predecessor?.catch(() => undefined);
 			const [writer, git] = await resources;
 			if (!run.enabled) {
 				await writer.close().catch(() => undefined);
@@ -424,20 +358,16 @@ export class TelemetryService {
 				if (!this.writeToRun(run, record)) return;
 			}
 			run.queued.length = 0;
-		} catch (error) {
-			this.disableRun(run.id, error);
+		} catch {
+			this.disableRun(run);
 		}
 	}
 
-	private append(record: CallRecord): void {
-		const run = this.#run;
-		if (run === undefined || !run.enabled) return;
+	private append(run: RunState, record: CallRecord): void {
 		if (run.writer === undefined) {
-			if (!run.closing) {
-				run.queued.push(record);
-				this.#records.push(record);
-				this.ensureRunInitialized(run);
-			}
+			run.queued.push(record);
+			this.#records.push(record);
+			this.ensureRunInitialized(run);
 			return;
 		}
 		if (this.writeToRun(run, record)) this.#records.push(record);
@@ -445,60 +375,56 @@ export class TelemetryService {
 
 	private writeToRun(run: RunState, record: TelemetryRecord): boolean {
 		if (!run.enabled || run.writer === undefined) return false;
-		try {
-			if (run.writer.append(record) !== true) {
-				this.disableRun(run.id, new Error("Telemetry write failed"));
-				return false;
-			}
-			return true;
-		} catch (error) {
-			this.disableRun(run.id, error);
-			return false;
-		}
+		if (run.writer.append(record)) return true;
+		this.disableRun(run);
+		return false;
 	}
 
-	private disableRun(runId: string, _error: unknown): void {
-		const run = this.#run;
-		if (run === undefined || run.id !== runId || !run.enabled) return;
+	private disableRun(run: RunState): void {
+		if (!run.enabled) return;
 		run.enabled = false;
-		this.#pending.clear();
 		run.queued.length = 0;
-		if (this.#run === run) this.#records.length = 0;
-		if (!run.warned) {
-			run.warned = true;
-			run.notify("Telemetry disabled for this run after a write failure.");
-		}
+		if (this.#run !== run) return;
+		this.#pending.clear();
+		this.#pendingByParams.clear();
+		this.#records.length = 0;
+		run.notify("Telemetry disabled for this run after a write failure.");
 	}
 
-	private enabled(): boolean {
-		return this.#run?.enabled === true;
+	private enabledRun(): RunState | undefined {
+		const run = this.#run;
+		return run?.enabled === true ? run : undefined;
+	}
+
+	private pendingCall(id: string, tool: string): PendingCall {
+		const call = this.#pending.get(id);
+		if (call === undefined || call.tool !== tool) {
+			throw new Error(`Telemetry completion does not match pending call: ${tool}`);
+		}
+		return call;
 	}
 
 	private async closeCurrentRun(): Promise<void> {
 		const run = this.#run;
 		this.#pending.clear();
+		this.#pendingByParams.clear();
 		this.#declaredBatches.clear();
 		if (run === undefined) return;
 		await this.closeRun(run);
 	}
 
 	private async closeRun(run: RunState): Promise<void> {
-		run.closing = true;
-		await run.initializing?.catch(() => undefined);
-		await run.writer?.close().catch((error: unknown) => this.disableRun(run.id, error));
+		await run.initializing;
+		await run.writer?.close().catch(() => this.disableRun(run));
 	}
 
 	private resetRunState(): void {
 		this.#pending.clear();
-		this.#pendingByParams = new WeakMap<object, PendingCall>();
+		this.#pendingByParams.clear();
 		this.#declaredBatches.clear();
 		this.#records.length = 0;
 		this.#turn = undefined;
 		this.#nextCallIndex = 0;
-	}
-
-	private guard(action: () => void): void {
-		try { action(); } catch {}
 	}
 }
 
@@ -511,8 +437,13 @@ function projectionAnnotations(scope: "input" | "result", projected: { error?: s
 	};
 }
 
-function classify(isError: boolean, repair: ToolArgumentStatus | undefined, fields: Fields | undefined): CallRecord["status"] {
-	if (isError || repair === "invalid") return "error";
+function hasProjectableDetails(event: ToolResultEvent): boolean {
+	if (event.details === undefined) return false;
+	return !(event.isError && isRecord(event.details) && Object.keys(event.details).length === 0);
+}
+
+function classify(isError: boolean, fields: Fields | undefined): CallRecord["status"] {
+	if (isError) return "error";
 	const status = fields?.["status"];
 	return status === "error" || status === "failed" || status === "timed_out" || typeof fields?.["error_code"] === "string"
 		? "error"
@@ -536,76 +467,20 @@ function outputFacts(result: AgentToolResult<unknown>): { chars: number; lines: 
 
 function detectsTruncation(value: unknown): boolean {
 	if (!isRecord(value)) return false;
-	if (["truncated", "outputTruncated", "resultLimited", "depthLimited"].some((key) => value[key] === true)) return true;
+	if (value["truncated"] === true) return true;
 	if (value["output_state"] === "truncated" || value["output_state"] === "capture_truncated") return true;
 	const truncation = value["truncation"];
 	return isRecord(truncation) && truncation["truncated"] === true;
 }
 
-function definitionHash(tool: { name: string; description?: unknown; parameters?: unknown; promptSnippet?: unknown; promptGuidelines?: unknown }): string {
-	try {
-		return stableHash({
-			name: tool.name,
-			...(tool.description === undefined ? {} : { description: tool.description }),
-			...(tool.parameters === undefined ? {} : { parameters: tool.parameters }),
-			...(tool.promptSnippet === undefined ? {} : { prompt_snippet: tool.promptSnippet }),
-			...(tool.promptGuidelines === undefined ? {} : { prompt_guidelines: tool.promptGuidelines }),
-		});
-	} catch {
-		return stableHash({ name: tool.name });
-	}
-}
-
-function eraseTelemetry<TParams, TDetails>(telemetry: ToolTelemetry<TParams, TDetails>): ErasedTelemetry {
-	return {
-		...(telemetry.input === undefined ? {} : { input: (params: unknown) => telemetry.input?.(params as TParams) ?? {} }),
-		...(telemetry.result === undefined ? {} : {
-			result: (params: unknown, result: TelemetryResult<unknown>) => telemetry.result?.(params as TParams, result as TelemetryResult<TDetails>) ?? {},
-		}),
-	};
-}
-
-function runtimeKey(pi: TelemetryPi): object {
-	try { return isObject(pi.events) ? pi.events : pi; } catch { return pi; }
-}
-
-function sharedService(runtime: object): TelemetryService | undefined {
-	try {
-		const value: unknown = Reflect.get(runtime, SERVICE_SLOT);
-		return isTelemetryService(value) ? value : undefined;
-	} catch { return undefined; }
-}
-
-function isTelemetryService(value: unknown): value is TelemetryService {
-	return isObject(value) && ["onToolExecutionEnd", "prepared", "registerTool", "snapshot"]
-		.every((method) => typeof Reflect.get(value, method) === "function");
-}
-
-function installSharedService(runtime: object, service: TelemetryService): boolean {
-	try {
-		Object.defineProperty(runtime, SERVICE_SLOT, { value: service, configurable: true });
-		return true;
-	} catch { return false; }
-}
-
-function releaseSharedService(service: TelemetryService): void {
-	const runtime = runtimeByService.get(service);
-	if (runtime === undefined) return;
-	try { if (Reflect.get(runtime, SERVICE_SLOT) === service) Reflect.deleteProperty(runtime, SERVICE_SLOT); } catch {}
-	fallbackServices.delete(runtime);
-	runtimeByService.delete(service);
-}
-
-function safeAllTools(pi: Pick<TelemetryPi, "getAllTools">): ReturnType<TelemetryPi["getAllTools"]> {
-	try { return pi.getAllTools(); } catch { return []; }
-}
-
-function optionalThinking(pi: Pick<TelemetryPi, "getThinkingLevel">): { thinking?: string } {
-	try { return { thinking: pi.getThinkingLevel() }; } catch { return {}; }
-}
-
-function clone<T>(value: T): T {
-	return structuredClone(value);
+function definitionHash(tool: TelemetryToolDefinition): string {
+	return stableHash({
+		name: tool.name,
+		description: tool.description,
+		parameters: tool.parameters,
+		...(tool.promptSnippet === undefined ? {} : { prompt_snippet: tool.promptSnippet }),
+		...(tool.promptGuidelines === undefined ? {} : { prompt_guidelines: tool.promptGuidelines }),
+	});
 }
 
 /** 惰性隔离 projector 输入，不复制未访问的 JSON-like payload 分支。 */
