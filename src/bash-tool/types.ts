@@ -1,16 +1,9 @@
 import type { BashOperations, SessionEntry } from "@earendil-works/pi-coding-agent";
-import { type Static, Type } from "typebox";
 
-export const bashParameters = Type.Object({
-	command: Type.String({ description: "Shell command; runs in workspace; resolves loaded skill:// paths." }),
-	timeout: Type.Optional(Type.Number({
-		description: "Seconds; default from config.",
-		exclusiveMinimum: 0,
-		maximum: 86_400,
-	})),
-}, { additionalProperties: false });
-
-export type BashParams = Static<typeof bashParameters>;
+export interface BashParams {
+	command: string;
+	timeout?: number;
+}
 
 export interface BashSafetyConfig {
 	deny_patterns: string[];

@@ -20,7 +20,7 @@ const webSearchParameters = Type.Object(
 			Type.Integer({
 				minimum: 1,
 				maximum: 20,
-				description: "Result count; default from config.",
+				description: "Result count.",
 			}),
 		),
 	},
@@ -49,7 +49,7 @@ const webFetchParameters = Type.Object(
 			Type.Integer({
 				minimum: 1,
 				maximum: 100000,
-				description: "Character count; default from config.",
+				description: "Character count.",
 			}),
 		),
 	},
@@ -116,7 +116,7 @@ export function createWebToolsExtension(
 			tool: {
 				name: "webfetch",
 				label: "webfetch",
-				description: "Fetch one HTTP(S) URL as readable text or source; no JavaScript.",
+				description: "Fetch one URL as readable text or source.",
 				promptSnippet: "read a known URL",
 				promptGuidelines: [WEB_CONTENT_GUIDELINE, "Webfetch covers only detected static response content. Remind user of limitation if content is partial."],
 				parameters: webFetchParameters,

@@ -1,15 +1,24 @@
 import { createLocalBashOperations, type ExtensionAPI, type ToolResultEvent, type TruncationResult } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 
 import { executeBashCommand } from "../../src/bash-tool/bash-tool.js";
 import { loadBashToolConfig } from "../../src/bash-tool/config.js";
 import {
-	bashParameters,
 	type BashExecutionResult,
 	type BashSessionMetadata,
 	type BashToolDetails,
 } from "../../src/bash-tool/types.js";
 import { bashTelemetry } from "../../src/bash-tool/telemetry.js";
 import { registerObservedTool } from "../../src/telemetry/tool.js";
+
+const bashParameters = Type.Object({
+	command: Type.String({ description: "Shell command; default runs in workspace." }),
+	timeout: Type.Optional(Type.Number({
+		description: "Seconds.",
+		exclusiveMinimum: 0,
+		maximum: 86_400,
+	})),
+}, { additionalProperties: false });
 
 export type BashRendererLoader = () => Promise<Pick<
 	typeof import("../../src/bash-tool/tui/renderer.js"),
@@ -27,8 +36,8 @@ export function createBashToolExtension(
 			tool: {
 				name: "bash",
 				label: "bash",
-				description: "Run shell commands or external programs.",
-				promptSnippet: "run shell commands",
+				description: "Run commands in bash.",
+				promptSnippet: "run commands in bash",
 				promptGuidelines: ["Use bash only for operations not covered by active dedicated tools."],
 				parameters: bashParameters,
 				executionMode: "sequential",
