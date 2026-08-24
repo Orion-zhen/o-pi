@@ -4,19 +4,20 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
 
 import type { CallRecord, Candidate, RunRecord, TelemetryRecord } from "../../src/telemetry/types.js";
-import { aggregateTelemetry } from "../../src/telemetry-report/aggregate.js";
+import { aggregateTelemetry as aggregateTelemetryReport, type AggregateTelemetryOptions } from "../../src/telemetry-report/aggregate.js";
 import { collectCandidateObservations } from "../../src/telemetry-report/analyzers/candidate-observations.js";
-import { analyzeCandidateRanking } from "../../src/telemetry-report/analyzers/candidate-ranking.js";
+import { summarizeCandidateRanking } from "../../src/telemetry-report/analyzers/candidate-ranking.js";
 import { analyzeEdits } from "../../src/telemetry-report/analyzers/edit.js";
-import { analyzeGrep } from "../../src/telemetry-report/analyzers/grep.js";
-import { analyzeSearchEffectiveness } from "../../src/telemetry-report/analyzers/search-effectiveness.js";
+import { summarizeGrep } from "../../src/telemetry-report/analyzers/grep.js";
+import { summarizeSearchEffectiveness } from "../../src/telemetry-report/analyzers/search-effectiveness.js";
 import { generateTelemetryReport } from "../../src/telemetry-report/command.js";
 import { renderTelemetryHtml } from "../../src/telemetry-report/html.js";
 import { renderLiveTelemetry } from "../../src/telemetry-report/tui/render-live.js";
 import { readTelemetryDirectory } from "../../src/telemetry-report/read.js";
-import { useTempDir } from "../helpers/lifecycle.js";
+import { preserveEnv, setTestHome, useTempDir } from "../helpers/lifecycle.js";
 
 const temp = useTempDir("o-pi-telemetry-report-");
+preserveEnv("HOME", "USERPROFILE");
 
 describe("telemetry report", () => {
 	it("reads only the tolerant run/call format", async () => {
@@ -67,6 +68,17 @@ describe("telemetry report", () => {
 
 		const filtered = aggregateTelemetry(records, { query: { git_commits: ["commit-b"], git_dirty: [true], tools: ["read"] } });
 		expect(filtered.inventory).toEqual({ runs: 1, sessions: 1, calls: 1, tools: 1 });
+	});
+
+	it("不会把未知 Git 状态归入干净工作区", () => {
+		const withoutGit = { ...run("run-a", "commit-a") };
+		delete withoutGit.git;
+		const report = aggregateTelemetry([
+			withoutGit,
+			call("read", 0, "read"),
+		], { query: { git_dirty: [false] } });
+
+		expect(report.inventory).toEqual({ runs: 0, sessions: 0, calls: 0, tools: 0 });
 	});
 
 	it("统计多 scope、scope 错误和路径列表 repair", () => {
@@ -227,6 +239,21 @@ describe("telemetry report", () => {
 
 		expect(aggregateTelemetry([run("run-a", "commit-a"), ...records], { generatedAt: at(9) }).grep.related_recovery)
 			.toMatchObject({ numerator: 1, samples: 2 });
+	});
+
+	it("不会把不完整的 grep 执行事实解释为零值", () => {
+		const report = analyzeGrep([
+			call("partial", 0, "grep", { fields: { text_hit_count: 0 } }),
+		], cwd());
+
+		expect(report).toMatchObject({
+			successful_calls: 1,
+			execution_path_observed_calls: 0,
+			direct_match: { numerator: 0, samples: 0 },
+			related_fallback: { numerator: 0, samples: 0 },
+			empty_result: { numerator: 0, samples: 0 },
+		});
+		expect(report.findings).toContainEqual(expect.objectContaining({ code: "incomplete_pipeline_facts" }));
 	});
 
 	it("样本足够时将持续空结果提升为 grep finding", () => {
@@ -542,7 +569,38 @@ describe("telemetry report", () => {
 		];
 		const report = analyzeCandidateRanking(records, new Map([["edge", "/repo"], ["late-call", "/repo"], ["late-time", "/repo"]]));
 		expect(report.file_level.broad).toMatchObject({ lists: 3, adopted_lists: 1 });
-		expect(report.converted_candidates).toBe(1);
+	});
+
+	it("候选排名只保留当前窗口指标", () => {
+		const report = analyzeCandidateRanking([
+			call("find", 0, "find", { candidates: [candidate("src/a.ts", 1, ["lexical"])] }),
+			call("read", 1, "read", { targets: [file("src/a.ts")] }),
+		], cwd());
+
+		expect(report.file_level.broad).toMatchObject({ lists: 1, adopted_lists: 1 });
+		for (const field of ["converted_candidates", "candidate_conversion_rate", "conversion_at_k", "mrr", "downstream_consumers"]) {
+			expect(report).not.toHaveProperty(field);
+		}
+	});
+
+	it("默认遥测目录尚未创建时生成空报告", async () => {
+		const home = path.join(temp.path, "empty-home");
+		await mkdir(home, { recursive: true });
+		setTestHome(home);
+
+		const result = await generateTelemetryReport({
+			outputDirectory: path.join(temp.path, "empty-output"),
+			generatedAt: at(9),
+		});
+
+		expect(result.report.inventory).toEqual({ runs: 0, sessions: 0, calls: 0, tools: 0 });
+	});
+
+	it("显式输入目录不存在时报告失败", async () => {
+		await expect(generateTelemetryReport({
+			inputDirectory: path.join(temp.path, "missing-input"),
+			outputDirectory: path.join(temp.path, "missing-output"),
+		})).rejects.toMatchObject({ code: "ENOENT" });
 	});
 
 	it("writes a compact JSON and HTML report", async () => {
@@ -608,6 +666,31 @@ describe("telemetry report", () => {
 		expect(empty).not.toMatch(/undefined|null/u);
 	});
 });
+
+function aggregateTelemetry(
+	records: readonly TelemetryRecord[],
+	overrides: Partial<AggregateTelemetryOptions> = {},
+) {
+	return aggregateTelemetryReport(records, {
+		generatedAt: at(9),
+		query: {},
+		inputFiles: [],
+		invalidLines: 0,
+		...overrides,
+	});
+}
+
+function analyzeCandidateRanking(calls: readonly CallRecord[], cwdByRun: ReadonlyMap<string, string>) {
+	return summarizeCandidateRanking(collectCandidateObservations(calls, cwdByRun));
+}
+
+function analyzeGrep(calls: readonly CallRecord[], cwdByRun: ReadonlyMap<string, string>) {
+	return summarizeGrep(calls, collectCandidateObservations(calls, cwdByRun));
+}
+
+function analyzeSearchEffectiveness(calls: readonly CallRecord[], cwdByRun: ReadonlyMap<string, string>) {
+	return summarizeSearchEffectiveness(calls, collectCandidateObservations(calls, cwdByRun));
+}
 
 interface CallOptions {
 	runId?: string;

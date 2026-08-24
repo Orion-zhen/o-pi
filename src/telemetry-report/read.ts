@@ -1,6 +1,5 @@
 import { createReadStream } from "node:fs";
-import { readdir, stat } from "node:fs/promises";
-import os from "node:os";
+import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline";
 
@@ -9,22 +8,16 @@ import type { CallRecord, Candidate, Fields, Resource, RunRecord, TelemetryRecor
 const MAX_JSONL_LINE_CHARS = 1_000_000;
 const RUN_REASONS = new Set<RunRecord["reason"]>(["startup", "reload", "new", "resume", "fork"]);
 
-export interface TelemetryFileReadResult {
+interface TelemetryFileReadResult {
 	records: TelemetryRecord[];
 	invalid_lines: number;
 }
 
-export interface TelemetryDirectoryReadResult extends TelemetryFileReadResult {
+interface TelemetryDirectoryReadResult extends TelemetryFileReadResult {
 	files: string[];
 }
 
-export async function readTelemetryJsonl(file: string): Promise<TelemetryFileReadResult> {
-	try {
-		if (!(await stat(file)).isFile()) return { records: [], invalid_lines: 0 };
-	} catch (error) {
-		if (isNodeError(error) && error.code === "ENOENT") return { records: [], invalid_lines: 0 };
-		throw error;
-	}
+async function readTelemetryJsonl(file: string): Promise<TelemetryFileReadResult> {
 	const records: TelemetryRecord[] = [];
 	let invalidLines = 0;
 	const input = createReadStream(file, { encoding: "utf8" });
@@ -51,17 +44,11 @@ export async function readTelemetryJsonl(file: string): Promise<TelemetryFileRea
 	return { records, invalid_lines: invalidLines };
 }
 
-export async function readTelemetryDirectory(directory = path.join(os.homedir(), ".pi", "telemetry", "runs")): Promise<TelemetryDirectoryReadResult> {
-	let files: string[];
-	try {
-		files = (await readdir(directory, { withFileTypes: true }))
-			.filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
-			.map((entry) => path.join(directory, entry.name))
-			.sort();
-	} catch (error) {
-		if (isNodeError(error) && error.code === "ENOENT") return { records: [], invalid_lines: 0, files: [] };
-		throw error;
-	}
+export async function readTelemetryDirectory(directory: string): Promise<TelemetryDirectoryReadResult> {
+	const files = (await readdir(directory, { withFileTypes: true }))
+		.filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+		.map((entry) => path.join(directory, entry.name))
+		.sort();
 	const records: TelemetryRecord[] = [];
 	let invalidLines = 0;
 	for (const file of files) {
@@ -72,7 +59,7 @@ export async function readTelemetryDirectory(directory = path.join(os.homedir(),
 	return { records, invalid_lines: invalidLines, files };
 }
 
-export function isTelemetryRecord(value: unknown): value is TelemetryRecord {
+function isTelemetryRecord(value: unknown): value is TelemetryRecord {
 	if (!isRecord(value) || !text(value["run_id"]) || !timestamp(value["at"])) return false;
 	return value["type"] === "run" ? runRecord(value) : value["type"] === "call" && callRecord(value);
 }
@@ -187,8 +174,4 @@ function optionalPositiveInteger(value: unknown): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isNodeError(value: unknown): value is NodeJS.ErrnoException {
-	return value instanceof Error && "code" in value;
 }

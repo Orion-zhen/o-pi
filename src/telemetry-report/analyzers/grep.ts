@@ -13,7 +13,6 @@ import type {
 } from "../types.js";
 import { summarizeCandidateRanking } from "./candidate-ranking.js";
 import {
-	collectCandidateObservations,
 	type CandidateAttribution,
 	type CandidateObservation,
 	type CandidateObservationSet,
@@ -21,21 +20,14 @@ import {
 
 type ResultKind = "verified" | "related";
 
-export function analyzeGrep(
-	calls: readonly CallRecord[],
-	cwdByRun: ReadonlyMap<string, string> = new Map(),
-): GrepReport {
-	return summarizeGrep(calls, collectCandidateObservations(calls, cwdByRun));
-}
-
 export function summarizeGrep(calls: readonly CallRecord[], observed: CandidateObservationSet): GrepReport {
 	const grepCalls = calls.filter((call) => call.tool === "grep");
-	const successful = grepCalls.filter(isSuccessfulGrepCall);
-	const pathObserved = successful.filter((call) => numericField(call, "text_hit_count") !== undefined);
-	const direct = pathObserved.filter((call) => (numericField(call, "text_hit_count") ?? 0) > 0);
-	const withoutDirect = pathObserved.filter((call) => numericField(call, "text_hit_count") === 0);
-	const related = withoutDirect.filter((call) => (numericField(call, "returned_related_candidate_count") ?? 0) > 0);
-	const empty = withoutDirect.filter((call) => (numericField(call, "returned_match_count") ?? call.candidates?.length ?? 0) === 0);
+	const successful = grepCalls.filter((call) => call.status === "success");
+	const pathObserved = successful.flatMap(pipelineObservation);
+	const direct = pathObserved.filter((item) => item.textHits > 0);
+	const withoutDirect = pathObserved.filter((item) => item.textHits === 0);
+	const related = withoutDirect.filter((item) => item.relatedCandidates > 0);
+	const empty = withoutDirect.filter((item) => item.returnedMatches === 0);
 	const grepObserved = filterGrepObservations(observed);
 	const capacity = {
 		dropped_text_hits: pressure(successful, "dropped_text_hit_count"),
@@ -106,14 +98,15 @@ function channelStatistics(
 	observed: CandidateObservationSet,
 	kind: ResultKind,
 ): GrepCandidateChannelStatistics {
-	const channelCalls = calls.filter((call) => call.candidates?.some((candidate) => candidate.group === kind));
+	const channelCalls = calls.filter((call): call is CallRecord & { candidates: NonNullable<CallRecord["candidates"]> } =>
+		call.candidates?.some((candidate) => candidate.group === kind) === true);
 	const callKeys = new Set(channelCalls.map(callKey));
 	const attributions = observed.attributions.filter((item) =>
 		callKeys.has(callKey(item.producer)) && item.file_candidate.group === kind);
 	return {
 		calls: channelCalls.length,
 		candidates: channelCalls.reduce(
-			(sum, call) => sum + (call.candidates?.filter((candidate) => candidate.group === kind).length ?? 0),
+			(sum, call) => sum + call.candidates.filter((candidate) => candidate.group === kind).length,
 			0,
 		),
 		immediate_adoption: attributedCallRate(channelCalls, attributions, (item) => item.immediate),
@@ -150,15 +143,18 @@ function rankingStatistics(
 	calls: readonly CallRecord[],
 	observed: CandidateObservationSet,
 ): GrepRankingReport {
-	const rankedCalls = calls.filter((call) => rankingAlgorithm(call) !== undefined);
-	const algorithms = [...new Set(rankedCalls.flatMap((call) => rankingAlgorithm(call) ?? []))].sort(compare);
+	const rankedCalls = calls.flatMap((call) => {
+		const algorithm = rankingAlgorithm(call);
+		return algorithm === undefined ? [] : [{ call, algorithm }];
+	});
+	const algorithms = [...new Set(rankedCalls.map((item) => item.algorithm))].sort(compare);
 	return {
 		observed_calls: rankedCalls.length,
 		unobserved_calls: calls.length - rankedCalls.length,
-		by_algorithm: Object.fromEntries(algorithms.map((algorithm) => {
-			const algorithmCalls = rankedCalls.filter((call) => rankingAlgorithm(call) === algorithm);
-			return [algorithm, rankingAlgorithmStatistics(algorithmCalls, observed)];
-		})),
+		by_algorithm: Object.fromEntries(algorithms.map((algorithm) => [
+			algorithm,
+			rankingAlgorithmStatistics(rankedCalls.filter((item) => item.algorithm === algorithm).map((item) => item.call), observed),
+		])),
 	};
 }
 
@@ -278,7 +274,7 @@ function grepFindings(report: Omit<GrepReport, "findings">): GrepFinding[] {
 		findings.push({
 			code: "incomplete_pipeline_facts",
 			severity: "warning",
-			summary: `只有 ${report.execution_path_observed_calls}/${report.successful_calls} 次成功调用包含新版执行路径事实，结论可能混入旧遥测。`,
+			summary: `只有 ${report.execution_path_observed_calls}/${report.successful_calls} 次成功调用包含完整执行路径事实，相关指标不会纳入其余调用。`,
 			evidence: rateSummary(report.execution_path_observed_calls, report.successful_calls),
 		});
 	}
@@ -307,7 +303,7 @@ function grepFindings(report: Omit<GrepReport, "findings">): GrepFinding[] {
 			evidence: relatedFollowUp,
 		});
 	}
-	if (report.empty_result.samples >= 5 && (report.empty_result.value ?? 0) >= 0.25) {
+	if (report.empty_result.value !== undefined && report.empty_result.samples >= 5 && report.empty_result.value >= 0.25) {
 		findings.push({
 			code: "frequent_empty_results",
 			severity: "warning",
@@ -389,13 +385,22 @@ function numericFieldSummary(calls: readonly CallRecord[], key: string) {
 
 function numericField(call: CallRecord, key: string): number | undefined {
 	const value = call.fields?.[key];
-	return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+	return typeof value === "number" && value >= 0 ? value : undefined;
 }
 
-function isSuccessfulGrepCall(call: CallRecord): boolean {
-	const status = call.fields?.["status"];
-	if (typeof status === "string") return call.status === "success" && status === "success";
-	return call.status === "success";
+interface GrepPipelineObservation {
+	textHits: number;
+	returnedMatches: number;
+	relatedCandidates: number;
+}
+
+function pipelineObservation(call: CallRecord): GrepPipelineObservation[] {
+	const textHits = numericField(call, "text_hit_count");
+	const returnedMatches = numericField(call, "returned_match_count");
+	const relatedCandidates = numericField(call, "returned_related_candidate_count");
+	return textHits === undefined || returnedMatches === undefined || relatedCandidates === undefined
+		? []
+		: [{ textHits, returnedMatches, relatedCandidates }];
 }
 
 function callKey(call: CallRecord): string {

@@ -107,7 +107,7 @@ npm run telemetry:report -- [--input DIR] [--output DIR]
 - grep 专项执行链：direct hit、零 hit 后的 related fallback、仍无结果、related 找回率、verified/related 在下次搜索前和 productive 窗口内的采用、AST/LSP 参与、结果限制与内部容量压力。
 - grep 排序专项：按 `ranking_algorithm` 分组的候选池、tier、MMR 替换、文件多样性增益、Hit@1/3/5/10、MRR、nDCG@1/3/5/10，以及按 tier、`head` / `mmr` 阶段的采用率、原始 relevance rank、选择后 rank 提升和分数分布。缺少新版排序事实的旧调用单独计数，不混入算法对比。
 - find/grep/websearch 的调用量、扫描文件投影总数及其覆盖调用数、有候选调用、至少一个候选被采用的有效搜索、候选采用率，以及进入 read/webfetch、edit/write 或其他工具的候选数。HTML 按搜索工具和 candidate group 展示漏斗。
-- find/grep/websearch 候选的 conversion@K、MRR 和下游消费工具。每个模型可见细分来源使用同一组指标。grep 只投影最终模型可见 region 的检索来源，不投影未形成可见结果的内部 hint。
+- find/grep/websearch 候选的即时、下次搜索前和 productive 采纳情况，以及模型可见细分来源的参与贡献。grep 只投影最终模型可见 region 的检索来源，不投影未形成可见结果的内部 hint。
 - `websearch` 记录主要提供方、查询类型、计算首调用接受率所需的事实、正式提供方调用数和回退原因。它还记录次要提供方新增结果、缓存或语料库复用、提供方延迟和错误类型、语料库抓取与引用计数，以及近似查询改写。它不记录 API 密钥、完整查询或响应正文。URL 后续进入 `webfetch` 或引用环节的采用率继续由候选转化链计算。
 
 候选转化采用小而明确的启发式：同 run 后续 10 个调用、5 分钟内首次命中候选资源的 target。同一并行 batch 不算消费。多来源候选会分别归因到每个来源，来源数据不能直接相加。nDCG 将唯一归因的下游采用视为二元相关性。它只能评价模型实际看到的列表，不能证明未展示候选无关。遥测用于发现真实 workload 和提出排序假设，排序是否改善仍由固定 workload benchmark 验证。

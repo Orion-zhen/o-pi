@@ -1,8 +1,8 @@
 import type { CallRecord } from "../../telemetry/types.js";
-import { numericSummary, resourceKey } from "../shared.js";
+import { numericSummary, requireRunCwd, resourceKey } from "../shared.js";
 import type { EditBatchStatistics, EditReport } from "../types.js";
 
-export function analyzeEdits(calls: readonly CallRecord[], cwdByRun: ReadonlyMap<string, string> = new Map()): EditReport {
+export function analyzeEdits(calls: readonly CallRecord[], cwdByRun: ReadonlyMap<string, string>): EditReport {
 	const edits = calls.filter((call) => call.tool === "edit");
 	return {
 		calls: edits.length,
@@ -24,27 +24,30 @@ function batchStatistics(calls: readonly CallRecord[], cwdByRun: ReadonlyMap<str
 		else values.push(call);
 	}
 	const batches = [...grouped.values()];
-	const fileCounts = batches.map((batch) => new Set(batch.flatMap((call) => {
-		const cwd = cwdByRun.get(call.run_id) ?? ".";
-		return (call.targets ?? []).map((target) => resourceKey(target, cwd));
-	})).size);
+	const batchFacts = batches.map((batch) => ({
+		batch,
+		fileCount: new Set(batch.flatMap((call) => {
+			const cwd = requireRunCwd(cwdByRun, call.run_id);
+			return (call.targets ?? []).map((target) => resourceKey(target, cwd));
+		})).size,
+	}));
 	let partialFailures = 0;
 	let potentialReduction = 0;
-	for (const [index, batch] of batches.entries()) {
+	for (const { batch, fileCount } of batchFacts) {
 		const successes = batch.filter((call) => call.status === "success").length;
 		if (successes > 0 && successes < batch.length) partialFailures += 1;
-		if ((fileCounts[index] ?? 0) > 1) potentialReduction += Math.max(0, batch.length - 1);
+		if (fileCount > 1) potentialReduction += batch.length - 1;
 	}
 	return {
 		batches: batches.length,
-		multi_file_batches: fileCounts.filter((count) => count > 1).length,
+		multi_file_batches: batchFacts.filter((item) => item.fileCount > 1).length,
 		partial_failure_batches: partialFailures,
 		calls_per_batch: numericSummary(batches.map((batch) => batch.length)),
-		files_per_batch: numericSummary(fileCounts),
+		files_per_batch: numericSummary(batchFacts.map((item) => item.fileCount)),
 		potential_call_reduction: potentialReduction,
 	};
 }
 
 function number(value: unknown): number | undefined {
-	return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+	return typeof value === "number" ? value : undefined;
 }

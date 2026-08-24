@@ -1,5 +1,5 @@
 import type { CallRecord, Candidate, Resource } from "../../telemetry/types.js";
-import { callsByRun, resourceKey, sameBatch, withinMillis } from "../shared.js";
+import { callsByRun, requireRunCwd, resourceKey, sameBatch, withinMillis } from "../shared.js";
 
 const CALL_WINDOW = 10;
 const TIME_WINDOW_MS = 5 * 60_000;
@@ -43,7 +43,7 @@ export interface ProducerObservation {
 	first_consumer_index?: number;
 }
 
-/** Compatibility view: one normalized candidate and its first broad consumer. */
+/** One normalized candidate with broad and current-window adoption facts. */
 export interface CandidateObservation {
 	producer: CallRecord;
 	candidate: NormalizedCandidate;
@@ -66,12 +66,12 @@ export interface CandidateObservationSet {
 /** Normalize candidate facts and attribute every successful downstream consumer at most once. */
 export function collectCandidateObservations(
 	calls: readonly CallRecord[],
-	cwdByRun: ReadonlyMap<string, string> = new Map(),
+	cwdByRun: ReadonlyMap<string, string>,
 ): CandidateObservationSet {
 	const producerObservations: ProducerObservation[] = [];
 	const attributions: CandidateAttribution[] = [];
-	for (const chain of callsByRun(calls).values()) {
-		const cwd = cwdByRun.get(chain[0]?.run_id ?? "") ?? ".";
+	for (const [runId, chain] of callsByRun(calls)) {
+		const cwd = requireRunCwd(cwdByRun, runId);
 		const producers = buildProducers(chain, cwd);
 		producerObservations.push(...producers);
 		attributions.push(...attributeConsumers(chain, producers, cwd));
@@ -81,18 +81,19 @@ export function collectCandidateObservations(
 		producers,
 		producer_observations: producerObservations,
 		attributions,
-		observations: compatibilityObservations(producerObservations, attributions, "file"),
-		region_observations: compatibilityObservations(producerObservations, attributions, "region"),
+		observations: candidateObservations(producerObservations, attributions, "file"),
+		region_observations: candidateObservations(producerObservations, attributions, "region"),
 	};
 }
 
 function buildProducers(calls: readonly CallRecord[], cwd: string): ProducerObservation[] {
 	const result: ProducerObservation[] = [];
 	for (const [index, producer] of calls.entries()) {
-		if ((producer.candidates?.length ?? 0) === 0) continue;
+		const candidates = producer.candidates;
+		if (candidates === undefined || candidates.length === 0) continue;
 		const priorFiles = priorAccessedFiles(calls, index, cwd);
-		const facts = normalizeCandidates(producer.candidates ?? [], cwd, priorFiles, false);
-		const files = normalizeCandidates(producer.candidates ?? [], cwd, priorFiles, true);
+		const facts = normalizeCandidates(candidates, cwd, priorFiles, false);
+		const files = normalizeCandidates(candidates, cwd, priorFiles, true);
 		result.push({
 			producer,
 			chain_index: index,
@@ -180,7 +181,7 @@ function attributeConsumers(
 			if (producer.chain_index >= consumerIndex || sameBatch(producer.producer, consumer)) continue;
 			const windows = windowsFor(producer, producer.chain_index, consumer, consumerIndex);
 			if (!windows.immediate && !windows.pre_refinement && !windows.broad) continue;
-			for (const target of consumer.targets ?? []) {
+			for (const target of consumer.targets) {
 				const targetKey = resourceKey(target, cwd);
 				for (const candidate of candidateFacts(producer)) {
 					if (candidate.file_key !== targetKey) continue;
@@ -190,10 +191,9 @@ function attributeConsumers(
 		}
 		const selected = matches.sort(compareMatches)[0];
 		if (selected === undefined) continue;
-		const fileCandidate = selected.producer.file_candidates.find((item) => item.file_key === selected.candidate.file_key);
-		if (fileCandidate === undefined) continue;
+		const fileCandidate = requireFileCandidate(selected.producer, selected.candidate.file_key);
 		const regionCandidate = selected.intersects && hasRange(selected.target) && hasRange(selected.candidate)
-			? selected.producer.region_candidates.find((item) => item.fact_key === selected.candidate.fact_key)
+			? selected.candidate
 			: undefined;
 		result.push({
 			producer: selected.producer.producer,
@@ -247,7 +247,7 @@ function candidateFacts(producer: ProducerObservation): NormalizedCandidate[] {
 	return producer.fact_candidates;
 }
 
-function compatibilityObservations(
+function candidateObservations(
 	producers: readonly ProducerObservation[],
 	attributions: readonly CandidateAttribution[],
 	level: CandidateLevel,
@@ -277,18 +277,23 @@ function markReadThenMutationProductive(
 	attributions: CandidateAttribution[],
 	cwd: string,
 ): void {
-	const callIndexes = new Map(calls.map((call, index) => [call, index]));
-	for (const [mutationIndex, mutation] of calls.entries()) {
+	for (const mutation of calls) {
 		if (mutation.status !== "success" || !MUTATION_TOOLS.has(mutation.tool)) continue;
 		const mutationFiles = new Set((mutation.targets ?? []).map((target) => resourceKey(target, cwd)));
 		const direct = attributions.find((item) => item.consumer === mutation);
 		const inspections = attributions.filter((item) => item.inspection
-			&& (callIndexes.get(item.consumer) ?? Number.POSITIVE_INFINITY) < mutationIndex
+			&& item.consumer.call_index < mutation.call_index
 			&& mutationFiles.has(item.file_candidate.file_key)
 			&& (direct === undefined || (item.producer === direct.producer && item.file_candidate.fact_key === direct.file_candidate.fact_key)));
-		const selected = inspections.sort((left, right) => (callIndexes.get(right.consumer) ?? 0) - (callIndexes.get(left.consumer) ?? 0))[0];
+		const selected = inspections.sort((left, right) => right.consumer.call_index - left.consumer.call_index)[0];
 		if (selected !== undefined) selected.productive = true;
 	}
+}
+
+function requireFileCandidate(producer: ProducerObservation, fileKey: string): NormalizedCandidate {
+	const candidate = producer.file_candidates.find((item) => item.file_key === fileKey);
+	if (candidate === undefined) throw new Error("Candidate normalization did not produce a file-level candidate.");
+	return candidate;
 }
 
 function priorAccessedFiles(calls: readonly CallRecord[], producerIndex: number, cwd: string): Set<string> {
@@ -311,8 +316,9 @@ function firstConsumerIndex(
 	return offset < 0 ? {} : { first_consumer_index: producerIndex + offset + 1 };
 }
 
-function isConsumer(call: CallRecord): boolean {
-	return call.status === "success" && CONSUMER_TOOLS.has(call.tool) && (call.targets?.length ?? 0) > 0;
+function isConsumer(call: CallRecord): call is CallRecord & { targets: [Resource, ...Resource[]] } {
+	return call.status === "success" && CONSUMER_TOOLS.has(call.tool)
+		&& call.targets !== undefined && call.targets.length > 0;
 }
 
 function hasRange(resource: Resource): boolean {

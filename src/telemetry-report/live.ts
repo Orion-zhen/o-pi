@@ -16,7 +16,7 @@ export function createLiveTelemetryReport(
 	generatedAt = new Date().toISOString(),
 ): LiveTelemetryReport {
 	return {
-		report: aggregateTelemetry(snapshot.records, { generatedAt }),
+		report: aggregateTelemetry(snapshot.records, { generatedAt, query: {}, inputFiles: [], invalidLines: 0 }),
 		...(snapshot.run_id === undefined ? {} : { run_id: snapshot.run_id }),
 		...(snapshot.session_id === undefined ? {} : { session_id: snapshot.session_id }),
 		enabled: snapshot.enabled,

@@ -27,7 +27,7 @@ export function renderTelemetryHtml(report: TelemetryReport): string {
 	const successRate = rate(totalSuccess, totalCalls);
 	const successTone = successRate === undefined ? "" : successRate >= 0.9 ? "good" : successRate < 0.7 ? "bad" : "warning";
 	const latestRuns = [...report.runs].reverse().slice(0, 20);
-	const hiddenRuns = Math.max(0, report.runs.length - latestRuns.length);
+	const hiddenRuns = report.runs.length - latestRuns.length;
 
 	return `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -49,14 +49,6 @@ export function renderTelemetryHtml(report: TelemetryReport): string {
 </body></html>\n`;
 }
 
-export function formatTelemetrySummary(report: TelemetryReport): string {
-	const related = report.grep.related_recovery.samples === 0
-		? ""
-		: `；grep related 找回 ${report.grep.related_recovery.numerator}/${report.grep.related_recovery.samples}`;
-	return `工具调用 ${report.inventory.calls} 次；多文件批次 ${report.edit.batches.multi_file_batches}/${report.edit.batches.batches}`
-		+ `；候选列表即时采纳 ${report.candidate_ranking.file_level.immediate.adopted_lists}/${report.candidate_ranking.file_level.immediate.lists}${related}`;
-}
-
 function renderToolRow(tool: ToolStatistics, index: number): string {
 	return `<tr><td><span class="tool-name">${escapeHtml(tool.tool)}</span></td><td class="number">${tool.calls}</td><td class="rate">${renderRate(tool.success_rate)}</td><td class="number ${tool.error_rate.numerator > 0 ? "bad" : "good"}">${renderErrorCell(tool, index)}</td><td class="number">${formatMs(tool.duration_ms.p50)}</td><td class="number">${formatMs(tool.duration_ms.p95)}</td><td class="number">${formatChars(tool.output_chars.mean)}</td><td class="number">${formatRate(tool.truncation_rate)}</td><td class="number">${formatRate(tool.repair.repaired_rate)}</td><td class="number">${tool.multi_scope_calls}</td><td class="number">${tool.scope_errors}</td></tr>`;
 }
@@ -72,7 +64,7 @@ function renderErrorCell(tool: ToolStatistics, index: number): string {
 function errorReasons(tool: ToolStatistics): Array<[string, number]> {
 	const entries = Object.entries(tool.error_codes).sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], "en"));
 	const classified = entries.reduce((sum, [, count]) => sum + count, 0);
-	const unclassified = Math.max(0, tool.error_rate.numerator - classified);
+	const unclassified = tool.error_rate.numerator - classified;
 	if (unclassified > 0) entries.push(["未提供错误码", unclassified]);
 	return entries;
 }
@@ -177,7 +169,7 @@ function renderCandidateRanking(report: CandidateRankingReport, search: SearchEf
 <div class="split" style="margin-top:16px"><div><h3>File-level Hit@K / MRR / nDCG / retention</h3>${rankingTable(file)}</div><div><h3>Region-level（不推断整文件读取）</h3>${regionTable(region)}</div></div>
 <div class="split" style="margin-top:16px"><div><h3>来源族贡献区间</h3>${sourceTable(report.by_source_family, "没有来源类别数据")}</div><div><h3>具体来源贡献区间</h3>${sourceTable(report.by_source, "没有来源数据")}</div></div>
 <h3 style="margin-top:20px">输出字符效率（不分摊到来源）</h3>${efficiencyTable(report)}
-<details class="details"><summary>Legacy broad 搜索明细与后续工具</summary><div class="details-content"><div class="split"><div>${searchToolTable(search.by_tool)}</div><div>${searchGroupTable(search.by_group)}</div></div>${frequencyTable(report.downstream_consumers, "没有 broad 消费调用")}</div></details>`;
+<details class="details"><summary>Legacy broad 搜索明细</summary><div class="details-content"><div class="split"><div>${searchToolTable(search.by_tool)}</div><div>${searchGroupTable(search.by_group)}</div></div></div></details>`;
 }
 
 function windowStat(label: string, value: AdoptionWindowStatistics): string {
@@ -234,12 +226,6 @@ function scanDetail(value: SearchEffectivenessStatistics): string {
 	return `扫描 ${files} / ${value.calls_with_scanned_file_count} 次有统计`;
 }
 
-function frequencyTable(values: Record<string, number>, empty: string): string {
-	const entries = Object.entries(values);
-	if (entries.length === 0) return `<div class="empty">${escapeHtml(empty)}</div>`;
-	return `<table class="list-table"><thead><tr><th>工具</th><th>使用次数</th></tr></thead><tbody>${entries.map(([name, count]) => `<tr><td>${escapeHtml(name)}</td><td class="number">${count}</td></tr>`).join("")}</tbody></table>`;
-}
-
 function renderRuns(runs: TelemetryReport["runs"]): string {
 	if (runs.length === 0) return `<div class="empty">没有运行记录</div>`;
 	return `<div class="panel-body"><table class="runs"><thead><tr><th>运行</th><th>开始时间</th><th>提交</th><th>工作区</th><th>目录</th></tr></thead><tbody>${runs.map((run) => `<tr><td>${escapeHtml(run.run_id)}</td><td class="number">${escapeHtml(formatTimestamp(run.at))}</td><td>${escapeHtml(run.git?.commit ?? "—")}</td><td>${run.git === undefined ? `<span class="badge">未知</span>` : run.git.dirty ? `<span class="badge warning">有未提交修改</span>` : `<span class="badge good">干净</span>`}</td><td>${escapeHtml(run.cwd)}</td></tr>`).join("")}</tbody></table></div>`;
@@ -277,7 +263,7 @@ function countRate(numerator: number, samples: number): string {
 function renderRate(value: RateSummary): string {
 	if (value.samples === 0 || value.value === undefined) return `<span class="muted">—</span>`;
 	const tone = value.value >= 0.9 ? "good" : value.value < 0.7 ? "bad" : "warning";
-	const width = Math.max(0, Math.min(100, Math.round(value.value * 100)));
+	const width = Math.round(value.value * 100);
 	return `<div class="rate-text ${tone}"><span>${percentage(value.value)}</span></div><div class="bar"><span style="width:${width}%"></span></div>`;
 }
 
@@ -311,8 +297,6 @@ function emptyRow(columns: number, message: string): string {
 }
 
 function formatTimestamp(value: string): string {
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return value;
 	return new Intl.DateTimeFormat("zh-CN", {
 		year: "numeric",
 		month: "2-digit",
@@ -322,11 +306,14 @@ function formatTimestamp(value: string): string {
 		second: "2-digit",
 		hour12: false,
 		timeZoneName: "short",
-	}).format(date).replace(/\//gu, "-");
+	}).format(new Date(value)).replace(/\//gu, "-");
 }
 
 function escapeHtml(value: string): string {
-	return value.replace(/[&<>"']/gu, (character) => ({
-		"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
-	})[character] ?? character);
+	return value
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("'", "&#39;");
 }

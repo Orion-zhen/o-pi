@@ -72,18 +72,6 @@ export interface ConversionAtK {
 	rate: number;
 }
 
-export interface CandidateRankingCoreStatistics {
-	producer_calls: number;
-	candidates: number;
-	/** Legacy alias for broad adopted candidate facts. */
-	converted_candidates: number;
-	/** Legacy broad heuristic; do not use as the primary adoption rate. */
-	candidate_conversion_rate: number;
-	conversion_at_k: ConversionAtK[];
-	mrr: { samples: number; value: number };
-	downstream_consumers: Record<string, number>;
-}
-
 export interface RetentionAtK {
 	k: number;
 	adopted_events: number;
@@ -162,7 +150,9 @@ export interface OutputEfficiencyStatistics {
 	no_action_output_share: number;
 }
 
-export interface CandidateRankingStatistics extends CandidateRankingCoreStatistics {
+export interface CandidateRankingStatistics {
+	producer_calls: number;
+	candidates: number;
 	file_level: CandidateLevelStatistics;
 	region_level: CandidateLevelStatistics;
 	by_source: Record<string, SourceContributionStatistics>;
