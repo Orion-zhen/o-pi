@@ -26,11 +26,10 @@ const nodePythonVirtualEnvironmentFileSystem: PythonVirtualEnvironmentFileSystem
 	access: async (target, mode) => access(target, mode),
 };
 
-/** 执行模型提供的 shell 命令；自动将 Windows 反斜杠路径转为正斜杠。 */
+/** 执行模型提供的 shell 命令。 */
 export async function executeBashCommand(params: BashParams, runtime: ExecuteBashRuntime): Promise<BashExecutionResult> {
 	const denied = checkDeniedText(params.command, runtime.config.safety);
 	if (denied !== null) return blockedCommandResult(denied);
-	params = { ...params, command: normalizeWindowsPath(params.command) };
 	const skillPaths = await resolveBashSkillPaths(params.command, runtime.branch, runtime.signal);
 	if (skillPaths.kind === "error") return skillResourceErrorResult(skillPaths);
 	params = { ...params, command: skillPaths.command };
@@ -301,13 +300,6 @@ function setEnvironmentVariable(env: NodeJS.ProcessEnv, name: string, value: str
 
 function samePath(left: string, right: string): boolean {
 	return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
-}
-
-/** 轻量 Windows 路径兼容：仅在 Windows 上将反斜杠替换为正斜杠，保留常见转义序列。 */
-export function normalizeWindowsPath(cmd: string, platform?: string): string {
-	if ((platform ?? process.platform) !== "win32") return cmd;
-	// 保留常见转义序列：\n \t \r \\ \" \' \$ \` \b \f \v
-	return cmd.replace(/\\(?![ntr\\"'$`bfv])/g, "/");
 }
 
 function escapeXmlText(value: string): string {
