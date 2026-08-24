@@ -187,7 +187,7 @@ Fork 行为：
 * 使用主会话当前 model、thinking、active tools、session ID 和 cwd。
 * 忽略 Agent/config 的 model、tools 以及 task cwd。差异不会触发 isolated 降级。
 * fork 上下文无法建立时在 spawn 前失败。
-* 模型调用工具时，从当前 assistant leaf 的 parent fork，避免把尚未完成的 tool call 放入 snapshot。
+* 模型调用工具时，沿当前 session 分支定位包含本次 subagent tool call 的 assistant entry，并从其 parent fork。前序 sequential 工具已生成 tool result 时仍使用该边界，避免把本轮尚未配对的 tool call 放入 snapshot。
 * `/run` 从当前 leaf fork。
 * snapshot 仅保留当前有效分支中参与模型上下文的 message、custom message、compaction 和 branch summary。普通 custom、label、model/thinking entry 不写入。
 * 同次 parallel/chain 共享只读 snapshot，每个任务使用独立 child session。

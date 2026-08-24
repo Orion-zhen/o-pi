@@ -71,8 +71,10 @@ export function loadForkSystemPrompt(filePath: string): Promise<string> {
 function selectSnapshotEntries(context: ExecutorContext): SessionEntry[] {
 	const manager = context.sessionManager;
 	const entries = manager.getEntries();
-	const leafId = context.invocation === "tool" ? toolForkBoundary(manager.getLeafEntry()) : manager.getLeafId();
 	const byId = new Map(entries.map((entry) => [entry.id, entry]));
+	const leafId = context.invocation === "tool"
+		? toolForkBoundary(manager.getLeafEntry(), context.toolCallId, byId)
+		: manager.getLeafId();
 	const selected = buildContextEntries(entries, leafId, byId)
 		.filter((entry) => sessionEntryToContextMessages(entry).length > 0)
 		.map((entry) => structuredClone(entry));
@@ -84,10 +86,29 @@ function selectSnapshotEntries(context: ExecutorContext): SessionEntry[] {
 	return selected;
 }
 
-function toolForkBoundary(leaf: SessionEntry | undefined): string {
+function toolForkBoundary(
+	leaf: SessionEntry | undefined,
+	toolCallId: string,
+	byId: ReadonlyMap<string, SessionEntry>,
+): string {
 	if (leaf === undefined) throw new Error("session leaf is unavailable");
-	if (leaf.parentId === null) throw new Error("subagent tool call has no parent fork boundary");
-	return leaf.parentId;
+	const visited = new Set<string>();
+	let entry: SessionEntry | undefined = leaf;
+	while (entry !== undefined && !visited.has(entry.id)) {
+		visited.add(entry.id);
+		if (isCurrentSubagentCall(entry, toolCallId)) {
+			if (entry.parentId === null) throw new Error("subagent tool call has no parent fork boundary");
+			return entry.parentId;
+		}
+		entry = entry.parentId === null ? undefined : byId.get(entry.parentId);
+	}
+	throw new Error("current session branch does not contain the subagent tool call");
+}
+
+function isCurrentSubagentCall(entry: SessionEntry, toolCallId: string): boolean {
+	return entry.type === "message"
+		&& entry.message.role === "assistant"
+		&& entry.message.content.some((part) => part.type === "toolCall" && part.id === toolCallId && part.name === "subagent");
 }
 
 function serializeJsonl(entries: Array<SessionHeader | SessionEntry>): string {

@@ -45,7 +45,7 @@ export function createSubagentExtension(
 				description: "Delegate bounded tasks to configured agents.",
 				promptSnippet: "delegate bounded tasks",
 				parameters: subagentParams,
-				async execute(_toolCallId, params, signal, onUpdate, ctx) {
+				async execute(toolCallId, params, signal, onUpdate, ctx) {
 					if (process.env.PI_SUBAGENT_CHILD === "1") throw new Error("Recursive subagent calls are forbidden.");
 					const lease = executions.start(signal);
 					try {
@@ -58,7 +58,7 @@ export function createSubagentExtension(
 									model: ctx.model,
 									sessionManager: ctx.sessionManager,
 									systemPrompt: ctx.getSystemPrompt(),
-								}, "tool"),
+								}, { invocation: "tool", toolCallId }),
 								signal: lease.signal,
 								...(interaction === undefined ? {} : { interaction }),
 							},

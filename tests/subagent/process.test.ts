@@ -16,6 +16,7 @@ import {
 } from "../../src/subagent/session-context.js";
 import type {
 	AgentDefinition,
+	ExecutorContext,
 	NonEmptyArray,
 	ProcessRunInput,
 	ProcessRunProgress,
@@ -176,8 +177,7 @@ describe("subagent execution", () => {
 				timestamp: 2,
 			} },
 		] satisfies SessionEntry[];
-		const parent = forkExecutorContext({
-			invocation: "command",
+		const parent = context({
 			sessionManager: {
 				getSessionId: () => "parent-session",
 				getLeafId: () => "assistant",
@@ -192,6 +192,49 @@ describe("subagent execution", () => {
 		} finally {
 			await cleanupForkExecutionContext(fork);
 		}
+	});
+
+	it("工具 fork 在前序顺序工具完成后仍从当前 assistant 之前分支", async () => {
+		const entries = [
+			{ type: "message", id: "user", parentId: null, timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user", content: "Question", timestamp: 1 } },
+			{ type: "message", id: "assistant-tools", parentId: "user", timestamp: "2026-01-01T00:00:01.000Z", message: assistantMessage([
+				{ type: "toolCall", id: "bash-call", name: "bash", arguments: { command: "echo ready" } },
+				{ type: "toolCall", id: "subagent-call", name: "subagent", arguments: { tasks: [{ agent: "forker", task: "inspect" }] } },
+			], "toolUse", wireUsage()) },
+			{ type: "message", id: "bash-result", parentId: "assistant-tools", timestamp: "2026-01-01T00:00:02.000Z", message: {
+				role: "toolResult",
+				toolCallId: "bash-call",
+				toolName: "bash",
+				content: [{ type: "text", text: "ready" }],
+				isError: false,
+				timestamp: 3,
+			} },
+		] satisfies SessionEntry[];
+		const fork = await createForkExecutionContext(forkExecutorContext({
+			toolCallId: "subagent-call",
+			sessionManager: {
+				getSessionId: () => "parent-session",
+				getLeafId: () => "bash-result",
+				getLeafEntry: () => entries[2],
+				getEntries: () => entries,
+			},
+		}));
+		try {
+			const snapshot = (await readFile(fork.snapshotPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { id?: string });
+			expect(snapshot.map((entry) => entry.id)).toEqual(["parent-session", "user"]);
+		} finally {
+			await cleanupForkExecutionContext(fork);
+		}
+	});
+
+	it("工具 fork 在 spawn 前拒绝无法在当前分支定位的 tool call", async () => {
+		await writeAgent("forker", "read", { fork: true });
+		const spawn = vi.fn();
+		setSubagentSpawnForTests(spawn);
+
+		await expect(runTasks([{ agent: "forker", task: "inspect" }], forkExecutorContext({ toolCallId: "wrong-call" })))
+			.rejects.toThrow("fork setup error");
+		expect(spawn).not.toHaveBeenCalled();
 	});
 
 	it("fork 临时资源使用私有权限并逐字保存 system prompt", async () => {
@@ -412,7 +455,10 @@ describe("subagent execution", () => {
 	});
 });
 
-function forkExecutorContext(overrides: Partial<Parameters<typeof executeSubagent>[1]> = {}): Parameters<typeof executeSubagent>[1] {
+type CommandExecutorContext = Extract<ExecutorContext, { invocation: "command" }>;
+type ToolExecutorContext = Extract<ExecutorContext, { invocation: "tool" }>;
+
+function forkExecutorContext(overrides: Partial<Omit<ToolExecutorContext, "invocation">> = {}): ToolExecutorContext {
 	const entries = [
 		{ type: "message", id: "user-1", parentId: null, timestamp: "2026-01-01T00:00:00.000Z", message: { role: "user", content: "Parent request", timestamp: 1 } },
 		{ type: "custom", id: "custom-1", parentId: "user-1", timestamp: "2026-01-01T00:00:01.000Z", customType: "ui", data: { hidden: true } },
@@ -428,20 +474,24 @@ function forkExecutorContext(overrides: Partial<Parameters<typeof executeSubagen
 		} },
 		{ type: "message", id: "sibling", parentId: "user-1", timestamp: "2026-01-01T00:00:03.000Z", message: { role: "user", content: "Sibling", timestamp: 3 } },
 	] satisfies SessionEntry[];
-	return context({
+	const { toolCallId = "call-1", ...contextOverrides } = overrides;
+	return {
+		cwd: workspace,
+		currentModel: testModel(),
 		activeTools: ["read", "subagent"],
 		allTools: [toolInfo("read"), toolInfo("subagent")],
 		thinkingLevel: "medium",
 		systemPrompt: "Exact parent system prompt",
-		invocation: "tool",
 		sessionManager: {
 			getSessionId: () => "parent-session",
 			getLeafId: () => "assistant-call",
 			getLeafEntry: () => entries[2],
 			getEntries: () => entries,
 		},
-		...overrides,
-	});
+		...contextOverrides,
+		invocation: "tool",
+		toolCallId,
+	};
 }
 
 function toolInfo(name: string): NonNullable<Parameters<typeof executeSubagent>[1]["allTools"]>[number] {
@@ -453,7 +503,7 @@ function toolInfo(name: string): NonNullable<Parameters<typeof executeSubagent>[
 	};
 }
 
-function context(overrides: Partial<Parameters<typeof executeSubagent>[1]> = {}): Parameters<typeof executeSubagent>[1] {
+function context(overrides: Partial<Omit<CommandExecutorContext, "invocation" | "toolCallId">> = {}): CommandExecutorContext {
 	return {
 		cwd: workspace,
 		currentModel: testModel(),
@@ -462,8 +512,8 @@ function context(overrides: Partial<Parameters<typeof executeSubagent>[1]> = {})
 		thinkingLevel: "off",
 		sessionManager: emptySessionManager(),
 		systemPrompt: "Parent system prompt",
-		invocation: "command",
 		...overrides,
+		invocation: "command",
 	};
 }
 

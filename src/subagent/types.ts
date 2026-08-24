@@ -194,7 +194,7 @@ export interface ProcessRunProgress {
 	parseErrors: number;
 }
 
-export interface ExecutorContext {
+interface ExecutorContextBase {
 	cwd: string;
 	currentModel: ParentModel | undefined;
 	activeTools: readonly string[];
@@ -202,8 +202,13 @@ export interface ExecutorContext {
 	thinkingLevel: string;
 	sessionManager: ParentSessionManager;
 	systemPrompt: string;
-	invocation: "tool" | "command";
 	signal?: AbortSignal;
 	interaction?: SubagentInteractionPort;
 	onUpdate?: (partial: SubagentToolResult) => void;
 }
+
+export type ExecutorInvocation =
+	| { invocation: "tool"; toolCallId: string }
+	| { invocation: "command"; toolCallId?: never };
+
+export type ExecutorContext = ExecutorContextBase & ExecutorInvocation;

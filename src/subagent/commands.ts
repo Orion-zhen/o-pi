@@ -5,6 +5,7 @@ import { runSubagentTasks } from "./progress.js";
 import type {
 	AgentDefinition,
 	ExecutorContext,
+	ExecutorInvocation,
 	NonEmptyArray,
 	ParentModel,
 	ParentSessionManager,
@@ -46,7 +47,7 @@ export function runSubagentCommand(
 	return runSubagentTasks(
 		{ tasks },
 		{
-			...captureExecutorContext(port, context, "command"),
+			...captureExecutorContext(port, context, { invocation: "command" }),
 			...(context.signal === undefined ? {} : { signal: context.signal }),
 			...(context.interaction === undefined ? {} : { interaction: context.interaction }),
 		},
@@ -163,16 +164,23 @@ export function formatAgents(
 		.join("\n\n");
 }
 
+type CapturedExecutorContext = Pick<
+	ExecutorContext,
+	"cwd" | "currentModel" | "activeTools" | "allTools" | "thinkingLevel" | "sessionManager" | "systemPrompt"
+>;
+
+type ExecutorContextSource = {
+	cwd: string;
+	model: ParentModel | undefined;
+	sessionManager: ParentSessionManager;
+	systemPrompt: string;
+};
+
 export function captureExecutorContext(
 	port: SubagentRuntimePort,
-	ctx: {
-		cwd: string;
-		model: ParentModel | undefined;
-		sessionManager: ParentSessionManager;
-		systemPrompt: string;
-	},
-	invocation: "tool" | "command",
-): Pick<ExecutorContext, "cwd" | "currentModel" | "activeTools" | "allTools" | "thinkingLevel" | "sessionManager" | "systemPrompt" | "invocation"> {
+	ctx: ExecutorContextSource,
+	invocation: ExecutorInvocation,
+): CapturedExecutorContext & ExecutorInvocation {
 	return {
 		cwd: ctx.cwd,
 		currentModel: ctx.model,
@@ -181,7 +189,7 @@ export function captureExecutorContext(
 		thinkingLevel: port.getThinkingLevel(),
 		sessionManager: ctx.sessionManager,
 		systemPrompt: ctx.systemPrompt,
-		invocation,
+		...invocation,
 	};
 }
 
