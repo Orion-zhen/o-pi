@@ -1,8 +1,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { CONFIG_DIR_NAME, getAgentDir, parseFrontmatter } from "@earendil-works/pi-coding-agent";
-import { collectAncestorDirs, isPathInside, safeRealpath, uniqueResolvedPaths } from "../resource-paths.js";
+import { isPathInside, safeRealpath } from "../resource-paths.js";
 import type { AgentDefinition, AgentDiscovery, SubagentConfig, SubagentSource } from "./types.js";
 
 const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "subagent"]);
@@ -11,14 +10,11 @@ const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "subagent"]);
 export function discoverAgents(cwd: string, config: SubagentConfig): AgentDiscovery {
 	const warnings: string[] = [];
 	const userAgentsDir = path.join(getAgentDir(), "agents");
-	const userAgentsHomeDir = path.join(os.homedir(), ".agents", "agents");
-	const userAgentsDirs = uniqueResolvedPaths([userAgentsDir, userAgentsHomeDir]);
-	const projectAgentsDirs = config.allowProjectAgents
-		? uniqueResolvedPaths([...findProjectPiAgentsDirs(cwd), ...collectAncestorDirs(cwd, ".agents", "agents")])
-			.filter((dir) => path.resolve(dir) !== path.resolve(userAgentsHomeDir))
-		: [];
-	const userAgents = userAgentsDirs.flatMap((dir) => loadAgentsFromDir(dir, "user", config, warnings, undefined));
-	const projectAgents = projectAgentsDirs.flatMap((dir) => loadAgentsFromDir(dir, "project", config, warnings, dir));
+	const projectAgentsDir = config.allowProjectAgents ? findNearestProjectAgentsDir(cwd) : undefined;
+	const userAgents = loadAgentsFromDir(userAgentsDir, "user", config, warnings, undefined);
+	const projectAgents = projectAgentsDir === undefined
+		? []
+		: loadAgentsFromDir(projectAgentsDir, "project", config, warnings, projectAgentsDir);
 
 	const byName = new Map<string, AgentDefinition>();
 	for (const agent of userAgents) {
@@ -152,11 +148,6 @@ function findNearestProjectAgentsDir(cwd: string): string | undefined {
 		if (parent === current) return undefined;
 		current = parent;
 	}
-}
-
-function findProjectPiAgentsDirs(cwd: string): string[] {
-	const nearest = findNearestProjectAgentsDir(cwd);
-	return nearest === undefined ? [] : [nearest];
 }
 
 function isDirectory(filePath: string): boolean {

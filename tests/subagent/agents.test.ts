@@ -88,25 +88,16 @@ describe("subagent agent discovery", () => {
 		});
 	});
 
-	it("加载 ~/.agents/agents 下的用户 Agent", async () => {
+	it("忽略用户目录和项目目录中的 .agents/agents", async () => {
+		const project = path.join(dir, "project");
 		await mkdir(path.join(dir, ".agents", "agents"), { recursive: true });
-		await writeFile(path.join(dir, ".agents", "agents", "scout.md"), agentMarkdown("scout", "Agents Scout", "read"));
-		const found = discoverAgents(dir, await loadSubagentConfig(dir));
-		expect(found.agents[0]).toMatchObject({
-			name: "scout",
-			description: "Agents Scout",
-			source: "user",
-			filePath: path.join(dir, ".agents", "agents", "scout.md"),
-		});
-	});
+		await mkdir(path.join(project, ".agents", "agents"), { recursive: true });
+		await writeFile(path.join(dir, ".agents", "agents", "user.md"), agentMarkdown("user", "User", "read"));
+		await writeFile(path.join(project, ".agents", "agents", "project.md"), agentMarkdown("project", "Project", "read"));
 
-	it("同名用户 Agent 保留 ~/.pi/agent/agents 优先级", async () => {
-		await writeFile(path.join(dir, "agent", "agents", "same.md"), agentMarkdown("same", "Pi User", "read"));
-		await mkdir(path.join(dir, ".agents", "agents"), { recursive: true });
-		await writeFile(path.join(dir, ".agents", "agents", "same.md"), agentMarkdown("same", "Agents User", "read"));
-		const found = discoverAgents(dir, await loadSubagentConfig(dir));
-		expect(found.agents.find((agent) => agent.name === "same")?.description).toBe("Pi User");
-		expect(found.warnings.some((warning) => warning.includes("Duplicate user agent ignored"))).toBe(true);
+		const found = discoverAgents(project, { ...await loadSubagentConfig(dir), allowProjectAgents: true });
+
+		expect(found.agents).toEqual([]);
 	});
 
 	it("项目 Agent 默认关闭，显式开启后加载", async () => {
@@ -114,18 +105,6 @@ describe("subagent agent discovery", () => {
 		await writeFile(path.join(dir, ".pi", "agents", "project.md"), agentMarkdown("project", "Project", "read"));
 		expect(discoverAgents(dir, await loadSubagentConfig(dir)).agents.map((agent) => agent.name)).not.toContain("project");
 		expect(discoverAgents(dir, { ...await loadSubagentConfig(dir), allowProjectAgents: true }).agents.map((agent) => agent.name)).toContain("project");
-	});
-
-	it("allow_project_agents 开启后加载祖先 .agents/agents", async () => {
-		const project = path.join(dir, "project");
-		const nested = path.join(project, "src");
-		await mkdir(path.join(project, ".git"), { recursive: true });
-		await mkdir(path.join(project, ".agents", "agents"), { recursive: true });
-		await mkdir(nested, { recursive: true });
-		await writeFile(path.join(project, ".agents", "agents", "project-agents.md"), agentMarkdown("project-agents", "Project Agents", "read"));
-
-		expect(discoverAgents(nested, await loadSubagentConfig(dir)).agents.map((agent) => agent.name)).not.toContain("project-agents");
-		expect(discoverAgents(nested, { ...await loadSubagentConfig(dir), allowProjectAgents: true }).agents.map((agent) => agent.name)).toContain("project-agents");
 	});
 
 	it("同名默认用户 Agent 胜出，固定配置可允许项目覆盖", async () => {
@@ -193,15 +172,6 @@ describe("subagent agent discovery", () => {
 		expect(found.agents.map((agent) => agent.name)).not.toContain("outside");
 	});
 
-	it.skipIf(process.platform === "win32")("拒绝 .agents 项目 Agent 符号链接逃逸", async () => {
-		const project = path.join(dir, "project");
-		const outside = path.join(dir, "outside.md");
-		await writeFile(outside, agentMarkdown("outside-agents", "Outside Agents", "read"));
-		await mkdir(path.join(project, ".agents", "agents"), { recursive: true });
-		await symlink(outside, path.join(project, ".agents", "agents", "outside.md"));
-		const found = discoverAgents(project, { ...await loadSubagentConfig(dir), allowProjectAgents: true });
-		expect(found.agents.map((agent) => agent.name)).not.toContain("outside-agents");
-	});
 });
 
 function agentMarkdown(name: string, description: string, tools: string): string {

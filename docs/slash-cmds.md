@@ -260,8 +260,8 @@
 
 行为：
 
-- 读取 `~/.pi/agent/agents/*.md` 和 `~/.agents/agents/*.md`。
-- 用户配置允许项目 Agent 时，读取最近项目的 `.pi/agents/*.md`，以及当前目录和祖先目录中的 `.agents/agents/*.md`。
+- 读取 `~/.pi/agent/agents/*.md`。
+- 用户配置允许项目 Agent 时，读取从当前目录向上找到的最近 `.pi/agents/*.md`。
 - 展示名称、描述、来源、文件路径、模式、模型、工作目录、实际可用工具和是否有写能力。
 - 隔离模式的工具列表是 Agent 配置工具与 `pi.getAllTools()` 的交集。`subagent` 不会传给子进程。主 Agent 通过 `/tools` 停用的工具仍会显示并传给隔离子进程。
 - fork 模式继承主会话当前启用的工具，因此受 `/tools` 当前选择影响。
