@@ -46,6 +46,28 @@ describe("ToolSelectionController", () => {
 		]);
 	});
 
+	it("将当前完整选择保存为用户默认值", async () => {
+		const harness = createHarness(["read", "bash"], ["read"]);
+		let savedDefaults: Readonly<Record<string, boolean>> | undefined;
+		const controller = new ToolSelectionController(harness.port, {
+			loadConfig: async () => ({ layers: [] }),
+			saveUserDefaults: async (defaults) => {
+				savedDefaults = defaults;
+				return "/home/test/.pi/agent/tools.jsonc";
+			},
+		});
+
+		await controller.restore({
+			cwd: "/workspace",
+			branchEntries: [],
+			model: undefined,
+			refreshConfig: false,
+		});
+		await expect(controller.persistUserDefaults()).resolves.toBe("/home/test/.pi/agent/tools.jsonc");
+		expect(savedDefaults).toEqual({ read: true, bash: false });
+		expect(harness.entries).toEqual([]);
+	});
+
 	it("报告 branch 中已删除的工具", async () => {
 		const harness = createHarness(["read"]);
 		const controller = new ToolSelectionController(harness.port);
@@ -63,7 +85,7 @@ describe("ToolSelectionController", () => {
 		expect(harness.activeTools).toEqual([]);
 	});
 
-	it.skipIf(process.platform === "win32")("非 Windows 不展示或启用 PowerShell", async () => {
+	it.skipIf(process.platform === "win32")("非 Windows 展示但无法启用 PowerShell", async () => {
 		const harness = createHarness(["read", "powershell"], ["read"]);
 		const controller = new ToolSelectionController(harness.port, {
 			loadConfig: async () => ({ layers: [{ defaults: { powershell: true }, rules: [] }] }),
@@ -76,8 +98,13 @@ describe("ToolSelectionController", () => {
 			refreshConfig: false,
 		});
 
-		expect(controller.listTools().map((tool) => tool.name)).toEqual(["read"]);
+		expect(controller.listTools()).toEqual([
+			{ name: "read", description: "read", enabled: true, available: true },
+			{ name: "powershell", description: "powershell", enabled: false, available: false },
+		]);
+		controller.set("powershell", true);
 		expect(harness.activeTools).toEqual(["read"]);
+		expect(harness.entries).toEqual([]);
 	});
 
 	it("未显式配置的新工具保持宿主初始禁用状态", async () => {

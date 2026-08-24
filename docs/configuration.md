@@ -73,7 +73,7 @@
 <project>/.pi/tools.jsonc
 ```
 
-用户层和项目层按顺序叠加，但没有 `agent/defaults/tools.jsonc`。对应的环境变量是 `PI_TOOLS_CONFIG`、`PI_TOOLS_PROJECT_CONFIG` 和 `PI_TOOLS_PROJECT_ROOT`。项目根目录的查找方式与上述项目层相同。
+用户层和项目层按顺序叠加，但没有 `agent/defaults/tools.jsonc`。对应的环境变量是 `PI_TOOLS_CONFIG`、`PI_TOOLS_PROJECT_CONFIG` 和 `PI_TOOLS_PROJECT_ROOT`。项目根目录的查找方式与上述项目层相同。在 `/tools` 中按 `Ctrl+S` 会更新用户层配置的 `defaults`，并保留 `defaults` 之外的字段和注释。直接退出选择器只保留当前会话分支的选择。
 
 ## Git 和升级
 

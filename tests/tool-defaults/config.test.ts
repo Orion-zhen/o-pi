@@ -1,8 +1,13 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { findNearestProjectRoot, loadToolDefaultsConfig, resolveToolDefaults } from "../../src/tool-defaults/config.js";
+import {
+	findNearestProjectRoot,
+	loadToolDefaultsConfig,
+	resolveToolDefaults,
+	saveUserToolDefaults,
+} from "../../src/tool-defaults/config.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let workspace: string;
@@ -124,6 +129,46 @@ describe("tool defaults config", () => {
 
 		await writeFile(userPath, '{ "rules": [{ "match": "google", "tools": {} }] }');
 		await expect(loadToolDefaultsConfig(workspace)).rejects.toThrow("does not match schema");
+	});
+
+	it("保存用户默认值时保留 JSONC 注释和模型规则", async () => {
+		const userPath = path.join(workspace, "nested", "tools.jsonc");
+		process.env.PI_TOOLS_CONFIG = userPath;
+		await mkdir(path.dirname(userPath), { recursive: true });
+		await writeFile(userPath, `{
+			// keep this rule
+			"defaults": { "old": true },
+			"rules": [
+				{ "match": "google/*", "tools": { "websearch": false } }
+			]
+		}`);
+
+		await expect(saveUserToolDefaults({ read: true, bash: false })).resolves.toBe(userPath);
+
+		const text = await readFile(userPath, "utf8");
+		expect(text).toContain("// keep this rule");
+		expect(text).toContain('"match": "google/*"');
+		expect(resolveToolDefaults(await loadToolDefaultsConfig(workspace), undefined)).toEqual({
+			read: true,
+			bash: false,
+		});
+	});
+
+	it("保存用户默认值时创建缺失的父目录和配置文件", async () => {
+		const userPath = path.join(workspace, "new", "tools.jsonc");
+		process.env.PI_TOOLS_CONFIG = userPath;
+
+		await expect(saveUserToolDefaults({ read: true })).resolves.toBe(userPath);
+		expect(resolveToolDefaults(await loadToolDefaultsConfig(workspace), undefined)).toEqual({ read: true });
+	});
+
+	it("拒绝覆盖无效的用户配置", async () => {
+		const userPath = path.join(workspace, "invalid.jsonc");
+		process.env.PI_TOOLS_CONFIG = userPath;
+		await writeFile(userPath, "{ invalid");
+
+		await expect(saveUserToolDefaults({ read: true })).rejects.toThrow("not valid JSONC");
+		expect(await readFile(userPath, "utf8")).toBe("{ invalid");
 	});
 
 	it("从当前目录向上查找最近的 .pi 项目根", async () => {

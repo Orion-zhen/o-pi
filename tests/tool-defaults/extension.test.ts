@@ -6,11 +6,11 @@ import type {
 	SessionTreeEvent,
 	ToolInfo,
 } from "@earendil-works/pi-coding-agent";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import toolsExtension from "../../agent/extensions/cmd-slash-tools.js";
+import toolsExtension, { createToolsExtension } from "../../agent/extensions/cmd-slash-tools.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 type SessionStartHandler = (event: SessionStartEvent, ctx: ExtensionContext) => Promise<void> | void;
@@ -38,6 +38,26 @@ beforeEach(() => {
 });
 
 describe("/tools extension defaults", () => {
+	it("/tools 通过选择器回调切换会话工具并写入用户默认值", async () => {
+		const userPath = path.join(workspace, "user-tools.jsonc");
+		process.env.PI_TOOLS_CONFIG = userPath;
+		const tuiModule = await import("../../src/tool-defaults/tui/tool-selector.js");
+		const extension = createToolsExtension(async () => ({
+			...tuiModule,
+			async openToolSelector(_ui, options) {
+				options.onChange("bash", true);
+				await options.onPersist();
+			},
+		}));
+		const harness = registerHarness(["read", "bash"], [], undefined, ["read"], extension);
+
+		await harness.sessionStart({ type: "session_start", reason: "startup" }, harness.ctx);
+		await harness.command.handler("", harness.ctx as never);
+
+		expect(harness.activeTools).toEqual(["read", "bash"]);
+		expect(await readFile(userPath, "utf8")).toContain('"bash": true');
+	});
+
 	it("没有 session 覆盖时按配置设置 active tools，缺省工具继承宿主状态", async () => {
 		const userPath = path.join(workspace, "user.jsonc");
 		process.env.PI_TOOLS_CONFIG = userPath;
@@ -138,6 +158,7 @@ function registerHarness(
 	branchEntries: Array<{ type: "custom"; customType: string; data: unknown }>,
 	initialModel?: Model<Api>,
 	initialActiveTools: string[] = toolNames,
+	extension: (pi: ExtensionAPI) => void = toolsExtension,
 ) {
 	let sessionStart: SessionStartHandler | undefined;
 	let sessionTree: SessionTreeHandler | undefined;
@@ -163,7 +184,7 @@ function registerHarness(
 		appendEntry() {},
 	};
 
-	toolsExtension(pi as unknown as ExtensionAPI);
+	extension(pi as unknown as ExtensionAPI);
 	if (sessionStart === undefined) throw new Error("session_start handler not registered");
 	if (sessionTree === undefined) throw new Error("session_tree handler not registered");
 	if (modelSelect === undefined) throw new Error("model_select handler not registered");
@@ -172,6 +193,7 @@ function registerHarness(
 
 	const ctx = {
 		cwd: workspace,
+		mode: "tui",
 		sessionManager: {
 			getBranch: () => currentBranchEntries,
 		},
@@ -183,6 +205,7 @@ function registerHarness(
 
 	return {
 		ctx,
+		command: commandOptions,
 		sessionStart,
 		sessionTree,
 		async selectModel(provider: string, id: string) {

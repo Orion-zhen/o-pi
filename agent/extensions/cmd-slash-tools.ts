@@ -43,6 +43,19 @@ export function createToolsExtension(
 					onChange(toolName, enabled) {
 						controller.set(toolName, enabled);
 					},
+					async onPersist() {
+						try {
+							const filePath = await controller.persistUserDefaults();
+							ctx.ui.notify(`Tool defaults saved to ${filePath}`);
+							return true;
+						} catch (error) {
+							ctx.ui.notify(
+								`Could not save tool defaults: ${error instanceof Error ? error.message : String(error)}`,
+								"error",
+							);
+							return false;
+						}
+					},
 				});
 			},
 		});

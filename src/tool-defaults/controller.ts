@@ -3,6 +3,7 @@ import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 import {
 	loadToolDefaultsConfig,
 	resolveToolDefaults,
+	saveUserToolDefaults,
 	ToolDefaultsConfigError,
 	type ToolDefaultsConfig,
 	type ToolDefaultsModel,
@@ -20,11 +21,15 @@ export interface ToolSelectionBranchEntry {
 	data?: unknown;
 }
 
-export interface ToolSelectionItem {
+interface ToolSelectionItemBase {
 	name: string;
 	description: string;
-	enabled: boolean;
 }
+
+export type ToolSelectionItem = ToolSelectionItemBase & (
+	| { available: true; enabled: boolean }
+	| { available: false; enabled: false }
+);
 
 export type ToolSelectionRestoreNotice =
 	| { type: "config-error"; message: string }
@@ -46,6 +51,7 @@ export interface ToolSelectionRestoreInput {
 
 export interface ToolSelectionControllerOptions {
 	loadConfig?(cwd: string): Promise<ToolDefaultsConfig>;
+	saveUserDefaults?(defaults: Readonly<Record<string, boolean>>): Promise<string>;
 }
 
 export class ToolSelectionController {
@@ -55,21 +61,24 @@ export class ToolSelectionController {
 	private configCache: { cwd: string; value: Promise<ToolDefaultsConfig> } | undefined;
 	private restoreRevision = 0;
 	private readonly loadConfig: (cwd: string) => Promise<ToolDefaultsConfig>;
+	private readonly saveDefaults: (defaults: Readonly<Record<string, boolean>>) => Promise<string>;
 
 	constructor(
 		private readonly port: ToolSelectionPort,
 		options: ToolSelectionControllerOptions = {},
 	) {
 		this.loadConfig = options.loadConfig ?? loadToolDefaultsConfig;
+		this.saveDefaults = options.saveUserDefaults ?? saveUserToolDefaults;
 	}
 
 	listTools(): ToolSelectionItem[] {
 		this.refreshTools();
-		return this.allTools.map((tool) => ({
-			name: tool.name,
-			description: tool.description,
-			enabled: this.enabledTools.has(tool.name),
-		}));
+		return this.allTools.map((tool) => {
+			const item = { name: tool.name, description: tool.description };
+			return toolAvailableOnCurrentPlatform(tool)
+				? { ...item, available: true, enabled: this.enabledTools.has(tool.name) }
+				: { ...item, available: false, enabled: false };
+		});
 	}
 
 	async restore(input: ToolSelectionRestoreInput): Promise<ToolSelectionRestoreNotice | undefined> {
@@ -79,9 +88,9 @@ export class ToolSelectionController {
 		const baseline = this.captureBaseline();
 		const savedTools = findSavedTools(input.branchEntries);
 		if (savedTools !== undefined) {
-			const available = new Set(this.allTools.map((tool) => tool.name));
+			const available = new Set(this.availableTools().map((tool) => tool.name));
 			const removedTools = savedTools.filter((name) => !available.has(name));
-			this.apply(savedTools.filter((name) => available.has(name)));
+			this.apply(savedTools);
 			return removedTools.length === 0
 				? undefined
 				: { type: "removed-tools", toolNames: removedTools };
@@ -99,6 +108,7 @@ export class ToolSelectionController {
 	}
 
 	set(toolName: string, enabled: boolean): void {
+		if (!this.availableTools().some((tool) => tool.name === toolName)) return;
 		if (enabled) this.enabledTools.add(toolName);
 		else this.enabledTools.delete(toolName);
 		const enabledTools = this.enabledToolNames();
@@ -106,15 +116,26 @@ export class ToolSelectionController {
 		this.port.appendEntry(TOOL_SELECTION_ENTRY, { enabledTools });
 	}
 
+	async persistUserDefaults(): Promise<string> {
+		const defaults = Object.fromEntries(this.listTools().map((tool) => [tool.name, tool.enabled]));
+		const filePath = await this.saveDefaults(defaults);
+		this.configCache = undefined;
+		return filePath;
+	}
+
 	private refreshTools(): void {
-		this.allTools = this.port.getAllTools().filter(toolAvailableOnCurrentPlatform);
-		const available = new Set(this.allTools.map((tool) => tool.name));
+		this.allTools = this.port.getAllTools();
+		const available = new Set(this.availableTools().map((tool) => tool.name));
 		this.enabledTools = new Set([...this.enabledTools].filter((name) => available.has(name)));
+	}
+
+	private availableTools(): ToolInfo[] {
+		return this.allTools.filter(toolAvailableOnCurrentPlatform);
 	}
 
 	private captureBaseline(): ReadonlySet<string> {
 		if (this.baselineTools !== undefined) return this.baselineTools;
-		const available = new Set(this.allTools.map((tool) => tool.name));
+		const available = new Set(this.availableTools().map((tool) => tool.name));
 		this.baselineTools = new Set(this.port.getActiveTools().filter((name) => available.has(name)));
 		return this.baselineTools;
 	}
@@ -128,7 +149,8 @@ export class ToolSelectionController {
 	}
 
 	private apply(names: readonly string[]): void {
-		this.enabledTools = new Set(names);
+		const available = new Set(this.availableTools().map((tool) => tool.name));
+		this.enabledTools = new Set(names.filter((name) => available.has(name)));
 		this.port.setActiveTools(this.enabledToolNames());
 	}
 

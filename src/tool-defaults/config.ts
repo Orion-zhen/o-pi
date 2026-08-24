@@ -1,11 +1,20 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { applyEdits, modify, parse, printParseErrorCode, type ParseError } from "jsonc-parser";
+
 import {
 	agentSchemaPath,
 	createSchemaValidator,
 	findNearestProjectRoot as findNearestProjectRootBase,
+	isNotFound,
 	projectPiPath,
 	readOptionalJsoncConfigWithSchema,
+	stripUtf8Bom,
 	userAgentPath,
+	validateConfigValue,
 } from "../config-loader.js";
+
+const TOOL_CONFIG_FORMAT = { insertSpaces: true, tabSize: 2, eol: "\n", insertFinalNewline: true } as const;
 
 const USER_CONFIG_ENV = "PI_TOOLS_CONFIG";
 const PROJECT_CONFIG_ENV = "PI_TOOLS_PROJECT_CONFIG";
@@ -61,6 +70,13 @@ export async function loadToolDefaultsConfig(cwd = process.cwd()): Promise<ToolD
 	}
 
 	return { layers };
+}
+
+/** 将完整工具选择写入用户层 defaults，并保留 defaults 之外的字段和注释。 */
+export async function saveUserToolDefaults(defaults: Readonly<Record<string, boolean>>): Promise<string> {
+	const filePath = userConfigPath();
+	await writeUserToolDefaults(filePath, defaults);
+	return filePath;
 }
 
 export function resolveToolDefaults(
@@ -144,6 +160,42 @@ async function readOptionalConfig(filePath: string): Promise<unknown | undefined
 		createError: (message, details) => new ToolDefaultsConfigError(message, details),
 		loadValidator: loadToolsValidator,
 	});
+}
+
+async function writeUserToolDefaults(filePath: string, defaults: Readonly<Record<string, boolean>>): Promise<void> {
+	let text: string;
+	try {
+		text = await readFile(filePath, "utf8");
+	} catch (error) {
+		if (!isNotFound(error)) throw error;
+		text = "{}\n";
+	}
+
+	const hasBom = text.startsWith("\uFEFF");
+	const source = stripUtf8Bom(text);
+	const errors: ParseError[] = [];
+	const value = parse(source, errors, { allowTrailingComma: true });
+	const firstError = errors.at(0);
+	if (firstError !== undefined) {
+		throw new ToolDefaultsConfigError("tools config is not valid JSONC.", {
+			path: filePath,
+			error: printParseErrorCode(firstError.error),
+			offset: firstError.offset,
+		});
+	}
+	await validateConfigValue({
+		path: filePath,
+		label: "tools",
+		value,
+		loadValidator: loadToolsValidator,
+		createError: (message, details) => new ToolDefaultsConfigError(message, details),
+	});
+
+	const updated = applyEdits(source, modify(source, ["defaults"], defaults, {
+		formattingOptions: TOOL_CONFIG_FORMAT,
+	}));
+	await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+	await writeFile(filePath, `${hasBom ? "\uFEFF" : ""}${updated}`, { encoding: "utf8", mode: 0o600 });
 }
 
 function userConfigPath(): string {
