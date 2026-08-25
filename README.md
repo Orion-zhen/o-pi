@@ -20,6 +20,13 @@ cd ~/.pi && npm install
 
 可复用的 Pi 体验配置见 [`agent/settings.example.jsonc`](agent/settings.example.jsonc)。按需将其中字段合并到本机 `agent/settings.json`；provider、model、thinking level 和模型轮换列表等个人设置不包含在示例中。
 
+## 组合技
+
+搭配以下仓库使用效果更佳:
+
+* [Orion-zhen/dot-agents](https://github.com/Orion-zhen/dot-agents): skill, prompt template 预设仓库.
+* [Orion-zhen/o-pet](https://github.com/Orion-zhen/o-pet): 适配欧派的桌面宠物 App.
+
 ## 文档
 
 * [配置分层](docs/configuration.md)
