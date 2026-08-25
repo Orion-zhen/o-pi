@@ -3,7 +3,21 @@
 	// 硬阻止：不能直接访问，也不会出现在 ls 结果中。
 	"blocked_path": [
 		".git/",
-		"~/.ssh/id_ed25519"
+		"~/.ssh/id_*",
+		"~/.aws/credentials",
+		"~/.config/gcloud/application_default_credentials.json",
+		"~/.config/doctl/config.yaml",
+		"~/.kube/config",
+		"~/.docker/config.json",
+		"~/.azure/accessTokens.json",
+		"~/.npmrc",
+		"~/.pypirc",
+		"~/.netrc",
+		"~/.wrangler/config/default.toml",
+		"~/.config/gh/hosts.yml",
+		".env",
+		".env.local",
+		".env.production"
 	],
 	// 软忽略：ls/read 标记 ignored；不阻止显式 read/edit。
 	"ignored_path": [

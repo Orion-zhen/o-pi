@@ -3,11 +3,17 @@ import { access, stat } from "node:fs/promises";
 import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
-import { checkDeniedText, type PatternDenyMatch } from "./pattern-guard.js";
 import { resolveBashSkillPaths } from "./skill-paths.js";
 import { OutputCapture } from "./output-capture.js";
 import { cleanForModel, createBashOutputView } from "./output-view.js";
-import type { BashExecutionResult, BashParams, BashSessionMetadata, CapturedOutput, ExecuteBashRuntime } from "./types.js";
+import type {
+	BashEnvironmentConfig,
+	BashExecutionResult,
+	BashParams,
+	BashSessionMetadata,
+	CapturedOutput,
+	ExecuteBashRuntime,
+} from "./types.js";
 
 const UPDATE_THROTTLE_MS = 100;
 
@@ -28,13 +34,11 @@ const nodePythonVirtualEnvironmentFileSystem: PythonVirtualEnvironmentFileSystem
 
 /** 执行模型提供的 shell 命令。 */
 export async function executeBashCommand(params: BashParams, runtime: ExecuteBashRuntime): Promise<BashExecutionResult> {
-	const denied = checkDeniedText(params.command, runtime.config.safety);
-	if (denied !== null) return blockedCommandResult(denied);
 	const skillPaths = await resolveBashSkillPaths(params.command, runtime.branch, runtime.signal);
 	if (skillPaths.kind === "error") return skillResourceErrorResult(skillPaths);
 	params = { ...params, command: skillPaths.command };
 	const pythonVirtualEnv = await resolvePythonVirtualEnvironment(runtime.cwd, runtime.config.python_venv_paths);
-	const baseEnvironment = createBashEnvironment(runtime.session);
+	const baseEnvironment = createBashEnvironment(runtime.session, runtime.config.environment);
 	const executionEnv = pythonVirtualEnv === undefined
 		? baseEnvironment
 		: virtualEnvironmentVariables(baseEnvironment, pythonVirtualEnv);
@@ -159,28 +163,6 @@ export async function executeBashCommand(params: BashParams, runtime: ExecuteBas
 	return { content: view.content, details: view.details };
 }
 
-function blockedCommandResult(match: PatternDenyMatch): BashExecutionResult {
-	return {
-		content: [
-			'<error tool="bash" code="BLOCKED_COMMAND">',
-			"Command blocked by bash-tool safety deny rule.",
-			`Matched ${match.kind}: ${escapeXmlText(match.rule)}`,
-			"</error>",
-		].join("\n"),
-		details: {
-			status: "exited",
-			duration_ms: 0,
-			output_state: "complete",
-			output_format: "text",
-			total_lines: 0,
-			returned_lines: 0,
-			total_bytes: 0,
-			returned_bytes: 0,
-			capture_complete: true,
-		},
-	};
-}
-
 function skillResourceErrorResult(error: { code: "invalid-locator" | "access-denied"; message: string; path: string }): BashExecutionResult {
 	const code = error.code === "invalid-locator" ? "INVALID_SKILL_RESOURCE" : "SKILL_RESOURCE_ACCESS_DENIED";
 	return {
@@ -235,9 +217,16 @@ export async function resolvePythonVirtualEnvironment(
 	return undefined;
 }
 
-/** 构造与 Pi 本地 shell 相同的完整环境，并只暴露当前会话的 PI_* 元数据。 */
-export function createBashEnvironment(session: BashSessionMetadata): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = { ...process.env };
+/** 按显式继承策略构造 shell 环境，并只暴露允许的当前会话 PI_* 元数据。 */
+export function createBashEnvironment(session: BashSessionMetadata, config: BashEnvironmentConfig): NodeJS.ProcessEnv {
+	const flags = process.platform === "win32" ? "iu" : "u";
+	const deniedNames = config.remove_name_regex.map((rule) => new RegExp(rule, flags));
+	const env: NodeJS.ProcessEnv = {};
+	if (config.inherit) {
+		for (const [name, value] of Object.entries(process.env)) {
+			if (!deniedNames.some((rule) => rule.test(name))) env[name] = value;
+		}
+	}
 	const pathKey = environmentKey(env, "PATH");
 	const currentPath = env[pathKey] ?? "";
 	const managedBin = resolvePiManagedBin();
@@ -250,7 +239,7 @@ export function createBashEnvironment(session: BashSessionMetadata): NodeJS.Proc
 		deleteEnvironmentVariable(env, name);
 	}
 	setEnvironmentVariable(env, "PI_SESSION_ID", session.sessionId);
-	setEnvironmentVariable(env, "PI_SESSION_FILE", session.sessionFile);
+	if (config.expose_pi_session_file) setEnvironmentVariable(env, "PI_SESSION_FILE", session.sessionFile);
 	setEnvironmentVariable(env, "PI_PROVIDER", session.provider);
 	setEnvironmentVariable(env, "PI_MODEL", session.model);
 	setEnvironmentVariable(env, "PI_REASONING_LEVEL", session.reasoningLevel);

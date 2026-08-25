@@ -2,11 +2,10 @@ import type { ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-codi
 import { notifyWaiting, type WaitingNotifier } from "../../notification/native.js";
 import { loadApprovalGateConfig } from "../config.js";
 import { buildApprovalRequest } from "../request/build.js";
-import { evaluateApproval } from "../rules/policy.js";
+import { evaluateGatePolicy } from "../rules/policy.js";
 import { FileApprovalStore, type ApprovalStore } from "../rules/store.js";
 import type { ApprovalDecision, ApprovalGateConfig } from "../types.js";
 import { handleAskDecision, type ApprovalInteractionPort } from "./interaction.js";
-import { precheckSafety } from "./safety.js";
 
 export interface ApprovalGate {
 	handleToolCall(event: ToolCallEvent, context: ApprovalContext): Promise<ToolCallEventResult | void>;
@@ -54,14 +53,11 @@ export function createApprovalGate(options: ApprovalGateOptions = {}): ApprovalG
 			const config = await (options.loadConfig ?? loadApprovalGateConfig)();
 			if (!config.enabled) return undefined;
 
-			const safetyBlock = await precheckSafety(event, ctx.cwd);
-			if (safetyBlock !== undefined) return safetyBlock;
-
 			const request = await buildApprovalRequest(event, ctx.cwd);
 			if (request === undefined) return undefined;
 
 			const store = await resolveStore(config.remember.persistent_store);
-			const decision = evaluateApproval(request, config, store);
+			const decision = evaluateGatePolicy(request, config, store);
 			if (decision.kind === "allow") return undefined;
 			if (decision.kind === "deny") return blockForDenyRule(decision);
 
@@ -83,6 +79,6 @@ export function createApprovalGate(options: ApprovalGateOptions = {}): ApprovalG
 }
 
 function blockForDenyRule(decision: Extract<ApprovalDecision, { kind: "deny" }>): ToolCallEventResult {
-	const rule = decision.rule_name === undefined ? "unnamed" : decision.rule_name;
-	return { block: true, reason: `Blocked by approval deny rule "${rule}": ${decision.reason}` };
+	const source = decision.rule_name === undefined ? "Approval Gate" : `Approval Gate rule "${decision.rule_name}"`;
+	return { block: true, reason: `Blocked by ${source}: ${decision.reason}` };
 }

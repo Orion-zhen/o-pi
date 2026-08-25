@@ -36,7 +36,7 @@ export function allowRuleMatches(rule: ApprovalAllowRule, request: ApprovalReque
 		if (unit.target.kind !== "command") return false;
 		if (normalizePath(rule.cwd) !== normalizePath(request.cwd)) return false;
 		if (rule.kind === "exact_command") return unit.target.value === rule.value;
-		const command = unit.target.similar_value ?? unit.target.match_value ?? unit.target.value;
+		const command = unit.target.similar_value ?? unit.target.match_value;
 		return command === rule.value || command.startsWith(`${rule.value} `);
 	}
 	if (unit.target.kind !== "path") return false;
@@ -52,7 +52,7 @@ function allowRuleForTarget(
 ): ApprovalAllowRule {
 	if (unit.target.kind === "command") {
 		const prefix = mode === "similar"
-			? commandPrefix(unit.target.similar_value ?? unit.target.match_value ?? unit.target.value)
+			? commandPrefix(unit.target.similar_value ?? unit.target.match_value)
 			: undefined;
 		return {
 			tool: request.tool,

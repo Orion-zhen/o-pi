@@ -9,21 +9,24 @@
 - 模型只在已启用的专用工具无法完成操作时使用 `bash`，不得绕过已启用的文件工具或网页工具。这是工具路由约束，不是 Shell 命令允许列表。
 - 除已加载技能的 `skill://` 参数解析外，工具不改写命令。
 - 工具不对 npm、pytest、Cargo 或 Git 等命令使用专用输出解析器，也不使用大模型总结输出。
-- 执行前检查 `deny_patterns` 和 `deny_regex`，但不把 `bash` 变成命令允许列表。
 - 输出截断、通用压缩、非零退出、超时、取消或捕获不完整时保留日志。
 - 模型可见正文只在输出被截断或捕获不完整时显示 `full` 日志路径。
 - 命令成功且输出状态为 `complete` 时返回完整的清理后文本，并删除临时日志。
 
 ## 执行环境
 
-每次执行命令时，`bash` 都会复制当前进程环境，并确保 Pi 托管的 `bin` 目录位于 `PATH` 中。工具还会根据当前 Pi 上下文设置以下变量：
+每次执行命令时，`bash` 根据 `environment.inherit` 决定是否继承当前进程环境。继承时，工具先用 `environment.remove_name_regex` 删除匹配的变量名，再确保 Pi 托管的 `bin` 目录位于 `PATH` 中。非 Windows 平台按原始大小写匹配变量名，Windows 使用大小写不敏感匹配。
+
+工具还会根据当前 Pi 上下文设置以下变量：
 
 - `PI_SESSION_ID`：当前会话 ID。
-- `PI_SESSION_FILE`：持久会话文件存在时设置。
+- `PI_SESSION_FILE`：仅当 `environment.expose_pi_session_file` 为 `true` 且持久会话文件存在时设置。默认不暴露。
 - `PI_PROVIDER` 和 `PI_MODEL`：当前模型存在时设置。
 - `PI_REASONING_LEVEL`：当前推理级别存在时设置。
 
 工具会先删除继承环境中的旧 `PI_SESSION_ID`、`PI_SESSION_FILE`、`PI_PROVIDER`、`PI_MODEL` 和 `PI_REASONING_LEVEL`，再写入当前值。因此，切换模型或推理级别后，下一条命令会立即读取新值。缺失的可选值不会写为空字符串。
+
+`remove_name_regex` 只过滤继承变量，不过滤工具随后注入的 `PI_SESSION_ID`、provider、model 和 reasoning level。`PI_SESSION_FILE` 由独立开关控制。
 
 这些变量只注入模型调用的自定义 `bash` 工具。用户输入的 `!` 和 `!!` 命令以及 RPC 的直接 Bash 调用不使用该逻辑。RPC Bash 的 `bash_execution_update` 事件仍由 Pi 核心产生，本工具不会生成或替换该事件。
 
@@ -64,27 +67,19 @@ skill://demo/scripts/run.sh --flag
 
 - `default_timeout_seconds`：工具调用未传入 `timeout` 时使用的超时时间，单位为秒。当前默认值为 `300`。单次调用的 `timeout` 必须大于 `0` 且不超过 `86400`。
 - `python_venv_paths`：Python 虚拟环境候选路径。相对路径基于命令工作目录解析，绝对路径直接使用。空数组关闭自动探测。
+- `environment.inherit`：是否继承 Pi 进程环境。
+- `environment.remove_name_regex`：从继承环境中删除变量名的正则列表。
+- `environment.expose_pi_session_file`：是否向模型调用的 Bash 暴露 `PI_SESSION_FILE`。
 - `limits.success_output_bytes`：成功输出的模型可见字节预算。
 - `limits.failure_output_bytes`：非零退出、超时或取消输出的模型可见字节预算。
 - `limits.live_output_bytes`：流式更新中最近输出的字节预算。
 - `limits.max_capture_bytes`：原始日志最多写入的字节数。达到上限后，工具继续消费进程输出并更新有限的尾部预览，但日志不再完整。
-- `safety.deny_patterns`：字符串或简单通配模式拒绝规则。`*` 匹配任意长度文本，`?` 匹配一个字符。模式不含 `*` 或 `?` 时按子字符串匹配。
-- `safety.deny_regex`：正则表达式拒绝规则。配置加载时会校验这些表达式，非法表达式会导致配置加载失败。
 
-默认配置包含少量明显危险的命令模式，例如 `rm -rf /`、`mkfs`、`dd ... of=/dev/` 和通过管道把 `curl` 或 `wget` 输出交给 Shell。用户覆盖配置省略 `safety` 时，默认规则仍然生效。只有显式把 `deny_patterns` 和 `deny_regex` 都设置为空数组，才能清空默认规则。
+## 调用策略
 
-## 安全拒绝规则
+Approval Gate 在统一的 `tool_call` 钩子中评估 Bash 调用策略。Bash 工具只接收已经放行的调用，不解析安全事实，也不显示审批界面。Bash 安全事实、`allow`、`ask`、`deny` 和 `/approval-check` 的配置见 [Approval Gate](approval-gate.md#配置)。
 
-命中拒绝规则时，工具不会启动进程。模型会收到以下结果，其中 `pattern` 也可能是 `regex`：
-
-```xml
-<error tool="bash" code="BLOCKED_COMMAND">
-Command blocked by bash-tool safety deny rule.
-Matched pattern: ...
-</error>
-```
-
-这些规则只提供轻量防护。除静态 `skill://` 参数解析外，`bash` 工具不依据 Bash 抽象语法树限制或改写命令。工具也不限制网络，不修改 `HOME` 或工作目录，也不限制 Shell 语法。工具对执行环境的修改仅包括 Pi 托管的 `bin` 目录、当前 `PI_*` 变量和 Python 虚拟环境变量。
+关闭 Approval Gate 会统一跳过 Bash 调用策略。Bash 工具仍会检查技能资源路径、运行环境、超时和输出限制，但这些检查不替代调用策略或操作系统隔离。
 
 ## 输出协议
 

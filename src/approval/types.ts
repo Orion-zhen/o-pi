@@ -4,7 +4,7 @@ export type ApprovalTarget =
 		/** 用于展示和精确批准匹配的规范值。 */
 		value: string;
 		/** 仅供策略 matcher 使用；例如移除外层命令中的嵌套 substitution。 */
-		match_value?: string;
+		match_value: string;
 		/** 仅供保守 similar matcher 使用；例如跳过 env wrapper。 */
 		similar_value?: string;
 	}
@@ -36,13 +36,28 @@ export type ApprovalRequestDetail =
 	| { kind: "write"; path: string; content: string }
 	| { kind: "edit"; path: string; edits: ApprovalEditReplacement[] };
 
-export interface ApprovalRequest {
-	tool: "bash" | "write" | "edit";
+interface ApprovalRequestBase {
 	cwd: string;
 	summary: string;
-	detail: ApprovalRequestDetail;
 	units: ApprovalUnit[];
 }
+
+export interface BashApprovalRequest extends ApprovalRequestBase {
+	tool: "bash";
+	detail: Extract<ApprovalRequestDetail, { kind: "bash" }>;
+}
+
+export interface WriteApprovalRequest extends ApprovalRequestBase {
+	tool: "write";
+	detail: Extract<ApprovalRequestDetail, { kind: "write" }>;
+}
+
+export interface EditApprovalRequest extends ApprovalRequestBase {
+	tool: "edit";
+	detail: Extract<ApprovalRequestDetail, { kind: "edit" }>;
+}
+
+export type ApprovalRequest = BashApprovalRequest | WriteApprovalRequest | EditApprovalRequest;
 
 export interface ApprovalAskItem {
 	unit: ApprovalUnit;
@@ -55,12 +70,39 @@ export type ApprovalDecision =
 	| { kind: "deny"; reason: string; rule_name?: string };
 
 export type ApprovalDefaultAction = "allow" | "ask" | "deny";
+export type BashPolicyMatchScope = "raw-input" | "source-unit" | "effective-unit";
+export type BashPolicyPlatform = "linux" | "darwin" | "win32";
+
+export interface BashPolicyCommandMatcher {
+	regex: string;
+	scope?: BashPolicyMatchScope;
+	platform?: BashPolicyPlatform;
+}
+
+export type BashPolicyCommandRule = string | false | BashPolicyCommandMatcher;
+
+export interface BashPolicyFact {
+	enabled?: boolean;
+	action?: Exclude<ApprovalDefaultAction, "allow">;
+	commands: Record<string, BashPolicyCommandRule>;
+}
+
+export interface BashPolicyCombination {
+	enabled?: boolean;
+	all: string[];
+	action: Exclude<ApprovalDefaultAction, "allow">;
+}
+
+export interface BashPolicyConfig {
+	default_action: ApprovalDefaultAction;
+	facts: Record<string, BashPolicyFact>;
+	combinations: Record<string, BashPolicyCombination | false>;
+}
 
 export interface ApprovalRule {
 	name: string;
 	tools: string[];
 	path_globs?: string[];
-	command_regex?: string;
 	reason: string;
 }
 
@@ -75,7 +117,11 @@ export interface ApprovalGateConfig {
 		allow_persistent: boolean;
 		persistent_store: string;
 	};
-	defaults: Record<string, ApprovalDefaultAction>;
+	tools: {
+		bash: BashPolicyConfig;
+		write: { default_action: ApprovalDefaultAction };
+		edit: { default_action: ApprovalDefaultAction };
+	};
 	ask_rules: ApprovalRule[];
 	deny_rules: ApprovalRule[];
 }

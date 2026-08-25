@@ -1,9 +1,30 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { loadApprovalGateConfig } from "../../src/approval/config.js";
 import { createApprovalGate } from "../../src/approval/index.js";
+import { buildBashApprovalRequest } from "../../src/approval/request/build.js";
+import { formatBashPolicyEvaluation } from "../../src/approval/rules/bash-facts.js";
+import { evaluateBashGatePolicy } from "../../src/approval/rules/policy.js";
 import { formatApprovalPrompt } from "../../src/approval/runtime/interaction.js";
 
 export default function approvalGateExtension(pi: ExtensionAPI): void {
 	const gate = createApprovalGate();
+	pi.registerCommand("approval-check", {
+		description: "Explain the Bash gate decision without executing the command.",
+		async handler(args, ctx) {
+			const command = args.trim();
+			if (command.length === 0) {
+				ctx.ui.notify("Usage: /approval-check <bash command>", "warning");
+				return;
+			}
+			const [config, request] = await Promise.all([
+				loadApprovalGateConfig(),
+				buildBashApprovalRequest(command, ctx.cwd),
+			]);
+			const evaluation = evaluateBashGatePolicy(request, config, { matchesAllowRule: () => false });
+			const decision = config.enabled ? evaluation.decision : { kind: "allow" as const };
+			ctx.ui.notify(formatBashPolicyEvaluation(evaluation.bash, decision), decision.kind === "deny" ? "warning" : "info");
+		},
+	});
 	pi.on("tool_call", async (event, ctx) => gate.handleToolCall(event, {
 		cwd: ctx.cwd,
 		...(ctx.hasUI

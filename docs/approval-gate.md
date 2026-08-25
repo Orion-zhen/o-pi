@@ -1,15 +1,15 @@
 # Approval Gate 审批机制
 
-`approval-gate` 在工具调用执行前确认用户意图。安全策略允许工具调用，但审批策略要求确认时，Approval Gate 会询问用户是否继续。Approval Gate 不是沙箱、工作区权限系统或安全边界。
+`approval-gate` 在 `tool_call` 钩子中统一执行工具调用策略。策略可以放行、要求用户确认或拒绝调用。Approval Gate 不是沙箱或工作区权限系统。
 
 执行顺序：
 
-1. 进入 `tool_call` 钩子。
-2. 执行可选的安全预检查。
-3. 使用 Tree-sitter 解析 Bash。
-4. 评估审批策略。
-5. 显示审批界面。
-6. 执行或阻止工具调用。
+1. 读取 Approval Gate 配置。
+2. 构建工具审批请求。Bash 请求在此阶段使用 Tree-sitter 解析。
+3. 评估路径规则、Bash 安全事实和已记住的放行规则。
+4. 策略为 `deny` 时阻止工具调用。
+5. 策略为 `ask` 时显示审批界面，并根据用户选择放行或阻止调用。
+6. 策略为 `allow` 或用户批准后执行工具。
 
 审批策略判定为 `ask` 且存在交互式界面时，Approval Gate 会先尝试发送系统通知，再显示审批选择框。通知失败不影响审批。用户拒绝后，Approval Gate 返回 `{ block: true, reason }`，但不调用 `ctx.abort()`。
 
@@ -33,16 +33,13 @@ TUI 模式使用高度受限的覆盖面板。面板把请求内容和审批操�
 
 TUI 面板会移除请求内容中的终端控制序列，避免内容改变终端显示状态。RPC 模式继续使用 Pi 的基础选择框，并在标题中包含相同的请求信息。
 
-## 与安全防护机制的区别
+## 与工具运行约束的区别
 
-安全防护机制强制拒绝危险操作，例如命中 Bash 拒绝规则或文件工具的受阻路径。Approval Gate 只确认用户意图，例如发布软件、安装软件包或修改系统路径。
+Approval Gate 负责所有 `allow`、`ask` 和 `deny` 调用策略，包括 Bash 安全事实和用户定义的路径规则。Bash 工具不再重复评估这些策略。
 
-Approval Gate 会在审批前复用以下检查：
+工具仍负责自身的运行约束。例如，文件工具在执行时检查 `blocked_path`、路径解析和并发修改。用户批准只表示允许工具尝试执行，不保证工具操作成功。
 
-- `bash`：命中 `bash-tool` 的 `safety.deny_patterns` 或 `deny_regex` 时直接阻止。
-- `write` 或 `edit`：命中文件工具的 `blocked_path` 时直接阻止。
-
-这些预检查用于避免询问必然会被工具拒绝的请求。最终安全边界仍由原工具实现。
+Approval Gate 和工具运行约束都不提供进程、网络或操作系统权限隔离。需要不可绕过的隔离时，应在 Pi 进程外使用低权限账号、容器或平台专用沙箱。
 
 ## Bash 解析与审批单元
 
@@ -56,7 +53,7 @@ Approval Gate 不把整段 Shell 文本作为一个审批目标，而是提取�
 - `>`、`>>`、`>|`、`&>` 和 `&>>` 等文件写重定向。`2>&1` 等文件描述符复制不属于文件写入。
 - 具有有限字面量取值的 `for` 循环中的命令变量。例如，`for engine in xelatex lualatex` 会产生两个具体命令供分析。
 
-审批策略逐单元评估，但一次工具调用只显示一个聚合审批框。显式 `deny_rules` 的优先级高于已记住的放行规则。任何单元被拒绝都会阻止整段原始命令。审批框会汇总未被放行规则覆盖且需要确认的单元。用户批准后，工具仍执行原始完整命令。
+Bash 安全事实分类器逐单元匹配命令正则，也可以匹配完整原始输入。一次工具调用只显示一个聚合审批框。安全事实或 `deny_rules` 判定为 `deny` 时，任何已记住的放行规则都不能覆盖该决定。审批框会汇总需要确认且未被放行规则覆盖的单元。用户批准后，工具仍执行原始完整命令。
 
 解析器会按执行顺序跟踪变量和 `$PWD`。裸赋值以及 `declare`、`readonly` 和 `export` 中的赋值都参与跟踪。变量经过多次赋值后，只要当前值仍可确定，后续命令就能继续使用该值。所有控制流分支都落在临时范围时，解析器会合并分支结果。函数定义本身不产生审批单元。静态可确定的函数调用和 `EXIT` trap 会在调用时使用对应上下文分析函数体。
 
@@ -98,28 +95,26 @@ Approval Gate 不把整段 Shell 文本作为一个审批目标，而是提取�
 
 关键字段：
 
-- `enabled`：总开关。
+- `enabled`：总开关。设为 `false` 时，Bash、Write 和 Edit 的 `allow`、`ask` 和 `deny` 调用策略都会被跳过。工具自身的运行约束仍然生效。
 - `ui.timeout_ms`：交互超时时间，单位为毫秒。`0` 表示不超时。TUI 审批面板显示剩余时间并在到期后拒绝调用。RPC 选择框和拒绝指令输入框使用 Pi UI 的超时机制。
 - `ui.non_interactive`：没有交互式界面时使用 `block` 或 `allow`，默认为 `block`。
-- `defaults`：未命中规则时，按工具使用默认的 `allow`、`ask` 或 `deny` 策略。
+- `tools.bash.default_action`：Bash 未命中安全事实或路径规则时使用的 `allow`、`ask` 或 `deny`。
+- `tools.bash.facts`：Bash 安全事实及其命令分类正则。
+- `tools.bash.combinations`：多个 Bash 安全事实同时出现时使用的升级决策。
+- `tools.write.default_action` 和 `tools.edit.default_action`：文件写入未命中路径规则时使用的默认动作。
 - `ask_rules`：命中后要求用户确认。
 - `deny_rules`：用户定义的拒绝规则。命中后不显示审批界面。
 - `remember.allow_session`：是否显示 `Allow for session`。
 - `remember.allow_persistent`：是否显示 `Always allow similar`。
 - `remember.persistent_store`：持久放行规则文件。默认值为 `~/.pi/agent/state/approval-gate.rules.jsonc`。
 
-规则示例：
+Bash 策略位于 Approval Gate 配置的 `tools.bash` 中。`facts` 以事实 ID 为键。每个事实包含可选的 `ask` 或 `deny` 动作，以及一组带名称的命令分类器。字符串分类器默认匹配 Tree-sitter 提取的单条命令原文，并在所有平台生效。对象分类器还可以用 `scope` 选择 `raw-input`、`source-unit` 或 `effective-unit`，并用 `platform` 限制平台。
 
-```jsonc
-{
-	"name": "external-publish",
-	"tools": ["bash"],
-	"command_regex": "^(?:git\\b.*\\spush|npm\\s+publish)\\b",
-	"reason": "external publishing"
-}
-```
+`combinations` 在一次 Bash 调用同时产生指定事实时升级决策。判定优先级固定为 `deny`、`ask`、`default_action`。已记住的批准不能覆盖 `deny`。用户配置按事实 ID 和分类器 ID 递归合并。分类器可设为 `false`，事实可使用 `enabled: false`，组合可设为 `false`。
 
-路径规则示例：
+`/approval-check <bash command>` 使用相同配置解析命令，但不执行命令。该命令显示最终决策、产生的事实、命中的分类器和事实组合。
+
+`ask_rules` 和 `deny_rules` 处理路径审批。路径规则示例：
 
 ```jsonc
 {
@@ -130,11 +125,9 @@ Approval Gate 不把整段 Shell 文本作为一个审批目标，而是提取�
 }
 ```
 
-`path_globs` 只匹配路径审批单元，包括 `write`、`edit` 和 Bash 中可静态解析的文件写重定向。匹配前，目标会转换为使用 `/` 的绝对路径，因此 glob 也应覆盖绝对路径。如果不限定根目录，可以使用 `**/name/**`。数组中任一 glob 命中即视为匹配。`picomatch` 解释这些 glob。`*` 匹配单个路径段内的字符，`**` 可以跨路径段，隐藏路径也参与匹配。开头的 `!` 按普通字符处理，不表示排除规则。
+`path_globs` 只匹配路径审批单元，包括 `write`、`edit` 和 Bash 中可静态解析的文件写重定向。匹配前，目标会转换为使用 `/` 的绝对路径，因此 glob 也应覆盖绝对路径。如果不限定根目录，可以使用 `**/name/**`。数组中任一 glob 命中即视为匹配，空数组不是合法配置。`picomatch` 解释这些 glob。`*` 匹配单个路径段内的字符，`**` 可以跨路径段，隐藏路径也参与匹配。开头的 `!` 按普通字符处理，不表示排除规则。
 
-`path_globs` 不解析普通命令参数。例如，`rm /etc/file` 是命令单元，应使用 `command_regex`。不要在同一条规则中同时配置 `path_globs` 和 `command_regex`。两个匹配条件使用逻辑与关系，而单个审批单元只能是路径单元或命令单元，因此同时配置时规则无法命中。
-
-`tools` 必须匹配。配置 `path_globs` 或 `command_regex` 后，对应条件也必须匹配。未配置这两个条件时，规则只按工具名匹配。对于 Bash，`command_regex` 应用于单个抽象语法树审批单元，而不是整段复合命令。匹配器会依次检查直接命令视图，以及移除 `env` 和 `command` 等透明包装命令后的视图。默认敏感命令只在 `command_regex` 中维护，没有独立的命令语义分类表。
+`path_globs` 只检查路径审批单元，不解析普通命令参数。例如，`rm /etc/file` 应通过 Bash 安全事实分类器匹配。未配置 `path_globs` 时，规则只按工具名匹配。
 
 ## 用户选择
 

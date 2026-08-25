@@ -24,19 +24,23 @@ export interface CapturedExtensionTool {
 export function registerExtension<TTool = CapturedExtensionTool>(
 	extension: (pi: ExtensionAPI) => void,
 	api: Record<string, unknown> = {},
-): { registered: TTool[]; handlers: Map<string, ExtensionHandler> } {
+): { registered: TTool[]; handlers: Map<string, ExtensionHandler>; commands: Map<string, ExtensionHandler> } {
 	const registered: TTool[] = [];
 	const handlers = new Map<string, ExtensionHandler>();
+	const commands = new Map<string, ExtensionHandler>();
 	const host: Partial<ExtensionAPI> = {
 		events: createEventBus(),
 		...api,
 		registerTool(tool) {
 			registered.push(tool as TTool);
 		},
+		registerCommand(name, options) {
+			commands.set(name, options.handler as ExtensionHandler);
+		},
 		on: ((name: string, handler: ExtensionHandler) => {
 			handlers.set(name, handler);
 		}) as ExtensionAPI["on"],
 	};
 	extension(host as ExtensionAPI);
-	return { registered, handlers };
+	return { registered, handlers, commands };
 }

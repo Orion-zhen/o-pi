@@ -1,5 +1,5 @@
 import { getTreeSitterLanguage } from "../../../syntax-tree/grammars.js";
-import { parseSyntaxTree } from "../../../syntax-tree/parser.js";
+import { parseSyntaxTree, SyntaxAnalysisTimeoutError } from "../../../syntax-tree/parser.js";
 import type { SyntaxNode } from "../../../syntax-tree/types.js";
 import type { ApprovalUnit } from "../../types.js";
 import { isSystemTemporaryDescendant, normalizeTargetPath } from "../path.js";
@@ -73,10 +73,13 @@ export async function analyzeBashScript(
 			: cloneContext(initialContext);
 		await analyzeNode(document.root, context, state, document.control.check);
 		await analyzeExitTraps(context, state, document.control.check);
+		return true;
+	} catch (error) {
+		if (error instanceof BashUnitLimitError || error instanceof SyntaxAnalysisTimeoutError) return false;
+		throw error;
 	} finally {
 		document.dispose();
 	}
-	return true;
 }
 
 async function analyzeNode(

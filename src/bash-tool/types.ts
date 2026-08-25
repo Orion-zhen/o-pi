@@ -5,9 +5,10 @@ export interface BashParams {
 	timeout?: number;
 }
 
-export interface BashSafetyConfig {
-	deny_patterns: string[];
-	deny_regex: string[];
+export interface BashEnvironmentConfig {
+	inherit: boolean;
+	remove_name_regex: string[];
+	expose_pi_session_file: boolean;
 }
 
 export interface BashLimits {
@@ -20,8 +21,8 @@ export interface BashLimits {
 export interface BashToolConfig {
 	default_timeout_seconds: number;
 	python_venv_paths: string[];
+	environment: BashEnvironmentConfig;
 	limits: BashLimits;
-	safety: BashSafetyConfig;
 }
 
 export type BashRunStatus = "exited" | "timed_out" | "aborted";

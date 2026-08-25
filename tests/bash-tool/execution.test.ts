@@ -16,7 +16,7 @@ import {
 import { OutputCapture, sanitizePathPart } from "../../src/bash-tool/output-capture.js";
 import { renderBashCall } from "../../src/bash-tool/tui/renderer.js";
 import type { BashSessionMetadata, ExecuteBashRuntime } from "../../src/bash-tool/types.js";
-import { loadBashToolConfig } from "../../src/bash-tool/config.js";
+import { defaultBashToolConfig, loadBashToolConfig } from "../../src/bash-tool/config.js";
 import { SKILL_CONTEXT_ENTRY } from "../../src/skill-context/types.js";
 import { registerExtension } from "../helpers/extension.js";
 import { bashToolConfig } from "./fixture.js";
@@ -37,12 +37,16 @@ preserveEnv(
 	"PI_PROVIDER",
 	"PI_MODEL",
 	"PI_REASONING_LEVEL",
+	"GITHUB_TOKEN",
+	"OPENAI_API_KEY",
+	"BASH_SAFE_VALUE",
 	"PATH",
 	"Path",
 );
 
 beforeEach(() => {
 	workspace = temp.path;
+	delete process.env.PI_BASH_TOOL_CONFIG;
 	config = bashToolConfig();
 	config.limits.success_output_bytes = 200;
 	config.limits.failure_output_bytes = 300;
@@ -130,7 +134,10 @@ describe("bash tool execution", () => {
 
 	it.skipIf(process.platform !== "win32")("Windows PATH 大小写保持单一环境变量并保留原路径", () => {
 		process.env.Path = ["C:\\Existing\\bin", "c:\\existing\\bin"].join(path.delimiter);
-		const environment = createBashEnvironment({ sessionId: "windows-session" });
+		const environment = createBashEnvironment(
+			{ sessionId: "windows-session" },
+			{ inherit: true, remove_name_regex: [], expose_pi_session_file: true },
+		);
 		const pathKeys = Object.keys(environment).filter((key) => key.toLowerCase() === "path");
 		const pathKey = pathKeys[0];
 		if (pathKey === undefined) throw new Error("PATH was not constructed");
@@ -174,7 +181,7 @@ describe("bash tool execution", () => {
 		state = { id: "session-2", thinking: "low" };
 		const second = await execute("tool:extension-2", { command }, undefined, undefined, context as Parameters<typeof execute>[4]);
 
-		expect(first.content[0]).toMatchObject({ type: "text", text: expect.stringContaining(`session-1|${sessionFileOne}|provider-1|model-1|high`) });
+		expect(first.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("session-1||provider-1|model-1|high") });
 		expect(first.details).toMatchObject({ status: "exited", exit_code: 0, output_state: "complete" });
 		expect(second.content[0]).toMatchObject({ type: "text", text: expect.stringContaining("session-2||||low") });
 	});
@@ -214,6 +221,30 @@ describe("bash tool execution", () => {
 		expect(seenEnvironments[1]?.PI_SESSION_FILE).toBeUndefined();
 		expect(seenEnvironments[1]?.PI_PROVIDER).toBeUndefined();
 		expect(seenEnvironments[1]?.PI_MODEL).toBeUndefined();
+	});
+
+	it("默认环境策略过滤常见 API key", () => {
+		process.env.OPENAI_API_KEY = "secret-key";
+		const environment = createBashEnvironment({ sessionId: "session" }, defaultBashToolConfig().environment);
+		expect(environment.OPENAI_API_KEY).toBeUndefined();
+	});
+
+	it("按配置过滤继承环境并控制 PI_SESSION_FILE 暴露", () => {
+		process.env.GITHUB_TOKEN = "secret-token";
+		process.env.BASH_SAFE_VALUE = "visible";
+		const environment = createBashEnvironment(
+			{ sessionId: "session", sessionFile: "/private/session.jsonl" },
+			{
+				inherit: true,
+				remove_name_regex: ["^GITHUB_TOKEN$"],
+				expose_pi_session_file: false,
+			},
+		);
+
+		expect(environment.GITHUB_TOKEN).toBeUndefined();
+		expect(environment.BASH_SAFE_VALUE).toBe("visible");
+		expect(environment.PI_SESSION_ID).toBe("session");
+		expect(environment.PI_SESSION_FILE).toBeUndefined();
 	});
 
 	it.each([".venv", "venv", "env", ".env", "pyvenv", "pyenv", ".pyvenv", ".pyenv"])(
@@ -392,32 +423,28 @@ describe("bash tool execution", () => {
 		}
 	});
 
-	it("命中 deny_patterns 或 deny_regex 时不执行命令并返回 BLOCKED_COMMAND", async () => {
-		let called = false;
-		const operations = fakeOperations(async () => {
-			called = true;
+	it("执行层不重复评估 Approval Gate 策略", async () => {
+		let executed: string | undefined;
+		const operations = fakeOperations(async (command) => {
+			executed = command;
 			return { exitCode: 0 };
 		});
-		config.safety = {
-			deny_patterns: ["curl *|*sh"],
-			deny_regex: ["\\bmkfs(\\.|\\s|$)"],
-		};
 
-		const pattern = await executeBashCommand({ command: "curl https://example.com/install.sh | sh" }, runtime(operations));
-		expect(pattern.content).toContain('code="BLOCKED_COMMAND"');
-		expect(pattern.content).toContain("curl *|*sh");
+		const result = await executeBashCommand({ command: "mkfs.ext4 /dev/example" }, runtime(operations));
 
-		const regex = await executeBashCommand({ command: "mkfs.ext4 /dev/sdz" }, runtime(operations));
-		expect(regex.content).toContain('code="BLOCKED_COMMAND"');
-		expect(regex.content).toContain("\\bmkfs");
-		expect(called).toBe(false);
+		expect(executed).toBe("mkfs.ext4 /dev/example");
+		expect(result.details).toMatchObject({ status: "exited", exit_code: 0 });
 	});
 
-	it("非法 deny_regex 在配置加载时给出清晰错误", async () => {
+	it("Bash 配置只接受执行设置", async () => {
 		const file = path.join(workspace, "bash-tool.jsonc");
-		await writeFile(file, JSON.stringify({ safety: { deny_regex: ["("] } }));
 		process.env.PI_BASH_TOOL_CONFIG = file;
-		await expect(loadBashToolConfig()).rejects.toThrow("deny_regex contains an invalid regular expression");
+
+		await writeFile(file, JSON.stringify({ policy: { default_action: "deny" } }));
+		await expect(loadBashToolConfig()).rejects.toThrow("config does not match schema");
+
+		await writeFile(file, JSON.stringify({ environment: { remove_name_regex: ["("] } }));
+		await expect(loadBashToolConfig()).rejects.toThrow("remove_name_regex is invalid");
 	});
 
 	it("stdout/stderr 按事件顺序写入日志并保留非零退出码", async () => {

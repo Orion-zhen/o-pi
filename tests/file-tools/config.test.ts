@@ -19,6 +19,9 @@ describe("file-tools config", () => {
 	it("加载默认值并支持用户覆盖", async () => {
 		delete process.env.PI_FILE_TOOLS_CONFIG;
 		expect(await loadedConfig(workspace)).toMatchObject({
+			filesystem: {
+				blockedPaths: expect.arrayContaining(["~/.ssh/id_*", "~/.aws/credentials", ".env"]),
+			},
 			limits: {
 				find_max_depth: 12,
 				find_max_entries: 20_000,

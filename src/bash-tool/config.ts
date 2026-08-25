@@ -3,7 +3,9 @@ import {
 	agentSchemaPath,
 	createCompleteSchemaValidator,
 	createSchemaValidator,
+	defaultAgentConfigPath,
 	loadValidatedMergedConfig,
+	readDefaultJsoncConfigSync,
 } from "../config-loader.js";
 import type { BashToolConfig } from "./types.js";
 
@@ -16,7 +18,17 @@ export class BashConfigError extends Error {
 	}
 }
 
-/** 读取独立 bash JSONC 配置；配置错误直接失败，避免静默使用不安全预算。 */
+/** 读取仓库内置的完整 bash 配置。 */
+export function defaultBashToolConfig(): BashToolConfig {
+	return materializeConfig(readDefaultJsoncConfigSync({
+		configPath: defaultAgentConfigPath("bash-tool.jsonc"),
+		schemaPath: SCHEMA_PATH,
+		label: "bash-tool",
+		createError,
+	}) as BashToolConfig);
+}
+
+/** 读取独立 bash JSONC 配置。配置错误直接失败。 */
 export async function loadBashToolConfig(): Promise<BashToolConfig> {
 	const loaded = await loadValidatedMergedConfig(
 		CONFIG_DEFINITIONS.bashTool, process.cwd(), createError, { partial: loadValidator, complete: loadCompleteValidator },
@@ -25,22 +37,26 @@ export async function loadBashToolConfig(): Promise<BashToolConfig> {
 }
 
 function materializeConfig(raw: BashToolConfig): BashToolConfig {
-	for (const rule of raw.safety.deny_regex) {
-		try {
-			new RegExp(rule);
-		} catch (error) {
-			throw new BashConfigError("deny_regex contains an invalid regular expression.", {
-				rule,
-				error: error instanceof Error ? error.message : String(error),
-			});
-		}
-	}
+	validateEnvironment(raw.environment.remove_name_regex);
 	return {
 		default_timeout_seconds: raw.default_timeout_seconds,
 		python_venv_paths: raw.python_venv_paths,
+		environment: raw.environment,
 		limits: raw.limits,
-		safety: raw.safety,
 	};
+}
+
+function validateEnvironment(rules: readonly string[]): void {
+	for (const rule of rules) {
+		try {
+			new RegExp(rule, process.platform === "win32" ? "iu" : "u");
+		} catch (error) {
+			throw new BashConfigError("bash environment remove_name_regex is invalid.", {
+				regex: rule,
+				error: String(error),
+			});
+		}
+	}
 }
 
 function createError(message: string, details?: Record<string, unknown>): BashConfigError {

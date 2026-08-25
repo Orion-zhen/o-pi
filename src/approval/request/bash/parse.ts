@@ -8,15 +8,11 @@ interface ParsedBashUnits {
 }
 
 export async function parseBashApprovalUnits(command: string, cwd: string): Promise<ParsedBashUnits> {
-	try {
-		const units: ApprovalUnit[] = [];
-		const parsed = await analyzeBashScript(command, cwd, 0, units);
-		if (!parsed) return { units: [opaqueCommandUnit(command)] };
-		if (units.length === 0) units.push(plainCommandUnit(command));
-		return { units };
-	} catch {
-		return { units: [opaqueCommandUnit(command)] };
-	}
+	const units: ApprovalUnit[] = [];
+	const parsed = await analyzeBashScript(command, cwd, 0, units);
+	if (!parsed) return { units: [opaqueCommandUnit(command)] };
+	if (units.length === 0) units.push(plainCommandUnit(command));
+	return { units };
 }
 
 function opaqueCommandUnit(command: string): ApprovalUnit {
