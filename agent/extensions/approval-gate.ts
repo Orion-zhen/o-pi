@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadApprovalGateConfig } from "../../src/approval/config.js";
+import { APPROVAL_STATUS_CHANNEL, type ApprovalStatusEvent } from "../../src/approval/events.js";
 import { createApprovalGate } from "../../src/approval/index.js";
 import { buildBashApprovalRequest } from "../../src/approval/request/build.js";
 import { formatBashPolicyEvaluation } from "../../src/approval/rules/bash-facts.js";
@@ -25,22 +26,39 @@ export default function approvalGateExtension(pi: ExtensionAPI): void {
 			ctx.ui.notify(formatBashPolicyEvaluation(evaluation.bash, decision), decision.kind === "deny" ? "warning" : "info");
 		},
 	});
-	pi.on("tool_call", async (event, ctx) => gate.handleToolCall(event, {
-		cwd: ctx.cwd,
-		...(ctx.hasUI
-			? {
-				interaction: {
-					approve: async (request, decision, options, optionsOverride) => {
-						if (ctx.mode === "tui") {
-							const { openApprovalDialog } = await import("../../src/approval/tui/dialog.js");
-							return openApprovalDialog(ctx.ui, request, decision, options, optionsOverride);
-						}
-						return ctx.ui.select(formatApprovalPrompt(request, decision), [...options], optionsOverride);
+	pi.on("tool_call", async (event, ctx) => {
+		let requested = false;
+		const result = await gate.handleToolCall(event, {
+			cwd: ctx.cwd,
+			...(ctx.hasUI
+				? {
+					interaction: {
+						approve: async (request, decision, options, optionsOverride) => {
+							requested = true;
+							pi.events.emit(APPROVAL_STATUS_CHANNEL, {
+								type: "requested",
+								toolCallId: event.toolCallId,
+								toolName: event.toolName,
+							} satisfies ApprovalStatusEvent);
+							if (ctx.mode === "tui") {
+								const { openApprovalDialog } = await import("../../src/approval/tui/dialog.js");
+								return openApprovalDialog(ctx.ui, request, decision, options, optionsOverride);
+							}
+							return ctx.ui.select(formatApprovalPrompt(request, decision), [...options], optionsOverride);
+						},
+						input: (title, placeholder, optionsOverride) => ctx.ui.input(title, placeholder, optionsOverride),
+						notify: (message, type) => ctx.ui.notify(message, type),
 					},
-					input: (title, placeholder, optionsOverride) => ctx.ui.input(title, placeholder, optionsOverride),
-					notify: (message, type) => ctx.ui.notify(message, type),
-				},
-			}
-			: {}),
-	}));
+				}
+				: {}),
+		});
+		if (requested) {
+			pi.events.emit(APPROVAL_STATUS_CHANNEL, {
+				type: "resolved",
+				toolCallId: event.toolCallId,
+				outcome: result?.block === true ? "denied" : "approved",
+			} satisfies ApprovalStatusEvent);
+		}
+		return result;
+	});
 }

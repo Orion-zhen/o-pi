@@ -388,12 +388,25 @@ function handle(event: ToolCallEvent, context: ApprovalContext): Promise<ToolCal
 	return testGate().handleToolCall(event, context);
 }
 
-function captureExtensionHandler(): (event: ToolCallEvent, ctx: ExtensionContext) => Promise<ToolCallEventResult | void> {
+function captureExtensionHandler(
+	emitted: Array<{ channel: string; data: unknown }> = [],
+): (event: ToolCallEvent, ctx: ExtensionContext) => Promise<ToolCallEventResult | void> {
 	let captured: ((event: ToolCallEvent, ctx: ExtensionContext) => Promise<ToolCallEventResult | void> | ToolCallEventResult | void) | undefined;
 	const on = ((event: "tool_call", handler: (event: ToolCallEvent, ctx: ExtensionContext) => Promise<ToolCallEventResult | void> | ToolCallEventResult | void) => {
 		if (event === "tool_call") captured = handler;
 	}) as Pick<ExtensionAPI, "on">["on"];
-	const api: Partial<ExtensionAPI> = { on, registerCommand() {} };
+	const api: Partial<ExtensionAPI> = {
+		on,
+		registerCommand() {},
+		events: {
+			emit(channel, data) {
+				emitted.push({ channel, data });
+			},
+			on() {
+				return () => {};
+			},
+		},
+	};
 	approvalGateExtension(api as ExtensionAPI);
 	if (captured === undefined) throw new Error("tool_call handler not registered");
 	return async (event, context) => captured?.(event, context);

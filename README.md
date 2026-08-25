@@ -32,6 +32,7 @@ cd ~/.pi && npm install
 * [Approval Gate](docs/approval-gate.md)
 * [本地遥测](docs/telemetry.md)
 * [Discord Rich Presence](docs/discord-presence.md)
+* [o-pet 桌宠集成](docs/o-pet.md)
 * [OpenAI-compatible provider](docs/openai-compatible-provider/README.md)
 * [TUI V1](docs/tui.md)
 * [Slash commands](docs/slash-cmds.md)

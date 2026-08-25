@@ -11,5 +11,6 @@
 		"skipLibCheck": true,
 		"types": ["node", "vitest"]
 	},
-	"include": ["agent/**/*.ts", "src/**/*.ts", "tests/**/*.ts", "types/**/*.d.ts"]
+	"include": ["agent/**/*.ts", "src/**/*.ts", "tests/**/*.ts", "types/**/*.d.ts"],
+	"exclude": ["o-pet"]
 }
