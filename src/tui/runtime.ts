@@ -22,7 +22,7 @@ import {
 	recordUserMessageTimestamp,
 	resetUserMessageTimestamps,
 } from "./message-timestamp.js";
-import type { TuiConfig, TuiFooterSkillsSnapshot, TuiFooterSnapshot, TuiFooterToolsSnapshot } from "./types.js";
+import type { TuiConfig, TuiFooterSkillsSnapshot, TuiFooterSnapshot, TuiFooterToolsSnapshot, TuiRunStatus } from "./types.js";
 import { UserHistoryEditor } from "./user-history-editor.js";
 import {
 	buildInitialHistory,
@@ -79,6 +79,7 @@ export function createTuiRuntime(
 	let historyEditorFactory: EditorFactory | undefined;
 	let historyEditor: UserHistoryEditor | undefined;
 	let previousEditorFactory: EditorFactory | undefined;
+	let agentRunning = false;
 	const assistantPerformance = createAssistantPerformanceTracker();
 	const userHistory = new UserHistoryStore();
 
@@ -131,6 +132,7 @@ export function createTuiRuntime(
 		homeVisible = false;
 		snapshot = {};
 		skillsSnapshot = undefined;
+		agentRunning = false;
 		assistantPerformance.reset();
 	}
 
@@ -221,6 +223,7 @@ export function createTuiRuntime(
 
 	function registerHandlers(): void {
 		pi.on("agent_start", async (_event, ctx) => {
+			agentRunning = true;
 			cancelMathInitialization();
 			if (!config?.enabled) return;
 			snapshot = makeSnapshot(ctx, pi, "running");
@@ -237,7 +240,27 @@ export function createTuiRuntime(
 			refreshHeader?.();
 		});
 
+		pi.on("ui_prompt_start", async (_event, ctx) => {
+			if (!agentRunning) return;
+			if (config?.enabled) {
+				snapshot = makeSnapshot(ctx, pi, "waiting");
+				ctx.ui.setStatus(STATUS_KEY, formatStatus("waiting", ctx.ui.theme));
+				refreshTitle();
+				refreshHeader?.();
+			}
+			await notifyTuiUser(ctx);
+		});
+
+		pi.on("ui_prompt_end", (_event, ctx) => {
+			if (!config?.enabled || snapshot.status !== "waiting") return;
+			snapshot = makeSnapshot(ctx, pi, "running");
+			ctx.ui.setStatus(STATUS_KEY, formatStatus("running", ctx.ui.theme));
+			refreshTitle();
+			refreshHeader?.();
+		});
+
 		pi.on("agent_settled", async (_event, ctx) => {
+			agentRunning = false;
 			if (config?.enabled) {
 				snapshot = makeSnapshot(ctx, pi, "ready");
 				ctx.ui.setStatus(STATUS_KEY, formatStatus("ready", ctx.ui.theme));
@@ -245,12 +268,7 @@ export function createTuiRuntime(
 				refreshHeader?.();
 				scheduleMathInitialization(ctx, sessionGeneration);
 			}
-			if (ctx.mode !== "tui") return;
-			try {
-				await notifyUser();
-			} catch {
-				// 通知失败不得影响 Agent 的结束状态。
-			}
+			await notifyTuiUser(ctx);
 		});
 
 		pi.on("before_provider_headers", () => {
@@ -294,6 +312,15 @@ export function createTuiRuntime(
 		pi.on("session_shutdown", async (_event, ctx) => {
 			await dispose(ctx);
 		});
+	}
+
+	async function notifyTuiUser(ctx: Pick<ExtensionContext, "mode">): Promise<void> {
+		if (ctx.mode !== "tui") return;
+		try {
+			await notifyUser();
+		} catch {
+			// 通知失败不得影响 Agent 的等待或结束状态。
+		}
 	}
 
 	function cancelMathInitialization(): void {
@@ -479,8 +506,9 @@ function createStartupFooterComponent(
 	return factory;
 }
 
-function formatStatus(status: string, theme: ExtensionContext["ui"]["theme"]): string {
+function formatStatus(status: TuiRunStatus, theme: ExtensionContext["ui"]["theme"]): string {
 	if (status === "running") return theme.fg("warning", `${statusIcon("running")} running`);
+	if (status === "waiting") return theme.fg("warning", `${statusIcon("warning")} waiting`);
 	return theme.fg("success", `${statusIcon("success")} ready`);
 }
 
@@ -501,7 +529,7 @@ function snapshotWithCapabilities(
 	return next;
 }
 
-function makeSnapshot(ctx: ExtensionContext, pi: ExtensionAPI, status: string): TuiFooterSnapshot {
+function makeSnapshot(ctx: ExtensionContext, pi: ExtensionAPI, status: TuiRunStatus): TuiFooterSnapshot {
 	const context = ctx.getContextUsage();
 	const usage = collectUsage(ctx);
 	const model = ctx.model;

@@ -267,6 +267,38 @@ describe("tui extension", () => {
 		expect(notifyUser).toHaveBeenCalledOnce();
 	});
 
+	it("Agent 运行中的阻塞 UI 提示切换为 waiting、立即通知并在结束后恢复 running", async () => {
+		const notifyUser = vi.fn(async () => {});
+		const { handlers, calls, ctx, runtime } = await startRuntime({ notifyUser });
+
+		await handlers.get("agent_start")?.({}, ctx);
+		await handlers.get("ui_prompt_start")?.({ type: "ui_prompt_start", reason: "ui_prompt", kind: "confirm" }, ctx);
+
+		expect(calls.status.at(-1)?.text).toContain("waiting");
+		expect(calls.title.at(-1)).toContain("waiting");
+		expect(notifyUser).toHaveBeenCalledOnce();
+
+		await handlers.get("ui_prompt_end")?.({ type: "ui_prompt_end", reason: "ui_prompt", kind: "confirm" }, ctx);
+
+		expect(calls.status.at(-1)?.text).toContain("running");
+		expect(calls.title.at(-1)).toContain("running");
+		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
+	});
+
+	it("Agent 空闲时打开扩展 UI 不改变 ready 状态，也不发送系统通知", async () => {
+		const notifyUser = vi.fn(async () => {});
+		const { handlers, calls, ctx, runtime } = await startRuntime({ notifyUser });
+		const statusCount = calls.status.length;
+
+		await handlers.get("ui_prompt_start")?.({ type: "ui_prompt_start", reason: "ui_prompt", kind: "custom" }, ctx);
+		await handlers.get("ui_prompt_end")?.({ type: "ui_prompt_end", reason: "ui_prompt", kind: "custom" }, ctx);
+
+		expect(calls.status).toHaveLength(statusCount);
+		expect(calls.status.at(-1)?.text).toContain("ready");
+		expect(notifyUser).not.toHaveBeenCalled();
+		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
+	});
+
 	it("agent run 在 turn_end 刷新快照但只在 agent 生命周期边界切换全局状态", async () => {
 		vi.useFakeTimers();
 		const notifyUser = vi.fn(async () => {});
@@ -285,12 +317,14 @@ describe("tui extension", () => {
 		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
 	});
 
-	it("agent_settled 的通知失败不影响 ready 状态", async () => {
+	it("系统通知失败不影响 waiting 和 ready 状态", async () => {
 		const { handlers, calls, ctx, runtime } = await startRuntime({
 			notifyUser: async () => { throw new Error("notification unavailable"); },
 		});
 		await handlers.get("agent_start")?.({}, ctx);
 
+		await expect(handlers.get("ui_prompt_start")?.({}, ctx)).resolves.toBeUndefined();
+		expect(calls.status.at(-1)?.text).toContain("waiting");
 		await expect(handlers.get("agent_settled")?.({}, ctx)).resolves.toBeUndefined();
 		expect(calls.status.at(-1)?.text).toContain("ready");
 		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);

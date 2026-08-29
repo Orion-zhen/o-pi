@@ -67,6 +67,8 @@ export interface TuiConfig {
 	math: TuiMathConfig;
 }
 
+export type TuiRunStatus = "ready" | "running" | "waiting";
+
 /** footer 渲染所需的纯数据快照，避免组件长期持有 ExtensionContext。 */
 export interface TuiFooterSnapshot {
 	cwd?: string;
@@ -85,7 +87,7 @@ export interface TuiFooterSnapshot {
 	totalCacheHitRate?: number;
 	costUsd?: number;
 	usingSubscription?: boolean;
-	status?: string;
+	status?: TuiRunStatus;
 	tools?: TuiFooterToolsSnapshot;
 	skills?: TuiFooterSkillsSnapshot;
 }

@@ -53,9 +53,9 @@ TUI 将键盘提交的 prompt、slash command、`!`/`!!` 和 follow-up 统一写
 
 ## 系统通知
 
-TUI 在 `agent_settled` 触发后通过 `node-notifier` 发送系统通知，确保自动重试、压缩和排队 continuation 均已结束。RPC、JSON 和 print 模式不发送完成通知。权限审批仅在策略返回 `ask` 且交互 UI 可用时，于打开选择框前发送通知。标题固定为 `o-pi`，正文固定为 `o-pi is waiting for you.`。
+TUI 在 `agent_settled` 触发后通过 `node-notifier` 发送完成通知，确保自动重试、压缩和排队 continuation 均已结束。Agent 运行期间触发 `ui_prompt_start` 时，TUI 会立即把状态切换为 `waiting` 并发送通知。该行为覆盖权限审批、Web 认证和子代理写入确认等阻塞式扩展交互。`ui_prompt_end` 触发后，状态恢复为 `running`。用户在 Agent 空闲时主动打开扩展界面不会发送通知。
 
-通知后端按平台使用 Linux `notify-send`、macOS Notification Center 或 Windows Toast。依赖加载和通知发送均采用尽力而为策略，任何失败都不会阻塞 Agent 结束或权限审批。
+RPC、JSON 和 print 模式不发送系统通知。通知标题固定为 `o-pi`，正文固定为 `o-pi is waiting for you.`。通知后端按平台使用 Linux `notify-send`、macOS Notification Center 或 Windows Toast。依赖加载和通知发送均采用尽力而为策略，任何失败都不会阻塞 Agent 等待、结束或用户交互。
 
 ## 配置
 
@@ -165,5 +165,6 @@ expanded view 先保留这 2 行，再追加详情。renderer 会清理 ANSI、O
 * `ReadonlyFooterDataProvider`
 * `model_select`
 * `thinking_level_select`
+* `ui_prompt_start` / `ui_prompt_end`
 * `pi.getActiveTools()`
 * `pi.getAllTools()`
