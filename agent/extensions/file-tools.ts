@@ -3,8 +3,13 @@ import { Type } from "typebox";
 import { isFailedDetails, isFileToolName } from "../../src/file-tools/pi/guards.js";
 import { createLazyLspFileOperations } from "../../src/file-tools/pi/lazy-lsp.js";
 import type { LsParams } from "../../src/file-tools/ls/types.js";
-import type { FileToolsHost } from "../../src/file-tools/runtime/host.js";
+import type { FileToolsHost, SessionObservationSeed } from "../../src/file-tools/runtime/host.js";
 import type { SessionMutationScope } from "../../src/file-tools/runtime/session-mutation.js";
+import {
+	createPersistedObservationState,
+	FILE_TOOLS_OBSERVATION_STATE,
+	readPersistedObservationState,
+} from "../../src/file-tools/runtime/session-observation-state.js";
 import { READ_RANGE_PATTERN } from "../../src/file-tools/read/range.js";
 import type { ReadParams } from "../../src/file-tools/read/types.js";
 import type { EditParams, EditSuccess } from "../../src/file-tools/edit/types.js";
@@ -149,10 +154,14 @@ function registerFileTools(
 	loadRenderers: () => Promise<typeof import("../../src/file-tools/tui/index.js")>,
 ): void {
 	let host: FileToolsHost | undefined;
+	let restoredSession: SessionObservationSeed | undefined;
 	let shuttingDown = false;
 	const hostForInvocation = async (): Promise<FileToolsHost> => {
 		const { FileToolsHost: Host } = await loadHost();
-		if (host === undefined) host = new Host();
+		if (host === undefined) {
+			host = new Host(restoredSession === undefined ? {} : { initialSession: restoredSession });
+			restoredSession = undefined;
+		}
 		if (shuttingDown) host.stop();
 		return host;
 	};
@@ -339,7 +348,14 @@ function registerFileTools(
 	});
 
 	let nativeRendererLoad: Promise<void> | undefined;
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
+		const persisted = event.reason === "reload"
+			? readPersistedObservationState(ctx.sessionManager.getBranch())
+			: undefined;
+		restoredSession = persisted === undefined ? undefined : {
+			sessionId: ctx.sessionManager.getSessionId(),
+			observations: persisted.observations,
+		};
 		if (ctx.mode !== "tui") return;
 		if (nativeRendererLoad === undefined) {
 			const pending = loadRenderers().then((renderers) => {
@@ -386,8 +402,18 @@ function registerFileTools(
 		if (isFileToolName(event.toolName) && isFailedDetails(event.details)) return { isError: true };
 		return undefined;
 	});
-	pi.on("session_shutdown", () => {
+	pi.on("session_shutdown", (event, ctx) => {
+		if (event.reason === "reload" && host !== undefined) {
+			const observations = host.sessionObservations(ctx.sessionManager.getSessionId());
+			if (observations.length > 0) {
+				pi.appendEntry(
+					FILE_TOOLS_OBSERVATION_STATE,
+					createPersistedObservationState(observations),
+				);
+			}
+		}
 		shuttingDown = true;
+		restoredSession = undefined;
 		mutationBatches.dispose();
 		sessionMutation?.dispose();
 		sessionMutation = undefined;

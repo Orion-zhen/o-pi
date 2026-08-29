@@ -96,7 +96,10 @@ describe("shared code parser", () => {
 		expect(require.cache[treeSitterModules.rust]).toBeUndefined();
 		expect(require.cache[treeSitterModules.c]).toBeUndefined();
 		expect(require.cache[treeSitterModules.cpp]).toBeUndefined();
-		await expect(Promise.resolve(handlers.get("session_shutdown")?.())).resolves.toBeUndefined();
+		await expect(Promise.resolve(handlers.get("session_shutdown")?.({
+			type: "session_shutdown",
+			reason: "quit",
+		}))).resolves.toBeUndefined();
 		expect(require.cache[treeSitterModules.bash]).toBeUndefined();
 		expect(require.cache[treeSitterModules.javascript]).toBeUndefined();
 		expect(require.cache[treeSitterModules.python]).toBeUndefined();

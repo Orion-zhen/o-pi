@@ -12,7 +12,7 @@ import {
 } from "../config.js";
 import { fail, isFailed, mapFsError, type ToolOutcome } from "../shared/result.js";
 import type { FileToolLimits } from "../../file-tool-limits.js";
-import { ObservationStore } from "./observation-store.js";
+import { ObservationStore, type ObservationEntry } from "./observation-store.js";
 import {
 	createSessionMutationScope,
 	type SessionMutationScope,
@@ -36,9 +36,15 @@ export interface FileToolsInvocation {
 	dispose(): void;
 }
 
+export interface SessionObservationSeed {
+	readonly sessionId: string;
+	readonly observations: readonly ObservationEntry[];
+}
+
 export interface FileToolsHostOptions {
 	readonly config?: FileToolsConfigLoader & { dispose?(): void };
 	readonly filesystem?: FileSystemRuntime;
+	readonly initialSession?: SessionObservationSeed;
 }
 
 /** Composition owner for config, filesystem runtime, invocation leases, and session observations. */
@@ -53,6 +59,16 @@ export class FileToolsHost {
 	constructor(options: FileToolsHostOptions = {}) {
 		this.config = options.config ?? new FileToolsConfigProvider();
 		this.filesystem = options.filesystem ?? new FileSystemRuntime();
+		if (options.initialSession !== undefined && options.initialSession.observations.length > 0) {
+			this.sessions.set(
+				options.initialSession.sessionId,
+				new ObservationStore(options.initialSession.observations),
+			);
+		}
+	}
+
+	sessionObservations(sessionId: string): readonly ObservationEntry[] {
+		return this.sessions.get(sessionId)?.entries() ?? [];
 	}
 
 	async beginSessionMutation(options: FileToolsHostOpenOptions): Promise<SessionMutationScope | undefined> {

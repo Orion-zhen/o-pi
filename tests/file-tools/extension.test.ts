@@ -1,10 +1,12 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import { createFileToolsExtension, type FileToolsModuleImports } from "../../agent/extensions/file-tools.js";
 import type { LspMutationInput } from "../../src/lsp/adapters/file-operations.js";
 import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
+import { FILE_TOOLS_OBSERVATION_STATE } from "../../src/file-tools/runtime/session-observation-state.js";
 import { registerExtension, type ExtensionHandler } from "../helpers/extension.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 import {
@@ -140,6 +142,122 @@ describe("file-tools extension lifecycle", () => {
 		} finally {
 			await Promise.resolve(handlers.get("session_shutdown")?.({}, {}));
 		}
+	});
+
+	it.each([
+		{ name: "文件未变化", changed: false, expectedCode: undefined },
+		{ name: "reload 期间文件被修改", changed: true, expectedCode: "STALE_READ" },
+	] as const)("/reload 后恢复已读文件追踪：$name", async ({ changed, expectedCode }) => {
+		const cwd = workspace.path;
+		const sessionId = `reload-observation-${changed}`;
+		const filename = `${sessionId}.txt`;
+		await writeFile(join(cwd, filename), "before\n");
+		const branch: SessionEntry[] = [];
+		let entrySequence = 0;
+		const appendEntry = vi.fn((customType: string, data: unknown) => {
+			entrySequence += 1;
+			branch.push({
+				type: "custom",
+				id: `state-${entrySequence}`,
+				parentId: branch.at(-1)?.id ?? null,
+				timestamp: new Date(0).toISOString(),
+				customType,
+				data,
+			});
+		});
+		const ctx = { cwd, sessionManager: { getSessionId: () => sessionId, getBranch: () => branch } };
+		const lifecycleCtx = { ...ctx, mode: "rpc", ui: { notify() {} } };
+		const first = registerExtension(createFileToolsExtension(), { appendEntry });
+
+		await executeTool(first.registered, "read", { path: filename }, ctx);
+		await Promise.resolve(first.handlers.get("session_shutdown")?.({
+			type: "session_shutdown",
+			reason: "reload",
+		}, lifecycleCtx));
+		expect(appendEntry).toHaveBeenCalledTimes(1);
+		if (changed) await writeFile(join(cwd, filename), "external\n");
+
+		const second = registerExtension(createFileToolsExtension(), { appendEntry });
+		try {
+			await Promise.resolve(second.handlers.get("session_start")?.({
+				type: "session_start",
+				reason: "reload",
+			}, lifecycleCtx));
+			const result = await executeTool(second.registered, "edit", {
+				path: filename,
+				edits: [{ old: changed ? "external" : "before", new: "after" }],
+			}, ctx);
+			if (expectedCode === undefined) {
+				expect(result.details).toMatchObject({ status: "applied", path: filename });
+				expect(await readFile(join(cwd, filename), "utf8")).toBe("after\n");
+			} else {
+				expect(result.details).toMatchObject({ status: "failed", error: { code: expectedCode } });
+				expect(await readFile(join(cwd, filename), "utf8")).toBe("external\n");
+			}
+		} finally {
+			await Promise.resolve(second.handlers.get("session_shutdown")?.({
+				type: "session_shutdown",
+				reason: "quit",
+			}, lifecycleCtx));
+		}
+	});
+
+	it("忽略 reload entry 中不合法的文件追踪状态", async () => {
+		const cwd = workspace.path;
+		const sessionId = "invalid-reload-observation";
+		const filename = `${sessionId}.txt`;
+		await writeFile(join(cwd, filename), "before\n");
+		const branch: SessionEntry[] = [{
+			type: "custom",
+			id: "invalid-state",
+			parentId: null,
+			timestamp: new Date(0).toISOString(),
+			customType: FILE_TOOLS_OBSERVATION_STATE,
+			data: {
+				observations: [{
+					canonicalPath: join(cwd, filename),
+					version: { hash: "not-a-content-hash", sizeBytes: 7 },
+				}],
+			},
+		}];
+		const { registered, handlers } = registerExtension(createFileToolsExtension());
+		const ctx = { cwd, sessionManager: { getSessionId: () => sessionId, getBranch: () => branch } };
+		await Promise.resolve(handlers.get("session_start")?.({
+			type: "session_start",
+			reason: "reload",
+		}, { ...ctx, mode: "rpc", ui: { notify() {} } }));
+		try {
+			await expect(executeTool(registered, "edit", {
+				path: filename,
+				edits: [{ old: "before", new: "after" }],
+			}, ctx)).resolves.toMatchObject({
+				details: { status: "failed", error: { code: "READ_REQUIRED" } },
+			});
+		} finally {
+			await Promise.resolve(handlers.get("session_shutdown")?.({
+				type: "session_shutdown",
+				reason: "quit",
+			}, ctx));
+		}
+	});
+
+	it("非 reload 关闭不持久化文件追踪", async () => {
+		const cwd = workspace.path;
+		const sessionId = "quit-observation";
+		const filename = `${sessionId}.txt`;
+		await writeFile(join(cwd, filename), "observed\n");
+		const appendEntry = vi.fn();
+		const { registered, handlers } = registerExtension(createFileToolsExtension(), { appendEntry });
+		const ctx = { cwd, sessionManager: { getSessionId: () => sessionId, getBranch: () => [] } };
+		try {
+			await executeTool(registered, "read", { path: filename }, ctx);
+		} finally {
+			await Promise.resolve(handlers.get("session_shutdown")?.({
+				type: "session_shutdown",
+				reason: "quit",
+			}, ctx));
+		}
+		expect(appendEntry).not.toHaveBeenCalled();
 	});
 
 	it("bash 不会把命令创建但从未观察的文件标记为可 edit", async () => {

@@ -13,6 +13,15 @@ export class ObservationStore {
 	private readonly bridges = new Map<WorkspaceNativeBridge, number>();
 	private disposed = false;
 
+	constructor(initial: readonly ObservationEntry[] = []) {
+		for (const observation of initial) {
+			this.observations.set(canonicalKey(observation.canonicalPath), {
+				canonicalPath: observation.canonicalPath,
+				version: copyVersion(observation.version),
+			});
+		}
+	}
+
 	attach(bridge: WorkspaceNativeBridge): () => void {
 		if (this.disposed) return () => {};
 		this.bridges.set(bridge, (this.bridges.get(bridge) ?? 0) + 1);
@@ -76,12 +85,16 @@ export class ObservationStore {
 			const identity = bridge.getNativeIdentity(ref);
 			if (identity === undefined) continue;
 			return {
-				key: process.platform === "win32" ? identity.canonicalPath.toLocaleLowerCase() : identity.canonicalPath,
+				key: canonicalKey(identity.canonicalPath),
 				canonicalPath: identity.canonicalPath,
 			};
 		}
 		return undefined;
 	}
+}
+
+function canonicalKey(canonicalPath: string): string {
+	return process.platform === "win32" ? canonicalPath.toLocaleLowerCase() : canonicalPath;
 }
 
 function copyVersion(version: ContentVersion): ContentVersion {
