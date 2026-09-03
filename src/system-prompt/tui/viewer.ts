@@ -1,7 +1,9 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, truncateToWidth, type Component, visibleWidth } from "@earendil-works/pi-tui";
 import { countTextTokensSync, type TokenCounterScope } from "../../token-counter.js";
+import { borderedPanelContentWidth, renderBorderedPanel } from "../../tui/bordered-scroll-viewer.js";
 
+const MIN_BORDERED_PANEL_WIDTH = 4;
 const VIEWER_BODY_ROWS_RATIO = 0.75;
 const VIEWER_NON_BODY_ROWS = 5;
 
@@ -39,7 +41,15 @@ export class SystemPromptViewer implements Component {
 
 	render(width: number): string[] {
 		if (width < 1) return [];
+		if (width < MIN_BORDERED_PANEL_WIDTH) return this.renderContent(width);
 
+		const contentWidth = borderedPanelContentWidth(width);
+		return renderBorderedPanel(this.renderContent(contentWidth), width, this.theme);
+	}
+
+	invalidate(): void {}
+
+	private renderContent(width: number): string[] {
 		const bodyHeight = this.getBodyHeight();
 		const bodyLines = this.formatBody(width);
 		this.clampScroll(bodyLines.length, bodyHeight);
@@ -51,8 +61,6 @@ export class SystemPromptViewer implements Component {
 			...this.formatVisibleBody(bodyLines, bodyHeight).map((line) => this.fitLine(line, width)),
 		];
 	}
-
-	invalidate(): void {}
 
 	private isCloseKey(data: string): boolean {
 		return matchesKey(data, Key.escape) || matchesKey(data, Key.enter) || matchesKey(data, "q");

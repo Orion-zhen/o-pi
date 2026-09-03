@@ -37,6 +37,10 @@ export function registerSystemCommand(pi: Pick<ExtensionAPI, "registerCommand">)
 					done,
 					tokenScopeFromModel(ctx.model),
 				),
+				{
+					overlay: true,
+					overlayOptions: { width: "90%", minWidth: 80 },
+				},
 			);
 		},
 	});
