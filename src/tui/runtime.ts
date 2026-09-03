@@ -248,7 +248,6 @@ export function createTuiRuntime(
 				refreshTitle();
 				refreshHeader?.();
 			}
-			await notifyTuiUser(ctx);
 		});
 
 		pi.on("ui_prompt_end", (_event, ctx) => {

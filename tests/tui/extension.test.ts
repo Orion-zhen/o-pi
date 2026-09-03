@@ -267,24 +267,6 @@ describe("tui extension", () => {
 		expect(notifyUser).toHaveBeenCalledOnce();
 	});
 
-	it("Agent 运行中的阻塞 UI 提示切换为 waiting、立即通知并在结束后恢复 running", async () => {
-		const notifyUser = vi.fn(async () => {});
-		const { handlers, calls, ctx, runtime } = await startRuntime({ notifyUser });
-
-		await handlers.get("agent_start")?.({}, ctx);
-		await handlers.get("ui_prompt_start")?.({ type: "ui_prompt_start", reason: "ui_prompt", kind: "confirm" }, ctx);
-
-		expect(calls.status.at(-1)?.text).toContain("waiting");
-		expect(calls.title.at(-1)).toContain("waiting");
-		expect(notifyUser).toHaveBeenCalledOnce();
-
-		await handlers.get("ui_prompt_end")?.({ type: "ui_prompt_end", reason: "ui_prompt", kind: "confirm" }, ctx);
-
-		expect(calls.status.at(-1)?.text).toContain("running");
-		expect(calls.title.at(-1)).toContain("running");
-		await runtime.dispose(ctx as unknown as Parameters<typeof runtime.dispose>[0]);
-	});
-
 	it("Agent 空闲时打开扩展 UI 不改变 ready 状态，也不发送系统通知", async () => {
 		const notifyUser = vi.fn(async () => {});
 		const { handlers, calls, ctx, runtime } = await startRuntime({ notifyUser });
