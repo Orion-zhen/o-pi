@@ -13,16 +13,64 @@ export interface ResolvedAddress {
 	family: 4 | 6;
 }
 
+export type ResolvedAddresses = [ResolvedAddress, ...ResolvedAddress[]];
+
+export interface PinnedAddressSet {
+	hostname: string;
+	addresses: ResolvedAddresses;
+}
+
 export interface LookupOptions {
 	lookup?: (hostname: string) => Promise<LookupAddress[]>;
 	allowedFakeIpRanges?: readonly string[];
+	pinnedAddressSet?: PinnedAddressSet;
+}
+
+export type SecureLookupOptions = Omit<LookupOptions, "allowedFakeIpRanges">;
+
+export interface WebFetchTargetInspection {
+	status: "public" | "private";
+	validated: ValidatedUrl;
+	addresses: ResolvedAddresses;
 }
 
 /** 校验模型传入的 URL；只允许无凭据的 HTTP(S)，并在请求前移除 fragment。 */
-export function validateRequestUrl(rawUrl: string): ValidatedUrl | WebFetchFailureDetails {
-	if (typeof rawUrl !== "string" || rawUrl.length === 0) {
-		return failure("INVALID_URL", "url must be a non-empty string.");
+export function validateRequestUrl(
+	rawUrl: string,
+	approvedPrivateOrigin?: string,
+): ValidatedUrl | WebFetchFailureDetails {
+	const parsed = parseRequestUrl(rawUrl);
+	if ("status" in parsed) return parsed;
+	const hostname = normalizeHostname(parsed.url.hostname);
+	const approved = approvedPrivateOrigin === parsed.url.origin;
+	if (isLocalhostName(hostname) && !approved) return failure("BLOCKED_ADDRESS", "localhost is not allowed.");
+	if (ipaddr.isValid(hostname) && !isPublicAddress(hostname) && !approved) {
+		return failure("BLOCKED_ADDRESS", "private or non-global address is not allowed.");
 	}
+	return parsed;
+}
+
+/** 在 tool hook 阶段解析目标，供审批策略判断并为获批连接固定地址。 */
+export async function inspectWebFetchTarget(
+	rawUrl: string,
+	options: LookupOptions = {},
+): Promise<WebFetchTargetInspection | WebFetchFailureDetails> {
+	const parsed = parseRequestUrl(rawUrl);
+	if ("status" in parsed) return parsed;
+	const hostname = normalizeHostname(parsed.url.hostname);
+	let addresses: ResolvedAddresses;
+	try {
+		addresses = await resolveAddresses(hostname, options.lookup);
+	} catch (error) {
+		return failure("DNS_FAILED", error instanceof Error ? error.message : String(error));
+	}
+	const allowedFakeIpRanges = options.allowedFakeIpRanges ?? [];
+	const isPrivate = isLocalhostName(hostname)
+		|| addresses.some((item) => !isAllowedResolvedAddress(item.address, allowedFakeIpRanges));
+	return { status: isPrivate ? "private" : "public", validated: parsed, addresses };
+}
+
+function parseRequestUrl(rawUrl: string): ValidatedUrl | WebFetchFailureDetails {
 	if (rawUrl.length > MAX_URL_LENGTH) return failure("INVALID_URL", "url is too long.");
 
 	let url: URL;
@@ -31,7 +79,6 @@ export function validateRequestUrl(rawUrl: string): ValidatedUrl | WebFetchFailu
 	} catch {
 		return failure("INVALID_URL", "url is not valid.");
 	}
-
 	if (url.protocol !== "http:" && url.protocol !== "https:") {
 		return failure("INVALID_URL", "only http and https URLs are supported.");
 	}
@@ -39,49 +86,20 @@ export function validateRequestUrl(rawUrl: string): ValidatedUrl | WebFetchFailu
 		return failure("INVALID_URL", "URL userinfo is not allowed.");
 	}
 	if (url.hostname === "") return failure("INVALID_URL", "URL hostname is required.");
-	const hostname = stripIpv6Brackets(url.hostname);
-	if (isLocalhostName(hostname)) return failure("BLOCKED_ADDRESS", "localhost is not allowed.");
-	if (ipaddr.isValid(hostname) && !isPublicAddress(hostname)) {
-		return failure("BLOCKED_ADDRESS", "private or non-global address is not allowed.");
-	}
-
 	url.hash = "";
 	return { url, displayUrl: redactUrl(url) };
 }
 
 /** 解析全部地址并要求每个结果都是公网地址，或显式配置的本机代理 fake-ip。 */
-export async function resolveAllowedAddresses(hostname: string, options: LookupOptions = {}): Promise<ResolvedAddress[]> {
-	const normalizedHostname = stripIpv6Brackets(hostname);
-	// 字面 IP 不走 DNS，也不能借 DNS fake-ip 白名单放行。
-	if (ipaddr.isValid(normalizedHostname)) {
-		if (!isPublicAddress(normalizedHostname)) throw blockedAddressError(normalizedHostname, false);
-		return [{
-			address: normalizedHostname,
-			family: ipaddr.parse(normalizedHostname).kind() === "ipv6" ? 6 : 4,
-		}];
-	}
-
-	let addresses: LookupAddress[];
-	try {
-		addresses = await (options.lookup ?? defaultLookup)(normalizedHostname);
-	} catch (error) {
-		const err = new Error(error instanceof Error ? error.message : String(error));
-		err.name = "DNS_FAILED";
-		throw err;
-	}
-	if (addresses.length === 0) {
-		const err = new Error("DNS lookup returned no addresses.");
-		err.name = "DNS_FAILED";
-		throw err;
-	}
-	const resolved = addresses
-		.map((item) => ({
-			address: item.address,
-			family: item.family === 6 ? 6 : 4,
-		}) satisfies ResolvedAddress)
-		.sort((a, b) => a.family - b.family);
-	const blocked = resolved.find((item) => !isAllowedResolvedAddress(item.address, options.allowedFakeIpRanges ?? []));
-	if (blocked !== undefined) throw blockedAddressError(blocked.address, true);
+export async function resolveAllowedAddresses(hostname: string, options: LookupOptions = {}): Promise<ResolvedAddresses> {
+	const normalizedHostname = normalizeHostname(hostname);
+	const pinned = options.pinnedAddressSet;
+	if (pinned?.hostname === normalizedHostname) return pinned.addresses;
+	const resolved = await resolveAddresses(normalizedHostname, options.lookup);
+	// 字面 IP 不能借 DNS fake-ip 白名单放行。
+	const allowedFakeIpRanges = ipaddr.isValid(normalizedHostname) ? [] : options.allowedFakeIpRanges ?? [];
+	const blocked = resolved.find((item) => !isAllowedResolvedAddress(item.address, allowedFakeIpRanges));
+	if (blocked !== undefined) throw blockedAddressError(blocked.address, !ipaddr.isValid(normalizedHostname));
 	return resolved;
 }
 
@@ -95,49 +113,58 @@ export function isAllowedResolvedAddress(address: string, allowedFakeIpRanges: r
 	if (isPublicAddress(address)) return true;
 	if (allowedFakeIpRanges.length === 0 || !ipaddr.isValid(address)) return false;
 	const parsed = ipaddr.process(address);
-	return allowedFakeIpRanges.some((range) => {
-		try {
-			return parsed.match(ipaddr.parseCIDR(range));
-		} catch {
-			return false;
-		}
-	});
+	return allowedFakeIpRanges.some((range) => parsed.match(ipaddr.parseCIDR(range)));
 }
 
 export function createSecureLookup(
 	getAllowedFakeIpRanges: () => readonly string[] = () => [],
-	lookup?: LookupOptions["lookup"],
+	resolveOptions: SecureLookupOptions = {},
 ) {
 	return (
 		hostname: string,
-		options: dns.LookupOneOptions | dns.LookupAllOptions | number,
+		lookupOptions: dns.LookupOneOptions | dns.LookupAllOptions | number,
 		callback: (err: NodeJS.ErrnoException | null, address: string | LookupAddress[], family?: number) => void,
 	): void => {
-		const all = typeof options === "object" && "all" in options && options.all === true;
+		const all = typeof lookupOptions === "object" && "all" in lookupOptions && lookupOptions.all === true;
 		resolveAllowedAddresses(hostname, {
+			...resolveOptions,
 			allowedFakeIpRanges: getAllowedFakeIpRanges(),
-			...(lookup !== undefined ? { lookup } : {}),
 		})
 			.then((addresses) => {
 				if (all) {
 					callback(null, addresses);
 					return;
 				}
-				const first = addresses[0];
-				if (first === undefined) {
-					const err = new Error("DNS lookup returned no addresses.") as NodeJS.ErrnoException;
-					err.code = "ENOTFOUND";
-					callback(err, "", 0);
-					return;
-				}
+				const [first] = addresses;
 				callback(null, first.address, first.family);
 			})
 			.catch((error) => {
-				const err = new Error(error instanceof Error ? error.message : String(error)) as NodeJS.ErrnoException;
+				const err: NodeJS.ErrnoException = new Error(error instanceof Error ? error.message : String(error));
 				err.code = error instanceof Error && error.name === "BLOCKED_ADDRESS" ? "EACCES" : "ENOTFOUND";
 				callback(err, "", 0);
 			});
 	};
+}
+
+async function resolveAddresses(hostname: string, lookup?: LookupOptions["lookup"]): Promise<ResolvedAddresses> {
+	if (ipaddr.isValid(hostname)) {
+		return [{
+			address: hostname,
+			family: ipaddr.parse(hostname).kind() === "ipv6" ? 6 : 4,
+		}];
+	}
+	const [first, ...rest] = await (lookup ?? defaultLookup)(hostname);
+	if (first === undefined) throw new Error("DNS lookup returned no addresses.");
+	const resolved: ResolvedAddresses = [toResolvedAddress(first), ...rest.map(toResolvedAddress)];
+	resolved.sort((a, b) => a.family - b.family);
+	return resolved;
+}
+
+function toResolvedAddress(address: LookupAddress): ResolvedAddress {
+	if (address.family !== 4 && address.family !== 6) {
+		throw new Error(`DNS lookup returned unsupported address family ${address.family}.`);
+	}
+	return { address: address.address, family: address.family };
 }
 
 function defaultLookup(hostname: string): Promise<LookupAddress[]> {
@@ -145,8 +172,11 @@ function defaultLookup(hostname: string): Promise<LookupAddress[]> {
 }
 
 function isLocalhostName(hostname: string): boolean {
-	const host = hostname.toLowerCase().replace(/\.$/, "");
-	return host === "localhost" || host.endsWith(".localhost");
+	return hostname === "localhost" || hostname.endsWith(".localhost");
+}
+
+function normalizeHostname(hostname: string): string {
+	return stripIpv6Brackets(hostname).toLowerCase().replace(/\.$/u, "");
 }
 
 function stripIpv6Brackets(hostname: string): string {

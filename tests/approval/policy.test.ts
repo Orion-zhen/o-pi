@@ -70,6 +70,24 @@ describe("approval policy", () => {
 		expect(evaluation.decision).toMatchObject({ kind: "deny", rule_name: "environment-exfiltration" });
 	});
 
+	it("默认要求审批 webfetch 私网 origin", async () => {
+		const request = await buildApprovalRequest({
+			type: "tool_call",
+			toolName: "webfetch",
+			toolCallId: "webfetch-private",
+			input: { url: "http://127.0.0.1:8080/private" },
+		}, commandCwd);
+		if (request === undefined) throw new Error("missing approval request");
+		expect(evaluateDefault(request, store())).toMatchObject({
+			kind: "ask",
+			reason: "default webfetch approval policy",
+			items: [{
+				unit: { target: { kind: "url", value: "http://127.0.0.1:8080" } },
+				reason: "default webfetch approval policy",
+			}],
+		});
+	});
+
 	it("默认要求审批技能文本修改", async () => {
 		const request = await buildApprovalRequest({
 			type: "tool_call",

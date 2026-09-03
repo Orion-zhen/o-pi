@@ -43,6 +43,15 @@
 	],
 	"deny_rules": [],
 	"tools": {
+		"write": {
+			"default_action": "allow"
+		},
+		"edit": {
+			"default_action": "allow"
+		},
+		"webfetch": {
+			"default_action": "ask"
+		},
 		"bash": {
 			"default_action": "allow",
 			"facts": {
@@ -227,12 +236,6 @@
 					"action": "deny"
 				}
 			}
-		},
-		"write": {
-			"default_action": "allow"
-		},
-		"edit": {
-			"default_action": "allow"
 		}
 	}
 }

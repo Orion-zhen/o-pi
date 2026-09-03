@@ -12,10 +12,15 @@ export type ApprovalTarget =
 		kind: "path";
 		/** 用于展示和精确批准匹配的规范值。 */
 		value: string;
+	}
+	| {
+		kind: "url";
+		/** 内网审批按 origin 匹配，不将路径或查询参数扩大为持久规则。 */
+		value: string;
 	};
 
 export interface ApprovalUnit {
-	action: "execute" | "write_redirect" | "write_file" | "edit_file";
+	action: "execute" | "write_redirect" | "write_file" | "edit_file" | "fetch_url";
 	target: ApprovalTarget;
 	/** 已静态证明副作用不会逃逸一次性临时目录时，无需交互确认。 */
 	effect_scope?: "temporary";
@@ -34,7 +39,13 @@ export interface ApprovalEditReplacement {
 export type ApprovalRequestDetail =
 	| { kind: "bash"; command: string }
 	| { kind: "write"; path: string; content: string }
-	| { kind: "edit"; path: string; edits: ApprovalEditReplacement[] };
+	| { kind: "edit"; path: string; edits: ApprovalEditReplacement[] }
+	| {
+		kind: "webfetch";
+		url: string;
+		origin: string;
+		addresses: [{ address: string; family: 4 | 6 }, ...Array<{ address: string; family: 4 | 6 }>];
+	};
 
 interface ApprovalRequestBase {
 	cwd: string;
@@ -57,7 +68,12 @@ export interface EditApprovalRequest extends ApprovalRequestBase {
 	detail: Extract<ApprovalRequestDetail, { kind: "edit" }>;
 }
 
-export type ApprovalRequest = BashApprovalRequest | WriteApprovalRequest | EditApprovalRequest;
+export interface WebFetchApprovalRequest extends ApprovalRequestBase {
+	tool: "webfetch";
+	detail: Extract<ApprovalRequestDetail, { kind: "webfetch" }>;
+}
+
+export type ApprovalRequest = BashApprovalRequest | WriteApprovalRequest | EditApprovalRequest | WebFetchApprovalRequest;
 
 export interface ApprovalAskItem {
 	unit: ApprovalUnit;
@@ -121,6 +137,7 @@ export interface ApprovalGateConfig {
 		bash: BashPolicyConfig;
 		write: { default_action: ApprovalDefaultAction };
 		edit: { default_action: ApprovalDefaultAction };
+		webfetch: { default_action: ApprovalDefaultAction };
 	};
 	ask_rules: ApprovalRule[];
 	deny_rules: ApprovalRule[];
@@ -136,5 +153,10 @@ export type ApprovalAllowRule =
 	| {
 		tool: ApprovalRequest["tool"];
 		kind: "exact_path" | "path_glob";
+		value: string;
+	}
+	| {
+		tool: ApprovalRequest["tool"];
+		kind: "exact_url";
 		value: string;
 	};

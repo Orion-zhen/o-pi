@@ -230,6 +230,16 @@ function buildBody(request: ApprovalRequest, decision: AskDecision): DisplayLine
 		];
 	}
 
+	if (request.detail.kind === "webfetch") {
+		return [
+			line(`Target: ${request.detail.origin}`),
+			...common,
+			line(`URL: ${request.detail.url}`),
+			line("Resolved addresses:", "dim"),
+			...request.detail.addresses.map((item) => line(item.address, "warning")),
+		];
+	}
+
 	return [
 		line(`Target: ${request.detail.path}`),
 		...common,

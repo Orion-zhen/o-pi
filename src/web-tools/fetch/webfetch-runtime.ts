@@ -18,9 +18,15 @@ export function createWebFetchRuntime(options: WebFetchCapabilityOptions): WebFe
 			} catch (error) {
 				return runtimeConfigFailure("webfetch", error);
 			}
-			const dispatcher = await options.getDispatcher(config.network);
+			const [dispatcher, privateNetworkDispatcher] = await Promise.all([
+				options.getDispatcher(config.network),
+				context.privateNetworkGrant === undefined
+					? undefined
+					: options.getDispatcher(config.network, context.privateNetworkGrant),
+			]);
 			return executeWebFetch(params, {
 				dispatcher,
+				...(privateNetworkDispatcher !== undefined ? { privateNetworkDispatcher } : {}),
 				fetchImpl: options.fetchImpl,
 				cookieStore,
 				snapshots,

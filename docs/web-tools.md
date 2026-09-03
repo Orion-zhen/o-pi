@@ -204,9 +204,11 @@ UNSUPPORTED_CONTENT_TYPE, CONVERSION_FAILED
 - `network.fake_ip_ranges`：两个 Web 工具共用的安全 DNS fake-ip CIDR。只支持 `198.18.0.0/15` 内的子网。
 - 配置的 fake-ip CIDR 只放行域名 DNS 解析结果。URL 直接写 IP 仍会拒绝。
 - 三家正式搜索 endpoint 的静态 URL 检查复用基础 URL guard。`webfetch` 仍保留自己的 DNS、redirect 和 SSRF 复检逻辑。
-- 直连和代理模式下，目标 DNS 解析结果都必须全部是公网地址或已配置 fake-ip。
-- `webfetch` 每个 redirect 目标都会重新执行 URL、DNS、Cookie 检查。
+- 直连和代理模式下，目标 DNS 解析结果都必须全部是公网地址或已配置 fake-ip。Approval Gate 批准私网 origin 后，`webfetch` 只为该 origin 使用审批时固定的地址。
+- `webfetch` 会对每个重定向目标重新执行 URL、DNS 和 Cookie 检查。私网批准不会扩展到其他协议、主机或端口。
 - `websearch` 使用配置的公开 endpoint，3xx 作为 HTTP 错误，不跟随。
+
+`approval-gate` 默认要求确认解析到 localhost、私网地址或其他非公网地址的 `webfetch` origin。会话和持久放行规则都按完整 origin 匹配。每次调用仍会重新解析地址并签发当前调用使用的固定地址。禁用 Approval Gate 不会关闭 `webfetch` 自身的地址限制。
 
 ## Cookie
 

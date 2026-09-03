@@ -13,6 +13,7 @@ import type {
 	WebToolsRuntimeOptions,
 } from "./core/types.js";
 import { createNetworkDispatcher, networkConfigSignature } from "./network/dispatcher.js";
+import type { PrivateNetworkGrant } from "./network/private-network-grant.js";
 
 const defaultCapabilityLoaders: WebToolsCapabilityLoaders = {
 	async search(options) {
@@ -53,12 +54,15 @@ export function createWebToolsRuntime(
 	const search = createMemoizedCapability(() => loaders.search(searchOptions));
 	const fetch = createMemoizedCapability(() => loaders.fetch(fetchOptions));
 
-	function getDispatcher(network: WebToolsConfig["network"]): Promise<Dispatcher> {
+	function getDispatcher(
+		network: WebToolsConfig["network"],
+		privateNetworkGrant?: PrivateNetworkGrant,
+	): Promise<Dispatcher> {
 		if (injectedDispatcher !== undefined) return Promise.resolve(injectedDispatcher);
-		const key = networkConfigSignature(network);
+		const key = dispatcherKey(network, privateNetworkGrant);
 		const existing = dispatcherPromises.get(key);
 		if (existing !== undefined) return existing;
-		const pending = createDefaultDispatcher(structuredClone(network));
+		const pending = createDefaultDispatcher(structuredClone(network), privateNetworkGrant);
 		dispatcherPromises.set(key, pending);
 		return pending;
 	}
@@ -145,8 +149,19 @@ async function settledDispatcher(pending: Promise<Dispatcher> | undefined): Prom
 	return pending === undefined ? undefined : pending.catch(() => undefined);
 }
 
-async function createDefaultDispatcher(network: WebToolsConfig["network"]): Promise<Dispatcher> {
-	return createNetworkDispatcher(network, await loadUndici());
+async function createDefaultDispatcher(
+	network: WebToolsConfig["network"],
+	privateNetworkGrant?: PrivateNetworkGrant,
+): Promise<Dispatcher> {
+	return createNetworkDispatcher(network, await loadUndici(), {
+		...(privateNetworkGrant !== undefined ? { pinnedAddressSet: privateNetworkGrant } : {}),
+	});
+}
+
+function dispatcherKey(network: WebToolsConfig["network"], grant?: PrivateNetworkGrant): string {
+	const networkKey = networkConfigSignature(network);
+	if (grant === undefined) return networkKey;
+	return `${networkKey}\0${grant.origin}\0${grant.addresses.map((item) => `${item.family}:${item.address}`).join(",")}`;
 }
 
 async function defaultFetch(input: URL, init: WebHttpRequestInit): Promise<WebHttpResponse> {

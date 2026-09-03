@@ -94,7 +94,7 @@ function parseApprovalAllowRule(value: unknown): ApprovalAllowRule | undefined {
 		typeof value !== "object"
 		|| value === null
 		|| !("tool" in value)
-		|| (value.tool !== "bash" && value.tool !== "write" && value.tool !== "edit")
+		|| (value.tool !== "bash" && value.tool !== "write" && value.tool !== "edit" && value.tool !== "webfetch")
 		|| !("kind" in value)
 		|| !("value" in value)
 		|| typeof value.value !== "string"
@@ -103,7 +103,7 @@ function parseApprovalAllowRule(value: unknown): ApprovalAllowRule | undefined {
 		if (!("cwd" in value) || typeof value.cwd !== "string") return undefined;
 		return { tool: value.tool, kind: value.kind, value: value.value, cwd: value.cwd };
 	}
-	if ((value.kind === "exact_path" || value.kind === "path_glob") && !("cwd" in value)) {
+	if ((value.kind === "exact_path" || value.kind === "path_glob" || value.kind === "exact_url") && !("cwd" in value)) {
 		return { tool: value.tool, kind: value.kind, value: value.value };
 	}
 	return undefined;

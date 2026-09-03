@@ -12,6 +12,7 @@ const ACCEPT_HEADER = "text/markdown, text/plain;q=0.9, application/json;q=0.9, 
 
 export interface HttpClientOptions {
 	dispatcher: Dispatcher;
+	privateNetworkDispatcher?: Dispatcher;
 	fetchImpl: WebHttpFetch;
 	cookieStore: CookieStore;
 	approvedAuthOrigins: Set<string>;
@@ -40,7 +41,7 @@ export async function fetchHttpUrl(rawUrl: string, options: HttpClientOptions, r
 
 async function fetchHttpUrlWithinDeadline(rawUrl: string, options: HttpClientOptions, resource: HttpResourceOptions, requestSignal: AbortSignal): Promise<HttpFetchResult> {
 	const fetchImpl = options.fetchImpl;
-	const requested = validateRequestUrl(rawUrl);
+	const requested = validateRequestUrl(rawUrl, options.context.privateNetworkGrant?.origin);
 	if ("status" in requested) {
 		return { status: "failed", details: { ...requested, requested_url: safeRedact(rawUrl), duration_ms: elapsed(options) } };
 	}
@@ -52,7 +53,7 @@ async function fetchHttpUrlWithinDeadline(rawUrl: string, options: HttpClientOpt
 
 	while (true) {
 		if (redirectCount > 0) {
-			const checked = validateRequestUrl(currentUrl.toString());
+			const checked = validateRequestUrl(currentUrl.toString(), options.context.privateNetworkGrant?.origin);
 			if ("status" in checked) {
 				return {
 					status: "failed",
@@ -122,7 +123,7 @@ async function fetchHttpUrlWithinDeadline(rawUrl: string, options: HttpClientOpt
 			response = await waitForAbort(fetchImpl(currentUrl, {
 				method: "GET",
 				redirect: "manual",
-				dispatcher: options.dispatcher,
+				dispatcher: dispatcherFor(currentUrl, options),
 				signal: requestSignal,
 				headers: {
 					"User-Agent": options.config.webfetch.user_agent,
@@ -314,6 +315,14 @@ async function fetchHttpUrlWithinDeadline(rawUrl: string, options: HttpClientOpt
 			downloadedBytes: body.bytes.length,
 		};
 	}
+}
+
+function dispatcherFor(url: URL, options: HttpClientOptions): Dispatcher {
+	if (
+		options.privateNetworkDispatcher !== undefined
+		&& options.context.privateNetworkGrant?.origin === url.origin
+	) return options.privateNetworkDispatcher;
+	return options.dispatcher;
 }
 
 function isImageContentType(value: string | null): boolean {

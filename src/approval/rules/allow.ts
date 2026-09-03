@@ -27,6 +27,7 @@ function describeAllowRule(rule: ApprovalAllowRule): string {
 	if (rule.kind === "command_prefix") return `${rule.tool} commands starting with: ${rule.value} in ${rule.cwd}`;
 	if (rule.kind === "exact_command") return `${rule.tool} command: ${rule.value} in ${rule.cwd}`;
 	if (rule.kind === "path_glob") return `${rule.tool} paths matching: ${rule.value}`;
+	if (rule.kind === "exact_url") return `${rule.tool} origin: ${rule.value}`;
 	return `${rule.tool} path: ${rule.value}`;
 }
 
@@ -39,6 +40,7 @@ export function allowRuleMatches(rule: ApprovalAllowRule, request: ApprovalReque
 		const command = unit.target.similar_value ?? unit.target.match_value;
 		return command === rule.value || command.startsWith(`${rule.value} `);
 	}
+	if (rule.kind === "exact_url") return unit.target.kind === "url" && unit.target.value === rule.value;
 	if (unit.target.kind !== "path") return false;
 	const normalizedTarget = normalizePath(unit.target.value);
 	if (rule.kind === "exact_path") return normalizedTarget === normalizePath(rule.value);
@@ -60,6 +62,9 @@ function allowRuleForTarget(
 			value: prefix ?? unit.target.value,
 			cwd: request.cwd,
 		};
+	}
+	if (unit.target.kind === "url") {
+		return { tool: request.tool, kind: "exact_url", value: unit.target.value };
 	}
 	const normalized = normalizePath(unit.target.value);
 	const glob = mode === "similar" ? conservativePathGlob(normalized) : undefined;

@@ -9,6 +9,7 @@ import webTools, { createWebToolsExtension } from "../../agent/extensions/web-to
 import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
 import type { WebToolsCapabilityLoaders } from "../../src/web-tools/core/runtime-types.js";
 import { createWebToolsRuntime } from "../../src/web-tools/web-tools-runtime.js";
+import { attachPrivateNetworkGrant, type PrivateNetworkGrant } from "../../src/web-tools/network/private-network-grant.js";
 import type { WebSearchProvider } from "../../src/web-tools/search-providers/types.js";
 import type { FormalWebSearchProviderId, WebFetchExecutionContext, WebFetchParams, WebSearchParams, WebToolsRuntime } from "../../src/web-tools/core/types.js";
 import { createWebSearchRuntime, type WebSearchProviderLoaders } from "../../src/web-tools/search/websearch-runtime.js";
@@ -106,6 +107,34 @@ describe("web-tools extension", () => {
 		await expect(fetchExecution).resolves.toMatchObject({ content: [{ type: "text", text: "fetch" }] });
 		await handlers.get("session_shutdown")?.({});
 		expect(close).toHaveBeenCalledTimes(1);
+	});
+
+	it("将 tool hook 附加的私网授权传给 webfetch runtime", async () => {
+		const fetch = vi.fn(async () => ({
+			content: "private",
+			details: { status: "failed" as const, error: { code: "HTTP_ERROR" as const, message: "test" } },
+		}));
+		const runtime: WebToolsRuntime = {
+			fetch,
+			async search() { return successfulSearch("q", "search"); },
+			async close() {},
+		};
+		const { registered } = registerExtension(createWebToolsExtension(async () => runtime));
+		const tool = registered.find((item) => item.name === "webfetch");
+		if (tool === undefined) throw new Error("missing webfetch");
+		const params = { url: "http://127.0.0.1:8080/private" };
+		const grant: PrivateNetworkGrant = {
+			origin: "http://127.0.0.1:8080",
+			hostname: "127.0.0.1",
+			addresses: [{ address: "127.0.0.1", family: 4 }],
+		};
+		attachPrivateNetworkGrant(params, grant);
+
+		await tool.execute("fetch-private", params, undefined, undefined, { hasUI: false });
+		expect(fetch).toHaveBeenCalledWith(
+			params,
+			expect.objectContaining({ privateNetworkGrant: grant }),
+		);
 	});
 
 	it("只在模型和 API 都支持工具图片时返回 Pi ImageContent", async () => {

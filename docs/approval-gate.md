@@ -5,7 +5,7 @@
 执行顺序：
 
 1. 读取 Approval Gate 配置。
-2. 构建工具审批请求。Bash 请求在此阶段使用 Tree-sitter 解析。
+2. 构建工具审批请求。Bash 请求在此阶段使用 Tree-sitter 解析。`webfetch` 请求在此阶段解析目标地址。
 3. 评估路径规则、Bash 安全事实和已记住的放行规则。
 4. 策略为 `deny` 时阻止工具调用。
 5. 策略为 `ask` 时显示审批界面，并根据用户选择放行或阻止调用。
@@ -30,6 +30,7 @@ TUI 模式使用高度受限的覆盖面板。面板把请求内容和审批操�
 - `bash` 显示完整 Shell 输入和触发确认的敏感单元。
 - `write` 显示目标路径和完整拟写入内容。每一行使用新增标记展示。
 - `edit` 按替换项显示原文本、新文本和 `replace_all` 状态。
+- `webfetch` 显示目标 URL、origin 和解析到的地址。
 
 TUI 面板会移除请求内容中的终端控制序列，避免内容改变终端显示状态。RPC 模式继续使用 Pi 的基础选择框，并在标题中包含相同的请求信息。
 
@@ -37,7 +38,7 @@ TUI 面板会移除请求内容中的终端控制序列，避免内容改变终�
 
 Approval Gate 负责所有 `allow`、`ask` 和 `deny` 调用策略，包括 Bash 安全事实和用户定义的路径规则。Bash 工具不再重复评估这些策略。
 
-工具仍负责自身的运行约束。例如，文件工具在执行时检查 `blocked_path`、路径解析和并发修改。用户批准只表示允许工具尝试执行，不保证工具操作成功。
+工具仍负责自身的运行约束。例如，文件工具在执行时检查 `blocked_path`、路径解析和并发修改。`webfetch` 在网络边界复检 URL、重定向和 DNS，并只对获批 origin 使用审批时固定的地址。用户批准只表示允许工具尝试执行，不保证工具操作成功。
 
 Approval Gate 和工具运行约束都不提供进程、网络或操作系统权限隔离。需要不可绕过的隔离时，应在 Pi 进程外使用低权限账号、容器或平台专用沙箱。
 
@@ -80,6 +81,7 @@ Bash 安全事实分类器逐单元匹配命令正则，也可以匹配完整原
 - 写入明显系统路径的 Bash 重定向。
 - 写入明显系统路径的 `write` 或 `edit` 调用。默认路径包括 `/etc/**`、`/usr/**`、`/bin/**`、`/sbin/**`、`/System/**`、`/Library/**` 和 `/var/**`。
 - 通过 `write` 或 `edit` 修改当前分支已加载的 `skill://` 技能路径。审批目标保留逻辑路径，不暴露技能的真实目录。
+- `webfetch` 访问解析到 localhost、私网地址或其他非公网地址的 origin。
 
 ## 默认无需确认
 
@@ -87,7 +89,8 @@ Bash 安全事实分类器逐单元匹配命令正则，也可以匹配完整原
 - 已证明只影响 `mktemp` 创建的一次性文件或目录，或者系统临时目录后代的写入和本地清理。
 - 针对普通项目文件的 `write` 和 `edit` 调用。技能逻辑路径除外。
 - `read`、`ls`、`find` 和 `grep`。
-- `webfetch`、LSP 和 subagent。
+- 只解析到公网地址或已配置 fake-ip 的 `webfetch` 调用。
+- LSP 和 subagent。
 
 ## 配置
 
@@ -95,13 +98,14 @@ Bash 安全事实分类器逐单元匹配命令正则，也可以匹配完整原
 
 关键字段：
 
-- `enabled`：总开关。设为 `false` 时，Bash、Write 和 Edit 的 `allow`、`ask` 和 `deny` 调用策略都会被跳过。工具自身的运行约束仍然生效。
+- `enabled`：总开关。设为 `false` 时，Bash、Write、Edit 和 WebFetch 的 `allow`、`ask` 和 `deny` 调用策略都会被跳过。工具自身的运行约束仍然生效，因此未获批准的私网请求仍会被 `webfetch` 拒绝。
 - `ui.timeout_ms`：交互超时时间，单位为毫秒。`0` 表示不超时。TUI 审批面板显示剩余时间并在到期后拒绝调用。RPC 选择框和拒绝指令输入框使用 Pi UI 的超时机制。
 - `ui.non_interactive`：没有交互式界面时使用 `block` 或 `allow`，默认为 `block`。
 - `tools.bash.default_action`：Bash 未命中安全事实或路径规则时使用的 `allow`、`ask` 或 `deny`。
 - `tools.bash.facts`：Bash 安全事实及其命令分类正则。
 - `tools.bash.combinations`：多个 Bash 安全事实同时出现时使用的升级决策。
 - `tools.write.default_action` 和 `tools.edit.default_action`：文件写入未命中路径规则时使用的默认动作。
+- `tools.webfetch.default_action`：私网 origin 未命中已记住的放行规则时使用的默认动作，默认为 `ask`。
 - `ask_rules`：命中后要求用户确认。
 - `deny_rules`：用户定义的拒绝规则。命中后不显示审批界面。
 - `remember.allow_session`：是否显示 `Allow for session`。
@@ -132,8 +136,8 @@ Bash 策略位于 Approval Gate 配置的 `tools.bash` 中。`facts` 以事实 I
 ## 用户选择
 
 - `Allow once`：只放行当前工具调用。
-- `Allow for session`：只记住本次实际触发确认的敏感子命令或路径，不记住普通同级单元。Bash 命令规则还会绑定当前 `cwd`。
-- `Always allow similar`：为每个敏感单元写入持久放行规则。特定的软件包安装命令会生成保守前缀，例如 `npm install`。`git push` 等其他命令使用完整命令，不生成宽泛前缀。路径目标是 `/etc/nginx` 的直接子项时生成 `/etc/nginx/**`，其他路径使用精确值。Bash 命令规则还会绑定创建规则时的 `cwd`。
+- `Allow for session`：只记住本次实际触发确认的敏感子命令、路径或私网 origin，不记住普通同级单元。Bash 命令规则还会绑定当前 `cwd`。
+- `Always allow similar`：为每个敏感单元写入持久放行规则。特定的软件包安装命令会生成保守前缀，例如 `npm install`。`git push` 等其他命令使用完整命令，不生成宽泛前缀。路径目标是 `/etc/nginx` 的直接子项时生成 `/etc/nginx/**`，其他路径使用精确值。私网请求只记住完整 origin。Bash 命令规则还会绑定创建规则时的 `cwd`。
 - `Deny`：拒绝当前工具调用，并返回 `User denied this tool call.`。
 - `Deny with instruction`：拒绝当前工具调用，并通过 `reason` 把用户指令返回给代理：
 

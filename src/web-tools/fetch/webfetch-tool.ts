@@ -37,7 +37,7 @@ export async function executeWebFetch(params: WebFetchParams, runtime: ExecuteWe
 		&& offset === 0
 		&& mediaEnabled
 		&& runtime.context.acceptsImages === true;
-	const snapshotKey = snapshotKeyFor(params.url, mode, mediaEnabled);
+	const snapshotKey = snapshotKeyFor(params.url, mode, mediaEnabled, runtime.context.privateNetworkGrant?.origin);
 	let snapshotStatus: SnapshotStatus = "not_needed";
 	let conversion: ContentConversion | undefined;
 	let http: HttpFetchSuccess | undefined;
@@ -203,14 +203,19 @@ function collectOmissions(
 	return omissions;
 }
 
-function snapshotKeyFor(rawUrl: string, mode: string, mediaEnabled: boolean): string {
+function snapshotKeyFor(
+	rawUrl: string,
+	mode: string,
+	mediaEnabled: boolean,
+	privateNetworkOrigin: string | undefined,
+): string {
 	let normalized = rawUrl;
 	try {
 		normalized = normalizeUrl(new URL(rawUrl));
 	} catch {
 		// 参数校验和 URL 校验会在后续返回结构化错误。
 	}
-	return `${mode}:${mediaEnabled ? "media" : "no-media"}:${normalized}`;
+	return `${privateNetworkOrigin ?? "public"}\0${mode}:${mediaEnabled ? "media" : "no-media"}:${normalized}`;
 }
 
 function snapshotToHttp(snapshot: WebFetchSnapshot, requestedUrl: string): HttpFetchSuccess {

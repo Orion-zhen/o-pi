@@ -308,6 +308,8 @@ export interface WebSearchResult {
 
 export interface WebFetchExecutionContext {
 	toolCallId: string;
+	/** approval-gate 在 tool hook 中签发，仅供网络边界使用。 */
+	privateNetworkGrant?: import("../network/private-network-grant.js").PrivateNetworkGrant;
 	signal?: AbortSignal;
 	onUpdate?: (partial: { content: string; details: WebFetchProgressDetails }) => void;
 	acceptsImages?: boolean;

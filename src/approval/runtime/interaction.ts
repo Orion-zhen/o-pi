@@ -1,4 +1,3 @@
-import type { ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import type { WaitingNotifier } from "../../notification/native.js";
 import { createExactAllowRules, createSimilarAllowRules, describeAllowRules } from "../rules/allow.js";
 import type { ApprovalStore } from "../rules/store.js";
@@ -23,6 +22,11 @@ export interface ApprovalDialogOptions {
 	timeout?: number;
 }
 
+export interface ApprovalBlockResult {
+	block: true;
+	reason: string;
+}
+
 export interface ApprovalInteractionPort {
 	approve(
 		request: ApprovalRequest,
@@ -41,7 +45,7 @@ export async function handleAskDecision(
 	store: ApprovalStore,
 	interaction: ApprovalInteractionPort,
 	notifyUser: WaitingNotifier,
-): Promise<ToolCallEventResult | void> {
+): Promise<ApprovalBlockResult | void> {
 	const askedUnits = decision.items.map((item) => item.unit);
 	const options = approvalOptions(
 		config,
@@ -130,6 +134,16 @@ export function formatApprovalPrompt(
 function formatRequestDetail(request: ApprovalRequest): string[] {
 	if (request.detail.kind === "bash") return ["", "Command:", request.detail.command];
 	if (request.detail.kind === "write") return ["", "Proposed content:", request.detail.content];
+	if (request.detail.kind === "webfetch") {
+		return [
+			"",
+			"URL:",
+			request.detail.url,
+			"",
+			"Resolved addresses:",
+			...request.detail.addresses.map((item) => item.address),
+		];
+	}
 	return [
 		"",
 		"Requested replacements:",

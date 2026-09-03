@@ -13,7 +13,10 @@ import type {
 } from "./types.js";
 
 export interface WebCapabilitySharedOptions {
-	getDispatcher(network: WebToolsConfig["network"]): Promise<Dispatcher>;
+	getDispatcher(
+		network: WebToolsConfig["network"],
+		privateNetworkGrant?: WebFetchExecutionContext["privateNetworkGrant"],
+	): Promise<Dispatcher>;
 	fetchImpl: WebHttpFetch;
 	loadConfig(): Promise<WebToolsConfig>;
 	now: () => number;

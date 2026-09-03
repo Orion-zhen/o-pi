@@ -9,8 +9,10 @@ import type {
 	WebFetchOmission,
 	WebFetchResult,
 	WebHttpFetch,
+	WebHttpRequestInit,
 } from "../../src/web-tools/core/types.js";
 import { executeWebFetch } from "../../src/web-tools/fetch/webfetch-tool.js";
+import type { PrivateNetworkGrant } from "../../src/web-tools/network/private-network-grant.js";
 import { httpResponse, redirectResponse } from "../helpers/http.js";
 
 const cookieStore: CookieStore = {
@@ -35,6 +37,8 @@ function runtime(
 	signal?: AbortSignal,
 	interaction?: WebFetchInteractionPort,
 	selectedCookieStore: CookieStore = cookieStore,
+	privateNetworkGrant?: PrivateNetworkGrant,
+	privateNetworkDispatcher?: Agent,
 ) {
 	const config = defaultWebToolsConfig();
 	config.webfetch.limits.default_output_chars = 1000;
@@ -46,9 +50,11 @@ function runtime(
 		snapshots: new SnapshotCache(),
 		approvedAuthOrigins: new Set<string>(),
 		config,
+		...(privateNetworkDispatcher !== undefined ? { privateNetworkDispatcher } : {}),
 		context: {
 			toolCallId: "t1",
 			acceptsImages,
+			...(privateNetworkGrant !== undefined ? { privateNetworkGrant } : {}),
 			...(imageOmissionReason !== undefined ? { imageOmissionReason } : {}),
 			...(signal !== undefined ? { signal } : {}),
 			...(interaction !== undefined ? { interaction } : {}),
@@ -238,6 +244,96 @@ describe("webfetch tool", () => {
 		rt.config.webfetch.limits.response_bytes = 1;
 		const readerCleanupFailure = await executeWebFetch({ url: "https://example.com/big" }, rt);
 		expect(readerCleanupFailure.details).toMatchObject({ status: "failed", error: { code: "RESPONSE_TOO_LARGE" } });
+	});
+
+	it("仅持有匹配 origin 的 approval grant 时允许私网请求", async () => {
+		const requests: string[] = [];
+		const grant: PrivateNetworkGrant = {
+			origin: "http://127.0.0.1:8080",
+			hostname: "127.0.0.1",
+			addresses: [{ address: "127.0.0.1", family: 4 }],
+		};
+		const approved = await executeWebFetch(
+			{ url: "http://127.0.0.1:8080/private" },
+			runtime(
+				async (url) => {
+					requests.push(url.toString());
+					return httpResponse(200, "private response", { "content-type": "text/plain" });
+				},
+				false,
+				undefined,
+				undefined,
+				undefined,
+				cookieStore,
+				grant,
+			),
+		);
+		expect(approved.details).toMatchObject({ status: "success" });
+		expect(requests).toEqual(["http://127.0.0.1:8080/private"]);
+
+		const wrongOrigin = await executeWebFetch(
+			{ url: "http://127.0.0.1:9090/private" },
+			runtime(async () => httpResponse(200, "unexpected"), false, undefined, undefined, undefined, cookieStore, grant),
+		);
+		expect(wrongOrigin.details).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
+	});
+
+	it("私网 dispatcher 只用于获批 origin", async () => {
+		const grant: PrivateNetworkGrant = {
+			origin: "http://127.0.0.1:8080",
+			hostname: "127.0.0.1",
+			addresses: [{ address: "127.0.0.1", family: 4 }],
+		};
+		const privateDispatcher = new Agent();
+		const usedDispatchers: WebHttpRequestInit["dispatcher"][] = [];
+		let requestCount = 0;
+		const rt = runtime(
+			async (_url, init) => {
+				usedDispatchers.push(init.dispatcher);
+				requestCount += 1;
+				return requestCount === 1
+					? redirectResponse("https://example.com/public")
+					: httpResponse(200, "public response", { "content-type": "text/plain" });
+			},
+			false,
+			undefined,
+			undefined,
+			undefined,
+			cookieStore,
+			grant,
+			privateDispatcher,
+		);
+
+		try {
+			const result = await executeWebFetch({ url: "http://127.0.0.1:8080/start" }, rt);
+			expect(result.details).toMatchObject({ status: "success", redirect_count: 1 });
+			expect(usedDispatchers).toEqual([privateDispatcher, rt.dispatcher]);
+		} finally {
+			await Promise.all([privateDispatcher.close(), rt.dispatcher.close()]);
+		}
+	});
+
+	it("私网 snapshot 后续读取仍要求对应 approval grant", async () => {
+		const grant: PrivateNetworkGrant = {
+			origin: "http://127.0.0.1:8080",
+			hostname: "127.0.0.1",
+			addresses: [{ address: "127.0.0.1", family: 4 }],
+		};
+		const rt = runtime(
+			async () => httpResponse(200, "x".repeat(2000), { "content-type": "text/plain" }),
+			false,
+			undefined,
+			undefined,
+			undefined,
+			cookieStore,
+			grant,
+		);
+		const first = await executeWebFetch({ url: "http://127.0.0.1:8080/private", limit: 1000 }, rt);
+		expect(first.details).toMatchObject({ status: "success", snapshot: "created" });
+		const nextRuntime = runtime(async () => httpResponse(200, "unexpected"));
+		nextRuntime.snapshots = rt.snapshots;
+		const next = await executeWebFetch({ url: "http://127.0.0.1:8080/private", offset: 1000 }, nextRuntime);
+		expect(next.details).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
 	});
 
 	it("redirect 到私网会被重新校验并拒绝", async () => {

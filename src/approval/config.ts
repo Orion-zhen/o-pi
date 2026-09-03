@@ -57,6 +57,7 @@ interface RawApprovalGateConfig {
 		bash?: RawBashPolicyConfig;
 		write?: ApprovalGateConfig["tools"]["write"];
 		edit?: ApprovalGateConfig["tools"]["edit"];
+		webfetch?: ApprovalGateConfig["tools"]["webfetch"];
 	};
 	ask_rules?: ApprovalRule[];
 	deny_rules?: ApprovalRule[];
@@ -69,6 +70,7 @@ interface CompleteApprovalGateConfig extends Required<Omit<RawApprovalGateConfig
 		bash: RawBashPolicyConfig;
 		write: ApprovalGateConfig["tools"]["write"];
 		edit: ApprovalGateConfig["tools"]["edit"];
+		webfetch: ApprovalGateConfig["tools"]["webfetch"];
 	};
 }
 

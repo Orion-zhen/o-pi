@@ -3,17 +3,14 @@ import { isIP } from "node:net";
 import type { Dispatcher } from "undici";
 
 import type { WebToolsConfig } from "../core/types.js";
-import { createSecureLookup, resolveAllowedAddresses, type LookupOptions } from "./network-policy.js";
+import { createSecureLookup, resolveAllowedAddresses, type SecureLookupOptions } from "./network-policy.js";
 
 type UndiciNetworkModule = Pick<typeof import("undici"), "Agent" | "ProxyAgent" | "interceptors">;
 type NetworkConfig = WebToolsConfig["network"];
 
 const TARGET_DNS_TTL_MS = 10_000;
 
-export interface NetworkDispatcherOptions {
-	/** 仅供网络边界测试注入；生产环境使用系统 DNS。 */
-	lookup?: LookupOptions["lookup"];
-}
+export type NetworkDispatcherOptions = SecureLookupOptions;
 
 /** 按完整网络配置创建一个可安全直连或代理的共享 dispatcher。 */
 export function createNetworkDispatcher(
@@ -25,12 +22,16 @@ export function createNetworkDispatcher(
 	if (!network.proxy.enabled) {
 		return new undici.Agent({
 			connect: {
-				lookup: createSecureLookup(() => allowedFakeIpRanges, options.lookup),
+				lookup: createSecureLookup(() => allowedFakeIpRanges, options),
 			},
 		});
 	}
 
-	const secureTargetDns = createSecureTargetDnsInterceptor(undici, allowedFakeIpRanges, options.lookup);
+	const secureTargetDns = createSecureTargetDnsInterceptor(
+		undici,
+		allowedFakeIpRanges,
+		options,
+	);
 	return new undici.Agent({
 		factory(origin) {
 			const target = new URL(origin);
@@ -72,14 +73,14 @@ function targetServername(hostname: string): string | undefined {
 function createSecureTargetDnsInterceptor(
 	undici: UndiciNetworkModule,
 	allowedFakeIpRanges: readonly string[],
-	lookup: LookupOptions["lookup"] | undefined,
+	options: NetworkDispatcherOptions,
 ): Dispatcher.DispatcherComposeInterceptor {
 	return undici.interceptors.dns({
 		maxTTL: TARGET_DNS_TTL_MS,
 		lookup(origin, _options, callback) {
 			void resolveAllowedAddresses(origin.hostname, {
+				...options,
 				allowedFakeIpRanges,
-				...(lookup !== undefined ? { lookup } : {}),
 			}).then(
 				(addresses) => callback(null, addresses.map((address) => ({ ...address, ttl: TARGET_DNS_TTL_MS }))),
 				(error: unknown) => callback(proxyLookupError(error), []),

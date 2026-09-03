@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ExtensionAPI, ExtensionContext, Theme, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import approvalGateExtension from "../../agent/extensions/approval-gate.js";
+import { createApprovalGateExtension } from "../../agent/extensions/approval-gate.js";
 import { defaultApprovalGateConfig } from "../../src/approval/config.js";
 import {
 	createApprovalGate,
@@ -15,12 +15,15 @@ import { FileApprovalStore } from "../../src/approval/rules/store.js";
 import type { ApprovalOptions } from "../../src/approval/runtime/interaction.js";
 import { ApprovalDialog } from "../../src/approval/tui/dialog.js";
 import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest } from "../../src/approval/types.js";
+import { readPrivateNetworkGrant } from "../../src/web-tools/network/private-network-grant.js";
 import { registerExtension } from "../helpers/extension.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
 const temp = useTempDir("o-pi-approval-gate-");
 preserveEnv("PI_APPROVAL_GATE_CONFIG");
+
+const approvalGateExtension = createApprovalGateExtension({ notifyUser: async () => {} });
 
 beforeEach(() => {
 	dir = temp.path;
@@ -198,6 +201,62 @@ describe("approval gate", () => {
 		const ui = fakeUi([choice]);
 		expect(await handle(bash(`echo value > "$OUTPUT"`), ctx(ui))).toMatchObject({ block: true });
 		expect(ui.selectCalls).toBe(1);
+	});
+
+	it("webfetch 私网审批通过后为同一工具参数签发非序列化授权", async () => {
+		const ui = fakeUi(["Allow once"]);
+		const event = webfetch("http://127.0.0.1:8080/private");
+		const handler = captureExtensionHandler();
+
+		expect(await handler(event, extensionCtx(ui))).toBeUndefined();
+		expect(ui.selectCalls).toBe(1);
+		expect(readPrivateNetworkGrant(event.input)).toEqual({
+			origin: "http://127.0.0.1:8080",
+			hostname: "127.0.0.1",
+			addresses: [{ address: "127.0.0.1", family: 4 }],
+		});
+		expect(JSON.stringify(event.input)).toBe('{"url":"http://127.0.0.1:8080/private"}');
+	});
+
+	it("webfetch 私网 origin 可按会话记忆并为每次调用重新签发授权", async () => {
+		const ui = fakeUi(["Allow for session"]);
+		const handler = captureExtensionHandler();
+		const first = webfetch("http://127.0.0.1:8080/first");
+		const second = webfetch("http://127.0.0.1:8080/second");
+
+		expect(await handler(first, extensionCtx(ui))).toBeUndefined();
+		expect(await handler(second, extensionCtx(ui))).toBeUndefined();
+		expect(ui.selectCalls).toBe(1);
+		expect(readPrivateNetworkGrant(first.input)).toBeDefined();
+		expect(readPrivateNetworkGrant(second.input)).toBeDefined();
+	});
+
+	it("webfetch 私网 URL 在无 UI 时保持阻止且不签发授权", async () => {
+		const event = webfetch("http://127.0.0.1/private");
+		const result = await testGate().handleToolCall(event, { cwd: dir });
+		expect(result).toMatchObject({ block: true, reason: expect.stringContaining("Approval required") });
+		expect(readPrivateNetworkGrant(event.input)).toBeUndefined();
+	});
+
+	it("非交互 allow 策略为 webfetch 私网调用签发授权", async () => {
+		const configPath = path.join(dir, "approval.jsonc");
+		await writeFile(configPath, '{ "ui": { "non_interactive": "allow" } }');
+		process.env.PI_APPROVAL_GATE_CONFIG = configPath;
+		const handler = captureExtensionHandler();
+		const event = webfetch("http://127.0.0.1/private");
+
+		expect(await handler(event, { cwd: dir, hasUI: false } as ExtensionContext)).toBeUndefined();
+		expect(readPrivateNetworkGrant(event.input)).toBeDefined();
+	});
+
+	it("config disabled 时 extension handler 放行但不签发私网授权", async () => {
+		const configPath = path.join(dir, "approval.jsonc");
+		await writeFile(configPath, '{ "enabled": false }');
+		process.env.PI_APPROVAL_GATE_CONFIG = configPath;
+		const handler = captureExtensionHandler();
+		const event = webfetch("http://127.0.0.1/private");
+		expect(await handler(event, extensionCtx(fakeUi([])))).toBeUndefined();
+		expect(readPrivateNetworkGrant(event.input)).toBeUndefined();
 	});
 
 	it("config disabled 时 extension handler 放行", async () => {
@@ -465,4 +524,8 @@ function write(filePath: string): ToolCallEvent {
 
 function edit(filePath: string): ToolCallEvent {
 	return { type: "tool_call", toolName: "edit", toolCallId: `edit-${filePath}`, input: { path: filePath, edits: [{ old: "a", new: "b" }] } };
+}
+
+function webfetch(url: string): ToolCallEvent {
+	return { type: "tool_call", toolName: "webfetch", toolCallId: `webfetch-${url}`, input: { url } };
 }

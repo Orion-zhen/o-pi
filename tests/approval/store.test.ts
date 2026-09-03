@@ -77,6 +77,21 @@ describe("approval store", () => {
 		expect(reloaded.matchesAllowRule(hosts, firstUnit(hosts))).toBe(false);
 	});
 
+	it("webfetch 会话和持久规则只允许相同 origin", async () => {
+		const request = webFetchRequest("http://127.0.0.1:8080");
+		const rules = createSimilarAllowRules(request, request.units);
+		expect(rules).toEqual([{ tool: "webfetch", kind: "exact_url", value: "http://127.0.0.1:8080" }]);
+
+		const storePath = path.join(dir, "webfetch.rules.jsonc");
+		const store = new FileApprovalStore(storePath);
+		await store.addPersistentAllowRules(rules);
+		const reloaded = new FileApprovalStore(storePath);
+		await reloaded.loadPersistentRules();
+		expect(reloaded.matchesAllowRule(request, firstUnit(request))).toBe(true);
+		const other = webFetchRequest("http://127.0.0.1:9090");
+		expect(reloaded.matchesAllowRule(other, firstUnit(other))).toBe(false);
+	});
+
 	it("persistent store 批量读写带 cwd 的规则", async () => {
 		const request = await commandRequest("git push origin main && npm install lodash");
 		const storePath = path.join(dir, "approval.rules.jsonc");
@@ -161,4 +176,23 @@ function firstUnit(request: ApprovalRequest): ApprovalUnit {
 	const found = request.units[0];
 	if (found === undefined) throw new Error("missing approval unit");
 	return found;
+}
+
+function webFetchRequest(origin: string): ApprovalRequest {
+	return {
+		tool: "webfetch",
+		cwd: dir,
+		summary: `Fetch private network origin: ${origin}`,
+		detail: {
+			kind: "webfetch",
+			url: `${origin}/private`,
+			origin,
+			addresses: [{ address: "127.0.0.1", family: 4 }],
+		},
+		units: [{
+			action: "fetch_url",
+			target: { kind: "url", value: origin },
+			remember: { session: true, persistent: true },
+		}],
+	};
 }

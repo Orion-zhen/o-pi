@@ -289,6 +289,28 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 		expect(request?.units.map((unit) => unit.target)).toEqual([{ kind: "path", value: path.join(cwd, "src", "index.ts").replace(/\\/g, "/") }]);
 	});
 
+	it("webfetch 私网 URL 生成按 origin 匹配的审批单元", async () => {
+		const request = await buildApprovalRequest(webfetch("http://127.0.0.1:8080/admin?q=1#fragment"), cwd);
+		expect(request).toMatchObject({
+			tool: "webfetch",
+			summary: "Fetch private network origin: http://127.0.0.1:8080",
+			detail: {
+				kind: "webfetch",
+				origin: "http://127.0.0.1:8080",
+				addresses: [{ address: "127.0.0.1", family: 4 }],
+			},
+			units: [{
+				action: "fetch_url",
+				target: { kind: "url", value: "http://127.0.0.1:8080" },
+				remember: { session: true, persistent: true },
+			}],
+		});
+	});
+
+	it("webfetch 公网字面 IP 不生成审批请求", async () => {
+		expect(await buildApprovalRequest(webfetch("https://8.8.8.8/dns-query"), cwd)).toBeUndefined();
+	});
+
 	it("read/find/grep/ls 返回 undefined", async () => {
 		for (const event of [
 			{ type: "tool_call", toolName: "read", toolCallId: "read-1", input: { path: "a" } },
@@ -317,4 +339,8 @@ function write(filePath: string): ToolCallEvent {
 
 function edit(filePath: string): ToolCallEvent {
 	return { type: "tool_call", toolName: "edit", toolCallId: "edit-1", input: { path: filePath, edits: [{ old: "a", new: "b" }] } };
+}
+
+function webfetch(url: string): ToolCallEvent {
+	return { type: "tool_call", toolName: "webfetch", toolCallId: "webfetch-1", input: { url } };
 }

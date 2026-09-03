@@ -1,3 +1,4 @@
+import type { LookupAddress } from "node:dns";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createNetServer, type Server } from "node:net";
 import { pathToFileURL } from "node:url";
@@ -6,9 +7,23 @@ import * as undici from "undici";
 
 import type { WebToolsConfig } from "../../src/web-tools/core/types.js";
 import { createNetworkDispatcher, networkConfigSignature } from "../../src/web-tools/network/dispatcher.js";
-import { isAllowedResolvedAddress, isPublicAddress, resolveAllowedAddresses, validateRequestUrl } from "../../src/web-tools/network/network-policy.js";
+import {
+	inspectWebFetchTarget,
+	isAllowedResolvedAddress,
+	isPublicAddress,
+	resolveAllowedAddresses,
+	validateRequestUrl,
+} from "../../src/web-tools/network/network-policy.js";
 
 const servers: Server[] = [];
+const invalidLookupResults: Array<{ name: string; addresses: LookupAddress[]; message: string }> = [
+	{ name: "空结果", addresses: [], message: "DNS lookup returned no addresses." },
+	{
+		name: "未知地址族",
+		addresses: [{ address: "8.8.8.8", family: 0 }],
+		message: "DNS lookup returned unsupported address family 0.",
+	},
+];
 
 afterEach(async () => {
 	await Promise.all(servers.splice(0).map(closeServer));
@@ -25,6 +40,38 @@ describe("webfetch network policy", () => {
 		expect(validateRequestUrl("http://[::1]")).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
 	});
 
+	it("只允许与获批 origin 完全相同的私网字面 URL", () => {
+		expect(validateRequestUrl(
+			"http://127.0.0.1:8080/path",
+			"http://127.0.0.1:8080",
+		)).toMatchObject({ displayUrl: "http://127.0.0.1:8080/path" });
+		expect(validateRequestUrl(
+			"http://127.0.0.1:9090/path",
+			"http://127.0.0.1:8080",
+		)).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
+	});
+
+	it("preflight 将 DNS 私网和混合地址标记为 private，并保留连接地址", async () => {
+		const privateTarget = await inspectWebFetchTarget("http://service.internal:8080/path", {
+			lookup: async () => [
+				{ address: "8.8.8.8", family: 4 },
+				{ address: "10.0.0.5", family: 4 },
+			],
+		});
+		expect(privateTarget).toMatchObject({
+			status: "private",
+			validated: { displayUrl: "http://service.internal:8080/path" },
+			addresses: [
+				{ address: "8.8.8.8", family: 4 },
+				{ address: "10.0.0.5", family: 4 },
+			],
+		});
+
+		await expect(inspectWebFetchTarget("https://public.example/", {
+			lookup: async () => [{ address: "8.8.8.8", family: 4 }],
+		})).resolves.toMatchObject({ status: "public" });
+	});
+
 	it("只把全球单播公网地址视为允许", () => {
 		expect(isPublicAddress("8.8.8.8")).toBe(true);
 		expect(isPublicAddress("2606:4700:4700::1111")).toBe(true);
@@ -34,6 +81,12 @@ describe("webfetch network policy", () => {
 		expect(isPublicAddress("::1")).toBe(false);
 		expect(isPublicAddress("fc00::1")).toBe(false);
 		expect(isPublicAddress("::ffff:192.168.1.1")).toBe(false);
+	});
+
+	it.each(invalidLookupResults)("拒绝 DNS $name", async ({ addresses, message }) => {
+		await expect(resolveAllowedAddresses("example.com", {
+			lookup: async () => addresses,
+		})).rejects.toThrow(message);
 	});
 
 	it("混合公网和私网 DNS 结果整体拒绝", async () => {
@@ -59,6 +112,25 @@ describe("webfetch network policy", () => {
 			}),
 		).resolves.toEqual([{ address: "198.18.2.86", family: 4 }]);
 		expect(validateRequestUrl("https://198.18.2.86/")).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
+	});
+
+	it("固定审批地址后允许 dispatcher 连接对应私网域名", async () => {
+		const server = createHttpServer((_request, response) => response.end("approved private"));
+		servers.push(server);
+		const port = await listen(server);
+		const dispatcher = createNetworkDispatcher(proxyNetwork({ enabled: false }), undici, {
+			pinnedAddressSet: {
+				hostname: "private.test",
+				addresses: [{ address: "127.0.0.1", family: 4 }],
+			},
+		});
+
+		try {
+			const response = await undici.fetch(`http://private.test:${port}/`, { dispatcher });
+			expect(await response.text()).toBe("approved private");
+		} finally {
+			await dispatcher.close();
+		}
 	});
 
 	it("HTTP 代理接收本地安全解析后的目标 IP，并保留原始 Host", async () => {

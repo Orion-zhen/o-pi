@@ -1,6 +1,8 @@
 import path from "node:path";
 import { isToolCallEventType, type ToolCallEvent } from "@earendil-works/pi-coding-agent";
 
+import { loadWebToolsConfig } from "../../web-tools/config.js";
+import { inspectWebFetchTarget } from "../../web-tools/network/network-policy.js";
 import type {
 	ApprovalEditReplacement,
 	ApprovalRequest,
@@ -12,6 +14,7 @@ import { isSystemTemporaryDescendant, normalizeTargetPath } from "./path.js";
 
 type WriteApprovalInput = Record<string, unknown> & { path: string; content: string };
 type EditApprovalInput = Record<string, unknown> & { path: string; edits: ApprovalEditReplacement[] };
+type WebFetchApprovalInput = Record<string, unknown> & { url: string };
 
 export async function buildApprovalRequest(event: ToolCallEvent, cwd: string): Promise<ApprovalRequest | undefined> {
 	if (isToolCallEventType("bash", event)) {
@@ -42,6 +45,31 @@ export async function buildApprovalRequest(event: ToolCallEvent, cwd: string): P
 			summary: `Edit file: ${targetPath}`,
 			detail: { kind: "edit", path: targetPath, edits },
 			units: [pathUnit("edit_file", targetPath)],
+		};
+	}
+
+	if (isToolCallEventType<"webfetch", WebFetchApprovalInput>("webfetch", event)) {
+		const webConfig = await loadWebToolsConfig();
+		const inspection = await inspectWebFetchTarget(event.input.url, {
+			allowedFakeIpRanges: webConfig.network.fake_ip_ranges,
+		});
+		if ("error" in inspection || inspection.status === "public") return undefined;
+		const origin = inspection.validated.url.origin;
+		return {
+			tool: "webfetch",
+			cwd: normalizeCwd(cwd),
+			summary: `Fetch private network origin: ${origin}`,
+			detail: {
+				kind: "webfetch",
+				url: inspection.validated.displayUrl,
+				origin,
+				addresses: inspection.addresses,
+			},
+			units: [{
+				action: "fetch_url",
+				target: { kind: "url", value: origin },
+				remember: { session: true, persistent: true },
+			}],
 		};
 	}
 
