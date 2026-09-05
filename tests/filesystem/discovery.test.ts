@@ -39,7 +39,7 @@ describe.each(["discover", "discoverPaths"] as const)("filesystem %s boundaries"
 		const stream = expectFsOk(await opened.services.discovery[method](opened.namespace.root, { maxEntries: 100 }));
 		const events = await collectAsync(stream);
 		expect(events.filter((event) => event.type === "entry").map((event) => event.ref.displayPath)).toEqual([
-			".piignore", "a-dir", "a-dir/a.txt", "b.txt", "cache", "cache/keep.txt",
+			".piignore", "a-dir", "b.txt", "cache", "a-dir/a.txt", "cache/keep.txt",
 		]);
 		expect(events).toEqual(expect.arrayContaining([
 			expect.objectContaining({ type: "skip", path: "a-dir/cycle", reason: "symlink" }),

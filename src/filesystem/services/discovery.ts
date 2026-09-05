@@ -56,7 +56,6 @@ type PreparedChild =
 		readonly type: "entry";
 		readonly child: DiscoveryChild;
 		readonly visibility: VisibilityAnnotation;
-		readonly children?: FsResult<readonly NativeDirectoryEntry[]>;
 	};
 
 interface DiscoveryDependencies {
@@ -203,10 +202,41 @@ class NativeDiscovery implements PathDiscovery {
 				}
 			} else {
 				const { start, entries, bypassVisibility } = this.source;
-				yield* this.walkDirectory(start.root, entries, start.depthOffset + 1, start.relativePrefix, bypassVisibility);
+				yield* this.walkBreadthFirst(start, entries, bypassVisibility);
 			}
 		} finally {
 			await this.close();
+		}
+	}
+
+	private async *walkBreadthFirst(
+		root: DirectoryStart,
+		entries: readonly NativeDirectoryEntry[],
+		bypassVisibility: boolean,
+	): AsyncGenerator<PathDiscoveryEvent> {
+		let nextLevel: DirectoryStart[] = [];
+		yield* this.walkDirectory(root.root, entries, root.depthOffset + 1, root.relativePrefix, bypassVisibility, nextLevel);
+		while (nextLevel.length > 0) {
+			const level = nextLevel;
+			nextLevel = [];
+			// 队列只保存目录引用，出队时按小批次读取，避免缓存整层目录的条目。
+			for (let start = 0; start < level.length; start += DIRECTORY_ENTRY_CONCURRENCY) {
+				if (this.stopped) return;
+				const batch = await Promise.all(level.slice(start, start + DIRECTORY_ENTRY_CONCURRENCY).map(async (directory) => ({
+					directory, entries: await readDirectory(this.dependencies, directory.root, bypassVisibility),
+				})));
+				for (const { directory, entries: children } of batch) {
+					if (this.stopped) return;
+					if (!children.ok) {
+						if (children.error.code === "aborted") this.stopped = true;
+						yield { type: "error", path: directory.root.displayPath, error: children.error };
+						continue;
+					}
+					yield* this.walkDirectory(
+						directory.root, children.value, directory.depthOffset + 1, directory.relativePrefix, bypassVisibility, nextLevel,
+					);
+				}
+			}
 		}
 	}
 
@@ -216,6 +246,7 @@ class NativeDiscovery implements PathDiscovery {
 		depth: number,
 		relativeDirectory: string,
 		bypassVisibility: boolean,
+		nextLevel: DirectoryStart[],
 	): AsyncGenerator<PathDiscoveryEvent> {
 		if (this.options.maxDepth !== undefined && depth > this.options.maxDepth) {
 			if (entries.length > 0) yield { type: "skip", path: directory.displayPath, reason: "depth-limit", kind: "directory" };
@@ -263,7 +294,7 @@ class NativeDiscovery implements PathDiscovery {
 					yield { type: "skip", path: prepared.ref.displayPath, reason: "symlink", kind: "symlink" };
 					continue;
 				}
-				const { child, visibility, children } = prepared;
+				const { child, visibility } = prepared;
 				const ref = child.ref;
 				const relativePath = relativeDirectory === "" ? entry.name : `${relativeDirectory}/${entry.name}`;
 				if (visibility.ignored) {
@@ -282,13 +313,9 @@ class NativeDiscovery implements PathDiscovery {
 						yield selected;
 					}
 				}
-				if (ref.kind !== "directory" || children === undefined) continue;
-				if (!children.ok) {
-					if (children.error.code === "aborted") this.stopped = true;
-					yield { type: "error", path: ref.displayPath, error: children.error };
-					continue;
+				if (ref.kind === "directory") {
+					nextLevel.push({ root: ref, depthOffset: depth, relativePrefix: relativePath });
 				}
-				if (!this.stopped) yield* this.walkDirectory(ref, children.value, depth + 1, relativePath, bypassVisibility);
 			}
 		}
 	}
@@ -301,11 +328,7 @@ class NativeDiscovery implements PathDiscovery {
 		const visibility = bypassVisibility ? fsSuccess({ ignored: false, prune: false })
 			: await this.dependencies.visibility.evaluate(child.ref, "search");
 		if (!visibility.ok) return { type: "error", error: visibility.error, stage: "visibility" };
-		if (child.ref.kind !== "directory" || (visibility.value.ignored && visibility.value.prune)) {
-			return { type: "entry", child, visibility: visibility.value };
-		}
-		return { type: "entry", child, visibility: visibility.value,
-			children: await readDirectory(this.dependencies, child.ref, bypassVisibility) };
+		return { type: "entry", child, visibility: visibility.value };
 	}
 
 	private async resolveChild(directory: DirectoryRef, entry: NativeDirectoryEntry): Promise<FsResult<DiscoveryChild>> {
