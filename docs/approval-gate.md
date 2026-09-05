@@ -4,16 +4,18 @@
 
 执行顺序：
 
-1. 读取 Approval Gate 配置。
+1. 排除不受管理的工具，再读取 Approval Gate 配置。禁用时直接返回，不解析请求或检查 DNS。
 2. 构建工具审批请求。Bash 请求在此阶段使用 Tree-sitter 解析。`webfetch` 请求在此阶段解析目标地址。
-3. 评估路径规则、Bash 安全事实和已记住的放行规则。
+3. 收集路径规则和 Bash 安全事实，在同一决策流程中处理拒绝、临时范围豁免、已记住的放行规则和待确认单元。
 4. 策略为 `deny` 时阻止工具调用。
 5. 策略为 `ask` 时显示审批界面，并根据用户选择放行或阻止调用。
 6. 策略为 `allow` 或用户批准后执行工具。
 
 审批策略判定为 `ask` 且存在交互式界面时，Approval Gate 会先尝试发送系统通知，再显示审批选择框。通知失败不影响审批。用户拒绝后，Approval Gate 返回 `{ block: true, reason }`，但不调用 `ctx.abort()`。
 
-`ApprovalGate` 仅通过 `ApprovalInteractionPort` 的 `approve`、`input` 和 `notify` 方法访问交互界面，不依赖 Pi TUI。当前扩展在 `ctx.hasUI` 为 `true` 时通过 Pi UI 注入该端口。JSON 模式和打印模式没有该端口，因此使用 `ui.non_interactive` 策略。
+Pi 调用扩展的默认导出注册审批钩子。`createApprovalGate()` 创建审批运行时，其 `authorize` 方法接收已构建的审批请求、配置和可选的 `ApprovalInteractionPort`，返回明确的批准或阻止结果。运行时按配置加载文件存储，审批交互使用共享系统通知模块。核心不依赖 Pi 事件或 TUI。`src/approval/pi/request.ts` 负责从 Pi 工具参数构建请求，扩展负责总开关、交互端口、状态事件和批准后的私网授权。
+
+交互端口仅包含 `approve`、`input` 和 `notify`。扩展在 `ctx.hasUI` 为 `true` 时通过 Pi UI 注入端口。JSON 模式和打印模式没有该端口，因此使用 `ui.non_interactive` 策略。交互异常会向上阻止工具执行，并结束对应的审批状态事件。
 
 ## 审批界面
 
@@ -32,7 +34,7 @@ TUI 模式使用高度受限的覆盖面板。面板把请求内容和审批操�
 - `edit` 按替换项显示原文本、新文本和 `replace_all` 状态。
 - `webfetch` 显示目标 URL、origin 和解析到的地址。
 
-TUI 面板会移除请求内容中的终端控制序列，避免内容改变终端显示状态。RPC 模式继续使用 Pi 的基础选择框，并在标题中包含相同的请求信息。
+TUI 和 RPC 使用同一份审批展示内容。命令、文件内容、路径、工作目录和触发原因都会移除终端控制序列，原始工具参数不被修改。RPC 模式使用 Pi 的基础选择框，并在标题中包含请求信息。
 
 ## 与工具运行约束的区别
 
@@ -55,6 +57,8 @@ Approval Gate 不把整段 Shell 文本作为一个审批目标，而是提取�
 - 具有有限字面量取值的 `for` 循环中的命令变量。例如，`for engine in xelatex lualatex` 会产生两个具体命令供分析。
 
 Bash 安全事实分类器逐单元匹配命令正则，也可以匹配完整原始输入。一次工具调用只显示一个聚合审批框。安全事实或 `deny_rules` 判定为 `deny` 时，任何已记住的放行规则都不能覆盖该决定。审批框会汇总需要确认且未被放行规则覆盖的单元。用户批准后，工具仍执行原始完整命令。
+
+命令目标保留原文和解包后的有效命令两个视图。原文用于展示、原文策略和精确放行，有效命令用于 `effective-unit` 策略和保守前缀匹配。Bash 审批与技能路径解析共用引号及转义解码。审批会合并 Tree-sitter 被续行拆开的相邻 word，例如 `pu` 与续行后的 `sh` 按同一个 `push` 参数分析。
 
 解析器会按执行顺序跟踪变量和 `$PWD`。裸赋值以及 `declare`、`readonly` 和 `export` 中的赋值都参与跟踪。变量经过多次赋值后，只要当前值仍可确定，后续命令就能继续使用该值。所有控制流分支都落在临时范围时，解析器会合并分支结果。函数定义本身不产生审批单元。静态可确定的函数调用和 `EXIT` trap 会在调用时使用对应上下文分析函数体。
 
@@ -112,7 +116,11 @@ Bash 安全事实分类器逐单元匹配命令正则，也可以匹配完整原
 - `remember.allow_persistent`：是否显示 `Always allow similar`。
 - `remember.persistent_store`：持久放行规则文件。默认值为 `~/.pi/agent/state/approval-gate.rules.jsonc`。
 
-Bash 策略位于 Approval Gate 配置的 `tools.bash` 中。`facts` 以事实 ID 为键。每个事实包含可选的 `ask` 或 `deny` 动作，以及一组带名称的命令分类器。字符串分类器默认匹配 Tree-sitter 提取的单条命令原文，并在所有平台生效。对象分类器还可以用 `scope` 选择 `raw-input`、`source-unit` 或 `effective-unit`，并用 `platform` 限制平台。
+Bash 的 `default_action: deny` 拒绝整次调用，不能被临时范围或记忆规则覆盖。其他工具的默认动作只处理尚未被临时范围、记忆规则或显式确认规则覆盖的单元。显式 `deny_rules` 始终优先。
+
+Bash 策略位于 Approval Gate 配置的 `tools.bash` 中。`facts` 以事实 ID 为键。每个事实包含可选的 `ask` 或 `deny` 动作，以及一组带名称的命令分类器。字符串分类器默认匹配 Tree-sitter 提取的单条命令原文，并在所有平台生效。对象分类器还可以用 `scope` 选择 `raw-input`、`source-unit` 或 `effective-unit`，并用 `platform` 限制平台，匹配当前进程的 `process.platform`。
+
+覆盖配置允许只修改已有事实、分类器或组合的一部分字段。合并后会完整校验必需字段、正则和事实引用。运行时只保留启用的分类器和组合，正则在配置加载时编译。
 
 `combinations` 在一次 Bash 调用同时产生指定事实时升级决策。判定优先级固定为 `deny`、`ask`、`default_action`。已记住的批准不能覆盖 `deny`。用户配置按事实 ID 和分类器 ID 递归合并。分类器可设为 `false`，事实可使用 `enabled: false`，组合可设为 `false`。
 
@@ -131,6 +139,8 @@ Bash 策略位于 Approval Gate 配置的 `tools.bash` 中。`facts` 以事实 I
 
 `path_globs` 只匹配路径审批单元，包括 `write`、`edit` 和 Bash 中可静态解析的文件写重定向。匹配前，目标会转换为使用 `/` 的绝对路径，因此 glob 也应覆盖绝对路径。如果不限定根目录，可以使用 `**/name/**`。数组中任一 glob 命中即视为匹配，空数组不是合法配置。`picomatch` 解释这些 glob。`*` 匹配单个路径段内的字符，`**` 可以跨路径段，隐藏路径也参与匹配。开头的 `!` 按普通字符处理，不表示排除规则。
 
+文件工具审批与文件系统共用 `~` 路径展开规则，`skill://` 目标保持逻辑路径。Bash 路径在 Shell 解码后解析，不会再次展开引号内的字面 `~`。
+
 `path_globs` 只检查路径审批单元，不解析普通命令参数。例如，`rm /etc/file` 应通过 Bash 安全事实分类器匹配。未配置 `path_globs` 时，规则只按工具名匹配。
 
 ## 用户选择
@@ -147,6 +157,8 @@ User denied this tool call.
 Instruction from user:
 ...
 ```
+
+存储通过 `FileApprovalStore.open` 完成初始化后才能使用。同一路径的并发调用等待同一次加载，加载失败后允许下一次调用重试。持久写入串行提交，写入失败不更新内存规则，也不阻塞后续写入。
 
 如果任一待确认单元无法生成范围明确的规则，对应的记忆选项就不会显示。持久规则文件不使用版本号，Approval Gate 根据规则字段解析文件。每条规则包含 `tool`、`kind` 和 `value`。`exact_command` 和 `command_prefix` 规则还必须包含 `cwd`，并且只匹配相同工作目录。`exact_path` 和 `path_glob` 规则不接受 `cwd`。额外字段不影响解析，无法识别的规则不会加载。
 

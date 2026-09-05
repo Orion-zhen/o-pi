@@ -8,7 +8,6 @@ import {
 	commandUnit,
 	redirectUnit,
 	resolveShellWord,
-	successfulCdTarget,
 	temporaryPathAssignment,
 	type CommandFacts,
 } from "./command.js";
@@ -87,10 +86,9 @@ async function analyzeNode(
 	context: BashAnalysisContext,
 	state: BashAnalysisState,
 	check: () => void,
-): Promise<void> {
+): Promise<ResolvedShellValue | undefined> {
 	check();
 	if (node.type === "command") {
-		const cdTarget = successfulCdTarget(node, context);
 		const command = commandUnit(node, context);
 		pushUnit(state.units, command.unit);
 		if (command.nestedShell !== undefined) {
@@ -111,8 +109,8 @@ async function analyzeNode(
 		handleExitTrap(command.rawFacts, context);
 		await analyzeFunctionCall(command.rawFacts, context, state, check);
 		invalidateCommandVariables(command.rawFacts, context);
-		if (cdTarget !== undefined) context.cwd = { value: UNKNOWN_DIRECTORY_PATH, temporary: false };
-		return;
+		if (command.cdTarget !== undefined) context.cwd = { value: UNKNOWN_DIRECTORY_PATH, temporary: false };
+		return command.cdTarget;
 	}
 	if (node.type === "variable_assignment") {
 		await analyzeEmbeddedShell(node, context, state, check);
@@ -293,9 +291,9 @@ async function analyzeList(
 	const children = node.namedChildren;
 	for (const [index, child] of children.entries()) {
 		const before = cloneContext(current);
-		const cdTarget = successfulCdTarget(child, current);
+		let cdTarget: ResolvedShellValue | undefined;
 		if (child.type === "list") current = await analyzeList(child, current, state, check, false);
-		else await analyzeNode(child, current, state, check);
+		else cdTarget = await analyzeNode(child, current, state, check);
 		const separator = separatorAfter(node, child, children[index + 1]);
 		if (separator === "&&") {
 			outcomes.push(before);

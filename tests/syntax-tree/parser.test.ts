@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it, vi } from "vitest";
 
 import { getTreeSitterLanguage } from "../../src/syntax-tree/grammars.js";
+import { decodeShellWord } from "../../src/syntax-tree/bash.js";
 import { loadTreeSitterParser } from "../../src/syntax-tree/loader.js";
 import { parseSyntaxTree, SyntaxAnalysisAbortedError } from "../../src/syntax-tree/parser.js";
 
@@ -10,6 +11,33 @@ const bashGrammar = getTreeSitterLanguage("bash").grammar;
 const javascriptGrammar = getTreeSitterLanguage("javascript").grammar;
 
 describe("shared syntax tree parser", () => {
+	it.each([
+		["pu\\\nsh", "push"],
+		['"pu\\\nsh"', "push"],
+		["'pu\\\nsh'", "pu\\\nsh"],
+		["'中文 $HOME'", "中文 $HOME"],
+		['"a\\qb"', "a\\qb"],
+		['"a\\$b"', "a$b"],
+		["a\\ b", "a b"],
+		["$HOME", undefined],
+		['"$HOME"', undefined],
+		["`command`", undefined],
+		["*.ts", undefined],
+		["~/file", undefined],
+		["{a,b}", undefined],
+		["trailing\\", undefined],
+		["'unterminated", undefined],
+	] as const)("共享 Shell 解码保留引号和转义语义: %s", (source, expected) => {
+		expect(decodeShellWord(source)).toBe(expected);
+	});
+
+	it("动态解码复用同一引号规则，并由调用方决定是否允许未引用展开", () => {
+		const resolveExpansion = (_source: string, start: number) => ({ value: "目录", end: start + 1 });
+		expect(decodeShellWord('"$x/file"', { resolveExpansion })).toBe("目录/file");
+		expect(decodeShellWord("$x/file", { resolveExpansion })).toBeUndefined();
+		expect(decodeShellWord("$x/*.ts", { resolveExpansion, allowUnquotedExpansion: true, allowGlob: true })).toBe("目录/*.ts");
+	});
+
 	it("通过统一 grammar catalog 加载 Bash WASM，不加载 native module", async () => {
 		const document = await parseSyntaxTree(
 			bashGrammar,

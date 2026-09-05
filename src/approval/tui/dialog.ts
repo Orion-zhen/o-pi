@@ -1,35 +1,16 @@
 import type { ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
-import {
-	Key,
-	matchesKey,
-	stripTerminalSequences,
-	truncateToWidth,
-	wrapTextWithAnsi,
-	type Component,
-} from "@earendil-works/pi-tui";
+import { Key, matchesKey, truncateToWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import { borderedPanelContentWidth, renderBorderedPanel } from "../../tui/bordered-scroll-viewer.js";
-
+import { buildApprovalContent, type ApprovalDisplayLine, type ApprovalLineStyle } from "../presentation.js";
 import {
-	ALLOW_ONCE,
-	ALLOW_PERSISTENT,
-	ALLOW_SESSION,
-	DENY_WITH_INSTRUCTION,
-	type ApprovalChoice,
-	type ApprovalDialogOptions,
-	type ApprovalOptions,
+	ALLOW_ONCE, ALLOW_PERSISTENT, ALLOW_SESSION, DENY_WITH_INSTRUCTION,
+	type ApprovalChoice, type ApprovalDialogOptions, type ApprovalOptions,
 } from "../runtime/interaction.js";
 import type { ApprovalDecision, ApprovalRequest } from "../types.js";
 
 const HEIGHT_RATIO = 0.9;
 const FIXED_INNER_ROWS = 4;
-
 type AskDecision = Extract<ApprovalDecision, { kind: "ask" }>;
-type LineStyle = "text" | "dim" | "added" | "removed" | "warning";
-
-interface DisplayLine {
-	text: string;
-	style: LineStyle;
-}
 
 export async function openApprovalDialog(
 	ui: Pick<ExtensionUIContext, "custom">,
@@ -40,35 +21,27 @@ export async function openApprovalDialog(
 ): Promise<string | undefined> {
 	return ui.custom<string | undefined>(
 		(tui, theme, _keybindings, done) => new ApprovalDialog(
-			request,
-			decision,
-			options,
-			theme,
-			() => tui.terminal.rows,
-			() => tui.requestRender(),
-			done,
-			dialogOptions?.timeout,
+			request, decision, options, theme,
+			() => tui.terminal.rows, () => tui.requestRender(), done, dialogOptions?.timeout,
 		),
-		{
-			overlay: true,
-			overlayOptions: { anchor: "center", width: "90%", minWidth: 80, maxHeight: "90%", margin: 1 },
-		},
+		{ overlay: true, overlayOptions: { anchor: "center", width: "90%", minWidth: 80, maxHeight: "90%", margin: 1 } },
 	);
 }
 
-/** 高度受限的审批面板。内容滚动与操作选择相互独立。 */
+/** 高度受限的审批面板，内容滚动与操作选择相互独立。 */
 export class ApprovalDialog implements Component {
 	private selectedChoice: ApprovalChoice;
 	private scrollTop = 0;
 	private bodyHeight = 1;
 	private renderedBodyLines = 0;
+	private readonly content: ApprovalDisplayLine[];
 	private readonly expiresAt: number | undefined;
 	private readonly timeoutTimer: ReturnType<typeof setTimeout> | undefined;
 	private readonly countdownTimer: ReturnType<typeof setInterval> | undefined;
 
 	constructor(
 		private readonly request: ApprovalRequest,
-		private readonly decision: AskDecision,
+		decision: AskDecision,
 		private readonly options: ApprovalOptions,
 		private readonly theme: Pick<Theme, "fg" | "bg" | "bold">,
 		private readonly getRows: () => number,
@@ -77,6 +50,7 @@ export class ApprovalDialog implements Component {
 		timeoutMs?: number,
 	) {
 		this.selectedChoice = options[0];
+		this.content = buildApprovalContent(request, decision);
 		if (timeoutMs !== undefined) {
 			this.expiresAt = Date.now() + timeoutMs;
 			this.timeoutTimer = setTimeout(() => this.done(undefined), timeoutMs);
@@ -93,7 +67,6 @@ export class ApprovalDialog implements Component {
 			this.done(this.selectedChoice);
 			return;
 		}
-
 		if (matchesKey(data, Key.up)) this.selectBy(-1);
 		else if (matchesKey(data, Key.down)) this.selectBy(1);
 		else if (matchesKey(data, Key.pageUp)) this.scrollBy(-this.bodyHeight);
@@ -109,33 +82,24 @@ export class ApprovalDialog implements Component {
 		const rowBudget = Math.max(1, Math.floor(this.getRows() * HEIGHT_RATIO));
 		const contentWidth = borderedPanelContentWidth(width);
 		if (contentWidth < 1 || rowBudget < 8) return this.renderCompact(width, rowBudget);
-
-		const body = wrapDisplayLines(buildBody(this.request, this.decision), contentWidth, this.theme);
+		const body = this.content.flatMap((line) =>
+			wrapTextWithAnsi(line.text, contentWidth).map((text) => this.theme.fg(lineColor(line.style), text)));
 		this.renderedBodyLines = body.length;
-
 		const availableRows = rowBudget - 2 - FIXED_INNER_ROWS;
 		const optionRows = Math.min(this.options.length, Math.max(1, availableRows - 1));
-		const maxBodyHeight = Math.max(1, availableRows - optionRows);
-		this.bodyHeight = Math.max(1, Math.min(body.length, maxBodyHeight));
+		this.bodyHeight = Math.max(1, Math.min(body.length, availableRows - optionRows));
 		this.clampScroll();
-
 		const visibleBody = body.slice(this.scrollTop, this.scrollTop + this.bodyHeight);
 		while (visibleBody.length < this.bodyHeight) visibleBody.push("");
 		const bodyEnd = Math.min(this.renderedBodyLines, this.scrollTop + this.bodyHeight);
-		const sectionTitle = this.theme.fg(
-			"muted",
-			`Request details  ${this.scrollTop + 1}-${bodyEnd}/${this.renderedBodyLines}`,
-		);
-
-		const innerLines = [
+		return renderBorderedPanel([
 			this.theme.fg("warning", this.theme.bold(`Approval required | ${this.request.tool}`)),
-			sectionTitle,
+			this.theme.fg("muted", `Request details  ${this.scrollTop + 1}-${bodyEnd}/${this.renderedBodyLines}`),
 			...visibleBody,
 			this.theme.fg("text", "─".repeat(contentWidth)),
 			...this.renderOptions(contentWidth, optionRows),
 			this.theme.fg("dim", this.footer()),
-		];
-		return renderBorderedPanel(innerLines, width, this.theme);
+		], width, this.theme);
 	}
 
 	invalidate(): void {}
@@ -155,26 +119,19 @@ export class ApprovalDialog implements Component {
 
 	private renderOptions(width: number, visibleRows: number): string[] {
 		const selectedIndex = this.options.indexOf(this.selectedChoice);
-		const start = Math.max(0, Math.min(
-			selectedIndex - Math.floor(visibleRows / 2),
-			this.options.length - visibleRows,
-		));
+		const start = Math.max(0, Math.min(selectedIndex - Math.floor(visibleRows / 2), this.options.length - visibleRows));
 		return this.options.slice(start, start + visibleRows).map((option) => {
 			const selected = option === this.selectedChoice;
-			const prefix = selected ? "> " : "  ";
 			const description = width >= 64 ? ` - ${optionDescription(option)}` : "";
-			const line = truncateToWidth(`${prefix}${option}${description}`, width, "");
-			return selected
-				? this.theme.bg("selectedBg", this.theme.fg("accent", this.theme.bold(line)))
-				: line;
+			const line = truncateToWidth(`${selected ? "> " : "  "}${option}${description}`, width, "");
+			return selected ? this.theme.bg("selectedBg", this.theme.fg("accent", this.theme.bold(line))) : line;
 		});
 	}
 
 	private footer(): string {
 		const position = `${this.options.indexOf(this.selectedChoice) + 1}/${this.options.length}`;
 		const remaining = this.expiresAt === undefined
-			? ""
-			: ` | timeout ${Math.max(0, Math.ceil((this.expiresAt - Date.now()) / 1000))}s`;
+			? "" : ` | timeout ${Math.max(0, Math.ceil((this.expiresAt - Date.now()) / 1000))}s`;
 		return `Up/Down choose ${position} | PgUp/PgDn scroll | Enter confirm | Esc deny${remaining}`;
 	}
 
@@ -199,99 +156,12 @@ export class ApprovalDialog implements Component {
 	}
 }
 
-function buildBody(request: ApprovalRequest, decision: AskDecision): DisplayLine[] {
-	const reasons = [...new Set(decision.items.map((item) => item.reason))];
-	const common: DisplayLine[] = [
-		line(`Working directory: ${request.cwd}`, "dim"),
-		...reasons.map((reason) => line(`Reason: ${reason}`, "warning")),
-		line(""),
-	];
-
-	if (request.detail.kind === "bash") {
-		return [
-			...common,
-			line(`Command (${lineCount(request.detail.command)} lines):`, "dim"),
-			...payloadLines(request.detail.command, "text"),
-			line(""),
-			line("Sensitive units:", "dim"),
-			...decision.items.flatMap((item, index) => [
-				line(`${index + 1}. ${item.unit.target.value}`, "warning"),
-				line(`   ${item.unit.action} | ${item.reason}`, "dim"),
-			]),
-		];
-	}
-
-	if (request.detail.kind === "write") {
-		return [
-			line(`Target: ${request.detail.path}`),
-			...common,
-			line(`Proposed content (${lineCount(request.detail.content)} lines, ${request.detail.content.length} chars):`, "dim"),
-			...prefixedPayloadLines(request.detail.content, "+ ", "added"),
-		];
-	}
-
-	if (request.detail.kind === "webfetch") {
-		return [
-			line(`Target: ${request.detail.origin}`),
-			...common,
-			line(`URL: ${request.detail.url}`),
-			line("Resolved addresses:", "dim"),
-			...request.detail.addresses.map((item) => line(item.address, "warning")),
-		];
-	}
-
-	return [
-		line(`Target: ${request.detail.path}`),
-		...common,
-		...request.detail.edits.flatMap((edit, index) => [
-			line(`Replacement ${index + 1}${edit.replace_all ? " (all matches)" : ""}:`, "dim"),
-			...prefixedPayloadLines(edit.old, "- ", "removed"),
-			...prefixedPayloadLines(edit.new, "+ ", "added"),
-			line(""),
-		]),
-	];
-}
-
-function payloadLines(payload: string, style: LineStyle): DisplayLine[] {
-	return safePayload(payload).split("\n").map((text) => line(text, style));
-}
-
-function prefixedPayloadLines(payload: string, prefix: string, style: LineStyle): DisplayLine[] {
-	return safePayload(payload).split("\n").map((text) => line(`${prefix}${text}`, style));
-}
-
-function safePayload(payload: string): string {
-	return stripTerminalSequences(payload)
-		.replace(/\r\n?/gu, "\n")
-		.replace(/\t/gu, "    ")
-		.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu, "?");
-}
-
-function line(text: string, style: LineStyle = "text"): DisplayLine {
-	return { text, style };
-}
-
-function wrapDisplayLines(
-	lines: readonly DisplayLine[],
-	width: number,
-	theme: Pick<Theme, "fg">,
-): string[] {
-	return lines.flatMap((displayLine) => {
-		const wrapped = wrapTextWithAnsi(displayLine.text, width);
-		return wrapped.map((text) => styleLine(text, displayLine.style, theme));
-	});
-}
-
-function styleLine(text: string, style: LineStyle, theme: Pick<Theme, "fg">): string {
-	if (style === "dim") return theme.fg("dim", text);
-	if (style === "added") return theme.fg("toolDiffAdded", text);
-	if (style === "removed") return theme.fg("toolDiffRemoved", text);
-	if (style === "warning") return theme.fg("warning", text);
-	return theme.fg("toolOutput", text);
-}
-
-function lineCount(value: string): number {
-	return value.length === 0 ? 0 : value.split(/\r\n?|\n/u).length;
+function lineColor(style: ApprovalLineStyle): Parameters<Theme["fg"]>[0] {
+	if (style === "dim") return "dim";
+	if (style === "added") return "toolDiffAdded";
+	if (style === "removed") return "toolDiffRemoved";
+	if (style === "warning") return "warning";
+	return "toolOutput";
 }
 
 function optionDescription(option: ApprovalChoice): string {

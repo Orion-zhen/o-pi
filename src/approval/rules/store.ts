@@ -2,17 +2,16 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parse, printParseErrorCode, type ParseError } from "jsonc-parser";
 
-import { expandHomePath, isNotFound } from "../../config-loader.js";
+import { isNotFound } from "../../config-loader.js";
 import type { ApprovalAllowRule, ApprovalRequest, ApprovalUnit } from "../types.js";
 import { allowRuleMatches, dedupeRules, type ApprovalRuleMatcher } from "./allow.js";
 
 export interface ApprovalStore extends ApprovalRuleMatcher {
 	addSessionAllowRules(rules: readonly ApprovalAllowRule[]): void;
 	addPersistentAllowRules(rules: readonly ApprovalAllowRule[]): Promise<void>;
-	loadPersistentRules(): Promise<void>;
 }
 
-export class ApprovalStoreError extends Error {
+class ApprovalStoreError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
 		super(message);
 		this.name = "ApprovalStoreError";
@@ -20,11 +19,17 @@ export class ApprovalStoreError extends Error {
 }
 
 export class FileApprovalStore implements ApprovalStore {
-	private readonly sessionRules: ApprovalAllowRule[] = [];
+	private sessionRules: ApprovalAllowRule[] = [];
 	private persistentRules: ApprovalAllowRule[] = [];
 	private persistentMutation: Promise<void> = Promise.resolve();
 
-	constructor(private readonly persistentStorePath: string) {}
+	private constructor(private readonly persistentStorePath: string) {}
+
+	static async open(persistentStorePath: string): Promise<FileApprovalStore> {
+		const store = new FileApprovalStore(persistentStorePath);
+		await store.loadPersistentRules();
+		return store;
+	}
 
 	matchesAllowRule(request: ApprovalRequest, unit: ApprovalUnit): boolean {
 		return this.sessionRules.some((rule) => allowRuleMatches(rule, request, unit))
@@ -32,8 +37,7 @@ export class FileApprovalStore implements ApprovalStore {
 	}
 
 	addSessionAllowRules(rules: readonly ApprovalAllowRule[]): void {
-		this.sessionRules.push(...rules);
-		dedupeRulesInPlace(this.sessionRules);
+		this.sessionRules = dedupeRules([...this.sessionRules, ...rules]);
 	}
 
 	async addPersistentAllowRules(rules: readonly ApprovalAllowRule[]): Promise<void> {
@@ -47,8 +51,8 @@ export class FileApprovalStore implements ApprovalStore {
 		await mutation;
 	}
 
-	async loadPersistentRules(): Promise<void> {
-		const filePath = expandHomePath(this.persistentStorePath);
+	private async loadPersistentRules(): Promise<void> {
+		const filePath = this.persistentStorePath;
 		let text: string;
 		try {
 			text = await readFile(filePath, "utf8");
@@ -71,7 +75,7 @@ export class FileApprovalStore implements ApprovalStore {
 	}
 
 	private async writePersistentRules(rules: ApprovalAllowRule[]): Promise<void> {
-		const filePath = expandHomePath(this.persistentStorePath);
+		const filePath = this.persistentStorePath;
 		await mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
 		await writeFile(filePath, `${JSON.stringify({ rules }, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
 	}
@@ -107,9 +111,4 @@ function parseApprovalAllowRule(value: unknown): ApprovalAllowRule | undefined {
 		return { tool: value.tool, kind: value.kind, value: value.value };
 	}
 	return undefined;
-}
-
-function dedupeRulesInPlace(rules: ApprovalAllowRule[]): void {
-	const deduped = dedupeRules(rules);
-	rules.splice(0, rules.length, ...deduped);
 }

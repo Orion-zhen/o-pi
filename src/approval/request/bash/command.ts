@@ -14,7 +14,7 @@ import {
 	type BashAnalysisContext,
 	type ResolvedShellValue,
 } from "./state.js";
-import { literalNodeText, normalizeCommandNode, normalizeSource, walkNamedNodes } from "./syntax.js";
+import { commandWords, normalizeCommandNode, normalizeSource, walkNamedNodes } from "./syntax.js";
 
 const SHELL_PROGRAMS = new Set(["bash", "dash", "ksh", "sh", "zsh"]);
 const NO_OPTIONS_WITH_VALUE = new Set<string>();
@@ -28,20 +28,19 @@ export interface CommandFacts {
 	args: Array<string | undefined>;
 }
 
-export interface NestedShell {
+interface NestedShell {
 	script: string;
 	positional: Map<string, ResolvedShellValue>;
 }
 
-export interface ParsedCommand {
+interface ParsedCommand {
 	unit: ApprovalUnit;
 	rawFacts: CommandFacts;
 	nestedShell: NestedShell | undefined;
+	cdTarget: ResolvedShellValue | undefined;
 }
 
-export function successfulCdTarget(node: SyntaxNode, context: BashAnalysisContext): ResolvedShellValue | undefined {
-	if (node.type !== "command") return undefined;
-	const raw = commandFacts(node, context);
+function successfulCdTarget(raw: CommandFacts, context: BashAnalysisContext): ResolvedShellValue | undefined {
 	if (raw.program !== "cd" && raw.program !== "command" && raw.program !== "builtin") return undefined;
 	const facts = raw.program === "cd" ? raw : unwrapCommand(raw);
 	if (facts.program !== "cd") return undefined;
@@ -125,20 +124,10 @@ function mktempDirectoryMode(args: readonly string[]): boolean | undefined {
 }
 
 export function commandUnit(node: SyntaxNode, context: BashAnalysisContext): ParsedCommand {
-	const nameNode = node.childForFieldName("name");
-	const argumentNodes = node.childrenForFieldName("argument");
-	const literalProgram = nameNode === null ? undefined : literalNodeText(nameNode);
-	const literalArgs = argumentNodes.map(literalNodeText);
-	const program = literalProgram ?? (nameNode === null ? undefined : resolveShellWord(nameNode, context)?.value);
-	const args = argumentNodes.map((argument, index) => literalArgs[index] ?? resolveShellWord(argument, context, false, true)?.value);
-	const contextResolved = (literalProgram === undefined && program !== undefined)
-		|| args.some((argument, index) => literalArgs[index] === undefined && argument !== undefined);
-	const rawFacts = { program: commandBasename(program), args };
+	const { facts: rawFacts, contextResolved } = resolveCommand(node, context);
 	const facts = unwrapCommand(rawFacts);
 	const nestedShell = shellInvocation(effectiveCommand(facts));
 	const exactValue = normalizeCommandNode(node);
-	const matchValue = commandView(rawFacts);
-	const similarValue = commandView(facts);
 	const temporary = commandEffectsStayTemporary(facts, context.cwd);
 	return {
 		unit: {
@@ -146,8 +135,7 @@ export function commandUnit(node: SyntaxNode, context: BashAnalysisContext): Par
 			target: {
 				kind: "command",
 				value: exactValue,
-				match_value: matchValue,
-				...(similarValue === matchValue ? {} : { similar_value: similarValue }),
+				effective_value: commandView(facts),
 			},
 			...(temporary ? { effect_scope: "temporary" as const } : {}),
 			remember: {
@@ -157,15 +145,26 @@ export function commandUnit(node: SyntaxNode, context: BashAnalysisContext): Par
 		},
 		rawFacts,
 		nestedShell,
+		cdTarget: successfulCdTarget(rawFacts, context),
 	};
 }
 
 export function commandFacts(node: SyntaxNode, context: BashAnalysisContext): CommandFacts {
-	const nameNode = node.childForFieldName("name");
-	const program = nameNode === null ? undefined : literalNodeText(nameNode) ?? resolveShellWord(nameNode, context)?.value;
-	const args = node.childrenForFieldName("argument").map((argument) =>
-		literalNodeText(argument) ?? resolveShellWord(argument, context, false, true)?.value);
-	return { program: commandBasename(program), args };
+	return resolveCommand(node, context).facts;
+}
+
+function resolveCommand(node: SyntaxNode, context: BashAnalysisContext): { facts: CommandFacts; contextResolved: boolean } {
+	let contextResolved = false;
+	const values = commandWords(node).map((word, index) => {
+		if (word.literal !== undefined) return word.literal;
+		const resolved = word.source === word.node.text
+			? resolveShellWord(word.node, context, false, index > 0)
+			: resolveShellToken(word.source, context, false, index > 0);
+		if (resolved !== undefined) contextResolved = true;
+		return resolved?.value;
+	});
+	const [program, ...args] = values;
+	return { facts: { program: commandBasename(program), args }, contextResolved };
 }
 
 export function redirectUnit(node: SyntaxNode, context: BashAnalysisContext, cwd: string): ApprovalUnit | undefined {
@@ -191,7 +190,7 @@ function dynamicRedirectUnit(node: SyntaxNode): ApprovalUnit {
 	const value = normalizeSource(node.text);
 	return {
 		action: "write_redirect",
-		target: { kind: "command", value, match_value: `<dynamic> ${value}` },
+		target: { kind: "command", value, effective_value: `<dynamic> ${value}` },
 		remember: { session: false, persistent: false },
 	};
 }

@@ -1,96 +1,97 @@
 import picomatch from "picomatch";
 
-import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest, ApprovalRule, ApprovalUnit } from "../types.js";
+import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest, ApprovalRule, ApprovalUnit, BashApprovalRequest } from "../types.js";
 import type { ApprovalRuleMatcher } from "./allow.js";
-import { evaluateBashPolicy, type BashPolicyEvaluation } from "./bash-facts.js";
+import { collectBashFacts, type BashFactEvaluation } from "./bash-facts.js";
 
-export function evaluateApproval(request: ApprovalRequest, config: ApprovalGateConfig, store: ApprovalRuleMatcher): ApprovalDecision {
-	// 显式 deny 永远优先于会话或持久 allow。
-	const deny = config.deny_rules.find((rule) => request.units.some((unit) => ruleMatchesUnit(rule, request.tool, unit)));
-	if (deny !== undefined) return { kind: "deny", reason: deny.reason, rule_name: deny.name };
-
-	const items: Extract<ApprovalDecision, { kind: "ask" }>["items"] = [];
-	for (const unit of request.units) {
-		// 显式 deny 已在上方检查；临时目录内的局部副作用不需要意图确认。
-		if (unit.effect_scope === "temporary") continue;
-		if (store.matchesAllowRule(request, unit)) continue;
-
-		const ask = config.ask_rules.find((rule) => ruleMatchesUnit(rule, request.tool, unit));
-		if (ask !== undefined) {
-			items.push({ unit, reason: ask.reason });
-			continue;
-		}
-
-		if (request.tool === "bash") continue;
-		const defaultAction = config.tools[request.tool].default_action;
-		if (defaultAction === "deny") return { kind: "deny", reason: `default ${request.tool} approval policy` };
-		if (defaultAction === "ask") items.push({ unit, reason: `default ${request.tool} approval policy` });
-	}
-
-	if (items.length === 0) return { kind: "allow" };
-	const reasons = [...new Set(items.map((item) => item.reason))];
-	return { kind: "ask", reason: reasons.join("; "), items };
-}
-
-export function evaluateGatePolicy(
-	request: ApprovalRequest,
-	config: ApprovalGateConfig,
-	store: ApprovalRuleMatcher,
-): ApprovalDecision {
-	return request.tool === "bash"
-		? evaluateBashGatePolicy(request, config, store).decision
-		: evaluateApproval(request, config, store);
+export function evaluateGatePolicy(request: ApprovalRequest, config: ApprovalGateConfig, store: ApprovalRuleMatcher): ApprovalDecision {
+	const bash = request.tool === "bash" ? collectBashFacts(request, config.tools.bash) : undefined;
+	return decide(request, config, store, bash);
 }
 
 export function evaluateBashGatePolicy(
-	request: Extract<ApprovalRequest, { tool: "bash" }>,
+	request: BashApprovalRequest,
 	config: ApprovalGateConfig,
 	store: ApprovalRuleMatcher,
-): { decision: ApprovalDecision; bash: BashPolicyEvaluation } {
-	const configured = evaluateApproval(request, config, store);
-	const bash = evaluateBashPolicy(request, config.tools.bash, store);
-	return { decision: mergeApprovalDecisions(configured, bash.decision), bash };
+): { decision: ApprovalDecision; bash: BashFactEvaluation } {
+	const bash = collectBashFacts(request, config.tools.bash);
+	return { decision: decide(request, config, store, bash), bash };
 }
 
-function mergeApprovalDecisions(left: ApprovalDecision, right: ApprovalDecision): ApprovalDecision {
-	if (left.kind === "deny") return left;
-	if (right.kind === "deny") return right;
-	if (left.kind === "allow") return right;
-	if (right.kind === "allow") return left;
-
-	const items = [...left.items];
-	for (const item of right.items) {
-		const existing = items.find((candidate) => sameUnit(candidate.unit, item.unit));
-		if (existing === undefined) {
-			items.push(item);
-			continue;
-		}
-		if (!existing.reason.split("; ").includes(item.reason)) existing.reason = `${existing.reason}; ${item.reason}`;
+function decide(
+	request: ApprovalRequest,
+	config: ApprovalGateConfig,
+	store: ApprovalRuleMatcher,
+	bash: BashFactEvaluation | undefined,
+): ApprovalDecision {
+	// 显式拒绝和 Bash 拒绝事实不能被临时范围或放行记忆覆盖。
+	const deniedRule = config.deny_rules.find((rule) => request.units.some((unit) => ruleMatchesUnit(rule, request.tool, unit)));
+	if (deniedRule !== undefined) return { kind: "deny", reason: deniedRule.reason, rule_name: deniedRule.name };
+	const deniedCombination = bash?.combinations.find(({ config }) => config.action === "deny");
+	if (deniedCombination !== undefined) {
+		return { kind: "deny", reason: `bash safety fact combination: ${deniedCombination.name}`, rule_name: deniedCombination.name };
 	}
+	const deniedFact = bash?.matches.find((match) => match.action === "deny");
+	if (deniedFact !== undefined) return { kind: "deny", reason: `bash safety fact: ${deniedFact.fact}`, rule_name: deniedFact.fact };
+	if (request.tool === "bash" && config.tools.bash.default_action === "deny") {
+		return { kind: "deny", reason: "default bash fact policy", rule_name: "default-bash-policy" };
+	}
+
+	const asked = new Map<string, { unit: ApprovalUnit; reasons: Set<string> }>();
+	const exempt = new Map<ApprovalUnit, boolean>();
+	function isExempt(unit: ApprovalUnit): boolean {
+		let allowed = exempt.get(unit);
+		if (allowed === undefined) {
+			allowed = unit.effect_scope === "temporary" || store.matchesAllowRule(request, unit);
+			exempt.set(unit, allowed);
+		}
+		return allowed;
+	}
+	function ask(unit: ApprovalUnit, reason: string): void {
+		if (isExempt(unit)) return;
+		const key = `${unit.action}\0${unit.target.kind}\0${unit.target.value}`;
+		const existing = asked.get(key);
+		if (existing === undefined) asked.set(key, { unit, reasons: new Set([reason]) });
+		else existing.reasons.add(reason);
+	}
+
+	for (const unit of request.units) {
+		if (isExempt(unit)) continue;
+		const rule = config.ask_rules.find((rule) => ruleMatchesUnit(rule, request.tool, unit));
+		if (rule !== undefined) ask(unit, rule.reason);
+		else if (request.tool !== "bash") {
+			// 非 Bash 默认动作只处理尚未被路径规则、临时范围和记忆规则覆盖的单元。
+			const action = config.tools[request.tool].default_action;
+			const reason = `default ${request.tool} approval policy`;
+			if (action === "deny") return { kind: "deny", reason };
+			if (action === "ask") ask(unit, reason);
+		}
+	}
+	if (bash !== undefined) {
+		for (const match of bash.matches) {
+			if (match.action === "ask") ask(match.unit, `bash safety fact: ${match.fact}`);
+		}
+		for (const { name, config } of bash.combinations) {
+			if (config.action !== "ask") continue;
+			for (const match of bash.matches) {
+				if (config.all.includes(match.fact)) ask(match.unit, `bash safety fact combination: ${name}`);
+			}
+		}
+		if (config.tools.bash.default_action === "ask") {
+			for (const unit of request.units) ask(unit, "default bash fact policy");
+		}
+	}
+	if (asked.size === 0) return { kind: "allow" };
 	return {
 		kind: "ask",
-		reason: [...new Set(items.map((item) => item.reason))].join("; "),
-		items,
+		reason: [...new Set([...asked.values()].flatMap(({ reasons }) => [...reasons]))].join("; "),
+		items: [...asked.values()].map(({ unit, reasons }) => ({ unit, reason: [...reasons].join("; ") })),
 	};
 }
 
-export function ruleMatchesUnit(rule: ApprovalRule, tool: string, unit: ApprovalUnit): boolean {
+function ruleMatchesUnit(rule: ApprovalRule, tool: string, unit: ApprovalUnit): boolean {
 	if (!rule.tools.includes(tool)) return false;
-
-	const pathGlobs = rule.path_globs;
-	return pathGlobs === undefined || pathRuleMatches(pathGlobs, unit);
-}
-
-function pathRuleMatches(globs: string[], unit: ApprovalUnit): boolean {
-	if (unit.target.kind !== "path") return false;
-	const target = normalizePath(unit.target.value);
-	return globs.some((glob) => picomatch(normalizePath(glob), { dot: true, nonegate: true })(target));
-}
-
-function sameUnit(left: ApprovalUnit, right: ApprovalUnit): boolean {
-	return left.action === right.action && left.target.kind === right.target.kind && left.target.value === right.target.value;
-}
-
-function normalizePath(value: string): string {
-	return value.replace(/\\/g, "/");
+	if (rule.path_globs === undefined) return true;
+	return unit.target.kind === "path" && rule.path_globs.some((glob) =>
+		picomatch(glob.replace(/\\/g, "/"), { dot: true, nonegate: true })(unit.target.value.replace(/\\/g, "/")));
 }

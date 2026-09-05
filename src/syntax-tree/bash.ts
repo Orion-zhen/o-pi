@@ -12,62 +12,59 @@ const DYNAMIC_NODE_TYPES = new Set([
 
 export function containsDynamicShellNode(root: SyntaxNode): boolean {
 	const stack = [root];
-	while (stack.length > 0) {
-		const node = stack.pop();
-		if (node === undefined) break;
+	for (let node = stack.pop(); node !== undefined; node = stack.pop()) {
 		if (DYNAMIC_NODE_TYPES.has(node.type)) return true;
-		for (const child of node.namedChildren) stack.push(child);
+		stack.push(...node.namedChildren);
 	}
 	return false;
 }
 
-/** 解码不包含动态展开的单个 Shell word；无法静态确定时返回 undefined。 */
-export function decodeStaticShellWord(source: string): string | undefined {
+interface ShellWordOptions {
+	allowUnquotedExpansion?: boolean;
+	allowGlob?: boolean;
+	resolveExpansion?: (source: string, start: number, prefix: string) => { value: string; end: number } | undefined;
+}
+
+/** 解码单个 Shell word。引号与转义共用一套规则，动态展开由调用方提供。 */
+export function decodeShellWord(source: string, options: ShellWordOptions = {}): string | undefined {
 	let result = "";
 	let quote: "'" | "\"" | undefined;
 	for (let index = 0; index < source.length; index += 1) {
-		const character = source[index];
-		if (character === undefined) break;
+		const character = source.charAt(index);
 		if (quote === "'") {
 			if (character === "'") quote = undefined;
 			else result += character;
 			continue;
 		}
-		if (quote === "\"") {
-			if (character === "\"") {
-				quote = undefined;
-				continue;
-			}
-			if (character === "\\") {
-				const next = source[index + 1];
-				if (next === undefined) return undefined;
-				if (next === "\n") {
-					index += 1;
-					continue;
-				}
-				result += next === "$" || next === "`" || next === "\"" || next === "\\" ? next : `\\${next}`;
-				index += 1;
-				continue;
-			}
-			if (character === "$" || character === "`") return undefined;
-			result += character;
+		if (character === "\"") {
+			quote = quote === "\"" ? undefined : "\"";
 			continue;
 		}
-		if (character === "'" || character === "\"") {
-			quote = character;
+		if (character === "'" && quote === undefined) {
+			quote = "'";
 			continue;
 		}
 		if (character === "\\") {
 			const next = source[index + 1];
 			if (next === undefined) return undefined;
-			result += next;
 			index += 1;
+			if (next === "\n") continue;
+			if (quote === "\"" && next !== "$" && next !== "`" && next !== "\"" && next !== "\\") result += "\\";
+			result += next;
 			continue;
 		}
-		if (character === "$" || character === "`" || character === "*" || character === "?" || character === "[" || character === "{") {
-			return undefined;
+		if (character === "$") {
+			if (quote === undefined && options.allowUnquotedExpansion !== true) return undefined;
+			const expansion = options.resolveExpansion?.(source, index, result);
+			if (expansion === undefined) return undefined;
+			result += expansion.value;
+			index = expansion.end;
+			continue;
 		}
-		if (character === "~" && index === 0) return undefined;
+		if (character === "`") return undefined;
+		if (quote === undefined && (character === "*" || character === "?" || character === "[") && options.allowGlob !== true) return undefined;
+		if (quote === undefined && character === "{") return undefined;
+		if (quote === undefined && character === "~" && index === 0) return undefined;
 		result += character;
 	}
 	return quote === undefined ? result : undefined;

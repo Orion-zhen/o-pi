@@ -1,7 +1,7 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 
 import { resolveSkillResourceLocator, type SkillResourceError } from "../skill-context/resources.js";
-import { containsDynamicShellNode, decodeStaticShellWord } from "../syntax-tree/bash.js";
+import { containsDynamicShellNode, decodeShellWord } from "../syntax-tree/bash.js";
 import { getTreeSitterLanguage } from "../syntax-tree/grammars.js";
 import { parseSyntaxTree } from "../syntax-tree/parser.js";
 import type { SyntaxNode } from "../syntax-tree/types.js";
@@ -9,7 +9,7 @@ import type { SyntaxNode } from "../syntax-tree/types.js";
 const BASH_GRAMMAR = getTreeSitterLanguage("bash").grammar;
 const SHELL_WORD_TYPES = new Set(["raw_string", "string", "word"]);
 
-export interface ResolvedBashSkillPaths {
+interface ResolvedBashSkillPaths {
 	kind: "resolved";
 	command: string;
 }
@@ -39,7 +39,7 @@ export async function resolveBashSkillPaths(
 	try {
 		const candidates = collectCandidates(document.root, document.control.check);
 		const resolved = await Promise.all(candidates.map(async (candidate): Promise<Replacement | SkillResourceError> => {
-			const locator = decodeStaticShellWord(candidate.text);
+			const locator = decodeShellWord(candidate.text);
 			if (locator === undefined || !locator.startsWith("skill://")) {
 				return invalid(candidate.text, "A skill resource must be a complete static shell argument.");
 			}
@@ -77,7 +77,7 @@ function collectCandidates(root: SyntaxNode, check: () => void): SyntaxNode[] {
 }
 
 function tokenStartsWithSkillLocator(node: SyntaxNode): boolean {
-	const decoded = decodeStaticShellWord(node.text);
+	const decoded = decodeShellWord(node.text);
 	if (decoded?.startsWith("skill://") === true) return true;
 	if (!containsDynamicShellNode(node)) return false;
 	const source = node.text;

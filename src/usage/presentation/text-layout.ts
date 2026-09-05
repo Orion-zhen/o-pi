@@ -1,12 +1,11 @@
-import { stripVTControlCharacters } from "node:util";
+import { stripTerminalSequences } from "../../terminal-text.js";
 import { eastAsianWidth } from "get-east-asian-width";
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-const ANSI_SEQUENCE = /\u001b(?:\][^\u0007]*(?:\u0007|\u001b\\)|\[[0-?]*[ -/]*[@-~]|\([0-~]|\)[0-~]|[PX^_].*?\u001b\\)/gs;
 
 /** 计算纯文本 presentation 的显示列宽，不加载 Pi TUI。 */
 export function visibleTextWidth(value: string): number {
-	const text = stripVTControlCharacters(value.replace(ANSI_SEQUENCE, "")).replaceAll("\t", "   ");
+	const text = stripTerminalSequences(value).replaceAll("\t", "   ");
 	let width = 0;
 	for (const { segment } of graphemeSegmenter.segment(text)) {
 		width += graphemeWidth(segment);

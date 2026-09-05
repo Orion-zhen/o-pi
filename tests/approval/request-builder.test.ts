@@ -3,7 +3,7 @@ import path from "node:path";
 import type { ToolCallEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it } from "vitest";
 
-import { buildApprovalRequest } from "../../src/approval/request/build.js";
+import { buildApprovalRequest } from "../../src/approval/pi/request.js";
 
 const cwd = path.resolve("project");
 const systemPath = path.join(path.parse(cwd).root, "etc", "hosts");
@@ -16,7 +16,7 @@ describe("approval request builder", () => {
 		expect(request).toMatchObject({ tool: "bash" });
 		expect(request?.units).toHaveLength(1);
 		expect(request?.units[0]).toMatchObject({
-			target: { kind: "command", value: "echo hello", match_value: "echo hello" },
+			target: { kind: "command", value: "echo hello", effective_value: "echo hello" },
 			remember: { session: true, persistent: true },
 		});
 	});
@@ -61,7 +61,7 @@ describe("approval request builder", () => {
 
 		const dynamic = await buildApprovalRequest(bash(`bash -c "$SCRIPT"`), cwd);
 		expect(dynamic?.units[0]).toMatchObject({
-			target: { match_value: "bash -c <dynamic>" },
+			target: { effective_value: "bash -c <dynamic>" },
 			remember: { session: true, persistent: false },
 		});
 	});
@@ -70,7 +70,7 @@ describe("approval request builder", () => {
 		const request = await buildApprovalRequest(bash(`echo "unterminated`), cwd);
 		expect(request?.units).toEqual([
 			expect.objectContaining({
-				target: expect.objectContaining({ match_value: `<opaque> echo "unterminated` }),
+				target: expect.objectContaining({ effective_value: `<opaque> echo "unterminated` }),
 				remember: { session: true, persistent: false },
 			}),
 		]);
@@ -83,7 +83,7 @@ describe("approval request builder", () => {
 		const request = await buildApprovalRequest(bash(command), cwd);
 		expect(request?.units).toEqual([
 			expect.objectContaining({
-				target: expect.objectContaining({ match_value: `<opaque> ${command}` }),
+				target: expect.objectContaining({ effective_value: `<opaque> ${command}` }),
 				remember: { session: true, persistent: false },
 			}),
 		]);
@@ -92,7 +92,7 @@ describe("approval request builder", () => {
 	it("文件写重定向成为 path unit，fd duplication 不成为写文件 unit", async () => {
 		const redirected = await buildApprovalRequest(bash("echo hello > output.log 2>&1"), cwd);
 		expect(redirected?.units.map((unit) => unit.target)).toEqual([
-			{ kind: "command", value: "echo hello", match_value: "echo hello" },
+			{ kind: "command", value: "echo hello", effective_value: "echo hello" },
 			{ kind: "path", value: path.join(cwd, "output.log").replace(/\\/g, "/") },
 		]);
 
@@ -118,7 +118,7 @@ rm -f "$log"
 				effect_scope: "temporary",
 			}),
 			expect.objectContaining({
-				target: expect.objectContaining({ match_value: "rm -f <temporary>" }),
+				target: expect.objectContaining({ effective_value: "rm -f <temporary>" }),
 				effect_scope: "temporary",
 			}),
 		]));
@@ -178,16 +178,16 @@ done
 			}),
 			expect.objectContaining({
 				action: "execute",
-				target: expect.objectContaining({ match_value: "git clean -fd" }),
+				target: expect.objectContaining({ effective_value: "git clean -fd" }),
 				effect_scope: "temporary",
 			}),
 			expect.objectContaining({
 				action: "execute",
-				target: expect.objectContaining({ match_value: "git reset --hard" }),
+				target: expect.objectContaining({ effective_value: "git reset --hard" }),
 				effect_scope: "temporary",
 			}),
 		]));
-		expect(request?.units.flatMap((unit) => unit.target.kind === "command" ? [unit.target.match_value] : [])).toEqual(expect.arrayContaining([
+		expect(request?.units.flatMap((unit) => unit.target.kind === "command" ? [unit.target.effective_value] : [])).toEqual(expect.arrayContaining([
 			"xelatex input.txt",
 			"lualatex input.txt",
 		]));
@@ -201,7 +201,7 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 `), cwd);
 		expect(request?.units).toEqual(expect.arrayContaining([
 			expect.objectContaining({
-				target: expect.objectContaining({ match_value: `rm -rf ${runtimeTempChild}` }),
+				target: expect.objectContaining({ effective_value: `rm -rf ${runtimeTempChild}` }),
 				effect_scope: "temporary",
 			}),
 			expect.objectContaining({
@@ -209,7 +209,7 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 				effect_scope: "temporary",
 			}),
 			expect.objectContaining({
-				target: expect.objectContaining({ match_value: "git clean -fd" }),
+				target: expect.objectContaining({ effective_value: "git clean -fd" }),
 				effect_scope: "temporary",
 			}),
 		]));
@@ -251,11 +251,11 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 		expect(destructive?.effect_scope).toBeUndefined();
 	});
 
-	it("env wrapper 同时保留原始和解包后的命令匹配视图", async () => {
+	it("env wrapper 保留命令原文与解包后的有效命令", async () => {
 		const request = await buildApprovalRequest(bash("env -u NODE_ENV npm install lodash"), cwd);
 		expect(request?.units[0]?.target).toMatchObject({
-			match_value: "env -u NODE_ENV npm install lodash",
-			similar_value: "npm install lodash",
+			value: "env -u NODE_ENV npm install lodash",
+			effective_value: "npm install lodash",
 		});
 	});
 
@@ -265,6 +265,22 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 	] as const)("%s 工具把系统临时目录后代标成 temporary", async (_tool, event) => {
 		const request = await buildApprovalRequest(event, cwd);
 		expect(request?.units[0]?.effect_scope).toBe("temporary");
+	});
+
+	it.each([write("~/.config/approval-test"), edit("~/.config/approval-test")])("文件工具审批与实际路径解析使用相同的 home 展开", async (event) => {
+		const request = await buildApprovalRequest(event, cwd);
+		expect(request?.units[0]?.target).toEqual({
+			kind: "path",
+			value: path.join(os.homedir(), ".config", "approval-test").replaceAll("\\", "/"),
+		});
+	});
+
+	it("Bash 引号内的波浪号仍是字面路径", async () => {
+		const request = await buildApprovalRequest(bash('echo value > "~/approval-test"'), cwd);
+		expect(request?.units[1]?.target).toEqual({
+			kind: "path",
+			value: path.join(cwd, "~", "approval-test").replaceAll("\\", "/"),
+		});
 	});
 
 	it("write /etc/hosts 生成路径审批单元", async () => {
@@ -293,9 +309,7 @@ cat > "${path.join(runtimeTempChild, "output.txt")}"
 		const request = await buildApprovalRequest(webfetch("http://127.0.0.1:8080/admin?q=1#fragment"), cwd);
 		expect(request).toMatchObject({
 			tool: "webfetch",
-			summary: "Fetch private network origin: http://127.0.0.1:8080",
 			detail: {
-				kind: "webfetch",
 				origin: "http://127.0.0.1:8080",
 				addresses: [{ address: "127.0.0.1", family: 4 }],
 			},

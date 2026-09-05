@@ -1,93 +1,43 @@
-import type { ToolCallEvent } from "@earendil-works/pi-coding-agent";
-import { notifyWaiting, type WaitingNotifier } from "../../notification/native.js";
-import { loadApprovalGateConfig } from "../config.js";
-import { buildApprovalRequest } from "../request/build.js";
 import { evaluateGatePolicy } from "../rules/policy.js";
 import { FileApprovalStore, type ApprovalStore } from "../rules/store.js";
 import type { ApprovalDecision, ApprovalGateConfig, ApprovalRequest } from "../types.js";
-import { handleAskDecision, type ApprovalBlockResult, type ApprovalInteractionPort } from "./interaction.js";
+import { handleAskDecision, type ApprovalOutcome, type ApprovalInteractionPort } from "./interaction.js";
 
-export interface ApprovalGate {
-	handleToolCall(event: ToolCallEvent, context: ApprovalContext): Promise<ApprovalBlockResult | void>;
+interface ApprovalGate {
+	authorize(request: ApprovalRequest, config: ApprovalGateConfig, interaction?: ApprovalInteractionPort): Promise<ApprovalOutcome>;
 }
 
-export interface ApprovalContext {
-	cwd: string;
-	interaction?: ApprovalInteractionPort;
-	onApproved?: (request: ApprovalRequest) => void;
-}
+export function createApprovalGate(): ApprovalGate {
+	let initialization: { path: string; ready: Promise<ApprovalStore> } | undefined;
 
-export interface ApprovalGateOptions {
-	loadConfig?: () => Promise<ApprovalGateConfig>;
-	store?: ApprovalStore;
-	notifyUser?: WaitingNotifier;
-}
-
-interface ApprovalStoreInitialization {
-	readonly path: string;
-	readonly ready: Promise<ApprovalStore>;
-}
-
-export function createApprovalGate(options: ApprovalGateOptions = {}): ApprovalGate {
-	let storeInitialization: ApprovalStoreInitialization | undefined;
-
-	const resolveStore = async (storePath: string): Promise<ApprovalStore> => {
-		if (options.store !== undefined) return options.store;
-		const existing = storeInitialization;
-		const initialization = existing?.path === storePath ? existing : initializeStore(storePath);
-		storeInitialization = initialization;
+	async function resolveStore(path: string): Promise<ApprovalStore> {
+		if (initialization?.path !== path) initialization = { path, ready: FileApprovalStore.open(path) };
+		const pending = initialization;
 		try {
-			return await initialization.ready;
+			return await pending.ready;
 		} catch (error) {
-			if (storeInitialization === initialization) storeInitialization = undefined;
+			if (initialization === pending) initialization = undefined;
 			throw error;
 		}
-	};
-
-	function initializeStore(storePath: string): ApprovalStoreInitialization {
-		const store = new FileApprovalStore(storePath);
-		return { path: storePath, ready: store.loadPersistentRules().then(() => store) };
 	}
 
 	return {
-		async handleToolCall(event, ctx) {
-			const config = await (options.loadConfig ?? loadApprovalGateConfig)();
-			if (!config.enabled) return undefined;
-
-			const request = await buildApprovalRequest(event, ctx.cwd);
-			if (request === undefined) return undefined;
-
+		async authorize(request, config, interaction) {
 			const store = await resolveStore(config.remember.persistent_store);
 			const decision = evaluateGatePolicy(request, config, store);
-			if (decision.kind === "allow") {
-				ctx.onApproved?.(request);
-				return undefined;
-			}
+			if (decision.kind === "allow") return { kind: "approved" };
 			if (decision.kind === "deny") return blockForDenyRule(decision);
-
-			if (ctx.interaction === undefined) {
-				if (config.ui.non_interactive === "allow") {
-					ctx.onApproved?.(request);
-					return undefined;
-				}
-				return { block: true, reason: `Approval required but no interactive UI is available: ${decision.reason}` };
+			if (interaction === undefined) {
+				return config.ui.non_interactive === "allow"
+					? { kind: "approved" }
+					: { kind: "blocked", reason: `Approval required but no interactive UI is available: ${decision.reason}` };
 			}
-
-			const result = await handleAskDecision(
-				request,
-				decision,
-				config,
-				store,
-				ctx.interaction,
-				options.notifyUser ?? notifyWaiting,
-			);
-			if (result === undefined) ctx.onApproved?.(request);
-			return result;
+			return handleAskDecision(request, decision, config, store, interaction);
 		},
 	};
 }
 
-function blockForDenyRule(decision: Extract<ApprovalDecision, { kind: "deny" }>): ApprovalBlockResult {
+function blockForDenyRule(decision: Extract<ApprovalDecision, { kind: "deny" }>): ApprovalOutcome {
 	const source = decision.rule_name === undefined ? "Approval Gate" : `Approval Gate rule "${decision.rule_name}"`;
-	return { block: true, reason: `Blocked by ${source}: ${decision.reason}` };
+	return { kind: "blocked", reason: `Blocked by ${source}: ${decision.reason}` };
 }

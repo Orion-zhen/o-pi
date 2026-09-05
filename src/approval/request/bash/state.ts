@@ -1,4 +1,5 @@
 import path from "node:path";
+import { decodeShellWord } from "../../../syntax-tree/bash.js";
 
 import { isSystemTemporaryDescendant, normalizeTargetPath } from "../path.js";
 
@@ -9,8 +10,8 @@ const TEMPORARY_PATH_DISPLAY = "<temporary>";
 export const UNKNOWN_DIRECTORY_PATH = "\0unknown-directory";
 
 export interface ResolvedShellValue {
-	value: string;
-	temporary: boolean;
+	readonly value: string;
+	readonly temporary: boolean;
 }
 
 export interface BashAnalysisContext {
@@ -33,8 +34,8 @@ export function shellArgumentValue(value: string): ResolvedShellValue {
 }
 
 export function assignContext(target: BashAnalysisContext, source: BashAnalysisContext): void {
-	target.cwd = { ...source.cwd };
-	target.variables = new Map([...source.variables].map(([name, value]) => [name, { ...value }]));
+	target.cwd = source.cwd;
+	target.variables = new Map(source.variables);
 	target.exitTraps = new Set(source.exitTraps);
 }
 
@@ -56,7 +57,7 @@ export function joinContexts(contexts: readonly [BashAnalysisContext, ...BashAna
 
 export function joinValues(values: readonly [ResolvedShellValue, ...ResolvedShellValue[]]): ResolvedShellValue | undefined {
 	const [first] = values;
-	if (values.every((value) => value.value === first.value && value.temporary === first.temporary)) return { ...first };
+	if (values.every((value) => value.value === first.value && value.temporary === first.temporary)) return first;
 	if (values.every(isDefinitelyTemporaryPath)) return { value: TEMPORARY_DIRECTORY_PATH, temporary: true };
 	return undefined;
 }
@@ -66,10 +67,7 @@ export function allDefined<T>(values: Array<T | undefined>): values is T[] {
 }
 
 export function singleValue<T>(values: readonly T[]): T | undefined {
-	const iterator = values[Symbol.iterator]();
-	const first = iterator.next();
-	if (first.done || !iterator.next().done) return undefined;
-	return first.value;
+	return values.length === 1 ? values[0] : undefined;
 }
 
 function isDefinitelyTemporaryPath(value: ResolvedShellValue): boolean {
@@ -79,8 +77,8 @@ function isDefinitelyTemporaryPath(value: ResolvedShellValue): boolean {
 
 export function cloneContext(context: BashAnalysisContext): BashAnalysisContext {
 	return {
-		cwd: { ...context.cwd },
-		variables: new Map([...context.variables].map(([name, value]) => [name, { ...value }])),
+		cwd: context.cwd,
+		variables: new Map(context.variables),
 		exitTraps: new Set(context.exitTraps),
 	};
 }
@@ -133,7 +131,7 @@ export function isSyntheticTemporaryPath(value: string): boolean {
 	return value === TEMPORARY_FILE_PATH || isSyntheticTemporaryDirectory(value);
 }
 
-export function isSyntheticTemporaryValue(value: string): boolean {
+function isSyntheticTemporaryValue(value: string): boolean {
 	return value.startsWith(TEMPORARY_FILE_PATH) || value.startsWith(TEMPORARY_DIRECTORY_PATH);
 }
 
@@ -154,58 +152,21 @@ export function resolveShellToken(
 	allowUnquotedExpansion = false,
 	allowGlob = false,
 ): ResolvedShellValue | undefined {
-	let result = "";
-	let quote: "'" | "\"" | undefined;
 	let temporary = false;
-	const append = (value: ResolvedShellValue): boolean => {
-		if (value.temporary) {
-			if (result.length > 0 || temporary) return false;
-			temporary = true;
-		}
-		result += value.value;
-		return true;
-	};
-	for (let index = 0; index < source.length; index += 1) {
-		const character = source.charAt(index);
-		if (quote === "'") {
-			if (character === "'") quote = undefined;
-			else result += character;
-			continue;
-		}
-		if (character === "\"") {
-			quote = quote === "\"" ? undefined : "\"";
-			continue;
-		}
-		if (character === "'" && quote === undefined) {
-			quote = "'";
-			continue;
-		}
-		if (character === "\\") {
-			const next = source[index + 1];
-			if (next === undefined) return undefined;
-			if (next === "\n") {
-				index += 1;
-				continue;
+	const result = decodeShellWord(source, {
+		allowUnquotedExpansion,
+		allowGlob,
+		resolveExpansion(text, start, prefix) {
+			const expansion = resolveVariableExpansion(text, start, context);
+			if (expansion === undefined) return undefined;
+			if (expansion.value.temporary) {
+				if (prefix.length > 0 || temporary) return undefined;
+				temporary = true;
 			}
-			if (quote === "\"" && next !== "$" && next !== "`" && next !== "\"" && next !== "\\") result += "\\";
-			result += next;
-			index += 1;
-			continue;
-		}
-		if (character === "$") {
-			if (quote === undefined && !allowUnquotedExpansion) return undefined;
-			const expansion = resolveVariableExpansion(source, index, context);
-			if (expansion === undefined || !append(expansion.value)) return undefined;
-			index = expansion.end;
-			continue;
-		}
-		if (character === "`") return undefined;
-		if (quote === undefined && (character === "*" || character === "?" || character === "[") && !allowGlob) return undefined;
-		if (quote === undefined && character === "{") return undefined;
-		if (quote === undefined && character === "~" && index === 0) return undefined;
-		result += character;
-	}
-	if (quote !== undefined) return undefined;
+			return { value: expansion.value.value, end: expansion.end };
+		},
+	});
+	if (result === undefined) return undefined;
 	if (!temporary) return { value: result, temporary: false };
 	if (isSyntheticTemporaryValue(result)) return normalizeSyntheticTemporaryPath(result);
 	return path.isAbsolute(result) ? resolvedConcretePath(result, "/") : undefined;
@@ -238,12 +199,11 @@ function resolveVariableExpansion(
 }
 
 function variableValue(name: string, context: BashAnalysisContext): ResolvedShellValue | undefined {
-	if (name === "PWD") return { ...context.cwd };
+	if (name === "PWD") return context.cwd;
 	if (name === "RANDOM" || name === "BASHPID" || name === "PPID" || name === "UID" || name === "EUID") {
 		return { value: "*", temporary: false };
 	}
-	const value = context.variables.get(name);
-	return value === undefined ? undefined : { ...value };
+	return context.variables.get(name);
 }
 
 function preservesKnownValue(modifier: string, value: ResolvedShellValue): boolean {

@@ -1,8 +1,8 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { buildApprovalRequest } from "../../src/approval/request/build.js";
+import { buildApprovalRequest } from "../../src/approval/pi/request.js";
 import { createExactAllowRules, createSimilarAllowRules } from "../../src/approval/rules/allow.js";
 import { FileApprovalStore } from "../../src/approval/rules/store.js";
 import type { ApprovalRequest, ApprovalUnit } from "../../src/approval/types.js";
@@ -19,7 +19,7 @@ describe("approval store", () => {
 	it("session exact rule 只匹配同 cwd 的同一子命令", async () => {
 		const request = await commandRequest("echo ready && git push origin main");
 		const push = unit(request, "git push origin main");
-		const store = new FileApprovalStore(path.join(dir, "rules.jsonc"));
+		const store = await FileApprovalStore.open(path.join(dir, "rules.jsonc"));
 		store.addSessionAllowRules(createExactAllowRules(request, [push]));
 
 		expect(store.matchesAllowRule(request, push)).toBe(true);
@@ -39,7 +39,7 @@ describe("approval store", () => {
 			expect.objectContaining({ kind: "command_prefix", value: "npm install", cwd: request.cwd }),
 		]);
 
-		const store = new FileApprovalStore(path.join(dir, "rules.jsonc"));
+		const store = await FileApprovalStore.open(path.join(dir, "rules.jsonc"));
 		store.addSessionAllowRules(rules);
 		const similar = await commandRequest("npm install react && git push origin dev");
 		expect(store.matchesAllowRule(similar, unit(similar, "npm install react"))).toBe(true);
@@ -56,7 +56,7 @@ describe("approval store", () => {
 	it("exact_path 和 path_glob 匹配对应 path unit", async () => {
 		const nginx = systemPath("etc", "nginx", "nginx.conf");
 		const request = await pathRequest("edit", nginx);
-		const exactStore = new FileApprovalStore(path.join(dir, "exact.jsonc"));
+		const exactStore = await FileApprovalStore.open(path.join(dir, "exact.jsonc"));
 		exactStore.addSessionAllowRules(createExactAllowRules(request, request.units));
 		expect(exactStore.matchesAllowRule(request, firstUnit(request))).toBe(true);
 
@@ -67,10 +67,9 @@ describe("approval store", () => {
 		}
 		expect(similarRules).toEqual([expect.objectContaining({ kind: "path_glob", value: "/etc/nginx/**" })]);
 		const similarStorePath = path.join(dir, "similar.jsonc");
-		const similarStore = new FileApprovalStore(similarStorePath);
+		const similarStore = await FileApprovalStore.open(similarStorePath);
 		await similarStore.addPersistentAllowRules(similarRules);
-		const reloaded = new FileApprovalStore(similarStorePath);
-		await reloaded.loadPersistentRules();
+		const reloaded = await FileApprovalStore.open(similarStorePath);
 		const sibling = await pathRequest("edit", systemPath("etc", "nginx", "sites", "app.conf"));
 		expect(reloaded.matchesAllowRule(sibling, firstUnit(sibling))).toBe(true);
 		const hosts = await pathRequest("edit", systemPath("etc", "hosts"));
@@ -83,10 +82,9 @@ describe("approval store", () => {
 		expect(rules).toEqual([{ tool: "webfetch", kind: "exact_url", value: "http://127.0.0.1:8080" }]);
 
 		const storePath = path.join(dir, "webfetch.rules.jsonc");
-		const store = new FileApprovalStore(storePath);
+		const store = await FileApprovalStore.open(storePath);
 		await store.addPersistentAllowRules(rules);
-		const reloaded = new FileApprovalStore(storePath);
-		await reloaded.loadPersistentRules();
+		const reloaded = await FileApprovalStore.open(storePath);
 		expect(reloaded.matchesAllowRule(request, firstUnit(request))).toBe(true);
 		const other = webFetchRequest("http://127.0.0.1:9090");
 		expect(reloaded.matchesAllowRule(other, firstUnit(other))).toBe(false);
@@ -95,14 +93,13 @@ describe("approval store", () => {
 	it("persistent store 批量读写带 cwd 的规则", async () => {
 		const request = await commandRequest("git push origin main && npm install lodash");
 		const storePath = path.join(dir, "approval.rules.jsonc");
-		const store = new FileApprovalStore(storePath);
+		const store = await FileApprovalStore.open(storePath);
 		await store.addPersistentAllowRules(createSimilarAllowRules(request, request.units));
 		const text = await readFile(storePath, "utf8");
 		expect(text).not.toContain('"version"');
 		expect(text).toContain('"cwd"');
 
-		const reloaded = new FileApprovalStore(storePath);
-		await reloaded.loadPersistentRules();
+		const reloaded = await FileApprovalStore.open(storePath);
 		for (const commandUnit of request.units) expect(reloaded.matchesAllowRule(request, commandUnit)).toBe(true);
 	});
 
@@ -110,15 +107,29 @@ describe("approval store", () => {
 		const first = await commandRequest("git push origin main");
 		const second = await commandRequest("npm install lodash");
 		const storePath = path.join(dir, "concurrent.rules.jsonc");
-		const store = new FileApprovalStore(storePath);
+		const store = await FileApprovalStore.open(storePath);
 		await Promise.all([
 			store.addPersistentAllowRules(createExactAllowRules(first, first.units)),
 			store.addPersistentAllowRules(createExactAllowRules(second, second.units)),
 		]);
-		const reloaded = new FileApprovalStore(storePath);
-		await reloaded.loadPersistentRules();
+		const reloaded = await FileApprovalStore.open(storePath);
 		expect(reloaded.matchesAllowRule(first, unit(first, "git push origin main"))).toBe(true);
 		expect(reloaded.matchesAllowRule(second, unit(second, "npm install lodash"))).toBe(true);
+	});
+
+	it("持久写入失败不提交内存规则，并允许下一次写入继续", async () => {
+		const storePath = path.join(dir, "rules.jsonc");
+		const store = await FileApprovalStore.open(storePath);
+		const first = await commandRequest("git push origin main");
+		const second = await commandRequest("npm install lodash");
+		await mkdir(storePath);
+		await expect(store.addPersistentAllowRules(createExactAllowRules(first, first.units))).rejects.toThrow();
+		expect(store.matchesAllowRule(first, firstUnit(first))).toBe(false);
+		await rm(storePath, { recursive: true });
+		await store.addPersistentAllowRules(createExactAllowRules(second, second.units));
+		const reloaded = await FileApprovalStore.open(storePath);
+		expect(reloaded.matchesAllowRule(first, firstUnit(first))).toBe(false);
+		expect(reloaded.matchesAllowRule(second, firstUnit(second))).toBe(true);
 	});
 
 	it("按字段读取旧持久文件并丢弃无 cwd 的旧命令规则", async () => {
@@ -131,8 +142,7 @@ describe("approval store", () => {
 				{ created_at: "2026-01-01T00:00:00.000Z", tool: "edit", kind: "exact_path", value: "/etc/hosts" },
 			],
 		}));
-		const store = new FileApprovalStore(storePath);
-		await store.loadPersistentRules();
+		const store = await FileApprovalStore.open(storePath);
 
 		const globalCommand = await commandRequest("git push origin main");
 		expect(store.matchesAllowRule(globalCommand, firstUnit(globalCommand))).toBe(false);
@@ -182,9 +192,7 @@ function webFetchRequest(origin: string): ApprovalRequest {
 	return {
 		tool: "webfetch",
 		cwd: dir,
-		summary: `Fetch private network origin: ${origin}`,
 		detail: {
-			kind: "webfetch",
 			url: `${origin}/private`,
 			origin,
 			addresses: [{ address: "127.0.0.1", family: 4 }],

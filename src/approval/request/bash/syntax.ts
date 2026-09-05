@@ -1,4 +1,4 @@
-import { containsDynamicShellNode, decodeStaticShellWord } from "../../../syntax-tree/bash.js";
+import { containsDynamicShellNode, decodeShellWord } from "../../../syntax-tree/bash.js";
 import type { SyntaxNode } from "../../../syntax-tree/types.js";
 
 export function* walkNamedNodes(root: SyntaxNode, check: () => void): Generator<SyntaxNode> {
@@ -23,14 +23,43 @@ export function* walkNamedNodesSkippingFunctions(root: SyntaxNode, check: () => 
 export function normalizeCommandNode(node: SyntaxNode): string {
 	const parts = node.namedChildren
 		.filter((child) => child.type !== "file_redirect" && child.type !== "heredoc_redirect" && child.type !== "herestring_redirect")
-		.map((child) => normalizeSource(child.text))
-		.filter((part) => part.length > 0);
-	return parts.length === 0 ? normalizeSource(node.text) : parts.join(" ");
+		.filter((child) => child.text.trim().length > 0);
+	let source = "";
+	let end: number | undefined;
+	for (const child of parts) {
+		const gap = end === undefined ? "" : node.text.slice(end - node.startIndex, child.startIndex - node.startIndex);
+		source += (end === undefined ? "" : isWordContinuation(gap) ? gap : " ") + child.text;
+		end = child.endIndex;
+	}
+	return normalizeSource(parts.length === 0 ? node.text : source);
 }
 
-export function literalNodeText(node: SyntaxNode): string | undefined {
+function literalNodeText(node: SyntaxNode): string | undefined {
 	if (containsDynamicShellNode(node)) return undefined;
-	return decodeStaticShellWord(node.text);
+	return decodeShellWord(node.text);
+}
+
+/** Tree-sitter 会把单词中间的续行拆成相邻 word，这里恢复实际的参数边界。 */
+export function commandWords(node: SyntaxNode): Array<{ node: SyntaxNode; source: string; literal: string | undefined }> {
+	const name = node.childForFieldName("name");
+	const nodes = [...(name === null ? [] : [name]), ...node.childrenForFieldName("argument")];
+	const words: Array<{ node: SyntaxNode; source: string; literal: string | undefined }> = [];
+	let end: number | undefined;
+	for (const child of nodes) {
+		const previous = words.at(-1);
+		const gap = end === undefined ? "" : node.text.slice(end - node.startIndex, child.startIndex - node.startIndex);
+		const literal = literalNodeText(child);
+		if (previous !== undefined && isWordContinuation(gap)) {
+			previous.source += gap + child.text;
+			previous.literal = previous.literal === undefined || literal === undefined ? undefined : decodeShellWord(previous.source);
+		} else words.push({ node: child, source: child.text, literal });
+		end = child.endIndex;
+	}
+	return words;
+}
+
+function isWordContinuation(gap: string): boolean {
+	return /^(?:\\\n)+$/u.test(gap);
 }
 
 export function normalizeSource(value: string): string {

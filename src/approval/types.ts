@@ -1,12 +1,10 @@
-export type ApprovalTarget =
+type ApprovalTarget =
 	| {
 		kind: "command";
 		/** 用于展示和精确批准匹配的规范值。 */
 		value: string;
-		/** 仅供策略 matcher 使用；例如移除外层命令中的嵌套 substitution。 */
-		match_value: string;
-		/** 仅供保守 similar matcher 使用；例如跳过 env wrapper。 */
-		similar_value?: string;
+		/** 解包后的命令，用于策略和保守前缀匹配。 */
+		effective_value: string;
 	}
 	| {
 		kind: "path";
@@ -36,46 +34,26 @@ export interface ApprovalEditReplacement {
 	replace_all?: boolean;
 }
 
-export type ApprovalRequestDetail =
-	| { kind: "bash"; command: string }
-	| { kind: "write"; path: string; content: string }
-	| { kind: "edit"; path: string; edits: ApprovalEditReplacement[] }
-	| {
-		kind: "webfetch";
-		url: string;
-		origin: string;
-		addresses: [{ address: string; family: 4 | 6 }, ...Array<{ address: string; family: 4 | 6 }>];
-	};
-
-interface ApprovalRequestBase {
+export type ApprovalRequest = {
 	cwd: string;
-	summary: string;
 	units: ApprovalUnit[];
-}
+} & (
+	| { tool: "bash"; detail: { command: string } }
+	| { tool: "write"; detail: { path: string; content: string } }
+	| { tool: "edit"; detail: { path: string; edits: ApprovalEditReplacement[] } }
+	| {
+		tool: "webfetch";
+		detail: {
+			url: string;
+			origin: string;
+			addresses: import("../web-tools/network/network-policy.js").ResolvedAddresses;
+		};
+	}
+);
 
-export interface BashApprovalRequest extends ApprovalRequestBase {
-	tool: "bash";
-	detail: Extract<ApprovalRequestDetail, { kind: "bash" }>;
-}
+export type BashApprovalRequest = Extract<ApprovalRequest, { tool: "bash" }>;
 
-export interface WriteApprovalRequest extends ApprovalRequestBase {
-	tool: "write";
-	detail: Extract<ApprovalRequestDetail, { kind: "write" }>;
-}
-
-export interface EditApprovalRequest extends ApprovalRequestBase {
-	tool: "edit";
-	detail: Extract<ApprovalRequestDetail, { kind: "edit" }>;
-}
-
-export interface WebFetchApprovalRequest extends ApprovalRequestBase {
-	tool: "webfetch";
-	detail: Extract<ApprovalRequestDetail, { kind: "webfetch" }>;
-}
-
-export type ApprovalRequest = BashApprovalRequest | WriteApprovalRequest | EditApprovalRequest | WebFetchApprovalRequest;
-
-export interface ApprovalAskItem {
+interface ApprovalAskItem {
 	unit: ApprovalUnit;
 	reason: string;
 }
@@ -85,26 +63,23 @@ export type ApprovalDecision =
 	| { kind: "ask"; reason: string; items: ApprovalAskItem[] }
 	| { kind: "deny"; reason: string; rule_name?: string };
 
-export type ApprovalDefaultAction = "allow" | "ask" | "deny";
-export type BashPolicyMatchScope = "raw-input" | "source-unit" | "effective-unit";
-export type BashPolicyPlatform = "linux" | "darwin" | "win32";
+type ApprovalDefaultAction = "allow" | "ask" | "deny";
+type BashPolicyMatchScope = "raw-input" | "source-unit" | "effective-unit";
+type BashPolicyPlatform = "linux" | "darwin" | "win32";
 
 export interface BashPolicyCommandMatcher {
-	regex: string;
-	scope?: BashPolicyMatchScope;
+	classifier: string;
+	regex: RegExp;
+	scope: BashPolicyMatchScope;
 	platform?: BashPolicyPlatform;
 }
 
-export type BashPolicyCommandRule = string | false | BashPolicyCommandMatcher;
-
 export interface BashPolicyFact {
-	enabled?: boolean;
 	action?: Exclude<ApprovalDefaultAction, "allow">;
-	commands: Record<string, BashPolicyCommandRule>;
+	commands: BashPolicyCommandMatcher[];
 }
 
 export interface BashPolicyCombination {
-	enabled?: boolean;
 	all: string[];
 	action: Exclude<ApprovalDefaultAction, "allow">;
 }
@@ -112,7 +87,7 @@ export interface BashPolicyCombination {
 export interface BashPolicyConfig {
 	default_action: ApprovalDefaultAction;
 	facts: Record<string, BashPolicyFact>;
-	combinations: Record<string, BashPolicyCombination | false>;
+	combinations: Record<string, BashPolicyCombination>;
 }
 
 export interface ApprovalRule {

@@ -1,37 +1,41 @@
+import { readFileSync } from "node:fs";
 import {
 	CONFIG_DEFINITIONS,
 	agentSchemaPath,
 	createCompleteSchemaValidator,
 	createSchemaValidator,
-	defaultAgentConfigPath,
 	expandHomePath,
 	loadValidatedMergedConfig,
-	readDefaultJsoncConfigSync,
 } from "../config-loader.js";
-import type {
-	ApprovalGateConfig,
-	ApprovalRule,
-	BashPolicyCommandMatcher,
-	BashPolicyCommandRule,
-	BashPolicyCombination,
-	BashPolicyConfig,
-	BashPolicyFact,
-} from "./types.js";
+import { compileSchemaValidator, type SchemaValidateFunction } from "../schema-validator.js";
+import type { ApprovalGateConfig, BashPolicyCommandMatcher, BashPolicyCombination, BashPolicyConfig, BashPolicyFact } from "./types.js";
 
 const SCHEMA_PATH = agentSchemaPath("approval-gate.schema.json");
+const schemaOptions = { schemaPath: SCHEMA_PATH, label: "approval-gate", createError };
+const loadValidator = createSchemaValidator(schemaOptions);
+const loadDefaultValidator = createCompleteSchemaValidator(schemaOptions);
+let validateComplete: SchemaValidateFunction | undefined;
 
-type RawBashPolicyCommandRule = string | false | Omit<BashPolicyCommandMatcher, "regex"> & { regex?: string };
-type RawBashPolicyFact = Omit<BashPolicyFact, "commands"> & { commands?: Record<string, RawBashPolicyCommandRule> };
-type RawBashPolicyCombination = Omit<BashPolicyCombination, "all" | "action"> & {
-	all?: string[];
-	action?: BashPolicyCombination["action"];
+type FileCommandRule = string | false | {
+	regex: string;
+	scope?: BashPolicyCommandMatcher["scope"];
+	platform?: BashPolicyCommandMatcher["platform"];
 };
-interface RawBashPolicyConfig extends Omit<BashPolicyConfig, "facts" | "combinations"> {
-	facts: Record<string, RawBashPolicyFact>;
-	combinations: Record<string, RawBashPolicyCombination | false>;
+interface ConfigFile extends Omit<ApprovalGateConfig, "tools"> {
+	tools: Omit<ApprovalGateConfig["tools"], "bash"> & {
+		bash: {
+			default_action: BashPolicyConfig["default_action"];
+			facts: Record<string, {
+				enabled?: boolean;
+				action?: BashPolicyFact["action"];
+				commands: Record<string, FileCommandRule>;
+			}>;
+			combinations: Record<string, false | BashPolicyCombination & { enabled?: boolean }>;
+		};
+	};
 }
 
-export class ApprovalConfigError extends Error {
+class ApprovalConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
 		super(message);
 		this.name = "ApprovalConfigError";
@@ -39,124 +43,80 @@ export class ApprovalConfigError extends Error {
 }
 
 export async function loadApprovalGateConfig(): Promise<ApprovalGateConfig> {
-	const loaded = await loadValidatedMergedConfig(
-		CONFIG_DEFINITIONS.approvalGate, process.cwd(), createError, { partial: loadValidator, complete: loadCompleteValidator },
-	);
-	return materializeConfig(loaded.merged as CompleteApprovalGateConfig);
+	const loaded = await loadValidatedMergedConfig(CONFIG_DEFINITIONS.approvalGate, process.cwd(), createError, {
+		partial: loadValidator, complete: loadDefaultValidator,
+	});
+	return compileConfig(loaded.merged);
 }
 
-export function defaultApprovalGateConfig(): ApprovalGateConfig {
-	return materializeConfig(readDefaultConfig());
-}
-
-interface RawApprovalGateConfig {
-	enabled?: boolean;
-	ui?: Partial<ApprovalGateConfig["ui"]>;
-	remember?: Partial<ApprovalGateConfig["remember"]>;
-	tools?: {
-		bash?: RawBashPolicyConfig;
-		write?: ApprovalGateConfig["tools"]["write"];
-		edit?: ApprovalGateConfig["tools"]["edit"];
-		webfetch?: ApprovalGateConfig["tools"]["webfetch"];
-	};
-	ask_rules?: ApprovalRule[];
-	deny_rules?: ApprovalRule[];
-}
-
-interface CompleteApprovalGateConfig extends Required<Omit<RawApprovalGateConfig, "tools">> {
-	ui: ApprovalGateConfig["ui"];
-	remember: ApprovalGateConfig["remember"];
-	tools: {
-		bash: RawBashPolicyConfig;
-		write: ApprovalGateConfig["tools"]["write"];
-		edit: ApprovalGateConfig["tools"]["edit"];
-		webfetch: ApprovalGateConfig["tools"]["webfetch"];
-	};
-}
-
-function materializeConfig(raw: CompleteApprovalGateConfig): ApprovalGateConfig {
-	return {
-		...raw,
-		remember: { ...raw.remember, persistent_store: expandHomePath(raw.remember.persistent_store) },
-		tools: { ...raw.tools, bash: materializeBashPolicy(raw.tools.bash) },
-	};
-}
-
-function materializeBashPolicy(raw: RawBashPolicyConfig): BashPolicyConfig {
-	const factEntries: Array<[string, BashPolicyFact]> = [];
-	for (const [factId, fact] of Object.entries(raw.facts)) {
-		if (fact.commands === undefined) {
-			throw new ApprovalConfigError("approval bash policy fact is incomplete.", { fact: factId });
-		}
-		const commandEntries = Object.entries(fact.commands).map(([classifier, rule]): [string, BashPolicyCommandRule] => [
-			classifier,
-			materializeCommandRule(factId, classifier, rule),
-		]);
-		factEntries.push([factId, { ...fact, commands: Object.fromEntries(commandEntries) }]);
+function compileConfig(value: unknown): ApprovalGateConfig {
+	validateComplete ??= completeSchemaValidator();
+	if (!validateComplete(value)) {
+		throw new ApprovalConfigError("approval-gate merged config does not match schema.", { errors: validateComplete.errors });
 	}
+	const file = value as ConfigFile;
+	return {
+		...file,
+		remember: { ...file.remember, persistent_store: expandHomePath(file.remember.persistent_store) },
+		tools: { ...file.tools, bash: compileBashPolicy(file.tools.bash) },
+	};
+}
 
-	const factIds = new Set(factEntries.map(([factId]) => factId));
-	const combinationEntries: Array<[string, BashPolicyCombination | false]> = [];
-	for (const [name, combination] of Object.entries(raw.combinations)) {
-		if (combination === false) {
-			combinationEntries.push([name, false]);
-			continue;
-		}
-		if (combination.all === undefined || combination.action === undefined) {
-			throw new ApprovalConfigError("approval bash policy combination is incomplete.", { combination: name });
-		}
-		for (const factId of combination.all) {
-			if (!factIds.has(factId)) {
-				throw new ApprovalConfigError("approval bash policy combination references an unknown fact.", {
-					combination: name,
-					fact: factId,
+function compileBashPolicy(file: ConfigFile["tools"]["bash"]): BashPolicyConfig {
+	const facts: Record<string, BashPolicyFact> = {};
+	for (const [factId, fact] of Object.entries(file.facts)) {
+		const commands: BashPolicyCommandMatcher[] = [];
+		for (const [classifier, rule] of Object.entries(fact.commands)) {
+			if (rule === false) continue;
+			const matcher = typeof rule === "string" ? { regex: rule } : rule;
+			let regex: RegExp;
+			try {
+				regex = new RegExp(matcher.regex, "iu");
+			} catch (error) {
+				throw new ApprovalConfigError(`approval bash command regex is invalid: ${factId}/${classifier}.`, {
+					fact: factId, classifier, regex: matcher.regex, error: String(error),
 				});
 			}
+			commands.push({ classifier, regex, scope: matcher.scope ?? "source-unit", ...(matcher.platform === undefined ? {} : { platform: matcher.platform }) });
 		}
-		combinationEntries.push([name, { ...combination, all: combination.all, action: combination.action }]);
+		if (fact.enabled !== false) facts[factId] = { commands, ...(fact.action === undefined ? {} : { action: fact.action }) };
 	}
-	return {
-		default_action: raw.default_action,
-		facts: Object.fromEntries(factEntries),
-		combinations: Object.fromEntries(combinationEntries),
+	const combinations: Record<string, BashPolicyCombination> = {};
+	for (const [name, combination] of Object.entries(file.combinations)) {
+		if (combination === false) continue;
+		for (const factId of combination.all) {
+			if (!Object.hasOwn(file.facts, factId)) {
+				throw new ApprovalConfigError("approval bash policy combination references an unknown fact.", { combination: name, fact: factId });
+			}
+		}
+		if (combination.enabled !== false) combinations[name] = { all: combination.all, action: combination.action };
+	}
+	return { default_action: file.default_action, facts, combinations };
+}
+
+/** 覆盖层允许只修改部分字段，合并后则要求所有运行时必需字段存在。 */
+function completeSchemaValidator(): SchemaValidateFunction {
+	const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8")) as {
+		required: string[];
+		properties: Record<string, object>;
+		$defs: Record<string, object>;
 	};
-}
-
-function materializeCommandRule(
-	fact: string,
-	classifier: string,
-	rule: RawBashPolicyCommandRule,
-): BashPolicyCommandRule {
-	if (rule === false) return false;
-	const source = typeof rule === "string" ? rule : rule.regex;
-	if (source === undefined) {
-		throw new ApprovalConfigError(`approval bash command matcher is incomplete: ${fact}/${classifier}.`, { fact, classifier });
-	}
-	try {
-		new RegExp(source, "iu");
-	} catch (error) {
-		throw new ApprovalConfigError(`approval bash command regex is invalid: ${fact}/${classifier}.`, {
-			fact,
-			classifier,
-			regex: source,
-			error: String(error),
-		});
-	}
-	return typeof rule === "string" ? rule : { ...rule, regex: source };
-}
-
-function readDefaultConfig(): CompleteApprovalGateConfig {
-	return readDefaultJsoncConfigSync({
-		configPath: defaultAgentConfigPath("approval-gate.jsonc"),
-		schemaPath: SCHEMA_PATH,
-		label: "approval-gate",
-		createError,
-	}) as CompleteApprovalGateConfig;
+	schema.required = ["enabled", "ui", "remember", "tools", "ask_rules", "deny_rules"];
+	for (const [name, required] of Object.entries({
+		ui: ["timeout_ms", "non_interactive"],
+		remember: ["allow_session", "allow_persistent", "persistent_store"],
+		tools: ["bash", "write", "edit", "webfetch"],
+	})) schema.properties[name] = { ...schema.properties[name], required };
+	for (const [name, required] of Object.entries({
+		toolPolicy: ["default_action"],
+		bashPolicy: ["default_action", "facts", "combinations"],
+		bashFact: ["commands"],
+		bashCommandMatcher: ["regex"],
+		bashCombination: ["all", "action"],
+	})) schema.$defs[name] = { ...schema.$defs[name], required };
+	return compileSchemaValidator(schema, { allErrors: true });
 }
 
 function createError(message: string, details?: Record<string, unknown>): ApprovalConfigError {
 	return new ApprovalConfigError(message, details);
 }
-
-const loadValidator = createSchemaValidator({ schemaPath: SCHEMA_PATH, label: "approval-gate", createError });
-const loadCompleteValidator = createCompleteSchemaValidator({ schemaPath: SCHEMA_PATH, label: "approval-gate", createError });
