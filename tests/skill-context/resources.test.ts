@@ -17,6 +17,7 @@ import { SKILL_CONTEXT_ENTRY, type SkillCandidate, type SkillLoadEntry } from ".
 import { executeTool } from "../file-tools/extension-fixture.js";
 import { registerExtension } from "../helpers/extension.js";
 import { useTempDir } from "../helpers/lifecycle.js";
+import { lspOperations } from "../helpers/lsp.js";
 
 const temp = useTempDir("o-pi-skill-resource-");
 let root: string;
@@ -65,7 +66,7 @@ describe("技能资源定位符", () => {
 			sessionId: "skill-read",
 			model: undefined,
 			host,
-			lsp: { read: enhanceRead },
+			lsp: lspOperations({ read: enhanceRead }),
 			pathAccess,
 		});
 		const opened = await host.open({ cwd: temp.path, sessionId: "skill-read" });
@@ -149,7 +150,7 @@ describe("技能资源定位符", () => {
 				sessionId: "skill-pdf-read",
 				model: { input: ["text", "image"] },
 				host,
-				lsp: {},
+				lsp: lspOperations(),
 				pathAccess,
 			});
 			expect(result.content).toHaveLength(3);

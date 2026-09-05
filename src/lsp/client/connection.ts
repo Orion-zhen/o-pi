@@ -1,35 +1,128 @@
 import {
+	CancellationTokenSource,
+	ErrorCodes,
+	ResponseError,
 	createMessageConnection,
 	StreamMessageReader,
 	StreamMessageWriter,
 	type Message,
 	type MessageConnection,
 	type MessageWriter,
+	type RequestType,
+	type RequestParam,
 } from "vscode-jsonrpc/node";
-import { ExitNotification, ShutdownRequest } from "vscode-languageserver-protocol";
+import {
+	ConfigurationRequest, ExitNotification, InitializeRequest, RegistrationRequest, ShutdownRequest, WorkspaceFoldersRequest,
+	type InitializeParams, type ServerCapabilities,
+} from "vscode-languageserver-protocol";
 
 import type { LspTransportConnection } from "../protocol/transport.js";
+import type { LspFeatureSession } from "../protocol/features.js";
+import { withTimeout } from "../protocol/timeout.js";
+import { LspProtocolInfrastructure, LspProtocolValidationError } from "../protocol/infrastructure.js";
+import type { LspRequestOptions } from "../types.js";
 
 const MIN_GRACEFUL_CLOSE_MS = 1000;
 const MAX_GRACEFUL_CLOSE_MS = 3000;
 const POST_CLOSE_DRAIN_MS = 1000;
 
-/** 一代 LSP 协议连接；独占 JSON-RPC writer、connection 和底层 transport。 */
-export class LspClientConnection {
+/** 一代协议连接独占能力、请求取消、故障信号、writer 和底层资源。 */
+export class LspClientConnection implements LspFeatureSession {
 	readonly rpc: MessageConnection;
+	private readonly failure: Promise<never>;
+	private readonly failureHandled: Promise<void>;
 	private readonly writer: DrainingMessageWriter;
 	private closePromise: Promise<void> | undefined;
+	private serverCapabilities: ServerCapabilities | undefined;
+	private usable = true;
+	private rejectFailure: (error: Error) => void = () => undefined;
 
 	constructor(
 		private readonly transport: LspTransportConnection,
-		onWriteError: (error: unknown) => void,
+		private readonly requestTimeoutMs: number,
+		readonly protocol: LspProtocolInfrastructure,
+		onFailure: (message: string) => Promise<void>,
+		private readonly onRequestError: (message: string) => void,
 	) {
-		this.writer = new DrainingMessageWriter(new StreamMessageWriter(transport.writer), onWriteError);
+		const localFailure = new Promise<never>((_resolve, reject) => { this.rejectFailure = reject; });
+		this.failure = Promise.race([localFailure, transport.failure]);
+		this.failureHandled = this.failure.catch(async (error: unknown) => {
+			this.usable = false;
+			await onFailure(errorMessage(error));
+		});
+		this.writer = new DrainingMessageWriter(new StreamMessageWriter(transport.writer), (error) => this.fail(error));
 		this.rpc = createMessageConnection(new StreamMessageReader(transport.reader), this.writer);
+		this.rpc.onError(([error]) => this.fail(error));
+		this.rpc.onClose(() => this.fail(new Error("connection closed")));
+		this.rpc.onRequest((method) => {
+			throw new ResponseError(ErrorCodes.MethodNotFound, `Unsupported server request: ${method}`);
+		});
+		this.rpc.onRequest(ConfigurationRequest.type, (params) => validatedProtocolResult(() => protocol.configuration(params)));
+		this.rpc.onRequest(WorkspaceFoldersRequest.type, () => protocol.workspaceFolders());
+		this.rpc.onRequest(RegistrationRequest.type, (params) => {
+			validatedProtocolResult(() => protocol.registerCapabilities(params));
+		});
 	}
 
-	get failure(): Promise<never> {
-		return this.transport.failure;
+	capabilities(): ServerCapabilities | undefined {
+		return this.serverCapabilities;
+	}
+
+	async initialize(params: InitializeParams, timeoutMs: number): Promise<void> {
+		const result = await withTimeout(Promise.race([
+			this.rpc.sendRequest(InitializeRequest.type, params), this.failure,
+		]), timeoutMs);
+		this.serverCapabilities = result.capabilities;
+	}
+
+	async request<P, R, E>(type: RequestType<P, R, E>, params: NoInfer<RequestParam<P>>, options: LspRequestOptions = {}): Promise<R | undefined> {
+		if (!this.usable) return undefined;
+		const source = new CancellationTokenSource();
+		let rejectCancellation: (error: Error) => void = () => undefined;
+		const cancelled = new Promise<never>((_resolve, reject) => { rejectCancellation = reject; });
+		const cancel = (message: string): void => {
+			source.cancel();
+			rejectCancellation(new Error(message));
+		};
+		const onAbort = (): void => cancel("request cancelled");
+		if (options.signal?.aborted === true) onAbort();
+		else options.signal?.addEventListener("abort", onAbort, { once: true });
+		const timer = setTimeout(() => cancel("timeout"), options.timeoutMs ?? this.requestTimeoutMs);
+		try {
+			return await Promise.race([
+				this.rpc.sendRequest(type, params, source.token), this.failure, cancelled,
+			]);
+		} catch (error) {
+			this.onRequestError(errorMessage(error));
+			return undefined;
+		} finally {
+			clearTimeout(timer);
+			options.signal?.removeEventListener("abort", onAbort);
+			source.dispose();
+		}
+	}
+
+	async notify(factory: (rpc: MessageConnection) => Promise<void>): Promise<boolean> {
+		if (!this.usable) return false;
+		try {
+			await withTimeout(Promise.race([factory(this.rpc), this.failure]), this.requestTimeoutMs);
+			return this.usable;
+		} catch (error) {
+			this.fail(error);
+			await this.failureHandled;
+			return false;
+		}
+	}
+
+	/** 停止业务请求，不影响随后通过原始 RPC 发送 shutdown/exit。 */
+	stop(): void {
+		this.fail(new Error("server stopped"));
+	}
+
+	private fail(error: unknown): void {
+		if (!this.usable) return;
+		this.usable = false;
+		this.rejectFailure(error instanceof Error ? error : new Error(String(error)));
 	}
 
 	stderrTail(): string | undefined {
@@ -48,6 +141,7 @@ export class LspClientConnection {
 
 	private startClose(graceful: boolean, timeoutMs: number): Promise<void> {
 		if (this.closePromise !== undefined) return this.closePromise;
+		this.stop();
 		const pending = this.performClose(graceful, timeoutMs);
 		this.closePromise = pending;
 		return pending;
@@ -93,7 +187,6 @@ export class LspClientConnection {
  */
 class DrainingMessageWriter implements MessageWriter {
 	private pendingWrites = 0;
-	private failureReported = false;
 	private readonly drainWaiters = new Set<() => void>();
 
 	constructor(
@@ -114,14 +207,7 @@ class DrainingMessageWriter implements MessageWriter {
 		try {
 			await this.inner.write(message);
 		} catch (error) {
-			if (!this.failureReported) {
-				this.failureReported = true;
-				try {
-					this.onWriteError(error);
-				} catch {
-					// failure callback 不能重新暴露被吸收的 writer rejection。
-				}
-			}
+			this.onWriteError(error);
 		} finally {
 			this.pendingWrites -= 1;
 			if (this.pendingWrites === 0) {
@@ -145,6 +231,19 @@ class DrainingMessageWriter implements MessageWriter {
 	dispose(): void {
 		this.inner.dispose();
 	}
+}
+
+function validatedProtocolResult<T>(factory: () => T): T {
+	try {
+		return factory();
+	} catch (error) {
+		if (error instanceof LspProtocolValidationError) throw new ResponseError(ErrorCodes.InvalidParams, error.message);
+		throw error;
+	}
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
 
 function callDuringClose<T>(factory: () => Promise<T>): Promise<T | undefined> {

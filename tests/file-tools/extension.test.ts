@@ -9,6 +9,7 @@ import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { FILE_TOOLS_OBSERVATION_STATE } from "../../src/file-tools/runtime/session-observation-state.js";
 import { registerExtension, type ExtensionHandler } from "../helpers/extension.js";
 import { useTempDir } from "../helpers/lifecycle.js";
+import { lspOperations } from "../helpers/lsp.js";
 import {
 	activateFileTools,
 	executeTool,
@@ -349,7 +350,7 @@ describe("file-tools extension lifecycle", () => {
 			async lsp() {
 				return {
 					...(await import("../../src/lsp/index.js")),
-					lspFileOperations: { afterMutation: directLsp, afterMutationBatch: batchLsp },
+					lspFileOperations: lspOperations({ afterMutation: directLsp, afterMutationBatch: batchLsp }),
 				};
 			},
 		}), {
@@ -406,7 +407,7 @@ describe("file-tools extension lifecycle", () => {
 		const batchLsp = vi.fn(async () => []);
 		const { registered, handlers } = registerExtension(createFileToolsExtension({
 			async lsp() {
-				return { ...(await import("../../src/lsp/index.js")), lspFileOperations: { afterMutation: directLsp, afterMutationBatch: batchLsp } };
+				return { ...(await import("../../src/lsp/index.js")), lspFileOperations: lspOperations({ afterMutation: directLsp, afterMutationBatch: batchLsp }) };
 			},
 		}));
 		const cwd = workspace.path;
@@ -435,7 +436,7 @@ describe("file-tools extension lifecycle", () => {
 		}));
 		const imports = {
 			read: vi.fn(() => import("../../src/file-tools/pi/adapters/read.js")),
-			lsp: vi.fn(async () => ({ ...(await import("../../src/lsp/index.js")), lspFileOperations: { read: enhanceRead } })),
+			lsp: vi.fn(async () => ({ ...(await import("../../src/lsp/index.js")), lspFileOperations: lspOperations({ read: enhanceRead }) })),
 		};
 		const getCommands = vi.fn(() => []);
 		const { registered, handlers } = registerExtension(createFileToolsExtension(imports), {

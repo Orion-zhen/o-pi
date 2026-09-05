@@ -13,16 +13,16 @@ import type {
 import { compareCodeUnitNesting } from "../../code-index/parser.js";
 import { LspClient } from "../client/client.js";
 import { analyzeLspDocument, type AnalyzedLspDocument, type AnalyzedLspUnit } from "./document.js";
-import { featureAvailable, lspFeatureDefinitions } from "../protocol/features.js";
+import { supportsCodeAnalysis } from "../protocol/features.js";
 import { createOperationDeadline, waitUnlessAborted, type OperationDeadline } from "./deadline.js";
 import {
 	resolveWorkspaceSymbolSeeds,
 	type ResolvedWorkspaceSymbol,
-	type WorkspaceSymbolContext,
 } from "./workspace-symbols.js";
-import { isExcludedRoot } from "../manager/runtime.js";
-import type { LoadedLspConfig, LspFileRoute, LspServerConfig } from "../types.js";
+import type { LspWorkspace } from "../manager/workspace.js";
+import type { LspFileRoute } from "../types.js";
 import { pathToFileUri } from "../protocol/uri.js";
+import { normalizeSymbolText, type WorkspaceSymbolSeed } from "./symbols.js";
 
 const CODE_ANALYSIS_CONCURRENCY = 2;
 const CODE_ANALYSIS_SYMBOL_LIMIT = 3;
@@ -33,53 +33,33 @@ export interface LspCodeAnalysisInput extends Omit<CodeAnalysisInput, "load"> {
 	load(path: string): Promise<(CodeDocument & { readonly filePath: string }) | undefined>;
 }
 
-export interface LspAnalysisContext extends WorkspaceSymbolContext {
-	enabledConfig(root: string): Promise<LoadedLspConfig | undefined>;
-	routeForRelativePath(root: string, relativePath: string): LspFileRoute | undefined;
-	serversForPaths(root: string, paths: Iterable<string>): LspServerConfig[];
-}
-
 /** 编排受路由和超时约束的 LSP code analysis。 */
 export async function codeAnalysis(
-	context: LspAnalysisContext,
+	workspace: LspWorkspace,
 	input: LspCodeAnalysisInput,
 ): Promise<CodeAnalysis | undefined> {
-	const config = await context.enabledConfig(input.root);
+	const config = workspace.config;
 	const targetPaths = input.targets.map((target) => target.path);
 	if (
-		config === undefined
-		|| isExcludedRoot(input.root, config.config.exclude_paths)
-		|| new Set(targetPaths).size !== targetPaths.length
+		new Set(targetPaths).size !== targetPaths.length
 		|| input.targets.some((target) => !validAnalysisTarget(target))
 	) return undefined;
 	if (targetPaths.length === 0) return { mode: "symbol", coveredPaths: [], files: [] };
 	const routes: Array<{ readonly target: CodeAnalysisTarget; readonly route: LspFileRoute }> = [];
 	for (const target of input.targets) {
-		const route = context.routeForRelativePath(input.root, target.path);
+		const route = workspace.route(target.path);
 		if (route === undefined) return undefined;
 		routes.push({ target, route });
 	}
-	const servers = context.serversForPaths(input.root, targetPaths);
+	const selectedServers = new Set(routes.map(({ route }) => route.server));
+	const servers = config.servers.filter((server) => selectedServers.has(server));
 	if (servers.length === 0) return undefined;
-	const operation = createOperationDeadline(input.signal, config.config.request_timeout_ms);
+	const operation = createOperationDeadline(input.signal, config.request_timeout_ms);
 	try {
-		const started = await Promise.all(servers.map(async (server) => ({
-			server,
-			client: await waitUnlessAborted(context.clientForServer(input.root, server), operation.signal),
-		})));
-		if (operation.signal.aborted) return undefined;
-		const startedClients: Array<{ readonly server: LspServerConfig; readonly client: LspClient }> = [];
-		for (const { server, client } of started) {
-			if (client === undefined) return undefined;
-			startedClients.push({ server, client });
-		}
-		const clients = new Map(startedClients.map(({ server, client }) => [server.id, client] as const));
-		if (startedClients.some(({ client }) =>
-			!featureAvailable(client, lspFeatureDefinitions.documentSymbols)
-			|| !featureAvailable(client, lspFeatureDefinitions.references)
-			|| !featureAvailable(client, lspFeatureDefinitions.incomingCalls)
-			|| (input.allowRelated && !featureAvailable(client, lspFeatureDefinitions.workspaceSymbols)))
-		) return undefined;
+		const started = await Promise.all(servers.map((server) => waitUnlessAborted(workspace.client(server), operation.signal)));
+		if (operation.signal.aborted || !allDefined(started)) return undefined;
+		if (started.some((client) => !supportsCodeAnalysis(client.capabilities(), input.allowRelated))) return undefined;
+		const clients = new Map(started.map((client) => [client.server.id, client]));
 
 		if (!input.allowRelated) {
 			const limit = pLimit(CODE_ANALYSIS_CONCURRENCY);
@@ -89,21 +69,16 @@ export async function codeAnalysis(
 					? undefined
 					: analyzeTargetDocument(input, target, client, operation);
 			})));
-			if (files.some((file) => file === undefined)) return undefined;
-			return {
-				mode: "symbol",
-				coveredPaths: targetPaths,
-				files: files.filter((file): file is NonNullable<typeof file> => file !== undefined),
-			};
+			if (!allDefined(files)) return undefined;
+			return { mode: "symbol", coveredPaths: targetPaths, files };
 		}
-		if (!config.config.grep.workspace_symbols || config.config.grep.max_symbols <= 0) return undefined;
-		const allowedPaths = new Set(targetPaths);
+		if (!config.grep.workspace_symbols || config.grep.max_symbols <= 0) return undefined;
+		const owners = new Map(routes.map(({ target, route }) => [target.path, route.server.id]));
 		const candidates = await resolveWorkspaceSymbolSeeds(
-			{ root: input.root, query: input.query, allowedPaths },
-			config,
+			{ root: workspace.root, query: input.query, owners },
+			config.grep,
 			operation,
-			servers,
-			context,
+			started,
 		);
 		if (candidates === undefined) return undefined;
 		const exact = candidates.filter(({ seed }) => seed.exact);
@@ -121,13 +96,8 @@ export async function codeAnalysis(
 			const client = grouped[0].client;
 			return analyzeSeedDocument(input, relativePath, grouped, client, operation);
 		})));
-		const complete = files.filter((file): file is NonNullable<typeof file> => file !== undefined);
-		if (complete.length !== byPath.size) return undefined;
-		return {
-			mode: "symbol",
-			coveredPaths: targetPaths,
-			files: complete,
-		};
+		if (!allDefined(files)) return undefined;
+		return { mode: "symbol", coveredPaths: targetPaths, files };
 	} finally {
 		operation.dispose();
 	}
@@ -228,10 +198,10 @@ async function symbolAuthority(
 	return "defined";
 }
 
-function unitForSeed(analysis: AnalyzedLspDocument, seed: { symbol: string; qualified_symbol?: string; line: number }): AnalyzedLspUnit | undefined {
+function unitForSeed(analysis: AnalyzedLspDocument, seed: WorkspaceSymbolSeed): AnalyzedLspUnit | undefined {
 	const name = normalizeSymbolText(seed.symbol);
 	const qualified = seed.qualified_symbol === undefined ? undefined : normalizeSymbolText(seed.qualified_symbol);
-	const line = seed.line + 1;
+	const line = seed.range.start.line + 1;
 	return [...analysis.units]
 		.filter(({ unit }) => {
 			const unitName = normalizeSymbolText(unit.name ?? "");
@@ -288,14 +258,10 @@ function validAnalysisTarget(target: CodeAnalysisTarget): boolean {
 				&& range.endByte >= range.startByte);
 }
 
-function normalizeSymbolText(value: string): string {
-	return value.replace(/::|#/gu, ".").toLocaleLowerCase();
-}
-
 function compareString(left: string, right: string): number {
 	return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function allDefined<T>(values: readonly (T | undefined)[]): values is readonly T[] {
+function allDefined<T>(values: (T | undefined)[]): values is T[] {
 	return values.every((value) => value !== undefined);
 }

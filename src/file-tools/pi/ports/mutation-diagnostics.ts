@@ -16,7 +16,7 @@ export function createMutationDiagnosticsSource(
 			const root = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
 			const target = invocation.nativeBridge.getNativeIdentity(input.target);
 			if (root === undefined || target === undefined) return undefined;
-			return await lsp.beforeMutation?.({
+			return await lsp.beforeMutation({
 				workspaceRoot: root.canonicalPath,
 				filePath: target.canonicalPath,
 			});
@@ -43,7 +43,7 @@ export function createMutationDiagnosticsSource(
 			};
 			if (batch !== undefined) return await batch.lsp(lspInput, lsp, progress);
 			safeNotify(() => progress?.lspStarted());
-			if (lspInput === undefined || lsp.afterMutation === undefined) {
+			if (lspInput === undefined) {
 				safeNotify(() => progress?.lspCompleted(undefined));
 				return undefined;
 			}

@@ -5,17 +5,14 @@ import {
 	diagnosticSourceKey,
 	emptySummary,
 	summarizeDiagnostics,
-	DiagnosticsLedger,
 	type DiagnosticSelection,
 } from "./ledger.js";
-import { isExcludedRoot } from "../manager/runtime.js";
+import type { LspManagerRuntime } from "../manager/runtime.js";
 import { modifiedSymbolRanges } from "../analysis/symbols.js";
 import type {
-	LoadedLspConfig,
 	LspDiagnosticSnapshot,
 	LspDiagnosticsSummary,
 	LspLineRange,
-	LspServerConfig,
 } from "../types.js";
 import { fileUriToPath, pathToFileUri, workspaceRelativePath } from "../protocol/uri.js";
 
@@ -27,41 +24,32 @@ export interface LspWriteInput {
 	readonly baseline?: LspDiagnosticSnapshot;
 }
 
-export interface LspDiagnosticsContext {
-	readonly diagnostics: DiagnosticsLedger;
-	enabledConfig(root: string): Promise<LoadedLspConfig | undefined>;
-	ensureConfig(root: string): Promise<LoadedLspConfig | undefined>;
-	withClientOperation<T>(operation: () => Promise<T>): Promise<T>;
-	clientForFile(root: string, filePath: string): Promise<LspClient | undefined>;
-	diagnosticSourceForFile(root: string, filePath: string): string | undefined;
-	serversForRoot(root: string): readonly LspServerConfig[];
-	serverOwnsPath(root: string, server: LspServerConfig, relativePath: string): boolean;
-}
-
 export async function beforeDiagnostics(
-	context: LspDiagnosticsContext,
+	context: LspManagerRuntime,
 	root: string,
 	filePath: string,
 ): Promise<LspDiagnosticSnapshot | undefined> {
-	const config = await context.enabledConfig(root);
-	if (config === undefined || isExcludedRoot(root, config.config.exclude_paths) || !config.config.diagnostics.enabled) return undefined;
-	const source = context.diagnosticSourceForFile(root, filePath);
+	const workspace = await context.workspace(root);
+	if (workspace === undefined || !workspace.config.diagnostics.enabled) return undefined;
+	const source = workspace.sourceForFile(filePath);
 	if (source === undefined) return undefined;
 	return context.diagnostics.snapshot(source, pathToFileUri(filePath));
 }
 
 export async function didWriteBatch(
-	context: LspDiagnosticsContext,
+	context: LspManagerRuntime,
 	writes: readonly LspWriteInput[],
 ): Promise<readonly (LspDiagnosticsSummary | undefined)[]> {
 	return context.withClientOperation(async () => {
 		const results: Array<LspDiagnosticsSummary | undefined> = writes.map(() => undefined);
 		const pending = await Promise.all(writes.map(async (write, index) => {
-			const config = await context.enabledConfig(write.root);
-			if (config === undefined || isExcludedRoot(write.root, config.config.exclude_paths) || !config.config.diagnostics.enabled) return undefined;
-			const expectedSource = context.diagnosticSourceForFile(write.root, write.filePath);
+			const workspace = await context.workspace(write.root);
+			if (workspace === undefined || !workspace.config.diagnostics.enabled) return undefined;
+			const config = workspace.config;
+			const route = workspace.routeForFile(write.filePath);
+			const expectedSource = route === undefined ? undefined : diagnosticSourceKey(workspace.root, route.server.id);
 			const uri = pathToFileUri(write.filePath);
-			const client = await context.clientForFile(write.root, write.filePath);
+			const client = route === undefined ? undefined : await workspace.client(route.server);
 			if (client === undefined) {
 				results[index] = emptySummary("unavailable", baselineState(write.baseline, expectedSource, uri));
 				return undefined;
@@ -88,7 +76,7 @@ export async function didWriteBatch(
 		}
 
 		await Promise.all(Array.from(byClient, async ([client, grouped]) => {
-			const diagnosticsConfig = grouped[0].config.config.diagnostics;
+			const diagnosticsConfig = grouped[0].config.diagnostics;
 			const selections = await Promise.all(grouped.map((item) => createEditSelection(item.client, item.write, item.source, item.uri)));
 			const collected = await client.saveAndCollectDiagnosticsBatch(
 				grouped.map(({ write }) => ({ filePath: write.filePath, text: write.text })),
@@ -125,19 +113,20 @@ export async function didWriteBatch(
 }
 
 export async function knownDiagnostics(
-	context: LspDiagnosticsContext,
+	context: LspManagerRuntime,
 	root: string,
 	filePath?: string,
 ): Promise<Array<{ path: string; items: LspDiagnosticsSummary["items"] }>> {
 	const normalizedRoot = path.resolve(root);
-	await context.ensureConfig(normalizedRoot);
-	const registryServers = new Map(context.serversForRoot(normalizedRoot).map((server) => [diagnosticSourceKey(normalizedRoot, server.id), server]));
+	const workspace = await context.workspace(normalizedRoot);
+	if (workspace === undefined) return [];
+	const registryServers = new Map(workspace.config.servers.map((server) => [diagnosticSourceKey(normalizedRoot, server.id), server]));
 	const entries = context.diagnostics.all();
 	return entries.flatMap((entry) => {
 		const server = registryServers.get(entry.source);
 		if (server === undefined) return [];
 		const absolute = uriToWorkspacePath(normalizedRoot, entry.uri);
-		if (absolute === undefined || !context.serverOwnsPath(normalizedRoot, server, absolute.relative)) return [];
+		if (absolute === undefined || workspace.route(absolute.relative)?.server.id !== server.id) return [];
 		if (filePath !== undefined && absolute.path !== filePath && absolute.relative !== filePath) return [];
 		return [{ path: absolute.relative, items: entry.items }];
 	});

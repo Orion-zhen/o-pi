@@ -10,13 +10,12 @@ import {
 	type LspWriteInput,
 } from "../diagnostics/operations.js";
 import { waitUnlessAborted } from "../analysis/deadline.js";
-import { isExcludedRoot, LspManagerRuntime } from "./runtime.js";
+import { LspManagerRuntime } from "./runtime.js";
 import { findEnclosingSymbol, remainingSymbols } from "../analysis/symbols.js";
 import type {
 	LspDiagnosticSnapshot,
 	LspDiagnosticsSummary,
 	LspEnclosingSymbol,
-	LspLineRange,
 	LspRemainingSymbol,
 	LspStatus,
 } from "../types.js";
@@ -59,34 +58,29 @@ export class LspManager {
 	}
 
 	codeAnalysis(input: LspCodeAnalysisInput): Promise<CodeAnalysis | undefined> {
-		return this.runtime.withClientOperation(() => runCodeAnalysis(this.runtime, input));
+		return this.runtime.withClientOperation(async () => {
+			const workspace = await this.runtime.workspace(input.root);
+			return workspace === undefined ? undefined : runCodeAnalysis(workspace, input);
+		});
 	}
 
 	prepareCodeAnalysis(input: LspCodeAnalysisPreparationInput): Promise<void> {
 		return this.runtime.withClientOperation(async () => {
-			const config = await this.runtime.enabledConfig(input.root);
-			if (
-				config === undefined
-				|| isExcludedRoot(input.root, config.config.exclude_paths)
-				|| input.signal?.aborted === true
-			) return;
-			const servers = this.runtime.serversForPaths(input.root, input.paths);
+			const workspace = await this.runtime.workspace(input.root);
+			if (workspace === undefined || input.signal?.aborted === true) return;
+			const servers = workspace.serversForPaths(input.paths);
 			await Promise.all(servers.map(async (server) => {
 				if (input.signal === undefined) {
-					await this.runtime.clientForServer(input.root, server);
+					await workspace.client(server);
 					return;
 				}
-				await waitUnlessAborted(this.runtime.clientForServer(input.root, server), input.signal);
+				await waitUnlessAborted(workspace.client(server), input.signal);
 			}));
 		});
 	}
 
 	beforeDiagnostics(root: string, filePath: string): Promise<LspDiagnosticSnapshot | undefined> {
 		return readBeforeDiagnostics(this.runtime, root, filePath);
-	}
-
-	didChangeWatchedFile(root: string, filePath: string, type: FileChangeType): Promise<void> {
-		return this.didChangeWatchedFiles([{ root, filePath, type }]);
 	}
 
 	didChangeWatchedFiles(
@@ -102,27 +96,11 @@ export class LspManager {
 				else group.push(item);
 			}
 			await Promise.all(Array.from(byRoot, async ([root, grouped]) => {
-				const config = await this.runtime.enabledConfig(root);
-				if (config === undefined || isExcludedRoot(root, config.config.exclude_paths)) return;
-				await Promise.all(this.runtime.clientsForRoot(root).map((client) => client.didChangeWatchedFiles(grouped)));
+				const workspace = await this.runtime.workspace(root);
+				if (workspace === undefined) return;
+				await Promise.all(workspace.startedClients().map((client) => client.didChangeWatchedFiles(grouped)));
 			}));
 		});
-	}
-
-	async didWrite(
-		root: string,
-		filePath: string,
-		text: string,
-		baseline?: LspDiagnosticSnapshot,
-		changed_ranges?: readonly LspLineRange[],
-	): Promise<LspDiagnosticsSummary | undefined> {
-		return (await this.didWriteBatch([{
-			root,
-			filePath,
-			text,
-			...(changed_ranges === undefined ? {} : { changed_ranges }),
-			...(baseline === undefined ? {} : { baseline }),
-		}]))[0];
 	}
 
 	didWriteBatch(writes: readonly LspWriteInput[]): Promise<readonly (LspDiagnosticsSummary | undefined)[]> {
@@ -140,20 +118,23 @@ export class LspManager {
 		range: { startLine: number; endLine: number },
 		options: { outline: boolean; enclosing: boolean },
 	): Promise<ReadEnhancement | undefined> {
-		const config = await this.runtime.enabledConfig(root);
-		if (config === undefined || isExcludedRoot(root, config.config.exclude_paths)) return undefined;
+		const workspace = await this.runtime.workspace(root);
+		if (workspace === undefined) return undefined;
+		const config = workspace.config;
 		const wantsOutline = options.outline
 			&& !options.enclosing
-			&& config.config.read.outline
-			&& config.config.read.max_symbols > 0;
+			&& config.read.outline
+			&& config.read.max_symbols > 0;
 		if (!wantsOutline && !options.enclosing) return undefined;
-		const client = await this.runtime.clientForFile(root, filePath);
+		const route = workspace.routeForFile(filePath);
+		if (route === undefined) return undefined;
+		const client = await workspace.client(route.server);
 		if (client === undefined) return undefined;
 		const symbols = await client.documentSymbols(filePath, text);
 		if (symbols === undefined) return undefined;
 		const result: ReadEnhancement = {};
 		if (wantsOutline) {
-			const remaining = remainingSymbols(symbols, range.startLine, range.endLine, config.config.read.max_symbols);
+			const remaining = remainingSymbols(symbols, range.startLine, range.endLine, config.read.max_symbols);
 			if (remaining.length > 0) result.remaining_symbols = remaining;
 		}
 		if (options.enclosing) {

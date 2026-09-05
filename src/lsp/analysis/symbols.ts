@@ -12,16 +12,19 @@ import { fileUriToPath, workspaceRelativePath } from "../protocol/uri.js";
 
 export interface WorkspaceSymbolSeed {
 	path: string;
-	start_line: number;
-	end_line: number;
-	kind: string;
 	symbol: string;
 	qualified_symbol?: string;
 	exact: boolean;
-	origin: "workspace-symbol";
-	uri: string;
-	line: number;
-	character: number;
+	range: Range;
+}
+
+export interface NormalizedDocumentSymbol {
+	readonly name: string;
+	readonly qualifiedName?: string;
+	readonly kind: number;
+	readonly range: Range;
+	readonly selectionRange: Range;
+	readonly topLevel: boolean;
 }
 
 const kindNames = new Map<number, string>([
@@ -53,31 +56,50 @@ const kindNames = new Map<number, string>([
 	[SymbolKind.TypeParameter, "type_parameter"],
 ]);
 
-/** 长文件截断时返回尚未出现在可见片段中的顶层 symbol。 */
+/** 在分析边界展开协议的两种符号形态，内部保留零基 UTF-16 范围。 */
+export function normalizeDocumentSymbols(symbols: LspDocumentSymbols, parent?: string): NormalizedDocumentSymbol[] {
+	const result: NormalizedDocumentSymbol[] = [];
+	for (const symbol of symbols) {
+		if (isDocumentSymbol(symbol)) {
+			const qualifiedName = parent === undefined ? symbol.name : `${parent}.${symbol.name}`;
+			result.push({
+				name: symbol.name, kind: symbol.kind, range: symbol.range, selectionRange: symbol.selectionRange,
+				topLevel: parent === undefined,
+				...(parent === undefined ? {} : { qualifiedName }),
+			});
+			if (symbol.children !== undefined) result.push(...normalizeDocumentSymbols(symbol.children, qualifiedName));
+		} else {
+			const topLevel = symbol.containerName === undefined || symbol.containerName.trim().length === 0;
+			result.push({
+				name: symbol.name, kind: symbol.kind, range: symbol.location.range, selectionRange: symbol.location.range,
+				topLevel,
+				...(topLevel ? {} : { qualifiedName: `${symbol.containerName}.${symbol.name}` }),
+			});
+		}
+	}
+	return result;
+}
+
+/** 长文件截断时返回尚未出现在可见片段中的顶层符号。 */
 export function remainingSymbols(
 	symbols: LspDocumentSymbols | undefined,
 	startLine: number,
 	endLine: number,
 	maxSymbols: number,
 ): LspRemainingSymbol[] {
-	if (symbols === undefined || symbols.length === 0 || maxSymbols <= 0) return [];
-	const topLevel = symbols
-		.filter((symbol) => isDocumentSymbol(symbol) || symbol.containerName === undefined || symbol.containerName.trim().length === 0)
-		.map(toRemainingSymbol);
+	if (symbols === undefined || maxSymbols <= 0) return [];
+	const topLevel = normalizeDocumentSymbols(symbols).filter((symbol) => symbol.topLevel).map(symbolSummary);
 	const visibleCount = topLevel.filter((symbol) => symbol.line >= startLine && symbol.line <= endLine).length;
 	if (visibleCount * 2 > topLevel.length) return [];
-	return topLevel
-		.filter((symbol) => symbol.line < startLine || symbol.line > endLine)
-		.slice(0, maxSymbols);
+	return topLevel.filter((symbol) => symbol.line < startLine || symbol.line > endLine).slice(0, maxSymbols);
 }
 
 export function findEnclosingSymbol(symbols: LspDocumentSymbols | undefined, startLine: number, endLine: number): LspEnclosingSymbol | undefined {
 	if (symbols === undefined) return undefined;
-	const all = flattenDocumentSymbols(symbols).filter((symbol) => symbol.line <= startLine && symbol.end_line >= endLine);
+	const all = normalizeDocumentSymbols(symbols).map(symbolSummary).filter((symbol) => symbol.line <= startLine && symbol.end_line >= endLine);
 	all.sort((left, right) => (left.end_line - left.line) - (right.end_line - right.line));
 	const found = all[0];
-	if (found === undefined || found.line >= startLine) return undefined;
-	return found;
+	return found === undefined || found.line >= startLine ? undefined : found;
 }
 
 export function modifiedSymbolRanges(
@@ -85,7 +107,7 @@ export function modifiedSymbolRanges(
 	changedRanges: readonly { startLine: number; endLine: number }[],
 ): LspEnclosingSymbol[] {
 	if (symbols === undefined || changedRanges.length === 0) return [];
-	const all = flattenDocumentSymbols(symbols);
+	const all = normalizeDocumentSymbols(symbols).map(symbolSummary);
 	const selected = new Map<string, LspEnclosingSymbol>();
 	for (const changed of changedRanges) {
 		const candidates = all
@@ -94,7 +116,7 @@ export function modifiedSymbolRanges(
 		const found = candidates[0];
 		if (found !== undefined) selected.set(`${found.line}:${found.end_line}:${found.name}`, found);
 	}
-	return Array.from(selected.values());
+	return [...selected.values()];
 }
 
 export function workspaceSymbolSeed(root: string, query: string, symbol: SymbolInformation | WorkspaceSymbol): WorkspaceSymbolSeed | undefined {
@@ -107,68 +129,26 @@ export function workspaceSymbolSeed(root: string, query: string, symbol: SymbolI
 	if (relative === undefined) return undefined;
 	const qualifiedSymbol = qualifiedSymbolName(symbol);
 	const normalizedQuery = normalizeSymbolText(query);
-	const exact = normalizeSymbolText(symbol.name) === normalizedQuery
-		|| (qualifiedSymbol !== undefined && normalizeSymbolText(qualifiedSymbol) === normalizedQuery);
 	return {
-		path: relative,
-		start_line: location.range.start.line + 1,
-		end_line: location.range.end.line + 1,
-		kind: symbolKindName(symbol.kind),
-		symbol: symbol.name,
+		path: relative, symbol: symbol.name, range: location.range,
 		...(qualifiedSymbol === undefined ? {} : { qualified_symbol: qualifiedSymbol }),
-		exact,
-		origin: "workspace-symbol",
-		uri: location.uri,
-		line: location.range.start.line,
-		character: location.range.start.character,
+		exact: normalizeSymbolText(symbol.name) === normalizedQuery
+			|| (qualifiedSymbol !== undefined && normalizeSymbolText(qualifiedSymbol) === normalizedQuery),
 	};
 }
 
-function toRemainingSymbol(symbol: DocumentSymbol | SymbolInformation): LspRemainingSymbol {
-	if (isDocumentSymbol(symbol)) {
-		return {
-			name: symbol.name,
-			kind: symbolKindName(symbol.kind),
-			line: symbol.range.start.line + 1,
-			end_line: symbol.range.end.line + 1,
-		};
-	}
+function symbolSummary(symbol: NormalizedDocumentSymbol): LspRemainingSymbol {
 	return {
-		name: symbol.name,
-		kind: symbolKindName(symbol.kind),
-		line: symbol.location.range.start.line + 1,
-		end_line: symbol.location.range.end.line + 1,
+		name: symbol.name, kind: symbolKindName(symbol.kind),
+		line: symbol.range.start.line + 1, end_line: symbol.range.end.line + 1,
 	};
-}
-
-function flattenDocumentSymbols(symbols: LspDocumentSymbols): LspEnclosingSymbol[] {
-	const result: LspEnclosingSymbol[] = [];
-	for (const symbol of symbols) {
-		if (isDocumentSymbol(symbol)) {
-			result.push({
-				name: symbol.name,
-				kind: symbolKindName(symbol.kind),
-				line: symbol.range.start.line + 1,
-				end_line: symbol.range.end.line + 1,
-			});
-			if (symbol.children !== undefined) result.push(...flattenDocumentSymbols(symbol.children));
-		} else {
-			result.push({
-				name: symbol.name,
-				kind: symbolKindName(symbol.kind),
-				line: symbol.location.range.start.line + 1,
-				end_line: symbol.location.range.end.line + 1,
-			});
-		}
-	}
-	return result;
 }
 
 export function workspaceSymbolLocation(symbol: unknown): Location | undefined {
 	return isRecord(symbol) ? validLocation(symbol.location) : undefined;
 }
 
-export function validLocation(value: unknown): Location | undefined {
+function validLocation(value: unknown): Location | undefined {
 	if (!isRecord(value) || typeof value.uri !== "string" || !isValidRange(value.range)) return undefined;
 	return { uri: value.uri, range: value.range };
 }
@@ -188,12 +168,8 @@ function isValidRange(value: unknown): value is Range {
 function isValidPosition(value: unknown): value is { line: number; character: number } {
 	if (!isRecord(value)) return false;
 	const { line, character } = value;
-	return typeof line === "number"
-		&& Number.isInteger(line)
-		&& line >= 0
-		&& typeof character === "number"
-		&& Number.isInteger(character)
-		&& character >= 0;
+	return typeof line === "number" && Number.isInteger(line) && line >= 0
+		&& typeof character === "number" && Number.isInteger(character) && character >= 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -208,12 +184,12 @@ export function symbolKindName(kind: number): string {
 	return kindNames.get(kind) ?? `kind_${kind}`;
 }
 
-function qualifiedSymbolName(symbol: SymbolInformation | WorkspaceSymbol): string | undefined {
+export function qualifiedSymbolName(symbol: SymbolInformation | WorkspaceSymbol): string | undefined {
 	if (/[.:#]/u.test(symbol.name)) return symbol.name;
 	if (typeof symbol.containerName !== "string" || symbol.containerName.trim().length === 0) return undefined;
 	return `${symbol.containerName}.${symbol.name}`;
 }
 
-function normalizeSymbolText(value: string): string {
+export function normalizeSymbolText(value: string): string {
 	return value.replace(/::|#/gu, ".").toLocaleLowerCase();
 }

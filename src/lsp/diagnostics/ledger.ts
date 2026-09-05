@@ -77,6 +77,16 @@ export class DiagnosticsLedger {
 		return Array.from(this.entries.values(), cloneSnapshot);
 	}
 
+	count(source: string, root: string): number {
+		let count = 0;
+		for (const entry of this.entries.values()) {
+			if (entry.source !== source) continue;
+			const filePath = fileUriToPath(entry.uri);
+			if (filePath !== undefined && workspaceRelativePath(root, filePath) !== undefined) count += entry.items.length;
+		}
+		return count;
+	}
+
 	waitForNewer(
 		source: string,
 		uri: string,

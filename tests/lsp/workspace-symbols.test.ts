@@ -56,7 +56,7 @@ describe("lsp workspace symbols through code analysis", () => {
 		});
 		await withManager(async (manager) => {
 			await expect(queryWorkspaceSymbols(manager, "target")).resolves.toEqual([]);
-			await expect(manager.didWrite(workspace, path.join(workspace, "a.ts"), "const x = 1;\n")).resolves.toBeUndefined();
+			await expect(manager.didWriteBatch([{ root: workspace, filePath: path.join(workspace, "a.ts"), text: "const x = 1;\n" }])).resolves.toEqual([undefined]);
 			await expect(manager.status(workspace)).resolves.toMatchObject({ enabled: false, servers: [] });
 		});
 	});

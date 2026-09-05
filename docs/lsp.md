@@ -254,7 +254,7 @@ LSP 增强不会自动应用代码操作、整理导入或执行跨文件重命�
 
 ### 协议连接
 
-客户端会保存 `initialize` 返回的能力。若服务器不支持文档符号、工作区符号、工作区符号解析、引用或调用层次结构，Pi 不会发送对应请求。仅含 URI 的 `WorkspaceSymbol` 只有在 `workspaceSymbolProvider.resolveProvider: true` 时，才通过 `workspaceSymbol/resolve` 补全范围。
+客户端会保存 `initialize` 返回的能力。若服务器不支持文档符号、工作区符号、工作区符号解析、引用或调用层次结构，Pi 不会发送对应请求。仅含 URI 的 `WorkspaceSymbol` 只有在 `workspaceSymbolProvider.resolveProvider: true` 时，才通过 `workspaceSymbol/resolve` 补全范围。解析时原样传回服务器的 `data`，不根据其内部结构提前合并候选。取得范围后，再按文件、起止行和名称去重。
 
 `grep` 分析器要求服务器同时支持文档符号、引用和传入调用。没有正文命中时，服务器还必须支持工作区符号。客户端为生产所需请求提供带超时与协议级取消的类型化接口，并接收诊断通知；不声明或消费 work-done progress，也不提供通用通知转发。
 
@@ -272,7 +272,7 @@ LSP 增强不会自动应用代码操作、整理导入或执行跨文件重命�
 
 `LspManager` 属于 Pi 进程，并按工作区和服务器持有客户端。Pi 对话中的 `/new`、分叉和恢复只重建会话级扩展状态，不会关闭进程级 LSP。只有扩展重新加载、`/lsp reload` 和进程退出会重置管理器。重新加载完成后，管理器仍可按需创建新连接。
 
-每次从 `initialize` 到 `shutdown` 构成一个独立的连接代。每个连接代独占 JSON-RPC 写入器、连接和传输层。并发启动共享同一个初始化过程。取消或截止时间只停止当前调用的等待，不会中断其他调用共享的启动过程。仅当没有活动请求或通知时，才计算空闲时间。
+每次从 `initialize` 到 `shutdown` 构成一个独立的连接代。每个连接代独占 JSON-RPC 写入器、连接、传输层、请求取消与故障信号、服务器动态注册，以及文档队列、符号缓存和诊断 `resultId`。旧操作只持有所属连接代的状态，不会在连接重建后访问新文档状态。并发启动共享同一个初始化过程。取消或截止时间只停止当前调用的等待，不会中断其他调用共享的启动过程。仅当没有活动请求或通知时，才计算空闲时间。
 
 `reload` 会先阻止新的增强操作，等待旧客户端的完整操作链结束，再关闭客户端。优雅退出时，客户端停止接收新操作，并在同一个绝对期限内依次执行以下步骤：发送 `shutdown` 和 `exit`，排空写入器，结束写入端，等待服务器自行退出。超时后，客户端关闭套接字，或向子进程发送 `TERM` 和 `KILL`。
 
@@ -281,6 +281,14 @@ LSP 增强不会自动应用代码操作、整理导入或执行跨文件重命�
 标准输入输出传输会持续读取标准错误，但只为 `last_error` 保留长度受限的末尾内容。使用标准输入输出初始化时，`processId` 是当前 Pi 进程 ID。使用 TCP 初始化时，`processId` 为 `null`。
 
 对于服务器主动发起的请求，Pi 仅处理无副作用的 `workspace/configuration`、`workspace/workspaceFolders` 和 `client/registerCapability`。动态注册白名单只包含 `workspace/didChangeWatchedFiles` 与 `workspace/didChangeConfiguration`。文件监视器的 glob、工作区边界和数量均受限制。其他请求，包括 `workspace/applyEdit`，返回 `MethodNotFound`。
+
+## 内部结构
+
+- `LspManagerRuntime` 管理工作区加载和 `reload` 准入。同一规范化根目录的并发调用共享配置加载。
+- `LspWorkspace` 持有该工作区的配置、路由器、客户端和错误状态。分析操作只解析一次目标路由，并复用已就绪的客户端。
+- `LspClientLifecycle` 管理启动、停止和空闲退出。`LspClientConnection` 管理单代连接的协议请求和资源回收。
+- `LspClientDocuments` 统一管理文档状态、同步队列和缓存。文档符号进入分析时统一规范化，内部使用零基 UTF-16 范围，输出时转换为一基行号。
+- 文件工具使用完整的 `LspFileOperations` 接口。单文件修改作为长度为一的批次进入同一条通知和诊断执行链，不再维护缺失批量方法时的后备实现。
 
 ## 命令
 

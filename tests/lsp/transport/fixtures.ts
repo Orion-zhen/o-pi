@@ -5,9 +5,9 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, vi } from "vitest";
 
 import { LspClient } from "../../../src/lsp/client/client.js";
-import { defaultLspConfig } from "../../../src/lsp/config/loader.js";
 import { DiagnosticsLedger } from "../../../src/lsp/diagnostics/ledger.js";
 import { LspManager } from "../../../src/lsp/manager/manager.js";
+import type { LspConfig } from "../../../src/lsp/types.js";
 import { deferred } from "../../helpers/async.js";
 import { preserveEnv, useTempDir } from "../../helpers/lifecycle.js";
 
@@ -72,9 +72,32 @@ export function useTransportFixture(): TransportFixture {
 		fixture.directClients = [];
 		await Promise.all(fixture.fakeServers.map((fake) => fake.close()));
 		fixture.fakeServers = [];
+		vi.restoreAllMocks();
 	});
 
 	return fixture;
+}
+
+export function createClientConfig(): LspConfig {
+	return {
+		enabled: true,
+		exclude_paths: [],
+		startup_timeout_ms: 500,
+		request_timeout_ms: 500,
+		idle_timeout_ms: 300000,
+		max_open_documents: 128,
+		diagnostics: {
+			enabled: true,
+			max_wait_ms: 3000,
+			settle_ms: 150,
+			max_items: 8,
+			max_related_locations: 3,
+			min_severity: "warning",
+		},
+		read: { outline: true, max_symbols: 40 },
+		grep: { workspace_symbols: true, max_symbols: 20, max_exact_leaf_symbols: 2 },
+		servers: [],
+	};
 }
 
 export function directClient(
@@ -84,9 +107,7 @@ export function directClient(
 	idleTimeoutMs?: number,
 	diagnostics = new DiagnosticsLedger(),
 ): LspClient {
-	const config = defaultLspConfig();
-	config.startup_timeout_ms = 500;
-	config.request_timeout_ms = 500;
+	const config = createClientConfig();
 	config.max_open_documents = maxOpenDocuments;
 	if (idleTimeoutMs !== undefined) config.idle_timeout_ms = idleTimeoutMs;
 	const client = new LspClient(fixture.workspace, {
@@ -106,7 +127,7 @@ export function directClient(
 }
 
 export function stdioClient(fixture: TransportFixture, mode: "notification-timeout" | "stderr-crash" | "stubborn"): LspClient {
-	const config = defaultLspConfig();
+	const config = createClientConfig();
 	config.startup_timeout_ms = 3000;
 	config.request_timeout_ms = mode === "notification-timeout" ? 50 : 500;
 	config.idle_timeout_ms = 0;

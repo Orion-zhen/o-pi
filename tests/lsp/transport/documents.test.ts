@@ -7,7 +7,7 @@ import { createProtocolServer, directClient, documentSymbol, send, useTransportF
 const transport = useTransportFixture();
 
 describe("lsp transport documents", () => {
-	it("同文档并发同步保序、内容未变复用 documentSymbol cache", async () => {
+	it.each([false, true])("同文档同步保序，失败不阻塞后续请求，相同内容复用缓存，首请求失败=%s", async (failFirst) => {
 		const workspace = transport.workspace;
 		let documentSymbolRequests = 0;
 		const firstRequest = deferred<void>();
@@ -16,7 +16,9 @@ describe("lsp transport documents", () => {
 			capabilities: { documentSymbolProvider: true, textDocumentSync: { openClose: true, change: 1, save: true } },
 			routes: { "textDocument/documentSymbol": (message, socket) => {
 				documentSymbolRequests += 1;
-				const response = () => send(socket, { id: message.id, result: [documentSymbol("target", documentSymbolRequests)] });
+				const response = () => send(socket, documentSymbolRequests === 1 && failFirst
+					? { id: message.id, error: { code: -32000, message: "symbol request failed" } }
+					: { id: message.id, result: [documentSymbol("target", documentSymbolRequests)] });
 				if (documentSymbolRequests === 1) {
 					firstRequest.resolve();
 					void firstRequestGate.promise.then(response);
@@ -32,7 +34,7 @@ describe("lsp transport documents", () => {
 		expect(fake.methods).not.toContain("textDocument/didChange");
 		firstRequestGate.resolve();
 		const [firstSymbols, secondSymbols] = await Promise.all([first, second]);
-		expect(firstSymbols?.[0]?.name).toBe("target");
+		expect(firstSymbols?.[0]?.name).toBe(failFirst ? undefined : "target");
 		expect(secondSymbols?.[0]?.name).toBe("target");
 
 		expect(client.status().open_documents).toBe(0);

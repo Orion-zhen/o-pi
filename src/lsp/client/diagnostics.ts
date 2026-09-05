@@ -1,5 +1,4 @@
 import pLimit from "p-limit";
-import type { MessageConnection } from "vscode-jsonrpc/node";
 import {
 	DocumentDiagnosticRequest,
 	type Diagnostic,
@@ -10,7 +9,6 @@ import {
 
 import { diagnosticSourceKey, DiagnosticsLedger } from "../diagnostics/ledger.js";
 import { LspClientDocuments } from "./documents.js";
-import type { LspClientTransport } from "./transport.js";
 import type {
 	LspClientDocumentContext,
 	LspConfig,
@@ -18,7 +16,6 @@ import type {
 	LspRequestOptions,
 	LspServerConfig,
 } from "../types.js";
-import { fileUriToPath, workspaceRelativePath } from "../protocol/uri.js";
 
 const DIAGNOSTIC_REQUEST_CONCURRENCY = 4;
 
@@ -38,27 +35,13 @@ export class LspClientDiagnostics {
 	private readonly resultIds = new Map<string, string>();
 
 	constructor(
-		private readonly root: string,
+		root: string,
 		server: LspServerConfig,
 		private readonly config: LspConfig,
 		private readonly diagnostics: DiagnosticsLedger,
 		private readonly documents: LspClientDocuments,
 	) {
 		this.source = diagnosticSourceKey(root, server.id);
-	}
-
-	diagnosticSource(): string {
-		return this.source;
-	}
-
-	count(): number {
-		return this.diagnostics.all().reduce((sum, entry) => {
-			if (entry.source !== this.source) return sum;
-			const filePath = fileUriToPath(entry.uri);
-			return filePath !== undefined && workspaceRelativePath(this.root, filePath) !== undefined
-				? sum + entry.items.length
-				: sum;
-		}, 0);
 	}
 
 	publish(
@@ -76,17 +59,12 @@ export class LspClientDiagnostics {
 		);
 	}
 
-	clear(): void {
-		this.resultIds.clear();
-	}
-
 	async collect(
-		connection: MessageConnection,
 		inputs: readonly { filePath: string; text: string }[],
 		options: LspRequestOptions,
-		transport: LspClientTransport,
 	): Promise<readonly LspSaveDiagnosticsResult[]> {
 		if (inputs.length === 0) return [];
+		const connection = this.documents.connection;
 
 		const buckets = new Map<string, DiagnosticsBucket>();
 		for (const [index, input] of inputs.entries()) {
@@ -107,7 +85,7 @@ export class LspClientDiagnostics {
 		});
 		let diagnosticDeadline = Number.POSITIVE_INFINITY;
 		const diagnosticLimit = pLimit(DIAGNOSTIC_REQUEST_CONCURRENCY);
-		const provider = transport.capabilities()?.diagnosticProvider;
+		const provider = connection.capabilities()?.diagnosticProvider;
 		const pullProvider = typeof provider === "object" && provider !== null ? provider : undefined;
 		const timeoutMs = options.timeoutMs ?? this.config.request_timeout_ms;
 
@@ -118,7 +96,7 @@ export class LspClientDiagnostics {
 				async (): Promise<LspSaveDiagnosticsResult> => {
 					let saved = false;
 					try {
-						saved = await this.documents.synchronizeAndSave(connection, document, transport);
+						saved = await this.documents.synchronizeAndSave(document);
 					} finally {
 						remainingSyncs -= 1;
 						if (remainingSyncs === 0) {
@@ -134,7 +112,7 @@ export class LspClientDiagnostics {
 						const availableMs = remainingMs();
 						if (availableMs <= 0 || options.signal?.aborted === true) return { kind: "pull" };
 						const previousResultId = this.resultIds.get(document.uri);
-						const report = await transport.requestOnConnection(connection, DocumentDiagnosticRequest.type, {
+						const report = await connection.request(DocumentDiagnosticRequest.type, {
 							textDocument: { uri: document.uri },
 							...(pullProvider.identifier === undefined ? {} : { identifier: pullProvider.identifier }),
 							...(previousResultId === undefined ? {} : { previousResultId }),
@@ -148,11 +126,12 @@ export class LspClientDiagnostics {
 			return { bucket, result };
 		}));
 
-		for (const { document } of unique) await this.documents.trim(connection, document.uri, transport);
-		const results = collected
-			.flatMap(({ bucket, result }) => bucket.indices.map((index) => ({ index, result })))
-			.sort((left, right) => left.index - right.index);
-		return results.map(({ result }) => result);
+		for (const { document } of unique) await this.documents.trim(document.uri);
+		const results: LspSaveDiagnosticsResult[] = [];
+		for (const { bucket, result } of collected) {
+			for (const index of bucket.indices) results[index] = result;
+		}
+		return results;
 	}
 
 	private applyDocumentDiagnosticReport(uri: string, report: DocumentDiagnosticReport): LspDiagnosticSnapshot | undefined {

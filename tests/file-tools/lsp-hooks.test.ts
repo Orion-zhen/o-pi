@@ -18,6 +18,7 @@ import { createLspFileOperations, type LspFileOperations } from "../../src/lsp/a
 import { LspManager } from "../../src/lsp/manager/manager.js";
 import type { LspDiagnosticSnapshot } from "../../src/lsp/types.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
+import { lspOperations } from "../helpers/lsp.js";
 
 let workspace: string;
 let outside: string;
@@ -42,7 +43,6 @@ describe("file-tools lsp hooks", () => {
 		const manager = new LspManager();
 		const enhancement = vi.spyOn(manager, "readEnhancement").mockResolvedValue(undefined);
 		const read = createLspFileOperations(manager).read;
-		if (read === undefined) throw new Error("read operation missing");
 		const base = {
 			workspaceRoot: workspace,
 			filePath: path.join(workspace, "a.ts"),
@@ -81,7 +81,7 @@ describe("file-tools lsp hooks", () => {
 
 	it("write 返回 diagnostics 但不改变 written 状态，并区分 create/change", async () => {
 		const createdEvents: boolean[] = [];
-		const hooks: LspFileOperations = {
+		const hooks: Partial<LspFileOperations> = {
 			async afterMutation(input) {
 				createdEvents.push(input.created);
 				return diagnostics("errors");
@@ -106,7 +106,7 @@ describe("file-tools lsp hooks", () => {
 		let current: LspDiagnosticSnapshot = { source, uri, items: [], known: false, revision: 0 };
 		let mutation = 0;
 		const baselines: string[][] = [];
-		const hooks: LspFileOperations = {
+		const hooks: Partial<LspFileOperations> = {
 			async beforeMutation() {
 				return { ...current, items: current.items.map((item) => ({ ...item })) };
 			},
@@ -151,7 +151,7 @@ describe("file-tools lsp hooks", () => {
 		await writeFile(path.join(workspace, "a.ts"), "const oldName = 1;\n");
 		await readWorkspaceFile(workspace, { path: "a.ts" }, { host, sessionId: "lsp-hooks" });
 		let afterCalled = false;
-		const hooks: LspFileOperations = {
+		const hooks: Partial<LspFileOperations> = {
 			async beforeMutation() {
 				return { source: "/repo\0ts", uri: pathToFileURL("a.ts").toString(), items: [], known: true, revision: 1, updatedAt: Date.now() };
 			},
@@ -177,7 +177,7 @@ describe("file-tools lsp hooks", () => {
 		await writeFile(path.join(workspace, "ranges.ts"), source);
 		await readWorkspaceFile(workspace, { path: "ranges.ts" }, { host, sessionId: "lsp-hooks" });
 		const changedRanges: Array<readonly { start_line: number; end_line: number }[]> = [];
-		const hooks: LspFileOperations = {
+		const hooks: Partial<LspFileOperations> = {
 			async afterMutation(input) {
 				changedRanges.push(input.changed_ranges ?? []);
 				return undefined;
@@ -198,16 +198,16 @@ describe("file-tools lsp hooks", () => {
 
 	it("afterMutation 对无源码路由的配置文件仍转发 watched-file create/change", async () => {
 		const manager = new LspManager();
-		const watched = vi.spyOn(manager, "didChangeWatchedFile").mockResolvedValue();
-		const diagnosticsAfterMutation = vi.spyOn(manager, "didWrite").mockResolvedValue(undefined);
+		const watched = vi.spyOn(manager, "didChangeWatchedFiles").mockResolvedValue();
+		const diagnosticsAfterMutation = vi.spyOn(manager, "didWriteBatch").mockResolvedValue([undefined]);
 		const hooks = createLspFileOperations(manager);
 		const configFile = path.join(workspace, "tsconfig.json");
 
-		await hooks.afterMutation?.({ workspaceRoot: workspace, filePath: configFile, content: "{}\n", created: true });
-		await hooks.afterMutation?.({ workspaceRoot: workspace, filePath: configFile, content: "{\"compilerOptions\":{}}\n", created: false });
+		await hooks.afterMutation({ workspaceRoot: workspace, filePath: configFile, content: "{}\n", created: true });
+		await hooks.afterMutation({ workspaceRoot: workspace, filePath: configFile, content: "{\"compilerOptions\":{}}\n", created: false });
 
-		expect(watched).toHaveBeenNthCalledWith(1, workspace, configFile, FileChangeType.Created);
-		expect(watched).toHaveBeenNthCalledWith(2, workspace, configFile, FileChangeType.Changed);
+		expect(watched).toHaveBeenNthCalledWith(1, [{ root: workspace, filePath: configFile, type: FileChangeType.Created }]);
+		expect(watched).toHaveBeenNthCalledWith(2, [{ root: workspace, filePath: configFile, type: FileChangeType.Changed }]);
 		expect(diagnosticsAfterMutation).toHaveBeenCalledTimes(2);
 	});
 
@@ -223,7 +223,7 @@ describe("file-tools lsp hooks", () => {
 			{ workspaceRoot: workspace, filePath: path.join(workspace, "b.ts"), content: "b\n", created: false },
 		];
 
-		await expect(hooks.afterMutationBatch?.(inputs)).resolves.toEqual([first, second]);
+		await expect(hooks.afterMutationBatch(inputs)).resolves.toEqual([first, second]);
 		expect(watched).toHaveBeenCalledTimes(1);
 		expect(watched).toHaveBeenCalledWith([
 			{ root: workspace, filePath: path.join(workspace, "a.ts"), type: FileChangeType.Created },
@@ -241,7 +241,7 @@ describe("file-tools lsp hooks", () => {
 		const beforeDiagnostics = vi.spyOn(manager, "beforeDiagnostics").mockResolvedValue(undefined);
 		const hooks = createLspFileOperations(manager);
 		const absolutePath = path.join(workspace, "resolved.ts");
-		await hooks.beforeMutation?.({ workspaceRoot: workspace, filePath: absolutePath });
+		await hooks.beforeMutation({ workspaceRoot: workspace, filePath: absolutePath });
 		expect(beforeDiagnostics).toHaveBeenCalledWith(workspace, absolutePath);
 		beforeDiagnostics.mockRestore();
 	});
@@ -250,7 +250,7 @@ describe("file-tools lsp hooks", () => {
 		await mkdir(path.join(workspace, "src"));
 		await writeFile(path.join(workspace, "src", "target.ts"), "export const unrelated = 1;\n");
 		const codeAnalysis = vi.fn(async () => undefined);
-		const hooks: LspFileOperations = {
+		const hooks: Partial<LspFileOperations> = {
 			codeAnalysis,
 		};
 		const result = expectGrepSuccess(await grepWorkspaceFiles(workspace, { path: ["src"], query: "RemoteSymbol" }, undefined, { lsp: hooks }));
@@ -264,7 +264,7 @@ describe("file-tools lsp hooks", () => {
 		await writeFile(path.join(workspace, "mixed", "b.py"), "target = 1\n");
 		const seenPaths: string[][] = [];
 		const seenSignals: Array<AbortSignal | undefined> = [];
-		const hooks: LspFileOperations = {
+		const hooks: Partial<LspFileOperations> = {
 			async codeAnalysis(input) {
 				seenPaths.push(input.targets.map((target) => target.path).sort());
 				seenSignals.push(input.signal);
@@ -287,11 +287,11 @@ describe("file-tools lsp hooks", () => {
 
 });
 
-async function writeWithHooks(params: { path: string; content: string }, hooks: LspFileOperations) {
+async function writeWithHooks(params: { path: string; content: string }, hooks: Partial<LspFileOperations>) {
 	const opened = await host.open({ cwd: workspace, sessionId: "lsp-hooks" });
 	if ("status" in opened) return opened;
 	try {
-		const diagnostics = createMutationDiagnosticsSource(opened, hooks);
+		const diagnostics = createMutationDiagnosticsSource(opened, lspOperations(hooks));
 		return await writeFileCommand(params, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
@@ -304,11 +304,11 @@ async function writeWithHooks(params: { path: string; content: string }, hooks: 
 	}
 }
 
-async function editWithHooks(params: { path: string; edits: Array<{ old: string; new: string }> }, hooks: LspFileOperations) {
+async function editWithHooks(params: { path: string; edits: Array<{ old: string; new: string }> }, hooks: Partial<LspFileOperations>) {
 	const opened = await host.open({ cwd: workspace, sessionId: "lsp-hooks" });
 	if ("status" in opened) return opened;
 	try {
-		const diagnostics = createMutationDiagnosticsSource(opened, hooks);
+		const diagnostics = createMutationDiagnosticsSource(opened, lspOperations(hooks));
 		return await editFile(params, {
 			filesystem: opened.filesystem,
 			operation: opened.context,
@@ -338,7 +338,7 @@ function diagnostics(status: "errors" | "warnings") {
 	};
 }
 
-function throwingHooks(): LspFileOperations {
+function throwingHooks(): Partial<LspFileOperations> {
 	return {
 		async read() {
 			throw new Error("lsp unavailable");

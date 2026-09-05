@@ -9,215 +9,204 @@ import {
 	type TextDocumentSyncOptions,
 } from "vscode-languageserver-protocol";
 
-import { incrementalContentChange, LspDocuments } from "./document-store.js";
+import { incrementalContentChange } from "./text-change.js";
 import { languageIdForServerPath } from "../config/routing.js";
-import type { LspClientTransport } from "./transport.js";
-import type {
-	LspClientDocumentContext,
-	LspConfig,
-	LspDocumentSymbols,
-	LspRequestOptions,
-	LspServerConfig,
-} from "../types.js";
+import { requestDocumentSymbols } from "../protocol/features.js";
+import { pathToFileUri } from "../protocol/uri.js";
+import type { LspClientConnection } from "./connection.js";
+import type { LspClientDocumentContext, LspConfig, LspDocumentSymbols, LspRequestOptions, LspServerConfig } from "../types.js";
 
-/** 管理一个 client 的文档状态、同步队列和容量淘汰。 */
+interface DocumentState extends LspClientDocumentContext {
+	version: number;
+	open: boolean;
+	persistent: boolean;
+	lastUsed: number;
+	cachedSymbols?: LspDocumentSymbols;
+}
+
+/** 一代连接的文档同步、同 URI 队列和有界符号缓存。 */
 export class LspClientDocuments {
-	private readonly documents: LspDocuments;
+	private readonly states = new Map<string, DocumentState>();
+	private readonly queues = new Map<string, Promise<void>>();
+	private readonly pendingVersions = new Map<string, number>();
+	private clock = 0;
+	private readonly maxDocuments: number;
 
 	constructor(
 		private readonly root: string,
 		private readonly server: LspServerConfig,
 		config: LspConfig,
+		readonly connection: LspClientConnection,
 	) {
-		this.documents = new LspDocuments(config.max_open_documents);
+		this.maxDocuments = config.max_open_documents;
 	}
 
 	context(filePath: string, text: string): LspClientDocumentContext {
-		return this.documents.context(filePath, text, languageIdForServerPath(this.server, this.root, filePath));
+		return {
+			uri: pathToFileUri(filePath), path: filePath, text,
+			languageId: languageIdForServerPath(this.server, this.root, filePath),
+		};
 	}
 
 	openCount(): number {
-		return this.documents.openCount();
+		let count = 0;
+		for (const state of this.states.values()) if (state.open) count += 1;
+		return count;
 	}
 
 	currentVersion(uri: string): number | undefined {
-		return this.documents.currentVersion(uri);
+		return this.pendingVersions.get(uri) ?? this.states.get(uri)?.version;
 	}
 
-	enqueue<T>(uri: string, operation: () => Promise<T>): Promise<T> {
-		return this.documents.enqueue(uri, operation);
+	async enqueue<T>(uri: string, operation: () => Promise<T>): Promise<T> {
+		const previous = this.queues.get(uri) ?? Promise.resolve();
+		const run = previous.then(operation);
+		const tail = run.then(() => undefined, () => undefined);
+		this.queues.set(uri, tail);
+		try {
+			return await run;
+		} finally {
+			if (this.queues.get(uri) === tail) this.queues.delete(uri);
+		}
 	}
 
-	async documentSymbols(
-		connection: MessageConnection,
-		filePath: string,
-		text: string,
-		options: LspRequestOptions | undefined,
-		transport: LspClientTransport,
-		requestSymbols: (uri: string, options?: LspRequestOptions) => Promise<LspDocumentSymbols | undefined>,
-	): Promise<LspDocumentSymbols | undefined> {
+	async documentSymbols(filePath: string, text: string, options?: LspRequestOptions): Promise<LspDocumentSymbols | undefined> {
 		const document = this.context(filePath, text);
-		const symbols = await this.documents.enqueue(document.uri, async () => {
-			const previous = this.documents.state(document.uri);
-			if (previous?.text === document.text && previous.languageId === document.languageId) {
-				const cached = this.documents.cachedSymbols(document.uri, previous.version);
-				if (cached !== undefined) return cached;
+		const symbols = await this.enqueue(document.uri, async () => {
+			const previous = this.states.get(document.uri);
+			if (previous?.text === document.text && previous.languageId === document.languageId && previous.cachedSymbols !== undefined) {
+				previous.lastUsed = ++this.clock;
+				return previous.cachedSymbols;
 			}
-			if (!await this.synchronizeDocument(connection, document, transport, false)) return undefined;
-			const state = this.documents.state(document.uri);
+			if (!await this.synchronizeDocument(document, false)) return undefined;
+			const state = this.states.get(document.uri);
 			if (state === undefined) return undefined;
-			const requested = await requestSymbols(document.uri, options);
-			if (requested !== undefined) this.documents.cacheSymbols(document.uri, state.version, requested);
+			const requested = await requestDocumentSymbols(this.connection, document.uri, options);
+			if (requested !== undefined && this.states.get(document.uri) === state) {
+				state.cachedSymbols = requested;
+				state.lastUsed = ++this.clock;
+			}
 			return requested;
 		});
-		await this.closeTransientDocument(connection, document.uri, transport);
-		await this.trimDocuments(connection, document.uri, transport);
+		await this.enqueue(document.uri, async () => {
+			const state = this.states.get(document.uri);
+			if (state !== undefined && !state.persistent) await this.closeDocument(document.uri, true);
+		});
+		await this.trim(document.uri);
 		return symbols;
 	}
 
-	async synchronizeAndSave(
-		connection: MessageConnection,
-		document: LspClientDocumentContext,
-		transport: LspClientTransport,
-	): Promise<boolean> {
-		if (!await this.synchronizeDocument(connection, document, transport, true)) return false;
-		const policy = textDocumentSyncPolicy(transport.capabilities());
+	async synchronizeAndSave(document: LspClientDocumentContext): Promise<boolean> {
+		if (!await this.synchronizeDocument(document, true)) return false;
+		const policy = textDocumentSyncPolicy(this.connection.capabilities());
 		if (!policy.save) return true;
-		const sent = await transport.sendNotification(connection, (active) => active.sendNotification(DidSaveTextDocumentNotification.type, {
+		return this.connection.notify((rpc) => rpc.sendNotification(DidSaveTextDocumentNotification.type, {
 			textDocument: { uri: document.uri },
 			...(policy.includeText ? { text: document.text } : {}),
 		}));
-		if (sent) transport.bumpIdleTimer();
-		return sent;
 	}
 
-	async trim(
-		connection: MessageConnection,
-		excludeUri: string,
-		transport: LspClientTransport,
-	): Promise<void> {
-		await this.trimDocuments(connection, excludeUri, transport);
+	async trim(excludeUri: string): Promise<void> {
+		while (this.states.size > this.maxDocuments) {
+			if (!await this.evictOneDocument(excludeUri)) return;
+		}
 	}
 
 	clear(): void {
-		this.documents.clear();
+		this.states.clear();
+		this.queues.clear();
+		this.pendingVersions.clear();
 	}
 
-	private async synchronizeDocument(
-		connection: MessageConnection,
-		document: LspClientDocumentContext,
-		transport: LspClientTransport,
-		persistent: boolean,
-	): Promise<boolean> {
-		const previous = this.documents.state(document.uri);
-		const policy = textDocumentSyncPolicy(transport.capabilities());
+	private async synchronizeDocument(document: LspClientDocumentContext, persistent: boolean): Promise<boolean> {
+		const previous = this.states.get(document.uri);
+		const policy = textDocumentSyncPolicy(this.connection.capabilities());
 		if (previous?.text === document.text && previous.languageId === document.languageId && (previous.open || !policy.openClose)) {
-			if (persistent) this.documents.markPersistent(document.uri);
-			else this.documents.touch(document.uri);
+			previous.persistent ||= persistent;
+			previous.lastUsed = ++this.clock;
 			return true;
 		}
 
+		const version = (previous?.version ?? 0) + 1;
 		if (previous === undefined || (policy.openClose && !previous.open)) {
 			if (previous === undefined) {
-				while (this.documents.needsCapacity(document.uri)) {
-					const evicted = await this.evictOneDocument(connection, document.uri, transport);
-					if (!evicted) break;
+				while (this.states.size >= this.maxDocuments) {
+					if (!await this.evictOneDocument(document.uri)) break;
 				}
 			}
-			const version = (previous?.version ?? 0) + 1;
 			if (policy.openClose) {
-				this.documents.setPendingVersion(document.uri, version);
-				let sent: boolean;
-				try {
-					sent = await transport.sendNotification(connection, (active) => active.sendNotification(DidOpenTextDocumentNotification.type, {
-						textDocument: {
-							uri: document.uri,
-							languageId: document.languageId,
-							version,
-							text: document.text,
-						},
-					}));
-					if (sent) this.documents.commit(document, version, true, persistent);
-				} finally {
-					this.documents.clearPendingVersion(document.uri, version);
-				}
-				return sent;
+				return this.publishState(document, version, true, persistent, (rpc) => rpc.sendNotification(DidOpenTextDocumentNotification.type, {
+					textDocument: { uri: document.uri, languageId: document.languageId, version, text: document.text },
+				}));
 			}
-			this.documents.commit(document, version, false, persistent);
+			this.commit(document, version, false, persistent);
 			return true;
 		}
 
-		const version = previous.version + 1;
 		if (policy.change !== TextDocumentSyncKind.None) {
 			const contentChanges = policy.change === TextDocumentSyncKind.Incremental
 				? [incrementalContentChange(previous.text, document.text)]
 				: [{ text: document.text }];
-			this.documents.setPendingVersion(document.uri, version);
-			let sent: boolean;
-			try {
-				sent = await transport.sendNotification(connection, (active) => active.sendNotification(DidChangeTextDocumentNotification.type, {
-					textDocument: { uri: document.uri, version },
-					contentChanges,
-				}));
-				if (sent) this.documents.commit(document, version, previous.open, persistent);
-			} finally {
-				this.documents.clearPendingVersion(document.uri, version);
-			}
-			return sent;
+			return this.publishState(document, version, previous.open, persistent, (rpc) => rpc.sendNotification(DidChangeTextDocumentNotification.type, {
+				textDocument: { uri: document.uri, version }, contentChanges,
+			}));
 		}
-		this.documents.commit(document, version, previous.open, persistent);
+		this.commit(document, version, previous.open, persistent);
 		return true;
 	}
 
-	private async trimDocuments(
-		connection: MessageConnection,
-		excludeUri: string,
-		transport: LspClientTransport,
-	): Promise<void> {
-		while (this.documents.overCapacity()) {
-			if (!await this.evictOneDocument(connection, excludeUri, transport)) return;
+	/** 待发送版本先参与诊断过滤，通知成功后再提交正文。 */
+	private async publishState(
+		document: LspClientDocumentContext,
+		version: number,
+		open: boolean,
+		persistent: boolean,
+		notify: (rpc: MessageConnection) => Promise<void>,
+	): Promise<boolean> {
+		this.pendingVersions.set(document.uri, version);
+		try {
+			const sent = await this.connection.notify(notify);
+			if (sent) this.commit(document, version, open, persistent);
+			return sent;
+		} finally {
+			this.pendingVersions.delete(document.uri);
 		}
 	}
 
-	private async evictOneDocument(
-		connection: MessageConnection,
-		excludeUri: string,
-		transport: LspClientTransport,
-	): Promise<boolean> {
-		const uri = this.documents.evictionCandidate(excludeUri);
-		if (uri === undefined) return false;
-		return this.documents.enqueue(uri, async () => this.closeDocument(connection, uri, transport));
-	}
-
-	private async closeTransientDocument(
-		connection: MessageConnection,
-		uri: string,
-		transport: LspClientTransport,
-	): Promise<boolean> {
-		return this.documents.enqueue(uri, async () => {
-			const state = this.documents.state(uri);
-			if (state === undefined || state.persistent) return true;
-			return this.closeDocument(connection, uri, transport, true);
+	private commit(document: LspClientDocumentContext, version: number, open: boolean, persistent: boolean): void {
+		const previous = this.states.get(document.uri);
+		const sameContent = previous?.text === document.text && previous.languageId === document.languageId;
+		this.states.set(document.uri, {
+			...document, version, open,
+			persistent: persistent || previous?.persistent === true,
+			lastUsed: ++this.clock,
+			...(sameContent && previous.cachedSymbols !== undefined ? { cachedSymbols: previous.cachedSymbols } : {}),
 		});
 	}
 
-	private async closeDocument(
-		connection: MessageConnection,
-		uri: string,
-		transport: LspClientTransport,
-		retainState = false,
-	): Promise<boolean> {
-		const state = this.documents.state(uri);
+	private async evictOneDocument(excludeUri: string): Promise<boolean> {
+		let candidate: DocumentState | undefined;
+		for (const state of this.states.values()) {
+			if (state.uri === excludeUri || this.queues.has(state.uri)) continue;
+			if (candidate === undefined || state.lastUsed < candidate.lastUsed) candidate = state;
+		}
+		if (candidate === undefined) return false;
+		const uri = candidate.uri;
+		return this.enqueue(uri, () => this.closeDocument(uri));
+	}
+
+	private async closeDocument(uri: string, retainState = false): Promise<boolean> {
+		const state = this.states.get(uri);
 		if (state === undefined) return true;
 		if (state.open) {
-			const sent = await transport.sendNotification(connection, (active) => active.sendNotification(DidCloseTextDocumentNotification.type, {
-				textDocument: { uri },
-			}));
+			const sent = await this.connection.notify((rpc) => rpc.sendNotification(DidCloseTextDocumentNotification.type, { textDocument: { uri } }));
 			if (!sent) return false;
 		}
-		if (retainState) this.documents.markClosed(uri);
-		else this.documents.remove(uri);
-		transport.bumpIdleTimer();
+		if (retainState) {
+			state.open = false;
+			state.persistent = false;
+			state.lastUsed = ++this.clock;
+		} else this.states.delete(uri);
 		return true;
 	}
 }
@@ -232,12 +221,7 @@ interface TextDocumentSyncPolicy {
 function textDocumentSyncPolicy(capabilities: ServerCapabilities | undefined): TextDocumentSyncPolicy {
 	const sync: TextDocumentSyncOptions | TextDocumentSyncKind | undefined = capabilities?.textDocumentSync;
 	if (typeof sync === "number") {
-		return {
-			openClose: sync !== TextDocumentSyncKind.None,
-			change: sync,
-			save: false,
-			includeText: false,
-		};
+		return { openClose: sync !== TextDocumentSyncKind.None, change: sync, save: false, includeText: false };
 	}
 	if (sync === undefined || sync === null) {
 		return { openClose: false, change: TextDocumentSyncKind.None, save: false, includeText: false };

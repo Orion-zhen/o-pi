@@ -8,11 +8,13 @@ import { FileToolsHost } from "../../src/file-tools/runtime/host.js";
 import { isFailed, type ToolOutcome } from "../../src/file-tools/shared/result.js";
 import type { LspFileOperations } from "../../src/lsp/adapters/file-operations.js";
 
+import { lspOperations } from "./lsp.js";
+
 let host = new FileToolsHost();
 let tool = new GrepTool();
 
 export interface GrepTestRuntime {
-	readonly lsp?: LspFileOperations;
+	readonly lsp?: Partial<LspFileOperations>;
 }
 
 export async function grepWorkspaceFiles(
@@ -23,7 +25,7 @@ export async function grepWorkspaceFiles(
 ): Promise<ToolOutcome<GrepSuccess>> {
 	const opened = await host.open({ cwd, sessionId: "grep-test", ...(signal === undefined ? {} : { signal }) });
 	if (isFailed(opened)) return opened;
-	const lsp = runtime.lsp;
+	const lsp = runtime.lsp === undefined ? undefined : lspOperations(runtime.lsp);
 	try {
 			return await tool.execute(params, {
 				filesystem: opened.filesystem,

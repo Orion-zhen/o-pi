@@ -39,7 +39,7 @@ export async function prepareCodeAnalysisWithLsp(
 	invocation: FileToolsInvocation,
 	input: { readonly paths: readonly string[]; readonly signal?: AbortSignal },
 ): Promise<void> {
-	if (input.signal?.aborted === true || lsp.prepareCodeAnalysis === undefined) return;
+	if (input.signal?.aborted === true) return;
 	const workspace = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
 	if (workspace === undefined) return;
 	const paths = input.paths.filter(isWorkspaceLogicalPath);
@@ -56,7 +56,7 @@ export async function analyzeCodeWithLsp(
 	invocation: FileToolsInvocation,
 	input: CodeAnalysisInput,
 ): Promise<CodeAnalysis | undefined> {
-	if (input.signal?.aborted === true || lsp.codeAnalysis === undefined
+	if (input.signal?.aborted === true
 		|| input.targets.some((target) => !isWorkspaceLogicalPath(target.path))) return undefined;
 	const workspace = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
 	if (workspace === undefined) return undefined;

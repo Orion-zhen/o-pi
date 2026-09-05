@@ -12,7 +12,7 @@ export function createReadStructureSource(
 			const root = invocation.nativeBridge.getNativeIdentity(invocation.filesystem.root);
 			const file = invocation.nativeBridge.getNativeIdentity(input.file);
 			if (root === undefined || file === undefined) return undefined;
-			return await lsp.read?.({
+			return await lsp.read({
 				workspaceRoot: root.canonicalPath,
 				filePath: file.canonicalPath,
 				content: input.content,

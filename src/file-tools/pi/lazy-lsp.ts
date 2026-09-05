@@ -4,10 +4,8 @@ export interface LspModule {
 	lspFileOperations: LspFileOperations;
 }
 
-export type LazyLspFileOperations = LspFileOperations;
-
-/** Loads LSP only when a tool-local composition port requests an enhancement. */
-export function createLazyLspFileOperations(load: () => Promise<LspModule>): LazyLspFileOperations {
+/** 文件工具首次请求增强时加载 LSP。 */
+export function createLazyLspFileOperations(load: () => Promise<LspModule>): LspFileOperations {
 	let pending: Promise<LspModule> | undefined;
 	const getModule = (): Promise<LspModule> => {
 		if (pending !== undefined) return pending;
@@ -20,24 +18,22 @@ export function createLazyLspFileOperations(load: () => Promise<LspModule>): Laz
 	};
 	return {
 		async prepareCodeAnalysis(input) {
-			return (await getModule()).lspFileOperations.prepareCodeAnalysis?.(input);
+			return (await getModule()).lspFileOperations.prepareCodeAnalysis(input);
 		},
 		async read(input) {
-			return (await getModule()).lspFileOperations.read?.(input);
+			return (await getModule()).lspFileOperations.read(input);
 		},
 		async codeAnalysis(input) {
-			return (await getModule()).lspFileOperations.codeAnalysis?.(input);
+			return (await getModule()).lspFileOperations.codeAnalysis(input);
 		},
 		async beforeMutation(input) {
-			return (await getModule()).lspFileOperations.beforeMutation?.(input);
+			return (await getModule()).lspFileOperations.beforeMutation(input);
 		},
 		async afterMutation(input) {
-			return (await getModule()).lspFileOperations.afterMutation?.(input);
+			return (await getModule()).lspFileOperations.afterMutation(input);
 		},
 		async afterMutationBatch(inputs) {
-			const operations = (await getModule()).lspFileOperations;
-			if (operations.afterMutationBatch !== undefined) return await operations.afterMutationBatch(inputs);
-			return await Promise.all(inputs.map((input) => operations.afterMutation?.(input)));
+			return (await getModule()).lspFileOperations.afterMutationBatch(inputs);
 		},
 	};
 }

@@ -5,10 +5,8 @@ import {
 	agentSchemaPath,
 	createCompleteSchemaValidator,
 	createSchemaValidator,
-	defaultAgentConfigPath,
 	expandHomePath,
 	loadConfigLayers,
-	readDefaultJsoncConfigSync,
 	userAgentConfigPath,
 	validateConfigValue,
 } from "../../config-loader.js";
@@ -78,15 +76,6 @@ export async function loadLspConfig(cwd = process.cwd()): Promise<LoadedLspConfi
 	return { path: configPath, config: materializeConfig(raw as CompleteLspConfig) };
 }
 
-export function defaultLspConfig(): LspConfig {
-	return materializeConfig(readDefaultJsoncConfigSync({
-		configPath: defaultAgentConfigPath("lsp.jsonc"),
-		schemaPath: SCHEMA_PATH,
-		label: "lsp",
-		createError,
-	}) as CompleteLspConfig);
-}
-
 export function resolveLspConfigPath(): string {
 	return userAgentConfigPath("lsp.jsonc", CONFIG_PATH_ENV);
 }
@@ -107,9 +96,7 @@ function mergeUserRawConfig(defaults: RawLspConfig, user: RawLspConfig): RawLspC
 	return merged;
 }
 
-function mergeRawConfig(global: RawLspConfig | undefined, project: RawLspConfig | undefined): RawLspConfig {
-	if (global === undefined) return project ?? {};
-	if (project === undefined) return global;
+function mergeRawConfig(global: RawLspConfig, project: RawLspConfig): RawLspConfig {
 	const merged: RawLspConfig = { ...global, ...project };
 	const diagnostics = mergeObject(global.diagnostics, project.diagnostics);
 	const read = mergeObject(global.read, project.read);
@@ -219,7 +206,7 @@ function normalizeTransport(id: string, server: RawLspServer): LspTransport {
 function normalizeLanguages(serverId: string, input: Record<string, RawSelectors>): LspLanguageRoute[] {
 	const routes = Object.entries(input).map(([languageId, value]) => ({
 		languageId,
-		selectors: [...new Set(typeof value === "string" ? [value] : value)],
+		selectors: typeof value === "string" ? [value] : value,
 	}));
 	const selectorCount = routes.reduce((total, route) => total + route.selectors.length, 0);
 	if (selectorCount === 0) throw new LspConfigError(`LSP server "${serverId}" must define at least one file selector`);

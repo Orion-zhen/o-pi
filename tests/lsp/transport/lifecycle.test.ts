@@ -5,7 +5,7 @@ import { LspClient } from "../../../src/lsp/client/client.js";
 import { LspManager } from "../../../src/lsp/manager/manager.js";
 import { pathToFileUri } from "../../../src/lsp/protocol/uri.js";
 import { deferred } from "../../helpers/async.js";
-import { createManager, createFakeServer, createWorkspaceSymbolServer, directClient, queryManagerSymbols, send, useTransportFixture, writeConfig } from "./fixtures.js";
+import { createManager, createFakeServer, createProtocolServer, createWorkspaceSymbolServer, directClient, documentSymbol, queryManagerSymbols, send, useTransportFixture, writeConfig } from "./fixtures.js";
 
 const transport = useTransportFixture();
 
@@ -97,6 +97,37 @@ describe("lsp transport lifecycle", () => {
 			params: { processId: null },
 		});
 	});
+	it("停止旧连接时排队文档操作不会访问新连接或复用旧缓存", async () => {
+		const firstSeen = deferred<void>();
+		let requests = 0;
+		const fake = await createProtocolServer(transport, {
+			capabilities: { documentSymbolProvider: true, textDocumentSync: { openClose: true, change: 1 } },
+			routes: { "textDocument/documentSymbol": (message, socket) => {
+				requests += 1;
+				if (requests === 1) firstSeen.resolve();
+				else send(socket, { id: message.id, result: [documentSymbol("fresh", 0)] });
+			} },
+		});
+		const client = directClient(transport, fake);
+		const file = path.join(transport.workspace, "a.ts");
+		const first = client.documentSymbols(file, "old\n");
+		const queued = client.documentSymbols(file, "queued\n");
+		await firstSeen.promise;
+		const stopped = client.shutdown();
+		const fresh = client.documentSymbols(file, "fresh\n");
+		await expect(Promise.all([first, queued])).resolves.toEqual([undefined, undefined]);
+		await stopped;
+		await expect(fresh).resolves.toEqual([documentSymbol("fresh", 0)]);
+		expect(fake.connections).toBe(2);
+		expect(requests).toBe(2);
+		expect(fake.messages.filter((message) => message.method === "textDocument/didOpen")).toMatchObject([
+			{ params: { textDocument: { version: 1, text: "old\n" } } },
+			{ params: { textDocument: { version: 1, text: "fresh\n" } } },
+		]);
+		expect(client.status()).toMatchObject({ status: "ready", open_documents: 0 });
+		expect(client.status().last_error).toBeUndefined();
+	});
+
 	it("idle timer 不会中断活动请求", async () => {
 		let releaseRequest: () => void = () => undefined;
 		const requestSeen = deferred<void>();

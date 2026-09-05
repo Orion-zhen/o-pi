@@ -123,10 +123,6 @@ export class LspProtocolInfrastructure {
 		}
 		return undefined;
 	}
-
-	reset(): void {
-		this.registrations.clear();
-	}
 }
 
 function countWatchers(registrations: Iterable<DynamicRegistration>): number {

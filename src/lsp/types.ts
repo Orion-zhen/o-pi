@@ -1,4 +1,4 @@
-import type { DocumentSymbol, ServerCapabilities, SymbolInformation } from "vscode-languageserver-protocol";
+import type { DocumentSymbol, SymbolInformation } from "vscode-languageserver-protocol";
 
 /** LSP 诊断严重级别名称，按 protocol 数值从高到低映射。 */
 export type LspSeverityName = "error" | "warning" | "information" | "hint";
@@ -55,9 +55,6 @@ export interface LspRequestOptions {
 	timeoutMs?: number;
 	signal?: AbortSignal;
 }
-
-/** initialize 返回的 server capabilities。 */
-export type LspServerCapabilities = ServerCapabilities;
 
 /** LSP 配置；由全局配置和可选项目配置合并得到。 */
 export interface LspConfig {

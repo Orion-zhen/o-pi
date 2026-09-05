@@ -87,8 +87,7 @@ describe("file-tools extension mutation progress", () => {
 				.resolves.toMatchObject({ details: { status: "failed" } });
 			expect(failedUpdates).toEqual([]);
 		} finally {
-			if (originalAfterMutation === undefined) delete lspFileHooks.afterMutation;
-			else lspFileHooks.afterMutation = originalAfterMutation;
+			lspFileHooks.afterMutation = originalAfterMutation;
 			await Promise.resolve(handlers.get("session_shutdown")?.({}, {}));
 		}
 	});

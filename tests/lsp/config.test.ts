@@ -4,7 +4,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { defaultAgentConfigPath } from "../../src/config-loader.js";
-import { defaultLspConfig, loadLspConfig, normalizeExcludePath } from "../../src/lsp/config/loader.js";
+import { loadLspConfig, normalizeExcludePath } from "../../src/lsp/config/loader.js";
 import { LspServerRegistry } from "../../src/lsp/config/registry.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
@@ -19,8 +19,26 @@ beforeEach(() => {
 describe("lsp config", () => {
 	it("缺少配置文件采用默认值并规范化内置 glob 路由", async () => {
 		process.env.PI_LSP_CONFIG = path.join(dir, "missing.jsonc");
-		const loaded = await loadLspConfig();
-		expect(loaded).toEqual({ path: defaultAgentConfigPath("lsp.jsonc"), config: defaultLspConfig() });
+		const loaded = await loadLspConfig(dir);
+		expect(loaded.path).toBe(defaultAgentConfigPath("lsp.jsonc"));
+		expect(loaded.config).toMatchObject({
+			enabled: true,
+			exclude_paths: [path.resolve(os.homedir())],
+			startup_timeout_ms: 8000,
+			request_timeout_ms: 5000,
+			idle_timeout_ms: 300000,
+			max_open_documents: 128,
+			diagnostics: {
+				enabled: true,
+				max_wait_ms: 3000,
+				settle_ms: 150,
+				max_items: 8,
+				max_related_locations: 3,
+				min_severity: "warning",
+			},
+			read: { outline: true, max_symbols: 40 },
+			grep: { workspace_symbols: true, max_symbols: 20, max_exact_leaf_symbols: 2 },
+		});
 		expect(loaded.config.servers[0]).toMatchObject({
 			id: "typescript",
 			fallback: false,

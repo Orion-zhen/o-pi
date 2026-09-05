@@ -153,9 +153,7 @@ async function processLspSubmissions(submissions: readonly LspSubmission[]): Pro
 		const inputs = buckets.unique.map((bucket) => bucket.latest.input).filter((input): input is LspMutationInput => input !== undefined);
 		let results: readonly (LspDiagnosticsSummary | undefined)[];
 		try {
-			results = operations.afterMutationBatch !== undefined
-				? await operations.afterMutationBatch(inputs)
-				: await Promise.all(inputs.map((input) => operations.afterMutation?.(input)));
+			results = await operations.afterMutationBatch(inputs);
 		} catch {
 			results = inputs.map(() => undefined);
 		}

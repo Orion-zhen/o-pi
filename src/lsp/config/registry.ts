@@ -26,9 +26,9 @@ export class LspServerRegistry {
 		}
 		const preferred = candidates.filter((candidate) => !candidate.server.fallback);
 		if (preferred.length === 1) return preferred[0];
-		if (isNonEmpty(preferred) && preferred.length > 1) throw ambiguousRoute(relativePath, preferred);
+		if (preferred.length > 1) throw ambiguousRoute(relativePath, preferred, false);
 		if (candidates.length === 1) return candidates[0];
-		if (isNonEmpty(candidates) && candidates.length > 1) throw ambiguousRoute(relativePath, candidates);
+		if (candidates.length > 1) throw ambiguousRoute(relativePath, candidates, true);
 		return undefined;
 	}
 
@@ -41,18 +41,10 @@ export class LspServerRegistry {
 		}
 		return this.servers.filter((server) => selected.has(server));
 	}
-
-	ownsPath(server: LspServerConfig, relativePath: string): boolean {
-		return this.route(relativePath)?.server.id === server.id;
-	}
 }
 
-function ambiguousRoute(relativePath: string, candidates: readonly [LspFileRoute, ...LspFileRoute[]]): LspServerRegistryError {
+function ambiguousRoute(relativePath: string, candidates: readonly LspFileRoute[], fallback: boolean): LspServerRegistryError {
 	return new LspServerRegistryError(
-		`LSP path "${relativePath}" matches multiple ${candidates[0].server.fallback === true ? "fallback " : ""}servers: ${candidates.map((candidate) => candidate.server.id).join(", ")}`,
+		`LSP path "${relativePath}" matches multiple ${fallback ? "fallback " : ""}servers: ${candidates.map((candidate) => candidate.server.id).join(", ")}`,
 	);
-}
-
-function isNonEmpty<T>(values: readonly T[]): values is readonly [T, ...T[]] {
-	return values.length > 0;
 }

@@ -87,7 +87,7 @@ describe("file-tools extension model output", () => {
 		const cwd = workspace.path;
 		const originalAfterMutation = lspFileHooks.afterMutation;
 		try {
-			delete lspFileHooks.afterMutation;
+			lspFileHooks.afterMutation = async () => undefined;
 			await writeFile(join(cwd, "a.ts"), "one\ntwo\n", "utf8");
 			const ctx = { cwd, sessionManager: { getSessionId: () => "session-1", getBranch: () => [] } };
 			const read = await executeTool(registered, "read", { path: "a.ts" }, ctx);
@@ -114,8 +114,7 @@ describe("file-tools extension model output", () => {
 			const failedRead = await executeTool(registered, "read", { path: "missing.ts" }, ctx);
 			expect(textResult(failedRead)).toContain('<error>\nFile does not exist.\n</error>');
 		} finally {
-			if (originalAfterMutation === undefined) delete lspFileHooks.afterMutation;
-			else lspFileHooks.afterMutation = originalAfterMutation;
+			lspFileHooks.afterMutation = originalAfterMutation;
 		}
 	});
 

@@ -66,16 +66,19 @@ describe("lsp transport diagnostics", () => {
 		});
 		const manager = await createManager(transport, fake, { diagnostics: { enabled: true, max_wait_ms: 100, settle_ms: 0, max_items: 8, max_related_locations: 2, min_severity: "warning" } });
 		const file = path.join(workspace, "a.ts");
-		await expect(manager.didWrite(workspace, file, "const a = 1;\n")).resolves.toMatchObject({
+		await expect(manager.didWriteBatch([{ root: workspace, filePath: file, text: "const a = 1;\n" }])).resolves.toMatchObject([{
 			status: "errors",
 			items: [{ message: "pulled error" }],
-		});
+		}]);
 		const baseline = await manager.beforeDiagnostics(workspace, file);
-		await expect(manager.didWrite(workspace, file, "const a = 2;\n", baseline)).resolves.toMatchObject({
+		await expect(manager.didWriteBatch([{
+			root: workspace, filePath: file, text: "const a = 2;\n",
+			...(baseline === undefined ? {} : { baseline }),
+		}])).resolves.toMatchObject([{
 			status: "errors",
 			new_errors: 0,
 			items: [{ message: "pulled error" }],
-		});
+		}]);
 		await expect(manager.knownDiagnostics(workspace, "related.ts")).resolves.toEqual([
 			{ path: "related.ts", items: [expect.objectContaining({ message: "related error" })] },
 		]);
@@ -86,6 +89,64 @@ describe("lsp transport diagnostics", () => {
 		expect(requests[1]).toMatchObject({ params: { textDocument: { uri }, identifier: "typescript", previousResultId: "current-r1" } });
 		expect(fake.methods).not.toContain("workspace/executeCommand");
 	});
+	it("诊断处理抛错后释放同 URI 队列，后续保存仍能完成", async () => {
+		const firstPull = deferred<void>();
+		const releaseFirst = deferred<void>();
+		let pulls = 0;
+		const fake = await createProtocolServer(transport, {
+			capabilities: {
+				diagnosticProvider: { interFileDependencies: true, workspaceDiagnostics: false },
+				textDocumentSync: { openClose: true, change: 1 },
+			},
+			routes: { "textDocument/diagnostic": (message, socket) => {
+				pulls += 1;
+				if (pulls === 1) {
+					firstPull.resolve();
+					void releaseFirst.promise.then(() => send(socket, { id: message.id, result: { kind: "full", items: null } }));
+				} else send(socket, { id: message.id, result: { kind: "full", items: [] } });
+			} },
+		});
+		const client = directClient(transport, fake);
+		const filePath = path.join(transport.workspace, "a.ts");
+		const first = client.saveAndCollectDiagnosticsBatch([{ filePath, text: "old\n" }], {});
+		const firstFailed = expect(first).rejects.toThrow();
+		const second = client.saveAndCollectDiagnosticsBatch([{ filePath, text: "new\n" }], {});
+		await firstPull.promise;
+		expect(pulls).toBe(1);
+		expect(fake.methods).not.toContain("textDocument/didChange");
+		releaseFirst.resolve();
+		await firstFailed;
+		await expect(second).resolves.toMatchObject([{ kind: "pull", snapshot: { known: true, items: [] } }]);
+		expect(pulls).toBe(2);
+	});
+
+	it("批量诊断按 URI 使用最后正文，并将不同诊断填回原始输入位置", async () => {
+		let pulls = 0;
+		const fake = await createProtocolServer(transport, {
+			capabilities: {
+				diagnosticProvider: { interFileDependencies: true, workspaceDiagnostics: false },
+				textDocumentSync: { openClose: true, change: 1, save: { includeText: true } },
+			},
+			routes: { "textDocument/diagnostic": (message, socket) => send(socket, {
+				id: message.id, result: { kind: "full", items: [diagnostic(`result-${++pulls}`, 0)] },
+			}) },
+		});
+		const client = directClient(transport, fake);
+		const a = path.join(transport.workspace, "a.ts");
+		const b = path.join(transport.workspace, "b.ts");
+		const results = await client.saveAndCollectDiagnosticsBatch([
+			{ filePath: a, text: "old-a\n" }, { filePath: b, text: "new-b\n" }, { filePath: a, text: "new-a\n" },
+		], {});
+		expect(results).toMatchObject(["result-1", "result-2", "result-1"].map((message) => ({
+			kind: "pull", snapshot: { items: [{ message }] },
+		})));
+		expect(fake.messages.filter((message) => message.method === "textDocument/didOpen")).toMatchObject([
+			{ params: { textDocument: { uri: pathToFileUri(a), text: "new-a\n" } } },
+			{ params: { textDocument: { uri: pathToFileUri(b), text: "new-b\n" } } },
+		]);
+		expect(pulls).toBe(2);
+	});
+
 	it("didWriteBatch 先同步同一 server 的全部文档，并限制并发 pull diagnostics", async () => {
 		const workspace = transport.workspace;
 		let opened = 0;
@@ -136,15 +197,15 @@ describe("lsp transport diagnostics", () => {
 		});
 		const manager = await createManager(transport, fake, { diagnostics: { enabled: true, max_wait_ms: 100, settle_ms: 0, max_items: 8, min_severity: "warning" } });
 		const file = path.join(workspace, "a.ts");
-		await expect(manager.didWrite(workspace, file, "const a = 1;\n")).resolves.toMatchObject({
+		await expect(manager.didWriteBatch([{ root: workspace, filePath: file, text: "const a = 1;\n" }])).resolves.toMatchObject([{
 			status: "errors",
 			items: [{ message: "new error" }],
-		});
+		}]);
 		await expect(manager.beforeDiagnostics(workspace, file)).resolves.toMatchObject({ known: true, version: 1 });
-		await expect(manager.didWrite(workspace, file, "const a = 2;\n")).resolves.toMatchObject({
+		await expect(manager.didWriteBatch([{ root: workspace, filePath: file, text: "const a = 2;\n" }])).resolves.toMatchObject([{
 			status: "timeout",
 			total_items: 0,
-		});
+		}]);
 		expect(fake.methods).not.toContain("textDocument/diagnostic");
 	});
 });

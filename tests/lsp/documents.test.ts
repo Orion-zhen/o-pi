@@ -1,10 +1,6 @@
-import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { incrementalContentChange, LspDocuments } from "../../src/lsp/client/document-store.js";
-
-const documentUri = pathToFileURL(path.resolve("a.ts")).toString();
+import { incrementalContentChange } from "../../src/lsp/client/text-change.js";
 
 describe("lsp documents", () => {
 	it.each([
@@ -25,31 +21,5 @@ describe("lsp documents", () => {
 		],
 	] as const)("生成 UTF-16/CRLF 最小增量 %#", (previous, next, expected) => {
 		expect(incrementalContentChange(previous, next)).toEqual(expected);
-	});
-
-	it("同 URI queue 严格串行且失败不阻塞后续操作", async () => {
-		const documents = new LspDocuments(4);
-		const events: string[] = [];
-		let release: () => void = () => undefined;
-		const gate = new Promise<void>((resolve) => {
-			release = resolve;
-		});
-		const first = documents.enqueue(documentUri, async () => {
-			events.push("first:start");
-			await gate;
-			events.push("first:end");
-			throw new Error("first failed");
-		});
-		const second = documents.enqueue(documentUri, async () => {
-			events.push("second");
-			return 2;
-		});
-
-		await Promise.resolve();
-		expect(events).toEqual(["first:start"]);
-		release();
-		await expect(first).rejects.toThrow("first failed");
-		await expect(second).resolves.toBe(2);
-		expect(events).toEqual(["first:start", "first:end", "second"]);
 	});
 });

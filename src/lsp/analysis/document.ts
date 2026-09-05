@@ -1,20 +1,12 @@
-import type { DocumentSymbol, Position, Range, SymbolInformation } from "vscode-languageserver-protocol";
+import type { Position } from "vscode-languageserver-protocol";
 
 import { createFileIdentity, createSymbolId } from "../../code-index/identity.js";
 import { languageFromPath } from "../../code-index/parser.js";
 import { SourceIndex, type AnalyzedFileIndex, type CodeDocument, type IndexedCodeUnit } from "../../code-index/types.js";
-import { symbolKindName } from "./symbols.js";
+import { normalizeDocumentSymbols, symbolKindName, type NormalizedDocumentSymbol } from "./symbols.js";
 import type { LspDocumentSymbols } from "../types.js";
 
 const DECLARATION_CODE_POINT_LIMIT = 240;
-
-interface FlatDocumentSymbol {
-	readonly name: string;
-	readonly qualifiedName?: string;
-	readonly kind: number;
-	readonly range: Range;
-	readonly selectionRange: Range;
-}
 
 export interface AnalyzedLspUnit {
 	readonly unit: IndexedCodeUnit;
@@ -33,7 +25,7 @@ export function analyzeLspDocument(
 ): AnalyzedLspDocument | undefined {
 	const sourceIndex = new SourceIndex(document.text);
 	const file = createFileIdentity(document.path);
-	const flat = flattenSymbols(symbols);
+	const flat = normalizeDocumentSymbols(symbols);
 	const units = new Map<string, AnalyzedLspUnit>();
 	for (const symbol of flat) {
 		const unit = indexedUnit(document, sourceIndex, symbol);
@@ -62,7 +54,7 @@ export function analyzeLspDocument(
 function indexedUnit(
 	document: CodeDocument,
 	sourceIndex: SourceIndex,
-	symbol: FlatDocumentSymbol,
+	symbol: NormalizedDocumentSymbol,
 ): IndexedCodeUnit | undefined {
 	const startChar = charOffset(document.text, sourceIndex, symbol.range.start);
 	const endChar = charOffset(document.text, sourceIndex, symbol.range.end);
@@ -91,35 +83,6 @@ function indexedUnit(
 		references: [],
 		calls: [],
 	};
-}
-
-function flattenSymbols(symbols: LspDocumentSymbols, parent?: string): FlatDocumentSymbol[] {
-	const result: FlatDocumentSymbol[] = [];
-	for (const symbol of symbols) {
-		if (isDocumentSymbol(symbol)) {
-			const qualifiedName = parent === undefined ? symbol.name : `${parent}.${symbol.name}`;
-			result.push({
-				name: symbol.name,
-				...(parent === undefined ? {} : { qualifiedName }),
-				kind: symbol.kind,
-				range: symbol.range,
-				selectionRange: symbol.selectionRange,
-			});
-			if (symbol.children !== undefined) result.push(...flattenSymbols(symbol.children, qualifiedName));
-			continue;
-		}
-		const qualifiedName = symbol.containerName === undefined || symbol.containerName.trim().length === 0
-			? undefined
-			: `${symbol.containerName}.${symbol.name}`;
-		result.push({
-			name: symbol.name,
-			...(qualifiedName === undefined ? {} : { qualifiedName }),
-			kind: symbol.kind,
-			range: symbol.location.range,
-			selectionRange: symbol.location.range,
-		});
-	}
-	return result;
 }
 
 function declarationAt(
@@ -163,10 +126,6 @@ function splitsSurrogatePair(text: string, offset: number): boolean {
 	const left = text.charCodeAt(offset - 1);
 	const right = text.charCodeAt(offset);
 	return left >= 0xd800 && left <= 0xdbff && right >= 0xdc00 && right <= 0xdfff;
-}
-
-function isDocumentSymbol(symbol: DocumentSymbol | SymbolInformation): symbol is DocumentSymbol {
-	return "range" in symbol && "selectionRange" in symbol;
 }
 
 function compareString(left: string, right: string): number {

@@ -3,11 +3,10 @@ import { describe, expect, it } from "vitest";
 import { FileChangeType } from "vscode-languageserver-protocol";
 
 import { LspClient } from "../../../src/lsp/client/client.js";
-import { defaultLspConfig } from "../../../src/lsp/config/loader.js";
 import { DiagnosticsLedger } from "../../../src/lsp/diagnostics/ledger.js";
 import { pathToFileUri } from "../../../src/lsp/protocol/uri.js";
 import { deferred } from "../../helpers/async.js";
-import { createManager, createFakeServer, createProtocolServer, createWorkspaceSymbolServer, queryManagerSymbols, send, useTransportFixture } from "./fixtures.js";
+import { createClientConfig, createManager, createFakeServer, createProtocolServer, createWorkspaceSymbolServer, queryManagerSymbols, send, useTransportFixture } from "./fixtures.js";
 
 const transport = useTransportFixture();
 
@@ -60,6 +59,31 @@ describe("lsp transport manager and protocol", () => {
 		expect(fake.methods.filter((method) => method === "shutdown")).toHaveLength(1);
 		expect(fake.methods).toContain("exit");
 	});
+	it("并发操作共享规范化工作区，不同根目录独立持有客户端，reload 全部关闭", async () => {
+		const fake = await createProtocolServer(transport, {
+			capabilities: { documentSymbolProvider: true },
+			routes: { "textDocument/documentSymbol": (message, socket) => send(socket, { id: message.id, result: [{
+				name: "outer", kind: 12,
+				range: { start: { line: 0, character: 0 }, end: { line: 2, character: 1 } },
+				selectionRange: { start: { line: 0, character: 9 }, end: { line: 0, character: 14 } },
+			}] }) },
+		});
+		const manager = await createManager(transport, fake);
+		const roots = [transport.workspace, transport.configDir, `${transport.workspace}/.`];
+		const results = await Promise.all(roots.map((root) => manager.readEnhancement(
+			root, path.join(root, "a.ts"), "function outer() {\n  return 1;\n}\n",
+			{ startLine: 2, endLine: 2 }, { outline: false, enclosing: true },
+		)));
+		expect(results).toEqual(roots.map(() => ({ enclosing_symbol: { name: "outer", kind: "function", line: 1, end_line: 3 } })));
+		expect(fake.connections).toBe(2);
+		for (const root of roots) {
+			await expect(manager.status(root)).resolves.toMatchObject({ servers: [{ root: path.resolve(root), status: "ready" }] });
+		}
+		await manager.reload();
+		expect(fake.methods.filter((method) => method === "shutdown")).toHaveLength(2);
+		for (const root of roots) await expect(manager.status(root)).resolves.toMatchObject({ enabled: true, servers: [] });
+	});
+
 	it("安全响应基础 server requests，并按白名单 watcher 发送文件变更", async () => {
 		const workspace = transport.workspace;
 		const configDir = transport.configDir;
@@ -105,9 +129,7 @@ describe("lsp transport manager and protocol", () => {
 				if (responseIds.size === 6) responsesReceived.resolve();
 			}
 		});
-		const config = defaultLspConfig();
-		config.startup_timeout_ms = 500;
-		config.request_timeout_ms = 500;
+		const config = createClientConfig();
 		const client = new LspClient(workspace, {
 			id: "tcp",
 			enabled: true,
@@ -166,7 +188,7 @@ describe("lsp transport manager and protocol", () => {
 		const configFile = path.join(workspace, "nested", "tsconfig.json");
 		const secondConfigFile = path.join(workspace, "other", "tsconfig.json");
 
-		await manager.didChangeWatchedFile(workspace, configFile, FileChangeType.Changed);
+		await manager.didChangeWatchedFiles([{ root: workspace, filePath: configFile, type: FileChangeType.Changed }]);
 		expect(fake.connections).toBe(0);
 		await queryManagerSymbols(manager, workspace, "start");
 		await registered.promise;
@@ -206,6 +228,48 @@ describe("lsp transport manager and protocol", () => {
 			params: { name: "target", kind: 12, location: { uri }, data },
 		});
 	});
+	it("URI-only 符号的嵌套 data 不同不能在 resolve 前合并", async () => {
+		const uri = pathToFileUri(path.join(transport.workspace, "target.ts"));
+		const symbols = [0, 1].map((line) => ({
+			name: "target", kind: 12, location: { uri }, data: { nested: { line } },
+		}));
+		let resolved = 0;
+		const fake = await createProtocolServer(transport, {
+			capabilities: {
+				workspaceSymbolProvider: { resolveProvider: true }, documentSymbolProvider: true,
+				referencesProvider: true, callHierarchyProvider: true,
+			},
+			routes: {
+				"workspace/symbol": (message, socket) => send(socket, { id: message.id, result: symbols }),
+				"workspaceSymbol/resolve": (message, socket) => {
+					const line = resolved++;
+					send(socket, { id: message.id, result: {
+						name: "target", kind: 12,
+						location: { uri, range: { start: { line, character: 0 }, end: { line, character: 20 } } },
+					} });
+				},
+				"textDocument/documentSymbol": (message, socket) => send(socket, { id: message.id, result: [0, 1].map((line) => ({
+					name: "target", kind: 12,
+					range: { start: { line, character: 0 }, end: { line, character: 20 } },
+					selectionRange: { start: { line, character: 9 }, end: { line, character: 15 } },
+				})) }),
+				"textDocument/prepareCallHierarchy": (message, socket) => send(socket, { id: message.id, result: null }),
+				"textDocument/references": (message, socket) => send(socket, { id: message.id, result: [] }),
+			},
+		});
+		const manager = await createManager(transport, fake);
+		const analysis = await manager.codeAnalysis({
+			root: transport.workspace, query: "target", targets: [{ path: "target.ts", ranges: [] }],
+			allowRelated: true, limit: 8,
+			async load(relativePath) {
+				return { path: relativePath, filePath: path.join(transport.workspace, relativePath),
+					text: "function target() {}\nfunction target() {}\n", hash: "two-symbols" };
+			},
+		});
+		expect(fake.messages.filter((message) => message.method === "workspaceSymbol/resolve").map((message) => message.params)).toEqual(symbols);
+		expect(analysis?.files[0]?.analysis.index.units.map((unit) => unit.startLine)).toEqual([1, 2]);
+	});
+
 	it.each([
 		["server 未声明 resolveProvider", "unsupported", false],
 		["resolve 返回错误", "error", true],
@@ -259,8 +323,7 @@ describe("lsp transport manager and protocol", () => {
 				send(socket, { id: 77, method: "workspace/applyEdit", params: { edit: {} } });
 			},
 		});
-		const config = defaultLspConfig();
-		config.startup_timeout_ms = 500;
+		const config = createClientConfig();
 		config.request_timeout_ms = 100;
 		const client = new LspClient(workspace, {
 			id: "tcp",

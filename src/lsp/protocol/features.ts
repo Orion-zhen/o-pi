@@ -1,4 +1,4 @@
-import type { RequestType } from "vscode-jsonrpc/node";
+import type { RequestType, RequestParam } from "vscode-jsonrpc/node";
 import {
 	CallHierarchyIncomingCallsRequest,
 	CallHierarchyPrepareRequest,
@@ -9,78 +9,43 @@ import {
 	type CallHierarchyIncomingCall,
 	type Location,
 	type Position,
+	type ServerCapabilities,
 	type SymbolInformation,
 	type WorkspaceSymbol,
 } from "vscode-languageserver-protocol";
 
-import type {
-	LspDocumentSymbols,
-	LspRequestOptions,
-	LspServerCapabilities,
-} from "../types.js";
+import type { LspDocumentSymbols, LspRequestOptions } from "../types.js";
 
-/** feature adapter 使用的最小 session 协议。 */
+/** 协议能力函数只依赖已建立连接的请求接口。 */
 export interface LspFeatureSession {
-	capabilities(): LspServerCapabilities | undefined;
-	request<P, R, E>(type: RequestType<P, R, E>, params: P, options?: LspRequestOptions): Promise<R | undefined>;
-}
-
-export interface LspFeatureDefinition {
-	readonly id:
-		| "documentSymbols"
-		| "workspaceSymbols"
-		| "workspaceSymbolResolve"
-		| "references"
-		| "incomingCalls";
-	readonly capability: (capabilities: LspServerCapabilities | undefined) => boolean;
+	capabilities(): ServerCapabilities | undefined;
+	request<P, R, E>(type: RequestType<P, R, E>, params: NoInfer<RequestParam<P>>, options?: LspRequestOptions): Promise<R | undefined>;
 }
 
 const providerEnabled = (provider: unknown): boolean => provider !== undefined && provider !== false;
 
-export const lspFeatureDefinitions = {
-	documentSymbols: {
-		id: "documentSymbols",
-		capability: (capabilities) => providerEnabled(capabilities?.documentSymbolProvider),
-	},
-	workspaceSymbols: {
-		id: "workspaceSymbols",
-		capability: (capabilities) => providerEnabled(capabilities?.workspaceSymbolProvider),
-	},
-	workspaceSymbolResolve: {
-		id: "workspaceSymbolResolve",
-		capability: (capabilities) => {
-			const provider = capabilities?.workspaceSymbolProvider;
-			return typeof provider === "object" && provider !== null && provider.resolveProvider === true;
-		},
-	},
-	references: {
-		id: "references",
-		capability: (capabilities) => providerEnabled(capabilities?.referencesProvider),
-	},
-	incomingCalls: {
-		id: "incomingCalls",
-		capability: (capabilities) => providerEnabled(capabilities?.callHierarchyProvider),
-	},
-} as const satisfies Readonly<Record<string, LspFeatureDefinition>>;
-
-export function featureAvailable(session: LspFeatureSession, feature: LspFeatureDefinition): boolean {
-	return feature.capability(session.capabilities());
+export function supportsCodeAnalysis(capabilities: ServerCapabilities | undefined, related: boolean): boolean {
+	return providerEnabled(capabilities?.documentSymbolProvider)
+		&& providerEnabled(capabilities?.referencesProvider)
+		&& providerEnabled(capabilities?.callHierarchyProvider)
+		&& (!related || providerEnabled(capabilities?.workspaceSymbolProvider));
 }
 
 export async function requestDocumentSymbols(session: LspFeatureSession, uri: string, options?: LspRequestOptions): Promise<LspDocumentSymbols | undefined> {
-	if (!featureAvailable(session, lspFeatureDefinitions.documentSymbols)) return undefined;
+	if (!providerEnabled(session.capabilities()?.documentSymbolProvider)) return undefined;
 	const result = await session.request(DocumentSymbolRequest.type, { textDocument: { uri } }, options);
 	return result === null ? [] : result as LspDocumentSymbols | undefined;
 }
 
 export async function requestWorkspaceSymbols(session: LspFeatureSession, query: string, options?: LspRequestOptions): Promise<Array<SymbolInformation | WorkspaceSymbol> | undefined> {
-	if (!featureAvailable(session, lspFeatureDefinitions.workspaceSymbols)) return undefined;
+	if (!providerEnabled(session.capabilities()?.workspaceSymbolProvider)) return undefined;
 	const result = await session.request(WorkspaceSymbolRequest.type, { query }, options);
 	return result === null ? [] : result as Array<SymbolInformation | WorkspaceSymbol> | undefined;
 }
 
 export async function resolveWorkspaceSymbol(session: LspFeatureSession, symbol: WorkspaceSymbol, options?: LspRequestOptions): Promise<WorkspaceSymbol | undefined> {
-	if (!featureAvailable(session, lspFeatureDefinitions.workspaceSymbolResolve)) return undefined;
+	const provider = session.capabilities()?.workspaceSymbolProvider;
+	if (typeof provider !== "object" || provider === null || provider.resolveProvider !== true) return undefined;
 	return session.request(WorkspaceSymbolResolveRequest.type, symbol, options);
 }
 
@@ -90,11 +55,9 @@ export async function requestReferences(
 	position: Position,
 	options?: LspRequestOptions,
 ): Promise<Location[] | undefined> {
-	if (!featureAvailable(session, lspFeatureDefinitions.references)) return undefined;
+	if (!providerEnabled(session.capabilities()?.referencesProvider)) return undefined;
 	const result = await session.request(ReferencesRequest.type, {
-		textDocument: { uri },
-		position,
-		context: { includeDeclaration: false },
+		textDocument: { uri }, position, context: { includeDeclaration: false },
 	}, options);
 	return result === null ? [] : result;
 }
@@ -105,14 +68,10 @@ export async function requestIncomingCalls(
 	position: Position,
 	options?: LspRequestOptions,
 ): Promise<CallHierarchyIncomingCall[] | undefined> {
-	if (!featureAvailable(session, lspFeatureDefinitions.incomingCalls)) return undefined;
-	const prepared = await session.request(CallHierarchyPrepareRequest.type, {
-		textDocument: { uri },
-		position,
-	}, options);
+	if (!providerEnabled(session.capabilities()?.callHierarchyProvider)) return undefined;
+	const prepared = await session.request(CallHierarchyPrepareRequest.type, { textDocument: { uri }, position }, options);
 	if (prepared === undefined) return undefined;
-	if (prepared === null || prepared.length === 0) return [];
-	const item = prepared[0];
+	const item = prepared?.[0];
 	if (item === undefined) return [];
 	const calls = await session.request(CallHierarchyIncomingCallsRequest.type, { item }, options);
 	return calls === null ? [] : calls;
