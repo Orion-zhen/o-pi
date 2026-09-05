@@ -31,12 +31,10 @@ export async function resolveBashSkillPaths(
 	if (document === undefined) {
 		return invalid(command, "Bash command containing a skill resource must have valid shell syntax.");
 	}
-	if (document.root.hasError) {
-		document.dispose();
-		return invalid(command, "Bash command containing a skill resource must have valid shell syntax.");
-	}
-
 	try {
+		if (document.root.hasError) {
+			return invalid(command, "Bash command containing a skill resource must have valid shell syntax.");
+		}
 		const candidates = collectCandidates(document.root, document.control.check);
 		const resolved = await Promise.all(candidates.map(async (candidate): Promise<Replacement | SkillResourceError> => {
 			const locator = decodeShellWord(candidate.text);
@@ -47,9 +45,11 @@ export async function resolveBashSkillPaths(
 			if (resource.kind === "error") return resource;
 			return { start: candidate.startIndex, end: candidate.endIndex, value: quoteShellWord(resource.filePath) };
 		}));
-		const error = resolved.find((item): item is SkillResourceError => "kind" in item && item.kind === "error");
-		if (error !== undefined) return error;
-		const replacements = resolved.filter((item): item is Replacement => !("kind" in item));
+		const replacements: Replacement[] = [];
+		for (const item of resolved) {
+			if ("kind" in item) return item;
+			replacements.push(item);
+		}
 		if (replacements.length === 0) {
 			return invalid(command, "A skill resource must be a complete static shell argument.");
 		}
@@ -62,10 +62,8 @@ export async function resolveBashSkillPaths(
 function collectCandidates(root: SyntaxNode, check: () => void): SyntaxNode[] {
 	const candidates: SyntaxNode[] = [];
 	const stack = [root];
-	while (stack.length > 0) {
+	for (let node = stack.pop(); node !== undefined; node = stack.pop()) {
 		check();
-		const node = stack.pop();
-		if (node === undefined) break;
 		if (node.type === "comment" || node.type === "heredoc_body") continue;
 		if (SHELL_WORD_TYPES.has(node.type) && tokenStartsWithSkillLocator(node)) {
 			candidates.push(node);
@@ -92,7 +90,8 @@ function quoteShellWord(value: string): string {
 
 function applyReplacements(command: string, replacements: Replacement[]): string {
 	let result = command;
-	for (const replacement of [...replacements].sort((left, right) => right.start - left.start)) {
+	// 候选按源码顺序收集，Promise.all 保持顺序，倒序替换不会改变前方偏移。
+	for (const replacement of replacements.reverse()) {
 		result = `${result.slice(0, replacement.start)}${replacement.value}${result.slice(replacement.end)}`;
 	}
 	return result;

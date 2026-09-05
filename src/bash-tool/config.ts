@@ -3,29 +3,17 @@ import {
 	agentSchemaPath,
 	createCompleteSchemaValidator,
 	createSchemaValidator,
-	defaultAgentConfigPath,
 	loadValidatedMergedConfig,
-	readDefaultJsoncConfigSync,
 } from "../config-loader.js";
 import type { BashToolConfig } from "./types.js";
 
 const SCHEMA_PATH = agentSchemaPath("bash-tool.schema.json");
 
-export class BashConfigError extends Error {
+class BashConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
 		super(message);
 		this.name = "BashConfigError";
 	}
-}
-
-/** 读取仓库内置的完整 bash 配置。 */
-export function defaultBashToolConfig(): BashToolConfig {
-	return materializeConfig(readDefaultJsoncConfigSync({
-		configPath: defaultAgentConfigPath("bash-tool.jsonc"),
-		schemaPath: SCHEMA_PATH,
-		label: "bash-tool",
-		createError,
-	}) as BashToolConfig);
 }
 
 /** 读取独立 bash JSONC 配置。配置错误直接失败。 */
@@ -33,17 +21,9 @@ export async function loadBashToolConfig(): Promise<BashToolConfig> {
 	const loaded = await loadValidatedMergedConfig(
 		CONFIG_DEFINITIONS.bashTool, process.cwd(), createError, { partial: loadValidator, complete: loadCompleteValidator },
 	);
-	return materializeConfig(loaded.merged as BashToolConfig);
-}
-
-function materializeConfig(raw: BashToolConfig): BashToolConfig {
-	validateEnvironment(raw.environment.remove_name_regex);
-	return {
-		default_timeout_seconds: raw.default_timeout_seconds,
-		python_venv_paths: raw.python_venv_paths,
-		environment: raw.environment,
-		limits: raw.limits,
-	};
+	const { $schema: _schema, ...config } = loaded.merged as BashToolConfig & { $schema?: string };
+	validateEnvironment(config.environment.remove_name_regex);
+	return config;
 }
 
 function validateEnvironment(rules: readonly string[]): void {

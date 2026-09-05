@@ -3,11 +3,7 @@ import { Type } from "typebox";
 
 import { executeBashCommand } from "../../src/bash-tool/bash-tool.js";
 import { loadBashToolConfig } from "../../src/bash-tool/config.js";
-import {
-	type BashExecutionResult,
-	type BashSessionMetadata,
-	type BashToolDetails,
-} from "../../src/bash-tool/types.js";
+import type { BashSessionMetadata, BashToolDetails } from "../../src/bash-tool/types.js";
 import { bashTelemetry } from "../../src/bash-tool/telemetry.js";
 import { registerObservedTool } from "../../src/telemetry/tool.js";
 
@@ -20,82 +16,68 @@ const bashParameters = Type.Object({
 	})),
 }, { additionalProperties: false });
 
-export type BashRendererLoader = () => Promise<Pick<
-	typeof import("../../src/bash-tool/tui/renderer.js"),
-	"renderBashCall"
->>;
-
-/** 注册覆盖版 bash；执行后端用 Pi 本地 shell，输出管理由本项目控制。 */
-export function createBashToolExtension(
-	loadRenderer: BashRendererLoader = () => import("../../src/bash-tool/tui/renderer.js"),
-): (pi: ExtensionAPI) => void {
-	return function bashTool(pi: ExtensionAPI): void {
-		const operations = createLocalBashOperations();
-
-		const tool = registerObservedTool(pi, {
-			tool: {
-				name: "bash",
-				label: "bash",
-				description: "Run commands in bash.",
-				promptSnippet: "run commands in bash",
-				promptGuidelines: ["Use bash only for operations not covered by active dedicated tools."],
-				parameters: bashParameters,
-				executionMode: "sequential",
-				async execute(toolCallId, params, signal, onUpdate, ctx) {
-					const config = await loadBashToolConfig();
-					const sessionFile = ctx.sessionManager.getSessionFile();
-					const session: BashSessionMetadata = {
-						sessionId: ctx.sessionManager.getSessionId(),
-						...(sessionFile !== undefined ? { sessionFile } : {}),
-						...(ctx.model !== undefined ? { provider: ctx.model.provider, model: ctx.model.id } : {}),
-						...(ctx.thinkingLevel !== undefined ? { reasoningLevel: ctx.thinkingLevel } : {}),
-					};
-					const runtime = {
-						cwd: ctx.cwd,
-						session,
-						toolCallId,
-						operations,
-						config,
-						branch: ctx.sessionManager.getBranch(),
-						...(signal !== undefined ? { signal } : {}),
-						...(onUpdate
-							? {
-									onUpdate: (partial: BashExecutionResult) => {
-										onUpdate({ content: [{ type: "text", text: partial.content }], details: withNativeBashDetails(partial.details) });
-									},
-								}
-							: {}),
-					};
-					const result = await executeBashCommand(params, runtime);
-					return { content: [{ type: "text", text: result.content }], details: withNativeBashDetails(result.details) };
-				},
+/** 注册覆盖版 bash。执行后端用 Pi 本地 shell，输出管理由本项目控制。 */
+export default function bashTool(pi: ExtensionAPI): void {
+	const operations = createLocalBashOperations();
+	const tool = registerObservedTool<typeof bashParameters, NativeBashDetails | undefined, unknown>(pi, {
+		tool: {
+			name: "bash",
+			label: "bash",
+			description: "Run commands in bash.",
+			promptSnippet: "run commands in bash",
+			promptGuidelines: ["Use bash only for operations not covered by active dedicated tools."],
+			parameters: bashParameters,
+			executionMode: "sequential",
+			async execute(toolCallId, params, signal, onUpdate, ctx) {
+				const config = await loadBashToolConfig();
+				const sessionFile = ctx.sessionManager.getSessionFile();
+				const session: BashSessionMetadata = {
+					sessionId: ctx.sessionManager.getSessionId(),
+					...(sessionFile !== undefined ? { sessionFile } : {}),
+					...(ctx.model !== undefined ? { provider: ctx.model.provider, model: ctx.model.id } : {}),
+					...(ctx.thinkingLevel !== undefined ? { reasoningLevel: ctx.thinkingLevel } : {}),
+				};
+				const runtime = {
+					cwd: ctx.cwd,
+					session,
+					toolCallId,
+					operations,
+					config,
+					branch: ctx.sessionManager.getBranch(),
+					...(signal !== undefined ? { signal } : {}),
+					...(onUpdate
+						? {
+								onUpdate: (content: string) => {
+									onUpdate({ content: [{ type: "text", text: content }], details: undefined });
+								},
+							}
+						: {}),
+				};
+				const result = await executeBashCommand(params, runtime);
+				return { content: [{ type: "text", text: result.content }], details: withNativeBashDetails(result.details) };
 			},
-			repair: { singleStringField: "command" },
-			telemetry: bashTelemetry,
-		});
+		},
+		repair: { singleStringField: "command" },
+		telemetry: bashTelemetry,
+	});
 
-		let rendererLoad: Promise<void> | undefined;
-		pi.on("session_start", async (_event, ctx) => {
-			if (ctx.mode !== "tui") return;
-			rendererLoad ??= loadRenderer().then(({ renderBashCall }) => {
-				pi.registerTool({ ...tool, renderCall: renderBashCall });
-			});
-			await rendererLoad;
+	let rendererLoad: Promise<void> | undefined;
+	pi.on("session_start", async (_event, ctx) => {
+		if (ctx.mode !== "tui") return;
+		rendererLoad ??= import("../../src/bash-tool/tui/renderer.js").then(({ renderBashCall }) => {
+			pi.registerTool({ ...tool, renderCall: renderBashCall });
 		});
+		await rendererLoad;
+	});
 
-		pi.on("tool_result", (event) => {
-			if (event.toolName !== "bash" || !isBashDetails(event.details)) return undefined;
-			if (event.details.status !== "exited" || event.details.exit_code !== 0) {
-				return { isError: true };
-			}
-			return undefined;
-		});
-	};
+	pi.on("tool_result", (event) => {
+		if (event.toolName !== "bash" || !isBashDetails(event.details)) return undefined;
+		if (event.details.status !== "exited" || event.details.exit_code !== 0) {
+			return { isError: true };
+		}
+		return undefined;
+	});
 }
-
-const bashTool = createBashToolExtension();
-
-export default bashTool;
 
 function isBashDetails(value: ToolResultEvent["details"]): value is BashToolDetails {
 	return (
@@ -125,11 +107,10 @@ function withNativeBashDetails(details: BashToolDetails): NativeBashDetails {
 }
 
 function pseudoBashTruncation(details: BashToolDetails): TruncationResult {
-	const truncatedBy = details.returned_bytes < details.total_bytes ? "bytes" : "lines";
 	return {
 		content: "",
 		truncated: true,
-		truncatedBy,
+		truncatedBy: "bytes",
 		totalLines: Math.max(details.total_lines, details.returned_lines),
 		totalBytes: Math.max(details.total_bytes, details.returned_bytes),
 		outputLines: details.returned_lines,

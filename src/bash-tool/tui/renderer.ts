@@ -39,7 +39,7 @@ class BashCallComponent implements Component {
 	}
 }
 
-/** Render bash commands as a five-line rolling tail until the tool card is expanded. */
+/** 命令收起时只显示最近五个视觉行，展开后显示完整内容。 */
 export function renderBashCall(
 	args: BashParams,
 	theme: Pick<Theme, "fg" | "bold">,

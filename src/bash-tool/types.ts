@@ -65,11 +65,15 @@ export interface ExecuteBashRuntime {
 	operations: BashOperations;
 	config: BashToolConfig;
 	branch: SessionEntry[];
-	onUpdate?: (result: BashExecutionResult) => void;
+	onUpdate?: (content: string) => void;
 }
 
+export type CapturedPreview =
+	| { kind: "complete"; bytes: Buffer }
+	| { kind: "split"; head: Buffer; tail: Buffer; omittedBytes: number };
+
 export interface CapturedOutput {
-	previewText: string;
+	preview: CapturedPreview;
 	totalBytes: number;
 	totalLines: number;
 	logPath: string;

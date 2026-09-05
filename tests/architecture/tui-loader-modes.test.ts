@@ -1,12 +1,18 @@
 import { createEventBus, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 
-import { createBashToolExtension } from "../../agent/extensions/bash-tool.js";
+import bashToolExtension from "../../agent/extensions/bash-tool.js";
 import { createFileToolsExtension } from "../../agent/extensions/file-tools.js";
 import { createPruneExtension } from "../../agent/extensions/prune.js";
 import { createSkillContextExtension } from "../../agent/extensions/skill-context.js";
 import { createSubagentExtension } from "../../agent/extensions/subagent.js";
 import { createWebToolsExtension } from "../../agent/extensions/web-tools.js";
+
+const bashRendererLoad = vi.hoisted(() => ({ count: 0 }));
+vi.mock("../../src/bash-tool/tui/renderer.js", async (importOriginal) => {
+	bashRendererLoad.count += 1;
+	return importOriginal<typeof import("../../src/bash-tool/tui/renderer.js")>();
+});
 
 type ExtensionRegistration = (pi: ExtensionAPI) => void;
 type SessionStartHandler = (event: unknown, ctx: ExtensionContext) => Promise<void> | void;
@@ -20,7 +26,6 @@ interface LoaderCase {
 }
 
 const cases: LoaderCase[] = [
-	loaderCase("bash", () => import("../../src/bash-tool/tui/renderer.js"), createBashToolExtension),
 	loaderCase("prune", () => import("../../src/prune/tui/index.js"), createPruneExtension),
 	loaderCase("file", () => import("../../src/file-tools/tui/index.js"), (load) => createFileToolsExtension({ renderers: load })),
 	loaderCase("web", async () => {
@@ -55,6 +60,20 @@ function loaderCase<Renderer>(
 	};
 }
 
+it("bash 正式入口只在 TUI 模式加载真实 renderer，并只加载一次", async () => {
+	const harness = register(bashToolExtension);
+	const coreRegistrations = harness.registrationCount;
+	for (const mode of ["rpc", "json", "print"] as const) {
+		await harness.sessionStart({}, context(mode).ctx);
+	}
+	expect(bashRendererLoad.count).toBe(0);
+	expect(harness.registrationCount).toBe(coreRegistrations);
+	await harness.sessionStart({}, context("tui").ctx);
+	await harness.sessionStart({}, context("tui").ctx);
+	expect(bashRendererLoad.count).toBe(1);
+	expect(harness.registrationCount).toBe(coreRegistrations + 1);
+});
+
 describe.each(cases)("$name TUI loader", ({ name, create }) => {
 	it("rpc/json/print 不加载，重复 TUI start 只加载一次", async () => {
 		const value = create(false);
@@ -77,7 +96,7 @@ describe.each(cases)("$name TUI loader", ({ name, create }) => {
 		const harness = register(value.extension);
 		const coreRegistrations = harness.registrationCount;
 		const firstContext = context("tui");
-		if (name === "bash" || name === "subagent") {
+		if (name === "subagent") {
 			await expect(harness.sessionStart({}, firstContext.ctx)).rejects.toThrow("expected failure");
 			await expect(harness.sessionStart({}, context("tui").ctx)).rejects.toThrow("expected failure");
 			expect(value.loadCount()).toBe(1);

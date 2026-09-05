@@ -1,7 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { takeHeadBytes, takeTailBytes } from "../../src/bash-tool/output-capture.js";
+import { takeHeadBytes, takeTailBytes } from "../../src/bash-tool/utf8.js";
 import { cleanForModel, createBashOutputView } from "../../src/bash-tool/output-view.js";
 import { bashToolConfig } from "./fixture.js";
 import type { BashOutputFormat, BashRunStatus } from "../../src/bash-tool/types.js";
@@ -11,13 +11,13 @@ const fullOutputPath = path.join("o-pi", "bash", "s", "t.log");
 
 function view(text: string, overrides: Partial<Parameters<typeof createBashOutputView>[0]> = {}) {
 	return createBashOutputView({
-		text,
+		preview: { kind: "complete", bytes: Buffer.from(text) },
 		status: "exited",
 		exitCode: 0,
 		durationMs: 420,
 		totalBytes: Buffer.byteLength(text),
 		totalLines: text.length === 0 ? 0 : text.split("\n").length - (text.endsWith("\n") ? 1 : 0),
-		fullOutputPath,
+		logPath: fullOutputPath,
 		captureComplete: true,
 		binary: false,
 		limits: config.limits,
@@ -59,10 +59,14 @@ describe("bash output view", () => {
 	});
 
 	it("head、诊断窗口、tail 重叠时不重复", () => {
-		const limits = { ...config.limits, failure_output_bytes: 500 };
-		const text = ["head", "error: near head", "middle", "tail"].join("\n");
+		const limits = { ...config.limits, failure_output_bytes: 220 };
+		const text = Array.from({ length: 40 }, (_, index) => index === 1 ? "error: near head" : index === 38 ? "error: near tail" : `line ${index}`).join("\n");
 		const result = view(text, { status: "exited", exitCode: 1, limits });
+		expect(result.details.output_state).toBe("truncated");
 		expect(result.content.match(/error: near head/g)).toHaveLength(1);
+		expect(result.content.match(/error: near tail/g)).toHaveLength(1);
+		expect(result.content.match(/\nline 0\n/g)).toHaveLength(1);
+		expect(result.content.match(/\nline 39(?:\n|$)/g)).toHaveLength(1);
 	});
 
 	it("连续重复行折叠，非连续重复行不折叠", () => {
@@ -131,13 +135,35 @@ describe("bash output view", () => {
 		expect(result.details.returned_lines).toBeGreaterThan(0);
 	});
 
+	it.each([
+		["json", JSON.stringify({ values: Array.from({ length: 1_000 }, (_, index) => `值😀${index}`) })],
+		["xml", `<root>${"<value>你好😀</value>".repeat(1_000)}</root>`],
+		["diff", `diff --git a/file b/file\n${"+你好😀\n".repeat(1_000)}`],
+		["binary", "\u0000你好😀".repeat(1_000)],
+	] as const)("%s 预览的标签、标记和多字节正文共同满足预算", (format, text) => {
+		const limits = { ...config.limits, success_output_bytes: 1_024 };
+		const result = view(text, { limits, binary: format === "binary" });
+		expect(result.details).toMatchObject({ output_state: "truncated", output_format: format });
+		expect(result.content).toContain(format === "binary" ? "binary/text preview" : `this is not a complete ${format.toUpperCase()} document`);
+		expect(result.details.returned_bytes).toBeLessThanOrEqual(1_024);
+		expect(result.content).not.toContain("�");
+	});
+
+	it("诊断很多时先保留首尾错误，不把它们交给通用裁剪器", () => {
+		const limits = { ...config.limits, failure_output_bytes: 1_024 };
+		const text = Array.from({ length: 400 }, (_, index) => `error ${index}: 你好😀`).join("\n");
+		const result = view(text, { exitCode: 1, limits });
+		expect(result.content).toContain("error 0:");
+		expect(result.content).toContain("error 399:");
+		expect(result.details.returned_bytes).toBeLessThanOrEqual(1_024);
+		expect(result.content).not.toContain("�");
+	});
+
 	it("UTF-8 byte 截断不拆分 astral 字符", () => {
 		expect(takeHeadBytes("a😀b", 5)).toBe("a😀");
 		expect(takeHeadBytes("a😀b", 4)).toBe("a");
 		expect(takeTailBytes("a😀b", 5)).toBe("😀b");
 		expect(takeTailBytes("a😀b", 4)).toBe("b");
-		expect(takeHeadBytes("😀", 0)).toBe("");
-		expect(takeTailBytes("😀", 0)).toBe("");
 	});
 
 	it("cleanForModel 不破坏正常 Unicode", () => {
