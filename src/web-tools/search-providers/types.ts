@@ -1,9 +1,8 @@
-import type { FormalWebSearchProviderId, WebSearchExecutionContext, WebSearchFailureDetails, WebSearchItem, WebSearchProviderId } from "../core/types.js";
+import type { WebSearchExecutionContext, WebSearchFailureDetails, WebSearchItem, WebSearchProviderId } from "../core/types.js";
 
 export type SearchIntent = "exact" | "navigation" | "news" | "fact" | "paper" | "semantic" | "general";
 
 export interface CompiledSearchQuery {
-	originalQuery: string;
 	lexicalQuery: string;
 	semanticQuery: string;
 	intent: SearchIntent;
@@ -17,8 +16,6 @@ export interface CompiledSearchQuery {
 export interface NormalizedSearchParams {
 	query: string;
 	limit: number;
-	includeDomains: string[];
-	excludeDomains: string[];
 	compiled: CompiledSearchQuery;
 	/** Router-only hint; never exposed in tool schema. */
 	lastFormalOpportunity?: boolean;
@@ -46,13 +43,8 @@ export type SearchProviderResult =
 			details: WebSearchFailureDetails;
 	  }
 
-/** 搜索 provider 最小接口；close 用于释放 MCP 连接等长生命周期资源。 */
+/** 提供方只执行请求，连接资源由共享 dispatcher 管理。 */
 export interface WebSearchProvider {
 	id: WebSearchProviderId;
 	search(params: NormalizedSearchParams, context: SearchProviderContext): Promise<SearchProviderResult>;
-	close?(): Promise<void>;
-}
-
-export interface RankedSearchItem extends WebSearchItem {
-	provenance: Array<{ provider: FormalWebSearchProviderId; rank: number }>;
 }

@@ -1,14 +1,14 @@
 import type { SearchProviderRouter } from "../search-providers/router.js";
 import { normalizeSearchParams } from "../search-providers/query.js";
-import type { SearchCache } from "./search-cache.js";
-import { searchCacheKey } from "./search-cache.js";
+import type { SearchFlights } from "./search-flights.js";
+import { searchFlightKey } from "./search-flights.js";
 import type { WebSearchExecutionContext, WebSearchFailureDetails, WebSearchParams, WebSearchResult, WebSearchSuccessDetails, WebToolsConfig } from "../core/types.js";
 import { escapeXml } from "../network/url-utils.js";
 
 /** 搜索执行层依赖；provider 由 router 隔离，便于测试 fallback 和 singleflight。 */
 export interface ExecuteWebSearchRuntime {
 	config: WebToolsConfig;
-	searches: SearchCache;
+	searches: SearchFlights;
 	router: SearchProviderRouter;
 	providerSignature?: string;
 	context: WebSearchExecutionContext;
@@ -22,13 +22,13 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 		includeDomains: runtime.config.websearch.include_domains,
 		excludeDomains: runtime.config.websearch.exclude_domains,
 	});
-	if (normalized.includeDomains.some((domain) => normalized.excludeDomains.includes(domain))) {
+	if (normalized.compiled.includeDomains.some((domain) => normalized.compiled.excludeDomains.includes(domain))) {
 		const details = { ...invalid("site: and -site: domains must not overlap."), duration_ms: runtime.now() - startedAt };
 		return { content: failureContent(details), details };
 	}
 	const query = normalized.query;
 	const limit = normalized.limit;
-	const key = searchCacheKey(query, limit, runtime.config.websearch, runtime.providerSignature);
+	const key = searchFlightKey(query, limit, runtime.config.websearch, runtime.providerSignature);
 	runtime.context.onUpdate?.({
 		content: "Searching...",
 		details: { status: "progress", phase: "requesting" },
@@ -36,7 +36,7 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 	const deadlineAt = startedAt + runtime.config.websearch.total_deadline_seconds * 1000;
 	const deadlineSignal = AbortSignal.timeout(Math.max(1, deadlineAt - runtime.now()));
 	const signal = AbortSignal.any([runtime.context.signal ?? new AbortController().signal, deadlineSignal]);
-	const routed = await runtime.searches.runSingleflight(key, () => runtime.router.search(normalized, {
+	const routed = await runtime.searches.run(key, () => runtime.router.search(normalized, {
 		signal,
 		...(runtime.context.signal !== undefined ? { userSignal: runtime.context.signal } : {}),
 		now: runtime.now,
@@ -49,7 +49,6 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 			...routed.details,
 			query,
 			duration_ms: runtime.now() - startedAt,
-			attempts: routed.attempts,
 			query_type: normalized.compiled.intent,
 		};
 		return { content: failureContent(details), details };
@@ -59,8 +58,8 @@ export async function executeWebSearch(params: WebSearchParams, runtime: Execute
 		status: "success",
 		query,
 		provider: routed.provider,
-		results: routed.results.results,
-		downloaded_bytes: routed.results.downloadedBytes,
+		results: routed.results,
+		downloaded_bytes: routed.downloadedBytes,
 		duration_ms: runtime.now() - startedAt,
 		attempts: routed.attempts,
 		query_type: normalized.compiled.intent,

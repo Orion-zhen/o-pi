@@ -3,7 +3,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { clearWebToolsConfigCacheForTests, defaultCookiePath, defaultWebToolsConfig, loadWebToolsConfig } from "../../src/web-tools/config.js";
+import { defaultCookiePath, loadWebToolsConfig } from "../../src/web-tools/config.js";
+import { defaultWebToolsConfig } from "./config-fixture.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
@@ -12,7 +13,6 @@ preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_WEB_TOOLS_COOKIES");
 
 beforeEach(() => {
 	dir = temp.path;
-	clearWebToolsConfigCacheForTests();
 	delete process.env.PI_WEB_TOOLS_CONFIG;
 	delete process.env.PI_WEB_TOOLS_COOKIES;
 });
@@ -22,6 +22,7 @@ describe("web-tools config", () => {
 		process.env.PI_WEB_TOOLS_CONFIG = path.join(dir, "missing.jsonc");
 		const config = await loadWebToolsConfig();
 		expect(config).toEqual(defaultWebToolsConfig());
+		expect(Object.keys(config).sort()).toEqual(["network", "webfetch", "websearch"]);
 		expect(config.network.proxy).toEqual({
 			enabled: false,
 			http_proxy: "",

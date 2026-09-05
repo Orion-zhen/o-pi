@@ -1,18 +1,13 @@
 import ipaddr from "ipaddr.js";
 
-export interface UrlGuardOptions {
-	allow_http?: boolean;
-	allow_private_literal_ip?: boolean;
-}
-
-export function guardPublicHttpUrlLiteral(value: string, options: UrlGuardOptions = {}): URL {
+export function guardPublicHttpUrlLiteral(value: string): URL {
 	let url: URL;
 	try {
 		url = new URL(value);
 	} catch {
 		throw new Error("URL must be valid.");
 	}
-	if (url.protocol !== "https:" && !(url.protocol === "http:" && options.allow_http !== false)) {
+	if (url.protocol !== "https:" && url.protocol !== "http:") {
 		throw new Error("URL only supports http: and https:.");
 	}
 	if (url.username !== "" || url.password !== "") {
@@ -23,7 +18,7 @@ export function guardPublicHttpUrlLiteral(value: string, options: UrlGuardOption
 	if (host === "localhost" || host.endsWith(".localhost")) {
 		throw new Error("URL must not use localhost.");
 	}
-	if (ipaddr.isValid(host) && options.allow_private_literal_ip !== true) {
+	if (ipaddr.isValid(host)) {
 		const address = ipaddr.parse(host);
 		const range = address.range();
 		if (range !== "unicast") {

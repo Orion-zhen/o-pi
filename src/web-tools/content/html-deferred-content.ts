@@ -1,4 +1,6 @@
-import type { DeferredEvidence, DeferredFragmentKind } from "./html-page-analyzer.js";
+import type { WebFetchAnalysisSummary } from "../core/types.js";
+
+type DeferredFragmentKind = "template_for" | "shadow_root" | "noscript";
 
 const MAX_DEFERRED_FRAGMENTS = 64;
 const MAX_DEFERRED_DEPTH = 8;
@@ -6,7 +8,7 @@ const DECLARATION_SELECTOR = "template[for], template[shadowrootmode], noscript"
 const TOP_LEVEL_SCAN_SELECTOR = `[id], ${DECLARATION_SELECTOR}`;
 
 export interface ExtractedDeferredContent {
-	evidence: DeferredEvidence;
+	evidence: WebFetchAnalysisSummary["deferredFragments"];
 	fragments: DocumentFragment[];
 }
 

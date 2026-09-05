@@ -1,6 +1,6 @@
 import type { Dispatcher } from "undici";
 
-import { classifyNetworkError } from "../network/http-client.js";
+import { classifyNetworkError } from "../network/errors.js";
 import { readLimitedResponseBody } from "../network/response-body.js";
 import type { FormalWebSearchProviderId, WebHttpFetch, WebSearchErrorCode, WebSearchFailureDetails, WebSearchItem, WebToolsConfig } from "../core/types.js";
 import { normalizeSearchResultUrl, normalizeSearchText, SEARCH_RESULT_MAX_SNIPPET_CHARS, SEARCH_RESULT_MAX_TITLE_CHARS } from "../network/url-utils.js";
@@ -8,34 +8,14 @@ import { resolveSearchApiKey } from "./api-key.js";
 import { filteredLexicalQuery } from "./query.js";
 import type { NormalizedSearchParams, SearchProviderResult, WebSearchProvider } from "./types.js";
 
-type ApiProviderConfig = WebToolsConfig["websearch"][FormalWebSearchProviderId];
+type ProviderConfig = {
+	[Id in FormalWebSearchProviderId]: { id: Id; config: WebToolsConfig["websearch"][Id] };
+}[FormalWebSearchProviderId];
 
-interface ExaSearchOptions {
-	type: "auto";
-	numResults: number;
-	contents: { highlights: { maxCharacters: number } };
-	category?: "publication";
-	includeDomains?: string[];
-	excludeDomains?: string[];
-}
-
-interface TavilySearchOptions {
-	maxResults: number;
-	searchDepth: "advanced" | "basic";
-	autoParameters: boolean;
-	includeAnswer: boolean;
-	includeRawContent: boolean;
-	includeImages: boolean;
-	includeDomains?: string[];
-	excludeDomains?: string[];
-}
-
-export interface ApiProviderOptions {
-	id: FormalWebSearchProviderId;
-	config: ApiProviderConfig;
-	dispatcher: Dispatcher | (() => Promise<Dispatcher>);
+export type ApiProviderOptions = ProviderConfig & {
+	dispatcher: () => Promise<Dispatcher>;
 	fetchImpl: WebHttpFetch;
-}
+};
 
 export interface ProviderRequest {
 	url: URL;
@@ -54,14 +34,14 @@ export function createApiSearchProvider(options: ApiProviderOptions): WebSearchP
 			const remaining = (context.deadlineAt ?? Number.POSITIVE_INFINITY) - context.now();
 			if (remaining <= 0) return failed(options.id, "TIMEOUT", "websearch deadline exceeded.", params.query);
 			const timeout = AbortSignal.timeout(Math.min(options.config.timeout_seconds * 1000, remaining));
-			const signal = AbortSignal.any([context.signal ?? new AbortController().signal, timeout]);
-			const request = buildProviderRequest(options.id, options.config, params, key);
+			const signal = context.signal === undefined ? timeout : AbortSignal.any([context.signal, timeout]);
+			const request = buildProviderRequest(options, params, key);
 			context.onUpdate?.({ content: "Searching...", details: { status: "progress", phase: "requesting" } });
 			try {
 				const response = await options.fetchImpl(request.url, {
 					method: request.method,
 					redirect: "manual",
-					dispatcher: await resolveDispatcher(options.dispatcher),
+					dispatcher: await options.dispatcher(),
 					signal,
 					headers: request.headers,
 					...(request.body !== undefined ? { body: request.body } : {}),
@@ -94,10 +74,12 @@ export function createApiSearchProvider(options: ApiProviderOptions): WebSearchP
 	};
 }
 
-export function buildProviderRequest(id: FormalWebSearchProviderId, config: ApiProviderConfig, params: NormalizedSearchParams, key: string): ProviderRequest {
-	if (id === "brave_api") return buildBraveRequest(config as WebToolsConfig["websearch"]["brave_api"], params, key);
-	if (id === "exa_api") return buildExaRequest(config as WebToolsConfig["websearch"]["exa_api"], params, key);
-	return buildTavilyRequest(config as WebToolsConfig["websearch"]["tavily"], params, key);
+function buildProviderRequest(provider: ProviderConfig, params: NormalizedSearchParams, key: string): ProviderRequest {
+	switch (provider.id) {
+		case "brave_api": return buildBraveRequest(provider.config, params, key);
+		case "exa_api": return buildExaRequest(provider.config, params, key);
+		case "tavily": return buildTavilyRequest(provider.config, params, key);
+	}
 }
 
 export function buildBraveRequest(config: WebToolsConfig["websearch"]["brave_api"], params: NormalizedSearchParams, key: string): ProviderRequest {
@@ -111,30 +93,32 @@ export function buildBraveRequest(config: WebToolsConfig["websearch"]["brave_api
 }
 
 export function buildExaRequest(config: WebToolsConfig["websearch"]["exa_api"], params: NormalizedSearchParams, key: string): ProviderRequest {
-	const options: ExaSearchOptions = {
+	const { semanticQuery, intent, includeDomains, excludeDomains } = params.compiled;
+	const body = {
+		query: semanticQuery,
 		type: "auto",
 		numResults: Math.min(10, Math.max(params.limit, 6)),
 		contents: { highlights: { maxCharacters: config.highlight_chars } },
-		...(params.compiled.intent === "paper" ? { category: "publication" } : {}),
-		...(params.includeDomains.length > 0 ? { includeDomains: params.includeDomains } : {}),
-		...(params.excludeDomains.length > 0 ? { excludeDomains: params.excludeDomains } : {}),
+		...(intent === "paper" ? { category: "publication" } : {}),
+		...(includeDomains.length > 0 ? { includeDomains } : {}),
+		...(excludeDomains.length > 0 ? { excludeDomains } : {}),
 	};
-	const body = { query: params.compiled.semanticQuery, ...options };
 	return { url: new URL(config.endpoint), method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "x-api-key": key }, body: JSON.stringify(body) };
 }
 
 export function buildTavilyRequest(config: WebToolsConfig["websearch"]["tavily"], params: NormalizedSearchParams, key: string): ProviderRequest {
-	const complex = params.lastFormalOpportunity === true && (params.compiled.intent === "semantic" || params.compiled.intent === "paper");
-	const options: TavilySearchOptions = {
-		maxResults: Math.min(10, Math.max(params.limit, 5)), searchDepth: complex ? "advanced" : "basic", autoParameters: false,
-		includeAnswer: false, includeRawContent: false, includeImages: false,
-		...(params.includeDomains.length > 0 ? { includeDomains: params.includeDomains } : {}), ...(params.excludeDomains.length > 0 ? { excludeDomains: params.excludeDomains } : {}),
-	};
+	const { semanticQuery, intent, includeDomains, excludeDomains } = params.compiled;
+	const complex = params.lastFormalOpportunity === true && (intent === "semantic" || intent === "paper");
 	const body = {
-		query: params.compiled.semanticQuery,
-		max_results: options.maxResults, search_depth: options.searchDepth, auto_parameters: options.autoParameters,
-		include_answer: options.includeAnswer, include_raw_content: options.includeRawContent, include_images: options.includeImages,
-		...(options.includeDomains !== undefined ? { include_domains: options.includeDomains } : {}), ...(options.excludeDomains !== undefined ? { exclude_domains: options.excludeDomains } : {}),
+		query: semanticQuery,
+		max_results: Math.min(10, Math.max(params.limit, 5)),
+		search_depth: complex ? "advanced" : "basic",
+		auto_parameters: false,
+		include_answer: false,
+		include_raw_content: false,
+		include_images: false,
+		...(includeDomains.length > 0 ? { include_domains: includeDomains } : {}),
+		...(excludeDomains.length > 0 ? { exclude_domains: excludeDomains } : {}),
 	};
 	return { url: new URL(config.endpoint), method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", Authorization: `Bearer ${key}` }, body: JSON.stringify(body) };
 }
@@ -181,7 +165,6 @@ function failed(provider: FormalWebSearchProviderId, code: WebSearchErrorCode, m
 	return { status: "failed", provider, details };
 }
 
-function resolveDispatcher(value: Dispatcher | (() => Promise<Dispatcher>)): Promise<Dispatcher> { return typeof value === "function" ? value() : Promise.resolve(value); }
 function parseJson(bytes: Uint8Array): unknown | undefined { try { return JSON.parse(decode(bytes)); } catch { return undefined; } }
 function decode(bytes: Uint8Array): string { return new TextDecoder().decode(bytes); }
 function sanitizeError(error: unknown, key: string): string { return (error instanceof Error ? error.message : String(error)).split(key).join("REDACTED").slice(0, 300); }
@@ -198,4 +181,6 @@ function retryAfterMs(value: string | null, now: number): number | undefined {
 	return Number.isFinite(date) ? Math.max(0, date - now) : undefined;
 }
 
-function userAborted(context: { signal?: AbortSignal; userSignal?: AbortSignal; deadlineAt?: number }): boolean { return context.userSignal?.aborted === true || context.deadlineAt === undefined && context.signal?.aborted === true; }
+function userAborted(context: { signal?: AbortSignal; userSignal?: AbortSignal; deadlineAt?: number }): boolean {
+	return context.userSignal?.aborted === true || context.deadlineAt === undefined && context.signal?.aborted === true;
+}

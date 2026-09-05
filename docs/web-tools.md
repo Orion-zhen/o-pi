@@ -13,14 +13,16 @@
 
 `source`、JSON、XML 和普通文本不会加载 DOM、Readability 或 Turndown。只有 `readable` HTML 会加载转换链。JSONC 解析器和 AJV 也只在读取到配置文件且需要解析、校验时加载。并发校验共享同一个 Promise。
 
-成功配置按文件标识、大小和时间戳缓存，每次返回隔离副本。文件变化后会重新读取和校验。读取期间发生变化时会重试。配置错误不会写入成功缓存，下一次工具调用会再次由 `loadWebToolsConfig()` 读取。运行时、能力、provider 和 Cookie store 的模块或实例加载在同一会话内只复用一次，加载失败不会自动重试。`session_shutdown` 不会加载未使用的能力。关闭会话时，运行时会等待正在初始化的能力，再释放已经创建的资源。
+成功配置按文件标识、大小和时间戳缓存，每次返回隔离副本。文件变化后会重新读取和校验。读取期间发生变化时会重试。配置错误不会写入成功缓存，下一次工具调用会再次读取。默认值全部由 `agent/defaults/web-tools.jsonc` 提供，TypeScript 只做规范化和语义校验。
+
+两条能力链、当前 router 的 provider 和 Cookie store 分别复用各自的加载 Promise，实例内的加载失败不会自动重试。扩展加载 runtime 失败后，下次调用可重新尝试。配置或 API key 变化时同步替换 router，已开始的调用继续使用原实例。Provider 不持有独立连接资源，也没有关闭协议。`session_shutdown` 不加载未使用的能力，先等待已开始的调用结束，再清理会话状态和共享 dispatcher。
 
 需要向允许列表中的来源发送 Cookie 时，运行时只依赖 `WebFetchInteractionPort.confirmAuthentication()`，不依赖 Pi TUI。原生 TUI 与 RPC Extension UI 都能注入该端口。JSON 和打印模式没有端口时返回 `AUTH_CONFIRMATION_REQUIRED`。确认对话框只是适配器。抓取结果和错误结构不依赖组件或通知。
 
 使用 `npm run bench:web-tools` 运行进程冷启动、文件系统暖态的回归基准。脚本记录以下指标：
 
 - Pi TUI 就绪和无 TUI 时的扩展加载耗时。
-- 首次及后续本地假 `websearch` 和 `source` 模式 `webfetch` 的耗时。
+- 首次及后续 `websearch` 和 `source` 模式 `webfetch` 的耗时。使用真实运行时和搜索提供方，仅在基准进程内替换 Undici 的 HTTP 响应。Undici 预加载不计入这两项耗时。
 - 模型不支持工具图片时，直接图片响应体的短路耗时。
 - DDG 解析器的耗时。
 - 四类合成 HTML 的转换耗时和进程最大常驻内存。这四类页面分别是 3–5 MB 的声明式延迟讨论页、无语义容器的视频元数据页、大型普通文章和包含大量无效模板或 JSON-LD 的恶意页面。
@@ -65,7 +67,7 @@ Provider 是运行时策略，不暴露给模型：
 
 ### 返回内容
 
-模型只收到按搜索引擎顺序排列的结果：
+单个 provider 的直接返回保留其结果顺序，跨 provider 合并采用前述去重和排序规则：
 
 ```xml
 <websearch_results query="pi coding agent" count="2" provider="brave_api" trust="untrusted">
@@ -118,15 +120,17 @@ webfetch({
 })
 ```
 
-- `readable`：HTML 整页只解析一次。解析器先分析 `<title>`、唯一 `h1`、description、Open Graph、Twitter Card 和受限 JSON-LD，生成 Readability、`main`、`article`、`[role=main]`、`[itemprop=articleBody]`、JSON-LD 正文和 `body` 候选；不再生成标题祖先候选。Readability 只把聚焦的语义根或最终 body fallback 候选克隆到临时合成文档，不克隆带 head 的完整 Document。只对最终主正文执行一次 Turndown。候选质量只依据标题保留、有效文本、链接密度、短链接列表、结构元素、媒体与导航/推荐/表单占比，并按固定顺序选择。同一 DOM 根的质量只计算一次。标准 head 信号、媒体节点、页面类型信号和顶层延迟目标分别使用单次节点快照，不再为每类字段重复遍历 DOM。`<base href>` 只用于解析 HTTP(S) 候选 URL，不会触发请求。已确认的客户端空壳会直接使用结构化正文或 metadata，不再进入 Readability 和正文质量选择。JSON-LD 只读取已知字段，并受总字符数、脚本数、对象数、遍历节点数和递归深度硬上限保护；无效或超限数据只保留通用 `structured_data/invalid_or_limited` 遗漏。声明式内容支持整个静态文档内的 `template[for]`、`template[shadowrootmode]`，以及 body 内的 `noscript` fallback。成功替换的目标与声明从同一基础文档移除，展开片段单独清理并转成延迟 section，不复制整页 DOM。片段最多处理 64 个、嵌套最多 8 层，重复、缺失、歧义、循环和超限声明按边界处理；普通未匹配 `<template>` 继续删除。URL 路径以 `.html`/`.htm` 结尾时即使响应头误报也按 HTML 处理。source、JSON、XML、纯文本保持原有轻量路径，不加载 DOM、Readability 或 Turndown。
+- `readable`：HTML 响应使用 LinkeDOM 解析。解析器先分析 `<title>`、唯一 `h1`、description、Open Graph、Twitter Card 和受限 JSON-LD，生成 Readability、`main`、`article`、`[role=main]`、`[itemprop=articleBody]`、JSON-LD 正文和 `body` 候选；不再生成标题祖先候选。Readability 只把聚焦的语义根或最终 body fallback 候选克隆到临时合成文档，并通过 `serializer` 返回正文节点，不再序列化后重新解析。最终选中候选直接清理，不为清理再克隆一次。只对最终主正文执行一次 Turndown，仍传入 HTML 字符串，以满足 GFM 插件对表格 DOM 的要求。候选质量只依据标题保留、有效文本、链接密度、短链接列表、结构元素、媒体与导航/推荐/表单占比，并按固定顺序选择。同一 DOM 根的质量只计算一次。标准 head 信号、媒体节点、页面类型信号和顶层延迟目标分别使用单次节点快照，不再为每类字段重复遍历 DOM。`<base href>` 只用于解析 HTTP(S) 候选 URL，不会触发请求。已确认的客户端空壳会直接使用结构化正文或 metadata，不再进入 Readability 和正文质量选择。JSON-LD 只读取已知字段，并受总字符数、脚本数、对象数、遍历节点数和递归深度硬上限保护；无效或超限数据只保留通用 `structured_data/invalid_or_limited` 遗漏。声明式内容支持整个静态文档内的 `template[for]`、`template[shadowrootmode]`，以及 body 内的 `noscript` fallback。成功替换的目标与声明从同一基础文档移除，展开片段单独清理并转成延迟 section，不复制整页 DOM。片段最多处理 64 个、嵌套最多 8 层，重复、缺失、歧义、循环和超限声明按边界处理；普通未匹配 `<template>` 继续删除。URL 路径以 `.html`/`.htm` 结尾时即使响应头误报也按 HTML 处理。source、JSON、XML、纯文本保持原有轻量路径，不加载 DOM、Readability 或 Turndown。
 - `source`：返回解码后的响应源码文本。
-- `offset`/`limit`：对首次转换后的内存 snapshot 切片。长页面结果返回 `range.has_more` 和 `range.next_offset`，继续读取时使用上次返回的 offset。
+- `offset`/`limit`：对首次转换后的内存 snapshot 切片。下载转换和缓存命中返回同一种页面结构，包含正文、分析摘要和响应元数据，不重建 HTTP 响应。缓存自行管理时间和字节预算，不保存响应头对象或图片字节。长页面结果返回 `range.has_more` 和 `range.next_offset`，继续读取时使用上次返回的 offset。
 - `webfetch.readability.char_threshold`：Readability 接受正文结果的最少字符数。
 - `webfetch.media`：`auto` 模式从已选正文的 `img`/`srcset`/`picture`、视频 poster、Open Graph、Twitter Card 和 JSON-LD 声明中统一选出至多一张主图。正文位置、标准主图声明、尺寸、alt 和标题距离加权，hidden、presentation、微小图标、avatar、logo 与装饰图降权。直接图片 URL 复用首次响应字节。当前模型支持图像且所选 API 支持工具结果图片时，页面主图经同一 URL、DNS、redirect 和 Cookie 安全链受限下载，JPEG、PNG、WebP、GIF 均以实际字节嗅探后作为原生图片内容返回。模型不支持图像时不会发起二次图片请求。若响应头已明确声明受支持图片，而 source 模式、后续 offset、模型能力或 API 类型已确定不可能返回图片，WebFetch 会在响应头阶段取消直接图片 body，不下载图片字节。`off` 时跳过 HTML 图片候选收集、排序和主图解析，不把用户主动关闭媒体视为遗漏，也不会因页面存在图片而变为 partial；`response_bytes` 控制独立图片响应上限。OpenAI Chat Completions 的 tool message 只支持文本，因此 `openai-completions` 模型即使支持普通图片输入也不会返回工具图片。Responses 不受影响。
 
 `webfetch` 不搜索、不执行 JavaScript、不点击链接、不提交表单、不访问本机或私网。
 
-视频和音频流只记录存在，不会下载。视频页可返回 poster 或标准缩略图，并通过 `primary_media/video_not_returned` 明确报告视频本体未返回。音频页对应报告 `primary_media/audio_not_returned`。
+图片候选收集和主图评分位于 `content/`，图片响应识别和安全下载位于 `fetch/`。只为图片构造候选，声明的 MIME 不参与最终判断，实际返回类型由响应字节嗅探确定。
+
+视频和音频只保留页面类型及未返回原因，不收集或下载流地址。视频页可返回 poster 或标准缩略图，并通过 `primary_media/video_not_returned` 明确报告视频本体未返回。音频页对应报告 `primary_media/audio_not_returned`。
 
 标题优先使用唯一 `h1`、最终正文标题，其次为 Open Graph、JSON-LD、Twitter Card 和 `<title>`。输出按标题/必要元数据、主正文、结构化内容和延迟内容组成 section。只按规范化文本相等或包含关系去重。metadata description 只在正文缺失时补充，不覆盖或重复已有正文。
 

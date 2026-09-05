@@ -1,4 +1,5 @@
 import type { LookupAddress } from "node:dns";
+import dnsPromises from "node:dns/promises";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createNetServer, type Server } from "node:net";
 import { pathToFileURL } from "node:url";
@@ -15,6 +16,7 @@ import {
 	validateRequestUrl,
 } from "../../src/web-tools/network/network-policy.js";
 
+const resolver: { lookup(hostname: string, options: { all: true }): Promise<LookupAddress[]> } = dnsPromises;
 const servers: Server[] = [];
 const invalidLookupResults: Array<{ name: string; addresses: LookupAddress[]; message: string }> = [
 	{ name: "空结果", addresses: [], message: "DNS lookup returned no addresses." },
@@ -26,6 +28,7 @@ const invalidLookupResults: Array<{ name: string; addresses: LookupAddress[]; me
 ];
 
 afterEach(async () => {
+	vi.restoreAllMocks();
 	await Promise.all(servers.splice(0).map(closeServer));
 });
 
@@ -52,12 +55,11 @@ describe("webfetch network policy", () => {
 	});
 
 	it("preflight 将 DNS 私网和混合地址标记为 private，并保留连接地址", async () => {
-		const privateTarget = await inspectWebFetchTarget("http://service.internal:8080/path", {
-			lookup: async () => [
-				{ address: "8.8.8.8", family: 4 },
-				{ address: "10.0.0.5", family: 4 },
-			],
-		});
+		const lookup = vi.spyOn(resolver, "lookup").mockResolvedValue([
+			{ address: "8.8.8.8", family: 4 },
+			{ address: "10.0.0.5", family: 4 },
+		]);
+		const privateTarget = await inspectWebFetchTarget("http://service.internal:8080/path");
 		expect(privateTarget).toMatchObject({
 			status: "private",
 			validated: { displayUrl: "http://service.internal:8080/path" },
@@ -67,9 +69,8 @@ describe("webfetch network policy", () => {
 			],
 		});
 
-		await expect(inspectWebFetchTarget("https://public.example/", {
-			lookup: async () => [{ address: "8.8.8.8", family: 4 }],
-		})).resolves.toMatchObject({ status: "public" });
+		lookup.mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
+		await expect(inspectWebFetchTarget("https://public.example/")).resolves.toMatchObject({ status: "public" });
 	});
 
 	it("只把全球单播公网地址视为允许", () => {
@@ -84,23 +85,20 @@ describe("webfetch network policy", () => {
 	});
 
 	it.each(invalidLookupResults)("拒绝 DNS $name", async ({ addresses, message }) => {
-		await expect(resolveAllowedAddresses("example.com", {
-			lookup: async () => addresses,
-		})).rejects.toThrow(message);
+		vi.spyOn(resolver, "lookup").mockResolvedValue(addresses);
+		await expect(resolveAllowedAddresses("example.com")).rejects.toThrow(message);
 	});
 
 	it("混合公网和私网 DNS 结果整体拒绝", async () => {
-		await expect(
-			resolveAllowedAddresses("example.com", {
-				lookup: async () => [
-					{ address: "8.8.8.8", family: 4 },
-					{ address: "10.0.0.1", family: 4 },
-				],
-			}),
-		).rejects.toMatchObject({ name: "BLOCKED_ADDRESS" });
+		vi.spyOn(resolver, "lookup").mockResolvedValue([
+			{ address: "8.8.8.8", family: 4 },
+			{ address: "10.0.0.1", family: 4 },
+		]);
+		await expect(resolveAllowedAddresses("example.com")).rejects.toMatchObject({ name: "BLOCKED_ADDRESS" });
 	});
 
 	it("配置的 fake-ip CIDR 只放行 DNS 解析结果，不放行 URL 字面 IP", async () => {
+		vi.spyOn(resolver, "lookup").mockResolvedValue([{ address: "198.18.2.86", family: 4 }]);
 		expect(isAllowedResolvedAddress("198.18.2.86", ["198.18.0.0/15"])).toBe(true);
 		await expect(resolveAllowedAddresses("198.18.2.86", {
 			allowedFakeIpRanges: ["198.18.0.0/15"],
@@ -108,7 +106,6 @@ describe("webfetch network policy", () => {
 		await expect(
 			resolveAllowedAddresses("example.com", {
 				allowedFakeIpRanges: ["198.18.0.0/15"],
-				lookup: async () => [{ address: "198.18.2.86", family: 4 }],
 			}),
 		).resolves.toEqual([{ address: "198.18.2.86", family: 4 }]);
 		expect(validateRequestUrl("https://198.18.2.86/")).toMatchObject({ status: "failed", error: { code: "BLOCKED_ADDRESS" } });
@@ -141,9 +138,8 @@ describe("webfetch network policy", () => {
 		});
 		servers.push(proxy);
 		const port = await listen(proxy);
-		const dispatcher = createNetworkDispatcher(proxyNetwork({ http_proxy: `http://127.0.0.1:${port}` }), undici, {
-			lookup: async () => [{ address: "8.8.8.8", family: 4 }],
-		});
+		vi.spyOn(resolver, "lookup").mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
+		const dispatcher = createNetworkDispatcher(proxyNetwork({ http_proxy: `http://127.0.0.1:${port}` }), undici);
 
 		try {
 			const response = await undici.fetch("http://target.example/path?q=1", { dispatcher });
@@ -162,10 +158,10 @@ describe("webfetch network policy", () => {
 		});
 		servers.push(proxy);
 		const port = await listen(proxy);
-		const lookup = vi.fn(async () => {
+		const lookup = vi.spyOn(resolver, "lookup").mockImplementation(async () => {
 			throw new Error("IPv6 literal must not use DNS");
 		});
-		const dispatcher = createNetworkDispatcher(proxyNetwork({ http_proxy: `http://127.0.0.1:${port}` }), undici, { lookup });
+		const dispatcher = createNetworkDispatcher(proxyNetwork({ http_proxy: `http://127.0.0.1:${port}` }), undici);
 
 		try {
 			const response = await undici.fetch("http://[2606:4700:4700::1111]/path", { dispatcher });
@@ -184,12 +180,11 @@ describe("webfetch network policy", () => {
 		const httpsProxy = rejectingConnectProxy(httpsConnects);
 		servers.push(httpProxy, httpsProxy);
 		const [httpPort, httpsPort] = await Promise.all([listen(httpProxy), listen(httpsProxy)]);
+		vi.spyOn(resolver, "lookup").mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
 		const dispatcher = createNetworkDispatcher(proxyNetwork({
 			http_proxy: `http://127.0.0.1:${httpPort}`,
 			https_proxy: `http://127.0.0.1:${httpsPort}`,
-		}), undici, {
-			lookup: async () => [{ address: "8.8.8.8", family: 4 }],
-		});
+		}), undici);
 
 		try {
 			await expect(undici.fetch("https://secure.example/data", { dispatcher })).rejects.toThrow();
@@ -208,9 +203,8 @@ describe("webfetch network policy", () => {
 		});
 		servers.push(proxy);
 		const port = await listen(proxy);
-		const dispatcher = createNetworkDispatcher(proxyNetwork({ http_proxy: `http://127.0.0.1:${port}` }), undici, {
-			lookup: async () => [{ address: "10.0.0.1", family: 4 }],
-		});
+		vi.spyOn(resolver, "lookup").mockResolvedValue([{ address: "10.0.0.1", family: 4 }]);
+		const dispatcher = createNetworkDispatcher(proxyNetwork({ http_proxy: `http://127.0.0.1:${port}` }), undici);
 
 		try {
 			await expect(undici.fetch("http://private.example/", { dispatcher })).rejects.toMatchObject({
@@ -228,9 +222,8 @@ describe("webfetch network policy", () => {
 		const proxy = createSocks5Server(targets, requests);
 		servers.push(proxy);
 		const port = await listen(proxy);
-		const dispatcher = createNetworkDispatcher(proxyNetwork({ socks5_proxy: `socks5://127.0.0.1:${port}` }), undici, {
-			lookup: async () => [{ address: "8.8.8.8", family: 4 }],
-		});
+		vi.spyOn(resolver, "lookup").mockResolvedValue([{ address: "8.8.8.8", family: 4 }]);
+		const dispatcher = createNetworkDispatcher(proxyNetwork({ socks5_proxy: `socks5://127.0.0.1:${port}` }), undici);
 		const emitWarning = vi.spyOn(process, "emitWarning").mockImplementation(() => undefined);
 
 		try {

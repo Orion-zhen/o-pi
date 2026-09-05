@@ -1,14 +1,14 @@
 import { runtimeConfigFailure } from "../core/runtime-errors.js";
-import type { WebFetchCapability, WebFetchCapabilityOptions } from "../core/runtime-types.js";
+import type { WebFetchCapability, WebCapabilityOptions } from "../core/runtime-types.js";
 import { SnapshotCache } from "./snapshot-cache.js";
 import type { CookieStore, WebToolsConfig } from "../core/types.js";
 import { executeWebFetch } from "./webfetch-tool.js";
 
 /** Fetch-only session state. Search-only sessions never import CookieJar or the fetch execution graph. */
-export function createWebFetchRuntime(options: WebFetchCapabilityOptions): WebFetchCapability {
+export function createWebFetchRuntime(options: WebCapabilityOptions): WebFetchCapability {
 	const snapshots = new SnapshotCache(options.now);
 	const approvedAuthOrigins = new Set<string>();
-	const cookieStore = createLazyCookieStore(() => createCookieStore(options.cookiePath));
+	const cookieStore = createLazyCookieStore();
 
 	return {
 		async fetch(params, context) {
@@ -48,11 +48,11 @@ interface LazyCookieStore extends CookieStore {
 	clear(): void;
 }
 
-export function createLazyCookieStore(load: () => Promise<CookieStore>): LazyCookieStore {
+function createLazyCookieStore(): LazyCookieStore {
 	let storePromise: Promise<CookieStore> | undefined;
 	const getStore = (): Promise<CookieStore> => {
 		if (storePromise !== undefined) return storePromise;
-		storePromise ??= load();
+		storePromise = createCookieStore();
 		return storePromise;
 	};
 	return {
@@ -69,9 +69,9 @@ export function createLazyCookieStore(load: () => Promise<CookieStore>): LazyCoo
 	};
 }
 
-async function createCookieStore(cookiePath: string | undefined): Promise<CookieStore> {
+async function createCookieStore(): Promise<CookieStore> {
 	const storeModule = import("./cookie-store.js");
-	const resolvedPath = cookiePath ?? (await import("../config.js")).defaultCookiePath();
+	const resolvedPath = (await import("../config.js")).defaultCookiePath();
 	const { NetscapeCookieStore } = await storeModule;
 	return new NetscapeCookieStore(resolvedPath);
 }

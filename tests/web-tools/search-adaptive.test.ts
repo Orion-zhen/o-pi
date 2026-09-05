@@ -1,7 +1,7 @@
 import { Agent } from "undici";
 import { describe, expect, it, vi } from "vitest";
 
-import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
+import { defaultWebToolsConfig } from "./config-fixture.js";
 import { resolveSearchApiKey } from "../../src/web-tools/search-providers/api-key.js";
 import { buildBraveRequest, buildExaRequest, buildTavilyRequest, createApiSearchProvider, normalizeProviderResponse } from "../../src/web-tools/search-providers/api-provider.js";
 import { mergeSearchResults } from "../../src/web-tools/search-providers/merge.js";
@@ -87,7 +87,7 @@ describe("adaptive search compilation and providers", () => {
 		process.env.BRAVE_SEARCH_API_KEY = "secret";
 		const fetchImpl = vi.fn(async () => { throw new Error("must not fetch"); });
 		const config = defaultWebToolsConfig().websearch.brave_api;
-		const provider = createApiSearchProvider({ id: "brave_api", config, dispatcher: new Agent(), fetchImpl });
+		const provider = createApiSearchProvider({ id: "brave_api", config, dispatcher: async () => new Agent(), fetchImpl });
 		await expect(provider.search(normalizeSearchParams({ query: "pi" }, 8), { now: () => 2, deadlineAt: 1 })).resolves.toMatchObject({ status: "failed", details: { error: { code: "TIMEOUT" } } });
 		expect(fetchImpl).not.toHaveBeenCalled();
 	});
@@ -95,9 +95,9 @@ describe("adaptive search compilation and providers", () => {
 	it("HTTP 状态映射 Retry-After，且错误不泄漏 API key", async () => {
 		process.env.BRAVE_SEARCH_API_KEY = "brave-secret";
 		const config = defaultWebToolsConfig().websearch.brave_api;
-		let provider = createApiSearchProvider({ id: "brave_api", config, dispatcher: new Agent(), fetchImpl: async () => httpResponse(429, '{"error":"limited"}', { "retry-after": "2" }) });
+		let provider = createApiSearchProvider({ id: "brave_api", config, dispatcher: async () => new Agent(), fetchImpl: async () => httpResponse(429, '{"error":"limited"}', { "retry-after": "2" }) });
 		await expect(provider.search(normalizeSearchParams({ query: "pi" }, 8), { now: () => 0, deadlineAt: 10_000 })).resolves.toMatchObject({ status: "failed", details: { error: { code: "RATE_LIMITED" }, http_status: 429, retry_after_ms: 2000 } });
-		provider = createApiSearchProvider({ id: "brave_api", config, dispatcher: new Agent(), fetchImpl: async () => { throw new Error("failed brave-secret"); } });
+		provider = createApiSearchProvider({ id: "brave_api", config, dispatcher: async () => new Agent(), fetchImpl: async () => { throw new Error("failed brave-secret"); } });
 		const failed = await provider.search(normalizeSearchParams({ query: "pi" }, 8), { now: () => 0, deadlineAt: 10_000 });
 		expect(failed).toMatchObject({ status: "failed", details: { error: { code: "CONNECTION_FAILED" } } });
 		expect(JSON.stringify(failed)).not.toContain("brave-secret");

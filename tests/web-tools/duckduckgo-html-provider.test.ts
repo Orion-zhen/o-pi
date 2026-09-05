@@ -3,7 +3,7 @@ import path from "node:path";
 import { Agent } from "undici";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
+import { defaultWebToolsConfig } from "./config-fixture.js";
 import { createDuckDuckGoHtmlProvider } from "../../src/web-tools/search-providers/duckduckgo-html-provider.js";
 import { normalizeSearchParams } from "../../src/web-tools/search-providers/query.js";
 import { SearchRequestGate } from "../../src/web-tools/search/search-request-gate.js";
@@ -33,7 +33,7 @@ function provider(fetchImpl: WebHttpFetch, now = () => Date.now(), gate = new Se
 	if (timeoutSeconds !== undefined) config.timeout_seconds = timeoutSeconds;
 	return createDuckDuckGoHtmlProvider({
 		config,
-		dispatcher: new Agent(),
+		dispatcher: async () => new Agent(),
 		fetchImpl,
 		requestGate: gate,
 	});

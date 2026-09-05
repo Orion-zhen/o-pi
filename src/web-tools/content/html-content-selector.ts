@@ -8,7 +8,6 @@ export interface SelectedHtmlContent {
 	source: HtmlTextSource;
 	root: Element;
 	title?: string;
-	textLength: number;
 	blockCount: number;
 }
 
@@ -35,15 +34,10 @@ interface Candidate {
 	source: HtmlTextSource;
 	root: Element;
 	quality: ContentQuality;
-	detached?: boolean;
 	title?: string;
 }
 
 type QualityFor = (root: Element) => ContentQuality;
-
-interface CandidateRoots {
-	semantic: Element[];
-}
 
 const SEMANTIC_SELECTOR = 'main, [role="main"], article, [itemprop="articleBody"]';
 const OUTPUT_NOISE_SELECTORS = [
@@ -96,9 +90,7 @@ export function selectHtmlContent(
 	primaryTitle?: string,
 	documentTitle?: string,
 ): HtmlContentSelection {
-	const roots: CandidateRoots = {
-		semantic: [...document.querySelectorAll(SEMANTIC_SELECTOR)],
-	};
+	const semanticRoots = [...document.querySelectorAll(SEMANTIC_SELECTOR)];
 	const qualityCache = new WeakMap<Element, ContentQuality>();
 	const qualityFor: QualityFor = (root) => {
 		const cached = qualityCache.get(root);
@@ -107,26 +99,26 @@ export function selectHtmlContent(
 		qualityCache.set(root, quality);
 		return quality;
 	};
-	const readability = readabilityCandidate(document, options, primaryTitle, documentTitle, roots, qualityFor);
+	const readability = readabilityCandidate(document, options, primaryTitle, documentTitle, semanticRoots, qualityFor);
 	if (readability !== undefined && passesQuality(readability.quality, "readability")) {
-		return { preferred: serializeCandidate(readability) };
+		return { preferred: finishSelection(readability) };
 	}
 
-	const semantic = bestSemanticCandidate(roots.semantic, qualityFor);
+	const semantic = bestSemanticCandidate(semanticRoots, qualityFor);
 	if (semantic !== undefined) {
-		return { preferred: serializeCandidate(semantic) };
+		return { preferred: finishSelection(semantic) };
 	}
 
 	const quality = qualityFor(document.body);
 	return {
-		body: serializeCandidate(candidateFromElement("body", document.body, quality)),
+		body: finishSelection(candidateFromElement("body", document.body, quality)),
 		bodyPassesQuality: passesQuality(quality, "body"),
 	};
 }
 
-function readabilityInputRoot(document: Document, roots: CandidateRoots, qualityFor: QualityFor): Element {
+function readabilityInputRoot(document: Document, semanticRoots: readonly Element[], qualityFor: QualityFor): Element {
 	let best: { root: Element; score: number } | undefined;
-	for (const root of roots.semantic) {
+	for (const root of semanticRoots) {
 		const quality = qualityFor(root);
 		if (!quality.hasPrimaryTitle) continue;
 		const score = qualityScore(quality);
@@ -163,27 +155,29 @@ function readabilityCandidate(
 	options: HtmlReadabilityOptions,
 	primaryTitle: string | undefined,
 	documentTitle: string | undefined,
-	roots: CandidateRoots,
+	semanticRoots: readonly Element[],
 	qualityFor: QualityFor,
 ): Candidate | undefined {
 	const readabilityDocument = syntheticReadabilityDocument(
 		document,
-		readabilityInputRoot(document, roots, qualityFor),
+		readabilityInputRoot(document, semanticRoots, qualityFor),
 		documentTitle,
 	);
 	if (!isProbablyReaderable(readabilityDocument)) return undefined;
-	const readable = new Readability(readabilityDocument, { charThreshold: options.charThreshold }).parse();
-	if (!readable?.content?.trim()) return undefined;
-	const root = document.createElement("div");
-	root.innerHTML = readable.content;
+	const readable = new Readability(readabilityDocument, {
+		charThreshold: options.charThreshold,
+		// Readability 的正文容器固定为 Element，直接保留节点而不重新解析 HTML。
+		serializer: (node) => node as Element,
+	}).parse();
+	if (!readable?.content?.hasChildNodes()) return undefined;
+	const root = readable.content;
 	const quality = analyzeQuality(root, primaryTitle);
-	if (isDilutedByFocusedSemanticRoot(roots.semantic, quality, primaryTitle, qualityFor)) return undefined;
+	if (isDilutedByFocusedSemanticRoot(semanticRoots, quality, primaryTitle, qualityFor)) return undefined;
 	const title = normalizeText(readable.title);
 	return {
 		source: "readability",
 		root,
 		quality,
-		detached: true,
 		...(title !== undefined ? { title } : {}),
 	};
 }
@@ -205,10 +199,7 @@ function isDilutedByFocusedSemanticRoot(
 
 function bestSemanticCandidate(semanticRoots: readonly Element[], qualityFor: QualityFor): Candidate | undefined {
 	let best: { candidate: Candidate; score: number } | undefined;
-	const seen = new Set<Element>();
 	for (const root of semanticRoots) {
-		if (seen.has(root)) continue;
-		seen.add(root);
 		const quality = qualityFor(root);
 		if (!passesQuality(quality, "semantic")) continue;
 		const candidate = candidateFromElement("semantic", root, quality);
@@ -227,14 +218,13 @@ function candidateFromElement(source: HtmlTextSource, root: Element, quality: Co
 	};
 }
 
-function serializeCandidate(candidate: Candidate): SelectedHtmlContent {
-	const root = candidate.detached === true ? candidate.root : candidate.root.cloneNode(true) as Element;
+function finishSelection(candidate: Candidate): SelectedHtmlContent {
+	const root = candidate.root;
 	removeHtmlOutputNoise(root);
 	return {
 		source: candidate.source,
 		root,
 		...(candidate.title !== undefined ? { title: candidate.title } : {}),
-		textLength: candidate.quality.textLength,
 		blockCount: candidate.quality.paragraphCount + candidate.quality.codeCount + candidate.quality.tableCount,
 	};
 }

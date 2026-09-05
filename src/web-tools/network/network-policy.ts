@@ -21,7 +21,6 @@ export interface PinnedAddressSet {
 }
 
 export interface LookupOptions {
-	lookup?: (hostname: string) => Promise<LookupAddress[]>;
 	allowedFakeIpRanges?: readonly string[];
 	pinnedAddressSet?: PinnedAddressSet;
 }
@@ -60,7 +59,7 @@ export async function inspectWebFetchTarget(
 	const hostname = normalizeHostname(parsed.url.hostname);
 	let addresses: ResolvedAddresses;
 	try {
-		addresses = await resolveAddresses(hostname, options.lookup);
+		addresses = await resolveAddresses(hostname);
 	} catch (error) {
 		return failure("DNS_FAILED", error instanceof Error ? error.message : String(error));
 	}
@@ -95,7 +94,7 @@ export async function resolveAllowedAddresses(hostname: string, options: LookupO
 	const normalizedHostname = normalizeHostname(hostname);
 	const pinned = options.pinnedAddressSet;
 	if (pinned?.hostname === normalizedHostname) return pinned.addresses;
-	const resolved = await resolveAddresses(normalizedHostname, options.lookup);
+	const resolved = await resolveAddresses(normalizedHostname);
 	// 字面 IP 不能借 DNS fake-ip 白名单放行。
 	const allowedFakeIpRanges = ipaddr.isValid(normalizedHostname) ? [] : options.allowedFakeIpRanges ?? [];
 	const blocked = resolved.find((item) => !isAllowedResolvedAddress(item.address, allowedFakeIpRanges));
@@ -146,14 +145,14 @@ export function createSecureLookup(
 	};
 }
 
-async function resolveAddresses(hostname: string, lookup?: LookupOptions["lookup"]): Promise<ResolvedAddresses> {
+async function resolveAddresses(hostname: string): Promise<ResolvedAddresses> {
 	if (ipaddr.isValid(hostname)) {
 		return [{
 			address: hostname,
 			family: ipaddr.parse(hostname).kind() === "ipv6" ? 6 : 4,
 		}];
 	}
-	const [first, ...rest] = await (lookup ?? defaultLookup)(hostname);
+	const [first, ...rest] = await dnsPromises.lookup(hostname, { all: true, verbatim: false });
 	if (first === undefined) throw new Error("DNS lookup returned no addresses.");
 	const resolved: ResolvedAddresses = [toResolvedAddress(first), ...rest.map(toResolvedAddress)];
 	resolved.sort((a, b) => a.family - b.family);
@@ -165,10 +164,6 @@ function toResolvedAddress(address: LookupAddress): ResolvedAddress {
 		throw new Error(`DNS lookup returned unsupported address family ${address.family}.`);
 	}
 	return { address: address.address, family: address.family };
-}
-
-function defaultLookup(hostname: string): Promise<LookupAddress[]> {
-	return dnsPromises.lookup(hostname, { all: true, verbatim: false });
 }
 
 function isLocalhostName(hostname: string): boolean {

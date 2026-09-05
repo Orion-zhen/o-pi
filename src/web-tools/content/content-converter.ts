@@ -6,21 +6,6 @@ const TEXT_TYPES = new Set(["text/plain", "text/markdown", "text/csv", "applicat
 const JSON_TYPES = new Set(["application/json", "application/ld+json"]);
 const XML_TYPES = new Set(["application/xml", "text/xml", "application/rss+xml", "application/atom+xml"]);
 
-export interface HtmlContentConverter {
-	htmlToMarkdown(
-		html: string,
-		finalUrl: string,
-		mime: string,
-		options: HtmlReadabilityOptions,
-		charset: string | undefined,
-		mediaEnabled: boolean,
-	): ContentConversion | WebFetchFailureDetails;
-}
-
-export type HtmlContentConverterLoader = () => Promise<HtmlContentConverter>;
-
-const loadHtmlContentConverter: HtmlContentConverterLoader = () => import("./html-content-converter.js");
-
 /** Decode lightweight text directly; load the DOM/Readability/Turndown graph only for readable HTML. */
 export async function convertContent(
 	body: Uint8Array,
@@ -29,7 +14,6 @@ export async function convertContent(
 	mode: WebFetchMode,
 	readability: HtmlReadabilityOptions,
 	mediaEnabled: boolean,
-	loadHtml: HtmlContentConverterLoader = loadHtmlContentConverter,
 ): Promise<ContentConversion | WebFetchFailureDetails> {
 	const contentTypeHeader = headers.get("content-type") ?? "text/plain";
 	const parsedContentType = parseContentType(contentTypeHeader);
@@ -53,7 +37,7 @@ export async function convertContent(
 	}
 	if (kind === "html") {
 		try {
-			return (await loadHtml()).htmlToMarkdown(normalized, finalUrl, mime, readability, decoded.charset, mediaEnabled);
+			return (await import("./html-content-converter.js")).htmlToMarkdown(normalized, finalUrl, mime, readability, decoded.charset, mediaEnabled);
 		} catch (error) {
 			return failure("CONVERSION_FAILED", error instanceof Error ? error.message : String(error));
 		}

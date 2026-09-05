@@ -71,6 +71,23 @@ describe("adaptive search router", () => {
 		expect(calls).toEqual(["brave_api", "tavily"]);
 	});
 
+	it("首批 soft miss 后第二批 accepted 仍按合并规则限制同域结果", async () => {
+		const calls: string[] = [];
+		const accepted: SearchProviderResult = {
+			status: "success", provider: "tavily", downloadedBytes: 2,
+			results: Array.from({ length: 4 }, (_, index) => ({ rank: index + 1, title: `Pi docs ${index}`, url: `https://example.com/docs/${index}`, snippet: "Official Pi documentation and reference." })),
+		};
+		const router = new SearchProviderRouter([
+			provider("brave_api", success("brave_api", 0), calls),
+			provider("tavily", accepted, calls),
+		]);
+		const result = await router.search(params("site:example.com pi docs", 4), context());
+		expect(result).toMatchObject({ status: "success", provider: "tavily", attempts: [{ quality: "soft_miss" }, { quality: "accepted" }] });
+		if (result.status !== "success") throw new Error("expected merged results");
+		expect(result.results).toHaveLength(2);
+		expect(calls).toEqual(["brave_api", "tavily"]);
+	});
+
 	it("用户取消不 fallback", async () => {
 		const calls: string[] = [];
 		const controller = new AbortController();

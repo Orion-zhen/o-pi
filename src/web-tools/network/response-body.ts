@@ -21,10 +21,10 @@ export async function readLimitedResponseBody(
 		signal?: AbortSignal;
 	},
 ): Promise<ResponseBodyReadResult> {
-	const expected = contentLength(response.headers);
+	const expected = responseContentLength(response.headers);
 	if (options.signal?.aborted) return abortedResult(options.signal.reason);
 	if (expected !== undefined && expected > options.maxBytes) {
-		cancelQuietly(response.body);
+		cancelBody(response.body);
 		return {
 			status: "failed",
 			code: "RESPONSE_TOO_LARGE",
@@ -43,7 +43,7 @@ export async function readLimitedResponseBody(
 			if (value === undefined) continue;
 			total += value.byteLength;
 			if (total > options.maxBytes) {
-				cancelQuietly(reader);
+				cancelBody(reader);
 				return {
 					status: "failed",
 					code: "RESPONSE_TOO_LARGE",
@@ -68,7 +68,7 @@ export async function readLimitedResponseBody(
 	return { status: "success", bytes };
 }
 
-function cancelQuietly(resource: { cancel(): Promise<void> } | null): void {
+export function cancelBody(resource: { cancel(): Promise<void> } | null): void {
 	if (resource === null) return;
 	try {
 		void resource.cancel().catch(() => undefined);
@@ -83,12 +83,12 @@ async function readWithSignal(
 ): Promise<{ done: boolean; value?: Uint8Array }> {
 	if (signal === undefined) return reader.read();
 	if (signal.aborted) {
-		cancelQuietly(reader);
+		cancelBody(reader);
 		throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 	}
 	return new Promise((resolve, reject) => {
 		const onAbort = () => {
-			cancelQuietly(reader);
+			cancelBody(reader);
 			reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
 		};
 		const cleanup = () => signal.removeEventListener("abort", onAbort);
@@ -111,10 +111,6 @@ function abortedResult(error: unknown): ResponseBodyReadResult {
 }
 
 export function responseContentLength(headers: WebHttpHeaders): number | undefined {
-	return contentLength(headers);
-}
-
-function contentLength(headers: WebHttpHeaders): number | undefined {
 	const value = headers.get("content-length");
 	if (value === null) return undefined;
 	const parsed = Number(value);

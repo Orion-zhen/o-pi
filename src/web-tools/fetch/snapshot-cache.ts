@@ -1,39 +1,48 @@
-import type { WebFetchSnapshot } from "../core/types.js";
+import type { WebFetchPage } from "../core/types.js";
 
 const DEFAULT_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_MAX_ENTRIES = 32;
 const DEFAULT_MAX_BYTES = 64 * 1024 * 1024;
 
+interface Snapshot {
+	page: Omit<WebFetchPage, "directMedia">;
+	createdAt: number;
+	sizeBytes: number;
+}
+
 export class SnapshotCache {
-	private readonly entries = new Map<string, WebFetchSnapshot>();
+	private readonly entries = new Map<string, Snapshot>();
 	private totalBytes = 0;
 
 	constructor(
 		private readonly now: () => number = () => Date.now(),
-		private readonly ttlMs = DEFAULT_TTL_MS,
-		private readonly maxEntries = DEFAULT_MAX_ENTRIES,
-		private readonly maxBytes = DEFAULT_MAX_BYTES,
 	) {}
 
-	get(key: string): WebFetchSnapshot | undefined {
-		this.evictExpired();
+	get(key: string): WebFetchPage | undefined {
+		const now = this.now();
+		for (const [key, entry] of this.entries) {
+			if (now - entry.createdAt > DEFAULT_TTL_MS) this.remove(key, entry);
+		}
 		const entry = this.entries.get(key);
 		if (entry === undefined) return undefined;
 		this.entries.delete(key);
 		this.entries.set(key, entry);
-		return entry;
+		return entry.page;
 	}
 
-	set(snapshot: WebFetchSnapshot): void {
-		if (snapshot.sizeBytes > this.maxBytes) return;
-		const existing = this.entries.get(snapshot.key);
-		if (existing !== undefined) {
-			this.totalBytes -= existing.sizeBytes;
-			this.entries.delete(snapshot.key);
+	set(key: string, value: WebFetchPage): void {
+		const { directMedia: _media, ...page } = value;
+		const sizeBytes = Buffer.byteLength(page.text, "utf8") + Buffer.byteLength(JSON.stringify(page.analysis), "utf8");
+		if (sizeBytes > DEFAULT_MAX_BYTES) return;
+		const existing = this.entries.get(key);
+		if (existing !== undefined) this.remove(key, existing);
+		this.entries.set(key, { page, sizeBytes, createdAt: this.now() });
+		this.totalBytes += sizeBytes;
+		while (this.entries.size > DEFAULT_MAX_ENTRIES || this.totalBytes > DEFAULT_MAX_BYTES) {
+			const first = this.entries.entries().next().value;
+			if (first === undefined) break;
+			this.remove(...first);
 		}
-		this.entries.set(snapshot.key, snapshot);
-		this.totalBytes += snapshot.sizeBytes;
-		this.evictToLimits();
 	}
 
 	clear(): void {
@@ -41,23 +50,8 @@ export class SnapshotCache {
 		this.totalBytes = 0;
 	}
 
-	private evictExpired(): void {
-		const now = this.now();
-		for (const [key, entry] of this.entries) {
-			if (now - entry.createdAt > this.ttlMs) {
-				this.entries.delete(key);
-				this.totalBytes -= entry.sizeBytes;
-			}
-		}
-	}
-
-	private evictToLimits(): void {
-		while (this.entries.size > this.maxEntries || this.totalBytes > this.maxBytes) {
-			const first = this.entries.keys().next().value as string | undefined;
-			if (first === undefined) return;
-			const entry = this.entries.get(first);
-			this.entries.delete(first);
-			if (entry !== undefined) this.totalBytes -= entry.sizeBytes;
-		}
+	private remove(key: string, entry: Snapshot): void {
+		this.entries.delete(key);
+		this.totalBytes -= entry.sizeBytes;
 	}
 }

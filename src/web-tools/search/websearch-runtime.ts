@@ -1,74 +1,27 @@
 import { runtimeConfigFailure } from "../core/runtime-errors.js";
-import type { WebSearchCapability, WebSearchCapabilityOptions } from "../core/runtime-types.js";
-import { providerSignature, SearchCache } from "./search-cache.js";
+import type { WebSearchCapability, WebCapabilityOptions } from "../core/runtime-types.js";
+import { providerSignature, SearchFlights } from "./search-flights.js";
 import { SearchRequestGate } from "./search-request-gate.js";
 import { resolveSearchApiKey } from "../search-providers/api-key.js";
+import type { ApiProviderOptions } from "../search-providers/api-provider.js";
 import { SearchProviderRouter } from "../search-providers/router.js";
-import type { SearchProviderContext, WebSearchProvider } from "../search-providers/types.js";
+import type { WebSearchProvider } from "../search-providers/types.js";
 import type { WebToolsConfig } from "../core/types.js";
 import { networkConfigSignature } from "../network/dispatcher.js";
 import { executeWebSearch } from "./websearch-tool.js";
 
-export interface WebSearchProviderLoaders {
-	brave(config: WebToolsConfig, options: WebSearchCapabilityOptions): Promise<WebSearchProvider>;
-	exa(config: WebToolsConfig, options: WebSearchCapabilityOptions): Promise<WebSearchProvider>;
-	tavily(config: WebToolsConfig, options: WebSearchCapabilityOptions): Promise<WebSearchProvider>;
-	duckDuckGo(config: WebToolsConfig, options: WebSearchCapabilityOptions, requestGate: SearchRequestGate): Promise<WebSearchProvider>;
-}
-
-const defaultProviderLoaders: WebSearchProviderLoaders = {
-	async brave(config, options) {
-		const { createApiSearchProvider } = await import("../search-providers/api-provider.js");
-		return createApiSearchProvider({ id: "brave_api", config: config.websearch.brave_api, dispatcher: () => options.getDispatcher(config.network), fetchImpl: options.fetchImpl });
-	},
-	async exa(config, options) {
-		const { createApiSearchProvider } = await import("../search-providers/api-provider.js");
-		return createApiSearchProvider({ id: "exa_api", config: config.websearch.exa_api, dispatcher: () => options.getDispatcher(config.network), fetchImpl: options.fetchImpl });
-	},
-	async tavily(config, options) {
-		const { createApiSearchProvider } = await import("../search-providers/api-provider.js");
-		return createApiSearchProvider({ id: "tavily", config: config.websearch.tavily, dispatcher: () => options.getDispatcher(config.network), fetchImpl: options.fetchImpl });
-	},
-	async duckDuckGo(config, options, requestGate) {
-		const { createDuckDuckGoHtmlProvider } = await import("../search-providers/duckduckgo-html-provider.js");
-		return createDuckDuckGoHtmlProvider({
-			config: config.websearch.duckduckgo_html,
-			dispatcher: () => options.getDispatcher(config.network),
-			fetchImpl: options.fetchImpl,
-			requestGate,
-		});
-	},
-};
-
-/** Search-only session state; concrete providers load only if the router reaches their branch. */
-export function createWebSearchRuntime(
-	options: WebSearchCapabilityOptions,
-	providerLoaders: WebSearchProviderLoaders = defaultProviderLoaders,
-): WebSearchCapability {
-	const searches = new SearchCache();
+/** 管理搜索会话状态，路由命中后才加载具体提供方。 */
+export function createWebSearchRuntime(options: WebCapabilityOptions): WebSearchCapability {
+	const searches = new SearchFlights();
 	let searchRequests = new SearchRequestGate(options.now);
 	let searchGateSignature = "";
 	let searchRouter: SearchProviderRouter | undefined;
 	let searchRouterSignature = "";
-	let searchRouterUpdate = Promise.resolve();
-	let pendingRouterUpdates = 0;
-	const getSearchRouter = async (config: WebToolsConfig, signature: string): Promise<SearchProviderRouter> => {
-		if (pendingRouterUpdates === 0 && searchRouter !== undefined && searchRouterSignature === signature) return searchRouter;
-		pendingRouterUpdates += 1;
-		searchRouterUpdate = searchRouterUpdate.then(async () => {
-			if (searchRouter !== undefined && searchRouterSignature === signature) return;
-			await searchRouter?.close();
-			searchRouter = new SearchProviderRouter(
-				options.searchProviders ?? createSearchProviders(config, options, searchRequests, providerLoaders),
-			);
+	const getSearchRouter = (config: WebToolsConfig, signature: string): SearchProviderRouter => {
+		if (searchRouter === undefined || searchRouterSignature !== signature) {
+			searchRouter = new SearchProviderRouter(createSearchProviders(config, options, searchRequests));
 			searchRouterSignature = signature;
-		});
-		try {
-			await searchRouterUpdate;
-		} finally {
-			pendingRouterUpdates -= 1;
 		}
-		if (searchRouter === undefined) throw new Error("websearch router failed to initialize");
 		return searchRouter;
 	};
 
@@ -92,14 +45,12 @@ export function createWebSearchRuntime(
 			}
 			const signature = providerSignature(config.websearch);
 			const routerSignature = `${signature}:${gateSignature}:${networkConfigSignature(config.network)}`;
-			const router = await getSearchRouter(config, routerSignature);
+			const router = getSearchRouter(config, routerSignature);
 			return executeWebSearch(params, { searches, router, providerSignature: signature, config, context, now: options.now });
 		},
 		async close() {
 			searches.clear();
 			searchRequests.clear();
-			await searchRouterUpdate.catch(() => undefined);
-			await searchRouter?.close();
 			searchRouter = undefined;
 		},
 	};
@@ -107,22 +58,28 @@ export function createWebSearchRuntime(
 
 function createSearchProviders(
 	config: WebToolsConfig,
-	options: WebSearchCapabilityOptions,
+	options: WebCapabilityOptions,
 	requestGate: SearchRequestGate,
-	providerLoaders: WebSearchProviderLoaders,
 ): WebSearchProvider[] {
 	const providers: WebSearchProvider[] = [];
-	if (config.websearch.brave_api.enabled && resolveSearchApiKey(config.websearch.brave_api.api_key) !== undefined) {
-		providers.push(createLazyProvider("brave_api", () => providerLoaders.brave(config, options)));
-	}
-	if (config.websearch.exa_api.enabled && resolveSearchApiKey(config.websearch.exa_api.api_key) !== undefined) {
-		providers.push(createLazyProvider("exa_api", () => providerLoaders.exa(config, options)));
-	}
-	if (config.websearch.tavily.enabled && resolveSearchApiKey(config.websearch.tavily.api_key) !== undefined) {
-		providers.push(createLazyProvider("tavily", () => providerLoaders.tavily(config, options)));
+	const shared = { dispatcher: () => options.getDispatcher(config.network), fetchImpl: options.fetchImpl };
+	const formal: ApiProviderOptions[] = [
+		{ id: "brave_api", config: config.websearch.brave_api, ...shared },
+		{ id: "exa_api", config: config.websearch.exa_api, ...shared },
+		{ id: "tavily", config: config.websearch.tavily, ...shared },
+	];
+	for (const provider of formal) {
+		if (!provider.config.enabled || resolveSearchApiKey(provider.config.api_key) === undefined) continue;
+		providers.push(createLazyProvider(provider.id, async () => {
+			const { createApiSearchProvider } = await import("../search-providers/api-provider.js");
+			return createApiSearchProvider(provider);
+		}));
 	}
 	if (config.websearch.duckduckgo_html.enabled) {
-		providers.push(createLazyProvider("duckduckgo_html", () => providerLoaders.duckDuckGo(config, options, requestGate)));
+		providers.push(createLazyProvider("duckduckgo_html", async () => {
+			const { createDuckDuckGoHtmlProvider } = await import("../search-providers/duckduckgo-html-provider.js");
+			return createDuckDuckGoHtmlProvider({ config: config.websearch.duckduckgo_html, requestGate, ...shared });
+		}));
 	}
 	return providers;
 }
@@ -132,24 +89,11 @@ function createLazyProvider(
 	load: () => Promise<WebSearchProvider>,
 ): WebSearchProvider {
 	let providerPromise: Promise<WebSearchProvider> | undefined;
-	const getProvider = (): Promise<WebSearchProvider> => {
-		if (providerPromise !== undefined) return providerPromise;
-		providerPromise ??= load();
-		return providerPromise;
-	};
 	return {
 		id,
-		async search(params, context: SearchProviderContext) {
-			return (await getProvider()).search(params, context);
-		},
-		async close() {
-			const provider = await settledProvider(providerPromise);
-			await provider?.close?.();
-			providerPromise = undefined;
+		async search(params, context) {
+			providerPromise ??= load();
+			return (await providerPromise).search(params, context);
 		},
 	};
-}
-
-async function settledProvider(pending: Promise<WebSearchProvider> | undefined): Promise<WebSearchProvider | undefined> {
-	return pending === undefined ? undefined : pending.catch(() => undefined);
 }

@@ -1,42 +1,25 @@
 import { execFile } from "node:child_process";
-import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { Agent, type Dispatcher } from "undici";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import webTools, { createWebToolsExtension } from "../../agent/extensions/web-tools.js";
-import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
-import type { WebToolsCapabilityLoaders } from "../../src/web-tools/core/runtime-types.js";
-import { createWebToolsRuntime } from "../../src/web-tools/web-tools-runtime.js";
 import { attachPrivateNetworkGrant, type PrivateNetworkGrant } from "../../src/web-tools/network/private-network-grant.js";
-import type { WebSearchProvider } from "../../src/web-tools/search-providers/types.js";
-import type { FormalWebSearchProviderId, WebFetchExecutionContext, WebFetchParams, WebSearchParams, WebToolsRuntime } from "../../src/web-tools/core/types.js";
-import { createWebSearchRuntime, type WebSearchProviderLoaders } from "../../src/web-tools/search/websearch-runtime.js";
-import { deferredVoid } from "../helpers/async.js";
+import type { WebFetchExecutionContext, WebFetchParams, WebToolsRuntime } from "../../src/web-tools/core/types.js";
 import { registerExtension } from "../helpers/extension.js";
-import { httpResponse } from "../helpers/http.js";
 import { preserveEnv, useTempDir } from "../helpers/lifecycle.js";
 import { webFetchDetails } from "./renderer-fixture.js";
 
 const execFileAsync = promisify(execFile);
-let dir: string;
-let runtimes: Array<{ close(): Promise<void> }> = [];
-const temp = useTempDir("o-pi-web-runtime-");
+const temp = useTempDir("o-pi-web-extension-");
 preserveEnv("PI_WEB_TOOLS_CONFIG", "PI_WEB_TOOLS_COOKIES", "BRAVE_SEARCH_API_KEY", "EXA_API_KEY", "TAVILY_API_KEY");
 
 beforeEach(() => {
-	dir = temp.path;
-	runtimes = [];
-	process.env.PI_WEB_TOOLS_CONFIG = path.join(dir, "missing-config.jsonc");
-	process.env.PI_WEB_TOOLS_COOKIES = path.join(dir, "missing-cookies.txt");
+	process.env.PI_WEB_TOOLS_CONFIG = path.join(temp.path, "missing-config.jsonc");
+	process.env.PI_WEB_TOOLS_COOKIES = path.join(temp.path, "missing-cookies.txt");
 	delete process.env.BRAVE_SEARCH_API_KEY;
 	delete process.env.EXA_API_KEY;
 	delete process.env.TAVILY_API_KEY;
-});
-
-afterEach(async () => {
-	await Promise.all(runtimes.map((runtime) => runtime.close()));
 });
 
 describe("web-tools extension", () => {
@@ -131,10 +114,7 @@ describe("web-tools extension", () => {
 		attachPrivateNetworkGrant(params, grant);
 
 		await tool.execute("fetch-private", params, undefined, undefined, { hasUI: false });
-		expect(fetch).toHaveBeenCalledWith(
-			params,
-			expect.objectContaining({ privateNetworkGrant: grant }),
-		);
+		expect(fetch).toHaveBeenCalledWith(params, expect.objectContaining({ privateNetworkGrant: grant }));
 	});
 
 	it("只在模型和 API 都支持工具图片时返回 Pi ImageContent", async () => {
@@ -148,62 +128,45 @@ describe("web-tools extension", () => {
 		}));
 		const runtime: WebToolsRuntime = {
 			fetch,
-			async search() {
-				return successfulSearch("q", "search");
-			},
+			async search() { return successfulSearch("q", "search"); },
 			async close() {},
 		};
 		const { registered } = registerExtension(createWebToolsExtension(async () => runtime));
 		const tool = registered.find((item) => item.name === "webfetch");
 		if (tool === undefined) throw new Error("missing webfetch");
 		const responsesResult = await tool.execute(
-			"fetch-responses-image",
-			{ url: "https://example.com/" },
-			undefined,
-			undefined,
+			"fetch-responses-image", { url: "https://example.com/" }, undefined, undefined,
 			{ hasUI: false, model: { api: "openai-responses", input: ["text", "image"] } },
 		);
-		expect(fetch).toHaveBeenCalledWith(
-			{ url: "https://example.com/" },
-			expect.objectContaining({ acceptsImages: true }),
-		);
+		expect(fetch).toHaveBeenCalledWith({ url: "https://example.com/" }, expect.objectContaining({ acceptsImages: true }));
 		expect(responsesResult.content).toEqual([
 			{ type: "text", text: "page" },
 			{ type: "image", data: "AQID", mimeType: "image/png" },
 		]);
 
 		const completionsResult = await tool.execute(
-			"fetch-completions-image",
-			{ url: "https://example.com/" },
-			undefined,
-			undefined,
+			"fetch-completions-image", { url: "https://example.com/" }, undefined, undefined,
 			{ hasUI: false, model: { api: "openai-completions", input: ["text", "image"] } },
 		);
 		expect(fetch).toHaveBeenLastCalledWith(
 			{ url: "https://example.com/" },
-			expect.objectContaining({
-				acceptsImages: false,
-				imageOmissionReason: "api_no_tool_image_output",
-			}),
+			expect.objectContaining({ acceptsImages: false, imageOmissionReason: "api_no_tool_image_output" }),
 		);
 		expect(completionsResult.content).toEqual([{ type: "text", text: "page" }]);
 	});
 
 	it("通过 Pi 的 Jiti 加载后首次调用可正常读取配置", { timeout: 30_000 }, async () => {
-		const invalidConfigPath = path.join(process.cwd(), "package.json");
 		const stdout = await runJitiExtension(`
 			const search = tools.find((tool) => tool.name === "websearch");
 			if (search === undefined) throw new Error("missing websearch");
 			const result = await search.execute("jiti-search", { query: "pi" }, undefined, undefined, {});
 			console.log(result.content[0].text);
-		`, invalidConfigPath);
-
+		`, path.join(process.cwd(), "package.json"));
 		expect(stdout).toContain("web-tools user config does not match schema.");
 		expect(stdout).not.toContain("agentConfigPath");
 	});
 
 	it("通过 Pi 的 Jiti 并发首次执行三个 webfetch 时共享配置模块加载", { timeout: 30_000 }, async () => {
-		const invalidConfigPath = path.join(process.cwd(), "package.json");
 		const stdout = await runJitiExtension(`
 			const fetch = tools.find((tool) => tool.name === "webfetch");
 			if (fetch === undefined) throw new Error("missing webfetch");
@@ -213,12 +176,11 @@ describe("web-tools extension", () => {
 				fetch.execute("jiti-fetch-3", { url: "https://example.com/three" }, undefined, undefined, { hasUI: false }),
 			]);
 			console.log(JSON.stringify(results.map((result) => ({ content: result.content, details: result.details }))));
-		`, invalidConfigPath);
+		`, path.join(process.cwd(), "package.json"));
 		const results = JSON.parse(stdout.trim()) as Array<{
 			content: Array<{ text: string }>;
 			details: { status: string; error?: { code: string; message: string } };
 		}>;
-
 		expect(results).toHaveLength(3);
 		expect(results.every((result) => result.details.status === "failed")).toBe(true);
 		expect(results.every((result) => result.details.error?.code === "CONFIG_ERROR")).toBe(true);
@@ -229,335 +191,12 @@ describe("web-tools extension", () => {
 	});
 });
 
-describe("web-tools runtime", () => {
-	it("api_key 为空时不加载 provider，引用可用后自动恢复", async () => {
-		const config = defaultWebToolsConfig();
-		config.websearch.brave_api.api_key = "";
-		const providerLoaders: WebSearchProviderLoaders = {
-			brave: vi.fn(async () => ({
-				id: "brave_api" as const,
-				async search(params: WebSearchParams) {
-					return {
-						status: "success" as const,
-						provider: "brave_api" as const,
-						downloadedBytes: 0,
-						results: Array.from({ length: 3 }, (_, index) => ({
-							rank: index + 1,
-							title: `${params.query} ${index}`,
-							url: `https://site${index}.test/result`,
-							snippet: `${params.query} documentation result`,
-						})),
-					};
-				},
-			})),
-			exa: vi.fn(async () => { throw new Error("disabled Exa provider loaded"); }),
-			tavily: vi.fn(async () => { throw new Error("disabled Tavily provider loaded"); }),
-			duckDuckGo: vi.fn(async () => ({
-				id: "duckduckgo_html" as const,
-				async search(params: WebSearchParams) {
-					return { status: "success" as const, provider: "duckduckgo_html" as const, downloadedBytes: 0, results: [{ rank: 1, title: params.query, url: "https://fallback.test/" }] };
-				},
-			})),
-		};
-		const runtime = searchRuntime(config, providerLoaders);
-
-		await expect(runtime.search({ query: "empty key fallback" }, { toolCallId: "search-empty" })).resolves.toMatchObject({ details: { provider: "duckduckgo_html" } });
-		expect(providerLoaders.brave).not.toHaveBeenCalled();
-
-		config.websearch.brave_api.api_key = "$BRAVE_SEARCH_API_KEY";
-		process.env.BRAVE_SEARCH_API_KEY = "available-key";
-		await expect(runtime.search({ query: "official brave docs" }, { toolCallId: "search-restored" })).resolves.toMatchObject({ details: { provider: "brave_api" } });
-		expect(providerLoaders.brave).toHaveBeenCalledTimes(1);
-		expect(providerLoaders.duckDuckGo).toHaveBeenCalledTimes(1);
-	});
-
-	it.each(["brave_api", "exa_api", "tavily"] as const)("只配置 %s 时仍使用该正式 provider", async (selected) => {
-		const config = defaultWebToolsConfig();
-		const formal: readonly FormalWebSearchProviderId[] = ["brave_api", "exa_api", "tavily"];
-		for (const id of formal) config.websearch[id].enabled = id === selected;
-		config.websearch[selected].api_key = "literal-key";
-		const createProvider = (id: FormalWebSearchProviderId): WebSearchProvider => ({
-			id,
-			async search(params) {
-				return {
-					status: "success",
-					provider: id,
-					downloadedBytes: 0,
-					results: Array.from({ length: 3 }, (_, index) => ({
-						rank: index + 1,
-						title: `${params.query} ${index}`,
-						url: `https://single-${index}.test/result`,
-						snippet: `${params.query} documentation result`,
-					})),
-				};
-			},
-		});
-		const providerLoaders: WebSearchProviderLoaders = {
-			brave: vi.fn(async () => createProvider("brave_api")),
-			exa: vi.fn(async () => createProvider("exa_api")),
-			tavily: vi.fn(async () => createProvider("tavily")),
-			duckDuckGo: vi.fn(async () => { throw new Error("DDG should not load"); }),
-		};
-		const runtime = searchRuntime(config, providerLoaders);
-
-		await expect(runtime.search({ query: "pi" }, { toolCallId: `search-${selected}` })).resolves.toMatchObject({ details: { status: "success", provider: selected } });
-		for (const id of formal) {
-			const loader = providerLoaders[id === "brave_api" ? "brave" : id === "exa_api" ? "exa" : "tavily"];
-			if (id === selected) expect(loader).toHaveBeenCalledTimes(1);
-			else expect(loader).not.toHaveBeenCalled();
-		}
-		expect(providerLoaders.duckDuckGo).not.toHaveBeenCalled();
-	});
-
-	it("默认搜索 provider 只在实际命中时加载，加载失败在会话内复用", async () => {
-		const config = defaultWebToolsConfig();
-		config.websearch.brave_api.enabled = false;
-		config.websearch.tavily.enabled = false;
-		process.env.EXA_API_KEY = "test-key";
-		const providerLoaders: WebSearchProviderLoaders = {
-			brave: vi.fn(async () => { throw new Error("unused Brave provider"); }),
-			exa: vi.fn(async () => { throw new Error("simulated provider import failure"); }),
-			tavily: vi.fn(async () => { throw new Error("unused Tavily provider"); }),
-			duckDuckGo: vi.fn(async () => {
-				throw new Error("unused DuckDuckGo provider");
-			}),
-		};
-		const runtime = searchRuntime(config, providerLoaders);
-
-		await expect(runtime.search({ query: "research paper first" }, { toolCallId: "search-1" })).rejects.toThrow("simulated provider import failure");
-		await expect(runtime.search({ query: "research paper second" }, { toolCallId: "search-2" })).rejects.toThrow("simulated provider import failure");
-		expect(providerLoaders.exa).toHaveBeenCalledTimes(1);
-		expect(providerLoaders.duckDuckGo).not.toHaveBeenCalled();
-	});
-
-	it("按调用能力分别加载 search/fetch，并让共享资源只关闭一次", async () => {
-		const dispatcher = new Agent();
-		const closeDispatcher = vi.spyOn(dispatcher, "close");
-		const closeSearch = vi.fn(async () => undefined);
-		const closeFetch = vi.fn(async () => undefined);
-		const loaders: WebToolsCapabilityLoaders = {
-			search: vi.fn(async () => ({
-				async search(params: WebSearchParams) {
-					return successfulSearch(params.query);
-				},
-				close: closeSearch,
-			})),
-			fetch: vi.fn(async () => ({
-				async fetch() {
-					return { content: "fetch", details: { status: "failed" as const, error: { code: "INVALID_URL" as const, message: "bad" } } };
-				},
-				close: closeFetch,
-			})),
-		};
-		const runtime = trackRuntime(createWebToolsRuntime({ dispatcher }, loaders));
-
-		expect(loaders.search).not.toHaveBeenCalled();
-		expect(loaders.fetch).not.toHaveBeenCalled();
-		await runtime.search({ query: "pi" }, { toolCallId: "search-1" });
-		expect(loaders.search).toHaveBeenCalledTimes(1);
-		expect(loaders.fetch).not.toHaveBeenCalled();
-		await runtime.search({ query: "cached loader" }, { toolCallId: "search-2" });
-		expect(loaders.search).toHaveBeenCalledTimes(1);
-		await runtime.fetch({ url: "bad" }, { toolCallId: "fetch-1" });
-		expect(loaders.fetch).toHaveBeenCalledTimes(1);
-
-		await closeRuntime(runtime);
-		expect(closeSearch).toHaveBeenCalledTimes(1);
-		expect(closeFetch).toHaveBeenCalledTimes(1);
-		expect(closeDispatcher).toHaveBeenCalled();
-	});
-
-	it("关闭会等待已开始的调用，再释放 capability 和 dispatcher", async () => {
-		const dispatcher = new Agent();
-		const closeDispatcher = vi.spyOn(dispatcher, "close");
-		const closeFetch = vi.fn(async () => undefined);
-		const fetchStarted = deferredVoid();
-		const releaseFetch = deferredVoid();
-		const loaders: WebToolsCapabilityLoaders = {
-			search: vi.fn(async () => { throw new Error("unused search loader"); }),
-			fetch: vi.fn(async () => ({
-				async fetch() {
-					fetchStarted.resolve();
-					await releaseFetch.promise;
-					return { content: "done", details: { status: "failed" as const, error: { code: "INVALID_URL" as const, message: "done" } } };
-				},
-				close: closeFetch,
-			})),
-		};
-		const runtime = trackRuntime(createWebToolsRuntime({ dispatcher }, loaders));
-		const fetchResult = runtime.fetch({ url: "https://example.com/" }, { toolCallId: "in-flight" });
-		await fetchStarted.promise;
-
-		runtime.close();
-		await new Promise<void>((resolve) => setImmediate(resolve));
-		expect(closeFetch).not.toHaveBeenCalled();
-		expect(closeDispatcher).not.toHaveBeenCalled();
-
-		releaseFetch.resolve();
-		await expect(fetchResult).resolves.toMatchObject({ content: "done" });
-		await closeRuntime(runtime);
-		expect(closeFetch).toHaveBeenCalledOnce();
-		expect(closeDispatcher).toHaveBeenCalled();
-	});
-
-	it("网络配置变化时切换 dispatcher，同一配置继续复用并在关闭时全部释放", async () => {
-		const configPath = path.join(dir, "network-reload.jsonc");
-		process.env.PI_WEB_TOOLS_CONFIG = configPath;
-		await writeFile(configPath, '{ "network": { "proxy": { "enabled": false } } }');
-		const dispatchers: Dispatcher[] = [];
-		const runtime = trackRuntime(createWebToolsRuntime({
-			fetchImpl: async (_url, init) => {
-				if (init.dispatcher !== undefined) dispatchers.push(init.dispatcher);
-				return httpResponse(200, "ok", { "content-type": "text/plain" });
-			},
-		}));
-
-		await runtime.fetch({ url: "https://example.com/one" }, { toolCallId: "network-1" });
-		await writeFile(configPath, '{ "network": { "proxy": { "enabled": true, "http_proxy": "http://127.0.0.1:7890" } } }');
-		await runtime.fetch({ url: "https://example.com/two" }, { toolCallId: "network-2" });
-		await runtime.fetch({ url: "https://example.com/three" }, { toolCallId: "network-3" });
-
-		expect(dispatchers).toHaveLength(3);
-		const first = dispatchers[0];
-		const second = dispatchers[1];
-		const third = dispatchers[2];
-		if (first === undefined || second === undefined || third === undefined) throw new Error("dispatcher was not captured");
-		expect(first).not.toBe(second);
-		expect(second).toBe(third);
-		const closeFirst = vi.spyOn(first, "close");
-		const closeSecond = vi.spyOn(second, "close");
-
-		await closeRuntime(runtime);
-		expect(closeFirst).toHaveBeenCalled();
-		expect(closeSecond).toHaveBeenCalled();
-	});
-
-	it("配置文件错误返回结构化 CONFIG_ERROR，修复后下一次调用重新读取", async () => {
-		const configPath = path.join(dir, "config-reload.jsonc");
-		process.env.PI_WEB_TOOLS_CONFIG = configPath;
-		await writeFile(configPath, "{");
-		const runtime = trackRuntime(createWebToolsRuntime({
-			dispatcher: new Agent(),
-			fetchImpl: async () => httpResponse(200, "ok", { "content-type": "text/plain" }),
-		}));
-
-		const first = await runtime.fetch({ url: "https://example.com/first" }, { toolCallId: "fetch-first" });
-		expect(first.details).toMatchObject({ status: "failed", error: { code: "CONFIG_ERROR" } });
-
-		await writeFile(configPath, "{}");
-		await expect(runtime.fetch({ url: "https://example.com/retry" }, { toolCallId: "fetch-retry" })).resolves.toMatchObject({
-			details: { status: "success", http_status: 200 },
-		});
-		await closeRuntime(runtime);
-	});
-
-	it("capability 加载失败后在会话内复用同一失败，shutdown 不加载未使用能力", async () => {
-		const dispatcher = new Agent();
-		let attempts = 0;
-		const loaders: WebToolsCapabilityLoaders = {
-			async search() {
-				attempts += 1;
-				throw new Error("simulated search import failure");
-			},
-			fetch: vi.fn(async () => {
-				throw new Error("unused fetch loader");
-			}),
-		};
-		const runtime = trackRuntime(createWebToolsRuntime({ dispatcher }, loaders));
-
-		await expect(runtime.search({ query: "pi" }, { toolCallId: "search-1" })).rejects.toThrow("simulated search import failure");
-		await expect(runtime.search({ query: "pi" }, { toolCallId: "search-2" })).rejects.toThrow("simulated search import failure");
-		expect(attempts).toBe(1);
-		await closeRuntime(runtime);
-		expect(loaders.fetch).not.toHaveBeenCalled();
-	});
-
-	it("并发初始化只创建一个 router，并在 close 时释放一次资源", async () => {
-		let calls = 0;
-		let providerClosed = 0;
-		const provider: WebSearchProvider = {
-			id: "exa_api",
-			async search(params) {
-				calls += 1;
-				return {
-					status: "success",
-					provider: "exa_api",
-					downloadedBytes: 12,
-					results: [{ rank: 1, title: params.query, url: "https://example.com/" }],
-				};
-			},
-			async close() {
-				providerClosed += 1;
-			},
-		};
-		const dispatcher = new Agent();
-		const closeDispatcher = vi.spyOn(dispatcher, "close");
-		const runtime = trackRuntime(createWebToolsRuntime({ dispatcher, searchProviders: [provider], now: () => 100 }));
-
-		const [first, concurrent] = await Promise.all([
-			runtime.search({ query: "pi", limit: 1 }, { toolCallId: "search-1" }),
-			runtime.search({ query: "concurrent", limit: 1 }, { toolCallId: "search-2" }),
-		]);
-		const second = await runtime.search({ query: "pi", limit: 1 }, { toolCallId: "search-3" });
-
-		expect(first.details).toMatchObject({ status: "success" });
-		expect(concurrent.details).toMatchObject({ status: "success" });
-		expect(second.details).toMatchObject({ status: "success", attempts: [{ provider: "exa_api" }] });
-		expect(calls).toBe(3);
-		await closeRuntime(runtime);
-		expect(providerClosed).toBe(1);
-		expect(closeDispatcher).toHaveBeenCalled();
-	});
-
-	it("fetch 分页复用 snapshot，避免重复下载", async () => {
-		let requests = 0;
-		const dispatcher = new Agent();
-		const runtime = trackRuntime(createWebToolsRuntime({
-			dispatcher,
-			fetchImpl: async () => {
-				requests += 1;
-				return httpResponse(200, "hello world", { "content-type": "text/plain; charset=utf-8" });
-			},
-			now: () => 100,
-		}));
-
-		const first = await runtime.fetch({ url: "https://example.com/a", limit: 5 }, { toolCallId: "fetch-1" });
-		const second = await runtime.fetch({ url: "https://example.com/a", offset: 5, limit: 6 }, { toolCallId: "fetch-2" });
-
-		expect(first.details).toMatchObject({ status: "success", snapshot: "created" });
-		expect(second.details).toMatchObject({ status: "success", snapshot: "hit" });
-		expect(requests).toBe(1);
-		await closeRuntime(runtime);
-	});
-
-	it("配置错误对 fetch/search 使用一致的结构化失败", async () => {
-		await writeFile(process.env.PI_WEB_TOOLS_CONFIG!, "{");
-		const runtime = trackRuntime(createWebToolsRuntime({ dispatcher: new Agent() }));
-
-		const [search, fetch] = await Promise.all([
-			runtime.search({ query: "pi" }, { toolCallId: "search" }),
-			runtime.fetch({ url: "https://example.com/" }, { toolCallId: "fetch" }),
-		]);
-
-		expect(search.details).toMatchObject({ status: "failed", error: { code: "CONFIG_ERROR" } });
-		expect(fetch.details).toMatchObject({ status: "failed", error: { code: "CONFIG_ERROR" } });
-		expect(search.content).not.toContain("undefined");
-		expect(fetch.content).not.toContain("undefined");
-		await closeRuntime(runtime);
-	});
-});
-
-function successfulSearch(query: string, content = query) {
+function successfulSearch(query: string, content: string) {
 	return {
 		content,
 		details: {
-			status: "success" as const,
-			query,
-			provider: "exa_api" as const,
-			results: [],
-			downloaded_bytes: 0,
-			duration_ms: 0,
-			attempts: [],
+			status: "success" as const, query, provider: "exa_api" as const,
+			results: [], downloaded_bytes: 0, duration_ms: 0, attempts: [],
 		},
 	};
 }
@@ -584,26 +223,4 @@ async function runJitiExtension(body: string, configPath: string): Promise<strin
 		env: { ...process.env, PI_WEB_TOOLS_CONFIG: configPath },
 	});
 	return stdout;
-}
-
-function searchRuntime(
-	config: ReturnType<typeof defaultWebToolsConfig>,
-	providerLoaders: WebSearchProviderLoaders,
-) {
-	return trackRuntime(createWebSearchRuntime({
-		getDispatcher: async () => new Agent(),
-		fetchImpl: async () => { throw new Error("unused fetch"); },
-		loadConfig: async () => structuredClone(config),
-		now: () => 100,
-	}, providerLoaders));
-}
-
-function trackRuntime<T extends { close(): Promise<void> }>(runtime: T): T {
-	runtimes.push(runtime);
-	return runtime;
-}
-
-async function closeRuntime(runtime: ReturnType<typeof createWebToolsRuntime>): Promise<void> {
-	await runtime.close();
-	runtimes = runtimes.filter((candidate) => candidate !== runtime);
 }

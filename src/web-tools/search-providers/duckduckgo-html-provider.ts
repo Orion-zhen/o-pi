@@ -7,7 +7,7 @@ import type { NormalizedSearchParams, SearchProviderContext, SearchProviderResul
 
 export interface DuckDuckGoHtmlProviderOptions {
 	config: WebToolsConfig["websearch"]["duckduckgo_html"];
-	dispatcher: Dispatcher | (() => Promise<Dispatcher>);
+	dispatcher: () => Promise<Dispatcher>;
 	fetchImpl: WebHttpFetch;
 	requestGate: SearchRequestGate;
 }
@@ -38,7 +38,7 @@ export function createDuckDuckGoHtmlProvider(options: DuckDuckGoHtmlProviderOpti
 			const signal = AbortSignal.any([context.signal ?? new AbortController().signal, timeoutSignal]);
 			const [{ searchDuckDuckGoHtml }, dispatcher] = await Promise.all([
 				backendPromise,
-				resolveDispatcher(options.dispatcher),
+				options.dispatcher(),
 			]);
 			const effectiveUserSignal = context.userSignal ?? (context.deadlineAt === undefined ? context.signal : undefined);
 			const result = await searchDuckDuckGoHtml({
@@ -79,10 +79,6 @@ export function createDuckDuckGoHtmlProvider(options: DuckDuckGoHtmlProviderOpti
 			return { status: "success", provider: "duckduckgo_html", results: result.results, downloadedBytes: result.downloadedBytes };
 		},
 	};
-}
-
-function resolveDispatcher(value: Dispatcher | (() => Promise<Dispatcher>)): Promise<Dispatcher> {
-	return typeof value === "function" ? value() : Promise.resolve(value);
 }
 
 function failed(code: WebSearchFailureDetails["error"]["code"], message: string, query: string): SearchProviderResult {

@@ -1,11 +1,16 @@
 import { readFile } from "node:fs/promises";
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { convertContent } from "../../src/web-tools/content/content-converter.js";
 import type { ContentConversion, WebFetchFailureDetails } from "../../src/web-tools/core/types.js";
 
 const readability = { charThreshold: 500 };
+
+afterEach(() => {
+	vi.doUnmock("../../src/web-tools/content/html-content-converter.js");
+	vi.resetModules();
+});
 
 function headers(contentType: string): Headers {
 	return new Headers({ "content-type": contentType });
@@ -98,11 +103,12 @@ describe("webfetch content conversion", () => {
 	});
 
 	it("source 模式返回原始解码文本", async () => {
-		const loadHtml = vi.fn(async () => {
+		const loadHtml = vi.fn(() => {
 			throw new Error("HTML converter must remain unloaded");
 		});
+		vi.doMock("../../src/web-tools/content/html-content-converter.js", loadHtml);
 		const result = expectConversionSuccess(
-			await convertContent(Buffer.from("<h1>A</h1>"), headers('text/html; charset="utf-8"'), "https://example.com/", "source", readability, true, loadHtml),
+			await convertContent(Buffer.from("<h1>A</h1>"), headers('text/html; charset="utf-8"'), "https://example.com/", "source", readability, true),
 		);
 		expect(result).toMatchObject({ format: "source" });
 		expect(loadHtml).not.toHaveBeenCalled();
@@ -114,9 +120,10 @@ describe("webfetch content conversion", () => {
 		["XML", "<root/>", "application/xml", "xml"],
 		["普通文本", "plain body", "text/plain", "text"],
 	] as const)("%s readable 路径不加载 HTML 转换链", async (_name, body, contentType, format) => {
-		const loadHtml = vi.fn(async () => {
+		const loadHtml = vi.fn(() => {
 			throw new Error("HTML converter must remain unloaded");
 		});
+		vi.doMock("../../src/web-tools/content/html-content-converter.js", loadHtml);
 		const result = await convertContent(
 			Buffer.from(body),
 			headers(contentType),
@@ -124,7 +131,6 @@ describe("webfetch content conversion", () => {
 			"readable",
 			readability,
 			true,
-			loadHtml,
 		);
 		expect(result).toMatchObject({ format, text: body });
 		expect(loadHtml).not.toHaveBeenCalled();
@@ -156,6 +162,7 @@ describe("webfetch content conversion", () => {
 				deferredFragments: { discovered: 0, resolved: 0, limited: false },
 			},
 		}));
+		vi.doMock("../../src/web-tools/content/html-content-converter.js", () => ({ htmlToMarkdown }));
 		await convertContent(
 			Buffer.from("<main><p>Body</p></main>"),
 			headers("text/html"),
@@ -163,7 +170,6 @@ describe("webfetch content conversion", () => {
 			"readable",
 			{ charThreshold: 800 },
 			true,
-			async () => ({ htmlToMarkdown }),
 		);
 		expect(htmlToMarkdown).toHaveBeenCalledWith(
 			"<main><p>Body</p></main>",

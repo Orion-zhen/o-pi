@@ -1,16 +1,8 @@
 import type { WebFetchPageKind } from "../core/types.js";
 import { isAvatarImage } from "./html-avatar-filter.js";
+import { parseImageSrcset, type ImageCandidate } from "./html-image-selection.js";
 
 export type PageKind = WebFetchPageKind;
-
-export type PageEvidenceSource =
-	| "dom"
-	| "readability"
-	| "open_graph"
-	| "twitter"
-	| "json_ld"
-	| "template"
-	| "noscript";
 
 export interface PageMetadata {
 	title?: string;
@@ -22,39 +14,9 @@ export interface PageMetadata {
 	modifiedAt?: string;
 }
 
-interface EvidenceValue<T> {
-	value: T;
-	source: PageEvidenceSource;
-}
-
 export interface TextCandidate {
 	kind: "article_body" | "transcript";
 	text: string;
-}
-
-export interface MediaCandidate {
-	kind: "image" | "video" | "audio";
-	role: "primary" | "thumbnail" | "poster" | "content" | "embed" | "source";
-	source: PageEvidenceSource;
-	url: string;
-	secureUrl?: string;
-	mimeType?: string;
-	width?: number;
-	height?: number;
-	alt?: string;
-	titleDistance?: number;
-	presentation?: boolean;
-	hidden?: boolean;
-	likelyAvatar?: boolean;
-	likelyDecorative?: boolean;
-}
-
-export type DeferredFragmentKind = "template_for" | "shadow_root" | "noscript";
-
-export interface DeferredEvidence {
-	discovered: number;
-	resolved: number;
-	limited: boolean;
 }
 
 export interface KnownOmission {
@@ -66,8 +28,7 @@ export interface PageAnalysis {
 	metadata: PageMetadata;
 	pageKind: PageKind;
 	textCandidates: TextCandidate[];
-	mediaCandidates: MediaCandidate[];
-	deferred: DeferredEvidence;
+	imageCandidates: ImageCandidate[];
 	omissions: KnownOmission[];
 }
 
@@ -79,23 +40,23 @@ const JSON_LD_MAX_DEPTH = 20;
 
 interface JsonLdFacts {
 	pageKind?: PageKind;
-	title?: EvidenceValue<string>;
+	title?: string;
 	titleRank: number;
-	description?: EvidenceValue<string>;
+	description?: string;
 	descriptionRank: number;
-	authors: Array<EvidenceValue<string>>;
-	publishedAt?: EvidenceValue<string>;
-	modifiedAt?: EvidenceValue<string>;
+	authors: string[];
+	publishedAt?: string;
+	modifiedAt?: string;
 	textCandidates: TextCandidate[];
-	mediaCandidates: MediaCandidate[];
+	imageCandidates: ImageCandidate[];
 	limited: boolean;
 }
 
 interface OpenGraphFacts {
-	title?: EvidenceValue<string>;
-	description?: EvidenceValue<string>;
-	type?: EvidenceValue<string>;
-	mediaCandidates: MediaCandidate[];
+	title?: string;
+	description?: string;
+	type?: string;
+	imageCandidates: ImageCandidate[];
 }
 
 interface DomPresence {
@@ -108,12 +69,12 @@ interface DomPresence {
 }
 
 interface TwitterFacts {
-	title?: EvidenceValue<string>;
-	description?: EvidenceValue<string>;
-	mediaCandidates: MediaCandidate[];
+	title?: string;
+	description?: string;
+	imageCandidates: ImageCandidate[];
 }
 
-/** Analyze one already-parsed HTML response without retaining DOM nodes or raw scripts. */
+/** 从已解析页面提取正文、元数据和图片候选，不保留 DOM 节点或脚本源码。 */
 export function analyzeHtmlPage(document: Document, finalUrl: string, mime: string, mediaEnabled = true): PageAnalysis {
 	const standardElements = [...document.querySelectorAll(
 		'base[href], meta, title, script[type="application/ld+json"]',
@@ -121,26 +82,26 @@ export function analyzeHtmlPage(document: Document, finalUrl: string, mime: stri
 	const metaElements = standardElements.filter((element) => element.localName === "meta");
 	const jsonLdElements = standardElements.filter((element) => element.localName === "script");
 	const baseUrl = resolveDocumentBase(standardElements, finalUrl);
-	const documentTitle = evidence(textOf(standardElements.find((element) => element.localName === "title") ?? null), "dom");
+	const documentTitle = textOf(standardElements.find((element) => element.localName === "title") ?? null);
 	const headingElements = [...document.querySelectorAll("h1")];
 	const headings = headingElements
 		.map((node) => normalizeText(node.textContent))
 		.filter((value) => value !== undefined);
-	const heading = headings.length === 1 ? evidence(headings[0], "dom") : undefined;
-	const domDescription = evidence(metaContent(metaElements, "name", "description"), "dom");
+	const heading = headings.length === 1 ? headings[0] : undefined;
+	const domDescription = metaContent(metaElements, "name", "description");
 	const visibleBody = visibleBodyFacts(document.body);
 	const domPresence = collectDomPresence(document);
-	const domAuthors = metaContents(metaElements, "name", "author").map((value) => ({ value, source: "dom" as const }));
+	const domAuthors = metaContents(metaElements, "name", "author");
 	const openGraph = collectOpenGraph(metaElements, baseUrl, mediaEnabled);
 	const twitter = collectTwitter(metaElements, baseUrl, mediaEnabled);
 	const jsonLd = collectJsonLd(jsonLdElements, baseUrl, mediaEnabled);
-	const domMedia = mediaEnabled
-		? collectDomMedia(document, baseUrl, headingElements.length === 1 ? headingElements[0] : undefined)
+	const domImages = mediaEnabled
+		? collectDomImages(document, baseUrl, headingElements.length === 1 ? headingElements[0] : undefined)
 		: [];
 	const title = openGraph.title ?? jsonLd.title ?? twitter.title ?? documentTitle;
 	const description = openGraph.description ?? jsonLd.description ?? twitter.description ?? domDescription;
-	const authors = uniqueEvidence([...jsonLd.authors, ...domAuthors]);
-	const pageKind = selectPageKind(mime, jsonLd.pageKind, openGraph.type?.value, domPresence, visibleBody);
+	const authors = uniqueStrings([...jsonLd.authors, ...domAuthors]);
+	const pageKind = selectPageKind(mime, jsonLd.pageKind, openGraph.type, domPresence, visibleBody);
 	const omissions: KnownOmission[] = [];
 	if (domPresence.iframe) {
 		omissions.push({ kind: "embedded_content", reason: "iframe_not_fetched" });
@@ -151,81 +112,57 @@ export function analyzeHtmlPage(document: Document, finalUrl: string, mime: stri
 	}
 	return {
 		metadata: {
-			...(title !== undefined ? { title: title.value } : {}),
-			...(description !== undefined ? { description: description.value } : {}),
-			...(documentTitle !== undefined ? { documentTitle: documentTitle.value } : {}),
-			...(heading !== undefined ? { heading: heading.value } : {}),
-			authors: authors.map((author) => author.value),
-			...(jsonLd.publishedAt !== undefined ? { publishedAt: jsonLd.publishedAt.value } : {}),
-			...(jsonLd.modifiedAt !== undefined ? { modifiedAt: jsonLd.modifiedAt.value } : {}),
+			...(title !== undefined ? { title } : {}),
+			...(description !== undefined ? { description } : {}),
+			...(documentTitle !== undefined ? { documentTitle } : {}),
+			...(heading !== undefined ? { heading } : {}),
+			authors,
+			...(jsonLd.publishedAt !== undefined ? { publishedAt: jsonLd.publishedAt } : {}),
+			...(jsonLd.modifiedAt !== undefined ? { modifiedAt: jsonLd.modifiedAt } : {}),
 		},
 		pageKind,
 		textCandidates: jsonLd.textCandidates,
-		mediaCandidates: mediaEnabled
-			? [...openGraph.mediaCandidates, ...twitter.mediaCandidates, ...jsonLd.mediaCandidates, ...domMedia]
+		imageCandidates: mediaEnabled
+			? [...openGraph.imageCandidates, ...twitter.imageCandidates, ...jsonLd.imageCandidates, ...domImages]
 			: [],
-		deferred: {
-			discovered: 0,
-			resolved: 0,
-			limited: false,
-		},
 		omissions,
 	};
 }
 
 function collectOpenGraph(metaElements: readonly Element[], baseUrl: string, mediaEnabled: boolean): OpenGraphFacts {
-	const facts: OpenGraphFacts = { mediaCandidates: [] };
-	let currentImage: MediaCandidate | undefined;
-	let currentVideo: MediaCandidate | undefined;
-	let currentAudio: MediaCandidate | undefined;
+	const facts: OpenGraphFacts = { imageCandidates: [] };
+	let currentImage: ImageCandidate | undefined;
 	for (const meta of metaElements) {
 		const property = meta.getAttribute("property")?.trim().toLowerCase();
 		const content = normalizeText(meta.getAttribute("content"));
 		if (property === undefined || content === undefined) continue;
-		if (property === "og:title" && facts.title === undefined) facts.title = { value: content, source: "open_graph" };
-		else if (property === "og:description" && facts.description === undefined) facts.description = { value: content, source: "open_graph" };
-		else if (property === "og:type" && facts.type === undefined) facts.type = { value: content, source: "open_graph" };
+		if (property === "og:title" && facts.title === undefined) facts.title = content;
+		else if (property === "og:description" && facts.description === undefined) facts.description = content;
+		else if (property === "og:type" && facts.type === undefined) facts.type = content;
 		else if (mediaEnabled && (property === "og:image" || property === "og:image:url")) {
-			currentImage = mediaCandidate("image", "primary", "open_graph", content, baseUrl);
-			if (currentImage !== undefined) facts.mediaCandidates.push(currentImage);
+			currentImage = imageCandidate("primary", "open_graph", content, baseUrl);
+			if (currentImage !== undefined) facts.imageCandidates.push(currentImage);
 		} else if (mediaEnabled && property === "og:image:secure_url") {
 			const secureUrl = resolveHttpUrl(content, baseUrl);
 			if (currentImage !== undefined && secureUrl !== undefined) currentImage.secureUrl = secureUrl;
-		} else if (mediaEnabled && property === "og:image:type" && currentImage !== undefined) currentImage.mimeType = content.toLowerCase();
-		else if (mediaEnabled && property === "og:image:width" && currentImage !== undefined) assignWidth(currentImage, content);
+		} else if (mediaEnabled && property === "og:image:width" && currentImage !== undefined) assignWidth(currentImage, content);
 		else if (mediaEnabled && property === "og:image:height" && currentImage !== undefined) assignHeight(currentImage, content);
 		else if (mediaEnabled && property === "og:image:alt" && currentImage !== undefined) currentImage.alt = content;
-		else if (mediaEnabled && (property === "og:video" || property === "og:video:url")) {
-			currentVideo = mediaCandidate("video", "content", "open_graph", content, baseUrl);
-			if (currentVideo !== undefined) facts.mediaCandidates.push(currentVideo);
-		} else if (mediaEnabled && property === "og:video:secure_url") {
-			const secureUrl = resolveHttpUrl(content, baseUrl);
-			if (currentVideo !== undefined && secureUrl !== undefined) currentVideo.secureUrl = secureUrl;
-		} else if (mediaEnabled && property === "og:video:type" && currentVideo !== undefined) currentVideo.mimeType = content.toLowerCase();
-		else if (mediaEnabled && property === "og:video:width" && currentVideo !== undefined) assignWidth(currentVideo, content);
-		else if (mediaEnabled && property === "og:video:height" && currentVideo !== undefined) assignHeight(currentVideo, content);
-		else if (mediaEnabled && (property === "og:audio" || property === "og:audio:url")) {
-			currentAudio = mediaCandidate("audio", "content", "open_graph", content, baseUrl);
-			if (currentAudio !== undefined) facts.mediaCandidates.push(currentAudio);
-		} else if (mediaEnabled && property === "og:audio:secure_url") {
-			const secureUrl = resolveHttpUrl(content, baseUrl);
-			if (currentAudio !== undefined && secureUrl !== undefined) currentAudio.secureUrl = secureUrl;
-		} else if (mediaEnabled && property === "og:audio:type" && currentAudio !== undefined) currentAudio.mimeType = content.toLowerCase();
 	}
 	return facts;
 }
 
 function collectTwitter(metaElements: readonly Element[], baseUrl: string, mediaEnabled: boolean): TwitterFacts {
-	const facts: TwitterFacts = { mediaCandidates: [] };
+	const facts: TwitterFacts = { imageCandidates: [] };
 	for (const meta of metaElements) {
 		const name = (meta.getAttribute("name") ?? meta.getAttribute("property"))?.trim().toLowerCase();
 		const content = normalizeText(meta.getAttribute("content"));
 		if (name === undefined || content === undefined) continue;
-		if (name === "twitter:title" && facts.title === undefined) facts.title = { value: content, source: "twitter" };
-		else if (name === "twitter:description" && facts.description === undefined) facts.description = { value: content, source: "twitter" };
+		if (name === "twitter:title" && facts.title === undefined) facts.title = content;
+		else if (name === "twitter:description" && facts.description === undefined) facts.description = content;
 		else if (mediaEnabled && (name === "twitter:image" || name === "twitter:image:src")) {
-			const candidate = mediaCandidate("image", "primary", "twitter", content, baseUrl);
-			if (candidate !== undefined) facts.mediaCandidates.push(candidate);
+			const candidate = imageCandidate("primary", "twitter", content, baseUrl);
+			if (candidate !== undefined) facts.imageCandidates.push(candidate);
 		}
 	}
 	return facts;
@@ -237,7 +174,7 @@ function collectJsonLd(jsonLdElements: readonly Element[], baseUrl: string, medi
 		descriptionRank: -1,
 		authors: [],
 		textCandidates: [],
-		mediaCandidates: [],
+		imageCandidates: [],
 		limited: false,
 	};
 	let totalChars = 0;
@@ -313,7 +250,7 @@ function collectJsonLd(jsonLdElements: readonly Element[], baseUrl: string, medi
 		}
 		if (objectCount > JSON_LD_MAX_OBJECTS) break;
 	}
-	facts.authors = uniqueEvidence(facts.authors);
+	facts.authors = uniqueStrings(facts.authors);
 	return facts;
 }
 
@@ -330,59 +267,49 @@ function extractJsonLdRecord(
 	if (pageEntity && kind !== undefined && rank > pageKindScore(facts.pageKind)) facts.pageKind = kind;
 	const title = firstString(record.headline) ?? firstString(record.name);
 	if (pageEntity && title !== undefined && isPageEntity(types) && rank > facts.titleRank) {
-		facts.title = { value: title, source: "json_ld" };
+		facts.title = title;
 		facts.titleRank = rank;
 	}
 	const description = firstString(record.description);
 	if (pageEntity && description !== undefined && isPageEntity(types) && rank > facts.descriptionRank) {
-		facts.description = { value: description, source: "json_ld" };
+		facts.description = description;
 		facts.descriptionRank = rank;
 	}
 	if (pageEntity && isPageEntity(types)) {
-		for (const author of authorNames(record.author)) facts.authors.push({ value: author, source: "json_ld" });
+		for (const author of authorNames(record.author)) facts.authors.push(author);
 		const publishedAt = firstString(record.datePublished) ?? firstString(record.uploadDate);
-		if (facts.publishedAt === undefined && publishedAt !== undefined) facts.publishedAt = { value: publishedAt, source: "json_ld" };
+		if (facts.publishedAt === undefined && publishedAt !== undefined) facts.publishedAt = publishedAt;
 		const modifiedAt = firstString(record.dateModified);
-		if (facts.modifiedAt === undefined && modifiedAt !== undefined) facts.modifiedAt = { value: modifiedAt, source: "json_ld" };
+		if (facts.modifiedAt === undefined && modifiedAt !== undefined) facts.modifiedAt = modifiedAt;
 		const articleBody = firstString(record.articleBody);
 		if (articleBody !== undefined) facts.textCandidates.push({ kind: "article_body", text: articleBody });
 		const transcript = firstString(record.transcript);
 		if (transcript !== undefined) facts.textCandidates.push({ kind: "transcript", text: transcript });
 	}
 	if (!mediaEnabled) return;
-	collectJsonLdImages(record.image, "primary", baseUrl, facts.mediaCandidates);
-	collectJsonLdImages(record.thumbnailUrl, "thumbnail", baseUrl, facts.mediaCandidates);
+	collectJsonLdImages(record.image, "primary", baseUrl, facts.imageCandidates);
+	collectJsonLdImages(record.thumbnailUrl, "thumbnail", baseUrl, facts.imageCandidates);
 	if (types.includes("imageobject")) {
-		collectJsonLdImages(record.url, "primary", baseUrl, facts.mediaCandidates);
-		collectJsonLdImages(record.contentUrl, "content", baseUrl, facts.mediaCandidates);
-	}
-	if (types.includes("videoobject")) {
-		pushJsonLdMedia(record.contentUrl, "video", "content", baseUrl, facts.mediaCandidates);
-		pushJsonLdMedia(record.embedUrl, "video", "embed", baseUrl, facts.mediaCandidates);
-	}
-	if (types.includes("audioobject")) {
-		pushJsonLdMedia(record.contentUrl, "audio", "content", baseUrl, facts.mediaCandidates);
-		pushJsonLdMedia(record.embedUrl, "audio", "embed", baseUrl, facts.mediaCandidates);
+		collectJsonLdImages(record.url, "primary", baseUrl, facts.imageCandidates);
+		collectJsonLdImages(record.contentUrl, "content", baseUrl, facts.imageCandidates);
 	}
 }
 
-function collectJsonLdImages(value: unknown, role: MediaCandidate["role"], baseUrl: string, output: MediaCandidate[]): void {
+function collectJsonLdImages(value: unknown, role: ImageCandidate["role"], baseUrl: string, output: ImageCandidate[]): void {
 	for (const item of arrayValues(value)) {
 		if (typeof item === "string") {
-			const candidate = mediaCandidate("image", role, "json_ld", item, baseUrl);
+			const candidate = imageCandidate(role, "json_ld", item, baseUrl);
 			if (candidate !== undefined) output.push(candidate);
 			continue;
 		}
 		if (!isRecord(item)) continue;
 		const rawUrl = firstString(item.contentUrl) ?? firstString(item.url);
 		if (rawUrl === undefined) continue;
-		const candidate = mediaCandidate("image", role, "json_ld", rawUrl, baseUrl);
+		const candidate = imageCandidate(role, "json_ld", rawUrl, baseUrl);
 		if (candidate === undefined) continue;
-		const mimeType = firstString(item.encodingFormat);
 		const width = dimensionValue(item.width);
 		const height = dimensionValue(item.height);
 		const alt = firstString(item.caption) ?? firstString(item.name);
-		if (mimeType !== undefined) candidate.mimeType = mimeType.toLowerCase();
 		if (width !== undefined) candidate.width = width;
 		if (height !== undefined) candidate.height = height;
 		if (alt !== undefined) candidate.alt = alt;
@@ -390,73 +317,33 @@ function collectJsonLdImages(value: unknown, role: MediaCandidate["role"], baseU
 	}
 }
 
-function pushJsonLdMedia(
-	value: unknown,
-	kind: MediaCandidate["kind"],
-	role: MediaCandidate["role"],
-	baseUrl: string,
-	output: MediaCandidate[],
-): void {
-	for (const rawUrl of stringValues(value)) {
-		const candidate = mediaCandidate(kind, role, "json_ld", rawUrl, baseUrl);
-		if (candidate !== undefined) output.push(candidate);
-	}
-}
-
-function collectDomMedia(document: Document, baseUrl: string, primaryHeading: Element | undefined): MediaCandidate[] {
-	const candidates: MediaCandidate[] = [];
-	const mediaElements = [...document.querySelectorAll("img, video, audio, source")];
+function collectDomImages(document: Document, baseUrl: string, primaryHeading: Element | undefined): ImageCandidate[] {
+	const candidates: ImageCandidate[] = [];
+	const mediaElements = [...document.querySelectorAll("img, video[poster], picture source")];
 	const images = mediaElements.filter((element) =>
 		element.localName === "img" && (element.hasAttribute("src") || element.hasAttribute("srcset"))
 	);
 	const videos = mediaElements.filter((element) => element.localName === "video");
-	const audios = mediaElements.filter((element) => element.localName === "audio");
 	const sources = mediaElements.filter((element) => element.localName === "source");
 	for (const image of images) {
-		const candidate = mediaCandidate("image", "source", "dom", image.getAttribute("src"), baseUrl);
+		const candidate = imageCandidate("source", "dom", image.getAttribute("src"), baseUrl);
 		if (candidate !== undefined) {
-			copyDomMediaAttributes(image, candidate, primaryHeading, baseUrl);
+			copyImageAttributes(image, candidate, primaryHeading, baseUrl);
 			candidates.push(candidate);
 		}
 		for (const item of parseImageSrcset(image.getAttribute("srcset"))) {
-			const srcsetCandidate = mediaCandidate("image", "source", "dom", item.url, baseUrl);
+			const srcsetCandidate = imageCandidate("source", "dom", item.url, baseUrl);
 			if (srcsetCandidate === undefined) continue;
-			copyDomMediaAttributes(image, srcsetCandidate, primaryHeading, baseUrl);
+			copyImageAttributes(image, srcsetCandidate, primaryHeading, baseUrl);
 			if (item.width !== undefined) srcsetCandidate.width = item.width;
 			candidates.push(srcsetCandidate);
 		}
 	}
 	for (const video of videos) {
-		const poster = mediaCandidate("image", "poster", "dom", video.getAttribute("poster"), baseUrl);
+		const poster = imageCandidate("poster", "dom", video.getAttribute("poster"), baseUrl);
 		if (poster !== undefined) {
-			copyDomMediaAttributes(video, poster, primaryHeading, baseUrl);
+			copyImageAttributes(video, poster, primaryHeading, baseUrl);
 			candidates.push(poster);
-		}
-		const source = mediaCandidate("video", "source", "dom", video.getAttribute("src"), baseUrl);
-		if (source !== undefined) {
-			copyDomMediaAttributes(video, source, primaryHeading, baseUrl);
-			candidates.push(source);
-		}
-	}
-	for (const source of sources.filter((element) => element.hasAttribute("src") && element.closest("video") !== null)) {
-		const candidate = mediaCandidate("video", "source", "dom", source.getAttribute("src"), baseUrl);
-		if (candidate !== undefined) {
-			copyDomMediaAttributes(source, candidate, primaryHeading, baseUrl);
-			candidates.push(candidate);
-		}
-	}
-	for (const audio of audios) {
-		const candidate = mediaCandidate("audio", "source", "dom", audio.getAttribute("src"), baseUrl);
-		if (candidate !== undefined) {
-			copyDomMediaAttributes(audio, candidate, primaryHeading, baseUrl);
-			candidates.push(candidate);
-		}
-	}
-	for (const source of sources.filter((element) => element.hasAttribute("src") && element.closest("audio") !== null)) {
-		const candidate = mediaCandidate("audio", "source", "dom", source.getAttribute("src"), baseUrl);
-		if (candidate !== undefined) {
-			copyDomMediaAttributes(source, candidate, primaryHeading, baseUrl);
-			candidates.push(candidate);
 		}
 	}
 	for (const source of sources.filter((element) => element.closest("picture") !== null)) {
@@ -466,10 +353,10 @@ function collectDomMedia(document: Document, baseUrl: string, primaryHeading: El
 			...parseImageSrcset(source.getAttribute("srcset")),
 		];
 		for (const item of items) {
-			const candidate = mediaCandidate("image", "source", "dom", item.url, baseUrl);
+			const candidate = imageCandidate("source", "dom", item.url, baseUrl);
 			if (candidate !== undefined) {
-				if (fallback !== undefined) copyDomMediaAttributes(fallback, candidate, primaryHeading, baseUrl);
-				copyDomMediaAttributes(source, candidate, primaryHeading, baseUrl);
+				if (fallback !== undefined) copyImageAttributes(fallback, candidate, primaryHeading, baseUrl);
+				copyImageAttributes(source, candidate, primaryHeading, baseUrl);
 				if (item.width !== undefined) candidate.width = item.width;
 				candidates.push(candidate);
 			}
@@ -566,28 +453,25 @@ function resolveDocumentBase(standardElements: readonly Element[], finalUrl: str
 	return resolveHttpUrl(declared, finalUrl) ?? finalUrl;
 }
 
-function mediaCandidate(
-	kind: MediaCandidate["kind"],
-	role: MediaCandidate["role"],
-	source: PageEvidenceSource,
+function imageCandidate(
+	role: ImageCandidate["role"],
+	source: ImageCandidate["source"],
 	value: string | null,
 	baseUrl: string,
-): MediaCandidate | undefined {
+): ImageCandidate | undefined {
 	const url = resolveHttpUrl(value, baseUrl);
-	return url === undefined ? undefined : { kind, role, source, url };
+	return url === undefined ? undefined : { role, source, url };
 }
 
-function copyDomMediaAttributes(
+function copyImageAttributes(
 	node: Element,
-	candidate: MediaCandidate,
+	candidate: ImageCandidate,
 	primaryHeading: Element | undefined,
 	baseUrl: string,
 ): void {
-	const mimeType = normalizeText(node.getAttribute("type"));
 	const width = positiveDimension(node.getAttribute("width"));
 	const height = positiveDimension(node.getAttribute("height"));
 	const alt = normalizeText(node.getAttribute("alt"));
-	if (mimeType !== undefined) candidate.mimeType = mimeType.toLowerCase();
 	if (width !== undefined) candidate.width = width;
 	if (height !== undefined) candidate.height = height;
 	if (alt !== undefined) candidate.alt = alt;
@@ -615,27 +499,14 @@ function copyDomMediaAttributes(
 		|| /(?:^|[^a-z])(logo|icon|sprite|emoji|badge|decorative|decoration)(?:[^a-z]|$)/iu.test(hints);
 }
 
-function assignWidth(candidate: MediaCandidate, value: string): void {
+function assignWidth(candidate: ImageCandidate, value: string): void {
 	const width = positiveDimension(value);
 	if (width !== undefined) candidate.width = width;
 }
 
-function assignHeight(candidate: MediaCandidate, value: string): void {
+function assignHeight(candidate: ImageCandidate, value: string): void {
 	const height = positiveDimension(value);
 	if (height !== undefined) candidate.height = height;
-}
-
-export function parseImageSrcset(value: string | null): Array<{ url: string; width?: number }> {
-	if (value === null) return [];
-	return value
-		.split(",")
-		.flatMap((entry) => {
-			const [url, descriptor] = entry.trim().split(/\s+/u);
-			if (url === undefined || url.length === 0) return [];
-			const widthMatch = /^(\d+)w$/u.exec(descriptor ?? "");
-			const width = widthMatch?.[1] === undefined ? undefined : Number(widthMatch[1]);
-			return [{ url, ...(width !== undefined && width > 0 ? { width } : {}) }];
-		});
 }
 
 function elementDistance(left: Element, right: Element): number {
@@ -695,10 +566,6 @@ function normalizeText(value: string | null | undefined): string | undefined {
 	return normalized === undefined || normalized.length === 0 ? undefined : normalized;
 }
 
-function evidence<T>(value: T | undefined, source: PageEvidenceSource): EvidenceValue<T> | undefined {
-	return value === undefined ? undefined : { value, source };
-}
-
 function positiveDimension(value: string | null): number | undefined {
 	if (value === null || !/^\d+(?:\.\d+)?$/u.test(value.trim())) return undefined;
 	const parsed = Number(value);
@@ -741,10 +608,10 @@ function authorNames(value: unknown): string[] {
 	return names;
 }
 
-function uniqueEvidence(values: Array<EvidenceValue<string>>): Array<EvidenceValue<string>> {
+function uniqueStrings(values: string[]): string[] {
 	const seen = new Set<string>();
 	return values.filter((item) => {
-		const key = item.value.toLowerCase();
+		const key = item.toLowerCase();
 		if (seen.has(key)) return false;
 		seen.add(key);
 		return true;
@@ -810,8 +677,8 @@ function collectDomPresence(document: Document): DomPresence {
 }
 
 function isClientRenderedShell(
-	title: EvidenceValue<string> | undefined,
-	description: EvidenceValue<string> | undefined,
+	title: string | undefined,
+	description: string | undefined,
 	visibleBody: VisibleBodyFacts,
 	domPresence: DomPresence,
 ): boolean {

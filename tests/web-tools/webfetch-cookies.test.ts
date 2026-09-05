@@ -2,10 +2,13 @@ import { chmod, stat, utimes, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { isCookieAllowed } from "../../src/web-tools/fetch/cookie-policy.js";
+import { matchesDomainRule } from "../../src/web-tools/network/url-utils.js";
 import { NetscapeCookieStore } from "../../src/web-tools/fetch/cookie-store.js";
-import type { CookieStore } from "../../src/web-tools/core/types.js";
-import { createLazyCookieStore } from "../../src/web-tools/fetch/webfetch-runtime.js";
+import { Agent } from "undici";
+import * as configModule from "../../src/web-tools/config.js";
+import { createWebFetchRuntime } from "../../src/web-tools/fetch/webfetch-runtime.js";
+import { defaultWebToolsConfig } from "./config-fixture.js";
+import { httpResponse } from "../helpers/http.js";
 import { useTempDir } from "../helpers/lifecycle.js";
 
 let dir: string;
@@ -17,31 +20,37 @@ beforeEach(() => {
 
 describe("webfetch cookies", () => {
 	it("实现 exact 和 wildcard allowlist 语义", () => {
-		expect(isCookieAllowed("example.com", ["example.com"])).toBe(true);
-		expect(isCookieAllowed("a.example.com", ["example.com"])).toBe(false);
-		expect(isCookieAllowed("a.example.com", ["*.example.com"])).toBe(true);
-		expect(isCookieAllowed("example.com", ["*.example.com"])).toBe(false);
+		expect(matchesDomainRule("example.com", ["example.com"])).toBe(true);
+		expect(matchesDomainRule("a.example.com", ["example.com"])).toBe(false);
+		expect(matchesDomainRule("a.example.com", ["*.example.com"])).toBe(true);
+		expect(matchesDomainRule("example.com", ["*.example.com"])).toBe(false);
 	});
 
 	it("只在 allowlist 命中且需要 Cookie 时加载 store，并复用并发加载", async () => {
-		const store: CookieStore = {
-			async getCookieAccess() {
-				return {};
-			},
-			async storeFromResponse() {
-				return undefined;
-			},
-		};
-		const load = vi.fn(async () => store);
-		const lazy = createLazyCookieStore(load);
-
-		await lazy.storeFromResponse(new URL("https://example.com/"), []);
-		expect(load).not.toHaveBeenCalled();
-		await Promise.all([
-			lazy.getCookieAccess(new URL("https://example.com/")),
-			lazy.getCookieAccess(new URL("https://example.com/")),
-		]);
-		expect(load).toHaveBeenCalledTimes(1);
+		const config = defaultWebToolsConfig();
+		config.webfetch.cookies = { enabled: true, domains: ["example.com"], confirmation: "never" };
+		const loadPath = vi.spyOn(configModule, "defaultCookiePath").mockReturnValue(path.join(dir, "missing.txt"));
+		const dispatcher = new Agent();
+		const runtime = createWebFetchRuntime({
+			getDispatcher: async () => dispatcher,
+			fetchImpl: async () => httpResponse(200, "page", { "content-type": "text/plain" }),
+			loadConfig: async () => config,
+			now: () => Date.now(),
+		});
+		try {
+			await runtime.fetch({ url: "https://other.com/" }, { toolCallId: "public" });
+			expect(loadPath).not.toHaveBeenCalled();
+			const results = await Promise.all([
+				runtime.fetch({ url: "https://example.com/one" }, { toolCallId: "cookie-1" }),
+				runtime.fetch({ url: "https://example.com/two" }, { toolCallId: "cookie-2" }),
+			]);
+			expect(results.every((result) => result.details.status === "success")).toBe(true);
+			expect(loadPath).toHaveBeenCalledTimes(1);
+		} finally {
+			await runtime.close();
+			await dispatcher.close();
+			loadPath.mockRestore();
+		}
 	});
 
 	it("解析 Netscape 和 HttpOnly 行，并按 domain/path/secure 匹配", async () => {

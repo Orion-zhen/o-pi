@@ -82,16 +82,6 @@ export function normalizeSearchResultUrl(value: string | URL, options: { allowUs
 	return url;
 }
 
-export function normalizeUrl(input: URL): string {
-	const url = new URL(input.toString());
-	url.hash = "";
-	return url.toString();
-}
-
-export function originKey(url: URL): string {
-	return `${url.protocol}//${url.host}`;
-}
-
 export function matchesDomainRule(hostname: string, rules: readonly string[]): boolean {
 	const host = hostname.toLowerCase();
 	return rules.some((rule) => {
@@ -110,16 +100,6 @@ export function truncateMiddle(value: string, maxLength: number): string {
 	const head = Math.ceil((maxLength - 3) / 2);
 	const tail = Math.floor((maxLength - 3) / 2);
 	return `${value.slice(0, head)}...${value.slice(value.length - tail)}`;
-}
-
-export function formatChars(value: number): string {
-	return value >= 1000 ? `${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}k` : String(value);
-}
-
-export function formatBytes(value: number): string {
-	if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-	if (value >= 1024) return `${(value / 1024).toFixed(1)} KB`;
-	return `${value} B`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

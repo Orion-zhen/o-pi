@@ -1,64 +1,39 @@
 import type { Dispatcher } from "undici";
 
 import type {
-	WebFetchCapabilityOptions,
-	WebSearchCapabilityOptions,
-	WebToolsCapabilityLoaders,
+	WebFetchCapability,
+	WebSearchCapability,
+	WebCapabilityOptions,
 } from "./core/runtime-types.js";
 import type {
 	WebHttpRequestInit,
 	WebHttpResponse,
 	WebToolsConfig,
 	WebToolsRuntime,
-	WebToolsRuntimeOptions,
 } from "./core/types.js";
 import { createNetworkDispatcher, networkConfigSignature } from "./network/dispatcher.js";
 import type { PrivateNetworkGrant } from "./network/private-network-grant.js";
 
-const defaultCapabilityLoaders: WebToolsCapabilityLoaders = {
-	async search(options) {
-		return (await import("./search/websearch-runtime.js")).createWebSearchRuntime(options);
-	},
-	async fetch(options) {
-		return (await import("./fetch/webfetch-runtime.js")).createWebFetchRuntime(options);
-	},
-};
-
-/** Lightweight owner for capability-local state and shared secure dispatchers. */
-export function createWebToolsRuntime(
-	options: WebToolsRuntimeOptions = {},
-	loaders: WebToolsCapabilityLoaders = defaultCapabilityLoaders,
-): WebToolsRuntime {
-	const injectedDispatcher = options.dispatcher;
+/** 按需初始化两条能力链，统一等待调用结束并释放共享 dispatcher。 */
+export function createWebToolsRuntime(): WebToolsRuntime {
 	const dispatcherPromises = new Map<string, Promise<Dispatcher>>();
 	const activeCalls = new Set<Promise<void>>();
 	let configModulePromise: Promise<typeof import("./config.js")> | undefined;
 	let closed = false;
 	let closePromise: Promise<void> | undefined;
-	const now = options.now ?? (() => Date.now());
-	const fetchImpl = options.fetchImpl ?? defaultFetch;
-	const sharedOptions = {
+	const sharedOptions: WebCapabilityOptions = {
 		getDispatcher,
-		fetchImpl,
+		fetchImpl: defaultFetch,
 		loadConfig,
-		now,
+		now: () => Date.now(),
 	};
-	const searchOptions: WebSearchCapabilityOptions = {
-		...sharedOptions,
-		...(options.searchProviders !== undefined ? { searchProviders: options.searchProviders } : {}),
-	};
-	const fetchOptions: WebFetchCapabilityOptions = {
-		...sharedOptions,
-		...(options.cookiePath !== undefined ? { cookiePath: options.cookiePath } : {}),
-	};
-	const search = createMemoizedCapability(() => loaders.search(searchOptions));
-	const fetch = createMemoizedCapability(() => loaders.fetch(fetchOptions));
+	let searchRuntime: Promise<WebSearchCapability> | undefined;
+	let fetchRuntime: Promise<WebFetchCapability> | undefined;
 
 	function getDispatcher(
 		network: WebToolsConfig["network"],
 		privateNetworkGrant?: PrivateNetworkGrant,
 	): Promise<Dispatcher> {
-		if (injectedDispatcher !== undefined) return Promise.resolve(injectedDispatcher);
 		const key = dispatcherKey(network, privateNetworkGrant);
 		const existing = dispatcherPromises.get(key);
 		if (existing !== undefined) return existing;
@@ -89,11 +64,17 @@ export function createWebToolsRuntime(
 	return {
 		search(params, context) {
 			assertOpen();
-			return trackCall(async () => (await search.get()).search(params, context));
+			return trackCall(async () => {
+				searchRuntime ??= import("./search/websearch-runtime.js").then((module) => module.createWebSearchRuntime(sharedOptions));
+				return (await searchRuntime).search(params, context);
+			});
 		},
 		fetch(params, context) {
 			assertOpen();
-			return trackCall(async () => (await fetch.get()).fetch(params, context));
+			return trackCall(async () => {
+				fetchRuntime ??= import("./fetch/webfetch-runtime.js").then((module) => module.createWebFetchRuntime(sharedOptions));
+				return (await fetchRuntime).fetch(params, context);
+			});
 		},
 		close() {
 			if (closePromise !== undefined) return closePromise;
@@ -105,48 +86,18 @@ export function createWebToolsRuntime(
 
 	async function closeRuntime(): Promise<void> {
 		await Promise.all([...activeCalls]);
-		const [searchRuntime, fetchRuntime] = await Promise.all([
-			settledCapability(search.current()),
-			settledCapability(fetch.current()),
-		]);
-		await Promise.all([searchRuntime?.close(), fetchRuntime?.close()]);
-		search.clear();
-		fetch.clear();
-		const activeDispatchers = injectedDispatcher === undefined
-			? await Promise.all([...dispatcherPromises.values()].map(settledDispatcher))
-			: [injectedDispatcher];
+		const [search, fetch] = await Promise.all([settled(searchRuntime), settled(fetchRuntime)]);
+		await Promise.all([search?.close(), fetch?.close()]);
+		searchRuntime = undefined;
+		fetchRuntime = undefined;
+		const activeDispatchers = await Promise.all([...dispatcherPromises.values()].map(settled));
 		await Promise.all(activeDispatchers.filter((active): active is Dispatcher => active !== undefined).map((active) => active.close()));
 		dispatcherPromises.clear();
 	}
 }
 
-interface MemoizedCapability<T> {
-	get(): Promise<T>;
-	current(): Promise<T> | undefined;
-	clear(): void;
-}
-
-function createMemoizedCapability<T>(load: () => Promise<T>): MemoizedCapability<T> {
-	let pending: Promise<T> | undefined;
-	return {
-		get() {
-			if (pending !== undefined) return pending;
-			pending = load();
-			return pending;
-		},
-		current: () => pending,
-		clear() {
-			pending = undefined;
-		},
-	};
-}
-
-async function settledCapability<T>(pending: Promise<T> | undefined): Promise<T | undefined> {
-	return pending === undefined ? undefined : pending.catch(() => undefined);
-}
-
-async function settledDispatcher(pending: Promise<Dispatcher> | undefined): Promise<Dispatcher | undefined> {
-	return pending === undefined ? undefined : pending.catch(() => undefined);
+async function settled<T>(pending: Promise<T> | undefined): Promise<T | undefined> {
+	return pending?.catch(() => undefined);
 }
 
 async function createDefaultDispatcher(
@@ -165,14 +116,7 @@ function dispatcherKey(network: WebToolsConfig["network"], grant?: PrivateNetwor
 }
 
 async function defaultFetch(input: URL, init: WebHttpRequestInit): Promise<WebHttpResponse> {
-	const { fetch: undiciFetch } = await loadUndici();
-	const response = await undiciFetch(input, init);
-	return {
-		status: response.status,
-		statusText: response.statusText,
-		headers: response.headers,
-		body: response.body,
-	};
+	return (await loadUndici()).fetch(input, init);
 }
 
 let undiciModule: Promise<typeof import("undici")> | undefined;

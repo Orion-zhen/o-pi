@@ -25,22 +25,21 @@ export function normalizeSearchParams(params: WebSearchParams, defaultLimit: num
 	return {
 		query,
 		limit: params.limit ?? defaultLimit,
-		includeDomains: compiled.includeDomains,
-		excludeDomains: compiled.excludeDomains,
 		compiled,
 	};
 }
 
 /** Rebuild domain operators so multiple included domains retain OR semantics across lexical providers. */
-export function filteredLexicalQuery(params: Pick<NormalizedSearchParams, "compiled" | "includeDomains" | "excludeDomains">): string {
-	const lexicalQuery = params.compiled.lexicalQuery.replace(SITE, " ").replace(/\s+/gu, " ").trim();
-	const includeClause = params.includeDomains.length > 1
-		? `(${params.includeDomains.map((domain) => `site:${domain}`).join(" OR ")})`
-		: params.includeDomains[0] === undefined ? undefined : `site:${params.includeDomains[0]}`;
+export function filteredLexicalQuery(params: NormalizedSearchParams): string {
+	const { lexicalQuery: rawLexicalQuery, includeDomains, excludeDomains } = params.compiled;
+	const lexicalQuery = rawLexicalQuery.replace(SITE, " ").replace(/\s+/gu, " ").trim();
+	const includeClause = includeDomains.length > 1
+		? `(${includeDomains.map((domain) => `site:${domain}`).join(" OR ")})`
+		: includeDomains[0] === undefined ? undefined : `site:${includeDomains[0]}`;
 	return [
 		lexicalQuery,
 		includeClause,
-		...params.excludeDomains.map((domain) => `-site:${domain}`),
+		...excludeDomains.map((domain) => `-site:${domain}`),
 	].filter((part): part is string => part !== undefined && part.length > 0).join(" ");
 }
 
@@ -52,7 +51,6 @@ export function compileSearchQuery(params: WebSearchParams): CompiledSearchQuery
 	const semanticQuery = lexicalQuery.replace(OPERATOR, " ").replace(/\s+/gu, " ").trim();
 	const intent = classifySearchIntent(lexicalQuery, semanticQuery);
 	return {
-		originalQuery: params.query.trim(),
 		lexicalQuery,
 		semanticQuery: semanticQuery || lexicalQuery,
 		intent,

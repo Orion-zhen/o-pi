@@ -1,7 +1,7 @@
 import type { Dispatcher } from "undici";
 import { Parser } from "htmlparser2";
 
-import { classifyNetworkError } from "../network/http-client.js";
+import { classifyNetworkError } from "../network/errors.js";
 import { readLimitedResponseBody, responseContentLength } from "../network/response-body.js";
 import type { WebHttpFetch, WebHttpResponse, WebSearchFailureDetails, WebSearchItem, WebToolsConfig } from "../core/types.js";
 import {

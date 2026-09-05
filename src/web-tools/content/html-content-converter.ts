@@ -7,7 +7,7 @@ import { removeHtmlOutputNoise, selectHtmlContent } from "./html-content-selecto
 import { extractDeferredContent } from "./html-deferred-content.js";
 import { analyzeHtmlPage, type PageAnalysis, type TextCandidate } from "./html-page-analyzer.js";
 import type { ContentConversion, HtmlReadabilityOptions, WebFetchFailureDetails, WebFetchTextSource } from "../core/types.js";
-import { selectedMediaUrls, selectPageMedia } from "../fetch/webfetch-media.js";
+import { selectedImageUrls, selectPrimaryImage } from "./html-image-selection.js";
 
 const UNSAFE_HTML_SELECTOR = [
 	"script", "style", "noscript", "template", "svg", "canvas", "iframe", "object", "embed",
@@ -39,23 +39,15 @@ export function htmlToMarkdown(
 		const { document } = parseHTML(html);
 		const analysis = analyzeHtmlPage(document, finalUrl, mime, mediaEnabled);
 		const deferred = extractDeferredContent(document);
-		analysis.deferred = deferred.evidence;
-		const deferredFragments = {
-			discovered: deferred.evidence.discovered,
-			resolved: deferred.evidence.resolved,
-			limited: deferred.evidence.limited,
-		};
+		const deferredFragments = deferred.evidence;
 		const selected = selectDocumentBody(document, finalUrl, options, analysis, mediaEnabled);
 		const title = analysis.metadata.heading ?? selected.title ?? analysis.metadata.title;
 		const deferredSections = deferred.fragments
 			.map((fragment) => fragmentToMarkdown(fragment, document, finalUrl))
 			.filter((fragment) => fragment.length > 0);
 		const text = composeSections(title, selected, analysis, deferredSections);
-		const pageMedia = mediaEnabled ? selectPageMedia(analysis.mediaCandidates, selected.mediaUrls) : undefined;
-		if (pageMedia !== undefined) analysis.mediaCandidates = pageMedia.candidates;
-		const primaryMediaUrl = pageMedia?.primaryImage === undefined
-			? undefined
-			: pageMedia.primaryImage.secureUrl ?? pageMedia.primaryImage.url;
+		const primaryImage = mediaEnabled ? selectPrimaryImage(analysis.imageCandidates, selected.mediaUrls) : undefined;
+		const primaryMediaUrl = primaryImage?.secureUrl ?? primaryImage?.url;
 		return {
 			text,
 			format: "markdown",
@@ -147,7 +139,7 @@ function selectDocumentBody(
 }
 
 function mediaUrls(root: Element, baseUrl: string, mediaEnabled: boolean): Set<string> {
-	return mediaEnabled ? selectedMediaUrls(root, baseUrl) : new Set<string>();
+	return mediaEnabled ? selectedImageUrls(root, baseUrl) : new Set<string>();
 }
 
 interface OutputSection {

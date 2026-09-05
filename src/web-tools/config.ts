@@ -6,9 +6,7 @@ import {
 	configLayerFingerprint,
 	createCompleteSchemaValidator,
 	createSchemaValidator,
-	defaultAgentConfigPath,
 	loadValidatedMergedConfig,
-	readDefaultJsoncConfigSync,
 	resolveConfigLayerPaths,
 } from "../config-loader.js";
 import type { WebToolsConfig } from "./core/types.js";
@@ -17,13 +15,6 @@ import { normalizeDomains } from "./search-providers/query.js";
 
 const COOKIES_PATH_ENV = "PI_WEB_TOOLS_COOKIES";
 const SCHEMA_PATH = agentSchemaPath("web-tools.schema.json");
-const OPTIONAL_COMPLETE_PROPERTIES = ["network.proxy"] as const;
-const DEFAULT_PROXY_CONFIG: WebToolsConfig["network"]["proxy"] = {
-	enabled: false,
-	http_proxy: "",
-	https_proxy: "",
-	socks5_proxy: "",
-};
 
 export class WebToolsConfigError extends Error {
 	constructor(message: string, readonly details?: Record<string, unknown>) {
@@ -63,76 +54,20 @@ export async function loadWebToolsConfig(): Promise<WebToolsConfig> {
 	}
 }
 
-export function clearWebToolsConfigCacheForTests(): void {
-	configCache.clear();
-	pendingConfigs.clear();
-}
-
 async function loadConfigFile(): Promise<ConfigCacheEntry> {
 	const loaded = await loadValidatedMergedConfig(
 		CONFIG_DEFINITIONS.webTools, process.cwd(), createError, { partial: loadValidator, complete: loadCompleteValidator },
 	);
-	return { fingerprint: loaded.fingerprint, config: materializeConfig(loaded.merged as CompleteWebToolsConfig) };
-}
-
-export function defaultWebToolsConfig(): WebToolsConfig {
-	return materializeConfig(readDefaultJsoncConfigSync({
-		configPath: defaultAgentConfigPath("web-tools.jsonc"),
-		schemaPath: SCHEMA_PATH,
-		label: "web-tools",
-		createError,
-		optionalCompleteProperties: OPTIONAL_COMPLETE_PROPERTIES,
-	}) as CompleteWebToolsConfig);
+	return { fingerprint: loaded.fingerprint, config: materializeConfig(loaded.merged as WebToolsConfig) };
 }
 
 export function defaultCookiePath(): string {
 	return process.env[COOKIES_PATH_ENV] ?? agentPath("cookies.txt");
 }
 
-interface RawWebToolsConfig {
-	network?: {
-		proxy?: Partial<WebToolsConfig["network"]["proxy"]>;
-		fake_ip_ranges?: string[];
-	};
-	websearch?: {
-		default_results?: number;
-		total_deadline_seconds?: number;
-		include_domains?: string[];
-		exclude_domains?: string[];
-		brave_api?: Partial<WebToolsConfig["websearch"]["brave_api"]>;
-		exa_api?: Partial<WebToolsConfig["websearch"]["exa_api"]>;
-		tavily?: Partial<WebToolsConfig["websearch"]["tavily"]>;
-		duckduckgo_html?: Partial<WebToolsConfig["websearch"]["duckduckgo_html"]>;
-	};
-	webfetch?: {
-		timeout_seconds?: number;
-		max_redirects?: number;
-		user_agent?: string;
-		readability?: Partial<WebToolsConfig["webfetch"]["readability"]>;
-		media?: Partial<WebToolsConfig["webfetch"]["media"]>;
-		limits?: Partial<WebToolsConfig["webfetch"]["limits"]>;
-		cookies?: Partial<WebToolsConfig["webfetch"]["cookies"]>;
-	};
-}
-
-interface CompleteWebToolsConfig extends Required<RawWebToolsConfig> {
-	network: {
-		proxy?: Partial<WebToolsConfig["network"]["proxy"]>;
-		fake_ip_ranges: string[];
-	};
-	websearch: WebToolsConfig["websearch"];
-	webfetch: WebToolsConfig["webfetch"];
-}
-
-function materializeConfig(raw: CompleteWebToolsConfig): WebToolsConfig {
-	const config: WebToolsConfig = {
-		network: {
-			proxy: { ...DEFAULT_PROXY_CONFIG, ...raw.network.proxy },
-			fake_ip_ranges: structuredClone(raw.network.fake_ip_ranges),
-		},
-		websearch: structuredClone(raw.websearch),
-		webfetch: structuredClone(raw.webfetch),
-	};
+function materializeConfig(raw: WebToolsConfig): WebToolsConfig {
+	const { network, websearch, webfetch } = structuredClone(raw);
+	const config: WebToolsConfig = { network, websearch, webfetch };
 	config.websearch.include_domains = normalizeDomains(config.websearch.include_domains);
 	config.websearch.exclude_domains = normalizeDomains(config.websearch.exclude_domains);
 	if (config.websearch.include_domains.some((domain) => config.websearch.exclude_domains.includes(domain))) {
@@ -223,5 +158,4 @@ const loadCompleteValidator = createCompleteSchemaValidator({
 	schemaPath: SCHEMA_PATH,
 	label: "web-tools",
 	createError,
-	optionalCompleteProperties: OPTIONAL_COMPLETE_PROPERTIES,
 });

@@ -1,33 +1,35 @@
 import { describe, expect, it } from "vitest";
 
-import { providerSignature, SearchCache, searchCacheKey } from "../../src/web-tools/search/search-cache.js";
-import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
+import { providerSignature, SearchFlights, searchFlightKey } from "../../src/web-tools/search/search-flights.js";
+import { defaultWebToolsConfig } from "./config-fixture.js";
 import { preserveEnv } from "../helpers/lifecycle.js";
 
 preserveEnv("WEBSEARCH_SIGNATURE_KEY");
 
 describe("websearch singleflight", () => {
 	it("相同 in-flight 请求 singleflight，完成后允许重新执行", async () => {
-		const cache = new SearchCache();
+		const cache = new SearchFlights();
 		let calls = 0;
+		const result = { status: "success" as const, provider: "brave_api" as const, results: [{ rank: 1, title: "Pi", url: "https://example.com/pi" }], downloadedBytes: 42, attempts: [] };
 		let release: (() => void) | undefined;
-		const task = () => cache.runSingleflight("same", async () => { calls += 1; await new Promise<void>((resolve) => { release = resolve; }); return calls; });
+		const task = () => cache.run("same", async () => { calls += 1; await new Promise<void>((resolve) => { release = resolve; }); return result; });
 		const first = task();
 		const second = task();
 		expect(calls).toBe(1);
 		release?.();
-		await expect(Promise.all([first, second])).resolves.toEqual([1, 1]);
-		const third = cache.runSingleflight("same", async () => { calls += 1; return calls; });
-		await expect(third).resolves.toBe(2);
+		await expect(Promise.all([first, second])).resolves.toEqual([result, result]);
+		const third = cache.run("same", async () => { calls += 1; return result; });
+		await expect(third).resolves.toEqual(result);
+		expect(calls).toBe(2);
 	});
 
 	it("singleflight key 包含 query、limit 和 provider 签名", () => {
 		const config = defaultWebToolsConfig().websearch;
 		const changed = defaultWebToolsConfig().websearch;
 		changed.duckduckgo_html.region = "us-en";
-		expect(searchCacheKey(" pi ", 8, config).startsWith(["pi", "8"].join("\0"))).toBe(true);
-		expect(searchCacheKey("pi", 2, config)).not.toBe(searchCacheKey("pi", 8, config));
-		expect(searchCacheKey("pi", 8, changed)).not.toBe(searchCacheKey("pi", 8, config));
+		expect(searchFlightKey(" pi ", 8, config).startsWith(["pi", "8"].join("\0"))).toBe(true);
+		expect(searchFlightKey("pi", 2, config)).not.toBe(searchFlightKey("pi", 8, config));
+		expect(searchFlightKey("pi", 8, changed)).not.toBe(searchFlightKey("pi", 8, config));
 	});
 
 	it("provider 签名响应 key 变化但不包含密钥", () => {

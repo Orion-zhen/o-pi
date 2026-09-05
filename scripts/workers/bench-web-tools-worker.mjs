@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
+import { createRequire } from "node:module";
 import { fromRoot, loadTypeScript } from "../benchmark/loader.mjs";
 
 const mode = process.argv[2] ?? "search";
@@ -16,50 +17,57 @@ if (mode === "parser") {
 async function runToolBenchmark(toolMode) {
 	process.env.PI_WEB_TOOLS_CONFIG = "/__o_pi_missing_web_tools_benchmark_config__";
 	process.env.PI_WEB_TOOLS_COOKIES = "/__o_pi_missing_web_tools_benchmark_cookies__";
+	process.env.BRAVE_SEARCH_API_KEY = "benchmark-key";
+	delete process.env.EXA_API_KEY;
+	delete process.env.TAVILY_API_KEY;
+	const { createEventBus } = await import("@earendil-works/pi-coding-agent");
+	const events = createEventBus();
 	const tools = new Map();
+	const handlers = new Map();
 	let imageReads = 0;
-	const started = performance.now();
-	const extensionModule = await loadTypeScript("agent/extensions/web-tools.ts");
-	const extension = extensionModule.createWebToolsExtension(async () => {
-		const { createWebToolsRuntime } = await loadTypeScript("src/web-tools/web-tools-runtime.ts");
-		return createWebToolsRuntime({
-			dispatcher: { close: async () => undefined },
-			searchProviders: [{
-				id: "brave_api",
-				async search(params) {
-					return { status: "success", provider: "brave_api", downloadedBytes: 0, results: [{ rank: 1, title: params.query, url: "https://example.com/", snippet: params.query }] };
-				},
-			}],
-			fetchImpl: async () => toolMode === "fetch-image-skip"
-				? skippedImageResponse(() => { imageReads += 1; })
-				: response("hello benchmark"),
-		});
-	});
-	extension({ registerTool(tool) { tools.set(tool.name, tool); }, on() {} });
-	const registered = performance.now();
-	const tool = tools.get(toolMode === "search" ? "websearch" : "webfetch");
-	if (tool === undefined) throw new Error(`${toolMode} was not registered`);
-	const params = toolMode === "search"
-		? { query: "pi", limit: 1 }
-		: toolMode === "fetch-image-skip"
-			? { url: "https://example.com/direct.png" }
-			: { url: "https://example.com/", mode: "source" };
-	const context = toolMode === "search"
-		? {}
-		: toolMode === "fetch-image-skip"
-			? { hasUI: false, model: { api: "openai-completions", input: ["text", "image"] } }
-			: { hasUI: false };
-	await tool.execute(`${toolMode}-cold`, params, undefined, undefined, context);
-	const firstCompleted = performance.now();
-	await tool.execute(`${toolMode}-warm`, params, undefined, undefined, context);
-	const warmCompleted = performance.now();
-	if (toolMode === "fetch-image-skip" && imageReads !== 0) throw new Error("unsupported image output read response bytes");
-	console.log(JSON.stringify({
-		registrationMs: registered - started,
-		firstToolMs: firstCompleted - registered,
-		warmToolMs: warmCompleted - firstCompleted,
-		...(toolMode === "fetch-image-skip" ? { imageReads } : {}),
-	}));
+	const undici = createRequire(import.meta.url)("undici");
+	const originalFetch = undici.fetch;
+	undici.fetch = async () => toolMode === "fetch-image-skip"
+		? skippedImageResponse(() => { imageReads += 1; })
+		: toolMode === "search"
+			? response(JSON.stringify({ web: { results: [{ title: "Pi docs", url: "https://example.com/", description: "Pi coding agent documentation and reference." }] } }), "application/json")
+			: response("hello benchmark");
+	try {
+		const started = performance.now();
+		const { default: extension } = await loadTypeScript("agent/extensions/web-tools.ts");
+		extension({ events, registerTool(tool) { tools.set(tool.name, tool); }, on(name, handler) { handlers.set(name, handler); } });
+		const registered = performance.now();
+		const tool = tools.get(toolMode === "search" ? "websearch" : "webfetch");
+		if (tool === undefined) throw new Error(`${toolMode} was not registered`);
+		const params = toolMode === "search"
+			? { query: "pi", limit: 1 }
+			: toolMode === "fetch-image-skip"
+				? { url: "https://example.com/direct.png" }
+				: { url: "https://example.com/", mode: "source" };
+		const context = toolMode === "search"
+			? {}
+			: toolMode === "fetch-image-skip"
+				? { hasUI: false, model: { api: "openai-completions", input: ["text", "image"] } }
+				: { hasUI: false };
+		const first = await tool.execute(`${toolMode}-cold`, params, undefined, undefined, context);
+		const firstCompleted = performance.now();
+		const warm = await tool.execute(`${toolMode}-warm`, params, undefined, undefined, context);
+		const warmCompleted = performance.now();
+		if (first.details.status !== "success" || warm.details.status !== "success") throw new Error(`${toolMode} benchmark failed: ${JSON.stringify([first.details, warm.details])}`);
+		if (toolMode === "fetch-image-skip" && imageReads !== 0) throw new Error("unsupported image output read response bytes");
+		console.log(JSON.stringify({
+			registrationMs: registered - started,
+			firstToolMs: firstCompleted - registered,
+			warmToolMs: warmCompleted - firstCompleted,
+			...(toolMode === "fetch-image-skip" ? { imageReads } : {}),
+		}));
+	} finally {
+		try {
+			await handlers.get("session_shutdown")?.({});
+		} finally {
+			undici.fetch = originalFetch;
+		}
+	}
 }
 
 async function runParserBenchmark() {
@@ -134,12 +142,12 @@ function skippedImageResponse(onRead) {
 	};
 }
 
-function response(body) {
+function response(body, contentType = "text/plain; charset=utf-8") {
 	const bytes = Buffer.from(body);
 	return {
 		status: 200,
 		statusText: "OK",
-		headers: new Headers({ "content-type": "text/plain; charset=utf-8", "content-length": String(bytes.byteLength) }),
+		headers: new Headers({ "content-type": contentType, "content-length": String(bytes.byteLength) }),
 		body: {
 			getReader() {
 				let sent = false;

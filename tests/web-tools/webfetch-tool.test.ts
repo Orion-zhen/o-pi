@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Agent } from "undici";
 
-import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
+import { defaultWebToolsConfig } from "./config-fixture.js";
 import { SnapshotCache } from "../../src/web-tools/fetch/snapshot-cache.js";
 import type {
 	CookieStore,
@@ -153,6 +153,39 @@ describe("webfetch tool", () => {
 		expect(calls).toBe(1);
 	});
 
+	it("分页缓存按最近读取淘汰，并在过期后重新下载", async () => {
+		let now = 0;
+		const requests: string[] = [];
+		const rt = runtime(async (url) => {
+			requests.push(url.pathname);
+			return httpResponse(200, "a stable page body", { "content-type": "text/plain" });
+		});
+		rt.now = () => now;
+		rt.snapshots = new SnapshotCache(() => now);
+		const read = (name: string, offset = 0) => executeWebFetch({ url: `https://example.com/${name}`, offset, limit: offset === 0 ? 2 : 100 }, rt);
+		await read("a");
+		await read("b");
+		for (let index = 0; index < 30; index += 1) await read(`extra-${index}`);
+		await expect(read("a", 2)).resolves.toMatchObject({ details: { snapshot: "hit" } });
+		await read("c");
+		await expect(read("b", 2)).resolves.toMatchObject({ details: { snapshot: "refetched" } });
+		now = 10 * 60 * 1000 + 1;
+		await expect(read("a", 2)).resolves.toMatchObject({ details: { snapshot: "refetched" } });
+		expect(requests).toEqual(["/a", "/b", ...Array.from({ length: 30 }, (_, index) => `/extra-${index}`), "/c", "/b", "/a"]);
+	});
+
+	it("解码后超过缓存字节预算的页面仍可读取，但后续分页重新下载", async () => {
+		let requests = 0;
+		const rt = runtime(async () => {
+			requests += 1;
+			return httpResponse(200, Buffer.alloc(24 * 1024 * 1024, 0x80), { "content-type": "text/plain; charset=windows-1252" });
+		});
+		rt.config.webfetch.limits.response_bytes = 25 * 1024 * 1024;
+		await executeWebFetch({ url: "https://example.com/large", limit: 10 }, rt);
+		await expect(executeWebFetch({ url: "https://example.com/large", offset: 24 * 1024 * 1024 - 100, limit: 1000 }, rt)).resolves.toMatchObject({ details: { status: "success", snapshot: "refetched" } });
+		expect(requests).toBe(2);
+	});
+
 	it("offset 超过正文长度时从正文末尾返回空结果", async () => {
 		const result = await executeWebFetch(
 			{ url: "https://example.com/short", offset: 1000 },
@@ -216,6 +249,39 @@ describe("webfetch tool", () => {
 		const cancelled = await cancelledPromise;
 		if (cancelled.details.status !== "failed") throw new Error("expected cancellation");
 		expect(cancelled.details.error.code).toBe("ABORTED");
+	});
+
+	it("等待认证确认时可取消，且不会发送请求", async () => {
+		const controller = new AbortController();
+		const fetchImpl = vi.fn(async () => httpResponse(200, "unexpected"));
+		const rt = runtime(fetchImpl, false, undefined, controller.signal, {
+			confirmAuthentication() {
+				controller.abort();
+				return new Promise<boolean>(() => undefined);
+			},
+		}, { async getCookieAccess() { return { header: "sid=secret" }; }, async storeFromResponse() {} });
+		rt.config.webfetch.cookies.domains = ["example.com"];
+		rt.config.webfetch.cookies.confirmation = "always";
+		await expect(executeWebFetch({ url: "https://example.com/private" }, rt)).resolves.toMatchObject({ details: { status: "failed", error: { code: "ABORTED" } } });
+		expect(fetchImpl).not.toHaveBeenCalled();
+	});
+
+	it.each(["redirect", "skipped_image", "text", "too_large"] as const)("%s 响应保持 Cookie 更新时机", async (scenario) => {
+		const stored: string[][] = [];
+		let requests = 0;
+		const rt = runtime(async () => {
+			requests += 1;
+			if (scenario === "redirect" && requests === 1) return httpResponse(302, "", { location: "/final", "set-cookie": "step=1" });
+			return httpResponse(200, "response body", { "content-type": scenario === "skipped_image" ? "image/png" : "text/plain", "set-cookie": "step=2" });
+		}, false, undefined, undefined, undefined, {
+			async getCookieAccess() { return {}; },
+			async storeFromResponse(_url, headers) { stored.push(headers); },
+		});
+		rt.config.webfetch.cookies.domains = ["example.com"];
+		if (scenario === "too_large") rt.config.webfetch.limits.response_bytes = 1;
+		const result = await executeWebFetch({ url: "https://example.com/start" }, rt);
+		expect(stored).toEqual(scenario === "too_large" ? [] : scenario === "redirect" ? [["step=1"], ["step=2"]] : [["step=2"]]);
+		expect(result.details.status).toBe(scenario === "too_large" ? "failed" : "success");
 	});
 
 	it("redirect body 和超限 reader 的 cleanup 失败不会覆盖主结果", async () => {
@@ -694,9 +760,9 @@ describe("webfetch tool", () => {
 		const nextOffset = first.details.range.next_offset;
 		if (nextOffset === undefined) throw new Error("missing next offset");
 		expect(setSnapshot).toHaveBeenCalledTimes(1);
-		const snapshot = setSnapshot.mock.calls[0]?.[0];
-		expect(snapshot?.metadata).toHaveProperty("analysis");
-		expect(JSON.stringify(snapshot)).not.toContain("mediaCandidates");
+		const snapshot = setSnapshot.mock.calls[0]?.[1];
+		expect(snapshot).toHaveProperty("analysis");
+		expect(JSON.stringify(snapshot)).not.toContain("imageCandidates");
 		expect(JSON.stringify(snapshot)).not.toContain('"data"');
 
 		const second = await executeWebFetch(

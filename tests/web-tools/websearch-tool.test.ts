@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { defaultWebToolsConfig } from "../../src/web-tools/config.js";
+import { defaultWebToolsConfig } from "./config-fixture.js";
 import { SearchProviderRouter } from "../../src/web-tools/search-providers/router.js";
 import type { SearchProviderContext, SearchProviderResult, WebSearchProvider } from "../../src/web-tools/search-providers/types.js";
-import { SearchCache } from "../../src/web-tools/search/search-cache.js";
+import { SearchFlights } from "../../src/web-tools/search/search-flights.js";
 import type { WebSearchProviderId } from "../../src/web-tools/core/types.js";
 import { executeWebSearch } from "../../src/web-tools/search/websearch-tool.js";
 
@@ -12,7 +12,7 @@ function runtime(providers: WebSearchProvider[], now = () => Date.now()) {
 	config.websearch.default_results = 2;
 	return {
 		config,
-		searches: new SearchCache(),
+		searches: new SearchFlights(),
 		router: new SearchProviderRouter(providers),
 		context: { toolCallId: "s1" },
 		now,
@@ -79,7 +79,7 @@ describe("websearch tool", () => {
 		const capture: WebSearchProvider = {
 			id: "brave_api",
 			async search(params) {
-				seen = { includeDomains: params.includeDomains, excludeDomains: params.excludeDomains };
+				seen = { includeDomains: params.compiled.includeDomains, excludeDomains: params.compiled.excludeDomains };
 				return { status: "failed", provider: "brave_api", details: { status: "failed", provider: "brave_api", error: { code: "ABORTED", message: "stop" } } };
 			},
 		};

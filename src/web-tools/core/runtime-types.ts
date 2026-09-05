@@ -1,6 +1,5 @@
 import type { Dispatcher } from "undici";
 
-import type { WebSearchProvider } from "../search-providers/types.js";
 import type {
 	WebFetchExecutionContext,
 	WebFetchParams,
@@ -12,7 +11,7 @@ import type {
 	WebToolsConfig,
 } from "./types.js";
 
-export interface WebCapabilitySharedOptions {
+export interface WebCapabilityOptions {
 	getDispatcher(
 		network: WebToolsConfig["network"],
 		privateNetworkGrant?: WebFetchExecutionContext["privateNetworkGrant"],
@@ -20,14 +19,6 @@ export interface WebCapabilitySharedOptions {
 	fetchImpl: WebHttpFetch;
 	loadConfig(): Promise<WebToolsConfig>;
 	now: () => number;
-}
-
-export interface WebSearchCapabilityOptions extends WebCapabilitySharedOptions {
-	searchProviders?: WebSearchProvider[];
-}
-
-export interface WebFetchCapabilityOptions extends WebCapabilitySharedOptions {
-	cookiePath?: string;
 }
 
 export interface WebSearchCapability {
@@ -38,9 +29,4 @@ export interface WebSearchCapability {
 export interface WebFetchCapability {
 	fetch(params: WebFetchParams, context: WebFetchExecutionContext): Promise<WebFetchResult>;
 	close(): Promise<void>;
-}
-
-export interface WebToolsCapabilityLoaders {
-	search(options: WebSearchCapabilityOptions): Promise<WebSearchCapability>;
-	fetch(options: WebFetchCapabilityOptions): Promise<WebFetchCapability>;
 }

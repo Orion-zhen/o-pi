@@ -420,23 +420,9 @@ export type WebHttpFetch = (
 	init: WebHttpRequestInit,
 ) => Promise<WebHttpResponse>;
 
-export interface WebFetchSnapshot {
-	key: string;
-	createdAt: number;
-	text: string;
-	metadata: {
-		finalUrl: string;
-		httpStatus: number;
-		contentType?: string;
-		charset?: string;
-		format: WebFetchOutputFormat;
-		title?: string;
-		authenticated: boolean;
-		redirectCount: number;
-		downloadedBytes: number;
-		analysis: WebFetchAnalysisSummary;
-	};
-	sizeBytes: number;
+/** 下载转换和分页缓存共用的页面，不保留 HTTP body 或响应头对象。 */
+export interface WebFetchPage extends ContentConversion {
+	response: Pick<HttpFetchSuccess, "requestedUrl" | "finalUrl" | "httpStatus" | "authenticated" | "redirectCount" | "downloadedBytes">;
 }
 
 export interface CookieAccess {
@@ -452,12 +438,4 @@ export interface WebToolsRuntime {
 	fetch(params: WebFetchParams, context: WebFetchExecutionContext): Promise<WebFetchResult>;
 	search(params: WebSearchParams, context: WebSearchExecutionContext): Promise<WebSearchResult>;
 	close(): Promise<void>;
-}
-
-export interface WebToolsRuntimeOptions {
-	dispatcher?: Dispatcher;
-	fetchImpl?: WebHttpFetch;
-	cookiePath?: string;
-	now?: () => number;
-	searchProviders?: import("../search-providers/types.js").WebSearchProvider[];
 }
